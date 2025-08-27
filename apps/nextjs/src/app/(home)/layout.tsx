@@ -1,5 +1,3 @@
-import { HydrateClient, prefetch, trpc } from "@/trpc/server";
-
 export const dynamic = "force-dynamic";
 
 type LayoutProps = {
@@ -7,12 +5,8 @@ type LayoutProps = {
 };
 
 const Layout = (props: LayoutProps) => {
-  prefetch(trpc.auth.workspace.queryOptions());
-
   return (
-    <HydrateClient>
-      <main className="grid h-dvh w-dvw overflow-hidden">{props.children}</main>
-    </HydrateClient>
+    <main className="grid h-dvh w-dvw overflow-hidden">{props.children}</main>
   );
 };
 

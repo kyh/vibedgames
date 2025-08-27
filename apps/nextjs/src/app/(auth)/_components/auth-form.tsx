@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { signInWithPasswordInput } from "@repo/api/auth/auth-schema";
 import { Button } from "@repo/ui/button";
 import {
   Form,
@@ -16,80 +15,91 @@ import {
 import { Input } from "@repo/ui/input";
 import { toast } from "@repo/ui/toast";
 import { cn } from "@repo/ui/utils";
-import { useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
-import type { SignInWithPasswordInput } from "@repo/api/auth/auth-schema";
-import { useTRPC } from "@/trpc/react";
+import { authClient } from "@/auth/auth-client";
 
 type AuthFormProps = {
   type: "login" | "register";
 } & React.HTMLAttributes<HTMLDivElement>;
 
 export const AuthForm = ({ className, type, ...props }: AuthFormProps) => {
-  const trpc = useTRPC();
   const router = useRouter();
   const params = useParams<{ nextPath?: string }>();
-
-  const signInWithOAuth = useMutation(
-    trpc.auth.signInWithOAuth.mutationOptions({
-      onSuccess: ({ url }) => {
-        router.replace(url);
-      },
-      onError: (error) => toast.error(error.message),
-    }),
-  );
-  const signInWithPassword = useMutation(
-    trpc.auth.signInWithPassword.mutationOptions({
-      onSuccess: ({ user }) => {
-        router.replace(
-          params.nextPath ?? `/dashboard/${user.user_metadata.defaultTeamSlug}`,
-        );
-      },
-      onError: (error) => toast.error(error.message),
-    }),
-  );
-  const signUp = useMutation(
-    trpc.auth.signUp.mutationOptions({
-      onSuccess: ({ user }) => {
-        router.replace(
-          params.nextPath ?? `/dashboard/${user.user_metadata.defaultTeamSlug}`,
-        );
-      },
-      onError: (error) => toast.error(error.message),
-    }),
-  );
+  const [submittingGithub, setSubmittingGithub] = useState(false);
 
   const form = useForm({
-    resolver: zodResolver(signInWithPasswordInput),
+    resolver: zodResolver(
+      z.object({
+        email: z.email("Invalid email address"),
+        password: z.string().min(1, "Password is required"),
+      }),
+    ),
     defaultValues: {
       email: "",
       password: "",
     },
   });
 
-  const handleAuthWithGithub = () => {
-    signInWithOAuth.mutate({
+  const handleAuthWithGithub = async () => {
+    setSubmittingGithub(true);
+    await authClient.signIn.social({
       provider: "github",
+      fetchOptions: {
+        onSuccess: () => {
+          router.replace(params.nextPath ?? "/");
+        },
+        onError: (ctx) => {
+          toast.error(ctx.error.message);
+        },
+        onResponse: () => {
+          setSubmittingGithub(false);
+        },
+      },
     });
   };
 
-  const handleAuthWithPassword = (credentials: SignInWithPasswordInput) => {
+  const handleAuthWithPassword = form.handleSubmit(async (credentials) => {
     if (type === "register") {
-      signUp.mutate(credentials);
+      const emailPrefix = credentials.email.split("@")[0];
+      await authClient.signUp.email({
+        email: credentials.email,
+        password: credentials.password,
+        name: emailPrefix ?? "User",
+        fetchOptions: {
+          onSuccess: () => {
+            router.replace(params.nextPath ?? "/");
+          },
+          onError: (ctx) => {
+            toast.error(ctx.error.message);
+          },
+        },
+      });
     }
+
     if (type === "login") {
-      signInWithPassword.mutate(credentials);
+      await authClient.signIn.email({
+        email: credentials.email,
+        password: credentials.password,
+        fetchOptions: {
+          onSuccess: () => {
+            router.replace(params.nextPath ?? "/");
+          },
+          onError: (ctx) => {
+            toast.error(ctx.error.message);
+          },
+        },
+      });
     }
-  };
+  });
 
   return (
     <div className={cn("grid gap-6", className)} {...props}>
       <Button
         variant="outline"
         type="button"
-        loading={signInWithOAuth.isPending}
+        loading={submittingGithub}
         onClick={handleAuthWithGithub}
       >
         Continue with Github
@@ -103,10 +113,7 @@ export const AuthForm = ({ className, type, ...props }: AuthFormProps) => {
         </div>
       </div>
       <Form {...form}>
-        <form
-          className="grid gap-2"
-          onSubmit={form.handleSubmit(handleAuthWithPassword)}
-        >
+        <form className="grid gap-2" onSubmit={handleAuthWithPassword}>
           <FormField
             control={form.control}
             name="email"
@@ -151,7 +158,7 @@ export const AuthForm = ({ className, type, ...props }: AuthFormProps) => {
               </FormItem>
             )}
           />
-          <Button loading={signUp.isPending || signInWithPassword.isPending}>
+          <Button loading={form.formState.isSubmitting}>
             {type === "login" ? "Login" : "Register"}
           </Button>
         </form>
@@ -161,23 +168,10 @@ export const AuthForm = ({ className, type, ...props }: AuthFormProps) => {
 };
 
 export const RequestPasswordResetForm = () => {
-  const trpc = useTRPC();
-  const [isSuccess, setIsSuccess] = useState(false);
-
-  const requestPasswordReset = useMutation(
-    trpc.auth.requestPasswordReset.mutationOptions({
-      onSuccess: () => {
-        setIsSuccess(true);
-        toast.success("Password reset email sent successfully!");
-      },
-      onError: (error) => toast.error(error.message),
-    }),
-  );
-
   const form = useForm({
     resolver: zodResolver(
       z.object({
-        email: z.string().email(),
+        email: z.email("Invalid email address"),
       }),
     ),
     defaultValues: {
@@ -185,11 +179,21 @@ export const RequestPasswordResetForm = () => {
     },
   });
 
-  const handlePasswordReset = (data: { email: string }) => {
-    requestPasswordReset.mutate(data);
-  };
+  const handlePasswordReset = form.handleSubmit(async (data) => {
+    await authClient.requestPasswordReset({
+      email: data.email,
+      fetchOptions: {
+        onSuccess: () => {
+          toast.success("Password reset email sent successfully!");
+        },
+        onError: (ctx) => {
+          toast.error(ctx.error.message);
+        },
+      },
+    });
+  });
 
-  if (isSuccess) {
+  if (form.formState.isSubmitSuccessful) {
     return (
       <div className="space-y-4 text-center">
         <div className="rounded-md bg-green-50 p-4 dark:bg-green-900/20">
@@ -204,10 +208,7 @@ export const RequestPasswordResetForm = () => {
 
   return (
     <Form {...form}>
-      <form
-        className="grid gap-4"
-        onSubmit={form.handleSubmit(handlePasswordReset)}
-      >
+      <form className="grid gap-4" onSubmit={handlePasswordReset}>
         <FormField
           control={form.control}
           name="email"
@@ -229,7 +230,7 @@ export const RequestPasswordResetForm = () => {
             </FormItem>
           )}
         />
-        <Button loading={requestPasswordReset.isPending}>
+        <Button loading={form.formState.isSubmitting}>
           Request Password Reset
         </Button>
       </form>
@@ -238,18 +239,7 @@ export const RequestPasswordResetForm = () => {
 };
 
 export const UpdatePasswordForm = () => {
-  const trpc = useTRPC();
   const router = useRouter();
-
-  const updatePassword = useMutation(
-    trpc.auth.updatePassword.mutationOptions({
-      onSuccess: () => {
-        toast.success("Password updated successfully!");
-        router.push("/dashboard");
-      },
-      onError: (error) => toast.error(error.message),
-    }),
-  );
 
   const form = useForm({
     resolver: zodResolver(
@@ -269,19 +259,24 @@ export const UpdatePasswordForm = () => {
     },
   });
 
-  const handleUpdatePassword = (data: {
-    password: string;
-    confirmPassword: string;
-  }) => {
-    updatePassword.mutate({ password: data.password });
-  };
+  const handleUpdatePassword = form.handleSubmit(async (data) => {
+    await authClient.resetPassword({
+      newPassword: data.password,
+      fetchOptions: {
+        onSuccess: () => {
+          toast.success("Password updated successfully!");
+          router.push("/");
+        },
+        onError: (ctx) => {
+          toast.error(ctx.error.message);
+        },
+      },
+    });
+  });
 
   return (
     <Form {...form}>
-      <form
-        className="grid gap-4"
-        onSubmit={form.handleSubmit(handleUpdatePassword)}
-      >
+      <form className="grid gap-4" onSubmit={handleUpdatePassword}>
         <FormField
           control={form.control}
           name="password"
@@ -324,12 +319,8 @@ export const UpdatePasswordForm = () => {
             </FormItem>
           )}
         />
-        <Button loading={updatePassword.isPending}>Update Password</Button>
+        <Button loading={form.formState.isSubmitting}>Update Password</Button>
       </form>
     </Form>
   );
-};
-
-export const MultiFactorAuthForm = () => {
-  return null;
 };

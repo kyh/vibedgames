@@ -7,10 +7,11 @@
  * The pieces you will need to use are documented accordingly near the end
  */
 import { db } from "@repo/db/drizzle-client";
-import { getSupabaseServerClient } from "@repo/db/supabase-server-client";
 import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { ZodError } from "zod";
+
+import { auth } from "./auth/auth";
 
 /**
  * 1. CONTEXT
@@ -25,24 +26,12 @@ import { ZodError } from "zod";
  * @see https://trpc.io/docs/server/context
  */
 export const createTRPCContext = async (opts: { headers: Headers }) => {
-  const supabase = getSupabaseServerClient();
-
-  // React Native will pass their token through headers,
-  // browsers will have the session cookie set
-  const token = opts.headers.get("authorization");
-
-  const { data } = token
-    ? await supabase.auth.getUser(token)
-    : await supabase.auth.getUser();
-
-  const source = opts.headers.get("x-trpc-source") ?? "unknown";
-
-  console.log(">>> tRPC Request from", source, "by", data.user?.email);
+  const session = await auth.api.getSession({
+    headers: opts.headers,
+  });
 
   return {
-    headers: opts.headers,
-    user: data.user,
-    supabase,
+    session,
     db,
   };
 };
@@ -103,37 +92,13 @@ export const publicProcedure = t.procedure;
  * @see https://trpc.io/docs/procedures
  */
 export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
-  if (!ctx.user) {
-    throw new TRPCError({ code: "UNAUTHORIZED", message: "Not logged in" });
-  }
-
-  return next({
-    ctx: {
-      // infers the `user` as non-nullable
-      user: ctx.user,
-    },
-  });
-});
-
-/**
- * Super Admin procedure
- *
- * If you want a query or mutation to ONLY be accessible to super admins.
- */
-export const superAdminProcedure = t.procedure.use(({ ctx, next }) => {
-  if (!ctx.user) {
+  if (!ctx.session?.user) {
     throw new TRPCError({ code: "UNAUTHORIZED" });
   }
-
-  const role = ctx.user.app_metadata.role;
-  if (!role || role !== "super-admin") {
-    throw new TRPCError({ code: "UNAUTHORIZED", message: "Not a super admin" });
-  }
-
   return next({
     ctx: {
-      // infers the `user` as non-nullable
-      user: ctx.user,
+      // infers the `session` as non-nullable
+      session: { ...ctx.session, user: ctx.session.user },
     },
   });
 });

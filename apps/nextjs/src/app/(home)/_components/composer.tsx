@@ -6,10 +6,11 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { Button } from "@repo/ui/button";
 import { ChatTextarea } from "@repo/ui/chat";
-import { useMutation, useSuspenseQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { BlocksIcon, PlayIcon } from "lucide-react";
 import { motion } from "motion/react";
 
+import { authClient } from "@/auth/auth-client";
 import { useTRPC } from "@/trpc/react";
 import { Card } from "./card";
 import { featuredGames } from "./data";
@@ -20,10 +21,8 @@ export const Composer = () => {
   const router = useRouter();
   const params = useParams();
   const chatId = params.chatId?.toString();
-
-  const { data: userData } = useSuspenseQuery(
-    trpc.auth.workspace.queryOptions(),
-  );
+  const session = authClient.useSession();
+  const user = session.data?.user;
 
   const { mutate: createChat, isPending: createChatPending } = useMutation(
     trpc.ai.createChat.mutationOptions({
@@ -44,7 +43,7 @@ export const Composer = () => {
     if (input === "") {
       return;
     }
-    if (!userData.user) {
+    if (!user) {
       setWaitlistOpen(true);
       return;
     }
@@ -54,14 +53,14 @@ export const Composer = () => {
       createChat({ message: input });
     }
     setInput("");
-  }, [input, setInput, createChat, userData.user, chatId, updateChat]);
+  }, [input, setInput, createChat, user, chatId, updateChat]);
 
   const handleFocus = useCallback(() => {
-    if (!userData.user) {
+    if (!user) {
       setWaitlistOpen(true);
       return;
     }
-  }, [userData.user]);
+  }, [user]);
 
   const content = useMemo(() => {
     switch (view) {

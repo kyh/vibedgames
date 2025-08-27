@@ -1,16 +1,12 @@
 import { aiRouter } from "./ai/ai-router";
-import { authRouter } from "./auth/auth-router";
-import { teamRouter } from "./team/team-router";
+import { organizationRouter } from "./organization/organization-router";
 import { createTRPCRouter } from "./trpc";
-import { userRouter } from "./user/user-router";
 import { waitlistRouter } from "./waitlist/waitlist-router";
 
 export const appRouter = createTRPCRouter({
   ai: aiRouter,
-  auth: authRouter,
-  team: teamRouter,
-  user: userRouter,
   waitlist: waitlistRouter,
+  organization: organizationRouter,
 });
 
 // export type definition of API

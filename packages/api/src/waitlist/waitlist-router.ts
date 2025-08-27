@@ -1,17 +1,7 @@
-import { and, asc, desc, eq, sql } from "@repo/db";
-import { waitlist } from "@repo/db/schema";
+import { waitlist } from "@repo/db/drizzle-schema";
 
-import type { SQL } from "@repo/db";
-import {
-  createTRPCRouter,
-  publicProcedure,
-  superAdminProcedure,
-} from "../trpc";
-import {
-  getWaitlistInput,
-  getWaitlistsInput,
-  joinWaitlistInput,
-} from "./waitlist-schema";
+import { createTRPCRouter, publicProcedure } from "../trpc";
+import { joinWaitlistInput } from "./waitlist-schema";
 
 export const waitlistRouter = createTRPCRouter({
   join: publicProcedure
@@ -22,72 +12,12 @@ export const waitlistRouter = createTRPCRouter({
         .values({
           ...input,
           source: process.env.VERCEL_PROJECT_PRODUCTION_URL ?? "",
-          userId: ctx.user?.id,
+          userId: ctx.session?.user.id,
         })
         .returning();
 
       return {
         waitlist: created,
-      };
-    }),
-
-  // ADMIN ACTIONS
-  getWaitlist: superAdminProcedure
-    .input(getWaitlistInput)
-    .query(async ({ ctx, input }) => {
-      const waitlist = await ctx.db.query.waitlist.findFirst({
-        where: (waitlist, { eq }) => eq(waitlist.id, input.id),
-      });
-
-      return {
-        waitlist,
-      };
-    }),
-  getWaitlists: superAdminProcedure
-    .input(getWaitlistsInput)
-    .query(async ({ ctx, input }) => {
-      // Convert page and perPage to numbers
-      const pageNum = parseInt(input.page);
-      const perPageNum = parseInt(input.perPage);
-      const offset = (pageNum - 1) * perPageNum;
-
-      // Build where conditions
-      const whereConditions: SQL[] = [];
-      input.filter?.forEach((filter) => {
-        whereConditions.push(eq(waitlist[filter.field], filter.value));
-      });
-
-      // Build order by configuration
-      const orderBy = input.sort.map((sortItem) => {
-        const column = waitlist[sortItem.field];
-        return sortItem.direction === "asc" ? asc(column) : desc(column);
-      });
-
-      // Execute query
-      const results = await ctx.db.query.waitlist.findMany({
-        where: whereConditions.length > 0 ? and(...whereConditions) : undefined,
-        orderBy: orderBy,
-        limit: perPageNum,
-        offset: offset,
-      });
-
-      // Get total count
-      const [total] = await ctx.db
-        .select({ count: sql<number>`count(*)` })
-        .from(waitlist)
-        .where(
-          whereConditions.length > 0 ? and(...whereConditions) : undefined,
-        );
-      const count = total?.count ?? 0;
-
-      return {
-        data: results,
-        pagination: {
-          total: count,
-          page: pageNum,
-          perPage: perPageNum,
-          totalPages: Math.ceil(count / perPageNum),
-        },
       };
     }),
 });

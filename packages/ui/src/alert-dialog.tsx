@@ -275,7 +275,7 @@ export const GlobalAlertDialog = () => {
         )}
         <AlertDialogFooter>
           {!alertState.action?.hidden && (
-            <Button onClick={onConfirm} disabled={pendingAction}>
+            <Button onClick={onConfirm} loading={pendingAction}>
               {alertState.action?.label ?? "Confirm"}
             </Button>
           )}
@@ -283,7 +283,7 @@ export const GlobalAlertDialog = () => {
             <Button
               variant="secondary"
               onClick={() => onOpenChange(false)}
-              disabled={pendingCancel}
+              loading={pendingCancel}
             >
               {alertState.cancel?.label ?? "Close"}
             </Button>
