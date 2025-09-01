@@ -1,24 +1,25 @@
 "use client";
 
-import type { ChatsCreateStreamResponse } from "v0-sdk";
-import { createContext, useCallback, useContext, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
 import { useParams } from "next/navigation";
-import { projectId, systemPrompt } from "@repo/api/ai/ai-schema";
+import { toast } from "@repo/ui/toast";
+import { useMutation } from "@tanstack/react-query";
 import { useStreamingMessage } from "@v0-sdk/react";
-import { createClient, v0 } from "v0-sdk";
 
 import type { MessageBinaryFormat } from "@v0-sdk/react";
 import { authClient } from "@/auth/auth-client";
-
-const v0Client = createClient({
-  apiKey: "v1:fnkZ3jKsTJafgJAqMcjN0aSG:1cBiH73qn1UbkjWp50m2xhLR",
-});
+import { useTRPC } from "@/trpc/react";
 
 type StreamingContextType = {
   stream: ReadableStream<Uint8Array> | null;
   content: MessageBinaryFormat;
   isStreaming: boolean;
-  isComplete: boolean;
   sendMessage: (message: string) => Promise<void>;
   clearStream: () => void;
 };
@@ -40,6 +41,10 @@ type StreamingProviderProps = {
 };
 
 export const StreamingProvider = ({ children }: StreamingProviderProps) => {
+  const trpc = useTRPC();
+  const { mutateAsync: initChat, isPending: initChatPending } = useMutation(
+    trpc.ai.initChat.mutationOptions(),
+  );
   const [stream, setStream] = useState<ReadableStream<Uint8Array> | null>(null);
   const { content, isStreaming, isComplete } = useStreamingMessage(stream);
   const params = useParams();
@@ -50,39 +55,42 @@ export const StreamingProvider = ({ children }: StreamingProviderProps) => {
   const sendMessage = useCallback(
     async (message: string) => {
       if (!user) {
-        throw new Error("User not authenticated or no chat ID");
+        toast.error("User not authenticated");
+        return;
       }
 
-      if (chatId) {
-        const streamResponse = (await v0Client.chats.sendMessage({
-          chatId: chatId,
+      const currentChatId = chatId ?? (await initChat()).chat.id;
+
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          chatId: currentChatId,
           message: message,
-          responseMode: "experimental_stream",
-        })) as ChatsCreateStreamResponse;
-        setStream(streamResponse);
-      } else {
-        const streamResponse = (await v0Client.chats.create({
-          system: systemPrompt,
-          message: message,
-          chatPrivacy: "private",
-          projectId: projectId,
-          responseMode: "experimental_stream",
-        })) as ChatsCreateStreamResponse;
-        setStream(streamResponse);
-      }
+        }),
+      });
+
+      setStream(response.body);
     },
-    [user, chatId],
+    [user, chatId, initChat],
   );
 
   const clearStream = useCallback(() => {
     setStream(null);
   }, []);
 
+  useEffect(() => {
+    if (isComplete) {
+      clearStream();
+    }
+  }, [isComplete, clearStream]);
+
   const value: StreamingContextType = {
     stream,
     content,
-    isStreaming,
-    isComplete,
+    isStreaming: isStreaming || initChatPending,
     sendMessage,
     clearStream,
   };

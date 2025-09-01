@@ -54,14 +54,14 @@ export const Preview = () => {
   return (
     <>
       {isGenerating && (
-        <div className="pointer-events-none col-span-full row-span-full flex items-center justify-center">
+        <div className="col-span-full row-span-full flex items-center justify-center">
           <div className="flex items-center gap-2">
             <Spinner />
             <TextShimmer className="font-mono text-sm" duration={1}>
               Generating...
             </TextShimmer>
-            <Message content={content} streaming={isStreaming} isLastMessage />
           </div>
+          <Message content={content} streaming={isStreaming} isLastMessage />
         </div>
       )}
       <iframe

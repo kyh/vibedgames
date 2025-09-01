@@ -1,28 +1,33 @@
-import type { ChatsCreateStreamResponse } from "v0-sdk";
-import { projectId, systemPrompt } from "@repo/api/ai/ai-schema";
-import { getOrganization } from "@repo/api/auth/auth";
+import { auth } from "@repo/api/auth/auth";
 import { v0 } from "v0-sdk";
 
 export const maxDuration = 30;
 
 export async function POST(request: Request) {
-  const { message, slug } = (await request.json()) as {
-    message: string;
-    slug: string;
-  };
+  const session = await auth.api.getSession({
+    headers: request.headers,
+  });
 
-  const organization = await getOrganization({ organizationSlug: slug });
-  if (!organization) {
-    return new Response("Not authenticated", { status: 404 });
+  if (!session) {
+    return new Response("Unauthorized", { status: 401 });
   }
 
-  const stream = (await v0.chats.create({
-    system: systemPrompt,
-    message: message,
-    chatPrivacy: "private",
-    projectId: projectId,
-    responseMode: "experimental_stream",
-  })) as ChatsCreateStreamResponse;
+  const { chatId, message } = (await request.json()) as {
+    chatId: string;
+    message: string;
+  };
 
-  return new Response(stream);
+  const chat = await v0.chats.sendMessage({
+    chatId,
+    message: message,
+    responseMode: "experimental_stream",
+  });
+
+  return new Response(chat as ReadableStream<Uint8Array>, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  });
 }
