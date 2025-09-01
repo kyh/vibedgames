@@ -18,7 +18,7 @@
     "@repo/multiplayer": "workspace:^"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20250826.0",
+    "@cloudflare/workers-types": "^4.20250831.0",
     "@kyh/eslint-config": "catalog:",
     "@kyh/prettier-config": "catalog:",
     "@kyh/tsconfig": "catalog:",
@@ -26,6 +26,6 @@
     "partyserver": "^0.0.73",
     "prettier": "catalog:",
     "typescript": "catalog:",
-    "wrangler": "^4.33.0"
+    "wrangler": "^4.33.1"
   }
 }
