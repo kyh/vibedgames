@@ -3,90 +3,32 @@
 import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { Button } from "@repo/ui/button";
 import { ChatTextarea } from "@repo/ui/chat";
-import { useMutation } from "@tanstack/react-query";
 import { BlocksIcon, PlayIcon } from "lucide-react";
 import { motion } from "motion/react";
 
 import { authClient } from "@/auth/auth-client";
-import { useTRPC } from "@/trpc/react";
 import { Card } from "./card";
 import { featuredGames } from "./data";
+import { useStreaming } from "./stream-provider";
 import { WaitlistDailog } from "./waitlist-form";
 
 export const Composer = () => {
-  const trpc = useTRPC();
-  const router = useRouter();
-  const params = useParams();
-  const chatId = params.chatId?.toString();
-  const session = authClient.useSession();
-  const user = session.data?.user;
-
-  const { mutate: createChat, isPending: createChatPending } = useMutation(
-    trpc.ai.createChat.mutationOptions({
-      onSuccess: (data) => {
-        router.push(`/${data.chat.id}`);
-      },
-    }),
-  );
-  const { mutate: updateChat, isPending: updateChatPending } = useMutation(
-    trpc.ai.updateChat.mutationOptions(),
-  );
-
   const [view, setView] = useState<"play" | "build" | "idle">("idle");
-  const [input, setInput] = useState("");
   const [waitlistOpen, setWaitlistOpen] = useState(false);
 
-  const handleSubmit = useCallback(() => {
-    if (input === "") {
-      return;
-    }
-    if (!user) {
-      setWaitlistOpen(true);
-      return;
-    }
-    if (chatId) {
-      updateChat({ chatId, message: input });
-    } else {
-      createChat({ message: input });
-    }
-    setInput("");
-  }, [input, setInput, createChat, user, chatId, updateChat]);
-
-  const handleFocus = useCallback(() => {
-    if (!user) {
-      setWaitlistOpen(true);
-      return;
-    }
-  }, [user]);
-
-  const content = useMemo(() => {
+  const navigation = useMemo(() => {
     switch (view) {
       case "play":
         return <PlayView />;
       case "build":
-        return (
-          <BuildView
-            input={input}
-            setInput={setInput}
-            onSubmit={handleSubmit}
-            loading={createChatPending || updateChatPending}
-            onFocus={handleFocus}
-          />
-        );
+        return <BuildView setWaitlistOpen={setWaitlistOpen} />;
       case "idle":
         return <IdleView setView={setView} />;
     }
-  }, [
-    createChatPending,
-    handleFocus,
-    handleSubmit,
-    input,
-    updateChatPending,
-    view,
-  ]);
+  }, [view]);
 
   return (
     <>
@@ -115,7 +57,7 @@ export const Composer = () => {
           }}
           key={view}
         >
-          {content}
+          {navigation}
         </motion.div>
         <motion.div
           className="bg-muted/60 absolute inset-0 -z-10 shadow-sm backdrop-blur-sm"
@@ -180,27 +122,55 @@ const IdleView = ({
 };
 
 const BuildView = ({
-  input,
-  setInput,
-  onSubmit,
-  loading,
-  onFocus,
+  setWaitlistOpen,
 }: {
-  input: string;
-  setInput: (input: string) => void;
-  onSubmit: () => void;
-  loading: boolean;
-  onFocus: () => void;
+  setWaitlistOpen: Dispatch<SetStateAction<boolean>>;
 }) => {
+  const { isStreaming, sendMessage, createChat } = useStreaming();
+  const [input, setInput] = useState("");
+
+  const params = useParams();
+  const chatId = params.chatId?.toString();
+  const session = authClient.useSession();
+  const user = session.data?.user;
+
+  const handleFocus = useCallback(() => {
+    if (!user) {
+      setWaitlistOpen(true);
+      return;
+    }
+  }, [user, setWaitlistOpen]);
+
+  const handleSubmit = useCallback(async () => {
+    if (input === "") {
+      return;
+    }
+    if (!user) {
+      setWaitlistOpen(true);
+      return;
+    }
+
+    try {
+      if (chatId) {
+        await sendMessage(input);
+      } else {
+        await createChat(input);
+      }
+      setInput("");
+    } catch (error) {
+      console.error("Error sending message:", error);
+    }
+  }, [input, user, chatId, sendMessage, createChat, setWaitlistOpen]);
+
   return (
     <div className="ring-muted rounded-3xl p-1.5 ring-1">
       <ChatTextarea
         className="w-[calc(100dvw-24px)] md:w-lg"
         input={input}
         setInput={setInput}
-        onSubmit={onSubmit}
-        loading={loading}
-        onFocus={onFocus}
+        onSubmit={handleSubmit}
+        loading={isStreaming}
+        onFocus={handleFocus}
       />
     </div>
   );

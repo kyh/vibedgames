@@ -4,7 +4,6 @@ import { Typewriter } from "motion-plus/react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "./avatar";
 import { Button } from "./button";
-import { Textarea } from "./textarea";
 import { cn } from "./utils";
 
 export type MessageProps = {
@@ -301,8 +300,8 @@ const ChatTextarea = ({
           {text[index]}
         </Typewriter>
       )}
-      <Textarea
-        className="text-primary min-h-[44px] w-full resize-none border-none bg-transparent shadow-none outline-none focus-visible:ring-0 focus-visible:ring-offset-0"
+      <textarea
+        className="w-full resize-none outline-none"
         onChange={(e) => setInput(e.target.value)}
         value={input}
         onFocus={handleFocus}

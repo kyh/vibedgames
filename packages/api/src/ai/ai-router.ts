@@ -1,12 +1,12 @@
 import { v0 } from "v0-sdk";
 
 import { createTRPCRouter, protectedProcedure } from "../trpc";
-import { systemPrompt } from "./ai-prompt";
 import {
   createChatInput,
   deleteChatInput,
   getChatInput,
   projectId,
+  systemPrompt,
   updateChatInput,
 } from "./ai-schema";
 
