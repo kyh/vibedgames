@@ -1,10 +1,12 @@
 "use client";
 
+import { memo } from "react";
 import { useParams } from "next/navigation";
 import { Spinner } from "@repo/ui/spinner";
 import { TextShimmer } from "@repo/ui/text-shimmer";
 import { useQuery } from "@tanstack/react-query";
 import { Message } from "@v0-sdk/react";
+import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
 
 import { authClient } from "@/auth/auth-client";
 import { useTRPC } from "@/trpc/react";
@@ -17,20 +19,13 @@ export const Preview = () => {
   const session = authClient.useSession();
   const user = session.data?.user;
 
-  const { isStreaming, content } = useStreaming();
-
   const { data: chatData, isPending: getChatPending } = useQuery(
     trpc.ai.getChat.queryOptions(
       { chatId: chatId?.toString() ?? "" },
       {
-        enabled: !!user && !!chatId && !isStreaming,
+        enabled: !!user && !!chatId,
         refetchInterval: (query) => {
-          // Poll every 2 seconds while isGenerating is true
-          if (
-            query.state.status === "pending" ||
-            query.state.data?.chat.latestVersion?.status === "pending" ||
-            !query.state.data?.chat.latestVersion?.demoUrl
-          ) {
+          if (query.state.data?.chat.latestVersion?.status === "pending") {
             return 2000;
           }
           return false;
@@ -39,31 +34,15 @@ export const Preview = () => {
     ),
   );
 
-  const isGenerating =
-    isStreaming ||
-    (!!chatId &&
-      (getChatPending ||
-        !chatData?.chat.demo ||
-        chatData.chat.latestVersion?.status === "pending"));
-
   const iframeSrc =
-    chatData?.chat.latestVersion?.status === "completed" && chatData.chat.demo
-      ? chatData.chat.demo
+    chatData?.chat.latestVersion?.status === "completed" &&
+    chatData.chat.latestVersion.demoUrl
+      ? chatData.chat.latestVersion.demoUrl
       : "/demo";
 
   return (
     <>
-      {isGenerating && (
-        <div className="col-span-full row-span-full flex items-center justify-center">
-          <div className="flex items-center gap-2">
-            <Spinner />
-            <TextShimmer className="font-mono text-sm" duration={1}>
-              Generating...
-            </TextShimmer>
-          </div>
-          <Message content={content} streaming={isStreaming} isLastMessage />
-        </div>
-      )}
+      <Loading getChatPending={!!user && !!chatId && getChatPending} />
       <iframe
         className="col-span-full row-span-full h-full w-full"
         src={iframeSrc}
@@ -71,3 +50,49 @@ export const Preview = () => {
     </>
   );
 };
+
+const Loading = ({ getChatPending }: { getChatPending: boolean }) => {
+  const { isStreaming, isLoading, content } = useStreaming();
+
+  if (!isLoading && !isStreaming && !getChatPending) {
+    return null;
+  }
+
+  const loadingText = getChatPending
+    ? "Loading game..."
+    : isStreaming
+      ? "Generating..."
+      : "Initializing...";
+
+  return (
+    <div className="relative col-span-full row-span-full flex flex-col items-center justify-center gap-5">
+      <div className="flex items-center gap-2">
+        <LoadingText loadingText={loadingText} />
+      </div>
+      <StickToBottom
+        className="text-muted-foreground flex h-40 max-w-lg flex-col gap-2 overflow-y-auto text-sm"
+        initial="smooth"
+        resize="smooth"
+        role="log"
+      >
+        <StickToBottom.Content>
+          <Message content={content} streaming={isStreaming} isLastMessage />
+        </StickToBottom.Content>
+      </StickToBottom>
+    </div>
+  );
+};
+
+const LoadingText = memo(
+  ({ loadingText }: { loadingText: string }) => {
+    return (
+      <>
+        <Spinner />
+        <TextShimmer className="font-mono text-sm" duration={1}>
+          {loadingText}
+        </TextShimmer>
+      </>
+    );
+  },
+  (prev, next) => prev.loadingText === next.loadingText,
+);

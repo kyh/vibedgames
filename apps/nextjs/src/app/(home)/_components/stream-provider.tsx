@@ -4,10 +4,10 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
+  useMemo,
   useState,
 } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { toast } from "@repo/ui/toast";
 import { useMutation } from "@tanstack/react-query";
 import { useStreamingMessage } from "@v0-sdk/react";
@@ -20,8 +20,8 @@ type StreamingContextType = {
   stream: ReadableStream<Uint8Array> | null;
   content: MessageBinaryFormat;
   isStreaming: boolean;
+  isLoading: boolean;
   sendMessage: (message: string) => Promise<void>;
-  clearStream: () => void;
 };
 
 const StreamingContext = createContext<StreamingContextType | undefined>(
@@ -41,14 +41,29 @@ type StreamingProviderProps = {
 };
 
 export const StreamingProvider = ({ children }: StreamingProviderProps) => {
-  const trpc = useTRPC();
-  const { mutateAsync: initChat, isPending: initChatPending } = useMutation(
-    trpc.ai.initChat.mutationOptions(),
-  );
-  const [stream, setStream] = useState<ReadableStream<Uint8Array> | null>(null);
-  const { content, isStreaming, isComplete } = useStreamingMessage(stream);
+  const router = useRouter();
   const params = useParams();
   const chatId = params.chatId?.toString();
+
+  const [isLoading, setIsLoading] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const trpc = useTRPC();
+  const { mutateAsync: initChat, data: initChatData } = useMutation(
+    trpc.ai.initChat.mutationOptions(),
+  );
+
+  const [stream, setStream] = useState<ReadableStream<Uint8Array> | null>(null);
+  const { content } = useStreamingMessage(stream, {
+    onComplete: () => {
+      setStream(null);
+      setIsLoading(false);
+      setIsStreaming(false);
+      if (!chatId && initChatData?.chat.id) {
+        router.push(`/${initChatData.chat.id}`);
+      }
+    },
+  });
+
   const session = authClient.useSession();
   const user = session.data?.user;
 
@@ -59,8 +74,10 @@ export const StreamingProvider = ({ children }: StreamingProviderProps) => {
         return;
       }
 
+      setIsLoading(true);
       const currentChatId = chatId ?? (await initChat()).chat.id;
 
+      setIsStreaming(true);
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: {
@@ -77,23 +94,16 @@ export const StreamingProvider = ({ children }: StreamingProviderProps) => {
     [user, chatId, initChat],
   );
 
-  const clearStream = useCallback(() => {
-    setStream(null);
-  }, []);
-
-  useEffect(() => {
-    if (isComplete) {
-      clearStream();
-    }
-  }, [isComplete, clearStream]);
-
-  const value: StreamingContextType = {
-    stream,
-    content,
-    isStreaming: isStreaming || initChatPending,
-    sendMessage,
-    clearStream,
-  };
+  const value: StreamingContextType = useMemo(
+    () => ({
+      stream,
+      content,
+      isLoading,
+      isStreaming,
+      sendMessage,
+    }),
+    [stream, content, isLoading, isStreaming, sendMessage],
+  );
 
   return (
     <StreamingContext.Provider value={value}>

@@ -23,7 +23,9 @@ export const Composer = () => {
       case "play":
         return <PlayView />;
       case "build":
-        return <BuildView setWaitlistOpen={setWaitlistOpen} />;
+        return (
+          <BuildView setWaitlistOpen={setWaitlistOpen} setView={setView} />
+        );
       case "idle":
         return <IdleView setView={setView} />;
     }
@@ -122,10 +124,12 @@ const IdleView = ({
 
 const BuildView = ({
   setWaitlistOpen,
+  setView,
 }: {
   setWaitlistOpen: Dispatch<SetStateAction<boolean>>;
+  setView: Dispatch<SetStateAction<"play" | "idle" | "build">>;
 }) => {
-  const { isStreaming, sendMessage } = useStreaming();
+  const { isLoading, isStreaming, sendMessage } = useStreaming();
   const [input, setInput] = useState("");
 
   const session = authClient.useSession();
@@ -150,10 +154,11 @@ const BuildView = ({
     try {
       await sendMessage(input);
       setInput("");
+      setView("idle");
     } catch (error) {
       console.error("Error sending message:", error);
     }
-  }, [input, user, sendMessage, setWaitlistOpen]);
+  }, [input, user, sendMessage, setWaitlistOpen, setView]);
 
   return (
     <div className="ring-muted rounded-3xl p-1.5 ring-1">
@@ -162,7 +167,7 @@ const BuildView = ({
         input={input}
         setInput={setInput}
         onSubmit={handleSubmit}
-        loading={isStreaming}
+        loading={isLoading || isStreaming}
         onFocus={handleFocus}
       />
     </div>

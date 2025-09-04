@@ -1,14 +1,7 @@
 import { v0 } from "v0-sdk";
 
 import { createTRPCRouter, protectedProcedure } from "../trpc";
-import {
-  createChatInput,
-  deleteChatInput,
-  getChatInput,
-  projectId,
-  systemPrompt,
-  updateChatInput,
-} from "./ai-schema";
+import { deleteChatInput, getChatInput, projectId } from "./ai-schema";
 
 export const aiRouter = createTRPCRouter({
   getChats: protectedProcedure.query(async () => {
