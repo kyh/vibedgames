@@ -1,3 +1,4 @@
+import { toast } from "@repo/ui/toast";
 import {
   defaultShouldDehydrateQuery,
   QueryClient,
@@ -16,6 +17,9 @@ export const createQueryClient = () => {
         onSuccess: async () => {
           // Invalidate all queries in the react-query cache:
           await queryClient.invalidateQueries();
+        },
+        onError: (error) => {
+          toast.error(error.message);
         },
       },
       dehydrate: {

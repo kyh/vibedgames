@@ -1,14 +1,7 @@
 import { v0 } from "v0-sdk";
 
 import { createTRPCRouter, protectedProcedure } from "../trpc";
-import { systemPrompt } from "./ai-prompt";
-import {
-  createChatInput,
-  deleteChatInput,
-  getChatInput,
-  projectId,
-  updateChatInput,
-} from "./ai-schema";
+import { deleteChatInput, getChatInput, projectId } from "./ai-schema";
 
 export const aiRouter = createTRPCRouter({
   getChats: protectedProcedure.query(async () => {
@@ -27,32 +20,6 @@ export const aiRouter = createTRPCRouter({
     return { chat };
   }),
 
-  createChat: protectedProcedure
-    .input(createChatInput)
-    .mutation(async ({ input }) => {
-      const chat = await v0.chats.create({
-        system: systemPrompt,
-        message: input.message,
-        chatPrivacy: "private",
-        projectId: projectId,
-        responseMode: "async",
-      });
-
-      return { chat };
-    }),
-
-  updateChat: protectedProcedure
-    .input(updateChatInput)
-    .mutation(async ({ input }) => {
-      const message = await v0.chats.sendMessage({
-        chatId: input.chatId,
-        message: input.message,
-        responseMode: "async",
-      });
-
-      return { message };
-    }),
-
   deleteChat: protectedProcedure
     .input(deleteChatInput)
     .mutation(async ({ input }) => {
@@ -62,4 +29,19 @@ export const aiRouter = createTRPCRouter({
 
       return { chat };
     }),
+
+  initChat: protectedProcedure.mutation(async () => {
+    const chat = await v0.chats.init({
+      type: "files",
+      files: [
+        {
+          name: "example.ts",
+          content: "// This is an example of a TypeScript file",
+        },
+      ],
+      projectId: projectId,
+    });
+
+    return { chat };
+  }),
 });
