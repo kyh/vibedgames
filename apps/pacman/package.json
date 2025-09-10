@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "0.10.22-rc.20250304",
-    "@react-three/drei": "^10.7.4",
+    "@react-three/drei": "^10.7.5",
     "@tensorflow/tfjs": "^4.22.0",
     "@tensorflow/tfjs-backend-cpu": "^4.22.0",
     "@tensorflow/tfjs-backend-webgl": "^4.22.0",
@@ -29,7 +29,7 @@
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react-swc": "^4.0.1",
     "eslint": "catalog:",
-    "globals": "^16.3.0",
+    "globals": "^16.4.0",
     "prettier": "catalog:",
     "tailwindcss": "^4.1.13",
     "typescript": "catalog:",
