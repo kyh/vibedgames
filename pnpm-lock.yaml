@@ -28,8 +28,8 @@ catalogs:
       specifier: ^11.5.1
       version: 11.5.1
     '@types/node':
-      specifier: ^24.3.3
-      version: 24.3.3
+      specifier: ^24.4.0
+      version: 24.4.0
     '@types/react':
       specifier: ^19.1.13
       version: 19.1.13
@@ -122,7 +122,7 @@ importers:
         version: 1.1.8
       '@tailwindcss/vite':
         specifier: ^4.1.13
-        version: 4.1.13(vite@7.1.5(@types/node@24.3.3)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5))
+        version: 4.1.13(vite@7.1.5(@types/node@24.4.0)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5))
       '@types/react':
         specifier: 'catalog:'
         version: 19.1.13
@@ -131,7 +131,7 @@ importers:
         version: 19.1.9(@types/react@19.1.13)
       '@vitejs/plugin-react-swc':
         specifier: ^4.0.1
-        version: 4.0.1(vite@7.1.5(@types/node@24.3.3)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5))
+        version: 4.0.1(vite@7.1.5(@types/node@24.4.0)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5))
       eslint:
         specifier: 'catalog:'
         version: 9.35.0(jiti@2.5.1)
@@ -149,7 +149,7 @@ importers:
         version: 5.9.2
       vite:
         specifier: 'catalog:'
-        version: 7.1.5(@types/node@24.3.3)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5)
+        version: 7.1.5(@types/node@24.4.0)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5)
 
   apps/nextjs:
     dependencies:
@@ -213,7 +213,7 @@ importers:
         version: 0.5.16(tailwindcss@4.1.13)
       '@types/node':
         specifier: 'catalog:'
-        version: 24.3.3
+        version: 24.4.0
       '@types/react':
         specifier: 'catalog:'
         version: 19.1.13
@@ -277,7 +277,7 @@ importers:
         version: 1.1.8
       '@tailwindcss/vite':
         specifier: ^4.1.13
-        version: 4.1.13(vite@7.1.5(@types/node@24.3.3)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5))
+        version: 4.1.13(vite@7.1.5(@types/node@24.4.0)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5))
       '@types/react':
         specifier: 'catalog:'
         version: 19.1.13
@@ -286,7 +286,7 @@ importers:
         version: 19.1.9(@types/react@19.1.13)
       '@vitejs/plugin-react-swc':
         specifier: ^4.0.1
-        version: 4.0.1(vite@7.1.5(@types/node@24.3.3)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5))
+        version: 4.0.1(vite@7.1.5(@types/node@24.4.0)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5))
       eslint:
         specifier: 'catalog:'
         version: 9.35.0(jiti@2.5.1)
@@ -304,7 +304,7 @@ importers:
         version: 5.9.2
       vite:
         specifier: 'catalog:'
-        version: 7.1.5(@types/node@24.3.3)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5)
+        version: 7.1.5(@types/node@24.4.0)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5)
 
   apps/party:
     dependencies:
@@ -319,8 +319,8 @@ importers:
         version: link:../../packages/multiplayer
     devDependencies:
       '@cloudflare/workers-types':
-        specifier: ^4.20250912.0
-        version: 4.20250912.0
+        specifier: ^4.20250913.0
+        version: 4.20250913.0
       '@kyh/eslint-config':
         specifier: 'catalog:'
         version: 1.1.8(@typescript-eslint/parser@8.43.0(eslint@9.35.0(jiti@2.5.1))(typescript@5.9.2))(eslint@9.35.0(jiti@2.5.1))(turbo@2.5.6)(typescript@5.9.2)
@@ -335,7 +335,7 @@ importers:
         version: 9.35.0(jiti@2.5.1)
       partyserver:
         specifier: ^0.0.73
-        version: 0.0.73(@cloudflare/workers-types@4.20250912.0)
+        version: 0.0.73(@cloudflare/workers-types@4.20250913.0)
       prettier:
         specifier: 'catalog:'
         version: 3.6.2
@@ -344,7 +344,7 @@ importers:
         version: 5.9.2
       wrangler:
         specifier: ^4.36.0
-        version: 4.36.0(@cloudflare/workers-types@4.20250912.0)
+        version: 4.36.0(@cloudflare/workers-types@4.20250913.0)
 
   apps/pong:
     dependencies:
@@ -378,7 +378,7 @@ importers:
         version: 1.1.8
       '@tailwindcss/vite':
         specifier: ^4.1.13
-        version: 4.1.13(vite@7.1.5(@types/node@24.3.3)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5))
+        version: 4.1.13(vite@7.1.5(@types/node@24.4.0)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5))
       '@types/react':
         specifier: 'catalog:'
         version: 19.1.13
@@ -387,7 +387,7 @@ importers:
         version: 19.1.9(@types/react@19.1.13)
       '@vitejs/plugin-react-swc':
         specifier: ^4.0.1
-        version: 4.0.1(vite@7.1.5(@types/node@24.3.3)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5))
+        version: 4.0.1(vite@7.1.5(@types/node@24.4.0)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5))
       eslint:
         specifier: 'catalog:'
         version: 9.35.0(jiti@2.5.1)
@@ -405,7 +405,7 @@ importers:
         version: 5.9.2
       vite:
         specifier: 'catalog:'
-        version: 7.1.5(@types/node@24.3.3)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5)
+        version: 7.1.5(@types/node@24.4.0)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5)
 
   apps/tetris:
     dependencies:
@@ -442,7 +442,7 @@ importers:
         version: 1.1.8
       '@tailwindcss/vite':
         specifier: ^4.1.13
-        version: 4.1.13(vite@7.1.5(@types/node@24.3.3)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5))
+        version: 4.1.13(vite@7.1.5(@types/node@24.4.0)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5))
       '@types/react':
         specifier: 'catalog:'
         version: 19.1.13
@@ -451,7 +451,7 @@ importers:
         version: 19.1.9(@types/react@19.1.13)
       '@vitejs/plugin-react-swc':
         specifier: ^4.0.1
-        version: 4.0.1(vite@7.1.5(@types/node@24.3.3)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5))
+        version: 4.0.1(vite@7.1.5(@types/node@24.4.0)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5))
       eslint:
         specifier: 'catalog:'
         version: 9.35.0(jiti@2.5.1)
@@ -469,7 +469,7 @@ importers:
         version: 5.9.2
       vite:
         specifier: 'catalog:'
-        version: 7.1.5(@types/node@24.3.3)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5)
+        version: 7.1.5(@types/node@24.4.0)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5)
 
   packages/api:
     dependencies:
@@ -487,10 +487,10 @@ importers:
         version: 1.3.9(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
       drizzle-zod:
         specifier: ^0.8.3
-        version: 0.8.3(drizzle-orm@0.44.5(@cloudflare/workers-types@4.20250912.0)(@opentelemetry/api@1.9.0)(gel@2.0.2)(kysely@0.28.5)(postgres@3.4.7))(zod@4.1.8)
+        version: 0.8.3(drizzle-orm@0.44.5(@cloudflare/workers-types@4.20250913.0)(@opentelemetry/api@1.9.0)(gel@2.0.2)(kysely@0.28.5)(postgres@3.4.7))(zod@4.1.8)
       stripe:
         specifier: ^18.5.0
-        version: 18.5.0(@types/node@24.3.3)
+        version: 18.5.0(@types/node@24.4.0)
       superjson:
         specifier: 'catalog:'
         version: 2.2.2
@@ -530,7 +530,7 @@ importers:
         version: 2.57.4
       drizzle-orm:
         specifier: ^0.44.5
-        version: 0.44.5(@cloudflare/workers-types@4.20250912.0)(@opentelemetry/api@1.9.0)(gel@2.0.2)(kysely@0.28.5)(postgres@3.4.7)
+        version: 0.44.5(@cloudflare/workers-types@4.20250913.0)(@opentelemetry/api@1.9.0)(gel@2.0.2)(kysely@0.28.5)(postgres@3.4.7)
       next:
         specifier: 'catalog:'
         version: 15.5.3(@opentelemetry/api@1.9.0)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
@@ -603,8 +603,8 @@ importers:
   packages/ui:
     dependencies:
       '@hookform/resolvers':
-        specifier: ^5.2.1
-        version: 5.2.1(react-hook-form@7.62.0(react@19.1.1))
+        specifier: ^5.2.2
+        version: 5.2.2(react-hook-form@7.62.0(react@19.1.1))
       '@tanstack/react-table':
         specifier: ^8.21.3
         version: 8.21.3(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
@@ -780,8 +780,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@cloudflare/workers-types@4.20250912.0':
-    resolution: {integrity: sha512-1IGAf2zlxBPW1pyf0g7f87xCL+CGPwmdtrteqHX3Cr+lBXKKIoLD8ctWdAs3Fi6rUeS5inAwttSQFscR9euLkA==}
+  '@cloudflare/workers-types@4.20250913.0':
+    resolution: {integrity: sha512-JjrYEvRn7cyALxwoFTw3XChaQneHSJOXqz2t5iKEpNzAnC2iPQU75rtTK/gw03Jjy4SHY5aEBh/uqQePtonZlA==}
 
   '@cspotcode/source-map-support@0.8.1':
     resolution: {integrity: sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw==}
@@ -1307,8 +1307,8 @@ packages:
   '@hexagon/base64@1.1.28':
     resolution: {integrity: sha512-lhqDEAvWixy3bZ+UOYbPwUbBkwBq5C1LAJ/xPC8Oi+lL54oyakv/npbA0aU2hgCsx/1NUd4IBvV03+aUBWxerw==}
 
-  '@hookform/resolvers@5.2.1':
-    resolution: {integrity: sha512-u0+6X58gkjMcxur1wRWokA7XsiiBJ6aK17aPZxhkoYiK5J+HcTx0Vhu9ovXe6H+dVpO6cjrn2FkJTryXEMlryQ==}
+  '@hookform/resolvers@5.2.2':
+    resolution: {integrity: sha512-A/IxlMLShx3KjV/HeTcTfaMxdwy690+L/ZADoeaTltLx+CVuzkeVIPuybK3jrRfw7YZnmdKsVVHAlEPIAEUNlA==}
     peerDependencies:
       react-hook-form: ^7.55.0
 
@@ -2957,11 +2957,11 @@ packages:
   '@types/node-fetch@2.6.12':
     resolution: {integrity: sha512-8nneRWKCg3rMtF69nLQJnOYUcbafYeFSjqkw3jCRLsqkWFlHaoQrr5mXmofFGOx3DKn7UfmBMyov8ySvLRVldA==}
 
-  '@types/node@24.3.1':
-    resolution: {integrity: sha512-3vXmQDXy+woz+gnrTvuvNrPzekOi+Ds0ReMxw0LzBiK3a+1k0kQn9f2NWk+lgD4rJehFUmYy2gMhJ2ZI+7YP9g==}
-
   '@types/node@24.3.3':
     resolution: {integrity: sha512-GKBNHjoNw3Kra1Qg5UXttsY5kiWMEfoHq2TmXb+b1rcm6N7B3wTrFYIf/oSZ1xNQ+hVVijgLkiDZh7jRRsh+Gw==}
+
+  '@types/node@24.4.0':
+    resolution: {integrity: sha512-gUuVEAK4/u6F9wRLznPUU4WGUacSEBDPoC2TrBkw3GAnOLHBL45QdfHOXp1kJ4ypBGLxTOB+t7NJLpKoC3gznQ==}
 
   '@types/offscreencanvas@2019.3.0':
     resolution: {integrity: sha512-esIJx9bQg+QYF0ra8GnvfianIY8qWB0GBx54PK5Eps6m+xTj86KLavHv6qDhzKcu5UUOgNfJ2pWaIIV7TRUd9Q==}
@@ -5174,6 +5174,9 @@ packages:
   undici-types@7.10.0:
     resolution: {integrity: sha512-t5Fy/nfn+14LuOc2KNYg75vZqClpAiqscVvMygNnlsHBFpSXdJaYtXMcdNLpl/Qvc3P2cB3s6lOV51nqsFq4ag==}
 
+  undici-types@7.11.0:
+    resolution: {integrity: sha512-kt1ZriHTi7MU+Z/r9DOdAI3ONdaR3M3csEaRc6ewa4f4dTvX4cQCbJ4NkEn0ohE4hHtq85+PhPSTY+pO/1PwgA==}
+
   undici@7.14.0:
     resolution: {integrity: sha512-Vqs8HTzjpQXZeXdpsfChQTlafcMQaaIwnGwLam1wudSSjlJeQ3bw1j+TLPePgrCnCpUXx7Ba5Pdpf5OBih62NQ==}
     engines: {node: '>=20.18.1'}
@@ -5521,7 +5524,7 @@ snapshots:
   '@cloudflare/workerd-windows-64@1.20250906.0':
     optional: true
 
-  '@cloudflare/workers-types@4.20250912.0': {}
+  '@cloudflare/workers-types@4.20250913.0': {}
 
   '@cspotcode/source-map-support@0.8.1':
     dependencies:
@@ -5832,7 +5835,7 @@ snapshots:
 
   '@hexagon/base64@1.1.28': {}
 
-  '@hookform/resolvers@5.2.1(react-hook-form@7.62.0(react@19.1.1))':
+  '@hookform/resolvers@5.2.2(react-hook-form@7.62.0(react@19.1.1))':
     dependencies:
       '@standard-schema/utils': 0.3.0
       react-hook-form: 7.62.0(react@19.1.1)
@@ -7331,12 +7334,12 @@ snapshots:
       postcss-selector-parser: 6.0.10
       tailwindcss: 4.1.13
 
-  '@tailwindcss/vite@4.1.13(vite@7.1.5(@types/node@24.3.3)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5))':
+  '@tailwindcss/vite@4.1.13(vite@7.1.5(@types/node@24.4.0)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5))':
     dependencies:
       '@tailwindcss/node': 4.1.13
       '@tailwindcss/oxide': 4.1.13
       tailwindcss: 4.1.13
-      vite: 7.1.5(@types/node@24.3.3)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5)
+      vite: 7.1.5(@types/node@24.4.0)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5)
 
   '@tanstack/query-core@5.87.4': {}
 
@@ -7470,16 +7473,16 @@ snapshots:
 
   '@types/node-fetch@2.6.12':
     dependencies:
-      '@types/node': 24.3.1
+      '@types/node': 24.3.3
       form-data: 4.0.3
-
-  '@types/node@24.3.1':
-    dependencies:
-      undici-types: 7.10.0
 
   '@types/node@24.3.3':
     dependencies:
       undici-types: 7.10.0
+
+  '@types/node@24.4.0':
+    dependencies:
+      undici-types: 7.11.0
 
   '@types/offscreencanvas@2019.3.0': {}
 
@@ -7520,7 +7523,7 @@ snapshots:
 
   '@types/ws@8.18.1':
     dependencies:
-      '@types/node': 24.3.1
+      '@types/node': 24.3.3
 
   '@typescript-eslint/eslint-plugin@8.43.0(@typescript-eslint/parser@8.43.0(eslint@9.35.0(jiti@2.5.1))(typescript@5.9.2))(eslint@9.35.0(jiti@2.5.1))(typescript@5.9.2)':
     dependencies:
@@ -7628,11 +7631,11 @@ snapshots:
       react: 19.1.1
       react-dom: 19.1.1(react@19.1.1)
 
-  '@vitejs/plugin-react-swc@4.0.1(vite@7.1.5(@types/node@24.3.3)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5))':
+  '@vitejs/plugin-react-swc@4.0.1(vite@7.1.5(@types/node@24.4.0)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5))':
     dependencies:
       '@rolldown/pluginutils': 1.0.0-beta.32
       '@swc/core': 1.13.4
-      vite: 7.1.5(@types/node@24.3.3)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5)
+      vite: 7.1.5(@types/node@24.4.0)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5)
     transitivePeerDependencies:
       - '@swc/helpers'
 
@@ -8021,17 +8024,17 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  drizzle-orm@0.44.5(@cloudflare/workers-types@4.20250912.0)(@opentelemetry/api@1.9.0)(gel@2.0.2)(kysely@0.28.5)(postgres@3.4.7):
+  drizzle-orm@0.44.5(@cloudflare/workers-types@4.20250913.0)(@opentelemetry/api@1.9.0)(gel@2.0.2)(kysely@0.28.5)(postgres@3.4.7):
     optionalDependencies:
-      '@cloudflare/workers-types': 4.20250912.0
+      '@cloudflare/workers-types': 4.20250913.0
       '@opentelemetry/api': 1.9.0
       gel: 2.0.2
       kysely: 0.28.5
       postgres: 3.4.7
 
-  drizzle-zod@0.8.3(drizzle-orm@0.44.5(@cloudflare/workers-types@4.20250912.0)(@opentelemetry/api@1.9.0)(gel@2.0.2)(kysely@0.28.5)(postgres@3.4.7))(zod@4.1.8):
+  drizzle-zod@0.8.3(drizzle-orm@0.44.5(@cloudflare/workers-types@4.20250913.0)(@opentelemetry/api@1.9.0)(gel@2.0.2)(kysely@0.28.5)(postgres@3.4.7))(zod@4.1.8):
     dependencies:
-      drizzle-orm: 0.44.5(@cloudflare/workers-types@4.20250912.0)(@opentelemetry/api@1.9.0)(gel@2.0.2)(kysely@0.28.5)(postgres@3.4.7)
+      drizzle-orm: 0.44.5(@cloudflare/workers-types@4.20250913.0)(@opentelemetry/api@1.9.0)(gel@2.0.2)(kysely@0.28.5)(postgres@3.4.7)
       zod: 4.1.8
 
   dunder-proto@1.0.1:
@@ -9163,9 +9166,9 @@ snapshots:
     dependencies:
       callsites: 3.1.0
 
-  partyserver@0.0.73(@cloudflare/workers-types@4.20250912.0):
+  partyserver@0.0.73(@cloudflare/workers-types@4.20250913.0):
     dependencies:
-      '@cloudflare/workers-types': 4.20250912.0
+      '@cloudflare/workers-types': 4.20250913.0
       nanoid: 5.1.5
 
   partysocket@1.1.5:
@@ -9698,11 +9701,11 @@ snapshots:
 
   strip-json-comments@3.1.1: {}
 
-  stripe@18.5.0(@types/node@24.3.3):
+  stripe@18.5.0(@types/node@24.4.0):
     dependencies:
       qs: 6.14.0
     optionalDependencies:
-      '@types/node': 24.3.3
+      '@types/node': 24.4.0
 
   styled-jsx@5.1.6(react@19.1.1):
     dependencies:
@@ -9912,6 +9915,8 @@ snapshots:
 
   undici-types@7.10.0: {}
 
+  undici-types@7.11.0: {}
+
   undici@7.14.0: {}
 
   unenv@2.0.0-rc.21:
@@ -9964,7 +9969,7 @@ snapshots:
       - '@types/react'
       - '@types/react-dom'
 
-  vite@7.1.5(@types/node@24.3.3)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5):
+  vite@7.1.5(@types/node@24.4.0)(jiti@2.5.1)(lightningcss@1.30.1)(tsx@4.20.5):
     dependencies:
       esbuild: 0.25.6
       fdir: 6.5.0(picomatch@4.0.3)
@@ -9973,7 +9978,7 @@ snapshots:
       rollup: 4.45.0
       tinyglobby: 0.2.15
     optionalDependencies:
-      '@types/node': 24.3.3
+      '@types/node': 24.4.0
       fsevents: 2.3.3
       jiti: 2.5.1
       lightningcss: 1.30.1
@@ -10052,7 +10057,7 @@ snapshots:
       '@cloudflare/workerd-linux-arm64': 1.20250906.0
       '@cloudflare/workerd-windows-64': 1.20250906.0
 
-  wrangler@4.36.0(@cloudflare/workers-types@4.20250912.0):
+  wrangler@4.36.0(@cloudflare/workers-types@4.20250913.0):
     dependencies:
       '@cloudflare/kv-asset-handler': 0.4.0
       '@cloudflare/unenv-preset': 2.7.3(unenv@2.0.0-rc.21)(workerd@1.20250906.0)
@@ -10063,7 +10068,7 @@ snapshots:
       unenv: 2.0.0-rc.21
       workerd: 1.20250906.0
     optionalDependencies:
-      '@cloudflare/workers-types': 4.20250912.0
+      '@cloudflare/workers-types': 4.20250913.0
       fsevents: 2.3.3
     transitivePeerDependencies:
       - bufferutil
