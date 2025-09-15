@@ -39,9 +39,13 @@
   "prettier": "@kyh/prettier-config",
   "pnpm": {
     "onlyBuiltDependencies": [
+      "@swc/core",
+      "@tailwindcss/oxide",
+      "core-js",
       "esbuild",
       "sharp",
-      "supabase"
+      "supabase",
+      "workerd"
     ]
   }
 }
