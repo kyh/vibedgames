@@ -23,7 +23,7 @@
     "@kyh/prettier-config": "catalog:",
     "@kyh/tsconfig": "catalog:",
     "eslint": "catalog:",
-    "partyserver": "^0.0.73",
+    "partyserver": "^0.0.74",
     "prettier": "catalog:",
     "typescript": "catalog:",
     "wrangler": "^4.37.0"

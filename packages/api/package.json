@@ -23,7 +23,7 @@
     "drizzle-zod": "^0.8.3",
     "stripe": "^18.5.0",
     "superjson": "catalog:",
-    "v0-sdk": "^0.10.0",
+    "v0-sdk": "^0.11.2",
     "zod": "catalog:"
   },
   "devDependencies": {

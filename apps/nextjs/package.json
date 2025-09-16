@@ -23,7 +23,7 @@
     "@trpc/client": "catalog:",
     "@trpc/server": "catalog:",
     "@trpc/tanstack-react-query": "catalog:",
-    "@v0-sdk/react": "^0.2.1",
+    "@v0-sdk/react": "^0.3.1",
     "next": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
