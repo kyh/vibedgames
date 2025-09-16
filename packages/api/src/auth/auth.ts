@@ -36,13 +36,6 @@ const authConfig = {
   emailAndPassword: {
     enabled: true,
   },
-  socialProviders: {
-    github: {
-      clientId: process.env.GITHUB_CLIENT_ID ?? "",
-      clientSecret: process.env.GITHUB_CLIENT_SECRET ?? "",
-      redirectURI: `${baseUrl}/api/auth/callback/github`,
-    },
-  },
   trustedOrigins: ["expo://"],
   databaseHooks: {
     user: {

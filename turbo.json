@@ -42,7 +42,8 @@
     "NEXT_PUBLIC_SUPABASE_ANON_KEY",
     "SUPABASE_SERVICE_ROLE_KEY",
     "V0_API_KEY",
-    "PORT"
+    "PORT",
+    "VERCEL_PROJECT_PRODUCTION_URL"
   ],
   "globalPassThroughEnv": [
     "NODE_ENV",
