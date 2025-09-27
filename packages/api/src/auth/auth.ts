@@ -1,4 +1,4 @@
-import type { BetterAuthOptions, User } from "better-auth";
+import type { User } from "better-auth";
 import { cache } from "react";
 import { headers } from "next/headers";
 import { expo } from "@better-auth/expo";
@@ -18,7 +18,7 @@ const baseUrl =
       ? `https://${process.env.VERCEL_URL}`
       : "http://localhost:3000";
 
-const authConfig = {
+export const auth: ReturnType<typeof betterAuth> = betterAuth({
   database: drizzleAdapter(db, {
     provider: "pg",
   }),
@@ -35,6 +35,13 @@ const authConfig = {
   ],
   emailAndPassword: {
     enabled: true,
+  },
+  socialProviders: {
+    github: {
+      clientId: process.env.GITHUB_CLIENT_ID ?? "",
+      clientSecret: process.env.GITHUB_CLIENT_SECRET ?? "",
+      redirectURI: `${baseUrl}/api/auth/callback/github`,
+    },
   },
   trustedOrigins: ["expo://"],
   databaseHooks: {
@@ -53,12 +60,7 @@ const authConfig = {
       },
     },
   },
-} satisfies BetterAuthOptions;
-
-// eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
-export const auth = betterAuth(authConfig) as ReturnType<
-  typeof betterAuth<typeof authConfig>
->;
+});
 
 export type Auth = typeof auth;
 export type Session = Auth["$Infer"]["Session"];
@@ -78,7 +80,7 @@ export const getOrganization = cache(
     organizationSlug?: string | undefined;
     membersLimit?: string | number | undefined;
   }) =>
-    auth.api.getFullOrganization({
+    (auth.api as any).getFullOrganization({
       query,
       headers: await headers(),
     }),
@@ -112,7 +114,7 @@ const createDefaultOrganization = async (user: User) => {
   const slug = await generateAvailableSlug(slugify(user.name));
 
   try {
-    await auth.api.createOrganization({
+    await (auth.api as any).createOrganization({
       body: {
         userId: user.id,
         name: "Personal Organization",
