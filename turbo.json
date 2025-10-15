@@ -14,6 +14,14 @@
       "cache": false,
       "persistent": false
     },
+    "db": {
+      "cache": false,
+      "persistent": true
+    },
+    "studio": {
+      "cache": false,
+      "persistent": true
+    },
     "format": {
       "outputs": [".cache/.prettiercache"],
       "outputLogs": "new-only"
@@ -37,9 +45,9 @@
     "TURSO_DATABASE_URL",
     "TURSO_AUTH_TOKEN",
     "AUTH_SECRET",
-    "V0_API_KEY",
     "PORT",
-    "VERCEL_PROJECT_PRODUCTION_URL"
+    "VERCEL_PROJECT_PRODUCTION_URL",
+    "V0_API_KEY"
   ],
   "globalPassThroughEnv": [
     "NODE_ENV",
