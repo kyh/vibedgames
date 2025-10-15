@@ -3,25 +3,25 @@ packages:
   - packages/*
 
 catalog:
-  "@kyh/eslint-config": ^1.1.8
-  "@kyh/prettier-config": ^1.1.8
-  "@kyh/tsconfig": ^1.1.8
-  "@tanstack/react-query": ^5.90.2
+  "@kyh/eslint-config": ^1.1.9
+  "@kyh/prettier-config": ^1.1.9
+  "@kyh/tsconfig": ^1.1.9
+  "@tanstack/react-query": ^5.90.3
   "@trpc/client": ^11.6.0
   "@trpc/server": ^11.6.0
   "@trpc/tanstack-react-query": ^11.6.0
-  "@types/node": ^24.6.2
-  "@types/react": ^19.2.0
-  "@types/react-dom": ^19.2.0
+  "@types/node": ^24.7.2
+  "@types/react": ^19.2.2
+  "@types/react-dom": ^19.2.2
   eslint: ^9.37.0
-  next: ^15.5.4
+  next: ^15.5.5
   prettier: ^3.6.2
   react: ^19.2.0
   react-dom: ^19.2.0
   superjson: ^2.2.2
   typescript: ^5.9.3
-  vite: ^7.1.9
-  zod: ^4.1.11
+  vite: ^7.1.10
+  zod: ^4.1.12
 
 nodeLinker: hoisted
 linkWorkspacePackages: true
