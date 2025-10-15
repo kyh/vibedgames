@@ -6,9 +6,9 @@ import { Spinner } from "@repo/ui/spinner";
 import { TextShimmer } from "@repo/ui/text-shimmer";
 import { useQuery } from "@tanstack/react-query";
 import { Message } from "@v0-sdk/react";
-import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
+import { StickToBottom } from "use-stick-to-bottom";
 
-import { authClient } from "@/auth/auth-client";
+import { authClient } from "@/lib/auth-client";
 import { useTRPC } from "@/trpc/react";
 import { useStreaming } from "./stream-provider";
 
@@ -20,7 +20,7 @@ export const Preview = () => {
   const user = session.data?.user;
 
   const { data: chatData, isPending: getChatPending } = useQuery(
-    trpc.ai.getChat.queryOptions(
+    trpc.v0.getChat.queryOptions(
       { chatId: chatId?.toString() ?? "" },
       {
         enabled: !!user && !!chatId,

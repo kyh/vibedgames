@@ -1,9 +1,9 @@
 import { v0 } from "v0-sdk";
 
 import { createTRPCRouter, protectedProcedure } from "../trpc";
-import { deleteChatInput, getChatInput, projectId } from "./ai-schema";
+import { deleteChatInput, getChatInput, projectId } from "./v0-schema";
 
-export const aiRouter = createTRPCRouter({
+export const v0Router = createTRPCRouter({
   getChats: protectedProcedure.query(async () => {
     const project = await v0.projects.getById({
       projectId,

@@ -18,7 +18,7 @@ import { cn } from "@repo/ui/utils";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
-import { authClient } from "@/auth/auth-client";
+import { authClient } from "@/lib/auth-client";
 
 type AuthFormProps = {
   type: "login" | "register";
@@ -27,7 +27,6 @@ type AuthFormProps = {
 export const AuthForm = ({ className, type, ...props }: AuthFormProps) => {
   const router = useRouter();
   const params = useParams<{ nextPath?: string }>();
-  const [submittingGithub, setSubmittingGithub] = useState(false);
 
   const form = useForm({
     resolver: zodResolver(
@@ -41,24 +40,6 @@ export const AuthForm = ({ className, type, ...props }: AuthFormProps) => {
       password: "",
     },
   });
-
-  const handleAuthWithGithub = async () => {
-    setSubmittingGithub(true);
-    await authClient.signIn.social({
-      provider: "github",
-      fetchOptions: {
-        onSuccess: () => {
-          router.replace(params.nextPath ?? "/");
-        },
-        onError: (ctx) => {
-          toast.error(ctx.error.message);
-        },
-        onResponse: () => {
-          setSubmittingGithub(false);
-        },
-      },
-    });
-  };
 
   const handleAuthWithPassword = form.handleSubmit(async (credentials) => {
     if (type === "register") {
@@ -96,14 +77,6 @@ export const AuthForm = ({ className, type, ...props }: AuthFormProps) => {
 
   return (
     <div className={cn("grid gap-6", className)} {...props}>
-      <Button
-        variant="outline"
-        type="button"
-        loading={submittingGithub}
-        onClick={handleAuthWithGithub}
-      >
-        Continue with Github
-      </Button>
       <div className="relative">
         <div className="absolute inset-0 flex items-center">
           <span className="w-full border-t" />

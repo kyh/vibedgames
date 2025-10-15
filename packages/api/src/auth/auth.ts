@@ -20,10 +20,10 @@ const baseUrl =
 
 export const auth: ReturnType<typeof betterAuth> = betterAuth({
   database: drizzleAdapter(db, {
-    provider: "pg",
+    provider: "sqlite",
   }),
   baseURL: baseUrl,
-  secret: process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
+  secret: process.env.AUTH_SECRET ?? "",
   plugins: [
     oAuthProxy({
       currentURL: baseUrl,
@@ -35,13 +35,6 @@ export const auth: ReturnType<typeof betterAuth> = betterAuth({
   ],
   emailAndPassword: {
     enabled: true,
-  },
-  socialProviders: {
-    github: {
-      clientId: process.env.GITHUB_CLIENT_ID ?? "",
-      clientSecret: process.env.GITHUB_CLIENT_SECRET ?? "",
-      redirectURI: `${baseUrl}/api/auth/callback/github`,
-    },
   },
   trustedOrigins: ["expo://"],
   databaseHooks: {

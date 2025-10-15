@@ -15,6 +15,7 @@
   },
   "prettier": "@kyh/prettier-config",
   "dependencies": {
+    "@ai-sdk/react": "^2.0.72",
     "@repo/api": "workspace:^",
     "@repo/db": "workspace:^",
     "@repo/multiplayer": "workspace:^",
@@ -28,7 +29,8 @@
     "react": "catalog:",
     "react-dom": "catalog:",
     "superjson": "catalog:",
-    "zod": "catalog:"
+    "zod": "catalog:",
+    "zustand": "^5.0.8"
   },
   "devDependencies": {
     "@kyh/eslint-config": "catalog:",
@@ -42,6 +44,7 @@
     "eslint": "catalog:",
     "postcss": "^8.5.6",
     "prettier": "catalog:",
+    "raw-loader": "4.0.2",
     "tailwindcss": "^4.1.14",
     "typescript": "catalog:"
   }

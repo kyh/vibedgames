@@ -1,15 +1,12 @@
 {
   "name": "vibedgames",
   "private": true,
-  "packageManager": "pnpm@10.18.0",
+  "packageManager": "pnpm@10.18.3",
   "scripts": {
     "build": "turbo run build",
     "clean": "git clean -xdf node_modules",
     "clean:workspaces": "turbo run clean",
-    "db:supabase": "pnpm -F db supabase",
     "db:start": "pnpm -F db start",
-    "db:stop": "pnpm -F db stop",
-    "db:reset": "pnpm -F db reset",
     "db:push": "pnpm -F db push",
     "db:push-remote": "pnpm -F db push-remote",
     "dev": "turbo watch dev --continue",
@@ -44,7 +41,6 @@
       "core-js",
       "esbuild",
       "sharp",
-      "supabase",
       "workerd"
     ]
   }

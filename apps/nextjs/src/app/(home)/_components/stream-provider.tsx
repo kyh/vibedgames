@@ -13,7 +13,7 @@ import { useMutation } from "@tanstack/react-query";
 import { useStreamingMessage } from "@v0-sdk/react";
 
 import type { MessageBinaryFormat } from "@v0-sdk/react";
-import { authClient } from "@/auth/auth-client";
+import { authClient } from "@/lib/auth-client";
 import { useTRPC } from "@/trpc/react";
 
 type StreamingContextType = {
@@ -49,7 +49,7 @@ export const StreamingProvider = ({ children }: StreamingProviderProps) => {
   const [isStreaming, setIsStreaming] = useState(false);
   const trpc = useTRPC();
   const { mutateAsync: initChat, data: initChatData } = useMutation(
-    trpc.ai.initChat.mutationOptions(),
+    trpc.v0.initChat.mutationOptions(),
   );
 
   const [stream, setStream] = useState<ReadableStream<Uint8Array> | null>(null);
@@ -78,7 +78,7 @@ export const StreamingProvider = ({ children }: StreamingProviderProps) => {
       const currentChatId = chatId ?? (await initChat()).chat.id;
 
       setIsStreaming(true);
-      const response = await fetch("/api/chat", {
+      const response = await fetch("/api/chat/v0", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

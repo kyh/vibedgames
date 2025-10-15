@@ -9,7 +9,7 @@ Vibedgames is an open source Lovable for multiplayer web games.
 - [Tailwind CSS](https://tailwindcss.com)
 - [TRPC](https://trpc.io)
 - [Drizzle](https://orm.drizzle.team)
-- [Supabase](https://supabase.com)
+- [Turso](https://turso.tech)
 
 ## Running Locally
 

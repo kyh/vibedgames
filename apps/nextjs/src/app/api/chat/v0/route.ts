@@ -1,7 +1,10 @@
 import { auth } from "@repo/api/auth/auth";
 import { v0 } from "v0-sdk";
 
-export const maxDuration = 30;
+type BodyData = {
+  chatId: string;
+  message: string;
+};
 
 export async function POST(request: Request) {
   const session = await auth.api.getSession({
@@ -12,10 +15,7 @@ export async function POST(request: Request) {
     return new Response("Unauthorized", { status: 401 });
   }
 
-  const { chatId, message } = (await request.json()) as {
-    chatId: string;
-    message: string;
-  };
+  const { chatId, message } = (await request.json()) as BodyData;
 
   const chat = await v0.chats.sendMessage({
     chatId,

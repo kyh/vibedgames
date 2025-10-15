@@ -8,7 +8,7 @@ import { ChatTextarea } from "@repo/ui/chat";
 import { BlocksIcon, PlayIcon } from "lucide-react";
 import { motion } from "motion/react";
 
-import { authClient } from "@/auth/auth-client";
+import { authClient } from "@/lib/auth-client";
 import { Card } from "./card";
 import { featuredGames } from "./data";
 import { useStreaming } from "./stream-provider";
