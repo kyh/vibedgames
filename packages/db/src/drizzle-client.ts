@@ -12,6 +12,7 @@ const client = createClient({
 export const db = drizzle({
   client,
   schema: { ...schema, ...schemaAuth },
+  casing: "snake_case",
 });
 
 export type Db = typeof db;
