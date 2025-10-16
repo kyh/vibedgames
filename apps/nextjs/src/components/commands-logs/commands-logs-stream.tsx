@@ -1,99 +1,102 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import stripAnsi from "strip-ansi";
-import z from "zod/v3";
 
 import { useSandboxStore } from "@/components/chat/state";
+import { useTRPC } from "@/trpc/react";
 
-type StreamingCommandLogs = Record<
-  string,
-  Awaited<ReturnType<typeof getCommandLogs>>
->;
+// Individual command component to handle hooks properly
+const CommandLogsItem = ({
+  command,
+  sandboxId,
+  addLog,
+  upsertCommand,
+}: {
+  command: { cmdId: string; command: string; args: string[] };
+  sandboxId: string;
+  addLog: (data: {
+    sandboxId: string;
+    cmdId: string;
+    log: { data: string; stream: "stdout" | "stderr"; timestamp: number };
+  }) => void;
+  upsertCommand: (data: {
+    sandboxId: string;
+    cmdId: string;
+    exitCode: number;
+    command: string;
+    args: string[];
+  }) => void;
+}) => {
+  const trpc = useTRPC();
 
-export const CommandLogsStream = () => {
-  const { sandboxId, commands, addLog, upsertCommand } = useSandboxStore();
-  const ref = useRef<StreamingCommandLogs>({});
+  const logsQuery = useQuery(
+    trpc.sandbox.getCommandLogs.queryOptions({
+      sandboxId,
+      cmdId: command.cmdId,
+    }),
+  );
+
+  const commandQuery = useQuery(
+    trpc.sandbox.getCommand.queryOptions({
+      sandboxId,
+      cmdId: command.cmdId,
+    }),
+  );
 
   useEffect(() => {
-    if (sandboxId) {
-      for (const command of commands.filter(
-        (command) => typeof command.exitCode === "undefined",
-      )) {
-        if (!ref.current[command.cmdId]) {
-          const iterator = getCommandLogs(sandboxId, command.cmdId);
-          ref.current[command.cmdId] = iterator;
-          (async () => {
-            for await (const log of iterator) {
-              addLog({
-                sandboxId: sandboxId,
-                cmdId: command.cmdId,
-                log: log,
-              });
-            }
-
-            const log = await getCommand(sandboxId, command.cmdId);
-            upsertCommand({
-              sandboxId: log.sandboxId,
-              cmdId: log.cmdId,
-              exitCode: log.exitCode ?? 0,
-              command: command.command,
-              args: command.args,
-            });
-          })();
-        }
-      }
+    if (logsQuery.data) {
+      logsQuery.data.forEach((log) => {
+        addLog({
+          sandboxId,
+          cmdId: command.cmdId,
+          log: {
+            data: stripAnsi(log.data),
+            stream: log.stream,
+            timestamp: log.timestamp,
+          },
+        });
+      });
     }
-  }, [sandboxId, commands, addLog, upsertCommand]);
+  }, [logsQuery.data, sandboxId, command.cmdId, addLog]);
+
+  useEffect(() => {
+    if (commandQuery.data?.exitCode !== undefined) {
+      upsertCommand({
+        sandboxId: commandQuery.data.sandboxId,
+        cmdId: commandQuery.data.cmdId,
+        exitCode: commandQuery.data.exitCode,
+        command: command.command,
+        args: command.args,
+      });
+    }
+  }, [commandQuery.data, command.command, command.args, upsertCommand]);
 
   return null;
 };
 
-const logSchema = z.object({
-  data: z.string(),
-  stream: z.enum(["stdout", "stderr"]),
-  timestamp: z.number(),
-});
+export const CommandLogsStream = () => {
+  const { sandboxId, commands, addLog, upsertCommand } = useSandboxStore();
 
-async function* getCommandLogs(sandboxId: string, cmdId: string) {
-  const response = await fetch(
-    `/api/sandboxes/${sandboxId}/cmds/${cmdId}/logs`,
-    { headers: { "Content-Type": "application/json" } },
+  // Get all running commands
+  const runningCommands = commands.filter(
+    (command) => typeof command.exitCode === "undefined",
   );
 
-  const reader = response.body!.getReader();
-  const decoder = new TextDecoder();
-  let line = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  if (!sandboxId) return null;
 
-    line += decoder.decode(value, { stream: true });
-    const lines = line.split("\n");
-    for (let i = 0; i < lines.length - 1; i++) {
-      if (lines[i]) {
-        const logEntry = JSON.parse(lines[i] ?? "");
-        const parsed = logSchema.parse(logEntry);
-        yield {
-          data: stripAnsi(parsed.data),
-          stream: parsed.stream,
-          timestamp: parsed.timestamp,
-        };
-      }
-    }
-    line = lines[lines.length - 1] ?? "";
-  }
-}
-
-const cmdSchema = z.object({
-  sandboxId: z.string(),
-  cmdId: z.string(),
-  startedAt: z.number(),
-  exitCode: z.number().optional(),
-});
-
-async function getCommand(sandboxId: string, cmdId: string) {
-  const response = await fetch(`/api/sandboxes/${sandboxId}/cmds/${cmdId}`);
-  const json = await response.json();
-  return cmdSchema.parse(json);
-}
+  return (
+    <>
+      {runningCommands.map((command) => (
+        <CommandLogsItem
+          key={command.cmdId}
+          command={command}
+          sandboxId={sandboxId}
+          addLog={addLog}
+          upsertCommand={upsertCommand}
+        />
+      ))}
+    </>
+  );
+};

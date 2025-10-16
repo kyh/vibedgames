@@ -13,7 +13,7 @@ import { useChat } from "@ai-sdk/react";
 import type { Line } from "./schemas";
 import { useSharedChatContext } from "@/components/chat/chat-context";
 import { useCommandErrorsLogs } from "@/components/chat/state";
-import { getSummary } from "./get-summary";
+import { createSummaryMutation, useGetSummary } from "./get-summary";
 import { useMonitorState } from "./state";
 
 type Props = {
@@ -27,6 +27,7 @@ export const ErrorMonitor = ({ children, debounceTimeMs = 10000 }: Props) => {
   const { errors } = useCommandErrorsLogs();
   const { chat } = useSharedChatContext();
   const { sendMessage, status: chatStatus, messages } = useChat({ chat });
+  const getSummaryMutation = useGetSummary();
   const submitTimeout = useRef<NodeJS.Timeout | null>(null);
   const inspectedErrors = useRef<number>(0);
   const lastReportedErrors = useRef<string[]>([]);
@@ -54,7 +55,7 @@ export const ErrorMonitor = ({ children, debounceTimeMs = 10000 }: Props) => {
     )}`;
   };
 
-  const handleErrors = (errors: Line[], prev: Line[]) => {
+  const handleErrors = (errors: Line[], _prev: Line[]) => {
     const now = Date.now();
     const timeSinceLastReport = now - lastErrorReportTime.current;
 
@@ -66,7 +67,7 @@ export const ErrorMonitor = ({ children, debounceTimeMs = 10000 }: Props) => {
     const uniqueErrorKeys = [...new Set(errorKeys)];
 
     const newErrors = uniqueErrorKeys.filter((key) => {
-      const count = errorReportCount.current.get(key) || 0;
+      const count = errorReportCount.current.get(key) ?? 0;
       return count < 1;
     });
 
@@ -75,19 +76,25 @@ export const ErrorMonitor = ({ children, debounceTimeMs = 10000 }: Props) => {
     }
 
     startTransition(async () => {
-      const summary = await getSummary(errors, prev);
-      if (summary.shouldBeFixed) {
-        newErrors.forEach((key) => {
-          errorReportCount.current.set(key, 1);
-        });
+      try {
+        const mutationData = createSummaryMutation(errors);
+        const summary = await getSummaryMutation.mutateAsync(mutationData);
 
-        lastReportedErrors.current = newErrors;
-        lastErrorReportTime.current = Date.now();
+        if (summary.shouldBeFixed) {
+          newErrors.forEach((key) => {
+            errorReportCount.current.set(key, 1);
+          });
 
-        sendMessage({
-          role: "user",
-          parts: [{ type: "data-report-errors", data: summary }],
-        });
+          lastReportedErrors.current = newErrors;
+          lastErrorReportTime.current = Date.now();
+
+          void sendMessage({
+            role: "user",
+            parts: [{ type: "data-report-errors", data: summary }],
+          });
+        }
+      } catch (error) {
+        console.error("Failed to get error summary:", error);
       }
     });
   };

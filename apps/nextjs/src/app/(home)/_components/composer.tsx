@@ -11,7 +11,7 @@ import { motion } from "motion/react";
 import { authClient } from "@/lib/auth-client";
 import { Card } from "./card";
 import { featuredGames } from "./data";
-import { useStreaming } from "./stream-provider";
+import { useV0 } from "./v0-provider";
 import { WaitlistDailog } from "./waitlist-form";
 
 export const Composer = () => {
@@ -129,9 +129,8 @@ const BuildView = ({
   setWaitlistOpen: Dispatch<SetStateAction<boolean>>;
   setView: Dispatch<SetStateAction<"play" | "idle" | "build">>;
 }) => {
-  const { isLoading, isStreaming, sendMessage } = useStreaming();
   const [input, setInput] = useState("");
-
+  const { sendMessage, isSendingMessage, isInitializingChat } = useV0();
   const session = authClient.useSession();
   const user = session.data?.user;
 
@@ -142,7 +141,7 @@ const BuildView = ({
     }
   }, [user, setWaitlistOpen]);
 
-  const handleSubmit = useCallback(async () => {
+  const handleSubmit = async () => {
     if (input === "") {
       return;
     }
@@ -158,7 +157,7 @@ const BuildView = ({
     } catch (error) {
       console.error("Error sending message:", error);
     }
-  }, [input, user, sendMessage, setWaitlistOpen, setView]);
+  };
 
   return (
     <div className="ring-muted rounded-3xl p-1.5 ring-1">
@@ -167,7 +166,7 @@ const BuildView = ({
         input={input}
         setInput={setInput}
         onSubmit={handleSubmit}
-        loading={isLoading || isStreaming}
+        loading={isInitializingChat || isSendingMessage}
         onFocus={handleFocus}
       />
     </div>

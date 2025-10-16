@@ -1,5 +1,5 @@
 import { BugIcon } from "lucide-react";
-import Markdown from "react-markdown";
+import { Streamdown } from "streamdown";
 
 import type { DataPart } from "@repo/api/agent/messages/data-parts";
 import { ToolHeader } from "../tool-header";
@@ -17,7 +17,7 @@ export const ReportErrors = ({
         <span>Auto-detected errors</span>
       </ToolHeader>
       <div className="relative min-h-5">
-        <Markdown>{message.summary}</Markdown>
+        <Streamdown>{message.summary}</Streamdown>
       </div>
     </ToolMessage>
   );

@@ -1,6 +1,6 @@
 import type { ReasoningUIPart } from "ai";
+import { Streamdown } from "streamdown";
 
-import { MarkdownRenderer } from "@/components/markdown-renderer/markdown-renderer";
 import { useReasoningContext } from "../message";
 import { MessageSpinner } from "../message-spinner";
 
@@ -38,7 +38,7 @@ export const Reasoning = ({
       <div className="px-3 py-2">
         <div className="text-secondary-foreground font-mono leading-normal">
           {isExpanded || !hasMoreContent ? (
-            <MarkdownRenderer content={text} />
+            <Streamdown>{text}</Streamdown>
           ) : (
             <div className="overflow-hidden">{firstLine}</div>
           )}

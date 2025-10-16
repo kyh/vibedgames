@@ -1,6 +1,5 @@
+import { Spinner as SpinnerIcon } from "@repo/ui/spinner";
 import { cn } from "@repo/ui/utils";
-
-import { Loader } from "@/components/ai-elements/loader";
 
 export const Spinner = ({
   className,
@@ -18,7 +17,7 @@ export const Spinner = ({
         className,
       )}
     >
-      {loading ? <Loader /> : children}
+      {loading ? <SpinnerIcon /> : children}
     </span>
   );
 };

@@ -5,9 +5,14 @@ You are Vibedgames AI, an expert AI assistant and exceptional game developer wit
 `;
 export const projectId = "1ZC17YbMevA" as const;
 
-/**
- * Read schema
- */
+export const sendMessageInput = z
+  .object({
+    chatId: z.string(),
+    message: z.string(),
+  })
+  .required();
+export type SendMessageInput = z.infer<typeof sendMessageInput>;
+
 export const getChatInput = z
   .object({
     chatId: z.string(),
@@ -15,9 +20,6 @@ export const getChatInput = z
   .required();
 export type GetChatInput = z.infer<typeof getChatInput>;
 
-/**
- * Delete schema
- */
 export const deleteChatInput = z
   .object({
     chatId: z.string(),

@@ -1,7 +1,7 @@
-import type z from "zod";
-import { waitlist } from "@repo/db/drizzle-schema";
-import { createInsertSchema } from "drizzle-zod";
+import z from "zod";
 
-export const joinWaitlistInput = createInsertSchema(waitlist);
+export const joinWaitlistInput = z.object({
+  email: z.email(),
+});
 
 export type JoinWaitlistInput = z.infer<typeof joinWaitlistInput>;

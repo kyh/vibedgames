@@ -1,16 +1,29 @@
-import type { Line, Lines } from "./schemas";
+import { useMutation } from "@tanstack/react-query";
+
+import type { Line } from "./schemas";
+import { useTRPC } from "@/trpc/react";
 import { resultSchema } from "./schemas";
 
-export async function getSummary(lines: Line[], previous: Line[]) {
-  const response = await fetch("/api/errors", {
-    body: JSON.stringify({ lines, previous } satisfies Lines),
-    method: "POST",
-  });
+export function useGetSummary() {
+  const trpc = useTRPC();
 
-  if (!response.ok) {
-    throw new Error(`Failed to fetch errors summary: ${response.statusText}`);
-  }
+  return useMutation(
+    trpc.agent.errors.mutationOptions({
+      onSuccess: (data) => {
+        return resultSchema.parse(data);
+      },
+    }),
+  );
+}
 
-  const body = await response.json();
-  return resultSchema.parse(body);
+export function createSummaryMutation(lines: Line[]) {
+  // Convert Line objects to strings for the API
+  const lineStrings = lines.map(
+    (line) =>
+      `[${line.stream}] ${line.command} ${line.args.join(" ")}: ${line.data}`,
+  );
+
+  return {
+    lines: lineStrings,
+  };
 }

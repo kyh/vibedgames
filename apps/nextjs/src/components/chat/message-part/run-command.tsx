@@ -1,5 +1,5 @@
 import { CheckIcon, SquareChevronRightIcon, XIcon } from "lucide-react";
-import Markdown from "react-markdown";
+import { Streamdown } from "streamdown";
 
 import type { DataPart } from "@repo/api/agent/messages/data-parts";
 import { ToolHeader } from "../tool-header";
@@ -34,9 +34,9 @@ export const RunCommand = ({
             <CheckIcon className="h-4 w-4" />
           )}
         </Spinner>
-        <Markdown>{`\`${message.command} ${message.args.join(
+        <Streamdown>{`\`${message.command} ${message.args.join(
           " ",
-        )}\``}</Markdown>
+        )}\``}</Streamdown>
       </div>
     </ToolMessage>
   );

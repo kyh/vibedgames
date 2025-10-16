@@ -1,8 +1,9 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { cn } from "@repo/ui/utils";
-import z from "zod";
+import { useQuery } from "@tanstack/react-query";
 
 import type { Command, CommandLog } from "./types";
+import { useTRPC } from "@/trpc/react";
 
 type Props = {
   command: Command;
@@ -11,34 +12,48 @@ type Props = {
 };
 
 export const CommandLogs = ({ command, onLog, onCompleted }: Props) => {
-  const ref = useRef<Awaited<ReturnType<typeof getCommandLogs>>>(null);
+  const trpc = useTRPC();
+
+  // Query for command logs
+  const { data: logs } = useQuery(
+    trpc.sandbox.getCommandLogs.queryOptions({
+      sandboxId: command.sandboxId,
+      cmdId: command.cmdId,
+    }),
+  );
+
+  // Query for command status
+  const { data: commandData } = useQuery(
+    trpc.sandbox.getCommand.queryOptions({
+      sandboxId: command.sandboxId,
+      cmdId: command.cmdId,
+    }),
+  );
 
   useEffect(() => {
-    if (!ref.current) {
-      const iterator = getCommandLogs(command.sandboxId, command.cmdId);
-      ref.current = iterator;
-      (async () => {
-        for await (const log of iterator) {
-          onLog({
-            sandboxId: command.sandboxId,
-            cmdId: command.cmdId,
-            log,
-          });
-        }
-
-        const log = await getCommand(command.sandboxId, command.cmdId);
-        onCompleted({
-          sandboxId: log.sandboxId,
-          cmdId: log.cmdId,
-          startedAt: log.startedAt,
-          exitCode: log.exitCode ?? 0,
-          command: command.command,
-          args: command.args,
+    if (logs) {
+      logs.forEach((log) => {
+        onLog({
+          sandboxId: command.sandboxId,
+          cmdId: command.cmdId,
+          log,
         });
-      })();
+      });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [logs, command.sandboxId, command.cmdId, onLog]);
+
+  useEffect(() => {
+    if (commandData?.exitCode !== undefined) {
+      onCompleted({
+        sandboxId: commandData.sandboxId,
+        cmdId: commandData.cmdId,
+        startedAt: commandData.startedAt,
+        exitCode: commandData.exitCode,
+        command: command.command,
+        args: command.args,
+      });
+    }
+  }, [commandData, command.command, command.args, onCompleted]);
 
   return (
     <pre className={cn("font-mono text-sm whitespace-pre-wrap", {})}>
@@ -56,50 +71,6 @@ function logContent(command: Command) {
   });
 
   const line = `${command.command} ${command.args.join(" ")}`;
-  const body = command.logs?.map((log) => log.data).join("") || "";
+  const body = command.logs?.map((log) => log.data).join("") ?? "";
   return `[${date}] ${line}\n${body}`;
-}
-
-const logSchema = z.object({
-  data: z.string(),
-  stream: z.enum(["stdout", "stderr"]),
-  timestamp: z.number(),
-});
-
-async function* getCommandLogs(sandboxId: string, cmdId: string) {
-  const response = await fetch(
-    `/api/sandboxes/${sandboxId}/cmds/${cmdId}/logs`,
-    { headers: { "Content-Type": "application/json" } },
-  );
-
-  const reader = response.body!.getReader();
-  const decoder = new TextDecoder();
-  let line = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    line += decoder.decode(value, { stream: true });
-    const lines = line.split("\n");
-    for (let i = 0; i < lines.length - 1; i++) {
-      if (lines[i]) {
-        const logEntry = JSON.parse(lines[i] ?? "");
-        yield logSchema.parse(logEntry);
-      }
-    }
-    line = lines[lines.length - 1] ?? "";
-  }
-}
-
-const cmdSchema = z.object({
-  sandboxId: z.string(),
-  cmdId: z.string(),
-  startedAt: z.number(),
-  exitCode: z.number().optional(),
-});
-
-async function getCommand(sandboxId: string, cmdId: string) {
-  const response = await fetch(`/api/sandboxes/${sandboxId}/cmds/${cmdId}`);
-  const json = await response.json();
-  return cmdSchema.parse(json);
 }

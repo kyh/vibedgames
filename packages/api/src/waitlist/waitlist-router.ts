@@ -11,6 +11,7 @@ export const waitlistRouter = createTRPCRouter({
         .insert(waitlist)
         .values({
           ...input,
+          id: crypto.randomUUID(),
           source: process.env.VERCEL_PROJECT_PRODUCTION_URL ?? "",
           userId: ctx.session?.user.id,
         })
