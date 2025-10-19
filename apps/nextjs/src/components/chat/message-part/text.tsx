@@ -1,9 +1,20 @@
 import type { TextUIPart } from "ai";
+import { cn } from "@repo/ui/utils";
 import { Streamdown } from "streamdown";
 
-export const Text = ({ part }: { part: TextUIPart }) => {
+type Props = {
+  part: TextUIPart;
+  className?: string;
+};
+
+export const Text = ({ part, className }: Props) => {
   return (
-    <div className="bg-secondary/90 text-secondary-foreground rounded-md border border-gray-300 px-3.5 py-3 font-mono text-sm">
+    <div
+      className={cn(
+        "bg-foreground/10 text-foreground/80 rounded-lg px-3 py-1.5 text-sm backdrop-blur-[3px]",
+        className,
+      )}
+    >
       <Streamdown>{part.text}</Streamdown>
     </div>
   );

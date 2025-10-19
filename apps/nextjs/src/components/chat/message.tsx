@@ -1,6 +1,5 @@
 import { createContext, memo, useContext, useEffect, useState } from "react";
 import { cn } from "@repo/ui/utils";
-import { BotIcon, UserIcon } from "lucide-react";
 
 import type { ChatUIMessage } from "@repo/api/agent/messages/types";
 import { MessagePart } from "./message-part";
@@ -43,30 +42,19 @@ export const Message = memo(function Message({ message }: Props) {
       value={{ expandedReasoningIndex, setExpandedReasoningIndex }}
     >
       <div
-        className={cn({
-          "mr-20": message.role === "assistant",
-          "ml-20": message.role === "user",
-        })}
+        className={cn(
+          message.role === "assistant" && "mr-20",
+          message.role === "user" && "ml-20",
+        )}
       >
-        {/* Message Header */}
-        <div className="text-primary mb-1.5 flex items-center gap-2 font-mono text-sm font-medium">
-          {message.role === "user" ? (
-            <>
-              <UserIcon className="ml-auto w-4" />
-              <span>You</span>
-            </>
-          ) : (
-            <>
-              <BotIcon className="w-4" />
-              <span>Assistant ({message.metadata?.model})</span>
-            </>
-          )}
-        </div>
-
-        {/* Message Content */}
-        <div className="space-y-1.5">
+        <div className="space-y-1">
           {message.parts.map((part, index) => (
-            <MessagePart key={index} part={part} partIndex={index} />
+            <MessagePart
+              key={index}
+              part={part}
+              partIndex={index}
+              className={cn(message.role === "user" && "bg-foreground/20")}
+            />
           ))}
         </div>
       </div>

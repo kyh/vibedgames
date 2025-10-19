@@ -10,7 +10,7 @@ export enum Models {
   XaiGrok3Fast = "xai/grok-3-fast",
 }
 
-export const DEFAULT_MODEL = Models.AnthropicClaude45Sonnet;
+export const DEFAULT_MODEL = Models.OpenAIGPT5;
 
 export const SUPPORTED_MODELS: GatewayModelId[] = [
   Models.AmazonNovaPro,

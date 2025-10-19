@@ -2,17 +2,17 @@ import { CheckIcon, SquareChevronRightIcon, XIcon } from "lucide-react";
 import { Streamdown } from "streamdown";
 
 import type { DataPart } from "@repo/api/agent/messages/data-parts";
-import { ToolHeader } from "../tool-header";
-import { ToolMessage } from "../tool-message";
+import { ToolHeader, ToolMessage } from "../tool-message";
 import { Spinner } from "./spinner";
 
-export const RunCommand = ({
-  message,
-}: {
+type Props = {
   message: DataPart["run-command"];
-}) => {
+  className?: string;
+};
+
+export const RunCommand = ({ message, className }: Props) => {
   return (
-    <ToolMessage>
+    <ToolMessage className={className}>
       <ToolHeader>
         <SquareChevronRightIcon className="h-3.5 w-3.5" />
         {message.status === "executing" && "Executing"}

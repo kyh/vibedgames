@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 const Page = () => {
   return (
     <V0Provider>
-      <main className="grid h-dvh w-dvw overflow-hidden">
+      <main className="grid h-dvh w-dvw overflow-hidden bg-[url('https://zmdrwswxugswzmcokvff.supabase.co/storage/v1/object/public/vibedgames/bg.png')] bg-[size:10px]">
         <Preview />
         <Composer />
       </main>

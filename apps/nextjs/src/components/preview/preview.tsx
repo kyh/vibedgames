@@ -1,51 +1,65 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { ScrollArea } from "@radix-ui/react-scroll-area";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from "@repo/ui/input-group";
 import { Spinner } from "@repo/ui/spinner";
 import { cn } from "@repo/ui/utils";
 import { CompassIcon, RefreshCwIcon } from "lucide-react";
 
 type Props = {
   className?: string;
+  showHeader?: boolean;
   disabled?: boolean;
   url?: string;
+  preview?: React.ReactNode;
 };
 
-export const Preview = ({ className, disabled, url }: Props) => {
+export const Preview = ({
+  className,
+  showHeader,
+  disabled,
+  url,
+  preview,
+}: Props) => {
   const [currentUrl, setCurrentUrl] = useState(url);
   const [error, setError] = useState<string | null>(null);
-  const [inputValue, setInputValue] = useState(url || "");
+  const [inputValue, setInputValue] = useState(url ?? "");
   const [isLoading, setIsLoading] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const loadStartTime = useRef<number | null>(null);
 
-  useEffect(() => {
-    setCurrentUrl(url);
-    setInputValue(url || "");
-  }, [url]);
+  // Update state when url prop changes
+  const currentUrlValue = url ?? currentUrl;
+  const inputValueValue = url ?? inputValue;
 
   const refreshIframe = () => {
-    if (iframeRef.current && currentUrl) {
+    if (iframeRef.current && currentUrlValue) {
       setIsLoading(true);
       setError(null);
       loadStartTime.current = Date.now();
       iframeRef.current.src = "";
       setTimeout(() => {
         if (iframeRef.current) {
-          iframeRef.current.src = currentUrl;
+          iframeRef.current.src = currentUrlValue;
         }
       }, 10);
     }
   };
 
   const loadNewUrl = () => {
-    if (iframeRef.current && inputValue) {
-      if (inputValue !== currentUrl) {
+    if (iframeRef.current && inputValueValue) {
+      if (inputValueValue !== currentUrlValue) {
         setIsLoading(true);
         setError(null);
         loadStartTime.current = Date.now();
-        iframeRef.current.src = inputValue;
+        iframeRef.current.src = inputValueValue;
+        setCurrentUrl(inputValueValue);
       } else {
         refreshIframe();
       }
@@ -63,53 +77,61 @@ export const Preview = ({ className, disabled, url }: Props) => {
   };
 
   return (
-    <div className={className}>
-      <div>
-        <div className="absolute flex items-center space-x-1">
-          <a href={currentUrl} target="_blank" className="cursor-pointer px-1">
-            <CompassIcon className="w-4" />
-          </a>
-          <button
-            onClick={refreshIframe}
-            type="button"
-            className={cn("cursor-pointer px-1", {
-              "animate-spin": isLoading,
-            })}
-          >
-            <RefreshCwIcon className="w-4" />
-          </button>
-        </div>
-
-        <div className="m-auto h-6">
-          {url && (
-            <input
-              type="text"
-              className="h-6 min-w-[300px] rounded border border-gray-200 bg-white px-4 font-mono text-xs focus:border-transparent focus:ring-2 focus:ring-blue-500 focus:outline-none"
-              onChange={(event) => setInputValue(event.target.value)}
-              onClick={(event) => event.currentTarget.select()}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.currentTarget.blur();
-                  loadNewUrl();
-                }
-              }}
-              value={inputValue}
-            />
-          )}
-        </div>
-      </div>
-
-      <div className="relative flex h-[calc(100%-2rem-1px)]">
-        {currentUrl && !disabled && (
+    <div className={cn("relative h-full w-full", className)}>
+      {showHeader && (
+        <header className="absolute top-4 left-1/2 z-10 -translate-x-1/2">
+          <InputGroup className="w-96">
+            <InputGroupAddon>
+              <a
+                href={currentUrlValue}
+                target="_blank"
+                className="cursor-pointer"
+              >
+                <CompassIcon className="w-4" />
+              </a>
+            </InputGroupAddon>
+            {url && (
+              <InputGroupInput
+                type="text"
+                className="font-mono text-xs"
+                onChange={(event) => setInputValue(event.target.value)}
+                onClick={(event) => event.currentTarget.select()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.currentTarget.blur();
+                    loadNewUrl();
+                  }
+                }}
+                value={inputValueValue}
+              />
+            )}
+            <InputGroupAddon align="inline-end">
+              <InputGroupButton
+                onClick={refreshIframe}
+                type="button"
+                className={cn({
+                  "animate-spin": isLoading,
+                })}
+              >
+                <RefreshCwIcon className="w-4" />
+              </InputGroupButton>
+            </InputGroupAddon>
+          </InputGroup>
+        </header>
+      )}
+      <div className="relative flex h-full">
+        {preview && preview}
+        {currentUrlValue && !disabled && (
           <>
             <ScrollArea className="w-full">
               <iframe
                 ref={iframeRef}
-                src={currentUrl}
+                src={currentUrlValue}
                 className="h-full w-full"
                 onLoad={handleIframeLoad}
                 onError={handleIframeError}
                 title="Browser content"
+                allow="camera; microphone"
               />
             </ScrollArea>
 
@@ -127,10 +149,10 @@ export const Preview = ({ className, disabled, url }: Props) => {
                   className="text-sm text-blue-500 hover:underline"
                   type="button"
                   onClick={() => {
-                    if (currentUrl) {
+                    if (currentUrlValue) {
                       setIsLoading(true);
                       setError(null);
-                      const newUrl = new URL(currentUrl);
+                      const newUrl = new URL(currentUrlValue);
                       newUrl.searchParams.set("t", Date.now().toString());
                       setCurrentUrl(newUrl.toString());
                     }

@@ -1,6 +1,22 @@
 import type { ReactNode } from "react";
 import { cn } from "@repo/ui/utils";
 
+export const ToolHeader = (props: {
+  className?: string;
+  children: ReactNode;
+}) => {
+  return (
+    <div
+      className={cn(
+        "text-foreground/50 mb-1 flex items-center gap-1",
+        props.className,
+      )}
+    >
+      {props.children}
+    </div>
+  );
+};
+
 export const ToolMessage = (props: {
   className?: string;
   children: ReactNode;
@@ -8,7 +24,7 @@ export const ToolMessage = (props: {
   return (
     <div
       className={cn(
-        "border-border bg-background rounded-md border px-3.5 py-3 font-mono text-sm",
+        "bg-foreground/10 text-foreground/80 rounded-lg px-3 py-1.5 text-sm backdrop-blur-[3px]",
         props.className,
       )}
     >

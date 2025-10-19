@@ -1,17 +1,17 @@
 import { CheckIcon, LinkIcon } from "lucide-react";
 
 import type { DataPart } from "@repo/api/agent/messages/data-parts";
-import { ToolHeader } from "../tool-header";
-import { ToolMessage } from "../tool-message";
+import { ToolHeader, ToolMessage } from "../tool-message";
 import { Spinner } from "./spinner";
 
-export const GetSandboxURL = ({
-  message,
-}: {
+type Props = {
   message: DataPart["get-sandbox-url"];
-}) => {
+  className?: string;
+};
+
+export const GetSandboxURL = ({ message, className }: Props) => {
   return (
-    <ToolMessage>
+    <ToolMessage className={className}>
       <ToolHeader>
         <LinkIcon className="h-3.5 w-3.5" />
         <span>Get Sandbox URL</span>

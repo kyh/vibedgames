@@ -1,17 +1,17 @@
 import { BoxIcon, CheckIcon, XIcon } from "lucide-react";
 
 import type { DataPart } from "@repo/api/agent/messages/data-parts";
-import { ToolHeader } from "../tool-header";
-import { ToolMessage } from "../tool-message";
+import { ToolHeader, ToolMessage } from "../tool-message";
 import { Spinner } from "./spinner";
 
 type Props = {
+  className?: string;
   message: DataPart["create-sandbox"];
 };
 
-export const CreateSandbox = ({ message }: Props) => {
+export const CreateSandbox = ({ message, className }: Props) => {
   return (
-    <ToolMessage>
+    <ToolMessage className={className}>
       <ToolHeader>
         <BoxIcon className="h-3.5 w-3.5" />
         Create Sandbox

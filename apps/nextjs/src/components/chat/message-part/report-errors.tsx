@@ -2,16 +2,16 @@ import { BugIcon } from "lucide-react";
 import { Streamdown } from "streamdown";
 
 import type { DataPart } from "@repo/api/agent/messages/data-parts";
-import { ToolHeader } from "../tool-header";
-import { ToolMessage } from "../tool-message";
+import { ToolHeader, ToolMessage } from "../tool-message";
 
-export const ReportErrors = ({
-  message,
-}: {
+type Props = {
   message: DataPart["report-errors"];
-}) => {
+  className?: string;
+};
+
+export const ReportErrors = ({ message, className }: Props) => {
   return (
-    <ToolMessage>
+    <ToolMessage className={className}>
       <ToolHeader>
         <BugIcon className="h-3.5 w-3.5" />
         <span>Auto-detected errors</span>

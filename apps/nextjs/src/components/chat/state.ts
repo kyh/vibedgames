@@ -2,7 +2,7 @@ import type { ChatStatus, DataUIPart } from "ai";
 import { useMemo } from "react";
 import { create } from "zustand";
 
-import type { Command, CommandLog } from "@/components/commands-logs/types";
+import type { Command, CommandLog } from "@/components/command-logs/types";
 import type { DataPart } from "@repo/api/agent/messages/data-parts";
 import { useMonitorState } from "@/components/error-monitor/state";
 

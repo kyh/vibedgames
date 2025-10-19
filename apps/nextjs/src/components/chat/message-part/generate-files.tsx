@@ -1,34 +1,33 @@
 import { CheckIcon, CloudUploadIcon, XIcon } from "lucide-react";
 
 import type { DataPart } from "@repo/api/agent/messages/data-parts";
-import { ToolHeader } from "../tool-header";
-import { ToolMessage } from "../tool-message";
+import { ToolHeader, ToolMessage } from "../tool-message";
 import { Spinner } from "./spinner";
 
-export const GenerateFiles = (props: {
-  className?: string;
+type Props = {
   message: DataPart["generating-files"];
-}) => {
+  className?: string;
+};
+
+export const GenerateFiles = ({ message, className }: Props) => {
   const lastInProgress = ["error", "uploading", "generating"].includes(
-    props.message.status,
+    message.status,
   );
 
   const generated = lastInProgress
-    ? props.message.paths.slice(0, props.message.paths.length - 1)
-    : props.message.paths;
+    ? message.paths.slice(0, message.paths.length - 1)
+    : message.paths;
 
   const generating = lastInProgress
-    ? (props.message.paths[props.message.paths.length - 1] ?? "")
+    ? (message.paths[message.paths.length - 1] ?? "")
     : null;
 
   return (
-    <ToolMessage className={props.className}>
+    <ToolMessage className={className}>
       <ToolHeader>
         <CloudUploadIcon className="h-3.5 w-3.5" />
         <span>
-          {props.message.status === "done"
-            ? "Uploaded files"
-            : "Generating files"}
+          {message.status === "done" ? "Uploaded files" : "Generating files"}
         </span>
       </ToolHeader>
       <div className="relative min-h-5 text-sm">
@@ -40,11 +39,8 @@ export const GenerateFiles = (props: {
         ))}
         {typeof generating === "string" && (
           <div className="flex">
-            <Spinner
-              className="mr-1"
-              loading={props.message.status !== "error"}
-            >
-              {props.message.status === "error" ? (
+            <Spinner className="mr-1" loading={message.status !== "error"}>
+              {message.status === "error" ? (
                 <XIcon className="h-4 w-4 text-red-700" />
               ) : (
                 <CheckIcon className="h-4 w-4" />

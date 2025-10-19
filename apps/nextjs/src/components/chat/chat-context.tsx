@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/refs */
 "use client";
 
 import type { DataUIPart } from "ai";
@@ -25,7 +26,8 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
   const chat = useMemo(
     () =>
       new Chat<ChatUIMessage>({
-        onData: (data: DataUIPart<DataPart>) => mapDataToStateRef.current(data),
+        onData: (data) =>
+          mapDataToStateRef.current(data as DataUIPart<DataPart>),
         onError: (error) => {
           toast.error(`Communication error with the AI: ${error.message}`);
           console.error("Error sending message:", error);
