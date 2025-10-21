@@ -9,10 +9,10 @@ import { BlocksIcon, PlayIcon } from "lucide-react";
 import { motion } from "motion/react";
 
 import { authClient } from "@/lib/auth-client";
+import { featuredGames } from "../../app/(home)/_components/data";
+import { WaitlistDailog } from "../../app/(home)/_components/waitlist-form";
 import { Card } from "./card";
-import { featuredGames } from "./data";
 import { useV0 } from "./v0-provider";
-import { WaitlistDailog } from "./waitlist-form";
 
 export const Composer = () => {
   const [view, setView] = useState<"play" | "build" | "idle">("idle");
@@ -178,12 +178,8 @@ const PlayView = () => {
     <div className="ring-muted [&::-webkit-scrollbar-thumb]:bg-secondary/80 h-[80dvh] space-y-10 overflow-auto rounded-3xl px-6 pt-5 ring-1 md:grid md:grid-cols-2 md:gap-10 md:space-y-0 md:px-3 md:pb-5 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:rounded-full">
       {featuredGames.map((data) => {
         return (
-          <Link
-            key={data.id}
-            href={`https://${data.slug}.vibedgames.com`}
-            className="flex justify-center"
-          >
-            <Card {...data} />
+          <Link key={data.id} href={data.url} className="flex justify-center">
+            {/* <Card {...data} /> */}
           </Link>
         );
       })}

@@ -80,7 +80,7 @@ export const Preview = ({
     <div className={cn("relative h-full w-full", className)}>
       {showHeader && (
         <header className="absolute top-4 left-1/2 z-10 -translate-x-1/2">
-          <InputGroup className="w-96">
+          <InputGroup className="w-96 border-none backdrop-blur-sm">
             <InputGroupAddon>
               <a
                 href={currentUrlValue}
@@ -103,6 +103,7 @@ export const Preview = ({
                   }
                 }}
                 value={inputValueValue}
+                readOnly
               />
             )}
             <InputGroupAddon align="inline-end">

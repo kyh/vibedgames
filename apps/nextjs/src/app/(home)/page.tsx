@@ -12,6 +12,7 @@ import { cn } from "@repo/ui/utils";
 import { motion } from "motion/react";
 import { create } from "zustand";
 
+import type { FeaturedGame } from "./_components/data";
 import type { ChatUIMessage } from "@repo/api/agent/messages/types";
 import { useSharedChatContext } from "@/components/chat/chat-context";
 import { Message } from "@/components/chat/message";
@@ -22,7 +23,7 @@ import {
   PreviewStackProvider,
   usePreviewStack,
 } from "@/components/preview/preview-stack";
-import { featuredGames } from "../../_components/data";
+import { featuredGames } from "./_components/data";
 
 type View = "build" | "play" | "discover";
 
@@ -30,7 +31,7 @@ const uiState = create<{
   view: View;
   setView: (view: View) => void;
 }>((set) => ({
-  view: "build",
+  view: "play",
   setView: (view) => set({ view }),
 }));
 
@@ -49,48 +50,56 @@ const Page = () => {
 
 export default Page;
 
-const buttons = [
-  {
-    label: "Build",
-    value: "build",
-  },
-  {
-    label: "Play",
-    value: "play",
-  },
-] as const;
-
 const Composer = () => {
   const { view, setView } = uiState();
 
   return (
     <>
-      {view === "build" ? <BuildView /> : <PlayView />}
+      {view === "build" && <BuildView />}
+      {view === "discover" && <DiscoverView />}
       <div className="relative flex gap-2 font-mono text-xs uppercase">
-        {buttons.map((button) => (
-          <button
-            key={button.value}
-            className={cn(
-              "text-muted-foreground hover:text-foreground relative px-3 py-1.5 transition",
-              view === button.value && "text-foreground",
-            )}
-            onClick={() => setView(button.value)}
-          >
-            {button.label}
-            {view === button.value && (
-              <motion.div
-                layoutId="brackets"
-                className="absolute inset-0 flex items-center justify-between before:content-['['] after:content-[']']"
-              />
-            )}
-          </button>
-        ))}
+        <button
+          className={cn(
+            "text-muted-foreground hover:text-foreground relative px-3 py-1.5 transition",
+            view === "play" && "text-foreground",
+          )}
+          onClick={() => {
+            if (view === "discover") {
+              setView("play");
+            } else {
+              setView("discover");
+            }
+          }}
+        >
+          Play
+          {(view === "play" || view === "discover") && (
+            <motion.div
+              layoutId="brackets"
+              className="absolute inset-0 flex items-center justify-between before:content-['['] after:content-[']']"
+            />
+          )}
+        </button>
+        <button
+          className={cn(
+            "text-muted-foreground hover:text-foreground relative px-3 py-1.5 transition",
+            view === "build" && "text-foreground",
+          )}
+          onClick={() => setView("build")}
+        >
+          Build
+          {view === "build" && (
+            <motion.div
+              layoutId="brackets"
+              className="absolute inset-0 flex items-center justify-between before:content-['['] after:content-[']']"
+            />
+          )}
+        </button>
       </div>
     </>
   );
 };
 
-const PlayView = () => {
+const DiscoverView = () => {
   const { setUrl } = useSandboxStore();
   const { setView } = uiState();
   const { setCurrentIndex } = usePreviewStack();
@@ -108,16 +117,13 @@ const PlayView = () => {
             onClick={() => {
               setView("play");
               setCurrentIndex(index);
-              setUrl(
-                `https://${game.slug}.vibedgames.com`,
-                crypto.randomUUID(),
-              );
+              setUrl(game.url, crypto.randomUUID());
             }}
             className="hover:border-foreground border border-transparent transition-colors"
           >
             <div className="relative h-[110px] w-[90px] overflow-hidden">
               <Image
-                src={`/${game.slug}/thumbnail.png`}
+                src={game.preview}
                 alt={game.name}
                 fill
                 className="object-cover"
@@ -186,34 +192,31 @@ const BuildView = () => {
 };
 
 const Preview = () => {
-  const { status, url, urlUUID } = useSandboxStore();
+  const { status } = useSandboxStore();
   const view = uiState((state) => state.view);
 
-  // Create game data with unique IDs for the card stack
-  const gameData = featuredGames.map((game) => ({
-    ...game,
-    id: game.slug, // Use slug as ID for the card stack
-  }));
-
-  const renderGameCard = (game: (typeof gameData)[0]) => (
+  const renderGameCard = (game: FeaturedGame) => (
     <PreviewComponent
-      key={game.slug}
-      disabled={status === "stopped"}
-      url={`https://${game.slug}.vibedgames.com`}
+      key={game.id}
+      disabled={view === "discover" || status === "stopped"}
+      url={game.url}
+      preview={
+        <Image
+          src={game.preview}
+          alt={game.name}
+          fill
+          className="object-cover"
+        />
+      }
       showHeader
     />
   );
 
-  if (view === "discover") {
-    return <PreviewStack data={gameData} render={renderGameCard} />;
-  }
-
   return (
-    <PreviewComponent
-      key={urlUUID}
-      disabled={status === "stopped"}
-      url={url ?? "/demo"}
-      showHeader
+    <PreviewStack
+      data={featuredGames}
+      render={renderGameCard}
+      zoomed={view === "discover"}
     />
   );
 };

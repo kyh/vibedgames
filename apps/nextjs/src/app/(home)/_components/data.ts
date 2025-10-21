@@ -1,37 +1,39 @@
-import type { CardProps } from "./card";
+export type FeaturedGame = {
+  id: number;
+  name: string;
+  preview: string;
+  url: string;
+};
 
-export const featuredGames: CardProps[] = [
+export const featuredGames: FeaturedGame[] = [
+  {
+    id: 0,
+    name: "Demo",
+    preview: "/demo/thumbnail.png",
+    url: "/demo",
+  },
   {
     id: 1,
     name: "Flappy Bird",
-    description:
-      "flap flap flap flap flap flap flap flap flap flap flap flap flap",
-    slug: "flappy-bird",
-    type: "wip",
-    plays: 1300,
+    preview: "/flappy-bird/thumbnail.png",
+    url: "https://flappy-bird.vibedgames.com",
   },
   {
     id: 2,
     name: "Pacman",
-    slug: "pacman",
-    description: "chomp chomp chomp chomp chomp chomp chomp",
-    type: "wip",
-    plays: 2000,
+    preview: "/pacman/thumbnail.png",
+    url: "https://pacman.vibedgames.com",
   },
   {
     id: 3,
     name: "Tetris",
-    slug: "tetris",
-    description: "block block block block block block block block",
-    type: "wip",
-    plays: 1000,
+    preview: "/tetris/thumbnail.png",
+    url: "https://tetris.vibedgames.com",
   },
   {
     id: 4,
     name: "Pong",
-    slug: "pong",
-    description: "pong pong pong pong pong pong pong pong",
-    type: "wip",
-    plays: 1000,
+    preview: "/pong/thumbnail.png",
+    url: "https://pong.vibedgames.com",
   },
 ];

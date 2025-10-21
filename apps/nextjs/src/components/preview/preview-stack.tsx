@@ -1,15 +1,7 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef, useState } from "react";
-import {
-  animate,
-  easeIn,
-  mix,
-  motion,
-  progress,
-  useMotionValue,
-  wrap,
-} from "motion/react";
+import { createContext, useContext, useState } from "react";
+import { motion } from "framer-motion";
 
 type PreviewStackContextType = {
   currentIndex: number;
@@ -51,122 +43,75 @@ export const usePreviewStack = () => {
 
 type PreviewCardProps = {
   index: number;
-  currentIndex: number;
   total: number;
-  minDistance?: number;
-  minSpeed?: number;
-  setNextPost: () => void;
+  zoomed: boolean;
   children: React.ReactNode;
 };
 
 export const PreviewCard = ({
   index,
-  currentIndex,
   total,
-  setNextPost,
-  minDistance = 400,
-  minSpeed = 50,
+  zoomed,
   children,
 }: PreviewCardProps) => {
-  const x = useMotionValue(0);
-  const zIndex = total - wrap(total, 0, index - currentIndex + 1);
+  const { currentIndex } = usePreviewStack();
+  const [isVisible, setIsVisible] = useState(true);
+  const isActive = index === currentIndex;
+  const isNext = index === (currentIndex + 1) % total;
+  const isPrevious = index === (currentIndex - 1 + total) % total;
 
-  const onDragEnd = () => {
-    const distance = Math.abs(x.get());
-    const speed = Math.abs(x.getVelocity());
-
-    if (distance > minDistance || speed > minSpeed) {
-      setNextPost();
-
-      animate(x, 0, {
-        type: "spring",
-        stiffness: 600,
-        damping: 50,
-      });
-    } else {
-      animate(x, 0, {
-        type: "spring",
-        stiffness: 300,
-        damping: 50,
-      });
-    }
+  const getAnimateVariants = () => {
+    if (isActive) return { z: zoomed ? "-10vw" : "0vw", y: 0 };
+    if (isNext) return { z: zoomed ? "-70vw" : "-60vw", y: "-5vh" };
+    if (isPrevious) return { z: zoomed ? "-10vw" : "0vw", y: "120vh" };
+    return { z: zoomed ? "-130vw" : "-120vw", y: "-10vh" };
   };
-
-  const opacity = progress(total * 0.25, total * 0.75, zIndex);
-
-  const progressInStack = progress(0, total - 1, zIndex);
-  const scale = mix(0.5, 1, easeIn(progressInStack));
 
   return (
     <motion.div
-      className="absolute top-0 h-full w-full cursor-grab overflow-auto"
-      style={{
-        zIndex,
-        x,
+      className="col-span-full row-span-full h-full w-full"
+      initial={false}
+      animate={getAnimateVariants()}
+      transition={{ type: "spring", duration: 0.6 }}
+      onAnimationStart={() => setIsVisible(true)}
+      onAnimationComplete={() => {
+        if (!isActive) setIsVisible(false);
       }}
-      initial={{ opacity: 0, scale: 0.3 }}
-      animate={{ opacity, scale }}
-      whileTap={index === currentIndex ? { scale: 0.98 } : {}}
-      transition={{
-        type: "spring",
-        stiffness: 600,
-        damping: 30,
-      }}
-      drag={index === currentIndex ? "x" : false}
-      onDragEnd={onDragEnd}
+      style={{ display: isVisible ? "block" : "none" }}
     >
-      <motion.div className="bg-card h-fit w-full shadow-sm">
-        {children}
-      </motion.div>
+      {children}
     </motion.div>
   );
 };
 
 type Props<T> = {
   data: T[];
+
   render: (d: T) => React.ReactNode;
-  onLoadMore?: () => void;
-  hasNextPage?: boolean;
+  zoomed: boolean;
 };
 
-export const PreviewStack = <T extends { id: string }>({
+export const PreviewStack = <T extends { id: string | number }>({
   data,
   render,
-  hasNextPage,
-  onLoadMore,
+  zoomed,
 }: Props<T>) => {
-  const { currentIndex, setCurrentIndex } = usePreviewStack();
-  const ref = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(400);
-
-  useEffect(() => {
-    if (!ref.current) return;
-    setWidth(ref.current.offsetWidth);
-  }, []);
-
-  const handleSetNextPost = () => {
-    const postsLeft = data.length - currentIndex - 1;
-    if (postsLeft <= 1 && hasNextPage && onLoadMore) onLoadMore();
-    const newIndex = wrap(0, data.length, currentIndex + 1);
-    setCurrentIndex(newIndex);
-  };
-
   return (
-    <div ref={ref} className="relative h-full w-full">
-      {data.map((item, index) => {
-        return (
-          <PreviewCard
-            key={item.id}
-            minDistance={width * 0.5}
-            index={index}
-            currentIndex={currentIndex}
-            total={data.length}
-            setNextPost={handleSetNextPost}
-          >
-            {render(item)}
-          </PreviewCard>
-        );
-      })}
-    </div>
+    <section className="relative h-full w-full perspective-[150vw]">
+      <div className="grid h-full w-full place-items-center transform-3d">
+        {data.map((item, index) => {
+          return (
+            <PreviewCard
+              key={item.id}
+              index={index}
+              total={data.length}
+              zoomed={zoomed}
+            >
+              {render(item)}
+            </PreviewCard>
+          );
+        })}
+      </div>
+    </section>
   );
 };

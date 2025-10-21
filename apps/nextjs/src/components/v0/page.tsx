@@ -1,8 +1,6 @@
-import { Composer } from "../_components/composer";
-import { Preview } from "../_components/preview";
-import { V0Provider } from "../_components/v0-provider";
-
-export const dynamic = "force-dynamic";
+import { Composer } from "./composer";
+import { Preview } from "./preview";
+import { V0Provider } from "./v0-provider";
 
 const Page = () => {
   return (
