@@ -3,37 +3,48 @@ export type FeaturedGame = {
   name: string;
   preview: string;
   url: string;
+  colorScheme: "light" | "dark";
 };
 
 export const featuredGames: FeaturedGame[] = [
   {
     id: 0,
     name: "Demo",
-    preview: "/demo/thumbnail.png",
+    preview:
+      "https://zmdrwswxugswzmcokvff.supabase.co/storage/v1/object/public/vibedgames/astroid.png",
     url: "/demo",
+    colorScheme: "dark",
   },
   {
     id: 1,
     name: "Flappy Bird",
-    preview: "/flappy-bird/thumbnail.png",
+    preview:
+      "https://zmdrwswxugswzmcokvff.supabase.co/storage/v1/object/public/vibedgames/flappy.png",
     url: "https://flappy-bird.vibedgames.com",
+    colorScheme: "light",
   },
   {
     id: 2,
     name: "Pacman",
-    preview: "/pacman/thumbnail.png",
+    preview:
+      "https://zmdrwswxugswzmcokvff.supabase.co/storage/v1/object/public/vibedgames/pacman.png",
     url: "https://pacman.vibedgames.com",
+    colorScheme: "dark",
   },
   {
     id: 3,
     name: "Tetris",
-    preview: "/tetris/thumbnail.png",
+    preview:
+      "https://zmdrwswxugswzmcokvff.supabase.co/storage/v1/object/public/vibedgames/tetris.png",
     url: "https://tetris.vibedgames.com",
+    colorScheme: "dark",
   },
   {
     id: 4,
     name: "Pong",
-    preview: "/pong/thumbnail.png",
+    preview:
+      "https://zmdrwswxugswzmcokvff.supabase.co/storage/v1/object/public/vibedgames/pong.png",
     url: "https://pong.vibedgames.com",
+    colorScheme: "light",
   },
 ];

@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState } from "react";
+import { cn } from "@repo/ui/utils";
 import { motion } from "framer-motion";
 
 type PreviewStackContextType = {
@@ -54,30 +55,32 @@ export const PreviewCard = ({
   zoomed,
   children,
 }: PreviewCardProps) => {
-  const { currentIndex } = usePreviewStack();
   const [isVisible, setIsVisible] = useState(true);
+  const { currentIndex } = usePreviewStack();
   const isActive = index === currentIndex;
   const isNext = index === (currentIndex + 1) % total;
   const isPrevious = index === (currentIndex - 1 + total) % total;
 
   const getAnimateVariants = () => {
-    if (isActive) return { z: zoomed ? "-10vw" : "0vw", y: 0 };
-    if (isNext) return { z: zoomed ? "-70vw" : "-60vw", y: "-5vh" };
-    if (isPrevious) return { z: zoomed ? "-10vw" : "0vw", y: "120vh" };
-    return { z: zoomed ? "-130vw" : "-120vw", y: "-10vh" };
+    if (isActive) return { z: zoomed ? "-70vw" : "0vw", y: 0 };
+    if (isNext) return { z: zoomed ? "-80vw" : "-10vw", y: "-5vh" };
+    if (isPrevious) return { z: zoomed ? "-70vw" : "0vw", y: "150vh" };
+    return { z: zoomed ? "-90vw" : "-20vw", y: "-10vh" };
   };
 
   return (
     <motion.div
-      className="col-span-full row-span-full h-full w-full"
+      className={cn(
+        "col-span-full row-span-full h-full w-full",
+        isVisible ? "block" : "hidden",
+      )}
       initial={false}
       animate={getAnimateVariants()}
-      transition={{ type: "spring", duration: 0.6 }}
       onAnimationStart={() => setIsVisible(true)}
       onAnimationComplete={() => {
-        if (!isActive) setIsVisible(false);
+        if (!zoomed && !isActive) setIsVisible(false);
       }}
-      style={{ display: isVisible ? "block" : "none" }}
+      transition={{ type: "spring", duration: 0.6 }}
     >
       {children}
     </motion.div>
@@ -86,7 +89,6 @@ export const PreviewCard = ({
 
 type Props<T> = {
   data: T[];
-
   render: (d: T) => React.ReactNode;
   zoomed: boolean;
 };

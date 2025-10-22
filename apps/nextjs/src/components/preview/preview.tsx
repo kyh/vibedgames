@@ -1,16 +1,9 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { ScrollArea } from "@radix-ui/react-scroll-area";
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupButton,
-  InputGroupInput,
-} from "@repo/ui/input-group";
+import { Button } from "@repo/ui/button";
 import { Spinner } from "@repo/ui/spinner";
 import { cn } from "@repo/ui/utils";
-import { CompassIcon, RefreshCwIcon } from "lucide-react";
 
 type Props = {
   className?: string;
@@ -20,51 +13,10 @@ type Props = {
   preview?: React.ReactNode;
 };
 
-export const Preview = ({
-  className,
-  showHeader,
-  disabled,
-  url,
-  preview,
-}: Props) => {
-  const [currentUrl, setCurrentUrl] = useState(url);
+export const Preview = ({ className, disabled, url, preview }: Props) => {
   const [error, setError] = useState<string | null>(null);
-  const [inputValue, setInputValue] = useState(url ?? "");
   const [isLoading, setIsLoading] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const loadStartTime = useRef<number | null>(null);
-
-  // Update state when url prop changes
-  const currentUrlValue = url ?? currentUrl;
-  const inputValueValue = url ?? inputValue;
-
-  const refreshIframe = () => {
-    if (iframeRef.current && currentUrlValue) {
-      setIsLoading(true);
-      setError(null);
-      loadStartTime.current = Date.now();
-      iframeRef.current.src = "";
-      setTimeout(() => {
-        if (iframeRef.current) {
-          iframeRef.current.src = currentUrlValue;
-        }
-      }, 10);
-    }
-  };
-
-  const loadNewUrl = () => {
-    if (iframeRef.current && inputValueValue) {
-      if (inputValueValue !== currentUrlValue) {
-        setIsLoading(true);
-        setError(null);
-        loadStartTime.current = Date.now();
-        iframeRef.current.src = inputValueValue;
-        setCurrentUrl(inputValueValue);
-      } else {
-        refreshIframe();
-      }
-    }
-  };
 
   const handleIframeLoad = () => {
     setIsLoading(false);
@@ -78,94 +30,50 @@ export const Preview = ({
 
   return (
     <div className={cn("relative h-full w-full", className)}>
-      {showHeader && (
-        <header className="absolute top-4 left-1/2 z-10 -translate-x-1/2">
-          <InputGroup className="w-96 border-none backdrop-blur-sm">
-            <InputGroupAddon>
-              <a
-                href={currentUrlValue}
-                target="_blank"
-                className="cursor-pointer"
-              >
-                <CompassIcon className="w-4" />
-              </a>
-            </InputGroupAddon>
-            {url && (
-              <InputGroupInput
-                type="text"
-                className="font-mono text-xs"
-                onChange={(event) => setInputValue(event.target.value)}
-                onClick={(event) => event.currentTarget.select()}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.currentTarget.blur();
-                    loadNewUrl();
+      {preview && preview}
+      {url && !disabled && (
+        <>
+          <iframe
+            id="preview-iframe"
+            ref={iframeRef}
+            src={url}
+            className="relative h-full w-full"
+            onLoad={handleIframeLoad}
+            onError={handleIframeError}
+            title="Browser content"
+            allow="camera; microphone"
+          />
+          {isLoading && !error && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+              <Spinner />
+              <span className="text-xs text-gray-500">Loading...</span>
+            </div>
+          )}
+          {error && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+              <p>Failed to load page</p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  if (url) {
+                    setIsLoading(true);
+                    setError(null);
+                    const newUrl = new URL(url);
+                    newUrl.searchParams.set("t", Date.now().toString());
+                    if (iframeRef.current) {
+                      iframeRef.current.src = newUrl.toString();
+                    }
                   }
                 }}
-                value={inputValueValue}
-                readOnly
-              />
-            )}
-            <InputGroupAddon align="inline-end">
-              <InputGroupButton
-                onClick={refreshIframe}
-                type="button"
-                className={cn({
-                  "animate-spin": isLoading,
-                })}
               >
-                <RefreshCwIcon className="w-4" />
-              </InputGroupButton>
-            </InputGroupAddon>
-          </InputGroup>
-        </header>
+                Try again
+              </Button>
+            </div>
+          )}
+        </>
       )}
-      <div className="relative flex h-full">
-        {preview && preview}
-        {currentUrlValue && !disabled && (
-          <>
-            <ScrollArea className="w-full">
-              <iframe
-                ref={iframeRef}
-                src={currentUrlValue}
-                className="h-full w-full"
-                onLoad={handleIframeLoad}
-                onError={handleIframeError}
-                title="Browser content"
-                allow="camera; microphone"
-              />
-            </ScrollArea>
-
-            {isLoading && !error && (
-              <div className="bg-opacity-90 absolute inset-0 flex flex-col items-center justify-center gap-2 bg-white">
-                <Spinner />
-                <span className="text-xs text-gray-500">Loading...</span>
-              </div>
-            )}
-
-            {error && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-white">
-                <span className="text-red-500">Failed to load page</span>
-                <button
-                  className="text-sm text-blue-500 hover:underline"
-                  type="button"
-                  onClick={() => {
-                    if (currentUrlValue) {
-                      setIsLoading(true);
-                      setError(null);
-                      const newUrl = new URL(currentUrlValue);
-                      newUrl.searchParams.set("t", Date.now().toString());
-                      setCurrentUrl(newUrl.toString());
-                    }
-                  }}
-                >
-                  Try again
-                </button>
-              </div>
-            )}
-          </>
-        )}
-      </div>
     </div>
   );
 };

@@ -3,14 +3,14 @@
 import { useEffect, useRef } from "react";
 import { useRealtimeGame } from "@repo/multiplayer";
 
-import { Background } from "@/app/(home)/_components/background";
+import { Background } from "./_components/background";
 
 const Page = () => {
   return (
-    <>
+    <section className="bg-background h-dvh w-dvw bg-[url('https://zmdrwswxugswzmcokvff.supabase.co/storage/v1/object/public/vibedgames/bg.png')] bg-[size:10px]">
       <DemoGame />
       <Background />
-    </>
+    </section>
   );
 };
 
@@ -302,7 +302,7 @@ const DemoGame = () => {
   };
 
   const drawShip = (ctx: CanvasRenderingContext2D, ship: Ship) => {
-    if (!ship?.path || ship.path.length === 0) return;
+    if (ship?.path?.length === 0) return;
 
     ctx.beginPath();
     ctx.strokeStyle = ship.color || "rgb(255, 255, 255)";
