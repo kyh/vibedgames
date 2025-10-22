@@ -26,6 +26,7 @@
     "@trpc/tanstack-react-query": "catalog:",
     "@v0-sdk/react": "^0.3.1",
     "ai": "^5.0.76",
+    "framer-motion": "^12.23.24",
     "next": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",

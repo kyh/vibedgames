@@ -10,10 +10,15 @@ type Props = {
   showHeader?: boolean;
   disabled?: boolean;
   url?: string;
-  preview?: React.ReactNode;
+  renderThumbnail?: (url?: string, disabled?: boolean) => React.ReactNode;
 };
 
-export const Preview = ({ className, disabled, url, preview }: Props) => {
+export const PreviewWeb = ({
+  className,
+  disabled,
+  url,
+  renderThumbnail,
+}: Props) => {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -29,12 +34,11 @@ export const Preview = ({ className, disabled, url, preview }: Props) => {
   };
 
   return (
-    <div className={cn("relative h-full w-full", className)}>
-      {preview && preview}
+    <div className={cn("relative h-full w-full overflow-clip", className)}>
+      {renderThumbnail?.(url, disabled)}
       {url && !disabled && (
         <>
           <iframe
-            id="preview-iframe"
             ref={iframeRef}
             src={url}
             className="relative h-full w-full"

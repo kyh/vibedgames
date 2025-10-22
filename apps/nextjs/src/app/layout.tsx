@@ -88,7 +88,7 @@ type LayoutProps = {
 const RootLayout = (props: LayoutProps) => {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="bg-background/80 text-foreground font-sans antialiased">
+      <body className="text-foreground bg-background bg-[url('https://zmdrwswxugswzmcokvff.supabase.co/storage/v1/object/public/vibedgames/bg.png')] bg-[size:10px] font-sans antialiased">
         <TooltipProvider>
           <TRPCReactProvider>{props.children}</TRPCReactProvider>
           <GlobalToaster />

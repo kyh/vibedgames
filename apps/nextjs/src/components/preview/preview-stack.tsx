@@ -71,7 +71,7 @@ export const PreviewCard = ({
   return (
     <motion.div
       className={cn(
-        "col-span-full row-span-full h-full w-full",
+        "pointer-events-auto col-span-full row-span-full h-full w-full",
         isVisible ? "block" : "hidden",
       )}
       initial={false}
@@ -99,7 +99,7 @@ export const PreviewStack = <T extends { id: string | number }>({
   zoomed,
 }: Props<T>) => {
   return (
-    <section className="relative h-full w-full perspective-[150vw]">
+    <section className="pointer-events-none relative h-full w-full perspective-[150vw]">
       <div className="grid h-full w-full place-items-center transform-3d">
         {data.map((item, index) => {
           return (
