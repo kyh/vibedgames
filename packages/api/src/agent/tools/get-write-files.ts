@@ -1,9 +1,9 @@
 import type { UIMessage, UIMessageStreamWriter } from "ai";
 
-import type { DataPart } from "../../messages/data-parts";
+import type { DataPart } from "../messages/data-parts";
 import type { File } from "./get-contents";
 import type { Sandbox } from "@vercel/sandbox";
-import { getRichError } from "../get-rich-error";
+import { getRichError } from "./get-rich-error";
 
 type Params = {
   sandbox: Sandbox;

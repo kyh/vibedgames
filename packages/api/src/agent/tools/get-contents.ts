@@ -2,7 +2,7 @@ import type { ModelMessage } from "ai";
 import { streamObject } from "ai";
 import z from "zod";
 
-import { getModelOptions } from "../../gateway";
+import { getModelOptions } from "../gateway";
 
 export type File = z.infer<typeof fileSchema>;
 

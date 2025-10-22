@@ -2,7 +2,6 @@ const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 
 const getRemotePatterns = () => {
-  /** @type {import('next').NextConfig['remotePatterns']} */
   const remotePatterns = [];
 
   if (SUPABASE_URL) {
@@ -59,7 +58,6 @@ const config = {
     },
   },
   /** We already do linting and typechecking as separate tasks in CI */
-  eslint: { ignoreDuringBuilds: true },
   typescript: { ignoreBuildErrors: true },
 };
 

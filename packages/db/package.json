@@ -22,10 +22,7 @@
   },
   "dependencies": {
     "@libsql/client": "^0.15.15",
-    "drizzle-orm": "^0.44.6",
-    "next": "catalog:",
-    "react": "catalog:",
-    "zod": "catalog:"
+    "drizzle-orm": "^0.44.6"
   },
   "devDependencies": {
     "@kyh/eslint-config": "catalog:",

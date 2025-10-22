@@ -4,11 +4,11 @@ import { tool } from "ai";
 import z from "zod";
 
 import type { DataPart } from "../messages/data-parts";
-import type { File } from "./generate-files/get-contents";
+import type { File } from "./get-contents";
 import description from "./generate-files.md";
-import { getContents } from "./generate-files/get-contents";
-import { getWriteFiles } from "./generate-files/get-write-files";
+import { getContents } from "./get-contents";
 import { getRichError } from "./get-rich-error";
+import { getWriteFiles } from "./get-write-files";
 
 type Params = {
   modelId: string;

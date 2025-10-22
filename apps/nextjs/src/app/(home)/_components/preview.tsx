@@ -10,13 +10,13 @@ import { uiState } from "./composer";
 import { featuredGames } from "./data";
 
 export const Preview = () => {
-  const { status, setUrl } = useSandboxStore();
+  const { status, url, setUrl } = useSandboxStore();
   const { view, setView } = uiState();
 
   const renderGameCard = (game: FeaturedGame) => (
     <PreviewWeb
       key={game.id}
-      disabled={view === "discover" || status === "stopped"}
+      disabled={view === "discover" || status === "stopped" || url !== game.url}
       url={game.url}
       renderThumbnail={() => (
         <button
