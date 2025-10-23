@@ -10,7 +10,9 @@ export const Preview = () => {
 
   // Use current demoUrl if we're sending a message and building, otherwise use /demo
   const iframeSrc =
-    isLoading || isBuilding ? "/demo" : chatData?.latestVersion?.demoUrl;
+    isLoading || isBuilding
+      ? "https://vibedgames.com/demo"
+      : chatData?.latestVersion?.demoUrl;
 
   return (
     <>

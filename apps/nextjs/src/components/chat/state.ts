@@ -45,7 +45,7 @@ export function useCommandErrorsLogs() {
 }
 
 export const useSandboxStore = create<SandboxStore>()((set) => ({
-  url: "/demo",
+  url: "https://vibedgames.com/demo",
   addGeneratedFiles: (files) =>
     set((state) => ({
       generatedFiles: new Set([...state.generatedFiles, ...files]),

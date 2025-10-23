@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { joinWaitlistInput } from "@repo/api/waitlist/waitlist-schema";
 import { Button } from "@repo/ui/button";
@@ -115,15 +114,9 @@ export const WaitlistDailog = ({
             early access.
           </DialogDescription>
         </DialogHeader>
-        <div className="mx-auto mt-3">
+        <div className="mx-auto mt-3 mb-5">
           <WaitlistForm />
         </div>
-        <Link
-          className="mx-auto text-xs underline decoration-dotted"
-          href="/discover"
-        >
-          Play existing games
-        </Link>
         <svg
           viewBox="0 0 1024 1024"
           aria-hidden="true"

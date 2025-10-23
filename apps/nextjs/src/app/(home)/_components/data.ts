@@ -12,7 +12,7 @@ export const featuredGames: FeaturedGame[] = [
     name: "Demo",
     preview:
       "https://zmdrwswxugswzmcokvff.supabase.co/storage/v1/object/public/vibedgames/astroid.png",
-    url: "/demo",
+    url: "https://vibedgames.com/demo",
     colorScheme: "dark",
   },
   {
