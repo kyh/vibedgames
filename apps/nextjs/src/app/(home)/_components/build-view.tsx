@@ -11,8 +11,9 @@ import {
   InputGroup,
   InputGroupAddon,
   InputGroupButton,
-  InputGroupInput,
+  InputGroupTextarea,
 } from "@repo/ui/input-group";
+import { MenuIcon } from "lucide-react";
 
 import type { ChatUIMessage } from "@repo/api/agent/messages/types";
 import { useSharedChatContext } from "@/components/chat/chat-context";
@@ -50,15 +51,19 @@ export const BuildView = () => {
         <ConversationScrollButton />
       </Conversation>
       <form
+        className="pb-4"
         onSubmit={(event) => {
           event.preventDefault();
           validateAndSubmitMessage(input);
         }}
       >
-        <InputGroup className="w-96 border-none backdrop-blur-sm">
-          <InputGroupAddon></InputGroupAddon>
-          <InputGroupInput
-            type="text"
+        <InputGroup className="text-foreground w-96 border-none backdrop-blur-sm">
+          <InputGroupAddon>
+            <InputGroupButton type="button" size="icon-xs">
+              <MenuIcon />
+            </InputGroupButton>
+          </InputGroupAddon>
+          <InputGroupTextarea
             className="font-mono text-xs"
             disabled={status === "streaming" || status === "submitted"}
             onChange={(e) => setInput(e.target.value)}
@@ -66,7 +71,9 @@ export const BuildView = () => {
             value={input}
           />
           <InputGroupAddon align="inline-end">
-            <InputGroupButton type="button">E</InputGroupButton>
+            <InputGroupButton type="button" size="icon-xs">
+              E
+            </InputGroupButton>
           </InputGroupAddon>
         </InputGroup>
         {/* <div className="grid w-full" data-replicated-value={input}>

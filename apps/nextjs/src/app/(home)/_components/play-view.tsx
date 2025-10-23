@@ -24,12 +24,14 @@ export const PlayView = () => {
   };
 
   return (
-    <div>
-      <InputGroup className="w-96 border-none backdrop-blur-sm">
+    <div className="pb-4">
+      <InputGroup className="text-foreground w-96 border-none backdrop-blur-sm">
         <InputGroupAddon>
-          <a href={url} target="_blank" className="cursor-pointer">
-            <CompassIcon className="text-foreground w-4" />
-          </a>
+          <InputGroupButton size="icon-xs" asChild>
+            <a href={url} target="_blank">
+              <CompassIcon />
+            </a>
+          </InputGroupButton>
         </InputGroupAddon>
         {url && (
           <InputGroupInput
@@ -41,8 +43,12 @@ export const PlayView = () => {
           />
         )}
         <InputGroupAddon align="inline-end">
-          <InputGroupButton onClick={refreshIframe} type="button">
-            <RefreshCwIcon className={"text-foreground w-4"} />
+          <InputGroupButton
+            onClick={refreshIframe}
+            type="button"
+            size="icon-xs"
+          >
+            <RefreshCwIcon />
           </InputGroupButton>
         </InputGroupAddon>
       </InputGroup>
