@@ -36,7 +36,7 @@ export const PlayView = () => {
         {url && (
           <InputGroupInput
             type="text"
-            className="font-mono text-xs"
+            className="py-2.5 font-mono text-xs md:text-xs"
             onClick={(event) => event.currentTarget.select()}
             value={url}
             readOnly

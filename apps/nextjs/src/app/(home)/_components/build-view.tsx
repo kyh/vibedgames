@@ -57,24 +57,19 @@ export const BuildView = () => {
           validateAndSubmitMessage(input);
         }}
       >
-        <InputGroup className="text-foreground w-96 border-none backdrop-blur-sm">
+        <InputGroup className="text-foreground w-96 items-start border-none text-sm backdrop-blur-sm">
           <InputGroupAddon>
             <InputGroupButton type="button" size="icon-xs">
               <MenuIcon />
             </InputGroupButton>
           </InputGroupAddon>
           <InputGroupTextarea
-            className="font-mono text-xs"
+            className="py-2.5 font-mono text-xs md:text-xs"
             disabled={status === "streaming" || status === "submitted"}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Type your message..."
             value={input}
           />
-          <InputGroupAddon align="inline-end">
-            <InputGroupButton type="button" size="icon-xs">
-              E
-            </InputGroupButton>
-          </InputGroupAddon>
         </InputGroup>
         {/* <div className="grid w-full" data-replicated-value={input}>
           <textarea

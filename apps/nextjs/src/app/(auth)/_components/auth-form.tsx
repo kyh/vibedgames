@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@repo/ui/button";
@@ -77,14 +76,6 @@ export const AuthForm = ({ className, type, ...props }: AuthFormProps) => {
 
   return (
     <div className={cn("grid gap-6", className)} {...props}>
-      <div className="relative">
-        <div className="absolute inset-0 flex items-center">
-          <span className="w-full border-t" />
-        </div>
-        <div className="relative flex justify-center text-xs uppercase">
-          <span className="bg-background text-muted-foreground px-2">Or</span>
-        </div>
-      </div>
       <Form {...form}>
         <form className="grid gap-2" onSubmit={handleAuthWithPassword}>
           <FormField
