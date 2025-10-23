@@ -3,23 +3,13 @@
 import { useState } from "react";
 import { cn } from "@repo/ui/utils";
 import { motion } from "motion/react";
-import { create } from "zustand";
 
 import { authClient } from "@/lib/auth-client";
 import { BuildView } from "./build-view";
 import { DiscoverView } from "./discover-view";
 import { PlayView } from "./play-view";
+import { uiState } from "./ui-state";
 import { WaitlistDailog } from "./waitlist-form";
-
-type View = "build" | "play" | "discover";
-
-const uiState = create<{
-  view: View;
-  setView: (view: View) => void;
-}>((set) => ({
-  view: "play",
-  setView: (view) => set({ view }),
-}));
 
 export const Composer = () => {
   const [waitlistOpen, setWaitlistOpen] = useState(false);
@@ -83,5 +73,3 @@ export const Composer = () => {
     </>
   );
 };
-
-export { uiState };

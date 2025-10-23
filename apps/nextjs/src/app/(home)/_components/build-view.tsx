@@ -17,8 +17,8 @@ import { MenuIcon } from "lucide-react";
 
 import type { ChatUIMessage } from "@repo/api/agent/messages/types";
 import { useSharedChatContext } from "@/components/chat/chat-context";
+import { useSandboxStore } from "@/components/chat/chat-state";
 import { Message } from "@/components/chat/message";
-import { useSandboxStore } from "@/components/chat/state";
 
 export const BuildView = () => {
   const [input, setInput] = useState("");

@@ -6,22 +6,15 @@ import {
   InputGroupButton,
   InputGroupInput,
 } from "@repo/ui/input-group";
+import { cn } from "@repo/ui/utils";
 import { CompassIcon, RefreshCwIcon } from "lucide-react";
 
-import { useSandboxStore } from "@/components/chat/state";
+import { useSandboxStore } from "@/components/chat/chat-state";
+import { uiState } from "./ui-state";
 
 export const PlayView = () => {
   const { url } = useSandboxStore();
-
-  const refreshIframe = () => {
-    if (!url) return;
-    const newUrl = new URL(url);
-    newUrl.searchParams.set("t", Date.now().toString());
-    const iframe = document.getElementById(
-      "preview-iframe",
-    ) as HTMLIFrameElement | null;
-    if (iframe) iframe.src = newUrl.toString();
-  };
+  const { refreshPreviewIframe, isPreviewIframeLoading } = uiState();
 
   return (
     <div className="pb-4">
@@ -44,11 +37,13 @@ export const PlayView = () => {
         )}
         <InputGroupAddon align="inline-end">
           <InputGroupButton
-            onClick={refreshIframe}
+            onClick={refreshPreviewIframe}
             type="button"
             size="icon-xs"
           >
-            <RefreshCwIcon />
+            <RefreshCwIcon
+              className={cn(isPreviewIframeLoading && "animate-spin")}
+            />
           </InputGroupButton>
         </InputGroupAddon>
       </InputGroup>

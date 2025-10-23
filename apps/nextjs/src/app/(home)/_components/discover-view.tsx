@@ -3,10 +3,10 @@
 import Image from "next/image";
 import { motion } from "framer-motion";
 
-import { useSandboxStore } from "@/components/chat/state";
+import { useSandboxStore } from "@/components/chat/chat-state";
 import { usePreviewStack } from "@/components/preview/preview-stack";
-import { uiState } from "./composer";
 import { featuredGames } from "./data";
+import { uiState } from "./ui-state";
 
 export const DiscoverView = () => {
   const { setUrl } = useSandboxStore();

@@ -4,7 +4,7 @@ import { create } from "zustand";
 
 import type { Command, CommandLog } from "@/components/command-logs/types";
 import type { DataPart } from "@repo/api/agent/messages/data-parts";
-import { useMonitorState } from "@/components/error-monitor/state";
+import { useMonitorState } from "@/components/error-monitor/error-state";
 
 type SandboxStore = {
   addGeneratedFiles: (files: string[]) => void;
