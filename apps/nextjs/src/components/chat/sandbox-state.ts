@@ -24,6 +24,7 @@ type SandboxStore = {
   upsertCommand: (command: Omit<Command, "startedAt">) => void;
   url?: string;
   urlUUID?: string;
+  reset: () => void;
 };
 
 function getBackgroundCommandErrorLines(commands: Command[]) {
@@ -104,6 +105,16 @@ export const useSandboxStore = create<SandboxStore>()((set) => ({
       return { commands: cmds };
     });
   },
+  reset: () =>
+    set(() => ({
+      url: "https://vibedgames.com/demo",
+      commands: [],
+      generatedFiles: new Set<string>(),
+      paths: [],
+      sandboxId: undefined,
+      status: undefined,
+      urlUUID: undefined,
+    })),
 }));
 
 type FileExplorerStore = {

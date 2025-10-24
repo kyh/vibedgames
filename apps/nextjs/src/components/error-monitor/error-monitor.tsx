@@ -12,7 +12,7 @@ import { useChat } from "@ai-sdk/react";
 
 import type { Line } from "./schemas";
 import { useSharedChatContext } from "@/components/chat/chat-context";
-import { useCommandErrorsLogs } from "@/components/chat/chat-state";
+import { useCommandErrorsLogs } from "@/components/chat/sandbox-state";
 import { useMonitorState } from "./error-state";
 import { createSummaryMutation, useGetSummary } from "./get-summary";
 

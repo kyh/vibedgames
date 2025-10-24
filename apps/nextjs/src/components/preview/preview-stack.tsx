@@ -1,49 +1,8 @@
 "use client";
 
-import { createContext, useContext, useState } from "react";
-import { useMediaQuery } from "@repo/ui/utils";
 import { AnimatePresence, motion } from "motion/react";
 
-type PreviewStackContextType = {
-  currentIndex: number;
-  setCurrentIndex: (index: number) => void;
-  isMobile: boolean;
-};
-
-const PreviewStackContext = createContext<PreviewStackContextType | undefined>(
-  undefined,
-);
-
-export const PreviewStackProvider = ({
-  children,
-}: {
-  children: React.ReactNode;
-}) => {
-  const isMobile = useMediaQuery("(max-width: 640px)");
-  const [currentIndex, setCurrentIndex] = useState(0);
-
-  const value: PreviewStackContextType = {
-    currentIndex,
-    setCurrentIndex,
-    isMobile,
-  };
-
-  return (
-    <PreviewStackContext.Provider value={value}>
-      {children}
-    </PreviewStackContext.Provider>
-  );
-};
-
-export const usePreviewStack = () => {
-  const context = useContext(PreviewStackContext);
-  if (context === undefined) {
-    throw new Error(
-      "usePreviewStack must be used within a PreviewStackProvider",
-    );
-  }
-  return context;
-};
+import { useUiStore } from "@/app/(home)/_components/ui-state";
 
 type PreviewCardProps = {
   index: number;
@@ -58,7 +17,7 @@ export const PreviewCard = ({
   showStack,
   children,
 }: PreviewCardProps) => {
-  const { currentIndex, isMobile } = usePreviewStack();
+  const { currentIndex, isMobile } = useUiStore();
   const isActive = index === currentIndex;
   const isNext = index === (currentIndex + 1) % total;
   const isPrevious = index === (currentIndex - 1 + total) % total;

@@ -3,15 +3,15 @@
 import Image from "next/image";
 
 import type { FeaturedGame } from "./data";
-import { useSandboxStore } from "@/components/chat/chat-state";
+import { useSandboxStore } from "@/components/chat/sandbox-state";
 import { PreviewStack } from "@/components/preview/preview-stack";
 import { PreviewWeb } from "@/components/preview/preview-web";
 import { featuredGames } from "./data";
-import { uiState } from "./ui-state";
+import { useUiStore } from "./ui-state";
 
 export const Preview = () => {
   const { status, url, setUrl } = useSandboxStore();
-  const { view, setView } = uiState();
+  const { view, setView } = useUiStore();
 
   const renderGameCard = (game: FeaturedGame) => (
     <PreviewWeb

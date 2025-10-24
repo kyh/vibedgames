@@ -14,9 +14,19 @@ type UIState = {
   setIsPreviewIframeLoading: (loading: boolean) => void;
   previewIframeError: string | null;
   setPreviewIframeError: (error: string | null) => void;
+  // Preview stack state
+  currentIndex: number;
+  setCurrentIndex: (index: number) => void;
+  isMobile: boolean;
 };
 
-export const uiState = create<UIState>((set, get) => ({
+// Helper function to check if mobile on initialization
+const getInitialIsMobile = () => {
+  if (typeof window === "undefined") return false;
+  return window.innerWidth <= 640;
+};
+
+export const useUiStore = create<UIState>((set, get) => ({
   view: "play",
   setView: (view) => set({ view }),
   previewIframe: null,
@@ -37,4 +47,8 @@ export const uiState = create<UIState>((set, get) => ({
     set({ isPreviewIframeLoading: loading }),
   previewIframeError: null,
   setPreviewIframeError: (error) => set({ previewIframeError: error }),
+  // Preview stack state
+  currentIndex: 0,
+  setCurrentIndex: (index) => set({ currentIndex: index }),
+  isMobile: getInitialIsMobile(),
 }));

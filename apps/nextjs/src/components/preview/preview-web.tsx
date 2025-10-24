@@ -4,7 +4,7 @@ import { Button } from "@repo/ui/button";
 import { Spinner } from "@repo/ui/spinner";
 import { cn } from "@repo/ui/utils";
 
-import { uiState } from "@/app/(home)/_components/ui-state";
+import { useUiStore } from "@/app/(home)/_components/ui-state";
 
 type Props = {
   className?: string;
@@ -27,7 +27,7 @@ export const PreviewWeb = ({
     setIsPreviewIframeLoading,
     previewIframeError,
     setPreviewIframeError,
-  } = uiState();
+  } = useUiStore();
 
   const handleIframeLoad = () => {
     setIsPreviewIframeLoading(false);

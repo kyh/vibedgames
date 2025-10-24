@@ -1,19 +1,21 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { cn } from "@repo/ui/utils";
 import { motion } from "motion/react";
 
+import { useSandboxStore } from "@/components/chat/sandbox-state";
 import { authClient } from "@/lib/auth-client";
 import { BuildView } from "./build-view";
 import { DiscoverView } from "./discover-view";
 import { PlayView } from "./play-view";
-import { uiState } from "./ui-state";
+import { useUiStore } from "./ui-state";
 import { WaitlistDailog } from "./waitlist-form";
 
 export const Composer = () => {
   const [waitlistOpen, setWaitlistOpen] = useState(false);
-  const { view, setView } = uiState();
+  const { view, setView, setCurrentIndex } = useUiStore();
+  const { reset } = useSandboxStore();
 
   const session = authClient.useSession();
   const user = session.data?.user;
@@ -55,6 +57,8 @@ export const Composer = () => {
               setWaitlistOpen(true);
               return;
             }
+            setCurrentIndex(0);
+            reset();
             setView("build");
           }}
         >

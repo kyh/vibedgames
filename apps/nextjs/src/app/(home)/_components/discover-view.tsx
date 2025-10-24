@@ -3,15 +3,13 @@
 import Image from "next/image";
 import { motion } from "motion/react";
 
-import { useSandboxStore } from "@/components/chat/chat-state";
-import { usePreviewStack } from "@/components/preview/preview-stack";
+import { useSandboxStore } from "@/components/chat/sandbox-state";
 import { featuredGames } from "./data";
-import { uiState } from "./ui-state";
+import { useUiStore } from "./ui-state";
 
 export const DiscoverView = () => {
   const { setUrl } = useSandboxStore();
-  const { setView } = uiState();
-  const { setCurrentIndex, isMobile } = usePreviewStack();
+  const { setView, setCurrentIndex, isMobile } = useUiStore();
 
   return (
     <motion.div
