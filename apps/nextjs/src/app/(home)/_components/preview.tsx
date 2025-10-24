@@ -41,7 +41,7 @@ export const Preview = () => {
     <PreviewStack
       data={featuredGames}
       render={renderGameCard}
-      zoomed={view === "discover"}
+      showStack={view === "discover"}
     />
   );
 };

@@ -12,7 +12,7 @@ const Page = () => {
       <ErrorMonitor>
         <PreviewStackProvider>
           <main className="h-dvh w-dvw overflow-hidden">
-            <header className="fixed bottom-0 left-0 z-10 flex max-h-full max-w-[min(400px,100%)] flex-col px-4 py-6">
+            <header className="fixed bottom-0 left-0 z-10 flex max-h-full max-w-dvw flex-col px-4 py-6 md:max-w-[min(400px,100%)]">
               <Composer />
             </header>
             <Preview />

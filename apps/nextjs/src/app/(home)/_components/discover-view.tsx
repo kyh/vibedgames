@@ -11,26 +11,32 @@ import { uiState } from "./ui-state";
 export const DiscoverView = () => {
   const { setUrl } = useSandboxStore();
   const { setView } = uiState();
-  const { setCurrentIndex } = usePreviewStack();
+  const { setCurrentIndex, isMobile } = usePreviewStack();
 
   return (
-    <div className="flex flex-col-reverse gap-4 pb-4">
+    <motion.div
+      initial={{ opacity: 0, filter: "blur(12px)" }}
+      animate={{ opacity: 1, filter: "blur(0px)" }}
+      exit={{ opacity: 0, filter: "blur(12px)" }}
+      className="flex gap-4 overflow-auto pb-4 md:flex-col-reverse"
+    >
       {featuredGames.map((game, index) => (
-        <motion.button
+        <button
           key={game.id}
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -20 }}
           onMouseEnter={() => {
             setView("discover");
             setCurrentIndex(index);
           }}
           onClick={() => {
-            setView("play");
+            if (isMobile) {
+              setCurrentIndex(index);
+              return;
+            }
             setCurrentIndex(index);
+            setView("play");
             setUrl(game.url, crypto.randomUUID());
           }}
-          className="hover:border-foreground relative aspect-video w-30 overflow-clip rounded-lg border border-transparent transition-colors"
+          className="hover:border-foreground relative aspect-video w-30 shrink-0 overflow-clip rounded-lg border border-transparent transition-colors"
         >
           <Image
             src={game.preview}
@@ -38,8 +44,8 @@ export const DiscoverView = () => {
             fill
             className="object-cover"
           />
-        </motion.button>
+        </button>
       ))}
-    </div>
+    </motion.div>
   );
 };
