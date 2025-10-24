@@ -33,7 +33,7 @@ export const GenerateFiles = ({ message, className }: Props) => {
       <div className="relative min-h-5 text-sm">
         {generated.map((path) => (
           <div className="flex items-center" key={"gen" + path}>
-            <CheckIcon className="mx-1 h-4 w-4" />
+            <CheckIcon className="mx-1 h-4 w-4 text-green-700" />
             <span className="whitespace-pre-wrap">{path}</span>
           </div>
         ))}
@@ -43,7 +43,7 @@ export const GenerateFiles = ({ message, className }: Props) => {
               {message.status === "error" ? (
                 <XIcon className="h-4 w-4 text-red-700" />
               ) : (
-                <CheckIcon className="h-4 w-4" />
+                <CheckIcon className="h-4 w-4 text-green-700" />
               )}
             </Spinner>
             <span>{generating}</span>

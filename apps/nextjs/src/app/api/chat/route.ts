@@ -3,11 +3,14 @@ import { DEFAULT_MODEL } from "@repo/api/agent/constants";
 import { getAvailableModels } from "@repo/api/agent/gateway";
 import { streamChatResponse } from "@repo/api/agent/response/stream-chat-response";
 import { auth } from "@repo/api/auth/auth";
+import { db } from "@repo/db/drizzle-client";
 
 import type { ChatUIMessage } from "@repo/api/agent/messages/types";
 
 type BodyData = {
   messages: ChatUIMessage[];
+  projectId?: string;
+  buildNumber?: number;
   modelId?: string;
   reasoningEffort?: "low" | "medium";
 };
@@ -21,11 +24,19 @@ export async function POST(request: Request) {
     return new Response("Unauthorized", { status: 401 });
   }
 
-  const [models, { messages, modelId = DEFAULT_MODEL, reasoningEffort }] =
-    await Promise.all([
-      getAvailableModels(),
-      request.json() as Promise<BodyData>,
-    ]);
+  const [
+    models,
+    {
+      messages,
+      modelId = DEFAULT_MODEL,
+      reasoningEffort,
+      projectId,
+      buildNumber,
+    },
+  ] = await Promise.all([
+    getAvailableModels(),
+    request.json() as Promise<BodyData>,
+  ]);
 
   const model = models.find((model) => model.id === modelId);
 
@@ -36,5 +47,10 @@ export async function POST(request: Request) {
     );
   }
 
-  return streamChatResponse(messages, model, reasoningEffort ?? "medium");
+  return streamChatResponse(messages, model, reasoningEffort ?? "medium", {
+    db,
+    session,
+    projectId,
+    buildNumber,
+  });
 }

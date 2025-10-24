@@ -31,7 +31,7 @@ export const RunCommand = ({ message, className }: Props) => {
           message.status === "error" ? (
             <XIcon className="h-4 w-4 text-red-700" />
           ) : (
-            <CheckIcon className="h-4 w-4" />
+            <CheckIcon className="h-4 w-4 text-green-700" />
           )}
         </Spinner>
         <Streamdown>{`\`${message.command} ${message.args.join(

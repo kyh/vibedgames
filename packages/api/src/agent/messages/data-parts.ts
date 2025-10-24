@@ -7,6 +7,8 @@ export const errorSchema = z.object({
 export const dataPartSchema = z.object({
   "create-sandbox": z.object({
     sandboxId: z.string().optional(),
+    projectId: z.string().optional(),
+    buildNumber: z.number().optional(),
     status: z.enum(["loading", "done", "error"]),
     error: errorSchema.optional(),
   }),

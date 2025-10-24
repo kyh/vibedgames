@@ -13,7 +13,7 @@ import {
   InputGroupButton,
   InputGroupTextarea,
 } from "@repo/ui/input-group";
-import { MenuIcon } from "lucide-react";
+import { MenuIcon, SendIcon } from "lucide-react";
 
 import type { ChatUIMessage } from "@repo/api/agent/messages/types";
 import { useSharedChatContext } from "@/components/chat/chat-context";
@@ -42,7 +42,7 @@ export const BuildView = () => {
 
   return (
     <>
-      <Conversation className="relative w-full">
+      <Conversation className="relative w-full pb-4">
         <ConversationContent className="space-y-1">
           {messages.map((message) => (
             <Message key={message.id} message={message} />
@@ -65,25 +65,27 @@ export const BuildView = () => {
           </InputGroupAddon>
           <InputGroupTextarea
             className="py-2.5 font-mono text-xs md:text-xs"
+            placeholder="What game would you like to build?"
             disabled={status === "streaming" || status === "submitted"}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Type your message..."
             value={input}
+            onKeyDown={(e) => {
+              if (
+                (e.metaKey || e.ctrlKey) &&
+                e.key === "Enter" &&
+                !e.shiftKey
+              ) {
+                e.preventDefault();
+                validateAndSubmitMessage(input);
+              }
+            }}
           />
+          <InputGroupAddon className="mt-auto" align="inline-end">
+            <InputGroupButton type="submit" size="icon-xs">
+              <SendIcon />
+            </InputGroupButton>
+          </InputGroupAddon>
         </InputGroup>
-        {/* <div className="grid w-full" data-replicated-value={input}>
-          <textarea
-            className="placeholder:text-foreground/50 col-start-1 col-end-2 row-start-1 row-end-2 min-h-10 w-full resize-none overflow-hidden p-2 text-sm outline-none"
-            disabled={status === "streaming" || status === "submitted"}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Type your message..."
-            value={input}
-            rows={1}
-          />
-          <div className="invisible col-start-1 col-end-2 row-start-1 row-end-2 p-2 text-sm whitespace-pre-wrap">
-            {input + " "}
-          </div>
-        </div> */}
       </form>
     </>
   );

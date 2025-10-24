@@ -6,6 +6,9 @@ import {
   streamText,
 } from "ai";
 
+import type { Session } from "@repo/api/auth/auth";
+import type { Db } from "@repo/db/drizzle-client";
+
 import type { ChatUIMessage } from "../messages/types";
 import { getModelOptions } from "../gateway";
 import { tools } from "../tools";
@@ -18,6 +21,12 @@ export const streamChatResponse = (
     name: string;
   },
   reasoningEffort: "low" | "medium",
+  options: {
+    db: Db;
+    session: Session | null;
+    projectId?: string;
+    buildNumber?: number;
+  },
 ) => {
   return createUIMessageStreamResponse({
     stream: createUIMessageStream({
@@ -48,7 +57,14 @@ export const streamChatResponse = (
             }),
           ),
           stopWhen: stepCountIs(20),
-          tools: tools({ modelId: model.id, writer }),
+          tools: tools({
+            modelId: model.id,
+            writer,
+            db: options.db,
+            session: options.session,
+            projectId: options.projectId,
+            buildNumber: options.buildNumber,
+          }),
           onError: (error) => {
             console.error("Error communicating with AI");
             console.error(JSON.stringify(error, null, 2));

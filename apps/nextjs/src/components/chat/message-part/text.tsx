@@ -11,7 +11,7 @@ export const Text = ({ part, className }: Props) => {
   return (
     <div
       className={cn(
-        "bg-foreground/10 text-foreground/80 rounded-lg px-3 py-1.5 text-sm backdrop-blur-[3px]",
+        "bg-foreground/10 text-foreground/80 rounded-lg px-3 py-1.5 text-sm backdrop-blur-sm",
         className,
       )}
     >

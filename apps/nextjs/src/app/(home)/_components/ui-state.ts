@@ -4,7 +4,7 @@ import { create } from "zustand";
 
 type View = "build" | "play" | "discover";
 
-export const uiState = create<{
+type UIState = {
   view: View;
   setView: (view: View) => void;
   previewIframe: HTMLIFrameElement | null;
@@ -14,7 +14,9 @@ export const uiState = create<{
   setIsPreviewIframeLoading: (loading: boolean) => void;
   previewIframeError: string | null;
   setPreviewIframeError: (error: string | null) => void;
-}>((set, get) => ({
+};
+
+export const uiState = create<UIState>((set, get) => ({
   view: "play",
   setView: (view) => set({ view }),
   previewIframe: null,

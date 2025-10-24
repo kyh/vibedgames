@@ -1,4 +1,5 @@
 import { agentRouter } from "./agent/agent-router";
+import { gameRouter } from "./game/game-router";
 import { organizationRouter } from "./organization/organization-router";
 import { sandboxRouter } from "./sandbox/sandbox-router";
 import { createTRPCRouter } from "./trpc";
@@ -11,6 +12,7 @@ export const appRouter = createTRPCRouter({
   v0: v0Router,
   agent: agentRouter,
   sandbox: sandboxRouter,
+  game: gameRouter,
 });
 
 // export type definition of API

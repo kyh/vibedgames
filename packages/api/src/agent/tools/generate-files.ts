@@ -3,19 +3,23 @@ import { Sandbox } from "@vercel/sandbox";
 import { tool } from "ai";
 import z from "zod";
 
+import type { Db } from "@repo/db/drizzle-client";
+
 import type { DataPart } from "../messages/data-parts";
 import type { File } from "./get-contents";
 import description from "./generate-files.md";
 import { getContents } from "./get-contents";
+import { getBuildBySandbox, persistFiles } from "./game-persistence";
 import { getRichError } from "./get-rich-error";
 import { getWriteFiles } from "./get-write-files";
 
 type Params = {
   modelId: string;
+  db: Db;
   writer: UIMessageStreamWriter<UIMessage<never, DataPart>>;
 };
 
-export const generateFiles = ({ writer, modelId }: Params) =>
+export const generateFiles = ({ writer, modelId, db }: Params) =>
   tool({
     description,
     inputSchema: z.object({
@@ -49,8 +53,15 @@ export const generateFiles = ({ writer, modelId }: Params) =>
         return richError.message;
       }
 
+      const build = await getBuildBySandbox(db, sandboxId);
+      if (!build) {
+        console.warn(
+          `No persisted build found for sandbox ${sandboxId}. Files will not be saved to the database.`,
+        );
+      }
+
       const writeFiles = getWriteFiles({ sandbox, toolCallId, writer });
-      const iterator = getContents({ messages, modelId, paths });
+      const iterator = getContents({ messages: messages ?? [], modelId, paths });
       const uploaded: File[] = [];
 
       try {
@@ -61,6 +72,17 @@ export const generateFiles = ({ writer, modelId }: Params) =>
               return error;
             } else {
               uploaded.push(...chunk.files);
+              if (build) {
+                await persistFiles({
+                  db,
+                  projectId: build.projectId,
+                  buildNumber: build.buildNumber,
+                  files: chunk.files.map((file) => ({
+                    path: file.path,
+                    content: file.content,
+                  })),
+                });
+              }
             }
           } else {
             writer.write({

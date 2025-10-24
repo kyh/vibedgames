@@ -21,7 +21,7 @@ export const GetSandboxURL = ({ message, className }: Props) => {
           className="absolute top-0 left-0"
           loading={message.status === "loading"}
         >
-          <CheckIcon className="h-4 w-4" />
+          <CheckIcon className="h-4 w-4 text-green-700" />
         </Spinner>
         {message.url ? (
           <a href={message.url} target="_blank">

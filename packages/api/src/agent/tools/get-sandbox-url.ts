@@ -5,6 +5,7 @@ import z from "zod";
 
 import type { DataPart } from "../messages/data-parts";
 import description from "./get-sandbox-url.md";
+import { getRichError } from "./get-rich-error";
 
 type Params = {
   writer: UIMessageStreamWriter<UIMessage<never, DataPart>>;
@@ -32,15 +33,33 @@ export const getSandboxURL = ({ writer }: Params) =>
         data: { status: "loading" },
       });
 
-      const sandbox = await Sandbox.get({ sandboxId });
-      const url = sandbox.domain(port);
+      try {
+        const sandbox = await Sandbox.get({ sandboxId });
+        const url = sandbox.domain(port);
 
-      writer.write({
-        id: toolCallId,
-        type: "data-get-sandbox-url",
-        data: { url, status: "done" },
-      });
+        writer.write({
+          id: toolCallId,
+          type: "data-get-sandbox-url",
+          data: { url, status: "done" },
+        });
 
-      return { url };
+        return { url };
+      } catch (error) {
+        const richError = getRichError({
+          action: "get sandbox url",
+          args: { sandboxId, port },
+          error,
+        });
+
+        console.error("Failed to obtain sandbox URL:", richError.error);
+
+        writer.write({
+          id: toolCallId,
+          type: "data-get-sandbox-url",
+          data: { status: "done" },
+        });
+
+        return richError.message;
+      }
     },
   });

@@ -20,6 +20,7 @@ Use Generate Files when:
 - File contents must reflect the user’s intent and the overall session context
 - File paths must be well-structured and use consistent naming conventions
 - Generated files should assume compatibility with other existing files in the sandbox
+- If generating `vite.config.ts`, make sure to set `server.allowedHosts` to `true` to allow the sandbox to be accessed from the internet.
 
 ## Best Practices
 
