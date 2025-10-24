@@ -7,6 +7,7 @@ import { motion } from "motion/react";
 import { useSandboxStore } from "@/components/chat/sandbox-state";
 import { authClient } from "@/lib/auth-client";
 import { BuildView } from "./build-view";
+import { featuredGames } from "./data";
 import { DiscoverView } from "./discover-view";
 import { PlayView } from "./play-view";
 import { useUiStore } from "./ui-state";
@@ -15,7 +16,7 @@ import { WaitlistDailog } from "./waitlist-form";
 export const Composer = () => {
   const [waitlistOpen, setWaitlistOpen] = useState(false);
   const { view, setView, setCurrentIndex } = useUiStore();
-  const { reset } = useSandboxStore();
+  const { reset, url } = useSandboxStore();
 
   const session = authClient.useSession();
   const user = session.data?.user;
@@ -33,6 +34,13 @@ export const Composer = () => {
           )}
           onClick={() => {
             if (view === "discover") {
+              // Find the index of the current game URL
+              const currentGameIndex = featuredGames.findIndex(
+                (game) => game.url === url,
+              );
+              if (currentGameIndex !== -1) {
+                setCurrentIndex(currentGameIndex);
+              }
               setView("play");
             } else {
               setView("discover");
