@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { motion } from "framer-motion";
+import { motion } from "motion/react";
 
 import { useSandboxStore } from "@/components/chat/chat-state";
 import { usePreviewStack } from "@/components/preview/preview-stack";
@@ -15,10 +15,15 @@ export const DiscoverView = () => {
 
   return (
     <motion.div
-      initial={{ opacity: 0, filter: "blur(12px)" }}
-      animate={{ opacity: 1, filter: "blur(0px)" }}
-      exit={{ opacity: 0, filter: "blur(12px)" }}
       className="flex gap-4 overflow-auto pb-4 md:flex-col-reverse"
+      transition={{ type: "spring", bounce: 0.1 }}
+      initial={{ scale: 0.9, opacity: 0, filter: "blur(5px)" }}
+      animate={{
+        scale: 1,
+        opacity: 1,
+        filter: "blur(0px)",
+        transition: { delay: 0.05 },
+      }}
     >
       {featuredGames.map((game, index) => (
         <button

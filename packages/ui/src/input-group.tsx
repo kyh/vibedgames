@@ -3,19 +3,26 @@
 import type { VariantProps } from "class-variance-authority";
 import * as React from "react";
 import { cva } from "class-variance-authority";
+import { Slot } from "radix-ui";
 
 import { Button } from "./button";
 import { Input } from "./input";
 import { Textarea } from "./textarea";
 import { cn } from "./utils";
 
-const InputGroup = ({ className, ...props }: React.ComponentProps<"div">) => {
+const InputGroup = ({
+  className,
+  asChild = false,
+  ...props
+}: React.ComponentProps<"div"> & { asChild?: boolean }) => {
+  const Comp = asChild ? Slot.Root : "div";
+
   return (
-    <div
+    <Comp
       data-slot="input-group"
       role="group"
       className={cn(
-        "group/input-group border-input dark:bg-input/30 relative flex w-full items-center rounded-md border shadow-xs transition-[color,box-shadow] outline-none",
+        "group/input-group border-input bg-input/40 relative flex w-full items-center rounded-md border shadow-xs transition-[color,box-shadow] outline-none",
         "h-9 min-w-0 has-[>textarea]:h-auto",
 
         // Variants based on alignment.

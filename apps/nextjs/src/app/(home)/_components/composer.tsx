@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { cn } from "@repo/ui/utils";
 import { motion } from "motion/react";
 
@@ -14,14 +14,15 @@ import { WaitlistDailog } from "./waitlist-form";
 export const Composer = () => {
   const [waitlistOpen, setWaitlistOpen] = useState(false);
   const { view, setView } = uiState();
+
   const session = authClient.useSession();
   const user = session.data?.user;
 
   return (
     <>
+      {view === "play" && <PlayView />}
       {view === "build" && <BuildView />}
       {view === "discover" && <DiscoverView />}
-      {view === "play" && <PlayView />}
       <div className="relative flex gap-2 font-mono text-xs uppercase">
         <button
           className={cn(

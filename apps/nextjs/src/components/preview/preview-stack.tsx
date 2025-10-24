@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState } from "react";
 import { useMediaQuery } from "@repo/ui/utils";
-import { motion } from "framer-motion";
+import { motion } from "motion/react";
 
 type PreviewStackContextType = {
   currentIndex: number;
