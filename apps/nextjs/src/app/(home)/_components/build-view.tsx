@@ -68,9 +68,8 @@ export const BuildView = () => {
         >
           <motion.div
             transition={{ type: "spring", bounce: 0.1 }}
-            initial={{ scale: 0.9, opacity: 0, filter: "blur(5px)" }}
+            initial={{ opacity: 0, filter: "blur(5px)" }}
             animate={{
-              scale: 1,
               opacity: 1,
               filter: "blur(0px)",
               transition: { delay: 0.05 },

@@ -17,13 +17,8 @@ export const DiscoverView = () => {
     <motion.div
       className="flex gap-4 overflow-auto pb-4 md:flex-col-reverse"
       transition={{ type: "spring", bounce: 0.1 }}
-      initial={{ scale: 0.9, opacity: 0, filter: "blur(5px)" }}
-      animate={{
-        scale: 1,
-        opacity: 1,
-        filter: "blur(0px)",
-        transition: { delay: 0.05 },
-      }}
+      initial={{ opacity: 0, filter: "blur(5px)" }}
+      animate={{ opacity: 1, filter: "blur(0px)", transition: { delay: 0.05 } }}
     >
       {featuredGames.map((game, index) => (
         <button
