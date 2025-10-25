@@ -11,11 +11,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  dropdownMenuItemVariants,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@repo/ui/dropdown-menu";
 import {
@@ -25,9 +21,7 @@ import {
   InputGroupTextarea,
 } from "@repo/ui/input-group";
 import {
-  BugIcon,
   CheckIcon,
-  EyeIcon,
   FileIcon,
   HelpCircleIcon,
   MenuIcon,
@@ -44,19 +38,27 @@ import type { ChatUIMessage } from "@repo/api/agent/messages/types";
 import { useSharedChatContext } from "@/components/chat/chat-context";
 import { Message } from "@/components/chat/message";
 import { useSandboxStore } from "@/components/chat/sandbox-store";
+import { CommandsLogs } from "@/components/command-logs/command-logs";
+import { FileExplorer } from "@/components/file-explorer/file-explorer";
 import { DraggablePanel } from "@/components/ui/draggable-panel";
 import { useUiStore } from "./ui-store";
 
 export const BuildView = () => {
   const [input, setInput] = useState("");
-  const [showCommandLogs, setShowCommandLogs] = useState(false);
-  const [showFileExplorer, setShowFileExplorer] = useState(false);
-  const [showErrorMonitor, setShowErrorMonitor] = useState(false);
 
   const { chat } = useSharedChatContext();
   const { messages, sendMessage, status } = useChat<ChatUIMessage>({ chat });
-  const { setChatStatus, reset, commands } = useSandboxStore();
-  const { refreshPreviewIframe } = useUiStore();
+  const { setChatStatus, reset, commands, paths, sandboxId } =
+    useSandboxStore();
+  const {
+    refreshPreviewIframe,
+    showCommandLogs,
+    showFileExplorer,
+    setShowCommandLogs,
+    setShowFileExplorer,
+    showBuildMenu,
+    setShowBuildMenu,
+  } = useUiStore();
 
   const validateAndSubmitMessage = useCallback(
     (text: string) => {
@@ -92,24 +94,7 @@ export const BuildView = () => {
         initialPosition={{ x: 20, y: 20 }}
         initialSize={{ width: 400, height: 300 }}
       >
-        <div className="space-y-1">
-          {commands.length === 0 ? (
-            <div className="text-muted-foreground font-mono text-xs">
-              No commands executed yet.
-            </div>
-          ) : (
-            commands.map((command) => (
-              <div key={command.cmdId} className="font-mono text-xs">
-                <span className="text-muted-foreground">
-                  [{new Date(command.startedAt).toLocaleTimeString()}]
-                </span>{" "}
-                <span className="text-foreground">
-                  {command.command} {command.args.join(" ")}
-                </span>
-              </div>
-            ))
-          )}
-        </div>
+        <CommandsLogs commands={commands} />
       </DraggablePanel>
 
       <DraggablePanel
@@ -120,23 +105,9 @@ export const BuildView = () => {
         initialPosition={{ x: 440, y: 20 }}
         initialSize={{ width: 300, height: 200 }}
       >
-        <div className="text-muted-foreground font-mono text-xs">
-          File explorer is active. Browse project files.
-        </div>
+        <FileExplorer paths={paths} sandboxId={sandboxId} />
       </DraggablePanel>
 
-      <DraggablePanel
-        title="Error Monitor"
-        icon={<BugIcon className="h-4 w-4" />}
-        isOpen={showErrorMonitor}
-        onClose={() => setShowErrorMonitor(false)}
-        initialPosition={{ x: 20, y: 340 }}
-        initialSize={{ width: 300, height: 200 }}
-      >
-        <div className="text-muted-foreground font-mono text-xs">
-          Error monitoring is active. Check console for details.
-        </div>
-      </DraggablePanel>
       <form
         className="relative pb-4"
         onSubmit={(event) => {
@@ -162,7 +133,10 @@ export const BuildView = () => {
             }}
           >
             <InputGroupAddon>
-              <DropdownMenu>
+              <DropdownMenu
+                open={showBuildMenu}
+                onOpenChange={setShowBuildMenu}
+              >
                 <DropdownMenuTrigger asChild>
                   <InputGroupButton type="button" size="icon-xs">
                     <MenuIcon />
@@ -170,61 +144,27 @@ export const BuildView = () => {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-56">
                   <DropdownMenuItem
-                    onClick={() => {
-                      // Create new game - reset sandbox and clear input
-                      reset();
-                      setInput("");
-                    }}
+                    onClick={() => setShowCommandLogs(!showCommandLogs)}
                   >
-                    <PlusIcon />
-                    Create New Game
+                    <TerminalIcon />
+                    Command Logs
+                    {showCommandLogs && (
+                      <span className="ml-auto text-xs">
+                        <CheckIcon />
+                      </span>
+                    )}
                   </DropdownMenuItem>
-
-                  <DropdownMenuSeparator />
-
-                  <DropdownMenuSub>
-                    <DropdownMenuSubTrigger
-                      className={dropdownMenuItemVariants()}
-                    >
-                      <EyeIcon />
-                      View
-                    </DropdownMenuSubTrigger>
-                    <DropdownMenuSubContent>
-                      <DropdownMenuItem
-                        onClick={() => setShowCommandLogs(!showCommandLogs)}
-                      >
-                        <TerminalIcon />
-                        Command Logs
-                        {showCommandLogs && (
-                          <span className="ml-auto text-xs">
-                            <CheckIcon />
-                          </span>
-                        )}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => setShowFileExplorer(!showFileExplorer)}
-                      >
-                        <FileIcon />
-                        File Explorer
-                        {showFileExplorer && (
-                          <span className="ml-auto text-xs">
-                            <CheckIcon />
-                          </span>
-                        )}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => setShowErrorMonitor(!showErrorMonitor)}
-                      >
-                        <BugIcon />
-                        Error Monitor
-                        {showErrorMonitor && (
-                          <span className="ml-auto text-xs">
-                            <CheckIcon />
-                          </span>
-                        )}
-                      </DropdownMenuItem>
-                    </DropdownMenuSubContent>
-                  </DropdownMenuSub>
+                  <DropdownMenuItem
+                    onClick={() => setShowFileExplorer(!showFileExplorer)}
+                  >
+                    <FileIcon />
+                    File Explorer
+                    {showFileExplorer && (
+                      <span className="ml-auto text-xs">
+                        <CheckIcon />
+                      </span>
+                    )}
+                  </DropdownMenuItem>
 
                   <DropdownMenuSeparator />
 
@@ -241,6 +181,19 @@ export const BuildView = () => {
                   >
                     <TrashIcon />
                     Reset Sandbox
+                  </DropdownMenuItem>
+
+                  <DropdownMenuSeparator />
+
+                  <DropdownMenuItem
+                    onClick={() => {
+                      // Create new game - reset sandbox and clear input
+                      reset();
+                      setInput("");
+                    }}
+                  >
+                    <PlusIcon />
+                    Create New Game
                   </DropdownMenuItem>
 
                   <DropdownMenuSeparator />

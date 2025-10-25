@@ -15,9 +15,9 @@ import { FileContent } from "@/components/file-explorer/file-content";
 import { buildFileTree } from "./build-file-tree";
 
 type Props = {
-  className: string;
+  className?: string;
   disabled?: boolean;
-  paths: string[];
+  paths?: string[];
   sandboxId?: string;
 };
 
@@ -27,7 +27,7 @@ export const FileExplorer = memo(function FileExplorer({
   paths,
   sandboxId,
 }: Props) {
-  const fileTree = useMemo(() => buildFileTree(paths), [paths]);
+  const fileTree = useMemo(() => buildFileTree(paths ?? []), [paths]);
   const [selected, setSelected] = useState<FileNode | null>(null);
   const [fs, setFs] = useState<FileNode[]>(fileTree);
 
@@ -87,11 +87,11 @@ export const FileExplorer = memo(function FileExplorer({
       </div>
 
       <div className="flex h-[calc(100%-2rem-1px)] text-sm">
-        <ScrollArea className="border-primary/18 w-1/4 flex-shrink-0 border-r">
+        <ScrollArea className="border-primary/18 w-1/4 shrink-0 border-r">
           <div>{renderFileTree(fs)}</div>
         </ScrollArea>
         {selected && sandboxId && !disabled && (
-          <ScrollArea className="w-3/4 flex-shrink-0">
+          <ScrollArea className="w-3/4 shrink-0">
             <FileContent
               sandboxId={sandboxId}
               path={selected.path.substring(1)}

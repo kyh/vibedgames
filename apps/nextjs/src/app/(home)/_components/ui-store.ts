@@ -5,6 +5,7 @@ import { create } from "zustand";
 type View = "build" | "play" | "discover";
 
 type UIState = {
+  // General view state
   view: View;
   setView: (view: View) => void;
   previewIframe: HTMLIFrameElement | null;
@@ -18,6 +19,13 @@ type UIState = {
   currentIndex: number;
   setCurrentIndex: (index: number) => void;
   isMobile: boolean;
+  // Build view state
+  showCommandLogs: boolean;
+  setShowCommandLogs: (show: boolean) => void;
+  showFileExplorer: boolean;
+  setShowFileExplorer: (show: boolean) => void;
+  showBuildMenu: boolean;
+  setShowBuildMenu: (show: boolean) => void;
 };
 
 // Helper function to check if mobile on initialization
@@ -51,4 +59,11 @@ export const useUiStore = create<UIState>((set, get) => ({
   currentIndex: 0,
   setCurrentIndex: (index) => set({ currentIndex: index }),
   isMobile: getInitialIsMobile(),
+  // Build view state
+  showCommandLogs: false,
+  setShowCommandLogs: (show) => set({ showCommandLogs: show }),
+  showFileExplorer: false,
+  setShowFileExplorer: (show) => set({ showFileExplorer: show }),
+  showBuildMenu: false,
+  setShowBuildMenu: (show) => set({ showBuildMenu: show }),
 }));

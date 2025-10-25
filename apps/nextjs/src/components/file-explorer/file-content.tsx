@@ -3,7 +3,6 @@ import { Spinner } from "@repo/ui/spinner";
 import { useQuery } from "@tanstack/react-query";
 
 import { useTRPC } from "@/trpc/react";
-import { SyntaxHighlighter } from "./syntax-highlighter";
 
 type Props = {
   sandboxId: string;
@@ -34,5 +33,5 @@ export const FileContent = memo(function FileContent({
     );
   }
 
-  return <SyntaxHighlighter path={path} code={content} />;
+  return <div>{content}</div>;
 });

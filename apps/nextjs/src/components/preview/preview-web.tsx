@@ -33,6 +33,7 @@ export const PreviewWeb = ({
     setIsPreviewIframeLoading,
     previewIframeError,
     setPreviewIframeError,
+    showBuildMenu,
   } = useUiStore();
 
   const handleIframeLoad = () => {
@@ -46,7 +47,13 @@ export const PreviewWeb = ({
   };
 
   return (
-    <div className={cn("relative h-full w-full overflow-clip", className)}>
+    <div
+      className={cn(
+        "relative h-full w-full overflow-clip",
+        showBuildMenu && "pointer-events-none",
+        className,
+      )}
+    >
       <AnimatePresence>
         {(!url || disabled) && preview && (
           <motion.button
