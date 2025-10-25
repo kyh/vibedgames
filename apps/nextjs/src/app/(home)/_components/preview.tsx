@@ -13,29 +13,23 @@ export const Preview = () => {
   const { status, url, setUrl } = useSandboxStore();
   const { view, setView } = useUiStore();
 
-  const renderGameCard = (game: FeaturedGame) => (
-    <PreviewWeb
-      key={game.id}
-      disabled={view === "discover" || status === "stopped" || url !== game.url}
-      url={game.url}
-      renderThumbnail={() => (
-        <button
-          className="absolute inset-0 overflow-clip rounded-xl shadow-lg"
-          onClick={() => {
-            setView("play");
-            setUrl(game.url, crypto.randomUUID());
-          }}
-        >
-          <Image
-            className="object-cover"
-            src={game.preview}
-            alt={game.name}
-            fill
-          />
-        </button>
-      )}
-    />
-  );
+  const renderGameCard = (game: FeaturedGame) => {
+    const disabled =
+      view === "discover" || status === "stopped" || url !== game.url;
+    return (
+      <PreviewWeb
+        key={game.id}
+        disabled={disabled}
+        url={game.url}
+        preview={game.preview}
+        name={game.name}
+        onPreviewClick={() => {
+          setView("play");
+          setUrl(game.url, crypto.randomUUID());
+        }}
+      />
+    );
+  };
 
   return (
     <PreviewStack
