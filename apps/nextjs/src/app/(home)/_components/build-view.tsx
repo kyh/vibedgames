@@ -28,7 +28,7 @@ import {
   BugIcon,
   CheckIcon,
   EyeIcon,
-  FileTextIcon,
+  FileIcon,
   HelpCircleIcon,
   MenuIcon,
   PlusIcon,
@@ -44,13 +44,14 @@ import type { ChatUIMessage } from "@repo/api/agent/messages/types";
 import { useSharedChatContext } from "@/components/chat/chat-context";
 import { Message } from "@/components/chat/message";
 import { useSandboxStore } from "@/components/chat/sandbox-store";
+import { DraggablePanel } from "@/components/ui/draggable-panel";
 import { useUiStore } from "./ui-store";
 
 export const BuildView = () => {
   const [input, setInput] = useState("");
-  const [showErrorState, setShowErrorState] = useState(false);
-  const [showLoggingState, setShowLoggingState] = useState(false);
   const [showCommandLogs, setShowCommandLogs] = useState(false);
+  const [showFileExplorer, setShowFileExplorer] = useState(false);
+  const [showErrorMonitor, setShowErrorMonitor] = useState(false);
 
   const { chat } = useSharedChatContext();
   const { messages, sendMessage, status } = useChat<ChatUIMessage>({ chat });
@@ -83,71 +84,59 @@ export const BuildView = () => {
       </Conversation>
 
       {/* Debug Windows */}
-      {showErrorState && (
-        <motion.div
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: "auto" }}
-          exit={{ opacity: 0, height: 0 }}
-          className="border-border bg-muted/20 border-t p-4"
-        >
-          <div className="mb-2 flex items-center gap-2">
-            <BugIcon />
-            <h3 className="font-mono text-sm font-semibold">Error State</h3>
-          </div>
-          <div className="text-muted-foreground font-mono text-xs">
-            Error monitoring is active. Check console for details.
-          </div>
-        </motion.div>
-      )}
-
-      {showLoggingState && (
-        <motion.div
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: "auto" }}
-          exit={{ opacity: 0, height: 0 }}
-          className="border-border bg-muted/20 border-t p-4"
-        >
-          <div className="mb-2 flex items-center gap-2">
-            <FileTextIcon />
-            <h3 className="font-mono text-sm font-semibold">Logging State</h3>
-          </div>
-          <div className="text-muted-foreground font-mono text-xs">
-            Logging is enabled. All activities are being tracked.
-          </div>
-        </motion.div>
-      )}
-
-      {showCommandLogs && (
-        <motion.div
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: "auto" }}
-          exit={{ opacity: 0, height: 0 }}
-          className="border-border bg-muted/20 border-t p-4"
-        >
-          <div className="mb-2 flex items-center gap-2">
-            <TerminalIcon />
-            <h3 className="font-mono text-sm font-semibold">Command Logs</h3>
-          </div>
-          <div className="max-h-32 space-y-1 overflow-y-auto">
-            {commands.length === 0 ? (
-              <div className="text-muted-foreground font-mono text-xs">
-                No commands executed yet.
+      <DraggablePanel
+        title="Command Logs"
+        icon={<TerminalIcon className="h-4 w-4" />}
+        isOpen={showCommandLogs}
+        onClose={() => setShowCommandLogs(false)}
+        initialPosition={{ x: 20, y: 20 }}
+        initialSize={{ width: 400, height: 300 }}
+      >
+        <div className="space-y-1">
+          {commands.length === 0 ? (
+            <div className="text-muted-foreground font-mono text-xs">
+              No commands executed yet.
+            </div>
+          ) : (
+            commands.map((command) => (
+              <div key={command.cmdId} className="font-mono text-xs">
+                <span className="text-muted-foreground">
+                  [{new Date(command.startedAt).toLocaleTimeString()}]
+                </span>{" "}
+                <span className="text-foreground">
+                  {command.command} {command.args.join(" ")}
+                </span>
               </div>
-            ) : (
-              commands.map((command) => (
-                <div key={command.cmdId} className="font-mono text-xs">
-                  <span className="text-muted-foreground">
-                    [{new Date(command.startedAt).toLocaleTimeString()}]
-                  </span>{" "}
-                  <span className="text-foreground">
-                    {command.command} {command.args.join(" ")}
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
-        </motion.div>
-      )}
+            ))
+          )}
+        </div>
+      </DraggablePanel>
+
+      <DraggablePanel
+        title="File Explorer"
+        icon={<FileIcon className="h-4 w-4" />}
+        isOpen={showFileExplorer}
+        onClose={() => setShowFileExplorer(false)}
+        initialPosition={{ x: 440, y: 20 }}
+        initialSize={{ width: 300, height: 200 }}
+      >
+        <div className="text-muted-foreground font-mono text-xs">
+          File explorer is active. Browse project files.
+        </div>
+      </DraggablePanel>
+
+      <DraggablePanel
+        title="Error Monitor"
+        icon={<BugIcon className="h-4 w-4" />}
+        isOpen={showErrorMonitor}
+        onClose={() => setShowErrorMonitor(false)}
+        initialPosition={{ x: 20, y: 340 }}
+        initialSize={{ width: 300, height: 200 }}
+      >
+        <div className="text-muted-foreground font-mono text-xs">
+          Error monitoring is active. Check console for details.
+        </div>
+      </DraggablePanel>
       <form
         className="relative pb-4"
         onSubmit={(event) => {
@@ -202,33 +191,33 @@ export const BuildView = () => {
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent>
                       <DropdownMenuItem
-                        onClick={() => setShowErrorState(!showErrorState)}
-                      >
-                        <BugIcon />
-                        Error State
-                        {showErrorState && (
-                          <span className="ml-auto text-xs">
-                            <CheckIcon />
-                          </span>
-                        )}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => setShowLoggingState(!showLoggingState)}
-                      >
-                        <FileTextIcon />
-                        Logging State
-                        {showLoggingState && (
-                          <span className="ml-auto text-xs">
-                            <CheckIcon />
-                          </span>
-                        )}
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
                         onClick={() => setShowCommandLogs(!showCommandLogs)}
                       >
                         <TerminalIcon />
                         Command Logs
                         {showCommandLogs && (
+                          <span className="ml-auto text-xs">
+                            <CheckIcon />
+                          </span>
+                        )}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => setShowFileExplorer(!showFileExplorer)}
+                      >
+                        <FileIcon />
+                        File Explorer
+                        {showFileExplorer && (
+                          <span className="ml-auto text-xs">
+                            <CheckIcon />
+                          </span>
+                        )}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => setShowErrorMonitor(!showErrorMonitor)}
+                      >
+                        <BugIcon />
+                        Error Monitor
+                        {showErrorMonitor && (
                           <span className="ml-auto text-xs">
                             <CheckIcon />
                           </span>
