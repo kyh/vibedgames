@@ -3,11 +3,11 @@
 import Image from "next/image";
 
 import type { FeaturedGame } from "./data";
-import { useSandboxStore } from "@/components/chat/sandbox-state";
+import { useSandboxStore } from "@/components/chat/sandbox-store";
 import { PreviewStack } from "@/components/preview/preview-stack";
 import { PreviewWeb } from "@/components/preview/preview-web";
 import { featuredGames } from "./data";
-import { useUiStore } from "./ui-state";
+import { useUiStore } from "./ui-store";
 
 export const Preview = () => {
   const { status, url, setUrl } = useSandboxStore();

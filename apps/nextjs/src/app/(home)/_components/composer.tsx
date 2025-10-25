@@ -4,13 +4,13 @@ import { useState } from "react";
 import { cn } from "@repo/ui/utils";
 import { motion } from "motion/react";
 
-import { useSandboxStore } from "@/components/chat/sandbox-state";
+import { useSandboxStore } from "@/components/chat/sandbox-store";
 import { authClient } from "@/lib/auth-client";
 import { BuildView } from "./build-view";
 import { featuredGames } from "./data";
 import { DiscoverView } from "./discover-view";
 import { PlayView } from "./play-view";
-import { useUiStore } from "./ui-state";
+import { useUiStore } from "./ui-store";
 import { WaitlistDailog } from "./waitlist-form";
 
 export const Composer = () => {

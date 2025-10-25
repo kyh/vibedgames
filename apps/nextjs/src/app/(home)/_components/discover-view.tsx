@@ -3,9 +3,9 @@
 import Image from "next/image";
 import { motion } from "motion/react";
 
-import { useSandboxStore } from "@/components/chat/sandbox-state";
+import { useSandboxStore } from "@/components/chat/sandbox-store";
 import { featuredGames } from "./data";
-import { useUiStore } from "./ui-state";
+import { useUiStore } from "./ui-store";
 
 export const DiscoverView = () => {
   const { setUrl } = useSandboxStore();

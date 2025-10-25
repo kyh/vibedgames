@@ -4,7 +4,7 @@ import { create } from "zustand";
 
 import type { Command, CommandLog } from "@/components/command-logs/types";
 import type { DataPart } from "@repo/api/agent/messages/data-parts";
-import { useMonitorState } from "@/components/error-monitor/error-state";
+import { useMonitorStore } from "@/components/error-monitor/error-store";
 
 type SandboxStore = {
   addGeneratedFiles: (files: string[]) => void;
@@ -138,7 +138,7 @@ export function useDataStateMapper() {
   const { addPaths, setSandboxId, setUrl, upsertCommand, addGeneratedFiles } =
     useSandboxStore();
   const { errors } = useCommandErrorsLogs();
-  const { setCursor } = useMonitorState();
+  const { setCursor } = useMonitorStore();
 
   return (data: DataUIPart<DataPart>) => {
     switch (data.type) {

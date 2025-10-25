@@ -10,8 +10,8 @@ import { cn } from "@repo/ui/utils";
 import { CompassIcon, RefreshCwIcon } from "lucide-react";
 import { motion } from "motion/react";
 
-import { useSandboxStore } from "@/components/chat/sandbox-state";
-import { useUiStore } from "./ui-state";
+import { useSandboxStore } from "@/components/chat/sandbox-store";
+import { useUiStore } from "./ui-store";
 
 export const PlayView = () => {
   const { url } = useSandboxStore();

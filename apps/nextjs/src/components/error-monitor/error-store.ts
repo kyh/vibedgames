@@ -7,7 +7,7 @@ type State = {
   setScheduled: (scheduled: boolean) => void;
 };
 
-export const useMonitorState = create<State>((set) => ({
+export const useMonitorStore = create<State>((set) => ({
   cursor: 0,
   scheduled: false,
   setCursor: (cursor) => set({ cursor }),

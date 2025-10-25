@@ -6,7 +6,7 @@ import { Spinner } from "@repo/ui/spinner";
 import { cn } from "@repo/ui/utils";
 import { AnimatePresence, motion } from "motion/react";
 
-import { useUiStore } from "@/app/(home)/_components/ui-state";
+import { useUiStore } from "@/app/(home)/_components/ui-store";
 
 type Props = {
   className?: string;

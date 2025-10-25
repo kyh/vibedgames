@@ -2,7 +2,7 @@
 
 import { AnimatePresence, motion } from "motion/react";
 
-import { useUiStore } from "@/app/(home)/_components/ui-state";
+import { useUiStore } from "@/app/(home)/_components/ui-store";
 
 type PreviewCardProps = {
   index: number;
