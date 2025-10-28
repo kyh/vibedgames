@@ -1,12 +1,20 @@
 import type { Metadata, Viewport } from "next";
+import localFont from "next/font/local";
 import { GlobalAlertDialog } from "@repo/ui/alert-dialog";
 import { GlobalToaster } from "@repo/ui/toast";
 import { TooltipProvider } from "@repo/ui/tooltip";
+import { cn } from "@repo/ui/utils";
 
 import { siteConfig } from "@/lib/site-config";
 import { TRPCReactProvider } from "@/trpc/react";
 
 import "./styles/globals.css";
+
+const fontMono = localFont({
+  src: "./styles/vg5000.woff2",
+  variable: "--font-mono",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteConfig.url),
@@ -88,7 +96,12 @@ type LayoutProps = {
 const RootLayout = (props: LayoutProps) => {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className="text-foreground bg-background bg-[url('https://zmdrwswxugswzmcokvff.supabase.co/storage/v1/object/public/vibedgames/bg.png')] bg-[size:10px] font-sans antialiased">
+      <body
+        className={cn(
+          fontMono.variable,
+          "text-foreground bg-background bg-[url('https://zmdrwswxugswzmcokvff.supabase.co/storage/v1/object/public/vibedgames/bg.png')] bg-size-[10px] font-mono antialiased",
+        )}
+      >
         <TooltipProvider>
           <TRPCReactProvider>{props.children}</TRPCReactProvider>
           <GlobalToaster />

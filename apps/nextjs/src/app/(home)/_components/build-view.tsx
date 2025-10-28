@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useChat } from "@ai-sdk/react";
+import { gameTypesArray } from "@repo/api/agent/agent-schema";
 import {
   Conversation,
   ConversationContent,
@@ -18,8 +19,8 @@ import {
   InputGroup,
   InputGroupAddon,
   InputGroupButton,
-  InputGroupTextarea,
 } from "@repo/ui/input-group";
+import { Mention, MentionsInput } from "@repo/ui/mentions-input";
 import {
   CheckIcon,
   FileIcon,
@@ -120,7 +121,7 @@ export const BuildView = () => {
           className="bg-input/40 absolute inset-0 mb-4 rounded-md backdrop-blur-sm"
         />
         <InputGroup
-          className="text-foreground items-start border-none bg-transparent text-sm"
+          className="text-foreground max-h-max items-start border-none bg-transparent text-sm"
           asChild
         >
           <motion.div
@@ -210,12 +211,12 @@ export const BuildView = () => {
                 </DropdownMenuContent>
               </DropdownMenu>
             </InputGroupAddon>
-            <InputGroupTextarea
-              className="py-2.5 font-mono text-xs md:text-xs"
+            <MentionsInput
               placeholder="What game would you like to build?"
               disabled={status === "streaming" || status === "submitted"}
-              onChange={(e) => setInput(e.target.value)}
               value={input}
+              suggestionsPlacement="above"
+              onMentionsChange={(changeEvent) => setInput(changeEvent.value)}
               onKeyDown={(e) => {
                 if (
                   (e.metaKey || e.ctrlKey) &&
@@ -226,7 +227,14 @@ export const BuildView = () => {
                   validateAndSubmitMessage(input);
                 }
               }}
-            />
+            >
+              <Mention
+                trigger="+"
+                data={gameTypesArray}
+                displayTransform={(_, display) => `+${display}`}
+                className="rounded-none bg-indigo-900 text-indigo-100"
+              />
+            </MentionsInput>
             <InputGroupAddon className="mt-auto" align="inline-end">
               <InputGroupButton type="submit" size="icon-xs">
                 <SendIcon />

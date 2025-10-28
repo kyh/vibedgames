@@ -30,25 +30,32 @@ export const Composer = () => {
         <button
           className={cn(
             "text-muted-foreground hover:text-foreground relative px-3 py-1.5 transition",
+            view === "discover" && "text-foreground",
+          )}
+          onClick={() => setView("discover")}
+        >
+          Discover
+          {view === "discover" && (
+            <motion.div
+              layoutId="brackets"
+              className="absolute inset-0 flex items-center justify-between before:content-['['] after:content-[']']"
+            />
+          )}
+        </button>
+        <button
+          className={cn(
+            "text-muted-foreground hover:text-foreground relative px-3 py-1.5 transition",
             view === "play" && "text-foreground",
           )}
           onClick={() => {
-            if (view === "discover") {
-              // Find the index of the current game URL
-              const currentGameIndex = featuredGames.findIndex(
-                (game) => game.url === url,
-              );
-              if (currentGameIndex !== -1) {
-                setCurrentIndex(currentGameIndex);
-              }
-              setView("play");
-            } else {
-              setView("discover");
-            }
+            setCurrentIndex(
+              featuredGames.findIndex((game) => game.url === url),
+            );
+            setView("play");
           }}
         >
           Play
-          {(view === "play" || view === "discover") && (
+          {view === "play" && (
             <motion.div
               layoutId="brackets"
               className="absolute inset-0 flex items-center justify-between before:content-['['] after:content-[']']"

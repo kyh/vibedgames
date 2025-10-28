@@ -57,9 +57,6 @@ catalogs:
     typescript:
       specifier: ^5.9.3
       version: 5.9.3
-    vite:
-      specifier: ^7.1.12
-      version: 7.1.12
     zod:
       specifier: ^4.1.12
       version: 4.1.12
@@ -650,6 +647,9 @@ importers:
       react-hook-form:
         specifier: ^7.65.0
         version: 7.65.0(react@19.2.0)
+      react-mentions-ts:
+        specifier: ^5.4.1
+        version: 5.4.1(class-variance-authority@0.7.1)(clsx@2.1.1)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(tailwind-merge@3.3.1)
       sonner:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
@@ -7303,6 +7303,16 @@ packages:
     peerDependencies:
       '@types/react': '>=18'
       react: '>=18'
+
+  react-mentions-ts@5.4.1:
+    resolution: {integrity: sha512-/3rhPPQYG04v57wBYFeBp3zQ4kMEJk0Jrl4U2JlVPopCv2OaUuj0vsKACNpHJZYcei4AqBWqe515VLVdOeHqsQ==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      class-variance-authority: '>=0.6.0'
+      clsx: '>=2.0.0'
+      react: '>=19.0.0'
+      react-dom: '>=19.0.0'
+      tailwind-merge: '>=3.0.0'
 
   react-native@0.81.4:
     resolution: {integrity: sha512-bt5bz3A/+Cv46KcjV0VQa+fo7MKxs17RCcpzjftINlen4ZDUl0I6Ut+brQ2FToa5oD0IB0xvQHfmsg2EDqsZdQ==}
@@ -16127,6 +16137,14 @@ snapshots:
       vfile: 6.0.3
     transitivePeerDependencies:
       - supports-color
+
+  react-mentions-ts@5.4.1(class-variance-authority@0.7.1)(clsx@2.1.1)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(tailwind-merge@3.3.1):
+    dependencies:
+      class-variance-authority: 0.7.1
+      clsx: 2.1.1
+      react: 19.2.0
+      react-dom: 19.2.0(react@19.2.0)
+      tailwind-merge: 3.3.1
 
   react-native@0.81.4(@babel/core@7.28.4)(@types/react@19.2.2)(react@19.2.0):
     dependencies:
