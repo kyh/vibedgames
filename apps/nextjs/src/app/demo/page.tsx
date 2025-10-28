@@ -7,7 +7,7 @@ import { Background } from "./_components/background";
 
 const Page = () => {
   return (
-    <section className="bg-background h-dvh w-dvw bg-[url('https://zmdrwswxugswzmcokvff.supabase.co/storage/v1/object/public/vibedgames/bg.png')] bg-[size:10px]">
+    <section className="h-dvh w-dvw">
       <DemoGame />
       <Background />
     </section>
