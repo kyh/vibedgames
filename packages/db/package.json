@@ -22,7 +22,7 @@
   },
   "dependencies": {
     "@libsql/client": "^0.15.15",
-    "drizzle-orm": "^0.44.6"
+    "drizzle-orm": "^0.44.7"
   },
   "devDependencies": {
     "@kyh/eslint-config": "catalog:",
