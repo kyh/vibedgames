@@ -57,6 +57,9 @@ catalogs:
     typescript:
       specifier: ^5.9.3
       version: 5.9.3
+    vite:
+      specifier: ^7.1.12
+      version: 7.1.12
     zod:
       specifier: ^4.1.12
       version: 4.1.12
@@ -177,9 +180,6 @@ importers:
       '@trpc/tanstack-react-query':
         specifier: 'catalog:'
         version: 11.7.1(@tanstack/react-query@5.90.5(react@19.2.0))(@trpc/client@11.7.1(@trpc/server@11.7.1(typescript@5.9.3))(typescript@5.9.3))(@trpc/server@11.7.1(typescript@5.9.3))(react-dom@19.2.0(react@19.2.0))(react@19.2.0)(typescript@5.9.3)
-      '@v0-sdk/react':
-        specifier: ^0.3.1
-        version: 0.3.1(react@19.2.0)
       ai:
         specifier: ^5.0.81
         version: 5.0.81(zod@4.1.12)
@@ -188,7 +188,7 @@ importers:
         version: 12.23.24(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       next:
         specifier: 'catalog:'
-        version: 16.0.0(@babel/core@7.28.4)(@opentelemetry/api@1.9.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+        version: 16.0.0(@opentelemetry/api@1.9.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
       react:
         specifier: 'catalog:'
         version: 19.2.0
@@ -521,9 +521,6 @@ importers:
       superjson:
         specifier: 'catalog:'
         version: 2.2.3
-      v0-sdk:
-        specifier: ^0.14.0
-        version: 0.14.0
       zod:
         specifier: 'catalog:'
         version: 4.1.12
@@ -1351,9 +1348,6 @@ packages:
 
   '@dimforge/rapier3d-compat@0.12.0':
     resolution: {integrity: sha512-uekIGetywIgopfD97oDL5PfeezkFpNhwlzlaEYNOA0N6ghdsOvh/HYjSMek5Q2O1PYvRSDFcqFVJl4r4ZBwOow==}
-
-  '@dmsnell/diff-match-patch@1.1.0':
-    resolution: {integrity: sha512-yejLPmM5pjsGvxS9gXablUSbInW7H976c/FJ4iQxWIm7/38xBySRemTPDe34lhg1gVLbJntX0+sH0jYfU+PN9A==}
 
   '@drizzle-team/brocli@0.10.2':
     resolution: {integrity: sha512-z33Il7l5dKjUgGULTqBsQBQwckHh5AbIuxhdsIxDDiZAzBOrZO6q9ogcWC65kU382AfynTfgNumVcNIjuIua6w==}
@@ -4073,11 +4067,6 @@ packages:
     peerDependencies:
       react: '>= 16.8.0'
 
-  '@v0-sdk/react@0.3.1':
-    resolution: {integrity: sha512-yR8bvUs7fx+cTB2wUn6nqmVWJ+sSzeDxH7w6uVaFsVCsHHg1ZQExDo0as/WiMq4Yx1XmWWPlltqAQFgD2UgsJA==}
-    peerDependencies:
-      react: ^18.0.0 || ^19.0.0
-
   '@vercel/oidc@2.0.2':
     resolution: {integrity: sha512-59PBFx3T+k5hLTEWa3ggiMpGRz1OVvl9eN8SUai+A43IsqiOuAe7qPBf+cray/Fj6mkgnxm/D7IAtjc8zSHi7g==}
     engines: {node: '>= 18'}
@@ -6222,11 +6211,6 @@ packages:
     engines: {node: '>=6'}
     hasBin: true
 
-  jsondiffpatch@0.7.3:
-    resolution: {integrity: sha512-zd4dqFiXSYyant2WgSXAZ9+yYqilNVvragVNkNRn2IFZKgjyULNrKRznqN4Zon0MkLueCg+3QaPVCnDAVP20OQ==}
-    engines: {node: ^18.0.0 || >=20.0.0}
-    hasBin: true
-
   jsonlines@0.1.1:
     resolution: {integrity: sha512-ekDrAGso79Cvf+dtm+mL8OBI2bmAOt3gssYs833De/C9NmIpWDWyUO4zPgB5x2/OhY366dkhgfPMYfwZF7yOZA==}
 
@@ -8259,10 +8243,6 @@ packages:
     resolution: {integrity: sha512-DPSke0pXhTZgoF/d+WSt2QaKMCFSfx7QegxEWT+JOuHF5aWrKEn0G+ztjuJg/gG8/ItK+rbPCD/yNv8yyih6Cg==}
     hasBin: true
 
-  v0-sdk@0.14.0:
-    resolution: {integrity: sha512-6cqRdOdc3gAEbBR4FQgKmkaSndciyqI4qr1PkEjDlEaCOfNZJh5xLwkdLBClaDzUnl9NPqgG/5abOcUkTUW0kg==}
-    engines: {node: '>=22', pnpm: '>=9'}
-
   validate-npm-package-name@5.0.1:
     resolution: {integrity: sha512-OljLrQ9SQdOUqTaQxqL5dEfZWrXExyyWsozYlAWFawPVNuD83igl7uJD2RTkNMbniIYgt8l81eCJGIdQF7avLQ==}
     engines: {node: ^14.17.0 || ^16.13.0 || >=18.0.0}
@@ -9364,8 +9344,6 @@ snapshots:
       '@jridgewell/trace-mapping': 0.3.9
 
   '@dimforge/rapier3d-compat@0.12.0': {}
-
-  '@dmsnell/diff-match-patch@1.1.0': {}
 
   '@drizzle-team/brocli@0.10.2': {}
 
@@ -12257,11 +12235,6 @@ snapshots:
       '@use-gesture/core': 10.3.1
       react: 19.2.0
 
-  '@v0-sdk/react@0.3.1(react@19.2.0)':
-    dependencies:
-      jsondiffpatch: 0.7.3
-      react: 19.2.0
-
   '@vercel/oidc@2.0.2':
     dependencies:
       '@types/ms': 2.1.0
@@ -14714,10 +14687,6 @@ snapshots:
 
   json5@2.2.3: {}
 
-  jsondiffpatch@0.7.3:
-    dependencies:
-      '@dmsnell/diff-match-patch': 1.1.0
-
   jsonlines@0.1.1: {}
 
   jsx-ast-utils@3.3.5:
@@ -15643,7 +15612,7 @@ snapshots:
       react: 19.2.0
       react-dom: 19.2.0(react@19.2.0)
 
-  next@16.0.0(@babel/core@7.28.4)(@opentelemetry/api@1.9.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0):
+  next@16.0.0(@opentelemetry/api@1.9.0)(react-dom@19.2.0(react@19.2.0))(react@19.2.0):
     dependencies:
       '@next/env': 16.0.0
       '@swc/helpers': 0.5.15
@@ -15651,7 +15620,7 @@ snapshots:
       postcss: 8.4.31
       react: 19.2.0
       react-dom: 19.2.0(react@19.2.0)
-      styled-jsx: 5.1.6(@babel/core@7.28.4)(react@19.2.0)
+      styled-jsx: 5.1.6(react@19.2.0)
     optionalDependencies:
       '@next/swc-darwin-arm64': 16.0.0
       '@next/swc-darwin-x64': 16.0.0
@@ -16878,12 +16847,10 @@ snapshots:
     dependencies:
       inline-style-parser: 0.2.4
 
-  styled-jsx@5.1.6(@babel/core@7.28.4)(react@19.2.0):
+  styled-jsx@5.1.6(react@19.2.0):
     dependencies:
       client-only: 0.0.1
       react: 19.2.0
-    optionalDependencies:
-      '@babel/core': 7.28.4
 
   stylis@4.3.6: {}
 
@@ -17309,8 +17276,6 @@ snapshots:
   uuid@11.1.0: {}
 
   uuid@7.0.3: {}
-
-  v0-sdk@0.14.0: {}
 
   validate-npm-package-name@5.0.1: {}
 
