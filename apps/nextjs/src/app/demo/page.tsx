@@ -1,40 +1,46 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
-import {
-  MultiplayerProvider,
-  useConnectionStatus,
-  useIsHost,
-  useMultiplayerState,
-  usePlayerState,
-  usePlayers,
-} from "@repo/multiplayer";
+import { useEffect, useRef } from "react";
+import { MultiplayerProvider, usePlayerState, usePlayers } from "@repo/multiplayer";
+import type { Player } from "@repo/multiplayer";
 
 import { Background } from "@/app/(home)/_components/background";
 
-type Point = { x: number; y: number };
+type Point = {
+  x: number;
+  y: number;
+};
+
+type Ship = {
+  id: string | null;
+  position: Point;
+  size: number;
+  path: Point[];
+  referencePath: Point[];
+  angle: number;
+  velocity: Point;
+  lastPosition: Point;
+  color: string;
+  hue: string;
+  targetPosition: Point;
+};
+
 type CursorState = {
   position: Point | null;
   pointer?: "mouse" | "touch" | "pen" | "unknown";
 };
-type SharedState = {
-  background: string;
-  sessionName: string;
-};
 
-type PlayerMetaState = CursorState;
+type MultiplayerPlayer = Player<CursorState>;
+
+const SHIP_SPEED = 2;
+const DEG_TO_RAD = Math.PI / 180;
 
 const HOST =
   process.env.NODE_ENV === "development"
     ? "http://localhost:8787"
     : "https://vg-partyserver.kyh.workers.dev";
 const PARTY = "vg-server";
-const ROOM = "playroom-demo";
-
-const INITIAL_SHARED_STATE: SharedState = {
-  background: "#020617",
-  sessionName: "Playroom Demo",
-};
+const ROOM = "home";
 
 const INITIAL_PLAYER_STATE: CursorState = {
   position: null,
@@ -48,156 +54,339 @@ const Page = () => {
         host={HOST}
         party={PARTY}
         room={ROOM}
-        initialSharedState={INITIAL_SHARED_STATE}
         initialPlayerState={INITIAL_PLAYER_STATE}
       >
-        <DemoExperience />
+        <DemoGame />
       </MultiplayerProvider>
       <Background />
     </>
   );
 };
 
-const DemoExperience = () => {
-  const status = useConnectionStatus();
-  const isHost = useIsHost();
-  const players = usePlayers<PlayerMetaState>();
-  const [sharedState, setSharedState] = useMultiplayerState<SharedState>();
-  const [playerState, setPlayerState, player] = usePlayerState<PlayerMetaState>();
+const randomPosition = (): Point => {
+  if (typeof window === "undefined") {
+    return { x: 0, y: 0 };
+  }
 
-  const hasInitialised = useRef(false);
+  return {
+    x: Math.random() * window.innerWidth,
+    y: Math.random() * window.innerHeight,
+  };
+};
+
+const createPoint = (x: number | Point = 0, y = 0): Point => {
+  if (typeof x === "object") {
+    return { x: x.x, y: x.y };
+  }
+
+  return { x, y };
+};
+
+const addPoints = (p1: Point, p2: Point): Point => ({
+  x: p1.x + p2.x,
+  y: p1.y + p2.y,
+});
+
+const subPoints = (p1: Point, p2: Point): Point => ({
+  x: p1.x - p2.x,
+  y: p1.y - p2.y,
+});
+
+const pointLength = (p: Point): number => Math.sqrt(p.x * p.x + p.y * p.y);
+
+const normalizePoint = (p: Point, thickness = 1): Point => {
+  const len = pointLength(p);
+  if (len === 0) return { x: 0, y: 0 };
+
+  return {
+    x: (p.x / len) * thickness,
+    y: (p.y / len) * thickness,
+  };
+};
+
+const pointAngle = (p: Point): number => Math.atan2(p.y, p.x);
+
+const polarToPoint = (length: number, angle: number): Point => ({
+  x: length * Math.cos(angle),
+  y: length * Math.sin(angle),
+});
+
+const createShip = (
+  x: number,
+  y: number,
+  size: number,
+  id: string | null = null,
+): Ship => {
+  const position = createPoint(x, y);
+  const path: Point[] = [];
+  const referencePath: Point[] = [];
+
+  const angles = [0, 140, 180, 220];
+
+  angles.forEach((deg, i) => {
+    const angle = DEG_TO_RAD * deg;
+    const radius = i === 2 ? size / 2 : size;
+    const point = addPoints(position, polarToPoint(radius, angle));
+    path.push({ ...point });
+    referencePath.push({ ...point });
+  });
+
+  const initialPosition = { ...position };
+
+  return {
+    id,
+    position,
+    size,
+    path,
+    referencePath,
+    angle: 0,
+    velocity: { x: 0, y: 0 },
+    lastPosition: initialPosition,
+    color: "rgb(255, 255, 255)",
+    hue: "rgb(200, 200, 200)",
+    targetPosition: initialPosition,
+  };
+};
+
+const createShipFromPlayer = (
+  player: MultiplayerPlayer,
+  fallbackPosition?: Point,
+): Ship => {
+  const basePosition = fallbackPosition ?? randomPosition();
+  const ship = createShip(basePosition.x, basePosition.y, 8, player.id);
+
+  ship.color = player.color ?? ship.color;
+  ship.hue = player.hue ?? ship.hue;
+  ship.targetPosition = { ...basePosition };
+
+  return ship;
+};
+
+const updateShipPosition = (
+  ship: Ship,
+  target: Point,
+  speed: number = SHIP_SPEED,
+): Ship => {
+  const newShip: Ship = {
+    ...ship,
+    lastPosition: { ...ship.position },
+  };
+
+  const v = subPoints(target, ship.position);
+  const vlen = pointLength(v);
+
+  newShip.angle = pointAngle(v);
+
+  const velocity = vlen > speed ? normalizePoint(v, speed) : v;
+
+  if (vlen > ship.size / 2) {
+    newShip.position = addPoints(ship.position, velocity);
+  }
+
+  return newShip;
+};
+
+const updateShipPath = (ship: Ship): Ship => {
+  const newShip: Ship = { ...ship };
+
+  const referencePoints: Point[] = [];
+  const angles = [0, 140, 180, 220];
+
+  angles.forEach((deg, i) => {
+    const angle = DEG_TO_RAD * deg;
+    const radius = i === 2 ? ship.size / 2 : ship.size;
+    referencePoints.push(polarToPoint(radius, angle));
+  });
+
+  const cos = Math.cos(ship.angle);
+  const sin = Math.sin(ship.angle);
+
+  newShip.path = referencePoints.map((rp) => ({
+    x: ship.position.x + rp.x * cos - rp.y * sin,
+    y: ship.position.y + rp.x * sin + rp.y * cos,
+  }));
+
+  return newShip;
+};
+
+const drawShip = (ctx: CanvasRenderingContext2D, ship: Ship) => {
+  if (ship.path.length === 0) return;
+
+  ctx.beginPath();
+  ctx.strokeStyle = ship.color;
+  ctx.lineWidth = 1;
+
+  ctx.moveTo(ship.path[0].x, ship.path[0].y);
+
+  for (let i = 1; i < ship.path.length; i++) {
+    ctx.lineTo(ship.path[i].x, ship.path[i].y);
+  }
+
+  ctx.lineTo(ship.path[0].x, ship.path[0].y);
+  ctx.stroke();
+};
+
+const DemoGame = () => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const shipsRef = useRef<Record<string, Ship>>({});
+  const myShipRef = useRef<Ship | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const hasInitialisedRef = useRef(false);
+
+  const [playerState, setPlayerState, self] = usePlayerState<CursorState>();
+  const players = usePlayers<CursorState>();
 
   useEffect(() => {
-    if (hasInitialised.current) return;
-    hasInitialised.current = true;
+    if (!self?.id || hasInitialisedRef.current) return;
+    if (typeof window === "undefined") return;
 
-    const randomPosition = () => ({
-      x: Math.round(window.innerWidth * Math.random()),
-      y: Math.round(window.innerHeight * Math.random()),
+    hasInitialisedRef.current = true;
+    const startPosition = randomPosition();
+
+    setPlayerState({
+      position: startPosition,
+      pointer: "mouse",
+    });
+  }, [self?.id, setPlayerState]);
+
+  useEffect(() => {
+    if (!self?.id) return;
+    if (typeof window === "undefined") return;
+
+    const myShip = myShipRef.current ??
+      createShip(
+        playerState.position?.x ?? window.innerWidth / 2,
+        playerState.position?.y ?? window.innerHeight / 2,
+        8,
+        self.id,
+      );
+
+    myShip.color = self.color ?? myShip.color;
+    myShip.hue = self.hue ?? myShip.hue;
+    myShip.targetPosition = playerState.position
+      ? { ...playerState.position }
+      : myShip.targetPosition;
+
+    myShipRef.current = myShip;
+  }, [playerState.position, self?.color, self?.hue, self?.id]);
+
+  useEffect(() => {
+    const selfId = self?.id;
+
+    const remotePlayers = players.filter((entry) => entry.id !== selfId);
+    const remoteIds = new Set(remotePlayers.map((entry) => entry.id));
+
+    Object.keys(shipsRef.current).forEach((id) => {
+      if (!remoteIds.has(id)) {
+        delete shipsRef.current[id];
+      }
     });
 
-    setPlayerState(() => ({
-      position: randomPosition(),
-      pointer: "mouse",
-    }));
-  }, [setPlayerState]);
+    remotePlayers.forEach((entry) => {
+      const existing = shipsRef.current[entry.id];
+      const fallbackPosition = entry.state.position ?? randomPosition();
+      const ship = existing ?? createShipFromPlayer(entry, fallbackPosition);
+
+      ship.color = entry.color ?? ship.color;
+      ship.hue = entry.hue ?? ship.hue;
+
+      if (entry.state.position) {
+        ship.targetPosition = { ...entry.state.position };
+      }
+
+      shipsRef.current[entry.id] = ship;
+    });
+  }, [players, self?.id]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+
     const handlePointerMove = (event: PointerEvent) => {
-      const pointerType = event.pointerType;
-      const normalizedPointer: CursorState["pointer"] =
-        pointerType === "mouse" || pointerType === "touch" || pointerType === "pen"
-          ? pointerType
+      const pointerType =
+        event.pointerType === "mouse" ||
+        event.pointerType === "touch" ||
+        event.pointerType === "pen"
+          ? event.pointerType
           : "unknown";
 
       setPlayerState((prev) => ({
         ...prev,
         position: { x: event.clientX, y: event.clientY },
-        pointer: normalizedPointer,
+        pointer: pointerType,
       }));
     };
 
-    window.addEventListener("pointermove", handlePointerMove, { passive: true });
+    const handlePointerLeave = () => {
+      setPlayerState((prev) => ({
+        ...prev,
+        position: null,
+      }));
+    };
+
+    window.addEventListener("pointermove", handlePointerMove, {
+      passive: true,
+    });
+    window.addEventListener("pointerleave", handlePointerLeave);
+
     return () => {
       window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerleave", handlePointerLeave);
     };
   }, [setPlayerState]);
 
-  const activePlayers = useMemo(() => {
-    return players
-      .map((entry) => {
-        const position = entry.state.position;
-        if (!position) {
-          return null;
-        }
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
 
-        return {
-          id: entry.id,
-          color: entry.color ?? "#38bdf8",
-          hue: entry.hue ?? "#0ea5e9",
-          position,
-          pointer: entry.state.pointer ?? "unknown",
-          isSelf: entry.id === player?.id,
-        };
-      })
-      .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
-  }, [player?.id, players]);
+    const context = canvas.getContext("2d");
+    if (!context) return;
 
-  return (
-    <main
-      className="relative flex h-[calc(100vh-8rem)] flex-col gap-6 overflow-hidden rounded-3xl border border-white/10 bg-black/40 p-6 backdrop-blur"
-      style={{ background: sharedState.background }}
-    >
-      <header className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-sm font-medium uppercase tracking-wide text-white/60">Session</p>
-          <h1 className="text-2xl font-semibold text-white">{sharedState.sessionName}</h1>
-          <p className="text-sm text-white/60">Connection: {status}</p>
-          {playerState.position && (
-            <p className="mt-2 text-xs text-white/50">
-              Pointer: {playerState.pointer} @ {playerState.position.x}, {playerState.position.y}
-            </p>
-          )}
-        </div>
-        {isHost && (
-          <div className="flex flex-col items-end gap-2">
-            <button
-              className="rounded-full bg-white/10 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-cyan-500/20 transition hover:bg-white/20"
-              onClick={() => {
-                setSharedState((prev) => ({
-                  ...prev,
-                  background: `hsl(${Math.round(Math.random() * 360)}, 45%, 12%)`,
-                }));
-              }}
-            >
-              Shuffle Background
-            </button>
-            <button
-              className="rounded-full bg-white/10 px-4 py-2 text-sm font-medium text-white shadow-lg shadow-cyan-500/20 transition hover:bg-white/20"
-              onClick={() => {
-                setSharedState((prev) => ({
-                  ...prev,
-                  sessionName: `Session ${Math.floor(Math.random() * 1000)}`,
-                }));
-              }}
-            >
-              Rename Session
-            </button>
-          </div>
-        )}
-      </header>
+    const resizeCanvas = () => {
+      if (typeof window === "undefined") return;
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    };
 
-      <section className="flex flex-1 flex-col gap-4 overflow-hidden">
-        <div className="flex items-center justify-between text-sm text-white/70">
-          <span>{players.length} player{players.length === 1 ? "" : "s"} connected</span>
-          {player && (
-            <span>
-              You are <strong className="text-white">{player.id.slice(0, 6)}</strong>
-              {isHost ? " · Host" : ""}
-            </span>
-          )}
-        </div>
+    resizeCanvas();
+    window.addEventListener("resize", resizeCanvas);
 
-        <div className="relative flex-1 overflow-hidden rounded-2xl border border-white/10 bg-black/30">
-          {activePlayers.map((cursor) => (
-            <div
-              key={cursor.id}
-              className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-2"
-              style={{ left: cursor.position.x, top: cursor.position.y }}
-            >
-              <div
-                className="h-10 w-10 rounded-full border-2 shadow-xl shadow-black/40"
-                style={{ background: cursor.color, borderColor: cursor.hue }}
-              />
-              <span className="rounded-full bg-black/60 px-3 py-1 text-xs font-medium text-white/80">
-                {cursor.isSelf ? "You" : cursor.id.slice(0, 4)} · {cursor.pointer}
-              </span>
-            </div>
-          ))}
-        </div>
-      </section>
-    </main>
-  );
+    const gameLoop = () => {
+      context.clearRect(0, 0, canvas.width, canvas.height);
+
+      if (myShipRef.current) {
+        const updatedShip = updateShipPosition(
+          myShipRef.current,
+          myShipRef.current.targetPosition,
+        );
+        myShipRef.current = updateShipPath(updatedShip);
+        drawShip(context, myShipRef.current);
+      }
+
+      Object.entries(shipsRef.current).forEach(([id, ship]) => {
+        const updatedShip = updateShipPosition(
+          ship,
+          ship.targetPosition,
+          SHIP_SPEED * 0.8,
+        );
+        const finalShip = updateShipPath(updatedShip);
+        shipsRef.current[id] = finalShip;
+        drawShip(context, finalShip);
+      });
+
+      animationFrameRef.current = requestAnimationFrame(gameLoop);
+    };
+
+    animationFrameRef.current = requestAnimationFrame(gameLoop);
+
+    return () => {
+      window.removeEventListener("resize", resizeCanvas);
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+  }, []);
+
+  return <canvas ref={canvasRef} className="game" />;
 };
 
 export default Page;
