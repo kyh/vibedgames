@@ -1,0 +1,36 @@
+:root,
+body,
+html {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  background-color: #020617;
+  color: white;
+  font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.app-container {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  background-color: #020617;
+  background-image: url("https://zmdrwswxugswzmcokvff.supabase.co/storage/v1/object/public/vibedgames/bg.png");
+  background-size: 10px 10px;
+  overflow: hidden;
+}
+
+.game-canvas {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.background-canvas {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}

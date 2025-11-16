@@ -75,7 +75,7 @@ export function useRealtimeGame<
         config.onPlayerMoved?.(player.id, position);
       }
     },
-    onGameSync: (players, gameState) => {
+    onGameSync: (players, _gameState) => {
       const positions: Record<string, Position> = {};
       Object.entries(players).forEach(([id, player]) => {
         const position = (player.state as any)?.position as Position;
