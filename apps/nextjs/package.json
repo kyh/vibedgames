@@ -29,7 +29,7 @@
     "next": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
-    "streamdown": "^1.4.0",
+    "streamdown": "^1.5.1",
     "superjson": "catalog:",
     "zod": "catalog:",
     "zustand": "^5.0.8"
