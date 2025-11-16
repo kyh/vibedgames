@@ -46,7 +46,7 @@ export function useTurnBasedGame<TGameState = unknown, TMove = unknown, TSetting
         turnTimeLimit: config.turnTimeLimit,
       },
     },
-    onGameSync: (players, gameState) => {
+    onGameSync: (_players, gameState) => {
       if (gameState && (gameState as any).turnState) {
         setTurnState((gameState as any).turnState as TurnBasedGameState);
       }

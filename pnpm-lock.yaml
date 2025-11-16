@@ -87,6 +87,52 @@ importers:
         specifier: 'catalog:'
         version: 5.9.3
 
+  apps/astroid:
+    dependencies:
+      '@repo/multiplayer':
+        specifier: workspace:*
+        version: link:../../packages/multiplayer
+      react:
+        specifier: 'catalog:'
+        version: 19.2.0
+      react-dom:
+        specifier: 'catalog:'
+        version: 19.2.0(react@19.2.0)
+    devDependencies:
+      '@kyh/eslint-config':
+        specifier: 'catalog:'
+        version: 1.1.10(@typescript-eslint/parser@8.46.2(eslint@9.39.1(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.1(jiti@2.6.1))(turbo@2.6.1)(typescript@5.9.3)
+      '@kyh/prettier-config':
+        specifier: 'catalog:'
+        version: 1.1.10
+      '@kyh/tsconfig':
+        specifier: 'catalog:'
+        version: 1.1.10
+      '@types/react':
+        specifier: 'catalog:'
+        version: 19.2.5
+      '@types/react-dom':
+        specifier: 'catalog:'
+        version: 19.2.3(@types/react@19.2.5)
+      '@vitejs/plugin-react-swc':
+        specifier: ^4.2.2
+        version: 4.2.2(vite@7.2.2(@types/node@24.10.1)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.44.0)(tsx@4.20.6))
+      eslint:
+        specifier: 'catalog:'
+        version: 9.39.1(jiti@2.6.1)
+      globals:
+        specifier: ^16.5.0
+        version: 16.5.0
+      prettier:
+        specifier: 'catalog:'
+        version: 3.6.2
+      typescript:
+        specifier: 'catalog:'
+        version: 5.9.3
+      vite:
+        specifier: 'catalog:'
+        version: 7.2.2(@types/node@24.10.1)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.44.0)(tsx@4.20.6)
+
   apps/flappy-bird:
     dependencies:
       '@tensorflow-models/pose-detection':

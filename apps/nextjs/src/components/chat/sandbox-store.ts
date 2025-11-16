@@ -46,7 +46,7 @@ export function useCommandErrorsLogs() {
 }
 
 export const useSandboxStore = create<SandboxStore>()((set) => ({
-  url: "https://vibedgames.com/demo",
+  url: "https://astroid.vibedgames.com",
   addGeneratedFiles: (files) =>
     set((state) => ({
       generatedFiles: new Set([...state.generatedFiles, ...files]),
@@ -107,7 +107,7 @@ export const useSandboxStore = create<SandboxStore>()((set) => ({
   },
   reset: () =>
     set(() => ({
-      url: "https://vibedgames.com/demo",
+      url: "https://astroid.vibedgames.com",
       commands: [],
       generatedFiles: new Set<string>(),
       paths: [],

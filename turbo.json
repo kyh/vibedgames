@@ -55,6 +55,7 @@
     "VERCEL",
     "VERCEL_ENV",
     "VERCEL_URL",
+    "MODE",
     "npm_lifecycle_event"
   ]
 }
