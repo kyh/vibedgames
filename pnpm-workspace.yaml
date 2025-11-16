@@ -6,21 +6,21 @@ catalog:
   "@kyh/eslint-config": ^1.1.10
   "@kyh/prettier-config": ^1.1.10
   "@kyh/tsconfig": ^1.1.10
-  "@tanstack/react-query": ^5.90.5
+  "@tanstack/react-query": ^5.90.10
   "@trpc/client": ^11.7.1
   "@trpc/server": ^11.7.1
   "@trpc/tanstack-react-query": ^11.7.1
-  "@types/node": ^24.9.1
-  "@types/react": ^19.2.2
-  "@types/react-dom": ^19.2.2
-  eslint: ^9.38.0
-  next: ^16.0.0
+  "@types/node": ^24.10.1
+  "@types/react": ^19.2.5
+  "@types/react-dom": ^19.2.3
+  eslint: ^9.39.1
+  next: ^16.0.3
   prettier: ^3.6.2
   react: ^19.2.0
   react-dom: ^19.2.0
-  superjson: ^2.2.3
+  superjson: ^2.2.5
   typescript: ^5.9.3
-  vite: ^7.1.12
+  vite: ^7.2.2
   zod: ^4.1.12
 
 nodeLinker: hoisted

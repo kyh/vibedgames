@@ -9,10 +9,10 @@ export type FeaturedGame = {
 export const featuredGames: FeaturedGame[] = [
   {
     id: 0,
-    name: "Demo",
+    name: "Astroid",
     preview:
       "https://zmdrwswxugswzmcokvff.supabase.co/storage/v1/object/public/vibedgames/astroid.png",
-    url: "https://vibedgames.com/demo",
+    url: "https://astroid.vibedgames.com",
     colorScheme: "dark",
   },
   {

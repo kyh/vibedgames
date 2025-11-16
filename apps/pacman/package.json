@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "0.10.22-rc.20250304",
-    "@react-three/drei": "^10.7.6",
+    "@react-three/drei": "^10.7.7",
     "@tensorflow/tfjs": "^4.22.0",
     "@tensorflow/tfjs-backend-cpu": "^4.22.0",
     "@tensorflow/tfjs-backend-webgl": "^4.22.0",
@@ -24,14 +24,14 @@
     "@kyh/eslint-config": "catalog:",
     "@kyh/prettier-config": "catalog:",
     "@kyh/tsconfig": "catalog:",
-    "@tailwindcss/vite": "^4.1.16",
+    "@tailwindcss/vite": "^4.1.17",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "@vitejs/plugin-react-swc": "^4.2.0",
+    "@vitejs/plugin-react-swc": "^4.2.2",
     "eslint": "catalog:",
-    "globals": "^16.4.0",
+    "globals": "^16.5.0",
     "prettier": "catalog:",
-    "tailwindcss": "^4.1.16",
+    "tailwindcss": "^4.1.17",
     "typescript": "catalog:",
     "vite": "catalog:"
   }

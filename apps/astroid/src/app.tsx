@@ -1,9 +1,8 @@
 import { useEffect, useRef } from "react";
-
-import type { Player } from "@repo/multiplayer";
 import { useRealtimeGame } from "@repo/multiplayer";
 
-import { Background } from "./Background";
+import type { Player } from "@repo/multiplayer";
+import { Background } from "./background";
 
 const App = () => {
   return (
@@ -48,7 +47,7 @@ type PlayerActionPayload = {
   data: unknown;
 };
 
-type DemoPlayer = {
+type AstroidPlayer = {
   id: string;
   position: Point;
   color?: string;
@@ -206,9 +205,7 @@ const drawShip = (ctx: CanvasRenderingContext2D, ship: Ship) => {
 const isPoint = (value: unknown): value is Point => {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Record<string, unknown>;
-  return (
-    typeof candidate.x === "number" && typeof candidate.y === "number"
-  );
+  return typeof candidate.x === "number" && typeof candidate.y === "number";
 };
 
 const extractPlayerPosition = (player?: Player): Point | undefined => {
@@ -229,7 +226,7 @@ const DemoGame = () => {
   const myShipRef = useRef<Ship | null>(null);
   const animationFrameRef = useRef<number | null>(null);
 
-  const createShipFromPlayer = (player: DemoPlayer): Ship => {
+  const createShipFromPlayer = (player: AstroidPlayer): Ship => {
     const ship = createShip(player.position.x, player.position.y, 8, player.id);
     ship.color = player.color ?? "rgb(255, 255, 255)";
     ship.hue = player.hue ?? "rgb(200, 200, 200)";
@@ -395,6 +392,5 @@ const DemoGame = () => {
 
   return <canvas ref={canvasRef} className="game-canvas" />;
 };
-
 
 export default App;
