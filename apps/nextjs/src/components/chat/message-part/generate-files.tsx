@@ -10,7 +10,7 @@ type Props = {
 };
 
 export const GenerateFiles = ({ message, className }: Props) => {
-  const lastInProgress = ["error", "uploading", "generating"].includes(
+  const lastInProgress = ["error", "streaming", "generating"].includes(
     message.status,
   );
 
@@ -27,7 +27,13 @@ export const GenerateFiles = ({ message, className }: Props) => {
       <ToolHeader>
         <CloudUploadIcon className="h-3.5 w-3.5" />
         <span>
-          {message.status === "done" ? "Uploaded files" : "Generating files"}
+          {message.status === "done"
+            ? "Generated files"
+            : message.status === "streaming"
+              ? "Streaming files"
+              : message.status === "error"
+                ? "File generation error"
+                : "Generating files"}
         </span>
       </ToolHeader>
       <div className="relative min-h-5 text-sm">

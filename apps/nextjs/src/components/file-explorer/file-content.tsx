@@ -1,37 +1,21 @@
 import { memo } from "react";
-import { Spinner } from "@repo/ui/spinner";
-import { useQuery } from "@tanstack/react-query";
-
-import { useTRPC } from "@/trpc/react";
 
 type Props = {
-  sandboxId: string;
-  path: string;
+  content?: string;
 };
 
-export const FileContent = memo(function FileContent({
-  sandboxId,
-  path,
-}: Props) {
-  const trpc = useTRPC();
-
-  const { data: content, isLoading } = useQuery({
-    ...trpc.sandbox.getFile.queryOptions({
-      sandboxId,
-      path,
-    }),
-    refetchInterval: 1000,
-  });
-
-  if (isLoading || !content) {
+export const FileContent = memo(function FileContent({ content }: Props) {
+  if (content === undefined) {
     return (
-      <div className="absolute flex h-full w-full items-center text-center">
-        <div className="flex-1">
-          <Spinner />
-        </div>
+      <div className="p-4 text-sm text-muted-foreground">
+        Select a file to view its contents.
       </div>
     );
   }
 
-  return <div>{content}</div>;
+  return (
+    <pre className="whitespace-pre-wrap break-words p-4 text-xs font-mono">
+      {content}
+    </pre>
+  );
 });

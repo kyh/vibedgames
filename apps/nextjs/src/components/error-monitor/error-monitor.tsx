@@ -12,7 +12,7 @@ import { useChat } from "@ai-sdk/react";
 
 import type { Line } from "./schemas";
 import { useSharedChatContext } from "@/components/chat/chat-context";
-import { useCommandErrorsLogs } from "@/components/chat/sandbox-store";
+import { useWorkspaceErrors } from "@/components/chat/workspace-store";
 import { useMonitorStore } from "./error-store";
 import { createSummaryMutation, useGetSummary } from "./get-summary";
 
@@ -24,7 +24,7 @@ type Props = {
 export const ErrorMonitor = ({ children, debounceTimeMs = 10000 }: Props) => {
   const [pending, startTransition] = useTransition();
   const { cursor, scheduled, setCursor, setScheduled } = useMonitorStore();
-  const { errors } = useCommandErrorsLogs();
+  const { errors } = useWorkspaceErrors();
   const { chat } = useSharedChatContext();
   const { sendMessage, status: chatStatus, messages } = useChat({ chat });
   const getSummaryMutation = useGetSummary();

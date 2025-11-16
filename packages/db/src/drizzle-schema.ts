@@ -47,7 +47,7 @@ export const gameProject = sqliteTable("game_project", {
 });
 
 /**
- * Records a single sandbox-powered build for a project.
+ * Records a single build for a project.
  */
 export const gameBuild = sqliteTable(
   "game_build",

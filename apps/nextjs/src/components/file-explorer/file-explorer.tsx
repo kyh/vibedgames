@@ -12,22 +12,23 @@ import {
 
 import type { FileNode } from "./build-file-tree";
 import { FileContent } from "@/components/file-explorer/file-content";
+import { useWorkspaceStore } from "@/components/chat/workspace-store";
 import { buildFileTree } from "./build-file-tree";
 
 type Props = {
   className?: string;
   disabled?: boolean;
-  paths?: string[];
-  sandboxId?: string;
 };
 
 export const FileExplorer = memo(function FileExplorer({
   className,
   disabled,
-  paths,
-  sandboxId,
 }: Props) {
-  const fileTree = useMemo(() => buildFileTree(paths ?? []), [paths]);
+  const { paths, files } = useWorkspaceStore((state) => ({
+    paths: state.paths,
+    files: state.files,
+  }));
+  const fileTree = useMemo(() => buildFileTree(paths), [paths]);
   const [selected, setSelected] = useState<FileNode | null>(null);
   const [fs, setFs] = useState<FileNode[]>(fileTree);
 
@@ -76,11 +77,9 @@ export const FileExplorer = memo(function FileExplorer({
 
   return (
     <div className={className}>
-      <div>
-        <FileIcon className="mr-2 w-4" />
-        <span className="font-mono font-semibold uppercase">
-          Sandbox Remote Filesystem
-        </span>
+      <div className="flex items-center gap-2 text-xs font-semibold uppercase">
+        <FileIcon className="w-4" />
+        <span className="font-mono">Workspace Files</span>
         {selected && !disabled && (
           <span className="ml-auto text-gray-500">{selected.path}</span>
         )}
@@ -90,11 +89,10 @@ export const FileExplorer = memo(function FileExplorer({
         <ScrollArea className="border-primary/18 w-1/4 shrink-0 border-r">
           <div>{renderFileTree(fs)}</div>
         </ScrollArea>
-        {selected && sandboxId && !disabled && (
+        {selected && !disabled && (
           <ScrollArea className="w-3/4 shrink-0">
             <FileContent
-              sandboxId={sandboxId}
-              path={selected.path.substring(1)}
+              content={files[selected.path.replace(/^\//, "")]}
             />
             <ScrollBar orientation="horizontal" />
           </ScrollArea>

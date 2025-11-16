@@ -3,12 +3,12 @@
 import Image from "next/image";
 import { motion } from "motion/react";
 
-import { useSandboxStore } from "@/components/chat/sandbox-store";
+import { useWorkspaceStore } from "@/components/chat/workspace-store";
 import { featuredGames } from "./data";
 import { useUiStore } from "./ui-store";
 
 export const DiscoverView = () => {
-  const { setUrl } = useSandboxStore();
+  const { setPreviewUrl } = useWorkspaceStore();
   const { setView, setCurrentIndex, isMobile } = useUiStore();
 
   return (
@@ -32,7 +32,7 @@ export const DiscoverView = () => {
             }
             setCurrentIndex(index);
             setView("play");
-            setUrl(game.url, crypto.randomUUID());
+          setPreviewUrl(game.url, crypto.randomUUID());
           }}
           className="hover:border-foreground relative aspect-video w-30 shrink-0 overflow-clip rounded-lg border border-transparent transition-colors"
         >

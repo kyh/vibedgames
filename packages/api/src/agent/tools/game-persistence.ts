@@ -9,7 +9,6 @@ import type { Db } from "@repo/db/drizzle-client";
 type EnsureBuildParams = {
   db: Db;
   session: Session | null;
-  sandboxId: string;
   modelId: string;
   messages: ModelMessage[];
   projectId?: string;
@@ -29,7 +28,6 @@ type PersistFilesParams = {
 export async function ensureProjectAndBuild({
   db,
   session,
-  sandboxId,
   modelId,
   messages,
   projectId,
@@ -43,6 +41,7 @@ export async function ensureProjectAndBuild({
   const normalizedTitle =
     initialPrompt?.split("\n").at(0)?.trim().slice(0, 120) ??
     "Untitled Project";
+
   let project =
     projectId !== undefined
       ? await db.query.gameProject.findFirst({
@@ -73,50 +72,37 @@ export async function ensureProjectAndBuild({
     project = inserted;
   }
 
+  if (!project) {
+    throw new Error("Project could not be created.");
+  }
+
   let build: Awaited<ReturnType<typeof db.query.gameBuild.findFirst>> | null =
     null;
 
-  if (projectId && buildNumber !== undefined) {
-    if (!project) {
-      throw new Error("Project not found when trying to get build.");
-    }
+  if (buildNumber !== undefined) {
     build = await getBuildByProjectAndNumber(db, project.id, buildNumber);
 
     if (!build) {
       throw new Error("Unable to load build: build not found.");
     }
 
-    const currentBuildNumber = build.buildNumber;
-
     await db
       .update(gameBuild)
       .set({
-        sandboxId,
         modelId,
         updatedAt: new Date(),
       })
       .where(
         and(
           eq(gameBuild.projectId, project.id),
-          eq(gameBuild.buildNumber, currentBuildNumber),
+          eq(gameBuild.buildNumber, build.buildNumber),
         ),
       );
 
-    const updatedBuild = await db.query.gameBuild.findFirst({
-      where: (builds, { and, eq }) =>
-        and(
-          eq(builds.projectId, project.id),
-          eq(builds.buildNumber, currentBuildNumber),
-        ),
-    });
-
-    build = updatedBuild ?? build;
+    build = await getBuildByProjectAndNumber(db, project.id, build.buildNumber);
   }
 
   if (!build) {
-    if (!project) {
-      throw new Error("Project not found when creating new build.");
-    }
     const nextBuildNumber = await getNextBuildNumber(db, project.id);
 
     const [insertedBuild] = await db
@@ -125,7 +111,6 @@ export async function ensureProjectAndBuild({
         projectId: project.id,
         buildNumber: nextBuildNumber,
         createdById: session.user.id,
-        sandboxId,
         modelId,
       })
       .returning();
@@ -133,23 +118,12 @@ export async function ensureProjectAndBuild({
     build = insertedBuild;
   }
 
-  if (project) {
-    await db
-      .update(gameProject)
-      .set({ updatedAt: new Date() })
-      .where(eq(gameProject.id, project.id));
-  }
+  await db
+    .update(gameProject)
+    .set({ updatedAt: new Date() })
+    .where(eq(gameProject.id, project.id));
 
   return { project, build };
-}
-
-export async function getBuildBySandbox(db: Db, sandboxId: string) {
-  if (!sandboxId) return null;
-  return (
-    (await db.query.gameBuild.findFirst({
-      where: (builds, { eq }) => eq(builds.sandboxId, sandboxId),
-    })) ?? null
-  );
 }
 
 export async function getBuildByProjectAndNumber(

@@ -1,21 +1,18 @@
 "use client";
 
-import Image from "next/image";
-
 import type { FeaturedGame } from "./data";
-import { useSandboxStore } from "@/components/chat/sandbox-store";
+import { useWorkspaceStore } from "@/components/chat/workspace-store";
 import { PreviewStack } from "@/components/preview/preview-stack";
 import { PreviewWeb } from "@/components/preview/preview-web";
 import { featuredGames } from "./data";
 import { useUiStore } from "./ui-store";
 
 export const Preview = () => {
-  const { status, url, setUrl } = useSandboxStore();
+  const { previewUrl, setPreviewUrl } = useWorkspaceStore();
   const { view, setView } = useUiStore();
 
   const renderGameCard = (game: FeaturedGame) => {
-    const disabled =
-      view === "discover" || status === "stopped" || url !== game.url;
+    const disabled = view === "discover" || previewUrl !== game.url;
     return (
       <PreviewWeb
         key={game.id}
@@ -25,7 +22,7 @@ export const Preview = () => {
         name={game.name}
         onPreviewClick={() => {
           setView("play");
-          setUrl(game.url, crypto.randomUUID());
+          setPreviewUrl(game.url, crypto.randomUUID());
         }}
       />
     );
