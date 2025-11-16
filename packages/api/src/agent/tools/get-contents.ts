@@ -10,7 +10,7 @@ const fileSchema = z.object({
   path: z
     .string()
     .describe(
-      "Path to the file in the Vercel Sandbox (relative paths from sandbox root, e.g., 'src/main.js', 'package.json', 'components/Button.tsx')",
+      "Path to the file within the active workspace (relative to the project root, e.g., 'src/main.js', 'package.json', 'components/Button.tsx')",
     ),
   content: z
     .string()

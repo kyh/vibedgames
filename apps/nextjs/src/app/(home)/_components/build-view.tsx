@@ -30,7 +30,6 @@ import {
   RefreshCwIcon,
   SendIcon,
   SettingsIcon,
-  TerminalIcon,
   TrashIcon,
 } from "lucide-react";
 import { motion } from "motion/react";
@@ -38,8 +37,7 @@ import { motion } from "motion/react";
 import type { ChatUIMessage } from "@repo/api/agent/messages/types";
 import { useSharedChatContext } from "@/components/chat/chat-context";
 import { Message } from "@/components/chat/message";
-import { useSandboxStore } from "@/components/chat/sandbox-store";
-import { CommandsLogs } from "@/components/command-logs/command-logs";
+import { useWorkspaceStore } from "@/components/chat/workspace-store";
 import { FileExplorer } from "@/components/file-explorer/file-explorer";
 import { DraggablePanel } from "@/components/ui/draggable-panel";
 import { useUiStore } from "./ui-store";
@@ -49,13 +47,10 @@ export const BuildView = () => {
 
   const { chat } = useSharedChatContext();
   const { messages, sendMessage, status } = useChat<ChatUIMessage>({ chat });
-  const { setChatStatus, reset, commands, paths, sandboxId } =
-    useSandboxStore();
+  const { setChatStatus, reset } = useWorkspaceStore();
   const {
     refreshPreviewIframe,
-    showCommandLogs,
     showFileExplorer,
-    setShowCommandLogs,
     setShowFileExplorer,
     showBuildMenu,
     setShowBuildMenu,
@@ -86,18 +81,6 @@ export const BuildView = () => {
         <ConversationScrollButton />
       </Conversation>
 
-      {/* Debug Windows */}
-      <DraggablePanel
-        title="Command Logs"
-        icon={<TerminalIcon className="h-4 w-4" />}
-        isOpen={showCommandLogs}
-        onClose={() => setShowCommandLogs(false)}
-        initialPosition={{ x: 20, y: 20 }}
-        initialSize={{ width: 400, height: 300 }}
-      >
-        <CommandsLogs commands={commands} />
-      </DraggablePanel>
-
       <DraggablePanel
         title="File Explorer"
         icon={<FileIcon className="h-4 w-4" />}
@@ -106,7 +89,7 @@ export const BuildView = () => {
         initialPosition={{ x: 440, y: 20 }}
         initialSize={{ width: 300, height: 200 }}
       >
-        <FileExplorer paths={paths} sandboxId={sandboxId} />
+        <FileExplorer />
       </DraggablePanel>
 
       <form
@@ -145,17 +128,6 @@ export const BuildView = () => {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-56">
                   <DropdownMenuItem
-                    onClick={() => setShowCommandLogs(!showCommandLogs)}
-                  >
-                    <TerminalIcon />
-                    Command Logs
-                    {showCommandLogs && (
-                      <span className="ml-auto text-xs">
-                        <CheckIcon />
-                      </span>
-                    )}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
                     onClick={() => setShowFileExplorer(!showFileExplorer)}
                   >
                     <FileIcon />
@@ -176,19 +148,18 @@ export const BuildView = () => {
 
                   <DropdownMenuItem
                     onClick={() => {
-                      // Reset sandbox
                       reset();
                     }}
                   >
                     <TrashIcon />
-                    Reset Sandbox
+                    Reset Workspace
                   </DropdownMenuItem>
 
                   <DropdownMenuSeparator />
 
                   <DropdownMenuItem
                     onClick={() => {
-                      // Create new game - reset sandbox and clear input
+                      // Create new game - reset workspace and clear input
                       reset();
                       setInput("");
                     }}

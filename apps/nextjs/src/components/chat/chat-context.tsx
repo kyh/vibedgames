@@ -9,7 +9,7 @@ import { toast } from "@repo/ui/toast";
 
 import type { DataPart } from "@repo/api/agent/messages/data-parts";
 import type { ChatUIMessage } from "@repo/api/agent/messages/types";
-import { useDataStateMapper } from "@/components/chat/sandbox-store";
+import { useDataStateMapper } from "@/components/chat/workspace-store";
 
 type ChatContextValue = {
   chat: Chat<ChatUIMessage>;

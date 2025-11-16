@@ -1,17 +1,14 @@
 import type { UIMessage, UIMessageStreamWriter } from "ai";
-import { Sandbox } from "@vercel/sandbox";
 import { tool } from "ai";
 import z from "zod";
 
 import type { Db } from "@repo/db/drizzle-client";
 
-import type { DataPart } from "../messages/data-parts";
+import type { DataPart, DataPartFile } from "../messages/data-parts";
 import type { File } from "./get-contents";
 import description from "./generate-files.md";
 import { getContents } from "./get-contents";
-import { getBuildBySandbox, persistFiles } from "./game-persistence";
-import { getRichError } from "./get-rich-error";
-import { getWriteFiles } from "./get-write-files";
+import { persistFiles } from "./game-persistence";
 
 type Params = {
   modelId: string;
@@ -19,70 +16,58 @@ type Params = {
   writer: UIMessageStreamWriter<UIMessage<never, DataPart>>;
 };
 
+type WorkspaceReference = {
+  projectId?: string;
+  buildNumber?: number;
+};
+
 export const generateFiles = ({ writer, modelId, db }: Params) =>
   tool({
     description,
     inputSchema: z.object({
-      sandboxId: z.string(),
+      projectId: z.string().optional(),
+      buildNumber: z.number().optional(),
       paths: z.array(z.string()),
     }),
-    execute: async ({ sandboxId, paths }, { toolCallId, messages }) => {
+    execute: async (
+      { projectId, buildNumber, paths }: WorkspaceReference & { paths: string[] },
+      { toolCallId, messages },
+    ) => {
       writer.write({
         id: toolCallId,
         type: "data-generating-files",
         data: { paths: [], status: "generating" },
       });
 
-      let sandbox: Sandbox | null = null;
-
-      try {
-        sandbox = await Sandbox.get({ sandboxId });
-      } catch (error) {
-        const richError = getRichError({
-          action: "get sandbox by id",
-          args: { sandboxId },
-          error,
-        });
-
-        writer.write({
-          id: toolCallId,
-          type: "data-generating-files",
-          data: { error: richError.error, paths: [], status: "error" },
-        });
-
-        return richError.message;
-      }
-
-      const build = await getBuildBySandbox(db, sandboxId);
-      if (!build) {
-        console.warn(
-          `No persisted build found for sandbox ${sandboxId}. Files will not be saved to the database.`,
-        );
-      }
-
-      const writeFiles = getWriteFiles({ sandbox, toolCallId, writer });
       const iterator = getContents({ messages: messages ?? [], modelId, paths });
       const uploaded: File[] = [];
 
       try {
         for await (const chunk of iterator) {
           if (chunk.files.length > 0) {
-            const error = await writeFiles(chunk);
-            if (error) {
-              return error;
-            } else {
-              uploaded.push(...chunk.files);
-              if (build) {
-                await persistFiles({
-                  db,
-                  projectId: build.projectId,
-                  buildNumber: build.buildNumber,
-                  files: chunk.files.map((file) => ({
-                    path: file.path,
-                    content: file.content,
-                  })),
-                });
-              }
+            const files = normalizeFiles(chunk.files);
+            writer.write({
+              id: toolCallId,
+              type: "data-generating-files",
+              data: {
+                status: "streaming",
+                paths: chunk.paths,
+                files,
+              },
+            });
+
+            uploaded.push(...chunk.files);
+
+            if (projectId && buildNumber !== undefined) {
+              await persistFiles({
+                db,
+                projectId,
+                buildNumber,
+                files: files.map((file) => ({
+                  path: file.path,
+                  content: file.content,
+                })),
+              });
             }
           } else {
             writer.write({
@@ -96,36 +81,59 @@ export const generateFiles = ({ writer, modelId, db }: Params) =>
           }
         }
       } catch (error) {
-        const richError = getRichError({
-          action: "generate file contents",
-          args: { modelId, paths },
+        const message = formatErrorMessage(
+          "generate file contents",
+          { modelId, paths },
           error,
-        });
+        );
 
         writer.write({
           id: toolCallId,
           type: "data-generating-files",
           data: {
-            error: richError.error,
+            error: { message },
             status: "error",
             paths,
           },
         });
 
-        return richError.message;
+        return message;
       }
 
       writer.write({
         id: toolCallId,
         type: "data-generating-files",
-        data: { paths: uploaded.map((file) => file.path), status: "done" },
+        data: {
+          paths: uploaded.map((file) => file.path),
+          status: "done",
+        },
       });
 
-      return `Successfully generated and uploaded ${
-        uploaded.length
-      } files. Their paths and contents are as follows:
-        ${uploaded
-          .map((file) => `Path: ${file.path}\nContent: ${file.content}\n`)
-          .join("\n")}`;
+      return `Successfully generated ${uploaded.length} files.\n${uploaded
+        .map((file) => `Path: ${file.path}\nContent: ${file.content}\n`)
+        .join("\n")}`;
     },
   });
+
+function normalizeFiles(files: File[]): DataPartFile[] {
+  return files.map((file) => ({ path: file.path, content: file.content }));
+}
+
+function formatErrorMessage(
+  action: string,
+  args: Record<string, unknown>,
+  error: unknown,
+) {
+  const baseMessage = `Error during ${action}: ${getErrorMessage(error)}`;
+  return `${baseMessage}\nParameters: ${JSON.stringify(args, null, 2)}`;
+}
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  try {
+    return JSON.stringify(error);
+  } catch (jsonError) {
+    return String(jsonError);
+  }
+}

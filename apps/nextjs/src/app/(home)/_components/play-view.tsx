@@ -10,11 +10,11 @@ import { cn } from "@repo/ui/utils";
 import { CompassIcon, RefreshCwIcon } from "lucide-react";
 import { motion } from "motion/react";
 
-import { useSandboxStore } from "@/components/chat/sandbox-store";
+import { useWorkspaceStore } from "@/components/chat/workspace-store";
 import { useUiStore } from "./ui-store";
 
 export const PlayView = () => {
-  const { url } = useSandboxStore();
+  const { previewUrl } = useWorkspaceStore();
   const { refreshPreviewIframe, isPreviewIframeLoading } = useUiStore();
 
   return (
@@ -38,17 +38,17 @@ export const PlayView = () => {
         >
           <InputGroupAddon>
             <InputGroupButton size="icon-xs" asChild>
-              <a href={url} target="_blank">
+              <a href={previewUrl ?? "#"} target="_blank" rel="noreferrer">
                 <CompassIcon />
               </a>
             </InputGroupButton>
           </InputGroupAddon>
-          {url && (
+          {previewUrl && (
             <InputGroupInput
               type="text"
               className="py-2.5 font-mono text-xs md:text-xs"
               onClick={(event) => event.currentTarget.select()}
-              value={url}
+              value={previewUrl}
               readOnly
             />
           )}

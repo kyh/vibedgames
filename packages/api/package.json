@@ -23,7 +23,6 @@
     "@better-auth/expo": "^1.3.34",
     "@repo/db": "workspace:^",
     "@trpc/server": "catalog:",
-    "@vercel/sandbox": "^1.0.2",
     "ai": "^5.0.93",
     "better-auth": "^1.3.34",
     "superjson": "catalog:",
