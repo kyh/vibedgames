@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
-import { useRealtimeGame } from "@repo/multiplayer";
+import { useEffect, useMemo, useRef } from "react";
+import { useMultiplayerRoom, usePlayerState } from "@repo/multiplayer";
 
 import type { Player } from "@repo/multiplayer";
 import { Background } from "./background";
@@ -35,16 +35,6 @@ type Ship = {
   color: string;
   hue: string;
   targetPosition: Point;
-};
-
-type PlayerGameState = {
-  position: Point;
-  pointer?: "mouse" | "touch";
-};
-
-type PlayerActionPayload = {
-  action: string;
-  data: unknown;
 };
 
 type AstroidPlayer = {
@@ -226,6 +216,17 @@ const DemoGame = () => {
   const myShipRef = useRef<Ship | null>(null);
   const animationFrameRef = useRef<number | null>(null);
 
+  const room = useMultiplayerRoom({
+    host: HOST,
+    party: PARTY,
+    room: ROOM,
+  });
+
+  const [playerState, setPlayerState] = usePlayerState(room, {
+    position: useMemo(() => getRandomPosition(), []),
+    pointer: "mouse" as const,
+  });
+
   const createShipFromPlayer = (player: AstroidPlayer): Ship => {
     const ship = createShip(player.position.x, player.position.y, 8, player.id);
     ship.color = player.color ?? "rgb(255, 255, 255)";
@@ -234,109 +235,70 @@ const DemoGame = () => {
     return ship;
   };
 
-  const game = useRealtimeGame<PlayerGameState, PlayerActionPayload>({
-    host: HOST,
-    party: PARTY,
-    room: ROOM,
-    autoTrackCursor: true,
-    tickRate: 20,
-    interpolation: false,
-    onPlayerMoved: (playerId, position) => {
-      const ship = shipsRef.current[playerId];
-      if (!ship) return;
-
-      ship.targetPosition = position;
-
-      const dx = position.x - ship.position.x;
-      const dy = position.y - ship.position.y;
-      if (dx !== 0 || dy !== 0) {
-        ship.angle = Math.atan2(dy, dx);
-      }
-    },
-    onPlayerJoined: (player) => {
-      const position = extractPlayerPosition(player);
-      shipsRef.current[player.id] ??= createShipFromPlayer({
-        id: player.id,
-        position: position ?? getRandomPosition(),
-        color: player.color,
-        hue: player.hue,
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      setPlayerState({
+        position: { x: event.clientX, y: event.clientY },
+        pointer: event.pointerType === "touch" ? "touch" : "mouse",
       });
-      updatePlayerCounter();
-    },
-    onPlayerLeft: (playerId) => {
-      delete shipsRef.current[playerId];
-      updatePlayerCounter();
-    },
-    onPlayersSync: (positions, allPlayers) => {
-      const playerPositions = positions as Record<string, Point | undefined>;
-      const players = allPlayers as Record<string, Player> | undefined;
+    };
 
-      for (const [id, position] of Object.entries(playerPositions)) {
-        if (position === undefined) {
-          continue;
-        }
-
-        if (shipsRef.current[id] !== undefined) {
-          continue;
-        }
-
-        const player = players?.[id] ?? game.getPlayerById(id);
-        if (player) {
-          shipsRef.current[id] = createShipFromPlayer({
-            id: player.id,
-            position,
-            color: player.color,
-            hue: player.hue,
-          });
-        }
-      }
-
-      if (players !== undefined) {
-        for (const [id, player] of Object.entries(players)) {
-          if (shipsRef.current[id] !== undefined) {
-            continue;
-          }
-
-          if (id === game.playerId) {
-            continue;
-          }
-
-          shipsRef.current[id] = createShipFromPlayer({
-            id: player.id,
-            position: getRandomPosition(),
-            color: player.color,
-            hue: player.hue,
-          });
-        }
-      }
-
-      updatePlayerCounter();
-    },
-  });
+    window.addEventListener("pointermove", handlePointerMove);
+    return () => window.removeEventListener("pointermove", handlePointerMove);
+  }, [setPlayerState]);
 
   function updatePlayerCounter() {
     const playerCountElement = document.getElementById("player-count");
     const playerIdElement = document.getElementById("player-id");
 
     if (playerCountElement) {
-      playerCountElement.textContent = game.getPlayerCount().toString();
+      playerCountElement.textContent = Object.keys(room.players).length.toString();
     }
 
-    if (playerIdElement && game.playerId) {
-      playerIdElement.textContent = game.playerId;
+    if (playerIdElement && room.playerId) {
+      playerIdElement.textContent = room.playerId;
     }
   }
 
   useEffect(() => {
-    if (game.isConnected && !myShipRef.current) {
+    if (
+      room.connectionStatus === "connected" &&
+      !myShipRef.current &&
+      room.playerId
+    ) {
       myShipRef.current = createShip(
         window.innerWidth / 2,
         window.innerHeight / 2,
         8,
-        game.playerId,
+        room.playerId,
       );
     }
-  }, [game.isConnected, game.playerId]);
+  }, [room.connectionStatus, room.playerId]);
+
+  useEffect(() => {
+    const players = room.players;
+    Object.entries(players).forEach(([id, player]) => {
+      if (id === room.playerId) return;
+      if (shipsRef.current[id]) return;
+
+      const position = extractPlayerPosition(player);
+      shipsRef.current[id] = createShipFromPlayer({
+        id,
+        position: position ?? getRandomPosition(),
+        color: player.color,
+        hue: player.hue,
+      });
+    });
+
+    Object.keys(shipsRef.current).forEach((id) => {
+      if (id === room.playerId) return;
+      if (!players[id]) {
+        delete shipsRef.current[id];
+      }
+    });
+
+    updatePlayerCounter();
+  }, [room.players, room.playerId]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -357,7 +319,7 @@ const DemoGame = () => {
       context.clearRect(0, 0, canvas.width, canvas.height);
 
       if (myShipRef.current) {
-        const currentPos = game.getCurrentPosition();
+        const currentPos = playerState.position ?? myShipRef.current.position;
         const updatedShip = updateShipPosition(myShipRef.current, currentPos);
         myShipRef.current = updateShipPath(updatedShip);
         drawShip(context, myShipRef.current);
@@ -365,6 +327,12 @@ const DemoGame = () => {
 
       Object.values(shipsRef.current).forEach((ship) => {
         if (!ship?.id) return;
+
+        const player = room.players[ship.id];
+        const playerPosition = extractPlayerPosition(player);
+        if (playerPosition) {
+          ship.targetPosition = playerPosition;
+        }
 
         const updatedShip = updateShipPosition(
           ship,
@@ -388,7 +356,7 @@ const DemoGame = () => {
         cancelAnimationFrame(animationFrameRef.current);
       }
     };
-  }, [game]);
+  }, [playerState.position, room.players]);
 
   return <canvas ref={canvasRef} className="game-canvas" />;
 };
