@@ -1,16 +1,15 @@
 "use client";
 
-import Image from "next/image";
-
 import type { FeaturedGame } from "./data";
 import { useSandboxStore } from "@/components/chat/sandbox-store";
 import { PreviewStack } from "@/components/preview/preview-stack";
 import { PreviewWeb } from "@/components/preview/preview-web";
+import { PreviewSandpack } from "@/components/preview/preview-sandpack";
 import { featuredGames } from "./data";
 import { useUiStore } from "./ui-store";
 
 export const Preview = () => {
-  const { status, url, setUrl } = useSandboxStore();
+  const { status, url, setUrl, sandpackFiles } = useSandboxStore();
   const { view, setView } = useUiStore();
 
   const renderGameCard = (game: FeaturedGame) => {
@@ -30,6 +29,10 @@ export const Preview = () => {
       />
     );
   };
+
+  if (view === "build") {
+    return <PreviewSandpack files={sandpackFiles} />;
+  }
 
   return (
     <PreviewStack

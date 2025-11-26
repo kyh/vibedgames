@@ -1,8 +1,8 @@
-Use this tool to generate and upload code files into an existing Vercel Sandbox. It leverages an LLM to create file contents based on the current conversation context and user intent, then writes them directly into the sandbox file system.
+Use this tool to generate and return code files for the in-browser Sandpack runtime. It leverages an LLM to create file contents based on the current conversation context and user intent, then streams them back to the client for immediate preview.
 
 The generated files should be considered correct on first iteration and suitable for immediate use in the sandbox environment. This tool is essential for scaffolding applications, adding new features, writing configuration files, or fixing missing components.
 
-All file paths must be relative to the sandbox root (e.g., `src/index.ts`, `package.json`, `components/Button.tsx`).
+All file paths must be relative to the project root (e.g., `src/index.ts`, `package.json`, `components/Button.tsx`).
 
 ## When to Use This Tool
 

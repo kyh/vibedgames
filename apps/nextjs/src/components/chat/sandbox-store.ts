@@ -15,8 +15,10 @@ type SandboxStore = {
   commands: Command[];
   generatedFiles: Set<string>;
   paths: string[];
+  sandpackFiles: Record<string, string>;
   sandboxId?: string;
   setChatStatus: (status: ChatStatus) => void;
+  setSandpackFiles: (files: Record<string, string>) => void;
   setSandboxId: (id: string) => void;
   setStatus: (status: "running" | "stopped") => void;
   setUrl: (url: string, uuid: string) => void;
@@ -78,6 +80,7 @@ export const useSandboxStore = create<SandboxStore>()((set) => ({
   commands: [],
   generatedFiles: new Set<string>(),
   paths: [],
+  sandpackFiles: {},
   setChatStatus: (status) =>
     set((state) =>
       state.chatStatus === status ? state : { chatStatus: status },
@@ -89,8 +92,10 @@ export const useSandboxStore = create<SandboxStore>()((set) => ({
       commands: [],
       paths: [],
       url: undefined,
+      sandpackFiles: {},
       generatedFiles: new Set<string>(),
     })),
+  setSandpackFiles: (files) => set(() => ({ sandpackFiles: files })),
   setStatus: (status) => set(() => ({ status })),
   setUrl: (url, urlUUID) => set(() => ({ url, urlUUID })),
   upsertCommand: (cmd) => {
@@ -111,6 +116,7 @@ export const useSandboxStore = create<SandboxStore>()((set) => ({
       commands: [],
       generatedFiles: new Set<string>(),
       paths: [],
+      sandpackFiles: {},
       sandboxId: undefined,
       status: undefined,
       urlUUID: undefined,
@@ -152,6 +158,12 @@ export function useDataStateMapper() {
           setCursor(errors.length);
           addPaths(data.data.paths);
           addGeneratedFiles(data.data.paths);
+          if (data.data.files) {
+            useSandboxStore.getState().setSandpackFiles(data.data.files);
+          }
+        }
+        if (data.data.status === "done" && data.data.files) {
+          useSandboxStore.getState().setSandpackFiles(data.data.files);
         }
         break;
       case "data-run-command":

@@ -33,7 +33,7 @@ export const CommandsLogs = (props: Props) => {
             );
 
             const line = `${command.command} ${command.args.join(" ")}`;
-            const body = command.logs?.map((log) => log.data).join("") || "";
+      const body = command.logs?.map((log) => log.data).join("") ?? "";
             return (
               <pre
                 key={command.cmdId}
