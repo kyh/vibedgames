@@ -1,178 +1,81 @@
+"use client";
+
 import type { ChatStatus, DataUIPart } from "ai";
-import { useMemo } from "react";
 import { create } from "zustand";
 
-import type { Command, CommandLog } from "@/components/command-logs/types";
 import type { DataPart } from "@repo/api/agent/messages/data-parts";
+import { useSandpackStore } from "@/components/sandpack/sandpack-store";
 import { useMonitorStore } from "@/components/error-monitor/error-store";
 
+// Simplified store that delegates to sandpack store
 type SandboxStore = {
-  addGeneratedFiles: (files: string[]) => void;
-  addLog: (data: { sandboxId: string; cmdId: string; log: CommandLog }) => void;
-  addPaths: (paths: string[]) => void;
   chatStatus: ChatStatus;
-  clearGeneratedFiles: () => void;
-  commands: Command[];
-  generatedFiles: Set<string>;
-  paths: string[];
-  sandboxId?: string;
   setChatStatus: (status: ChatStatus) => void;
-  setSandboxId: (id: string) => void;
-  setStatus: (status: "running" | "stopped") => void;
-  setUrl: (url: string, uuid: string) => void;
-  status?: "running" | "stopped";
-  upsertCommand: (command: Omit<Command, "startedAt">) => void;
-  url?: string;
+  // Legacy URL for featured games discovery
+  url: string;
   urlUUID?: string;
+  setUrl: (url: string, uuid: string) => void;
+  // Reset function
   reset: () => void;
 };
 
-function getBackgroundCommandErrorLines(commands: Command[]) {
-  return commands
-    .flatMap(({ command, args, background, logs = [] }) =>
-      logs.map((log) => ({ command, args, background, ...log })),
-    )
-    .sort((logA, logB) => logA.timestamp - logB.timestamp)
-    .filter((log) => log.stream === "stderr" && log.background);
-}
-
-export function useCommandErrorsLogs() {
-  const { commands } = useSandboxStore();
-  const errors = useMemo(
-    () => getBackgroundCommandErrorLines(commands),
-    [commands],
-  );
-  return { errors };
-}
+const DEFAULT_URL = "https://astroid.vibedgames.com";
 
 export const useSandboxStore = create<SandboxStore>()((set) => ({
-  url: "https://astroid.vibedgames.com",
-  addGeneratedFiles: (files) =>
-    set((state) => ({
-      generatedFiles: new Set([...state.generatedFiles, ...files]),
-    })),
-  addLog: (data) => {
-    set((state) => {
-      const idx = state.commands.findIndex((c) => c.cmdId === data.cmdId);
-      if (idx === -1) {
-        console.warn(`Command with ID ${data.cmdId} not found.`);
-        return state;
-      }
-
-      const updatedCmds = [...state.commands];
-      if (!updatedCmds[idx]) {
-        console.warn(`Command with ID ${data.cmdId} not found.`);
-        return state;
-      }
-      updatedCmds[idx] = {
-        ...updatedCmds[idx],
-        logs: [...(updatedCmds[idx].logs ?? []), data.log],
-      };
-      return { commands: updatedCmds };
-    });
-  },
-  addPaths: (paths) =>
-    set((state) => ({ paths: [...new Set([...state.paths, ...paths])] })),
   chatStatus: "ready",
-  clearGeneratedFiles: () => set(() => ({ generatedFiles: new Set<string>() })),
-  commands: [],
-  generatedFiles: new Set<string>(),
-  paths: [],
+  url: DEFAULT_URL,
+  urlUUID: undefined,
+
   setChatStatus: (status) =>
     set((state) =>
       state.chatStatus === status ? state : { chatStatus: status },
     ),
-  setSandboxId: (sandboxId) =>
-    set(() => ({
-      sandboxId,
-      status: "running",
-      commands: [],
-      paths: [],
-      url: undefined,
-      generatedFiles: new Set<string>(),
-    })),
-  setStatus: (status) => set(() => ({ status })),
-  setUrl: (url, urlUUID) => set(() => ({ url, urlUUID })),
-  upsertCommand: (cmd) => {
-    set((state) => {
-      const existingIdx = state.commands.findIndex(
-        (c) => c.cmdId === cmd.cmdId,
-      );
-      const idx = existingIdx !== -1 ? existingIdx : state.commands.length;
-      const prev = state.commands[idx] ?? { startedAt: Date.now(), logs: [] };
-      const cmds = [...state.commands];
-      cmds[idx] = { ...prev, ...cmd };
-      return { commands: cmds };
-    });
-  },
+
+  setUrl: (url, urlUUID) => set({ url, urlUUID }),
+
   reset: () =>
-    set(() => ({
-      url: "https://astroid.vibedgames.com",
-      commands: [],
-      generatedFiles: new Set<string>(),
-      paths: [],
-      sandboxId: undefined,
-      status: undefined,
+    set({
+      chatStatus: "ready",
+      url: DEFAULT_URL,
       urlUUID: undefined,
-    })),
+    }),
 }));
 
-type FileExplorerStore = {
-  paths: string[];
-  addPath: (path: string) => void;
-};
-
-export const useFileExplorerStore = create<FileExplorerStore>()((set) => ({
-  paths: [],
-  addPath: (path) => {
-    set((state) => {
-      if (!state.paths.includes(path)) {
-        return { paths: [...state.paths, path] };
-      }
-      return state;
-    });
-  },
-}));
-
+/**
+ * Hook to map data parts from AI stream to store actions
+ * This connects the AI data stream to the sandpack store
+ */
 export function useDataStateMapper() {
-  const { addPaths, setSandboxId, setUrl, upsertCommand, addGeneratedFiles } =
-    useSandboxStore();
-  const { errors } = useCommandErrorsLogs();
+  const { updateFiles, setProjectMetadata, addGeneratedFiles } =
+    useSandpackStore();
   const { setCursor } = useMonitorStore();
 
   return (data: DataUIPart<DataPart>) => {
     switch (data.type) {
-      case "data-create-sandbox":
-        if (data.data.sandboxId) {
-          setSandboxId(data.data.sandboxId);
-        }
-        break;
-      case "data-generating-files":
-        if (data.data.status === "uploaded") {
-          setCursor(errors.length);
-          addPaths(data.data.paths);
-          addGeneratedFiles(data.data.paths);
-        }
-        break;
-      case "data-run-command":
+      case "data-project-metadata":
         if (
-          data.data.commandId &&
-          (data.data.status === "executing" || data.data.status === "running")
+          data.data.status === "done" &&
+          data.data.projectId &&
+          data.data.buildNumber
         ) {
-          upsertCommand({
-            background: data.data.status === "running",
-            sandboxId: data.data.sandboxId,
-            cmdId: data.data.commandId,
-            command: data.data.command,
-            args: data.data.args,
-          });
+          setProjectMetadata(data.data.projectId, data.data.buildNumber);
         }
         break;
-      case "data-get-sandbox-url":
-        if (data.data.url) {
-          setUrl(data.data.url, crypto.randomUUID());
+
+      case "data-generating-files":
+        if (data.data.status === "done" && data.data.paths.length > 0) {
+          addGeneratedFiles(data.data.paths);
+          // Reset error cursor when files are generated
+          setCursor(0);
         }
         break;
+
+      case "data-file-content":
+        if (data.data.files.length > 0) {
+          updateFiles(data.data.files);
+        }
+        break;
+
       default:
         break;
     }

@@ -1,131 +1,176 @@
 import type { UIMessage, UIMessageStreamWriter } from "ai";
-import { Sandbox } from "@vercel/sandbox";
 import { tool } from "ai";
 import z from "zod";
 
 import type { Db } from "@repo/db/drizzle-client";
+import type { Session } from "@repo/api/auth/auth";
 
 import type { DataPart } from "../messages/data-parts";
 import type { File } from "./get-contents";
 import description from "./generate-files.md";
 import { getContents } from "./get-contents";
-import { getBuildBySandbox, persistFiles } from "./game-persistence";
-import { getRichError } from "./get-rich-error";
-import { getWriteFiles } from "./get-write-files";
+import { ensureProjectAndBuild, persistFiles } from "./game-persistence";
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
 
 type Params = {
   modelId: string;
   db: Db;
+  session: Session | null;
   writer: UIMessageStreamWriter<UIMessage<never, DataPart>>;
+  projectId?: string;
+  buildNumber?: number;
 };
 
-export const generateFiles = ({ writer, modelId, db }: Params) =>
+export const generateFiles = ({
+  writer,
+  modelId,
+  db,
+  session,
+  projectId: initialProjectId,
+  buildNumber: initialBuildNumber,
+}: Params) =>
   tool({
     description,
     inputSchema: z.object({
-      sandboxId: z.string(),
       paths: z.array(z.string()),
     }),
-    execute: async ({ sandboxId, paths }, { toolCallId, messages }) => {
+    execute: async ({ paths }, { toolCallId, messages }) => {
       writer.write({
         id: toolCallId,
         type: "data-generating-files",
         data: { paths: [], status: "generating" },
       });
 
-      let sandbox: Sandbox | null = null;
+      // Ensure project and build exist for persistence
+      let projectId = initialProjectId;
+      let buildNumber = initialBuildNumber;
 
       try {
-        sandbox = await Sandbox.get({ sandboxId });
+        const { project, build } = await ensureProjectAndBuild({
+          db,
+          session,
+          modelId,
+          messages: messages ?? [],
+          projectId: initialProjectId,
+          buildNumber: initialBuildNumber,
+        });
+
+        if (project && build) {
+          projectId = project.id;
+          buildNumber = build.buildNumber;
+
+          writer.write({
+            id: toolCallId,
+            type: "data-project-metadata",
+            data: {
+              projectId: project.id,
+              buildNumber: build.buildNumber,
+              status: "done",
+            },
+          });
+        }
       } catch (error) {
-        const richError = getRichError({
-          action: "get sandbox by id",
-          args: { sandboxId },
-          error,
-        });
-
-        writer.write({
-          id: toolCallId,
-          type: "data-generating-files",
-          data: { error: richError.error, paths: [], status: "error" },
-        });
-
-        return richError.message;
+        console.error("Failed to ensure project/build:", error);
+        // Continue without persistence - we can still generate files
       }
 
-      const build = await getBuildBySandbox(db, sandboxId);
-      if (!build) {
-        console.warn(
-          `No persisted build found for sandbox ${sandboxId}. Files will not be saved to the database.`,
-        );
-      }
+      const iterator = getContents({
+        messages: messages ?? [],
+        modelId,
+        paths,
+      });
 
-      const writeFiles = getWriteFiles({ sandbox, toolCallId, writer });
-      const iterator = getContents({ messages: messages ?? [], modelId, paths });
-      const uploaded: File[] = [];
+      const allFiles: File[] = [];
 
       try {
         for await (const chunk of iterator) {
+          // Update generating status with paths
+          writer.write({
+            id: toolCallId,
+            type: "data-generating-files",
+            data: {
+              status: "generating",
+              paths: chunk.paths,
+            },
+          });
+
           if (chunk.files.length > 0) {
-            const error = await writeFiles(chunk);
-            if (error) {
-              return error;
-            } else {
-              uploaded.push(...chunk.files);
-              if (build) {
+            // Stream file contents to the client for sandpack
+            writer.write({
+              id: toolCallId,
+              type: "data-file-content",
+              data: {
+                files: chunk.files.map((file) => ({
+                  path: file.path,
+                  content: file.content,
+                })),
+                status: "streaming",
+              },
+            });
+
+            allFiles.push(...chunk.files);
+
+            // Persist files to database if we have project context
+            if (projectId && buildNumber !== undefined) {
+              try {
                 await persistFiles({
                   db,
-                  projectId: build.projectId,
-                  buildNumber: build.buildNumber,
+                  projectId,
+                  buildNumber,
                   files: chunk.files.map((file) => ({
                     path: file.path,
                     content: file.content,
                   })),
                 });
+              } catch (persistError) {
+                console.error("Failed to persist files:", persistError);
+                // Continue - file generation to client still works
               }
             }
-          } else {
-            writer.write({
-              id: toolCallId,
-              type: "data-generating-files",
-              data: {
-                status: "generating",
-                paths: chunk.paths,
-              },
-            });
           }
         }
       } catch (error) {
-        const richError = getRichError({
-          action: "generate file contents",
-          args: { modelId, paths },
-          error,
-        });
+        const errorMessage = getErrorMessage(error);
+        console.error("Failed to generate files:", error);
 
         writer.write({
           id: toolCallId,
           type: "data-generating-files",
           data: {
-            error: richError.error,
+            error: { message: errorMessage },
             status: "error",
             paths,
           },
         });
 
-        return richError.message;
+        return `Failed to generate files: ${errorMessage}`;
       }
+
+      // Signal completion
+      writer.write({
+        id: toolCallId,
+        type: "data-file-content",
+        data: {
+          files: [],
+          status: "done",
+        },
+      });
 
       writer.write({
         id: toolCallId,
         type: "data-generating-files",
-        data: { paths: uploaded.map((file) => file.path), status: "done" },
+        data: { paths: allFiles.map((file) => file.path), status: "done" },
       });
 
-      return `Successfully generated and uploaded ${
-        uploaded.length
-      } files. Their paths and contents are as follows:
-        ${uploaded
-          .map((file) => `Path: ${file.path}\nContent: ${file.content}\n`)
-          .join("\n")}`;
+      return `Successfully generated ${allFiles.length} files. The files have been streamed to the client sandbox. Their paths are:
+${allFiles.map((file) => `- ${file.path}`).join("\n")}
+
+The game preview should now be updating in the browser.`;
     },
   });

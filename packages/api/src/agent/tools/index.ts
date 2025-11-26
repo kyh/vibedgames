@@ -4,10 +4,7 @@ import type { Session } from "@repo/api/auth/auth";
 import type { Db } from "@repo/db/drizzle-client";
 
 import type { DataPart } from "../messages/data-parts";
-import { createSandbox } from "./create-sandbox";
 import { generateFiles } from "./generate-files";
-import { getSandboxURL } from "./get-sandbox-url";
-import { runCommand } from "./run-command";
 
 type Params = {
   modelId: string;
@@ -27,17 +24,14 @@ export function tools({
   buildNumber,
 }: Params) {
   return {
-    createSandbox: createSandbox({
+    generateFiles: generateFiles({
       writer,
+      modelId,
       db,
       session,
-      modelId,
       projectId,
       buildNumber,
     }),
-    generateFiles: generateFiles({ writer, modelId, db }),
-    getSandboxURL: getSandboxURL({ writer }),
-    runCommand: runCommand({ writer }),
   };
 }
 

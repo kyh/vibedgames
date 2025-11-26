@@ -10,15 +10,14 @@ type Props = {
 };
 
 export const GenerateFiles = ({ message, className }: Props) => {
-  const lastInProgress = ["error", "uploading", "generating"].includes(
-    message.status,
-  );
+  const isGenerating = message.status === "generating";
+  const isError = message.status === "error";
 
-  const generated = lastInProgress
+  const generated = isGenerating
     ? message.paths.slice(0, message.paths.length - 1)
     : message.paths;
 
-  const generating = lastInProgress
+  const generating = isGenerating
     ? (message.paths[message.paths.length - 1] ?? "")
     : null;
 
@@ -27,7 +26,7 @@ export const GenerateFiles = ({ message, className }: Props) => {
       <ToolHeader>
         <CloudUploadIcon className="h-3.5 w-3.5" />
         <span>
-          {message.status === "done" ? "Uploaded files" : "Generating files"}
+          {message.status === "done" ? "Generated files" : "Generating files"}
         </span>
       </ToolHeader>
       <div className="relative min-h-5 text-sm">
@@ -39,8 +38,8 @@ export const GenerateFiles = ({ message, className }: Props) => {
         ))}
         {typeof generating === "string" && (
           <div className="flex">
-            <Spinner className="mr-1" loading={message.status !== "error"}>
-              {message.status === "error" ? (
+            <Spinner className="mr-1" loading={!isError}>
+              {isError ? (
                 <XIcon className="h-4 w-4 text-red-700" />
               ) : (
                 <CheckIcon className="h-4 w-4 text-green-700" />

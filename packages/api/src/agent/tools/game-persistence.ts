@@ -9,7 +9,6 @@ import type { Db } from "@repo/db/drizzle-client";
 type EnsureBuildParams = {
   db: Db;
   session: Session | null;
-  sandboxId: string;
   modelId: string;
   messages: ModelMessage[];
   projectId?: string;
@@ -29,7 +28,6 @@ type PersistFilesParams = {
 export async function ensureProjectAndBuild({
   db,
   session,
-  sandboxId,
   modelId,
   messages,
   projectId,
@@ -91,7 +89,6 @@ export async function ensureProjectAndBuild({
     await db
       .update(gameBuild)
       .set({
-        sandboxId,
         modelId,
         updatedAt: new Date(),
       })
@@ -125,7 +122,6 @@ export async function ensureProjectAndBuild({
         projectId: project.id,
         buildNumber: nextBuildNumber,
         createdById: session.user.id,
-        sandboxId,
         modelId,
       })
       .returning();
@@ -141,15 +137,6 @@ export async function ensureProjectAndBuild({
   }
 
   return { project, build };
-}
-
-export async function getBuildBySandbox(db: Db, sandboxId: string) {
-  if (!sandboxId) return null;
-  return (
-    (await db.query.gameBuild.findFirst({
-      where: (builds, { eq }) => eq(builds.sandboxId, sandboxId),
-    })) ?? null
-  );
 }
 
 export async function getBuildByProjectAndNumber(

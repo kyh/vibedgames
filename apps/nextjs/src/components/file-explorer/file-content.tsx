@@ -1,37 +1,29 @@
-import { memo } from "react";
-import { Spinner } from "@repo/ui/spinner";
-import { useQuery } from "@tanstack/react-query";
+"use client";
 
-import { useTRPC } from "@/trpc/react";
+import { useSandpackStore } from "@/components/sandpack/sandpack-store";
 
 type Props = {
-  sandboxId: string;
   path: string;
 };
 
-export const FileContent = memo(function FileContent({
-  sandboxId,
-  path,
-}: Props) {
-  const trpc = useTRPC();
+export const FileContent = ({ path }: Props) => {
+  const files = useSandpackStore((state) => state.files);
 
-  const { data: content, isLoading } = useQuery({
-    ...trpc.sandbox.getFile.queryOptions({
-      sandboxId,
-      path,
-    }),
-    refetchInterval: 1000,
-  });
+  // Normalize the path to match sandpack format (starts with /)
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  const file = files[normalizedPath];
 
-  if (isLoading || !content) {
+  if (!file) {
     return (
-      <div className="absolute flex h-full w-full items-center text-center">
-        <div className="flex-1">
-          <Spinner />
-        </div>
-      </div>
+      <pre className="p-2 text-gray-400">
+        <code>File not found: {path}</code>
+      </pre>
     );
   }
 
-  return <div>{content}</div>;
-});
+  return (
+    <pre className="p-2">
+      <code>{file.code}</code>
+    </pre>
+  );
+};

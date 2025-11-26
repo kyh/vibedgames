@@ -20,8 +20,6 @@ type UIState = {
   setCurrentIndex: (index: number) => void;
   isMobile: boolean;
   // Build view state
-  showCommandLogs: boolean;
-  setShowCommandLogs: (show: boolean) => void;
   showFileExplorer: boolean;
   setShowFileExplorer: (show: boolean) => void;
   showBuildMenu: boolean;
@@ -60,8 +58,6 @@ export const useUiStore = create<UIState>((set, get) => ({
   setCurrentIndex: (index) => set({ currentIndex: index }),
   isMobile: getInitialIsMobile(),
   // Build view state
-  showCommandLogs: false,
-  setShowCommandLogs: (show) => set({ showCommandLogs: show }),
   showFileExplorer: false,
   setShowFileExplorer: (show) => set({ showFileExplorer: show }),
   showBuildMenu: false,

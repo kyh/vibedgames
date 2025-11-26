@@ -1,8 +1,6 @@
-import { Buffer } from "node:buffer";
 import { and, eq, lt } from "@repo/db";
 import { gameBuild, gameProject } from "@repo/db/drizzle-schema";
 import { TRPCError } from "@trpc/server";
-import { Sandbox } from "@vercel/sandbox";
 
 import {
   getBuildByProjectAndNumber,
@@ -157,6 +155,8 @@ export const gameRouter = createTRPCRouter({
       };
     }),
 
+  // Rehydrate a build: creates a new build from an existing one
+  // Files are returned to the client for loading into sandpack
   rehydrateBuild: protectedProcedure
     .input(rehydrateBuildInput)
     .mutation(async ({ ctx, input }) => {
@@ -198,21 +198,6 @@ export const gameRouter = createTRPCRouter({
           ),
       });
 
-      const sandbox = await Sandbox.create({
-        timeout: 600000,
-        ports: [3000],
-        runtime: "node22",
-      });
-
-      if (originalFiles.length > 0) {
-        await sandbox.writeFiles(
-          originalFiles.map((file) => ({
-            path: file.path,
-            content: Buffer.from(file.content, "utf8"),
-          })),
-        );
-      }
-
       const newBuildNumber = await getNextBuildNumber(ctx.db, project.id);
 
       const [rehydratedBuild] = await ctx.db
@@ -221,7 +206,6 @@ export const gameRouter = createTRPCRouter({
           projectId: project.id,
           buildNumber: newBuildNumber,
           createdById: ctx.session.user.id,
-          sandboxId: sandbox.sandboxId,
           modelId: build.modelId,
         })
         .returning();
@@ -244,8 +228,11 @@ export const gameRouter = createTRPCRouter({
         .where(eq(gameProject.id, project.id));
 
       return {
-        sandboxId: sandbox.sandboxId,
         build: rehydratedBuild,
+        files: originalFiles.map((file) => ({
+          path: file.path,
+          content: file.content,
+        })),
       };
     }),
 });

@@ -18,14 +18,12 @@ type Props = {
   className?: string;
   disabled?: boolean;
   paths?: string[];
-  sandboxId?: string;
 };
 
 export const FileExplorer = memo(function FileExplorer({
   className,
   disabled,
   paths,
-  sandboxId,
 }: Props) {
   const fileTree = useMemo(() => buildFileTree(paths ?? []), [paths]);
   const [selected, setSelected] = useState<FileNode | null>(null);
@@ -79,7 +77,7 @@ export const FileExplorer = memo(function FileExplorer({
       <div>
         <FileIcon className="mr-2 w-4" />
         <span className="font-mono font-semibold uppercase">
-          Sandbox Remote Filesystem
+          Sandpack Files
         </span>
         {selected && !disabled && (
           <span className="ml-auto text-gray-500">{selected.path}</span>
@@ -90,12 +88,9 @@ export const FileExplorer = memo(function FileExplorer({
         <ScrollArea className="border-primary/18 w-1/4 shrink-0 border-r">
           <div>{renderFileTree(fs)}</div>
         </ScrollArea>
-        {selected && sandboxId && !disabled && (
+        {selected && !disabled && (
           <ScrollArea className="w-3/4 shrink-0">
-            <FileContent
-              sandboxId={sandboxId}
-              path={selected.path.substring(1)}
-            />
+            <FileContent path={selected.path.substring(1)} />
             <ScrollBar orientation="horizontal" />
           </ScrollArea>
         )}
