@@ -35,7 +35,7 @@ export function tools({
       projectId,
       buildNumber,
     }),
-    generateFiles: generateFiles({ writer, modelId, db }),
+    generateFiles: generateFiles({ writer, modelId }),
     getSandboxURL: getSandboxURL({ writer }),
     runCommand: runCommand({ writer }),
   };

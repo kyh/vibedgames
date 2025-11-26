@@ -30,9 +30,10 @@ export const Message = memo(function Message({ message }: Props) {
     .filter(({ part }) => part.type === "reasoning");
 
   useEffect(() => {
-    if (reasoningParts.length > 0) {
-      const latestReasoningIndex =
-        reasoningParts[reasoningParts.length - 1]?.index!;
+    const latestReasoningIndex = reasoningParts.at(-1)?.index;
+
+    if (latestReasoningIndex !== undefined) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setExpandedReasoningIndex(latestReasoningIndex);
     }
   }, [reasoningParts]);
