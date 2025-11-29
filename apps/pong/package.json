@@ -12,7 +12,7 @@
   "dependencies": {
     "@mediapipe/tasks-vision": "0.10.22-rc.20250304",
     "@react-three/drei": "^10.7.7",
-    "@react-three/fiber": "^9.4.0",
+    "@react-three/fiber": "^9.4.2",
     "react": "catalog:",
     "react-dom": "catalog:",
     "three": "^0.179.1"
