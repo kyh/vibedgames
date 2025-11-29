@@ -1,293 +1,128 @@
 import type { Connection } from "partyserver";
 import { routePartykitRequest, Server } from "partyserver";
 
-import type {
-  ClientMessage,
-  GameConfig,
-  GameEventMessage,
-  GameSyncMessage,
-  Player,
-  PlayerJoinedMessage,
-  PlayerLeftMessage,
-  PlayerMap,
-  PlayerUpdatedMessage,
-} from "@repo/multiplayer";
+import type { ClientMessage, Player, PlayerMap, ServerMessage } from "@repo/multiplayer";
 import { getColorById } from "./color";
-
-// Global game state (shared across all players)
-type GameState = {
-  players: PlayerMap;
-  gameData: Record<string, unknown>;
-};
-
-type PlayerActionPayload = {
-  action: string;
-  data: unknown;
-};
 
 type Env = {
   VgServer: DurableObjectNamespace<VgServer>;
 };
 
+type RoomState = {
+  sharedState: Record<string, unknown>;
+  players: PlayerMap;
+  hostId: string | null;
+};
+
 export class VgServer extends Server {
-  private gameConfig: GameConfig<Record<string, unknown>> = {};
-  private gameState: GameState = { players: {}, gameData: {} }; // Global game state (shared across all players)
+  private room: RoomState = {
+    sharedState: {},
+    players: {},
+    hostId: null,
+  };
 
   onConnect(connection: Connection<Player>) {
-    // Check max players limit
-    const currentPlayerCount = Object.keys(this.gameState.players).length;
-
-    if (
-      this.gameConfig.maxPlayers &&
-      currentPlayerCount > this.gameConfig.maxPlayers
-    ) {
-      connection.close(1000, "Game is full");
-      return;
-    }
-
-    // Initialize player with basic info
     const { color, hue } = getColorById(connection.id);
-    const newPlayer: Player = {
+    const player: Player = {
       id: connection.id,
       color,
       hue,
-      lastUpdate: Date.now(),
       state: {},
-      metadata: {},
     };
 
-    // Store player in global game state
-    this.gameState.players[connection.id] = newPlayer;
+    this.room.players[connection.id] = player;
+    if (!this.room.hostId) {
+      this.room.hostId = connection.id;
+    }
 
-    // Send initial sync to new player
-    const existingPlayers: PlayerMap = {};
-    Object.entries(this.gameState.players).forEach(([id, player]) => {
-      if (id !== connection.id) {
-        existingPlayers[id] = player;
-      }
-    });
-    const syncMessage: GameSyncMessage<Record<string, unknown>> = {
-      type: "game_sync",
+    const syncMessage: ServerMessage = {
+      type: "sync",
       data: {
-        players: existingPlayers,
-        gameState: this.gameState.gameData,
+        players: this.room.players,
+        state: this.room.sharedState,
+        hostId: this.room.hostId!,
       },
-      timestamp: Date.now(),
     };
     connection.send(JSON.stringify(syncMessage));
 
-    // Broadcast player joined to others
-    const joinMessage: PlayerJoinedMessage = {
+    const joinedMessage: ServerMessage = {
       type: "player_joined",
-      data: newPlayer,
-      timestamp: Date.now(),
+      data: player,
     };
-    this.broadcast(JSON.stringify(joinMessage), [connection.id]);
+    this.broadcast(JSON.stringify(joinedMessage), [connection.id]);
   }
 
-  onMessage(sender: Connection<Player>, message: string): void | Promise<void> {
+  onMessage(sender: Connection<Player>, rawMessage: string): void | Promise<void> {
     try {
-      const clientMessage = JSON.parse(message) as ClientMessage<unknown>;
-      const player = this.gameState.players[sender.id];
+      const message = JSON.parse(rawMessage) as ClientMessage;
 
-      if (!player) return;
-
-      switch (clientMessage.type) {
-        case "player_state_update":
-          this.handlePlayerStateUpdate(
-            sender,
-            clientMessage as ClientMessage<Partial<Record<string, unknown>>>,
-          );
+      switch (message.type) {
+        case "state_patch": {
+          this.room.sharedState = {
+            ...this.room.sharedState,
+            ...message.data,
+          };
+          const broadcastMessage: ServerMessage = {
+            type: "state_patch",
+            data: message.data,
+          };
+          this.broadcast(JSON.stringify(broadcastMessage), []);
           break;
+        }
+        case "player_state_patch": {
+          const player = this.room.players[sender.id];
+          if (!player) return;
 
-        case "game_state_update":
-          this.handleGameStateUpdate(
-            sender,
-            clientMessage as ClientMessage<Partial<GameState>>,
-          );
+          player.state = { ...(player.state ?? {}), ...message.data };
+          this.room.players[sender.id] = player;
+
+          const updateMessage: ServerMessage = {
+            type: "player_state",
+            data: { id: sender.id, state: player.state ?? {} },
+          };
+          this.broadcast(JSON.stringify(updateMessage), [sender.id]);
           break;
-
-        case "game_action":
-          this.handleGameAction(
-            sender,
-            clientMessage as ClientMessage<PlayerActionPayload>,
-          );
+        }
+        case "emit": {
+          const eventMessage: ServerMessage = {
+            type: "event",
+            data: {
+              event: message.data.event,
+              payload: message.data.payload,
+              from: sender.id,
+            },
+          };
+          this.broadcast(JSON.stringify(eventMessage), []);
           break;
-
-        case "join_game":
-          this.handleJoinGame(
-            sender,
-            clientMessage as ClientMessage<{
-              config?: GameConfig<Record<string, unknown>>;
-              metadata?: Record<string, unknown>;
-            }>,
-          );
-          break;
-
-        case "leave_game":
-          this.handleLeaveGame(sender);
-          break;
-
-        case "custom":
-          this.handleCustomMessage(sender, clientMessage);
-          break;
-
+        }
         default:
           break;
       }
     } catch (error) {
-      console.error("Error processing message:", error);
+      console.error("Error handling message", error);
     }
   }
 
   onClose(connection: Connection<Player>) {
-    // Remove player from global state
-    delete this.gameState.players[connection.id];
+    delete this.room.players[connection.id];
 
-    const message: PlayerLeftMessage = {
+    const leftMessage: ServerMessage = {
       type: "player_left",
-      data: {
-        id: connection.id,
-      },
-      timestamp: Date.now(),
+      data: { id: connection.id },
     };
-    this.broadcast(JSON.stringify(message), []);
-  }
+    this.broadcast(JSON.stringify(leftMessage), []);
 
-  // Handler methods
-  private handlePlayerStateUpdate(
-    sender: Connection<Player>,
-    message: ClientMessage<Partial<Record<string, unknown>>>,
-  ) {
-    const prevPlayer = this.gameState.players[sender.id];
-    if (!prevPlayer) return;
-
-    // Update player state in global game state
-    const updatedPlayer: Player = {
-      ...prevPlayer,
-      state: {
-        ...(typeof prevPlayer.state === "object" && prevPlayer.state !== null
-          ? prevPlayer.state
-          : {}),
-        ...(typeof message.data === "object" && message.data !== null
-          ? message.data
-          : {}),
-      },
-      lastUpdate: Date.now(),
-    };
-
-    this.gameState.players[sender.id] = updatedPlayer;
-
-    // Broadcast update to other players
-    const updateMessage: PlayerUpdatedMessage = {
-      type: "player_updated",
-      data: updatedPlayer,
-      timestamp: Date.now(),
-    };
-    this.broadcast(JSON.stringify(updateMessage), [sender.id]);
-  }
-
-  private handleGameStateUpdate(
-    sender: Connection<Player>,
-    message: ClientMessage<Partial<Record<string, unknown>>>,
-  ) {
-    // Update game data in global state
-    this.gameState.gameData = { ...this.gameState.gameData, ...message.data };
-
-    // Broadcast global game state change to all players
-    const syncMessage: GameSyncMessage<Record<string, unknown>> = {
-      type: "game_sync",
-      data: {
-        players: this.gameState.players,
-        gameState: this.gameState.gameData,
-      },
-      timestamp: Date.now(),
-    };
-    this.broadcast(JSON.stringify(syncMessage), []);
-  }
-
-  private handleGameAction(
-    sender: Connection<Player>,
-    message: ClientMessage<PlayerActionPayload>,
-  ) {
-    // Broadcast game action as event to all players
-    const eventMessage: GameEventMessage<PlayerActionPayload> = {
-      type: "game_event",
-      data: {
-        event: "player_action",
-        payload: message.data,
-        from: sender.id,
-      },
-      timestamp: Date.now(),
-    };
-    this.broadcast(JSON.stringify(eventMessage), []);
-  }
-
-  private handleJoinGame(
-    sender: Connection<Player>,
-    message: ClientMessage<{
-      config?: GameConfig<Record<string, unknown>>;
-      metadata?: Record<string, unknown>;
-    }>,
-  ) {
-    // Update game config if provided
-    if (message.data.config) {
-      this.gameConfig = { ...this.gameConfig, ...message.data.config };
+    if (this.room.hostId === connection.id) {
+      const remainingIds = Object.keys(this.room.players);
+      this.room.hostId = remainingIds[0] ?? null;
+      if (this.room.hostId) {
+        const hostMessage: ServerMessage = {
+          type: "host",
+          data: { id: this.room.hostId },
+        };
+        this.broadcast(JSON.stringify(hostMessage), []);
+      }
     }
-
-    // Update player metadata in global state
-    const prevPlayer = this.gameState.players[sender.id];
-    if (prevPlayer && message.data.metadata) {
-      const updatedPlayer: Player = {
-        ...prevPlayer,
-        metadata: { ...prevPlayer.metadata, ...message.data.metadata },
-        lastUpdate: Date.now(),
-      };
-      this.gameState.players[sender.id] = updatedPlayer;
-    }
-  }
-
-  private handleLeaveGame(sender: Connection<Player>) {
-    sender.close(1000, "Player left game");
-  }
-
-  private handleCustomMessage(
-    sender: Connection<Player>,
-    message: ClientMessage<unknown>,
-  ) {
-    // Broadcast custom message as event
-    const eventMessage: GameEventMessage<unknown> = {
-      type: "game_event",
-      data: {
-        event: "custom_message",
-        payload: message.data,
-        from: sender.id,
-      },
-      timestamp: Date.now(),
-    };
-    this.broadcast(JSON.stringify(eventMessage), []);
-  }
-
-  // Utility methods
-  getPlayer(playerId: string): Player | undefined {
-    return this.gameState.players[playerId];
-  }
-
-  // Global game state management
-  getGameState(): GameState {
-    return this.gameState;
-  }
-
-  getPlayersMap(): PlayerMap {
-    return this.gameState.players;
-  }
-
-  setGameConfig(config: GameConfig<Record<string, unknown>>) {
-    this.gameConfig = { ...this.gameConfig, ...config };
-  }
-
-  getGameConfig(): GameConfig<Record<string, unknown>> {
-    return this.gameConfig;
   }
 }
 

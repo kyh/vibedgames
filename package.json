@@ -1,7 +1,7 @@
 {
   "name": "vibedgames",
   "private": true,
-  "packageManager": "pnpm@10.23.0",
+  "packageManager": "pnpm@10.24.0",
   "scripts": {
     "build": "turbo run build",
     "clean": "git clean -xdf node_modules",
@@ -14,6 +14,7 @@
     "dev:flappy-bird": "turbo watch dev -F @repo/flappy-bird...",
     "dev:pacman": "turbo watch dev -F @repo/pacman...",
     "dev:tetris": "turbo watch dev -F @repo/tetris...",
+    "dev:astroid": "turbo watch dev -F @repo/astroid...",
     "dev:pong": "turbo watch dev -F @repo/pong...",
     "format": "turbo run format --continue -- --cache --cache-location .cache/.prettiercache",
     "format:fix": "turbo run format --continue -- --write --cache --cache-location .cache/.prettiercache",
