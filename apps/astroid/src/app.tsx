@@ -202,7 +202,7 @@ const extractPlayerPosition = (player?: Player): Point | undefined => {
   const state = player?.state;
   if (typeof state !== "object" || state === null) return undefined;
 
-  const maybePosition = (state as Record<string, unknown>).position;
+  const maybePosition = state.position;
   if (isPoint(maybePosition)) {
     return { x: maybePosition.x, y: maybePosition.y };
   }
@@ -222,10 +222,18 @@ const DemoGame = () => {
     room: ROOM,
   });
 
-  const [playerState, setPlayerState] = usePlayerState(room, {
-    position: useMemo(() => getRandomPosition(), []),
-    pointer: "mouse" as const,
-  });
+  const initialPlayerState = useMemo(
+    () => ({
+      position: getRandomPosition(),
+      pointer: "mouse" as const,
+    }),
+    [],
+  );
+
+  const [playerState, setPlayerState] = usePlayerState(
+    room,
+    initialPlayerState,
+  );
 
   const createShipFromPlayer = (player: AstroidPlayer): Ship => {
     const ship = createShip(player.position.x, player.position.y, 8, player.id);
@@ -252,7 +260,9 @@ const DemoGame = () => {
     const playerIdElement = document.getElementById("player-id");
 
     if (playerCountElement) {
-      playerCountElement.textContent = Object.keys(room.players).length.toString();
+      playerCountElement.textContent = Object.keys(
+        room.players,
+      ).length.toString();
     }
 
     if (playerIdElement && room.playerId) {
