@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "clean": "rm -rf .turbo node_modules .cache .wrangler",
-    "deploy": "wrangler deploy",
+    "deploy": "wrangler deploy --name vg-partyserver",
     "dev": "pnpm with-env wrangler dev",
     "format": "prettier --check \"**/*.{mjs,ts,md,json}\"",
     "lint": "eslint .",
