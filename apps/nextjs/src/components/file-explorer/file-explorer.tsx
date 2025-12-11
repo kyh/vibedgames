@@ -11,23 +11,21 @@ import {
 } from "lucide-react";
 
 import type { FileNode } from "./build-file-tree";
-import { FileContent } from "@/components/file-explorer/file-content";
 import { buildFileTree } from "./build-file-tree";
 
 type Props = {
   className?: string;
   disabled?: boolean;
-  paths?: string[];
-  sandboxId?: string;
+  files: Record<string, string>;
 };
 
 export const FileExplorer = memo(function FileExplorer({
   className,
   disabled,
-  paths,
-  sandboxId,
+  files,
 }: Props) {
-  const fileTree = useMemo(() => buildFileTree(paths ?? []), [paths]);
+  const paths = useMemo(() => Object.keys(files), [files]);
+  const fileTree = useMemo(() => buildFileTree(paths), [paths]);
   const [selected, setSelected] = useState<FileNode | null>(null);
   const [fs, setFs] = useState<FileNode[]>(fileTree);
 
@@ -74,13 +72,20 @@ export const FileExplorer = memo(function FileExplorer({
     [selected, toggleFolder, selectFile],
   );
 
+  // Get file content for the selected file
+  const selectedContent = useMemo(() => {
+    if (!selected) return null;
+    const normalizedPath = selected.path.startsWith("/")
+      ? selected.path.slice(1)
+      : selected.path;
+    return files[normalizedPath] ?? files[`/${normalizedPath}`] ?? null;
+  }, [selected, files]);
+
   return (
     <div className={className}>
       <div>
         <FileIcon className="mr-2 w-4" />
-        <span className="font-mono font-semibold uppercase">
-          Sandbox Remote Filesystem
-        </span>
+        <span className="font-mono font-semibold uppercase">Files</span>
         {selected && !disabled && (
           <span className="ml-auto text-gray-500">{selected.path}</span>
         )}
@@ -90,12 +95,11 @@ export const FileExplorer = memo(function FileExplorer({
         <ScrollArea className="border-primary/18 w-1/4 shrink-0 border-r">
           <div>{renderFileTree(fs)}</div>
         </ScrollArea>
-        {selected && sandboxId && !disabled && (
+        {selected && !disabled && selectedContent && (
           <ScrollArea className="w-3/4 shrink-0">
-            <FileContent
-              sandboxId={sandboxId}
-              path={selected.path.substring(1)}
-            />
+            <pre className="whitespace-pre-wrap p-2 font-mono text-xs">
+              {selectedContent}
+            </pre>
             <ScrollBar orientation="horizontal" />
           </ScrollArea>
         )}

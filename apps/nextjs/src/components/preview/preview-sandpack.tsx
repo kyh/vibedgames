@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { SandpackClient } from "@codesandbox/sandpack-client";
+import { loadSandpackClient } from "@codesandbox/sandpack-client";
 import { Spinner } from "@repo/ui/spinner";
 import { cn } from "@repo/ui/utils";
+
+import type { SandpackClient } from "@codesandbox/sandpack-client";
 
 const DEFAULT_ENTRY_POINTS = [
   "/index.html",
@@ -50,7 +52,9 @@ export const PreviewSandpack = ({ files, className }: Props) => {
   const isBooting = hasFiles && isBundlerBooting;
 
   useEffect(() => {
-    return () => clientRef.current?.destroy();
+    return () => {
+      clientRef.current?.destroy();
+    };
   }, []);
 
   useEffect(() => {
@@ -58,37 +62,59 @@ export const PreviewSandpack = ({ files, className }: Props) => {
 
     if (clientRef.current) {
       clientRef.current.destroy();
+      clientRef.current = null;
     }
 
     if (!hasFiles) {
       return;
     }
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setIsBundlerBooting(true);
-    const client = new SandpackClient(
-      iframeRef.current,
-      {
-        files: toSandpackFiles(files),
-        template: "static",
-        entry: resolveEntry(files),
-      },
-      {
-        showOpenInCodeSandbox: false,
-      },
-    );
+    let cancelled = false;
 
-    clientRef.current = client;
+    const initClient = async () => {
+      if (!iframeRef.current || cancelled) return;
 
-    const unsubscribe = client.listen((message) => {
-      if (message.type === "status" && message.status === "running") {
+      setIsBundlerBooting(true);
+
+      try {
+        const client = await loadSandpackClient(
+          iframeRef.current,
+          {
+            files: toSandpackFiles(files),
+            template: "static",
+            entry: resolveEntry(files),
+          },
+          {
+            showOpenInCodeSandbox: false,
+          },
+        );
+
+        if (cancelled) {
+          client.destroy();
+          return;
+        }
+
+        clientRef.current = client;
+
+        client.listen((message) => {
+          if (
+            message.type === "status" &&
+            "status" in message &&
+            message.status === "idle"
+          ) {
+            setIsBundlerBooting(false);
+          }
+        });
+      } catch (error) {
+        console.error("Failed to load Sandpack client:", error);
         setIsBundlerBooting(false);
       }
-    });
+    };
+
+    void initClient();
 
     return () => {
-      unsubscribe();
-      client.destroy();
+      cancelled = true;
     };
   }, [files, hasFiles]);
 

@@ -9,7 +9,6 @@ import { getContents } from "./get-contents";
 import { getRichError } from "./get-rich-error";
 
 type Params = {
-  modelId: string;
   writer: UIMessageStreamWriter<UIMessage<never, DataPart>>;
 };
 
@@ -17,7 +16,7 @@ function filesToRecord(files: File[]): Record<string, string> {
   return Object.fromEntries(files.map((file) => [file.path, file.content]));
 }
 
-export const generateFiles = ({ writer, modelId }: Params) =>
+export const generateFiles = ({ writer }: Params) =>
   tool({
     description,
     inputSchema: z.object({
@@ -31,7 +30,7 @@ export const generateFiles = ({ writer, modelId }: Params) =>
         data: { paths: [], status: "generating" },
       });
 
-      const iterator = getContents({ messages: messages ?? [], modelId, paths });
+      const iterator = getContents({ messages: messages ?? [], paths });
       const uploaded: File[] = [];
 
       try {
@@ -61,7 +60,7 @@ export const generateFiles = ({ writer, modelId }: Params) =>
       } catch (error) {
         const richError = getRichError({
           action: "generate file contents",
-          args: { modelId, paths },
+          args: { paths },
           error,
         });
 
