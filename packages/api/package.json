@@ -19,7 +19,7 @@
     "@better-auth/expo": "^1.4.6",
     "@repo/db": "workspace:^",
     "@trpc/server": "catalog:",
-    "ai": "^5.0.110",
+    "ai": "^5.0.112",
     "better-auth": "^1.4.6",
     "superjson": "catalog:",
     "zod": "catalog:"

@@ -14,10 +14,10 @@ catalog:
   "@types/react": ^19.2.7
   "@types/react-dom": ^19.2.3
   eslint: ^9.39.1
-  next: ^16.0.8
+  next: ^16.0.10
   prettier: ^3.7.4
-  react: ^19.2.1
-  react-dom: ^19.2.1
+  react: ^19.2.3
+  react-dom: ^19.2.3
   superjson: ^2.2.6
   typescript: ^5.9.3
   vite: ^7.2.7
