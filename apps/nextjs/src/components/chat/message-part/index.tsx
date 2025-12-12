@@ -4,12 +4,9 @@ import { memo } from "react";
 import type { DataPart } from "@repo/api/agent/messages/data-parts";
 import type { Metadata } from "@repo/api/agent/messages/metadata";
 import type { ToolSet } from "@repo/api/agent/tools/index";
-import { CreateSandbox } from "./create-sandbox";
 import { GenerateFiles } from "./generate-files";
-import { GetSandboxURL } from "./get-sandbox-url";
 import { Reasoning } from "./reasoning";
 import { ReportErrors } from "./report-errors";
-import { RunCommand } from "./run-command";
 import { Text } from "./text";
 
 type Props = {
@@ -25,12 +22,6 @@ export const MessagePart = memo(function MessagePart({
 }: Props) {
   if (part.type === "data-generating-files") {
     return <GenerateFiles message={part.data} className={className} />;
-  } else if (part.type === "data-create-sandbox") {
-    return <CreateSandbox message={part.data} className={className} />;
-  } else if (part.type === "data-get-sandbox-url") {
-    return <GetSandboxURL message={part.data} className={className} />;
-  } else if (part.type === "data-run-command") {
-    return <RunCommand message={part.data} className={className} />;
   } else if (part.type === "reasoning") {
     return (
       <Reasoning part={part} partIndex={partIndex} className={className} />

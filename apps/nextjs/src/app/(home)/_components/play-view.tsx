@@ -10,12 +10,13 @@ import { cn } from "@repo/ui/utils";
 import { CompassIcon, RefreshCwIcon } from "lucide-react";
 import { motion } from "motion/react";
 
-import { useSandboxStore } from "@/components/chat/sandbox-store";
+import { featuredGames } from "./data";
 import { useUiStore } from "./ui-store";
 
 export const PlayView = () => {
-  const { url } = useSandboxStore();
-  const { refreshPreviewIframe, isPreviewIframeLoading } = useUiStore();
+  const { refreshPreviewIframe, isPreviewIframeLoading, currentIndex } =
+    useUiStore();
+  const url = featuredGames[currentIndex]?.url ?? featuredGames[0]?.url;
 
   return (
     <div className="relative pb-4">

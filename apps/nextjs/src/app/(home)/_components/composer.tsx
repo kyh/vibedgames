@@ -4,7 +4,7 @@ import { useState } from "react";
 import { cn } from "@repo/ui/utils";
 import { motion } from "motion/react";
 
-import { useSandboxStore } from "@/components/chat/sandbox-store";
+import { useSandpackStore } from "@/components/chat/sandbox-store";
 import { authClient } from "@/lib/auth-client";
 import { BuildView } from "./build-view";
 import { featuredGames } from "./data";
@@ -15,8 +15,8 @@ import { WaitlistDailog } from "./waitlist-form";
 
 export const Composer = () => {
   const [waitlistOpen, setWaitlistOpen] = useState(false);
-  const { view, setView, setCurrentIndex } = useUiStore();
-  const { reset, url } = useSandboxStore();
+  const { view, setView, setCurrentIndex, currentIndex } = useUiStore();
+  const { reset } = useSandpackStore();
 
   const session = authClient.useSession();
   const user = session.data?.user;
@@ -48,9 +48,7 @@ export const Composer = () => {
             view === "play" && "text-foreground",
           )}
           onClick={() => {
-            setCurrentIndex(
-              featuredGames.findIndex((game) => game.url === url),
-            );
+            setCurrentIndex(currentIndex);
             setView("play");
           }}
         >

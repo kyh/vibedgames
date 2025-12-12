@@ -65,14 +65,14 @@ export const WaitlistForm = () => {
                 <input
                   className="w-full border-none bg-transparent py-3 pl-4 text-sm placeholder-white/50 focus:placeholder-white/75 focus:ring-0 focus:outline-hidden"
                   required
-                  type="email"
-                  placeholder="name@example.com"
-                  autoCapitalize="none"
-                  autoComplete="email"
-                  autoCorrect="off"
-                  {...field}
-                  value={field.value ?? ""}
-                />
+                    type="email"
+                    placeholder="name@example.com"
+                    autoCapitalize="none"
+                    autoComplete="email"
+                    autoCorrect="off"
+                    {...field}
+                    value={field.value}
+                  />
               </FormControl>
               <FormMessage className="absolute pt-1" />
             </FormItem>
