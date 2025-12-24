@@ -119,7 +119,7 @@ export const FileExplorer = ({ className, disabled, files }: Props) => {
               "hover:bg-accent flex cursor-pointer items-center rounded-none px-2 py-1",
               isSelected && "text-primary bg-accent",
             )}
-            style={{ paddingLeft: `${depth * INDENT + 8}px` }}
+            style={{ paddingLeft: `${depth * INDENT + 12}px` }}
             onClick={() => handleItemClick(item)}
           >
             <span className="flex items-center gap-2 truncate">
@@ -146,12 +146,12 @@ export const FileExplorer = ({ className, disabled, files }: Props) => {
 
   return (
     <div
-      className={cn("grid", className)}
+      className={cn("bg-background grid h-full", className)}
       style={{ gridTemplateColumns: "var(--sidebar-width, 280px) 1fr" }}
     >
       <div className="relative hidden md:flex">
-        <ScrollArea className="flex-1 overflow-auto border-r">
-          <div className="py-1">{renderTreeItems(rootChildren)}</div>
+        <ScrollArea className="flex-1 overflow-auto border-r py-2">
+          {renderTreeItems(rootChildren)}
         </ScrollArea>
         <div
           className="hover:bg-primary/50 active:bg-primary/80 absolute top-0 -right-0.5 h-full w-1 cursor-col-resize bg-transparent transition-colors duration-200"
@@ -178,7 +178,6 @@ export const FileExplorer = ({ className, disabled, files }: Props) => {
             language={codeLanguage}
             containerClassName="overflow-auto [&>*]:h-full flex-1 h-full"
             preClassName="py-3 px-2 min-h-full"
-            showLineNumbers={true}
           />
           <CodeBlockCopyButton
             code={selectedCode}

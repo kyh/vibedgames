@@ -285,7 +285,7 @@ export const DraggablePanel = ({
       initial={{ opacity: 0, scale: 0.8 }}
       animate={{ opacity: 1, scale: 1 }}
       className={cn(
-        "bg-popover/20 fixed z-50 rounded-lg shadow-lg backdrop-blur-sm",
+        "bg-popover/20 fixed z-50 flex flex-col rounded-lg shadow-lg backdrop-blur-sm",
         (isResizing || isDragging) && "select-none",
         className,
       )}
@@ -317,12 +317,7 @@ export const DraggablePanel = ({
         </Button>
       </div>
 
-      <div
-        className="overflow-auto rounded-b-lg p-3"
-        style={{ height: `calc(100% - ${48}px)` }}
-      >
-        {children}
-      </div>
+      <div className="flex-1 overflow-auto rounded-b-lg">{children}</div>
 
       {/* Resize handles */}
       <ResizeHandle handle="nw" />
