@@ -12,15 +12,14 @@ export const getBuildInput = z.object({
 export const createBuildInput = z.object({
   title: z.string().optional(),
   description: z.string().optional(),
+  previewUrl: z.url().optional(),
   organizationId: z.string().optional(),
-  files: z
-    .array(
-      z.object({
-        path: z.string().min(1, "path is required"),
-        content: z.string(),
-      }),
-    )
-    .min(1, "At least one file is required"),
+  files: z.array(
+    z.object({
+      path: z.string().min(1, "path is required"),
+      content: z.string(),
+    }),
+  ),
 });
 
 export const updateBuildFilesInput = z.object({
@@ -33,4 +32,15 @@ export const updateBuildFilesInput = z.object({
       }),
     )
     .min(1, "At least one file is required"),
+});
+
+export const updateBuildInput = z.object({
+  buildId: z.string().min(1, "buildId is required"),
+  title: z.string().optional(),
+  description: z.string().optional(),
+  previewUrl: z.string().url().optional().or(z.literal("")),
+});
+
+export const deleteBuildInput = z.object({
+  buildId: z.string().min(1, "buildId is required"),
 });

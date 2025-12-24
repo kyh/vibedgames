@@ -1,3 +1,4 @@
+import { eq } from "@repo/db";
 import { gameBuild } from "@repo/db/drizzle-schema";
 import { TRPCError } from "@trpc/server";
 
@@ -5,9 +6,11 @@ import { persistFiles } from "../agent/tools/game-persistence";
 import { createTRPCRouter, protectedProcedure } from "../trpc";
 import {
   createBuildInput,
+  deleteBuildInput,
   getBuildInput,
   listBuildsInput,
   updateBuildFilesInput,
+  updateBuildInput,
 } from "./game-schema";
 
 const DEFAULT_BUILD_LIMIT = 20;
@@ -96,6 +99,8 @@ export const gameRouter = createTRPCRouter({
         organizationId: input.organizationId ?? null,
         title: input.title ?? null,
         description: input.description ?? null,
+        previewUrl:
+          input.previewUrl && input.previewUrl !== "" ? input.previewUrl : null,
       });
 
       // Persist files if provided
@@ -169,6 +174,85 @@ export const gameRouter = createTRPCRouter({
 
       return {
         build: updatedBuild,
+      };
+    }),
+
+  updateBuild: protectedProcedure
+    .input(updateBuildInput)
+    .mutation(async ({ ctx, input }) => {
+      const build = await ctx.db.query.gameBuild.findFirst({
+        where: (builds, { eq }) => eq(builds.id, input.buildId),
+      });
+
+      if (!build) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Build not found.",
+        });
+      }
+
+      assertBuildAccess({
+        build,
+        userId: ctx.session.user.id,
+      });
+
+      await ctx.db
+        .update(gameBuild)
+        .set({
+          title: input.title ?? build.title,
+          description: input.description ?? build.description,
+          previewUrl:
+            input.previewUrl !== undefined
+              ? input.previewUrl && input.previewUrl !== ""
+                ? input.previewUrl
+                : null
+              : build.previewUrl,
+        })
+        .where(eq(gameBuild.id, input.buildId));
+
+      // Fetch the updated build
+      const updatedBuild = await ctx.db.query.gameBuild.findFirst({
+        where: (builds, { eq }) => eq(builds.id, input.buildId),
+        with: {
+          gameBuildFiles: true,
+        },
+      });
+
+      if (!updatedBuild) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to update build.",
+        });
+      }
+
+      return {
+        build: updatedBuild,
+      };
+    }),
+
+  deleteBuild: protectedProcedure
+    .input(deleteBuildInput)
+    .mutation(async ({ ctx, input }) => {
+      const build = await ctx.db.query.gameBuild.findFirst({
+        where: (builds, { eq }) => eq(builds.id, input.buildId),
+      });
+
+      if (!build) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Build not found.",
+        });
+      }
+
+      assertBuildAccess({
+        build,
+        userId: ctx.session.user.id,
+      });
+
+      await ctx.db.delete(gameBuild).where(eq(gameBuild.id, input.buildId));
+
+      return {
+        success: true,
       };
     }),
 });

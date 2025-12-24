@@ -7,7 +7,7 @@ import { featuredGames } from "./data";
 import { useUiStore } from "./ui-store";
 
 export const DiscoverView = () => {
-  const { setView, setCurrentIndex, isMobile, setSandpackFiles } = useUiStore();
+  const { setView, setCurrentIndex, isMobile, setSandpackFiles, reset } = useUiStore();
 
   return (
     <motion.div
@@ -29,6 +29,8 @@ export const DiscoverView = () => {
               return;
             }
             setCurrentIndex(index);
+            // Clear any loaded build files first
+            reset();
             // If it's a local game, load files into sandpack
             if (game.files) {
               setSandpackFiles(game.files);

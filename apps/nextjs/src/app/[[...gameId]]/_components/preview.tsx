@@ -7,7 +7,7 @@ import { featuredGames } from "./data";
 import { useUiStore } from "./ui-store";
 
 export const Preview = () => {
-  const { view, setView, currentIndex, setCurrentIndex } = useUiStore();
+  const { view, setView, currentIndex, setCurrentIndex, reset } = useUiStore();
 
   const renderGameCard = (game: FeaturedGame) => {
     const gameIndex = featuredGames.findIndex((g) => g.id === game.id);
@@ -20,6 +20,8 @@ export const Preview = () => {
         preview={game.preview}
         name={game.name}
         onPreviewClick={() => {
+          // Clear any loaded build files when selecting a game
+          reset();
           setCurrentIndex(gameIndex);
           setView("play");
         }}

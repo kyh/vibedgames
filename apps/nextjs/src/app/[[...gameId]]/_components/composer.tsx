@@ -77,11 +77,11 @@ export const Composer = () => {
             }
             // Check if current game is local (has files, no URL)
             const currentGame = featuredGames[currentIndex];
-            const isLocalGame = currentGame?.files && !currentGame?.url;
+            const isLocalGame = currentGame?.files && !currentGame.url;
 
             if (isLocalGame) {
               // Load local game files into store
-              setSandpackFiles(currentGame.files);
+              setSandpackFiles(currentGame.files ?? {});
             } else {
               // Initialize boilerplate for remote games
               initializeBoilerplate();

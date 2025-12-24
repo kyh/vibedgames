@@ -10,13 +10,14 @@ import { cn } from "@repo/ui/utils";
 import { CompassIcon, RefreshCwIcon } from "lucide-react";
 import { motion } from "motion/react";
 
-import { featuredGames } from "./data";
 import { useUiStore } from "./ui-store";
 
 export const PlayView = () => {
-  const { refreshPreviewIframe, isPreviewIframeLoading, currentIndex } =
+  const { refreshPreviewIframe, isPreviewIframeLoading, previewIframe } =
     useUiStore();
-  const url = featuredGames[currentIndex]?.url ?? featuredGames[0]?.url;
+
+  // Get URL directly from the iframe DOM node
+  const displayUrl = previewIframe?.src ?? undefined;
 
   return (
     <div className="relative pb-4">
@@ -39,17 +40,17 @@ export const PlayView = () => {
         >
           <InputGroupAddon>
             <InputGroupButton size="icon-xs" asChild>
-              <a href={url} target="_blank">
+              <a href={displayUrl} target="_blank" rel="noopener noreferrer">
                 <CompassIcon />
               </a>
             </InputGroupButton>
           </InputGroupAddon>
-          {url && (
+          {displayUrl && (
             <InputGroupInput
               type="text"
               className="py-2.5 font-mono text-xs md:text-xs"
               onClick={(event) => event.currentTarget.select()}
-              value={url}
+              value={displayUrl}
               readOnly
             />
           )}

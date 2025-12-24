@@ -37,6 +37,7 @@ export const gameBuild = sqliteTable("game_build", {
   }),
   title: text("title"),
   description: text("description"),
+  previewUrl: text("preview_url"),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
     .notNull(),

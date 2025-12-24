@@ -57,10 +57,14 @@ export const PreviewWeb = ({
   const currentGame = featuredGames[currentIndex];
   const url = currentGame?.url;
 
+  // Check if we have loaded build files (from a loaded build, not just empty)
+  const hasLoadedBuildFiles = Object.keys(sandpackFiles).length > 0;
+
   // In build mode, always use sandpack with store files
-  // In play/discover mode, use url if provided (remote game), otherwise use store files (local game)
+  // If we have loaded build files, always use sandpack (local game)
+  // Otherwise, in play/discover mode, use url if provided (remote game), otherwise use store files (local game)
   const isBuildMode = view === "build";
-  const isLocalGame = isBuildMode || !url;
+  const isLocalGame = isBuildMode || hasLoadedBuildFiles || !url;
 
   // Initialize sandpack client for local games
   useEffect(() => {
@@ -73,17 +77,12 @@ export const PreviewWeb = ({
       clientRef.current = null;
     }
 
-    // In build mode, use store files; otherwise use store files (which should be loaded for local games)
-    const filesToUse = sandpackFiles;
-
-    const iframe = previewIframe;
-
     const initClient = async () => {
       try {
         const client = await loadSandpackClient(
-          iframe,
+          previewIframe,
           {
-            files: toSandpackFiles(filesToUse),
+            files: toSandpackFiles(sandpackFiles),
             template: "create-react-app-typescript",
           },
           {

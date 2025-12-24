@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+import { useParams } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import { gameTypesArray } from "@repo/api/agent/agent-schema";
 import {
@@ -21,9 +22,11 @@ import {
   InputGroupButton,
 } from "@repo/ui/input-group";
 import { Mention, MentionsInput } from "@repo/ui/mentions-input";
+import { useMutation } from "@tanstack/react-query";
 import {
   CheckIcon,
   FileIcon,
+  GamepadIcon,
   HelpCircleIcon,
   MenuIcon,
   PlusIcon,
@@ -38,16 +41,18 @@ import type { ChatUIMessage } from "@repo/api/agent/messages/types";
 import { useSharedChatContext } from "@/components/chat/chat-context";
 import { Message } from "@/components/chat/message";
 import { FileExplorer } from "@/components/file-explorer/file-explorer";
+import { MyGames } from "@/components/my-games/my-games";
 import { DraggablePanel } from "@/components/ui/draggable-panel";
+import { useTRPC } from "@/trpc/react";
 import { useUiStore } from "./ui-store";
 
 export const BuildView = () => {
+  const trpc = useTRPC();
   const [input, setInput] = useState("");
-
   const { chat } = useSharedChatContext();
   const { messages, sendMessage, status } = useChat<ChatUIMessage>({ chat });
+  const params = useParams<{ gameId?: string[] }>();
   const {
-    setChatStatus,
     reset,
     sandpackFiles,
     refreshPreviewIframe,
@@ -55,21 +60,56 @@ export const BuildView = () => {
     setShowFileExplorer,
     showBuildMenu,
     setShowBuildMenu,
+    showMyGames,
+    setShowMyGames,
   } = useUiStore();
 
-  const validateAndSubmitMessage = useCallback(
-    (text: string) => {
-      if (text.trim()) {
-        void sendMessage({ text });
-        setInput("");
-      }
-    },
-    [sendMessage, setInput],
-  );
+  const createBuild = useMutation(trpc.game.createBuild.mutationOptions());
 
-  useEffect(() => {
-    setChatStatus(status);
-  }, [status, setChatStatus]);
+  const validateAndSubmitMessage = useCallback(
+    async (text: string) => {
+      if (!text.trim()) return;
+
+      // Check if we're looking at a new game (no gameId in URL)
+      const gameId = params.gameId?.[0];
+      const isNewGame = !gameId;
+
+      if (isNewGame) {
+        // Create a new game first
+        const filesArray = Object.entries(sandpackFiles).map(
+          ([path, content]) => ({
+            path,
+            content,
+          }),
+        );
+
+        try {
+          const result = await createBuild.mutateAsync({
+            files: filesArray,
+          });
+
+          // Update URL without triggering a rerender
+          window.history.replaceState(
+            {
+              ...window.history.state,
+              as: `/${result.build.id}`,
+              url: `/${result.build.id}`,
+            },
+            "",
+            `/${result.build.id}`,
+          );
+        } catch (error) {
+          console.error("Failed to create game:", error);
+          // Still try to send the message even if game creation fails
+        }
+      }
+
+      // Send the message
+      void sendMessage({ text });
+      setInput("");
+    },
+    [sendMessage, setInput, params.gameId, sandpackFiles, createBuild],
+  );
 
   return (
     <>
@@ -81,23 +121,11 @@ export const BuildView = () => {
         </ConversationContent>
         <ConversationScrollButton />
       </Conversation>
-
-      <DraggablePanel
-        title="File Explorer"
-        icon={<FileIcon className="h-4 w-4" />}
-        isOpen={showFileExplorer}
-        onClose={() => setShowFileExplorer(false)}
-        initialPosition={{ x: 440, y: 20 }}
-        initialSize={{ width: 300, height: 200 }}
-      >
-        <FileExplorer files={sandpackFiles} />
-      </DraggablePanel>
-
       <form
         className="relative pb-4"
         onSubmit={(event) => {
           event.preventDefault();
-          validateAndSubmitMessage(input);
+          void validateAndSubmitMessage(input);
         }}
       >
         <motion.div
@@ -139,25 +167,27 @@ export const BuildView = () => {
                       </span>
                     )}
                   </DropdownMenuItem>
-
+                  <DropdownMenuItem
+                    onClick={() => setShowMyGames(!showMyGames)}
+                  >
+                    <GamepadIcon />
+                    My Games
+                    {showMyGames && (
+                      <span className="ml-auto text-xs">
+                        <CheckIcon />
+                      </span>
+                    )}
+                  </DropdownMenuItem>
                   <DropdownMenuSeparator />
-
                   <DropdownMenuItem onClick={() => refreshPreviewIframe()}>
                     <RefreshCwIcon />
                     Refresh Preview
                   </DropdownMenuItem>
-
-                  <DropdownMenuItem
-                    onClick={() => {
-                      reset();
-                    }}
-                  >
+                  <DropdownMenuItem onClick={() => reset()}>
                     <TrashIcon />
                     Reset
                   </DropdownMenuItem>
-
                   <DropdownMenuSeparator />
-
                   <DropdownMenuItem
                     onClick={() => {
                       reset();
@@ -167,14 +197,11 @@ export const BuildView = () => {
                     <PlusIcon />
                     Create New Game
                   </DropdownMenuItem>
-
                   <DropdownMenuSeparator />
-
                   <DropdownMenuItem>
                     <SettingsIcon />
                     Settings
                   </DropdownMenuItem>
-
                   <DropdownMenuItem>
                     <HelpCircleIcon />
                     Help
@@ -195,7 +222,7 @@ export const BuildView = () => {
                   !e.shiftKey
                 ) {
                   e.preventDefault();
-                  validateAndSubmitMessage(input);
+                  void validateAndSubmitMessage(input);
                 }
               }}
             >
@@ -214,6 +241,26 @@ export const BuildView = () => {
           </motion.div>
         </InputGroup>
       </form>
+      <DraggablePanel
+        title="File Explorer"
+        icon={<FileIcon className="size-4" />}
+        isOpen={showFileExplorer}
+        onClose={() => setShowFileExplorer(false)}
+        initialPosition={{ x: 440, y: 20 }}
+        initialSize={{ width: 300, height: 200 }}
+      >
+        <FileExplorer files={sandpackFiles} />
+      </DraggablePanel>
+      <DraggablePanel
+        title="My Games"
+        icon={<GamepadIcon className="size-4" />}
+        isOpen={showMyGames}
+        onClose={() => setShowMyGames(false)}
+        initialPosition={{ x: 760, y: 20 }}
+        initialSize={{ width: 320, height: 400 }}
+      >
+        <MyGames />
+      </DraggablePanel>
     </>
   );
 };

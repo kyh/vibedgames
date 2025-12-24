@@ -1,6 +1,6 @@
 "use client";
 
-import type { ChatStatus, DataUIPart } from "ai";
+import type { DataUIPart } from "ai";
 import { create } from "zustand";
 
 import type { DataPart } from "@repo/api/agent/messages/data-parts";
@@ -27,10 +27,10 @@ type UIState = {
   setShowFileExplorer: (show: boolean) => void;
   showBuildMenu: boolean;
   setShowBuildMenu: (show: boolean) => void;
+  showMyGames: boolean;
+  setShowMyGames: (show: boolean) => void;
   // Sandpack state
   sandpackFiles: Record<string, string>;
-  chatStatus: ChatStatus;
-  setChatStatus: (status: ChatStatus) => void;
   setSandpackFiles: (files: Record<string, string>) => void;
   reset: () => void;
   initializeBoilerplate: () => void;
@@ -72,21 +72,32 @@ export const useUiStore = create<UIState>((set, get) => ({
   setShowFileExplorer: (show) => set({ showFileExplorer: show }),
   showBuildMenu: false,
   setShowBuildMenu: (show) => set({ showBuildMenu: show }),
+  showMyGames: false,
+  setShowMyGames: (show) => set({ showMyGames: show }),
   // Sandpack state
   sandpackFiles: {},
-  chatStatus: "ready",
-  setChatStatus: (status) =>
-    set((state) =>
-      state.chatStatus === status ? state : { chatStatus: status },
-    ),
   setSandpackFiles: (files) =>
     set((state) => ({
       sandpackFiles: { ...state.sandpackFiles, ...files },
     })),
-  reset: () =>
+  reset: () => {
+    // Clear sandpack files
     set(() => ({
       sandpackFiles: {},
-    })),
+    }));
+    // Clear URL params by replacing with root path
+    if (typeof window !== "undefined") {
+      window.history.replaceState(
+        {
+          ...window.history.state,
+          as: "/",
+          url: "/",
+        },
+        "",
+        "/",
+      );
+    }
+  },
   initializeBoilerplate: () =>
     set(() => ({
       sandpackFiles: {

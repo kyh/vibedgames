@@ -1,19 +1,24 @@
-"use client";
+import { HydrateClient, prefetch, trpc } from "@/trpc/server";
+import { PageClient } from "./page.client";
 
-import { ChatProvider } from "@/components/chat/chat-context";
-import { Composer } from "./_components/composer";
-import { Preview } from "./_components/preview";
+type PageProps = {
+  params: Promise<{ gameId?: string[] }>;
+};
 
-const Page = () => {
+const Page = async (props: PageProps) => {
+  const params = await props.params;
+  const gameId = params.gameId?.[0];
+
+  // Prefetch build data on the server when gameId is present
+  if (gameId) {
+    const getBuildQuery = trpc.game.getBuild.queryOptions({ buildId: gameId });
+    prefetch(getBuildQuery);
+  }
+
   return (
-    <ChatProvider>
-      <main className="h-dvh w-dvw overflow-hidden">
-        <header className="fixed bottom-0 left-0 z-10 flex max-h-full max-w-dvw flex-col px-4 py-6 md:w-96">
-          <Composer />
-        </header>
-        <Preview />
-      </main>
-    </ChatProvider>
+    <HydrateClient>
+      <PageClient />
+    </HydrateClient>
   );
 };
 
