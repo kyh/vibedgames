@@ -1,109 +1,49 @@
-import { Buffer } from "node:buffer";
-import { and, eq, lt } from "@repo/db";
-import { gameBuild, gameProject } from "@repo/db/drizzle-schema";
 import { TRPCError } from "@trpc/server";
-import { Sandbox } from "@vercel/sandbox";
 
-import {
-  getBuildByProjectAndNumber,
-  getNextBuildNumber,
-  persistFiles,
-} from "../agent/tools/game-persistence";
+import type { gameBuild } from "@repo/db/drizzle-schema";
 import { createTRPCRouter, protectedProcedure } from "../trpc";
-import {
-  getBuildSnapshotInput,
-  getProjectInput,
-  listBuildsInput,
-  rehydrateBuildInput,
-} from "./game-schema";
+import { getBuildInput, listBuildsInput } from "./game-schema";
 
 const DEFAULT_BUILD_LIMIT = 20;
 
-type GameProjectRow = typeof gameProject.$inferSelect;
+type GameBuildRow = typeof gameBuild.$inferSelect;
 
-function assertProjectAccess({
-  project,
+function assertBuildAccess({
+  build,
   userId,
 }: {
-  project: GameProjectRow;
+  build: GameBuildRow;
   userId: string;
 }) {
-  if (project.userId === userId) return;
+  if (build.userId === userId) return;
 
   throw new TRPCError({ code: "UNAUTHORIZED", message: "Access denied." });
 }
 
 export const gameRouter = createTRPCRouter({
-  getProject: protectedProcedure
-    .input(getProjectInput)
-    .query(async ({ ctx, input }) => {
-      const project =
-        (await ctx.db.query.gameProject.findFirst({
-          where: (projects, { eq }) => eq(projects.id, input.projectId),
-        })) ?? null;
-
-      if (!project) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Project not found.",
-        });
-      }
-
-      assertProjectAccess({
-        project,
-        userId: ctx.session.user.id,
-      });
-
-      const latestBuild = await ctx.db.query.gameBuild.findFirst({
-        where: (builds, { eq }) => eq(builds.projectId, project.id),
-        orderBy: (builds, { desc }) => desc(builds.buildNumber),
-      });
-
-      return {
-        project,
-        latestBuild,
-      };
-    }),
-
   listBuilds: protectedProcedure
     .input(listBuildsInput)
     .query(async ({ ctx, input }) => {
-      const project =
-        (await ctx.db.query.gameProject.findFirst({
-          where: (projects, { eq }) => eq(projects.id, input.projectId),
-        })) ?? null;
-
-      if (!project) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Project not found.",
-        });
-      }
-
-      assertProjectAccess({
-        project,
-        userId: ctx.session.user.id,
-      });
-
       const limit = input.limit ?? DEFAULT_BUILD_LIMIT;
 
       const builds = await ctx.db.query.gameBuild.findMany({
-        where: (builds) =>
+        where: (builds, { eq, and, lt }) =>
           input.cursor
             ? and(
-                eq(builds.projectId, project.id),
-                lt(builds.buildNumber, input.cursor),
+                eq(builds.userId, ctx.session.user.id),
+                lt(builds.id, input.cursor),
               )
-            : eq(builds.projectId, project.id),
-        orderBy: (builds, { desc }) => desc(builds.buildNumber),
+            : eq(builds.userId, ctx.session.user.id),
+        orderBy: (builds, { desc }) => desc(builds.createdAt),
         limit: limit + 1,
+        with: {
+          gameBuildFiles: true,
+        },
       });
 
       const hasNextPage = builds.length > limit;
       const items = hasNextPage ? builds.slice(0, limit) : builds;
-      const nextCursor = hasNextPage
-        ? items[items.length - 1]?.buildNumber
-        : undefined;
+      const nextCursor = hasNextPage ? items[items.length - 1]?.id : undefined;
 
       return {
         builds: items,
@@ -111,35 +51,14 @@ export const gameRouter = createTRPCRouter({
       };
     }),
 
-  getBuildSnapshot: protectedProcedure
-    .input(getBuildSnapshotInput)
+  getBuild: protectedProcedure
+    .input(getBuildInput)
     .query(async ({ ctx, input }) => {
-      const project =
-        (await ctx.db.query.gameProject.findFirst({
-          where: (projects, { eq }) => eq(projects.id, input.projectId),
-        })) ?? null;
-
-      if (!project) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Project not found.",
-        });
-      }
-
-      assertProjectAccess({
-        project,
-        userId: ctx.session.user.id,
-      });
-
       const build =
         (await ctx.db.query.gameBuild.findFirst({
-          where: (builds, { and, eq }) =>
-            and(
-              eq(builds.projectId, project.id),
-              eq(builds.buildNumber, input.buildNumber),
-            ),
+          where: (builds, { eq }) => eq(builds.id, input.buildId),
           with: {
-            files: true,
+            gameBuildFiles: true,
           },
         })) ?? null;
 
@@ -150,102 +69,13 @@ export const gameRouter = createTRPCRouter({
         });
       }
 
-      return {
+      assertBuildAccess({
         build,
-        project,
-        files: build.files,
-      };
-    }),
-
-  rehydrateBuild: protectedProcedure
-    .input(rehydrateBuildInput)
-    .mutation(async ({ ctx, input }) => {
-      const project =
-        (await ctx.db.query.gameProject.findFirst({
-          where: (projects, { eq }) => eq(projects.id, input.projectId),
-        })) ?? null;
-
-      if (!project) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Project not found.",
-        });
-      }
-
-      assertProjectAccess({
-        project,
         userId: ctx.session.user.id,
       });
 
-      const build = await getBuildByProjectAndNumber(
-        ctx.db,
-        project.id,
-        input.buildNumber,
-      );
-
-      if (!build) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Build not found.",
-        });
-      }
-
-      const originalFiles = await ctx.db.query.gameBuildFile.findMany({
-        where: (files, { and, eq }) =>
-          and(
-            eq(files.projectId, build.projectId),
-            eq(files.buildNumber, build.buildNumber),
-          ),
-      });
-
-      const sandbox = await Sandbox.create({
-        timeout: 600000,
-        ports: [3000],
-        runtime: "node22",
-      });
-
-      if (originalFiles.length > 0) {
-        await sandbox.writeFiles(
-          originalFiles.map((file) => ({
-            path: file.path,
-            content: Buffer.from(file.content, "utf8"),
-          })),
-        );
-      }
-
-      const newBuildNumber = await getNextBuildNumber(ctx.db, project.id);
-
-      const [rehydratedBuild] = await ctx.db
-        .insert(gameBuild)
-        .values({
-          projectId: project.id,
-          buildNumber: newBuildNumber,
-          createdById: ctx.session.user.id,
-          sandboxId: sandbox.sandboxId,
-          modelId: build.modelId,
-        })
-        .returning();
-
-      if (originalFiles.length > 0 && rehydratedBuild) {
-        await persistFiles({
-          db: ctx.db,
-          projectId: project.id,
-          buildNumber: rehydratedBuild.buildNumber,
-          files: originalFiles.map((file) => ({
-            path: file.path,
-            content: file.content,
-          })),
-        });
-      }
-
-      await ctx.db
-        .update(gameProject)
-        .set({ updatedAt: new Date() })
-        .where(eq(gameProject.id, project.id));
-
       return {
-        sandboxId: sandbox.sandboxId,
-        build: rehydratedBuild,
+        build,
       };
     }),
 });

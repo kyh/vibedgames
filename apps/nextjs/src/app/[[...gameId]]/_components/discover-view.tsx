@@ -3,13 +3,11 @@
 import Image from "next/image";
 import { motion } from "motion/react";
 
-import { useSandboxStore } from "@/components/chat/sandbox-store";
 import { featuredGames } from "./data";
 import { useUiStore } from "./ui-store";
 
 export const DiscoverView = () => {
-  const { setUrl } = useSandboxStore();
-  const { setView, setCurrentIndex, isMobile } = useUiStore();
+  const { setView, setCurrentIndex, isMobile, setSandpackFiles } = useUiStore();
 
   return (
     <motion.div
@@ -31,8 +29,11 @@ export const DiscoverView = () => {
               return;
             }
             setCurrentIndex(index);
+            // If it's a local game, load files into sandpack
+            if (game.files) {
+              setSandpackFiles(game.files);
+            }
             setView("play");
-            setUrl(game.url, crypto.randomUUID());
           }}
           className="hover:border-foreground relative aspect-video w-30 shrink-0 overflow-clip rounded-lg border border-transparent transition-colors"
         >

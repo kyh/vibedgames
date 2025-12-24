@@ -6,34 +6,28 @@ import {
   streamText,
 } from "ai";
 
-import type { Session } from "@repo/api/auth/auth";
-import type { Db } from "@repo/db/drizzle-client";
-
 import type { ChatUIMessage } from "../messages/types";
-import { getModelOptions } from "../gateway";
 import { tools } from "../tools";
-import prompt from "./stream-chat-response-prompt.md";
+import prompt from "./stream-chat-response-prompt";
 
 export const streamChatResponse = (
   messages: ChatUIMessage[],
-  model: {
-    id: string;
-    name: string;
-  },
   reasoningEffort: "low" | "medium",
-  options: {
-    db: Db;
-    session: Session | null;
-    projectId?: string;
-    buildNumber?: number;
-  },
 ) => {
   return createUIMessageStreamResponse({
     stream: createUIMessageStream({
       originalMessages: messages,
       execute: ({ writer }) => {
         const result = streamText({
-          ...getModelOptions(model.id, { reasoningEffort }),
+          model: "openai/gpt-5",
+          providerOptions: {
+            openai: {
+              include: ["reasoning.encrypted_content"],
+              reasoningEffort,
+              reasoningSummary: "auto",
+              serviceTier: "priority",
+            },
+          },
           system: prompt,
           messages: convertToModelMessages(
             messages.map((message) => {
@@ -57,14 +51,7 @@ export const streamChatResponse = (
             }),
           ),
           stopWhen: stepCountIs(20),
-          tools: tools({
-            modelId: model.id,
-            writer,
-            db: options.db,
-            session: options.session,
-            projectId: options.projectId,
-            buildNumber: options.buildNumber,
-          }),
+          tools: tools({ writer }),
           onError: (error) => {
             console.error("Error communicating with AI");
             console.error(JSON.stringify(error, null, 2));
@@ -78,7 +65,7 @@ export const streamChatResponse = (
             sendReasoning: true,
             sendStart: false,
             messageMetadata: () => ({
-              model: model.name,
+              model: "GPT-5",
             }),
           }),
         );

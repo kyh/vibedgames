@@ -1,74 +1,75 @@
 export type FileNode = {
-  children?: FileNode[];
-  content?: string;
-  expanded?: boolean;
   name: string;
   path: string;
-  type: "file" | "folder";
+  isFolder: boolean;
+  children?: string[];
 };
 
-type FileNodeBuilder = {
-  children?: Record<string, FileNodeBuilder>;
-  content?: string;
-  expanded?: boolean;
-  name: string;
-  path: string;
-  type: "file" | "folder";
-};
+const ROOT_ID = ".";
 
-export function buildFileTree(paths: string[]): FileNode[] {
-  if (paths.length === 0) return [];
-  const root: Record<string, FileNodeBuilder> = {};
+// Convert file paths into a flat tree structure
+export function buildFileTree(
+  files: Record<string, string>,
+): Record<string, FileNode> {
+  const tree: Record<string, FileNode> = {};
+  const rootChildren = new Set<string>();
 
-  for (const path of paths) {
-    const parts = path.split("/").filter(Boolean);
-    let current: Record<string, FileNodeBuilder> = root;
-    let currentPath = "";
+  // Process each file path
+  for (const filePath of Object.keys(files)) {
+    // Normalize path: remove leading slash and split into parts
+    const normalizedPath = filePath.startsWith("/")
+      ? filePath.slice(1)
+      : filePath;
+    const parts = normalizedPath.split("/").filter(Boolean);
 
-    for (let index = 0; index < parts.length; index++) {
-      const part = parts[index];
+    if (parts.length === 0) continue;
+
+    let parentPath = "";
+
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
       if (!part) continue;
 
-      currentPath += "/" + part;
-      const isFile = index === parts.length - 1;
+      const currentPath = parentPath ? `${parentPath}/${part}` : part;
+      const isFile = i === parts.length - 1;
 
-      if (!(part in current)) {
-        current[part] = {
+      // Create node if it doesn't exist
+      if (!(currentPath in tree)) {
+        tree[currentPath] = {
           name: part,
-          type: isFile ? "file" : "folder",
           path: currentPath,
-          content: isFile
-            ? `// Content for ${currentPath}\n// This will be loaded when the file is selected`
-            : undefined,
-          children: isFile ? undefined : {},
-          expanded: false,
+          isFolder: !isFile,
+          children: !isFile ? [] : undefined,
         };
-      }
 
-      if (!isFile) {
-        const node = current[part];
-        if (node?.children) {
-          current = node.children;
+        // Track root-level items
+        if (!parentPath) {
+          rootChildren.add(currentPath);
         }
       }
+
+      // Add to parent's children if parent exists
+      if (parentPath) {
+        const parent = tree[parentPath];
+        if (parent?.children) {
+          const children = parent.children;
+          if (!children.includes(currentPath)) {
+            children.push(currentPath);
+          }
+        }
+      }
+
+      parentPath = currentPath;
     }
   }
 
-  const convertToArray = (obj: Record<string, FileNodeBuilder>): FileNode[] => {
-    return Object.values(obj)
-      .map(
-        (node): FileNode => ({
-          ...node,
-          children: node.children ? convertToArray(node.children) : undefined,
-        }),
-      )
-      .sort((a, b) => {
-        if (a.type !== b.type) {
-          return a.type === "folder" ? -1 : 1;
-        }
-        return a.name.localeCompare(b.name);
-      });
+  // Create root node
+  tree[ROOT_ID] = {
+    name: "root",
+    path: ROOT_ID,
+    isFolder: true,
+    children: Array.from(rootChildren),
   };
 
-  return convertToArray(root);
+  return tree;
 }

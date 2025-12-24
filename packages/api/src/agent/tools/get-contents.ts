@@ -2,15 +2,13 @@ import type { ModelMessage } from "ai";
 import { streamObject } from "ai";
 import z from "zod";
 
-import { getModelOptions } from "../gateway";
-
 export type File = z.infer<typeof fileSchema>;
 
 const fileSchema = z.object({
   path: z
     .string()
     .describe(
-      "Path to the file in the Vercel Sandbox (relative paths from sandbox root, e.g., 'src/main.js', 'package.json', 'components/Button.tsx')",
+      "Path to the file (relative paths from project root, e.g., 'src/main.js', 'package.json', 'components/Button.tsx')",
     ),
   content: z
     .string()
@@ -21,7 +19,6 @@ const fileSchema = z.object({
 
 type Params = {
   messages: ModelMessage[];
-  modelId: string;
   paths: string[];
 };
 
@@ -37,7 +34,15 @@ export async function* getContents(
   const generated: z.infer<typeof fileSchema>[] = [];
   const deferred = new Deferred<void>();
   const result = streamObject({
-    ...getModelOptions(params.modelId, { reasoningEffort: "minimal" }),
+    model: "openai/gpt-5",
+    providerOptions: {
+      openai: {
+        include: ["reasoning.encrypted_content"],
+        reasoningEffort: "minimal",
+        reasoningSummary: "auto",
+        serviceTier: "priority",
+      },
+    },
     maxOutputTokens: 64000,
     system:
       "You are a file content generator. You must generate files based on the conversation history and the provided paths. NEVER generate lock files (pnpm-lock.yaml, package-lock.json, yarn.lock) - these are automatically created by package managers.",
