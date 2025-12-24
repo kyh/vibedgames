@@ -1,8 +1,14 @@
+import { gameBuild } from "@repo/db/drizzle-schema";
 import { TRPCError } from "@trpc/server";
 
-import type { gameBuild } from "@repo/db/drizzle-schema";
+import { persistFiles } from "../agent/tools/game-persistence";
 import { createTRPCRouter, protectedProcedure } from "../trpc";
-import { getBuildInput, listBuildsInput } from "./game-schema";
+import {
+  createBuildInput,
+  getBuildInput,
+  listBuildsInput,
+  updateBuildFilesInput,
+} from "./game-schema";
 
 const DEFAULT_BUILD_LIMIT = 20;
 
@@ -76,6 +82,93 @@ export const gameRouter = createTRPCRouter({
 
       return {
         build,
+      };
+    }),
+
+  createBuild: protectedProcedure
+    .input(createBuildInput)
+    .mutation(async ({ ctx, input }) => {
+      const buildId = crypto.randomUUID();
+
+      await ctx.db.insert(gameBuild).values({
+        id: buildId,
+        userId: ctx.session.user.id,
+        organizationId: input.organizationId ?? null,
+        title: input.title ?? null,
+        description: input.description ?? null,
+      });
+
+      // Persist files if provided
+      if (input.files.length > 0) {
+        await persistFiles({
+          db: ctx.db,
+          buildId,
+          files: input.files,
+        });
+      }
+
+      // Fetch the complete build with files
+      const build = await ctx.db.query.gameBuild.findFirst({
+        where: (builds, { eq }) => eq(builds.id, buildId),
+        with: {
+          gameBuildFiles: true,
+        },
+      });
+
+      if (!build) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to create build.",
+        });
+      }
+
+      return {
+        build,
+      };
+    }),
+
+  updateBuildFiles: protectedProcedure
+    .input(updateBuildFilesInput)
+    .mutation(async ({ ctx, input }) => {
+      const build = await ctx.db.query.gameBuild.findFirst({
+        where: (builds, { eq }) => eq(builds.id, input.buildId),
+      });
+
+      if (!build) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Build not found.",
+        });
+      }
+
+      assertBuildAccess({
+        build,
+        userId: ctx.session.user.id,
+      });
+
+      await persistFiles({
+        db: ctx.db,
+        buildId: input.buildId,
+        files: input.files,
+      });
+
+      // Fetch the updated build with files
+      const updatedBuild = await ctx.db.query.gameBuild.findFirst({
+        where: (builds, { eq }) => eq(builds.id, input.buildId),
+        with: {
+          gameBuildFiles: true,
+        },
+      });
+
+      if (!updatedBuild) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to update build.",
+        });
+      }
+
+      return {
+        build: updatedBuild,
       };
     }),
 });

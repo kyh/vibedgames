@@ -37,9 +37,6 @@ export const gameBuild = sqliteTable("game_build", {
   }),
   title: text("title"),
   description: text("description"),
-  createdById: text("created_by_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
     .notNull(),
@@ -84,10 +81,6 @@ export const gameBuildRelations = relations(gameBuild, ({ one, many }) => ({
   organization: one(organization, {
     fields: [gameBuild.organizationId],
     references: [organization.id],
-  }),
-  creator: one(user, {
-    fields: [gameBuild.createdById],
-    references: [user.id],
   }),
   gameBuildFiles: many(gameBuildFile),
 }));
