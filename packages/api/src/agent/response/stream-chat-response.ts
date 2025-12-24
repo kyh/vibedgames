@@ -8,7 +8,7 @@ import {
 
 import type { ChatUIMessage } from "../messages/types";
 import { tools } from "../tools";
-import prompt from "./stream-chat-response-prompt.md";
+import prompt from "./stream-chat-response-prompt";
 
 export const streamChatResponse = (
   messages: ChatUIMessage[],

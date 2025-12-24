@@ -42,21 +42,6 @@ const config = {
   images: {
     remotePatterns: getRemotePatterns(),
   },
-  webpack(config) {
-    config.module.rules.push({
-      test: /\.md/,
-      type: "asset/source",
-    });
-    return config;
-  },
-  turbopack: {
-    rules: {
-      "*.md": {
-        loaders: ["raw-loader"],
-        as: "*.js",
-      },
-    },
-  },
   /** We already do linting and typechecking as separate tasks in CI */
   typescript: { ignoreBuildErrors: true },
 };

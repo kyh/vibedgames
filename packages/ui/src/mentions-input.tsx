@@ -21,7 +21,7 @@ type MentionsInputPropsType<
 } & Omit<MentionsInputProps<Extra>, "className" | "classNames">;
 
 const mentionClassNames = {
-  control: "",
+  control: "border-none bg-transparent",
   highlighter: "px-3 py-2 border-none",
   input: "px-3 py-2 font-mono text-sm",
   inlineSuggestionText: "bg-accent",

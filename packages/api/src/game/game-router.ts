@@ -1,101 +1,49 @@
-import { and, eq, lt } from "@repo/db";
-import { gameProject } from "@repo/db/drizzle-schema";
 import { TRPCError } from "@trpc/server";
 
+import type { gameBuild } from "@repo/db/drizzle-schema";
 import { createTRPCRouter, protectedProcedure } from "../trpc";
-import {
-  getBuildSnapshotInput,
-  getProjectInput,
-  listBuildsInput,
-} from "./game-schema";
+import { getBuildInput, listBuildsInput } from "./game-schema";
 
 const DEFAULT_BUILD_LIMIT = 20;
 
-type GameProjectRow = typeof gameProject.$inferSelect;
+type GameBuildRow = typeof gameBuild.$inferSelect;
 
-function assertProjectAccess({
-  project,
+function assertBuildAccess({
+  build,
   userId,
 }: {
-  project: GameProjectRow;
+  build: GameBuildRow;
   userId: string;
 }) {
-  if (project.userId === userId) return;
+  if (build.userId === userId) return;
 
   throw new TRPCError({ code: "UNAUTHORIZED", message: "Access denied." });
 }
 
 export const gameRouter = createTRPCRouter({
-  getProject: protectedProcedure
-    .input(getProjectInput)
-    .query(async ({ ctx, input }) => {
-      const project =
-        (await ctx.db.query.gameProject.findFirst({
-          where: (projects, { eq }) => eq(projects.id, input.projectId),
-        })) ?? null;
-
-      if (!project) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Project not found.",
-        });
-      }
-
-      assertProjectAccess({
-        project,
-        userId: ctx.session.user.id,
-      });
-
-      const latestBuild = await ctx.db.query.gameBuild.findFirst({
-        where: (builds, { eq }) => eq(builds.projectId, project.id),
-        orderBy: (builds, { desc }) => desc(builds.buildNumber),
-      });
-
-      return {
-        project,
-        latestBuild,
-      };
-    }),
-
   listBuilds: protectedProcedure
     .input(listBuildsInput)
     .query(async ({ ctx, input }) => {
-      const project =
-        (await ctx.db.query.gameProject.findFirst({
-          where: (projects, { eq }) => eq(projects.id, input.projectId),
-        })) ?? null;
-
-      if (!project) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Project not found.",
-        });
-      }
-
-      assertProjectAccess({
-        project,
-        userId: ctx.session.user.id,
-      });
-
       const limit = input.limit ?? DEFAULT_BUILD_LIMIT;
 
       const builds = await ctx.db.query.gameBuild.findMany({
-        where: (builds) =>
+        where: (builds, { eq, and, lt }) =>
           input.cursor
             ? and(
-                eq(builds.projectId, project.id),
-                lt(builds.buildNumber, input.cursor),
+                eq(builds.userId, ctx.session.user.id),
+                lt(builds.id, input.cursor),
               )
-            : eq(builds.projectId, project.id),
-        orderBy: (builds, { desc }) => desc(builds.buildNumber),
+            : eq(builds.userId, ctx.session.user.id),
+        orderBy: (builds, { desc }) => desc(builds.createdAt),
         limit: limit + 1,
+        with: {
+          gameBuildFiles: true,
+        },
       });
 
       const hasNextPage = builds.length > limit;
       const items = hasNextPage ? builds.slice(0, limit) : builds;
-      const nextCursor = hasNextPage
-        ? items[items.length - 1]?.buildNumber
-        : undefined;
+      const nextCursor = hasNextPage ? items[items.length - 1]?.id : undefined;
 
       return {
         builds: items,
@@ -103,35 +51,14 @@ export const gameRouter = createTRPCRouter({
       };
     }),
 
-  getBuildSnapshot: protectedProcedure
-    .input(getBuildSnapshotInput)
+  getBuild: protectedProcedure
+    .input(getBuildInput)
     .query(async ({ ctx, input }) => {
-      const project =
-        (await ctx.db.query.gameProject.findFirst({
-          where: (projects, { eq }) => eq(projects.id, input.projectId),
-        })) ?? null;
-
-      if (!project) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Project not found.",
-        });
-      }
-
-      assertProjectAccess({
-        project,
-        userId: ctx.session.user.id,
-      });
-
       const build =
         (await ctx.db.query.gameBuild.findFirst({
-          where: (builds, { and, eq }) =>
-            and(
-              eq(builds.projectId, project.id),
-              eq(builds.buildNumber, input.buildNumber),
-            ),
+          where: (builds, { eq }) => eq(builds.id, input.buildId),
           with: {
-            files: true,
+            gameBuildFiles: true,
           },
         })) ?? null;
 
@@ -142,10 +69,13 @@ export const gameRouter = createTRPCRouter({
         });
       }
 
+      assertBuildAccess({
+        build,
+        userId: ctx.session.user.id,
+      });
+
       return {
         build,
-        project,
-        files: build.files,
       };
     }),
 });

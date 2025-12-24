@@ -1,18 +1,30 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import Image from "next/image";
+import { loadSandpackClient } from "@codesandbox/sandpack-client";
 import { Button } from "@repo/ui/button";
 import { Spinner } from "@repo/ui/spinner";
 import { cn } from "@repo/ui/utils";
 import { AnimatePresence, motion } from "motion/react";
 
-import { useUiStore } from "@/app/(home)/_components/ui-store";
+import type { SandpackClient } from "@codesandbox/sandpack-client";
+import { featuredGames } from "@/app/[[...gameId]]/_components/data";
+import { useUiStore } from "@/app/[[...gameId]]/_components/ui-store";
+
+function toSandpackFiles(files: Record<string, string>) {
+  return Object.fromEntries(
+    Object.entries(files).map(([path, code]) => [
+      path.startsWith("/") ? path : `/${path}`,
+      { code },
+    ]),
+  );
+}
 
 type Props = {
   className?: string;
   showHeader?: boolean;
   disabled?: boolean;
-  url?: string;
   name?: string;
   preview?: string;
   onPreviewClick?: () => void;
@@ -21,12 +33,14 @@ type Props = {
 export const PreviewWeb = ({
   className,
   disabled,
-  url,
   preview,
   name,
   onPreviewClick,
 }: Props) => {
   const {
+    view,
+    currentIndex,
+    sandpackFiles,
     setPreviewIframe,
     refreshPreviewIframe,
     isPreviewIframeLoading,
@@ -34,7 +48,97 @@ export const PreviewWeb = ({
     previewIframeError,
     setPreviewIframeError,
     showBuildMenu,
+    previewIframe,
   } = useUiStore();
+
+  const clientRef = useRef<SandpackClient | null>(null);
+
+  // Get current game from store
+  const currentGame = featuredGames[currentIndex];
+  const url = currentGame?.url;
+
+  // In build mode, always use sandpack with store files
+  // In play/discover mode, use url if provided (remote game), otherwise use store files (local game)
+  const isBuildMode = view === "build";
+  const isLocalGame = isBuildMode || !url;
+
+  // Initialize sandpack client for local games
+  useEffect(() => {
+    if (!isLocalGame) return;
+    if (!previewIframe) return;
+
+    // Clean up previous client if it exists
+    if (clientRef.current) {
+      clientRef.current.destroy();
+      clientRef.current = null;
+    }
+
+    // In build mode, use store files; otherwise use store files (which should be loaded for local games)
+    const filesToUse = sandpackFiles;
+
+    const iframe = previewIframe;
+
+    const initClient = async () => {
+      try {
+        const client = await loadSandpackClient(
+          iframe,
+          {
+            files: toSandpackFiles(filesToUse),
+            template: "create-react-app-typescript",
+          },
+          {
+            showOpenInCodeSandbox: false,
+          },
+        );
+
+        clientRef.current = client;
+
+        client.listen((message) => {
+          console.log("message", message);
+          if (message.type === "done") {
+            setIsPreviewIframeLoading(false);
+            // Check if there was a compilation error
+            if (message.compilatonError) {
+              setPreviewIframeError("Compilation error occurred");
+            } else {
+              setPreviewIframeError(null);
+            }
+          } else if (
+            message.type === "action" &&
+            message.action === "show-error"
+          ) {
+            // Handle sandpack error message
+            setIsPreviewIframeLoading(false);
+            setPreviewIframeError(message.message || message.title);
+          } else if (
+            message.type === "action" &&
+            message.action === "notification" &&
+            message.notificationType === "error"
+          ) {
+            // Handle error notification
+            setIsPreviewIframeLoading(false);
+            setPreviewIframeError(message.title);
+          }
+        });
+      } catch (error) {
+        console.error("Failed to load Sandpack client:", error);
+      }
+    };
+
+    void initClient();
+  }, [
+    isLocalGame,
+    previewIframe,
+    sandpackFiles,
+    setIsPreviewIframeLoading,
+    setPreviewIframeError,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      clientRef.current?.destroy();
+    };
+  }, []);
 
   const handleIframeLoad = () => {
     setIsPreviewIframeLoading(false);
@@ -72,15 +176,15 @@ export const PreviewWeb = ({
             />
           </motion.button>
         )}
-        {url && !disabled && (
+        {((url && !disabled) || isLocalGame) && (
           <>
             <motion.iframe
               ref={setPreviewIframe}
-              src={url}
+              src={!isLocalGame ? url : undefined}
               className="relative h-full w-full"
               onLoad={handleIframeLoad}
               onError={handleIframeError}
-              title="Browser content"
+              title="Game preview"
               allow="camera; microphone"
               initial={{ opacity: 0, filter: "blur(5px)" }}
               animate={{ opacity: 1, filter: "blur(0px)" }}

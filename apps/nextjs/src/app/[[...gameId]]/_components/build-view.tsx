@@ -37,7 +37,6 @@ import { motion } from "motion/react";
 import type { ChatUIMessage } from "@repo/api/agent/messages/types";
 import { useSharedChatContext } from "@/components/chat/chat-context";
 import { Message } from "@/components/chat/message";
-import { useSandpackStore } from "@/components/chat/sandbox-store";
 import { FileExplorer } from "@/components/file-explorer/file-explorer";
 import { DraggablePanel } from "@/components/ui/draggable-panel";
 import { useUiStore } from "./ui-store";
@@ -47,8 +46,10 @@ export const BuildView = () => {
 
   const { chat } = useSharedChatContext();
   const { messages, sendMessage, status } = useChat<ChatUIMessage>({ chat });
-  const { setChatStatus, reset, sandpackFiles } = useSandpackStore();
   const {
+    setChatStatus,
+    reset,
+    sandpackFiles,
     refreshPreviewIframe,
     showFileExplorer,
     setShowFileExplorer,
@@ -81,7 +82,6 @@ export const BuildView = () => {
         <ConversationScrollButton />
       </Conversation>
 
-      {/* Debug Windows */}
       <DraggablePanel
         title="File Explorer"
         icon={<FileIcon className="h-4 w-4" />}

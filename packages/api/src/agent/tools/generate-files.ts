@@ -4,7 +4,7 @@ import z from "zod";
 
 import type { DataPart } from "../messages/data-parts";
 import type { File } from "./get-contents";
-import description from "./generate-files.md";
+import description from "./generate-files-description";
 import { getContents } from "./get-contents";
 import { getRichError } from "./get-rich-error";
 
@@ -20,7 +20,6 @@ export const generateFiles = ({ writer }: Params) =>
   tool({
     description,
     inputSchema: z.object({
-      sandboxId: z.string().optional(),
       paths: z.array(z.string()),
     }),
     execute: async ({ paths }, { toolCallId, messages }) => {
