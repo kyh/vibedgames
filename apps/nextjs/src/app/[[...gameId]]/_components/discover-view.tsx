@@ -7,7 +7,7 @@ import { featuredGames } from "./data";
 import { useUiStore } from "./ui-store";
 
 export const DiscoverView = () => {
-  const { setView, setCurrentIndex, isMobile, setSandpackFiles, reset } = useUiStore();
+  const { setView, setGameId, isMobile } = useUiStore();
 
   return (
     <motion.div
@@ -16,25 +16,20 @@ export const DiscoverView = () => {
       initial={{ opacity: 0, filter: "blur(5px)" }}
       animate={{ opacity: 1, filter: "blur(0px)", transition: { delay: 0.05 } }}
     >
-      {featuredGames.map((game, index) => (
+      {featuredGames.map((game) => (
         <button
-          key={game.id}
+          key={game.gameId}
           onMouseEnter={() => {
             setView("discover");
-            setCurrentIndex(index);
+            setGameId(game.gameId);
           }}
           onClick={() => {
             if (isMobile) {
-              setCurrentIndex(index);
+              setGameId(game.gameId);
               return;
             }
-            setCurrentIndex(index);
-            // Clear any loaded build files first
-            reset();
-            // If it's a local game, load files into sandpack
-            if (game.files) {
-              setSandpackFiles(game.files);
-            }
+            // Set the gameId - it will auto-load files from featured games
+            setGameId(game.gameId);
             setView("play");
           }}
           className="hover:border-foreground relative aspect-video w-30 shrink-0 overflow-clip rounded-lg border border-transparent transition-colors"

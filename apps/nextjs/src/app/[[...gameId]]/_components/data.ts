@@ -1,5 +1,5 @@
 export type FeaturedGame = {
-  id: number;
+  gameId: string;
   name: string;
   preview: string;
   url?: string;
@@ -9,7 +9,7 @@ export type FeaturedGame = {
 
 export const featuredGames: FeaturedGame[] = [
   {
-    id: 0,
+    gameId: "astroid",
     name: "Astroid",
     preview:
       "https://zmdrwswxugswzmcokvff.supabase.co/storage/v1/object/public/vibedgames/astroid.png",
@@ -17,7 +17,7 @@ export const featuredGames: FeaturedGame[] = [
     colorScheme: "dark",
   },
   {
-    id: 1,
+    gameId: "flappy-bird",
     name: "Flappy Bird",
     preview:
       "https://zmdrwswxugswzmcokvff.supabase.co/storage/v1/object/public/vibedgames/flappy.png",
@@ -25,7 +25,7 @@ export const featuredGames: FeaturedGame[] = [
     colorScheme: "light",
   },
   {
-    id: 2,
+    gameId: "pacman",
     name: "Pacman",
     preview:
       "https://zmdrwswxugswzmcokvff.supabase.co/storage/v1/object/public/vibedgames/pacman.png",
@@ -33,7 +33,7 @@ export const featuredGames: FeaturedGame[] = [
     colorScheme: "dark",
   },
   {
-    id: 3,
+    gameId: "tetris",
     name: "Tetris",
     preview:
       "https://zmdrwswxugswzmcokvff.supabase.co/storage/v1/object/public/vibedgames/tetris.png",
@@ -41,7 +41,7 @@ export const featuredGames: FeaturedGame[] = [
     colorScheme: "dark",
   },
   {
-    id: 4,
+    gameId: "pong",
     name: "Pong",
     preview:
       "https://zmdrwswxugswzmcokvff.supabase.co/storage/v1/object/public/vibedgames/pong.png",

@@ -4,6 +4,7 @@ import type { DataUIPart } from "ai";
 import { create } from "zustand";
 
 import type { DataPart } from "@repo/api/agent/messages/data-parts";
+import { featuredGames } from "./data";
 
 type View = "build" | "play" | "discover";
 
@@ -19,8 +20,9 @@ type UIState = {
   previewIframeError: string | null;
   setPreviewIframeError: (error: string | null) => void;
   // Preview stack state
-  currentIndex: number;
-  setCurrentIndex: (index: number) => void;
+  gameId: string | null;
+  setGameId: (id: string | null, files?: Record<string, string>) => void;
+  isLocalGame: boolean;
   isMobile: boolean;
   // Build view state
   showFileExplorer: boolean;
@@ -31,9 +33,7 @@ type UIState = {
   setShowMyGames: (show: boolean) => void;
   // Sandpack state
   sandpackFiles: Record<string, string>;
-  setSandpackFiles: (files: Record<string, string>) => void;
-  reset: () => void;
-  initializeBoilerplate: () => void;
+  updateSandpackFiles: (files: Record<string, string>) => void;
 };
 
 // Helper function to check if mobile on initialization
@@ -64,29 +64,39 @@ export const useUiStore = create<UIState>((set, get) => ({
   previewIframeError: null,
   setPreviewIframeError: (error) => set({ previewIframeError: error }),
   // Preview stack state
-  currentIndex: 0,
-  setCurrentIndex: (index) => set({ currentIndex: index }),
-  isMobile: getInitialIsMobile(),
-  // Build view state
-  showFileExplorer: false,
-  setShowFileExplorer: (show) => set({ showFileExplorer: show }),
-  showBuildMenu: false,
-  setShowBuildMenu: (show) => set({ showBuildMenu: show }),
-  showMyGames: false,
-  setShowMyGames: (show) => set({ showMyGames: show }),
-  // Sandpack state
-  sandpackFiles: {},
-  setSandpackFiles: (files) =>
-    set((state) => ({
-      sandpackFiles: { ...state.sandpackFiles, ...files },
-    })),
-  reset: () => {
-    // Clear sandpack files
-    set(() => ({
-      sandpackFiles: {},
-    }));
-    // Clear URL params by replacing with root path
-    if (typeof window !== "undefined") {
+  gameId: featuredGames[0]?.gameId ?? null,
+  setGameId: (id, files) => {
+    const state = get();
+    let newSandpackFiles: Record<string, string>;
+
+    if (id === null) {
+      // Null gameId means a brand new local game - use boilerplate
+      newSandpackFiles = BOILERPLATE_FILES;
+    } else if (files !== undefined) {
+      // Use provided files (explicit override)
+      newSandpackFiles = files;
+    } else {
+      // If files not provided, check if it's a featured game
+      const featuredGame = featuredGames.find((g) => g.gameId === id);
+      if (featuredGame) {
+        if (featuredGame.files) {
+          // Local featured game - load its files
+          newSandpackFiles = featuredGame.files;
+        } else if (featuredGame.url) {
+          // Remote featured game - clear files
+          newSandpackFiles = {};
+        } else {
+          // Featured game with no files and no URL (edge case) - keep existing
+          newSandpackFiles = state.sandpackFiles;
+        }
+      } else {
+        // Build ID (not in featuredGames) - keep existing files
+        newSandpackFiles = state.sandpackFiles;
+      }
+    }
+
+    // Clear URL params when resetting
+    if (id === null && typeof window !== "undefined") {
       window.history.replaceState(
         {
           ...window.history.state,
@@ -97,24 +107,62 @@ export const useUiStore = create<UIState>((set, get) => ({
         "/",
       );
     }
+
+    set({
+      gameId: id,
+      sandpackFiles: newSandpackFiles,
+      isLocalGame: computeIsLocalGame(id, newSandpackFiles),
+    });
   },
-  initializeBoilerplate: () =>
-    set(() => ({
-      sandpackFiles: {
-        "package.json": JSON.stringify(
-          {
-            name: "new-game",
-            version: "1.0.0",
-            type: "module",
-            dependencies: {
-              react: "^18.2.0",
-              "react-dom": "^18.2.0",
-            },
-          },
-          null,
-          2,
-        ),
-        "index.html": `<!DOCTYPE html>
+  isLocalGame: computeIsLocalGame(featuredGames[0]?.gameId ?? null, {}),
+  isMobile: getInitialIsMobile(),
+  // Build view state
+  showFileExplorer: false,
+  setShowFileExplorer: (show) => set({ showFileExplorer: show }),
+  showBuildMenu: false,
+  setShowBuildMenu: (show) => set({ showBuildMenu: show }),
+  showMyGames: false,
+  setShowMyGames: (show) => set({ showMyGames: show }),
+  // Sandpack state
+  sandpackFiles: {},
+  updateSandpackFiles: (files) =>
+    set((state) => ({
+      sandpackFiles: { ...state.sandpackFiles, ...files },
+    })),
+}));
+
+export function useDataStateMapper() {
+  const { updateSandpackFiles } = useUiStore();
+
+  return (data: DataUIPart<DataPart>) => {
+    switch (data.type) {
+      case "data-generating-files":
+        if (data.data.files) {
+          updateSandpackFiles(data.data.files);
+        }
+        break;
+      default:
+        break;
+    }
+  };
+}
+
+// Boilerplate files for new games
+const BOILERPLATE_FILES: Record<string, string> = {
+  "package.json": JSON.stringify(
+    {
+      name: "new-game",
+      version: "1.0.0",
+      type: "module",
+      dependencies: {
+        react: "^18.2.0",
+        "react-dom": "^18.2.0",
+      },
+    },
+    null,
+    2,
+  ),
+  "index.html": `<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -125,7 +173,7 @@ export const useUiStore = create<UIState>((set, get) => ({
     <div id="root"></div>
   </body>
 </html>`,
-        "src/main.tsx": `import { StrictMode } from "react";
+  "src/main.tsx": `import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 
@@ -134,7 +182,7 @@ createRoot(document.getElementById("root")!).render(
     <App />
   </StrictMode>
 );`,
-        "src/App.tsx": `import { useState } from "react";
+  "src/App.tsx": `import { useState } from "react";
 
 function App() {
   const [count, setCount] = useState(0);
@@ -183,22 +231,20 @@ function App() {
 }
 
 export default App;`,
-      },
-    })),
-}));
+};
 
-export function useDataStateMapper() {
-  const { setSandpackFiles } = useUiStore();
-
-  return (data: DataUIPart<DataPart>) => {
-    switch (data.type) {
-      case "data-generating-files":
-        if (data.data.files) {
-          setSandpackFiles(data.data.files);
-        }
-        break;
-      default:
-        break;
-    }
-  };
+// Helper function to compute isLocalGame
+function computeIsLocalGame(
+  gameId: string | null,
+  sandpackFiles: Record<string, string>,
+): boolean {
+  // If we have files, it's local (including null gameId with boilerplate)
+  if (Object.keys(sandpackFiles).length > 0) return true;
+  // If no files, check if it's a remote featured game
+  const featuredGame = gameId
+    ? featuredGames.find((g) => g.gameId === gameId)
+    : null;
+  if (featuredGame?.url) return false; // Remote game
+  // Everything else is local (build IDs, featured games with files, etc.)
+  return true;
 }

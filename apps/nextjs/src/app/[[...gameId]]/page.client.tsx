@@ -13,7 +13,7 @@ import { useUiStore } from "./_components/ui-store";
 export const PageClient = () => {
   const params = useParams<{ gameId?: string[] }>();
   const trpc = useTRPC();
-  const { setSandpackFiles } = useUiStore();
+  const { setGameId } = useUiStore();
   const gameId = params.gameId?.[0];
 
   // Fetch build when gameId is present (this will use prefetched data if available)
@@ -25,17 +25,18 @@ export const PageClient = () => {
     enabled: !!gameId,
   });
 
-  // Load build files into store when build is fetched
+  // Set gameId and load build files when build is fetched
   useEffect(() => {
-    if (buildData?.build) {
-      // Convert gameBuildFiles array to sandpackFiles format
+    if (gameId && buildData?.build) {
       const files: Record<string, string> = {};
       for (const file of buildData.build.gameBuildFiles) {
         files[file.path] = file.content;
       }
-      setSandpackFiles(files);
+      setGameId(gameId, files);
+    } else if (gameId) {
+      setGameId(gameId);
     }
-  }, [buildData, setSandpackFiles]);
+  }, [buildData, gameId, setGameId]);
 
   return (
     <ChatProvider>

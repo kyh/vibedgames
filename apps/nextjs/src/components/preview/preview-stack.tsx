@@ -8,6 +8,7 @@ type PreviewCardProps = {
   index: number;
   total: number;
   showStack: boolean;
+  currentIndex: number;
   children: React.ReactNode;
 };
 
@@ -15,9 +16,10 @@ export const PreviewCard = ({
   index,
   total,
   showStack,
+  currentIndex,
   children,
 }: PreviewCardProps) => {
-  const { currentIndex, isMobile } = useUiStore();
+  const { isMobile } = useUiStore();
   const isActive = index === currentIndex;
   const isNext = index === (currentIndex + 1) % total;
   const isPrevious = index === (currentIndex - 1 + total) % total;
@@ -71,11 +73,19 @@ type Props<T> = {
   showStack: boolean;
 };
 
-export const PreviewStack = <T extends { id: string | number }>({
+export const PreviewStack = <T extends { gameId: string }>({
   data,
   render,
   showStack,
 }: Props<T>) => {
+  const { gameId } = useUiStore();
+  // Find the current index based on gameId
+  const currentIndex = gameId
+    ? data.findIndex((item) => item.gameId === gameId)
+    : 0;
+  // If gameId not found, default to 0
+  const activeIndex = currentIndex >= 0 ? currentIndex : 0;
+
   return (
     <section className="pointer-events-none relative h-full w-full perspective-[150vw]">
       <div className="grid h-full w-full place-items-center transform-3d">
@@ -83,10 +93,11 @@ export const PreviewStack = <T extends { id: string | number }>({
           {data.map((item, index) => {
             return (
               <PreviewCard
-                key={item.id}
+                key={item.gameId}
                 index={index}
                 total={data.length}
                 showStack={showStack}
+                currentIndex={activeIndex}
               >
                 {render(item)}
               </PreviewCard>

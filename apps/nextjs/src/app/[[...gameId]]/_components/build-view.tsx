@@ -53,7 +53,7 @@ export const BuildView = () => {
   const { messages, sendMessage, status } = useChat<ChatUIMessage>({ chat });
   const params = useParams<{ gameId?: string[] }>();
   const {
-    reset,
+    setGameId,
     sandpackFiles,
     refreshPreviewIframe,
     showFileExplorer,
@@ -183,14 +183,18 @@ export const BuildView = () => {
                     <RefreshCwIcon />
                     Refresh Preview
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => reset()}>
+                  <DropdownMenuItem
+                    onClick={() => {
+                      setGameId(null);
+                    }}
+                  >
                     <TrashIcon />
                     Reset
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     onClick={() => {
-                      reset();
+                      setGameId(null);
                       setInput("");
                     }}
                   >

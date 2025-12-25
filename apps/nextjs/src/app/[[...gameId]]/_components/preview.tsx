@@ -7,22 +7,20 @@ import { featuredGames } from "./data";
 import { useUiStore } from "./ui-store";
 
 export const Preview = () => {
-  const { view, setView, currentIndex, setCurrentIndex, reset } = useUiStore();
+  const { view, setView, gameId, setGameId } = useUiStore();
 
   const renderGameCard = (game: FeaturedGame) => {
-    const gameIndex = featuredGames.findIndex((g) => g.id === game.id);
-    const disabled = view === "discover" || currentIndex !== gameIndex;
+    const disabled = view === "discover" || gameId !== game.gameId;
 
     return (
       <PreviewWeb
-        key={game.id}
+        key={game.gameId}
         disabled={disabled}
         preview={game.preview}
         name={game.name}
         onPreviewClick={() => {
-          // Clear any loaded build files when selecting a game
-          reset();
-          setCurrentIndex(gameIndex);
+          // Set gameId - it will auto-load files from featured games
+          setGameId(game.gameId);
           setView("play");
         }}
       />

@@ -38,8 +38,7 @@ export const PreviewWeb = ({
   onPreviewClick,
 }: Props) => {
   const {
-    view,
-    currentIndex,
+    gameId,
     sandpackFiles,
     setPreviewIframe,
     refreshPreviewIframe,
@@ -49,22 +48,16 @@ export const PreviewWeb = ({
     setPreviewIframeError,
     showBuildMenu,
     previewIframe,
+    isLocalGame,
   } = useUiStore();
 
   const clientRef = useRef<SandpackClient | null>(null);
 
-  // Get current game from store
-  const currentGame = featuredGames[currentIndex];
+  // Get current game from gameId
+  const currentGame = gameId
+    ? featuredGames.find((g) => g.gameId === gameId)
+    : null;
   const url = currentGame?.url;
-
-  // Check if we have loaded build files (from a loaded build, not just empty)
-  const hasLoadedBuildFiles = Object.keys(sandpackFiles).length > 0;
-
-  // In build mode, always use sandpack with store files
-  // If we have loaded build files, always use sandpack (local game)
-  // Otherwise, in play/discover mode, use url if provided (remote game), otherwise use store files (local game)
-  const isBuildMode = view === "build";
-  const isLocalGame = isBuildMode || hasLoadedBuildFiles || !url;
 
   // Initialize sandpack client for local games
   useEffect(() => {
@@ -160,6 +153,7 @@ export const PreviewWeb = ({
       <AnimatePresence>
         {(!url || disabled) && preview && (
           <motion.button
+            key="preview-image"
             className="absolute inset-0 overflow-clip rounded-xl shadow-lg"
             onClick={onPreviewClick}
             initial={{ opacity: 0, filter: "blur(5px)" }}
@@ -176,7 +170,7 @@ export const PreviewWeb = ({
           </motion.button>
         )}
         {((url && !disabled) || isLocalGame) && (
-          <>
+          <motion.div key="preview-iframe" className="relative h-full w-full">
             <motion.iframe
               ref={setPreviewIframe}
               src={!isLocalGame ? url : undefined}
@@ -209,7 +203,7 @@ export const PreviewWeb = ({
                 </Button>
               </div>
             )}
-          </>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

@@ -14,14 +14,7 @@ import { WaitlistDailog } from "./waitlist-form";
 
 export const Composer = () => {
   const [waitlistOpen, setWaitlistOpen] = useState(false);
-  const {
-    view,
-    setView,
-    setCurrentIndex,
-    currentIndex,
-    setSandpackFiles,
-    initializeBoilerplate,
-  } = useUiStore();
+  const { view, setView, gameId, setGameId } = useUiStore();
 
   const session = authClient.useSession();
   const user = session.data?.user;
@@ -37,7 +30,12 @@ export const Composer = () => {
             "text-muted-foreground hover:text-foreground relative px-3 py-1.5 transition",
             view === "discover" && "text-foreground",
           )}
-          onClick={() => setView("discover")}
+          onClick={() => {
+            setView("discover");
+            if (!gameId) {
+              setGameId(featuredGames[0]?.gameId ?? null);
+            }
+          }}
         >
           Discover
           {view === "discover" && (
@@ -53,7 +51,6 @@ export const Composer = () => {
             view === "play" && "text-foreground",
           )}
           onClick={() => {
-            setCurrentIndex(currentIndex);
             setView("play");
           }}
         >
@@ -75,16 +72,18 @@ export const Composer = () => {
               setWaitlistOpen(true);
               return;
             }
-            // Check if current game is local (has files, no URL)
-            const currentGame = featuredGames[currentIndex];
-            const isLocalGame = currentGame?.files && !currentGame.url;
+            // If current game is remote, start fresh with boilerplate
+            const currentGame = gameId
+              ? featuredGames.find((g) => g.gameId === gameId)
+              : null;
+            const isRemoteGame = currentGame?.url && !currentGame.files;
 
-            if (isLocalGame) {
-              // Load local game files into store
-              setSandpackFiles(currentGame.files ?? {});
+            if (isRemoteGame) {
+              // Remote game - start fresh with boilerplate
+              setGameId(null);
             } else {
-              // Initialize boilerplate for remote games
-              initializeBoilerplate();
+              // Local game or build ID - keep gameId (files will auto-load)
+              setGameId(gameId ?? null);
             }
             setView("build");
           }}
