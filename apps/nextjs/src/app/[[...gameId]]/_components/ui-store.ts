@@ -68,13 +68,16 @@ export const useUiStore = create<UIState>((set, get) => ({
   setGameId: (id, files) => {
     const state = get();
     let newSandpackFiles: Record<string, string>;
+    let isLocalGame = false;
 
     if (id === null) {
       // Null gameId means a brand new local game - use boilerplate
       newSandpackFiles = BOILERPLATE_FILES;
+      isLocalGame = true;
     } else if (files !== undefined) {
       // Use provided files (explicit override)
       newSandpackFiles = files;
+      isLocalGame = true;
     } else {
       // If files not provided, check if it's a featured game
       const featuredGame = featuredGames.find((g) => g.gameId === id);
@@ -111,10 +114,10 @@ export const useUiStore = create<UIState>((set, get) => ({
     set({
       gameId: id,
       sandpackFiles: newSandpackFiles,
-      isLocalGame: computeIsLocalGame(id, newSandpackFiles),
+      isLocalGame,
     });
   },
-  isLocalGame: computeIsLocalGame(featuredGames[0]?.gameId ?? null, {}),
+  isLocalGame: false,
   isMobile: getInitialIsMobile(),
   // Build view state
   showFileExplorer: false,
@@ -232,19 +235,3 @@ function App() {
 
 export default App;`,
 };
-
-// Helper function to compute isLocalGame
-function computeIsLocalGame(
-  gameId: string | null,
-  sandpackFiles: Record<string, string>,
-): boolean {
-  // If we have files, it's local (including null gameId with boilerplate)
-  if (Object.keys(sandpackFiles).length > 0) return true;
-  // If no files, check if it's a remote featured game
-  const featuredGame = gameId
-    ? featuredGames.find((g) => g.gameId === gameId)
-    : null;
-  if (featuredGame?.url) return false; // Remote game
-  // Everything else is local (build IDs, featured games with files, etc.)
-  return true;
-}

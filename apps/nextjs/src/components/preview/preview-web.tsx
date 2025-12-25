@@ -12,15 +12,6 @@ import type { SandpackClient } from "@codesandbox/sandpack-client";
 import { featuredGames } from "@/app/[[...gameId]]/_components/data";
 import { useUiStore } from "@/app/[[...gameId]]/_components/ui-store";
 
-function toSandpackFiles(files: Record<string, string>) {
-  return Object.fromEntries(
-    Object.entries(files).map(([path, code]) => [
-      path.startsWith("/") ? path : `/${path}`,
-      { code },
-    ]),
-  );
-}
-
 type Props = {
   className?: string;
   showHeader?: boolean;
@@ -174,7 +165,7 @@ export const PreviewWeb = ({
             <motion.iframe
               ref={setPreviewIframe}
               src={!isLocalGame ? url : undefined}
-              className="relative h-full w-full"
+              className="h-full w-full"
               onLoad={handleIframeLoad}
               onError={handleIframeError}
               title="Game preview"
@@ -209,3 +200,12 @@ export const PreviewWeb = ({
     </div>
   );
 };
+
+function toSandpackFiles(files: Record<string, string>) {
+  return Object.fromEntries(
+    Object.entries(files).map(([path, code]) => [
+      path.startsWith("/") ? path : `/${path}`,
+      { code },
+    ]),
+  );
+}
