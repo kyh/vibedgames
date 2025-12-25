@@ -33,8 +33,6 @@ export const PageClient = () => {
         files[file.path] = file.content;
       }
       setGameId(gameId, files);
-    } else if (gameId) {
-      setGameId(gameId);
     }
   }, [buildData, gameId, setGameId]);
 

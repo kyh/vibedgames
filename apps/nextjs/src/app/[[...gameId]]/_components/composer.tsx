@@ -77,13 +77,8 @@ export const Composer = () => {
               ? featuredGames.find((g) => g.gameId === gameId)
               : null;
             const isRemoteGame = currentGame?.url && !currentGame.files;
-
             if (isRemoteGame) {
-              // Remote game - start fresh with boilerplate
               setGameId(null);
-            } else {
-              // Local game or build ID - keep gameId (files will auto-load)
-              setGameId(gameId ?? null);
             }
             setView("build");
           }}
