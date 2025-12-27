@@ -12,10 +12,6 @@ type Params = {
   writer: UIMessageStreamWriter<UIMessage<never, DataPart>>;
 };
 
-function filesToRecord(files: File[]): Record<string, string> {
-  return Object.fromEntries(files.map((file) => [file.path, file.content]));
-}
-
 export const generateFiles = ({ writer }: Params) =>
   tool({
     description,
@@ -40,7 +36,7 @@ export const generateFiles = ({ writer }: Params) =>
               id: toolCallId,
               type: "data-generating-files",
               data: {
-                files: filesToRecord(chunk.files),
+                files: chunk.files,
                 paths: uploaded.map((file) => file.path),
                 status: "uploaded",
               },
@@ -76,12 +72,11 @@ export const generateFiles = ({ writer }: Params) =>
         return richError.message;
       }
 
-      const allFiles = filesToRecord(uploaded);
       writer.write({
         id: toolCallId,
         type: "data-generating-files",
         data: {
-          files: allFiles,
+          files: uploaded,
           paths: uploaded.map((file) => file.path),
           status: "done",
         },

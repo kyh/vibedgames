@@ -19,7 +19,6 @@ export const Preview = () => {
         preview={game.preview}
         name={game.name}
         onPreviewClick={() => {
-          // Set gameId - it will auto-load files from featured games
           setGameId(game.gameId);
           setView("play");
         }}

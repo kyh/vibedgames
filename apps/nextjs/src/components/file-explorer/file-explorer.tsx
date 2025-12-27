@@ -15,6 +15,7 @@ import { cn } from "@repo/ui/utils";
 import { Atom, Braces, Code, FileIcon, FileText, Image } from "lucide-react";
 
 import type { FileNode } from "./build-file-tree";
+import type { SandpackBundlerFiles } from "@codesandbox/sandpack-client";
 import { buildFileTree } from "./build-file-tree";
 
 const ROOT_ID = ".";
@@ -23,7 +24,7 @@ const INDENT = 20;
 // Detect language from file path
 const getLanguageFromPath = (path: string): BundledLanguage => {
   const ext = path.split(".").pop()?.toLowerCase();
-  return extensionToLanguageMap[ext ?? ""] ?? ("txt" as BundledLanguage);
+  return (extensionToLanguageMap[ext ?? ""] ?? "txt") as BundledLanguage;
 };
 
 function getFileIcon(
@@ -58,7 +59,7 @@ function getFileIcon(
 type Props = {
   className?: string;
   disabled?: boolean;
-  files: Record<string, string>;
+  files: SandpackBundlerFiles;
 };
 
 export const FileExplorer = ({ className, disabled, files }: Props) => {
@@ -68,7 +69,14 @@ export const FileExplorer = ({ className, disabled, files }: Props) => {
     new Set([ROOT_ID]),
   );
 
-  const items = useMemo(() => buildFileTree(files), [files]);
+  // Convert SandpackBundlerFiles to Record<string, string> for buildFileTree
+  const filesAsRecord = useMemo(() => {
+    return Object.fromEntries(
+      Object.entries(files).map(([path, file]) => [path, file.code]),
+    );
+  }, [files]);
+
+  const items = useMemo(() => buildFileTree(filesAsRecord), [filesAsRecord]);
 
   const handleItemClick = (item: FileNode) => {
     if (item.isFolder) {
@@ -88,12 +96,11 @@ export const FileExplorer = ({ className, disabled, files }: Props) => {
 
   const selectedCode = useMemo(() => {
     if (!selectedPath) return "";
-    return (
+    const file =
       files[selectedPath] ??
       files[`/${selectedPath}`] ??
-      files[selectedPath.replace(/^\//, "")] ??
-      ""
-    );
+      files[selectedPath.replace(/^\//, "")];
+    return file?.code ?? "";
   }, [selectedPath, files]);
 
   const codeLanguage = useMemo<BundledLanguage>(

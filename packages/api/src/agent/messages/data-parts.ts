@@ -6,7 +6,14 @@ export const errorSchema = z.object({
 
 export const dataPartSchema = z.object({
   "generating-files": z.object({
-    files: z.record(z.string(), z.string()).optional(),
+    files: z
+      .array(
+        z.object({
+          path: z.string(),
+          content: z.string(),
+        }),
+      )
+      .optional(),
     paths: z.array(z.string()),
     status: z.enum(["generating", "uploading", "uploaded", "done", "error"]),
     error: errorSchema.optional(),

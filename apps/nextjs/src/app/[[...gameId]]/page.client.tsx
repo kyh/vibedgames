@@ -8,6 +8,7 @@ import { ChatProvider } from "@/components/chat/chat-context";
 import { useTRPC } from "@/trpc/react";
 import { Composer } from "./_components/composer";
 import { Preview } from "./_components/preview";
+import { toSandpack } from "./_components/sandpack";
 import { useUiStore } from "./_components/ui-store";
 
 export const PageClient = () => {
@@ -28,11 +29,7 @@ export const PageClient = () => {
   // Set gameId and load build files when build is fetched
   useEffect(() => {
     if (gameId && buildData?.build) {
-      const files: Record<string, string> = {};
-      for (const file of buildData.build.gameBuildFiles) {
-        files[file.path] = file.content;
-      }
-      setGameId(gameId, files);
+      setGameId(gameId, toSandpack(buildData.build.gameBuildFiles));
     }
   }, [buildData, gameId, setGameId]);
 

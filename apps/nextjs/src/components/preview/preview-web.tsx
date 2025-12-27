@@ -1,14 +1,11 @@
 "use client";
 
-import { useEffect, useRef } from "react";
 import Image from "next/image";
-import { loadSandpackClient } from "@codesandbox/sandpack-client";
 import { Button } from "@repo/ui/button";
 import { Spinner } from "@repo/ui/spinner";
 import { cn } from "@repo/ui/utils";
 import { AnimatePresence, motion } from "motion/react";
 
-import type { SandpackClient } from "@codesandbox/sandpack-client";
 import { featuredGames } from "@/app/[[...gameId]]/_components/data";
 import { useUiStore } from "@/app/[[...gameId]]/_components/ui-store";
 
@@ -30,7 +27,6 @@ export const PreviewWeb = ({
 }: Props) => {
   const {
     gameId,
-    sandpackFiles,
     setPreviewIframe,
     refreshPreviewIframe,
     isPreviewIframeLoading,
@@ -38,90 +34,14 @@ export const PreviewWeb = ({
     previewIframeError,
     setPreviewIframeError,
     showBuildMenu,
-    previewIframe,
     isLocalGame,
   } = useUiStore();
-
-  const clientRef = useRef<SandpackClient | null>(null);
 
   // Get current game from gameId
   const currentGame = gameId
     ? featuredGames.find((g) => g.gameId === gameId)
     : null;
   const url = currentGame?.url;
-
-  // Initialize sandpack client for local games
-  useEffect(() => {
-    if (!isLocalGame) return;
-    if (!previewIframe) return;
-
-    // Clean up previous client if it exists
-    if (clientRef.current) {
-      clientRef.current.destroy();
-      clientRef.current = null;
-    }
-
-    const initClient = async () => {
-      try {
-        const client = await loadSandpackClient(
-          previewIframe,
-          {
-            files: toSandpackFiles(sandpackFiles),
-            template: "create-react-app-typescript",
-          },
-          {
-            showOpenInCodeSandbox: false,
-          },
-        );
-
-        clientRef.current = client;
-
-        client.listen((message) => {
-          console.log("message", message);
-          if (message.type === "done") {
-            setIsPreviewIframeLoading(false);
-            // Check if there was a compilation error
-            if (message.compilatonError) {
-              setPreviewIframeError("Compilation error occurred");
-            } else {
-              setPreviewIframeError(null);
-            }
-          } else if (
-            message.type === "action" &&
-            message.action === "show-error"
-          ) {
-            // Handle sandpack error message
-            setIsPreviewIframeLoading(false);
-            setPreviewIframeError(message.message || message.title);
-          } else if (
-            message.type === "action" &&
-            message.action === "notification" &&
-            message.notificationType === "error"
-          ) {
-            // Handle error notification
-            setIsPreviewIframeLoading(false);
-            setPreviewIframeError(message.title);
-          }
-        });
-      } catch (error) {
-        console.error("Failed to load Sandpack client:", error);
-      }
-    };
-
-    void initClient();
-  }, [
-    isLocalGame,
-    previewIframe,
-    sandpackFiles,
-    setIsPreviewIframeLoading,
-    setPreviewIframeError,
-  ]);
-
-  useEffect(() => {
-    return () => {
-      clientRef.current?.destroy();
-    };
-  }, []);
 
   const handleIframeLoad = () => {
     setIsPreviewIframeLoading(false);
@@ -200,12 +120,3 @@ export const PreviewWeb = ({
     </div>
   );
 };
-
-function toSandpackFiles(files: Record<string, string>) {
-  return Object.fromEntries(
-    Object.entries(files).map(([path, code]) => [
-      path.startsWith("/") ? path : `/${path}`,
-      { code },
-    ]),
-  );
-}

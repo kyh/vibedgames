@@ -44,6 +44,7 @@ import { FileExplorer } from "@/components/file-explorer/file-explorer";
 import { MyGames } from "@/components/my-games/my-games";
 import { DraggablePanel } from "@/components/ui/draggable-panel";
 import { useTRPC } from "@/trpc/react";
+import { toBuildFiles } from "./sandpack";
 import { useUiStore } from "./ui-store";
 
 export const BuildView = () => {
@@ -76,12 +77,7 @@ export const BuildView = () => {
 
       if (isNewGame) {
         // Create a new game first
-        const filesArray = Object.entries(sandpackFiles).map(
-          ([path, content]) => ({
-            path,
-            content,
-          }),
-        );
+        const filesArray = toBuildFiles(sandpackFiles);
 
         try {
           const result = await createBuild.mutateAsync({
@@ -182,14 +178,6 @@ export const BuildView = () => {
                   <DropdownMenuItem onClick={() => refreshPreviewIframe()}>
                     <RefreshCwIcon />
                     Refresh Preview
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => {
-                      setGameId(null);
-                    }}
-                  >
-                    <TrashIcon />
-                    Reset
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
