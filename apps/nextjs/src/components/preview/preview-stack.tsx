@@ -19,7 +19,6 @@ export const PreviewCard = ({
   currentIndex,
   children,
 }: PreviewCardProps) => {
-  const { isMobile } = useUiStore();
   const isActive = index === currentIndex;
   const isNext = index === (currentIndex + 1) % total;
   const isPrevious = index === (currentIndex - 1 + total) % total;
@@ -27,7 +26,7 @@ export const PreviewCard = ({
   const getAnimateVariants = () => {
     const cardsBehind = (index - currentIndex + total) % total;
 
-    if (isMobile) {
+    if (isMobile()) {
       if (isActive) return { z: showStack ? "-20vw" : "0vw", y: 0 };
       if (isNext) return { z: showStack ? "-30vw" : "-10vw", y: "-5vh" };
       if (isPrevious) return { z: showStack ? "-20vw" : "0vw", y: "150vh" };
@@ -78,13 +77,7 @@ export const PreviewStack = <T extends { gameId: string }>({
   render,
   showStack,
 }: Props<T>) => {
-  const { gameId } = useUiStore();
-  // Find the current index based on gameId
-  const currentIndex = gameId
-    ? data.findIndex((item) => item.gameId === gameId)
-    : 0;
-  // If gameId not found, default to 0
-  const activeIndex = currentIndex >= 0 ? currentIndex : 0;
+  const { hoverGameIndex } = useUiStore();
 
   return (
     <section className="pointer-events-none relative h-full w-full perspective-[150vw]">
@@ -97,7 +90,7 @@ export const PreviewStack = <T extends { gameId: string }>({
                 index={index}
                 total={data.length}
                 showStack={showStack}
-                currentIndex={activeIndex}
+                currentIndex={hoverGameIndex ?? 0}
               >
                 {render(item)}
               </PreviewCard>
@@ -107,4 +100,9 @@ export const PreviewStack = <T extends { gameId: string }>({
       </div>
     </section>
   );
+};
+
+const isMobile = () => {
+  if (typeof window === "undefined") return false;
+  return window.innerWidth <= 640;
 };

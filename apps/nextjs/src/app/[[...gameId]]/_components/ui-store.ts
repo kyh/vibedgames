@@ -28,28 +28,24 @@ type UIState = {
   setIsPreviewIframeLoading: (loading: boolean) => void;
   previewIframeError: string | null;
   setPreviewIframeError: (error: string | null) => void;
-  // Preview stack state
-  gameId: string | null;
-  setGameId: (id: string | null, files?: SandpackBundlerFiles) => void;
-  isLocalGame: boolean;
-  isMobile: boolean;
-  // Build view state
+  // View == discover state
+  hoverGameIndex: number | null;
+  setHoverGameIndex: (index: number) => void;
+  // View == build states
   showFileExplorer: boolean;
   setShowFileExplorer: (show: boolean) => void;
   showBuildMenu: boolean;
   setShowBuildMenu: (show: boolean) => void;
   showMyGames: boolean;
   setShowMyGames: (show: boolean) => void;
+  // View == play/build states
+  gameId: string | null;
+  setGameId: (id: string | null, files?: SandpackBundlerFiles) => void;
+  isLocalGame: boolean;
   // Sandpack state
   sandpackFiles: SandpackBundlerFiles;
   updateSandpackFiles: (files: SandpackBundlerFiles) => void;
   sandpackClient: SandpackClient | null;
-};
-
-// Helper function to check if mobile on initialization
-const getInitialIsMobile = () => {
-  if (typeof window === "undefined") return false;
-  return window.innerWidth <= 640;
 };
 
 export const useUiStore = create<UIState>((set, get) => ({
@@ -73,12 +69,22 @@ export const useUiStore = create<UIState>((set, get) => ({
     set({ isPreviewIframeLoading: loading }),
   previewIframeError: null,
   setPreviewIframeError: (error) => set({ previewIframeError: error }),
-  // Preview stack state
+  // View == discover state
+  hoverGameIndex: null,
+  setHoverGameIndex: (index) => set({ hoverGameIndex: index }),
+  // View == build states
+  showFileExplorer: false,
+  setShowFileExplorer: (show) => set({ showFileExplorer: show }),
+  showBuildMenu: false,
+  setShowBuildMenu: (show) => set({ showBuildMenu: show }),
+  showMyGames: false,
+  setShowMyGames: (show) => set({ showMyGames: show }),
+  // View == play/build states
   gameId: featuredGames[0]?.gameId ?? null,
   setGameId: (id, files) => {
     const isLocalGame = id === null || files !== undefined;
     let sandpackFiles: SandpackBundlerFiles;
-
+    console.log("setGameId", id, files, isLocalGame);
     const sandpackClient = get().sandpackClient;
     if (sandpackClient) {
       sandpackClient.destroy();
@@ -86,6 +92,7 @@ export const useUiStore = create<UIState>((set, get) => ({
     }
 
     if (isLocalGame) {
+      const iframe = get().previewIframe;
       if (files !== undefined) {
         sandpackFiles = files;
       } else {
@@ -93,7 +100,7 @@ export const useUiStore = create<UIState>((set, get) => ({
       }
 
       void initSandpackClient({
-        iframe: get().previewIframe,
+        iframe,
         files: sandpackFiles,
         onClientReady: (client) => {
           set({ sandpackClient: client });
@@ -129,14 +136,6 @@ export const useUiStore = create<UIState>((set, get) => ({
     });
   },
   isLocalGame: false,
-  isMobile: getInitialIsMobile(),
-  // Build view state
-  showFileExplorer: false,
-  setShowFileExplorer: (show) => set({ showFileExplorer: show }),
-  showBuildMenu: false,
-  setShowBuildMenu: (show) => set({ showBuildMenu: show }),
-  showMyGames: false,
-  setShowMyGames: (show) => set({ showMyGames: show }),
   // Sandpack state
   sandpackClient: null,
   sandpackFiles: {},

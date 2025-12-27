@@ -7,7 +7,7 @@ import { featuredGames } from "./data";
 import { useUiStore } from "./ui-store";
 
 export const DiscoverView = () => {
-  const { setView, setGameId, isMobile } = useUiStore();
+  const { setView, setGameId, setHoverGameIndex } = useUiStore();
 
   return (
     <motion.div
@@ -16,19 +16,13 @@ export const DiscoverView = () => {
       initial={{ opacity: 0, filter: "blur(5px)" }}
       animate={{ opacity: 1, filter: "blur(0px)", transition: { delay: 0.05 } }}
     >
-      {featuredGames.map((game) => (
+      {featuredGames.map((game, index) => (
         <button
           key={game.gameId}
           onMouseEnter={() => {
-            setView("discover");
-            setGameId(game.gameId);
+            setHoverGameIndex(index);
           }}
           onClick={() => {
-            if (isMobile) {
-              setGameId(game.gameId);
-              return;
-            }
-            // Set the gameId - it will auto-load files from featured games
             setGameId(game.gameId);
             setView("play");
           }}
