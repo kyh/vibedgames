@@ -9,11 +9,7 @@ import type {
 } from "@codesandbox/sandpack-client";
 import type { DataPart } from "@repo/api/agent/messages/data-parts";
 import { featuredGames } from "./data";
-import {
-  getDefaultFiles,
-  initializeSandpackClient as initSandpackClient,
-  toSandpack,
-} from "./sandpack";
+import { initializeSandpackClient, toSandpack } from "./sandpack";
 
 type View = "build" | "play" | "discover";
 
@@ -21,16 +17,16 @@ type UIState = {
   // General view state
   view: View;
   setView: (view: View) => void;
-  previewIframe: HTMLIFrameElement | null;
-  setPreviewIframe: (iframe: HTMLIFrameElement | null) => void;
-  refreshPreviewIframe: () => void;
-  isPreviewIframeLoading: boolean;
-  setIsPreviewIframeLoading: (loading: boolean) => void;
-  previewIframeError: string | null;
-  setPreviewIframeError: (error: string | null) => void;
+  iframe: HTMLIFrameElement | null;
+  setIframe: (iframe: HTMLIFrameElement | null) => void;
+  refreshIframe: () => void;
+  iframeLoading: boolean;
+  setIframeLoading: (loading: boolean) => void;
+  iframeError: string | null;
+  setIframeError: (error: string | null) => void;
   // View == discover state
-  hoverGameIndex: number | null;
-  setHoverGameIndex: (index: number) => void;
+  discoverGameIndex: number;
+  setDiscoverGameIndex: (index: number) => void;
   // View == build states
   showFileExplorer: boolean;
   setShowFileExplorer: (show: boolean) => void;
@@ -39,39 +35,38 @@ type UIState = {
   showMyGames: boolean;
   setShowMyGames: (show: boolean) => void;
   // View == play/build states
-  gameId: string | null;
-  setGameId: (id: string | null, files?: SandpackBundlerFiles) => void;
+  gameId: string; // Game ID is a string for local games, and a url for remote games
+  setGameId: (id: string, files?: SandpackBundlerFiles) => void;
   isLocalGame: boolean;
   // Sandpack state
+  sandpackClient: SandpackClient | null;
   sandpackFiles: SandpackBundlerFiles;
   updateSandpackFiles: (files: SandpackBundlerFiles) => void;
-  sandpackClient: SandpackClient | null;
 };
 
 export const useUiStore = create<UIState>((set, get) => ({
   view: "play",
   setView: (view) => set({ view }),
-  previewIframe: null,
-  setPreviewIframe: (iframe) => set({ previewIframe: iframe }),
-  refreshPreviewIframe: () => {
-    const previewIframe = get().previewIframe;
-    if (!previewIframe) return;
+  iframe: null,
+  setIframe: (iframe) => set({ iframe: iframe }),
+  refreshIframe: () => {
+    const iframe = get().iframe;
+    if (!iframe) return;
 
     // Set loading state and clear any errors
-    set({ isPreviewIframeLoading: true, previewIframeError: null });
+    set({ iframeLoading: true, iframeError: null });
 
-    const newUrl = new URL(previewIframe.src);
+    const newUrl = new URL(iframe.src);
     newUrl.searchParams.set("t", Date.now().toString());
-    previewIframe.src = newUrl.toString();
+    iframe.src = newUrl.toString();
   },
-  isPreviewIframeLoading: false,
-  setIsPreviewIframeLoading: (loading) =>
-    set({ isPreviewIframeLoading: loading }),
-  previewIframeError: null,
-  setPreviewIframeError: (error) => set({ previewIframeError: error }),
+  iframeLoading: false,
+  setIframeLoading: (loading) => set({ iframeLoading: loading }),
+  iframeError: null,
+  setIframeError: (error) => set({ iframeError: error }),
   // View == discover state
-  hoverGameIndex: null,
-  setHoverGameIndex: (index) => set({ hoverGameIndex: index }),
+  discoverGameIndex: 0,
+  setDiscoverGameIndex: (index) => set({ discoverGameIndex: index }),
   // View == build states
   showFileExplorer: false,
   setShowFileExplorer: (show) => set({ showFileExplorer: show }),
@@ -80,44 +75,13 @@ export const useUiStore = create<UIState>((set, get) => ({
   showMyGames: false,
   setShowMyGames: (show) => set({ showMyGames: show }),
   // View == play/build states
-  gameId: featuredGames[0]?.gameId ?? null,
+  gameId: featuredGames[0]?.url ?? "",
   setGameId: (id, files) => {
-    const isLocalGame = id === null || files !== undefined;
-    let sandpackFiles: SandpackBundlerFiles;
-    console.log("setGameId", id, files, isLocalGame);
-    const sandpackClient = get().sandpackClient;
-    if (sandpackClient) {
-      sandpackClient.destroy();
-      set({ sandpackClient: null });
-    }
-
-    if (isLocalGame) {
-      const iframe = get().previewIframe;
-      if (files !== undefined) {
-        sandpackFiles = files;
-      } else {
-        sandpackFiles = getDefaultFiles();
-      }
-
-      void initSandpackClient({
-        iframe,
-        files: sandpackFiles,
-        onClientReady: (client) => {
-          set({ sandpackClient: client });
-        },
-        onLoadingChange: (loading) => {
-          get().setIsPreviewIframeLoading(loading);
-        },
-        onError: (error) => {
-          get().setPreviewIframeError(error);
-        },
-      });
-    } else {
-      sandpackFiles = {};
-    }
+    const { sandpackClient, iframe, setIframeLoading, setIframeError } = get();
+    const isLocalGame = !!files;
 
     // Clear URL params when resetting
-    if (id === null && typeof window !== "undefined") {
+    if (typeof window !== "undefined") {
       window.history.replaceState(
         {
           ...window.history.state,
@@ -131,22 +95,47 @@ export const useUiStore = create<UIState>((set, get) => ({
 
     set({
       gameId: id,
-      sandpackFiles,
       isLocalGame,
     });
+
+    // If local game, reinitialize sandpack
+    if (isLocalGame) {
+      if (sandpackClient) {
+        sandpackClient.destroy();
+        set({ sandpackClient: null });
+      }
+
+      void initializeSandpackClient({
+        iframe,
+        files,
+        onClientReady: (client) => {
+          set({ sandpackClient: client });
+        },
+        onLoadingChange: (loading) => {
+          setIframeLoading(loading);
+        },
+        onError: (error) => {
+          setIframeError(error);
+        },
+      });
+    }
   },
+  gameUrl: null,
   isLocalGame: false,
   // Sandpack state
   sandpackClient: null,
   sandpackFiles: {},
-  updateSandpackFiles: (files) =>
-    set((state) => {
-      const newFiles = { ...state.sandpackFiles, ...files };
+  updateSandpackFiles: (files) => {
+    const { sandpackFiles, sandpackClient } = get();
+    const newFiles = { ...sandpackFiles, ...files };
+    set({ sandpackFiles: newFiles });
 
-      return {
-        sandpackFiles: newFiles,
-      };
-    }),
+    if (sandpackClient) {
+      sandpackClient.updateSandbox({
+        files: newFiles,
+      });
+    }
+  },
 }));
 
 export function useDataStateMapper() {

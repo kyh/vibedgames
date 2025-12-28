@@ -49,7 +49,6 @@ export const Camera = memo(function Camera({ onJump }: CameraProps) {
   const setAppState = (newState: AppState) => {
     setCurrentState(newState); // Update UI state
     stateRef.current = newState; // Update ref for animation frames
-    console.log("State changed to:", newState);
   };
 
   // Start calibration
@@ -189,11 +188,7 @@ export const Camera = memo(function Camera({ onJump }: CameraProps) {
     // Start detection loop - uses the detector from the ref
     const startDetection = () => {
       const detectFrame = async () => {
-        if (
-          !videoRef.current ||
-          videoRef.current.readyState !== 4 ||
-          !detectorRef.current
-        ) {
+        if (videoRef.current?.readyState !== 4 || !detectorRef.current) {
           rafIdRef.current = requestAnimationFrame(detectFrame);
           return;
         }

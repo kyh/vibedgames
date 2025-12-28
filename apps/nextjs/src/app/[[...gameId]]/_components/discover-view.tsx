@@ -7,7 +7,7 @@ import { featuredGames } from "./data";
 import { useUiStore } from "./ui-store";
 
 export const DiscoverView = () => {
-  const { setView, setGameId, setHoverGameIndex } = useUiStore();
+  const { setView, setGameId, setDiscoverGameIndex } = useUiStore();
 
   return (
     <motion.div
@@ -18,12 +18,13 @@ export const DiscoverView = () => {
     >
       {featuredGames.map((game, index) => (
         <button
-          key={game.gameId}
+          key={game.url}
           onMouseEnter={() => {
-            setHoverGameIndex(index);
+            setDiscoverGameIndex(index);
+            setView("discover");
           }}
           onClick={() => {
-            setGameId(game.gameId);
+            setGameId(game.url);
             setView("play");
           }}
           className="hover:border-foreground relative aspect-video w-30 shrink-0 overflow-clip rounded-lg border border-transparent transition-colors"

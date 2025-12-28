@@ -263,7 +263,6 @@ export async function initializeSandpackClient({
     );
 
     client.listen((message) => {
-      console.log("message", message);
       if (message.type === "done") {
         onLoadingChange(false);
         // Check if there was a compilation error

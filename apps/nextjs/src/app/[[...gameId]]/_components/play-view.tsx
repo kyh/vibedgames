@@ -13,11 +13,10 @@ import { motion } from "motion/react";
 import { useUiStore } from "./ui-store";
 
 export const PlayView = () => {
-  const { refreshPreviewIframe, isPreviewIframeLoading, previewIframe } =
-    useUiStore();
+  const { refreshIframe, iframeLoading, iframe } = useUiStore();
 
   // Get URL directly from the iframe DOM node
-  const displayUrl = previewIframe?.src ?? undefined;
+  const displayUrl = iframe?.src ?? undefined;
 
   return (
     <div className="relative pb-4">
@@ -56,13 +55,11 @@ export const PlayView = () => {
           )}
           <InputGroupAddon align="inline-end">
             <InputGroupButton
-              onClick={refreshPreviewIframe}
+              onClick={refreshIframe}
               type="button"
               size="icon-xs"
             >
-              <RefreshCwIcon
-                className={cn(isPreviewIframeLoading && "animate-spin")}
-              />
+              <RefreshCwIcon className={cn(iframeLoading && "animate-spin")} />
             </InputGroupButton>
           </InputGroupAddon>
         </motion.div>

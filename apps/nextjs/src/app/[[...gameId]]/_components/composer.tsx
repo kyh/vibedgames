@@ -2,19 +2,20 @@
 
 import { useState } from "react";
 import { cn } from "@repo/ui/utils";
+import { generateId } from "ai";
 import { motion } from "motion/react";
 
 import { authClient } from "@/lib/auth-client";
 import { BuildView } from "./build-view";
-import { featuredGames } from "./data";
 import { DiscoverView } from "./discover-view";
 import { PlayView } from "./play-view";
+import { getDefaultFiles } from "./sandpack";
 import { useUiStore } from "./ui-store";
 import { WaitlistDailog } from "./waitlist-form";
 
 export const Composer = () => {
   const [waitlistOpen, setWaitlistOpen] = useState(false);
-  const { view, setView, gameId, setGameId } = useUiStore();
+  const { view, setView, setGameId, isLocalGame } = useUiStore();
 
   const session = authClient.useSession();
   const user = session.data?.user;
@@ -32,9 +33,6 @@ export const Composer = () => {
           )}
           onClick={() => {
             setView("discover");
-            if (!gameId) {
-              setGameId(featuredGames[0]?.gameId ?? null);
-            }
           }}
         >
           Discover
@@ -73,12 +71,8 @@ export const Composer = () => {
               return;
             }
             // If current game is remote, start fresh with boilerplate
-            const currentGame = gameId
-              ? featuredGames.find((g) => g.gameId === gameId)
-              : null;
-            const isRemoteGame = currentGame?.url && !currentGame.files;
-            if (isRemoteGame) {
-              setGameId(null);
+            if (!isLocalGame) {
+              setGameId(generateId(), getDefaultFiles());
             }
             setView("build");
           }}

@@ -23,6 +23,7 @@ import {
 } from "@repo/ui/input-group";
 import { Mention, MentionsInput } from "@repo/ui/mentions-input";
 import { useMutation } from "@tanstack/react-query";
+import { generateId } from "ai";
 import {
   CheckIcon,
   FileIcon,
@@ -44,7 +45,7 @@ import { FileExplorer } from "@/components/file-explorer/file-explorer";
 import { MyGames } from "@/components/my-games/my-games";
 import { DraggablePanel } from "@/components/ui/draggable-panel";
 import { useTRPC } from "@/trpc/react";
-import { toBuildFiles } from "./sandpack";
+import { getDefaultFiles, toBuildFiles } from "./sandpack";
 import { useUiStore } from "./ui-store";
 
 export const BuildView = () => {
@@ -56,7 +57,7 @@ export const BuildView = () => {
   const {
     setGameId,
     sandpackFiles,
-    refreshPreviewIframe,
+    refreshIframe,
     showFileExplorer,
     setShowFileExplorer,
     showBuildMenu,
@@ -175,14 +176,14 @@ export const BuildView = () => {
                     )}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => refreshPreviewIframe()}>
+                  <DropdownMenuItem onClick={() => refreshIframe()}>
                     <RefreshCwIcon />
                     Refresh Preview
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     onClick={() => {
-                      setGameId(null);
+                      setGameId(generateId(), getDefaultFiles());
                       setInput("");
                     }}
                   >
