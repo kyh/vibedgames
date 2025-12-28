@@ -145,7 +145,7 @@ export const GameCard = ({
   );
 };
 
-type Props<T extends { preview: string; name: string }> = {
+type Props<T extends { preview: string; name: string; url?: string }> = {
   data: T[];
   showStack: boolean;
   // Note: Next.js may warn about Server Actions, but this is a client component callback
@@ -171,13 +171,18 @@ const useIsMobile = () => {
   return isMobile;
 };
 
-export const GameStack = <T extends { preview: string; name: string }>({
+export const GameStack = <
+  T extends { preview: string; name: string; url?: string },
+>({
   data,
   showStack,
   onPreviewClick,
 }: Props<T>) => {
-  const { discoverGameIndex } = useUiStore();
+  const { gameId } = useUiStore();
   const isMobile = useIsMobile();
+
+  // Find the index of the current gameId in the data array
+  const currentIndex = data.findIndex((item) => item.url === gameId);
 
   return (
     <section className="pointer-events-none relative h-full w-full perspective-[150vw]">
@@ -189,7 +194,7 @@ export const GameStack = <T extends { preview: string; name: string }>({
               index={index}
               total={data.length}
               showStack={showStack}
-              currentIndex={discoverGameIndex}
+              currentIndex={currentIndex >= 0 ? currentIndex : 0}
               isMobile={isMobile}
             >
               <motion.button

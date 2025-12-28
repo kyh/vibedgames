@@ -24,9 +24,6 @@ type UIState = {
   setIframeLoading: (loading: boolean) => void;
   iframeError: string | null;
   setIframeError: (error: string | null) => void;
-  // View == discover state
-  discoverGameIndex: number;
-  setDiscoverGameIndex: (index: number) => void;
   // View == build states
   showFileExplorer: boolean;
   setShowFileExplorer: (show: boolean) => void;
@@ -64,9 +61,6 @@ export const useUiStore = create<UIState>((set, get) => ({
   setIframeLoading: (loading) => set({ iframeLoading: loading }),
   iframeError: null,
   setIframeError: (error) => set({ iframeError: error }),
-  // View == discover state
-  discoverGameIndex: 0,
-  setDiscoverGameIndex: (index) => set({ discoverGameIndex: index }),
   // View == build states
   showFileExplorer: false,
   setShowFileExplorer: (show) => set({ showFileExplorer: show }),
