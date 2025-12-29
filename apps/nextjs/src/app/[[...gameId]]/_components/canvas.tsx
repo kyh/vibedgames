@@ -14,7 +14,7 @@ export const Canvas = () => {
   return (
     <div className="relative h-full w-full">
       <motion.div
-        className="absolute inset-0 z-1"
+        className="absolute z-1 h-full w-full"
         variants={{
           hidden: { opacity: 0, filter: "blur(5px)" },
           visible: { opacity: 1, filter: "blur(0px)" },

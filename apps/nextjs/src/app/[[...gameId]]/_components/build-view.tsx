@@ -34,7 +34,7 @@ import {
   RefreshCwIcon,
   SendIcon,
   SettingsIcon,
-  TrashIcon,
+  TerminalIcon,
 } from "lucide-react";
 import { motion } from "motion/react";
 
@@ -60,10 +60,11 @@ export const BuildView = () => {
     refreshIframe,
     showFileExplorer,
     setShowFileExplorer,
-    showBuildMenu,
-    setShowBuildMenu,
     showMyGames,
     setShowMyGames,
+    showLogs,
+    setShowLogs,
+    logs,
   } = useUiStore();
 
   const createBuild = useMutation(trpc.game.createBuild.mutationOptions());
@@ -143,27 +144,13 @@ export const BuildView = () => {
             }}
           >
             <InputGroupAddon>
-              <DropdownMenu
-                open={showBuildMenu}
-                onOpenChange={setShowBuildMenu}
-              >
+              <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <InputGroupButton type="button" size="icon-xs">
                     <MenuIcon />
                   </InputGroupButton>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-56">
-                  <DropdownMenuItem
-                    onClick={() => setShowFileExplorer(!showFileExplorer)}
-                  >
-                    <FileIcon />
-                    File Explorer
-                    {showFileExplorer && (
-                      <span className="ml-auto text-xs">
-                        <CheckIcon />
-                      </span>
-                    )}
-                  </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={() => setShowMyGames(!showMyGames)}
                   >
@@ -175,12 +162,6 @@ export const BuildView = () => {
                       </span>
                     )}
                   </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => refreshIframe()}>
-                    <RefreshCwIcon />
-                    Refresh Preview
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
                   <DropdownMenuItem
                     onClick={() => {
                       setGameId(generateId(), getDefaultFiles());
@@ -189,6 +170,31 @@ export const BuildView = () => {
                   >
                     <PlusIcon />
                     Create New Game
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => setShowFileExplorer(!showFileExplorer)}
+                  >
+                    <FileIcon />
+                    File Explorer
+                    {showFileExplorer && (
+                      <span className="ml-auto text-xs">
+                        <CheckIcon />
+                      </span>
+                    )}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setShowLogs(!showLogs)}>
+                    <TerminalIcon />
+                    Logs
+                    {showLogs && (
+                      <span className="ml-auto text-xs">
+                        <CheckIcon />
+                      </span>
+                    )}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => refreshIframe()}>
+                    <RefreshCwIcon />
+                    Refresh Preview
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem>
@@ -253,6 +259,26 @@ export const BuildView = () => {
         initialSize={{ width: 320, height: 400 }}
       >
         <MyGames />
+      </DraggablePanel>
+      <DraggablePanel
+        title="Logs"
+        icon={<TerminalIcon className="size-4" />}
+        isOpen={showLogs}
+        onClose={() => setShowLogs(false)}
+        initialPosition={{ x: 1080, y: 20 }}
+        initialSize={{ width: 400, height: 300 }}
+      >
+        <div className="space-y-1 p-3 font-mono text-xs">
+          {logs.length === 0 ? (
+            <div className="text-muted-foreground">No logs yet</div>
+          ) : (
+            logs.map((log, index) => (
+              <div key={index} className="text-foreground/80">
+                {log}
+              </div>
+            ))
+          )}
+        </div>
       </DraggablePanel>
     </>
   );

@@ -8,45 +8,7 @@ import type {
 } from "@codesandbox/sandpack-client";
 
 export const defaultPreviewStyles = `
-@custom-variant dark (&:is(.dark *));
- 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-}
- 
-.dark {
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.145 0 0);
@@ -124,9 +86,6 @@ export const defaultPreviewStyles = `
   * {
     @apply border-border outline-ring/50;
   }
-  body {
-    @apply bg-background text-foreground;
-  }
   html, body, #root {
     height: 100%;
   }
@@ -175,7 +134,14 @@ const defaultIndexHtml = `<!DOCTYPE html>
 const defaultAppTsx = `import { useState } from "react";
 
 function App() {
-  return <div>Hello World</div>;
+  return (
+    <div className="text-sm grid place-items-center h-full w-full">
+      <div className="flex flex-col gap-2 text-center">
+        <p className="text-foreground">Build your game with the chat</p>
+        <p className="text-muted-foreground">Use "+" command to add specific features</p>
+      </div>
+    </div>
+  );
 }
 
 export default App;
@@ -226,6 +192,7 @@ type InitializeSandpackClientOptions = {
   onClientReady: (client: SandpackClient) => void;
   onLoadingChange: (loading: boolean) => void;
   onError: (error: string | null) => void;
+  onLog?: (log: string) => void;
 };
 
 /**
@@ -237,6 +204,7 @@ export async function initializeSandpackClient({
   onClientReady,
   onLoadingChange,
   onError,
+  onLog,
 }: InitializeSandpackClientOptions): Promise<SandpackClient | null> {
   if (!iframe) return null;
 
@@ -261,6 +229,45 @@ export async function initializeSandpackClient({
     );
 
     client.listen((message) => {
+      // Log all messages from sandpack (except state messages which are too verbose)
+      if (onLog && message.type !== "state") {
+        try {
+          if (message.type === "console") {
+            // Handle console logs
+            const consoleMessage = message as {
+              type: "console";
+              log: { method: string; id: string; data: string[] }[];
+            };
+            if (Array.isArray(consoleMessage.log)) {
+              consoleMessage.log.forEach((logEntry) => {
+                const logMethod = logEntry.method || "log";
+                const logData = logEntry.data
+                  .map((item) => {
+                    try {
+                      return typeof item === "string"
+                        ? item
+                        : JSON.stringify(item);
+                    } catch {
+                      return String(item);
+                    }
+                  })
+                  .join(" ");
+                if (logData) {
+                  onLog(`[console.${logMethod}] ${logData}`);
+                }
+              });
+            }
+          } else {
+            // Log all other message types
+            const messageStr = JSON.stringify(message, null, 2);
+            onLog(`[${message.type}] ${messageStr}`);
+          }
+        } catch {
+          // If logging fails, try to log at least the message type
+          onLog(`[${message.type}] (failed to serialize message)`);
+        }
+      }
+
       if (message.type === "done") {
         onLoadingChange(false);
         // Check if there was a compilation error
@@ -276,6 +283,7 @@ export async function initializeSandpackClient({
       } else if (
         message.type === "action" &&
         message.action === "notification" &&
+        "notificationType" in message &&
         message.notificationType === "error"
       ) {
         // Handle error notification

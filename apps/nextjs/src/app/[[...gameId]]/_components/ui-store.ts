@@ -27,10 +27,12 @@ type UIState = {
   // View == build states
   showFileExplorer: boolean;
   setShowFileExplorer: (show: boolean) => void;
-  showBuildMenu: boolean;
-  setShowBuildMenu: (show: boolean) => void;
   showMyGames: boolean;
   setShowMyGames: (show: boolean) => void;
+  showLogs: boolean;
+  setShowLogs: (show: boolean) => void;
+  logs: string[];
+  appendLog: (log: string) => void;
   // View == play/build states
   gameId: string; // Game ID is a string for local games, and a url for remote games
   setGameId: (id: string, files?: SandpackBundlerFiles) => void;
@@ -64,10 +66,12 @@ export const useUiStore = create<UIState>((set, get) => ({
   // View == build states
   showFileExplorer: false,
   setShowFileExplorer: (show) => set({ showFileExplorer: show }),
-  showBuildMenu: false,
-  setShowBuildMenu: (show) => set({ showBuildMenu: show }),
   showMyGames: false,
   setShowMyGames: (show) => set({ showMyGames: show }),
+  showLogs: false,
+  setShowLogs: (show) => set({ showLogs: show }),
+  logs: [],
+  appendLog: (log) => set((state) => ({ logs: [...state.logs, log] })),
   // View == play/build states
   gameId: featuredGames[0]?.url ?? "",
   setGameId: (id, files) => {
@@ -79,7 +83,7 @@ export const useUiStore = create<UIState>((set, get) => ({
       set({ sandpackClient: null });
     }
 
-    set({ gameId: id, isLocalGame });
+    set({ gameId: id, sandpackFiles: isLocalGame ? files : {}, isLocalGame });
 
     // If local game, reinitialize sandpack
     if (isLocalGame) {
@@ -94,6 +98,9 @@ export const useUiStore = create<UIState>((set, get) => ({
         },
         onError: (error) => {
           setIframeError(error);
+        },
+        onLog: (log) => {
+          get().appendLog(log);
         },
       });
     }
