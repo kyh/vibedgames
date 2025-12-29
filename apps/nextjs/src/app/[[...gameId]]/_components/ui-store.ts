@@ -74,31 +74,15 @@ export const useUiStore = create<UIState>((set, get) => ({
     const { sandpackClient, iframe, setIframeLoading, setIframeError } = get();
     const isLocalGame = !!files;
 
-    // Clear URL params when resetting
-    if (typeof window !== "undefined") {
-      window.history.replaceState(
-        {
-          ...window.history.state,
-          as: "/",
-          url: "/",
-        },
-        "",
-        "/",
-      );
+    if (sandpackClient) {
+      sandpackClient.destroy();
+      set({ sandpackClient: null });
     }
 
-    set({
-      gameId: id,
-      isLocalGame,
-    });
+    set({ gameId: id, isLocalGame });
 
     // If local game, reinitialize sandpack
     if (isLocalGame) {
-      if (sandpackClient) {
-        sandpackClient.destroy();
-        set({ sandpackClient: null });
-      }
-
       void initializeSandpackClient({
         iframe,
         files,

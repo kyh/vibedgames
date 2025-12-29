@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity } from "react";
+import { motion } from "motion/react";
 
 import { GameStack } from "@/components/canvas/game-stack";
 import { Iframe } from "@/components/canvas/iframe";
@@ -13,12 +13,17 @@ export const Canvas = () => {
 
   return (
     <div className="relative h-full w-full">
-      <Activity mode={shouldShowIframe ? "visible" : "hidden"}>
-        <Iframe
-          className="absolute inset-0"
-          url={isLocalGame ? undefined : gameId}
-        />
-      </Activity>
+      <motion.div
+        className="absolute inset-0 z-1"
+        variants={{
+          hidden: { opacity: 0, filter: "blur(5px)" },
+          visible: { opacity: 1, filter: "blur(0px)" },
+        }}
+        animate={shouldShowIframe ? "visible" : "hidden"}
+        transition={{ duration: 0.2 }}
+      >
+        <Iframe url={isLocalGame ? undefined : gameId} />
+      </motion.div>
       <GameStack
         data={featuredGames}
         showStack={view === "discover"}

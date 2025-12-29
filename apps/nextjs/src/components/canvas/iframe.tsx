@@ -2,8 +2,6 @@
 
 import { Button } from "@repo/ui/button";
 import { Spinner } from "@repo/ui/spinner";
-import { cn } from "@repo/ui/utils";
-import { motion } from "motion/react";
 
 import { useUiStore } from "@/app/[[...gameId]]/_components/ui-store";
 
@@ -12,7 +10,7 @@ type Props = {
   className?: string;
 };
 
-export const Iframe = ({ url, className }: Props) => {
+export const Iframe = ({ url }: Props) => {
   const {
     setIframe,
     refreshIframe,
@@ -33,14 +31,8 @@ export const Iframe = ({ url, className }: Props) => {
   };
 
   return (
-    <motion.div
-      className={cn("relative h-full w-full", className)}
-      initial={{ opacity: 0, filter: "blur(5px)" }}
-      animate={{ opacity: 1, filter: "blur(0px)" }}
-      exit={{ opacity: 0, filter: "blur(5px)" }}
-      transition={{ duration: 0.2 }}
-    >
-      <motion.iframe
+    <>
+      <iframe
         ref={setIframe}
         src={url}
         className="h-full w-full"
@@ -68,6 +60,6 @@ export const Iframe = ({ url, className }: Props) => {
           </Button>
         </div>
       )}
-    </motion.div>
+    </>
   );
 };

@@ -181,19 +181,12 @@ function App() {
 export default App;
 `;
 
-const defaultPackageJson = JSON.stringify(
-  { main: "/index.tsx", dependencies: {}, devDependencies: {} },
-  null,
-  2,
-);
-
 export const getDefaultFiles = (): SandpackBundlerFiles => {
   return {
     "/public/index.html": { code: defaultIndexHtml },
     "/App.tsx": { code: defaultAppTsx },
     "/index.tsx": { code: defaultIndexTsx },
     "/styles.css": { code: defaultPreviewStyles },
-    "/package.json": { code: defaultPackageJson },
     "/tsconfig.json": { code: defaultTsConfigJson },
   };
 };
@@ -252,6 +245,11 @@ export async function initializeSandpackClient({
       iframe,
       {
         files,
+        entry: "/index.tsx",
+        dependencies: {
+          react: "^18.3.1",
+          "react-dom": "^18.3.1",
+        },
         template: "create-react-app-typescript",
       },
       {

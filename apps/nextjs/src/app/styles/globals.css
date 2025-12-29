@@ -95,3 +95,22 @@
     color: rgba(115, 138, 148, 0.4);
   }
 }
+
+@keyframes hue-rotate {
+  0% {
+    filter: hue-rotate(0deg);
+  }
+  100% {
+    filter: hue-rotate(360deg);
+  }
+}
+
+@keyframes pixel-scale {
+  0%,
+  20% {
+    transform: scale(1);
+  }
+  100% {
+    transform: scale(0);
+  }
+}
