@@ -17,7 +17,7 @@ export const Spinner = ({
         className,
       )}
     >
-      {loading ? <SpinnerIcon /> : children}
+      {loading ? <SpinnerIcon size={2} gridSize={2} /> : children}
     </span>
   );
 };

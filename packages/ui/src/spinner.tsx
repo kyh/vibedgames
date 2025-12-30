@@ -4,11 +4,13 @@ import { cn } from "./utils";
 
 type SpinnerProps = React.HTMLAttributes<HTMLDivElement> & {
   size?: number;
+  gridSize?: number;
 };
 
 export const Spinner = React.forwardRef<HTMLDivElement, SpinnerProps>(
-  ({ className, size = 8, ...props }, ref) => {
+  ({ className, size = 8, gridSize = 3, ...props }, ref) => {
     const squareSize = `${size}px`;
+    const gridArray = Array.from({ length: gridSize }, (_, i) => i + 1);
 
     return (
       <div
@@ -17,13 +19,13 @@ export const Spinner = React.forwardRef<HTMLDivElement, SpinnerProps>(
         style={{ "--square-size": squareSize } as React.CSSProperties}
         {...props}
       >
-        {[1, 2, 3].map((y) => (
+        {gridArray.map((y) => (
           <div
             key={y}
             className="flex gap-0"
             style={{ "--y": y } as React.CSSProperties}
           >
-            {[1, 2, 3].map((i) => (
+            {gridArray.map((i) => (
               <div
                 key={i}
                 className="relative inline-block animate-[hue-rotate_10s_linear_infinite]"

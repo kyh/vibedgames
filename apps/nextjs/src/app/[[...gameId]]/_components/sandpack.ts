@@ -209,6 +209,8 @@ export async function initializeSandpackClient({
   if (!iframe) return null;
 
   try {
+    onLoadingChange(true);
+
     const client = await loadSandpackClient(
       iframe,
       {
@@ -276,23 +278,11 @@ export async function initializeSandpackClient({
         } else {
           onError(null);
         }
-      } else if (message.type === "action" && message.action === "show-error") {
-        // Handle sandpack error message
-        onLoadingChange(false);
-        onError(message.message || message.title);
-      } else if (
-        message.type === "action" &&
-        message.action === "notification" &&
-        "notificationType" in message &&
-        message.notificationType === "error"
-      ) {
-        // Handle error notification
-        onLoadingChange(false);
-        onError(message.title);
       }
     });
 
     onClientReady(client);
+
     return client;
   } catch (error) {
     console.error("Failed to load Sandpack client:", error);
