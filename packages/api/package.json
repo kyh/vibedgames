@@ -19,8 +19,9 @@
     "@better-auth/expo": "^1.4.9",
     "@repo/db": "workspace:^",
     "@trpc/server": "catalog:",
-    "ai": "^5.0.116",
+    "ai": "^6.0.5",
     "better-auth": "^1.4.9",
+    "just-bash": "^1.2.4",
     "superjson": "catalog:",
     "zod": "catalog:"
   },

@@ -76,6 +76,7 @@ export const BuildView = () => {
       // Check if we're looking at a new game (no gameId in URL)
       const gameId = params.gameId?.[0];
       const isNewGame = !gameId;
+      let buildId: string = gameId ?? "";
 
       if (isNewGame) {
         // Create a new game first
@@ -85,6 +86,8 @@ export const BuildView = () => {
           const result = await createBuild.mutateAsync({
             files: filesArray,
           });
+
+          buildId = result.build.id;
 
           // Update URL without triggering a rerender
           window.history.replaceState(
@@ -103,7 +106,7 @@ export const BuildView = () => {
       }
 
       // Send the message
-      void sendMessage({ text });
+      void sendMessage({ text }, { body: { buildId } });
       setInput("");
     },
     [sendMessage, setInput, params.gameId, sandpackFiles, createBuild],

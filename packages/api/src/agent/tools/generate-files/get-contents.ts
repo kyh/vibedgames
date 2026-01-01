@@ -1,6 +1,6 @@
 import type { ModelMessage } from "ai";
-import { streamObject } from "ai";
-import z from "zod";
+import { Output, streamText } from "ai";
+import z from "zod/v3";
 
 export type File = z.infer<typeof fileSchema>;
 
@@ -33,16 +33,8 @@ export async function* getContents(
 ): AsyncGenerator<FileContentChunk> {
   const generated: z.infer<typeof fileSchema>[] = [];
   const deferred = new Deferred<void>();
-  const result = streamObject({
-    model: "openai/gpt-5",
-    providerOptions: {
-      openai: {
-        include: ["reasoning.encrypted_content"],
-        reasoningEffort: "minimal",
-        reasoningSummary: "auto",
-        serviceTier: "priority",
-      },
-    },
+  const result = streamText({
+    model: "google/gemini-2.5-flash-lite",
     maxOutputTokens: 64000,
     system:
       "You are a file content generator. You must generate files based on the conversation history and the provided paths. NEVER generate lock files (pnpm-lock.yaml, package-lock.json, yarn.lock) - these are automatically created by package managers.",
@@ -55,7 +47,7 @@ export async function* getContents(
         )}`,
       },
     ],
-    schema: z.object({ files: z.array(fileSchema) }),
+    output: Output.object({ schema: z.object({ files: z.array(fileSchema) }) }),
     onError: (error) => {
       deferred.reject(error);
       console.error("Error communicating with AI");
@@ -63,7 +55,7 @@ export async function* getContents(
     },
   });
 
-  for await (const items of result.partialObjectStream) {
+  for await (const items of result.partialOutputStream) {
     if (!Array.isArray(items?.files)) {
       continue;
     }
@@ -87,7 +79,7 @@ export async function* getContents(
     }
   }
 
-  const raceResult = await Promise.race([result.object, deferred.promise]);
+  const raceResult = await Promise.race([result.output, deferred.promise]);
   if (!raceResult) {
     throw new Error(
       "Unexpected Error: Deferred was resolved before the result",
@@ -103,7 +95,7 @@ export async function* getContents(
   }
 }
 
-class Deferred<T> {
+export class Deferred<T> {
   private resolveFn: (value: T | PromiseLike<T>) => void = () => {};
   private rejectFn: (reason?: any) => void = () => {};
   private _promise: Promise<T>;

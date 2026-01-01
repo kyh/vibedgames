@@ -18,6 +18,12 @@ export const dataPartSchema = z.object({
     status: z.enum(["generating", "uploading", "uploaded", "done", "error"]),
     error: errorSchema.optional(),
   }),
+  "run-command": z.object({
+    command: z.string(),
+    status: z.enum(["executing", "running", "waiting", "done", "error"]),
+    exitCode: z.number().optional(),
+    error: errorSchema.optional(),
+  }),
   "report-errors": z.object({
     summary: z.string(),
     paths: z.array(z.string()).optional(),
