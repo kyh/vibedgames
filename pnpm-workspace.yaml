@@ -3,10 +3,10 @@ packages:
   - packages/*
 
 catalog:
-  "@kyh/eslint-config": ^1.1.10
-  "@kyh/prettier-config": ^1.1.10
-  "@kyh/tsconfig": ^1.1.10
-  "@tanstack/react-query": ^5.90.12
+  "@kyh/eslint-config": ^1.1.11
+  "@kyh/prettier-config": ^1.1.11
+  "@kyh/tsconfig": ^1.1.11
+  "@tanstack/react-query": ^5.90.16
   "@trpc/client": ^11.8.1
   "@trpc/server": ^11.8.1
   "@trpc/tanstack-react-query": ^11.8.1
@@ -21,7 +21,10 @@ catalog:
   superjson: ^2.2.6
   typescript: ^5.9.3
   vite: ^7.3.0
-  zod: ^4.2.1
+  zod: ^4.3.4
 
-nodeLinker: hoisted
 linkWorkspacePackages: true
+
+publicHoistPattern:
+  - "@ianvs/prettier-plugin-sort-imports"
+  - prettier-plugin-tailwindcss

@@ -16,12 +16,12 @@
     "typecheck": "tsc --noEmit --emitDeclarationOnly false"
   },
   "dependencies": {
-    "@better-auth/expo": "^1.4.9",
+    "@better-auth/expo": "^1.4.10",
     "@repo/db": "workspace:^",
     "@trpc/server": "catalog:",
-    "ai": "^6.0.5",
-    "better-auth": "^1.4.9",
-    "just-bash": "^1.2.4",
+    "ai": "^6.0.6",
+    "better-auth": "^1.4.10",
+    "just-bash": "^1.4.0",
     "superjson": "catalog:",
     "zod": "catalog:"
   },
@@ -29,7 +29,11 @@
     "@kyh/eslint-config": "catalog:",
     "@kyh/prettier-config": "catalog:",
     "@kyh/tsconfig": "catalog:",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
     "eslint": "catalog:",
+    "next": "catalog:",
     "prettier": "catalog:",
     "typescript": "catalog:"
   },

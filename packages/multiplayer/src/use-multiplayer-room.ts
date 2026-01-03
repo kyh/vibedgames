@@ -74,14 +74,14 @@ export function useMultiplayerRoom<
       setPlayerId(socket.id ?? null);
     };
 
-    const handleMessage = (event: MessageEvent<string>) => {
+    const handleMessage = (event: MessageEvent) => {
       try {
         const message = JSON.parse(event.data) as ServerMessage;
         switch (message.type) {
           case "sync": {
             setHostId(message.data.hostId);
             setPlayers(message.data.players);
-            setSharedState((prev) =>
+            setSharedState((prev: TShared) =>
               Object.keys(prev ?? {}).length === 0
                 ? (message.data.state as TShared)
                 : { ...prev, ...(message.data.state as Partial<TShared>) },
@@ -102,14 +102,14 @@ export function useMultiplayerRoom<
             break;
           }
           case "player_joined": {
-            setPlayers((prev) => ({
+            setPlayers((prev: PlayerMap) => ({
               ...prev,
               [message.data.id]: message.data as Player,
             }));
             break;
           }
           case "player_left": {
-            setPlayers((prev) => {
+            setPlayers((prev: PlayerMap) => {
               const updated = { ...prev };
               delete updated[message.data.id];
               return updated;
@@ -134,14 +134,14 @@ export function useMultiplayerRoom<
             break;
           }
           case "state_patch": {
-            setSharedState((prev) => ({
+            setSharedState((prev: TShared) => ({
               ...prev,
               ...(message.data as Partial<TShared>),
             }));
             break;
           }
           case "player_state": {
-            setPlayers((prev) => {
+            setPlayers((prev: PlayerMap) => {
               const existing = prev[message.data.id] ?? { id: message.data.id };
               return {
                 ...prev,
@@ -208,7 +208,7 @@ export function useMultiplayerRoom<
       const currentPlayerState =
         (playerId && (playersRef.current[playerId]?.state as Record<string, unknown>)) || {};
       const nextState = applyPatch(currentPlayerState, updater);
-      setPlayers((prev) => {
+      setPlayers((prev: PlayerMap) => {
         if (!playerId) return prev;
 
         const existing = prev[playerId] ?? { id: playerId };

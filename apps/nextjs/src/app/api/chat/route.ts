@@ -22,7 +22,6 @@ export async function POST(request: Request) {
 
   return streamChatResponse(messages, {
     buildId,
-    userId: session.user.id,
     db,
   });
 }
