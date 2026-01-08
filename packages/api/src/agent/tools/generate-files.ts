@@ -1,5 +1,5 @@
 import type { UIMessage, UIMessageStreamWriter } from "ai";
-import type { Sandbox } from "just-bash";
+import type { Sandbox } from "bash-tool";
 import { tool } from "ai";
 import z from "zod/v3";
 

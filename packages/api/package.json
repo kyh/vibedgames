@@ -20,6 +20,7 @@
     "@repo/db": "workspace:^",
     "@trpc/server": "catalog:",
     "ai": "^6.0.6",
+    "bash-tool": "^1.0.2",
     "better-auth": "^1.4.10",
     "just-bash": "^1.4.0",
     "superjson": "catalog:",

@@ -5,7 +5,7 @@ import {
   stepCountIs,
   streamText,
 } from "ai";
-import { Sandbox } from "just-bash";
+import { createBashTool } from "bash-tool";
 
 import type { ChatUIMessage } from "../messages/types";
 import type { Db } from "@repo/db/drizzle-client";
@@ -25,7 +25,7 @@ export const streamChatResponse = (
     stream: createUIMessageStream({
       originalMessages: messages,
       execute: async ({ writer }) => {
-        const sandbox = await initializeSandbox(buildId, db);
+        const bashToolkit = await initializeBashToolkit(buildId, db);
 
         const result = streamText({
           model: "google/gemini-2.5-flash-lite",
@@ -52,7 +52,7 @@ export const streamChatResponse = (
             }),
           ),
           stopWhen: stepCountIs(20),
-          tools: tools({ writer, sandbox, db, buildId }),
+          tools: tools({ writer, bashToolkit, db, buildId }),
           onError: (error) => {
             console.error("Error communicating with AI");
             console.error(JSON.stringify(error, null, 2));
@@ -72,7 +72,7 @@ export const streamChatResponse = (
   });
 };
 
-const initializeSandbox = async (buildId: string, db: Db) => {
+const initializeBashToolkit = async (buildId: string, db: Db) => {
   // Get files from build in the database
   const build = await db.query.gameBuild.findFirst({
     where: (builds, { eq }) => eq(builds.id, buildId),
@@ -81,25 +81,23 @@ const initializeSandbox = async (buildId: string, db: Db) => {
     },
   });
 
-  // Create sandbox with cwd set to /app directory
-  const sandbox = await Sandbox.create({ cwd: "/app" });
-
-  // Create /app directory and initialize with build files
-  await sandbox.mkDir("/app", { recursive: true });
-
+  // Convert build files to the format expected by bash-tool
+  const files: Record<string, string> = {};
   if (build?.gameBuildFiles && build.gameBuildFiles.length > 0) {
-    // Convert relative paths to absolute paths under /app
-    const filesToWrite: Record<string, string> = {};
     for (const file of build.gameBuildFiles) {
-      // Remove leading slash if present, then prepend /app/
+      // Remove leading slash if present for clean paths
       const cleanPath = file.path.startsWith("/")
         ? file.path.slice(1)
         : file.path;
-      const absolutePath = `/app/${cleanPath}`;
-      filesToWrite[absolutePath] = file.content;
+      files[cleanPath] = file.content;
     }
-    await sandbox.writeFiles(filesToWrite);
   }
 
-  return sandbox;
+  // Create bash toolkit with files - bash-tool handles sandbox creation
+  const bashToolkit = await createBashTool({
+    files,
+    destination: "/app",
+  });
+
+  return bashToolkit;
 };

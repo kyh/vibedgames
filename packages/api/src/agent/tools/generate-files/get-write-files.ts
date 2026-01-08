@@ -1,5 +1,5 @@
 import type { UIMessage, UIMessageStreamWriter } from "ai";
-import type { Sandbox } from "just-bash";
+import type { Sandbox } from "bash-tool";
 
 import type { DataPart } from "../../messages/data-parts";
 import type { File } from "./get-contents";
@@ -35,26 +35,20 @@ export function getWriteFiles({
     });
 
     try {
-      // Convert to just-bash format: {[path: string]: string}
-      // Convert relative paths to absolute paths under /app
-      const filesToWrite: Record<string, string> = {};
+      // Write each file using bash-tool sandbox
       for (const file of params.files) {
-        // Remove leading slash if present, then prepend /app/
         const cleanPath = file.path.startsWith("/")
           ? file.path.slice(1)
           : file.path;
-        const absolutePath = `/app/${cleanPath}`;
-        filesToWrite[absolutePath] = file.content;
+        await sandbox.writeFile(cleanPath, file.content);
       }
-
-      await sandbox.writeFiles(filesToWrite);
 
       // Sync to database (persistFiles expects relative paths)
       await persistFiles({
         db,
         buildId,
         files: params.files.map((file) => ({
-          path: file.path, // Keep relative path for database
+          path: file.path,
           content: file.content,
         })),
       });
