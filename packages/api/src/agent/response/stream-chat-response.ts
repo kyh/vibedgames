@@ -3,7 +3,7 @@ import {
   createUIMessageStream,
   createUIMessageStreamResponse,
   stepCountIs,
-  streamText,
+  ToolLoopAgent,
 } from "ai";
 import { createBashTool } from "bash-tool";
 
@@ -27,9 +27,17 @@ export const streamChatResponse = (
       execute: async ({ writer }) => {
         const bashToolkit = await initializeBashToolkit(buildId, db);
 
-        const result = streamText({
+        // Create the agent with model, instructions, and tools
+        const agent = new ToolLoopAgent({
           model: "google/gemini-2.5-flash-lite",
-          system: prompt,
+          instructions: prompt,
+          tools: tools({ writer, bashToolkit, db, buildId }),
+          stopWhen: stepCountIs(20),
+        });
+
+        // Stream the agent response with the messages
+        // Note: Errors are now handled through the stream as error parts
+        const result = await agent.stream({
           messages: await convertToModelMessages(
             messages.map((message) => {
               message.parts = message.parts.map((part) => {
@@ -51,12 +59,6 @@ export const streamChatResponse = (
               return message;
             }),
           ),
-          stopWhen: stepCountIs(20),
-          tools: tools({ writer, bashToolkit, db, buildId }),
-          onError: (error) => {
-            console.error("Error communicating with AI");
-            console.error(JSON.stringify(error, null, 2));
-          },
         });
 
         void result.consumeStream();
