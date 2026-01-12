@@ -2,15 +2,11 @@ import {
   convertToModelMessages,
   createUIMessageStream,
   createUIMessageStreamResponse,
-  stepCountIs,
-  ToolLoopAgent,
 } from "ai";
-import { createBashTool } from "bash-tool";
 
 import type { ChatUIMessage } from "../messages/types";
 import type { Db } from "@repo/db/drizzle-client";
-import { tools } from "../tools";
-import prompt from "./stream-chat-response-prompt";
+import { createGameCodeAgent } from "../game-code-agent";
 
 type Params = {
   buildId: string;
@@ -25,14 +21,11 @@ export const streamChatResponse = (
     stream: createUIMessageStream({
       originalMessages: messages,
       execute: async ({ writer }) => {
-        const bashToolkit = await initializeBashToolkit(buildId, db);
-
-        // Create the agent with model, instructions, and tools
-        const agent = new ToolLoopAgent({
-          model: "google/gemini-2.5-flash-lite",
-          instructions: prompt,
-          tools: tools({ writer, bashToolkit, db, buildId }),
-          stopWhen: stepCountIs(20),
+        // Create the game code agent (includes bash toolkit initialization)
+        const agent = await createGameCodeAgent({
+          writer,
+          db,
+          buildId,
         });
 
         // Stream the agent response with the messages
@@ -72,34 +65,4 @@ export const streamChatResponse = (
       },
     }),
   });
-};
-
-const initializeBashToolkit = async (buildId: string, db: Db) => {
-  // Get files from build in the database
-  const build = await db.query.gameBuild.findFirst({
-    where: (builds, { eq }) => eq(builds.id, buildId),
-    with: {
-      gameBuildFiles: true,
-    },
-  });
-
-  // Convert build files to the format expected by bash-tool
-  const files: Record<string, string> = {};
-  if (build?.gameBuildFiles && build.gameBuildFiles.length > 0) {
-    for (const file of build.gameBuildFiles) {
-      // Remove leading slash if present for clean paths
-      const cleanPath = file.path.startsWith("/")
-        ? file.path.slice(1)
-        : file.path;
-      files[cleanPath] = file.content;
-    }
-  }
-
-  // Create bash toolkit with files - bash-tool handles sandbox creation
-  const bashToolkit = await createBashTool({
-    files,
-    destination: "/app",
-  });
-
-  return bashToolkit;
 };
