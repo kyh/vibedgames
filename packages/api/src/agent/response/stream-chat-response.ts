@@ -2,15 +2,11 @@ import {
   convertToModelMessages,
   createUIMessageStream,
   createUIMessageStreamResponse,
-  stepCountIs,
-  streamText,
 } from "ai";
-import { createBashTool } from "bash-tool";
 
 import type { ChatUIMessage } from "../messages/types";
 import type { Db } from "@repo/db/drizzle-client";
-import { tools } from "../tools";
-import prompt from "./stream-chat-response-prompt";
+import { createGameCodeAgent } from "../game-code-agent";
 
 type Params = {
   buildId: string;
@@ -25,11 +21,16 @@ export const streamChatResponse = (
     stream: createUIMessageStream({
       originalMessages: messages,
       execute: async ({ writer }) => {
-        const bashToolkit = await initializeBashToolkit(buildId, db);
+        // Create the game code agent (includes bash toolkit initialization)
+        const agent = await createGameCodeAgent({
+          writer,
+          db,
+          buildId,
+        });
 
-        const result = streamText({
-          model: "google/gemini-2.5-flash-lite",
-          system: prompt,
+        // Stream the agent response with the messages
+        // Note: Errors are now handled through the stream as error parts
+        const result = await agent.stream({
           messages: await convertToModelMessages(
             messages.map((message) => {
               message.parts = message.parts.map((part) => {
@@ -51,12 +52,6 @@ export const streamChatResponse = (
               return message;
             }),
           ),
-          stopWhen: stepCountIs(20),
-          tools: tools({ writer, bashToolkit, db, buildId }),
-          onError: (error) => {
-            console.error("Error communicating with AI");
-            console.error(JSON.stringify(error, null, 2));
-          },
         });
 
         void result.consumeStream();
@@ -70,34 +65,4 @@ export const streamChatResponse = (
       },
     }),
   });
-};
-
-const initializeBashToolkit = async (buildId: string, db: Db) => {
-  // Get files from build in the database
-  const build = await db.query.gameBuild.findFirst({
-    where: (builds, { eq }) => eq(builds.id, buildId),
-    with: {
-      gameBuildFiles: true,
-    },
-  });
-
-  // Convert build files to the format expected by bash-tool
-  const files: Record<string, string> = {};
-  if (build?.gameBuildFiles && build.gameBuildFiles.length > 0) {
-    for (const file of build.gameBuildFiles) {
-      // Remove leading slash if present for clean paths
-      const cleanPath = file.path.startsWith("/")
-        ? file.path.slice(1)
-        : file.path;
-      files[cleanPath] = file.content;
-    }
-  }
-
-  // Create bash toolkit with files - bash-tool handles sandbox creation
-  const bashToolkit = await createBashTool({
-    files,
-    destination: "/app",
-  });
-
-  return bashToolkit;
 };
