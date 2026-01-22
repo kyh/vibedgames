@@ -18,7 +18,7 @@
     "@tensorflow/tfjs-core": "^4.22.0",
     "react": "catalog:",
     "react-dom": "catalog:",
-    "three": "^0.179.1"
+    "three": "^0.182.0"
   },
   "devDependencies": {
     "@kyh/eslint-config": "catalog:",
@@ -29,7 +29,7 @@
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react-swc": "^4.2.2",
     "eslint": "catalog:",
-    "globals": "^16.5.0",
+    "globals": "^17.0.0",
     "prettier": "catalog:",
     "tailwindcss": "^4.1.18",
     "typescript": "catalog:",

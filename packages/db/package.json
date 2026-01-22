@@ -21,8 +21,8 @@
     "with-env": "dotenv -e ../../.env --"
   },
   "dependencies": {
-    "@libsql/client": "^0.15.15",
-    "drizzle-orm": "^0.44.7"
+    "@libsql/client": "^0.17.0",
+    "drizzle-orm": "^0.45.1"
   },
   "devDependencies": {
     "@kyh/eslint-config": "catalog:",
