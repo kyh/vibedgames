@@ -22,7 +22,7 @@
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react-swc": "^4.2.2",
     "eslint": "catalog:",
-    "globals": "^17.0.0",
+    "globals": "^17.1.0",
     "prettier": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:"
