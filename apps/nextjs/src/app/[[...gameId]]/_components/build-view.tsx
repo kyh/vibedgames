@@ -67,7 +67,7 @@ export const BuildView = () => {
     logs,
   } = useUiStore();
 
-  const createBuild = useMutation(trpc.game.createBuild.mutationOptions());
+  const createBuild = useMutation(trpc.localGame.createBuild.mutationOptions());
 
   const validateAndSubmitMessage = useCallback(
     async (text: string) => {

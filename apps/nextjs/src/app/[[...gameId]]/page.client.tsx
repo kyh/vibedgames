@@ -18,7 +18,7 @@ export const PageClient = () => {
   const gameId = params.gameId?.[0];
 
   // Fetch build when gameId is present (this will use prefetched data if available)
-  const getBuildQuery = trpc.game.getBuild.queryOptions(
+  const getBuildQuery = trpc.localGame.getBuild.queryOptions(
     gameId ? { buildId: gameId } : { buildId: "" },
   );
   const { data: buildData } = useQuery({

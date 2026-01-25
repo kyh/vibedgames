@@ -1,6 +1,6 @@
 import { v0 } from "v0-sdk";
 
-import { createTRPCRouter, protectedProcedure } from "../trpc";
+import { createTRPCRouter, protectedProcedure } from "../../trpc";
 import {
   deleteChatInput,
   getChatInput,

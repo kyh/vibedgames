@@ -3,7 +3,7 @@ import { gameBuild, gameBuildFile } from "@repo/db/drizzle-schema";
 import { TRPCError } from "@trpc/server";
 
 import type { Db } from "@repo/db/drizzle-client";
-import { createTRPCRouter, protectedProcedure } from "../trpc";
+import { createTRPCRouter, protectedProcedure } from "../../trpc";
 import {
   createBuildInput,
   deleteBuildInput,
@@ -11,7 +11,7 @@ import {
   listBuildsInput,
   updateBuildFilesInput,
   updateBuildInput,
-} from "./game-schema";
+} from "./local-game-schema";
 
 const DEFAULT_BUILD_LIMIT = 20;
 
@@ -29,7 +29,7 @@ function assertBuildAccess({
   throw new TRPCError({ code: "UNAUTHORIZED", message: "Access denied." });
 }
 
-export const gameRouter = createTRPCRouter({
+export const localGameRouter = createTRPCRouter({
   listBuilds: protectedProcedure
     .input(listBuildsInput)
     .query(async ({ ctx, input }) => {

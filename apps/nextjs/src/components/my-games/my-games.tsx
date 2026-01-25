@@ -147,11 +147,11 @@ export const MyGames = () => {
   const [renameTitle, setRenameTitle] = useState("");
   const [renameDescription, setRenameDescription] = useState("");
 
-  const listBuildsQuery = trpc.game.listBuilds.queryOptions({ limit: 50 });
+  const listBuildsQuery = trpc.localGame.listBuilds.queryOptions({ limit: 50 });
   const { data, isLoading, error } = useQuery(listBuildsQuery);
 
-  const updateBuild = useMutation(trpc.game.updateBuild.mutationOptions());
-  const deleteBuild = useMutation(trpc.game.deleteBuild.mutationOptions());
+  const updateBuild = useMutation(trpc.localGame.updateBuild.mutationOptions());
+  const deleteBuild = useMutation(trpc.localGame.deleteBuild.mutationOptions());
 
   const handleRenameClick = (build: {
     id: string;
