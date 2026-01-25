@@ -38,6 +38,7 @@ type UIState = {
   setGameId: (id: string, files?: SandpackBundlerFiles) => void;
   isLocalGame: boolean;
   // Sandpack state
+  initializingGameId: string | null; // Track which gameId is currently initializing
   sandpackClient: SandpackClient | null;
   sandpackFiles: SandpackBundlerFiles;
   updateSandpackFiles: (files: SandpackBundlerFiles) => void;
@@ -75,15 +76,37 @@ export const useUiStore = create<UIState>((set, get) => ({
   // View == play/build states
   gameId: featuredGames[0]?.url ?? "",
   setGameId: (id, files) => {
-    const { sandpackClient, iframe, setIframeLoading, setIframeError } = get();
+    const {
+      sandpackClient,
+      iframe,
+      setIframeLoading,
+      setIframeError,
+      gameId: currentGameId,
+      isLocalGame: currentIsLocal,
+      initializingGameId,
+    } = get();
     const isLocalGame = !!files;
+
+    // Skip if already initialized or initializing for this gameId with same mode
+    const alreadyInitialized = currentGameId === id && currentIsLocal === isLocalGame && sandpackClient;
+    const alreadyInitializing = initializingGameId === id && isLocalGame;
+    console.log("[setGameId]", { id, isLocalGame, alreadyInitialized, alreadyInitializing });
+    if (alreadyInitialized || alreadyInitializing) {
+      console.log("[setGameId] skipping - already initialized/initializing");
+      return;
+    }
 
     if (sandpackClient) {
       sandpackClient.destroy();
       set({ sandpackClient: null });
     }
 
-    set({ gameId: id, sandpackFiles: isLocalGame ? files : {}, isLocalGame });
+    set({
+      gameId: id,
+      sandpackFiles: isLocalGame ? files : {},
+      isLocalGame,
+      initializingGameId: isLocalGame ? id : null,
+    });
 
     // If local game, reinitialize sandpack
     if (isLocalGame) {
@@ -91,13 +114,27 @@ export const useUiStore = create<UIState>((set, get) => ({
         iframe,
         files,
         onClientReady: (client) => {
-          set({ sandpackClient: client });
+          // Only set client if still initializing the same game
+          const currentInitId = get().initializingGameId;
+          console.log("[onClientReady]", { id, currentInitId, match: currentInitId === id });
+          if (currentInitId === id) {
+            const currentFiles = get().sandpackFiles;
+            console.log("[onClientReady] syncing files:", Object.keys(currentFiles));
+            set({ sandpackClient: client, initializingGameId: null });
+            // Sync any files that arrived during initialization
+            client.updateSandbox({ files: currentFiles });
+          } else {
+            // Different game requested, destroy this client
+            console.log("[onClientReady] destroying - different game requested");
+            client.destroy();
+          }
         },
         onLoadingChange: (loading) => {
           setIframeLoading(loading);
         },
         onError: (error) => {
           setIframeError(error);
+          set({ initializingGameId: null });
         },
         onLog: (log) => {
           get().appendLog(log);
@@ -105,14 +142,15 @@ export const useUiStore = create<UIState>((set, get) => ({
       });
     }
   },
-  gameUrl: null,
   isLocalGame: false,
   // Sandpack state
+  initializingGameId: null,
   sandpackClient: null,
   sandpackFiles: {},
   updateSandpackFiles: (files) => {
     const { sandpackFiles, sandpackClient } = get();
     const newFiles = { ...sandpackFiles, ...files };
+    console.log("[updateSandpackFiles] files:", Object.keys(files), "client:", !!sandpackClient);
     set({ sandpackFiles: newFiles });
 
     if (sandpackClient) {

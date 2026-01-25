@@ -35,13 +35,13 @@ export function getWriteFiles({
     });
 
     try {
-      // Write each file using bash-tool sandbox
-      for (const file of params.files) {
-        const cleanPath = file.path.startsWith("/")
-          ? file.path.slice(1)
-          : file.path;
-        await sandbox.writeFile(cleanPath, file.content);
-      }
+      // Write files using bash-tool sandbox
+      await sandbox.writeFiles(
+        params.files.map((file) => ({
+          path: file.path.startsWith("/") ? file.path.slice(1) : file.path,
+          content: file.content,
+        }))
+      );
 
       // Sync to database (persistFiles expects relative paths)
       await persistFiles({
@@ -75,7 +75,7 @@ export function getWriteFiles({
     writer.write({
       id: toolCallId,
       type: "data-generating-files",
-      data: { paths, status: "uploaded" },
+      data: { paths, files: params.files, status: "uploaded" },
     });
   };
 }

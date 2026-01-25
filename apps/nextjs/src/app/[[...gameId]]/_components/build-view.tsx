@@ -89,6 +89,9 @@ export const BuildView = () => {
 
           buildId = result.build.id;
 
+          // Initialize sandpack with default files
+          setGameId(buildId, getDefaultFiles());
+
           // Update URL without triggering a rerender
           window.history.replaceState(
             {
@@ -115,7 +118,7 @@ export const BuildView = () => {
   return (
     <>
       <Conversation className="relative w-full">
-        <ConversationContent className="space-y-1">
+        <ConversationContent className="space-y-1 pb-2">
           {messages.map((message) => (
             <Message key={message.id} message={message} />
           ))}

@@ -1,16 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@repo/ui/alert-dialog";
+import { alertDialog } from "@repo/ui/alert-dialog";
 import { Button } from "@repo/ui/button";
 import {
   ContextMenu,
@@ -65,7 +56,7 @@ const GameItem = ({ build, onRename, onDelete }: GameItemProps) => {
       <ContextMenuTrigger asChild>
         <button
           className={cn(
-            "w-full px-4 py-3 text-left transition-colors",
+            "group w-full px-4 py-3 text-left transition-colors",
             "hover:bg-muted/50 focus:bg-muted/50 focus:outline-none",
           )}
           onClick={() => {
@@ -89,6 +80,24 @@ const GameItem = ({ build, onRename, onDelete }: GameItemProps) => {
                 {new Date(build.createdAt).toLocaleDateString()}
               </p>
             </div>
+            <button
+              type="button"
+              className={cn(
+                "text-muted-foreground hover:text-destructive shrink-0 rounded p-1 opacity-0 transition-opacity",
+                "hover:bg-destructive/10 group-hover:opacity-100",
+              )}
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete({
+                  id: build.id,
+                  title: build.title,
+                  description: build.description,
+                });
+              }}
+              aria-label="Delete game"
+            >
+              <TrashIcon className="size-4" />
+            </button>
           </div>
         </button>
       </ContextMenuTrigger>
@@ -130,8 +139,7 @@ export const MyGames = () => {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [selectedBuild, setSelectedBuild] = useState<{
+  const [renameBuild, setRenameBuild] = useState<{
     id: string;
     title: string | null;
     description: string | null;
@@ -150,19 +158,19 @@ export const MyGames = () => {
     title: string | null;
     description: string | null;
   }) => {
-    setSelectedBuild(build);
+    setRenameBuild(build);
     setRenameTitle(build.title ?? "");
     setRenameDescription(build.description ?? "");
     setRenameDialogOpen(true);
   };
 
   const handleRenameSubmit = () => {
-    if (!selectedBuild) return;
+    if (!renameBuild) return;
 
     toast.promise(
       updateBuild
         .mutateAsync({
-          buildId: selectedBuild.id,
+          buildId: renameBuild.id,
           title: renameTitle.trim() || undefined,
           description: renameDescription.trim() || undefined,
         })
@@ -171,7 +179,7 @@ export const MyGames = () => {
             queryKey: listBuildsQuery.queryKey,
           });
           setRenameDialogOpen(false);
-          setSelectedBuild(null);
+          setRenameBuild(null);
           setRenameTitle("");
           setRenameDescription("");
         }),
@@ -188,27 +196,26 @@ export const MyGames = () => {
     title: string | null;
     description: string | null;
   }) => {
-    setSelectedBuild(build);
-    setDeleteDialogOpen(true);
-  };
-
-  const handleDeleteConfirm = () => {
-    if (!selectedBuild) return;
-
-    toast.promise(
-      deleteBuild.mutateAsync({ buildId: selectedBuild.id }).then(() => {
-        void queryClient.invalidateQueries({
-          queryKey: listBuildsQuery.queryKey,
-        });
-        setDeleteDialogOpen(false);
-        setSelectedBuild(null);
-      }),
-      {
-        loading: "Deleting game...",
-        success: "Game deleted successfully",
-        error: "Failed to delete game",
+    const title = build.title ?? `Game ${build.id.slice(0, 8)}`;
+    alertDialog.open("Delete Game", {
+      description: `Are you sure you want to delete "${title}"? This action cannot be undone.`,
+      action: {
+        label: "Delete",
+        onClick: async () => {
+          await deleteBuild.mutateAsync({ buildId: build.id });
+          void queryClient.invalidateQueries({
+            queryKey: listBuildsQuery.queryKey,
+          });
+          toast.success("Game deleted");
+          if (window.location.pathname === `/${build.id}`) {
+            window.location.href = "/";
+          }
+        },
       },
-    );
+      cancel: {
+        label: "Cancel",
+      },
+    });
   };
 
   if (isLoading) {
@@ -294,7 +301,7 @@ export const MyGames = () => {
               variant="outline"
               onClick={() => {
                 setRenameDialogOpen(false);
-                setSelectedBuild(null);
+                setRenameBuild(null);
                 setRenameTitle("");
                 setRenameDescription("");
               }}
@@ -310,29 +317,6 @@ export const MyGames = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Game</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete "
-              {selectedBuild?.title ?? `Game ${selectedBuild?.id.slice(0, 8)}`}
-              "? This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDeleteConfirm}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={deleteBuild.isPending}
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   );
 };

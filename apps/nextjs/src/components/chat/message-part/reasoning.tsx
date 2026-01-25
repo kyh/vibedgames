@@ -1,9 +1,9 @@
 import type { ReasoningUIPart } from "ai";
+import { Spinner } from "@repo/ui/spinner";
 import { cn } from "@repo/ui/utils";
 import { Streamdown } from "streamdown";
 
 import { useReasoningContext } from "../message";
-import { Spinner } from "./spinner";
 
 type Props = {
   part: ReasoningUIPart;
@@ -46,7 +46,7 @@ export const Reasoning = ({ part, partIndex, className }: Props) => {
           ) : (
             <div className="overflow-hidden">{firstLine}</div>
           )}
-          {isStreaming && isExpanded && <Spinner loading />}
+          {isStreaming && isExpanded && <Spinner size={4} gridSize={2} />}
         </div>
       </div>
     </div>
