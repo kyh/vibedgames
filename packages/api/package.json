@@ -24,6 +24,7 @@
     "better-auth": "^1.4.17",
     "just-bash": "^2.5.5",
     "superjson": "catalog:",
+    "v0-sdk": "^0.14.0",
     "zod": "catalog:"
   },
   "devDependencies": {

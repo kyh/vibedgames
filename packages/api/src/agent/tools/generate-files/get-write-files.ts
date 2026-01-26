@@ -4,7 +4,7 @@ import type { Sandbox } from "bash-tool";
 import type { DataPart } from "../../messages/data-parts";
 import type { File } from "./get-contents";
 import type { Db } from "@repo/db/drizzle-client";
-import { persistFiles } from "../../../game/game-router";
+import { persistFiles } from "../../../game/local/local-game-router";
 import { getRichError } from "../get-rich-error";
 
 type Params = {

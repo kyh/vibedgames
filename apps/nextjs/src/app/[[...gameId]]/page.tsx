@@ -11,7 +11,7 @@ const Page = async (props: PageProps) => {
 
   // Prefetch build data on the server when gameId is present
   if (gameId) {
-    const getBuildQuery = trpc.game.getBuild.queryOptions({ buildId: gameId });
+    const getBuildQuery = trpc.localGame.getBuild.queryOptions({ buildId: gameId });
     prefetch(getBuildQuery);
   }
 

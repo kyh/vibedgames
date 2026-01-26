@@ -576,6 +576,9 @@ importers:
       superjson:
         specifier: 'catalog:'
         version: 2.2.6
+      v0-sdk:
+        specifier: ^0.14.0
+        version: 0.14.0
       zod:
         specifier: 'catalog:'
         version: 4.3.6
@@ -8020,6 +8023,10 @@ packages:
   uuid@7.0.3:
     resolution: {integrity: sha512-DPSke0pXhTZgoF/d+WSt2QaKMCFSfx7QegxEWT+JOuHF5aWrKEn0G+ztjuJg/gG8/ItK+rbPCD/yNv8yyih6Cg==}
     hasBin: true
+
+  v0-sdk@0.14.0:
+    resolution: {integrity: sha512-6cqRdOdc3gAEbBR4FQgKmkaSndciyqI4qr1PkEjDlEaCOfNZJh5xLwkdLBClaDzUnl9NPqgG/5abOcUkTUW0kg==}
+    engines: {node: '>=22', pnpm: '>=9'}
 
   validate-npm-package-name@5.0.1:
     resolution: {integrity: sha512-OljLrQ9SQdOUqTaQxqL5dEfZWrXExyyWsozYlAWFawPVNuD83igl7uJD2RTkNMbniIYgt8l81eCJGIdQF7avLQ==}
@@ -16464,6 +16471,8 @@ snapshots:
   utils-merge@1.0.1: {}
 
   uuid@7.0.3: {}
+
+  v0-sdk@0.14.0: {}
 
   validate-npm-package-name@5.0.1: {}
 
