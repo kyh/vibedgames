@@ -20,7 +20,7 @@
     "@kyh/tsconfig": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "@vitejs/plugin-react-swc": "^4.2.2",
+    "@vitejs/plugin-react-swc": "^4.2.3",
     "eslint": "catalog:",
     "globals": "^17.3.0",
     "prettier": "catalog:",
