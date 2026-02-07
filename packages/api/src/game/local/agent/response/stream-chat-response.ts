@@ -4,9 +4,9 @@ import {
   createUIMessageStreamResponse,
 } from "ai";
 
-import type { ChatUIMessage } from "../messages/types";
+import type { ChatUIMessage } from "@repo/api/game/local/agent/messages/types";
 import type { Db } from "@repo/db/drizzle-client";
-import { createGameCodeAgent } from "../game-code-agent";
+import { createGameCodeAgent } from "@repo/api/game/local/agent/game-code-agent";
 
 type Params = {
   buildId: string;

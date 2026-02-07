@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react";
 import { useParams } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
-import { gameTypesArray } from "@repo/api/agent/agent-schema";
+import { gameTypesArray } from "@repo/api/game/local/agent/agent-schema";
 import {
   Conversation,
   ConversationContent,
@@ -38,7 +38,7 @@ import {
 } from "lucide-react";
 import { motion } from "motion/react";
 
-import type { ChatUIMessage } from "@repo/api/agent/messages/types";
+import type { ChatUIMessage } from "@repo/api/game/local/agent/messages/types";
 import { useSharedChatContext } from "@/components/chat/chat-context";
 import { Message } from "@/components/chat/message";
 import { FileExplorer } from "@/components/file-explorer/file-explorer";

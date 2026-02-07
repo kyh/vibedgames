@@ -3,12 +3,12 @@ import type { Sandbox } from "bash-tool";
 import { tool } from "ai";
 import z from "zod/v3";
 
-import type { DataPart } from "../messages/data-parts";
-import type { File } from "./generate-files/get-contents";
+import type { DataPart } from "@repo/api/game/local/agent/messages/data-parts";
+import type { File } from "@repo/api/game/local/agent/tools/generate-files/get-contents";
 import type { Db } from "@repo/db/drizzle-client";
-import { getContents } from "./generate-files/get-contents";
-import { getWriteFiles } from "./generate-files/get-write-files";
-import { getRichError } from "./get-rich-error";
+import { getContents } from "@repo/api/game/local/agent/tools/generate-files/get-contents";
+import { getWriteFiles } from "@repo/api/game/local/agent/tools/generate-files/get-write-files";
+import { getRichError } from "@repo/api/game/local/agent/tools/get-rich-error";
 
 const description = `Use this tool to generate and upload code files into the in-memory sandbox environment. It leverages an LLM to create file contents based on the current conversation context and user intent, then writes them directly into the sandbox file system.
 

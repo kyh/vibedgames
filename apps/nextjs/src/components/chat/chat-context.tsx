@@ -6,7 +6,7 @@ import { createContext, useContext, useMemo, useRef } from "react";
 import { Chat } from "@ai-sdk/react";
 import { toast } from "@repo/ui/toast";
 
-import type { ChatUIMessage } from "@repo/api/agent/messages/types";
+import type { ChatUIMessage } from "@repo/api/game/local/agent/messages/types";
 import { useDataStateMapper } from "@/app/[[...gameId]]/_components/ui-store";
 
 type ChatContextValue = {
