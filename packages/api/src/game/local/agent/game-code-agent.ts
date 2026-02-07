@@ -3,9 +3,9 @@ import type { UIMessage, UIMessageStreamWriter } from "ai";
 import { createBashTool } from "bash-tool";
 
 import type { Db } from "@repo/db/drizzle-client";
-import type { DataPart } from "./messages/data-parts";
-import { tools } from "./tools";
-import prompt from "./response/stream-chat-response-prompt";
+import type { DataPart } from "@repo/api/game/local/agent/messages/data-parts";
+import { tools } from "@repo/api/game/local/agent/tools/index";
+import prompt from "@repo/api/game/local/agent/response/stream-chat-response-prompt";
 
 type CreateGameCodeAgentParams = {
   writer: UIMessageStreamWriter<UIMessage<never, DataPart>>;

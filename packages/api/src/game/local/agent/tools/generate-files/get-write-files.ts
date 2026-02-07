@@ -1,11 +1,11 @@
 import type { UIMessage, UIMessageStreamWriter } from "ai";
 import type { Sandbox } from "bash-tool";
 
-import type { DataPart } from "../../messages/data-parts";
-import type { File } from "./get-contents";
+import type { DataPart } from "@repo/api/game/local/agent/messages/data-parts";
+import type { File } from "@repo/api/game/local/agent/tools/generate-files/get-contents";
 import type { Db } from "@repo/db/drizzle-client";
-import { persistFiles } from "../../../game/local/local-game-router";
-import { getRichError } from "../get-rich-error";
+import { persistFiles } from "@repo/api/game/local/local-game-router";
+import { getRichError } from "@repo/api/game/local/agent/tools/get-rich-error";
 
 type Params = {
   sandbox: Sandbox;

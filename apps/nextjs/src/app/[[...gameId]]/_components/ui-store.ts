@@ -7,7 +7,7 @@ import type {
   SandpackBundlerFiles,
   SandpackClient,
 } from "@codesandbox/sandpack-client";
-import type { DataPart } from "@repo/api/agent/messages/data-parts";
+import type { DataPart } from "@repo/api/game/local/agent/messages/data-parts";
 import { featuredGames } from "./data";
 import { initializeSandpackClient, toSandpack } from "./sandpack";
 

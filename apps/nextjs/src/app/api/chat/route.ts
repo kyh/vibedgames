@@ -1,8 +1,8 @@
-import { streamChatResponse } from "@repo/api/agent/response/stream-chat-response";
+import { streamChatResponse } from "@repo/api/game/local/agent/response/stream-chat-response";
 import { auth } from "@repo/api/auth/auth";
 import { db } from "@repo/db/drizzle-client";
 
-import type { ChatUIMessage } from "@repo/api/agent/messages/types";
+import type { ChatUIMessage } from "@repo/api/game/local/agent/messages/types";
 
 type BodyData = {
   messages: ChatUIMessage[];

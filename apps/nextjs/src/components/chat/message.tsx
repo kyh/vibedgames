@@ -1,7 +1,7 @@
 import { createContext, memo, useContext, useEffect, useState } from "react";
 import { cn } from "@repo/ui/utils";
 
-import type { ChatUIMessage } from "@repo/api/agent/messages/types";
+import type { ChatUIMessage } from "@repo/api/game/local/agent/messages/types";
 import { MessagePart } from "./message-part";
 
 type Props = {

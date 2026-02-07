@@ -1,9 +1,9 @@
 import type { UIMessage } from "ai";
 import { memo } from "react";
 
-import type { DataPart } from "@repo/api/agent/messages/data-parts";
-import type { Metadata } from "@repo/api/agent/messages/metadata";
-import type { ToolSet } from "@repo/api/agent/tools/index";
+import type { DataPart } from "@repo/api/game/local/agent/messages/data-parts";
+import type { Metadata } from "@repo/api/game/local/agent/messages/metadata";
+import type { ToolSet } from "@repo/api/game/local/agent/tools/index";
 import { GenerateFiles } from "./generate-files";
 import { Reasoning } from "./reasoning";
 import { ReportErrors } from "./report-errors";

@@ -1,7 +1,7 @@
 import { BugIcon } from "lucide-react";
 import { Streamdown } from "streamdown";
 
-import type { DataPart } from "@repo/api/agent/messages/data-parts";
+import type { DataPart } from "@repo/api/game/local/agent/messages/data-parts";
 import { ToolHeader, ToolMessage } from "../tool-message";
 
 type Props = {
