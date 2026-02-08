@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { useParams } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import { gameTypesArray } from "@repo/api/game/local/agent/agent-schema";
 import {
@@ -22,17 +21,12 @@ import {
   InputGroupButton,
 } from "@repo/ui/input-group";
 import { Mention, MentionsInput } from "@repo/ui/mentions-input";
-import { useMutation } from "@tanstack/react-query";
-import { generateId } from "ai";
 import {
   CheckIcon,
-  CloudIcon,
   FileIcon,
   GamepadIcon,
   HelpCircleIcon,
-  LaptopIcon,
   MenuIcon,
-  PlusIcon,
   RefreshCwIcon,
   SendIcon,
   SettingsIcon,
@@ -46,18 +40,13 @@ import { Message } from "@/components/chat/message";
 import { FileExplorer } from "@/components/file-explorer/file-explorer";
 import { MyGames } from "@/components/my-games/my-games";
 import { DraggablePanel } from "@/components/ui/draggable-panel";
-import { useTRPC } from "@/trpc/react";
-import { getDefaultFiles, toBuildFiles } from "./sandpack";
 import { useUiStore } from "./ui-store";
 
 export const BuildView = () => {
-  const trpc = useTRPC();
   const [input, setInput] = useState("");
   const { chat } = useSharedChatContext();
   const { messages, sendMessage, status } = useChat<ChatUIMessage>({ chat });
-  const params = useParams<{ gameId?: string[] }>();
   const {
-    setGameId,
     sandpackFiles,
     refreshIframe,
     showFileExplorer,
@@ -67,75 +56,17 @@ export const BuildView = () => {
     showLogs,
     setShowLogs,
     logs,
-    generationMode,
-    setGenerationMode,
     v0ChatId,
   } = useUiStore();
 
-  const createBuild = useMutation(trpc.localGame.createBuild.mutationOptions());
-
   const validateAndSubmitMessage = useCallback(
-    async (text: string) => {
+    (text: string) => {
       if (!text.trim()) return;
 
-      if (generationMode === "v0") {
-        // v0 mode: no local build needed, just send with v0 params
-        void sendMessage(
-          { text },
-          { body: { mode: "v0", v0ChatId, buildId: "" } },
-        );
-        setInput("");
-        return;
-      }
-
-      // Local mode: check if we're looking at a new game (no gameId in URL)
-      const gameId = params.gameId?.[0];
-      const isNewGame = !gameId;
-      let buildId: string = gameId ?? "";
-
-      if (isNewGame) {
-        // Create a new game first
-        const filesArray = toBuildFiles(sandpackFiles);
-
-        try {
-          const result = await createBuild.mutateAsync({
-            files: filesArray,
-          });
-
-          buildId = result.build.id;
-
-          // Initialize sandpack with default files
-          setGameId(buildId, getDefaultFiles());
-
-          // Update URL without triggering a rerender
-          window.history.replaceState(
-            {
-              ...window.history.state,
-              as: `/${result.build.id}`,
-              url: `/${result.build.id}`,
-            },
-            "",
-            `/${result.build.id}`,
-          );
-        } catch (error) {
-          console.error("Failed to create game:", error);
-          // Still try to send the message even if game creation fails
-        }
-      }
-
-      // Send the message
-      void sendMessage({ text }, { body: { buildId, mode: "local" } });
+      void sendMessage({ text }, { body: { v0ChatId } });
       setInput("");
     },
-    [
-      sendMessage,
-      setInput,
-      params.gameId,
-      sandpackFiles,
-      createBuild,
-      generationMode,
-      v0ChatId,
-    ],
+    [sendMessage, v0ChatId],
   );
 
   return (
@@ -152,7 +83,7 @@ export const BuildView = () => {
         className="relative pb-4"
         onSubmit={(event) => {
           event.preventDefault();
-          void validateAndSubmitMessage(input);
+          validateAndSubmitMessage(input);
         }}
       >
         <motion.div
@@ -186,38 +117,6 @@ export const BuildView = () => {
                     <GamepadIcon />
                     My Games
                     {showMyGames && (
-                      <span className="ml-auto text-xs">
-                        <CheckIcon />
-                      </span>
-                    )}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => {
-                      setGameId(generateId(), getDefaultFiles());
-                      setInput("");
-                    }}
-                  >
-                    <PlusIcon />
-                    Create New Game
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => setGenerationMode("local")}
-                  >
-                    <LaptopIcon />
-                    Local Generation
-                    {generationMode === "local" && (
-                      <span className="ml-auto text-xs">
-                        <CheckIcon />
-                      </span>
-                    )}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => setGenerationMode("v0")}
-                  >
-                    <CloudIcon />
-                    v0 Generation
-                    {generationMode === "v0" && (
                       <span className="ml-auto text-xs">
                         <CheckIcon />
                       </span>
@@ -273,7 +172,7 @@ export const BuildView = () => {
                   !e.shiftKey
                 ) {
                   e.preventDefault();
-                  void validateAndSubmitMessage(input);
+                  validateAndSubmitMessage(input);
                 }
               }}
             >

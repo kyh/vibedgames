@@ -12,7 +12,6 @@ import { featuredGames } from "./data";
 import { initializeSandpackClient, toSandpack } from "./sandpack";
 
 type View = "build" | "play" | "discover";
-export type GenerationMode = "local" | "v0";
 
 type UIState = {
   // General view state
@@ -34,14 +33,9 @@ type UIState = {
   setShowLogs: (show: boolean) => void;
   logs: string[];
   appendLog: (log: string) => void;
-  // Generation mode
-  generationMode: GenerationMode;
-  setGenerationMode: (mode: GenerationMode) => void;
-  // v0 state
+  // v0 chat session id (for follow-up messages)
   v0ChatId: string | null;
   setV0ChatId: (chatId: string | null) => void;
-  v0PreviewUrl: string | null;
-  setV0PreviewUrl: (url: string | null) => void;
   // View == play/build states
   gameId: string; // Game ID is a string for local games, and a url for remote games
   setGameId: (id: string, files?: SandpackBundlerFiles) => void;
@@ -82,14 +76,9 @@ export const useUiStore = create<UIState>((set, get) => ({
   setShowLogs: (show) => set({ showLogs: show }),
   logs: [],
   appendLog: (log) => set((state) => ({ logs: [...state.logs, log] })),
-  // Generation mode
-  generationMode: "local",
-  setGenerationMode: (mode) => set({ generationMode: mode }),
-  // v0 state
+  // v0 chat session id (for follow-up messages)
   v0ChatId: null,
   setV0ChatId: (chatId) => set({ v0ChatId: chatId }),
-  v0PreviewUrl: null,
-  setV0PreviewUrl: (url) => set({ v0PreviewUrl: url }),
   // View == play/build states
   gameId: featuredGames[0]?.url ?? "",
   setGameId: (id, files) => {
@@ -179,8 +168,7 @@ export const useUiStore = create<UIState>((set, get) => ({
 }));
 
 export function useDataStateMapper() {
-  const { updateSandpackFiles, setV0ChatId, setV0PreviewUrl, setGameId } =
-    useUiStore();
+  const { updateSandpackFiles, setV0ChatId, setGameId } = useUiStore();
 
   return (data: DataUIPart<DataPart>) => {
     switch (data.type) {
@@ -194,7 +182,6 @@ export function useDataStateMapper() {
           setV0ChatId(data.data.chatId);
         }
         if (data.data.url && data.data.status === "done") {
-          setV0PreviewUrl(data.data.url);
           // Load the v0 preview URL in the iframe (no files = URL mode)
           setGameId(data.data.url);
         }
