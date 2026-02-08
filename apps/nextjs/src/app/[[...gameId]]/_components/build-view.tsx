@@ -26,9 +26,11 @@ import { useMutation } from "@tanstack/react-query";
 import { generateId } from "ai";
 import {
   CheckIcon,
+  CloudIcon,
   FileIcon,
   GamepadIcon,
   HelpCircleIcon,
+  LaptopIcon,
   MenuIcon,
   PlusIcon,
   RefreshCwIcon,
@@ -65,6 +67,9 @@ export const BuildView = () => {
     showLogs,
     setShowLogs,
     logs,
+    generationMode,
+    setGenerationMode,
+    v0ChatId,
   } = useUiStore();
 
   const createBuild = useMutation(trpc.localGame.createBuild.mutationOptions());
@@ -73,7 +78,17 @@ export const BuildView = () => {
     async (text: string) => {
       if (!text.trim()) return;
 
-      // Check if we're looking at a new game (no gameId in URL)
+      if (generationMode === "v0") {
+        // v0 mode: no local build needed, just send with v0 params
+        void sendMessage(
+          { text },
+          { body: { mode: "v0", v0ChatId, buildId: "" } },
+        );
+        setInput("");
+        return;
+      }
+
+      // Local mode: check if we're looking at a new game (no gameId in URL)
       const gameId = params.gameId?.[0];
       const isNewGame = !gameId;
       let buildId: string = gameId ?? "";
@@ -109,10 +124,18 @@ export const BuildView = () => {
       }
 
       // Send the message
-      void sendMessage({ text }, { body: { buildId } });
+      void sendMessage({ text }, { body: { buildId, mode: "local" } });
       setInput("");
     },
-    [sendMessage, setInput, params.gameId, sandpackFiles, createBuild],
+    [
+      sendMessage,
+      setInput,
+      params.gameId,
+      sandpackFiles,
+      createBuild,
+      generationMode,
+      v0ChatId,
+    ],
   );
 
   return (
@@ -176,6 +199,29 @@ export const BuildView = () => {
                   >
                     <PlusIcon />
                     Create New Game
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => setGenerationMode("local")}
+                  >
+                    <LaptopIcon />
+                    Local Generation
+                    {generationMode === "local" && (
+                      <span className="ml-auto text-xs">
+                        <CheckIcon />
+                      </span>
+                    )}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => setGenerationMode("v0")}
+                  >
+                    <CloudIcon />
+                    v0 Generation
+                    {generationMode === "v0" && (
+                      <span className="ml-auto text-xs">
+                        <CheckIcon />
+                      </span>
+                    )}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem

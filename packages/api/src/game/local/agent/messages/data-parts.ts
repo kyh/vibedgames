@@ -28,6 +28,20 @@ export const dataPartSchema = z.object({
     summary: z.string(),
     paths: z.array(z.string()).optional(),
   }),
+  "v0-preview": z.object({
+    chatId: z.string(),
+    url: z.string().optional(),
+    files: z
+      .array(
+        z.object({
+          name: z.string(),
+          content: z.string(),
+        }),
+      )
+      .optional(),
+    status: z.enum(["streaming", "done", "error"]),
+    error: errorSchema.optional(),
+  }),
 });
 
 export type DataPart = z.infer<typeof dataPartSchema>;
