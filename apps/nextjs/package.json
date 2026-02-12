@@ -15,7 +15,7 @@
   },
   "prettier": "@kyh/prettier-config",
   "dependencies": {
-    "@ai-sdk/react": "^3.0.80",
+    "@ai-sdk/react": "^3.0.83",
     "@codesandbox/sandpack-client": "^2.19.8",
     "@hookform/resolvers": "^5.2.2",
     "@repo/api": "workspace:^",
@@ -26,7 +26,7 @@
     "@trpc/client": "catalog:",
     "@trpc/server": "catalog:",
     "@trpc/tanstack-react-query": "catalog:",
-    "ai": "^6.0.78",
+    "ai": "^6.0.81",
     "better-auth": "^1.4.18",
     "lucide-react": "^0.562.0",
     "motion": "^12.34.0",
