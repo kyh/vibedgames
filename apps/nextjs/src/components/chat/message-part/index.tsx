@@ -8,6 +8,7 @@ import { GenerateFiles } from "./generate-files";
 import { Reasoning } from "./reasoning";
 import { ReportErrors } from "./report-errors";
 import { Text } from "./text";
+import { V0Preview } from "./v0-preview";
 
 type Props = {
   part: UIMessage<Metadata, DataPart, ToolSet>["parts"][number];
@@ -28,6 +29,8 @@ export const MessagePart = memo(function MessagePart({
     );
   } else if (part.type === "data-report-errors") {
     return <ReportErrors message={part.data} className={className} />;
+  } else if (part.type === "data-v0-preview") {
+    return <V0Preview message={part.data} className={className} />;
   } else if (part.type === "text") {
     return <Text part={part} className={className} />;
   }
