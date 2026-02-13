@@ -18,7 +18,7 @@
     "@repo/multiplayer": "workspace:^"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260212.0",
+    "@cloudflare/workers-types": "^4.20260213.0",
     "@kyh/eslint-config": "catalog:",
     "@kyh/prettier-config": "catalog:",
     "@kyh/tsconfig": "catalog:",
