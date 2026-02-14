@@ -234,7 +234,7 @@ importers:
         version: 6.0.86(zod@4.3.6)
       better-auth:
         specifier: ^1.4.18
-        version: 1.4.18(drizzle-kit@0.31.9)(drizzle-orm@0.45.1(@cloudflare/workers-types@4.20260213.0)(@libsql/client@0.17.0)(@opentelemetry/api@1.9.0)(kysely@0.28.9)(sql.js@1.13.0))(next@16.1.6(@babel/core@7.28.6)(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+        version: 1.4.18(drizzle-kit@0.31.9)(drizzle-orm@0.45.1(@cloudflare/workers-types@4.20260214.0)(@libsql/client@0.17.0)(@opentelemetry/api@1.9.0)(kysely@0.28.9)(sql.js@1.13.0))(next@16.1.6(@babel/core@7.28.6)(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       lucide-react:
         specifier: ^0.562.0
         version: 0.562.0(react@19.2.4)
@@ -398,8 +398,8 @@ importers:
         version: link:../../packages/multiplayer
     devDependencies:
       '@cloudflare/workers-types':
-        specifier: ^4.20260213.0
-        version: 4.20260213.0
+        specifier: ^4.20260214.0
+        version: 4.20260214.0
       '@kyh/eslint-config':
         specifier: 'catalog:'
         version: 1.1.13(@typescript-eslint/parser@8.53.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.2(jiti@2.6.1))(turbo@2.8.8)(typescript@5.9.3)
@@ -414,7 +414,7 @@ importers:
         version: 9.39.2(jiti@2.6.1)
       partyserver:
         specifier: ^0.1.5
-        version: 0.1.5(@cloudflare/workers-types@4.20260213.0)
+        version: 0.1.5(@cloudflare/workers-types@4.20260214.0)
       prettier:
         specifier: 'catalog:'
         version: 3.8.1
@@ -423,7 +423,7 @@ importers:
         version: 5.9.3
       wrangler:
         specifier: ^4.65.0
-        version: 4.65.0(@cloudflare/workers-types@4.20260213.0)
+        version: 4.65.0(@cloudflare/workers-types@4.20260214.0)
 
   apps/pong:
     dependencies:
@@ -554,7 +554,7 @@ importers:
     dependencies:
       '@better-auth/expo':
         specifier: ^1.4.18
-        version: 1.4.18(@better-auth/core@1.4.18(@better-auth/utils@0.3.0)(@better-fetch/fetch@1.1.21)(better-call@1.1.8(zod@4.3.6))(jose@6.1.3)(kysely@0.28.9)(nanostores@1.1.0))(better-auth@1.4.18(drizzle-kit@0.31.9)(drizzle-orm@0.45.1(@cloudflare/workers-types@4.20260213.0)(@libsql/client@0.17.0)(@opentelemetry/api@1.9.0)(kysely@0.28.9)(sql.js@1.13.0))(next@16.1.6(@babel/core@7.28.6)(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(expo-constants@18.0.13(expo@54.0.31(@babel/core@7.28.6)(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4))(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.2.14)(react@19.2.4)))(expo-network@8.0.8(expo@54.0.31(@babel/core@7.28.6)(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4))(react@19.2.4))
+        version: 1.4.18(@better-auth/core@1.4.18(@better-auth/utils@0.3.0)(@better-fetch/fetch@1.1.21)(better-call@1.1.8(zod@4.3.6))(jose@6.1.3)(kysely@0.28.9)(nanostores@1.1.0))(better-auth@1.4.18(drizzle-kit@0.31.9)(drizzle-orm@0.45.1(@cloudflare/workers-types@4.20260214.0)(@libsql/client@0.17.0)(@opentelemetry/api@1.9.0)(kysely@0.28.9)(sql.js@1.13.0))(next@16.1.6(@babel/core@7.28.6)(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(expo-constants@18.0.13(expo@54.0.31(@babel/core@7.28.6)(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4))(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.2.14)(react@19.2.4)))(expo-network@8.0.8(expo@54.0.31(@babel/core@7.28.6)(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4))(react@19.2.4))
       '@repo/db':
         specifier: workspace:^
         version: link:../db
@@ -569,7 +569,7 @@ importers:
         version: 1.3.14(ai@6.0.86(zod@4.3.6))(just-bash@2.9.8)
       better-auth:
         specifier: ^1.4.18
-        version: 1.4.18(drizzle-kit@0.31.9)(drizzle-orm@0.45.1(@cloudflare/workers-types@4.20260213.0)(@libsql/client@0.17.0)(@opentelemetry/api@1.9.0)(kysely@0.28.9)(sql.js@1.13.0))(next@16.1.6(@babel/core@7.28.6)(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+        version: 1.4.18(drizzle-kit@0.31.9)(drizzle-orm@0.45.1(@cloudflare/workers-types@4.20260214.0)(@libsql/client@0.17.0)(@opentelemetry/api@1.9.0)(kysely@0.28.9)(sql.js@1.13.0))(next@16.1.6(@babel/core@7.28.6)(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       just-bash:
         specifier: ^2.9.8
         version: 2.9.8
@@ -621,7 +621,7 @@ importers:
         version: 0.17.0
       drizzle-orm:
         specifier: ^0.45.1
-        version: 0.45.1(@cloudflare/workers-types@4.20260213.0)(@libsql/client@0.17.0)(@opentelemetry/api@1.9.0)(kysely@0.28.9)(sql.js@1.13.0)
+        version: 0.45.1(@cloudflare/workers-types@4.20260214.0)(@libsql/client@0.17.0)(@opentelemetry/api@1.9.0)(kysely@0.28.9)(sql.js@1.13.0)
     devDependencies:
       '@kyh/eslint-config':
         specifier: 'catalog:'
@@ -1395,8 +1395,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@cloudflare/workers-types@4.20260213.0':
-    resolution: {integrity: sha512-dr905ft/1R0mnfdT9aun4vanLgIBN27ZyPxTCENKmhctSz6zNmBOvHbzDWAhGE0RBAKFf3X7ifMRcd0MkmBvgA==}
+  '@cloudflare/workers-types@4.20260214.0':
+    resolution: {integrity: sha512-qb8rgbAdJR4BAPXolXhFL/wuGtecHLh1veOyZ1mK6QqWuCdI3vK1biKC0i3lzmzdLR/DZvsN3mNtpUE8zpWGEg==}
 
   '@codesandbox/nodebox@0.1.8':
     resolution: {integrity: sha512-2VRS6JDSk+M+pg56GA6CryyUSGPjBEe8Pnae0QL3jJF1mJZJVMDKr93gJRtBbLkfZN6LD/DwMtf+2L0bpWrjqg==}
@@ -9181,11 +9181,11 @@ snapshots:
       nanostores: 1.1.0
       zod: 4.3.6
 
-  '@better-auth/expo@1.4.18(@better-auth/core@1.4.18(@better-auth/utils@0.3.0)(@better-fetch/fetch@1.1.21)(better-call@1.1.8(zod@4.3.6))(jose@6.1.3)(kysely@0.28.9)(nanostores@1.1.0))(better-auth@1.4.18(drizzle-kit@0.31.9)(drizzle-orm@0.45.1(@cloudflare/workers-types@4.20260213.0)(@libsql/client@0.17.0)(@opentelemetry/api@1.9.0)(kysely@0.28.9)(sql.js@1.13.0))(next@16.1.6(@babel/core@7.28.6)(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(expo-constants@18.0.13(expo@54.0.31(@babel/core@7.28.6)(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4))(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.2.14)(react@19.2.4)))(expo-network@8.0.8(expo@54.0.31(@babel/core@7.28.6)(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4))(react@19.2.4))':
+  '@better-auth/expo@1.4.18(@better-auth/core@1.4.18(@better-auth/utils@0.3.0)(@better-fetch/fetch@1.1.21)(better-call@1.1.8(zod@4.3.6))(jose@6.1.3)(kysely@0.28.9)(nanostores@1.1.0))(better-auth@1.4.18(drizzle-kit@0.31.9)(drizzle-orm@0.45.1(@cloudflare/workers-types@4.20260214.0)(@libsql/client@0.17.0)(@opentelemetry/api@1.9.0)(kysely@0.28.9)(sql.js@1.13.0))(next@16.1.6(@babel/core@7.28.6)(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(expo-constants@18.0.13(expo@54.0.31(@babel/core@7.28.6)(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4))(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.2.14)(react@19.2.4)))(expo-network@8.0.8(expo@54.0.31(@babel/core@7.28.6)(react-native@0.83.1(@babel/core@7.28.6)(@types/react@19.2.14)(react@19.2.4))(react@19.2.4))(react@19.2.4))':
     dependencies:
       '@better-auth/core': 1.4.18(@better-auth/utils@0.3.0)(@better-fetch/fetch@1.1.21)(better-call@1.1.8(zod@4.3.6))(jose@6.1.3)(kysely@0.28.9)(nanostores@1.1.0)
       '@better-fetch/fetch': 1.1.21
-      better-auth: 1.4.18(drizzle-kit@0.31.9)(drizzle-orm@0.45.1(@cloudflare/workers-types@4.20260213.0)(@libsql/client@0.17.0)(@opentelemetry/api@1.9.0)(kysely@0.28.9)(sql.js@1.13.0))(next@16.1.6(@babel/core@7.28.6)(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      better-auth: 1.4.18(drizzle-kit@0.31.9)(drizzle-orm@0.45.1(@cloudflare/workers-types@4.20260214.0)(@libsql/client@0.17.0)(@opentelemetry/api@1.9.0)(kysely@0.28.9)(sql.js@1.13.0))(next@16.1.6(@babel/core@7.28.6)(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       better-call: 1.1.8(zod@4.3.6)
       zod: 4.3.6
     optionalDependencies:
@@ -9227,7 +9227,7 @@ snapshots:
   '@cloudflare/workerd-windows-64@1.20260212.0':
     optional: true
 
-  '@cloudflare/workers-types@4.20260213.0': {}
+  '@cloudflare/workers-types@4.20260214.0': {}
 
   '@codesandbox/nodebox@0.1.8':
     dependencies:
@@ -12473,7 +12473,7 @@ snapshots:
     optionalDependencies:
       just-bash: 2.9.8
 
-  better-auth@1.4.18(drizzle-kit@0.31.9)(drizzle-orm@0.45.1(@cloudflare/workers-types@4.20260213.0)(@libsql/client@0.17.0)(@opentelemetry/api@1.9.0)(kysely@0.28.9)(sql.js@1.13.0))(next@16.1.6(@babel/core@7.28.6)(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4):
+  better-auth@1.4.18(drizzle-kit@0.31.9)(drizzle-orm@0.45.1(@cloudflare/workers-types@4.20260214.0)(@libsql/client@0.17.0)(@opentelemetry/api@1.9.0)(kysely@0.28.9)(sql.js@1.13.0))(next@16.1.6(@babel/core@7.28.6)(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4):
     dependencies:
       '@better-auth/core': 1.4.18(@better-auth/utils@0.3.0)(@better-fetch/fetch@1.1.21)(better-call@1.1.8(zod@4.3.6))(jose@6.1.3)(kysely@0.28.9)(nanostores@1.1.0)
       '@better-auth/telemetry': 1.4.18(@better-auth/core@1.4.18(@better-auth/utils@0.3.0)(@better-fetch/fetch@1.1.21)(better-call@1.1.8(zod@4.3.6))(jose@6.1.3)(kysely@0.28.9)(nanostores@1.1.0))
@@ -12489,7 +12489,7 @@ snapshots:
       zod: 4.3.6
     optionalDependencies:
       drizzle-kit: 0.31.9
-      drizzle-orm: 0.45.1(@cloudflare/workers-types@4.20260213.0)(@libsql/client@0.17.0)(@opentelemetry/api@1.9.0)(kysely@0.28.9)(sql.js@1.13.0)
+      drizzle-orm: 0.45.1(@cloudflare/workers-types@4.20260214.0)(@libsql/client@0.17.0)(@opentelemetry/api@1.9.0)(kysely@0.28.9)(sql.js@1.13.0)
       next: 16.1.6(@babel/core@7.28.6)(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       react: 19.2.4
       react-dom: 19.2.4(react@19.2.4)
@@ -12966,9 +12966,9 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  drizzle-orm@0.45.1(@cloudflare/workers-types@4.20260213.0)(@libsql/client@0.17.0)(@opentelemetry/api@1.9.0)(kysely@0.28.9)(sql.js@1.13.0):
+  drizzle-orm@0.45.1(@cloudflare/workers-types@4.20260214.0)(@libsql/client@0.17.0)(@opentelemetry/api@1.9.0)(kysely@0.28.9)(sql.js@1.13.0):
     optionalDependencies:
-      '@cloudflare/workers-types': 4.20260213.0
+      '@cloudflare/workers-types': 4.20260214.0
       '@libsql/client': 0.17.0
       '@opentelemetry/api': 1.9.0
       kysely: 0.28.9
@@ -15519,9 +15519,9 @@ snapshots:
   parseurl@1.3.3:
     optional: true
 
-  partyserver@0.1.5(@cloudflare/workers-types@4.20260213.0):
+  partyserver@0.1.5(@cloudflare/workers-types@4.20260214.0):
     dependencies:
-      '@cloudflare/workers-types': 4.20260213.0
+      '@cloudflare/workers-types': 4.20260214.0
       nanoid: 5.1.6
 
   partysocket@1.1.13:
@@ -17140,7 +17140,7 @@ snapshots:
       '@cloudflare/workerd-linux-arm64': 1.20260212.0
       '@cloudflare/workerd-windows-64': 1.20260212.0
 
-  wrangler@4.65.0(@cloudflare/workers-types@4.20260213.0):
+  wrangler@4.65.0(@cloudflare/workers-types@4.20260214.0):
     dependencies:
       '@cloudflare/kv-asset-handler': 0.4.2
       '@cloudflare/unenv-preset': 2.12.1(unenv@2.0.0-rc.24)(workerd@1.20260212.0)
@@ -17151,7 +17151,7 @@ snapshots:
       unenv: 2.0.0-rc.24
       workerd: 1.20260212.0
     optionalDependencies:
-      '@cloudflare/workers-types': 4.20260213.0
+      '@cloudflare/workers-types': 4.20260214.0
       fsevents: 2.3.3
     transitivePeerDependencies:
       - bufferutil
