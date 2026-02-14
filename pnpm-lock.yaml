@@ -78,8 +78,8 @@ importers:
         specifier: ^4.21.0
         version: 4.21.0
       turbo:
-        specifier: ^2.8.7
-        version: 2.8.7
+        specifier: ^2.8.8
+        version: 2.8.8
       typescript:
         specifier: 'catalog:'
         version: 5.9.3
@@ -98,7 +98,7 @@ importers:
     devDependencies:
       '@kyh/eslint-config':
         specifier: 'catalog:'
-        version: 1.1.13(@typescript-eslint/parser@8.53.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.2(jiti@2.6.1))(turbo@2.8.7)(typescript@5.9.3)
+        version: 1.1.13(@typescript-eslint/parser@8.53.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.2(jiti@2.6.1))(turbo@2.8.8)(typescript@5.9.3)
       '@kyh/prettier-config':
         specifier: 'catalog:'
         version: 1.1.13
@@ -156,7 +156,7 @@ importers:
     devDependencies:
       '@kyh/eslint-config':
         specifier: 'catalog:'
-        version: 1.1.13(@typescript-eslint/parser@8.53.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.2(jiti@2.6.1))(turbo@2.8.7)(typescript@5.9.3)
+        version: 1.1.13(@typescript-eslint/parser@8.53.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.2(jiti@2.6.1))(turbo@2.8.8)(typescript@5.9.3)
       '@kyh/prettier-config':
         specifier: 'catalog:'
         version: 1.1.13
@@ -197,8 +197,8 @@ importers:
   apps/nextjs:
     dependencies:
       '@ai-sdk/react':
-        specifier: ^3.0.87
-        version: 3.0.87(react@19.2.4)(zod@4.3.6)
+        specifier: ^3.0.88
+        version: 3.0.88(react@19.2.4)(zod@4.3.6)
       '@codesandbox/sandpack-client':
         specifier: ^2.19.8
         version: 2.19.8
@@ -230,8 +230,8 @@ importers:
         specifier: 'catalog:'
         version: 11.10.0(@tanstack/react-query@5.90.21(react@19.2.4))(@trpc/client@11.10.0(@trpc/server@11.10.0(typescript@5.9.3))(typescript@5.9.3))(@trpc/server@11.10.0(typescript@5.9.3))(react@19.2.4)(typescript@5.9.3)
       ai:
-        specifier: ^6.0.85
-        version: 6.0.85(zod@4.3.6)
+        specifier: ^6.0.86
+        version: 6.0.86(zod@4.3.6)
       better-auth:
         specifier: ^1.4.18
         version: 1.4.18(drizzle-kit@0.31.9)(drizzle-orm@0.45.1(@cloudflare/workers-types@4.20260213.0)(@libsql/client@0.17.0)(@opentelemetry/api@1.9.0)(kysely@0.28.9)(sql.js@1.13.0))(next@16.1.6(@babel/core@7.28.6)(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -274,7 +274,7 @@ importers:
     devDependencies:
       '@kyh/eslint-config':
         specifier: 'catalog:'
-        version: 1.1.13(@typescript-eslint/parser@8.53.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.2(jiti@2.6.1))(turbo@2.8.7)(typescript@5.9.3)
+        version: 1.1.13(@typescript-eslint/parser@8.53.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.2(jiti@2.6.1))(turbo@2.8.8)(typescript@5.9.3)
       '@kyh/prettier-config':
         specifier: 'catalog:'
         version: 1.1.13
@@ -347,7 +347,7 @@ importers:
     devDependencies:
       '@kyh/eslint-config':
         specifier: 'catalog:'
-        version: 1.1.13(@typescript-eslint/parser@8.53.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.2(jiti@2.6.1))(turbo@2.8.7)(typescript@5.9.3)
+        version: 1.1.13(@typescript-eslint/parser@8.53.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.2(jiti@2.6.1))(turbo@2.8.8)(typescript@5.9.3)
       '@kyh/prettier-config':
         specifier: 'catalog:'
         version: 1.1.13
@@ -402,7 +402,7 @@ importers:
         version: 4.20260213.0
       '@kyh/eslint-config':
         specifier: 'catalog:'
-        version: 1.1.13(@typescript-eslint/parser@8.53.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.2(jiti@2.6.1))(turbo@2.8.7)(typescript@5.9.3)
+        version: 1.1.13(@typescript-eslint/parser@8.53.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.2(jiti@2.6.1))(turbo@2.8.8)(typescript@5.9.3)
       '@kyh/prettier-config':
         specifier: 'catalog:'
         version: 1.1.13
@@ -448,7 +448,7 @@ importers:
     devDependencies:
       '@kyh/eslint-config':
         specifier: 'catalog:'
-        version: 1.1.13(@typescript-eslint/parser@8.53.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.2(jiti@2.6.1))(turbo@2.8.7)(typescript@5.9.3)
+        version: 1.1.13(@typescript-eslint/parser@8.53.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.2(jiti@2.6.1))(turbo@2.8.8)(typescript@5.9.3)
       '@kyh/prettier-config':
         specifier: 'catalog:'
         version: 1.1.13
@@ -512,7 +512,7 @@ importers:
     devDependencies:
       '@kyh/eslint-config':
         specifier: 'catalog:'
-        version: 1.1.13(@typescript-eslint/parser@8.53.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.2(jiti@2.6.1))(turbo@2.8.7)(typescript@5.9.3)
+        version: 1.1.13(@typescript-eslint/parser@8.53.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.2(jiti@2.6.1))(turbo@2.8.8)(typescript@5.9.3)
       '@kyh/prettier-config':
         specifier: 'catalog:'
         version: 1.1.13
@@ -562,11 +562,11 @@ importers:
         specifier: 'catalog:'
         version: 11.10.0(typescript@5.9.3)
       ai:
-        specifier: ^6.0.85
-        version: 6.0.85(zod@4.3.6)
+        specifier: ^6.0.86
+        version: 6.0.86(zod@4.3.6)
       bash-tool:
         specifier: ^1.3.14
-        version: 1.3.14(ai@6.0.85(zod@4.3.6))(just-bash@2.9.8)
+        version: 1.3.14(ai@6.0.86(zod@4.3.6))(just-bash@2.9.8)
       better-auth:
         specifier: ^1.4.18
         version: 1.4.18(drizzle-kit@0.31.9)(drizzle-orm@0.45.1(@cloudflare/workers-types@4.20260213.0)(@libsql/client@0.17.0)(@opentelemetry/api@1.9.0)(kysely@0.28.9)(sql.js@1.13.0))(next@16.1.6(@babel/core@7.28.6)(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -585,7 +585,7 @@ importers:
     devDependencies:
       '@kyh/eslint-config':
         specifier: 'catalog:'
-        version: 1.1.13(@typescript-eslint/parser@8.53.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.2(jiti@2.6.1))(turbo@2.8.7)(typescript@5.9.3)
+        version: 1.1.13(@typescript-eslint/parser@8.53.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.2(jiti@2.6.1))(turbo@2.8.8)(typescript@5.9.3)
       '@kyh/prettier-config':
         specifier: 'catalog:'
         version: 1.1.13
@@ -625,7 +625,7 @@ importers:
     devDependencies:
       '@kyh/eslint-config':
         specifier: 'catalog:'
-        version: 1.1.13(@typescript-eslint/parser@8.53.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.2(jiti@2.6.1))(turbo@2.8.7)(typescript@5.9.3)
+        version: 1.1.13(@typescript-eslint/parser@8.53.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.2(jiti@2.6.1))(turbo@2.8.8)(typescript@5.9.3)
       '@kyh/prettier-config':
         specifier: 'catalog:'
         version: 1.1.13
@@ -659,7 +659,7 @@ importers:
     devDependencies:
       '@kyh/eslint-config':
         specifier: 'catalog:'
-        version: 1.1.13(@typescript-eslint/parser@8.53.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.2(jiti@2.6.1))(turbo@2.8.7)(typescript@5.9.3)
+        version: 1.1.13(@typescript-eslint/parser@8.53.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.2(jiti@2.6.1))(turbo@2.8.8)(typescript@5.9.3)
       '@kyh/prettier-config':
         specifier: 'catalog:'
         version: 1.1.13
@@ -744,7 +744,7 @@ importers:
     devDependencies:
       '@kyh/eslint-config':
         specifier: 'catalog:'
-        version: 1.1.13(@typescript-eslint/parser@8.53.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.2(jiti@2.6.1))(turbo@2.8.7)(typescript@5.9.3)
+        version: 1.1.13(@typescript-eslint/parser@8.53.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.2(jiti@2.6.1))(turbo@2.8.8)(typescript@5.9.3)
       '@kyh/prettier-config':
         specifier: 'catalog:'
         version: 1.1.13
@@ -774,8 +774,8 @@ packages:
       graphql:
         optional: true
 
-  '@ai-sdk/gateway@3.0.45':
-    resolution: {integrity: sha512-ZB6kHV+D8mLCRnkpWotLCV/rZK4NiODxx4Kv7JdT9QmQknbG/scbE4iyoT4JLFdULA8Y/IVbMvyE0Nwq3Dceqw==}
+  '@ai-sdk/gateway@3.0.46':
+    resolution: {integrity: sha512-zH1UbNRjG5woOXXFOrVCZraqZuFTtmPvLardMGcgLkzpxKV0U3tAGoyWKSZ862H+eBJfI/Hf2yj/zzGJcCkycg==}
     engines: {node: '>=18'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
@@ -790,8 +790,8 @@ packages:
     resolution: {integrity: sha512-oGMAgGoQdBXbZqNG0Ze56CHjDZ1IDYOwGYxYjO5KLSlz5HiNQ9udIXsPZ61VWaHGZ5XW/jyjmr6t2xz2jGVwbQ==}
     engines: {node: '>=18'}
 
-  '@ai-sdk/react@3.0.87':
-    resolution: {integrity: sha512-qa4Ywm08g27Voys1xuF2WeX3s8shd4hLJCCxi/Ws6cUZsWpMnFW2rtEfCcKRlWyJ4NRypauiNmcvQKz4v6u0/A==}
+  '@ai-sdk/react@3.0.88':
+    resolution: {integrity: sha512-fsUsDP0S+AAmxwgzxYhn9MQKmnAg7AttV3yrSw3bvI5MVfl0LBD3ViRuGNqY8S1DkkDfEF4BLom/nkbD1zY4bQ==}
     engines: {node: '>=18'}
     peerDependencies:
       react: ^18 || ~19.0.1 || ~19.1.2 || ^19.2.1
@@ -4227,8 +4227,8 @@ packages:
     resolution: {integrity: sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==}
     engines: {node: '>= 14'}
 
-  ai@6.0.85:
-    resolution: {integrity: sha512-2bP7M+OcNQGSIH8I3jdujUadxj4tAwuHBvLhpmDSlcjRXXry3zNGEajjjRraOjObHMO/Yqa37PJWhPVHIHt2TQ==}
+  ai@6.0.86:
+    resolution: {integrity: sha512-U2W2LBCHA/pr0Ui7vmmsjBiLEzBbZF3yVHNy7Rbzn7IX+SvoQPFM5rN74hhfVzZoE8zBuGD4nLLk+j0elGacvQ==}
     engines: {node: '>=18'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
@@ -7878,38 +7878,38 @@ packages:
   tunnel-rat@0.1.2:
     resolution: {integrity: sha512-lR5VHmkPhzdhrM092lI2nACsLO4QubF0/yoOhzX7c+wIpbN1GjHNzCc91QlpxBi+cnx8vVJ+Ur6vL5cEoQPFpQ==}
 
-  turbo-darwin-64@2.8.7:
-    resolution: {integrity: sha512-Xr4TO/oDDwoozbDtBvunb66g//WK8uHRygl72vUthuwzmiw48pil4IuoG/QbMHd9RE8aBnVmzC0WZEWk/WWt3A==}
+  turbo-darwin-64@2.8.8:
+    resolution: {integrity: sha512-7R/XRAleyNB8nIJuenRpS7EnmCM/kYFgcG1rW3F5DF57Nl4WyBO3DzxqwooRheuoXDD1UsJvDse0yRufgxjClA==}
     cpu: [x64]
     os: [darwin]
 
-  turbo-darwin-arm64@2.8.7:
-    resolution: {integrity: sha512-p8Xbmb9kZEY/NoshQUcFmQdO80s2PCGoLYj5DbpxjZr3diknipXxzOK7pcmT7l2gNHaMCpFVWLkiFY9nO3EU5w==}
+  turbo-darwin-arm64@2.8.8:
+    resolution: {integrity: sha512-whpveO0w/dMcgQ0zFrzqK76mG2W+RBQ/pKIpW+sEvNr+T4UcYd2gZpfV2euehJLvdeFErWgW74dIt/MFfkG1bA==}
     cpu: [arm64]
     os: [darwin]
 
-  turbo-linux-64@2.8.7:
-    resolution: {integrity: sha512-nwfEPAH3m5y/nJeYly3j1YJNYU2EG5+2ysZUxvBNM+VBV2LjQaLxB9CsEIpIOKuWKCjnFHKIADTSDPZ3D12J5Q==}
+  turbo-linux-64@2.8.8:
+    resolution: {integrity: sha512-BISkcKk+5/Dh11q+YhdQIGONXmdlQ6LY0iQ+GBIK7QOBAJyJFKmKvUeAeMdWGXOa3sImz2oZ6u2StyR+0Y/VVA==}
     cpu: [x64]
     os: [linux]
 
-  turbo-linux-arm64@2.8.7:
-    resolution: {integrity: sha512-mgA/M6xiJzyxtXV70TtWGDPh+I6acOKmeQGtOzbFQZYEf794pu5jax26bCk5skAp1gqZu3vacPr6jhYHoHU9IQ==}
+  turbo-linux-arm64@2.8.8:
+    resolution: {integrity: sha512-B+DQWWtM3O+AexFF4aYucT0MvvnQOW4n5y9LA5h3Zc3Lpj10yl9K4dEBzJvMVQ2jTkCRNAvA8q9G3EjqmGmGGA==}
     cpu: [arm64]
     os: [linux]
 
-  turbo-windows-64@2.8.7:
-    resolution: {integrity: sha512-sHTYMaXuCcyHnGUQgfUUt7S8407TWoP14zc/4N2tsM0wZNK6V9h4H2t5jQPtqKEb6Fg8313kygdDgEwuM4vsHg==}
+  turbo-windows-64@2.8.8:
+    resolution: {integrity: sha512-KP5TRVrmVnrxDyvERvQq7VXu+h5AiEiBwyr90YsRuYy/Z5zLz8hrNZXejTyUR17xmnuI+RbUSxrQlfmPnxiW1A==}
     cpu: [x64]
     os: [win32]
 
-  turbo-windows-arm64@2.8.7:
-    resolution: {integrity: sha512-WyGiOI2Zp3AhuzVagzQN+T+iq0fWx0oGxDfAWT3ZiLEd4U0cDUkwUZDKVGb3rKqPjDL6lWnuxKKu73ge5xtovQ==}
+  turbo-windows-arm64@2.8.8:
+    resolution: {integrity: sha512-X45sTOksR8iidk+PZUXpNcfEkOhGCTS2p2J8nSUExr1v7u3T4FixwplzliuWmG7QTPGJapAwItzHbi+d/9ckNQ==}
     cpu: [arm64]
     os: [win32]
 
-  turbo@2.8.7:
-    resolution: {integrity: sha512-RBLh5caMAu1kFdTK1jgH2gH/z+jFsvX5rGbhgJ9nlIAWXSvxlzwId05uDlBA1+pBd3wO/UaKYzaQZQBXDd7kcA==}
+  turbo@2.8.8:
+    resolution: {integrity: sha512-wP+axjWAKzYfZ7bghuggVST9bX4j5cn3NPMU9NPQqtwaUKL9n9JOnWWBIc9gdrEma1aViYR73EoPjDEpVq+liQ==}
     hasBin: true
 
   turndown@7.2.2:
@@ -8419,7 +8419,7 @@ snapshots:
   '@0no-co/graphql.web@1.2.0':
     optional: true
 
-  '@ai-sdk/gateway@3.0.45(zod@4.3.6)':
+  '@ai-sdk/gateway@3.0.46(zod@4.3.6)':
     dependencies:
       '@ai-sdk/provider': 3.0.8
       '@ai-sdk/provider-utils': 4.0.15(zod@4.3.6)
@@ -8437,10 +8437,10 @@ snapshots:
     dependencies:
       json-schema: 0.4.0
 
-  '@ai-sdk/react@3.0.87(react@19.2.4)(zod@4.3.6)':
+  '@ai-sdk/react@3.0.88(react@19.2.4)(zod@4.3.6)':
     dependencies:
       '@ai-sdk/provider-utils': 4.0.15(zod@4.3.6)
-      ai: 6.0.85(zod@4.3.6)
+      ai: 6.0.86(zod@4.3.6)
       react: 19.2.4
       swr: 2.3.8(react@19.2.4)
       throttleit: 2.1.0
@@ -10187,7 +10187,7 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  '@kyh/eslint-config@1.1.13(@typescript-eslint/parser@8.53.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.2(jiti@2.6.1))(turbo@2.8.7)(typescript@5.9.3)':
+  '@kyh/eslint-config@1.1.13(@typescript-eslint/parser@8.53.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3))(eslint@9.39.2(jiti@2.6.1))(turbo@2.8.8)(typescript@5.9.3)':
     dependencies:
       '@eslint/compat': 2.0.1(eslint@9.39.2(jiti@2.6.1))
       '@eslint/js': 9.39.2
@@ -10196,7 +10196,7 @@ snapshots:
       eslint-plugin-jsx-a11y: 6.10.2(eslint@9.39.2(jiti@2.6.1))
       eslint-plugin-react: 7.37.5(eslint@9.39.2(jiti@2.6.1))
       eslint-plugin-react-hooks: 7.0.1(eslint@9.39.2(jiti@2.6.1))
-      eslint-plugin-turbo: 2.7.5(eslint@9.39.2(jiti@2.6.1))(turbo@2.8.7)
+      eslint-plugin-turbo: 2.7.5(eslint@9.39.2(jiti@2.6.1))(turbo@2.8.8)
       typescript-eslint: 8.53.1(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3)
     transitivePeerDependencies:
       - '@typescript-eslint/parser'
@@ -12138,9 +12138,9 @@ snapshots:
   agent-base@7.1.4:
     optional: true
 
-  ai@6.0.85(zod@4.3.6):
+  ai@6.0.86(zod@4.3.6):
     dependencies:
-      '@ai-sdk/gateway': 3.0.45(zod@4.3.6)
+      '@ai-sdk/gateway': 3.0.46(zod@4.3.6)
       '@ai-sdk/provider': 3.0.8
       '@ai-sdk/provider-utils': 4.0.15(zod@4.3.6)
       '@opentelemetry/api': 1.9.0
@@ -12464,9 +12464,9 @@ snapshots:
 
   baseline-browser-mapping@2.9.11: {}
 
-  bash-tool@1.3.14(ai@6.0.85(zod@4.3.6))(just-bash@2.9.8):
+  bash-tool@1.3.14(ai@6.0.86(zod@4.3.6))(just-bash@2.9.8):
     dependencies:
-      ai: 6.0.85(zod@4.3.6)
+      ai: 6.0.86(zod@4.3.6)
       fast-glob: 3.3.3
       gray-matter: 4.0.3
       zod: 3.25.76
@@ -13355,11 +13355,11 @@ snapshots:
       string.prototype.matchall: 4.0.12
       string.prototype.repeat: 1.0.0
 
-  eslint-plugin-turbo@2.7.5(eslint@9.39.2(jiti@2.6.1))(turbo@2.8.7):
+  eslint-plugin-turbo@2.7.5(eslint@9.39.2(jiti@2.6.1))(turbo@2.8.8):
     dependencies:
       dotenv: 16.0.3
       eslint: 9.39.2(jiti@2.6.1)
-      turbo: 2.8.7
+      turbo: 2.8.8
 
   eslint-scope@5.1.1:
     dependencies:
@@ -16742,32 +16742,32 @@ snapshots:
       - immer
       - react
 
-  turbo-darwin-64@2.8.7:
+  turbo-darwin-64@2.8.8:
     optional: true
 
-  turbo-darwin-arm64@2.8.7:
+  turbo-darwin-arm64@2.8.8:
     optional: true
 
-  turbo-linux-64@2.8.7:
+  turbo-linux-64@2.8.8:
     optional: true
 
-  turbo-linux-arm64@2.8.7:
+  turbo-linux-arm64@2.8.8:
     optional: true
 
-  turbo-windows-64@2.8.7:
+  turbo-windows-64@2.8.8:
     optional: true
 
-  turbo-windows-arm64@2.8.7:
+  turbo-windows-arm64@2.8.8:
     optional: true
 
-  turbo@2.8.7:
+  turbo@2.8.8:
     optionalDependencies:
-      turbo-darwin-64: 2.8.7
-      turbo-darwin-arm64: 2.8.7
-      turbo-linux-64: 2.8.7
-      turbo-linux-arm64: 2.8.7
-      turbo-windows-64: 2.8.7
-      turbo-windows-arm64: 2.8.7
+      turbo-darwin-64: 2.8.8
+      turbo-darwin-arm64: 2.8.8
+      turbo-linux-64: 2.8.8
+      turbo-linux-arm64: 2.8.8
+      turbo-windows-64: 2.8.8
+      turbo-windows-arm64: 2.8.8
 
   turndown@7.2.2:
     dependencies:
