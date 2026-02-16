@@ -22,7 +22,7 @@
     "ai": "^6.0.86",
     "bash-tool": "^1.3.14",
     "better-auth": "^1.4.18",
-    "just-bash": "^2.9.8",
+    "just-bash": "^2.10.1",
     "superjson": "catalog:",
     "v0-sdk": "^0.14.0",
     "zod": "catalog:"
