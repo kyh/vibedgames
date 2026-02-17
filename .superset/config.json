@@ -1,4 +1,0 @@
-{
-  "setup": ["pnpm i", "cp \"$SUPERSET_ROOT_PATH/.env\" .env"],
-  "teardown": []
-}
