@@ -26,7 +26,6 @@ import { useMutation } from "@tanstack/react-query";
 import { generateId } from "ai";
 import {
   CheckIcon,
-  FileIcon,
   GamepadIcon,
   HelpCircleIcon,
   MenuIcon,
@@ -41,11 +40,9 @@ import { motion } from "motion/react";
 import type { ChatUIMessage } from "@repo/api/game/local/agent/messages/types";
 import { useSharedChatContext } from "@/components/chat/chat-context";
 import { Message } from "@/components/chat/message";
-import { FileExplorer } from "@/components/file-explorer/file-explorer";
 import { MyGames } from "@/components/my-games/my-games";
 import { DraggablePanel } from "@/components/ui/draggable-panel";
 import { useTRPC } from "@/trpc/react";
-import { getDefaultFiles, toBuildFiles } from "./sandpack";
 import { useUiStore } from "./ui-store";
 
 export const BuildView = () => {
@@ -56,10 +53,7 @@ export const BuildView = () => {
   const params = useParams<{ gameId?: string[] }>();
   const {
     setGameId,
-    sandpackFiles,
     refreshIframe,
-    showFileExplorer,
-    setShowFileExplorer,
     showMyGames,
     setShowMyGames,
     showLogs,
@@ -80,17 +74,15 @@ export const BuildView = () => {
 
       if (isNewGame) {
         // Create a new game first
-        const filesArray = toBuildFiles(sandpackFiles);
-
         try {
           const result = await createBuild.mutateAsync({
-            files: filesArray,
+            files: [],
           });
 
           buildId = result.build.id;
 
-          // Initialize sandpack with default files
-          setGameId(buildId, getDefaultFiles());
+          // Set as local game
+          setGameId(buildId);
 
           // Update URL without triggering a rerender
           window.history.replaceState(
@@ -112,7 +104,7 @@ export const BuildView = () => {
       void sendMessage({ text }, { body: { buildId } });
       setInput("");
     },
-    [sendMessage, setInput, params.gameId, sandpackFiles, createBuild],
+    [sendMessage, setInput, params.gameId, createBuild, setGameId],
   );
 
   return (
@@ -170,7 +162,7 @@ export const BuildView = () => {
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={() => {
-                      setGameId(generateId(), getDefaultFiles());
+                      setGameId(generateId());
                       setInput("");
                     }}
                   >
@@ -178,17 +170,6 @@ export const BuildView = () => {
                     Create New Game
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => setShowFileExplorer(!showFileExplorer)}
-                  >
-                    <FileIcon />
-                    File Explorer
-                    {showFileExplorer && (
-                      <span className="ml-auto text-xs">
-                        <CheckIcon />
-                      </span>
-                    )}
-                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setShowLogs(!showLogs)}>
                     <TerminalIcon />
                     Logs
@@ -246,16 +227,6 @@ export const BuildView = () => {
           </motion.div>
         </InputGroup>
       </form>
-      <DraggablePanel
-        title="File Explorer"
-        icon={<FileIcon className="size-4" />}
-        isOpen={showFileExplorer}
-        onClose={() => setShowFileExplorer(false)}
-        initialPosition={{ x: 440, y: 20 }}
-        initialSize={{ width: 300, height: 200 }}
-      >
-        <FileExplorer files={sandpackFiles} />
-      </DraggablePanel>
       <DraggablePanel
         title="My Games"
         icon={<GamepadIcon className="size-4" />}

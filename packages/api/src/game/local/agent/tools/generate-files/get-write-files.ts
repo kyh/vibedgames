@@ -1,5 +1,6 @@
+import { Buffer } from "node:buffer";
 import type { UIMessage, UIMessageStreamWriter } from "ai";
-import type { Sandbox } from "bash-tool";
+import type { Sandbox } from "@vercel/sandbox";
 
 import type { DataPart } from "@repo/api/game/local/agent/messages/data-parts";
 import type { File } from "@repo/api/game/local/agent/tools/generate-files/get-contents";
@@ -35,15 +36,15 @@ export function getWriteFiles({
     });
 
     try {
-      // Write files using bash-tool sandbox
+      // Write files to the Vercel sandbox
       await sandbox.writeFiles(
         params.files.map((file) => ({
-          path: file.path.startsWith("/") ? file.path.slice(1) : file.path,
-          content: file.content,
-        }))
+          path: file.path,
+          content: Buffer.from(file.content, "utf8"),
+        })),
       );
 
-      // Sync to database (persistFiles expects relative paths)
+      // Sync to database
       await persistFiles({
         db,
         buildId,
@@ -75,7 +76,7 @@ export function getWriteFiles({
     writer.write({
       id: toolCallId,
       type: "data-generating-files",
-      data: { paths, files: params.files, status: "uploaded" },
+      data: { paths, status: "uploaded" },
     });
   };
 }

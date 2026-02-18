@@ -1,5 +1,5 @@
 import type { UIMessage, UIMessageStreamWriter } from "ai";
-import type { Sandbox } from "bash-tool";
+import { Sandbox } from "@vercel/sandbox";
 import { tool } from "ai";
 import z from "zod/v3";
 
@@ -10,7 +10,7 @@ import { getContents } from "@repo/api/game/local/agent/tools/generate-files/get
 import { getWriteFiles } from "@repo/api/game/local/agent/tools/generate-files/get-write-files";
 import { getRichError } from "@repo/api/game/local/agent/tools/get-rich-error";
 
-const description = `Use this tool to generate and upload code files into the in-memory sandbox environment. It leverages an LLM to create file contents based on the current conversation context and user intent, then writes them directly into the sandbox file system.
+const description = `Use this tool to generate and upload code files into the Vercel Sandbox environment. It leverages an LLM to create file contents based on the current conversation context and user intent, then writes them directly into the sandbox file system and persists them to the database.
 
 The generated files should be considered correct on first iteration and suitable for immediate use in the sandbox environment. This tool is essential for scaffolding applications, adding new features, writing configuration files, or fixing missing components.
 
@@ -39,58 +39,56 @@ Use Generate Files when:
 - Use conventional file/folder structures for the tech stack in use
 - If replacing an existing file, ensure the update fully satisfies the user's request
 
-## Examples of When to Use This Tool
-
-<example>
-User: Add a \`NavBar.tsx\` component and include it in \`App.tsx\`
-Assistant: I'll generate the \`NavBar.tsx\` file and update \`App.tsx\` to include it.
-*Uses Generate Files to create:*
-- \`components/NavBar.tsx\`
-- Modified \`App.tsx\` with import and usage of \`NavBar\`
-</example>
-
-<example>
-User: Let's scaffold a simple Express server with a \`/ping\` route.
-Assistant: I'll generate the necessary files to start the Express app.
-*Uses Generate Files to create:*
-- \`package.json\` with Express as a dependency
-- \`index.js\` with basic server and \`/ping\` route
-</example>
-
 ## When NOT to Use This Tool
 
 Avoid using this tool when:
 
 1. You only need to execute code or read files (use Run Command instead)
-2. You want to preview a running server or UI (the app renders in Sandpack automatically)
+2. You want to preview a running server or UI (use Run Command to start the server, then Get Sandbox URL)
 
 ## Output Behavior
 
-After generation, the tool will return a list of the files created, including their paths and contents. These can then be inspected, referenced, or used in subsequent commands.
-
-## Summary
-
-Use Generate Files to programmatically create or update files in the sandbox environment. It enables fast iteration, contextual coding, and dynamic file management — all driven by user intent and conversation context. Files are automatically synced to the database and rendered in Sandpack.`;
+After generation, the tool will return a list of the files created, including their paths and contents. These can then be inspected, referenced, or used in subsequent commands.`;
 
 type Params = {
-  sandbox: Sandbox;
-  writer: UIMessageStreamWriter<UIMessage<never, DataPart>>;
   db: Db;
+  writer: UIMessageStreamWriter<UIMessage<never, DataPart>>;
   buildId: string;
 };
 
-export const generateFiles = ({ sandbox, writer, db, buildId }: Params) =>
+export const generateFiles = ({ writer, db, buildId }: Params) =>
   tool({
     description,
     inputSchema: z.object({
+      sandboxId: z.string(),
       paths: z.array(z.string()),
     }),
-    execute: async ({ paths }, { toolCallId, messages }) => {
+    execute: async ({ sandboxId, paths }, { toolCallId, messages }) => {
       writer.write({
         id: toolCallId,
         type: "data-generating-files",
         data: { paths: [], status: "generating" },
       });
+
+      let sandbox: Sandbox | null = null;
+
+      try {
+        sandbox = await Sandbox.get({ sandboxId });
+      } catch (error) {
+        const richError = getRichError({
+          action: "get sandbox by id",
+          args: { sandboxId },
+          error,
+        });
+
+        writer.write({
+          id: toolCallId,
+          type: "data-generating-files",
+          data: { error: richError.error, paths: [], status: "error" },
+        });
+
+        return richError.message;
+      }
 
       const writeFiles = getWriteFiles({
         sandbox,

@@ -3,15 +3,20 @@
 import type { DataUIPart } from "ai";
 import { create } from "zustand";
 
-import type {
-  SandpackBundlerFiles,
-  SandpackClient,
-} from "@codesandbox/sandpack-client";
 import type { DataPart } from "@repo/api/game/local/agent/messages/data-parts";
 import { featuredGames } from "./data";
-import { initializeSandpackClient, toSandpack } from "./sandpack";
 
 type View = "build" | "play" | "discover";
+
+type Command = {
+  background?: boolean;
+  sandboxId: string;
+  cmdId: string;
+  startedAt: number;
+  command: string;
+  args: string[];
+  exitCode?: number;
+};
 
 type UIState = {
   // General view state
@@ -35,13 +40,18 @@ type UIState = {
   appendLog: (log: string) => void;
   // View == play/build states
   gameId: string; // Game ID is a string for local games, and a url for remote games
-  setGameId: (id: string, files?: SandpackBundlerFiles) => void;
+  setGameId: (id: string) => void;
   isLocalGame: boolean;
-  // Sandpack state
-  initializingGameId: string | null; // Track which gameId is currently initializing
-  sandpackClient: SandpackClient | null;
-  sandpackFiles: SandpackBundlerFiles;
-  updateSandpackFiles: (files: SandpackBundlerFiles) => void;
+  // Sandbox state
+  sandboxId?: string;
+  setSandboxId: (id: string) => void;
+  sandboxUrl?: string;
+  setSandboxUrl: (url: string) => void;
+  sandboxStatus?: "running" | "stopped";
+  setSandboxStatus: (status: "running" | "stopped") => void;
+  commands: Command[];
+  upsertCommand: (command: Omit<Command, "startedAt">) => void;
+  resetSandbox: () => void;
 };
 
 export const useUiStore = create<UIState>((set, get) => ({
@@ -75,100 +85,75 @@ export const useUiStore = create<UIState>((set, get) => ({
   appendLog: (log) => set((state) => ({ logs: [...state.logs, log] })),
   // View == play/build states
   gameId: featuredGames[0]?.url ?? "",
-  setGameId: (id, files) => {
-    const {
-      sandpackClient,
-      iframe,
-      setIframeLoading,
-      setIframeError,
-      gameId: currentGameId,
-      isLocalGame: currentIsLocal,
-      initializingGameId,
-    } = get();
-    const isLocalGame = !!files;
-
-    // Skip if already initialized or initializing for this gameId with same mode
-    const alreadyInitialized = currentGameId === id && currentIsLocal === isLocalGame && sandpackClient;
-    const alreadyInitializing = initializingGameId === id && isLocalGame;
-    console.log("[setGameId]", { id, isLocalGame, alreadyInitialized, alreadyInitializing });
-    if (alreadyInitialized || alreadyInitializing) {
-      console.log("[setGameId] skipping - already initialized/initializing");
-      return;
-    }
-
-    if (sandpackClient) {
-      sandpackClient.destroy();
-      set({ sandpackClient: null });
-    }
-
+  setGameId: (id) => {
     set({
       gameId: id,
-      sandpackFiles: isLocalGame ? files : {},
-      isLocalGame,
-      initializingGameId: isLocalGame ? id : null,
+      isLocalGame: true,
     });
-
-    // If local game, reinitialize sandpack
-    if (isLocalGame) {
-      void initializeSandpackClient({
-        iframe,
-        files,
-        onClientReady: (client) => {
-          // Only set client if still initializing the same game
-          const currentInitId = get().initializingGameId;
-          console.log("[onClientReady]", { id, currentInitId, match: currentInitId === id });
-          if (currentInitId === id) {
-            const currentFiles = get().sandpackFiles;
-            console.log("[onClientReady] syncing files:", Object.keys(currentFiles));
-            set({ sandpackClient: client, initializingGameId: null });
-            // Sync any files that arrived during initialization
-            client.updateSandbox({ files: currentFiles });
-          } else {
-            // Different game requested, destroy this client
-            console.log("[onClientReady] destroying - different game requested");
-            client.destroy();
-          }
-        },
-        onLoadingChange: (loading) => {
-          setIframeLoading(loading);
-        },
-        onError: (error) => {
-          setIframeError(error);
-          set({ initializingGameId: null });
-        },
-        onLog: (log) => {
-          get().appendLog(log);
-        },
-      });
-    }
   },
   isLocalGame: false,
-  // Sandpack state
-  initializingGameId: null,
-  sandpackClient: null,
-  sandpackFiles: {},
-  updateSandpackFiles: (files) => {
-    const { sandpackFiles, sandpackClient } = get();
-    const newFiles = { ...sandpackFiles, ...files };
-    console.log("[updateSandpackFiles] files:", Object.keys(files), "client:", !!sandpackClient);
-    set({ sandpackFiles: newFiles });
-
-    if (sandpackClient) {
-      sandpackClient.updateSandbox({
-        files: newFiles,
-      });
-    }
+  // Sandbox state
+  sandboxId: undefined,
+  setSandboxId: (sandboxId) =>
+    set(() => ({
+      sandboxId,
+      sandboxStatus: "running",
+      commands: [],
+      sandboxUrl: undefined,
+    })),
+  sandboxUrl: undefined,
+  setSandboxUrl: (url) => set(() => ({ sandboxUrl: url })),
+  sandboxStatus: undefined,
+  setSandboxStatus: (status) => set(() => ({ sandboxStatus: status })),
+  commands: [],
+  upsertCommand: (cmd) => {
+    set((state) => {
+      const existingIdx = state.commands.findIndex(
+        (c) => c.cmdId === cmd.cmdId,
+      );
+      const idx = existingIdx !== -1 ? existingIdx : state.commands.length;
+      const prev = state.commands[idx] ?? { startedAt: Date.now() };
+      const cmds = [...state.commands];
+      cmds[idx] = { ...prev, ...cmd };
+      return { commands: cmds };
+    });
   },
+  resetSandbox: () =>
+    set(() => ({
+      sandboxId: undefined,
+      sandboxUrl: undefined,
+      sandboxStatus: undefined,
+      commands: [],
+    })),
 }));
 
 export function useDataStateMapper() {
-  const { updateSandpackFiles } = useUiStore();
+  const { setSandboxId, setSandboxUrl, upsertCommand } = useUiStore();
 
   return (data: DataUIPart<DataPart>) => {
     switch (data.type) {
-      case "data-generating-files":
-        if (data.data.files) {
-          updateSandpackFiles(toSandpack(data.data.files));
+      case "data-create-sandbox":
+        if (data.data.sandboxId) {
+          setSandboxId(data.data.sandboxId);
+        }
+        break;
+      case "data-run-command":
+        if (
+          data.data.commandId &&
+          (data.data.status === "executing" || data.data.status === "running")
+        ) {
+          upsertCommand({
+            background: data.data.status === "running",
+            sandboxId: data.data.sandboxId,
+            cmdId: data.data.commandId,
+            command: data.data.command,
+            args: data.data.args,
+          });
+        }
+        break;
+      case "data-get-sandbox-url":
+        if (data.data.url) {
+          setSandboxUrl(data.data.url);
         }
         break;
       default:

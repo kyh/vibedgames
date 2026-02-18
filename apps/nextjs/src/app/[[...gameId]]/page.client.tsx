@@ -8,7 +8,6 @@ import { ChatProvider } from "@/components/chat/chat-context";
 import { useTRPC } from "@/trpc/react";
 import { Canvas } from "./_components/canvas";
 import { Composer } from "./_components/composer";
-import { toSandpack } from "./_components/sandpack";
 import { useUiStore } from "./_components/ui-store";
 
 export const PageClient = () => {
@@ -26,10 +25,10 @@ export const PageClient = () => {
     enabled: !!gameId,
   });
 
-  // Set gameId and load build files when build is fetched
+  // Set gameId when build is fetched
   useEffect(() => {
     if (gameId && buildData?.build) {
-      setGameId(gameId, toSandpack(buildData.build.gameBuildFiles));
+      setGameId(gameId);
     }
   }, [buildData, gameId, setGameId]);
 

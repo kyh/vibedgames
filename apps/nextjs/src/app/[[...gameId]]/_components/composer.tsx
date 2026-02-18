@@ -9,7 +9,6 @@ import { authClient } from "@/lib/auth-client";
 import { BuildView } from "./build-view";
 import { DiscoverView } from "./discover-view";
 import { PlayView } from "./play-view";
-import { getDefaultFiles } from "./sandpack";
 import { useUiStore } from "./ui-store";
 import { WaitlistDailog } from "./waitlist-form";
 
@@ -70,9 +69,9 @@ export const Composer = () => {
               setWaitlistOpen(true);
               return;
             }
-            // If current game is remote, start fresh with boilerplate
+            // If current game is remote, start fresh
             if (!isLocalGame) {
-              setGameId(generateId(), getDefaultFiles());
+              setGameId(generateId());
             }
             setView("build");
           }}
