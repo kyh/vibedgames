@@ -1,7 +1,7 @@
 {
   "name": "vibedgames",
   "private": true,
-  "packageManager": "pnpm@10.29.3",
+  "packageManager": "pnpm@10.30.0",
   "scripts": {
     "build": "turbo run build",
     "clean": "git clean -xdf node_modules",
@@ -30,7 +30,7 @@
     "dotenv-cli": "^11.0.0",
     "prettier": "catalog:",
     "tsx": "^4.21.0",
-    "turbo": "^2.8.9",
+    "turbo": "^2.8.10",
     "typescript": "catalog:"
   },
   "prettier": "@kyh/prettier-config",
