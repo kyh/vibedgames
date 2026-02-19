@@ -21,8 +21,8 @@ export const streamChatResponse = (
     stream: createUIMessageStream({
       originalMessages: messages,
       execute: async ({ writer }) => {
-        // Create the game code agent (includes bash toolkit initialization)
-        const agent = await createGameCodeAgent({
+        // Create the game code agent with Vercel Sandbox tools
+        const agent = createGameCodeAgent({
           writer,
           db,
           buildId,

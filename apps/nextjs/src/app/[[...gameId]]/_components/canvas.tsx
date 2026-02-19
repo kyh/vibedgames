@@ -8,8 +8,18 @@ import { featuredGames } from "./data";
 import { useUiStore } from "./ui-store";
 
 export const Canvas = () => {
-  const { view, setView, setGameId, gameId, isLocalGame } = useUiStore();
+  const { view, setView, setGameId, gameId, isLocalGame, sandboxUrl } =
+    useUiStore();
   const shouldShowIframe = view !== "discover";
+
+  // For build view with a sandbox URL, use the sandbox URL
+  // For play view, use the game URL directly
+  const iframeUrl =
+    view === "build" && sandboxUrl
+      ? sandboxUrl
+      : isLocalGame
+        ? undefined
+        : gameId;
 
   return (
     <div className="relative h-full w-full">
@@ -22,7 +32,7 @@ export const Canvas = () => {
         animate={shouldShowIframe ? "visible" : "hidden"}
         transition={{ duration: 0.2 }}
       >
-        <Iframe url={isLocalGame ? undefined : gameId} />
+        <Iframe url={iframeUrl} />
       </motion.div>
       <GameStack
         data={featuredGames}
