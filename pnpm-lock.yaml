@@ -651,8 +651,8 @@ importers:
   packages/multiplayer:
     dependencies:
       partysocket:
-        specifier: ^1.1.14
-        version: 1.1.14
+        specifier: ^1.1.15
+        version: 1.1.15(react@19.2.4)
       react:
         specifier: 'catalog:'
         version: 19.2.4
@@ -6846,8 +6846,13 @@ packages:
     peerDependencies:
       '@cloudflare/workers-types': ^4.20240729.0
 
-  partysocket@1.1.14:
-    resolution: {integrity: sha512-QcmlVPfNL55BZ8jETbX0VdKgBniYKbWB9Kma0ksE0gNRgXy9Q/lNn2T8iOBR4qpZHJJvS1jleI5W7MKmg+ynzQ==}
+  partysocket@1.1.15:
+    resolution: {integrity: sha512-d8dvcNMqtWQU1k3OguLN+Vk3GV6uFD0PEhu9EZkCDZuE/xAsdeFlv8fCcsFefQWzoZyVNvTpAKTvutXc6exrEg==}
+    peerDependencies:
+      react: '>=17'
+    peerDependenciesMeta:
+      react:
+        optional: true
 
   path-exists@4.0.0:
     resolution: {integrity: sha512-ak9Qy5Q7jYb2Wwcey5Fpvg2KoAc/ZIhLSLOSBmRmygPsGwkVVt0fZa0qrtMz+m6tJTAHfZQ8FnmB4MG4LWy7/w==}
@@ -15407,9 +15412,11 @@ snapshots:
       '@cloudflare/workers-types': 4.20260228.0
       nanoid: 5.1.6
 
-  partysocket@1.1.14:
+  partysocket@1.1.15(react@19.2.4):
     dependencies:
       event-target-polyfill: 0.0.4
+    optionalDependencies:
+      react: 19.2.4
 
   path-exists@4.0.0: {}
 
