@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { useParams } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import { gameTypesArray } from "@repo/api/game/local/agent/agent-schema";
 import {
@@ -22,15 +21,12 @@ import {
   InputGroupButton,
 } from "@repo/ui/input-group";
 import { Mention, MentionsInput } from "@repo/ui/mentions-input";
-import { useMutation } from "@tanstack/react-query";
-import { generateId } from "ai";
 import {
   CheckIcon,
   FileIcon,
   GamepadIcon,
   HelpCircleIcon,
   MenuIcon,
-  PlusIcon,
   RefreshCwIcon,
   SendIcon,
   SettingsIcon,
@@ -44,18 +40,13 @@ import { Message } from "@/components/chat/message";
 import { FileExplorer } from "@/components/file-explorer/file-explorer";
 import { MyGames } from "@/components/my-games/my-games";
 import { DraggablePanel } from "@/components/ui/draggable-panel";
-import { useTRPC } from "@/trpc/react";
-import { getDefaultFiles, toBuildFiles } from "./sandpack";
 import { useUiStore } from "./ui-store";
 
 export const BuildView = () => {
-  const trpc = useTRPC();
   const [input, setInput] = useState("");
   const { chat } = useSharedChatContext();
   const { messages, sendMessage, status } = useChat<ChatUIMessage>({ chat });
-  const params = useParams<{ gameId?: string[] }>();
   const {
-    setGameId,
     sandpackFiles,
     refreshIframe,
     showFileExplorer,
@@ -65,54 +56,17 @@ export const BuildView = () => {
     showLogs,
     setShowLogs,
     logs,
+    v0ChatId,
   } = useUiStore();
 
-  const createBuild = useMutation(trpc.localGame.createBuild.mutationOptions());
-
   const validateAndSubmitMessage = useCallback(
-    async (text: string) => {
+    (text: string) => {
       if (!text.trim()) return;
 
-      // Check if we're looking at a new game (no gameId in URL)
-      const gameId = params.gameId?.[0];
-      const isNewGame = !gameId;
-      let buildId: string = gameId ?? "";
-
-      if (isNewGame) {
-        // Create a new game first
-        const filesArray = toBuildFiles(sandpackFiles);
-
-        try {
-          const result = await createBuild.mutateAsync({
-            files: filesArray,
-          });
-
-          buildId = result.build.id;
-
-          // Initialize sandpack with default files
-          setGameId(buildId, getDefaultFiles());
-
-          // Update URL without triggering a rerender
-          window.history.replaceState(
-            {
-              ...window.history.state,
-              as: `/${result.build.id}`,
-              url: `/${result.build.id}`,
-            },
-            "",
-            `/${result.build.id}`,
-          );
-        } catch (error) {
-          console.error("Failed to create game:", error);
-          // Still try to send the message even if game creation fails
-        }
-      }
-
-      // Send the message
-      void sendMessage({ text }, { body: { buildId } });
+      void sendMessage({ text }, { body: { v0ChatId } });
       setInput("");
     },
-    [sendMessage, setInput, params.gameId, sandpackFiles, createBuild],
+    [sendMessage, v0ChatId],
   );
 
   return (
@@ -129,7 +83,7 @@ export const BuildView = () => {
         className="relative pb-4"
         onSubmit={(event) => {
           event.preventDefault();
-          void validateAndSubmitMessage(input);
+          validateAndSubmitMessage(input);
         }}
       >
         <motion.div
@@ -167,15 +121,6 @@ export const BuildView = () => {
                         <CheckIcon />
                       </span>
                     )}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => {
-                      setGameId(generateId(), getDefaultFiles());
-                      setInput("");
-                    }}
-                  >
-                    <PlusIcon />
-                    Create New Game
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
@@ -227,7 +172,7 @@ export const BuildView = () => {
                   !e.shiftKey
                 ) {
                   e.preventDefault();
-                  void validateAndSubmitMessage(input);
+                  validateAndSubmitMessage(input);
                 }
               }}
             >
