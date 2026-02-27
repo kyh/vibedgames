@@ -26,6 +26,6 @@
     "partyserver": "^0.1.5",
     "prettier": "catalog:",
     "typescript": "catalog:",
-    "wrangler": "^4.68.1"
+    "wrangler": "^4.69.0"
   }
 }
