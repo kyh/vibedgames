@@ -18,7 +18,7 @@ const baseUrl =
       ? `https://${process.env.VERCEL_URL}`
       : "http://localhost:3000";
 
-export const auth: ReturnType<typeof betterAuth> = betterAuth({
+export const auth = betterAuth({
   database: drizzleAdapter(db, {
     provider: "sqlite",
   }),
@@ -73,7 +73,7 @@ export const getOrganization = cache(
     organizationSlug?: string | undefined;
     membersLimit?: string | number | undefined;
   }) =>
-    (auth.api as any).getFullOrganization({
+    auth.api.getFullOrganization({
       query,
       headers: await headers(),
     }),
@@ -107,7 +107,7 @@ const createDefaultOrganization = async (user: User) => {
   const slug = await generateAvailableSlug(slugify(user.name));
 
   try {
-    await (auth.api as any).createOrganization({
+    await auth.api.createOrganization({
       body: {
         userId: user.id,
         name: "Personal Organization",
