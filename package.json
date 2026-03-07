@@ -9,7 +9,7 @@
     "db-push": "pnpm -F db push",
     "db-push-remote": "pnpm -F db push-remote && pnpm -F builder push-remote",
     "dev": "turbo watch db studio dev --continue",
-    "dev-nextjs": "turbo watch dev -F @repo/nextjs...",
+    "dev-web": "turbo watch dev -F @repo/web...",
     "dev-party": "turbo watch dev -F @repo/party...",
     "dev-flappy-bird": "turbo watch dev -F @repo/flappy-bird...",
     "dev-pacman": "turbo watch dev -F @repo/pacman...",

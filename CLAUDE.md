@@ -15,7 +15,7 @@
 ### Structure
 ```
 apps/
-  nextjs/      # Main web app (@repo/nextjs)
+  web/         # Main web app (@repo/web)
   party/       # PartyServer for multiplayer (@repo/party)
   flappy-bird/ # Flappy Bird game
   pacman/      # Pac-Man game
@@ -31,8 +31,8 @@ packages/
 
 ### Common Commands
 ```bash
-pnpm dev              # Run all (nextjs + party + db studio)
-pnpm dev-nextjs       # Run nextjs only
+pnpm dev              # Run all (web + party + db studio)
+pnpm dev-web          # Run web only
 pnpm dev-party        # Run party server only
 pnpm dev-<game>       # Run specific game (flappy-bird, pacman, etc)
 pnpm build            # Build all packages
