@@ -7,8 +7,6 @@
     "build": "pnpm with-env next build",
     "clean": "git clean -xdf .cache .next .turbo node_modules",
     "dev": "pnpm with-env next dev",
-    "format": "prettier --check . --ignore-path ../../.gitignore",
-    "lint": "eslint",
     "start": "pnpm with-env next start",
     "typecheck": "tsc --noEmit",
     "with-env": "dotenv -e ../../.env --"
@@ -42,17 +40,13 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
-    "@kyh/eslint-config": "catalog:",
-    "@kyh/prettier-config": "catalog:",
     "@kyh/tsconfig": "catalog:",
     "@tailwindcss/postcss": "^4.2.1",
     "@tailwindcss/typography": "^0.5.19",
     "@types/node": "25.0.10",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "eslint": "catalog:",
     "postcss": "^8.5.8",
-    "prettier": "catalog:",
     "raw-loader": "4.0.2",
     "tailwindcss": "^4.2.1",
     "typescript": "catalog:"

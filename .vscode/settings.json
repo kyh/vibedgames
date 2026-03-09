@@ -1,22 +1,13 @@
 {
-  "editor.codeActionsOnSave": {
-    "source.fixAll.eslint": "explicit"
-  },
-  "editor.defaultFormatter": "esbenp.prettier-vscode",
-  "[typescript,typescriptreact]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode"
-  },
-  "editor.formatOnSave": true,
-  "eslint.rules.customizations": [{ "rule": "*", "severity": "warn" }],
-  "eslint.runtime": "node",
-  "eslint.workingDirectories": [
-    { "pattern": "apps/*/" },
-    { "pattern": "packages/*/" }
-  ],
-  "prettier.ignorePath": ".gitignore",
   "tailwindCSS.experimental.classRegex": [
-    ["cva\\(([^)]*)\\)", "[\"'`]([^\"'`]*).*?[\"'`]"],
-    ["cx\\(([^)]*)\\)", "(?:'|\"|`)([^']*)(?:'|\"|`)"]
+    [
+      "cva\\(([^)]*)\\)",
+      "[\"'`]([^\"'`]*).*?[\"'`]"
+    ],
+    [
+      "cx\\(([^)]*)\\)",
+      "(?:'|\"|`)([^']*)(?:'|\"|`)"
+    ]
   ],
   "tailwindCSS.experimental.configFile": "./apps/web/src/app/styles/globals.css",
   "typescript.enablePromptUseWorkspaceTsdk": true,
@@ -24,6 +15,5 @@
     "next/router.d.ts",
     "next/dist/client/router.d.ts"
   ],
-  "typescript.tsdk": "node_modules/typescript/lib",
-  "docwriter.hotkey.mac": "⌥ + ."
+  "typescript.tsdk": "node_modules/typescript/lib"
 }

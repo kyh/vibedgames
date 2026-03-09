@@ -11,8 +11,6 @@
     "build": "tsc",
     "clean": "git clean -xdf .cache .turbo dist node_modules",
     "dev": "tsc",
-    "format": "prettier --check . --ignore-path ../../.gitignore",
-    "lint": "eslint",
     "typecheck": "tsc --noEmit --emitDeclarationOnly false"
   },
   "prettier": "@kyh/prettier-config",
@@ -24,12 +22,8 @@
     "react": "catalog:"
   },
   "devDependencies": {
-    "@kyh/eslint-config": "catalog:",
-    "@kyh/prettier-config": "catalog:",
     "@kyh/tsconfig": "catalog:",
     "@types/react": "catalog:",
-    "eslint": "catalog:",
-    "prettier": "catalog:",
     "typescript": "catalog:"
   }
 }

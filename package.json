@@ -16,24 +16,21 @@
     "dev-tetris": "turbo watch dev -F @repo/tetris...",
     "dev-astroid": "turbo watch dev -F @repo/astroid...",
     "dev-pong": "turbo watch dev -F @repo/pong...",
-    "format": "turbo run format --continue -- --cache --cache-location .cache/.prettiercache",
-    "format-fix": "turbo run format --continue -- --write --cache --cache-location .cache/.prettiercache",
-    "lint": "turbo run lint --continue -- --cache --cache-location .cache/.eslintcache",
-    "lint-fix": "turbo run lint --continue -- --fix --cache --cache-location .cache/.eslintcache",
+    "lint": "oxlint --report-unused-disable-directives",
     "lint-ws": "pnpm dlx sherif@latest",
     "postinstall": "pnpm lint-ws",
     "typecheck": "turbo run typecheck",
-    "gen-ui": "pnpm -F ui gen-ui"
+    "gen-ui": "pnpm -F ui gen-ui",
+    "format": "oxfmt"
   },
   "devDependencies": {
-    "@kyh/prettier-config": "catalog:",
     "dotenv-cli": "^11.0.0",
-    "prettier": "catalog:",
+    "oxfmt": "^0.35.0",
+    "oxlint": "^1.50.0",
     "tsx": "^4.21.0",
     "turbo": "^2.8.14",
     "typescript": "catalog:"
   },
-  "prettier": "@kyh/prettier-config",
   "pnpm": {
     "onlyBuiltDependencies": [
       "@swc/core",

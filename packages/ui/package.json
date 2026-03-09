@@ -10,8 +10,6 @@
     "build": "tsc",
     "clean": "git clean -xdf .cache .turbo dist node_modules",
     "dev": "tsc",
-    "format": "prettier --check . --ignore-path ../../.gitignore",
-    "lint": "eslint",
     "typecheck": "tsc --noEmit --emitDeclarationOnly false",
     "gen-ui": "pnpm dlx shadcn@latest add && prettier src --write --list-different"
   },
@@ -36,12 +34,8 @@
     "vaul": "^1.1.2"
   },
   "devDependencies": {
-    "@kyh/eslint-config": "catalog:",
-    "@kyh/prettier-config": "catalog:",
     "@kyh/tsconfig": "catalog:",
     "@types/react": "catalog:",
-    "eslint": "catalog:",
-    "prettier": "catalog:",
     "typescript": "catalog:"
   },
   "peerDependencies": {

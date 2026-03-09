@@ -6,8 +6,6 @@
     "clean": "rm -rf .turbo node_modules .cache .wrangler",
     "deploy": "wrangler deploy --name vg-partyserver",
     "dev": "pnpm with-env wrangler dev",
-    "format": "prettier --check \"**/*.{mjs,ts,md,json}\"",
-    "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "with-env": "dotenv -e ../../.env --"
   },
@@ -19,12 +17,8 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260307.1",
-    "@kyh/eslint-config": "catalog:",
-    "@kyh/prettier-config": "catalog:",
     "@kyh/tsconfig": "catalog:",
-    "eslint": "catalog:",
     "partyserver": "^0.1.5",
-    "prettier": "catalog:",
     "typescript": "catalog:",
     "wrangler": "^4.71.0"
   }
