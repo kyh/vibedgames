@@ -26,7 +26,7 @@
     "ai": "^6.0.116",
     "better-auth": "^1.5.4",
     "lucide-react": "^0.562.0",
-    "motion": "^12.35.1",
+    "motion": "^12.35.2",
     "next": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
