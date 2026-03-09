@@ -20,7 +20,9 @@
     "postinstall": "pnpm lint-ws",
     "typecheck": "turbo run typecheck",
     "gen-ui": "pnpm -F ui gen-ui",
-    "format": "oxfmt"
+    "format": "oxfmt",
+    "lint-fix": "oxlint --fix",
+    "format-fix": "oxfmt --write"
   },
   "devDependencies": {
     "dotenv-cli": "^11.0.0",
