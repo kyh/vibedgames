@@ -21,10 +21,9 @@ const Layout = (props: LayoutProps) => (
       <div className="relative z-20 mt-auto">
         <blockquote className="space-y-2">
           <p className="text-lg">
-            &ldquo;Aenean consectetur a enim ac posuere. Pellentesque vehicula
-            semper blandit. Aliquam maximus ligula quis risus porta, sit amet
-            pulvinar mi elementum. Lorem ipsum dolor sit amet, consectetur
-            adipiscing elit.&rdquo;
+            &ldquo;Aenean consectetur a enim ac posuere. Pellentesque vehicula semper blandit.
+            Aliquam maximus ligula quis risus porta, sit amet pulvinar mi elementum. Lorem ipsum
+            dolor sit amet, consectetur adipiscing elit.&rdquo;
           </p>
           <footer className="text-sm">Lorem Ipsum</footer>
         </blockquote>

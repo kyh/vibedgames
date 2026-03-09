@@ -38,16 +38,8 @@ type Build = {
 
 type GameItemProps = {
   build: Build;
-  onRename: (build: {
-    id: string;
-    title: string | null;
-    description: string | null;
-  }) => void;
-  onDelete: (build: {
-    id: string;
-    title: string | null;
-    description: string | null;
-  }) => void;
+  onRename: (build: { id: string; title: string | null; description: string | null }) => void;
+  onDelete: (build: { id: string; title: string | null; description: string | null }) => void;
 };
 
 const GameItem = ({ build, onRename, onDelete }: GameItemProps) => {
@@ -228,9 +220,7 @@ export const MyGames = () => {
 
   if (error) {
     return (
-      <div className="text-destructive p-4 text-sm">
-        Failed to load games. Please try again.
-      </div>
+      <div className="text-destructive p-4 text-sm">Failed to load games. Please try again.</div>
     );
   }
 
@@ -239,9 +229,7 @@ export const MyGames = () => {
       <div className="flex flex-col items-center justify-center p-8 text-center">
         <GamepadIcon className="text-muted-foreground mb-2 size-8" />
         <p className="text-muted-foreground text-sm">No saved games yet</p>
-        <p className="text-muted-foreground/70 mt-1 text-xs">
-          Create a game to see it here
-        </p>
+        <p className="text-muted-foreground/70 mt-1 text-xs">Create a game to see it here</p>
       </div>
     );
   }
@@ -265,9 +253,7 @@ export const MyGames = () => {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Rename Game</DialogTitle>
-            <DialogDescription>
-              Update the title and description for this game.
-            </DialogDescription>
+            <DialogDescription>Update the title and description for this game.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
@@ -308,10 +294,7 @@ export const MyGames = () => {
             >
               Cancel
             </Button>
-            <Button
-              onClick={handleRenameSubmit}
-              disabled={updateBuild.isPending}
-            >
+            <Button onClick={handleRenameSubmit} disabled={updateBuild.isPending}>
               Save
             </Button>
           </DialogFooter>

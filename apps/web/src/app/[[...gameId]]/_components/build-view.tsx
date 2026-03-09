@@ -4,11 +4,7 @@ import { useCallback, useState } from "react";
 import { useParams } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import { gameTypesArray } from "@repo/api/game/local/agent/agent-schema";
-import {
-  Conversation,
-  ConversationContent,
-  ConversationScrollButton,
-} from "@repo/ui/conversation";
+import { Conversation, ConversationContent, ConversationScrollButton } from "@repo/ui/conversation";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,11 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@repo/ui/dropdown-menu";
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupButton,
-} from "@repo/ui/input-group";
+import { InputGroup, InputGroupAddon, InputGroupButton } from "@repo/ui/input-group";
 import { Mention, MentionsInput } from "@repo/ui/mentions-input";
 import { useMutation } from "@tanstack/react-query";
 import { generateId } from "ai";
@@ -157,9 +149,7 @@ export const BuildView = () => {
                   </InputGroupButton>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-56">
-                  <DropdownMenuItem
-                    onClick={() => setShowMyGames(!showMyGames)}
-                  >
+                  <DropdownMenuItem onClick={() => setShowMyGames(!showMyGames)}>
                     <GamepadIcon />
                     My Games
                     {showMyGames && (
@@ -178,9 +168,7 @@ export const BuildView = () => {
                     Create New Game
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => setShowFileExplorer(!showFileExplorer)}
-                  >
+                  <DropdownMenuItem onClick={() => setShowFileExplorer(!showFileExplorer)}>
                     <FileIcon />
                     File Explorer
                     {showFileExplorer && (
@@ -221,11 +209,7 @@ export const BuildView = () => {
               suggestionsPlacement="above"
               onMentionsChange={(changeEvent) => setInput(changeEvent.value)}
               onKeyDown={(e) => {
-                if (
-                  (e.metaKey || e.ctrlKey) &&
-                  e.key === "Enter" &&
-                  !e.shiftKey
-                ) {
+                if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   void validateAndSubmitMessage(input);
                 }

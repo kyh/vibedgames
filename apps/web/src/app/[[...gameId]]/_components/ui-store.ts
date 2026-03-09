@@ -3,10 +3,7 @@
 import type { DataUIPart } from "ai";
 import { create } from "zustand";
 
-import type {
-  SandpackBundlerFiles,
-  SandpackClient,
-} from "@codesandbox/sandpack-client";
+import type { SandpackBundlerFiles, SandpackClient } from "@codesandbox/sandpack-client";
 import type { DataPart } from "@repo/api/game/local/agent/messages/data-parts";
 import { featuredGames } from "./data";
 import { initializeSandpackClient, toSandpack } from "./sandpack";
@@ -88,7 +85,8 @@ export const useUiStore = create<UIState>((set, get) => ({
     const isLocalGame = !!files;
 
     // Skip if already initialized or initializing for this gameId with same mode
-    const alreadyInitialized = currentGameId === id && currentIsLocal === isLocalGame && sandpackClient;
+    const alreadyInitialized =
+      currentGameId === id && currentIsLocal === isLocalGame && sandpackClient;
     const alreadyInitializing = initializingGameId === id && isLocalGame;
     console.log("[setGameId]", { id, isLocalGame, alreadyInitialized, alreadyInitializing });
     if (alreadyInitialized || alreadyInitializing) {

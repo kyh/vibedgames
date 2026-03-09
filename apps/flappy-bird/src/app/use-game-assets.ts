@@ -113,11 +113,7 @@ export const useGameAssets = () => {
     const sound = assetsRef.current.sounds?.[soundName];
     if (sound) {
       sound.currentTime = 0;
-      sound
-        .play()
-        .catch((error) =>
-          console.error(`Error playing ${soundName} sound:`, error),
-        );
+      sound.play().catch((error) => console.error(`Error playing ${soundName} sound:`, error));
     }
   };
 

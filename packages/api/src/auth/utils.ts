@@ -21,10 +21,7 @@ export const slugify = (str: string) => {
 
 export type Primitive = string | number | boolean | null;
 
-export type JsonType =
-  | Primitive
-  | { [key: PropertyKey]: JsonType }
-  | JsonType[];
+export type JsonType = Primitive | { [key: PropertyKey]: JsonType } | JsonType[];
 
 /**
  * Zod schema for parsing JSON strings

@@ -86,10 +86,7 @@ export const Composer = () => {
           )}
         </button>
       </div>
-      <WaitlistDailog
-        waitlistOpen={waitlistOpen}
-        setWaitlistOpen={setWaitlistOpen}
-      />
+      <WaitlistDailog waitlistOpen={waitlistOpen} setWaitlistOpen={setWaitlistOpen} />
     </>
   );
 };

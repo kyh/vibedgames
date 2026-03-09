@@ -15,17 +15,11 @@ type Props = {
   className?: string;
 };
 
-export const MessagePart = memo(function MessagePart({
-  part,
-  partIndex,
-  className,
-}: Props) {
+export const MessagePart = memo(function MessagePart({ part, partIndex, className }: Props) {
   if (part.type === "data-generating-files") {
     return <GenerateFiles message={part.data} className={className} />;
   } else if (part.type === "reasoning") {
-    return (
-      <Reasoning part={part} partIndex={partIndex} className={className} />
-    );
+    return <Reasoning part={part} partIndex={partIndex} className={className} />;
   } else if (part.type === "data-report-errors") {
     return <ReportErrors message={part.data} className={className} />;
   } else if (part.type === "text") {

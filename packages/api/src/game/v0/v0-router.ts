@@ -1,12 +1,7 @@
 import { v0 } from "v0-sdk";
 
 import { createTRPCRouter, protectedProcedure } from "../../trpc";
-import {
-  deleteChatInput,
-  getChatInput,
-  projectId,
-  sendMessageInput,
-} from "./v0-schema";
+import { deleteChatInput, getChatInput, projectId, sendMessageInput } from "./v0-schema";
 
 export const v0Router = createTRPCRouter({
   initChat: protectedProcedure.mutation(async () => {
@@ -24,17 +19,15 @@ export const v0Router = createTRPCRouter({
     return { chat };
   }),
 
-  sendMessage: protectedProcedure
-    .input(sendMessageInput)
-    .mutation(async ({ input }) => {
-      const chat = await v0.chats.sendMessage({
-        chatId: input.chatId,
-        message: input.message,
-        responseMode: "sync",
-      });
+  sendMessage: protectedProcedure.input(sendMessageInput).mutation(async ({ input }) => {
+    const chat = await v0.chats.sendMessage({
+      chatId: input.chatId,
+      message: input.message,
+      responseMode: "sync",
+    });
 
-      return { chat };
-    }),
+    return { chat };
+  }),
 
   getChat: protectedProcedure.input(getChatInput).query(async ({ input }) => {
     const chat = await v0.chats.getById({
@@ -52,13 +45,11 @@ export const v0Router = createTRPCRouter({
     return { project, chats: project.chats };
   }),
 
-  deleteChat: protectedProcedure
-    .input(deleteChatInput)
-    .mutation(async ({ input }) => {
-      const chat = await v0.chats.delete({
-        chatId: input.chatId,
-      });
+  deleteChat: protectedProcedure.input(deleteChatInput).mutation(async ({ input }) => {
+    const chat = await v0.chats.delete({
+      chatId: input.chatId,
+    });
 
-      return { chat };
-    }),
+    return { chat };
+  }),
 });

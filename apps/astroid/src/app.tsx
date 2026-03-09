@@ -91,12 +91,7 @@ const polarToPoint = (length: number, angle: number): Point => ({
   y: length * Math.sin(angle),
 });
 
-const createShip = (
-  x: number,
-  y: number,
-  size: number,
-  id: string | null = null,
-): Ship => {
+const createShip = (x: number, y: number, size: number, id: string | null = null): Ship => {
   const position = createPoint(x, y);
   const path: Point[] = [];
   const referencePath: Point[] = [];
@@ -126,11 +121,7 @@ const createShip = (
   };
 };
 
-const updateShipPosition = (
-  ship: Ship,
-  target: Point,
-  speed: number = SHIP_SPEED,
-): Ship => {
+const updateShipPosition = (ship: Ship, target: Point, speed: number = SHIP_SPEED): Ship => {
   const newShip: Ship = {
     ...ship,
     lastPosition: { ...ship.position },
@@ -230,10 +221,7 @@ const DemoGame = () => {
     [],
   );
 
-  const [playerState, setPlayerState] = usePlayerState(
-    room,
-    initialPlayerState,
-  );
+  const [playerState, setPlayerState] = usePlayerState(room, initialPlayerState);
 
   const createShipFromPlayer = (player: AstroidPlayer): Ship => {
     const ship = createShip(player.position.x, player.position.y, 8, player.id);
@@ -260,9 +248,7 @@ const DemoGame = () => {
     const playerIdElement = document.getElementById("player-id");
 
     if (playerCountElement) {
-      playerCountElement.textContent = Object.keys(
-        room.players,
-      ).length.toString();
+      playerCountElement.textContent = Object.keys(room.players).length.toString();
     }
 
     if (playerIdElement && room.playerId) {
@@ -271,11 +257,7 @@ const DemoGame = () => {
   }
 
   useEffect(() => {
-    if (
-      room.connectionStatus === "connected" &&
-      !myShipRef.current &&
-      room.playerId
-    ) {
+    if (room.connectionStatus === "connected" && !myShipRef.current && room.playerId) {
       myShipRef.current = createShip(
         window.innerWidth / 2,
         window.innerHeight / 2,
@@ -344,11 +326,7 @@ const DemoGame = () => {
           ship.targetPosition = playerPosition;
         }
 
-        const updatedShip = updateShipPosition(
-          ship,
-          ship.targetPosition,
-          SHIP_SPEED * 0.8,
-        );
+        const updatedShip = updateShipPosition(ship, ship.targetPosition, SHIP_SPEED * 0.8);
         const finalShip = updateShipPath(updatedShip);
         shipsRef.current[ship.id] = finalShip;
         drawShip(context, finalShip);

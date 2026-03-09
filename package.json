@@ -1,7 +1,6 @@
 {
   "name": "vibedgames",
   "private": true,
-  "packageManager": "pnpm@10.30.3",
   "scripts": {
     "build": "turbo run build",
     "clean": "git clean -xdf node_modules",
@@ -31,6 +30,7 @@
     "turbo": "^2.8.14",
     "typescript": "catalog:"
   },
+  "packageManager": "pnpm@10.30.3",
   "pnpm": {
     "onlyBuiltDependencies": [
       "@swc/core",

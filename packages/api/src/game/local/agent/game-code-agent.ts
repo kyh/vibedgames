@@ -34,9 +34,7 @@ const initializeBashToolkit = async (buildId: string, db: Db) => {
   if (build?.gameBuildFiles && build.gameBuildFiles.length > 0) {
     for (const file of build.gameBuildFiles) {
       // Remove leading slash if present for clean paths
-      const cleanPath = file.path.startsWith("/")
-        ? file.path.slice(1)
-        : file.path;
+      const cleanPath = file.path.startsWith("/") ? file.path.slice(1) : file.path;
       files[cleanPath] = file.content;
     }
   }
@@ -63,11 +61,7 @@ const initializeBashToolkit = async (buildId: string, db: Db) => {
  * @param params - Dependencies required for agent configuration
  * @returns Promise that resolves to configured ToolLoopAgent instance
  */
-export const createGameCodeAgent = async ({
-  writer,
-  db,
-  buildId,
-}: CreateGameCodeAgentParams) => {
+export const createGameCodeAgent = async ({ writer, db, buildId }: CreateGameCodeAgentParams) => {
   const bashToolkit = await initializeBashToolkit(buildId, db);
 
   return new ToolLoopAgent({

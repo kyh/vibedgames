@@ -151,8 +151,6 @@ export const generateFiles = ({ sandbox, writer, db, buildId }: Params) =>
       return `Successfully generated and uploaded ${
         uploaded.length
       } files. Their paths and contents are as follows:
-        ${uploaded
-          .map((file) => `Path: ${file.path}\nContent: ${file.content}\n`)
-          .join("\n")}`;
+        ${uploaded.map((file) => `Path: ${file.path}\nContent: ${file.content}\n`).join("\n")}`;
     },
   });

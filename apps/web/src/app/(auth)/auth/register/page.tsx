@@ -14,11 +14,7 @@ const Page = () => {
         <h1 className="text-lg font-light">Create an account</h1>
         <p className="text-muted-foreground text-sm">
           New accounts are currently{" "}
-          <Link
-            className="underline"
-            href="https://x.com/kaiyuhsu"
-            target="_blank"
-          >
+          <Link className="underline" href="https://x.com/kaiyuhsu" target="_blank">
             invite only
           </Link>
           .

@@ -7,15 +7,9 @@ import { useMultiplayerRoom } from "./use-multiplayer-room";
 export function useMultiplayerState<
   TShared extends Record<string, unknown> = Record<string, unknown>,
 >(
-  roomOrConfig:
-    | MultiplayerRoom<TShared>
-    | (MultiplayerOptions & { initialState?: TShared }),
+  roomOrConfig: MultiplayerRoom<TShared> | (MultiplayerOptions & { initialState?: TShared }),
   initialState?: TShared,
-): readonly [
-  TShared,
-  MultiplayerRoom<TShared>["updateSharedState"],
-  MultiplayerRoom<TShared>,
-] {
+): readonly [TShared, MultiplayerRoom<TShared>["updateSharedState"], MultiplayerRoom<TShared>] {
   const room = useRoom(roomOrConfig, initialState);
   const initialStateApplied = useRef(false);
 
@@ -39,9 +33,7 @@ export function useMultiplayerState<
 }
 
 export function usePlayerState<TPlayerState = Record<string, unknown>>(
-  roomOrConfig:
-    | MultiplayerRoom
-    | (MultiplayerOptions & { initialState?: Record<string, unknown> }),
+  roomOrConfig: MultiplayerRoom | (MultiplayerOptions & { initialState?: Record<string, unknown> }),
   initialState?: TPlayerState,
 ): readonly [
   TPlayerState,
@@ -66,27 +58,18 @@ export function usePlayerState<TPlayerState = Record<string, unknown>>(
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally omit `room` to avoid infinite loop
   }, [room.playerId, room.updateMyState, initialState]);
 
-  return useMemo(
-    () => [playerState, room.updateMyState, room] as const,
-    [playerState, room],
-  );
+  return useMemo(() => [playerState, room.updateMyState, room] as const, [playerState, room]);
 }
 
 export function useIsHost(
-  roomOrConfig:
-    | MultiplayerRoom
-    | (MultiplayerOptions & { initialState?: Record<string, unknown> }),
+  roomOrConfig: MultiplayerRoom | (MultiplayerOptions & { initialState?: Record<string, unknown> }),
 ): boolean {
   const room = useRoom(roomOrConfig, undefined);
   return room.hostId !== null && room.hostId === room.playerId;
 }
 
-function useRoom<
-  TShared extends Record<string, unknown> = Record<string, unknown>,
->(
-  roomOrConfig:
-    | MultiplayerRoom<TShared>
-    | (MultiplayerOptions & { initialState?: TShared }),
+function useRoom<TShared extends Record<string, unknown> = Record<string, unknown>>(
+  roomOrConfig: MultiplayerRoom<TShared> | (MultiplayerOptions & { initialState?: TShared }),
   initialState?: TShared,
 ): MultiplayerRoom<TShared> {
   if ("connectionStatus" in roomOrConfig) {

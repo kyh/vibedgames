@@ -32,17 +32,11 @@ export const trpc = createTRPCOptionsProxy<AppRouter>({
 
 export const HydrateClient = (props: { children: React.ReactNode }) => {
   const queryClient = getQueryClient();
-  return (
-    <HydrationBoundary state={dehydrate(queryClient)}>
-      {props.children}
-    </HydrationBoundary>
-  );
+  return <HydrationBoundary state={dehydrate(queryClient)}>{props.children}</HydrationBoundary>;
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function prefetch<T extends ReturnType<TRPCQueryOptions<any>>>(
-  queryOptions: T,
-) {
+export function prefetch<T extends ReturnType<TRPCQueryOptions<any>>>(queryOptions: T) {
   const queryClient = getQueryClient();
   if (queryOptions.queryKey[1]?.type === "infinite") {
     // eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any

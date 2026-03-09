@@ -28,9 +28,7 @@ type FileContentChunk = {
   written: string[];
 };
 
-export async function* getContents(
-  params: Params,
-): AsyncGenerator<FileContentChunk> {
+export async function* getContents(params: Params): AsyncGenerator<FileContentChunk> {
   const generated: z.infer<typeof fileSchema>[] = [];
   const deferred = new Deferred<void>();
   const result = streamText({
@@ -81,9 +79,7 @@ export async function* getContents(
 
   const raceResult = await Promise.race([result.output, deferred.promise]);
   if (!raceResult) {
-    throw new Error(
-      "Unexpected Error: Deferred was resolved before the result",
-    );
+    throw new Error("Unexpected Error: Deferred was resolved before the result");
   }
 
   const written = generated.map((file) => file.path);

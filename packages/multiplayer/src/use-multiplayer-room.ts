@@ -11,22 +11,21 @@ import type {
   ServerMessage,
 } from "./types";
 
-export type MultiplayerRoom<TShared = Record<string, unknown>> =
-  MultiplayerRoomState & {
-    sharedState: TShared;
-    updateSharedState: (
-      updater:
-        | Partial<TShared>
-        | ((previous: TShared) => TShared)
-        | ((previous: TShared) => Partial<TShared>),
-    ) => void;
-    updateMyState: (
-      updater:
-        | Record<string, unknown>
-        | ((previous: Record<string, unknown>) => Record<string, unknown>),
-    ) => void;
-    sendEvent: (event: string, payload: unknown) => void;
-  };
+export type MultiplayerRoom<TShared = Record<string, unknown>> = MultiplayerRoomState & {
+  sharedState: TShared;
+  updateSharedState: (
+    updater:
+      | Partial<TShared>
+      | ((previous: TShared) => TShared)
+      | ((previous: TShared) => Partial<TShared>),
+  ) => void;
+  updateMyState: (
+    updater:
+      | Record<string, unknown>
+      | ((previous: Record<string, unknown>) => Record<string, unknown>),
+  ) => void;
+  sendEvent: (event: string, payload: unknown) => void;
+};
 
 export type UseMultiplayerRoomConfig<TShared> = MultiplayerOptions & {
   initialState?: TShared;
@@ -34,18 +33,15 @@ export type UseMultiplayerRoomConfig<TShared> = MultiplayerOptions & {
 
 export function useMultiplayerRoom<
   TShared extends Record<string, unknown> = Record<string, unknown>,
->(
-  config: UseMultiplayerRoomConfig<TShared>,
-): MultiplayerRoom<TShared> {
+>(config: UseMultiplayerRoomConfig<TShared>): MultiplayerRoom<TShared> {
   const socket = usePartySocket({
     host: config.host,
     party: config.party,
     room: config.room,
   });
 
-  const [connectionStatus, setConnectionStatus] = useState<
-    MultiplayerConnectionStatus
-  >("connecting");
+  const [connectionStatus, setConnectionStatus] =
+    useState<MultiplayerConnectionStatus>("connecting");
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [hostId, setHostId] = useState<string | null>(null);
   const [sharedState, setSharedState] = useState<TShared>(
@@ -60,13 +56,16 @@ export function useMultiplayerRoom<
   sharedStateRef.current = sharedState;
   playersRef.current = players;
 
-  const applyPatch = useCallback(<T extends Record<string, unknown>>(
-    current: T,
-    patch: Partial<T> | ((previous: T) => Partial<T> | T),
-  ): T => {
-    const nextValue = typeof patch === "function" ? patch(current) : patch;
-    return { ...current, ...(nextValue as Partial<T>) } as T;
-  }, []);
+  const applyPatch = useCallback(
+    <T extends Record<string, unknown>>(
+      current: T,
+      patch: Partial<T> | ((previous: T) => Partial<T> | T),
+    ): T => {
+      const nextValue = typeof patch === "function" ? patch(current) : patch;
+      return { ...current, ...(nextValue as Partial<T>) } as T;
+    },
+    [],
+  );
 
   useEffect(() => {
     const handleOpen = () => {
@@ -252,6 +251,15 @@ export function useMultiplayerRoom<
       updateMyState,
       sendEvent,
     }),
-    [connectionStatus, hostId, playerId, players, sendEvent, sharedState, updateMyState, updateSharedState],
+    [
+      connectionStatus,
+      hostId,
+      playerId,
+      players,
+      sendEvent,
+      sharedState,
+      updateMyState,
+      updateSharedState,
+    ],
   );
 }

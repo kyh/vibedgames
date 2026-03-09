@@ -1,12 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import {
-  Circle,
-  OrbitControls,
-  PerspectiveCamera,
-  Text,
-} from "@react-three/drei";
+import { Circle, OrbitControls, PerspectiveCamera, Text } from "@react-three/drei";
 import { Canvas, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 
@@ -26,26 +21,22 @@ const Table = () => (
   </group>
 );
 
-const Paddle = React.forwardRef<THREE.Group, React.ComponentProps<"group">>(
-  (props, ref) => (
-    <group {...props} ref={ref}>
-      <mesh rotation={[Math.PI / 2, 0, 0]}>
-        <torusGeometry args={[0.5, 0.1, 16, 100]} />
-        <meshBasicMaterial color="black" />
-      </mesh>
-    </group>
-  ),
-);
-Paddle.displayName = "Paddle";
-
-const Ball = React.forwardRef<THREE.Mesh, React.ComponentProps<"mesh">>(
-  (props, ref) => (
-    <mesh {...props} ref={ref}>
-      <sphereGeometry args={[0.2, 16, 16]} />
+const Paddle = React.forwardRef<THREE.Group, React.ComponentProps<"group">>((props, ref) => (
+  <group {...props} ref={ref}>
+    <mesh rotation={[Math.PI / 2, 0, 0]}>
+      <torusGeometry args={[0.5, 0.1, 16, 100]} />
       <meshBasicMaterial color="black" />
     </mesh>
-  ),
-);
+  </group>
+));
+Paddle.displayName = "Paddle";
+
+const Ball = React.forwardRef<THREE.Mesh, React.ComponentProps<"mesh">>((props, ref) => (
+  <mesh {...props} ref={ref}>
+    <sphereGeometry args={[0.2, 16, 16]} />
+    <meshBasicMaterial color="black" />
+  </mesh>
+));
 Ball.displayName = "Ball";
 
 const Game = ({ handPosition }: { handPosition: number | null }) => {
@@ -78,11 +69,7 @@ const Game = ({ handPosition }: { handPosition: number | null }) => {
     }
     const speed = BALL_SPEED;
     const angle = Math.random() * Math.PI * 2;
-    ballVelocity.current.set(
-      Math.cos(angle) * speed,
-      Math.sin(angle) * speed,
-      0,
-    );
+    ballVelocity.current.set(Math.cos(angle) * speed, Math.sin(angle) * speed, 0);
     setGameState((prev) => ({ ...prev, gameStarted: false }));
     isArcing.current = false;
   };
@@ -93,11 +80,7 @@ const Game = ({ handPosition }: { handPosition: number | null }) => {
         setGameState((prev) => ({ ...prev, gameStarted: true }));
         const speed = BALL_SPEED;
         const angle = -Math.PI / 2 + (Math.random() * 0.2 - 0.1);
-        ballVelocity.current.set(
-          Math.cos(angle) * speed,
-          Math.sin(angle) * speed,
-          0,
-        );
+        ballVelocity.current.set(Math.cos(angle) * speed, Math.sin(angle) * speed, 0);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
@@ -121,11 +104,7 @@ const Game = ({ handPosition }: { handPosition: number | null }) => {
 
       const baseSpeed = 0.2;
       const accelerationFactor = 10;
-      const lerpFactor = THREE.MathUtils.clamp(
-        baseSpeed + speed * accelerationFactor,
-        0,
-        1,
-      );
+      const lerpFactor = THREE.MathUtils.clamp(baseSpeed + speed * accelerationFactor, 0, 1);
 
       playerPaddleRef.current.position.x = THREE.MathUtils.lerp(
         playerPaddleRef.current.position.x,
@@ -158,8 +137,7 @@ const Game = ({ handPosition }: { handPosition: number | null }) => {
       const distY = Math.abs(ballRef.current.position.y - arcStartY.current);
       const progress = Math.min(distY / arcTotalDistY.current, 1);
 
-      ballRef.current.position.z =
-        MAX_BOUNCE_HEIGHT * 4 * progress * (1 - progress);
+      ballRef.current.position.z = MAX_BOUNCE_HEIGHT * 4 * progress * (1 - progress);
 
       if (progress >= 1) {
         isArcing.current = false;
@@ -273,23 +251,13 @@ const Game = ({ handPosition }: { handPosition: number | null }) => {
 
   return (
     <>
-      <PerspectiveCamera
-        ref={cameraRef}
-        makeDefault
-        position={[0, -12, 12]}
-        fov={50}
-      />
+      <PerspectiveCamera ref={cameraRef} makeDefault position={[0, -12, 12]} fov={50} />
       <OrbitControls enabled={false} target={[0, 0, 0]} />
       <ambientLight intensity={1} />
       <Table />
       <Ball ref={ballRef} />
 
-      <Circle
-        ref={shadowRef}
-        args={[0.2, 16]}
-        position={[0, 0, 0.01]}
-        renderOrder={1}
-      >
+      <Circle ref={shadowRef} args={[0.2, 16]} position={[0, 0, 0.01]} renderOrder={1}>
         <meshBasicMaterial color="black" transparent opacity={0.3} />
       </Circle>
 

@@ -1,9 +1,5 @@
 export { useMultiplayerRoom } from "./use-multiplayer-room";
-export {
-  useMultiplayerState,
-  usePlayerState,
-  useIsHost,
-} from "./use-multiplayer";
+export { useMultiplayerState, usePlayerState, useIsHost } from "./use-multiplayer";
 
 export type {
   MultiplayerOptions,

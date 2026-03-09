@@ -9,7 +9,6 @@
     "typecheck": "tsc --noEmit",
     "with-env": "dotenv -e ../../.env --"
   },
-  "prettier": "@kyh/prettier-config",
   "dependencies": {
     "@repo/api": "workspace:^",
     "@repo/db": "workspace:^",
@@ -21,5 +20,6 @@
     "partyserver": "^0.1.5",
     "typescript": "catalog:",
     "wrangler": "^4.71.0"
-  }
+  },
+  "prettier": "@kyh/prettier-config"
 }

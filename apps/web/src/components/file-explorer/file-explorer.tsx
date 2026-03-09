@@ -4,11 +4,7 @@ import type { ReactNode } from "react";
 import type { BundledLanguage } from "shiki";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@repo/ui/button";
-import {
-  CodeBlock,
-  CodeBlockCopyButton,
-  extensionToLanguageMap,
-} from "@repo/ui/code-block";
+import { CodeBlock, CodeBlockCopyButton, extensionToLanguageMap } from "@repo/ui/code-block";
 import { ScrollArea } from "@repo/ui/scroll-area";
 import { toast } from "@repo/ui/toast";
 import { cn } from "@repo/ui/utils";
@@ -27,10 +23,7 @@ const getLanguageFromPath = (path: string): BundledLanguage => {
   return (extensionToLanguageMap[ext ?? ""] ?? "txt") as BundledLanguage;
 };
 
-function getFileIcon(
-  extension: string | undefined,
-  className: string,
-): ReactNode {
+function getFileIcon(extension: string | undefined, className: string): ReactNode {
   switch (extension) {
     case "tsx":
     case "jsx":
@@ -65,15 +58,11 @@ type Props = {
 export const FileExplorer = ({ className, disabled, files }: Props) => {
   const { handleMouseDown } = useResizableSidebar();
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(
-    new Set([ROOT_ID]),
-  );
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set([ROOT_ID]));
 
   // Convert SandpackBundlerFiles to Record<string, string> for buildFileTree
   const filesAsRecord = useMemo(() => {
-    return Object.fromEntries(
-      Object.entries(files).map(([path, file]) => [path, file.code]),
-    );
+    return Object.fromEntries(Object.entries(files).map(([path, file]) => [path, file.code]));
   }, [files]);
 
   const items = useMemo(() => buildFileTree(filesAsRecord), [filesAsRecord]);
@@ -97,17 +86,12 @@ export const FileExplorer = ({ className, disabled, files }: Props) => {
   const selectedCode = useMemo(() => {
     if (!selectedPath) return "";
     const file =
-      files[selectedPath] ??
-      files[`/${selectedPath}`] ??
-      files[selectedPath.replace(/^\//, "")];
+      files[selectedPath] ?? files[`/${selectedPath}`] ?? files[selectedPath.replace(/^\//, "")];
     return file?.code ?? "";
   }, [selectedPath, files]);
 
   const codeLanguage = useMemo<BundledLanguage>(
-    () =>
-      selectedPath
-        ? getLanguageFromPath(selectedPath)
-        : ("plaintext" as BundledLanguage),
+    () => (selectedPath ? getLanguageFromPath(selectedPath) : ("plaintext" as BundledLanguage)),
     [selectedPath],
   );
 
@@ -138,12 +122,9 @@ export const FileExplorer = ({ className, disabled, files }: Props) => {
               <span className="truncate">{item.name}</span>
             </span>
           </div>
-          {item.isFolder &&
-            isExpanded &&
-            item.children &&
-            item.children.length > 0 && (
-              <div>{renderTreeItems(item.children, depth + 1)}</div>
-            )}
+          {item.isFolder && isExpanded && item.children && item.children.length > 0 && (
+            <div>{renderTreeItems(item.children, depth + 1)}</div>
+          )}
         </div>
       );
     });
@@ -229,10 +210,7 @@ export const useResizableSidebar = ({
 
   useEffect(() => {
     // Set initial CSS variable value
-    document.documentElement.style.setProperty(
-      "--sidebar-width",
-      `${defaultWidth}px`,
-    );
+    document.documentElement.style.setProperty("--sidebar-width", `${defaultWidth}px`);
 
     const handleMouseMove = (e: MouseEvent) => {
       if (!isResizingRef.current) return;
@@ -242,10 +220,7 @@ export const useResizableSidebar = ({
       const clampedWidth = Math.min(Math.max(newWidth, minWidth), maxWidth);
 
       // Set CSS variable directly
-      document.documentElement.style.setProperty(
-        "--sidebar-width",
-        `${clampedWidth}px`,
-      );
+      document.documentElement.style.setProperty("--sidebar-width", `${clampedWidth}px`);
     };
 
     const handleMouseUp = () => {

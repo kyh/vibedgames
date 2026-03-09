@@ -8,18 +8,14 @@ export type FileNode = {
 const ROOT_ID = ".";
 
 // Convert file paths into a flat tree structure
-export function buildFileTree(
-  files: Record<string, string>,
-): Record<string, FileNode> {
+export function buildFileTree(files: Record<string, string>): Record<string, FileNode> {
   const tree: Record<string, FileNode> = {};
   const rootChildren = new Set<string>();
 
   // Process each file path
   for (const filePath of Object.keys(files)) {
     // Normalize path: remove leading slash and split into parts
-    const normalizedPath = filePath.startsWith("/")
-      ? filePath.slice(1)
-      : filePath;
+    const normalizedPath = filePath.startsWith("/") ? filePath.slice(1) : filePath;
     const parts = normalizedPath.split("/").filter(Boolean);
 
     if (parts.length === 0) continue;

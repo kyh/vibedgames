@@ -24,10 +24,7 @@ export const PlayView = () => {
         layoutId="compose-view"
         className="bg-input/40 absolute inset-0 mb-4 rounded-md backdrop-blur-sm"
       />
-      <InputGroup
-        className="text-foreground border-none bg-transparent text-sm"
-        asChild
-      >
+      <InputGroup className="text-foreground border-none bg-transparent text-sm" asChild>
         <motion.div
           transition={{ type: "spring", bounce: 0.1 }}
           initial={{ opacity: 0, filter: "blur(5px)" }}
@@ -54,11 +51,7 @@ export const PlayView = () => {
             />
           )}
           <InputGroupAddon align="inline-end">
-            <InputGroupButton
-              onClick={refreshIframe}
-              type="button"
-              size="icon-xs"
-            >
+            <InputGroupButton onClick={refreshIframe} type="button" size="icon-xs">
               <RefreshCwIcon className={cn(iframeLoading && "animate-spin")} />
             </InputGroupButton>
           </InputGroupAddon>

@@ -3,14 +3,7 @@
 import { useParams, useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@repo/ui/button";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@repo/ui/form";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@repo/ui/form";
 import { Input } from "@repo/ui/input";
 import { toast } from "@repo/ui/toast";
 import { cn } from "@repo/ui/utils";
@@ -162,8 +155,8 @@ export const RequestPasswordResetForm = () => {
       <div className="space-y-4 text-center">
         <div className="rounded-md bg-green-50 p-4 dark:bg-green-900/20">
           <p className="text-sm text-green-800 dark:text-green-200">
-            Password reset email sent! Check your inbox and follow the
-            instructions to reset your password.
+            Password reset email sent! Check your inbox and follow the instructions to reset your
+            password.
           </p>
         </div>
       </div>
@@ -194,9 +187,7 @@ export const RequestPasswordResetForm = () => {
             </FormItem>
           )}
         />
-        <Button loading={form.formState.isSubmitting}>
-          Request Password Reset
-        </Button>
+        <Button loading={form.formState.isSubmitting}>Request Password Reset</Button>
       </form>
     </Form>
   );

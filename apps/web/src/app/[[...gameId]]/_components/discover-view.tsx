@@ -29,12 +29,7 @@ export const DiscoverView = () => {
           }}
           className="hover:border-foreground relative aspect-video w-30 shrink-0 overflow-clip rounded-lg border border-transparent transition-colors"
         >
-          <Image
-            src={game.preview}
-            alt={game.name}
-            fill
-            className="object-cover"
-          />
+          <Image src={game.preview} alt={game.name} fill className="object-cover" />
         </button>
       ))}
     </motion.div>

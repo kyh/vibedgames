@@ -16,11 +16,7 @@ export function useLocalStorage<T>(
   defaultValue: T,
   options?: Options<T>,
 ): [T, Setter<T>];
-export function useLocalStorage<T>(
-  key: string,
-  defaultValue?: T,
-  options?: Options<T>,
-) {
+export function useLocalStorage<T>(key: string, defaultValue?: T, options?: Options<T>) {
   const opts = useMemo(() => {
     return {
       serializer: JSON.stringify,
@@ -40,9 +36,7 @@ export function useLocalStorage<T>(
 
     try {
       rawValueRef.current = window.localStorage.getItem(key);
-      const res: T = rawValueRef.current
-        ? parser(rawValueRef.current)
-        : defaultValue;
+      const res: T = rawValueRef.current ? parser(rawValueRef.current) : defaultValue;
       return res;
     } catch (e) {
       logger(e);

@@ -93,9 +93,7 @@ const getAnimationDelay = (
       const isCenterCol = x === centerIdx;
       if (!isCenterRow && !isCenterCol) return "0s";
 
-      const distFromCenter = isCenterRow
-        ? Math.abs(x - centerIdx)
-        : Math.abs(y - centerIdx);
+      const distFromCenter = isCenterRow ? Math.abs(x - centerIdx) : Math.abs(y - centerIdx);
       return `${distFromCenter * 0.1}s`;
     }
 
@@ -161,8 +159,7 @@ const shouldShowPixel = (
     const dy = y - centerIdx;
     const isCross = x === centerIdx || y === centerIdx;
     const isDiagonal = Math.abs(dx) === Math.abs(dy);
-    const isCorner =
-      (x === 0 || x === gridSize - 1) && (y === 0 || y === gridSize - 1);
+    const isCorner = (x === 0 || x === gridSize - 1) && (y === 0 || y === gridSize - 1);
     return (isCross || isDiagonal) && !isCorner;
   }
 

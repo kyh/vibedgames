@@ -49,10 +49,8 @@ const inputGroupAddonVariants = cva(
   {
     variants: {
       align: {
-        "inline-start":
-          "order-first pl-3 has-[>button]:ml-[-0.45rem] has-[>kbd]:ml-[-0.35rem]",
-        "inline-end":
-          "order-last pr-3 has-[>button]:mr-[-0.45rem] has-[>kbd]:mr-[-0.35rem]",
+        "inline-start": "order-first pl-3 has-[>button]:ml-[-0.45rem] has-[>kbd]:ml-[-0.35rem]",
+        "inline-end": "order-last pr-3 has-[>button]:mr-[-0.45rem] has-[>kbd]:mr-[-0.35rem]",
         "block-start":
           "order-first w-full justify-start px-3 pt-3 group-has-[>input]/input-group:pt-2.5 [.border-b]:pb-3",
         "block-end":
@@ -69,8 +67,7 @@ const InputGroupAddon = ({
   className,
   align = "inline-start",
   ...props
-}: React.ComponentProps<"div"> &
-  VariantProps<typeof inputGroupAddonVariants>) => {
+}: React.ComponentProps<"div"> & VariantProps<typeof inputGroupAddonVariants>) => {
   return (
     <div
       role="group"
@@ -88,23 +85,19 @@ const InputGroupAddon = ({
   );
 };
 
-const inputGroupButtonVariants = cva(
-  "flex items-center gap-2 text-sm shadow-none",
-  {
-    variants: {
-      size: {
-        xs: "h-6 gap-1 rounded-[calc(var(--radius)-5px)] px-2 has-[>svg]:px-2 [&>svg:not([class*='size-'])]:size-3.5",
-        sm: "h-8 gap-1.5 rounded-md px-2.5 has-[>svg]:px-2.5",
-        "icon-xs":
-          "size-6 rounded-[calc(var(--radius)-5px)] p-0 has-[>svg]:p-0",
-        "icon-sm": "size-8 p-0 has-[>svg]:p-0",
-      },
-    },
-    defaultVariants: {
-      size: "xs",
+const inputGroupButtonVariants = cva("flex items-center gap-2 text-sm shadow-none", {
+  variants: {
+    size: {
+      xs: "h-6 gap-1 rounded-[calc(var(--radius)-5px)] px-2 has-[>svg]:px-2 [&>svg:not([class*='size-'])]:size-3.5",
+      sm: "h-8 gap-1.5 rounded-md px-2.5 has-[>svg]:px-2.5",
+      "icon-xs": "size-6 rounded-[calc(var(--radius)-5px)] p-0 has-[>svg]:p-0",
+      "icon-sm": "size-8 p-0 has-[>svg]:p-0",
     },
   },
-);
+  defaultVariants: {
+    size: "xs",
+  },
+});
 
 const InputGroupButton = ({
   className,
@@ -127,10 +120,7 @@ const InputGroupButton = ({
   );
 };
 
-const InputGroupText = ({
-  className,
-  ...props
-}: React.ComponentProps<"span">) => {
+const InputGroupText = ({ className, ...props }: React.ComponentProps<"span">) => {
   return (
     <span
       className={cn(
@@ -142,10 +132,7 @@ const InputGroupText = ({
   );
 };
 
-const InputGroupInput = ({
-  className,
-  ...props
-}: React.ComponentProps<"input">) => {
+const InputGroupInput = ({ className, ...props }: React.ComponentProps<"input">) => {
   return (
     <Input
       data-slot="input-group-control"
@@ -158,10 +145,7 @@ const InputGroupInput = ({
   );
 };
 
-const InputGroupTextarea = ({
-  className,
-  ...props
-}: React.ComponentProps<"textarea">) => {
+const InputGroupTextarea = ({ className, ...props }: React.ComponentProps<"textarea">) => {
   return (
     <Textarea
       data-slot="input-group-control"

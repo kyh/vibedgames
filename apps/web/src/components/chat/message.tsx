@@ -21,9 +21,7 @@ export const useReasoningContext = () => {
 };
 
 export const Message = memo(function Message({ message }: Props) {
-  const [expandedReasoningIndex, setExpandedReasoningIndex] = useState<
-    number | null
-  >(null);
+  const [expandedReasoningIndex, setExpandedReasoningIndex] = useState<number | null>(null);
 
   const reasoningParts = message.parts
     .map((part, index) => ({ part, index }))
@@ -39,14 +37,9 @@ export const Message = memo(function Message({ message }: Props) {
   }, [reasoningParts]);
 
   return (
-    <ReasoningContext.Provider
-      value={{ expandedReasoningIndex, setExpandedReasoningIndex }}
-    >
+    <ReasoningContext.Provider value={{ expandedReasoningIndex, setExpandedReasoningIndex }}>
       <div
-        className={cn(
-          message.role === "assistant" && "mr-20",
-          message.role === "user" && "ml-20",
-        )}
+        className={cn(message.role === "assistant" && "mr-20", message.role === "user" && "ml-20")}
       >
         <div className="space-y-1">
           {message.parts.map((part, index) => (

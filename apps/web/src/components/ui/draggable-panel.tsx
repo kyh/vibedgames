@@ -48,13 +48,10 @@ export const DraggablePanel = ({
     storageKey ??
     `draggable-panel-${typeof title === "string" ? title.toLowerCase().replace(/\s+/g, "-") : "default"}`;
 
-  const [panelState, setPanelState] = useLocalStorage<PanelState>(
-    `${panelKey}-state`,
-    {
-      position: initialPosition,
-      size: initialSize,
-    },
-  );
+  const [panelState, setPanelState] = useLocalStorage<PanelState>(`${panelKey}-state`, {
+    position: initialPosition,
+    size: initialSize,
+  });
 
   // Use stored values directly
   const position = panelState.position;
@@ -117,20 +114,14 @@ export const DraggablePanel = ({
           newWidth = Math.max(minWidth, resizeStartRef.current.width + deltaX);
         }
         if (handle === "se" || handle === "s" || handle === "sw") {
-          newHeight = Math.max(
-            minHeight,
-            resizeStartRef.current.height + deltaY,
-          );
+          newHeight = Math.max(minHeight, resizeStartRef.current.height + deltaY);
         }
         if (handle === "sw" || handle === "w" || handle === "nw") {
           newWidth = Math.max(minWidth, resizeStartRef.current.width - deltaX);
           newLeft = resizeStartRef.current.left + deltaX;
         }
         if (handle === "ne" || handle === "n" || handle === "nw") {
-          newHeight = Math.max(
-            minHeight,
-            resizeStartRef.current.height - deltaY,
-          );
+          newHeight = Math.max(minHeight, resizeStartRef.current.height - deltaY);
           newTop = resizeStartRef.current.top + deltaY;
         }
 
@@ -241,8 +232,7 @@ export const DraggablePanel = ({
     handle: ResizeHandle;
     className?: string;
   }) => {
-    const isCorner =
-      handle === "nw" || handle === "ne" || handle === "sw" || handle === "se";
+    const isCorner = handle === "nw" || handle === "ne" || handle === "sw" || handle === "se";
     const cornerSize = 12;
 
     return (
@@ -260,16 +250,8 @@ export const DraggablePanel = ({
           handleClassName,
         )}
         style={{
-          width: isCorner
-            ? `${cornerSize}px`
-            : handle === "n" || handle === "s"
-              ? "100%"
-              : "8px",
-          height: isCorner
-            ? `${cornerSize}px`
-            : handle === "e" || handle === "w"
-              ? "100%"
-              : "8px",
+          width: isCorner ? `${cornerSize}px` : handle === "n" || handle === "s" ? "100%" : "8px",
+          height: isCorner ? `${cornerSize}px` : handle === "e" || handle === "w" ? "100%" : "8px",
           zIndex: isCorner ? 20 : 10,
         }}
         onPointerDown={(e) => handleResizeStart(handle, e)}

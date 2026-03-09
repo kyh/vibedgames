@@ -100,15 +100,7 @@ export const GameCard = ({
   const cardsBehind = (index - currentIndex + total) % total;
 
   const variants = useMemo(
-    () =>
-      getCardVariants(
-        isActive,
-        isNext,
-        isPrevious,
-        cardsBehind,
-        showStack,
-        isMobile,
-      ),
+    () => getCardVariants(isActive, isNext, isPrevious, cardsBehind, showStack, isMobile),
     [isActive, isNext, isPrevious, cardsBehind, showStack, isMobile],
   );
 
@@ -171,9 +163,7 @@ const useIsMobile = () => {
   return isMobile;
 };
 
-export const GameStack = <
-  T extends { preview: string; name: string; url?: string },
->({
+export const GameStack = <T extends { preview: string; name: string; url?: string }>({
   data,
   showStack,
   onPreviewClick,
@@ -205,12 +195,7 @@ export const GameStack = <
                 exit={{ opacity: 0, filter: `blur(${BLUR_AMOUNT})` }}
                 transition={{ duration: 0.2 }}
               >
-                <Image
-                  className="object-cover"
-                  src={item.preview}
-                  alt={item.name}
-                  fill
-                />
+                <Image className="object-cover" src={item.preview} alt={item.name} fill />
               </motion.button>
             </GameCard>
           ))}

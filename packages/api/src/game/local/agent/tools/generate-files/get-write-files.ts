@@ -15,18 +15,8 @@ type Params = {
   buildId: string;
 };
 
-export function getWriteFiles({
-  sandbox,
-  toolCallId,
-  writer,
-  db,
-  buildId,
-}: Params) {
-  return async function writeFiles(params: {
-    written: string[];
-    files: File[];
-    paths: string[];
-  }) {
+export function getWriteFiles({ sandbox, toolCallId, writer, db, buildId }: Params) {
+  return async function writeFiles(params: { written: string[]; files: File[]; paths: string[] }) {
     const paths = params.written.concat(params.files.map((file) => file.path));
     writer.write({
       id: toolCallId,
@@ -40,7 +30,7 @@ export function getWriteFiles({
         params.files.map((file) => ({
           path: file.path.startsWith("/") ? file.path.slice(1) : file.path,
           content: file.content,
-        }))
+        })),
       );
 
       // Sync to database (persistFiles expects relative paths)

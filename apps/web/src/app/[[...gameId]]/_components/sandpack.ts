@@ -2,10 +2,7 @@
 
 import { loadSandpackClient } from "@codesandbox/sandpack-client";
 
-import type {
-  SandpackBundlerFiles,
-  SandpackClient,
-} from "@codesandbox/sandpack-client";
+import type { SandpackBundlerFiles, SandpackClient } from "@codesandbox/sandpack-client";
 
 export const defaultPreviewStyles = `
 :root {
@@ -177,9 +174,7 @@ export function toSandpack(files: GameBuildFile[]): SandpackBundlerFiles {
 /**
  * Converts SandpackBundlerFiles to build API format
  */
-export function toBuildFiles(
-  files: SandpackBundlerFiles,
-): { path: string; content: string }[] {
+export function toBuildFiles(files: SandpackBundlerFiles): { path: string; content: string }[] {
   return Object.entries(files).map(([path, file]) => ({
     path,
     content: file.code,
@@ -246,9 +241,7 @@ export async function initializeSandpackClient({
                 const logData = logEntry.data
                   .map((item) => {
                     try {
-                      return typeof item === "string"
-                        ? item
-                        : JSON.stringify(item);
+                      return typeof item === "string" ? item : JSON.stringify(item);
                     } catch {
                       return String(item);
                     }

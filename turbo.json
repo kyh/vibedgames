@@ -3,23 +3,14 @@
   "ui": "tui",
   "tasks": {
     "topo": {
-      "dependsOn": [
-        "^topo"
-      ]
+      "dependsOn": ["^topo"]
     },
     "build": {
-      "dependsOn": [
-        "^build"
-      ],
-      "outputs": [
-        ".cache/tsbuildinfo.json",
-        "dist/**"
-      ]
+      "dependsOn": ["^build"],
+      "outputs": [".cache/tsbuildinfo.json", "dist/**"]
     },
     "dev": {
-      "dependsOn": [
-        "^dev"
-      ],
+      "dependsOn": ["^dev"],
       "cache": false,
       "persistent": false
     },
@@ -32,13 +23,8 @@
       "persistent": true
     },
     "typecheck": {
-      "dependsOn": [
-        "^topo",
-        "^build"
-      ],
-      "outputs": [
-        ".cache/tsbuildinfo.json"
-      ]
+      "dependsOn": ["^topo", "^build"],
+      "outputs": [".cache/tsbuildinfo.json"]
     },
     "clean": {
       "cache": false

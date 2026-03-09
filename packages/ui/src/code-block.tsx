@@ -33,12 +33,8 @@ const CodeBlockContext = createContext<CodeBlockContextType>({
 });
 
 class HighlighterManager {
-  private lightHighlighter: Awaited<
-    ReturnType<typeof createHighlighter>
-  > | null = null;
-  private darkHighlighter: Awaited<
-    ReturnType<typeof createHighlighter>
-  > | null = null;
+  private lightHighlighter: Awaited<ReturnType<typeof createHighlighter>> | null = null;
+  private darkHighlighter: Awaited<ReturnType<typeof createHighlighter>> | null = null;
   private lightTheme: BundledTheme | null = null;
   private darkTheme: BundledTheme | null = null;
   private readonly loadedLanguages = new Set<BundledLanguage>();
@@ -60,10 +56,8 @@ class HighlighterManager {
     const jsEngine = createJavaScriptRegexEngine({ forgiving: true });
 
     // Check if we need to recreate highlighters due to theme change
-    const needsLightRecreation =
-      !this.lightHighlighter || this.lightTheme !== lightTheme;
-    const needsDarkRecreation =
-      !this.darkHighlighter || this.darkTheme !== darkTheme;
+    const needsLightRecreation = !this.lightHighlighter || this.lightTheme !== lightTheme;
+    const needsDarkRecreation = !this.darkHighlighter || this.darkTheme !== darkTheme;
 
     if (needsLightRecreation || needsDarkRecreation) {
       // If themes changed, reset loaded languages
@@ -72,8 +66,7 @@ class HighlighterManager {
 
     // Check if we need to load the language
     const isLanguageSupported = this.isLanguageSupported(language);
-    const needsLanguageLoad =
-      !this.loadedLanguages.has(language) && isLanguageSupported;
+    const needsLanguageLoad = !this.loadedLanguages.has(language) && isLanguageSupported;
 
     // Create or recreate light highlighter if needed
     if (needsLightRecreation) {
@@ -95,19 +88,12 @@ class HighlighterManager {
     if (needsDarkRecreation) {
       // If recreating dark highlighter, load all previously loaded languages plus the new one
       const langsToLoad = needsLanguageLoad
-        ? [...this.loadedLanguages].concat(
-            isLanguageSupported ? [language] : [],
-          )
+        ? [...this.loadedLanguages].concat(isLanguageSupported ? [language] : [])
         : Array.from(this.loadedLanguages);
 
       this.darkHighlighter = await createHighlighter({
         themes: [darkTheme],
-        langs:
-          langsToLoad.length > 0
-            ? langsToLoad
-            : isLanguageSupported
-              ? [language]
-              : [],
+        langs: langsToLoad.length > 0 ? langsToLoad : isLanguageSupported ? [language] : [],
         engine: jsEngine,
       });
       this.darkTheme = darkTheme;
@@ -133,18 +119,13 @@ class HighlighterManager {
       await this.initializationPromise;
     }
     // Initialize or load language
-    this.initializationPromise = this.ensureHighlightersInitialized(
-      themes,
-      language,
-    );
+    this.initializationPromise = this.ensureHighlightersInitialized(themes, language);
     await this.initializationPromise;
     this.initializationPromise = null;
 
     const [lightTheme, darkTheme] = themes;
 
-    const lang = this.isLanguageSupported(language)
-      ? language
-      : this.getFallbackLanguage();
+    const lang = this.isLanguageSupported(language) ? language : this.getFallbackLanguage();
 
     const light = this.lightHighlighter?.codeToHtml(code, {
       lang,
@@ -542,12 +523,11 @@ const languageToExtensionMap: Partial<Record<BundledLanguage, string>> = {
   文言: "wy",
 };
 
-export const extensionToLanguageMap: Partial<Record<string, BundledLanguage>> =
-  Object.fromEntries(
-    (Object.entries(languageToExtensionMap) as [BundledLanguage, string][]).map(
-      ([language, extension]) => [extension, language],
-    ),
-  );
+export const extensionToLanguageMap: Partial<Record<string, BundledLanguage>> = Object.fromEntries(
+  (Object.entries(languageToExtensionMap) as [BundledLanguage, string][]).map(
+    ([language, extension]) => [extension, language],
+  ),
+);
 
 export const CodeBlockDownloadButton = ({
   onDownload,
@@ -564,9 +544,7 @@ export const CodeBlockDownloadButton = ({
   const { code: contextCode } = useContext(CodeBlockContext);
   const code = propCode ?? contextCode;
   const extension =
-    language && language in languageToExtensionMap
-      ? languageToExtensionMap[language]
-      : "txt";
+    language && language in languageToExtensionMap ? languageToExtensionMap[language] : "txt";
   const filename = `file.${extension}`;
   const mimeType = "text/plain";
 
@@ -620,10 +598,7 @@ export const CodeBlockCopyButton = ({
         await navigator.clipboard.writeText(code);
         setIsCopied(true);
         onCopy?.();
-        timeoutRef.current = window.setTimeout(
-          () => setIsCopied(false),
-          timeout,
-        );
+        timeoutRef.current = window.setTimeout(() => setIsCopied(false), timeout);
       }
     } catch (error) {
       onError?.(error as Error);
@@ -664,15 +639,8 @@ export const CodeBlockCopyButton = ({
   );
 };
 
-export const save = (
-  filename: string,
-  content: string | Blob,
-  mimeType: string,
-) => {
-  const blob =
-    typeof content === "string"
-      ? new Blob([content], { type: mimeType })
-      : content;
+export const save = (filename: string, content: string | Blob, mimeType: string) => {
+  const blob = typeof content === "string" ? new Blob([content], { type: mimeType }) : content;
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

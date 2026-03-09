@@ -4,11 +4,7 @@ export type MultiplayerOptions = {
   room: string;
 };
 
-export type MultiplayerConnectionStatus =
-  | "connecting"
-  | "connected"
-  | "disconnected"
-  | "error";
+export type MultiplayerConnectionStatus = "connecting" | "connected" | "disconnected" | "error";
 
 export type PlayerState<T = Record<string, unknown>> = T;
 

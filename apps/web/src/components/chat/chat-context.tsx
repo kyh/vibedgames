@@ -33,9 +33,7 @@ export const ChatProvider = ({ children }: { children: ReactNode }) => {
     [],
   );
 
-  return (
-    <ChatContext.Provider value={{ chat }}>{children}</ChatContext.Provider>
-  );
+  return <ChatContext.Provider value={{ chat }}>{children}</ChatContext.Provider>;
 };
 
 export function useSharedChatContext() {

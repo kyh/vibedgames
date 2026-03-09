@@ -12,16 +12,7 @@
     ".output",
     "out"
   ],
-  "plugins": [
-    "eslint",
-    "typescript",
-    "unicorn",
-    "react",
-    "nextjs",
-    "oxc",
-    "node",
-    "promise"
-  ],
+  "plugins": ["eslint", "typescript", "unicorn", "react", "nextjs", "oxc", "node", "promise"],
   "categories": {
     "correctness": "warn",
     "suspicious": "warn",

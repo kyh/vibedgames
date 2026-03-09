@@ -10,14 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@repo/ui/dialog";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@repo/ui/form";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@repo/ui/form";
 import { toast } from "@repo/ui/toast";
 import { cn } from "@repo/ui/utils";
 import { useMutation } from "@tanstack/react-query";
@@ -65,24 +58,21 @@ export const WaitlistForm = () => {
                 <input
                   className="w-full border-none bg-transparent py-3 pl-4 text-sm placeholder-white/50 focus:placeholder-white/75 focus:ring-0 focus:outline-hidden"
                   required
-                    type="email"
-                    placeholder="name@example.com"
-                    autoCapitalize="none"
-                    autoComplete="email"
-                    autoCorrect="off"
-                    {...field}
-                    value={field.value}
-                  />
+                  type="email"
+                  placeholder="name@example.com"
+                  autoCapitalize="none"
+                  autoComplete="email"
+                  autoCorrect="off"
+                  {...field}
+                  value={field.value}
+                />
               </FormControl>
               <FormMessage className="absolute pt-1" />
             </FormItem>
           )}
         />
         <Button
-          className={cn(
-            "text-xs",
-            joinWaitlist.isPending && "[&>:first-child]:bg-input",
-          )}
+          className={cn("text-xs", joinWaitlist.isPending && "[&>:first-child]:bg-input")}
           variant="ghost"
           loading={joinWaitlist.isPending}
         >
@@ -98,10 +88,7 @@ type WaitlistDialogProps = {
   setWaitlistOpen: (open: boolean) => void;
 };
 
-export const WaitlistDailog = ({
-  waitlistOpen,
-  setWaitlistOpen,
-}: WaitlistDialogProps) => {
+export const WaitlistDailog = ({ waitlistOpen, setWaitlistOpen }: WaitlistDialogProps) => {
   return (
     <Dialog open={waitlistOpen} onOpenChange={setWaitlistOpen}>
       <DialogContent>
@@ -110,8 +97,7 @@ export const WaitlistDailog = ({
             Join the waitlist
           </DialogTitle>
           <DialogDescription className="text-center text-balance">
-            Vibedgames is currently in private beta. Join the waitlist to get
-            early access.
+            Vibedgames is currently in private beta. Join the waitlist to get early access.
           </DialogDescription>
         </DialogHeader>
         <div className="mx-auto mt-3 mb-5">

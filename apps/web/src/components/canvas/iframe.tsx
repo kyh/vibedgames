@@ -11,14 +11,8 @@ type Props = {
 };
 
 export const Iframe = ({ url }: Props) => {
-  const {
-    setIframe,
-    refreshIframe,
-    iframeLoading,
-    setIframeLoading,
-    iframeError,
-    setIframeError,
-  } = useUiStore();
+  const { setIframe, refreshIframe, iframeLoading, setIframeLoading, iframeError, setIframeError } =
+    useUiStore();
 
   const handleIframeLoad = () => {
     setIframeLoading(false);
@@ -50,12 +44,7 @@ export const Iframe = ({ url }: Props) => {
       {iframeError && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
           <p>Failed to load page</p>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={refreshIframe}
-          >
+          <Button type="button" variant="ghost" size="sm" onClick={refreshIframe}>
             Try again
           </Button>
         </div>

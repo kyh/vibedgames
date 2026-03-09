@@ -63,9 +63,7 @@ export type Session = Auth["$Infer"]["Session"];
  * Uses React cache to avoid unnecessary re-fetching
  * @returns Promise<Session | null> - The current user session or null if not authenticated
  */
-export const getSession = cache(async () =>
-  auth.api.getSession({ headers: await headers() }),
-);
+export const getSession = cache(async () => auth.api.getSession({ headers: await headers() }));
 
 export const getOrganization = cache(
   async (query: {
