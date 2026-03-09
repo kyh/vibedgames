@@ -16,8 +16,6 @@
     "dev-astroid": "turbo watch dev -F @repo/astroid...",
     "dev-pong": "turbo watch dev -F @repo/pong...",
     "lint": "oxlint --report-unused-disable-directives",
-    "lint-ws": "pnpm dlx sherif@latest",
-    "postinstall": "pnpm lint-ws",
     "typecheck": "turbo run typecheck",
     "gen-ui": "pnpm -F ui gen-ui",
     "format": "oxfmt",
