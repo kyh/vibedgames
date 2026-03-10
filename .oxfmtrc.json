@@ -1,0 +1,16 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "ignorePatterns": [
+    "dist",
+    "dist-electron",
+    "node_modules",
+    "pnpm-lock.yaml",
+    "*.tsbuildinfo",
+    ".next",
+    ".expo",
+    ".wxt",
+    ".output",
+    "out"
+  ],
+  "experimentalSortPackageJson": {}
+}

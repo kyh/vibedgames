@@ -10,13 +10,7 @@ import "@tensorflow/tfjs-backend-cpu";
 import "@tensorflow/tfjs-backend-webgl";
 
 // Define app states as a type for better type safety
-type AppState =
-  | "idle"
-  | "loading"
-  | "ready"
-  | "calibrating"
-  | "detecting"
-  | "jumping";
+type AppState = "idle" | "loading" | "ready" | "calibrating" | "detecting" | "jumping";
 
 // Constants
 const JUMP_THRESHOLD = 0.1; // 10% of baseline height
@@ -66,9 +60,7 @@ export const Camera = memo(function Camera({ onJump }: CameraProps) {
       if (yPositionsRef.current.length > 0) {
         totalY += getSmoothedY(yPositionsRef.current);
         calibrationFrames++;
-        setStatus(
-          `Calibrating... ${Math.min(100, Math.round((calibrationFrames / 30) * 100))}%`,
-        );
+        setStatus(`Calibrating... ${Math.min(100, Math.round((calibrationFrames / 30) * 100))}%`);
       }
 
       // After 2 seconds, calculate average baseline
@@ -142,9 +134,7 @@ export const Camera = memo(function Camera({ onJump }: CameraProps) {
           };
         }
       } catch (error) {
-        setStatus(
-          `Error: ${error instanceof Error ? error.message : String(error)}`,
-        );
+        setStatus(`Error: ${error instanceof Error ? error.message : String(error)}`);
         setAppState("idle");
       }
     };
@@ -178,9 +168,7 @@ export const Camera = memo(function Camera({ onJump }: CameraProps) {
         // Start detection loop
         startDetection();
       } catch (error) {
-        setStatus(
-          `Error loading model: ${error instanceof Error ? error.message : String(error)}`,
-        );
+        setStatus(`Error loading model: ${error instanceof Error ? error.message : String(error)}`);
         setAppState("idle");
       }
     };
@@ -194,9 +182,7 @@ export const Camera = memo(function Camera({ onJump }: CameraProps) {
         }
 
         try {
-          const poses = await detectorRef.current.estimatePoses(
-            videoRef.current,
-          );
+          const poses = await detectorRef.current.estimatePoses(videoRef.current);
 
           // Process all detected poses
           if (poses.length > 0) {
@@ -218,18 +204,13 @@ export const Camera = memo(function Camera({ onJump }: CameraProps) {
               }
 
               // If calibrated, detect jumps
-              if (
-                stateRef.current === "detecting" ||
-                stateRef.current === "jumping"
-              ) {
+              if (stateRef.current === "detecting" || stateRef.current === "jumping") {
                 detectJump();
               }
             }
           }
         } catch (error) {
-          setStatus(
-            `Error: ${error instanceof Error ? error.message : String(error)}`,
-          );
+          setStatus(`Error: ${error instanceof Error ? error.message : String(error)}`);
         }
 
         // Continue detection loop
@@ -274,8 +255,7 @@ export const Camera = memo(function Camera({ onJump }: CameraProps) {
 
       // Calculate jump strength (0-1 range, capped at MAX_JUMP_HEIGHT_FACTOR)
       const jumpStrength = Math.min(
-        heightDiff /
-          (baselineYRef.current * JUMP_THRESHOLD * MAX_JUMP_HEIGHT_FACTOR),
+        heightDiff / (baselineYRef.current * JUMP_THRESHOLD * MAX_JUMP_HEIGHT_FACTOR),
         1,
       );
 
@@ -289,8 +269,7 @@ export const Camera = memo(function Camera({ onJump }: CameraProps) {
       // Calculate updated jump strength as the person jumps higher
       const updatedHeightDiff = baselineYRef.current - currentY;
       const updatedJumpStrength = Math.min(
-        updatedHeightDiff /
-          (baselineYRef.current * JUMP_THRESHOLD * MAX_JUMP_HEIGHT_FACTOR),
+        updatedHeightDiff / (baselineYRef.current * JUMP_THRESHOLD * MAX_JUMP_HEIGHT_FACTOR),
         1,
       );
 
@@ -315,9 +294,7 @@ export const Camera = memo(function Camera({ onJump }: CameraProps) {
         <button
           className="rounded-md bg-white px-2 py-1 text-xs"
           onClick={handleMainAction}
-          disabled={
-            currentState === "loading" || currentState === "calibrating"
-          }
+          disabled={currentState === "loading" || currentState === "calibrating"}
         >
           {getButtonText(currentState)}
         </button>
@@ -419,14 +396,8 @@ const getButtonText = (state: AppState) => {
 // Find the most visible person (highest confidence score)
 const findMostVisiblePerson = (poses: poseDetection.Pose[]) => {
   return poses.reduce((bestPose, currentPose) => {
-    const bestScore = bestPose.keypoints.reduce(
-      (sum, kp) => sum + (kp.score ?? 0),
-      0,
-    );
-    const currentScore = currentPose.keypoints.reduce(
-      (sum, kp) => sum + (kp.score ?? 0),
-      0,
-    );
+    const bestScore = bestPose.keypoints.reduce((sum, kp) => sum + (kp.score ?? 0), 0);
+    const currentScore = currentPose.keypoints.reduce((sum, kp) => sum + (kp.score ?? 0), 0);
     return currentScore > bestScore ? currentPose : bestPose;
   });
 };

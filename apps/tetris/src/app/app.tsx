@@ -41,9 +41,7 @@ const getRandomShape = (): number[][] => {
 
 const rotateShape = (shape: number[][]): number[][] => {
   // Transpose the matrix
-  const transposed = shape[0].map((_, colIndex) =>
-    shape.map((row) => row[colIndex]),
-  );
+  const transposed = shape[0].map((_, colIndex) => shape.map((row) => row[colIndex]));
   // Reverse each row to rotate clockwise
   return transposed.map((row) => row.reverse());
 };
@@ -102,10 +100,7 @@ export const App = () => {
     // Ensure the preview stays within bounds
     const previewX = Math.max(
       0,
-      Math.min(
-        positionRef.current.x,
-        cols.current - nextShapeRef.current[0].length,
-      ),
+      Math.min(positionRef.current.x, cols.current - nextShapeRef.current[0].length),
     );
     const previewY = 0; // Top of the canvas
     nextShapeRef.current.forEach((row, r) => {
@@ -137,9 +132,7 @@ export const App = () => {
   }, []);
 
   const clearRows = useCallback(() => {
-    gridRef.current = gridRef.current.filter((row) =>
-      row.some((cell) => cell === 0),
-    );
+    gridRef.current = gridRef.current.filter((row) => row.some((cell) => cell === 0));
     while (gridRef.current.length < rows.current) {
       gridRef.current.unshift(Array(cols.current).fill(0));
     }
@@ -169,10 +162,7 @@ export const App = () => {
         positionRef.current = {
           x: Math.max(
             0,
-            Math.min(
-              positionRef.current.x,
-              cols.current - shapeRef.current[0].length,
-            ),
+            Math.min(positionRef.current.x, cols.current - shapeRef.current[0].length),
           ),
           y: 0,
         };
@@ -198,9 +188,7 @@ export const App = () => {
           newX + rotatedShape[0].length <= cols.current &&
           newY + rotatedShape.length <= rows.current &&
           !rotatedShape.some((row, r) =>
-            row.some(
-              (cell, c) => cell && gridRef.current[newY + r]?.[newX + c],
-            ),
+            row.some((cell, c) => cell && gridRef.current[newY + r]?.[newX + c]),
           );
 
         if (wouldFit) {
@@ -214,18 +202,13 @@ export const App = () => {
   );
 
   const handlePoseDetected = useCallback(
-    (
-      pose: poseDetection.Pose,
-      poseCanvasRef: React.RefObject<HTMLCanvasElement | null>,
-    ) => {
+    (pose: poseDetection.Pose, poseCanvasRef: React.RefObject<HTMLCanvasElement | null>) => {
       // Get all relevant keypoints (only upper body)
       const keypoints = {
         leftWrist: pose.keypoints.find((kp) => kp.name === "left_wrist"),
         rightWrist: pose.keypoints.find((kp) => kp.name === "right_wrist"),
         leftShoulder: pose.keypoints.find((kp) => kp.name === "left_shoulder"),
-        rightShoulder: pose.keypoints.find(
-          (kp) => kp.name === "right_shoulder",
-        ),
+        rightShoulder: pose.keypoints.find((kp) => kp.name === "right_shoulder"),
         leftHip: pose.keypoints.find((kp) => kp.name === "left_hip"),
         rightHip: pose.keypoints.find((kp) => kp.name === "right_hip"),
         leftEye: pose.keypoints.find((kp) => kp.name === "left_eye"),
@@ -506,8 +489,7 @@ export const App = () => {
 
       // Check for rotation by measuring distance between shoulders
       const shoulderDistance = Math.abs(kp.leftShoulder.x - kp.rightShoulder.x);
-      const isRotating =
-        shoulderDistance < 50 && Date.now() - lastRotationTime.current > 600;
+      const isRotating = shoulderDistance < 50 && Date.now() - lastRotationTime.current > 600;
 
       if (isRotating) {
         const rotatedShape = rotateShape(shapeRef.current);
@@ -520,9 +502,7 @@ export const App = () => {
           newX + rotatedShape[0].length <= cols.current &&
           newY + rotatedShape.length <= rows.current &&
           !rotatedShape.some((row, r) =>
-            row.some(
-              (cell, c) => cell && gridRef.current[newY + r]?.[newX + c],
-            ),
+            row.some((cell, c) => cell && gridRef.current[newY + r]?.[newX + c]),
           );
 
         if (wouldFit) {
@@ -552,9 +532,7 @@ export const App = () => {
 
   const resetGame = useCallback(() => {
     // Clear the grid
-    gridRef.current = Array.from({ length: rows.current }, () =>
-      Array(cols.current).fill(0),
-    );
+    gridRef.current = Array.from({ length: rows.current }, () => Array(cols.current).fill(0));
     // Reset position and shapes
     positionRef.current = { x: Math.floor(cols.current / 2) - 1, y: 0 };
     shapeRef.current = getRandomShape();
@@ -563,9 +541,7 @@ export const App = () => {
 
   // Initialize grid and starting position
   useEffect(() => {
-    gridRef.current = Array.from({ length: rows.current }, () =>
-      Array(cols.current).fill(0),
-    );
+    gridRef.current = Array.from({ length: rows.current }, () => Array(cols.current).fill(0));
     positionRef.current = { x: Math.floor(cols.current / 2) - 1, y: 0 };
   }, []);
 
@@ -588,10 +564,7 @@ export const App = () => {
         if (
           newY + shapeRef.current.length > rows.current ||
           shapeRef.current.some((row, r) =>
-            row.some(
-              (cell, c) =>
-                cell && gridRef.current[newY + r]?.[positionRef.current.x + c],
-            ),
+            row.some((cell, c) => cell && gridRef.current[newY + r]?.[positionRef.current.x + c]),
           )
         ) {
           // Merge the shape into the grid and reset position
@@ -650,11 +623,7 @@ export const App = () => {
         width={canvasWidth.current}
         height={canvasHeight.current}
       />
-      <Camera
-        onPoseDetected={(pose, poseCanvasRef) =>
-          handlePoseDetected(pose, poseCanvasRef)
-        }
-      />
+      <Camera onPoseDetected={(pose, poseCanvasRef) => handlePoseDetected(pose, poseCanvasRef)} />
     </main>
   );
 };

@@ -1,7 +1,6 @@
 {
   "name": "vibedgames",
   "private": true,
-  "packageManager": "pnpm@10.29.3",
   "scripts": {
     "build": "turbo run build",
     "clean": "git clean -xdf node_modules",
@@ -9,31 +8,29 @@
     "db-push": "pnpm -F db push",
     "db-push-remote": "pnpm -F db push-remote && pnpm -F builder push-remote",
     "dev": "turbo watch db studio dev --continue",
-    "dev-nextjs": "turbo watch dev -F @repo/nextjs...",
+    "dev-web": "turbo watch dev -F @repo/web...",
     "dev-party": "turbo watch dev -F @repo/party...",
     "dev-flappy-bird": "turbo watch dev -F @repo/flappy-bird...",
     "dev-pacman": "turbo watch dev -F @repo/pacman...",
     "dev-tetris": "turbo watch dev -F @repo/tetris...",
     "dev-astroid": "turbo watch dev -F @repo/astroid...",
     "dev-pong": "turbo watch dev -F @repo/pong...",
-    "format": "turbo run format --continue -- --cache --cache-location .cache/.prettiercache",
-    "format-fix": "turbo run format --continue -- --write --cache --cache-location .cache/.prettiercache",
-    "lint": "turbo run lint --continue -- --cache --cache-location .cache/.eslintcache",
-    "lint-fix": "turbo run lint --continue -- --fix --cache --cache-location .cache/.eslintcache",
-    "lint-ws": "pnpm dlx sherif@latest",
-    "postinstall": "pnpm lint-ws",
+    "lint": "oxlint --report-unused-disable-directives",
     "typecheck": "turbo run typecheck",
-    "gen-ui": "pnpm -F ui gen-ui"
+    "gen-ui": "pnpm -F ui gen-ui",
+    "format": "oxfmt",
+    "lint-fix": "oxlint --fix",
+    "format-fix": "oxfmt --write"
   },
   "devDependencies": {
-    "@kyh/prettier-config": "catalog:",
     "dotenv-cli": "^11.0.0",
-    "prettier": "catalog:",
+    "oxfmt": "^0.35.0",
+    "oxlint": "^1.51.0",
     "tsx": "^4.21.0",
-    "turbo": "^2.8.9",
+    "turbo": "^2.8.14",
     "typescript": "catalog:"
   },
-  "prettier": "@kyh/prettier-config",
+  "packageManager": "pnpm@10.31.0",
   "pnpm": {
     "onlyBuiltDependencies": [
       "@swc/core",

@@ -1,22 +1,14 @@
 "use client";
 
-import type {
-  MentionsInputChangeEvent,
-  MentionsInputProps,
-} from "react-mentions-ts";
-import {
-  Mention,
-  MentionsInput as ReactMentionsInput,
-} from "react-mentions-ts";
+import type { MentionsInputChangeEvent, MentionsInputProps } from "react-mentions-ts";
+import { Mention, MentionsInput as ReactMentionsInput } from "react-mentions-ts";
 
 import { InputGroupTextarea } from "./input-group";
 import { cn } from "./utils";
 
 export { Mention };
 
-type MentionsInputPropsType<
-  Extra extends Record<string, unknown> = Record<string, unknown>,
-> = {
+type MentionsInputPropsType<Extra extends Record<string, unknown> = Record<string, unknown>> = {
   className?: string;
 } & Omit<MentionsInputProps<Extra>, "className" | "classNames">;
 
@@ -33,10 +25,7 @@ const mentionClassNames = {
   suggestionItemFocused: "bg-accent text-accent-foreground",
 };
 
-export const MentionsInput = ({
-  className,
-  ...props
-}: MentionsInputPropsType) => {
+export const MentionsInput = ({ className, ...props }: MentionsInputPropsType) => {
   return (
     <ReactMentionsInput
       className={cn("flex-1", className)}

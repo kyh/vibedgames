@@ -1,11 +1,7 @@
 "use client";
 
 import { memo, useEffect, useRef, useState } from "react";
-import {
-  DrawingUtils,
-  FaceLandmarker,
-  FilesetResolver,
-} from "@mediapipe/tasks-vision";
+import { DrawingUtils, FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
 
 const THRESHOLD = 0.07; // Default threshold value
 const HEAD_TURN_THRESHOLD = 0.3; // Increased threshold for detecting head turns
@@ -31,9 +27,7 @@ export const FaceDetection = memo(function FaceDetection({
   const resultsRef = useRef<any>(undefined);
   const drawingUtilsRef = useRef<DrawingUtils | null>(null);
   const animationFrameRef = useRef<number | null>(null);
-  const [headPosition, setHeadPosition] = useState<"center" | "left" | "right">(
-    "center",
-  );
+  const [headPosition, setHeadPosition] = useState<"center" | "left" | "right">("center");
   const lastHeadChangeRef = useRef<number>(0);
   const headChangeDebounceMs = 1000; // Debounce time in milliseconds
 
@@ -53,18 +47,15 @@ export const FaceDetection = memo(function FaceDetection({
         "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm",
       );
 
-      const landmarker = await FaceLandmarker.createFromOptions(
-        filesetResolver,
-        {
-          baseOptions: {
-            modelAssetPath: `/face_landmarker.task`,
-            delegate: "GPU",
-          },
-          outputFaceBlendshapes: true,
-          runningMode: "VIDEO",
-          numFaces: 1,
+      const landmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
+        baseOptions: {
+          modelAssetPath: `/face_landmarker.task`,
+          delegate: "GPU",
         },
-      );
+        outputFaceBlendshapes: true,
+        runningMode: "VIDEO",
+        numFaces: 1,
+      });
 
       faceLandmarkerRef.current = landmarker;
 
@@ -144,18 +135,14 @@ export const FaceDetection = memo(function FaceDetection({
     const rightDistance = Math.abs(noseTip.x - rightCheek.x);
 
     // Calculate the asymmetry ratio
-    const asymmetryRatio =
-      (leftDistance - rightDistance) / (leftDistance + rightDistance);
+    const asymmetryRatio = (leftDistance - rightDistance) / (leftDistance + rightDistance);
 
     // Determine head position based on asymmetry
     if (asymmetryRatio > HEAD_TURN_THRESHOLD) {
       return "left"; // Head turned to the left (flipped from right to left)
     } else if (asymmetryRatio < -HEAD_TURN_THRESHOLD) {
       return "right"; // Head turned to the right (flipped from left to right)
-    } else if (
-      asymmetryRatio < HEAD_CENTER_THRESHOLD &&
-      asymmetryRatio > -HEAD_CENTER_THRESHOLD
-    ) {
+    } else if (asymmetryRatio < HEAD_CENTER_THRESHOLD && asymmetryRatio > -HEAD_CENTER_THRESHOLD) {
       return "center"; // Head centered - using a narrower threshold
     }
 
@@ -184,10 +171,7 @@ export const FaceDetection = memo(function FaceDetection({
 
     if (lastVideoTimeRef.current !== video.currentTime) {
       lastVideoTimeRef.current = video.currentTime;
-      resultsRef.current = faceLandmarkerRef.current.detectForVideo(
-        video,
-        startTimeMs,
-      );
+      resultsRef.current = faceLandmarkerRef.current.detectForVideo(video, startTimeMs);
     }
 
     canvasCtx.save();
@@ -200,46 +184,36 @@ export const FaceDetection = memo(function FaceDetection({
           FaceLandmarker.FACE_LANDMARKS_TESSELATION,
           { color: "#C0C0C070", lineWidth: 1 },
         );
-        drawingUtilsRef.current.drawConnectors(
-          landmarks,
-          FaceLandmarker.FACE_LANDMARKS_RIGHT_EYE,
-          { color: "#30FF30" },
-        );
+        drawingUtilsRef.current.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_RIGHT_EYE, {
+          color: "#30FF30",
+        });
         drawingUtilsRef.current.drawConnectors(
           landmarks,
           FaceLandmarker.FACE_LANDMARKS_RIGHT_EYEBROW,
           { color: "#30FF30" },
         );
-        drawingUtilsRef.current.drawConnectors(
-          landmarks,
-          FaceLandmarker.FACE_LANDMARKS_LEFT_EYE,
-          { color: "#30FF30" },
-        );
+        drawingUtilsRef.current.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LEFT_EYE, {
+          color: "#30FF30",
+        });
         drawingUtilsRef.current.drawConnectors(
           landmarks,
           FaceLandmarker.FACE_LANDMARKS_LEFT_EYEBROW,
           { color: "#30FF30" },
         );
-        drawingUtilsRef.current.drawConnectors(
-          landmarks,
-          FaceLandmarker.FACE_LANDMARKS_FACE_OVAL,
-          { color: "#E0E0E0" },
-        );
-        drawingUtilsRef.current.drawConnectors(
-          landmarks,
-          FaceLandmarker.FACE_LANDMARKS_LIPS,
-          { color: "#E0E0E0" },
-        );
+        drawingUtilsRef.current.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_FACE_OVAL, {
+          color: "#E0E0E0",
+        });
+        drawingUtilsRef.current.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LIPS, {
+          color: "#E0E0E0",
+        });
         drawingUtilsRef.current.drawConnectors(
           landmarks,
           FaceLandmarker.FACE_LANDMARKS_RIGHT_IRIS,
           { color: "#30FF30" },
         );
-        drawingUtilsRef.current.drawConnectors(
-          landmarks,
-          FaceLandmarker.FACE_LANDMARKS_LEFT_IRIS,
-          { color: "#30FF30" },
-        );
+        drawingUtilsRef.current.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LEFT_IRIS, {
+          color: "#30FF30",
+        });
 
         // Check if mouth is open
         const mouthOpen = detectMouthOpen(landmarks);

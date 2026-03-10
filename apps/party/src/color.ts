@@ -41,14 +41,9 @@ const colorValues = Object.values(colors);
 
 export const getRandomUniqueColor = (currentColors: string[]) => {
   const colorNames = colorValues.map((col) => col.color);
-  const uniqueColors = colorNames.filter(
-    (color: string) => !currentColors.includes(color),
-  );
-  const uniqueColor =
-    uniqueColors[Math.floor(Math.random() * uniqueColors.length)];
-  const uniqueColorSet = colorValues.find(
-    (color) => color.color === uniqueColor,
-  );
+  const uniqueColors = colorNames.filter((color: string) => !currentColors.includes(color));
+  const uniqueColor = uniqueColors[Math.floor(Math.random() * uniqueColors.length)];
+  const uniqueColorSet = colorValues.find((color) => color.color === uniqueColor);
   return uniqueColorSet ?? getRandomColor();
 };
 

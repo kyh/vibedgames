@@ -5,27 +5,19 @@ import { Drawer as DrawerPrimitive } from "vaul";
 
 import { cn } from "./utils";
 
-const Drawer = ({
-  ...props
-}: React.ComponentProps<typeof DrawerPrimitive.Root>) => {
+const Drawer = ({ ...props }: React.ComponentProps<typeof DrawerPrimitive.Root>) => {
   return <DrawerPrimitive.Root data-slot="drawer" {...props} />;
 };
 
-const DrawerTrigger = ({
-  ...props
-}: React.ComponentProps<typeof DrawerPrimitive.Trigger>) => {
+const DrawerTrigger = ({ ...props }: React.ComponentProps<typeof DrawerPrimitive.Trigger>) => {
   return <DrawerPrimitive.Trigger data-slot="drawer-trigger" {...props} />;
 };
 
-const DrawerPortal = ({
-  ...props
-}: React.ComponentProps<typeof DrawerPrimitive.Portal>) => {
+const DrawerPortal = ({ ...props }: React.ComponentProps<typeof DrawerPrimitive.Portal>) => {
   return <DrawerPrimitive.Portal data-slot="drawer-portal" {...props} />;
 };
 
-const DrawerClose = ({
-  ...props
-}: React.ComponentProps<typeof DrawerPrimitive.Close>) => {
+const DrawerClose = ({ ...props }: React.ComponentProps<typeof DrawerPrimitive.Close>) => {
   return <DrawerPrimitive.Close data-slot="drawer-close" {...props} />;
 };
 

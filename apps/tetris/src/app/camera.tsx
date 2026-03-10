@@ -69,19 +69,13 @@ export const Camera = memo(function Camera({
 
     const startDetectionLoop = () => {
       const detectFrame = async () => {
-        if (
-          !videoRef.current ||
-          videoRef.current.readyState !== 4 ||
-          !detectorRef.current
-        ) {
+        if (!videoRef.current || videoRef.current.readyState !== 4 || !detectorRef.current) {
           rafIdRef.current = requestAnimationFrame(detectFrame);
           return;
         }
 
         try {
-          const poses = await detectorRef.current.estimatePoses(
-            videoRef.current,
-          );
+          const poses = await detectorRef.current.estimatePoses(videoRef.current);
 
           if (poses.length > 0 && poses[0]) {
             drawSkeleton(poses[0], canvasRef);

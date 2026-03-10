@@ -1,0 +1,26 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicolo-ribaudo/oxc/json-schema-for-oxfmt/npm/oxlint/configuration_schema.json",
+  "ignorePatterns": [
+    "dist",
+    "dist-electron",
+    "node_modules",
+    "pnpm-lock.yaml",
+    "*.tsbuildinfo",
+    ".next",
+    ".expo",
+    ".wxt",
+    ".output",
+    "out"
+  ],
+  "plugins": ["eslint", "typescript", "unicorn", "react", "nextjs", "oxc", "node", "promise"],
+  "categories": {
+    "correctness": "warn",
+    "suspicious": "warn",
+    "perf": "warn"
+  },
+  "rules": {
+    "react/react-in-jsx-scope": "off",
+    "eslint/no-shadow": "off",
+    "eslint/no-await-in-loop": "off"
+  }
+}

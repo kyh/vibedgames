@@ -5,17 +5,11 @@ import { Avatar as AvatarPrimitive } from "radix-ui";
 
 import { cn } from "./utils";
 
-const Avatar = ({
-  className,
-  ...props
-}: React.ComponentProps<typeof AvatarPrimitive.Root>) => {
+const Avatar = ({ className, ...props }: React.ComponentProps<typeof AvatarPrimitive.Root>) => {
   return (
     <AvatarPrimitive.Root
       data-slot="avatar"
-      className={cn(
-        "relative flex size-8 shrink-0 overflow-hidden rounded-full",
-        className,
-      )}
+      className={cn("relative flex size-8 shrink-0 overflow-hidden rounded-full", className)}
       {...props}
     />
   );
@@ -41,10 +35,7 @@ const AvatarFallback = ({
   return (
     <AvatarPrimitive.Fallback
       data-slot="avatar-fallback"
-      className={cn(
-        "bg-muted flex size-full items-center justify-center rounded-full",
-        className,
-      )}
+      className={cn("bg-muted flex size-full items-center justify-center rounded-full", className)}
       {...props}
     />
   );
@@ -58,19 +49,13 @@ type ProfileAvatarProps = {
   avatarUrl?: string | null;
 };
 
-export const ProfileAvatar = ({
-  className,
-  displayName,
-  avatarUrl,
-}: ProfileAvatarProps) => {
+export const ProfileAvatar = ({ className, displayName, avatarUrl }: ProfileAvatarProps) => {
   const initials = displayName?.slice(0, 1);
 
   return (
     <Avatar className={cn("size-9", className)}>
       <AvatarImage src={avatarUrl ?? undefined} />
-      <AvatarFallback className="animate-in fade-in uppercase">
-        {initials}
-      </AvatarFallback>
+      <AvatarFallback className="animate-in fade-in uppercase">{initials}</AvatarFallback>
     </Avatar>
   );
 };

@@ -16,18 +16,8 @@ type Params = {
   buildId: string;
 };
 
-export function getWriteFiles({
-  sandbox,
-  toolCallId,
-  writer,
-  db,
-  buildId,
-}: Params) {
-  return async function writeFiles(params: {
-    written: string[];
-    files: File[];
-    paths: string[];
-  }) {
+export function getWriteFiles({ sandbox, toolCallId, writer, db, buildId }: Params) {
+  return async function writeFiles(params: { written: string[]; files: File[]; paths: string[] }) {
     const paths = params.written.concat(params.files.map((file) => file.path));
     writer.write({
       id: toolCallId,
@@ -39,7 +29,7 @@ export function getWriteFiles({
       // Write files to the Vercel sandbox
       await sandbox.writeFiles(
         params.files.map((file) => ({
-          path: file.path,
+          path: file.path.startsWith("/") ? file.path.slice(1) : file.path,
           content: Buffer.from(file.content, "utf8"),
         })),
       );

@@ -7,8 +7,7 @@ import { useGameState } from "./use-game-state";
 
 export const App = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const { gameStateRef, loaded, jump, startGame, stopGame, restartGame } =
-    useGameState();
+  const { gameStateRef, loaded, jump, startGame, stopGame, restartGame } = useGameState();
 
   // Use useCallback to memoize the jump handler
   const handleJump = useCallback(

@@ -18,7 +18,7 @@ const baseUrl =
       ? `https://${process.env.VERCEL_URL}`
       : "http://localhost:3000";
 
-export const auth: ReturnType<typeof betterAuth> = betterAuth({
+export const auth = betterAuth({
   database: drizzleAdapter(db, {
     provider: "sqlite",
   }),
@@ -63,9 +63,7 @@ export type Session = Auth["$Infer"]["Session"];
  * Uses React cache to avoid unnecessary re-fetching
  * @returns Promise<Session | null> - The current user session or null if not authenticated
  */
-export const getSession = cache(async () =>
-  auth.api.getSession({ headers: await headers() }),
-);
+export const getSession = cache(async () => auth.api.getSession({ headers: await headers() }));
 
 export const getOrganization = cache(
   async (query: {
@@ -73,7 +71,7 @@ export const getOrganization = cache(
     organizationSlug?: string | undefined;
     membersLimit?: string | number | undefined;
   }) =>
-    (auth.api as any).getFullOrganization({
+    auth.api.getFullOrganization({
       query,
       headers: await headers(),
     }),
@@ -107,7 +105,7 @@ const createDefaultOrganization = async (user: User) => {
   const slug = await generateAvailableSlug(slugify(user.name));
 
   try {
-    await (auth.api as any).createOrganization({
+    await auth.api.createOrganization({
       body: {
         userId: user.id,
         name: "Personal Organization",

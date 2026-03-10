@@ -17,9 +17,7 @@ export const gameTypesDisplayToId = Object.fromEntries(
   Object.entries(gameTypesIdToDisplay).map(([id, display]) => [display, id]),
 );
 
-export const gameTypesArray = Object.entries(gameTypesIdToDisplay).map(
-  ([id, display]) => ({
-    id,
-    display,
-  }),
-);
+export const gameTypesArray = Object.entries(gameTypesIdToDisplay).map(([id, display]) => ({
+  id,
+  display,
+}));

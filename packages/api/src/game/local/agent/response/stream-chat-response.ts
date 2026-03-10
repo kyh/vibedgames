@@ -1,8 +1,4 @@
-import {
-  convertToModelMessages,
-  createUIMessageStream,
-  createUIMessageStreamResponse,
-} from "ai";
+import { convertToModelMessages, createUIMessageStream, createUIMessageStreamResponse } from "ai";
 
 import type { ChatUIMessage } from "@repo/api/game/local/agent/messages/types";
 import type { Db } from "@repo/db/drizzle-client";
@@ -13,10 +9,7 @@ type Params = {
   db: Db;
 };
 
-export const streamChatResponse = (
-  messages: ChatUIMessage[],
-  { buildId, db }: Params,
-) => {
+export const streamChatResponse = (messages: ChatUIMessage[], { buildId, db }: Params) => {
   return createUIMessageStreamResponse({
     stream: createUIMessageStream({
       originalMessages: messages,

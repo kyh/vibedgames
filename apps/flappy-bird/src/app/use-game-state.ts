@@ -72,8 +72,7 @@ export const useGameState = () => {
   const jump = (jumpStrength = 1): boolean => {
     if (gameStateRef.current === "playing") {
       // Calculate jump velocity based on strength (between JUMP_VELOCITY and MAX_JUMP_VELOCITY)
-      const scaledVelocity =
-        JUMP_VELOCITY + (MAX_JUMP_VELOCITY - JUMP_VELOCITY) * jumpStrength;
+      const scaledVelocity = JUMP_VELOCITY + (MAX_JUMP_VELOCITY - JUMP_VELOCITY) * jumpStrength;
 
       birdRef.current.velocity = scaledVelocity;
       return true;
@@ -131,13 +130,7 @@ export const useGameState = () => {
           const messageHeight = 267;
           const messageX = (canvas.width - messageWidth) / 2;
           const messageY = (canvas.height - messageHeight) / 2;
-          ctx.drawImage(
-            assets.message,
-            messageX,
-            messageY,
-            messageWidth,
-            messageHeight,
-          );
+          ctx.drawImage(assets.message, messageX, messageY, messageWidth, messageHeight);
         }
         return;
       }
@@ -156,12 +149,8 @@ export const useGameState = () => {
 
         // Generate new pipes
         const lastPipe = pipes[pipes.length - 1];
-        if (
-          pipes.length === 0 ||
-          lastPipe.x < canvas.width - PIPE_SPAWN_DISTANCE
-        ) {
-          const topHeight =
-            Math.random() * (canvas.height - PIPE_GAP - 100) + 50;
+        if (pipes.length === 0 || lastPipe.x < canvas.width - PIPE_SPAWN_DISTANCE) {
+          const topHeight = Math.random() * (canvas.height - PIPE_GAP - 100) + 50;
           pipes.push({ x: canvas.width, topHeight });
         }
 
@@ -191,10 +180,7 @@ export const useGameState = () => {
             height: canvas.height - pipe.topHeight - PIPE_GAP,
           };
 
-          if (
-            checkCollision(birdRect, topPipeRect) ||
-            checkCollision(birdRect, bottomPipeRect)
-          ) {
+          if (checkCollision(birdRect, topPipeRect) || checkCollision(birdRect, bottomPipeRect)) {
             gameStateRef.current = "gameover";
             playSound("hit");
             break; // Exit the collision check loop once a collision is found
@@ -208,11 +194,7 @@ export const useGameState = () => {
         }
 
         // Update score - only when playing
-        if (
-          pipes.some(
-            (pipe) => pipe.x + PIPE_WIDTH < 50 && pipe.x + PIPE_WIDTH >= 48,
-          )
-        ) {
+        if (pipes.some((pipe) => pipe.x + PIPE_WIDTH < 50 && pipe.x + PIPE_WIDTH >= 48)) {
           scoreRef.current += 1;
           playSound("point");
         }
@@ -228,13 +210,7 @@ export const useGameState = () => {
           ctx.restore();
 
           // Draw bottom pipe
-          ctx.drawImage(
-            assets.pipe,
-            pipe.x,
-            pipe.topHeight + PIPE_GAP,
-            PIPE_WIDTH,
-            640,
-          );
+          ctx.drawImage(assets.pipe, pipe.x, pipe.topHeight + PIPE_GAP, PIPE_WIDTH, 640);
         }
       });
 
@@ -242,18 +218,10 @@ export const useGameState = () => {
       const bird = birdRef.current;
       ctx.save();
       ctx.translate(50 + BIRD_WIDTH / 2, bird.y + BIRD_HEIGHT / 2);
-      ctx.rotate(
-        Math.min(Math.PI / 4, Math.max(-Math.PI / 4, bird.velocity * 0.1)),
-      );
+      ctx.rotate(Math.min(Math.PI / 4, Math.max(-Math.PI / 4, bird.velocity * 0.1)));
       const sprite = assets.birdSprites?.[bird.frame];
       if (sprite) {
-        ctx.drawImage(
-          sprite,
-          -BIRD_WIDTH / 2,
-          -BIRD_HEIGHT / 2,
-          BIRD_WIDTH,
-          BIRD_HEIGHT,
-        );
+        ctx.drawImage(sprite, -BIRD_WIDTH / 2, -BIRD_HEIGHT / 2, BIRD_WIDTH, BIRD_HEIGHT);
       }
       ctx.restore();
 
@@ -265,13 +233,7 @@ export const useGameState = () => {
       scoreString.split("").forEach((digit, index) => {
         const digitImage = assets.numberSprites?.[Number.parseInt(digit)];
         if (digitImage) {
-          ctx.drawImage(
-            digitImage,
-            startX + index * digitWidth,
-            20,
-            digitWidth,
-            36,
-          );
+          ctx.drawImage(digitImage, startX + index * digitWidth, 20, digitWidth, 36);
         }
       });
 
@@ -282,24 +244,14 @@ export const useGameState = () => {
           const gameOverHeight = 42;
           const gameOverX = (canvas.width - gameOverWidth) / 2;
           const gameOverY = (canvas.height - gameOverHeight) / 2;
-          ctx.drawImage(
-            assets.gameOver,
-            gameOverX,
-            gameOverY,
-            gameOverWidth,
-            gameOverHeight,
-          );
+          ctx.drawImage(assets.gameOver, gameOverX, gameOverY, gameOverWidth, gameOverHeight);
 
           // Draw Restart button
           ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
           ctx.fillRect(canvas.width / 2 - 50, canvas.height / 2 + 50, 100, 40);
           ctx.fillStyle = "white";
           ctx.font = "20px Arial";
-          ctx.fillText(
-            "Restart",
-            canvas.width / 2 - 30,
-            canvas.height / 2 + 75,
-          );
+          ctx.fillText("Restart", canvas.width / 2 - 30, canvas.height / 2 + 75);
         }
       }
     }, 1000 / 60); // 60 FPS

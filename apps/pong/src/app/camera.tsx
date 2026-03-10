@@ -1,11 +1,7 @@
 "use client";
 
 import { memo, useEffect, useRef } from "react";
-import {
-  DrawingUtils,
-  FilesetResolver,
-  GestureRecognizer,
-} from "@mediapipe/tasks-vision";
+import { DrawingUtils, FilesetResolver, GestureRecognizer } from "@mediapipe/tasks-vision";
 
 export const Camera = memo(function Camera({
   onPositionChange,
@@ -93,11 +89,10 @@ export const Camera = memo(function Camera({
             const handLandmarks = results.landmarks[0];
             if (handLandmarks) {
               for (const landmarks of results.landmarks) {
-                drawingUtils.drawConnectors(
-                  landmarks,
-                  GestureRecognizer.HAND_CONNECTIONS,
-                  { color: "#00FF00", lineWidth: 5 },
-                );
+                drawingUtils.drawConnectors(landmarks, GestureRecognizer.HAND_CONNECTIONS, {
+                  color: "#00FF00",
+                  lineWidth: 5,
+                });
                 drawingUtils.drawLandmarks(landmarks, {
                   color: "#FF0000",
                   lineWidth: 2,

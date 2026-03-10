@@ -12,9 +12,18 @@ The hooks wrap the PartyKit-compatible server in `apps/party` and are meant to k
 ## Quickstart
 
 ```tsx
-import { useMultiplayerRoom, usePlayerState, useMultiplayerState, useIsHost } from "@repo/multiplayer";
+import {
+  useMultiplayerRoom,
+  usePlayerState,
+  useMultiplayerState,
+  useIsHost,
+} from "@repo/multiplayer";
 
-const room = useMultiplayerRoom({ host: "https://server.workers.dev", party: "vg-server", room: "demo" });
+const room = useMultiplayerRoom({
+  host: "https://server.workers.dev",
+  party: "vg-server",
+  room: "demo",
+});
 const [world, setWorld] = useMultiplayerState(room, { score: 0 });
 const [me, setMe] = usePlayerState(room, { position: { x: 0, y: 0 } });
 const isHost = useIsHost(room);

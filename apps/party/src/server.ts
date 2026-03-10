@@ -73,7 +73,7 @@ export class VgServer extends Server {
           const player = this.room.players[sender.id];
           if (!player) return;
 
-          player.state = { ...(player.state ?? {}), ...message.data };
+          player.state = { ...player.state, ...message.data };
           this.room.players[sender.id] = player;
 
           const updateMessage: ServerMessage = {
@@ -128,9 +128,6 @@ export class VgServer extends Server {
 
 export default {
   async fetch(request: Request, env: Env) {
-    return (
-      (await routePartykitRequest(request, env)) ||
-      new Response("Not Found", { status: 404 })
-    );
+    return (await routePartykitRequest(request, env)) || new Response("Not Found", { status: 404 });
   },
 } satisfies ExportedHandler<Env>;

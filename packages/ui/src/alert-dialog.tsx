@@ -6,26 +6,20 @@ import { AlertDialog as AlertDialogPrimitive } from "radix-ui";
 import { Button, buttonVariants } from "./button";
 import { cn } from "./utils";
 
-const AlertDialog = ({
-  ...props
-}: React.ComponentProps<typeof AlertDialogPrimitive.Root>) => {
+const AlertDialog = ({ ...props }: React.ComponentProps<typeof AlertDialogPrimitive.Root>) => {
   return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />;
 };
 
 const AlertDialogTrigger = ({
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Trigger>) => {
-  return (
-    <AlertDialogPrimitive.Trigger data-slot="alert-dialog-trigger" {...props} />
-  );
+  return <AlertDialogPrimitive.Trigger data-slot="alert-dialog-trigger" {...props} />;
 };
 
 const AlertDialogPortal = ({
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Portal>) => {
-  return (
-    <AlertDialogPrimitive.Portal data-slot="alert-dialog-portal" {...props} />
-  );
+  return <AlertDialogPrimitive.Portal data-slot="alert-dialog-portal" {...props} />;
 };
 
 const AlertDialogOverlay = ({
@@ -63,10 +57,7 @@ const AlertDialogContent = ({
   );
 };
 
-const AlertDialogHeader = ({
-  className,
-  ...props
-}: React.ComponentProps<"div">) => {
+const AlertDialogHeader = ({ className, ...props }: React.ComponentProps<"div">) => {
   return (
     <div
       data-slot="alert-dialog-header"
@@ -76,17 +67,11 @@ const AlertDialogHeader = ({
   );
 };
 
-const AlertDialogFooter = ({
-  className,
-  ...props
-}: React.ComponentProps<"div">) => {
+const AlertDialogFooter = ({ className, ...props }: React.ComponentProps<"div">) => {
   return (
     <div
       data-slot="alert-dialog-footer"
-      className={cn(
-        "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
-        className,
-      )}
+      className={cn("flex flex-col-reverse gap-2 sm:flex-row sm:justify-end", className)}
       {...props}
     />
   );
@@ -122,12 +107,7 @@ const AlertDialogAction = ({
   className,
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Action>) => {
-  return (
-    <AlertDialogPrimitive.Action
-      className={cn(buttonVariants(), className)}
-      {...props}
-    />
-  );
+  return <AlertDialogPrimitive.Action className={cn(buttonVariants(), className)} {...props} />;
 };
 
 const AlertDialogCancel = ({
@@ -187,9 +167,7 @@ const alertDialogStore = {
   subscribe: (listener: Listener) => {
     alertDialogStore.listeners.push(listener);
     return () => {
-      alertDialogStore.listeners = alertDialogStore.listeners.filter(
-        (l) => l !== listener,
-      );
+      alertDialogStore.listeners = alertDialogStore.listeners.filter((l) => l !== listener);
     };
   },
   getSnapshot: () => {
@@ -201,10 +179,7 @@ const alertDialogStore = {
 };
 
 export const alertDialog = {
-  open: (
-    title: React.ReactNode,
-    options: Omit<AlertState, "open" | "title">,
-  ) => {
+  open: (title: React.ReactNode, options: Omit<AlertState, "open" | "title">) => {
     alertDialogStore.state = {
       ...alertDialogStore.state,
       ...options,
@@ -269,9 +244,7 @@ export const GlobalAlertDialog = () => {
           <AlertDialogTitle>{alertState.title}</AlertDialogTitle>
         </AlertDialogHeader>
         {alertState.description && (
-          <AlertDialogDescription>
-            {alertState.description}
-          </AlertDialogDescription>
+          <AlertDialogDescription>{alertState.description}</AlertDialogDescription>
         )}
         <AlertDialogFooter>
           {!alertState.action?.hidden && (
@@ -280,11 +253,7 @@ export const GlobalAlertDialog = () => {
             </Button>
           )}
           {!alertState.cancel?.hidden && (
-            <Button
-              variant="secondary"
-              onClick={() => onOpenChange(false)}
-              loading={pendingCancel}
-            >
+            <Button variant="secondary" onClick={() => onOpenChange(false)} loading={pendingCancel}>
               {alertState.cancel?.label ?? "Close"}
             </Button>
           )}
