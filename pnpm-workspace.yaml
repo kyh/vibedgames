@@ -3,8 +3,6 @@ packages:
   - packages/*
 
 catalog:
-  "@kyh/eslint-config": ^1.1.13
-  "@kyh/prettier-config": ^1.1.13
   "@kyh/tsconfig": ^1.1.13
   "@tanstack/react-query": ^5.90.21
   "@trpc/client": ^11.12.0
@@ -13,9 +11,7 @@ catalog:
   "@types/node": ^24.12.0
   "@types/react": ^19.2.14
   "@types/react-dom": ^19.2.3
-  eslint: ^9.39.4
   next: ^16.1.6
-  prettier: ^3.8.1
   react: ^19.2.4
   react-dom: ^19.2.4
   superjson: ^2.2.6
@@ -24,7 +20,3 @@ catalog:
   zod: ^4.3.6
 
 linkWorkspacePackages: true
-
-publicHoistPattern:
-  - "@ianvs/prettier-plugin-sort-imports"
-  - prettier-plugin-tailwindcss

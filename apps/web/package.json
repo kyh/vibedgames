@@ -24,9 +24,9 @@
     "@trpc/server": "catalog:",
     "@trpc/tanstack-react-query": "catalog:",
     "ai": "^6.0.116",
-    "better-auth": "^1.5.4",
+    "better-auth": "^1.5.5",
     "lucide-react": "^0.562.0",
-    "motion": "^12.35.2",
+    "motion": "^12.36.0",
     "next": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
@@ -49,6 +49,5 @@
     "raw-loader": "4.0.2",
     "tailwindcss": "^4.2.1",
     "typescript": "catalog:"
-  },
-  "prettier": "@kyh/prettier-config"
+  }
 }

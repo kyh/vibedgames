@@ -24,6 +24,5 @@
   },
   "peerDependencies": {
     "react": "catalog:"
-  },
-  "prettier": "@kyh/prettier-config"
+  }
 }
