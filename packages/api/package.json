@@ -22,12 +22,12 @@
     "better-auth": "^1.5.5",
     "just-bash": "^2.13.0",
     "superjson": "catalog:",
-    "v0-sdk": "^0.14.0",
+    "v0-sdk": "^0.16.4",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
-    "@types/node": "25.0.10",
+    "@types/node": "25.5.0",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "next": "catalog:",
