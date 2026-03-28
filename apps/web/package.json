@@ -12,7 +12,7 @@
     "with-env": "dotenv -e ../../.env --"
   },
   "dependencies": {
-    "@ai-sdk/react": "^3.0.140",
+    "@ai-sdk/react": "^3.0.143",
     "@codesandbox/sandpack-client": "^2.19.8",
     "@hookform/resolvers": "^5.2.2",
     "@repo/api": "workspace:^",
@@ -23,7 +23,7 @@
     "@trpc/client": "catalog:",
     "@trpc/server": "catalog:",
     "@trpc/tanstack-react-query": "catalog:",
-    "ai": "^6.0.138",
+    "ai": "^6.0.141",
     "better-auth": "^1.5.6",
     "lucide-react": "^0.577.0",
     "motion": "^12.38.0",

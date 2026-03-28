@@ -19,6 +19,6 @@
     "@kyh/tsconfig": "catalog:",
     "partyserver": "^0.3.3",
     "typescript": "catalog:",
-    "wrangler": "^4.77.0"
+    "wrangler": "^4.78.0"
   }
 }
