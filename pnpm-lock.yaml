@@ -7,8 +7,8 @@ settings:
 catalogs:
   default:
     '@kyh/tsconfig':
-      specifier: ^1.1.13
-      version: 1.1.13
+      specifier: ^1.1.14
+      version: 1.1.14
     '@tailwindcss/vite':
       specifier: ^4.2.2
       version: 4.2.2
@@ -98,7 +98,7 @@ importers:
     devDependencies:
       '@kyh/tsconfig':
         specifier: 'catalog:'
-        version: 1.1.13
+        version: 1.1.14
       '@types/react':
         specifier: 'catalog:'
         version: 19.2.14
@@ -144,7 +144,7 @@ importers:
     devDependencies:
       '@kyh/tsconfig':
         specifier: 'catalog:'
-        version: 1.1.13
+        version: 1.1.14
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.2.2(vite@8.0.3(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1)(@types/node@25.5.0)(esbuild@0.27.4)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
@@ -205,7 +205,7 @@ importers:
     devDependencies:
       '@kyh/tsconfig':
         specifier: 'catalog:'
-        version: 1.1.13
+        version: 1.1.14
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.2.2(vite@8.0.3(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1)(@types/node@25.5.0)(esbuild@0.27.4)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
@@ -248,7 +248,7 @@ importers:
         version: 4.20260329.1
       '@kyh/tsconfig':
         specifier: 'catalog:'
-        version: 1.1.13
+        version: 1.1.14
       partyserver:
         specifier: ^0.4.1
         version: 0.4.1(@cloudflare/workers-types@4.20260329.1)
@@ -282,7 +282,7 @@ importers:
     devDependencies:
       '@kyh/tsconfig':
         specifier: 'catalog:'
-        version: 1.1.13
+        version: 1.1.14
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.2.2(vite@8.0.3(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1)(@types/node@25.5.0)(esbuild@0.27.4)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
@@ -334,7 +334,7 @@ importers:
     devDependencies:
       '@kyh/tsconfig':
         specifier: 'catalog:'
-        version: 1.1.13
+        version: 1.1.14
       '@tailwindcss/vite':
         specifier: 'catalog:'
         version: 4.2.2(vite@8.0.3(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1)(@types/node@25.5.0)(esbuild@0.27.4)(jiti@2.6.1)(terser@5.46.1)(tsx@4.21.0)(yaml@2.8.3))
@@ -440,7 +440,7 @@ importers:
     devDependencies:
       '@kyh/tsconfig':
         specifier: 'catalog:'
-        version: 1.1.13
+        version: 1.1.14
       '@tailwindcss/postcss':
         specifier: ^4.2.2
         version: 4.2.2
@@ -504,7 +504,7 @@ importers:
     devDependencies:
       '@kyh/tsconfig':
         specifier: 'catalog:'
-        version: 1.1.13
+        version: 1.1.14
       '@types/node':
         specifier: 25.5.0
         version: 25.5.0
@@ -532,7 +532,7 @@ importers:
     devDependencies:
       '@kyh/tsconfig':
         specifier: 'catalog:'
-        version: 1.1.13
+        version: 1.1.14
       '@types/react':
         specifier: 'catalog:'
         version: 19.2.14
@@ -554,7 +554,7 @@ importers:
     devDependencies:
       '@kyh/tsconfig':
         specifier: 'catalog:'
-        version: 1.1.13
+        version: 1.1.14
       '@types/react':
         specifier: 'catalog:'
         version: 19.2.14
@@ -627,7 +627,7 @@ importers:
     devDependencies:
       '@kyh/tsconfig':
         specifier: 'catalog:'
-        version: 1.1.13
+        version: 1.1.14
       '@types/react':
         specifier: 'catalog:'
         version: 19.2.14
@@ -2358,8 +2358,8 @@ packages:
   '@jridgewell/trace-mapping@0.3.9':
     resolution: {integrity: sha512-3Belt6tdc8bPgAtbcmdtNJlirVoTmEb5e2gC94PnkwEW9jI6CAHUeoG85tjWP5WquqfavoMtMwiG4P926ZKKuQ==}
 
-  '@kyh/tsconfig@1.1.13':
-    resolution: {integrity: sha512-COK25yb9tlo5ea/qKYNPENxH95YZqlm6Vb1SyHxMKbyx25ANlF4/rGb+V+hZlNORmni9FcQwJ8IxeswpYTLjqA==}
+  '@kyh/tsconfig@1.1.14':
+    resolution: {integrity: sha512-Bn14z3WTnvIld5j9GYbHuoWyxGPKxF4U+OC+jfQvFruZZyJZOK435xIz7MmvsprrqBUn+6I2DYOS6vyN5k5iXA==}
 
   '@libsql/client@0.17.2':
     resolution: {integrity: sha512-0aw0S3iQMHvOxfRt5j1atoCCPMT3gjsB2PS8/uxSM1DcDn39xqz6RlgSMxtP8I3JsxIXAFuw7S41baLEw0Zi+Q==}
@@ -10329,7 +10329,7 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  '@kyh/tsconfig@1.1.13': {}
+  '@kyh/tsconfig@1.1.14': {}
 
   '@libsql/client@0.17.2':
     dependencies:
@@ -13490,7 +13490,7 @@ snapshots:
 
   dotenv-expand@11.0.7:
     dependencies:
-      dotenv: 16.4.7
+      dotenv: 16.6.1
     optional: true
 
   dotenv-expand@12.0.3:
