@@ -25,7 +25,7 @@
     "@trpc/tanstack-react-query": "catalog:",
     "ai": "^6.0.141",
     "better-auth": "^1.5.6",
-    "lucide-react": "^0.577.0",
+    "lucide-react": "^1.7.0",
     "motion": "^12.38.0",
     "next": "catalog:",
     "react": "catalog:",
@@ -47,7 +47,7 @@
     "@types/react-dom": "catalog:",
     "postcss": "^8.5.8",
     "raw-loader": "4.0.2",
-    "tailwindcss": "^4.2.2",
+    "tailwindcss": "catalog:",
     "typescript": "catalog:"
   }
 }
