@@ -21,7 +21,6 @@
     "ai": "^6.0.116",
     "better-auth": "^1.5.4",
     "superjson": "catalog:",
-    "v0-sdk": "^0.14.0",
     "zod": "catalog:"
   },
   "devDependencies": {
