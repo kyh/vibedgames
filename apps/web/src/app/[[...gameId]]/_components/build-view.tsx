@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { useChat } from "@ai-sdk/react";
 import { gameTypesArray } from "@repo/api/game/local/agent/agent-schema";
@@ -14,10 +14,11 @@ import {
 } from "@repo/ui/dropdown-menu";
 import { InputGroup, InputGroupAddon, InputGroupButton } from "@repo/ui/input-group";
 import { Mention, MentionsInput } from "@repo/ui/mentions-input";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { generateId } from "ai";
 import {
   CheckIcon,
+  FileIcon,
   GamepadIcon,
   HelpCircleIcon,
   MenuIcon,
@@ -32,6 +33,7 @@ import { motion } from "motion/react";
 import type { ChatUIMessage } from "@repo/api/game/local/agent/messages/types";
 import { useSharedChatContext } from "@/components/chat/chat-context";
 import { Message } from "@/components/chat/message";
+import { FileExplorer } from "@/components/file-explorer/file-explorer";
 import { MyGames } from "@/components/my-games/my-games";
 import { DraggablePanel } from "@/components/ui/draggable-panel";
 import { useTRPC } from "@/trpc/react";
@@ -46,14 +48,35 @@ export const BuildView = () => {
   const {
     setGameId,
     refreshIframe,
+    showFileExplorer,
+    setShowFileExplorer,
     showMyGames,
     setShowMyGames,
     showLogs,
     setShowLogs,
     logs,
+    gameId: currentGameId,
+    isLocalGame,
   } = useUiStore();
 
   const createBuild = useMutation(trpc.localGame.createBuild.mutationOptions());
+
+  const buildId = params.gameId?.[0] ?? currentGameId;
+  const buildQuery = useQuery(
+    trpc.localGame.getBuild.queryOptions(
+      { buildId },
+      { enabled: isLocalGame && !!buildId },
+    ),
+  );
+  const buildFiles = useMemo(() => {
+    const files: Record<string, string> = {};
+    if (buildQuery.data?.build.gameBuildFiles) {
+      for (const f of buildQuery.data.build.gameBuildFiles) {
+        files[f.path] = f.content;
+      }
+    }
+    return files;
+  }, [buildQuery.data]);
 
   const validateAndSubmitMessage = useCallback(
     async (text: string) => {
@@ -160,6 +183,15 @@ export const BuildView = () => {
                     Create New Game
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => setShowFileExplorer(!showFileExplorer)}>
+                    <FileIcon />
+                    File Explorer
+                    {showFileExplorer && (
+                      <span className="ml-auto text-xs">
+                        <CheckIcon />
+                      </span>
+                    )}
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setShowLogs(!showLogs)}>
                     <TerminalIcon />
                     Logs
@@ -222,6 +254,16 @@ export const BuildView = () => {
         initialSize={{ width: 320, height: 400 }}
       >
         <MyGames />
+      </DraggablePanel>
+      <DraggablePanel
+        title="File Explorer"
+        icon={<FileIcon className="size-4" />}
+        isOpen={showFileExplorer}
+        onClose={() => setShowFileExplorer(false)}
+        initialPosition={{ x: 760, y: 20 }}
+        initialSize={{ width: 640, height: 400 }}
+      >
+        <FileExplorer files={buildFiles} />
       </DraggablePanel>
       <DraggablePanel
         title="Logs"

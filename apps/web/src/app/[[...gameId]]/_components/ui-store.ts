@@ -30,6 +30,8 @@ type UIState = {
   iframeError: string | null;
   setIframeError: (error: string | null) => void;
   // View == build states
+  showFileExplorer: boolean;
+  setShowFileExplorer: (show: boolean) => void;
   showMyGames: boolean;
   setShowMyGames: (show: boolean) => void;
   showLogs: boolean;
@@ -73,6 +75,8 @@ export const useUiStore = create<UIState>((set, get) => ({
   iframeError: null,
   setIframeError: (error) => set({ iframeError: error }),
   // View == build states
+  showFileExplorer: false,
+  setShowFileExplorer: (show) => set({ showFileExplorer: show }),
   showMyGames: false,
   setShowMyGames: (show) => set({ showMyGames: show }),
   showLogs: false,
