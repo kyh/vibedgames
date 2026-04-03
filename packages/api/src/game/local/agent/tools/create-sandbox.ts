@@ -40,15 +40,15 @@ export const createSandbox = ({ writer, db, buildId }: Params) =>
         data: { status: "loading" },
       });
 
+      let sandbox: Sandbox | null = null;
+
       try {
-        // Create a new Vercel sandbox
-        const sandbox = await Sandbox.create({
+        sandbox = await Sandbox.create({
           timeout: 600000,
           ports: [3000],
           runtime: "node22",
         });
 
-        // Restore files from the database build
         const build = await db.query.gameBuild.findFirst({
           where: (builds, { eq }) => eq(builds.id, buildId),
           with: {
@@ -82,6 +82,10 @@ export const createSandbox = ({ writer, db, buildId }: Params) =>
           `\nYou can now upload files, run commands, and access services on the exposed ports.`
         );
       } catch (error) {
+        if (sandbox) {
+          await sandbox.stop().catch(() => {});
+        }
+
         const richError = getRichError({
           action: "Creating Sandbox",
           error,
