@@ -189,7 +189,7 @@ export const runCommand = ({ writer }: Params) =>
         return (
           `The command \`${command} ${args.join(
             " ",
-          )}\` has finished with exit code ${done.exitCode}.` +
+          )}\` has finished with exit code ${done.exitCode}.\n` +
           `Stdout of the command was: \n` +
           `\`\`\`\n${stdout}\n\`\`\`\n` +
           `Stderr of the command was: \n` +
