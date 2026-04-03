@@ -1,6 +1,6 @@
 import { Sandbox } from "@vercel/sandbox";
 
-import { createTRPCRouter, publicProcedure } from "../trpc";
+import { createTRPCRouter, protectedProcedure } from "../trpc";
 import {
   commandParamsSchema,
   fileParamsSchema,
@@ -8,7 +8,7 @@ import {
 } from "./sandbox-schema";
 
 export const sandboxRouter = createTRPCRouter({
-  status: publicProcedure.input(sandboxIdSchema).query(async ({ input }) => {
+  status: protectedProcedure.input(sandboxIdSchema).query(async ({ input }) => {
     try {
       const sandbox = await Sandbox.get({ sandboxId: input.sandboxId });
       await sandbox.runCommand({
@@ -30,7 +30,7 @@ export const sandboxRouter = createTRPCRouter({
     }
   }),
 
-  getFile: publicProcedure.input(fileParamsSchema).query(async ({ input }) => {
+  getFile: protectedProcedure.input(fileParamsSchema).query(async ({ input }) => {
     const sandbox = await Sandbox.get(input);
     const stream = await sandbox.readFile(input);
     if (!stream) {
@@ -45,7 +45,7 @@ export const sandboxRouter = createTRPCRouter({
     return Buffer.concat(chunks).toString("utf-8");
   }),
 
-  getCommand: publicProcedure
+  getCommand: protectedProcedure
     .input(commandParamsSchema)
     .query(async ({ input }) => {
       const sandbox = await Sandbox.get(input);
@@ -65,7 +65,7 @@ export const sandboxRouter = createTRPCRouter({
       };
     }),
 
-  getCommandLogs: publicProcedure
+  getCommandLogs: protectedProcedure
     .input(commandParamsSchema)
     .query(async ({ input }) => {
       const sandbox = await Sandbox.get(input);
