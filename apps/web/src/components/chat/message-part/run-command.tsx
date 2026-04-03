@@ -18,8 +18,8 @@ export const RunCommand = ({ message, className }: Props) => {
         {message.status === "executing" && "Executing"}
         {message.status === "waiting" && "Waiting"}
         {message.status === "running" && "Running in background"}
-        {message.status === "done" && message.exitCode !== 1 && "Finished"}
-        {message.status === "done" && message.exitCode === 1 && "Errored"}
+        {message.status === "done" && !message.exitCode && "Finished"}
+        {message.status === "done" && !!message.exitCode && "Errored"}
         {message.status === "error" && "Errored"}
       </ToolHeader>
       <div className="relative pl-6">
