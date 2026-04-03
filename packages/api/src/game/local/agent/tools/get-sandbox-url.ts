@@ -62,7 +62,10 @@ export const getSandboxURL = ({ writer }: Params) =>
         writer.write({
           id: toolCallId,
           type: "data-get-sandbox-url",
-          data: { status: "done" },
+          data: {
+            error: { message: richError.error.message },
+            status: "error",
+          },
         });
 
         return richError.message;

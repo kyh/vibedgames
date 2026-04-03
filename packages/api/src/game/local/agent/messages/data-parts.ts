@@ -26,7 +26,8 @@ export const dataPartSchema = z.object({
   }),
   "get-sandbox-url": z.object({
     url: z.string().optional(),
-    status: z.enum(["loading", "done"]),
+    status: z.enum(["loading", "done", "error"]),
+    error: errorSchema.optional(),
   }),
   "report-errors": z.object({
     summary: z.string(),

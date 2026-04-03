@@ -1,5 +1,5 @@
 import { Spinner } from "@repo/ui/spinner";
-import { CheckIcon, LinkIcon } from "lucide-react";
+import { CheckIcon, LinkIcon, XIcon } from "lucide-react";
 
 import type { DataPart } from "@repo/api/game/local/agent/messages/data-parts";
 import { ToolHeader, ToolMessage } from "../tool-message";
@@ -20,11 +20,15 @@ export const GetSandboxURL = ({ message, className }: Props) => {
         <span className="absolute top-0 left-0 inline-flex h-5 w-5 items-center justify-center">
           {message.status === "loading" ? (
             <Spinner size={4} gridSize={2} />
+          ) : message.status === "error" ? (
+            <XIcon className="h-4 w-4 text-red-700" />
           ) : (
             <CheckIcon className="h-4 w-4 text-green-700" />
           )}
         </span>
-        {message.url ? (
+        {message.status === "error" ? (
+          <span>Failed to get sandbox URL</span>
+        ) : message.url ? (
           <a href={message.url} target="_blank" rel="noopener noreferrer">
             {message.url}
           </a>
