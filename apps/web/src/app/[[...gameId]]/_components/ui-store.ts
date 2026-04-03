@@ -40,7 +40,7 @@ type UIState = {
   appendLog: (log: string) => void;
   // View == play/build states
   gameId: string; // Game ID is a string for local games, and a url for remote games
-  setGameId: (id: string) => void;
+  setGameId: (id: string, isLocalGame?: boolean) => void;
   isLocalGame: boolean;
   // Sandbox state
   sandboxId?: string;
@@ -85,10 +85,10 @@ export const useUiStore = create<UIState>((set, get) => ({
   appendLog: (log) => set((state) => ({ logs: [...state.logs, log] })),
   // View == play/build states
   gameId: featuredGames[0]?.url ?? "",
-  setGameId: (id) => {
+  setGameId: (id, isLocalGame = false) => {
     set({
       gameId: id,
-      isLocalGame: true,
+      isLocalGame,
     });
   },
   isLocalGame: false,

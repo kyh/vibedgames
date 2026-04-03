@@ -71,7 +71,7 @@ export const Composer = () => {
             }
             // If current game is remote, start fresh
             if (!isLocalGame) {
-              setGameId(generateId());
+              setGameId(generateId(), true);
             }
             setView("build");
           }}

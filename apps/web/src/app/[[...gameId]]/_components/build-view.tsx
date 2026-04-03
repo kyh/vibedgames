@@ -96,8 +96,7 @@ export const BuildView = () => {
 
           buildId = result.build.id;
 
-          // Set as local game
-          setGameId(buildId);
+          setGameId(buildId, true);
 
           // Update URL without triggering a rerender
           window.history.replaceState(
@@ -175,7 +174,7 @@ export const BuildView = () => {
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={() => {
-                      setGameId(generateId());
+                      setGameId(generateId(), true);
                       setInput("");
                     }}
                   >

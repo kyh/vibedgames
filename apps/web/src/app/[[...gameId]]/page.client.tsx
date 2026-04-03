@@ -28,7 +28,7 @@ export const PageClient = () => {
   // Set gameId when build is fetched
   useEffect(() => {
     if (gameId && buildData?.build) {
-      setGameId(gameId);
+      setGameId(gameId, true);
     }
   }, [buildData, gameId, setGameId]);
 
