@@ -1,17 +1,25 @@
 import type { QueryClient } from "@tanstack/react-query";
+import type { TRPCOptionsProxy } from "@trpc/tanstack-react-query";
 import { GlobalAlertDialog } from "@repo/ui/alert-dialog";
 import { GlobalToaster } from "@repo/ui/toast";
 import { TooltipProvider } from "@repo/ui/tooltip";
 import { cn } from "@repo/ui/utils";
-import { createRootRouteWithContext, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
+import {
+  createRootRouteWithContext,
+  HeadContent,
+  Outlet,
+  Scripts,
+} from "@tanstack/react-router";
 
-import { siteConfig } from "@/lib/site-config";
-import { TRPCReactProvider } from "@/trpc/react";
+import type { AppRouter } from "@repo/api";
+import { siteConfig } from "~/lib/site-config";
+
 
 import appCss from "../app/styles/globals.css?url";
 
 interface RouterContext {
   queryClient: QueryClient;
+  trpc: TRPCOptionsProxy<AppRouter>;
 }
 
 export const Route = createRootRouteWithContext<RouterContext>()({
@@ -43,6 +51,14 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 
 function RootComponent() {
   return (
+    <RootDocument>
+      <Outlet />
+    </RootDocument>
+  );
+}
+
+function RootDocument({ children }: { children: React.ReactNode }) {
+  return (
     <html lang="en" suppressHydrationWarning>
       <head>
         <HeadContent />
@@ -53,9 +69,7 @@ function RootComponent() {
         )}
       >
         <TooltipProvider>
-          <TRPCReactProvider>
-            <Outlet />
-          </TRPCReactProvider>
+          {children}
           <GlobalToaster />
           <GlobalAlertDialog />
         </TooltipProvider>

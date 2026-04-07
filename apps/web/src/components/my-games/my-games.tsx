@@ -26,7 +26,7 @@ import { cn } from "@repo/ui/utils";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { GamepadIcon, LoaderIcon, PencilIcon, TrashIcon } from "lucide-react";
 
-import { useTRPC } from "@/trpc/react";
+import { useTRPC } from "~/lib/trpc";
 
 type Build = {
   id: string;

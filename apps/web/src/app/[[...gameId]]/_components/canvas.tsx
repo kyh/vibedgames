@@ -2,8 +2,8 @@
 
 import { motion } from "motion/react";
 
-import { GameStack } from "@/components/canvas/game-stack";
-import { Iframe } from "@/components/canvas/iframe";
+import { GameStack } from "~/components/canvas/game-stack";
+import { Iframe } from "~/components/canvas/iframe";
 import { featuredGames } from "./data";
 import { useUiStore } from "./ui-store";
 

@@ -29,12 +29,12 @@ import {
 import { motion } from "motion/react";
 
 import type { ChatUIMessage } from "@repo/api/game/local/agent/messages/types";
-import { useSharedChatContext } from "@/components/chat/chat-context";
-import { Message } from "@/components/chat/message";
-import { FileExplorer } from "@/components/file-explorer/file-explorer";
-import { MyGames } from "@/components/my-games/my-games";
-import { DraggablePanel } from "@/components/ui/draggable-panel";
-import { useTRPC } from "@/trpc/react";
+import { useSharedChatContext } from "~/components/chat/chat-context";
+import { Message } from "~/components/chat/message";
+import { FileExplorer } from "~/components/file-explorer/file-explorer";
+import { MyGames } from "~/components/my-games/my-games";
+import { DraggablePanel } from "~/components/ui/draggable-panel";
+import { useTRPC } from "~/lib/trpc";
 import { getDefaultFiles, toBuildFiles } from "./sandpack";
 import { useUiStore } from "./ui-store";
 

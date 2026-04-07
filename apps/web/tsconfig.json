@@ -3,14 +3,11 @@
   "compilerOptions": {
     "lib": ["ES2022", "dom", "dom.iterable"],
     "jsx": "preserve",
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "~/*": ["./src/*"]
     },
-    "module": "esnext",
-    "moduleResolution": "bundler",
     "types": ["@cloudflare/workers-types", "vite/client"]
   },
-  "include": ["src", "env.d.ts", "vite.config.ts"],
-  "exclude": ["node_modules", "dist", ".wrangler"]
+  "include": ["**/*.ts", "**/*.tsx", "env.d.ts"],
+  "exclude": ["node_modules", "dist", ".output", ".nitro", ".tanstack"]
 }

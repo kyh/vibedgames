@@ -2,8 +2,8 @@ import { useEffect } from "react";
 import { useParams } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 
-import { ChatProvider } from "@/components/chat/chat-context";
-import { useTRPC } from "@/trpc/react";
+import { ChatProvider } from "~/components/chat/chat-context";
+import { useTRPC } from "~/lib/trpc";
 import { Canvas } from "./_components/canvas";
 import { Composer } from "./_components/composer";
 import { toSandpack } from "./_components/sandpack";

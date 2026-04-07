@@ -1,24 +1,29 @@
-import { cloudflare } from "@cloudflare/vite-plugin";
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
-import { tanstackRouter } from "@tanstack/router-plugin/vite";
+import viteReact from "@vitejs/plugin-react";
+import { nitro } from "nitro/vite";
 import { defineConfig } from "vite";
+import tsConfigPaths from "vite-tsconfig-paths";
 
 export default defineConfig({
+  server: {
+    port: 3000,
+  },
   plugins: [
-    tanstackRouter({
-      target: "react",
-      autoCodeSplitting: true,
-      routesDirectory: "./src/routes",
-      generatedRouteTree: "./src/routeTree.gen.ts",
+    tsConfigPaths({ projects: ["./tsconfig.json"] }),
+    // Nitro preset targets a single Cloudflare Workers module build.
+    // Bindings (D1, assets, secrets) are declared in wrangler.jsonc.
+    nitro({
+      config: {
+        preset: "cloudflare_module",
+        cloudflare: {
+          deployConfig: true,
+          nodeCompat: true,
+        },
+      },
     }),
-    tanstackStart({ target: "cloudflare-module" }),
-    cloudflare({ viteEnvironment: { name: "ssr" } }),
+    tanstackStart(),
+    viteReact(),
     tailwindcss(),
   ],
-  resolve: {
-    alias: {
-      "@": "/src",
-    },
-  },
 });

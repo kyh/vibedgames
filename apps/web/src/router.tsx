@@ -1,30 +1,38 @@
 import { QueryClient } from "@tanstack/react-query";
-import { createRouter as createTanstackRouter } from "@tanstack/react-router";
-import { routerWithQueryClient } from "@tanstack/react-router-with-query";
+import { createRouter } from "@tanstack/react-router";
+import { setupRouterSsrQueryIntegration } from "@tanstack/react-router-ssr-query";
+import { createTRPCOptionsProxy } from "@trpc/tanstack-react-query";
+import SuperJSON from "superjson";
 
+import { makeTRPCClient, TRPCProvider } from "~/lib/trpc";
 import { routeTree } from "./routeTree.gen";
-import { createQueryClient } from "./trpc/query-client";
 
-export const createRouter = () => {
-  const queryClient: QueryClient = createQueryClient();
-  return routerWithQueryClient(
-    createTanstackRouter({
-      routeTree,
-      context: { queryClient },
-      defaultPreload: "intent",
-      defaultErrorComponent: ({ error }) => (
-        <div className="p-8">
-          <p>Oh no, something went wrong... maybe refresh?</p>
-          <pre className="text-xs opacity-60">{String(error)}</pre>
-        </div>
-      ),
-    }),
+export function getRouter() {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      dehydrate: { serializeData: SuperJSON.serialize },
+      hydrate: { deserializeData: SuperJSON.deserialize },
+    },
+  });
+  const trpcClient = makeTRPCClient();
+  const trpc = createTRPCOptionsProxy({
+    client: trpcClient,
     queryClient,
-  );
-};
+  });
 
-declare module "@tanstack/react-router" {
-  interface Register {
-    router: ReturnType<typeof createRouter>;
-  }
+  const router = createRouter({
+    routeTree,
+    context: { queryClient, trpc },
+    defaultPreload: "intent",
+    Wrap: (props) => (
+      <TRPCProvider
+        trpcClient={trpcClient}
+        queryClient={queryClient}
+        {...props}
+      />
+    ),
+  });
+  setupRouterSsrQueryIntegration({ router, queryClient });
+
+  return router;
 }

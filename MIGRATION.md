@@ -17,15 +17,28 @@ Migrates the stack from Vercel + Next.js + Turso → **Cloudflare Workers + TanS
 - Removed module-level `getSession`/`getOrganization` helpers (they relied on `next/headers`); call `ctx.auth.api.getSession({ headers })` from your route/loader instead.
 
 ### `apps/web`
-- Next.js 16 → **TanStack Start** (Vite + `@tanstack/react-start` + `@cloudflare/vite-plugin`, target `cloudflare-module`).
+- Next.js 16 → **TanStack Start** on Cloudflare Workers, following [`create-t3-turbo`](https://github.com/t3-oss/create-t3-turbo)'s `apps/tanstack-start` conventions:
+  - Path alias `~/*` → `./src/*` (via `vite-tsconfig-paths`).
+  - `vite.config.ts` plugin order: `tsConfigPaths` → `nitro({ config: { preset: "cloudflare_module" } })` → `tanstackStart()` → `viteReact()` → `tailwindcss()`.
+  - `src/router.tsx` exports a single `getRouter()` that builds `QueryClient` (SuperJSON dehydrate/hydrate), the tRPC client via `makeTRPCClient()`, wraps with `TRPCProvider` via the router `Wrap` prop, and calls `setupRouterSsrQueryIntegration`. No manual `client.tsx`/`ssr.tsx`.
+  - `src/lib/trpc.ts` is an **isomorphic** tRPC client via `createIsomorphicFn()`: server side uses `unstable_localLink` directly against `appRouter` (no HTTP hop during SSR); client side uses `httpBatchStreamLink` to `/api/trpc`. Both transform with SuperJSON.
+  - `src/routes/__root.tsx` uses `createRootRouteWithContext<{queryClient, trpc}>()`, imports `appCss from "../app/styles/globals.css?url"`, renders `<HeadContent/>`, children, `<Scripts/>`.
+  - API routes use the new `createFileRoute(...).server.handlers` shape with filenames `api/trpc.$.ts`, `api/auth.$.ts`, `api/chat.ts`.
+  - `src/auth/server.ts` + `src/auth/client.ts` mirror the t3 layout. `client.ts` is `createAuthClient()` from `better-auth/react`.
+  - `src/lib/url.ts` exports `getBaseUrl()`.
 - File-based routes under `src/routes/` mirror the previous Next routes 1:1:
   - `__root.tsx` (was `app/layout.tsx`)
   - `index.tsx` + `$gameId.tsx` (was `app/[[...gameId]]/page.tsx`)
   - `auth/route.tsx` + `auth/{login,register,password-reset,password-update}.tsx`
-  - `api/trpc/$.ts`, `api/auth/$.ts`, `api/chat.ts` (server file routes)
-- `src/server/context.ts` builds db + auth from the Cloudflare `env` per request.
-- Components were patched to drop `next/link`, `next/image`, `next/navigation`, `next/font/local`. Existing component tree under `src/app/.../_components/` and `src/components/` is otherwise unchanged.
-- `wrangler.jsonc` defines a Workers + Assets deploy with the D1 binding `DB`. **You must paste your real `database_id` after running `wrangler d1 create vibedgames`.**
+  - `api/trpc.$.ts`, `api/auth.$.ts`, `api/chat.ts`
+- Components were patched to drop `next/link`, `next/image`, `next/navigation`, `next/font/local`.
+
+#### Cloudflare specifics (deviation from t3-turbo)
+t3-turbo targets Vercel + Postgres, so it exports a module-level `db` and `auth`. D1 binds per-request via the Worker `env`, so we can't use module singletons. Adaptation:
+- `src/lib/cloudflare.ts` exports `getCloudflareEnv()` which reads the per-request env from `getRequestEvent()` (attached by nitro's `cloudflare_module` preset).
+- `src/auth/server.ts` exports `getServerContext()` returning `{db, auth, baseUrl, productionUrl}` built per request, plus a minimal `auth` shim with `.handler` / `.api.getSession` that delegates to `getServerContext()` so callers can write `auth.handler(request)` just like the t3 template.
+- `wrangler.jsonc` declares the `DB` (D1), `ASSETS`, and secret bindings; the nitro cloudflare_module build writes `.output/server/index.mjs` + `.output/public/*`.
+- **You must paste your real `database_id` after running `wrangler d1 create vibedgames`.**
 
 ### `apps/party`
 - Added a `[[d1_databases]]` binding (`DB`) in `wrangler.toml` pointing at the same D1 database, plus `nodejs_compat`. Use `createDb(env.DB)` from `@repo/db/drizzle-client` if/when the party server needs DB access.
