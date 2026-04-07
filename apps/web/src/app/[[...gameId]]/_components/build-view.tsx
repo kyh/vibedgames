@@ -1,7 +1,5 @@
-"use client";
-
 import { useCallback, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams } from "@tanstack/react-router";
 import { useChat } from "@ai-sdk/react";
 import { gameTypesArray } from "@repo/api/game/local/agent/agent-schema";
 import { Conversation, ConversationContent, ConversationScrollButton } from "@repo/ui/conversation";
@@ -45,7 +43,7 @@ export const BuildView = () => {
   const [input, setInput] = useState("");
   const { chat } = useSharedChatContext();
   const { messages, sendMessage, status } = useChat<ChatUIMessage>({ chat });
-  const params = useParams<{ gameId?: string[] }>();
+  const params = useParams({ strict: false }) as { gameId?: string };
   const {
     setGameId,
     sandpackFiles,
@@ -66,7 +64,7 @@ export const BuildView = () => {
       if (!text.trim()) return;
 
       // Check if we're looking at a new game (no gameId in URL)
-      const gameId = params.gameId?.[0];
+      const gameId = params.gameId;
       const isNewGame = !gameId;
       let buildId: string = gameId ?? "";
 

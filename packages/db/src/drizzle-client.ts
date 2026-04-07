@@ -1,18 +1,22 @@
-import { createClient } from "@libsql/client/web";
-import { drizzle } from "drizzle-orm/libsql/web";
+import type { D1Database } from "@cloudflare/workers-types";
+import { drizzle } from "drizzle-orm/d1";
 
 import * as schema from "./drizzle-schema";
 import * as schemaAuth from "./drizzle-schema-auth";
 
-const client = createClient({
-  url: process.env.TURSO_DATABASE_URL ?? "",
-  authToken: process.env.TURSO_AUTH_TOKEN,
-});
+export const combinedSchema = { ...schema, ...schemaAuth };
 
-export const db = drizzle({
-  client,
-  schema: { ...schema, ...schemaAuth },
-  casing: "snake_case",
-});
+/**
+ * Create a Drizzle client bound to a Cloudflare D1 database.
+ *
+ * Unlike the previous Turso (libsql) setup, D1 is bound per-request via the
+ * Worker `env`, so callers must construct the client inside their request
+ * handler / tRPC context — there is no module-level singleton.
+ */
+export const createDb = (d1: D1Database) =>
+  drizzle(d1, {
+    schema: combinedSchema,
+    casing: "snake_case",
+  });
 
-export type Db = typeof db;
+export type Db = ReturnType<typeof createDb>;

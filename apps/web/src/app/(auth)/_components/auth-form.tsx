@@ -1,6 +1,4 @@
-"use client";
-
-import { useParams, useRouter } from "next/navigation";
+import { useRouter, useSearch } from "@tanstack/react-router";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@repo/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@repo/ui/form";
@@ -18,7 +16,7 @@ type AuthFormProps = {
 
 export const AuthForm = ({ className, type, ...props }: AuthFormProps) => {
   const router = useRouter();
-  const params = useParams<{ nextPath?: string }>();
+  const search = useSearch({ strict: false }) as { nextPath?: string };
 
   const form = useForm({
     resolver: zodResolver(
@@ -42,7 +40,7 @@ export const AuthForm = ({ className, type, ...props }: AuthFormProps) => {
         name: emailPrefix ?? "User",
         fetchOptions: {
           onSuccess: () => {
-            router.replace(params.nextPath ?? "/");
+            router.navigate({ to: search.nextPath ?? "/", replace: true });
           },
           onError: (ctx) => {
             toast.error(ctx.error.message);
@@ -57,7 +55,7 @@ export const AuthForm = ({ className, type, ...props }: AuthFormProps) => {
         password: credentials.password,
         fetchOptions: {
           onSuccess: () => {
-            router.replace(params.nextPath ?? "/");
+            router.navigate({ to: search.nextPath ?? "/", replace: true });
           },
           onError: (ctx) => {
             toast.error(ctx.error.message);
@@ -194,7 +192,7 @@ export const RequestPasswordResetForm = () => {
 };
 
 export const UpdatePasswordForm = () => {
-  const router = useRouter();
+  const updateRouter = useRouter();
 
   const form = useForm({
     resolver: zodResolver(
@@ -220,7 +218,7 @@ export const UpdatePasswordForm = () => {
       fetchOptions: {
         onSuccess: () => {
           toast.success("Password updated successfully!");
-          router.push("/");
+          updateRouter.navigate({ to: "/" });
         },
         onError: (ctx) => {
           toast.error(ctx.error.message);

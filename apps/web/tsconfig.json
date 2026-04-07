@@ -7,9 +7,10 @@
     "paths": {
       "@/*": ["./src/*"]
     },
-    "plugins": [{ "name": "next" }],
-    "module": "esnext"
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "types": ["@cloudflare/workers-types", "vite/client"]
   },
-  "include": [".", ".next/types/**/*.ts"],
-  "exclude": ["node_modules", "next.config.js"]
+  "include": ["src", "env.d.ts", "vite.config.ts"],
+  "exclude": ["node_modules", "dist", ".wrangler"]
 }

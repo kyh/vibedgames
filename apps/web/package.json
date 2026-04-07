@@ -4,10 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "pnpm with-env next build",
-    "clean": "git clean -xdf .cache .next .turbo node_modules",
-    "dev": "pnpm with-env next dev",
-    "start": "pnpm with-env next start",
+    "build": "vite build",
+    "clean": "git clean -xdf .cache .turbo .wrangler dist node_modules",
+    "dev": "vite dev",
+    "deploy": "vite build && wrangler deploy",
+    "preview": "vite build && wrangler dev",
     "typecheck": "tsc --noEmit",
     "with-env": "dotenv -e ../../.env --"
   },
@@ -20,6 +21,9 @@
     "@repo/multiplayer": "workspace:^",
     "@repo/ui": "workspace:^",
     "@tanstack/react-query": "catalog:",
+    "@tanstack/react-router": "^1.95.0",
+    "@tanstack/react-router-with-query": "^1.95.0",
+    "@tanstack/react-start": "^1.95.0",
     "@trpc/client": "catalog:",
     "@trpc/server": "catalog:",
     "@trpc/tanstack-react-query": "catalog:",
@@ -27,7 +31,6 @@
     "better-auth": "^1.5.6",
     "lucide-react": "^0.577.0",
     "motion": "^12.38.0",
-    "next": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-hook-form": "^7.72.0",
@@ -39,15 +42,19 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.0.0",
+    "@cloudflare/workers-types": "^4.20260317.1",
     "@kyh/tsconfig": "catalog:",
-    "@tailwindcss/postcss": "^4.2.2",
+    "@tailwindcss/vite": "catalog:",
     "@tailwindcss/typography": "^0.5.19",
+    "@tanstack/router-plugin": "^1.95.0",
     "@types/node": "25.5.0",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "postcss": "^8.5.8",
-    "raw-loader": "4.0.2",
-    "tailwindcss": "^4.2.2",
-    "typescript": "catalog:"
+    "@vitejs/plugin-react-swc": "catalog:",
+    "tailwindcss": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "wrangler": "^4.78.0"
   }
 }
