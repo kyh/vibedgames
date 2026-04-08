@@ -19,7 +19,7 @@
     "with-env": "dotenv -e ../../.env --"
   },
   "dependencies": {
-    "@cloudflare/workers-types": "^4.20260317.1",
+    "@cloudflare/workers-types": "catalog:",
     "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
