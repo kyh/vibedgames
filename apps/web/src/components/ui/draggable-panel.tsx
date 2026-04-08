@@ -7,7 +7,7 @@ import { XIcon } from "lucide-react";
 import { motion } from "motion/react";
 import { createPortal } from "react-dom";
 
-import { useLocalStorage } from "~/lib/use-localstorage";
+import { useLocalStorage } from "@/lib/use-localstorage";
 
 type DraggablePanelProps = {
   title: React.ReactNode;

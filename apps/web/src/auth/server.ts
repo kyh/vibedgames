@@ -1,8 +1,8 @@
 import { createAuth as initAuth } from "@repo/api/auth/auth";
 import { createDb } from "@repo/db/drizzle-client";
 
-import { getCloudflareEnv } from "~/lib/cloudflare";
-import { getBaseUrl } from "~/lib/url";
+import { getCloudflareEnv } from "@/lib/cloudflare";
+import { getBaseUrl } from "@/lib/url";
 
 /**
  * Per-request db + auth factory.

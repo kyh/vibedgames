@@ -12,7 +12,7 @@ import {
 } from "@tanstack/react-router";
 
 import type { AppRouter } from "@repo/api";
-import { siteConfig } from "~/lib/site-config";
+import { siteConfig } from "@/lib/site-config";
 
 
 import appCss from "../app/styles/globals.css?url";

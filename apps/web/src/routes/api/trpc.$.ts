@@ -2,7 +2,7 @@ import { appRouter, createTRPCContext } from "@repo/api";
 import { createFileRoute } from "@tanstack/react-router";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 
-import { getServerContext } from "~/auth/server";
+import { getServerContext } from "@/auth/server";
 
 const handler = (req: Request) => {
   const { db, auth, productionUrl } = getServerContext();

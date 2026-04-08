@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { UpdatePasswordForm } from "~/app/(auth)/_components/auth-form";
+import { UpdatePasswordForm } from "@/app/(auth)/_components/auth-form";
 
 export const Route = createFileRoute("/auth/password-update")({
   head: () => ({ meta: [{ title: "Update Password" }] }),

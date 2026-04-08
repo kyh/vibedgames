@@ -16,7 +16,7 @@ import { cn } from "@repo/ui/utils";
 import { useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 
-import { useTRPC } from "~/lib/trpc";
+import { useTRPC } from "@/lib/trpc";
 
 export const WaitlistForm = () => {
   const trpc = useTRPC();

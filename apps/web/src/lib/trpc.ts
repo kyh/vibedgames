@@ -11,8 +11,8 @@ import {
 import { createTRPCContext as createReactTRPCContext } from "@trpc/tanstack-react-query";
 import SuperJSON from "superjson";
 
-import { getServerContext } from "~/auth/server";
-import { getBaseUrl } from "~/lib/url";
+import { getServerContext } from "@/auth/server";
+import { getBaseUrl } from "@/lib/url";
 
 export const makeTRPCClient = createIsomorphicFn()
   .server(() => {

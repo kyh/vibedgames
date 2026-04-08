@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 
-import { useUiStore } from "~/app/[[...gameId]]/_components/ui-store";
+import { useUiStore } from "@/app/[[...gameId]]/_components/ui-store";
 
 // Animation constants
 const ANIMATION_DURATION = 0.6;

@@ -2,7 +2,7 @@ import type { ChatUIMessage } from "@repo/api/game/local/agent/messages/types";
 import { streamChatResponse } from "@repo/api/game/local/agent/response/stream-chat-response";
 import { createFileRoute } from "@tanstack/react-router";
 
-import { getServerContext } from "~/auth/server";
+import { getServerContext } from "@/auth/server";
 
 type BodyData = {
   messages: ChatUIMessage[];

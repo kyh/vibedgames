@@ -5,7 +5,7 @@ import { cn } from "@repo/ui/utils";
 import { generateId } from "ai";
 import { motion } from "motion/react";
 
-import { authClient } from "~/auth/client";
+import { authClient } from "@/auth/client";
 import { BuildView } from "./build-view";
 import { DiscoverView } from "./discover-view";
 import { PlayView } from "./play-view";
