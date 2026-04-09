@@ -45,7 +45,7 @@ export function getServerContext() {
  */
 export const auth = {
   handler: (request: Request) => {
-    const { auth } = getServerContext();
-    return auth.handler(request);
+    const { auth: betterAuth } = getServerContext();
+    return betterAuth.handler(request);
   },
 };
