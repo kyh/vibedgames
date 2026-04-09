@@ -15,6 +15,7 @@
     "dev-tetris": "turbo watch dev -F @repo/tetris...",
     "dev-astroid": "turbo watch dev -F @repo/astroid...",
     "dev-pong": "turbo watch dev -F @repo/pong...",
+    "dev-cli": "turbo watch dev -F vibedgames...",
     "lint": "oxlint --report-unused-disable-directives",
     "typecheck": "turbo run typecheck",
     "gen-ui": "pnpm -F ui gen-ui",

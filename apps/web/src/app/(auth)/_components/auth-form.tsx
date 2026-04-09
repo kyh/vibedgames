@@ -14,9 +14,10 @@ import { authClient } from "@/lib/auth-client";
 
 type AuthFormProps = {
   type: "login" | "register";
+  callbackUrl?: string;
 } & React.HTMLAttributes<HTMLDivElement>;
 
-export const AuthForm = ({ className, type, ...props }: AuthFormProps) => {
+export const AuthForm = ({ className, type, callbackUrl, ...props }: AuthFormProps) => {
   const router = useRouter();
   const params = useParams<{ nextPath?: string }>();
 
@@ -42,7 +43,7 @@ export const AuthForm = ({ className, type, ...props }: AuthFormProps) => {
         name: emailPrefix ?? "User",
         fetchOptions: {
           onSuccess: () => {
-            router.replace(params.nextPath ?? "/");
+            router.replace(callbackUrl ?? params.nextPath ?? "/");
           },
           onError: (ctx) => {
             toast.error(ctx.error.message);
@@ -57,7 +58,7 @@ export const AuthForm = ({ className, type, ...props }: AuthFormProps) => {
         password: credentials.password,
         fetchOptions: {
           onSuccess: () => {
-            router.replace(params.nextPath ?? "/");
+            router.replace(callbackUrl ?? params.nextPath ?? "/");
           },
           onError: (ctx) => {
             toast.error(ctx.error.message);
