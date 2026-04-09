@@ -21,7 +21,8 @@ export function getServerContext() {
   // Derive baseUrl from the actual request so dev/preview/production all work.
   const headers = new Headers(getRequestHeaders());
   const host = headers.get("host") ?? headers.get("x-forwarded-host");
-  const protocol = headers.get("x-forwarded-proto") ?? (host?.includes("localhost") ? "http" : "https");
+  const isLocalhost = host === "localhost" || host?.startsWith("localhost:");
+  const protocol = headers.get("x-forwarded-proto") ?? (isLocalhost ? "http" : "https");
   const baseUrl = host ? `${protocol}://${host}` : "http://localhost:3000";
 
   const productionUrl = env.PRODUCTION_URL || baseUrl;
