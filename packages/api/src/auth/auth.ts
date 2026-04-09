@@ -1,7 +1,4 @@
-import type { User } from "better-auth";
 import type { Db } from "@repo/db/drizzle-client";
-import { eq } from "@repo/db";
-import { user as userSchema } from "@repo/db/drizzle-schema-auth";
 import { expo } from "@better-auth/expo";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
