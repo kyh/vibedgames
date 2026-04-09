@@ -1,0 +1,31 @@
+{
+  "name": "vibedgames",
+  "version": "0.0.1",
+  "private": false,
+  "type": "module",
+  "bin": {
+    "vg": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf .turbo node_modules dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@trpc/client": "catalog:",
+    "citty": "^0.1.6",
+    "consola": "^3.4.2",
+    "superjson": "catalog:"
+  },
+  "devDependencies": {
+    "@kyh/tsconfig": "catalog:",
+    "@repo/api": "workspace:^",
+    "@trpc/server": "catalog:",
+    "@types/node": "catalog:",
+    "typescript": "catalog:"
+  }
+}

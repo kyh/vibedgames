@@ -12,9 +12,10 @@ import { authClient } from "@/auth/client";
 
 type AuthFormProps = {
   type: "login" | "register";
+  callbackUrl?: string;
 } & React.HTMLAttributes<HTMLDivElement>;
 
-export const AuthForm = ({ className, type, ...props }: AuthFormProps) => {
+export const AuthForm = ({ className, type, callbackUrl, ...props }: AuthFormProps) => {
   const router = useRouter();
   const search = useSearch({ strict: false }) as Record<string, unknown>;
   const nextPath = typeof search.nextPath === "string" ? search.nextPath : "/";
@@ -41,7 +42,7 @@ export const AuthForm = ({ className, type, ...props }: AuthFormProps) => {
         name: emailPrefix ?? "User",
         fetchOptions: {
           onSuccess: () => {
-            router.navigate({ to: nextPath, replace: true });
+            router.navigate({ to: callbackUrl ?? nextPath, replace: true });
           },
           onError: (ctx) => {
             toast.error(ctx.error.message);
@@ -56,7 +57,7 @@ export const AuthForm = ({ className, type, ...props }: AuthFormProps) => {
         password: credentials.password,
         fetchOptions: {
           onSuccess: () => {
-            router.navigate({ to: nextPath, replace: true });
+            router.navigate({ to: callbackUrl ?? nextPath, replace: true });
           },
           onError: (ctx) => {
             toast.error(ctx.error.message);

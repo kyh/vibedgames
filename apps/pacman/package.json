@@ -9,8 +9,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@mediapipe/tasks-vision": "0.10.32",
+    "@mediapipe/tasks-vision": "0.10.34",
     "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.5.0",
     "@tensorflow/tfjs": "^4.22.0",
     "@tensorflow/tfjs-backend-cpu": "^4.22.0",
     "@tensorflow/tfjs-backend-webgl": "^4.22.0",

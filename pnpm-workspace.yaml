@@ -3,7 +3,7 @@ packages:
   - packages/*
 
 catalog:
-  "@kyh/tsconfig": ^1.1.13
+  "@kyh/tsconfig": ^1.1.14
   "@cloudflare/workers-types": ^4.20260408.1
   "@tanstack/react-query": ^5.96.2
   "@tanstack/react-router": ^1.168.10

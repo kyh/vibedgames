@@ -15,6 +15,7 @@
     "dev-tetris": "turbo watch dev -F @repo/tetris...",
     "dev-astroid": "turbo watch dev -F @repo/astroid...",
     "dev-pong": "turbo watch dev -F @repo/pong...",
+    "dev-cli": "turbo watch dev -F vibedgames...",
     "lint": "oxlint --report-unused-disable-directives",
     "typecheck": "turbo run typecheck",
     "gen-ui": "pnpm -F ui gen-ui",
@@ -24,7 +25,7 @@
   },
   "devDependencies": {
     "dotenv-cli": "^11.0.0",
-    "oxfmt": "^0.40.0",
+    "oxfmt": "^0.42.0",
     "oxlint": "^1.57.0",
     "tsx": "^4.21.0",
     "turbo": "^2.8.21",
