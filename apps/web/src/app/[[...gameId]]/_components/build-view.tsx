@@ -99,7 +99,7 @@ export const BuildView = () => {
       void sendMessage({ text }, { body: { buildId } });
       setInput("");
     },
-    [sendMessage, setInput, params.gameId, sandpackFiles, createBuild],
+    [sendMessage, setInput, params.gameId, sandpackFiles, createBuild, router, setGameId],
   );
 
   return (
