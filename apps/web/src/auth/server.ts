@@ -37,11 +37,13 @@ export function getServerContext() {
 
 /**
  * Shorthand for handlers that only need `auth` (e.g. `api/auth.$.ts`).
+ *
+ * Builds the context once per access so the same betterAuth instance is
+ * reused for both the handler and any internal getSession calls.
  */
 export const auth = {
-  handler: (request: Request) => getServerContext().auth.handler(request),
-  api: {
-    getSession: (opts: { headers: Headers }) =>
-      getServerContext().auth.api.getSession(opts),
+  handler: (request: Request) => {
+    const { auth } = getServerContext();
+    return auth.handler(request);
   },
 };

@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { useParams } from "@tanstack/react-router";
+import { useParams, useRouter } from "@tanstack/react-router";
 import { useChat } from "@ai-sdk/react";
 import { gameTypesArray } from "@repo/api/game/local/agent/agent-schema";
 import { Conversation, ConversationContent, ConversationScrollButton } from "@repo/ui/conversation";
@@ -44,6 +44,7 @@ export const BuildView = () => {
   const { chat } = useSharedChatContext();
   const { messages, sendMessage, status } = useChat<ChatUIMessage>({ chat });
   const params = useParams({ strict: false }) as { gameId?: string };
+  const router = useRouter();
   const {
     setGameId,
     sandpackFiles,
@@ -82,16 +83,12 @@ export const BuildView = () => {
           // Initialize sandpack with default files
           setGameId(buildId, getDefaultFiles());
 
-          // Update URL without triggering a rerender
-          window.history.replaceState(
-            {
-              ...window.history.state,
-              as: `/${result.build.id}`,
-              url: `/${result.build.id}`,
-            },
-            "",
-            `/${result.build.id}`,
-          );
+          // Navigate via TanStack Router so useParams updates
+          void router.navigate({
+            to: "/$gameId",
+            params: { gameId: result.build.id },
+            replace: true,
+          });
         } catch (error) {
           console.error("Failed to create game:", error);
           // Still try to send the message even if game creation fails
