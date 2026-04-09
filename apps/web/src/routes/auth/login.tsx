@@ -8,7 +8,7 @@ export const Route = createFileRoute("/auth/login")({
 });
 
 function LoginPage() {
-  const { callbackUrl } = Route.useSearch() as { callbackUrl?: string };
+  const { callbackUrl } = Route.useSearch();
 
   return (
     <div className="mx-auto flex w-full flex-col justify-center space-y-6 sm:w-[350px]">

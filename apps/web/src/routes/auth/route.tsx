@@ -1,8 +1,15 @@
+import { z } from "zod";
 import { Logo } from "@repo/ui/logo";
 import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
 
+const authSearchSchema = z.object({
+  callbackUrl: z.string().optional(),
+  nextPath: z.string().optional(),
+});
+
 export const Route = createFileRoute("/auth")({
   head: () => ({ meta: [{ title: "Authentication" }] }),
+  validateSearch: authSearchSchema,
   component: AuthLayout,
 });
 

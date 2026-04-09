@@ -17,8 +17,8 @@ type AuthFormProps = {
 
 export const AuthForm = ({ className, type, callbackUrl, ...props }: AuthFormProps) => {
   const router = useRouter();
-  const search = useSearch({ strict: false }) as Record<string, unknown>;
-  const nextPath = typeof search.nextPath === "string" ? search.nextPath : "/";
+  const search = useSearch({ from: "/auth" });
+  const nextPath = search.nextPath ?? "/";
 
   const form = useForm({
     resolver: zodResolver(
