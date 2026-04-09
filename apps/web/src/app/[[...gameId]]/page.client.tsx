@@ -1,21 +1,19 @@
-"use client";
-
 import { useEffect } from "react";
-import { useParams } from "next/navigation";
+import { useParams } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 
 import { ChatProvider } from "@/components/chat/chat-context";
-import { useTRPC } from "@/trpc/react";
+import { useTRPC } from "@/lib/trpc";
 import { Canvas } from "./_components/canvas";
 import { Composer } from "./_components/composer";
 import { toSandpack } from "./_components/sandpack";
 import { useUiStore } from "./_components/ui-store";
 
 export const PageClient = () => {
-  const params = useParams<{ gameId?: string[] }>();
+  const params = useParams({ strict: false }) as { gameId?: string };
   const trpc = useTRPC();
   const { setGameId } = useUiStore();
-  const gameId = params.gameId?.[0];
+  const gameId = params.gameId;
 
   // Fetch build when gameId is present (this will use prefetched data if available)
   const getBuildQuery = trpc.localGame.getBuild.queryOptions(

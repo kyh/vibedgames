@@ -6,6 +6,7 @@ import { getColorById } from "./color";
 
 type Env = {
   VgServer: DurableObjectNamespace<VgServer>;
+  DB: D1Database;
 };
 
 type RoomState = {

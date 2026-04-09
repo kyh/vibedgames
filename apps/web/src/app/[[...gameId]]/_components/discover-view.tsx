@@ -1,6 +1,3 @@
-"use client";
-
-import Image from "next/image";
 import { motion } from "motion/react";
 
 import { featuredGames } from "./data";
@@ -29,7 +26,11 @@ export const DiscoverView = () => {
           }}
           className="hover:border-foreground relative aspect-video w-30 shrink-0 overflow-clip rounded-lg border border-transparent transition-colors"
         >
-          <Image src={game.preview} alt={game.name} fill className="object-cover" />
+          <img
+            src={game.preview}
+            alt={game.name}
+            className="absolute inset-0 h-full w-full object-cover"
+          />
         </button>
       ))}
     </motion.div>

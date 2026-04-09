@@ -1,18 +1,14 @@
-import type { Metadata } from "next";
-import Link from "next/link";
+import { createFileRoute, Link } from "@tanstack/react-router";
 
 import { AuthForm } from "@/app/(auth)/_components/auth-form";
 
-export const metadata: Metadata = {
-  title: "Login",
-};
+export const Route = createFileRoute("/auth/login")({
+  head: () => ({ meta: [{ title: "Login" }] }),
+  component: LoginPage,
+});
 
-type PageProps = {
-  searchParams: Promise<{ callbackUrl?: string }>;
-};
-
-const Page = async (props: PageProps) => {
-  const { callbackUrl } = await props.searchParams;
+function LoginPage() {
+  const { callbackUrl } = Route.useSearch();
 
   return (
     <div className="mx-auto flex w-full flex-col justify-center space-y-6 sm:w-[350px]">
@@ -22,12 +18,10 @@ const Page = async (props: PageProps) => {
       <AuthForm type="login" callbackUrl={callbackUrl} />
       <p className="text-muted-foreground px-8 text-center text-sm">
         Don't have an account?{" "}
-        <Link href="/auth/register" className="underline">
+        <Link to="/auth/register" className="underline">
           Register
         </Link>
       </p>
     </div>
   );
-};
-
-export default Page;
+}

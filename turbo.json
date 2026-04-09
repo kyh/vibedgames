@@ -7,7 +7,7 @@
     },
     "build": {
       "dependsOn": ["^build"],
-      "outputs": [".cache/tsbuildinfo.json", "dist/**"]
+      "outputs": [".cache/tsbuildinfo.json", "dist/**", ".output/**"]
     },
     "dev": {
       "dependsOn": ["^dev"],
@@ -34,20 +34,15 @@
     }
   },
   "globalEnv": [
-    "TURSO_DATABASE_URL",
-    "TURSO_AUTH_TOKEN",
     "AUTH_SECRET",
     "PORT",
-    "VERCEL_PROJECT_PRODUCTION_URL",
-    "V0_API_KEY"
+    "PRODUCTION_URL",
+    "V0_API_KEY",
+    "AI_GATEWAY_API_KEY",
+    "CLOUDFLARE_ACCOUNT_ID",
+    "CLOUDFLARE_DATABASE_ID",
+    "CLOUDFLARE_D1_TOKEN",
+    "CLOUDFLARE_API_TOKEN"
   ],
-  "globalPassThroughEnv": [
-    "NODE_ENV",
-    "CI",
-    "VERCEL",
-    "VERCEL_ENV",
-    "VERCEL_URL",
-    "MODE",
-    "npm_lifecycle_event"
-  ]
+  "globalPassThroughEnv": ["NODE_ENV", "CI", "MODE", "npm_lifecycle_event"]
 }

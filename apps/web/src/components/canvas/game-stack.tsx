@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Image from "next/image";
 import { AnimatePresence, motion } from "motion/react";
 
 import { useUiStore } from "@/app/[[...gameId]]/_components/ui-store";
@@ -195,7 +194,11 @@ export const GameStack = <T extends { preview: string; name: string; url?: strin
                 exit={{ opacity: 0, filter: `blur(${BLUR_AMOUNT})` }}
                 transition={{ duration: 0.2 }}
               >
-                <Image className="object-cover" src={item.preview} alt={item.name} fill />
+                <img
+                  className="absolute inset-0 h-full w-full object-cover"
+                  src={item.preview}
+                  alt={item.name}
+                />
               </motion.button>
             </GameCard>
           ))}

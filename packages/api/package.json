@@ -14,12 +14,12 @@
     "typecheck": "tsc --noEmit --emitDeclarationOnly false"
   },
   "dependencies": {
-    "@better-auth/expo": "^1.5.6",
+    "@better-auth/expo": "^1.6.0",
     "@repo/db": "workspace:^",
     "@trpc/server": "catalog:",
-    "ai": "^6.0.141",
+    "ai": "^6.0.153",
     "bash-tool": "^1.3.15",
-    "better-auth": "^1.5.6",
+    "better-auth": "^1.6.0",
     "just-bash": "^2.14.0",
     "superjson": "catalog:",
     "v0-sdk": "^0.16.4",
@@ -27,10 +27,9 @@
   },
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
-    "@types/node": "25.5.0",
+    "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "next": "catalog:",
     "typescript": "catalog:"
   }
 }

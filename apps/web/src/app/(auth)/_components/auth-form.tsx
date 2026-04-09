@@ -1,6 +1,4 @@
-"use client";
-
-import { useParams, useRouter } from "next/navigation";
+import { useRouter, useSearch } from "@tanstack/react-router";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@repo/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@repo/ui/form";
@@ -10,7 +8,7 @@ import { cn } from "@repo/ui/utils";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
-import { authClient } from "@/lib/auth-client";
+import { authClient } from "@/auth/client";
 
 type AuthFormProps = {
   type: "login" | "register";
@@ -19,7 +17,8 @@ type AuthFormProps = {
 
 export const AuthForm = ({ className, type, callbackUrl, ...props }: AuthFormProps) => {
   const router = useRouter();
-  const params = useParams<{ nextPath?: string }>();
+  const search = useSearch({ from: "/auth" });
+  const nextPath = search.nextPath ?? "/";
 
   const form = useForm({
     resolver: zodResolver(
@@ -43,7 +42,7 @@ export const AuthForm = ({ className, type, callbackUrl, ...props }: AuthFormPro
         name: emailPrefix ?? "User",
         fetchOptions: {
           onSuccess: () => {
-            router.replace(callbackUrl ?? params.nextPath ?? "/");
+            router.navigate({ to: callbackUrl ?? nextPath, replace: true });
           },
           onError: (ctx) => {
             toast.error(ctx.error.message);
@@ -58,7 +57,7 @@ export const AuthForm = ({ className, type, callbackUrl, ...props }: AuthFormPro
         password: credentials.password,
         fetchOptions: {
           onSuccess: () => {
-            router.replace(callbackUrl ?? params.nextPath ?? "/");
+            router.navigate({ to: callbackUrl ?? nextPath, replace: true });
           },
           onError: (ctx) => {
             toast.error(ctx.error.message);
@@ -195,7 +194,7 @@ export const RequestPasswordResetForm = () => {
 };
 
 export const UpdatePasswordForm = () => {
-  const router = useRouter();
+  const updateRouter = useRouter();
 
   const form = useForm({
     resolver: zodResolver(
@@ -221,7 +220,7 @@ export const UpdatePasswordForm = () => {
       fetchOptions: {
         onSuccess: () => {
           toast.success("Password updated successfully!");
-          router.push("/");
+          updateRouter.navigate({ to: "/" });
         },
         onError: (ctx) => {
           toast.error(ctx.error.message);

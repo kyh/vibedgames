@@ -3,13 +3,11 @@
   "compilerOptions": {
     "lib": ["ES2023", "dom", "dom.iterable"],
     "jsx": "preserve",
-    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
     },
-    "plugins": [{ "name": "next" }],
-    "module": "esnext"
+    "types": ["@cloudflare/workers-types", "vite/client"]
   },
-  "include": [".", ".next/types/**/*.ts"],
-  "exclude": ["node_modules", "next.config.js"]
+  "include": ["**/*.ts", "**/*.tsx", "env.d.ts"],
+  "exclude": ["node_modules", "dist", ".output", ".nitro", ".tanstack"]
 }

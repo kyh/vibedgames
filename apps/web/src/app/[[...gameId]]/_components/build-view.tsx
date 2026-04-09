@@ -1,7 +1,5 @@
-"use client";
-
 import { useCallback, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "@tanstack/react-router";
 import { useChat } from "@ai-sdk/react";
 import { gameTypesArray } from "@repo/api/game/local/agent/agent-schema";
 import { Conversation, ConversationContent, ConversationScrollButton } from "@repo/ui/conversation";
@@ -36,7 +34,7 @@ import { Message } from "@/components/chat/message";
 import { FileExplorer } from "@/components/file-explorer/file-explorer";
 import { MyGames } from "@/components/my-games/my-games";
 import { DraggablePanel } from "@/components/ui/draggable-panel";
-import { useTRPC } from "@/trpc/react";
+import { useTRPC } from "@/lib/trpc";
 import { getDefaultFiles, toBuildFiles } from "./sandpack";
 import { useUiStore } from "./ui-store";
 
@@ -45,7 +43,8 @@ export const BuildView = () => {
   const [input, setInput] = useState("");
   const { chat } = useSharedChatContext();
   const { messages, sendMessage, status } = useChat<ChatUIMessage>({ chat });
-  const params = useParams<{ gameId?: string[] }>();
+  const params = useParams({ strict: false }) as { gameId?: string };
+  const router = useRouter();
   const {
     setGameId,
     sandpackFiles,
@@ -66,7 +65,7 @@ export const BuildView = () => {
       if (!text.trim()) return;
 
       // Check if we're looking at a new game (no gameId in URL)
-      const gameId = params.gameId?.[0];
+      const gameId = params.gameId;
       const isNewGame = !gameId;
       let buildId: string = gameId ?? "";
 
@@ -84,16 +83,12 @@ export const BuildView = () => {
           // Initialize sandpack with default files
           setGameId(buildId, getDefaultFiles());
 
-          // Update URL without triggering a rerender
-          window.history.replaceState(
-            {
-              ...window.history.state,
-              as: `/${result.build.id}`,
-              url: `/${result.build.id}`,
-            },
-            "",
-            `/${result.build.id}`,
-          );
+          // Navigate via TanStack Router so useParams updates
+          void router.navigate({
+            to: "/$gameId",
+            params: { gameId: result.build.id },
+            replace: true,
+          });
         } catch (error) {
           console.error("Failed to create game:", error);
           // Still try to send the message even if game creation fails
@@ -104,7 +99,7 @@ export const BuildView = () => {
       void sendMessage({ text }, { body: { buildId } });
       setInput("");
     },
-    [sendMessage, setInput, params.gameId, sandpackFiles, createBuild],
+    [sendMessage, setInput, params.gameId, sandpackFiles, createBuild, router, setGameId],
   );
 
   return (
