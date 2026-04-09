@@ -40,15 +40,3 @@ export const createAuth = (opts: AuthOptions) => {
 
 export type Auth = ReturnType<typeof createAuth>;
 export type Session = Auth["$Infer"]["Session"];
-
-/**
- * Static auth instance for `@better-auth/cli generate` introspection.
- *
- * The CLI needs a module-level betterAuth() to analyze the plugin set and
- * derive the schema. This uses a no-op adapter — it's never used at runtime.
- */
-export const auth = betterAuth({
-  database: { provider: "sqlite", type: "sqlite" } as never,
-  plugins: [oAuthProxy(), expo(), admin()],
-  emailAndPassword: { enabled: true },
-});

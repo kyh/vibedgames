@@ -23,7 +23,7 @@ export function getServerContext() {
   const host = headers.get("host") ?? headers.get("x-forwarded-host");
   const isLocalhost = host === "localhost" || host?.startsWith("localhost:");
   const forwardedProto = headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
-  const protocol = forwardedProto ?? (isLocalhost ? "http" : "https");
+  const protocol = forwardedProto || (isLocalhost ? "http" : "https");
   const baseUrl = host ? `${protocol}://${host}` : "http://localhost:3000";
 
   const productionUrl = env.PRODUCTION_URL || baseUrl;
