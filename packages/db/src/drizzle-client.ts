@@ -4,7 +4,7 @@ import { drizzle } from "drizzle-orm/d1";
 import * as schema from "./drizzle-schema";
 import * as schemaAuth from "./drizzle-schema-auth";
 
-export const combinedSchema = { ...schema, ...schemaAuth };
+const combinedSchema = { ...schema, ...schemaAuth };
 
 /**
  * Create a Drizzle client bound to a Cloudflare D1 database.

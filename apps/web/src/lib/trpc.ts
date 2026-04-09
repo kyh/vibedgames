@@ -16,6 +16,11 @@ import { getBaseUrl } from "@/lib/url";
 
 export const makeTRPCClient = createIsomorphicFn()
   .server(() => {
+    // Build server context once per SSR request so all tRPC procedure
+    // calls share the same db + auth instance (avoids redundant session
+    // lookups and betterAuth bootstraps).
+    const { db, auth, productionUrl } = getServerContext();
+
     return createTRPCClient<AppRouter>({
       links: [
         unstable_localLink({
@@ -24,7 +29,6 @@ export const makeTRPCClient = createIsomorphicFn()
           createContext: () => {
             const headers = new Headers(getRequestHeaders());
             headers.set("x-trpc-source", "tanstack-start-server");
-            const { db, auth, productionUrl } = getServerContext();
             return createTRPCContext({
               headers,
               db,
