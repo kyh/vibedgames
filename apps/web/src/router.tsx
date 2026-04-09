@@ -4,14 +4,32 @@ import { setupRouterSsrQueryIntegration } from "@tanstack/react-router-ssr-query
 import { createTRPCOptionsProxy } from "@trpc/tanstack-react-query";
 import SuperJSON from "superjson";
 
+import { toast } from "@repo/ui/toast";
+
 import { makeTRPCClient, TRPCProvider } from "@/lib/trpc";
 import { routeTree } from "./routeTree.gen";
 
 export function getRouter() {
   const queryClient = new QueryClient({
     defaultOptions: {
-      dehydrate: { serializeData: SuperJSON.serialize },
-      hydrate: { deserializeData: SuperJSON.deserialize },
+      queries: {
+        staleTime: 30 * 1000,
+      },
+      mutations: {
+        onSuccess: async () => {
+          await queryClient.invalidateQueries();
+        },
+        onError: (error) => {
+          toast.error(error.message);
+        },
+      },
+      dehydrate: {
+        serializeData: SuperJSON.serialize,
+        shouldDehydrateQuery: (query) => query.state.status === "pending" || query.state.status === "success",
+      },
+      hydrate: {
+        deserializeData: SuperJSON.deserialize,
+      },
     },
   });
   const trpcClient = makeTRPCClient();

@@ -4,7 +4,7 @@
 import { relations, sql } from "drizzle-orm";
 import { integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
-import { organization, user } from "./drizzle-schema-auth";
+import { user } from "./drizzle-schema-auth";
 
 export const waitlist = sqliteTable("waitlist", {
   id: text("id").primaryKey().notNull(),
@@ -21,15 +21,12 @@ export const waitlistRelations = relations(waitlist, ({ one }) => ({
 }));
 
 /**
- * A game build with files, owned by a user or organization.
+ * A game build with files, owned by a user.
  * Each game has a single build that gets updated with the latest files.
  */
 export const gameBuild = sqliteTable("game_build", {
   id: text("id").primaryKey().notNull(),
   userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
-  organizationId: text("organization_id").references(() => organization.id, {
-    onDelete: "cascade",
-  }),
   title: text("title"),
   description: text("description"),
   previewUrl: text("preview_url"),
@@ -73,10 +70,6 @@ export const gameBuildRelations = relations(gameBuild, ({ one, many }) => ({
   user: one(user, {
     fields: [gameBuild.userId],
     references: [user.id],
-  }),
-  organization: one(organization, {
-    fields: [gameBuild.organizationId],
-    references: [organization.id],
   }),
   gameBuildFiles: many(gameBuildFile),
 }));

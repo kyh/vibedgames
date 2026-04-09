@@ -17,7 +17,18 @@ export const Route = createFileRoute("/api/chat")({
         const session = await auth.api.getSession({ headers: request.headers });
         if (!session) return new Response("Unauthorized", { status: 401 });
 
-        const { messages, buildId } = (await request.json()) as BodyData;
+        let body: BodyData;
+        try {
+          body = (await request.json()) as BodyData;
+        } catch {
+          return new Response("Bad Request", { status: 400 });
+        }
+
+        const { messages, buildId } = body;
+        if (!messages || !buildId) {
+          return new Response("Bad Request: messages and buildId required", { status: 400 });
+        }
+
         return streamChatResponse(messages, { buildId, db });
       },
     },

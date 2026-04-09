@@ -81,7 +81,6 @@ export const localGameRouter = createTRPCRouter({
     await ctx.db.insert(gameBuild).values({
       id: buildId,
       userId: ctx.session.user.id,
-      organizationId: input.organizationId ?? null,
       title: input.title ?? null,
       description: input.description ?? null,
       previewUrl: input.previewUrl && input.previewUrl !== "" ? input.previewUrl : null,

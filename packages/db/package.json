@@ -19,10 +19,10 @@
     "with-env": "dotenv -e ../../.env --"
   },
   "dependencies": {
-    "@cloudflare/workers-types": "catalog:",
     "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "catalog:",
     "@kyh/tsconfig": "catalog:",
     "@types/react": "catalog:",
     "drizzle-kit": "^0.31.10",

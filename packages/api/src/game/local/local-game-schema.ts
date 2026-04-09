@@ -13,7 +13,6 @@ export const createBuildInput = z.object({
   title: z.string().optional(),
   description: z.string().optional(),
   previewUrl: z.url().optional(),
-  organizationId: z.string().optional(),
   files: z.array(
     z.object({
       path: z.string().min(1, "path is required"),

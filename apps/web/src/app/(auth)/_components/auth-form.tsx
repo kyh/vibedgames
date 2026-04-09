@@ -16,7 +16,8 @@ type AuthFormProps = {
 
 export const AuthForm = ({ className, type, ...props }: AuthFormProps) => {
   const router = useRouter();
-  const search = useSearch({ strict: false }) as { nextPath?: string };
+  const search = useSearch({ strict: false }) as Record<string, unknown>;
+  const nextPath = typeof search.nextPath === "string" ? search.nextPath : "/";
 
   const form = useForm({
     resolver: zodResolver(
@@ -40,7 +41,7 @@ export const AuthForm = ({ className, type, ...props }: AuthFormProps) => {
         name: emailPrefix ?? "User",
         fetchOptions: {
           onSuccess: () => {
-            router.navigate({ to: search.nextPath ?? "/", replace: true });
+            router.navigate({ to: nextPath, replace: true });
           },
           onError: (ctx) => {
             toast.error(ctx.error.message);
@@ -55,7 +56,7 @@ export const AuthForm = ({ className, type, ...props }: AuthFormProps) => {
         password: credentials.password,
         fetchOptions: {
           onSuccess: () => {
-            router.navigate({ to: search.nextPath ?? "/", replace: true });
+            router.navigate({ to: nextPath, replace: true });
           },
           onError: (ctx) => {
             toast.error(ctx.error.message);
