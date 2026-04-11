@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "clean": "rm -rf .turbo node_modules .cache .wrangler",
-    "deploy": "wrangler deploy --name vg-partyserver",
+    "deploy": "wrangler deploy --name vibedgames-party",
     "dev": "pnpm with-env wrangler dev",
     "typecheck": "tsc --noEmit",
     "with-env": "dotenv -e ../../.env --"

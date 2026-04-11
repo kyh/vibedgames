@@ -51,7 +51,7 @@ const DEG_TO_RAD = PI / 180;
 const HOST =
   import.meta.env.MODE === "development"
     ? "http://localhost:8787"
-    : "https://vg-partyserver.kyh.workers.dev";
+    : "https://vibedgames-party.kyh.workers.dev";
 const PARTY = "vg-server";
 const ROOM = "home";
 

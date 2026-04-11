@@ -11,9 +11,6 @@ export default defineConfig({
   resolve: {
     tsconfigPaths: true,
   },
-  optimizeDeps: {
-    exclude: ["bash-tool", "just-bash"],
-  },
   plugins: [
     // Nitro preset targets a single Cloudflare Workers module build.
     // Bindings (D1, assets, secrets) are declared in wrangler.jsonc.
@@ -22,7 +19,6 @@ export default defineConfig({
         preset: "cloudflare_module",
         cloudflare: {
           deployConfig: true,
-          nodeCompat: true,
         },
       },
     }),

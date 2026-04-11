@@ -16,17 +16,15 @@ import { getBaseUrl } from "@/lib/url";
 
 export const makeTRPCClient = createIsomorphicFn()
   .server(() => {
-    // Build server context once per SSR request so all tRPC procedure
-    // calls share the same db + auth instance (avoids redundant session
-    // lookups and betterAuth bootstraps).
-    const { db, auth, productionUrl } = getServerContext();
-
     return createTRPCClient<AppRouter>({
       links: [
         unstable_localLink({
           router: appRouter,
           transformer: SuperJSON,
           createContext: () => {
+            // Build server context per tRPC call (not at client creation)
+            // because Cloudflare bindings are only available inside a request.
+            const { db, auth, productionUrl } = getServerContext();
             const headers = new Headers(getRequestHeaders());
             headers.set("x-trpc-source", "tanstack-start-server");
             return createTRPCContext({

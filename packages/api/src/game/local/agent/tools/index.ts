@@ -1,27 +1,6 @@
-import type { InferUITools, UIMessage, UIMessageStreamWriter } from "ai";
-import type { BashToolkit } from "bash-tool";
-
-import type { DataPart } from "@repo/api/game/local/agent/messages/data-parts";
-import type { Db } from "@repo/db/drizzle-client";
-import { generateFiles } from "@repo/api/game/local/agent/tools/generate-files";
-
-type Params = {
-  bashToolkit: BashToolkit;
-  writer: UIMessageStreamWriter<UIMessage<never, DataPart>>;
-  db: Db;
-  buildId: string;
-};
-
-export function tools({ bashToolkit, writer, db, buildId }: Params) {
-  return {
-    ...bashToolkit.tools,
-    generateFiles: generateFiles({
-      sandbox: bashToolkit.sandbox,
-      writer,
-      db,
-      buildId,
-    }),
-  };
-}
-
-export type ToolSet = InferUITools<ReturnType<typeof tools>>;
+/**
+ * Placeholder — the local agent tool system was removed during the
+ * Cloudflare Workers migration (bash-tool requires node:fs).
+ * The ToolSet type is kept so existing UI components still compile.
+ */
+export type ToolSet = Record<string, never>;
