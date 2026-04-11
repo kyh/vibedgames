@@ -6,9 +6,11 @@ import { getCookie, getRequestHeaders } from "@tanstack/react-start/server";
 import { getServerContext } from "@/auth/server";
 import { CliAuthRedirect } from "@/components/auth/cli-auth-redirect";
 
+// TanStack Router auto-parses numeric query strings to numbers, so accept
+// both shapes and coerce to string.
 const cliSearchSchema = z.object({
-  port: z.string().optional(),
-  state: z.string().optional(),
+  port: z.coerce.string().optional(),
+  state: z.coerce.string().optional(),
 });
 
 const fetchCliAuth = createServerFn({ method: "GET" })
