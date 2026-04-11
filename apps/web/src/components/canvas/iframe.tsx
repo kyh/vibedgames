@@ -3,7 +3,7 @@
 import { Button } from "@repo/ui/button";
 import { Spinner } from "@repo/ui/spinner";
 
-import { useUiStore } from "@/app/[[...gameId]]/_components/ui-store";
+import { useUiStore } from "@/components/game/ui-store";
 
 type Props = {
   url?: string;

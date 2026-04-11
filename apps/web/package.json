@@ -24,7 +24,6 @@
     "@repo/ui": "workspace:^",
     "@tanstack/react-query": "catalog:",
     "@tanstack/react-router": "catalog:",
-    "@tanstack/react-router-devtools": "catalog:",
     "@tanstack/react-router-ssr-query": "catalog:",
     "@tanstack/react-start": "catalog:",
     "@trpc/client": "catalog:",
@@ -48,8 +47,8 @@
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",
     "@kyh/tsconfig": "catalog:",
-    "@tailwindcss/vite": "catalog:",
     "@tailwindcss/typography": "^0.5.19",
+    "@tailwindcss/vite": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
@@ -57,7 +56,6 @@
     "tailwindcss": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
-    "vite-tsconfig-paths": "catalog:",
     "wrangler": "catalog:"
   }
 }

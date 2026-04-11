@@ -17,4 +17,4 @@ new_classes = ["VgServer"]
 [[d1_databases]]
 binding = "DB"
 database_name = "vibedgames"
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "8aba7674-bee1-4532-b5f0-36243172cf81"

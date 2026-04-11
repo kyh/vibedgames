@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 
-import { AuthForm } from "@/app/(auth)/_components/auth-form";
+import { AuthForm } from "@/components/auth/auth-form";
 
 export const Route = createFileRoute("/auth/login")({
   head: () => ({ meta: [{ title: "Login" }] }),

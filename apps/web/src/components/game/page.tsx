@@ -4,10 +4,10 @@ import { useQuery } from "@tanstack/react-query";
 
 import { ChatProvider } from "@/components/chat/chat-context";
 import { useTRPC } from "@/lib/trpc";
-import { Canvas } from "./_components/canvas";
-import { Composer } from "./_components/composer";
-import { toSandpack } from "./_components/sandpack";
-import { useUiStore } from "./_components/ui-store";
+import { Canvas } from "./canvas";
+import { Composer } from "./composer";
+import { toSandpack } from "./sandpack";
+import { useUiStore } from "./ui-store";
 
 export const PageClient = () => {
   const params = useParams({ strict: false }) as { gameId?: string };

@@ -15,7 +15,7 @@ import type { AppRouter } from "@repo/api";
 import { siteConfig } from "@/lib/site-config";
 
 
-import appCss from "../app/styles/globals.css?url";
+import appCss from "../styles/globals.css?url";
 
 interface RouterContext {
   queryClient: QueryClient;

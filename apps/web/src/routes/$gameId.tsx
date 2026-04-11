@@ -1,12 +1,19 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { PageClient } from "@/app/[[...gameId]]/page.client";
+import { PageClient } from "@/components/game/page";
 
 export const Route = createFileRoute("/$gameId")({
   component: () => <PageClient />,
   loader: async ({ params, context }) => {
-    // Optionally prefetch the build via tRPC here once a server-side caller
-    // exists. For now the client `useQuery` in PageClient handles fetching.
+    // Prefetch build data so the client doesn't need a loading state.
+    // Swallow errors — the component handles unauthenticated/missing builds.
+    await context.queryClient
+      .ensureQueryData(
+        context.trpc.localGame.getBuild.queryOptions({
+          buildId: params.gameId,
+        }),
+      )
+      .catch(() => {});
     return { gameId: params.gameId };
   },
 });

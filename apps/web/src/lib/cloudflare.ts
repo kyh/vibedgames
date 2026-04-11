@@ -1,20 +1,26 @@
-import { getRequestEvent } from "@tanstack/react-start/server";
+import { getRequest } from "@tanstack/react-start/server";
 
 /**
  * Return the per-request Cloudflare bindings (`env`) and context.
  *
  * Nitro's `cloudflare_module` preset attaches the Worker `env` to the request
- * event. We read it here so `db` / `auth` can be constructed per request.
- * Throws if called outside a request (e.g. at module load).
+ * via `augmentReq` (production: `runtime.cloudflare.env`) and the dev plugin
+ * (dev: `context.cloudflare.env`). We read from both locations so this works
+ * in all environments. Throws if called outside a request.
  */
 export function getCloudflareEnv(): CloudflareEnv {
-  const event = getRequestEvent();
-  // @ts-expect-error — nitro cloudflare preset attaches `cloudflare` to context
-  const cf = event?.context?.cloudflare as { env?: CloudflareEnv } | undefined;
-  if (!cf?.env) {
+  const req = getRequest() as Record<string, unknown>;
+  const runtime = req.runtime as
+    | { cloudflare?: { env?: CloudflareEnv } }
+    | undefined;
+  const context = req.context as
+    | { cloudflare?: { env?: CloudflareEnv } }
+    | undefined;
+  const env = runtime?.cloudflare?.env ?? context?.cloudflare?.env;
+  if (!env) {
     throw new Error(
       "Cloudflare env not available — this code must run inside a request handler with the cloudflare_module preset.",
     );
   }
-  return cf.env;
+  return env;
 }
