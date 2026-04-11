@@ -10,9 +10,10 @@
     "binding": "ASSETS"
   },
   "observability": { "enabled": true },
+  "workers_dev": true,
   "routes": [
-    { "pattern": "vibedgames.com", "zone_name": "vibedgames.com" },
-    { "pattern": "www.vibedgames.com", "zone_name": "vibedgames.com" }
+    { "pattern": "vibedgames.com/*", "zone_name": "vibedgames.com" },
+    { "pattern": "www.vibedgames.com/*", "zone_name": "vibedgames.com" }
   ],
   "vars": {
     "PRODUCTION_URL": "https://vibedgames.com"
