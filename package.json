@@ -10,6 +10,7 @@
     "dev": "turbo watch db studio dev --continue --filter=!./games/*",
     "dev-web": "turbo watch dev -F @repo/web...",
     "dev-party": "turbo watch dev -F @repo/party...",
+    "dev-games": "turbo watch dev -F @repo/games...",
     "dev-flappy-bird": "turbo watch dev -F @repo/flappy-bird...",
     "dev-pacman": "turbo watch dev -F @repo/pacman...",
     "dev-tetris": "turbo watch dev -F @repo/tetris...",
@@ -40,6 +41,9 @@
       "esbuild",
       "sharp",
       "workerd"
-    ]
+    ],
+    "overrides": {
+      "react-hook-form": "^7.72.1"
+    }
   }
 }

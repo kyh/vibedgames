@@ -1,10 +1,11 @@
 import type { AppRouter } from "@repo/api";
+import type { TRPCClient } from "@trpc/client";
 import { createTRPCClient, httpBatchLink } from "@trpc/client";
 import superjson from "superjson";
 
 import { getBaseUrl, getToken } from "./config.js";
 
-export function createClient() {
+export function createClient(): TRPCClient<AppRouter> {
   const token = getToken();
 
   if (!token) {

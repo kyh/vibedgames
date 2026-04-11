@@ -2,10 +2,8 @@
 import { defineCommand, runMain } from "citty";
 
 import { deployCommand } from "./commands/deploy.js";
-import { listCommand } from "./commands/list.js";
 import { loginCommand } from "./commands/login.js";
 import { logoutCommand } from "./commands/logout.js";
-import { rmCommand } from "./commands/rm.js";
 import { whoamiCommand } from "./commands/whoami.js";
 
 const main = defineCommand({
@@ -18,8 +16,6 @@ const main = defineCommand({
     login: loginCommand,
     logout: logoutCommand,
     deploy: deployCommand,
-    list: listCommand,
-    rm: rmCommand,
     whoami: whoamiCommand,
   },
 });

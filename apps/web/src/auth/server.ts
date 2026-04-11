@@ -1,3 +1,4 @@
+import type { R2Config } from "@repo/api/trpc";
 import { createAuth as initAuth } from "@repo/api/auth/auth";
 import { createDb } from "@repo/db/drizzle-client";
 import { getRequestHeaders } from "@tanstack/react-start/server";
@@ -34,7 +35,22 @@ export function getServerContext() {
     productionURL: productionUrl,
     secret: env.AUTH_SECRET,
   });
-  return { db, auth, baseUrl, productionUrl };
+
+  // R2 config is optional at build time — a missing value here means the
+  // deploy router will throw INTERNAL_SERVER_ERROR rather than the whole
+  // request blowing up at handler construction.
+  const r2: R2Config | undefined =
+    env.GAMES_BUCKET && env.R2_ACCOUNT_ID && env.R2_ACCESS_KEY_ID && env.R2_SECRET_ACCESS_KEY
+      ? {
+          bucket: env.GAMES_BUCKET,
+          bucketName: env.R2_BUCKET_NAME,
+          accountId: env.R2_ACCOUNT_ID,
+          accessKeyId: env.R2_ACCESS_KEY_ID,
+          secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+        }
+      : undefined;
+
+  return { db, auth, baseUrl, productionUrl, r2 };
 }
 
 /**

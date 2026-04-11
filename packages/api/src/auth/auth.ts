@@ -33,6 +33,16 @@ export const createAuth = (opts: AuthOptions) => {
       enabled: true,
     },
     trustedOrigins: opts.trustedOrigins ?? ["expo://"],
+    // Keep the session cookie host-only so user-uploaded games served from
+    // `{slug}.vibedgames.com` never see it. We explicitly DO NOT enable
+    // crossSubDomainCookies — the platform domain hosts untrusted code.
+    advanced: {
+      crossSubDomainCookies: { enabled: false },
+      defaultCookieAttributes: {
+        sameSite: "lax",
+        secure: true,
+      },
+    },
   });
 
   return auth;

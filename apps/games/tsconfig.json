@@ -1,0 +1,9 @@
+{
+  "extends": "@kyh/tsconfig/base.json",
+  "compilerOptions": {
+    "types": ["@cloudflare/workers-types/2023-07-01"],
+    "noEmit": true
+  },
+  "include": ["."],
+  "exclude": ["node_modules"]
+}

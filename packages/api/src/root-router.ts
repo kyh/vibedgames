@@ -1,11 +1,11 @@
-import { localGameRouter } from "./game/local/local-game-router";
+import { deployRouter } from "./deploy/deploy-router";
 import { v0Router } from "./game/v0/v0-router";
 import { createTRPCRouter } from "./trpc";
 import { waitlistRouter } from "./waitlist/waitlist-router";
 
 export const appRouter = createTRPCRouter({
   waitlist: waitlistRouter,
-  localGame: localGameRouter,
+  deploy: deployRouter,
   v0: v0Router,
 });
 

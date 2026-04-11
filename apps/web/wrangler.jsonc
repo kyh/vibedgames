@@ -16,15 +16,25 @@
     { "pattern": "www.vibedgames.com/*", "zone_name": "vibedgames.com" }
   ],
   "vars": {
-    "PRODUCTION_URL": "https://vibedgames.com"
+    "PRODUCTION_URL": "https://vibedgames.com",
+    "R2_BUCKET_NAME": "vibedgames-games"
   },
-  // Set with: wrangler secret put AUTH_SECRET (etc)
+  // Set with: wrangler secret put AUTH_SECRET
+  //           wrangler secret put R2_ACCOUNT_ID
+  //           wrangler secret put R2_ACCESS_KEY_ID
+  //           wrangler secret put R2_SECRET_ACCESS_KEY
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "vibedgames",
       "database_id": "8aba7674-bee1-4532-b5f0-36243172cf81",
       "migrations_dir": "../../packages/db/drizzle"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "GAMES_BUCKET",
+      "bucket_name": "vibedgames-games"
     }
   ]
 }

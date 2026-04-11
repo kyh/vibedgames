@@ -15,11 +15,9 @@ export default defineConfig({
     // Nitro preset targets a single Cloudflare Workers module build.
     // Bindings (D1, assets, secrets) are declared in wrangler.jsonc.
     nitro({
-      config: {
-        preset: "cloudflare_module",
-        cloudflare: {
-          deployConfig: true,
-        },
+      preset: "cloudflare_module",
+      cloudflare: {
+        deployConfig: true,
       },
     }),
     tanstackStart(),

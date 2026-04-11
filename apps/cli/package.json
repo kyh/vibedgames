@@ -22,6 +22,7 @@
     "superjson": "catalog:"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "catalog:",
     "@kyh/tsconfig": "catalog:",
     "@repo/api": "workspace:^",
     "@trpc/server": "catalog:",
