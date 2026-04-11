@@ -1,4 +1,3 @@
-"use client";
 
 import type { DataUIPart } from "ai";
 import { create } from "zustand";

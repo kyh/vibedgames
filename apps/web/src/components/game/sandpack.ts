@@ -1,4 +1,3 @@
-"use client";
 
 import { loadSandpackClient } from "@codesandbox/sandpack-client";
 

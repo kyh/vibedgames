@@ -1,5 +1,4 @@
 /* eslint-disable react-hooks/refs */
-"use client";
 
 import type { ReactNode } from "react";
 import { createContext, useContext, useMemo, useRef } from "react";

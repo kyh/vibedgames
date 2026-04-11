@@ -1,4 +1,3 @@
-"use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { joinWaitlistInput } from "@repo/api/waitlist/waitlist-schema";

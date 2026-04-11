@@ -1,4 +1,3 @@
-"use client";
 
 import { Button } from "@repo/ui/button";
 import { Spinner } from "@repo/ui/spinner";
