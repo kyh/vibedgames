@@ -2,8 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type * as poseDetection from "@tensorflow-models/pose-detection";
-import { Camera } from "./camera";
+import { Camera, type Keypoint, type Pose } from "./camera";
 
 const blockSize = 30;
 const shapes = [
@@ -202,7 +201,7 @@ export const App = () => {
   );
 
   const handlePoseDetected = useCallback(
-    (pose: poseDetection.Pose, poseCanvasRef: React.RefObject<HTMLCanvasElement | null>) => {
+    (pose: Pose, poseCanvasRef: React.RefObject<HTMLCanvasElement | null>) => {
       // Get all relevant keypoints (only upper body)
       const keypoints = {
         leftWrist: pose.keypoints.find((kp) => kp.name === "left_wrist"),
@@ -220,7 +219,7 @@ export const App = () => {
 
       // Type assertion since we've checked all keypoints exist
       const kp = keypoints as {
-        [K in keyof typeof keypoints]: poseDetection.Keypoint;
+        [K in keyof typeof keypoints]: Keypoint;
       };
 
       if (!poseCanvasRef.current) return;

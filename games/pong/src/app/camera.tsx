@@ -64,6 +64,7 @@ export const Camera = memo(function Camera({
     };
 
     let lastVideoTime = -1;
+    let lastTimestamp = 0;
     const predictWebcam = () => {
       const video = videoRef.current;
       const recognizer = gestureRecognizerRef.current;
@@ -75,7 +76,11 @@ export const Camera = memo(function Camera({
 
       if (video.currentTime !== lastVideoTime) {
         lastVideoTime = video.currentTime;
-        const results = recognizer.recognizeForVideo(video, Date.now());
+        // MediaPipe requires strictly increasing timestamps
+        const now = performance.now();
+        const timestamp = now > lastTimestamp ? now : lastTimestamp + 1;
+        lastTimestamp = timestamp;
+        const results = recognizer.recognizeForVideo(video, timestamp);
 
         const canvas = canvasRef.current;
         const ctx = canvas?.getContext("2d");

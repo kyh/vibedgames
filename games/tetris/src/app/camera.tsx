@@ -1,26 +1,82 @@
 "use client";
 
 import { memo, useEffect, useRef } from "react";
-import * as poseDetection from "@tensorflow-models/pose-detection";
-import * as tf from "@tensorflow/tfjs";
+import {
+  DrawingUtils,
+  FilesetResolver,
+  PoseLandmarker,
+  type NormalizedLandmark,
+} from "@mediapipe/tasks-vision";
 
-// Import WASM backend for fallback
-import "@tensorflow/tfjs-backend-cpu";
-// Import WebGL backend for better performance
-import "@tensorflow/tfjs-backend-webgl";
+/**
+ * Keypoint with pixel coordinates, matching the interface previously provided
+ * by @tensorflow-models/pose-detection so app.tsx can stay unchanged.
+ */
+export type Keypoint = {
+  name: string;
+  x: number;
+  y: number;
+  score: number;
+};
+
+export type Pose = {
+  keypoints: Keypoint[];
+};
+
+/** MediaPipe Pose landmark indices → human-readable names (MoveNet-compatible) */
+const LANDMARK_NAMES: Record<number, string> = {
+  0: "nose",
+  1: "left_eye_inner",
+  2: "left_eye",
+  3: "left_eye_outer",
+  4: "right_eye_inner",
+  5: "right_eye",
+  6: "right_eye_outer",
+  7: "left_ear",
+  8: "right_ear",
+  9: "mouth_left",
+  10: "mouth_right",
+  11: "left_shoulder",
+  12: "right_shoulder",
+  13: "left_elbow",
+  14: "right_elbow",
+  15: "left_wrist",
+  16: "right_wrist",
+  23: "left_hip",
+  24: "right_hip",
+  25: "left_knee",
+  26: "right_knee",
+  27: "left_ankle",
+  28: "right_ankle",
+};
+
+/** Convert MediaPipe normalized landmarks to pixel-coordinate keypoints. */
+function landmarksToKeypoints(
+  landmarks: NormalizedLandmark[],
+  width: number,
+  height: number,
+): Keypoint[] {
+  return landmarks
+    .map((lm, i) => {
+      const name = LANDMARK_NAMES[i];
+      if (!name) return null;
+      return { name, x: lm.x * width, y: lm.y * height, score: lm.visibility };
+    })
+    .filter((kp): kp is Keypoint => kp !== null);
+}
 
 export const Camera = memo(function Camera({
   onPoseDetected,
 }: {
   onPoseDetected?: (
-    pose: poseDetection.Pose,
+    pose: Pose,
     canvasRef: React.RefObject<HTMLCanvasElement | null>,
   ) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rafIdRef = useRef<number | null>(null);
-  const detectorRef = useRef<poseDetection.PoseDetector | null>(null);
+  const poseLandmarkerRef = useRef<PoseLandmarker | null>(null);
 
   useEffect(() => {
     const startCameraAndModel = async () => {
@@ -48,41 +104,65 @@ export const Camera = memo(function Camera({
 
     const loadModel = async () => {
       try {
-        await tf.ready();
-        await tf.setBackend("webgl");
-
-        const detectorConfig = {
-          modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING,
-        };
-
-        const model = await poseDetection.createDetector(
-          poseDetection.SupportedModels.MoveNet,
-          detectorConfig,
+        const vision = await FilesetResolver.forVisionTasks(
+          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm",
         );
 
-        detectorRef.current = model;
+        const poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath:
+              "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
+            delegate: "GPU",
+          },
+          runningMode: "VIDEO",
+          numPoses: 1,
+        });
+
+        poseLandmarkerRef.current = poseLandmarker;
         startDetectionLoop();
       } catch (error) {
         console.error("Error loading pose detection model:", error);
       }
     };
 
+    let lastVideoTime = -1;
+    let lastTimestamp = 0;
     const startDetectionLoop = () => {
-      const detectFrame = async () => {
-        if (!videoRef.current || videoRef.current.readyState !== 4 || !detectorRef.current) {
+      const detectFrame = () => {
+        const video = videoRef.current;
+        const landmarker = poseLandmarkerRef.current;
+
+        if (!video || video.readyState !== 4 || !landmarker) {
           rafIdRef.current = requestAnimationFrame(detectFrame);
           return;
         }
 
-        try {
-          const poses = await detectorRef.current.estimatePoses(videoRef.current);
+        if (video.currentTime !== lastVideoTime) {
+          lastVideoTime = video.currentTime;
+          // MediaPipe requires strictly increasing timestamps
+          const now = performance.now();
+          const timestamp = now > lastTimestamp ? now : lastTimestamp + 1;
+          lastTimestamp = timestamp;
 
-          if (poses.length > 0 && poses[0]) {
-            drawSkeleton(poses[0], canvasRef);
-            onPoseDetected?.(poses[0], canvasRef);
+          try {
+            const result = landmarker.detectForVideo(video, timestamp);
+
+            if (result.landmarks.length > 0) {
+              const landmarks = result.landmarks[0];
+              if (landmarks) {
+                drawSkeleton(landmarks, canvasRef);
+
+                const keypoints = landmarksToKeypoints(
+                  landmarks,
+                  video.videoWidth,
+                  video.videoHeight,
+                );
+                onPoseDetected?.({ keypoints }, canvasRef);
+              }
+            }
+          } catch (error) {
+            console.error("Error detecting pose:", error);
           }
-        } catch (error) {
-          console.error("Error detecting pose:", error);
         }
 
         rafIdRef.current = requestAnimationFrame(detectFrame);
@@ -114,60 +194,23 @@ export const Camera = memo(function Camera({
 });
 
 const drawSkeleton = (
-  pose: poseDetection.Pose,
+  landmarks: NormalizedLandmark[],
   canvasRef: React.RefObject<HTMLCanvasElement | null>,
 ) => {
   if (!canvasRef.current) return;
-
   const ctx = canvasRef.current.getContext("2d");
   if (!ctx) return;
 
   ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
 
-  // Draw keypoints
-  pose.keypoints.forEach((keypoint) => {
-    if ((keypoint.score ?? 0) > 0.5) {
-      ctx.beginPath();
-      ctx.arc(keypoint.x, keypoint.y, 5, 0, 2 * Math.PI);
-      ctx.fillStyle = "red";
-      ctx.fill();
-    }
+  const drawingUtils = new DrawingUtils(ctx);
+  drawingUtils.drawLandmarks(landmarks, {
+    radius: 3,
+    color: "red",
+    fillColor: "red",
   });
-
-  // Draw connections
-  const connections = [
-    ["nose", "left_eye"],
-    ["nose", "right_eye"],
-    ["left_eye", "left_ear"],
-    ["right_eye", "right_ear"],
-    ["nose", "left_shoulder"],
-    ["nose", "right_shoulder"],
-    ["left_shoulder", "left_elbow"],
-    ["right_shoulder", "right_elbow"],
-    ["left_elbow", "left_wrist"],
-    ["right_elbow", "right_wrist"],
-    ["left_shoulder", "right_shoulder"],
-    ["left_shoulder", "left_hip"],
-    ["right_shoulder", "right_hip"],
-    ["left_hip", "right_hip"],
-    ["left_hip", "left_knee"],
-    ["right_hip", "right_knee"],
-    ["left_knee", "left_ankle"],
-    ["right_knee", "right_ankle"],
-  ];
-
-  ctx.strokeStyle = "blue";
-  ctx.lineWidth = 2;
-
-  connections.forEach(([p1Name, p2Name]) => {
-    const p1 = pose.keypoints.find((kp) => kp.name === p1Name);
-    const p2 = pose.keypoints.find((kp) => kp.name === p2Name);
-
-    if (p1 && p2 && (p1.score ?? 0) > 0.5 && (p2.score ?? 0) > 0.5) {
-      ctx.beginPath();
-      ctx.moveTo(p1.x, p1.y);
-      ctx.lineTo(p2.x, p2.y);
-      ctx.stroke();
-    }
+  drawingUtils.drawConnectors(landmarks, PoseLandmarker.POSE_CONNECTIONS, {
+    color: "blue",
+    lineWidth: 2,
   });
 };
