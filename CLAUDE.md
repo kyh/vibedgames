@@ -19,11 +19,14 @@
 apps/
   web/         # Main web app (@repo/web)
   party/       # PartyServer for multiplayer (@repo/party)
-  flappy-bird/ # Flappy Bird game
-  pacman/      # Pac-Man game
-  tetris/      # Tetris game
-  pong/        # Pong game
-  astroid/     # Asteroid game
+  games/       # Cloudflare Worker serving user-uploaded games (@repo/games)
+  cli/         # CLI tool (@repo/cli)
+games/
+  flappy-bird/ # Flappy Bird game (@repo/flappy-bird)
+  pacman/      # Pac-Man game (@repo/pacman)
+  tetris/      # Tetris game (@repo/tetris)
+  pong/        # Pong game (@repo/pong)
+  astroid/     # Asteroid game (@repo/astroid)
 packages/
   api/         # tRPC routers (@repo/api)
   db/          # Drizzle schema + migrations (@repo/db)
