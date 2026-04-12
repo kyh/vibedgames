@@ -1,14 +1,9 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "vibedgames-web",
-  // main + assets are populated by the nitro cloudflare_module build.
-  "main": "./.output/server/index.mjs",
-  "compatibility_date": "2025-04-01",
+  "main": "@tanstack/react-start/server-entry",
+  "compatibility_date": "2026-04-12",
   "compatibility_flags": ["nodejs_compat"],
-  "assets": {
-    "directory": "./.output/public",
-    "binding": "ASSETS"
-  },
   "observability": { "enabled": true },
   "workers_dev": true,
   "routes": [
