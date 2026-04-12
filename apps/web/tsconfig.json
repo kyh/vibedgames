@@ -6,8 +6,8 @@
     "paths": {
       "@/*": ["./src/*"]
     },
-    "types": ["@cloudflare/workers-types", "vite/client"]
+    "types": ["vite/client"]
   },
   "include": ["**/*.ts", "**/*.tsx", "env.d.ts"],
-  "exclude": ["node_modules", "dist", ".output", ".nitro", ".tanstack"]
+  "exclude": ["node_modules", "dist", ".wrangler", ".tanstack"]
 }

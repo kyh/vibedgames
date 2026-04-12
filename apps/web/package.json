@@ -7,11 +7,12 @@
   "scripts": {
     "dev": "pnpm with-env vite dev",
     "build": "vite build",
-    "start": "vite start",
-    "clean": "git clean -xdf .cache .turbo .nitro .output .tanstack .wrangler dist node_modules",
+    "start": "vite preview",
+    "clean": "git clean -xdf .cache .turbo .tanstack .wrangler dist node_modules",
     "deploy": "vite build && wrangler deploy",
-    "preview": "vite build && wrangler dev",
+    "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "cf-typegen": "wrangler types",
     "with-env": "dotenv -e ../../.env --"
   },
   "dependencies": {
@@ -33,7 +34,6 @@
     "better-auth": "^1.6.0",
     "lucide-react": "^1.7.0",
     "motion": "^12.38.0",
-    "nitro": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-hook-form": "^7.72.1",
@@ -45,6 +45,7 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "catalog:",
     "@cloudflare/workers-types": "catalog:",
     "@kyh/tsconfig": "catalog:",
     "@tailwindcss/typography": "^0.5.19",

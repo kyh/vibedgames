@@ -14,3 +14,7 @@ interface CloudflareEnv {
   V0_API_KEY?: string;
   AI_GATEWAY_API_KEY?: string;
 }
+
+declare module "cloudflare:workers" {
+  const env: CloudflareEnv;
+}
