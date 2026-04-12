@@ -23,10 +23,7 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Build packages
-        run: pnpm turbo run build --filter='./packages/*'
-
-      - name: Deploy web
-        run: pnpm -F @repo/web exec wrangler deploy
+      - name: Build & deploy web
+        run: pnpm turbo run build --filter=@repo/web... && pnpm -F @repo/web exec wrangler deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
