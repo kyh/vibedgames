@@ -9,7 +9,49 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      web: ${{ steps.check.outputs.web }}
+      party: ${{ steps.check.outputs.party }}
+      games: ${{ steps.check.outputs.games }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Detect changed apps
+        id: check
+        run: |
+          BASE="${{ github.event.before }}"
+          if [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            echo "web=true" >> "$GITHUB_OUTPUT"
+            echo "party=true" >> "$GITHUB_OUTPUT"
+            echo "games=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          for app in web party games; do
+            count=$(pnpm turbo build --dry-run=json --filter="@repo/${app}...[${BASE}]" | jq '.tasks | length')
+            if [ "$count" -gt 0 ]; then
+              echo "${app}=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "${app}=false" >> "$GITHUB_OUTPUT"
+            fi
+          done
+
   deploy-web:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,6 +71,8 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
   deploy-party:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.party == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -48,6 +92,8 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
   deploy-games:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.games == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
