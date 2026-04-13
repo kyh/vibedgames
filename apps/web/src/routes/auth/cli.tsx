@@ -33,11 +33,28 @@ const fetchCliAuth = createServerFn({ method: "GET" })
       });
     }
 
+    // Extract the signed cookie value from the request headers directly.
+    // better-auth cookies are HMAC-signed (`{token}.{sig}`), and the CLI
+    // must send the full signed value — `session.session.token` is the raw
+    // unsigned token which the server will reject.
+    const cookieHeader = headers.get("cookie") ?? "";
+    const token = cookieHeader
+      .split(";")
+      .map((c) => c.trim())
+      .find((c) => c.startsWith("better-auth.session_token="))
+      ?.split("=")
+      .slice(1)
+      .join("=");
+
+    if (!token) {
+      return { error: "no-token" as const };
+    }
+
     return {
       error: undefined,
       port,
       state,
-      token: session.session.token,
+      token,
       userName: session.user.name,
     };
   });
