@@ -3,6 +3,8 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 
+import { makeSignature } from "better-auth/crypto";
+
 import { getServerContext } from "@/auth/server";
 import { CliAuthRedirect } from "@/components/auth/cli-auth-redirect";
 
@@ -33,28 +35,14 @@ const fetchCliAuth = createServerFn({ method: "GET" })
       });
     }
 
-    // Extract the signed cookie value from the request headers directly.
-    // better-auth cookies are HMAC-signed (`{token}.{sig}`), and the CLI
-    // must send the full signed value — `session.session.token` is the raw
-    // unsigned token which the server will reject.
-    const cookieHeader = headers.get("cookie") ?? "";
-    const token = cookieHeader
-      .split(";")
-      .map((c) => c.trim())
-      .find((c) => c.startsWith("better-auth.session_token="))
-      ?.split("=")
-      .slice(1)
-      .join("=");
-
-    if (!token) {
-      return { error: "no-token" as const };
-    }
+    const sig = await makeSignature(session.session.token, auth.options.secret);
+    const signedToken = `${session.session.token}.${sig}`;
 
     return {
       error: undefined,
       port,
       state,
-      token,
+      token: signedToken,
       userName: session.user.name,
     };
   });
