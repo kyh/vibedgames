@@ -146,10 +146,10 @@ export const inWorld = (p: Point, margin = 0): boolean =>
   p.x >= -margin && p.x <= WORLD_WIDTH + margin &&
   p.y >= -margin && p.y <= WORLD_HEIGHT + margin;
 
-/** Generate a random point in the world */
-export const randomWorldPoint = (): Point => ({
-  x: randUniform(WORLD_WIDTH),
-  y: randUniform(WORLD_HEIGHT),
+/** Generate a random point in the world, away from edges */
+export const randomWorldPoint = (margin = 300): Point => ({
+  x: randUniform(WORLD_WIDTH - margin * 2, margin),
+  y: randUniform(WORLD_HEIGHT - margin * 2, margin),
 });
 
 export { PI, TWO_PI };

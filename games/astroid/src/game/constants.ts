@@ -1,7 +1,7 @@
 import type { Weapon } from "./types";
 
-export const WORLD_WIDTH = 1920;
-export const WORLD_HEIGHT = 1080;
+export const WORLD_WIDTH = 3840;
+export const WORLD_HEIGHT = 2160;
 
 export const FPS = 60;
 export const NETWORK_HZ = 20; // how often to send state updates

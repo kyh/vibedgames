@@ -134,7 +134,7 @@ export function updateStarField(field: StarField): void {
       x,
       y: 0,
       angle: 45 + Math.random() * 90,
-      speed: Math.random() * 5 + 8,
+      speed: Math.random() * 2 + 3,
       distance: 0,
       trail: [],
     });
