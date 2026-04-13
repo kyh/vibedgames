@@ -41,8 +41,7 @@ jobs:
           fi
 
           for app in web party games; do
-            count=$(pnpm turbo build --dry-run=json --filter="@repo/${app}...[${BASE}]" | jq '.tasks | length')
-            if [ "$count" -gt 0 ]; then
+            if pnpm turbo ls --filter="@repo/${app}...[${BASE}]" 2>/dev/null | grep -q "@repo/"; then
               echo "${app}=true" >> "$GITHUB_OUTPUT"
             else
               echo "${app}=false" >> "$GITHUB_OUTPUT"
