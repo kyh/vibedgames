@@ -6,10 +6,51 @@ on:
 
 concurrency:
   group: deploy-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      web: ${{ steps.check.outputs.web }}
+      party: ${{ steps.check.outputs.party }}
+      games: ${{ steps.check.outputs.games }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Detect changed apps
+        id: check
+        run: |
+          BASE="${{ github.event.before }}"
+          if [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            echo "web=true" >> "$GITHUB_OUTPUT"
+            echo "party=true" >> "$GITHUB_OUTPUT"
+            echo "games=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          for app in web party games; do
+            output=$(pnpm turbo ls --filter="@repo/${app}...[${BASE}]") || { echo "${app}=true" >> "$GITHUB_OUTPUT"; continue; }
+            if echo "$output" | grep -q "@repo/"; then
+              echo "${app}=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "${app}=false" >> "$GITHUB_OUTPUT"
+            fi
+          done
+
   deploy-web:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,5 +66,47 @@ jobs:
 
       - name: Build & deploy web
         run: pnpm turbo run build --filter=@repo/web... && pnpm -F @repo/web exec wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+  deploy-party:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.party == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build & deploy party
+        run: pnpm turbo run build --filter=@repo/party... && pnpm -F @repo/party exec wrangler deploy --name vibedgames-party
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+  deploy-games:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.games == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build & deploy games
+        run: pnpm turbo run build --filter=@repo/games... && pnpm -F @repo/games exec wrangler deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
