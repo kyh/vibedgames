@@ -2,6 +2,7 @@ export type MultiplayerOptions = {
   host: string;
   party: string;
   room: string;
+  onEvent?: (event: string, payload: unknown, from: string) => void;
 };
 
 export type MultiplayerConnectionStatus = "connecting" | "connected" | "disconnected" | "error";

@@ -52,6 +52,8 @@ export function useMultiplayerRoom<
   const sharedStateRef = useRef<TShared>(sharedState);
   const playersRef = useRef<PlayerMap>({});
   const initialStateApplied = useRef(false);
+  const onEventRef = useRef(config.onEvent);
+  onEventRef.current = config.onEvent;
 
   sharedStateRef.current = sharedState;
   playersRef.current = players;
@@ -153,7 +155,11 @@ export function useMultiplayerRoom<
             break;
           }
           case "event": {
-            // Events are user-defined; they can be handled through sendEvent
+            onEventRef.current?.(
+              message.data.event,
+              message.data.payload,
+              message.data.from,
+            );
             break;
           }
           default:

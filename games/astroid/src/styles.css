@@ -16,6 +16,8 @@ body {
     BlinkMacSystemFont,
     "Segoe UI",
     sans-serif;
+  cursor: crosshair;
+  user-select: none;
 }
 
 .app-container {
@@ -23,8 +25,6 @@ body {
   width: 100vw;
   height: 100vh;
   background-color: #020617;
-  background-image: url("https://zmdrwswxugswzmcokvff.supabase.co/storage/v1/object/public/vibedgames/bg.png");
-  background-size: 10px 10px;
   overflow: hidden;
 }
 
@@ -39,4 +39,86 @@ body {
   position: fixed;
   inset: 0;
   pointer-events: none;
+}
+
+/* HUD */
+.hud {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  padding: 16px 20px;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.hud-left,
+.hud-right {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hud-right {
+  align-items: flex-end;
+}
+
+.hud-score {
+  font-size: 24px;
+  font-weight: 200;
+  letter-spacing: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud-weapon {
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 1px;
+  opacity: 0.6;
+  text-transform: uppercase;
+}
+
+.hud-players {
+  font-size: 11px;
+  opacity: 0.5;
+  letter-spacing: 1px;
+}
+
+/* Minimap */
+.minimap {
+  position: fixed;
+  bottom: 12px;
+  right: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Death overlay */
+.death-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.death-text {
+  font-size: 32px;
+  font-weight: 200;
+  letter-spacing: 8px;
+  opacity: 0.8;
+}
+
+.death-countdown {
+  margin-top: 12px;
+  font-size: 14px;
+  opacity: 0.5;
+  letter-spacing: 2px;
 }
