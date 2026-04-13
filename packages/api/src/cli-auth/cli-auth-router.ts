@@ -58,7 +58,7 @@ export const cliAuthRouter = createTRPCRouter({
 
       // Sign the session token so the CLI can use it as a cookie
       const sessionToken = ctx.session.session.token;
-      const sig = await makeSignature(sessionToken, ctx.auth.options.secret);
+      const sig = await makeSignature(sessionToken, ctx.authSecret);
       const signedToken = `${sessionToken}.${sig}`;
 
       await ctx.db

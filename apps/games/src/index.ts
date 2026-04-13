@@ -35,6 +35,7 @@ export default {
       where: eq(game.slug, slug),
       columns: { id: true, currentDeploymentId: true },
     });
+
     if (!g?.currentDeploymentId) {
       return notFound("Game not found");
     }
@@ -58,7 +59,10 @@ export default {
     }
 
     const headers = new Headers();
-    headers.set("content-type", fileRow?.contentType ?? "application/octet-stream");
+    headers.set(
+      "content-type",
+      fileRow?.contentType ?? "application/octet-stream",
+    );
     headers.set(
       "cache-control",
       requestedPath === "index.html"

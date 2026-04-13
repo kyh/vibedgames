@@ -23,13 +23,14 @@ export const makeTRPCClient = createIsomorphicFn()
           createContext: () => {
             // Build server context per tRPC call (not at client creation)
             // because Cloudflare bindings are only available inside a request.
-            const { db, auth, productionUrl, r2 } = getServerContext();
+            const { db, auth, authSecret, productionUrl, r2 } = getServerContext();
             const headers = new Headers(getRequestHeaders());
             headers.set("x-trpc-source", "tanstack-start-server");
             return createTRPCContext({
               headers,
               db,
               auth,
+              authSecret,
               productionURL: productionUrl,
               r2,
             });

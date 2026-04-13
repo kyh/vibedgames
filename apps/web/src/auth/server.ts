@@ -50,7 +50,7 @@ export function getServerContext() {
         }
       : undefined;
 
-  return { db, auth, baseUrl, productionUrl, r2 };
+  return { db, auth, authSecret: env.AUTH_SECRET, baseUrl, productionUrl, r2 };
 }
 
 /**
