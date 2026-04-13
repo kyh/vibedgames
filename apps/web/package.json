@@ -8,7 +8,7 @@
     "dev": "pnpm with-env vite dev",
     "build": "vite build",
     "start": "vite preview",
-    "clean": "git clean -xdf .cache .turbo .tanstack .wrangler dist node_modules",
+    "clean": "rm -rf .cache .turbo .tanstack .wrangler dist node_modules",
     "deploy": "vite build && wrangler deploy",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",

@@ -1,6 +1,5 @@
 import { eq } from "@repo/db";
 import { verification } from "@repo/db/drizzle-schema-auth";
-import { makeSignature } from "better-auth/crypto";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
@@ -56,14 +55,10 @@ export const cliAuthRouter = createTRPCRouter({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Code already confirmed" });
       }
 
-      // Sign the session token so the CLI can use it as a cookie
-      const sessionToken = ctx.session.session.token;
-      const sig = await makeSignature(sessionToken, ctx.authSecret);
-      const signedToken = `${sessionToken}.${sig}`;
-
+      // Store the raw session token — the CLI uses it as a Bearer token
       await ctx.db
         .update(verification)
-        .set({ value: signedToken, updatedAt: new Date() })
+        .set({ value: ctx.session.session.token, updatedAt: new Date() })
         .where(eq(verification.id, row.id));
 
       return { ok: true };

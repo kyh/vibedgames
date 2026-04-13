@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "vite build",
+    "clean": "rm -rf .turbo dist node_modules",
     "dev": "vite",
     "preview": "vite preview"
   },

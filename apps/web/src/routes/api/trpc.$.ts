@@ -5,7 +5,7 @@ import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { getServerContext } from "@/auth/server";
 
 const handler = (req: Request) => {
-  const { db, auth, authSecret, productionUrl, r2 } = getServerContext();
+  const { db, auth, productionUrl, r2 } = getServerContext();
   return fetchRequestHandler({
     endpoint: "/api/trpc",
     router: appRouter,
@@ -15,7 +15,6 @@ const handler = (req: Request) => {
         headers: req.headers,
         db,
         auth,
-        authSecret,
         productionURL: productionUrl,
         r2,
       }),

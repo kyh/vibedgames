@@ -20,7 +20,7 @@ export const whoamiCommand = defineCommand({
 
     const res = await fetch(`${baseUrl}/api/auth/get-session`, {
       headers: {
-        Cookie: `better-auth.session_token=${token}`,
+        Authorization: `Bearer ${token}`,
       },
     });
 
@@ -31,9 +31,9 @@ export const whoamiCommand = defineCommand({
 
     const data = (await res.json()) as {
       user?: { name: string; email: string };
-    };
+    } | null;
 
-    if (!data.user) {
+    if (!data?.user) {
       consola.warn("Session expired. Run `vg login` to re-authenticate.");
       process.exit(1);
     }

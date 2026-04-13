@@ -4,8 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
     "build": "vite build",
+    "clean": "rm -rf .turbo dist node_modules",
+    "dev": "vite",
     "preview": "vite preview"
   },
   "dependencies": {

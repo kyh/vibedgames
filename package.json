@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "build": "turbo run build",
-    "clean": "git clean -xdf node_modules",
+    "clean": "rm -rf .turbo node_modules",
     "clean-workspaces": "turbo run clean",
     "db-push": "pnpm -F db push",
     "db-push-remote": "pnpm -F db push-remote && pnpm -F builder push-remote",

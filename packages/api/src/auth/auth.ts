@@ -2,7 +2,7 @@ import type { Db } from "@repo/db/drizzle-client";
 import { expo } from "@better-auth/expo";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { admin, oAuthProxy } from "better-auth/plugins";
+import { admin, bearer, oAuthProxy } from "better-auth/plugins";
 
 export type AuthOptions = {
   db: Db;
@@ -26,6 +26,7 @@ export const createAuth = (opts: AuthOptions) => {
         currentURL: baseURL,
         productionURL,
       }),
+      bearer(),
       expo(),
       admin(),
     ],

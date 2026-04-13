@@ -19,7 +19,7 @@ export function createClient(): TRPCClient<AppRouter> {
         url: `${getBaseUrl()}/api/trpc`,
         transformer: superjson,
         headers: () => ({
-          Cookie: `better-auth.session_token=${token}`,
+          Authorization: `Bearer ${token}`,
         }),
       }),
     ],

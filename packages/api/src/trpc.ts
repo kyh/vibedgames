@@ -49,7 +49,6 @@ export type CreateTRPCContextOptions = {
   headers: Headers;
   db: Db;
   auth: Auth;
-  authSecret: string;
   productionURL?: string;
   r2?: R2Config;
 };
@@ -61,7 +60,6 @@ export const createTRPCContext = async (opts: CreateTRPCContextOptions) => {
     session,
     db: opts.db,
     auth: opts.auth,
-    authSecret: opts.authSecret,
     headers: opts.headers,
     productionURL: opts.productionURL,
     r2: opts.r2,

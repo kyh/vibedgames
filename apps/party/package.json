@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "build": "wrangler deploy --dry-run --outdir=dist",
-    "clean": "rm -rf .turbo node_modules .cache .wrangler dist",
+    "clean": "rm -rf .cache .turbo .wrangler dist node_modules",
     "deploy": "wrangler deploy --name vibedgames-party",
     "dev": "pnpm with-env wrangler dev",
     "typecheck": "tsc --noEmit",
