@@ -1,0 +1,113 @@
+{
+  "grok-imagine-image-t2i": {
+    "provider": "fal",
+    "family": "grok-imagine-image",
+    "endpoint_id": "xai/grok-imagine-image",
+    "task_type": "text-to-image",
+    "download_keys": ["images[0].url"],
+    "defaults": {
+      "num_images": 1,
+      "aspect_ratio": "1:1",
+      "output_format": "png"
+    }
+  },
+  "grok-imagine-image-edit": {
+    "provider": "fal",
+    "family": "grok-imagine-image",
+    "endpoint_id": "xai/grok-imagine-image/edit",
+    "task_type": "image-edit",
+    "input_image_field": "image_urls",
+    "download_keys": ["images[0].url"],
+    "defaults": {
+      "num_images": 1,
+      "output_format": "png"
+    }
+  },
+  "nano-banana-2-t2i": {
+    "provider": "fal",
+    "family": "nano-banana-2",
+    "endpoint_id": "fal-ai/nano-banana-2",
+    "task_type": "text-to-image",
+    "download_keys": ["images[0].url"],
+    "defaults": {
+      "num_images": 1,
+      "aspect_ratio": "1:1",
+      "output_format": "png",
+      "resolution": "1K",
+      "safety_tolerance": "4"
+    }
+  },
+  "nano-banana-2-edit": {
+    "provider": "fal",
+    "family": "nano-banana-2",
+    "endpoint_id": "fal-ai/nano-banana-2/edit",
+    "task_type": "image-edit",
+    "input_image_field": "image_urls",
+    "download_keys": ["images[0].url"],
+    "defaults": {
+      "num_images": 1,
+      "aspect_ratio": "auto",
+      "output_format": "png",
+      "resolution": "1K",
+      "safety_tolerance": "4"
+    }
+  },
+  "nano-banana-pro-t2i": {
+    "provider": "fal",
+    "family": "nano-banana-pro",
+    "endpoint_id": "fal-ai/nano-banana-pro",
+    "task_type": "text-to-image",
+    "download_keys": ["images[0].url"],
+    "defaults": {
+      "num_images": 1,
+      "aspect_ratio": "1:1",
+      "output_format": "png",
+      "resolution": "1K",
+      "safety_tolerance": "4"
+    }
+  },
+  "nano-banana-pro-edit": {
+    "provider": "fal",
+    "family": "nano-banana-pro",
+    "endpoint_id": "fal-ai/nano-banana-pro/edit",
+    "task_type": "image-edit",
+    "input_image_field": "image_urls",
+    "download_keys": ["images[0].url"],
+    "defaults": {
+      "num_images": 1,
+      "aspect_ratio": "auto",
+      "output_format": "png",
+      "resolution": "1K",
+      "safety_tolerance": "4"
+    }
+  },
+  "gpt-image-1.5-t2i": {
+    "provider": "fal",
+    "family": "gpt-image-1.5",
+    "endpoint_id": "fal-ai/gpt-image-1.5",
+    "task_type": "text-to-image",
+    "download_keys": ["images[0].url"],
+    "defaults": {
+      "num_images": 1,
+      "image_size": "1024x1024",
+      "background": "auto",
+      "output_format": "png",
+      "quality": "medium"
+    }
+  },
+  "gpt-image-1.5-edit": {
+    "provider": "fal",
+    "family": "gpt-image-1.5",
+    "endpoint_id": "fal-ai/gpt-image-1.5/edit",
+    "task_type": "image-edit",
+    "input_image_field": "image_urls",
+    "download_keys": ["images[0].url"],
+    "defaults": {
+      "num_images": 1,
+      "image_size": "auto",
+      "background": "auto",
+      "output_format": "png",
+      "quality": "medium"
+    }
+  }
+}

@@ -1,0 +1,267 @@
+{
+  "rd-pro-platformer": {
+    "provider": "retro-diffusion",
+    "family": "RD_PRO",
+    "prompt_style": "rd_pro__platformer",
+    "task_type": "image",
+    "defaults": {
+      "width": 256,
+      "height": 256,
+      "num_images": 1
+    }
+  },
+  "rd-pro-edit": {
+    "provider": "retro-diffusion",
+    "family": "RD_PRO",
+    "prompt_style": "rd_pro__edit",
+    "task_type": "img2img",
+    "defaults": {
+      "width": 256,
+      "height": 256,
+      "num_images": 1,
+      "strength": 0.7
+    }
+  },
+  "rd-pro-spritesheet": {
+    "provider": "retro-diffusion",
+    "family": "RD_PRO",
+    "prompt_style": "rd_pro__spritesheet",
+    "task_type": "image",
+    "defaults": {
+      "width": 256,
+      "height": 256,
+      "num_images": 1
+    }
+  },
+  "rd-pro-pixelate": {
+    "provider": "retro-diffusion",
+    "family": "RD_PRO",
+    "prompt_style": "rd_pro__pixelate",
+    "task_type": "img2img",
+    "defaults": {
+      "width": 256,
+      "height": 256,
+      "num_images": 1,
+      "strength": 0.7
+    }
+  },
+  "rd-fast-character-turnaround": {
+    "provider": "retro-diffusion",
+    "family": "RD_FAST",
+    "prompt_style": "rd_fast__character_turnaround",
+    "task_type": "image",
+    "defaults": {
+      "width": 256,
+      "height": 256,
+      "num_images": 1
+    }
+  },
+  "rd-plus-character-turnaround": {
+    "provider": "retro-diffusion",
+    "family": "RD_PLUS",
+    "prompt_style": "rd_plus__character_turnaround",
+    "task_type": "image",
+    "defaults": {
+      "width": 256,
+      "height": 256,
+      "num_images": 1
+    }
+  },
+  "rd-plus-isometric": {
+    "provider": "retro-diffusion",
+    "family": "RD_PLUS",
+    "prompt_style": "rd_plus__isometric",
+    "task_type": "image",
+    "defaults": {
+      "width": 256,
+      "height": 256,
+      "num_images": 1
+    }
+  },
+  "rd-plus-isometric-asset": {
+    "provider": "retro-diffusion",
+    "family": "RD_PLUS",
+    "prompt_style": "rd_plus__isometric_asset",
+    "task_type": "image",
+    "defaults": {
+      "width": 256,
+      "height": 256,
+      "num_images": 1
+    }
+  },
+  "animation-four-angle-walking": {
+    "provider": "retro-diffusion",
+    "family": "animation",
+    "prompt_style": "animation__four_angle_walking",
+    "task_type": "animation",
+    "defaults": {
+      "width": 48,
+      "height": 48,
+      "num_images": 1,
+      "return_spritesheet": true
+    }
+  },
+  "animation-8-dir-rotation": {
+    "provider": "retro-diffusion",
+    "family": "animation",
+    "prompt_style": "animation__8_dir_rotation",
+    "task_type": "animation",
+    "defaults": {
+      "width": 80,
+      "height": 80,
+      "num_images": 1,
+      "return_spritesheet": true
+    }
+  },
+  "animation-walking-and-idle": {
+    "provider": "retro-diffusion",
+    "family": "animation",
+    "prompt_style": "animation__walking_and_idle",
+    "task_type": "animation",
+    "defaults": {
+      "width": 48,
+      "height": 48,
+      "num_images": 1,
+      "return_spritesheet": true
+    }
+  },
+  "animation-small-sprites": {
+    "provider": "retro-diffusion",
+    "family": "animation",
+    "prompt_style": "animation__small_sprites",
+    "task_type": "animation",
+    "defaults": {
+      "width": 32,
+      "height": 32,
+      "num_images": 1,
+      "return_spritesheet": true
+    }
+  },
+  "animation-any-animation": {
+    "provider": "retro-diffusion",
+    "family": "animation",
+    "prompt_style": "animation__any_animation",
+    "task_type": "animation",
+    "defaults": {
+      "width": 64,
+      "height": 64,
+      "num_images": 1,
+      "return_spritesheet": true
+    }
+  },
+  "animation-battle-sprites": {
+    "provider": "retro-diffusion",
+    "family": "animation",
+    "prompt_style": "animation__battle_sprites",
+    "task_type": "animation",
+    "defaults": {
+      "width": 64,
+      "height": 64,
+      "num_images": 1,
+      "return_spritesheet": true
+    }
+  },
+  "animation-vfx": {
+    "provider": "retro-diffusion",
+    "family": "animation",
+    "prompt_style": "animation__vfx",
+    "task_type": "animation",
+    "defaults": {
+      "width": 64,
+      "height": 64,
+      "num_images": 1,
+      "return_spritesheet": true
+    }
+  },
+  "rd-advanced-animation-walking": {
+    "provider": "retro-diffusion",
+    "family": "advanced-animation",
+    "prompt_style": "rd_advanced_animation__walking",
+    "task_type": "advanced_animation",
+    "defaults": {
+      "width": 64,
+      "height": 64,
+      "num_images": 1,
+      "frames_duration": 8,
+      "return_spritesheet": true
+    }
+  },
+  "rd-advanced-animation-idle": {
+    "provider": "retro-diffusion",
+    "family": "advanced-animation",
+    "prompt_style": "rd_advanced_animation__idle",
+    "task_type": "advanced_animation",
+    "defaults": {
+      "width": 64,
+      "height": 64,
+      "num_images": 1,
+      "frames_duration": 8,
+      "return_spritesheet": true
+    }
+  },
+  "rd-advanced-animation-attack": {
+    "provider": "retro-diffusion",
+    "family": "advanced-animation",
+    "prompt_style": "rd_advanced_animation__attack",
+    "task_type": "advanced_animation",
+    "defaults": {
+      "width": 64,
+      "height": 64,
+      "num_images": 1,
+      "frames_duration": 8,
+      "return_spritesheet": true
+    }
+  },
+  "rd-advanced-animation-jump": {
+    "provider": "retro-diffusion",
+    "family": "advanced-animation",
+    "prompt_style": "rd_advanced_animation__jump",
+    "task_type": "advanced_animation",
+    "defaults": {
+      "width": 64,
+      "height": 64,
+      "num_images": 1,
+      "frames_duration": 8,
+      "return_spritesheet": true
+    }
+  },
+  "rd-advanced-animation-crouch": {
+    "provider": "retro-diffusion",
+    "family": "advanced-animation",
+    "prompt_style": "rd_advanced_animation__crouch",
+    "task_type": "advanced_animation",
+    "defaults": {
+      "width": 64,
+      "height": 64,
+      "num_images": 1,
+      "frames_duration": 8,
+      "return_spritesheet": true
+    }
+  },
+  "rd-advanced-animation-custom-action": {
+    "provider": "retro-diffusion",
+    "family": "advanced-animation",
+    "prompt_style": "rd_advanced_animation__custom_action",
+    "task_type": "advanced_animation",
+    "defaults": {
+      "width": 64,
+      "height": 64,
+      "num_images": 1,
+      "frames_duration": 8,
+      "return_spritesheet": true
+    }
+  },
+  "rd-advanced-animation-subtle-motion": {
+    "provider": "retro-diffusion",
+    "family": "advanced-animation",
+    "prompt_style": "rd_advanced_animation__subtle_motion",
+    "task_type": "advanced_animation",
+    "defaults": {
+      "width": 64,
+      "height": 64,
+      "num_images": 1,
+      "frames_duration": 8,
+      "return_spritesheet": true
+    }
+  }
+}

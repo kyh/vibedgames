@@ -1,0 +1,76 @@
+{
+  "seedance-pro-i2v": {
+    "provider": "fal",
+    "family": "seedance",
+    "endpoint_id": "fal-ai/bytedance/seedance/v1/pro/image-to-video",
+    "task_type": "image-to-video",
+    "input_image_field": "image_url",
+    "download_keys": ["video.url"],
+    "defaults": {
+      "duration": "6",
+      "resolution": "720p",
+      "aspect_ratio": "auto",
+      "camera_fixed": true,
+      "enable_safety_checker": true
+    }
+  },
+  "seedance-v1.5-pro-i2v": {
+    "provider": "fal",
+    "family": "seedance",
+    "endpoint_id": "fal-ai/bytedance/seedance/v1.5/pro/image-to-video",
+    "task_type": "image-to-video",
+    "input_image_field": "image_url",
+    "download_keys": ["video.url"],
+    "defaults": {
+      "duration": "6",
+      "resolution": "720p",
+      "aspect_ratio": "auto",
+      "camera_fixed": true,
+      "enable_safety_checker": true,
+      "generate_audio": false
+    }
+  },
+  "kling-v3-pro-i2v": {
+    "provider": "fal",
+    "family": "kling",
+    "endpoint_id": "fal-ai/kling-video/v3/pro/image-to-video",
+    "task_type": "image-to-video",
+    "input_image_field": "start_image_url",
+    "download_keys": ["video.url"],
+    "defaults": {
+      "duration": "6",
+      "generate_audio": false,
+      "negative_prompt": "blur, distort, low quality, camera drift, extra limbs, duplicate body parts",
+      "cfg_scale": 0.5
+    }
+  },
+  "hailuo-02-standard-i2v": {
+    "provider": "fal",
+    "family": "hailuo",
+    "endpoint_id": "fal-ai/minimax/hailuo-02/standard/image-to-video",
+    "task_type": "image-to-video",
+    "input_image_field": "image_url",
+    "download_keys": ["video.url"],
+    "defaults": {
+      "duration": "6",
+      "resolution": "768P",
+      "prompt_optimizer": false
+    }
+  },
+  "veo-3.1-fast-i2v": {
+    "provider": "fal",
+    "family": "veo",
+    "endpoint_id": "fal-ai/veo3.1/fast/image-to-video",
+    "task_type": "image-to-video",
+    "input_image_field": "image_url",
+    "download_keys": ["video.url"],
+    "defaults": {
+      "duration": "6s",
+      "resolution": "720p",
+      "aspect_ratio": "auto",
+      "generate_audio": false,
+      "auto_fix": false,
+      "safety_tolerance": "4"
+    }
+  }
+}
