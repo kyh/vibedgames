@@ -1,13 +1,17 @@
 {
   "name": "@vibedgames/multiplayer",
-  "version": "0.0.1",
-  "description": "Drop-in React hooks for multiplayer browser games",
+  "version": "0.0.2",
+  "description": "Multiplayer for browser games — framework-agnostic core + React hooks",
   "private": false,
   "type": "module",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "default": "./dist/react.js"
     }
   },
   "files": [
@@ -24,6 +28,11 @@
   },
   "peerDependencies": {
     "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",

@@ -1,13 +1,11 @@
-export { useMultiplayerRoom } from "./use-multiplayer-room";
-export { useMultiplayerState, usePlayerState, useIsHost } from "./use-multiplayer";
+export { MultiplayerClient } from "./client";
+export type { MultiplayerClientOptions, MultiplayerSnapshot } from "./client";
 
 export type {
   MultiplayerOptions,
-  MultiplayerRoomState,
+  MultiplayerConnectionStatus,
   Player,
   PlayerMap,
-  MultiplayerConnectionStatus,
   ClientMessage,
   ServerMessage,
 } from "./types";
-export type { MultiplayerRoom } from "./use-multiplayer-room";

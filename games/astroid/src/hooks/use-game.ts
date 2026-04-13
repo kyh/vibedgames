@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useMultiplayerRoom } from "@vibedgames/multiplayer";
-import { useIsHost } from "@vibedgames/multiplayer";
+import { useMultiplayerRoom } from "@vibedgames/multiplayer/react";
+import { useIsHost } from "@vibedgames/multiplayer/react";
 
 import type {
   Asteroid,

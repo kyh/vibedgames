@@ -5,7 +5,7 @@ description: "Add multiplayer to browser games using @vibedgames/multiplayer. Us
 
 # Vibedgames Multiplayer
 
-Add real-time multiplayer to any React browser game with `@vibedgames/multiplayer`.
+Add real-time multiplayer to any browser game with `@vibedgames/multiplayer`.
 
 ## Install
 
@@ -13,158 +13,159 @@ Add real-time multiplayer to any React browser game with `@vibedgames/multiplaye
 npm install @vibedgames/multiplayer
 ```
 
+## Two entry points
+
+- `@vibedgames/multiplayer` — framework-agnostic `MultiplayerClient` class (Phaser, Three.js, vanilla JS)
+- `@vibedgames/multiplayer/react` — React hooks wrapping the client
+
 ## Core concepts
 
-There are three types of state:
+Three types of state:
 
-1. **Shared state** — one copy, all players see the same thing (game world, score, phase)
-2. **Player state** — per-player, visible to everyone (position, health, name)
-3. **Events** — fire-and-forget messages (explosions, chat, kills)
+1. **Shared state** — one copy, all players see the same (game world, score, phase)
+2. **Player state** — per-player, visible to everyone (position, health)
+3. **Events** — fire-and-forget messages (explosions, kills)
 
-The **host** (first player to join) typically runs authoritative game logic. Use `useIsHost()` to check.
+The **host** (first player) typically runs authoritative game logic.
 
-## Setup
+---
 
-Connect to the vibedgames party server:
+## React usage
 
 ```tsx
-import { useMultiplayerRoom } from "@vibedgames/multiplayer";
+import { useMultiplayerRoom, useMultiplayerState, usePlayerState, useIsHost } from "@vibedgames/multiplayer/react";
 
 const room = useMultiplayerRoom({
   host: "https://vibedgames-party.kyh.workers.dev",
   party: "vg-server",
   room: "my-game-room",
 });
-```
 
-## Shared state (world/game state)
-
-Use for anything all players should agree on: asteroid positions, game phase, timer, collectibles.
-
-```tsx
-import { useMultiplayerState, useIsHost } from "@vibedgames/multiplayer";
-
-const [gameState, setGameState] = useMultiplayerState(room, {
-  phase: "playing",
-  score: 0,
-});
-
-// Only the host should mutate shared state
+const [world, setWorld] = useMultiplayerState(room, { score: 0 });
+const [me, setMe] = usePlayerState(room, { x: 0, y: 0 });
 const isHost = useIsHost(room);
-if (isHost) {
-  setGameState({ score: gameState.score + 10 });
-}
 ```
 
-## Player state (per-player)
-
-Use for position, angle, health, inventory — anything unique to each player.
+### Shared state
 
 ```tsx
-import { usePlayerState } from "@vibedgames/multiplayer";
+if (isHost) setWorld({ score: world.score + 10 });
+```
 
-const [myState, setMyState] = usePlayerState(room, {
-  x: 0, y: 0, alive: true,
-});
+### Player state
 
-// Update on input
+```tsx
 const onPointerMove = (e: PointerEvent) => {
-  setMyState({ x: e.clientX, y: e.clientY });
+  setMe({ x: e.clientX, y: e.clientY });
 };
+```
 
-// Read other players
-Object.entries(room.players).forEach(([id, player]) => {
-  const state = player.state; // their x, y, alive, etc.
-  const color = player.color; // auto-assigned by server
+### Events
+
+```tsx
+room.sendEvent("explosion", { x: 100, y: 200 });
+
+// Receive via onEvent config:
+const room = useMultiplayerRoom({
+  host, party, room,
+  onEvent: (event, payload, from) => { /* handle */ },
 });
 ```
 
-## Events (one-shot messages)
+---
 
-Use for things that happen once: explosions, kills, chat messages, sound effects.
+## Vanilla JS / Phaser / Three.js usage
 
-```tsx
-// Send
-room.sendEvent("explosion", { x: 100, y: 200, radius: 50 });
+```ts
+import { MultiplayerClient } from "@vibedgames/multiplayer";
 
-// Receive — use onEvent in room config
-const room = useMultiplayerRoom({
+const client = new MultiplayerClient({
   host: "https://vibedgames-party.kyh.workers.dev",
   party: "vg-server",
   room: "my-game-room",
-  onEvent: (event, payload, fromPlayerId) => {
-    if (event === "explosion") {
-      // show explosion at payload.x, payload.y
-    }
-  },
+  initialState: { phase: "playing" },
+  onEvent: (event, payload, from) => { /* handle */ },
 });
+
+// Subscribe to state changes
+client.subscribe(() => {
+  const { players, sharedState, playerId, hostId } = client.getSnapshot();
+  // Re-render your game
+});
+
+// Update shared state (host only)
+if (client.isHost) {
+  client.updateSharedState({ score: 100 });
+}
+
+// Update your player state
+client.updateMyState({ x: player.x, y: player.y });
+
+// Send events
+client.sendEvent("shoot", { angle: 45 });
+
+// Read state directly (no subscription needed in game loops)
+const { players, sharedState } = client;
+
+// Clean up
+client.destroy();
 ```
 
-## Room metadata
+### Phaser example
 
-```tsx
-room.connectionStatus  // "connecting" | "connected" | "disconnected" | "error"
-room.playerId          // your unique ID
-room.hostId            // the host's ID
-room.players           // Record<string, Player> — all players with their state and color
+```ts
+class GameScene extends Phaser.Scene {
+  private client!: MultiplayerClient;
+
+  create() {
+    this.client = new MultiplayerClient({
+      host: "https://vibedgames-party.kyh.workers.dev",
+      party: "vg-server",
+      room: "phaser-room",
+    });
+  }
+
+  update() {
+    // Read other players
+    for (const [id, player] of Object.entries(this.client.players)) {
+      if (id === this.client.playerId) continue;
+      // Render player at player.state.x, player.state.y
+    }
+
+    // Send my position
+    this.client.updateMyState({ x: this.ship.x, y: this.ship.y });
+  }
+
+  destroy() {
+    this.client.destroy();
+  }
+}
 ```
 
 ## Architecture patterns
 
-### Host-authoritative (recommended for game objects)
+### Host-authoritative (recommended)
 
-The host runs simulation (physics, spawning, AI), broadcasts via `setGameState`. Other players render from shared state and send input via player state or events.
-
-```
-Host: spawn enemies → move them → broadcast positions
-All:  read enemy positions → render → detect local collisions → sendEvent("hit")
-Host: receive hit events → validate → update shared state
-```
-
-### Per-player ownership
-
-Each player controls their own state. Everyone renders all players. Good for: positions, cursors, drawing apps.
+Host runs simulation, broadcasts via `updateSharedState`. Others render and send input.
 
 ### Throttling
 
-Don't call `setMyState` every frame at 60fps. Throttle to ~20Hz:
+Don't send state every frame. ~20Hz is plenty:
 
-```tsx
-const frameCount = useRef(0);
-// In game loop:
-frameCount.current++;
-if (frameCount.current % 3 === 0) {
-  setMyState({ x, y, angle });
+```ts
+let frame = 0;
+function update() {
+  frame++;
+  if (frame % 3 === 0) {
+    client.updateMyState({ x, y });
+  }
 }
 ```
 
-## Multiplayer game loop pattern
-
-For 60fps games, use refs instead of React state to avoid re-renders:
-
-```tsx
-const shipRef = useRef(null);
-const mouseRef = useRef({ x: 0, y: 0 });
-
-useEffect(() => {
-  const interval = setInterval(() => {
-    // Update game state from refs (no React re-renders)
-    // Throttle network sends to every 3rd frame
-  }, 1000 / 60);
-  return () => clearInterval(interval);
-}, []);
-```
-
-## Host migration
-
-When the host disconnects, the server automatically assigns a new host. The new host detects this via `useIsHost()` becoming `true` and picks up simulation from the last synced shared state.
-
 ## Deploy
-
-After adding multiplayer, deploy with:
 
 ```sh
 npx vibedgames deploy ./dist --slug my-game
 ```
 
-Your game will be live at `https://my-game.vibedgames.com` with multiplayer working out of the box — the party server is shared infrastructure.
+Live at `https://my-game.vibedgames.com` — party server is shared infrastructure.
