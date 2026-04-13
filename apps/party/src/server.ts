@@ -1,7 +1,7 @@
 import type { Connection } from "partyserver";
 import { routePartykitRequest, Server } from "partyserver";
 
-import type { ClientMessage, Player, PlayerMap, ServerMessage } from "@repo/multiplayer";
+import type { ClientMessage, Player, PlayerMap, ServerMessage } from "@vibedgames/multiplayer";
 import { getColorById } from "./color";
 
 type Env = {

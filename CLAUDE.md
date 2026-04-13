@@ -30,7 +30,7 @@ games/
 packages/
   api/         # tRPC routers (@repo/api)
   db/          # Drizzle schema + migrations (@repo/db)
-  multiplayer/ # Shared multiplayer logic (@repo/multiplayer)
+  multiplayer/ # Shared multiplayer logic (@vibedgames/multiplayer)
   ui/          # Shared UI components (@repo/ui)
 ```
 

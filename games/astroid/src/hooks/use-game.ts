@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useMultiplayerRoom } from "@repo/multiplayer";
-import { useIsHost } from "@repo/multiplayer";
+import { useMultiplayerRoom } from "@vibedgames/multiplayer";
+import { useIsHost } from "@vibedgames/multiplayer";
 
 import type {
   Asteroid,
@@ -53,7 +53,7 @@ import { segmentCircleIntersect, circleContains, randomWorldPoint } from "../gam
 import { render, renderMinimap } from "../game/renderer";
 import type { MinimapDot } from "../game/renderer";
 import { createStarField, updateStarField } from "../game/stars";
-import type { Player } from "@repo/multiplayer";
+import type { Player } from "@vibedgames/multiplayer";
 
 const HOST = "https://vibedgames-party.kyh.workers.dev";
 const PARTY = "vg-server";

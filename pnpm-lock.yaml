@@ -172,7 +172,7 @@ importers:
       '@repo/db':
         specifier: workspace:^
         version: link:../../packages/db
-      '@repo/multiplayer':
+      '@vibedgames/multiplayer':
         specifier: workspace:^
         version: link:../../packages/multiplayer
     devDependencies:
@@ -203,9 +203,6 @@ importers:
       '@repo/db':
         specifier: workspace:^
         version: link:../../packages/db
-      '@repo/multiplayer':
-        specifier: workspace:^
-        version: link:../../packages/multiplayer
       '@repo/ui':
         specifier: workspace:^
         version: link:../../packages/ui
@@ -230,6 +227,9 @@ importers:
       '@trpc/tanstack-react-query':
         specifier: 'catalog:'
         version: 11.16.0(@tanstack/react-query@5.97.0(react@19.2.4))(@trpc/client@11.16.0(@trpc/server@11.16.0(typescript@6.0.2))(typescript@6.0.2))(@trpc/server@11.16.0(typescript@6.0.2))(react@19.2.4)(typescript@6.0.2)
+      '@vibedgames/multiplayer':
+        specifier: workspace:^
+        version: link:../../packages/multiplayer
       better-auth:
         specifier: ^1.6.0
         version: 1.6.2(89d12e4c77ea2cd7d7a1390cf528787e)
@@ -303,7 +303,7 @@ importers:
 
   games/astroid:
     dependencies:
-      '@repo/multiplayer':
+      '@vibedgames/multiplayer':
         specifier: workspace:*
         version: link:../../packages/multiplayer
       react:
@@ -586,9 +586,6 @@ importers:
       partysocket:
         specifier: ^1.1.16
         version: 1.1.16(react@19.2.4)
-      react:
-        specifier: 'catalog:'
-        version: 19.2.4
     devDependencies:
       '@kyh/tsconfig':
         specifier: 'catalog:'
@@ -596,6 +593,9 @@ importers:
       '@types/react':
         specifier: 'catalog:'
         version: 19.2.14
+      react:
+        specifier: 'catalog:'
+        version: 19.2.4
       typescript:
         specifier: 'catalog:'
         version: 6.0.2

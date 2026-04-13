@@ -1,13 +1,19 @@
-# @repo/multiplayer
+# @vibedgames/multiplayer
 
-PlayroomKit-inspired multiplayer primitives for React. The API is intentionally small:
+Drop-in React hooks for multiplayer browser games. Connect to a [PartyServer](https://partykit.io)-compatible backend and sync state across players with a few lines of code.
 
-- `useMultiplayerRoom` to open a connection and read shared room data
-- `useMultiplayerState` for shared game/session state
-- `usePlayerState` for per-player state
-- `useIsHost` to determine who should own shared responsibilities
+## Install
 
-The hooks wrap the PartyKit-compatible server in `apps/party` and are meant to keep multiplayer logic predictable and easy to port between prototypes.
+```sh
+npm install @vibedgames/multiplayer
+```
+
+## Hooks
+
+- `useMultiplayerRoom` — connect to a room, read players and shared state
+- `useMultiplayerState` — sync shared game state (e.g. world, score)
+- `usePlayerState` — sync per-player state (e.g. position, health)
+- `useIsHost` — check if you're the host (first player)
 
 ## Quickstart
 
@@ -17,69 +23,81 @@ import {
   usePlayerState,
   useMultiplayerState,
   useIsHost,
-} from "@repo/multiplayer";
+} from "@vibedgames/multiplayer";
 
 const room = useMultiplayerRoom({
-  host: "https://server.workers.dev",
+  host: "https://your-party-server.workers.dev",
   party: "vg-server",
   room: "demo",
 });
+
 const [world, setWorld] = useMultiplayerState(room, { score: 0 });
-const [me, setMe] = usePlayerState(room, { position: { x: 0, y: 0 } });
+const [me, setMe] = usePlayerState(room, { x: 0, y: 0 });
 const isHost = useIsHost(room);
 ```
 
-### Shared state
+## Shared state
 
-`useMultiplayerState` synchronizes a single shared object across every participant. The host can seed initial values.
+Syncs a single object across all players. Host seeds initial values.
 
 ```tsx
-const room = useMultiplayerRoom({ host, party, room, initialState: { started: false } });
+const room = useMultiplayerRoom({
+  host, party, room,
+  initialState: { started: false },
+});
 const [game, setGame] = useMultiplayerState(room);
 
-const start = () => {
-  if (!isHost) return;
-  setGame({ started: true, startedAt: Date.now() });
-};
+// Only the host starts the game
+if (isHost) setGame({ started: true });
 ```
 
-### Player state
+## Player state
 
-`usePlayerState` keeps player-specific data (such as positions or selections) in sync.
+Per-player data visible to everyone.
 
 ```tsx
-const [player, setPlayer] = usePlayerState(room, { position: { x: 0, y: 0 } });
+const [player, setPlayer] = usePlayerState(room, { x: 0, y: 0 });
 
 useEffect(() => {
-  const handlePointerMove = (event: PointerEvent) => {
-    setPlayer({ position: { x: event.clientX, y: event.clientY } });
+  const onMove = (e: PointerEvent) => {
+    setPlayer({ x: e.clientX, y: e.clientY });
   };
-
-  window.addEventListener("pointermove", handlePointerMove);
-  return () => window.removeEventListener("pointermove", handlePointerMove);
+  window.addEventListener("pointermove", onMove);
+  return () => window.removeEventListener("pointermove", onMove);
 }, [setPlayer]);
 ```
 
-### Room metadata
+## Events
 
-`useMultiplayerRoom` exposes the current players, your `playerId`, and connection status:
+Fire-and-forget messages to all players.
 
 ```tsx
-const room = useMultiplayerRoom({ host, party, room });
-const isConnected = room.connectionStatus === "connected";
-const players = Object.values(room.players);
+room.sendEvent("explosion", { x: 100, y: 200 });
 ```
 
-## Server notes
+Handle with `onEvent` in config:
 
-The Party server now only handles three concepts:
+```tsx
+const room = useMultiplayerRoom({
+  host, party, room,
+  onEvent: (event, payload, from) => {
+    console.log(`${from} sent ${event}`, payload);
+  },
+});
+```
 
-- Shared state patches
-- Player state patches
-- Generic events
+## Room metadata
 
-Hosting responsibilities (like seeding initial state) can be decided client-side with `useIsHost`.
+```tsx
+const isConnected = room.connectionStatus === "connected";
+const players = Object.values(room.players);
+const myId = room.playerId;
+```
 
-## Examples
+## Server
 
-- `apps/astroid` demonstrates cursor/ship syncing using `usePlayerState` for positions and `useMultiplayerState` for any shared session data.
+Works with any [PartyServer](https://partykit.io)-compatible backend. The vibedgames party server handles shared state, player state, events, and host assignment generically.
+
+## License
+
+MIT

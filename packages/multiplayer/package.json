@@ -1,28 +1,48 @@
 {
-  "name": "@repo/multiplayer",
-  "version": "0.1.0",
-  "private": true,
+  "name": "@vibedgames/multiplayer",
+  "version": "0.0.1",
+  "description": "Drop-in React hooks for multiplayer browser games",
+  "private": false,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./server": "./src/server.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "clean": "rm -rf .cache .turbo dist node_modules",
-    "dev": "tsc",
-    "typecheck": "tsc --noEmit --emitDeclarationOnly false"
+    "dev": "tsc -p tsconfig.build.json --watch",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "partysocket": "^1.1.16",
-    "react": "catalog:"
+    "partysocket": "^1.1.16"
+  },
+  "peerDependencies": {
+    "react": ">=18"
   },
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
     "@types/react": "catalog:",
+    "react": "catalog:",
     "typescript": "catalog:"
   },
-  "peerDependencies": {
-    "react": "catalog:"
+  "keywords": [
+    "multiplayer",
+    "react",
+    "hooks",
+    "gamedev",
+    "websocket",
+    "partykit"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kyh/vibedgames",
+    "directory": "packages/multiplayer"
   }
 }

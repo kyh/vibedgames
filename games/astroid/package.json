@@ -10,7 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@repo/multiplayer": "workspace:*",
+    "@vibedgames/multiplayer": "workspace:*",
     "react": "catalog:",
     "react-dom": "catalog:"
   },

@@ -19,7 +19,7 @@
     "@hookform/resolvers": "^5.2.2",
     "@repo/api": "workspace:^",
     "@repo/db": "workspace:^",
-    "@repo/multiplayer": "workspace:^",
+    "@vibedgames/multiplayer": "workspace:^",
     "@repo/ui": "workspace:^",
     "@tanstack/react-query": "catalog:",
     "@tanstack/react-router": "catalog:",
