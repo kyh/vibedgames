@@ -135,6 +135,17 @@ export const segmentCircleIntersect = (
   return distSq <= radius * radius;
 };
 
+/** Clamp a point to world bounds */
+export const clampPoint = (p: Point): Point => ({
+  x: Math.max(0, Math.min(WORLD_WIDTH, p.x)),
+  y: Math.max(0, Math.min(WORLD_HEIGHT, p.y)),
+});
+
+/** Check if a point is inside the world (with optional margin) */
+export const inWorld = (p: Point, margin = 0): boolean =>
+  p.x >= -margin && p.x <= WORLD_WIDTH + margin &&
+  p.y >= -margin && p.y <= WORLD_HEIGHT + margin;
+
 /** Generate a random point in the world */
 export const randomWorldPoint = (): Point => ({
   x: randUniform(WORLD_WIDTH),

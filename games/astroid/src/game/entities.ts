@@ -31,15 +31,14 @@ import {
   TWO_PI,
   add,
   angle,
+  clampPoint,
+  inWorld,
   length,
   normalize,
   polar,
   randInt,
   randUniform,
   sub,
-  wrap,
-  wrapPoint,
-  wrapSub,
 } from "./math";
 
 // ---------------------------------------------------------------------------
@@ -73,14 +72,15 @@ export function createShip(x: number, y: number): Ship {
 }
 
 export function updateShip(ship: Ship, target: Point): Ship {
-  const v = wrapSub(ship.position, target);
+  const v = sub(target, ship.position);
   const vlen = length(v);
   const newAngle = angle(v);
   const velocity = vlen > SHIP_SPEED ? normalize(v, SHIP_SPEED) : v;
 
   let newPosition = ship.position;
   if (vlen > ship.size + 10) {
-    newPosition = wrapPoint(add(ship.position, velocity));
+    const raw = add(ship.position, velocity);
+    newPosition = clampPoint(raw);
   }
 
   // Rotate path points
@@ -178,11 +178,13 @@ export function spawnAsteroid(): Asteroid {
   return createAsteroid(x, y, radius, ang);
 }
 
-export function updateAsteroid(a: Asteroid): Asteroid {
+export function updateAsteroid(a: Asteroid): Asteroid & { outOfBounds: boolean } {
+  const newPos = add(a.position, a.velocity);
   return {
     ...a,
-    position: wrapPoint(add(a.position, a.velocity)),
+    position: newPos,
     rotation: a.rotation + 0.005,
+    outOfBounds: !inWorld(newPos, ASTEROID_MAX_SIZE + 20),
   };
 }
 
@@ -384,7 +386,7 @@ export function updateUFO(u: UFO): UFO {
     vel = v;
   }
 
-  const newPos = wrapPoint(add(u.position, vel));
+  const newPos = add(u.position, vel);
   const newPath = buildUFOPath(newPos);
   const blink = Math.max(0, u.damageBlink - 1);
 
@@ -448,7 +450,7 @@ export function createItem(x: number, y: number): Item {
 }
 
 export function updateItem(item: Item): Item {
-  const newPos = wrapPoint(add(item.position, item.velocity));
+  const newPos = add(item.position, item.velocity);
   const d = TWO_PI / 6;
   const path = Array.from({ length: 6 }, (_, i) =>
     add(newPos, polar(10, d * i)),

@@ -9,7 +9,7 @@ import type {
   UFO,
   SerializedBeam,
 } from "./types";
-import { WORLD_WIDTH, WORLD_HEIGHT, MINIMAP_SIZE } from "./constants";
+import { WORLD_WIDTH, WORLD_HEIGHT } from "./constants";
 import {
   drawShip,
   drawAsteroid,
@@ -59,15 +59,12 @@ export function render(
   ctx.fillStyle = "rgb(255, 255, 255)";
   ctx.lineWidth = 1;
 
-  // Draw world boundary (faint grid)
-  drawWorldBorder(ctx);
-
   // Asteroids
   ctx.beginPath();
   ctx.strokeStyle = "rgb(255, 255, 255)";
   ctx.lineWidth = 1;
   for (const a of state.asteroids) {
-    drawWithWrap(ctx, a.position, () => drawAsteroid(ctx, a));
+    drawAsteroid(ctx, a);
   }
   ctx.stroke();
 
@@ -75,12 +72,12 @@ export function render(
   if (state.ufo) {
     ctx.strokeStyle = "rgb(255, 255, 255)";
     ctx.lineWidth = 1;
-    drawWithWrap(ctx, state.ufo.position, () => drawUFO(ctx, state.ufo!));
+    drawUFO(ctx, state.ufo);
   }
 
   // Items
   for (const item of state.items) {
-    drawWithWrap(ctx, item.position, () => drawItem(ctx, item));
+    drawItem(ctx, item);
   }
 
   // Other players
@@ -119,33 +116,6 @@ export function render(
   drawSplinters(ctx, state.splinters);
 
   ctx.restore();
-}
-
-/** Draw a faint border around the world so players can see the wrap boundary */
-function drawWorldBorder(ctx: CanvasRenderingContext2D) {
-  ctx.save();
-  ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
-  ctx.lineWidth = 1;
-  ctx.strokeRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
-  ctx.restore();
-}
-
-/**
- * For wrap-aware rendering: if an object is near a world edge,
- * draw it at the wrapped position too. For simplicity, we just
- * draw at the primary position — the camera transform handles the rest
- * since the viewport is smaller than the world.
- */
-function drawWithWrap(
-  _ctx: CanvasRenderingContext2D,
-  _position: Point,
-  drawFn: () => void,
-) {
-  // For now, just draw at primary position.
-  // With a follow camera on a 1920x1080 world and typical viewports,
-  // objects near edges will be visible. Full wrap rendering can be
-  // added later if needed.
-  drawFn();
 }
 
 // ---------------------------------------------------------------------------

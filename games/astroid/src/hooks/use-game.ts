@@ -540,8 +540,8 @@ export function useGame(
       changed = true;
     }
 
-    // Update asteroids
-    asteroids = asteroids.map(updateAsteroid);
+    // Update asteroids, remove out-of-bounds
+    asteroids = asteroids.map(updateAsteroid).filter((a) => !a.outOfBounds);
 
     // UFO spawn
     if (!ufo && items.length === 0 && Math.random() < UFO_SPAWN_CHANCE) {
