@@ -1,42 +1,66 @@
 # Vibedgames
 
-Vibedgames is an open source Lovable for multiplayer web games.
+Infrastructure for vibe coding multiplayer browser games. Deploy games to `{slug}.vibedgames.com`, add multiplayer with a few React hooks, and generate assets with AI skills.
 
-## Stack
+## What's in the box
 
-- [Next.js](https://nextjs.org)
-- [Expo](https://expo.dev)
-- [Tailwind CSS](https://tailwindcss.com)
-- [TRPC](https://trpc.io)
-- [Drizzle](https://orm.drizzle.team)
-- [Turso](https://turso.tech)
+| | |
+|---|---|
+| **Deployment platform** | `vg deploy` ships static games to Cloudflare R2, served from `{slug}.vibedgames.com` |
+| **Multiplayer hooks** | `useMultiplayerRoom`, `usePlayerState`, `useMultiplayerState` — drop-in React hooks backed by Durable Objects |
+| **AI skills** | Claude Code skills for asset generation, game design, and more |
+| **Example games** | Asteroids, Flappy Bird, Pac-Man, Tetris, Pong |
 
-## Running Locally
+## Structure
 
-1. Install dependencies using pnpm:
+```
+apps/
+  web/           Next.js web app — game hub, auth, dashboard
+  party/         PartyServer — real-time multiplayer backend
+  games/         Cloudflare Worker — serves deployed games from R2
+  cli/           CLI tool (vg) — login, deploy, manage games
+games/
+  astroid/       Multiplayer Asteroids with PvP
+  flappy-bird/   Flappy Bird
+  pacman/        Pac-Man
+  tetris/        Tetris
+  pong/          Motion-controlled Pong
+packages/
+  api/           tRPC routers + better-auth
+  db/            Drizzle ORM schema + Turso/D1
+  multiplayer/   React hooks for multiplayer
+  ui/            Shared UI components (Radix + Tailwind)
+```
+
+## Getting started
 
 ```sh
 pnpm install
-```
-
-1. Copy `.env.example` to `.env.local` and update the variables.
-
-```sh
-cp .env.example .env.local
-```
-
-1. Start your local db:
-
-```sh
-pnpm db:start
-```
-
-1. Start the development server:
-
-```sh
+cp .env.example .env
 pnpm dev
+```
+
+## Common commands
+
+```sh
+pnpm dev              # all services
+pnpm dev-web          # web app only
+pnpm dev-party        # multiplayer server only
+pnpm dev-astroid      # asteroids game
+pnpm build            # build everything
+pnpm typecheck        # type check all packages
+pnpm db-push          # push schema to local D1
+pnpm db-push-remote   # push schema to production
+```
+
+## Deploy a game
+
+```sh
+npx vibedgames login
+npx vibedgames deploy ./dist --slug my-game
+# → https://my-game.vibedgames.com
 ```
 
 ## License
 
-Licensed under the [MIT license](https://github.com/kyh/vibedgames/blob/main/LICENSE).
+[MIT](https://github.com/kyh/vibedgames/blob/main/LICENSE)
