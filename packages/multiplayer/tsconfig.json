@@ -1,9 +1,16 @@
 {
-  "extends": "@kyh/tsconfig/internal-package.json",
+  "extends": "@kyh/tsconfig/base.json",
   "compilerOptions": {
     "lib": ["ES2023", "dom", "dom.iterable"],
     "jsx": "react-jsx",
-    "rootDir": "."
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "rootDir": "src",
+    "outDir": "dist",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "noEmit": false
   },
   "include": ["src"],
   "exclude": ["node_modules", "dist"]

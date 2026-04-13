@@ -5,22 +5,28 @@
   "private": false,
   "type": "module",
   "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    },
-    "./react": {
-      "types": "./dist/react.d.ts",
-      "default": "./dist/react.js"
+    ".": "./src/index.ts",
+    "./react": "./src/react.ts"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./react": {
+        "types": "./dist/react.d.ts",
+        "default": "./dist/react.js"
+      }
     }
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc",
     "clean": "rm -rf .cache .turbo dist node_modules",
-    "dev": "tsc -p tsconfig.build.json --watch",
+    "dev": "tsc --watch",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
