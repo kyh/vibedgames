@@ -1,5 +1,4 @@
 import { useRef } from "react";
-import { Background } from "./background";
 import { useGame } from "./hooks/use-game";
 import { MINIMAP_SIZE, WORLD_HEIGHT, WORLD_WIDTH } from "./game/constants";
 
@@ -14,7 +13,6 @@ const App = () => {
   return (
     <section className="app-container">
       <canvas ref={canvasRef} className="game-canvas" />
-      <Background />
 
       {/* HUD */}
       <div className="hud">

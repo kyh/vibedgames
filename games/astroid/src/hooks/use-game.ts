@@ -52,6 +52,7 @@ import {
 import { segmentCircleIntersect, circleContains, randomWorldPoint } from "../game/math";
 import { render, renderMinimap } from "../game/renderer";
 import type { MinimapDot } from "../game/renderer";
+import { createStarField, updateStarField } from "../game/stars";
 import type { Player } from "@repo/multiplayer";
 
 const HOST = "https://vibedgames-party.kyh.workers.dev";
@@ -127,6 +128,7 @@ export function useGame(
   const weaponSetTimeRef = useRef(0);
   const canShootRef = useRef(true);
   const frameCountRef = useRef(0);
+  const starFieldRef = useRef(createStarField());
   const lastAsteroidSpawnRef = useRef(0);
   const isHostRef = useRef(false);
   const aliveRef = useRef(true);
@@ -384,6 +386,9 @@ export function useGame(
         .map(updateSplinter)
         .filter((s) => !isSplinterDone(s));
 
+      // ---- Update stars ----
+      updateStarField(starFieldRef.current);
+
       // ---- Network broadcast (throttled) ----
       if (frameCountRef.current % NETWORK_FRAME_SKIP === 0) {
         const myState: PlayerGameState = {
@@ -428,6 +433,7 @@ export function useGame(
         ufo: shared.ufo,
         items: shared.items,
         splinters: splintersRef.current,
+        starField: starFieldRef.current,
       });
 
       // ---- Minimap ----

@@ -18,6 +18,8 @@ import {
   drawItem,
   drawSplinters,
 } from "./entities";
+import type { StarField } from "./stars";
+import { drawStarField } from "./stars";
 
 type RenderState = {
   camera: Camera;
@@ -37,6 +39,7 @@ type RenderState = {
   ufo: UFO | null;
   items: Item[];
   splinters: Splinter[];
+  starField: StarField;
 };
 
 /**
@@ -58,6 +61,9 @@ export function render(
   ctx.strokeStyle = "rgb(255, 255, 255)";
   ctx.fillStyle = "rgb(255, 255, 255)";
   ctx.lineWidth = 1;
+
+  // Stars (behind everything)
+  drawStarField(ctx, state.starField);
 
   // Asteroids
   ctx.beginPath();
