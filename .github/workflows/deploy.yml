@@ -41,7 +41,8 @@ jobs:
           fi
 
           for app in web party games; do
-            if pnpm turbo ls --filter="@repo/${app}...[${BASE}]" 2>/dev/null | grep -q "@repo/"; then
+            output=$(pnpm turbo ls --filter="@repo/${app}...[${BASE}]") || { echo "${app}=true" >> "$GITHUB_OUTPUT"; continue; }
+            if echo "$output" | grep -q "@repo/"; then
               echo "${app}=true" >> "$GITHUB_OUTPUT"
             else
               echo "${app}=false" >> "$GITHUB_OUTPUT"
