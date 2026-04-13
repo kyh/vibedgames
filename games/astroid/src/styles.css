@@ -25,6 +25,8 @@ body {
   width: 100vw;
   height: 100vh;
   background-color: #020617;
+  background-image: url("https://zmdrwswxugswzmcokvff.supabase.co/storage/v1/object/public/vibedgames/bg.png");
+  background-size: 10px 10px;
   overflow: hidden;
 }
 
