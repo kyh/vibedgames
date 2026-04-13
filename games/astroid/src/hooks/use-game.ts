@@ -120,7 +120,7 @@ export function useGame(
   const shipRef = useRef<Ship | null>(null);
   const beamsRef = useRef<Beam[]>([]);
   const splintersRef = useRef<Splinter[]>([]);
-  const mouseRef = useRef<Point>({ x: WORLD_WIDTH / 2, y: WORLD_HEIGHT / 2 });
+  const mouseScreenRef = useRef<Point>({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
   const mouseDownRef = useRef(false);
   const cameraRef = useRef<Camera>({ x: 0, y: 0 });
   const scoreRef = useRef(0);
@@ -169,7 +169,6 @@ export function useGame(
     if (room.connectionStatus === "connected" && !shipRef.current && room.playerId) {
       const pos = randomWorldPoint();
       shipRef.current = createShip(pos.x, pos.y);
-      mouseRef.current = { ...pos };
       cameraRef.current = {
         x: pos.x - window.innerWidth / 2,
         y: pos.y - window.innerHeight / 2,
@@ -180,11 +179,7 @@ export function useGame(
   // --- Input handlers ---
   useEffect(() => {
     const handlePointerMove = (e: PointerEvent) => {
-      // Convert screen coords to world coords via camera
-      mouseRef.current = {
-        x: e.clientX + cameraRef.current.x,
-        y: e.clientY + cameraRef.current.y,
-      };
+      mouseScreenRef.current = { x: e.clientX, y: e.clientY };
     };
     const handleDown = () => { mouseDownRef.current = true; };
     const handleUp = () => { mouseDownRef.current = false; };
@@ -220,7 +215,6 @@ export function useGame(
       if (!aliveRef.current && respawnAtRef.current > 0 && now >= respawnAtRef.current) {
         const pos = randomWorldPoint();
         shipRef.current = createShip(pos.x, pos.y);
-        mouseRef.current = { ...pos };
         aliveRef.current = true;
         invulnerableRef.current = true;
         invulnerableUntilRef.current = now + INVULNERABLE_MS;
@@ -239,7 +233,12 @@ export function useGame(
 
       // ---- Update my ship ----
       if (shipRef.current && aliveRef.current) {
-        shipRef.current = updateShip(shipRef.current, mouseRef.current);
+        // Convert screen mouse to world coords each frame (camera moves)
+        const mouseWorld = {
+          x: mouseScreenRef.current.x + cameraRef.current.x,
+          y: mouseScreenRef.current.y + cameraRef.current.y,
+        };
+        shipRef.current = updateShip(shipRef.current, mouseWorld);
 
         // Camera follows ship
         cameraRef.current = {

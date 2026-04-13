@@ -75,12 +75,13 @@ export function updateShip(ship: Ship, target: Point): Ship {
   const v = sub(target, ship.position);
   const vlen = length(v);
   const newAngle = angle(v);
-  const velocity = vlen > SHIP_SPEED ? normalize(v, SHIP_SPEED) : v;
 
+  // Always move in the direction of the mouse at full speed
+  // Only stop if mouse is very close (dead zone)
   let newPosition = ship.position;
-  if (vlen > ship.size + 10) {
-    const raw = add(ship.position, velocity);
-    newPosition = clampPoint(raw);
+  if (vlen > ship.size) {
+    const velocity = normalize(v, SHIP_SPEED);
+    newPosition = clampPoint(add(ship.position, velocity));
   }
 
   // Rotate path points
@@ -159,12 +160,22 @@ export function createAsteroid(
   };
 }
 
-const SPAWN_MARGIN = 300; // keep away from world edges
-
 export function spawnAsteroid(): Asteroid {
-  const x = randUniform(WORLD_WIDTH - SPAWN_MARGIN * 2, SPAWN_MARGIN);
-  const y = randUniform(WORLD_HEIGHT - SPAWN_MARGIN * 2, SPAWN_MARGIN);
-  const ang = randUniform(TWO_PI);
+  const side = randInt(3);
+  let x: number, y: number;
+  let ang = randUniform(PI * 0.5);
+
+  // Spawn from outside edges, flying inward
+  if (side <= 1) {
+    y = randUniform(WORLD_HEIGHT + ASTEROID_MAX_SIZE, -ASTEROID_MAX_SIZE);
+    x = side === 0 ? -ASTEROID_MAX_SIZE : WORLD_WIDTH + ASTEROID_MAX_SIZE;
+    ang = side === 0 ? ang - PI * 0.25 : ang + PI * 0.75;
+  } else {
+    x = randUniform(WORLD_WIDTH + ASTEROID_MAX_SIZE, -ASTEROID_MAX_SIZE);
+    y = side === 2 ? -ASTEROID_MAX_SIZE : WORLD_HEIGHT + ASTEROID_MAX_SIZE;
+    ang = side === 2 ? ang + PI * 0.25 : ang - PI * 0.75;
+  }
+
   const radius = randUniform(ASTEROID_MAX_SIZE, ASTEROID_MIN_SIZE);
   return createAsteroid(x, y, radius, ang);
 }
