@@ -57,6 +57,7 @@ export const loginCommand = defineCommand({
             if (returnedState !== state) {
               res.writeHead(400, { "Content-Type": "text/html" });
               res.end("<h1>Authentication failed</h1><p>Invalid state parameter. Please try again.</p>");
+              server.close();
               resolve(null);
               return;
             }
@@ -64,12 +65,14 @@ export const loginCommand = defineCommand({
             if (!token) {
               res.writeHead(400, { "Content-Type": "text/html" });
               res.end("<h1>Authentication failed</h1><p>No token received. Please try again.</p>");
+              server.close();
               resolve(null);
               return;
             }
 
             res.writeHead(200, { "Content-Type": "text/html" });
             res.end("<h1>Authenticated!</h1><p>You can close this window and return to the CLI.</p>");
+            server.close();
             resolve({ token });
             return;
           }
