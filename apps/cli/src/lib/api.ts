@@ -5,6 +5,7 @@ import superjson from "superjson";
 
 import { getBaseUrl, getToken } from "./config.js";
 
+/** Authenticated client — requires a saved session token. */
 export function createClient(): TRPCClient<AppRouter> {
   const token = getToken();
 
@@ -20,6 +21,18 @@ export function createClient(): TRPCClient<AppRouter> {
         headers: () => ({
           Cookie: `better-auth.session_token=${token}`,
         }),
+      }),
+    ],
+  });
+}
+
+/** Unauthenticated client — for login flow. */
+export function createPublicClient(baseUrl: string): TRPCClient<AppRouter> {
+  return createTRPCClient<AppRouter>({
+    links: [
+      httpBatchLink({
+        url: `${baseUrl}/api/trpc`,
+        transformer: superjson,
       }),
     ],
   });

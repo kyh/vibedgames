@@ -1,12 +1,12 @@
-import { createServer } from "node:http";
-import { randomBytes } from "node:crypto";
 import { exec } from "node:child_process";
 import { defineCommand } from "citty";
 import consola from "consola";
 
+import { createPublicClient } from "../lib/api.js";
 import { getBaseUrl, saveConfig } from "../lib/config.js";
 
-const LOGIN_TIMEOUT_MS = 120_000;
+const POLL_INTERVAL_MS = 2_000;
+const MAX_POLLS = 150; // 5 min at 2s intervals
 
 function openBrowser(url: string): void {
   const cmd =
@@ -18,19 +18,8 @@ function openBrowser(url: string): void {
   exec(`${cmd} "${url}"`);
 }
 
-function findOpenPort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const server = createServer();
-    server.listen(0, () => {
-      const addr = server.address();
-      if (addr && typeof addr === "object") {
-        const port = addr.port;
-        server.close(() => resolve(port));
-      } else {
-        reject(new Error("Failed to find open port"));
-      }
-    });
-  });
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export const loginCommand = defineCommand({
@@ -40,68 +29,36 @@ export const loginCommand = defineCommand({
   },
   run: async () => {
     const baseUrl = getBaseUrl();
-    const state = randomBytes(16).toString("hex");
-    const port = await findOpenPort();
+    const client = createPublicClient(baseUrl);
 
-    consola.start("Waiting for authentication...");
+    const { code } = await client.cliAuth.create.mutate();
 
-    const result = await new Promise<{ token: string } | null>(
-      (resolve) => {
-        const server = createServer((req, res) => {
-          const url = new URL(req.url ?? "/", `http://localhost:${port}`);
+    consola.box(`Code: ${code}`);
+    consola.info("Opening browser to complete authentication...");
 
-          if (url.pathname === "/callback") {
-            const token = url.searchParams.get("token");
-            const returnedState = url.searchParams.get("state");
+    const authUrl = `${baseUrl}/auth/cli?code=${code}`;
+    openBrowser(authUrl);
 
-            if (returnedState !== state) {
-              res.writeHead(400, { "Content-Type": "text/html" });
-              res.end("<h1>Authentication failed</h1><p>Invalid state parameter. Please try again.</p>");
-              server.close();
-              resolve(null);
-              return;
-            }
+    consola.start("Waiting for confirmation...");
 
-            if (!token) {
-              res.writeHead(400, { "Content-Type": "text/html" });
-              res.end("<h1>Authentication failed</h1><p>No token received. Please try again.</p>");
-              server.close();
-              resolve(null);
-              return;
-            }
+    for (let i = 0; i < MAX_POLLS; i++) {
+      await sleep(POLL_INTERVAL_MS);
 
-            res.writeHead(200, { "Content-Type": "text/html" });
-            res.end("<h1>Authenticated!</h1><p>You can close this window and return to the CLI.</p>");
-            server.close();
-            resolve({ token });
-            return;
-          }
+      const result = await client.cliAuth.poll.query({ code });
 
-          res.writeHead(404);
-          res.end();
-        });
+      if (result.status === "confirmed") {
+        saveConfig({ token: result.token, baseUrl });
+        consola.success("Logged in successfully");
+        return;
+      }
 
-        server.listen(port, () => {
-          const authUrl = `${baseUrl}/auth/cli?port=${port}&state=${state}`;
-          consola.info(`Opening browser to: ${authUrl}`);
-          openBrowser(authUrl);
-        });
-
-        const timeout = setTimeout(() => {
-          server.close();
-          resolve(null);
-        }, LOGIN_TIMEOUT_MS);
-
-        server.on("close", () => clearTimeout(timeout));
-      },
-    );
-
-    if (!result) {
-      consola.error("Authentication timed out or failed");
-      process.exit(1);
+      if (result.status === "expired") {
+        consola.error("Code expired. Run `vg login` to try again.");
+        process.exit(1);
+      }
     }
 
-    saveConfig({ token: result.token, baseUrl });
-    consola.success("Logged in successfully");
+    consola.error("Timed out waiting for confirmation.");
+    process.exit(1);
   },
 });

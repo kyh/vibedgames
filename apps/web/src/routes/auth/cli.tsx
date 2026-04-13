@@ -3,23 +3,18 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 
-import { makeSignature } from "better-auth/crypto";
-
 import { getServerContext } from "@/auth/server";
-import { CliAuthRedirect } from "@/components/auth/cli-auth-redirect";
+import { CliAuthConfirm } from "@/components/auth/cli-auth-confirm";
 
-// TanStack Router auto-parses numeric query strings to numbers, so accept
-// both shapes and coerce to string.
 const cliSearchSchema = z.object({
-  port: z.coerce.string().optional(),
-  state: z.coerce.string().optional(),
+  code: z.string().optional(),
 });
 
 const fetchCliAuth = createServerFn({ method: "GET" })
   .inputValidator(cliSearchSchema)
-  .handler(async ({ data: { port, state } }) => {
-    if (!port || !state) {
-      return { error: "missing-params" as const };
+  .handler(async ({ data: { code } }) => {
+    if (!code) {
+      return { error: "missing-code" as const };
     }
 
     const { auth } = getServerContext();
@@ -30,19 +25,14 @@ const fetchCliAuth = createServerFn({ method: "GET" })
       throw redirect({
         to: "/auth/login",
         search: {
-          callbackUrl: `/auth/cli?port=${port}&state=${state}`,
+          callbackUrl: `/auth/cli?code=${code}`,
         },
       });
     }
 
-    const sig = await makeSignature(session.session.token, auth.options.secret);
-    const signedToken = `${session.session.token}.${sig}`;
-
     return {
       error: undefined,
-      port,
-      state,
-      token: signedToken,
+      code,
       userName: session.user.name,
     };
   });
@@ -50,7 +40,7 @@ const fetchCliAuth = createServerFn({ method: "GET" })
 export const Route = createFileRoute("/auth/cli")({
   head: () => ({ meta: [{ title: "Authorize CLI" }] }),
   validateSearch: cliSearchSchema,
-  loaderDeps: ({ search }) => ({ port: search.port, state: search.state }),
+  loaderDeps: ({ search }) => ({ code: search.code }),
   loader: ({ deps }) => fetchCliAuth({ data: deps }),
   component: CliAuthPage,
 });
@@ -58,13 +48,13 @@ export const Route = createFileRoute("/auth/cli")({
 function CliAuthPage() {
   const data = Route.useLoaderData();
 
-  if (data.error === "missing-params") {
+  if (data.error === "missing-code") {
     return (
       <div className="mx-auto flex w-full flex-col justify-center space-y-6 sm:w-[350px]">
         <div className="text-center">
           <h1 className="text-lg font-light">Invalid request</h1>
           <p className="text-muted-foreground text-sm">
-            Missing required parameters.
+            Missing authorization code. Run <code>vg login</code> to start.
           </p>
         </div>
       </div>
@@ -73,12 +63,7 @@ function CliAuthPage() {
 
   return (
     <div className="mx-auto flex w-full flex-col justify-center space-y-6 sm:w-[350px]">
-      <CliAuthRedirect
-        port={data.port}
-        state={data.state}
-        token={data.token}
-        userName={data.userName}
-      />
+      <CliAuthConfirm code={data.code} userName={data.userName} />
     </div>
   );
 }
