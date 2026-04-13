@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
-import { getCookie, getRequestHeaders } from "@tanstack/react-start/server";
+import { getRequestHeaders } from "@tanstack/react-start/server";
 
 import { getServerContext } from "@/auth/server";
 import { CliAuthRedirect } from "@/components/auth/cli-auth-redirect";
@@ -33,16 +33,11 @@ const fetchCliAuth = createServerFn({ method: "GET" })
       });
     }
 
-    const token = getCookie("better-auth.session_token");
-    if (!token) {
-      return { error: "no-session" as const };
-    }
-
     return {
       error: undefined,
       port,
       state,
-      token,
+      token: session.session.token,
       userName: session.user.name,
     };
   });
@@ -65,19 +60,6 @@ function CliAuthPage() {
           <h1 className="text-lg font-light">Invalid request</h1>
           <p className="text-muted-foreground text-sm">
             Missing required parameters.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (data.error === "no-session") {
-    return (
-      <div className="mx-auto flex w-full flex-col justify-center space-y-6 sm:w-[350px]">
-        <div className="text-center">
-          <h1 className="text-lg font-light">Session error</h1>
-          <p className="text-muted-foreground text-sm">
-            Could not read session. Please try again.
           </p>
         </div>
       </div>
