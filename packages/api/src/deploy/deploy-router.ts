@@ -180,7 +180,11 @@ export const deployRouter = createTRPCRouter({
         sha256: f.sha256,
         r2Key: `games/${gameId}/${deploymentId}/${f.path}`,
       }));
-      await ctx.db.insert(deploymentFile).values(fileRows);
+      // D1 has a max SQL statement size — batch inserts in chunks
+      const BATCH_SIZE = 10;
+      for (let i = 0; i < fileRows.length; i += BATCH_SIZE) {
+        await ctx.db.insert(deploymentFile).values(fileRows.slice(i, i + BATCH_SIZE));
+      }
 
       // ---- Mint presigned URLs -----------------------------------------------
       const uploads = await Promise.all(
