@@ -457,11 +457,6 @@ export function useGame(
 
   // ---- Helper: die ----
   function die(now: number) {
-    aliveRef.current = false;
-    invulnerableRef.current = false;
-    respawnAtRef.current = now + RESPAWN_DELAY_MS;
-    setAlive(false);
-
     if (shipRef.current) {
       splintersRef.current.push(
         createSplinter(
@@ -472,6 +467,13 @@ export function useGame(
         ),
       );
     }
+
+    aliveRef.current = false;
+    invulnerableRef.current = false;
+    respawnAtRef.current = now + RESPAWN_DELAY_MS;
+    shipRef.current = null;
+    beamsRef.current = [];
+    setAlive(false);
   }
 
   // ---- HOST tick ----
