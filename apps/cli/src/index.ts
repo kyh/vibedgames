@@ -4,6 +4,7 @@ import { defineCommand, runMain } from "citty";
 import { deployCommand } from "./commands/deploy.js";
 import { loginCommand } from "./commands/login.js";
 import { logoutCommand } from "./commands/logout.js";
+import { skillsCommand } from "./commands/skills.js";
 import { whoamiCommand } from "./commands/whoami.js";
 
 const main = defineCommand({
@@ -16,6 +17,7 @@ const main = defineCommand({
     login: loginCommand,
     logout: logoutCommand,
     deploy: deployCommand,
+    skills: skillsCommand,
     whoami: whoamiCommand,
   },
 });
