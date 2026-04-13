@@ -12,7 +12,6 @@ import { createTRPCContext as createReactTRPCContext } from "@trpc/tanstack-reac
 import SuperJSON from "superjson";
 
 import { getServerContext } from "@/auth/server";
-import { getBaseUrl } from "@/lib/url";
 
 export const makeTRPCClient = createIsomorphicFn()
   .server(() => {
@@ -49,7 +48,7 @@ export const makeTRPCClient = createIsomorphicFn()
         }),
         httpBatchStreamLink({
           transformer: SuperJSON,
-          url: getBaseUrl() + "/api/trpc",
+          url: "/api/trpc",
           headers() {
             const headers = new Headers();
             headers.set("x-trpc-source", "tanstack-start-client");

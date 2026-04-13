@@ -17,7 +17,6 @@
     "@better-auth/expo": "^1.6.0",
     "@repo/db": "workspace:^",
     "@trpc/server": "catalog:",
-    "ai": "^6.0.153",
     "aws4fetch": "^1.0.20",
     "better-auth": "^1.6.0",
     "superjson": "catalog:",
