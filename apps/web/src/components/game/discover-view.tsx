@@ -1,10 +1,10 @@
+import { useNavigate } from "@tanstack/react-router";
 import { motion } from "motion/react";
 
 import { featuredGames } from "./data";
-import { useUiStore } from "./ui-store";
 
 export const DiscoverView = () => {
-  const { setView, setGameId } = useUiStore();
+  const navigate = useNavigate({ from: "/" });
 
   return (
     <motion.div
@@ -17,12 +17,10 @@ export const DiscoverView = () => {
         <button
           key={game.url}
           onMouseEnter={() => {
-            setGameId(game.url);
-            setView("discover");
+            navigate({ search: { view: "discover", game: game.url } });
           }}
           onClick={() => {
-            setGameId(game.url);
-            setView("play");
+            navigate({ search: { view: "play", game: game.url } });
           }}
           className="hover:border-foreground relative aspect-video w-30 shrink-0 overflow-clip rounded-lg border border-transparent transition-colors"
         >

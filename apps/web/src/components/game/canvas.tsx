@@ -1,13 +1,14 @@
-
+import { useNavigate } from "@tanstack/react-router";
 import { motion } from "motion/react";
 
 import { GameStack } from "@/components/canvas/game-stack";
 import { Iframe } from "@/components/canvas/iframe";
+import { Route } from "@/routes/index";
 import { featuredGames } from "./data";
-import { useUiStore } from "./ui-store";
 
 export const Canvas = () => {
-  const { view, setView, setGameId, gameId } = useUiStore();
+  const { view, game } = Route.useSearch();
+  const navigate = useNavigate({ from: "/" });
   const shouldShowIframe = view !== "discover";
 
   return (
@@ -21,14 +22,14 @@ export const Canvas = () => {
         animate={shouldShowIframe ? "visible" : "hidden"}
         transition={{ duration: 0.2 }}
       >
-        <Iframe url={gameId} />
+        <Iframe url={game} />
       </motion.div>
       <GameStack
         data={featuredGames}
+        activeUrl={game}
         showStack={view === "discover"}
-        onPreviewClick={(game) => {
-          setGameId(game.url);
-          setView("play");
+        onPreviewClick={(g) => {
+          navigate({ search: { view: "play", game: g.url } });
         }}
       />
     </div>

@@ -2,7 +2,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 
-import { useUiStore } from "@/components/game/ui-store";
 
 // Animation constants
 const ANIMATION_DURATION = 0.6;
@@ -137,8 +136,8 @@ export const GameCard = ({
 
 type Props<T extends { preview: string; name: string; url?: string }> = {
   data: T[];
+  activeUrl?: string;
   showStack: boolean;
-  // Note: Next.js may warn about Server Actions, but this is a client component callback
   onPreviewClick?: (game: T) => void;
 };
 
@@ -163,14 +162,13 @@ const useIsMobile = () => {
 
 export const GameStack = <T extends { preview: string; name: string; url?: string }>({
   data,
+  activeUrl,
   showStack,
   onPreviewClick,
 }: Props<T>) => {
-  const { gameId } = useUiStore();
   const isMobile = useIsMobile();
 
-  // Find the index of the current gameId in the data array
-  const currentIndex = data.findIndex((item) => item.url === gameId);
+  const currentIndex = data.findIndex((item) => item.url === activeUrl);
 
   return (
     <section className="pointer-events-none relative h-full w-full perspective-[150vw]">

@@ -1,4 +1,4 @@
-
+import { useCallback, useRef, useState } from "react";
 import {
   InputGroup,
   InputGroupAddon,
@@ -9,13 +9,21 @@ import { cn } from "@repo/ui/utils";
 import { CompassIcon, RefreshCwIcon } from "lucide-react";
 import { motion } from "motion/react";
 
-import { useUiStore } from "./ui-store";
+import { Route } from "@/routes/index";
 
 export const PlayView = () => {
-  const { refreshIframe, iframeLoading, iframe } = useUiStore();
+  const { game } = Route.useSearch();
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  // Get URL directly from the iframe DOM node
-  const displayUrl = iframe?.src ?? undefined;
+  const refresh = useCallback(() => {
+    const iframe = iframeRef.current ?? document.querySelector<HTMLIFrameElement>("iframe[title='Game']");
+    if (!iframe) return;
+    setLoading(true);
+    const url = new URL(iframe.src);
+    url.searchParams.set("t", Date.now().toString());
+    iframe.src = url.toString();
+  }, []);
 
   return (
     <div className="relative pb-4">
@@ -27,31 +35,27 @@ export const PlayView = () => {
         <motion.div
           transition={{ type: "spring", bounce: 0.1 }}
           initial={{ opacity: 0, filter: "blur(5px)" }}
-          animate={{
-            opacity: 1,
-            filter: "blur(0px)",
-            transition: { delay: 0.05 },
-          }}
+          animate={{ opacity: 1, filter: "blur(0px)", transition: { delay: 0.05 } }}
         >
           <InputGroupAddon>
             <InputGroupButton size="icon-xs" asChild>
-              <a href={displayUrl} target="_blank" rel="noopener noreferrer">
+              <a href={game} target="_blank" rel="noopener noreferrer">
                 <CompassIcon />
               </a>
             </InputGroupButton>
           </InputGroupAddon>
-          {displayUrl && (
+          {game && (
             <InputGroupInput
               type="text"
               className="py-2.5 font-mono text-xs md:text-xs"
               onClick={(event) => event.currentTarget.select()}
-              value={displayUrl}
+              value={game}
               readOnly
             />
           )}
           <InputGroupAddon align="inline-end">
-            <InputGroupButton onClick={refreshIframe} type="button" size="icon-xs">
-              <RefreshCwIcon className={cn(iframeLoading && "animate-spin")} />
+            <InputGroupButton onClick={refresh} type="button" size="icon-xs">
+              <RefreshCwIcon className={cn(loading && "animate-spin")} />
             </InputGroupButton>
           </InputGroupAddon>
         </motion.div>

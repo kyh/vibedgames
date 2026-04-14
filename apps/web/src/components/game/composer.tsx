@@ -1,15 +1,20 @@
 import { useState } from "react";
 import { cn } from "@repo/ui/utils";
+import { useNavigate } from "@tanstack/react-router";
 import { motion } from "motion/react";
 
+import { Route } from "@/routes/index";
 import { DiscoverView } from "./discover-view";
 import { PlayView } from "./play-view";
-import { useUiStore } from "./ui-store";
 import { WaitlistDailog } from "./waitlist-form";
 
 export const Composer = () => {
   const [waitlistOpen, setWaitlistOpen] = useState(false);
-  const { view, setView } = useUiStore();
+  const { view } = Route.useSearch();
+  const navigate = useNavigate({ from: "/" });
+
+  const setView = (v: "play" | "discover") =>
+    navigate({ search: (prev) => ({ ...prev, view: v }) });
 
   return (
     <>
@@ -21,9 +26,7 @@ export const Composer = () => {
             "text-muted-foreground hover:text-foreground relative px-3 py-1.5 transition",
             view === "discover" && "text-foreground",
           )}
-          onClick={() => {
-            setView("discover");
-          }}
+          onClick={() => setView("discover")}
         >
           Discover
           {view === "discover" && (
@@ -38,9 +41,7 @@ export const Composer = () => {
             "text-muted-foreground hover:text-foreground relative px-3 py-1.5 transition",
             view === "play" && "text-foreground",
           )}
-          onClick={() => {
-            setView("play");
-          }}
+          onClick={() => setView("play")}
         >
           Play
           {view === "play" && (
@@ -54,9 +55,7 @@ export const Composer = () => {
           className={cn(
             "text-muted-foreground hover:text-foreground relative px-3 py-1.5 transition",
           )}
-          onClick={() => {
-            setWaitlistOpen(true);
-          }}
+          onClick={() => setWaitlistOpen(true)}
         >
           Build
         </button>
