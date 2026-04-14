@@ -71,7 +71,7 @@ export default {
     );
     headers.set(
       "content-security-policy",
-      "frame-ancestors 'self' https://vibedgames.com https://*.vibedgames.com",
+      "frame-ancestors 'self' https://vibedgames.com https://*.vibedgames.com http://localhost:* https://localhost:*",
     );
     headers.set("x-content-type-options", "nosniff");
 
