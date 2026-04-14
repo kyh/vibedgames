@@ -6,7 +6,7 @@ import { featuredGames } from "@/components/game/data";
 
 const searchSchema = z.object({
   view: z.enum(["play", "discover"]).default("discover"),
-  game: z.string().default(featuredGames[0]?.url ?? ""),
+  game: z.string().optional(),
 });
 
 export type HomeSearch = z.infer<typeof searchSchema>;

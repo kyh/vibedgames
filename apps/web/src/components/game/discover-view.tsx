@@ -3,7 +3,11 @@ import { motion } from "motion/react";
 
 import { featuredGames } from "./data";
 
-export const DiscoverView = () => {
+type Props = {
+  onHover: (url: string) => void;
+};
+
+export const DiscoverView = ({ onHover }: Props) => {
   const navigate = useNavigate({ from: "/" });
 
   return (
@@ -16,9 +20,7 @@ export const DiscoverView = () => {
       {featuredGames.map((game) => (
         <button
           key={game.url}
-          onMouseEnter={() => {
-            navigate({ search: { view: "discover", game: game.url } });
-          }}
+          onMouseEnter={() => onHover(game.url)}
           onClick={() => {
             navigate({ search: { view: "play", game: game.url } });
           }}

@@ -8,7 +8,11 @@ import { DiscoverView } from "./discover-view";
 import { PlayView } from "./play-view";
 import { WaitlistDailog } from "./waitlist-form";
 
-export const Composer = () => {
+type Props = {
+  onHover: (url: string) => void;
+};
+
+export const Composer = ({ onHover }: Props) => {
   const [waitlistOpen, setWaitlistOpen] = useState(false);
   const { view } = Route.useSearch();
   const navigate = useNavigate({ from: "/" });
@@ -19,7 +23,7 @@ export const Composer = () => {
   return (
     <>
       {view === "play" && <PlayView />}
-      {view === "discover" && <DiscoverView />}
+      {view === "discover" && <DiscoverView onHover={onHover} />}
       <div className="relative flex gap-2 font-mono text-xs uppercase">
         <button
           className={cn(
