@@ -5,7 +5,7 @@ import { PageClient } from "@/components/game/page";
 import { featuredGames } from "@/components/game/data";
 
 const searchSchema = z.object({
-  view: z.enum(["play", "discover"]).default("play"),
+  view: z.enum(["play", "discover"]).default("discover"),
   game: z.string().default(featuredGames[0]?.url ?? ""),
 });
 
