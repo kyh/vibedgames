@@ -26,7 +26,7 @@
   "scripts": {
     "build": "tsc",
     "clean": "rm -rf .cache .turbo dist node_modules",
-    "dev": "tsc --watch",
+    "dev": "tsc",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
