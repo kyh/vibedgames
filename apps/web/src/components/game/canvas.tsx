@@ -17,7 +17,7 @@ export const Canvas = ({ previewUrl }: Props) => {
   return (
     <div className="relative h-full w-full">
       <AnimatePresence>
-        {view === "play" && game && (
+        {view === "play" && (
           <motion.div
             key={game}
             className="absolute z-1 h-full w-full"
