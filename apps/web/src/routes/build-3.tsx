@@ -1,9 +1,6 @@
-import { useState } from "react";
 import { Logo } from "@repo/ui/logo";
 import { cn } from "@repo/ui/utils";
 import { createFileRoute, Link } from "@tanstack/react-router";
-
-import { WaitlistDailog, WaitlistForm } from "@/components/game/waitlist-form";
 
 export const Route = createFileRoute("/build-3")({
   head: () => ({ meta: [{ title: "Build — Vibedgames" }] }),
@@ -12,18 +9,44 @@ export const Route = createFileRoute("/build-3")({
 
 const timeline = [
   {
+    label: "Install",
+    title: "Add skills to your project",
+    description:
+      "One command gives your LLM superpowers. Deploy, multiplayer, and more — all wired up as skills it can use.",
+    visual: (
+      <div className="bg-secondary/50 space-y-2 rounded-lg border border-white/5 p-4 text-xs">
+        <div className="text-muted-foreground">
+          <span className="text-muted-foreground/50">$</span> npx vibedgames
+          skills .
+        </div>
+        <div className="text-muted-foreground/50 mt-2">
+          <div>Downloading vibedgames skills...</div>
+          <div>Installing 15 skills...</div>
+          <div className="text-foreground mt-1">
+            ✓ Skills installed to .claude/skills/
+          </div>
+        </div>
+      </div>
+    ),
+  },
+  {
     label: "Describe",
     title: "Tell your LLM what to build",
     description:
       'Just describe the game you want. "Make me a space shooter with retro pixel art." Your LLM generates the code, sets up the project, and gets it running locally.',
     visual: (
       <div className="bg-secondary/50 space-y-2 rounded-lg border border-white/5 p-4 text-xs">
-        <div className="text-muted-foreground">you &gt; make me a space shooter with retro pixel art and power-ups</div>
+        <div className="text-muted-foreground">
+          <span className="text-muted-foreground/50">you &gt;</span> make me a
+          space shooter with retro pixel art and power-ups
+        </div>
         <div className="text-muted-foreground/50 mt-2">
           <div>Creating game project...</div>
           <div>Setting up Phaser 3 with pixel art config...</div>
           <div>Adding player ship, enemies, power-up system...</div>
-          <div className="text-foreground mt-1">✓ Game running at localhost:5173</div>
+          <div className="text-foreground mt-1">
+            ✓ Game running at localhost:5173
+          </div>
         </div>
       </div>
     ),
@@ -35,12 +58,17 @@ const timeline = [
       "Say \"add multiplayer\" and your LLM wires up real-time state sync using our SDK. Host-authoritative, automatic host migration, player management — all handled.",
     visual: (
       <div className="bg-secondary/50 space-y-2 rounded-lg border border-white/5 p-4 text-xs">
-        <div className="text-muted-foreground">you &gt; add co-op multiplayer so friends can join</div>
+        <div className="text-muted-foreground">
+          <span className="text-muted-foreground/50">you &gt;</span> add co-op
+          multiplayer so friends can join
+        </div>
         <div className="text-muted-foreground/50 mt-2">
           <div>Installing @vibedgames/multiplayer...</div>
           <div>Adding player state sync...</div>
           <div>Setting up host authority...</div>
-          <div className="text-foreground mt-1">✓ Multiplayer ready — share link to invite players</div>
+          <div className="text-foreground mt-1">
+            ✓ Multiplayer ready — share link to invite players
+          </div>
         </div>
       </div>
     ),
@@ -52,11 +80,15 @@ const timeline = [
       "Tell your LLM to deploy, or just type /deploy. Your game is built, uploaded to our CDN, and live at your-game.vibedgames.com in seconds.",
     visual: (
       <div className="bg-secondary/50 space-y-2 rounded-lg border border-white/5 p-4 text-xs">
-        <div className="text-muted-foreground">you &gt; /deploy</div>
+        <div className="text-muted-foreground">
+          <span className="text-muted-foreground/50">you &gt;</span> /deploy
+        </div>
         <div className="text-muted-foreground/50 mt-2">
           <div>Building for production...</div>
           <div>Uploading to vibedgames CDN...</div>
-          <div className="text-foreground mt-1">✓ Live at space-shooter.vibedgames.com</div>
+          <div className="text-foreground mt-1">
+            ✓ Live at space-shooter.vibedgames.com
+          </div>
         </div>
       </div>
     ),
@@ -73,8 +105,12 @@ const timeline = [
         </div>
         <div>
           <div className="text-foreground font-medium">Space Shooter</div>
-          <div className="text-muted-foreground">space-shooter.vibedgames.com</div>
-          <div className="text-muted-foreground/50 mt-0.5">multiplayer · 2 players online</div>
+          <div className="text-muted-foreground">
+            space-shooter.vibedgames.com
+          </div>
+          <div className="text-muted-foreground/50 mt-0.5">
+            multiplayer · 2 players online
+          </div>
         </div>
       </div>
     ),
@@ -82,8 +118,6 @@ const timeline = [
 ];
 
 function Build3Page() {
-  const [waitlistOpen, setWaitlistOpen] = useState(false);
-
   return (
     <div className="relative min-h-dvh overflow-y-auto">
       <nav className="fixed top-0 left-0 z-20 flex w-full items-center justify-between px-6 py-4">
@@ -95,9 +129,6 @@ function Build3Page() {
 
       <main className="mx-auto max-w-3xl px-6 pt-28 pb-20 font-mono">
         <div className="mb-20 text-center">
-          <p className="text-muted-foreground mb-3 text-xs uppercase tracking-widest">
-            Currently in private beta
-          </p>
           <h1 className="mb-4 text-2xl font-light tracking-tight sm:text-3xl">
             From idea to live game in minutes
           </h1>
@@ -125,17 +156,13 @@ function Build3Page() {
                   <div
                     className={cn(
                       "sm:direction-ltr",
-                      i % 2 === 0
-                        ? "sm:pr-10"
-                        : "sm:order-2 sm:pl-10",
+                      i % 2 === 0 ? "sm:pr-10" : "sm:order-2 sm:pl-10",
                     )}
                   >
                     <div className="text-muted-foreground mb-1 text-[10px] uppercase tracking-widest">
                       {item.label}
                     </div>
-                    <h3 className="mb-2 text-sm font-medium">
-                      {item.title}
-                    </h3>
+                    <h3 className="mb-2 text-sm font-medium">{item.title}</h3>
                     <p className="text-muted-foreground text-xs leading-relaxed">
                       {item.description}
                     </p>
@@ -143,9 +170,7 @@ function Build3Page() {
                   <div
                     className={cn(
                       "sm:direction-ltr",
-                      i % 2 === 0
-                        ? "sm:order-2 sm:pl-10"
-                        : "sm:pr-10",
+                      i % 2 === 0 ? "sm:order-2 sm:pl-10" : "sm:pr-10",
                     )}
                   >
                     {item.visual}
@@ -157,15 +182,13 @@ function Build3Page() {
         </div>
 
         <div className="mt-20 flex flex-col items-center gap-4">
-          <p className="text-muted-foreground text-xs">Get early access</p>
-          <WaitlistForm />
+          <p className="text-muted-foreground text-xs">Get started</p>
+          <div className="bg-secondary/50 rounded-lg border border-white/5 px-5 py-3 text-sm">
+            <span className="text-muted-foreground select-none">$ </span>
+            <span className="text-foreground">npx vibedgames skills .</span>
+          </div>
         </div>
       </main>
-
-      <WaitlistDailog
-        waitlistOpen={waitlistOpen}
-        setWaitlistOpen={setWaitlistOpen}
-      />
     </div>
   );
 }

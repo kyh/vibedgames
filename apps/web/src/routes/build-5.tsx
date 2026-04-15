@@ -1,10 +1,7 @@
-import { useState, useRef } from "react";
+import { useRef } from "react";
 import { Logo } from "@repo/ui/logo";
-import { cn } from "@repo/ui/utils";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { motion, useInView } from "motion/react";
-
-import { WaitlistDailog, WaitlistForm } from "@/components/game/waitlist-form";
 
 export const Route = createFileRoute("/build-5")({
   head: () => ({ meta: [{ title: "Build — Vibedgames" }] }),
@@ -52,8 +49,6 @@ function TypingLine({ text, delay = 0 }: { text: string; delay?: number }) {
 }
 
 function Build5Page() {
-  const [waitlistOpen, setWaitlistOpen] = useState(false);
-
   return (
     <div className="relative min-h-dvh overflow-y-auto">
       <nav className="fixed top-0 left-0 z-20 flex w-full items-center justify-between px-6 py-4">
@@ -71,9 +66,6 @@ function Build5Page() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, ease: [0.21, 0.47, 0.32, 0.98] }}
           >
-            <p className="text-muted-foreground mb-4 text-xs uppercase tracking-widest">
-              Currently in private beta
-            </p>
             <h1 className="mb-4 text-3xl font-light tracking-tight sm:text-5xl">
               Your LLM builds the game.
               <br />
@@ -84,7 +76,12 @@ function Build5Page() {
               hosting — all through skills your LLM already knows.
             </p>
             <div className="flex justify-center">
-              <WaitlistForm />
+              <div className="bg-secondary/50 rounded-lg border border-white/5 px-5 py-3 text-sm">
+                <span className="text-muted-foreground select-none">$ </span>
+                <span className="text-foreground">
+                  npx vibedgames skills .
+                </span>
+              </div>
             </div>
           </motion.div>
           <motion.div
@@ -97,12 +94,52 @@ function Build5Page() {
           </motion.div>
         </section>
 
-        {/* Section: Describe */}
+        {/* Section: Install */}
         <AnimatedSection className="flex min-h-[70vh] items-center px-6 py-20">
           <div className="mx-auto grid max-w-4xl gap-10 sm:grid-cols-2 sm:items-center">
             <div>
               <div className="text-muted-foreground mb-2 text-[10px] uppercase tracking-widest">
-                01 — Describe
+                01 — Install
+              </div>
+              <h2 className="mb-3 text-xl font-light sm:text-2xl">
+                Add skills to your project
+              </h2>
+              <p className="text-muted-foreground text-xs leading-relaxed">
+                One command installs vibedgames skills into your project. Your
+                LLM gets deploy, multiplayer, asset generation, and more — ready
+                to use in any conversation.
+              </p>
+            </div>
+            <div className="bg-secondary/50 rounded-lg border border-white/5 p-5">
+              <div className="space-y-3 text-xs">
+                <div className="text-muted-foreground">
+                  <span className="text-muted-foreground/50">$</span> npx
+                  vibedgames skills .
+                </div>
+                <div className="border-t border-white/5 pt-3">
+                  <TypingLine
+                    delay={0.3}
+                    text="Downloading vibedgames skills..."
+                  />
+                  <TypingLine delay={0.6} text="Installing 15 skills..." />
+                  <div className="mt-2">
+                    <TypingLine
+                      delay={0.9}
+                      text="✓ Skills installed to .claude/skills/"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </AnimatedSection>
+
+        {/* Section: Describe */}
+        <AnimatedSection className="flex min-h-[70vh] items-center px-6 py-20">
+          <div className="mx-auto grid max-w-4xl gap-10 sm:grid-cols-2 sm:items-center">
+            <div className="sm:order-2">
+              <div className="text-muted-foreground mb-2 text-[10px] uppercase tracking-widest">
+                02 — Describe
               </div>
               <h2 className="mb-3 text-xl font-light sm:text-2xl">
                 Say what you want
@@ -113,19 +150,34 @@ function Build5Page() {
                 picks the right framework, and runs it locally.
               </p>
             </div>
-            <div className="bg-secondary/50 rounded-lg border border-white/5 p-5">
+            <div className="bg-secondary/50 rounded-lg border border-white/5 p-5 sm:order-1">
               <div className="space-y-3 text-xs">
                 <div className="text-muted-foreground">
                   <span className="text-muted-foreground/50">you &gt;</span>{" "}
                   build me an asteroid mining game with physics
                 </div>
                 <div className="border-t border-white/5 pt-3">
-                  <TypingLine delay={0.3} text="Setting up project with Matter.js physics..." />
-                  <TypingLine delay={0.6} text="Creating asteroid field generator..." />
-                  <TypingLine delay={0.9} text="Adding mining beam mechanics..." />
-                  <TypingLine delay={1.2} text="Implementing resource collection UI..." />
+                  <TypingLine
+                    delay={0.3}
+                    text="Setting up project with Matter.js physics..."
+                  />
+                  <TypingLine
+                    delay={0.6}
+                    text="Creating asteroid field generator..."
+                  />
+                  <TypingLine
+                    delay={0.9}
+                    text="Adding mining beam mechanics..."
+                  />
+                  <TypingLine
+                    delay={1.2}
+                    text="Implementing resource collection UI..."
+                  />
                   <div className="mt-2">
-                    <TypingLine delay={1.5} text="✓ Game running at localhost:5173" />
+                    <TypingLine
+                      delay={1.5}
+                      text="✓ Game running at localhost:5173"
+                    />
                   </div>
                 </div>
               </div>
@@ -136,9 +188,9 @@ function Build5Page() {
         {/* Section: Multiplayer */}
         <AnimatedSection className="flex min-h-[70vh] items-center px-6 py-20">
           <div className="mx-auto grid max-w-4xl gap-10 sm:grid-cols-2 sm:items-center">
-            <div className="sm:order-2">
+            <div>
               <div className="text-muted-foreground mb-2 text-[10px] uppercase tracking-widest">
-                02 — Multiplayer
+                03 — Multiplayer
               </div>
               <h2 className="mb-3 text-xl font-light sm:text-2xl">
                 One sentence, real-time
@@ -149,18 +201,30 @@ function Build5Page() {
                 networking code to write.
               </p>
             </div>
-            <div className="bg-secondary/50 rounded-lg border border-white/5 p-5 sm:order-1">
+            <div className="bg-secondary/50 rounded-lg border border-white/5 p-5">
               <div className="space-y-3 text-xs">
                 <div className="text-muted-foreground">
                   <span className="text-muted-foreground/50">you &gt;</span>{" "}
                   add multiplayer so friends can mine together
                 </div>
                 <div className="border-t border-white/5 pt-3">
-                  <TypingLine delay={0.3} text="Installing @vibedgames/multiplayer..." />
-                  <TypingLine delay={0.6} text="Syncing asteroid positions across players..." />
-                  <TypingLine delay={0.9} text="Adding shared resource pool..." />
+                  <TypingLine
+                    delay={0.3}
+                    text="Installing @vibedgames/multiplayer..."
+                  />
+                  <TypingLine
+                    delay={0.6}
+                    text="Syncing asteroid positions across players..."
+                  />
+                  <TypingLine
+                    delay={0.9}
+                    text="Adding shared resource pool..."
+                  />
                   <div className="mt-2">
-                    <TypingLine delay={1.2} text="✓ Co-op multiplayer ready" />
+                    <TypingLine
+                      delay={1.2}
+                      text="✓ Co-op multiplayer ready"
+                    />
                   </div>
                 </div>
               </div>
@@ -171,9 +235,9 @@ function Build5Page() {
         {/* Section: Deploy */}
         <AnimatedSection className="flex min-h-[70vh] items-center px-6 py-20">
           <div className="mx-auto grid max-w-4xl gap-10 sm:grid-cols-2 sm:items-center">
-            <div>
+            <div className="sm:order-2">
               <div className="text-muted-foreground mb-2 text-[10px] uppercase tracking-widest">
-                03 — Deploy
+                04 — Deploy
               </div>
               <h2 className="mb-3 text-xl font-light sm:text-2xl">
                 Live in seconds
@@ -184,18 +248,30 @@ function Build5Page() {
                 link and anyone can play.
               </p>
             </div>
-            <div className="bg-secondary/50 rounded-lg border border-white/5 p-5">
+            <div className="bg-secondary/50 rounded-lg border border-white/5 p-5 sm:order-1">
               <div className="space-y-3 text-xs">
                 <div className="text-muted-foreground">
                   <span className="text-muted-foreground/50">you &gt;</span>{" "}
                   /deploy
                 </div>
                 <div className="border-t border-white/5 pt-3">
-                  <TypingLine delay={0.3} text="Building for production..." />
-                  <TypingLine delay={0.6} text="Optimizing assets (143kb)..." />
-                  <TypingLine delay={0.9} text="Uploading to vibedgames CDN..." />
+                  <TypingLine
+                    delay={0.3}
+                    text="Building for production..."
+                  />
+                  <TypingLine
+                    delay={0.6}
+                    text="Optimizing assets (143kb)..."
+                  />
+                  <TypingLine
+                    delay={0.9}
+                    text="Uploading to vibedgames CDN..."
+                  />
                   <div className="mt-2">
-                    <TypingLine delay={1.2} text="✓ Live at asteroid-miner.vibedgames.com" />
+                    <TypingLine
+                      delay={1.2}
+                      text="✓ Live at asteroid-miner.vibedgames.com"
+                    />
                   </div>
                 </div>
               </div>
@@ -206,9 +282,9 @@ function Build5Page() {
         {/* Section: Play */}
         <AnimatedSection className="flex min-h-[70vh] items-center px-6 py-20">
           <div className="mx-auto grid max-w-4xl gap-10 sm:grid-cols-2 sm:items-center">
-            <div className="sm:order-2">
+            <div>
               <div className="text-muted-foreground mb-2 text-[10px] uppercase tracking-widest">
-                04 — Play
+                05 — Play
               </div>
               <h2 className="mb-3 text-xl font-light sm:text-2xl">
                 Players find your game
@@ -219,12 +295,27 @@ function Build5Page() {
                 maintenance.
               </p>
             </div>
-            <div className="bg-secondary/50 rounded-lg border border-white/5 p-5 sm:order-1">
+            <div className="bg-secondary/50 rounded-lg border border-white/5 p-5">
               <div className="space-y-3">
                 {[
-                  { name: "Asteroid Miner", slug: "asteroid-miner", players: "4 playing", icon: "⛏" },
-                  { name: "Space Shooter", slug: "space-shooter", players: "2 playing", icon: "🚀" },
-                  { name: "Pixel Racer", slug: "pixel-racer", players: "6 playing", icon: "🏎" },
+                  {
+                    name: "Asteroid Miner",
+                    slug: "asteroid-miner",
+                    players: "4 playing",
+                    icon: "⛏",
+                  },
+                  {
+                    name: "Space Shooter",
+                    slug: "space-shooter",
+                    players: "2 playing",
+                    icon: "🚀",
+                  },
+                  {
+                    name: "Pixel Racer",
+                    slug: "pixel-racer",
+                    players: "6 playing",
+                    icon: "🏎",
+                  },
                 ].map((game) => (
                   <div
                     key={game.slug}
@@ -257,18 +348,13 @@ function Build5Page() {
             <h2 className="text-2xl font-light tracking-tight sm:text-3xl">
               Ready to ship your game?
             </h2>
-            <p className="text-muted-foreground max-w-sm text-sm">
-              Join the waitlist to get early access to vibedgames.
-            </p>
-            <WaitlistForm />
+            <div className="bg-secondary/50 rounded-lg border border-white/5 px-5 py-3 text-sm">
+              <span className="text-muted-foreground select-none">$ </span>
+              <span className="text-foreground">npx vibedgames skills .</span>
+            </div>
           </AnimatedSection>
         </section>
       </main>
-
-      <WaitlistDailog
-        waitlistOpen={waitlistOpen}
-        setWaitlistOpen={setWaitlistOpen}
-      />
     </div>
   );
 }

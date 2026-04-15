@@ -1,8 +1,5 @@
-import { useState } from "react";
 import { Logo } from "@repo/ui/logo";
 import { createFileRoute, Link } from "@tanstack/react-router";
-
-import { WaitlistDailog, WaitlistForm } from "@/components/game/waitlist-form";
 
 export const Route = createFileRoute("/build-1")({
   head: () => ({ meta: [{ title: "Build — Vibedgames" }] }),
@@ -10,6 +7,12 @@ export const Route = createFileRoute("/build-1")({
 });
 
 const steps = [
+  {
+    prompt: "$",
+    command: "npx vibedgames skills .",
+    description:
+      "Add vibedgames skills to your project. Your LLM gets deploy, multiplayer, and more — ready to use.",
+  },
   {
     prompt: "you",
     command: "make me a flappy bird clone with pixel art",
@@ -31,8 +34,6 @@ const steps = [
 ];
 
 function Build1Page() {
-  const [waitlistOpen, setWaitlistOpen] = useState(false);
-
   return (
     <div className="relative min-h-dvh overflow-y-auto">
       <nav className="fixed top-0 left-0 z-20 flex w-full items-center justify-between px-6 py-4">
@@ -44,9 +45,6 @@ function Build1Page() {
 
       <main className="mx-auto max-w-2xl px-6 pt-28 pb-20 font-mono">
         <div className="mb-16">
-          <p className="text-muted-foreground mb-2 text-xs uppercase tracking-widest">
-            Currently in private beta
-          </p>
           <h1 className="mb-4 text-2xl font-light tracking-tight sm:text-3xl">
             Vibe a game. Ship it. Play it.
           </h1>
@@ -85,22 +83,20 @@ function Build1Page() {
             <span className="text-muted-foreground select-none">
               your-game &gt;
             </span>
-            <span className="text-foreground animate-pulse">live at your-game.vibedgames.com</span>
+            <span className="text-foreground animate-pulse">
+              live at your-game.vibedgames.com
+            </span>
           </div>
         </div>
 
         <div className="mt-12 flex flex-col items-center gap-4">
-          <p className="text-muted-foreground text-xs">
-            Get early access
-          </p>
-          <WaitlistForm />
+          <p className="text-muted-foreground text-xs">Get started</p>
+          <div className="bg-secondary/50 rounded-lg border border-white/5 px-5 py-3 text-sm">
+            <span className="text-muted-foreground select-none">$ </span>
+            <span className="text-foreground">npx vibedgames skills .</span>
+          </div>
         </div>
       </main>
-
-      <WaitlistDailog
-        waitlistOpen={waitlistOpen}
-        setWaitlistOpen={setWaitlistOpen}
-      />
     </div>
   );
 }

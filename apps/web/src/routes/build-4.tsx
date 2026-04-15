@@ -3,8 +3,6 @@ import { Logo } from "@repo/ui/logo";
 import { cn } from "@repo/ui/utils";
 import { createFileRoute, Link } from "@tanstack/react-router";
 
-import { WaitlistDailog, WaitlistForm } from "@/components/game/waitlist-form";
-
 export const Route = createFileRoute("/build-4")({
   head: () => ({ meta: [{ title: "Build — Vibedgames" }] }),
   component: Build4Page,
@@ -12,9 +10,14 @@ export const Route = createFileRoute("/build-4")({
 
 const faqs = [
   {
+    question: "How do I get started?",
+    answer:
+      'Run "npx vibedgames skills ." in your project directory. This installs skills that your LLM (Claude, etc.) can use — deploy, multiplayer, game dev helpers, and more. Then just start talking to your LLM.',
+  },
+  {
     question: "How do I build a game?",
     answer:
-      'Describe what you want to any LLM — Claude, ChatGPT, whatever you use. "Make me a platformer with double jump and pixel art." The LLM generates the code, scaffolds the project, and runs it locally. You iterate by talking to it.',
+      'Describe what you want to any LLM. "Make me a platformer with double jump and pixel art." The LLM generates the code, scaffolds the project, and runs it locally. You iterate by talking to it.',
   },
   {
     question: "How does deployment work?",
@@ -36,15 +39,9 @@ const faqs = [
     answer:
       "Every game gets a subdomain: your-game.vibedgames.com. Served from a global CDN with instant loads. Games also appear on the vibedgames.com discover page where players can find and play them.",
   },
-  {
-    question: "Do I need to know how to code?",
-    answer:
-      "No. The whole point is that your LLM handles the code. You describe, iterate, and ship. If you do know how to code, you can always jump into the source — it's your project, running locally.",
-  },
 ];
 
 function Build4Page() {
-  const [waitlistOpen, setWaitlistOpen] = useState(false);
   const [openIndex, setOpenIndex] = useState<number | null>(null);
 
   return (
@@ -67,7 +64,10 @@ function Build4Page() {
         </div>
 
         <div className="mb-12 flex justify-center">
-          <WaitlistForm />
+          <div className="bg-secondary/50 rounded-lg border border-white/5 px-5 py-3 text-sm">
+            <span className="text-muted-foreground select-none">$ </span>
+            <span className="text-foreground">npx vibedgames skills .</span>
+          </div>
         </div>
 
         <div className="text-muted-foreground mb-6 text-center text-[10px] uppercase tracking-widest">
@@ -108,21 +108,7 @@ function Build4Page() {
             </div>
           ))}
         </div>
-
-        <div className="mt-12 text-center">
-          <button
-            onClick={() => setWaitlistOpen(true)}
-            className="text-muted-foreground hover:text-foreground text-xs underline underline-offset-4 transition"
-          >
-            Join the waitlist
-          </button>
-        </div>
       </main>
-
-      <WaitlistDailog
-        waitlistOpen={waitlistOpen}
-        setWaitlistOpen={setWaitlistOpen}
-      />
     </div>
   );
 }

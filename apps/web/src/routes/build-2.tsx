@@ -1,8 +1,5 @@
-import { useState } from "react";
 import { Logo } from "@repo/ui/logo";
 import { createFileRoute, Link } from "@tanstack/react-router";
-
-import { WaitlistDailog, WaitlistForm } from "@/components/game/waitlist-form";
 
 export const Route = createFileRoute("/build-2")({
   head: () => ({ meta: [{ title: "Build — Vibedgames" }] }),
@@ -49,8 +46,6 @@ const features = [
 ];
 
 function Build2Page() {
-  const [waitlistOpen, setWaitlistOpen] = useState(false);
-
   return (
     <div className="relative min-h-dvh overflow-y-auto">
       <nav className="fixed top-0 left-0 z-20 flex w-full items-center justify-between px-6 py-4">
@@ -62,9 +57,6 @@ function Build2Page() {
 
       <main className="mx-auto max-w-4xl px-6 pt-28 pb-20 font-mono">
         <div className="mb-16 text-center">
-          <p className="text-muted-foreground mb-3 text-xs uppercase tracking-widest">
-            Currently in private beta
-          </p>
           <h1 className="mb-4 text-3xl font-light tracking-tight sm:text-4xl">
             Everything you need to ship a game
           </h1>
@@ -75,7 +67,10 @@ function Build2Page() {
         </div>
 
         <div className="mb-16 flex justify-center">
-          <WaitlistForm />
+          <div className="bg-secondary/50 rounded-lg border border-white/5 px-5 py-3 text-sm">
+            <span className="text-muted-foreground select-none">$ </span>
+            <span className="text-foreground">npx vibedgames skills .</span>
+          </div>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -94,21 +89,7 @@ function Build2Page() {
             </div>
           ))}
         </div>
-
-        <div className="mt-16 text-center">
-          <button
-            onClick={() => setWaitlistOpen(true)}
-            className="text-muted-foreground hover:text-foreground text-xs underline underline-offset-4 transition"
-          >
-            Join the waitlist
-          </button>
-        </div>
       </main>
-
-      <WaitlistDailog
-        waitlistOpen={waitlistOpen}
-        setWaitlistOpen={setWaitlistOpen}
-      />
     </div>
   );
 }
