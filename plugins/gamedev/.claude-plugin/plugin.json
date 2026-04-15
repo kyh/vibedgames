@@ -1,6 +1,6 @@
 {
   "name": "gamedev",
-  "description": "Game development skills for Phaser 3, Three.js, asset pipelines, Aseprite sprite inference, and Playwright game testing.",
+  "description": "Build 2D and 3D browser games with Phaser 3, Three.js, Retro Diffusion pixel art, Aseprite, and asset pipeline tools.",
   "version": "1.0.0",
   "author": {
     "name": "vibedgames"

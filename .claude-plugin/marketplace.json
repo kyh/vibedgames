@@ -12,17 +12,17 @@
     {
       "name": "gamedev",
       "source": "./plugins/gamedev",
-      "description": "Game development skills for Phaser 3, Three.js, asset pipelines, Aseprite, and testing"
+      "description": "Build 2D and 3D browser games with Phaser 3, Three.js, Retro Diffusion, Aseprite, and asset pipelines"
     },
     {
-      "name": "ai-media",
-      "source": "./plugins/ai-media",
-      "description": "AI-powered media generation with fal.ai, OpenAI, ElevenLabs, and Retro Diffusion"
+      "name": "asset-generation",
+      "source": "./plugins/asset-generation",
+      "description": "Generate images, video, and audio with fal.ai, OpenAI GPT Image, Sora, and ElevenLabs"
     },
     {
-      "name": "skill-creator",
-      "source": "./plugins/skill-creator",
-      "description": "Enhanced skill creation framework with philosophy-first design and analysis tools"
+      "name": "dev-tools",
+      "source": "./plugins/dev-tools",
+      "description": "Frontend testing with Playwright and Claude Code skill authoring"
     }
   ]
 }
