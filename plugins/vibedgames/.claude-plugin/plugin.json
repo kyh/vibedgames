@@ -1,0 +1,8 @@
+{
+  "name": "vibedgames",
+  "description": "Deploy and add multiplayer to browser games on vibedgames.com. Includes CLI deploy workflow and real-time multiplayer integration.",
+  "version": "1.0.0",
+  "author": {
+    "name": "vibedgames"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "name": "vibedgames",
+  "owner": {
+    "name": "vibedgames"
+  },
+  "plugins": [
+    {
+      "name": "vibedgames",
+      "source": "./plugins/vibedgames",
+      "description": "Deploy and add multiplayer to browser games on vibedgames.com"
+    },
+    {
+      "name": "gamedev",
+      "source": "./plugins/gamedev",
+      "description": "Build 2D and 3D browser games with Phaser 3, Three.js, Retro Diffusion, Aseprite, and asset pipelines"
+    },
+    {
+      "name": "asset-generation",
+      "source": "./plugins/asset-generation",
+      "description": "Generate images, video, and audio with fal.ai, OpenAI GPT Image, Sora, and ElevenLabs"
+    },
+    {
+      "name": "dev-tools",
+      "source": "./plugins/dev-tools",
+      "description": "Frontend testing with Playwright and Claude Code skill authoring"
+    }
+  ]
+}
