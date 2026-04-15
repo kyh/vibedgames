@@ -1,0 +1,8 @@
+{
+  "name": "gamedev",
+  "description": "Game development skills for Phaser 3, Three.js, asset pipelines, Aseprite sprite inference, and Playwright game testing.",
+  "version": "1.0.0",
+  "author": {
+    "name": "vibedgames"
+  }
+}

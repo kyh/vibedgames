@@ -1,0 +1,28 @@
+{
+  "name": "vibedgames",
+  "owner": {
+    "name": "vibedgames"
+  },
+  "plugins": [
+    {
+      "name": "vibedgames",
+      "source": "./plugins/vibedgames",
+      "description": "Deploy and add multiplayer to browser games on vibedgames.com"
+    },
+    {
+      "name": "gamedev",
+      "source": "./plugins/gamedev",
+      "description": "Game development skills for Phaser 3, Three.js, asset pipelines, Aseprite, and testing"
+    },
+    {
+      "name": "ai-media",
+      "source": "./plugins/ai-media",
+      "description": "AI-powered media generation with fal.ai, OpenAI, ElevenLabs, and Retro Diffusion"
+    },
+    {
+      "name": "skill-creator",
+      "source": "./plugins/skill-creator",
+      "description": "Enhanced skill creation framework with philosophy-first design and analysis tools"
+    }
+  ]
+}

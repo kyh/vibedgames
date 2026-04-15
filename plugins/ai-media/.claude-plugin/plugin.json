@@ -1,0 +1,8 @@
+{
+  "name": "ai-media",
+  "description": "AI-powered media generation skills for fal.ai (image and video), OpenAI GPT Image and Sora, ElevenLabs TTS, and Retro Diffusion pixel art.",
+  "version": "1.0.0",
+  "author": {
+    "name": "vibedgames"
+  }
+}
