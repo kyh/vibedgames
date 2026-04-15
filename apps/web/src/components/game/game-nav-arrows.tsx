@@ -9,11 +9,10 @@ export const GameNavArrows = () => {
   const navigate = useNavigate({ from: "/" });
 
   const currentIndex = featuredGames.findIndex((g) => g.url === game);
-  const hasPrev = currentIndex > 0;
-  const hasNext = currentIndex < featuredGames.length - 1;
+  const len = featuredGames.length;
 
   const goTo = (index: number) => {
-    const target = featuredGames[index];
+    const target = featuredGames[((index % len) + len) % len];
     if (target) {
       navigate({ search: { view: "play", game: target.url } });
     }
@@ -24,17 +23,15 @@ export const GameNavArrows = () => {
   return (
     <div className="fixed right-4 top-1/2 z-10 flex -translate-y-1/2 flex-col gap-1">
       <button
-        onClick={() => hasPrev && goTo(currentIndex - 1)}
-        disabled={!hasPrev}
-        className="text-muted-foreground hover:text-foreground rounded-full p-2 transition disabled:opacity-20 disabled:hover:text-muted-foreground"
+        onClick={() => goTo(currentIndex - 1)}
+        className="text-muted-foreground hover:text-foreground rounded-full p-2 transition"
         aria-label="Previous game"
       >
         <ChevronUpIcon className="size-5" />
       </button>
       <button
-        onClick={() => hasNext && goTo(currentIndex + 1)}
-        disabled={!hasNext}
-        className="text-muted-foreground hover:text-foreground rounded-full p-2 transition disabled:opacity-20 disabled:hover:text-muted-foreground"
+        onClick={() => goTo(currentIndex + 1)}
+        className="text-muted-foreground hover:text-foreground rounded-full p-2 transition"
         aria-label="Next game"
       >
         <ChevronDownIcon className="size-5" />
