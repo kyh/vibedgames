@@ -21,7 +21,7 @@ export const GameNavArrows = () => {
   if (view !== "play") return null;
 
   return (
-    <div className="fixed right-4 top-1/2 z-10 flex -translate-y-1/2 flex-col gap-1">
+    <div className="fixed right-4 top-1/2 z-10 hidden -translate-y-1/2 flex-col gap-1 md:flex">
       <button
         onClick={() => goTo(currentIndex - 1)}
         className="text-muted-foreground hover:text-foreground rounded-full p-2 transition"
