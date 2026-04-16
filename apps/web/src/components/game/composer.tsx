@@ -18,7 +18,7 @@ export const Composer = ({ onHover }: Props) => {
   const navigate = useNavigate({ from: "/" });
 
   const setView = (v: "play" | "discover") =>
-    navigate({ search: (prev) => ({ ...prev, view: v }) });
+    navigate({ search: (prev: Record<string, unknown>) => ({ ...prev, view: v }) });
 
   return (
     <>
