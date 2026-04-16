@@ -8,7 +8,7 @@ export const GameNavArrows = () => {
   const { game, view } = Route.useSearch();
   const navigate = useNavigate({ from: "/" });
 
-  const currentIndex = Math.max(0, featuredGames.findIndex((g) => g.url === game));
+  const currentIndex = featuredGames.findIndex((g) => g.url === game);
   const len = featuredGames.length;
 
   const goTo = (index: number) => {
@@ -18,7 +18,7 @@ export const GameNavArrows = () => {
     }
   };
 
-  if (view !== "play") return null;
+  if (view !== "play" || currentIndex === -1) return null;
 
   return (
     <div className="fixed right-4 top-1/2 z-10 hidden -translate-y-1/2 flex-col gap-1 md:flex">
