@@ -8,7 +8,7 @@ export const GameNavArrows = () => {
   const { game, view } = Route.useSearch();
   const navigate = useNavigate({ from: "/" });
 
-  const currentIndex = featuredGames.findIndex((g) => g.url === game);
+  const currentIndex = Math.max(0, featuredGames.findIndex((g) => g.url === game));
   const len = featuredGames.length;
 
   const goTo = (index: number) => {
