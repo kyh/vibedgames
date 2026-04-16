@@ -3,6 +3,7 @@ import { useState } from "react";
 import { featuredGames } from "./data";
 import { Canvas } from "./canvas";
 import { Composer } from "./composer";
+import { GameNavArrows } from "./game-nav-arrows";
 
 export const PageClient = () => {
   const [previewUrl, setPreviewUrl] = useState(featuredGames[0]?.url ?? "");
@@ -13,6 +14,7 @@ export const PageClient = () => {
         <Composer onHover={setPreviewUrl} />
       </header>
       <Canvas previewUrl={previewUrl} />
+      <GameNavArrows />
     </main>
   );
 };
