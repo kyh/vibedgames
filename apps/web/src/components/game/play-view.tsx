@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   InputGroup,
   InputGroupAddon,
@@ -10,20 +10,28 @@ import { CompassIcon, RefreshCwIcon } from "lucide-react";
 import { motion } from "motion/react";
 
 import { Route } from "@/routes/index";
+import { gameUrl } from "./data";
 
 export const PlayView = () => {
   const { game } = Route.useSearch();
+  const url = gameUrl(game);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(null);
 
   const refresh = useCallback(() => {
     const iframe = iframeRef.current ?? document.querySelector<HTMLIFrameElement>("iframe[title='Game']");
     if (!iframe) return;
     setLoading(true);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setLoading(false), 1500);
     const url = new URL(iframe.src);
     url.searchParams.set("t", Date.now().toString());
     iframe.src = url.toString();
   }, []);
+
+  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
 
   return (
     <div className="relative pb-4">
@@ -39,7 +47,7 @@ export const PlayView = () => {
         >
           <InputGroupAddon>
             <InputGroupButton size="icon-xs" asChild>
-              <a href={game} target="_blank" rel="noopener noreferrer">
+              <a href={url} target="_blank" rel="noopener noreferrer">
                 <CompassIcon />
               </a>
             </InputGroupButton>
@@ -49,7 +57,7 @@ export const PlayView = () => {
               type="text"
               className="py-2.5 font-mono text-xs md:text-xs"
               onClick={(event) => event.currentTarget.select()}
-              value={game}
+              value={url}
               readOnly
             />
           )}

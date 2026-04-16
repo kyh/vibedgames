@@ -134,9 +134,9 @@ export const GameCard = ({
   );
 };
 
-type Props<T extends { preview: string; name: string; url?: string }> = {
+type Props<T extends { preview: string; name: string; slug: string }> = {
   data: T[];
-  activeUrl?: string;
+  activeSlug?: string;
   showStack: boolean;
   onPreviewClick?: (game: T) => void;
 };
@@ -160,15 +160,15 @@ const useIsMobile = () => {
   return isMobile;
 };
 
-export const GameStack = <T extends { preview: string; name: string; url?: string }>({
+export const GameStack = <T extends { preview: string; name: string; slug: string }>({
   data,
-  activeUrl,
+  activeSlug,
   showStack,
   onPreviewClick,
 }: Props<T>) => {
   const isMobile = useIsMobile();
 
-  const currentIndex = data.findIndex((item) => item.url === activeUrl);
+  const currentIndex = data.findIndex((item) => item.slug === activeSlug);
 
   return (
     <section className="pointer-events-none relative h-full w-full perspective-[150vw]">

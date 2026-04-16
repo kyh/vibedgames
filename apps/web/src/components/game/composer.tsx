@@ -9,7 +9,7 @@ import { PlayView } from "./play-view";
 import { WaitlistDailog } from "./waitlist-form";
 
 type Props = {
-  onHover: (url: string) => void;
+  onHover: (slug: string) => void;
 };
 
 export const Composer = ({ onHover }: Props) => {

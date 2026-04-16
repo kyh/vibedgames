@@ -4,13 +4,13 @@ import { AnimatePresence, motion } from "motion/react";
 import { GameStack } from "@/components/canvas/game-stack";
 import { Iframe } from "@/components/canvas/iframe";
 import { Route } from "@/routes/index";
-import { featuredGames } from "./data";
+import { featuredGames, gameUrl } from "./data";
 
 type Props = {
-  previewUrl: string;
+  previewSlug: string;
 };
 
-export const Canvas = ({ previewUrl }: Props) => {
+export const Canvas = ({ previewSlug }: Props) => {
   const { view, game } = Route.useSearch();
   const navigate = useNavigate({ from: "/" });
 
@@ -26,16 +26,16 @@ export const Canvas = ({ previewUrl }: Props) => {
             exit={{ opacity: 0, filter: "blur(5px)" }}
             transition={{ duration: 0.2 }}
           >
-            <Iframe url={game} />
+            <Iframe url={gameUrl(game)} />
           </motion.div>
         )}
       </AnimatePresence>
       <GameStack
         data={featuredGames}
-        activeUrl={previewUrl}
+        activeSlug={previewSlug}
         showStack={view === "discover"}
         onPreviewClick={(g) => {
-          navigate({ search: { view: "play", game: g.url } });
+          navigate({ search: { view: "play", game: g.slug } });
         }}
       />
     </div>
