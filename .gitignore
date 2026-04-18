@@ -49,4 +49,6 @@ yarn-error.log*
 .temp
 local.*
 .superset
-.claude/
+
+# claude
+.claude/scheduled_tasks.lock

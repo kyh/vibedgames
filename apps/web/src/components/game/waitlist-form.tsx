@@ -1,4 +1,3 @@
-
 import { zodResolver } from "@hookform/resolvers/zod";
 import { joinWaitlistInput } from "@repo/api/waitlist/waitlist-schema";
 import { Button } from "@repo/ui/components/button";
@@ -9,11 +8,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@repo/ui/components/dialog";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@repo/ui/components/form";
+import { Field, FieldContent, FieldError } from "@repo/ui/components/field";
 import { toast } from "@repo/ui/components/toast";
 import { cn } from "@repo/ui/lib/utils";
 import { useMutation } from "@tanstack/react-query";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 
 import { useTRPC } from "@/lib/trpc";
 
@@ -42,43 +41,42 @@ export const WaitlistForm = () => {
   });
 
   return (
-    <Form {...form}>
-      <form
-        onSubmit={handleJoinWaitlist}
-        className="bg-input flex max-w-sm items-center gap-2 rounded-xl border border-white/10 shadow-lg"
+    <form
+      onSubmit={handleJoinWaitlist}
+      className="bg-input flex max-w-sm items-center gap-2 rounded-xl border border-white/10 shadow-lg"
+    >
+      <Controller
+        control={form.control}
+        name="email"
+        render={({ field, fieldState }) => (
+          <Field data-invalid={!!fieldState.error} className="min-w-0 flex-1">
+            <FieldContent>
+              <input
+                className="w-full border-none bg-transparent py-3 pl-4 text-sm placeholder-white/50 focus:placeholder-white/75 focus:ring-0 focus:outline-hidden"
+                aria-invalid={!!fieldState.error}
+                required
+                type="email"
+                placeholder="name@example.com"
+                autoCapitalize="none"
+                autoComplete="email"
+                autoCorrect="off"
+                {...field}
+              />
+            </FieldContent>
+            {fieldState.error && (
+              <FieldError className="absolute pt-1">{fieldState.error.message}</FieldError>
+            )}
+          </Field>
+        )}
+      />
+      <Button
+        className={cn("text-xs", joinWaitlist.isPending && "[&>:first-child]:bg-input")}
+        variant="ghost"
+        loading={joinWaitlist.isPending}
       >
-        <FormField
-          control={form.control}
-          name="email"
-          render={({ field }) => (
-            <FormItem className="min-w-0 flex-1 space-y-0">
-              <FormLabel className="sr-only">Email</FormLabel>
-              <FormControl>
-                <input
-                  className="w-full border-none bg-transparent py-3 pl-4 text-sm placeholder-white/50 focus:placeholder-white/75 focus:ring-0 focus:outline-hidden"
-                  required
-                  type="email"
-                  placeholder="name@example.com"
-                  autoCapitalize="none"
-                  autoComplete="email"
-                  autoCorrect="off"
-                  {...field}
-                  value={field.value}
-                />
-              </FormControl>
-              <FormMessage className="absolute pt-1" />
-            </FormItem>
-          )}
-        />
-        <Button
-          className={cn("text-xs", joinWaitlist.isPending && "[&>:first-child]:bg-input")}
-          variant="ghost"
-          loading={joinWaitlist.isPending}
-        >
-          Join Waitlist
-        </Button>
-      </form>
-    </Form>
+        Join Waitlist
+      </Button>
+    </form>
   );
 };
 

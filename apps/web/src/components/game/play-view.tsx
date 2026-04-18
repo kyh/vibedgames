@@ -64,7 +64,7 @@ export const PlayView = () => {
             />
           )}
           <InputGroupAddon align="inline-end">
-            <InputGroupButton onClick={refresh} type="button" size="icon-xs">
+            <InputGroupButton onClick={refresh} size="icon-xs">
               <RefreshCwIcon className={cn(loading && "animate-spin")} />
             </InputGroupButton>
           </InputGroupAddon>
