@@ -1,41 +1,34 @@
-"use client"
+"use client";
 
-import * as React from "react"
-import { AlertDialog as AlertDialogPrimitive } from "@base-ui/react/alert-dialog"
+import * as React from "react";
+import { AlertDialog as AlertDialogPrimitive } from "@base-ui/react/alert-dialog";
 
-import { cn } from "@repo/ui/lib/utils"
-import { Button } from "@repo/ui/components/button"
+import { cn } from "@repo/ui/lib/utils";
+import { Button } from "@repo/ui/components/button";
 
 function AlertDialog({ ...props }: AlertDialogPrimitive.Root.Props) {
-  return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />
+  return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />;
 }
 
 function AlertDialogTrigger({ ...props }: AlertDialogPrimitive.Trigger.Props) {
-  return (
-    <AlertDialogPrimitive.Trigger data-slot="alert-dialog-trigger" {...props} />
-  )
+  return <AlertDialogPrimitive.Trigger data-slot="alert-dialog-trigger" {...props} />;
 }
 
 function AlertDialogPortal({ ...props }: AlertDialogPrimitive.Portal.Props) {
-  return (
-    <AlertDialogPrimitive.Portal data-slot="alert-dialog-portal" {...props} />
-  )
+  return <AlertDialogPrimitive.Portal data-slot="alert-dialog-portal" {...props} />;
 }
 
-function AlertDialogOverlay({
-  className,
-  ...props
-}: AlertDialogPrimitive.Backdrop.Props) {
+function AlertDialogOverlay({ className, ...props }: AlertDialogPrimitive.Backdrop.Props) {
   return (
     <AlertDialogPrimitive.Backdrop
       data-slot="alert-dialog-overlay"
       className={cn(
         "fixed inset-0 isolate z-50 bg-black/10 duration-100 supports-backdrop-filter:backdrop-blur-xs data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0",
-        className
+        className,
       )}
       {...props}
     />
-  )
+  );
 }
 
 function AlertDialogContent({
@@ -43,7 +36,7 @@ function AlertDialogContent({
   size = "default",
   ...props
 }: AlertDialogPrimitive.Popup.Props & {
-  size?: "default" | "sm"
+  size?: "default" | "sm";
 }) {
   return (
     <AlertDialogPortal>
@@ -53,60 +46,51 @@ function AlertDialogContent({
         data-size={size}
         className={cn(
           "group/alert-dialog-content fixed top-1/2 left-1/2 z-50 grid w-full -translate-x-1/2 -translate-y-1/2 gap-6 rounded-xl bg-popover p-6 text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none data-[size=default]:max-w-xs data-[size=sm]:max-w-xs data-[size=default]:sm:max-w-lg data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
-          className
+          className,
         )}
         {...props}
       />
     </AlertDialogPortal>
-  )
+  );
 }
 
-function AlertDialogHeader({
-  className,
-  ...props
-}: React.ComponentProps<"div">) {
+function AlertDialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="alert-dialog-header"
       className={cn(
         "grid grid-rows-[auto_1fr] place-items-center gap-1.5 text-center has-data-[slot=alert-dialog-media]:grid-rows-[auto_auto_1fr] has-data-[slot=alert-dialog-media]:gap-x-6 sm:group-data-[size=default]/alert-dialog-content:place-items-start sm:group-data-[size=default]/alert-dialog-content:text-left sm:group-data-[size=default]/alert-dialog-content:has-data-[slot=alert-dialog-media]:grid-rows-[auto_1fr]",
-        className
+        className,
       )}
       {...props}
     />
-  )
+  );
 }
 
-function AlertDialogFooter({
-  className,
-  ...props
-}: React.ComponentProps<"div">) {
+function AlertDialogFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="alert-dialog-footer"
       className={cn(
         "flex flex-col-reverse gap-2 group-data-[size=sm]/alert-dialog-content:grid group-data-[size=sm]/alert-dialog-content:grid-cols-2 sm:flex-row sm:justify-end",
-        className
+        className,
       )}
       {...props}
     />
-  )
+  );
 }
 
-function AlertDialogMedia({
-  className,
-  ...props
-}: React.ComponentProps<"div">) {
+function AlertDialogMedia({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="alert-dialog-media"
       className={cn(
         "mb-2 inline-flex size-16 items-center justify-center rounded-md bg-muted sm:group-data-[size=default]/alert-dialog-content:row-span-2 *:[svg:not([class*='size-'])]:size-8",
-        className
+        className,
       )}
       {...props}
     />
-  )
+  );
 }
 
 function AlertDialogTitle({
@@ -118,11 +102,11 @@ function AlertDialogTitle({
       data-slot="alert-dialog-title"
       className={cn(
         "font-heading text-lg font-medium sm:group-data-[size=default]/alert-dialog-content:group-has-data-[slot=alert-dialog-media]/alert-dialog-content:col-start-2",
-        className
+        className,
       )}
       {...props}
     />
-  )
+  );
 }
 
 function AlertDialogDescription({
@@ -134,24 +118,11 @@ function AlertDialogDescription({
       data-slot="alert-dialog-description"
       className={cn(
         "text-sm text-balance text-muted-foreground md:text-pretty *:[a]:underline *:[a]:underline-offset-3 *:[a]:hover:text-foreground",
-        className
+        className,
       )}
       {...props}
     />
-  )
-}
-
-function AlertDialogAction({
-  className,
-  ...props
-}: React.ComponentProps<typeof Button>) {
-  return (
-    <Button
-      data-slot="alert-dialog-action"
-      className={cn(className)}
-      {...props}
-    />
-  )
+  );
 }
 
 function AlertDialogCancel({
@@ -168,12 +139,11 @@ function AlertDialogCancel({
       render={<Button variant={variant} size={size} />}
       {...props}
     />
-  )
+  );
 }
 
 export {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
@@ -184,90 +154,88 @@ export {
   AlertDialogPortal,
   AlertDialogTitle,
   AlertDialogTrigger,
-}
+};
 
+/**
+ * Imperative global alert dialog. Call `alertDialog.open(title, options)` from
+ * anywhere; render <GlobalAlertDialog /> once at the root.
+ */
 export type AlertState = {
-  open: boolean
-  title: React.ReactNode
-  description?: React.ReactNode
+  open: boolean;
+  title: React.ReactNode;
+  description?: React.ReactNode;
   action?: {
-    hidden?: boolean
-    label?: React.ReactNode
-    onClick?: () => void | Promise<unknown>
-  }
+    hidden?: boolean;
+    label?: React.ReactNode;
+    onClick?: () => void | Promise<unknown>;
+  };
   cancel?: {
-    hidden?: boolean
-    label?: React.ReactNode
-    onClick?: () => void | Promise<unknown>
-  }
-}
+    hidden?: boolean;
+    label?: React.ReactNode;
+    onClick?: () => void | Promise<unknown>;
+  };
+};
 
-type Listener = () => void
+type Listener = () => void;
 
 const alertDialogStore = {
   state: { open: false, title: "" } as AlertState,
   listeners: [] as Listener[],
   subscribe: (listener: Listener) => {
-    alertDialogStore.listeners.push(listener)
+    alertDialogStore.listeners.push(listener);
     return () => {
-      alertDialogStore.listeners = alertDialogStore.listeners.filter((l) => l !== listener)
-    }
+      alertDialogStore.listeners = alertDialogStore.listeners.filter((l) => l !== listener);
+    };
   },
   getSnapshot: () => alertDialogStore.state,
-  emitChange: () => alertDialogStore.listeners.forEach((l) => l()),
-}
+  emitChange: () => {
+    alertDialogStore.listeners.forEach((listener) => listener());
+  },
+};
 
 export const alertDialog = {
   open: (title: React.ReactNode, options: Omit<AlertState, "open" | "title">) => {
-    alertDialogStore.state = {
-      description: undefined,
-      action: undefined,
-      cancel: undefined,
-      ...options,
-      open: true,
-      title,
-    }
-    alertDialogStore.emitChange()
+    alertDialogStore.state = { open: true, title, ...options };
+    alertDialogStore.emitChange();
   },
   close: () => {
-    alertDialogStore.state = { ...alertDialogStore.state, open: false }
-    alertDialogStore.emitChange()
+    alertDialogStore.state = { ...alertDialogStore.state, open: false };
+    alertDialogStore.emitChange();
   },
-}
+};
 
 export const GlobalAlertDialog = () => {
-  const [pendingAction, setPendingAction] = React.useState(false)
-  const [pendingCancel, setPendingCancel] = React.useState(false)
+  const [pendingAction, setPendingAction] = React.useState(false);
+  const [pendingCancel, setPendingCancel] = React.useState(false);
   const alertState = React.useSyncExternalStore(
     alertDialogStore.subscribe,
     alertDialogStore.getSnapshot,
     alertDialogStore.getSnapshot,
-  )
+  );
+
+  const runAndClose = async (
+    onClick: (() => void | Promise<unknown>) | undefined,
+    setPending: (v: boolean) => void,
+  ) => {
+    setPending(true);
+    try {
+      await onClick?.();
+    } finally {
+      setPending(false);
+      alertDialog.close();
+    }
+  };
 
   const onOpenChange = (open: boolean) => {
-    if (pendingAction || pendingCancel) return
+    if (pendingAction || pendingCancel) return;
     if (!open) {
-      setPendingCancel(true)
-      const res = alertState.cancel?.onClick?.()
-      if (res instanceof Promise) {
-        void res.finally(() => { setPendingCancel(false); alertDialog.close() })
-      } else {
-        setPendingCancel(false)
-        alertDialog.close()
-      }
+      void runAndClose(alertState.cancel?.onClick, setPendingCancel);
     }
-  }
+  };
 
   const onConfirm = () => {
-    setPendingAction(true)
-    const res = alertState.action?.onClick?.()
-    if (res instanceof Promise) {
-      void res.finally(() => { setPendingAction(false); alertDialog.close() })
-    } else {
-      setPendingAction(false)
-      alertDialog.close()
-    }
-  }
+    void runAndClose(alertState.action?.onClick, setPendingAction);
+  };
 
   return (
     <AlertDialog open={alertState.open} onOpenChange={onOpenChange}>
@@ -292,5 +260,5 @@ export const GlobalAlertDialog = () => {
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
-  )
-}
+  );
+};

@@ -1,652 +1,519 @@
 "use client";
 
-import type { ComponentProps, HTMLAttributes } from "react";
-import type { BundledLanguage, BundledTheme, SpecialLanguage } from "shiki";
-import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { CheckIcon, CopyIcon, DownloadIcon } from "lucide-react";
-import { AnimatePresence, motion } from "motion/react";
-import { bundledLanguages, createHighlighter } from "shiki";
-import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
+import type { ComponentProps, HTMLAttributes, ReactNode } from "react";
+import type { BundledLanguage, CodeOptionsMultipleThemes } from "shiki";
+import { createContext, useContext, useEffect, useState } from "react";
+import {
+  SiAstro,
+  SiBiome,
+  SiBower,
+  SiBun,
+  SiC,
+  SiCircleci,
+  SiCoffeescript,
+  SiCplusplus,
+  SiCss,
+  SiCssmodules,
+  SiDart,
+  SiDocker,
+  SiDocusaurus,
+  SiDotenv,
+  SiEditorconfig,
+  SiEslint,
+  SiGatsby,
+  SiGitignoredotio,
+  SiGnubash,
+  SiGo,
+  SiGraphql,
+  SiGrunt,
+  SiGulp,
+  SiHandlebarsdotjs,
+  SiHtml5,
+  SiJavascript,
+  SiJest,
+  SiJson,
+  SiLess,
+  SiMarkdown,
+  SiMdx,
+  SiMintlify,
+  SiMocha,
+  SiMysql,
+  SiNextdotjs,
+  SiPerl,
+  SiPhp,
+  SiPostcss,
+  SiPrettier,
+  SiPrisma,
+  SiPug,
+  SiPython,
+  SiR,
+  SiReact,
+  SiReadme,
+  SiRedis,
+  SiRemix,
+  SiRive,
+  SiRollupdotjs,
+  SiRuby,
+  SiSanity,
+  SiSass,
+  SiScala,
+  SiSentry,
+  SiShadcnui,
+  SiStorybook,
+  SiStylelint,
+  SiSublimetext,
+  SiSvelte,
+  SiSvg,
+  SiSwift,
+  SiTailwindcss,
+  SiToml,
+  SiTypescript,
+  SiVercel,
+  SiVite,
+  SiVuedotjs,
+  SiWebassembly,
+} from "@icons-pack/react-simple-icons";
+import { useControllableState } from "@radix-ui/react-use-controllable-state";
+import {
+  transformerNotationDiff,
+  transformerNotationErrorLevel,
+  transformerNotationFocus,
+  transformerNotationHighlight,
+  transformerNotationWordHighlight,
+} from "@shikijs/transformers";
+import { CheckIcon, CopyIcon } from "lucide-react";
+import { codeToHtml } from "shiki";
 
-import { cn } from "../lib/utils";
+import type { IconType } from "@icons-pack/react-simple-icons";
+import { Button } from "./button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./select";
+import { cn } from "@repo/ui/lib/utils";
 
-const ShikiThemeContext = createContext<[BundledTheme, BundledTheme]>([
-  "github-light" as BundledTheme,
-  "github-dark-high-contrast" as BundledTheme,
-]);
-
-const PRE_TAG_REGEX = /<pre(\s|>)/;
-
-type CodeBlockProps = HTMLAttributes<HTMLDivElement> & {
-  code: string;
-  language: BundledLanguage;
-  preClassName?: string;
-  containerClassName?: string;
+export type { BundledLanguage } from "shiki";
+const filenameIconMap = {
+  ".env": SiDotenv,
+  "*.astro": SiAstro,
+  "biome.json": SiBiome,
+  ".bowerrc": SiBower,
+  "bun.lockb": SiBun,
+  "*.c": SiC,
+  "*.cpp": SiCplusplus,
+  ".circleci/config.yml": SiCircleci,
+  "*.coffee": SiCoffeescript,
+  "*.module.css": SiCssmodules,
+  "*.css": SiCss,
+  "*.dart": SiDart,
+  Dockerfile: SiDocker,
+  "docusaurus.config.js": SiDocusaurus,
+  ".editorconfig": SiEditorconfig,
+  ".eslintrc": SiEslint,
+  "eslint.config.*": SiEslint,
+  "gatsby-config.*": SiGatsby,
+  ".gitignore": SiGitignoredotio,
+  "*.go": SiGo,
+  "*.graphql": SiGraphql,
+  "*.sh": SiGnubash,
+  "Gruntfile.*": SiGrunt,
+  "gulpfile.*": SiGulp,
+  "*.hbs": SiHandlebarsdotjs,
+  "*.html": SiHtml5,
+  "*.js": SiJavascript,
+  "*.json": SiJson,
+  "*.test.js": SiJest,
+  "*.less": SiLess,
+  "*.md": SiMarkdown,
+  "*.mdx": SiMdx,
+  "mintlify.json": SiMintlify,
+  "mocha.opts": SiMocha,
+  "*.mustache": SiHandlebarsdotjs,
+  "*.sql": SiMysql,
+  "next.config.*": SiNextdotjs,
+  "*.pl": SiPerl,
+  "*.php": SiPhp,
+  "postcss.config.*": SiPostcss,
+  "prettier.config.*": SiPrettier,
+  "*.prisma": SiPrisma,
+  "*.pug": SiPug,
+  "*.py": SiPython,
+  "*.r": SiR,
+  "*.rb": SiRuby,
+  "*.jsx": SiReact,
+  "*.tsx": SiReact,
+  "readme.md": SiReadme,
+  "*.rdb": SiRedis,
+  "remix.config.*": SiRemix,
+  "*.riv": SiRive,
+  "rollup.config.*": SiRollupdotjs,
+  "sanity.config.*": SiSanity,
+  "*.sass": SiSass,
+  "*.scss": SiSass,
+  "*.sc": SiScala,
+  "*.scala": SiScala,
+  "sentry.client.config.*": SiSentry,
+  "components.json": SiShadcnui,
+  "storybook.config.*": SiStorybook,
+  "stylelint.config.*": SiStylelint,
+  ".sublime-settings": SiSublimetext,
+  "*.svelte": SiSvelte,
+  "*.svg": SiSvg,
+  "*.swift": SiSwift,
+  "tailwind.config.*": SiTailwindcss,
+  "*.toml": SiToml,
+  "*.ts": SiTypescript,
+  "vercel.json": SiVercel,
+  "vite.config.*": SiVite,
+  "*.vue": SiVuedotjs,
+  "*.wasm": SiWebassembly,
 };
-
+const lineNumberClassNames = cn(
+  "[&_code]:[counter-reset:line]",
+  "[&_code]:[counter-increment:line_0]",
+  "[&_.line]:before:content-[counter(line)]",
+  "[&_.line]:before:inline-block",
+  "[&_.line]:before:[counter-increment:line]",
+  "[&_.line]:before:w-4",
+  "[&_.line]:before:mr-4",
+  "[&_.line]:before:text-[13px]",
+  "[&_.line]:before:text-right",
+  "[&_.line]:before:text-muted-foreground/50",
+  "[&_.line]:before:font-mono",
+  "[&_.line]:before:select-none",
+);
+const darkModeClassNames = cn(
+  "dark:[&_.shiki]:!text-[var(--shiki-dark)]",
+  "dark:[&_.shiki]:!bg-[var(--shiki-dark-bg)]",
+  "dark:[&_.shiki]:![font-style:var(--shiki-dark-font-style)]",
+  "dark:[&_.shiki]:![font-weight:var(--shiki-dark-font-weight)]",
+  "dark:[&_.shiki]:![text-decoration:var(--shiki-dark-text-decoration)]",
+  "dark:[&_.shiki_span]:!text-[var(--shiki-dark)]",
+  "dark:[&_.shiki_span]:![font-style:var(--shiki-dark-font-style)]",
+  "dark:[&_.shiki_span]:![font-weight:var(--shiki-dark-font-weight)]",
+  "dark:[&_.shiki_span]:![text-decoration:var(--shiki-dark-text-decoration)]",
+);
+const lineHighlightClassNames = cn(
+  "[&_.line.highlighted]:bg-blue-50",
+  "[&_.line.highlighted]:after:bg-blue-500",
+  "[&_.line.highlighted]:after:absolute",
+  "[&_.line.highlighted]:after:left-0",
+  "[&_.line.highlighted]:after:top-0",
+  "[&_.line.highlighted]:after:bottom-0",
+  "[&_.line.highlighted]:after:w-0.5",
+  "dark:[&_.line.highlighted]:!bg-blue-500/10",
+);
+const lineDiffClassNames = cn(
+  "[&_.line.diff]:after:absolute",
+  "[&_.line.diff]:after:left-0",
+  "[&_.line.diff]:after:top-0",
+  "[&_.line.diff]:after:bottom-0",
+  "[&_.line.diff]:after:w-0.5",
+  "[&_.line.diff.add]:bg-emerald-50",
+  "[&_.line.diff.add]:after:bg-emerald-500",
+  "[&_.line.diff.remove]:bg-rose-50",
+  "[&_.line.diff.remove]:after:bg-rose-500",
+  "dark:[&_.line.diff.add]:!bg-emerald-500/10",
+  "dark:[&_.line.diff.remove]:!bg-rose-500/10",
+);
+const lineFocusedClassNames = cn(
+  "[&_code:has(.focused)_.line]:blur-[2px]",
+  "[&_code:has(.focused)_.line.focused]:blur-none",
+);
+const wordHighlightClassNames = cn(
+  "[&_.highlighted-word]:bg-blue-50",
+  "dark:[&_.highlighted-word]:!bg-blue-500/10",
+);
+const codeBlockClassName = cn(
+  "bg-background mt-0 text-sm",
+  "[&_pre]:py-4",
+  "[&_.shiki]:!bg-[var(--shiki-bg)]",
+  "[&_code]:w-full",
+  "[&_code]:grid",
+  "[&_code]:overflow-x-auto",
+  "[&_code]:bg-transparent",
+  "[&_.line]:px-4",
+  "[&_.line]:w-full",
+  "[&_.line]:relative",
+);
+const highlight = (
+  html: string,
+  language?: BundledLanguage,
+  themes?: CodeOptionsMultipleThemes["themes"],
+) =>
+  codeToHtml(html, {
+    lang: language ?? "typescript",
+    themes: themes ?? {
+      light: "github-light",
+      dark: "github-dark-default",
+    },
+    transformers: [
+      transformerNotationDiff({
+        matchAlgorithm: "v3",
+      }),
+      transformerNotationHighlight({
+        matchAlgorithm: "v3",
+      }),
+      transformerNotationWordHighlight({
+        matchAlgorithm: "v3",
+      }),
+      transformerNotationFocus({
+        matchAlgorithm: "v3",
+      }),
+      transformerNotationErrorLevel({
+        matchAlgorithm: "v3",
+      }),
+    ],
+  });
+type CodeBlockData = {
+  language: string;
+  filename: string;
+  code: string;
+};
 type CodeBlockContextType = {
-  code: string;
+  value: string | undefined;
+  onValueChange: ((value: string) => void) | undefined;
+  data: CodeBlockData[];
 };
-
 const CodeBlockContext = createContext<CodeBlockContextType>({
-  code: "",
+  value: undefined,
+  onValueChange: undefined,
+  data: [],
 });
-
-class HighlighterManager {
-  private lightHighlighter: Awaited<ReturnType<typeof createHighlighter>> | null = null;
-  private darkHighlighter: Awaited<ReturnType<typeof createHighlighter>> | null = null;
-  private lightTheme: BundledTheme | null = null;
-  private darkTheme: BundledTheme | null = null;
-  private readonly loadedLanguages = new Set<BundledLanguage>();
-  private initializationPromise: Promise<void> | null = null;
-
-  private isLanguageSupported(language: string): language is BundledLanguage {
-    return Object.hasOwn(bundledLanguages, language);
-  }
-
-  private getFallbackLanguage(): SpecialLanguage {
-    return "text";
-  }
-
-  private async ensureHighlightersInitialized(
-    themes: [BundledTheme, BundledTheme],
-    language: BundledLanguage,
-  ): Promise<void> {
-    const [lightTheme, darkTheme] = themes;
-    const jsEngine = createJavaScriptRegexEngine({ forgiving: true });
-
-    // Check if we need to recreate highlighters due to theme change
-    const needsLightRecreation = !this.lightHighlighter || this.lightTheme !== lightTheme;
-    const needsDarkRecreation = !this.darkHighlighter || this.darkTheme !== darkTheme;
-
-    if (needsLightRecreation || needsDarkRecreation) {
-      // If themes changed, reset loaded languages
-      this.loadedLanguages.clear();
-    }
-
-    // Check if we need to load the language
-    const isLanguageSupported = this.isLanguageSupported(language);
-    const needsLanguageLoad = !this.loadedLanguages.has(language) && isLanguageSupported;
-
-    // Create or recreate light highlighter if needed
-    if (needsLightRecreation) {
-      this.lightHighlighter = await createHighlighter({
-        themes: [lightTheme],
-        langs: isLanguageSupported ? [language] : [],
-        engine: jsEngine,
-      });
-      this.lightTheme = lightTheme;
-      if (isLanguageSupported) {
-        this.loadedLanguages.add(language);
-      }
-    } else if (needsLanguageLoad) {
-      // Load the language if not already loaded
-      await this.lightHighlighter?.loadLanguage(language);
-    }
-
-    // Create or recreate dark highlighter if needed
-    if (needsDarkRecreation) {
-      // If recreating dark highlighter, load all previously loaded languages plus the new one
-      const langsToLoad = needsLanguageLoad
-        ? [...this.loadedLanguages].concat(isLanguageSupported ? [language] : [])
-        : Array.from(this.loadedLanguages);
-
-      this.darkHighlighter = await createHighlighter({
-        themes: [darkTheme],
-        langs: langsToLoad.length > 0 ? langsToLoad : isLanguageSupported ? [language] : [],
-        engine: jsEngine,
-      });
-      this.darkTheme = darkTheme;
-    } else if (needsLanguageLoad) {
-      // Load the language if not already loaded
-      await this.darkHighlighter?.loadLanguage(language);
-    }
-
-    // Mark language as loaded after both highlighters have it
-    if (needsLanguageLoad) {
-      this.loadedLanguages.add(language);
-    }
-  }
-
-  async highlightCode(
-    code: string,
-    language: BundledLanguage,
-    themes: [BundledTheme, BundledTheme],
-    preClassName?: string,
-  ): Promise<[string, string]> {
-    // Ensure only one initialization happens at a time
-    if (this.initializationPromise) {
-      await this.initializationPromise;
-    }
-    // Initialize or load language
-    this.initializationPromise = this.ensureHighlightersInitialized(themes, language);
-    await this.initializationPromise;
-    this.initializationPromise = null;
-
-    const [lightTheme, darkTheme] = themes;
-
-    const lang = this.isLanguageSupported(language) ? language : this.getFallbackLanguage();
-
-    const light = this.lightHighlighter?.codeToHtml(code, {
-      lang,
-      theme: lightTheme,
-    });
-
-    const dark = this.darkHighlighter?.codeToHtml(code, {
-      lang,
-      theme: darkTheme,
-    });
-
-    const addPreClass = (html: string) => {
-      if (!preClassName) {
-        return html;
-      }
-      return html.replace(PRE_TAG_REGEX, `<pre class="${preClassName}"$1`);
-    };
-
-    return [addPreClass(light!), addPreClass(dark!)];
-  }
-}
-
-// Create a singleton instance of the highlighter manager
-const highlighterManager = new HighlighterManager();
-
+export type CodeBlockProps = HTMLAttributes<HTMLDivElement> & {
+  defaultValue?: string;
+  value?: string;
+  onValueChange?: (value: string) => void;
+  data: CodeBlockData[];
+};
 export const CodeBlock = ({
-  code,
-  language,
+  value: controlledValue,
+  onValueChange: controlledOnValueChange,
+  defaultValue,
   className,
-  preClassName,
-  containerClassName,
-  ...rest
+  data,
+  ...props
 }: CodeBlockProps) => {
-  const [html, setHtml] = useState<string>("");
-  const [darkHtml, setDarkHtml] = useState<string>("");
-  const mounted = useRef(false);
-  const [lightTheme, darkTheme] = useContext(ShikiThemeContext);
-
-  useEffect(() => {
-    mounted.current = true;
-
-    void highlighterManager
-      .highlightCode(code, language, [lightTheme, darkTheme], preClassName)
-      .then(([light, dark]) => {
-        if (mounted.current) {
-          setHtml(light);
-          setDarkHtml(dark);
-        }
-      });
-
-    return () => {
-      mounted.current = false;
-    };
-  }, [code, language, lightTheme, darkTheme, preClassName]);
-
+  const [value, onValueChange] = useControllableState({
+    defaultProp: defaultValue ?? "",
+    prop: controlledValue,
+    onChange: controlledOnValueChange,
+  });
   return (
-    <CodeBlockContext.Provider value={{ code }}>
-      <div className={containerClassName} data-language={language}>
-        <div
-          className={cn("overflow-x-auto dark:hidden", className)}
-          dangerouslySetInnerHTML={{ __html: html }}
-          data-code-block
-          data-language={language}
-          {...rest}
-        />
-        <div
-          className={cn("hidden overflow-x-auto dark:block", className)}
-          dangerouslySetInnerHTML={{ __html: darkHtml }}
-          data-code-block
-          data-language={language}
-          {...rest}
-        />
-      </div>
+    <CodeBlockContext.Provider value={{ value, onValueChange, data }}>
+      <div className={cn("size-full overflow-hidden rounded-md border", className)} {...props} />
     </CodeBlockContext.Provider>
   );
 };
-
-export type CodeBlockCopyButtonProps = ComponentProps<"button"> & {
+export type CodeBlockHeaderProps = HTMLAttributes<HTMLDivElement>;
+export const CodeBlockHeader = ({ className, ...props }: CodeBlockHeaderProps) => (
+  <div
+    className={cn("bg-secondary flex flex-row items-center border-b p-1", className)}
+    {...props}
+  />
+);
+export type CodeBlockFilesProps = Omit<HTMLAttributes<HTMLDivElement>, "children"> & {
+  children: (item: CodeBlockData) => ReactNode;
+};
+export const CodeBlockFiles = ({ className, children, ...props }: CodeBlockFilesProps) => {
+  const { data } = useContext(CodeBlockContext);
+  return (
+    <div className={cn("flex grow flex-row items-center gap-2", className)} {...props}>
+      {data.map(children)}
+    </div>
+  );
+};
+export type CodeBlockFilenameProps = HTMLAttributes<HTMLDivElement> & {
+  icon?: IconType;
+  value?: string;
+};
+export const CodeBlockFilename = ({
+  className,
+  icon,
+  value,
+  children,
+  ...props
+}: CodeBlockFilenameProps) => {
+  const { value: activeValue } = useContext(CodeBlockContext);
+  const defaultIcon = Object.entries(filenameIconMap).find(([pattern]) => {
+    const regex = new RegExp(
+      `^${pattern.replace(/\\/g, "\\\\").replace(/\./g, "\\.").replace(/\*/g, ".*")}$`,
+    );
+    return regex.test(children as string);
+  })?.[1];
+  const Icon = icon ?? defaultIcon;
+  if (value !== activeValue) {
+    return null;
+  }
+  return (
+    <div
+      className="bg-secondary text-muted-foreground flex items-center gap-2 px-4 py-1.5 text-xs"
+      {...props}
+    >
+      {Icon && <Icon className="h-4 w-4 shrink-0" />}
+      <span className="flex-1 truncate">{children}</span>
+    </div>
+  );
+};
+export type CodeBlockSelectProps = ComponentProps<typeof Select>;
+export const CodeBlockSelect = (props: CodeBlockSelectProps) => {
+  const { value, onValueChange } = useContext(CodeBlockContext);
+  return (
+    <Select
+      onValueChange={(v) => {
+        if (typeof v === "string") onValueChange?.(v);
+      }}
+      value={value}
+      {...props}
+    />
+  );
+};
+export type CodeBlockSelectTriggerProps = ComponentProps<typeof SelectTrigger>;
+export const CodeBlockSelectTrigger = ({ className, ...props }: CodeBlockSelectTriggerProps) => (
+  <SelectTrigger
+    className={cn("text-muted-foreground w-fit border-none text-xs shadow-none", className)}
+    {...props}
+  />
+);
+export type CodeBlockSelectValueProps = ComponentProps<typeof SelectValue>;
+export const CodeBlockSelectValue = (props: CodeBlockSelectValueProps) => (
+  <SelectValue {...props} />
+);
+export type CodeBlockSelectContentProps = Omit<ComponentProps<typeof SelectContent>, "children"> & {
+  children: (item: CodeBlockData) => ReactNode;
+};
+export const CodeBlockSelectContent = ({ children, ...props }: CodeBlockSelectContentProps) => {
+  const { data } = useContext(CodeBlockContext);
+  return <SelectContent {...props}>{data.map(children)}</SelectContent>;
+};
+export type CodeBlockSelectItemProps = ComponentProps<typeof SelectItem>;
+export const CodeBlockSelectItem = ({ className, ...props }: CodeBlockSelectItemProps) => (
+  <SelectItem className={cn("text-sm", className)} {...props} />
+);
+export type CodeBlockCopyButtonProps = ComponentProps<typeof Button> & {
   onCopy?: () => void;
   onError?: (error: Error) => void;
   timeout?: number;
 };
-
-export type CodeBlockDownloadButtonProps = ComponentProps<"button"> & {
-  onDownload?: () => void;
-  onError?: (error: Error) => void;
-};
-
-const languageToExtensionMap: Partial<Record<BundledLanguage, string>> = {
-  "1c": "1c",
-  "1c-query": "1cq",
-  abap: "abap",
-  "actionscript-3": "as",
-  ada: "ada",
-  adoc: "adoc",
-  "angular-html": "html",
-  "angular-ts": "ts",
-  apache: "conf",
-  apex: "cls",
-  apl: "apl",
-  applescript: "applescript",
-  ara: "ara",
-  asciidoc: "adoc",
-  asm: "asm",
-  astro: "astro",
-  awk: "awk",
-  ballerina: "bal",
-  bash: "sh",
-  bat: "bat",
-  batch: "bat",
-  be: "be",
-  beancount: "beancount",
-  berry: "berry",
-  bibtex: "bib",
-  bicep: "bicep",
-  blade: "blade.php",
-  bsl: "bsl",
-  c: "c",
-  "c#": "cs",
-  "c++": "cpp",
-  cadence: "cdc",
-  cairo: "cairo",
-  cdc: "cdc",
-  clarity: "clar",
-  clj: "clj",
-  clojure: "clj",
-  "closure-templates": "soy",
-  cmake: "cmake",
-  cmd: "cmd",
-  cobol: "cob",
-  codeowners: "CODEOWNERS",
-  codeql: "ql",
-  coffee: "coffee",
-  coffeescript: "coffee",
-  "common-lisp": "lisp",
-  console: "sh",
-  coq: "v",
-  cpp: "cpp",
-  cql: "cql",
-  crystal: "cr",
-  cs: "cs",
-  csharp: "cs",
-  css: "css",
-  csv: "csv",
-  cue: "cue",
-  cypher: "cql",
-  d: "d",
-  dart: "dart",
-  dax: "dax",
-  desktop: "desktop",
-  diff: "diff",
-  docker: "dockerfile",
-  dockerfile: "dockerfile",
-  dotenv: "env",
-  "dream-maker": "dm",
-  edge: "edge",
-  elisp: "el",
-  elixir: "ex",
-  elm: "elm",
-  "emacs-lisp": "el",
-  erb: "erb",
-  erl: "erl",
-  erlang: "erl",
-  f: "f",
-  "f#": "fs",
-  f03: "f03",
-  f08: "f08",
-  f18: "f18",
-  f77: "f77",
-  f90: "f90",
-  f95: "f95",
-  fennel: "fnl",
-  fish: "fish",
-  fluent: "ftl",
-  for: "for",
-  "fortran-fixed-form": "f",
-  "fortran-free-form": "f90",
-  fs: "fs",
-  fsharp: "fs",
-  fsl: "fsl",
-  ftl: "ftl",
-  gdresource: "tres",
-  gdscript: "gd",
-  gdshader: "gdshader",
-  genie: "gs",
-  gherkin: "feature",
-  "git-commit": "gitcommit",
-  "git-rebase": "gitrebase",
-  gjs: "js",
-  gleam: "gleam",
-  "glimmer-js": "js",
-  "glimmer-ts": "ts",
-  glsl: "glsl",
-  gnuplot: "plt",
-  go: "go",
-  gql: "gql",
-  graphql: "graphql",
-  groovy: "groovy",
-  gts: "gts",
-  hack: "hack",
-  haml: "haml",
-  handlebars: "hbs",
-  haskell: "hs",
-  haxe: "hx",
-  hbs: "hbs",
-  hcl: "hcl",
-  hjson: "hjson",
-  hlsl: "hlsl",
-  hs: "hs",
-  html: "html",
-  "html-derivative": "html",
-  http: "http",
-  hxml: "hxml",
-  hy: "hy",
-  imba: "imba",
-  ini: "ini",
-  jade: "jade",
-  java: "java",
-  javascript: "js",
-  jinja: "jinja",
-  jison: "jison",
-  jl: "jl",
-  js: "js",
-  json: "json",
-  json5: "json5",
-  jsonc: "jsonc",
-  jsonl: "jsonl",
-  jsonnet: "jsonnet",
-  jssm: "jssm",
-  jsx: "jsx",
-  julia: "jl",
-  kotlin: "kt",
-  kql: "kql",
-  kt: "kt",
-  kts: "kts",
-  kusto: "kql",
-  latex: "tex",
-  lean: "lean",
-  lean4: "lean",
-  less: "less",
-  liquid: "liquid",
-  lisp: "lisp",
-  lit: "lit",
-  llvm: "ll",
-  log: "log",
-  logo: "logo",
-  lua: "lua",
-  luau: "luau",
-  make: "mak",
-  makefile: "mak",
-  markdown: "md",
-  marko: "marko",
-  matlab: "m",
-  md: "md",
-  mdc: "mdc",
-  mdx: "mdx",
-  mediawiki: "wiki",
-  mermaid: "mmd",
-  mips: "s",
-  mipsasm: "s",
-  mmd: "mmd",
-  mojo: "mojo",
-  move: "move",
-  nar: "nar",
-  narrat: "narrat",
-  nextflow: "nf",
-  nf: "nf",
-  nginx: "conf",
-  nim: "nim",
-  nix: "nix",
-  nu: "nu",
-  nushell: "nu",
-  objc: "m",
-  "objective-c": "m",
-  "objective-cpp": "mm",
-  ocaml: "ml",
-  pascal: "pas",
-  perl: "pl",
-  perl6: "p6",
-  php: "php",
-  plsql: "pls",
-  po: "po",
-  polar: "polar",
-  postcss: "pcss",
-  pot: "pot",
-  potx: "potx",
-  powerquery: "pq",
-  powershell: "ps1",
-  prisma: "prisma",
-  prolog: "pl",
-  properties: "properties",
-  proto: "proto",
-  protobuf: "proto",
-  ps: "ps",
-  ps1: "ps1",
-  pug: "pug",
-  puppet: "pp",
-  purescript: "purs",
-  py: "py",
-  python: "py",
-  ql: "ql",
-  qml: "qml",
-  qmldir: "qmldir",
-  qss: "qss",
-  r: "r",
-  racket: "rkt",
-  raku: "raku",
-  razor: "cshtml",
-  rb: "rb",
-  reg: "reg",
-  regex: "regex",
-  regexp: "regexp",
-  rel: "rel",
-  riscv: "s",
-  rs: "rs",
-  rst: "rst",
-  ruby: "rb",
-  rust: "rs",
-  sas: "sas",
-  sass: "sass",
-  scala: "scala",
-  scheme: "scm",
-  scss: "scss",
-  sdbl: "sdbl",
-  sh: "sh",
-  shader: "shader",
-  shaderlab: "shader",
-  shell: "sh",
-  shellscript: "sh",
-  shellsession: "sh",
-  smalltalk: "st",
-  solidity: "sol",
-  soy: "soy",
-  sparql: "rq",
-  spl: "spl",
-  splunk: "spl",
-  sql: "sql",
-  "ssh-config": "config",
-  stata: "do",
-  styl: "styl",
-  stylus: "styl",
-  svelte: "svelte",
-  swift: "swift",
-  "system-verilog": "sv",
-  systemd: "service",
-  talon: "talon",
-  talonscript: "talon",
-  tasl: "tasl",
-  tcl: "tcl",
-  templ: "templ",
-  terraform: "tf",
-  tex: "tex",
-  tf: "tf",
-  tfvars: "tfvars",
-  toml: "toml",
-  ts: "ts",
-  "ts-tags": "ts",
-  tsp: "tsp",
-  tsv: "tsv",
-  tsx: "tsx",
-  turtle: "ttl",
-  twig: "twig",
-  typ: "typ",
-  typescript: "ts",
-  typespec: "tsp",
-  typst: "typ",
-  v: "v",
-  vala: "vala",
-  vb: "vb",
-  verilog: "v",
-  vhdl: "vhdl",
-  vim: "vim",
-  viml: "vim",
-  vimscript: "vim",
-  vue: "vue",
-  "vue-html": "html",
-  "vue-vine": "vine",
-  vy: "vy",
-  vyper: "vy",
-  wasm: "wasm",
-  wenyan: "wy",
-  wgsl: "wgsl",
-  wiki: "wiki",
-  wikitext: "wiki",
-  wit: "wit",
-  wl: "wl",
-  wolfram: "wl",
-  xml: "xml",
-  xsl: "xsl",
-  yaml: "yaml",
-  yml: "yml",
-  zenscript: "zs",
-  zig: "zig",
-  zsh: "zsh",
-  文言: "wy",
-};
-
-export const extensionToLanguageMap: Partial<Record<string, BundledLanguage>> = Object.fromEntries(
-  (Object.entries(languageToExtensionMap) as [BundledLanguage, string][]).map(
-    ([language, extension]) => [extension, language],
-  ),
-);
-
-export const CodeBlockDownloadButton = ({
-  onDownload,
-  onError,
-  language,
-  children,
-  className,
-  code: propCode,
-  ...props
-}: CodeBlockDownloadButtonProps & {
-  code?: string;
-  language?: BundledLanguage;
-}) => {
-  const { code: contextCode } = useContext(CodeBlockContext);
-  const code = propCode ?? contextCode;
-  const extension =
-    language && language in languageToExtensionMap ? languageToExtensionMap[language] : "txt";
-  const filename = `file.${extension}`;
-  const mimeType = "text/plain";
-
-  const downloadCode = () => {
-    try {
-      save(filename, code, mimeType);
-      onDownload?.();
-    } catch (error) {
-      onError?.(error as Error);
-    }
-  };
-
-  return (
-    <button
-      className={cn(
-        "text-muted-foreground hover:text-foreground cursor-pointer p-1 transition-all disabled:cursor-not-allowed disabled:opacity-50",
-        className,
-      )}
-      onClick={downloadCode}
-      title="Download file"
-      type="button"
-      {...props}
-    >
-      {children ?? <DownloadIcon size={14} />}
-    </button>
-  );
-};
-
 export const CodeBlockCopyButton = ({
   onCopy,
   onError,
   timeout = 2000,
   children,
   className,
-  code: propCode,
   ...props
-}: CodeBlockCopyButtonProps & { code?: string }) => {
+}: CodeBlockCopyButtonProps) => {
   const [isCopied, setIsCopied] = useState(false);
-  const timeoutRef = useRef(0);
-  const { code: contextCode } = useContext(CodeBlockContext);
-  const code = propCode ?? contextCode;
-
-  const copyToClipboard = async () => {
-    if (typeof window === "undefined") {
-      onError?.(new Error("Clipboard API not available"));
+  const { data, value } = useContext(CodeBlockContext);
+  const code = data.find((item) => item.language === value)?.code;
+  const copyToClipboard = () => {
+    if (typeof window === "undefined" || !navigator.clipboard.writeText || !code) {
       return;
     }
-
-    try {
-      if (!isCopied) {
-        await navigator.clipboard.writeText(code);
-        setIsCopied(true);
-        onCopy?.();
-        timeoutRef.current = window.setTimeout(() => setIsCopied(false), timeout);
-      }
-    } catch (error) {
-      onError?.(error as Error);
-    }
+    navigator.clipboard.writeText(code).then(() => {
+      setIsCopied(true);
+      onCopy?.();
+      setTimeout(() => setIsCopied(false), timeout);
+    }, onError);
   };
-
-  useEffect(() => {
-    return () => {
-      window.clearTimeout(timeoutRef.current);
-    };
-  }, []);
-
   const Icon = isCopied ? CheckIcon : CopyIcon;
-
   return (
-    <button
-      className={cn(
-        "text-muted-foreground hover:text-foreground grid cursor-pointer p-1 transition-all disabled:cursor-not-allowed disabled:opacity-50",
-        className,
-      )}
+    <Button
+      className={cn("shrink-0", className)}
       onClick={copyToClipboard}
-      type="button"
+      size="icon"
+      variant="ghost"
       {...props}
     >
-      <AnimatePresence mode="wait">
-        <motion.span
-          className="col-span-full row-span-full"
-          key={isCopied ? "check" : "copy"}
-          initial={{ scale: 0.7, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-          exit={{ scale: 0.7, opacity: 0 }}
-          transition={{ duration: 0.15, ease: "easeOut" }}
-        >
-          {children ?? <Icon size={14} />}
-        </motion.span>
-      </AnimatePresence>
-    </button>
+      {children ?? <Icon className="text-muted-foreground" size={14} />}
+    </Button>
   );
 };
-
-export const save = (filename: string, content: string | Blob, mimeType: string) => {
-  const blob = typeof content === "string" ? new Blob([content], { type: mimeType }) : content;
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+type CodeBlockFallbackProps = HTMLAttributes<HTMLDivElement>;
+const CodeBlockFallback = ({ children, ...props }: CodeBlockFallbackProps) => (
+  <div {...props}>
+    <pre className="w-full">
+      <code>
+        {children
+          ?.toString()
+          .split("\n")
+          .map((line, i) => (
+            <span className="line" key={i}>
+              {line}
+            </span>
+          ))}
+      </code>
+    </pre>
+  </div>
+);
+export type CodeBlockBodyProps = Omit<HTMLAttributes<HTMLDivElement>, "children"> & {
+  children: (item: CodeBlockData) => ReactNode;
+};
+export const CodeBlockBody = ({ children, ...props }: CodeBlockBodyProps) => {
+  const { data } = useContext(CodeBlockContext);
+  return <div {...props}>{data.map(children)}</div>;
+};
+export type CodeBlockItemProps = HTMLAttributes<HTMLDivElement> & {
+  value: string;
+  lineNumbers?: boolean;
+};
+export const CodeBlockItem = ({
+  children,
+  lineNumbers = true,
+  className,
+  value,
+  ...props
+}: CodeBlockItemProps) => {
+  const { value: activeValue } = useContext(CodeBlockContext);
+  if (value !== activeValue) {
+    return null;
+  }
+  return (
+    <div
+      className={cn(
+        codeBlockClassName,
+        lineHighlightClassNames,
+        lineDiffClassNames,
+        lineFocusedClassNames,
+        wordHighlightClassNames,
+        darkModeClassNames,
+        lineNumbers && lineNumberClassNames,
+        className,
+      )}
+      {...props}
+    >
+      {children}
+    </div>
+  );
+};
+export type CodeBlockContentProps = HTMLAttributes<HTMLDivElement> & {
+  themes?: CodeOptionsMultipleThemes["themes"];
+  language?: BundledLanguage;
+  syntaxHighlighting?: boolean;
+  children: string;
+};
+export const CodeBlockContent = ({
+  children,
+  themes,
+  language,
+  syntaxHighlighting = true,
+  ...props
+}: CodeBlockContentProps) => {
+  const [html, setHtml] = useState<string | null>(null);
+  useEffect(() => {
+    if (!syntaxHighlighting) {
+      return;
+    }
+    highlight(children as string, language, themes)
+      .then(setHtml)
+      // biome-ignore lint/suspicious/noConsole: "it's fine"
+      .catch(console.error);
+  }, [children, themes, syntaxHighlighting, language]);
+  if (!(syntaxHighlighting && html)) {
+    return <CodeBlockFallback>{children}</CodeBlockFallback>;
+  }
+  return (
+    <div
+      // biome-ignore lint/security/noDangerouslySetInnerHtml: "Kinda how Shiki works"
+      dangerouslySetInnerHTML={{ __html: html }}
+      {...props}
+    />
+  );
 };

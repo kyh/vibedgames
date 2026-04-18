@@ -9,7 +9,7 @@ import {
   DialogTitle,
 } from "@repo/ui/components/dialog";
 import { Field, FieldContent, FieldError, FieldLabel } from "@repo/ui/components/field";
-import { toast } from "@repo/ui/components/toast";
+import { toast } from "@repo/ui/components/sonner";
 import { cn } from "@repo/ui/lib/utils";
 import { useMutation } from "@tanstack/react-query";
 import { Controller, useForm } from "react-hook-form";

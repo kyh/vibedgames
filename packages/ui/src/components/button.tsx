@@ -1,8 +1,8 @@
-import { Button as ButtonPrimitive } from "@base-ui/react/button"
-import { cva, type VariantProps } from "class-variance-authority"
+import { Button as ButtonPrimitive } from "@base-ui/react/button";
+import { cva, type VariantProps } from "class-variance-authority";
 
-import { Spinner } from "@repo/ui/components/spinner"
-import { cn } from "@repo/ui/lib/utils"
+import { Spinner } from "@repo/ui/components/spinner";
+import { cn } from "@repo/ui/lib/utils";
 
 const buttonVariants = cva(
   "group/button relative inline-flex shrink-0 items-center justify-center rounded-md border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap transition-all outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 active:not-aria-[haspopup]:translate-y-px disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
@@ -42,18 +42,20 @@ const buttonVariants = cva(
       { variant: "destructive", loading: true, className: "[&>:first-child]:bg-destructive/10" },
       { variant: "outline", loading: true, className: "[&>:first-child]:bg-background" },
       { variant: "secondary", loading: true, className: "[&>:first-child]:bg-secondary" },
+      { variant: "ghost", loading: true, className: "[&>:first-child]:bg-background" },
+      { variant: "link", loading: true, className: "[&>:first-child]:bg-background" },
     ],
     defaultVariants: {
       variant: "default",
       size: "default",
     },
-  }
-)
+  },
+);
 
 type ButtonProps = ButtonPrimitive.Props &
   VariantProps<typeof buttonVariants> & {
-    loading?: boolean
-  }
+    loading?: boolean;
+  };
 
 function Button({
   className,
@@ -73,12 +75,12 @@ function Button({
     >
       {loading && (
         <span className="pointer-events-none absolute inset-0 grid place-items-center rounded-md">
-          <Spinner size={4} gridSize={3} />
+          <Spinner className="size-4" />
         </span>
       )}
       {children}
     </ButtonPrimitive>
-  )
+  );
 }
 
-export { Button, buttonVariants }
+export { Button, buttonVariants };

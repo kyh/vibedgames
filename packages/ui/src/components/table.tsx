@@ -1,12 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { flexRender } from "@tanstack/react-table";
+import { flexRender, type Table as UseReactTable } from "@tanstack/react-table";
 
-import type { Table as UseReactTable } from "@tanstack/react-table";
-import { cn } from "../lib/utils";
+import { cn } from "@repo/ui/lib/utils";
 
-const Table = ({ className, ...props }: React.ComponentProps<"table">) => {
+function Table({ className, ...props }: React.ComponentProps<"table">) {
   return (
     <div data-slot="table-container" className="relative w-full overflow-x-auto">
       <table
@@ -16,13 +15,13 @@ const Table = ({ className, ...props }: React.ComponentProps<"table">) => {
       />
     </div>
   );
-};
+}
 
-const TableHeader = ({ className, ...props }: React.ComponentProps<"thead">) => {
+function TableHeader({ className, ...props }: React.ComponentProps<"thead">) {
   return <thead data-slot="table-header" className={cn("[&_tr]:border-b", className)} {...props} />;
-};
+}
 
-const TableBody = ({ className, ...props }: React.ComponentProps<"tbody">) => {
+function TableBody({ className, ...props }: React.ComponentProps<"tbody">) {
   return (
     <tbody
       data-slot="table-body"
@@ -30,66 +29,63 @@ const TableBody = ({ className, ...props }: React.ComponentProps<"tbody">) => {
       {...props}
     />
   );
-};
+}
 
-const TableFooter = ({ className, ...props }: React.ComponentProps<"tfoot">) => {
+function TableFooter({ className, ...props }: React.ComponentProps<"tfoot">) {
   return (
     <tfoot
       data-slot="table-footer"
-      className={cn("bg-muted/50 border-t font-medium [&>tr]:last:border-b-0", className)}
+      className={cn("border-t bg-muted/50 font-medium [&>tr]:last:border-b-0", className)}
       {...props}
     />
   );
-};
+}
 
-const TableRow = ({ className, ...props }: React.ComponentProps<"tr">) => {
+function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
   return (
     <tr
       data-slot="table-row"
       className={cn(
-        "hover:bg-muted/50 data-[state=selected]:bg-muted border-b transition-colors",
+        "border-b transition-colors hover:bg-muted/50 has-aria-expanded:bg-muted/50 data-[state=selected]:bg-muted",
         className,
       )}
       {...props}
     />
   );
-};
+}
 
-const TableHead = ({ className, ...props }: React.ComponentProps<"th">) => {
+function TableHead({ className, ...props }: React.ComponentProps<"th">) {
   return (
     <th
       data-slot="table-head"
       className={cn(
-        "text-foreground h-10 px-2 text-left align-middle font-medium whitespace-nowrap [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
+        "h-10 px-2 text-left align-middle font-medium whitespace-nowrap text-foreground [&:has([role=checkbox])]:pr-0",
         className,
       )}
       {...props}
     />
   );
-};
+}
 
-const TableCell = ({ className, ...props }: React.ComponentProps<"td">) => {
+function TableCell({ className, ...props }: React.ComponentProps<"td">) {
   return (
     <td
       data-slot="table-cell"
-      className={cn(
-        "p-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
-        className,
-      )}
+      className={cn("p-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0", className)}
       {...props}
     />
   );
-};
+}
 
-const TableCaption = ({ className, ...props }: React.ComponentProps<"caption">) => {
+function TableCaption({ className, ...props }: React.ComponentProps<"caption">) {
   return (
     <caption
       data-slot="table-caption"
-      className={cn("text-muted-foreground mt-4 text-sm", className)}
+      className={cn("mt-4 text-sm text-muted-foreground", className)}
       {...props}
     />
   );
-};
+}
 
 export { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell, TableCaption };
 
@@ -97,23 +93,21 @@ type AutoTableProps<TData> = {
   table: UseReactTable<TData>;
 } & React.HTMLAttributes<HTMLTableElement>;
 
-export const AutoTable = <TData,>({ table }: AutoTableProps<TData>) => {
+export const AutoTable = <TData,>({ table, ...props }: AutoTableProps<TData>) => {
   const columns = table.getAllColumns();
 
   return (
-    <Table>
+    <Table {...props}>
       <TableHeader>
         {table.getHeaderGroups().map((headerGroup) => (
           <TableRow key={headerGroup.id}>
-            {headerGroup.headers.map((header) => {
-              return (
-                <TableHead key={header.id}>
-                  {header.isPlaceholder
-                    ? null
-                    : flexRender(header.column.columnDef.header, header.getContext())}
-                </TableHead>
-              );
-            })}
+            {headerGroup.headers.map((header) => (
+              <TableHead key={header.id}>
+                {header.isPlaceholder
+                  ? null
+                  : flexRender(header.column.columnDef.header, header.getContext())}
+              </TableHead>
+            ))}
           </TableRow>
         ))}
       </TableHeader>
