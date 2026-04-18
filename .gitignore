@@ -49,3 +49,4 @@ yarn-error.log*
 .temp
 local.*
 .superset
+.claude/
