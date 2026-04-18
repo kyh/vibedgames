@@ -73,7 +73,7 @@ function Button({
     >
       {loading && (
         <span className="pointer-events-none absolute inset-0 grid place-items-center rounded-md">
-          <Spinner className="size-4" />
+          <Spinner size={4} gridSize={3} />
         </span>
       )}
       {children}
