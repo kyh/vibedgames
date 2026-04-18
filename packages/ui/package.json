@@ -12,8 +12,7 @@
   },
   "scripts": {
     "clean": "rm -rf .cache .turbo node_modules",
-    "typecheck": "tsc --noEmit",
-    "gen-ui": "pnpm dlx shadcn@latest add && oxfmt --write src"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.0",

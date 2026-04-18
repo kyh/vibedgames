@@ -49,15 +49,15 @@ packages/
 
 ```bash
 pnpm dev              # Run all (web + party + db studio)
-pnpm dev-web          # Run web only
-pnpm dev-party        # Run party server only
-pnpm dev-<game>       # Run specific game (flappy-bird, pacman, etc)
+pnpm dev:web          # Run web only
+pnpm dev:party        # Run party server only
+pnpm dev:<game>       # Run specific game (flappy-bird, pacman, etc)
 pnpm build            # Build all packages
 pnpm typecheck        # Type check all
 pnpm lint             # Lint all
-pnpm lint-fix         # Lint + fix
-pnpm db-push          # Push db schema (local)
-pnpm db-push-remote   # Push db schema (production)
+pnpm lint:fix         # Lint + fix
+pnpm db:push          # Push db schema (local)
+pnpm db:push-remote   # Push db schema (production)
 ```
 
 ## Environment

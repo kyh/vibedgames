@@ -12,7 +12,7 @@
     "deploy": "vite build && wrangler deploy",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "cf-typegen": "wrangler types",
+    "cf:typegen": "wrangler types",
     "with-env": "dotenv -e ../../.env --"
   },
   "dependencies": {

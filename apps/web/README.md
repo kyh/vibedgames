@@ -13,7 +13,7 @@ Main web app for vibedgames. Game hub, authentication, dashboard.
 ## Development
 
 ```sh
-pnpm dev-web
+pnpm dev:web
 ```
 
 Runs on `http://localhost:3000`. Uses Cloudflare D1 (local via miniflare) and R2 bindings.

@@ -1,12 +1,12 @@
 {
   "$schema": "https://ui.shadcn.com/schema.json",
-  "style": "base-luma",
+  "style": "base-vega",
   "rsc": true,
   "tsx": true,
   "tailwind": {
     "config": "",
     "css": "../../packages/ui/src/styles/globals.css",
-    "baseColor": "neutral",
+    "baseColor": "zinc",
     "cssVariables": true
   },
   "iconLibrary": "lucide",
@@ -16,8 +16,5 @@
     "lib": "@/lib",
     "utils": "@repo/ui/lib/utils",
     "ui": "@repo/ui/components"
-  },
-  "rtl": false,
-  "menuColor": "inverted-translucent",
-  "menuAccent": "subtle"
+  }
 }
