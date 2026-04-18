@@ -1,0 +1,8 @@
+{
+  "name": "game-features",
+  "description": "Add game features like real-time multiplayer, co-op, and PvP to browser games.",
+  "version": "1.0.0",
+  "author": {
+    "name": "vibedgames"
+  }
+}

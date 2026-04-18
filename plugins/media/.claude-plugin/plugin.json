@@ -1,5 +1,5 @@
 {
-  "name": "asset-generation",
+  "name": "media",
   "description": "Generate images, video, and audio with fal.ai, OpenAI GPT Image, Sora, and ElevenLabs.",
   "version": "1.0.0",
   "author": {

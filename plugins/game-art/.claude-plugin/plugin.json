@@ -1,0 +1,8 @@
+{
+  "name": "game-art",
+  "description": "Create and process game art with Retro Diffusion pixel art, Aseprite, and asset pipeline tools.",
+  "version": "1.0.0",
+  "author": {
+    "name": "vibedgames"
+  }
+}

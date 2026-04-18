@@ -1,8 +1,0 @@
-{
-  "name": "dev-tools",
-  "description": "Developer tooling for frontend testing with Playwright and Claude Code skill authoring.",
-  "version": "1.0.0",
-  "author": {
-    "name": "vibedgames"
-  }
-}
