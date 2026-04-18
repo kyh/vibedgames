@@ -5,24 +5,29 @@
   },
   "plugins": [
     {
-      "name": "vibedgames",
-      "source": "./plugins/vibedgames",
-      "description": "Deploy and add multiplayer to browser games on vibedgames.com"
+      "name": "game-engines",
+      "source": "./plugins/game-engines",
+      "description": "Build 2D and 3D browser games with Phaser 3, Three.js, and Capacitor for iOS"
     },
     {
-      "name": "gamedev",
-      "source": "./plugins/gamedev",
-      "description": "Build 2D and 3D browser games with Phaser 3, Three.js, Retro Diffusion, Aseprite, and asset pipelines"
+      "name": "game-art",
+      "source": "./plugins/game-art",
+      "description": "Create and process game art with Retro Diffusion pixel art, Aseprite, and asset pipeline tools"
     },
     {
-      "name": "asset-generation",
-      "source": "./plugins/asset-generation",
+      "name": "game-features",
+      "source": "./plugins/game-features",
+      "description": "Add game features like real-time multiplayer, co-op, and PvP"
+    },
+    {
+      "name": "media",
+      "source": "./plugins/media",
       "description": "Generate images, video, and audio with fal.ai, OpenAI GPT Image, Sora, and ElevenLabs"
     },
     {
-      "name": "dev-tools",
-      "source": "./plugins/dev-tools",
-      "description": "Frontend testing with Playwright and Claude Code skill authoring"
+      "name": "tooling",
+      "source": "./plugins/tooling",
+      "description": "Developer tooling for deploying games, frontend testing, and skill authoring"
     }
   ]
 }

@@ -1,0 +1,8 @@
+{
+  "name": "game-engines",
+  "description": "Build 2D and 3D browser games with Phaser 3, Three.js, and Capacitor for iOS.",
+  "version": "1.0.0",
+  "author": {
+    "name": "vibedgames"
+  }
+}
