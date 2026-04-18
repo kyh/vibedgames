@@ -50,15 +50,20 @@ const buttonVariants = cva(
   }
 )
 
+type ButtonProps = ButtonPrimitive.Props &
+  VariantProps<typeof buttonVariants> & {
+    loading?: boolean
+  }
+
 function Button({
   className,
   variant = "default",
   size = "default",
-  children,
-  disabled,
   loading,
+  disabled,
+  children,
   ...props
-}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants> & { loading?: boolean }) {
+}: ButtonProps) {
   return (
     <ButtonPrimitive
       data-slot="button"
@@ -68,7 +73,7 @@ function Button({
     >
       {loading && (
         <span className="pointer-events-none absolute inset-0 grid place-items-center rounded-md">
-          <Spinner size={4} gridSize={3} />
+          <Spinner className="size-4" />
         </span>
       )}
       {children}
