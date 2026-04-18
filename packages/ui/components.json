@@ -16,5 +16,8 @@
     "hooks": "@repo/ui/hooks",
     "lib": "@repo/ui/lib",
     "ui": "@repo/ui/components"
-  }
+  },
+  "rtl": false,
+  "menuColor": "default",
+  "menuAccent": "subtle"
 }
