@@ -2,6 +2,7 @@
 
 import type { ControllerProps, FieldPath, FieldValues } from "react-hook-form";
 import * as React from "react";
+import { Slot } from "radix-ui";
 import { Controller, FormProvider, useFormContext, useFormState } from "react-hook-form";
 
 import { Label } from "./label";
@@ -84,31 +85,17 @@ const FormLabel = ({ className, ...props }: React.ComponentProps<"label">) => {
   );
 };
 
-const FormControl = ({ children, ...props }: React.ComponentProps<"div">) => {
+const FormControl = ({ ...props }: React.ComponentProps<typeof Slot.Root>) => {
   const { error, formItemId, formDescriptionId, formMessageId } = useFormField();
 
-  if (React.isValidElement(children)) {
-    return React.cloneElement(children, {
-      "data-slot": "form-control",
-      id: formItemId,
-      "aria-describedby": !error
-        ? `${formDescriptionId}`
-        : `${formDescriptionId} ${formMessageId}`,
-      "aria-invalid": !!error,
-      ...props,
-    } as Record<string, unknown>);
-  }
-
   return (
-    <div
+    <Slot.Root
       data-slot="form-control"
       id={formItemId}
       aria-describedby={!error ? `${formDescriptionId}` : `${formDescriptionId} ${formMessageId}`}
       aria-invalid={!!error}
       {...props}
-    >
-      {children}
-    </div>
+    />
   );
 };
 

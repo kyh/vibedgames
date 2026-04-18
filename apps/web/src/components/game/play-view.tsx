@@ -46,7 +46,11 @@ export const PlayView = () => {
       >
         <InputGroup className="text-foreground border-none bg-transparent text-sm">
           <InputGroupAddon>
-            <InputGroupButton size="icon-xs" render={<a href={url} target="_blank" rel="noopener noreferrer" />}>
+            <InputGroupButton
+              size="icon-xs"
+              nativeButton={false}
+              render={<a href={url} target="_blank" rel="noopener noreferrer" />}
+            >
               <CompassIcon />
             </InputGroupButton>
           </InputGroupAddon>

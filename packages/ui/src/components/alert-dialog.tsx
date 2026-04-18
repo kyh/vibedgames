@@ -219,7 +219,14 @@ const alertDialogStore = {
 
 export const alertDialog = {
   open: (title: React.ReactNode, options: Omit<AlertState, "open" | "title">) => {
-    alertDialogStore.state = { ...alertDialogStore.state, ...options, open: true, title }
+    alertDialogStore.state = {
+      description: undefined,
+      action: undefined,
+      cancel: undefined,
+      ...options,
+      open: true,
+      title,
+    }
     alertDialogStore.emitChange()
   },
   close: () => {
@@ -243,7 +250,7 @@ export const GlobalAlertDialog = () => {
       setPendingCancel(true)
       const res = alertState.cancel?.onClick?.()
       if (res instanceof Promise) {
-        void res.then(() => { setPendingCancel(false); alertDialog.close() })
+        void res.finally(() => { setPendingCancel(false); alertDialog.close() })
       } else {
         setPendingCancel(false)
         alertDialog.close()
@@ -255,7 +262,7 @@ export const GlobalAlertDialog = () => {
     setPendingAction(true)
     const res = alertState.action?.onClick?.()
     if (res instanceof Promise) {
-      void res.then(() => { setPendingAction(false); alertDialog.close() })
+      void res.finally(() => { setPendingAction(false); alertDialog.close() })
     } else {
       setPendingAction(false)
       alertDialog.close()
