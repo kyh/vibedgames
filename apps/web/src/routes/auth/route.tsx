@@ -16,7 +16,7 @@ export const Route = createFileRoute("/auth")({
 function AuthLayout() {
   return (
     <div className="relative container grid min-h-dvh flex-col items-center justify-center lg:max-w-none lg:grid-cols-2 lg:px-0">
-      <div className="bg-muted relative hidden h-full flex-col px-8 py-4 text-white md:py-10 lg:flex dark:border-r">
+      <div className="bg-muted relative hidden h-full flex-col border-r px-8 py-4 text-white md:py-10 lg:flex">
         <div className="absolute inset-0 bg-zinc-900" />
         <Link className="relative z-20 flex items-center" to="/">
           <Logo className="w-8" />

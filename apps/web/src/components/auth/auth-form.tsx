@@ -161,8 +161,8 @@ export const RequestPasswordResetForm = () => {
   if (form.formState.isSubmitSuccessful) {
     return (
       <div className="space-y-4 text-center">
-        <div className="rounded-md bg-green-50 p-4 dark:bg-green-900/20">
-          <p className="text-sm text-green-800 dark:text-green-200">
+        <div className="rounded-md bg-green-900/20 p-4">
+          <p className="text-sm text-green-200">
             Password reset email sent! Check your inbox and follow the instructions to reset your
             password.
           </p>
