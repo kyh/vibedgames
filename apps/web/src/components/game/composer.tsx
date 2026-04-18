@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { cn } from "@repo/ui/utils";
+import { cn } from "@repo/ui/lib/utils";
 import { useNavigate } from "@tanstack/react-router";
 import { motion } from "motion/react";
 

@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Logo } from "@repo/ui/logo";
-import { cn } from "@repo/ui/utils";
+import { Logo } from "@repo/ui/components/logo";
+import { cn } from "@repo/ui/lib/utils";
 import { createFileRoute, Link } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/build-4")({

@@ -1,17 +1,17 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { joinWaitlistInput } from "@repo/api/waitlist/waitlist-schema";
-import { Button } from "@repo/ui/button";
+import { Button } from "@repo/ui/components/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from "@repo/ui/dialog";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@repo/ui/form";
-import { toast } from "@repo/ui/toast";
-import { cn } from "@repo/ui/utils";
+} from "@repo/ui/components/dialog";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@repo/ui/components/form";
+import { toast } from "@repo/ui/components/toast";
+import { cn } from "@repo/ui/lib/utils";
 import { useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 

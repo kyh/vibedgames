@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Logo } from "@repo/ui/logo";
+import { Logo } from "@repo/ui/components/logo";
 import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
 
 const authSearchSchema = z.object({

@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { Logo } from "@repo/ui/logo";
+import { Logo } from "@repo/ui/components/logo";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { motion, useInView } from "motion/react";
 

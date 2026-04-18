@@ -1,9 +1,9 @@
 import type { QueryClient } from "@tanstack/react-query";
 import type { TRPCOptionsProxy } from "@trpc/tanstack-react-query";
-import { GlobalAlertDialog } from "@repo/ui/alert-dialog";
-import { GlobalToaster } from "@repo/ui/toast";
-import { TooltipProvider } from "@repo/ui/tooltip";
-import { cn } from "@repo/ui/utils";
+import { GlobalAlertDialog } from "@repo/ui/components/alert-dialog";
+import { GlobalToaster } from "@repo/ui/components/toast";
+import { TooltipProvider } from "@repo/ui/components/tooltip";
+import { cn } from "@repo/ui/lib/utils";
 import {
   createRootRouteWithContext,
   HeadContent,

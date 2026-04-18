@@ -4,7 +4,7 @@ import { setupRouterSsrQueryIntegration } from "@tanstack/react-router-ssr-query
 import { createTRPCOptionsProxy } from "@trpc/tanstack-react-query";
 import SuperJSON from "superjson";
 
-import { toast } from "@repo/ui/toast";
+import { toast } from "@repo/ui/components/toast";
 
 import { makeTRPCClient, TRPCProvider } from "@/lib/trpc";
 import { routeTree } from "./routeTree.gen";

@@ -1,4 +1,4 @@
-import { Button } from "@repo/ui/button";
+import { Button } from "@repo/ui/components/button";
 import { useMutation } from "@tanstack/react-query";
 
 import { useTRPC } from "@/lib/trpc";
