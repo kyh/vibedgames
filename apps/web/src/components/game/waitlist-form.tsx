@@ -8,7 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@repo/ui/components/dialog";
-import { Field, FieldContent, FieldError } from "@repo/ui/components/field";
+import { Field, FieldContent, FieldError, FieldLabel } from "@repo/ui/components/field";
 import { toast } from "@repo/ui/components/toast";
 import { cn } from "@repo/ui/lib/utils";
 import { useMutation } from "@tanstack/react-query";
@@ -50,8 +50,12 @@ export const WaitlistForm = () => {
         name="email"
         render={({ field, fieldState }) => (
           <Field data-invalid={!!fieldState.error} className="min-w-0 flex-1">
+            <FieldLabel className="sr-only" htmlFor="waitlist-email">
+              Email
+            </FieldLabel>
             <FieldContent>
               <input
+                id="waitlist-email"
                 className="w-full border-none bg-transparent py-3 pl-4 text-sm placeholder-white/50 focus:placeholder-white/75 focus:ring-0 focus:outline-hidden"
                 aria-invalid={!!fieldState.error}
                 required
