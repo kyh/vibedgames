@@ -93,7 +93,7 @@ export const AuthForm = ({ className, type, callbackUrl, ...props }: AuthFormPro
                     {...field}
                   />
                 </FieldContent>
-                {fieldState.error && <FieldError>{fieldState.error.message}</FieldError>}
+                <FieldError>{fieldState.error?.message}</FieldError>
               </Field>
             )}
           />
@@ -119,7 +119,7 @@ export const AuthForm = ({ className, type, callbackUrl, ...props }: AuthFormPro
                     {...field}
                   />
                 </FieldContent>
-                {fieldState.error && <FieldError>{fieldState.error.message}</FieldError>}
+                <FieldError>{fieldState.error?.message}</FieldError>
               </Field>
             )}
           />

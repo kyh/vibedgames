@@ -67,9 +67,7 @@ export const WaitlistForm = () => {
                 {...field}
               />
             </FieldContent>
-            {fieldState.error && (
-              <FieldError className="absolute pt-1">{fieldState.error.message}</FieldError>
-            )}
+            <FieldError className="absolute pt-1">{fieldState.error?.message}</FieldError>
           </Field>
         )}
       />

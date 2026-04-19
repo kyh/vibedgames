@@ -16,7 +16,6 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.4.0",
-    "@hookform/resolvers": "^5.2.2",
     "@tanstack/react-table": "^8.21.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -24,7 +23,6 @@
     "date-fns": "^4.1.0",
     "lucide-react": "^1.7.0",
     "motion": "^12.38.0",
-    "react-hook-form": "^7.72.1",
     "react-mentions-ts": "^5.4.7",
     "shadcn": "^4.2.0",
     "shiki": "^4.0.2",
