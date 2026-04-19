@@ -1,7 +1,7 @@
 
 import { useCallback, useRef, useState } from "react";
-import { Button } from "@repo/ui/button";
-import { cn } from "@repo/ui/utils";
+import { Button } from "@repo/ui/components/button";
+import { cn } from "@repo/ui/lib/utils";
 import { XIcon } from "lucide-react";
 import { motion } from "motion/react";
 import { createPortal } from "react-dom";

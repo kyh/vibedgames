@@ -44,13 +44,13 @@ pnpm dev
 
 ```sh
 pnpm dev              # all services
-pnpm dev-web          # web app only
-pnpm dev-party        # multiplayer server only
-pnpm dev-astroid      # asteroids game
+pnpm dev:web          # web app only
+pnpm dev:party        # multiplayer server only
+pnpm dev:astroid      # asteroids game
 pnpm build            # build everything
 pnpm typecheck        # type check all packages
-pnpm db-push          # push schema to local D1
-pnpm db-push-remote   # push schema to production
+pnpm db:push          # push schema to local D1
+pnpm db:push-remote   # push schema to production
 ```
 
 ## Deploy a game

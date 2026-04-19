@@ -1,11 +1,11 @@
 import { useRouter, useSearch } from "@tanstack/react-router";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Button } from "@repo/ui/button";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@repo/ui/form";
-import { Input } from "@repo/ui/input";
-import { toast } from "@repo/ui/toast";
-import { cn } from "@repo/ui/utils";
-import { useForm } from "react-hook-form";
+import { Button } from "@repo/ui/components/button";
+import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from "@repo/ui/components/field";
+import { Input } from "@repo/ui/components/input";
+import { toast } from "@repo/ui/components/sonner";
+import { cn } from "@repo/ui/lib/utils";
+import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 
 import { authClient } from "@/auth/client";
@@ -69,17 +69,21 @@ export const AuthForm = ({ className, type, callbackUrl, ...props }: AuthFormPro
 
   return (
     <div className={cn("grid gap-6", className)} {...props}>
-      <Form {...form}>
-        <form className="grid gap-2" onSubmit={handleAuthWithPassword}>
-          <FormField
+      <form className="grid gap-2" onSubmit={handleAuthWithPassword}>
+        <FieldGroup className="gap-2">
+          <Controller
             control={form.control}
             name="email"
-            render={({ field }) => (
-              <FormItem className="grid gap-1 space-y-0">
-                <FormLabel className="sr-only">Email</FormLabel>
-                <FormControl>
+            render={({ field, fieldState }) => (
+              <Field data-invalid={!!fieldState.error} className="gap-1">
+                <FieldLabel className="sr-only" htmlFor="email">
+                  Email
+                </FieldLabel>
+                <FieldContent>
                   <Input
+                    id="email"
                     data-test="email-input"
+                    aria-invalid={!!fieldState.error}
                     required
                     type="email"
                     placeholder="name@example.com"
@@ -88,20 +92,24 @@ export const AuthForm = ({ className, type, callbackUrl, ...props }: AuthFormPro
                     autoCorrect="off"
                     {...field}
                   />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
+                </FieldContent>
+                {fieldState.error && <FieldError>{fieldState.error.message}</FieldError>}
+              </Field>
             )}
           />
-          <FormField
+          <Controller
             control={form.control}
             name="password"
-            render={({ field }) => (
-              <FormItem className="grid gap-1 space-y-0">
-                <FormLabel className="sr-only">Password</FormLabel>
-                <FormControl>
+            render={({ field, fieldState }) => (
+              <Field data-invalid={!!fieldState.error} className="gap-1">
+                <FieldLabel className="sr-only" htmlFor="password">
+                  Password
+                </FieldLabel>
+                <FieldContent>
                   <Input
+                    id="password"
                     data-test="password-input"
+                    aria-invalid={!!fieldState.error}
                     required
                     type="password"
                     placeholder="******"
@@ -110,16 +118,16 @@ export const AuthForm = ({ className, type, callbackUrl, ...props }: AuthFormPro
                     autoCorrect="off"
                     {...field}
                   />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
+                </FieldContent>
+                {fieldState.error && <FieldError>{fieldState.error.message}</FieldError>}
+              </Field>
             )}
           />
-          <Button loading={form.formState.isSubmitting}>
-            {type === "login" ? "Login" : "Register"}
-          </Button>
-        </form>
-      </Form>
+        </FieldGroup>
+        <Button loading={form.formState.isSubmitting}>
+          {type === "login" ? "Login" : "Register"}
+        </Button>
+      </form>
     </div>
   );
 };
@@ -153,8 +161,8 @@ export const RequestPasswordResetForm = () => {
   if (form.formState.isSubmitSuccessful) {
     return (
       <div className="space-y-4 text-center">
-        <div className="rounded-md bg-green-50 p-4 dark:bg-green-900/20">
-          <p className="text-sm text-green-800 dark:text-green-200">
+        <div className="rounded-md bg-green-900/20 p-4">
+          <p className="text-sm text-green-200">
             Password reset email sent! Check your inbox and follow the instructions to reset your
             password.
           </p>
@@ -164,16 +172,20 @@ export const RequestPasswordResetForm = () => {
   }
 
   return (
-    <Form {...form}>
-      <form className="grid gap-4" onSubmit={handlePasswordReset}>
-        <FormField
+    <form className="grid gap-4" onSubmit={handlePasswordReset}>
+      <FieldGroup className="gap-4">
+        <Controller
           control={form.control}
           name="email"
-          render={({ field }) => (
-            <FormItem className="grid gap-1 space-y-0">
-              <FormLabel className="sr-only">Email</FormLabel>
-              <FormControl>
+          render={({ field, fieldState }) => (
+            <Field data-invalid={!!fieldState.error} className="gap-1">
+              <FieldLabel className="sr-only" htmlFor="reset-email">
+                Email
+              </FieldLabel>
+              <FieldContent>
                 <Input
+                  id="reset-email"
+                  aria-invalid={!!fieldState.error}
                   required
                   type="email"
                   placeholder="name@example.com"
@@ -182,14 +194,14 @@ export const RequestPasswordResetForm = () => {
                   autoCorrect="off"
                   {...field}
                 />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
+              </FieldContent>
+              {fieldState.error && <FieldError>{fieldState.error.message}</FieldError>}
+            </Field>
           )}
         />
-        <Button loading={form.formState.isSubmitting}>Request Password Reset</Button>
-      </form>
-    </Form>
+      </FieldGroup>
+      <Button loading={form.formState.isSubmitting}>Request Password Reset</Button>
+    </form>
   );
 };
 
@@ -230,16 +242,20 @@ export const UpdatePasswordForm = () => {
   });
 
   return (
-    <Form {...form}>
-      <form className="grid gap-4" onSubmit={handleUpdatePassword}>
-        <FormField
+    <form className="grid gap-4" onSubmit={handleUpdatePassword}>
+      <FieldGroup className="gap-4">
+        <Controller
           control={form.control}
           name="password"
-          render={({ field }) => (
-            <FormItem className="grid gap-1 space-y-0">
-              <FormLabel className="sr-only">New Password</FormLabel>
-              <FormControl>
+          render={({ field, fieldState }) => (
+            <Field data-invalid={!!fieldState.error} className="gap-1">
+              <FieldLabel className="sr-only" htmlFor="new-password">
+                New Password
+              </FieldLabel>
+              <FieldContent>
                 <Input
+                  id="new-password"
+                  aria-invalid={!!fieldState.error}
                   required
                   type="password"
                   placeholder="Enter new password"
@@ -248,19 +264,23 @@ export const UpdatePasswordForm = () => {
                   autoCorrect="off"
                   {...field}
                 />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
+              </FieldContent>
+              {fieldState.error && <FieldError>{fieldState.error.message}</FieldError>}
+            </Field>
           )}
         />
-        <FormField
+        <Controller
           control={form.control}
           name="confirmPassword"
-          render={({ field }) => (
-            <FormItem className="grid gap-1 space-y-0">
-              <FormLabel className="sr-only">Confirm New Password</FormLabel>
-              <FormControl>
+          render={({ field, fieldState }) => (
+            <Field data-invalid={!!fieldState.error} className="gap-1">
+              <FieldLabel className="sr-only" htmlFor="confirm-password">
+                Confirm New Password
+              </FieldLabel>
+              <FieldContent>
                 <Input
+                  id="confirm-password"
+                  aria-invalid={!!fieldState.error}
                   required
                   type="password"
                   placeholder="Confirm new password"
@@ -269,13 +289,13 @@ export const UpdatePasswordForm = () => {
                   autoCorrect="off"
                   {...field}
                 />
-              </FormControl>
-              <FormMessage />
-            </FormItem>
+              </FieldContent>
+              {fieldState.error && <FieldError>{fieldState.error.message}</FieldError>}
+            </Field>
           )}
         />
-        <Button loading={form.formState.isSubmitting}>Update Password</Button>
-      </form>
-    </Form>
+      </FieldGroup>
+      <Button loading={form.formState.isSubmitting}>Update Password</Button>
+    </form>
   );
 };

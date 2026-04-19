@@ -19,7 +19,7 @@ Clients connect via WebSocket. The server handles:
 ## Development
 
 ```sh
-pnpm dev-party
+pnpm dev:party
 ```
 
 Runs on `http://localhost:8787`.
