@@ -87,7 +87,7 @@ type WaitlistDialogProps = {
   setWaitlistOpen: (open: boolean) => void;
 };
 
-export const WaitlistDailog = ({ waitlistOpen, setWaitlistOpen }: WaitlistDialogProps) => {
+export const WaitlistDialog = ({ waitlistOpen, setWaitlistOpen }: WaitlistDialogProps) => {
   return (
     <Dialog open={waitlistOpen} onOpenChange={setWaitlistOpen}>
       <DialogContent>

@@ -6,7 +6,7 @@ import { motion } from "motion/react";
 import { Route } from "@/routes/index";
 import { DiscoverView } from "./discover-view";
 import { PlayView } from "./play-view";
-import { WaitlistDailog } from "./waitlist-form";
+import { WaitlistDialog } from "./waitlist-form";
 
 type Props = {
   onHover: (slug: string) => void;
@@ -64,7 +64,7 @@ export const Composer = ({ onHover }: Props) => {
           Build
         </button>
       </div>
-      <WaitlistDailog waitlistOpen={waitlistOpen} setWaitlistOpen={setWaitlistOpen} />
+      <WaitlistDialog waitlistOpen={waitlistOpen} setWaitlistOpen={setWaitlistOpen} />
     </>
   );
 };

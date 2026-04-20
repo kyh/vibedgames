@@ -62,15 +62,6 @@ function requireR2(r2: R2Config | undefined): R2Config {
   return r2;
 }
 
-function buildGameUrl(productionURL: string | undefined, slug: string): string {
-  // e.g. https://vibedgames.com → https://pong.vibedgames.com
-  const base = productionURL ?? "https://vibedgames.com";
-  const u = new URL(base);
-  return `${u.protocol}//${slug}.${u.host}`;
-}
-
-// ---- Router ------------------------------------------------------------------
-
 export const deployRouter = createTRPCRouter({
   /**
    * Begin a new deployment. Validates the slug, overwrites any previous
@@ -246,8 +237,9 @@ export const deployRouter = createTRPCRouter({
         .set({ currentDeploymentId: dep.id })
         .where(eq(game.id, g.id));
 
+      const base = new URL(ctx.productionURL ?? "https://vibedgames.com");
       return {
-        url: buildGameUrl(ctx.productionURL, g.slug),
+        url: `${base.protocol}//${g.slug}.${base.host}`,
         slug: g.slug,
       };
     }),
