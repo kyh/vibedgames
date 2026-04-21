@@ -1,17 +1,21 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { z } from "zod";
 
-import { PageClient } from "@/components/game/page";
-import { featuredGames } from "@/components/game/data";
-
-const searchSchema = z.object({
-  view: z.enum(["play", "discover"]).default("play"),
-  game: z.string().default(featuredGames[0]?.slug ?? ""),
-});
-
-export type HomeSearch = z.infer<typeof searchSchema>;
+import { gameSearchSchema } from "@/components/game/data";
+import { GameNavArrows } from "@/components/game/game-nav-arrows";
+import { PlayView } from "@/components/game/play-view";
 
 export const Route = createFileRoute("/")({
-  validateSearch: searchSchema,
-  component: () => <PageClient />,
+  validateSearch: gameSearchSchema,
+  component: PlayPage,
 });
+
+function PlayPage() {
+  return (
+    <>
+      <header className="fixed bottom-16 left-0 z-10 flex max-h-full max-w-dvw flex-col px-4 md:w-96">
+        <PlayView />
+      </header>
+      <GameNavArrows />
+    </>
+  );
+}

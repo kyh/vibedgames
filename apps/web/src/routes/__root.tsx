@@ -12,6 +12,8 @@ import {
 } from "@tanstack/react-router";
 
 import type { AppRouter } from "@repo/api";
+import { Canvas } from "@/components/canvas/canvas";
+import { Nav } from "@/components/game/nav";
 import { siteConfig } from "@/lib/site-config";
 
 
@@ -52,7 +54,9 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 function RootComponent() {
   return (
     <RootDocument>
+      <Canvas />
       <Outlet />
+      <Nav />
     </RootDocument>
   );
 }

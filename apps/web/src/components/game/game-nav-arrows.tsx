@@ -6,7 +6,7 @@ import { Route } from "@/routes/index";
 import { featuredGames } from "./data";
 
 export const GameNavArrows = () => {
-  const { game, view } = Route.useSearch();
+  const { game } = Route.useSearch();
   const navigate = useNavigate({ from: "/" });
 
   const currentIndex = featuredGames.findIndex((g) => g.slug === game);
@@ -15,11 +15,11 @@ export const GameNavArrows = () => {
   const goTo = (index: number) => {
     const target = featuredGames[((index % len) + len) % len];
     if (target) {
-      navigate({ search: { view: "play", game: target.slug } });
+      navigate({ search: { game: target.slug } });
     }
   };
 
-  if (view !== "play" || currentIndex === -1) return null;
+  if (currentIndex === -1) return null;
 
   return (
     <div className="fixed right-4 top-1/2 z-10 hidden -translate-y-1/2 flex-col gap-1 md:flex">

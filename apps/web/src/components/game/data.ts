@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 export type FeaturedGame = {
   name: string;
   slug: string;
@@ -7,6 +9,12 @@ export type FeaturedGame = {
 
 export const gameUrl = (slug: string) =>
   `https://${slug}.vibedgames.com`;
+
+export const gameSearchSchema = z.object({
+  game: z.string().default("astroid"),
+});
+
+export type GameSearch = z.infer<typeof gameSearchSchema>;
 
 export const featuredGames: FeaturedGame[] = [
   {
