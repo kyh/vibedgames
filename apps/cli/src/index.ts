@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { readFileSync } from "node:fs";
+
 import { defineCommand, runMain } from "citty";
 
 import { deployCommand } from "./commands/deploy.js";
@@ -8,10 +10,14 @@ import { logoutCommand } from "./commands/logout.js";
 import { skillsCommand } from "./commands/skills.js";
 import { whoamiCommand } from "./commands/whoami.js";
 
+const pkg = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+) as { version: string };
+
 const main = defineCommand({
   meta: {
     name: "vg",
-    version: "0.0.1",
+    version: pkg.version,
     description: "vibedgames CLI",
   },
   subCommands: {

@@ -1,8 +1,10 @@
-import { execSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
 import consola from "consola";
+import { x as extract } from "tar";
 
 const REPO = "kyh/vibedgames";
 const BRANCH = "main";
@@ -28,9 +30,19 @@ export const installSkills = async (projectDir: string, force: boolean) => {
   try {
     mkdirSync(tmpDir, { recursive: true });
 
-    execSync(
-      `curl -sL "${tarballUrl}" | tar xz --strip-components=1 -C "${tmpDir}" "vibedgames-${BRANCH}/plugins"`,
-      { stdio: "pipe" },
+    const res = await fetch(tarballUrl);
+    if (!res.ok || !res.body) {
+      throw new Error(`Failed to download tarball: ${res.status}`);
+    }
+
+    const prefix = `vibedgames-${BRANCH}/plugins/`;
+    await pipeline(
+      Readable.fromWeb(res.body),
+      extract({
+        cwd: tmpDir,
+        strip: 1,
+        filter: (path) => path.startsWith(prefix),
+      }),
     );
 
     mkdirSync(targetDir, { recursive: true });
@@ -45,9 +57,7 @@ export const installSkills = async (projectDir: string, force: boolean) => {
       for (const skill of readdirSync(skillsDir)) {
         const dest = join(targetDir, skill);
         if (existsSync(dest)) rmSync(dest, { recursive: true });
-        execSync(`cp -r "${join(skillsDir, skill)}" "${targetDir}/"`, {
-          stdio: "pipe",
-        });
+        cpSync(join(skillsDir, skill), dest, { recursive: true });
         installed.push(skill);
       }
     }

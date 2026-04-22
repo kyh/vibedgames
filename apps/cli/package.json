@@ -19,7 +19,8 @@
     "@trpc/client": "catalog:",
     "citty": "^0.1.6",
     "consola": "^3.4.2",
-    "superjson": "catalog:"
+    "superjson": "catalog:",
+    "tar": "^7.5.13"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",
