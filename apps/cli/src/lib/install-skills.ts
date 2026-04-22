@@ -1,13 +1,60 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import {
+  cpSync,
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { createGunzip } from "node:zlib";
 
 import consola from "consola";
-import { x as extract } from "tar";
+import { extract } from "tar-stream";
 
 const REPO = "kyh/vibedgames";
 const BRANCH = "main";
+
+const extractFiltered = (tmpDir: string, prefix: string) => {
+  const extractor = extract();
+
+  extractor.on("entry", (header, stream, next) => {
+    if (!header.name.startsWith(prefix)) {
+      stream.on("end", next);
+      stream.resume();
+      return;
+    }
+
+    const relPath = header.name.slice(prefix.length);
+    if (!relPath) {
+      stream.on("end", next);
+      stream.resume();
+      return;
+    }
+
+    const outPath = join(tmpDir, relPath);
+
+    if (header.type === "directory") {
+      mkdirSync(outPath, { recursive: true });
+      stream.on("end", next);
+      stream.resume();
+      return;
+    }
+
+    if (header.type === "file") {
+      mkdirSync(dirname(outPath), { recursive: true });
+      stream.pipe(createWriteStream(outPath)).on("finish", next);
+      return;
+    }
+
+    stream.on("end", next);
+    stream.resume();
+  });
+
+  return extractor;
+};
 
 export const installSkills = async (projectDir: string, force: boolean) => {
   const targetDir = join(projectDir, ".claude", "skills");
@@ -38,20 +85,16 @@ export const installSkills = async (projectDir: string, force: boolean) => {
     const prefix = `vibedgames-${BRANCH}/plugins/`;
     await pipeline(
       Readable.fromWeb(res.body),
-      extract({
-        cwd: tmpDir,
-        strip: 1,
-        filter: (path) => path.startsWith(prefix),
-      }),
+      createGunzip(),
+      extractFiltered(tmpDir, prefix),
     );
 
     mkdirSync(targetDir, { recursive: true });
 
-    const pluginsDir = join(tmpDir, "plugins");
     const installed: string[] = [];
 
-    for (const plugin of readdirSync(pluginsDir)) {
-      const skillsDir = join(pluginsDir, plugin, "skills");
+    for (const plugin of readdirSync(tmpDir)) {
+      const skillsDir = join(tmpDir, plugin, "skills");
       if (!existsSync(skillsDir)) continue;
 
       for (const skill of readdirSync(skillsDir)) {
