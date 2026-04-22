@@ -2,6 +2,7 @@
 import { defineCommand, runMain } from "citty";
 
 import { deployCommand } from "./commands/deploy.js";
+import { initCommand } from "./commands/init.js";
 import { loginCommand } from "./commands/login.js";
 import { logoutCommand } from "./commands/logout.js";
 import { skillsCommand } from "./commands/skills.js";
@@ -14,6 +15,7 @@ const main = defineCommand({
     description: "vibedgames CLI",
   },
   subCommands: {
+    init: initCommand,
     login: loginCommand,
     logout: logoutCommand,
     deploy: deployCommand,

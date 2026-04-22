@@ -2,9 +2,9 @@ import { defineCommand } from "citty";
 
 import { installSkills } from "../lib/install-skills.js";
 
-const installSubcommand = defineCommand({
+export const initCommand = defineCommand({
   meta: {
-    name: "install",
+    name: "init",
     description: "Install vibedgames Claude Code skills into your project",
   },
   args: {
@@ -21,14 +21,4 @@ const installSubcommand = defineCommand({
     },
   },
   run: ({ args }) => installSkills(args.dir, args.force),
-});
-
-export const skillsCommand = defineCommand({
-  meta: {
-    name: "skills",
-    description: "Manage vibedgames Claude Code skills",
-  },
-  subCommands: {
-    install: installSubcommand,
-  },
 });
