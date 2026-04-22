@@ -1,12 +1,11 @@
 import {
-  cpSync,
   createWriteStream,
   existsSync,
   mkdirSync,
   readdirSync,
   rmSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createGunzip } from "node:zlib";
@@ -16,31 +15,45 @@ import { extract } from "tar-stream";
 
 const REPO = "kyh/vibedgames";
 const BRANCH = "main";
+const PREFIX = `vibedgames-${BRANCH}/plugins/`;
 
-const extractFiltered = (tmpDir: string, prefix: string) => {
+const isInside = (parent: string, child: string) => {
+  const rel = relative(parent, child);
+  return !!rel && !rel.startsWith("..") && !rel.startsWith(`..${sep}`);
+};
+
+const extractToTarget = (targetDir: string) => {
+  const targetResolved = resolve(targetDir);
+  const installed = new Set<string>();
+  const wiped = new Set<string>();
   const extractor = extract();
 
   extractor.on("entry", (header, stream, next) => {
-    if (!header.name.startsWith(prefix)) {
+    const skip = () => {
       stream.on("end", next);
       stream.resume();
+    };
+
+    if (!header.name.startsWith(PREFIX)) return skip();
+    const parts = header.name.slice(PREFIX.length).split("/").filter(Boolean);
+    const [, skillsSegment, skill, ...rest] = parts;
+    if (skillsSegment !== "skills" || !skill) return skip();
+
+    const outPath = resolve(targetResolved, skill, ...rest);
+    if (!isInside(targetResolved, outPath)) {
+      next(new Error(`Refusing to extract outside target dir: ${header.name}`));
       return;
     }
 
-    const relPath = header.name.slice(prefix.length);
-    if (!relPath) {
-      stream.on("end", next);
-      stream.resume();
-      return;
+    if (!wiped.has(skill)) {
+      rmSync(resolve(targetResolved, skill), { recursive: true, force: true });
+      wiped.add(skill);
     }
-
-    const outPath = join(tmpDir, relPath);
+    installed.add(skill);
 
     if (header.type === "directory") {
       mkdirSync(outPath, { recursive: true });
-      stream.on("end", next);
-      stream.resume();
-      return;
+      return skip();
     }
 
     if (header.type === "file") {
@@ -49,17 +62,15 @@ const extractFiltered = (tmpDir: string, prefix: string) => {
       return;
     }
 
-    stream.on("end", next);
-    stream.resume();
+    return skip();
   });
 
-  return extractor;
+  return { extractor, installed };
 };
 
 export const installSkills = async (projectDir: string, force: boolean) => {
-  const targetDir = join(projectDir, ".claude", "skills");
+  const targetDir = resolve(projectDir, ".claude", "skills");
   const tarballUrl = `https://github.com/${REPO}/archive/refs/heads/${BRANCH}.tar.gz`;
-  const tmpDir = join(projectDir, ".vg-skills-tmp");
 
   if (existsSync(targetDir) && readdirSync(targetDir).length > 0 && !force) {
     const proceed = await consola.prompt(
@@ -74,45 +85,17 @@ export const installSkills = async (projectDir: string, force: boolean) => {
 
   consola.start("Fetching skills from vibedgames...");
 
-  try {
-    mkdirSync(tmpDir, { recursive: true });
-
-    const res = await fetch(tarballUrl);
-    if (!res.ok || !res.body) {
-      throw new Error(`Failed to download tarball: ${res.status}`);
-    }
-
-    const prefix = `vibedgames-${BRANCH}/plugins/`;
-    await pipeline(
-      Readable.fromWeb(res.body),
-      createGunzip(),
-      extractFiltered(tmpDir, prefix),
-    );
-
-    mkdirSync(targetDir, { recursive: true });
-
-    const installed: string[] = [];
-
-    for (const plugin of readdirSync(tmpDir)) {
-      const skillsDir = join(tmpDir, plugin, "skills");
-      if (!existsSync(skillsDir)) continue;
-
-      for (const skill of readdirSync(skillsDir)) {
-        const dest = join(targetDir, skill);
-        if (existsSync(dest)) rmSync(dest, { recursive: true });
-        cpSync(join(skillsDir, skill), dest, { recursive: true });
-        installed.push(skill);
-      }
-    }
-
-    consola.success(`Installed ${installed.length} skills to ${targetDir}`);
-    consola.log(`  ${installed.join(", ")}`);
-  } catch (err) {
-    consola.error(err instanceof Error ? err.message : String(err));
-    process.exit(1);
-  } finally {
-    if (existsSync(tmpDir)) {
-      rmSync(tmpDir, { recursive: true });
-    }
+  const res = await fetch(tarballUrl);
+  if (!res.ok || !res.body) {
+    throw new Error(`Failed to download tarball: ${res.status}`);
   }
+
+  mkdirSync(targetDir, { recursive: true });
+
+  const { extractor, installed } = extractToTarget(targetDir);
+  await pipeline(Readable.fromWeb(res.body), createGunzip(), extractor);
+
+  const skills = [...installed];
+  consola.success(`Installed ${skills.length} skills to ${targetDir}`);
+  consola.log(`  ${skills.join(", ")}`);
 };

@@ -1,27 +1,6 @@
 import { defineCommand } from "citty";
 
-import { installSkills } from "../lib/install-skills.js";
-
-const installSubcommand = defineCommand({
-  meta: {
-    name: "install",
-    description: "Install vibedgames Claude Code skills into your project",
-  },
-  args: {
-    dir: {
-      type: "positional",
-      description: "Project directory",
-      required: false,
-      default: ".",
-    },
-    force: {
-      type: "boolean",
-      description: "Overwrite existing skills without prompting",
-      default: false,
-    },
-  },
-  run: ({ args }) => installSkills(args.dir, args.force),
-});
+import { skillsInstallCommand } from "./init.js";
 
 export const skillsCommand = defineCommand({
   meta: {
@@ -29,6 +8,6 @@ export const skillsCommand = defineCommand({
     description: "Manage vibedgames Claude Code skills",
   },
   subCommands: {
-    install: installSubcommand,
+    install: skillsInstallCommand,
   },
 });
