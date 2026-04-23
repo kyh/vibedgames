@@ -196,8 +196,11 @@ function OfferingsDeck() {
               key={card.index}
               animate={cardTarget}
               transition={spring}
+              onClick={() =>
+                setActiveIdx((curr) => (curr === i ? null : i))
+              }
               style={{ zIndex: card.zIndex }}
-              className="relative aspect-[0.8] w-[20vw] shrink-0 first:ml-0 [&:not(:first-child)]:-ml-[10vw]"
+              className="relative aspect-[0.8] w-[20vw] shrink-0 cursor-pointer first:ml-0 [&:not(:first-child)]:-ml-[10vw]"
             >
               <motion.div
                 animate={{ x: innerX }}
@@ -212,7 +215,7 @@ function OfferingsDeck() {
         })}
       </div>
 
-      {/* Mobile: collage layout */}
+      {/* Mobile: collage layout, tap to activate */}
       <div className="relative mx-auto mt-8 h-[120vh] w-full max-w-sm px-4 sm:hidden">
         {OFFERINGS.map((card, i) => {
           const p = MOBILE_POSITIONS[i] ?? {
@@ -220,29 +223,56 @@ function OfferingsDeck() {
             left: "0%",
             rotate: 0,
           };
+          const isActive = activeIdx === i;
+          const hasActive = activeIdx !== null;
+          const activeP =
+            activeIdx !== null
+              ? MOBILE_POSITIONS[activeIdx]
+              : null;
+
+          let shiftX = 0;
+          let shiftY = 0;
+          if (hasActive && !isActive && activeP) {
+            const dx = parseFloat(p.left) - parseFloat(activeP.left);
+            const dy = parseFloat(p.top) - parseFloat(activeP.top);
+            shiftX = Math.sign(dx) * 22;
+            shiftY = Math.sign(dy) * 10;
+          }
+
           return (
             <motion.div
               key={card.index}
               initial={{ opacity: 0, y: 20, rotate: 0, scale: 0.9 }}
               animate={
-                isInView
-                  ? { opacity: 1, y: 0, rotate: p.rotate, scale: 1 }
-                  : { opacity: 0, y: 20, rotate: 0, scale: 0.9 }
+                !isInView
+                  ? { opacity: 0, y: 20, rotate: 0, scale: 0.9, x: 0 }
+                  : isActive
+                    ? { opacity: 1, y: 0, x: 0, rotate: 0, scale: 1.15 }
+                    : {
+                        opacity: hasActive ? 0.55 : 1,
+                        y: shiftY,
+                        x: shiftX,
+                        rotate: p.rotate,
+                        scale: hasActive ? 0.92 : 1,
+                      }
               }
               transition={{
-                delay: 0.05 * i,
+                delay: isInView && !hasActive ? 0.05 * i : 0,
                 type: "spring",
                 stiffness: 90,
                 damping: 14,
               }}
+              onClick={() =>
+                setActiveIdx((curr) => (curr === i ? null : i))
+              }
               style={{
                 top: p.top,
                 left: p.left,
                 backgroundColor: card.color,
-                zIndex: card.zIndex,
+                zIndex: isActive ? 50 : card.zIndex,
                 transformOrigin: "center center",
               }}
-              className="absolute aspect-[0.8] w-[55%] rounded-xl p-4 text-black shadow-[0_20px_40px_-20px_rgba(0,0,0,0.8)]"
+              className="absolute aspect-[0.8] w-[55%] cursor-pointer rounded-xl p-4 text-black shadow-[0_20px_40px_-20px_rgba(0,0,0,0.8)]"
             >
               <CardContent card={card} />
             </motion.div>
