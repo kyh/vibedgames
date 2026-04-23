@@ -157,15 +157,6 @@ function OfferingsDeck() {
   const toggle = (i: number) =>
     setActiveIdx((curr) => (curr === i ? null : i));
 
-  const handleKey = (e: React.KeyboardEvent<HTMLDivElement>, i: number) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      toggle(i);
-    } else if (e.key === "Escape") {
-      setActiveIdx(null);
-    }
-  };
-
   return (
     <section
       ref={sectionRef}
@@ -204,18 +195,16 @@ function OfferingsDeck() {
               : `${80 / (i - activeIdx)}%`;
 
           return (
-            <motion.div
+            <motion.button
               key={card.index}
+              type="button"
               animate={cardTarget}
               transition={spring}
-              role="button"
-              tabIndex={0}
               aria-pressed={isActive}
               aria-label={`${card.title}: ${card.desc}`}
               onClick={() => toggle(i)}
-              onKeyDown={(e) => handleKey(e, i)}
               style={{ zIndex: card.zIndex }}
-              className="relative aspect-[0.8] w-[20vw] shrink-0 rounded-[0.6em] outline-none first:ml-0 focus-visible:ring-2 focus-visible:ring-white [&:not(:first-child)]:-ml-[10vw]"
+              className="relative aspect-[0.8] w-[20vw] shrink-0 appearance-none rounded-[0.6em] border-0 bg-transparent p-0 text-left outline-none first:ml-0 focus-visible:ring-2 focus-visible:ring-white [&:not(:first-child)]:-ml-[10vw]"
             >
               <motion.div
                 animate={{ x: innerX }}
@@ -225,7 +214,7 @@ function OfferingsDeck() {
               >
                 <CardContent card={card} />
               </motion.div>
-            </motion.div>
+            </motion.button>
           );
         })}
       </div>
@@ -262,8 +251,9 @@ function OfferingsDeck() {
               : { opacity: 1, y: 0, rotate: p.rotate, scale: 1 };
 
           return (
-            <motion.div
+            <motion.button
               key={card.index}
+              type="button"
               initial={{ opacity: 0, y: 20, rotate: 0, scale: 0.9 }}
               animate={cardTarget}
               transition={{
@@ -272,20 +262,17 @@ function OfferingsDeck() {
                 stiffness: 90,
                 damping: 14,
               }}
-              role="button"
-              tabIndex={0}
               aria-pressed={isActive}
               aria-label={`${card.title}: ${card.desc}`}
               onMouseEnter={() => setActiveIdx(i)}
               onClick={() => toggle(i)}
-              onKeyDown={(e) => handleKey(e, i)}
               style={{
                 top: p.top,
                 left: p.left,
                 zIndex: isActive ? 50 : card.zIndex,
                 transformOrigin: "center center",
               }}
-              className="absolute aspect-[0.8] w-[55%] rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-white"
+              className="absolute aspect-[0.8] w-[55%] appearance-none rounded-xl border-0 bg-transparent p-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-white"
             >
               <motion.div
                 animate={{ x: innerX, y: innerY }}
@@ -295,7 +282,7 @@ function OfferingsDeck() {
               >
                 <CardContent card={card} />
               </motion.div>
-            </motion.div>
+            </motion.button>
           );
         })}
       </div>
