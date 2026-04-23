@@ -215,8 +215,11 @@ function OfferingsDeck() {
         })}
       </div>
 
-      {/* Mobile: collage layout, tap to activate */}
-      <div className="relative mx-auto mt-8 h-[120vh] w-full max-w-sm px-4 sm:hidden">
+      {/* Mobile: collage layout, tap or hover to activate */}
+      <div
+        onMouseLeave={() => setActiveIdx(null)}
+        className="relative mx-auto mt-8 h-[120vh] w-full max-w-sm px-4 sm:hidden"
+      >
         {OFFERINGS.map((card, i) => {
           const p = MOBILE_POSITIONS[i] ?? {
             top: "0%",
@@ -247,6 +250,7 @@ function OfferingsDeck() {
                 stiffness: 90,
                 damping: 14,
               }}
+              onMouseEnter={() => setActiveIdx(i)}
               onClick={() =>
                 setActiveIdx((curr) => (curr === i ? null : i))
               }
