@@ -8,29 +8,6 @@ export const Route = createFileRoute("/build")({
   component: BuildPage,
 });
 
-function AnimatedSection({
-  children,
-  className,
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  const isInView = useInView(ref, { once: true, margin: "-100px" });
-
-  return (
-    <motion.section
-      ref={ref}
-      initial={{ opacity: 0, y: 40 }}
-      animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 40 }}
-      transition={{ duration: 0.6, ease: [0.21, 0.47, 0.32, 0.98] }}
-      className={className}
-    >
-      {children}
-    </motion.section>
-  );
-}
-
 type Offering = {
   index: string;
   title: string;
@@ -161,18 +138,16 @@ function OfferingsDeck() {
         initial={{ opacity: 0, y: 30 }}
         animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 30 }}
         transition={{ duration: 0.7, ease: [0.21, 0.47, 0.32, 0.98] }}
-        className="mb-12 px-6 sm:mb-16 sm:px-10"
+        className="mb-12 px-6 text-center sm:mb-16"
       >
-        <div className="text-muted-foreground mb-3 text-[10px] uppercase tracking-[0.25em]">
-          What vibedgames ships
-        </div>
-        <h2 className="max-w-3xl text-3xl font-light leading-[0.95] tracking-tight sm:text-5xl md:text-6xl">
-          Everything you need
+        <h1 className="text-3xl font-light leading-tight tracking-tight sm:text-5xl">
+          Your LLM builds the game.
           <br />
-          <span className="text-muted-foreground">nothing you don't.</span>
-        </h2>
-        <p className="text-muted-foreground mt-4 max-w-sm text-xs leading-relaxed">
-          Each card is one slice of the platform your LLM can reach for.
+          <span className="text-muted-foreground">We handle the rest.</span>
+        </h1>
+        <p className="text-muted-foreground mx-auto mt-4 max-w-md text-sm leading-relaxed">
+          Infrastructure for vibe-coded games. Multiplayer, deployment, hosting
+          — all through skills your LLM already knows.
         </p>
       </motion.div>
 
@@ -314,55 +289,7 @@ function BuildPage() {
       </nav>
 
       <main className="font-mono">
-        {/* Hero */}
-        <section className="flex min-h-dvh flex-col items-center justify-center px-6 text-center">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, ease: [0.21, 0.47, 0.32, 0.98] }}
-          >
-            <h1 className="mb-4 text-3xl font-light tracking-tight sm:text-5xl">
-              Your LLM builds the game.
-              <br />
-              <span className="text-muted-foreground">We handle the rest.</span>
-            </h1>
-            <p className="text-muted-foreground mx-auto mb-10 max-w-md text-sm leading-relaxed">
-              Infrastructure for vibe-coded games. Multiplayer, deployment,
-              hosting — all through skills your LLM already knows.
-            </p>
-            <div className="flex justify-center">
-              <div className="bg-secondary/50 rounded-lg border border-white/5 px-5 py-3 text-sm">
-                <span className="text-muted-foreground select-none">$ </span>
-                <span className="text-foreground">
-                  npx vibedgames skills .
-                </span>
-              </div>
-            </div>
-          </motion.div>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 1.2, duration: 0.8 }}
-            className="text-muted-foreground/30 mt-16 text-xs"
-          >
-            scroll to explore ↓
-          </motion.div>
-        </section>
-
         <OfferingsDeck />
-
-        {/* CTA */}
-        <section className="flex min-h-[50vh] flex-col items-center justify-center px-6 py-20 text-center">
-          <AnimatedSection className="flex flex-col items-center gap-6">
-            <h2 className="text-2xl font-light tracking-tight sm:text-3xl">
-              Ready to ship your game?
-            </h2>
-            <div className="bg-secondary/50 rounded-lg border border-white/5 px-5 py-3 text-sm">
-              <span className="text-muted-foreground select-none">$ </span>
-              <span className="text-foreground">npx vibedgames skills .</span>
-            </div>
-          </AnimatedSection>
-        </section>
       </main>
     </div>
   );
