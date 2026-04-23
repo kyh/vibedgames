@@ -1,6 +1,5 @@
 import { useRef, useState } from "react";
-import { Logo } from "@repo/ui/components/logo";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { motion, useInView } from "motion/react";
 
 export const Route = createFileRoute("/build")({
@@ -132,26 +131,26 @@ function OfferingsDeck() {
   return (
     <section
       ref={sectionRef}
-      className="relative flex min-h-dvh flex-col justify-center py-16"
+      className="relative flex flex-col items-center justify-center sm:h-dvh sm:overflow-hidden"
     >
-      <motion.div
-        initial={{ opacity: 0, y: 30 }}
-        animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 30 }}
+      <motion.h1
+        initial={{ opacity: 0, y: 20 }}
+        animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
         transition={{ duration: 0.7, ease: [0.21, 0.47, 0.32, 0.98] }}
-        className="mb-4 px-6 sm:mb-6 sm:px-10"
+        className="self-start px-6 pt-8 text-3xl font-medium leading-[0.9] -tracking-[0.03em] sm:absolute sm:left-[25px] sm:top-[25px] sm:z-10 sm:max-w-[70vw] sm:px-0 sm:pt-0 sm:text-[4vw]"
       >
-        <h1 className="max-w-3xl text-3xl font-light leading-[0.95] tracking-tight sm:text-5xl md:text-6xl">
-          You design your game
-          <br />
-          <span className="text-muted-foreground">Our skills handle the rest</span>
-        </h1>
-      </motion.div>
+        You design your game
+        <br />
+        <span className="text-muted-foreground">
+          Our skills handle the rest
+        </span>
+      </motion.h1>
 
       <div
         ref={containerRef}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
-        className="hidden h-[60vh] items-center justify-center px-4 sm:flex"
+        className="hidden items-center justify-center sm:flex"
       >
         {OFFERINGS.map((card, i) => {
           const off = offsets[i] ?? { x: 0, y: 0, rotate: 0 };
@@ -183,22 +182,19 @@ function OfferingsDeck() {
                 animate={{ x: innerX }}
                 transition={spring}
                 style={{ backgroundColor: card.color }}
-                className="flex h-full w-full flex-col justify-between rounded-xl p-[1.25vw] text-black shadow-[0_20px_40px_-20px_rgba(0,0,0,0.8)]"
+                className="flex h-full w-full flex-col justify-between rounded-[0.6em] p-[25px] text-black shadow-[0_20px_40px_-20px_rgba(0,0,0,0.8)]"
               >
-                <div className="flex items-start justify-between font-mono text-[0.7vw] uppercase tracking-[0.2em]">
-                  <span>{card.index}</span>
-                  <span className="opacity-50">— vg</span>
-                </div>
-                <div>
-                  <p className="font-mono text-[2.2vw] font-medium leading-[0.9] tracking-tight">
-                    {card.title}.
-                  </p>
-                  <p className="mt-[0.6vw] font-mono text-[0.85vw] leading-snug opacity-70">
-                    {card.desc}
-                  </p>
-                </div>
-                <div className="border-t border-dashed border-black/40 pt-[0.8vw] font-mono text-[0.7vw] uppercase tracking-[0.18em]">
-                  {card.tag}
+                <p className="text-[1.9vw] font-medium leading-[0.9] -tracking-[0.03em]">
+                  {card.title}.{" "}
+                  <span className="opacity-60">{card.desc}</span>
+                </p>
+                <div className="flex items-center gap-[15px] border-t border-dashed border-black pt-[25px] text-[1.1vw] font-medium leading-[0.9] -tracking-[0.03em]">
+                  <div>
+                    <p>{card.index}</p>
+                    <p className="mt-1 font-mono text-[0.9vw] uppercase leading-normal">
+                      {card.tag}
+                    </p>
+                  </div>
                 </div>
               </motion.div>
             </motion.div>
@@ -207,7 +203,7 @@ function OfferingsDeck() {
       </div>
 
       {/* Mobile: collage layout */}
-      <div className="relative mx-auto h-[120vh] w-full max-w-sm px-4 sm:hidden">
+      <div className="relative mx-auto mt-8 h-[120vh] w-full max-w-sm px-4 sm:hidden">
         {OFFERINGS.map((card, i) => {
           const p = MOBILE_POSITIONS[i] ?? {
             top: "0%",
@@ -276,17 +272,8 @@ const MOBILE_POSITIONS = [
 
 function BuildPage() {
   return (
-    <div className="relative min-h-dvh overflow-x-hidden overflow-y-auto">
-      <nav className="fixed top-0 left-0 z-20 flex w-full items-center justify-between px-6 py-4">
-        <Link to="/" className="flex items-center gap-2">
-          <Logo className="w-6" />
-          <span className="font-mono text-sm">vibedgames</span>
-        </Link>
-      </nav>
-
-      <main className="font-mono">
-        <OfferingsDeck />
-      </main>
-    </div>
+    <main className="font-mono">
+      <OfferingsDeck />
+    </main>
   );
 }
