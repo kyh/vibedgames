@@ -132,23 +132,19 @@ function OfferingsDeck() {
   return (
     <section
       ref={sectionRef}
-      className="relative flex min-h-dvh flex-col justify-center py-24"
+      className="relative flex min-h-dvh flex-col justify-center py-16"
     >
       <motion.div
         initial={{ opacity: 0, y: 30 }}
         animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 30 }}
         transition={{ duration: 0.7, ease: [0.21, 0.47, 0.32, 0.98] }}
-        className="mb-12 px-6 text-center sm:mb-16"
+        className="mb-4 px-6 sm:mb-6 sm:px-10"
       >
-        <h1 className="text-3xl font-light leading-tight tracking-tight sm:text-5xl">
-          Your LLM builds the game.
+        <h1 className="max-w-3xl text-3xl font-light leading-[0.95] tracking-tight sm:text-5xl md:text-6xl">
+          You design your game
           <br />
-          <span className="text-muted-foreground">We handle the rest.</span>
+          <span className="text-muted-foreground">Our skills handle the rest</span>
         </h1>
-        <p className="text-muted-foreground mx-auto mt-4 max-w-md text-sm leading-relaxed">
-          Infrastructure for vibe-coded games. Multiplayer, deployment, hosting
-          — all through skills your LLM already knows.
-        </p>
       </motion.div>
 
       <div
