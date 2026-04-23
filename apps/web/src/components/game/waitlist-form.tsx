@@ -1,13 +1,6 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { joinWaitlistInput } from "@repo/api/waitlist/waitlist-schema";
 import { Button } from "@repo/ui/components/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@repo/ui/components/dialog";
 import { Field, FieldContent, FieldError, FieldLabel } from "@repo/ui/components/field";
 import { toast } from "@repo/ui/components/sonner";
 import { cn } from "@repo/ui/lib/utils";
@@ -72,63 +65,15 @@ export const WaitlistForm = () => {
         )}
       />
       <Button
-        className={cn("text-xs", joinWaitlist.isPending && "[&>:first-child]:bg-input")}
+        className={cn(
+          "text-xs text-black hover:text-black",
+          joinWaitlist.isPending && "[&>:first-child]:bg-input",
+        )}
         variant="ghost"
         loading={joinWaitlist.isPending}
       >
         Join Waitlist
       </Button>
     </form>
-  );
-};
-
-type WaitlistDialogProps = {
-  waitlistOpen: boolean;
-  setWaitlistOpen: (open: boolean) => void;
-};
-
-export const WaitlistDialog = ({ waitlistOpen, setWaitlistOpen }: WaitlistDialogProps) => {
-  return (
-    <Dialog open={waitlistOpen} onOpenChange={setWaitlistOpen}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle className="text-foreground mx-auto text-center text-xl font-semibold tracking-tight sm:text-2xl">
-            Join the waitlist
-          </DialogTitle>
-          <DialogDescription className="text-center text-balance">
-            Vibedgames is currently in private beta. Join the waitlist to get early access.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="mx-auto mt-3 mb-5">
-          <WaitlistForm />
-        </div>
-        <svg
-          viewBox="0 0 1024 1024"
-          aria-hidden="true"
-          className="pointer-events-none absolute top-1/2 left-1/2 -z-10 size-256 -translate-x-1/2"
-        >
-          <circle
-            r={512}
-            cx={512}
-            cy={512}
-            fill="url(#759c1415-0410-454c-8f7c-9a820de03641)"
-            fillOpacity="0.7"
-          />
-          <defs>
-            <radialGradient
-              r={1}
-              cx={0}
-              cy={0}
-              id="759c1415-0410-454c-8f7c-9a820de03641"
-              gradientUnits="userSpaceOnUse"
-              gradientTransform="translate(512 512) rotate(90) scale(512)"
-            >
-              <stop stopColor="#7775D6" />
-              <stop offset={1} stopColor="#E935C1" stopOpacity={0} />
-            </radialGradient>
-          </defs>
-        </svg>
-      </DialogContent>
-    </Dialog>
   );
 };
