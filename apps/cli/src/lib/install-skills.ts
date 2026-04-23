@@ -58,7 +58,7 @@ const extractToTarget = (targetDir: string) => {
 
     if (header.type === "file") {
       mkdirSync(dirname(outPath), { recursive: true });
-      stream.pipe(createWriteStream(outPath)).on("finish", next);
+      pipeline(stream, createWriteStream(outPath)).then(() => next(), next);
       return;
     }
 
