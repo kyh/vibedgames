@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { motion, useInView } from "motion/react";
 
@@ -91,10 +91,18 @@ function randomOffset() {
   };
 }
 
+const ZERO_OFFSET = { x: 0, y: 0, rotate: 0 };
+
 function OfferingsDeck() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [activeIdx, setActiveIdx] = useState<number | null>(null);
-  const [offsets, setOffsets] = useState(() => OFFERINGS.map(randomOffset));
+  const [offsets, setOffsets] = useState(() =>
+    OFFERINGS.map(() => ZERO_OFFSET),
+  );
+
+  useEffect(() => {
+    setOffsets(OFFERINGS.map(randomOffset));
+  }, []);
 
   const sectionRef = useRef<HTMLDivElement>(null);
   const isInView = useInView(sectionRef, { once: true, margin: "-100px" });
@@ -131,7 +139,7 @@ function OfferingsDeck() {
   return (
     <section
       ref={sectionRef}
-      className="relative flex flex-col items-center justify-center sm:h-dvh sm:overflow-hidden"
+      className="relative flex flex-col items-center justify-center overflow-x-hidden sm:h-dvh sm:overflow-hidden"
     >
       <h1 className="self-start px-6 pt-8 text-3xl font-medium leading-[0.9] -tracking-[0.03em] sm:absolute sm:left-[25px] sm:top-[25px] sm:z-10 sm:max-w-[70vw] sm:px-0 sm:pt-0 sm:text-[4vw]">
         You bring the game.
