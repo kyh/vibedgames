@@ -93,6 +93,24 @@ function randomOffset() {
 
 const ZERO_OFFSET = { x: 0, y: 0, rotate: 0 };
 
+function CardContent({ card }: { card: Offering }) {
+  return (
+    <div className="flex h-full w-full flex-col justify-between">
+      <div className="flex items-start justify-between font-mono text-[9px] uppercase tracking-[0.2em] sm:text-[0.7vw]">
+        <span>{card.index}</span>
+        <span className="opacity-50">— vg</span>
+      </div>
+      <p className="text-xl font-medium leading-[0.9] -tracking-[0.03em] sm:text-[1.9vw]">
+        {card.title}.{" "}
+        <span className="opacity-60">{card.desc}</span>
+      </p>
+      <div className="border-t border-dashed border-black/40 pt-2 font-mono text-[9px] uppercase tracking-[0.18em] sm:pt-[1vw] sm:text-[0.7vw]">
+        {card.tag}
+      </div>
+    </div>
+  );
+}
+
 function OfferingsDeck() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [activeIdx, setActiveIdx] = useState<number | null>(null);
@@ -185,20 +203,9 @@ function OfferingsDeck() {
                 animate={{ x: innerX }}
                 transition={spring}
                 style={{ backgroundColor: card.color }}
-                className="flex h-full w-full flex-col justify-between rounded-[0.6em] p-[25px] text-black shadow-[0_20px_40px_-20px_rgba(0,0,0,0.8)]"
+                className="h-full w-full rounded-[0.6em] p-[1.25vw] text-black shadow-[0_20px_40px_-20px_rgba(0,0,0,0.8)]"
               >
-                <p className="text-[1.9vw] font-medium leading-[0.9] -tracking-[0.03em]">
-                  {card.title}.{" "}
-                  <span className="opacity-60">{card.desc}</span>
-                </p>
-                <div className="flex items-center gap-[15px] border-t border-dashed border-black pt-[25px] text-[1.1vw] font-medium leading-[0.9] -tracking-[0.03em]">
-                  <div>
-                    <p>{card.index}</p>
-                    <p className="mt-1 font-mono text-[0.9vw] uppercase leading-normal">
-                      {card.tag}
-                    </p>
-                  </div>
-                </div>
+                <CardContent card={card} />
               </motion.div>
             </motion.div>
           );
@@ -237,21 +244,7 @@ function OfferingsDeck() {
               }}
               className="absolute aspect-[0.8] w-[55%] rounded-xl p-4 text-black shadow-[0_20px_40px_-20px_rgba(0,0,0,0.8)]"
             >
-              <div className="flex h-full w-full flex-col justify-between">
-                <div className="flex items-start justify-between font-mono text-[9px] uppercase tracking-[0.2em]">
-                  <span>{card.index}</span>
-                  <span className="opacity-50">— vg</span>
-                </div>
-                <div>
-                  <p className="text-xl font-medium leading-[0.9] -tracking-[0.03em]">
-                    {card.title}.{" "}
-                    <span className="opacity-60">{card.desc}</span>
-                  </p>
-                </div>
-                <div className="border-t border-dashed border-black/40 pt-2 font-mono text-[9px] uppercase tracking-[0.18em]">
-                  {card.tag}
-                </div>
-              </div>
+              <CardContent card={card} />
             </motion.div>
           );
         })}
