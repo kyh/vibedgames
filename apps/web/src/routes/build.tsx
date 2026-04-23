@@ -224,40 +224,25 @@ function OfferingsDeck() {
             rotate: 0,
           };
           const isActive = activeIdx === i;
-          const hasActive = activeIdx !== null;
-          const activeP =
-            activeIdx !== null
-              ? MOBILE_POSITIONS[activeIdx]
-              : null;
 
-          let shiftX = 0;
-          let shiftY = 0;
-          if (hasActive && !isActive && activeP) {
-            const dx = parseFloat(p.left) - parseFloat(activeP.left);
-            const dy = parseFloat(p.top) - parseFloat(activeP.top);
-            shiftX = Math.sign(dx) * 22;
-            shiftY = Math.sign(dy) * 10;
-          }
+          const cardTarget = !isInView
+            ? { opacity: 0, y: 20, rotate: 0, scale: 0.9 }
+            : isActive
+              ? { opacity: 1, y: 0, rotate: 0, scale: 1.15 }
+              : { opacity: 1, y: 0, rotate: p.rotate, scale: 1 };
+
+          const innerX =
+            activeIdx === null || activeIdx === i
+              ? "0%"
+              : `${80 / (i - activeIdx)}%`;
 
           return (
             <motion.div
               key={card.index}
               initial={{ opacity: 0, y: 20, rotate: 0, scale: 0.9 }}
-              animate={
-                !isInView
-                  ? { opacity: 0, y: 20, rotate: 0, scale: 0.9, x: 0 }
-                  : isActive
-                    ? { opacity: 1, y: 0, x: 0, rotate: 0, scale: 1.15 }
-                    : {
-                        opacity: hasActive ? 0.55 : 1,
-                        y: shiftY,
-                        x: shiftX,
-                        rotate: p.rotate,
-                        scale: hasActive ? 0.92 : 1,
-                      }
-              }
+              animate={cardTarget}
               transition={{
-                delay: isInView && !hasActive ? 0.05 * i : 0,
+                delay: isInView && activeIdx === null ? 0.05 * i : 0,
                 type: "spring",
                 stiffness: 90,
                 damping: 14,
@@ -268,13 +253,19 @@ function OfferingsDeck() {
               style={{
                 top: p.top,
                 left: p.left,
-                backgroundColor: card.color,
                 zIndex: isActive ? 50 : card.zIndex,
                 transformOrigin: "center center",
               }}
-              className="absolute aspect-[0.8] w-[55%] cursor-pointer rounded-xl p-4 text-black shadow-[0_20px_40px_-20px_rgba(0,0,0,0.8)]"
+              className="absolute aspect-[0.8] w-[55%] cursor-pointer"
             >
-              <CardContent card={card} />
+              <motion.div
+                animate={{ x: innerX }}
+                transition={spring}
+                style={{ backgroundColor: card.color }}
+                className="h-full w-full rounded-xl p-4 text-black shadow-[0_20px_40px_-20px_rgba(0,0,0,0.8)]"
+              >
+                <CardContent card={card} />
+              </motion.div>
             </motion.div>
           );
         })}
