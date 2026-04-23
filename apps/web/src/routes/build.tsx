@@ -139,10 +139,10 @@ function OfferingsDeck() {
         transition={{ duration: 0.7, ease: [0.21, 0.47, 0.32, 0.98] }}
         className="self-start px-6 pt-8 text-3xl font-medium leading-[0.9] -tracking-[0.03em] sm:absolute sm:left-[25px] sm:top-[25px] sm:z-10 sm:max-w-[70vw] sm:px-0 sm:pt-0 sm:text-[4vw]"
       >
-        You design your game
+        You bring the game.
         <br />
         <span className="text-muted-foreground">
-          Our skills handle the rest
+          We bring the internet.
         </span>
       </motion.h1>
 
