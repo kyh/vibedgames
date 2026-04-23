@@ -200,7 +200,7 @@ function OfferingsDeck() {
                 setActiveIdx((curr) => (curr === i ? null : i))
               }
               style={{ zIndex: card.zIndex }}
-              className="relative aspect-[0.8] w-[20vw] shrink-0 cursor-pointer first:ml-0 [&:not(:first-child)]:-ml-[10vw]"
+              className="relative aspect-[0.8] w-[20vw] shrink-0 first:ml-0 [&:not(:first-child)]:-ml-[10vw]"
             >
               <motion.div
                 animate={{ x: innerX }}
@@ -227,17 +227,24 @@ function OfferingsDeck() {
             rotate: 0,
           };
           const isActive = activeIdx === i;
+          const hasActive = activeIdx !== null;
+          const activeP =
+            activeIdx !== null ? MOBILE_POSITIONS[activeIdx] : null;
+
+          let innerX = "0%";
+          let innerY = "0%";
+          if (hasActive && !isActive && activeP) {
+            const dx = parseFloat(p.left) - parseFloat(activeP.left);
+            const dy = parseFloat(p.top) - parseFloat(activeP.top);
+            innerX = `${Math.sign(dx) * 40}%`;
+            innerY = `${Math.sign(dy) * 40}%`;
+          }
 
           const cardTarget = !isInView
             ? { opacity: 0, y: 20, rotate: 0, scale: 0.9 }
             : isActive
               ? { opacity: 1, y: 0, rotate: 0, scale: 1.15 }
               : { opacity: 1, y: 0, rotate: p.rotate, scale: 1 };
-
-          const innerX =
-            activeIdx === null || activeIdx === i
-              ? "0%"
-              : `${80 / (i - activeIdx)}%`;
 
           return (
             <motion.div
@@ -260,10 +267,10 @@ function OfferingsDeck() {
                 zIndex: isActive ? 50 : card.zIndex,
                 transformOrigin: "center center",
               }}
-              className="absolute aspect-[0.8] w-[55%] cursor-pointer"
+              className="absolute aspect-[0.8] w-[55%]"
             >
               <motion.div
-                animate={{ x: innerX }}
+                animate={{ x: innerX, y: innerY }}
                 transition={spring}
                 style={{ backgroundColor: card.color }}
                 className="h-full w-full rounded-xl p-4 text-black shadow-[0_20px_40px_-20px_rgba(0,0,0,0.8)]"
