@@ -243,11 +243,9 @@ function OfferingsDeck() {
                   <span className="opacity-50">— vg</span>
                 </div>
                 <div>
-                  <p className="font-mono text-xl font-medium leading-[0.9] tracking-tight">
-                    {card.title}.
-                  </p>
-                  <p className="mt-1.5 font-mono text-[11px] leading-snug opacity-70">
-                    {card.desc}
+                  <p className="text-xl font-medium leading-[0.9] -tracking-[0.03em]">
+                    {card.title}.{" "}
+                    <span className="opacity-60">{card.desc}</span>
                   </p>
                 </div>
                 <div className="border-t border-dashed border-black/40 pt-2 font-mono text-[9px] uppercase tracking-[0.18em]">
@@ -275,7 +273,7 @@ const MOBILE_POSITIONS = [
 
 function BuildPage() {
   return (
-    <main className="font-mono">
+    <main>
       <OfferingsDeck />
     </main>
   );

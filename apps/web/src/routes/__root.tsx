@@ -69,7 +69,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body
         className={cn(
-          "text-foreground bg-background bg-[url('https://zmdrwswxugswzmcokvff.supabase.co/storage/v1/object/public/vibedgames/bg.png')] bg-size-[10px] font-mono antialiased",
+          "text-foreground bg-background bg-[url('https://zmdrwswxugswzmcokvff.supabase.co/storage/v1/object/public/vibedgames/bg.png')] bg-size-[10px] font-sans antialiased",
         )}
       >
         <TooltipProvider>
