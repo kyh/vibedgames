@@ -1,6 +1,5 @@
-import { useRef } from "react";
-import { Logo } from "@repo/ui/components/logo";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { useEffect, useRef, useState } from "react";
+import { createFileRoute } from "@tanstack/react-router";
 import { motion, useInView } from "motion/react";
 
 export const Route = createFileRoute("/build")({
@@ -8,353 +7,304 @@ export const Route = createFileRoute("/build")({
   component: BuildPage,
 });
 
-function AnimatedSection({
-  children,
-  className,
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  const isInView = useInView(ref, { once: true, margin: "-100px" });
+type Offering = {
+  index: string;
+  title: string;
+  tag: string;
+  desc: string;
+  color: string;
+  zIndex: number;
+};
 
-  return (
-    <motion.section
-      ref={ref}
-      initial={{ opacity: 0, y: 40 }}
-      animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 40 }}
-      transition={{ duration: 0.6, ease: [0.21, 0.47, 0.32, 0.98] }}
-      className={className}
-    >
-      {children}
-    </motion.section>
-  );
+const OFFERINGS: Offering[] = [
+  {
+    index: "01",
+    title: "Skills",
+    tag: "npx vibedgames skills",
+    desc: "The toolkit your LLM already knows.",
+    color: "#F14A3A",
+    zIndex: 3,
+  },
+  {
+    index: "02",
+    title: "CLI",
+    tag: "vg deploy",
+    desc: "One command. Device-code auth. Ship.",
+    color: "#FB7350",
+    zIndex: 2,
+  },
+  {
+    index: "03",
+    title: "Multiplayer",
+    tag: "@vibedgames/multiplayer",
+    desc: "Real-time sync. Host-authoritative.",
+    color: "#F79C42",
+    zIndex: 7,
+  },
+  {
+    index: "04",
+    title: "Hosting",
+    tag: "R2 · global CDN",
+    desc: "Immutable deploys. 1yr cache. No cold starts.",
+    color: "#FFDF40",
+    zIndex: 1,
+  },
+  {
+    index: "05",
+    title: "Subdomain",
+    tag: "{slug}.vibedgames.com",
+    desc: "Every game gets a link. Sandboxed.",
+    color: "#DEDA8D",
+    zIndex: 4,
+  },
+  {
+    index: "06",
+    title: "Assets",
+    tag: "v0 · sprites + audio",
+    desc: "Skip the placeholder rectangles.",
+    color: "#71CFA3",
+    zIndex: 5,
+  },
+  {
+    index: "07",
+    title: "Discovery",
+    tag: "vibedgames.com",
+    desc: "Players find you on the hub.",
+    color: "#C4EF7A",
+    zIndex: 8,
+  },
+  {
+    index: "08",
+    title: "Auth",
+    tag: "better-auth · device-code",
+    desc: "Sessions locked to apex. Secure.",
+    color: "#BCEFFF",
+    zIndex: 6,
+  },
+];
+
+function randomOffset() {
+  return {
+    x: (Math.random() - 0.5) * 10,
+    y: (Math.random() - 0.5) * 10,
+    rotate: (Math.random() - 0.5) * 20,
+  };
 }
 
-function TypingLine({ text, delay = 0 }: { text: string; delay?: number }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const isInView = useInView(ref, { once: true, margin: "-50px" });
+const ZERO_OFFSET = { x: 0, y: 0, rotate: 0 };
 
+function CardContent({ card }: { card: Offering }) {
   return (
-    <div ref={ref} className="overflow-hidden">
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={isInView ? { opacity: 1 } : { opacity: 0 }}
-        transition={{ delay, duration: 0.4 }}
-      >
-        {text}
-      </motion.div>
+    <div className="flex h-full w-full flex-col justify-between">
+      <div className="flex items-start justify-between font-mono text-[9px] uppercase tracking-[0.2em] sm:text-[0.7vw]">
+        <span>{card.index}</span>
+        <span className="opacity-50">— vg</span>
+      </div>
+      <p className="text-xl font-medium leading-[0.9] -tracking-[0.03em] sm:text-[1.9vw]">
+        {card.title}.{" "}
+        <span className="opacity-60">{card.desc}</span>
+      </p>
+      <div className="border-t border-dashed border-black/40 pt-2 font-mono text-[9px] uppercase tracking-[0.18em] sm:pt-[1vw] sm:text-[0.7vw]">
+        {card.tag}
+      </div>
     </div>
   );
 }
+
+function OfferingsDeck() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [activeIdx, setActiveIdx] = useState<number | null>(null);
+  const [offsets, setOffsets] = useState(() =>
+    OFFERINGS.map(() => ZERO_OFFSET),
+  );
+
+  useEffect(() => {
+    setOffsets(OFFERINGS.map(randomOffset));
+  }, []);
+
+  const sectionRef = useRef<HTMLDivElement>(null);
+  const isInView = useInView(sectionRef, { once: true, margin: "-100px" });
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const container = containerRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    const pct = (e.clientX - rect.left) / rect.width;
+    const idx = Math.min(
+      OFFERINGS.length - 1,
+      Math.max(0, Math.floor(pct * OFFERINGS.length)),
+    );
+    if (idx === activeIdx) return;
+    if (activeIdx !== null) {
+      setOffsets((prev) =>
+        prev.map((o, i) => (i === activeIdx ? randomOffset() : o)),
+      );
+    }
+    setActiveIdx(idx);
+  };
+
+  const handleMouseLeave = () => {
+    if (activeIdx !== null) {
+      setOffsets((prev) =>
+        prev.map((o, i) => (i === activeIdx ? randomOffset() : o)),
+      );
+    }
+    setActiveIdx(null);
+  };
+
+  const spring = { type: "spring" as const, stiffness: 110, damping: 14, mass: 1 };
+
+  const toggle = (i: number) =>
+    setActiveIdx((curr) => (curr === i ? null : i));
+
+  return (
+    <section
+      ref={sectionRef}
+      className="relative flex flex-col items-center justify-center overflow-x-hidden sm:h-dvh sm:overflow-hidden"
+    >
+      <h1 className="self-start px-6 pt-8 text-3xl font-medium leading-[0.9] -tracking-[0.03em] sm:absolute sm:left-[25px] sm:top-[25px] sm:z-10 sm:max-w-[70vw] sm:px-0 sm:pt-0 sm:text-[4vw]">
+        You bring the game.
+        <br />
+        <span className="text-muted-foreground">
+          We bring the internet.
+        </span>
+      </h1>
+
+      <div
+        ref={containerRef}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+        className="hidden items-center justify-center sm:flex"
+      >
+        {OFFERINGS.map((card, i) => {
+          const off = offsets[i] ?? { x: 0, y: 0, rotate: 0 };
+          const isActive = activeIdx === i;
+
+          const cardTarget = isActive
+            ? { x: "0%", y: "0%", rotate: 0, scale: 1.1 }
+            : {
+                x: `${off.x}%`,
+                y: `${off.y}%`,
+                rotate: off.rotate,
+                scale: 1,
+              };
+
+          const innerX =
+            activeIdx === null || activeIdx === i
+              ? "0%"
+              : `${80 / (i - activeIdx)}%`;
+
+          return (
+            <motion.button
+              key={card.index}
+              type="button"
+              animate={cardTarget}
+              transition={spring}
+              aria-pressed={isActive}
+              aria-label={`${card.title}: ${card.desc}`}
+              onClick={() => toggle(i)}
+              style={{ zIndex: card.zIndex }}
+              className="relative aspect-[0.8] w-[20vw] shrink-0 appearance-none rounded-[0.6em] border-0 bg-transparent p-0 text-left outline-none first:ml-0 focus-visible:ring-2 focus-visible:ring-white [&:not(:first-child)]:-ml-[10vw]"
+            >
+              <motion.div
+                animate={{ x: innerX }}
+                transition={spring}
+                style={{ backgroundColor: card.color }}
+                className="h-full w-full rounded-[0.6em] p-[1.25vw] text-black shadow-[0_20px_40px_-20px_rgba(0,0,0,0.8)]"
+              >
+                <CardContent card={card} />
+              </motion.div>
+            </motion.button>
+          );
+        })}
+      </div>
+
+      {/* Mobile: collage layout, tap or hover to activate */}
+      <div
+        onMouseLeave={() => setActiveIdx(null)}
+        className="relative mx-auto mt-8 h-[120vh] w-full max-w-sm px-4 sm:hidden"
+      >
+        {OFFERINGS.map((card, i) => {
+          const p = MOBILE_POSITIONS[i] ?? {
+            top: "0%",
+            left: "0%",
+            rotate: 0,
+          };
+          const isActive = activeIdx === i;
+          const hasActive = activeIdx !== null;
+          const activeP =
+            activeIdx !== null ? MOBILE_POSITIONS[activeIdx] : null;
+
+          let innerX = "0%";
+          let innerY = "0%";
+          if (hasActive && !isActive && activeP) {
+            const dx = parseFloat(p.left) - parseFloat(activeP.left);
+            const dy = parseFloat(p.top) - parseFloat(activeP.top);
+            innerX = `${Math.sign(dx) * 40}%`;
+            innerY = `${Math.sign(dy) * 40}%`;
+          }
+
+          const cardTarget = !isInView
+            ? { opacity: 0, y: 20, rotate: 0, scale: 0.9 }
+            : isActive
+              ? { opacity: 1, y: 0, rotate: 0, scale: 1.15 }
+              : { opacity: 1, y: 0, rotate: p.rotate, scale: 1 };
+
+          return (
+            <motion.button
+              key={card.index}
+              type="button"
+              initial={{ opacity: 0, y: 20, rotate: 0, scale: 0.9 }}
+              animate={cardTarget}
+              transition={{
+                delay: isInView && activeIdx === null ? 0.05 * i : 0,
+                type: "spring",
+                stiffness: 90,
+                damping: 14,
+              }}
+              aria-pressed={isActive}
+              aria-label={`${card.title}: ${card.desc}`}
+              onMouseEnter={() => setActiveIdx(i)}
+              onClick={() => toggle(i)}
+              style={{
+                top: p.top,
+                left: p.left,
+                zIndex: isActive ? 50 : card.zIndex,
+                transformOrigin: "center center",
+              }}
+              className="absolute aspect-[0.8] w-[55%] appearance-none rounded-xl border-0 bg-transparent p-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-white"
+            >
+              <motion.div
+                animate={{ x: innerX, y: innerY }}
+                transition={spring}
+                style={{ backgroundColor: card.color }}
+                className="h-full w-full rounded-xl p-4 text-black shadow-[0_20px_40px_-20px_rgba(0,0,0,0.8)]"
+              >
+                <CardContent card={card} />
+              </motion.div>
+            </motion.button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+const MOBILE_POSITIONS = [
+  { top: "0%", left: "2%", rotate: -7 },
+  { top: "9%", left: "42%", rotate: 5 },
+  { top: "21%", left: "8%", rotate: 8 },
+  { top: "33%", left: "40%", rotate: -4 },
+  { top: "45%", left: "0%", rotate: -3 },
+  { top: "57%", left: "38%", rotate: 9 },
+  { top: "70%", left: "6%", rotate: -8 },
+  { top: "82%", left: "40%", rotate: 6 },
+] as const;
 
 function BuildPage() {
   return (
-    <div className="relative min-h-dvh overflow-y-auto">
-      <nav className="fixed top-0 left-0 z-20 flex w-full items-center justify-between px-6 py-4">
-        <Link to="/" className="flex items-center gap-2">
-          <Logo className="w-6" />
-          <span className="font-mono text-sm">vibedgames</span>
-        </Link>
-      </nav>
-
-      <main className="font-mono">
-        {/* Hero */}
-        <section className="flex min-h-dvh flex-col items-center justify-center px-6 text-center">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, ease: [0.21, 0.47, 0.32, 0.98] }}
-          >
-            <h1 className="mb-4 text-3xl font-light tracking-tight sm:text-5xl">
-              Your LLM builds the game.
-              <br />
-              <span className="text-muted-foreground">We handle the rest.</span>
-            </h1>
-            <p className="text-muted-foreground mx-auto mb-10 max-w-md text-sm leading-relaxed">
-              Infrastructure for vibe-coded games. Multiplayer, deployment,
-              hosting — all through skills your LLM already knows.
-            </p>
-            <div className="flex justify-center">
-              <div className="bg-secondary/50 rounded-lg border border-white/5 px-5 py-3 text-sm">
-                <span className="text-muted-foreground select-none">$ </span>
-                <span className="text-foreground">
-                  npx vibedgames skills .
-                </span>
-              </div>
-            </div>
-          </motion.div>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ delay: 1.2, duration: 0.8 }}
-            className="text-muted-foreground/30 mt-16 text-xs"
-          >
-            scroll to explore ↓
-          </motion.div>
-        </section>
-
-        {/* Section: Install */}
-        <AnimatedSection className="flex min-h-[70vh] items-center px-6 py-20">
-          <div className="mx-auto grid max-w-4xl gap-10 sm:grid-cols-2 sm:items-center">
-            <div>
-              <div className="text-muted-foreground mb-2 text-[10px] uppercase tracking-widest">
-                01 — Install
-              </div>
-              <h2 className="mb-3 text-xl font-light sm:text-2xl">
-                Add skills to your project
-              </h2>
-              <p className="text-muted-foreground text-xs leading-relaxed">
-                One command installs vibedgames skills into your project. Your
-                LLM gets deploy, multiplayer, asset generation, and more — ready
-                to use in any conversation.
-              </p>
-            </div>
-            <div className="bg-secondary/50 rounded-lg border border-white/5 p-5">
-              <div className="space-y-3 text-xs">
-                <div className="text-muted-foreground">
-                  <span className="text-muted-foreground/50">$</span> npx
-                  vibedgames skills .
-                </div>
-                <div className="border-t border-white/5 pt-3">
-                  <TypingLine
-                    delay={0.3}
-                    text="Downloading vibedgames skills..."
-                  />
-                  <TypingLine delay={0.6} text="Installing 15 skills..." />
-                  <div className="mt-2">
-                    <TypingLine
-                      delay={0.9}
-                      text="✓ Skills installed to .claude/skills/"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </AnimatedSection>
-
-        {/* Section: Describe */}
-        <AnimatedSection className="flex min-h-[70vh] items-center px-6 py-20">
-          <div className="mx-auto grid max-w-4xl gap-10 sm:grid-cols-2 sm:items-center">
-            <div className="sm:order-2">
-              <div className="text-muted-foreground mb-2 text-[10px] uppercase tracking-widest">
-                02 — Describe
-              </div>
-              <h2 className="mb-3 text-xl font-light sm:text-2xl">
-                Say what you want
-              </h2>
-              <p className="text-muted-foreground text-xs leading-relaxed">
-                Describe your game to any LLM. A platformer, a puzzle game, a
-                space shooter — whatever you're vibing. It writes the code,
-                picks the right framework, and runs it locally.
-              </p>
-            </div>
-            <div className="bg-secondary/50 rounded-lg border border-white/5 p-5 sm:order-1">
-              <div className="space-y-3 text-xs">
-                <div className="text-muted-foreground">
-                  <span className="text-muted-foreground/50">you &gt;</span>{" "}
-                  build me an asteroid mining game with physics
-                </div>
-                <div className="border-t border-white/5 pt-3">
-                  <TypingLine
-                    delay={0.3}
-                    text="Setting up project with Matter.js physics..."
-                  />
-                  <TypingLine
-                    delay={0.6}
-                    text="Creating asteroid field generator..."
-                  />
-                  <TypingLine
-                    delay={0.9}
-                    text="Adding mining beam mechanics..."
-                  />
-                  <TypingLine
-                    delay={1.2}
-                    text="Implementing resource collection UI..."
-                  />
-                  <div className="mt-2">
-                    <TypingLine
-                      delay={1.5}
-                      text="✓ Game running at localhost:5173"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </AnimatedSection>
-
-        {/* Section: Multiplayer */}
-        <AnimatedSection className="flex min-h-[70vh] items-center px-6 py-20">
-          <div className="mx-auto grid max-w-4xl gap-10 sm:grid-cols-2 sm:items-center">
-            <div>
-              <div className="text-muted-foreground mb-2 text-[10px] uppercase tracking-widest">
-                03 — Multiplayer
-              </div>
-              <h2 className="mb-3 text-xl font-light sm:text-2xl">
-                One sentence, real-time
-              </h2>
-              <p className="text-muted-foreground text-xs leading-relaxed">
-                "Make it multiplayer." Your LLM installs our SDK, wires up state
-                sync, and handles host authority. No servers to configure, no
-                networking code to write.
-              </p>
-            </div>
-            <div className="bg-secondary/50 rounded-lg border border-white/5 p-5">
-              <div className="space-y-3 text-xs">
-                <div className="text-muted-foreground">
-                  <span className="text-muted-foreground/50">you &gt;</span>{" "}
-                  add multiplayer so friends can mine together
-                </div>
-                <div className="border-t border-white/5 pt-3">
-                  <TypingLine
-                    delay={0.3}
-                    text="Installing @vibedgames/multiplayer..."
-                  />
-                  <TypingLine
-                    delay={0.6}
-                    text="Syncing asteroid positions across players..."
-                  />
-                  <TypingLine
-                    delay={0.9}
-                    text="Adding shared resource pool..."
-                  />
-                  <div className="mt-2">
-                    <TypingLine
-                      delay={1.2}
-                      text="✓ Co-op multiplayer ready"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </AnimatedSection>
-
-        {/* Section: Deploy */}
-        <AnimatedSection className="flex min-h-[70vh] items-center px-6 py-20">
-          <div className="mx-auto grid max-w-4xl gap-10 sm:grid-cols-2 sm:items-center">
-            <div className="sm:order-2">
-              <div className="text-muted-foreground mb-2 text-[10px] uppercase tracking-widest">
-                04 — Deploy
-              </div>
-              <h2 className="mb-3 text-xl font-light sm:text-2xl">
-                Live in seconds
-              </h2>
-              <p className="text-muted-foreground text-xs leading-relaxed">
-                One slash command. Your game is built for production, uploaded to
-                our global CDN, and live at your-game.vibedgames.com. Share the
-                link and anyone can play.
-              </p>
-            </div>
-            <div className="bg-secondary/50 rounded-lg border border-white/5 p-5 sm:order-1">
-              <div className="space-y-3 text-xs">
-                <div className="text-muted-foreground">
-                  <span className="text-muted-foreground/50">you &gt;</span>{" "}
-                  /deploy
-                </div>
-                <div className="border-t border-white/5 pt-3">
-                  <TypingLine
-                    delay={0.3}
-                    text="Building for production..."
-                  />
-                  <TypingLine
-                    delay={0.6}
-                    text="Optimizing assets (143kb)..."
-                  />
-                  <TypingLine
-                    delay={0.9}
-                    text="Uploading to vibedgames CDN..."
-                  />
-                  <div className="mt-2">
-                    <TypingLine
-                      delay={1.2}
-                      text="✓ Live at asteroid-miner.vibedgames.com"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </AnimatedSection>
-
-        {/* Section: Play */}
-        <AnimatedSection className="flex min-h-[70vh] items-center px-6 py-20">
-          <div className="mx-auto grid max-w-4xl gap-10 sm:grid-cols-2 sm:items-center">
-            <div>
-              <div className="text-muted-foreground mb-2 text-[10px] uppercase tracking-widest">
-                05 — Play
-              </div>
-              <h2 className="mb-3 text-xl font-light sm:text-2xl">
-                Players find your game
-              </h2>
-              <p className="text-muted-foreground text-xs leading-relaxed">
-                Your game appears on vibedgames.com where players can discover,
-                play, and share it. Global CDN for instant loads. Zero
-                maintenance.
-              </p>
-            </div>
-            <div className="bg-secondary/50 rounded-lg border border-white/5 p-5">
-              <div className="space-y-3">
-                {[
-                  {
-                    name: "Asteroid Miner",
-                    slug: "asteroid-miner",
-                    players: "4 playing",
-                    icon: "⛏",
-                  },
-                  {
-                    name: "Space Shooter",
-                    slug: "space-shooter",
-                    players: "2 playing",
-                    icon: "🚀",
-                  },
-                  {
-                    name: "Pixel Racer",
-                    slug: "pixel-racer",
-                    players: "6 playing",
-                    icon: "🏎",
-                  },
-                ].map((game) => (
-                  <div
-                    key={game.slug}
-                    className="flex items-center gap-3 rounded border border-white/5 bg-white/[0.02] p-3 text-xs"
-                  >
-                    <div className="bg-muted flex h-8 w-8 shrink-0 items-center justify-center rounded text-sm">
-                      {game.icon}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-foreground truncate font-medium">
-                        {game.name}
-                      </div>
-                      <div className="text-muted-foreground/50">
-                        {game.slug}.vibedgames.com
-                      </div>
-                    </div>
-                    <div className="text-muted-foreground/50 shrink-0">
-                      {game.players}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </AnimatedSection>
-
-        {/* CTA */}
-        <section className="flex min-h-[50vh] flex-col items-center justify-center px-6 py-20 text-center">
-          <AnimatedSection className="flex flex-col items-center gap-6">
-            <h2 className="text-2xl font-light tracking-tight sm:text-3xl">
-              Ready to ship your game?
-            </h2>
-            <div className="bg-secondary/50 rounded-lg border border-white/5 px-5 py-3 text-sm">
-              <span className="text-muted-foreground select-none">$ </span>
-              <span className="text-foreground">npx vibedgames skills .</span>
-            </div>
-          </AnimatedSection>
-        </section>
-      </main>
-    </div>
+    <main>
+      <OfferingsDeck />
+    </main>
   );
 }
