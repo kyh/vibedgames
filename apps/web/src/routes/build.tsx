@@ -154,6 +154,18 @@ function OfferingsDeck() {
 
   const spring = { type: "spring" as const, stiffness: 110, damping: 14, mass: 1 };
 
+  const toggle = (i: number) =>
+    setActiveIdx((curr) => (curr === i ? null : i));
+
+  const handleKey = (e: React.KeyboardEvent<HTMLDivElement>, i: number) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      toggle(i);
+    } else if (e.key === "Escape") {
+      setActiveIdx(null);
+    }
+  };
+
   return (
     <section
       ref={sectionRef}
@@ -196,11 +208,14 @@ function OfferingsDeck() {
               key={card.index}
               animate={cardTarget}
               transition={spring}
-              onClick={() =>
-                setActiveIdx((curr) => (curr === i ? null : i))
-              }
+              role="button"
+              tabIndex={0}
+              aria-pressed={isActive}
+              aria-label={`${card.title}: ${card.desc}`}
+              onClick={() => toggle(i)}
+              onKeyDown={(e) => handleKey(e, i)}
               style={{ zIndex: card.zIndex }}
-              className="relative aspect-[0.8] w-[20vw] shrink-0 first:ml-0 [&:not(:first-child)]:-ml-[10vw]"
+              className="relative aspect-[0.8] w-[20vw] shrink-0 rounded-[0.6em] outline-none first:ml-0 focus-visible:ring-2 focus-visible:ring-white [&:not(:first-child)]:-ml-[10vw]"
             >
               <motion.div
                 animate={{ x: innerX }}
@@ -257,17 +272,20 @@ function OfferingsDeck() {
                 stiffness: 90,
                 damping: 14,
               }}
+              role="button"
+              tabIndex={0}
+              aria-pressed={isActive}
+              aria-label={`${card.title}: ${card.desc}`}
               onMouseEnter={() => setActiveIdx(i)}
-              onClick={() =>
-                setActiveIdx((curr) => (curr === i ? null : i))
-              }
+              onClick={() => toggle(i)}
+              onKeyDown={(e) => handleKey(e, i)}
               style={{
                 top: p.top,
                 left: p.left,
                 zIndex: isActive ? 50 : card.zIndex,
                 transformOrigin: "center center",
               }}
-              className="absolute aspect-[0.8] w-[55%]"
+              className="absolute aspect-[0.8] w-[55%] rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-white"
             >
               <motion.div
                 animate={{ x: innerX, y: innerY }}
