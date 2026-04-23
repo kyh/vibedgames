@@ -172,8 +172,7 @@ function OfferingsDeck() {
           <span className="text-muted-foreground">nothing you don't.</span>
         </h2>
         <p className="text-muted-foreground mt-4 max-w-sm text-xs leading-relaxed">
-          Hover across the deck — each card is one slice of the platform your
-          LLM can reach for.
+          Each card is one slice of the platform your LLM can reach for.
         </p>
       </motion.div>
 
@@ -236,31 +235,73 @@ function OfferingsDeck() {
         })}
       </div>
 
-      {/* Mobile: stacked vertical list */}
-      <div className="flex flex-col gap-3 px-6 sm:hidden">
-        {OFFERINGS.map((card) => (
-          <div
-            key={card.index}
-            style={{ backgroundColor: card.color }}
-            className="rounded-xl p-5 text-black"
-          >
-            <div className="mb-3 flex items-center justify-between font-mono text-[10px] uppercase tracking-[0.15em]">
-              <span>{card.index}</span>
-              <span className="opacity-60">— vg</span>
-            </div>
-            <p className="font-mono text-xl font-medium leading-[0.95] tracking-tight">
-              {card.title}.{" "}
-              <span className="opacity-70">{card.desc}</span>
-            </p>
-            <div className="mt-4 border-t border-dashed border-black/40 pt-3 font-mono text-[10px] uppercase tracking-[0.15em]">
-              {card.tag}
-            </div>
-          </div>
-        ))}
+      {/* Mobile: collage layout */}
+      <div className="relative mx-auto h-[120vh] w-full max-w-sm px-4 sm:hidden">
+        {OFFERINGS.map((card, i) => {
+          const p = MOBILE_POSITIONS[i] ?? {
+            top: "0%",
+            left: "0%",
+            rotate: 0,
+          };
+          return (
+            <motion.div
+              key={card.index}
+              initial={{ opacity: 0, y: 20, rotate: 0, scale: 0.9 }}
+              animate={
+                isInView
+                  ? { opacity: 1, y: 0, rotate: p.rotate, scale: 1 }
+                  : { opacity: 0, y: 20, rotate: 0, scale: 0.9 }
+              }
+              transition={{
+                delay: 0.05 * i,
+                type: "spring",
+                stiffness: 90,
+                damping: 14,
+              }}
+              style={{
+                top: p.top,
+                left: p.left,
+                backgroundColor: card.color,
+                zIndex: card.zIndex,
+                transformOrigin: "center center",
+              }}
+              className="absolute aspect-[0.8] w-[55%] rounded-xl p-4 text-black shadow-[0_20px_40px_-20px_rgba(0,0,0,0.8)]"
+            >
+              <div className="flex h-full w-full flex-col justify-between">
+                <div className="flex items-start justify-between font-mono text-[9px] uppercase tracking-[0.2em]">
+                  <span>{card.index}</span>
+                  <span className="opacity-50">— vg</span>
+                </div>
+                <div>
+                  <p className="font-mono text-xl font-medium leading-[0.9] tracking-tight">
+                    {card.title}.
+                  </p>
+                  <p className="mt-1.5 font-mono text-[11px] leading-snug opacity-70">
+                    {card.desc}
+                  </p>
+                </div>
+                <div className="border-t border-dashed border-black/40 pt-2 font-mono text-[9px] uppercase tracking-[0.18em]">
+                  {card.tag}
+                </div>
+              </div>
+            </motion.div>
+          );
+        })}
       </div>
     </section>
   );
 }
+
+const MOBILE_POSITIONS = [
+  { top: "0%", left: "2%", rotate: -7 },
+  { top: "9%", left: "42%", rotate: 5 },
+  { top: "21%", left: "8%", rotate: 8 },
+  { top: "33%", left: "40%", rotate: -4 },
+  { top: "45%", left: "0%", rotate: -3 },
+  { top: "57%", left: "38%", rotate: 9 },
+  { top: "70%", left: "6%", rotate: -8 },
+  { top: "82%", left: "40%", rotate: 6 },
+] as const;
 
 function BuildPage() {
   return (
