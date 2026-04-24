@@ -8,6 +8,9 @@ const PKG = "vibedgames";
 const DEFAULT_AGENTS = "claude-code,cursor,codex";
 const description = "Install vibedgames skills into your project";
 
+const platformBin = (name: string) =>
+  process.platform === "win32" ? `${name}.cmd` : name;
+
 const run = (cmd: string, args: string[]) =>
   new Promise<number>((resolve, reject) => {
     const child = spawn(cmd, args, { stdio: "inherit" });
@@ -21,14 +24,12 @@ const installSkills = async (agents: string[], global: boolean, yes: boolean) =>
   if (global) args.push("-g");
   if (yes) args.push("-y");
 
-  const npx = process.platform === "win32" ? "npx.cmd" : "npx";
-  const code = await run(npx, args);
+  const code = await run(platformBin("npx"), args);
   if (code !== 0) throw new Error(`skills exited with code ${code}`);
 };
 
 const installGlobalCli = async () => {
-  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-  const code = await run(npm, ["install", "-g", PKG]);
+  const code = await run(platformBin("npm"), ["install", "-g", PKG]);
   if (code !== 0) {
     consola.warn(
       `Couldn't install the vg CLI globally (npm exit ${code}). Install manually: npm install -g ${PKG}`,

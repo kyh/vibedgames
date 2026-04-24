@@ -64,7 +64,6 @@ After deploy, the CLI prints the live URL. Open it to verify.
 
 ## Rules
 
-- **Check auth first** with `vg whoami`; run `vg login` if not authenticated
 - **Always build before deploying** if the project uses a build tool
 - **Deploy the build output**, not the source directory (e.g. `dist/`, `build/`, `out/`)
 - **Slug must be lowercase** with hyphens, 3-40 characters (e.g. `space-invaders`, `my-cool-game`)
