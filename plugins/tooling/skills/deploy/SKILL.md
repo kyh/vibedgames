@@ -7,6 +7,10 @@ description: "Deploy browser games to vibedgames. Use when the user wants to dep
 
 Deploy static browser games to `{slug}.vibedgames.com` using the vibedgames CLI.
 
+> **`vg` not on PATH?** The global install from `vibedgames init` is
+> best-effort. If any `vg <cmd>` below fails with "command not found",
+> substitute `npx vibedgames <cmd>` — it works identically.
+
 ## Prerequisites
 
 The game directory must contain an `index.html` at the root. Typically this is the `dist/` output from a build tool (Vite, webpack, etc.).
