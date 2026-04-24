@@ -7,25 +7,23 @@ built-in multiplayer. Execute the steps below.
 ## 1. Install skills
 
 ```
-npx vibedgames init --agent <your-agent> --yes
+npx vibedgames init
 ```
 
-Replace `<your-agent>` with the value matching you:
+That's it. By default this installs skills for Claude Code
+non-interactively. If you're a different agent, pass `--agent`:
 
-- Claude Code → `claude-code`
-- Cursor → `cursor`
-- Codex (OpenAI) → `codex`
+- Cursor → `npx vibedgames init --agent cursor`
+- Codex (OpenAI) → `npx vibedgames init --agent codex`
+- Anything else → `npx vibedgames init --agent <name>`
+  (supports 45+ agents — see
+  [vercel-labs/skills](https://github.com/vercel-labs/skills))
 
-If you're a different agent or unsure, run `npx vibedgames init --yes`
-and let it pick interactively. The init command supports 45+ coding
-agents.
-
-Under the hood, `vibedgames init` delegates to
-[vercel-labs/skills](https://github.com/vercel-labs/skills): it copies
-the skills to `./.agents/skills/` and symlinks them into your agent's
-skills dir (e.g. `.claude/skills/`, `.cursor/skills/`,
-`.codex/skills/`). Windows without symlink support falls back to copies
-automatically.
+Under the hood, `vibedgames init` delegates to `npx skills add
+kyh/vibedgames`: copies the skills to `./.agents/skills/` and symlinks
+them into your agent's skills dir (`.claude/skills/`, `.cursor/skills/`,
+`.codex/skills/`, etc). Windows without symlink support falls back to
+copies automatically.
 
 ## 2. Authenticate
 
@@ -56,7 +54,6 @@ Docs: https://vibedgames.com
 ## Notes
 
 - `vibedgames` is our CLI on npm (binary `vg`). `npx vibedgames init`
-  and `vg init` are the same command. It wraps `npx skills add
-  kyh/vibedgames` from Vercel Labs.
+  and `vg init` are the same command.
 - Older docs may mention Claude-Code-specific `/plugin` commands —
   ignore those, they're superseded by the flow above.

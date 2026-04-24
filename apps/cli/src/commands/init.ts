@@ -11,8 +11,9 @@ export const initCommand = defineCommand({
     agent: {
       type: "string",
       description:
-        "Target agent (claude-code, cursor, codex, windsurf, ...). Omit to pick interactively.",
+        "Target agent (claude-code, cursor, codex, windsurf, ...). Pass '*' to pick all.",
       alias: "a",
+      default: "claude-code",
     },
     global: {
       type: "boolean",
@@ -23,7 +24,7 @@ export const initCommand = defineCommand({
     yes: {
       type: "boolean",
       description: "Skip confirmation prompts",
-      default: false,
+      default: true,
       alias: "y",
     },
   },
