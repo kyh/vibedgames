@@ -74,7 +74,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       >
         <TooltipProvider>
           {children}
-          <Toaster />
+          <Toaster position="bottom-center" />
           <GlobalAlertDialog />
         </TooltipProvider>
         <Scripts />

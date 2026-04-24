@@ -1,8 +1,79 @@
 import { useEffect, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { motion, useInView } from "motion/react";
+import { toast } from "@repo/ui/components/sonner";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from "@repo/ui/components/input-group";
+import { CheckIcon, CopyIcon } from "lucide-react";
 
 import { WaitlistForm } from "@/components/game/waitlist-form";
+
+const INSTALL_PROMPT = "Use vibedgames to help me build my game";
+
+function InstallPrompt() {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard
+      .writeText(INSTALL_PROMPT)
+      .then(() => {
+        setCopied(true);
+        toast.success("Copied. Paste it into Claude, Cursor, or Codex.");
+        setTimeout(() => setCopied(false), 2000);
+      })
+      .catch(() => toast.error("Failed to copy."));
+  };
+
+  return (
+    <header className="fixed bottom-16 left-0 z-10 flex max-h-full max-w-dvw flex-col px-4 md:w-96">
+      <p className="text-muted-foreground mb-2 text-xs">Just tell your llm</p>
+      <div className="relative pb-4">
+        <motion.div className="bg-input/40 absolute inset-0 mb-4 rounded-md backdrop-blur-sm" />
+        <motion.div
+          transition={{ type: "spring", bounce: 0.1 }}
+          initial={{ opacity: 0, filter: "blur(5px)" }}
+          animate={{
+            opacity: 1,
+            filter: "blur(0px)",
+            transition: { delay: 0.05 },
+          }}
+        >
+          <InputGroup className="text-foreground border-none bg-transparent text-sm">
+            <InputGroupInput
+              type="text"
+              className="py-2.5 font-mono text-xs md:text-xs"
+              onClick={(event) => event.currentTarget.select()}
+              value={INSTALL_PROMPT}
+              readOnly
+            />
+            <InputGroupAddon align="inline-end">
+              <InputGroupButton
+                onClick={handleCopy}
+                size="icon-xs"
+                aria-label="Copy install prompt"
+              >
+                <motion.span
+                  key={copied ? "check" : "copy"}
+                  initial={{ opacity: 0, scale: 0.6 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.6 }}
+                  transition={{ type: "spring", stiffness: 400, damping: 20 }}
+                  className="flex items-center justify-center"
+                >
+                  {copied ? <CheckIcon /> : <CopyIcon />}
+                </motion.span>
+              </InputGroupButton>
+            </InputGroupAddon>
+          </InputGroup>
+        </motion.div>
+      </div>
+    </header>
+  );
+}
 
 export const Route = createFileRoute("/build")({
   head: () => ({ meta: [{ title: "Build — Vibedgames" }] }),
@@ -84,9 +155,8 @@ const ZERO_OFFSET = { x: 0, y: 0, rotate: 0 };
 function CardContent({ card, isWaitlist }: { card: Offering; isWaitlist: boolean }) {
   return (
     <div className="flex h-full w-full flex-col justify-between">
-      <div className="flex items-start justify-between font-mono text-[9px] uppercase tracking-[0.2em] sm:text-[0.7vw]">
+      <div className="font-mono text-[9px] uppercase tracking-[0.2em] sm:text-[0.7vw]">
         <span>{card.index}</span>
-        <span className="opacity-50">— vg</span>
       </div>
       <p className="text-xl font-medium leading-[0.9] -tracking-[0.03em] sm:text-[1.9vw]">
         {card.title}.{" "}
@@ -164,10 +234,6 @@ function OfferingsDeck() {
             We bring the internet.
           </span>
         </h1>
-        <div className="mt-4 inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-2 font-mono text-xs sm:mt-[1.5vw]">
-          <span className="text-muted-foreground select-none">$</span>
-          <span>npx vibedgames init</span>
-        </div>
       </div>
 
       <div
@@ -240,9 +306,11 @@ function OfferingsDeck() {
         })}
       </div>
 
-      {/* Mobile: collage layout, tap or hover to activate */}
+      {/* Mobile: collage layout, tap to activate */}
       <div
-        onMouseLeave={() => setActiveIdx(null)}
+        onClick={(e) => {
+          if (e.target === e.currentTarget) setActiveIdx(null);
+        }}
         className="relative mx-auto mt-8 h-[120vh] w-full max-w-sm px-4 sm:hidden"
       >
         {OFFERINGS.map((card, i) => {
@@ -304,7 +372,6 @@ function OfferingsDeck() {
                 initial={{ opacity: 0, y: 20, rotate: 0, scale: 0.9 }}
                 animate={cardTarget}
                 transition={transition}
-                onMouseEnter={() => setActiveIdx(i)}
                 style={wrapperStyle}
                 className={wrapperClass}
               >
@@ -322,7 +389,6 @@ function OfferingsDeck() {
               transition={transition}
               aria-pressed={isActive}
               aria-label={`${card.title}: ${card.desc}`}
-              onMouseEnter={() => setActiveIdx(i)}
               onClick={() => toggle(i)}
               style={wrapperStyle}
               className={wrapperClass}
@@ -349,6 +415,7 @@ function BuildPage() {
   return (
     <main>
       <OfferingsDeck />
+      <InstallPrompt />
     </main>
   );
 }
