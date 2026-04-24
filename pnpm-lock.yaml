@@ -119,6 +119,9 @@ importers:
       consola:
         specifier: ^3.4.2
         version: 3.4.2
+      cross-spawn:
+        specifier: ^7.0.6
+        version: 7.0.6
       superjson:
         specifier: 'catalog:'
         version: 2.2.6
@@ -135,6 +138,9 @@ importers:
       '@trpc/server':
         specifier: 'catalog:'
         version: 11.16.0(typescript@6.0.2)
+      '@types/cross-spawn':
+        specifier: ^6.0.6
+        version: 6.0.6
       '@types/node':
         specifier: 'catalog:'
         version: 25.5.2
@@ -3570,6 +3576,9 @@ packages:
 
   '@types/babel__traverse@7.28.0':
     resolution: {integrity: sha512-8PvcXf70gTDZBgt9ptxJ8elBeBjcLOAcOtoO/mPJjtji1+CdGbHgm77om1GrsPxsiE+uXIpNSK64UYaIwQXd4Q==}
+
+  '@types/cross-spawn@6.0.6':
+    resolution: {integrity: sha512-fXRhhUkG4H3TQk5dBhQ7m/JDdSNHKwR2BBia62lhwEIq9xGiQKLxd6LymNhn47SjXhsUEPmxi+PKw2OkW4LLjA==}
 
   '@types/draco3d@1.4.10':
     resolution: {integrity: sha512-AX22jp8Y7wwaBgAixaSvkoG4M/+PlAcm3Qs4OW8yT9DM4xUpWKeFhLueTAyZF39pviAdcDdeJoACapiAceqNcw==}
@@ -10467,6 +10476,10 @@ snapshots:
     dependencies:
       '@babel/types': 7.29.0
     optional: true
+
+  '@types/cross-spawn@6.0.6':
+    dependencies:
+      '@types/node': 25.5.2
 
   '@types/draco3d@1.4.10': {}
 

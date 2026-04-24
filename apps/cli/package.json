@@ -19,6 +19,7 @@
     "@trpc/client": "catalog:",
     "citty": "^0.1.6",
     "consola": "^3.4.2",
+    "cross-spawn": "^7.0.6",
     "superjson": "catalog:"
   },
   "devDependencies": {
@@ -26,6 +27,7 @@
     "@kyh/tsconfig": "catalog:",
     "@repo/api": "workspace:^",
     "@trpc/server": "catalog:",
+    "@types/cross-spawn": "^6.0.6",
     "@types/node": "catalog:",
     "typescript": "catalog:"
   }

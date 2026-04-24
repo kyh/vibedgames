@@ -1,40 +1,32 @@
-import { spawn } from "node:child_process";
-
 import { defineCommand } from "citty";
 import consola from "consola";
+import spawn from "cross-spawn";
 
 const REPO = "kyh/vibedgames";
 const PKG = "vibedgames";
 const DEFAULT_AGENTS = "claude-code,cursor,codex";
 const description = "Install vibedgames skills into your project";
 
-const platformBin = (name: string) =>
-  process.platform === "win32" ? `${name}.cmd` : name;
+type RunResult = { code: number; output: string };
 
-const run = (cmd: string, args: string[]) =>
-  new Promise<number>((resolve, reject) => {
-    const child = spawn(cmd, args, { stdio: "inherit" });
-    child.on("exit", (c) => resolve(c ?? 1));
+const run = (cmd: string, args: string[]): Promise<RunResult> =>
+  new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    const child = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"] });
+    child.stdout?.on("data", (c: Buffer) => chunks.push(c));
+    child.stderr?.on("data", (c: Buffer) => chunks.push(c));
     child.on("error", reject);
+    child.on("exit", (code) =>
+      resolve({ code: code ?? 1, output: Buffer.concat(chunks).toString("utf8") }),
+    );
   });
 
-const installSkills = async (agents: string[], global: boolean, yes: boolean) => {
+const skillsArgs = (agents: string[], global: boolean, yes: boolean) => {
   const args = ["-y", "skills", "add", REPO];
   for (const agent of agents) args.push("-a", agent);
   if (global) args.push("-g");
   if (yes) args.push("-y");
-
-  const code = await run(platformBin("npx"), args);
-  if (code !== 0) throw new Error(`skills exited with code ${code}`);
-};
-
-const installGlobalCli = async () => {
-  const code = await run(platformBin("npm"), ["install", "-g", PKG]);
-  if (code !== 0) {
-    consola.warn(
-      `Couldn't install the vg CLI globally (npm exit ${code}). Install manually: npm install -g ${PKG}`,
-    );
-  }
+  return args;
 };
 
 export const initCommand = defineCommand({
@@ -65,8 +57,28 @@ export const initCommand = defineCommand({
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
-    await installSkills(agents, args.global, args.yes);
-    await installGlobalCli();
+
+    consola.start("Installing skills and the vg CLI globally...");
+
+    const [skills, cli] = await Promise.all([
+      run("npx", skillsArgs(agents, args.global, args.yes)),
+      run("npm", ["install", "-g", PKG]),
+    ]);
+
+    if (skills.code !== 0) {
+      if (skills.output.trim()) consola.error(skills.output.trim());
+      throw new Error(`skills exited with code ${skills.code}`);
+    }
+    consola.success(`Installed vibedgames skills for ${agents.join(", ")}`);
+
+    if (cli.code !== 0) {
+      if (cli.output.trim()) consola.warn(cli.output.trim());
+      consola.warn(
+        `Couldn't install the vg CLI globally (npm exit ${cli.code}). Install manually: npm install -g ${PKG}`,
+      );
+      return;
+    }
+    consola.success("Installed vg CLI globally");
   },
 });
 
