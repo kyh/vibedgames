@@ -13,7 +13,32 @@ The game directory must contain an `index.html` at the root. Typically this is t
 
 ## Deploy flow
 
-### 1. Build the game (if needed)
+### 1. Make sure the user is logged in
+
+Always check auth before building or deploying. `whoami` exits non-zero
+when unauthenticated:
+
+```sh
+npx vibedgames whoami
+```
+
+If it prints `Not logged in` (or similar) or exits with an error, run
+login *before* anything else:
+
+```sh
+npx vibedgames login
+```
+
+This auto-opens the user's browser to a device-code confirmation page
+and prints an 8-character code in the terminal. Tell the user:
+"I opened a browser — confirm code `XXXXXXXX`." Wait for the CLI to
+print `Logged in successfully` before continuing. If the browser
+didn't open (remote shell, headless env), read the URL from the CLI
+output and give it to the user to open manually.
+
+Only skip this step if `whoami` succeeded with a `name (email)` line.
+
+### 2. Build the game (if needed)
 
 If the project has a build step, run it first:
 
@@ -24,7 +49,7 @@ npm run build
 
 The build output directory (usually `dist/`) is what gets deployed.
 
-### 2. Deploy
+### 3. Deploy
 
 ```sh
 npx vibedgames deploy ./dist --slug my-game
@@ -33,20 +58,13 @@ npx vibedgames deploy ./dist --slug my-game
 - `./dist` — the directory containing `index.html` and all assets
 - `--slug my-game` — the subdomain name (lowercase, hyphens allowed). The game will be live at `https://my-game.vibedgames.com`
 
-If the user hasn't logged in yet:
-
-```sh
-npx vibedgames login
-```
-
-This opens a browser for authentication, then saves the token locally.
-
-### 3. Verify
+### 4. Verify
 
 After deploy, the CLI prints the live URL. Open it to verify.
 
 ## Rules
 
+- **Check auth first** with `npx vibedgames whoami`; run `npx vibedgames login` if not authenticated
 - **Always build before deploying** if the project uses a build tool
 - **Deploy the build output**, not the source directory (e.g. `dist/`, `build/`, `out/`)
 - **Slug must be lowercase** with hyphens, 3-40 characters (e.g. `space-invaders`, `my-cool-game`)
