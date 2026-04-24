@@ -1,86 +1,56 @@
 # Install vibedgames
 
-You are Claude Code helping a user install **vibedgames** — a platform for
-deploying browser games to `{slug}.vibedgames.com` with built-in multiplayer.
+You are an AI coding agent. The user wants to install **vibedgames** — a
+platform for deploying browser games to `{slug}.vibedgames.com` with built-in
+multiplayer. Execute the steps below in order.
 
-Follow these steps in order. Tell the user what you're doing at each step and
-ask for confirmation before running commands that modify their system.
-
-## 1. Add the plugin marketplace
-
-Run this slash command:
+## 1. Install skills into the project
 
 ```
-/plugin marketplace add kyh/vibedgames
+npx vibedgames init
 ```
 
-This registers the vibedgames marketplace, which contains these plugins:
+This downloads the vibedgames skills bundle and installs it in the current
+project. Today the CLI writes skills to `.claude/skills/` (Claude Code
+format); support for Cursor, Windsurf, Codex, Copilot, and generic
+`AGENTS.md` is in progress. If you're not Claude Code, run the command
+anyway — it'll still give the user the skills on disk, and future versions
+will write native files for your agent too.
 
-- `game-engines` — Phaser 3, Three.js, Capacitor (iOS)
-- `game-art` — Retro Diffusion pixel art, Aseprite, asset pipeline
-- `game-features` — real-time multiplayer, co-op, PvP
-- `media` — fal.ai, OpenAI GPT Image, Sora, ElevenLabs
-- `tooling` — deploy, frontend testing, skill authoring
+If the user already has `vg` installed globally (`npm i -g vibedgames`),
+`vg init` works the same.
 
-## 2. Install the plugins
-
-Ask the user which ones they want. If they say "all" or don't specify, install
-all five:
-
-```
-/plugin install game-engines@vibedgames
-/plugin install game-art@vibedgames
-/plugin install game-features@vibedgames
-/plugin install media@vibedgames
-/plugin install tooling@vibedgames
-```
-
-If they only want the essentials to ship a game, install `game-engines` and
-`tooling`.
-
-## 3. Install the CLI
-
-Run:
+## 2. Authenticate
 
 ```
-npm install -g vibedgames
+npx vibedgames login
 ```
 
-The binary is `vg`. Verify it installed with `vg --version`.
+Device-code flow: the CLI prints an 8-character code and a URL. Ask the
+user to open the URL and confirm the code. The CLI polls and stores the
+token once confirmed.
 
-## 4. Authenticate
+Verify with `npx vibedgames whoami`.
 
-Run:
+## 3. You're done
 
-```
-vg login
-```
+Tell the user they can now:
 
-This starts a device-code flow:
+- `npx vibedgames init <name>` — scaffold a new game (wip; today `init`
+  only installs skills — pass a directory arg to install into that dir).
+- `npx vibedgames deploy` — deploy the current game to
+  `{slug}.vibedgames.com`.
+- Ask you (the agent) things like *"add multiplayer"*, *"generate pixel
+  art for the player"*, or *"deploy this"* — the skills installed in step
+  1 tell you how.
 
-1. The CLI prints an 8-character code and a URL.
-2. Open the URL in the user's browser and have them confirm the code.
-3. The CLI polls and stores the token once confirmed.
+Docs: https://vibedgames.com
 
-Verify with `vg whoami`.
+## Notes for the agent
 
-## 5. Confirm install
-
-Tell the user they're ready. Share these next steps:
-
-- `vg init <name>` — scaffold a new game in the current directory
-- `vg deploy` — deploy the current game to `{slug}.vibedgames.com`
-- In any game repo, ask Claude things like "add multiplayer", "generate pixel
-  art for the player sprite", or "deploy this" — the installed plugins will
-  handle it.
-
-Docs and discovery: https://vibedgames.com
-
-## Troubleshooting
-
-- If `/plugin marketplace add` prompts for confirmation, that's expected — the
-  user should approve it.
-- If `npm install -g vibedgames` fails with EACCES, suggest `sudo` or a Node
-  version manager (nvm, volta, fnm).
-- If `vg login` hangs, the user probably hasn't confirmed the code in their
-  browser yet — wait or re-run.
+- `vibedgames` is the npm package; the binary is `vg`.
+- Don't try to install Claude Code plugins or marketplaces — everything
+  needed lives in the CLI and the skills it writes. Ignore any older
+  instructions that mention `/plugin marketplace add`.
+- If `npx` fails with permissions, suggest `npm i -g vibedgames` plus a
+  Node version manager (nvm, volta, fnm).
