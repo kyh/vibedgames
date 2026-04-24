@@ -7,7 +7,7 @@ built-in multiplayer. Execute the steps below.
 ## 1. Install skills
 
 ```
-npx skills add kyh/vibedgames --agent <your-agent> --yes
+npx vibedgames init --agent <your-agent> --yes
 ```
 
 Replace `<your-agent>` with the value matching you:
@@ -16,13 +16,14 @@ Replace `<your-agent>` with the value matching you:
 - Cursor → `cursor`
 - Codex (OpenAI) → `codex`
 
-If you're a different agent or unsure, run
-`npx skills add kyh/vibedgames --yes` — it supports 45+ agents and will
-pick a sensible default based on what's configured in the project.
+If you're a different agent or unsure, run `npx vibedgames init --yes`
+and let it pick interactively. The init command supports 45+ coding
+agents.
 
-This uses [vercel-labs/skills](https://github.com/vercel-labs/skills) to
-copy the skills to a canonical `./.agents/skills/` dir and symlink them
-into your agent's skills dir (e.g. `.claude/skills/`, `.cursor/skills/`,
+Under the hood, `vibedgames init` delegates to
+[vercel-labs/skills](https://github.com/vercel-labs/skills): it copies
+the skills to `./.agents/skills/` and symlinks them into your agent's
+skills dir (e.g. `.claude/skills/`, `.cursor/skills/`,
 `.codex/skills/`). Windows without symlink support falls back to copies
 automatically.
 
@@ -54,8 +55,8 @@ Docs: https://vibedgames.com
 
 ## Notes
 
-- The `skills` CLI is published by Vercel Labs; `vibedgames` is our own
-  CLI on npm (binary `vg`). You need both: `skills` to install the
-  rules/skills on disk, `vibedgames` to deploy and auth.
-- Older docs may mention `vg init` or Claude-Code-specific `/plugin`
-  commands — ignore those, they're superseded by the flow above.
+- `vibedgames` is our CLI on npm (binary `vg`). `npx vibedgames init`
+  and `vg init` are the same command. It wraps `npx skills add
+  kyh/vibedgames` from Vercel Labs.
+- Older docs may mention Claude-Code-specific `/plugin` commands —
+  ignore those, they're superseded by the flow above.
