@@ -19,14 +19,14 @@ Always check auth before building or deploying. `whoami` exits non-zero
 when unauthenticated:
 
 ```sh
-npx vibedgames whoami
+vg whoami
 ```
 
 If it prints `Not logged in` (or similar) or exits with an error, run
 login *before* anything else:
 
 ```sh
-npx vibedgames login
+vg login
 ```
 
 This auto-opens the user's browser to a device-code confirmation page
@@ -52,7 +52,7 @@ The build output directory (usually `dist/`) is what gets deployed.
 ### 3. Deploy
 
 ```sh
-npx vibedgames deploy ./dist --slug my-game
+vg deploy ./dist --slug my-game
 ```
 
 - `./dist` — the directory containing `index.html` and all assets
@@ -64,7 +64,7 @@ After deploy, the CLI prints the live URL. Open it to verify.
 
 ## Rules
 
-- **Check auth first** with `npx vibedgames whoami`; run `npx vibedgames login` if not authenticated
+- **Check auth first** with `vg whoami`; run `vg login` if not authenticated
 - **Always build before deploying** if the project uses a build tool
 - **Deploy the build output**, not the source directory (e.g. `dist/`, `build/`, `out/`)
 - **Slug must be lowercase** with hyphens, 3-40 characters (e.g. `space-invaders`, `my-cool-game`)
@@ -84,11 +84,11 @@ Create `vibedgames.json` in the project root to skip the `--slug` flag:
 }
 ```
 
-Then just: `npx vibedgames deploy ./dist`
+Then just: `vg deploy ./dist`
 
 ## Troubleshooting
 
-- **"Not logged in"** → Run `npx vibedgames login` first
+- **"Not logged in"** → Run `vg login` first
 - **"No index.html"** → You're deploying the wrong directory. Use the build output.
 - **"Slug taken"** → Someone else owns that slug. Pick a different one.
 - **Build fails** → Fix build errors before deploying. Check for missing dependencies.
