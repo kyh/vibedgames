@@ -32,4 +32,4 @@ game"*. The `deploy` skill will prompt the user to authenticate
 (`vg login`, device-code flow) the first time they ship something — no
 need to log in now.
 
-Docs: https://vibedgames.com
+Docs: https://vibedgames.com/docs
