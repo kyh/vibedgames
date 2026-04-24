@@ -18,8 +18,12 @@ One command does two things:
    live once in `./.agents/skills/` and are symlinked into
    `.claude/skills/`, `.cursor/skills/`, and `.codex/skills/`. Windows
    without symlink support falls back to copies.
-2. Globally installs the `vibedgames` npm package, so `vg` is on PATH
-   for subsequent commands (`vg deploy`, `vg login`, `vg whoami`).
+2. Tries to globally install the `vibedgames` npm package so `vg` is on
+   PATH for subsequent commands (`vg deploy`, `vg login`, `vg whoami`).
+   This step can fail on systems where global `npm install` needs sudo
+   — init will warn but won't abort. If `vg` isn't on PATH afterward,
+   fall back to `npx vibedgames <cmd>` or tell the user to run
+   `npm install -g vibedgames` (or `sudo npm install -g vibedgames`).
 
 If you're a different agent, pass `--agent <name>` (supports 45+ agents
 — see vercel-labs/skills).
