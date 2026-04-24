@@ -165,7 +165,9 @@ function update() {
 ## Deploy
 
 ```sh
-npx vibedgames deploy ./dist --slug my-game
+vg deploy ./dist --slug my-game
 ```
+
+If `vg` isn't on PATH, substitute `npx vibedgames deploy` — works identically.
 
 Live at `https://my-game.vibedgames.com` — party server is shared infrastructure.

@@ -19,16 +19,16 @@
     "@trpc/client": "catalog:",
     "citty": "^0.1.6",
     "consola": "^3.4.2",
-    "superjson": "catalog:",
-    "tar-stream": "^3.1.8"
+    "cross-spawn": "^7.0.6",
+    "superjson": "catalog:"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",
     "@kyh/tsconfig": "catalog:",
     "@repo/api": "workspace:^",
     "@trpc/server": "catalog:",
+    "@types/cross-spawn": "^6.0.6",
     "@types/node": "catalog:",
-    "@types/tar-stream": "^3.1.4",
     "typescript": "catalog:"
   }
 }

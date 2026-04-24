@@ -166,7 +166,7 @@ function OfferingsDeck() {
         </h1>
         <div className="mt-4 inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-2 font-mono text-xs sm:mt-[1.5vw]">
           <span className="text-muted-foreground select-none">$</span>
-          <span>npx vibedgames skills</span>
+          <span>npx vibedgames init</span>
         </div>
       </div>
 

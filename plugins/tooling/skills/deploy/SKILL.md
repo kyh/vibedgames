@@ -7,13 +7,42 @@ description: "Deploy browser games to vibedgames. Use when the user wants to dep
 
 Deploy static browser games to `{slug}.vibedgames.com` using the vibedgames CLI.
 
+> **`vg` not on PATH?** The global install from `vibedgames init` is
+> best-effort. If any `vg <cmd>` below fails with "command not found",
+> substitute `npx vibedgames <cmd>` — it works identically.
+
 ## Prerequisites
 
 The game directory must contain an `index.html` at the root. Typically this is the `dist/` output from a build tool (Vite, webpack, etc.).
 
 ## Deploy flow
 
-### 1. Build the game (if needed)
+### 1. Make sure the user is logged in
+
+Always check auth before building or deploying. `whoami` exits non-zero
+when unauthenticated:
+
+```sh
+vg whoami
+```
+
+If it prints `Not logged in` (or similar) or exits with an error, run
+login *before* anything else:
+
+```sh
+vg login
+```
+
+This auto-opens the user's browser to a device-code confirmation page
+and prints an 8-character code in the terminal. Tell the user:
+"I opened a browser — confirm code `XXXXXXXX`." Wait for the CLI to
+print `Logged in successfully` before continuing. If the browser
+didn't open (remote shell, headless env), read the URL from the CLI
+output and give it to the user to open manually.
+
+Only skip this step if `whoami` succeeded with a `name (email)` line.
+
+### 2. Build the game (if needed)
 
 If the project has a build step, run it first:
 
@@ -24,24 +53,16 @@ npm run build
 
 The build output directory (usually `dist/`) is what gets deployed.
 
-### 2. Deploy
+### 3. Deploy
 
 ```sh
-npx vibedgames deploy ./dist --slug my-game
+vg deploy ./dist --slug my-game
 ```
 
 - `./dist` — the directory containing `index.html` and all assets
 - `--slug my-game` — the subdomain name (lowercase, hyphens allowed). The game will be live at `https://my-game.vibedgames.com`
 
-If the user hasn't logged in yet:
-
-```sh
-npx vibedgames login
-```
-
-This opens a browser for authentication, then saves the token locally.
-
-### 3. Verify
+### 4. Verify
 
 After deploy, the CLI prints the live URL. Open it to verify.
 
@@ -66,11 +87,11 @@ Create `vibedgames.json` in the project root to skip the `--slug` flag:
 }
 ```
 
-Then just: `npx vibedgames deploy ./dist`
+Then just: `vg deploy ./dist`
 
 ## Troubleshooting
 
-- **"Not logged in"** → Run `npx vibedgames login` first
+- **"Not logged in"** → Run `vg login` first
 - **"No index.html"** → You're deploying the wrong directory. Use the build output.
 - **"Slug taken"** → Someone else owns that slug. Pick a different one.
 - **Build fails** → Fix build errors before deploying. Check for missing dependencies.
