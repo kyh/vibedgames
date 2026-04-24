@@ -16,10 +16,11 @@ export const installSkills = async (opts: InstallSkillsOptions) => {
   if (opts.global) args.push("-g");
   if (opts.yes) args.push("-y");
 
-  consola.start(`Running: npx ${args.join(" ")}`);
+  const npx = process.platform === "win32" ? "npx.cmd" : "npx";
+  consola.start(`Running: ${npx} ${args.join(" ")}`);
 
   const code = await new Promise<number>((resolve, reject) => {
-    const child = spawn("npx", args, { stdio: "inherit" });
+    const child = spawn(npx, args, { stdio: "inherit" });
     child.on("exit", (c) => resolve(c ?? 1));
     child.on("error", reject);
   });
