@@ -18,7 +18,7 @@ const run = (cmd: string, args: string[]): Promise<RunResult> =>
     child.on("error", (err) =>
       resolve({ code: 1, output: `${err.message}\n` }),
     );
-    child.on("exit", (code) =>
+    child.on("close", (code) =>
       resolve({ code: code ?? 1, output: Buffer.concat(chunks).toString("utf8") }),
     );
   });
