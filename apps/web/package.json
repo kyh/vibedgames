@@ -5,9 +5,8 @@
   "sideEffects": false,
   "type": "module",
   "scripts": {
-    "dev": "pnpm sync-install && pnpm with-env vite dev",
-    "build": "pnpm sync-install && vite build",
-    "sync-install": "node scripts/sync-install.mjs",
+    "dev": "pnpm with-env vite dev",
+    "build": "vite build",
     "start": "vite preview",
     "clean": "rm -rf .cache .turbo .tanstack .wrangler dist node_modules",
     "deploy": "vite build && wrangler deploy",
