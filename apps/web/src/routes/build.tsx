@@ -28,7 +28,16 @@ function InstallPrompt() {
 
   return (
     <header className="fixed inset-x-0 bottom-16 z-10 flex max-h-full flex-col px-4 md:right-auto md:w-96">
-      <div className="text-muted-foreground mb-2 flex items-center gap-2 text-xs">
+      <motion.div
+        transition={{ type: "spring", bounce: 0.1 }}
+        initial={{ opacity: 0, filter: "blur(5px)" }}
+        animate={{
+          opacity: 1,
+          filter: "blur(0px)",
+          transition: { delay: 0.05 },
+        }}
+        className="text-muted-foreground mb-2 flex items-center gap-2 text-xs"
+      >
         <span>Just tell your llm</span>
         <span className="flex items-center gap-1.5">
           <svg
@@ -60,7 +69,7 @@ function InstallPrompt() {
             <path d="M22.106 5.68L12.5.135a.998.998 0 00-.998 0L1.893 5.68a.84.84 0 00-.419.726v11.186c0 .3.16.577.42.727l9.607 5.547a.999.999 0 00.998 0l9.608-5.547a.84.84 0 00.42-.727V6.407a.84.84 0 00-.42-.726zm-.603 1.176L12.228 22.92c-.063.108-.228.064-.228-.061V12.34a.59.59 0 00-.295-.51l-9.11-5.26c-.107-.062-.063-.228.062-.228h18.55c.264 0 .428.286.296.514z" />
           </svg>
         </span>
-      </div>
+      </motion.div>
       <div className="relative pb-4">
         <motion.div className="bg-input/40 absolute inset-0 mb-4 rounded-md backdrop-blur-sm" />
         <motion.div
@@ -276,7 +285,16 @@ function OfferingsDeck() {
       ref={sectionRef}
       className="relative flex flex-col items-center justify-center overflow-x-clip pb-40 sm:h-dvh sm:overflow-hidden sm:pb-0"
     >
-      <div className="self-start px-6 pt-8 sm:absolute sm:left-[25px] sm:top-[25px] sm:z-10 sm:max-w-4xl sm:px-0 sm:pt-0">
+      <motion.div
+        transition={{ type: "spring", bounce: 0.1 }}
+        initial={{ opacity: 0, filter: "blur(5px)" }}
+        animate={{
+          opacity: 1,
+          filter: "blur(0px)",
+          transition: { delay: 0.05 },
+        }}
+        className="self-start px-6 pt-8 sm:absolute sm:left-[25px] sm:top-[25px] sm:z-10 sm:max-w-4xl sm:px-0 sm:pt-0"
+      >
         <h1 className="text-3xl font-medium leading-[0.9] -tracking-[0.03em] sm:text-5xl">
           You bring the ideas.
           <br />
@@ -284,7 +302,7 @@ function OfferingsDeck() {
             We bring the game studio.
           </span>
         </h1>
-      </div>
+      </motion.div>
 
       <div
         ref={containerRef}

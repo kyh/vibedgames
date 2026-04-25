@@ -36,7 +36,7 @@ export const Nav = () => {
     <nav className="fixed bottom-0 left-0 z-10 flex gap-2 px-4 py-6 font-mono text-xs">
       <NavTab to="/discover" label="Discover" active={pathname === "/discover"} search={search} />
       <NavTab to="/" label="Play" active={pathname === "/"} search={search} />
-      <NavTab to="/build" label="Build" active={pathname === "/build"} search={search} />
+      <NavTab to="/build" label="Build" active={pathname === "/build"} search={{}} />
     </nav>
   );
 };
