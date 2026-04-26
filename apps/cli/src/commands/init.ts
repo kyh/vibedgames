@@ -5,7 +5,7 @@ import spawn from "cross-spawn";
 const REPO = "kyh/vibedgames";
 const PKG = "vibedgames";
 const DEFAULT_AGENTS = "claude-code,cursor,codex";
-const description = "Install vibedgames skills into your project";
+const description = "Install/update vibedgames skills and the vg CLI";
 
 type RunResult = { code: number; output: string };
 
@@ -23,9 +23,16 @@ const run = (cmd: string, args: string[]): Promise<RunResult> =>
     );
   });
 
-const skillsArgs = (agents: string[], global: boolean, yes: boolean) => {
+const skillsAddArgs = (agents: string[], global: boolean, yes: boolean) => {
   const args = ["-y", "skills", "add", REPO];
   for (const agent of agents) args.push("-a", agent);
+  if (global) args.push("-g");
+  if (yes) args.push("-y");
+  return args;
+};
+
+const skillsUpdateArgs = (global: boolean, yes: boolean) => {
+  const args = ["-y", "skills", "update"];
   if (global) args.push("-g");
   if (yes) args.push("-y");
   return args;
@@ -60,18 +67,28 @@ export const initCommand = defineCommand({
       .map((s) => s.trim())
       .filter(Boolean);
 
-    consola.start("Installing skills and the vg CLI globally...");
+    consola.start("Installing/updating vibedgames skills and the vg CLI...");
 
-    const [skills, cli] = await Promise.all([
-      run("npx", skillsArgs(agents, args.global, args.yes)),
+    const [add, cli] = await Promise.all([
+      run("npx", skillsAddArgs(agents, args.global, args.yes)),
       run("npm", ["install", "-g", PKG]),
     ]);
 
-    if (skills.code !== 0) {
-      if (skills.output.trim()) consola.error(skills.output.trim());
-      throw new Error(`skills exited with code ${skills.code}`);
+    if (add.code !== 0) {
+      if (add.output.trim()) consola.error(add.output.trim());
+      throw new Error(`skills add exited with code ${add.code}`);
     }
     consola.success(`Installed vibedgames skills for ${agents.join(", ")}`);
+
+    const update = await run("npx", skillsUpdateArgs(args.global, args.yes));
+    if (update.code !== 0) {
+      if (update.output.trim()) consola.warn(update.output.trim());
+      consola.warn(
+        `'skills update' exited with code ${update.code}. Skills were just installed via 'add', so they should already be current.`,
+      );
+    } else {
+      consola.success("Refreshed installed skills to latest");
+    }
 
     if (cli.code !== 0) {
       if (cli.output.trim()) consola.warn(cli.output.trim());
@@ -80,7 +97,7 @@ export const initCommand = defineCommand({
       );
       return;
     }
-    consola.success("Installed vg CLI globally");
+    consola.success("Installed/updated vg CLI globally");
   },
 });
 
