@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { defineCommand } from "citty";
 import consola from "consola";
 import spawn from "cross-spawn";
@@ -5,7 +7,12 @@ import spawn from "cross-spawn";
 const REPO = "kyh/vibedgames";
 const PKG = "vibedgames";
 const DEFAULT_AGENTS = "claude-code,cursor,codex";
-const description = "Install vibedgames skills into your project";
+const description =
+  "Install vibedgames skills (and update the vg CLI + skills if outdated)";
+
+const pkg = JSON.parse(
+  readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
+) as { version: string };
 
 type RunResult = { code: number; output: string };
 
@@ -23,9 +30,23 @@ const run = (cmd: string, args: string[]): Promise<RunResult> =>
     );
   });
 
-const skillsArgs = (agents: string[], global: boolean, yes: boolean) => {
+const fetchLatestVersion = async (): Promise<string | null> => {
+  const result = await run("npm", ["view", PKG, "version"]);
+  if (result.code !== 0) return null;
+  const v = result.output.trim();
+  return v.length > 0 ? v : null;
+};
+
+const skillsAddArgs = (agents: string[], global: boolean, yes: boolean) => {
   const args = ["-y", "skills", "add", REPO];
   for (const agent of agents) args.push("-a", agent);
+  if (global) args.push("-g");
+  if (yes) args.push("-y");
+  return args;
+};
+
+const skillsUpdateArgs = (global: boolean, yes: boolean) => {
+  const args = ["-y", "skills", "update"];
   if (global) args.push("-g");
   if (yes) args.push("-y");
   return args;
@@ -60,27 +81,57 @@ export const initCommand = defineCommand({
       .map((s) => s.trim())
       .filter(Boolean);
 
-    consola.start("Installing skills and the vg CLI globally...");
+    consola.start(
+      `Installing vibedgames skills (vg ${pkg.version}) and checking for updates...`,
+    );
 
-    const [skills, cli] = await Promise.all([
-      run("npx", skillsArgs(agents, args.global, args.yes)),
-      run("npm", ["install", "-g", PKG]),
-    ]);
+    const latest = await fetchLatestVersion();
+    const cliNeedsUpdate = latest !== null && latest !== pkg.version;
 
-    if (skills.code !== 0) {
-      if (skills.output.trim()) consola.error(skills.output.trim());
-      throw new Error(`skills exited with code ${skills.code}`);
+    const addPromise = run("npx", skillsAddArgs(agents, args.global, args.yes));
+    const cliPromise = cliNeedsUpdate
+      ? run("npm", ["install", "-g", `${PKG}@latest`])
+      : null;
+    const [add, cli] = await Promise.all([addPromise, cliPromise]);
+
+    if (add.code !== 0) {
+      if (add.output.trim()) consola.error(add.output.trim());
+      throw new Error(`skills add exited with code ${add.code}`);
     }
     consola.success(`Installed vibedgames skills for ${agents.join(", ")}`);
 
-    if (cli.code !== 0) {
-      if (cli.output.trim()) consola.warn(cli.output.trim());
+    const update = await run(
+      "npx",
+      skillsUpdateArgs(args.global, args.yes),
+    );
+    if (update.code !== 0) {
+      if (update.output.trim()) consola.warn(update.output.trim());
       consola.warn(
-        `Couldn't install the vg CLI globally (npm exit ${cli.code}). Install manually: npm install -g ${PKG}`,
+        `'skills update' exited with code ${update.code}. Skills were just installed via 'add', so they should already be current.`,
+      );
+    } else {
+      consola.success("Refreshed installed skills to latest");
+    }
+
+    if (!cliNeedsUpdate) {
+      if (latest === null) {
+        consola.warn(
+          `Could not determine the latest vg CLI version on npm. You're on ${pkg.version}.`,
+        );
+      } else {
+        consola.success(`vg CLI is already on the latest version (${pkg.version})`);
+      }
+      return;
+    }
+
+    if (!cli || cli.code !== 0) {
+      if (cli?.output.trim()) consola.warn(cli.output.trim());
+      consola.warn(
+        `Couldn't update the vg CLI globally (npm exit ${cli?.code ?? "?"}). Update manually: npm install -g ${PKG}@latest`,
       );
       return;
     }
-    consola.success("Installed vg CLI globally");
+    consola.success(`Updated vg CLI from ${pkg.version} to ${latest}`);
   },
 });
 
