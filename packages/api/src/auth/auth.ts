@@ -1,10 +1,13 @@
 import type { Db } from "@repo/db/drizzle-client";
 import { expo } from "@better-auth/expo";
+import { eq } from "@repo/db";
+import { user as userTable } from "@repo/db/drizzle-schema-auth";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { APIError } from "better-auth/api";
 import { admin, bearer, oAuthProxy } from "better-auth/plugins";
 
-import { claimInviteCode } from "./invite-claim";
+import { tryClaimInviteCode, validateInviteCode } from "./invite-claim";
 
 export type AuthOptions = {
   db: Db;
@@ -50,12 +53,30 @@ export const createAuth = (opts: AuthOptions) => {
           // early preview. Only enforced on the public email sign-up path —
           // admin-initiated user creation (`/admin/create-user`) is exempt
           // so admins can mint accounts without burning a code.
+          //
+          // We split the work so a downstream failure (e.g. duplicate
+          // email) doesn't burn a single-use code:
+          //   before — read-only validation, stamp the code on the user row
+          //   after  — atomic claim; if we lose a concurrent race, delete
+          //            the just-created user and surface a 409
           before: async (user, ctx) => {
             if (ctx?.path !== "/sign-up/email") {
               return { data: user };
             }
-            const code = await claimInviteCode(db, ctx.body?.inviteCode);
+            const code = await validateInviteCode(db, ctx.body?.inviteCode);
             return { data: { ...user, invitedByCode: code } };
+          },
+          after: async (user, ctx) => {
+            if (ctx?.path !== "/sign-up/email") return;
+            const code = (user as { invitedByCode?: string }).invitedByCode;
+            if (!code) return;
+            const claimed = await tryClaimInviteCode(db, code);
+            if (!claimed) {
+              await db.delete(userTable).where(eq(userTable.id, user.id));
+              throw new APIError("CONFLICT", {
+                message: "Invite code was just claimed by someone else.",
+              });
+            }
           },
         },
       },
