@@ -1,6 +1,6 @@
 {
   "name": "@vibedgames/multiplayer",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Multiplayer for browser games — framework-agnostic core + React hooks",
   "private": false,
   "type": "module",
