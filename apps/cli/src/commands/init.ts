@@ -84,7 +84,3 @@ export const initCommand = defineCommand({
   },
 });
 
-export const skillsInstallCommand = defineCommand({
-  ...initCommand,
-  meta: { name: "install", description },
-});

@@ -7,7 +7,6 @@ import { deployCommand } from "./commands/deploy.js";
 import { initCommand } from "./commands/init.js";
 import { loginCommand } from "./commands/login.js";
 import { logoutCommand } from "./commands/logout.js";
-import { skillsCommand } from "./commands/skills.js";
 import { whoamiCommand } from "./commands/whoami.js";
 
 const pkg = JSON.parse(
@@ -25,7 +24,6 @@ const main = defineCommand({
     login: loginCommand,
     logout: logoutCommand,
     deploy: deployCommand,
-    skills: skillsCommand,
     whoami: whoamiCommand,
   },
 });
