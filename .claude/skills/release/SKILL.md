@@ -83,7 +83,7 @@ pnpm publish --access public --no-git-checks
 
 `npm view <pkg> dist-tags` — confirm `latest` matches the new version. Registry can lag a few seconds; retry once after `sleep 5` if needed before flagging.
 
-### 7. Commit + tag
+### 7. Commit, tag, push
 
 Single commit covering all bumps + changelogs:
 ```
@@ -93,7 +93,13 @@ Stage the changed `package.json` and `CHANGELOG.md` files only. Then create one 
 ```
 git tag -a '<pkg-name>@<version>' -m '<pkg-name>@<version>'
 ```
-For `@vibedgames/multiplayer` this means a tag literally named `@vibedgames/multiplayer@0.0.3` — git accepts `@` in tag names. Do not push commits or tags.
+For `@vibedgames/multiplayer` this means a tag literally named `@vibedgames/multiplayer@0.0.3` — git accepts `@` in tag names.
+
+Then push commit + tags together:
+```
+git push --follow-tags origin <current-branch>
+```
+If on `main`, this triggers the GitHub Actions deploy — fine, since releases are intentional shipping events. Mention it in the report so the user knows to check Actions.
 
 ### 8. Report
 
@@ -103,15 +109,15 @@ Released:
   vibedgames@X.Y.Z          (tag: vibedgames@X.Y.Z)
   @vibedgames/multiplayer@X.Y.Z (tag: @vibedgames/multiplayer@X.Y.Z)
 Skipped (no changes): <pkg> (since <last-tag>)
-Commit: <sha>
-Push:  git push --follow-tags
+Commit: <sha> (pushed to origin/<branch>)
+Actions: triggered if pushed to main — verify deploy
 ```
-If anything failed, lead with the failure and what state the registry is in (published vs not).
+If anything failed, lead with the failure and what state the registry / git remote is in (published? committed? tagged? pushed?).
 
 ## Rules
 
-- Never run `wrangler deploy` here. This skill is npm-only. Worker deploys go through GitHub Actions on push to main.
-- Never `--force` push or amend prior release commits. If a publish half-succeeds (e.g. one of two packages), commit + tag what shipped, then handle the other separately.
+- Never run `wrangler deploy` here. This skill is npm-only. Worker deploys go through GitHub Actions on push to main (which this skill *will* trigger by pushing — that's fine for a release).
+- Never `--force` push or amend prior release commits. If a publish half-succeeds (e.g. one of two packages), commit + tag + push what shipped, then handle the other separately.
 - If `npm publish` fails with `EPUBLISHCONFLICT` (version already on registry), bump again rather than try to overwrite.
 - Tags must be created **after** successful publish + verify, never before. A tag without a matching registry version is worse than no tag.
 - Skipping is the default for packages with no path-scoped commits since their last tag. Pass `--force` to override.
