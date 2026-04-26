@@ -9,6 +9,7 @@ import { cn } from "@repo/ui/lib/utils";
 import { CompassIcon, RefreshCwIcon } from "lucide-react";
 import { motion } from "motion/react";
 
+import { FadeInBlur } from "@/components/ui/fade-in-blur";
 import { Route } from "@/routes/index";
 import { gameUrl } from "./data";
 
@@ -39,11 +40,7 @@ export const PlayView = () => {
         layoutId="compose-view"
         className="bg-input/40 absolute inset-0 mb-4 rounded-md backdrop-blur-sm"
       />
-      <motion.div
-        transition={{ type: "spring", bounce: 0.1 }}
-        initial={{ opacity: 0, filter: "blur(5px)" }}
-        animate={{ opacity: 1, filter: "blur(0px)", transition: { delay: 0.05 } }}
-      >
+      <FadeInBlur>
         <InputGroup className="text-foreground border-none bg-transparent text-sm">
           <InputGroupAddon>
             <InputGroupButton
@@ -69,7 +66,7 @@ export const PlayView = () => {
             </InputGroupButton>
           </InputGroupAddon>
         </InputGroup>
-      </motion.div>
+      </FadeInBlur>
     </div>
   );
 };

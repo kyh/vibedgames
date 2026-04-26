@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { motion } from "motion/react";
 
+import { FadeInBlur } from "@/components/ui/fade-in-blur";
 import { featuredGames, gameSearchSchema } from "@/components/game/data";
 
 export const Route = createFileRoute("/discover")({
@@ -15,12 +15,7 @@ function DiscoverPage() {
 
   return (
     <header className="fixed bottom-16 left-0 z-10 flex max-h-full max-w-dvw flex-col px-4 md:w-96">
-      <motion.div
-        className="flex gap-4 overflow-auto pb-4 md:flex-col-reverse"
-        transition={{ type: "spring", bounce: 0.1 }}
-        initial={{ opacity: 0, filter: "blur(5px)" }}
-        animate={{ opacity: 1, filter: "blur(0px)", transition: { delay: 0.05 } }}
-      >
+      <FadeInBlur className="flex gap-4 overflow-auto pb-4 md:flex-col-reverse">
         {featuredGames.map((game) => (
           <button
             key={game.slug}
@@ -38,7 +33,7 @@ function DiscoverPage() {
             />
           </button>
         ))}
-      </motion.div>
+      </FadeInBlur>
     </header>
   );
 }
