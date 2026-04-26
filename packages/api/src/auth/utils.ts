@@ -19,6 +19,21 @@ export const slugify = (str: string) => {
   return str;
 };
 
+/**
+ * 8-char alphanumeric code formatted as `XXXX-XXXX`. Avoids `0/O/1/I` to
+ * keep the code unambiguous when read aloud or copied by hand. Used by both
+ * the CLI device-code auth flow and the invite-code system.
+ */
+export const generateShortCode = () => {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = crypto.getRandomValues(new Uint8Array(8));
+  let code = "";
+  for (const b of bytes) {
+    code += chars[b % chars.length];
+  }
+  return `${code.slice(0, 4)}-${code.slice(4)}`;
+};
+
 export type Primitive = string | number | boolean | null;
 
 export type JsonType = Primitive | { [key: PropertyKey]: JsonType } | JsonType[];

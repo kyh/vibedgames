@@ -3,25 +3,15 @@ import { verification } from "@repo/db/drizzle-schema-auth";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
+import { generateShortCode } from "../auth/utils";
 import { createTRPCRouter, protectedProcedure, publicProcedure } from "../trpc";
 
-const CODE_LENGTH = 8;
 const CODE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const IDENTIFIER_PREFIX = "cli-auth:";
 
-function generateCode(): string {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I
-  let code = "";
-  const bytes = crypto.getRandomValues(new Uint8Array(CODE_LENGTH));
-  for (const b of bytes) {
-    code += chars[b % chars.length];
-  }
-  return `${code.slice(0, 4)}-${code.slice(4)}`;
-}
-
 export const cliAuthRouter = createTRPCRouter({
   create: publicProcedure.mutation(async ({ ctx }) => {
-    const code = generateCode();
+    const code = generateShortCode();
     const id = crypto.randomUUID();
     const now = new Date();
 

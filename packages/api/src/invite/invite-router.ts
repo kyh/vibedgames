@@ -4,19 +4,8 @@ import { user } from "@repo/db/drizzle-schema-auth";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
+import { generateShortCode } from "../auth/utils";
 import { adminProcedure, createTRPCRouter } from "../trpc";
-
-const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I
-const CODE_LENGTH = 8;
-
-const generateCode = () => {
-  const bytes = crypto.getRandomValues(new Uint8Array(CODE_LENGTH));
-  let code = "";
-  for (const b of bytes) {
-    code += CODE_CHARS[b % CODE_CHARS.length];
-  }
-  return `${code.slice(0, 4)}-${code.slice(4)}`;
-};
 
 export const inviteRouter = createTRPCRouter({
   list: adminProcedure.query(async ({ ctx }) => {
@@ -52,7 +41,7 @@ export const inviteRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const rows = Array.from({ length: input.count }, () => ({
         id: crypto.randomUUID(),
-        code: generateCode(),
+        code: generateShortCode(),
         createdBy: ctx.session.user.id,
         maxUses: input.maxUses,
         expiresAt: input.expiresAt,

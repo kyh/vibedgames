@@ -7,7 +7,7 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError } from "better-auth/api";
 import { admin, bearer, oAuthProxy } from "better-auth/plugins";
 
-import { tryClaimInviteCode, validateInviteCode } from "./invite-claim";
+import { normalizeInviteCode, tryClaimInviteCode, validateInviteCode } from "./invite-claim";
 
 export type AuthOptions = {
   db: Db;
@@ -39,9 +39,10 @@ export const createAuth = (opts: AuthOptions) => {
       enabled: true,
     },
     user: {
-      // Stamps the redeemed invite code on the new user row. `input: false`
-      // prevents the field from being populated by client request bodies —
-      // it's only writable from the user-create hook below.
+      // `invited_by_code` exists on the user table (see drizzle-schema-auth)
+      // but is never set via client input — `input: false` blocks request
+      // bodies from populating it, and the `after` hook below writes it
+      // directly via Drizzle once the invite code is claimed.
       additionalFields: {
         invitedByCode: { type: "string", required: false, input: false },
       },
@@ -56,20 +57,25 @@ export const createAuth = (opts: AuthOptions) => {
           //
           // We split the work so a downstream failure (e.g. duplicate
           // email) doesn't burn a single-use code:
-          //   before — read-only validation, stamp the code on the user row
-          //   after  — atomic claim; if we lose a concurrent race, delete
-          //            the just-created user and surface a 409
+          //   before — read-only validation; throws on bad code so no user
+          //            row is ever inserted
+          //   after  — atomic claim from the request body (NOT from the
+          //            user object: better-auth's additionalFields can be
+          //            stripped before reaching hooks, see better-auth
+          //            issues #6593 / #7061). Persist invitedByCode via
+          //            Drizzle. If we lose a concurrent race, delete the
+          //            just-created user and surface a 409.
           before: async (user, ctx) => {
             if (ctx?.path !== "/sign-up/email") {
               return { data: user };
             }
-            const code = await validateInviteCode(db, ctx.body?.inviteCode);
-            return { data: { ...user, invitedByCode: code } };
+            await validateInviteCode(db, ctx.body?.inviteCode);
+            return { data: user };
           },
           after: async (user, ctx) => {
             if (ctx?.path !== "/sign-up/email") return;
-            const code = (user as { invitedByCode?: string }).invitedByCode;
-            if (!code) return;
+            const code = normalizeInviteCode(ctx.body?.inviteCode);
+            if (!code) return; // before-hook would have thrown; defensive
             const claimed = await tryClaimInviteCode(db, code);
             if (!claimed) {
               await db.delete(userTable).where(eq(userTable.id, user.id));
@@ -77,6 +83,10 @@ export const createAuth = (opts: AuthOptions) => {
                 message: "Invite code was just claimed by someone else.",
               });
             }
+            await db
+              .update(userTable)
+              .set({ invitedByCode: code })
+              .where(eq(userTable.id, user.id));
           },
         },
       },

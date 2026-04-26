@@ -3,7 +3,7 @@ import { and, eq, gt, isNull, lt, or, sql } from "@repo/db";
 import { inviteCode } from "@repo/db/drizzle-schema";
 import { APIError } from "better-auth/api";
 
-const normalize = (raw: unknown) =>
+export const normalizeInviteCode = (raw: unknown) =>
   String(raw ?? "")
     .trim()
     .toUpperCase();
@@ -26,7 +26,7 @@ const availabilityClause = (now: Date) =>
  * duplicate email) won't burn a single-use code.
  */
 export const validateInviteCode = async (db: Db, rawCode: unknown): Promise<string> => {
-  const code = normalize(rawCode);
+  const code = normalizeInviteCode(rawCode);
   if (!code) {
     throw new APIError("BAD_REQUEST", { message: "Invite code is required." });
   }
