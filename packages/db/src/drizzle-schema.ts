@@ -6,6 +6,42 @@ import { index, integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlit
 
 import { user } from "./drizzle-schema-auth";
 
+/**
+ * Invite codes gating signup during early preview.
+ *
+ * A code is "available" when `revokedAt IS NULL`, `expiresAt` is in the future
+ * (or NULL), and `usedCount < maxUses` (or `maxUses IS NULL` for unlimited).
+ * Claiming a use is a single conditional UPDATE so concurrent signups can't
+ * over-redeem the same code. The `user.invitedByCode` column records which
+ * code each user redeemed.
+ */
+export const inviteCode = sqliteTable(
+  "invite_code",
+  {
+    id: text("id").primaryKey().notNull(),
+    code: text("code").notNull().unique(),
+    createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .notNull(),
+    expiresAt: integer("expires_at", { mode: "timestamp_ms" }),
+    maxUses: integer("max_uses").default(1),
+    usedCount: integer("used_count").notNull().default(0),
+    revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
+    note: text("note"),
+  },
+  (table) => ({
+    createdByIdx: index("invite_code_created_by_idx").on(table.createdBy),
+  }),
+);
+
+export const inviteCodeRelations = relations(inviteCode, ({ one }) => ({
+  createdBy: one(user, {
+    fields: [inviteCode.createdBy],
+    references: [user.id],
+  }),
+}));
+
 export const waitlist = sqliteTable("waitlist", {
   id: text("id").primaryKey().notNull(),
   userId: text("user_id").references(() => user.id),

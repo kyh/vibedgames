@@ -20,26 +20,36 @@ export const AuthForm = ({ className, type, callbackUrl, ...props }: AuthFormPro
   const search = useSearch({ from: "/auth" });
   const nextPath = search.nextPath ?? "/";
 
+  const isRegister = type === "register";
+
   const form = useForm({
     resolver: zodResolver(
       z.object({
         email: z.email("Invalid email address"),
         password: z.string().min(1, "Password is required"),
+        inviteCode: isRegister
+          ? z.string().min(1, "Invite code is required")
+          : z.string().optional(),
       }),
     ),
     defaultValues: {
       email: "",
       password: "",
+      inviteCode: search.invite ?? "",
     },
   });
 
   const handleAuthWithPassword = form.handleSubmit(async (credentials) => {
     if (type === "register") {
       const emailPrefix = credentials.email.split("@")[0];
+      // `inviteCode` is an extra body field consumed by the server-side
+      // `user.create.before` hook to validate + atomically redeem the invite.
+      // It isn't part of better-auth's typed signup payload, so we cast.
       await authClient.signUp.email({
         email: credentials.email,
         password: credentials.password,
         name: emailPrefix ?? "User",
+        inviteCode: credentials.inviteCode,
         fetchOptions: {
           onSuccess: () => {
             router.navigate({ to: callbackUrl ?? nextPath, replace: true });
@@ -48,7 +58,7 @@ export const AuthForm = ({ className, type, callbackUrl, ...props }: AuthFormPro
             toast.error(ctx.error.message);
           },
         },
-      });
+      } as Parameters<typeof authClient.signUp.email>[0]);
     }
 
     if (type === "login") {
@@ -123,6 +133,35 @@ export const AuthForm = ({ className, type, callbackUrl, ...props }: AuthFormPro
               </Field>
             )}
           />
+          {isRegister && (
+            <Controller
+              control={form.control}
+              name="inviteCode"
+              render={({ field, fieldState }) => (
+                <Field data-invalid={!!fieldState.error} className="gap-1">
+                  <FieldLabel className="sr-only" htmlFor="invite-code">
+                    Invite code
+                  </FieldLabel>
+                  <FieldContent>
+                    <Input
+                      id="invite-code"
+                      data-test="invite-code-input"
+                      aria-invalid={!!fieldState.error}
+                      required
+                      type="text"
+                      placeholder="Invite code"
+                      autoCapitalize="characters"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      {...field}
+                    />
+                  </FieldContent>
+                  <FieldError>{fieldState.error?.message}</FieldError>
+                </Field>
+              )}
+            />
+          )}
         </FieldGroup>
         <Button loading={form.formState.isSubmitting}>
           {type === "login" ? "Login" : "Register"}
