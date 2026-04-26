@@ -10,7 +10,7 @@ const requireAdmin = createServerFn({ method: "GET" }).handler(async () => {
   const session = await auth.api.getSession({ headers });
 
   if (!session) {
-    throw redirect({ to: "/auth/login", search: { callbackUrl: "/admin/invites" } });
+    throw redirect({ to: "/auth/login", search: { callbackUrl: "/admin" } });
   }
   if (session.user.role !== "admin") {
     throw redirect({ to: "/" });

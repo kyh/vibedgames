@@ -1,3 +1,4 @@
+import { adminRouter } from "./admin/admin-router";
 import { cliAuthRouter } from "./cli-auth/cli-auth-router";
 import { deployRouter } from "./deploy/deploy-router";
 import { v0Router } from "./game/v0/v0-router";
@@ -11,6 +12,7 @@ export const appRouter = createTRPCRouter({
   deploy: deployRouter,
   v0: v0Router,
   invite: inviteRouter,
+  admin: adminRouter,
 });
 
 // export type definition of API
