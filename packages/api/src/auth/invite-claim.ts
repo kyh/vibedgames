@@ -8,7 +8,7 @@ export const normalizeInviteCode = (raw: unknown) =>
     .trim()
     .toUpperCase();
 
-const availabilityClause = (now: Date) =>
+export const inviteCodeAvailabilityClause = (now: Date) =>
   and(
     isNull(inviteCode.revokedAt),
     or(isNull(inviteCode.expiresAt), gt(inviteCode.expiresAt, now)),
@@ -34,7 +34,7 @@ export const validateInviteCode = async (db: Db, rawCode: unknown): Promise<stri
   const rows = await db
     .select({ id: inviteCode.id })
     .from(inviteCode)
-    .where(and(eq(inviteCode.code, code), availabilityClause(new Date())))
+    .where(and(eq(inviteCode.code, code), inviteCodeAvailabilityClause(new Date())))
     .limit(1);
 
   if (rows.length === 0) {
@@ -53,7 +53,7 @@ export const tryClaimInviteCode = async (db: Db, code: string): Promise<boolean>
   const claimed = await db
     .update(inviteCode)
     .set({ usedCount: sql`${inviteCode.usedCount} + 1` })
-    .where(and(eq(inviteCode.code, code), availabilityClause(new Date())))
+    .where(and(eq(inviteCode.code, code), inviteCodeAvailabilityClause(new Date())))
     .returning({ id: inviteCode.id });
   return claimed.length > 0;
 };

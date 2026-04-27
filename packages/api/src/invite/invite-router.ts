@@ -1,19 +1,21 @@
-import { and, desc, eq, gt, isNull, lt, or } from "@repo/db";
+import { and, desc, eq, isNull } from "@repo/db";
 import { inviteCode } from "@repo/db/drizzle-schema";
 import { user } from "@repo/db/drizzle-schema-auth";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
-import { normalizeInviteCode } from "../auth/invite-claim";
+import { inviteCodeAvailabilityClause, normalizeInviteCode } from "../auth/invite-claim";
 import { generateInviteCode } from "../auth/utils";
 import { adminProcedure, createTRPCRouter, publicProcedure } from "../trpc";
 
 export const inviteRouter = createTRPCRouter({
   // Pre-flight check used by the register page so users get immediate feedback
-  // on a bad code before they fill in email/password. Generic error message
-  // matches the signup hook so we don't leak which codes exist. The actual
-  // single-use claim still happens atomically inside the better-auth signup
-  // hook — a successful response here does NOT reserve the code.
+  // on a bad code before they fill in email/password. Shares
+  // `inviteCodeAvailabilityClause` with the signup hook so the two stay in
+  // lockstep — a code that validates here will be accepted by the hook
+  // (modulo races on single-use codes). Generic error message matches the
+  // hook's so we don't leak which codes exist. The atomic single-use claim
+  // still happens inside the hook — success here does NOT reserve the code.
   validate: publicProcedure
     .input(z.object({ code: z.string() }))
     .mutation(async ({ ctx, input }) => {
@@ -25,14 +27,7 @@ export const inviteRouter = createTRPCRouter({
       const rows = await ctx.db
         .select({ id: inviteCode.id })
         .from(inviteCode)
-        .where(
-          and(
-            eq(inviteCode.code, code),
-            isNull(inviteCode.revokedAt),
-            or(isNull(inviteCode.expiresAt), gt(inviteCode.expiresAt, new Date())),
-            or(isNull(inviteCode.maxUses), lt(inviteCode.usedCount, inviteCode.maxUses)),
-          ),
-        )
+        .where(and(eq(inviteCode.code, code), inviteCodeAvailabilityClause(new Date())))
         .limit(1);
 
       if (rows.length === 0) {
