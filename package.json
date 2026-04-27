@@ -7,6 +7,7 @@
     "clean:workspaces": "turbo run clean",
     "db:push": "pnpm -F db push",
     "db:push-remote": "pnpm -F db push:remote && pnpm -F builder push:remote",
+    "admin:create": "tsx scripts/create-admin.ts",
     "dev": "turbo watch db studio dev --continue --filter=!./games/*",
     "dev:web": "turbo watch dev -F @repo/web...",
     "dev:party": "turbo watch dev -F @repo/party...",

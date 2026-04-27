@@ -14,4 +14,9 @@ export const auth = betterAuth({
   database: { provider: "sqlite", type: "sqlite" } as never,
   plugins: [oAuthProxy(), expo(), admin()],
   emailAndPassword: { enabled: true },
+  user: {
+    additionalFields: {
+      invitedByCode: { type: "string", required: false, input: false },
+    },
+  },
 });

@@ -9,11 +9,11 @@ export const Route = createFileRoute("/auth/register")({
       <div className="flex flex-col text-center">
         <h1 className="text-lg font-light">Create an account</h1>
         <p className="text-muted-foreground text-sm">
-          New accounts are currently{" "}
+          Early preview — an{" "}
           <a className="underline" href="https://x.com/kaiyuhsu" target="_blank" rel="noreferrer">
-            invite only
-          </a>
-          .
+            invite code
+          </a>{" "}
+          is required to sign up.
         </p>
       </div>
       <AuthForm type="register" />

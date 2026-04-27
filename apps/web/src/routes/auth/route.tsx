@@ -5,6 +5,7 @@ import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
 const authSearchSchema = z.object({
   callbackUrl: z.string().optional(),
   nextPath: z.string().optional(),
+  invite: z.string().optional(),
 });
 
 export const Route = createFileRoute("/auth")({
