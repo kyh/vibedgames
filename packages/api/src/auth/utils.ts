@@ -19,20 +19,32 @@ export const slugify = (str: string) => {
   return str;
 };
 
-/**
- * 8-char alphanumeric code formatted as `XXXX-XXXX`. Avoids `0/O/1/I` to
- * keep the code unambiguous when read aloud or copied by hand. Used by both
- * the CLI device-code auth flow and the invite-code system.
- */
-export const generateShortCode = () => {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  const bytes = crypto.getRandomValues(new Uint8Array(8));
+// Avoids `0/O/1/I` to keep codes unambiguous when read aloud or copied by hand.
+const UNAMBIGUOUS_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+const generateUnambiguousCode = (length: number) => {
+  const bytes = crypto.getRandomValues(new Uint8Array(length));
   let code = "";
   for (const b of bytes) {
-    code += chars[b % chars.length];
+    code += UNAMBIGUOUS_ALPHABET[b % UNAMBIGUOUS_ALPHABET.length];
   }
+  return code;
+};
+
+/**
+ * 8-char unambiguous alphanumeric code formatted as `XXXX-XXXX`, used by the
+ * CLI device-code auth flow.
+ */
+export const generateShortCode = () => {
+  const code = generateUnambiguousCode(8);
   return `${code.slice(0, 4)}-${code.slice(4)}`;
 };
+
+/**
+ * 6-char unambiguous alphanumeric invite code. Short enough to type into a
+ * single-line OTP-style input on the register page.
+ */
+export const generateInviteCode = () => generateUnambiguousCode(6);
 
 export type Primitive = string | number | boolean | null;
 
