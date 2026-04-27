@@ -100,6 +100,7 @@ export const AuthForm = ({ className, type, callbackUrl, ...props }: AuthFormPro
                     autoCapitalize="none"
                     autoComplete="email"
                     autoCorrect="off"
+                    className="bg-input/40 backdrop-blur-sm"
                     {...field}
                   />
                 </FieldContent>
@@ -126,6 +127,7 @@ export const AuthForm = ({ className, type, callbackUrl, ...props }: AuthFormPro
                     autoCapitalize="none"
                     autoComplete="current-password"
                     autoCorrect="off"
+                    className="bg-input/40 backdrop-blur-sm"
                     {...field}
                   />
                 </FieldContent>
@@ -154,6 +156,7 @@ export const AuthForm = ({ className, type, callbackUrl, ...props }: AuthFormPro
                       autoComplete="off"
                       autoCorrect="off"
                       spellCheck={false}
+                      className="bg-input/40 backdrop-blur-sm"
                       {...field}
                     />
                   </FieldContent>
@@ -231,6 +234,7 @@ export const RequestPasswordResetForm = () => {
                   autoCapitalize="none"
                   autoComplete="email"
                   autoCorrect="off"
+                  className="bg-input/40 backdrop-blur-sm"
                   {...field}
                 />
               </FieldContent>
@@ -301,6 +305,7 @@ export const UpdatePasswordForm = () => {
                   autoCapitalize="none"
                   autoComplete="new-password"
                   autoCorrect="off"
+                  className="bg-input/40 backdrop-blur-sm"
                   {...field}
                 />
               </FieldContent>
@@ -326,6 +331,7 @@ export const UpdatePasswordForm = () => {
                   autoCapitalize="none"
                   autoComplete="new-password"
                   autoCorrect="off"
+                  className="bg-input/40 backdrop-blur-sm"
                   {...field}
                 />
               </FieldContent>
