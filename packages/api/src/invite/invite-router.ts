@@ -5,7 +5,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
 import { inviteCodeAvailabilityClause, normalizeInviteCode } from "../auth/invite-claim";
-import { generateInviteCode } from "../auth/utils";
+import { generateShortCode } from "../auth/utils";
 import { adminProcedure, createTRPCRouter, publicProcedure } from "../trpc";
 
 export const inviteRouter = createTRPCRouter({
@@ -70,7 +70,7 @@ export const inviteRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const rows = Array.from({ length: input.count }, () => ({
         id: crypto.randomUUID(),
-        code: generateInviteCode(),
+        code: generateShortCode(),
         createdBy: ctx.session.user.id,
         maxUses: input.maxUses,
         expiresAt: input.expiresAt,
