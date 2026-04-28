@@ -6,7 +6,7 @@ import { PlayView } from "@/components/game/play-view";
 import { installResponse } from "@/lib/install-response";
 
 const AI_BOT_UA =
-  /(ClaudeBot|Claude-User|Anthropic-AI|GPTBot|ChatGPT-User|OAI-SearchBot|PerplexityBot|Bytespider|cohere-ai|FacebookBot|Applebot-Extended|Google-Extended|YouBot|Diffbot)/i;
+  /(ClaudeBot|Claude-User|Anthropic-AI|GPTBot|ChatGPT-User|OAI-SearchBot|Cursor)/i;
 
 export const Route = createFileRoute("/")({
   validateSearch: gameSearchSchema,
