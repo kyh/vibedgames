@@ -1,14 +1,21 @@
+import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearch } from "@tanstack/react-router";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Button } from "@repo/ui/components/button";
 import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from "@repo/ui/components/field";
 import { Input } from "@repo/ui/components/input";
+import { OTPField, OTPFieldInput } from "@repo/ui/components/otp-field";
 import { toast } from "@repo/ui/components/sonner";
 import { cn } from "@repo/ui/lib/utils";
+import { useMutation } from "@tanstack/react-query";
 import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 
 import { authClient } from "@/auth/client";
+import { useTRPC } from "@/lib/trpc";
+
+const INVITE_CODE_LENGTH = 6;
+const OTP_SLOT_KEYS = Array.from({ length: INVITE_CODE_LENGTH }, (_, i) => `otp-slot-${i}`);
 
 type AuthFormProps = {
   type: "login" | "register";
@@ -16,65 +23,264 @@ type AuthFormProps = {
 } & React.HTMLAttributes<HTMLDivElement>;
 
 export const AuthForm = ({ className, type, callbackUrl, ...props }: AuthFormProps) => {
+  if (type === "register") {
+    return <RegisterForm className={className} callbackUrl={callbackUrl} {...props} />;
+  }
+  return <LoginForm className={className} callbackUrl={callbackUrl} {...props} />;
+};
+
+type StepFormProps = { callbackUrl?: string } & React.HTMLAttributes<HTMLDivElement>;
+
+const RegisterForm = ({ className, callbackUrl, ...props }: StepFormProps) => {
+  const search = useSearch({ from: "/auth" });
+  const [verifiedCode, setVerifiedCode] = useState<string | null>(null);
+
+  return (
+    <div className={cn("grid gap-6", className)} {...props}>
+      {verifiedCode ? (
+        <RegisterCredentialsStep
+          inviteCode={verifiedCode}
+          callbackUrl={callbackUrl}
+          onChangeCode={() => setVerifiedCode(null)}
+        />
+      ) : (
+        <InviteCodeStep
+          defaultValue={search.invite ?? ""}
+          onValidated={(code) => setVerifiedCode(code)}
+        />
+      )}
+    </div>
+  );
+};
+
+const InviteCodeStep = ({
+  defaultValue,
+  onValidated,
+}: {
+  defaultValue: string;
+  onValidated: (code: string) => void;
+}) => {
+  const trpc = useTRPC();
+  const [code, setCode] = useState(defaultValue.toUpperCase().slice(0, INVITE_CODE_LENGTH));
+  const [error, setError] = useState<string | null>(null);
+  const autoSubmittedRef = useRef(false);
+
+  const validate = useMutation(
+    trpc.invite.validate.mutationOptions({
+      onSuccess: (data) => onValidated(data.code),
+      onError: (err) => setError(err.message),
+    }),
+  );
+
+  const submit = (value: string) => {
+    if (validate.isPending) return;
+    setError(null);
+    validate.mutate({ code: value });
+  };
+
+  // Auto-submit when prefilled from the `?invite=` link so the user lands
+  // straight on the email/password step without clicking through.
+  useEffect(() => {
+    if (autoSubmittedRef.current) return;
+    if (code.length === INVITE_CODE_LENGTH) {
+      autoSubmittedRef.current = true;
+      submit(code);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <form
+      className="grid gap-4"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (code.length === INVITE_CODE_LENGTH) submit(code);
+      }}
+    >
+      <Field className="items-center gap-3">
+        <FieldLabel className="sr-only" htmlFor="invite-code">
+          Invite code
+        </FieldLabel>
+        <OTPField
+          id="invite-code"
+          data-test="invite-code-input"
+          length={INVITE_CODE_LENGTH}
+          validationType="alphanumeric"
+          value={code}
+          onValueChange={(value) => {
+            setError(null);
+            setCode(value.toUpperCase());
+          }}
+          onValueComplete={(value) => submit(value.toUpperCase())}
+          disabled={validate.isPending}
+        >
+          {OTP_SLOT_KEYS.map((slotKey, index) => (
+            <OTPFieldInput
+              key={slotKey}
+              aria-label={`Character ${index + 1} of ${INVITE_CODE_LENGTH}`}
+              aria-invalid={!!error}
+            />
+          ))}
+        </OTPField>
+        {error ? <FieldError className="text-center">{error}</FieldError> : null}
+      </Field>
+      <Button
+        type="submit"
+        loading={validate.isPending}
+        disabled={code.length !== INVITE_CODE_LENGTH}
+      >
+        Continue
+      </Button>
+    </form>
+  );
+};
+
+const RegisterCredentialsStep = ({
+  inviteCode,
+  callbackUrl,
+  onChangeCode,
+}: {
+  inviteCode: string;
+  callbackUrl?: string;
+  onChangeCode: () => void;
+}) => {
   const router = useRouter();
   const search = useSearch({ from: "/auth" });
   const nextPath = search.nextPath ?? "/";
-
-  const isRegister = type === "register";
 
   const form = useForm({
     resolver: zodResolver(
       z.object({
         email: z.email("Invalid email address"),
         password: z.string().min(1, "Password is required"),
-        inviteCode: isRegister
-          ? z.string().min(1, "Invite code is required")
-          : z.string().optional(),
       }),
     ),
-    defaultValues: {
-      email: "",
-      password: "",
-      inviteCode: search.invite ?? "",
-    },
+    defaultValues: { email: "", password: "" },
   });
 
   const handleAuthWithPassword = form.handleSubmit(async (credentials) => {
-    if (type === "register") {
-      const emailPrefix = credentials.email.split("@")[0];
-      // `inviteCode` is an extra body field consumed by the server-side
-      // `user.create.before` hook to validate + atomically redeem the invite.
-      // It isn't part of better-auth's typed signup payload, so we cast.
-      await authClient.signUp.email({
-        email: credentials.email,
-        password: credentials.password,
-        name: emailPrefix ?? "User",
-        inviteCode: credentials.inviteCode,
-        fetchOptions: {
-          onSuccess: () => {
-            router.navigate({ to: callbackUrl ?? nextPath, replace: true });
-          },
-          onError: (ctx) => {
-            toast.error(ctx.error.message);
-          },
+    const emailPrefix = credentials.email.split("@")[0];
+    // `inviteCode` is an extra body field consumed by the server-side
+    // `user.create.before` hook to validate + atomically redeem the invite.
+    // It isn't part of better-auth's typed signup payload, so we cast.
+    await authClient.signUp.email({
+      email: credentials.email,
+      password: credentials.password,
+      name: emailPrefix ?? "User",
+      inviteCode,
+      fetchOptions: {
+        onSuccess: () => {
+          router.navigate({ to: callbackUrl ?? nextPath, replace: true });
         },
-      } as Parameters<typeof authClient.signUp.email>[0]);
-    }
+        onError: (ctx) => {
+          // The atomic claim happens at signup; if the code raced and lost
+          // (or was revoked between steps), kick the user back to step 1.
+          if (ctx.error.status === 403 || ctx.error.status === 409) {
+            onChangeCode();
+          }
+          toast.error(ctx.error.message);
+        },
+      },
+    } as Parameters<typeof authClient.signUp.email>[0]);
+  });
 
-    if (type === "login") {
-      await authClient.signIn.email({
-        email: credentials.email,
-        password: credentials.password,
-        fetchOptions: {
-          onSuccess: () => {
-            router.navigate({ to: callbackUrl ?? nextPath, replace: true });
-          },
-          onError: (ctx) => {
-            toast.error(ctx.error.message);
-          },
+  return (
+    <form className="grid gap-2" onSubmit={handleAuthWithPassword}>
+      <p className="text-muted-foreground text-center text-sm">
+        Invite code <span className="text-foreground font-mono">{inviteCode}</span> verified.{" "}
+        <button type="button" onClick={onChangeCode} className="underline">
+          Change
+        </button>
+      </p>
+      <FieldGroup className="gap-2">
+        <Controller
+          control={form.control}
+          name="email"
+          render={({ field, fieldState }) => (
+            <Field data-invalid={!!fieldState.error} className="gap-1">
+              <FieldLabel className="sr-only" htmlFor="email">
+                Email
+              </FieldLabel>
+              <FieldContent>
+                <Input
+                  id="email"
+                  data-test="email-input"
+                  aria-invalid={!!fieldState.error}
+                  required
+                  type="email"
+                  placeholder="name@example.com"
+                  autoCapitalize="none"
+                  autoComplete="email"
+                  autoCorrect="off"
+                  className="bg-input/40 backdrop-blur-sm"
+                  {...field}
+                />
+              </FieldContent>
+              <FieldError>{fieldState.error?.message}</FieldError>
+            </Field>
+          )}
+        />
+        <Controller
+          control={form.control}
+          name="password"
+          render={({ field, fieldState }) => (
+            <Field data-invalid={!!fieldState.error} className="gap-1">
+              <FieldLabel className="sr-only" htmlFor="password">
+                Password
+              </FieldLabel>
+              <FieldContent>
+                <Input
+                  id="password"
+                  data-test="password-input"
+                  aria-invalid={!!fieldState.error}
+                  required
+                  type="password"
+                  placeholder="******"
+                  autoCapitalize="none"
+                  autoComplete="new-password"
+                  autoCorrect="off"
+                  className="bg-input/40 backdrop-blur-sm"
+                  {...field}
+                />
+              </FieldContent>
+              <FieldError>{fieldState.error?.message}</FieldError>
+            </Field>
+          )}
+        />
+      </FieldGroup>
+      <Button loading={form.formState.isSubmitting}>Register</Button>
+    </form>
+  );
+};
+
+const LoginForm = ({ className, callbackUrl, ...props }: StepFormProps) => {
+  const router = useRouter();
+  const search = useSearch({ from: "/auth" });
+  const nextPath = search.nextPath ?? "/";
+
+  const form = useForm({
+    resolver: zodResolver(
+      z.object({
+        email: z.email("Invalid email address"),
+        password: z.string().min(1, "Password is required"),
+      }),
+    ),
+    defaultValues: { email: "", password: "" },
+  });
+
+  const handleAuthWithPassword = form.handleSubmit(async (credentials) => {
+    await authClient.signIn.email({
+      email: credentials.email,
+      password: credentials.password,
+      fetchOptions: {
+        onSuccess: () => {
+          router.navigate({ to: callbackUrl ?? nextPath, replace: true });
         },
-      });
-    }
+        onError: (ctx) => {
+          toast.error(ctx.error.message);
+        },
+      },
+    });
   });
 
   return (
@@ -135,40 +341,8 @@ export const AuthForm = ({ className, type, callbackUrl, ...props }: AuthFormPro
               </Field>
             )}
           />
-          {isRegister && (
-            <Controller
-              control={form.control}
-              name="inviteCode"
-              render={({ field, fieldState }) => (
-                <Field data-invalid={!!fieldState.error} className="gap-1">
-                  <FieldLabel className="sr-only" htmlFor="invite-code">
-                    Invite code
-                  </FieldLabel>
-                  <FieldContent>
-                    <Input
-                      id="invite-code"
-                      data-test="invite-code-input"
-                      aria-invalid={!!fieldState.error}
-                      required
-                      type="text"
-                      placeholder="Invite code"
-                      autoCapitalize="characters"
-                      autoComplete="off"
-                      autoCorrect="off"
-                      spellCheck={false}
-                      className="bg-input/40 backdrop-blur-sm"
-                      {...field}
-                    />
-                  </FieldContent>
-                  <FieldError>{fieldState.error?.message}</FieldError>
-                </Field>
-              )}
-            />
-          )}
         </FieldGroup>
-        <Button loading={form.formState.isSubmitting}>
-          {type === "login" ? "Login" : "Register"}
-        </Button>
+        <Button loading={form.formState.isSubmitting}>Login</Button>
       </form>
     </div>
   );

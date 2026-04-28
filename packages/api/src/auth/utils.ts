@@ -19,19 +19,21 @@ export const slugify = (str: string) => {
   return str;
 };
 
+// Avoids `0/O/1/I` to keep codes unambiguous when read aloud or copied by hand.
+const UNAMBIGUOUS_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
 /**
- * 8-char alphanumeric code formatted as `XXXX-XXXX`. Avoids `0/O/1/I` to
- * keep the code unambiguous when read aloud or copied by hand. Used by both
- * the CLI device-code auth flow and the invite-code system.
+ * 6-char alphanumeric code from an unambiguous alphabet (no `0/O/1/I`) so it
+ * stays readable when copied by hand or read aloud. Shared by both the CLI
+ * device-code auth flow and the invite-code system.
  */
 export const generateShortCode = () => {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  const bytes = crypto.getRandomValues(new Uint8Array(8));
+  const bytes = crypto.getRandomValues(new Uint8Array(6));
   let code = "";
   for (const b of bytes) {
-    code += chars[b % chars.length];
+    code += UNAMBIGUOUS_ALPHABET[b % UNAMBIGUOUS_ALPHABET.length];
   }
-  return `${code.slice(0, 4)}-${code.slice(4)}`;
+  return code;
 };
 
 export type Primitive = string | number | boolean | null;
