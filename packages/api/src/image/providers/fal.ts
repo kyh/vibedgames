@@ -1,11 +1,7 @@
 import { TRPCError } from "@trpc/server";
 
 import { bytesToBase64 } from "../base64";
-import type {
-  ImageInputFile,
-  ImageProvider,
-  ImageProviderResult,
-} from "../types";
+import type { ImageInputFile, ImageProvider, ImageProviderResult } from "../types";
 
 const QUEUE_ROOT = "https://queue.fal.run";
 
@@ -92,12 +88,9 @@ function collectMediaUrls(payload: unknown): string[] {
       const obj = value as Record<string, unknown>;
       const url = obj.url;
       if (typeof url === "string" && url.startsWith("http") && !seen.has(url)) {
-        const contentType =
-          typeof obj.content_type === "string" ? obj.content_type : null;
+        const contentType = typeof obj.content_type === "string" ? obj.content_type : null;
         const isImage =
-          contentType !== null
-            ? contentType.startsWith("image/")
-            : looksLikeImageUrl(url);
+          contentType !== null ? contentType.startsWith("image/") : looksLikeImageUrl(url);
         if (isImage) {
           seen.add(url);
           found.push(url);
@@ -126,9 +119,7 @@ async function downloadImage(url: string): Promise<{
   const buf = new Uint8Array(await res.arrayBuffer());
   const headerType = res.headers.get("content-type") ?? "";
   const ext = extensionFromUrl(url);
-  const contentType = headerType.startsWith("image/")
-    ? headerType
-    : contentTypeForExtension(ext);
+  const contentType = headerType.startsWith("image/") ? headerType : contentTypeForExtension(ext);
   return { bytes: buf, contentType, extension: `.${ext}` };
 }
 
@@ -152,10 +143,7 @@ async function submit(
   return (await res.json()) as QueueSubmitResponse;
 }
 
-async function pollUntilComplete(
-  statusUrl: string,
-  apiKey: string,
-): Promise<void> {
+async function pollUntilComplete(statusUrl: string, apiKey: string): Promise<void> {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   while (true) {
     const res = await fetch(`${statusUrl}?logs=0`, {
@@ -225,9 +213,7 @@ export const falImageProvider: ImageProvider = {
       const field = imageFieldFor(req.params);
       const encoded = req.inputImages.map((img) => dataUriFor(img));
       const existing = arguments_[field];
-      arguments_[field] = Array.isArray(existing)
-        ? [...existing, ...encoded]
-        : encoded;
+      arguments_[field] = Array.isArray(existing) ? [...encoded, ...existing] : encoded;
     }
 
     const submission = await submit(endpointId, req.apiKey, arguments_);
@@ -264,9 +250,7 @@ export const falImageProvider: ImageProvider = {
     const outputs = await Promise.all(urls.map(downloadImage));
 
     const payloadObj =
-      payload && typeof payload === "object"
-        ? (payload as Record<string, unknown>)
-        : null;
+      payload && typeof payload === "object" ? (payload as Record<string, unknown>) : null;
 
     return {
       outputs,
