@@ -4,7 +4,6 @@ import { bytesToBase64 } from "../base64";
 import type {
   ImageInputFile,
   ImageProvider,
-  ImageProviderResult,
 } from "../types";
 
 const QUEUE_ROOT = "https://queue.fal.run";
@@ -110,6 +109,18 @@ function collectMediaUrls(payload: unknown): string[] {
   return found;
 }
 
+function extensionFromContentType(contentType: string): string {
+  const normalized = contentType.toLowerCase().split(";")[0]?.trim() ?? "";
+  if (normalized === "image/jpeg") return "jpg";
+  if (normalized === "image/png") return "png";
+  if (normalized === "image/gif") return "gif";
+  if (normalized === "image/webp") return "webp";
+  if (normalized === "image/bmp") return "bmp";
+  if (normalized === "image/tiff") return "tif";
+  if (normalized === "image/avif") return "avif";
+  return "png";
+}
+
 async function downloadImage(url: string): Promise<{
   bytes: Uint8Array;
   contentType: string;
@@ -125,11 +136,14 @@ async function downloadImage(url: string): Promise<{
   }
   const buf = new Uint8Array(await res.arrayBuffer());
   const headerType = res.headers.get("content-type") ?? "";
-  const ext = extensionFromUrl(url);
+  const urlExt = extensionFromUrl(url);
   const contentType = headerType.startsWith("image/")
     ? headerType
-    : contentTypeForExtension(ext);
-  return { bytes: buf, contentType, extension: `.${ext}` };
+    : contentTypeForExtension(urlExt);
+  const extension = headerType.startsWith("image/")
+    ? extensionFromContentType(headerType)
+    : urlExt;
+  return { bytes: buf, contentType, extension: `.${extension}` };
 }
 
 async function submit(

@@ -107,6 +107,39 @@ function decodeInputImages(
   });
 }
 
+function validateParamsImageSize(
+  params: Record<string, unknown>,
+  maxBytes: number,
+): void {
+  const checkBase64Size = (value: unknown, path: string) => {
+    if (typeof value === "string" && value.length > 0) {
+      const isBase64 =
+        /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
+          value.replace(/\s/g, ""),
+        );
+      if (isBase64 && value.length > 100) {
+        try {
+          const bytes = base64ToBytes(value);
+          if (bytes.byteLength > maxBytes) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `Image data in params.${path} exceeds ${maxBytes} bytes.`,
+            });
+          }
+        } catch (err) {
+          if (err instanceof TRPCError) throw err;
+        }
+      }
+    } else if (Array.isArray(value)) {
+      value.forEach((item, idx) => checkBase64Size(item, `${path}[${idx}]`));
+    }
+  };
+
+  for (const [key, value] of Object.entries(params)) {
+    checkBase64Size(value, key);
+  }
+}
+
 // ---- Router ------------------------------------------------------------------
 
 export const imageRouter = createTRPCRouter({
@@ -121,6 +154,7 @@ export const imageRouter = createTRPCRouter({
       const provider = pickProvider(input.provider);
 
       const inputImages = decodeInputImages(input.inputImages);
+      validateParamsImageSize(input.params, MAX_INPUT_IMAGE_BYTES);
 
       const providerRequest: ImageProviderRequest = {
         task: input.task,
