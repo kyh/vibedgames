@@ -20,10 +20,14 @@ import type {
 const MAX_INPUT_IMAGES = 8;
 const MAX_INPUT_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_OUTPUT_IMAGE_BYTES = 25 * 1024 * 1024;
-// Cap serialized `params` to prevent providers that accept inline base64
-// inputs (e.g. retro-diffusion's `input_image` / `reference_images`) from
-// bypassing the per-image limits enforced on `inputImages`.
-const MAX_PARAMS_BYTES = 90 * 1024 * 1024;
+// Cap serialized `params` to defend the Worker against pathological
+// payloads. Providers that accept inline base64 (retro-diffusion's
+// `input_image` / `reference_images` / `input_palette`) sit inside this
+// budget; 32 MB easily fits a small input image plus several references
+// at typical pixel-art sizes while staying well under the 128 MB Worker
+// memory ceiling once both the parsed object and its serialized form
+// coexist in memory.
+const MAX_PARAMS_BYTES = 32 * 1024 * 1024;
 const PRESIGN_TTL_SECONDS = 3600;
 
 // ---- Schemas -----------------------------------------------------------------
