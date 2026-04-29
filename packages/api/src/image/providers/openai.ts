@@ -112,6 +112,13 @@ async function callMultipart(
   return (await res.json()) as OpenAIResponse;
 }
 
+// gpt-image-* models always return b64 and reject `response_format`. Other
+// models (dall-e-2, dall-e-3, ...) default to URLs and need an explicit
+// override so decodeOutputs can find the b64 data.
+function needsResponseFormatOverride(model: string): boolean {
+  return !model.startsWith("gpt-image");
+}
+
 async function generate(
   req: ImageProviderRequest,
 ): Promise<ImageProviderResult> {
@@ -122,6 +129,9 @@ async function generate(
     prompt: req.prompt,
     output_format: format,
   };
+  if (needsResponseFormatOverride(req.model) && payload.response_format == null) {
+    payload.response_format = "b64_json";
+  }
   const json = await callJson(GENERATE_URL, req.apiKey, payload);
   return {
     outputs: decodeOutputs(json, format),
@@ -153,6 +163,9 @@ async function edit(req: ImageProviderRequest): Promise<ImageProviderResult> {
   form.set("model", req.model);
   form.set("prompt", req.prompt);
   form.set("output_format", format);
+  if (needsResponseFormatOverride(req.model) && !form.has("response_format")) {
+    form.set("response_format", "b64_json");
+  }
   for (const image of req.inputImages) {
     const blob = new Blob([image.bytes as Uint8Array<ArrayBuffer>], {
       type: image.contentType,
