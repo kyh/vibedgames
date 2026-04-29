@@ -43,10 +43,20 @@ function parseProvider(value: string | undefined): Provider {
   return value as Provider;
 }
 
-function parseParams(value: string | undefined): Record<string, unknown> {
-  if (!value || value.length === 0) return {};
+function parseParams(
+  value: string | undefined,
+  fileValue: string | undefined,
+): Record<string, unknown> {
+  if (value && fileValue) {
+    consola.error("Use either --params or --params-file, not both.");
+    process.exit(1);
+  }
+  const raw = fileValue
+    ? readFileSync(resolve(fileValue), "utf-8")
+    : value;
+  if (!raw || raw.length === 0) return {};
   try {
-    const parsed = JSON.parse(value) as unknown;
+    const parsed = JSON.parse(raw) as unknown;
     if (
       !parsed ||
       typeof parsed !== "object" ||
@@ -135,6 +145,7 @@ async function runImage({
     "out-dir"?: string;
     "filename-prefix"?: string;
     params?: string;
+    "params-file"?: string;
     image?: string | string[];
     json?: boolean;
   };
@@ -150,7 +161,7 @@ async function runImage({
   }
 
   const promptText = readPromptText(args.prompt, args["prompt-file"]);
-  const params = parseParams(args.params);
+  const params = parseParams(args.params, args["params-file"]);
   const inputImages = collectImages(args.image).map((p) => readImage(p));
 
   if (task === "edit" && inputImages.length === 0) {
@@ -242,6 +253,11 @@ const sharedArgs = {
   params: {
     type: "string",
     description: "JSON object of provider-specific params (e.g. quality, size)",
+  },
+  "params-file": {
+    type: "string",
+    description:
+      "Path to a JSON file with provider-specific params. Use this when params include large fields (e.g. base64 images) that may exceed argv limits.",
   },
   json: {
     type: "boolean",

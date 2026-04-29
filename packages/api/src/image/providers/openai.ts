@@ -149,14 +149,16 @@ async function edit(req: ImageProviderRequest): Promise<ImageProviderResult> {
   }
   const format = outputFormat(req.params);
   const form = new FormData();
+  // Set params first so explicit `model`/`prompt`/`output_format` below
+  // always take precedence over anything passed in `params`.
+  for (const [key, value] of Object.entries(req.params)) {
+    if (value === undefined || value === null) continue;
+    if (key === "output_format" || key === "model" || key === "prompt") continue;
+    form.set(key, typeof value === "string" ? value : JSON.stringify(value));
+  }
   form.set("model", req.model);
   form.set("prompt", req.prompt);
   form.set("output_format", format);
-  for (const [key, value] of Object.entries(req.params)) {
-    if (value === undefined || value === null) continue;
-    if (key === "output_format") continue;
-    form.set(key, typeof value === "string" ? value : JSON.stringify(value));
-  }
   for (const image of req.inputImages) {
     // Copy into a fresh ArrayBuffer to satisfy Blob's BlobPart typing on
     // Workers (Uint8Array is not directly assignable in this lib config).

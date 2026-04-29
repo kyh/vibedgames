@@ -12,6 +12,7 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -45,6 +46,9 @@ def run_vg_image(
     The CLI downloads any generated image files into ``out_dir`` and prints
     a JSON object describing the run; the caller is responsible for any
     additional bookkeeping (manifests, ledgers, etc.).
+
+    `params` is always passed via `--params-file` so embedded base64 images
+    or other large fields cannot blow past the OS argv length limit.
     """
     if task not in {"generate", "edit"}:
         raise SystemExit(f"unsupported vg image task: {task}")
@@ -65,12 +69,28 @@ def run_vg_image(
         filename_prefix,
         "--json",
     ]
-    if params:
-        cmd.extend(["--params", json.dumps(params)])
     for image in images:
         cmd.extend(["--image", str(image)])
 
-    completed = subprocess.run(cmd, capture_output=True, text=True)
+    params_file: tempfile._TemporaryFileWrapper | None = None
+    try:
+        if params:
+            params_file = tempfile.NamedTemporaryFile(
+                mode="w", suffix=".json", delete=False, encoding="utf-8"
+            )
+            json.dump(params, params_file)
+            params_file.flush()
+            params_file.close()
+            cmd.extend(["--params-file", params_file.name])
+
+        completed = subprocess.run(cmd, capture_output=True, text=True)
+    finally:
+        if params_file is not None:
+            try:
+                os.unlink(params_file.name)
+            except OSError:
+                pass
+
     if completed.returncode != 0:
         stderr = completed.stderr.strip() or completed.stdout.strip()
         raise SystemExit(f"vg image {task} failed: {stderr}")
