@@ -23,7 +23,9 @@ const MAX_OUTPUT_IMAGE_BYTES = 25 * 1024 * 1024;
 // Cap serialized `params` to prevent providers that accept inline base64
 // inputs (e.g. retro-diffusion's `input_image` / `reference_images`) from
 // bypassing the per-image limits enforced on `inputImages`.
-const MAX_PARAMS_BYTES = 90 * 1024 * 1024;
+// Base64 adds ~1.37× overhead; allowing MAX_INPUT_IMAGES × MAX_INPUT_IMAGE_BYTES × 1.4
+// keeps individual images within the 10 MB limit while accounting for encoding overhead.
+const MAX_PARAMS_BYTES = MAX_INPUT_IMAGES * MAX_INPUT_IMAGE_BYTES * 1.4;
 const PRESIGN_TTL_SECONDS = 3600;
 
 // ---- Schemas -----------------------------------------------------------------

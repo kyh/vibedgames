@@ -167,8 +167,10 @@ async function pollUntilComplete(
   apiKey: string,
 ): Promise<void> {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
+  const url = new URL(statusUrl);
+  url.searchParams.set("logs", "0");
   while (true) {
-    const res = await fetch(`${statusUrl}?logs=0`, {
+    const res = await fetch(url.toString(), {
       headers: falHeaders(apiKey),
     });
     if (!res.ok) {
