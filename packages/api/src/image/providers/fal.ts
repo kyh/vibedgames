@@ -52,8 +52,8 @@ function contentTypeForExtension(ext: string): string {
 function extensionFromUrl(url: string): string {
   const path = new URL(url).pathname;
   const dot = path.lastIndexOf(".");
-  if (dot === -1) return "png";
-  return path.slice(dot + 1).toLowerCase() || "png";
+  if (dot === -1) return "";
+  return path.slice(dot + 1).toLowerCase();
 }
 
 const IMAGE_EXTENSIONS = new Set([
@@ -138,7 +138,7 @@ async function downloadImage(url: string): Promise<{
     ? contentType.slice("image/".length)
     : "";
   const ext =
-    subtype === "jpeg" ? "jpg" : subtype || extensionFromUrl(url);
+    subtype === "jpeg" ? "jpg" : subtype || extensionFromUrl(url) || "bin";
   return { bytes: buf, contentType, extension: `.${ext}` };
 }
 
