@@ -84,7 +84,7 @@ function collectMediaUrls(payload: unknown): string[] {
   // `content_type` is image-y, falling back to the URL extension when the
   // server does not set one. This avoids picking up unrelated URLs (audio,
   // video, internal metadata) that may sit elsewhere in the response tree.
-  const found: string[] = [];
+  const found = new Set<string>();
   const visit = (value: unknown) => {
     if (Array.isArray(value)) {
       for (const item of value) visit(item);
@@ -100,13 +100,13 @@ function collectMediaUrls(payload: unknown): string[] {
           contentType !== null
             ? contentType.startsWith("image/")
             : looksLikeImageUrl(url);
-        if (isImage) found.push(url);
+        if (isImage) found.add(url);
       }
       for (const child of Object.values(obj)) visit(child);
     }
   };
   visit(payload);
-  return found;
+  return Array.from(found);
 }
 
 async function downloadImage(url: string): Promise<{

@@ -105,10 +105,18 @@ function readImage(path: string): {
   };
 }
 
-function collectImages(value: string | string[] | undefined): string[] {
-  if (!value) return [];
-  if (Array.isArray(value)) return value;
-  return [value];
+function collectImages(
+  value: string | string[] | undefined,
+  rawArgs: string[],
+): string[] {
+  const images: string[] = [];
+  for (let i = 0; i < rawArgs.length; i++) {
+    if (rawArgs[i] === "--image" && i + 1 < rawArgs.length) {
+      images.push(rawArgs[i + 1]!);
+      i++;
+    }
+  }
+  return images;
 }
 
 async function downloadOutput(
@@ -135,6 +143,7 @@ async function downloadOutput(
 async function runImage({
   task,
   args,
+  rawArgs,
 }: {
   task: "generate" | "edit";
   args: {
@@ -149,6 +158,7 @@ async function runImage({
     image?: string | string[];
     json?: boolean;
   };
+  rawArgs: string[];
 }): Promise<void> {
   const provider = parseProvider(args.provider);
   if (!args.model || args.model.length === 0) {
@@ -162,12 +172,14 @@ async function runImage({
 
   const promptText = readPromptText(args.prompt, args["prompt-file"]);
   const params = parseParams(args.params, args["params-file"]);
-  const inputImages = collectImages(args.image).map((p) => readImage(p));
-
-  if (task === "edit" && inputImages.length === 0) {
+  const imagePaths = collectImages(args.image, rawArgs);
+  
+  if (task === "edit" && imagePaths.length === 0) {
     consola.error("--image is required at least once for edit jobs");
     process.exit(1);
   }
+
+  const inputImages = imagePaths.map((p) => readImage(p));
 
   const outDir = resolve(args["out-dir"]);
   const filenamePrefix = args["filename-prefix"] ?? "image";
@@ -276,8 +288,8 @@ const generateCommand = defineCommand({
     description: "Generate one or more images from a prompt.",
   },
   args: sharedArgs,
-  run: async ({ args }) => {
-    await runImage({ task: "generate", args });
+  run: async ({ args, rawArgs }) => {
+    await runImage({ task: "generate", args, rawArgs });
   },
 });
 
@@ -287,12 +299,13 @@ const editCommand = defineCommand({
     description: "Edit one or more input images with a prompt.",
   },
   args: sharedArgs,
-  run: async ({ args }) => {
-    if (!args.image || (Array.isArray(args.image) && args.image.length === 0)) {
+  run: async ({ args, rawArgs }) => {
+    const images = collectImages(args.image, rawArgs);
+    if (images.length === 0) {
       consola.error("--image is required at least once for edit jobs");
       process.exit(1);
     }
-    await runImage({ task: "edit", args });
+    await runImage({ task: "edit", args, rawArgs });
   },
 });
 
