@@ -20,6 +20,10 @@ import type {
 const MAX_INPUT_IMAGES = 8;
 const MAX_INPUT_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_OUTPUT_IMAGE_BYTES = 25 * 1024 * 1024;
+// Cap serialized `params` to prevent providers that accept inline base64
+// inputs (e.g. retro-diffusion's `input_image` / `reference_images`) from
+// bypassing the per-image limits enforced on `inputImages`.
+const MAX_PARAMS_BYTES = 90 * 1024 * 1024;
 const PRESIGN_TTL_SECONDS = 3600;
 
 // ---- Schemas -----------------------------------------------------------------
@@ -119,6 +123,14 @@ export const imageRouter = createTRPCRouter({
       const r2 = requireR2(ctx.r2);
       const apiKey = pickApiKey(input.provider, ctx.imageProviders);
       const provider = pickProvider(input.provider);
+
+      const paramsByteLength = JSON.stringify(input.params).length;
+      if (paramsByteLength > MAX_PARAMS_BYTES) {
+        throw new TRPCError({
+          code: "PAYLOAD_TOO_LARGE",
+          message: `params exceeds ${MAX_PARAMS_BYTES} bytes (got ${paramsByteLength}).`,
+        });
+      }
 
       const inputImages = decodeInputImages(input.inputImages);
 
