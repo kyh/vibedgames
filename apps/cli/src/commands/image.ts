@@ -155,11 +155,6 @@ async function runImage({
   const params = parseParams(args.params, args["params-file"]);
   const inputImages = collectImages(args.image).map((p) => readImage(p));
 
-  if (task === "edit" && inputImages.length === 0) {
-    consola.error("--image is required at least once for edit jobs");
-    process.exit(1);
-  }
-
   const outDir = resolve(args["out-dir"]);
   const filenamePrefix = args["filename-prefix"] ?? "image";
 

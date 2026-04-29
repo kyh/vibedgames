@@ -121,12 +121,6 @@ export const imageRouter = createTRPCRouter({
       const provider = pickProvider(input.provider);
 
       const inputImages = decodeInputImages(input.inputImages);
-      if (input.task === "edit" && inputImages.length === 0) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Edit jobs require at least one input image.",
-        });
-      }
 
       const providerRequest: ImageProviderRequest = {
         task: input.task,
