@@ -263,6 +263,11 @@ const sharedArgs = {
     type: "boolean",
     description: "Print the run result as JSON to stdout",
   },
+  image: {
+    type: "string",
+    description:
+      "Path to an input image. Repeat --image for multiple references. Required for `edit`; optional for `generate` (e.g. img2img, style references).",
+  },
 } as const;
 
 const generateCommand = defineCommand({
@@ -281,16 +286,12 @@ const editCommand = defineCommand({
     name: "edit",
     description: "Edit one or more input images with a prompt.",
   },
-  args: {
-    ...sharedArgs,
-    image: {
-      type: "string",
-      description:
-        "Path to an input image. Repeat --image for multiple references.",
-      required: true,
-    },
-  },
+  args: sharedArgs,
   run: async ({ args }) => {
+    if (!args.image || (Array.isArray(args.image) && args.image.length === 0)) {
+      consola.error("--image is required at least once for edit jobs");
+      process.exit(1);
+    }
     await runImage({ task: "edit", args });
   },
 });
