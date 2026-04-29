@@ -174,8 +174,10 @@ export const imageRouter = createTRPCRouter({
           const seq = String(index + 1).padStart(2, "0");
           const filename = `output-${seq}${out.extension}`;
           const key = `image-runs/${userId}/${runId}/${filename}`;
-          // presign is independent of the put completing — sign the URL in
-          // parallel so the round-trip is one R2 latency instead of two.
+          // presignGet is local CPU only (AWS Sig V4 over the known key)
+          // and does not contact R2, so we run it in parallel with the put.
+          // Both await before the URL is returned, and R2 read-after-write
+          // is strongly consistent, so there is no race.
           const [, url] = await Promise.all([
             r2.bucket.put(key, out.bytes as ArrayBufferView, {
               httpMetadata: { contentType: out.contentType },
