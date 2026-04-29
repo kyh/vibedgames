@@ -1,8 +1,4 @@
-import {
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, extname, resolve } from "node:path";
 
 import { defineCommand } from "citty";
@@ -27,17 +23,11 @@ type RunResult = {
 
 type Provider = "openai" | "fal" | "retro-diffusion";
 
-const PROVIDERS: ReadonlySet<Provider> = new Set([
-  "openai",
-  "fal",
-  "retro-diffusion",
-]);
+const PROVIDERS: ReadonlySet<Provider> = new Set(["openai", "fal", "retro-diffusion"]);
 
 function parseProvider(value: string | undefined): Provider {
   if (!value || !PROVIDERS.has(value as Provider)) {
-    consola.error(
-      `--provider must be one of: ${Array.from(PROVIDERS).join(", ")}`,
-    );
+    consola.error(`--provider must be one of: ${Array.from(PROVIDERS).join(", ")}`);
     process.exit(1);
   }
   return value as Provider;
@@ -51,17 +41,11 @@ function parseParams(
     consola.error("Use either --params or --params-file, not both.");
     process.exit(1);
   }
-  const raw = fileValue
-    ? readFileSync(resolve(fileValue), "utf-8")
-    : value;
+  const raw = fileValue ? readFileSync(resolve(fileValue), "utf-8") : value;
   if (!raw || raw.length === 0) return {};
   try {
     const parsed = JSON.parse(raw) as unknown;
-    if (
-      !parsed ||
-      typeof parsed !== "object" ||
-      Array.isArray(parsed)
-    ) {
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       throw new Error("must be a JSON object");
     }
     return parsed as Record<string, unknown>;
@@ -122,9 +106,7 @@ async function downloadOutput(
   const target = resolve(outDir, `${filenamePrefix}-${seq}${ext}`);
   const res = await fetch(output.url);
   if (!res.ok) {
-    throw new Error(
-      `Failed to download ${output.filename} (${res.status} ${res.statusText})`,
-    );
+    throw new Error(`Failed to download ${output.filename} (${res.status} ${res.statusText})`);
   }
   const buf = Buffer.from(await res.arrayBuffer());
   mkdirSync(outDir, { recursive: true });
@@ -190,12 +172,7 @@ async function runImage({
 
   const written: string[] = [];
   for (let i = 0; i < result.outputs.length; i++) {
-    const path = await downloadOutput(
-      result.outputs[i]!,
-      outDir,
-      filenamePrefix,
-      i,
-    );
+    const path = await downloadOutput(result.outputs[i]!, outDir, filenamePrefix, i);
     written.push(path);
   }
 
@@ -270,7 +247,13 @@ const generateCommand = defineCommand({
     name: "generate",
     description: "Generate one or more images from a prompt.",
   },
-  args: sharedArgs,
+  args: {
+    ...sharedArgs,
+    image: {
+      type: "string",
+      description: "Path to an input image. Repeat --image for multiple references.",
+    },
+  },
   run: async ({ args }) => {
     await runImage({ task: "generate", args });
   },
@@ -285,8 +268,7 @@ const editCommand = defineCommand({
     ...sharedArgs,
     image: {
       type: "string",
-      description:
-        "Path to an input image. Repeat --image for multiple references.",
+      description: "Path to an input image. Repeat --image for multiple references.",
       required: true,
     },
   },
