@@ -4,9 +4,11 @@ import { z } from "zod";
 import { presignGet } from "../deploy/r2-presign";
 import type { ImageProviderKeys, R2Config } from "../trpc";
 import { createTRPCRouter, protectedProcedure } from "../trpc";
+import { base64ToBytes } from "./base64";
 import { falImageProvider } from "./providers/fal";
 import { openaiImageProvider } from "./providers/openai";
 import { retroDiffusionImageProvider } from "./providers/retro-diffusion";
+import { IMAGE_PROVIDERS } from "./types";
 import type {
   ImageInputFile,
   ImageProvider,
@@ -22,7 +24,7 @@ const PRESIGN_TTL_SECONDS = 3600;
 
 // ---- Schemas -----------------------------------------------------------------
 
-const providerEnum = z.enum(["openai", "fal", "retro-diffusion"]);
+const providerEnum = z.enum(IMAGE_PROVIDERS);
 const taskEnum = z.enum(["generate", "edit"]);
 
 const inputImageSchema = z.object({
@@ -52,16 +54,17 @@ function requireR2(r2: R2Config | undefined): R2Config {
   return r2;
 }
 
+const PROVIDER_KEY_FIELDS = {
+  openai: "openai",
+  fal: "fal",
+  "retro-diffusion": "retroDiffusion",
+} as const satisfies Record<z.infer<typeof providerEnum>, keyof ImageProviderKeys>;
+
 function pickApiKey(
   provider: z.infer<typeof providerEnum>,
   keys: ImageProviderKeys | undefined,
 ): string {
-  const value =
-    provider === "openai"
-      ? keys?.openai
-      : provider === "fal"
-        ? keys?.fal
-        : keys?.retroDiffusion;
+  const value = keys?.[PROVIDER_KEY_FIELDS[provider]];
   if (!value) {
     throw new TRPCError({
       code: "PRECONDITION_FAILED",
@@ -79,18 +82,11 @@ function pickProvider(
   return retroDiffusionImageProvider;
 }
 
-function decodeBase64(b64: string): Uint8Array {
-  const binary = atob(b64);
-  const out = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
-  return out;
-}
-
 function decodeInputImages(
   raw: z.infer<typeof inputImageSchema>[],
 ): ImageInputFile[] {
   return raw.map((image, index) => {
-    const bytes = decodeBase64(image.base64);
+    const bytes = base64ToBytes(image.base64);
     if (bytes.byteLength === 0) {
       throw new TRPCError({
         code: "BAD_REQUEST",
@@ -114,16 +110,9 @@ function decodeInputImages(
 // ---- Router ------------------------------------------------------------------
 
 export const imageRouter = createTRPCRouter({
-  /**
-   * Run a single image generation or edit through the configured provider,
-   * write the outputs to R2 under `image-runs/{userId}/{runId}/`, and return
-   * presigned GET URLs the caller can download from.
-   *
-   * The router is a thin proxy: it does not flatten provider-specific knobs
-   * into a unified schema. Callers pass `params` through as the provider's
-   * native input (e.g. `quality` for OpenAI, `aspect_ratio` for fal,
-   * `frames_duration` for Retro Diffusion).
-   */
+  // Thin proxy: `params` is forwarded as each provider's native input
+  // (e.g. `quality` for OpenAI, `aspect_ratio` for fal, `frames_duration`
+  // for Retro Diffusion); we do not flatten knobs into a unified schema.
   run: protectedProcedure
     .input(runInput)
     .mutation(async ({ ctx, input }) => {
@@ -179,14 +168,14 @@ export const imageRouter = createTRPCRouter({
           const seq = String(index + 1).padStart(2, "0");
           const filename = `output-${seq}${out.extension}`;
           const key = `image-runs/${userId}/${runId}/${filename}`;
-          await r2.bucket.put(key, out.bytes as ArrayBufferView, {
-            httpMetadata: { contentType: out.contentType },
-          });
-          const url = await presignGet({
-            r2,
-            key,
-            expiresInSeconds: PRESIGN_TTL_SECONDS,
-          });
+          // presign is independent of the put completing — sign the URL in
+          // parallel so the round-trip is one R2 latency instead of two.
+          const [, url] = await Promise.all([
+            r2.bucket.put(key, out.bytes as ArrayBufferView, {
+              httpMetadata: { contentType: out.contentType },
+            }),
+            presignGet({ r2, key, expiresInSeconds: PRESIGN_TTL_SECONDS }),
+          ]);
           return {
             url,
             contentType: out.contentType,

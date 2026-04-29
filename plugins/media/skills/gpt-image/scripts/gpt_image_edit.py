@@ -1,23 +1,5 @@
 #!/usr/bin/env python3
-"""
-Edit images with `gpt-image-1.5` via the vibedgames CLI.
-
-Routes through `vg image edit --provider openai`; the platform holds the
-OpenAI API key. The user only needs to be authenticated with `vg login`.
-
-Usage:
-  python3 gpt_image_edit.py \
-    --image input.png \
-    --prompt "Keep the same sprite, raise the arm slightly" \
-    --out-dir tmp/edit
-
-  python3 gpt_image_edit.py \
-    --image identity.png \
-    --image motion-guide.png \
-    --input-fidelity high \
-    --prompt "Use image 1 for identity and image 2 for pose" \
-    --out-dir tmp/edit
-"""
+"""Edit images with gpt-image-1.5."""
 
 from __future__ import annotations
 

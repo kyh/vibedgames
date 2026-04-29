@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 
+import { base64ToBytes } from "../base64";
 import type {
   ImageProvider,
   ImageProviderRequest,
@@ -61,18 +62,11 @@ function decodeOutputs(
       });
     }
     return {
-      bytes: base64Decode(item.b64_json),
+      bytes: base64ToBytes(item.b64_json),
       contentType: ct,
       extension: ext,
     };
   });
-}
-
-function base64Decode(b64: string): Uint8Array {
-  const binary = atob(b64);
-  const out = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
-  return out;
 }
 
 async function callJson(
@@ -160,11 +154,9 @@ async function edit(req: ImageProviderRequest): Promise<ImageProviderResult> {
   form.set("prompt", req.prompt);
   form.set("output_format", format);
   for (const image of req.inputImages) {
-    // Copy into a fresh ArrayBuffer to satisfy Blob's BlobPart typing on
-    // Workers (Uint8Array is not directly assignable in this lib config).
-    const copy = new Uint8Array(image.bytes.byteLength);
-    copy.set(image.bytes);
-    const blob = new Blob([copy.buffer], { type: image.contentType });
+    const blob = new Blob([image.bytes as Uint8Array<ArrayBuffer>], {
+      type: image.contentType,
+    });
     form.append("image[]", blob, image.filename);
   }
   const json = await callMultipart(EDIT_URL, req.apiKey, form);

@@ -1,15 +1,5 @@
 #!/usr/bin/env python3
-"""
-Generate images with `gpt-image-1.5` via the vibedgames CLI.
-
-Routes through `vg image generate --provider openai`; the platform holds the
-OpenAI API key, so the user only needs to be authenticated with `vg login`.
-
-Usage:
-  python3 gpt_image_generate.py \
-    --prompt "Glass potion bottle icon, transparent background" \
-    --out-dir tmp/potion
-"""
+"""Generate images with gpt-image-1.5."""
 
 from __future__ import annotations
 

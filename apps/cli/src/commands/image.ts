@@ -5,6 +5,8 @@ import {
 } from "node:fs";
 import { basename, extname, resolve } from "node:path";
 
+import { IMAGE_PROVIDERS } from "@repo/api/image/types";
+import type { ImageProviderName } from "@repo/api/image/types";
 import { defineCommand } from "citty";
 import consola from "consola";
 
@@ -25,22 +27,12 @@ type RunResult = {
   metadata: Record<string, unknown>;
 };
 
-type Provider = "openai" | "fal" | "retro-diffusion";
-
-const PROVIDERS: ReadonlySet<Provider> = new Set([
-  "openai",
-  "fal",
-  "retro-diffusion",
-]);
-
-function parseProvider(value: string | undefined): Provider {
-  if (!value || !PROVIDERS.has(value as Provider)) {
-    consola.error(
-      `--provider must be one of: ${Array.from(PROVIDERS).join(", ")}`,
-    );
+function parseProvider(value: string | undefined): ImageProviderName {
+  if (!value || !IMAGE_PROVIDERS.includes(value as ImageProviderName)) {
+    consola.error(`--provider must be one of: ${IMAGE_PROVIDERS.join(", ")}`);
     process.exit(1);
   }
-  return value as Provider;
+  return value as ImageProviderName;
 }
 
 function parseParams(
@@ -127,7 +119,6 @@ async function downloadOutput(
     );
   }
   const buf = Buffer.from(await res.arrayBuffer());
-  mkdirSync(outDir, { recursive: true });
   writeFileSync(target, buf);
   return target;
 }
@@ -188,16 +179,12 @@ async function runImage({
     process.exit(1);
   }
 
-  const written: string[] = [];
-  for (let i = 0; i < result.outputs.length; i++) {
-    const path = await downloadOutput(
-      result.outputs[i]!,
-      outDir,
-      filenamePrefix,
-      i,
-    );
-    written.push(path);
-  }
+  mkdirSync(outDir, { recursive: true });
+  const written = await Promise.all(
+    result.outputs.map((output, i) =>
+      downloadOutput(output, outDir, filenamePrefix, i),
+    ),
+  );
 
   if (args.json) {
     process.stdout.write(
@@ -288,10 +275,6 @@ const editCommand = defineCommand({
   },
   args: sharedArgs,
   run: async ({ args }) => {
-    if (!args.image || (Array.isArray(args.image) && args.image.length === 0)) {
-      consola.error("--image is required at least once for edit jobs");
-      process.exit(1);
-    }
     await runImage({ task: "edit", args });
   },
 });

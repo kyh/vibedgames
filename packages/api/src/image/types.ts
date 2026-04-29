@@ -6,6 +6,9 @@
  * presigning download URLs — providers only know how to talk to their API.
  */
 
+export const IMAGE_PROVIDERS = ["openai", "fal", "retro-diffusion"] as const;
+export type ImageProviderName = (typeof IMAGE_PROVIDERS)[number];
+
 export type ImageInputFile = {
   filename: string;
   contentType: string;

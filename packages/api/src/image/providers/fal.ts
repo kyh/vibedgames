@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 
+import { bytesToBase64 } from "../base64";
 import type {
   ImageInputFile,
   ImageProvider,
@@ -31,13 +32,7 @@ function falHeaders(apiKey: string): Record<string, string> {
 }
 
 function dataUriFor(image: ImageInputFile): string {
-  let binary = "";
-  const bytes = image.bytes;
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]!);
-  }
-  const encoded = btoa(binary);
-  return `data:${image.contentType};base64,${encoded}`;
+  return `data:${image.contentType};base64,${bytesToBase64(image.bytes)}`;
 }
 
 function imageFieldFor(params: Record<string, unknown>): string {
@@ -266,10 +261,12 @@ export const falImageProvider: ImageProvider = {
       });
     }
 
-    const outputs: ImageProviderResult["outputs"] = [];
-    for (const url of urls) {
-      outputs.push(await downloadImage(url));
-    }
+    const outputs = await Promise.all(urls.map(downloadImage));
+
+    const payloadObj =
+      payload && typeof payload === "object"
+        ? (payload as Record<string, unknown>)
+        : null;
 
     return {
       outputs,
@@ -278,7 +275,9 @@ export const falImageProvider: ImageProvider = {
         endpoint_id: endpointId,
         request_id: requestId ?? null,
         billable_units: billableUnits,
-        result: payload,
+        seed: payloadObj?.seed ?? null,
+        timings: payloadObj?.timings ?? null,
+        error: payloadObj?.error ?? payloadObj?.detail ?? null,
       },
     };
   },

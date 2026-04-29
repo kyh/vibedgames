@@ -50,9 +50,6 @@ export function getServerContext() {
         }
       : undefined;
 
-  // Image provider API keys are server-held so CLI users don't need their
-  // own. Each is optional; the image router rejects requests for providers
-  // whose key is missing.
   const imageProviders: ImageProviderKeys = {
     openai: env.OPENAI_API_KEY,
     fal: env.FAL_API_KEY,

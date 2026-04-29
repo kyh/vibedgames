@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 
+import { base64ToBytes, bytesToBase64 } from "../base64";
 import type {
   ImageProvider,
   ImageProviderRequest,
@@ -16,19 +17,6 @@ type RDResponse = {
   model?: string;
   created_at?: number;
 };
-
-function base64Decode(b64: string): Uint8Array {
-  const binary = atob(b64);
-  const out = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
-  return out;
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let s = "";
-  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]!);
-  return btoa(s);
-}
 
 function detectMedia(bytes: Uint8Array): { extension: string; contentType: string } {
   if (
@@ -109,7 +97,7 @@ export const retroDiffusionImageProvider: ImageProvider = {
 
     const outputs: ImageProviderResult["outputs"] = [];
     for (const encoded of json.base64_images ?? []) {
-      const bytes = base64Decode(encoded);
+      const bytes = base64ToBytes(encoded);
       const media = detectMedia(bytes);
       outputs.push({
         bytes,

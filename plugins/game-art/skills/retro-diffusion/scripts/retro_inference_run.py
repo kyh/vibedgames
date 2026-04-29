@@ -3,17 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["pillow>=11.0.0"]
 # ///
-"""
-Run one Retro Diffusion inference through the vibedgames CLI and write
-normalized tracking artifacts.
-
-Routes through `vg image generate --provider retro-diffusion`; the platform
-holds the Retro Diffusion API key, so users only need to be authenticated
-with `vg login`.
-
-The matrix runner (`retro_experiment_matrix.py`) imports ``parse_args`` and
-``run_inference`` from this module, so those names are preserved.
-"""
+"""Run one Retro Diffusion inference and write normalized tracking artifacts."""
 from __future__ import annotations
 
 import argparse
@@ -72,14 +62,6 @@ def _cli_bool(value: str | None) -> bool | None:
 
 
 def _build_params(args: argparse.Namespace, preset: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
-    """
-    Build the params dict the vg CLI forwards to the Retro Diffusion provider.
-
-    Retro Diffusion accepts input_image / reference_images / input_palette as
-    inline base64 strings on the same JSON request, so they live in `params`
-    rather than vg's `--image` flag (which is for providers that take real
-    multipart uploads).
-    """
     params = dict(preset.get("defaults", {}))
 
     if args.width is not None:

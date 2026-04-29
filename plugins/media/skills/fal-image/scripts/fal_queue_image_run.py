@@ -1,15 +1,5 @@
 #!/usr/bin/env python3
-"""
-Run one fal.ai image queue job through the vibedgames CLI and write
-normalized tracking artifacts.
-
-Routes through `vg image generate/edit --provider fal`; the platform holds
-the FAL API key, so users only need to be authenticated with `vg login`.
-
-The matrix runner (`fal_image_experiment_matrix.py`) imports
-``parse_args`` and ``run_image_job`` from this module, so those names are
-preserved.
-"""
+"""Run one fal.ai image job and write normalized tracking artifacts."""
 from __future__ import annotations
 
 import argparse
@@ -118,8 +108,6 @@ def _resolve_arguments(args: argparse.Namespace, preset: dict[str, Any]) -> tupl
 
     image_field = preset.get("input_image_field")
     if image_field:
-        # The vg fal provider needs to know which fal arg to pack image data
-        # into (image_url, image_urls, etc.). Forward via params.
         resolved["input_image_field"] = image_field
 
     return resolved, overrides
@@ -136,9 +124,6 @@ def run_image_job(args: argparse.Namespace) -> dict[str, Any]:
     image_files = list(args.image_file or [])
     image_urls = list(args.image_url or [])
     if image_urls:
-        # Hosted URLs go straight to fal via the preset's image field; the
-        # vg fal provider forwards `params` untouched. Local files still go
-        # through vg --image so the platform can encode and proxy them.
         field = preset.get("input_image_field") or "image_urls"
         existing = resolved_arguments.get(field)
         if isinstance(existing, list):
@@ -217,11 +202,8 @@ def run_image_job(args: argparse.Namespace) -> dict[str, Any]:
         }
     )
 
-    fal_result = metadata.get("result")
-    if isinstance(fal_result, dict):
-        result_error = fal_result.get("error") or fal_result.get("detail")
-        if result_error:
-            manifest["notes"].append(f"fal result included error/detail: {result_error}")
+    if metadata.get("error"):
+        manifest["notes"].append(f"fal result included error/detail: {metadata['error']}")
 
     write_json(manifest_path, manifest)
     return manifest
