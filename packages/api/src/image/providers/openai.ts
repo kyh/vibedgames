@@ -121,6 +121,7 @@ async function generate(
     model: req.model,
     prompt: req.prompt,
     output_format: format,
+    response_format: "b64_json",
   };
   const json = await callJson(GENERATE_URL, req.apiKey, payload);
   return {
@@ -147,12 +148,13 @@ async function edit(req: ImageProviderRequest): Promise<ImageProviderResult> {
   // always take precedence over anything passed in `params`.
   for (const [key, value] of Object.entries(req.params)) {
     if (value === undefined || value === null) continue;
-    if (key === "output_format" || key === "model" || key === "prompt") continue;
+    if (key === "output_format" || key === "model" || key === "prompt" || key === "response_format") continue;
     form.set(key, typeof value === "string" ? value : JSON.stringify(value));
   }
   form.set("model", req.model);
   form.set("prompt", req.prompt);
   form.set("output_format", format);
+  form.set("response_format", "b64_json");
   for (const image of req.inputImages) {
     const blob = new Blob([image.bytes as Uint8Array<ArrayBuffer>], {
       type: image.contentType,
