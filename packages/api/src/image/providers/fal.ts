@@ -124,15 +124,21 @@ async function downloadImage(url: string): Promise<{
     });
   }
   const buf = new Uint8Array(await res.arrayBuffer());
-  const headerType = res.headers.get("content-type") ?? "";
+  const headerMime = (res.headers.get("content-type") ?? "")
+    .split(";")[0]!
+    .trim()
+    .toLowerCase();
   // Prefer the response content-type when it's image/*; the URL extension is
   // a fallback for endpoints that omit the header. Keep both in sync so a
   // GIF served from a URL without an extension doesn't end up labelled .png.
-  const contentType = headerType.startsWith("image/")
-    ? headerType
+  const contentType = headerMime.startsWith("image/")
+    ? headerMime
     : contentTypeForExtension(extensionFromUrl(url));
-  const subtype = contentType.slice("image/".length);
-  const ext = subtype === "jpeg" ? "jpg" : subtype || extensionFromUrl(url);
+  const subtype = contentType.startsWith("image/")
+    ? contentType.slice("image/".length)
+    : "";
+  const ext =
+    subtype === "jpeg" ? "jpg" : subtype || extensionFromUrl(url);
   return { bytes: buf, contentType, extension: `.${ext}` };
 }
 
