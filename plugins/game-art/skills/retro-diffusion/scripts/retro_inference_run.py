@@ -172,7 +172,7 @@ def run_inference(args: argparse.Namespace) -> dict[str, Any]:
         "balance_cost": metadata.get("balance_cost"),
         "remaining_balance": metadata.get("remaining_balance"),
         "created_at_epoch": metadata.get("created_at"),
-        "output_files": list(response.get("outputs") or []),
+        "output_files": [relative_path(Path(p)) for p in (response.get("outputs") or [])],
         "output_urls": list(metadata.get("output_urls") or []),
         "vg_run_id": response.get("runId"),
         "response_json": relative_path(response_path),

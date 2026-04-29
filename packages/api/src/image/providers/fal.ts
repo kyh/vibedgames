@@ -71,8 +71,15 @@ function collectMediaUrls(payload: unknown): string[] {
     if (value && typeof value === "object") {
       const obj = value as Record<string, unknown>;
       const url = obj.url;
+      const contentType = obj.content_type;
       if (typeof url === "string" && url.startsWith("http")) {
-        found.push(url);
+        if (
+          !contentType ||
+          typeof contentType !== "string" ||
+          contentType.startsWith("image/")
+        ) {
+          found.push(url);
+        }
       }
       for (const child of Object.values(obj)) visit(child);
     }

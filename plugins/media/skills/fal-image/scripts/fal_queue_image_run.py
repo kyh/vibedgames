@@ -208,7 +208,7 @@ def run_image_job(args: argparse.Namespace) -> dict[str, Any]:
             "completed_at": now_utc_iso(),
             "request_id": metadata.get("request_id"),
             "billable_units_header": metadata.get("billable_units"),
-            "output_files": list(response.get("outputs") or []),
+            "output_files": [repo_relative(Path(p)) for p in (response.get("outputs") or [])],
             "output_urls": [],
             "vg_run_id": response.get("runId"),
             "raw_files": {
