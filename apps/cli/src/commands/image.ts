@@ -1,8 +1,4 @@
-import {
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, extname, resolve } from "node:path";
 
 import { IMAGE_PROVIDERS } from "@repo/api/image/types";
@@ -43,17 +39,11 @@ function parseParams(
     consola.error("Use either --params or --params-file, not both.");
     process.exit(1);
   }
-  const raw = fileValue
-    ? readFileSync(resolve(fileValue), "utf-8")
-    : value;
+  const raw = fileValue ? readFileSync(resolve(fileValue), "utf-8") : value;
   if (!raw || raw.length === 0) return {};
   try {
     const parsed = JSON.parse(raw) as unknown;
-    if (
-      !parsed ||
-      typeof parsed !== "object" ||
-      Array.isArray(parsed)
-    ) {
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       throw new Error("must be a JSON object");
     }
     return parsed as Record<string, unknown>;
@@ -114,9 +104,7 @@ async function downloadOutput(
   const target = resolve(outDir, `${filenamePrefix}-${seq}${ext}`);
   const res = await fetch(output.url);
   if (!res.ok) {
-    throw new Error(
-      `Failed to download ${output.filename} (${res.status} ${res.statusText})`,
-    );
+    throw new Error(`Failed to download ${output.filename} (${res.status} ${res.statusText})`);
   }
   const buf = Buffer.from(await res.arrayBuffer());
   writeFileSync(target, buf);
@@ -155,11 +143,6 @@ async function runImage({
   const params = parseParams(args.params, args["params-file"]);
   const inputImages = collectImages(args.image).map((p) => readImage(p));
 
-  if (task === "edit" && inputImages.length === 0) {
-    consola.error("--image is required at least once for edit jobs");
-    process.exit(1);
-  }
-
   const outDir = resolve(args["out-dir"]);
   const filenamePrefix = args["filename-prefix"] ?? "image";
 
@@ -181,9 +164,7 @@ async function runImage({
 
   mkdirSync(outDir, { recursive: true });
   const written = await Promise.all(
-    result.outputs.map((output, i) =>
-      downloadOutput(output, outDir, filenamePrefix, i),
-    ),
+    result.outputs.map((output, i) => downloadOutput(output, outDir, filenamePrefix, i)),
   );
 
   if (args.json) {

@@ -9,11 +9,7 @@ import { falImageProvider } from "./providers/fal";
 import { openaiImageProvider } from "./providers/openai";
 import { retroDiffusionImageProvider } from "./providers/retro-diffusion";
 import { IMAGE_PROVIDERS } from "./types";
-import type {
-  ImageInputFile,
-  ImageProvider,
-  ImageProviderRequest,
-} from "./types";
+import type { ImageInputFile, ImageProvider, ImageProviderRequest } from "./types";
 
 // ---- Limits ------------------------------------------------------------------
 
@@ -74,17 +70,13 @@ function pickApiKey(
   return value;
 }
 
-function pickProvider(
-  provider: z.infer<typeof providerEnum>,
-): ImageProvider {
+function pickProvider(provider: z.infer<typeof providerEnum>): ImageProvider {
   if (provider === "openai") return openaiImageProvider;
   if (provider === "fal") return falImageProvider;
   return retroDiffusionImageProvider;
 }
 
-function decodeInputImages(
-  raw: z.infer<typeof inputImageSchema>[],
-): ImageInputFile[] {
+function decodeInputImages(raw: z.infer<typeof inputImageSchema>[]): ImageInputFile[] {
   return raw.map((image, index) => {
     const bytes = base64ToBytes(image.base64);
     if (bytes.byteLength === 0) {
@@ -113,84 +105,76 @@ export const imageRouter = createTRPCRouter({
   // Thin proxy: `params` is forwarded as each provider's native input
   // (e.g. `quality` for OpenAI, `aspect_ratio` for fal, `frames_duration`
   // for Retro Diffusion); we do not flatten knobs into a unified schema.
-  run: protectedProcedure
-    .input(runInput)
-    .mutation(async ({ ctx, input }) => {
-      const r2 = requireR2(ctx.r2);
-      const apiKey = pickApiKey(input.provider, ctx.imageProviders);
-      const provider = pickProvider(input.provider);
+  run: protectedProcedure.input(runInput).mutation(async ({ ctx, input }) => {
+    const r2 = requireR2(ctx.r2);
+    const apiKey = pickApiKey(input.provider, ctx.imageProviders);
+    const provider = pickProvider(input.provider);
 
-      const inputImages = decodeInputImages(input.inputImages);
-      if (input.task === "edit" && inputImages.length === 0) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Edit jobs require at least one input image.",
-        });
-      }
+    const inputImages = decodeInputImages(input.inputImages);
 
-      const providerRequest: ImageProviderRequest = {
-        task: input.task,
-        model: input.model,
-        prompt: input.prompt,
-        params: input.params,
-        inputImages,
-        apiKey,
-      };
+    const providerRequest: ImageProviderRequest = {
+      task: input.task,
+      model: input.model,
+      prompt: input.prompt,
+      params: input.params,
+      inputImages,
+      apiKey,
+    };
 
-      const result = await provider.run(providerRequest);
-      if (result.outputs.length === 0) {
-        // Allow zero outputs for cost-only runs (e.g. retro-diffusion check_cost).
-        return {
-          runId: crypto.randomUUID(),
-          provider: input.provider,
-          model: input.model,
-          outputs: [] as Array<{
-            url: string;
-            contentType: string;
-            sizeBytes: number;
-            filename: string;
-          }>,
-          metadata: result.metadata,
-        };
-      }
-
-      const userId = ctx.session.user.id;
-      const runId = crypto.randomUUID();
-
-      const outputs = await Promise.all(
-        result.outputs.map(async (out, index) => {
-          if (out.bytes.byteLength > MAX_OUTPUT_IMAGE_BYTES) {
-            throw new TRPCError({
-              code: "INTERNAL_SERVER_ERROR",
-              message: `Output ${index} exceeds ${MAX_OUTPUT_IMAGE_BYTES} bytes.`,
-            });
-          }
-          const seq = String(index + 1).padStart(2, "0");
-          const filename = `output-${seq}${out.extension}`;
-          const key = `image-runs/${userId}/${runId}/${filename}`;
-          // presign is independent of the put completing — sign the URL in
-          // parallel so the round-trip is one R2 latency instead of two.
-          const [, url] = await Promise.all([
-            r2.bucket.put(key, out.bytes as ArrayBufferView, {
-              httpMetadata: { contentType: out.contentType },
-            }),
-            presignGet({ r2, key, expiresInSeconds: PRESIGN_TTL_SECONDS }),
-          ]);
-          return {
-            url,
-            contentType: out.contentType,
-            sizeBytes: out.bytes.byteLength,
-            filename,
-          };
-        }),
-      );
-
+    const result = await provider.run(providerRequest);
+    if (result.outputs.length === 0) {
+      // Allow zero outputs for cost-only runs (e.g. retro-diffusion check_cost).
       return {
-        runId,
+        runId: crypto.randomUUID(),
         provider: input.provider,
         model: input.model,
-        outputs,
+        outputs: [] as Array<{
+          url: string;
+          contentType: string;
+          sizeBytes: number;
+          filename: string;
+        }>,
         metadata: result.metadata,
       };
-    }),
+    }
+
+    const userId = ctx.session.user.id;
+    const runId = crypto.randomUUID();
+
+    const outputs = await Promise.all(
+      result.outputs.map(async (out, index) => {
+        if (out.bytes.byteLength > MAX_OUTPUT_IMAGE_BYTES) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Output ${index} exceeds ${MAX_OUTPUT_IMAGE_BYTES} bytes.`,
+          });
+        }
+        const seq = String(index + 1).padStart(2, "0");
+        const filename = `output-${seq}${out.extension}`;
+        const key = `image-runs/${userId}/${runId}/${filename}`;
+        // presign is independent of the put completing — sign the URL in
+        // parallel so the round-trip is one R2 latency instead of two.
+        const [, url] = await Promise.all([
+          r2.bucket.put(key, out.bytes as ArrayBufferView, {
+            httpMetadata: { contentType: out.contentType },
+          }),
+          presignGet({ r2, key, expiresInSeconds: PRESIGN_TTL_SECONDS }),
+        ]);
+        return {
+          url,
+          contentType: out.contentType,
+          sizeBytes: out.bytes.byteLength,
+          filename,
+        };
+      }),
+    );
+
+    return {
+      runId,
+      provider: input.provider,
+      model: input.model,
+      outputs,
+      metadata: result.metadata,
+    };
+  }),
 });
