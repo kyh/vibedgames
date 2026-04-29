@@ -3,6 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["pillow>=11.0.0"]
 # ///
+"""Run one Retro Diffusion inference and write normalized tracking artifacts."""
 from __future__ import annotations
 
 import argparse
@@ -10,23 +11,19 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from _retro_common import (
-    API_ROOT,
     base64_rgb_png,
-    decode_base64_media,
-    json_request,
     load_presets,
-    media_extension,
     now_utc_iso,
     prompt_sha256,
     read_text,
     relative_path,
-    require_rd_key,
     write_json,
 )
+from _vg import run_vg_image
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run one Retro Diffusion inference and write normalized artifacts.")
+    parser = argparse.ArgumentParser(description="Run one Retro Diffusion inference via vg and write normalized artifacts.")
     parser.add_argument("--preset", required=True, help="Preset name from assets/model-presets.json.")
     parser.add_argument("--prompt", default=None, help="Prompt text.")
     parser.add_argument("--prompt-file", type=Path, default=None, help="Path to a text file containing the prompt.")
@@ -64,34 +61,32 @@ def _cli_bool(value: str | None) -> bool | None:
     return value == "true"
 
 
-def _build_payload(args: argparse.Namespace, preset: dict[str, Any], prompt_text: str) -> tuple[dict[str, Any], dict[str, Any]]:
-    payload = dict(preset.get("defaults", {}))
-    payload["prompt_style"] = preset["prompt_style"]
-    payload["prompt"] = prompt_text
+def _build_params(args: argparse.Namespace, preset: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    params = dict(preset.get("defaults", {}))
 
     if args.width is not None:
-        payload["width"] = args.width
+        params["width"] = args.width
     if args.height is not None:
-        payload["height"] = args.height
+        params["height"] = args.height
     if args.num_images is not None:
-        payload["num_images"] = args.num_images
+        params["num_images"] = args.num_images
     if args.seed is not None:
-        payload["seed"] = args.seed
+        params["seed"] = args.seed
     if args.strength is not None:
-        payload["strength"] = args.strength
+        params["strength"] = args.strength
     if args.frames_duration is not None:
-        payload["frames_duration"] = args.frames_duration
+        params["frames_duration"] = args.frames_duration
 
     return_spritesheet = _cli_bool(args.return_spritesheet)
     if return_spritesheet is not None:
-        payload["return_spritesheet"] = return_spritesheet
+        params["return_spritesheet"] = return_spritesheet
 
     remove_bg = _cli_bool(args.remove_bg)
     if remove_bg is not None:
-        payload["remove_bg"] = remove_bg
+        params["remove_bg"] = remove_bg
 
     if args.check_cost:
-        payload["check_cost"] = True
+        params["check_cost"] = True
 
     input_manifest = {
         "input_image": relative_path(args.input_image) if args.input_image else None,
@@ -100,23 +95,13 @@ def _build_payload(args: argparse.Namespace, preset: dict[str, Any], prompt_text
     }
 
     if args.input_image:
-        payload["input_image"] = base64_rgb_png(args.input_image)
+        params["input_image"] = base64_rgb_png(args.input_image)
     if args.reference_image:
-        payload["reference_images"] = [base64_rgb_png(path) for path in args.reference_image]
+        params["reference_images"] = [base64_rgb_png(path) for path in args.reference_image]
     if args.input_palette:
-        payload["input_palette"] = base64_rgb_png(args.input_palette)
+        params["input_palette"] = base64_rgb_png(args.input_palette)
 
-    return payload, input_manifest
-
-
-def _write_media_outputs(response: dict[str, Any], out_dir: Path, filename_prefix: str) -> list[str]:
-    output_files: list[str] = []
-    for index, encoded in enumerate(response.get("base64_images") or [], start=1):
-        raw = decode_base64_media(encoded)
-        path = out_dir / f"{filename_prefix}-output-{index:02d}{media_extension(raw)}"
-        path.write_bytes(raw)
-        output_files.append(relative_path(path))
-    return output_files
+    return params, input_manifest
 
 
 def run_inference(args: argparse.Namespace) -> dict[str, Any]:
@@ -128,23 +113,31 @@ def run_inference(args: argparse.Namespace) -> dict[str, Any]:
     preset = presets[args.preset]
     prompt_text = _prompt_text(args)
     started_at = now_utc_iso()
-    payload, input_manifest = _build_payload(args, preset, prompt_text)
+    params, input_manifest = _build_params(args, preset)
 
     out_dir = args.out_dir.resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     response_path = out_dir / f"{args.filename_prefix}-response.json"
     run_path = out_dir / f"{args.filename_prefix}-run.json"
 
-    api_key = require_rd_key()
-    response = json_request(f"{API_ROOT}/inferences", payload, api_key)
+    response = run_vg_image(
+        task="generate",
+        provider="retro-diffusion",
+        model=str(preset["prompt_style"]),
+        prompt=prompt_text,
+        out_dir=out_dir,
+        filename_prefix=args.filename_prefix,
+        params=params,
+    )
     write_json(response_path, response)
-    output_files = [] if args.check_cost else _write_media_outputs(response, out_dir, args.filename_prefix)
 
+    metadata = response.get("metadata") or {}
     sanitized_payload = {
         key: value
-        for key, value in payload.items()
+        for key, value in params.items()
         if key not in {"input_image", "reference_images", "input_palette"}
     }
+
     manifest = {
         "timestamp": started_at,
         "task_slug": args.task_slug,
@@ -152,18 +145,19 @@ def run_inference(args: argparse.Namespace) -> dict[str, Any]:
         "preset": args.preset,
         "family": preset.get("family"),
         "prompt_style": preset.get("prompt_style"),
-        "model": response.get("model"),
+        "model": metadata.get("model"),
         "prompt_text": prompt_text,
         "prompt_hash": prompt_sha256(prompt_text),
         "input_source": input_manifest,
         "resolved_arguments": sanitized_payload,
         "status": "cost_only" if args.check_cost else "completed",
-        "balance_cost": response.get("balance_cost"),
-        "remaining_balance": response.get("remaining_balance"),
-        "created_at_epoch": response.get("created_at"),
-        "output_files": output_files,
-        "output_urls": response.get("output_urls") or [],
-        "response_json": relative_path(response_path)
+        "balance_cost": metadata.get("balance_cost"),
+        "remaining_balance": metadata.get("remaining_balance"),
+        "created_at_epoch": metadata.get("created_at"),
+        "output_files": [relative_path(Path(p)) for p in response.get("outputs") or []],
+        "output_urls": list(metadata.get("output_urls") or []),
+        "vg_run_id": response.get("runId"),
+        "response_json": relative_path(response_path),
     }
     write_json(run_path, manifest)
     return manifest

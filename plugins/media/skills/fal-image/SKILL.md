@@ -50,36 +50,41 @@ fal gives one platform surface for many image models, but the useful controls st
   - request audit
 - A batch runner that executes the same image task across multiple fal models and appends a central ledger row per run.
 
-## Working With fal Images In This Repo
+## How Image Calls Reach fal
 
-### Core Execution Pattern
+This skill never calls the fal API directly for image generation. The
+inference runner shells out to the vibedgames CLI (`vg image generate` /
+`vg image edit --provider fal`), which proxies to fal server-side. The
+FAL API key lives on the platform — users authenticate once with
+`vg login` and never handle a key locally.
 
-For tracked image jobs, this skill uses fal's queue API:
+Server-side, the proxy uses fal's queue API:
 
 - submit: `POST https://queue.fal.run/{endpoint_id}`
 - status: `GET https://queue.fal.run/{endpoint_id}/requests/{request_id}/status`
 - result: `GET https://queue.fal.run/{endpoint_id}/requests/{request_id}`
 
-Authentication uses:
-
-- `Authorization: Key $FAL_KEY`
-- in this repo, `FAL_API_KEY` is also accepted by the bundled scripts
-
-Important platform headers for repeatable comparison runs:
+with these headers:
 
 - `X-Fal-Store-IO: 1`
 - `x-app-fal-disable-fallback: true`
 
-The runner also captures response headers such as:
+`x-fal-billable-units` and `request_id` are surfaced back to the script as
+part of the run metadata.
 
-- `x-fal-request-id`
-- `x-fal-billable-units`
+Prerequisites:
 
-### Why This Skill Uses Queue HTTP First
+- `vg` CLI installed (`npm i -g vibedgames`)
+- `vg login` to authenticate
 
-The official `fal-client` SDK is valid and supported, but this repo's main requirement is portability inside a Codex skill. The scripts therefore keep a deterministic raw-queue path and also use `fal-client` automatically when it is available.
+### Caveats After Proxying
 
-In this repo's retained live image runs, `uv run --with fal-client python3 ...` was the dependable path for some endpoints.
+- Pre-run cost estimates and the `fal_platform_models.py` tooling are
+  **not** routed through `vg`; they remain direct fal calls and require a
+  `FAL_KEY`. They are maintainer-only and not needed for image runs.
+- `output_urls` in run manifests are now empty — generated outputs are
+  served via short-lived presigned URLs the CLI downloads to disk on the
+  user's behalf.
 
 ### Prompting Guidance For Image Comparison
 
@@ -119,15 +124,16 @@ Do not overload first comparison runs with long prompt stacks. The first job is 
 ## Scripts
 
 - `scripts/fal_queue_image_run.py`
-  - one text-to-image or image-edit queue run
-  - writes request/result JSON
+  - one text-to-image or image-edit run via `vg image`
   - downloads image outputs
   - writes normalized run manifest
-- `scripts/fal_platform_models.py`
-  - query fal platform APIs for model metadata and cost surfaces
 - `scripts/fal_image_experiment_matrix.py`
-  - run the same task across multiple image presets
+  - run the same task across multiple image presets via the queue runner
   - append central ledger rows
+- `scripts/fal_platform_models.py`
+  - **maintainer-only**: query fal platform APIs for model metadata and
+    cost surfaces. Requires a direct `FAL_KEY` and is not part of the
+    skill's user-facing image flow.
 
 ## Repo Workflow
 
