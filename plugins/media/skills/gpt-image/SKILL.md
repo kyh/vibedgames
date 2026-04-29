@@ -22,6 +22,18 @@ Image generation is not "write a pretty prompt and hope." The job is to convert 
 2. **Output settings are part of the prompt**: size, quality, format, and background materially change usefulness.
 3. **Truth over theater**: only claim an image was generated after running the API or receiving output.
 
+## How Image Calls Reach OpenAI
+
+This skill never calls the OpenAI API directly. Both bundled scripts shell
+out to the vibedgames CLI (`vg image generate` / `vg image edit`), which
+proxies to OpenAI server-side. The OpenAI API key lives on the platform —
+users authenticate once with `vg login` and never handle a key locally.
+
+Prerequisites:
+
+- `vg` CLI installed (`npm i -g vibedgames`)
+- `vg login` to authenticate
+
 ## Working With GPT Image 1.5
 
 OpenAI documents `gpt-image-1.5` as the latest GPT Image model with text and image input, and image and text output. The Images API supports `gpt-image-1.5` for generation, with `png`, `webp`, or `jpeg` output and documented size/quality/background controls. See `references/openai-gpt-image-1-5.md`.
@@ -48,7 +60,7 @@ OpenAI documents `gpt-image-1.5` as the latest GPT Image model with text and ima
    - `quality`: `low`, `medium`, `high`, or `auto`
    - `output_format`: `png`, `webp`, or `jpeg`
    - `background`: use `transparent` only with `png` or `webp`
-4. If image generation is requested and `OPENAI_API_KEY` is available, use `scripts/gpt_image_generate.py`.
+4. If image generation is requested and the user is logged in (`vg whoami`), use `scripts/gpt_image_generate.py`.
 5. Save outputs to a user-visible path and report exactly what was generated.
 
 ### Prompt Construction
@@ -153,8 +165,7 @@ Constraints: visible pixels, limited palette, stepped shading, no glossy renderi
 ### Generate images
 
 ```bash
-OPENAI_API_KEY=... \
-python3 .claude/skills/gpt-image-1-5/scripts/gpt_image_generate.py \
+python3 plugins/media/skills/gpt-image/scripts/gpt_image_generate.py \
   --prompt "Isometric potion shop icon, transparent background, polished game asset" \
   --out-dir tmp/potion_shop --quality high --size 1024x1024 --output-format png
 ```
@@ -166,13 +177,14 @@ Useful flags:
 - `--filename-prefix hero`
 - `--user some-trace-id`
 
-The script calls `POST /v1/images/generations`, decodes `b64_json`, and writes image files to disk.
+The script forwards to `vg image generate --provider openai`, which proxies
+to `POST /v1/images/generations` server-side and writes the decoded images
+to `--out-dir`.
 
 ### Edit images
 
 ```bash
-OPENAI_API_KEY=... \
-python3 .claude/skills/gpt-image-1-5/scripts/gpt_image_edit.py \
+python3 plugins/media/skills/gpt-image/scripts/gpt_image_edit.py \
   --image input.png \
   --prompt "Keep the same sprite, raise the arm slightly" \
   --out-dir tmp/edit
@@ -181,8 +193,7 @@ python3 .claude/skills/gpt-image-1-5/scripts/gpt_image_edit.py \
 Multi-image edits with fidelity control:
 
 ```bash
-OPENAI_API_KEY=... \
-python3 .claude/skills/gpt-image-1-5/scripts/gpt_image_edit.py \
+python3 plugins/media/skills/gpt-image/scripts/gpt_image_edit.py \
   --image identity.png \
   --image motion-guide.png \
   --input-fidelity high \
@@ -190,7 +201,22 @@ python3 .claude/skills/gpt-image-1-5/scripts/gpt_image_edit.py \
   --out-dir tmp/edit
 ```
 
-The edit script calls `POST /v1/images/edits` with multipart form data.
+The edit script forwards to `vg image edit --provider openai`, which
+proxies to `POST /v1/images/edits` server-side.
+
+### Calling vg directly
+
+The script wrapper is convenient for the documented flags, but `vg image`
+is also usable directly with arbitrary parameters:
+
+```bash
+vg image generate \
+  --provider openai \
+  --model gpt-image-1.5 \
+  --prompt "..." \
+  --out-dir tmp/out \
+  --params '{"quality":"high","size":"1024x1024","background":"transparent","output_format":"png"}'
+```
 
 ## Anti-Patterns To Avoid
 

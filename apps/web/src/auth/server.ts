@@ -1,4 +1,4 @@
-import type { R2Config } from "@repo/api/trpc";
+import type { ImageProviderKeys, R2Config } from "@repo/api/trpc";
 import { createAuth as initAuth } from "@repo/api/auth/auth";
 import { createDb } from "@repo/db/drizzle-client";
 import { getRequestHeaders } from "@tanstack/react-start/server";
@@ -50,7 +50,16 @@ export function getServerContext() {
         }
       : undefined;
 
-  return { db, auth, baseUrl, productionUrl, r2 };
+  // Image provider API keys are server-held so CLI users don't need their
+  // own. Each is optional; the image router rejects requests for providers
+  // whose key is missing.
+  const imageProviders: ImageProviderKeys = {
+    openai: env.OPENAI_API_KEY,
+    fal: env.FAL_API_KEY,
+    retroDiffusion: env.RETRO_DIFFUSION_API_KEY,
+  };
+
+  return { db, auth, baseUrl, productionUrl, r2, imageProviders };
 }
 
 /**

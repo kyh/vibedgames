@@ -24,6 +24,11 @@ export type R2BucketLike = {
     cursor?: string;
   }>;
   delete(key: string): Promise<void>;
+  put(
+    key: string,
+    value: ArrayBuffer | ArrayBufferView | ReadableStream | string,
+    options?: { httpMetadata?: { contentType?: string } },
+  ): Promise<unknown>;
 };
 
 /**
@@ -39,6 +44,17 @@ export type R2Config = {
 };
 
 /**
+ * Server-held API keys for the image generation providers the CLI proxies
+ * through `image.run`. None are required at boot — a missing key just means
+ * the corresponding provider returns an error when a CLI user picks it.
+ */
+export type ImageProviderKeys = {
+  openai?: string;
+  fal?: string;
+  retroDiffusion?: string;
+};
+
+/**
  * Per-request context.
  *
  * On Cloudflare Workers both `db` and `auth` are constructed per request from
@@ -51,6 +67,7 @@ export type CreateTRPCContextOptions = {
   auth: Auth;
   productionURL?: string;
   r2?: R2Config;
+  imageProviders?: ImageProviderKeys;
 };
 
 export const createTRPCContext = async (opts: CreateTRPCContextOptions) => {
@@ -63,6 +80,7 @@ export const createTRPCContext = async (opts: CreateTRPCContextOptions) => {
     headers: opts.headers,
     productionURL: opts.productionURL,
     r2: opts.r2,
+    imageProviders: opts.imageProviders,
   };
 };
 

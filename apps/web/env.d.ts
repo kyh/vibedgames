@@ -13,6 +13,9 @@ interface CloudflareEnv {
   R2_SECRET_ACCESS_KEY: string;
   V0_API_KEY?: string;
   AI_GATEWAY_API_KEY?: string;
+  OPENAI_API_KEY?: string;
+  FAL_API_KEY?: string;
+  RETRO_DIFFUSION_API_KEY?: string;
 }
 
 declare module "cloudflare:workers" {

@@ -72,18 +72,25 @@ The right way to use Retro Diffusion is:
 
 ## Working With Retro Diffusion
 
-### API Shape
+### How Inferences Reach Retro Diffusion
 
-- Endpoint: `POST https://api.retrodiffusion.ai/v1/inferences`
-- Auth header: `X-RD-Token: YOUR_API_KEY`
-- Env var: `RETRO_DIFFUSION_API_KEY` or `RD_API_KEY`
+This skill never calls the Retro Diffusion API directly. The inference
+runner shells out to the vibedgames CLI (`vg image generate --provider
+retro-diffusion`), which proxies to `POST
+https://api.retrodiffusion.ai/v1/inferences` server-side. The Retro
+Diffusion API key lives on the platform — users authenticate once with
+`vg login` and never handle a key locally.
+
+Prerequisites:
+
+- `vg` CLI installed (`npm i -g vibedgames`)
+- `vg login` to authenticate
 
 Outputs can include:
 
-- `base64_images`
-- `output_urls`
-- `balance_cost`
-- `remaining_balance`
+- decoded image files written to `--out-dir`
+- `balance_cost` and `remaining_balance` (returned in the run manifest's
+  metadata)
 
 Animations normally come back as transparent GIFs. Add `return_spritesheet: true` when you want a PNG sheet instead.
 

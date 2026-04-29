@@ -5,7 +5,7 @@ import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { getServerContext } from "@/auth/server";
 
 const handler = (req: Request) => {
-  const { db, auth, productionUrl, r2 } = getServerContext();
+  const { db, auth, productionUrl, r2, imageProviders } = getServerContext();
   return fetchRequestHandler({
     endpoint: "/api/trpc",
     router: appRouter,
@@ -17,6 +17,7 @@ const handler = (req: Request) => {
         auth,
         productionURL: productionUrl,
         r2,
+        imageProviders,
       }),
     onError({ error, path }) {
       console.error(`>>> tRPC Error on '${path}'`, error);
