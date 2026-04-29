@@ -174,14 +174,14 @@ export const imageRouter = createTRPCRouter({
           const seq = String(index + 1).padStart(2, "0");
           const filename = `output-${seq}${out.extension}`;
           const key = `image-runs/${userId}/${runId}/${filename}`;
-          // presign is independent of the put completing — sign the URL in
-          // parallel so the round-trip is one R2 latency instead of two.
-          const [, url] = await Promise.all([
-            r2.bucket.put(key, out.bytes as ArrayBufferView, {
-              httpMetadata: { contentType: out.contentType },
-            }),
-            presignGet({ r2, key, expiresInSeconds: PRESIGN_TTL_SECONDS }),
-          ]);
+          await r2.bucket.put(key, out.bytes as ArrayBufferView, {
+            httpMetadata: { contentType: out.contentType },
+          });
+          const url = await presignGet({
+            r2,
+            key,
+            expiresInSeconds: PRESIGN_TTL_SECONDS,
+          });
           return {
             url,
             contentType: out.contentType,
