@@ -84,6 +84,9 @@ function collectMediaUrls(payload: unknown): string[] {
   // `content_type` is image-y, falling back to the URL extension when the
   // server does not set one. This avoids picking up unrelated URLs (audio,
   // video, internal metadata) that may sit elsewhere in the response tree.
+  // Dedupe so a URL nested at multiple levels does not yield duplicate
+  // outputs.
+  const seen = new Set<string>();
   const found: string[] = [];
   const visit = (value: unknown) => {
     if (Array.isArray(value)) {
@@ -93,14 +96,17 @@ function collectMediaUrls(payload: unknown): string[] {
     if (value && typeof value === "object") {
       const obj = value as Record<string, unknown>;
       const url = obj.url;
-      if (typeof url === "string" && url.startsWith("http")) {
+      if (typeof url === "string" && url.startsWith("http") && !seen.has(url)) {
         const contentType =
           typeof obj.content_type === "string" ? obj.content_type : null;
         const isImage =
           contentType !== null
             ? contentType.startsWith("image/")
             : looksLikeImageUrl(url);
-        if (isImage) found.push(url);
+        if (isImage) {
+          seen.add(url);
+          found.push(url);
+        }
       }
       for (const child of Object.values(obj)) visit(child);
     }
