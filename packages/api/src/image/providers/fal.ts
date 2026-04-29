@@ -49,11 +49,12 @@ function contentTypeForExtension(ext: string): string {
   return "application/octet-stream";
 }
 
-function extensionFromUrl(url: string): string {
+function extensionFromUrl(url: string): string | null {
   const path = new URL(url).pathname;
   const dot = path.lastIndexOf(".");
-  if (dot === -1) return "png";
-  return path.slice(dot + 1).toLowerCase() || "png";
+  if (dot === -1) return null;
+  const ext = path.slice(dot + 1).toLowerCase();
+  return ext || null;
 }
 
 const IMAGE_EXTENSIONS = new Set([
@@ -70,7 +71,7 @@ const IMAGE_EXTENSIONS = new Set([
 
 function looksLikeImageUrl(url: string): boolean {
   const ext = extensionFromUrl(url);
-  return IMAGE_EXTENSIONS.has(ext);
+  return ext !== null && IMAGE_EXTENSIONS.has(ext);
 }
 
 function collectMediaUrls(payload: unknown): string[] {
@@ -131,14 +132,15 @@ async function downloadImage(url: string): Promise<{
   // Prefer the response content-type when it's image/*; the URL extension is
   // a fallback for endpoints that omit the header. Keep both in sync so a
   // GIF served from a URL without an extension doesn't end up labelled .png.
+  const urlExt = extensionFromUrl(url) ?? "png";
   const contentType = headerMime.startsWith("image/")
     ? headerMime
-    : contentTypeForExtension(extensionFromUrl(url));
+    : contentTypeForExtension(urlExt);
   const subtype = contentType.startsWith("image/")
     ? contentType.slice("image/".length)
     : "";
   const ext =
-    subtype === "jpeg" ? "jpg" : subtype || extensionFromUrl(url);
+    subtype === "jpeg" ? "jpg" : subtype || urlExt;
   return { bytes: buf, contentType, extension: `.${ext}` };
 }
 

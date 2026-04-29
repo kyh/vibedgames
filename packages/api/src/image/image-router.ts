@@ -124,7 +124,7 @@ export const imageRouter = createTRPCRouter({
       const apiKey = pickApiKey(input.provider, ctx.imageProviders);
       const provider = pickProvider(input.provider);
 
-      const paramsByteLength = JSON.stringify(input.params).length;
+      const paramsByteLength = new TextEncoder().encode(JSON.stringify(input.params)).byteLength;
       if (paramsByteLength > MAX_PARAMS_BYTES) {
         throw new TRPCError({
           code: "PAYLOAD_TOO_LARGE",
