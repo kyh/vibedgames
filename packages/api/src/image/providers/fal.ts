@@ -225,8 +225,11 @@ export const falImageProvider: ImageProvider = {
       const field = imageFieldFor(req.params);
       const encoded = req.inputImages.map((img) => dataUriFor(img));
       const existing = arguments_[field];
+      // Prepend uploaded files before any URLs already in params so fal
+      // endpoints that treat the first entry as the primary input see the
+      // local upload, matching the runner's documented file-then-url order.
       arguments_[field] = Array.isArray(existing)
-        ? [...existing, ...encoded]
+        ? [...encoded, ...existing]
         : encoded;
     }
 
