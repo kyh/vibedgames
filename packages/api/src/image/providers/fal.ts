@@ -131,7 +131,10 @@ async function downloadImage(url: string): Promise<{
   const contentType = headerType.startsWith("image/")
     ? headerType
     : contentTypeForExtension(extensionFromUrl(url));
-  const subtype = contentType.slice("image/".length);
+  // Strip media-type parameters (e.g., "image/png; charset=utf-8" → "png")
+  const subtype = contentType.startsWith("image/")
+    ? contentType.slice("image/".length).split(";")[0]?.trim()
+    : "";
   const ext = subtype === "jpeg" ? "jpg" : subtype || extensionFromUrl(url);
   return { bytes: buf, contentType, extension: `.${ext}` };
 }
