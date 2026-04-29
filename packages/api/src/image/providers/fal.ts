@@ -61,7 +61,29 @@ function extensionFromUrl(url: string): string {
   return path.slice(dot + 1).toLowerCase() || "png";
 }
 
+const IMAGE_EXTENSIONS = new Set([
+  "png",
+  "jpg",
+  "jpeg",
+  "webp",
+  "gif",
+  "bmp",
+  "tif",
+  "tiff",
+  "avif",
+]);
+
+function looksLikeImageUrl(url: string): boolean {
+  const ext = extensionFromUrl(url);
+  return IMAGE_EXTENSIONS.has(ext);
+}
+
 function collectMediaUrls(payload: unknown): string[] {
+  // Fal image endpoints embed outputs in objects shaped like
+  // `{ url, content_type, file_name, ... }`. Match only entries whose
+  // `content_type` is image-y, falling back to the URL extension when the
+  // server does not set one. This avoids picking up unrelated URLs (audio,
+  // video, internal metadata) that may sit elsewhere in the response tree.
   const found: string[] = [];
   const visit = (value: unknown) => {
     if (Array.isArray(value)) {
@@ -72,7 +94,13 @@ function collectMediaUrls(payload: unknown): string[] {
       const obj = value as Record<string, unknown>;
       const url = obj.url;
       if (typeof url === "string" && url.startsWith("http")) {
-        found.push(url);
+        const contentType =
+          typeof obj.content_type === "string" ? obj.content_type : null;
+        const isImage =
+          contentType !== null
+            ? contentType.startsWith("image/")
+            : looksLikeImageUrl(url);
+        if (isImage) found.push(url);
       }
       for (const child of Object.values(obj)) visit(child);
     }
