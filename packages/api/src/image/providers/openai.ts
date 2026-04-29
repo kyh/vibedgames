@@ -154,7 +154,7 @@ async function edit(req: ImageProviderRequest): Promise<ImageProviderResult> {
   form.set("output_format", format);
   for (const [key, value] of Object.entries(req.params)) {
     if (value === undefined || value === null) continue;
-    if (key === "output_format") continue;
+    if (key === "output_format" || key === "model" || key === "prompt") continue;
     form.set(key, typeof value === "string" ? value : JSON.stringify(value));
   }
   for (const image of req.inputImages) {

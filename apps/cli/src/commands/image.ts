@@ -43,10 +43,15 @@ function parseProvider(value: string | undefined): Provider {
   return value as Provider;
 }
 
-function parseParams(value: string | undefined): Record<string, unknown> {
-  if (!value || value.length === 0) return {};
+function parseParams(value: string | undefined, paramsFile: string | undefined): Record<string, unknown> {
+  if ((value ? 1 : 0) + (paramsFile ? 1 : 0) > 1) {
+    consola.error("Provide at most one of --params or --params-file");
+    process.exit(1);
+  }
+  const jsonStr = paramsFile ? readFileSync(resolve(paramsFile), "utf-8") : value;
+  if (!jsonStr || jsonStr.length === 0) return {};
   try {
-    const parsed = JSON.parse(value) as unknown;
+    const parsed = JSON.parse(jsonStr) as unknown;
     if (
       !parsed ||
       typeof parsed !== "object" ||
@@ -135,6 +140,7 @@ async function runImage({
     "out-dir"?: string;
     "filename-prefix"?: string;
     params?: string;
+    "params-file"?: string;
     image?: string | string[];
     json?: boolean;
   };
@@ -150,7 +156,7 @@ async function runImage({
   }
 
   const promptText = readPromptText(args.prompt, args["prompt-file"]);
-  const params = parseParams(args.params);
+  const params = parseParams(args.params, args["params-file"]);
   const inputImages = collectImages(args.image).map((p) => readImage(p));
 
   if (task === "edit" && inputImages.length === 0) {
@@ -242,6 +248,10 @@ const sharedArgs = {
   params: {
     type: "string",
     description: "JSON object of provider-specific params (e.g. quality, size)",
+  },
+  "params-file": {
+    type: "string",
+    description: "Path to a file containing a JSON object of provider-specific params",
   },
   json: {
     type: "boolean",
