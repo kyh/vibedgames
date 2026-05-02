@@ -83,9 +83,15 @@ export const retroDiffusionImageProvider: ImageProvider = {
           .slice(1)
           .map((img) => bytesToBase64(img.bytes));
         const existing = payload.reference_images;
-        payload.reference_images = Array.isArray(existing)
-          ? [...existing, ...extras]
-          : extras;
+        if (Array.isArray(existing)) {
+          payload.reference_images = [...existing, ...extras];
+        } else if (typeof existing === "string" && existing.length > 0) {
+          // Some users pass a single base64 reference as a scalar string;
+          // normalize to array shape rather than dropping it on the floor.
+          payload.reference_images = [existing, ...extras];
+        } else {
+          payload.reference_images = extras;
+        }
       }
     }
 

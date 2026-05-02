@@ -54,26 +54,45 @@ function parseParams(
 async function readPrompt(
   args: { prompt?: string; "prompt-file"?: string; _?: string[] },
 ): Promise<string> {
-  const sources: string[] = [];
-  if (args.prompt) sources.push(args.prompt);
-  if (args["prompt-file"]) {
-    sources.push(readFileSync(resolve(args["prompt-file"]), "utf-8").trim());
+  // Treat each input channel as a single named source. If more than one
+  // is non-empty we error out instead of silently concatenating, so an
+  // inherited stdin in CI doesn't quietly merge with --prompt.
+  const sources: { name: string; text: string }[] = [];
+  if (args.prompt && args.prompt.trim().length > 0) {
+    sources.push({ name: "--prompt", text: args.prompt.trim() });
   }
-  const piped = await readStdin();
-  if (piped.trim().length > 0) sources.push(piped.trim());
-  // Positional args: anything after the subcommand that wasn't a known flag.
+  if (args["prompt-file"]) {
+    const fileText = readFileSync(
+      resolve(args["prompt-file"]),
+      "utf-8",
+    ).trim();
+    if (fileText.length > 0) {
+      sources.push({ name: "--prompt-file", text: fileText });
+    }
+  }
+  const piped = (await readStdin()).trim();
+  if (piped.length > 0) sources.push({ name: "stdin", text: piped });
   if (Array.isArray(args._)) {
     const positional = args._.join(" ").trim();
-    if (positional.length > 0) sources.push(positional);
+    if (positional.length > 0) {
+      sources.push({ name: "positional args", text: positional });
+    }
   }
-  const prompt = sources.join("\n").trim();
-  if (prompt.length === 0) {
+  if (sources.length === 0) {
     consola.error(
       "Prompt is required. Pass it positionally, via --prompt, --prompt-file, or stdin.",
     );
     process.exit(1);
   }
-  return prompt;
+  if (sources.length > 1) {
+    consola.error(
+      `Prompt provided through multiple sources (${sources
+        .map((s) => s.name)
+        .join(", ")}). Pick one.`,
+    );
+    process.exit(1);
+  }
+  return sources[0]!.text;
 }
 
 function contentTypeFor(filename: string): string {

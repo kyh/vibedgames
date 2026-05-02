@@ -202,9 +202,20 @@ async function generate(
 
 async function edit(req: ImageProviderRequest): Promise<ImageProviderResult> {
   if (req.inputImages.length === 0) {
+    // OpenAI's edit endpoint expects `image` / `image[]` as binary form
+    // fields, so the proxy filters those keys out of `params` to keep
+    // them from leaking as text. If a user routed images through
+    // `--params` instead of `--image`, surface a specific message
+    // pointing at the right flag.
+    const usedParamsImage =
+      typeof req.params.image === "string" ||
+      Array.isArray(req.params.image) ||
+      Array.isArray((req.params as Record<string, unknown>)["image[]"]);
     throw new TRPCError({
       code: "BAD_REQUEST",
-      message: "OpenAI image edits require at least one input image.",
+      message: usedParamsImage
+        ? "OpenAI image edits require --image (or `inputImages` on the API). The `image` / `image[]` keys in --params are reserved by the proxy and don't reach OpenAI."
+        : "OpenAI image edits require at least one input image.",
     });
   }
   const format = outputFormatFor(req.model, req.params);
