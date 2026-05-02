@@ -129,6 +129,24 @@ function collectImages(value: string | string[] | undefined): string[] {
   return Array.isArray(value) ? value : [value];
 }
 
+/**
+ * Parse a string flag as a positive integer. Distinguishes "missing"
+ * (use the default) from "garbage" (also use the default) and from
+ * "valid but below the floor" (clamp). Avoids the `parseInt(...) || N`
+ * trap where `0` is falsy and silently falls back to the default
+ * instead of getting clamped to the minimum.
+ */
+function clampInt(
+  value: string | undefined,
+  fallback: number,
+  min: number,
+): number {
+  if (value === undefined || value === "") return fallback;
+  const parsed = parseInt(value, 10);
+  if (Number.isNaN(parsed)) return fallback;
+  return Math.max(min, parsed);
+}
+
 function resolveModels(
   raw: string | undefined,
   defaultProvider: ImageProviderName | undefined,
@@ -181,10 +199,8 @@ async function runImage({
     );
     process.exit(1);
   }
-  const count = args.count ? Math.max(1, parseInt(args.count, 10) || 1) : 1;
-  const concurrency = args.concurrency
-    ? Math.max(1, parseInt(args.concurrency, 10) || DEFAULT_CONCURRENCY)
-    : DEFAULT_CONCURRENCY;
+  const count = clampInt(args.count, 1, 1);
+  const concurrency = clampInt(args.concurrency, DEFAULT_CONCURRENCY, 1);
   const output = resolveOutputTarget(
     args.output,
     process.env.VG_OUTPUT_DIR ?? process.cwd(),
