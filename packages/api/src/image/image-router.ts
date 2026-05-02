@@ -27,6 +27,8 @@ const MAX_OUTPUT_IMAGE_BYTES = 25 * 1024 * 1024;
 // at typical pixel-art sizes. We measure size by walking the parsed
 // object directly (see `jsonByteLengthBounded`) so we never materialize
 // the serialized JSON or an encoded buffer alongside the parsed input.
+// This is defense-in-depth — the apps/web tRPC handler also rejects
+// bodies above its own MAX_BODY_BYTES ceiling before tRPC/Zod parse.
 const MAX_PARAMS_BYTES = 32 * 1024 * 1024;
 const PRESIGN_TTL_SECONDS = 3600;
 
