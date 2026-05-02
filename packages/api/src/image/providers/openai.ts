@@ -143,9 +143,11 @@ function needsResponseFormatOverride(model: string): boolean {
 
 // Fields the proxy controls — never let user-supplied params overwrite or
 // reach OpenAI through the spread/form loops. The image-binary fields
-// (`image`, `image[]`, `mask`) are appended explicitly below; if a user
-// passed them through `params` the form would end up with stray text
-// entries alongside the real binary blobs.
+// (`image`, `image[]`) are appended explicitly below; if a user passed
+// them through `params` the form would end up with stray text entries
+// alongside the real binary blobs. `mask` is handled separately further
+// down: it stays addressable through `params` (as a base64 string) but
+// never as a stray text field.
 const RESERVED_FIELDS = new Set([
   "model",
   "prompt",
@@ -214,6 +216,27 @@ async function edit(req: ImageProviderRequest): Promise<ImageProviderResult> {
   }
   form.set("model", req.model);
   form.set("prompt", req.prompt);
+  // OpenAI's edit endpoint accepts an optional `mask` PNG. We expose it
+  // as a base64 string in `params.mask` (matching the retro-diffusion
+  // convention for inline images) and decode it here before appending
+  // as a binary blob.
+  const maskValue = req.params.mask;
+  if (typeof maskValue === "string" && maskValue.length > 0) {
+    let maskBytes: Uint8Array;
+    try {
+      maskBytes = base64ToBytes(maskValue);
+    } catch {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "OpenAI mask must be a base64-encoded PNG string.",
+      });
+    }
+    form.append(
+      "mask",
+      new Blob([maskBytes as Uint8Array<ArrayBuffer>], { type: "image/png" }),
+      "mask.png",
+    );
+  }
   if (supportsOutputFormat(req.model)) {
     form.set("output_format", format);
   }

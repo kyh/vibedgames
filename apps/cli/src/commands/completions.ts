@@ -105,19 +105,30 @@ compdef _vg vg
 }
 
 function fishScript(): string {
-  const flagLines = IMAGE_FLAGS.map((flag) => {
+  const fishFlag = (flag: string, condition: string): string => {
     const isShort = flag.startsWith("-") && !flag.startsWith("--");
     const name = flag.replace(/^--?/, "");
     const opt = isShort ? "-s" : "-l";
-    return `complete -c vg -n '__fish_seen_subcommand_from image' ${opt} '${name}'`;
-  });
+    return `complete -c vg -n '${condition}' ${opt} '${name}'`;
+  };
+  const imageFlagLines = [...IMAGE_FLAGS, ...COMMON_FLAGS].map((flag) =>
+    fishFlag(flag, "__fish_seen_subcommand_from image"),
+  );
+  // For all other subcommands, only the common flags are meaningful.
+  const otherSubcommands = SUBCOMMANDS.filter((s) => s !== "image");
+  const otherFlagLines = COMMON_FLAGS.flatMap((flag) =>
+    otherSubcommands.map((sub) =>
+      fishFlag(flag, `__fish_seen_subcommand_from ${sub}`),
+    ),
+  );
   return `# vg completions for fish.
 complete -c vg -f
 complete -c vg -n '__fish_use_subcommand' -a '${SUBCOMMANDS.join(" ")}'
 ${IMAGE_SUBCOMMANDS.map(
   (sub) => `complete -c vg -n '__fish_seen_subcommand_from image' -a '${sub}'`,
 ).join("\n")}
-${flagLines.join("\n")}
+${imageFlagLines.join("\n")}
+${otherFlagLines.join("\n")}
 `;
 }
 
