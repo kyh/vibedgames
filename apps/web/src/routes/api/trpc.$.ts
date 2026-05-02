@@ -30,8 +30,22 @@ function bodyTooLargeResponse(req: Request): Response {
       },
     },
   };
-  const isBatch = new URL(req.url).searchParams.has("batch");
-  return new Response(JSON.stringify(isBatch ? [errorObj] : errorObj), {
+  const url = new URL(req.url);
+  const isBatch = url.searchParams.has("batch");
+  let body: unknown = errorObj;
+  if (isBatch) {
+    // tRPC batch URLs encode procedures as a comma-separated path
+    // segment (e.g. /api/trpc/x.a,y.b). httpBatchLink expects one
+    // response slot per procedure, so size the array to match instead
+    // of always returning a single-element array.
+    const lastSegment = url.pathname.split("/").filter(Boolean).pop() ?? "";
+    const count = Math.max(
+      1,
+      lastSegment.split(",").filter((s) => s.length > 0).length,
+    );
+    body = Array.from({ length: count }, () => errorObj);
+  }
+  return new Response(JSON.stringify(body), {
     status: 413,
     headers: { "content-type": "application/json" },
   });
