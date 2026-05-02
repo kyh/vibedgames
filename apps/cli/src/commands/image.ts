@@ -163,7 +163,7 @@ async function runImage({
     params?: string;
     "params-file"?: string;
     image?: string | string[];
-    n?: string;
+    count?: string;
     concurrency?: string;
     json?: boolean;
     quiet?: boolean;
@@ -175,7 +175,7 @@ async function runImage({
   const prompt = await readPrompt(args);
   const params = parseParams(args.params, args["params-file"]);
   const inputImages = collectImages(args.image).map((p) => readImage(p));
-  const count = args.n ? Math.max(1, parseInt(args.n, 10) || 1) : 1;
+  const count = args.count ? Math.max(1, parseInt(args.count, 10) || 1) : 1;
   const concurrency = args.concurrency
     ? Math.max(1, parseInt(args.concurrency, 10) || DEFAULT_CONCURRENCY)
     : DEFAULT_CONCURRENCY;
@@ -296,8 +296,9 @@ const sharedArgs = {
     description:
       "Path to an input image. Repeat --image for multiple references. Required for `edit`.",
   },
-  n: {
+  count: {
     type: "string",
+    alias: "n",
     description: "Number of generations per model (default 1).",
   },
   concurrency: {

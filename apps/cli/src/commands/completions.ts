@@ -31,6 +31,7 @@ const IMAGE_FLAGS = [
   "--params",
   "--params-file",
   "--image",
+  "--count",
   "-n",
   "--concurrency",
   "-p",
