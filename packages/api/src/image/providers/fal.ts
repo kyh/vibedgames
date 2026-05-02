@@ -150,8 +150,16 @@ async function downloadImage(url: string): Promise<{
   const subtype = contentType.startsWith("image/")
     ? contentType.slice("image/".length)
     : "";
+  // Subtypes like `svg+xml` or `vnd.microsoft.icon` would produce
+  // malformed extensions if used verbatim; fall through to the URL
+  // extension (which is itself filtered by IMAGE_EXTENSIONS) when the
+  // subtype isn't a known plain image extension.
+  const subtypeExt = subtype === "jpeg" ? "jpg" : subtype;
+  const urlExt = extensionFromUrl(url);
   const ext =
-    subtype === "jpeg" ? "jpg" : subtype || extensionFromUrl(url) || "bin";
+    (subtypeExt && IMAGE_EXTENSIONS.has(subtypeExt) ? subtypeExt : null) ??
+    (urlExt && IMAGE_EXTENSIONS.has(urlExt) ? urlExt : null) ??
+    "bin";
   return { bytes: buf, contentType, extension: `.${ext}` };
 }
 
