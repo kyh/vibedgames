@@ -1,6 +1,6 @@
 import type { AppRouter } from "@repo/api";
 import type { TRPCClient } from "@trpc/client";
-import { createTRPCClient, httpBatchLink } from "@trpc/client";
+import { createTRPCClient, httpBatchLink, httpLink, splitLink } from "@trpc/client";
 import superjson from "superjson";
 
 import { getBaseUrl, getToken } from "./config.js";
@@ -13,14 +13,20 @@ export function createClient(): TRPCClient<AppRouter> {
     throw new Error("Not logged in. Run `vg login` to authenticate.");
   }
 
+  const url = `${getBaseUrl()}/api/trpc`;
+  const headers = () => ({ Authorization: `Bearer ${token}` });
+
   return createTRPCClient<AppRouter>({
     links: [
-      httpBatchLink({
-        url: `${getBaseUrl()}/api/trpc`,
-        transformer: superjson,
-        headers: () => ({
-          Authorization: `Bearer ${token}`,
-        }),
+      // Mutations like `image.run` carry multi-MB base64 payloads; if a
+      // batch link grouped concurrent calls into one HTTP request the
+      // body would scale linearly with concurrency and breach the
+      // server's MAX_BODY_BYTES cap. Route mutations through the
+      // unbatched httpLink and keep batching for small queries.
+      splitLink({
+        condition: (op) => op.type === "mutation",
+        true: httpLink({ url, transformer: superjson, headers }),
+        false: httpBatchLink({ url, transformer: superjson, headers }),
       }),
     ],
   });
@@ -28,11 +34,13 @@ export function createClient(): TRPCClient<AppRouter> {
 
 /** Unauthenticated client — for login flow. */
 export function createPublicClient(baseUrl: string): TRPCClient<AppRouter> {
+  const url = `${baseUrl}/api/trpc`;
   return createTRPCClient<AppRouter>({
     links: [
-      httpBatchLink({
-        url: `${baseUrl}/api/trpc`,
-        transformer: superjson,
+      splitLink({
+        condition: (op) => op.type === "mutation",
+        true: httpLink({ url, transformer: superjson }),
+        false: httpBatchLink({ url, transformer: superjson }),
       }),
     ],
   });
