@@ -11,15 +11,38 @@ import { getServerContext } from "@/auth/server";
 // rather than relying on the per-field caps inside the procedure.
 const MAX_BODY_BYTES = 64 * 1024 * 1024;
 
+// JSON-RPC code tRPC uses for PAYLOAD_TOO_LARGE (HTTP 413). Inlined to
+// avoid importing from the `unstable-core-do-not-import` entry point.
+const TRPC_PAYLOAD_TOO_LARGE = -32013;
+
+function bodyTooLargeResponse(req: Request): Response {
+  // Match tRPC's HTTP error shape so the client (httpBatchLink) can
+  // parse the JSON and surface the message instead of throwing
+  // "unable to transform response" on a plain-text body.
+  const message = `request body exceeds ${MAX_BODY_BYTES} bytes`;
+  const errorObj = {
+    error: {
+      message,
+      code: TRPC_PAYLOAD_TOO_LARGE,
+      data: {
+        code: "PAYLOAD_TOO_LARGE",
+        httpStatus: 413,
+      },
+    },
+  };
+  const isBatch = new URL(req.url).searchParams.has("batch");
+  return new Response(JSON.stringify(isBatch ? [errorObj] : errorObj), {
+    status: 413,
+    headers: { "content-type": "application/json" },
+  });
+}
+
 const handler = (req: Request) => {
   const declared = req.headers.get("content-length");
   if (declared !== null) {
     const length = Number(declared);
     if (Number.isFinite(length) && length > MAX_BODY_BYTES) {
-      return new Response(
-        `request body exceeds ${MAX_BODY_BYTES} bytes`,
-        { status: 413 },
-      );
+      return bodyTooLargeResponse(req);
     }
   }
   const { db, auth, productionUrl, r2, imageProviders } = getServerContext();

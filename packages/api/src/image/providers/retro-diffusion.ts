@@ -10,7 +10,9 @@ import type {
 const DEFAULT_BASE_URL = "https://api.retrodiffusion.ai/v1";
 
 function inferencesUrl(baseUrl: string | undefined): string {
-  const root = baseUrl ?? DEFAULT_BASE_URL;
+  // `??` doesn't catch empty-string env vars; treat blank as unset.
+  const root =
+    baseUrl && baseUrl.trim().length > 0 ? baseUrl : DEFAULT_BASE_URL;
   return `${root.endsWith("/") ? root.slice(0, -1) : root}/inferences`;
 }
 

@@ -9,12 +9,16 @@ import type {
 
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 
+function resolveBaseUrl(baseUrl: string | undefined): string {
+  return baseUrl && baseUrl.trim().length > 0 ? baseUrl : DEFAULT_BASE_URL;
+}
+
 function generateUrl(baseUrl: string | undefined): string {
-  return `${stripTrailingSlash(baseUrl ?? DEFAULT_BASE_URL)}/images/generations`;
+  return `${stripTrailingSlash(resolveBaseUrl(baseUrl))}/images/generations`;
 }
 
 function editUrl(baseUrl: string | undefined): string {
-  return `${stripTrailingSlash(baseUrl ?? DEFAULT_BASE_URL)}/images/edits`;
+  return `${stripTrailingSlash(resolveBaseUrl(baseUrl))}/images/edits`;
 }
 
 function stripTrailingSlash(value: string): string {

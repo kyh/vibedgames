@@ -9,8 +9,12 @@ import type {
 
 const DEFAULT_QUEUE_ROOT = "https://queue.fal.run";
 
+function hasCustomBaseUrl(baseUrl: string | undefined | null): boolean {
+  return typeof baseUrl === "string" && baseUrl.trim().length > 0;
+}
+
 function queueRoot(baseUrl: string | undefined): string {
-  const root = baseUrl ?? DEFAULT_QUEUE_ROOT;
+  const root = hasCustomBaseUrl(baseUrl) ? baseUrl! : DEFAULT_QUEUE_ROOT;
   return root.endsWith("/") ? root.slice(0, -1) : root;
 }
 
@@ -288,7 +292,7 @@ export const falImageProvider: ImageProvider = {
     // so polls and result fetches keep flowing through the gateway. The
     // absolute status_url/response_url that fal returns always point at
     // queue.fal.run and would silently bypass the proxy.
-    const useCustomRoot = req.baseUrl !== undefined && req.baseUrl !== null;
+    const useCustomRoot = hasCustomBaseUrl(req.baseUrl);
     const constructedStatus = requestId
       ? `${root}/${cleanedEndpoint}/requests/${requestId}/status`
       : null;
