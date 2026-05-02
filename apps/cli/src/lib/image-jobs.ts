@@ -63,6 +63,32 @@ type RunResult = {
   metadata: Record<string, unknown>;
 };
 
+// Errors that will fail every sibling job in the same batch identically
+// (no point in continuing). tRPC client errors expose `data.code` /
+// `data.httpStatus` we can pattern-match on; we also catch the "Not
+// logged in" message createClient throws when there's no saved token.
+const FATAL_TRPC_CODES = new Set([
+  "UNAUTHORIZED",
+  "FORBIDDEN",
+  "PRECONDITION_FAILED",
+  "PAYLOAD_TOO_LARGE",
+  "LENGTH_REQUIRED",
+]);
+
+function isFatalForBatch(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const data = (err as { data?: { code?: unknown; httpStatus?: unknown } }).data;
+  if (data && typeof data.code === "string" && FATAL_TRPC_CODES.has(data.code)) {
+    return true;
+  }
+  if (data && typeof data.httpStatus === "number") {
+    if (data.httpStatus === 401 || data.httpStatus === 403 || data.httpStatus === 411 || data.httpStatus === 412 || data.httpStatus === 413) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function buildJobs(models: ModelSpec[], count: number): ImageJob[] {
   const jobs: ImageJob[] = [];
   let index = 0;
@@ -129,8 +155,19 @@ export async function runJobs(
           metadata: result.metadata,
         };
       } catch (err) {
-        const elapsed = Date.now() - jobStart;
+        // Cross-model fan-out semantics: a per-model failure (timeout,
+        // moderation, content-policy, network blip) shouldn't tank the
+        // whole batch — surface it as an `ok: false` result so the
+        // caller still sees outputs from sibling models. For errors
+        // that will fail every sibling identically (auth missing or
+        // bad, server misconfiguration), re-throw so pMap aborts and
+        // we don't burn through more API calls / progress lines.
         const message = err instanceof Error ? err.message : String(err);
+        if (isFatalForBatch(err)) {
+          progress?.update(job.index, { state: "failed", detail: message });
+          throw err;
+        }
+        const elapsed = Date.now() - jobStart;
         progress?.update(job.index, { state: "failed", detail: message });
         return {
           index: job.index,

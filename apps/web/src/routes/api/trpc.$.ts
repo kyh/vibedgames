@@ -71,7 +71,7 @@ function lengthRequiredResponse(req: Request): Response {
   );
 }
 
-const handler = (req: Request) => {
+const handler = async (req: Request): Promise<Response> => {
   // Pre-parse body size guard. Requests without a body (GET/HEAD) are
   // allowed straight through. For body-bearing methods we require a
   // numeric Content-Length so chunked encoding or a missing header
@@ -92,7 +92,7 @@ const handler = (req: Request) => {
     }
   }
   const { db, auth, productionUrl, r2, imageProviders } = getServerContext();
-  return fetchRequestHandler({
+  return await fetchRequestHandler({
     endpoint: "/api/trpc",
     router: appRouter,
     req,
