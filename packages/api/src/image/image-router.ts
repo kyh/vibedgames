@@ -192,7 +192,17 @@ function decodeInputImages(
   raw: z.infer<typeof inputImageSchema>[],
 ): ImageInputFile[] {
   return raw.map((image, index) => {
-    const bytes = base64ToBytes(image.base64);
+    let bytes: Uint8Array;
+    try {
+      bytes = base64ToBytes(image.base64);
+    } catch {
+      // atob throws DOMException on syntactically invalid base64; surface
+      // it as a 400 rather than a 500 so the CLI can show a clean error.
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `Input image ${index} is not valid base64.`,
+      });
+    }
     if (bytes.byteLength === 0) {
       throw new TRPCError({
         code: "BAD_REQUEST",

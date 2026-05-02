@@ -8,6 +8,10 @@ export async function pMap<T, R>(
   { concurrency = 4 }: { concurrency?: number } = {},
 ): Promise<R[]> {
   const results: R[] = Array.from({ length: items.length });
+  // Workers race on `cursor` to claim the next index. JS's single-threaded
+  // event loop guarantees `cursor++` and the bounds check execute as one
+  // synchronous step, so each index is claimed by exactly one worker
+  // without explicit locking.
   let cursor = 0;
 
   async function worker(): Promise<void> {

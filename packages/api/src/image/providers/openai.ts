@@ -141,27 +141,34 @@ function needsResponseFormatOverride(model: string): boolean {
   return !model.startsWith("gpt-image");
 }
 
+// Fields the proxy controls — never let user-supplied params overwrite or
+// reach OpenAI through the spread/form loops.
+const RESERVED_FIELDS = new Set([
+  "model",
+  "prompt",
+  "output_format",
+  "response_format",
+]);
+
 async function generate(
   req: ImageProviderRequest,
 ): Promise<ImageProviderResult> {
   const format = outputFormatFor(req.model, req.params);
-  const payload: Record<string, unknown> = {
-    ...req.params,
-    model: req.model,
-    prompt: req.prompt,
-  };
+  const payload: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(req.params)) {
+    if (value === undefined || value === null) continue;
+    if (RESERVED_FIELDS.has(key)) continue;
+    payload[key] = value;
+  }
+  payload.model = req.model;
+  payload.prompt = req.prompt;
   if (supportsOutputFormat(req.model)) {
     payload.output_format = format;
-  } else {
-    delete payload.output_format;
   }
   if (needsResponseFormatOverride(req.model)) {
     // Force, not default — decodeOutputs only knows how to read b64_json,
     // so a user-supplied `response_format: "url"` would otherwise crash.
     payload.response_format = "b64_json";
-  } else {
-    // gpt-image-* always returns b64 and rejects `response_format`.
-    delete payload.response_format;
   }
   const json = await callJson(generateUrl(req.baseUrl), req.apiKey, payload);
   return {
@@ -184,20 +191,9 @@ async function edit(req: ImageProviderRequest): Promise<ImageProviderResult> {
   }
   const format = outputFormatFor(req.model, req.params);
   const form = new FormData();
-  // Set params first so explicit `model`/`prompt`/`output_format` below
-  // always take precedence over anything passed in `params`.
   for (const [key, value] of Object.entries(req.params)) {
     if (value === undefined || value === null) continue;
-    // Skip fields we set explicitly below so user-supplied values can't
-    // overwrite or fight the explicit values.
-    if (
-      key === "model" ||
-      key === "prompt" ||
-      key === "output_format" ||
-      key === "response_format"
-    ) {
-      continue;
-    }
+    if (RESERVED_FIELDS.has(key)) continue;
     form.set(key, typeof value === "string" ? value : JSON.stringify(value));
   }
   form.set("model", req.model);
