@@ -113,7 +113,7 @@ def run_vg_image(
             if failure:
                 raise SystemExit(f"vg image {task} failed: {failure}")
             return {
-                "runId": str(run.get("index", 1)),
+                "runId": run.get("runId"),
                 "provider": run.get("provider"),
                 "model": run.get("model"),
                 "outputs": list(run.get("files") or []),

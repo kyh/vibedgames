@@ -25,6 +25,8 @@ export type ImageJobResult = {
   ok: boolean;
   elapsedMs: number;
   files: string[];
+  /** Server-side runId, the R2 prefix under image-runs/{userId}/{runId}/. */
+  runId?: string;
   error?: string;
   metadata?: Record<string, unknown>;
 };
@@ -78,11 +80,7 @@ export async function runJobs(
     throw new Error("No jobs to run — pass at least one --model.");
   }
 
-  if (options.output.kind === "dir") {
-    ensureDir(options.output.dir);
-  } else {
-    ensureDir(options.output.dir);
-  }
+  ensureDir(options.output.dir);
 
   const showProgress = !options.quiet;
   const progress = showProgress
@@ -122,6 +120,7 @@ export async function runJobs(
           ok: true,
           elapsedMs: elapsed,
           files,
+          runId: result.runId,
           metadata: result.metadata,
         };
       } catch (err) {

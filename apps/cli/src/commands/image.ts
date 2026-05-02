@@ -190,6 +190,7 @@ async function runImage({
             ok: r.ok,
             elapsedMs: r.elapsedMs,
             files: r.files,
+            runId: r.runId,
             error: r.error,
             metadata: r.metadata,
           })),
