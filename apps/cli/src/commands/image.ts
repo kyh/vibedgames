@@ -1,35 +1,27 @@
-import {
-  mkdirSync,
-  readFileSync,
-  writeFileSync,
-} from "node:fs";
+import { readFileSync } from "node:fs";
 import { basename, extname, resolve } from "node:path";
 
-import { IMAGE_PROVIDERS } from "@repo/api/image/types";
 import type { ImageProviderName } from "@repo/api/image/types";
+import { IMAGE_PROVIDERS } from "@repo/api/image/types";
 import { defineCommand } from "citty";
 import consola from "consola";
 
-import { createClient } from "../lib/api.js";
+import type { ModelSpec } from "../lib/image-models.js";
+import { parseModelSpecs } from "../lib/image-models.js";
+import { resolveOutputTarget } from "../lib/image-output.js";
+import { runJobs } from "../lib/image-jobs.js";
+import { readStdin } from "../lib/stdin.js";
 
-type RunOutput = {
-  url: string;
-  contentType: string;
-  sizeBytes: number;
-  filename: string;
-};
+const DEFAULT_CONCURRENCY = 4;
 
-type RunResult = {
-  runId: string;
-  provider: string;
-  model: string;
-  outputs: RunOutput[];
-  metadata: Record<string, unknown>;
-};
-
-function parseProvider(value: string | undefined): ImageProviderName {
-  if (!value || !IMAGE_PROVIDERS.includes(value as ImageProviderName)) {
-    consola.error(`--provider must be one of: ${IMAGE_PROVIDERS.join(", ")}`);
+function parseProvider(
+  value: string | undefined,
+): ImageProviderName | undefined {
+  if (!value || value.length === 0) return undefined;
+  if (!IMAGE_PROVIDERS.includes(value as ImageProviderName)) {
+    consola.error(
+      `--provider must be one of: ${IMAGE_PROVIDERS.join(", ")}`,
+    );
     process.exit(1);
   }
   return value as ImageProviderName;
@@ -43,17 +35,11 @@ function parseParams(
     consola.error("Use either --params or --params-file, not both.");
     process.exit(1);
   }
-  const raw = fileValue
-    ? readFileSync(resolve(fileValue), "utf-8")
-    : value;
+  const raw = fileValue ? readFileSync(resolve(fileValue), "utf-8") : value;
   if (!raw || raw.length === 0) return {};
   try {
     const parsed = JSON.parse(raw) as unknown;
-    if (
-      !parsed ||
-      typeof parsed !== "object" ||
-      Array.isArray(parsed)
-    ) {
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       throw new Error("must be a JSON object");
     }
     return parsed as Record<string, unknown>;
@@ -65,13 +51,29 @@ function parseParams(
   }
 }
 
-function readPromptText(prompt?: string, promptFile?: string): string {
-  if ((prompt ? 1 : 0) + (promptFile ? 1 : 0) !== 1) {
-    consola.error("Provide exactly one of --prompt or --prompt-file");
+async function readPrompt(
+  args: { prompt?: string; "prompt-file"?: string; _?: string[] },
+): Promise<string> {
+  const sources: string[] = [];
+  if (args.prompt) sources.push(args.prompt);
+  if (args["prompt-file"]) {
+    sources.push(readFileSync(resolve(args["prompt-file"]), "utf-8").trim());
+  }
+  const piped = await readStdin();
+  if (piped.trim().length > 0) sources.push(piped.trim());
+  // Positional args: anything after the subcommand that wasn't a known flag.
+  if (Array.isArray(args._)) {
+    const positional = args._.join(" ").trim();
+    if (positional.length > 0) sources.push(positional);
+  }
+  const prompt = sources.join("\n").trim();
+  if (prompt.length === 0) {
+    consola.error(
+      "Prompt is required. Pass it positionally, via --prompt, --prompt-file, or stdin.",
+    );
     process.exit(1);
   }
-  if (prompt) return prompt;
-  return readFileSync(resolve(promptFile!), "utf-8").trim();
+  return prompt;
 }
 
 function contentTypeFor(filename: string): string {
@@ -99,28 +101,26 @@ function readImage(path: string): {
 
 function collectImages(value: string | string[] | undefined): string[] {
   if (!value) return [];
-  if (Array.isArray(value)) return value;
-  return [value];
+  return Array.isArray(value) ? value : [value];
 }
 
-async function downloadOutput(
-  output: RunOutput,
-  outDir: string,
-  filenamePrefix: string,
-  index: number,
-): Promise<string> {
-  const seq = String(index + 1).padStart(2, "0");
-  const ext = extname(output.filename) || ".bin";
-  const target = resolve(outDir, `${filenamePrefix}-${seq}${ext}`);
-  const res = await fetch(output.url);
-  if (!res.ok) {
-    throw new Error(
-      `Failed to download ${output.filename} (${res.status} ${res.statusText})`,
+function resolveModels(
+  raw: string | undefined,
+  defaultProvider: ImageProviderName | undefined,
+): ModelSpec[] {
+  const fromFlag = raw ?? process.env.VG_IMAGE_MODEL;
+  if (!fromFlag || fromFlag.trim().length === 0) {
+    consola.error(
+      "No model specified. Pass --model or set VG_IMAGE_MODEL (e.g. `gpt-image-1.5` or `openai:gpt-image-1.5,fal:fal-ai/nano-banana-pro`).",
     );
+    process.exit(1);
   }
-  const buf = Buffer.from(await res.arrayBuffer());
-  writeFileSync(target, buf);
-  return target;
+  try {
+    return parseModelSpecs(fromFlag, defaultProvider);
+  } catch (err) {
+    consola.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
 }
 
 async function runImage({
@@ -133,87 +133,101 @@ async function runImage({
     model?: string;
     prompt?: string;
     "prompt-file"?: string;
-    "out-dir"?: string;
+    output?: string;
     "filename-prefix"?: string;
     params?: string;
     "params-file"?: string;
     image?: string | string[];
+    n?: string;
+    concurrency?: string;
     json?: boolean;
+    quiet?: boolean;
+    _?: string[];
   };
 }): Promise<void> {
-  const provider = parseProvider(args.provider);
-  if (!args.model || args.model.length === 0) {
-    consola.error("--model is required");
-    process.exit(1);
-  }
-  if (!args["out-dir"]) {
-    consola.error("--out-dir is required");
-    process.exit(1);
-  }
-
-  const promptText = readPromptText(args.prompt, args["prompt-file"]);
+  const defaultProvider = parseProvider(args.provider);
+  const models = resolveModels(args.model, defaultProvider);
+  const prompt = await readPrompt(args);
   const params = parseParams(args.params, args["params-file"]);
   const inputImages = collectImages(args.image).map((p) => readImage(p));
-
-  const outDir = resolve(args["out-dir"]);
+  const count = args.n ? Math.max(1, parseInt(args.n, 10) || 1) : 1;
+  const concurrency = args.concurrency
+    ? Math.max(1, parseInt(args.concurrency, 10) || DEFAULT_CONCURRENCY)
+    : DEFAULT_CONCURRENCY;
+  const output = resolveOutputTarget(
+    args.output,
+    process.env.VG_OUTPUT_DIR ?? process.cwd(),
+  );
   const filenamePrefix = args["filename-prefix"] ?? "image";
 
-  const client = createClient();
-  let result: RunResult;
-  try {
-    result = (await client.image.run.mutate({
-      provider,
-      task,
-      model: args.model,
-      prompt: promptText,
-      params,
-      inputImages,
-    })) as RunResult;
-  } catch (err) {
-    consola.error(err instanceof Error ? err.message : String(err));
-    process.exit(1);
-  }
+  const { results, totalElapsedMs } = await runJobs({
+    task,
+    prompt,
+    models,
+    count,
+    params,
+    inputImages,
+    output,
+    filenamePrefix,
+    concurrency,
+    quiet: args.quiet === true || args.json === true,
+  });
 
-  mkdirSync(outDir, { recursive: true });
-  const written = await Promise.all(
-    result.outputs.map((output, i) =>
-      downloadOutput(output, outDir, filenamePrefix, i),
-    ),
-  );
+  const failed = results.filter((r) => !r.ok).length;
+  const total = results.length;
 
   if (args.json) {
     process.stdout.write(
       JSON.stringify(
         {
-          runId: result.runId,
-          provider: result.provider,
-          model: result.model,
-          outputs: written,
-          metadata: result.metadata,
+          totalMs: totalElapsedMs,
+          ok: total - failed,
+          failed,
+          runs: results.map((r) => ({
+            index: r.index + 1,
+            model: r.modelDisplay,
+            provider: r.provider,
+            ok: r.ok,
+            elapsedMs: r.elapsedMs,
+            files: r.files,
+            error: r.error,
+            metadata: r.metadata,
+          })),
         },
         null,
         2,
       ) + "\n",
     );
-  } else {
-    consola.success(
-      `Generated ${written.length} image${written.length === 1 ? "" : "s"} (run ${result.runId})`,
-    );
-    for (const path of written) consola.log(`  ${path}`);
+  } else if (!args.quiet) {
+    if (failed === 0) {
+      consola.success(
+        `Generated ${total} job${total === 1 ? "" : "s"} in ${(totalElapsedMs / 1000).toFixed(1)}s`,
+      );
+    } else {
+      consola.warn(
+        `${failed}/${total} job${total === 1 ? "" : "s"} failed in ${(totalElapsedMs / 1000).toFixed(1)}s`,
+      );
+    }
+    for (const r of results) {
+      if (r.ok) {
+        for (const file of r.files) consola.log(`  ${file}`);
+      }
+    }
   }
+
+  if (failed > 0) process.exit(1);
 }
 
 const sharedArgs = {
   provider: {
     type: "string",
-    description: "Provider: openai, fal, or retro-diffusion",
-    required: true,
+    description:
+      "Default provider when --model entries don't include one (openai/fal/retro-diffusion).",
   },
   model: {
     type: "string",
     description:
-      "Provider model id (OpenAI: gpt-image-1.5; fal: endpoint id; retro-diffusion: prompt_style)",
-    required: true,
+      "Model spec(s), comma-separated. Use `provider:model` (e.g. `openai:gpt-image-1.5`, `fal:fal-ai/nano-banana-pro`), a known alias, or set VG_IMAGE_MODEL.",
   },
   prompt: {
     type: "string",
@@ -223,10 +237,11 @@ const sharedArgs = {
     type: "string",
     description: "Path to a file containing the prompt",
   },
-  "out-dir": {
+  output: {
     type: "string",
-    description: "Directory to write generated images to",
-    required: true,
+    alias: "o",
+    description:
+      "Output file (single run) or directory (multi-run). Defaults to VG_OUTPUT_DIR or the current directory.",
   },
   "filename-prefix": {
     type: "string",
@@ -243,12 +258,26 @@ const sharedArgs = {
   },
   json: {
     type: "boolean",
-    description: "Print the run result as JSON to stdout",
+    description: "Print the run result as JSON to stdout (implies --quiet)",
+  },
+  quiet: {
+    type: "boolean",
+    alias: "q",
+    description: "Suppress progress output.",
   },
   image: {
     type: "string",
     description:
-      "Path to an input image. Repeat --image for multiple references. Required for `edit`; optional for `generate` (e.g. img2img, style references).",
+      "Path to an input image. Repeat --image for multiple references. Required for `edit`.",
+  },
+  n: {
+    type: "string",
+    description: "Number of generations per model (default 1).",
+  },
+  concurrency: {
+    type: "string",
+    alias: "p",
+    description: `Max parallel jobs (default ${DEFAULT_CONCURRENCY}).`,
   },
 } as const;
 
@@ -277,7 +306,15 @@ const editCommand = defineCommand({
 export const imageCommand = defineCommand({
   meta: {
     name: "image",
-    description: "Generate and edit images via vibedgames-managed providers.",
+    description:
+      "Generate and edit images via vibedgames-managed providers. Auto-detects edit vs generate based on --image.",
+  },
+  args: sharedArgs,
+  // Default behavior when invoked as `vg image ...` without a subcommand:
+  // edit when an --image is provided, otherwise generate.
+  run: async ({ args }) => {
+    const task = collectImages(args.image).length > 0 ? "edit" : "generate";
+    await runImage({ task, args });
   },
   subCommands: {
     generate: generateCommand,

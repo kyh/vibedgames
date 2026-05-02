@@ -7,8 +7,19 @@ import type {
   ImageProviderResult,
 } from "../types";
 
-const GENERATE_URL = "https://api.openai.com/v1/images/generations";
-const EDIT_URL = "https://api.openai.com/v1/images/edits";
+const DEFAULT_BASE_URL = "https://api.openai.com/v1";
+
+function generateUrl(baseUrl: string | undefined): string {
+  return `${stripTrailingSlash(baseUrl ?? DEFAULT_BASE_URL)}/images/generations`;
+}
+
+function editUrl(baseUrl: string | undefined): string {
+  return `${stripTrailingSlash(baseUrl ?? DEFAULT_BASE_URL)}/images/edits`;
+}
+
+function stripTrailingSlash(value: string): string {
+  return value.endsWith("/") ? value.slice(0, -1) : value;
+}
 
 const VALID_FORMATS = new Set(["png", "webp", "jpeg"]);
 
@@ -132,7 +143,7 @@ async function generate(
   if (needsResponseFormatOverride(req.model) && payload.response_format == null) {
     payload.response_format = "b64_json";
   }
-  const json = await callJson(GENERATE_URL, req.apiKey, payload);
+  const json = await callJson(generateUrl(req.baseUrl), req.apiKey, payload);
   return {
     outputs: decodeOutputs(json, format),
     metadata: {
@@ -172,7 +183,7 @@ async function edit(req: ImageProviderRequest): Promise<ImageProviderResult> {
     });
     form.append("image[]", blob, image.filename);
   }
-  const json = await callMultipart(EDIT_URL, req.apiKey, form);
+  const json = await callMultipart(editUrl(req.baseUrl), req.apiKey, form);
   return {
     outputs: decodeOutputs(json, format),
     metadata: {

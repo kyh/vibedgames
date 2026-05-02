@@ -1,0 +1,203 @@
+import { extname, join } from "node:path";
+
+import type { ImageProviderName } from "@repo/api/image/types";
+
+import { createClient } from "./api.js";
+import type { OutputTarget } from "./image-output.js";
+import { ensureDir, writeBytes } from "./image-output.js";
+import { MultiProgress } from "./image-progress.js";
+import type { ModelSpec } from "./image-models.js";
+import { pMap } from "./p-map.js";
+
+export type ImageJob = {
+  index: number;
+  spec: ModelSpec;
+  /** 1-based copy index when count > 1, else 1. */
+  copy: number;
+  label: string;
+};
+
+export type ImageJobResult = {
+  index: number;
+  modelDisplay: string;
+  provider: ImageProviderName;
+  model: string;
+  ok: boolean;
+  elapsedMs: number;
+  files: string[];
+  error?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export type RunJobsOptions = {
+  task: "generate" | "edit";
+  prompt: string;
+  models: ModelSpec[];
+  count: number;
+  params: Record<string, unknown>;
+  inputImages: { filename: string; contentType: string; base64: string }[];
+  output: OutputTarget;
+  filenamePrefix: string;
+  concurrency: number;
+  quiet: boolean;
+};
+
+type RunOutput = {
+  url: string;
+  contentType: string;
+  sizeBytes: number;
+  filename: string;
+};
+
+type RunResult = {
+  runId: string;
+  provider: ImageProviderName;
+  model: string;
+  outputs: RunOutput[];
+  metadata: Record<string, unknown>;
+};
+
+export function buildJobs(models: ModelSpec[], count: number): ImageJob[] {
+  const jobs: ImageJob[] = [];
+  let index = 0;
+  for (const spec of models) {
+    for (let copy = 1; copy <= count; copy++) {
+      const label =
+        count > 1 ? `${spec.display} (${copy}/${count})` : spec.display;
+      jobs.push({ index: index++, spec, copy, label });
+    }
+  }
+  return jobs;
+}
+
+export async function runJobs(
+  options: RunJobsOptions,
+): Promise<{ results: ImageJobResult[]; totalElapsedMs: number }> {
+  const jobs = buildJobs(options.models, options.count);
+  if (jobs.length === 0) {
+    throw new Error("No jobs to run — pass at least one --model.");
+  }
+
+  if (options.output.kind === "dir") {
+    ensureDir(options.output.dir);
+  } else {
+    ensureDir(options.output.dir);
+  }
+
+  const showProgress = !options.quiet;
+  const progress = showProgress
+    ? new MultiProgress(jobs.map((j) => j.label))
+    : null;
+  progress?.start();
+
+  const start = Date.now();
+  const client = createClient();
+
+  const results = await pMap<ImageJob, ImageJobResult>(
+    jobs,
+    async (job) => {
+      const jobStart = Date.now();
+      progress?.update(job.index, { state: "running" });
+      try {
+        const result = (await client.image.run.mutate({
+          provider: job.spec.provider,
+          task: options.task,
+          model: job.spec.model,
+          prompt: options.prompt,
+          params: options.params,
+          inputImages: options.inputImages,
+        })) as RunResult;
+
+        const files = await writeOutputs(result.outputs, options, job);
+        const elapsed = Date.now() - jobStart;
+        progress?.update(job.index, {
+          state: "done",
+          detail: files[0] ?? "(no files)",
+        });
+        return {
+          index: job.index,
+          modelDisplay: job.spec.display,
+          provider: job.spec.provider,
+          model: job.spec.model,
+          ok: true,
+          elapsedMs: elapsed,
+          files,
+          metadata: result.metadata,
+        };
+      } catch (err) {
+        const elapsed = Date.now() - jobStart;
+        const message = err instanceof Error ? err.message : String(err);
+        progress?.update(job.index, { state: "failed", detail: message });
+        return {
+          index: job.index,
+          modelDisplay: job.spec.display,
+          provider: job.spec.provider,
+          model: job.spec.model,
+          ok: false,
+          elapsedMs: elapsed,
+          files: [],
+          error: message,
+        };
+      }
+    },
+    { concurrency: options.concurrency },
+  );
+
+  progress?.stop();
+
+  return { results, totalElapsedMs: Date.now() - start };
+}
+
+async function writeOutputs(
+  outputs: RunOutput[],
+  options: RunJobsOptions,
+  job: ImageJob,
+): Promise<string[]> {
+  const written: string[] = [];
+  await Promise.all(
+    outputs.map(async (output, i) => {
+      const ext = extname(output.filename) || ".bin";
+      const target = pickTarget(options, job, i, outputs.length, ext);
+      const res = await fetch(output.url);
+      if (!res.ok) {
+        throw new Error(
+          `Failed to download ${output.filename} (${res.status} ${res.statusText})`,
+        );
+      }
+      writeBytes(target, Buffer.from(await res.arrayBuffer()));
+      written[i] = target;
+    }),
+  );
+  return written;
+}
+
+function pickTarget(
+  options: RunJobsOptions,
+  job: ImageJob,
+  outputIndex: number,
+  outputCount: number,
+  ext: string,
+): string {
+  // Single-file --output mode is only honored for single-job, single-output
+  // runs; otherwise multiple outputs would clobber each other.
+  if (
+    options.output.kind === "file" &&
+    options.models.length * options.count === 1 &&
+    outputCount === 1
+  ) {
+    return options.output.path;
+  }
+  const dir = options.output.dir;
+  const slug = sanitize(job.spec.display);
+  const seq = String(outputIndex + 1).padStart(2, "0");
+  const copy = options.count > 1 ? `-${String(job.copy).padStart(2, "0")}` : "";
+  const stem =
+    options.models.length > 1
+      ? `${options.filenamePrefix}-${slug}${copy}-${seq}`
+      : `${options.filenamePrefix}${copy}-${seq}`;
+  return join(dir, `${stem}${ext}`);
+}
+
+function sanitize(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+}

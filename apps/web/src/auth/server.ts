@@ -52,8 +52,11 @@ export function getServerContext() {
 
   const imageProviders: ImageProviderKeys = {
     openai: env.OPENAI_API_KEY,
+    openaiBaseUrl: env.OPENAI_BASE_URL,
     fal: env.FAL_API_KEY,
+    falBaseUrl: env.FAL_BASE_URL,
     retroDiffusion: env.RETRO_DIFFUSION_API_KEY,
+    retroDiffusionBaseUrl: env.RETRO_DIFFUSION_BASE_URL,
   };
 
   return { db, auth, baseUrl, productionUrl, r2, imageProviders };

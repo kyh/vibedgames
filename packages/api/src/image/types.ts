@@ -22,6 +22,8 @@ export type ImageProviderRequest = {
   params: Record<string, unknown>;
   inputImages: ImageInputFile[];
   apiKey: string;
+  /** Optional override for the upstream base URL (e.g. CF AI Gateway). */
+  baseUrl?: string;
 };
 
 export type ImageOutput = {

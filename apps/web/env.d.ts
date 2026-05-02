@@ -14,8 +14,11 @@ interface CloudflareEnv {
   V0_API_KEY?: string;
   AI_GATEWAY_API_KEY?: string;
   OPENAI_API_KEY?: string;
+  OPENAI_BASE_URL?: string;
   FAL_API_KEY?: string;
+  FAL_BASE_URL?: string;
   RETRO_DIFFUSION_API_KEY?: string;
+  RETRO_DIFFUSION_BASE_URL?: string;
 }
 
 declare module "cloudflare:workers" {

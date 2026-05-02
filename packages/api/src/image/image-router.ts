@@ -68,6 +68,12 @@ const PROVIDER_KEY_FIELDS = {
   "retro-diffusion": "retroDiffusion",
 } as const satisfies Record<z.infer<typeof providerEnum>, keyof ImageProviderKeys>;
 
+const PROVIDER_BASE_URL_FIELDS = {
+  openai: "openaiBaseUrl",
+  fal: "falBaseUrl",
+  "retro-diffusion": "retroDiffusionBaseUrl",
+} as const satisfies Record<z.infer<typeof providerEnum>, keyof ImageProviderKeys>;
+
 function pickApiKey(
   provider: z.infer<typeof providerEnum>,
   keys: ImageProviderKeys | undefined,
@@ -80,6 +86,13 @@ function pickApiKey(
     });
   }
   return value;
+}
+
+function pickBaseUrl(
+  provider: z.infer<typeof providerEnum>,
+  keys: ImageProviderKeys | undefined,
+): string | undefined {
+  return keys?.[PROVIDER_BASE_URL_FIELDS[provider]];
 }
 
 function pickProvider(
@@ -115,9 +128,84 @@ function decodeInputImages(
   });
 }
 
+// ---- Catalog ----------------------------------------------------------------
+
+/**
+ * Curated catalog of well-known models per provider. The `vg models`
+ * command surfaces this so users don't have to memorize fal endpoint ids
+ * or retro-diffusion prompt_styles.
+ */
+const MODEL_CATALOG: Record<
+  z.infer<typeof providerEnum>,
+  { id: string; alias?: string; supports: ("generate" | "edit")[] }[]
+> = {
+  openai: [
+    { id: "gpt-image-1.5", alias: "gpt-image-1.5", supports: ["generate", "edit"] },
+    { id: "gpt-image-1", alias: "gpt-image-1", supports: ["generate", "edit"] },
+    { id: "dall-e-3", alias: "dall-e-3", supports: ["generate"] },
+    { id: "dall-e-2", alias: "dall-e-2", supports: ["generate", "edit"] },
+  ],
+  fal: [
+    { id: "fal-ai/nano-banana-2", alias: "nano-banana-2", supports: ["generate"] },
+    {
+      id: "fal-ai/nano-banana-2/edit",
+      alias: "nano-banana-2-edit",
+      supports: ["edit"],
+    },
+    {
+      id: "fal-ai/nano-banana-pro",
+      alias: "nano-banana-pro",
+      supports: ["generate"],
+    },
+    {
+      id: "fal-ai/nano-banana-pro/edit",
+      alias: "nano-banana-pro-edit",
+      supports: ["edit"],
+    },
+    {
+      id: "xai/grok-imagine-image",
+      alias: "grok-imagine-image",
+      supports: ["generate"],
+    },
+    {
+      id: "xai/grok-imagine-image/edit",
+      alias: "grok-imagine-image-edit",
+      supports: ["edit"],
+    },
+  ],
+  "retro-diffusion": [
+    { id: "rd_pro__platformer", alias: "rd-pro-platformer", supports: ["generate"] },
+    { id: "rd_pro__edit", alias: "rd-pro-edit", supports: ["edit"] },
+    {
+      id: "rd_pro__spritesheet",
+      alias: "rd-pro-spritesheet",
+      supports: ["generate"],
+    },
+  ],
+};
+
 // ---- Router ------------------------------------------------------------------
 
 export const imageRouter = createTRPCRouter({
+  /**
+   * List the providers configured on this server and their well-known
+   * models. Surfaces a stable `configured` flag per provider so the CLI
+   * can mark unavailable rows.
+   */
+  list: protectedProcedure.query(({ ctx }) => {
+    const keys = ctx.imageProviders;
+    return IMAGE_PROVIDERS.map((provider) => ({
+      provider,
+      configured:
+        provider === "openai"
+          ? Boolean(keys?.openai)
+          : provider === "fal"
+            ? Boolean(keys?.fal)
+            : Boolean(keys?.retroDiffusion),
+      models: MODEL_CATALOG[provider],
+    }));
+  }),
+
   // Thin proxy: `params` is forwarded as each provider's native input
   // (e.g. `quality` for OpenAI, `aspect_ratio` for fal, `frames_duration`
   // for Retro Diffusion); we do not flatten knobs into a unified schema.
@@ -147,6 +235,7 @@ export const imageRouter = createTRPCRouter({
         params: input.params,
         inputImages,
         apiKey,
+        baseUrl: pickBaseUrl(input.provider, ctx.imageProviders),
       };
 
       const result = await provider.run(providerRequest);

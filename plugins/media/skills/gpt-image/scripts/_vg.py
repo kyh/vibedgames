@@ -63,7 +63,7 @@ def run_vg_image(
         model,
         "--prompt",
         prompt,
-        "--out-dir",
+        "--output",
         str(out_dir),
         "--filename-prefix",
         filename_prefix,

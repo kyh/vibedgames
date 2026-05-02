@@ -7,7 +7,12 @@ import type {
   ImageProviderResult,
 } from "../types";
 
-const API_URL = "https://api.retrodiffusion.ai/v1/inferences";
+const DEFAULT_BASE_URL = "https://api.retrodiffusion.ai/v1";
+
+function inferencesUrl(baseUrl: string | undefined): string {
+  const root = baseUrl ?? DEFAULT_BASE_URL;
+  return `${root.endsWith("/") ? root.slice(0, -1) : root}/inferences`;
+}
 
 type RDResponse = {
   base64_images?: string[];
@@ -77,7 +82,7 @@ export const retroDiffusionImageProvider: ImageProvider = {
       }
     }
 
-    const res = await fetch(API_URL, {
+    const res = await fetch(inferencesUrl(req.baseUrl), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

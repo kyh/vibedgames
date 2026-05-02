@@ -7,7 +7,12 @@ import type {
   ImageProviderResult,
 } from "../types";
 
-const QUEUE_ROOT = "https://queue.fal.run";
+const DEFAULT_QUEUE_ROOT = "https://queue.fal.run";
+
+function queueRoot(baseUrl: string | undefined): string {
+  const root = baseUrl ?? DEFAULT_QUEUE_ROOT;
+  return root.endsWith("/") ? root.slice(0, -1) : root;
+}
 
 const POLL_INTERVAL_MS = 2_000;
 const POLL_TIMEOUT_MS = 90_000;
@@ -146,12 +151,16 @@ async function submit(
   endpointId: string,
   apiKey: string,
   body: Record<string, unknown>,
+  baseUrl: string | undefined,
 ): Promise<QueueSubmitResponse> {
-  const res = await fetch(`${QUEUE_ROOT}/${endpointId.replace(/^\/+|\/+$/g, "")}`, {
-    method: "POST",
-    headers: { ...falHeaders(apiKey), "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  const res = await fetch(
+    `${queueRoot(baseUrl)}/${endpointId.replace(/^\/+|\/+$/g, "")}`,
+    {
+      method: "POST",
+      headers: { ...falHeaders(apiKey), "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new TRPCError({
@@ -245,18 +254,21 @@ export const falImageProvider: ImageProvider = {
         : encoded;
     }
 
-    const submission = await submit(endpointId, req.apiKey, arguments_);
+    const submission = await submit(
+      endpointId,
+      req.apiKey,
+      arguments_,
+      req.baseUrl,
+    );
     const requestId = submission.request_id;
+    const root = queueRoot(req.baseUrl);
+    const cleanedEndpoint = endpointId.replace(/^\/+|\/+$/g, "");
     const statusUrl =
       submission.status_url ??
-      (requestId
-        ? `${QUEUE_ROOT}/${endpointId.replace(/^\/+|\/+$/g, "")}/requests/${requestId}/status`
-        : null);
+      (requestId ? `${root}/${cleanedEndpoint}/requests/${requestId}/status` : null);
     const responseUrl =
       submission.response_url ??
-      (requestId
-        ? `${QUEUE_ROOT}/${endpointId.replace(/^\/+|\/+$/g, "")}/requests/${requestId}`
-        : null);
+      (requestId ? `${root}/${cleanedEndpoint}/requests/${requestId}` : null);
 
     if (!statusUrl || !responseUrl) {
       throw new TRPCError({
