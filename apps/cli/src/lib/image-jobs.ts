@@ -59,7 +59,7 @@ type RunResult = {
   metadata: Record<string, unknown>;
 };
 
-export function buildJobs(models: ModelSpec[], count: number): ImageJob[] {
+function buildJobs(models: ModelSpec[], count: number): ImageJob[] {
   const jobs: ImageJob[] = [];
   let index = 0;
   for (const spec of models) {

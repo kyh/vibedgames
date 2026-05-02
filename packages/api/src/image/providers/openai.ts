@@ -155,8 +155,13 @@ async function generate(
   } else {
     delete payload.output_format;
   }
-  if (needsResponseFormatOverride(req.model) && payload.response_format == null) {
+  if (needsResponseFormatOverride(req.model)) {
+    // Force, not default — decodeOutputs only knows how to read b64_json,
+    // so a user-supplied `response_format: "url"` would otherwise crash.
     payload.response_format = "b64_json";
+  } else {
+    // gpt-image-* always returns b64 and rejects `response_format`.
+    delete payload.response_format;
   }
   const json = await callJson(generateUrl(req.baseUrl), req.apiKey, payload);
   return {
@@ -183,7 +188,16 @@ async function edit(req: ImageProviderRequest): Promise<ImageProviderResult> {
   // always take precedence over anything passed in `params`.
   for (const [key, value] of Object.entries(req.params)) {
     if (value === undefined || value === null) continue;
-    if (key === "output_format" || key === "model" || key === "prompt") continue;
+    // Skip fields we set explicitly below so user-supplied values can't
+    // overwrite or fight the explicit values.
+    if (
+      key === "model" ||
+      key === "prompt" ||
+      key === "output_format" ||
+      key === "response_format"
+    ) {
+      continue;
+    }
     form.set(key, typeof value === "string" ? value : JSON.stringify(value));
   }
   form.set("model", req.model);
@@ -191,7 +205,9 @@ async function edit(req: ImageProviderRequest): Promise<ImageProviderResult> {
   if (supportsOutputFormat(req.model)) {
     form.set("output_format", format);
   }
-  if (needsResponseFormatOverride(req.model) && !form.has("response_format")) {
+  if (needsResponseFormatOverride(req.model)) {
+    // Force, not default — decodeOutputs only knows how to read b64_json,
+    // so a user-supplied `response_format: "url"` would otherwise crash.
     form.set("response_format", "b64_json");
   }
   for (const image of req.inputImages) {
