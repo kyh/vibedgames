@@ -70,13 +70,19 @@ async function readPrompt(
       sources.push({ name: "--prompt-file", text: fileText });
     }
   }
-  const piped = (await readStdin()).trim();
-  if (piped.length > 0) sources.push({ name: "stdin", text: piped });
+  let positional = "";
   if (Array.isArray(args._)) {
-    const positional = args._.join(" ").trim();
+    positional = args._.join(" ").trim();
     if (positional.length > 0) {
       sources.push({ name: "positional args", text: positional });
     }
+  }
+  // Only consult stdin when no other source is available. Reading stdin
+  // unconditionally would block forever if a parent process spawned vg
+  // with `stdio: 'pipe'` and never closed its end of the pipe.
+  if (sources.length === 0) {
+    const piped = (await readStdin()).trim();
+    if (piped.length > 0) sources.push({ name: "stdin", text: piped });
   }
   if (sources.length === 0) {
     consola.error(
