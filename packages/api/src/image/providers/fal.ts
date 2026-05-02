@@ -370,20 +370,30 @@ export const falImageProvider: ImageProvider = {
     await pollUntilComplete(statusUrl, req.apiKey);
     const { payload, billableUnits } = await fetchResult(responseUrl, req.apiKey);
 
-    const urls = collectMediaUrls(payload);
-    if (urls.length === 0) {
-      throw new TRPCError({
-        code: "INTERNAL_SERVER_ERROR",
-        message: "fal result did not include any image URLs.",
-      });
-    }
-
-    const outputs = await Promise.all(urls.map(downloadImage));
-
     const payloadObj =
       payload && typeof payload === "object"
         ? (payload as Record<string, unknown>)
         : null;
+
+    const urls = collectMediaUrls(payload);
+    if (urls.length === 0) {
+      // fal sometimes returns a COMPLETED job whose payload carries an
+      // `error`/`detail` instead of media (e.g. content moderation
+      // rejections). Surface that in the error so the user has a real
+      // reason to look at, not just "no URLs".
+      const reason =
+        (typeof payloadObj?.error === "string" && payloadObj.error) ||
+        (typeof payloadObj?.detail === "string" && payloadObj.detail) ||
+        null;
+      throw new TRPCError({
+        code: "BAD_GATEWAY",
+        message: reason
+          ? `fal returned no image URLs: ${reason}`
+          : "fal result did not include any image URLs.",
+      });
+    }
+
+    const outputs = await Promise.all(urls.map(downloadImage));
 
     return {
       outputs,

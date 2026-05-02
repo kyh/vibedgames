@@ -11,22 +11,22 @@ import { getServerContext } from "@/auth/server";
 // rather than relying on the per-field caps inside the procedure.
 const MAX_BODY_BYTES = 64 * 1024 * 1024;
 
-// JSON-RPC code tRPC uses for PAYLOAD_TOO_LARGE (HTTP 413). Inlined to
-// avoid importing from the `unstable-core-do-not-import` entry point.
+// JSON-RPC codes tRPC uses for these HTTP statuses. Inlined to avoid
+// importing from the `unstable-core-do-not-import` entry point.
 const TRPC_PAYLOAD_TOO_LARGE = -32013;
+const TRPC_BAD_REQUEST = -32600;
 
-function bodyTooLargeResponse(req: Request): Response {
+function bodySizeError(req: Request, message: string, httpStatus: number, code: string, rpcCode: number): Response {
   // Match tRPC's HTTP error shape so the client (httpBatchLink) can
   // parse the JSON and surface the message instead of throwing
   // "unable to transform response" on a plain-text body.
-  const message = `request body exceeds ${MAX_BODY_BYTES} bytes`;
   const errorObj = {
     error: {
       message,
-      code: TRPC_PAYLOAD_TOO_LARGE,
+      code: rpcCode,
       data: {
-        code: "PAYLOAD_TOO_LARGE",
-        httpStatus: 413,
+        code,
+        httpStatus,
       },
     },
   };
@@ -46,16 +46,48 @@ function bodyTooLargeResponse(req: Request): Response {
     body = Array.from({ length: count }, () => errorObj);
   }
   return new Response(JSON.stringify(body), {
-    status: 413,
+    status: httpStatus,
     headers: { "content-type": "application/json" },
   });
 }
 
+function bodyTooLargeResponse(req: Request): Response {
+  return bodySizeError(
+    req,
+    `request body exceeds ${MAX_BODY_BYTES} bytes`,
+    413,
+    "PAYLOAD_TOO_LARGE",
+    TRPC_PAYLOAD_TOO_LARGE,
+  );
+}
+
+function lengthRequiredResponse(req: Request): Response {
+  return bodySizeError(
+    req,
+    "Content-Length header is required for requests with a body.",
+    411,
+    "LENGTH_REQUIRED",
+    TRPC_BAD_REQUEST,
+  );
+}
+
 const handler = (req: Request) => {
-  const declared = req.headers.get("content-length");
-  if (declared !== null) {
+  // Pre-parse body size guard. Requests without a body (GET/HEAD) are
+  // allowed straight through. For body-bearing methods we require a
+  // numeric Content-Length so chunked encoding or a missing header
+  // can't slip past the cap into tRPC's JSON.parse.
+  const method = req.method.toUpperCase();
+  const carriesBody = method !== "GET" && method !== "HEAD";
+  if (carriesBody) {
+    const declared = req.headers.get("content-length");
+    if (declared === null) {
+      return lengthRequiredResponse(req);
+    }
     const length = Number(declared);
-    if (Number.isFinite(length) && length > MAX_BODY_BYTES) {
+    if (!Number.isFinite(length) || length < 0) {
+      return lengthRequiredResponse(req);
+    }
+    if (length > MAX_BODY_BYTES) {
       return bodyTooLargeResponse(req);
     }
   }
