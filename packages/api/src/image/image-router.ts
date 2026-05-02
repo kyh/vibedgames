@@ -94,7 +94,13 @@ function pickBaseUrl(
   provider: z.infer<typeof providerEnum>,
   keys: ImageProviderKeys | undefined,
 ): string | undefined {
-  return keys?.[PROVIDER_BASE_URL_FIELDS[provider]];
+  // Treat blank/whitespace-only env values (e.g. an unset
+  // `OPENAI_BASE_URL=""` in wrangler config) as missing so providers
+  // don't have to defend against the empty-string case independently.
+  const value = keys?.[PROVIDER_BASE_URL_FIELDS[provider]];
+  return typeof value === "string" && value.trim().length > 0
+    ? value
+    : undefined;
 }
 
 function pickProvider(

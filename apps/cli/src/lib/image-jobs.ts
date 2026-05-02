@@ -1,3 +1,4 @@
+import { unlinkSync } from "node:fs";
 import { extname, join } from "node:path";
 
 import type { ImageProviderName } from "@repo/api/image/types";
@@ -157,21 +158,35 @@ async function writeOutputs(
   job: ImageJob,
 ): Promise<string[]> {
   const written: string[] = [];
-  await Promise.all(
-    outputs.map(async (output, i) => {
-      const ext = extname(output.filename) || ".bin";
-      const target = pickTarget(options, job, i, outputs.length, ext);
-      const res = await fetch(output.url);
-      if (!res.ok) {
-        throw new Error(
-          `Failed to download ${output.filename} (${res.status} ${res.statusText})`,
-        );
+  try {
+    await Promise.all(
+      outputs.map(async (output, i) => {
+        const ext = extname(output.filename) || ".bin";
+        const target = pickTarget(options, job, i, outputs.length, ext);
+        const res = await fetch(output.url);
+        if (!res.ok) {
+          throw new Error(
+            `Failed to download ${output.filename} (${res.status} ${res.statusText})`,
+          );
+        }
+        writeBytes(target, Buffer.from(await res.arrayBuffer()));
+        written[i] = target;
+      }),
+    );
+    return written;
+  } catch (err) {
+    // Best-effort cleanup so a partial download doesn't leave half-written
+    // siblings on disk for downstream tools (or the next run) to trip on.
+    for (const path of written) {
+      if (!path) continue;
+      try {
+        unlinkSync(path);
+      } catch {
+        // Ignore: file might already be missing or the user may have moved it.
       }
-      writeBytes(target, Buffer.from(await res.arrayBuffer()));
-      written[i] = target;
-    }),
-  );
-  return written;
+    }
+    throw err;
+  }
 }
 
 function pickTarget(

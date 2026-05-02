@@ -13,6 +13,15 @@ const DEFAULT_QUEUE_ROOT = "https://queue.fal.run";
 // hosts we'll authenticate against so a future server-side bug or
 // compromised path can't redirect the key off-platform.
 const FAL_TRUSTED_HOSTS = new Set(["queue.fal.run"]);
+// fal serves output media from its own CDN domains. Refuse to download
+// from anything else, both to avoid exposing the worker as an
+// open-fetch SSRF surface and to keep us honest about what "fal output"
+// means.
+const FAL_CONTENT_HOST_SUFFIXES = [".fal.media", ".fal.run", ".fal.ai"];
+
+function isTrustedFalContentHost(hostname: string): boolean {
+  return FAL_CONTENT_HOST_SUFFIXES.some((suffix) => hostname.endsWith(suffix));
+}
 
 function hasCustomBaseUrl(baseUrl: string | undefined | null): boolean {
   return typeof baseUrl === "string" && baseUrl.trim().length > 0;
@@ -124,6 +133,16 @@ function collectMediaUrls(payload: unknown): string[] {
       const obj = value as Record<string, unknown>;
       const url = obj.url;
       if (typeof url === "string" && url.startsWith("http") && !seen.has(url)) {
+        let parsed: URL | null = null;
+        try {
+          parsed = new URL(url);
+        } catch {
+          parsed = null;
+        }
+        const isTrustedHost =
+          parsed !== null &&
+          parsed.protocol === "https:" &&
+          isTrustedFalContentHost(parsed.hostname);
         const contentType =
           typeof obj.content_type === "string"
             ? obj.content_type.toLowerCase()
@@ -132,7 +151,7 @@ function collectMediaUrls(payload: unknown): string[] {
           contentType !== null
             ? contentType.startsWith("image/")
             : looksLikeImageUrl(url);
-        if (isImage) {
+        if (isTrustedHost && isImage) {
           seen.add(url);
           found.push(url);
         }
@@ -149,6 +168,24 @@ async function downloadImage(url: string): Promise<{
   contentType: string;
   extension: string;
 }> {
+  // Belt-and-suspenders: collectMediaUrls already drops non-fal hosts,
+  // but recheck here so a future caller can't smuggle an arbitrary URL
+  // into the worker's outbound fetch path.
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new TRPCError({
+      code: "BAD_GATEWAY",
+      message: "fal returned an invalid output URL.",
+    });
+  }
+  if (parsed.protocol !== "https:" || !isTrustedFalContentHost(parsed.hostname)) {
+    throw new TRPCError({
+      code: "BAD_GATEWAY",
+      message: `fal returned an output URL on an untrusted host: ${parsed.hostname}`,
+    });
+  }
   const res = await fetch(url);
   if (!res.ok) {
     const text = await res.text().catch(() => "");
