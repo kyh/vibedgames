@@ -142,12 +142,18 @@ function needsResponseFormatOverride(model: string): boolean {
 }
 
 // Fields the proxy controls — never let user-supplied params overwrite or
-// reach OpenAI through the spread/form loops.
+// reach OpenAI through the spread/form loops. The image-binary fields
+// (`image`, `image[]`, `mask`) are appended explicitly below; if a user
+// passed them through `params` the form would end up with stray text
+// entries alongside the real binary blobs.
 const RESERVED_FIELDS = new Set([
   "model",
   "prompt",
   "output_format",
   "response_format",
+  "image",
+  "image[]",
+  "mask",
 ]);
 
 async function generate(
