@@ -7,6 +7,7 @@ export type ProgressEntry = {
   state: "pending" | "running" | "done" | "failed";
   detail?: string;
   startedAt?: number;
+  finishedAt?: number;
 };
 
 /**
@@ -40,6 +41,12 @@ export class MultiProgress {
     Object.assign(entry, patch);
     if (patch.state === "running" && entry.startedAt === undefined) {
       entry.startedAt = Date.now();
+    }
+    if (
+      (patch.state === "done" || patch.state === "failed") &&
+      entry.finishedAt === undefined
+    ) {
+      entry.finishedAt = Date.now();
     }
     if (this.isInteractive()) {
       this.render();
@@ -104,7 +111,10 @@ export class MultiProgress {
   private elapsed(entry: ProgressEntry): string {
     if (entry.startedAt === undefined) return "";
     if (entry.state !== "done" && entry.state !== "failed") return "";
-    const ms = Date.now() - entry.startedAt;
+    // Use the snapshotted finish time so the displayed duration doesn't
+    // tick upward on each timer redraw after the job already settled.
+    const end = entry.finishedAt ?? Date.now();
+    const ms = end - entry.startedAt;
     return ` (${(ms / 1000).toFixed(1)}s)`;
   }
 }

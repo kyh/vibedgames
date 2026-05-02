@@ -73,12 +73,19 @@ export const retroDiffusionImageProvider: ImageProvider = {
     payload.prompt = req.prompt;
 
     if (req.inputImages.length > 0) {
-      // First image is the canonical input; remaining are reference images.
+      // First image is the canonical input; remaining are appended to any
+      // `reference_images` the user passed in params (instead of replacing
+      // them) so the two channels can be combined consistently regardless
+      // of how many --image flags were supplied.
       payload.input_image = bytesToBase64(req.inputImages[0]!.bytes);
       if (req.inputImages.length > 1) {
-        payload.reference_images = req.inputImages
+        const extras = req.inputImages
           .slice(1)
           .map((img) => bytesToBase64(img.bytes));
+        const existing = payload.reference_images;
+        payload.reference_images = Array.isArray(existing)
+          ? [...existing, ...extras]
+          : extras;
       }
     }
 

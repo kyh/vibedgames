@@ -60,7 +60,7 @@ function extensionFor(format: string): string {
 }
 
 function contentTypeFor(format: string): string {
-  return `image/${format === "jpg" ? "jpeg" : format}`;
+  return `image/${format}`;
 }
 
 function decodeOutputs(
