@@ -159,6 +159,16 @@ const RESERVED_FIELDS = new Set([
 async function generate(
   req: ImageProviderRequest,
 ): Promise<ImageProviderResult> {
+  if (req.inputImages.length > 0) {
+    // OpenAI's /images/generations endpoint is text-only — a reference
+    // image only has effect via /images/edits. Reject so the user knows
+    // their --image was dropped instead of silently ignoring it.
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        "OpenAI generate does not accept input images. Use `vg image edit` (or omit --model with --image so vg auto-detects edit) to send a reference image.",
+    });
+  }
   const format = outputFormatFor(req.model, req.params);
   const payload: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(req.params)) {
