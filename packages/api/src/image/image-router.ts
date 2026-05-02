@@ -118,8 +118,21 @@ function jsonByteLengthBounded(value: unknown, limit: number): number {
   }
 
   function stringBytes(s: string): number {
+    // Each UTF-16 code unit is at least 1 UTF-8 byte; if even that
+    // minimum already overflows the cap, bail without scanning the
+    // string at all. Catches the pathological case of a 100 MB base64
+    // payload pushed at a 32 MB cap.
+    if (total + 2 + s.length > limit) {
+      exceeded = true;
+      return 2 + s.length;
+    }
     let n = 2; // surrounding quotes
-    for (let i = 0; i < s.length && !exceeded; i++) {
+    // Periodically commit `n` to `total` so a string that crosses the
+    // cap mid-walk (because of escape/multibyte expansion past the
+    // length-based fast path) still short-circuits.
+    const COMMIT_EVERY = 4096;
+    let sinceCommit = 0;
+    for (let i = 0; i < s.length; i++) {
       const c = s.charCodeAt(i);
       if (c === 0x22 || c === 0x5c) {
         n += 2; // escaped " or \
@@ -148,6 +161,13 @@ function jsonByteLengthBounded(value: unknown, limit: number): number {
         n += 6;
       } else {
         n += 3;
+      }
+      if (++sinceCommit >= COMMIT_EVERY) {
+        sinceCommit = 0;
+        if (total + n > limit) {
+          exceeded = true;
+          return n;
+        }
       }
     }
     return n;

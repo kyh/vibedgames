@@ -275,12 +275,24 @@ export const falImageProvider: ImageProvider = {
     const requestId = submission.request_id;
     const root = queueRoot(req.baseUrl);
     const cleanedEndpoint = endpointId.replace(/^\/+|\/+$/g, "");
-    const statusUrl =
-      submission.status_url ??
-      (requestId ? `${root}/${cleanedEndpoint}/requests/${requestId}/status` : null);
-    const responseUrl =
-      submission.response_url ??
-      (requestId ? `${root}/${cleanedEndpoint}/requests/${requestId}` : null);
+    // When a custom queue root is configured (e.g. a Cloudflare AI
+    // Gateway URL prefix), construct the status/response URLs ourselves
+    // so polls and result fetches keep flowing through the gateway. The
+    // absolute status_url/response_url that fal returns always point at
+    // queue.fal.run and would silently bypass the proxy.
+    const useCustomRoot = req.baseUrl !== undefined && req.baseUrl !== null;
+    const constructedStatus = requestId
+      ? `${root}/${cleanedEndpoint}/requests/${requestId}/status`
+      : null;
+    const constructedResponse = requestId
+      ? `${root}/${cleanedEndpoint}/requests/${requestId}`
+      : null;
+    const statusUrl = useCustomRoot
+      ? constructedStatus
+      : (submission.status_url ?? constructedStatus);
+    const responseUrl = useCustomRoot
+      ? constructedResponse
+      : (submission.response_url ?? constructedResponse);
 
     if (!statusUrl || !responseUrl) {
       throw new TRPCError({
