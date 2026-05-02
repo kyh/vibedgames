@@ -98,7 +98,9 @@ function collectMediaUrls(payload: unknown): string[] {
       const url = obj.url;
       if (typeof url === "string" && url.startsWith("http") && !seen.has(url)) {
         const contentType =
-          typeof obj.content_type === "string" ? obj.content_type : null;
+          typeof obj.content_type === "string"
+            ? obj.content_type.toLowerCase()
+            : null;
         const isImage =
           contentType !== null
             ? contentType.startsWith("image/")

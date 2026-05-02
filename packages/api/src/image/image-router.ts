@@ -132,8 +132,20 @@ function jsonByteLengthBounded(value: unknown, limit: number): number {
       } else if (c < 0x800) {
         n += 2;
       } else if (c >= 0xd800 && c <= 0xdbff) {
-        n += 4; // surrogate pair → 4 UTF-8 bytes
-        i++;
+        // High surrogate. JSON.stringify pairs it with a following low
+        // surrogate (4 UTF-8 bytes total) or, if alone, emits \uXXXX
+        // (6 bytes). Don't advance `i` for the lone case so the next
+        // code unit gets counted on its own.
+        const next = i + 1 < s.length ? s.charCodeAt(i + 1) : -1;
+        if (next >= 0xdc00 && next <= 0xdfff) {
+          n += 4;
+          i++;
+        } else {
+          n += 6;
+        }
+      } else if (c >= 0xdc00 && c <= 0xdfff) {
+        // Lone low surrogate → \uXXXX (6 bytes).
+        n += 6;
       } else {
         n += 3;
       }
