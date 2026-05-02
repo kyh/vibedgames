@@ -24,9 +24,9 @@ const MAX_OUTPUT_IMAGE_BYTES = 25 * 1024 * 1024;
 // payloads. Providers that accept inline base64 (retro-diffusion's
 // `input_image` / `reference_images` / `input_palette`) sit inside this
 // budget; 32 MB easily fits a small input image plus several references
-// at typical pixel-art sizes while staying well under the 128 MB Worker
-// memory ceiling once both the parsed object and its serialized form
-// coexist in memory.
+// at typical pixel-art sizes. We measure size by walking the parsed
+// object directly (see `jsonByteLengthBounded`) so we never materialize
+// the serialized JSON or an encoded buffer alongside the parsed input.
 const MAX_PARAMS_BYTES = 32 * 1024 * 1024;
 const PRESIGN_TTL_SECONDS = 3600;
 
@@ -101,6 +101,91 @@ function pickProvider(
   if (provider === "openai") return openaiImageProvider;
   if (provider === "fal") return falImageProvider;
   return retroDiffusionImageProvider;
+}
+
+// Walk the parsed params object and compute the would-be JSON.stringify
+// UTF-8 byte length, bailing out early once `limit` is exceeded. We avoid
+// allocating both the serialized string and an encoded `Uint8Array`,
+// which would each peak around the limit on payloads carrying inline
+// base64 images and triple memory pressure on the 128 MB Worker.
+function jsonByteLengthBounded(value: unknown, limit: number): number {
+  let total = 0;
+  let exceeded = false;
+
+  function add(n: number): void {
+    total += n;
+    if (total > limit) exceeded = true;
+  }
+
+  function stringBytes(s: string): number {
+    let n = 2; // surrounding quotes
+    for (let i = 0; i < s.length && !exceeded; i++) {
+      const c = s.charCodeAt(i);
+      if (c === 0x22 || c === 0x5c) {
+        n += 2; // escaped " or \
+      } else if (c === 0x08 || c === 0x09 || c === 0x0a || c === 0x0c || c === 0x0d) {
+        n += 2; // \b \t \n \f \r
+      } else if (c < 0x20) {
+        n += 6; // \u00XX
+      } else if (c < 0x80) {
+        n += 1;
+      } else if (c < 0x800) {
+        n += 2;
+      } else if (c >= 0xd800 && c <= 0xdbff) {
+        n += 4; // surrogate pair → 4 UTF-8 bytes
+        i++;
+      } else {
+        n += 3;
+      }
+    }
+    return n;
+  }
+
+  function walk(v: unknown): void {
+    if (exceeded) return;
+    if (v === null) return add(4);
+    if (v === undefined) return; // omitted from objects
+    switch (typeof v) {
+      case "boolean":
+        return add(v ? 4 : 5);
+      case "number":
+        return add(Number.isFinite(v) ? String(v).length : 4);
+      case "string":
+        return add(stringBytes(v));
+      case "object": {
+        if (Array.isArray(v)) {
+          add(2); // []
+          for (let i = 0; i < v.length && !exceeded; i++) {
+            if (i > 0) add(1); // ,
+            const item = v[i];
+            if (item === undefined) {
+              add(4); // arrays serialize undefined as null
+            } else {
+              walk(item);
+            }
+          }
+          return;
+        }
+        add(2); // {}
+        let first = true;
+        for (const key of Object.keys(v as Record<string, unknown>)) {
+          if (exceeded) return;
+          const val = (v as Record<string, unknown>)[key];
+          if (val === undefined || typeof val === "function") continue;
+          if (!first) add(1); // ,
+          add(stringBytes(key) + 1); // "key":
+          walk(val);
+          first = false;
+        }
+        return;
+      }
+      default:
+        return; // function/symbol/bigint are not serializable here
+    }
+  }
+
+  walk(value);
+  return total;
 }
 
 function decodeInputImages(
@@ -216,13 +301,14 @@ export const imageRouter = createTRPCRouter({
       const apiKey = pickApiKey(input.provider, ctx.imageProviders);
       const provider = pickProvider(input.provider);
 
-      const paramsByteLength = new TextEncoder().encode(
-        JSON.stringify(input.params),
-      ).length;
+      const paramsByteLength = jsonByteLengthBounded(
+        input.params,
+        MAX_PARAMS_BYTES,
+      );
       if (paramsByteLength > MAX_PARAMS_BYTES) {
         throw new TRPCError({
           code: "PAYLOAD_TOO_LARGE",
-          message: `params exceeds ${MAX_PARAMS_BYTES} bytes (got ${paramsByteLength}).`,
+          message: `params exceeds ${MAX_PARAMS_BYTES} bytes.`,
         });
       }
 

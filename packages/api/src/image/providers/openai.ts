@@ -37,7 +37,18 @@ function pickStringField(
   return typeof value === "string" ? value : undefined;
 }
 
-function outputFormat(params: Record<string, unknown>): string {
+// Only the gpt-image-* family accepts the `output_format` request param.
+// dall-e-2 and dall-e-3 reject unknown args with a 400 and always return
+// PNG when `response_format: "b64_json"` is set.
+function supportsOutputFormat(model: string): boolean {
+  return model.startsWith("gpt-image");
+}
+
+function outputFormatFor(
+  model: string,
+  params: Record<string, unknown>,
+): string {
+  if (!supportsOutputFormat(model)) return "png";
   const requested = pickStringField(params, "output_format");
   if (requested && VALID_FORMATS.has(requested)) return requested;
   return "png";
@@ -133,13 +144,17 @@ function needsResponseFormatOverride(model: string): boolean {
 async function generate(
   req: ImageProviderRequest,
 ): Promise<ImageProviderResult> {
-  const format = outputFormat(req.params);
+  const format = outputFormatFor(req.model, req.params);
   const payload: Record<string, unknown> = {
     ...req.params,
     model: req.model,
     prompt: req.prompt,
-    output_format: format,
   };
+  if (supportsOutputFormat(req.model)) {
+    payload.output_format = format;
+  } else {
+    delete payload.output_format;
+  }
   if (needsResponseFormatOverride(req.model) && payload.response_format == null) {
     payload.response_format = "b64_json";
   }
@@ -162,7 +177,7 @@ async function edit(req: ImageProviderRequest): Promise<ImageProviderResult> {
       message: "OpenAI image edits require at least one input image.",
     });
   }
-  const format = outputFormat(req.params);
+  const format = outputFormatFor(req.model, req.params);
   const form = new FormData();
   // Set params first so explicit `model`/`prompt`/`output_format` below
   // always take precedence over anything passed in `params`.
@@ -173,7 +188,9 @@ async function edit(req: ImageProviderRequest): Promise<ImageProviderResult> {
   }
   form.set("model", req.model);
   form.set("prompt", req.prompt);
-  form.set("output_format", format);
+  if (supportsOutputFormat(req.model)) {
+    form.set("output_format", format);
+  }
   if (needsResponseFormatOverride(req.model) && !form.has("response_format")) {
     form.set("response_format", "b64_json");
   }
