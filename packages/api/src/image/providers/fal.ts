@@ -55,7 +55,28 @@ type QueueSubmitResponse = {
 
 type QueueStatusResponse = {
   status?: string;
+  error?: unknown;
+  detail?: unknown;
+  // fal sometimes nests the upstream payload's error fields under
+  // `response` when the job ends with FAILED/CANCELLED.
+  response?: { error?: unknown; detail?: unknown };
 };
+
+function pickErrorReason(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const v = value as { error?: unknown; detail?: unknown };
+  if (typeof v.error === "string" && v.error.length > 0) return v.error;
+  if (typeof v.detail === "string" && v.detail.length > 0) return v.detail;
+  // fal occasionally returns `error: { message: "..." }`.
+  if (
+    v.error !== null &&
+    typeof v.error === "object" &&
+    typeof (v.error as { message?: unknown }).message === "string"
+  ) {
+    return (v.error as { message: string }).message;
+  }
+  return null;
+}
 
 function falHeaders(apiKey: string): Record<string, string> {
   return {
@@ -299,9 +320,16 @@ async function pollUntilComplete(
     const status = (body.status ?? "").toUpperCase();
     if (status === "COMPLETED") return;
     if (status === "FAILED" || status === "CANCELLED") {
+      // fetchResult is never called on this path, so the upstream
+      // reason would otherwise be permanently lost. Pull error/detail
+      // off the status body (or its nested `response` payload) before
+      // throwing so the caller has something actionable to read.
+      const reason = pickErrorReason(body) ?? pickErrorReason(body.response);
       throw new TRPCError({
         code: "BAD_GATEWAY",
-        message: `fal job ended with status ${status}.`,
+        message: reason
+          ? `fal job ended with status ${status}: ${reason}`
+          : `fal job ended with status ${status}.`,
       });
     }
     if (Date.now() > deadline) {

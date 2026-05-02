@@ -34,13 +34,15 @@ export function createClient(): TRPCClient<AppRouter> {
 
 /** Unauthenticated client — for login flow. */
 export function createPublicClient(baseUrl: string): TRPCClient<AppRouter> {
-  const url = `${baseUrl}/api/trpc`;
+  // The login-flow procedures carry no large payloads, so the plain
+  // batch link is fine here — no need for the splitLink dance the
+  // authenticated client uses to keep `image.run` mutations off the
+  // batched path.
   return createTRPCClient<AppRouter>({
     links: [
-      splitLink({
-        condition: (op) => op.type === "mutation",
-        true: httpLink({ url, transformer: superjson }),
-        false: httpBatchLink({ url, transformer: superjson }),
+      httpBatchLink({
+        url: `${baseUrl}/api/trpc`,
+        transformer: superjson,
       }),
     ],
   });
