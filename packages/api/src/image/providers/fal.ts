@@ -55,7 +55,13 @@ function contentTypeForExtension(ext: string): string {
 }
 
 function extensionFromUrl(url: string): string {
-  const path = new URL(url).pathname;
+  let path: string;
+  try {
+    path = new URL(url).pathname;
+  } catch {
+    // Defensive: walked from arbitrary JSON, not validated as a URL.
+    return "";
+  }
   const dot = path.lastIndexOf(".");
   if (dot === -1) return "";
   return path.slice(dot + 1).toLowerCase();
@@ -251,9 +257,13 @@ export const falImageProvider: ImageProvider = {
       // Prepend uploaded files before any URLs already in params so fal
       // endpoints that treat the first entry as the primary input see the
       // local upload, matching the runner's documented file-then-url order.
+      // Strings (single URL) are kept as a trailing entry instead of being
+      // dropped silently.
       arguments_[field] = Array.isArray(existing)
         ? [...encoded, ...existing]
-        : encoded;
+        : typeof existing === "string" && existing.length > 0
+          ? [...encoded, existing]
+          : encoded;
     }
 
     const submission = await submit(

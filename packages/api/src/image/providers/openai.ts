@@ -206,11 +206,27 @@ async function edit(req: ImageProviderRequest): Promise<ImageProviderResult> {
     // so a user-supplied `response_format: "url"` would otherwise crash.
     form.set("response_format", "b64_json");
   }
-  for (const image of req.inputImages) {
+  // dall-e-2 expects the singular `image` field and accepts only one
+  // image; gpt-image-* takes `image[]` and accepts multiple.
+  if (req.model === "dall-e-2") {
+    if (req.inputImages.length > 1) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "OpenAI dall-e-2 edits accept exactly one input image.",
+      });
+    }
+    const image = req.inputImages[0]!;
     const blob = new Blob([image.bytes as Uint8Array<ArrayBuffer>], {
       type: image.contentType,
     });
-    form.append("image[]", blob, image.filename);
+    form.set("image", blob, image.filename);
+  } else {
+    for (const image of req.inputImages) {
+      const blob = new Blob([image.bytes as Uint8Array<ArrayBuffer>], {
+        type: image.contentType,
+      });
+      form.append("image[]", blob, image.filename);
+    }
   }
   const json = await callMultipart(editUrl(req.baseUrl), req.apiKey, form);
   return {
