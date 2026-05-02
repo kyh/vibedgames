@@ -158,25 +158,27 @@ async function writeOutputs(
   job: ImageJob,
 ): Promise<string[]> {
   const written: string[] = [];
-  try {
-    await Promise.all(
-      outputs.map(async (output, i) => {
-        const ext = extname(output.filename) || ".bin";
-        const target = pickTarget(options, job, i, outputs.length, ext);
-        const res = await fetch(output.url);
-        if (!res.ok) {
-          throw new Error(
-            `Failed to download ${output.filename} (${res.status} ${res.statusText})`,
-          );
-        }
-        writeBytes(target, Buffer.from(await res.arrayBuffer()));
-        written[i] = target;
-      }),
-    );
-    return written;
-  } catch (err) {
-    // Best-effort cleanup so a partial download doesn't leave half-written
-    // siblings on disk for downstream tools (or the next run) to trip on.
+  // `Promise.allSettled` lets every concurrent download either finish writing
+  // or fail before we touch the disk. If we used `Promise.all` and one
+  // sibling rejected first, the cleanup loop would race against still-
+  // in-flight `writeBytes` calls and could leave the very files it just
+  // unlinked on disk a moment later.
+  const settled = await Promise.allSettled(
+    outputs.map(async (output, i) => {
+      const ext = extname(output.filename) || ".bin";
+      const target = pickTarget(options, job, i, outputs.length, ext);
+      const res = await fetch(output.url);
+      if (!res.ok) {
+        throw new Error(
+          `Failed to download ${output.filename} (${res.status} ${res.statusText})`,
+        );
+      }
+      writeBytes(target, Buffer.from(await res.arrayBuffer()));
+      written[i] = target;
+    }),
+  );
+  const firstReason = settled.find((r) => r.status === "rejected");
+  if (firstReason && firstReason.status === "rejected") {
     for (const path of written) {
       if (!path) continue;
       try {
@@ -185,8 +187,11 @@ async function writeOutputs(
         // Ignore: file might already be missing or the user may have moved it.
       }
     }
-    throw err;
+    throw firstReason.reason instanceof Error
+      ? firstReason.reason
+      : new Error(String(firstReason.reason));
   }
+  return written;
 }
 
 function pickTarget(

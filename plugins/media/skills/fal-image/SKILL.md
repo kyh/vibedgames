@@ -209,7 +209,7 @@ Better: pipe `vg image ... --json` to a runs file alongside the outputs.
 
 ❌ **Anti-pattern: comparing models with hidden fallback routing**
 Why bad: you may think you tested one endpoint but actually hit another route.
-Better: the proxy already sets `x-app-fal-disable-fallback: true`; trust it and verify via `runId` in the JSON output.
+Better: the proxy already sets `x-app-fal-disable-fallback: true`; verify the target route via `metadata.endpoint_id` (and `metadata.request_id`) in the JSON output. `runId` is a server-side UUID for the run record and won't tell you which fal endpoint actually served the request.
 
 ❌ **Anti-pattern: stuffing many reference images into every edit**
 Why bad: it weakens edit control and makes failure analysis harder.

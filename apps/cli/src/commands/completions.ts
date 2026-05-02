@@ -52,7 +52,7 @@ _vg_completions() {
   subcmd="\${COMP_WORDS[2]}"
 
   if [[ $COMP_CWORD -eq 1 ]]; then
-    COMPREPLY=( $(compgen -W "${SUBCOMMANDS.join(" ")}" -- "$cur") )
+    COMPREPLY=( $(compgen -W "${SUBCOMMANDS.join(" ")} ${COMMON_FLAGS.join(" ")}" -- "$cur") )
     return
   fi
 
@@ -85,7 +85,7 @@ _vg() {
   common_flags=(${COMMON_FLAGS.map((s) => `"${s}"`).join(" ")})
 
   if (( CURRENT == 2 )); then
-    _values "vg subcommand" "\${subcmds[@]}"
+    _values "vg subcommand" "\${subcmds[@]}" "\${common_flags[@]}"
     return
   fi
   case "\${words[2]}" in
@@ -122,9 +122,13 @@ function fishScript(): string {
       fishFlag(flag, `__fish_seen_subcommand_from ${sub}`),
     ),
   );
+  const topLevelFlagLines = COMMON_FLAGS.map((flag) =>
+    fishFlag(flag, "__fish_use_subcommand"),
+  );
   return `# vg completions for fish.
 complete -c vg -f
 complete -c vg -n '__fish_use_subcommand' -a '${SUBCOMMANDS.join(" ")}'
+${topLevelFlagLines.join("\n")}
 ${IMAGE_SUBCOMMANDS.map(
   (sub) => `complete -c vg -n '__fish_seen_subcommand_from image' -a '${sub}'`,
 ).join("\n")}

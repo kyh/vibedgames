@@ -3,13 +3,16 @@ import { dirname, extname, isAbsolute, resolve } from "node:path";
 
 /**
  * Resolve `--output` to a directory the run can write into, plus a hint
- * about how to name files. Mirrors the behavior the AI CLI uses:
+ * about how to name files.
  *
- *   - missing path → `process.cwd()`
+ *   - missing path → `process.cwd()` (directory mode)
  *   - existing directory, or path ending with a path separator → directory
  *     mode; files are named `${prefix}-NN.${ext}`
- *   - looks like a file path (has an extension or doesn't exist as a dir) →
- *     single-file mode; the resolved path is used verbatim for one output.
+ *   - has a file extension → single-file mode; the resolved path is used
+ *     verbatim for one output (and only when the run produces exactly one)
+ *   - extensionless and not an existing directory → directory mode; the
+ *     directory is created on demand. Treating these as files would force
+ *     us to invent an extension and produce paths the user didn't ask for.
  */
 export type OutputTarget =
   | { kind: "dir"; dir: string }

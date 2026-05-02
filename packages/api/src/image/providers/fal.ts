@@ -81,6 +81,9 @@ function contentTypeForExtension(ext: string): string {
   if (ext === "png") return "image/png";
   if (ext === "webp") return "image/webp";
   if (ext === "gif") return "image/gif";
+  if (ext === "bmp") return "image/bmp";
+  if (ext === "tif" || ext === "tiff") return "image/tiff";
+  if (ext === "avif") return "image/avif";
   return "application/octet-stream";
 }
 

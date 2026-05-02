@@ -74,9 +74,14 @@ function parseOne(
   if (aliased) return { ...aliased, display: entry };
 
   const colon = entry.indexOf(":");
-  if (colon > 0) {
+  if (colon !== -1) {
     const provider = entry.slice(0, colon);
     const model = entry.slice(colon + 1);
+    if (provider.length === 0) {
+      throw new Error(
+        `provider missing before ":" in "${entry}". Expected one of: ${IMAGE_PROVIDERS.join(", ")}`,
+      );
+    }
     if (!IMAGE_PROVIDERS.includes(provider as ImageProviderName)) {
       throw new Error(
         `unknown provider in "${entry}". Expected one of: ${IMAGE_PROVIDERS.join(", ")}`,

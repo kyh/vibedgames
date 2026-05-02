@@ -175,6 +175,12 @@ async function runImage({
   const prompt = await readPrompt(args);
   const params = parseParams(args.params, args["params-file"]);
   const inputImages = collectImages(args.image).map((p) => readImage(p));
+  if (task === "edit" && inputImages.length === 0) {
+    consola.error(
+      "`vg image edit` requires at least one --image. Pass --image PATH (repeatable) or use `vg image generate` for text-only requests.",
+    );
+    process.exit(1);
+  }
   const count = args.count ? Math.max(1, parseInt(args.count, 10) || 1) : 1;
   const concurrency = args.concurrency
     ? Math.max(1, parseInt(args.concurrency, 10) || DEFAULT_CONCURRENCY)
