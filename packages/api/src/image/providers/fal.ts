@@ -8,6 +8,11 @@ import type {
 } from "../types";
 
 const DEFAULT_QUEUE_ROOT = "https://queue.fal.run";
+// fal status_url / response_url are echoed back from the queue submit
+// response and we attach the API key when polling them. Restrict the
+// hosts we'll authenticate against so a future server-side bug or
+// compromised path can't redirect the key off-platform.
+const FAL_TRUSTED_HOSTS = new Set(["queue.fal.run"]);
 
 function hasCustomBaseUrl(baseUrl: string | undefined | null): boolean {
   return typeof baseUrl === "string" && baseUrl.trim().length > 0;
@@ -16,6 +21,18 @@ function hasCustomBaseUrl(baseUrl: string | undefined | null): boolean {
 function queueRoot(baseUrl: string | undefined): string {
   const root = hasCustomBaseUrl(baseUrl) ? baseUrl! : DEFAULT_QUEUE_ROOT;
   return root.endsWith("/") ? root.slice(0, -1) : root;
+}
+
+function acceptableQueueUrl(value: unknown): string | null {
+  if (typeof value !== "string" || value.length === 0) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "https:") return null;
+  return FAL_TRUSTED_HOSTS.has(parsed.hostname) ? value : null;
 }
 
 const POLL_INTERVAL_MS = 2_000;
@@ -301,10 +318,10 @@ export const falImageProvider: ImageProvider = {
       : null;
     const statusUrl = useCustomRoot
       ? constructedStatus
-      : (submission.status_url ?? constructedStatus);
+      : (acceptableQueueUrl(submission.status_url) ?? constructedStatus);
     const responseUrl = useCustomRoot
       ? constructedResponse
-      : (submission.response_url ?? constructedResponse);
+      : (acceptableQueueUrl(submission.response_url) ?? constructedResponse);
 
     if (!statusUrl || !responseUrl) {
       throw new TRPCError({

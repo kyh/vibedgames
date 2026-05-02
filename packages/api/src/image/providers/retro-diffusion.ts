@@ -117,7 +117,17 @@ export const retroDiffusionImageProvider: ImageProvider = {
 
     const outputs: ImageProviderResult["outputs"] = [];
     for (const encoded of json.base64_images ?? []) {
-      const bytes = base64ToBytes(encoded);
+      let bytes: Uint8Array;
+      try {
+        bytes = base64ToBytes(encoded);
+      } catch {
+        // Malformed base64 from the upstream is a gateway-side problem,
+        // not an internal server error.
+        throw new TRPCError({
+          code: "BAD_GATEWAY",
+          message: "Retro Diffusion returned malformed base64 image data.",
+        });
+      }
       const media = detectMedia(bytes);
       outputs.push({
         bytes,
