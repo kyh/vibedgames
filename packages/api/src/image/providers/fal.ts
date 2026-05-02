@@ -245,8 +245,16 @@ async function submit(
       method: "POST",
       headers: { ...falHeaders(apiKey), "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      // See pollUntilComplete for the redirect rationale.
+      redirect: "manual",
     },
   );
+  if (res.status >= 300 && res.status < 400) {
+    throw new TRPCError({
+      code: "BAD_GATEWAY",
+      message: `fal queue submit returned a ${res.status} redirect; refusing to follow with credentials.`,
+    });
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new TRPCError({
@@ -265,9 +273,21 @@ async function pollUntilComplete(
   const pollUrl = new URL(statusUrl);
   pollUrl.searchParams.set("logs", "0");
   while (true) {
+    // `redirect: "manual"` keeps the Authorization header from
+    // following any 3xx the upstream issues. The status_url is already
+    // host-validated via acceptableQueueUrl, but the redirect target
+    // wouldn't be — so a redirect here would silently exfiltrate the
+    // proxy's FAL_API_KEY.
     const res = await fetch(pollUrl, {
       headers: falHeaders(apiKey),
+      redirect: "manual",
     });
+    if (res.status >= 300 && res.status < 400) {
+      throw new TRPCError({
+        code: "BAD_GATEWAY",
+        message: `fal queue status returned a ${res.status} redirect; refusing to follow with credentials.`,
+      });
+    }
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       throw new TRPCError({
@@ -298,7 +318,17 @@ async function fetchResult(
   responseUrl: string,
   apiKey: string,
 ): Promise<{ payload: unknown; billableUnits: string | null }> {
-  const res = await fetch(responseUrl, { headers: falHeaders(apiKey) });
+  const res = await fetch(responseUrl, {
+    headers: falHeaders(apiKey),
+    // See pollUntilComplete for the redirect rationale.
+    redirect: "manual",
+  });
+  if (res.status >= 300 && res.status < 400) {
+    throw new TRPCError({
+      code: "BAD_GATEWAY",
+      message: `fal result fetch returned a ${res.status} redirect; refusing to follow with credentials.`,
+    });
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new TRPCError({
