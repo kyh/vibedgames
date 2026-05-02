@@ -95,8 +95,34 @@ def run_vg_image(
         stderr = completed.stderr.strip() or completed.stdout.strip()
         raise SystemExit(f"vg image {task} failed: {stderr}")
     try:
-        return json.loads(completed.stdout)
+        parsed = json.loads(completed.stdout)
     except json.JSONDecodeError as exc:
         raise SystemExit(
             f"vg image {task} returned non-JSON output: {completed.stdout!r}"
         ) from exc
+
+    # The CLI emits a fan-out shape `{ totalMs, ok, failed, runs: [...] }`.
+    # Flatten the common single-run case so callers can read `outputs` /
+    # `metadata` / `runId` directly without knowing about the multi-model
+    # contract.
+    if isinstance(parsed, dict) and isinstance(parsed.get("runs"), list):
+        runs = parsed["runs"]
+        if len(runs) == 1:
+            run = runs[0] or {}
+            failure = run.get("error")
+            if failure:
+                raise SystemExit(f"vg image {task} failed: {failure}")
+            return {
+                "runId": str(run.get("index", 1)),
+                "provider": run.get("provider"),
+                "model": run.get("model"),
+                "outputs": list(run.get("files") or []),
+                "metadata": run.get("metadata") or {},
+                "elapsedMs": run.get("elapsedMs"),
+                "ok": run.get("ok", True),
+                "totalMs": parsed.get("totalMs"),
+            }
+        # Multi-run: surface the raw fan-out shape unchanged for callers
+        # that opt into running matrices.
+        return parsed
+    return parsed

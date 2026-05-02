@@ -105,16 +105,19 @@ compdef _vg vg
 }
 
 function fishScript(): string {
+  const flagLines = IMAGE_FLAGS.map((flag) => {
+    const isShort = flag.startsWith("-") && !flag.startsWith("--");
+    const name = flag.replace(/^--?/, "");
+    const opt = isShort ? "-s" : "-l";
+    return `complete -c vg -n '__fish_seen_subcommand_from image' ${opt} '${name}'`;
+  });
   return `# vg completions for fish.
 complete -c vg -f
 complete -c vg -n '__fish_use_subcommand' -a '${SUBCOMMANDS.join(" ")}'
 ${IMAGE_SUBCOMMANDS.map(
   (sub) => `complete -c vg -n '__fish_seen_subcommand_from image' -a '${sub}'`,
 ).join("\n")}
-${IMAGE_FLAGS.map(
-  (flag) =>
-    `complete -c vg -n '__fish_seen_subcommand_from image' -l '${flag.replace(/^--?/, "")}'`,
-).join("\n")}
+${flagLines.join("\n")}
 `;
 }
 
