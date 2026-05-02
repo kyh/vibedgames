@@ -110,7 +110,7 @@ export const retroDiffusionImageProvider: ImageProvider = {
         extension: media.extension,
       });
     }
-    if (outputs.length === 0 && (payload.check_cost as boolean) !== true) {
+    if (outputs.length === 0 && !payload.check_cost) {
       throw new TRPCError({
         code: "INTERNAL_SERVER_ERROR",
         message: "Retro Diffusion response did not include base64_images.",

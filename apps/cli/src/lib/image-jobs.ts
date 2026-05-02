@@ -12,6 +12,9 @@ import { pMap } from "./p-map.js";
 export type ImageJob = {
   index: number;
   spec: ModelSpec;
+  /** 0-based position of `spec` within `options.models`, used to keep
+   *  filenames distinct when the same model is listed twice. */
+  slot: number;
   /** 1-based copy index when count > 1, else 1. */
   copy: number;
   label: string;
@@ -62,11 +65,12 @@ type RunResult = {
 function buildJobs(models: ModelSpec[], count: number): ImageJob[] {
   const jobs: ImageJob[] = [];
   let index = 0;
-  for (const spec of models) {
+  for (let slot = 0; slot < models.length; slot++) {
+    const spec = models[slot]!;
     for (let copy = 1; copy <= count; copy++) {
       const label =
         count > 1 ? `${spec.display} (${copy}/${count})` : spec.display;
-      jobs.push({ index: index++, spec, copy, label });
+      jobs.push({ index: index++, spec, slot, copy, label });
     }
   }
   return jobs;
@@ -190,9 +194,17 @@ function pickTarget(
   const slug = sanitize(job.spec.display);
   const seq = String(outputIndex + 1).padStart(2, "0");
   const copy = options.count > 1 ? `-${String(job.copy).padStart(2, "0")}` : "";
+  // When the same model display appears more than once in --model, the
+  // slug+copy alone don't disambiguate the jobs and writeOutputs would
+  // race to clobber the file. Suffix the slot index in that case.
+  const duplicated =
+    options.models.filter((m) => m.display === job.spec.display).length > 1;
+  const slot = duplicated
+    ? `-s${String(job.slot + 1).padStart(2, "0")}`
+    : "";
   const stem =
     options.models.length > 1
-      ? `${options.filenamePrefix}-${slug}${copy}-${seq}`
+      ? `${options.filenamePrefix}-${slug}${slot}${copy}-${seq}`
       : `${options.filenamePrefix}${copy}-${seq}`;
   return join(dir, `${stem}${ext}`);
 }
