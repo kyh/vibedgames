@@ -17,7 +17,13 @@ import type {
 
 // ---- Limits ------------------------------------------------------------------
 
-const MAX_INPUT_IMAGES = 8;
+// 4 images × ~13.4 MB base64 expansion ≈ 54 MB, which leaves headroom
+// under the apps/web `MAX_BODY_BYTES = 64 MB` Content-Length cap so a
+// caller hitting the per-image budget gets the targeted "image N
+// exceeds X bytes" error instead of an opaque 413 from the fetch
+// handler. Multi-reference workflows in the wild use 2–3 images; 4 is
+// already generous.
+const MAX_INPUT_IMAGES = 4;
 const MAX_INPUT_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAX_OUTPUT_IMAGE_BYTES = 25 * 1024 * 1024;
 // Cap serialized `params` to defend the Worker against pathological

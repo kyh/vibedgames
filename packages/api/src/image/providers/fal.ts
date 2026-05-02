@@ -186,7 +186,16 @@ async function downloadImage(url: string): Promise<{
       message: `fal returned an output URL on an untrusted host: ${parsed.hostname}`,
     });
   }
-  const res = await fetch(url);
+  // `redirect: "manual"` keeps the host allow-list intact. A 3xx from a
+  // trusted fal CDN host could otherwise hop the worker's outbound
+  // request to an arbitrary destination, sidestepping the check above.
+  const res = await fetch(url, { redirect: "manual" });
+  if (res.status >= 300 && res.status < 400) {
+    throw new TRPCError({
+      code: "BAD_GATEWAY",
+      message: `fal output URL returned a ${res.status} redirect; refusing to follow.`,
+    });
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new TRPCError({
