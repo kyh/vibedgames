@@ -122,69 +122,75 @@ export async function runJobs(
   const start = Date.now();
   const client = createClient();
 
-  const results = await pMap<ImageJob, ImageJobResult>(
-    jobs,
-    async (job) => {
-      const jobStart = Date.now();
-      progress?.update(job.index, { state: "running" });
-      try {
-        const result = (await client.image.run.mutate({
-          provider: job.spec.provider,
-          task: options.task,
-          model: job.spec.model,
-          prompt: options.prompt,
-          params: options.params,
-          inputImages: options.inputImages,
-        })) as RunResult;
+  let results: ImageJobResult[];
+  try {
+    results = await pMap<ImageJob, ImageJobResult>(
+      jobs,
+      async (job) => {
+        const jobStart = Date.now();
+        progress?.update(job.index, { state: "running" });
+        try {
+          const result = (await client.image.run.mutate({
+            provider: job.spec.provider,
+            task: options.task,
+            model: job.spec.model,
+            prompt: options.prompt,
+            params: options.params,
+            inputImages: options.inputImages,
+          })) as RunResult;
 
-        const files = await writeOutputs(result.outputs, options, job);
-        const elapsed = Date.now() - jobStart;
-        progress?.update(job.index, {
-          state: "done",
-          detail: files[0] ?? "(no files)",
-        });
-        return {
-          index: job.index,
-          modelDisplay: job.spec.display,
-          provider: job.spec.provider,
-          model: job.spec.model,
-          ok: true,
-          elapsedMs: elapsed,
-          files,
-          runId: result.runId,
-          metadata: result.metadata,
-        };
-      } catch (err) {
-        // Cross-model fan-out semantics: a per-model failure (timeout,
-        // moderation, content-policy, network blip) shouldn't tank the
-        // whole batch — surface it as an `ok: false` result so the
-        // caller still sees outputs from sibling models. For errors
-        // that will fail every sibling identically (auth missing or
-        // bad, server misconfiguration), re-throw so pMap aborts and
-        // we don't burn through more API calls / progress lines.
-        const message = err instanceof Error ? err.message : String(err);
-        if (isFatalForBatch(err)) {
+          const files = await writeOutputs(result.outputs, options, job);
+          const elapsed = Date.now() - jobStart;
+          progress?.update(job.index, {
+            state: "done",
+            detail: files[0] ?? "(no files)",
+          });
+          return {
+            index: job.index,
+            modelDisplay: job.spec.display,
+            provider: job.spec.provider,
+            model: job.spec.model,
+            ok: true,
+            elapsedMs: elapsed,
+            files,
+            runId: result.runId,
+            metadata: result.metadata,
+          };
+        } catch (err) {
+          // Cross-model fan-out semantics: a per-model failure (timeout,
+          // moderation, content-policy, network blip) shouldn't tank the
+          // whole batch — surface it as an `ok: false` result so the
+          // caller still sees outputs from sibling models. For errors
+          // that will fail every sibling identically (auth missing or
+          // bad, server misconfiguration), re-throw so pMap aborts and
+          // we don't burn through more API calls / progress lines.
+          const message = err instanceof Error ? err.message : String(err);
+          if (isFatalForBatch(err)) {
+            progress?.update(job.index, { state: "failed", detail: message });
+            throw err;
+          }
+          const elapsed = Date.now() - jobStart;
           progress?.update(job.index, { state: "failed", detail: message });
-          throw err;
+          return {
+            index: job.index,
+            modelDisplay: job.spec.display,
+            provider: job.spec.provider,
+            model: job.spec.model,
+            ok: false,
+            elapsedMs: elapsed,
+            files: [],
+            error: message,
+          };
         }
-        const elapsed = Date.now() - jobStart;
-        progress?.update(job.index, { state: "failed", detail: message });
-        return {
-          index: job.index,
-          modelDisplay: job.spec.display,
-          provider: job.spec.provider,
-          model: job.spec.model,
-          ok: false,
-          elapsedMs: elapsed,
-          files: [],
-          error: message,
-        };
-      }
-    },
-    { concurrency: options.concurrency },
-  );
-
-  progress?.stop();
+      },
+      { concurrency: options.concurrency },
+    );
+  } finally {
+    // Always tear down the spinner interval, even when pMap rejects with
+    // a fatal error — otherwise the progress timer keeps redrawing on a
+    // dead run.
+    progress?.stop();
+  }
 
   return { results, totalElapsedMs: Date.now() - start };
 }
