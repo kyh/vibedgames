@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@trpc/client": "catalog:",
-    "citty": "^0.1.6",
+    "citty": "^0.2.2",
     "consola": "^3.4.2",
     "cross-spawn": "^7.0.6",
     "superjson": "catalog:"

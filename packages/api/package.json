@@ -14,11 +14,11 @@
     "typecheck": "tsc --noEmit --emitDeclarationOnly false"
   },
   "dependencies": {
-    "@better-auth/expo": "^1.6.0",
+    "@better-auth/expo": "^1.6.9",
     "@repo/db": "workspace:^",
     "@trpc/server": "catalog:",
     "aws4fetch": "^1.0.20",
-    "better-auth": "^1.6.0",
+    "better-auth": "^1.6.9",
     "superjson": "catalog:",
     "v0-sdk": "^0.16.4",
     "zod": "catalog:"
