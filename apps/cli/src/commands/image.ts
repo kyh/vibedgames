@@ -11,6 +11,7 @@ import { parseModelSpecs } from "../lib/image-models.js";
 import { resolveOutputTarget } from "../lib/image-output.js";
 import { runJobs } from "../lib/image-jobs.js";
 import { readStdin } from "../lib/stdin.js";
+import { isRecord } from "../lib/types.js";
 
 const DEFAULT_CONCURRENCY = 4;
 
@@ -25,10 +26,6 @@ function parseProvider(value: string | undefined): ImageProviderName | undefined
 
 function isImageProviderName(value: string): value is ImageProviderName {
   return IMAGE_PROVIDERS.some((provider) => provider === value);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function parseParams(

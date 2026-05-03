@@ -12,7 +12,18 @@ import { decodeBase64Output, fetchProviderJson, isRecord } from "../provider-io"
 import type { ImageProvider, ImageProviderRequest, ImageProviderResult } from "../types";
 
 const DEFAULT_BASE_URL = "https://api.retrodiffusion.ai/v1";
+// Image data must come through uploaded inputs, not params — surface a
+// 400 if a user tries to bypass that.
 const RESERVED_IMAGE_FIELDS = ["input_image", "reference_images", "input_palette"];
+// Fields the proxy controls. We strip these from `copyParams` so a
+// user-supplied value can't slip into the body alongside (or ahead of)
+// the explicit assignment below.
+const RESERVED_FIELDS = [
+  ...RESERVED_IMAGE_FIELDS,
+  "prompt",
+  "prompt_style",
+  "model",
+];
 
 function inferencesUrl(baseUrl: string | undefined): string {
   // `??` doesn't catch empty-string env vars; treat blank as unset.
@@ -81,7 +92,7 @@ export const retroDiffusionImageProvider: ImageProvider = {
 
     rejectImageParams(req.params, RESERVED_IMAGE_FIELDS, "Retro Diffusion");
     rejectInputRoles(req.inputImages, ["mask"], "Retro Diffusion");
-    const payload = copyParams(req.params, RESERVED_IMAGE_FIELDS);
+    const payload = copyParams(req.params, RESERVED_FIELDS);
     payload.prompt_style = promptStyle;
     payload.prompt = req.prompt;
 

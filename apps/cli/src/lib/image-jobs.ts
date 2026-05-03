@@ -10,6 +10,7 @@ import { ensureDir, writeBytes } from "./image-output.js";
 import { MultiProgress } from "./image-progress.js";
 import type { ModelSpec } from "./image-models.js";
 import { pMap } from "./p-map.js";
+import { isRecord } from "./types.js";
 
 export type ImageJob = {
   index: number;
@@ -93,10 +94,6 @@ function isFatalForBatch(err: unknown): boolean {
     }
   }
   return false;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function buildJobs(models: ModelSpec[], count: number): ImageJob[] {

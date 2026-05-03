@@ -1,0 +1,7 @@
+/** Type-guard helpers shared across CLI modules. */
+
+export function isRecord(
+  value: unknown,
+): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
