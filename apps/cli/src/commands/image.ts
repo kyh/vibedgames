@@ -108,11 +108,18 @@ async function readPrompt(args: {
 }
 
 function contentTypeFor(filename: string): string {
+  // Keep this aligned with the server-side `contentTypeForExtension`
+  // and `IMAGE_EXTENSIONS` allow-list in packages/api/src/image/
+  // providers/fal.ts. A wrong CLI MIME is sticky: it lands in R2
+  // metadata and propagates into provider data URIs / blob types.
   const ext = extname(filename).toLowerCase();
   if (ext === ".png") return "image/png";
   if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
   if (ext === ".webp") return "image/webp";
   if (ext === ".gif") return "image/gif";
+  if (ext === ".bmp") return "image/bmp";
+  if (ext === ".tif" || ext === ".tiff") return "image/tiff";
+  if (ext === ".avif") return "image/avif";
   return "application/octet-stream";
 }
 
