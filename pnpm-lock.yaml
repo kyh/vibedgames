@@ -80,7 +80,7 @@ catalogs:
       version: 4.87.0
     zod:
       specifier: ^4.4.2
-      version: 4.4.2
+      version: 3.25.76
 
 overrides:
   react-hook-form: ^7.72.1
@@ -252,7 +252,7 @@ importers:
         specifier: 'catalog:'
         version: 19.2.5(react@19.2.5)
       react-hook-form:
-        specifier: ^7.75.0
+        specifier: ^7.72.1
         version: 7.75.0(react@19.2.5)
       superjson:
         specifier: 'catalog:'
@@ -11692,7 +11692,7 @@ snapshots:
 
   dotenv-expand@11.0.7:
     dependencies:
-      dotenv: 16.4.7
+      dotenv: 16.6.1
     optional: true
 
   dotenv-expand@12.0.3:
