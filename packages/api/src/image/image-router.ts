@@ -158,45 +158,46 @@ async function loadInputImages({
   refs: z.infer<typeof inputImageRefSchema>[];
 }): Promise<ImageInputFile[]> {
   assertInputTotalBytes(refs);
-  const images: ImageInputFile[] = [];
-  for (let index = 0; index < refs.length; index++) {
-    const image = refs[index];
-    if (!image) continue;
-    assertInputKeyOwnedByUser(image.key, userId);
-    const object = await r2.bucket.get(image.key);
-    if (!object) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: `Input image ${index} was not uploaded or has expired.`,
-      });
-    }
-    if (object.size !== image.sizeBytes) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: `Input image ${index} size does not match its upload ref.`,
-      });
-    }
-    if (object.size > MAX_INPUT_IMAGE_BYTES) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: `Input image ${index} exceeds ${MAX_INPUT_IMAGE_BYTES} bytes.`,
-      });
-    }
-    const bytes = new Uint8Array(await object.arrayBuffer());
-    if (bytes.byteLength === 0) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: `Input image ${index} is empty.`,
-      });
-    }
-    images.push({
-      role: image.role,
-      filename: image.filename,
-      contentType: object.httpMetadata?.contentType ?? image.contentType,
-      bytes,
-    });
-  }
-  return images;
+  // Read inputs in parallel — each `r2.bucket.get` is a separate
+  // round-trip, and with up to MAX_INPUT_IMAGES refs the sequential
+  // loop made every image.run mutation pay the sum of all reads.
+  return Promise.all(
+    refs.map(async (image, index) => {
+      assertInputKeyOwnedByUser(image.key, userId);
+      const object = await r2.bucket.get(image.key);
+      if (!object) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Input image ${index} was not uploaded or has expired.`,
+        });
+      }
+      if (object.size !== image.sizeBytes) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Input image ${index} size does not match its upload ref.`,
+        });
+      }
+      if (object.size > MAX_INPUT_IMAGE_BYTES) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Input image ${index} exceeds ${MAX_INPUT_IMAGE_BYTES} bytes.`,
+        });
+      }
+      const bytes = new Uint8Array(await object.arrayBuffer());
+      if (bytes.byteLength === 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Input image ${index} is empty.`,
+        });
+      }
+      return {
+        role: image.role,
+        filename: image.filename,
+        contentType: object.httpMetadata?.contentType ?? image.contentType,
+        bytes,
+      };
+    }),
+  );
 }
 
 // ---- Catalog ----------------------------------------------------------------

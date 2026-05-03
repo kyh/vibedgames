@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 
 import { MAX_OUTPUT_IMAGE_BYTES } from "../limits";
-import { base64For, inputsForRoles, rejectInputRoles } from "../provider-inputs";
+import { base64For, copyParams, inputsForRoles, rejectInputRoles } from "../provider-inputs";
 import {
   fetchProviderJson,
   fetchProviderResponse,
@@ -359,8 +359,11 @@ export const falImageProvider: ImageProvider = {
       });
     }
 
-    const arguments_: Record<string, unknown> = { ...req.params };
-    delete arguments_.input_image_field;
+    // imageFieldFor (above) reads `input_image_field` and rejects
+    // collisions with reserved keys, so we always strip it here. We
+    // also strip `prompt` and `model` so a user-supplied value can't
+    // sneak past — fal endpoints inspect those keys themselves.
+    const arguments_ = copyParams(req.params, [...FAL_RESERVED_FIELDS]);
     arguments_.prompt = req.prompt;
 
     rejectInputRoles(req.inputImages, ["mask", "palette"], "fal");
