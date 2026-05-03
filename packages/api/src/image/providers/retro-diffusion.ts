@@ -8,7 +8,7 @@ import {
   rejectInputRoles,
   singleInputForRole,
 } from "../provider-inputs";
-import { decodeBase64Output, isRecord, readErrorSnippet, readJsonBounded } from "../provider-io";
+import { decodeBase64Output, fetchProviderJson, isRecord } from "../provider-io";
 import type { ImageProvider, ImageProviderRequest, ImageProviderResult } from "../types";
 
 const DEFAULT_BASE_URL = "https://api.retrodiffusion.ai/v1";
@@ -98,30 +98,21 @@ export const retroDiffusionImageProvider: ImageProvider = {
       payload.input_palette = base64For(palette);
     }
 
-    const res = await fetch(inferencesUrl(req.baseUrl), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-RD-Token": req.apiKey,
-      },
-      body: JSON.stringify(payload),
-      redirect: "manual",
-    });
-    if (res.status >= 300 && res.status < 400) {
-      throw new TRPCError({
-        code: "BAD_GATEWAY",
-        message: `Retro Diffusion returned a ${res.status} redirect; refusing to follow with credentials.`,
-      });
-    }
-    if (!res.ok) {
-      const text = await readErrorSnippet(res, "Retro Diffusion error response");
-      throw new TRPCError({
-        code: "BAD_GATEWAY",
-        message: `Retro Diffusion error ${res.status}: ${text.slice(0, 800)}`,
-      });
-    }
-
-    const json = parseRDResponse(await readJsonBounded(res, "Retro Diffusion response"));
+    const json = parseRDResponse(
+      await fetchProviderJson({
+        url: inferencesUrl(req.baseUrl),
+        label: "Retro Diffusion",
+        credentialed: true,
+        init: {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-RD-Token": req.apiKey,
+          },
+          body: JSON.stringify(payload),
+        },
+      }),
+    );
 
     const outputs: ImageProviderResult["outputs"] = [];
     for (const encoded of json.base64_images ?? []) {

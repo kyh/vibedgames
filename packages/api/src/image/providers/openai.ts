@@ -7,7 +7,7 @@ import {
   rejectInputRoles,
   singleInputForRole,
 } from "../provider-inputs";
-import { decodeBase64Output, isRecord, readErrorSnippet, readJsonBounded } from "../provider-io";
+import { decodeBase64Output, fetchProviderJson, isRecord } from "../provider-io";
 import type { ImageProvider, ImageProviderRequest, ImageProviderResult } from "../types";
 
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
@@ -114,52 +114,36 @@ async function callJson(
   apiKey: string,
   body: Record<string, unknown>,
 ): Promise<OpenAIResponse> {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-    redirect: "manual",
-  });
-  if (res.status >= 300 && res.status < 400) {
-    throw new TRPCError({
-      code: "BAD_GATEWAY",
-      message: `OpenAI API returned a ${res.status} redirect; refusing to follow with credentials.`,
-    });
-  }
-  if (!res.ok) {
-    const text = await readErrorSnippet(res, "OpenAI error response");
-    throw new TRPCError({
-      code: "BAD_GATEWAY",
-      message: `OpenAI API error ${res.status}: ${text.slice(0, 800)}`,
-    });
-  }
-  return parseOpenAIResponse(await readJsonBounded(res, "OpenAI response"));
+  return parseOpenAIResponse(
+    await fetchProviderJson({
+      url,
+      label: "OpenAI API",
+      credentialed: true,
+      init: {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      },
+    }),
+  );
 }
 
 async function callMultipart(url: string, apiKey: string, form: FormData): Promise<OpenAIResponse> {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}` },
-    body: form,
-    redirect: "manual",
-  });
-  if (res.status >= 300 && res.status < 400) {
-    throw new TRPCError({
-      code: "BAD_GATEWAY",
-      message: `OpenAI API returned a ${res.status} redirect; refusing to follow with credentials.`,
-    });
-  }
-  if (!res.ok) {
-    const text = await readErrorSnippet(res, "OpenAI error response");
-    throw new TRPCError({
-      code: "BAD_GATEWAY",
-      message: `OpenAI API error ${res.status}: ${text.slice(0, 800)}`,
-    });
-  }
-  return parseOpenAIResponse(await readJsonBounded(res, "OpenAI response"));
+  return parseOpenAIResponse(
+    await fetchProviderJson({
+      url,
+      label: "OpenAI API",
+      credentialed: true,
+      init: {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body: form,
+      },
+    }),
+  );
 }
 
 // gpt-image-* models always return b64 and reject `response_format`. Other

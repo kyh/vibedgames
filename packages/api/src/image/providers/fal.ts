@@ -2,7 +2,13 @@ import { TRPCError } from "@trpc/server";
 
 import { MAX_OUTPUT_IMAGE_BYTES } from "../limits";
 import { base64For, inputsForRoles, rejectInputRoles } from "../provider-inputs";
-import { isRecord, readBytesBounded, readErrorSnippet, readJsonBounded } from "../provider-io";
+import {
+  fetchProviderJson,
+  fetchProviderResponse,
+  isRecord,
+  readBytesBounded,
+  readJsonBounded,
+} from "../provider-io";
 import type { ImageInputFile, ImageProvider } from "../types";
 
 const DEFAULT_QUEUE_ROOT = "https://queue.fal.run";
@@ -221,23 +227,11 @@ async function downloadImage(url: string): Promise<{
       message: `fal returned an output URL on an untrusted host: ${parsed.hostname}`,
     });
   }
-  // `redirect: "manual"` keeps the host allow-list intact. A 3xx from a
-  // trusted fal CDN host could otherwise hop the worker's outbound
-  // request to an arbitrary destination, sidestepping the check above.
-  const res = await fetch(url, { redirect: "manual" });
-  if (res.status >= 300 && res.status < 400) {
-    throw new TRPCError({
-      code: "BAD_GATEWAY",
-      message: `fal output URL returned a ${res.status} redirect; refusing to follow.`,
-    });
-  }
-  if (!res.ok) {
-    const text = await readErrorSnippet(res, "fal output error response");
-    throw new TRPCError({
-      code: "BAD_GATEWAY",
-      message: `fal output download failed (${res.status}): ${text.slice(0, 400)}`,
-    });
-  }
+  const res = await fetchProviderResponse({
+    url,
+    label: "fal output URL",
+    credentialed: false,
+  });
   const buf = await readBytesBounded(res, MAX_OUTPUT_IMAGE_BYTES, "fal output image");
   const [mimeType] = (res.headers.get("content-type") ?? "").split(";");
   const headerMime = (mimeType ?? "").trim().toLowerCase();
@@ -267,27 +261,18 @@ async function submit(
   body: Record<string, unknown>,
   baseUrl: string | undefined,
 ): Promise<QueueSubmitResponse> {
-  const res = await fetch(`${queueRoot(baseUrl)}/${endpointId.replace(/^\/+|\/+$/g, "")}`, {
-    method: "POST",
-    headers: { ...falHeaders(apiKey), "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    // See pollUntilComplete for the redirect rationale.
-    redirect: "manual",
-  });
-  if (res.status >= 300 && res.status < 400) {
-    throw new TRPCError({
-      code: "BAD_GATEWAY",
-      message: `fal queue submit returned a ${res.status} redirect; refusing to follow with credentials.`,
-    });
-  }
-  if (!res.ok) {
-    const text = await readErrorSnippet(res, "fal queue submit error response");
-    throw new TRPCError({
-      code: "BAD_GATEWAY",
-      message: `fal queue submit failed (${res.status}): ${text.slice(0, 800)}`,
-    });
-  }
-  return parseQueueSubmit(await readJsonBounded(res, "fal queue submit response"));
+  return parseQueueSubmit(
+    await fetchProviderJson({
+      url: `${queueRoot(baseUrl)}/${endpointId.replace(/^\/+|\/+$/g, "")}`,
+      label: "fal queue submit",
+      credentialed: true,
+      init: {
+        method: "POST",
+        headers: { ...falHeaders(apiKey), "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    }),
+  );
 }
 
 async function pollUntilComplete(statusUrl: string, apiKey: string): Promise<void> {
@@ -295,29 +280,14 @@ async function pollUntilComplete(statusUrl: string, apiKey: string): Promise<voi
   const pollUrl = new URL(statusUrl);
   pollUrl.searchParams.set("logs", "0");
   while (true) {
-    // `redirect: "manual"` keeps the Authorization header from
-    // following any 3xx the upstream issues. The status_url is already
-    // host-validated via acceptableQueueUrl, but the redirect target
-    // would not be, so a redirect here would silently exfiltrate the
-    // proxy's FAL_API_KEY.
-    const res = await fetch(pollUrl, {
-      headers: falHeaders(apiKey),
-      redirect: "manual",
-    });
-    if (res.status >= 300 && res.status < 400) {
-      throw new TRPCError({
-        code: "BAD_GATEWAY",
-        message: `fal queue status returned a ${res.status} redirect; refusing to follow with credentials.`,
-      });
-    }
-    if (!res.ok) {
-      const text = await readErrorSnippet(res, "fal queue status error response");
-      throw new TRPCError({
-        code: "BAD_GATEWAY",
-        message: `fal queue status failed (${res.status}): ${text.slice(0, 400)}`,
-      });
-    }
-    const body = parseQueueStatus(await readJsonBounded(res, "fal queue status response"));
+    const body = parseQueueStatus(
+      await fetchProviderJson({
+        url: pollUrl,
+        label: "fal queue status",
+        credentialed: true,
+        init: { headers: falHeaders(apiKey) },
+      }),
+    );
     const status = (body.status ?? "").toUpperCase();
     if (status === "COMPLETED") return;
     if (status === "FAILED" || status === "CANCELLED") {
@@ -347,24 +317,12 @@ async function fetchResult(
   responseUrl: string,
   apiKey: string,
 ): Promise<{ payload: unknown; billableUnits: string | null }> {
-  const res = await fetch(responseUrl, {
-    headers: falHeaders(apiKey),
-    // See pollUntilComplete for the redirect rationale.
-    redirect: "manual",
+  const res = await fetchProviderResponse({
+    url: responseUrl,
+    label: "fal result fetch",
+    credentialed: true,
+    init: { headers: falHeaders(apiKey) },
   });
-  if (res.status >= 300 && res.status < 400) {
-    throw new TRPCError({
-      code: "BAD_GATEWAY",
-      message: `fal result fetch returned a ${res.status} redirect; refusing to follow with credentials.`,
-    });
-  }
-  if (!res.ok) {
-    const text = await readErrorSnippet(res, "fal result error response");
-    throw new TRPCError({
-      code: "BAD_GATEWAY",
-      message: `fal result fetch failed (${res.status}): ${text.slice(0, 800)}`,
-    });
-  }
   const payload = await readJsonBounded(res, "fal result response");
   return {
     payload,

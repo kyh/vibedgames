@@ -11,6 +11,7 @@
     "build": "tsc",
     "clean": "rm -rf .cache .turbo dist node_modules",
     "dev": "tsc",
+    "test:image": "node --import tsx --test src/image/*.test.ts",
     "typecheck": "tsc --noEmit --emitDeclarationOnly false"
   },
   "dependencies": {

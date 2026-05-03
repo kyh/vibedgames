@@ -82,12 +82,57 @@ export async function readJsonBounded(
   }
 }
 
-export async function readErrorSnippet(response: Response, label: string): Promise<string> {
+async function readErrorSnippet(response: Response, label: string): Promise<string> {
   try {
     return (await readTextBounded(response, label, 8 * 1024)).slice(0, 800);
   } catch {
     return "";
   }
+}
+
+export async function fetchProviderResponse({
+  url,
+  init,
+  label,
+  credentialed,
+}: {
+  url: string | URL;
+  init?: RequestInit;
+  label: string;
+  credentialed: boolean;
+}): Promise<Response> {
+  const response = await fetch(url, { ...init, redirect: "manual" });
+  if (response.status >= 300 && response.status < 400) {
+    throw new TRPCError({
+      code: "BAD_GATEWAY",
+      message: `${label} returned a ${response.status} redirect; refusing to follow${
+        credentialed ? " with credentials" : ""
+      }.`,
+    });
+  }
+  if (!response.ok) {
+    const text = await readErrorSnippet(response, `${label} error response`);
+    throw new TRPCError({
+      code: "BAD_GATEWAY",
+      message: `${label} failed (${response.status}): ${text}`,
+    });
+  }
+  return response;
+}
+
+export async function fetchProviderJson({
+  url,
+  init,
+  label,
+  credentialed,
+}: {
+  url: string | URL;
+  init?: RequestInit;
+  label: string;
+  credentialed: boolean;
+}): Promise<unknown> {
+  const response = await fetchProviderResponse({ url, init, label, credentialed });
+  return await readJsonBounded(response, `${label} response`);
 }
 
 function decodedBase64Length(encoded: string): number {
