@@ -1,4 +1,4 @@
-import { readFileSync, unlinkSync } from "node:fs";
+import { openAsBlob, unlinkSync } from "node:fs";
 import { extname, join } from "node:path";
 
 import type { RouterOutputs } from "@repo/api";
@@ -220,10 +220,11 @@ async function uploadInputImages(
       created.uploads.map(async (upload, index) => {
         const image = images[index];
         if (!image) throw new Error(`Missing local input image ${index}.`);
+        const body = await openAsBlob(image.path, { type: image.contentType });
         const res = await fetch(upload.url, {
           method: "PUT",
           headers: upload.headers,
-          body: readFileSync(image.path),
+          body,
         });
         if (!res.ok) {
           const text = await res.text().catch(() => "");

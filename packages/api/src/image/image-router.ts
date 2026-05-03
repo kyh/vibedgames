@@ -378,15 +378,17 @@ export const imageRouter = createTRPCRouter({
     }
 
     const runId = crypto.randomUUID();
+    for (const [index, out] of result.outputs.entries()) {
+      if (out.bytes.byteLength > MAX_OUTPUT_IMAGE_BYTES) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Output ${index} exceeds ${MAX_OUTPUT_IMAGE_BYTES} bytes.`,
+        });
+      }
+    }
 
     const outputs = await Promise.all(
       result.outputs.map(async (out, index) => {
-        if (out.bytes.byteLength > MAX_OUTPUT_IMAGE_BYTES) {
-          throw new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: `Output ${index} exceeds ${MAX_OUTPUT_IMAGE_BYTES} bytes.`,
-          });
-        }
         const seq = String(index + 1).padStart(2, "0");
         const filename = `output-${seq}${out.extension}`;
         const key = `image-runs/${userId}/${runId}/${filename}`;

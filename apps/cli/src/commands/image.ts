@@ -10,6 +10,7 @@ import type { ModelSpec } from "../lib/image-models.js";
 import { parseModelSpecs } from "../lib/image-models.js";
 import { resolveOutputTarget } from "../lib/image-output.js";
 import { runJobs } from "../lib/image-jobs.js";
+import { collectRepeatedStringFlag } from "../lib/repeated-flags.js";
 import { readStdin } from "../lib/stdin.js";
 import { isRecord } from "../lib/types.js";
 
@@ -140,16 +141,21 @@ function readImage(
   };
 }
 
-function collectImages(value: string | string[] | undefined): string[] {
-  if (!value) return [];
-  return Array.isArray(value) ? value : [value];
+function collectImages(
+  value: string | string[] | undefined,
+  rawArgs: string[],
+  flag: string,
+): string[] {
+  return collectRepeatedStringFlag(value, rawArgs, flag);
 }
 
 function collectRoleImages(
   value: string | string[] | undefined,
   role: ImageInputRole,
+  rawArgs: string[],
+  flag: string,
 ): ReturnType<typeof readImage>[] {
-  return collectImages(value).map((path) => readImage(path, role));
+  return collectImages(value, rawArgs, flag).map((path) => readImage(path, role));
 }
 
 /**
@@ -188,6 +194,7 @@ function resolveModels(
 async function runImage({
   task,
   args,
+  rawArgs,
 }: {
   task: "generate" | "edit";
   args: {
@@ -209,16 +216,17 @@ async function runImage({
     quiet?: boolean;
     _?: string[];
   };
+  rawArgs: string[];
 }): Promise<void> {
   const defaultProvider = parseProvider(args.provider);
   const models = resolveModels(args.model, defaultProvider);
   const prompt = await readPrompt(args);
   const params = parseParams(args.params, args["params-file"]);
   const inputImages = [
-    ...collectRoleImages(args.image, "image"),
-    ...collectRoleImages(args.reference, "reference"),
-    ...collectRoleImages(args.mask, "mask"),
-    ...collectRoleImages(args.palette, "palette"),
+    ...collectRoleImages(args.image, "image", rawArgs, "--image"),
+    ...collectRoleImages(args.reference, "reference", rawArgs, "--reference"),
+    ...collectRoleImages(args.mask, "mask", rawArgs, "--mask"),
+    ...collectRoleImages(args.palette, "palette", rawArgs, "--palette"),
   ];
   if (task === "edit" && inputImages.length === 0) {
     consola.error(
@@ -372,8 +380,8 @@ const generateCommand = defineCommand({
     description: "Generate one or more images from a prompt.",
   },
   args: sharedArgs,
-  run: async ({ args }) => {
-    await runImage({ task: "generate", args });
+  run: async ({ args, rawArgs }) => {
+    await runImage({ task: "generate", args, rawArgs });
   },
 });
 
@@ -383,8 +391,8 @@ const editCommand = defineCommand({
     description: "Edit one or more input images with a prompt.",
   },
   args: sharedArgs,
-  run: async ({ args }) => {
-    await runImage({ task: "edit", args });
+  run: async ({ args, rawArgs }) => {
+    await runImage({ task: "edit", args, rawArgs });
   },
 });
 
@@ -397,14 +405,14 @@ export const imageCommand = defineCommand({
   args: sharedArgs,
   // Default behavior when invoked as `vg image ...` without a subcommand:
   // edit when any input image role is provided, otherwise generate.
-  run: async ({ args }) => {
+  run: async ({ args, rawArgs }) => {
     const hasInput =
-      collectImages(args.image).length > 0 ||
-      collectImages(args.reference).length > 0 ||
-      collectImages(args.mask).length > 0 ||
-      collectImages(args.palette).length > 0;
+      collectImages(args.image, rawArgs, "--image").length > 0 ||
+      collectImages(args.reference, rawArgs, "--reference").length > 0 ||
+      collectImages(args.mask, rawArgs, "--mask").length > 0 ||
+      collectImages(args.palette, rawArgs, "--palette").length > 0;
     const task = hasInput ? "edit" : "generate";
-    await runImage({ task, args });
+    await runImage({ task, args, rawArgs });
   },
   subCommands: {
     generate: generateCommand,

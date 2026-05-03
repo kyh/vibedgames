@@ -18,12 +18,7 @@ const RESERVED_IMAGE_FIELDS = ["input_image", "reference_images", "input_palette
 // Fields the proxy controls. We strip these from `copyParams` so a
 // user-supplied value can't slip into the body alongside (or ahead of)
 // the explicit assignment below.
-const RESERVED_FIELDS = [
-  ...RESERVED_IMAGE_FIELDS,
-  "prompt",
-  "prompt_style",
-  "model",
-];
+const RESERVED_FIELDS = [...RESERVED_IMAGE_FIELDS, "prompt", "prompt_style", "model"];
 
 function inferencesUrl(baseUrl: string | undefined): string {
   // `??` doesn't catch empty-string env vars; treat blank as unset.

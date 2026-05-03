@@ -116,14 +116,22 @@ test("Retro Diffusion maps image, reference, and palette roles to native fields"
     task: "generate",
     model: "rd_pro__edit",
     prompt: "sprite",
-    params: { width: 64, height: 64 },
+    params: {
+      width: 64,
+      height: 64,
+      model: "not-forwarded",
+      prompt: "not-forwarded",
+      prompt_style: "rd_pro__spritesheet",
+    },
     inputImages: [image("image"), image("reference"), image("palette")],
     apiKey: "rd-key",
   });
 
   const payload = record(capturedPayload);
   assert.equal(capturedRedirect, "manual");
-  assert.equal(payload.prompt_style, "rd_pro__edit");
+  assert.equal(payload.prompt_style, "rd_pro__spritesheet");
+  assert.equal(payload.prompt, "sprite");
+  assert.equal(payload.model, undefined);
   assert.equal(typeof payload.input_image, "string");
   assert.equal(typeof payload.input_palette, "string");
   assert.ok(Array.isArray(payload.reference_images));

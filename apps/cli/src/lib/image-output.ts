@@ -1,18 +1,15 @@
 import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
-import { dirname, extname, isAbsolute, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 
 /**
  * Resolve `--output` to a directory the run can write into, plus a hint
  * about how to name files.
  *
- *   - missing path → `process.cwd()` (directory mode)
- *   - existing directory, or path ending with a path separator → directory
+ *   - missing path -> fallback directory
+ *   - existing directory, or path ending with a path separator -> directory
  *     mode; files are named `${prefix}-NN.${ext}`
- *   - has a file extension → single-file mode; the resolved path is used
- *     verbatim for one output (and only when the run produces exactly one)
- *   - extensionless and not an existing directory → directory mode; the
- *     directory is created on demand. Treating these as files would force
- *     us to invent an extension and produce paths the user didn't ask for.
+ *   - otherwise -> single-file mode; the resolved path is used verbatim for
+ *     one output (and only when the run produces exactly one)
  */
 export type OutputTarget =
   | { kind: "dir"; dir: string }
@@ -22,8 +19,12 @@ export function resolveOutputTarget(
   rawPath: string | undefined,
   fallbackDir: string,
 ): OutputTarget {
-  const target = rawPath ?? fallbackDir;
-  const abs = isAbsolute(target) ? target : resolve(target);
+  if (rawPath === undefined || rawPath.length === 0) {
+    return { kind: "dir", dir: resolve(fallbackDir) };
+  }
+
+  const target = rawPath;
+  const abs = resolve(target);
 
   if (existsSync(abs) && statSync(abs).isDirectory()) {
     return { kind: "dir", dir: abs };
@@ -31,10 +32,7 @@ export function resolveOutputTarget(
   if (target.endsWith("/") || target.endsWith("\\")) {
     return { kind: "dir", dir: abs };
   }
-  if (extname(abs) !== "") {
-    return { kind: "file", path: abs, dir: dirname(abs) };
-  }
-  return { kind: "dir", dir: abs };
+  return { kind: "file", path: abs, dir: dirname(abs) };
 }
 
 export function ensureDir(dir: string): void {
