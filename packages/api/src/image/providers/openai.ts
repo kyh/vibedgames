@@ -1,11 +1,14 @@
 import { TRPCError } from "@trpc/server";
 
-import { base64ToBytes } from "../base64";
-import type {
-  ImageProvider,
-  ImageProviderRequest,
-  ImageProviderResult,
-} from "../types";
+import {
+  copyParams,
+  inputsForRoles,
+  rejectImageParams,
+  rejectInputRoles,
+  singleInputForRole,
+} from "../provider-inputs";
+import { decodeBase64Output, isRecord, readErrorSnippet, readJsonBounded } from "../provider-io";
+import type { ImageProvider, ImageProviderRequest, ImageProviderResult } from "../types";
 
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 
@@ -33,10 +36,21 @@ type OpenAIResponse = {
   created?: number;
 };
 
-function pickStringField(
-  params: Record<string, unknown>,
-  key: string,
-): string | undefined {
+function parseOpenAIResponse(value: unknown): OpenAIResponse {
+  if (!isRecord(value)) return {};
+  const data = Array.isArray(value.data)
+    ? value.data.map((item) =>
+        isRecord(item) && typeof item.b64_json === "string" ? { b64_json: item.b64_json } : {},
+      )
+    : undefined;
+  return {
+    data,
+    usage: value.usage,
+    created: typeof value.created === "number" ? value.created : undefined,
+  };
+}
+
+function pickStringField(params: Record<string, unknown>, key: string): string | undefined {
   const value = params[key];
   return typeof value === "string" ? value : undefined;
 }
@@ -48,10 +62,7 @@ function supportsOutputFormat(model: string): boolean {
   return model.startsWith("gpt-image");
 }
 
-function outputFormatFor(
-  model: string,
-  params: Record<string, unknown>,
-): string {
+function outputFormatFor(model: string, params: Record<string, unknown>): string {
   if (!supportsOutputFormat(model)) return "png";
   const requested = pickStringField(params, "output_format");
   if (requested && VALID_FORMATS.has(requested)) return requested;
@@ -67,10 +78,13 @@ function contentTypeFor(format: string): string {
   return `image/${format}`;
 }
 
-function decodeOutputs(
-  json: OpenAIResponse,
-  format: string,
-): ImageProviderResult["outputs"] {
+function blobPartFor(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
+function decodeOutputs(json: OpenAIResponse, format: string): ImageProviderResult["outputs"] {
   const data = json.data;
   if (!Array.isArray(data) || data.length === 0) {
     throw new TRPCError({
@@ -88,7 +102,7 @@ function decodeOutputs(
       });
     }
     return {
-      bytes: base64ToBytes(item.b64_json),
+      bytes: decodeBase64Output(item.b64_json, "OpenAI image output"),
       contentType: ct,
       extension: ext,
     };
@@ -107,35 +121,45 @@ async function callJson(
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
+    redirect: "manual",
   });
+  if (res.status >= 300 && res.status < 400) {
+    throw new TRPCError({
+      code: "BAD_GATEWAY",
+      message: `OpenAI API returned a ${res.status} redirect; refusing to follow with credentials.`,
+    });
+  }
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
+    const text = await readErrorSnippet(res, "OpenAI error response");
     throw new TRPCError({
       code: "BAD_GATEWAY",
       message: `OpenAI API error ${res.status}: ${text.slice(0, 800)}`,
     });
   }
-  return (await res.json()) as OpenAIResponse;
+  return parseOpenAIResponse(await readJsonBounded(res, "OpenAI response"));
 }
 
-async function callMultipart(
-  url: string,
-  apiKey: string,
-  form: FormData,
-): Promise<OpenAIResponse> {
+async function callMultipart(url: string, apiKey: string, form: FormData): Promise<OpenAIResponse> {
   const res = await fetch(url, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}` },
     body: form,
+    redirect: "manual",
   });
+  if (res.status >= 300 && res.status < 400) {
+    throw new TRPCError({
+      code: "BAD_GATEWAY",
+      message: `OpenAI API returned a ${res.status} redirect; refusing to follow with credentials.`,
+    });
+  }
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
+    const text = await readErrorSnippet(res, "OpenAI error response");
     throw new TRPCError({
       code: "BAD_GATEWAY",
       message: `OpenAI API error ${res.status}: ${text.slice(0, 800)}`,
     });
   }
-  return (await res.json()) as OpenAIResponse;
+  return parseOpenAIResponse(await readJsonBounded(res, "OpenAI response"));
 }
 
 // gpt-image-* models always return b64 and reject `response_format`. Other
@@ -145,14 +169,9 @@ function needsResponseFormatOverride(model: string): boolean {
   return !model.startsWith("gpt-image");
 }
 
-// Fields the proxy controls — never let user-supplied params overwrite or
-// reach OpenAI through the spread/form loops. The image-binary fields
-// (`image`, `image[]`) are appended explicitly below; if a user passed
-// them through `params` the form would end up with stray text entries
-// alongside the real binary blobs. `mask` is handled separately further
-// down: it stays addressable through `params` (as a base64 string) but
-// never as a stray text field.
-const RESERVED_FIELDS = new Set([
+// Fields the proxy controls. Image-like fields must come through uploaded
+// role refs so bytes stay out of JSON bodies.
+const RESERVED_FIELDS = [
   "model",
   "prompt",
   "output_format",
@@ -160,13 +179,13 @@ const RESERVED_FIELDS = new Set([
   "image",
   "image[]",
   "mask",
-]);
+];
 
-async function generate(
-  req: ImageProviderRequest,
-): Promise<ImageProviderResult> {
+const IMAGE_PARAM_FIELDS = ["image", "image[]", "mask"];
+
+async function generate(req: ImageProviderRequest): Promise<ImageProviderResult> {
   if (req.inputImages.length > 0) {
-    // OpenAI's /images/generations endpoint is text-only — a reference
+    // OpenAI's /images/generations endpoint is text-only; a reference
     // image only has effect via /images/edits. Reject so the user knows
     // their --image was dropped instead of silently ignoring it.
     throw new TRPCError({
@@ -176,19 +195,15 @@ async function generate(
     });
   }
   const format = outputFormatFor(req.model, req.params);
-  const payload: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(req.params)) {
-    if (value === undefined || value === null) continue;
-    if (RESERVED_FIELDS.has(key)) continue;
-    payload[key] = value;
-  }
+  rejectImageParams(req.params, IMAGE_PARAM_FIELDS, "OpenAI");
+  const payload = copyParams(req.params, RESERVED_FIELDS);
   payload.model = req.model;
   payload.prompt = req.prompt;
   if (supportsOutputFormat(req.model)) {
     payload.output_format = format;
   }
   if (needsResponseFormatOverride(req.model)) {
-    // Force, not default — decodeOutputs only knows how to read b64_json,
+    // Force, not default: decodeOutputs only knows how to read b64_json,
     // so a user-supplied `response_format: "url"` would otherwise crash.
     payload.response_format = "b64_json";
   }
@@ -205,78 +220,67 @@ async function generate(
 }
 
 async function edit(req: ImageProviderRequest): Promise<ImageProviderResult> {
-  if (req.inputImages.length === 0) {
-    // OpenAI's edit endpoint expects `image` / `image[]` as binary form
-    // fields, so the proxy filters those keys out of `params` to keep
-    // them from leaking as text. If a user routed images through
-    // `--params` instead of `--image`, surface a specific message
-    // pointing at the right flag.
-    const usedParamsImage =
-      typeof req.params.image === "string" ||
-      Array.isArray(req.params.image) ||
-      Array.isArray((req.params as Record<string, unknown>)["image[]"]);
+  rejectImageParams(req.params, IMAGE_PARAM_FIELDS, "OpenAI");
+  rejectInputRoles(req.inputImages, ["palette"], "OpenAI");
+  const editImages = inputsForRoles(req.inputImages, ["image", "reference"]);
+  const mask = singleInputForRole(req.inputImages, "mask", "OpenAI edit");
+  if (editImages.length === 0) {
     throw new TRPCError({
       code: "BAD_REQUEST",
-      message: usedParamsImage
-        ? "OpenAI image edits require --image (or `inputImages` on the API). The `image` / `image[]` keys in --params are reserved by the proxy and don't reach OpenAI."
-        : "OpenAI image edits require at least one input image.",
+      message: "OpenAI image edits require at least one --image or --reference.",
     });
   }
   const format = outputFormatFor(req.model, req.params);
   const form = new FormData();
-  for (const [key, value] of Object.entries(req.params)) {
-    if (value === undefined || value === null) continue;
-    if (RESERVED_FIELDS.has(key)) continue;
+  for (const [key, value] of Object.entries(copyParams(req.params, RESERVED_FIELDS))) {
     form.set(key, typeof value === "string" ? value : JSON.stringify(value));
   }
   form.set("model", req.model);
   form.set("prompt", req.prompt);
-  // OpenAI's edit endpoint accepts an optional `mask` PNG. We expose it
-  // as a base64 string in `params.mask` (matching the retro-diffusion
-  // convention for inline images) and decode it here before appending
-  // as a binary blob.
-  const maskValue = req.params.mask;
-  if (typeof maskValue === "string" && maskValue.length > 0) {
-    let maskBytes: Uint8Array;
-    try {
-      maskBytes = base64ToBytes(maskValue);
-    } catch {
+  if (mask) {
+    if (mask.contentType !== "image/png") {
       throw new TRPCError({
         code: "BAD_REQUEST",
-        message: "OpenAI mask must be a base64-encoded PNG string.",
+        message: "OpenAI edit masks must be PNG files.",
       });
     }
     form.append(
       "mask",
-      new Blob([maskBytes as Uint8Array<ArrayBuffer>], { type: "image/png" }),
-      "mask.png",
+      new Blob([blobPartFor(mask.bytes)], { type: mask.contentType }),
+      mask.filename,
     );
   }
   if (supportsOutputFormat(req.model)) {
     form.set("output_format", format);
   }
   if (needsResponseFormatOverride(req.model)) {
-    // Force, not default — decodeOutputs only knows how to read b64_json,
+    // Force, not default: decodeOutputs only knows how to read b64_json,
     // so a user-supplied `response_format: "url"` would otherwise crash.
     form.set("response_format", "b64_json");
   }
   // dall-e-2 expects the singular `image` field and accepts only one
   // image; gpt-image-* takes `image[]` and accepts multiple.
   if (req.model === "dall-e-2") {
-    if (req.inputImages.length > 1) {
+    if (editImages.length > 1) {
       throw new TRPCError({
         code: "BAD_REQUEST",
         message: "OpenAI dall-e-2 edits accept exactly one input image.",
       });
     }
-    const image = req.inputImages[0]!;
-    const blob = new Blob([image.bytes as Uint8Array<ArrayBuffer>], {
+    const image = editImages[0];
+    if (!image) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "OpenAI image edits require at least one input image.",
+      });
+    }
+    const blob = new Blob([blobPartFor(image.bytes)], {
       type: image.contentType,
     });
     form.set("image", blob, image.filename);
   } else {
-    for (const image of req.inputImages) {
-      const blob = new Blob([image.bytes as Uint8Array<ArrayBuffer>], {
+    for (const image of editImages) {
+      const blob = new Blob([blobPartFor(image.bytes)], {
         type: image.contentType,
       });
       form.append("image[]", blob, image.filename);

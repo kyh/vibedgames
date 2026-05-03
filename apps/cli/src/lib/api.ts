@@ -18,11 +18,9 @@ export function createClient(): TRPCClient<AppRouter> {
 
   return createTRPCClient<AppRouter>({
     links: [
-      // Mutations like `image.run` carry multi-MB base64 payloads; if a
-      // batch link grouped concurrent calls into one HTTP request the
-      // body would scale linearly with concurrency and breach the
-      // server's MAX_BODY_BYTES cap. Route mutations through the
-      // unbatched httpLink and keep batching for small queries.
+      // Image input bytes use presigned uploads, but mutations can still
+      // carry provider params. Keep concurrent writes off httpBatchLink so
+      // one batch body cannot grow with `--concurrency`.
       splitLink({
         condition: (op) => op.type === "mutation",
         true: httpLink({ url, transformer: superjson, headers }),

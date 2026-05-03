@@ -1,7 +1,7 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { basename, extname, resolve } from "node:path";
 
-import type { ImageProviderName } from "@repo/api/image/types";
+import type { ImageInputRole, ImageProviderName } from "@repo/api/image/types";
 import { IMAGE_PROVIDERS } from "@repo/api/image/types";
 import { defineCommand } from "citty";
 import consola from "consola";
@@ -14,17 +14,21 @@ import { readStdin } from "../lib/stdin.js";
 
 const DEFAULT_CONCURRENCY = 4;
 
-function parseProvider(
-  value: string | undefined,
-): ImageProviderName | undefined {
+function parseProvider(value: string | undefined): ImageProviderName | undefined {
   if (!value || value.length === 0) return undefined;
-  if (!IMAGE_PROVIDERS.includes(value as ImageProviderName)) {
-    consola.error(
-      `--provider must be one of: ${IMAGE_PROVIDERS.join(", ")}`,
-    );
+  if (!isImageProviderName(value)) {
+    consola.error(`--provider must be one of: ${IMAGE_PROVIDERS.join(", ")}`);
     process.exit(1);
   }
-  return value as ImageProviderName;
+  return value;
+}
+
+function isImageProviderName(value: string): value is ImageProviderName {
+  return IMAGE_PROVIDERS.some((provider) => provider === value);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function parseParams(
@@ -38,11 +42,11 @@ function parseParams(
   const raw = fileValue ? readFileSync(resolve(fileValue), "utf-8") : value;
   if (!raw || raw.length === 0) return {};
   try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    const parsed: unknown = JSON.parse(raw);
+    if (!isRecord(parsed)) {
       throw new Error("must be a JSON object");
     }
-    return parsed as Record<string, unknown>;
+    return parsed;
   } catch (err) {
     consola.error(
       `--params must be a JSON object: ${err instanceof Error ? err.message : String(err)}`,
@@ -51,9 +55,11 @@ function parseParams(
   }
 }
 
-async function readPrompt(
-  args: { prompt?: string; "prompt-file"?: string; _?: string[] },
-): Promise<string> {
+async function readPrompt(args: {
+  prompt?: string;
+  "prompt-file"?: string;
+  _?: string[];
+}): Promise<string> {
   // Treat each input channel as a single named source. If more than one
   // is non-empty we error out instead of silently concatenating, so an
   // inherited stdin in CI doesn't quietly merge with --prompt.
@@ -62,10 +68,7 @@ async function readPrompt(
     sources.push({ name: "--prompt", text: args.prompt.trim() });
   }
   if (args["prompt-file"]) {
-    const fileText = readFileSync(
-      resolve(args["prompt-file"]),
-      "utf-8",
-    ).trim();
+    const fileText = readFileSync(resolve(args["prompt-file"]), "utf-8").trim();
     if (fileText.length > 0) {
       sources.push({ name: "--prompt-file", text: fileText });
     }
@@ -98,7 +101,12 @@ async function readPrompt(
     );
     process.exit(1);
   }
-  return sources[0]!.text;
+  const source = sources[0];
+  if (!source) {
+    consola.error("Prompt is required.");
+    process.exit(1);
+  }
+  return source.text;
 }
 
 function contentTypeFor(filename: string): string {
@@ -110,23 +118,41 @@ function contentTypeFor(filename: string): string {
   return "application/octet-stream";
 }
 
-function readImage(path: string): {
+function readImage(
+  path: string,
+  role: ImageInputRole,
+): {
+  role: ImageInputRole;
+  path: string;
   filename: string;
   contentType: string;
-  base64: string;
+  sizeBytes: number;
 } {
   const abs = resolve(path);
-  const bytes = readFileSync(abs);
+  const stat = statSync(abs);
+  if (!stat.isFile()) {
+    consola.error(`Input file must be a file: ${path}`);
+    process.exit(1);
+  }
   return {
+    role,
+    path: abs,
     filename: basename(abs),
     contentType: contentTypeFor(abs),
-    base64: bytes.toString("base64"),
+    sizeBytes: stat.size,
   };
 }
 
 function collectImages(value: string | string[] | undefined): string[] {
   if (!value) return [];
   return Array.isArray(value) ? value : [value];
+}
+
+function collectRoleImages(
+  value: string | string[] | undefined,
+  role: ImageInputRole,
+): ReturnType<typeof readImage>[] {
+  return collectImages(value).map((path) => readImage(path, role));
 }
 
 /**
@@ -136,11 +162,7 @@ function collectImages(value: string | string[] | undefined): string[] {
  * trap where `0` is falsy and silently falls back to the default
  * instead of getting clamped to the minimum.
  */
-function clampInt(
-  value: string | undefined,
-  fallback: number,
-  min: number,
-): number {
+function clampInt(value: string | undefined, fallback: number, min: number): number {
   if (value === undefined || value === "") return fallback;
   const parsed = parseInt(value, 10);
   if (Number.isNaN(parsed)) return fallback;
@@ -181,6 +203,9 @@ async function runImage({
     params?: string;
     "params-file"?: string;
     image?: string | string[];
+    reference?: string | string[];
+    mask?: string | string[];
+    palette?: string | string[];
     count?: string;
     concurrency?: string;
     json?: boolean;
@@ -192,19 +217,21 @@ async function runImage({
   const models = resolveModels(args.model, defaultProvider);
   const prompt = await readPrompt(args);
   const params = parseParams(args.params, args["params-file"]);
-  const inputImages = collectImages(args.image).map((p) => readImage(p));
+  const inputImages = [
+    ...collectRoleImages(args.image, "image"),
+    ...collectRoleImages(args.reference, "reference"),
+    ...collectRoleImages(args.mask, "mask"),
+    ...collectRoleImages(args.palette, "palette"),
+  ];
   if (task === "edit" && inputImages.length === 0) {
     consola.error(
-      "`vg image edit` requires at least one --image. Pass --image PATH (repeatable) or use `vg image generate` for text-only requests.",
+      "`vg image edit` requires at least one input file. Use --image, --reference, --mask, or --palette.",
     );
     process.exit(1);
   }
   const count = clampInt(args.count, 1, 1);
   const concurrency = clampInt(args.concurrency, DEFAULT_CONCURRENCY, 1);
-  const output = resolveOutputTarget(
-    args.output,
-    process.env.VG_OUTPUT_DIR ?? process.cwd(),
-  );
+  const output = resolveOutputTarget(args.output, process.env.VG_OUTPUT_DIR ?? process.cwd());
   const filenamePrefix = args["filename-prefix"] ?? "image";
 
   const { results, totalElapsedMs } = await runJobs({
@@ -302,7 +329,7 @@ const sharedArgs = {
   "params-file": {
     type: "string",
     description:
-      "Path to a JSON file with provider-specific params. Use this when params include large fields (e.g. base64 images) that may exceed argv limits.",
+      "Path to a JSON file with provider-specific params. Image files should use --image, not inline base64 params.",
   },
   json: {
     type: "boolean",
@@ -316,7 +343,19 @@ const sharedArgs = {
   image: {
     type: "string",
     description:
-      "Path to an input image. Repeat --image for multiple references. Required for `edit`.",
+      "Path to a primary input image. Repeat for providers that accept multiple edit images.",
+  },
+  reference: {
+    type: "string",
+    description: "Path to a reference image. Repeat for multiple references.",
+  },
+  mask: {
+    type: "string",
+    description: "Path to an OpenAI edit mask image.",
+  },
+  palette: {
+    type: "string",
+    description: "Path to a Retro Diffusion palette image.",
   },
   count: {
     type: "string",
@@ -360,9 +399,14 @@ export const imageCommand = defineCommand({
   },
   args: sharedArgs,
   // Default behavior when invoked as `vg image ...` without a subcommand:
-  // edit when an --image is provided, otherwise generate.
+  // edit when any input image role is provided, otherwise generate.
   run: async ({ args }) => {
-    const task = collectImages(args.image).length > 0 ? "edit" : "generate";
+    const hasInput =
+      collectImages(args.image).length > 0 ||
+      collectImages(args.reference).length > 0 ||
+      collectImages(args.mask).length > 0 ||
+      collectImages(args.palette).length > 0;
+    const task = hasInput ? "edit" : "generate";
     await runImage({ task, args });
   },
   subCommands: {

@@ -11,14 +11,15 @@ import { ZodError } from "zod";
  * Minimal structural view of the R2 binding methods this package uses.
  * Intentionally NOT imported from `@cloudflare/workers-types` so the
  * inferred `AppRouter` type does not carry a transitive reference to
- * that package — consumers (e.g. the CLI) would otherwise need it too.
+ * that package; consumers (e.g. the CLI) would otherwise need it too.
  */
 export type R2BucketLike = {
-  list(options: {
-    prefix?: string;
-    cursor?: string;
-    limit?: number;
-  }): Promise<{
+  get(key: string): Promise<{
+    size: number;
+    httpMetadata?: { contentType?: string };
+    arrayBuffer(): Promise<ArrayBuffer>;
+  } | null>;
+  list(options: { prefix?: string; cursor?: string; limit?: number }): Promise<{
     objects: Array<{ key: string }>;
     truncated: boolean;
     cursor?: string;
@@ -33,7 +34,7 @@ export type R2BucketLike = {
 
 /**
  * R2 credentials needed for minting S3 presigned URLs. The R2 *binding* can
- * read/write objects but cannot mint presigns — that requires an S3 API key.
+ * read/write objects but cannot mint presigns; that requires an S3 API key.
  */
 export type R2Config = {
   bucket: R2BucketLike;
@@ -45,7 +46,7 @@ export type R2Config = {
 
 /**
  * Server-held API keys for the image generation providers the CLI proxies
- * through `image.run`. None are required at boot — a missing key just means
+ * through `image.run`. None are required at boot; a missing key just means
  * the corresponding provider returns an error when a CLI user picks it.
  *
  * `*BaseUrl` overrides exist so deployments can route provider traffic

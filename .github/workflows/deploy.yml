@@ -14,6 +14,7 @@ jobs:
       web: ${{ steps.check.outputs.web }}
       party: ${{ steps.check.outputs.party }}
       games: ${{ steps.check.outputs.games }}
+      r2_lifecycle: ${{ steps.check.outputs.r2_lifecycle }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -36,6 +37,7 @@ jobs:
             echo "web=true" >> "$GITHUB_OUTPUT"
             echo "party=true" >> "$GITHUB_OUTPUT"
             echo "games=true" >> "$GITHUB_OUTPUT"
+            echo "r2_lifecycle=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -47,6 +49,33 @@ jobs:
               echo "${app}=false" >> "$GITHUB_OUTPUT"
             fi
           done
+
+          if git diff --name-only "$BASE" HEAD -- infra/r2/vibedgames-games.lifecycle.json | grep -q .; then
+            echo "r2_lifecycle=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "r2_lifecycle=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  apply-r2-lifecycle:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.r2_lifecycle == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Apply R2 lifecycle
+        run: pnpm r2:lifecycle
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 
   deploy-web:
     needs: detect-changes

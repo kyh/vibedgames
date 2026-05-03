@@ -116,8 +116,9 @@ For `input_image`:
 
 - convert to RGB first (use `scripts/prepare_reference_image.py`)
 - remove transparency
-- pass it as a base64 string under `--params` (`{"input_image": "..."}`)
-  via `--params-file` to avoid argv length limits
+- pass it with `--image`; `vg image` uploads it as a presigned input ref
+- pass extra references with `--reference`
+- pass `input_palette` with `--palette`
 - mention what the reference is in the prompt
 - prefer an explicit prepared RGB reference image over silent RGBA-to-black conversion
 
@@ -183,8 +184,8 @@ vg image generate \
 
 ### Reference-driven edit (img2img)
 
-`input_image` and `reference_images` accept base64 strings, and base64
-exceeds argv limits — always pass them via `--params-file`:
+Use `--image` for the primary reference and `--reference` for extra
+references; `vg image` handles upload refs and provider wiring:
 
 ```bash
 # 1. prepare the reference (RGB, optionally resized)
@@ -195,20 +196,25 @@ uv run plugins/game-art/skills/retro-diffusion/scripts/prepare_reference_image.p
   --target-size 64 \
   --trim-alpha
 
-# 2. pack it into a params file
-python3 - <<'PY' > /tmp/rd-params.json
-import base64, json, sys
-b = base64.b64encode(open("prepared.png","rb").read()).decode("ascii")
-json.dump({"input_image": b, "width": 64, "height": 64}, sys.stdout)
-PY
-
-# 3. run
+# 2. run
 vg image generate \
   --model rd-pro-edit \
+  --image prepared.png \
   --prompt "Same character, idle pose facing right" \
   --output tmp/rd-edit \
   --filename-prefix idle \
-  --params-file /tmp/rd-params.json
+  --params '{"width":64,"height":64}'
+```
+
+Palette-guided runs use `--palette`, not inline `input_palette` params:
+
+```bash
+vg image generate \
+  --model rd-pro-platformer \
+  --palette palette.png \
+  --prompt "A warrior character in pixel art style" \
+  --output tmp/rd \
+  --params '{"width":64,"height":64}'
 ```
 
 ### Animation / spritesheet

@@ -1,52 +1,42 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
-import { presignGet } from "../deploy/r2-presign";
+import { presignGet, presignPut } from "../deploy/r2-presign";
 import type { ImageProviderKeys, R2Config } from "../trpc";
 import { createTRPCRouter, protectedProcedure } from "../trpc";
-import { base64ToBytes } from "./base64";
+import {
+  MAX_INPUT_IMAGE_BYTES,
+  MAX_INPUT_IMAGE_TOTAL_BYTES,
+  MAX_INPUT_IMAGES,
+  MAX_OUTPUT_IMAGE_BYTES,
+  MAX_PARAMS_BYTES,
+} from "./limits";
 import { falImageProvider } from "./providers/fal";
 import { openaiImageProvider } from "./providers/openai";
 import { retroDiffusionImageProvider } from "./providers/retro-diffusion";
 import { IMAGE_PROVIDERS } from "./types";
-import type {
-  ImageInputFile,
-  ImageProvider,
-  ImageProviderRequest,
-} from "./types";
+import type { ImageInputFile, ImageProvider, ImageProviderRequest } from "./types";
 
 // ---- Limits ------------------------------------------------------------------
 
-// 4 images × ~13.4 MB base64 expansion ≈ 54 MB, which leaves headroom
-// under the apps/web `MAX_BODY_BYTES = 64 MB` Content-Length cap so a
-// caller hitting the per-image budget gets the targeted "image N
-// exceeds X bytes" error instead of an opaque 413 from the fetch
-// handler. Multi-reference workflows in the wild use 2–3 images; 4 is
-// already generous.
-const MAX_INPUT_IMAGES = 4;
-const MAX_INPUT_IMAGE_BYTES = 10 * 1024 * 1024;
-const MAX_OUTPUT_IMAGE_BYTES = 25 * 1024 * 1024;
-// Cap serialized `params` to defend the Worker against pathological
-// payloads. Providers that accept inline base64 (retro-diffusion's
-// `input_image` / `reference_images` / `input_palette`) sit inside this
-// budget; 32 MB easily fits a small input image plus several references
-// at typical pixel-art sizes. We measure size by walking the parsed
-// object directly (see `jsonByteLengthBounded`) so we never materialize
-// the serialized JSON or an encoded buffer alongside the parsed input.
-// This is defense-in-depth — the apps/web tRPC handler also rejects
-// bodies above its own MAX_BODY_BYTES ceiling before tRPC/Zod parse.
-const MAX_PARAMS_BYTES = 32 * 1024 * 1024;
 const PRESIGN_TTL_SECONDS = 3600;
+const INPUT_UPLOAD_TTL_SECONDS = 900;
 
 // ---- Schemas -----------------------------------------------------------------
 
 const providerEnum = z.enum(IMAGE_PROVIDERS);
 const taskEnum = z.enum(["generate", "edit"]);
+const inputRoleEnum = z.enum(["image", "reference", "mask", "palette"]);
 
 const inputImageSchema = z.object({
+  role: inputRoleEnum,
   filename: z.string().min(1).max(256),
   contentType: z.string().min(1).max(127),
-  base64: z.string().min(1),
+  sizeBytes: z.number().int().positive().max(MAX_INPUT_IMAGE_BYTES),
+});
+
+const inputImageRefSchema = inputImageSchema.extend({
+  key: z.string().min(1).max(512),
 });
 
 const runInput = z.object({
@@ -55,7 +45,15 @@ const runInput = z.object({
   model: z.string().min(1).max(256),
   prompt: z.string().min(1).max(8000),
   params: z.record(z.string(), z.unknown()).default({}),
-  inputImages: z.array(inputImageSchema).max(MAX_INPUT_IMAGES).default([]),
+  inputImages: z.array(inputImageRefSchema).max(MAX_INPUT_IMAGES).default([]),
+});
+
+const createInputUploadsInput = z.object({
+  images: z.array(inputImageSchema).min(1).max(MAX_INPUT_IMAGES),
+});
+
+const cleanupInputUploadsInput = z.object({
+  keys: z.array(z.string().min(1).max(512)).max(MAX_INPUT_IMAGES),
 });
 
 // ---- Helpers -----------------------------------------------------------------
@@ -104,151 +102,87 @@ function pickBaseUrl(
   // `OPENAI_BASE_URL=""` in wrangler config) as missing so providers
   // don't have to defend against the empty-string case independently.
   const value = keys?.[PROVIDER_BASE_URL_FIELDS[provider]];
-  return typeof value === "string" && value.trim().length > 0
-    ? value
-    : undefined;
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
 }
 
-function pickProvider(
-  provider: z.infer<typeof providerEnum>,
-): ImageProvider {
+function pickProvider(provider: z.infer<typeof providerEnum>): ImageProvider {
   if (provider === "openai") return openaiImageProvider;
   if (provider === "fal") return falImageProvider;
   return retroDiffusionImageProvider;
 }
 
-// Walk the parsed params object and compute the would-be JSON.stringify
-// UTF-8 byte length, bailing out early once `limit` is exceeded. We avoid
-// allocating both the serialized string and an encoded `Uint8Array`,
-// which would each peak around the limit on payloads carrying inline
-// base64 images and triple memory pressure on the 128 MB Worker.
-function jsonByteLengthBounded(value: unknown, limit: number): number {
-  let total = 0;
-  let exceeded = false;
-
-  function add(n: number): void {
-    total += n;
-    if (total > limit) exceeded = true;
+function jsonByteLength(value: unknown): number {
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(value);
+  } catch {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "params must be JSON-serializable.",
+    });
   }
-
-  function stringBytes(s: string): number {
-    // Each UTF-16 code unit is at least 1 UTF-8 byte; if even that
-    // minimum already overflows the cap, bail without scanning the
-    // string at all. Catches the pathological case of a 100 MB base64
-    // payload pushed at a 32 MB cap.
-    if (total + 2 + s.length > limit) {
-      exceeded = true;
-      return 2 + s.length;
-    }
-    let n = 2; // surrounding quotes
-    // Periodically commit `n` to `total` so a string that crosses the
-    // cap mid-walk (because of escape/multibyte expansion past the
-    // length-based fast path) still short-circuits.
-    const COMMIT_EVERY = 4096;
-    let sinceCommit = 0;
-    for (let i = 0; i < s.length; i++) {
-      const c = s.charCodeAt(i);
-      if (c === 0x22 || c === 0x5c) {
-        n += 2; // escaped " or \
-      } else if (c === 0x08 || c === 0x09 || c === 0x0a || c === 0x0c || c === 0x0d) {
-        n += 2; // \b \t \n \f \r
-      } else if (c < 0x20) {
-        n += 6; // \u00XX
-      } else if (c < 0x80) {
-        n += 1;
-      } else if (c < 0x800) {
-        n += 2;
-      } else if (c >= 0xd800 && c <= 0xdbff) {
-        // High surrogate. JSON.stringify pairs it with a following low
-        // surrogate (4 UTF-8 bytes total) or, if alone, emits \uXXXX
-        // (6 bytes). Don't advance `i` for the lone case so the next
-        // code unit gets counted on its own.
-        const next = i + 1 < s.length ? s.charCodeAt(i + 1) : -1;
-        if (next >= 0xdc00 && next <= 0xdfff) {
-          n += 4;
-          i++;
-        } else {
-          n += 6;
-        }
-      } else if (c >= 0xdc00 && c <= 0xdfff) {
-        // Lone low surrogate → \uXXXX (6 bytes).
-        n += 6;
-      } else {
-        n += 3;
-      }
-      if (++sinceCommit >= COMMIT_EVERY) {
-        sinceCommit = 0;
-        if (total + n > limit) {
-          exceeded = true;
-          return n;
-        }
-      }
-    }
-    return n;
-  }
-
-  function walk(v: unknown): void {
-    if (exceeded) return;
-    if (v === null) return add(4);
-    if (v === undefined) return; // omitted from objects
-    switch (typeof v) {
-      case "boolean":
-        return add(v ? 4 : 5);
-      case "number":
-        return add(Number.isFinite(v) ? String(v).length : 4);
-      case "string":
-        return add(stringBytes(v));
-      case "object": {
-        if (Array.isArray(v)) {
-          add(2); // []
-          for (let i = 0; i < v.length && !exceeded; i++) {
-            if (i > 0) add(1); // ,
-            const item = v[i];
-            if (item === undefined) {
-              add(4); // arrays serialize undefined as null
-            } else {
-              walk(item);
-            }
-          }
-          return;
-        }
-        add(2); // {}
-        let first = true;
-        for (const key of Object.keys(v as Record<string, unknown>)) {
-          if (exceeded) return;
-          const val = (v as Record<string, unknown>)[key];
-          if (val === undefined || typeof val === "function") continue;
-          if (!first) add(1); // ,
-          add(stringBytes(key) + 1); // "key":
-          walk(val);
-          first = false;
-        }
-        return;
-      }
-      default:
-        return; // function/symbol/bigint are not serializable here
-    }
-  }
-
-  walk(value);
-  return total;
+  return new TextEncoder().encode(serialized).byteLength;
 }
 
-function decodeInputImages(
-  raw: z.infer<typeof inputImageSchema>[],
-): ImageInputFile[] {
-  return raw.map((image, index) => {
-    let bytes: Uint8Array;
-    try {
-      bytes = base64ToBytes(image.base64);
-    } catch {
-      // atob throws DOMException on syntactically invalid base64; surface
-      // it as a 400 rather than a 500 so the CLI can show a clean error.
+function assertInputKeyOwnedByUser(key: string, userId: string): void {
+  const prefix = `image-inputs/${userId}/`;
+  if (!key.startsWith(prefix)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Input image ref does not belong to this user.",
+    });
+  }
+}
+
+function inputUploadKey(userId: string, uploadId: string, index: number): string {
+  return `image-inputs/${userId}/${uploadId}/${String(index + 1).padStart(2, "0")}`;
+}
+
+function assertInputTotalBytes(images: Array<{ sizeBytes: number }>): void {
+  const totalBytes = images.reduce((sum, image) => sum + image.sizeBytes, 0);
+  if (totalBytes > MAX_INPUT_IMAGE_TOTAL_BYTES) {
+    throw new TRPCError({
+      code: "PAYLOAD_TOO_LARGE",
+      message: `Input images total ${totalBytes} bytes exceeds ${MAX_INPUT_IMAGE_TOTAL_BYTES} bytes.`,
+    });
+  }
+}
+
+async function loadInputImages({
+  r2,
+  userId,
+  refs,
+}: {
+  r2: R2Config;
+  userId: string;
+  refs: z.infer<typeof inputImageRefSchema>[];
+}): Promise<ImageInputFile[]> {
+  assertInputTotalBytes(refs);
+  const images: ImageInputFile[] = [];
+  for (let index = 0; index < refs.length; index++) {
+    const image = refs[index];
+    if (!image) continue;
+    assertInputKeyOwnedByUser(image.key, userId);
+    const object = await r2.bucket.get(image.key);
+    if (!object) {
       throw new TRPCError({
         code: "BAD_REQUEST",
-        message: `Input image ${index} is not valid base64.`,
+        message: `Input image ${index} was not uploaded or has expired.`,
       });
     }
+    if (object.size !== image.sizeBytes) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `Input image ${index} size does not match its upload ref.`,
+      });
+    }
+    if (object.size > MAX_INPUT_IMAGE_BYTES) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `Input image ${index} exceeds ${MAX_INPUT_IMAGE_BYTES} bytes.`,
+      });
+    }
+    const bytes = new Uint8Array(await object.arrayBuffer());
     if (bytes.byteLength === 0) {
       throw new TRPCError({
         code: "BAD_REQUEST",
@@ -261,12 +195,14 @@ function decodeInputImages(
         message: `Input image ${index} exceeds ${MAX_INPUT_IMAGE_BYTES} bytes.`,
       });
     }
-    return {
+    images.push({
+      role: image.role,
       filename: image.filename,
-      contentType: image.contentType,
+      contentType: object.httpMetadata?.contentType ?? image.contentType,
       bytes,
-    };
-  });
+    });
+  }
+  return images;
 }
 
 // ---- Catalog ----------------------------------------------------------------
@@ -329,6 +265,55 @@ const MODEL_CATALOG: Record<
 
 export const imageRouter = createTRPCRouter({
   /**
+   * Mint short-lived R2 PUT URLs for image inputs. `image.run` receives the
+   * returned refs, keeping multi-MB image bytes out of the tRPC JSON body.
+   */
+  createInputUploads: protectedProcedure
+    .input(createInputUploadsInput)
+    .mutation(async ({ ctx, input }) => {
+      assertInputTotalBytes(input.images);
+      const r2 = requireR2(ctx.r2);
+      const userId = ctx.session.user.id;
+      const uploadId = crypto.randomUUID();
+
+      const uploads = await Promise.all(
+        input.images.map(async (image, index) => {
+          const key = inputUploadKey(userId, uploadId, index);
+          return {
+            url: await presignPut({
+              r2,
+              key,
+              contentType: image.contentType,
+              expiresInSeconds: INPUT_UPLOAD_TTL_SECONDS,
+            }),
+            headers: { "content-type": image.contentType },
+            ref: {
+              key,
+              role: image.role,
+              filename: image.filename,
+              contentType: image.contentType,
+              sizeBytes: image.sizeBytes,
+            },
+          };
+        }),
+      );
+
+      return { uploads };
+    }),
+
+  cleanupInputUploads: protectedProcedure
+    .input(cleanupInputUploadsInput)
+    .mutation(async ({ ctx, input }) => {
+      const r2 = requireR2(ctx.r2);
+      const userId = ctx.session.user.id;
+      for (const key of input.keys) {
+        assertInputKeyOwnedByUser(key, userId);
+      }
+      await Promise.all(input.keys.map((key) => r2.bucket.delete(key)));
+      return { deleted: input.keys.length };
+    }),
+
+  /**
    * List the providers configured on this server and their well-known
    * models. Surfaces a stable `configured` flag per provider so the CLI
    * can mark unavailable rows.
@@ -350,92 +335,86 @@ export const imageRouter = createTRPCRouter({
   // Thin proxy: `params` is forwarded as each provider's native input
   // (e.g. `quality` for OpenAI, `aspect_ratio` for fal, `frames_duration`
   // for Retro Diffusion); we do not flatten knobs into a unified schema.
-  run: protectedProcedure
-    .input(runInput)
-    .mutation(async ({ ctx, input }) => {
-      const r2 = requireR2(ctx.r2);
-      const apiKey = pickApiKey(input.provider, ctx.imageProviders);
-      const provider = pickProvider(input.provider);
+  run: protectedProcedure.input(runInput).mutation(async ({ ctx, input }) => {
+    const r2 = requireR2(ctx.r2);
+    const apiKey = pickApiKey(input.provider, ctx.imageProviders);
+    const provider = pickProvider(input.provider);
 
-      const paramsByteLength = jsonByteLengthBounded(
-        input.params,
-        MAX_PARAMS_BYTES,
-      );
-      if (paramsByteLength > MAX_PARAMS_BYTES) {
-        throw new TRPCError({
-          code: "PAYLOAD_TOO_LARGE",
-          message: `params exceeds ${MAX_PARAMS_BYTES} bytes.`,
-        });
-      }
+    const paramsByteLength = jsonByteLength(input.params);
+    if (paramsByteLength > MAX_PARAMS_BYTES) {
+      throw new TRPCError({
+        code: "PAYLOAD_TOO_LARGE",
+        message: `params exceeds ${MAX_PARAMS_BYTES} bytes.`,
+      });
+    }
 
-      const inputImages = decodeInputImages(input.inputImages);
+    const userId = ctx.session.user.id;
+    const inputImages = await loadInputImages({
+      r2,
+      userId,
+      refs: input.inputImages,
+    });
 
-      const providerRequest: ImageProviderRequest = {
-        task: input.task,
-        model: input.model,
-        prompt: input.prompt,
-        params: input.params,
-        inputImages,
-        apiKey,
-        baseUrl: pickBaseUrl(input.provider, ctx.imageProviders),
-      };
+    const providerRequest: ImageProviderRequest = {
+      task: input.task,
+      model: input.model,
+      prompt: input.prompt,
+      params: input.params,
+      inputImages,
+      apiKey,
+      baseUrl: pickBaseUrl(input.provider, ctx.imageProviders),
+    };
 
-      const result = await provider.run(providerRequest);
-      if (result.outputs.length === 0) {
-        // Allow zero outputs for cost-only runs (e.g. retro-diffusion check_cost).
-        return {
-          runId: crypto.randomUUID(),
-          provider: input.provider,
-          model: input.model,
-          outputs: [] as Array<{
-            url: string;
-            contentType: string;
-            sizeBytes: number;
-            filename: string;
-          }>,
-          metadata: result.metadata,
-        };
-      }
-
-      const userId = ctx.session.user.id;
-      const runId = crypto.randomUUID();
-
-      const outputs = await Promise.all(
-        result.outputs.map(async (out, index) => {
-          if (out.bytes.byteLength > MAX_OUTPUT_IMAGE_BYTES) {
-            throw new TRPCError({
-              code: "INTERNAL_SERVER_ERROR",
-              message: `Output ${index} exceeds ${MAX_OUTPUT_IMAGE_BYTES} bytes.`,
-            });
-          }
-          const seq = String(index + 1).padStart(2, "0");
-          const filename = `output-${seq}${out.extension}`;
-          const key = `image-runs/${userId}/${runId}/${filename}`;
-          // presignGet is local CPU only (AWS Sig V4 over the known key)
-          // and does not contact R2, so we run it in parallel with the put.
-          // Both await before the URL is returned, and R2 read-after-write
-          // is strongly consistent, so there is no race.
-          const [, url] = await Promise.all([
-            r2.bucket.put(key, out.bytes as ArrayBufferView, {
-              httpMetadata: { contentType: out.contentType },
-            }),
-            presignGet({ r2, key, expiresInSeconds: PRESIGN_TTL_SECONDS }),
-          ]);
-          return {
-            url,
-            contentType: out.contentType,
-            sizeBytes: out.bytes.byteLength,
-            filename,
-          };
-        }),
-      );
-
+    const result = await provider.run(providerRequest);
+    if (result.outputs.length === 0) {
+      // Allow zero outputs for cost-only runs (e.g. retro-diffusion check_cost).
       return {
-        runId,
+        runId: crypto.randomUUID(),
         provider: input.provider,
         model: input.model,
-        outputs,
+        outputs: [],
         metadata: result.metadata,
       };
-    }),
+    }
+
+    const runId = crypto.randomUUID();
+
+    const outputs = await Promise.all(
+      result.outputs.map(async (out, index) => {
+        if (out.bytes.byteLength > MAX_OUTPUT_IMAGE_BYTES) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Output ${index} exceeds ${MAX_OUTPUT_IMAGE_BYTES} bytes.`,
+          });
+        }
+        const seq = String(index + 1).padStart(2, "0");
+        const filename = `output-${seq}${out.extension}`;
+        const key = `image-runs/${userId}/${runId}/${filename}`;
+        // presignGet is local CPU only (AWS Sig V4 over the known key)
+        // and does not contact R2, so we run it in parallel with the put.
+        // Both await before the URL is returned, and R2 read-after-write
+        // is strongly consistent, so there is no race.
+        const [, url] = await Promise.all([
+          r2.bucket.put(key, out.bytes, {
+            httpMetadata: { contentType: out.contentType },
+          }),
+          presignGet({ r2, key, expiresInSeconds: PRESIGN_TTL_SECONDS }),
+        ]);
+        return {
+          url,
+          contentType: out.contentType,
+          sizeBytes: out.bytes.byteLength,
+          filename,
+        };
+      }),
+    );
+
+    return {
+      runId,
+      provider: input.provider,
+      model: input.model,
+      outputs,
+      metadata: result.metadata,
+    };
+  }),
 });

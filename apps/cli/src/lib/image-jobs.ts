@@ -1,7 +1,8 @@
-import { unlinkSync } from "node:fs";
+import { readFileSync, unlinkSync } from "node:fs";
 import { extname, join } from "node:path";
 
-import type { ImageProviderName } from "@repo/api/image/types";
+import type { RouterOutputs } from "@repo/api";
+import type { ImageInputRole, ImageProviderName } from "@repo/api/image/types";
 
 import { createClient } from "./api.js";
 import type { OutputTarget } from "./image-output.js";
@@ -13,9 +14,6 @@ import { pMap } from "./p-map.js";
 export type ImageJob = {
   index: number;
   spec: ModelSpec;
-  /** 0-based position of `spec` within `options.models`, used to keep
-   *  filenames distinct when the same model is listed twice. */
-  slot: number;
   /** 1-based copy index when count > 1, else 1. */
   copy: number;
   label: string;
@@ -41,7 +39,13 @@ export type RunJobsOptions = {
   models: ModelSpec[];
   count: number;
   params: Record<string, unknown>;
-  inputImages: { filename: string; contentType: string; base64: string }[];
+  inputImages: {
+    role: ImageInputRole;
+    path: string;
+    filename: string;
+    contentType: string;
+    sizeBytes: number;
+  }[];
   output: OutputTarget;
   filenamePrefix: string;
   concurrency: number;
@@ -55,13 +59,9 @@ type RunOutput = {
   filename: string;
 };
 
-type RunResult = {
-  runId: string;
-  provider: ImageProviderName;
-  model: string;
-  outputs: RunOutput[];
-  metadata: Record<string, unknown>;
-};
+type RunResult = RouterOutputs["image"]["run"];
+type CreateInputUploadsResult = RouterOutputs["image"]["createInputUploads"];
+type InputImageRef = CreateInputUploadsResult["uploads"][number]["ref"];
 
 // Errors that will fail every sibling job in the same batch identically
 // (no point in continuing). tRPC client errors expose `data.code` /
@@ -76,28 +76,36 @@ const FATAL_TRPC_CODES = new Set([
 ]);
 
 function isFatalForBatch(err: unknown): boolean {
-  if (!err || typeof err !== "object") return false;
-  const data = (err as { data?: { code?: unknown; httpStatus?: unknown } }).data;
+  if (!isRecord(err)) return false;
+  const data = isRecord(err.data) ? err.data : null;
   if (data && typeof data.code === "string" && FATAL_TRPC_CODES.has(data.code)) {
     return true;
   }
   if (data && typeof data.httpStatus === "number") {
-    if (data.httpStatus === 401 || data.httpStatus === 403 || data.httpStatus === 411 || data.httpStatus === 412 || data.httpStatus === 413) {
+    if (
+      data.httpStatus === 401 ||
+      data.httpStatus === 403 ||
+      data.httpStatus === 411 ||
+      data.httpStatus === 412 ||
+      data.httpStatus === 413
+    ) {
       return true;
     }
   }
   return false;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function buildJobs(models: ModelSpec[], count: number): ImageJob[] {
   const jobs: ImageJob[] = [];
   let index = 0;
-  for (let slot = 0; slot < models.length; slot++) {
-    const spec = models[slot]!;
+  for (const spec of models) {
     for (let copy = 1; copy <= count; copy++) {
-      const label =
-        count > 1 ? `${spec.display} (${copy}/${count})` : spec.display;
-      jobs.push({ index: index++, spec, slot, copy, label });
+      const label = count > 1 ? `${spec.display} (${copy}/${count})` : spec.display;
+      jobs.push({ index: index++, spec, copy, label });
     }
   }
   return jobs;
@@ -113,31 +121,30 @@ export async function runJobs(
 
   ensureDir(options.output.dir);
 
+  const client = createClient();
+  const inputRefs = await uploadInputImages(client, options.inputImages);
   const showProgress = !options.quiet;
-  const progress = showProgress
-    ? new MultiProgress(jobs.map((j) => j.label))
-    : null;
-  progress?.start();
+  const progress = showProgress ? new MultiProgress(jobs.map((j) => j.label)) : null;
 
   const start = Date.now();
-  const client = createClient();
 
   let results: ImageJobResult[];
   try {
+    progress?.start();
     results = await pMap<ImageJob, ImageJobResult>(
       jobs,
       async (job) => {
         const jobStart = Date.now();
         progress?.update(job.index, { state: "running" });
         try {
-          const result = (await client.image.run.mutate({
+          const result: RunResult = await client.image.run.mutate({
             provider: job.spec.provider,
             task: options.task,
             model: job.spec.model,
             prompt: options.prompt,
             params: options.params,
-            inputImages: options.inputImages,
-          })) as RunResult;
+            inputImages: inputRefs,
+          });
 
           const files = await writeOutputs(result.outputs, options, job);
           const elapsed = Date.now() - jobStart;
@@ -187,12 +194,68 @@ export async function runJobs(
     );
   } finally {
     // Always tear down the spinner interval, even when pMap rejects with
-    // a fatal error — otherwise the progress timer keeps redrawing on a
+    // a fatal error; otherwise the progress timer keeps redrawing on a
     // dead run.
     progress?.stop();
+    await cleanupInputImages(client, inputRefs);
   }
 
   return { results, totalElapsedMs: Date.now() - start };
+}
+
+async function uploadInputImages(
+  client: ReturnType<typeof createClient>,
+  images: RunJobsOptions["inputImages"],
+): Promise<InputImageRef[]> {
+  if (images.length === 0) return [];
+  const created: CreateInputUploadsResult = await client.image.createInputUploads.mutate({
+    images: images.map((image) => ({
+      role: image.role,
+      filename: image.filename,
+      contentType: image.contentType,
+      sizeBytes: image.sizeBytes,
+    })),
+  });
+
+  const refs = created.uploads.map((upload) => upload.ref);
+  try {
+    await Promise.all(
+      created.uploads.map(async (upload, index) => {
+        const image = images[index];
+        if (!image) throw new Error(`Missing local input image ${index}.`);
+        const res = await fetch(upload.url, {
+          method: "PUT",
+          headers: upload.headers,
+          body: readFileSync(image.path),
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(
+            `Input image upload failed for ${image.filename}: ${res.status} ${res.statusText} ${text}`,
+          );
+        }
+      }),
+    );
+  } catch (err) {
+    await cleanupInputImages(client, refs);
+    throw err;
+  }
+
+  return refs;
+}
+
+async function cleanupInputImages(
+  client: ReturnType<typeof createClient>,
+  refs: InputImageRef[],
+): Promise<void> {
+  if (refs.length === 0) return;
+  try {
+    await client.image.cleanupInputUploads.mutate({
+      keys: refs.map((ref) => ref.key),
+    });
+  } catch {
+    // Best effort. Uploaded refs are short-lived scratch objects.
+  }
 }
 
 async function writeOutputs(
@@ -212,9 +275,7 @@ async function writeOutputs(
       const target = pickTarget(options, job, i, outputs.length, ext);
       const res = await fetch(output.url);
       if (!res.ok) {
-        throw new Error(
-          `Failed to download ${output.filename} (${res.status} ${res.statusText})`,
-        );
+        throw new Error(`Failed to download ${output.filename} (${res.status} ${res.statusText})`);
       }
       writeBytes(target, Buffer.from(await res.arrayBuffer()));
       written[i] = target;
@@ -254,17 +315,10 @@ function pickTarget(
     return options.output.path;
   }
   const dir = options.output.dir;
-  const slug = sanitize(job.spec.display);
+  const slug = sanitize(job.spec.display) || "model";
   const seq = String(outputIndex + 1).padStart(2, "0");
   const copy = options.count > 1 ? `-${String(job.copy).padStart(2, "0")}` : "";
-  // When the same model display appears more than once in --model, the
-  // slug+copy alone don't disambiguate the jobs and writeOutputs would
-  // race to clobber the file. Suffix the slot index in that case.
-  const duplicated =
-    options.models.filter((m) => m.display === job.spec.display).length > 1;
-  const slot = duplicated
-    ? `-s${String(job.slot + 1).padStart(2, "0")}`
-    : "";
+  const slot = `-j${String(job.index + 1).padStart(2, "0")}`;
   const stem =
     options.models.length > 1
       ? `${options.filenamePrefix}-${slug}${slot}${copy}-${seq}`

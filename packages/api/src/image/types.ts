@@ -9,7 +9,10 @@
 export const IMAGE_PROVIDERS = ["openai", "fal", "retro-diffusion"] as const;
 export type ImageProviderName = (typeof IMAGE_PROVIDERS)[number];
 
+export type ImageInputRole = "image" | "reference" | "mask" | "palette";
+
 export type ImageInputFile = {
+  role: ImageInputRole;
   filename: string;
   contentType: string;
   bytes: Uint8Array;

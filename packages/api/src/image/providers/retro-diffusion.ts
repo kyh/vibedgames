@@ -1,18 +1,22 @@
 import { TRPCError } from "@trpc/server";
 
-import { base64ToBytes, bytesToBase64 } from "../base64";
-import type {
-  ImageProvider,
-  ImageProviderRequest,
-  ImageProviderResult,
-} from "../types";
+import {
+  base64For,
+  copyParams,
+  inputsForRole,
+  rejectImageParams,
+  rejectInputRoles,
+  singleInputForRole,
+} from "../provider-inputs";
+import { decodeBase64Output, isRecord, readErrorSnippet, readJsonBounded } from "../provider-io";
+import type { ImageProvider, ImageProviderRequest, ImageProviderResult } from "../types";
 
 const DEFAULT_BASE_URL = "https://api.retrodiffusion.ai/v1";
+const RESERVED_IMAGE_FIELDS = ["input_image", "reference_images", "input_palette"];
 
 function inferencesUrl(baseUrl: string | undefined): string {
   // `??` doesn't catch empty-string env vars; treat blank as unset.
-  const root =
-    baseUrl && baseUrl.trim().length > 0 ? baseUrl : DEFAULT_BASE_URL;
+  const root = baseUrl && baseUrl.trim().length > 0 ? baseUrl : DEFAULT_BASE_URL;
   return `${root.endsWith("/") ? root.slice(0, -1) : root}/inferences`;
 }
 
@@ -25,6 +29,23 @@ type RDResponse = {
   created_at?: number;
 };
 
+function parseRDResponse(value: unknown): RDResponse {
+  if (!isRecord(value)) return {};
+  return {
+    base64_images: Array.isArray(value.base64_images)
+      ? value.base64_images.filter((item) => typeof item === "string")
+      : undefined,
+    output_urls: Array.isArray(value.output_urls)
+      ? value.output_urls.filter((item) => typeof item === "string")
+      : undefined,
+    balance_cost: typeof value.balance_cost === "number" ? value.balance_cost : undefined,
+    remaining_balance:
+      typeof value.remaining_balance === "number" ? value.remaining_balance : undefined,
+    model: typeof value.model === "string" ? value.model : undefined,
+    created_at: typeof value.created_at === "number" ? value.created_at : undefined,
+  };
+}
+
 function detectMedia(bytes: Uint8Array): { extension: string; contentType: string } {
   if (
     bytes.length >= 8 &&
@@ -35,20 +56,10 @@ function detectMedia(bytes: Uint8Array): { extension: string; contentType: strin
   ) {
     return { extension: ".png", contentType: "image/png" };
   }
-  if (
-    bytes.length >= 6 &&
-    bytes[0] === 0x47 &&
-    bytes[1] === 0x49 &&
-    bytes[2] === 0x46
-  ) {
+  if (bytes.length >= 6 && bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) {
     return { extension: ".gif", contentType: "image/gif" };
   }
-  if (
-    bytes.length >= 3 &&
-    bytes[0] === 0xff &&
-    bytes[1] === 0xd8 &&
-    bytes[2] === 0xff
-  ) {
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
     return { extension: ".jpg", contentType: "image/jpeg" };
   }
   return { extension: ".bin", contentType: "application/octet-stream" };
@@ -60,9 +71,7 @@ export const retroDiffusionImageProvider: ImageProvider = {
     //   - `model` carries the prompt_style verbatim, or
     //   - `params.prompt_style` is set explicitly.
     const promptStyle =
-      typeof req.params.prompt_style === "string"
-        ? (req.params.prompt_style as string)
-        : req.model;
+      typeof req.params.prompt_style === "string" ? req.params.prompt_style : req.model;
     if (!promptStyle) {
       throw new TRPCError({
         code: "BAD_REQUEST",
@@ -70,31 +79,23 @@ export const retroDiffusionImageProvider: ImageProvider = {
       });
     }
 
-    const payload: Record<string, unknown> = { ...req.params };
+    rejectImageParams(req.params, RESERVED_IMAGE_FIELDS, "Retro Diffusion");
+    rejectInputRoles(req.inputImages, ["mask"], "Retro Diffusion");
+    const payload = copyParams(req.params, RESERVED_IMAGE_FIELDS);
     payload.prompt_style = promptStyle;
     payload.prompt = req.prompt;
 
-    if (req.inputImages.length > 0) {
-      // First image is the canonical input; remaining are appended to any
-      // `reference_images` the user passed in params (instead of replacing
-      // them) so the two channels can be combined consistently regardless
-      // of how many --image flags were supplied.
-      payload.input_image = bytesToBase64(req.inputImages[0]!.bytes);
-      if (req.inputImages.length > 1) {
-        const extras = req.inputImages
-          .slice(1)
-          .map((img) => bytesToBase64(img.bytes));
-        const existing = payload.reference_images;
-        if (Array.isArray(existing)) {
-          payload.reference_images = [...existing, ...extras];
-        } else if (typeof existing === "string" && existing.length > 0) {
-          // Some users pass a single base64 reference as a scalar string;
-          // normalize to array shape rather than dropping it on the floor.
-          payload.reference_images = [existing, ...extras];
-        } else {
-          payload.reference_images = extras;
-        }
-      }
+    const primaryImage = singleInputForRole(req.inputImages, "image", "Retro Diffusion");
+    const referenceImages = inputsForRole(req.inputImages, "reference");
+    const palette = singleInputForRole(req.inputImages, "palette", "Retro Diffusion");
+    if (primaryImage) {
+      payload.input_image = base64For(primaryImage);
+    }
+    if (referenceImages.length > 0) {
+      payload.reference_images = referenceImages.map((image) => base64For(image));
+    }
+    if (palette) {
+      payload.input_palette = base64For(palette);
     }
 
     const res = await fetch(inferencesUrl(req.baseUrl), {
@@ -104,23 +105,31 @@ export const retroDiffusionImageProvider: ImageProvider = {
         "X-RD-Token": req.apiKey,
       },
       body: JSON.stringify(payload),
+      redirect: "manual",
     });
+    if (res.status >= 300 && res.status < 400) {
+      throw new TRPCError({
+        code: "BAD_GATEWAY",
+        message: `Retro Diffusion returned a ${res.status} redirect; refusing to follow with credentials.`,
+      });
+    }
     if (!res.ok) {
-      const text = await res.text().catch(() => "");
+      const text = await readErrorSnippet(res, "Retro Diffusion error response");
       throw new TRPCError({
         code: "BAD_GATEWAY",
         message: `Retro Diffusion error ${res.status}: ${text.slice(0, 800)}`,
       });
     }
 
-    const json = (await res.json()) as RDResponse;
+    const json = parseRDResponse(await readJsonBounded(res, "Retro Diffusion response"));
 
     const outputs: ImageProviderResult["outputs"] = [];
     for (const encoded of json.base64_images ?? []) {
       let bytes: Uint8Array;
       try {
-        bytes = base64ToBytes(encoded);
-      } catch {
+        bytes = decodeBase64Output(encoded, "Retro Diffusion image output");
+      } catch (err) {
+        if (err instanceof TRPCError) throw err;
         // Malformed base64 from the upstream is a gateway-side problem,
         // not an internal server error.
         throw new TRPCError({

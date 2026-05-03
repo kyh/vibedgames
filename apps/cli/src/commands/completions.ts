@@ -15,10 +15,7 @@ const SUBCOMMANDS = [
 
 const IMAGE_SUBCOMMANDS = ["generate", "edit"];
 
-const COMMON_FLAGS = [
-  "--help",
-  "--version",
-];
+const COMMON_FLAGS = ["--help", "--version"];
 
 const IMAGE_FLAGS = [
   "--provider",
@@ -31,6 +28,9 @@ const IMAGE_FLAGS = [
   "--params",
   "--params-file",
   "--image",
+  "--reference",
+  "--mask",
+  "--palette",
   "--count",
   "-n",
   "--concurrency",
@@ -105,26 +105,23 @@ compdef _vg vg
 `;
 }
 
+function fishFlag(flag: string, condition: string): string {
+  const isShort = flag.startsWith("-") && !flag.startsWith("--");
+  const name = flag.replace(/^--?/, "");
+  const opt = isShort ? "-s" : "-l";
+  return `complete -c vg -n '${condition}' ${opt} '${name}'`;
+}
+
 function fishScript(): string {
-  const fishFlag = (flag: string, condition: string): string => {
-    const isShort = flag.startsWith("-") && !flag.startsWith("--");
-    const name = flag.replace(/^--?/, "");
-    const opt = isShort ? "-s" : "-l";
-    return `complete -c vg -n '${condition}' ${opt} '${name}'`;
-  };
   const imageFlagLines = [...IMAGE_FLAGS, ...COMMON_FLAGS].map((flag) =>
     fishFlag(flag, "__fish_seen_subcommand_from image"),
   );
   // For all other subcommands, only the common flags are meaningful.
   const otherSubcommands = SUBCOMMANDS.filter((s) => s !== "image");
   const otherFlagLines = COMMON_FLAGS.flatMap((flag) =>
-    otherSubcommands.map((sub) =>
-      fishFlag(flag, `__fish_seen_subcommand_from ${sub}`),
-    ),
+    otherSubcommands.map((sub) => fishFlag(flag, `__fish_seen_subcommand_from ${sub}`)),
   );
-  const topLevelFlagLines = COMMON_FLAGS.map((flag) =>
-    fishFlag(flag, "__fish_use_subcommand"),
-  );
+  const topLevelFlagLines = COMMON_FLAGS.map((flag) => fishFlag(flag, "__fish_use_subcommand"));
   return `# vg completions for fish.
 complete -c vg -f
 complete -c vg -n '__fish_use_subcommand' -a '${SUBCOMMANDS.join(" ")}'
@@ -140,8 +137,7 @@ ${otherFlagLines.join("\n")}
 export const completionsCommand = defineCommand({
   meta: {
     name: "completions",
-    description:
-      "Print shell completions for vg. Pipe into your shell's completion dir.",
+    description: "Print shell completions for vg. Pipe into your shell's completion dir.",
   },
   args: {
     shell: {
@@ -158,12 +154,7 @@ export const completionsCommand = defineCommand({
       );
       process.exit(1);
     }
-    const script =
-      shell === "bash"
-        ? bashScript()
-        : shell === "zsh"
-          ? zshScript()
-          : fishScript();
+    const script = shell === "bash" ? bashScript() : shell === "zsh" ? zshScript() : fishScript();
     process.stdout.write(script);
   },
 });

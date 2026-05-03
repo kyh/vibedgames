@@ -197,16 +197,28 @@ Multi-image edits with fidelity control:
 vg image edit \
   --model gpt-image-1.5 \
   --image identity.png \
-  --image motion-guide.png \
+  --reference motion-guide.png \
   --prompt "Use image 1 for identity and image 2 for pose" \
   --output tmp/edit \
   --params '{"input_fidelity":"high"}'
 ```
 
+Mask edits use uploaded mask refs, not inline base64:
+
+```bash
+vg image edit \
+  --model gpt-image-1.5 \
+  --image input.png \
+  --mask mask.png \
+  --prompt "Replace the masked area with a raised arm" \
+  --output tmp/edit
+```
+
 ### Smart auto-detect
 
-`vg image` (no subcommand) picks `edit` when at least one `--image` is
-passed, otherwise `generate`:
+`vg image` (no subcommand) picks `edit` when any input file flag is
+passed (`--image`, `--reference`, `--mask`, `--palette`), otherwise
+`generate`:
 
 ```bash
 vg image --image sprite.png --prompt "raise the arm slightly" --output tmp/edit
@@ -225,10 +237,11 @@ vg image generate \
   -n 2 -p 4
 ```
 
-### Larger params (base64 references, JSON files)
+### Structured params
 
 Pass a JSON file with `--params-file` instead of `--params` when params
-include large fields like base64 images that would blow past argv limits:
+are easier to maintain as JSON. Local images should use file-role flags;
+do not inline image base64 in params:
 
 ```bash
 vg image edit --model gpt-image-1.5 --image sprite.png \

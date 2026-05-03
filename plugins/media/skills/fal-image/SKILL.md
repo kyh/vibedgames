@@ -158,11 +158,14 @@ vg image edit \
   --json > experiments/fal-image/walk-compare/runs.json
 ```
 
+Use `--reference` for extra local reference files. fal sends `--image`
+and `--reference` through the configured image input field.
+
 ### Per-model params
 
 Pass arbitrary endpoint-specific params with `--params` (JSON) or
-`--params-file` (path). `--params-file` is the right choice when params
-contain large fields like base64 references:
+`--params-file` (path). Local image references should use `--image` or
+`--reference`; keep params for endpoint knobs:
 
 ```bash
 vg image edit --model nano-banana-pro-edit \

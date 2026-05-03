@@ -1,11 +1,9 @@
 import { TRPCError } from "@trpc/server";
 
-import { bytesToBase64 } from "../base64";
-import type {
-  ImageInputFile,
-  ImageProvider,
-  ImageProviderResult,
-} from "../types";
+import { MAX_OUTPUT_IMAGE_BYTES } from "../limits";
+import { base64For, inputsForRoles, rejectInputRoles } from "../provider-inputs";
+import { isRecord, readBytesBounded, readErrorSnippet, readJsonBounded } from "../provider-io";
+import type { ImageInputFile, ImageProvider } from "../types";
 
 const DEFAULT_QUEUE_ROOT = "https://queue.fal.run";
 // fal status_url / response_url are echoed back from the queue submit
@@ -28,7 +26,8 @@ function hasCustomBaseUrl(baseUrl: string | undefined | null): boolean {
 }
 
 function queueRoot(baseUrl: string | undefined): string {
-  const root = hasCustomBaseUrl(baseUrl) ? baseUrl! : DEFAULT_QUEUE_ROOT;
+  const root =
+    typeof baseUrl === "string" && baseUrl.trim().length > 0 ? baseUrl : DEFAULT_QUEUE_ROOT;
   return root.endsWith("/") ? root.slice(0, -1) : root;
 }
 
@@ -63,19 +62,36 @@ type QueueStatusResponse = {
 };
 
 function pickErrorReason(value: unknown): string | null {
-  if (!value || typeof value !== "object") return null;
-  const v = value as { error?: unknown; detail?: unknown };
-  if (typeof v.error === "string" && v.error.length > 0) return v.error;
-  if (typeof v.detail === "string" && v.detail.length > 0) return v.detail;
+  if (!isRecord(value)) return null;
+  if (typeof value.error === "string" && value.error.length > 0) return value.error;
+  if (typeof value.detail === "string" && value.detail.length > 0) return value.detail;
   // fal occasionally returns `error: { message: "..." }`.
-  if (
-    v.error !== null &&
-    typeof v.error === "object" &&
-    typeof (v.error as { message?: unknown }).message === "string"
-  ) {
-    return (v.error as { message: string }).message;
+  if (isRecord(value.error) && typeof value.error.message === "string") {
+    return value.error.message;
   }
   return null;
+}
+
+function parseQueueSubmit(value: unknown): QueueSubmitResponse {
+  if (!isRecord(value)) return {};
+  return {
+    request_id: typeof value.request_id === "string" ? value.request_id : undefined,
+    status_url: typeof value.status_url === "string" ? value.status_url : undefined,
+    response_url: typeof value.response_url === "string" ? value.response_url : undefined,
+  };
+}
+
+function parseQueueStatus(value: unknown): QueueStatusResponse {
+  if (!isRecord(value)) return {};
+  const response = isRecord(value.response)
+    ? { error: value.response.error, detail: value.response.detail }
+    : undefined;
+  return {
+    status: typeof value.status === "string" ? value.status : undefined,
+    error: value.error,
+    detail: value.detail,
+    response,
+  };
 }
 
 function falHeaders(apiKey: string): Record<string, string> {
@@ -88,7 +104,7 @@ function falHeaders(apiKey: string): Record<string, string> {
 }
 
 function dataUriFor(image: ImageInputFile): string {
-  return `data:${image.contentType};base64,${bytesToBase64(image.bytes)}`;
+  return `data:${image.contentType};base64,${base64For(image)}`;
 }
 
 function imageFieldFor(params: Record<string, unknown>): string {
@@ -153,9 +169,8 @@ function collectMediaUrls(payload: unknown): string[] {
       for (const item of value) visit(item);
       return;
     }
-    if (value && typeof value === "object") {
-      const obj = value as Record<string, unknown>;
-      const url = obj.url;
+    if (isRecord(value)) {
+      const url = value.url;
       if (typeof url === "string" && url.startsWith("http") && !seen.has(url)) {
         let parsed: URL | null = null;
         try {
@@ -168,19 +183,15 @@ function collectMediaUrls(payload: unknown): string[] {
           parsed.protocol === "https:" &&
           isTrustedFalContentHost(parsed.hostname);
         const contentType =
-          typeof obj.content_type === "string"
-            ? obj.content_type.toLowerCase()
-            : null;
+          typeof value.content_type === "string" ? value.content_type.toLowerCase() : null;
         const isImage =
-          contentType !== null
-            ? contentType.startsWith("image/")
-            : looksLikeImageUrl(url);
+          contentType !== null ? contentType.startsWith("image/") : looksLikeImageUrl(url);
         if (isTrustedHost && isImage) {
           seen.add(url);
           found.push(url);
         }
       }
-      for (const child of Object.values(obj)) visit(child);
+      for (const child of Object.values(value)) visit(child);
     }
   };
   visit(payload);
@@ -221,26 +232,22 @@ async function downloadImage(url: string): Promise<{
     });
   }
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
+    const text = await readErrorSnippet(res, "fal output error response");
     throw new TRPCError({
       code: "BAD_GATEWAY",
       message: `fal output download failed (${res.status}): ${text.slice(0, 400)}`,
     });
   }
-  const buf = new Uint8Array(await res.arrayBuffer());
-  const headerMime = (res.headers.get("content-type") ?? "")
-    .split(";")[0]!
-    .trim()
-    .toLowerCase();
+  const buf = await readBytesBounded(res, MAX_OUTPUT_IMAGE_BYTES, "fal output image");
+  const [mimeType] = (res.headers.get("content-type") ?? "").split(";");
+  const headerMime = (mimeType ?? "").trim().toLowerCase();
   // Prefer the response content-type when it's image/*; the URL extension is
   // a fallback for endpoints that omit the header. Keep both in sync so a
   // GIF served from a URL without an extension doesn't end up labelled .png.
   const contentType = headerMime.startsWith("image/")
     ? headerMime
     : contentTypeForExtension(extensionFromUrl(url));
-  const subtype = contentType.startsWith("image/")
-    ? contentType.slice("image/".length)
-    : "";
+  const subtype = contentType.startsWith("image/") ? contentType.slice("image/".length) : "";
   // Subtypes like `svg+xml` or `vnd.microsoft.icon` would produce
   // malformed extensions if used verbatim; fall through to the URL
   // extension (which is itself filtered by IMAGE_EXTENSIONS) when the
@@ -260,16 +267,13 @@ async function submit(
   body: Record<string, unknown>,
   baseUrl: string | undefined,
 ): Promise<QueueSubmitResponse> {
-  const res = await fetch(
-    `${queueRoot(baseUrl)}/${endpointId.replace(/^\/+|\/+$/g, "")}`,
-    {
-      method: "POST",
-      headers: { ...falHeaders(apiKey), "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      // See pollUntilComplete for the redirect rationale.
-      redirect: "manual",
-    },
-  );
+  const res = await fetch(`${queueRoot(baseUrl)}/${endpointId.replace(/^\/+|\/+$/g, "")}`, {
+    method: "POST",
+    headers: { ...falHeaders(apiKey), "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    // See pollUntilComplete for the redirect rationale.
+    redirect: "manual",
+  });
   if (res.status >= 300 && res.status < 400) {
     throw new TRPCError({
       code: "BAD_GATEWAY",
@@ -277,19 +281,16 @@ async function submit(
     });
   }
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
+    const text = await readErrorSnippet(res, "fal queue submit error response");
     throw new TRPCError({
       code: "BAD_GATEWAY",
       message: `fal queue submit failed (${res.status}): ${text.slice(0, 800)}`,
     });
   }
-  return (await res.json()) as QueueSubmitResponse;
+  return parseQueueSubmit(await readJsonBounded(res, "fal queue submit response"));
 }
 
-async function pollUntilComplete(
-  statusUrl: string,
-  apiKey: string,
-): Promise<void> {
+async function pollUntilComplete(statusUrl: string, apiKey: string): Promise<void> {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   const pollUrl = new URL(statusUrl);
   pollUrl.searchParams.set("logs", "0");
@@ -297,7 +298,7 @@ async function pollUntilComplete(
     // `redirect: "manual"` keeps the Authorization header from
     // following any 3xx the upstream issues. The status_url is already
     // host-validated via acceptableQueueUrl, but the redirect target
-    // wouldn't be — so a redirect here would silently exfiltrate the
+    // would not be, so a redirect here would silently exfiltrate the
     // proxy's FAL_API_KEY.
     const res = await fetch(pollUrl, {
       headers: falHeaders(apiKey),
@@ -310,13 +311,13 @@ async function pollUntilComplete(
       });
     }
     if (!res.ok) {
-      const text = await res.text().catch(() => "");
+      const text = await readErrorSnippet(res, "fal queue status error response");
       throw new TRPCError({
         code: "BAD_GATEWAY",
         message: `fal queue status failed (${res.status}): ${text.slice(0, 400)}`,
       });
     }
-    const body = (await res.json()) as QueueStatusResponse;
+    const body = parseQueueStatus(await readJsonBounded(res, "fal queue status response"));
     const status = (body.status ?? "").toUpperCase();
     if (status === "COMPLETED") return;
     if (status === "FAILED" || status === "CANCELLED") {
@@ -358,13 +359,13 @@ async function fetchResult(
     });
   }
   if (!res.ok) {
-    const text = await res.text().catch(() => "");
+    const text = await readErrorSnippet(res, "fal result error response");
     throw new TRPCError({
       code: "BAD_GATEWAY",
       message: `fal result fetch failed (${res.status}): ${text.slice(0, 800)}`,
     });
   }
-  const payload = await res.json();
+  const payload = await readJsonBounded(res, "fal result response");
   return {
     payload,
     billableUnits: res.headers.get("x-fal-billable-units"),
@@ -386,9 +387,11 @@ export const falImageProvider: ImageProvider = {
     delete arguments_.input_image_field;
     arguments_.prompt = req.prompt;
 
-    if (req.inputImages.length > 0) {
+    rejectInputRoles(req.inputImages, ["mask", "palette"], "fal");
+    const inputImages = inputsForRoles(req.inputImages, ["image", "reference"]);
+    if (inputImages.length > 0) {
       const field = imageFieldFor(req.params);
-      const encoded = req.inputImages.map((img) => dataUriFor(img));
+      const encoded = inputImages.map((img) => dataUriFor(img));
       const existing = arguments_[field];
       // Prepend uploaded files before any URLs already in params so fal
       // endpoints that treat the first entry as the primary input see the
@@ -402,12 +405,7 @@ export const falImageProvider: ImageProvider = {
           : encoded;
     }
 
-    const submission = await submit(
-      endpointId,
-      req.apiKey,
-      arguments_,
-      req.baseUrl,
-    );
+    const submission = await submit(endpointId, req.apiKey, arguments_, req.baseUrl);
     const requestId = submission.request_id;
     const root = queueRoot(req.baseUrl);
     const cleanedEndpoint = endpointId.replace(/^\/+|\/+$/g, "");
@@ -440,10 +438,7 @@ export const falImageProvider: ImageProvider = {
     await pollUntilComplete(statusUrl, req.apiKey);
     const { payload, billableUnits } = await fetchResult(responseUrl, req.apiKey);
 
-    const payloadObj =
-      payload && typeof payload === "object"
-        ? (payload as Record<string, unknown>)
-        : null;
+    const payloadObj = isRecord(payload) ? payload : null;
 
     const urls = collectMediaUrls(payload);
     if (urls.length === 0) {

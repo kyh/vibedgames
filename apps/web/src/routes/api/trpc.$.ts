@@ -1,4 +1,5 @@
 import { appRouter, createTRPCContext } from "@repo/api";
+import { MAX_TRPC_BODY_BYTES } from "@repo/api/image/limits";
 import { createFileRoute } from "@tanstack/react-router";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 
@@ -9,14 +10,20 @@ import { getServerContext } from "@/auth/server";
 // the raw bytes, the decoded string, and the parsed object in memory at
 // once, so we have to reject pathologically large bodies up front
 // rather than relying on the per-field caps inside the procedure.
-const MAX_BODY_BYTES = 64 * 1024 * 1024;
+const MAX_BODY_BYTES = MAX_TRPC_BODY_BYTES;
 
 // JSON-RPC codes tRPC uses for these HTTP statuses. Inlined to avoid
 // importing from the `unstable-core-do-not-import` entry point.
 const TRPC_PAYLOAD_TOO_LARGE = -32013;
 const TRPC_BAD_REQUEST = -32600;
 
-function bodySizeError(req: Request, message: string, httpStatus: number, code: string, rpcCode: number): Response {
+function bodySizeError(
+  req: Request,
+  message: string,
+  httpStatus: number,
+  code: string,
+  rpcCode: number,
+): Response {
   // Match tRPC's HTTP error shape so the client (httpBatchLink) can
   // parse the JSON and surface the message instead of throwing
   // "unable to transform response" on a plain-text body.
@@ -38,11 +45,8 @@ function bodySizeError(req: Request, message: string, httpStatus: number, code: 
     // segment (e.g. /api/trpc/x.a,y.b). httpBatchLink expects one
     // response slot per procedure, so size the array to match instead
     // of always returning a single-element array.
-    const lastSegment = url.pathname.split("/").filter(Boolean).pop() ?? "";
-    const count = Math.max(
-      1,
-      lastSegment.split(",").filter((s) => s.length > 0).length,
-    );
+    const lastSegment = url.pathname.split("/").findLast((segment) => segment.length > 0) ?? "";
+    const count = Math.max(1, lastSegment.split(",").filter((s) => s.length > 0).length);
     body = Array.from({ length: count }, () => errorObj);
   }
   return new Response(JSON.stringify(body), {
