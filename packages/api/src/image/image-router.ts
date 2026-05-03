@@ -189,12 +189,6 @@ async function loadInputImages({
         message: `Input image ${index} is empty.`,
       });
     }
-    if (bytes.byteLength > MAX_INPUT_IMAGE_BYTES) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: `Input image ${index} exceeds ${MAX_INPUT_IMAGE_BYTES} bytes.`,
-      });
-    }
     images.push({
       role: image.role,
       filename: image.filename,
