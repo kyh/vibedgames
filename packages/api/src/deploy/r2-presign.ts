@@ -44,6 +44,40 @@ export async function presignPut({
 }
 
 /**
+ * Mint a presigned GET URL for a single R2 object. Used to hand the CLI a
+ * short-lived link to download a generated image without round-tripping bytes
+ * through the tRPC response.
+ */
+export async function presignGet({
+  r2,
+  key,
+  expiresInSeconds = 3600,
+}: {
+  r2: R2Config;
+  key: string;
+  expiresInSeconds?: number;
+}): Promise<string> {
+  const client = new AwsClient({
+    accessKeyId: r2.accessKeyId,
+    secretAccessKey: r2.secretAccessKey,
+    service: "s3",
+    region: "auto",
+  });
+
+  const endpoint = new URL(
+    `https://${r2.accountId}.r2.cloudflarestorage.com/${r2.bucketName}/${key}`,
+  );
+  endpoint.searchParams.set("X-Amz-Expires", String(expiresInSeconds));
+
+  const signed = await client.sign(
+    new Request(endpoint, { method: "GET" }),
+    { aws: { signQuery: true } },
+  );
+
+  return signed.url;
+}
+
+/**
  * Delete every object under a given R2 prefix. Used to clear the previous
  * deployment when single-deploy mode overwrites an old release.
  */

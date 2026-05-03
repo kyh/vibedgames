@@ -1,0 +1,43 @@
+{
+  "rules": [
+    {
+      "id": "expire-image-inputs-after-1-day",
+      "enabled": true,
+      "conditions": {
+        "prefix": "image-inputs/"
+      },
+      "deleteObjectsTransition": {
+        "condition": {
+          "type": "Age",
+          "maxAge": 86400
+        }
+      }
+    },
+    {
+      "id": "expire-image-runs-after-7-days",
+      "enabled": true,
+      "conditions": {
+        "prefix": "image-runs/"
+      },
+      "deleteObjectsTransition": {
+        "condition": {
+          "type": "Age",
+          "maxAge": 604800
+        }
+      }
+    },
+    {
+      "id": "abort-incomplete-multipart-after-7-days",
+      "enabled": true,
+      "conditions": {
+        "prefix": ""
+      },
+      "abortMultipartUploadsTransition": {
+        "condition": {
+          "type": "Age",
+          "maxAge": 604800
+        }
+      }
+    }
+  ]
+}

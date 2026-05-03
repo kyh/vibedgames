@@ -22,6 +22,18 @@ Image generation is not "write a pretty prompt and hope." The job is to convert 
 2. **Output settings are part of the prompt**: size, quality, format, and background materially change usefulness.
 3. **Truth over theater**: only claim an image was generated after running the API or receiving output.
 
+## How Image Calls Reach OpenAI
+
+This skill never calls the OpenAI API directly. All generation goes through
+the vibedgames CLI (`vg image generate` / `vg image edit`), which proxies
+to OpenAI server-side. The OpenAI API key lives on the platform — users
+authenticate once with `vg login` and never handle a key locally.
+
+Prerequisites:
+
+- `vg` CLI installed (`npm i -g vibedgames`)
+- `vg login` to authenticate
+
 ## Working With GPT Image 1.5
 
 OpenAI documents `gpt-image-1.5` as the latest GPT Image model with text and image input, and image and text output. The Images API supports `gpt-image-1.5` for generation, with `png`, `webp`, or `jpeg` output and documented size/quality/background controls. See `references/openai-gpt-image-1-5.md`.
@@ -31,7 +43,7 @@ OpenAI documents `gpt-image-1.5` as the latest GPT Image model with text and ima
 - The user asks you to generate an image with OpenAI.
 - The user wants a prompt for `gpt-image-1.5`.
 - The user needs transparent-background assets, icons, concept art, product shots, or stylized illustrations.
-- The user needs a runnable API example or a wrapper script for the Images API.
+- The user needs a runnable API example.
 
 ### Generation Workflow
 
@@ -48,7 +60,7 @@ OpenAI documents `gpt-image-1.5` as the latest GPT Image model with text and ima
    - `quality`: `low`, `medium`, `high`, or `auto`
    - `output_format`: `png`, `webp`, or `jpeg`
    - `background`: use `transparent` only with `png` or `webp`
-4. If image generation is requested and `OPENAI_API_KEY` is available, use `scripts/gpt_image_generate.py`.
+4. If image generation is requested and the user is logged in (`vg whoami`), run `vg image generate`.
 5. Save outputs to a user-visible path and report exactly what was generated.
 
 ### Prompt Construction
@@ -148,55 +160,100 @@ Lighting/color: bright coastal blues with warm stone and wood tones.
 Constraints: visible pixels, limited palette, stepped shading, no glossy rendering, no collage, no poster framing.
 ```
 
-## Using The Bundled Scripts
+## Calling vg image
 
-### Generate images
+### Generate
 
 ```bash
-OPENAI_API_KEY=... \
-python3 .claude/skills/gpt-image-1-5/scripts/gpt_image_generate.py \
-  --prompt "Isometric potion shop icon, transparent background, polished game asset" \
-  --out-dir tmp/potion_shop --quality high --size 1024x1024 --output-format png
+vg image generate \
+  --model gpt-image-1.5 \
+  --prompt "Isometric potion shop icon, polished game asset" \
+  --output tmp/potion_shop \
+  --filename-prefix potion \
+  --params '{"quality":"high","size":"1024x1024","background":"transparent","output_format":"png"}'
 ```
 
-Useful flags:
+Useful params for `gpt-image-1.5`:
 
-- `--background transparent`
-- `--n 1`
-- `--filename-prefix hero`
-- `--user some-trace-id`
+- `quality`: `low` / `medium` / `high` / `auto`
+- `size`: `1024x1024` / `1024x1536` / `1536x1024` / `auto`
+- `background`: `transparent` (PNG/WEBP only)
+- `output_format`: `png` / `webp` / `jpeg`
+- `n`: number of images per request (CLI also has top-level `-n` to repeat the whole job)
 
-The script calls `POST /v1/images/generations`, decodes `b64_json`, and writes image files to disk.
-
-### Edit images
+### Edit
 
 ```bash
-OPENAI_API_KEY=... \
-python3 .claude/skills/gpt-image-1-5/scripts/gpt_image_edit.py \
+vg image edit \
+  --model gpt-image-1.5 \
   --image input.png \
   --prompt "Keep the same sprite, raise the arm slightly" \
-  --out-dir tmp/edit
+  --output tmp/edit
 ```
 
 Multi-image edits with fidelity control:
 
 ```bash
-OPENAI_API_KEY=... \
-python3 .claude/skills/gpt-image-1-5/scripts/gpt_image_edit.py \
+vg image edit \
+  --model gpt-image-1.5 \
   --image identity.png \
-  --image motion-guide.png \
-  --input-fidelity high \
+  --reference motion-guide.png \
   --prompt "Use image 1 for identity and image 2 for pose" \
-  --out-dir tmp/edit
+  --output tmp/edit \
+  --params '{"input_fidelity":"high"}'
 ```
 
-The edit script calls `POST /v1/images/edits` with multipart form data.
+Mask edits use uploaded mask refs, not inline base64:
+
+```bash
+vg image edit \
+  --model gpt-image-1.5 \
+  --image input.png \
+  --mask mask.png \
+  --prompt "Replace the masked area with a raised arm" \
+  --output tmp/edit
+```
+
+### Smart auto-detect
+
+`vg image` (no subcommand) picks `edit` when any input file flag is
+passed (`--image`, `--reference`, `--mask`, `--palette`), otherwise
+`generate`:
+
+```bash
+vg image --image sprite.png --prompt "raise the arm slightly" --output tmp/edit
+```
+
+### Cross-model comparison
+
+`--model` accepts a comma-separated list, and `-n` repeats each model. The
+CLI fans out jobs in parallel (`-p` controls concurrency):
+
+```bash
+vg image generate \
+  --model openai:gpt-image-1.5,fal:fal-ai/nano-banana-pro \
+  --prompt "Painterly fantasy inn sign, transparent background" \
+  --output tmp/compare \
+  -n 2 -p 4
+```
+
+### Structured params
+
+Pass a JSON file with `--params-file` instead of `--params` when params
+are easier to maintain as JSON. Local images should use file-role flags;
+do not inline image base64 in params:
+
+```bash
+vg image edit --model gpt-image-1.5 --image sprite.png \
+  --prompt "..." --output tmp/edit \
+  --params-file ./edit-params.json
+```
 
 ## Anti-Patterns To Avoid
 
 ❌ **Anti-pattern: claiming success before generation**
 Why bad: the user asked for images, not a hypothetical prompt.
-Better: run the script if credentials are available, or clearly say that API access is missing.
+Better: run `vg image` if the user is logged in, or clearly say that authentication is missing.
 
 ❌ **Anti-pattern: contradictory prompt stacks**
 Why bad: the model gets weaker guidance, not stronger guidance.
@@ -237,12 +294,11 @@ Better: test whether a single seeded slot or a surgical retouch of the current b
 ## References
 
 - API/model notes: `references/openai-gpt-image-1-5.md`
-- Runnable generator: `scripts/gpt_image_generate.py`
-- Runnable editor: `scripts/gpt_image_edit.py`
 - OpenAI cookbook prompting guide: https://developers.openai.com/cookbook/examples/multimodal/image-gen-1.5-prompting_guide/
+- CLI command reference: `vg image --help`, `vg models`
 
 ## Remember
 
 This skill should make image generation operational, not theoretical.
 
-Turn the request into a precise prompt, choose the settings intentionally, run the API when possible, and report the real output path back to the user.
+Turn the request into a precise prompt, choose the settings intentionally, run `vg image` when possible, and report the real output path back to the user.

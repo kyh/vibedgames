@@ -2,17 +2,18 @@
   "name": "vibedgames",
   "version": "0.0.3",
   "private": false,
-  "type": "module",
   "bin": {
     "vg": "./dist/index.js"
   },
   "files": [
     "dist"
   ],
+  "type": "module",
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
     "clean": "rm -rf .turbo dist node_modules",
+    "test:image": "node --import tsx --test test/image-output.test.ts test/repeated-flags.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

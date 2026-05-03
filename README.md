@@ -49,6 +49,7 @@ pnpm dev:party        # multiplayer server only
 pnpm dev:astroid      # asteroids game
 pnpm build            # build everything
 pnpm typecheck        # type check all packages
+pnpm r2:lifecycle     # apply R2 lifecycle rules
 pnpm db:push          # push schema to local D1
 pnpm db:push-remote   # push schema to production
 ```

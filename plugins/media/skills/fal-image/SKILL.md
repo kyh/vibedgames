@@ -21,65 +21,57 @@ fal gives one platform surface for many image models, but the useful controls st
 - Is this a fresh generation or an edit run?
 - What must stay constant across models: prompt intent, reference images, size target, transparency, or output count?
 - Which model-specific controls materially affect fairness and need to be frozen?
-- Do we need pre-run cost estimates, per-run request IDs, or both?
 
 **Core principles**:
-1. **Queue-first for tracked experiments**: image calls can be synchronous, but queue mode gives request IDs, polling, and consistent logging.
-2. **Reference discipline matters**: editing runs should pass only the images the model actually needs; too many references dilute control.
-3. **Prompt parity beats fake parity**: keep the task stable, then document the real model-specific compromises.
-4. **Tracking is part of the run**: a generation is not complete until prompt, request metadata, outputs, and cost signals are recorded.
+1. **Reference discipline matters**: editing runs should pass only the images the model actually needs; too many references dilute control.
+2. **Prompt parity beats fake parity**: keep the task stable, then document the real model-specific compromises.
+3. **Tracking is part of the run**: a generation is not complete until prompt, request metadata, outputs, and cost signals are recorded.
 
-## What This Skill Provides
+## How Image Calls Reach fal
 
-- A portable, repo-scoped fal image workflow with no repo-wide Python packaging requirement.
-- A generic queue-based image runner for both text-to-image and edit endpoints.
-- Model presets for:
-  - `grok-imagine-image-t2i`
-  - `grok-imagine-image-edit`
-  - `nano-banana-2-t2i`
-  - `nano-banana-2-edit`
-  - `nano-banana-pro-t2i`
-  - `nano-banana-pro-edit`
-  - `gpt-image-1.5-t2i`
-  - `gpt-image-1.5-edit`
-- Platform tooling for:
-  - model lookup
-  - pricing
-  - estimate-cost
-  - usage
-  - request audit
-- A batch runner that executes the same image task across multiple fal models and appends a central ledger row per run.
+This skill never calls the fal API directly for image generation. All
+generation goes through the vibedgames CLI (`vg image generate` /
+`vg image edit --provider fal`), which proxies to fal server-side. The
+FAL API key lives on the platform — users authenticate once with
+`vg login` and never handle a key locally.
 
-## Working With fal Images In This Repo
-
-### Core Execution Pattern
-
-For tracked image jobs, this skill uses fal's queue API:
+Server-side, the proxy uses fal's queue API:
 
 - submit: `POST https://queue.fal.run/{endpoint_id}`
 - status: `GET https://queue.fal.run/{endpoint_id}/requests/{request_id}/status`
 - result: `GET https://queue.fal.run/{endpoint_id}/requests/{request_id}`
 
-Authentication uses:
-
-- `Authorization: Key $FAL_KEY`
-- in this repo, `FAL_API_KEY` is also accepted by the bundled scripts
-
-Important platform headers for repeatable comparison runs:
+with these headers:
 
 - `X-Fal-Store-IO: 1`
 - `x-app-fal-disable-fallback: true`
 
-The runner also captures response headers such as:
+`x-fal-billable-units` and `request_id` are surfaced back to the caller
+in the run JSON metadata (`vg image ... --json`).
 
-- `x-fal-request-id`
-- `x-fal-billable-units`
+Prerequisites:
 
-### Why This Skill Uses Queue HTTP First
+- `vg` CLI installed (`npm i -g vibedgames`)
+- `vg login` to authenticate
 
-The official `fal-client` SDK is valid and supported, but this repo's main requirement is portability inside a Codex skill. The scripts therefore keep a deterministic raw-queue path and also use `fal-client` automatically when it is available.
+### Model Aliases
 
-In this repo's retained live image runs, `uv run --with fal-client python3 ...` was the dependable path for some endpoints.
+The CLI accepts these aliases (resolve via `vg models`):
+
+- `nano-banana-2`, `nano-banana-2-edit`
+- `nano-banana-pro`, `nano-banana-pro-edit`
+- `grok-imagine-image`, `grok-imagine-image-edit`
+
+Or pass a fully-qualified `provider:model` spec, e.g.
+`fal:fal-ai/nano-banana-pro/edit`.
+
+### Caveats
+
+- Pre-run cost estimates and the `fal_platform_models.py` tooling are
+  **not** routed through `vg`; they remain direct fal calls and require a
+  `FAL_KEY`. They are maintainer-only and not needed for image runs.
+- Outputs are downloaded to `--output` from short-lived presigned URLs the
+  CLI fetches on the user's behalf.
 
 ### Prompting Guidance For Image Comparison
 
@@ -116,26 +108,79 @@ For text-to-image comparisons:
 
 Do not overload first comparison runs with long prompt stacks. The first job is to test prompt adherence, identity preservation, and edit usefulness.
 
-## Scripts
+## Calling vg image
 
-- `scripts/fal_queue_image_run.py`
-  - one text-to-image or image-edit queue run
-  - writes request/result JSON
-  - downloads image outputs
-  - writes normalized run manifest
-- `scripts/fal_platform_models.py`
-  - query fal platform APIs for model metadata and cost surfaces
-- `scripts/fal_image_experiment_matrix.py`
-  - run the same task across multiple image presets
-  - append central ledger rows
+### Generate
+
+```bash
+vg image generate \
+  --model nano-banana-pro \
+  --prompt "Side-view 16-bit pirate hero on a dock, flat green background #00FF00" \
+  --output tmp/pirate \
+  --filename-prefix pirate
+```
+
+### Edit
+
+```bash
+vg image edit \
+  --model nano-banana-pro-edit \
+  --image anchor.png \
+  --prompt "Keep the same character. Pose: idle facing right." \
+  --output tmp/edit
+```
+
+### Cross-model comparison (replaces the experiment matrix)
+
+`--model` accepts a comma-separated list of aliases or `provider:model`
+specs, and `-n` repeats each model. The CLI fans jobs out in parallel
+(`-p` controls concurrency) and emits a structured JSON result with
+per-run `runId` and `metadata`:
+
+```bash
+vg image generate \
+  --model nano-banana-pro,nano-banana-2,grok-imagine-image,openai:gpt-image-1.5 \
+  --prompt "Side-view 16-bit pirate hero, flat green background #00FF00" \
+  --output experiments/fal-image/pirate-compare \
+  --filename-prefix pirate \
+  -n 2 -p 4 \
+  --json > experiments/fal-image/pirate-compare/runs.json
+```
+
+For edits across multiple endpoints, pass the same `--image` to each:
+
+```bash
+vg image edit \
+  --model nano-banana-pro-edit,nano-banana-2-edit,grok-imagine-image-edit \
+  --image anchor.png \
+  --prompt "Same character. Pose: walking right." \
+  --output experiments/fal-image/walk-compare \
+  --json > experiments/fal-image/walk-compare/runs.json
+```
+
+Use `--reference` for extra local reference files. fal sends `--image`
+and `--reference` through the configured image input field.
+
+### Per-model params
+
+Pass arbitrary endpoint-specific params with `--params` (JSON) or
+`--params-file` (path). Local image references should use `--image` or
+`--reference`; keep params for endpoint knobs:
+
+```bash
+vg image edit --model nano-banana-pro-edit \
+  --image anchor.png --prompt "..." --output tmp/edit \
+  --params '{"image_size":{"width":1024,"height":1024},"num_images":2}'
+```
 
 ## Repo Workflow
 
 Machine-readable tracking:
 
-- `experiments/fal-image/ledger.jsonl`
-- `experiments/fal-image/ledger.csv`
-- `experiments/fal-image/<timestamp>-<slug>/batch.json`
+- `experiments/fal-image/<timestamp>-<slug>/runs.json` — the `--json`
+  fan-out output (per-run `runId`, `metadata`, file paths)
+- per-run images written by `vg image` directly into the run output
+  directory
 
 Human-readable tracking:
 
@@ -144,23 +189,30 @@ Human-readable tracking:
 
 Generated images should still live under the appropriate `public/assets/.../concepts/...` path for the asset family being tested.
 
+## Maintainer Tooling
+
+`scripts/fal_platform_models.py` is **maintainer-only** and queries
+fal's platform APIs (model lookup, pricing, estimates, usage, request
+audit). It requires a direct `FAL_KEY` and is not part of the
+user-facing image flow. End users should not need it.
+
 ## Anti-Patterns To Avoid
 
 ❌ **Anti-pattern: flattening all image models into one fake prompt schema**
 Why bad: you hide the controls that actually affect quality and cost.
-Better: use shared runner behavior plus explicit per-model presets and overrides.
+Better: pass shared `--prompt` and `--image` arguments, but drop per-model knobs through `--params`.
 
 ❌ **Anti-pattern: treating edit and generate as the same task**
 Why bad: edit runs depend on reference discipline and preservation constraints that text-to-image runs do not.
-Better: keep separate presets and separate experiment configs for generation and editing.
+Better: keep separate `vg image generate` and `vg image edit` invocations and prompt each task as itself.
 
 ❌ **Anti-pattern: recording only prompts and final PNGs**
 Why bad: you cannot audit request IDs, retries, or cost later.
-Better: always save raw JSON, normalized manifests, and ledger rows.
+Better: pipe `vg image ... --json` to a runs file alongside the outputs.
 
 ❌ **Anti-pattern: comparing models with hidden fallback routing**
 Why bad: you may think you tested one endpoint but actually hit another route.
-Better: set `x-app-fal-disable-fallback: true` on strict comparison runs.
+Better: the proxy already sets `x-app-fal-disable-fallback: true`; verify the target route via `metadata.endpoint_id` (and `metadata.request_id`) in the JSON output. `runId` is a server-side UUID for the run record and won't tell you which fal endpoint actually served the request.
 
 ❌ **Anti-pattern: stuffing many reference images into every edit**
 Why bad: it weakens edit control and makes failure analysis harder.
@@ -176,12 +228,13 @@ Better: use an explicit chroma-key background and key it out later.
 - Queue and inference notes: `references/fal-queue-and-inference.md`
 - Image model notes: `references/fal-image-models.md`
 - Model presets: `assets/model-presets.json`
+- CLI command reference: `vg image --help`, `vg models`
 
 ## Remember
 
 A good fal image workflow is not just "can it render." It is:
 
-- reproducible
-- comparable
-- cost-visible
+- reproducible (capture `--json` runs)
+- comparable (run the same prompt across multiple `--model` entries)
+- cost-visible (read `metadata.timings` / billable units from the JSON)
 - honest about model differences

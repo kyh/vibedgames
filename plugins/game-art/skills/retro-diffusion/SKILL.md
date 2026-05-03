@@ -38,54 +38,77 @@ The right way to use Retro Diffusion is:
 
 ## What This Skill Provides
 
-- A Retro Diffusion harness for:
+- A Retro Diffusion workflow that runs through `vg image generate
+  --provider retro-diffusion` for:
   - text-to-image
   - img2img-style runs via `input_image`
   - multi-reference runs via `reference_images`
   - fixed-style animation and spritesheet generation
-- A generic inference runner that:
-  - sends requests to `POST https://api.retrodiffusion.ai/v1/inferences`
-  - supports cost-only checks via `check_cost: true`
-  - writes normalized run manifests and decoded outputs
-- A batch runner for repeatable experiment configs
+- PIL utilities for reference prep and spritesheet inspection
 - Model/style presets for the main Retro Diffusion modes:
-  - `rd-pro-platformer`
-  - `rd-pro-edit`
-  - `rd-pro-spritesheet`
-  - `rd-pro-pixelate`
-  - `rd-fast-character-turnaround`
-  - `rd-plus-character-turnaround`
-  - `rd-plus-isometric`
-  - `rd-plus-isometric-asset`
-  - `animation-four-angle-walking`
-  - `animation-8-dir-rotation`
-  - `animation-walking-and-idle`
-  - `animation-any-animation`
-  - `animation-battle-sprites`
-  - `rd-advanced-animation-walking`
-  - `rd-advanced-animation-idle`
-  - `rd-advanced-animation-attack`
-  - `rd-advanced-animation-jump`
-  - `rd-advanced-animation-crouch`
-  - `rd-advanced-animation-custom-action`
-  - `rd-advanced-animation-subtle-motion`
+  - `rd_pro__platformer`
+  - `rd_pro__edit`
+  - `rd_pro__spritesheet`
+  - `rd_pro__pixelate`
+  - `rd_fast__character_turnaround`
+  - `rd_plus__character_turnaround`
+  - `rd_plus__isometric`
+  - `rd_plus__isometric_asset`
+  - `animation__four_angle_walking`
+  - `animation__8_dir_rotation`
+  - `animation__walking_and_idle`
+  - `animation__any_animation`
+  - `animation__battle_sprites`
+  - `rd_advanced_animation__walking`
+  - `rd_advanced_animation__idle`
+  - `rd_advanced_animation__attack`
+  - `rd_advanced_animation__jump`
+  - `rd_advanced_animation__crouch`
+  - `rd_advanced_animation__custom_action`
+  - `rd_advanced_animation__subtle_motion`
 
 ## Working With Retro Diffusion
 
-### API Shape
+### How Inferences Reach Retro Diffusion
 
-- Endpoint: `POST https://api.retrodiffusion.ai/v1/inferences`
-- Auth header: `X-RD-Token: YOUR_API_KEY`
-- Env var: `RETRO_DIFFUSION_API_KEY` or `RD_API_KEY`
+This skill never calls the Retro Diffusion API directly. All generation
+goes through the vibedgames CLI (`vg image generate --provider
+retro-diffusion`), which proxies to `POST
+https://api.retrodiffusion.ai/v1/inferences` server-side. The Retro
+Diffusion API key lives on the platform — users authenticate once with
+`vg login` and never handle a key locally.
 
-Outputs can include:
+Prerequisites:
 
-- `base64_images`
-- `output_urls`
-- `balance_cost`
-- `remaining_balance`
+- `vg` CLI installed (`npm i -g vibedgames`)
+- `vg login` to authenticate
 
-Animations normally come back as transparent GIFs. Add `return_spritesheet: true` when you want a PNG sheet instead.
+Outputs include:
+
+- decoded image files written to `--output`
+- `balance_cost` and `remaining_balance` returned in the run metadata
+  (visible via `vg image ... --json`)
+
+Animations normally come back as transparent GIFs. Add
+`return_spritesheet: true` to `--params` when you want a PNG sheet
+instead.
+
+### Model Aliases
+
+The CLI ships short aliases for the three most common Pro styles:
+
+- `rd-pro-platformer` → `rd_pro__platformer`
+- `rd-pro-edit` → `rd_pro__edit`
+- `rd-pro-spritesheet` → `rd_pro__spritesheet`
+
+For other styles, pass the full `prompt_style` as the model id with the
+`retro-diffusion` provider:
+
+```bash
+--provider retro-diffusion --model rd_advanced_animation__walking
+# or equivalently
+--model retro-diffusion:rd_advanced_animation__walking
+```
 
 ### Reference And Animation Guidance
 
@@ -93,7 +116,9 @@ For `input_image`:
 
 - convert to RGB first (use `scripts/prepare_reference_image.py`)
 - remove transparency
-- do not include the `data:image/png;base64,` prefix
+- pass it with `--image`; `vg image` uploads it as a presigned input ref
+- pass extra references with `--reference`
+- pass `input_palette` with `--palette`
 - mention what the reference is in the prompt
 - prefer an explicit prepared RGB reference image over silent RGBA-to-black conversion
 
@@ -144,54 +169,104 @@ For advanced animation prompts in particular:
 - avoid repeating identity details more than necessary
 - keep the full prompt comfortably below `300` characters when possible
 
-## Scripts
+## Calling vg image
 
-All scripts use PEP 723 inline metadata and can be run with `uv run`:
-
-- `scripts/retro_inference_run.py`
-  - one Retro Diffusion run
-  - image, edit, or animation/spritesheet
-  - supports cost-only mode (`--check-cost`)
-  - writes run manifest and decoded output files
-- `scripts/retro_experiment_matrix.py`
-  - run a JSON-defined experiment batch
-  - useful for cross-comparing Retro Diffusion styles on the same source sprite
-- `scripts/prepare_reference_image.py`
-  - prepare explicit RGB reference inputs from local PNGs
-  - flatten transparency to a chosen matte color
-  - optionally resize to a target square with nearest-neighbor scaling
-  - supports alpha trimming and padding
-- `scripts/extract_rd_sheet_frames.py`
-  - extract individual frames from a Retro Diffusion spritesheet
-  - generates a labeled contact sheet for visual comparison
-  - computes adjacent-frame RMS diff for motion analysis
-
-### Running An Inference
+### Text-to-image
 
 ```bash
-uv run scripts/retro_inference_run.py \
-  --preset rd-advanced-animation-walking \
-  --prompt "Character side walk in place, facing right. Stable profile, no background." \
-  --input-image prepared-reference.png \
-  --out-dir output/ \
-  --filename-prefix walk-test
-```
-
-### Running A Cost Check
-
-```bash
-uv run scripts/retro_inference_run.py \
-  --preset rd-pro-platformer \
+vg image generate \
+  --model rd-pro-platformer \
   --prompt "A warrior character in pixel art style" \
-  --check-cost \
-  --out-dir output/ \
-  --filename-prefix cost-check
+  --output tmp/rd \
+  --filename-prefix warrior \
+  --params '{"width":256,"height":256}'
 ```
 
-### Preparing A Reference Image
+### Reference-driven edit (img2img)
+
+Use `--image` for the primary reference and `--reference` for extra
+references; `vg image` handles upload refs and provider wiring:
 
 ```bash
-uv run scripts/prepare_reference_image.py \
+# 1. prepare the reference (RGB, optionally resized)
+uv run plugins/game-art/skills/retro-diffusion/scripts/prepare_reference_image.py \
+  --input sprite.png \
+  --output prepared.png \
+  --matte-color "#808080" \
+  --target-size 64 \
+  --trim-alpha
+
+# 2. run
+vg image generate \
+  --model rd-pro-edit \
+  --image prepared.png \
+  --prompt "Same character, idle pose facing right" \
+  --output tmp/rd-edit \
+  --filename-prefix idle \
+  --params '{"width":64,"height":64}'
+```
+
+Palette-guided runs use `--palette`, not inline `input_palette` params:
+
+```bash
+vg image generate \
+  --model rd-pro-platformer \
+  --palette palette.png \
+  --prompt "A warrior character in pixel art style" \
+  --output tmp/rd \
+  --params '{"width":64,"height":64}'
+```
+
+### Animation / spritesheet
+
+```bash
+vg image generate \
+  --provider retro-diffusion \
+  --model rd_advanced_animation__walking \
+  --prompt "Character side walk in place, facing right. Stable profile, no background." \
+  --output tmp/walk \
+  --filename-prefix walk \
+  --params '{"width":64,"height":64,"frames_duration":8,"return_spritesheet":true}'
+```
+
+### Cross-style comparison
+
+`--model` accepts a comma-separated list. The CLI fans jobs out in
+parallel and emits a structured JSON result with per-run `runId` and
+`metadata` (including `balance_cost`):
+
+```bash
+vg image generate \
+  --model retro-diffusion:rd_pro__platformer,retro-diffusion:rd_pro__spritesheet \
+  --prompt "A warrior character in pixel art style" \
+  --output experiments/retro-diffusion/warrior-compare \
+  -n 2 -p 4 \
+  --json > experiments/retro-diffusion/warrior-compare/runs.json
+```
+
+### Cost-only check
+
+Pass `check_cost: true` in `--params` to ask Retro Diffusion how many
+credits a run would consume without generating it. The cost lands in the
+`--json` metadata:
+
+```bash
+vg image generate \
+  --model rd-pro-platformer \
+  --prompt "A warrior character in pixel art style" \
+  --output tmp/cost-check \
+  --params '{"check_cost":true}' --json
+```
+
+## PIL Utilities
+
+These are pure-PIL helpers that don't talk to any provider. Run them
+with `uv run` (PEP 723 inline metadata).
+
+### Preparing a reference image
+
+```bash
+uv run plugins/game-art/skills/retro-diffusion/scripts/prepare_reference_image.py \
   --input sprite.png \
   --output prepared.png \
   --matte-color "#808080" \
@@ -199,39 +274,10 @@ uv run scripts/prepare_reference_image.py \
   --trim-alpha
 ```
 
-### Running An Experiment Batch
-
-Create a JSON config:
-
-```json
-{
-  "task_slug": "walk-comparison",
-  "prompt_file": "prompt.txt",
-  "batch_output": "output/batch-results.json",
-  "runs": [
-    {
-      "preset": "rd-advanced-animation-walking",
-      "input_image": "prepared.png",
-      "out_dir": "output/run-1",
-      "filename_prefix": "walk-adv",
-      "task_slug": "walk-adv",
-      "width": 64,
-      "height": 64,
-      "frames_duration": 8,
-      "return_spritesheet": true
-    }
-  ]
-}
-```
+### Extracting spritesheet frames
 
 ```bash
-uv run scripts/retro_experiment_matrix.py --config experiment.json
-```
-
-### Extracting Spritesheet Frames
-
-```bash
-uv run scripts/extract_rd_sheet_frames.py \
+uv run plugins/game-art/skills/retro-diffusion/scripts/extract_rd_sheet_frames.py \
   spritesheet.png \
   --frame 64x64 \
   --out-dir frames/ \
@@ -274,7 +320,7 @@ Better: use it for sprite-native outputs and compare those against video-derived
 
 ❌ **Anti-pattern: skipping cost checks on unfamiliar styles**
 Why bad: different styles have very different credit costs.
-Better: always run with `--check-cost` first on a new style before committing to generation.
+Better: always pass `--params '{"check_cost":true}'` first on a new style before committing to generation.
 
 ## Variation Guidance
 
@@ -291,6 +337,7 @@ Better: always run with `--check-cost` first on a new style before committing to
 - API and style notes: `references/api-and-styles.md`
 - Animation strategy notes: `references/animation-workflows.md`
 - Presets: `assets/model-presets.json`
+- CLI command reference: `vg image --help`, `vg models`
 
 ## Remember
 
@@ -300,6 +347,6 @@ Retro Diffusion is strongest when you meet it on its own terms:
 - feed it a clean reference
 - ask for the exact sprite artifact you need
 - keep advanced-animation prompts brutally short
-- prefer staged `RD Pro Edit` for dependable isometric turnaround work
+- prefer staged `rd_pro__edit` for dependable isometric turnaround work
 - always cost-check unfamiliar styles before generation
 - and track the result like an experiment, not a one-off prompt
