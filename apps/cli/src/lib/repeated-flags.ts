@@ -21,7 +21,16 @@ function collectRawFlagValues(rawArgs: string[], flag: string): string[] {
     }
     if (arg !== flag) continue;
     const next = rawArgs[index + 1];
-    if (next === undefined || next === "--" || next.startsWith("--")) continue;
+    // Treat any leading-dash token as the next flag, not as a value, so
+    // `--image -n 2` doesn't silently consume `-n` as the image path.
+    // Lone `-` (a stdin marker in many CLIs) is left as a literal value.
+    if (
+      next === undefined ||
+      next === "--" ||
+      (next.length > 1 && next.startsWith("-"))
+    ) {
+      continue;
+    }
     values.push(next);
     index++;
   }

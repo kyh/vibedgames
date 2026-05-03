@@ -121,9 +121,21 @@ function dataUriFor(image: ImageInputFile): string {
 
 function imageFieldFor(params: Record<string, unknown>): string {
   const explicit = params.input_image_field;
-  if (typeof explicit === "string" && explicit.length > 0) return explicit;
-  return "image_urls";
+  if (typeof explicit !== "string" || explicit.length === 0) return "image_urls";
+  // Refuse field names that would clobber the proxy-controlled keys
+  // we set explicitly elsewhere on the request body. Otherwise a
+  // user passing `input_image_field: "prompt"` would silently
+  // overwrite the prompt with the encoded data URI array.
+  if (FAL_RESERVED_FIELDS.has(explicit)) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `fal input_image_field cannot be "${explicit}" — that name collides with a reserved request field.`,
+    });
+  }
+  return explicit;
 }
+
+const FAL_RESERVED_FIELDS = new Set(["prompt", "model", "input_image_field"]);
 
 function contentTypeForExtension(ext: string): string {
   if (ext === "jpg" || ext === "jpeg") return "image/jpeg";

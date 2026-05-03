@@ -30,3 +30,14 @@ test("stops parsing after argument terminator", () => {
     [],
   );
 });
+
+test("does not consume short-flag aliases as values", () => {
+  assert.deepEqual(
+    collectRepeatedStringFlag(undefined, ["--image", "-n", "2"], "--image"),
+    [],
+  );
+  assert.deepEqual(
+    collectRepeatedStringFlag(undefined, ["--image", "one.png", "--image", "-q"], "--image"),
+    ["one.png"],
+  );
+});
