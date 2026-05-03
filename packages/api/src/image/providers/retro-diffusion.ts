@@ -73,15 +73,18 @@ function detectMedia(bytes: Uint8Array): { extension: string; contentType: strin
 
 export const retroDiffusionImageProvider: ImageProvider = {
   async run(req: ImageProviderRequest): Promise<ImageProviderResult> {
-    // Retro Diffusion uses `prompt_style` instead of `model`. Accept either:
-    //   - `model` carries the prompt_style verbatim, or
-    //   - `params.prompt_style` is set explicitly.
-    const promptStyle =
-      typeof req.params.prompt_style === "string" ? req.params.prompt_style : req.model;
+    // Retro Diffusion uses `prompt_style` instead of `model`. The CLI
+    // routes the user's --model verbatim into `req.model`; we no longer
+    // honor a `params.prompt_style` override since the response
+    // metadata reports `req.model` and silently swapping the upstream
+    // call would produce a misleading mismatch. `prompt_style` is in
+    // RESERVED_FIELDS so any user-supplied value gets stripped before
+    // we build the payload.
+    const promptStyle = req.model;
     if (!promptStyle) {
       throw new TRPCError({
         code: "BAD_REQUEST",
-        message: "retro-diffusion requires a prompt_style (passed as `model`).",
+        message: "retro-diffusion requires a prompt_style (passed as `--model`).",
       });
     }
 

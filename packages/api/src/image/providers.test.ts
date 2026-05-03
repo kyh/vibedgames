@@ -119,9 +119,13 @@ test("Retro Diffusion maps image, reference, and palette roles to native fields"
     params: {
       width: 64,
       height: 64,
+      // All three should be stripped by RESERVED_FIELDS — `prompt_style`
+      // in particular must not override the proxy-controlled value
+      // derived from `req.model`, since the response metadata reports
+      // `req.model` and a silent swap would mislead the caller.
       model: "not-forwarded",
       prompt: "not-forwarded",
-      prompt_style: "rd_pro__spritesheet",
+      prompt_style: "not-forwarded",
     },
     inputImages: [image("image"), image("reference"), image("palette")],
     apiKey: "rd-key",
@@ -129,7 +133,7 @@ test("Retro Diffusion maps image, reference, and palette roles to native fields"
 
   const payload = record(capturedPayload);
   assert.equal(capturedRedirect, "manual");
-  assert.equal(payload.prompt_style, "rd_pro__spritesheet");
+  assert.equal(payload.prompt_style, "rd_pro__edit");
   assert.equal(payload.prompt, "sprite");
   assert.equal(payload.model, undefined);
   assert.equal(typeof payload.input_image, "string");

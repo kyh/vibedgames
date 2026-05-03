@@ -141,21 +141,15 @@ function readImage(
   };
 }
 
-function collectImages(
-  value: string | string[] | undefined,
-  rawArgs: string[],
-  flag: string,
-): string[] {
-  return collectRepeatedStringFlag(value, rawArgs, flag);
-}
-
 function collectRoleImages(
   value: string | string[] | undefined,
   role: ImageInputRole,
   rawArgs: string[],
   flag: string,
 ): ReturnType<typeof readImage>[] {
-  return collectImages(value, rawArgs, flag).map((path) => readImage(path, role));
+  return collectRepeatedStringFlag(value, rawArgs, flag).map((path) =>
+    readImage(path, role),
+  );
 }
 
 /**
@@ -407,10 +401,10 @@ export const imageCommand = defineCommand({
   // edit when any input image role is provided, otherwise generate.
   run: async ({ args, rawArgs }) => {
     const hasInput =
-      collectImages(args.image, rawArgs, "--image").length > 0 ||
-      collectImages(args.reference, rawArgs, "--reference").length > 0 ||
-      collectImages(args.mask, rawArgs, "--mask").length > 0 ||
-      collectImages(args.palette, rawArgs, "--palette").length > 0;
+      collectRepeatedStringFlag(args.image, rawArgs, "--image").length > 0 ||
+      collectRepeatedStringFlag(args.reference, rawArgs, "--reference").length > 0 ||
+      collectRepeatedStringFlag(args.mask, rawArgs, "--mask").length > 0 ||
+      collectRepeatedStringFlag(args.palette, rawArgs, "--palette").length > 0;
     const task = hasInput ? "edit" : "generate";
     await runImage({ task, args, rawArgs });
   },

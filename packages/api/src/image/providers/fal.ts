@@ -24,7 +24,13 @@ const FAL_TRUSTED_HOSTS = new Set(["queue.fal.run"]);
 const FAL_CONTENT_HOST_SUFFIXES = [".fal.media", ".fal.run", ".fal.ai"];
 
 function isTrustedFalContentHost(hostname: string): boolean {
-  return FAL_CONTENT_HOST_SUFFIXES.some((suffix) => hostname.endsWith(suffix));
+  // Match either the bare apex (e.g. `fal.media`) or any subdomain
+  // (e.g. `v3.fal.media`). The leading dot in the suffix prevents
+  // `notfal.media` from sneaking past.
+  return FAL_CONTENT_HOST_SUFFIXES.some((suffix) => {
+    const apex = suffix.startsWith(".") ? suffix.slice(1) : suffix;
+    return hostname === apex || hostname.endsWith(suffix);
+  });
 }
 
 function hasCustomBaseUrl(baseUrl: string | undefined | null): boolean {
