@@ -7,6 +7,7 @@ const SUBCOMMANDS = [
   "login",
   "logout",
   "deploy",
+  "asset",
   "image",
   "models",
   "completions",
@@ -14,6 +15,7 @@ const SUBCOMMANDS = [
 ];
 
 const IMAGE_SUBCOMMANDS = ["generate", "edit"];
+const ASSET_SUBCOMMANDS = ["sprite"];
 
 const COMMON_FLAGS = ["--help", "--version"];
 
@@ -38,6 +40,23 @@ const IMAGE_FLAGS = [
   "--json",
   "--quiet",
   "-q",
+];
+
+const ASSET_FLAGS = [
+  "--video",
+  "--character",
+  "--animation",
+  "--indices",
+  "--frames",
+  "--notes",
+  "--out-dir",
+  "--run-dir",
+  "--work-dir",
+  "--cell-size",
+  "--background",
+  "--fps",
+  "--clear-rect",
+  "--overwrite",
 ];
 
 function bashScript(): string {
@@ -65,6 +84,14 @@ _vg_completions() {
       COMPREPLY=( $(compgen -W "${IMAGE_FLAGS.join(" ")} ${COMMON_FLAGS.join(" ")}" -- "$cur") )
       return
       ;;
+    asset)
+      if [[ $COMP_CWORD -eq 2 ]]; then
+        COMPREPLY=( $(compgen -W "${ASSET_SUBCOMMANDS.join(" ")} ${ASSET_FLAGS.join(" ")} ${COMMON_FLAGS.join(" ")}" -- "$cur") )
+        return
+      fi
+      COMPREPLY=( $(compgen -W "${ASSET_FLAGS.join(" ")} ${COMMON_FLAGS.join(" ")}" -- "$cur") )
+      return
+      ;;
     *)
       COMPREPLY=( $(compgen -W "${COMMON_FLAGS.join(" ")}" -- "$cur") )
       return
@@ -78,10 +105,12 @@ complete -F _vg_completions vg
 function zshScript(): string {
   return `# vg completions for zsh. Source this file or place it on your fpath.
 _vg() {
-  local -a subcmds image_subs image_flags common_flags
+  local -a subcmds image_subs image_flags asset_subs asset_flags common_flags
   subcmds=(${SUBCOMMANDS.map((s) => `"${s}"`).join(" ")})
   image_subs=(${IMAGE_SUBCOMMANDS.map((s) => `"${s}"`).join(" ")})
   image_flags=(${IMAGE_FLAGS.map((s) => `"${s}"`).join(" ")})
+  asset_subs=(${ASSET_SUBCOMMANDS.map((s) => `"${s}"`).join(" ")})
+  asset_flags=(${ASSET_FLAGS.map((s) => `"${s}"`).join(" ")})
   common_flags=(${COMMON_FLAGS.map((s) => `"${s}"`).join(" ")})
 
   if (( CURRENT == 2 )); then
@@ -95,6 +124,13 @@ _vg() {
         return
       fi
       _values "vg image flag" "\${image_flags[@]}" "\${common_flags[@]}"
+      ;;
+    asset)
+      if (( CURRENT == 3 )); then
+        _values "vg asset subcommand" "\${asset_subs[@]}" "\${asset_flags[@]}" "\${common_flags[@]}"
+        return
+      fi
+      _values "vg asset flag" "\${asset_flags[@]}" "\${common_flags[@]}"
       ;;
     *)
       _values "vg flag" "\${common_flags[@]}"
@@ -116,8 +152,11 @@ function fishScript(): string {
   const imageFlagLines = [...IMAGE_FLAGS, ...COMMON_FLAGS].map((flag) =>
     fishFlag(flag, "__fish_seen_subcommand_from image"),
   );
+  const assetFlagLines = [...ASSET_FLAGS, ...COMMON_FLAGS].map((flag) =>
+    fishFlag(flag, "__fish_seen_subcommand_from asset"),
+  );
   // For all other subcommands, only the common flags are meaningful.
-  const otherSubcommands = SUBCOMMANDS.filter((s) => s !== "image");
+  const otherSubcommands = SUBCOMMANDS.filter((s) => s !== "image" && s !== "asset");
   const otherFlagLines = COMMON_FLAGS.flatMap((flag) =>
     otherSubcommands.map((sub) => fishFlag(flag, `__fish_seen_subcommand_from ${sub}`)),
   );
@@ -129,7 +168,11 @@ ${topLevelFlagLines.join("\n")}
 ${IMAGE_SUBCOMMANDS.map(
   (sub) => `complete -c vg -n '__fish_seen_subcommand_from image' -a '${sub}'`,
 ).join("\n")}
+${ASSET_SUBCOMMANDS.map(
+  (sub) => `complete -c vg -n '__fish_seen_subcommand_from asset' -a '${sub}'`,
+).join("\n")}
 ${imageFlagLines.join("\n")}
+${assetFlagLines.join("\n")}
 ${otherFlagLines.join("\n")}
 `;
 }

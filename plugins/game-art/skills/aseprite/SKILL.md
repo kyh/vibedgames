@@ -58,7 +58,7 @@ When you **decode cel pixels**, you can additionally infer:
 - Inspect (structure-only), then add decode if you need tight bounds.
 - Prefer emitting: `frames[]`, `layers[]`, `tags[]`, `slices[]`, and a normalized `frameMs[]`.
 - If you need deterministic render ordering, incorporate **z-index rules** (cel header) + layer ordering.
-- For character grounding, emit authoring anchors (slice/pivot/user-data when present), but validate final foot placement against exported PNG alpha bounds (for example via `gamedev-assets`) before locking runtime offsets.
+- For character grounding, emit authoring anchors (slice/pivot/user-data when present), then validate final foot placement against exported PNG alpha bounds before locking runtime offsets.
 
 ### 2) Debug "why is this invisible?"
 - Verify layer visibility flags + opacity.

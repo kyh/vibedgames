@@ -6,6 +6,7 @@
     "vg": "./dist/index.js"
   },
   "files": [
+    "asset-tools",
     "dist"
   ],
   "type": "module",

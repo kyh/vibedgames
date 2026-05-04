@@ -17,6 +17,7 @@ vg logout             # clear credentials
 vg whoami             # show current user
 vg deploy [dir]       # deploy a game directory
 vg deploy ./dist --slug my-game
+vg asset sprite ...   # turn animation video into game-ready sprites
 ```
 
 `vg skills install` is an alias for `vg init`.
@@ -33,6 +34,23 @@ Claude picks them up automatically on next session.
 2. Calls `deploy.create` API — gets presigned R2 upload URLs
 3. Uploads files to R2 with bounded concurrency
 4. Calls `deploy.finalize` — game goes live at `{slug}.vibedgames.com`
+
+## Sprite asset pipeline
+
+`vg asset sprite` wraps the deterministic local cleanup pipeline. Use
+image/video models for raw material, then one command turns a video into
+reviewed game-ready sheets.
+
+Requirements: Python 3, Pillow (`python3 -m pip install Pillow`), and FFmpeg
+for video extraction.
+
+```sh
+vg asset sprite --video run.mp4 --character hero --animation run
+# inspect the printed contact sheet
+vg asset sprite --video run.mp4 --character hero --animation run \
+  --run-dir .vibedgames/asset-runs/<printed-run> \
+  --indices "1,6,11,17,22,27,32,38,43,49,54,60"
+```
 
 ## Auth
 
