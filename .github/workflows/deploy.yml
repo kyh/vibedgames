@@ -50,7 +50,7 @@ jobs:
             fi
           done
 
-          if git diff --name-only "$BASE" HEAD -- infra/r2/vibedgames-games.lifecycle.json | grep -q .; then
+          if git diff --name-only "$BASE" HEAD -- apps/web/infra/r2/vibedgames-games.lifecycle.json | grep -q .; then
             echo "r2_lifecycle=true" >> "$GITHUB_OUTPUT"
           else
             echo "r2_lifecycle=false" >> "$GITHUB_OUTPUT"

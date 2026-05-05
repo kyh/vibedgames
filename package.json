@@ -19,7 +19,7 @@
     "dev:pong": "turbo watch dev -F @repo/pong...",
     "dev:cli": "turbo watch dev -F vibedgames...",
     "lint": "oxlint --report-unused-disable-directives",
-    "r2:lifecycle": "pnpm -C apps/web exec wrangler r2 bucket lifecycle set vibedgames-games --file ../../infra/r2/vibedgames-games.lifecycle.json --force",
+    "r2:lifecycle": "pnpm -C apps/web exec wrangler r2 bucket lifecycle set vibedgames-games --file ./infra/r2/vibedgames-games.lifecycle.json --force",
     "typecheck": "turbo run typecheck",
     "format": "oxfmt",
     "lint:fix": "oxlint --fix",
