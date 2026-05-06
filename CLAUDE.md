@@ -17,7 +17,7 @@
 - **Monorepo**: pnpm workspaces + Turborepo
 - **Web app**: TanStack Start (React 19, Vite SSR) on Cloudflare Workers
 - **Styling**: Tailwind CSS 4 + Radix UI primitives
-- **Backend**: tRPC, Drizzle ORM, Turso (SQLite)
+- **Backend**: tRPC, Drizzle ORM, Cloudflare D1 (SQLite)
 - **Auth**: better-auth (manages user/session/account tables — don't modify directly)
 - **Multiplayer**: PartyServer (Cloudflare Durable Objects)
 - **Game hosting**: Cloudflare Worker + R2
@@ -29,7 +29,7 @@ apps/
   web/         # Main web app (@repo/web)
   party/       # PartyServer for multiplayer (@repo/party)
   games/       # Cloudflare Worker serving user-uploaded games (@repo/games)
-  cli/         # CLI tool (@repo/cli)
+  cli/         # CLI tool (vibedgames — published to npm)
 games/         # Bundled example games (not platform code)
   flappy-bird/ # (@repo/flappy-bird)
   pacman/      # (@repo/pacman)
@@ -41,6 +41,8 @@ packages/
   db/          # Drizzle schema + migrations (@repo/db) — source of truth for data model
   multiplayer/ # Shared multiplayer hooks (@vibedgames/multiplayer) — published to npm
   ui/          # Shared UI components (@repo/ui)
+plugins/       # Claude Code plugins (game-art, game-engines, game-features, media, tooling)
+               # Each plugin has skills/* — symlinked into .claude/skills/ for dogfooding
 ```
 
 `@repo/*` = internal workspace packages. `@vibedgames/*` = published to npm.
@@ -48,20 +50,31 @@ packages/
 ## Common Commands
 
 ```bash
-pnpm dev              # Run all (web + party + db studio)
+pnpm dev              # Run all (web + party + db studio, excludes example games)
 pnpm dev:web          # Run web only
 pnpm dev:party        # Run party server only
-pnpm dev:<game>       # Run specific game (flappy-bird, pacman, etc)
+pnpm dev:games        # Run games worker only
+pnpm dev:cli          # Watch-rebuild the vg CLI
+pnpm dev:<game>       # Run specific game (flappy-bird, pacman, tetris, pong, astroid)
 pnpm build            # Build all packages
 pnpm typecheck        # Type check all
-pnpm lint             # Lint all
+pnpm lint             # Lint all (oxlint)
 pnpm lint:fix         # Lint + fix
+pnpm format           # Format check (oxfmt)
+pnpm format:fix       # Format + write
 pnpm db:push          # Push db schema (local)
 pnpm db:push-remote   # Push db schema (production)
+pnpm dogfood          # Link local vg CLI + sync plugin skills into .claude/skills/
+pnpm dogfood:reset    # Unlink local vg CLI
 ```
 
 ## Environment
 
 - Copy `.env.example` to `.env`
-- Required: `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `AUTH_SECRET`
-- Optional: `V0_API_KEY`
+- Required: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_DATABASE_ID`, `CLOUDFLARE_D1_TOKEN`, `CLOUDFLARE_API_TOKEN`, `AUTH_SECRET`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`
+
+## Dogfooding (build games in ./games using local CLI + skills)
+
+`pnpm dogfood` builds + npm-links the local `vg` CLI and syncs `.claude/skills/` to match `plugins/*/skills/*` (creates new relative symlinks, removes stale ones). Symlinks are committed, so a fresh clone gets working skills automatically — only the `npm link` step is per-machine. `pnpm dogfood:reset` undoes the link.
+
+Re-run `pnpm dogfood` after adding or removing a skill, then commit the symlink change in `.claude/skills/`.

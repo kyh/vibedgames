@@ -148,6 +148,12 @@ function assertInputTotalBytes(images: Array<{ sizeBytes: number }>): void {
   }
 }
 
+/**
+ * Load and validate input image bytes from R2, alongside a presigned GET URL
+ * for each. Used for byte-consuming providers (OpenAI multipart, Retro
+ * Diffusion base64). For URL-consuming providers like fal, prefer
+ * `presignInputImageUrls` which skips the byte download.
+ */
 async function loadInputImages({
   r2,
   userId,
@@ -164,7 +170,10 @@ async function loadInputImages({
   return Promise.all(
     refs.map(async (image, index) => {
       assertInputKeyOwnedByUser(image.key, userId);
-      const object = await r2.bucket.get(image.key);
+      const [object, url] = await Promise.all([
+        r2.bucket.get(image.key),
+        presignGet({ r2, key: image.key, expiresInSeconds: PRESIGN_TTL_SECONDS }),
+      ]);
       if (!object) {
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -195,6 +204,64 @@ async function loadInputImages({
         filename: image.filename,
         contentType: object.httpMetadata?.contentType ?? image.contentType,
         bytes,
+        url,
+      };
+    }),
+  );
+}
+
+/**
+ * Validate input image refs via R2 head metadata and return presigned GET
+ * URLs without downloading bytes. Used for fal, which fetches input images
+ * server-side from the URL directly.
+ */
+async function presignInputImageUrls({
+  r2,
+  userId,
+  refs,
+}: {
+  r2: R2Config;
+  userId: string;
+  refs: z.infer<typeof inputImageRefSchema>[];
+}): Promise<ImageInputFile[]> {
+  assertInputTotalBytes(refs);
+  return Promise.all(
+    refs.map(async (image, index) => {
+      assertInputKeyOwnedByUser(image.key, userId);
+      const [head, url] = await Promise.all([
+        r2.bucket.head(image.key),
+        presignGet({ r2, key: image.key, expiresInSeconds: PRESIGN_TTL_SECONDS }),
+      ]);
+      if (!head) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Input image ${index} was not uploaded or has expired.`,
+        });
+      }
+      if (head.size !== image.sizeBytes) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Input image ${index} size does not match its upload ref.`,
+        });
+      }
+      if (head.size > MAX_INPUT_IMAGE_BYTES) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Input image ${index} exceeds ${MAX_INPUT_IMAGE_BYTES} bytes.`,
+        });
+      }
+      if (head.size === 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Input image ${index} is empty.`,
+        });
+      }
+      return {
+        role: image.role,
+        filename: image.filename,
+        contentType: head.httpMetadata?.contentType ?? image.contentType,
+        bytes: new Uint8Array(0),
+        url,
       };
     }),
   );
@@ -344,11 +411,13 @@ export const imageRouter = createTRPCRouter({
     }
 
     const userId = ctx.session.user.id;
-    const inputImages = await loadInputImages({
-      r2,
-      userId,
-      refs: input.inputImages,
-    });
+    // fal accepts presigned R2 URLs in `image_urls` and fetches them
+    // server-side, so we skip the byte download entirely. OpenAI/RD still
+    // need the actual bytes for multipart/base64 bodies.
+    const inputImages =
+      input.provider === "fal"
+        ? await presignInputImageUrls({ r2, userId, refs: input.inputImages })
+        : await loadInputImages({ r2, userId, refs: input.inputImages });
 
     const providerRequest: ImageProviderRequest = {
       task: input.task,

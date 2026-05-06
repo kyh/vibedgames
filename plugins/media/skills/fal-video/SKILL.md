@@ -95,8 +95,23 @@ For sprite-animation comparison:
 - lock the shot
 - keep the action short and readable
 - disable audio when the model supports it
+- prefer a neutral `1280x720` flat-background anchor plate for walk-cycle image-to-video runs
+- avoid checkerboards, grid sheets, or alternating-pixel guides as video start images
 
 Do not overload early comparison runs with cinematic flourishes. The first job is to test motion usefulness and identity preservation.
+
+### Sprite Walk-Cycle Start Images
+
+For image-to-video sprite walk cycles, use a direction-specific neutral plate instead of a spritesheet guide:
+
+- approved direction anchor composited onto flat neutral gray
+- one character centered, feet visible, no floor or horizon
+- fixed camera, fixed framing, locked facing
+- no props, effects, scene detail, labels, arrows, or visible grid
+
+Checkerboards and alternating-pixel guides are useful for still-image spritesheet generation, but video models tend to treat them as physical floors or rooms. That can introduce perspective, camera drift, and character rotation.
+
+In retained sprite walk runs, `bytedance/seedance-2.0/image-to-video` with a minimal payload and `generate_audio=false` produced useful motion references. Extract raw frames first, build contact sheets/GIFs for curation, and defer background cleanup to selected frames.
 
 ## Scripts
 
@@ -147,6 +162,10 @@ Better: normalize the task, then document the actual resolved arguments used per
 ❌ **Anti-pattern: waiting until the end to think about spend**
 Why bad: expensive comparison batches get hard to control.
 Better: estimate before the run and reconcile after the run.
+
+❌ **Anti-pattern: using checkerboards as sprite video start backgrounds**
+Why bad: models often convert the guide into a floor, horizon, or scene and stop behaving like a locked sprite reference.
+Better: use a neutral flat-background anchor plate and keep grids for still-image guide sheets.
 
 ## References
 

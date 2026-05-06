@@ -66,7 +66,7 @@ const InviteCodeStep = ({
   const autoSubmittedRef = useRef(false);
 
   const validate = useMutation(
-    trpc.invite.validate.mutationOptions({
+    trpc.auth.validateInvite.mutationOptions({
       onSuccess: (data) => onValidated(data.code),
       onError: (err) => setError(err.message),
     }),

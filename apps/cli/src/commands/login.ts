@@ -31,7 +31,7 @@ export const loginCommand = defineCommand({
     const baseUrl = getBaseUrl();
     const client = createPublicClient(baseUrl);
 
-    const { code } = await client.cliAuth.create.mutate();
+    const { code } = await client.auth.cliInit.mutate();
 
     consola.box(`Code: ${code}`);
     consola.info("Opening browser to complete authentication...");
@@ -44,7 +44,7 @@ export const loginCommand = defineCommand({
     for (let i = 0; i < MAX_POLLS; i++) {
       await sleep(POLL_INTERVAL_MS);
 
-      const result = await client.cliAuth.poll.query({ code });
+      const result = await client.auth.cliPoll.query({ code });
 
       if (result.status === "confirmed") {
         saveConfig({ token: result.token, baseUrl });

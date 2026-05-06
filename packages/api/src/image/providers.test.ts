@@ -21,6 +21,7 @@ function image(role: ImageInputRole, filename = `${role}.png`): ImageInputFile {
     filename,
     contentType: "image/png",
     bytes: pngBytes,
+    url: `https://r2.test/${filename}`,
   };
 }
 
@@ -194,8 +195,8 @@ test("fal maps image/reference roles into configured image field", async () => {
   const payload = record(capturedPayload);
   assert.ok(Array.isArray(payload.image_urls));
   assert.equal(payload.image_urls.length, 3);
-  assert.equal(typeof payload.image_urls[0], "string");
-  assert.match(String(payload.image_urls[0]), /^data:image\/png;base64,/);
+  assert.equal(payload.image_urls[0], "https://r2.test/image.png");
+  assert.equal(payload.image_urls[1], "https://r2.test/reference.png");
   assert.equal(payload.image_urls[2], "https://example.test/existing.png");
   assert.equal(result.outputs.length, 1);
   assert.equal(result.metadata.billable_units, "1");

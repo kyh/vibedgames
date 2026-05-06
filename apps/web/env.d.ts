@@ -11,8 +11,6 @@ interface CloudflareEnv {
   R2_ACCOUNT_ID: string;
   R2_ACCESS_KEY_ID: string;
   R2_SECRET_ACCESS_KEY: string;
-  V0_API_KEY?: string;
-  AI_GATEWAY_API_KEY?: string;
   OPENAI_API_KEY?: string;
   OPENAI_BASE_URL?: string;
   FAL_API_KEY?: string;

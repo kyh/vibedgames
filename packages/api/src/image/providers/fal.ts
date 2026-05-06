@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 
 import { MAX_OUTPUT_IMAGE_BYTES } from "../limits";
-import { base64For, copyParams, inputsForRoles, rejectInputRoles } from "../provider-inputs";
+import { copyParams, inputsForRoles, rejectInputRoles } from "../provider-inputs";
 import {
   fetchProviderJson,
   fetchProviderResponse,
@@ -9,7 +9,7 @@ import {
   readBytesBounded,
   readJsonBounded,
 } from "../provider-io";
-import type { ImageInputFile, ImageProvider } from "../types";
+import type { ImageProvider } from "../types";
 
 const DEFAULT_QUEUE_ROOT = "https://queue.fal.run";
 // fal status_url / response_url are echoed back from the queue submit
@@ -113,10 +113,6 @@ function falHeaders(apiKey: string): Record<string, string> {
     "X-Fal-Store-IO": "1",
     "x-app-fal-disable-fallback": "true",
   };
-}
-
-function dataUriFor(image: ImageInputFile): string {
-  return `data:${image.contentType};base64,${base64For(image)}`;
 }
 
 function imageFieldFor(params: Record<string, unknown>): string {
@@ -370,7 +366,9 @@ export const falImageProvider: ImageProvider = {
     const inputImages = inputsForRoles(req.inputImages, ["image", "reference"]);
     if (inputImages.length > 0) {
       const field = imageFieldFor(req.params);
-      const encoded = inputImages.map((img) => dataUriFor(img));
+      // Pass presigned R2 GET URLs directly. fal fetches them server-side,
+      // so we avoid base64-inflating multi-MB inputs into the request body.
+      const uploadedUrls = inputImages.map((img) => img.url);
       const existing = arguments_[field];
       // Prepend uploaded files before any URLs already in params so fal
       // endpoints that treat the first entry as the primary input see the
@@ -378,10 +376,10 @@ export const falImageProvider: ImageProvider = {
       // Strings (single URL) are kept as a trailing entry instead of being
       // dropped silently.
       arguments_[field] = Array.isArray(existing)
-        ? [...encoded, ...existing]
+        ? [...uploadedUrls, ...existing]
         : typeof existing === "string" && existing.length > 0
-          ? [...encoded, existing]
-          : encoded;
+          ? [...uploadedUrls, existing]
+          : uploadedUrls;
     }
 
     const submission = await submit(endpointId, req.apiKey, arguments_, req.baseUrl);

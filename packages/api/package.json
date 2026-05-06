@@ -21,7 +21,6 @@
     "aws4fetch": "^1.0.20",
     "better-auth": "^1.6.9",
     "superjson": "catalog:",
-    "v0-sdk": "^0.16.4",
     "zod": "catalog:"
   },
   "devDependencies": {

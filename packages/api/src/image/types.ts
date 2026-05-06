@@ -15,7 +15,16 @@ export type ImageInputFile = {
   role: ImageInputRole;
   filename: string;
   contentType: string;
+  /**
+   * Raw bytes for byte-consuming providers (OpenAI multipart, Retro Diffusion
+   * base64). Empty for fal-bound inputs, which read directly from `url`.
+   */
   bytes: Uint8Array;
+  /**
+   * Presigned R2 GET URL for the input. Always populated. fal reads images
+   * via this URL directly, avoiding base64 inflation in the request body.
+   */
+  url: string;
 };
 
 export type ImageProviderRequest = {

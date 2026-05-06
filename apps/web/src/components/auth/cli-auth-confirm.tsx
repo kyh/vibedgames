@@ -10,7 +10,7 @@ type CliAuthConfirmProps = {
 
 export const CliAuthConfirm = ({ code, userName }: CliAuthConfirmProps) => {
   const trpc = useTRPC();
-  const confirm = useMutation(trpc.cliAuth.confirm.mutationOptions());
+  const confirm = useMutation(trpc.auth.cliConfirm.mutationOptions());
 
   return (
     <div className="flex flex-col gap-4 text-center">

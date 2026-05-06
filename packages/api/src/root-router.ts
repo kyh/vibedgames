@@ -1,19 +1,15 @@
 import { adminRouter } from "./admin/admin-router";
-import { cliAuthRouter } from "./cli-auth/cli-auth-router";
+import { authRouter } from "./auth/auth-router";
 import { deployRouter } from "./deploy/deploy-router";
-import { v0Router } from "./game/v0/v0-router";
 import { imageRouter } from "./image/image-router";
-import { inviteRouter } from "./invite/invite-router";
 import { createTRPCRouter } from "./trpc";
 import { waitlistRouter } from "./waitlist/waitlist-router";
 
 export const appRouter = createTRPCRouter({
-  cliAuth: cliAuthRouter,
+  auth: authRouter,
   waitlist: waitlistRouter,
   deploy: deployRouter,
-  v0: v0Router,
   image: imageRouter,
-  invite: inviteRouter,
   admin: adminRouter,
 });
 

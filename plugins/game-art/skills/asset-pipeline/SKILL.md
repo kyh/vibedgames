@@ -72,6 +72,15 @@ If an animation looks like it is "skating" or sliding sideways, check these in o
 3. whether tall poses were scaled differently from short poses
 4. whether the source motion itself contains true root-motion drift
 
+If a character looks like it is **floating above its shadow** or standing at different heights by direction, check the visible alpha bounds:
+
+1. measure the lowest non-transparent pixel for each frame
+2. compare the bottom baseline across directions and states
+3. normalize the PNG frames so feet land on a shared baseline, commonly `bottomY = frameHeight - 1`
+4. only then tune engine-side sprite origin or shadow offsets
+
+Do not use the asset manifest as the first fix for bad foot placement. Manifests can describe frame size, atlas size, frame count, fps, and sometimes engine pivots, but they do not repair transparent padding inside the PNG. Prefer fixing the runtime spritesheet unless the engine has deliberate per-animation pivot metadata and the team has standardized on using it.
+
 Nearest-neighbor import preserves pixels. If the in-between poses still look soft after correct normalization, the softness is usually already present in the source frames.
 
 ## Asset Index Theory
@@ -171,6 +180,10 @@ uv run .claude/skills/gamedev-assets/scripts/asset_sizes.py --root assets --json
 # 3) Probe sprite sheet for non-empty frames
 uv run .claude/skills/gamedev-assets/scripts/asset_sheet_probe.py path/to/sheet.png --frame 32x32 --list --json tmp/probe.json
 
+# 3b) Audit/fix visible foot baselines inside sprite frames
+uv run .claude/skills/asset-pipeline/scripts/asset_sprite_baseline.py assets/characters --frame 256x256 --json tmp/baselines.json
+uv run .claude/skills/asset-pipeline/scripts/asset_sprite_baseline.py assets/characters --frame 256x256 --target-bottom 255 --out-dir tmp/baseline-fixed
+
 # 4) Debug tilesets / tilemaps with a manifest-driven GUI editor
 uv run .claude/skills/gamedev-assets/scripts/asset_tilemap_editor.py --manifest path/to/assets_index.json
 ```
@@ -263,6 +276,29 @@ Find non-empty cells in a sprite sheet grid. Essential for building `frames` arr
 uv run .claude/skills/gamedev-assets/scripts/asset_sheet_probe.py image.png --frame 32x32
 uv run .claude/skills/gamedev-assets/scripts/asset_sheet_probe.py folder/ --frame 16x16 --list --json tmp/probe.json
 ```
+
+### 2b) Sprite Baseline Audit/Fix (`asset_sprite_baseline.py`)
+
+Audit visible alpha bounds inside a spritesheet grid and optionally write baseline-corrected copies.
+
+Use this when:
+- a character floats above its shadow in one direction but not another
+- a directional idle was made from an attack frame
+- AI-generated sheets have inconsistent transparent padding under the feet
+- engine origins are correct, but visual foot placement still differs
+
+```bash
+# Report per-frame alpha bounds, visible bottom pixel, and required shift.
+uv run .claude/skills/asset-pipeline/scripts/asset_sprite_baseline.py public/assets/kaede --frame 256x256 --json tmp/kaede-baselines.json
+
+# Write fixed copies whose visible feet land on y=255.
+uv run .claude/skills/asset-pipeline/scripts/asset_sprite_baseline.py public/assets/kaede --frame 256x256 --target-bottom 255 --out-dir tmp/kaede-baseline-fixed
+
+# Optionally normalize horizontal center too, when the source is meant to be idle/standing.
+uv run .claude/skills/asset-pipeline/scripts/asset_sprite_baseline.py public/assets/kaede/idle-n.png --frame 256x256 --target-bottom 255 --target-center-x 128 --out tmp/idle-n-fixed.png
+```
+
+Treat the script as a runtime export guardrail. It does not decide animation quality; it verifies that final PNG frames agree with the engine's sprite-origin and shadow assumptions.
 
 ### 3) PNG Dimension Listing (`asset_sizes.py`)
 

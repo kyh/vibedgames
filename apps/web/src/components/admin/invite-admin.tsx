@@ -29,20 +29,20 @@ export const InviteAdmin = () => {
   const trpc = useTRPC();
   const qc = useQueryClient();
 
-  const list = useQuery(trpc.invite.list.queryOptions());
+  const list = useQuery(trpc.auth.listInvites.queryOptions());
   const create = useMutation(
-    trpc.invite.create.mutationOptions({
+    trpc.auth.createInvites.mutationOptions({
       onSuccess: () => {
-        qc.invalidateQueries({ queryKey: trpc.invite.list.queryKey() });
+        qc.invalidateQueries({ queryKey: trpc.auth.listInvites.queryKey() });
         toast.success("Invite codes created");
       },
       onError: (err) => toast.error(err.message),
     }),
   );
   const revoke = useMutation(
-    trpc.invite.revoke.mutationOptions({
+    trpc.auth.revokeInvite.mutationOptions({
       onSuccess: () => {
-        qc.invalidateQueries({ queryKey: trpc.invite.list.queryKey() });
+        qc.invalidateQueries({ queryKey: trpc.auth.listInvites.queryKey() });
         toast.success("Code revoked");
       },
       onError: (err) => toast.error(err.message),

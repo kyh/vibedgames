@@ -142,22 +142,19 @@ function decodedBase64Length(encoded: string): number {
 }
 
 export function decodeBase64Output(encoded: string, label: string): Uint8Array {
+  // Pre-decode size check is exact (modulo whitespace) for valid base64,
+  // so we don't repeat the byte-length check after decoding.
   if (decodedBase64Length(encoded) > MAX_OUTPUT_IMAGE_BYTES) {
     rejectOversize(label, MAX_OUTPUT_IMAGE_BYTES);
   }
-  let bytes: Uint8Array;
   try {
-    bytes = base64ToBytes(encoded);
+    return base64ToBytes(encoded);
   } catch {
     throw new TRPCError({
       code: "BAD_GATEWAY",
       message: `${label} was not valid base64.`,
     });
   }
-  if (bytes.byteLength > MAX_OUTPUT_IMAGE_BYTES) {
-    rejectOversize(label, MAX_OUTPUT_IMAGE_BYTES);
-  }
-  return bytes;
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {

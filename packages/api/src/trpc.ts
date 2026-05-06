@@ -19,6 +19,10 @@ export type R2BucketLike = {
     httpMetadata?: { contentType?: string };
     arrayBuffer(): Promise<ArrayBuffer>;
   } | null>;
+  head(key: string): Promise<{
+    size: number;
+    httpMetadata?: { contentType?: string };
+  } | null>;
   list(options: { prefix?: string; cursor?: string; limit?: number }): Promise<{
     objects: Array<{ key: string }>;
     truncated: boolean;
