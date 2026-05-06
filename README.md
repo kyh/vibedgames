@@ -1,8 +1,8 @@
 # Vibedgames
 
-**You bring the ideas. We bring the game studio.**
+**Your personal AI game studio.**
 
-Vibedgames is a prompt-driven game studio. Describe what you want to your LLM and we handle the rest — infrastructure, assets, features, and shipping.
+Describe what you want to your LLM and we handle the rest — infrastructure, assets, features, and shipping.
 
 No engine to learn. No servers to rent. No art pipeline to assemble. Just chat.
 
