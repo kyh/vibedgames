@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 
 import { falImageProvider } from "./providers/fal";
+import { geminiImageProvider } from "./providers/gemini";
 import { openaiImageProvider } from "./providers/openai";
 import { retroDiffusionImageProvider } from "./providers/retro-diffusion";
 import type { ImageInputFile, ImageInputRole } from "./types";
@@ -142,6 +143,88 @@ test("Retro Diffusion maps image, reference, and palette roles to native fields"
   assert.ok(Array.isArray(payload.reference_images));
   assert.equal(payload.reference_images.length, 1);
   assert.equal(result.outputs.length, 1);
+});
+
+test("Gemini maps image/reference roles into inline_data parts and lifts imageConfig", async () => {
+  let capturedUrl: string | null = null;
+  let capturedHeaders: Record<string, string> = {};
+  let capturedPayload: unknown = null;
+  installFetch((url, init) => {
+    capturedUrl = url;
+    capturedHeaders = (init?.headers ?? {}) as Record<string, string>;
+    const body = init?.body;
+    if (typeof body !== "string") {
+      throw new Error("Expected JSON body.");
+    }
+    capturedPayload = JSON.parse(body);
+    return jsonResponse({
+      candidates: [
+        {
+          content: {
+            parts: [
+              { text: "ok" },
+              { inlineData: { mimeType: "image/png", data: pngBase64 } },
+            ],
+          },
+        },
+      ],
+      modelVersion: "gemini-3.1-flash-image-preview",
+    });
+  });
+
+  const result = await geminiImageProvider.run({
+    task: "edit",
+    model: "gemini-3.1-flash-image-preview",
+    prompt: "use image 1 as identity, edit lighting only",
+    params: {
+      imageConfig: { aspectRatio: "16:9", imageSize: "1K" },
+      thinkingConfig: { thinkingLevel: "minimal" },
+      tools: [{ google_search: {} }],
+    },
+    inputImages: [image("image"), image("reference")],
+    apiKey: "gemini-key",
+  });
+
+  const payload = record(capturedPayload);
+  assert.ok(
+    String(capturedUrl).endsWith(
+      "/v1beta/models/gemini-3.1-flash-image-preview:generateContent",
+    ),
+    `unexpected url ${capturedUrl}`,
+  );
+  assert.equal(capturedHeaders["x-goog-api-key"], "gemini-key");
+  assert.ok(Array.isArray(payload.contents));
+  const contents = payload.contents as Array<Record<string, unknown>>;
+  const parts = (contents[0]?.parts ?? []) as Array<Record<string, unknown>>;
+  assert.equal(parts.length, 3);
+  assert.equal(parts[0]?.text, "use image 1 as identity, edit lighting only");
+  assert.ok(record(parts[1]).inline_data);
+  assert.ok(record(parts[2]).inline_data);
+  const generationConfig = record(payload.generationConfig);
+  assert.deepEqual(generationConfig.responseModalities, ["TEXT", "IMAGE"]);
+  assert.deepEqual(generationConfig.imageConfig, {
+    aspectRatio: "16:9",
+    imageSize: "1K",
+  });
+  assert.deepEqual(generationConfig.thinkingConfig, { thinkingLevel: "minimal" });
+  assert.deepEqual(payload.tools, [{ google_search: {} }]);
+  assert.equal(result.outputs.length, 1);
+  assert.equal(result.metadata.modelVersion, "gemini-3.1-flash-image-preview");
+});
+
+test("Gemini rejects inline_data smuggled via params", async () => {
+  await assert.rejects(
+    () =>
+      geminiImageProvider.run({
+        task: "generate",
+        model: "gemini-3.1-flash-image-preview",
+        prompt: "edit",
+        params: { inline_data: { mime_type: "image/png", data: "..." } },
+        inputImages: [],
+        apiKey: "gemini-key",
+      }),
+    /Gemini image fields must use uploaded image roles, not params: inline_data/,
+  );
 });
 
 test("fal maps image/reference roles into configured image field", async () => {

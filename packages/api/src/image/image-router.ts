@@ -12,6 +12,7 @@ import {
   MAX_PARAMS_BYTES,
 } from "./limits";
 import { falImageProvider } from "./providers/fal";
+import { geminiImageProvider } from "./providers/gemini";
 import { openaiImageProvider } from "./providers/openai";
 import { retroDiffusionImageProvider } from "./providers/retro-diffusion";
 import { IMAGE_PROVIDERS } from "./types";
@@ -72,12 +73,14 @@ const PROVIDER_KEY_FIELDS = {
   openai: "openai",
   fal: "fal",
   "retro-diffusion": "retroDiffusion",
+  gemini: "gemini",
 } as const satisfies Record<z.infer<typeof providerEnum>, keyof ImageProviderKeys>;
 
 const PROVIDER_BASE_URL_FIELDS = {
   openai: "openaiBaseUrl",
   fal: "falBaseUrl",
   "retro-diffusion": "retroDiffusionBaseUrl",
+  gemini: "geminiBaseUrl",
 } as const satisfies Record<z.infer<typeof providerEnum>, keyof ImageProviderKeys>;
 
 function pickApiKey(
@@ -108,6 +111,7 @@ function pickBaseUrl(
 function pickProvider(provider: z.infer<typeof providerEnum>): ImageProvider {
   if (provider === "openai") return openaiImageProvider;
   if (provider === "fal") return falImageProvider;
+  if (provider === "gemini") return geminiImageProvider;
   return retroDiffusionImageProvider;
 }
 
@@ -279,6 +283,7 @@ const MODEL_CATALOG: Record<
   { id: string; alias?: string; supports: ("generate" | "edit")[] }[]
 > = {
   openai: [
+    { id: "gpt-image-2", alias: "gpt-image-2", supports: ["generate", "edit"] },
     { id: "gpt-image-1.5", alias: "gpt-image-1.5", supports: ["generate", "edit"] },
     { id: "gpt-image-1", alias: "gpt-image-1", supports: ["generate", "edit"] },
     { id: "dall-e-3", alias: "dall-e-3", supports: ["generate"] },
@@ -302,6 +307,16 @@ const MODEL_CATALOG: Record<
       supports: ["edit"],
     },
     {
+      id: "fal-ai/gpt-image-2",
+      alias: "fal-gpt-image-2",
+      supports: ["generate"],
+    },
+    {
+      id: "fal-ai/gpt-image-2/edit",
+      alias: "fal-gpt-image-2-edit",
+      supports: ["edit"],
+    },
+    {
       id: "xai/grok-imagine-image",
       alias: "grok-imagine-image",
       supports: ["generate"],
@@ -319,6 +334,23 @@ const MODEL_CATALOG: Record<
       id: "rd_pro__spritesheet",
       alias: "rd-pro-spritesheet",
       supports: ["generate"],
+    },
+  ],
+  gemini: [
+    {
+      id: "gemini-3-pro-image-preview",
+      alias: "gemini-3-pro-image",
+      supports: ["generate", "edit"],
+    },
+    {
+      id: "gemini-3.1-flash-image-preview",
+      alias: "gemini-3.1-flash-image",
+      supports: ["generate", "edit"],
+    },
+    {
+      id: "gemini-2.5-flash-image",
+      alias: "nano-banana",
+      supports: ["generate", "edit"],
     },
   ],
 };
@@ -384,12 +416,7 @@ export const imageRouter = createTRPCRouter({
     const keys = ctx.imageProviders;
     return IMAGE_PROVIDERS.map((provider) => ({
       provider,
-      configured:
-        provider === "openai"
-          ? Boolean(keys?.openai)
-          : provider === "fal"
-            ? Boolean(keys?.fal)
-            : Boolean(keys?.retroDiffusion),
+      configured: Boolean(keys?.[PROVIDER_KEY_FIELDS[provider]]),
       models: MODEL_CATALOG[provider],
     }));
   }),

@@ -57,6 +57,8 @@ export function getServerContext() {
     falBaseUrl: env.FAL_BASE_URL,
     retroDiffusion: env.RETRO_DIFFUSION_API_KEY,
     retroDiffusionBaseUrl: env.RETRO_DIFFUSION_BASE_URL,
+    gemini: env.GEMINI_API_KEY,
+    geminiBaseUrl: env.GEMINI_BASE_URL,
   };
 
   return { db, auth, baseUrl, productionUrl, r2, imageProviders };

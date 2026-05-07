@@ -17,6 +17,8 @@ interface CloudflareEnv {
   FAL_BASE_URL?: string;
   RETRO_DIFFUSION_API_KEY?: string;
   RETRO_DIFFUSION_BASE_URL?: string;
+  GEMINI_API_KEY?: string;
+  GEMINI_BASE_URL?: string;
 }
 
 declare module "cloudflare:workers" {

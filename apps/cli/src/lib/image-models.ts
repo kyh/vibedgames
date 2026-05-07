@@ -10,6 +10,7 @@ const DEFAULT_PROVIDER: ImageProviderName = "openai";
  */
 const ALIASES: Record<string, { provider: ImageProviderName; model: string }> = {
   // OpenAI
+  "gpt-image-2": { provider: "openai", model: "gpt-image-2" },
   "gpt-image-1.5": { provider: "openai", model: "gpt-image-1.5" },
   "gpt-image-1": { provider: "openai", model: "gpt-image-1" },
   "dall-e-3": { provider: "openai", model: "dall-e-3" },
@@ -25,11 +26,30 @@ const ALIASES: Record<string, { provider: ImageProviderName; model: string }> = 
     provider: "fal",
     model: "fal-ai/nano-banana-pro/edit",
   },
+  "fal-gpt-image-2": { provider: "fal", model: "fal-ai/gpt-image-2" },
+  "fal-gpt-image-2-edit": {
+    provider: "fal",
+    model: "fal-ai/gpt-image-2/edit",
+  },
   "grok-imagine-image": { provider: "fal", model: "xai/grok-imagine-image" },
   "grok-imagine-image-edit": {
     provider: "fal",
     model: "xai/grok-imagine-image/edit",
   },
+  // Gemini
+  "gemini-3-pro-image": {
+    provider: "gemini",
+    model: "gemini-3-pro-image-preview",
+  },
+  "gemini-3.1-flash-image": {
+    provider: "gemini",
+    model: "gemini-3.1-flash-image-preview",
+  },
+  "gemini-2.5-flash-image": {
+    provider: "gemini",
+    model: "gemini-2.5-flash-image",
+  },
+  "nano-banana": { provider: "gemini", model: "gemini-2.5-flash-image" },
   // Retro Diffusion (prompt_style)
   "rd-pro-platformer": { provider: "retro-diffusion", model: "rd_pro__platformer" },
   "rd-pro-edit": { provider: "retro-diffusion", model: "rd_pro__edit" },

@@ -80,6 +80,23 @@ Official model pages checked:
   - `quality`
   - edit uses `image_urls`
 
+## GPT Image 2
+
+- Generate endpoint: `fal-ai/gpt-image-2`
+- Edit endpoint: `fal-ai/gpt-image-2/edit`
+- vg aliases: `fal-gpt-image-2` / `fal-gpt-image-2-edit` (use `openai:gpt-image-2` instead when arbitrary `WIDTHxHEIGHT` sizes matter — fal here exposes only named sizes)
+- Good for: highest-fidelity generation and editing via OpenAI gpt-image-2 with fal-style queueing and pricing
+- Typical controls surfaced by fal:
+  - `prompt`
+  - `num_images`
+  - `image_size` — uses fal's named sizes (`square_hd`, `square`, `portrait_4_3`, `portrait_16_9`, `landscape_4_3`, `landscape_16_9`), NOT pixel dimensions like `1024x1024`
+  - `output_format`
+  - `quality`
+  - edit uses `image_urls`
+- Workflow note:
+  - fal routes gpt-image-2 directly to OpenAI infrastructure; a 500 `downstream_service_error` means OpenAI is down, not fal
+  - prefer `openai:gpt-image-2` through `vg image` when you need explicit `WIDTHxHEIGHT` control or `output_compression`; the fal route is useful for unified queueing/cost reporting alongside other fal jobs
+
 ## Practical Comparison Guidance
 
 - Compare prompt adherence, identity consistency, edit locality, and transparency/background handling.

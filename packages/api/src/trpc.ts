@@ -65,6 +65,8 @@ export type ImageProviderKeys = {
   falBaseUrl?: string;
   retroDiffusion?: string;
   retroDiffusionBaseUrl?: string;
+  gemini?: string;
+  geminiBaseUrl?: string;
 };
 
 /**
