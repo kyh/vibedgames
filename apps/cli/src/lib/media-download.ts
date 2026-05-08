@@ -130,7 +130,15 @@ function renderTemplate(
     if (fromName) return fromName;
     return extFromUrl(ref.url) || "bin";
   })();
-  const stem = ref.filename.replace(new RegExp(`\\.${ext}$`, "i"), "") || "output";
+  // String-based stem extraction: a dynamic RegExp built from `ext`
+  // would treat any regex metachars in an unusual fal `file_name`
+  // (`.`, `+`, `*`) as patterns, potentially stripping the wrong
+  // suffix. Plain endsWith is exact and case-insensitive via toLowerCase.
+  const lowerName = ref.filename.toLowerCase();
+  const dotExt = "." + ext.toLowerCase();
+  const stem = lowerName.endsWith(dotExt)
+    ? ref.filename.slice(0, -dotExt.length) || "output"
+    : ref.filename || "output";
   if (!template) return resolve(process.cwd(), ref.filename || `output-${index}.${ext}`);
   // No placeholder → caller meant a destination directory (e.g. ".",
   // "./", "../out", "out/"). The previous heuristic also rejected any

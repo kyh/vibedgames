@@ -3,7 +3,9 @@ import { basename, isAbsolute, resolve } from "node:path";
 
 import { isRecord } from "./types.js";
 
-const KNOWN_GLOBAL_FLAGS = new Set(["--json", "--help", "-h", "--quiet", "-q"]);
+// Only long flags. parseRunInput already skips anything not starting
+// with "--", so single-dash aliases (-h/-q) never need to be listed.
+const KNOWN_GLOBAL_FLAGS = new Set(["--json", "--help", "--quiet"]);
 
 const KNOWN_RUN_FLAGS = new Set(["--async", "--logs", "--download"]);
 
