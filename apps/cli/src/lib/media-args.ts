@@ -139,7 +139,11 @@ function readLocalFile(value: string): FilePathRef | null {
   };
 }
 
-export function contentTypeForPath(path: string): string {
+// Local to this module — the deploy path has its own MIME map in
+// manifest.ts geared toward static-site assets (HTML/JS/CSS with charset
+// directives). Unifying them now would mean inventing a shared file just
+// to bridge two unrelated callers; revisit if a third caller appears.
+function contentTypeForPath(path: string): string {
   const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
   const map: Record<string, string> = {
     png: "image/png",

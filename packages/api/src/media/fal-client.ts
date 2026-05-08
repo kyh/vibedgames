@@ -23,9 +23,19 @@ export type FalConfig = {
 };
 
 export function falHeaders(apiKey: string): Record<string, string> {
+  // X-Fal-Store-IO: instructs fal to store outputs in its CDN and
+  // return URLs in the result payload, instead of inlining bytes.
+  // Critical here because the router returns raw `result.data` to
+  // callers — if a model inlined base64 bytes we'd blow past
+  // MAX_FAL_PLATFORM_JSON_BYTES on big outputs.
+  // x-app-fal-disable-fallback: turn off the silent fallback to a
+  // different endpoint when the primary is unavailable; we'd rather
+  // surface the failure than serve unexpected output from another model.
   return {
     Authorization: `Key ${apiKey}`,
     Accept: "application/json",
+    "X-Fal-Store-IO": "1",
+    "x-app-fal-disable-fallback": "true",
   };
 }
 
