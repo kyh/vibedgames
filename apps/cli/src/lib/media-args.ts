@@ -1,5 +1,5 @@
 import { existsSync, statSync } from "node:fs";
-import { basename, isAbsolute, resolve } from "node:path";
+import { basename, extname, isAbsolute, resolve } from "node:path";
 
 import { isRecord } from "./types.js";
 
@@ -146,7 +146,7 @@ function readLocalFile(value: string): FilePathRef | null {
 // directives). Unifying them now would mean inventing a shared file just
 // to bridge two unrelated callers; revisit if a third caller appears.
 function contentTypeForPath(path: string): string {
-  const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
+  const ext = extname(path).slice(1).toLowerCase();
   const map: Record<string, string> = {
     png: "image/png",
     jpg: "image/jpeg",
