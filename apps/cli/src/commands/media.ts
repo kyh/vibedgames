@@ -51,6 +51,11 @@ const runCommand = defineCommand({
 
     const tokenToUrl = new Map<string, string>();
     let uploadedRefs: Awaited<ReturnType<typeof uploadFiles>>["refs"] = [];
+    // Set only after a successful async submit. The async *success* path
+    // intentionally leaves inputs in R2 because fal's queue worker
+    // fetches them later; the async *failure* path (and the sync path)
+    // must still clean up.
+    let preserveInputsForAsyncFetch = false;
 
     try {
       if (files.length > 0) {
@@ -74,6 +79,7 @@ const runCommand = defineCommand({
       });
 
       if (result.status === "submitted") {
+        preserveInputsForAsyncFetch = true;
         const payload = {
           status: "submitted",
           endpoint_id: result.endpoint_id,
@@ -123,16 +129,15 @@ const runCommand = defineCommand({
         }
       }
     } finally {
-      // Only safe to delete R2 inputs once fal has actually fetched
-      // them. The sync path waits via pollUntilComplete on the server,
-      // so cleanup here is post-fetch. With --async we return right
-      // after queue submit — fal's worker fetches the presigned GET
-      // URLs later, and deleting now would 404 the run. The objects
-      // are scoped under media-inputs/{userId}/{uploadId}/ so they
-      // can be swept by a server-side lifecycle policy or a future
-      // garbage-collect job; we intentionally leak them here rather
-      // than break async runs.
-      if (!args.async) await cleanupUploads(uploadedRefs).catch(() => undefined);
+      // Skip cleanup only after a confirmed async submit — the queue
+      // worker fetches inputs later from the presigned GET URLs, so
+      // deleting now would 404 the run. Async *failure* (the submit
+      // mutation threw before fal saw the request) and the sync path
+      // must still clean up. Inputs leaked on the async-success path
+      // should be swept by a future server-side lifecycle policy.
+      if (!preserveInputsForAsyncFetch) {
+        await cleanupUploads(uploadedRefs).catch(() => undefined);
+      }
     }
   },
 });
