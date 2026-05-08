@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
@@ -68,6 +68,31 @@ test("parseDownloadFlag returns mode + template", () => {
   });
   assert.deepEqual(parseDownloadFlag(["--download"]), { mode: "on" });
   assert.deepEqual(parseDownloadFlag(["--prompt", "x"]), { mode: "off" });
+});
+
+test("extractLocalFiles infers content type via extname (handles dotted directories)", () => {
+  // Create a file inside a directory that *contains* a dot in its name.
+  // Earlier the helper used `path.lastIndexOf(".")`, which would have
+  // treated "project/file.png" as the extension on a path like
+  // "/tmp/my.project/file.png" and then misclassified the MIME.
+  const baseDir = mkdtempSync(join(tmpdir(), "vg-dot.dir-"));
+  cleanups.push(() => rmSync(baseDir, { recursive: true, force: true }));
+  // Inner directory name with a dot in it.
+  const dotted = join(baseDir, "my.project");
+  mkdirSync(dotted);
+  const target = join(dotted, "frame.png");
+  writeFileSync(target, "x");
+
+  const { files } = extractLocalFiles({ image_url: target });
+  assert.equal(files.length, 1);
+  assert.equal(files[0]!.contentType, "image/png");
+
+  // Extensionless file inside the same dotted directory: must not
+  // pick up "project/frame" as a phantom extension.
+  const noExt = join(dotted, "frame");
+  writeFileSync(noExt, "x");
+  const { files: extless } = extractLocalFiles({ image_url: noExt });
+  assert.equal(extless[0]!.contentType, "application/octet-stream");
 });
 
 test("extractLocalFiles only matches paths that exist on disk", () => {
