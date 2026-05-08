@@ -1,7 +1,7 @@
 import { adminRouter } from "./admin/admin-router";
 import { authRouter } from "./auth/auth-router";
 import { deployRouter } from "./deploy/deploy-router";
-import { imageRouter } from "./image/image-router";
+import { mediaRouter } from "./media/media-router";
 import { createTRPCRouter } from "./trpc";
 import { waitlistRouter } from "./waitlist/waitlist-router";
 
@@ -9,7 +9,7 @@ export const appRouter = createTRPCRouter({
   auth: authRouter,
   waitlist: waitlistRouter,
   deploy: deployRouter,
-  image: imageRouter,
+  media: mediaRouter,
   admin: adminRouter,
 });
 

@@ -49,22 +49,16 @@ export type R2Config = {
 };
 
 /**
- * Server-held API keys for the image generation providers the CLI proxies
- * through `image.run`. None are required at boot; a missing key just means
- * the corresponding provider returns an error when a CLI user picks it.
- *
- * `*BaseUrl` overrides exist so deployments can route provider traffic
- * through a Cloudflare AI Gateway endpoint, e.g.
- *   `https://gateway.ai.cloudflare.com/v1/{accountId}/{gatewayId}/openai`
- * for caching, rate limits, fallbacks, and observability.
+ * Server-held config for the fal proxy that backs `media.*`. fal is the
+ * single gateway we route through; the optional base URLs let deployments
+ * point queue/platform/docs traffic at a Cloudflare AI Gateway prefix for
+ * caching, rate limits, fallbacks, and observability.
  */
-export type ImageProviderKeys = {
-  openai?: string;
-  openaiBaseUrl?: string;
+export type MediaProviderConfig = {
   fal?: string;
-  falBaseUrl?: string;
-  retroDiffusion?: string;
-  retroDiffusionBaseUrl?: string;
+  falQueueBaseUrl?: string;
+  falPlatformBaseUrl?: string;
+  falDocsBaseUrl?: string;
 };
 
 /**
@@ -80,7 +74,7 @@ export type CreateTRPCContextOptions = {
   auth: Auth;
   productionURL?: string;
   r2?: R2Config;
-  imageProviders?: ImageProviderKeys;
+  media?: MediaProviderConfig;
 };
 
 export const createTRPCContext = async (opts: CreateTRPCContextOptions) => {
@@ -93,7 +87,7 @@ export const createTRPCContext = async (opts: CreateTRPCContextOptions) => {
     headers: opts.headers,
     productionURL: opts.productionURL,
     r2: opts.r2,
-    imageProviders: opts.imageProviders,
+    media: opts.media,
   };
 };
 

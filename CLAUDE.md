@@ -11,6 +11,7 @@
 - **CLI auth uses device-code flow.** CLI shows 6-char code → user confirms in browser → CLI polls for token. Not OAuth.
 - **Multiplayer is host-authoritative, last-write-wins.** No conflict resolution. First player becomes host; if host leaves, reassigns. Good for turn-based and host-controlled games.
 - **Deploy on push to main.** GitHub Actions detects changed apps and deploys via wrangler. Never run `wrangler deploy` locally.
+- **Media goes through fal.** `vg media` mirrors the [genmedia CLI](https://github.com/fal-ai-community/genmedia-cli) surface (`run`, `models`, `schema`, `upload`, `pricing`, `status`, `docs`). The server holds `FAL_API_KEY`; the CLI proxies through tRPC. The package also installs a `genmedia` bin shim that forwards to `vg media`, so [fal-ai-community/skills](https://github.com/fal-ai-community/skills) (which call `genmedia run …`) work unmodified. There's no per-provider routing — fal is a gateway to OpenAI, Veo, Sora, Kling, Flux, ElevenLabs, Retro Diffusion, etc.
 
 ## Tech Stack
 
@@ -72,6 +73,7 @@ pnpm dogfood:reset    # Unlink local vg CLI
 
 - Copy `.env.example` to `.env`
 - Required: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_DATABASE_ID`, `CLOUDFLARE_D1_TOKEN`, `CLOUDFLARE_API_TOKEN`, `AUTH_SECRET`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`
+- Optional: `FAL_API_KEY` (enables `vg media` / `genmedia`)
 
 ## Dogfooding (build games in ./games using local CLI + skills)
 
