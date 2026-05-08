@@ -123,7 +123,16 @@ const runCommand = defineCommand({
         }
       }
     } finally {
-      await cleanupUploads(uploadedRefs).catch(() => undefined);
+      // Only safe to delete R2 inputs once fal has actually fetched
+      // them. The sync path waits via pollUntilComplete on the server,
+      // so cleanup here is post-fetch. With --async we return right
+      // after queue submit — fal's worker fetches the presigned GET
+      // URLs later, and deleting now would 404 the run. The objects
+      // are scoped under media-inputs/{userId}/{uploadId}/ so they
+      // can be swept by a server-side lifecycle policy or a future
+      // garbage-collect job; we intentionally leak them here rather
+      // than break async runs.
+      if (!args.async) await cleanupUploads(uploadedRefs).catch(() => undefined);
     }
   },
 });
