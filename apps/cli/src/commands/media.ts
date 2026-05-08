@@ -10,9 +10,17 @@ import {
   substituteTokens,
 } from "../lib/media-args.js";
 import { downloadMedia, extractMediaRefs } from "../lib/media-download.js";
-import { isJsonOutput, writeJson } from "../lib/media-output.js";
-import { cleanupUploads, uploadFiles } from "../lib/media-upload.js";
+import { waitForCompletion } from "../lib/media-poll.js";
+import { uploadFiles } from "../lib/media-upload.js";
 import { isRecord } from "../lib/types.js";
+
+function isJsonOutput(args: { json?: boolean }): boolean {
+  return Boolean(args.json) || process.env.VG_JSON_OUTPUT === "1";
+}
+
+function writeJson(value: unknown): void {
+  process.stdout.write(JSON.stringify(value, null, 2) + "\n");
+}
 
 // ---- run --------------------------------------------------------------------
 
@@ -37,6 +45,7 @@ const runCommand = defineCommand({
         "Download media from result. Optional value is a path or template with {index},{name},{ext},{request_id}.",
     },
     json: { type: "boolean", description: "Print structured JSON to stdout." },
+    quiet: { type: "boolean", description: "Suppress progress output during sync runs." },
   },
   // Citty can't enumerate arbitrary --<param> flags, so we re-walk the
   // argv citty handed us (rawArgs) to pull them out. parseRunInput
@@ -48,99 +57,84 @@ const runCommand = defineCommand({
     const argv = rawArgs;
     const downloadFlag = parseDownloadFlag(argv);
 
-    // Strip the positional endpoint_id so we don't parse it as a param.
-    const argvForInput = stripPositional(argv, args.endpoint_id);
-    const parsed = parseRunInput(argvForInput);
+    // parseRunInput already skips non-`--` tokens, so the positional
+    // endpoint_id and any subcommand name in argv are no-ops.
+    const parsed = parseRunInput(argv);
     const { files, rewritten } = extractLocalFiles(parsed);
 
     const tokenToUrl = new Map<string, string>();
-    let uploadedRefs: Awaited<ReturnType<typeof uploadFiles>>["refs"] = [];
-    // Set only after a successful async submit. The async *success* path
-    // intentionally leaves inputs in R2 because fal's queue worker
-    // fetches them later; the async *failure* path (and the sync path)
-    // must still clean up.
-    let preserveInputsForAsyncFetch = false;
 
-    try {
-      if (files.length > 0) {
-        const { urls, refs } = await uploadFiles(files);
-        uploadedRefs = refs;
-        // Token lives on the FilePathRef, so we only zip with `urls`
-        // (which uploadFiles returns in input-array order). No reliance
-        // on an external Map's iteration order to stay in sync.
-        for (let i = 0; i < files.length; i++) {
-          const url = urls[i];
-          if (url) tokenToUrl.set(files[i]!.token, url);
-        }
+    if (files.length > 0) {
+      const { urls } = await uploadFiles(files);
+      // Bytes went straight to fal; we don't keep refs around because
+      // there's nothing to clean up (fal manages its own storage).
+      for (let i = 0; i < files.length; i++) {
+        const url = urls[i];
+        if (url) tokenToUrl.set(files[i]!.token, url);
       }
-      const finalInput = substituteTokens(rewritten, tokenToUrl);
+    }
+    const finalInput = substituteTokens(rewritten, tokenToUrl);
 
-      const client = createClient();
-      const result = await client.media.run.mutate({
-        endpoint_id: args.endpoint_id,
-        input: finalInput,
-        async: Boolean(args.async),
-      });
+    const client = createClient();
+    const submitted = await client.media.run.mutate({
+      endpoint_id: args.endpoint_id,
+      input: finalInput,
+    });
+    const { endpoint_id, request_id } = submitted;
 
-      if (result.status === "submitted") {
-        preserveInputsForAsyncFetch = true;
-        const payload = {
-          status: "submitted",
-          endpoint_id: result.endpoint_id,
-          request_id: result.request_id,
-          hint: `Check status: vg media status ${result.endpoint_id} ${result.request_id}`,
-        };
-        if (isJsonOutput(args)) writeJson(payload);
-        else {
-          consola.success(`Submitted ${result.endpoint_id}`);
-          consola.log(`  request_id: ${result.request_id}`);
-        }
-        return;
-      }
-
-      let downloaded: Awaited<ReturnType<typeof downloadMedia>> | undefined;
-      if (downloadFlag.mode === "on") {
-        const refs = extractMediaRefs(result.result);
-        downloaded = await downloadMedia({
-          refs,
-          template: downloadFlag.template,
-          requestId: result.request_id,
-        });
-      }
-
+    if (args.async) {
       const payload = {
-        status: "completed",
-        endpoint_id: result.endpoint_id,
-        request_id: result.request_id,
-        result: result.result,
-        billable_units: result.billable_units,
-        ...(downloaded ? { downloaded_files: downloaded.downloaded } : {}),
-        ...(downloaded && downloaded.failed.length > 0
-          ? { download_failures: downloaded.failed }
-          : {}),
+        status: "submitted",
+        endpoint_id,
+        request_id,
+        hint: `Check status: vg media status ${endpoint_id} ${request_id}`,
       };
-
-      if (isJsonOutput(args)) {
-        writeJson(payload);
-      } else {
-        consola.success(`Run completed (${result.request_id})`);
-        if (downloaded) {
-          for (const path of downloaded.downloaded) consola.log(`  ${path}`);
-          for (const f of downloaded.failed) consola.warn(`  failed: ${f.url} (${f.error})`);
-        }
-        if (!downloaded || downloaded.downloaded.length === 0) {
-          for (const url of extractMediaUrls(result.result)) consola.log(`  ${url}`);
-        }
+      if (isJsonOutput(args)) writeJson(payload);
+      else {
+        consola.success(`Submitted ${endpoint_id}`);
+        consola.log(`  request_id: ${request_id}`);
       }
-    } finally {
-      // Skip cleanup only after a confirmed async submit — the queue
-      // worker fetches inputs later from the presigned GET URLs, so
-      // deleting now would 404 the run. Async *failure* (the submit
-      // mutation threw before fal saw the request) and the sync path
-      // must still clean up. Inputs leaked on the async-success path
-      // should be swept by a future server-side lifecycle policy.
-      if (!preserveInputsForAsyncFetch) {
-        await cleanupUploads(uploadedRefs).catch(() => undefined);
+      return;
+    }
+
+    // Sync mode: poll on the client. The Worker is no longer in the
+    // hot path, so video/3D models that take minutes don't pin a
+    // long-lived request and don't burn Worker billing on the wait.
+    const completed = await waitForCompletion(client, endpoint_id, request_id, {
+      quiet: Boolean(args.quiet) || isJsonOutput(args),
+    });
+
+    let downloaded: Awaited<ReturnType<typeof downloadMedia>> | undefined;
+    if (downloadFlag.mode === "on") {
+      const refs = extractMediaRefs(completed.result);
+      downloaded = await downloadMedia({
+        refs,
+        template: downloadFlag.template,
+        requestId: request_id,
+      });
+    }
+
+    const payload = {
+      status: "completed",
+      endpoint_id,
+      request_id,
+      result: completed.result,
+      ...(downloaded ? { downloaded_files: downloaded.downloaded } : {}),
+      ...(downloaded && downloaded.failed.length > 0
+        ? { download_failures: downloaded.failed }
+        : {}),
+    };
+
+    if (isJsonOutput(args)) {
+      writeJson(payload);
+    } else {
+      consola.success(`Run completed (${request_id})`);
+      if (downloaded) {
+        for (const path of downloaded.downloaded) consola.log(`  ${path}`);
+        for (const f of downloaded.failed) consola.warn(`  failed: ${f.url} (${f.error})`);
+      }
+      if (!downloaded || downloaded.downloaded.length === 0) {
+        for (const url of extractMediaUrls(completed.result)) consola.log(`  ${url}`);
       }
     }
   },
@@ -396,22 +390,6 @@ export const mediaCommand = defineCommand({
 });
 
 // ---- helpers ----------------------------------------------------------------
-
-function stripPositional(argv: string[], positional: string): string[] {
-  // citty hands the positional to args.endpoint_id but it also still
-  // shows up in rawArgs. Remove the first non-flag occurrence so the
-  // run-input parser doesn't try to interpret it as a `--<key> value`.
-  const out: string[] = [];
-  let removed = false;
-  for (const arg of argv) {
-    if (!removed && arg === positional && !arg.startsWith("--")) {
-      removed = true;
-      continue;
-    }
-    out.push(arg);
-  }
-  return out;
-}
 
 function extractMediaUrls(result: unknown): string[] {
   return extractMediaRefs(result).map((r) => r.url);

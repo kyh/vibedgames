@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
 
@@ -11,19 +10,12 @@ import {
   readExplicitLocalFile,
   substituteTokens,
 } from "../src/lib/media-args.js";
+import { makeCleanups, makeTmpDir, makeTmpFile } from "./_helpers.js";
 
-const cleanups: (() => void)[] = [];
-afterEach(() => {
-  while (cleanups.length) cleanups.pop()?.();
-});
+const { cleanups, drain } = makeCleanups();
+afterEach(drain);
 
-function tmpFile(name: string, content = "x"): string {
-  const dir = mkdtempSync(join(tmpdir(), "vg-media-"));
-  cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
-  const path = join(dir, name);
-  writeFileSync(path, content);
-  return path;
-}
+const tmpFile = (name: string, content = "x") => makeTmpFile(cleanups, name, content, "vg-media-");
 
 test("parseRunInput parses string, number, bool, and JSON object values", () => {
   const argv = [
@@ -133,8 +125,7 @@ test("extractLocalFiles infers content type via extname (handles dotted director
   // Earlier the helper used `path.lastIndexOf(".")`, which would have
   // treated "project/file.png" as the extension on a path like
   // "/tmp/my.project/file.png" and then misclassified the MIME.
-  const baseDir = mkdtempSync(join(tmpdir(), "vg-dot.dir-"));
-  cleanups.push(() => rmSync(baseDir, { recursive: true, force: true }));
+  const baseDir = makeTmpDir(cleanups, "vg-dot.dir-");
   // Inner directory name with a dot in it.
   const dotted = join(baseDir, "my.project");
   mkdirSync(dotted);
@@ -177,8 +168,7 @@ test("readExplicitLocalFile accepts bare non-media filenames (3D/audio/etc)", ()
   // `vg media upload model.glb` from cwd must work even though .glb
   // isn't in MEDIA_EXT — the upload command is an explicit user
   // intent, not auto-detection.
-  const dir = mkdtempSync(join(tmpdir(), "vg-explicit-"));
-  cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+  const dir = makeTmpDir(cleanups, "vg-explicit-");
   const cwd = process.cwd();
   process.chdir(dir);
   cleanups.push(() => process.chdir(cwd));
@@ -197,8 +187,7 @@ test("extractLocalFiles ignores bare tokens that happen to match a local file", 
   // `--style painterly` should stay a string even if a file named
   // `painterly` exists in cwd. Only path-like values (with separators
   // or media extensions) qualify for auto-upload.
-  const dir = mkdtempSync(join(tmpdir(), "vg-bare-"));
-  cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+  const dir = makeTmpDir(cleanups, "vg-bare-");
   const cwd = process.cwd();
   process.chdir(dir);
   cleanups.push(() => process.chdir(cwd));

@@ -1,6 +1,7 @@
 import { existsSync, statSync } from "node:fs";
 import { basename, extname, isAbsolute, resolve } from "node:path";
 
+import { MEDIA_EXT } from "./media-types.js";
 import { isRecord } from "./types.js";
 
 // Only long flags. parseRunInput already skips anything not starting
@@ -146,10 +147,6 @@ function mapValue(value: unknown, files: FilePathRef[]): unknown {
 // `--style painterly` would silently get auto-uploaded as soon as a
 // file named `painterly` existed in cwd. We require either an explicit
 // path-like prefix/separator, or a recognizable media extension.
-const MEDIA_EXT = new Set([
-  "png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff", "avif",
-  "mp4", "mov", "webm", "mp3", "wav", "ogg", "flac", "m4a",
-]);
 
 function looksLikeMediaPath(value: string): boolean {
   if (

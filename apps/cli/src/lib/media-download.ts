@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, extname, resolve } from "node:path";
 
+import { MEDIA_EXT } from "./media-types.js";
 import { isRecord } from "./types.js";
 
 export type MediaRef = {
@@ -23,26 +24,6 @@ export function extractMediaRefs(result: unknown): MediaRef[] {
   return refs;
 }
 
-const MEDIA_EXTS = new Set([
-  "png",
-  "jpg",
-  "jpeg",
-  "webp",
-  "gif",
-  "bmp",
-  "tif",
-  "tiff",
-  "avif",
-  "mp4",
-  "mov",
-  "webm",
-  "mp3",
-  "wav",
-  "ogg",
-  "flac",
-  "m4a",
-]);
-
 function visit(value: unknown, refs: MediaRef[], seen: Set<string>): void {
   if (Array.isArray(value)) {
     for (const v of value) visit(v, refs, seen);
@@ -56,7 +37,7 @@ function visit(value: unknown, refs: MediaRef[], seen: Set<string>): void {
     const filenameField = typeof value.file_name === "string" ? value.file_name : null;
     const ext = filenameField ? extname(filenameField).slice(1).toLowerCase() : extFromUrl(url);
     const looksMedia =
-      contentType !== null ? /^(image|video|audio)\//.test(contentType) : MEDIA_EXTS.has(ext);
+      contentType !== null ? /^(image|video|audio)\//.test(contentType) : MEDIA_EXT.has(ext);
     if (looksMedia) {
       seen.add(url);
       refs.push({

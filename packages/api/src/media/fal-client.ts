@@ -1,54 +1,36 @@
+import { createFalClient, type FalClient } from "@fal-ai/client";
 import { TRPCError } from "@trpc/server";
 
-import { fetchProviderJson, fetchProviderResponse, isRecord, readJsonBounded } from "./provider-io";
+import { fetchProviderJson, isRecord } from "./provider-io";
 
-const DEFAULT_QUEUE_ROOT = "https://queue.fal.run";
 const DEFAULT_PLATFORM_ROOT = "https://api.fal.ai/v1";
 const DEFAULT_DOCS_MCP_URL = "https://docs.fal.ai/mcp";
-
-// fal status_url / response_url are echoed back from the queue submit
-// response and we attach the API key when polling them. Restrict the
-// hosts we'll authenticate against so a future server-side bug or
-// compromised path can't redirect the key off-platform.
-const FAL_TRUSTED_QUEUE_HOSTS = new Set(["queue.fal.run"]);
+const DEFAULT_STORAGE_INITIATE_URL = "https://rest.alpha.fal.ai/storage/upload/initiate";
 
 export type FalConfig = {
   apiKey: string;
-  /** Override for the queue root, e.g. a Cloudflare AI Gateway prefix. */
+  /** Override for the queue root, e.g. a Cloudflare AI Gateway prefix.
+   *  Routed through the SDK's `proxyUrl` so the AI Gateway becomes the
+   *  effective host for every fal.queue.* call. */
   queueBaseUrl?: string;
-  /** Override for the platform (api.fal.ai/v1) root. */
+  /** Override for the platform (api.fal.ai/v1) root. Used by direct
+   *  fetches; the SDK doesn't expose these endpoints. */
   platformBaseUrl?: string;
   /** Override for the docs MCP endpoint. */
   docsBaseUrl?: string;
+  /** Override for the storage initiate URL. */
+  storageInitiateUrl?: string;
 };
 
 function falHeaders(apiKey: string): Record<string, string> {
-  // X-Fal-Store-IO: instructs fal to store outputs in its CDN and
-  // return URLs in the result payload, instead of inlining bytes.
-  // Critical here because the router returns raw `result.data` to
-  // callers — if a model inlined base64 bytes we'd blow past
-  // MAX_FAL_PLATFORM_JSON_BYTES on big outputs.
-  // x-app-fal-disable-fallback: turn off the silent fallback to a
-  // different endpoint when the primary is unavailable; we'd rather
-  // surface the failure than serve unexpected output from another model.
   return {
     Authorization: `Key ${apiKey}`,
     Accept: "application/json",
-    "X-Fal-Store-IO": "1",
-    "x-app-fal-disable-fallback": "true",
   };
 }
 
 function trimSlash(url: string): string {
   return url.endsWith("/") ? url.slice(0, -1) : url;
-}
-
-function queueRoot(cfg: FalConfig): string {
-  const root =
-    typeof cfg.queueBaseUrl === "string" && cfg.queueBaseUrl.trim().length > 0
-      ? cfg.queueBaseUrl
-      : DEFAULT_QUEUE_ROOT;
-  return trimSlash(root);
 }
 
 function platformRoot(cfg: FalConfig): string {
@@ -67,218 +49,39 @@ function docsRoot(cfg: FalConfig): string {
   return trimSlash(root);
 }
 
-function hasCustomQueueRoot(cfg: FalConfig): boolean {
-  return typeof cfg.queueBaseUrl === "string" && cfg.queueBaseUrl.trim().length > 0;
-}
+// ---- Per-request fal client ------------------------------------------------
 
-function acceptableQueueUrl(value: unknown): string | null {
-  if (typeof value !== "string" || value.length === 0) return null;
-  let parsed: URL;
-  try {
-    parsed = new URL(value);
-  } catch {
-    return null;
-  }
-  if (parsed.protocol !== "https:") return null;
-  return FAL_TRUSTED_QUEUE_HOSTS.has(parsed.hostname) ? value : null;
-}
-
-function cleanEndpoint(endpointId: string): string {
-  return endpointId.replace(/^\/+|\/+$/g, "");
-}
-
-// ---- Queue API --------------------------------------------------------------
-
-export type FalQueueSubmitResponse = {
-  request_id?: string;
-  status_url?: string;
-  response_url?: string;
-  cancel_url?: string;
-};
-
-type RawQueueStatus = {
-  status?: string;
-  error?: unknown;
-  detail?: unknown;
-  response?: { error?: unknown; detail?: unknown };
-  logs?: unknown;
-  queue_position?: unknown;
-};
-
-export type FalQueueStatus = {
-  status: string;
-  queue_position?: number;
-  logs?: unknown;
-  error?: unknown;
-};
-
-function parseQueueSubmit(value: unknown): FalQueueSubmitResponse {
-  if (!isRecord(value)) return {};
-  return {
-    request_id: typeof value.request_id === "string" ? value.request_id : undefined,
-    status_url: typeof value.status_url === "string" ? value.status_url : undefined,
-    response_url: typeof value.response_url === "string" ? value.response_url : undefined,
-    cancel_url: typeof value.cancel_url === "string" ? value.cancel_url : undefined,
-  };
-}
-
-function parseQueueStatus(value: unknown): RawQueueStatus {
-  if (!isRecord(value)) return {};
-  const response = isRecord(value.response)
-    ? { error: value.response.error, detail: value.response.detail }
-    : undefined;
-  return {
-    status: typeof value.status === "string" ? value.status : undefined,
-    error: value.error,
-    detail: value.detail,
-    response,
-    logs: value.logs,
-    queue_position: value.queue_position,
-  };
-}
-
-function pickErrorReason(value: unknown): string | null {
-  if (!isRecord(value)) return null;
-  if (typeof value.error === "string" && value.error.length > 0) return value.error;
-  if (typeof value.detail === "string" && value.detail.length > 0) return value.detail;
-  if (isRecord(value.error) && typeof value.error.message === "string") {
-    return value.error.message;
-  }
-  return null;
-}
-
-export type QueueUrls = {
-  statusUrl: string;
-  responseUrl: string;
-  cancelUrl: string;
-};
-
-export function queueUrlsFor(
-  cfg: FalConfig,
-  endpointId: string,
-  requestId: string,
-  fromSubmit?: FalQueueSubmitResponse,
-): QueueUrls {
-  const root = queueRoot(cfg);
-  const ep = cleanEndpoint(endpointId);
-  // When a custom queue root is configured (e.g. a Cloudflare AI
-  // Gateway URL prefix), construct the status/response URLs ourselves
-  // so polls and result fetches keep flowing through the gateway. The
-  // absolute URLs that fal returns always point at queue.fal.run and
-  // would silently bypass the proxy.
-  const useCustom = hasCustomQueueRoot(cfg);
-  const constructed = {
-    statusUrl: `${root}/${ep}/requests/${requestId}/status`,
-    responseUrl: `${root}/${ep}/requests/${requestId}`,
-    cancelUrl: `${root}/${ep}/requests/${requestId}/cancel`,
-  };
-  if (useCustom) return constructed;
-  return {
-    statusUrl: acceptableQueueUrl(fromSubmit?.status_url) ?? constructed.statusUrl,
-    responseUrl: acceptableQueueUrl(fromSubmit?.response_url) ?? constructed.responseUrl,
-    cancelUrl: acceptableQueueUrl(fromSubmit?.cancel_url) ?? constructed.cancelUrl,
-  };
-}
-
-export async function submitQueue(
-  cfg: FalConfig,
-  endpointId: string,
-  input: Record<string, unknown>,
-): Promise<FalQueueSubmitResponse> {
-  return parseQueueSubmit(
-    await fetchProviderJson({
-      url: `${queueRoot(cfg)}/${cleanEndpoint(endpointId)}`,
-      label: "fal queue submit",
-      credentialed: true,
-      init: {
-        method: "POST",
-        headers: { ...falHeaders(cfg.apiKey), "Content-Type": "application/json" },
-        body: JSON.stringify(input),
+/**
+ * Build a fresh @fal-ai/client per request. The queueBaseUrl maps to the
+ * SDK's `proxyUrl` config so all queue traffic flows through a Cloudflare
+ * AI Gateway prefix when one is configured.
+ *
+ * Two response-shape directives are pinned via requestMiddleware:
+ *   X-Fal-Store-IO: 1            — keep outputs on fal CDN, not inlined
+ *   x-app-fal-disable-fallback   — surface failures instead of silently
+ *                                  routing to a different model
+ */
+export function getFalClient(cfg: FalConfig): FalClient {
+  const proxyUrl =
+    typeof cfg.queueBaseUrl === "string" && cfg.queueBaseUrl.trim().length > 0
+      ? { url: cfg.queueBaseUrl, when: "always" as const }
+      : undefined;
+  return createFalClient({
+    credentials: cfg.apiKey,
+    proxyUrl,
+    requestMiddleware: async (req) => ({
+      ...req,
+      headers: {
+        ...req.headers,
+        "X-Fal-Store-IO": "1",
+        "x-app-fal-disable-fallback": "true",
       },
     }),
-  );
-}
-
-export async function statusQueue(
-  cfg: FalConfig,
-  statusUrl: string,
-  options?: { logs?: boolean },
-): Promise<FalQueueStatus> {
-  const url = new URL(statusUrl);
-  url.searchParams.set("logs", options?.logs ? "1" : "0");
-  const raw = parseQueueStatus(
-    await fetchProviderJson({
-      url,
-      label: "fal queue status",
-      credentialed: true,
-      init: { headers: falHeaders(cfg.apiKey) },
-    }),
-  );
-  const status = (raw.status ?? "").toUpperCase();
-  return {
-    status: status || "UNKNOWN",
-    queue_position: typeof raw.queue_position === "number" ? raw.queue_position : undefined,
-    logs: raw.logs,
-    error: pickErrorReason(raw) ?? pickErrorReason(raw.response) ?? undefined,
-  };
-}
-
-export async function fetchQueueResult(
-  cfg: FalConfig,
-  responseUrl: string,
-): Promise<{ data: unknown; billableUnits: string | null }> {
-  const res = await fetchProviderResponse({
-    url: responseUrl,
-    label: "fal result fetch",
-    credentialed: true,
-    init: { headers: falHeaders(cfg.apiKey) },
-  });
-  const data = await readJsonBounded(res, "fal result response");
-  return { data, billableUnits: res.headers.get("x-fal-billable-units") };
-}
-
-export async function cancelQueue(cfg: FalConfig, cancelUrl: string): Promise<void> {
-  await fetchProviderResponse({
-    url: cancelUrl,
-    label: "fal queue cancel",
-    credentialed: true,
-    init: { method: "PUT", headers: falHeaders(cfg.apiKey) },
   });
 }
 
-const POLL_INTERVAL_MS = 2_000;
-// Sync `vg media run` waits inline for fal to finish. 90s was fine for
-// image-only, but the new media router proxies video/audio/3D models
-// that routinely take several minutes. Cap at 5 minutes to stay
-// comfortably under the Worker request-duration ceiling; anything
-// longer should use `--async` + `vg media status`.
-const POLL_TIMEOUT_MS = 5 * 60 * 1000;
-
-export async function pollUntilComplete(cfg: FalConfig, statusUrl: string): Promise<void> {
-  const deadline = Date.now() + POLL_TIMEOUT_MS;
-  while (true) {
-    const status = await statusQueue(cfg, statusUrl);
-    if (status.status === "COMPLETED") return;
-    if (status.status === "FAILED" || status.status === "CANCELLED") {
-      const reason = typeof status.error === "string" ? status.error : null;
-      throw new TRPCError({
-        code: "BAD_GATEWAY",
-        message: reason
-          ? `fal job ended with status ${status.status}: ${reason}`
-          : `fal job ended with status ${status.status}.`,
-      });
-    }
-    if (Date.now() > deadline) {
-      throw new TRPCError({
-        code: "GATEWAY_TIMEOUT",
-        message: `fal job did not complete within ${POLL_TIMEOUT_MS}ms.`,
-      });
-    }
-    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-  }
-}
-
-// ---- Platform / Models / Schema / Pricing / Docs ----------------------------
+// ---- Platform / Models / Schema / Pricing / Docs ---------------------------
+// SDK doesn't cover these; keep direct fetches.
 
 export type ModelsQuery = {
   q?: string;
@@ -337,9 +140,6 @@ export async function getPricing(cfg: FalConfig, endpointId: string): Promise<un
 }
 
 export async function searchDocs(cfg: FalConfig, query: string): Promise<unknown> {
-  // The genmedia CLI POSTs MCP-style requests at docs.fal.ai/mcp.
-  // We forward the same shape; the response is opaque-ish JSON we
-  // pass back to the caller.
   return fetchProviderJson({
     url: docsRoot(cfg),
     label: "fal docs search",
@@ -355,4 +155,88 @@ export async function searchDocs(cfg: FalConfig, query: string): Promise<unknown
       }),
     },
   });
+}
+
+// ---- Storage upload init ---------------------------------------------------
+// SDK exposes only the all-in-one upload(blob); we want just the initiate
+// step so the client can PUT bytes directly without proxying through the
+// worker. Hence the bespoke fetch + trusted-host pinning below.
+
+const FAL_TRUSTED_STORAGE_HOSTS = [
+  ".fal.media",
+  ".fal.run",
+  ".fal.ai",
+  ".storage.googleapis.com",
+];
+
+function isTrustedStorageHost(hostname: string): boolean {
+  return FAL_TRUSTED_STORAGE_HOSTS.some((suffix) => {
+    const apex = suffix.startsWith(".") ? suffix.slice(1) : suffix;
+    return hostname === apex || hostname.endsWith(suffix);
+  });
+}
+
+function assertTrustedStorageUrl(value: unknown, label: string): string {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new TRPCError({
+      code: "BAD_GATEWAY",
+      message: `fal storage initiate did not return ${label}.`,
+    });
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new TRPCError({
+      code: "BAD_GATEWAY",
+      message: `fal storage initiate ${label} is not a valid URL.`,
+    });
+  }
+  if (parsed.protocol !== "https:" || !isTrustedStorageHost(parsed.hostname)) {
+    throw new TRPCError({
+      code: "BAD_GATEWAY",
+      message: `fal storage initiate ${label} returned an untrusted host: ${parsed.hostname}`,
+    });
+  }
+  return value;
+}
+
+export type FalUploadSlot = {
+  uploadUrl: string;
+  fileUrl: string;
+  contentType: string;
+};
+
+export async function initiateStorageUpload(
+  cfg: FalConfig,
+  meta: { filename: string; contentType: string },
+): Promise<FalUploadSlot> {
+  const url =
+    typeof cfg.storageInitiateUrl === "string" && cfg.storageInitiateUrl.trim().length > 0
+      ? cfg.storageInitiateUrl
+      : DEFAULT_STORAGE_INITIATE_URL;
+  const data = await fetchProviderJson({
+    url,
+    label: "fal storage initiate",
+    credentialed: true,
+    init: {
+      method: "POST",
+      headers: { ...falHeaders(cfg.apiKey), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        content_type: meta.contentType,
+        file_name: meta.filename,
+      }),
+    },
+  });
+  if (!isRecord(data)) {
+    throw new TRPCError({
+      code: "BAD_GATEWAY",
+      message: "fal storage initiate response was not an object.",
+    });
+  }
+  return {
+    uploadUrl: assertTrustedStorageUrl(data.upload_url, "upload_url"),
+    fileUrl: assertTrustedStorageUrl(data.file_url, "file_url"),
+    contentType: meta.contentType,
+  };
 }

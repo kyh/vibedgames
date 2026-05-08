@@ -1,10 +1,8 @@
-// Inputs are uploaded to R2 first; the tRPC body only carries refs and params.
-// Outputs (fal CDN URLs) are returned to the caller without proxying bytes,
-// so the old MAX_OUTPUT_IMAGE_BYTES boundary doesn't apply here.
-
-export const MAX_INPUT_FILES = 8;
-export const MAX_INPUT_FILE_BYTES = 25 * 1024 * 1024;
-export const MAX_INPUT_TOTAL_BYTES = 100 * 1024 * 1024;
+// Input bytes never transit the worker — clients PUT directly to a
+// fal-issued presigned URL. The server's only role is provisioning that
+// URL, so the cap below is a sanity guard on the metadata before we
+// hand out an upload slot.
+export const MAX_INPUT_FILE_BYTES = 100 * 1024 * 1024;
 
 export const MAX_PARAMS_BYTES = 1 * 1024 * 1024;
 export const MAX_TRPC_BODY_BYTES = 4 * 1024 * 1024;

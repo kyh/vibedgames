@@ -1,52 +1,26 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
-import { presignGet, presignPut } from "../deploy/r2-presign";
-import type { MediaProviderConfig, R2Config } from "../trpc";
+import type { MediaProviderConfig } from "../trpc";
 import { createTRPCRouter, protectedProcedure } from "../trpc";
 import {
-  cancelQueue,
-  fetchQueueResult,
+  getFalClient,
   getModelSchema,
   getPricing,
+  initiateStorageUpload,
   listModels,
-  pollUntilComplete,
-  queueUrlsFor,
   searchDocs,
-  statusQueue,
-  submitQueue,
   type FalConfig,
 } from "./fal-client";
-import {
-  MAX_INPUT_FILE_BYTES,
-  MAX_INPUT_FILES,
-  MAX_INPUT_TOTAL_BYTES,
-  MAX_PARAMS_BYTES,
-} from "./limits";
+import { MAX_INPUT_FILE_BYTES, MAX_PARAMS_BYTES } from "./limits";
 import { isRecord } from "./provider-io";
-
-// 24h GET TTL — large enough to cover async queue waits on slow
-// modalities (video, 3D) where fal's worker may not fetch the input
-// for many minutes after submit. The clock starts at createInputUploads
-// time (concurrent with the PUT presign), so it must comfortably exceed
-// the upload duration plus the worst-case queue latency.
-const PRESIGN_TTL_SECONDS = 24 * 60 * 60;
-const INPUT_UPLOAD_TTL_SECONDS = 900;
 
 // ---- Schemas ----------------------------------------------------------------
 
-const inputUploadSchema = z.object({
+const uploadInput = z.object({
   filename: z.string().min(1).max(256),
   contentType: z.string().min(1).max(127),
   sizeBytes: z.number().int().positive().max(MAX_INPUT_FILE_BYTES),
-});
-
-const createInputUploadsInput = z.object({
-  files: z.array(inputUploadSchema).min(1).max(MAX_INPUT_FILES),
-});
-
-const cleanupInputUploadsInput = z.object({
-  keys: z.array(z.string().min(1).max(512)).max(MAX_INPUT_FILES),
 });
 
 const endpointIdSchema = z.string().min(1).max(256);
@@ -55,7 +29,6 @@ const requestIdSchema = z.string().min(1).max(256);
 const runInput = z.object({
   endpoint_id: endpointIdSchema,
   input: z.record(z.string(), z.unknown()).default({}),
-  async: z.boolean().default(false),
 });
 
 const statusInput = z.object({
@@ -90,16 +63,6 @@ const docsInput = z.object({
 
 // ---- Helpers ----------------------------------------------------------------
 
-function requireR2(r2: R2Config | undefined): R2Config {
-  if (!r2) {
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: "R2 is not configured on this worker.",
-    });
-  }
-  return r2;
-}
-
 function pickFalConfig(media: MediaProviderConfig | undefined): FalConfig {
   if (!media?.fal) {
     throw new TRPCError({
@@ -132,89 +95,31 @@ function jsonByteLength(value: unknown): number {
   return new TextEncoder().encode(serialized).byteLength;
 }
 
-function assertInputKeyOwnedByUser(key: string, userId: string): void {
-  const prefix = `media-inputs/${userId}/`;
-  if (!key.startsWith(prefix)) {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: "Input file ref does not belong to this user.",
-    });
-  }
-}
-
-function inputUploadKey(userId: string, uploadId: string, index: number): string {
-  return `media-inputs/${userId}/${uploadId}/${String(index + 1).padStart(2, "0")}`;
-}
-
-function assertInputTotalBytes(files: Array<{ sizeBytes: number }>): void {
-  const total = files.reduce((sum, f) => sum + f.sizeBytes, 0);
-  if (total > MAX_INPUT_TOTAL_BYTES) {
-    throw new TRPCError({
-      code: "PAYLOAD_TOO_LARGE",
-      message: `Input files total ${total} bytes exceeds ${MAX_INPUT_TOTAL_BYTES} bytes.`,
-    });
-  }
-}
-
 // ---- Router -----------------------------------------------------------------
 
 export const mediaRouter = createTRPCRouter({
   /**
-   * Mint short-lived R2 PUT URLs for media inputs. The CLI uploads to these,
-   * then references the resulting presigned GET URLs in the `input` payload
-   * of `media.run` (e.g. as `image_url`). fal fetches the URLs server-side.
+   * Provision a fal-issued upload slot. The client PUTs bytes directly
+   * to `uploadUrl` (fal's presigned storage URL) and references
+   * `fileUrl` (the resulting fal CDN URL) in subsequent `media.run`
+   * calls. The proxy never sees the bytes — its only job here is
+   * brokering the fal API key.
    */
-  createInputUploads: protectedProcedure
-    .input(createInputUploadsInput)
-    .mutation(async ({ ctx, input }) => {
-      assertInputTotalBytes(input.files);
-      const r2 = requireR2(ctx.r2);
-      const userId = ctx.session.user.id;
-      const uploadId = crypto.randomUUID();
-
-      const uploads = await Promise.all(
-        input.files.map(async (file, index) => {
-          const key = inputUploadKey(userId, uploadId, index);
-          const [putUrl, getUrl] = await Promise.all([
-            presignPut({
-              r2,
-              key,
-              contentType: file.contentType,
-              expiresInSeconds: INPUT_UPLOAD_TTL_SECONDS,
-            }),
-            presignGet({ r2, key, expiresInSeconds: PRESIGN_TTL_SECONDS }),
-          ]);
-          return {
-            putUrl,
-            getUrl,
-            headers: { "content-type": file.contentType },
-            ref: {
-              key,
-              filename: file.filename,
-              contentType: file.contentType,
-              sizeBytes: file.sizeBytes,
-            },
-          };
-        }),
-      );
-
-      return { uploads };
-    }),
-
-  cleanupInputUploads: protectedProcedure
-    .input(cleanupInputUploadsInput)
-    .mutation(async ({ ctx, input }) => {
-      const r2 = requireR2(ctx.r2);
-      const userId = ctx.session.user.id;
-      for (const key of input.keys) assertInputKeyOwnedByUser(key, userId);
-      await Promise.all(input.keys.map((key) => r2.bucket.delete(key)));
-      return { deleted: input.keys.length };
-    }),
+  upload: protectedProcedure.input(uploadInput).mutation(async ({ ctx, input }) => {
+    const cfg = pickFalConfig(ctx.media);
+    const slot = await initiateStorageUpload(cfg, {
+      filename: input.filename,
+      contentType: input.contentType,
+    });
+    return slot;
+  }),
 
   /**
-   * Submit a job to fal's queue. With `async: false` (the default), poll
-   * until completion and return the raw result. With `async: true`, return
-   * the request_id immediately so callers can poll via `media.status`.
+   * Submit a job to fal's queue and return the request_id immediately.
+   * Sync waits are the *client's* job — see `media.status` with
+   * action: "status" / "result". Keeping the Worker out of the poll
+   * loop avoids long-lived requests (and Worker timeouts) for
+   * video/3D models that can take minutes.
    */
   run: protectedProcedure.input(runInput).mutation(async ({ ctx, input }) => {
     const cfg = pickFalConfig(ctx.media);
@@ -227,33 +132,12 @@ export const mediaRouter = createTRPCRouter({
       });
     }
 
-    const submission = await submitQueue(cfg, input.endpoint_id, input.input);
-    const requestId = submission.request_id;
-    if (!requestId) {
-      throw new TRPCError({
-        code: "BAD_GATEWAY",
-        message: "fal queue submit did not return a request_id.",
-      });
-    }
-
-    if (input.async) {
-      return {
-        status: "submitted" as const,
-        endpoint_id: input.endpoint_id,
-        request_id: requestId,
-      };
-    }
-
-    const urls = queueUrlsFor(cfg, input.endpoint_id, requestId, submission);
-    await pollUntilComplete(cfg, urls.statusUrl);
-    const { data, billableUnits } = await fetchQueueResult(cfg, urls.responseUrl);
-
+    const fal = getFalClient(cfg);
+    const submission = await fal.queue.submit(input.endpoint_id, { input: input.input });
     return {
-      status: "completed" as const,
+      status: "submitted" as const,
       endpoint_id: input.endpoint_id,
-      request_id: requestId,
-      result: data,
-      billable_units: billableUnits,
+      request_id: submission.request_id,
     };
   }),
 
@@ -262,10 +146,10 @@ export const mediaRouter = createTRPCRouter({
    */
   status: protectedProcedure.input(statusInput).mutation(async ({ ctx, input }) => {
     const cfg = pickFalConfig(ctx.media);
-    const urls = queueUrlsFor(cfg, input.endpoint_id, input.request_id);
+    const fal = getFalClient(cfg);
 
     if (input.action === "cancel") {
-      await cancelQueue(cfg, urls.cancelUrl);
+      await fal.queue.cancel(input.endpoint_id, { requestId: input.request_id });
       return {
         action: "cancel" as const,
         endpoint_id: input.endpoint_id,
@@ -273,21 +157,27 @@ export const mediaRouter = createTRPCRouter({
       };
     }
     if (input.action === "result") {
-      const { data, billableUnits } = await fetchQueueResult(cfg, urls.responseUrl);
+      const { data } = await fal.queue.result(input.endpoint_id, {
+        requestId: input.request_id,
+      });
       return {
         action: "result" as const,
         endpoint_id: input.endpoint_id,
         request_id: input.request_id,
         result: data,
-        billable_units: billableUnits,
       };
     }
-    const status = await statusQueue(cfg, urls.statusUrl, { logs: input.logs });
+    const status = await fal.queue.status(input.endpoint_id, {
+      requestId: input.request_id,
+      logs: input.logs,
+    });
     return {
       action: "status" as const,
       endpoint_id: input.endpoint_id,
       request_id: input.request_id,
-      ...status,
+      status: status.status,
+      queue_position: "queue_position" in status ? status.queue_position : undefined,
+      logs: "logs" in status ? status.logs : undefined,
     };
   }),
 

@@ -1,21 +1,15 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { afterEach, test } from "node:test";
 
 import { downloadMedia, extractMediaRefs } from "../src/lib/media-download.js";
+import { makeCleanups, makeTmpDir } from "./_helpers.js";
 
-const cleanups: (() => void)[] = [];
-afterEach(() => {
-  while (cleanups.length) cleanups.pop()?.();
-});
+const { cleanups, drain } = makeCleanups();
+afterEach(drain);
 
-function tmpDir(): string {
-  const dir = mkdtempSync(join(tmpdir(), "vg-dl-"));
-  cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
-  return dir;
-}
+const tmpDir = () => makeTmpDir(cleanups, "vg-dl-");
 
 test("extractMediaRefs picks up image content_type entries", () => {
   const result = {
