@@ -120,11 +120,41 @@ function mapValue(value: unknown, files: FilePathRef[]): unknown {
   return token;
 }
 
+// Conservative "this string is a media path" heuristic. Without it,
+// `--style painterly` would silently get auto-uploaded as soon as a
+// file named `painterly` existed in cwd. We require either an explicit
+// path-like prefix/separator, or a recognizable media extension.
+const MEDIA_EXT = new Set([
+  "png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff", "avif",
+  "mp4", "mov", "webm", "mp3", "wav", "ogg", "flac", "m4a",
+]);
+
+function looksLikeMediaPath(value: string): boolean {
+  if (
+    value.startsWith("./") ||
+    value.startsWith("../") ||
+    value.startsWith(".\\") ||
+    value.startsWith("..\\") ||
+    value.startsWith("~/") ||
+    value.startsWith("/") ||
+    value.includes("/") ||
+    value.includes("\\")
+  ) {
+    return true;
+  }
+  const dot = value.lastIndexOf(".");
+  if (dot === -1 || dot === value.length - 1) return false;
+  return MEDIA_EXT.has(value.slice(dot + 1).toLowerCase());
+}
+
 function readLocalFile(value: string): Omit<FilePathRef, "token"> | null {
   // Skip values that are clearly not paths.
   if (value.startsWith("http://") || value.startsWith("https://")) return null;
   if (value.startsWith("data:")) return null;
   if (value.length === 0) return null;
+  // Avoid the painterly-vs-painterly-file footgun: don't even stat()
+  // bare tokens that don't look like paths to a human reader.
+  if (!looksLikeMediaPath(value)) return null;
   const abs = isAbsolute(value) ? value : resolve(value);
   if (!existsSync(abs)) return null;
   let stat;

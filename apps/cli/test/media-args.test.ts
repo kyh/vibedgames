@@ -115,6 +115,30 @@ test("extractLocalFiles only matches paths that exist on disk", () => {
   assert.equal(rewritten.nope, "does/not/exist.png");
 });
 
+test("extractLocalFiles ignores bare tokens that happen to match a local file", () => {
+  // `--style painterly` should stay a string even if a file named
+  // `painterly` exists in cwd. Only path-like values (with separators
+  // or media extensions) qualify for auto-upload.
+  const dir = mkdtempSync(join(tmpdir(), "vg-bare-"));
+  cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+  const cwd = process.cwd();
+  process.chdir(dir);
+  cleanups.push(() => process.chdir(cwd));
+  writeFileSync(join(dir, "painterly"), "x");
+  writeFileSync(join(dir, "cat.png"), "x");
+
+  const { files, rewritten } = extractLocalFiles({
+    style: "painterly",
+    image_url: "cat.png",
+    prompt: "a painterly cat",
+  });
+  // Only cat.png (media extension) auto-uploads; painterly stays a string.
+  assert.equal(files.length, 1);
+  assert.equal(rewritten.style, "painterly");
+  assert.equal(rewritten.prompt, "a painterly cat");
+  assert.match(rewritten.image_url as string, /^__vg_upload_\d+__$/);
+});
+
 test("extractLocalFiles walks arrays and nested objects", () => {
   const a = tmpFile("a.png");
   const b = tmpFile("b.png");
