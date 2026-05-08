@@ -1,7 +1,9 @@
 import { openAsBlob } from "node:fs";
 
-import { createClient } from "./api.js";
+import type { createClient } from "./api.js";
 import type { FilePathRef } from "./media-args.js";
+
+type Client = ReturnType<typeof createClient>;
 
 /**
  * Upload local files directly to fal's CDN. The proxy hands us a
@@ -10,9 +12,11 @@ import type { FilePathRef } from "./media-args.js";
  * resulting fileUrls are stable fal CDN URLs that can be reused
  * across runs without re-uploading.
  */
-export async function uploadFiles(files: FilePathRef[]): Promise<{ urls: string[] }> {
+export async function uploadFiles(
+  client: Client,
+  files: FilePathRef[],
+): Promise<{ urls: string[] }> {
   if (files.length === 0) return { urls: [] };
-  const client = createClient();
 
   const urls = await Promise.all(
     files.map(async (file) => {

@@ -1,5 +1,6 @@
 import { existsSync, statSync } from "node:fs";
-import { basename, extname, isAbsolute, resolve } from "node:path";
+import { homedir } from "node:os";
+import { basename, extname, isAbsolute, join, resolve } from "node:path";
 
 import { MEDIA_EXT } from "./media-types.js";
 import { isRecord } from "./types.js";
@@ -190,8 +191,20 @@ export function readExplicitLocalFile(value: string): Omit<FilePathRef, "token">
   return statLocalFile(value);
 }
 
+function expandHome(value: string): string {
+  // node:path's resolve() doesn't expand `~` — that's a shell feature.
+  // We expand it ourselves so quoted paths like `--image_url "~/photo.png"`
+  // work the way users (and looksLikeMediaPath) expect.
+  if (value === "~") return homedir();
+  if (value.startsWith("~/") || value.startsWith("~\\")) {
+    return join(homedir(), value.slice(2));
+  }
+  return value;
+}
+
 function statLocalFile(value: string): Omit<FilePathRef, "token"> | null {
-  const abs = isAbsolute(value) ? value : resolve(value);
+  const expanded = expandHome(value);
+  const abs = isAbsolute(expanded) ? expanded : resolve(expanded);
   if (!existsSync(abs)) return null;
   let stat;
   try {
