@@ -64,7 +64,7 @@ function docsRoot(cfg: FalConfig): string {
     typeof cfg.docsBaseUrl === "string" && cfg.docsBaseUrl.trim().length > 0
       ? cfg.docsBaseUrl
       : DEFAULT_DOCS_MCP_URL;
-  return root;
+  return trimSlash(root);
 }
 
 function hasCustomQueueRoot(cfg: FalConfig): boolean {

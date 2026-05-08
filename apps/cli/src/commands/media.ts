@@ -51,6 +51,7 @@ const runCommand = defineCommand({
 
     const tokenToUrl = new Map<string, string>();
     let uploadedRefs: Awaited<ReturnType<typeof uploadFiles>>["refs"] = [];
+    let submitSucceeded = false;
 
     try {
       if (files.length > 0) {
@@ -72,6 +73,7 @@ const runCommand = defineCommand({
         input: finalInput,
         async: Boolean(args.async),
       });
+      submitSucceeded = true;
 
       if (result.status === "submitted") {
         const payload = {
@@ -127,12 +129,12 @@ const runCommand = defineCommand({
       // them. The sync path waits via pollUntilComplete on the server,
       // so cleanup here is post-fetch. With --async we return right
       // after queue submit — fal's worker fetches the presigned GET
-      // URLs later, and deleting now would 404 the run. The objects
-      // are scoped under media-inputs/{userId}/{uploadId}/ so they
-      // can be swept by a server-side lifecycle policy or a future
-      // garbage-collect job; we intentionally leak them here rather
-      // than break async runs.
-      if (!args.async) await cleanupUploads(uploadedRefs).catch(() => undefined);
+      // URLs later, and deleting now would 404 the run. On async
+      // failure (submitSucceeded=false), fal never received the
+      // request, so we must clean up to prevent leaks.
+      if (!args.async || !submitSucceeded) {
+        await cleanupUploads(uploadedRefs).catch(() => undefined);
+      }
     }
   },
 });
