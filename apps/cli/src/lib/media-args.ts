@@ -71,6 +71,10 @@ function parseValue(raw: string): unknown {
 }
 
 export type FilePathRef = {
+  /** Placeholder token written into `rewritten` and later swapped for
+   *  the post-upload URL. Kept on the ref itself so the file/URL mapping
+   *  has a single source of truth instead of two parallel collections. */
+  token: string;
   path: string;
   filename: string;
   contentType: string;
@@ -89,37 +93,34 @@ export type FilePathRef = {
  */
 export function extractLocalFiles(input: Record<string, unknown>): {
   files: FilePathRef[];
-  tokens: Map<string, string>;
   rewritten: Record<string, unknown>;
 } {
   const files: FilePathRef[] = [];
-  const tokens = new Map<string, string>();
   const rewritten: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(input)) {
-    rewritten[key] = mapValue(value, files, tokens);
+    rewritten[key] = mapValue(value, files);
   }
-  return { files, tokens, rewritten };
+  return { files, rewritten };
 }
 
-function mapValue(value: unknown, files: FilePathRef[], tokens: Map<string, string>): unknown {
+function mapValue(value: unknown, files: FilePathRef[]): unknown {
   if (Array.isArray(value)) {
-    return value.map((v) => mapValue(v, files, tokens));
+    return value.map((v) => mapValue(v, files));
   }
   if (isRecord(value)) {
     const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value)) out[k] = mapValue(v, files, tokens);
+    for (const [k, v] of Object.entries(value)) out[k] = mapValue(v, files);
     return out;
   }
   if (typeof value !== "string") return value;
-  const ref = readLocalFile(value);
-  if (!ref) return value;
+  const stat = readLocalFile(value);
+  if (!stat) return value;
   const token = `__vg_upload_${files.length}__`;
-  files.push(ref);
-  tokens.set(token, ref.path);
+  files.push({ token, ...stat });
   return token;
 }
 
-function readLocalFile(value: string): FilePathRef | null {
+function readLocalFile(value: string): Omit<FilePathRef, "token"> | null {
   // Skip values that are clearly not paths.
   if (value.startsWith("http://") || value.startsWith("https://")) return null;
   if (value.startsWith("data:")) return null;

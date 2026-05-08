@@ -103,11 +103,13 @@ test("extractLocalFiles only matches paths that exist on disk", () => {
     seed: 42,
     nope: "does/not/exist.png",
   };
-  const { files, tokens, rewritten } = extractLocalFiles(input);
+  const { files, rewritten } = extractLocalFiles(input);
   assert.equal(files.length, 1);
   assert.equal(files[0]!.path, realPath);
-  assert.equal(tokens.size, 1);
-  assert.match(rewritten.image_url as string, /^__vg_upload_\d+__$/);
+  assert.match(files[0]!.token, /^__vg_upload_\d+__$/);
+  // Token in the rewritten payload matches the one carried by the file
+  // ref — single source of truth, no parallel collections.
+  assert.equal(rewritten.image_url, files[0]!.token);
   assert.equal(rewritten.other_url, "https://example.com/foo.png");
   assert.equal(rewritten.seed, 42);
   assert.equal(rewritten.nope, "does/not/exist.png");

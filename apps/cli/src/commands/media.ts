@@ -47,7 +47,7 @@ const runCommand = defineCommand({
     // Strip the positional endpoint_id so we don't parse it as a param.
     const argvForInput = stripPositional(argv, args.endpoint_id);
     const parsed = parseRunInput(argvForInput);
-    const { files, tokens, rewritten } = extractLocalFiles(parsed);
+    const { files, rewritten } = extractLocalFiles(parsed);
 
     const tokenToUrl = new Map<string, string>();
     let uploadedRefs: Awaited<ReturnType<typeof uploadFiles>>["refs"] = [];
@@ -61,12 +61,12 @@ const runCommand = defineCommand({
       if (files.length > 0) {
         const { urls, refs } = await uploadFiles(files);
         uploadedRefs = refs;
-        // tokens preserves insertion order; uploadFiles returns urls in
-        // the same order as the input array.
-        let i = 0;
-        for (const token of tokens.keys()) {
-          const url = urls[i++];
-          if (url) tokenToUrl.set(token, url);
+        // Token lives on the FilePathRef, so we only zip with `urls`
+        // (which uploadFiles returns in input-array order). No reliance
+        // on an external Map's iteration order to stay in sync.
+        for (let i = 0; i < files.length; i++) {
+          const url = urls[i];
+          if (url) tokenToUrl.set(files[i]!.token, url);
         }
       }
       const finalInput = substituteTokens(rewritten, tokenToUrl);
