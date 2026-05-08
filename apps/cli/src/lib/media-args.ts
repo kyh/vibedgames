@@ -7,7 +7,15 @@ import { isRecord } from "./types.js";
 // with "--", so single-dash aliases (-h/-q) never need to be listed.
 const KNOWN_GLOBAL_FLAGS = new Set(["--json", "--help", "--quiet"]);
 
-const KNOWN_RUN_FLAGS = new Set(["--async", "--logs", "--download"]);
+// Run-command CLI flags that must NOT be forwarded to fal as model
+// inputs. `--async` is a citty-defined boolean on `vg media run` (it
+// switches the sync/queue path); we re-parse argv from scratch here,
+// so we have to filter it out ourselves. `--download` takes an optional
+// path/template that should never end up as a model param.
+// Note: `--logs` is intentionally not here. It's a `vg media status`
+// flag, not a `run` flag, so swallowing it would block users from
+// passing a legitimate `logs` parameter to a fal model endpoint.
+const KNOWN_RUN_FLAGS = new Set(["--async", "--download"]);
 
 /**
  * Parse `--<key> value` pairs from argv into a JS object, JSON-decoding

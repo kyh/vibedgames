@@ -52,7 +52,19 @@ test("parseRunInput collects repeated flags into an array", () => {
 test("parseRunInput skips known global flags but keeps their value-bearing neighbors", () => {
   const argv = ["--prompt", "x", "--json", "--async", "--logs"];
   const out = parseRunInput(argv);
-  assert.deepEqual(out, { prompt: "x" });
+  // `--logs` is a status-only flag, so it stays as a passthrough to
+  // the model — here it's a bare boolean (no value follows).
+  assert.deepEqual(out, { prompt: "x", logs: true });
+});
+
+test("parseRunInput passes --logs N through as a model parameter", () => {
+  // Some fal endpoints accept a `logs` parameter; --logs is NOT a
+  // `vg media run` CLI flag, only `vg media status` has it. Make sure
+  // we don't swallow it.
+  assert.deepEqual(parseRunInput(["--prompt", "x", "--logs", "5"]), {
+    prompt: "x",
+    logs: 5,
+  });
 });
 
 test("parseRunInput handles --download with and without a value", () => {
