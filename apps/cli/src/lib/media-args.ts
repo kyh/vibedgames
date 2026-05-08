@@ -28,23 +28,39 @@ export function parseRunInput(argv: string[]): Record<string, unknown> {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (!arg || !arg.startsWith("--")) continue;
-    if (KNOWN_GLOBAL_FLAGS.has(arg) || KNOWN_RUN_FLAGS.has(arg)) {
+    
+    // Handle both `--key value` and `--key=value` syntax
+    const eqIdx = arg.indexOf("=");
+    const baseFlag = eqIdx === -1 ? arg : arg.slice(0, eqIdx);
+    
+    if (KNOWN_GLOBAL_FLAGS.has(baseFlag) || KNOWN_RUN_FLAGS.has(baseFlag)) {
       // --download takes an optional value; skip it if present and not another flag
-      if (arg === "--download") {
+      if (baseFlag === "--download" && eqIdx === -1) {
         const next = argv[i + 1];
         if (next && !next.startsWith("--")) i++;
       }
       continue;
     }
-    const key = arg.slice(2);
-    const next = argv[i + 1];
-    if (next === undefined || next.startsWith("--")) {
+    
+    const key = baseFlag.slice(2);
+    let value: string | undefined;
+    
+    if (eqIdx !== -1) {
+      // `--key=value` form
+      value = arg.slice(eqIdx + 1);
+    } else {
+      // `--key value` form
+      value = argv[i + 1];
+    }
+    
+    if (value === undefined || (eqIdx === -1 && value.startsWith("--"))) {
       // Bare boolean flag
       assign(out, key, true);
       continue;
     }
-    assign(out, key, parseValue(next));
-    i++;
+    
+    assign(out, key, parseValue(value));
+    if (eqIdx === -1) i++; // Only skip next token if we used space-separated form
   }
   return out;
 }
@@ -255,8 +271,34 @@ function mapTokens(value: unknown, tokenToUrl: Map<string, string>): unknown {
 }
 
 export function parseDownloadFlag(argv: string[]): { mode: "off" | "on"; template?: string } {
-  const idx = argv.lastIndexOf("--download");
+  // Find --download or --download=value
+  let idx = -1;
+  let template: string | undefined;
+  
+  for (let i = argv.length - 1; i >= 0; i--) {
+    const arg = argv[i];
+    if (!arg) continue;
+    if (arg === "--download") {
+      idx = i;
+      break;
+    }
+    if (arg.startsWith("--download=")) {
+      idx = i;
+      template = arg.slice("--download=".length);
+      break;
+    }
+  }
+  
   if (idx === -1) return { mode: "off" };
+  
+  // If we already extracted template from --download=value, use it
+  if (template !== undefined) {
+    // Treat literal "true"/"false" as bare flag
+    if (template === "true" || template === "false") return { mode: "on" };
+    return { mode: "on", template };
+  }
+  
+  // Check space-separated form: --download value
   const next = argv[idx + 1];
   if (!next || next.startsWith("--")) return { mode: "on" };
   // Treat a literal "true"/"false" as a no-value boolean flag — users

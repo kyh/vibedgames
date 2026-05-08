@@ -43,6 +43,38 @@ test("parseRunInput parses string, number, bool, and JSON object values", () => 
   });
 });
 
+test("parseRunInput handles --key=value syntax", () => {
+  const argv = [
+    "--prompt=a cat",
+    "--num_images=3",
+    "--enable_safety=true",
+    "--bare_flag",
+  ];
+  const out = parseRunInput(argv);
+  assert.deepEqual(out, {
+    prompt: "a cat",
+    num_images: 3,
+    enable_safety: true,
+    bare_flag: true,
+  });
+});
+
+test("parseRunInput filters --async=value from equals syntax", () => {
+  const argv = ["--prompt=test", "--async=true", "--seed=42"];
+  const out = parseRunInput(argv);
+  assert.deepEqual(out, { prompt: "test", seed: 42 });
+});
+
+test("parseRunInput handles mixed space-separated and equals syntax", () => {
+  const argv = ["--prompt=hello", "--seed", "42", "--style=modern"];
+  const out = parseRunInput(argv);
+  assert.deepEqual(out, {
+    prompt: "hello",
+    seed: 42,
+    style: "modern",
+  });
+});
+
 test("parseRunInput collects repeated flags into an array", () => {
   const argv = ["--image_url", "a", "--image_url", "b", "--image_url", "c"];
   const out = parseRunInput(argv);
@@ -83,11 +115,24 @@ test("parseDownloadFlag returns mode + template", () => {
   assert.deepEqual(parseDownloadFlag(["--prompt", "x"]), { mode: "off" });
 });
 
+test("parseDownloadFlag handles --download=template syntax", () => {
+  assert.deepEqual(parseDownloadFlag(["--download=out/{name}.{ext}"]), {
+    mode: "on",
+    template: "out/{name}.{ext}",
+  });
+  assert.deepEqual(parseDownloadFlag(["--download=."]), {
+    mode: "on",
+    template: ".",
+  });
+});
+
 test('parseDownloadFlag treats literal "true"/"false" as a bare flag', () => {
   // Otherwise `vg media run … --download true` would create a
   // directory literally named "true".
   assert.deepEqual(parseDownloadFlag(["--download", "true"]), { mode: "on" });
   assert.deepEqual(parseDownloadFlag(["--download", "false"]), { mode: "on" });
+  assert.deepEqual(parseDownloadFlag(["--download=true"]), { mode: "on" });
+  assert.deepEqual(parseDownloadFlag(["--download=false"]), { mode: "on" });
 });
 
 test("extractLocalFiles infers content type via extname (handles dotted directories)", () => {
