@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { MediaProviderConfig } from "../trpc";
 import { createTRPCRouter, protectedProcedure } from "../trpc";
 import { MAX_PARAMS_BYTES } from "./limits";
-import { fetchProviderResponse, isRecord, readJsonBounded } from "./provider-io";
+import { fetchProviderResponse, readJsonBounded } from "./provider-io";
 
 // ---- fal target routing -----------------------------------------------------
 //
@@ -83,7 +83,27 @@ function buildUrl(
 ): URL {
   rejectTraversal(path);
   const url = new URL(base + path);
-  if (!url.toString().startsWith(base)) {
+  // Compare via parsed components rather than `toString().startsWith(base)`
+  // — the URL ctor normalizes default ports (`:443`), case-folds the
+  // hostname, and percent-encodes characters, any of which would make
+  // a string-prefix check spuriously fail.
+  let parsedBase: URL;
+  try {
+    parsedBase = new URL(base);
+  } catch {
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message: `target base URL is not parseable: ${base}`,
+    });
+  }
+  const sameOrigin = url.origin === parsedBase.origin;
+  const basePath = parsedBase.pathname.endsWith("/")
+    ? parsedBase.pathname
+    : `${parsedBase.pathname}/`;
+  const childPath = url.pathname.endsWith("/") ? url.pathname : `${url.pathname}/`;
+  const stayedUnderBase =
+    sameOrigin && (childPath === basePath || childPath.startsWith(basePath));
+  if (!stayedUnderBase) {
     throw new TRPCError({
       code: "BAD_REQUEST",
       message: "path resolves outside the target base.",
@@ -188,15 +208,6 @@ export const mediaRouter = createTRPCRouter({
     });
 
     if (res.status === 204 || res.headers.get("content-length") === "0") return null;
-    const data = await readJsonBounded(res, `fal ${input.target} response`);
-    return passthrough(data);
+    return readJsonBounded(res, `fal ${input.target} response`);
   }),
 });
-
-function passthrough(data: unknown): unknown {
-  // Fal occasionally wraps a primitive at the top level; superjson
-  // through tRPC handles primitives fine, but we keep this hook so a
-  // future per-target normalizer (e.g. adapting deprecated response
-  // shapes) has an obvious place to live.
-  return isRecord(data) || Array.isArray(data) ? data : data;
-}
