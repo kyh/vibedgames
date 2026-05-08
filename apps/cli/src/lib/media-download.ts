@@ -130,7 +130,14 @@ function renderTemplate(
     if (fromName) return fromName;
     return extFromUrl(ref.url) || "bin";
   })();
-  const stem = ref.filename.replace(new RegExp(`\\.${ext}$`, "i"), "") || "output";
+  const stem = (() => {
+    const lowerFilename = ref.filename.toLowerCase();
+    const lowerExt = ext.toLowerCase();
+    if (lowerFilename.endsWith(`.${lowerExt}`)) {
+      return ref.filename.slice(0, -(lowerExt.length + 1));
+    }
+    return ref.filename;
+  })() || "output";
   if (!template) return resolve(process.cwd(), ref.filename || `output-${index}.${ext}`);
   // No placeholder → caller meant a destination directory (e.g. ".",
   // "./", "../out", "out/"). The previous heuristic also rejected any
