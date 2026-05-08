@@ -78,6 +78,6 @@ export function pickDirections(n) {
     }
     return Array.from({ length: Math.max(1, n) }, () => match);
   }
-  const shuffled = [...DIRECTIONS].sort(() => Math.random() - 0.5);
+  const shuffled = [...DIRECTIONS].toSorted(() => Math.random() - 0.5);
   return shuffled.slice(0, Math.min(n, DIRECTIONS.length));
 }

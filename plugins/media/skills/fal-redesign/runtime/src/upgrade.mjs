@@ -136,7 +136,7 @@ async function callVision({ prompt, system_prompt, image_urls, temperature, max_
   } catch (e) {
     const body = e?.body ? (typeof e.body === "string" ? e.body : JSON.stringify(e.body)) : "";
     const status = e?.status ?? "?";
-    throw new Error(`openrouter/router/vision ${status}: ${e.message} ${body.slice(0, 500)}`);
+    throw new Error(`openrouter/router/vision ${status}: ${e.message} ${body.slice(0, 500)}`, { cause: e });
   }
 }
 

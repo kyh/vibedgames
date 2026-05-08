@@ -61,12 +61,11 @@ const runCommand = defineCommand({
       if (files.length > 0) {
         const { urls, refs } = await uploadFiles(files);
         uploadedRefs = refs;
-        // tokens preserves insertion order; uploadFiles returns urls in
-        // the same order as the input array.
-        let i = 0;
-        for (const token of tokens.keys()) {
-          const url = urls[i++];
-          if (url) tokenToUrl.set(token, url);
+        // Map each file's token to its corresponding URL
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          const url = urls[i];
+          if (file && url) tokenToUrl.set(file.token, url);
         }
       }
       const finalInput = substituteTokens(rewritten, tokenToUrl);

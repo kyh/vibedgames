@@ -75,6 +75,7 @@ export type FilePathRef = {
   filename: string;
   contentType: string;
   sizeBytes: number;
+  token: string;
 };
 
 /**
@@ -114,12 +115,13 @@ function mapValue(value: unknown, files: FilePathRef[], tokens: Map<string, stri
   const ref = readLocalFile(value);
   if (!ref) return value;
   const token = `__vg_upload_${files.length}__`;
-  files.push(ref);
-  tokens.set(token, ref.path);
+  const refWithToken = { ...ref, token };
+  files.push(refWithToken);
+  tokens.set(token, refWithToken.path);
   return token;
 }
 
-function readLocalFile(value: string): FilePathRef | null {
+function readLocalFile(value: string): Omit<FilePathRef, "token"> | null {
   // Skip values that are clearly not paths.
   if (value.startsWith("http://") || value.startsWith("https://")) return null;
   if (value.startsWith("data:")) return null;
