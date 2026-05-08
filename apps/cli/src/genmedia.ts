@@ -11,8 +11,12 @@
  * off process.argv) without re-implementing the whole command tree.
  */
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
-const vgEntry = new URL("./index.js", import.meta.url).pathname;
+// fileURLToPath, not `.pathname`: on Windows `URL.pathname` returns
+// `/C:/...` (with a leading slash) and on any platform it leaves
+// `%20`-encoded spaces, both of which break spawn().
+const vgEntry = fileURLToPath(new URL("./index.js", import.meta.url));
 const argv = process.argv.slice(2);
 
 const child = spawn(process.execPath, [vgEntry, "media", ...argv], {

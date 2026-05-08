@@ -132,9 +132,11 @@ function renderTemplate(
   })();
   const stem = ref.filename.replace(new RegExp(`\\.${ext}$`, "i"), "") || "output";
   if (!template) return resolve(process.cwd(), ref.filename || `output-${index}.${ext}`);
-  // Handle a value like ".", "./", "out/" as a directory + default filename.
-  const looksLikeDir = template.endsWith("/") || template.endsWith("\\") || !template.includes("{");
-  if (looksLikeDir && !template.includes(".")) {
+  // No placeholder → caller meant a destination directory (e.g. ".",
+  // "./", "../out", "out/"). The previous heuristic also rejected any
+  // template containing a literal ".", which broke "." and "./" — both
+  // common shorthands for "download here".
+  if (!template.includes("{")) {
     return resolve(template, ref.filename || `output-${index}.${ext}`);
   }
   const rendered = template
