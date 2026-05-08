@@ -9,6 +9,10 @@ type StatusPayload = Extract<StatusOutput, { action: "status" }>;
 type ResultPayload = Extract<StatusOutput, { action: "result" }>;
 
 const POLL_INTERVAL_MS = 2_000;
+// 30-minute ceiling on a sync run. Generous (this is the user's local
+// CLI process, not a billed Worker) but bounded so a stuck IN_QUEUE
+// job can't hang the CLI indefinitely. Long jobs should use --async.
+const POLL_TIMEOUT_MS = 30 * 60 * 1000;
 
 /**
  * Poll `media.status` from the client side until the queued job
@@ -23,8 +27,16 @@ export async function waitForCompletion(
   request_id: string,
   opts: { quiet: boolean },
 ): Promise<ResultPayload> {
+  const deadline = Date.now() + POLL_TIMEOUT_MS;
   let lastStatus: string | undefined;
   while (true) {
+    if (Date.now() > deadline) {
+      throw new Error(
+        `fal job did not complete within ${POLL_TIMEOUT_MS}ms ` +
+          `(endpoint=${endpoint_id} request_id=${request_id}). ` +
+          `Use \`vg media status ${endpoint_id} ${request_id} --result\` to check later.`,
+      );
+    }
     const status = (await client.media.status.mutate({
       endpoint_id,
       request_id,

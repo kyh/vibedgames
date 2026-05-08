@@ -87,9 +87,11 @@ test("parseDownloadFlag handles --download=template form", () => {
     mode: "on",
     template: "out/{ext}",
   });
-  // Empty inline value is bare-flag; "true"/"false" too.
+  // Empty inline value and "true" are bare-flag indicators.
   assert.deepEqual(parseDownloadFlag(["--download="]), { mode: "on" });
   assert.deepEqual(parseDownloadFlag(["--download=true"]), { mode: "on" });
+  // "false" explicitly opts out (useful for overriding wrapper defaults).
+  assert.deepEqual(parseDownloadFlag(["--download=false"]), { mode: "off" });
   // Last occurrence wins, mixed forms.
   assert.deepEqual(
     parseDownloadFlag(["--download=first", "--prompt", "x", "--download=second"]),
@@ -113,11 +115,13 @@ test("parseDownloadFlag returns mode + template", () => {
   assert.deepEqual(parseDownloadFlag(["--prompt", "x"]), { mode: "off" });
 });
 
-test('parseDownloadFlag treats literal "true"/"false" as a bare flag', () => {
-  // Otherwise `vg media run … --download true` would create a
-  // directory literally named "true".
+test('parseDownloadFlag honors literal "true"/"false" boolean intent', () => {
+  // `--download true` is a bare-flag indicator (otherwise it would
+  // create a directory literally named "true").
   assert.deepEqual(parseDownloadFlag(["--download", "true"]), { mode: "on" });
-  assert.deepEqual(parseDownloadFlag(["--download", "false"]), { mode: "on" });
+  // `--download false` is an explicit opt-out so wrapper-script
+  // defaults can be overridden.
+  assert.deepEqual(parseDownloadFlag(["--download", "false"]), { mode: "off" });
 });
 
 test("extractLocalFiles infers content type via extname (handles dotted directories)", () => {

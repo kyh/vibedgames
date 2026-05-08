@@ -283,15 +283,16 @@ export function parseDownloadFlag(argv: string[]): { mode: "off" | "on"; templat
   }
   if (lastIdx === -1) return { mode: "off" };
   const candidate = inlineValue ?? argv[lastIdx + 1];
+  // Honor an explicit `--download false` as an opt-out. Useful when a
+  // wrapper script sets a default and a caller wants to suppress it.
+  if (candidate === "false") return { mode: "off" };
   if (
     candidate === undefined ||
     candidate === "" ||
     candidate.startsWith("--") ||
-    // Treat literal "true"/"false" as a no-value boolean flag — users
-    // who type `--download true` (thinking the flag is boolean) would
-    // otherwise end up creating a directory literally named "true".
-    candidate === "true" ||
-    candidate === "false"
+    // `--download true` becomes a bare-flag indicator. Without this,
+    // the literal string "true" would be taken as a directory name.
+    candidate === "true"
   ) {
     return { mode: "on" };
   }
