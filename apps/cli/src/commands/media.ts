@@ -63,9 +63,10 @@ const runCommand = defineCommand({
     const { files, rewritten } = extractLocalFiles(parsed);
 
     const tokenToUrl = new Map<string, string>();
+    const client = createClient();
 
     if (files.length > 0) {
-      const { urls } = await uploadFiles(files);
+      const { urls } = await uploadFiles(client, files);
       // Bytes went straight to fal; we don't keep refs around because
       // there's nothing to clean up (fal manages its own storage).
       for (let i = 0; i < files.length; i++) {
@@ -74,8 +75,6 @@ const runCommand = defineCommand({
       }
     }
     const finalInput = substituteTokens(rewritten, tokenToUrl);
-
-    const client = createClient();
     const submitted = await client.media.run.mutate({
       endpoint_id: args.endpoint_id,
       input: finalInput,
@@ -360,7 +359,8 @@ const uploadCommand = defineCommand({
       consola.error(`File not found: ${args.path}`);
       process.exit(1);
     }
-    const { urls } = await uploadFiles([{ token: "__upload__", ...stat }]);
+    const client = createClient();
+    const { urls } = await uploadFiles(client, [{ token: "__upload__", ...stat }]);
     const url = urls[0];
     if (!url) {
       consola.error("Upload returned no URL.");

@@ -1,6 +1,8 @@
 import { openAsBlob } from "node:fs";
 
-import { createClient } from "./api.js";
+import type { AppRouter } from "@repo/api";
+import type { TRPCClient } from "@trpc/client";
+
 import type { FilePathRef } from "./media-args.js";
 
 /**
@@ -10,9 +12,11 @@ import type { FilePathRef } from "./media-args.js";
  * resulting fileUrls are stable fal CDN URLs that can be reused
  * across runs without re-uploading.
  */
-export async function uploadFiles(files: FilePathRef[]): Promise<{ urls: string[] }> {
+export async function uploadFiles(
+  client: TRPCClient<AppRouter>,
+  files: FilePathRef[],
+): Promise<{ urls: string[] }> {
   if (files.length === 0) return { urls: [] };
-  const client = createClient();
 
   const urls = await Promise.all(
     files.map(async (file) => {

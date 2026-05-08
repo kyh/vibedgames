@@ -1,4 +1,5 @@
 import { existsSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { basename, extname, isAbsolute, resolve } from "node:path";
 
 import { MEDIA_EXT } from "./media-types.js";
@@ -190,8 +191,16 @@ export function readExplicitLocalFile(value: string): Omit<FilePathRef, "token">
   return statLocalFile(value);
 }
 
+function expandTilde(value: string): string {
+  if (value.startsWith("~/")) {
+    return homedir() + value.slice(1);
+  }
+  return value;
+}
+
 function statLocalFile(value: string): Omit<FilePathRef, "token"> | null {
-  const abs = isAbsolute(value) ? value : resolve(value);
+  const expanded = expandTilde(value);
+  const abs = isAbsolute(expanded) ? expanded : resolve(expanded);
   if (!existsSync(abs)) return null;
   let stat;
   try {
