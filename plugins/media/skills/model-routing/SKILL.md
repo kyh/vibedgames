@@ -2,8 +2,9 @@
 name: model-routing
 description: >
   Choose default fal.ai endpoint IDs for genmedia production skills. Use this
-  with commercial, marketing, ugc, character-design, cinematography,
-  storytelling, and workflow when the user has not named a specific model.
+  with character-design, cinematography, storytelling, fal-gamedev,
+  fal-regenerate-3d, and genmedia-workflow when the user has not named a
+  specific model.
 ---
 
 # Genmedia model routing

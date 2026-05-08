@@ -14,6 +14,8 @@ description: >
 
 `genmedia` is the agent-first CLI for fal.ai. It works in a terminal for humans (pretty output) and equally well for agents (structured JSON when piped or with `--json`). All other skills in this repo call `genmedia` for execution, they do not wrap the fal.ai HTTP API directly.
 
+> **Vibedgames runtime.** In this repo `genmedia` is a shim that forwards to `vg media` against the vibedgames proxy, so the server holds the `FAL_KEY` — there is no per-machine setup. The proxy implements `run`, `status`, `models`, `schema`, `upload`, `pricing`, and `docs`. Skill-management commands (`setup`, `init`, `skills`, `version`, `update`) come from the upstream genmedia binary and **are not proxied** — install/update vibedgames itself with `npm install -g vibedgames` (or `pnpm dogfood` in this repo) instead.
+
 For the full command surface (every flag, every option, every example), see [references/full-reference.md](references/full-reference.md).
 
 ## Critical rules
@@ -28,17 +30,15 @@ For the full command surface (every flag, every option, every example), see [ref
 
 | Command | Purpose |
 |---------|---------|
-| `genmedia setup` | Configure API key, output mode, auto-update |
 | `genmedia models <query>` | Search the catalog (or `--category`, or `--endpoint_id`) |
 | `genmedia schema <endpoint_id>` | Inspect inputs/outputs (compact or `--format openapi`) |
 | `genmedia run <endpoint_id> --<param> <value>` | Execute a model |
-| `genmedia status <endpoint_id> <request_id>` | Poll an async job (with `--result`, `--logs`, `--cancel`, `--download`) |
-| `genmedia upload <path-or-url>` | Upload a local file or remote URL to the fal.ai CDN |
+| `genmedia status <endpoint_id> <request_id>` | Poll an async job (with `--result`, `--cancel`, `--download`) |
+| `genmedia upload <path>` | Upload a local file (returns a URL usable as a model input) |
 | `genmedia pricing <endpoint_id>` | Check cost per call |
 | `genmedia docs <query>` | Search fal.ai documentation |
-| `genmedia init` | Install the default skill bundle into `.agents/skills/` or `.claude/skills/` |
-| `genmedia skills <list|install|update|remove>` | Manage installed agent skills |
-| `genmedia version` / `genmedia update` | Check or apply CLI updates |
+
+> Skill-management and CLI-self-management commands from upstream genmedia (`setup`, `init`, `skills`, `version`, `update`) are **not** proxied through vibedgames. Install/update the CLI with `npm install -g vibedgames`; skills live in this repo under `plugins/media/skills/` and sync via `pnpm dogfood`.
 
 ## Quick patterns
 

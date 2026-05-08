@@ -44,7 +44,7 @@ genmedia run fal-ai/ffmpeg-api/merge-audio-video \
  --json
 ```
 
-For the full utility endpoint catalog (split, mix, extract, etc.), see [fal-workflow/references/utility-endpoints.md](../../fal-workflow/references/utility-endpoints.md).
+For the full utility endpoint catalog (split, mix, extract, etc.), search the catalog with `genmedia models --category <modality>`.
 
 ## Flow C: TTS narration + merge (chained)
 

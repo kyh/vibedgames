@@ -12,7 +12,7 @@ description: >
 
 # fal.ai Prompting
 
-> **Runtime:** All endpoint calls run via the [genmedia CLI](https://github.com/fal-ai-community/genmedia-cli). See the `genmedia` skill for command syntax; run `genmedia init` once if not yet installed.
+> **Runtime:** All endpoint calls run via the [genmedia CLI](https://github.com/fal-ai-community/genmedia-cli). See the `genmedia` skill for command syntax. In vibedgames, the `genmedia` binary is installed by `npm install -g vibedgames` (or `pnpm dogfood` in this repo); the FAL_KEY is held by the server, no per-machine setup is needed. The CLI proxies to `vg media` under the hood.
 
 Model families have meaningful prompting nuances. A prompt that works on GPT Image 2 (long, structured, exact text in quotes) will fail on Happy Horse (which wants ~20 plain-English words). This skill collects family-specific guides.
 

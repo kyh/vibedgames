@@ -8,7 +8,7 @@ description: >
 
 # Genmedia workflow production
 
-> **Runtime:** All endpoint calls run via the [genmedia CLI](https://github.com/fal-ai-community/genmedia-cli). See the `genmedia` skill for command syntax; run `genmedia init` once if not yet installed.
+> **Runtime:** All endpoint calls run via the [genmedia CLI](https://github.com/fal-ai-community/genmedia-cli). See the `genmedia` skill for command syntax. In vibedgames, the `genmedia` binary is installed by `npm install -g vibedgames` (or `pnpm dogfood` in this repo); the FAL_KEY is held by the server, no per-machine setup is needed. The CLI proxies to `vg media` under the hood.
 
 Use this skill when a single model call is not enough. A workflow is a planned
 sequence of genmedia calls with clear inputs, outputs, dependencies, and

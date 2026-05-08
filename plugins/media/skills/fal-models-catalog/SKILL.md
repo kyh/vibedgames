@@ -11,7 +11,7 @@ description: >
 
 Endpoint-first navigation for fal.ai production work. Each modality reference lists curated picks organized by use case (premium realism / fast & cheap / 4K / specialized). Before reaching for free-text search, consult the modality reference that matches the task.
 
-> **Runtime:** All endpoint calls run via the [genmedia CLI](https://github.com/fal-ai-community/genmedia-cli). See the `genmedia` skill for command syntax; run `genmedia init` once if not yet installed.
+> **Runtime:** All endpoint calls run via the [genmedia CLI](https://github.com/fal-ai-community/genmedia-cli). See the `genmedia` skill for command syntax. In vibedgames, the `genmedia` binary is installed by `npm install -g vibedgames` (or `pnpm dogfood` in this repo); the FAL_KEY is held by the server, no per-machine setup is needed. The CLI proxies to `vg media` under the hood.
 
 ## Endpoint-first rule
 
@@ -45,7 +45,6 @@ Load the reference matching the user's task:
 
 ## Utility endpoints
 
-Workflow utility endpoint IDs (resize, composite, mask, audio merge, subtitle, etc.) live in the `fal-workflow` skill:
-[fal-workflow/references/utility-endpoints.md](../fal-workflow/references/utility-endpoints.md).
+For workflow utility endpoints (resize, composite, mask, audio merge, subtitle, etc.), search the catalog with `genmedia models --category <modality>` and inspect the candidates with `genmedia schema <endpoint_id>`.
 
 Utility endpoints are explicit because they are deterministic tools, not creative model choices. Always inspect schema before use.

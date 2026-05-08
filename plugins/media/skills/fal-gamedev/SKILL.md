@@ -17,7 +17,7 @@ metadata:
 
 # 2D Game Assets
 
-> Requires the [genmedia CLI](https://github.com/fal-ai-community/genmedia-cli) (run `genmedia init` once).
+> Requires the `genmedia` CLI, which vibedgames ships as a shim alongside `vg`. After `npm install -g vibedgames` (or `pnpm dogfood` in this repo) it forwards to `vg media`; the server holds the FAL_KEY, no per-machine setup is needed.
 
 Full pipeline for 2D pixel art game assets: character → sprite sheets → background removal → game background. Each recipe is independently invokable, run just the part you need.
 

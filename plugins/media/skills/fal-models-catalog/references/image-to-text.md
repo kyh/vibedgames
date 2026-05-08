@@ -63,5 +63,5 @@ genmedia docs "vision" --json
 
 ## See also
 
-- For mask manipulation utilities, see [fal-workflow/references/utility-endpoints.md](../../fal-workflow/references/utility-endpoints.md)
+- For mask manipulation utilities, search the catalog with `genmedia models --category <modality>`
 - For document scan cleanup before OCR, see [fal-recipes/references/image-restoration.md](../../fal-recipes/references/image-restoration.md)

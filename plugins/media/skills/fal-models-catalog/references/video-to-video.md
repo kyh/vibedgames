@@ -55,7 +55,7 @@ Video background removal / matting.
 
 ## VACE / specialized control
 
-Wan VACE family covers inpaint / outpaint / reframe / depth / pose control through multiple endpoints. See [fal-workflow/references/utility-endpoints.md](../../fal-workflow/references/utility-endpoints.md) and discover via the genmedia CLI:
+Wan VACE family covers inpaint / outpaint / reframe / depth / pose control through multiple endpoints. Discover utility endpoints via the genmedia CLI:
 
 ```bash
 genmedia models "wan vace" --json

@@ -17,13 +17,13 @@ description: >
 
 # fal.ai Recipes
 
-> **Runtime:** All endpoint calls run via the [genmedia CLI](https://github.com/fal-ai-community/genmedia-cli). See the `genmedia` skill for command syntax; run `genmedia init` once if not yet installed.
+> **Runtime:** All endpoint calls run via the [genmedia CLI](https://github.com/fal-ai-community/genmedia-cli). See the `genmedia` skill for command syntax. In vibedgames, the `genmedia` binary is installed by `npm install -g vibedgames` (or `pnpm dogfood` in this repo); the FAL_KEY is held by the server, no per-machine setup is needed. The CLI proxies to `vg media` under the hood.
 
 A recipe is a use-case-driven pipeline. It tells you the inputs to collect, the genmedia calls to chain, and the quality bar to verify before returning.
 
-Recipes use `genmedia` for execution and `fal-models-catalog` for endpoint defaults. They differ from `fal-workflow`:
+Recipes use `genmedia` for execution and `fal-models-catalog` for endpoint defaults. They differ from `genmedia-workflow`:
 
-- **fal-workflow** = how to *build* a pipeline (JSON authoring or CLI orchestration patterns), generic
+- **genmedia-workflow** = how to *build* a pipeline (CLI orchestration patterns), generic
 - **fal-recipes** = how to *produce a specific kind of content*, opinionated by use case
 
 ## Available recipes
@@ -45,7 +45,7 @@ Recipes use `genmedia` for execution and `fal-models-catalog` for endpoint defau
 
 1. Match the user's intent to a use case in the table above.
 2. If multiple recipes apply (e.g., "commercial featuring a consistent character"), load both and run the dominant one, usually the more specific one (`character-design` first, then commercial framing).
-3. If no recipe matches but the task is multi-step, fall back to `fal-workflow` Mode B (CLI orchestration) and design the pipeline from scratch.
+3. If no recipe matches but the task is multi-step, fall back to `genmedia-workflow` (CLI orchestration) and design the pipeline from scratch.
 4. If the task is a single endpoint call, skip recipes, go directly to the right `fal-models-catalog` reference.
 
 ## Universal recipe structure
@@ -62,7 +62,7 @@ Every reference follows the same skeleton so the agent knows where to look:
 
 - For endpoint defaults: [fal-models-catalog](../fal-models-catalog/SKILL.md)
 - For prompt-craft per model family: [fal-prompting](../fal-prompting/SKILL.md)
-- For pipeline patterns (fan-out, sequential, frame-bridging, etc.): [fal-workflow](../fal-workflow/SKILL.md) Mode B
-- For utility endpoints (resize, composite, audio merge, subtitle, etc.): [fal-workflow/references/utility-endpoints.md](../fal-workflow/references/utility-endpoints.md)
+- For pipeline patterns (fan-out, sequential, frame-bridging, etc.): [genmedia-workflow](../genmedia-workflow/SKILL.md)
+- For utility endpoints (resize, composite, audio merge, subtitle, etc.): search `genmedia models --category` for the relevant modality.
 
 Information lives in one place. If a recipe needs an endpoint listed in the catalog, it links to the catalog instead of duplicating the list.
