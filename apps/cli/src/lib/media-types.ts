@@ -4,3 +4,9 @@ export const MEDIA_EXT = new Set([
   "png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff", "avif",
   "mp4", "mov", "webm", "mp3", "wav", "ogg", "flac", "m4a",
 ]);
+
+/** Strip leading/trailing slashes from a fal endpoint id so it can be
+ *  spliced into a URL path without doubling separators. */
+export function cleanEndpoint(endpointId: string): string {
+  return endpointId.replace(/^\/+|\/+$/g, "");
+}

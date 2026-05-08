@@ -43,17 +43,45 @@ function targetBase(target: Target, media: MediaProviderConfig): string {
   return trimSlash(override ?? TARGET_DEFAULTS[target]);
 }
 
+function rejectTraversal(path: string): void {
+  // Reject literal `..` and any percent-encoded form. The `URL` parser
+  // doesn't decode `%2e%2e` itself — so `new URL(...)` would happily
+  // produce a URL whose pathname looks fine here but whose downstream
+  // server (or a reverse proxy) might decode and resolve as a traversal,
+  // letting a request escape the target host's intended namespace
+  // while we attach FAL_API_KEY to it.
+  if (path.includes("..")) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "path may not contain `..`." });
+  }
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(path);
+  } catch {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "path has invalid percent-encoding." });
+  }
+  if (decoded.includes("..")) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "path may not contain `..` (including percent-encoded forms).",
+    });
+  }
+  // Also reject percent-encoded slashes — they'd fold into segment
+  // separators after decoding and could push the request past a
+  // policy/allowlist that inspects pathname.
+  if (/%2f|%5c/i.test(path)) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "path may not contain percent-encoded path separators.",
+    });
+  }
+}
+
 function buildUrl(
   base: string,
   path: string,
   query: Record<string, string | string[]> | undefined,
 ): URL {
-  // Reject path traversal early. URL parsing would normalize `..`
-  // segments and could let a request escape the target host's
-  // intended namespace.
-  if (path.includes("..")) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "path may not contain `..`." });
-  }
+  rejectTraversal(path);
   const url = new URL(base + path);
   if (!url.toString().startsWith(base)) {
     throw new TRPCError({

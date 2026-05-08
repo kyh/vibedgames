@@ -11,6 +11,7 @@ import {
 } from "../lib/media-args.js";
 import { downloadMedia, extractMediaRefs } from "../lib/media-download.js";
 import { waitForCompletion } from "../lib/media-poll.js";
+import { cleanEndpoint } from "../lib/media-types.js";
 import { uploadFiles } from "../lib/media-upload.js";
 import { isRecord } from "../lib/types.js";
 
@@ -20,10 +21,6 @@ function isJsonOutput(args: { json?: boolean }): boolean {
 
 function writeJson(value: unknown): void {
   process.stdout.write(JSON.stringify(value, null, 2) + "\n");
-}
-
-function cleanEndpoint(endpointId: string): string {
-  return endpointId.replace(/^\/+|\/+$/g, "");
 }
 
 function extractMediaUrls(result: unknown): string[] {

@@ -1,6 +1,7 @@
 import consola from "consola";
 
 import type { createClient } from "./api.js";
+import { cleanEndpoint } from "./media-types.js";
 import { isRecord } from "./types.js";
 
 type Client = ReturnType<typeof createClient>;
@@ -68,10 +69,6 @@ export async function waitForCompletion(
     path: `/${cleanEndpoint(endpoint_id)}/requests/${request_id}`,
   });
   return { request_id, result };
-}
-
-function cleanEndpoint(endpointId: string): string {
-  return endpointId.replace(/^\/+|\/+$/g, "");
 }
 
 function pickErrorReason(value: unknown): string | null {
