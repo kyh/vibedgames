@@ -11,8 +11,9 @@
  * off process.argv) without re-implementing the whole command tree.
  */
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
-const vgEntry = new URL("./index.js", import.meta.url).pathname;
+const vgEntry = fileURLToPath(new URL("./index.js", import.meta.url));
 const argv = process.argv.slice(2);
 
 const child = spawn(process.execPath, [vgEntry, "media", ...argv], {

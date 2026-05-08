@@ -134,7 +134,9 @@ function renderTemplate(
   if (!template) return resolve(process.cwd(), ref.filename || `output-${index}.${ext}`);
   // Handle a value like ".", "./", "out/" as a directory + default filename.
   const looksLikeDir = template.endsWith("/") || template.endsWith("\\") || !template.includes("{");
-  if (looksLikeDir && !template.includes(".")) {
+  const basename = template.split(/[/\\]/).pop() || "";
+  const hasFileExt = basename.includes(".") && basename.lastIndexOf(".") > 0;
+  if (looksLikeDir && !hasFileExt) {
     return resolve(template, ref.filename || `output-${index}.${ext}`);
   }
   const rendered = template
