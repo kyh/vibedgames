@@ -1,8 +1,12 @@
+import { existsSync, statSync } from "node:fs";
+import { basename, extname, isAbsolute, resolve } from "node:path";
+
 import { defineCommand } from "citty";
 import consola from "consola";
 
 import { createClient } from "../lib/api.js";
 import {
+  type FilePathRef,
   extractLocalFiles,
   parseDownloadFlag,
   parseRunInput,
@@ -354,12 +358,12 @@ const uploadCommand = defineCommand({
     json: { type: "boolean" },
   },
   run: async ({ args }) => {
-    const probe = extractLocalFiles({ __: args.path });
-    const file = probe.files[0];
-    if (!file) {
+    const fileStat = readUploadFile(args.path);
+    if (!fileStat) {
       consola.error(`File not found: ${args.path}`);
       process.exit(1);
     }
+    const file: FilePathRef = { token: "__vg_upload_0__", ...fileStat };
     const { urls } = await uploadFiles([file]);
     const url = urls[0];
     if (!url) {
@@ -390,6 +394,59 @@ export const mediaCommand = defineCommand({
 });
 
 // ---- helpers ----------------------------------------------------------------
+
+function readUploadFile(value: string): Omit<FilePathRef, "token"> | null {
+  if (value.startsWith("http://") || value.startsWith("https://")) return null;
+  if (value.startsWith("data:")) return null;
+  if (value.length === 0) return null;
+  const abs = isAbsolute(value) ? value : resolve(value);
+  if (!existsSync(abs)) return null;
+  let stat;
+  try {
+    stat = statSync(abs);
+  } catch {
+    return null;
+  }
+  if (!stat.isFile()) return null;
+  return {
+    path: abs,
+    filename: basename(abs),
+    contentType: contentTypeForPath(abs),
+    sizeBytes: stat.size,
+  };
+}
+
+function contentTypeForPath(path: string): string {
+  const ext = extname(path).slice(1).toLowerCase();
+  const map: Record<string, string> = {
+    png: "image/png",
+    jpg: "image/jpeg",
+    jpeg: "image/jpeg",
+    webp: "image/webp",
+    gif: "image/gif",
+    bmp: "image/bmp",
+    tif: "image/tiff",
+    tiff: "image/tiff",
+    avif: "image/avif",
+    mp4: "video/mp4",
+    mov: "video/quicktime",
+    webm: "video/webm",
+    mp3: "audio/mpeg",
+    wav: "audio/wav",
+    ogg: "audio/ogg",
+    flac: "audio/flac",
+    m4a: "audio/mp4",
+    glb: "model/gltf-binary",
+    gltf: "model/gltf+json",
+    obj: "model/obj",
+    fbx: "model/fbx",
+    ply: "application/octet-stream",
+    usdz: "model/vnd.usdz+zip",
+    txt: "text/plain",
+    json: "application/json",
+  };
+  return map[ext] ?? "application/octet-stream";
+}
 
 function stripPositional(argv: string[], positional: string): string[] {
   // citty hands the positional to args.endpoint_id but it also still
