@@ -51,6 +51,7 @@ const runCommand = defineCommand({
 
     const tokenToUrl = new Map<string, string>();
     let uploadedRefs: Awaited<ReturnType<typeof uploadFiles>>["refs"] = [];
+    let shouldCleanup = true;
 
     try {
       if (files.length > 0) {
@@ -74,6 +75,7 @@ const runCommand = defineCommand({
       });
 
       if (result.status === "submitted") {
+        shouldCleanup = false;
         const payload = {
           status: "submitted",
           endpoint_id: result.endpoint_id,
@@ -123,7 +125,9 @@ const runCommand = defineCommand({
         }
       }
     } finally {
-      await cleanupUploads(uploadedRefs).catch(() => undefined);
+      if (shouldCleanup) {
+        await cleanupUploads(uploadedRefs).catch(() => undefined);
+      }
     }
   },
 });
