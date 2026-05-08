@@ -67,6 +67,44 @@ test("parseRunInput passes --logs N through as a model parameter", () => {
   });
 });
 
+test("parseRunInput handles GNU --key=value form", () => {
+  // Without =-aware splitting, `--prompt=hi` would key as "prompt=hi".
+  const out = parseRunInput([
+    "--prompt=hello world",
+    "--num_images=4",
+    "--enable_safety=true",
+    "--style={\"variant\":\"painterly\"}",
+  ]);
+  assert.deepEqual(out, {
+    prompt: "hello world",
+    num_images: 4,
+    enable_safety: true,
+    style: { variant: "painterly" },
+  });
+});
+
+test("parseRunInput strips --async=true via the KNOWN flags guard", () => {
+  // Otherwise async=true would leak through as a bogus model param.
+  assert.deepEqual(parseRunInput(["--prompt", "x", "--async=true"]), {
+    prompt: "x",
+  });
+});
+
+test("parseDownloadFlag handles --download=template form", () => {
+  assert.deepEqual(parseDownloadFlag(["--download=out/{ext}"]), {
+    mode: "on",
+    template: "out/{ext}",
+  });
+  // Empty inline value is bare-flag; "true"/"false" too.
+  assert.deepEqual(parseDownloadFlag(["--download="]), { mode: "on" });
+  assert.deepEqual(parseDownloadFlag(["--download=true"]), { mode: "on" });
+  // Last occurrence wins, mixed forms.
+  assert.deepEqual(
+    parseDownloadFlag(["--download=first", "--prompt", "x", "--download=second"]),
+    { mode: "on", template: "second" },
+  );
+});
+
 test("parseRunInput handles --download with and without a value", () => {
   const withValue = parseRunInput(["--prompt", "x", "--download", "out/{name}.{ext}", "--seed", "42"]);
   assert.deepEqual(withValue, { prompt: "x", seed: 42 });

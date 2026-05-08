@@ -22,21 +22,35 @@ const KNOWN_RUN_FLAGS = new Set(["--async", "--download"]);
  * values that look like JSON (true/false/null/numbers/objects/arrays) and
  * leaving everything else as a string. Mirrors genmedia's parse-value
  * behavior so skills targeting genmedia produce the same input shapes.
+ *
+ * Handles both `--key value` and the GNU-style `--key=value`. Without
+ * `=` support, `--prompt=hello` would silently send the malformed key
+ * `"prompt=hello"` to fal, and `--async=true` would slip past the
+ * KNOWN_*_FLAGS guards as a bogus model param.
  */
 export function parseRunInput(argv: string[]): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (!arg || !arg.startsWith("--")) continue;
-    if (KNOWN_GLOBAL_FLAGS.has(arg) || KNOWN_RUN_FLAGS.has(arg)) {
-      // --download takes an optional value; skip it if present and not another flag
-      if (arg === "--download") {
+    const eqIdx = arg.indexOf("=");
+    const name = eqIdx === -1 ? arg : arg.slice(0, eqIdx);
+    const inlineValue = eqIdx === -1 ? undefined : arg.slice(eqIdx + 1);
+    if (KNOWN_GLOBAL_FLAGS.has(name) || KNOWN_RUN_FLAGS.has(name)) {
+      // --download (without inline value) optionally consumes the next
+      // token as its template. With `--download=foo` the value is
+      // already attached and we move on without skipping anything.
+      if (name === "--download" && inlineValue === undefined) {
         const next = argv[i + 1];
         if (next && !next.startsWith("--")) i++;
       }
       continue;
     }
-    const key = arg.slice(2);
+    const key = name.slice(2);
+    if (inlineValue !== undefined) {
+      assign(out, key, parseValue(inlineValue));
+      continue;
+    }
     const next = argv[i + 1];
     if (next === undefined || next.startsWith("--")) {
       // Bare boolean flag
@@ -255,13 +269,34 @@ function mapTokens(value: unknown, tokenToUrl: Map<string, string>): unknown {
 }
 
 export function parseDownloadFlag(argv: string[]): { mode: "off" | "on"; template?: string } {
-  const idx = argv.lastIndexOf("--download");
-  if (idx === -1) return { mode: "off" };
-  const next = argv[idx + 1];
-  if (!next || next.startsWith("--")) return { mode: "on" };
-  // Treat a literal "true"/"false" as a no-value boolean flag — users
-  // who type `--download true` (thinking the flag is boolean) would
-  // otherwise end up creating a directory literally named "true".
-  if (next === "true" || next === "false") return { mode: "on" };
-  return { mode: "on", template: next };
+  // Walk argv to find the *last* --download form; supports both
+  // `--download value` and the GNU `--download=value`.
+  let lastIdx = -1;
+  let inlineValue: string | undefined;
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (!arg) continue;
+    if (arg === "--download") {
+      lastIdx = i;
+      inlineValue = undefined;
+    } else if (arg.startsWith("--download=")) {
+      lastIdx = i;
+      inlineValue = arg.slice("--download=".length);
+    }
+  }
+  if (lastIdx === -1) return { mode: "off" };
+  const candidate = inlineValue ?? argv[lastIdx + 1];
+  if (
+    candidate === undefined ||
+    candidate === "" ||
+    candidate.startsWith("--") ||
+    // Treat literal "true"/"false" as a no-value boolean flag — users
+    // who type `--download true` (thinking the flag is boolean) would
+    // otherwise end up creating a directory literally named "true".
+    candidate === "true" ||
+    candidate === "false"
+  ) {
+    return { mode: "on" };
+  }
+  return { mode: "on", template: candidate };
 }
