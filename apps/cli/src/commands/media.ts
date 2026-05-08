@@ -38,9 +38,12 @@ const runCommand = defineCommand({
     },
     json: { type: "boolean", description: "Print structured JSON to stdout." },
   },
-  // Citty can't enumerate arbitrary --<param> flags, so we pull them off
-  // process.argv directly. Skill scripts targeting genmedia produce
-  // identical argv shapes, which is the whole point of this proxy.
+  // Citty can't enumerate arbitrary --<param> flags, so we re-walk the
+  // argv citty handed us (rawArgs) to pull them out. parseRunInput
+  // already skips non-`--` tokens, so any leading subcommand name or
+  // positional that survives in rawArgs is a no-op. Skill scripts
+  // targeting genmedia produce identical argv shapes, which is the
+  // whole point of this proxy.
   run: async ({ args, rawArgs }) => {
     const argv = rawArgs;
     const downloadFlag = parseDownloadFlag(argv);

@@ -83,6 +83,13 @@ test("parseDownloadFlag returns mode + template", () => {
   assert.deepEqual(parseDownloadFlag(["--prompt", "x"]), { mode: "off" });
 });
 
+test('parseDownloadFlag treats literal "true"/"false" as a bare flag', () => {
+  // Otherwise `vg media run … --download true` would create a
+  // directory literally named "true".
+  assert.deepEqual(parseDownloadFlag(["--download", "true"]), { mode: "on" });
+  assert.deepEqual(parseDownloadFlag(["--download", "false"]), { mode: "on" });
+});
+
 test("extractLocalFiles infers content type via extname (handles dotted directories)", () => {
   // Create a file inside a directory that *contains* a dot in its name.
   // Earlier the helper used `path.lastIndexOf(".")`, which would have

@@ -258,6 +258,10 @@ export function parseDownloadFlag(argv: string[]): { mode: "off" | "on"; templat
   const idx = argv.lastIndexOf("--download");
   if (idx === -1) return { mode: "off" };
   const next = argv[idx + 1];
-  if (next && !next.startsWith("--")) return { mode: "on", template: next };
-  return { mode: "on" };
+  if (!next || next.startsWith("--")) return { mode: "on" };
+  // Treat a literal "true"/"false" as a no-value boolean flag — users
+  // who type `--download true` (thinking the flag is boolean) would
+  // otherwise end up creating a directory literally named "true".
+  if (next === "true" || next === "false") return { mode: "on" };
+  return { mode: "on", template: next };
 }
