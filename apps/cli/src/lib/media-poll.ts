@@ -9,6 +9,7 @@ type StatusPayload = Extract<StatusOutput, { action: "status" }>;
 type ResultPayload = Extract<StatusOutput, { action: "result" }>;
 
 const POLL_INTERVAL_MS = 2_000;
+const POLL_TIMEOUT_MS = 300_000; // 5 minutes
 
 /**
  * Poll `media.status` from the client side until the queued job
@@ -23,8 +24,12 @@ export async function waitForCompletion(
   request_id: string,
   opts: { quiet: boolean },
 ): Promise<ResultPayload> {
+  const deadline = Date.now() + POLL_TIMEOUT_MS;
   let lastStatus: string | undefined;
   while (true) {
+    if (Date.now() > deadline) {
+      throw new Error(`fal job timed out after ${POLL_TIMEOUT_MS / 1000}s`);
+    }
     const status = (await client.media.status.mutate({
       endpoint_id,
       request_id,
