@@ -125,6 +125,33 @@ function readLocalFile(value: string): Omit<FilePathRef, "token"> | null {
   if (value.startsWith("http://") || value.startsWith("https://")) return null;
   if (value.startsWith("data:")) return null;
   if (value.length === 0) return null;
+  // Only treat as a potential file path if it contains a path separator
+  // or has a recognized media extension. This prevents false positives
+  // where a model parameter (e.g. --style painterly) accidentally matches
+  // a filename in the working directory.
+  const hasPathSeparator = value.includes("/") || value.includes("\\");
+  const ext = extname(value).slice(1).toLowerCase();
+  const hasMediaExtension =
+    ext === "png" ||
+    ext === "jpg" ||
+    ext === "jpeg" ||
+    ext === "webp" ||
+    ext === "gif" ||
+    ext === "bmp" ||
+    ext === "tif" ||
+    ext === "tiff" ||
+    ext === "avif" ||
+    ext === "mp4" ||
+    ext === "mov" ||
+    ext === "webm" ||
+    ext === "mp3" ||
+    ext === "wav" ||
+    ext === "ogg" ||
+    ext === "flac" ||
+    ext === "m4a" ||
+    ext === "txt" ||
+    ext === "json";
+  if (!hasPathSeparator && !hasMediaExtension) return null;
   const abs = isAbsolute(value) ? value : resolve(value);
   if (!existsSync(abs)) return null;
   let stat;

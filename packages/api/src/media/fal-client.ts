@@ -2,9 +2,9 @@ import { TRPCError } from "@trpc/server";
 
 import { fetchProviderJson, fetchProviderResponse, isRecord, readJsonBounded } from "./provider-io";
 
-export const DEFAULT_QUEUE_ROOT = "https://queue.fal.run";
-export const DEFAULT_PLATFORM_ROOT = "https://api.fal.ai/v1";
-export const DEFAULT_DOCS_MCP_URL = "https://docs.fal.ai/mcp";
+const DEFAULT_QUEUE_ROOT = "https://queue.fal.run";
+const DEFAULT_PLATFORM_ROOT = "https://api.fal.ai/v1";
+const DEFAULT_DOCS_MCP_URL = "https://docs.fal.ai/mcp";
 
 // fal status_url / response_url are echoed back from the queue submit
 // response and we attach the API key when polling them. Restrict the
@@ -22,7 +22,7 @@ export type FalConfig = {
   docsBaseUrl?: string;
 };
 
-export function falHeaders(apiKey: string): Record<string, string> {
+function falHeaders(apiKey: string): Record<string, string> {
   // X-Fal-Store-IO: instructs fal to store outputs in its CDN and
   // return URLs in the result payload, instead of inlining bytes.
   // Critical here because the router returns raw `result.data` to
@@ -43,7 +43,7 @@ function trimSlash(url: string): string {
   return url.endsWith("/") ? url.slice(0, -1) : url;
 }
 
-export function queueRoot(cfg: FalConfig): string {
+function queueRoot(cfg: FalConfig): string {
   const root =
     typeof cfg.queueBaseUrl === "string" && cfg.queueBaseUrl.trim().length > 0
       ? cfg.queueBaseUrl
