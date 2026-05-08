@@ -155,6 +155,23 @@ function readLocalFile(value: string): Omit<FilePathRef, "token"> | null {
   // Avoid the painterly-vs-painterly-file footgun: don't even stat()
   // bare tokens that don't look like paths to a human reader.
   if (!looksLikeMediaPath(value)) return null;
+  return statLocalFile(value);
+}
+
+/**
+ * Probe a path that the user explicitly asked us to read (e.g.
+ * `vg media upload <path>`). Skips the looksLikeMediaPath heuristic
+ * so a bare filename with a non-media extension — `model.glb`,
+ * `scene.fbx`, `data.ply`, even `LICENSE` — still works.
+ */
+export function readExplicitLocalFile(value: string): Omit<FilePathRef, "token"> | null {
+  if (value.startsWith("http://") || value.startsWith("https://")) return null;
+  if (value.startsWith("data:")) return null;
+  if (value.length === 0) return null;
+  return statLocalFile(value);
+}
+
+function statLocalFile(value: string): Omit<FilePathRef, "token"> | null {
   const abs = isAbsolute(value) ? value : resolve(value);
   if (!existsSync(abs)) return null;
   let stat;

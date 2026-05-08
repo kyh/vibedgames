@@ -8,6 +8,7 @@ import {
   extractLocalFiles,
   parseDownloadFlag,
   parseRunInput,
+  readExplicitLocalFile,
   substituteTokens,
 } from "../src/lib/media-args.js";
 
@@ -113,6 +114,26 @@ test("extractLocalFiles only matches paths that exist on disk", () => {
   assert.equal(rewritten.other_url, "https://example.com/foo.png");
   assert.equal(rewritten.seed, 42);
   assert.equal(rewritten.nope, "does/not/exist.png");
+});
+
+test("readExplicitLocalFile accepts bare non-media filenames (3D/audio/etc)", () => {
+  // `vg media upload model.glb` from cwd must work even though .glb
+  // isn't in MEDIA_EXT — the upload command is an explicit user
+  // intent, not auto-detection.
+  const dir = mkdtempSync(join(tmpdir(), "vg-explicit-"));
+  cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+  const cwd = process.cwd();
+  process.chdir(dir);
+  cleanups.push(() => process.chdir(cwd));
+  for (const name of ["model.glb", "scene.fbx", "data.ply", "LICENSE"]) {
+    writeFileSync(join(dir, name), "x");
+    const stat = readExplicitLocalFile(name);
+    assert.ok(stat, `expected to find ${name}`);
+    assert.equal(stat!.filename, name);
+  }
+  // Still rejects URLs and missing files.
+  assert.equal(readExplicitLocalFile("https://example.com/model.glb"), null);
+  assert.equal(readExplicitLocalFile("does-not-exist.glb"), null);
 });
 
 test("extractLocalFiles ignores bare tokens that happen to match a local file", () => {

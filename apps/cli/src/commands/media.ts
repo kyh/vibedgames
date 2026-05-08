@@ -6,6 +6,7 @@ import {
   extractLocalFiles,
   parseDownloadFlag,
   parseRunInput,
+  readExplicitLocalFile,
   substituteTokens,
 } from "../lib/media-args.js";
 import { downloadMedia, extractMediaRefs } from "../lib/media-download.js";
@@ -354,13 +355,15 @@ const uploadCommand = defineCommand({
     json: { type: "boolean" },
   },
   run: async ({ args }) => {
-    const probe = extractLocalFiles({ __: args.path });
-    const file = probe.files[0];
-    if (!file) {
+    // Explicit `vg media upload <path>`: don't apply the run-input
+    // looksLikeMediaPath heuristic — bare 3D/audio/glb/fbx/ply
+    // filenames must work without a `./` prefix.
+    const stat = readExplicitLocalFile(args.path);
+    if (!stat) {
       consola.error(`File not found: ${args.path}`);
       process.exit(1);
     }
-    const { urls } = await uploadFiles([file]);
+    const { urls } = await uploadFiles([{ token: "__upload__", ...stat }]);
     const url = urls[0];
     if (!url) {
       consola.error("Upload returned no URL.");
