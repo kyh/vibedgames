@@ -25,7 +25,7 @@ import {
 } from "./limits";
 import { isRecord } from "./provider-io";
 
-const PRESIGN_TTL_SECONDS = 3600;
+const PRESIGN_TTL_SECONDS = 86400;
 const INPUT_UPLOAD_TTL_SECONDS = 900;
 
 // ---- Schemas ----------------------------------------------------------------

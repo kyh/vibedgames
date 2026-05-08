@@ -248,7 +248,7 @@ export async function cancelQueue(cfg: FalConfig, cancelUrl: string): Promise<vo
 }
 
 const POLL_INTERVAL_MS = 2_000;
-const POLL_TIMEOUT_MS = 90_000;
+const POLL_TIMEOUT_MS = 600_000;
 
 export async function pollUntilComplete(cfg: FalConfig, statusUrl: string): Promise<void> {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
