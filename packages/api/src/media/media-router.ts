@@ -25,7 +25,12 @@ import {
 } from "./limits";
 import { isRecord } from "./provider-io";
 
-const PRESIGN_TTL_SECONDS = 3600;
+// 24h GET TTL — large enough to cover async queue waits on slow
+// modalities (video, 3D) where fal's worker may not fetch the input
+// for many minutes after submit. The clock starts at createInputUploads
+// time (concurrent with the PUT presign), so it must comfortably exceed
+// the upload duration plus the worst-case queue latency.
+const PRESIGN_TTL_SECONDS = 24 * 60 * 60;
 const INPUT_UPLOAD_TTL_SECONDS = 900;
 
 // ---- Schemas ----------------------------------------------------------------

@@ -248,7 +248,12 @@ export async function cancelQueue(cfg: FalConfig, cancelUrl: string): Promise<vo
 }
 
 const POLL_INTERVAL_MS = 2_000;
-const POLL_TIMEOUT_MS = 90_000;
+// Sync `vg media run` waits inline for fal to finish. 90s was fine for
+// image-only, but the new media router proxies video/audio/3D models
+// that routinely take several minutes. Cap at 5 minutes to stay
+// comfortably under the Worker request-duration ceiling; anything
+// longer should use `--async` + `vg media status`.
+const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 
 export async function pollUntilComplete(cfg: FalConfig, statusUrl: string): Promise<void> {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
