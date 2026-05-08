@@ -107,7 +107,6 @@ type RawQueueStatus = {
 
 export type FalQueueStatus = {
   status: string;
-  request_id?: string;
   queue_position?: number;
   logs?: unknown;
   error?: unknown;
