@@ -1,12 +1,9 @@
-import type { RouterOutputs } from "@repo/api";
 import consola from "consola";
 
 import type { createClient } from "./api.js";
+import { isRecord } from "./types.js";
 
 type Client = ReturnType<typeof createClient>;
-type StatusOutput = RouterOutputs["media"]["status"];
-type StatusPayload = Extract<StatusOutput, { action: "status" }>;
-type ResultPayload = Extract<StatusOutput, { action: "result" }>;
 
 const POLL_INTERVAL_MS = 2_000;
 // 30-minute ceiling on a sync run. Generous (this is the user's local
@@ -14,21 +11,25 @@ const POLL_INTERVAL_MS = 2_000;
 // job can't hang the CLI indefinitely. Long jobs should use --async.
 const POLL_TIMEOUT_MS = 30 * 60 * 1000;
 
+export type CompletedResult = {
+  request_id: string;
+  result: unknown;
+};
+
 /**
- * Poll `media.status` from the client side until the queued job
- * reaches a terminal status, then fetch the result. Lives in the CLI
- * (not the Worker) so a long-running video/3D job doesn't pin a
- * Worker request — we ack the submit, return immediately, and the
- * client owns the wait.
+ * Poll fal's queue from the client side until the job reaches a
+ * terminal status, then fetch the result. The Worker isn't in the
+ * loop — it's only along for each individual `media.forward` hop.
  */
 export async function waitForCompletion(
   client: Client,
   endpoint_id: string,
   request_id: string,
   opts: { quiet: boolean },
-): Promise<ResultPayload> {
+): Promise<CompletedResult> {
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   let lastStatus: string | undefined;
+
   while (true) {
     if (Date.now() > deadline) {
       throw new Error(
@@ -37,37 +38,47 @@ export async function waitForCompletion(
           `Use \`vg media status ${endpoint_id} ${request_id} --result\` to check later.`,
       );
     }
-    const status = (await client.media.status.mutate({
-      endpoint_id,
-      request_id,
-      action: "status",
-    })) as StatusPayload;
-    const upper = status.status.toUpperCase();
+    const raw = await client.media.forward.mutate({
+      target: "queue",
+      method: "GET",
+      path: `/${cleanEndpoint(endpoint_id)}/requests/${request_id}/status`,
+    });
+    const status = isRecord(raw) && typeof raw.status === "string" ? raw.status : "UNKNOWN";
+    const upper = status.toUpperCase();
     if (!opts.quiet && upper !== lastStatus) {
       lastStatus = upper;
-      const queue =
-        "queue_position" in status && typeof status.queue_position === "number"
-          ? ` (queue position ${status.queue_position})`
-          : "";
-      consola.log(`  ${upper.toLowerCase()}${queue}`);
+      const queuePos =
+        isRecord(raw) && typeof raw.queue_position === "number" ? raw.queue_position : null;
+      const tag = queuePos !== null ? `${upper.toLowerCase()} (queue ${queuePos})` : upper.toLowerCase();
+      consola.log(`  ${tag}`);
     }
     if (upper === "COMPLETED") break;
     if (upper === "FAILED" || upper === "CANCELLED") {
-      const reason =
-        "error" in status && typeof status.error === "string" ? status.error : null;
+      const reason = pickErrorReason(raw);
       throw new Error(
         reason ? `fal job ${upper.toLowerCase()}: ${reason}` : `fal job ${upper.toLowerCase()}`,
       );
     }
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
-  const result = await client.media.status.mutate({
-    endpoint_id,
-    request_id,
-    action: "result",
+
+  const result = await client.media.forward.mutate({
+    target: "queue",
+    method: "GET",
+    path: `/${cleanEndpoint(endpoint_id)}/requests/${request_id}`,
   });
-  if (result.action !== "result") {
-    throw new Error("expected result payload from media.status with action=result");
-  }
-  return result;
+  return { request_id, result };
+}
+
+function cleanEndpoint(endpointId: string): string {
+  return endpointId.replace(/^\/+|\/+$/g, "");
+}
+
+function pickErrorReason(value: unknown): string | null {
+  if (!isRecord(value)) return null;
+  if (typeof value.error === "string" && value.error.length > 0) return value.error;
+  if (typeof value.detail === "string" && value.detail.length > 0) return value.detail;
+  if (isRecord(value.error) && typeof value.error.message === "string") return value.error.message;
+  if (isRecord(value.response)) return pickErrorReason(value.response);
+  return null;
 }

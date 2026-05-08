@@ -22,13 +22,18 @@ function writeJson(value: unknown): void {
   process.stdout.write(JSON.stringify(value, null, 2) + "\n");
 }
 
+function cleanEndpoint(endpointId: string): string {
+  return endpointId.replace(/^\/+|\/+$/g, "");
+}
+
+function extractMediaUrls(result: unknown): string[] {
+  return extractMediaRefs(result).map((r) => r.url);
+}
+
 // ---- run --------------------------------------------------------------------
 
 const runCommand = defineCommand({
-  meta: {
-    name: "run",
-    description: "Run a fal model (waits for result by default).",
-  },
+  meta: { name: "run", description: "Run a fal model (waits for result by default)." },
   args: {
     endpoint_id: {
       type: "positional",
@@ -47,19 +52,11 @@ const runCommand = defineCommand({
     json: { type: "boolean", description: "Print structured JSON to stdout." },
     quiet: { type: "boolean", description: "Suppress progress output during sync runs." },
   },
-  // Citty can't enumerate arbitrary --<param> flags, so we re-walk the
-  // argv citty handed us (rawArgs) to pull them out. parseRunInput
-  // already skips non-`--` tokens, so any leading subcommand name or
-  // positional that survives in rawArgs is a no-op. Skill scripts
-  // targeting genmedia produce identical argv shapes, which is the
-  // whole point of this proxy.
   run: async ({ args, rawArgs }) => {
-    const argv = rawArgs;
-    const downloadFlag = parseDownloadFlag(argv);
-
+    const downloadFlag = parseDownloadFlag(rawArgs);
     // parseRunInput already skips non-`--` tokens, so the positional
     // endpoint_id and any subcommand name in argv are no-ops.
-    const parsed = parseRunInput(argv);
+    const parsed = parseRunInput(rawArgs);
     const { files, rewritten } = extractLocalFiles(parsed);
 
     const tokenToUrl = new Map<string, string>();
@@ -67,8 +64,6 @@ const runCommand = defineCommand({
 
     if (files.length > 0) {
       const { urls } = await uploadFiles(client, files);
-      // Bytes went straight to fal; we don't keep refs around because
-      // there's nothing to clean up (fal manages its own storage).
       for (let i = 0; i < files.length; i++) {
         const url = urls[i];
         if (url) tokenToUrl.set(files[i]!.token, url);
@@ -76,31 +71,37 @@ const runCommand = defineCommand({
     }
     const finalInput = substituteTokens(rewritten, tokenToUrl);
 
-    const submitted = await client.media.run.mutate({
-      endpoint_id: args.endpoint_id,
-      input: finalInput,
+    const submission = await client.media.forward.mutate({
+      target: "queue",
+      method: "POST",
+      path: `/${cleanEndpoint(args.endpoint_id)}`,
+      body: finalInput,
     });
-    const { endpoint_id, request_id } = submitted;
+    const requestId =
+      isRecord(submission) && typeof submission.request_id === "string"
+        ? submission.request_id
+        : null;
+    if (!requestId) {
+      throw new Error("fal queue submit did not return a request_id.");
+    }
+    const endpoint_id = args.endpoint_id;
 
     if (args.async) {
       const payload = {
         status: "submitted",
         endpoint_id,
-        request_id,
-        hint: `Check status: vg media status ${endpoint_id} ${request_id}`,
+        request_id: requestId,
+        hint: `Check status: vg media status ${endpoint_id} ${requestId}`,
       };
       if (isJsonOutput(args)) writeJson(payload);
       else {
         consola.success(`Submitted ${endpoint_id}`);
-        consola.log(`  request_id: ${request_id}`);
+        consola.log(`  request_id: ${requestId}`);
       }
       return;
     }
 
-    // Sync mode: poll on the client. The Worker is no longer in the
-    // hot path, so video/3D models that take minutes don't pin a
-    // long-lived request and don't burn Worker billing on the wait.
-    const completed = await waitForCompletion(client, endpoint_id, request_id, {
+    const completed = await waitForCompletion(client, endpoint_id, requestId, {
       quiet: Boolean(args.quiet) || isJsonOutput(args),
     });
 
@@ -110,14 +111,14 @@ const runCommand = defineCommand({
       downloaded = await downloadMedia({
         refs,
         template: downloadFlag.template,
-        requestId: request_id,
+        requestId: completed.request_id,
       });
     }
 
     const payload = {
       status: "completed",
       endpoint_id,
-      request_id,
+      request_id: completed.request_id,
       result: completed.result,
       ...(downloaded ? { downloaded_files: downloaded.downloaded } : {}),
       ...(downloaded && downloaded.failed.length > 0
@@ -128,7 +129,7 @@ const runCommand = defineCommand({
     if (isJsonOutput(args)) {
       writeJson(payload);
     } else {
-      consola.success(`Run completed (${request_id})`);
+      consola.success(`Run completed (${completed.request_id})`);
       if (downloaded) {
         for (const path of downloaded.downloaded) consola.log(`  ${path}`);
         for (const f of downloaded.failed) consola.warn(`  failed: ${f.url} (${f.error})`);
@@ -157,7 +158,7 @@ const statusCommand = defineCommand({
       type: "string",
       description: "Download media from the result (implies --result).",
     },
-    json: { type: "boolean", description: "Print structured JSON to stdout." },
+    json: { type: "boolean" },
   },
   run: async ({ args, rawArgs }) => {
     if (args.result && args.cancel) {
@@ -165,23 +166,31 @@ const statusCommand = defineCommand({
       process.exit(1);
     }
     const downloadFlag = parseDownloadFlag(rawArgs);
+    const wantResult = args.result || downloadFlag.mode === "on";
     const action: "status" | "result" | "cancel" = args.cancel
       ? "cancel"
-      : args.result || downloadFlag.mode === "on"
+      : wantResult
         ? "result"
         : "status";
 
+    const ep = cleanEndpoint(args.endpoint_id);
     const client = createClient();
-    const data = await client.media.status.mutate({
-      endpoint_id: args.endpoint_id,
-      request_id: args.request_id,
-      action,
-      logs: Boolean(args.logs),
+    const path =
+      action === "cancel"
+        ? `/${ep}/requests/${args.request_id}/cancel`
+        : action === "result"
+          ? `/${ep}/requests/${args.request_id}`
+          : `/${ep}/requests/${args.request_id}/status`;
+    const data = await client.media.forward.mutate({
+      target: "queue",
+      method: action === "cancel" ? "PUT" : "GET",
+      path,
+      query: action === "status" && args.logs ? { logs: "1" } : undefined,
     });
 
     let downloaded: Awaited<ReturnType<typeof downloadMedia>> | undefined;
-    if (action === "result" && downloadFlag.mode === "on" && "result" in data) {
-      const refs = extractMediaRefs(data.result);
+    if (action === "result" && downloadFlag.mode === "on") {
+      const refs = extractMediaRefs(data);
       downloaded = await downloadMedia({
         refs,
         template: downloadFlag.template,
@@ -190,7 +199,14 @@ const statusCommand = defineCommand({
     }
 
     const payload = {
-      ...data,
+      action,
+      endpoint_id: args.endpoint_id,
+      request_id: args.request_id,
+      ...(action === "result"
+        ? { result: data }
+        : action === "status"
+          ? (isRecord(data) ? data : {})
+          : {}),
       ...(downloaded ? { downloaded_files: downloaded.downloaded } : {}),
       ...(downloaded && downloaded.failed.length > 0
         ? { download_failures: downloaded.failed }
@@ -200,8 +216,9 @@ const statusCommand = defineCommand({
     if (isJsonOutput(args)) {
       writeJson(payload);
     } else if (action === "status") {
-      consola.log(`status: ${"status" in data ? data.status : "?"}`);
-      if ("queue_position" in data && data.queue_position !== undefined) {
+      const status = isRecord(data) && typeof data.status === "string" ? data.status : "?";
+      consola.log(`status: ${status}`);
+      if (isRecord(data) && typeof data.queue_position === "number") {
         consola.log(`queue_position: ${data.queue_position}`);
       }
     } else {
@@ -214,10 +231,7 @@ const statusCommand = defineCommand({
 // ---- models -----------------------------------------------------------------
 
 const modelsCommand = defineCommand({
-  meta: {
-    name: "models",
-    description: "Search/list fal models.",
-  },
+  meta: { name: "models", description: "Search/list fal models." },
   args: {
     query: { type: "positional", required: false, description: "Search query." },
     category: { type: "string", description: "Filter by category." },
@@ -235,37 +249,28 @@ const modelsCommand = defineCommand({
     json: { type: "boolean" },
   },
   run: async ({ args }) => {
+    const query: Record<string, string | string[]> = {};
+    if (args.query) query.q = args.query;
+    if (args.category) query.category = args.category;
+    if (args.status && args.status !== "all") query.status = args.status;
+    query.limit = args.limit ?? "20";
+    if (args.cursor) query.cursor = args.cursor;
+    const endpointIds = splitList(args.endpoint_id);
+    if (endpointIds.length > 0) query.endpoint_id = endpointIds;
+    const expand = splitList(args.expand);
+    if (expand.length > 0) query.expand = expand;
+
     const client = createClient();
-    const data = await client.media.models.query({
-      q: args.query,
-      category: args.category,
-      status: parseStatus(args.status),
-      limit: parseLimit(args.limit),
-      cursor: args.cursor,
-      endpoint_ids: splitList(args.endpoint_id),
-      expand: splitList(args.expand),
+    const data = await client.media.forward.mutate({
+      target: "platform",
+      method: "GET",
+      path: "/v1/models",
+      query,
     });
     if (isJsonOutput(args)) writeJson(data);
     else printModels(data);
   },
 });
-
-function parseStatus(value: string | undefined): "active" | "deprecated" | "all" | undefined {
-  if (value === "active" || value === "deprecated" || value === "all") return value;
-  if (value === undefined) return undefined;
-  consola.error(`--status must be one of: active, deprecated, all`);
-  process.exit(1);
-}
-
-function parseLimit(value: string | undefined): number | undefined {
-  if (!value) return undefined;
-  const n = Number.parseInt(value, 10);
-  if (!Number.isInteger(n) || n < 1) {
-    consola.error("--limit must be a positive integer.");
-    process.exit(1);
-  }
-  return n;
-}
 
 function splitList(value: string | undefined): string[] {
   if (!value) return [];
@@ -300,11 +305,17 @@ const schemaCommand = defineCommand({
     json: { type: "boolean" },
   },
   run: async ({ args }) => {
-    const format = args.format === "openapi" ? "openapi" : "compact";
+    const expand = args.format === "openapi" ? ["openapi-3.0"] : [];
     const client = createClient();
-    const data = await client.media.schema.query({
-      endpoint_id: args.endpoint_id,
-      format,
+    const data = await client.media.forward.mutate({
+      target: "platform",
+      method: "GET",
+      path: "/v1/models",
+      query: {
+        endpoint_id: args.endpoint_id,
+        limit: "1",
+        ...(expand.length > 0 ? { expand } : {}),
+      },
     });
     writeJson(data);
   },
@@ -320,7 +331,12 @@ const pricingCommand = defineCommand({
   },
   run: async ({ args }) => {
     const client = createClient();
-    const data = await client.media.pricing.query({ endpoint_id: args.endpoint_id });
+    const data = await client.media.forward.mutate({
+      target: "platform",
+      method: "GET",
+      path: "/v1/models/pricing",
+      query: { endpoint_id: args.endpoint_id },
+    });
     writeJson(data);
   },
 });
@@ -335,7 +351,17 @@ const docsCommand = defineCommand({
   },
   run: async ({ args }) => {
     const client = createClient();
-    const data = await client.media.docs.query({ query: args.query });
+    const data = await client.media.forward.mutate({
+      target: "docs",
+      method: "POST",
+      path: "/mcp",
+      body: {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "search", arguments: { query: args.query } },
+      },
+    });
     writeJson(data);
   },
 });
@@ -345,16 +371,13 @@ const docsCommand = defineCommand({
 const uploadCommand = defineCommand({
   meta: {
     name: "upload",
-    description: "Upload a local file. Returns a presigned URL usable as a model input.",
+    description: "Upload a local file to fal CDN. Returns a stable URL.",
   },
   args: {
     path: { type: "positional", required: true },
     json: { type: "boolean" },
   },
   run: async ({ args }) => {
-    // Explicit `vg media upload <path>`: don't apply the run-input
-    // looksLikeMediaPath heuristic — bare 3D/audio/glb/fbx/ply
-    // filenames must work without a `./` prefix.
     const stat = readExplicitLocalFile(args.path);
     if (!stat) {
       consola.error(`File not found: ${args.path}`);
@@ -377,7 +400,8 @@ const uploadCommand = defineCommand({
 export const mediaCommand = defineCommand({
   meta: {
     name: "media",
-    description: "Generate, edit, and inspect media via fal.ai (mirrors the genmedia CLI surface).",
+    description:
+      "Generate, edit, and inspect media via fal.ai (mirrors the genmedia CLI surface).",
   },
   subCommands: {
     run: runCommand,
@@ -389,9 +413,3 @@ export const mediaCommand = defineCommand({
     upload: uploadCommand,
   },
 });
-
-// ---- helpers ----------------------------------------------------------------
-
-function extractMediaUrls(result: unknown): string[] {
-  return extractMediaRefs(result).map((r) => r.url);
-}

@@ -15,6 +15,7 @@ interface CloudflareEnv {
   FAL_QUEUE_BASE_URL?: string;
   FAL_PLATFORM_BASE_URL?: string;
   FAL_DOCS_BASE_URL?: string;
+  FAL_STORAGE_BASE_URL?: string;
 }
 
 declare module "cloudflare:workers" {

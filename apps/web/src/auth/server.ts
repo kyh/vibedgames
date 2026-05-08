@@ -55,6 +55,7 @@ export function getServerContext() {
     falQueueBaseUrl: env.FAL_QUEUE_BASE_URL,
     falPlatformBaseUrl: env.FAL_PLATFORM_BASE_URL,
     falDocsBaseUrl: env.FAL_DOCS_BASE_URL,
+    falStorageBaseUrl: env.FAL_STORAGE_BASE_URL,
   };
 
   return { db, auth, baseUrl, productionUrl, r2, media };
