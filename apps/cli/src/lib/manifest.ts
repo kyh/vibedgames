@@ -37,13 +37,18 @@ const CONTENT_TYPES: Record<string, string> = {
   gif: "image/gif",
   webp: "image/webp",
   avif: "image/avif",
+  bmp: "image/bmp",
+  tif: "image/tiff",
+  tiff: "image/tiff",
   ico: "image/x-icon",
   wasm: "application/wasm",
   mp3: "audio/mpeg",
   ogg: "audio/ogg",
   wav: "audio/wav",
+  flac: "audio/flac",
   m4a: "audio/mp4",
   mp4: "video/mp4",
+  mov: "video/quicktime",
   webm: "video/webm",
   ttf: "font/ttf",
   otf: "font/otf",
@@ -53,7 +58,7 @@ const CONTENT_TYPES: Record<string, string> = {
   xml: "application/xml",
 };
 
-function contentTypeForPath(path: string): string {
+export function contentTypeForPath(path: string): string {
   const ext = path.split(".").pop()?.toLowerCase() ?? "";
   return CONTENT_TYPES[ext] ?? "application/octet-stream";
 }

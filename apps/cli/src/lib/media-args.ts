@@ -2,6 +2,7 @@ import { existsSync, statSync } from "node:fs";
 import { basename, isAbsolute, resolve } from "node:path";
 
 import { isRecord } from "./types.js";
+import { contentTypeForPath } from "./manifest.js";
 
 const KNOWN_GLOBAL_FLAGS = new Set(["--json", "--help", "-h", "--quiet", "-q"]);
 
@@ -137,32 +138,6 @@ function readLocalFile(value: string): FilePathRef | null {
     contentType: contentTypeForPath(abs),
     sizeBytes: stat.size,
   };
-}
-
-export function contentTypeForPath(path: string): string {
-  const ext = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
-  const map: Record<string, string> = {
-    png: "image/png",
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    webp: "image/webp",
-    gif: "image/gif",
-    bmp: "image/bmp",
-    tif: "image/tiff",
-    tiff: "image/tiff",
-    avif: "image/avif",
-    mp4: "video/mp4",
-    mov: "video/quicktime",
-    webm: "video/webm",
-    mp3: "audio/mpeg",
-    wav: "audio/wav",
-    ogg: "audio/ogg",
-    flac: "audio/flac",
-    m4a: "audio/mp4",
-    txt: "text/plain",
-    json: "application/json",
-  };
-  return map[ext] ?? "application/octet-stream";
 }
 
 /**

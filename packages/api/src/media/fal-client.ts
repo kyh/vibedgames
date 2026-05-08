@@ -26,6 +26,8 @@ export function falHeaders(apiKey: string): Record<string, string> {
   return {
     Authorization: `Key ${apiKey}`,
     Accept: "application/json",
+    "X-Fal-Store-IO": "1",
+    "x-app-fal-disable-fallback": "true",
   };
 }
 
