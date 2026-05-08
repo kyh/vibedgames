@@ -284,10 +284,10 @@ export const mediaRouter = createTRPCRouter({
     }
     const status = await statusQueue(cfg, urls.statusUrl, { logs: input.logs });
     return {
+      ...status,
       action: "status" as const,
       endpoint_id: input.endpoint_id,
       request_id: input.request_id,
-      ...status,
     };
   }),
 
