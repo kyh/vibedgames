@@ -258,6 +258,11 @@ export function parseDownloadFlag(argv: string[]): { mode: "off" | "on"; templat
   const idx = argv.lastIndexOf("--download");
   if (idx === -1) return { mode: "off" };
   const next = argv[idx + 1];
-  if (next && !next.startsWith("--")) return { mode: "on", template: next };
+  if (next && !next.startsWith("--")) {
+    // Treat boolean-like values as explicit enable/disable with no template
+    if (next === "true") return { mode: "on" };
+    if (next === "false") return { mode: "off" };
+    return { mode: "on", template: next };
+  }
   return { mode: "on" };
 }
