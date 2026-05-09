@@ -14,7 +14,7 @@ description: >
 
 `genmedia` is the agent-first CLI for fal.ai. It works in a terminal for humans (pretty output) and equally well for agents (structured JSON when piped or with `--json`). All other skills in this repo call `genmedia` for execution, they do not wrap the fal.ai HTTP API directly.
 
-> **Vibedgames runtime.** In this repo `genmedia` is a shim that forwards to `vg media` against the vibedgames proxy, so the server holds the `FAL_KEY` — there is no per-machine setup. The proxy implements `run`, `status`, `models`, `schema`, `upload`, `pricing`, and `docs`. Skill-management commands (`setup`, `init`, `skills`, `version`, `update`) come from the upstream genmedia binary and **are not proxied** — install/update vibedgames itself with `npm install -g vibedgames` (or `pnpm dogfood` in this repo) instead.
+> **Vibedgames runtime.** In this repo `genmedia` is a shim that forwards to `vg media` against the vibedgames proxy, so the server holds the `FAL_KEY` — there is no per-machine setup. The CLI exposes `run`, `status`, `models`, `schema`, `upload`, `pricing`, and `docs`; under the hood every fal call is routed through one server proc that attaches the API key and forwards. Skill-management commands (`setup`, `init`, `skills`, `version`, `update`) come from the upstream genmedia binary and **are not proxied** — install/update vibedgames itself with `npm install -g vibedgames` (or `pnpm dogfood` in this repo) instead.
 
 For the full command surface (every flag, every option, every example), see [references/full-reference.md](references/full-reference.md).
 
