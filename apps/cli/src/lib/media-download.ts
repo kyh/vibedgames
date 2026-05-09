@@ -10,6 +10,21 @@ export type MediaRef = {
   contentType: string | null;
 };
 
+// fal serves output media from its own CDN domains. Refuse to download
+// from anything else to avoid exposing the CLI as an open-fetch surface
+// and to keep us honest about what "fal output" means.
+const FAL_CONTENT_HOST_SUFFIXES = [".fal.media", ".fal.run", ".fal.ai"];
+
+function isTrustedFalContentHost(hostname: string): boolean {
+  // Match either the bare apex (e.g. `fal.media`) or any subdomain
+  // (e.g. `v3.fal.media`). The leading dot in the suffix prevents
+  // `notfal.media` from sneaking past.
+  return FAL_CONTENT_HOST_SUFFIXES.some((suffix) => {
+    const apex = suffix.startsWith(".") ? suffix.slice(1) : suffix;
+    return hostname === apex || hostname.endsWith(suffix);
+  });
+}
+
 /**
  * Walk a fal result payload and pull out anything that looks like a media
  * output. fal endpoints embed outputs in objects shaped like
@@ -32,6 +47,20 @@ function visit(value: unknown, refs: MediaRef[], seen: Set<string>): void {
   if (!isRecord(value)) return;
   const url = value.url;
   if (typeof url === "string" && url.startsWith("http") && !seen.has(url)) {
+    // Validate that the URL is from a trusted fal CDN host before accepting it
+    let hostname: string;
+    try {
+      hostname = new URL(url).hostname;
+    } catch {
+      // Malformed URL; skip it
+      for (const child of Object.values(value)) visit(child, refs, seen);
+      return;
+    }
+    if (!isTrustedFalContentHost(hostname)) {
+      // URL is not from a trusted fal host; skip it
+      for (const child of Object.values(value)) visit(child, refs, seen);
+      return;
+    }
     const contentType =
       typeof value.content_type === "string" ? value.content_type.toLowerCase() : null;
     const filenameField = typeof value.file_name === "string" ? value.file_name : null;

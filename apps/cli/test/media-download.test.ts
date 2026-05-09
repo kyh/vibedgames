@@ -66,6 +66,31 @@ test("extractMediaRefs handles a nested array of frames", () => {
   assert.equal(refs.length, 3);
 });
 
+test("extractMediaRefs rejects URLs from untrusted hosts", () => {
+  const result = {
+    trusted: { url: "https://v3.fal.media/files/a.png", content_type: "image/png" },
+    untrusted: { url: "https://evil.com/malicious.png", content_type: "image/png" },
+    localNetwork: { url: "http://192.168.1.1/internal.png", content_type: "image/png" },
+    fakeHost: { url: "https://notfal.media/fake.png", content_type: "image/png" },
+  };
+  const refs = extractMediaRefs(result);
+  assert.equal(refs.length, 1);
+  assert.equal(refs[0]!.url, "https://v3.fal.media/files/a.png");
+});
+
+test("extractMediaRefs accepts all trusted fal CDN hosts", () => {
+  const result = {
+    falMedia: { url: "https://fal.media/a.png", content_type: "image/png" },
+    subdomainFalMedia: { url: "https://v3.fal.media/b.png", content_type: "image/png" },
+    falRun: { url: "https://fal.run/c.mp4", content_type: "video/mp4" },
+    subdomainFalRun: { url: "https://queue.fal.run/d.png", content_type: "image/png" },
+    falAi: { url: "https://fal.ai/e.png", content_type: "image/png" },
+    subdomainFalAi: { url: "https://api.fal.ai/f.webp", content_type: "image/webp" },
+  };
+  const refs = extractMediaRefs(result);
+  assert.equal(refs.length, 6);
+});
+
 test("downloadMedia treats '.' / './' / 'out/' as a destination directory", async () => {
   // Stand up a tiny HTTP server so this test exercises the actual fetch +
   // template path. Easier than mocking — keeps `renderTemplate` honest.
