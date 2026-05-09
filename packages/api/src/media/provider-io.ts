@@ -119,21 +119,6 @@ export async function fetchProviderResponse({
   return response;
 }
 
-export async function fetchProviderJson({
-  url,
-  init,
-  label,
-  credentialed,
-}: {
-  url: string | URL;
-  init?: RequestInit;
-  label: string;
-  credentialed: boolean;
-}): Promise<unknown> {
-  const response = await fetchProviderResponse({ url, init, label, credentialed });
-  return await readJsonBounded(response, `${label} response`);
-}
-
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
