@@ -12,10 +12,10 @@ Use this recipe to apply a garment onto a person photo. The default endpoint is 
 ## Single-call flow
 
 ```bash
-URL_PERSON=$(genmedia upload ./person.jpg --json | jq -r '.url')
-URL_GARMENT=$(genmedia upload ./dress.jpg --json | jq -r '.url')
+URL_PERSON=$(vg media upload ./person.jpg --json | jq -r '.url')
+URL_GARMENT=$(vg media upload ./dress.jpg --json | jq -r '.url')
 
-genmedia run fal-ai/fashn/tryon/v1.5 \
+vg media run fal-ai/fashn/tryon/v1.5 \
  --model_image "$URL_PERSON" \
  --garment_image "$URL_GARMENT" \
  --garment_type "dress" \
@@ -26,7 +26,7 @@ genmedia run fal-ai/fashn/tryon/v1.5 \
 Inspect schema first, field names may evolve:
 
 ```bash
-genmedia schema fal-ai/fashn/tryon/v1.5 --json
+vg media schema fal-ai/fashn/tryon/v1.5 --json
 ```
 
 ## Full pipeline (pre-clean + tryon + upscale)
@@ -38,26 +38,26 @@ For e-commerce-grade output, chain three steps:
 If the garment image has a busy background, the tryon model may pick up artifacts. Remove the background first:
 
 ```bash
-URL_GARMENT_RAW=$(genmedia upload ./garment.jpg --json | jq -r '.url')
+URL_GARMENT_RAW=$(vg media upload ./garment.jpg --json | jq -r '.url')
 
 # Discover or use a known background-removal endpoint
-RES_BG=$(genmedia run <bg-removal-endpoint> --image_url "$URL_GARMENT_RAW" --json)
+RES_BG=$(vg media run <bg-removal-endpoint> --image_url "$URL_GARMENT_RAW" --json)
 URL_GARMENT_CLEAN=$(echo "$RES_BG" | jq -r '.image.url')
 ```
 
 For background-removal endpoint discovery:
 
 ```bash
-genmedia models "background remove" --json
-genmedia models --endpoint_id fal-ai/bria/background/remove --json
+vg media models "background remove" --json
+vg media models --endpoint_id fal-ai/bria/background/remove --json
 ```
 
 ### Step 2: try-on
 
 ```bash
-URL_PERSON=$(genmedia upload ./person.jpg --json | jq -r '.url')
+URL_PERSON=$(vg media upload ./person.jpg --json | jq -r '.url')
 
-RES_TRYON=$(genmedia run fal-ai/fashn/tryon/v1.5 \
+RES_TRYON=$(vg media run fal-ai/fashn/tryon/v1.5 \
  --model_image "$URL_PERSON" \
  --garment_image "$URL_GARMENT_CLEAN" \
  --garment_type "top" \
@@ -69,7 +69,7 @@ URL_TRYON=$(echo "$RES_TRYON" | jq -r '.image.url')
 ### Step 3: optional upscale for final delivery
 
 ```bash
-genmedia run <upscale-endpoint> \
+vg media run <upscale-endpoint> \
  --image_url "$URL_TRYON" \
  --download "./outputs/tryon/{request_id}_{index}.{ext}" \
  --json
@@ -111,7 +111,7 @@ Before returning:
 Always inspect:
 
 ```bash
-genmedia schema fal-ai/fashn/tryon/v1.5 --json
+vg media schema fal-ai/fashn/tryon/v1.5 --json
 ```
 
 Frequently exposed:
@@ -124,7 +124,7 @@ Frequently exposed:
 ## Discovery for alternative tryon models
 
 ```bash
-genmedia models "virtual tryon" --json
-genmedia models "garment transfer" --json
-genmedia docs "virtual tryon" --json
+vg media models "virtual tryon" --json
+vg media models "garment transfer" --json
+vg media docs "virtual tryon" --json
 ```

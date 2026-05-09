@@ -1,6 +1,6 @@
 # Text-to-3D Endpoints
 
-Curated picks. Output is typically GLB / OBJ / PLY. **Meshy 6** and **Hunyuan 3D Pro** are the premium picks; **Tripo P1 / H3.1** offer alternatives. Verify with `genmedia models --endpoint_id <id> --json` before running.
+Curated picks. Output is typically GLB / OBJ / PLY. **Meshy 6** and **Hunyuan 3D Pro** are the premium picks; **Tripo P1 / H3.1** offer alternatives. Verify with `vg media models --endpoint_id <id> --json` before running.
 
 ## Premium
 
@@ -19,18 +19,18 @@ Curated picks. Output is typically GLB / OBJ / PLY. **Meshy 6** and **Hunyuan 3D
 
 - **Simple, well-defined objects work best.** Complex scenes don't reconstruct well.
 - **Single-object framing**: "a medieval sword with ornate handle" works; "a knight in a forest" struggles.
-- **Generation takes 1-5 minutes**: always run with `--async`, then poll `genmedia status`.
+- **Generation takes 1-5 minutes**: always run with `--async`, then poll `vg media status`.
 
 ## Async pattern
 
 ```bash
-SUBMIT=$(genmedia run fal-ai/meshy/v6/text-to-3d \
+SUBMIT=$(vg media run fal-ai/meshy/v6/text-to-3d \
  --prompt "a medieval sword with ornate handle" \
  --async \
  --json)
 REQ=$(echo "$SUBMIT" | jq -r '.request_id')
 
-genmedia status fal-ai/meshy/v6/text-to-3d "$REQ" \
+vg media status fal-ai/meshy/v6/text-to-3d "$REQ" \
  --download "./out/{request_id}.{ext}" \
  --json
 ```
@@ -38,7 +38,7 @@ genmedia status fal-ai/meshy/v6/text-to-3d "$REQ" \
 ## Common parameters
 
 ```bash
-genmedia schema fal-ai/meshy/v6/text-to-3d --json
+vg media schema fal-ai/meshy/v6/text-to-3d --json
 ```
 
 Frequently exposed:

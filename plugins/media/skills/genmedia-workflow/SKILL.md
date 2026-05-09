@@ -8,10 +8,10 @@ description: >
 
 # Genmedia workflow production
 
-> **Runtime:** All endpoint calls run via the [genmedia CLI](https://github.com/fal-ai-community/genmedia-cli). See the `genmedia` skill for command syntax. In vibedgames, the `genmedia` binary is installed by `npm install -g vibedgames` (or `pnpm dogfood` in this repo); the FAL_KEY is held by the server, no per-machine setup is needed. The CLI proxies to `vg media` under the hood.
+> **Runtime:** All endpoint calls use the `vg media` CLI (`npm install -g vibedgames`, or `pnpm dogfood` in this repo). The FAL key lives on the vibedgames server, so there is no per-machine setup. See the `genmedia` skill for the command reference.
 
 Use this skill when a single model call is not enough. A workflow is a planned
-sequence of genmedia calls with clear inputs, outputs, dependencies, and
+sequence of vg media calls with clear inputs, outputs, dependencies, and
 quality checks.
 
 Load references as needed:
@@ -51,44 +51,44 @@ Ask only for missing information that changes the pipeline:
 2. Resolve endpoints for each role. Check known endpoint IDs first.
 
    ```bash
-   genmedia models --endpoint_id openai/gpt-image-2 --json
-   genmedia models --endpoint_id fal-ai/nano-banana-pro/edit --json
-   genmedia models --endpoint_id bytedance/seedance-2.0/image-to-video --json
-   genmedia models --endpoint_id xai/grok-imagine-video/image-to-video --json
-   genmedia models --endpoint_id veed/fabric-1.0 --json
+   vg media models --endpoint_id openai/gpt-image-2 --json
+   vg media models --endpoint_id fal-ai/nano-banana-pro/edit --json
+   vg media models --endpoint_id bytedance/seedance-2.0/image-to-video --json
+   vg media models --endpoint_id xai/grok-imagine-video/image-to-video --json
+   vg media models --endpoint_id veed/fabric-1.0 --json
    ```
 
    Use text search only as fallback discovery for roles not covered by
    `model-routing` or the utility reference:
 
    ```bash
-   genmedia models "image generation product photography" --json
-   genmedia models "image editing reference preservation" --json
-   genmedia models "image to video" --json
-   genmedia models "subtitle video utility" --json
-   genmedia docs "fal.ai workflow utility endpoints" --json
+   vg media models "image generation product photography" --json
+   vg media models "image editing reference preservation" --json
+   vg media models "image to video" --json
+   vg media models "subtitle video utility" --json
+   vg media docs "fal.ai workflow utility endpoints" --json
    ```
 
 3. Inspect every endpoint before use.
 
    ```bash
-   genmedia schema <endpoint_id> --json
-   genmedia pricing <endpoint_id> --json
+   vg media schema <endpoint_id> --json
+   vg media pricing <endpoint_id> --json
    ```
 
 4. Upload local files once and reuse returned URLs.
 
    ```bash
-   genmedia upload ./input.png --json
-   genmedia upload ./voiceover.wav --json
+   vg media upload ./input.png --json
+   vg media upload ./voiceover.wav --json
    ```
 
 5. Run each node with JSON output. Use async for slow generation.
 
    ```bash
-   genmedia run <endpoint_id> --<field> "<value>" --json
-   genmedia run <endpoint_id> --<field> "<value>" --async --json
-   genmedia status <endpoint_id> <request_id> --download "./outputs/workflow/{request_id}_{index}.{ext}" --json
+   vg media run <endpoint_id> --<field> "<value>" --json
+   vg media run <endpoint_id> --<field> "<value>" --async --json
+   vg media status <endpoint_id> <request_id> --download "./outputs/workflow/{request_id}_{index}.{ext}" --json
    ```
 
 6. For downstream nodes, pass the media URL from the previous `result` when it

@@ -1,64 +1,25 @@
-# genmedia: Full CLI Reference
+# vg media: Full CLI Reference
 
 Complete command surface. SKILL.md has the trigger surface and quick patterns; this file is the manual.
 
 ## Install
 
-Linux / macOS:
-
 ```bash
-curl https://genmedia.sh/install -fsS | bash
+npm install -g vibedgames
 ```
 
-Windows (PowerShell):
-
-```powershell
-irm https://genmedia.sh/install.ps1 | iex
-```
-
-## setup: configure
-
-Interactive wizard:
-
-```bash
-genmedia setup
-```
-
-Configures:
-
-- **API key**: saved encrypted to local config (or skip and use `FAL_KEY` env var)
-- **Auto-load `.env`**: automatically load `FAL_KEY` from a project `.env`
-- **Output mode**: `auto` (pretty in TTY, JSON when piped), `json` (always structured), `standard` (always human-readable)
-- **Automatic updates**: background check; `GENMEDIA_NO_UPDATE=1` to disable
-
-Non-interactive (agents / CI):
-
-```bash
-genmedia setup --non-interactive --api-key "$FAL_KEY"
-genmedia setup --non-interactive --output-format json --no-auto-load-env --auto-update
-```
-
-| Flag | Description |
-|---|---|
-| `--non-interactive`, `-y` | Skip all prompts. Required when there is no TTY. |
-| `--api-key <key>` | API key to save. Pass `""` to clear the saved key. |
-| `--no-save-key` | With `--api-key`, do not persist the key to `config.json` (use `FAL_KEY` at runtime instead). |
-| `--output-format <auto\|json\|standard>` | Default output mode. |
-| `--auto-load-env` / `--no-auto-load-env` | Toggle auto-loading `FAL_KEY` from a project `.env`. |
-| `--auto-update` / `--no-auto-update` | Toggle background update checks. |
-
-API keys: <https://fal.ai/dashboard/keys>.
+In this repo, `pnpm dogfood` links a local build of `vg`. The vibedgames server holds the FAL key, so there is no per-machine API-key configuration step.
 
 ## models: search and inspect
 
 ```bash
-genmedia models "text to video"
-genmedia models "flux" --category text-to-image
-genmedia models --category text-to-speech --limit 5
-genmedia models --status all # include deprecated
-genmedia models --endpoint_id fal-ai/flux/dev,fal-ai/flux/schnell # specific models
-genmedia models --endpoint_id fal-ai/flux/dev --expand openapi-3.0
-genmedia models "flux" --cursor <token> # pagination
+vg media models "text to video"
+vg media models "flux" --category text-to-image
+vg media models --category text-to-speech --limit 5
+vg media models --status all # include deprecated
+vg media models --endpoint_id fal-ai/flux/dev,fal-ai/flux/schnell # specific models
+vg media models --endpoint_id fal-ai/flux/dev --expand openapi-3.0
+vg media models "flux" --cursor <token> # pagination
 ```
 
 | Option | Description |
@@ -73,8 +34,8 @@ genmedia models "flux" --cursor <token> # pagination
 ## schema: inspect inputs/outputs
 
 ```bash
-genmedia schema fal-ai/flux/dev
-genmedia schema fal-ai/flux/dev --format openapi
+vg media schema fal-ai/flux/dev
+vg media schema fal-ai/flux/dev --format openapi
 ```
 
 | Option | Description |
@@ -86,17 +47,17 @@ Always run `schema` before `run` for an unfamiliar endpoint. The exact field nam
 ## run: execute a model
 
 ```bash
-genmedia run fal-ai/flux/dev --prompt "a cat on the moon"
-genmedia run fal-ai/flux/dev --prompt "a cat" --num_images 2
-genmedia run fal-ai/flux/dev --prompt "a cat" --logs
-genmedia run fal-ai/veo3.1 --prompt "a dog running" --async
-genmedia run fal-ai/flux/dev --prompt "a cat" --download
-genmedia run fal-ai/flux/dev --prompt "a cat" --num_images 3 \
+vg media run fal-ai/flux/dev --prompt "a cat on the moon"
+vg media run fal-ai/flux/dev --prompt "a cat" --num_images 2
+vg media run fal-ai/flux/dev --prompt "a cat" --logs
+vg media run fal-ai/veo3.1 --prompt "a dog running" --async
+vg media run fal-ai/flux/dev --prompt "a cat" --download
+vg media run fal-ai/flux/dev --prompt "a cat" --num_images 3 \
  --download "./out/{index}.{ext}"
-genmedia run fal-ai/flux/dev --help # introspect parameters as CLI flags
+vg media run fal-ai/flux/dev --help # introspect parameters as CLI flags
 ```
 
-Any model input parameter can be passed as `--<param> <value>`. Run `genmedia run <endpoint_id> --help` to see a model's accepted parameters as CLI flags, or `genmedia schema <endpoint_id>` for the same as JSON.
+Any model input parameter can be passed as `--<param> <value>`. Run `vg media run <endpoint_id> --help` to see a model's accepted parameters as CLI flags, or `vg media schema <endpoint_id>` for the same as JSON.
 
 | Option | Description |
 |---|---|
@@ -108,11 +69,11 @@ Any model input parameter can be passed as `--<param> <value>`. Run `genmedia ru
 ## status: async job
 
 ```bash
-genmedia status fal-ai/veo3.1 <request_id>
-genmedia status fal-ai/veo3.1 <request_id> --result
-genmedia status fal-ai/veo3.1 <request_id> --logs
-genmedia status fal-ai/veo3.1 <request_id> --cancel
-genmedia status fal-ai/veo3.1 <request_id> --download ./out/ # implies --result
+vg media status fal-ai/veo3.1 <request_id>
+vg media status fal-ai/veo3.1 <request_id> --result
+vg media status fal-ai/veo3.1 <request_id> --logs
+vg media status fal-ai/veo3.1 <request_id> --cancel
+vg media status fal-ai/veo3.1 <request_id> --download ./out/ # implies --result
 ```
 
 | Option | Description |
@@ -125,8 +86,8 @@ genmedia status fal-ai/veo3.1 <request_id> --download ./out/ # implies --result
 ## upload: file to fal.ai CDN
 
 ```bash
-genmedia upload ./photo.jpg
-genmedia upload https://example.com/image.png
+vg media upload ./photo.jpg
+vg media upload https://example.com/image.png
 ```
 
 Accepts a local path or a remote URL. Returns a CDN URL usable as model input.
@@ -134,7 +95,7 @@ Accepts a local path or a remote URL. Returns a CDN URL usable as model input.
 ## pricing: cost per call
 
 ```bash
-genmedia pricing fal-ai/flux/dev
+vg media pricing fal-ai/flux/dev
 ```
 
 Use before running an unfamiliar premium endpoint. Some endpoints (GPT Image 2 at `quality=high`, Seedance Pro at long durations) are an order of magnitude more expensive than alternatives.
@@ -142,58 +103,37 @@ Use before running an unfamiliar premium endpoint. Some endpoints (GPT Image 2 a
 ## docs: documentation search
 
 ```bash
-genmedia docs "how to use LoRA"
-genmedia docs "webhook callbacks"
+vg media docs "how to use LoRA"
+vg media docs "webhook callbacks"
 ```
 
 Searches fal.ai documentation, guides, and API references.
 
-## version / update
+## Updating
 
 ```bash
-genmedia version # current version + any pending update
-genmedia update # download and swap in latest
-genmedia update --check # check only, no download
-genmedia update --force # reinstall even if already on latest
+npm install -g vibedgames@latest
 ```
 
-When automatic updates are enabled (default), every TTY invocation may trigger a rate-limited (1/hour) background check that stages the next release. The next launch atomically swaps it in. `GENMEDIA_NO_UPDATE=1` disables all background checks; the manual `update` command still works.
+Inside this repo, `pnpm dogfood` rebuilds and re-links the local CLI.
 
-## init: install the default skill bundle
+## Skills
 
-```bash
-genmedia init
-genmedia init --force # overwrite existing files
-```
-
-Installs the default genmedia skill bundle (`genmedia-ref` + `genmedia` core skills) into `.agents/skills/` if the project has a `.agents/` directory, otherwise into `.claude/skills/`. Exits with a message if neither directory exists.
-
-After `init`, agent sessions in that project can use the installed skills without calling `--help`. Commit the installed skills directory so teammates and other agents get the same context.
-
-## skills: manage installed agent skills
-
-```bash
-genmedia skills list
-genmedia skills install genmedia
-genmedia skills update
-genmedia skills remove genmedia
-```
-
-Installs, updates, lists, and removes agent skills from the genmedia registry.
+Skills live in this repo under `plugins/*/skills/` and are symlinked into `.claude/skills/` by `pnpm dogfood`. Add or remove a skill, re-run `pnpm dogfood`, and commit the resulting symlink change.
 
 ## Agent-first design
 
 All commands emit structured JSON when piped or called with `--json`:
 
 ```bash
-genmedia run fal-ai/flux/dev --prompt "a cat" --json
-genmedia models "text to video" --json | jq '.models[]'
+vg media run fal-ai/flux/dev --prompt "a cat" --json
+vg media models "text to video" --json | jq '.models[]'
 ```
 
 For a machine-readable description of every command, argument, and option:
 
 ```bash
-genmedia --help --json
+vg media --help --json
 ```
 
 Useful when bootstrapping an agent's context with the full CLI surface.
@@ -203,7 +143,7 @@ Useful when bootstrapping an agent's context with the full CLI surface.
 ### Run + download in one go
 
 ```bash
-genmedia run fal-ai/flux/dev \
+vg media run fal-ai/flux/dev \
  --prompt "..." \
  --download "./out/{request_id}_{index}.{ext}" \
  --json
@@ -212,19 +152,19 @@ genmedia run fal-ai/flux/dev \
 ### Async submission, then poll until done
 
 ```bash
-SUBMIT=$(genmedia run <endpoint_id> --prompt "..." --async --json)
+SUBMIT=$(vg media run <endpoint_id> --prompt "..." --async --json)
 REQ=$(echo "$SUBMIT" | jq -r '.request_id')
 
 # Poll until status is COMPLETED
 while true; do
- RES=$(genmedia status <endpoint_id> "$REQ" --json)
+ RES=$(vg media status <endpoint_id> "$REQ" --json)
  STATUS=$(echo "$RES" | jq -r '.status')
  [ "$STATUS" = "COMPLETED" ] && break
  [ "$STATUS" = "FAILED" ] && { echo "$RES" | jq '.error'; exit 1; }
  sleep 5
 done
 
-genmedia status <endpoint_id> "$REQ" \
+vg media status <endpoint_id> "$REQ" \
  --download "./out/{request_id}_{index}.{ext}" \
  --json
 ```
@@ -232,8 +172,8 @@ genmedia status <endpoint_id> "$REQ" \
 ### Upload then reference
 
 ```bash
-URL=$(genmedia upload ./input.png --json | jq -r '.url')
-genmedia run fal-ai/nano-banana-pro/edit \
+URL=$(vg media upload ./input.png --json | jq -r '.url')
+vg media run fal-ai/nano-banana-pro/edit \
  --image_urls "$URL" \
  --prompt "..." \
  --download "./out/{request_id}_{index}.{ext}" \
@@ -243,20 +183,19 @@ genmedia run fal-ai/nano-banana-pro/edit \
 ### Inspect before run (always)
 
 ```bash
-genmedia schema <endpoint_id> --json
-genmedia pricing <endpoint_id> --json
+vg media schema <endpoint_id> --json
+vg media pricing <endpoint_id> --json
 ```
 
 ## Errors
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `422 Unprocessable Entity` | Wrong field name or missing required field | `genmedia schema <endpoint_id> --json` and read `validation_errors` |
-| `401 Unauthorized` | Missing or invalid API key | `genmedia setup` or `export FAL_KEY=…` |
-| `Endpoint not found` | Wrong endpoint ID, deprecated, or typo | `genmedia models "<task>" --json` to discover |
-| Slow / timeout | Long-running generation | Use `--async`, then `genmedia status … --result` |
+| `422 Unprocessable Entity` | Wrong field name or missing required field | `vg media schema <endpoint_id> --json` and read `validation_errors` |
+| `401 Unauthorized` | The vibedgames server is missing `FAL_API_KEY` | Set `FAL_API_KEY` in the server `.env` and redeploy / restart |
+| `Endpoint not found` | Wrong endpoint ID, deprecated, or typo | `vg media models "<task>" --json` to discover |
+| Slow / timeout | Long-running generation | Use `--async`, then `vg media status … --result` |
 
-## Environment variables
+## Environment
 
-- `FAL_KEY`: API key. Used at runtime when `--no-save-key` was set or no key was saved.
-- `GENMEDIA_NO_UPDATE=1`: Disable automatic background update checks.
+The CLI itself takes no required env vars — it talks to the vibedgames proxy, which holds `FAL_API_KEY` server-side. Override the proxy URL with `VIBEDGAMES_API_URL` if pointing at a non-default deployment.

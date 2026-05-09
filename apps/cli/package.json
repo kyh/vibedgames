@@ -3,8 +3,7 @@
   "version": "0.0.3",
   "private": false,
   "bin": {
-    "vg": "./dist/index.js",
-    "genmedia": "./dist/genmedia.js"
+    "vg": "./dist/index.js"
   },
   "files": [
     "dist"

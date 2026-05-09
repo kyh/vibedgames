@@ -5,7 +5,7 @@ description: Build a fully-interactive 3D character-selector experience powered 
 
 # fal-regenerate-3d Skill
 
-> **Runtime:** Asset generation steps run via the [genmedia CLI](https://github.com/fal-ai-community/genmedia-cli) (FLUX.2 / GPT-Image-2 / Meshy v6 / Seedance / etc.). The final deliverable is a static HTML page with Three.js, generated assets are bundled into it. See the `genmedia` skill for command syntax. In vibedgames, the `genmedia` binary is installed by `npm install -g vibedgames` (or `pnpm dogfood` in this repo); the FAL_KEY is held by the server, no per-machine setup is needed. The CLI proxies to `vg media` under the hood.
+> **Runtime:** Asset generation steps use the `vg media` CLI (FLUX.2 / GPT-Image-2 / Meshy v6 / Seedance / etc.); the final deliverable is a static HTML page with Three.js and the generated assets bundled in. Install with `npm install -g vibedgames` (or `pnpm dogfood` in this repo). The FAL key lives on the vibedgames server, so there is no per-machine setup. See the `genmedia` skill for the command reference.
 
 End-to-end recipe to ship a polished, multi-character 3D web experience using fal.ai models.
 This is the recipe that powers **[fal-roster.vercel.app](https://fal-roster.vercel.app)**: a cyberpunk character selector with 10 unique operatives, each with a matching companion creature, environment-themed floor texture, animated background and color palette.

@@ -1,6 +1,6 @@
 # Image-to-Video Endpoints
 
-Curated picks across 6 use cases. **Seedance 2.0** dominates for general I2V; **Kling O3 / V3** specializes in reference-to-video and 4K; **Sora 2** is included for I2V. Avatar/lipsync has its own large bucket. Verify with `genmedia models --endpoint_id <id> --json` before running.
+Curated picks across 6 use cases. **Seedance 2.0** dominates for general I2V; **Kling O3 / V3** specializes in reference-to-video and 4K; **Sora 2** is included for I2V. Avatar/lipsync has its own large bucket. Verify with `vg media models --endpoint_id <id> --json` before running.
 
 ## Premium realism
 
@@ -97,6 +97,6 @@ For the multi-step TTS → lipsync recipe, see [fal-recipes/references/character
 ## Discovery
 
 ```bash
-genmedia models --category image-to-video --limit 10 --json
-genmedia docs "image to video" --json
+vg media models --category image-to-video --limit 10 --json
+vg media docs "image to video" --json
 ```

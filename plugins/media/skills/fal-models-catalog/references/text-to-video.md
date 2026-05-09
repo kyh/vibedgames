@@ -1,6 +1,6 @@
 # Text-to-Video Endpoints
 
-Curated picks across 4 use cases. **ByteDance Seedance 2.0** is the dominant premium choice; **Kling V3/O3** specializes in multi-shot and 4K; **Hailuo 2.3** is a strong newcomer for both premium and fast. Verify with `genmedia models --endpoint_id <id> --json` before running.
+Curated picks across 4 use cases. **ByteDance Seedance 2.0** is the dominant premium choice; **Kling V3/O3** specializes in multi-shot and 4K; **Hailuo 2.3** is a strong newcomer for both premium and fast. Verify with `vg media models --endpoint_id <id> --json` before running.
 
 ## Premium realism
 
@@ -52,6 +52,6 @@ For prompt-craft details, see `fal-prompting`:
 ## Discovery
 
 ```bash
-genmedia models --category text-to-video --limit 10 --json
-genmedia docs "text to video" --json
+vg media models --category text-to-video --limit 10 --json
+vg media docs "text to video" --json
 ```

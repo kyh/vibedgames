@@ -1,6 +1,6 @@
 # Video-to-Video Endpoints
 
-Curated picks across 5 use cases. **Kling O3** dominates content edit and style remix; **Wan family** specializes in animate/replace and motion control; **Topaz** is the upscale standard. Verify with `genmedia models --endpoint_id <id> --json` before running.
+Curated picks across 5 use cases. **Kling O3** dominates content edit and style remix; **Wan family** specializes in animate/replace and motion control; **Topaz** is the upscale standard. Verify with `vg media models --endpoint_id <id> --json` before running.
 
 ## Style remix / restyle
 
@@ -58,12 +58,12 @@ Video background removal / matting.
 Wan VACE family covers inpaint / outpaint / reframe / depth / pose control through multiple endpoints. Discover utility endpoints via the genmedia CLI:
 
 ```bash
-genmedia models "wan vace" --json
+vg media models "wan vace" --json
 ```
 
 ## Discovery
 
 ```bash
-genmedia models --category video-to-video --limit 10 --json
-genmedia docs "video editing" --json
+vg media models --category video-to-video --limit 10 --json
+vg media docs "video editing" --json
 ```

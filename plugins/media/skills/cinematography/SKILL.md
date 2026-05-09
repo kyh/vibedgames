@@ -39,39 +39,39 @@ Ask only for what affects the shot:
 1. Start from routed endpoint IDs.
 
    ```bash
-   genmedia models --endpoint_id openai/gpt-image-2 --json
-   genmedia models --endpoint_id fal-ai/nano-banana-pro --json
-   genmedia models --endpoint_id bytedance/seedance-2.0/text-to-video --json
-   genmedia models --endpoint_id bytedance/seedance-2.0/image-to-video --json
-   genmedia models --endpoint_id xai/grok-imagine-video/text-to-video --json
+   vg media models --endpoint_id openai/gpt-image-2 --json
+   vg media models --endpoint_id fal-ai/nano-banana-pro --json
+   vg media models --endpoint_id bytedance/seedance-2.0/text-to-video --json
+   vg media models --endpoint_id bytedance/seedance-2.0/image-to-video --json
+   vg media models --endpoint_id xai/grok-imagine-video/text-to-video --json
    ```
 
    Use text search only as fallback discovery for a missing camera-control
    role:
 
    ```bash
-   genmedia models "cinematic video generation camera movement" --json
-   genmedia docs "video generation camera movement prompt" --json
+   vg media models "cinematic video generation camera movement" --json
+   vg media docs "video generation camera movement prompt" --json
    ```
 
 2. Inspect schema and use only supported controls.
 
    ```bash
-   genmedia schema <endpoint_id> --json
-   genmedia pricing <endpoint_id> --json
+   vg media schema <endpoint_id> --json
+   vg media pricing <endpoint_id> --json
    ```
 
 3. Upload references when using image-to-video, first frame, last frame, style
    reference, or character/product continuity.
 
    ```bash
-   genmedia upload ./frame.png --json
+   vg media upload ./frame.png --json
    ```
 
 4. Run stills with direct download.
 
    ```bash
-   genmedia run <endpoint_id> \
+   vg media run <endpoint_id> \
      --prompt "<cinematography prompt>" \
      --download "./outputs/cinema/{request_id}_{index}.{ext}" \
      --json
@@ -80,13 +80,13 @@ Ask only for what affects the shot:
 5. Run video async.
 
    ```bash
-   genmedia run <endpoint_id> \
+   vg media run <endpoint_id> \
      --prompt "<shot prompt>" \
      --image_url "<uploaded frame if supported>" \
      --async \
      --json
 
-   genmedia status <endpoint_id> <request_id> \
+   vg media status <endpoint_id> <request_id> \
      --download "./outputs/cinema/{request_id}_{index}.{ext}" \
      --json
    ```

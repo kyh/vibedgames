@@ -18,37 +18,37 @@ Only ask when the answer cannot be inferred from the task or the source files.
 1. Routed endpoints (see [fal-models-catalog](../../fal-models-catalog/SKILL.md)):
 
  ```bash
- genmedia models --endpoint_id openai/gpt-image-2 --json
- genmedia models --endpoint_id fal-ai/nano-banana-pro/edit --json
- genmedia models --endpoint_id fal-ai/nano-banana-2 --json
- genmedia models --endpoint_id bytedance/seedance-2.0/image-to-video --json
+ vg media models --endpoint_id openai/gpt-image-2 --json
+ vg media models --endpoint_id fal-ai/nano-banana-pro/edit --json
+ vg media models --endpoint_id fal-ai/nano-banana-2 --json
+ vg media models --endpoint_id bytedance/seedance-2.0/image-to-video --json
  ```
 
  Fallback discovery:
 
  ```bash
- genmedia models "background removal product image" --json
- genmedia docs "commercial product image generation" --json
+ vg media models "background removal product image" --json
+ vg media docs "commercial product image generation" --json
  ```
 
 2. Inspect the selected endpoint before running.
 
  ```bash
- genmedia schema <endpoint_id> --json
- genmedia pricing <endpoint_id> --json
+ vg media schema <endpoint_id> --json
+ vg media pricing <endpoint_id> --json
  ```
 
 3. Upload every local or remote reference file.
 
  ```bash
- genmedia upload ./product.png --json
- genmedia upload ./logo.png --json
+ vg media upload ./product.png --json
+ vg media upload ./logo.png --json
  ```
 
 4. Still-image jobs synchronously when quick:
 
  ```bash
- genmedia run <endpoint_id> \
+ vg media run <endpoint_id> \
  --prompt "<commercial prompt>" \
  --image_url "<uploaded product url if supported>" \
  --download "./outputs/commercial/{request_id}_{index}.{ext}" \
@@ -58,13 +58,13 @@ Only ask when the answer cannot be inferred from the task or the source files.
 5. Video jobs async, download from `status`:
 
  ```bash
- genmedia run <endpoint_id> \
+ vg media run <endpoint_id> \
  --prompt "<motion prompt>" \
  --image_url "<uploaded hero frame if supported>" \
  --async \
  --json
 
- genmedia status <endpoint_id> <request_id> \
+ vg media status <endpoint_id> <request_id> \
  --download "./outputs/commercial/{request_id}_{index}.{ext}" \
  --json
  ```
@@ -159,7 +159,7 @@ unreadable brand mark, synthetic hands, low resolution
 
 ### Hero image from product reference
 
-1. Upload the product image with `genmedia upload`.
+1. Upload the product image with `vg media upload`.
 2. Search for image editing, reference image, or product photography models.
 3. Inspect schema and choose fields that preserve product identity.
 4. Prompt for surface, lighting, crop, and background. Keep the product invariant short and exact.
@@ -180,7 +180,7 @@ Use when no reference exists or the user wants early creative exploration.
 1. Create a still hero frame or upload the user's approved product frame.
 2. Search image-to-video models and inspect `duration`, `aspect_ratio`, image input, seed, and motion controls.
 3. Keep motion simple: push-in, turntable, parallax, reveal, pour, unwrap.
-4. Run async, then download from `genmedia status`.
+4. Run async, then download from `vg media status`.
 5. If the product changes shape, reduce motion and strengthen identity constraints.
 
 ### E-commerce batch

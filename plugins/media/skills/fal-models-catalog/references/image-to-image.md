@@ -2,7 +2,7 @@
 
 Curated picks across 12 use cases (10 editing + 2 quality). The dominant pattern: **instruction-based edit endpoints** (`nano-banana-pro/edit`, `nano-banana-2/edit`, `openai/gpt-image-2/edit`, `seedream/v5/lite/edit`) handle most needs. Specialist endpoints come in for outpainting, background removal, product shots, and high-quality upscaling.
 
-Verify with `genmedia models --endpoint_id <id> --json` before running.
+Verify with `vg media models --endpoint_id <id> --json` before running.
 
 ## Editing: premium identity-preserving
 
@@ -118,7 +118,7 @@ Fix blurry, noisy, or damaged images. Modern instruction-based edit endpoints ha
 ## Discovery
 
 ```bash
-genmedia models --category image-to-image --limit 10 --json
-genmedia models "image edit" --json
-genmedia docs "image editing" --json
+vg media models --category image-to-image --limit 10 --json
+vg media models "image edit" --json
+vg media docs "image editing" --json
 ```

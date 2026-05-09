@@ -118,7 +118,7 @@ That is the entire prompt. The reference frame already carries identity, wardrob
 
 ## Common parameters
 
-Run `genmedia schema alibaba/happy-horse/text-to-video --json` for authoritative list. Typical:
+Run `vg media schema alibaba/happy-horse/text-to-video --json` for authoritative list. Typical:
 
 - `prompt`: short declarative direction
 - `aspect_ratio`: `16:9`, `9:16`, `1:1`

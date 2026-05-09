@@ -42,13 +42,13 @@ For prompt mechanics specific to GPT Image 2, see [fal-prompting/references/gpt-
 
 ```bash
 # 1. Inspect schema (only first time per endpoint)
-genmedia schema openai/gpt-image-2 --json
+vg media schema openai/gpt-image-2 --json
 
 # 2. Optionally upload a reference (for identity-preserving generation)
-URL_REF=$(genmedia upload ./reference.jpg --json | jq -r '.url')
+URL_REF=$(vg media upload ./reference.jpg --json | jq -r '.url')
 
 # 3. Run with structured prompt
-genmedia run openai/gpt-image-2 \
+vg media run openai/gpt-image-2 \
   --prompt "<structured prompt>" \
   --image_size landscape_4_3 \
   --quality high \
@@ -61,7 +61,7 @@ genmedia run openai/gpt-image-2 \
 For edit-mode (preserving an existing image's geometry):
 
 ```bash
-genmedia run openai/gpt-image-2/edit \
+vg media run openai/gpt-image-2/edit \
   --image_urls "$URL_REF" \
   --prompt "<edit-mode structured prompt>" \
   --input_fidelity high \
@@ -325,9 +325,9 @@ If a result still fails realism, switch to edit-mode against a real reference ph
 ## Common parameters
 
 ```bash
-genmedia schema openai/gpt-image-2 --json
-genmedia schema fal-ai/nano-banana-pro --json
-genmedia schema openai/gpt-image-2/edit --json
+vg media schema openai/gpt-image-2 --json
+vg media schema fal-ai/nano-banana-pro --json
+vg media schema openai/gpt-image-2/edit --json
 ```
 
 Frequently exposed:

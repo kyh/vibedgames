@@ -17,9 +17,9 @@ description: >
 
 # fal.ai Recipes
 
-> **Runtime:** All endpoint calls run via the [genmedia CLI](https://github.com/fal-ai-community/genmedia-cli). See the `genmedia` skill for command syntax. In vibedgames, the `genmedia` binary is installed by `npm install -g vibedgames` (or `pnpm dogfood` in this repo); the FAL_KEY is held by the server, no per-machine setup is needed. The CLI proxies to `vg media` under the hood.
+> **Runtime:** All endpoint calls use the `vg media` CLI (`npm install -g vibedgames`, or `pnpm dogfood` in this repo). The FAL key lives on the vibedgames server, so there is no per-machine setup. See the `genmedia` skill for the command reference.
 
-A recipe is a use-case-driven pipeline. It tells you the inputs to collect, the genmedia calls to chain, and the quality bar to verify before returning.
+A recipe is a use-case-driven pipeline. It tells you the inputs to collect, the vg media calls to chain, and the quality bar to verify before returning.
 
 Recipes use `genmedia` for execution and `fal-models-catalog` for endpoint defaults. They differ from `genmedia-workflow`:
 
@@ -63,6 +63,6 @@ Every reference follows the same skeleton so the agent knows where to look:
 - For endpoint defaults: [fal-models-catalog](../fal-models-catalog/SKILL.md)
 - For prompt-craft per model family: [fal-prompting](../fal-prompting/SKILL.md)
 - For pipeline patterns (fan-out, sequential, frame-bridging, etc.): [genmedia-workflow](../genmedia-workflow/SKILL.md)
-- For utility endpoints (resize, composite, audio merge, subtitle, etc.): search `genmedia models --category` for the relevant modality.
+- For utility endpoints (resize, composite, audio merge, subtitle, etc.): search `vg media models --category` for the relevant modality.
 
 Information lives in one place. If a recipe needs an endpoint listed in the catalog, it links to the catalog instead of duplicating the list.

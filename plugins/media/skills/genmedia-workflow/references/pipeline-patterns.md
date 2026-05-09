@@ -113,7 +113,7 @@ Rules:
 
 - Each expert output must be structured.
 - Master plan removes repetition across angles, backgrounds, and lighting.
-- This is a planning pattern. Generation still uses discovered genmedia models.
+- This is a planning pattern. Generation still uses discovered vg media models.
 
 ## Systematic variation matrix
 

@@ -1,6 +1,6 @@
 # Text-to-Audio Endpoints
 
-Curated picks across 6 use cases. TTS Premium / Fast / Multilingual / Voice clone, Music Vocal+lyrics, Music Instrumental+SFX. Verify with `genmedia models --endpoint_id <id> --json` before running.
+Curated picks across 6 use cases. TTS Premium / Fast / Multilingual / Voice clone, Music Vocal+lyrics, Music Instrumental+SFX. Verify with `vg media models --endpoint_id <id> --json` before running.
 
 ## TTS · Premium expressive
 
@@ -66,10 +66,10 @@ Instrumental music and sound effects.
 ## Discovery
 
 ```bash
-genmedia models --category text-to-speech --limit 10 --json
-genmedia models --category text-to-audio --limit 10 --json
-genmedia models "music generation" --json
-genmedia models "sound effect" --json
+vg media models --category text-to-speech --limit 10 --json
+vg media models --category text-to-audio --limit 10 --json
+vg media models "music generation" --json
+vg media models "sound effect" --json
 ```
 
 ## See also

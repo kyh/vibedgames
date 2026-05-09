@@ -17,7 +17,7 @@ references as needed:
 
 Load `model-routing` alongside this skill for default endpoint choices.
 
-The goal is to produce clear story beats and executable genmedia runs. Avoid
+The goal is to produce clear story beats and executable vg media runs. Avoid
 generic inspiration copy, fake dialogue, and em dashes.
 
 ## Inputs to collect
@@ -39,36 +39,36 @@ Ask only when missing information affects execution.
 1. Start from routed endpoint IDs.
 
    ```bash
-   genmedia models --endpoint_id bytedance/seedance-2.0/text-to-video --json
-   genmedia models --endpoint_id bytedance/seedance-2.0/image-to-video --json
-   genmedia models --endpoint_id bytedance/seedance-2.0/reference-to-video --json
-   genmedia models --endpoint_id fal-ai/kling-video/v3/pro/text-to-video --json
-   genmedia models --endpoint_id alibaba/happy-horse/text-to-video --json
-   genmedia models --endpoint_id veed/fabric-1.0 --json
+   vg media models --endpoint_id bytedance/seedance-2.0/text-to-video --json
+   vg media models --endpoint_id bytedance/seedance-2.0/image-to-video --json
+   vg media models --endpoint_id bytedance/seedance-2.0/reference-to-video --json
+   vg media models --endpoint_id fal-ai/kling-video/v3/pro/text-to-video --json
+   vg media models --endpoint_id alibaba/happy-horse/text-to-video --json
+   vg media models --endpoint_id veed/fabric-1.0 --json
    ```
 
    Use text search only as fallback discovery for an unsupported sequence
    control:
 
    ```bash
-   genmedia models "first frame last frame video generation" --json
-   genmedia docs "multi shot video generation" --json
+   vg media models "first frame last frame video generation" --json
+   vg media docs "multi shot video generation" --json
    ```
 
 2. Inspect schema before planning exact payloads.
 
    ```bash
-   genmedia schema <endpoint_id> --json
-   genmedia pricing <endpoint_id> --json
+   vg media schema <endpoint_id> --json
+   vg media pricing <endpoint_id> --json
    ```
 
 3. Upload references.
 
    ```bash
-   genmedia upload ./first-frame.png --json
-   genmedia upload ./character.png --json
-   genmedia upload ./product.png --json
-   genmedia upload ./voiceover.wav --json
+   vg media upload ./first-frame.png --json
+   vg media upload ./character.png --json
+   vg media upload ./product.png --json
+   vg media upload ./voiceover.wav --json
    ```
 
 4. Choose the sequence route.
@@ -87,12 +87,12 @@ Ask only when missing information affects execution.
 5. Run long jobs async and download every result with a unique template.
 
    ```bash
-   genmedia run <endpoint_id> \
+   vg media run <endpoint_id> \
      --prompt "<shot or sequence prompt>" \
      --async \
      --json
 
-   genmedia status <endpoint_id> <request_id> \
+   vg media status <endpoint_id> <request_id> \
      --download "./outputs/story/{request_id}_{index}.{ext}" \
      --json
    ```

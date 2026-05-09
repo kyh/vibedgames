@@ -1,6 +1,6 @@
 # Image-to-Text Endpoints
 
-Curated picks for OCR, captioning/VQA, and detection/segmentation. **Moondream 3** is the dominant pick across all three; **Florence-2** and **SAM-3** complete the toolset. Verify with `genmedia models --endpoint_id <id> --json` before running.
+Curated picks for OCR, captioning/VQA, and detection/segmentation. **Moondream 3** is the dominant pick across all three; **Florence-2** and **SAM-3** complete the toolset. Verify with `vg media models --endpoint_id <id> --json` before running.
 
 ## OCR, extract text from image
 
@@ -40,9 +40,9 @@ Nesne tespit ve maskeleme.
 ## Common parameters
 
 ```bash
-genmedia schema fal-ai/moondream3-preview/query --json
-genmedia schema fal-ai/got-ocr/v2 --json
-genmedia schema fal-ai/sam-3/image/embed --json
+vg media schema fal-ai/moondream3-preview/query --json
+vg media schema fal-ai/got-ocr/v2 --json
+vg media schema fal-ai/sam-3/image/embed --json
 ```
 
 Frequently exposed:
@@ -55,13 +55,13 @@ Frequently exposed:
 ## Discovery
 
 ```bash
-genmedia models --category vision --limit 10 --json
-genmedia models "ocr" --json
-genmedia models "image segmentation" --json
-genmedia docs "vision" --json
+vg media models --category vision --limit 10 --json
+vg media models "ocr" --json
+vg media models "image segmentation" --json
+vg media docs "vision" --json
 ```
 
 ## See also
 
-- For mask manipulation utilities, search the catalog with `genmedia models --category <modality>`
+- For mask manipulation utilities, search the catalog with `vg media models --category <modality>`
 - For document scan cleanup before OCR, see [fal-recipes/references/image-restoration.md](../../fal-recipes/references/image-restoration.md)

@@ -19,8 +19,8 @@
 ## Image generation node
 
 - Choose the endpoint from `model-routing` first.
-- Verify it with `genmedia models --endpoint_id <endpoint_id> --json`.
-- Use free-text `genmedia models "<query>" --json` only when the routed
+- Verify it with `vg media models --endpoint_id <endpoint_id> --json`.
+- Use free-text `vg media models "<query>" --json` only when the routed
   endpoint is missing or the role is not covered.
 - Inspect schema before setting aspect ratio, image size, count, seed, or
   negative prompt.
@@ -41,7 +41,7 @@
 - Use short motion prompts, usually 15 to 35 words.
 - Specify subject motion, camera motion, and ambient motion.
 - Avoid describing static composition again unless the schema or model needs it.
-- Run async and download via `genmedia status`.
+- Run async and download via `vg media status`.
 
 ## Utility node
 
@@ -49,7 +49,7 @@
   subtitle, join audio and video, speed change, split, merge, compress.
 - Always inspect schema because utility endpoints often have exact field names.
 - Use generated result URLs for downstream inputs when available.
-- Use `genmedia upload` for local intermediate files before passing them into
+- Use `vg media upload` for local intermediate files before passing them into
   another endpoint.
 
 ## QA node

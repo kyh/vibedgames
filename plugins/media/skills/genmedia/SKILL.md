@@ -10,19 +10,19 @@ description: >
  commands. Use `--json` whenever the output will be parsed by an agent.
 ---
 
-# genmedia CLI: fal.ai endpoint runner
+# vg media: fal.ai endpoint runner
 
-`genmedia` is the agent-first CLI for fal.ai. It works in a terminal for humans (pretty output) and equally well for agents (structured JSON when piped or with `--json`). All other skills in this repo call `genmedia` for execution, they do not wrap the fal.ai HTTP API directly.
+`vg media` is the agent-first CLI for fal.ai. It works in a terminal for humans (pretty output) and equally well for agents (structured JSON when piped or with `--json`). All other skills in this repo call `vg media` for execution; they do not wrap the fal.ai HTTP API directly. The surface mirrors the upstream [genmedia CLI](https://github.com/fal-ai-community/genmedia-cli) — that's where the skill name comes from — but the implementation is vibedgames' own: every call is forwarded through a single server proc that attaches the FAL key and proxies to fal.
 
-> **Vibedgames runtime.** In this repo `genmedia` is a shim that forwards to `vg media` against the vibedgames proxy, so the server holds the `FAL_KEY` — there is no per-machine setup. The CLI exposes `run`, `status`, `models`, `schema`, `upload`, `pricing`, and `docs`; under the hood every fal call is routed through one server proc that attaches the API key and forwards. Skill-management commands (`setup`, `init`, `skills`, `version`, `update`) come from the upstream genmedia binary and **are not proxied** — install/update vibedgames itself with `npm install -g vibedgames` (or `pnpm dogfood` in this repo) instead.
+> **Vibedgames runtime.** Install with `npm install -g vibedgames` (or `pnpm dogfood` in this repo). The vibedgames server holds the `FAL_KEY`, so there is no per-machine setup. The CLI exposes `run`, `status`, `models`, `schema`, `upload`, `pricing`, and `docs` — the read/write surface that maps to fal's queue, platform, storage, and docs APIs.
 
-For the full command surface (every flag, every option, every example), see [references/full-reference.md](references/full-reference.md).
+For the full command surface (every flag, every option, every example), see [references/full-reference.md](references/full-reference.md). For setup details, see the [Setup](#setup) section below.
 
 ## Critical rules
 
 1. **Always use `--json` when an agent will read the output.** Pretty mode is for humans only.
-2. **Never invent endpoint IDs.** Use `genmedia models "<query>"` to discover, `genmedia models --endpoint_id <id>` to verify.
-3. **Inspect schema before running.** `genmedia schema <endpoint_id> --json` shows the exact field names. Guessed flags fail with 422.
+2. **Never invent endpoint IDs.** Use `vg media models "<query>"` to discover, `vg media models --endpoint_id <id>` to verify.
+3. **Inspect schema before running.** `vg media schema <endpoint_id> --json` shows the exact field names. Guessed flags fail with 422.
 4. **Save files with `--download`, not curl.** The CLI handles authentication, naming, and file format detection.
 5. **Use `--async` for long-running generation.** Image work usually completes inline; video/audio/3D usually need queue + status polling.
 
@@ -30,22 +30,22 @@ For the full command surface (every flag, every option, every example), see [ref
 
 | Command | Purpose |
 |---------|---------|
-| `genmedia models <query>` | Search the catalog (or `--category`, or `--endpoint_id`) |
-| `genmedia schema <endpoint_id>` | Inspect inputs/outputs (compact or `--format openapi`) |
-| `genmedia run <endpoint_id> --<param> <value>` | Execute a model |
-| `genmedia status <endpoint_id> <request_id>` | Poll an async job (with `--result`, `--cancel`, `--download`) |
-| `genmedia upload <path>` | Upload a local file (returns a URL usable as a model input) |
-| `genmedia pricing <endpoint_id>` | Check cost per call |
-| `genmedia docs <query>` | Search fal.ai documentation |
+| `vg media models <query>` | Search the catalog (or `--category`, or `--endpoint_id`) |
+| `vg media schema <endpoint_id>` | Inspect inputs/outputs (compact or `--format openapi`) |
+| `vg media run <endpoint_id> --<param> <value>` | Execute a model |
+| `vg media status <endpoint_id> <request_id>` | Poll an async job (with `--result`, `--cancel`, `--download`) |
+| `vg media upload <path>` | Upload a local file (returns a URL usable as a model input) |
+| `vg media pricing <endpoint_id>` | Check cost per call |
+| `vg media docs <query>` | Search fal.ai documentation |
 
-> Skill-management and CLI-self-management commands from upstream genmedia (`setup`, `init`, `skills`, `version`, `update`) are **not** proxied through vibedgames. Install/update the CLI with `npm install -g vibedgames`; skills live in this repo under `plugins/media/skills/` and sync via `pnpm dogfood`.
+> `vg media` is a fal-call surface only. Install/update the CLI with `npm install -g vibedgames`; skills live in this repo under `plugins/media/skills/` and sync via `pnpm dogfood`.
 
 ## Quick patterns
 
 ### Run a model and download the result
 
 ```bash
-genmedia run fal-ai/flux/dev \
+vg media run fal-ai/flux/dev \
  --prompt "a cat on the moon" \
  --download "./out/{request_id}_{index}.{ext}" \
  --json
@@ -54,9 +54,9 @@ genmedia run fal-ai/flux/dev \
 ### Async + poll
 
 ```bash
-SUBMIT=$(genmedia run fal-ai/veo3.1 --prompt "a dog running" --async --json)
+SUBMIT=$(vg media run fal-ai/veo3.1 --prompt "a dog running" --async --json)
 REQ=$(echo "$SUBMIT" | jq -r '.request_id')
-genmedia status fal-ai/veo3.1 "$REQ" \
+vg media status fal-ai/veo3.1 "$REQ" \
  --download "./out/{request_id}_{index}.{ext}" \
  --json
 ```
@@ -64,8 +64,8 @@ genmedia status fal-ai/veo3.1 "$REQ" \
 ### Upload then run
 
 ```bash
-URL=$(genmedia upload ./photo.jpg --json | jq -r '.url')
-genmedia run fal-ai/nano-banana-pro/edit \
+URL=$(vg media upload ./photo.jpg --json | jq -r '.url')
+vg media run fal-ai/nano-banana-pro/edit \
  --image_urls "$URL" \
  --prompt "make the sky stormy" \
  --download "./out/{request_id}_{index}.{ext}" \
@@ -75,19 +75,16 @@ genmedia run fal-ai/nano-banana-pro/edit \
 ### Discover when the user names a fuzzy task
 
 ```bash
-genmedia models "background removal product image" --json
-genmedia models --category text-to-video --limit 5 --json
-genmedia docs "webhook callbacks" --json
+vg media models "background removal product image" --json
+vg media models --category text-to-video --limit 5 --json
+vg media docs "webhook callbacks" --json
 ```
 
-## Setup (first-time only)
-
-If `genmedia` is not installed:
+## Setup
 
 ```bash
-curl https://genmedia.sh/install -fsS | bash # Linux / macOS
-irm https://genmedia.sh/install.ps1 | iex # Windows PowerShell
-genmedia setup --non-interactive --api-key "$FAL_KEY"
+npm install -g vibedgames # global install
+vg --help                 # confirm the CLI is on PATH
 ```
 
-For full setup details (output modes, auto-update, `.env` loading) see [full-reference.md](references/full-reference.md).
+In this repo, run `pnpm dogfood` instead — it links the local CLI build and syncs `.claude/skills/`. The vibedgames server holds the FAL key, so there is no per-machine API-key step. See [full-reference.md](references/full-reference.md) for output modes and JSON conventions.

@@ -1,25 +1,25 @@
 ---
 name: model-routing
 description: >
-  Choose default fal.ai endpoint IDs for genmedia production skills. Use this
-  with character-design, cinematography, storytelling, fal-gamedev,
-  fal-regenerate-3d, and genmedia-workflow when the user has not named a
-  specific model.
+  Choose default fal.ai endpoint IDs for the production skills in this
+  plugin. Use this with character-design, cinematography, storytelling,
+  fal-gamedev, fal-regenerate-3d, and genmedia-workflow when the user
+  has not named a specific model.
 ---
 
 # Genmedia model routing
 
 Use these endpoint defaults when a domain skill needs a model. These choices
-come from project-specific guidance. Still run `genmedia schema <endpoint_id>
---json` before execution and `genmedia pricing <endpoint_id> --json` when cost
+come from project-specific guidance. Still run `vg media schema <endpoint_id>
+--json` before execution and `vg media pricing <endpoint_id> --json` when cost
 matters.
 
 Endpoint-first rule:
 
 1. Pick the endpoint ID from this skill.
-2. Verify it with `genmedia models --endpoint_id <endpoint_id> --json`.
-3. Inspect it with `genmedia schema <endpoint_id> --json`.
-4. Check `genmedia pricing <endpoint_id> --json` when cost matters.
+2. Verify it with `vg media models --endpoint_id <endpoint_id> --json`.
+3. Inspect it with `vg media schema <endpoint_id> --json`.
+4. Check `vg media pricing <endpoint_id> --json` when cost matters.
 5. Use text search only if the routed endpoint is missing, deprecated,
    rejected, or the task needs a model role not covered here.
 

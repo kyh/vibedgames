@@ -1,6 +1,6 @@
 # Image-to-3D Endpoints
 
-Curated picks across 3 use cases, premium quality, fast/cheap, and multi-view input. **Meshy 6** and **Hunyuan 3D Pro** lead premium; **Tripo P1/H3.1** are strong alternatives. Verify with `genmedia models --endpoint_id <id> --json` before running.
+Curated picks across 3 use cases, premium quality, fast/cheap, and multi-view input. **Meshy 6** and **Hunyuan 3D Pro** lead premium; **Tripo P1/H3.1** are strong alternatives. Verify with `vg media models --endpoint_id <id> --json` before running.
 
 ## Premium
 
@@ -36,26 +36,26 @@ Multiple view angles → 3D (front / side / three-quarter).
 - **Single object on plain background.** Photogrammetry-style 3D extraction works dramatically better when the subject is isolated.
 - **Remove the background first** if the source has clutter (use `fal-ai/bria/background/remove`).
 - **Multiple angles help** when the model supports multi-image input, front, side, three-quarter views give the best mesh.
-- **Generation is slow** (1-5 minutes), always run async with `genmedia status` polling.
+- **Generation is slow** (1-5 minutes), always run async with `vg media status` polling.
 
 ## Pre-processing chain (single-image, busy background)
 
 ```bash
-URL_RAW=$(genmedia upload ./object.jpg --json | jq -r '.url')
+URL_RAW=$(vg media upload ./object.jpg --json | jq -r '.url')
 
 # Step 1: background removal
-RES_BG=$(genmedia run fal-ai/bria/background/remove --image_url "$URL_RAW" --json)
+RES_BG=$(vg media run fal-ai/bria/background/remove --image_url "$URL_RAW" --json)
 URL_CLEAN=$(echo "$RES_BG" | jq -r '.image.url')
 
 # Step 2: image-to-3D
-SUBMIT=$(genmedia run fal-ai/hunyuan-3d/v3.1/pro/image-to-3d \
+SUBMIT=$(vg media run fal-ai/hunyuan-3d/v3.1/pro/image-to-3d \
  --image_url "$URL_CLEAN" \
  --async \
  --json)
 REQ=$(echo "$SUBMIT" | jq -r '.request_id')
 
 # Step 3: poll + download
-genmedia status fal-ai/hunyuan-3d/v3.1/pro/image-to-3d "$REQ" \
+vg media status fal-ai/hunyuan-3d/v3.1/pro/image-to-3d "$REQ" \
  --download "./out/{request_id}.{ext}" \
  --json
 ```

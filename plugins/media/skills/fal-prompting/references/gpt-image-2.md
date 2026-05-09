@@ -131,7 +131,7 @@ focus.
 
 ## Common parameters
 
-Run `genmedia schema openai/gpt-image-2 --json` for authoritative list. Typical:
+Run `vg media schema openai/gpt-image-2 --json` for authoritative list. Typical:
 
 - `prompt`: the structured prompt above
 - `image_size`: `landscape_4_3`, `square`, `portrait_3_4`, custom dimensions
@@ -145,7 +145,7 @@ Run `genmedia schema openai/gpt-image-2 --json` for authoritative list. Typical:
 ## Quick code example
 
 ```bash
-genmedia run openai/gpt-image-2 \
+vg media run openai/gpt-image-2 \
  --prompt "<five-section structured prompt>" \
  --image_size landscape_4_3 \
  --quality high \

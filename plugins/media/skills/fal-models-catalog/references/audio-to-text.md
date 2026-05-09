@@ -1,6 +1,6 @@
 # Audio-to-Text Endpoints
 
-Curated picks for STT (speech-to-text) and audio cleanup. Verify with `genmedia models --endpoint_id <id> --json` before running.
+Curated picks for STT (speech-to-text) and audio cleanup. Verify with `vg media models --endpoint_id <id> --json` before running.
 
 ## STT · General transcription
 
@@ -33,8 +33,8 @@ Audio cleanup, isolation, separation.
 Inspect schema before running:
 
 ```bash
-genmedia schema fal-ai/wizper --json
-genmedia schema fal-ai/elevenlabs/speech-to-text/scribe-v2 --json
+vg media schema fal-ai/wizper --json
+vg media schema fal-ai/elevenlabs/speech-to-text/scribe-v2 --json
 ```
 
 Frequently exposed:
@@ -48,9 +48,9 @@ Frequently exposed:
 ## Discovery
 
 ```bash
-genmedia models --category speech-to-text --json
-genmedia models "audio isolation" --json
-genmedia docs "speech to text" --json
+vg media models --category speech-to-text --json
+vg media models "audio isolation" --json
+vg media docs "speech to text" --json
 ```
 
 ## See also

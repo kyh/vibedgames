@@ -25,10 +25,10 @@ If multiple defects are present, run them in sequence (denoise → deblur → up
 ### Single-defect restoration
 
 ```bash
-URL=$(genmedia upload ./damaged.jpg --json | jq -r '.url')
+URL=$(vg media upload ./damaged.jpg --json | jq -r '.url')
 
 # Pick endpoint based on dominant defect
-genmedia run fal-ai/nafnet/deblur \
+vg media run fal-ai/nafnet/deblur \
  --image_url "$URL" \
  --download "./outputs/restored/{request_id}_{index}.{ext}" \
  --json
@@ -37,9 +37,9 @@ genmedia run fal-ai/nafnet/deblur \
 ### Face restoration with fidelity control
 
 ```bash
-URL=$(genmedia upload ./bad-face.jpg --json | jq -r '.url')
+URL=$(vg media upload ./bad-face.jpg --json | jq -r '.url')
 
-genmedia run fal-ai/codeformer \
+vg media run fal-ai/codeformer \
  --image_url "$URL" \
  --fidelity 0.7 \
  --download "./outputs/restored/{request_id}_{index}.{ext}" \
@@ -55,9 +55,9 @@ genmedia run fal-ai/codeformer \
 ### Document restoration
 
 ```bash
-URL=$(genmedia upload ./scan.jpg --json | jq -r '.url')
+URL=$(vg media upload ./scan.jpg --json | jq -r '.url')
 
-genmedia run fal-ai/docres \
+vg media run fal-ai/docres \
  --image_url "$URL" \
  --download "./outputs/restored/{request_id}_{index}.{ext}" \
  --json
@@ -71,12 +71,12 @@ For a noisy + blurry photo, chain two passes:
 
 ```bash
 # Pass 1: denoise
-URL1=$(genmedia upload ./input.jpg --json | jq -r '.url')
-RES1=$(genmedia run fal-ai/nafnet/denoise --image_url "$URL1" --json)
+URL1=$(vg media upload ./input.jpg --json | jq -r '.url')
+RES1=$(vg media run fal-ai/nafnet/denoise --image_url "$URL1" --json)
 URL2=$(echo "$RES1" | jq -r '.image.url')
 
 # Pass 2: deblur the cleaned-up result
-genmedia run fal-ai/nafnet/deblur \
+vg media run fal-ai/nafnet/deblur \
  --image_url "$URL2" \
  --download "./outputs/restored/{request_id}_{index}.{ext}" \
  --json
@@ -86,12 +86,12 @@ For an old portrait scan: face-fix → upscale.
 
 ```bash
 # Pass 1: codeformer for face
-RES1=$(genmedia run fal-ai/codeformer \
+RES1=$(vg media run fal-ai/codeformer \
  --image_url "$URL1" --fidelity 0.7 --json)
 URL2=$(echo "$RES1" | jq -r '.image.url')
 
 # Pass 2: upscale (see fal-models-catalog/image-to-image.md for upscale endpoints)
-genmedia run <upscale-endpoint> \
+vg media run <upscale-endpoint> \
  --image_url "$URL2" \
  --download "./outputs/restored/{request_id}_{index}.{ext}" \
  --json
@@ -102,9 +102,9 @@ genmedia run <upscale-endpoint> \
 For defects not covered above (artifacts, color shifts, JPEG compression):
 
 ```bash
-genmedia models "image restoration" --json
-genmedia models --category image-to-image --json | jq '.models[] | select(.tags[]? == "restoration")'
-genmedia docs "image restoration enhance" --json
+vg media models "image restoration" --json
+vg media models --category image-to-image --json | jq '.models[] | select(.tags[]? == "restoration")'
+vg media docs "image restoration enhance" --json
 ```
 
 ## Quality bar
@@ -129,9 +129,9 @@ Before returning:
 Inspect each endpoint:
 
 ```bash
-genmedia schema fal-ai/nafnet/deblur --json
-genmedia schema fal-ai/codeformer --json
-genmedia schema fal-ai/docres --json
+vg media schema fal-ai/nafnet/deblur --json
+vg media schema fal-ai/codeformer --json
+vg media schema fal-ai/docres --json
 ```
 
 Frequently exposed:

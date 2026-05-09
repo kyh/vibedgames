@@ -11,19 +11,19 @@ description: >
 
 Endpoint-first navigation for fal.ai production work. Each modality reference lists curated picks organized by use case (premium realism / fast & cheap / 4K / specialized). Before reaching for free-text search, consult the modality reference that matches the task.
 
-> **Runtime:** All endpoint calls run via the [genmedia CLI](https://github.com/fal-ai-community/genmedia-cli). See the `genmedia` skill for command syntax. In vibedgames, the `genmedia` binary is installed by `npm install -g vibedgames` (or `pnpm dogfood` in this repo); the FAL_KEY is held by the server, no per-machine setup is needed. The CLI proxies to `vg media` under the hood.
+> **Runtime:** All endpoint calls use the `vg media` CLI (`npm install -g vibedgames`, or `pnpm dogfood` in this repo). The FAL key lives on the vibedgames server, so there is no per-machine setup. See the `genmedia` skill for the command reference.
 
 ## Endpoint-first rule
 
 1. Pick the endpoint ID from the right modality reference.
-2. Verify it: `genmedia models --endpoint_id <endpoint_id> --json`.
-3. Inspect it: `genmedia schema <endpoint_id> --json`.
-4. Check cost when relevant: `genmedia pricing <endpoint_id> --json`.
+2. Verify it: `vg media models --endpoint_id <endpoint_id> --json`.
+3. Inspect it: `vg media schema <endpoint_id> --json`.
+4. Check cost when relevant: `vg media pricing <endpoint_id> --json`.
 5. Use text search only if the routed endpoint is missing, deprecated, rejected, or the role is not covered here:
 
  ```bash
- genmedia models "<task description>" --json
- genmedia docs "<topic>" --json
+ vg media models "<task description>" --json
+ vg media docs "<topic>" --json
  ```
 
 Do not invent endpoint IDs.
@@ -45,6 +45,6 @@ Load the reference matching the user's task:
 
 ## Utility endpoints
 
-For workflow utility endpoints (resize, composite, mask, audio merge, subtitle, etc.), search the catalog with `genmedia models --category <modality>` and inspect the candidates with `genmedia schema <endpoint_id>`.
+For workflow utility endpoints (resize, composite, mask, audio merge, subtitle, etc.), search the catalog with `vg media models --category <modality>` and inspect the candidates with `vg media schema <endpoint_id>`.
 
 Utility endpoints are explicit because they are deterministic tools, not creative model choices. Always inspect schema before use.

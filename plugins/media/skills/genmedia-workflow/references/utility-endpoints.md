@@ -1,7 +1,7 @@
 # Utility endpoint reference
 
 These are workflow utility candidates from the falgen workflow notes. Verify
-availability with `genmedia models --endpoint_id <id> --json` or search, then
+availability with `vg media models --endpoint_id <id> --json` or search, then
 inspect schema before use.
 
 ## Image resize and transform

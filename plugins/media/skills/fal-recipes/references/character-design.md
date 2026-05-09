@@ -18,37 +18,37 @@ Only ask for missing inputs that affect identity or model routing.
 1. Routed endpoints (see [fal-models-catalog/text-to-image](../../fal-models-catalog/references/text-to-image.md) and [image-to-image](../../fal-models-catalog/references/image-to-image.md)):
 
  ```bash
- genmedia models --endpoint_id openai/gpt-image-2 --json
- genmedia models --endpoint_id fal-ai/nano-banana-pro/edit --json
- genmedia models --endpoint_id bytedance/seedance-2.0/image-to-video --json
- genmedia models --endpoint_id veed/fabric-1.0 --json
+ vg media models --endpoint_id openai/gpt-image-2 --json
+ vg media models --endpoint_id fal-ai/nano-banana-pro/edit --json
+ vg media models --endpoint_id bytedance/seedance-2.0/image-to-video --json
+ vg media models --endpoint_id veed/fabric-1.0 --json
  ```
 
  Fallback discovery:
 
  ```bash
- genmedia docs "consistent character generation" --json
- genmedia models "image editing character consistency" --json
+ vg media docs "consistent character generation" --json
+ vg media models "image editing character consistency" --json
  ```
 
 2. Inspect schema before each run.
 
  ```bash
- genmedia schema <endpoint_id> --json
- genmedia pricing <endpoint_id> --json
+ vg media schema <endpoint_id> --json
+ vg media pricing <endpoint_id> --json
  ```
 
 3. Upload references.
 
  ```bash
- genmedia upload ./character-reference.png --json
- genmedia upload ./costume-reference.png --json
+ vg media upload ./character-reference.png --json
+ vg media upload ./costume-reference.png --json
  ```
 
 4. Run stills or sheets:
 
  ```bash
- genmedia run <endpoint_id> \
+ vg media run <endpoint_id> \
  --prompt "<anchor + variable prompt>" \
  --image_url "<reference url if supported>" \
  --download "./outputs/characters/{request_id}_{index}.{ext}" \
@@ -58,13 +58,13 @@ Only ask for missing inputs that affect identity or model routing.
 5. Run video async:
 
  ```bash
- genmedia run <endpoint_id> \
+ vg media run <endpoint_id> \
  --prompt "<anchor + shot action>" \
  --image_url "<approved character frame if supported>" \
  --async \
  --json
 
- genmedia status <endpoint_id> <request_id> \
+ vg media status <endpoint_id> <request_id> \
  --download "./outputs/characters/{request_id}_{index}.{ext}" \
  --json
  ```

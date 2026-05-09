@@ -1,6 +1,6 @@
 # Text-to-Image Endpoints
 
-Curated picks across 8 use cases. The four standout families dominate this modality: **OpenAI gpt-image-2**, **Google nano-banana** (Pro / 2), **ByteDance Seedream v5 lite**, and **ByteDance Dreamina v3.1**. Verify with `genmedia models --endpoint_id <id> --json` before running.
+Curated picks across 8 use cases. The four standout families dominate this modality: **OpenAI gpt-image-2**, **Google nano-banana** (Pro / 2), **ByteDance Seedream v5 lite**, and **ByteDance Dreamina v3.1**. Verify with `vg media models --endpoint_id <id> --json` before running.
 
 ## Premium realism
 
@@ -87,7 +87,7 @@ For prompt-craft details, see the `fal-prompting` skill:
 ## Discovery
 
 ```bash
-genmedia models "text to image" --json
-genmedia models --category text-to-image --limit 10 --json
-genmedia docs "text to image" --json
+vg media models "text to image" --json
+vg media models --category text-to-image --limit 10 --json
+vg media docs "text to image" --json
 ```

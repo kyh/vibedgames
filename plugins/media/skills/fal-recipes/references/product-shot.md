@@ -21,9 +21,9 @@ If the user wants more than one image and there's a story or sequence, switch to
 ## Flow
 
 ```bash
-URL_PRODUCT=$(genmedia upload ./product.png --json | jq -r '.url')
+URL_PRODUCT=$(vg media upload ./product.png --json | jq -r '.url')
 
-genmedia run fal-ai/nano-banana-pro/edit \
+vg media run fal-ai/nano-banana-pro/edit \
  --image_urls "$URL_PRODUCT" \
  --prompt "<structured product hero prompt>" \
  --download "./outputs/product-shot/{request_id}_{index}.{ext}" \

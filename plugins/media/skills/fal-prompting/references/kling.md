@@ -74,7 +74,7 @@ SHOT 3: close-up of his hand on the sword hilt
 Inspect schema first, multi-prompt fields differ between endpoints.
 
 ```bash
-genmedia schema fal-ai/kling-video/v3/pro/text-to-video --json
+vg media schema fal-ai/kling-video/v3/pro/text-to-video --json
 ```
 
 ## Camera and motion vocabulary that works
@@ -129,7 +129,7 @@ Preserve: the subject, all motion, the foreground composition, the camera move.
 
 ## Common parameters
 
-Run `genmedia schema <endpoint_id> --json` for the authoritative list. Frequently exposed:
+Run `vg media schema <endpoint_id> --json` for the authoritative list. Frequently exposed:
 
 - `prompt`: the shot description
 - `negative_prompt`: when supported, list specific things to avoid (not vague)

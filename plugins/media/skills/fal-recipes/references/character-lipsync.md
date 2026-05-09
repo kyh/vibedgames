@@ -18,10 +18,10 @@ Use this recipe to create talking-head video, sync lips to existing footage, or 
 Single-step: face image + audio file → animated video.
 
 ```bash
-URL_FACE=$(genmedia upload ./portrait.jpg --json | jq -r '.url')
-URL_AUDIO=$(genmedia upload ./speech.mp3 --json | jq -r '.url')
+URL_FACE=$(vg media upload ./portrait.jpg --json | jq -r '.url')
+URL_AUDIO=$(vg media upload ./speech.mp3 --json | jq -r '.url')
 
-genmedia run veed/fabric-1.0 \
+vg media run veed/fabric-1.0 \
  --image_url "$URL_FACE" \
  --audio_url "$URL_AUDIO" \
  --async \
@@ -31,7 +31,7 @@ genmedia run veed/fabric-1.0 \
 Then poll status and download:
 
 ```bash
-genmedia status veed/fabric-1.0 <request_id> \
+vg media status veed/fabric-1.0 <request_id> \
  --download "./outputs/talking-head/{request_id}_{index}.{ext}" \
  --json
 ```
@@ -41,16 +41,16 @@ genmedia status veed/fabric-1.0 <request_id> \
 Two-step: TTS first, then talking-head.
 
 ```bash
-URL_FACE=$(genmedia upload ./portrait.jpg --json | jq -r '.url')
+URL_FACE=$(vg media upload ./portrait.jpg --json | jq -r '.url')
 
 # Step 1: TTS
-TTS_RESULT=$(genmedia run fal-ai/minimax/speech-2.6-turbo \
+TTS_RESULT=$(vg media run fal-ai/minimax/speech-2.6-turbo \
  --text "Hello, welcome to our presentation." \
  --json)
 URL_AUDIO=$(echo "$TTS_RESULT" | jq -r '.audio.url')
 
 # Step 2: animate the portrait with the generated audio
-genmedia run veed/fabric-1.0 \
+vg media run veed/fabric-1.0 \
  --image_url "$URL_FACE" \
  --audio_url "$URL_AUDIO" \
  --async \
@@ -60,7 +60,7 @@ genmedia run veed/fabric-1.0 \
 Alternative: `veed/fabric-1.0/text` accepts text directly when supported.
 
 ```bash
-genmedia run veed/fabric-1.0/text \
+vg media run veed/fabric-1.0/text \
  --image_url "$URL_FACE" \
  --text "Hello, welcome to our presentation." \
  --async \
@@ -70,7 +70,7 @@ genmedia run veed/fabric-1.0/text \
 For an avatar with optional visual direction (gestures, framing):
 
 ```bash
-genmedia run fal-ai/creatify/aurora \
+vg media run fal-ai/creatify/aurora \
  --image_url "$URL_FACE" \
  --audio_url "$URL_AUDIO" \
  --visual_direction "soft side lighting, slight head tilt, medium close-up" \
@@ -83,10 +83,10 @@ genmedia run fal-ai/creatify/aurora \
 Replace the mouth area in an existing video to match new audio.
 
 ```bash
-URL_VIDEO=$(genmedia upload ./original-video.mp4 --json | jq -r '.url')
-URL_AUDIO=$(genmedia upload ./new-speech.mp3 --json | jq -r '.url')
+URL_VIDEO=$(vg media upload ./original-video.mp4 --json | jq -r '.url')
+URL_AUDIO=$(vg media upload ./new-speech.mp3 --json | jq -r '.url')
 
-genmedia run fal-ai/sync-lipsync/v2 \
+vg media run fal-ai/sync-lipsync/v2 \
  --video_url "$URL_VIDEO" \
  --audio_url "$URL_AUDIO" \
  --async \
@@ -121,8 +121,8 @@ Before returning:
 Always inspect schema before running:
 
 ```bash
-genmedia schema veed/fabric-1.0 --json
-genmedia schema fal-ai/sync-lipsync/v2 --json
+vg media schema veed/fabric-1.0 --json
+vg media schema fal-ai/sync-lipsync/v2 --json
 ```
 
 Frequently exposed:
