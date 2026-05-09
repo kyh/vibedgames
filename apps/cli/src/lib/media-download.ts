@@ -1,8 +1,15 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, extname, resolve } from "node:path";
 
-import { MEDIA_EXT } from "./media-types.js";
 import { isRecord } from "./types.js";
+
+// Lowercase file extensions we recognize as media when sniffing fal
+// response payloads where `content_type` is missing (some endpoints
+// omit it).
+const MEDIA_EXT = new Set([
+  "png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff", "avif",
+  "mp4", "mov", "webm", "mp3", "wav", "ogg", "flac", "m4a",
+]);
 
 export type MediaRef = {
   url: string;

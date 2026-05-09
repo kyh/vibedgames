@@ -3,17 +3,20 @@ import consola from "consola";
 
 import { createClient } from "../lib/api.js";
 import {
-  extractLocalFiles,
   parseDownloadFlag,
   parseRunInput,
   readExplicitLocalFile,
-  substituteTokens,
 } from "../lib/media-args.js";
 import { downloadMedia, extractMediaRefs } from "../lib/media-download.js";
 import { waitForCompletion } from "../lib/media-poll.js";
-import { cleanEndpoint } from "../lib/media-types.js";
-import { uploadFiles } from "../lib/media-upload.js";
+import { uploadFile } from "../lib/media-upload.js";
 import { isRecord } from "../lib/types.js";
+
+// Strip leading/trailing slashes from a fal endpoint id so it can be
+// spliced into a URL path without doubling separators.
+function endpointPath(endpointId: string): string {
+  return endpointId.replace(/^\/+|\/+$/g, "");
+}
 
 function isJsonOutput(args: { json?: boolean }): boolean {
   return Boolean(args.json) || process.env.VG_JSON_OUTPUT === "1";
@@ -53,25 +56,13 @@ const runCommand = defineCommand({
     const downloadFlag = parseDownloadFlag(rawArgs);
     // parseRunInput already skips non-`--` tokens, so the positional
     // endpoint_id and any subcommand name in argv are no-ops.
-    const parsed = parseRunInput(rawArgs);
-    const { files, rewritten } = extractLocalFiles(parsed);
-
-    const tokenToUrl = new Map<string, string>();
+    const finalInput = parseRunInput(rawArgs);
     const client = createClient();
-
-    if (files.length > 0) {
-      const { urls } = await uploadFiles(client, files);
-      for (let i = 0; i < files.length; i++) {
-        const url = urls[i];
-        if (url) tokenToUrl.set(files[i]!.token, url);
-      }
-    }
-    const finalInput = substituteTokens(rewritten, tokenToUrl);
 
     const submission = await client.media.forward.mutate({
       target: "queue",
       method: "POST",
-      path: `/${cleanEndpoint(args.endpoint_id)}`,
+      path: `/${endpointPath(args.endpoint_id)}`,
       body: finalInput,
     });
     const requestId =
@@ -170,7 +161,7 @@ const statusCommand = defineCommand({
         ? "result"
         : "status";
 
-    const ep = cleanEndpoint(args.endpoint_id);
+    const ep = endpointPath(args.endpoint_id);
     const client = createClient();
     const path =
       action === "cancel"
@@ -386,12 +377,7 @@ const uploadCommand = defineCommand({
       process.exit(1);
     }
     const client = createClient();
-    const { urls } = await uploadFiles(client, [{ token: "__upload__", ...stat }]);
-    const url = urls[0];
-    if (!url) {
-      consola.error("Upload returned no URL.");
-      process.exit(1);
-    }
+    const url = await uploadFile(client, stat);
     if (isJsonOutput(args)) writeJson({ url });
     else process.stdout.write(url + "\n");
   },

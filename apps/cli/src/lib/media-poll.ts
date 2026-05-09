@@ -1,7 +1,6 @@
 import consola from "consola";
 
 import type { createClient } from "./api.js";
-import { cleanEndpoint } from "./media-types.js";
 import { isRecord } from "./types.js";
 
 type Client = ReturnType<typeof createClient>;
@@ -28,6 +27,7 @@ export async function waitForCompletion(
   request_id: string,
   opts: { quiet: boolean },
 ): Promise<CompletedResult> {
+  const ep = endpoint_id.replace(/^\/+|\/+$/g, "");
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   let lastStatus: string | undefined;
 
@@ -42,7 +42,7 @@ export async function waitForCompletion(
     const raw = await client.media.forward.mutate({
       target: "queue",
       method: "GET",
-      path: `/${cleanEndpoint(endpoint_id)}/requests/${request_id}/status`,
+      path: `/${ep}/requests/${request_id}/status`,
     });
     const status = isRecord(raw) && typeof raw.status === "string" ? raw.status : "UNKNOWN";
     const upper = status.toUpperCase();
@@ -66,7 +66,7 @@ export async function waitForCompletion(
   const result = await client.media.forward.mutate({
     target: "queue",
     method: "GET",
-    path: `/${cleanEndpoint(endpoint_id)}/requests/${request_id}`,
+    path: `/${ep}/requests/${request_id}`,
   });
   return { request_id, result };
 }

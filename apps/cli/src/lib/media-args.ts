@@ -2,33 +2,30 @@ import { existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, extname, isAbsolute, join, resolve } from "node:path";
 
-import { MEDIA_EXT } from "./media-types.js";
-import { isRecord } from "./types.js";
-
-// Only long flags. parseRunInput already skips anything not starting
-// with "--", so single-dash aliases (-h/-q) never need to be listed.
-const KNOWN_GLOBAL_FLAGS = new Set(["--json", "--help", "--quiet"]);
-
-// Run-command CLI flags that must NOT be forwarded to fal as model
-// inputs. `--async` is a citty-defined boolean on `vg media run` (it
-// switches the sync/queue path); we re-parse argv from scratch here,
-// so we have to filter it out ourselves. `--download` takes an optional
-// path/template that should never end up as a model param.
-// Note: `--logs` is intentionally not here. It's a `vg media status`
-// flag, not a `run` flag, so swallowing it would block users from
-// passing a legitimate `logs` parameter to a fal model endpoint.
-const KNOWN_RUN_FLAGS = new Set(["--async", "--download"]);
+// `--json`/`--help`/`--quiet` are global; `--async` switches the run path
+// in citty; `--download` takes an optional template. None of them should
+// leak through to fal as model parameters. `--logs` is intentionally NOT
+// here: it's a `vg media status` flag, not a `run` flag, so swallowing it
+// would block users from passing a legitimate `logs` parameter to a
+// model endpoint.
+const RUN_RESERVED_FLAGS = new Set([
+  "--json",
+  "--help",
+  "--quiet",
+  "--async",
+  "--download",
+]);
 
 /**
  * Parse `--<key> value` pairs from argv into a JS object, JSON-decoding
  * values that look like JSON (true/false/null/numbers/objects/arrays) and
  * leaving everything else as a string. Mirrors genmedia's parse-value
- * behavior so skills targeting genmedia produce the same input shapes.
+ * behavior so skills targeting that surface produce the same input shapes.
  *
  * Handles both `--key value` and the GNU-style `--key=value`. Without
  * `=` support, `--prompt=hello` would silently send the malformed key
  * `"prompt=hello"` to fal, and `--async=true` would slip past the
- * KNOWN_*_FLAGS guards as a bogus model param.
+ * RUN_RESERVED_FLAGS guard as a bogus model param.
  */
 export function parseRunInput(argv: string[]): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -38,7 +35,7 @@ export function parseRunInput(argv: string[]): Record<string, unknown> {
     const eqIdx = arg.indexOf("=");
     const name = eqIdx === -1 ? arg : arg.slice(0, eqIdx);
     const inlineValue = eqIdx === -1 ? undefined : arg.slice(eqIdx + 1);
-    if (KNOWN_GLOBAL_FLAGS.has(name) || KNOWN_RUN_FLAGS.has(name)) {
+    if (RUN_RESERVED_FLAGS.has(name)) {
       // --download (without inline value) optionally consumes the next
       // token as its template. With `--download=foo` the value is
       // already attached and we move on without skipping anything.
@@ -55,7 +52,6 @@ export function parseRunInput(argv: string[]): Record<string, unknown> {
     }
     const next = argv[i + 1];
     if (next === undefined || next.startsWith("--")) {
-      // Bare boolean flag
       assign(out, key, true);
       continue;
     }
@@ -66,7 +62,6 @@ export function parseRunInput(argv: string[]): Record<string, unknown> {
 }
 
 function assign(out: Record<string, unknown>, key: string, value: unknown): void {
-  // Repeated flags collect into an array (e.g. --image_url a --image_url b).
   if (key in out) {
     const existing = out[key];
     if (Array.isArray(existing)) existing.push(value);
@@ -94,115 +89,22 @@ function parseValue(raw: string): unknown {
   return raw;
 }
 
-export type FilePathRef = {
-  /** Placeholder token written into `rewritten` and later swapped for
-   *  the post-upload URL. Kept on the ref itself so the file/URL mapping
-   *  has a single source of truth instead of two parallel collections. */
-  token: string;
+export type LocalFile = {
   path: string;
   filename: string;
   contentType: string;
-  sizeBytes: number;
 };
 
 /**
- * Walk a freshly parsed run input, find values that look like local file
- * paths, and replace them with placeholder tokens. Returns the originals
- * so the caller can upload them and substitute the resulting URLs back in.
- *
- * A value is treated as a local path when it's a string that resolves to
- * an existing file. We deliberately accept any param name (not just *_url)
- * because fal endpoints use a variety of input keys and we want
- * genmedia-style ergonomics for all of them.
+ * Probe a path the user explicitly asked us to read (e.g.
+ * `vg media upload <path>`). Skips the path-shape heuristic so a bare
+ * filename with a non-media extension — `model.glb`, `scene.fbx`,
+ * `data.ply`, even `LICENSE` — still works.
  */
-export function extractLocalFiles(input: Record<string, unknown>): {
-  files: FilePathRef[];
-  rewritten: Record<string, unknown>;
-} {
-  const files: FilePathRef[] = [];
-  const rewritten: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(input)) {
-    rewritten[key] = mapValue(value, files);
-  }
-  return { files, rewritten };
-}
-
-function mapValue(value: unknown, files: FilePathRef[]): unknown {
-  if (Array.isArray(value)) {
-    return value.map((v) => mapValue(v, files));
-  }
-  if (isRecord(value)) {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value)) out[k] = mapValue(v, files);
-    return out;
-  }
-  if (typeof value !== "string") return value;
-  const stat = readLocalFile(value);
-  if (!stat) return value;
-  const token = `__vg_upload_${files.length}__`;
-  files.push({ token, ...stat });
-  return token;
-}
-
-// Conservative "this string is a media path" heuristic. Without it,
-// `--style painterly` would silently get auto-uploaded as soon as a
-// file named `painterly` existed in cwd. We require either an explicit
-// path-like prefix/separator, or a recognizable media extension.
-
-function looksLikeMediaPath(value: string): boolean {
-  if (
-    value.startsWith("./") ||
-    value.startsWith("../") ||
-    value.startsWith(".\\") ||
-    value.startsWith("..\\") ||
-    value.startsWith("~/") ||
-    value.startsWith("/") ||
-    value.includes("/") ||
-    value.includes("\\")
-  ) {
-    return true;
-  }
-  const dot = value.lastIndexOf(".");
-  if (dot === -1 || dot === value.length - 1) return false;
-  return MEDIA_EXT.has(value.slice(dot + 1).toLowerCase());
-}
-
-function readLocalFile(value: string): Omit<FilePathRef, "token"> | null {
-  // Skip values that are clearly not paths.
+export function readExplicitLocalFile(value: string): LocalFile | null {
   if (value.startsWith("http://") || value.startsWith("https://")) return null;
   if (value.startsWith("data:")) return null;
   if (value.length === 0) return null;
-  // Avoid the painterly-vs-painterly-file footgun: don't even stat()
-  // bare tokens that don't look like paths to a human reader.
-  if (!looksLikeMediaPath(value)) return null;
-  return statLocalFile(value);
-}
-
-/**
- * Probe a path that the user explicitly asked us to read (e.g.
- * `vg media upload <path>`). Skips the looksLikeMediaPath heuristic
- * so a bare filename with a non-media extension — `model.glb`,
- * `scene.fbx`, `data.ply`, even `LICENSE` — still works.
- */
-export function readExplicitLocalFile(value: string): Omit<FilePathRef, "token"> | null {
-  if (value.startsWith("http://") || value.startsWith("https://")) return null;
-  if (value.startsWith("data:")) return null;
-  if (value.length === 0) return null;
-  return statLocalFile(value);
-}
-
-function expandHome(value: string): string {
-  // node:path's resolve() doesn't expand `~` — that's a shell feature.
-  // We expand it ourselves so quoted paths like `--image_url "~/photo.png"`
-  // work the way users (and looksLikeMediaPath) expect.
-  if (value === "~") return homedir();
-  if (value.startsWith("~/") || value.startsWith("~\\")) {
-    return join(homedir(), value.slice(2));
-  }
-  return value;
-}
-
-function statLocalFile(value: string): Omit<FilePathRef, "token"> | null {
   const expanded = expandHome(value);
   const abs = isAbsolute(expanded) ? expanded : resolve(expanded);
   if (!existsSync(abs)) return null;
@@ -217,14 +119,19 @@ function statLocalFile(value: string): Omit<FilePathRef, "token"> | null {
     path: abs,
     filename: basename(abs),
     contentType: contentTypeForPath(abs),
-    sizeBytes: stat.size,
   };
 }
 
-// Local to this module — the deploy path has its own MIME map in
-// manifest.ts geared toward static-site assets (HTML/JS/CSS with charset
-// directives). Unifying them now would mean inventing a shared file just
-// to bridge two unrelated callers; revisit if a third caller appears.
+function expandHome(value: string): string {
+  // node:path's resolve() doesn't expand `~` — that's a shell feature.
+  // We expand it ourselves so quoted paths like `"~/photo.png"` work.
+  if (value === "~") return homedir();
+  if (value.startsWith("~/") || value.startsWith("~\\")) {
+    return join(homedir(), value.slice(2));
+  }
+  return value;
+}
+
 function contentTypeForPath(path: string): string {
   // extname splits on basename, so a dotted directory like
   // "/home/user/my.project/texture" correctly yields "" instead of
@@ -254,33 +161,7 @@ function contentTypeForPath(path: string): string {
   return map[ext] ?? "application/octet-stream";
 }
 
-/**
- * After upload, walk the rewritten input and replace placeholder tokens
- * with the resolved presigned URLs.
- */
-export function substituteTokens(
-  rewritten: Record<string, unknown>,
-  tokenToUrl: Map<string, string>,
-): Record<string, unknown> {
-  return mapTokens(rewritten, tokenToUrl) as Record<string, unknown>;
-}
-
-function mapTokens(value: unknown, tokenToUrl: Map<string, string>): unknown {
-  if (typeof value === "string" && tokenToUrl.has(value)) {
-    return tokenToUrl.get(value);
-  }
-  if (Array.isArray(value)) return value.map((v) => mapTokens(v, tokenToUrl));
-  if (isRecord(value)) {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value)) out[k] = mapTokens(v, tokenToUrl);
-    return out;
-  }
-  return value;
-}
-
 export function parseDownloadFlag(argv: string[]): { mode: "off" | "on"; template?: string } {
-  // Walk argv to find the *last* --download form; supports both
-  // `--download value` and the GNU `--download=value`.
   let lastIdx = -1;
   let inlineValue: string | undefined;
   for (let i = 0; i < argv.length; i++) {
@@ -296,15 +177,11 @@ export function parseDownloadFlag(argv: string[]): { mode: "off" | "on"; templat
   }
   if (lastIdx === -1) return { mode: "off" };
   const candidate = inlineValue ?? argv[lastIdx + 1];
-  // Honor an explicit `--download false` as an opt-out. Useful when a
-  // wrapper script sets a default and a caller wants to suppress it.
   if (candidate === "false") return { mode: "off" };
   if (
     candidate === undefined ||
     candidate === "" ||
     candidate.startsWith("--") ||
-    // `--download true` becomes a bare-flag indicator. Without this,
-    // the literal string "true" would be taken as a directory name.
     candidate === "true"
   ) {
     return { mode: "on" };

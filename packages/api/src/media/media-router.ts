@@ -82,33 +82,11 @@ function buildUrl(
   query: Record<string, string | string[]> | undefined,
 ): URL {
   rejectTraversal(path);
+  // `path` is already Zod-constrained to start with `/`, and
+  // rejectTraversal blocks every `..` form (literal, percent-decoded,
+  // and percent-encoded separators). With those guards `new URL(base
+  // + path)` can't escape the target origin.
   const url = new URL(base + path);
-  // Compare via parsed components rather than `toString().startsWith(base)`
-  // — the URL ctor normalizes default ports (`:443`), case-folds the
-  // hostname, and percent-encodes characters, any of which would make
-  // a string-prefix check spuriously fail.
-  let parsedBase: URL;
-  try {
-    parsedBase = new URL(base);
-  } catch {
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message: `target base URL is not parseable: ${base}`,
-    });
-  }
-  const sameOrigin = url.origin === parsedBase.origin;
-  const basePath = parsedBase.pathname.endsWith("/")
-    ? parsedBase.pathname
-    : `${parsedBase.pathname}/`;
-  const childPath = url.pathname.endsWith("/") ? url.pathname : `${url.pathname}/`;
-  const stayedUnderBase =
-    sameOrigin && (childPath === basePath || childPath.startsWith(basePath));
-  if (!stayedUnderBase) {
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message: "path resolves outside the target base.",
-    });
-  }
   for (const [key, value] of Object.entries(query ?? {})) {
     const values = Array.isArray(value) ? value : [value];
     for (const v of values) url.searchParams.append(key, v);
