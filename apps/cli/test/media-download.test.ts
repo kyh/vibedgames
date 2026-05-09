@@ -44,6 +44,41 @@ test("extractMediaRefs ignores unrelated URLs", () => {
   assert.equal(refs[0]!.contentType, "image/png");
 });
 
+test("extractMediaRefs rejects non-fal hosts even with a media content_type", () => {
+  // Defense in depth: a malicious or compromised fal response could embed
+  // an attacker-controlled URL. --download must not fetch it.
+  const result = {
+    spoofed: {
+      url: "https://evil.example.com/payload.png",
+      content_type: "image/png",
+      file_name: "payload.png",
+    },
+    legit: {
+      url: "https://v3.fal.media/files/ok.png",
+      content_type: "image/png",
+      file_name: "ok.png",
+    },
+    nested_subdomain: {
+      url: "https://cdn.fal.run/files/clip.mp4",
+      content_type: "video/mp4",
+    },
+    confusable_suffix: {
+      url: "https://fal.media.evil.com/x.png",
+      content_type: "image/png",
+    },
+    file_url: {
+      url: "file:///etc/passwd",
+      content_type: "image/png",
+    },
+  };
+  const refs = extractMediaRefs(result);
+  const urls = refs.map((r) => r.url).toSorted();
+  assert.deepEqual(urls, [
+    "https://cdn.fal.run/files/clip.mp4",
+    "https://v3.fal.media/files/ok.png",
+  ]);
+});
+
 test("extractMediaRefs deduplicates the same URL appearing twice in the tree", () => {
   const ref = {
     url: "https://v3.fal.media/files/a.png",
