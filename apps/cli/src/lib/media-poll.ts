@@ -39,7 +39,7 @@ export async function waitForCompletion(
           `Use \`vg media status ${endpoint_id} ${request_id} --result\` to check later.`,
       );
     }
-    const raw = await client.media.forward.mutate({
+    const raw = await client.media.forwardQuery.query({
       target: "queue",
       method: "GET",
       path: `/${cleanEndpoint(endpoint_id)}/requests/${request_id}/status`,
@@ -63,7 +63,7 @@ export async function waitForCompletion(
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
 
-  const result = await client.media.forward.mutate({
+  const result = await client.media.forwardQuery.query({
     target: "queue",
     method: "GET",
     path: `/${cleanEndpoint(endpoint_id)}/requests/${request_id}`,

@@ -159,55 +159,67 @@ function jsonByteLength(value: unknown): number {
 
 // ---- Router ----------------------------------------------------------------
 
+// Shared implementation for both query and mutation variants
+async function forwardImpl(
+  ctx: { media: MediaProviderConfig | undefined },
+  input: z.infer<typeof forwardInput>,
+) {
+  const { apiKey, config } = pickFalKey(ctx.media);
+
+  if (input.body !== undefined) {
+    const bytes = jsonByteLength(input.body);
+    if (bytes > MAX_PARAMS_BYTES) {
+      throw new TRPCError({
+        code: "PAYLOAD_TOO_LARGE",
+        message: `body exceeds ${MAX_PARAMS_BYTES} bytes.`,
+      });
+    }
+  }
+
+  const base = targetBase(input.target, config);
+  const url = buildUrl(base, input.path, input.query);
+
+  const headers: Record<string, string> = {
+    Authorization: `Key ${apiKey}`,
+    Accept: "application/json",
+    // X-Fal-Store-IO: keep outputs on fal CDN, not inlined as base64.
+    // x-app-fal-disable-fallback: surface failures instead of routing
+    // to a different model silently. Both apply to queue submits but
+    // are harmless on other targets.
+    "X-Fal-Store-IO": "1",
+    "x-app-fal-disable-fallback": "true",
+  };
+  if (input.body !== undefined) headers["Content-Type"] = "application/json";
+
+  const res = await fetchProviderResponse({
+    url,
+    label: `fal ${input.target} ${input.method} ${input.path}`,
+    credentialed: true,
+    init: {
+      method: input.method,
+      headers,
+      body: input.body !== undefined ? JSON.stringify(input.body) : undefined,
+    },
+  });
+
+  if (res.status === 204 || res.headers.get("content-length") === "0") return null;
+  return readJsonBounded(res, `fal ${input.target} response`);
+}
+
 export const mediaRouter = createTRPCRouter({
   /**
-   * Single proxy hop to fal. The CLI builds the URL it wants, the
-   * server attaches the FAL_KEY and the X-Fal-Store-IO directives,
-   * forwards, and returns the parsed JSON body. This is deliberately
-   * dumb — typed shapes for individual fal endpoints live on the
-   * client and in fal's docs, not in this layer. Per-user policy
-   * (auth, quotas, allowlists, billing meters) hooks in here.
+   * Proxy for read operations (GET). Uses `.query()` so the CLI can batch
+   * these calls via httpBatchLink and benefit from HTTP-level caching.
    */
-  forward: protectedProcedure.input(forwardInput).mutation(async ({ ctx, input }) => {
-    const { apiKey, config } = pickFalKey(ctx.media);
+  forwardQuery: protectedProcedure.input(forwardInput).query(({ ctx, input }) => {
+    return forwardImpl(ctx, input);
+  }),
 
-    if (input.body !== undefined) {
-      const bytes = jsonByteLength(input.body);
-      if (bytes > MAX_PARAMS_BYTES) {
-        throw new TRPCError({
-          code: "PAYLOAD_TOO_LARGE",
-          message: `body exceeds ${MAX_PARAMS_BYTES} bytes.`,
-        });
-      }
-    }
-
-    const base = targetBase(input.target, config);
-    const url = buildUrl(base, input.path, input.query);
-
-    const headers: Record<string, string> = {
-      Authorization: `Key ${apiKey}`,
-      Accept: "application/json",
-      // X-Fal-Store-IO: keep outputs on fal CDN, not inlined as base64.
-      // x-app-fal-disable-fallback: surface failures instead of routing
-      // to a different model silently. Both apply to queue submits but
-      // are harmless on other targets.
-      "X-Fal-Store-IO": "1",
-      "x-app-fal-disable-fallback": "true",
-    };
-    if (input.body !== undefined) headers["Content-Type"] = "application/json";
-
-    const res = await fetchProviderResponse({
-      url,
-      label: `fal ${input.target} ${input.method} ${input.path}`,
-      credentialed: true,
-      init: {
-        method: input.method,
-        headers,
-        body: input.body !== undefined ? JSON.stringify(input.body) : undefined,
-      },
-    });
-
-    if (res.status === 204 || res.headers.get("content-length") === "0") return null;
-    return readJsonBounded(res, `fal ${input.target} response`);
+  /**
+   * Proxy for write operations (POST/PUT/DELETE). Uses `.mutation()` to
+   * prevent batching with reads and to match tRPC semantics.
+   */
+  forward: protectedProcedure.input(forwardInput).mutation(({ ctx, input }) => {
+    return forwardImpl(ctx, input);
   }),
 });

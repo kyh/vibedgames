@@ -178,12 +178,19 @@ const statusCommand = defineCommand({
         : action === "result"
           ? `/${ep}/requests/${args.request_id}`
           : `/${ep}/requests/${args.request_id}/status`;
-    const data = await client.media.forward.mutate({
-      target: "queue",
-      method: action === "cancel" ? "PUT" : "GET",
-      path,
-      query: action === "status" && args.logs ? { logs: "1" } : undefined,
-    });
+    const isWrite = action === "cancel";
+    const data = isWrite
+      ? await client.media.forward.mutate({
+          target: "queue",
+          method: "PUT",
+          path,
+        })
+      : await client.media.forwardQuery.query({
+          target: "queue",
+          method: "GET",
+          path,
+          query: action === "status" && args.logs ? { logs: "1" } : undefined,
+        });
 
     let downloaded: Awaited<ReturnType<typeof downloadMedia>> | undefined;
     if (action === "result" && downloadFlag.mode === "on") {
@@ -263,7 +270,7 @@ const modelsCommand = defineCommand({
     if (expand.length > 0) query.expand = expand;
 
     const client = createClient();
-    const data = await client.media.forward.mutate({
+    const data = await client.media.forwardQuery.query({
       target: "platform",
       method: "GET",
       path: "/v1/models",
@@ -309,7 +316,7 @@ const schemaCommand = defineCommand({
   run: async ({ args }) => {
     const expand = args.format === "openapi" ? ["openapi-3.0"] : [];
     const client = createClient();
-    const data = await client.media.forward.mutate({
+    const data = await client.media.forwardQuery.query({
       target: "platform",
       method: "GET",
       path: "/v1/models",
@@ -333,7 +340,7 @@ const pricingCommand = defineCommand({
   },
   run: async ({ args }) => {
     const client = createClient();
-    const data = await client.media.forward.mutate({
+    const data = await client.media.forwardQuery.query({
       target: "platform",
       method: "GET",
       path: "/v1/models/pricing",
