@@ -201,8 +201,13 @@ const statusCommand = defineCommand({
       request_id: args.request_id,
       ...(action === "result"
         ? { result: data }
-        : action === "status"
-          ? (isRecord(data) ? data : {})
+        : action === "status" && isRecord(data)
+          ? {
+              status: typeof data.status === "string" ? data.status : undefined,
+              queue_position:
+                typeof data.queue_position === "number" ? data.queue_position : undefined,
+              logs: data.logs,
+            }
           : {}),
       ...(downloaded ? { downloaded_files: downloaded.downloaded } : {}),
       ...(downloaded && downloaded.failed.length > 0
