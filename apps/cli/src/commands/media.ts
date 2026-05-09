@@ -202,7 +202,7 @@ const statusCommand = defineCommand({
       ...(action === "result"
         ? { result: data }
         : action === "status"
-          ? (isRecord(data) ? data : {})
+          ? { status_response: isRecord(data) ? data : {} }
           : {}),
       ...(downloaded ? { downloaded_files: downloaded.downloaded } : {}),
       ...(downloaded && downloaded.failed.length > 0
