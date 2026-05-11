@@ -43,37 +43,29 @@ function targetBase(target: Target, media: MediaProviderConfig): string {
   return trimSlash(override ?? TARGET_DEFAULTS[target]);
 }
 
+function badPath(reason: string): never {
+  throw new TRPCError({ code: "BAD_REQUEST", message: `path ${reason}.` });
+}
+
 function rejectTraversal(path: string): void {
   // Reject literal `..` and any percent-encoded form. The `URL` parser
   // doesn't decode `%2e%2e` itself — so `new URL(...)` would happily
   // produce a URL whose pathname looks fine here but whose downstream
   // server (or a reverse proxy) might decode and resolve as a traversal,
   // letting a request escape the target host's intended namespace
-  // while we attach FAL_API_KEY to it.
-  if (path.includes("..")) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "path may not contain `..`." });
-  }
+  // while we attach FAL_API_KEY to it. Percent-encoded slashes get the
+  // same treatment because they'd fold into segment separators after
+  // decoding and could push the request past a pathname-aware allowlist.
+  if (path.includes("..")) badPath("may not contain `..`");
+  if (!path.includes("%")) return;
   let decoded: string;
   try {
     decoded = decodeURIComponent(path);
   } catch {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "path has invalid percent-encoding." });
+    badPath("has invalid percent-encoding");
   }
-  if (decoded.includes("..")) {
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message: "path may not contain `..` (including percent-encoded forms).",
-    });
-  }
-  // Also reject percent-encoded slashes — they'd fold into segment
-  // separators after decoding and could push the request past a
-  // policy/allowlist that inspects pathname.
-  if (/%2f|%5c/i.test(path)) {
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message: "path may not contain percent-encoded path separators.",
-    });
-  }
+  if (decoded.includes("..")) badPath("may not contain `..` (including percent-encoded forms)");
+  if (/%2f|%5c/i.test(path)) badPath("may not contain percent-encoded path separators");
 }
 
 function buildUrl(
@@ -122,6 +114,16 @@ function pickFalKey(media: MediaProviderConfig | undefined): {
   return { apiKey: media.fal, config: media };
 }
 
+// X-Fal-Store-IO: keep outputs on fal CDN, not inlined as base64.
+// x-app-fal-disable-fallback: surface failures instead of routing to a
+// different model silently. Both apply to queue submits but are
+// harmless on other targets, so we send them unconditionally.
+const FAL_STATIC_HEADERS = {
+  Accept: "application/json",
+  "X-Fal-Store-IO": "1",
+  "x-app-fal-disable-fallback": "true",
+} as const;
+
 function serializeBody(value: unknown): string {
   try {
     return JSON.stringify(value);
@@ -163,14 +165,8 @@ export const mediaRouter = createTRPCRouter({
     const url = buildUrl(base, input.path, input.query);
 
     const headers: Record<string, string> = {
+      ...FAL_STATIC_HEADERS,
       Authorization: `Key ${apiKey}`,
-      Accept: "application/json",
-      // X-Fal-Store-IO: keep outputs on fal CDN, not inlined as base64.
-      // x-app-fal-disable-fallback: surface failures instead of routing
-      // to a different model silently. Both apply to queue submits but
-      // are harmless on other targets.
-      "X-Fal-Store-IO": "1",
-      "x-app-fal-disable-fallback": "true",
     };
     if (serialized !== undefined) headers["Content-Type"] = "application/json";
 

@@ -8,15 +8,9 @@ import {
   readExplicitLocalFile,
 } from "../lib/media-args.js";
 import { downloadMedia, extractMediaRefs } from "../lib/media-download.js";
-import { waitForCompletion } from "../lib/media-poll.js";
+import { endpointPath, waitForCompletion } from "../lib/media-poll.js";
 import { uploadFile } from "../lib/media-upload.js";
 import { isRecord } from "../lib/types.js";
-
-// Strip leading/trailing slashes from a fal endpoint id so it can be
-// spliced into a URL path without doubling separators.
-function endpointPath(endpointId: string): string {
-  return endpointId.replace(/^\/+|\/+$/g, "");
-}
 
 // Action-specific fields for the status-command payload. `result` wraps
 // the raw fal payload under `result:` so fal's own keys can't clobber
@@ -142,7 +136,7 @@ const runCommand = defineCommand({
         for (const path of downloaded.downloaded) consola.log(`  ${path}`);
         for (const f of downloaded.failed) consola.warn(`  failed: ${f.url} (${f.error})`);
       }
-      if (!downloaded || downloaded.downloaded.length === 0) {
+      if (!downloaded?.downloaded.length) {
         for (const url of extractMediaUrls(completed.result)) consola.log(`  ${url}`);
       }
     }

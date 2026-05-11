@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { afterEach, test } from "node:test";
 
 import { downloadMedia, extractMediaRefs } from "../src/lib/media-download.js";
-import { makeCleanups, makeTmpDir } from "./_helpers.js";
+import { makeCleanups, makeTestServer, makeTmpDir } from "./_helpers.js";
 
 const { cleanups, drain } = makeCleanups();
 afterEach(drain);
@@ -137,22 +137,15 @@ test("extractMediaRefs handles a nested array of frames", () => {
   assert.equal(refs.length, 3);
 });
 
-test("downloadMedia treats '.' / './' / 'out/' as a destination directory", async () => {
-  // Stand up a tiny HTTP server so this test exercises the actual fetch +
-  // template path. Easier than mocking — keeps `renderTemplate` honest.
-  const { createServer } = await import("node:http");
-  const server = createServer((_, res) => {
-    res.setHeader("content-type", "image/png");
-    res.end(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
-  });
-  const port: number = await new Promise((r) => {
-    server.listen(0, () => {
-      const addr = server.address();
-      r(typeof addr === "object" && addr ? addr.port : 0);
-    });
-  });
-  cleanups.push(() => server.close());
+// Tiny PNG handler that every download test reuses. Real fetch + write
+// path exercises renderTemplate / disambiguateTargets end-to-end.
+function servePng(_: unknown, res: { setHeader: (k: string, v: string) => void; end: (b: Buffer) => void }) {
+  res.setHeader("content-type", "image/png");
+  res.end(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+}
 
+test("downloadMedia treats '.' / './' / 'out/' as a destination directory", async () => {
+  const port = await makeTestServer(cleanups, servePng);
   const dir = tmpDir();
   const ref = {
     url: `http://127.0.0.1:${port}/a.png`,
@@ -175,19 +168,7 @@ test("downloadMedia suffixes colliding targets so multi-output runs don't overwr
   // when fal omits `file_name`. Without disambiguation, all N downloads
   // collide on the same path and only the last one survives. Verify
   // each survives as `output.png`, `output_1.png`, `output_2.png`.
-  const { createServer } = await import("node:http");
-  const server = createServer((_, res) => {
-    res.setHeader("content-type", "image/png");
-    res.end(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
-  });
-  const port: number = await new Promise((r) => {
-    server.listen(0, () => {
-      const addr = server.address();
-      r(typeof addr === "object" && addr ? addr.port : 0);
-    });
-  });
-  cleanups.push(() => server.close());
-
+  const port = await makeTestServer(cleanups, servePng);
   const dir = tmpDir();
   const ref = (i: number) => ({
     url: `http://127.0.0.1:${port}/output.png?i=${i}`,
@@ -208,19 +189,7 @@ test("downloadMedia suffixes colliding targets so multi-output runs don't overwr
 });
 
 test("downloadMedia renders {placeholder} templates as paths", async () => {
-  const { createServer } = await import("node:http");
-  const server = createServer((_, res) => {
-    res.setHeader("content-type", "image/png");
-    res.end(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
-  });
-  const port: number = await new Promise((r) => {
-    server.listen(0, () => {
-      const addr = server.address();
-      r(typeof addr === "object" && addr ? addr.port : 0);
-    });
-  });
-  cleanups.push(() => server.close());
-
+  const port = await makeTestServer(cleanups, servePng);
   const dir = tmpDir();
   const result = await downloadMedia({
     refs: [{ url: `http://127.0.0.1:${port}/a.png`, filename: "a.png", contentType: "image/png" }],

@@ -5,6 +5,12 @@ import { isRecord } from "./types.js";
 
 type Client = ReturnType<typeof createClient>;
 
+// Strip leading/trailing slashes from a fal endpoint id so it can be
+// spliced into a URL path without doubling separators.
+export function endpointPath(endpointId: string): string {
+  return endpointId.replace(/^\/+|\/+$/g, "");
+}
+
 const POLL_INTERVAL_MS = 2_000;
 // 30-minute ceiling on a sync run. Generous (this is the user's local
 // CLI process, not a billed Worker) but bounded so a stuck IN_QUEUE
@@ -27,7 +33,7 @@ export async function waitForCompletion(
   request_id: string,
   opts: { quiet: boolean },
 ): Promise<CompletedResult> {
-  const ep = endpoint_id.replace(/^\/+|\/+$/g, "");
+  const ep = endpointPath(endpoint_id);
   const deadline = Date.now() + POLL_TIMEOUT_MS;
   let lastStatus: string | undefined;
 

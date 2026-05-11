@@ -199,13 +199,13 @@ function renderTemplate(
   const stem = lowerName.endsWith(dotExt)
     ? ref.filename.slice(0, -dotExt.length) || "output"
     : ref.filename || "output";
-  if (!template) return resolve(process.cwd(), ref.filename || `output-${index}.${ext}`);
-  // No placeholder → caller meant a destination directory (e.g. ".",
-  // "./", "../out", "out/"). The previous heuristic also rejected any
-  // template containing a literal ".", which broke "." and "./" — both
-  // common shorthands for "download here".
-  if (!template.includes("{")) {
-    return resolve(template, ref.filename || `output-${index}.${ext}`);
+  // No template or no placeholder → caller meant a destination directory
+  // (omitted, ".", "./", "../out", "out/"). The previous heuristic also
+  // rejected any template containing a literal ".", which broke "." and
+  // "./" — both common shorthands for "download here".
+  if (!template || !template.includes("{")) {
+    const dir = template ?? process.cwd();
+    return resolve(dir, ref.filename || `output-${index}.${ext}`);
   }
   const rendered = template
     .replaceAll("{index}", String(index))
