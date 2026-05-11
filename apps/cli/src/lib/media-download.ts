@@ -69,7 +69,7 @@ function visit(value: unknown, refs: MediaRef[], seen: Set<string>): void {
       seen.add(url);
       refs.push({
         url,
-        filename: filenameField ?? `output${ext ? "." + ext : ""}`,
+        filename: filenameField ?? "",
         contentType,
       });
     }
