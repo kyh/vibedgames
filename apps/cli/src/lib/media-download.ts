@@ -7,9 +7,33 @@ import { isRecord } from "./types.js";
 // response payloads where `content_type` is missing (some endpoints
 // omit it).
 const MEDIA_EXT = new Set([
-  "png", "jpg", "jpeg", "webp", "gif", "bmp", "tif", "tiff", "avif",
-  "mp4", "mov", "webm", "mp3", "wav", "ogg", "flac", "m4a",
+  "png",
+  "jpg",
+  "jpeg",
+  "webp",
+  "gif",
+  "bmp",
+  "tif",
+  "tiff",
+  "avif",
+  "mp4",
+  "mov",
+  "webm",
+  "mp3",
+  "wav",
+  "ogg",
+  "flac",
+  "m4a",
 ]);
+
+/**
+ * Strip directory separators and other characters that could enable path
+ * traversal. Defense-in-depth against malicious or malformed `file_name`
+ * values in fal responses, even though fal is a trusted service.
+ */
+function sanitizeFilename(raw: string): string {
+  return raw.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
 
 export type MediaRef = {
   url: string;
@@ -71,7 +95,7 @@ function visit(value: unknown, refs: MediaRef[], seen: Set<string>): void {
       seen.add(url);
       refs.push({
         url,
-        filename: filenameField ?? `output${ext ? "." + ext : ""}`,
+        filename: filenameField ? sanitizeFilename(filenameField) : `output${ext ? "." + ext : ""}`,
         contentType,
       });
     }
@@ -104,9 +128,7 @@ export async function downloadMedia(opts: {
   template?: string;
   requestId: string;
 }): Promise<DownloadResult> {
-  const initial = opts.refs.map((ref, i) =>
-    renderTemplate(ref, opts.template, i, opts.requestId),
-  );
+  const initial = opts.refs.map((ref, i) => renderTemplate(ref, opts.template, i, opts.requestId));
   // Disambiguate any colliding resolved paths so multi-output runs (e.g.
   // `--num_images 3` where fal returns the same default `file_name` for
   // every output) don't silently overwrite each other on disk. The first
@@ -120,9 +142,7 @@ export async function downloadMedia(opts: {
   // Fetch all refs in parallel; fal CDN handles the concurrency fine and
   // multi-image runs (`--num_images N`) become N× faster than the old
   // sequential loop. Results stay in ref order via mapped Promise.all.
-  type Outcome =
-    | { ok: true; target: string }
-    | { ok: false; url: string; error: string };
+  type Outcome = { ok: true; target: string } | { ok: false; url: string; error: string };
 
   const outcomes: Outcome[] = await Promise.all(
     opts.refs.map(async (ref, i): Promise<Outcome> => {
