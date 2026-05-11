@@ -86,6 +86,35 @@ test("extractMediaRefs rejects non-fal hosts even with a media content_type", ()
   ]);
 });
 
+test("extractMediaRefs sanitizes fal file_name to prevent download path traversal", () => {
+  // ref.filename feeds straight into resolve() in renderTemplate, so a
+  // hostile fal response with file_name="../../etc/crontab" would
+  // otherwise escape the download dir. basename-equivalent stripping
+  // happens at the source so every consumer sees a safe value.
+  const result = {
+    traversal: {
+      url: "https://v3.fal.media/files/x.png",
+      content_type: "image/png",
+      file_name: "../../etc/crontab",
+    },
+    windows: {
+      url: "https://v3.fal.media/files/y.png",
+      content_type: "image/png",
+      file_name: "..\\..\\windows\\system32\\evil.png",
+    },
+    dot_only: {
+      url: "https://v3.fal.media/files/z.png",
+      content_type: "image/png",
+      file_name: "..",
+    },
+  };
+  const refs = extractMediaRefs(result);
+  assert.equal(refs.find((r) => r.url.endsWith("x.png"))!.filename, "crontab");
+  assert.equal(refs.find((r) => r.url.endsWith("y.png"))!.filename, "evil.png");
+  // file_name=".." sanitizes to null, so we fall back to the default.
+  assert.equal(refs.find((r) => r.url.endsWith("z.png"))!.filename, "output.png");
+});
+
 test("extractMediaRefs deduplicates the same URL appearing twice in the tree", () => {
   const ref = {
     url: "https://v3.fal.media/files/a.png",

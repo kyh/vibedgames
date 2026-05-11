@@ -63,7 +63,8 @@ function visit(value: unknown, refs: MediaRef[], seen: Set<string>): void {
   if (typeof url === "string" && isTrustedFalContentHost(url) && !seen.has(url)) {
     const contentType =
       typeof value.content_type === "string" ? value.content_type.toLowerCase() : null;
-    const filenameField = typeof value.file_name === "string" ? value.file_name : null;
+    const filenameField =
+      typeof value.file_name === "string" ? sanitizeFilename(value.file_name) : null;
     const ext = filenameField ? extname(filenameField).slice(1).toLowerCase() : extFromUrl(url);
     const looksMedia =
       contentType !== null ? /^(image|video|audio)\//.test(contentType) : MEDIA_EXT.has(ext);
@@ -152,6 +153,16 @@ export async function downloadMedia(opts: {
     else failed.push({ url: o.url, error: o.error });
   }
   return { downloaded, failed };
+}
+
+// Strip any directory components from a fal-provided file_name so a
+// malicious response can't traverse out of the download target dir.
+// Handle both POSIX and Windows separators regardless of host OS so a
+// `..\\..\\evil` payload sent to a Linux client is still flattened.
+function sanitizeFilename(name: string): string | null {
+  const base = name.replace(/[\\/]+/g, "/").split("/").pop() ?? "";
+  if (!base || base === "." || base === "..") return null;
+  return base;
 }
 
 function disambiguateTargets(paths: string[]): string[] {
