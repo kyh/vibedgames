@@ -102,9 +102,15 @@ export async function downloadMedia(opts: {
   template?: string;
   requestId: string;
 }): Promise<DownloadResult> {
-  const targets = opts.refs.map((ref, i) =>
+  const initial = opts.refs.map((ref, i) =>
     renderTemplate(ref, opts.template, i, opts.requestId),
   );
+  // Disambiguate any colliding resolved paths so multi-output runs (e.g.
+  // `--num_images 3` where fal returns the same default `file_name` for
+  // every output) don't silently overwrite each other on disk. The first
+  // occurrence keeps the original name; subsequent collisions get a
+  // `_1`, `_2`, … suffix inserted before the extension.
+  const targets = disambiguateTargets(initial);
   // Create each unique parent directory once instead of redoing it per ref.
   const dirs = new Set(targets.map((t) => dirname(t)));
   for (const d of dirs) mkdirSync(d, { recursive: true });
@@ -144,6 +150,20 @@ export async function downloadMedia(opts: {
     else failed.push({ url: o.url, error: o.error });
   }
   return { downloaded, failed };
+}
+
+function disambiguateTargets(paths: string[]): string[] {
+  const counts = new Map<string, number>();
+  for (const p of paths) counts.set(p, (counts.get(p) ?? 0) + 1);
+  const seen = new Map<string, number>();
+  return paths.map((p) => {
+    if ((counts.get(p) ?? 0) <= 1) return p;
+    const n = seen.get(p) ?? 0;
+    seen.set(p, n + 1);
+    if (n === 0) return p;
+    const ext = extname(p);
+    return p.slice(0, p.length - ext.length) + `_${n}` + ext;
+  });
 }
 
 function renderTemplate(

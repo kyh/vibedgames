@@ -134,6 +134,43 @@ test("downloadMedia treats '.' / './' / 'out/' as a destination directory", asyn
   }
 });
 
+test("downloadMedia suffixes colliding targets so multi-output runs don't overwrite", async () => {
+  // extractMediaRefs gives every ref the default filename `output.png`
+  // when fal omits `file_name`. Without disambiguation, all N downloads
+  // collide on the same path and only the last one survives. Verify
+  // each survives as `output.png`, `output_1.png`, `output_2.png`.
+  const { createServer } = await import("node:http");
+  const server = createServer((_, res) => {
+    res.setHeader("content-type", "image/png");
+    res.end(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  });
+  const port: number = await new Promise((r) => {
+    server.listen(0, () => {
+      const addr = server.address();
+      r(typeof addr === "object" && addr ? addr.port : 0);
+    });
+  });
+  cleanups.push(() => server.close());
+
+  const dir = tmpDir();
+  const ref = (i: number) => ({
+    url: `http://127.0.0.1:${port}/output.png?i=${i}`,
+    filename: "output.png",
+    contentType: "image/png" as const,
+  });
+  const result = await downloadMedia({
+    refs: [ref(0), ref(1), ref(2)],
+    template: dir + "/",
+    requestId: "rid",
+  });
+  assert.equal(result.failed.length, 0);
+  assert.deepEqual(result.downloaded, [
+    resolve(dir, "output.png"),
+    resolve(dir, "output_1.png"),
+    resolve(dir, "output_2.png"),
+  ]);
+});
+
 test("downloadMedia renders {placeholder} templates as paths", async () => {
   const { createServer } = await import("node:http");
   const server = createServer((_, res) => {
