@@ -1,4 +1,4 @@
-import { existsSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, extname, isAbsolute, join, resolve } from "node:path";
 
@@ -107,7 +107,6 @@ export function readExplicitLocalFile(value: string): LocalFile | null {
   if (value.length === 0) return null;
   const expanded = expandHome(value);
   const abs = isAbsolute(expanded) ? expanded : resolve(expanded);
-  if (!existsSync(abs)) return null;
   let stat;
   try {
     stat = statSync(abs);

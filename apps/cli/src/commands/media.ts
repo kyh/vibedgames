@@ -18,6 +18,26 @@ function endpointPath(endpointId: string): string {
   return endpointId.replace(/^\/+|\/+$/g, "");
 }
 
+// Action-specific fields for the status-command payload. `result` wraps
+// the raw fal payload under `result:` so fal's own keys can't clobber
+// our top-level (action / endpoint_id / request_id). `status` cherry-
+// picks known fields for the same reason.
+function buildActionFields(
+  action: "status" | "result" | "cancel",
+  data: unknown,
+): Record<string, unknown> {
+  if (action === "result") return { result: data };
+  if (action === "status" && isRecord(data)) {
+    return {
+      status: typeof data.status === "string" ? data.status : undefined,
+      queue_position:
+        typeof data.queue_position === "number" ? data.queue_position : undefined,
+      logs: data.logs,
+    };
+  }
+  return {};
+}
+
 function isJsonOutput(args: { json?: boolean }): boolean {
   return Boolean(args.json) || process.env.VG_JSON_OUTPUT === "1";
 }
@@ -186,20 +206,12 @@ const statusCommand = defineCommand({
       });
     }
 
+    const actionFields = buildActionFields(action, data);
     const payload = {
       action,
       endpoint_id: args.endpoint_id,
       request_id: args.request_id,
-      ...(action === "result"
-        ? { result: data }
-        : action === "status" && isRecord(data)
-          ? {
-              status: typeof data.status === "string" ? data.status : undefined,
-              queue_position:
-                typeof data.queue_position === "number" ? data.queue_position : undefined,
-              logs: data.logs,
-            }
-          : {}),
+      ...actionFields,
       ...(downloaded ? { downloaded_files: downloaded.downloaded } : {}),
       ...(downloaded && downloaded.failed.length > 0
         ? { download_failures: downloaded.failed }

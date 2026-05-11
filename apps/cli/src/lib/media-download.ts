@@ -102,27 +102,46 @@ export async function downloadMedia(opts: {
   template?: string;
   requestId: string;
 }): Promise<DownloadResult> {
+  const targets = opts.refs.map((ref, i) =>
+    renderTemplate(ref, opts.template, i, opts.requestId),
+  );
+  // Create each unique parent directory once instead of redoing it per ref.
+  const dirs = new Set(targets.map((t) => dirname(t)));
+  for (const d of dirs) mkdirSync(d, { recursive: true });
+
+  // Fetch all refs in parallel; fal CDN handles the concurrency fine and
+  // multi-image runs (`--num_images N`) become N× faster than the old
+  // sequential loop. Results stay in ref order via mapped Promise.all.
+  type Outcome =
+    | { ok: true; target: string }
+    | { ok: false; url: string; error: string };
+
+  const outcomes: Outcome[] = await Promise.all(
+    opts.refs.map(async (ref, i): Promise<Outcome> => {
+      const target = targets[i]!;
+      try {
+        const res = await fetch(ref.url);
+        if (!res.ok) {
+          return { ok: false, url: ref.url, error: `${res.status} ${res.statusText}` };
+        }
+        const bytes = new Uint8Array(await res.arrayBuffer());
+        writeFileSync(target, bytes);
+        return { ok: true, target };
+      } catch (err) {
+        return {
+          ok: false,
+          url: ref.url,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    }),
+  );
+
   const downloaded: string[] = [];
   const failed: { url: string; error: string }[] = [];
-  for (let i = 0; i < opts.refs.length; i++) {
-    const ref = opts.refs[i]!;
-    const target = renderTemplate(ref, opts.template, i, opts.requestId);
-    try {
-      const res = await fetch(ref.url);
-      if (!res.ok) {
-        failed.push({ url: ref.url, error: `${res.status} ${res.statusText}` });
-        continue;
-      }
-      const bytes = new Uint8Array(await res.arrayBuffer());
-      mkdirSync(dirname(target), { recursive: true });
-      writeFileSync(target, bytes);
-      downloaded.push(target);
-    } catch (err) {
-      failed.push({
-        url: ref.url,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
+  for (const o of outcomes) {
+    if (o.ok) downloaded.push(o.target);
+    else failed.push({ url: o.url, error: o.error });
   }
   return { downloaded, failed };
 }

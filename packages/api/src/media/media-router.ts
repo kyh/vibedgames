@@ -122,17 +122,15 @@ function pickFalKey(media: MediaProviderConfig | undefined): {
   return { apiKey: media.fal, config: media };
 }
 
-function jsonByteLength(value: unknown): number {
-  let serialized: string;
+function serializeBody(value: unknown): string {
   try {
-    serialized = JSON.stringify(value);
+    return JSON.stringify(value);
   } catch {
     throw new TRPCError({
       code: "BAD_REQUEST",
       message: "body must be JSON-serializable.",
     });
   }
-  return new TextEncoder().encode(serialized).byteLength;
 }
 
 // ---- Router ----------------------------------------------------------------
@@ -149,8 +147,10 @@ export const mediaRouter = createTRPCRouter({
   forward: protectedProcedure.input(forwardInput).mutation(async ({ ctx, input }) => {
     const { apiKey, config } = pickFalKey(ctx.media);
 
+    let serialized: string | undefined;
     if (input.body !== undefined) {
-      const bytes = jsonByteLength(input.body);
+      serialized = serializeBody(input.body);
+      const bytes = new TextEncoder().encode(serialized).byteLength;
       if (bytes > MAX_PARAMS_BYTES) {
         throw new TRPCError({
           code: "PAYLOAD_TOO_LARGE",
@@ -172,17 +172,13 @@ export const mediaRouter = createTRPCRouter({
       "X-Fal-Store-IO": "1",
       "x-app-fal-disable-fallback": "true",
     };
-    if (input.body !== undefined) headers["Content-Type"] = "application/json";
+    if (serialized !== undefined) headers["Content-Type"] = "application/json";
 
     const res = await fetchProviderResponse({
       url,
       label: `fal ${input.target} ${input.method} ${input.path}`,
       credentialed: true,
-      init: {
-        method: input.method,
-        headers,
-        body: input.body !== undefined ? JSON.stringify(input.body) : undefined,
-      },
+      init: { method: input.method, headers, body: serialized },
     });
 
     if (res.status === 204 || res.headers.get("content-length") === "0") return null;
