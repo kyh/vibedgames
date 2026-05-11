@@ -70,6 +70,13 @@ test("extractMediaRefs rejects non-fal hosts even with a media content_type", ()
       url: "file:///etc/passwd",
       content_type: "image/png",
     },
+    http_downgrade: {
+      // fal serves all CDN URLs over HTTPS. A response that smuggles a
+      // plain-HTTP fal-domain URL would otherwise be downloaded over an
+      // insecure channel.
+      url: "http://v3.fal.media/files/insecure.png",
+      content_type: "image/png",
+    },
   };
   const refs = extractMediaRefs(result);
   const urls = refs.map((r) => r.url).toSorted();

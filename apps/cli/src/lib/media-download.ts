@@ -31,10 +31,12 @@ export function extractMediaRefs(result: unknown): MediaRef[] {
   return refs;
 }
 
-// fal stores generated outputs on its own CDN (`X-Fal-Store-IO: 1`).
-// Restrict `--download` candidates to those hosts so a fal response can't
-// trick the CLI into fetching arbitrary URLs (e.g. attacker-controlled or
-// internal-network targets) on the user's machine.
+// fal stores generated outputs on its own CDN (`X-Fal-Store-IO: 1`) and
+// always serves them over HTTPS. Restrict `--download` candidates to
+// those hosts and that scheme so a fal response can't trick the CLI
+// into fetching arbitrary URLs (e.g. attacker-controlled or
+// internal-network targets) on the user's machine, and can't downgrade
+// to plain HTTP.
 const TRUSTED_HOST_SUFFIXES = [".fal.media", ".fal.run", ".fal.ai"] as const;
 const TRUSTED_HOSTS = new Set(["fal.media", "fal.run", "fal.ai"]);
 
@@ -45,7 +47,7 @@ function isTrustedFalContentHost(url: string): boolean {
   } catch {
     return false;
   }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+  if (parsed.protocol !== "https:") return false;
   const host = parsed.hostname.toLowerCase();
   if (TRUSTED_HOSTS.has(host)) return true;
   return TRUSTED_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix));
