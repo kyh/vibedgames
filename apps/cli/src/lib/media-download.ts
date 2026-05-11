@@ -45,7 +45,7 @@ function isTrustedFalContentHost(url: string): boolean {
   } catch {
     return false;
   }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+  if (parsed.protocol !== "https:") return false;
   const host = parsed.hostname.toLowerCase();
   if (TRUSTED_HOSTS.has(host)) return true;
   return TRUSTED_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix));
