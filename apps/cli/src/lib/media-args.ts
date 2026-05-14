@@ -32,6 +32,7 @@ export function parseRunInput(argv: string[]): Record<string, unknown> {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (!arg || !arg.startsWith("--")) continue;
+    if (arg === "--") break;
     const eqIdx = arg.indexOf("=");
     const name = eqIdx === -1 ? arg : arg.slice(0, eqIdx);
     const inlineValue = eqIdx === -1 ? undefined : arg.slice(eqIdx + 1);
