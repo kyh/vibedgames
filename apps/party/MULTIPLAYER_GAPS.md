@@ -29,10 +29,21 @@ These are bugs in the current code, not feature work.
 
 ## Server-side roadmap (`apps/party`, `packages/multiplayer`)
 
-- **`onAuth` hook.** PartySocket exposes the upgrade request — read
-  `Authorization`, validate against the existing better-auth/D1 (the
-  `DB` binding is wired in `wrangler.jsonc` but unused). Without it,
-  any client can join any room. **S.**
+- **`onAuth` hook.** Bigger than it looks. Three real obstacles:
+  1. Web app and party are on different sites
+     (`vibedgames.com` vs `vibedgames-party.kyh.workers.dev`), so
+     better-auth session cookies don't traverse.
+  2. Browser WebSocket clients can't send custom headers — auth has
+     to ride on a URL token (leaks to logs) or `Sec-WebSocket-Protocol`
+     (a hack), each requiring a token-mint API and a pre-connect
+     acquisition step.
+  3. Threat model is weak today — `connection.id` is partyserver-random,
+     so there is no vibedgames identity to spoof, and games are
+     served at `{slug}.vibedgames.com` for users who may not be
+     logged in at all.
+  Hold until private rooms or persistent identity are actual
+  requirements, then design properly: subdomain (`party.vibedgames.com`)
+  for cookie carry, OR a join-token mint endpoint + URL token. **M.**
 - **Typed message channels.** Replace the single `emit`/`event` pair
   with `room.send(type, payload, { to?, except? })`. Mirrors
   Colyseus's `client.send` vs `broadcast` so events can target one
@@ -126,9 +137,13 @@ exposure.
 ## Priority order
 
 1. **`server.ts:61` host enforcement** — credibility / safety, one line.
-2. **Reconnection grace + stable id** — without it, host migration is
-   theatre.
-3. **`onAuth`** — currently any client joins any room.
-4. **Adapter-layer skill recipe** — cheapest way to stop agents from
-   welding multiplayer into Phaser scene code.
+   **(done — 2026-05-07.)**
+2. **Adapter-layer skill recipe + host-only mutation rule** — cheapest
+   way to stop agents from welding multiplayer into Phaser scene code,
+   and the place to teach the new server-side rejection behavior.
+3. **Reconnection grace + stable id** — without it, host migration is
+   theatre. Defer until one game complains about flaky reconnects.
+4. **`onAuth`** — defer. Cross-domain cookie problem + WS-header
+   constraint make this an M, not an afternoon. Revisit when private
+   rooms or persistent identity become product requirements.
 5. Everything else.
