@@ -71,6 +71,26 @@ test("parseRunInput handles GNU --key=value form", () => {
   });
 });
 
+test("parseRunInput stops parsing at the POSIX `--` terminator", () => {
+  // Without the guard, `"--".startsWith("--")` passes and `slice(2)`
+  // yields the empty key — so `--` itself would land in the request
+  // body as `{ "": <next token> }` and any flag-shaped tokens after it
+  // would still be interpreted as model parameters.
+  assert.deepEqual(
+    parseRunInput(["--prompt", "before", "--", "--prompt", "after"]),
+    { prompt: "before" },
+  );
+  // Bare `--` with no following tokens.
+  assert.deepEqual(parseRunInput(["--prompt", "x", "--"]), { prompt: "x" });
+});
+
+test("parseDownloadFlag stops parsing at the POSIX `--` terminator", () => {
+  assert.deepEqual(
+    parseDownloadFlag(["--prompt", "x", "--", "--download", "evil"]),
+    { mode: "off" },
+  );
+});
+
 test("parseRunInput strips --async=true via the reserved-flags guard", () => {
   // Otherwise async=true would leak through as a bogus model param.
   assert.deepEqual(parseRunInput(["--prompt", "x", "--async=true"]), {

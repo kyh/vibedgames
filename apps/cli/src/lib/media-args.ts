@@ -32,6 +32,10 @@ export function parseRunInput(argv: string[]): Record<string, unknown> {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (!arg || !arg.startsWith("--")) continue;
+    // POSIX `--` argument terminator: stop interpreting subsequent
+    // tokens as flags. Without this guard, `--` itself parses as
+    // `{ "": <next token> }` and pollutes the request body.
+    if (arg === "--") break;
     const eqIdx = arg.indexOf("=");
     const name = eqIdx === -1 ? arg : arg.slice(0, eqIdx);
     const inlineValue = eqIdx === -1 ? undefined : arg.slice(eqIdx + 1);
@@ -166,6 +170,7 @@ export function parseDownloadFlag(argv: string[]): { mode: "off" | "on"; templat
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (!arg) continue;
+    if (arg === "--") break;
     if (arg === "--download") {
       lastIdx = i;
       inlineValue = undefined;
