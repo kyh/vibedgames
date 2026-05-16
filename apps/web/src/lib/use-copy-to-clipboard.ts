@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { toast } from "@repo/ui/components/sonner";
+import { toast } from "@repo/ui/components/toast";
 
 const SUCCESS_TOAST = "Copied. Paste it into Claude, Cursor, or Codex.";
 const ERROR_TOAST = "Failed to copy.";

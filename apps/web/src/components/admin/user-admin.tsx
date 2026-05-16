@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Button } from "@repo/ui/components/button";
 import { Field, FieldContent, FieldLabel } from "@repo/ui/components/field";
 import { Input } from "@repo/ui/components/input";
-import { toast } from "@repo/ui/components/sonner";
+import { toast } from "@repo/ui/components/toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useTRPC } from "@/lib/trpc";
