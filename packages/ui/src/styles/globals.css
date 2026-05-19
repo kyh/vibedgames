@@ -100,12 +100,12 @@
         background: transparent;
     }
     ::-webkit-scrollbar-thumb {
-        background: var(--muted-foreground);
+        background: color-mix(in oklab, var(--foreground) 25%, transparent);
         border-radius: 5px;
     }
 
     * {
         scrollbar-width: thin;
-        scrollbar-color: var(--muted-foreground) transparent;
+        scrollbar-color: color-mix(in oklab, var(--foreground) 25%, transparent) transparent;
     }
 }
