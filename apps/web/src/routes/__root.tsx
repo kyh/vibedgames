@@ -1,7 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import type { TRPCOptionsProxy } from "@trpc/tanstack-react-query";
 import { GlobalAlertDialog } from "@repo/ui/components/alert-dialog";
-import { Toaster } from "@repo/ui/components/toast";
+import { Toaster } from "@repo/ui/components/sonner";
 import { TooltipProvider } from "@repo/ui/components/tooltip";
 import { cn } from "@repo/ui/lib/utils";
 import {
