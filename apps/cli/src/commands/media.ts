@@ -222,7 +222,17 @@ const statusCommand = defineCommand({
       }
     } else {
       consola.success(`${action} ${args.endpoint_id} ${args.request_id}`);
-      if (downloaded) for (const p of downloaded.downloaded) consola.log(`  ${p}`);
+      if (downloaded) {
+        for (const p of downloaded.downloaded) consola.log(`  ${p}`);
+        for (const f of downloaded.failed) consola.warn(`  failed: ${f.url} (${f.error})`);
+      }
+      if (action === "result" && !downloaded?.downloaded.length) {
+        for (const url of extractMediaUrls(data)) consola.log(`  ${url}`);
+      }
+    }
+
+    if (downloaded && downloaded.failed.length > 0 && downloaded.downloaded.length === 0) {
+      process.exit(1);
     }
   },
 });
