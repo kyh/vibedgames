@@ -1,4 +1,4 @@
-import type { ImageProviderKeys, R2Config } from "@repo/api/trpc";
+import type { MediaProviderConfig, R2Config } from "@repo/api/trpc";
 import { createAuth as initAuth } from "@repo/api/auth/auth";
 import { createDb } from "@repo/db/drizzle-client";
 import { getRequestHeaders } from "@tanstack/react-start/server";
@@ -50,18 +50,15 @@ export function getServerContext() {
         }
       : undefined;
 
-  const imageProviders: ImageProviderKeys = {
-    openai: env.OPENAI_API_KEY,
-    openaiBaseUrl: env.OPENAI_BASE_URL,
+  const media: MediaProviderConfig = {
     fal: env.FAL_API_KEY,
-    falBaseUrl: env.FAL_BASE_URL,
-    retroDiffusion: env.RETRO_DIFFUSION_API_KEY,
-    retroDiffusionBaseUrl: env.RETRO_DIFFUSION_BASE_URL,
-    gemini: env.GEMINI_API_KEY,
-    geminiBaseUrl: env.GEMINI_BASE_URL,
+    falQueueBaseUrl: env.FAL_QUEUE_BASE_URL,
+    falPlatformBaseUrl: env.FAL_PLATFORM_BASE_URL,
+    falDocsBaseUrl: env.FAL_DOCS_BASE_URL,
+    falStorageBaseUrl: env.FAL_STORAGE_BASE_URL,
   };
 
-  return { db, auth, baseUrl, productionUrl, r2, imageProviders };
+  return { db, auth, baseUrl, productionUrl, r2, media };
 }
 
 /**

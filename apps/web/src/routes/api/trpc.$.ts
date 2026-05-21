@@ -1,5 +1,5 @@
 import { appRouter, createTRPCContext } from "@repo/api";
-import { MAX_TRPC_BODY_BYTES } from "@repo/api/image/limits";
+import { MAX_TRPC_BODY_BYTES } from "@repo/api/media/limits";
 import { createFileRoute } from "@tanstack/react-router";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 
@@ -95,7 +95,7 @@ const handler = async (req: Request): Promise<Response> => {
       return bodyTooLargeResponse(req);
     }
   }
-  const { db, auth, productionUrl, r2, imageProviders } = getServerContext();
+  const { db, auth, productionUrl, r2, media } = getServerContext();
   return await fetchRequestHandler({
     endpoint: "/api/trpc",
     router: appRouter,
@@ -107,7 +107,7 @@ const handler = async (req: Request): Promise<Response> => {
         auth,
         productionURL: productionUrl,
         r2,
-        imageProviders,
+        media,
       }),
     onError({ error, path }) {
       console.error(`>>> tRPC Error on '${path}'`, error);

@@ -18,9 +18,9 @@ export function createClient(): TRPCClient<AppRouter> {
 
   return createTRPCClient<AppRouter>({
     links: [
-      // Image input bytes use presigned uploads, but mutations can still
-      // carry provider params. Keep concurrent writes off httpBatchLink so
-      // one batch body cannot grow with `--concurrency`.
+      // Media input bytes use presigned uploads, but mutations can still
+      // carry model params. Keep writes off httpBatchLink so one batch
+      // body cannot grow with concurrent calls.
       splitLink({
         condition: (op) => op.type === "mutation",
         true: httpLink({ url, transformer: superjson, headers }),
@@ -34,7 +34,7 @@ export function createClient(): TRPCClient<AppRouter> {
 export function createPublicClient(baseUrl: string): TRPCClient<AppRouter> {
   // The login-flow procedures carry no large payloads, so the plain
   // batch link is fine here — no need for the splitLink dance the
-  // authenticated client uses to keep `image.run` mutations off the
+  // authenticated client uses to keep `media.run` mutations off the
   // batched path.
   return createTRPCClient<AppRouter>({
     links: [
