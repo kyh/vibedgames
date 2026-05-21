@@ -59,6 +59,18 @@ export class VgServer extends Server {
 
       switch (message.type) {
         case "state_patch": {
+          // Shared state is host-authoritative: only the elected host
+          // can write. Non-host writes get a `state` echo back so the
+          // client can rewind its local mirror, and we drop the patch
+          // instead of relaying it.
+          if (sender.id !== this.room.hostId) {
+            const echo: ServerMessage = {
+              type: "state_patch",
+              data: this.room.sharedState,
+            };
+            sender.send(JSON.stringify(echo));
+            break;
+          }
           this.room.sharedState = {
             ...this.room.sharedState,
             ...message.data,

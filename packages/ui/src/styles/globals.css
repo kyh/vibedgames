@@ -91,4 +91,21 @@
     body {
         @apply bg-background text-foreground;
     }
+
+    ::-webkit-scrollbar {
+        width: 5px;
+        height: 5px;
+    }
+    ::-webkit-scrollbar-track {
+        background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+        background: color-mix(in oklab, var(--foreground) 25%, transparent);
+        border-radius: 5px;
+    }
+
+    * {
+        scrollbar-width: thin;
+        scrollbar-color: color-mix(in oklab, var(--foreground) 25%, transparent) transparent;
+    }
 }

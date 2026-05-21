@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useWebHaptics } from "web-haptics/react";
 
 import { FadeInBlur } from "@/components/ui/fade-in-blur";
 import { featuredGames, gameSearchSchema } from "@/components/game/data";
@@ -12,6 +13,7 @@ export const Route = createFileRoute("/discover")({
 function DiscoverPage() {
   const navigate = useNavigate();
   const { game: activeGame } = Route.useSearch();
+  const { trigger } = useWebHaptics();
 
   return (
     <header className="fixed bottom-16 left-0 z-10 flex max-h-full max-w-dvw flex-col px-4 md:w-96">
@@ -23,7 +25,10 @@ function DiscoverPage() {
               if (activeGame === game.slug) return;
               void navigate({ to: "/discover", search: { game: game.slug }, replace: true });
             }}
-            onClick={() => void navigate({ to: "/", search: { game: game.slug } })}
+            onClick={() => {
+              trigger("selection");
+              void navigate({ to: "/", search: { game: game.slug } });
+            }}
             className="hover:border-foreground relative aspect-video w-30 shrink-0 overflow-clip rounded-lg border border-transparent transition-colors"
           >
             <img
