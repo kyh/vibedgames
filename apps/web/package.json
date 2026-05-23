@@ -16,7 +16,7 @@
     "with-env": "dotenv -e ../../.env --"
   },
   "dependencies": {
-    "@hookform/resolvers": "^5.2.2",
+    "@hookform/resolvers": "^5.4.0",
     "@repo/api": "workspace:^",
     "@repo/db": "workspace:^",
     "@repo/ui": "workspace:^",
@@ -30,7 +30,7 @@
     "@vibedgames/multiplayer": "workspace:^",
     "better-auth": "^1.6.11",
     "lucide-react": "^1.16.0",
-    "motion": "^12.38.0",
+    "motion": "^12.40.0",
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-hook-form": "^7.76.0",
