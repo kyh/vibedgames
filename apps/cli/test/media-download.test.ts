@@ -163,6 +163,23 @@ test("downloadMedia treats '.' / './' / 'out/' as a destination directory", asyn
   }
 });
 
+test("downloadMedia writes to a file template literally (not as a directory)", async () => {
+  // `--download ./walk.png` should land at ./walk.png, NOT
+  // ./walk.png/<refname>. extname-based detection separates explicit
+  // file templates from directory shorthands like "out/" or "./".
+  const port = await makeTestServer(cleanups, servePng);
+  const dir = tmpDir();
+  const target = join(dir, "walk.png");
+  const ref = {
+    url: `http://127.0.0.1:${port}/source.png`,
+    filename: "source.png",
+    contentType: "image/png" as const,
+  };
+  const result = await downloadMedia({ refs: [ref], template: target, requestId: "rid" });
+  assert.equal(result.failed.length, 0);
+  assert.deepEqual(result.downloaded, [resolve(target)]);
+});
+
 test("downloadMedia suffixes colliding targets so multi-output runs don't overwrite", async () => {
   // extractMediaRefs gives every ref the default filename `output.png`
   // when fal omits `file_name`. Without disambiguation, all N downloads

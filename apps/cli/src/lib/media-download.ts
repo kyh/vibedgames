@@ -199,11 +199,15 @@ function renderTemplate(
   const stem = lowerName.endsWith(dotExt)
     ? ref.filename.slice(0, -dotExt.length) || "output"
     : ref.filename || "output";
-  // No template or no placeholder → caller meant a destination directory
-  // (omitted, ".", "./", "../out", "out/"). The previous heuristic also
-  // rejected any template containing a literal ".", which broke "." and
-  // "./" — both common shorthands for "download here".
+  // No template or no placeholder → caller meant either a destination
+  // directory (omitted, ".", "./", "../out", "out/") or an explicit
+  // output filename (`./out.png`, `frame.mp4`). We disambiguate by
+  // looking for an extension on the basename — anything with one is
+  // treated as the literal output path; otherwise we resolve into the
+  // directory using the ref's filename. The previous all-as-dir
+  // behavior wrote `./walk.png/output.png` for `--download ./walk.png`.
   if (!template || !template.includes("{")) {
+    if (template && extname(template)) return resolve(template);
     const dir = template ?? process.cwd();
     return resolve(dir, ref.filename || `output-${index}.${ext}`);
   }
