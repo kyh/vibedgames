@@ -17,7 +17,7 @@ const POLL_INTERVAL_MS = 2_000;
 // job can't hang the CLI indefinitely. Long jobs should use --async.
 const POLL_TIMEOUT_MS = 30 * 60 * 1000;
 
-export type CompletedResult = {
+type CompletedResult = {
   request_id: string;
   result: unknown;
 };

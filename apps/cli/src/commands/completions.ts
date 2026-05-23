@@ -7,37 +7,33 @@ const SUBCOMMANDS = [
   "login",
   "logout",
   "deploy",
-  "image",
-  "models",
+  "media",
   "completions",
   "whoami",
 ];
 
-const IMAGE_SUBCOMMANDS = ["generate", "edit"];
+const MEDIA_SUBCOMMANDS = ["run", "status", "models", "schema", "pricing", "docs", "upload"];
 
 const COMMON_FLAGS = ["--help", "--version"];
 
-const IMAGE_FLAGS = [
-  "--provider",
-  "--model",
-  "--prompt",
-  "--prompt-file",
-  "--output",
-  "-o",
-  "--filename-prefix",
-  "--params",
-  "--params-file",
-  "--image",
-  "--reference",
-  "--mask",
-  "--palette",
-  "--count",
-  "-n",
-  "--concurrency",
-  "-p",
+// CLI-level flags across the media subcommands. Model parameters are
+// arbitrary per fal endpoint and passed as `--<param>`, so they can't be
+// enumerated here — these are just the stable, command-defined flags.
+const MEDIA_FLAGS = [
+  "--async",
+  "--download",
+  "--result",
+  "--cancel",
+  "--logs",
+  "--category",
+  "--status",
+  "--limit",
+  "--cursor",
+  "--endpoint_id",
+  "--expand",
+  "--format",
   "--json",
   "--quiet",
-  "-q",
 ];
 
 function bashScript(): string {
@@ -57,12 +53,12 @@ _vg_completions() {
   fi
 
   case "$cmd" in
-    image)
+    media)
       if [[ $COMP_CWORD -eq 2 ]]; then
-        COMPREPLY=( $(compgen -W "${IMAGE_SUBCOMMANDS.join(" ")} ${IMAGE_FLAGS.join(" ")} ${COMMON_FLAGS.join(" ")}" -- "$cur") )
+        COMPREPLY=( $(compgen -W "${MEDIA_SUBCOMMANDS.join(" ")} ${MEDIA_FLAGS.join(" ")} ${COMMON_FLAGS.join(" ")}" -- "$cur") )
         return
       fi
-      COMPREPLY=( $(compgen -W "${IMAGE_FLAGS.join(" ")} ${COMMON_FLAGS.join(" ")}" -- "$cur") )
+      COMPREPLY=( $(compgen -W "${MEDIA_FLAGS.join(" ")} ${COMMON_FLAGS.join(" ")}" -- "$cur") )
       return
       ;;
     *)
@@ -78,10 +74,10 @@ complete -F _vg_completions vg
 function zshScript(): string {
   return `# vg completions for zsh. Source this file or place it on your fpath.
 _vg() {
-  local -a subcmds image_subs image_flags common_flags
+  local -a subcmds media_subs media_flags common_flags
   subcmds=(${SUBCOMMANDS.map((s) => `"${s}"`).join(" ")})
-  image_subs=(${IMAGE_SUBCOMMANDS.map((s) => `"${s}"`).join(" ")})
-  image_flags=(${IMAGE_FLAGS.map((s) => `"${s}"`).join(" ")})
+  media_subs=(${MEDIA_SUBCOMMANDS.map((s) => `"${s}"`).join(" ")})
+  media_flags=(${MEDIA_FLAGS.map((s) => `"${s}"`).join(" ")})
   common_flags=(${COMMON_FLAGS.map((s) => `"${s}"`).join(" ")})
 
   if (( CURRENT == 2 )); then
@@ -89,12 +85,12 @@ _vg() {
     return
   fi
   case "\${words[2]}" in
-    image)
+    media)
       if (( CURRENT == 3 )); then
-        _values "vg image subcommand" "\${image_subs[@]}" "\${image_flags[@]}" "\${common_flags[@]}"
+        _values "vg media subcommand" "\${media_subs[@]}" "\${media_flags[@]}" "\${common_flags[@]}"
         return
       fi
-      _values "vg image flag" "\${image_flags[@]}" "\${common_flags[@]}"
+      _values "vg media flag" "\${media_flags[@]}" "\${common_flags[@]}"
       ;;
     *)
       _values "vg flag" "\${common_flags[@]}"
@@ -113,11 +109,11 @@ function fishFlag(flag: string, condition: string): string {
 }
 
 function fishScript(): string {
-  const imageFlagLines = [...IMAGE_FLAGS, ...COMMON_FLAGS].map((flag) =>
-    fishFlag(flag, "__fish_seen_subcommand_from image"),
+  const mediaFlagLines = [...MEDIA_FLAGS, ...COMMON_FLAGS].map((flag) =>
+    fishFlag(flag, "__fish_seen_subcommand_from media"),
   );
   // For all other subcommands, only the common flags are meaningful.
-  const otherSubcommands = SUBCOMMANDS.filter((s) => s !== "image");
+  const otherSubcommands = SUBCOMMANDS.filter((s) => s !== "media");
   const otherFlagLines = COMMON_FLAGS.flatMap((flag) =>
     otherSubcommands.map((sub) => fishFlag(flag, `__fish_seen_subcommand_from ${sub}`)),
   );
@@ -126,10 +122,10 @@ function fishScript(): string {
 complete -c vg -f
 complete -c vg -n '__fish_use_subcommand' -a '${SUBCOMMANDS.join(" ")}'
 ${topLevelFlagLines.join("\n")}
-${IMAGE_SUBCOMMANDS.map(
-  (sub) => `complete -c vg -n '__fish_seen_subcommand_from image' -a '${sub}'`,
+${MEDIA_SUBCOMMANDS.map(
+  (sub) => `complete -c vg -n '__fish_seen_subcommand_from media' -a '${sub}'`,
 ).join("\n")}
-${imageFlagLines.join("\n")}
+${mediaFlagLines.join("\n")}
 ${otherFlagLines.join("\n")}
 `;
 }

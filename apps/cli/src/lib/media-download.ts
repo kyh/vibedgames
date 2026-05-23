@@ -11,7 +11,7 @@ const MEDIA_EXT = new Set([
   "mp4", "mov", "webm", "mp3", "wav", "ogg", "flac", "m4a",
 ]);
 
-export type MediaRef = {
+type MediaRef = {
   url: string;
   filename: string;
   contentType: string | null;
@@ -90,7 +90,7 @@ function extFromUrl(url: string): string {
   }
 }
 
-export type DownloadResult = {
+type DownloadResult = {
   downloaded: string[];
   failed: { url: string; error: string }[];
 };
