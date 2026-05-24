@@ -63,13 +63,11 @@ pnpm lint             # Lint all (oxlint)
 pnpm lint:fix         # Lint + fix
 pnpm format           # Format check (oxfmt)
 pnpm format:fix       # Format + write
-pnpm db:generate      # Author a migration from schema changes (drizzle-kit generate)
-pnpm db:migrate-local # Apply migrations to the local Miniflare D1 (wrangler)
-pnpm db:migrate-remote# Apply migrations to prod D1 (wrangler --remote)
+pnpm db:push          # Push schema (drizzle-kit push) to REMOTE prod D1
+pnpm db:push-remote   # Push schema to prod (db + builder, .env.production.local)
+pnpm db:push-local    # Push schema to the local Miniflare D1 (dev:web's D1)
 pnpm db:seed-local    # Seed local dev identity (wrangler d1 execute seed.sql)
-pnpm db:local         # migrate-local + seed-local (one-shot local DB setup)
-pnpm db:push          # Legacy: drizzle-kit diff-push to REMOTE prod D1
-pnpm db:push-remote   # Legacy: diff-push to prod (db + builder)
+pnpm db:local         # push-local + seed-local (one-shot local DB setup)
 pnpm dogfood          # Link local vg CLI + sync plugin skills into .claude/skills/
 pnpm dogfood:reset    # Unlink local vg CLI
 ```
@@ -82,13 +80,13 @@ pnpm dogfood:reset    # Unlink local vg CLI
 
 ## Local development & headless verification
 
-The dev Worker (`pnpm dev:web`, http://localhost:5173) binds to a **local** Miniflare D1 — separate from prod, isolated, starts empty. Schema is applied with Drizzle-generated migrations via wrangler (same `.sql` files prod uses); `db:push`/`db:studio` talk to _remote_ prod and never touch the local D1.
+The dev Worker (`pnpm dev:web`, http://localhost:5173) binds to a **local** Miniflare D1 — separate from prod, isolated, starts empty. Schema management is `drizzle-kit push` (TS schema is the source of truth, no SQL migration files): `db:push`/`db:push-remote` push to remote prod; `db:push-local` pushes the same schema to the local D1 (via `drizzle.config.local.ts`, which resolves the Miniflare SQLite path).
 
 Get a working, verifiable local stack (no browser, no prod):
 
 ```bash
 pnpm dev:web   # once, to initialize the local D1
-pnpm db:local  # apply migrations + seed dev identity
+pnpm db:local  # push schema to local D1 + seed dev identity
 ```
 
 `db:seed-local` runs `packages/db/seed.sql`, creating:
@@ -101,7 +99,7 @@ Authenticate headlessly (no browser):
 - **tRPC/HTTP:** `Authorization: Bearer dev-local-session-token-0000000000`.
 - **Web UI:** sign up a real account to get a real session cookie — `curl -X POST localhost:5173/api/auth/sign-up/email -H 'Origin: http://localhost:5173' -H 'Content-Type: application/json' -d '{"email":"...","password":"...","name":"x","inviteCode":"DEV123"}'` returns `Set-Cookie: better-auth.session_token=...` (and a `set-auth-token` bearer). Feed the cookie to Playwright's context. (No hand-signing — the seeded session is for the bearer paths; the cookie comes from the real signup/signin flow.)
 
-Schema workflow: edit `packages/db/src/drizzle-schema*.ts` → `pnpm db:generate` → commit the new `packages/db/drizzle/*.sql` → `pnpm db:migrate-local` (and `db:migrate-remote` once prod is on migrations). Re-run `pnpm db:seed-local` anytime (idempotent).
+Schema workflow: edit `packages/db/src/drizzle-schema*.ts` → `pnpm db:push-local` (local) / `pnpm db:push-remote` (prod). No migration files. Re-run `pnpm db:seed-local` anytime (idempotent); re-run `db:push-local` after schema changes, and restart `dev:web` if a change doesn't show.
 
 ## Dogfooding (build games in ./games using local CLI + skills)
 
