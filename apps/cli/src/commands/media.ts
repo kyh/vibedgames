@@ -8,7 +8,7 @@ import {
   readExplicitLocalFile,
 } from "../lib/media-args.js";
 import { downloadMedia, extractMediaRefs } from "../lib/media-download.js";
-import { endpointPath, waitForCompletion } from "../lib/media-poll.js";
+import { endpointPath, queueAppId, waitForCompletion } from "../lib/media-poll.js";
 import { uploadFile } from "../lib/media-upload.js";
 import { isRecord } from "../lib/types.js";
 
@@ -179,7 +179,7 @@ const statusCommand = defineCommand({
         ? "result"
         : "status";
 
-    const ep = endpointPath(args.endpoint_id);
+    const ep = queueAppId(args.endpoint_id);
     const client = createClient();
     const path =
       action === "cancel"
@@ -294,13 +294,14 @@ function splitList(value: string | undefined): string[] {
 }
 
 function printModels(data: unknown): void {
-  const records = isRecord(data) && Array.isArray(data.records) ? data.records : [];
-  for (const m of records) {
+  const models = isRecord(data) && Array.isArray(data.models) ? data.models : [];
+  for (const m of models) {
     if (!isRecord(m)) continue;
     const id = String(m.endpoint_id ?? "?");
+    const meta = isRecord(m.metadata) ? m.metadata : {};
     const tags: string[] = [];
-    if (m.category) tags.push(String(m.category));
-    if (m.status) tags.push(String(m.status));
+    if (meta.category) tags.push(String(meta.category));
+    if (meta.status) tags.push(String(meta.status));
     consola.log(`${id}${tags.length > 0 ? `  [${tags.join(", ")}]` : ""}`);
   }
   if (isRecord(data) && data.next_cursor) {
@@ -367,12 +368,12 @@ const docsCommand = defineCommand({
     const data = await client.media.forward.mutate({
       target: "docs",
       method: "POST",
-      path: "/mcp",
+      path: "/docs/mcp",
       body: {
         jsonrpc: "2.0",
         id: 1,
         method: "tools/call",
-        params: { name: "search", arguments: { query: args.query } },
+        params: { name: "search_fal", arguments: { query: args.query } },
       },
     });
     writeJson(data);

@@ -81,6 +81,62 @@ export async function readJsonBounded(
   }
 }
 
+// Pull the JSON-RPC message out of an MCP streamable-HTTP (SSE) response.
+// The body is a sequence of `event:` / `data:` lines grouped into events by
+// blank lines; a single tool call yields one event whose `data:` payload is
+// the JSON-RPC reply. We return the last parseable data payload so a trailing
+// result wins over any earlier progress notifications. Falls back to plain
+// JSON.parse in case a deployment routes docs through a JSON gateway.
+export async function readSseJson(
+  response: Response,
+  label: string,
+  maxBytes = MAX_FAL_PLATFORM_JSON_BYTES,
+): Promise<unknown> {
+  const text = await readTextBounded(response, label, maxBytes);
+  const events: string[] = [];
+  let dataBuf: string[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (line === "") {
+      if (dataBuf.length > 0) {
+        events.push(dataBuf.join("\n"));
+        dataBuf = [];
+      }
+      continue;
+    }
+    if (line.startsWith("data:")) dataBuf.push(line.slice(5).replace(/^ /, ""));
+  }
+  if (dataBuf.length > 0) events.push(dataBuf.join("\n"));
+
+  if (events.length === 0) {
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new TRPCError({
+        code: "BAD_GATEWAY",
+        message: `${label} had no SSE data payload.`,
+      });
+    }
+  }
+
+  let last: unknown;
+  let parsedAny = false;
+  for (const event of events) {
+    try {
+      last = JSON.parse(event);
+      parsedAny = true;
+    } catch {
+      // Skip non-JSON events (comments, keep-alives).
+    }
+  }
+  if (!parsedAny) {
+    throw new TRPCError({
+      code: "BAD_GATEWAY",
+      message: `${label} SSE data was not valid JSON.`,
+    });
+  }
+  return last;
+}
+
 async function readErrorSnippet(response: Response, label: string): Promise<string> {
   try {
     return (await readTextBounded(response, label, 8 * 1024)).slice(0, 800);

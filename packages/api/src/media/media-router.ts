@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { MediaProviderConfig } from "../trpc";
 import { createTRPCRouter, protectedProcedure } from "../trpc";
 import { MAX_PARAMS_BYTES } from "./limits";
-import { fetchProviderResponse, readJsonBounded } from "./provider-io";
+import { fetchProviderResponse, readJsonBounded, readSseJson } from "./provider-io";
 
 // ---- fal target routing -----------------------------------------------------
 //
@@ -18,7 +18,11 @@ const TARGET_DEFAULTS = {
   queue: "https://queue.fal.run",
   platform: "https://api.fal.ai",
   storage: "https://rest.alpha.fal.ai",
-  docs: "https://docs.fal.ai",
+  // fal's docs MCP lives at fal.ai/docs/mcp (docs.fal.ai 308-redirects
+  // here, which we refuse to follow with credentials). It speaks MCP
+  // streamable-HTTP and answers with text/event-stream, not JSON — see
+  // the docs branch in `forward`.
+  docs: "https://fal.ai",
 } as const;
 
 type Target = keyof typeof TARGET_DEFAULTS;
@@ -169,6 +173,9 @@ export const mediaRouter = createTRPCRouter({
       Authorization: `Key ${apiKey}`,
     };
     if (serialized !== undefined) headers["Content-Type"] = "application/json";
+    // The docs MCP server answers with an SSE stream and 406s unless the
+    // client advertises it accepts text/event-stream.
+    if (input.target === "docs") headers.Accept = "application/json, text/event-stream";
 
     const res = await fetchProviderResponse({
       url,
@@ -178,6 +185,7 @@ export const mediaRouter = createTRPCRouter({
     });
 
     if (res.status === 204 || res.headers.get("content-length") === "0") return null;
-    return readJsonBounded(res, `fal ${input.target} response`);
+    const label = `fal ${input.target} response`;
+    return input.target === "docs" ? readSseJson(res, label) : readJsonBounded(res, label);
   }),
 });
