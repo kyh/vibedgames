@@ -36,6 +36,7 @@ yarn-error.log*
 .env
 .env*.local
 .dev.vars
+.dev-session.json
 
 # typescript
 *.tsbuildinfo

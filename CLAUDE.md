@@ -63,8 +63,11 @@ pnpm lint             # Lint all (oxlint)
 pnpm lint:fix         # Lint + fix
 pnpm format           # Format check (oxfmt)
 pnpm format:fix       # Format + write
-pnpm db:push          # Push db schema (local)
-pnpm db:push-remote   # Push db schema (production)
+pnpm db:push          # Push db schema to REMOTE prod D1 (drizzle-kit d1-http)
+pnpm db:push-remote   # Push db schema to prod (uses .env.production.local)
+pnpm db:push-local    # Push schema to the local Miniflare D1 (dev:web's D1)
+pnpm db:seed-local    # Seed local dev identity (user + invite + session)
+pnpm db:local         # push-local + seed-local (one-shot local DB setup)
 pnpm dogfood          # Link local vg CLI + sync plugin skills into .claude/skills/
 pnpm dogfood:reset    # Unlink local vg CLI
 ```
@@ -74,6 +77,29 @@ pnpm dogfood:reset    # Unlink local vg CLI
 - Copy `.env.example` to `.env`
 - Required: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_DATABASE_ID`, `CLOUDFLARE_D1_TOKEN`, `CLOUDFLARE_API_TOKEN`, `AUTH_SECRET`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`
 - Optional: `FAL_API_KEY` (enables `vg media`)
+
+## Local development & headless verification
+
+The dev Worker (`pnpm dev:web`, http://localhost:5173) binds to a **local** Miniflare D1 — separate from prod. `db:push`/`db:studio` talk to _remote_ prod via the `d1-http` driver; they do **not** touch the local D1. So local schema is synced separately and starts empty.
+
+To get a working, verifiable local stack (no browser, no prod):
+
+1. `pnpm dev:web` once (creates the local D1 if missing).
+2. `pnpm db:local` — pushes current schema to the local D1 and seeds a deterministic dev identity.
+
+The seed writes `apps/web/.dev-session.json` (gitignored) and creates:
+
+- dev user `dev@vibedgames.local` (role `admin`)
+- invite code `DEV123` (for exercising the signup flow)
+- a 1-year session whose token + signed cookie authenticate everything headlessly
+
+Authenticate without a browser:
+
+- **CLI:** `VG_API_URL=http://localhost:5173 VG_TOKEN=<token> vg <cmd>` — `VG_TOKEN` overrides the saved login without clobbering `~/.config/vg/auth.json`.
+- **tRPC/HTTP:** `Authorization: Bearer <token>`.
+- **Web UI (Playwright):** add cookie `better-auth.session_token=<signedCookie>` to the browser context. Verify with `GET /api/auth/get-session`.
+
+Token + signed cookie both live in `apps/web/.dev-session.json`. Re-run `pnpm db:seed-local` anytime (idempotent). Re-run `pnpm db:push-local` after schema changes. Note: pushing/seeding writes the file the dev server holds open — restart `dev:web` if a change doesn't show.
 
 ## Dogfooding (build games in ./games using local CLI + skills)
 

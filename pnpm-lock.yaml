@@ -80,7 +80,7 @@ catalogs:
       version: 4.94.0
     zod:
       specifier: ^4.4.3
-      version: 4.4.3
+      version: 3.25.76
 
 overrides:
   react-hook-form: ^7.72.1
@@ -252,7 +252,7 @@ importers:
         specifier: 'catalog:'
         version: 19.2.6(react@19.2.6)
       react-hook-form:
-        specifier: ^7.76.0
+        specifier: ^7.72.1
         version: 7.76.0(react@19.2.6)
       superjson:
         specifier: 'catalog:'
@@ -564,6 +564,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@libsql/client':
+        specifier: ^0.17.2
+        version: 0.17.2
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@cloudflare/workers-types@4.20260522.1)(@electric-sql/pglite@0.3.15)(@libsql/client@0.17.2)(@opentelemetry/api@1.9.0)(@prisma/client@7.4.2(prisma@7.4.2(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(typescript@6.0.3))(typescript@6.0.3))(kysely@0.28.17)(mysql2@3.15.3)(postgres@3.4.7)(prisma@7.4.2(@types/react@19.2.15)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)(typescript@6.0.3))(sql.js@1.14.1)
@@ -580,6 +583,9 @@ importers:
       drizzle-kit:
         specifier: ^0.31.10
         version: 0.31.10
+      tsx:
+        specifier: ^4.22.3
+        version: 4.22.3
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -9491,12 +9497,10 @@ snapshots:
       - bufferutil
       - encoding
       - utf-8-validate
-    optional: true
 
   '@libsql/core@0.17.3':
     dependencies:
       js-base64: 3.7.8
-    optional: true
 
   '@libsql/darwin-arm64@0.5.29':
     optional: true
@@ -9514,7 +9518,6 @@ snapshots:
       - bufferutil
       - encoding
       - utf-8-validate
-    optional: true
 
   '@libsql/isomorphic-ws@0.1.5':
     dependencies:
@@ -9523,7 +9526,6 @@ snapshots:
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
-    optional: true
 
   '@libsql/linux-arm-gnueabihf@0.5.29':
     optional: true
@@ -9610,8 +9612,7 @@ snapshots:
       '@tybys/wasm-util': 0.10.2
     optional: true
 
-  '@neon-rs/load@0.0.4':
-    optional: true
+  '@neon-rs/load@0.0.4': {}
 
   '@next/env@16.2.1':
     optional: true
@@ -10759,7 +10760,6 @@ snapshots:
   '@types/ws@8.18.1':
     dependencies:
       '@types/node': 25.9.1
-    optional: true
 
   '@types/yargs-parser@21.0.3':
     optional: true
@@ -11626,7 +11626,6 @@ snapshots:
       node-fetch: 2.7.0
     transitivePeerDependencies:
       - encoding
-    optional: true
 
   cross-spawn@7.0.6:
     dependencies:
@@ -11721,8 +11720,7 @@ snapshots:
     dependencies:
       webgl-constants: 1.1.1
 
-  detect-libc@2.0.2:
-    optional: true
+  detect-libc@2.0.2: {}
 
   detect-libc@2.1.2: {}
 
@@ -11755,7 +11753,7 @@ snapshots:
 
   dotenv-expand@11.0.7:
     dependencies:
-      dotenv: 16.4.7
+      dotenv: 16.6.1
     optional: true
 
   dotenv-expand@12.0.3:
@@ -12792,8 +12790,7 @@ snapshots:
 
   jose@6.2.3: {}
 
-  js-base64@3.7.8:
-    optional: true
+  js-base64@3.7.8: {}
 
   js-tokens@4.0.0: {}
 
@@ -12852,7 +12849,6 @@ snapshots:
       '@libsql/linux-x64-gnu': 0.5.29
       '@libsql/linux-x64-musl': 0.5.29
       '@libsql/win32-x64-msvc': 0.5.29
-    optional: true
 
   lie@3.3.0:
     dependencies:
@@ -13614,7 +13610,6 @@ snapshots:
   node-fetch@2.7.0:
     dependencies:
       whatwg-url: 5.0.0
-    optional: true
 
   node-fetch@3.3.2:
     dependencies:
@@ -14019,8 +14014,7 @@ snapshots:
   progress@2.0.3:
     optional: true
 
-  promise-limit@2.7.0:
-    optional: true
+  promise-limit@2.7.0: {}
 
   promise-worker-transferable@1.0.4:
     dependencies:
@@ -14881,8 +14875,7 @@ snapshots:
     dependencies:
       tldts: 7.0.30
 
-  tr46@0.0.3:
-    optional: true
+  tr46@0.0.3: {}
 
   tr46@5.1.1:
     dependencies:
@@ -15096,8 +15089,7 @@ snapshots:
 
   webgl-sdf-generator@1.1.1: {}
 
-  webidl-conversions@3.0.1:
-    optional: true
+  webidl-conversions@3.0.1: {}
 
   webidl-conversions@5.0.0:
     optional: true
@@ -15178,7 +15170,6 @@ snapshots:
     dependencies:
       tr46: 0.0.3
       webidl-conversions: 3.0.1
-    optional: true
 
   which@2.0.2:
     dependencies:
@@ -15241,8 +15232,7 @@ snapshots:
 
   ws@8.20.1: {}
 
-  ws@8.21.0:
-    optional: true
+  ws@8.21.0: {}
 
   wsl-utils@0.3.1:
     dependencies:

@@ -45,13 +45,12 @@ export function clearConfig(): void {
 }
 
 export function getBaseUrl(): string {
-  return (
-    process.env.VG_API_URL ??
-    getConfig()?.baseUrl ??
-    "https://vibedgames.com"
-  );
+  return process.env.VG_API_URL ?? getConfig()?.baseUrl ?? "https://vibedgames.com";
 }
 
 export function getToken(): string | null {
-  return getConfig()?.token ?? null;
+  // VG_TOKEN lets local/CI runs authenticate without touching the saved
+  // login (e.g. a seeded dev session), so headless testing never clobbers
+  // the user's real `vg login` credentials.
+  return process.env.VG_TOKEN ?? getConfig()?.token ?? null;
 }
