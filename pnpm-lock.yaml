@@ -80,7 +80,7 @@ catalogs:
       version: 4.92.0
     zod:
       specifier: ^4.4.3
-      version: 3.25.76
+      version: 4.4.3
 
 overrides:
   react-hook-form: ^7.72.1

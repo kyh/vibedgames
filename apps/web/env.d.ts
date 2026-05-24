@@ -11,14 +11,11 @@ interface CloudflareEnv {
   R2_ACCOUNT_ID: string;
   R2_ACCESS_KEY_ID: string;
   R2_SECRET_ACCESS_KEY: string;
-  OPENAI_API_KEY?: string;
-  OPENAI_BASE_URL?: string;
   FAL_API_KEY?: string;
-  FAL_BASE_URL?: string;
-  RETRO_DIFFUSION_API_KEY?: string;
-  RETRO_DIFFUSION_BASE_URL?: string;
-  GEMINI_API_KEY?: string;
-  GEMINI_BASE_URL?: string;
+  FAL_QUEUE_BASE_URL?: string;
+  FAL_PLATFORM_BASE_URL?: string;
+  FAL_DOCS_BASE_URL?: string;
+  FAL_STORAGE_BASE_URL?: string;
 }
 
 declare module "cloudflare:workers" {
