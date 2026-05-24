@@ -104,7 +104,9 @@ export const UserAdmin = () => {
           </FieldContent>
         </Field>
         <div className="sm:col-span-4">
-          <Button loading={create.isPending}>Create user</Button>
+          <Button type="submit" loading={create.isPending}>
+            Create user
+          </Button>
         </div>
       </form>
 

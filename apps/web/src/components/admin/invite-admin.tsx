@@ -125,7 +125,9 @@ export const InviteAdmin = () => {
           </FieldContent>
         </Field>
         <div className="sm:col-span-4">
-          <Button loading={create.isPending}>Generate</Button>
+          <Button type="submit" loading={create.isPending}>
+            Generate
+          </Button>
         </div>
       </form>
 

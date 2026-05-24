@@ -248,7 +248,9 @@ const RegisterCredentialsStep = ({
           )}
         />
       </FieldGroup>
-      <Button loading={form.formState.isSubmitting}>Register</Button>
+      <Button type="submit" loading={form.formState.isSubmitting}>
+        Register
+      </Button>
     </form>
   );
 };
@@ -342,7 +344,9 @@ const LoginForm = ({ className, callbackUrl, ...props }: StepFormProps) => {
             )}
           />
         </FieldGroup>
-        <Button loading={form.formState.isSubmitting}>Login</Button>
+        <Button type="submit" loading={form.formState.isSubmitting}>
+          Login
+        </Button>
       </form>
     </div>
   );
@@ -417,7 +421,9 @@ export const RequestPasswordResetForm = () => {
           )}
         />
       </FieldGroup>
-      <Button loading={form.formState.isSubmitting}>Request Password Reset</Button>
+      <Button type="submit" loading={form.formState.isSubmitting}>
+        Request Password Reset
+      </Button>
     </form>
   );
 };
@@ -514,7 +520,9 @@ export const UpdatePasswordForm = () => {
           )}
         />
       </FieldGroup>
-      <Button loading={form.formState.isSubmitting}>Update Password</Button>
+      <Button type="submit" loading={form.formState.isSubmitting}>
+        Update Password
+      </Button>
     </form>
   );
 };
