@@ -16,13 +16,9 @@
     "generate": "pnpm with-env drizzle-kit generate",
     "generate:auth-schema": "pnpm with-env pnpx @better-auth/cli generate --config ../api/src/auth/auth-codegen.ts --output ./src/drizzle-schema-auth.ts",
     "push:remote": "dotenv -e ../../.env.production.local -- drizzle-kit push",
-    "push:local": "tsx scripts/push-local.ts",
-    "seed:local": "tsx scripts/seed-local.ts",
-    "setup:local": "tsx scripts/push-local.ts && tsx scripts/seed-local.ts",
     "with-env": "dotenv -e ../../.env --"
   },
   "dependencies": {
-    "@libsql/client": "^0.17.2",
     "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
@@ -30,7 +26,6 @@
     "@kyh/tsconfig": "catalog:",
     "@types/react": "catalog:",
     "drizzle-kit": "^0.31.10",
-    "tsx": "^4.22.3",
     "typescript": "catalog:"
   }
 }
