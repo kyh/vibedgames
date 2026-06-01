@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bomberman</title>
+    <style>
+      html, body { margin: 0; padding: 0; height: 100%; background: #1a1a2e; color: #fff; font-family: system-ui, sans-serif; }
+      #game { width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; }
+      #ui { position: fixed; top: 12px; left: 12px; right: 12px; display: flex; justify-content: space-between; pointer-events: none; font: 14px ui-monospace, monospace; opacity: 0.9; }
+      #ui .right { text-align: right; }
+      .pill { background: rgba(0,0,0,0.5); padding: 4px 8px; border-radius: 6px; }
+    </style>
+  </head>
+  <body>
+    <div id="game"></div>
+    <div id="ui">
+      <div class="pill" id="status">Connecting…</div>
+      <div class="pill right" id="players"></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

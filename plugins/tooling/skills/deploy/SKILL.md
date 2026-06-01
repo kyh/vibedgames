@@ -11,6 +11,34 @@ Deploy static browser games to `{slug}.vibedgames.com` using the vibedgames CLI.
 > best-effort. If any `vg <cmd>` below fails with "command not found",
 > substitute `npx vibedgames <cmd>` — it works identically.
 
+## Starting a new game
+
+If the user has no project yet, scaffold one in a single command. `vg new` pulls the official engine template (or a minimal inline starter) and drops a `vibedgames.json` in place so deploy works without further config:
+
+```sh
+vg new my-game                     # Phaser 4 + Vite + TS (official phaserjs template)
+vg new my-game --engine threejs    # Three.js + Vite + TS starter
+vg new my-game --engine react-r3f  # React + R3F + drei + Vite + TS starter
+vg new my-game --engine none       # minimal Vite + TS + canvas (offline; no engine)
+vg new my-game --template foo/bar  # any github degit spec
+```
+
+Pick the engine that matches the game the user described:
+- **2D / pixel-art / arcade / platformer** → `phaser` (the default)
+- **3D / first-person / camera-driven, imperative scene code** → `threejs`
+- **3D with React component model, declarative scenes, lots of UI overlay** → `react-r3f`
+- **Custom engine, plain canvas, or "I'll wire the deps myself"** → `none`
+
+After scaffold:
+
+```sh
+cd my-game
+npm install
+npm run dev        # local preview
+```
+
+The matching skill (`phaser`, `threejs`, etc.) will load automatically in Claude Code based on the deps in `package.json`. Pass `--here` to scaffold into the current directory.
+
 ## Prerequisites
 
 The game directory must contain an `index.html` at the root. Typically this is the `dist/` output from a build tool (Vite, webpack, etc.).

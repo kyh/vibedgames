@@ -39,6 +39,13 @@ export type R2BucketLike = {
 /**
  * R2 credentials needed for minting S3 presigned URLs. The R2 *binding* can
  * read/write objects but cannot mint presigns; that requires an S3 API key.
+ *
+ * When `proxyUploadBaseUrl` is set (typically only in local dev), `presignPut`
+ * returns an HMAC-signed URL that points back at the worker's own
+ * `/api/r2-upload` endpoint instead of direct-to-R2. The worker then writes
+ * via the `bucket` binding, so uploads land in whatever bucket the binding
+ * resolves to (Miniflare-simulated locally, real R2 in prod). Keeps dev fully
+ * isolated from prod R2.
  */
 export type R2Config = {
   bucket: R2BucketLike;
@@ -46,6 +53,8 @@ export type R2Config = {
   accountId: string;
   accessKeyId: string;
   secretAccessKey: string;
+  proxyUploadBaseUrl?: string;
+  proxyUploadSecret?: string;
 };
 
 /**

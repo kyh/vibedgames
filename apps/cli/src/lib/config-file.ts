@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 export type ProjectConfig = {
   slug: string;
@@ -8,9 +8,23 @@ export type ProjectConfig = {
 
 const FILENAME = "vibedgames.json";
 
+// Walk from `dir` up toward the filesystem root, stopping at the first
+// vibedgames.json. Lets `vg deploy ./dist` pick up the config from the
+// project root even when the build step doesn't copy it into the output.
+function findConfigPath(dir: string): string | null {
+  let current = resolve(dir);
+  while (true) {
+    const candidate = join(current, FILENAME);
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+}
+
 export function readProjectConfig(dir: string): ProjectConfig | null {
-  const path = join(dir, FILENAME);
-  if (!existsSync(path)) return null;
+  const path = findConfigPath(dir);
+  if (!path) return null;
   const raw = readFileSync(path, "utf-8");
   const parsed: unknown = JSON.parse(raw);
   if (

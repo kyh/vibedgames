@@ -9,6 +9,7 @@ import { initCommand } from "./commands/init.js";
 import { loginCommand } from "./commands/login.js";
 import { logoutCommand } from "./commands/logout.js";
 import { mediaCommand } from "./commands/media.js";
+import { newCommand } from "./commands/new.js";
 import { whoamiCommand } from "./commands/whoami.js";
 
 const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
@@ -22,6 +23,7 @@ const main = defineCommand({
     description: "vibedgames CLI",
   },
   subCommands: {
+    new: newCommand,
     init: initCommand,
     login: loginCommand,
     logout: logoutCommand,

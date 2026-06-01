@@ -1,6 +1,6 @@
 # Tilemaps Reference
 
-Comprehensive expert guide for Phaser 3 tilemap integration with Tiled Map Editor.
+Comprehensive guide for Phaser tilemap integration with Tiled Map Editor. The tilemap API and Tiled JSON format are unchanged between Phaser 3 and Phaser 4. For very large orthographic single-tileset layers, Phaser 4 also offers `TilemapGPULayer` (see the main SKILL.md) — but the standard `TilemapLayer` path described here is still the right default.
 
 ---
 

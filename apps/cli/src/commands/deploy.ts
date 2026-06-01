@@ -56,6 +56,14 @@ export const deployCommand = defineCommand({
     }
 
     if (!config) {
+      if (!process.stdin.isTTY) {
+        consola.error(
+          "No slug specified and no vibedgames.json found.\n" +
+            "  Pass --slug <name> when running without a TTY (e.g. in CI or from a coding agent).\n" +
+            "  Example: vg deploy ./dist --slug my-game",
+        );
+        process.exit(1);
+      }
       const slug = await consola.prompt("Slug (e.g. pong):", { type: "text" });
       if (typeof slug !== "string" || !SLUG_RE.test(slug)) {
         consola.error("Invalid slug. Use lowercase letters, digits, hyphens.");

@@ -11,12 +11,17 @@ npm i -g vibedgames
 ## Commands
 
 ```sh
+vg new <slug>                    # scaffold a Phaser 4 + Vite + TS game (official template)
+vg new <slug> --engine threejs   # scaffold a Three.js + Vite + TS starter
+vg new <slug> --engine react-r3f # scaffold a React + R3F + drei + Vite + TS starter
+vg new <slug> --engine none      # minimal Vite + TS + canvas (offline; inline)
+vg new <slug> --template owner/repo  # any github degit spec
+vg new <slug> --here             # scaffold into the current directory
 vg init [dir]         # install Claude Code skills into ./.claude/skills
 vg login              # authenticate via browser
 vg logout             # clear credentials
 vg whoami             # show current user
-vg deploy [dir]       # deploy a game directory
-vg deploy ./dist --slug my-game
+vg deploy [dir]       # deploy a game directory (reads vibedgames.json or --slug)
 ```
 
 `vg skills install` is an alias for `vg init`.

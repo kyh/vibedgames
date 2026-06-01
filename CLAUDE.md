@@ -4,6 +4,8 @@
 
 **vibedgames** — infrastructure platform for deploying, hosting, and adding multiplayer to browser games. Users build games locally, deploy via CLI (`vg deploy`), and their game is served at `{slug}.vibedgames.com`. The web app is the central hub for discovering and playing games.
 
+**The primary user of the `vg` CLI is a coding agent, not a human.** A human prompts their agent ("build me a bomberman game"), and the agent uses `vg` + the bundled skills to scaffold, generate assets, add multiplayer, and deploy. Optimise CLI UX accordingly: machine-readable output (`--json`), self-describing errors, deterministic exit codes, skills that document the exact commands the agent should run. Friction that a human would tolerate ("now open this URL...") blocks an agent.
+
 ## Key Architectural Decisions
 
 - **Games are untrusted user code.** Session cookies are scoped to apex domain only (`vibedgames.com`). Games on `{slug}.vibedgames.com` subdomains cannot access auth cookies. CSP `frame-ancestors` restricts embedding. Never weaken these boundaries.
@@ -100,6 +102,8 @@ Authenticate headlessly (no browser):
 - **Web UI:** sign up a real account to get a real session cookie — `curl -X POST localhost:5173/api/auth/sign-up/email -H 'Origin: http://localhost:5173' -H 'Content-Type: application/json' -d '{"email":"...","password":"...","name":"x","inviteCode":"DEV123"}'` returns `Set-Cookie: better-auth.session_token=...` (and a `set-auth-token` bearer). Feed the cookie to Playwright's context. (No hand-signing — the seeded session is for the bearer paths; the cookie comes from the real signup/signin flow.)
 
 Schema workflow: edit `packages/db/src/drizzle-schema*.ts` → `pnpm db:push-local` (local) / `pnpm db:push-remote` (prod). No migration files. Re-run `pnpm db:seed-local` anytime (idempotent); re-run `db:push-local` after schema changes, and restart `dev:web` if a change doesn't show.
+
+**Footgun: `vg deploy` against local still uploads to prod R2.** Local D1 is isolated, but the dev Worker is configured with real R2 credentials from `.env`, so `vg deploy --slug X` against `localhost:5173` will upload the bundle to the production R2 bucket — the only thing keeping it user-invisible is that the slug → deploymentId mapping lives in local D1. Treat the deploy code path as testable locally, but assume every successful local deploy leaves orphaned objects in prod R2 (until R2 gets a local-only binding).
 
 ## Dogfooding (build games in ./games using local CLI + skills)
 

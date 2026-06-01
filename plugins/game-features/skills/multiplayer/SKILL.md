@@ -49,7 +49,47 @@ if (client.isHost) {
 
 The pattern: **intents go up via `sendEvent`, state comes down via `sharedState` patches**. Host listens for intent events, validates, and writes the result.
 
-`updateMyState` is *not* host-gated — players always own their own slot.
+`updateMyState` is *not* host-gated — players always own their own slot. **The corollary bites: the host cannot use `updateMyState` to mark *other* players dead/disabled either, because that call only ever writes the caller's own slot.** Cross-player flags (deaths, scores, banned-from-round) belong in `sharedState`, where the host writes them and every client reads them.
+
+### `updateSharedState` merges — your "reset" patch must include every field
+
+`updateSharedState(patch)` does `{ ...prev, ...patch }` on the client and the same on the server. Any field you don't mention is carried over from the previous state. This bites hardest on round-restart logic, where you intend to wipe everything but forget one field:
+
+```ts
+// Wrong — `deaths`, `winner`, anything else that exists on prev survives.
+client.updateSharedState({ grid: newGrid(), bombs: {}, blasts: {} });
+
+// Right — list every resettable field with its empty value.
+client.updateSharedState({
+  grid: newGrid(),
+  bombs: {},
+  blasts: {},
+  deaths: {},
+  scores: {},
+  winner: null,
+  startedAt: Date.now(),
+});
+```
+
+Adopt one of two habits: keep a single `emptyState()` factory whose return type matches your `SharedState` exactly (so TS errors when you add a field), or use the function form `updateSharedState(prev => emptyState())` and rely on the function to replace rather than merge — note that this still goes through the same merge logic on the wire, so you still need every field populated.
+
+### Don't read player order before the first sync arrives
+
+`Object.keys(client.players).indexOf(client.playerId)` returns `-1` between `connecting` and the first `sync` message — your local connection has opened but the server hasn't told you who else is in the room (including yourself). If you use the index to assign a spawn point, color, or team slot, both clients race to slot 0 and overlap. Wait for `client.playerId` to appear in `client.players` before deriving anything from order:
+
+```ts
+// Wrong — fires on every state change, including before sync.
+useEffect(() => {
+  const idx = Object.keys(room.players).indexOf(room.playerId!);
+  setSpawn(SPAWNS[idx]); // idx is -1 on first tick; you spawn at SPAWNS[-1] = undefined
+}, [room]);
+
+// Right — wait until the server has confirmed our membership.
+if (!room.playerId) return;
+const idx = Object.keys(room.players).indexOf(room.playerId);
+if (idx < 0) return; // sync hasn't arrived yet
+setSpawn(SPAWNS[idx]);
+```
 
 ---
 

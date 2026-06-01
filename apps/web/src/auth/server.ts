@@ -39,6 +39,12 @@ export function getServerContext() {
   // R2 config is optional at build time — a missing value here means the
   // deploy router will throw INTERNAL_SERVER_ERROR rather than the whole
   // request blowing up at handler construction.
+  //
+  // In local dev we route uploads through `/api/r2-upload` so they land in
+  // the Miniflare-simulated bucket instead of leaking into prod R2. The
+  // proxy URL is HMAC-signed with AUTH_SECRET; the S3 keys are still kept
+  // for the `deletePrefix` and read paths (those go through the binding,
+  // which is local-safe).
   const r2: R2Config | undefined =
     env.GAMES_BUCKET && env.R2_ACCOUNT_ID && env.R2_ACCESS_KEY_ID && env.R2_SECRET_ACCESS_KEY
       ? {
@@ -47,6 +53,12 @@ export function getServerContext() {
           accountId: env.R2_ACCOUNT_ID,
           accessKeyId: env.R2_ACCESS_KEY_ID,
           secretAccessKey: env.R2_SECRET_ACCESS_KEY,
+          ...(isLocalhost
+            ? {
+                proxyUploadBaseUrl: baseUrl,
+                proxyUploadSecret: env.AUTH_SECRET,
+              }
+            : {}),
         }
       : undefined;
 

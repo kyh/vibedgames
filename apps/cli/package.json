@@ -21,7 +21,8 @@
     "citty": "^0.2.2",
     "consola": "^3.4.2",
     "cross-spawn": "^7.0.6",
-    "superjson": "catalog:"
+    "superjson": "catalog:",
+    "tiged": "^2.12.8"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:",

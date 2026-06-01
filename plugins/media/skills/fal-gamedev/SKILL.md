@@ -44,7 +44,9 @@ Always use `--json` so output is machine-readable. Use `--download` to save file
 
 4. **Bria sync**: Bria (`fal-ai/bria/background/remove`) has no queue endpoint and does not support `--async`. Run it sync. It completes in seconds.
 
-5. **Folder structure**: always save into this layout, deriving the character slug from the character description (kebab-case, e.g. `pirate-carrot`):
+5. **`--download` paths are relative to your shell's cwd, not the project root.** If the agent is operating in a monorepo from the repo root, a bare `--download walk.png` lands in the root, not next to your game. Always pass a project-relative absolute or qualified path — e.g. `--download "games/my-game/public/assets/sprites/walk.png"` — so the asset lands where the game's loader expects it.
+
+6. **Folder structure**: always save into this layout, deriving the character slug from the character description (kebab-case, e.g. `pirate-carrot`):
  ```
  ./game-assets/
  <character-slug>/
@@ -61,7 +63,7 @@ Always use `--json` so output is machine-readable. Use `--download` to save file
  ```
  Create the folders before downloading (`mkdir -p`). Use this structure even for partial runs (e.g. just one sprite sheet still goes in `sprites/`).
 
-6. **End summary**: after all downloads complete, print a summary listing every file path and its CDN URL. Format:
+7. **End summary**: after all downloads complete, print a summary listing every file path and its CDN URL. Format:
  ```
  === Game Assets: pirate-carrot ===
  character game-assets/pirate-carrot/character.png
@@ -70,7 +72,7 @@ Always use `--json` so output is machine-readable. Use `--download` to save file
  https://...
  ```
 
-7. **400 on status poll**: `vg media status --result` fetches the result once; it does not poll automatically. A 400 with `"Request is still in progress"` means the job is still running, wait 10 seconds and retry the exact same `vg media status` call with the same request_id. Do **not** re-fire the original `vg media run --async` (the job is already running on fal's side). Keep retrying every 10–15 seconds until you get a successful result.
+8. **400 on status poll**: `vg media status --result` fetches the result once; it does not poll automatically. A 400 with `"Request is still in progress"` means the job is still running, wait 10 seconds and retry the exact same `vg media status` call with the same request_id. Do **not** re-fire the original `vg media run --async` (the job is already running on fal's side). Keep retrying every 10–15 seconds until you get a successful result.
 
 ---
 

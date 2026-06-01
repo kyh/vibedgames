@@ -1,6 +1,6 @@
 # Arcade Physics Deep Dive
 
-Comprehensive reference for Phaser 3 Arcade Physics system.
+Comprehensive reference for Phaser's Arcade Physics system. The API is essentially unchanged between Phaser 3 and Phaser 4 — this reference applies to both, though new work should target Phaser 4.
 
 ## World Configuration
 
