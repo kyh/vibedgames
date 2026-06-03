@@ -1,6 +1,6 @@
 {
   "name": "vibedgames",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "private": false,
   "bin": {
     "vg": "./dist/index.js"
