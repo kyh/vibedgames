@@ -6,10 +6,12 @@ description: >
  sheet", "walk cycle", "game sprites", "isometric sprites", "side-scroller
  assets", "RPG character sprites", "idle animation", "attack animation",
  "jump animation", "game background", "parallax background", "isometric map",
- "2D game art", "pixel art animation". Covers character generation
- (nano-banana-pro / gpt-image-2), sprite sheet animation (nano/edit or
- gpt-image-2/edit), background removal (Bria), and background generation
- (parallax layers or isometric map).
+ "2D game art", "pixel art animation", "top-down character", "explosion sprite
+ sheet", "animated FX from video", "fire/magic effect". Covers character
+ generation (nano-banana-pro / gpt-image-2), sprite sheet animation (nano/edit
+ or gpt-image-2/edit), top-down 4-directional walkers, background removal
+ (Bria), background generation (parallax layers or isometric map), and animated
+ VFX derived from a generated video rendered with additive blend.
 metadata:
  author: fal-ai-community
  version: "0.1.0"
@@ -167,6 +169,8 @@ vg media status fal-ai/nano-banana-pro/edit <idle_request_id> --result --downloa
 
 **Isometric RPG sheets**: 3/4 overhead perspective. Covered types: `walk-down`, `walk-up`, `walk-side`, `attack-down`, `attack-up`, `attack-side`, `idle-iso`. Do not generate additional animation types unless the user explicitly requests them.
 
+> **Top-down 4-directional games** (Bomberman, Zelda-like, twin-stick): the `walk-down` / `walk-up` / `walk-side` set IS your 4-directional movement set — render `walk-side` once and **mirror it (`setFlipX`) for left**, so you only generate three sheets. Use idle = frame 0 of the matching direction. This is the cheapest path to a believable top-down walker.
+
 > Generate attack-down first, attack-up and attack-side both reference it for style consistency.
 
 ```bash
@@ -226,6 +230,8 @@ vg media run fal-ai/bria/background/remove --image_url "<attack_url>" --download
 vg media run fal-ai/bria/background/remove --image_url "<idle_url>" --download ./game-assets/<slug>/sprites/idle-transparent.png --json
 ```
 
+**Bria is segmentation, not chroma-key.** It removes the background even when the subject shares the background's color — a white-armored character on a white background comes out clean, with the white armor intact. Do **not** reach for ffmpeg `colorkey`/`chromakey` to cut sprite backgrounds: it punches holes in any same-colored part of the subject. Bria also handles a multi-frame sheet (2×2 walk grid) in a single call, keeping every frame. After Bria, the sheet keeps its original dimensions, so a 1024² 2×2 sheet stays 1024² with 512² frames.
+
 ---
 
 ## Recipe 4. Generate backgrounds
@@ -273,6 +279,37 @@ vg media run fal-ai/nano-banana-pro \
  --aspect_ratio "1:1" --resolution "1K" \
  --download ./game-assets/<slug>/backgrounds/map.png --json
 ```
+
+---
+
+## Recipe 5. Animated FX from a generated video (explosions, fire, magic)
+
+Real fire/explosion motion beats an AI-drawn frame strip, and you can sidestep alpha extraction entirely with one trick: **generate the effect on pure black, then render it additively** (`BlendModes.ADD`), where black contributes nothing — no background removal needed.
+
+1. **Generate** a short clip on a pure-black background. Prompt hard for a locked-off camera and no smoke/grey haze (grey survives ADD blend and shows as a haze square):
+
+```bash
+vg media run bytedance/seedance-2.0/fast/text-to-video --prompt "A single fiery explosion fireball erupting in the dead center of the frame on a SOLID PURE BLACK background. Bright orange, yellow and white flames burst outward then dissipate. Completely static locked-off camera, no camera movement, no smoke, no grey haze, no debris, no text. Pure black everywhere except the central fireball." --aspect_ratio "1:1" --resolution "720p" --async --json
+# then: vg media status bytedance/seedance-2.0/fast/text-to-video <id> --result --download ./game-assets/<slug>/fx/explosion.mp4 --json
+```
+
+2. **Extract a frame strip** with ffmpeg. Sample the active window (skip the empty lead-in, include the decay tail so it fades out), scale each frame to a power-of-two, tile into one horizontal sheet. Pin exact dims so Phaser's `load.spritesheet` math is unambiguous:
+
+```bash
+# 16 frames over the burst→decay window, each 128², into a 2048×128 strip
+ffmpeg -y -ss 0.5 -to 3.05 -i explosion.mp4 -vf "fps=6.3,scale=128:128:flags=lanczos,tile=16x1" -frames:v 1 explosion.png
+```
+
+3. **Render additively** — black reads as transparent, flames glow, frames can overlap/jitter without looking wrong:
+
+```ts
+this.load.spritesheet("explosion", "assets/explosion.png", { frameWidth: 128, frameHeight: 128 });
+this.anims.create({ key: "explode", frames: this.anims.generateFrameNumbers("explosion", { start: 0, end: 15 }), frameRate: 32 });
+// per blast tile:
+this.add.sprite(x, y, "explosion").setBlendMode(Phaser.BlendModes.ADD).play("explode");
+```
+
+This same pattern works for muzzle flashes, magic bursts, impact sparks, and portals — anything that reads as emitted light. For solid/opaque FX (smoke, debris) you still need real alpha (Bria per frame), so prefer ADD-friendly subjects when generating.
 
 ---
 

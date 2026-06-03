@@ -627,6 +627,28 @@ this.cameras.main.setDeadzone(200, 100);
 this.cameras.main.roundPixels = true;
 ```
 
+### Gotcha: `setBounds` + zoom reveals out-of-world void at corners
+
+`setBounds` clamps the follow camera against the camera's **unzoomed** width/height. If the world is narrower/shorter than the raw canvas but larger than the *zoomed* viewport (e.g. a 1216×960 world on a 1280px canvas at `zoom 1.3`), Phaser decides the world is "smaller than the camera," centers it, and shows dark void past the world edge — most visible at corners (exactly where players often spawn).
+
+For a zoomed follow camera, clamp the centre yourself and skip `setBounds`/`startFollow` (leaving `setBounds` in re-clamps your manual scroll and re-introduces the void):
+
+```ts
+private updateCamera() {
+  const cam = this.cameras.main;
+  const halfW = cam.width / (2 * cam.zoom);
+  const halfH = cam.height / (2 * cam.zoom);
+  // Centre on the target, but never past the world edges. If the world is
+  // smaller than the viewport on an axis, centre that axis instead.
+  const cx = WORLD_W <= 2 * halfW ? WORLD_W / 2 : Phaser.Math.Clamp(target.x, halfW, WORLD_W - halfW);
+  const cy = WORLD_H <= 2 * halfH ? WORLD_H / 2 : Phaser.Math.Clamp(target.y, halfH, WORLD_H - halfH);
+  // Snap the first frame, lerp afterwards for smoothing.
+  cam.setScroll(Phaser.Math.Linear(cam.scrollX, cx - halfW, 0.16), Phaser.Math.Linear(cam.scrollY, cy - halfH, 0.16));
+}
+```
+
+Recompute on `Scale.Events.RESIZE` (the clamp reads `cam.width`/`cam.zoom`, both of which change on resize).
+
 ---
 
 ## Parallax Scrolling

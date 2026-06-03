@@ -2,17 +2,16 @@ import Phaser from "phaser";
 
 import { BootScene } from "./scenes/BootScene";
 import { GameScene } from "./scenes/GameScene";
-import { GRID_COLS, GRID_ROWS, TILE } from "./shared/constants";
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.WEBGL,
   parent: "game",
-  backgroundColor: "#1a1a2e",
-  width: GRID_COLS * TILE,
-  height: GRID_ROWS * TILE,
+  backgroundColor: "#0e1020",
   scale: {
-    mode: Phaser.Scale.FIT,
-    autoCenter: Phaser.Scale.CENTER_BOTH,
+    // Fill the window; GameScene owns the follow-camera + zoom.
+    mode: Phaser.Scale.RESIZE,
+    width: "100%",
+    height: "100%",
   },
   pixelArt: true,
   scene: [BootScene, GameScene],

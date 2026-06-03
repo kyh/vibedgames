@@ -91,6 +91,30 @@ if (idx < 0) return; // sync hasn't arrived yet
 setSpawn(SPAWNS[idx]);
 ```
 
+### `initialState` re-applies on host migration — seed host-side instead
+
+`initialState` is pushed **every time a client becomes host**: on first connect *and* when a guest is promoted after the host leaves. A promoted guest re-applies its own `initialState`, **wiping the live round** (fresh board, scores back to 0) for everyone still playing.
+
+So for any game with a world worth preserving, **don't pass `initialState`** — seed host-side once, guarded on "already seeded?":
+
+```ts
+const client = new MultiplayerClient({ host, party, room /* no initialState */ });
+
+const emptyWorld = () => ({ grid: newGrid(), scores: {}, winner: null, startedAt: Date.now() });
+const seeded = (s) => Array.isArray(s.grid); // any reliable "is populated" check
+
+client.subscribe(() => {
+  // First host seeds. A guest promoted later already holds the live state,
+  // so `seeded` is true and the round survives the migration.
+  if (client.isHost && client.connectionStatus === "connected" && !seeded(client.sharedState)) {
+    client.updateSharedState(emptyWorld());
+  }
+  render();
+});
+```
+
+`initialState` is only safe when "reset to default for whoever is host" is acceptable (a shared-cursor demo with no persistent round). Anything turn-based, score-keeping, or world-stateful should seed host-side.
+
 ---
 
 ## React usage

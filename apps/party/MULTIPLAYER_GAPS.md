@@ -26,6 +26,18 @@ These are bugs in the current code, not feature work.
   Durable Object hibernates and reloads, state resets without
   notifying clients. Either persist to DO storage or document that
   hibernation = reset. **M.**
+- **`packages/multiplayer/src/client.ts` — `initialState` re-applied on
+  host promotion wipes the live round.** The `sync` *and* `host`
+  message handlers both push `options.initialState` whenever the client
+  becomes host, guarded only by a once-flag a promoted guest hasn't
+  tripped. So when the host leaves, the new host re-seeds the room with
+  a fresh `initialState`, resetting the board/scores for everyone. Fix:
+  don't re-apply `initialState` if shared state is already populated
+  (e.g. skip when the incoming `sync` state is non-empty, or drop the
+  `host`-case re-apply entirely). Game-side workaround already shipped
+  in `games/bomberman` (no `initialState`; host seeds via an
+  `isHost && !seeded` check) and documented in the `multiplayer` skill.
+  **S.**
 
 ## Server-side roadmap (`apps/party`, `packages/multiplayer`)
 

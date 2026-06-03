@@ -1,6 +1,10 @@
 import Phaser from "phaser";
 
-import { TILE } from "../shared/constants";
+/** Source frame size of the generated player walk sheets (2x2 grid in a 512² image). */
+const PLAYER_FRAME = 256;
+/** Source frame size of the explosion strip (16 frames in a 2048×128 image). */
+const EXPLO_FRAME = 128;
+export const EXPLO_FRAMES = 16;
 
 export class BootScene extends Phaser.Scene {
   constructor() {
@@ -8,63 +12,75 @@ export class BootScene extends Phaser.Scene {
   }
 
   preload(): void {
-    this.makeTextures();
-    this.load.image("player", "assets/player.png");
+    this.makeUtilTextures();
+
+    // Tiles + props (all generated via `vg media`, transparent where needed).
+    this.load.image("floor", "assets/floor.png");
+    this.load.image("wall", "assets/wall.png");
+    this.load.image("crate", "assets/crate.png");
     this.load.image("bomb", "assets/bomb.png");
+    this.load.image("pow-bomb", "assets/pow-bomb.png");
+    this.load.image("pow-fire", "assets/pow-fire.png");
+    this.load.image("pow-speed", "assets/pow-speed.png");
+
+    // Directional walk sheets — 4 frames each (2x2). Left reuses side, flipped.
+    const pframe = { frameWidth: PLAYER_FRAME, frameHeight: PLAYER_FRAME };
+    this.load.spritesheet("player-down", "assets/player-down.png", pframe);
+    this.load.spritesheet("player-up", "assets/player-up.png", pframe);
+    this.load.spritesheet("player-side", "assets/player-side.png", pframe);
+
+    // Explosion: 16-frame fire burst derived from a generated video, rendered
+    // additively (pure-black background contributes nothing under ADD blend).
+    this.load.spritesheet("explosion", "assets/explosion.png", {
+      frameWidth: EXPLO_FRAME,
+      frameHeight: EXPLO_FRAME,
+    });
   }
 
   create(): void {
+    const mk = (key: string, sheet: string) => {
+      this.anims.create({
+        key,
+        frames: this.anims.generateFrameNumbers(sheet, { start: 0, end: 3 }),
+        frameRate: 9,
+        repeat: -1,
+      });
+    };
+    mk("walk-down", "player-down");
+    mk("walk-up", "player-up");
+    mk("walk-side", "player-side");
+
+    this.anims.create({
+      key: "explode",
+      frames: this.anims.generateFrameNumbers("explosion", { start: 0, end: EXPLO_FRAMES - 1 }),
+      frameRate: 32,
+      repeat: 0,
+    });
+
     this.scene.start("Game");
   }
 
-  // Built-in DynamicTexture sprites so the game runs without any image assets.
-  // Replaced later by sprites generated via `vg media`.
-  private makeTextures(): void {
+  /** Soft procedural textures for shadows, particles, and glows. */
+  private makeUtilTextures(): void {
     const g = this.add.graphics();
 
-    // wall: dark stone
-    g.fillStyle(0x393b59).fillRect(0, 0, TILE, TILE);
-    g.fillStyle(0x4b4f7a).fillRect(2, 2, TILE - 4, TILE - 4);
-    g.generateTexture("wall", TILE, TILE);
+    // Soft contact shadow (squashed ellipse, faded).
+    g.fillStyle(0x000000, 0.32).fillEllipse(32, 16, 56, 26);
+    g.generateTexture("shadow", 64, 32);
     g.clear();
 
-    // crate: warm wood
-    g.fillStyle(0x6d4426).fillRect(0, 0, TILE, TILE);
-    g.fillStyle(0x9b6a3a).fillRect(3, 3, TILE - 6, TILE - 6);
-    g.lineStyle(2, 0x6d4426).strokeRect(3, TILE / 2 - 1, TILE - 6, 2);
-    g.generateTexture("crate", TILE, TILE);
+    // Soft round particle for poofs/sparkles (concentric falloff).
+    for (let i = 6; i >= 1; i--) {
+      g.fillStyle(0xffffff, 0.18).fillCircle(16, 16, (i / 6) * 14);
+    }
+    g.generateTexture("spark", 32, 32);
     g.clear();
 
-    // floor: subtle checker
-    g.fillStyle(0x222040).fillRect(0, 0, TILE, TILE);
-    g.fillStyle(0x2a2848).fillRect(0, 0, TILE / 2, TILE / 2);
-    g.fillStyle(0x2a2848).fillRect(TILE / 2, TILE / 2, TILE / 2, TILE / 2);
-    g.generateTexture("floor", TILE, TILE);
-    g.clear();
-
-    // bomb: black sphere + fuse
-    const r = TILE / 2 - 4;
-    g.fillStyle(0x121212).fillCircle(TILE / 2, TILE / 2 + 2, r);
-    g.fillStyle(0x2a2a2a).fillCircle(TILE / 2 - r / 3, TILE / 2 - 1, r / 4);
-    g.lineStyle(2, 0xffaa44).beginPath();
-    g.moveTo(TILE / 2, TILE / 2 - r);
-    g.lineTo(TILE / 2 + 4, TILE / 2 - r - 6);
-    g.strokePath();
-    g.generateTexture("bomb", TILE, TILE);
-    g.clear();
-
-    // explosion: bright cross sprite for a single tile
-    g.fillStyle(0xffe14a).fillCircle(TILE / 2, TILE / 2, TILE / 2 - 2);
-    g.fillStyle(0xff7a1a).fillCircle(TILE / 2, TILE / 2, TILE / 2 - 8);
-    g.fillStyle(0xffffff).fillCircle(TILE / 2, TILE / 2, TILE / 2 - 14);
-    g.generateTexture("blast", TILE, TILE);
-    g.clear();
-
-    // player: circle (color tinted at runtime)
-    g.fillStyle(0xffffff).fillCircle(TILE / 2, TILE / 2, TILE / 2 - 6);
-    g.fillStyle(0x000000).fillCircle(TILE / 2 - 5, TILE / 2 - 4, 2);
-    g.fillStyle(0x000000).fillCircle(TILE / 2 + 5, TILE / 2 - 4, 2);
-    g.generateTexture("player", TILE, TILE);
+    // Radial glow disc (additive) for powerup pedestals and bomb tells.
+    for (let i = 16; i >= 1; i--) {
+      g.fillStyle(0xffffff, 0.05).fillCircle(64, 64, (i / 16) * 62);
+    }
+    g.generateTexture("glow", 128, 128);
     g.destroy();
   }
 }
