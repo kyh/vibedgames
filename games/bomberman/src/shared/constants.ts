@@ -26,6 +26,17 @@ export const SPEED_STEP_MS = 22;
 /** Chance a destroyed crate drops a powerup. */
 export const POWERUP_DROP_CHANCE = 0.34;
 
+// ---- bots -------------------------------------------------------------------
+
+/** Fill empty spawn corners with bots up to this many total fighters. */
+export const TARGET_FIGHTERS = 4;
+/** Hard cap on bots regardless of human count (there are only 4 corners). */
+export const MAX_BOTS = 3;
+/** Bot step cadence (ms). A touch slower than a fresh human for fairness. */
+export const BOT_MOVE_MS = 200;
+/** When a bot is safe and next to a crate or has an enemy in line, odds it bombs. */
+export const BOT_BOMB_CHANCE = 0.3;
+
 // ---- types ------------------------------------------------------------------
 
 export type Cell = { kind: "empty" } | { kind: "wall" } | { kind: "crate" };
@@ -66,6 +77,21 @@ export type PlayerState = {
 };
 
 /**
+ * A host-controlled CPU fighter. Lives in shared state (not a real
+ * connection), so every client renders it identically and a promoted host
+ * keeps driving it. `nextMoveAt` is a host-clock timestamp gating its cadence.
+ */
+export type Bot = {
+  id: string;
+  col: number;
+  row: number;
+  dir: Dir;
+  colorIdx: number;
+  moving: boolean;
+  nextMoveAt: number;
+};
+
+/**
  * The single shared world. The multiplayer client shallow-merges patches
  * (`{...prev, ...patch}`), so the host always rewrites each nested object
  * wholesale — every field that can reset MUST be present in `emptyShared()`.
@@ -75,6 +101,7 @@ export type SharedState = {
   bombs: Record<string, Bomb>;
   blasts: Record<string, Blast>;
   powerups: Record<string, Powerup>;
+  bots: Record<string, Bot>;
   stats: Record<string, PlayerStats>;
   deaths: Record<string, number>;
   winner: string | null;

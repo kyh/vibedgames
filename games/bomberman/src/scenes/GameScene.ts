@@ -5,41 +5,57 @@ import Phaser from "phaser";
 import {
   baseStats,
   BASE_MOVE_MS,
+  BOT_BOMB_CHANCE,
+  BOT_MOVE_MS,
   COLORS,
   EXPLOSION_MS,
   FUSE_MS,
   GRID_COLS,
   GRID_ROWS,
   MAX_BOMBS,
+  MAX_BOTS,
   MAX_RANGE,
   MIN_MOVE_MS,
   newGrid,
   POWERUP_DROP_CHANCE,
   SPAWN_POINTS,
   SPEED_STEP_MS,
+  TARGET_FIGHTERS,
   TILE,
   tileKey,
   WORLD_H,
   WORLD_W,
   type Blast,
   type Bomb,
+  type Bot,
   type Cell,
   type Dir,
   type PlayerStats,
-  type Powerup,
   type PowerupKind,
   type SharedState,
 } from "../shared/constants";
-
-type MyState = { col: number; row: number; colorIdx: number; dir: Dir; moving: boolean };
 
 type PlayerObjs = {
   container: Phaser.GameObjects.Container;
   sprite: Phaser.GameObjects.Sprite;
   ring: Phaser.GameObjects.Graphics;
   label: Phaser.GameObjects.Text;
+  marker: Phaser.GameObjects.Triangle | null;
   col: number;
   row: number;
+};
+
+/** A unified view over humans (connections) and bots for rendering + rules. */
+type Fighter = {
+  id: string;
+  col: number;
+  row: number;
+  colorIdx: number;
+  dir: Dir;
+  moving: boolean;
+  isBot: boolean;
+  isLocal: boolean;
+  order: number;
 };
 
 const DIR_VECT: Record<Dir, [number, number]> = {
@@ -48,6 +64,7 @@ const DIR_VECT: Record<Dir, [number, number]> = {
   left: [-1, 0],
   right: [1, 0],
 };
+const DIRS: Dir[] = ["up", "down", "left", "right"];
 
 const POWERUP_KINDS: PowerupKind[] = ["bomb", "fire", "speed"];
 const POWERUP_TEX: Record<PowerupKind, string> = {
@@ -67,6 +84,9 @@ const MULTIPLAYER_HOST = import.meta.env.DEV
 
 const ROOM = "bomberman-default";
 
+/** Grass extends this far past the arena so the follow camera never shows void. */
+const FLOOR_PAD = TILE * 20;
+
 function emptyShared(): SharedState {
   // Every resettable field MUST be present — patches shallow-merge, so an
   // omitted key carries over from the previous round.
@@ -75,6 +95,7 @@ function emptyShared(): SharedState {
     bombs: {},
     blasts: {},
     powerups: {},
+    bots: {},
     stats: {},
     deaths: {},
     winner: null,
@@ -152,8 +173,12 @@ export class GameScene extends Phaser.Scene {
     this.statsEl = document.getElementById("stats");
     this.bannerEl = document.getElementById("banner");
 
-    // Continuous grass ground beneath everything (tiles cover the rest).
-    this.add.tileSprite(0, 0, WORLD_W, WORLD_H, "floor").setOrigin(0, 0).setDepth(-10);
+    // Continuous grass field, larger than the arena so the follow camera shows
+    // grass (not black) past the world edge when centred on a corner spawn.
+    this.add
+      .tileSprite(-FLOOR_PAD, -FLOOR_PAD, WORLD_W + FLOOR_PAD * 2, WORLD_H + FLOOR_PAD * 2, "floor")
+      .setOrigin(0, 0)
+      .setDepth(-10);
 
     const cam = this.cameras.main;
     cam.setBackgroundColor("#0e1020");
@@ -186,8 +211,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private applyZoom(): void {
-    // Keep ~9.5 board rows on screen so the camera meaningfully follows the
-    // player instead of framing the whole map; clamp for tiny/huge screens.
+    // Keep ~9.5 board rows on screen; clamp for tiny/huge screens.
     const zoom = Phaser.Math.Clamp(this.scale.height / (9.5 * TILE), 1.0, 2.4);
     this.cameras.main.setZoom(zoom);
   }
@@ -201,10 +225,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Manual zoom-aware follow. Phaser's `startFollow` + `setBounds` clamps
-   * against the camera's *unzoomed* width, which reveals out-of-world void
-   * when the map is narrower than the raw canvas but wider than the zoomed
-   * viewport. Clamping the centre point ourselves avoids that.
+   * Center the local player. We clamp only to the (padded) grass field, not the
+   * arena, so the player stays dead-center even at a corner spawn — the edge
+   * just shows grass. (Phaser's `startFollow`+`setBounds` clamps against the
+   * unzoomed canvas and jams the player into the corner, which is how you lose
+   * track of yourself.)
    */
   private updateCamera(): void {
     const id = this.client.playerId;
@@ -214,8 +239,8 @@ export class GameScene extends Phaser.Scene {
     const cam = this.cameras.main;
     const halfW = cam.width / (2 * cam.zoom);
     const halfH = cam.height / (2 * cam.zoom);
-    const cx = WORLD_W <= 2 * halfW ? WORLD_W / 2 : Phaser.Math.Clamp(me.container.x, halfW, WORLD_W - halfW);
-    const cy = WORLD_H <= 2 * halfH ? WORLD_H / 2 : Phaser.Math.Clamp(me.container.y, halfH, WORLD_H - halfH);
+    const cx = Phaser.Math.Clamp(me.container.x, -FLOOR_PAD + halfW, WORLD_W + FLOOR_PAD - halfW);
+    const cy = Phaser.Math.Clamp(me.container.y, -FLOOR_PAD + halfH, WORLD_H + FLOOR_PAD - halfH);
     const tx = cx - halfW;
     const ty = cy - halfH;
     if (!this.followStarted) {
@@ -275,13 +300,7 @@ export class GameScene extends Phaser.Scene {
     this.moving = true;
     this.moveCooldown = this.myStats().speed;
     this.lastMoveAt = this.time.now;
-    this.client.updateMyState({
-      col: nc,
-      row: nr,
-      dir,
-      moving: true,
-      colorIdx: this.myColorIdx(),
-    });
+    this.client.updateMyState({ col: nc, row: nr, dir, moving: true, colorIdx: this.myColorIdx() });
     this.tweenPlayer(id, nc, nr, this.moveCooldown);
   }
 
@@ -401,6 +420,46 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /** Humans (connections) + bots (shared state), unified for rendering. */
+  private fighters(): Fighter[] {
+    const out: Fighter[] = [];
+    const myId = this.client.playerId;
+    let order = 0;
+    for (const [id, player] of Object.entries(this.client.players)) {
+      const ps = readPlayerState(player);
+      const fb = SPAWN_POINTS[order] ?? SPAWN_POINTS[0]!;
+      out.push({
+        id,
+        col: ps.col ?? fb.col,
+        row: ps.row ?? fb.row,
+        colorIdx: (ps.colorIdx ?? order) % COLORS.length,
+        dir: ps.dir ?? "down",
+        moving: ps.moving ?? false,
+        isBot: false,
+        isLocal: id === myId,
+        order,
+      });
+      order++;
+    }
+    const s = this.shared();
+    if (s) {
+      for (const bot of Object.values(s.bots ?? {})) {
+        out.push({
+          id: bot.id,
+          col: bot.col,
+          row: bot.row,
+          colorIdx: bot.colorIdx % COLORS.length,
+          dir: bot.dir,
+          moving: bot.moving,
+          isBot: true,
+          isLocal: false,
+          order: -1,
+        });
+      }
+    }
+    return out;
+  }
+
   private syncGrid(): void {
     const s = this.shared();
     if (!s) return;
@@ -451,7 +510,6 @@ export class GameScene extends Phaser.Scene {
         });
         this.bombSprites.set(bomb.id, sprite);
       }
-      // Flash red in the final stretch of the fuse.
       const left = FUSE_MS - (now - bomb.placedAt);
       if (left < 700 && Math.floor(left / 110) % 2 === 0) sprite.setTint(0xff4d4d);
       else sprite.clearTint();
@@ -498,15 +556,13 @@ export class GameScene extends Phaser.Scene {
     for (const [key, pu] of Object.entries(s.powerups)) {
       seen.add(key);
       if (this.powerupObjs.has(key)) continue;
-      const x = colX(pu.col);
-      const y = rowY(pu.row);
       const glow = this.add
         .image(0, 0, "glow")
         .setDisplaySize(TILE * 1.5, TILE * 1.5)
         .setTint(POWERUP_GLOW[pu.kind])
         .setBlendMode(Phaser.BlendModes.ADD);
       const icon = this.add.image(0, 0, POWERUP_TEX[pu.kind]).setDisplaySize(TILE * 0.7, TILE * 0.7);
-      const container = this.add.container(x, y, [glow, icon]).setDepth(4);
+      const container = this.add.container(colX(pu.col), rowY(pu.row), [glow, icon]).setDepth(4);
       this.tweens.add({ targets: icon, y: -6, duration: 760, ease: "Sine.InOut", yoyo: true, repeat: -1 });
       this.tweens.add({ targets: glow, alpha: { from: 0.5, to: 1 }, scale: { from: 0.92, to: 1.08 }, duration: 900, ease: "Sine.InOut", yoyo: true, repeat: -1 });
       this.powerupObjs.set(key, container);
@@ -516,8 +572,6 @@ export class GameScene extends Phaser.Scene {
       if (!seen.has(key)) {
         const kind = this.powerupKind.get(key);
         this.burst(container.x, container.y, kind ? POWERUP_GLOW[kind] : 0xffffff, 18);
-        // Children carry repeat:-1 tweens; killing the container alone leaves
-        // them running on destroyed targets.
         this.tweens.killTweensOf(container.list);
         container.destroy();
         this.powerupObjs.delete(key);
@@ -526,35 +580,25 @@ export class GameScene extends Phaser.Scene {
   }
 
   private syncPlayers(): void {
-    const players = this.client.players;
     const seen = new Set<string>();
-    let order = 0;
-    for (const [id, player] of Object.entries(players)) {
-      seen.add(id);
-      const ps = readPlayerState(player);
-      const fallback = SPAWN_POINTS[order] ?? SPAWN_POINTS[0]!;
-      const col = ps.col ?? fallback.col;
-      const row = ps.row ?? fallback.row;
-      const colorIdx = (ps.colorIdx ?? order) % COLORS.length;
-      const dir = ps.dir ?? "down";
-      const moving = ps.moving ?? false;
-      order++;
+    for (const f of this.fighters()) {
+      seen.add(f.id);
+      const objs = this.players.get(f.id) ?? this.createPlayer(f.id, f.col, f.row, f.colorIdx, f.isLocal, f.isBot);
+      const dead = !this.isAlive(f.id);
 
-      const objs = this.players.get(id) ?? this.createPlayer(id, col, row, colorIdx);
-      const dead = !this.isAlive(id);
-
-      if (dead && !this.deathSeen.has(id)) {
-        this.deathSeen.add(id);
+      if (dead && !this.deathSeen.has(f.id)) {
+        this.deathSeen.add(f.id);
         this.playDeath(objs);
-      } else if (!dead && this.deathSeen.has(id)) {
-        this.deathSeen.delete(id);
-        this.reviveVisual(objs);
+      } else if (!dead && this.deathSeen.has(f.id)) {
+        this.deathSeen.delete(f.id);
+        this.reviveVisual(objs, f.col, f.row);
       }
 
       if (!dead) {
-        this.applyAnim(objs.sprite, dir, moving);
-        if (id !== this.client.playerId && (objs.col !== col || objs.row !== row)) {
-          this.tweenContainer(objs, col, row);
+        this.applyAnim(objs.sprite, f.dir, f.moving);
+        // The local player is moved by input tweens; everyone else follows state.
+        if (!f.isLocal && (objs.col !== f.col || objs.row !== f.row)) {
+          this.tweenContainer(objs, f.col, f.row, f.isBot ? BOT_MOVE_MS : 150);
         }
       }
     }
@@ -568,10 +612,10 @@ export class GameScene extends Phaser.Scene {
       }
   }
 
-  private createPlayer(id: string, col: number, row: number, colorIdx: number): PlayerObjs {
+  private createPlayer(id: string, col: number, row: number, colorIdx: number, isMe: boolean, isBot: boolean): PlayerObjs {
     const tint = COLORS[colorIdx]!;
-    const isMe = id === this.client.playerId;
 
+    const children: Phaser.GameObjects.GameObject[] = [];
     const shadow = this.add.image(0, TILE * 0.34, "shadow").setDisplaySize(TILE * 0.7, TILE * 0.34);
     const ring = this.add.graphics();
     ring.lineStyle(isMe ? 4 : 3, tint, isMe ? 1 : 0.85).strokeEllipse(0, TILE * 0.34, TILE * 0.62, TILE * 0.3);
@@ -579,16 +623,26 @@ export class GameScene extends Phaser.Scene {
     const label = this.add
       .text(0, -TILE * 0.62, this.labelFor(id), {
         fontSize: "13px",
-        color: isMe ? "#ffffff" : "#dfe6ff",
+        color: isMe ? "#ffffff" : isBot ? "#ffd0d0" : "#dfe6ff",
         fontFamily: "ui-monospace, monospace",
         fontStyle: isMe ? "bold" : "normal",
         backgroundColor: "rgba(8,10,26,0.55)",
         padding: { left: 4, right: 4, top: 1, bottom: 1 },
       })
       .setOrigin(0.5, 1);
+    children.push(shadow, ring, sprite, label);
 
-    const container = this.add.container(colX(col), rowY(row), [shadow, ring, sprite, label]).setDepth(10);
-    const objs: PlayerObjs = { container, sprite, ring, label, col, row };
+    // Bright bobbing marker over the local player so you can pick yourself out
+    // among identical bots.
+    let marker: Phaser.GameObjects.Triangle | null = null;
+    if (isMe) {
+      marker = this.add.triangle(0, -TILE * 0.82, -9, -6, 9, -6, 0, 7, 0xffe14a).setStrokeStyle(2, 0x1a1430, 1);
+      this.tweens.add({ targets: marker, y: -TILE * 0.92, duration: 520, ease: "Sine.InOut", yoyo: true, repeat: -1 });
+      children.push(marker);
+    }
+
+    const container = this.add.container(colX(col), rowY(row), children).setDepth(10);
+    const objs: PlayerObjs = { container, sprite, ring, label, marker, col, row };
     this.players.set(id, objs);
     return objs;
   }
@@ -620,37 +674,37 @@ export class GameScene extends Phaser.Scene {
       bombs: { ...s.bombs },
       blasts: { ...s.blasts },
       powerups: { ...s.powerups },
+      bots: structuredCloneBots(s.bots ?? {}),
       stats: { ...s.stats },
       deaths: { ...s.deaths },
       winner: s.winner,
       startedAt: s.startedAt,
     };
-    let dirty = false;
+    // Track which top-level fields changed so we only send those (bot moves
+    // fire every tick — re-sending the 285-cell grid each time is wasteful).
+    const d = {
+      grid: false, bombs: false, blasts: false, powerups: false,
+      bots: false, stats: false, deaths: false, winner: false,
+    };
 
-    // Seed default stats for any player the host hasn't recorded yet.
-    for (const pid of Object.keys(this.client.players)) {
-      if (!next.stats[pid]) {
-        next.stats[pid] = baseStats();
-        dirty = true;
+    this.reconcileBots(next, now, d);
+
+    // Prune stats/deaths for fighters that no longer exist (departed humans or
+    // removed bots) so the shared object can't grow unbounded over a session.
+    const activeIds = new Set([...Object.keys(this.client.players), ...Object.keys(next.bots)]);
+    for (const id of Object.keys(next.stats))
+      if (!activeIds.has(id)) {
+        delete next.stats[id];
+        d.stats = true;
       }
-    }
-    // Prune stats/deaths for players who have left so the shared object can't
-    // grow unbounded across a long session (only marks dirty when it removes
-    // something, preserving the no-write-when-idle property).
-    const active = new Set(Object.keys(this.client.players));
-    for (const pid of Object.keys(next.stats))
-      if (!active.has(pid)) {
-        delete next.stats[pid];
-        dirty = true;
-      }
-    for (const pid of Object.keys(next.deaths))
-      if (!active.has(pid)) {
-        delete next.deaths[pid];
-        dirty = true;
+    for (const id of Object.keys(next.deaths))
+      if (!activeIds.has(id)) {
+        delete next.deaths[id];
+        d.deaths = true;
       }
 
     // Detonate expired bombs, cascading through any bombs caught in a blast.
-    const expired = Object.values(s.bombs).filter((b) => now - b.placedAt >= FUSE_MS);
+    const expired = Object.values(next.bombs).filter((b) => now - b.placedAt >= FUSE_MS);
     if (expired.length > 0) {
       const detonated = new Set<string>();
       const queue: Bomb[] = [...expired];
@@ -664,9 +718,7 @@ export class GameScene extends Phaser.Scene {
         for (const t of tiles) {
           newBlastTiles.add(tileKey(t.col, t.row));
           for (const other of Object.values(next.bombs)) {
-            if (!detonated.has(other.id) && other.col === t.col && other.row === t.row) {
-              queue.push(other);
-            }
+            if (!detonated.has(other.id) && other.col === t.col && other.row === t.row) queue.push(other);
           }
         }
         for (const cr of crates) cratesToClear.set(tileKey(cr.col, cr.row), cr);
@@ -678,71 +730,233 @@ export class GameScene extends Phaser.Scene {
         const grid = s.grid.map((row) => row.slice());
         for (const cr of cratesToClear.values()) grid[cr.row]![cr.col] = { kind: "empty" };
         next.grid = grid;
+        d.grid = true;
       }
-      // Existing powerups caught in the blast are destroyed...
       for (const key of Object.keys(next.powerups)) {
-        if (newBlastTiles.has(key)) delete next.powerups[key];
+        if (newBlastTiles.has(key)) {
+          delete next.powerups[key];
+          d.powerups = true;
+        }
       }
-      // ...then freshly-cleared crates may reveal a new one.
       for (const cr of cratesToClear.values()) {
         const key = tileKey(cr.col, cr.row);
         if (!next.powerups[key] && Math.random() < POWERUP_DROP_CHANCE) {
           next.powerups[key] = { col: cr.col, row: cr.row, kind: randomKind() };
+          d.powerups = true;
         }
       }
-      dirty = true;
+      d.bombs = true;
+      d.blasts = true;
     }
 
     // Expire spent blasts.
     for (const blast of Object.values(next.blasts)) {
       if (now - blast.placedAt >= EXPLOSION_MS) {
         delete next.blasts[blast.id];
-        dirty = true;
+        d.blasts = true;
       }
     }
 
-    // Powerup pickups by living players.
-    for (const [pid, player] of Object.entries(this.client.players)) {
-      if (next.deaths[pid]) continue;
-      const ps = readPlayerState(player);
-      if (ps.col === undefined || ps.row === undefined) continue;
-      const key = tileKey(ps.col, ps.row);
+    // Bot AI moves bots and may place bot bombs (into next.bombs).
+    if (this.tickBots(next, now)) {
+      d.bots = true;
+      d.bombs = true;
+    }
+
+    // Positions of every living fighter (humans from connections, bots from
+    // the freshly-moved bot records), for pickups + death.
+    const livePos = this.fighterPositions(next);
+
+    // Powerup pickups.
+    for (const [fid, col, row] of livePos) {
+      const key = tileKey(col, row);
       const pu = next.powerups[key];
       if (!pu) continue;
-      next.stats[pid] = grantPowerup(next.stats[pid] ?? baseStats(), pu.kind);
+      next.stats[fid] = grantPowerup(next.stats[fid] ?? baseStats(), pu.kind);
       delete next.powerups[key];
-      dirty = true;
+      d.powerups = true;
+      d.stats = true;
     }
 
     // Deaths from live blasts.
     const liveBlasts = Object.values(next.blasts);
     if (liveBlasts.length > 0) {
-      for (const [pid, player] of Object.entries(this.client.players)) {
-        if (next.deaths[pid]) continue;
-        const ps = readPlayerState(player);
-        if (ps.col === undefined || ps.row === undefined) continue;
-        const hit = liveBlasts.some((b) => b.tiles.some((t) => t.col === ps.col && t.row === ps.row));
-        if (hit) {
-          next.deaths[pid] = now;
-          dirty = true;
+      for (const [fid, col, row] of livePos) {
+        if (next.deaths[fid]) continue;
+        if (liveBlasts.some((b) => b.tiles.some((t) => t.col === col && t.row === row))) {
+          next.deaths[fid] = now;
+          d.deaths = true;
         }
       }
     }
 
-    // Last player standing wins (only once 2+ players have joined).
-    const playerIds = Object.keys(this.client.players);
-    if (playerIds.length >= 2 && !next.winner) {
-      const alive = playerIds.filter((id) => !next.deaths[id]);
+    // Last fighter standing wins (bots count — solo + bots still resolves).
+    const fighterIds = [...Object.keys(this.client.players), ...Object.keys(next.bots)];
+    if (fighterIds.length >= 2 && !next.winner) {
+      const alive = fighterIds.filter((id) => !next.deaths[id]);
       if (alive.length === 1) {
         next.winner = alive[0]!;
-        dirty = true;
+        d.winner = true;
       } else if (alive.length === 0) {
         next.winner = "draw";
-        dirty = true;
+        d.winner = true;
       }
     }
 
-    if (dirty) this.writeShared(next);
+    const patch: Record<string, unknown> = {};
+    if (d.grid) patch["grid"] = next.grid;
+    if (d.bombs) patch["bombs"] = next.bombs;
+    if (d.blasts) patch["blasts"] = next.blasts;
+    if (d.powerups) patch["powerups"] = next.powerups;
+    if (d.bots) patch["bots"] = next.bots;
+    if (d.stats) patch["stats"] = next.stats;
+    if (d.deaths) patch["deaths"] = next.deaths;
+    if (d.winner) patch["winner"] = next.winner;
+    if (Object.keys(patch).length > 0) this.client.updateSharedState(patch);
+  }
+
+  /**
+   * Keep bots filling the spawn corners humans don't occupy, up to
+   * TARGET_FIGHTERS total. Humans take corners 0..n-1 (by join order), bots
+   * take the rest. Bots are keyed by corner so join/leave stays stable.
+   */
+  private reconcileBots(next: SharedState, now: number, d: { bots: boolean; stats: boolean }): void {
+    const humanCount = Object.keys(this.client.players).length;
+    const want = new Set<number>();
+    for (let c = humanCount; c <= 3 && c - humanCount < MAX_BOTS && want.size < TARGET_FIGHTERS - humanCount; c++) {
+      want.add(c);
+    }
+    for (const id of Object.keys(next.bots)) {
+      const corner = Number(id.slice(4));
+      if (!want.has(corner)) {
+        // Its stats/deaths get swept by the catch-all prune in hostTick.
+        delete next.bots[id];
+        d.bots = true;
+      }
+    }
+    for (const corner of want) {
+      const id = `bot-${corner}`;
+      if (!next.bots[id]) {
+        const spawn = SPAWN_POINTS[corner] ?? SPAWN_POINTS[0]!;
+        next.bots[id] = {
+          id,
+          col: spawn.col,
+          row: spawn.row,
+          dir: "down",
+          colorIdx: corner % COLORS.length,
+          moving: false,
+          nextMoveAt: now + 700,
+        };
+        next.stats[id] = baseStats();
+        d.bots = true;
+        d.stats = true;
+      }
+    }
+  }
+
+  /** Returns true if any bot moved or placed a bomb. */
+  private tickBots(next: SharedState, now: number): boolean {
+    const bots = Object.values(next.bots);
+    if (bots.length === 0) return false;
+    let changed = false;
+    const danger = dangerSet(next);
+    const enemies = this.fighterPositions(next); // [id,col,row] of living fighters
+
+    for (const bot of bots) {
+      if (next.deaths[bot.id]) {
+        if (bot.moving) {
+          bot.moving = false;
+          changed = true;
+        }
+        continue;
+      }
+      if (now < bot.nextMoveAt) continue;
+      const stats = next.stats[bot.id] ?? baseStats();
+      const bombs = Object.values(next.bombs);
+      const opts = botNeighbors(next, bot.col, bot.row);
+      const inDanger = danger.has(tileKey(bot.col, bot.row));
+
+      if (inDanger) {
+        // Step toward the nearest safe tile (BFS) — a single safe neighbour
+        // often doesn't exist next to one's own bomb, but a 2-3 step path does.
+        const dir = fleeDir(next.grid, bombs, bot.col, bot.row, danger);
+        moveBot(bot, dir ? neighborOf(bot.col, bot.row, dir) : null, now);
+        changed = true;
+        continue;
+      }
+
+      // Offense: bomb a crate or a fighter in line, but only if a flee path out
+      // of the resulting blast exists (don't bomb yourself into a dead end).
+      const activeBombs = bombs.filter((b) => b.ownerId === bot.id).length;
+      if (activeBombs < stats.bombs && (adjacentCrate(next.grid, bot.col, bot.row) || enemyInLine(next.grid, bot, stats.range, enemies))) {
+        const blastKeys = new Set(
+          computeBlastTiles(next.grid, { id: "", ownerId: bot.id, col: bot.col, row: bot.row, placedAt: now, range: stats.range }).tiles.map((t) => tileKey(t.col, t.row)),
+        );
+        const unsafe = new Set([...danger, ...blastKeys]);
+        const escape = fleeDir(next.grid, [...bombs, { id: "_", ownerId: bot.id, col: bot.col, row: bot.row, placedAt: now, range: stats.range }], bot.col, bot.row, unsafe);
+        if (escape && Math.random() < BOT_BOMB_CHANCE) {
+          // Drop the bomb AND immediately step onto the escape route in the same
+          // tick — sitting on the bomb tile even one step is how bots blow
+          // themselves up.
+          addBomb(next, bot.id, bot.col, bot.row, stats);
+          moveBot(bot, neighborOf(bot.col, bot.row, escape), now);
+          changed = true;
+          continue;
+        }
+      }
+
+      // Wander toward the nearest enemy (fallback: nearest crate to dig
+      // through). Only ever step onto a safe tile — if the sole neighbour is a
+      // tile that's about to explode (e.g. waiting out our own bomb), hold.
+      // Prefer tiles no other fighter is on so bots don't stack/clip; fall back
+      // to any safe tile rather than freezing.
+      const safeOpts = opts.filter((o) => !danger.has(o.key));
+      const occupied = this.occupiedTiles(next, bot.id);
+      const freeOpts = safeOpts.filter((o) => !occupied.has(o.key));
+      const wanderOpts = freeOpts.length > 0 ? freeOpts : safeOpts;
+      const target = nearestEnemy(bot, enemies) ?? nearestCrate(next.grid, bot.col, bot.row);
+      let pick = wanderOpts.length > 0 ? wanderOpts[Math.floor(Math.random() * wanderOpts.length)]! : null;
+      if (target && wanderOpts.length > 0 && Math.random() > 0.25) {
+        pick = wanderOpts.reduce((a, b) =>
+          manhattan(b.c, b.r, target.col, target.row) < manhattan(a.c, a.r, target.col, target.row) ? b : a,
+        );
+      }
+      moveBot(bot, pick, now);
+      changed = true;
+    }
+    return changed;
+  }
+
+  /** Tiles currently held by living fighters other than `exceptId` (bot tiles
+   *  are read live, so bots already moved this tick are reflected). */
+  private occupiedTiles(next: SharedState, exceptId: string): Set<string> {
+    const occ = new Set<string>();
+    for (const [pid, p] of Object.entries(this.client.players)) {
+      if (next.deaths[pid]) continue;
+      const ps = readPlayerState(p);
+      if (ps.col !== undefined && ps.row !== undefined) occ.add(tileKey(ps.col, ps.row));
+    }
+    for (const other of Object.values(next.bots)) {
+      if (other.id === exceptId || next.deaths[other.id]) continue;
+      occ.add(tileKey(other.col, other.row));
+    }
+    return occ;
+  }
+
+  /** [id, col, row] for every living fighter (humans + bots). */
+  private fighterPositions(next: SharedState): Array<[string, number, number]> {
+    const out: Array<[string, number, number]> = [];
+    for (const [pid, player] of Object.entries(this.client.players)) {
+      if (next.deaths[pid]) continue;
+      const ps = readPlayerState(player);
+      if (ps.col === undefined || ps.row === undefined) continue;
+      out.push([pid, ps.col, ps.row]);
+    }
+    for (const bot of Object.values(next.bots)) {
+      if (next.deaths[bot.id]) continue;
+      out.push([bot.id, bot.col, bot.row]);
+    }
+    return out;
   }
 
   private hostPlaceBomb(ownerId: string, col: number, row: number): void {
@@ -755,7 +969,7 @@ export class GameScene extends Phaser.Scene {
     if (active >= stats.bombs) return;
     const id = `b-${ownerId}-${Date.now()}-${col}-${row}`;
     const bomb: Bomb = { id, ownerId, col, row, placedAt: Date.now(), range: stats.range };
-    this.writeShared({ ...s, bombs: { ...s.bombs, [id]: bomb } });
+    this.client.updateSharedState({ bombs: { ...s.bombs, [id]: bomb } });
   }
 
   // ---- visual effects ------------------------------------------------------
@@ -774,22 +988,21 @@ export class GameScene extends Phaser.Scene {
 
   private playDeath(objs: PlayerObjs): void {
     objs.ring.setVisible(false);
+    objs.marker?.setVisible(false);
     this.burst(objs.container.x, objs.container.y, 0xffffff, 22);
-    this.tweens.add({
-      targets: objs.sprite,
-      angle: 540,
-      scale: 0,
-      alpha: 0.2,
-      duration: 460,
-      ease: "Cubic.In",
-    });
+    this.tweens.add({ targets: objs.sprite, angle: 540, scale: 0, alpha: 0.2, duration: 460, ease: "Cubic.In" });
   }
 
-  private reviveVisual(objs: PlayerObjs): void {
+  private reviveVisual(objs: PlayerObjs, col: number, row: number): void {
     this.tweens.killTweensOf(objs.sprite);
     objs.sprite.setAngle(0).setAlpha(1).setScale(1);
     objs.sprite.setDisplaySize(TILE * 0.95, TILE * 0.95);
     objs.ring.setVisible(true);
+    objs.marker?.setVisible(true);
+    // Snap to the (likely new) spawn corner so we don't glide across the map.
+    objs.container.setPosition(colX(col), rowY(row));
+    objs.col = col;
+    objs.row = row;
   }
 
   private crateBreak(col: number, row: number): void {
@@ -813,9 +1026,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private shakeIfNear(tiles: Array<{ col: number; row: number }>): void {
-    const near = tiles.some(
-      (t) => Math.abs(t.col - this.myCol) + Math.abs(t.row - this.myRow) <= 3,
-    );
+    const near = tiles.some((t) => Math.abs(t.col - this.myCol) + Math.abs(t.row - this.myRow) <= 3);
     if (near) this.cameras.main.shake(110, 0.005);
   }
 
@@ -841,7 +1052,6 @@ export class GameScene extends Phaser.Scene {
     if (!id) return;
     const ps = readPlayerState(this.client.players[id]);
     if (ps.col !== undefined && ps.row !== undefined) {
-      // Adopt the authoritative position unless we're mid-step locally.
       if (!this.moving) {
         this.myCol = ps.col;
         this.myRow = ps.row;
@@ -853,13 +1063,7 @@ export class GameScene extends Phaser.Scene {
     const spawn = SPAWN_POINTS[idx] ?? SPAWN_POINTS[0]!;
     this.myCol = spawn.col;
     this.myRow = spawn.row;
-    this.client.updateMyState({
-      col: spawn.col,
-      row: spawn.row,
-      colorIdx: idx % COLORS.length,
-      dir: "down",
-      moving: false,
-    });
+    this.client.updateMyState({ col: spawn.col, row: spawn.row, colorIdx: idx % COLORS.length, dir: "down", moving: false });
   }
 
   private bombAt(col: number, row: number): boolean {
@@ -893,17 +1097,18 @@ export class GameScene extends Phaser.Scene {
     const cs = this.client.connectionStatus;
     if (cs !== "connected") return `${cs}…`;
     const s = this.shared();
-    if (s?.winner) return s.winner === "draw" ? "Round over — press R" : "Round over — press R";
-    if (!this.isAlive(this.client.playerId)) return "💀 Out — waiting for the round to end";
+    if (s?.winner) return "Round over — press R";
+    if (!this.isAlive(this.client.playerId)) return "💀 Out — bots fight on · R to restart";
     return `WASD / arrows to move · SPACE to drop a bomb · R to restart · ${this.client.isHost ? "host" : "guest"}`;
   }
 
   private playersListText(): string {
     const s = this.shared();
-    return Object.keys(this.client.players)
+    const ids = [...Object.keys(this.client.players), ...(s ? Object.keys(s.bots ?? {}) : [])];
+    return ids
       .map((id) => {
         const dead = s?.deaths[id] ? "💀" : "";
-        const me = id === this.client.playerId ? "★" : "•";
+        const me = id === this.client.playerId ? "★" : id.startsWith("bot-") ? "🤖" : "•";
         return `${me} ${this.labelFor(id)}${dead}`;
       })
       .join("   ");
@@ -928,7 +1133,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private labelFor(id: string): string {
-    return id === this.client.playerId ? "you" : id.slice(0, 4);
+    if (id === this.client.playerId) return "you";
+    if (id.startsWith("bot-")) return `CPU ${id.slice(4)}`;
+    return id.slice(0, 4);
   }
 
   private setStatus(text: string): void {
@@ -952,6 +1159,16 @@ function colX(col: number): number {
 
 function rowY(row: number): number {
   return row * TILE + TILE / 2;
+}
+
+function manhattan(c1: number, r1: number, c2: number, r2: number): number {
+  return Math.abs(c1 - c2) + Math.abs(r1 - r2);
+}
+
+function structuredCloneBots(bots: Record<string, Bot>): Record<string, Bot> {
+  const out: Record<string, Bot> = {};
+  for (const [id, b] of Object.entries(bots)) out[id] = { ...b };
+  return out;
 }
 
 function randomKind(): PowerupKind {
@@ -994,4 +1211,150 @@ function computeBlastTiles(
     }
   }
   return { tiles, crates };
+}
+
+// ---- bot AI helpers ---------------------------------------------------------
+
+/** Tiles that are unsafe right now: every bomb's eventual blast + live blasts. */
+function dangerSet(s: SharedState): Set<string> {
+  const danger = new Set<string>();
+  for (const bomb of Object.values(s.bombs)) {
+    for (const t of computeBlastTiles(s.grid, bomb).tiles) danger.add(tileKey(t.col, t.row));
+  }
+  for (const blast of Object.values(s.blasts)) {
+    for (const t of blast.tiles) danger.add(tileKey(t.col, t.row));
+  }
+  return danger;
+}
+
+type Neighbor = { dir: Dir; c: number; r: number; key: string };
+
+function neighborOf(col: number, row: number, dir: Dir): Neighbor {
+  const [dc, dr] = DIR_VECT[dir];
+  return { dir, c: col + dc, r: row + dr, key: tileKey(col + dc, row + dr) };
+}
+
+/**
+ * Breadth-first search for the nearest tile not in `unsafe`, returning the
+ * direction of the first step toward it (or null if no safe tile is reachable).
+ * Walks only empty, bomb-free tiles. Used both to flee live danger and to
+ * vet a prospective bomb's escape route.
+ */
+function fleeDir(grid: Cell[][], bombs: Bomb[], col: number, row: number, unsafe: Set<string>): Dir | null {
+  const blocked = (c: number, r: number): boolean =>
+    grid[r]?.[c]?.kind !== "empty" || bombs.some((b) => b.col === c && b.row === r);
+  const visited = new Set<string>([tileKey(col, row)]);
+  let frontier: Array<{ c: number; r: number; firstDir: Dir }> = [];
+  for (const dir of DIRS) {
+    const [dc, dr] = DIR_VECT[dir];
+    const c = col + dc;
+    const r = row + dr;
+    const k = tileKey(c, r);
+    if (blocked(c, r)) continue;
+    visited.add(k);
+    if (!unsafe.has(k)) return dir;
+    frontier.push({ c, r, firstDir: dir });
+  }
+  for (let depth = 0; depth < 8 && frontier.length > 0; depth++) {
+    const nextF: Array<{ c: number; r: number; firstDir: Dir }> = [];
+    for (const node of frontier) {
+      for (const dir of DIRS) {
+        const [dc, dr] = DIR_VECT[dir];
+        const c = node.c + dc;
+        const r = node.r + dr;
+        const k = tileKey(c, r);
+        if (visited.has(k) || blocked(c, r)) continue;
+        visited.add(k);
+        if (!unsafe.has(k)) return node.firstDir;
+        nextF.push({ c, r, firstDir: node.firstDir });
+      }
+    }
+    frontier = nextF;
+  }
+  return null;
+}
+
+function botNeighbors(s: SharedState, col: number, row: number): Neighbor[] {
+  const out: Neighbor[] = [];
+  for (const dir of DIRS) {
+    const [dc, dr] = DIR_VECT[dir];
+    const c = col + dc;
+    const r = row + dr;
+    if (s.grid[r]?.[c]?.kind !== "empty") continue;
+    if (Object.values(s.bombs).some((b) => b.col === c && b.row === r)) continue;
+    out.push({ dir, c, r, key: tileKey(c, r) });
+  }
+  return out;
+}
+
+function adjacentCrate(grid: Cell[][], col: number, row: number): boolean {
+  return DIRS.some((dir) => {
+    const [dc, dr] = DIR_VECT[dir];
+    return grid[row + dr]?.[col + dc]?.kind === "crate";
+  });
+}
+
+function enemyInLine(grid: Cell[][], bot: Bot, range: number, fighters: Array<[string, number, number]>): boolean {
+  const enemyTiles = new Set(fighters.filter(([id]) => id !== bot.id).map(([, c, r]) => tileKey(c, r)));
+  for (const dir of DIRS) {
+    const [dc, dr] = DIR_VECT[dir];
+    for (let step = 1; step <= range; step++) {
+      const c = bot.col + dc * step;
+      const r = bot.row + dr * step;
+      const cell = grid[r]?.[c];
+      if (!cell || cell.kind === "wall" || cell.kind === "crate") break;
+      if (enemyTiles.has(tileKey(c, r))) return true;
+    }
+  }
+  return false;
+}
+
+function nearestEnemy(bot: Bot, fighters: Array<[string, number, number]>): { col: number; row: number } | null {
+  let best: { col: number; row: number } | null = null;
+  let bestD = Infinity;
+  for (const [id, c, r] of fighters) {
+    if (id === bot.id) continue;
+    const dd = manhattan(bot.col, bot.row, c, r);
+    if (dd < bestD) {
+      bestD = dd;
+      best = { col: c, row: r };
+    }
+  }
+  return best;
+}
+
+function nearestCrate(grid: Cell[][], col: number, row: number): { col: number; row: number } | null {
+  let best: { col: number; row: number } | null = null;
+  let bestD = Infinity;
+  for (let r = 0; r < grid.length; r++) {
+    const gr = grid[r]!;
+    for (let c = 0; c < gr.length; c++) {
+      if (gr[c]!.kind !== "crate") continue;
+      const dd = manhattan(col, row, c, r);
+      if (dd < bestD) {
+        bestD = dd;
+        best = { col: c, row: r };
+      }
+    }
+  }
+  return best;
+}
+
+function moveBot(bot: Bot, to: Neighbor | null, now: number): void {
+  if (!to) {
+    bot.moving = false;
+    bot.nextMoveAt = now + BOT_MOVE_MS;
+    return;
+  }
+  bot.col = to.c;
+  bot.row = to.r;
+  bot.dir = to.dir;
+  bot.moving = true;
+  bot.nextMoveAt = now + BOT_MOVE_MS;
+}
+
+function addBomb(next: SharedState, ownerId: string, col: number, row: number, stats: PlayerStats): void {
+  if (Object.values(next.bombs).some((b) => b.col === col && b.row === row)) return;
+  const id = `b-${ownerId}-${Date.now()}-${col}-${row}`;
+  next.bombs[id] = { id, ownerId, col, row, placedAt: Date.now(), range: stats.range };
 }
