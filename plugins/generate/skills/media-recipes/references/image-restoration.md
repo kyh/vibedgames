@@ -86,6 +86,7 @@ For an old portrait scan: face-fix → upscale.
 
 ```bash
 # Pass 1: codeformer for face
+URL1=$(vg generate upload ./portrait-scan.jpg --json | jq -r '.url')
 RES1=$(vg generate run fal-ai/codeformer \
  --image_url "$URL1" --fidelity 0.7 --json)
 URL2=$(echo "$RES1" | jq -r '.image.url')
