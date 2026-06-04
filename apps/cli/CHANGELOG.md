@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.0.5 — 2026-06-03
+
+- `vg deploy` now uploads a forkable **source archive** by default (tar.gz of the project root, respecting `.gitignore` + a hard exclude list that always drops `node_modules`, build output, and secrets like `.env*`/`*.key`/`id_*`). Use `--no-source` to skip.
+- `vg fork <slug> [target]` — download another project's source, extract it, and re-slug it to build on top. `--json` for agents, `--force` to replace a target dir.
+
 ## 0.0.4 — 2026-06-03
 
 - `vg new` scaffolder — pull an official engine template (phaser, threejs) or a minimal canvas starter
