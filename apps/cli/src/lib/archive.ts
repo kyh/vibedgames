@@ -1,6 +1,16 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join, relative, sep } from "node:path";
 
 import ignore from "ignore";
 import { create as tarCreate, extract as tarExtract } from "tar";
@@ -101,8 +111,31 @@ export async function packSource(root: string, tmpDir: string): Promise<SourceAr
     throw new Error("No source files to archive (everything was ignored?).");
   }
   mkdirSync(tmpDir, { recursive: true });
+
+  // If package.json uses pnpm-only protocols (workspace:/catalog:), a forked
+  // copy wouldn't `npm install` standalone. Rewrite them to concrete installed
+  // versions in the ARCHIVED package.json only (disk untouched) by staging the
+  // file list into a temp dir. No protocols → no staging (fast path).
+  const rewritten = files.includes("package.json") ? rewriteWorkspaceProtocols(root) : null;
+  let cwd = root;
+  let stage: string | null = null;
+  if (rewritten) {
+    stage = mkdtempSync(join(tmpDir, "stage-"));
+    for (const f of files) {
+      const dest = join(stage, f);
+      mkdirSync(dirname(dest), { recursive: true });
+      copyFileSync(join(root, f), dest);
+    }
+    writeFileSync(join(stage, "package.json"), rewritten);
+    cwd = stage;
+  }
+
   const path = join(tmpDir, `vg-source-${process.pid}-${files.length}.tgz`);
-  await tarCreate({ gzip: true, file: path, cwd: root, portable: true }, files);
+  try {
+    await tarCreate({ gzip: true, file: path, cwd, portable: true }, files);
+  } finally {
+    if (stage) rmSync(stage, { recursive: true, force: true });
+  }
 
   const buf = readFileSync(path);
   return {
@@ -111,6 +144,73 @@ export async function packSource(root: string, tmpDir: string): Promise<SourceAr
     bytes: statSync(path).size,
     files,
   };
+}
+
+const DEP_FIELDS = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"];
+
+/**
+ * Rewrite `workspace:` / `catalog:` dep specs in package.json to the concrete
+ * versions currently installed in node_modules — mirroring what `pnpm publish`
+ * does — so the forked project installs from npm. Returns the rewritten JSON
+ * string, or null if there's nothing to change (the common standalone case).
+ */
+function rewriteWorkspaceProtocols(root: string): string | null {
+  let pkg: Record<string, unknown>;
+  try {
+    pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+  } catch {
+    return null;
+  }
+  let changed = false;
+  for (const field of DEP_FIELDS) {
+    const deps = pkg[field];
+    if (!deps || typeof deps !== "object") continue;
+    for (const [name, spec] of Object.entries(deps as Record<string, unknown>)) {
+      if (typeof spec !== "string") continue;
+      if (!spec.startsWith("workspace:") && !spec.startsWith("catalog:")) continue;
+      const resolved = resolveSpec(root, name, spec);
+      if (resolved && resolved !== spec) {
+        (deps as Record<string, string>)[name] = resolved;
+        changed = true;
+      }
+    }
+  }
+  return changed ? `${JSON.stringify(pkg, null, 2)}\n` : null;
+}
+
+function resolveSpec(root: string, name: string, spec: string): string | null {
+  if (spec.startsWith("workspace:")) {
+    const range = spec.slice("workspace:".length);
+    // Explicit range (e.g. workspace:^1.2.3) — keep the literal range.
+    if (/\d/.test(range)) return range;
+    const v = installedVersion(root, name);
+    if (!v) return null;
+    if (range === "~") return `~${v}`;
+    if (range === "*") return v; // exact pin
+    return `^${v}`; // "" or "^"
+  }
+  // catalog: / catalog:<name> — resolve to the installed version, caret-pinned.
+  const v = installedVersion(root, name);
+  return v ? `^${v}` : null;
+}
+
+/** Version of an installed dependency, searching node_modules up the tree. */
+function installedVersion(root: string, name: string): string | null {
+  let dir = root;
+  while (true) {
+    const p = join(dir, "node_modules", name, "package.json");
+    if (existsSync(p)) {
+      try {
+        const v = (JSON.parse(readFileSync(p, "utf8")) as { version?: unknown }).version;
+        if (typeof v === "string") return v;
+      } catch {
+        /* fall through to parent */
+      }
+    }
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
 }
 
 /** Extract a gzipped tar into `destDir` (created if needed). tar strips
