@@ -13,7 +13,7 @@
 - **CLI auth uses device-code flow.** CLI shows 6-char code → user confirms in browser → CLI polls for token. Not OAuth.
 - **Multiplayer is host-authoritative, last-write-wins.** No conflict resolution. First player becomes host; if host leaves, reassigns. Good for turn-based and host-controlled games.
 - **Deploy on push to main.** GitHub Actions detects changed apps and deploys via wrangler. Never run `wrangler deploy` locally.
-- **Media goes through fal.** `vg media` mirrors the [genmedia CLI](https://github.com/fal-ai-community/genmedia-cli) surface (`run`, `models`, `schema`, `upload`, `pricing`, `status`, `docs`). The server holds `FAL_API_KEY`; the CLI proxies through tRPC. Skills under `plugins/media/skills/` are a hard fork of [fal-ai-community/skills](https://github.com/fal-ai-community/skills), rewritten to call `vg media` directly — there is no `genmedia` shim. There's no per-provider routing — fal is a gateway to OpenAI, Veo, Sora, Kling, Flux, ElevenLabs, Retro Diffusion, etc.
+- **Media goes through fal (internal only).** `vg generate` exposes `run`, `models`, `schema`, `upload`, `pricing`, `status`, `docs`. The server holds `FAL_API_KEY`; the CLI proxies through tRPC. fal is a gateway to OpenAI, Veo, Sora, Kling, Flux, ElevenLabs, Retro Diffusion, etc. — there's no per-provider routing. **End-user-facing surfaces (the `vg generate` CLI help and the skills under `plugins/generate/skills/`) must not name fal as a brand.** To the user this is just a CLI that generates assets; "fal" stays an implementation detail. The one exception is model endpoint IDs: they're passed through verbatim (e.g. `fal-ai/flux/dev`, `bytedance/seedance-2.0/...`), exactly as the upstream API expects — the CLI does no id rewriting. Keep branding out of prose and help text, but never alter an endpoint ID.
 
 ## Tech Stack
 
@@ -44,7 +44,7 @@ packages/
   db/          # Drizzle schema + migrations (@repo/db) — source of truth for data model
   multiplayer/ # Shared multiplayer hooks (@vibedgames/multiplayer) — published to npm
   ui/          # Shared UI components (@repo/ui)
-plugins/       # Claude Code plugins (game-art, game-engines, game-features, media, tooling)
+plugins/       # Claude Code plugins (asset-pipeline, game-engines, game-features, generate, tooling)
                # Each plugin has skills/* — symlinked into .claude/skills/ for dogfooding
 ```
 
@@ -78,7 +78,7 @@ pnpm dogfood:reset    # Unlink local vg CLI
 
 - Copy `.env.example` to `.env`
 - Required: `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_DATABASE_ID`, `CLOUDFLARE_D1_TOKEN`, `CLOUDFLARE_API_TOKEN`, `AUTH_SECRET`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`
-- Optional: `FAL_API_KEY` (enables `vg media`)
+- Optional: `FAL_API_KEY` (enables `vg generate`)
 
 ## Local development & headless verification
 
@@ -92,11 +92,13 @@ pnpm db:local  # push schema to local D1 + seed dev identity
 ```
 
 `db:seed-local` runs `packages/db/seed.sql`, creating:
+
 - dev user `dev@vibedgames.local` (role `admin`)
 - invite code `DEV123`
 - a long-lived session, token `dev-local-session-token-0000000000`
 
 Authenticate headlessly (no browser):
+
 - **CLI:** `VG_API_URL=http://localhost:5173 VG_TOKEN=dev-local-session-token-0000000000 vg <cmd>` — `VG_TOKEN` overrides the saved login without clobbering `~/.config/vg/auth.json`.
 - **tRPC/HTTP:** `Authorization: Bearer dev-local-session-token-0000000000`.
 - **Web UI:** sign up a real account to get a real session cookie — `curl -X POST localhost:5173/api/auth/sign-up/email -H 'Origin: http://localhost:5173' -H 'Content-Type: application/json' -d '{"email":"...","password":"...","name":"x","inviteCode":"DEV123"}'` returns `Set-Cookie: better-auth.session_token=...` (and a `set-auth-token` bearer). Feed the cookie to Playwright's context. (No hand-signing — the seeded session is for the bearer paths; the cookie comes from the real signup/signin flow.)

@@ -5,26 +5,20 @@ import { basename, extname, isAbsolute, join, resolve } from "node:path";
 // `--json`/`--help`/`--quiet` are global; `--async` switches the run path
 // in citty; `--download` takes an optional template. None of them should
 // leak through to fal as model parameters. `--logs` is intentionally NOT
-// here: it's a `vg media status` flag, not a `run` flag, so swallowing it
+// here: it's a `vg generate status` flag, not a `run` flag, so swallowing it
 // would block users from passing a legitimate `logs` parameter to a
 // model endpoint.
-const RUN_RESERVED_FLAGS = new Set([
-  "--json",
-  "--help",
-  "--quiet",
-  "--async",
-  "--download",
-]);
+const RUN_RESERVED_FLAGS = new Set(["--json", "--help", "--quiet", "--async", "--download"]);
 
 /**
  * Parse `--<key> value` pairs from argv into a JS object, JSON-decoding
  * values that look like JSON (true/false/null/numbers/objects/arrays) and
- * leaving everything else as a string. Mirrors genmedia's parse-value
- * behavior so skills targeting that surface produce the same input shapes.
+ * leaving everything else as a string. The parse-value behavior is stable
+ * so skills targeting this surface produce the same input shapes.
  *
  * Handles both `--key value` and the GNU-style `--key=value`. Without
  * `=` support, `--prompt=hello` would silently send the malformed key
- * `"prompt=hello"` to fal, and `--async=true` would slip past the
+ * `"prompt=hello"` upstream, and `--async=true` would slip past the
  * RUN_RESERVED_FLAGS guard as a bogus model param.
  */
 export function parseRunInput(argv: string[]): Record<string, unknown> {
@@ -101,7 +95,7 @@ export type LocalFile = {
 
 /**
  * Probe a path the user explicitly asked us to read (e.g.
- * `vg media upload <path>`). Skips the path-shape heuristic so a bare
+ * `vg generate upload <path>`). Skips the path-shape heuristic so a bare
  * filename with a non-media extension — `model.glb`, `scene.fbx`,
  * `data.ply`, even `LICENSE` — still works.
  */

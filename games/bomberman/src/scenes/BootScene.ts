@@ -14,7 +14,7 @@ export class BootScene extends Phaser.Scene {
   preload(): void {
     this.makeUtilTextures();
 
-    // Tiles + props (all generated via `vg media`, transparent where needed).
+    // Tiles + props (all generated via `vg generate`, transparent where needed).
     this.load.image("floor", "assets/floor.png");
     this.load.image("wall", "assets/wall.png");
     this.load.image("crate", "assets/crate.png");

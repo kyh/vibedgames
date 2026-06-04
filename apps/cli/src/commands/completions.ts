@@ -7,19 +7,19 @@ const SUBCOMMANDS = [
   "login",
   "logout",
   "deploy",
-  "media",
+  "generate",
   "completions",
   "whoami",
 ];
 
-const MEDIA_SUBCOMMANDS = ["run", "status", "models", "schema", "pricing", "docs", "upload"];
+const GENERATE_SUBCOMMANDS = ["run", "status", "models", "schema", "pricing", "docs", "upload"];
 
 const COMMON_FLAGS = ["--help", "--version"];
 
-// CLI-level flags across the media subcommands. Model parameters are
-// arbitrary per fal endpoint and passed as `--<param>`, so they can't be
+// CLI-level flags across the generate subcommands. Model parameters are
+// arbitrary per model endpoint and passed as `--<param>`, so they can't be
 // enumerated here — these are just the stable, command-defined flags.
-const MEDIA_FLAGS = [
+const GENERATE_FLAGS = [
   "--async",
   "--download",
   "--result",
@@ -53,12 +53,12 @@ _vg_completions() {
   fi
 
   case "$cmd" in
-    media)
+    generate)
       if [[ $COMP_CWORD -eq 2 ]]; then
-        COMPREPLY=( $(compgen -W "${MEDIA_SUBCOMMANDS.join(" ")} ${MEDIA_FLAGS.join(" ")} ${COMMON_FLAGS.join(" ")}" -- "$cur") )
+        COMPREPLY=( $(compgen -W "${GENERATE_SUBCOMMANDS.join(" ")} ${GENERATE_FLAGS.join(" ")} ${COMMON_FLAGS.join(" ")}" -- "$cur") )
         return
       fi
-      COMPREPLY=( $(compgen -W "${MEDIA_FLAGS.join(" ")} ${COMMON_FLAGS.join(" ")}" -- "$cur") )
+      COMPREPLY=( $(compgen -W "${GENERATE_FLAGS.join(" ")} ${COMMON_FLAGS.join(" ")}" -- "$cur") )
       return
       ;;
     *)
@@ -74,10 +74,10 @@ complete -F _vg_completions vg
 function zshScript(): string {
   return `# vg completions for zsh. Source this file or place it on your fpath.
 _vg() {
-  local -a subcmds media_subs media_flags common_flags
+  local -a subcmds generate_subs generate_flags common_flags
   subcmds=(${SUBCOMMANDS.map((s) => `"${s}"`).join(" ")})
-  media_subs=(${MEDIA_SUBCOMMANDS.map((s) => `"${s}"`).join(" ")})
-  media_flags=(${MEDIA_FLAGS.map((s) => `"${s}"`).join(" ")})
+  generate_subs=(${GENERATE_SUBCOMMANDS.map((s) => `"${s}"`).join(" ")})
+  generate_flags=(${GENERATE_FLAGS.map((s) => `"${s}"`).join(" ")})
   common_flags=(${COMMON_FLAGS.map((s) => `"${s}"`).join(" ")})
 
   if (( CURRENT == 2 )); then
@@ -85,12 +85,12 @@ _vg() {
     return
   fi
   case "\${words[2]}" in
-    media)
+    generate)
       if (( CURRENT == 3 )); then
-        _values "vg media subcommand" "\${media_subs[@]}" "\${media_flags[@]}" "\${common_flags[@]}"
+        _values "vg generate subcommand" "\${generate_subs[@]}" "\${generate_flags[@]}" "\${common_flags[@]}"
         return
       fi
-      _values "vg media flag" "\${media_flags[@]}" "\${common_flags[@]}"
+      _values "vg generate flag" "\${generate_flags[@]}" "\${common_flags[@]}"
       ;;
     *)
       _values "vg flag" "\${common_flags[@]}"
@@ -109,11 +109,11 @@ function fishFlag(flag: string, condition: string): string {
 }
 
 function fishScript(): string {
-  const mediaFlagLines = [...MEDIA_FLAGS, ...COMMON_FLAGS].map((flag) =>
-    fishFlag(flag, "__fish_seen_subcommand_from media"),
+  const generateFlagLines = [...GENERATE_FLAGS, ...COMMON_FLAGS].map((flag) =>
+    fishFlag(flag, "__fish_seen_subcommand_from generate"),
   );
   // For all other subcommands, only the common flags are meaningful.
-  const otherSubcommands = SUBCOMMANDS.filter((s) => s !== "media");
+  const otherSubcommands = SUBCOMMANDS.filter((s) => s !== "generate");
   const otherFlagLines = COMMON_FLAGS.flatMap((flag) =>
     otherSubcommands.map((sub) => fishFlag(flag, `__fish_seen_subcommand_from ${sub}`)),
   );
@@ -122,10 +122,10 @@ function fishScript(): string {
 complete -c vg -f
 complete -c vg -n '__fish_use_subcommand' -a '${SUBCOMMANDS.join(" ")}'
 ${topLevelFlagLines.join("\n")}
-${MEDIA_SUBCOMMANDS.map(
-  (sub) => `complete -c vg -n '__fish_seen_subcommand_from media' -a '${sub}'`,
+${GENERATE_SUBCOMMANDS.map(
+  (sub) => `complete -c vg -n '__fish_seen_subcommand_from generate' -a '${sub}'`,
 ).join("\n")}
-${mediaFlagLines.join("\n")}
+${generateFlagLines.join("\n")}
 ${otherFlagLines.join("\n")}
 `;
 }

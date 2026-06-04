@@ -1,0 +1,8 @@
+{
+  "name": "asset-pipeline",
+  "description": "Refine and process 2D game assets: animated spritesheets, Aseprite parsing, sprite-sheet pipelines, and pixel-grid snapping.",
+  "version": "1.0.0",
+  "author": {
+    "name": "vibedgames"
+  }
+}

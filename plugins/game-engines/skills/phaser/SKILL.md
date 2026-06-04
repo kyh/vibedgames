@@ -102,7 +102,7 @@ new Phaser.Game({
 
 **Engine version pin.** Always pin `phaser@^4` explicitly — npm's `latest` may flip back to `phaser@3.x` if 4.x sees a regression. Don't rely on `phaser` alone resolving to v4.
 
-**No image assets yet?** Build textures procedurally in `BootScene.preload()` with `this.add.graphics()` + `generateTexture("key", w, h)` so the loop runs before any art exists. Replace later with real sprites (e.g. via `vg media`).
+**No image assets yet?** Build textures procedurally in `BootScene.preload()` with `this.add.graphics()` + `generateTexture("key", w, h)` so the loop runs before any art exists. Replace later with real sprites (e.g. via `vg generate`).
 
 **ESM import gotcha — "Phaser is not defined".** Phaser 4 ESM sets **no global `Phaser`**. The official `vibedgames`/`phaserjs` template's scene files import only `import { Scene } from "phaser"`, so the moment you add code that uses the `Phaser.*` *namespace as a runtime value* — `Phaser.Math.Clamp`, `Phaser.BlendModes.ADD`, `Phaser.TintModes.FILL`, `Phaser.Scale.RESIZE`, `Phaser.Scenes.Events`, `Phaser.Math.Angle` — it throws `ReferenceError: Phaser is not defined` (and it fires at *module-eval* time if used at top level, so the whole scene fails to load). Fix: import the namespace as a value in any file that uses it:
 
