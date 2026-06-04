@@ -104,6 +104,15 @@ new Phaser.Game({
 
 **No image assets yet?** Build textures procedurally in `BootScene.preload()` with `this.add.graphics()` + `generateTexture("key", w, h)` so the loop runs before any art exists. Replace later with real sprites (e.g. via `vg generate`).
 
+**ESM import gotcha — "Phaser is not defined".** Phaser 4 ESM sets **no global `Phaser`**. The official `vibedgames`/`phaserjs` template's scene files import only `import { Scene } from "phaser"`, so the moment you add code that uses the `Phaser.*` *namespace as a runtime value* — `Phaser.Math.Clamp`, `Phaser.BlendModes.ADD`, `Phaser.TintModes.FILL`, `Phaser.Scale.RESIZE`, `Phaser.Scenes.Events`, `Phaser.Math.Angle` — it throws `ReferenceError: Phaser is not defined` (and it fires at *module-eval* time if used at top level, so the whole scene fails to load). Fix: import the namespace as a value in any file that uses it:
+
+```ts
+import * as Phaser from "phaser";          // namespace available as a runtime value
+export class Game extends Phaser.Scene { … } // (or keep `import { Scene }` AND add the line above)
+```
+
+`Phaser.Types.*` in *type* positions is erased at compile time and is fine either way — this only bites for runtime values. Also note `setTintFill(c)` is gone in Phaser 4 → use `sprite.setTint(c).setTintMode(Phaser.TintModes.FILL)` for a solid white hit-flash.
+
 ## Architecture Decisions (Make Early)
 
 ### Rendering Path Choice
