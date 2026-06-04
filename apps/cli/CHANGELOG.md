@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0 — 2026-06-04
+
+- **`vg media` is now `vg generate`** — the asset-generation surface (run/status/models/schema/pricing/docs/upload) moved under `vg generate`. Update any scripts/skills calling `vg media`.
+- Model endpoint IDs are passed through verbatim (e.g. `fal-ai/flux/dev`); the CLI does no id rewriting.
+
 ## 0.0.6 — 2026-06-03
 
 - Source archives now rewrite `workspace:`/`catalog:` dependency specs to the concrete installed versions (like `pnpm publish`), so a forked monorepo project — including the bundled example games — `npm install`s standalone. No-op for normal projects.
