@@ -267,7 +267,7 @@ const modelsCommand = defineCommand({
     if (args.status && args.status !== "all") query.status = args.status;
     query.limit = args.limit ?? "20";
     if (args.cursor) query.cursor = args.cursor;
-    const endpointIds = splitList(args.endpoint_id);
+    const endpointIds = splitList(args.endpoint_id).map(resolveEndpointId);
     if (endpointIds.length > 0) query.endpoint_id = endpointIds;
     const expand = splitList(args.expand);
     if (expand.length > 0) query.expand = expand;
@@ -325,7 +325,7 @@ const schemaCommand = defineCommand({
       method: "GET",
       path: "/v1/models",
       query: {
-        endpoint_id: args.endpoint_id,
+        endpoint_id: resolveEndpointId(args.endpoint_id),
         limit: "1",
         ...(expand.length > 0 ? { expand } : {}),
       },
@@ -348,7 +348,7 @@ const pricingCommand = defineCommand({
       target: "platform",
       method: "GET",
       path: "/v1/models/pricing",
-      query: { endpoint_id: args.endpoint_id },
+      query: { endpoint_id: resolveEndpointId(args.endpoint_id) },
     });
     writeJson(data);
   },
