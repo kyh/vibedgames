@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.0.6 — 2026-06-03
+
+- Source archives now rewrite `workspace:`/`catalog:` dependency specs to the concrete installed versions (like `pnpm publish`), so a forked monorepo project — including the bundled example games — `npm install`s standalone. No-op for normal projects.
+
 ## 0.0.5 — 2026-06-03
 
 - `vg deploy` now uploads a forkable **source archive** by default (tar.gz of the project root, respecting `.gitignore` + a hard exclude list that always drops `node_modules`, build output, and secrets like `.env*`/`*.key`/`id_*`). Use `--no-source` to skip.
