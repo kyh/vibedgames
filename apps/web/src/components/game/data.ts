@@ -18,6 +18,12 @@ export type GameSearch = z.infer<typeof gameSearchSchema>;
 
 export const featuredGames: FeaturedGame[] = [
   {
+    name: "Bomberman",
+    slug: "bomberman",
+    preview: "/covers/bomberman.jpg",
+    colorScheme: "light",
+  },
+  {
     name: "Astroid",
     slug: "astroid",
     preview:
