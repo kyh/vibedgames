@@ -279,7 +279,7 @@ const modelsCommand = defineCommand({
       path: "/v1/models",
       query,
     });
-    if (isJsonOutput(args)) writeJson(data);
+    if (isJsonOutput(args)) writeJson(withDisplayIds(data));
     else printModels(data);
   },
 });
@@ -290,6 +290,22 @@ function splitList(value: string | undefined): string[] {
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+// Rewrite endpoint_id to display form in a `/v1/models`-shaped payload so
+// `--json` output matches the pretty `models` listing and the ids in
+// `run`/`status` JSON. A no-op on any other shape, so it's safe to wrap
+// every model-catalog response.
+function withDisplayIds(data: unknown): unknown {
+  if (!isRecord(data) || !Array.isArray(data.models)) return data;
+  return {
+    ...data,
+    models: data.models.map((m) =>
+      isRecord(m) && typeof m.endpoint_id === "string"
+        ? { ...m, endpoint_id: displayEndpointId(m.endpoint_id) }
+        : m,
+    ),
+  };
 }
 
 function printModels(data: unknown): void {
@@ -330,7 +346,7 @@ const schemaCommand = defineCommand({
         ...(expand.length > 0 ? { expand } : {}),
       },
     });
-    writeJson(data);
+    writeJson(withDisplayIds(data));
   },
 });
 
@@ -350,7 +366,7 @@ const pricingCommand = defineCommand({
       path: "/v1/models/pricing",
       query: { endpoint_id: resolveEndpointId(args.endpoint_id) },
     });
-    writeJson(data);
+    writeJson(withDisplayIds(data));
   },
 });
 
