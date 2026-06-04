@@ -44,7 +44,7 @@ Two-step: TTS first, then talking-head.
 URL_FACE=$(vg generate upload ./portrait.jpg --json | jq -r '.url')
 
 # Step 1: TTS
-TTS_RESULT=$(vg generate run minimax/speech-2.6-turbo \
+TTS_RESULT=$(vg generate run fal-ai/minimax/speech-2.6-turbo \
  --text "Hello, welcome to our presentation." \
  --json)
 URL_AUDIO=$(echo "$TTS_RESULT" | jq -r '.audio.url')
@@ -70,7 +70,7 @@ vg generate run veed/fabric-1.0/text \
 For an avatar with optional visual direction (gestures, framing):
 
 ```bash
-vg generate run creatify/aurora \
+vg generate run fal-ai/creatify/aurora \
  --image_url "$URL_FACE" \
  --audio_url "$URL_AUDIO" \
  --visual_direction "soft side lighting, slight head tilt, medium close-up" \
@@ -86,7 +86,7 @@ Replace the mouth area in an existing video to match new audio.
 URL_VIDEO=$(vg generate upload ./original-video.mp4 --json | jq -r '.url')
 URL_AUDIO=$(vg generate upload ./new-speech.mp3 --json | jq -r '.url')
 
-vg generate run sync-lipsync/v2 \
+vg generate run fal-ai/sync-lipsync/v2 \
  --video_url "$URL_VIDEO" \
  --audio_url "$URL_AUDIO" \
  --async \
@@ -101,8 +101,8 @@ Use this when the rest of the performance (head movement, expression, gestures) 
 | ---------------------- | ----------------------------------- | ------------------------------------------ |
 | `veed/fabric-1.0`      | image + audio → video               | Default talking head from a still portrait |
 | `veed/fabric-1.0/text` | image + text → video                | Skip explicit TTS step                     |
-| `creatify/aurora`      | image + audio (+ direction) → video | Avatar with visual direction controls      |
-| `sync-lipsync/v2`      | video + audio → synced video        | Replace mouth in existing footage          |
+| `fal-ai/creatify/aurora`      | image + audio (+ direction) → video | Avatar with visual direction controls      |
+| `fal-ai/sync-lipsync/v2`      | video + audio → synced video        | Replace mouth in existing footage          |
 
 For TTS endpoint selection, see [model-catalog/text-to-audio.md](../../model-catalog/references/text-to-audio.md).
 
@@ -122,7 +122,7 @@ Always inspect schema before running:
 
 ```bash
 vg generate schema veed/fabric-1.0 --json
-vg generate schema sync-lipsync/v2 --json
+vg generate schema fal-ai/sync-lipsync/v2 --json
 ```
 
 Frequently exposed:

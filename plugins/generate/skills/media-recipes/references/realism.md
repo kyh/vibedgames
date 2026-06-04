@@ -30,8 +30,8 @@ Ask only when the answer is missing and changes the build:
 For photoreal output, the curated picks live in [model-catalog/text-to-image.md](../../model-catalog/references/text-to-image.md) under "Premium realism." Default order:
 
 1. `openai/gpt-image-2` at `quality=high`. Best general-purpose photoreal, accurate text inside the frame, identity-preserving with a reference image.
-2. `nano-banana-pro`. Strong fallback. Cleaner skin rendering on close portraits in some cases.
-3. `nano-banana-2`. Cheaper second pass when GPT Image 2 misses a specific texture cue.
+2. `fal-ai/nano-banana-pro`. Strong fallback. Cleaner skin rendering on close portraits in some cases.
+3. `fal-ai/nano-banana-2`. Cheaper second pass when GPT Image 2 misses a specific texture cue.
 4. `fal-ai/bytedance/seedream/v5/lite/text-to-image`. Best for Asian subjects and Asian-language signage realism.
 
 For edits to an existing photo (relight, swap object, repair), see [image-to-image.md](../../model-catalog/references/image-to-image.md) under "Editing, premium identity-preserving."
@@ -326,7 +326,7 @@ If a result still fails realism, switch to edit-mode against a real reference ph
 
 ```bash
 vg generate schema openai/gpt-image-2 --json
-vg generate schema nano-banana-pro --json
+vg generate schema fal-ai/nano-banana-pro --json
 vg generate schema openai/gpt-image-2/edit --json
 ```
 

@@ -23,7 +23,7 @@ If the user wants more than one image and there's a story or sequence, switch to
 ```bash
 URL_PRODUCT=$(vg generate upload ./product.png --json | jq -r '.url')
 
-vg generate run nano-banana-pro/edit \
+vg generate run fal-ai/nano-banana-pro/edit \
  --image_urls "$URL_PRODUCT" \
  --prompt "<structured product hero prompt>" \
  --download "./outputs/product-shot/{request_id}_{index}.{ext}" \
@@ -32,7 +32,7 @@ vg generate run nano-banana-pro/edit \
 
 For top-quality output, the recommended endpoint order is:
 
-1. `nano-banana-pro/edit`, fast, strong product fidelity
+1. `fal-ai/nano-banana-pro/edit`, fast, strong product fidelity
 2. `openai/gpt-image-2/edit`, best for text-on-packaging accuracy
 3. `fal-ai/bytedance/seedream/v5/lite/edit`, alternative when above fail
 

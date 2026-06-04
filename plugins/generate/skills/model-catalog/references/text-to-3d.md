@@ -4,16 +4,16 @@ Curated picks. Output is typically GLB / OBJ / PLY. **Meshy 6** and **Hunyuan 3D
 
 ## Premium
 
-- `meshy/v6/text-to-3d`: Meshy 6
-- `meshy/v6-preview/text-to-3d`: Meshy 6 Preview
-- `hunyuan-3d/v3.1/pro/text-to-3d`: Tencent · Hunyuan 3D v3.1 Pro
-- `hunyuan3d-v3/text-to-3d`: Tencent · Hunyuan 3D v3
+- `fal-ai/meshy/v6/text-to-3d`: Meshy 6
+- `fal-ai/meshy/v6-preview/text-to-3d`: Meshy 6 Preview
+- `fal-ai/hunyuan-3d/v3.1/pro/text-to-3d`: Tencent · Hunyuan 3D v3.1 Pro
+- `fal-ai/hunyuan3d-v3/text-to-3d`: Tencent · Hunyuan 3D v3
 - `tripo3d/p1/text-to-3d`: Tripo · P1
 - `tripo3d/h3.1/text-to-3d`: Tripo · H3.1
 
 ## Fast / rapid variants
 
-- `hunyuan-3d/v3.1/rapid/text-to-3d`: Tencent · Hunyuan 3D Rapid
+- `fal-ai/hunyuan-3d/v3.1/rapid/text-to-3d`: Tencent · Hunyuan 3D Rapid
 
 ## Tips for best results
 
@@ -24,13 +24,13 @@ Curated picks. Output is typically GLB / OBJ / PLY. **Meshy 6** and **Hunyuan 3D
 ## Async pattern
 
 ```bash
-SUBMIT=$(vg generate run meshy/v6/text-to-3d \
+SUBMIT=$(vg generate run fal-ai/meshy/v6/text-to-3d \
  --prompt "a medieval sword with ornate handle" \
  --async \
  --json)
 REQ=$(echo "$SUBMIT" | jq -r '.request_id')
 
-vg generate status meshy/v6/text-to-3d "$REQ" \
+vg generate status fal-ai/meshy/v6/text-to-3d "$REQ" \
  --download "./out/{request_id}.{ext}" \
  --json
 ```
@@ -38,7 +38,7 @@ vg generate status meshy/v6/text-to-3d "$REQ" \
 ## Common parameters
 
 ```bash
-vg generate schema meshy/v6/text-to-3d --json
+vg generate schema fal-ai/meshy/v6/text-to-3d --json
 ```
 
 Frequently exposed:

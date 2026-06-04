@@ -17,8 +17,8 @@ vg generate models "text to video"
 vg generate models "flux" --category text-to-image
 vg generate models --category text-to-speech --limit 5
 vg generate models --status all # include deprecated
-vg generate models --endpoint_id flux/dev,flux/schnell # specific models
-vg generate models --endpoint_id flux/dev --expand openapi-3.0
+vg generate models --endpoint_id fal-ai/flux/dev,fal-ai/flux/schnell # specific models
+vg generate models --endpoint_id fal-ai/flux/dev --expand openapi-3.0
 vg generate models "flux" --cursor <token> # pagination
 ```
 
@@ -34,8 +34,8 @@ vg generate models "flux" --cursor <token> # pagination
 ## schema: inspect inputs/outputs
 
 ```bash
-vg generate schema flux/dev
-vg generate schema flux/dev --format openapi
+vg generate schema fal-ai/flux/dev
+vg generate schema fal-ai/flux/dev --format openapi
 ```
 
 | Option     | Description                                          |
@@ -47,14 +47,14 @@ Always run `schema` before `run` for an unfamiliar endpoint. The exact field nam
 ## run: execute a model
 
 ```bash
-vg generate run flux/dev --prompt "a cat on the moon"
-vg generate run flux/dev --prompt "a cat" --num_images 2
-vg generate run flux/dev --prompt "a cat" --logs
-vg generate run veo3.1 --prompt "a dog running" --async
-vg generate run flux/dev --prompt "a cat" --download
-vg generate run flux/dev --prompt "a cat" --num_images 3 \
+vg generate run fal-ai/flux/dev --prompt "a cat on the moon"
+vg generate run fal-ai/flux/dev --prompt "a cat" --num_images 2
+vg generate run fal-ai/flux/dev --prompt "a cat" --logs
+vg generate run fal-ai/veo3.1 --prompt "a dog running" --async
+vg generate run fal-ai/flux/dev --prompt "a cat" --download
+vg generate run fal-ai/flux/dev --prompt "a cat" --num_images 3 \
  --download "./out/{index}.{ext}"
-vg generate run flux/dev --help # introspect parameters as CLI flags
+vg generate run fal-ai/flux/dev --help # introspect parameters as CLI flags
 ```
 
 Any model input parameter can be passed as `--<param> <value>`. Run `vg generate run <endpoint_id> --help` to see a model's accepted parameters as CLI flags, or `vg generate schema <endpoint_id>` for the same as JSON.
@@ -69,11 +69,11 @@ Any model input parameter can be passed as `--<param> <value>`. Run `vg generate
 ## status: async job
 
 ```bash
-vg generate status veo3.1 <request_id>
-vg generate status veo3.1 <request_id> --result
-vg generate status veo3.1 <request_id> --logs
-vg generate status veo3.1 <request_id> --cancel
-vg generate status veo3.1 <request_id> --download ./out/ # implies --result
+vg generate status fal-ai/veo3.1 <request_id>
+vg generate status fal-ai/veo3.1 <request_id> --result
+vg generate status fal-ai/veo3.1 <request_id> --logs
+vg generate status fal-ai/veo3.1 <request_id> --cancel
+vg generate status fal-ai/veo3.1 <request_id> --download ./out/ # implies --result
 ```
 
 | Option                  | Description                                           |
@@ -95,7 +95,7 @@ Accepts a local path or a remote URL. Returns a CDN URL usable as model input.
 ## pricing: cost per call
 
 ```bash
-vg generate pricing flux/dev
+vg generate pricing fal-ai/flux/dev
 ```
 
 Use before running an unfamiliar premium endpoint. Some endpoints (GPT Image 2 at `quality=high`, Seedance Pro at long durations) are an order of magnitude more expensive than alternatives.
@@ -126,7 +126,7 @@ Skills live in this repo under `plugins/*/skills/` and are symlinked into `.clau
 All commands emit structured JSON when piped or called with `--json`:
 
 ```bash
-vg generate run flux/dev --prompt "a cat" --json
+vg generate run fal-ai/flux/dev --prompt "a cat" --json
 vg generate models "text to video" --json | jq '.models[]'
 ```
 
@@ -143,7 +143,7 @@ Useful when bootstrapping an agent's context with the full CLI surface.
 ### Run + download in one go
 
 ```bash
-vg generate run flux/dev \
+vg generate run fal-ai/flux/dev \
  --prompt "..." \
  --download "./out/{request_id}_{index}.{ext}" \
  --json
@@ -173,7 +173,7 @@ vg generate status <endpoint_id> "$REQ" \
 
 ```bash
 URL=$(vg generate upload ./input.png --json | jq -r '.url')
-vg generate run nano-banana-pro/edit \
+vg generate run fal-ai/nano-banana-pro/edit \
  --image_urls "$URL" \
  --prompt "..." \
  --download "./out/{request_id}_{index}.{ext}" \

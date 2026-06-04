@@ -23,7 +23,7 @@ Ask only when missing information affects execution.
 vg generate models --endpoint_id bytedance/seedance-2.0/text-to-video --json
 vg generate models --endpoint_id bytedance/seedance-2.0/image-to-video --json
 vg generate models --endpoint_id bytedance/seedance-2.0/reference-to-video --json
-vg generate models --endpoint_id kling-video/v3/pro/text-to-video --json
+vg generate models --endpoint_id fal-ai/kling-video/v3/pro/text-to-video --json
 vg generate models --endpoint_id alibaba/happy-horse/text-to-video --json
 vg generate models --endpoint_id veed/fabric-1.0 --json
 ```

@@ -19,8 +19,8 @@ Only ask when the answer cannot be inferred from the task or the source files.
 
 ```bash
 vg generate models --endpoint_id openai/gpt-image-2 --json
-vg generate models --endpoint_id nano-banana-pro/edit --json
-vg generate models --endpoint_id nano-banana-2 --json
+vg generate models --endpoint_id fal-ai/nano-banana-pro/edit --json
+vg generate models --endpoint_id fal-ai/nano-banana-2 --json
 vg generate models --endpoint_id bytedance/seedance-2.0/image-to-video --json
 ```
 

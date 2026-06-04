@@ -42,7 +42,7 @@ Ask only when missing information affects execution.
    vg generate models --endpoint_id bytedance/seedance-2.0/text-to-video --json
    vg generate models --endpoint_id bytedance/seedance-2.0/image-to-video --json
    vg generate models --endpoint_id bytedance/seedance-2.0/reference-to-video --json
-   vg generate models --endpoint_id kling-video/v3/pro/text-to-video --json
+   vg generate models --endpoint_id fal-ai/kling-video/v3/pro/text-to-video --json
    vg generate models --endpoint_id alibaba/happy-horse/text-to-video --json
    vg generate models --endpoint_id veed/fabric-1.0 --json
    ```
@@ -142,14 +142,14 @@ or timeline prompting.
 - Fast or lower-cost video: `xai/grok-imagine-video/text-to-video` or
   `xai/grok-imagine-video/image-to-video`.
 - Multi-shot sequence: Seedance 2.0 first, then
-  `kling-video/v3/pro/text-to-video`, then
-  `kling-video/v3/pro/image-to-video`, then
+  `fal-ai/kling-video/v3/pro/text-to-video`, then
+  `fal-ai/kling-video/v3/pro/image-to-video`, then
   `alibaba/happy-horse/text-to-video` or
   `alibaba/happy-horse/image-to-video`.
 - Text-heavy keyframes, boards, UI frames, posters, or infographics:
   `openai/gpt-image-2` at `quality=high`.
 - Talking avatar, native audio, or lip-sync:
-  `veed/fabric-1.0`, `veed/fabric-1.0/text`, or `creatify/aurora`.
+  `veed/fabric-1.0`, `veed/fabric-1.0/text`, or `fal-ai/creatify/aurora`.
 
 ## Quality bar
 

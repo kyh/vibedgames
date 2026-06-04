@@ -2,7 +2,6 @@ import { defineCommand } from "citty";
 import consola from "consola";
 
 import { createClient } from "../lib/api.js";
-import { displayEndpointId, resolveEndpointId } from "../lib/endpoint-id.js";
 import { parseDownloadFlag, parseRunInput, readExplicitLocalFile } from "../lib/media-args.js";
 import { downloadMedia, extractMediaRefs } from "../lib/media-download.js";
 import { endpointPath, queueAppId, waitForCompletion } from "../lib/media-poll.js";
@@ -48,7 +47,7 @@ const runCommand = defineCommand({
     endpoint_id: {
       type: "positional",
       required: true,
-      description: "Model endpoint ID, e.g. flux/dev.",
+      description: "Model endpoint ID, e.g. fal-ai/flux/dev.",
     },
     async: {
       type: "boolean",
@@ -68,12 +67,12 @@ const runCommand = defineCommand({
     // endpoint_id and any subcommand name in argv are no-ops.
     const finalInput = parseRunInput(rawArgs);
     const client = createClient();
+    const endpoint_id = args.endpoint_id;
 
-    const resolvedId = resolveEndpointId(args.endpoint_id);
     const submission = await client.media.forward.mutate({
       target: "queue",
       method: "POST",
-      path: `/${endpointPath(resolvedId)}`,
+      path: `/${endpointPath(endpoint_id)}`,
       body: finalInput,
     });
     const requestId =
@@ -83,7 +82,6 @@ const runCommand = defineCommand({
     if (!requestId) {
       throw new Error("queue submit did not return a request_id.");
     }
-    const endpoint_id = displayEndpointId(resolvedId);
 
     if (args.async) {
       const payload = {
@@ -100,7 +98,7 @@ const runCommand = defineCommand({
       return;
     }
 
-    const completed = await waitForCompletion(client, resolvedId, requestId, {
+    const completed = await waitForCompletion(client, endpoint_id, requestId, {
       quiet: Boolean(args.quiet) || isJsonOutput(args),
     });
 
@@ -176,9 +174,7 @@ const statusCommand = defineCommand({
         ? "result"
         : "status";
 
-    const resolvedId = resolveEndpointId(args.endpoint_id);
-    const displayId = displayEndpointId(resolvedId);
-    const ep = queueAppId(resolvedId);
+    const ep = queueAppId(args.endpoint_id);
     const client = createClient();
     const path =
       action === "cancel"
@@ -206,7 +202,7 @@ const statusCommand = defineCommand({
     const actionFields = buildActionFields(action, data);
     const payload = {
       action,
-      endpoint_id: displayId,
+      endpoint_id: args.endpoint_id,
       request_id: args.request_id,
       ...actionFields,
       ...(downloaded ? { downloaded_files: downloaded.downloaded } : {}),
@@ -224,7 +220,7 @@ const statusCommand = defineCommand({
         consola.log(`queue_position: ${data.queue_position}`);
       }
     } else {
-      consola.success(`${action} ${displayId} ${args.request_id}`);
+      consola.success(`${action} ${args.endpoint_id} ${args.request_id}`);
       if (downloaded) {
         for (const p of downloaded.downloaded) consola.log(`  ${p}`);
         for (const f of downloaded.failed) consola.warn(`  failed: ${f.url} (${f.error})`);
@@ -267,7 +263,7 @@ const modelsCommand = defineCommand({
     if (args.status && args.status !== "all") query.status = args.status;
     query.limit = args.limit ?? "20";
     if (args.cursor) query.cursor = args.cursor;
-    const endpointIds = splitList(args.endpoint_id).map(resolveEndpointId);
+    const endpointIds = splitList(args.endpoint_id);
     if (endpointIds.length > 0) query.endpoint_id = endpointIds;
     const expand = splitList(args.expand);
     if (expand.length > 0) query.expand = expand;
@@ -279,7 +275,7 @@ const modelsCommand = defineCommand({
       path: "/v1/models",
       query,
     });
-    if (isJsonOutput(args)) writeJson(withDisplayIds(data));
+    if (isJsonOutput(args)) writeJson(data);
     else printModels(data);
   },
 });
@@ -292,27 +288,11 @@ function splitList(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
-// Rewrite endpoint_id to display form in a `/v1/models`-shaped payload so
-// `--json` output matches the pretty `models` listing and the ids in
-// `run`/`status` JSON. A no-op on any other shape, so it's safe to wrap
-// every model-catalog response.
-function withDisplayIds(data: unknown): unknown {
-  if (!isRecord(data) || !Array.isArray(data.models)) return data;
-  return {
-    ...data,
-    models: data.models.map((m) =>
-      isRecord(m) && typeof m.endpoint_id === "string"
-        ? { ...m, endpoint_id: displayEndpointId(m.endpoint_id) }
-        : m,
-    ),
-  };
-}
-
 function printModels(data: unknown): void {
   const models = isRecord(data) && Array.isArray(data.models) ? data.models : [];
   for (const m of models) {
     if (!isRecord(m)) continue;
-    const id = m.endpoint_id ? displayEndpointId(String(m.endpoint_id)) : "?";
+    const id = String(m.endpoint_id ?? "?");
     const meta = isRecord(m.metadata) ? m.metadata : {};
     const tags: string[] = [];
     if (meta.category) tags.push(String(meta.category));
@@ -341,12 +321,12 @@ const schemaCommand = defineCommand({
       method: "GET",
       path: "/v1/models",
       query: {
-        endpoint_id: resolveEndpointId(args.endpoint_id),
+        endpoint_id: args.endpoint_id,
         limit: "1",
         ...(expand.length > 0 ? { expand } : {}),
       },
     });
-    writeJson(withDisplayIds(data));
+    writeJson(data);
   },
 });
 
@@ -364,9 +344,9 @@ const pricingCommand = defineCommand({
       target: "platform",
       method: "GET",
       path: "/v1/models/pricing",
-      query: { endpoint_id: resolveEndpointId(args.endpoint_id) },
+      query: { endpoint_id: args.endpoint_id },
     });
-    writeJson(withDisplayIds(data));
+    writeJson(data);
   },
 });
 

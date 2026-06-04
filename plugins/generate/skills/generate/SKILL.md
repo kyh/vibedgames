@@ -45,7 +45,7 @@ For the full command surface (every flag, every option, every example), see [ref
 ### Run a model and download the result
 
 ```bash
-vg generate run flux/dev \
+vg generate run fal-ai/flux/dev \
  --prompt "a cat on the moon" \
  --download "./out/{request_id}_{index}.{ext}" \
  --json
@@ -54,9 +54,9 @@ vg generate run flux/dev \
 ### Async + poll
 
 ```bash
-SUBMIT=$(vg generate run veo3.1 --prompt "a dog running" --async --json)
+SUBMIT=$(vg generate run fal-ai/veo3.1 --prompt "a dog running" --async --json)
 REQ=$(echo "$SUBMIT" | jq -r '.request_id')
-vg generate status veo3.1 "$REQ" \
+vg generate status fal-ai/veo3.1 "$REQ" \
  --download "./out/{request_id}_{index}.{ext}" \
  --json
 ```
@@ -65,7 +65,7 @@ vg generate status veo3.1 "$REQ" \
 
 ```bash
 URL=$(vg generate upload ./photo.jpg --json | jq -r '.url')
-vg generate run nano-banana-pro/edit \
+vg generate run fal-ai/nano-banana-pro/edit \
  --image_urls "$URL" \
  --prompt "make the sky stormy" \
  --download "./out/{request_id}_{index}.{ext}" \

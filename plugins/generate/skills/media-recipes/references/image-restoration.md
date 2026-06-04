@@ -12,11 +12,11 @@ Use this recipe to restore and enhance image quality, fix blur, noise, haze, fac
 
 | Defect                              | Endpoint         |
 | ----------------------------------- | ---------------- |
-| Motion blur, focus blur             | `nafnet/deblur`  |
-| Sensor noise, ISO grain             | `nafnet/denoise` |
-| Atmospheric haze, fog               | `mix-dehaze-net` |
-| Distorted, low-res, or damaged face | `codeformer`     |
-| Scanned document (text legibility)  | `docres`         |
+| Motion blur, focus blur             | `fal-ai/nafnet/deblur`  |
+| Sensor noise, ISO grain             | `fal-ai/nafnet/denoise` |
+| Atmospheric haze, fog               | `fal-ai/mix-dehaze-net` |
+| Distorted, low-res, or damaged face | `fal-ai/codeformer`     |
+| Scanned document (text legibility)  | `fal-ai/docres`         |
 
 If multiple defects are present, run them in sequence (denoise → deblur → upscale, or face-fix → upscale).
 
@@ -28,7 +28,7 @@ If multiple defects are present, run them in sequence (denoise → deblur → up
 URL=$(vg generate upload ./damaged.jpg --json | jq -r '.url')
 
 # Pick endpoint based on dominant defect
-vg generate run nafnet/deblur \
+vg generate run fal-ai/nafnet/deblur \
  --image_url "$URL" \
  --download "./outputs/restored/{request_id}_{index}.{ext}" \
  --json
@@ -39,7 +39,7 @@ vg generate run nafnet/deblur \
 ```bash
 URL=$(vg generate upload ./bad-face.jpg --json | jq -r '.url')
 
-vg generate run codeformer \
+vg generate run fal-ai/codeformer \
  --image_url "$URL" \
  --fidelity 0.7 \
  --download "./outputs/restored/{request_id}_{index}.{ext}" \
@@ -57,7 +57,7 @@ vg generate run codeformer \
 ```bash
 URL=$(vg generate upload ./scan.jpg --json | jq -r '.url')
 
-vg generate run docres \
+vg generate run fal-ai/docres \
  --image_url "$URL" \
  --download "./outputs/restored/{request_id}_{index}.{ext}" \
  --json
@@ -72,11 +72,11 @@ For a noisy + blurry photo, chain two passes:
 ```bash
 # Pass 1: denoise
 URL1=$(vg generate upload ./input.jpg --json | jq -r '.url')
-RES1=$(vg generate run nafnet/denoise --image_url "$URL1" --json)
+RES1=$(vg generate run fal-ai/nafnet/denoise --image_url "$URL1" --json)
 URL2=$(echo "$RES1" | jq -r '.image.url')
 
 # Pass 2: deblur the cleaned-up result
-vg generate run nafnet/deblur \
+vg generate run fal-ai/nafnet/deblur \
  --image_url "$URL2" \
  --download "./outputs/restored/{request_id}_{index}.{ext}" \
  --json
@@ -86,7 +86,7 @@ For an old portrait scan: face-fix → upscale.
 
 ```bash
 # Pass 1: codeformer for face
-RES1=$(vg generate run codeformer \
+RES1=$(vg generate run fal-ai/codeformer \
  --image_url "$URL1" --fidelity 0.7 --json)
 URL2=$(echo "$RES1" | jq -r '.image.url')
 
@@ -129,9 +129,9 @@ Before returning:
 Inspect each endpoint:
 
 ```bash
-vg generate schema nafnet/deblur --json
-vg generate schema codeformer --json
-vg generate schema docres --json
+vg generate schema fal-ai/nafnet/deblur --json
+vg generate schema fal-ai/codeformer --json
+vg generate schema fal-ai/docres --json
 ```
 
 Frequently exposed:

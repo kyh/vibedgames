@@ -22,7 +22,7 @@ Ask only for what affects the shot:
 
 ```bash
 vg generate models --endpoint_id openai/gpt-image-2 --json
-vg generate models --endpoint_id nano-banana-pro --json
+vg generate models --endpoint_id fal-ai/nano-banana-pro --json
 vg generate models --endpoint_id bytedance/seedance-2.0/text-to-video --json
 vg generate models --endpoint_id bytedance/seedance-2.0/image-to-video --json
 vg generate models --endpoint_id xai/grok-imagine-video/text-to-video --json

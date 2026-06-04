@@ -9,7 +9,7 @@ description: >
   "2D game art", "pixel art animation", "top-down character", "explosion sprite
   sheet", "animated FX from video", "fire/magic effect". Covers character
   generation (nano-banana-pro / gpt-image-2), sprite sheet animation (nano/edit
-  or gpt-image-2/edit), top-down 4-directional walkers, background removal
+  or fal-ai/gpt-image-2/edit), top-down 4-directional walkers, background removal
   (Bria), background generation (parallax layers or isometric map), and animated
   VFX derived from a generated video rendered with additive blend.
 metadata:
@@ -35,17 +35,17 @@ Always use `--json` so output is machine-readable. Use `--download` to save file
 
 ```bash
 # Step 1, fire async (each line = its own Bash tool call, returns request_id immediately)
-vg generate run nano-banana-pro/edit --prompt "$WALK_PROMPT" --image_urls "[\"$CHARACTER_URL\"]" --aspect_ratio "1:1" --resolution "1K" --async --json
-vg generate run nano-banana-pro/edit --prompt "$IDLE_PROMPT" --image_urls "[\"$CHARACTER_URL\"]" --aspect_ratio "1:1" --resolution "1K" --async --json
+vg generate run fal-ai/nano-banana-pro/edit --prompt "$WALK_PROMPT" --image_urls "[\"$CHARACTER_URL\"]" --aspect_ratio "1:1" --resolution "1K" --async --json
+vg generate run fal-ai/nano-banana-pro/edit --prompt "$IDLE_PROMPT" --image_urls "[\"$CHARACTER_URL\"]" --aspect_ratio "1:1" --resolution "1K" --async --json
 
 # Step 2, poll sequentially (each line = its own Bash tool call)
-vg generate status nano-banana-pro/edit <walk_request_id> --result --download ./walk.png --json
-vg generate status nano-banana-pro/edit <idle_request_id> --result --download ./idle.png --json
+vg generate status fal-ai/nano-banana-pro/edit <walk_request_id> --result --download ./walk.png --json
+vg generate status fal-ai/nano-banana-pro/edit <idle_request_id> --result --download ./idle.png --json
 ```
 
 3. **URL source**: always read `downloaded_files[0].url` from the tool result JSON. This is the correct path for all models (nano, gpt, Bria).
 
-4. **Bria sync**: Bria (`bria/background/remove`) has no queue endpoint and does not support `--async`. Run it sync. It completes in seconds.
+4. **Bria sync**: Bria (`fal-ai/bria/background/remove`) has no queue endpoint and does not support `--async`. Run it sync. It completes in seconds.
 
 5. **`--download` paths are relative to your shell's cwd, not the project root.** If the agent is operating in a monorepo from the repo root, a bare `--download walk.png` lands in the root, not next to your game. Always pass a project-relative absolute or qualified path — e.g. `--download "games/my-game/public/assets/sprites/walk.png"` — so the asset lands where the game's loader expects it.
 
@@ -93,11 +93,11 @@ https://...
 
 ## Models in the stack
 
-- **Nano Banana Pro**: `nano-banana-pro`, character + background generation; better quality and faster, recommended default
-- **Nano Banana Pro Edit**: `nano-banana-pro/edit`, sprite sheet generation from character image
+- **Nano Banana Pro**: `fal-ai/nano-banana-pro`, character + background generation; better quality and faster, recommended default
+- **Nano Banana Pro Edit**: `fal-ai/nano-banana-pro/edit`, sprite sheet generation from character image
 - **GPT-Image-2**: `openai/gpt-image-2`, character + background generation; slower than nano, use when user prefers it or wants cheaper output (`quality=low`)
 - **GPT-Image-2 Edit**: `openai/gpt-image-2/edit`, sprite sheet generation; slower than nano, requires model-specific walk prompt; use `quality=low` for cheaper runs
-- **Bria RMBG 2.0**: `bria/background/remove`, background removal on all sprite sheets
+- **Bria RMBG 2.0**: `fal-ai/bria/background/remove`, background removal on all sprite sheets
 
 ---
 
@@ -111,7 +111,7 @@ CHARACTER_STYLE_PROMPT="Generate a single character only, centered in the frame 
 IMAGE_TO_PIXEL_PROMPT="Transform this character into detailed 32-bit pixel art style (like PlayStation 1 / SNES era games). IMPORTANT: Must be a FULL BODY shot showing the entire character from head to feet. Keep the character centered in the frame on a plain white background. Include proper shading, highlights, and anti-aliased edges for a polished look. The character should have well-defined features, expressive details, and rich colors. Show in a front-facing or 3/4 view pose, standing idle, suitable for sprite sheet animation. Maintain the character's key features, colors, and identity while converting to pixel art."
 
 # Text → pixel art character (nano)
-vg generate run nano-banana-pro \
+vg generate run fal-ai/nano-banana-pro \
  --prompt "$CHARACTER_STYLE_PROMPT Character: <character_desc>" \
  --aspect_ratio "1:1" --resolution "1K" \
  --download ./game-assets/<slug>/character.png --json
@@ -124,7 +124,7 @@ vg generate run openai/gpt-image-2 \
 
 # Existing image → pixel art (nano), upload source image first, then run edit
 vg generate upload /path/to/image.png --json
-vg generate run nano-banana-pro/edit \
+vg generate run fal-ai/nano-banana-pro/edit \
  --prompt "$IMAGE_TO_PIXEL_PROMPT" \
  --image_urls "[\"<uploaded_url_from_above>\"]" \
  --aspect_ratio "1:1" --resolution "1K" \
@@ -155,18 +155,18 @@ ATTACK_PROMPT="Create a 4-frame pixel art attack animation sprite sheet of this 
 IDLE_PROMPT="Create a 4-frame pixel art idle/breathing animation sprite sheet of this character. Arrange the 4 frames in a 2x2 grid on white background. The character is standing still but with subtle idle animation. Top row (frames 1-2): Frame 1 (top-left): Neutral standing pose - relaxed stance. Frame 2 (top-right): Slight inhale - chest/body rises subtly, maybe slight arm movement. Bottom row (frames 3-4): Frame 3 (bottom-left): Full breath - slight upward posture. Frame 4 (bottom-right): Exhale - returning to neutral, slight settle. Keep movements SUBTLE - this is a gentle breathing/idle loop, not dramatic motion. Character should look alive but relaxed. Use detailed 32-bit pixel art style with proper shading and highlights. Same character design in all frames. Character facing right."
 
 # Fire all 4 async, each is its own Bash tool call
-vg generate run nano-banana-pro/edit --prompt "$WALK_PROMPT" --image_urls "[\"$CHARACTER_URL\"]" --aspect_ratio "1:1" --resolution "1K" --async --json
-vg generate run nano-banana-pro/edit --prompt "$JUMP_PROMPT" --image_urls "[\"$CHARACTER_URL\"]" --aspect_ratio "1:1" --resolution "1K" --async --json
-vg generate run nano-banana-pro/edit --prompt "$ATTACK_PROMPT" --image_urls "[\"$CHARACTER_URL\"]" --aspect_ratio "21:9" --resolution "1K" --async --json
-vg generate run nano-banana-pro/edit --prompt "$IDLE_PROMPT" --image_urls "[\"$CHARACTER_URL\"]" --aspect_ratio "1:1" --resolution "1K" --async --json
+vg generate run fal-ai/nano-banana-pro/edit --prompt "$WALK_PROMPT" --image_urls "[\"$CHARACTER_URL\"]" --aspect_ratio "1:1" --resolution "1K" --async --json
+vg generate run fal-ai/nano-banana-pro/edit --prompt "$JUMP_PROMPT" --image_urls "[\"$CHARACTER_URL\"]" --aspect_ratio "1:1" --resolution "1K" --async --json
+vg generate run fal-ai/nano-banana-pro/edit --prompt "$ATTACK_PROMPT" --image_urls "[\"$CHARACTER_URL\"]" --aspect_ratio "21:9" --resolution "1K" --async --json
+vg generate run fal-ai/nano-banana-pro/edit --prompt "$IDLE_PROMPT" --image_urls "[\"$CHARACTER_URL\"]" --aspect_ratio "1:1" --resolution "1K" --async --json
 
 # Poll each, each is its own Bash tool call, run sequentially
-vg generate status nano-banana-pro/edit <walk_request_id> --result --download ./game-assets/<slug>/sprites/walk.png --json
-vg generate status nano-banana-pro/edit <jump_request_id> --result --download ./game-assets/<slug>/sprites/jump.png --json
-vg generate status nano-banana-pro/edit <attack_request_id> --result --download ./game-assets/<slug>/sprites/attack.png --json
-vg generate status nano-banana-pro/edit <idle_request_id> --result --download ./game-assets/<slug>/sprites/idle.png --json
+vg generate status fal-ai/nano-banana-pro/edit <walk_request_id> --result --download ./game-assets/<slug>/sprites/walk.png --json
+vg generate status fal-ai/nano-banana-pro/edit <jump_request_id> --result --download ./game-assets/<slug>/sprites/jump.png --json
+vg generate status fal-ai/nano-banana-pro/edit <attack_request_id> --result --download ./game-assets/<slug>/sprites/attack.png --json
+vg generate status fal-ai/nano-banana-pro/edit <idle_request_id> --result --download ./game-assets/<slug>/sprites/idle.png --json
 
-# GPT variants: replace nano-banana-pro/edit with openai/gpt-image-2/edit
+# GPT variants: replace fal-ai/nano-banana-pro/edit with openai/gpt-image-2/edit
 # Walk must use WALK_PROMPT_GPT (not WALK_PROMPT)
 # Replace --aspect_ratio with explicit --image_size:
 # 1:1 → --image_size "square_hd"
@@ -195,28 +195,28 @@ ATTACK_SIDE_PROMPT="Create a 4-frame pixel art ATTACK animation sprite sheet of 
 IDLE_ISO_PROMPT="Create a 4-frame pixel art idle/breathing animation sprite sheet of this character in a top-down isometric RPG perspective (3/4 overhead view). Arrange the 4 frames in a 2x2 grid on white background. Character is FACING TOWARD THE CAMERA (south/down). Top row: Frame 1 (top-left): Neutral standing pose, facing down. Frame 2 (top-right): Slight inhale - body rises subtly. Bottom row: Frame 3 (bottom-left): Full breath - slight upward posture. Frame 4 (bottom-right): Exhale - returning to neutral. Keep movements SUBTLE. Use detailed 32-bit pixel art style. Same character design in all frames."
 
 # Fire walk sheets + idle async, each is its own Bash tool call
-vg generate run nano-banana-pro/edit --prompt "$WALK_DOWN_PROMPT" --image_urls "[\"$CHARACTER_URL\"]" --aspect_ratio "1:1" --resolution "1K" --async --json
-vg generate run nano-banana-pro/edit --prompt "$WALK_UP_PROMPT" --image_urls "[\"$CHARACTER_URL\"]" --aspect_ratio "1:1" --resolution "1K" --async --json
-vg generate run nano-banana-pro/edit --prompt "$WALK_SIDE_PROMPT" --image_urls "[\"$CHARACTER_URL\"]" --aspect_ratio "1:1" --resolution "1K" --async --json
-vg generate run nano-banana-pro/edit --prompt "$IDLE_ISO_PROMPT" --image_urls "[\"$CHARACTER_URL\"]" --aspect_ratio "1:1" --resolution "1K" --async --json
+vg generate run fal-ai/nano-banana-pro/edit --prompt "$WALK_DOWN_PROMPT" --image_urls "[\"$CHARACTER_URL\"]" --aspect_ratio "1:1" --resolution "1K" --async --json
+vg generate run fal-ai/nano-banana-pro/edit --prompt "$WALK_UP_PROMPT" --image_urls "[\"$CHARACTER_URL\"]" --aspect_ratio "1:1" --resolution "1K" --async --json
+vg generate run fal-ai/nano-banana-pro/edit --prompt "$WALK_SIDE_PROMPT" --image_urls "[\"$CHARACTER_URL\"]" --aspect_ratio "1:1" --resolution "1K" --async --json
+vg generate run fal-ai/nano-banana-pro/edit --prompt "$IDLE_ISO_PROMPT" --image_urls "[\"$CHARACTER_URL\"]" --aspect_ratio "1:1" --resolution "1K" --async --json
 
 # Poll walk results sequentially
-vg generate status nano-banana-pro/edit <walk_down_request_id> --result --download ./game-assets/<slug>/sprites/walk-down.png --json
-vg generate status nano-banana-pro/edit <walk_up_request_id> --result --download ./game-assets/<slug>/sprites/walk-up.png --json
-vg generate status nano-banana-pro/edit <walk_side_request_id> --result --download ./game-assets/<slug>/sprites/walk-side.png --json
-vg generate status nano-banana-pro/edit <idle_iso_request_id> --result --download ./game-assets/<slug>/sprites/idle-iso.png --json
+vg generate status fal-ai/nano-banana-pro/edit <walk_down_request_id> --result --download ./game-assets/<slug>/sprites/walk-down.png --json
+vg generate status fal-ai/nano-banana-pro/edit <walk_up_request_id> --result --download ./game-assets/<slug>/sprites/walk-up.png --json
+vg generate status fal-ai/nano-banana-pro/edit <walk_side_request_id> --result --download ./game-assets/<slug>/sprites/walk-side.png --json
+vg generate status fal-ai/nano-banana-pro/edit <idle_iso_request_id> --result --download ./game-assets/<slug>/sprites/idle-iso.png --json
 
 # Attack-down sync, needed as reference before firing attack-up and attack-side
-vg generate run nano-banana-pro/edit --prompt "$ATTACK_DOWN_PROMPT" --image_urls "[\"$CHARACTER_URL\"]" --aspect_ratio "9:16" --resolution "1K" --download ./game-assets/<slug>/sprites/attack-down.png --json
+vg generate run fal-ai/nano-banana-pro/edit --prompt "$ATTACK_DOWN_PROMPT" --image_urls "[\"$CHARACTER_URL\"]" --aspect_ratio "9:16" --resolution "1K" --download ./game-assets/<slug>/sprites/attack-down.png --json
 
 # Fire attack-up and attack-side async, passing attack-down URL from above result
-vg generate run nano-banana-pro/edit --prompt "$ATTACK_UP_PROMPT" --image_urls "[\"$CHARACTER_URL\", \"<attack_down_url>\"]" --aspect_ratio "9:16" --resolution "1K" --async --json
-vg generate run nano-banana-pro/edit --prompt "$ATTACK_SIDE_PROMPT" --image_urls "[\"$CHARACTER_URL\", \"<attack_down_url>\"]" --aspect_ratio "16:9" --resolution "1K" --async --json
+vg generate run fal-ai/nano-banana-pro/edit --prompt "$ATTACK_UP_PROMPT" --image_urls "[\"$CHARACTER_URL\", \"<attack_down_url>\"]" --aspect_ratio "9:16" --resolution "1K" --async --json
+vg generate run fal-ai/nano-banana-pro/edit --prompt "$ATTACK_SIDE_PROMPT" --image_urls "[\"$CHARACTER_URL\", \"<attack_down_url>\"]" --aspect_ratio "16:9" --resolution "1K" --async --json
 
-vg generate status nano-banana-pro/edit <attack_up_request_id> --result --download ./game-assets/<slug>/sprites/attack-up.png --json
-vg generate status nano-banana-pro/edit <attack_side_request_id> --result --download ./game-assets/<slug>/sprites/attack-side.png --json
+vg generate status fal-ai/nano-banana-pro/edit <attack_up_request_id> --result --download ./game-assets/<slug>/sprites/attack-up.png --json
+vg generate status fal-ai/nano-banana-pro/edit <attack_side_request_id> --result --download ./game-assets/<slug>/sprites/attack-side.png --json
 
-# GPT variants: replace nano-banana-pro/edit with openai/gpt-image-2/edit
+# GPT variants: replace fal-ai/nano-banana-pro/edit with openai/gpt-image-2/edit
 # Replace --aspect_ratio with explicit --image_size:
 # 1:1 → --image_size "square_hd"
 # 9:16 → --image_size "{\"width\": 720, \"height\": 1280}"
@@ -230,10 +230,10 @@ vg generate status nano-banana-pro/edit <attack_side_request_id> --result --down
 Bria has no queue endpoint, run sync (no `--async`). Each is its own Bash tool call:
 
 ```bash
-vg generate run bria/background/remove --image_url "<walk_url>" --download ./game-assets/<slug>/sprites/walk-transparent.png --json
-vg generate run bria/background/remove --image_url "<jump_url>" --download ./game-assets/<slug>/sprites/jump-transparent.png --json
-vg generate run bria/background/remove --image_url "<attack_url>" --download ./game-assets/<slug>/sprites/attack-transparent.png --json
-vg generate run bria/background/remove --image_url "<idle_url>" --download ./game-assets/<slug>/sprites/idle-transparent.png --json
+vg generate run fal-ai/bria/background/remove --image_url "<walk_url>" --download ./game-assets/<slug>/sprites/walk-transparent.png --json
+vg generate run fal-ai/bria/background/remove --image_url "<jump_url>" --download ./game-assets/<slug>/sprites/jump-transparent.png --json
+vg generate run fal-ai/bria/background/remove --image_url "<attack_url>" --download ./game-assets/<slug>/sprites/attack-transparent.png --json
+vg generate run fal-ai/bria/background/remove --image_url "<idle_url>" --download ./game-assets/<slug>/sprites/idle-transparent.png --json
 ```
 
 **Bria is segmentation, not chroma-key.** It removes the background even when the subject shares the background's color — a white-armored character on a white background comes out clean, with the white armor intact. Do **not** reach for ffmpeg `colorkey`/`chromakey` to cut sprite backgrounds: it punches holes in any same-colored part of the subject. Bria also handles a multi-frame sheet (2×2 walk grid) in a single call, keeping every frame. After Bria, the sheet keeps its original dimensions, so a 1024² 2×2 sheet stays 1024² with 512² frames.
@@ -248,30 +248,30 @@ vg generate run bria/background/remove --image_url "<idle_url>" --download ./gam
 
 ```bash
 # Layer 1, sky/backdrop. Fire async (no image dep) so it runs in parallel with sprite generation
-vg generate run nano-banana-pro \
+vg generate run fal-ai/nano-banana-pro \
  --prompt "Create the SKY/BACKDROP layer for a side-scrolling pixel art game parallax background. This is for a character: <character_desc>. Create an environment that fits this character's world. This is the FURTHEST layer - only sky and very distant elements (distant mountains, clouds, horizon). Style: Pixel art, 32-bit retro game aesthetic. Wide panoramic scene." \
  --aspect_ratio "21:9" --resolution "1K" --async --json
 
 # Poll Layer 1 (after sprite sheets are done), then read its URL from the result
-vg generate status nano-banana-pro <layer1_request_id> --result --download ./game-assets/<slug>/backgrounds/layer1-sky.png --json
+vg generate status fal-ai/nano-banana-pro <layer1_request_id> --result --download ./game-assets/<slug>/backgrounds/layer1-sky.png --json
 
 # Layer 2, midground (needs CHARACTER_URL + layer1 URL from above result)
-vg generate run nano-banana-pro/edit \
+vg generate run fal-ai/nano-banana-pro/edit \
  --prompt "Create the MIDDLE layer of a 3-layer parallax background for a side-scrolling pixel art game. I've sent you images of: 1) the character, 2) the sky layer already created. Create the character's ICONIC/CANONICAL location from their story, home village, famous landmarks, signature battlegrounds. Elements should fill the frame from middle down to bottom. Style: Pixel art matching the other images. IMPORTANT: Use a transparent background so this layer can overlay the others." \
  --image_urls "[\"<character_url>\", \"<layer1_url>\"]" \
  --aspect_ratio "21:9" --resolution "1K" --download ./game-assets/<slug>/backgrounds/layer2-midground.png --json
 
 # Bria bg-remove on layer 2 (sync, no queue endpoint)
-vg generate run bria/background/remove --image_url "<layer2_url>" --download ./game-assets/<slug>/backgrounds/layer2-transparent.png --json
+vg generate run fal-ai/bria/background/remove --image_url "<layer2_url>" --download ./game-assets/<slug>/backgrounds/layer2-transparent.png --json
 
 # Layer 3, foreground (needs CHARACTER_URL + layer1 URL + layer2-transparent URL from above result)
-vg generate run nano-banana-pro/edit \
+vg generate run fal-ai/nano-banana-pro/edit \
  --prompt "Create the FOREGROUND layer of a 3-layer parallax background for a side-scrolling pixel art game. I've sent you images of: 1) the character, 2) the sky layer, 3) the middle layer. Create the closest foreground elements (ground, grass, rocks, platforms) that complete the scene. Style: Pixel art matching the other images. IMPORTANT: Use a transparent background so this layer can overlay the others." \
  --image_urls "[\"<character_url>\", \"<layer1_url>\", \"<layer2_transparent_url>\"]" \
  --aspect_ratio "21:9" --resolution "1K" --download ./game-assets/<slug>/backgrounds/layer3-foreground.png --json
 
 # Bria bg-remove on layer 3 (sync, no queue endpoint)
-vg generate run bria/background/remove --image_url "<layer3_url>" --download ./game-assets/<slug>/backgrounds/layer3-transparent.png --json
+vg generate run fal-ai/bria/background/remove --image_url "<layer3_url>" --download ./game-assets/<slug>/backgrounds/layer3-transparent.png --json
 
 # GPT variant: replace nano endpoints with openai/gpt-image-2 and openai/gpt-image-2/edit
 # Use --image_size '{"width": 2688, "height": 1152}' for 21:9 with gpt
@@ -280,7 +280,7 @@ vg generate run bria/background/remove --image_url "<layer3_url>" --download ./g
 **Isometric, single top-down map**
 
 ```bash
-vg generate run nano-banana-pro \
+vg generate run fal-ai/nano-banana-pro \
  --prompt "Create a large, detailed top-down isometric pixel art game world map for a character: $CHARACTER_DESC. Do not place the character on the map. Style: Classic RPG top-down map, 3/4 overhead perspective. Include: winding dirt/stone paths connecting areas, a small body of water, a few buildings or structures that fit the character's world, rocky areas or hills, various terrain types. Single large continuous map image (NOT tiled, NOT a tileset). Complete explorable game world viewed from above. Detailed 32-bit pixel art style. Fill the entire image with map content, no empty borders." \
  --aspect_ratio "1:1" --resolution "1K" \
  --download ./game-assets/<slug>/backgrounds/map.png --json

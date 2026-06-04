@@ -31,7 +31,7 @@ All packaged into a single static HTML page with a Three.js scene. ~25–35 MB o
  → animated GLB (idle, dance, alert, etc.)
 3. GPT-Image-2/edit → companion creature image, color-locked to character palette
 4. Meshy v6 → image-to-3d, enable_rigging=false → static creature GLB
-5. PATINA → patina/material/extract on the character image,
+5. PATINA → fal-ai/patina/material/extract on the character image,
  returns basecolor + normal + roughness + metalness for the floor
 6. Seedance 2.0 → fal-ai/bytedance/seedance-2.0/fast/image-to-video, 8s loop
 7. gltf-transform CLI → resize 1024 → webp q80 → draco
@@ -63,12 +63,12 @@ Cost: ~$2–3 per generation (4 generation calls). Runs in background, modal clo
 | Step                      | Endpoint                                            |
 | ------------------------- | --------------------------------------------------- |
 | Character image (curated) | `openai/gpt-image-2`                                |
-| Character image (live)    | `flux-2/klein/9b`                                   |
-| Companion image           | `gpt-image-2/edit` or `flux-2/klein/9b/edit`        |
-| 3D character/companion    | `meshy/v6/image-to-3d`                              |
-| Per-character floor PBR   | `patina/material/extract`                           |
+| Character image (live)    | `fal-ai/flux-2/klein/9b`                                   |
+| Companion image           | `fal-ai/gpt-image-2/edit` or `fal-ai/flux-2/klein/9b/edit`        |
+| 3D character/companion    | `fal-ai/meshy/v6/image-to-3d`                              |
+| Per-character floor PBR   | `fal-ai/patina/material/extract`                           |
 | Background video          | `fal-ai/bytedance/seedance-2.0/fast/image-to-video` |
-| Logo / icon cleanup       | `bria/background/remove`                            |
+| Logo / icon cleanup       | `fal-ai/bria/background/remove`                            |
 
 ## Meshy animation IDs
 

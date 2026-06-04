@@ -14,12 +14,12 @@ Use this recipe to add narration, sound effects, music, or environmental ambienc
 
 ## Flow A: generated SFX / ambience (single endpoint)
 
-`mmaudio-v2` generates synchronized audio that matches video content from a prompt.
+`fal-ai/mmaudio-v2` generates synchronized audio that matches video content from a prompt.
 
 ```bash
 URL_VIDEO=$(vg generate upload ./silent.mp4 --json | jq -r '.url')
 
-vg generate run mmaudio-v2 \
+vg generate run fal-ai/mmaudio-v2 \
  --video_url "$URL_VIDEO" \
  --prompt "City street ambiance with car horns and people talking" \
  --download "./outputs/with-audio/{request_id}_{index}.{ext}" \
@@ -27,7 +27,7 @@ vg generate run mmaudio-v2 \
  --json
 ```
 
-`mmaudio-v2` is good for ambient/foley generation. The output is a video with the new audio merged in.
+`fal-ai/mmaudio-v2` is good for ambient/foley generation. The output is a video with the new audio merged in.
 
 ## Flow B: merge existing audio file
 
@@ -37,7 +37,7 @@ When the audio already exists (recorded VO, music track, separate SFX file), use
 URL_VIDEO=$(vg generate upload ./silent.mp4 --json | jq -r '.url')
 URL_AUDIO=$(vg generate upload ./voiceover.wav --json | jq -r '.url')
 
-vg generate run ffmpeg-api/merge-audio-video \
+vg generate run fal-ai/ffmpeg-api/merge-audio-video \
  --video_url "$URL_VIDEO" \
  --audio_url "$URL_AUDIO" \
  --download "./outputs/with-audio/{request_id}_{index}.{ext}" \
@@ -54,20 +54,20 @@ Three steps: generate speech → merge with video → optionally add subtitles.
 URL_VIDEO=$(vg generate upload ./silent.mp4 --json | jq -r '.url')
 
 # Step 1: TTS
-TTS_RESULT=$(vg generate run minimax/speech-2.6-turbo \
+TTS_RESULT=$(vg generate run fal-ai/minimax/speech-2.6-turbo \
  --text "Welcome to our product demonstration." \
  --json)
 URL_AUDIO=$(echo "$TTS_RESULT" | jq -r '.audio.url')
 
 # Step 2: merge audio + video
-MERGE_RESULT=$(vg generate run ffmpeg-api/merge-audio-video \
+MERGE_RESULT=$(vg generate run fal-ai/ffmpeg-api/merge-audio-video \
  --video_url "$URL_VIDEO" \
  --audio_url "$URL_AUDIO" \
  --json)
 URL_MERGED=$(echo "$MERGE_RESULT" | jq -r '.video.url')
 
 # Step 3 (optional): auto-subtitles
-vg generate run workflow-utilities/auto-subtitle \
+vg generate run fal-ai/workflow-utilities/auto-subtitle \
  --video_url "$URL_MERGED" \
  --download "./outputs/with-audio/{request_id}_{index}.{ext}" \
  --json
@@ -84,7 +84,7 @@ URL_VIDEO=$(vg generate upload ./silent.mp4 --json | jq -r '.url')
 vg generate models "music generation" --json
 
 # Step 2: merge generated music with video
-vg generate run ffmpeg-api/merge-audio-video \
+vg generate run fal-ai/ffmpeg-api/merge-audio-video \
  --video_url "$URL_VIDEO" \
  --audio_url "$URL_MUSIC" \
  --download "./outputs/with-audio/{request_id}_{index}.{ext}" \
@@ -102,10 +102,10 @@ vg generate models --category text-to-audio --json | jq '.models[] | select(.tag
 
 | Endpoint                                    | Mode                                  | Use when                                           |
 | ------------------------------------------- | ------------------------------------- | -------------------------------------------------- |
-| `mmaudio-v2`                                | video + prompt → video with AI audio  | Ambient/foley to match video content from a prompt |
-| `ffmpeg-api/merge-audio-video`              | video + audio → merged video          | Existing audio file, deterministic merge           |
-| `workflow-utilities/auto-subtitle`          | video → video with karaoke-style subs | Add subtitles after audio is in place              |
-| `workflow-utilities/add-subtitles-to-video` | video + subtitle file → subbed video  | Provided subtitle text, no transcription           |
+| `fal-ai/mmaudio-v2`                                | video + prompt → video with AI audio  | Ambient/foley to match video content from a prompt |
+| `fal-ai/ffmpeg-api/merge-audio-video`              | video + audio → merged video          | Existing audio file, deterministic merge           |
+| `fal-ai/workflow-utilities/auto-subtitle`          | video → video with karaoke-style subs | Add subtitles after audio is in place              |
+| `fal-ai/workflow-utilities/add-subtitles-to-video` | video + subtitle file → subbed video  | Provided subtitle text, no transcription           |
 
 ## Quality bar
 
@@ -127,9 +127,9 @@ Before returning:
 ## Common parameters
 
 ```bash
-vg generate schema mmaudio-v2 --json
-vg generate schema ffmpeg-api/merge-audio-video --json
-vg generate schema workflow-utilities/auto-subtitle --json
+vg generate schema fal-ai/mmaudio-v2 --json
+vg generate schema fal-ai/ffmpeg-api/merge-audio-video --json
+vg generate schema fal-ai/workflow-utilities/auto-subtitle --json
 ```
 
-For multi-track audio (BG music + narration + SFX), do multi-step merges or use `workflow-utilities/amix-audio` to combine audio first, then merge with video.
+For multi-track audio (BG music + narration + SFX), do multi-step merges or use `fal-ai/workflow-utilities/amix-audio` to combine audio first, then merge with video.

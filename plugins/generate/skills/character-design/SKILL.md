@@ -40,7 +40,7 @@ Only ask for missing inputs that affect identity or model routing.
 
    ```bash
    vg generate models --endpoint_id openai/gpt-image-2 --json
-   vg generate models --endpoint_id nano-banana-pro/edit --json
+   vg generate models --endpoint_id fal-ai/nano-banana-pro/edit --json
    vg generate models --endpoint_id bytedance/seedance-2.0/image-to-video --json
    vg generate models --endpoint_id veed/fabric-1.0 --json
    ```
@@ -121,12 +121,12 @@ words.
 ## Model routing
 
 - New character concept with maximum consistency: use `openai/gpt-image-2`.
-- Premium but cheaper image option: use `nano-banana-pro` or
-  `nano-banana-2`.
-- Fast exploratory drafts: use `flux-2/klein/9b`.
+- Premium but cheaper image option: use `fal-ai/nano-banana-pro` or
+  `fal-ai/nano-banana-2`.
+- Fast exploratory drafts: use `fal-ai/flux-2/klein/9b`.
 - Consistent sheet from an approved character: use `openai/gpt-image-2` first;
   if editing an existing image, inspect `openai/gpt-image-2/edit`.
-- Outfit variations and character edits: use `nano-banana-pro/edit`,
+- Outfit variations and character edits: use `fal-ai/nano-banana-pro/edit`,
   then `openai/gpt-image-2/edit`, then
   `fal-ai/bytedance/seedream/v5/lite/edit`.
 - Expression sheet: one approved face reference, multiple controlled
@@ -135,7 +135,7 @@ words.
   `bytedance/seedance-2.0/image-to-video` for final quality.
 - Fast video drafts: use `xai/grok-imagine-video/image-to-video`.
 - Talking avatar or lip-sync: use `veed/fabric-1.0`,
-  `veed/fabric-1.0/text`, or `creatify/aurora`.
+  `veed/fabric-1.0/text`, or `fal-ai/creatify/aurora`.
 
 ## Quality bar
 

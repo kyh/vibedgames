@@ -13,7 +13,7 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "clean": "rm -rf .turbo dist node_modules",
-    "test:media": "node --import tsx --test test/media-args.test.ts test/media-download.test.ts test/media-poll.test.ts test/endpoint-id.test.ts",
+    "test:media": "node --import tsx --test test/media-args.test.ts test/media-download.test.ts test/media-poll.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

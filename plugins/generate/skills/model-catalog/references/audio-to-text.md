@@ -6,35 +6,35 @@ Curated picks for STT (speech-to-text) and audio cleanup. Verify with `vg genera
 
 General-purpose speech → text.
 
-- `wizper`: Whisper v3
-- `speech-to-text`: Speech-to-Text
-- `speech-to-text/turbo`: STT Turbo
-- `speech-to-text/stream`: STT Stream
-- `speech-to-text/turbo/stream`: STT Turbo Stream
-- `elevenlabs/speech-to-text`: ElevenLabs · STT
+- `fal-ai/wizper`: Whisper v3
+- `fal-ai/speech-to-text`: Speech-to-Text
+- `fal-ai/speech-to-text/turbo`: STT Turbo
+- `fal-ai/speech-to-text/stream`: STT Stream
+- `fal-ai/speech-to-text/turbo/stream`: STT Turbo Stream
+- `fal-ai/elevenlabs/speech-to-text`: ElevenLabs · STT
 
 ## STT · Diarization (speaker labels)
 
 Transcription with speaker separation.
 
-- `elevenlabs/speech-to-text/scribe-v2`: ElevenLabs · Scribe v2
+- `fal-ai/elevenlabs/speech-to-text/scribe-v2`: ElevenLabs · Scribe v2
 
 ## Audio cleanup / separation
 
 Audio cleanup, isolation, separation.
 
-- `demucs`: Demucs (vocal/instrumental separation)
-- `elevenlabs/audio-isolation`: ElevenLabs · Audio Isolation
-- `sam-audio/separate`: Sam Audio · Separate
-- `sam-audio/span-separate`: Sam Audio · Span Separate
+- `fal-ai/demucs`: Demucs (vocal/instrumental separation)
+- `fal-ai/elevenlabs/audio-isolation`: ElevenLabs · Audio Isolation
+- `fal-ai/sam-audio/separate`: Sam Audio · Separate
+- `fal-ai/sam-audio/span-separate`: Sam Audio · Span Separate
 
 ## Common parameters
 
 Inspect schema before running:
 
 ```bash
-vg generate schema wizper --json
-vg generate schema elevenlabs/speech-to-text/scribe-v2 --json
+vg generate schema fal-ai/wizper --json
+vg generate schema fal-ai/elevenlabs/speech-to-text/scribe-v2 --json
 ```
 
 Frequently exposed:

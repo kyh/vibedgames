@@ -52,7 +52,7 @@ Ask only for missing information that changes the pipeline:
 
    ```bash
    vg generate models --endpoint_id openai/gpt-image-2 --json
-   vg generate models --endpoint_id nano-banana-pro/edit --json
+   vg generate models --endpoint_id fal-ai/nano-banana-pro/edit --json
    vg generate models --endpoint_id bytedance/seedance-2.0/image-to-video --json
    vg generate models --endpoint_id xai/grok-imagine-video/image-to-video --json
    vg generate models --endpoint_id veed/fabric-1.0 --json

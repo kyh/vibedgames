@@ -11,32 +11,32 @@ Kling is Kuaishou's video model family. Two generations are routinely useful:
 
 | Endpoint                       | Tier       |
 | ------------------------------ | ---------- |
-| `kling-image/o3/text-to-image` | Pro (only) |
+| `fal-ai/kling-image/o3/text-to-image` | Pro (only) |
 
 ### Video generation
 
 | Endpoint                                 | Tier     | Mode          |
 | ---------------------------------------- | -------- | ------------- |
-| `kling-video/o3/standard/text-to-video`  | Standard | Text → Video  |
-| `kling-video/o3/pro/text-to-video`       | Pro      | Text → Video  |
-| `kling-video/o3/standard/image-to-video` | Standard | Image → Video |
-| `kling-video/o3/pro/image-to-video`      | Pro      | Image → Video |
+| `fal-ai/kling-video/o3/standard/text-to-video`  | Standard | Text → Video  |
+| `fal-ai/kling-video/o3/pro/text-to-video`       | Pro      | Text → Video  |
+| `fal-ai/kling-video/o3/standard/image-to-video` | Standard | Image → Video |
+| `fal-ai/kling-video/o3/pro/image-to-video`      | Pro      | Image → Video |
 
 ### Video editing
 
 | Endpoint                                           | Tier     | Mode         |
 | -------------------------------------------------- | -------- | ------------ |
-| `kling-video/o3/standard/video-to-video/edit`      | Standard | Content edit |
-| `kling-video/o3/pro/video-to-video/edit`           | Pro      | Content edit |
-| `kling-video/o3/standard/video-to-video/reference` | Standard | Style remix  |
-| `kling-video/o3/pro/video-to-video/reference`      | Pro      | Style remix  |
+| `fal-ai/kling-video/o3/standard/video-to-video/edit`      | Standard | Content edit |
+| `fal-ai/kling-video/o3/pro/video-to-video/edit`           | Pro      | Content edit |
+| `fal-ai/kling-video/o3/standard/video-to-video/reference` | Standard | Style remix  |
+| `fal-ai/kling-video/o3/pro/video-to-video/reference`      | Pro      | Style remix  |
 
 ### Endpoints (Kling v3): multi-shot storytelling
 
 | Endpoint                            | Mode                                |
 | ----------------------------------- | ----------------------------------- |
-| `kling-video/v3/pro/text-to-video`  | Text → Video, supports multi-prompt |
-| `kling-video/v3/pro/image-to-video` | Image → Video                       |
+| `fal-ai/kling-video/v3/pro/text-to-video`  | Text → Video, supports multi-prompt |
+| `fal-ai/kling-video/v3/pro/image-to-video` | Image → Video                       |
 
 ## Standard vs Pro
 
@@ -78,7 +78,7 @@ SHOT 3: close-up of his hand on the sword hilt
 Inspect schema first, multi-prompt fields differ between endpoints.
 
 ```bash
-vg generate schema kling-video/v3/pro/text-to-video --json
+vg generate schema fal-ai/kling-video/v3/pro/text-to-video --json
 ```
 
 ## Camera and motion vocabulary that works

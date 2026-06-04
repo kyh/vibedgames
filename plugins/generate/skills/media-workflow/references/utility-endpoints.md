@@ -10,23 +10,23 @@ inspect schema before use.
 - `workflowutils/resize-to-max-pixels`: resize while preserving aspect ratio.
 - `workflowutils/crop-image`: crop with percentage-based coordinates.
 - `workflowutils/image-size`: return width and height.
-- `workflow-utilities/compress-image`: compress and optionally resize.
+- `fal-ai/workflow-utilities/compress-image`: compress and optionally resize.
 
 ## Image compositing and layout
 
 - `workflowutils/composite-image`: layer images together.
-- `workflow-utilities/overlay-image`: overlay with position, scale, opacity,
+- `fal-ai/workflow-utilities/overlay-image`: overlay with position, scale, opacity,
   and stroke.
-- `workflow-utilities/concat-image`: concatenate images horizontally or
+- `fal-ai/workflow-utilities/concat-image`: concatenate images horizontally or
   vertically.
-- `workflow-utilities/image-grid`: create a grid from multiple images.
-- `workflow-utilities/add-text-to-image`: add controlled text after generation.
+- `fal-ai/workflow-utilities/image-grid`: create a grid from multiple images.
+- `fal-ai/workflow-utilities/add-text-to-image`: add controlled text after generation.
 
 ## Image conversion and masks
 
 - `workflowutils/rgba-to-rgb`: convert transparent image to RGB.
-- `workflow-utilities/split`: split multiple images into individual outputs.
-- `workflow-utilities/merge`: merge multiple images into one output array.
+- `fal-ai/workflow-utilities/split`: split multiple images into individual outputs.
+- `fal-ai/workflow-utilities/merge`: merge multiple images into one output array.
 - `workflowutils/sam-hq`: segmentation masks.
 - `workflowutils/invert_mask`: invert a mask.
 - `workflowutils/blur_mask`: soften mask edges.
@@ -45,27 +45,27 @@ inspect schema before use.
 
 ## Video utilities
 
-- `workflow-utilities/overlay-video`: overlay one video on another.
-- `workflow-utilities/setpts-video`: change playback speed. Keep within
+- `fal-ai/workflow-utilities/overlay-video`: overlay one video on another.
+- `fal-ai/workflow-utilities/setpts-video`: change playback speed. Keep within
   schema bounds.
-- `workflow-utilities/add-subtitles-to-video`: add provided subtitles.
-- `workflow-utilities/auto-subtitle`: transcribe and add karaoke-style
+- `fal-ai/workflow-utilities/add-subtitles-to-video`: add provided subtitles.
+- `fal-ai/workflow-utilities/auto-subtitle`: transcribe and add karaoke-style
   subtitles.
 - `workflowutils/join-audio-video`: combine audio and video.
-- `workflow-utilities/video-to-gif`: convert video segment to GIF.
-- `workflow-utilities/gif-to-video`: convert GIF to video.
+- `fal-ai/workflow-utilities/video-to-gif`: convert video segment to GIF.
+- `fal-ai/workflow-utilities/gif-to-video`: convert GIF to video.
 
 ## Audio utilities
 
-- `workflow-utilities/extract-audio`: extract audio from video.
-- `workflow-utilities/split-audio`: split by timestamps.
-- `workflow-utilities/merge-audio`: merge files with optional gaps.
-- `workflow-utilities/amix-audio`: mix streams with weights and normalization.
+- `fal-ai/workflow-utilities/extract-audio`: extract audio from video.
+- `fal-ai/workflow-utilities/split-audio`: split by timestamps.
+- `fal-ai/workflow-utilities/merge-audio`: merge files with optional gaps.
+- `fal-ai/workflow-utilities/amix-audio`: mix streams with weights and normalization.
 
 ## Text utilities
 
-- `workflow-utilities/merge-text`: merge strings with a separator.
-- `workflow-utilities/split-text`: split text by delimiter.
+- `fal-ai/workflow-utilities/merge-text`: merge strings with a separator.
+- `fal-ai/workflow-utilities/split-text`: split text by delimiter.
 - `workflowutils/text-concat`: concatenate text, prompts, or trigger strings.
 
 ## Common utility chains

@@ -1,6 +1,6 @@
 # Virtual Try-On Recipe
 
-Use this recipe to apply a garment onto a person photo. The default endpoint is single-call (`fashn/tryon/v1.5`), but the recipe wraps it with optional pre-processing (background cleanup) and post-processing (upscale) for production-quality output.
+Use this recipe to apply a garment onto a person photo. The default endpoint is single-call (`fal-ai/fashn/tryon/v1.5`), but the recipe wraps it with optional pre-processing (background cleanup) and post-processing (upscale) for production-quality output.
 
 ## Inputs to collect
 
@@ -15,7 +15,7 @@ Use this recipe to apply a garment onto a person photo. The default endpoint is 
 URL_PERSON=$(vg generate upload ./person.jpg --json | jq -r '.url')
 URL_GARMENT=$(vg generate upload ./dress.jpg --json | jq -r '.url')
 
-vg generate run fashn/tryon/v1.5 \
+vg generate run fal-ai/fashn/tryon/v1.5 \
  --model_image "$URL_PERSON" \
  --garment_image "$URL_GARMENT" \
  --garment_type "dress" \
@@ -26,7 +26,7 @@ vg generate run fashn/tryon/v1.5 \
 Inspect schema first, field names may evolve:
 
 ```bash
-vg generate schema fashn/tryon/v1.5 --json
+vg generate schema fal-ai/fashn/tryon/v1.5 --json
 ```
 
 ## Full pipeline (pre-clean + tryon + upscale)
@@ -49,7 +49,7 @@ For background-removal endpoint discovery:
 
 ```bash
 vg generate models "background remove" --json
-vg generate models --endpoint_id bria/background/remove --json
+vg generate models --endpoint_id fal-ai/bria/background/remove --json
 ```
 
 ### Step 2: try-on
@@ -57,7 +57,7 @@ vg generate models --endpoint_id bria/background/remove --json
 ```bash
 URL_PERSON=$(vg generate upload ./person.jpg --json | jq -r '.url')
 
-RES_TRYON=$(vg generate run fashn/tryon/v1.5 \
+RES_TRYON=$(vg generate run fal-ai/fashn/tryon/v1.5 \
  --model_image "$URL_PERSON" \
  --garment_image "$URL_GARMENT_CLEAN" \
  --garment_type "top" \
@@ -111,7 +111,7 @@ Before returning:
 Always inspect:
 
 ```bash
-vg generate schema fashn/tryon/v1.5 --json
+vg generate schema fal-ai/fashn/tryon/v1.5 --json
 ```
 
 Frequently exposed:
