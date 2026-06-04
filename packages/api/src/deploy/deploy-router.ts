@@ -5,7 +5,7 @@ import { z } from "zod";
 
 import type { R2Config } from "../trpc";
 import { createTRPCRouter, protectedProcedure } from "../trpc";
-import { deletePrefix, presignPut } from "./r2-presign";
+import { deletePrefix, presignGet, presignPut } from "./r2-presign";
 import { isSlugReserved } from "./reserved-slugs";
 
 // ---- Limits ------------------------------------------------------------------
@@ -13,6 +13,13 @@ import { isSlugReserved } from "./reserved-slugs";
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB per file
 const MAX_TOTAL_SIZE = 50 * 1024 * 1024; // 50 MB per deploy
 const MAX_FILE_COUNT = 500;
+const MAX_SOURCE_SIZE = 25 * 1024 * 1024; // 25 MB for the forkable source archive
+
+/** R2 key for a deployment's forkable source archive. Lives OUTSIDE the
+ *  `games/` prefix so the public games worker never serves it. */
+function sourceKeyFor(gameId: string, deploymentId: string): string {
+  return `sources/${gameId}/${deploymentId}/source.tgz`;
+}
 
 // ---- Schemas -----------------------------------------------------------------
 
@@ -40,6 +47,14 @@ const createInput = z.object({
   slug: slugSchema,
   name: z.string().max(120).optional(),
   files: z.array(fileSchema).min(1).max(MAX_FILE_COUNT),
+  // Optional forkable source archive (tar.gz). When present we mint a second
+  // presigned PUT for it under the `sources/` prefix and record its metadata.
+  source: z
+    .object({
+      sha256: z.string().length(64),
+      bytes: z.number().int().positive().max(MAX_SOURCE_SIZE),
+    })
+    .optional(),
 });
 
 const finalizeInput = z.object({
@@ -144,6 +159,7 @@ export const deployRouter = createTRPCRouter({
       // the FK to a row we're about to delete is valid.
       if (existing?.currentDeploymentId) {
         await deletePrefix({ r2, prefix: `games/${gameId}/` });
+        await deletePrefix({ r2, prefix: `sources/${gameId}/` });
         await ctx.db
           .update(game)
           .set({ currentDeploymentId: null })
@@ -155,12 +171,15 @@ export const deployRouter = createTRPCRouter({
 
       // ---- Create pending deployment -----------------------------------------
       const deploymentId = crypto.randomUUID();
+      const sourceKey = input.source ? sourceKeyFor(gameId, deploymentId) : null;
       await ctx.db.insert(deployment).values({
         id: deploymentId,
         gameId,
         status: "pending",
         fileCount: input.files.length,
         totalBytes,
+        sourceKey,
+        sourceBytes: input.source?.bytes ?? null,
       });
 
       const fileRows = input.files.map((f) => ({
@@ -190,10 +209,19 @@ export const deployRouter = createTRPCRouter({
         })),
       );
 
+      // ---- Mint source-archive presigned PUT (forkable source) ----------------
+      const sourceUpload = sourceKey
+        ? {
+            url: await presignPut({ r2, key: sourceKey, contentType: "application/gzip" }),
+            headers: { "content-type": "application/gzip" },
+          }
+        : null;
+
       return {
         deploymentId,
         gameId,
         uploads,
+        sourceUpload,
       };
     }),
 
@@ -245,6 +273,45 @@ export const deployRouter = createTRPCRouter({
     }),
 
   /**
+   * Resolve a slug's current source archive to a short-lived download URL.
+   * Source is forkable by default: any authenticated user may fork any
+   * project that shipped source (login required, not ownership). Throws
+   * NOT_FOUND if the slug has no deployment or that deployment shipped none.
+   */
+  getSource: protectedProcedure
+    .input(z.object({ slug: slugSchema }))
+    .query(async ({ ctx, input }) => {
+      const r2 = requireR2(ctx.r2);
+
+      const g = await ctx.db.query.game.findFirst({
+        where: eq(game.slug, input.slug),
+      });
+      if (!g?.currentDeploymentId) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: `No live deployment for "${input.slug}".`,
+        });
+      }
+
+      const dep = await ctx.db.query.deployment.findFirst({
+        where: eq(deployment.id, g.currentDeploymentId),
+      });
+      if (!dep?.sourceKey) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: `"${input.slug}" was deployed without source, so it can't be forked.`,
+        });
+      }
+
+      return {
+        url: await presignGet({ r2, key: dep.sourceKey, expiresInSeconds: 3600 }),
+        slug: g.slug,
+        name: g.name,
+        bytes: dep.sourceBytes ?? null,
+      };
+    }),
+
+  /**
    * List the authenticated user's games.
    */
   list: protectedProcedure.query(async ({ ctx }) => {
@@ -273,6 +340,7 @@ export const deployRouter = createTRPCRouter({
       }
 
       await deletePrefix({ r2, prefix: `games/${g.id}/` });
+      await deletePrefix({ r2, prefix: `sources/${g.id}/` });
       await ctx.db.delete(game).where(eq(game.id, g.id));
 
       return { success: true };

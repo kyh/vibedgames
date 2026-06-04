@@ -136,10 +136,66 @@ export async function verifyProxyUploadUrl({
   return null;
 }
 
+/** Build the message that gets HMAC-signed for a proxy download URL. */
+function proxyDownloadMessage(key: string, exp: number): string {
+  return `GET\n${key}\n${exp}`;
+}
+
+async function signProxyDownloadUrl({
+  baseUrl,
+  key,
+  secret,
+  expiresInSeconds,
+}: {
+  baseUrl: string;
+  key: string;
+  secret: string;
+  expiresInSeconds: number;
+}): Promise<string> {
+  const exp = Math.floor(Date.now() / 1000) + expiresInSeconds;
+  const sig = await hmacSha256Hex(secret, proxyDownloadMessage(key, exp));
+  const url = new URL("/api/r2-download", baseUrl);
+  url.searchParams.set("key", key);
+  url.searchParams.set("exp", String(exp));
+  url.searchParams.set("sig", sig);
+  return url.toString();
+}
+
+/**
+ * Validate a proxy download URL's signature. Returns null when valid, an
+ * error message otherwise. Mirrors `verifyProxyUploadUrl` for GETs.
+ */
+export async function verifyProxyDownloadUrl({
+  key,
+  exp,
+  sig,
+  secret,
+}: {
+  key: string;
+  exp: number;
+  sig: string;
+  secret: string;
+}): Promise<string | null> {
+  const now = Math.floor(Date.now() / 1000);
+  if (!Number.isFinite(exp) || exp <= now) return "expired";
+  const expected = await hmacSha256Hex(secret, proxyDownloadMessage(key, exp));
+  if (expected.length !== sig.length) return "bad signature";
+  let mismatch = 0;
+  for (let i = 0; i < expected.length; i++) {
+    mismatch |= expected.charCodeAt(i) ^ sig.charCodeAt(i);
+  }
+  if (mismatch !== 0) return "bad signature";
+  return null;
+}
+
 /**
  * Mint a presigned GET URL for a single R2 object. Used to hand the CLI a
- * short-lived link to download a generated image without round-tripping bytes
- * through the tRPC response.
+ * short-lived link to download a generated image or a source archive without
+ * round-tripping bytes through the tRPC response.
+ *
+ * When `r2.proxyUploadBaseUrl` is set (local dev), returns a worker-proxy URL
+ * so the download reads from the Miniflare-simulated bucket binding rather
+ * than direct S3 against prod R2.
  */
 export async function presignGet({
   r2,
@@ -150,6 +206,15 @@ export async function presignGet({
   key: string;
   expiresInSeconds?: number;
 }): Promise<string> {
+  if (r2.proxyUploadBaseUrl && r2.proxyUploadSecret) {
+    return signProxyDownloadUrl({
+      baseUrl: r2.proxyUploadBaseUrl,
+      key,
+      secret: r2.proxyUploadSecret,
+      expiresInSeconds,
+    });
+  }
+
   const client = new AwsClient({
     accessKeyId: r2.accessKeyId,
     secretAccessKey: r2.secretAccessKey,

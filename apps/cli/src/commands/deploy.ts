@@ -1,11 +1,14 @@
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 
 import { defineCommand } from "citty";
 import consola from "consola";
 
 import { createClient } from "../lib/api.js";
+import { packSource, type SourceArchive } from "../lib/archive.js";
 import {
+  findProjectRoot,
   projectConfigPath,
   readProjectConfig,
   writeProjectConfig,
@@ -32,6 +35,11 @@ export const deployCommand = defineCommand({
       type: "string",
       description: "Override the slug (bypasses vibedgames.json)",
       required: false,
+    },
+    source: {
+      type: "boolean",
+      description: "Upload a forkable source archive alongside the build (use --no-source to skip).",
+      default: true,
     },
   },
   run: async ({ args }) => {
@@ -101,6 +109,25 @@ export const deployCommand = defineCommand({
       `Deploying ${config.slug}: ${manifest.length} files, ${formatBytes(totalBytes)}`,
     );
 
+    // ---- Pack forkable source (default on; --no-source to skip) -------------
+    let sourceArchive: SourceArchive | null = null;
+    if (args.source) {
+      const root = findProjectRoot(dir);
+      if (!root) {
+        consola.warn("No vibedgames.json found above the deploy dir — skipping source upload.");
+      } else {
+        try {
+          sourceArchive = await packSource(root, join(tmpdir(), "vibedgames"));
+          consola.info(
+            `Source: ${sourceArchive.files.length} files, ${formatBytes(sourceArchive.bytes)} — forkable via \`vg fork ${config.slug}\``,
+          );
+        } catch (err) {
+          consola.error(`Source archive failed: ${err instanceof Error ? err.message : String(err)}`);
+          process.exit(1);
+        }
+      }
+    }
+
     // ---- Create deployment --------------------------------------------------
     const client = createClient();
     const started = Date.now();
@@ -116,8 +143,12 @@ export const deployCommand = defineCommand({
           sha256: f.sha256,
           contentType: f.contentType,
         })),
+        source: sourceArchive
+          ? { sha256: sourceArchive.sha256, bytes: sourceArchive.bytes }
+          : undefined,
       });
     } catch (err) {
+      if (sourceArchive) rmSync(sourceArchive.path, { force: true });
       consola.error(err instanceof Error ? err.message : String(err));
       process.exit(1);
     }
@@ -135,8 +166,30 @@ export const deployCommand = defineCommand({
         },
       });
     } catch (err) {
+      if (sourceArchive) rmSync(sourceArchive.path, { force: true });
       consola.error(err instanceof Error ? err.message : String(err));
       process.exit(1);
+    }
+
+    // ---- Upload source archive (best-effort companion to the bundle) -------
+    if (sourceArchive && created.sourceUpload) {
+      try {
+        const res = await fetch(created.sourceUpload.url, {
+          method: "PUT",
+          headers: created.sourceUpload.headers,
+          body: readFileSync(sourceArchive.path),
+        });
+        if (!res.ok) {
+          throw new Error(`source upload failed: ${res.status} ${res.statusText}`);
+        }
+      } catch (err) {
+        rmSync(sourceArchive.path, { force: true });
+        consola.error(err instanceof Error ? err.message : String(err));
+        process.exit(1);
+      }
+      rmSync(sourceArchive.path, { force: true });
+    } else if (sourceArchive) {
+      rmSync(sourceArchive.path, { force: true });
     }
 
     // ---- Finalize -----------------------------------------------------------

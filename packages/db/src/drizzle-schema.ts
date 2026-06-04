@@ -100,6 +100,11 @@ export const deployment = sqliteTable(
     status: text("status", { enum: ["pending", "ready", "failed"] }).notNull(),
     fileCount: integer("file_count").notNull(),
     totalBytes: integer("total_bytes").notNull(),
+    // Optional source archive (tar.gz) for forking, stored OUTSIDE the served
+    // bundle prefix at `sources/{gameId}/{deploymentId}/source.tgz`. Null when
+    // a deploy shipped no source (e.g. `vg deploy --no-source`).
+    sourceKey: text("source_key"),
+    sourceBytes: integer("source_bytes"),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
       .notNull(),

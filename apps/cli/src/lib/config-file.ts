@@ -22,6 +22,13 @@ function findConfigPath(dir: string): string | null {
   }
 }
 
+/** The directory containing the nearest vibedgames.json at or above `dir`,
+ *  or null if none — i.e. the project root to archive as forkable source. */
+export function findProjectRoot(dir: string): string | null {
+  const path = findConfigPath(dir);
+  return path ? dirname(path) : null;
+}
+
 export function readProjectConfig(dir: string): ProjectConfig | null {
   const path = findConfigPath(dir);
   if (!path) return null;

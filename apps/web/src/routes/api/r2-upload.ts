@@ -4,7 +4,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { getServerContext } from "@/auth/server";
 import { getCloudflareEnv } from "@/lib/cloudflare";
 
-const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+// Bundle files cap at 10 MB each (enforced in the deploy router), but the
+// source archive rides the same proxy and can be larger — allow up to the
+// server-side source cap.
+const MAX_UPLOAD_BYTES = 30 * 1024 * 1024;
 
 function badRequest(message: string): Response {
   return new Response(message, { status: 400 });

@@ -5,6 +5,7 @@ import { defineCommand, runMain } from "citty";
 
 import { completionsCommand } from "./commands/completions.js";
 import { deployCommand } from "./commands/deploy.js";
+import { forkCommand } from "./commands/fork.js";
 import { initCommand } from "./commands/init.js";
 import { loginCommand } from "./commands/login.js";
 import { logoutCommand } from "./commands/logout.js";
@@ -28,6 +29,7 @@ const main = defineCommand({
     login: loginCommand,
     logout: logoutCommand,
     deploy: deployCommand,
+    fork: forkCommand,
     media: mediaCommand,
     completions: completionsCommand,
     whoami: whoamiCommand,
