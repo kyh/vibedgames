@@ -13,7 +13,8 @@
 - **CLI auth uses device-code flow.** CLI shows 6-char code → user confirms in browser → CLI polls for token. Not OAuth.
 - **Multiplayer is host-authoritative, last-write-wins.** No conflict resolution. First player becomes host; if host leaves, reassigns. Good for turn-based and host-controlled games.
 - **Deploy on push to main.** GitHub Actions detects changed apps and deploys via wrangler. Never run `wrangler deploy` locally.
-- **Media goes through fal.** `vg media` mirrors the [genmedia CLI](https://github.com/fal-ai-community/genmedia-cli) surface (`run`, `models`, `schema`, `upload`, `pricing`, `status`, `docs`). The server holds `FAL_API_KEY`; the CLI proxies through tRPC. Skills under `plugins/media/skills/` are a hard fork of [fal-ai-community/skills](https://github.com/fal-ai-community/skills), rewritten to call `vg media` directly — there is no `genmedia` shim. There's no per-provider routing — fal is a gateway to OpenAI, Veo, Sora, Kling, Flux, ElevenLabs, Retro Diffusion, etc.
+- **Media goes through fal (internal only).** `vg media` exposes `run`, `models`, `schema`, `upload`, `pricing`, `status`, `docs`. The server holds `FAL_API_KEY`; the CLI proxies through tRPC. fal is a gateway to OpenAI, Veo, Sora, Kling, Flux, ElevenLabs, Retro Diffusion, etc. — there's no per-provider routing. **End-user-facing surfaces (the `vg media` CLI help and the skills under `plugins/media/skills/`) must not name fal.** To the user this is just a CLI that generates assets; "fal" stays an implementation detail. Keep this boundary when editing skills or CLI help — branding belongs in code comments and this file, not in user-facing text.
+- **Endpoint IDs drop the `fal-ai/` owner prefix.** `apps/cli/src/lib/endpoint-id.ts` resolves a short id (`flux/dev`) to the upstream form (`fal-ai/flux/dev`) on the way out and strips it back on the way in, so command examples and `vg media models` output read clean. The prefix is kept where stripping would be ambiguous (a sub-namespace that collides with a standalone owner, e.g. `fal-ai/bytedance/…` vs top-level `bytedance/…`). Other owner namespaces (`openai/`, `veed/`, `workflows/`, …) round-trip untouched.
 
 ## Tech Stack
 
@@ -92,11 +93,13 @@ pnpm db:local  # push schema to local D1 + seed dev identity
 ```
 
 `db:seed-local` runs `packages/db/seed.sql`, creating:
+
 - dev user `dev@vibedgames.local` (role `admin`)
 - invite code `DEV123`
 - a long-lived session, token `dev-local-session-token-0000000000`
 
 Authenticate headlessly (no browser):
+
 - **CLI:** `VG_API_URL=http://localhost:5173 VG_TOKEN=dev-local-session-token-0000000000 vg <cmd>` — `VG_TOKEN` overrides the saved login without clobbering `~/.config/vg/auth.json`.
 - **tRPC/HTTP:** `Authorization: Bearer dev-local-session-token-0000000000`.
 - **Web UI:** sign up a real account to get a real session cookie — `curl -X POST localhost:5173/api/auth/sign-up/email -H 'Origin: http://localhost:5173' -H 'Content-Type: application/json' -d '{"email":"...","password":"...","name":"x","inviteCode":"DEV123"}'` returns `Set-Cookie: better-auth.session_token=...` (and a `set-auth-token` bearer). Feed the cookie to Playwright's context. (No hand-signing — the seeded session is for the bearer paths; the cookie comes from the real signup/signin flow.)

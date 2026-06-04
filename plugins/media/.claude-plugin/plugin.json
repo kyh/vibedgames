@@ -1,6 +1,6 @@
 {
   "name": "media",
-  "description": "Generate images, video, and audio with fal.ai, OpenAI GPT Image, Sora, and ElevenLabs.",
+  "description": "Generate game-ready images, video, audio, and 3D assets with the vg media CLI — characters, cinematics, sprites, and voiceover.",
   "version": "1.0.0",
   "author": {
     "name": "vibedgames"

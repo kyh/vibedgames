@@ -4,34 +4,34 @@
 
 ## 15 second social ad
 
-| Shot | Time | Purpose | Visual role |
-| --- | --- | --- | --- |
-| 1 | 0-2s | Hook | striking product or problem image |
-| 2 | 2-6s | Context | product in use or character reaction |
-| 3 | 6-11s | Proof | feature, texture, process, result |
-| 4 | 11-15s | Close | memorable final frame with safe space |
+| Shot | Time   | Purpose | Visual role                           |
+| ---- | ------ | ------- | ------------------------------------- |
+| 1    | 0-2s   | Hook    | striking product or problem image     |
+| 2    | 2-6s   | Context | product in use or character reaction  |
+| 3    | 6-11s  | Proof   | feature, texture, process, result     |
+| 4    | 11-15s | Close   | memorable final frame with safe space |
 
 ## 30 second commercial
 
-| Shot | Time | Purpose | Visual role |
-| --- | --- | --- | --- |
-| 1 | 0-3s | Hook | image that defines the world |
-| 2 | 3-7s | Product or hero | show subject clearly |
-| 3 | 7-13s | Benefit | action, feature, transformation |
-| 4 | 13-20s | Lifestyle or proof | real context, emotion, result |
-| 5 | 20-27s | Escalation | strongest beauty or motion shot |
-| 6 | 27-30s | End frame | clean brand-safe final composition |
+| Shot | Time   | Purpose            | Visual role                        |
+| ---- | ------ | ------------------ | ---------------------------------- |
+| 1    | 0-3s   | Hook               | image that defines the world       |
+| 2    | 3-7s   | Product or hero    | show subject clearly               |
+| 3    | 7-13s  | Benefit            | action, feature, transformation    |
+| 4    | 13-20s | Lifestyle or proof | real context, emotion, result      |
+| 5    | 20-27s | Escalation         | strongest beauty or motion shot    |
+| 6    | 27-30s | End frame          | clean brand-safe final composition |
 
 ## Short cinematic scene
 
-| Shot | Purpose |
-| --- | --- |
-| Establishing | where the scene happens and mood |
-| Character reveal | who matters |
-| Action beat | what changes |
-| Reaction | emotional consequence |
-| Detail insert | object, clue, texture, proof |
-| Resolution | new state or unanswered tension |
+| Shot             | Purpose                          |
+| ---------------- | -------------------------------- |
+| Establishing     | where the scene happens and mood |
+| Character reveal | who matters                      |
+| Action beat      | what changes                     |
+| Reaction         | emotional consequence            |
+| Detail insert    | object, clue, texture, proof     |
+| Resolution       | new state or unanswered tension  |
 
 ## Continuity anchors
 

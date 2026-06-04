@@ -48,8 +48,8 @@ Use when the model supports only one shot at a time.
 
 ## Audio narrative
 
-1. Search for narration, music, or sound generation models with `genmedia
-   models`.
+1. Search for narration, music, or sound generation models with `vg media
+models`.
 2. Inspect schema and run audio jobs with `--download`.
 3. Use transcript or beat timing to set shot durations.
 4. Return audio path and visual clip paths separately unless a model produces

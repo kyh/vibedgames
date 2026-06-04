@@ -1,12 +1,12 @@
 ---
 name: cinematography
 description: >
-  Design cinematic image and video prompts for genmedia. Use this for shot
+  Design cinematic image and video prompts for `vg media`. Use this for shot
   language, camera movement, lighting, lens choices, color grade, film texture,
   scene blocking, and production-ready visual direction.
 ---
 
-# Cinematography with genmedia
+# Cinematography with `vg media`
 
 Use this skill when the user needs cinematic direction, not generic "make it
 cinematic" prompting. Load references as needed:
@@ -40,7 +40,7 @@ Ask only for what affects the shot:
 
    ```bash
    vg media models --endpoint_id openai/gpt-image-2 --json
-   vg media models --endpoint_id fal-ai/nano-banana-pro --json
+   vg media models --endpoint_id nano-banana-pro --json
    vg media models --endpoint_id bytedance/seedance-2.0/text-to-video --json
    vg media models --endpoint_id bytedance/seedance-2.0/image-to-video --json
    vg media models --endpoint_id xai/grok-imagine-video/text-to-video --json
@@ -115,8 +115,8 @@ Example structure:
 
 - Premium realistic still: use `openai/gpt-image-2`.
 - Premium stylized still: use `openai/gpt-image-2`, then
-  `fal-ai/nano-banana-pro`, then `fal-ai/nano-banana-2`.
-- Fast draft still: use `fal-ai/flux-2/klein/9b`.
+  `nano-banana-pro`, then `nano-banana-2`.
+- Fast draft still: use `flux-2/klein/9b`.
 - Highest quality video: use `bytedance/seedance-2.0/text-to-video` or
   `bytedance/seedance-2.0/image-to-video`.
 - Motion from a strong frame: use `bytedance/seedance-2.0/image-to-video`.

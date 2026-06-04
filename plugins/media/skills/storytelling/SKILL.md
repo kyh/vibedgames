@@ -1,12 +1,12 @@
 ---
 name: storytelling
 description: >
-  Build multi-shot narrative image, video, and audio workflows with genmedia.
+  Build multi-shot narrative image, video, and audio workflows with `vg media`.
   Use this for storyboards, shot lists, multi-prompt video, first-frame to
   last-frame pipelines, social stories, brand films, and sequence continuity.
 ---
 
-# Storytelling with genmedia
+# Storytelling with `vg media`
 
 Use this skill when the user wants a sequence, not a single asset. Load
 references as needed:
@@ -42,7 +42,7 @@ Ask only when missing information affects execution.
    vg media models --endpoint_id bytedance/seedance-2.0/text-to-video --json
    vg media models --endpoint_id bytedance/seedance-2.0/image-to-video --json
    vg media models --endpoint_id bytedance/seedance-2.0/reference-to-video --json
-   vg media models --endpoint_id fal-ai/kling-video/v3/pro/text-to-video --json
+   vg media models --endpoint_id kling-video/v3/pro/text-to-video --json
    vg media models --endpoint_id alibaba/happy-horse/text-to-video --json
    vg media models --endpoint_id veed/fabric-1.0 --json
    ```
@@ -72,7 +72,6 @@ Ask only when missing information affects execution.
    ```
 
 4. Choose the sequence route.
-
    - Highest quality video: start with Seedance 2.0 endpoints from
      `model-routing`.
    - Native multi-prompt: use if schema has shot arrays, prompt lists, or
@@ -143,14 +142,14 @@ or timeline prompting.
 - Fast or lower-cost video: `xai/grok-imagine-video/text-to-video` or
   `xai/grok-imagine-video/image-to-video`.
 - Multi-shot sequence: Seedance 2.0 first, then
-  `fal-ai/kling-video/v3/pro/text-to-video`, then
-  `fal-ai/kling-video/v3/pro/image-to-video`, then
+  `kling-video/v3/pro/text-to-video`, then
+  `kling-video/v3/pro/image-to-video`, then
   `alibaba/happy-horse/text-to-video` or
   `alibaba/happy-horse/image-to-video`.
 - Text-heavy keyframes, boards, UI frames, posters, or infographics:
   `openai/gpt-image-2` at `quality=high`.
 - Talking avatar, native audio, or lip-sync:
-  `veed/fabric-1.0`, `veed/fabric-1.0/text`, or `fal-ai/creatify/aurora`.
+  `veed/fabric-1.0`, `veed/fabric-1.0/text`, or `creatify/aurora`.
 
 ## Quality bar
 

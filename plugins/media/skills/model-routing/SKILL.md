@@ -1,13 +1,13 @@
 ---
 name: model-routing
 description: >
-  Choose default fal.ai endpoint IDs for the production skills in this
+  Choose default model endpoint IDs for the production skills in this
   plugin. Use this with character-design, cinematography, storytelling,
-  fal-gamedev, fal-regenerate-3d, and genmedia-workflow when the user
+  pixel-art, regenerate-3d, and media-workflow when the user
   has not named a specific model.
 ---
 
-# Genmedia model routing
+# Model routing
 
 Use these endpoint defaults when a domain skill needs a model. These choices
 come from project-specific guidance. Still run `vg media schema <endpoint_id>
@@ -37,7 +37,7 @@ inside the image must be accurate.
    - Use `quality=high`.
    - Prefer 2K or 4K custom `image_size` when the final must be detailed.
    - Treat as expensive. Do not use it for cheap drafts.
-2. `fal-ai/nano-banana-pro`
+2. `nano-banana-pro`
    - Use as the second choice when text is important but GPT Image 2 is not
      available or the user accepts a lower ceiling.
 
@@ -50,14 +50,14 @@ cinematic keyframes, and high-quality visual concepts.
 
 - More realistic output: `openai/gpt-image-2`.
 - High-quality styled output: `openai/gpt-image-2`.
-- One step down: `fal-ai/nano-banana-pro`.
-- Strong cheaper alternative: `fal-ai/nano-banana-2`.
+- One step down: `nano-banana-pro`.
+- Strong cheaper alternative: `nano-banana-2`.
 
 ### Fast draft images
 
 Use for quick concepts, mood options, rough composition, and cheap iteration.
 
-- `fal-ai/flux-2/klein/9b`
+- `flux-2/klein/9b`
 
 Do not use fast draft output as final commercial delivery unless the user asks.
 
@@ -66,16 +66,16 @@ Do not use fast draft output as final commercial delivery unless the user asks.
 Use for background replacement, relighting, cleanup, object changes, product
 placement, outfit changes, character edits, and multi-image composition.
 
-1. `fal-ai/nano-banana-pro/edit`
+1. `nano-banana-pro/edit`
 2. `openai/gpt-image-2/edit`
 3. `fal-ai/bytedance/seedream/v5/lite/edit`
 
 For product fidelity, also consider:
 
-- `fal-ai/nano-banana-pro`
-- `fal-ai/nano-banana-2`
+- `nano-banana-pro`
+- `nano-banana-2`
 - `fal-ai/bytedance/seedream/v5/lite/text-to-image`
-- `fal-ai/nano-banana-2/edit`
+- `nano-banana-2/edit`
 
 For consistent characters, use `openai/gpt-image-2` first. If editing an
 existing character image, inspect `openai/gpt-image-2/edit`.
@@ -112,8 +112,8 @@ Use in this order:
 1. `bytedance/seedance-2.0/text-to-video`
 2. `bytedance/seedance-2.0/image-to-video`
 3. `bytedance/seedance-2.0/reference-to-video`
-4. `fal-ai/kling-video/v3/pro/text-to-video`
-5. `fal-ai/kling-video/v3/pro/image-to-video`
+4. `kling-video/v3/pro/text-to-video`
+5. `kling-video/v3/pro/image-to-video`
 6. `alibaba/happy-horse/text-to-video`
 7. `alibaba/happy-horse/image-to-video`
 
@@ -130,7 +130,7 @@ UGC-style presenters, and lip-sync from an image plus audio or text.
    - Image plus uploaded audio.
 2. `veed/fabric-1.0/text`
    - Image plus text speech.
-3. `fal-ai/creatify/aurora`
+3. `creatify/aurora`
    - Avatar video from image plus audio, with optional visual direction.
 
 ## Campaign and UGC routing
@@ -143,10 +143,10 @@ social content.
 - Campaign key art, landing heroes, posters, text-heavy ads, app visuals, and
   exact-copy layouts: `openai/gpt-image-2` at `quality=high`.
 - Premium still variants: `openai/gpt-image-2`, then
-  `fal-ai/nano-banana-pro`, then `fal-ai/nano-banana-2`.
+  `nano-banana-pro`, then `nano-banana-2`.
 - Edits from product, logo, UI, or lifestyle references:
-  `fal-ai/nano-banana-pro/edit`, then `openai/gpt-image-2/edit`.
-- Fast variant exploration: `fal-ai/flux-2/klein/9b`.
+  `nano-banana-pro/edit`, then `openai/gpt-image-2/edit`.
+- Fast variant exploration: `flux-2/klein/9b`.
 - Product reveal or social campaign video:
   `bytedance/seedance-2.0/image-to-video`.
 - Text-to-video campaign concept: `bytedance/seedance-2.0/text-to-video`.
@@ -155,8 +155,8 @@ social content.
 
 - Portrait plus audio talking head: `veed/fabric-1.0`.
 - Portrait plus text talking head: `veed/fabric-1.0/text`.
-- Avatar with visual direction: `fal-ai/creatify/aurora`.
-- Existing footage with new speech: `fal-ai/sync-lipsync/v2`.
+- Avatar with visual direction: `creatify/aurora`.
+- Existing footage with new speech: `sync-lipsync/v2`.
 - Product b-roll: `bytedance/seedance-2.0/image-to-video`.
 - Fast b-roll draft: `xai/grok-imagine-video/image-to-video`.
 

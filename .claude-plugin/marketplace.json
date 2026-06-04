@@ -12,7 +12,7 @@
     {
       "name": "game-art",
       "source": "./plugins/game-art",
-      "description": "Create and process game art with Retro Diffusion pixel art, Aseprite, and asset pipeline tools"
+      "description": "Build and refine 2D pixel-art and sprite assets: animated spritesheets, Aseprite parsing, sprite-sheet pipelines, and pixel-grid snapping"
     },
     {
       "name": "game-features",
@@ -22,7 +22,7 @@
     {
       "name": "media",
       "source": "./plugins/media",
-      "description": "Generate images, video, and audio with fal.ai, OpenAI GPT Image, Sora, and ElevenLabs"
+      "description": "Generate game-ready images, video, audio, and 3D assets with the vg media CLI — characters, cinematics, sprites, and voiceover"
     },
     {
       "name": "tooling",
