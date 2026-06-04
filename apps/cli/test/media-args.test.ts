@@ -47,7 +47,7 @@ test("parseRunInput skips known global flags but keeps their value-bearing neigh
 
 test("parseRunInput passes --logs N through as a model parameter", () => {
   // Some fal endpoints accept a `logs` parameter; --logs is NOT a
-  // `vg media run` CLI flag, only `vg media status` has it. Make sure
+  // `vg generate run` CLI flag, only `vg generate status` has it. Make sure
   // we don't swallow it.
   assert.deepEqual(parseRunInput(["--prompt", "x", "--logs", "5"]), {
     prompt: "x",
@@ -159,7 +159,7 @@ test("readExplicitLocalFile infers content type via extname (handles dotted dire
 });
 
 test("readExplicitLocalFile accepts bare non-media filenames (3D/audio/etc)", () => {
-  // `vg media upload model.glb` from cwd must work even though .glb
+  // `vg generate upload model.glb` from cwd must work even though .glb
   // isn't a known media extension — the upload command is an explicit
   // user intent.
   const dir = makeTmpDir(cleanups, "vg-explicit-");

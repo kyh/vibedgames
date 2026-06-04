@@ -55,7 +55,7 @@ export async function waitForCompletion(
       throw new Error(
         `Job did not complete within ${POLL_TIMEOUT_MS}ms ` +
           `(endpoint=${endpoint_id} request_id=${request_id}). ` +
-          `Use \`vg media status ${endpoint_id} ${request_id} --result\` to check later.`,
+          `Use \`vg generate status ${endpoint_id} ${request_id} --result\` to check later.`,
       );
     }
     const raw = await client.media.forward.mutate({

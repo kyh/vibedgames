@@ -73,7 +73,7 @@ The archive is the **project root** (the directory containing
   versions (e.g. `@vibedgames/multiplayer: ^<latest>`) before `npm install`.
   Normal standalone projects fork and install cleanly.
 - **Source size cap** is 25 MB (archived). Keep large generated assets in
-  `.gitignore` if they blow past it; regenerate them via `vg media`.
+  `.gitignore` if they blow past it; regenerate them via `vg generate`.
 
 ## Deploy
 

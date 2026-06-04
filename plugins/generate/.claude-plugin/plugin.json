@@ -1,0 +1,8 @@
+{
+  "name": "generate",
+  "description": "Generate game-ready assets — images, video, audio, 3D, characters, cinematics, sprites, voiceover — with the vg generate CLI.",
+  "version": "1.0.0",
+  "author": {
+    "name": "vibedgames"
+  }
+}

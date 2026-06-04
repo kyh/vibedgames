@@ -102,7 +102,7 @@ new Phaser.Game({
 
 **Engine version pin.** Always pin `phaser@^4` explicitly — npm's `latest` may flip back to `phaser@3.x` if 4.x sees a regression. Don't rely on `phaser` alone resolving to v4.
 
-**No image assets yet?** Build textures procedurally in `BootScene.preload()` with `this.add.graphics()` + `generateTexture("key", w, h)` so the loop runs before any art exists. Replace later with real sprites (e.g. via `vg media`).
+**No image assets yet?** Build textures procedurally in `BootScene.preload()` with `this.add.graphics()` + `generateTexture("key", w, h)` so the loop runs before any art exists. Replace later with real sprites (e.g. via `vg generate`).
 
 ## Architecture Decisions (Make Early)
 

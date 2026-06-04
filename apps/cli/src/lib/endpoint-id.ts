@@ -1,6 +1,6 @@
 // Endpoint-id aliasing.
 //
-// `vg media` is a generative-asset CLI. Most model endpoints live under a
+// `vg generate` is a generative-asset CLI. Most model endpoints live under a
 // single default owner namespace, which is an implementation detail users
 // shouldn't have to type or read. So the CLI speaks two forms:
 //

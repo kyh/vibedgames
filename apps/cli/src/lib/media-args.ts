@@ -5,7 +5,7 @@ import { basename, extname, isAbsolute, join, resolve } from "node:path";
 // `--json`/`--help`/`--quiet` are global; `--async` switches the run path
 // in citty; `--download` takes an optional template. None of them should
 // leak through to fal as model parameters. `--logs` is intentionally NOT
-// here: it's a `vg media status` flag, not a `run` flag, so swallowing it
+// here: it's a `vg generate status` flag, not a `run` flag, so swallowing it
 // would block users from passing a legitimate `logs` parameter to a
 // model endpoint.
 const RUN_RESERVED_FLAGS = new Set(["--json", "--help", "--quiet", "--async", "--download"]);
@@ -95,7 +95,7 @@ export type LocalFile = {
 
 /**
  * Probe a path the user explicitly asked us to read (e.g.
- * `vg media upload <path>`). Skips the path-shape heuristic so a bare
+ * `vg generate upload <path>`). Skips the path-shape heuristic so a bare
  * filename with a non-media extension — `model.glb`, `scene.fbx`,
  * `data.ply`, even `LICENSE` — still works.
  */
