@@ -18,14 +18,14 @@ ship before the juice pass.
 1. **Scaffold.** `vg new <slug> --engine phaser` for 2D, `--engine threejs` for
    3D. (See the `phaser` / `threejs` skills.) The template is a skeleton, not a
    game — you will replace its placeholder scene and logo.
-2. **Generate the art FIRST** (see `fal-gamedev`). Order matters:
+2. **Generate the art FIRST** (see `pixel-art`). Order matters:
    - hero character → directional walk sheets (`walk-down/up/side`, left =
      mirror) → background-remove (Bria) → normalize to exact power-of-two frames.
    - enemies / pickups / projectiles.
    - **impact + ability VFX on PURE BLACK** (slash arcs, explosions, muzzle
      flashes) — render them with `BlendModes.ADD` so black is free transparency,
      no alpha pass needed. A generated video → ffmpeg frame strip makes great
-     fire/explosion (see `fal-gamedev` Recipe 5).
+     fire/explosion (see `pixel-art` Recipe 5).
    - ground/tiles or a parallax/arena backdrop.
    Replace the template's logo/bg — never ship placeholder art.
 3. **Core loop with the proven shell** (see `phaser`): full-screen
@@ -73,7 +73,7 @@ damage). Each is a few lines; together they're the whole difference.
   hero and enemies read BIG — a too-wide camera makes everything feel small and
   floaty. Show ~9–12 character-heights tall.
 - **Easing everywhere**: tween with `Sine/Quad/Back/Cubic`, never linear pops.
-- **Sound** (optional but huge): generate SFX/music with `vg media` (fal audio
+- **Sound** (optional but huge): generate SFX/music with `vg generate` (audio
   models) — a hit thwack, a death pop, a loop — and play on the same events.
 - **Readable HUD**: monospace/tabular numbers, hearts for HP, a clear
   win/lose banner. Surface connection state for multiplayer.
@@ -86,7 +86,7 @@ damage). Each is a few lines; together they're the whole difference.
 - A **fixed tiny canvas** or a too-wide camera — the action feels small. Go
   full-screen with a tight follow camera.
 - Loading AI sprite sheets **without exact frame dims** (jitter/garbage frames)
-  — normalize to power-of-two cells first (`fal-gamedev`, `asset-pipeline`).
+  — normalize to power-of-two cells first (`pixel-art`, `asset-pipeline`).
 - Linear tweens and instant state changes — no anticipation or follow-through.
 - Judging "done" from a static screenshot. **Play it in motion** before shipping.
 
