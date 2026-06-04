@@ -29,7 +29,7 @@ vg deploy [dir]       # deploy a game directory (reads vibedgames.json or --slug
 ## Using with Claude Code
 
 Run `vg init` in your project to drop the full set of game-building skills
-(Phaser, Three.js, Aseprite, fal.ai, deploy, etc.) into `./.claude/skills/`.
+(Phaser, Three.js, Aseprite, asset generation, deploy, etc.) into `./.claude/skills/`.
 Claude picks them up automatically on next session.
 
 ## How deploy works

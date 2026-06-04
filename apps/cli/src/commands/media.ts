@@ -2,11 +2,8 @@ import { defineCommand } from "citty";
 import consola from "consola";
 
 import { createClient } from "../lib/api.js";
-import {
-  parseDownloadFlag,
-  parseRunInput,
-  readExplicitLocalFile,
-} from "../lib/media-args.js";
+import { displayEndpointId, resolveEndpointId } from "../lib/endpoint-id.js";
+import { parseDownloadFlag, parseRunInput, readExplicitLocalFile } from "../lib/media-args.js";
 import { downloadMedia, extractMediaRefs } from "../lib/media-download.js";
 import { endpointPath, queueAppId, waitForCompletion } from "../lib/media-poll.js";
 import { uploadFile } from "../lib/media-upload.js";
@@ -24,8 +21,7 @@ function buildActionFields(
   if (action === "status" && isRecord(data)) {
     return {
       status: typeof data.status === "string" ? data.status : undefined,
-      queue_position:
-        typeof data.queue_position === "number" ? data.queue_position : undefined,
+      queue_position: typeof data.queue_position === "number" ? data.queue_position : undefined,
       logs: data.logs,
     };
   }
@@ -47,12 +43,12 @@ function extractMediaUrls(result: unknown): string[] {
 // ---- run --------------------------------------------------------------------
 
 const runCommand = defineCommand({
-  meta: { name: "run", description: "Run a fal model (waits for result by default)." },
+  meta: { name: "run", description: "Run a model (waits for result by default)." },
   args: {
     endpoint_id: {
       type: "positional",
       required: true,
-      description: "Model endpoint ID, e.g. fal-ai/flux/dev.",
+      description: "Model endpoint ID, e.g. flux/dev.",
     },
     async: {
       type: "boolean",
@@ -73,10 +69,11 @@ const runCommand = defineCommand({
     const finalInput = parseRunInput(rawArgs);
     const client = createClient();
 
+    const resolvedId = resolveEndpointId(args.endpoint_id);
     const submission = await client.media.forward.mutate({
       target: "queue",
       method: "POST",
-      path: `/${endpointPath(args.endpoint_id)}`,
+      path: `/${endpointPath(resolvedId)}`,
       body: finalInput,
     });
     const requestId =
@@ -84,9 +81,9 @@ const runCommand = defineCommand({
         ? submission.request_id
         : null;
     if (!requestId) {
-      throw new Error("fal queue submit did not return a request_id.");
+      throw new Error("queue submit did not return a request_id.");
     }
-    const endpoint_id = args.endpoint_id;
+    const endpoint_id = displayEndpointId(resolvedId);
 
     if (args.async) {
       const payload = {
@@ -103,7 +100,7 @@ const runCommand = defineCommand({
       return;
     }
 
-    const completed = await waitForCompletion(client, endpoint_id, requestId, {
+    const completed = await waitForCompletion(client, resolvedId, requestId, {
       quiet: Boolean(args.quiet) || isJsonOutput(args),
     });
 
@@ -179,7 +176,9 @@ const statusCommand = defineCommand({
         ? "result"
         : "status";
 
-    const ep = queueAppId(args.endpoint_id);
+    const resolvedId = resolveEndpointId(args.endpoint_id);
+    const displayId = displayEndpointId(resolvedId);
+    const ep = queueAppId(resolvedId);
     const client = createClient();
     const path =
       action === "cancel"
@@ -207,7 +206,7 @@ const statusCommand = defineCommand({
     const actionFields = buildActionFields(action, data);
     const payload = {
       action,
-      endpoint_id: args.endpoint_id,
+      endpoint_id: displayId,
       request_id: args.request_id,
       ...actionFields,
       ...(downloaded ? { downloaded_files: downloaded.downloaded } : {}),
@@ -225,7 +224,7 @@ const statusCommand = defineCommand({
         consola.log(`queue_position: ${data.queue_position}`);
       }
     } else {
-      consola.success(`${action} ${args.endpoint_id} ${args.request_id}`);
+      consola.success(`${action} ${displayId} ${args.request_id}`);
       if (downloaded) {
         for (const p of downloaded.downloaded) consola.log(`  ${p}`);
         for (const f of downloaded.failed) consola.warn(`  failed: ${f.url} (${f.error})`);
@@ -244,7 +243,7 @@ const statusCommand = defineCommand({
 // ---- models -----------------------------------------------------------------
 
 const modelsCommand = defineCommand({
-  meta: { name: "models", description: "Search/list fal models." },
+  meta: { name: "models", description: "Search/list available models." },
   args: {
     query: { type: "positional", required: false, description: "Search query." },
     category: { type: "string", description: "Filter by category." },
@@ -297,7 +296,7 @@ function printModels(data: unknown): void {
   const models = isRecord(data) && Array.isArray(data.models) ? data.models : [];
   for (const m of models) {
     if (!isRecord(m)) continue;
-    const id = String(m.endpoint_id ?? "?");
+    const id = m.endpoint_id ? displayEndpointId(String(m.endpoint_id)) : "?";
     const meta = isRecord(m.metadata) ? m.metadata : {};
     const tags: string[] = [];
     if (meta.category) tags.push(String(meta.category));
@@ -358,7 +357,7 @@ const pricingCommand = defineCommand({
 // ---- docs -------------------------------------------------------------------
 
 const docsCommand = defineCommand({
-  meta: { name: "docs", description: "Search fal documentation." },
+  meta: { name: "docs", description: "Search generative-model documentation." },
   args: {
     query: { type: "positional", required: true },
     json: { type: "boolean" },
@@ -385,7 +384,7 @@ const docsCommand = defineCommand({
 const uploadCommand = defineCommand({
   meta: {
     name: "upload",
-    description: "Upload a local file to fal CDN. Returns a stable URL.",
+    description: "Upload a local file. Returns a stable hosted URL.",
   },
   args: {
     path: { type: "positional", required: true },
@@ -409,8 +408,7 @@ const uploadCommand = defineCommand({
 export const mediaCommand = defineCommand({
   meta: {
     name: "media",
-    description:
-      "Generate, edit, and inspect media via fal.ai (mirrors the genmedia CLI surface).",
+    description: "Generate, edit, and inspect images, video, and audio.",
   },
   subCommands: {
     run: runCommand,

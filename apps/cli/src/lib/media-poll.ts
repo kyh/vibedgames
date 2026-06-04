@@ -53,7 +53,7 @@ export async function waitForCompletion(
   while (true) {
     if (Date.now() > deadline) {
       throw new Error(
-        `fal job did not complete within ${POLL_TIMEOUT_MS}ms ` +
+        `Job did not complete within ${POLL_TIMEOUT_MS}ms ` +
           `(endpoint=${endpoint_id} request_id=${request_id}). ` +
           `Use \`vg media status ${endpoint_id} ${request_id} --result\` to check later.`,
       );
@@ -69,14 +69,15 @@ export async function waitForCompletion(
       lastStatus = upper;
       const queuePos =
         isRecord(raw) && typeof raw.queue_position === "number" ? raw.queue_position : null;
-      const tag = queuePos !== null ? `${upper.toLowerCase()} (queue ${queuePos})` : upper.toLowerCase();
+      const tag =
+        queuePos !== null ? `${upper.toLowerCase()} (queue ${queuePos})` : upper.toLowerCase();
       consola.log(`  ${tag}`);
     }
     if (upper === "COMPLETED") break;
     if (upper === "FAILED" || upper === "CANCELLED") {
       const reason = pickErrorReason(raw);
       throw new Error(
-        reason ? `fal job ${upper.toLowerCase()}: ${reason}` : `fal job ${upper.toLowerCase()}`,
+        reason ? `Job ${upper.toLowerCase()}: ${reason}` : `Job ${upper.toLowerCase()}`,
       );
     }
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));

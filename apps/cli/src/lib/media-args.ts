@@ -8,23 +8,17 @@ import { basename, extname, isAbsolute, join, resolve } from "node:path";
 // here: it's a `vg media status` flag, not a `run` flag, so swallowing it
 // would block users from passing a legitimate `logs` parameter to a
 // model endpoint.
-const RUN_RESERVED_FLAGS = new Set([
-  "--json",
-  "--help",
-  "--quiet",
-  "--async",
-  "--download",
-]);
+const RUN_RESERVED_FLAGS = new Set(["--json", "--help", "--quiet", "--async", "--download"]);
 
 /**
  * Parse `--<key> value` pairs from argv into a JS object, JSON-decoding
  * values that look like JSON (true/false/null/numbers/objects/arrays) and
- * leaving everything else as a string. Mirrors genmedia's parse-value
- * behavior so skills targeting that surface produce the same input shapes.
+ * leaving everything else as a string. The parse-value behavior is stable
+ * so skills targeting this surface produce the same input shapes.
  *
  * Handles both `--key value` and the GNU-style `--key=value`. Without
  * `=` support, `--prompt=hello` would silently send the malformed key
- * `"prompt=hello"` to fal, and `--async=true` would slip past the
+ * `"prompt=hello"` upstream, and `--async=true` would slip past the
  * RUN_RESERVED_FLAGS guard as a bogus model param.
  */
 export function parseRunInput(argv: string[]): Record<string, unknown> {
