@@ -139,7 +139,10 @@ test("extractMediaRefs handles a nested array of frames", () => {
 
 // Tiny PNG handler that every download test reuses. Real fetch + write
 // path exercises renderTemplate / disambiguateTargets end-to-end.
-function servePng(_: unknown, res: { setHeader: (k: string, v: string) => void; end: (b: Buffer) => void }) {
+function servePng(
+  _: unknown,
+  res: { setHeader: (k: string, v: string) => void; end: (b: Buffer) => void },
+) {
   res.setHeader("content-type", "image/png");
   res.end(Buffer.from([0x89, 0x50, 0x4e, 0x47]));
 }

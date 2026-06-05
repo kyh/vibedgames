@@ -46,16 +46,16 @@ export const forkCommand = defineCommand({
     const source = args.slug.trim().toLowerCase();
     const target = (args.target ?? `${source}-fork`).trim().toLowerCase();
     if (!SLUG_RE.test(target)) {
-      consola.error(
-        `Invalid target slug "${target}". Use lowercase letters, digits, and hyphens.`,
-      );
+      consola.error(`Invalid target slug "${target}". Use lowercase letters, digits, and hyphens.`);
       process.exit(1);
     }
 
     const dir = resolve(process.cwd(), target);
     if (existsSync(dir)) {
       if (!args.force) {
-        consola.error(`Directory ${dir} already exists. Pass --force to overwrite, or pick another target.`);
+        consola.error(
+          `Directory ${dir} already exists. Pass --force to overwrite, or pick another target.`,
+        );
         process.exit(1);
       }
       // --force means replace, not merge — clear stale files first so the fork
@@ -124,6 +124,8 @@ function rewritePackageName(dir: string, slug: string): void {
     delete pkg.homepage;
     writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
   } catch (err) {
-    consola.warn(`Could not rewrite package.json name: ${err instanceof Error ? err.message : String(err)}`);
+    consola.warn(
+      `Could not rewrite package.json name: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }

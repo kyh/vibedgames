@@ -5,6 +5,7 @@ Techniques for preventing output convergence and encouraging context-appropriate
 ## The Convergence Problem
 
 Without explicit variation encouragement, models may develop "favorite" patterns that repeat across outputs:
+
 - Same fonts, colors, layouts in design
 - Same code structures and naming
 - Same document organization
@@ -21,21 +22,25 @@ This creates generic, predictable "AI aesthetic" outputs that lack context-speci
 Directly tell the agent that outputs should vary.
 
 ### Template
+
 ```markdown
 **IMPORTANT: Vary your outputs**
 
 No two [outputs] should be identical unless requirements are identical:
+
 - Different [contexts] need different [approaches]
 - Adapt to the specific [situation/audience/purpose]
 - Avoid converging on "favorite" [patterns/choices/styles]
 ```
 
 ### Example: frontend-design
+
 ```markdown
 **IMPORTANT**: Interpret creatively and make unexpected choices that feel genuinely designed for the context. No design should be the same. Vary between light and dark themes, different fonts, different aesthetics. NEVER converge on common choices (Space Grotesk, for example) across generations.
 ```
 
 ### Why It Works
+
 - Makes variation an explicit requirement
 - Warns against convergence
 - Encourages context-specificity
@@ -47,10 +52,12 @@ No two [outputs] should be identical unless requirements are identical:
 Explicitly call out specific patterns to avoid repeating.
 
 ### Template
+
 ```markdown
 ## Avoid These Overused Patterns
 
 DO NOT default to these commonly repeated choices:
+
 - ❌ [Specific pattern 1]
 - ❌ [Specific pattern 2]
 - ❌ [Specific pattern 3]
@@ -59,10 +66,12 @@ Instead, choose based on context and vary across outputs.
 ```
 
 ### Example: Design Skill
+
 ```markdown
 ## Avoid Generic AI Aesthetics
 
 NEVER use these overused patterns:
+
 - ❌ Inter, Roboto, or Arial fonts
 - ❌ Purple gradients on white backgrounds
 - ❌ Rounded corners everywhere
@@ -73,10 +82,12 @@ Choose distinctive, context-appropriate alternatives that vary per project.
 ```
 
 ### Example: Writing Skill
+
 ```markdown
 ## Avoid Generic Writing Patterns
 
 NEVER default to these overused structures:
+
 - ❌ "In today's fast-paced world..." openings
 - ❌ Three-paragraph essay format for everything
 - ❌ Bullet point lists for all content
@@ -86,6 +97,7 @@ Vary structure based on purpose and audience.
 ```
 
 ### Why It Works
+
 - Identifies specific convergence risks
 - Provides negative examples
 - Prevents falling into "easy" patterns
@@ -98,20 +110,24 @@ Vary structure based on purpose and audience.
 Provide a framework for varying based on contextual factors.
 
 ### Template
+
 ```markdown
 ## Adapt to Context
 
 Vary your approach based on:
 
 **When [Context A]**:
+
 - Use [Approach A]
 - Characteristics: [traits]
 
 **When [Context B]**:
+
 - Use [Approach B]
 - Characteristics: [traits]
 
 **When [Context C]**:
+
 - Use [Approach C]
 - Characteristics: [traits]
 
@@ -119,22 +135,26 @@ The same solution doesn't fit every context.
 ```
 
 ### Example: Communication Style
+
 ```markdown
 ## Adapt Tone to Context
 
 Vary your writing style based on audience and purpose:
 
 **Executive audience**:
+
 - Lead with conclusions
 - Use data-driven insights
 - Concise, action-oriented
 
 **Technical audience**:
+
 - Include implementation details
 - Use precise terminology
 - Provide code examples
 
 **General audience**:
+
 - Use analogies and metaphors
 - Avoid jargon
 - Focus on benefits over features
@@ -143,6 +163,7 @@ Match style to audience, not a template.
 ```
 
 ### Why It Works
+
 - Provides clear variation dimensions
 - Shows how context drives choices
 - Prevents one-size-fits-all outputs
@@ -155,6 +176,7 @@ Match style to audience, not a template.
 Provide examples as inspiration while warning against copying.
 
 ### Template
+
 ```markdown
 ## Examples for Inspiration
 
@@ -168,10 +190,12 @@ Here are examples of [good outputs]:
 ```
 
 ### Example: Design Examples
+
 ```markdown
 ## Design Inspiration
 
 Examples of distinctive aesthetics:
+
 - **Brutalist**: Raw, monospace fonts, stark contrast, exposed structure
 - **Art Deco**: Geometric patterns, gold accents, bold typography
 - **Organic**: Flowing shapes, earth tones, natural textures
@@ -180,6 +204,7 @@ Examples of distinctive aesthetics:
 ```
 
 ### Why It Works
+
 - Shows quality without creating templates
 - Encourages original thinking
 - Provides reference points without constraints
@@ -192,10 +217,12 @@ Examples of distinctive aesthetics:
 Instruct explicit randomization or rotation of choices.
 
 ### Template
+
 ```markdown
 ## Variation Strategy
 
 Rotate or randomize these elements across outputs:
+
 - [Element 1]: [Options A, B, C, D...]
 - [Element 2]: [Options A, B, C, D...]
 - [Element 3]: [Options A, B, C, D...]
@@ -204,10 +231,12 @@ Don't reuse the same combination twice without strong reason.
 ```
 
 ### Example: Document Styling
+
 ```markdown
 ## Visual Variation
 
 Rotate these elements to create visual diversity:
+
 - **Color scheme**: Warm, cool, monochrome, high-contrast, pastel
 - **Layout**: Single column, two column, asymmetric, grid-based, flowing
 - **Typography**: Serif + sans, two sans, two serif, monospace hybrid
@@ -217,6 +246,7 @@ Each document should have a distinct visual identity.
 ```
 
 ### Why It Works
+
 - Provides concrete variation dimensions
 - Encourages systematic diversity
 - Prevents default choices
@@ -229,10 +259,12 @@ Each document should have a distinct visual identity.
 Emphasize that variation means context-fit, not arbitrary difference.
 
 ### Template
+
 ```markdown
 ## Variation = Context-Appropriate, Not Random
 
 Vary outputs based on context, not for variation's sake:
+
 - **Good variation**: Adapting to audience, purpose, constraints
 - **Bad variation**: Arbitrary changes without justification
 
@@ -240,18 +272,21 @@ Every choice should have a reason rooted in context.
 ```
 
 ### Example: Code Architecture
+
 ```markdown
 ## Architectural Variation
 
 Vary architecture based on project needs, not trends:
 
 **Good reasons to vary**:
+
 - Different scaling requirements
 - Different team structures
 - Different deployment constraints
 - Different domain characteristics
 
 **Bad reasons to vary**:
+
 - "We haven't tried X yet"
 - "Framework Y is popular"
 - "To be different from last project"
@@ -260,6 +295,7 @@ Context drives architecture, not variety for its own sake.
 ```
 
 ### Why It Works
+
 - Prevents arbitrary variation
 - Emphasizes purposeful choices
 - Maintains quality standards
@@ -272,6 +308,7 @@ Context drives architecture, not variety for its own sake.
 For lists and collections, encourage expansion rather than repetition.
 
 ### Template
+
 ```markdown
 ## Expanding Your Repertoire
 
@@ -285,6 +322,7 @@ Push yourself toward advanced choices when context allows.
 ```
 
 ### Example: Typography
+
 ```markdown
 ## Expanding Typography Choices
 
@@ -297,6 +335,7 @@ Push toward distinctive and bold when the brand allows creativity.
 ```
 
 ### Why It Works
+
 - Provides progression path
 - Encourages skill development
 - Expands beyond safe defaults
@@ -309,6 +348,7 @@ Push toward distinctive and bold when the brand allows creativity.
 Vary across multiple independent dimensions.
 
 ### Template
+
 ```markdown
 ## Variation Dimensions
 
@@ -327,6 +367,7 @@ Combinations create exponential diversity: 4 × 4 × 4 = 64 possibilities
 ```
 
 ### Example: Presentation Design
+
 ```markdown
 ## Variation Dimensions
 
@@ -348,6 +389,7 @@ These combine for 256 distinct presentation styles.
 ```
 
 ### Why It Works
+
 - Creates structured diversity
 - Shows combinatorial possibilities
 - Prevents convergence on single style
@@ -360,10 +402,12 @@ These combine for 256 distinct presentation styles.
 Explicitly avoid repeating recent patterns.
 
 ### Template
+
 ```markdown
 ## Avoid Recent Patterns
 
 For this [output], explicitly avoid patterns used in recent [outputs]:
+
 - Check what [choices] were made recently
 - Deliberately choose different [alternatives]
 - Maintain variety across a session
@@ -372,10 +416,12 @@ Recent ≠ good; fresh choices often work better.
 ```
 
 ### Example: Design Session
+
 ```markdown
 ## Session Variation
 
 For this design, avoid repeating recent choices:
+
 - If last design used warm colors → try cool or monochrome
 - If last design was minimal → try maximalist or organic
 - If last design used sans serif → try serif or mixed
@@ -384,6 +430,7 @@ Conscious differentiation prevents convergence across outputs.
 ```
 
 ### Why It Works
+
 - Actively prevents convergence
 - Creates session-level diversity
 - Encourages novelty
@@ -396,10 +443,12 @@ Conscious differentiation prevents convergence across outputs.
 Use constraints to force variation.
 
 ### Template
+
 ```markdown
 ## Variation Constraints
 
 For each [output], apply a random constraint:
+
 - [Constraint 1]: Forces [variation in dimension X]
 - [Constraint 2]: Forces [variation in dimension Y]
 - [Constraint 3]: Forces [variation in dimension Z]
@@ -408,10 +457,12 @@ Constraints breed creativity and prevent defaults.
 ```
 
 ### Example: Writing Exercises
+
 ```markdown
 ## Writing Variation Constraints
 
 Apply one constraint per piece:
+
 - **No "to be" verbs**: Forces active voice
 - **One sentence paragraphs**: Forces conciseness
 - **No adjectives**: Forces stronger nouns
@@ -422,6 +473,7 @@ Constraints prevent falling into default writing patterns.
 ```
 
 ### Why It Works
+
 - Forces creative solutions
 - Breaks habitual patterns
 - Creates systematic diversity
@@ -470,6 +522,7 @@ Your skill encourages effective variation if outputs:
 **Variation prevents "AI slop" and creates context-appropriate outputs.**
 
 Key principles:
+
 - Make variation explicit (don't assume it happens)
 - Identify and warn against convergence patterns
 - Provide variation dimensions and frameworks

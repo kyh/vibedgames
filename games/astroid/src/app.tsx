@@ -38,9 +38,7 @@ const App = () => {
         <div className="death-overlay">
           <div className="death-text">DESTROYED</div>
           {respawnCountdown > 0 && (
-            <div className="death-countdown">
-              Respawning in {respawnCountdown}...
-            </div>
+            <div className="death-countdown">Respawning in {respawnCountdown}...</div>
           )}
         </div>
       )}

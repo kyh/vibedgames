@@ -125,6 +125,7 @@ Avoid:
 Use this with a neutral `1280x720` start image: one character centered on a flat neutral background, full body visible, enough padding around head and feet. Do not use checkerboards, grids, labels, arrows, floors, shadows, or scenery as the video start image.
 
 Direction options:
+
 - `south / front-facing`
 - `north / back-facing`
 - `west / left-facing`

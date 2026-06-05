@@ -100,8 +100,8 @@ vg generate models --category text-to-audio --json | jq '.models[] | select(.tag
 
 ## Endpoint reference
 
-| Endpoint                                    | Mode                                  | Use when                                           |
-| ------------------------------------------- | ------------------------------------- | -------------------------------------------------- |
+| Endpoint                                           | Mode                                  | Use when                                           |
+| -------------------------------------------------- | ------------------------------------- | -------------------------------------------------- |
 | `fal-ai/mmaudio-v2`                                | video + prompt → video with AI audio  | Ambient/foley to match video content from a prompt |
 | `fal-ai/ffmpeg-api/merge-audio-video`              | video + audio → merged video          | Existing audio file, deterministic merge           |
 | `fal-ai/workflow-utilities/auto-subtitle`          | video → video with karaoke-style subs | Add subtitles after audio is in place              |

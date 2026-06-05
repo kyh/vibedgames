@@ -2,15 +2,7 @@ import { defineCommand } from "citty";
 
 const SUPPORTED = new Set(["bash", "zsh", "fish"]);
 
-const SUBCOMMANDS = [
-  "init",
-  "login",
-  "logout",
-  "deploy",
-  "generate",
-  "completions",
-  "whoami",
-];
+const SUBCOMMANDS = ["init", "login", "logout", "deploy", "generate", "completions", "whoami"];
 
 const GENERATE_SUBCOMMANDS = ["run", "status", "models", "schema", "pricing", "docs", "upload"];
 

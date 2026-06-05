@@ -90,11 +90,13 @@ This structure makes the skill easier to install, copy, symlink, and update acro
 A clean `512x1280` output can still contain poses that cross invisible `256x256` cell boundaries.
 
 That means:
+
 - rigid cell crops can cut off feet, hats, or muzzle flashes
 - the “raw” cell crop may already be wrong
 - downstream cleanup cannot restore missing silhouette
 
 So the source of truth should often be:
+
 - the full generated sheet
 - the dominant foreground components
 - a row/column bucketing pass back to the intended grid
@@ -118,6 +120,7 @@ The full sheet is diagnostic.
 The final animation is editorial.
 
 That means it is normal to:
+
 - drop weak transition frames
 - reorder slightly for clearer rhythm
 - keep the strongest anticipation / shot / recovery moments

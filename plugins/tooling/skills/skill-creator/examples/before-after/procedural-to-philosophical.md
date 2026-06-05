@@ -54,6 +54,7 @@ description: "Perform thoughtful, constructive code reviews that improve both co
 Code review is not about catching mistakes—it's about collaborative learning and quality improvement.
 
 **Mental model**: Think of code review as **mentorship through asynchronous conversation**.
+
 - **Good reviews** teach and explain why
 - **Great reviews** make both reviewer and author better
 - **Poor reviews** just point out problems without context
@@ -81,7 +82,9 @@ Context shapes review approach.
 Review in layers, from most to least critical:
 
 ### Layer 1: Correctness (CRITICAL - Must Fix)
+
 Does this code work correctly?
+
 - **Logic errors** that produce wrong results
 - **Security vulnerabilities** (injection, auth bypass, data leaks)
 - **Data corruption** risks
@@ -89,9 +92,11 @@ Does this code work correctly?
 
 **Tone**: Direct and explanatory
 ```
+
 ❌ This causes a SQL injection vulnerability.
 ✅ This is vulnerable to SQL injection because user input isn't sanitized.
-   Use parameterized queries instead: cursor.execute("SELECT * FROM users WHERE id = ?", [user_id])
+Use parameterized queries instead: cursor.execute("SELECT \* FROM users WHERE id = ?", [user_id])
+
 ```
 
 ### Layer 2: Architecture (HIGH - Usually Fix)
@@ -103,10 +108,12 @@ Does this fit the system well?
 
 **Tone**: Questioning and explanatory
 ```
+
 ❌ This is the wrong abstraction.
 ✅ This couples payment processing directly to the controller. Consider extracting
-   to a PaymentService—it'll make testing easier and let us reuse this logic in
-   the batch payment flow we're planning.
+to a PaymentService—it'll make testing easier and let us reuse this logic in
+the batch payment flow we're planning.
+
 ```
 
 ### Layer 3: Clarity (MEDIUM - Should Fix)
@@ -118,9 +125,11 @@ Will the next person understand this?
 
 **Tone**: Suggesting improvements
 ```
+
 ❌ Rename this variable.
 ✅ Consider renaming 'data' to 'userPreferences'—it's clearer about what's stored
-   and makes this line easier to understand: updateProfile(userPreferences)
+and makes this line easier to understand: updateProfile(userPreferences)
+
 ```
 
 ### Layer 4: Style (LOW - Nice to Have)
@@ -131,76 +140,98 @@ Does this match our conventions?
 
 **Tone**: Nit-pick labeled, not blocking
 ```
+
 nit: Add trailing comma for easier git diffs in future
 (not blocking, can fix in future PR)
+
 ```
 
 ## Anti-Patterns in Reviews
 
 ### ❌ Gatekeeping Without Explanation
 ```
+
 This is wrong. Please fix.
+
 ```
 
 **Why bad**: No learning, creates frustration
 
 **Better**:
 ```
+
 This approach has an edge case: when X happens, Y breaks because Z.
 Consider handling X explicitly before this check. Happy to pair on this if helpful!
+
 ```
 
 ### ❌ Style Nitpicking That Blocks PRs
 ```
+
 Request changes: You used double quotes instead of single quotes.
+
 ```
 
 **Why bad**: Wastes time on low-impact issues
 
 **Better**:
 ```
+
 nit: Our style guide prefers single quotes (can auto-fix with prettier)
 Approving—please run prettier before merging. Not blocking.
+
 ```
 
 ### ❌ Reviewing Code You Don't Understand
 ```
+
 Looks good to me! ✅
+
 ```
 
 **Why bad**: Rubber-stamping without understanding
 
 **Better**:
 ```
+
 I'm not familiar with this payment API. Can you walk me through the error
 handling strategy? Specifically, what happens if the payment succeeds but
 the webhook fails?
+
 ```
 
 ### ❌ Rewriting in Your Style
 ```
+
 I would have done this completely differently. Please rewrite using [my approach].
+
 ```
 
 **Why bad**: Preference isn't requirement
 
 **Better**:
 ```
+
 Interesting approach! I usually use [alternative approach] because [reason].
 Either works here—your call.
+
 ```
 
 ### ❌ Assuming Malice or Incompetence
 ```
+
 Why didn't you just...? This makes no sense.
+
 ```
 
 **Why bad**: Assumes context and attacks competence
 
 **Better**:
 ```
+
 Help me understand the reasoning here—I'm seeing X but expected Y.
 Is there a constraint I'm missing?
+
 ```
 
 ## Context-Adaptive Review Strategies
@@ -247,12 +278,15 @@ Is there a constraint I'm missing?
 When code is good, say so and explain why:
 
 ```
+
 ✅ This is really clean. I especially like:
-   - Error handling covers all edge cases
-   - Naming makes the business logic obvious
-   - Tests are comprehensive and readable
+
+- Error handling covers all edge cases
+- Naming makes the business logic obvious
+- Tests are comprehensive and readable
 
 No changes needed. Great work!
+
 ```
 
 ## Remember
@@ -264,14 +298,14 @@ These guidelines help you be a thoughtful reviewer—they don't replace thinking
 
 ### What Changed
 
-| Aspect | Procedural | Philosophical |
-|--------|-----------|--------------|
-| **Approach** | Do steps 1-10 | Understand context, review in layers |
-| **Guidance** | What to check | Why it matters and how to prioritize |
-| **Tone** | Mechanical | Thoughtful and context-aware |
-| **Learning** | Checklist to follow | Mental model to internalize |
-| **Flexibility** | One process | Adapt to context |
-| **Focus** | Find problems | Collaborative improvement |
+| Aspect          | Procedural          | Philosophical                        |
+| --------------- | ------------------- | ------------------------------------ |
+| **Approach**    | Do steps 1-10       | Understand context, review in layers |
+| **Guidance**    | What to check       | Why it matters and how to prioritize |
+| **Tone**        | Mechanical          | Thoughtful and context-aware         |
+| **Learning**    | Checklist to follow | Mental model to internalize          |
+| **Flexibility** | One process         | Adapt to context                     |
+| **Focus**       | Find problems       | Collaborative improvement            |
 
 ---
 
@@ -343,6 +377,7 @@ Procedural skills create **checklist-followers**.
 Philosophical skills create **thoughtful practitioners**.
 
 The shift is from:
+
 - **What** to do → **Why** and **when** to do it
 - **Steps** → **Mental frameworks**
 - **Mechanical** → **Thoughtful**

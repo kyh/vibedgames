@@ -4,17 +4,18 @@
 
 Before fixing, identify the category:
 
-| Type | Symptom | Root Cause |
-|------|---------|------------|
-| **Readiness** | "Element not found", "Cannot read property of undefined" | App not ready when test interacts |
-| **Timing** | Passes locally, fails in CI; intermittent | Animation/transition timing varies |
-| **Environment** | Fails on specific CI runners | Viewport/DPR/fonts/GPU differences |
-| **Data** | Fails after other tests run | Shared state, leftover data |
-| **Concurrency** | Fails when tests run in parallel | Port conflicts, shared storage |
+| Type            | Symptom                                                  | Root Cause                         |
+| --------------- | -------------------------------------------------------- | ---------------------------------- |
+| **Readiness**   | "Element not found", "Cannot read property of undefined" | App not ready when test interacts  |
+| **Timing**      | Passes locally, fails in CI; intermittent                | Animation/transition timing varies |
+| **Environment** | Fails on specific CI runners                             | Viewport/DPR/fonts/GPU differences |
+| **Data**        | Fails after other tests run                              | Shared state, leftover data        |
+| **Concurrency** | Fails when tests run in parallel                         | Port conflicts, shared storage     |
 
 ## Triage Workflow
 
 1. **Reproduce locally** with CI-identical flags:
+
    ```bash
    # Match CI environment
    HEADLESS=true VIEWPORT=1280x720 npm test
@@ -40,6 +41,7 @@ Before fixing, identify the category:
 **Solutions:**
 
 Add explicit ready signal:
+
 ```javascript
 // In app
 window.__TEST__ = { ready: false };
@@ -48,12 +50,14 @@ window.__TEST__.ready = true;
 ```
 
 Wait on ready signal:
+
 ```javascript
 // In test via browser_evaluate
-() => window.__TEST__?.ready === true
+() => window.__TEST__?.ready === true;
 ```
 
 Avoid `waitForTimeout`—prefer `waitForFunction`:
+
 ```javascript
 // Bad
 await page.waitForTimeout(2000);
@@ -69,10 +73,11 @@ await page.waitForFunction(() => window.__TEST__.ready);
 **Solutions:**
 
 Seed RNG:
+
 ```javascript
 // Deterministic random
 function seededRandom(seed) {
-  return function() {
+  return function () {
     seed = (seed * 9301 + 49297) % 233280;
     return seed / 233280;
   };
@@ -81,6 +86,7 @@ Math.random = seededRandom(12345);
 ```
 
 Control time:
+
 ```javascript
 // Fixed timestep for game loop
 const FIXED_DT = 1000 / 60;
@@ -92,10 +98,10 @@ function gameLoop() {
 ```
 
 Disable animations in test mode:
+
 ```javascript
 if (window.__TEST__) {
-  CSS.supports('animation', 'none') &&
-    document.body.classList.add('no-animations');
+  CSS.supports("animation", "none") && document.body.classList.add("no-animations");
 }
 ```
 
@@ -106,23 +112,26 @@ if (window.__TEST__) {
 **Solutions:**
 
 Reset storage between tests:
+
 ```javascript
 // Before each test
 localStorage.clear();
 sessionStorage.clear();
-indexedDB.deleteDatabase('myapp');
+indexedDB.deleteDatabase("myapp");
 ```
 
 Use unique test data:
+
 ```javascript
 // Bad: shared account
-const user = { email: 'test@example.com' };
+const user = { email: "test@example.com" };
 
 // Good: unique per test
 const user = { email: `test-${Date.now()}@example.com` };
 ```
 
 Avoid order-dependent tests:
+
 ```javascript
 // Each test should work standalone
 // Don't rely on previous test creating data
@@ -135,22 +144,25 @@ Avoid order-dependent tests:
 **Solutions:**
 
 Lock viewport and DPR:
+
 ```javascript
 // In test setup
 await page.setViewportSize({ width: 1280, height: 720 });
-await page.emulateMedia({ colorScheme: 'light' });
+await page.emulateMedia({ colorScheme: "light" });
 ```
 
 Lock locale/timezone:
+
 ```javascript
 // Via browser context
 const context = await browser.newContext({
-  locale: 'en-US',
-  timezoneId: 'America/New_York'
+  locale: "en-US",
+  timezoneId: "America/New_York",
 });
 ```
 
 Handle font differences:
+
 ```javascript
 // Either: use system fonts only
 // Or: preload and wait for web fonts
@@ -160,18 +172,20 @@ await document.fonts.ready;
 ### 5. Temporary Guardrails
 
 **Use retries ONLY as temporary measure:**
+
 ```javascript
 // Tag flaky tests for tracking
-test.describe('flaky-wip', () => {
+test.describe("flaky-wip", () => {
   test.retry(2); // Temporary until fixed
 
-  test('intermittent test', async () => {
+  test("intermittent test", async () => {
     // TODO: Fix readiness issue in #123
   });
 });
 ```
 
 **Track flaky tests:**
+
 - Create ticket for each flaky test
 - Set deadline for fix
 - Remove retry once fixed
@@ -199,12 +213,17 @@ await page.waitForTimeout(3000);
 
 // Red flag: retry loop
 for (let i = 0; i < 3; i++) {
-  try { await test(); break; } catch {}
+  try {
+    await test();
+    break;
+  } catch {}
 }
 // Fix: make test deterministic
 
 // Red flag: order-dependent
-test('B depends on A', () => { /* uses data from test A */ });
+test("B depends on A", () => {
+  /* uses data from test A */
+});
 // Fix: set up own data
 
 // Red flag: time-sensitive assertion
@@ -212,6 +231,6 @@ expect(performance.now() - start).toBeLessThan(100);
 // Fix: mock time or use range
 
 // Red flag: DOM structure assertion
-expect(wrapper.find('.btn-primary-v2')).toExist();
+expect(wrapper.find(".btn-primary-v2")).toExist();
 // Fix: assert on text/role/behavior
 ```

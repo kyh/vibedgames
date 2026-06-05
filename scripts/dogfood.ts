@@ -68,7 +68,9 @@ for (const [skill, src] of expected) {
     if (stat.isSymbolicLink()) {
       rmSync(dest);
     } else {
-      console.log(`  skip ${skill} (non-symlink already exists; remove manually if you want to replace)`);
+      console.log(
+        `  skip ${skill} (non-symlink already exists; remove manually if you want to replace)`,
+      );
       continue;
     }
   }
@@ -86,4 +88,6 @@ console.log("✓ done.");
 console.log(`  vg               → ${vgPath}`);
 console.log(`  skills symlinked → ${linked} into .claude/skills/`);
 console.log();
-console.log("Edits to plugins/*/skills/* and apps/cli/src/* are live (rebuild CLI with 'pnpm dev:cli').");
+console.log(
+  "Edits to plugins/*/skills/* and apps/cli/src/* are live (rebuild CLI with 'pnpm dev:cli').",
+);

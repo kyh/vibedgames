@@ -10,14 +10,7 @@ import type {
   SerializedBeam,
 } from "./types";
 import { WORLD_WIDTH, WORLD_HEIGHT } from "./constants";
-import {
-  drawShip,
-  drawAsteroid,
-  drawBeam,
-  drawUFO,
-  drawItem,
-  drawSplinters,
-} from "./entities";
+import { drawShip, drawAsteroid, drawBeam, drawUFO, drawItem, drawSplinters } from "./entities";
 import type { StarField } from "./stars";
 import { drawStarField } from "./stars";
 
@@ -124,10 +117,10 @@ export function render(
   // Black mask outside world bounds
   ctx.fillStyle = "#020617";
   const m = 10000; // large enough to cover any viewport
-  ctx.fillRect(-m, -m, m + WORLD_WIDTH + m, m);               // top
-  ctx.fillRect(-m, WORLD_HEIGHT, m + WORLD_WIDTH + m, m);     // bottom
-  ctx.fillRect(-m, 0, m, WORLD_HEIGHT);                        // left
-  ctx.fillRect(WORLD_WIDTH, 0, m, WORLD_HEIGHT);               // right
+  ctx.fillRect(-m, -m, m + WORLD_WIDTH + m, m); // top
+  ctx.fillRect(-m, WORLD_HEIGHT, m + WORLD_WIDTH + m, m); // bottom
+  ctx.fillRect(-m, 0, m, WORLD_HEIGHT); // left
+  ctx.fillRect(WORLD_WIDTH, 0, m, WORLD_HEIGHT); // right
 
   ctx.restore();
 }

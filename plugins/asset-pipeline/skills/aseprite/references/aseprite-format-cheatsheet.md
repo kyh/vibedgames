@@ -5,6 +5,7 @@ This is a condensed, implementation-oriented map of `.ase` / `.aseprite` files.
 ## Mental model
 
 An `.aseprite` file is:
+
 - A **128-byte header** (global sprite settings)
 - Followed by **N frames**
 - Each frame is a list of **chunks** (layer defs, cels, tags, slices, tilesets, etc.)
@@ -33,6 +34,7 @@ Use little-endian for all numbers.
 ## Chunk parsing rule
 
 Each chunk begins with:
+
 - `chunkSize` (DWORD) includes these 6 bytes
 - `chunkType` (WORD)
 - then `chunkSize-6` bytes of chunk data
@@ -60,11 +62,13 @@ Each chunk begins with:
 ## Zlib decoding (when needed)
 
 Decoded pixel stream is always **row-major**:
+
 - rows: top → bottom
 - cols: left → right
 - bytes per pixel depends on `colorDepth`
 
 For inference you often only need:
+
 - expected decoded length: `w*h*bpp`
 - bounds of non-transparent pixels (alpha>0, or index!=transparentIndex for indexed)
 

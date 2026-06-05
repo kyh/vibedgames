@@ -17,6 +17,7 @@ description: Create distinctive, production-grade frontend interfaces with high
 ```
 
 ### ✅ **Strong Description**
+
 - **Specific**: "web components, pages, or applications"
 - **Value prop**: "distinctive, production-grade... avoids generic AI aesthetics"
 - **Clear trigger**: "when the user asks to build..."
@@ -31,6 +32,7 @@ exceptional attention to aesthetic details and creative choices.
 ```
 
 ### ✅ **Immediate Problem Framing**
+
 - Identifies the problem ("AI slop aesthetics")
 - States the solution (distinctive, production-grade)
 - Sets tone (exceptional attention to details)
@@ -44,6 +46,7 @@ technical constraints.
 ```
 
 ### ✅ **Input Clarification**
+
 - Defines what inputs to expect
 - Acknowledges variability in requirements
 - Prepares for different levels of specification
@@ -57,6 +60,7 @@ Before coding, understand the context and commit to a BOLD aesthetic direction:
 ```
 
 ### ✅ **Philosophy Section First**
+
 - **Not** "Step 1: Write code"
 - **Instead**: "Before coding, think about..."
 - Establishes mental framework before execution
@@ -76,6 +80,7 @@ Before coding, understand the context and commit to a BOLD aesthetic direction:
 ```
 
 ### ✅ **Pre-Action Questions (Philosophy Pattern 1)**
+
 - Four key questions establish thinking framework
 - **Purpose**: Grounds in user needs
 - **Tone**: Forces aesthetic commitment with concrete examples
@@ -83,6 +88,7 @@ Before coding, understand the context and commit to a BOLD aesthetic direction:
 - **Differentiation**: Pushes for memorable outcomes
 
 ### ✅ **Inspiring Examples**
+
 - "brutally minimal, maximalist chaos, retro-futuristic..."
 - Provides vocabulary and possibilities
 - "Use these for inspiration but design one that is true to the aesthetic direction"
@@ -97,6 +103,7 @@ not intensity.
 ```
 
 ### ✅ **Intentionality Over Intensity (Philosophy Pattern 5)**
+
 - Validates multiple approaches (minimalism AND maximalism)
 - Focuses on quality of thinking ("intentionality")
 - Removes pressure to be "extreme"
@@ -106,6 +113,7 @@ not intensity.
 
 ```markdown
 Then implement working code (HTML/CSS/JS, React, Vue, etc.) that is:
+
 - Production-grade and functional
 - Visually striking and memorable
 - Cohesive with a clear aesthetic point-of-view
@@ -113,6 +121,7 @@ Then implement working code (HTML/CSS/JS, React, Vue, etc.) that is:
 ```
 
 ### ✅ **Quality Standards**
+
 - Four clear criteria for success
 - Balances function ("production-grade") and form ("visually striking")
 - Emphasizes coherence ("clear aesthetic point-of-view")
@@ -127,6 +136,7 @@ Focus on:
 ```
 
 ### ✅ **Organized by Category**
+
 - Clear section structure
 - "Guidelines" not "Rules" (more flexible)
 - "Focus on" implies priority areas
@@ -141,6 +151,7 @@ Focus on:
 ```
 
 ### ✅ **Specific Actionable + Anti-Pattern**
+
 - **Positive**: "distinctive choices that elevate aesthetics"
 - **Negative**: "Avoid generic fonts like Arial and Inter"
 - **Concrete pattern**: "Pair distinctive display font with refined body font"
@@ -155,6 +166,7 @@ Focus on:
 ```
 
 ### ✅ **Principle + Technical Guidance**
+
 - "Commit to cohesive aesthetic" (principle)
 - "Use CSS variables" (technical implementation)
 - "Dominant colors with sharp accents outperform..." (opinionated guidance based on what works)
@@ -170,6 +182,7 @@ Focus on:
 ```
 
 ### ✅ **Technical Specificity**
+
 - Names specific tools (Motion library)
 - Provides strategic guidance ("high-impact moments" over "scattered")
 - Concrete technique ("staggered reveals with animation-delay")
@@ -183,6 +196,7 @@ Focus on:
 ```
 
 ### ✅ **Terse, Evocative Language**
+
 - Short, punchy phrases create energy
 - "OR" acknowledges multiple valid approaches
 - Pushes beyond conventional (grid-breaking, diagonal flow)
@@ -198,6 +212,7 @@ Focus on:
 ```
 
 ### ✅ **Toolkit Provision**
+
 - "rather than defaulting to solid colors" (anti-pattern)
 - Lists specific techniques (gradient meshes, noise textures...)
 - "that match the overall aesthetic" (context-awareness)
@@ -213,6 +228,7 @@ and cookie-cutter design that lacks context-specific character.
 ```
 
 ### ✅ **Strong Anti-Pattern Section**
+
 - Uses "NEVER" (emphatic)
 - Names specific bad patterns (Inter, Roboto, purple gradients)
 - Identifies problem ("cookie-cutter design that lacks context-specific character")
@@ -229,6 +245,7 @@ themes, different fonts, different aesthetics. NEVER converge on common choices
 ```
 
 ### ✅ **Variation Encouragement (Pattern 1 + 2)**
+
 - "No design should be the same" (explicit variation instruction)
 - "NEVER converge on common choices" (anti-convergence warning)
 - Names specific example (Space Grotesk) to avoid
@@ -247,6 +264,7 @@ vision well.
 ```
 
 ### ✅ **Complexity Matching Guidance**
+
 - Prevents both over-engineering simple designs and under-delivering complex ones
 - Provides guidance for both extremes
 - "Elegance comes from executing the vision well" (principle)
@@ -262,6 +280,7 @@ fully to a distinctive vision.
 ```
 
 ### ✅ **Empowering Conclusion**
+
 - Recognizes capability ("capable of extraordinary creative work")
 - Encourages pushing boundaries ("don't hold back")
 - Sets high expectations ("thinking outside the box")
@@ -321,55 +340,63 @@ This flow is: Problem → Philosophy → Action → Prevention → Empowerment
 ## Why This Works: Key Techniques
 
 ### 1. **Philosophy Before Procedure**
+
 Doesn't jump to "use these fonts" - first establishes "think about purpose, tone, constraints, differentiation"
 
 ### 2. **Strong Negative Guidance**
+
 Explicitly names bad patterns (Inter, purple gradients, Space Grotesk)
 Most skills miss this - showing what NOT to do is as valuable as showing what to do
 
 ### 3. **Variation as Core Requirement**
+
 "No design should be the same"
 "NEVER converge on common choices"
 Makes variation explicit, not assumed
 
 ### 4. **Organized Actionable Content**
+
 Five clear categories (Typography, Color, Motion, Spatial, Backgrounds)
 Easy to reference during execution
 
 ### 5. **Complexity Guidance**
+
 Tells the agent when to be elaborate (maximalist) vs. restrained (minimalist)
 Prevents mismatch between vision and implementation
 
 ### 6. **Empowering Tone Throughout**
+
 "BOLD aesthetic direction"
 "Extraordinary creative work"
 "Don't hold back"
 Sets high expectations and encourages ambition
 
 ### 7. **Concrete Examples**
+
 Doesn't say "use good fonts" - says "avoid Inter, Roboto, Arial"
 Doesn't say "be creative" - says "gradient meshes, noise textures, grain overlays"
 
 ### 8. **Balance**
+
 - Freedom (many valid aesthetic directions)
-- + Structure (clear categories, principles)
-- + Prevention (anti-patterns)
+- - Structure (clear categories, principles)
+- - Prevention (anti-patterns)
 - = Effective guidance without constraining
 
 ---
 
 ## Scoring Against Skill Quality Heuristics
 
-| Heuristic | Score | Evidence |
-|-----------|-------|----------|
-| Establishes philosophy? | ✅ Yes | Design Thinking section, pre-action questions |
-| Prevents anti-patterns? | ✅ Yes | Explicit NEVER section with named examples |
-| Encourages variation? | ✅ Yes | "No design should be the same", anti-convergence |
-| Matches complexity to vision? | ✅ Yes | Maximalist vs minimalist guidance |
-| Empowers vs constrains? | ✅ Empowers | "Extraordinary work", "don't hold back" |
-| Well-organized? | ✅ Yes | Clear categories, logical flow |
-| Context-aware? | ✅ Yes | Adapt to purpose, audience, constraints |
-| Actionable? | ✅ Yes | Specific techniques and examples |
+| Heuristic                     | Score       | Evidence                                         |
+| ----------------------------- | ----------- | ------------------------------------------------ |
+| Establishes philosophy?       | ✅ Yes      | Design Thinking section, pre-action questions    |
+| Prevents anti-patterns?       | ✅ Yes      | Explicit NEVER section with named examples       |
+| Encourages variation?         | ✅ Yes      | "No design should be the same", anti-convergence |
+| Matches complexity to vision? | ✅ Yes      | Maximalist vs minimalist guidance                |
+| Empowers vs constrains?       | ✅ Empowers | "Extraordinary work", "don't hold back"          |
+| Well-organized?               | ✅ Yes      | Clear categories, logical flow                   |
+| Context-aware?                | ✅ Yes      | Adapt to purpose, audience, constraints          |
+| Actionable?                   | ✅ Yes      | Specific techniques and examples                 |
 
 **analyze_skill.py estimated score: 92/100**
 
@@ -407,6 +434,7 @@ From studying frontend-design, we learn:
 ## Summary
 
 The frontend-design skill works because it:
+
 - **Thinks before doing** (philosophy first)
 - **Prevents mistakes** (strong anti-patterns)
 - **Encourages diversity** (explicit variation)

@@ -22,7 +22,8 @@ export const PlayView = () => {
   const timerRef = useRef<ReturnType<typeof setTimeout>>(null);
 
   const refresh = useCallback(() => {
-    const iframe = iframeRef.current ?? document.querySelector<HTMLIFrameElement>("iframe[title='Game']");
+    const iframe =
+      iframeRef.current ?? document.querySelector<HTMLIFrameElement>("iframe[title='Game']");
     if (!iframe) return;
     setLoading(true);
     if (timerRef.current) clearTimeout(timerRef.current);
@@ -32,7 +33,12 @@ export const PlayView = () => {
     iframe.src = url.toString();
   }, []);
 
-  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
+  useEffect(
+    () => () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    },
+    [],
+  );
 
   return (
     <div className="relative pb-4">

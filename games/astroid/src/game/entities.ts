@@ -1,13 +1,4 @@
-import type {
-  Asteroid,
-  Beam,
-  Item,
-  Point,
-  Ship,
-  Splinter,
-  UFO,
-  Weapon,
-} from "./types";
+import type { Asteroid, Beam, Item, Point, Ship, Splinter, UFO, Weapon } from "./types";
 import {
   ASTEROID_MAX_SIZE,
   ASTEROID_MIN_SIZE,
@@ -109,12 +100,7 @@ export function updateShip(ship: Ship, target: Point): Ship {
   };
 }
 
-export function drawShip(
-  ctx: CanvasRenderingContext2D,
-  path: Point[],
-  color: string,
-  alpha = 1,
-) {
+export function drawShip(ctx: CanvasRenderingContext2D, path: Point[], color: string, alpha = 1) {
   if (path.length === 0) return;
   ctx.beginPath();
   ctx.strokeStyle = color;
@@ -143,12 +129,7 @@ function makeAsteroidVertices(radius: number): Point[] {
   return verts;
 }
 
-export function createAsteroid(
-  x: number,
-  y: number,
-  radius: number,
-  ang: number,
-): Asteroid {
+export function createAsteroid(x: number, y: number, radius: number, ang: number): Asteroid {
   const speed = (1 - radius / ASTEROID_MAX_SIZE) * 1.75 + 0.25;
   return {
     id: crypto.randomUUID(),
@@ -235,11 +216,7 @@ export function drawAsteroid(ctx: CanvasRenderingContext2D, a: Asteroid) {
 
 let beamCounter = 0;
 
-export function createBeam(
-  ship: Ship,
-  weapon: Weapon,
-  playerId: string,
-): Beam {
+export function createBeam(ship: Ship, weapon: Weapon, playerId: string): Beam {
   const nose = add(ship.position, polar(ship.size, ship.angle));
   return {
     id: `beam-${playerId}-${beamCounter++}`,
@@ -275,8 +252,10 @@ export function updateBeam(b: Beam): Beam {
   // Check if out of world bounds (with generous margin)
   const margin = 200;
   if (
-    newHead.x < -margin || newHead.x > WORLD_WIDTH + margin ||
-    newHead.y < -margin || newHead.y > WORLD_HEIGHT + margin
+    newHead.x < -margin ||
+    newHead.x > WORLD_WIDTH + margin ||
+    newHead.y < -margin ||
+    newHead.y > WORLD_HEIGHT + margin
   ) {
     return { ...b, vanished: true };
   }
@@ -454,9 +433,7 @@ export function createItem(x: number, y: number): Item {
 export function updateItem(item: Item): Item {
   const newPos = add(item.position, item.velocity);
   const d = TWO_PI / 6;
-  const path = Array.from({ length: 6 }, (_, i) =>
-    add(newPos, polar(10, d * i)),
-  );
+  const path = Array.from({ length: 6 }, (_, i) => add(newPos, polar(10, d * i)));
 
   return {
     ...item,
@@ -488,12 +465,7 @@ export function drawItem(ctx: CanvasRenderingContext2D, item: Item) {
 // Splinter (explosion particles)
 // ---------------------------------------------------------------------------
 
-export function createSplinter(
-  x: number,
-  y: number,
-  radius: number,
-  num: number,
-): Splinter {
+export function createSplinter(x: number, y: number, radius: number, num: number): Splinter {
   const particles = Array.from({ length: num }, () => ({
     x,
     y,
@@ -513,11 +485,7 @@ export function updateSplinter(s: Splinter): Splinter {
       y: s.origin.y + p.radius * Math.sin(p.angle),
       radius: p.radius + p.speed,
     }))
-    .filter(
-      (p) =>
-        p.x >= -10 && p.x <= WORLD_WIDTH + 10 &&
-        p.y >= -10 && p.y <= WORLD_HEIGHT + 10,
-    );
+    .filter((p) => p.x >= -10 && p.x <= WORLD_WIDTH + 10 && p.y >= -10 && p.y <= WORLD_HEIGHT + 10);
 
   return { ...s, particles };
 }
@@ -526,10 +494,7 @@ export function isSplinterDone(s: Splinter): boolean {
   return s.particles.length === 0 || Date.now() - s.createdAt > 7000;
 }
 
-export function drawSplinters(
-  ctx: CanvasRenderingContext2D,
-  splinters: Splinter[],
-) {
+export function drawSplinters(ctx: CanvasRenderingContext2D, splinters: Splinter[]) {
   ctx.beginPath();
   ctx.fillStyle = "rgb(255, 255, 255)";
   for (const s of splinters) {

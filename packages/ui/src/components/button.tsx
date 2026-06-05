@@ -45,7 +45,8 @@ const buttonVariants = cva(
         loading: true,
         // Loading also sets `disabled`; keep the primary fill (not the muted
         // disabled fill) so a loading button still reads as primary.
-        className: "disabled:bg-primary disabled:text-primary-foreground [&>:first-child]:bg-primary",
+        className:
+          "disabled:bg-primary disabled:text-primary-foreground [&>:first-child]:bg-primary",
       },
       { variant: "destructive", loading: true, className: "[&>:first-child]:bg-destructive/10" },
       { variant: "outline", loading: true, className: "[&>:first-child]:bg-background" },

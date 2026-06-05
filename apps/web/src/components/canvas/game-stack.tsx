@@ -1,7 +1,5 @@
-
 import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-
 
 // Animation constants
 const ANIMATION_DURATION = 0.6;

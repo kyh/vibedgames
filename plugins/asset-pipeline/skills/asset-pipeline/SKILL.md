@@ -12,9 +12,11 @@ Use the bundled scripts in `scripts/` to keep your game's art pipeline consisten
 Keep a short “worked example” doc in your own repo whenever you establish an asset-index convention.
 
 In this repo, the practical “what worked / what didn’t” notes from building a Love2D asset index live at:
+
 - `docs/asset-index-learnings.md`
 
 Key takeaways to apply when building/managing an asset index:
+
 - Prefer a **native** manifest format (Lua table for Love2D), but keep it **JSON-shaped** for export.
 - Categorize by **how you use the asset** (`backgrounds`, `tilesets`, `images`, `spritesheets`), not by size alone.
 - Pick a **tile size** first for tilesets (this pack is consistently **16×16**), then derive `columns/rows`.
@@ -86,6 +88,7 @@ Nearest-neighbor import preserves pixels. If the in-between poses still look sof
 ## Asset Index Theory
 
 An asset index (manifest) is a structured metadata file that serves as the single source of truth for all game art. It enables:
+
 - **Centralized loading** - One place to reference all assets by logical name
 - **Frame metadata** - Grid dimensions, animation sequences, timing
 - **Validation** - Ensure disk files match what code expects
@@ -97,12 +100,12 @@ An asset index (manifest) is a structured metadata file that serves as the singl
 
 ### Asset Categories
 
-| Category | Purpose | Key metadata |
-|----------|---------|--------------|
-| `backgrounds` | Parallax/scrolling layers, static backdrops | `path`, `width`, `height` |
-| `tilesets` | Grid-based level tiles | `path`, `tileWidth`, `tileHeight`, `columns`, `rows`, `margin`, `spacing` |
-| `images` | Static sprites (no animation) | `path`, `width`, `height` |
-| `spritesheets` | Animated sprites | `path`, `frameWidth`, `frameHeight`, `fps`, `frames` or `animations` |
+| Category       | Purpose                                     | Key metadata                                                              |
+| -------------- | ------------------------------------------- | ------------------------------------------------------------------------- |
+| `backgrounds`  | Parallax/scrolling layers, static backdrops | `path`, `width`, `height`                                                 |
+| `tilesets`     | Grid-based level tiles                      | `path`, `tileWidth`, `tileHeight`, `columns`, `rows`, `margin`, `spacing` |
+| `images`       | Static sprites (no animation)               | `path`, `width`, `height`                                                 |
+| `spritesheets` | Animated sprites                            | `path`, `frameWidth`, `frameHeight`, `fps`, `frames` or `animations`      |
 
 ### Manifest Structure
 
@@ -119,9 +122,12 @@ An asset index (manifest) is a structured metadata file that serves as the singl
   "tilesets": {
     "desert": {
       "path": "Tilesets/desert.png",
-      "width": 192, "height": 96,
-      "tileWidth": 16, "tileHeight": 16,
-      "columns": 12, "rows": 6
+      "width": 192,
+      "height": 96,
+      "tileWidth": 16,
+      "tileHeight": 16,
+      "columns": 12,
+      "rows": 6
     }
   },
   "images": {
@@ -133,12 +139,29 @@ An asset index (manifest) is a structured metadata file that serves as the singl
     "enemies": {
       "chicken": {
         "path": "Enemies/chicken.png",
-        "width": 224, "height": 64,
-        "frameWidth": 32, "frameHeight": 32,
-        "columns": 7, "rows": 2,
+        "width": 224,
+        "height": 64,
+        "frameWidth": 32,
+        "frameHeight": 32,
+        "columns": 7,
+        "rows": 2,
         "animations": {
-          "idle": { "fps": 6, "frames": [[0,0], [1,0]] },
-          "run": { "fps": 10, "frames": [[0,1], [1,1], [2,1], [3,1]] }
+          "idle": {
+            "fps": 6,
+            "frames": [
+              [0, 0],
+              [1, 0]
+            ]
+          },
+          "run": {
+            "fps": 10,
+            "frames": [
+              [0, 1],
+              [1, 1],
+              [2, 1],
+              [3, 1]
+            ]
+          }
         }
       }
     }
@@ -149,6 +172,7 @@ An asset index (manifest) is a structured metadata file that serves as the singl
 ### Frame Coordinates
 
 Frames are referenced as `[column, row]` pairs within the sprite sheet grid:
+
 - **Zero-based indexing** - First cell is `[0, 0]`
 - **Grid defined by frame dimensions** - `frameWidth × frameHeight` subdivides the image
 - **Sparse sheets** - When not all cells contain content, use explicit `frames` array
@@ -207,6 +231,7 @@ By default the exporter rewrites all `path` entries to be relative to the output
 ## Tilemap Debugging (Python tileset/tilemap editor)
 
 Use the manifest-driven editor to verify:
+
 - `tileWidth`/`tileHeight` grid math and `columns`/`rows`
 - that cursor movement is exactly 1 cell per keypress
 - that saving/loading a JSON tilemap preserves the same layout
@@ -242,6 +267,7 @@ uv run .claude/skills/gamedev-assets/scripts/asset_tilemap_editor.py \
 ```
 
 Controls:
+
 - Arrows: move cursor cell-by-cell
 - `WASD`: move palette selection on the tileset
 - `Space/Enter`: paint, `X/Backspace`: erase
@@ -282,6 +308,7 @@ uv run .claude/skills/gamedev-assets/scripts/asset_sheet_probe.py folder/ --fram
 Audit visible alpha bounds inside a spritesheet grid and optionally write baseline-corrected copies.
 
 Use this when:
+
 - a character floats above its shadow in one direction but not another
 - a directional idle was made from an attack frame
 - AI-generated sheets have inconsistent transparent padding under the feet

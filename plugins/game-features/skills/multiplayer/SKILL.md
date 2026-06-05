@@ -49,7 +49,7 @@ if (client.isHost) {
 
 The pattern: **intents go up via `sendEvent`, state comes down via `sharedState` patches**. Host listens for intent events, validates, and writes the result.
 
-`updateMyState` is *not* host-gated — players always own their own slot. **The corollary bites: the host cannot use `updateMyState` to mark *other* players dead/disabled either, because that call only ever writes the caller's own slot.** Cross-player flags (deaths, scores, banned-from-round) belong in `sharedState`, where the host writes them and every client reads them.
+`updateMyState` is _not_ host-gated — players always own their own slot. **The corollary bites: the host cannot use `updateMyState` to mark _other_ players dead/disabled either, because that call only ever writes the caller's own slot.** Cross-player flags (deaths, scores, banned-from-round) belong in `sharedState`, where the host writes them and every client reads them.
 
 ### `updateSharedState` merges — your "reset" patch must include every field
 
@@ -93,7 +93,7 @@ setSpawn(SPAWNS[idx]);
 
 ### `initialState` re-applies on host migration — seed host-side instead
 
-`initialState` is pushed **every time a client becomes host**: on first connect *and* when a guest is promoted after the host leaves. A promoted guest re-applies its own `initialState`, **wiping the live round** (fresh board, scores back to 0) for everyone still playing.
+`initialState` is pushed **every time a client becomes host**: on first connect _and_ when a guest is promoted after the host leaves. A promoted guest re-applies its own `initialState`, **wiping the live round** (fresh board, scores back to 0) for everyone still playing.
 
 So for any game with a world worth preserving, **don't pass `initialState`** — seed host-side once, guarded on "already seeded?":
 
@@ -120,7 +120,12 @@ client.subscribe(() => {
 ## React usage
 
 ```tsx
-import { useMultiplayerRoom, useMultiplayerState, usePlayerState, useIsHost } from "@vibedgames/multiplayer/react";
+import {
+  useMultiplayerRoom,
+  useMultiplayerState,
+  usePlayerState,
+  useIsHost,
+} from "@vibedgames/multiplayer/react";
 
 const room = useMultiplayerRoom({
   host: "https://vibedgames-party.kyh.workers.dev",
@@ -154,8 +159,12 @@ room.sendEvent("explosion", { x: 100, y: 200 });
 
 // Receive via onEvent config:
 const room = useMultiplayerRoom({
-  host, party, room,
-  onEvent: (event, payload, from) => { /* handle */ },
+  host,
+  party,
+  room,
+  onEvent: (event, payload, from) => {
+    /* handle */
+  },
 });
 ```
 
@@ -171,7 +180,9 @@ const client = new MultiplayerClient({
   party: "vg-server",
   room: "my-game-room",
   initialState: { phase: "playing" },
-  onEvent: (event, payload, from) => { /* handle */ },
+  onEvent: (event, payload, from) => {
+    /* handle */
+  },
 });
 
 // Subscribe to state changes
@@ -264,9 +275,15 @@ export const client = new MultiplayerClient({
 import { client } from "./client";
 
 export const session = {
-  get isHost() { return client.isHost; },
-  get players() { return client.players; },
-  get world() { return client.sharedState as { score: number; phase: string }; },
+  get isHost() {
+    return client.isHost;
+  },
+  get players() {
+    return client.players;
+  },
+  get world() {
+    return client.sharedState as { score: number; phase: string };
+  },
 
   // Host-only writes wrapped — non-host calls become intent events.
   setScore(score: number) {
@@ -290,6 +307,7 @@ sprite ids that aren't `player.id`. Lets game code work in renderer-native
 ids while the network sees `player.id`.
 
 Why this matters:
+
 - **Single-player keeps working.** Stripping multiplayer = deleting `net/`.
 - **One place to fix bugs.** Throttling, reconnection UI, intent validation — all in `session.ts`.
 - **Renderer doesn't change.** The Phaser scene calls `session.setScore(10)`, not `client.updateSharedState({...})`.
@@ -346,7 +364,7 @@ derive them locally from state changes, don't sync them.
 `client.sharedState.score = 100` is silently overwritten on the next patch.
 
 ❌ **Sending positions as events.**
-Position belongs in `updateMyState`. Events are for things that *happened*.
+Position belongs in `updateMyState`. Events are for things that _happened_.
 
 ❌ **Hardcoding the party host URL throughout the codebase.**
 Put it in `net/client.ts` once.

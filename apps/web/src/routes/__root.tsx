@@ -4,18 +4,12 @@ import { GlobalAlertDialog } from "@repo/ui/components/alert-dialog";
 import { Toaster } from "@repo/ui/components/sonner";
 import { TooltipProvider } from "@repo/ui/components/tooltip";
 import { cn } from "@repo/ui/lib/utils";
-import {
-  createRootRouteWithContext,
-  HeadContent,
-  Outlet,
-  Scripts,
-} from "@tanstack/react-router";
+import { createRootRouteWithContext, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
 
 import type { AppRouter } from "@repo/api";
 import { Canvas } from "@/components/canvas/canvas";
 import { Nav } from "@/components/game/nav";
 import { siteConfig } from "@/lib/site-config";
-
 
 import appCss from "../styles/globals.css?url";
 
@@ -69,7 +63,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body
         className={cn(
-          "text-foreground bg-background bg-[url('https://zmdrwswxugswzmcokvff.supabase.co/storage/v1/object/public/vibedgames/bg.png')] bg-size-[10px] font-sans antialiased",
+          "text-foreground bg-background bg-[url('/bg.webp')] bg-size-[10px] font-sans antialiased",
         )}
       >
         <TooltipProvider>

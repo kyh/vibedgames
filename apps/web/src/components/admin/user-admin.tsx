@@ -94,9 +94,7 @@ export const UserAdmin = () => {
               id="user-role"
               className="bg-input text-foreground h-9 rounded-md border border-white/10 px-2 text-sm"
               value={form.role}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, role: e.target.value as "user" | "admin" }))
-              }
+              onChange={(e) => setForm((f) => ({ ...f, role: e.target.value as "user" | "admin" }))}
             >
               <option value="user">user</option>
               <option value="admin">admin</option>

@@ -7,6 +7,7 @@ Decouple UI/logic from raw GLB clip names by using a JSON index contract.
 ## Contract Shape
 
 Use a character entry with:
+
 - `skeleton.url`
 - `animationSource.url`
 - `animations[]`
@@ -33,6 +34,7 @@ Use a character entry with:
 ## Required Assertions
 
 At startup, validate:
+
 - index contains target character
 - `animations[]` is non-empty
 - every `sourceClipName` resolves to a clip
@@ -43,6 +45,7 @@ Fail loudly with clear error messages when contract is invalid.
 ## Loop Mode Mapping
 
 Map string loop values to Three.js constants:
+
 - `repeat` -> `THREE.LoopRepeat`
 - `once` -> `THREE.LoopOnce` (+ `clampWhenFinished = true`)
 - `pingpong` -> `THREE.LoopPingPong`

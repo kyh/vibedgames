@@ -9,11 +9,8 @@ import {
 } from "@repo/ui/components/input-group";
 import { CheckIcon, ChevronRightIcon, CopyIcon } from "lucide-react";
 
-import {
-  ClaudeIcon,
-  CodexIcon,
-  CursorIcon,
-} from "@/components/ui/brand-icons";
+import { RegisterLink } from "@/components/auth/register-link";
+import { ClaudeIcon, CodexIcon, CursorIcon } from "@/components/ui/brand-icons";
 import { FadeInBlur } from "@/components/ui/fade-in-blur";
 import { useCopyToClipboard } from "@/lib/use-copy-to-clipboard";
 
@@ -149,8 +146,7 @@ function CardContent({ card }: { card: Offering }) {
         <span>{card.index}</span>
       </div>
       <p className="text-xl font-medium leading-[0.9] -tracking-[0.03em] sm:text-2xl">
-        {card.title}.{" "}
-        <span className="opacity-60">{card.desc}</span>
+        {card.title}. <span className="opacity-60">{card.desc}</span>
       </p>
       <button
         type="button"
@@ -170,11 +166,7 @@ function CardContent({ card }: { card: Offering }) {
           transition={{ type: "spring", stiffness: 400, damping: 20 }}
           className="flex shrink-0 translate-y-px items-center justify-center opacity-60 transition-opacity group-hover:opacity-100"
         >
-          {copied ? (
-            <CheckIcon className="size-3" />
-          ) : (
-            <CopyIcon className="size-3" />
-          )}
+          {copied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
         </motion.span>
       </button>
     </div>
@@ -206,9 +198,7 @@ const cardKeyHandler = (toggle: () => void) => (e: React.KeyboardEvent) => {
 function OfferingsDeckDesktop() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [activeIdx, setActiveIdx] = useState<number | null>(null);
-  const [offsets, setOffsets] = useState(() =>
-    OFFERINGS.map(() => ZERO_OFFSET),
-  );
+  const [offsets, setOffsets] = useState(() => OFFERINGS.map(() => ZERO_OFFSET));
 
   useEffect(() => {
     setOffsets(OFFERINGS.map(randomOffset));
@@ -219,30 +209,22 @@ function OfferingsDeckDesktop() {
     if (!container) return;
     const rect = container.getBoundingClientRect();
     const pct = (e.clientX - rect.left) / rect.width;
-    const idx = Math.min(
-      OFFERINGS.length - 1,
-      Math.max(0, Math.floor(pct * OFFERINGS.length)),
-    );
+    const idx = Math.min(OFFERINGS.length - 1, Math.max(0, Math.floor(pct * OFFERINGS.length)));
     if (idx === activeIdx) return;
     if (activeIdx !== null) {
-      setOffsets((prev) =>
-        prev.map((o, i) => (i === activeIdx ? randomOffset() : o)),
-      );
+      setOffsets((prev) => prev.map((o, i) => (i === activeIdx ? randomOffset() : o)));
     }
     setActiveIdx(idx);
   };
 
   const handleMouseLeave = () => {
     if (activeIdx !== null) {
-      setOffsets((prev) =>
-        prev.map((o, i) => (i === activeIdx ? randomOffset() : o)),
-      );
+      setOffsets((prev) => prev.map((o, i) => (i === activeIdx ? randomOffset() : o)));
     }
     setActiveIdx(null);
   };
 
-  const toggle = (i: number) =>
-    setActiveIdx((curr) => (curr === i ? null : i));
+  const toggle = (i: number) => setActiveIdx((curr) => (curr === i ? null : i));
 
   return (
     <div
@@ -264,10 +246,7 @@ function OfferingsDeckDesktop() {
               scale: 1,
             };
 
-        const innerX =
-          activeIdx === null || activeIdx === i
-            ? "0%"
-            : `${80 / (i - activeIdx)}%`;
+        const innerX = activeIdx === null || activeIdx === i ? "0%" : `${80 / (i - activeIdx)}%`;
 
         return (
           <motion.div
@@ -303,8 +282,7 @@ function OfferingsDeckMobile() {
   const isInView = useInView(ref, { once: true, margin: "-100px" });
   const [activeIdx, setActiveIdx] = useState<number | null>(null);
 
-  const toggle = (i: number) =>
-    setActiveIdx((curr) => (curr === i ? null : i));
+  const toggle = (i: number) => setActiveIdx((curr) => (curr === i ? null : i));
 
   return (
     <div
@@ -317,8 +295,7 @@ function OfferingsDeckMobile() {
       {OFFERINGS.map((card, i) => {
         const p = MOBILE_POSITIONS[i] ?? { top: "0%", left: "0%", rotate: 0 };
         const isActive = activeIdx === i;
-        const activeP =
-          activeIdx !== null ? MOBILE_POSITIONS[activeIdx] : null;
+        const activeP = activeIdx !== null ? MOBILE_POSITIONS[activeIdx] : null;
 
         let innerX = "0%";
         let innerY = "0%";
@@ -384,9 +361,7 @@ function OfferingsDeck() {
         <h1 className="text-3xl font-medium leading-[0.9] -tracking-[0.03em] sm:text-5xl">
           You bring the ideas.
           <br />
-          <span className="text-muted-foreground">
-            We bring the game studio.
-          </span>
+          <span className="text-muted-foreground">We bring the game studio.</span>
         </h1>
       </FadeInBlur>
 
@@ -399,6 +374,7 @@ function OfferingsDeck() {
 function BuildPage() {
   return (
     <main>
+      <RegisterLink />
       <OfferingsDeck />
       <InstallPrompt />
     </main>

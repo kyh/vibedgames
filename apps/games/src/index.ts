@@ -59,15 +59,10 @@ export default {
     }
 
     const headers = new Headers();
-    headers.set(
-      "content-type",
-      fileRow?.contentType ?? "application/octet-stream",
-    );
+    headers.set("content-type", fileRow?.contentType ?? "application/octet-stream");
     headers.set(
       "cache-control",
-      requestedPath === "index.html"
-        ? "public, max-age=60"
-        : "public, max-age=31536000, immutable",
+      requestedPath === "index.html" ? "public, max-age=60" : "public, max-age=31536000, immutable",
     );
     headers.set(
       "content-security-policy",

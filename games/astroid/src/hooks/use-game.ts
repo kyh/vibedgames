@@ -88,12 +88,9 @@ export function useGame(
   // --- Multiplayer ---
   const eventQueueRef = useRef<EventPayload[]>([]);
 
-  const handleEvent = useCallback(
-    (event: string, payload: unknown, _from: string) => {
-      eventQueueRef.current.push(payload as EventPayload);
-    },
-    [],
-  );
+  const handleEvent = useCallback((event: string, payload: unknown, _from: string) => {
+    eventQueueRef.current.push(payload as EventPayload);
+  }, []);
 
   const room = useMultiplayerRoom<SharedGameState>({
     host: HOST,
@@ -181,8 +178,12 @@ export function useGame(
     const handlePointerMove = (e: PointerEvent) => {
       mouseScreenRef.current = { x: e.clientX, y: e.clientY };
     };
-    const handleDown = () => { mouseDownRef.current = true; };
-    const handleUp = () => { mouseDownRef.current = false; };
+    const handleDown = () => {
+      mouseDownRef.current = true;
+    };
+    const handleUp = () => {
+      mouseDownRef.current = false;
+    };
 
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerdown", handleDown);
@@ -248,7 +249,10 @@ export function useGame(
       }
 
       // ---- Weapon timeout ----
-      if (weaponRef.current !== WEAPON_DEFAULT && now - weaponSetTimeRef.current > SPECIAL_WEAPON_DURATION_MS) {
+      if (
+        weaponRef.current !== WEAPON_DEFAULT &&
+        now - weaponSetTimeRef.current > SPECIAL_WEAPON_DURATION_MS
+      ) {
         weaponRef.current = WEAPON_DEFAULT;
         setWeaponName(WEAPON_DEFAULT.name);
       }
@@ -258,13 +262,13 @@ export function useGame(
         const beam = createBeam(shipRef.current, weaponRef.current, pid);
         beamsRef.current.push(beam);
         canShootRef.current = false;
-        setTimeout(() => { canShootRef.current = true; }, weaponRef.current.shootingInterval);
+        setTimeout(() => {
+          canShootRef.current = true;
+        }, weaponRef.current.shootingInterval);
       }
 
       // ---- Update my beams ----
-      beamsRef.current = beamsRef.current
-        .map(updateBeam)
-        .filter((b) => !b.vanished);
+      beamsRef.current = beamsRef.current.map(updateBeam).filter((b) => !b.vanished);
 
       // ---- Read shared state ----
       const shared = sharedStateRef.current;
@@ -440,18 +444,20 @@ export function useGame(
       if (minimapCanvas) {
         const mctx = minimapCanvas.getContext("2d");
         if (mctx) {
-          const dots: MinimapDot[] = Object.entries(playersRef.current).map(([id, p]) => {
-            const state = p.state as PlayerGameState | undefined;
-            return {
-              x: state?.x ?? 0,
-              y: state?.y ?? 0,
-              color: p.color ?? "white",
-              isMe: id === pid,
-            };
-          }).filter((d) => {
-            const state = playersRef.current[pid]?.state as PlayerGameState | undefined;
-            return d.isMe ? aliveRef.current : (state?.alive ?? true);
-          });
+          const dots: MinimapDot[] = Object.entries(playersRef.current)
+            .map(([id, p]) => {
+              const state = p.state as PlayerGameState | undefined;
+              return {
+                x: state?.x ?? 0,
+                y: state?.y ?? 0,
+                color: p.color ?? "white",
+                isMe: id === pid,
+              };
+            })
+            .filter((d) => {
+              const state = playersRef.current[pid]?.state as PlayerGameState | undefined;
+              return d.isMe ? aliveRef.current : (state?.alive ?? true);
+            });
           renderMinimap(mctx, minimapCanvas.width, dots, shared.asteroids);
         }
       }
@@ -464,12 +470,7 @@ export function useGame(
   function die(now: number) {
     if (shipRef.current) {
       splintersRef.current.push(
-        createSplinter(
-          shipRef.current.position.x,
-          shipRef.current.position.y,
-          50,
-          30,
-        ),
+        createSplinter(shipRef.current.position.x, shipRef.current.position.y, 50, 30),
       );
     }
 
@@ -502,7 +503,12 @@ export function useGame(
             } else {
               // Destroyed
               splintersRef.current.push(
-                createSplinter(asteroids[idx].position.x, asteroids[idx].position.y, asteroids[idx].radius, 20),
+                createSplinter(
+                  asteroids[idx].position.x,
+                  asteroids[idx].position.y,
+                  asteroids[idx].radius,
+                  20,
+                ),
               );
               asteroids.splice(idx, 1);
             }
@@ -514,9 +520,7 @@ export function useGame(
           if (ufo) {
             ufo = damageUFO(ufo, evt.damage);
             if (ufo.hp <= 0) {
-              splintersRef.current.push(
-                createSplinter(ufo.position.x, ufo.position.y, 25, 20),
-              );
+              splintersRef.current.push(createSplinter(ufo.position.x, ufo.position.y, 25, 20));
               items.push(createItem(ufo.position.x, ufo.position.y));
               ufo = null;
             }
@@ -541,7 +545,10 @@ export function useGame(
     }
 
     // Spawn asteroids
-    if (asteroids.length < ASTEROID_MAX_NUM && now - lastAsteroidSpawnRef.current > ASTEROID_SPAWN_INTERVAL) {
+    if (
+      asteroids.length < ASTEROID_MAX_NUM &&
+      now - lastAsteroidSpawnRef.current > ASTEROID_SPAWN_INTERVAL
+    ) {
       asteroids.push(spawnAsteroid());
       lastAsteroidSpawnRef.current = now;
       changed = true;

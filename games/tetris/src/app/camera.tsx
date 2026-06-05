@@ -68,10 +68,7 @@ function landmarksToKeypoints(
 export const Camera = memo(function Camera({
   onPoseDetected,
 }: {
-  onPoseDetected?: (
-    pose: Pose,
-    canvasRef: React.RefObject<HTMLCanvasElement | null>,
-  ) => void;
+  onPoseDetected?: (pose: Pose, canvasRef: React.RefObject<HTMLCanvasElement | null>) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);

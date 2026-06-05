@@ -7,14 +7,17 @@ Common mistakes when creating skills and how to avoid them.
 **Anti-Pattern**: Creating rigid templates that constrain creativity and force the agent into a template-filling role.
 
 **Problem**:
+
 - Reduces the agent to mechanical slot-filling
 - Produces generic, cookie-cutter outputs
 - Limits adaptation to context
 - Results in "AI slop" aesthetics
 
 **Example**:
+
 ```markdown
 Always use this exact structure:
+
 1. Title: [INSERT TITLE]
 2. Introduction: [WRITE 2 PARAGRAPHS]
 3. Body: [WRITE 3 SECTIONS]
@@ -22,8 +25,10 @@ Always use this exact structure:
 ```
 
 **Better Approach**:
+
 ```markdown
 Structure your document based on the content and audience:
+
 - Consider what structure best serves the purpose
 - Adapt sections to the context
 - Vary depth and organization based on complexity
@@ -37,12 +42,14 @@ Structure your document based on the content and audience:
 **Anti-Pattern**: Providing rules without underlying philosophy or explaining why.
 
 **Problem**:
+
 - No mental framework to guide decisions
 - Can't adapt to novel situations
 - Lacks principled decision-making
 - Follows rules blindly without understanding
 
 **Example**:
+
 ```markdown
 Code Review Checklist:
 ☐ Check for syntax errors
@@ -52,10 +59,12 @@ Code Review Checklist:
 ```
 
 **Better Approach**:
+
 ```markdown
 ## Code Review Philosophy
 
 Before diving into specifics, understand what makes a good review:
+
 - **Purpose**: Catch bugs early and improve code quality
 - **Mindset**: Constructive collaboration, not criticism
 - **Focus**: High-impact issues first, style issues second
@@ -70,12 +79,14 @@ With this foundation, review code systematically...
 **Anti-Pattern**: Advice so vague it applies to everything but helps with nothing.
 
 **Problem**:
+
 - No actionable specifics
 - Could apply to any domain
 - Doesn't prevent common mistakes
 - Adds tokens without adding value
 
 **Example**:
+
 ```markdown
 Write good code.
 Make it readable.
@@ -84,6 +95,7 @@ Test thoroughly.
 ```
 
 **Better Approach**:
+
 ```markdown
 ## React Component Best Practices
 
@@ -100,12 +112,14 @@ Test thoroughly.
 **Anti-Pattern**: Same approach regardless of situation, ignoring context-specific needs.
 
 **Problem**:
+
 - One-size-fits-all thinking
 - Misses situational nuances
 - Produces inappropriate solutions
 - Fails to adapt to constraints
 
 **Example**:
+
 ```markdown
 Always use microservices architecture.
 Always write tests first.
@@ -113,17 +127,20 @@ Always optimize for performance.
 ```
 
 **Better Approach**:
+
 ```markdown
 ## Architecture Decision Framework
 
 Choose architecture based on context:
 
 **Monolith when**:
+
 - Team <10 people
 - Single domain
 - Fast iteration priority
 
 **Microservices when**:
+
 - Multiple autonomous teams
 - Different scaling needs per service
 - Clear bounded contexts
@@ -138,28 +155,37 @@ Choose architecture based on context:
 **Anti-Pattern**: Too many rules, constraints, and complexity for simple domains.
 
 **Problem**:
+
 - Overwhelming cognitive load
 - Analysis paralysis
 - Adds complexity without value
 - Slows down simple tasks
 
 **Example**:
+
 ```markdown
 # Email Writing Skill (500 lines)
 
 ## Grammar Rules (50 rules)
+
 ## Tone Guidelines (30 variations)
+
 ## Structure Templates (20 templates)
+
 ## Cultural Considerations (40 contexts)
+
 ## Legal Disclaimers (10 scenarios)
+
 ...
 ```
 
 **Better Approach**:
+
 ```markdown
 # Email Writing Skill
 
 ## Core Principles
+
 - Clear subject line
 - Concise opening
 - Actionable content
@@ -175,12 +201,14 @@ Adapt based on context. Professional emails are more formal, internal emails can
 **Anti-Pattern**: Too few guidelines for complex, fragile domains.
 
 **Problem**:
+
 - Missing critical details
 - Error-prone execution
 - Inconsistent quality
 - Lacks necessary structure
 
 **Example**:
+
 ```markdown
 # Complex Financial Modeling Skill
 
@@ -188,23 +216,27 @@ Just build a financial model. Make sure it's accurate.
 ```
 
 **Better Approach**:
+
 ```markdown
 # Financial Modeling Skill
 
 ## Core Principles
+
 [Establish philosophy]
 
 ## Model Structure
+
 - Historical data validation (min 3 years)
 - Assumption documentation with sources
 - Sensitivity analysis on key drivers
 - Audit trail for all formulas
 
 ## Common Errors to Avoid
+
 - Circular references without iteration limits
 - Hardcoded values instead of assumptions
 - Missing error checking on external data
-...
+  ...
 
 See references/financial-modeling-standards.md for detailed guidelines
 ```
@@ -216,33 +248,40 @@ See references/financial-modeling-standards.md for detailed guidelines
 **Anti-Pattern**: Converging on repeated "favorite" choices across outputs.
 
 **Problem**:
+
 - Same fonts, colors, structures every time
 - Lack of creative diversity
 - Predictable, boring outputs
 - Generic "AI aesthetic"
 
 **Example**:
+
 ```markdown
 # Design Skill
 
 Always use:
+
 - Font: Inter
 - Colors: Purple gradient on white
 - Layout: Centered with rounded corners
 ```
 
 **Better Approach**:
+
 ```markdown
 # Design Skill
 
 ## Typography
+
 Choose fonts based on brand and purpose. Vary your choices:
+
 - **Distinctive display fonts** for headers
 - **Refined body fonts** for readability
 - **NEVER default to Inter, Roboto, or Arial**
 - Different font for each project
 
 ## Color Approach
+
 - Commit to a cohesive palette per project
 - Vary drastically between projects
 - Avoid purple gradients (overused)
@@ -256,24 +295,31 @@ Choose fonts based on brand and purpose. Vary your choices:
 **Anti-Pattern**: Same information appears in both SKILL.md and reference files.
 
 **Problem**:
+
 - Wastes context window
 - Creates maintenance burden
 - Confusing which is authoritative
 - Inefficient progressive disclosure
 
 **Example**:
+
 ```markdown
 # SKILL.md
+
 ## API Reference
+
 [500 lines of API documentation]
 
 # references/api-docs.md
+
 [Same 500 lines repeated]
 ```
 
 **Better Approach**:
+
 ```markdown
 # SKILL.md
+
 ## Using the API
 
 For complete API reference, see references/api-docs.md
@@ -282,6 +328,7 @@ Quick start:
 [50 lines of essential workflow]
 
 # references/api-docs.md
+
 [500 lines of detailed API documentation]
 ```
 
@@ -292,32 +339,38 @@ Quick start:
 **Anti-Pattern**: Only showing what TO do, never what NOT to do.
 
 **Problem**:
+
 - Common pitfalls not prevented
 - Repeating known mistakes
 - No warnings about fragile areas
 - Missing critical "don't" knowledge
 
 **Example**:
+
 ```markdown
 # SQL Query Skill
 
 Write efficient queries:
+
 - Use indexes
 - Join tables properly
 - Select only needed columns
 ```
 
 **Better Approach**:
+
 ```markdown
 # SQL Query Skill
 
 ## Write Efficient Queries
+
 - Use indexes on frequently queried columns
 - Join tables on indexed foreign keys
 - Select only needed columns
 
 ## Common Mistakes to AVOID
-- ❌ NEVER use SELECT * in production queries
+
+- ❌ NEVER use SELECT \* in production queries
 - ❌ DON'T join without indexes (causes table scans)
 - ❌ AVOID N+1 queries (use joins or batch loading)
 - ❌ DON'T compare dates without normalizing timezones
@@ -330,12 +383,14 @@ Write efficient queries:
 **Anti-Pattern**: Not explicitly telling the agent that outputs should vary.
 
 **Problem**:
+
 - Model may develop "favorite" patterns
 - Outputs become predictable
 - Less creative exploration
 - Convergence on safe choices
 
 **Example**:
+
 ```markdown
 # Presentation Skill
 
@@ -343,12 +398,14 @@ Create slides with clear titles, bullet points, and visuals.
 ```
 
 **Better Approach**:
+
 ```markdown
 # Presentation Skill
 
 Create slides with clear titles, content, and visuals.
 
 **IMPORTANT: Vary your approach**
+
 - Different presentations should look different
 - Adapt to audience and purpose
 - Avoid converging on the same layout/style
@@ -373,6 +430,7 @@ Create slides with clear titles, content, and visuals.
 ## When to Break These Rules
 
 These are guidelines, not rigid laws. Break them when:
+
 - The domain truly requires rigid structure (e.g., legal compliance)
 - Templates are requested explicitly by users
 - Safety/security demands strict constraints

@@ -97,12 +97,12 @@ Use this when the rest of the performance (head movement, expression, gestures) 
 
 ## Endpoint reference
 
-| Endpoint               | Mode                                | When to use                                |
-| ---------------------- | ----------------------------------- | ------------------------------------------ |
-| `veed/fabric-1.0`      | image + audio → video               | Default talking head from a still portrait |
-| `veed/fabric-1.0/text` | image + text → video                | Skip explicit TTS step                     |
-| `fal-ai/creatify/aurora`      | image + audio (+ direction) → video | Avatar with visual direction controls      |
-| `fal-ai/sync-lipsync/v2`      | video + audio → synced video        | Replace mouth in existing footage          |
+| Endpoint                 | Mode                                | When to use                                |
+| ------------------------ | ----------------------------------- | ------------------------------------------ |
+| `veed/fabric-1.0`        | image + audio → video               | Default talking head from a still portrait |
+| `veed/fabric-1.0/text`   | image + text → video                | Skip explicit TTS step                     |
+| `fal-ai/creatify/aurora` | image + audio (+ direction) → video | Avatar with visual direction controls      |
+| `fal-ai/sync-lipsync/v2` | video + audio → synced video        | Replace mouth in existing footage          |
 
 For TTS endpoint selection, see [model-catalog/text-to-audio.md](../../model-catalog/references/text-to-audio.md).
 

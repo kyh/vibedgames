@@ -28,8 +28,8 @@ For the full command surface (every flag, every option, every example), see [ref
 
 ## Command index
 
-| Command                                        | Purpose                                                       |
-| ---------------------------------------------- | ------------------------------------------------------------- |
+| Command                                           | Purpose                                                       |
+| ------------------------------------------------- | ------------------------------------------------------------- |
 | `vg generate models <query>`                      | Search the catalog (or `--category`, or `--endpoint_id`)      |
 | `vg generate schema <endpoint_id>`                | Inspect inputs/outputs (compact or `--format openapi`)        |
 | `vg generate run <endpoint_id> --<param> <value>` | Execute a model                                               |

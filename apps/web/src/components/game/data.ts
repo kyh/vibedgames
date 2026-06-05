@@ -7,8 +7,7 @@ export type FeaturedGame = {
   colorScheme: "light" | "dark";
 };
 
-export const gameUrl = (slug: string) =>
-  `https://${slug}.vibedgames.com`;
+export const gameUrl = (slug: string) => `https://${slug}.vibedgames.com`;
 
 export const gameSearchSchema = z.object({
   game: z.string().default("astroid"),
@@ -18,44 +17,39 @@ export type GameSearch = z.infer<typeof gameSearchSchema>;
 
 export const featuredGames: FeaturedGame[] = [
   {
-    name: "Bomberman",
-    slug: "bomberman",
-    preview: "/covers/bomberman.jpg",
-    colorScheme: "light",
-  },
-  {
     name: "Astroid",
     slug: "astroid",
-    preview:
-      "https://zmdrwswxugswzmcokvff.supabase.co/storage/v1/object/public/vibedgames/astroid.png",
+    preview: "/covers/astroid.webp",
     colorScheme: "dark",
   },
   {
     name: "Flappy Bird",
     slug: "flappy-bird",
-    preview:
-      "https://zmdrwswxugswzmcokvff.supabase.co/storage/v1/object/public/vibedgames/flappy.png",
+    preview: "/covers/flappy-bird.webp",
     colorScheme: "light",
   },
   {
     name: "Pacman",
     slug: "pacman",
-    preview:
-      "https://zmdrwswxugswzmcokvff.supabase.co/storage/v1/object/public/vibedgames/pacman.png",
+    preview: "/covers/pacman.webp",
     colorScheme: "dark",
   },
   {
     name: "Tetris",
     slug: "tetris",
-    preview:
-      "https://zmdrwswxugswzmcokvff.supabase.co/storage/v1/object/public/vibedgames/tetris.png",
+    preview: "/covers/tetris.webp",
     colorScheme: "dark",
   },
   {
     name: "Pong",
     slug: "pong",
-    preview:
-      "https://zmdrwswxugswzmcokvff.supabase.co/storage/v1/object/public/vibedgames/pong.png",
+    preview: "/covers/pong.webp",
+    colorScheme: "light",
+  },
+  {
+    name: "Bomberman",
+    slug: "bomberman",
+    preview: "/covers/bomberman.webp",
     colorScheme: "light",
   },
 ];

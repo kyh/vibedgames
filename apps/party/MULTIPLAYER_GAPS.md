@@ -6,14 +6,14 @@ the upstream `colyseus-multiplayer` skill against the current code.
 
 We deliberately don't adopt Colyseus (server-authoritative + binary
 schemas don't fit our last-write-wins host-authoritative model). This
-doc is the subset that *does* apply.
+doc is the subset that _does_ apply.
 
 ## Critical fixes (security / correctness)
 
 These are bugs in the current code, not feature work.
 
 - **`apps/party/src/server.ts:61` — host-only enforcement on `state_patch`.**
-  Any client can overwrite `sharedState` today. CLAUDE.md *claims*
+  Any client can overwrite `sharedState` today. CLAUDE.md _claims_
   host-authoritative, the relay is not. One-line fix: reject unless
   `sender.id === this.room.hostId`. **S.**
 - **`apps/party/src/server.ts:107` — reconnection grace + stable player id.**
@@ -27,7 +27,7 @@ These are bugs in the current code, not feature work.
   notifying clients. Either persist to DO storage or document that
   hibernation = reset. **M.**
 - **`packages/multiplayer/src/client.ts` — `initialState` re-applied on
-  host promotion wipes the live round.** The `sync` *and* `host`
+  host promotion wipes the live round.** The `sync` _and_ `host`
   message handlers both push `options.initialState` whenever the client
   becomes host, guarded only by a once-flag a promoted guest hasn't
   tripped. So when the host leaves, the new host re-seeds the room with
@@ -53,9 +53,9 @@ These are bugs in the current code, not feature work.
      so there is no vibedgames identity to spoof, and games are
      served at `{slug}.vibedgames.com` for users who may not be
      logged in at all.
-  Hold until private rooms or persistent identity are actual
-  requirements, then design properly: subdomain (`party.vibedgames.com`)
-  for cookie carry, OR a join-token mint endpoint + URL token. **M.**
+     Hold until private rooms or persistent identity are actual
+     requirements, then design properly: subdomain (`party.vibedgames.com`)
+     for cookie carry, OR a join-token mint endpoint + URL token. **M.**
 - **Typed message channels.** Replace the single `emit`/`event` pair
   with `room.send(type, payload, { to?, except? })`. Mirrors
   Colyseus's `client.send` vs `broadcast` so events can target one
@@ -117,7 +117,7 @@ a docs PR, not code work.
   a "reconnecting…" overlay. Becomes essential after server-side
   grace lands.
 - **Initial-state ownership pattern.** `initialState` only seeds when
-  the *current* client becomes host — surprising semantics. Document.
+  the _current_ client becomes host — surprising semantics. Document.
 - **Schema-shape discipline.** Don't put VFX, sprite refs, or
   animation frame indices in `sharedState`. Mirrors Colyseus's
   "schema is a wire format" rule.

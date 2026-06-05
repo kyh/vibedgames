@@ -65,11 +65,7 @@ async function hmacSha256Hex(secret: string, message: string): Promise<string> {
     false,
     ["sign"],
   );
-  const sig = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    new TextEncoder().encode(message),
-  );
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(message));
   return Array.from(new Uint8Array(sig))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
@@ -122,10 +118,7 @@ export async function verifyProxyUploadUrl({
 }): Promise<string | null> {
   const now = Math.floor(Date.now() / 1000);
   if (!Number.isFinite(exp) || exp <= now) return "expired";
-  const expected = await hmacSha256Hex(
-    secret,
-    proxyUploadMessage(key, contentType, exp),
-  );
+  const expected = await hmacSha256Hex(secret, proxyUploadMessage(key, contentType, exp));
   // Constant-time compare on equal-length strings.
   if (expected.length !== sig.length) return "bad signature";
   let mismatch = 0;
@@ -227,10 +220,9 @@ export async function presignGet({
   );
   endpoint.searchParams.set("X-Amz-Expires", String(expiresInSeconds));
 
-  const signed = await client.sign(
-    new Request(endpoint, { method: "GET" }),
-    { aws: { signQuery: true } },
-  );
+  const signed = await client.sign(new Request(endpoint, { method: "GET" }), {
+    aws: { signQuery: true },
+  });
 
   return signed.url;
 }

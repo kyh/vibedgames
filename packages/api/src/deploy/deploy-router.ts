@@ -83,194 +83,176 @@ export const deployRouter = createTRPCRouter({
    * deployment for this game (single-deploy MVP), and returns presigned PUT
    * URLs the client uses to upload each file directly to R2.
    */
-  create: protectedProcedure
-    .input(createInput)
-    .mutation(async ({ ctx, input }) => {
-      const r2 = requireR2(ctx.r2);
-      const userId = ctx.session.user.id;
+  create: protectedProcedure.input(createInput).mutation(async ({ ctx, input }) => {
+    const r2 = requireR2(ctx.r2);
+    const userId = ctx.session.user.id;
 
-      // ---- Validate slug ------------------------------------------------------
-      if (isSlugReserved(input.slug)) {
+    // ---- Validate slug ------------------------------------------------------
+    if (isSlugReserved(input.slug)) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `Slug "${input.slug}" is reserved.`,
+      });
+    }
+
+    // ---- Validate manifest --------------------------------------------------
+    const hasIndex = input.files.some((f) => f.path === "index.html");
+    if (!hasIndex) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Deployment must contain index.html at the root.",
+      });
+    }
+
+    const totalBytes = input.files.reduce((acc, f) => acc + f.size, 0);
+    if (totalBytes > MAX_TOTAL_SIZE) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `Total deploy size ${totalBytes} exceeds limit ${MAX_TOTAL_SIZE}.`,
+      });
+    }
+
+    // dedupe paths
+    const paths = new Set<string>();
+    for (const f of input.files) {
+      if (paths.has(f.path)) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: `Slug "${input.slug}" is reserved.`,
+          message: `Duplicate path "${f.path}" in manifest.`,
         });
       }
+      paths.add(f.path);
+    }
 
-      // ---- Validate manifest --------------------------------------------------
-      const hasIndex = input.files.some((f) => f.path === "index.html");
-      if (!hasIndex) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Deployment must contain index.html at the root.",
-        });
-      }
+    // ---- Resolve or create game row ----------------------------------------
+    const existing = await ctx.db.query.game.findFirst({
+      where: eq(game.slug, input.slug),
+    });
 
-      const totalBytes = input.files.reduce((acc, f) => acc + f.size, 0);
-      if (totalBytes > MAX_TOTAL_SIZE) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: `Total deploy size ${totalBytes} exceeds limit ${MAX_TOTAL_SIZE}.`,
-        });
-      }
+    if (existing && existing.userId !== userId) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: `Slug "${input.slug}" is already taken.`,
+      });
+    }
 
-      // dedupe paths
-      const paths = new Set<string>();
-      for (const f of input.files) {
-        if (paths.has(f.path)) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: `Duplicate path "${f.path}" in manifest.`,
-          });
+    const gameId = existing?.id ?? crypto.randomUUID();
+    if (!existing) {
+      await ctx.db.insert(game).values({
+        id: gameId,
+        userId,
+        slug: input.slug,
+        name: input.name ?? null,
+      });
+    } else if (input.name && input.name !== existing.name) {
+      await ctx.db.update(game).set({ name: input.name }).where(eq(game.id, gameId));
+    }
+
+    // ---- Wipe previous deployment (single-deploy MVP) ----------------------
+    // Clear R2 first, then DB rows. Cascade on deployment → deploymentFile
+    // takes care of the file metadata. We null out currentDeploymentId so
+    // the FK to a row we're about to delete is valid.
+    if (existing?.currentDeploymentId) {
+      await deletePrefix({ r2, prefix: `games/${gameId}/` });
+      await deletePrefix({ r2, prefix: `sources/${gameId}/` });
+      await ctx.db.update(game).set({ currentDeploymentId: null }).where(eq(game.id, gameId));
+      await ctx.db.delete(deployment).where(eq(deployment.gameId, gameId));
+    }
+
+    // ---- Create pending deployment -----------------------------------------
+    const deploymentId = crypto.randomUUID();
+    const sourceKey = input.source ? sourceKeyFor(gameId, deploymentId) : null;
+    await ctx.db.insert(deployment).values({
+      id: deploymentId,
+      gameId,
+      status: "pending",
+      fileCount: input.files.length,
+      totalBytes,
+      sourceKey,
+      sourceBytes: input.source?.bytes ?? null,
+    });
+
+    const fileRows = input.files.map((f) => ({
+      deploymentId,
+      path: f.path,
+      contentType: f.contentType,
+      size: f.size,
+      sha256: f.sha256,
+      r2Key: `games/${gameId}/${deploymentId}/${f.path}`,
+    }));
+    // D1 has a max SQL statement size — batch inserts in chunks
+    const BATCH_SIZE = 10;
+    for (let i = 0; i < fileRows.length; i += BATCH_SIZE) {
+      await ctx.db.insert(deploymentFile).values(fileRows.slice(i, i + BATCH_SIZE));
+    }
+
+    // ---- Mint presigned URLs -----------------------------------------------
+    const uploads = await Promise.all(
+      fileRows.map(async (row) => ({
+        path: row.path,
+        url: await presignPut({
+          r2,
+          key: row.r2Key,
+          contentType: row.contentType,
+        }),
+        headers: { "content-type": row.contentType },
+      })),
+    );
+
+    // ---- Mint source-archive presigned PUT (forkable source) ----------------
+    const sourceUpload = sourceKey
+      ? {
+          url: await presignPut({ r2, key: sourceKey, contentType: "application/gzip" }),
+          headers: { "content-type": "application/gzip" },
         }
-        paths.add(f.path);
-      }
+      : null;
 
-      // ---- Resolve or create game row ----------------------------------------
-      const existing = await ctx.db.query.game.findFirst({
-        where: eq(game.slug, input.slug),
-      });
-
-      if (existing && existing.userId !== userId) {
-        throw new TRPCError({
-          code: "FORBIDDEN",
-          message: `Slug "${input.slug}" is already taken.`,
-        });
-      }
-
-      const gameId = existing?.id ?? crypto.randomUUID();
-      if (!existing) {
-        await ctx.db.insert(game).values({
-          id: gameId,
-          userId,
-          slug: input.slug,
-          name: input.name ?? null,
-        });
-      } else if (input.name && input.name !== existing.name) {
-        await ctx.db
-          .update(game)
-          .set({ name: input.name })
-          .where(eq(game.id, gameId));
-      }
-
-      // ---- Wipe previous deployment (single-deploy MVP) ----------------------
-      // Clear R2 first, then DB rows. Cascade on deployment → deploymentFile
-      // takes care of the file metadata. We null out currentDeploymentId so
-      // the FK to a row we're about to delete is valid.
-      if (existing?.currentDeploymentId) {
-        await deletePrefix({ r2, prefix: `games/${gameId}/` });
-        await deletePrefix({ r2, prefix: `sources/${gameId}/` });
-        await ctx.db
-          .update(game)
-          .set({ currentDeploymentId: null })
-          .where(eq(game.id, gameId));
-        await ctx.db
-          .delete(deployment)
-          .where(eq(deployment.gameId, gameId));
-      }
-
-      // ---- Create pending deployment -----------------------------------------
-      const deploymentId = crypto.randomUUID();
-      const sourceKey = input.source ? sourceKeyFor(gameId, deploymentId) : null;
-      await ctx.db.insert(deployment).values({
-        id: deploymentId,
-        gameId,
-        status: "pending",
-        fileCount: input.files.length,
-        totalBytes,
-        sourceKey,
-        sourceBytes: input.source?.bytes ?? null,
-      });
-
-      const fileRows = input.files.map((f) => ({
-        deploymentId,
-        path: f.path,
-        contentType: f.contentType,
-        size: f.size,
-        sha256: f.sha256,
-        r2Key: `games/${gameId}/${deploymentId}/${f.path}`,
-      }));
-      // D1 has a max SQL statement size — batch inserts in chunks
-      const BATCH_SIZE = 10;
-      for (let i = 0; i < fileRows.length; i += BATCH_SIZE) {
-        await ctx.db.insert(deploymentFile).values(fileRows.slice(i, i + BATCH_SIZE));
-      }
-
-      // ---- Mint presigned URLs -----------------------------------------------
-      const uploads = await Promise.all(
-        fileRows.map(async (row) => ({
-          path: row.path,
-          url: await presignPut({
-            r2,
-            key: row.r2Key,
-            contentType: row.contentType,
-          }),
-          headers: { "content-type": row.contentType },
-        })),
-      );
-
-      // ---- Mint source-archive presigned PUT (forkable source) ----------------
-      const sourceUpload = sourceKey
-        ? {
-            url: await presignPut({ r2, key: sourceKey, contentType: "application/gzip" }),
-            headers: { "content-type": "application/gzip" },
-          }
-        : null;
-
-      return {
-        deploymentId,
-        gameId,
-        uploads,
-        sourceUpload,
-      };
-    }),
+    return {
+      deploymentId,
+      gameId,
+      uploads,
+      sourceUpload,
+    };
+  }),
 
   /**
    * Mark a pending deployment as ready and flip the game's current pointer.
    * After this call, `{slug}.vibedgames.com` serves the new files.
    */
-  finalize: protectedProcedure
-    .input(finalizeInput)
-    .mutation(async ({ ctx, input }) => {
-      const userId = ctx.session.user.id;
+  finalize: protectedProcedure.input(finalizeInput).mutation(async ({ ctx, input }) => {
+    const userId = ctx.session.user.id;
 
-      const dep = await ctx.db.query.deployment.findFirst({
-        where: eq(deployment.id, input.deploymentId),
+    const dep = await ctx.db.query.deployment.findFirst({
+      where: eq(deployment.id, input.deploymentId),
+    });
+    if (!dep) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found." });
+    }
+
+    const g = await ctx.db.query.game.findFirst({
+      where: eq(game.id, dep.gameId),
+    });
+    if (!g || g.userId !== userId) {
+      throw new TRPCError({ code: "FORBIDDEN" });
+    }
+
+    if (dep.status !== "pending") {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `Deployment already ${dep.status}.`,
       });
-      if (!dep) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found." });
-      }
+    }
 
-      const g = await ctx.db.query.game.findFirst({
-        where: eq(game.id, dep.gameId),
-      });
-      if (!g || g.userId !== userId) {
-        throw new TRPCError({ code: "FORBIDDEN" });
-      }
+    await ctx.db.update(deployment).set({ status: "ready" }).where(eq(deployment.id, dep.id));
 
-      if (dep.status !== "pending") {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: `Deployment already ${dep.status}.`,
-        });
-      }
+    await ctx.db.update(game).set({ currentDeploymentId: dep.id }).where(eq(game.id, g.id));
 
-      await ctx.db
-        .update(deployment)
-        .set({ status: "ready" })
-        .where(eq(deployment.id, dep.id));
-
-      await ctx.db
-        .update(game)
-        .set({ currentDeploymentId: dep.id })
-        .where(eq(game.id, g.id));
-
-      const base = new URL(ctx.productionURL ?? "https://vibedgames.com");
-      return {
-        url: `${base.protocol}//${g.slug}.${base.host}`,
-        slug: g.slug,
-      };
-    }),
+    const base = new URL(ctx.productionURL ?? "https://vibedgames.com");
+    return {
+      url: `${base.protocol}//${g.slug}.${base.host}`,
+      slug: g.slug,
+    };
+  }),
 
   /**
    * Resolve a slug's current source archive to a short-lived download URL.
@@ -326,23 +308,21 @@ export const deployRouter = createTRPCRouter({
    * Hard-delete a game: drop the game row (cascades to deployment +
    * deploymentFile) and clear its R2 prefix.
    */
-  delete: protectedProcedure
-    .input(deleteInput)
-    .mutation(async ({ ctx, input }) => {
-      const r2 = requireR2(ctx.r2);
-      const userId = ctx.session.user.id;
+  delete: protectedProcedure.input(deleteInput).mutation(async ({ ctx, input }) => {
+    const r2 = requireR2(ctx.r2);
+    const userId = ctx.session.user.id;
 
-      const g = await ctx.db.query.game.findFirst({
-        where: and(eq(game.id, input.gameId), eq(game.userId, userId)),
-      });
-      if (!g) {
-        throw new TRPCError({ code: "NOT_FOUND" });
-      }
+    const g = await ctx.db.query.game.findFirst({
+      where: and(eq(game.id, input.gameId), eq(game.userId, userId)),
+    });
+    if (!g) {
+      throw new TRPCError({ code: "NOT_FOUND" });
+    }
 
-      await deletePrefix({ r2, prefix: `games/${g.id}/` });
-      await deletePrefix({ r2, prefix: `sources/${g.id}/` });
-      await ctx.db.delete(game).where(eq(game.id, g.id));
+    await deletePrefix({ r2, prefix: `games/${g.id}/` });
+    await deletePrefix({ r2, prefix: `sources/${g.id}/` });
+    await ctx.db.delete(game).where(eq(game.id, g.id));
 
-      return { success: true };
-    }),
+    return { success: true };
+  }),
 });

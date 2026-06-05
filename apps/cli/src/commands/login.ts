@@ -10,11 +10,7 @@ const MAX_POLLS = 150; // 5 min at 2s intervals
 
 function openBrowser(url: string): void {
   const cmd =
-    process.platform === "darwin"
-      ? "open"
-      : process.platform === "win32"
-        ? "start"
-        : "xdg-open";
+    process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
   exec(`${cmd} "${url}"`);
 }
 

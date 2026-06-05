@@ -10,8 +10,8 @@ Use this recipe to restore and enhance image quality, fix blur, noise, haze, fac
 
 ## Smart dispatch by defect
 
-| Defect                              | Endpoint         |
-| ----------------------------------- | ---------------- |
+| Defect                              | Endpoint                |
+| ----------------------------------- | ----------------------- |
 | Motion blur, focus blur             | `fal-ai/nafnet/deblur`  |
 | Sensor noise, ISO grain             | `fal-ai/nafnet/denoise` |
 | Atmospheric haze, fog               | `fal-ai/mix-dehaze-net` |

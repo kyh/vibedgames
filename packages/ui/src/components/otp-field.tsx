@@ -49,10 +49,7 @@ function OTPFieldInput({
   );
 }
 
-function OTPFieldSeparator({
-  className,
-  ...props
-}: React.ComponentProps<typeof Separator>) {
+function OTPFieldSeparator({ className, ...props }: React.ComponentProps<typeof Separator>) {
   return (
     <OTPFieldPrimitive.Separator
       render={

@@ -1,6 +1,6 @@
 ---
 name: playwright
-description: "Plan, implement, and debug frontend tests: unit/integration/E2E/visual/a11y. Use for Playwright MCP browser automation, Vitest/Jest/RTL, flaky test triage, CI stabilization, and canvas/WebGL games (Phaser) needing deterministic input plus screenshot/state assertions. Trigger: \"test\", \"E2E\", \"flaky\", \"visual regression\", \"Playwright\", \"game testing\"."
+description: 'Plan, implement, and debug frontend tests: unit/integration/E2E/visual/a11y. Use for Playwright MCP browser automation, Vitest/Jest/RTL, flaky test triage, CI stabilization, and canvas/WebGL games (Phaser) needing deterministic input plus screenshot/state assertions. Trigger: "test", "E2E", "flaky", "visual regression", "Playwright", "game testing".'
 ---
 
 # Frontend Testing
@@ -12,6 +12,7 @@ Unlock reliable confidence fast: enable safe refactors by choosing the right tes
 Frontend tests fail for two reasons: the product is broken, or the test is lying. Your job is to maximize signal and minimize "test is lying".
 
 **Before writing a test, ask**:
+
 - What user risk am I covering (money, progression, auth, data loss, crashes)?
 - What's the narrowest layer that catches this bug class (pure logic vs UI vs full browser)?
 - What nondeterminism exists (time, RNG, async loading, network, animations, fonts, GPU)?
@@ -19,6 +20,7 @@ Frontend tests fail for two reasons: the product is broken, or the test is lying
 - What should a failure print/screenshot so it's diagnosable in CI?
 
 **Core principles**:
+
 1. **Test the contract, not the implementation**: assert stable user-meaningful outcomes and public seams.
 2. **Prefer determinism over retries**: make time/RNG/network controllable; remove flake at the source.
 3. **Observe like a debugger**: console errors, network failures, screenshots, and state dumps on failure.
@@ -28,12 +30,12 @@ Frontend tests fail for two reasons: the product is broken, or the test is lying
 
 Pick the cheapest layer that provides needed confidence:
 
-| Layer | Speed | Use For |
-|-------|-------|---------|
-| **Unit** | Fastest | Pure functions, reducers, validators, math, pathfinding, deterministic simulation |
-| **Component** | Medium | UI behavior with mocked IO (React Testing Library, Vue Testing Library) |
-| **E2E** | Slowest | Critical user flows across routing, storage, real bundling/runtime |
-| **Visual** | Specialized | Layout/pixel regressions; for canvas/WebGL, only after locking determinism |
+| Layer         | Speed       | Use For                                                                           |
+| ------------- | ----------- | --------------------------------------------------------------------------------- |
+| **Unit**      | Fastest     | Pure functions, reducers, validators, math, pathfinding, deterministic simulation |
+| **Component** | Medium      | UI behavior with mocked IO (React Testing Library, Vue Testing Library)           |
+| **E2E**       | Slowest     | Critical user flows across routing, storage, real bundling/runtime                |
+| **Visual**    | Specialized | Layout/pixel regressions; for canvas/WebGL, only after locking determinism        |
 
 ## Quick Start: First Smoke Test
 
@@ -87,20 +89,22 @@ Add to the app for testability (read-only, stable, minimal):
 
 ```javascript
 window.__TEST__ = {
-  ready: false,           // true after first interactive frame
-  seed: null,             // current RNG seed
-  sceneKey: null,         // current scene/route
-  state: () => ({         // JSON-serializable snapshot
+  ready: false, // true after first interactive frame
+  seed: null, // current RNG seed
+  sceneKey: null, // current scene/route
+  state: () => ({
+    // JSON-serializable snapshot
     scene: this.sceneKey,
     player: { x, y, hp },
     score: gameState.score,
-    entities: entities.map(e => ({ id: e.id, type: e.type, x: e.x, y: e.y }))
+    entities: entities.map((e) => ({ id: e.id, type: e.type, x: e.x, y: e.y })),
   }),
-  commands: {             // optional mutation commands
+  commands: {
+    // optional mutation commands
     reset: () => {},
     seed: (n) => {},
-    skipIntro: () => {}
-  }
+    skipIntro: () => {},
+  },
 };
 ```
 
@@ -109,28 +113,28 @@ window.__TEST__ = {
 ## Anti-Patterns to Avoid
 
 ❌ **Testing the wrong layer**: E2E tests for pure logic
-*Why tempting*: "Let's just test everything through the browser"
-*Better*: Unit tests for logic; reserve E2E for integration contracts
+_Why tempting_: "Let's just test everything through the browser"
+_Better_: Unit tests for logic; reserve E2E for integration contracts
 
 ❌ **Testing implementation details**: Asserting DOM structure/classnames
-*Why tempting*: Easy to assert what you can see in DevTools
-*Better*: Assert user-meaningful outputs (text, score, HP changes)
+_Why tempting_: Easy to assert what you can see in DevTools
+_Better_: Assert user-meaningful outputs (text, score, HP changes)
 
 ❌ **Sleep-driven tests**: `wait 2s then click`
-*Why tempting*: Simple and "works on my machine"
-*Better*: Wait on explicit readiness (DOM marker, `window.__TEST__.ready`)
+_Why tempting_: Simple and "works on my machine"
+_Better_: Wait on explicit readiness (DOM marker, `window.__TEST__.ready`)
 
 ❌ **Uncontrolled randomness**: RNG/time in assertions
-*Why tempting*: "The game uses random, so the test should too"
-*Better*: Seed RNG (`?seed=42`), freeze time, assert stable invariants
+_Why tempting_: "The game uses random, so the test should too"
+_Better_: Seed RNG (`?seed=42`), freeze time, assert stable invariants
 
 ❌ **Pixel snapshots without determinism**: Canvas screenshots that flake
-*Why tempting*: "I'll catch visual bugs automatically"
-*Better*: Deterministic mode first; then screenshot at known stable frames
+_Why tempting_: "I'll catch visual bugs automatically"
+_Better_: Deterministic mode first; then screenshot at known stable frames
 
 ❌ **Retries as a strategy**: "Just bump retries to 3"
-*Why tempting*: Quick fix that makes CI green
-*Better*: Fix the flake source; retries hide real problems
+_Why tempting_: Quick fix that makes CI green
+_Better_: Fix the flake source; retries hide real problems
 
 ## Debugging Failed Tests
 
@@ -149,6 +153,7 @@ When a test fails, gather evidence in this order:
 ## Graduation Criteria: When Is Testing "Enough"?
 
 Minimum viable test suite:
+
 - [ ] **1 smoke test** that proves the app loads and primary action works
 - [ ] **Test seam exists** (`window.__TEST__` with ready flag and state)
 - [ ] **Deterministic mode** for canvas/games (`?test=1` enables seeding)
@@ -156,6 +161,7 @@ Minimum viable test suite:
 - [ ] **CI runs tests** on every push
 
 Level up when:
+
 - Critical paths (auth, payment, save/load) have dedicated E2E
 - Unit tests cover complex logic (pathfinding, damage calc, state machines)
 - Visual regression on key screens (menu, HUD) with locked determinism
@@ -178,7 +184,7 @@ Exit codes: 0 = identical, 1 = different, 2 = error
 
 Canvas UI issues (panel seams, segmented ribbons, invisible HUD fills) are best caught with a dedicated UI harness instead of the full gameplay flow.
 
-1. Build a simple `test.html`/scene that loads *only* the UI assets.
+1. Build a simple `test.html`/scene that loads _only_ the UI assets.
 2. Render raw slices next to assembled panels (multi-size), and include ribbon/bars with both “raw crop + scale” and “stitched multi-slice” views.
 3. Expose `window.__TEST__` with `.commands.showTest(n)` so Playwright can toggle each mode deterministically.
 4. Capture targeted screenshots (panels, ribbons, bars) and diff them in CI.
@@ -188,6 +194,7 @@ See `references/phaser-canvas-testing.md` for the deterministic setup + screensh
 ## Variation Guidance
 
 Adapt approach based on context:
+
 - **DOM app**: Standard Playwright selectors, wait for text/elements
 - **Canvas game**: Test seams mandatory, wait via `window.__TEST__.ready`
 - **Hybrid**: DOM for menus, test seams for gameplay
@@ -197,6 +204,7 @@ Adapt approach based on context:
 ## Bundled Resources
 
 Read these when needed:
+
 - `references/playwright-mcp-cheatsheet.md`: Detailed MCP tool patterns
 - `references/phaser-canvas-testing.md`: Deterministic mode for Phaser games
 - `references/flake-reduction.md`: Flake classification and fixes

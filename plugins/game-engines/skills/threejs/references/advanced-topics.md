@@ -3,6 +3,7 @@
 Progressive disclosure reference for topics beyond simple scenes.
 
 **Related guides:**
+
 - [`gltf-loading-guide.md`](gltf-loading-guide.md) - Loading, caching, and cloning 3D models
 - [`game-patterns.md`](game-patterns.md) - Game loops, screen effects, animation states, parallax
 
@@ -18,51 +19,51 @@ Quick example using import maps:
 
 ```html
 <script type="importmap">
-{
+  {
     "imports": {
-        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
     }
-}
+  }
 </script>
 
 <script type="module">
-    import * as THREE from 'three';
-    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+  import * as THREE from "three";
+  import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    document.body.appendChild(renderer.domElement);
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  document.body.appendChild(renderer.domElement);
 
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
-    scene.add(ambientLight);
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+  scene.add(ambientLight);
 
-    const loader = new GLTFLoader();
-    loader.load(
-        'path/to/model.glb',
-        (gltf) => {
-            gltf.scene.traverse((child) => {
-                if (child.isMesh) {
-                    child.castShadow = true;
-                    child.receiveShadow = true;
-                }
-            });
-            scene.add(gltf.scene);
-            camera.position.z = 5;
-        },
-        (progress) => {
-            console.log((progress.loaded / progress.total * 100).toFixed(0) + '%');
-        },
-        (error) => {
-            console.error('Failed to load model:', error);
+  const loader = new GLTFLoader();
+  loader.load(
+    "path/to/model.glb",
+    (gltf) => {
+      gltf.scene.traverse((child) => {
+        if (child.isMesh) {
+          child.castShadow = true;
+          child.receiveShadow = true;
         }
-    );
+      });
+      scene.add(gltf.scene);
+      camera.position.z = 5;
+    },
+    (progress) => {
+      console.log(((progress.loaded / progress.total) * 100).toFixed(0) + "%");
+    },
+    (error) => {
+      console.error("Failed to load model:", error);
+    },
+  );
 
-    renderer.setAnimationLoop(() => {
-        renderer.render(scene, camera);
-    });
+  renderer.setAnimationLoop(() => {
+    renderer.render(scene, camera);
+  });
 </script>
 ```
 
@@ -76,33 +77,33 @@ For visual effects like bloom, use the EffectComposer:
 
 ```html
 <script type="module">
-    import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
-    import { EffectComposer } from 'https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/EffectComposer.js';
-    import { RenderPass } from 'https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/RenderPass.js';
-    import { UnrealBloomPass } from 'https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/UnrealBloomPass.js';
+  import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
+  import { EffectComposer } from "https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/EffectComposer.js";
+  import { RenderPass } from "https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/RenderPass.js";
+  import { UnrealBloomPass } from "https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/UnrealBloomPass.js";
 
-    // Basic setup...
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.toneMapping = THREE.ReinhardToneMapping;
+  // Basic setup...
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.toneMapping = THREE.ReinhardToneMapping;
 
-    // Post-processing
-    const renderScene = new RenderPass(scene, camera);
+  // Post-processing
+  const renderScene = new RenderPass(scene, camera);
 
-    const bloomPass = new UnrealBloomPass(
-        new THREE.Vector2(window.innerWidth, window.innerHeight),
-        1.5,  // strength
-        0.4,  // radius
-        0.85  // threshold
-    );
+  const bloomPass = new UnrealBloomPass(
+    new THREE.Vector2(window.innerWidth, window.innerHeight),
+    1.5, // strength
+    0.4, // radius
+    0.85, // threshold
+  );
 
-    const composer = new EffectComposer(renderer);
-    composer.addPass(renderScene);
-    composer.addPass(bloomPass);
+  const composer = new EffectComposer(renderer);
+  composer.addPass(renderScene);
+  composer.addPass(bloomPass);
 
-    renderer.setAnimationLoop(() => {
-        composer.render();
-    });
+  renderer.setAnimationLoop(() => {
+    composer.render();
+  });
 </script>
 ```
 
@@ -131,16 +132,16 @@ const fragmentShader = `
 `;
 
 const material = new THREE.ShaderMaterial({
-    vertexShader,
-    fragmentShader,
-    uniforms: {
-        time: { value: 0 }
-    }
+  vertexShader,
+  fragmentShader,
+  uniforms: {
+    time: { value: 0 },
+  },
 });
 
 renderer.setAnimationLoop((time) => {
-    material.uniforms.time.value = time * 0.001;
-    renderer.render(scene, camera);
+  material.uniforms.time.value = time * 0.001;
+  renderer.render(scene, camera);
 });
 ```
 
@@ -153,26 +154,26 @@ For 2D text or labels in 3D space:
 ```javascript
 // Canvas-based text sprite
 function createTextSprite(message, scale = 1) {
-    const canvas = document.createElement('canvas');
-    const context = canvas.getContext('2d');
-    canvas.width = 256;
-    canvas.height = 64;
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  canvas.width = 256;
+  canvas.height = 64;
 
-    context.fillStyle = 'rgba(0, 0, 0, 0)';
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.font = 'Bold 24px Arial';
-    context.fillStyle = 'white';
-    context.textAlign = 'center';
-    context.fillText(message, canvas.width / 2, canvas.height / 2);
+  context.fillStyle = "rgba(0, 0, 0, 0)";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.font = "Bold 24px Arial";
+  context.fillStyle = "white";
+  context.textAlign = "center";
+  context.fillText(message, canvas.width / 2, canvas.height / 2);
 
-    const texture = new THREE.CanvasTexture(canvas);
-    const material = new THREE.SpriteMaterial({ map: texture });
-    const sprite = new THREE.Sprite(material);
-    sprite.scale.set(scale * 4, scale, 1);
-    return sprite;
+  const texture = new THREE.CanvasTexture(canvas);
+  const material = new THREE.SpriteMaterial({ map: texture });
+  const sprite = new THREE.Sprite(material);
+  sprite.scale.set(scale * 4, scale, 1);
+  return sprite;
 }
 
-const label = createTextSprite('Hello Three.js!', 1);
+const label = createTextSprite("Hello Three.js!", 1);
 label.position.set(0, 2, 0);
 scene.add(label);
 ```
@@ -187,18 +188,18 @@ For clicking/touching 3D objects:
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 
-window.addEventListener('click', (event) => {
-    mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+window.addEventListener("click", (event) => {
+  mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
 
-    raycaster.setFromCamera(mouse, camera);
-    const intersects = raycaster.intersectObjects(scene.children);
+  raycaster.setFromCamera(mouse, camera);
+  const intersects = raycaster.intersectObjects(scene.children);
 
-    if (intersects.length > 0) {
-        const object = intersects[0].object;
-        // Do something with clicked object
-        object.material.color.setHex(Math.random() * 0xffffff);
-    }
+  if (intersects.length > 0) {
+    const object = intersects[0].object;
+    // Do something with clicked object
+    object.material.color.setHex(Math.random() * 0xffffff);
+  }
 });
 ```
 
@@ -209,20 +210,20 @@ window.addEventListener('click', (event) => {
 For realistic reflections on metallic surfaces:
 
 ```javascript
-import { RGBELoader } from 'https://unpkg.com/three@0.160.0/examples/jsm/loaders/RGBELoader.js';
+import { RGBELoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders/RGBELoader.js";
 
 const rgbeLoader = new RGBELoader();
-rgbeLoader.load('path/to/environment.hdr', (texture) => {
-    texture.mapping = THREE.EquirectangularReflectionMapping;
-    scene.environment = texture;
-    scene.background = texture;
+rgbeLoader.load("path/to/environment.hdr", (texture) => {
+  texture.mapping = THREE.EquirectangularReflectionMapping;
+  scene.environment = texture;
+  scene.background = texture;
 });
 
 // Material with reflections
 const material = new THREE.MeshStandardMaterial({
-    color: 0x444444,
-    metalness: 1,
-    roughness: 0.1
+  color: 0x444444,
+  metalness: 1,
+  roughness: 0.1,
 });
 ```
 
@@ -240,14 +241,14 @@ const mesh = new THREE.InstancedMesh(geometry, material, count);
 
 const dummy = new THREE.Object3D();
 for (let i = 0; i < count; i++) {
-    dummy.position.set(
-        (Math.random() - 0.5) * 20,
-        (Math.random() - 0.5) * 20,
-        (Math.random() - 0.5) * 20
-    );
-    dummy.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
-    dummy.updateMatrix();
-    mesh.setMatrixAt(i, dummy.matrix);
+  dummy.position.set(
+    (Math.random() - 0.5) * 20,
+    (Math.random() - 0.5) * 20,
+    (Math.random() - 0.5) * 20,
+  );
+  dummy.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
+  dummy.updateMatrix();
+  mesh.setMatrixAt(i, dummy.matrix);
 }
 
 scene.add(mesh);
@@ -261,48 +262,48 @@ For physics-based interactions:
 
 ```html
 <script type="module">
-    import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
-    import * as CANNON from 'https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js';
+  import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
+  import * as CANNON from "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js";
 
-    // Three.js setup
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    const renderer = new THREE.WebGLRenderer();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    document.body.appendChild(renderer.domElement);
+  // Three.js setup
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+  const renderer = new THREE.WebGLRenderer();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  document.body.appendChild(renderer.domElement);
 
-    // Cannon.js world
-    const world = new CANNON.World();
-    world.gravity.set(0, -9.82, 0);
+  // Cannon.js world
+  const world = new CANNON.World();
+  world.gravity.set(0, -9.82, 0);
 
-    // Sync mesh with physics body
-    const geometry = new THREE.SphereGeometry(0.5);
-    const material = new THREE.MeshStandardMaterial({ color: 0xff6600 });
-    const mesh = new THREE.Mesh(geometry, material);
-    scene.add(mesh);
+  // Sync mesh with physics body
+  const geometry = new THREE.SphereGeometry(0.5);
+  const material = new THREE.MeshStandardMaterial({ color: 0xff6600 });
+  const mesh = new THREE.Mesh(geometry, material);
+  scene.add(mesh);
 
-    const body = new CANNON.Body({
-        mass: 1,
-        shape: new CANNON.Sphere(0.5),
-        position: new CANNON.Vec3(0, 5, 0)
-    });
-    world.addBody(body);
+  const body = new CANNON.Body({
+    mass: 1,
+    shape: new CANNON.Sphere(0.5),
+    position: new CANNON.Vec3(0, 5, 0),
+  });
+  world.addBody(body);
 
-    // Ground
-    const groundBody = new CANNON.Body({
-        type: CANNON.Body.STATIC,
-        shape: new CANNON.Plane()
-    });
-    groundBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
-    world.addBody(groundBody);
+  // Ground
+  const groundBody = new CANNON.Body({
+    type: CANNON.Body.STATIC,
+    shape: new CANNON.Plane(),
+  });
+  groundBody.quaternion.setFromEuler(-Math.PI / 2, 0, 0);
+  world.addBody(groundBody);
 
-    const timeStep = 1 / 60;
-    renderer.setAnimationLoop(() => {
-        world.step(timeStep);
-        mesh.position.copy(body.position);
-        mesh.quaternion.copy(body.quaternion);
-        renderer.render(scene, camera);
-    });
+  const timeStep = 1 / 60;
+  renderer.setAnimationLoop(() => {
+    world.step(timeStep);
+    mesh.position.copy(body.position);
+    mesh.quaternion.copy(body.quaternion);
+    renderer.render(scene, camera);
+  });
 </script>
 ```
 
@@ -317,8 +318,8 @@ npm install three
 ```
 
 ```javascript
-import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
 // Same API as CDN version
 ```
@@ -330,12 +331,12 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 Three.js includes TypeScript definitions:
 
 ```typescript
-import * as THREE from 'three';
+import * as THREE from "three";
 
 const scene: THREE.Scene = new THREE.Scene();
 const geometry: THREE.BoxGeometry = new THREE.BoxGeometry(1, 1, 1);
 const material: THREE.MeshStandardMaterial = new THREE.MeshStandardMaterial({
-    color: 0x44aa88
+  color: 0x44aa88,
 });
 const cube: THREE.Mesh = new THREE.Mesh(geometry, material);
 scene.add(cube);
@@ -347,14 +348,14 @@ scene.add(cube);
 
 ```javascript
 // Core
-import * as THREE from 'three';
+import * as THREE from "three";
 
 // Addons (three/addons/ in npm, examples/jsm/ in CDN)
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { RGBELoader } from "three/addons/loaders/RGBELoader.js";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 ```
 
 ---
@@ -373,7 +374,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 // Geometry merging
 const geometries = [];
 for (let i = 0; i < 10; i++) {
-    geometries.push(new THREE.BoxGeometry(1, 1, 1));
+  geometries.push(new THREE.BoxGeometry(1, 1, 1));
 }
 const mergedGeometry = BufferGeometryUtils.mergeGeometries(geometries);
 ```
@@ -392,13 +393,13 @@ const axesHelper = new THREE.AxesHelper(5);
 scene.add(axesHelper);
 
 // Stats.js for performance monitoring
-import Stats from 'https://unpkg.com/three@0.160.0/examples/jsm/libs/stats.module.js';
+import Stats from "https://unpkg.com/three@0.160.0/examples/jsm/libs/stats.module.js";
 const stats = new Stats();
 document.body.appendChild(stats.dom);
 
 renderer.setAnimationLoop(() => {
-    stats.begin();
-    // render...
-    stats.end();
+  stats.begin();
+  // render...
+  stats.end();
 });
 ```

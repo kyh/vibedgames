@@ -96,8 +96,12 @@ export function updateStarField(field: StarField): void {
     const progress = star.twinkleTimer / star.twinkleSpeed;
     star.currentOpacity =
       progress < 0.5
-        ? star.twinkleDirection < 0 ? star.baseOpacity : star.baseOpacity * 0.3
-        : star.twinkleDirection < 0 ? star.baseOpacity * 0.3 : star.baseOpacity;
+        ? star.twinkleDirection < 0
+          ? star.baseOpacity
+          : star.baseOpacity * 0.3
+        : star.twinkleDirection < 0
+          ? star.baseOpacity * 0.3
+          : star.baseOpacity;
   }
 
   // Regenerate some stars periodically
@@ -158,16 +162,10 @@ export function updateStarField(field: StarField): void {
         x: nx,
         y: ny,
         distance: nd,
-        trail: trail
-          .map((p) => ({ ...p, opacity: p.opacity - 0.1 }))
-          .filter((p) => p.opacity > 0),
+        trail: trail.map((p) => ({ ...p, opacity: p.opacity - 0.1 })).filter((p) => p.opacity > 0),
       };
     })
-    .filter(
-      (s) =>
-        s.x >= -30 && s.x <= WORLD_WIDTH + 30 &&
-        s.y >= -30 && s.y <= WORLD_HEIGHT + 30,
-    );
+    .filter((s) => s.x >= -30 && s.x <= WORLD_WIDTH + 30 && s.y >= -30 && s.y <= WORLD_HEIGHT + 30);
 }
 
 export function drawStarField(ctx: CanvasRenderingContext2D, field: StarField): void {
@@ -201,7 +199,8 @@ export function drawStarField(ctx: CanvasRenderingContext2D, field: StarField): 
     ctx.translate(-star.x, -star.y);
     ctx.fillStyle = "#ffffff";
     ctx.globalAlpha = 1;
-    const w = 4, h = 2;
+    const w = 4,
+      h = 2;
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
         if ((x === 0 && y === 1) || (x === 3 && y === 0)) continue;

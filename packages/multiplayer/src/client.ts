@@ -62,12 +62,24 @@ export class MultiplayerClient {
 
   // -- Public API ----------------------------------------------------------
 
-  get connectionStatus() { return this._connectionStatus; }
-  get playerId() { return this._playerId; }
-  get hostId() { return this._hostId; }
-  get sharedState() { return this._sharedState; }
-  get players() { return this._players; }
-  get isHost() { return this._hostId !== null && this._hostId === this._playerId; }
+  get connectionStatus() {
+    return this._connectionStatus;
+  }
+  get playerId() {
+    return this._playerId;
+  }
+  get hostId() {
+    return this._hostId;
+  }
+  get sharedState() {
+    return this._sharedState;
+  }
+  get players() {
+    return this._players;
+  }
+  get isHost() {
+    return this._hostId !== null && this._hostId === this._playerId;
+  }
 
   /** Get a readonly snapshot of the current state. */
   getSnapshot(): MultiplayerSnapshot {
@@ -83,16 +95,19 @@ export class MultiplayerClient {
   /** Subscribe to state changes. Returns an unsubscribe function. */
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
-    return () => { this.listeners.delete(listener); };
+    return () => {
+      this.listeners.delete(listener);
+    };
   }
 
   /** Update shared state (merged with current). */
   updateSharedState(
     updater: Record<string, unknown> | ((prev: Record<string, unknown>) => Record<string, unknown>),
   ): void {
-    const next = typeof updater === "function"
-      ? updater(this._sharedState)
-      : { ...this._sharedState, ...updater };
+    const next =
+      typeof updater === "function"
+        ? updater(this._sharedState)
+        : { ...this._sharedState, ...updater };
     this._sharedState = next;
     this.send({ type: "state_patch", data: next });
     this.notify();
@@ -170,9 +185,10 @@ export class MultiplayerClient {
         case "sync": {
           this._hostId = message.data.hostId;
           this._players = message.data.players;
-          this._sharedState = Object.keys(this._sharedState).length === 0
-            ? message.data.state
-            : { ...this._sharedState, ...message.data.state };
+          this._sharedState =
+            Object.keys(this._sharedState).length === 0
+              ? message.data.state
+              : { ...this._sharedState, ...message.data.state };
 
           if (
             message.data.hostId === this.socket.id &&

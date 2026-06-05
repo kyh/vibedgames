@@ -1,8 +1,25 @@
 {
   "name": "@vibedgames/multiplayer",
   "version": "0.0.3",
-  "description": "Multiplayer for browser games — framework-agnostic core + React hooks",
   "private": false,
+  "description": "Multiplayer for browser games — framework-agnostic core + React hooks",
+  "keywords": [
+    "gamedev",
+    "hooks",
+    "multiplayer",
+    "partykit",
+    "react",
+    "websocket"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kyh/vibedgames",
+    "directory": "packages/multiplayer"
+  },
+  "files": [
+    "dist"
+  ],
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
@@ -20,9 +37,6 @@
       }
     }
   },
-  "files": [
-    "dist"
-  ],
   "scripts": {
     "build": "tsc",
     "clean": "rm -rf .cache .turbo dist node_modules",
@@ -32,6 +46,12 @@
   "dependencies": {
     "partysocket": "^1.1.19"
   },
+  "devDependencies": {
+    "@kyh/tsconfig": "catalog:",
+    "@types/react": "catalog:",
+    "react": "catalog:",
+    "typescript": "catalog:"
+  },
   "peerDependencies": {
     "react": ">=18"
   },
@@ -39,25 +59,5 @@
     "react": {
       "optional": true
     }
-  },
-  "devDependencies": {
-    "@kyh/tsconfig": "catalog:",
-    "@types/react": "catalog:",
-    "react": "catalog:",
-    "typescript": "catalog:"
-  },
-  "keywords": [
-    "multiplayer",
-    "react",
-    "hooks",
-    "gamedev",
-    "websocket",
-    "partykit"
-  ],
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/kyh/vibedgames",
-    "directory": "packages/multiplayer"
   }
 }

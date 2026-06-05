@@ -42,7 +42,7 @@ output PNG (e.g. 100×100, snapped, palette-quantized)
 - Initialization: `k` random pixels picked via numpy `default_rng(seed=42)`. Upstream Rust uses ChaCha8Rng — different bit stream, same idea.
 - Iterates up to `max_kmeans_iterations` (15) until cluster centers stop moving (tol 0.5).
 - Output is the source image with each opaque pixel replaced by its assigned cluster center color.
-- Why this matters: subsequent edge-gradient detection works much better when colors are sharp categories rather than continuous gradients. A pre-quantized image has *sharper* and *more localized* edge peaks at the true cell boundaries.
+- Why this matters: subsequent edge-gradient detection works much better when colors are sharp categories rather than continuous gradients. A pre-quantized image has _sharper_ and _more localized_ edge peaks at the true cell boundaries.
 
 ## Stage 2 — Edge-Gradient Profiles (`compute_profiles`)
 
@@ -67,6 +67,7 @@ How wide is one true pixel cell?
 Median (not mean) is the key choice: it's robust to a few wildly-spaced peaks coming from noise or the corners of the image.
 
 `resolve_step_sizes` then handles axis disagreement:
+
 - Both detected → if ratio of larger to smaller is more than `max_step_ratio` (1.8), pick the smaller (assume the bigger is a detection error). Otherwise average.
 - One detected → use that for both.
 - Neither detected → fallback `min(w, h) / fallback_target_segments` (= /64). If you see exactly 64×64 outputs from inputs with no obvious pixel structure, this is the fallback firing.
@@ -81,6 +82,7 @@ Lay grid lines down across each axis.
 - Continue until past the image boundary.
 
 Two key behaviors:
+
 - **The walker doesn't force cuts into noisy regions.** If no strong peak is in range, it just uses the predicted position and moves on. This prevents runaway cut placement when the image has occasional clean spans.
 - **Snapping prevents cumulative drift.** Without it, after N steps your cuts would be off by N × (true_step − estimated_step). Snapping resets the position to actual edge content each time.
 
@@ -99,14 +101,14 @@ The output image is `(len(col_cuts) - 1) × (len(row_cuts) - 1)`. That's why you
 
 ## Where the Algorithm Goes Wrong
 
-| Symptom | Likely cause | Fix |
-|---|---|---|
-| Output is exactly 64×64 | Step-detection failed for both axes; fallback to `min(w,h)/64` | Input may not have a true pixel grid. Try a different `k_colors`, or accept that this isn't the right tool. |
-| Output dimensions oddly small (e.g. 5×5 from a 1024² source) | Quantization collapsed too many colors → very few peaks → step estimate is huge | Increase `k_colors` (try 256 or 512) |
-| Output dimensions oddly large (close to source size) | k-means kept noise → many peaks → step estimate is tiny | Decrease `k_colors` (try 16 or 32) |
-| One axis is squashed vs the other | x and y step estimates disagreed by > `max_step_ratio`; smaller pitch was applied to both | The source may have non-uniform scaling; pre-resize one axis before snapping |
-| 1-pixel-thick "ghost" rows or columns in output | Walker snapped a cut into anti-aliasing | Tighten `peak_threshold_multiplier` (in `Config`) |
-| Colors look wrong | k-means assigned mixed pixels to the wrong cluster | Try a different `seed`; vary `k_colors` |
+| Symptom                                                      | Likely cause                                                                              | Fix                                                                                                         |
+| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Output is exactly 64×64                                      | Step-detection failed for both axes; fallback to `min(w,h)/64`                            | Input may not have a true pixel grid. Try a different `k_colors`, or accept that this isn't the right tool. |
+| Output dimensions oddly small (e.g. 5×5 from a 1024² source) | Quantization collapsed too many colors → very few peaks → step estimate is huge           | Increase `k_colors` (try 256 or 512)                                                                        |
+| Output dimensions oddly large (close to source size)         | k-means kept noise → many peaks → step estimate is tiny                                   | Decrease `k_colors` (try 16 or 32)                                                                          |
+| One axis is squashed vs the other                            | x and y step estimates disagreed by > `max_step_ratio`; smaller pitch was applied to both | The source may have non-uniform scaling; pre-resize one axis before snapping                                |
+| 1-pixel-thick "ghost" rows or columns in output              | Walker snapped a cut into anti-aliasing                                                   | Tighten `peak_threshold_multiplier` (in `Config`)                                                           |
+| Colors look wrong                                            | k-means assigned mixed pixels to the wrong cluster                                        | Try a different `seed`; vary `k_colors`                                                                     |
 
 ## Mental Model
 

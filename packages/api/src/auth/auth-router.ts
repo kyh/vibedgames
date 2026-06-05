@@ -60,30 +60,28 @@ export const authRouter = createTRPCRouter({
       return { ok: true };
     }),
 
-  cliPoll: publicProcedure
-    .input(z.object({ code: z.string() }))
-    .query(async ({ ctx, input }) => {
-      const identifier = `${CLI_IDENTIFIER_PREFIX}${input.code}`;
-      const rows = await ctx.db
-        .select()
-        .from(verification)
-        .where(eq(verification.identifier, identifier))
-        .limit(1);
+  cliPoll: publicProcedure.input(z.object({ code: z.string() })).query(async ({ ctx, input }) => {
+    const identifier = `${CLI_IDENTIFIER_PREFIX}${input.code}`;
+    const rows = await ctx.db
+      .select()
+      .from(verification)
+      .where(eq(verification.identifier, identifier))
+      .limit(1);
 
-      const row = rows[0];
-      if (!row || row.expiresAt < new Date()) {
-        return { status: "expired" as const };
-      }
+    const row = rows[0];
+    if (!row || row.expiresAt < new Date()) {
+      return { status: "expired" as const };
+    }
 
-      if (row.value === "") {
-        return { status: "pending" as const };
-      }
+    if (row.value === "") {
+      return { status: "pending" as const };
+    }
 
-      // Clean up after successful read
-      await ctx.db.delete(verification).where(eq(verification.id, row.id));
+    // Clean up after successful read
+    await ctx.db.delete(verification).where(eq(verification.id, row.id));
 
-      return { status: "confirmed" as const, token: row.value };
-    }),
+    return { status: "confirmed" as const, token: row.value };
+  }),
 
   // ---------------------------------------------------------------------------
   // Invite codes

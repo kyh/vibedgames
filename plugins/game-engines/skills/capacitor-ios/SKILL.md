@@ -11,6 +11,7 @@ This skill focuses on the integration boundary where most breakage happens: web 
 ## Philosophy: Two Runtimes, One Contract
 
 Treat the project as two systems that must agree:
+
 - A web renderer runtime (Three.js + Vite)
 - A native runtime wrapper (Capacitor iOS)
 
@@ -18,12 +19,14 @@ Most failures happen when their contract is implicit.
 Make file paths, animation names, build output, and iOS package manager choices explicit and testable.
 
 **Before implementing, ask:**
+
 - What is the exact web output directory (`dist` or `www`) and does Capacitor `webDir` match it?
 - Are animation names loaded from data (`assets_index.json`) instead of hardcoded strings?
 - Is iOS using SPM or CocoaPods, and are plugin dependencies compatible with that choice?
 - Are desktop and touch controls intentionally mapped, or left to defaults that may not match product UX?
 
 **Core principles:**
+
 1. Contract-first data flow: UI and animation playback should derive from JSON metadata, not ad-hoc clip names in code.
 2. SPM-first iOS setup: on modern Capacitor, default to Swift Package Manager unless a specific plugin forces CocoaPods.
 3. Symmetric controls: define mouse and touch mappings together so desktop and mobile behavior stay aligned.
@@ -48,17 +51,20 @@ For command-level details, see `references/capacitor-ios-spm-workflow.md`.
 ### 1) Project Shape
 
 Prefer this shape for minimal ambiguity:
+
 - `index.html` and `src/*` for app code
 - `public/assets/...` for GLBs and JSON contracts
 - `capacitor.config.ts` with `webDir: "dist"`
 
 If using Vite, keep all runtime fetches compatible with both browser and WKWebView:
+
 - Good: `fetch('/assets/assets_index.json')`
 - Avoid: filesystem paths or environment-specific base URLs unless intentionally configured.
 
 ### 2) Animation Contract via `assets_index.json`
 
 Use one source of truth:
+
 - Character skeleton URL
 - Animation source URL
 - `animations[]` entries with:
@@ -67,6 +73,7 @@ Use one source of truth:
   - loop mode and defaults
 
 Runtime pattern:
+
 1. Load index JSON
 2. Load skeleton GLB and animation GLB
 3. Resolve each UI button to a clip by `sourceClipName`
@@ -78,6 +85,7 @@ See `references/threejs-animation-index-pattern.md`.
 ### 3) Controls: Desktop and Touch
 
 Use `OrbitControls` and set mappings explicitly:
+
 - Mouse:
   - left = rotate
   - wheel = dolly/zoom
@@ -129,11 +137,13 @@ Better: add startup assertions/logs for index shape and clip resolution.
 
 **IMPORTANT**: Do not produce identical viewers by default.
 Adjust implementation to the product intent:
+
 - Character showcase: richer lighting, slower camera damping, emphasis on idle loop.
 - Gameplay prototype: fast transitions, state-driven animation switching, minimal UI chrome.
 - Asset QA tool: diagnostics overlay, clip length/track info, missing-clip warnings surfaced clearly.
 
 Vary at least these dimensions intentionally:
+
 - Visual style (lighting/background/floor treatment)
 - Input tuning (damping/zoom/pan speeds)
 - Animation UX (buttons, keyboard shortcuts, auto-play strategy)

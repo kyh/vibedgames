@@ -59,13 +59,15 @@ export function useMultiplayerRoom<
   }, [client]);
 
   // Clean up on unmount
-  useEffect(() => () => { clientRef.current?.destroy(); }, []);
+  useEffect(
+    () => () => {
+      clientRef.current?.destroy();
+    },
+    [],
+  );
 
   // Subscribe to client state via useSyncExternalStore
-  const subscribe = useCallback(
-    (cb: () => void) => client.subscribe(cb),
-    [client],
-  );
+  const subscribe = useCallback((cb: () => void) => client.subscribe(cb), [client]);
   const getSnapshot = useCallback(() => client.getSnapshot(), [client]);
   const snapshot = useSyncExternalStore(subscribe, getSnapshot);
 

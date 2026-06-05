@@ -60,14 +60,14 @@ Cost: ~$2–3 per generation (4 generation calls). Runs in background, modal clo
 
 ## Key endpoints used
 
-| Step                      | Endpoint                                            |
-| ------------------------- | --------------------------------------------------- |
-| Character image (curated) | `openai/gpt-image-2`                                |
+| Step                      | Endpoint                                                   |
+| ------------------------- | ---------------------------------------------------------- |
+| Character image (curated) | `openai/gpt-image-2`                                       |
 | Character image (live)    | `fal-ai/flux-2/klein/9b`                                   |
-| Companion image           | `fal-ai/gpt-image-2/edit` or `fal-ai/flux-2/klein/9b/edit`        |
+| Companion image           | `fal-ai/gpt-image-2/edit` or `fal-ai/flux-2/klein/9b/edit` |
 | 3D character/companion    | `fal-ai/meshy/v6/image-to-3d`                              |
 | Per-character floor PBR   | `fal-ai/patina/material/extract`                           |
-| Background video          | `fal-ai/bytedance/seedance-2.0/fast/image-to-video` |
+| Background video          | `fal-ai/bytedance/seedance-2.0/fast/image-to-video`        |
 | Logo / icon cleanup       | `fal-ai/bria/background/remove`                            |
 
 ## Meshy animation IDs

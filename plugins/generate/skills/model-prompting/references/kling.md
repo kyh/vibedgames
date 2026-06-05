@@ -9,14 +9,14 @@ Kling is Kuaishou's video model family. Two generations are routinely useful:
 
 ### Image generation
 
-| Endpoint                       | Tier       |
-| ------------------------------ | ---------- |
+| Endpoint                              | Tier       |
+| ------------------------------------- | ---------- |
 | `fal-ai/kling-image/o3/text-to-image` | Pro (only) |
 
 ### Video generation
 
-| Endpoint                                 | Tier     | Mode          |
-| ---------------------------------------- | -------- | ------------- |
+| Endpoint                                        | Tier     | Mode          |
+| ----------------------------------------------- | -------- | ------------- |
 | `fal-ai/kling-video/o3/standard/text-to-video`  | Standard | Text → Video  |
 | `fal-ai/kling-video/o3/pro/text-to-video`       | Pro      | Text → Video  |
 | `fal-ai/kling-video/o3/standard/image-to-video` | Standard | Image → Video |
@@ -24,8 +24,8 @@ Kling is Kuaishou's video model family. Two generations are routinely useful:
 
 ### Video editing
 
-| Endpoint                                           | Tier     | Mode         |
-| -------------------------------------------------- | -------- | ------------ |
+| Endpoint                                                  | Tier     | Mode         |
+| --------------------------------------------------------- | -------- | ------------ |
 | `fal-ai/kling-video/o3/standard/video-to-video/edit`      | Standard | Content edit |
 | `fal-ai/kling-video/o3/pro/video-to-video/edit`           | Pro      | Content edit |
 | `fal-ai/kling-video/o3/standard/video-to-video/reference` | Standard | Style remix  |
@@ -33,8 +33,8 @@ Kling is Kuaishou's video model family. Two generations are routinely useful:
 
 ### Endpoints (Kling v3): multi-shot storytelling
 
-| Endpoint                            | Mode                                |
-| ----------------------------------- | ----------------------------------- |
+| Endpoint                                   | Mode                                |
+| ------------------------------------------ | ----------------------------------- |
 | `fal-ai/kling-video/v3/pro/text-to-video`  | Text → Video, supports multi-prompt |
 | `fal-ai/kling-video/v3/pro/image-to-video` | Image → Video                       |
 

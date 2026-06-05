@@ -26,10 +26,7 @@ function RegisterPage() {
             </p>
           </div>
         ) : null}
-        <RegisterForm
-          verifiedCode={verifiedCode}
-          onVerifiedCodeChange={setVerifiedCode}
-        />
+        <RegisterForm verifiedCode={verifiedCode} onVerifiedCodeChange={setVerifiedCode} />
       </div>
       <p className="text-muted-foreground mt-6 px-8 text-center text-xs">
         Already have an account?{" "}

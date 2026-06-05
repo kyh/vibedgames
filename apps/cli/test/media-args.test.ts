@@ -3,11 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
 
-import {
-  parseDownloadFlag,
-  parseRunInput,
-  readExplicitLocalFile,
-} from "../src/lib/media-args.js";
+import { parseDownloadFlag, parseRunInput, readExplicitLocalFile } from "../src/lib/media-args.js";
 import { makeCleanups, makeTmpDir } from "./_helpers.js";
 
 const { cleanups, drain } = makeCleanups();
@@ -15,10 +11,14 @@ afterEach(drain);
 
 test("parseRunInput parses string, number, bool, and JSON object values", () => {
   const argv = [
-    "--prompt", "a cat",
-    "--num_images", "3",
-    "--enable_safety", "true",
-    "--style", "{\"variant\":\"painterly\"}",
+    "--prompt",
+    "a cat",
+    "--num_images",
+    "3",
+    "--enable_safety",
+    "true",
+    "--style",
+    '{"variant":"painterly"}',
     "--bare_flag",
   ];
   const out = parseRunInput(argv);
@@ -61,7 +61,7 @@ test("parseRunInput handles GNU --key=value form", () => {
     "--prompt=hello world",
     "--num_images=4",
     "--enable_safety=true",
-    "--style={\"variant\":\"painterly\"}",
+    '--style={"variant":"painterly"}',
   ]);
   assert.deepEqual(out, {
     prompt: "hello world",
@@ -76,19 +76,17 @@ test("parseRunInput stops parsing at the POSIX `--` terminator", () => {
   // yields the empty key — so `--` itself would land in the request
   // body as `{ "": <next token> }` and any flag-shaped tokens after it
   // would still be interpreted as model parameters.
-  assert.deepEqual(
-    parseRunInput(["--prompt", "before", "--", "--prompt", "after"]),
-    { prompt: "before" },
-  );
+  assert.deepEqual(parseRunInput(["--prompt", "before", "--", "--prompt", "after"]), {
+    prompt: "before",
+  });
   // Bare `--` with no following tokens.
   assert.deepEqual(parseRunInput(["--prompt", "x", "--"]), { prompt: "x" });
 });
 
 test("parseDownloadFlag stops parsing at the POSIX `--` terminator", () => {
-  assert.deepEqual(
-    parseDownloadFlag(["--prompt", "x", "--", "--download", "evil"]),
-    { mode: "off" },
-  );
+  assert.deepEqual(parseDownloadFlag(["--prompt", "x", "--", "--download", "evil"]), {
+    mode: "off",
+  });
 });
 
 test("parseRunInput strips --async=true via the reserved-flags guard", () => {
@@ -109,14 +107,21 @@ test("parseDownloadFlag handles --download=template form", () => {
   // "false" explicitly opts out (useful for overriding wrapper defaults).
   assert.deepEqual(parseDownloadFlag(["--download=false"]), { mode: "off" });
   // Last occurrence wins, mixed forms.
-  assert.deepEqual(
-    parseDownloadFlag(["--download=first", "--prompt", "x", "--download=second"]),
-    { mode: "on", template: "second" },
-  );
+  assert.deepEqual(parseDownloadFlag(["--download=first", "--prompt", "x", "--download=second"]), {
+    mode: "on",
+    template: "second",
+  });
 });
 
 test("parseRunInput handles --download with and without a value", () => {
-  const withValue = parseRunInput(["--prompt", "x", "--download", "out/{name}.{ext}", "--seed", "42"]);
+  const withValue = parseRunInput([
+    "--prompt",
+    "x",
+    "--download",
+    "out/{name}.{ext}",
+    "--seed",
+    "42",
+  ]);
   assert.deepEqual(withValue, { prompt: "x", seed: 42 });
   const bare = parseRunInput(["--prompt", "x", "--download", "--seed", "42"]);
   assert.deepEqual(bare, { prompt: "x", seed: 42 });

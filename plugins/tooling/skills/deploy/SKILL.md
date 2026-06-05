@@ -24,6 +24,7 @@ vg new my-game --template foo/bar  # any github degit spec
 ```
 
 Pick the engine that matches the game the user described:
+
 - **2D / pixel-art / arcade / platformer** → `phaser` (the default)
 - **3D / first-person / camera-driven, imperative scene code** → `threejs`
 - **3D with React component model, declarative scenes, lots of UI overlay** → `react-r3f`
@@ -55,7 +56,7 @@ vg whoami
 ```
 
 If it prints `Not logged in` (or similar) or exits with an error, run
-login *before* anything else:
+login _before_ anything else:
 
 ```sh
 vg login

@@ -14,6 +14,7 @@ Build 2D browser games using Phaser 4's WebGL-first renderer, scene model, and u
 Phaser 4 is not Phaser 3 with a few renamed methods. The renderer, filter model, shader assumptions, texture orientation, and batching behavior changed. Good Phaser 4 work starts by choosing the right rendering path and measuring assets before code is written.
 
 **Before coding, ask:**
+
 - Is this a new Phaser 4 feature or a Phaser 3 migration?
 - Does this feature stay on standard game object APIs, or does it depend on filters, shaders, lighting, or custom rendering?
 - What is the asset source of truth: exact frame size, spacing, margin, atlas bounds, and texture orientation?
@@ -21,6 +22,7 @@ Phaser 4 is not Phaser 3 with a few renamed methods. The renderer, filter model,
 - Would `SpriteGPULayer`, `TilemapGPULayer`, `RenderTexture`, or a plain `Sprite` solve this more cleanly?
 
 **Core principles**:
+
 1. **WebGL-first, not Canvas-first**: Phaser 4 is designed around WebGL. Treat Canvas as legacy compatibility, not the default target.
 2. **Measure assets before loader config**: Sprite and tile bugs often start as incorrect frame metadata, not rendering bugs.
 3. **Prefer the simplest rendering path**: Use standard game objects until scale or effect requirements justify filters, GPU layers, or shader work.
@@ -57,13 +59,13 @@ Search for the Phaser 3 APIs that changed meaning or disappeared. These are wher
 
 Read these before working on the relevant feature:
 
-| When working on... | Read first |
-|--------------------|------------|
-| Migrating Phaser 3 code | `references/migration-hotspots.md` |
+| When working on...                                                | Read first                                |
+| ----------------------------------------------------------------- | ----------------------------------------- |
+| Migrating Phaser 3 code                                           | `references/migration-hotspots.md`        |
 | Loading spritesheets, atlases, compressed textures, or TileSprite | `references/spritesheets-and-textures.md` |
-| Performance issues, GPU layers, filters, lighting, or batching | `references/rendering-and-performance.md` |
-| Arcade physics, bodies, groups, pooling | `references/arcade-physics.md` |
-| Tilemaps, object layers, collision setup | `references/tilemaps.md` |
+| Performance issues, GPU layers, filters, lighting, or batching    | `references/rendering-and-performance.md` |
+| Arcade physics, bodies, groups, pooling                           | `references/arcade-physics.md`            |
+| Tilemaps, object layers, collision setup                          | `references/tilemaps.md`                  |
 
 ## Quick Start: Scaffold a Phaser 4 + Vite Project
 
@@ -81,7 +83,9 @@ Minimal `src/main.ts`:
 import Phaser from "phaser";
 
 class GameScene extends Phaser.Scene {
-  constructor() { super("Game"); }
+  constructor() {
+    super("Game");
+  }
   create() {
     this.add.text(20, 20, "Hello Phaser 4", { color: "#fff" });
   }
@@ -104,34 +108,34 @@ new Phaser.Game({
 
 **No image assets yet?** Build textures procedurally in `BootScene.preload()` with `this.add.graphics()` + `generateTexture("key", w, h)` so the loop runs before any art exists. Replace later with real sprites (e.g. via `vg generate`).
 
-**ESM import gotcha — "Phaser is not defined".** Phaser 4 ESM sets **no global `Phaser`**. The official `vibedgames`/`phaserjs` template's scene files import only `import { Scene } from "phaser"`, so the moment you add code that uses the `Phaser.*` *namespace as a runtime value* — `Phaser.Math.Clamp`, `Phaser.BlendModes.ADD`, `Phaser.TintModes.FILL`, `Phaser.Scale.RESIZE`, `Phaser.Scenes.Events`, `Phaser.Math.Angle` — it throws `ReferenceError: Phaser is not defined` (and it fires at *module-eval* time if used at top level, so the whole scene fails to load). Fix: import the namespace as a value in any file that uses it:
+**ESM import gotcha — "Phaser is not defined".** Phaser 4 ESM sets **no global `Phaser`**. The official `vibedgames`/`phaserjs` template's scene files import only `import { Scene } from "phaser"`, so the moment you add code that uses the `Phaser.*` _namespace as a runtime value_ — `Phaser.Math.Clamp`, `Phaser.BlendModes.ADD`, `Phaser.TintModes.FILL`, `Phaser.Scale.RESIZE`, `Phaser.Scenes.Events`, `Phaser.Math.Angle` — it throws `ReferenceError: Phaser is not defined` (and it fires at _module-eval_ time if used at top level, so the whole scene fails to load). Fix: import the namespace as a value in any file that uses it:
 
 ```ts
 import * as Phaser from "phaser";          // namespace available as a runtime value
 export class Game extends Phaser.Scene { … } // (or keep `import { Scene }` AND add the line above)
 ```
 
-`Phaser.Types.*` in *type* positions is erased at compile time and is fine either way — this only bites for runtime values. Also note `setTintFill(c)` is gone in Phaser 4 → use `sprite.setTint(c).setTintMode(Phaser.TintModes.FILL)` for a solid white hit-flash.
+`Phaser.Types.*` in _type_ positions is erased at compile time and is fine either way — this only bites for runtime values. Also note `setTintFill(c)` is gone in Phaser 4 → use `sprite.setTint(c).setTintMode(Phaser.TintModes.FILL)` for a solid white hit-flash.
 
 ## Architecture Decisions (Make Early)
 
 ### Rendering Path Choice
 
-| Path | Use when |
-|------|----------|
-| Standard game objects | Most gameplay, UI, and ordinary animation |
-| `SpriteGPULayer` | Very large numbers of mostly simple quads or particle-like members |
-| `TilemapGPULayer` | Very large orthographic tile layers using one tileset |
-| `RenderTexture` / `DynamicTexture` | You need capture, compositing, stamping, or texture reuse |
-| Filters / Shader | The effect is genuinely image-space or shader-driven |
+| Path                               | Use when                                                           |
+| ---------------------------------- | ------------------------------------------------------------------ |
+| Standard game objects              | Most gameplay, UI, and ordinary animation                          |
+| `SpriteGPULayer`                   | Very large numbers of mostly simple quads or particle-like members |
+| `TilemapGPULayer`                  | Very large orthographic tile layers using one tileset              |
+| `RenderTexture` / `DynamicTexture` | You need capture, compositing, stamping, or texture reuse          |
+| Filters / Shader                   | The effect is genuinely image-space or shader-driven               |
 
 ### Physics System Choice
 
-| System | Use when |
-|--------|----------|
-| Arcade | Platformers, shooters, most 2D action games |
+| System | Use when                                                    |
+| ------ | ----------------------------------------------------------- |
+| Arcade | Platformers, shooters, most 2D action games                 |
 | Matter | Physics puzzles, compound bodies, more realistic collisions |
-| None | Menu scenes, card games, visual novels, strategy UIs |
+| None   | Menu scenes, card games, visual novels, strategy UIs        |
 
 ### Scene Structure
 
@@ -147,10 +151,10 @@ scenes/
 ### Scene Transitions
 
 ```ts
-this.scene.start('GameScene', { level: 1 }); // Stop current, start new
-this.scene.launch('UIScene');                // Run in parallel
-this.scene.pause('GameScene');               // Pause
-this.scene.stop('UIScene');                  // Stop
+this.scene.start("GameScene", { level: 1 }); // Stop current, start new
+this.scene.launch("UIScene"); // Run in parallel
+this.scene.pause("GameScene"); // Pause
+this.scene.stop("UIScene"); // Stop
 ```
 
 ## Core Patterns
@@ -167,13 +171,13 @@ const config: Phaser.Types.Core.GameConfig = {
   roundPixels: false,
   scale: {
     mode: Phaser.Scale.FIT,
-    autoCenter: Phaser.Scale.CENTER_BOTH
+    autoCenter: Phaser.Scale.CENTER_BOTH,
   },
   physics: {
-    default: 'arcade',
-    arcade: { gravity: { y: 300 }, debug: false }
+    default: "arcade",
+    arcade: { gravity: { y: 300 }, debug: false },
   },
-  scene: [BootScene, MenuScene, GameScene]
+  scene: [BootScene, MenuScene, GameScene],
 };
 ```
 
@@ -182,8 +186,8 @@ const config: Phaser.Types.Core.GameConfig = {
 ```ts
 class GameScene extends Phaser.Scene {
   init(data: unknown) {} // Receive data from previous scene
-  preload() {}           // Load assets before create
-  create() {}            // Set up game objects, physics, input
+  preload() {} // Load assets before create
+  create() {} // Set up game objects, physics, input
   update(time: number, delta: number) {} // Use delta for frame-rate independence
 }
 ```
@@ -209,7 +213,7 @@ sprite.setTint(0xff0000).setTintMode(Phaser.TintModes.FILL);
 
 ```ts
 // Phaser 3
-sprite.setPipeline('Light2D');
+sprite.setPipeline("Light2D");
 // Phaser 4
 sprite.setLighting(true);
 ```
@@ -231,11 +235,11 @@ colorMatrix.colorMatrix.sepia();
 
 ```ts
 // Phaser 3
-Math.TAU  // was PI/2
-Math.PI2  // was PI*2
+Math.TAU; // was PI/2
+Math.PI2; // was PI*2
 // Phaser 4
-Math.PI_OVER_2  // PI/2
-Math.TAU        // PI*2 (correct tau)
+Math.PI_OVER_2; // PI/2
+Math.TAU; // PI*2 (correct tau)
 ```
 
 ### RenderTexture and DynamicTexture
@@ -254,7 +258,7 @@ Use `preserve()` or render modes only when they solve a concrete problem. Extra 
 
 ```ts
 // Add 'gpu' flag to get a TilemapGPULayer instead of TilemapLayer
-const layer = map.createLayer('Ground', tileset, 0, 0, { gpu: true });
+const layer = map.createLayer("Ground", tileset, 0, 0, { gpu: true });
 
 // After editing tile data, regenerate the GPU texture
 layer.generateLayerDataTexture();
@@ -285,25 +289,25 @@ Use it for starfields, particle-like swarms, animated backgrounds — not for in
 Do not assume old `roundPixels` behavior. Phaser 4 defaults it to `false`.
 
 ```ts
-sprite.vertexRoundMode = 'safe'; // per-object: off | safe | safeAuto | full | fullAuto
+sprite.vertexRoundMode = "safe"; // per-object: off | safe | safeAuto | full | fullAuto
 ```
 
 Use rounding intentionally for pixel art. Leave it off for rotated, scaled, or camera-heavy scenes.
 
 ## Anti-Patterns to Avoid
 
-| Anti-pattern | Why it hurts | Better |
-|--------------|--------------|--------|
-| Treating Phaser 4 as a drop-in Phaser 3 upgrade | You miss renderer, filter, shader, and texture changes | Audit migration hotspots first, then port intentionally |
-| Starting new work on Canvas-first assumptions | Many Phaser 4 features are WebGL-centric or unavailable in Canvas | Design for WebGL; treat Canvas as fallback only if required |
-| Guessing spritesheet or atlas metadata | Visual corruption appears far from the actual mistake | Measure frames, spacing, margin, and bounds before loading |
-| Using filters or shaders for every visual effect | More complexity, more batch breaks, harder debugging | Use plain sprites, textures, and tint where possible |
-| Applying lighting or filters everywhere | Shader changes break batches and can tank performance | Reserve them for objects that benefit visually |
-| Forgetting `render()` on `DynamicTexture` or `RenderTexture` | Queued work never lands on the texture | Make render execution explicit in the workflow |
-| Using `SpriteGPULayer` for frequently mutated gameplay entities | Its strength is scale, not arbitrary object behavior | Keep complex interactive entities on normal game objects |
-| Assuming `TilemapGPULayer` is a universal tilemap replacement | It is orthographic-only and more constrained | Use it when the layer size and rendering profile justify it |
-| Making raw `gl` calls outside supported integration points | You can desync Phaser's renderer state | Use `Extern` or higher-level Phaser APIs |
-| "The port compiles, so the migration is done" | Rendering, shader, and texture bugs survive the first compile | Re-test visuals explicitly after every render-touching change |
+| Anti-pattern                                                    | Why it hurts                                                      | Better                                                        |
+| --------------------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------- |
+| Treating Phaser 4 as a drop-in Phaser 3 upgrade                 | You miss renderer, filter, shader, and texture changes            | Audit migration hotspots first, then port intentionally       |
+| Starting new work on Canvas-first assumptions                   | Many Phaser 4 features are WebGL-centric or unavailable in Canvas | Design for WebGL; treat Canvas as fallback only if required   |
+| Guessing spritesheet or atlas metadata                          | Visual corruption appears far from the actual mistake             | Measure frames, spacing, margin, and bounds before loading    |
+| Using filters or shaders for every visual effect                | More complexity, more batch breaks, harder debugging              | Use plain sprites, textures, and tint where possible          |
+| Applying lighting or filters everywhere                         | Shader changes break batches and can tank performance             | Reserve them for objects that benefit visually                |
+| Forgetting `render()` on `DynamicTexture` or `RenderTexture`    | Queued work never lands on the texture                            | Make render execution explicit in the workflow                |
+| Using `SpriteGPULayer` for frequently mutated gameplay entities | Its strength is scale, not arbitrary object behavior              | Keep complex interactive entities on normal game objects      |
+| Assuming `TilemapGPULayer` is a universal tilemap replacement   | It is orthographic-only and more constrained                      | Use it when the layer size and rendering profile justify it   |
+| Making raw `gl` calls outside supported integration points      | You can desync Phaser's renderer state                            | Use `Extern` or higher-level Phaser APIs                      |
+| "The port compiles, so the migration is done"                   | Rendering, shader, and texture bugs survive the first compile     | Re-test visuals explicitly after every render-touching change |
 
 ## Variation Guidance
 

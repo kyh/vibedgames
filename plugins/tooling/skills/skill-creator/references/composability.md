@@ -33,6 +33,7 @@ Accesses Referenced Resources As Needed
 **User**: "Analyze our Q4 sales data and create a branded executive report."
 
 **Agent may load**:
+
 1. **data-analysis** skill → Analysis methodology
 2. **brand-guidelines** skill → Visual styling rules
 3. **excel-creation** skill → Output format handling
@@ -46,12 +47,14 @@ Each skill contributes its domain expertise without knowing about the others.
 ### 1. Clear, Specific Scope
 
 **Good**: Each skill has a well-defined domain
+
 ```yaml
 name: data-visualization
 description: Create charts and graphs from datasets using matplotlib and seaborn
 ```
 
 **Bad**: Overlapping or vague scope
+
 ```yaml
 name: data-stuff
 description: Do things with data, make it look good, and create reports
@@ -66,11 +69,13 @@ description: Do things with data, make it look good, and create reports
 The `description` field determines when skills are loaded. Make it comprehensive.
 
 **Good**: Explains what, when, and triggers
+
 ```yaml
 description: "Create, edit, and analyze Excel spreadsheets with support for formulas, formatting, charts, and data analysis. Use when working with .xlsx files, financial models, data tables, or when users request spreadsheet operations."
 ```
 
 **Bad**: Vague or incomplete
+
 ```yaml
 description: Excel stuff
 ```
@@ -84,17 +89,20 @@ description: Excel stuff
 Skills should provide complete instructions for their domain without assuming other skills exist.
 
 **Good**: Complete within domain
+
 ```markdown
 # Brand Guidelines Skill
 
 When creating visual content, apply these brand standards:
+
 - Primary colors: #1E3A8A, #FFFFFF
 - Fonts: Montserrat for headers, Open Sans for body
 - Logo placement: Top left, minimum padding 20px
-...
+  ...
 ```
 
 **Bad**: Assumes other skills
+
 ```markdown
 # Brand Guidelines Skill
 
@@ -110,6 +118,7 @@ After creating content using the content-creation skill, apply these styles...
 Design skills around **orthogonal** (independent) concerns that can combine multiplicatively.
 
 **Good orthogonal skill set**:
+
 - **content-strategy** → What to say
 - **brand-guidelines** → How it should look
 - **format-handler** → What format to create
@@ -117,6 +126,7 @@ Design skills around **orthogonal** (independent) concerns that can combine mult
 These combine: content × brand × format = composable
 
 **Bad overlapping skill set**:
+
 - **branded-content** → Combines content + brand
 - **content-formatting** → Combines content + format
 - **brand-formatting** → Combines brand + format
@@ -132,15 +142,19 @@ These create conflicts and redundancy.
 Skills that may be loaded together should not provide contradictory instructions.
 
 **Conflict example**:
+
 ```markdown
 # coding-style-skill-a
+
 Always use single quotes for strings.
 
 # coding-style-skill-b
+
 Always use double quotes for strings.
 ```
 
 **Resolution strategies**:
+
 1. **Defer to user**: "Use single quotes unless project convention differs"
 2. **Prioritize by context**: "Single quotes for Python, double for JavaScript"
 3. **Consolidate**: Merge into one comprehensive coding-style skill
@@ -156,6 +170,7 @@ Always use double quotes for strings.
 Skills operate at different levels of abstraction and stack cleanly.
 
 **Example stack**:
+
 ```
 ┌─────────────────────────┐
 │  Internal Comms         │ ← Communication style and structure
@@ -167,6 +182,7 @@ Skills operate at different levels of abstraction and stack cleanly.
 ```
 
 Request: "Write a status update for the team"
+
 - **Internal comms** → Provides structure and content guidance
 - **Brand guidelines** → Applies visual styling
 - **Document creation** → Handles .docx generation
@@ -180,11 +196,13 @@ Each layer adds value without conflicting.
 Skills specialize in different domains that don't overlap.
 
 **Example set**:
+
 - **sql-expert** → Database queries
 - **python-expert** → Python programming
 - **react-expert** → React development
 
 Request: "Build a dashboard that queries our database"
+
 - **sql-expert** → Provides query guidance
 - **react-expert** → Provides UI component guidance
 - Neither conflicts because domains don't overlap
@@ -196,11 +214,13 @@ Request: "Build a dashboard that queries our database"
 One skill provides workflow, others provide domain knowledge.
 
 **Example**:
+
 - **code-review** skill → Review process and checklist (workflow)
 - **security-expert** skill → Security vulnerability knowledge (domain)
 - **performance-expert** skill → Performance optimization knowledge (domain)
 
 Request: "Review this code for security and performance"
+
 - **code-review** → Provides review methodology
 - **security-expert** → Provides security criteria
 - **performance-expert** → Provides performance criteria
@@ -214,10 +234,12 @@ The workflow skill orchestrates; domain skills provide expertise.
 A general skill provides foundations; specific skills add specialization.
 
 **Example**:
+
 - **frontend-design** → General design principles
 - **brand-guidelines** → Specific brand requirements
 
 Request: "Design a landing page for our product"
+
 - **frontend-design** → Provides design philosophy and general best practices
 - **brand-guidelines** → Overrides with specific brand colors, fonts, logos
 
@@ -255,9 +277,11 @@ When skills may overlap, use these strategies:
 
 ```markdown
 # General Coding Skill
+
 Use camelCase for variables unless language convention differs.
 
 # Python Coding Skill
+
 Python uses snake_case for variables (per PEP 8).
 ```
 
@@ -267,7 +291,9 @@ Specific overrides general.
 
 ```markdown
 # Writing Skill
+
 Use active voice unless:
+
 - Academic context requires passive
 - Scientific writing conventions apply
 - Other style guides specify otherwise
@@ -279,9 +305,11 @@ Leaves room for other skills to override.
 
 ```markdown
 # Accessibility Skill
+
 Focus: Semantic HTML, ARIA labels, keyboard navigation
 
 # Performance Skill
+
 Focus: Loading speed, bundle size, rendering optimization
 ```
 
@@ -291,6 +319,7 @@ Different concerns, minimal overlap.
 
 ```markdown
 # Default Style Skill
+
 These are defaults. Defer to project-specific or brand guidelines if present.
 ```
 
@@ -323,6 +352,7 @@ Makes priority explicit.
 
 ```markdown
 # Marketing Skill
+
 After using the brand-guidelines skill, create content...
 ```
 
@@ -335,9 +365,11 @@ After using the brand-guidelines skill, create content...
 
 ```markdown
 # Skill A
+
 Use blue (#0066CC) for primary actions
 
 # Skill B
+
 Use blue (#0066CC) for primary actions
 ```
 
@@ -350,9 +382,11 @@ Use blue (#0066CC) for primary actions
 
 ```markdown
 # Skill A
+
 NEVER use semicolons
 
 # Skill B
+
 ALWAYS use semicolons
 ```
 
@@ -365,9 +399,11 @@ ALWAYS use semicolons
 
 ```markdown
 # Skill A
+
 Follow formatting from skill B
 
 # Skill B
+
 Follow structure from skill A
 ```
 
@@ -457,6 +493,7 @@ Skill C (metadata loaded) ──┘
 **Composability makes the whole greater than the sum of parts.**
 
 Key principles:
+
 - Skills work together automatically based on descriptions
 - Design for independence but allow combination
 - Avoid conflicts and explicit cross-references

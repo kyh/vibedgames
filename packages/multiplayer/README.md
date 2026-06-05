@@ -42,7 +42,9 @@ Syncs a single object across all players. Host seeds initial values.
 
 ```tsx
 const room = useMultiplayerRoom({
-  host, party, room,
+  host,
+  party,
+  room,
   initialState: { started: false },
 });
 const [game, setGame] = useMultiplayerState(room);
@@ -79,7 +81,9 @@ Handle with `onEvent` in config:
 
 ```tsx
 const room = useMultiplayerRoom({
-  host, party, room,
+  host,
+  party,
+  room,
   onEvent: (event, payload, from) => {
     console.log(`${from} sent ${event}`, payload);
   },

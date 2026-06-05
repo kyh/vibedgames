@@ -106,9 +106,7 @@ export const InviteAdmin = () => {
               type="number"
               min={1}
               value={maxUses}
-              onChange={(e) =>
-                setMaxUses(e.target.value === "" ? "" : Number(e.target.value) || 1)
-              }
+              onChange={(e) => setMaxUses(e.target.value === "" ? "" : Number(e.target.value) || 1)}
             />
           </FieldContent>
         </Field>

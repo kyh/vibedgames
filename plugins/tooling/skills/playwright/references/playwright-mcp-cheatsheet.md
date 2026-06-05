@@ -6,19 +6,21 @@ Patterns for using Playwright MCP tools during frontend testing tasks (especiall
 
 - Use MCP to reproduce a user flow and collect evidence: console, network, screenshots, and state
 - Prefer explicit readiness over time-based waits
-- Treat *any* console error (or failed asset request) as a product failure unless explicitly allowed
+- Treat _any_ console error (or failed asset request) as a product failure unless explicitly allowed
 
 ## Tool Patterns by Task
 
 ### Navigate + Wait for App Readiness
 
 **For DOM apps:**
+
 ```
 1. mcp__playwright__browser_navigate({ url: "http://localhost:3000" })
 2. mcp__playwright__browser_wait_for({ text: "Welcome" })
 ```
 
 **For canvas/game apps:**
+
 ```
 1. mcp__playwright__browser_navigate({ url: "http://localhost:3000?test=1" })
 2. mcp__playwright__browser_evaluate({
@@ -37,6 +39,7 @@ mcp__playwright__browser_evaluate({
 ```
 
 Common assertions:
+
 - Scene/route: `window.__TEST__.sceneKey === "MainMenu"`
 - Score/resources: `window.__TEST__.state().score >= 100`
 - Entity state: `window.__TEST__.state().player.hp > 0`
@@ -44,17 +47,20 @@ Common assertions:
 ### Drive User Input
 
 **Click interactions:**
+
 ```
 mcp__playwright__browser_click({ element: "Start Button", ref: "[ref-from-snapshot]" })
 ```
 
 **Keyboard input (games):**
+
 ```
 mcp__playwright__browser_press_key({ key: "ArrowRight" })
 mcp__playwright__browser_press_key({ key: "Space" })  // attack/jump
 ```
 
 **Drag operations:**
+
 ```
 mcp__playwright__browser_drag({
   startElement: "Tower icon", startRef: "[ref]",
@@ -63,6 +69,7 @@ mcp__playwright__browser_drag({
 ```
 
 **Text input:**
+
 ```
 mcp__playwright__browser_type({
   element: "Player name field",
@@ -74,12 +81,14 @@ mcp__playwright__browser_type({
 ### Catch Silent Failures
 
 **Check for console errors:**
+
 ```
 mcp__playwright__browser_console_messages({ level: "error" })
 // Fail test if any errors returned
 ```
 
 **Check for failed network requests:**
+
 ```
 mcp__playwright__browser_network_requests()
 // Fail if any required asset returned non-2xx/3xx
@@ -88,6 +97,7 @@ mcp__playwright__browser_network_requests()
 ### Visual Evidence
 
 **Take screenshot (after determinism enforced):**
+
 ```
 mcp__playwright__browser_take_screenshot({
   filename: "game-main-menu.png",
@@ -96,6 +106,7 @@ mcp__playwright__browser_take_screenshot({
 ```
 
 **Element screenshot:**
+
 ```
 mcp__playwright__browser_take_screenshot({
   element: "Game canvas",
@@ -120,22 +131,24 @@ Minimal, stable, read-only seams to add to the app:
 
 ```javascript
 window.__TEST__ = {
-  ready: false,           // Set true after first interactive frame
-  version: "1.0.0",       // For cache invalidation
-  seed: null,             // Current RNG seed (if seeded)
-  sceneKey: null,         // Current scene/route
-  state: () => ({         // Returns JSON-serializable snapshot
+  ready: false, // Set true after first interactive frame
+  version: "1.0.0", // For cache invalidation
+  seed: null, // Current RNG seed (if seeded)
+  sceneKey: null, // Current scene/route
+  state: () => ({
+    // Returns JSON-serializable snapshot
     scene: this.sceneKey,
     player: { x, y, hp, state },
     score: currentScore,
-    entities: [...entityList.map(e => ({ id, type, x, y }))]
+    entities: [...entityList.map((e) => ({ id, type, x, y }))],
   }),
-  commands: {             // Optional mutation commands
-    reset: () => {},      // Reset to initial state
-    seed: (n) => {},      // Set RNG seed
-    skipIntro: () => {},  // Jump past animations
-    setTime: (t) => {}    // Control game clock
-  }
+  commands: {
+    // Optional mutation commands
+    reset: () => {}, // Reset to initial state
+    seed: (n) => {}, // Set RNG seed
+    skipIntro: () => {}, // Jump past animations
+    setTime: (t) => {}, // Control game clock
+  },
 };
 ```
 

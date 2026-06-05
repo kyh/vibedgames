@@ -191,10 +191,10 @@ vg generate pricing <endpoint_id> --json
 
 | Symptom                    | Likely cause                                            | Fix                                                                                |
 | -------------------------- | ------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `422 Unprocessable Entity` | Wrong field name or missing required field              | `vg generate schema <endpoint_id> --json` and read `validation_errors`                |
+| `422 Unprocessable Entity` | Wrong field name or missing required field              | `vg generate schema <endpoint_id> --json` and read `validation_errors`             |
 | `401 Unauthorized`         | The vibedgames server is missing its generation API key | The platform operator must configure the server credentials and redeploy / restart |
-| `Endpoint not found`       | Wrong endpoint ID, deprecated, or typo                  | `vg generate models "<task>" --json` to discover                                      |
-| Slow / timeout             | Long-running generation                                 | Use `--async`, then `vg generate status … --result`                                   |
+| `Endpoint not found`       | Wrong endpoint ID, deprecated, or typo                  | `vg generate models "<task>" --json` to discover                                   |
+| Slow / timeout             | Long-running generation                                 | Use `--async`, then `vg generate status … --result`                                |
 
 ## Environment
 

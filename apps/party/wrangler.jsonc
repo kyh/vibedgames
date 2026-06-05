@@ -8,21 +8,21 @@
     "bindings": [
       {
         "name": "VgServer",
-        "class_name": "VgServer"
-      }
-    ]
+        "class_name": "VgServer",
+      },
+    ],
   },
   "migrations": [
     {
       "tag": "v1",
-      "new_classes": ["VgServer"]
-    }
+      "new_classes": ["VgServer"],
+    },
   ],
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "vibedgames",
-      "database_id": "8aba7674-bee1-4532-b5f0-36243172cf81"
-    }
-  ]
+      "database_id": "8aba7674-bee1-4532-b5f0-36243172cf81",
+    },
+  ],
 }

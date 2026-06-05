@@ -43,8 +43,7 @@ export const makeTRPCClient = createIsomorphicFn()
       links: [
         loggerLink({
           enabled: (op) =>
-            import.meta.env.DEV ||
-            (op.direction === "down" && op.result instanceof Error),
+            import.meta.env.DEV || (op.direction === "down" && op.result instanceof Error),
         }),
         httpBatchStreamLink({
           transformer: SuperJSON,

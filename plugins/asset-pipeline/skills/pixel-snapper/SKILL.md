@@ -7,7 +7,7 @@ metadata:
 
 # Pixel Snapper
 
-Recover the underlying low-resolution pixel grid from images that *look* like pixel art but are stored at a much higher resolution with anti-aliased or smudged edges. Common case: a 1024×1024 AI-generated character that conceptually has ~100×100 chunky pixels.
+Recover the underlying low-resolution pixel grid from images that _look_ like pixel art but are stored at a much higher resolution with anti-aliased or smudged edges. Common case: a 1024×1024 AI-generated character that conceptually has ~100×100 chunky pixels.
 
 This skill bundles a Python port (`scripts/pixel_snapper.py`) of [Hugo Duprez's Rust `spritefusion-pixel-snapper`](https://github.com/Hugo-Dz/spritefusion-pixel-snapper) (MIT). The port produces dimensionally identical output to the original Rust binary and runs as a uv self-contained script. No project install is required.
 
@@ -15,15 +15,17 @@ It also includes `scripts/pixel_snapper_sheet.py`, a known-layout spritesheet he
 
 ## Philosophy: Discover, Don't Resize
 
-A naive "downscale" (Lanczos, bilinear, nearest) just averages neighboring pixels and produces blur or aliasing. Pixel-snapping is fundamentally different: the algorithm *discovers* where the conceptual pixel boundaries already exist in the input and snaps to them. The output resolution is **a property of the input**, not a parameter you set.
+A naive "downscale" (Lanczos, bilinear, nearest) just averages neighboring pixels and produces blur or aliasing. Pixel-snapping is fundamentally different: the algorithm _discovers_ where the conceptual pixel boundaries already exist in the input and snaps to them. The output resolution is **a property of the input**, not a parameter you set.
 
 **Before running, ask**:
+
 - Is this actually pixel art that's been upscaled or AI-faked, or is it a real photograph / continuous-tone illustration? (Pixel-snapping only makes sense for the former.)
 - What palette complexity does the input have? Bright cartoony art tolerates `--k-colors 256`; pre-quantized retro palettes may benefit from a much smaller `k` (16, 32, 64).
 - Do you want the native snapped output, or a nearest-neighbour upscale for inspection? You almost always want both.
 - Are the conceptual pixels actually square, or did the source apply non-uniform scaling? The snapper assumes one shared cell pitch for both axes.
 
 **Core principles**:
+
 1. **Output resolution is discovered**, not specified. The snapper detects the cell pitch from edge profiles and resamples accordingly. Don't fight this.
 2. **`k_colors` is the only user-facing knob.** Twelve other internal tunables exist (peak thresholds, walker windows, fallback segments) but you should only touch them by editing the `Config` dataclass.
 3. **Always inspect output visually.** Dimensions are a sanity check, not a quality check. A snapper run can produce a "correct" 50×50 output that's actually missing detail — you only see this by eye.
@@ -32,15 +34,17 @@ A naive "downscale" (Lanczos, bilinear, nearest) just averages neighboring pixel
 ## When to Use
 
 Trigger this skill when the user:
+
 - has AI-generated "pixel art" (gpt-image, retro-diffusion, etc.) and wants a cleaner, smaller, palette-quantized version
 - needs to convert a high-res mockup into a true pixel-art asset for a spritesheet or tilemap
 - wants to recover the underlying grid of an upscaled retro asset
 - mentions "snap to pixel grid", "fake pixel art", "downsample to native res", or links the Hugo-Dz repo
 
 Skip this skill for:
+
 - photographs, continuous-tone illustrations, or vector art (no underlying grid to recover)
 - already-native pixel art (the snapper would just round-trip it, possibly losing detail)
-- spritesheet *layout* recovery where rows/columns are unknown (use an asset-probing workflow first; `pixel_snapper_sheet.py` expects known `--cols` and `--rows`)
+- spritesheet _layout_ recovery where rows/columns are unknown (use an asset-probing workflow first; `pixel_snapper_sheet.py` expects known `--cols` and `--rows`)
 
 ## Quick Start
 

@@ -116,12 +116,12 @@ done
 
 Expected dimensions:
 
-| Character | Expected Output |
-|---|---|
-| `cass-cowboy-south-1` | 94×96 |
-| `kaede-ninja-south-1` | 115×114 |
-| `thorne-brawler-south-1` | 129×129 |
-| `wren-wizard-south-1` | 103×101 |
+| Character                | Expected Output |
+| ------------------------ | --------------- |
+| `cass-cowboy-south-1`    | 94×96           |
+| `kaede-ninja-south-1`    | 115×114         |
+| `thorne-brawler-south-1` | 129×129         |
+| `wren-wizard-south-1`    | 103×101         |
 
 If you get different numbers on these inputs, something has changed in the port (or in numpy's RNG behavior between versions).
 

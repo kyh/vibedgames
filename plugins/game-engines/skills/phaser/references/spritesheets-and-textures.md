@@ -44,6 +44,7 @@ For atlases:
 Phaser 4 uses GL-style texture orientation internally (Y=0 at bottom).
 
 This matters most when:
+
 - writing custom shaders
 - using framebuffer outputs
 - loading compressed textures
@@ -65,6 +66,7 @@ Do not immediately blame the math if the asset pipeline may be wrong.
 Phaser 4 `TileSprite` is more capable, but it is not the old object internally.
 
 Key implications:
+
 - texture cropping support is gone — if old code used crop-based repetition, redesign the approach
 - repeating atlas or spritesheet frames is now viable (v3 could only repeat the entire texture file)
 - `tileRotation` property is available
@@ -72,10 +74,10 @@ Key implications:
 ## Texture Wrap Modes
 
 ```ts
-import { WrapMode } from 'phaser/textures';
+import { WrapMode } from "phaser/textures";
 
-texture.setWrap(WrapMode.CLAMP_TO_EDGE);  // Always available
-texture.setWrap(WrapMode.REPEAT);          // Power-of-two textures only
+texture.setWrap(WrapMode.CLAMP_TO_EDGE); // Always available
+texture.setWrap(WrapMode.REPEAT); // Power-of-two textures only
 texture.setWrap(WrapMode.MIRRORED_REPEAT); // Power-of-two textures only
 ```
 

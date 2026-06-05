@@ -5,22 +5,24 @@ description: "Infer structure/metadata from Aseprite files (.ase/.aseprite; comm
 
 # Aseprite Inference
 
-Understand `.ase`/`.aseprite` files as *structured timelines of layered pixel (or tilemap) cels*. This skill helps you **infer useful metadata** (animation timing, per-frame bounds, layer hierarchy, tags, slices, tilesets, palettes) and produce **engine-ready JSON** without guessing.
+Understand `.ase`/`.aseprite` files as _structured timelines of layered pixel (or tilemap) cels_. This skill helps you **infer useful metadata** (animation timing, per-frame bounds, layer hierarchy, tags, slices, tilesets, palettes) and produce **engine-ready JSON** without guessing.
 
 ## Philosophy: Inference Over Assumption
 
 An Aseprite file is "truth"; your code is the hypothesis. Prefer **reading and verifying** over hard-coding expectations.
 
 **Before inferring, ask:**
+
 - Am I after **authoring intent** (tags/slices/user data) or **render intent** (visible pixels/bounds/ordering)?
 - Do I need **pixels** (decompress cel images), or is **structure-only** (layers/timing/tags) enough?
 - Is the sprite **RGBA / Grayscale / Indexed / Tilemap** and does that change transparency/bounds logic?
 
 **Core principles**
+
 1. **Be chunk-driven:** unknown chunks are fine—skip by `chunk_size`, don't crash.
 2. **Treat timing as per-frame:** `header.speed` is deprecated; each frame has its own duration (with compatibility fallback).
 3. **Separate decode modes:** "fast metadata pass" first; pixel/tile decode only when needed.
-4. **Make inference explicit:** output what you know *and* what you assumed (e.g., indexed transparency).
+4. **Make inference explicit:** output what you know _and_ what you assumed (e.g., indexed transparency).
 
 ## Quick Start (Recommended)
 
@@ -48,6 +50,7 @@ python3 .claude/skills/aseprite-inference/scripts/aseprite_inspect.py path/to/sp
 - **User data:** attached text/color/properties to layers/cels/tags/tilesets (when present).
 
 When you **decode cel pixels**, you can additionally infer:
+
 - **Tight bounds** per cel/frame (non-transparent extents).
 - **Sparsity/empty frames** detection.
 - **Heuristic sprite-sheet packing hints** (frame bounds sizes/variability).
@@ -55,17 +58,20 @@ When you **decode cel pixels**, you can additionally infer:
 ## Common Workflows
 
 ### 1) Build engine metadata (JSON)
+
 - Inspect (structure-only), then add decode if you need tight bounds.
 - Prefer emitting: `frames[]`, `layers[]`, `tags[]`, `slices[]`, and a normalized `frameMs[]`.
 - If you need deterministic render ordering, incorporate **z-index rules** (cel header) + layer ordering.
 - For character grounding, emit authoring anchors (slice/pivot/user-data when present), but validate final foot placement against exported PNG alpha bounds (for example via `gamedev-assets`) before locking runtime offsets.
 
 ### 2) Debug "why is this invisible?"
+
 - Verify layer visibility flags + opacity.
 - Check if a cel is **linked** to another frame.
 - For indexed sprites: verify transparent index + background layer semantics.
 
 ### 3) Convert slices to hitboxes/anchors
+
 - Use slice keys per frame to generate runtime hitboxes.
 - Use pivot when present; otherwise infer pivot (e.g., slice center) as a fallback.
 
@@ -114,7 +120,8 @@ Better: output both kinds of facts, and don't "correct" one with the other unles
 
 ## Remember
 
-This domain rewards *precision*.
+This domain rewards _precision_.
+
 - Prefer outputs that are **explicit about assumptions** (e.g., indexed transparency handling, bounds derived from pixels vs dimensions).
 - Claude Code is capable of building production-grade Aseprite tooling here: chunk-driven parsing + strict bounds checks + optional decode passes.
 

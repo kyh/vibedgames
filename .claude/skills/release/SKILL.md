@@ -22,6 +22,7 @@ Cut a new npm version of one or both publishable packages in this repo.
 ## Arguments
 
 Parse from the user message:
+
 - Which package(s): `cli`, `multiplayer`, or `both`. Default `both`.
 - Bump type: `patch`, `minor`, `major`. Default `patch`.
 - `--force` to release even if no changes since last tag (otherwise unchanged packages are skipped).
@@ -33,6 +34,7 @@ If ambiguous, ask in one short sentence before proceeding.
 ### 1. Preflight
 
 Run in parallel:
+
 - `npm whoami` — must be `kaiyuhsu`. If not, stop and tell the user to `npm login`.
 - `git status --porcelain` — if dirty in unrelated files, surface and ask whether to proceed.
 - `npm view vibedgames version` and/or `npm view @vibedgames/multiplayer version` — current published.
@@ -73,11 +75,13 @@ Keep bullets terse — sacrifice grammar for concision. Drop noise like "fix typ
 ### 5. Publish
 
 For each target, from its directory:
+
 ```
 pnpm publish --access public --no-git-checks
 ```
+
 - `--access public` is required.
-- `--no-git-checks` because we commit + tag *after* publish (so we don't tag a commit for a publish that failed).
+- `--no-git-checks` because we commit + tag _after_ publish (so we don't tag a commit for a publish that failed).
 
 ### 6. Verify
 
@@ -86,24 +90,31 @@ pnpm publish --access public --no-git-checks
 ### 7. Commit, tag, push
 
 Single commit covering all bumps + changelogs:
+
 ```
 release: <pkg>@<version>[, <pkg>@<version>]
 ```
+
 Stage the changed `package.json` and `CHANGELOG.md` files only. Then create one annotated tag per released package pointing at that commit:
+
 ```
 git tag -a '<pkg-name>@<version>' -m '<pkg-name>@<version>'
 ```
+
 For `@vibedgames/multiplayer` this means a tag literally named `@vibedgames/multiplayer@0.0.3` — git accepts `@` in tag names.
 
 Then push commit + tags together:
+
 ```
 git push --follow-tags origin <current-branch>
 ```
+
 If on `main`, this triggers the GitHub Actions deploy — fine, since releases are intentional shipping events. Mention it in the report so the user knows to check Actions.
 
 ### 8. Report
 
 One short block:
+
 ```
 Released:
   vibedgames@X.Y.Z          (tag: vibedgames@X.Y.Z)
@@ -112,11 +123,12 @@ Skipped (no changes): <pkg> (since <last-tag>)
 Commit: <sha> (pushed to origin/<branch>)
 Actions: triggered if pushed to main — verify deploy
 ```
+
 If anything failed, lead with the failure and what state the registry / git remote is in (published? committed? tagged? pushed?).
 
 ## Rules
 
-- Never run `wrangler deploy` here. This skill is npm-only. Worker deploys go through GitHub Actions on push to main (which this skill *will* trigger by pushing — that's fine for a release).
+- Never run `wrangler deploy` here. This skill is npm-only. Worker deploys go through GitHub Actions on push to main (which this skill _will_ trigger by pushing — that's fine for a release).
 - Never `--force` push or amend prior release commits. If a publish half-succeeds (e.g. one of two packages), commit + tag + push what shipped, then handle the other separately.
 - If `npm publish` fails with `EPUBLISHCONFLICT` (version already on registry), bump again rather than try to overwrite.
 - Tags must be created **after** successful publish + verify, never before. A tag without a matching registry version is worse than no tag.

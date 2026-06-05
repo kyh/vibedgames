@@ -166,7 +166,11 @@ export const newCommand = defineCommand({
     }
 
     const preset = args.template
-      ? ({ repo: args.template, label: `custom: ${args.template}`, skill: "deploy" } as EnginePreset)
+      ? ({
+          repo: args.template,
+          label: `custom: ${args.template}`,
+          skill: "deploy",
+        } as EnginePreset)
       : ENGINES[args.engine];
     if (!preset) {
       consola.error(

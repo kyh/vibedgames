@@ -31,9 +31,7 @@ export async function uploadFile(client: Client, file: LocalFile): Promise<strin
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
-    throw new Error(
-      `Upload failed for ${file.filename}: ${res.status} ${res.statusText} ${text}`,
-    );
+    throw new Error(`Upload failed for ${file.filename}: ${res.status} ${res.statusText} ${text}`);
   }
   return fileUrl;
 }

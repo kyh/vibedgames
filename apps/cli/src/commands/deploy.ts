@@ -38,7 +38,8 @@ export const deployCommand = defineCommand({
     },
     source: {
       type: "boolean",
-      description: "Upload a forkable source archive alongside the build (use --no-source to skip).",
+      description:
+        "Upload a forkable source archive alongside the build (use --no-source to skip).",
       default: true,
     },
   },
@@ -105,9 +106,7 @@ export const deployCommand = defineCommand({
     }
 
     const totalBytes = manifest.reduce((acc, f) => acc + f.size, 0);
-    consola.info(
-      `Deploying ${config.slug}: ${manifest.length} files, ${formatBytes(totalBytes)}`,
-    );
+    consola.info(`Deploying ${config.slug}: ${manifest.length} files, ${formatBytes(totalBytes)}`);
 
     // ---- Pack forkable source (default on; --no-source to skip) -------------
     let sourceArchive: SourceArchive | null = null;
@@ -122,7 +121,9 @@ export const deployCommand = defineCommand({
             `Source: ${sourceArchive.files.length} files, ${formatBytes(sourceArchive.bytes)} — forkable via \`vg fork ${config.slug}\``,
           );
         } catch (err) {
-          consola.error(`Source archive failed: ${err instanceof Error ? err.message : String(err)}`);
+          consola.error(
+            `Source archive failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
           process.exit(1);
         }
       }

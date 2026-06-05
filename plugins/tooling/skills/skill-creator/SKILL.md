@@ -13,13 +13,13 @@ Skills are not checklists or templates—they are **mental frameworks that guide
 
 **Core principle: Unlock vs. Constrain**
 
-| Constraining Approach | Unlocking Approach |
-|-----------------------|-------------------|
-| Rigid templates | Flexible frameworks |
-| Strict rules | Guiding principles |
-| Fixed outputs | Varied, context-appropriate results |
-| Limiting choices | Expanding possibilities |
-| Checklists | Mental models |
+| Constraining Approach | Unlocking Approach                  |
+| --------------------- | ----------------------------------- |
+| Rigid templates       | Flexible frameworks                 |
+| Strict rules          | Guiding principles                  |
+| Fixed outputs         | Varied, context-appropriate results |
+| Limiting choices      | Expanding possibilities             |
+| Checklists            | Mental models                       |
 
 ### The Three Pillars of Effective Skills
 
@@ -52,11 +52,13 @@ Good answers to these questions shape effective skills.
 Skip only when usage patterns are already clearly understood.
 
 **Gather examples of how the skill will be used**:
+
 - Direct examples from users
 - Generated scenarios validated by users
 - Real-world use cases
 
 **Key questions**:
+
 - What functionality should this skill support?
 - What would users say to trigger this skill?
 - What are edge cases or variations?
@@ -68,17 +70,20 @@ Don't overwhelm users—ask progressively, not all at once.
 **Before** planning scripts and resources, design the skill's philosophy:
 
 **Establish the mental framework**:
+
 - What philosophy guides this domain?
 - What questions should be asked before acting?
 - What principles help make good decisions?
 - What mental model makes this domain intuitive?
 
 **Identify anti-patterns**:
+
 - What common mistakes happen in this domain?
 - What should explicitly be avoided?
 - What produces "generic" or "template" outputs?
 
 **Plan for variation**:
+
 - What should vary across outputs?
 - What creates context-appropriateness?
 - What prevents convergence on "favorites"?
@@ -94,16 +99,19 @@ See references/variation-patterns.md for techniques to encourage output diversit
 Based on concrete examples, identify helpful resources:
 
 **Scripts** (`scripts/`):
+
 - Code rewritten repeatedly
 - Deterministic operations
 - Complex, fragile procedures
 
 **References** (`references/`):
+
 - Documentation the agent should reference
 - Schemas, API docs, domain knowledge
 - Detailed workflows too long for SKILL.md
 
 **Assets** (`assets/`):
+
 - Templates used in outputs
 - Boilerplate code, images, fonts
 - Files copied or modified, not loaded into context
@@ -141,11 +149,13 @@ description: "Comprehensive description of what, when, and specific triggers. In
 [Philosophy section establishing mental model BEFORE procedures]
 
 **Before [acting], ask**:
+
 - Question 1
 - Question 2
 - Question 3
 
 **Core principles**:
+
 1. Principle 1: [Why it matters]
 2. Principle 2: [Why it matters]
 
@@ -154,11 +164,13 @@ description: "Comprehensive description of what, when, and specific triggers. In
 [Organized actionable guidance, grouped by category]
 
 ### Category 1
+
 - Specific, actionable guidance
 - Concrete examples
 - Technical specifics when helpful
 
 ### Category 2
+
 [More guidance...]
 
 ## Anti-Patterns to Avoid
@@ -173,6 +185,7 @@ Better: [Alternative]
 ## Variation Guidance
 
 **IMPORTANT**: Outputs should vary based on context.
+
 - [Dimension 1 to vary]
 - [Dimension 2 to vary]
 - Avoid converging on [specific patterns to avoid]
@@ -183,6 +196,7 @@ Better: [Alternative]
 ```
 
 **Key guidelines**:
+
 - ✅ Philosophy before procedure
 - ✅ Explicit anti-patterns with examples
 - ✅ Variation encouragement
@@ -191,12 +205,14 @@ Better: [Alternative]
 - ✅ Empowering tone
 
 **Description field**:
+
 - Include WHAT the skill does
 - Include WHEN to use it (specific triggers)
 - Include specific use cases
 - 100-200 characters recommended
 
 **AVOID**:
+
 - ❌ Jumping straight to procedures without philosophy
 - ❌ Only positive guidance (missing anti-patterns)
 - ❌ Vague, generic advice
@@ -221,6 +237,7 @@ scripts/analyze_skill.py <path/to/skill>
 ```
 
 Scores your skill on:
+
 - Philosophy foundation (0-40 points)
 - Anti-pattern prevention (0-25 points)
 - Variation encouragement (0-20 points)
@@ -248,6 +265,7 @@ Validates and packages into `.skill` file for distribution.
 ### 8. Iterate
 
 After real usage:
+
 1. Notice where the skill struggles or helps
 2. Identify improvements needed
 3. Update SKILL.md or resources
@@ -265,10 +283,13 @@ Keep SKILL.md body under 500 lines. Move details to references.
 
 ```markdown
 # SKILL.md
+
 ## Quick Start
+
 [Essential workflow in 50-100 lines]
 
 ## Advanced
+
 - **Complex topic**: See references/complex-topic.md
 - **API reference**: See references/api-docs.md
 ```
@@ -279,9 +300,9 @@ Keep SKILL.md body under 500 lines. Move details to references.
 skill/
 ├── SKILL.md (overview + navigation)
 └── references/
-    ├── domain-a.md
-    ├── domain-b.md
-    └── domain-c.md
+├── domain-a.md
+├── domain-b.md
+└── domain-c.md
 ```
 
 The agent only loads relevant domain file.
@@ -340,6 +361,7 @@ See references/anti-patterns.md for comprehensive list. Key ones:
 ### Study Effective Skills
 
 **Recommended skill to study**:
+
 - **frontend-design** - Exemplary philosophy-first design
 
 See examples/annotated/frontend-design-analysis.md for line-by-line analysis of why it works.
@@ -347,6 +369,7 @@ See examples/annotated/frontend-design-analysis.md for line-by-line analysis of 
 ### Before/After Transformations
 
 See examples/before-after/ for:
+
 - **basic-to-effective.md** - Simple skill transformed with philosophy
 - **procedural-to-philosophical.md** - From checklist to mental framework
 
@@ -365,12 +388,14 @@ python scripts/analyze_skill.py <path/to/skill>
 ```
 
 **Output**:
+
 - Overall score (0-100)
 - Category breakdown (Philosophy, Anti-Patterns, Variation, Organization, Empowerment)
 - Specific feedback per category
 - Recommendations based on score
 
 **Use when**:
+
 - After creating a skill
 - Before packaging for distribution
 - When improving existing skills
@@ -385,11 +410,13 @@ python scripts/upgrade_skill.py <path/to/skill>
 ```
 
 **Output**:
+
 - Priority-grouped suggestions (HIGH/MEDIUM/LOW)
 - Examples for each improvement
 - Next steps guidance
 
 **Use when**:
+
 - Skill scores poorly on analyze_skill.py
 - Updating an old skill to modern practices
 - Learning what improvements to make
@@ -403,6 +430,7 @@ python scripts/quick_validate.py
 ```
 
 **Use when**:
+
 - Before packaging
 - After editing SKILL.md
 - Checking syntax errors
@@ -428,16 +456,16 @@ See references/composability.md for detailed composability patterns.
 
 ## Differentiation from skill-creator
 
-| Aspect | skill-creator | skill-creator-plus |
-|--------|---------------|-------------------|
-| Approach | Procedural | Philosophy-first |
-| Anti-patterns | Not covered | Comprehensive reference |
-| Variation | Not mentioned | Explicit patterns and guidance |
-| Quality analysis | Manual only | analyze_skill.py script |
-| Examples | None | Before/after + annotated analysis |
-| Composability | Not covered | Dedicated reference file |
-| Self-improvement | No | Can analyze itself |
-| Philosophy guidance | Implicit | Explicit patterns and frameworks |
+| Aspect              | skill-creator | skill-creator-plus                |
+| ------------------- | ------------- | --------------------------------- |
+| Approach            | Procedural    | Philosophy-first                  |
+| Anti-patterns       | Not covered   | Comprehensive reference           |
+| Variation           | Not mentioned | Explicit patterns and guidance    |
+| Quality analysis    | Manual only   | analyze_skill.py script           |
+| Examples            | None          | Before/after + annotated analysis |
+| Composability       | Not covered   | Dedicated reference file          |
+| Self-improvement    | No            | Can analyze itself                |
+| Philosophy guidance | Implicit      | Explicit patterns and frameworks  |
 
 ---
 
@@ -446,6 +474,7 @@ See references/composability.md for detailed composability patterns.
 **Skills are mental frameworks, not checklists.**
 
 The best skills:
+
 - Establish philosophies that guide thinking
 - Prevent mistakes through explicit anti-patterns
 - Encourage context-appropriate variation

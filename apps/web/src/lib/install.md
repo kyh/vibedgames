@@ -13,7 +13,7 @@ npx vibedgames init
 One command does two things:
 
 1. Installs skills for Claude Code, Cursor, and Codex — wraps `npx
-   skills add kyh/vibedgames` from
+skills add kyh/vibedgames` from
    [vercel-labs/skills](https://github.com/vercel-labs/skills). Skills
    live once in `./.agents/skills/` and are symlinked into
    `.claude/skills/`, `.cursor/skills/`, and `.codex/skills/`. Windows
@@ -30,9 +30,9 @@ If you're a different agent, pass `--agent <name>` (supports 45+ agents
 
 ## You're done
 
-The skills you just installed tell you how to handle prompts like *"add
-multiplayer"*, *"generate pixel art for the player"*, or *"deploy this
-game"*. The `deploy` skill will prompt the user to authenticate
+The skills you just installed tell you how to handle prompts like _"add
+multiplayer"_, _"generate pixel art for the player"_, or _"deploy this
+game"_. The `deploy` skill will prompt the user to authenticate
 (`vg login`, device-code flow) the first time they ship something — no
 need to log in now.
 

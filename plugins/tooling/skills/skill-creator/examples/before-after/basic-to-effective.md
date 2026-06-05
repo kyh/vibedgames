@@ -59,6 +59,7 @@ description: "Write effective professional emails with appropriate tone, structu
 Effective emails respect the recipient's time and attention:
 
 **Before writing, ask**:
+
 - **Purpose**: What action or response do I need?
 - **Audience**: What's the recipient's context and priorities?
 - **Tone**: What relationship and formality level is appropriate?
@@ -68,32 +69,40 @@ Effective emails respect the recipient's time and attention:
 ## Email Structure Framework
 
 ### Subject Line
+
 - **Specific and actionable**: "Q4 Budget Review - Need approval by Friday"
 - **Not vague**: "Question" or "Following up"
 - **Include urgency if relevant**: "URGENT:" or "[Action Required]"
 
 ### Opening
+
 Adapt based on context:
 
 **Internal/familiar**: Direct and friendly
 ```
+
 Hi Sarah,
 
 Quick question about the deployment schedule...
+
 ```
 
 **External/formal**: Professional and respectful
 ```
+
 Dear Dr. Martinez,
 
 Thank you for your email regarding the partnership proposal. I'd like to address your questions about...
+
 ```
 
 **Cold outreach**: Value-first
 ```
+
 Hi Alex,
 
 I noticed your team is working on X. We recently solved a similar challenge with Y approach that reduced costs by 30%...
+
 ```
 
 ### Body
@@ -112,16 +121,20 @@ Match the opening in formality:
 
 ❌ **Buried lede**: Important request at the end
 ```
+
 Hi team, how was your weekend? I've been thinking about the project timeline
 and wanted to share some thoughts on the approach we discussed last week...
 BY THE WAY, the client needs this delivered by tomorrow.
+
 ```
 
 ✅ **Lead with what matters**:
 ```
+
 Hi team, heads up: client needs this delivered by tomorrow.
 
 Here's the plan: [...]
+
 ```
 
 ❌ **Wall of text**: No paragraph breaks, dense prose
@@ -191,15 +204,15 @@ Email is a tool for clear, respectful communication. These guidelines help achie
 
 ## Key Transformations
 
-| Aspect | Basic Version | Effective Version |
-|--------|--------------|-------------------|
-| **Philosophy** | None | Clarity and respect framework |
-| **Structure** | Linear checklist | Categorized guidelines with rationale |
-| **Anti-patterns** | None | Explicit examples of what to avoid |
-| **Variation** | Implied | Explicit context-specific guidance |
-| **Examples** | None | Concrete before/after examples |
-| **Tone** | Prescriptive | Empowering with judgment |
-| **Length** | 50 lines | 150 lines (but much more valuable) |
+| Aspect            | Basic Version    | Effective Version                     |
+| ----------------- | ---------------- | ------------------------------------- |
+| **Philosophy**    | None             | Clarity and respect framework         |
+| **Structure**     | Linear checklist | Categorized guidelines with rationale |
+| **Anti-patterns** | None             | Explicit examples of what to avoid    |
+| **Variation**     | Implied          | Explicit context-specific guidance    |
+| **Examples**      | None             | Concrete before/after examples        |
+| **Tone**          | Prescriptive     | Empowering with judgment              |
+| **Length**        | 50 lines         | 150 lines (but much more valuable)    |
 
 ---
 

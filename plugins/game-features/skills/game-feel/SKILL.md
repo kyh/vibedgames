@@ -8,7 +8,7 @@ description: "The end-to-end recipe for building a GREAT browser game from a one
 The platform promise is "studio-grade games from a prompt." The gap between a
 tech demo and that is two things: **the right build order** and **juice**. This
 skill is the playbook. The engine/asset/deploy skills own the pieces; this owns
-how they fit together and how to make the result *fun*.
+how they fit together and how to make the result _fun_.
 
 ## The recipe (a complete game from "make a <genre> game")
 
@@ -27,7 +27,7 @@ ship before the juice pass.
      no alpha pass needed. A generated video → ffmpeg frame strip makes great
      fire/explosion (see `pixel-art` Recipe 5).
    - ground/tiles or a parallax/arena backdrop.
-   Replace the template's logo/bg — never ship placeholder art.
+     Replace the template's logo/bg — never ship placeholder art.
 3. **Core loop with the proven shell** (see `phaser`): full-screen
    `Scale.RESIZE`, a **zoom-aware follow camera** (clamp the centre yourself —
    Phaser's `setBounds` reveals void), directional `applyAnim(dir, moving)`,
@@ -39,7 +39,7 @@ ship before the juice pass.
    static screenshot usually feels dead in motion. Tune speeds/cooldowns/spawn
    rates until the core loop is satisfying in the first 10 seconds.
 6. **Ship.** `vg deploy ./dist` (see `deploy`); `add multiplayer` / `make it
-   forkable` are one prompt each (see `multiplayer`, `fork`).
+forkable` are one prompt each (see `multiplayer`, `fork`).
 
 ## The juice checklist
 
@@ -56,10 +56,16 @@ damage). Each is a few lines; together they're the whole difference.
 - **Particles** on hit/kill/pickup — a soft additive burst:
   ```ts
   const e = this.add.particles(x, y, "spark", {
-    speed: { min: 50, max: 220 }, lifespan: { min: 240, max: 520 },
-    scale: { start: 1, end: 0 }, alpha: { start: 1, end: 0 },
-    tint, blendMode: Phaser.BlendModes.ADD, emitting: false });
-  e.explode(14); this.time.delayedCall(650, () => e.destroy());
+    speed: { min: 50, max: 220 },
+    lifespan: { min: 240, max: 520 },
+    scale: { start: 1, end: 0 },
+    alpha: { start: 1, end: 0 },
+    tint,
+    blendMode: Phaser.BlendModes.ADD,
+    emitting: false,
+  });
+  e.explode(14);
+  this.time.delayedCall(650, () => e.destroy());
   ```
   (Generate a soft white dot texture procedurally in the preloader.)
 - **Hit flash**: `sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL)` for

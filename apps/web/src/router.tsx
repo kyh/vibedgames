@@ -25,7 +25,8 @@ export function getRouter() {
       },
       dehydrate: {
         serializeData: SuperJSON.serialize,
-        shouldDehydrateQuery: (query) => query.state.status === "pending" || query.state.status === "success",
+        shouldDehydrateQuery: (query) =>
+          query.state.status === "pending" || query.state.status === "success",
       },
       hydrate: {
         deserializeData: SuperJSON.deserialize,
@@ -42,13 +43,7 @@ export function getRouter() {
     routeTree,
     context: { queryClient, trpc },
     defaultPreload: "intent",
-    Wrap: (props) => (
-      <TRPCProvider
-        trpcClient={trpcClient}
-        queryClient={queryClient}
-        {...props}
-      />
-    ),
+    Wrap: (props) => <TRPCProvider trpcClient={trpcClient} queryClient={queryClient} {...props} />,
   });
   setupRouterSsrQueryIntegration({ router, queryClient });
 

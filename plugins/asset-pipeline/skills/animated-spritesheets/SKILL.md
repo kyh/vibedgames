@@ -10,21 +10,25 @@ metadata:
 Use this skill when a user wants to start from one character reference image, usually a high-resolution `1024x1024` sprite-like image, and end with a usable animated spritesheet plus review artifacts such as contact sheets and GIFs.
 
 Use it for:
+
 - turning one approved reference sprite into directional anchors or action sheets
 - salvaging AI-generated sheets whose poses drift outside implied frame cells
 - producing review artifacts a game team can actually inspect
 
 Do not use it for:
+
 - hand-authoring final pixel art frame by frame
 - tilemaps, environment sheets, or UI icon sets
 - strict tiny-pixel workflows where every source pixel must already be exact
 
 Typical inputs:
+
 - `1` approved reference image, often `1024x1024`
 - optional sheet guide such as a `512x1280` alternating-pixel contact sheet
 - one prompt file describing direction, action, and frame ordering
 
 Typical outputs:
+
 - generated sheet or directional anchor
 - recovered component crops
 - optional no-background crops
@@ -44,12 +48,14 @@ In practice, this is **two different problems**:
 The second problem is usually the harder one.
 
 **Before acting, ask**:
+
 - Is the user asking for strict tiny-pixel art, or “high-resolution pixelated” art?
 - Is the reference image already the approved in-game identity, or just concept art?
 - Is the deliverable a single anchor frame, a full spritesheet, or a finished GIF preview?
 - If the model spills across invisible cell boundaries, what is the source of truth: the cells or the full sheet?
 
 **Core principles**:
+
 1. **Identity anchor first**: use the approved in-game sprite when possible, not upstream concept art.
 2. **Recover before polishing**: fix missing silhouette and framing before palette or edge cleanup.
 3. **One anchor per sequence**: normalize all frames to one shared center/bottom rule unless the source genuinely requires otherwise.
@@ -60,6 +66,7 @@ The second problem is usually the harder one.
 ### 1. Choose the right input reference
 
 Prefer:
+
 - a single approved sprite-like reference, often `1024x1024`
 - one clear identity image, not multiple conflicting art sources
 
@@ -70,6 +77,7 @@ Use concept art only when no approved gameplay-facing sprite exists.
 For multi-frame generation, create a sheet-sized guide image first.
 
 Use `scripts/make_alternating_sheet.py` for:
+
 - a neutral alternating-pixel background
 - arbitrary sizes such as `512x1280`
 - a guide that pushes pixel texture without adding visible grid lines
@@ -83,6 +91,7 @@ When using image-to-video models to create walk-cycle source motion, do **not** 
 Those guides work for still-image spritesheet generation, but video models often interpret them as floors, rooms, horizons, or perspective grids. This causes camera drift, character turning, and scene motion instead of a clean in-place walk.
 
 For walk-cycle video passes, create a direction-specific neutral plate:
+
 - `1280x720` canvas
 - flat neutral gray background
 - one approved direction anchor centered with feet visible
@@ -90,6 +99,7 @@ For walk-cycle video passes, create a direction-specific neutral plate:
 - enough padding for bobbing and cloth sway
 
 Prompt the video model to lock:
+
 - facing direction
 - camera and framing
 - flat background
@@ -103,6 +113,7 @@ Treat the video as motion reference only. Extract raw frames, build contact shee
 ### 3. Prompt for the whole sheet
 
 Structure the prompt like a production brief:
+
 - intended use
 - image roles
 - subject and direction
@@ -112,6 +123,7 @@ Structure the prompt like a production brief:
 - explicit avoid list
 
 Keep the frame list concrete. For example:
+
 - `Frame 1: ready idle`
 - `Frame 5: first shot muzzle flash`
 - `Frame 10: return to idle`
@@ -123,6 +135,7 @@ Use the prompt patterns in `references/prompt-patterns.md`.
 Even when the output size is exactly correct, the model may let hats, coats, feet, or muzzle flashes spill outside the implied cell boundaries.
 
 Use `scripts/recover_component_frames.py` on the **full sheet** first:
+
 - detect the dominant foreground components
 - bucket them back onto the intended grid
 - save tight recovered frame crops
@@ -136,6 +149,7 @@ If you need cleaner edges, run background removal on the recovered component cro
 Background removal is not bundled with this skill. Use a local tool (`rembg`, GIMP, Aseprite, Photoshop) or another service of your choice on the recovered crops in `recovered-components/` before normalizing.
 
 Why:
+
 - raw cell crops may already be wrong
 - whole-sheet background removal often destroys the original geometry
 - per-component removal preserves the recovered silhouette
@@ -143,6 +157,7 @@ Why:
 ### 6. Normalize every frame to one shared anchor
 
 Use `scripts/normalize_frames.py` to place every recovered/cleaned crop onto a fixed runtime frame, such as:
+
 - canvas `256x256`
 - center `x = 128`
 - bottom `y = 255`
@@ -158,6 +173,7 @@ After normalization, verify the **visible** alpha bounds inside the final engine
 This is separate from the image canvas size. A frame can be `256x256` and still be wrong if the feet end at `y = 215` with 40px of transparent padding underneath. In engines like Phaser, the sprite origin and shadow are usually applied to the full frame rectangle, not the visible pixels, so inconsistent bottom padding makes characters look like they float above their shadow.
 
 Before exporting runtime sheets:
+
 - inspect the alpha bounding box for every frame
 - ensure the lowest non-transparent pixel lands on the intended baseline, commonly `bottomY = 255` for `256x256`
 - compare all directions for the same character, not just frames within one animation
@@ -168,10 +184,12 @@ If using the `gamedev-assets` skill, run `asset_sprite_baseline.py` to audit and
 ### 7. Build review artifacts
 
 Use:
+
 - `scripts/build_contact_sheet.py` for labeled review sheets
 - `scripts/build_sequence_gif.py` for full loops or curated sequences
 
 Review at least:
+
 - the generated sheet
 - the recovered frame crops
 - the normalized contact sheet
@@ -212,12 +230,14 @@ Better: test them only after recovery and normalization, and keep them only if r
 **IMPORTANT**: Do not force every spritesheet into the same aesthetic.
 
 Vary the pipeline based on:
+
 - target look: strict retro pixel art vs high-resolution pixelated art
 - direction set: south-only, west/east, north, 4-direction, 8-direction
 - action type: walk, idle, attack, hurt, death
 - sheet layout: single frame, strip, `2x5`, `4x4`, etc.
 
 Things that should remain stable inside a sequence:
+
 - identity source
 - shared anchor rule
 - frame canvas size
@@ -225,6 +245,7 @@ Things that should remain stable inside a sequence:
 - selection logic for the final GIF
 
 Things that may vary:
+
 - prompt wording by action and direction
 - selected frame order
 - palette cleanup strategy

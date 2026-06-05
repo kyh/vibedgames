@@ -247,7 +247,10 @@ export class GameScene extends Phaser.Scene {
       cam.setScroll(tx, ty);
       this.followStarted = true;
     } else {
-      cam.setScroll(Phaser.Math.Linear(cam.scrollX, tx, 0.16), Phaser.Math.Linear(cam.scrollY, ty, 0.16));
+      cam.setScroll(
+        Phaser.Math.Linear(cam.scrollX, tx, 0.16),
+        Phaser.Math.Linear(cam.scrollY, ty, 0.16),
+      );
     }
   }
 
@@ -261,10 +264,14 @@ export class GameScene extends Phaser.Scene {
     k.on("keydown-R", () => this.requestRestart());
 
     const KEY_TO_DIR: Array<[string, Dir]> = [
-      ["LEFT", "left"], ["A", "left"],
-      ["RIGHT", "right"], ["D", "right"],
-      ["UP", "up"], ["W", "up"],
-      ["DOWN", "down"], ["S", "down"],
+      ["LEFT", "left"],
+      ["A", "left"],
+      ["RIGHT", "right"],
+      ["D", "right"],
+      ["UP", "up"],
+      ["W", "up"],
+      ["DOWN", "down"],
+      ["S", "down"],
     ];
     for (const [code, dir] of KEY_TO_DIR) {
       k.on(`keydown-${code}`, () => {
@@ -330,7 +337,11 @@ export class GameScene extends Phaser.Scene {
     const id = this.client.playerId;
     if (!this.isAlive(id)) return;
     if (this.bombAt(this.myCol, this.myRow)) return;
-    this.client.sendEvent("place_bomb", { col: this.myCol, row: this.myRow, localId: this.localBombSeq++ });
+    this.client.sendEvent("place_bomb", {
+      col: this.myCol,
+      row: this.myRow,
+      localId: this.localBombSeq++,
+    });
   }
 
   private requestRestart(): void {
@@ -561,10 +572,27 @@ export class GameScene extends Phaser.Scene {
         .setDisplaySize(TILE * 1.5, TILE * 1.5)
         .setTint(POWERUP_GLOW[pu.kind])
         .setBlendMode(Phaser.BlendModes.ADD);
-      const icon = this.add.image(0, 0, POWERUP_TEX[pu.kind]).setDisplaySize(TILE * 0.7, TILE * 0.7);
+      const icon = this.add
+        .image(0, 0, POWERUP_TEX[pu.kind])
+        .setDisplaySize(TILE * 0.7, TILE * 0.7);
       const container = this.add.container(colX(pu.col), rowY(pu.row), [glow, icon]).setDepth(4);
-      this.tweens.add({ targets: icon, y: -6, duration: 760, ease: "Sine.InOut", yoyo: true, repeat: -1 });
-      this.tweens.add({ targets: glow, alpha: { from: 0.5, to: 1 }, scale: { from: 0.92, to: 1.08 }, duration: 900, ease: "Sine.InOut", yoyo: true, repeat: -1 });
+      this.tweens.add({
+        targets: icon,
+        y: -6,
+        duration: 760,
+        ease: "Sine.InOut",
+        yoyo: true,
+        repeat: -1,
+      });
+      this.tweens.add({
+        targets: glow,
+        alpha: { from: 0.5, to: 1 },
+        scale: { from: 0.92, to: 1.08 },
+        duration: 900,
+        ease: "Sine.InOut",
+        yoyo: true,
+        repeat: -1,
+      });
       this.powerupObjs.set(key, container);
       this.powerupKind.set(key, pu.kind);
     }
@@ -583,7 +611,9 @@ export class GameScene extends Phaser.Scene {
     const seen = new Set<string>();
     for (const f of this.fighters()) {
       seen.add(f.id);
-      const objs = this.players.get(f.id) ?? this.createPlayer(f.id, f.col, f.row, f.colorIdx, f.isLocal, f.isBot);
+      const objs =
+        this.players.get(f.id) ??
+        this.createPlayer(f.id, f.col, f.row, f.colorIdx, f.isLocal, f.isBot);
       const dead = !this.isAlive(f.id);
 
       if (dead && !this.deathSeen.has(f.id)) {
@@ -612,14 +642,25 @@ export class GameScene extends Phaser.Scene {
       }
   }
 
-  private createPlayer(id: string, col: number, row: number, colorIdx: number, isMe: boolean, isBot: boolean): PlayerObjs {
+  private createPlayer(
+    id: string,
+    col: number,
+    row: number,
+    colorIdx: number,
+    isMe: boolean,
+    isBot: boolean,
+  ): PlayerObjs {
     const tint = COLORS[colorIdx]!;
 
     const children: Phaser.GameObjects.GameObject[] = [];
     const shadow = this.add.image(0, TILE * 0.34, "shadow").setDisplaySize(TILE * 0.7, TILE * 0.34);
     const ring = this.add.graphics();
-    ring.lineStyle(isMe ? 4 : 3, tint, isMe ? 1 : 0.85).strokeEllipse(0, TILE * 0.34, TILE * 0.62, TILE * 0.3);
-    const sprite = this.add.sprite(0, -TILE * 0.06, "player-down", 0).setDisplaySize(TILE * 0.95, TILE * 0.95);
+    ring
+      .lineStyle(isMe ? 4 : 3, tint, isMe ? 1 : 0.85)
+      .strokeEllipse(0, TILE * 0.34, TILE * 0.62, TILE * 0.3);
+    const sprite = this.add
+      .sprite(0, -TILE * 0.06, "player-down", 0)
+      .setDisplaySize(TILE * 0.95, TILE * 0.95);
     const label = this.add
       .text(0, -TILE * 0.62, this.labelFor(id), {
         fontSize: "13px",
@@ -636,8 +677,17 @@ export class GameScene extends Phaser.Scene {
     // among identical bots.
     let marker: Phaser.GameObjects.Triangle | null = null;
     if (isMe) {
-      marker = this.add.triangle(0, -TILE * 0.82, -9, -6, 9, -6, 0, 7, 0xffe14a).setStrokeStyle(2, 0x1a1430, 1);
-      this.tweens.add({ targets: marker, y: -TILE * 0.92, duration: 520, ease: "Sine.InOut", yoyo: true, repeat: -1 });
+      marker = this.add
+        .triangle(0, -TILE * 0.82, -9, -6, 9, -6, 0, 7, 0xffe14a)
+        .setStrokeStyle(2, 0x1a1430, 1);
+      this.tweens.add({
+        targets: marker,
+        y: -TILE * 0.92,
+        duration: 520,
+        ease: "Sine.InOut",
+        yoyo: true,
+        repeat: -1,
+      });
       children.push(marker);
     }
 
@@ -652,7 +702,8 @@ export class GameScene extends Phaser.Scene {
     sprite.setFlipX(dir === "left");
     if (moving) {
       const key = dir === "up" ? "walk-up" : dir === "down" ? "walk-down" : "walk-side";
-      if (sprite.anims.currentAnim?.key !== key || !sprite.anims.isPlaying) sprite.anims.play(key, true);
+      if (sprite.anims.currentAnim?.key !== key || !sprite.anims.isPlaying)
+        sprite.anims.play(key, true);
     } else {
       sprite.anims.stop();
       sprite.setTexture(tex, 0);
@@ -683,8 +734,14 @@ export class GameScene extends Phaser.Scene {
     // Track which top-level fields changed so we only send those (bot moves
     // fire every tick — re-sending the 285-cell grid each time is wasteful).
     const d = {
-      grid: false, bombs: false, blasts: false, powerups: false,
-      bots: false, stats: false, deaths: false, winner: false,
+      grid: false,
+      bombs: false,
+      blasts: false,
+      powerups: false,
+      bots: false,
+      stats: false,
+      deaths: false,
+      winner: false,
     };
 
     this.reconcileBots(next, now, d);
@@ -718,7 +775,8 @@ export class GameScene extends Phaser.Scene {
         for (const t of tiles) {
           newBlastTiles.add(tileKey(t.col, t.row));
           for (const other of Object.values(next.bombs)) {
-            if (!detonated.has(other.id) && other.col === t.col && other.row === t.row) queue.push(other);
+            if (!detonated.has(other.id) && other.col === t.col && other.row === t.row)
+              queue.push(other);
           }
         }
         for (const cr of crates) cratesToClear.set(tileKey(cr.col, cr.row), cr);
@@ -820,10 +878,18 @@ export class GameScene extends Phaser.Scene {
    * TARGET_FIGHTERS total. Humans take corners 0..n-1 (by join order), bots
    * take the rest. Bots are keyed by corner so join/leave stays stable.
    */
-  private reconcileBots(next: SharedState, now: number, d: { bots: boolean; stats: boolean }): void {
+  private reconcileBots(
+    next: SharedState,
+    now: number,
+    d: { bots: boolean; stats: boolean },
+  ): void {
     const humanCount = Object.keys(this.client.players).length;
     const want = new Set<number>();
-    for (let c = humanCount; c <= 3 && c - humanCount < MAX_BOTS && want.size < TARGET_FIGHTERS - humanCount; c++) {
+    for (
+      let c = humanCount;
+      c <= 3 && c - humanCount < MAX_BOTS && want.size < TARGET_FIGHTERS - humanCount;
+      c++
+    ) {
       want.add(c);
     }
     for (const id of Object.keys(next.bots)) {
@@ -888,12 +954,39 @@ export class GameScene extends Phaser.Scene {
       // Offense: bomb a crate or a fighter in line, but only if a flee path out
       // of the resulting blast exists (don't bomb yourself into a dead end).
       const activeBombs = bombs.filter((b) => b.ownerId === bot.id).length;
-      if (activeBombs < stats.bombs && (adjacentCrate(next.grid, bot.col, bot.row) || enemyInLine(next.grid, bot, stats.range, enemies))) {
+      if (
+        activeBombs < stats.bombs &&
+        (adjacentCrate(next.grid, bot.col, bot.row) ||
+          enemyInLine(next.grid, bot, stats.range, enemies))
+      ) {
         const blastKeys = new Set(
-          computeBlastTiles(next.grid, { id: "", ownerId: bot.id, col: bot.col, row: bot.row, placedAt: now, range: stats.range }).tiles.map((t) => tileKey(t.col, t.row)),
+          computeBlastTiles(next.grid, {
+            id: "",
+            ownerId: bot.id,
+            col: bot.col,
+            row: bot.row,
+            placedAt: now,
+            range: stats.range,
+          }).tiles.map((t) => tileKey(t.col, t.row)),
         );
         const unsafe = new Set([...danger, ...blastKeys]);
-        const escape = fleeDir(next.grid, [...bombs, { id: "_", ownerId: bot.id, col: bot.col, row: bot.row, placedAt: now, range: stats.range }], bot.col, bot.row, unsafe);
+        const escape = fleeDir(
+          next.grid,
+          [
+            ...bombs,
+            {
+              id: "_",
+              ownerId: bot.id,
+              col: bot.col,
+              row: bot.row,
+              placedAt: now,
+              range: stats.range,
+            },
+          ],
+          bot.col,
+          bot.row,
+          unsafe,
+        );
         if (escape && Math.random() < BOT_BOMB_CHANCE) {
           // Drop the bomb AND immediately step onto the escape route in the same
           // tick — sitting on the bomb tile even one step is how bots blow
@@ -915,10 +1008,13 @@ export class GameScene extends Phaser.Scene {
       const freeOpts = safeOpts.filter((o) => !occupied.has(o.key));
       const wanderOpts = freeOpts.length > 0 ? freeOpts : safeOpts;
       const target = nearestEnemy(bot, enemies) ?? nearestCrate(next.grid, bot.col, bot.row);
-      let pick = wanderOpts.length > 0 ? wanderOpts[Math.floor(Math.random() * wanderOpts.length)]! : null;
+      let pick =
+        wanderOpts.length > 0 ? wanderOpts[Math.floor(Math.random() * wanderOpts.length)]! : null;
       if (target && wanderOpts.length > 0 && Math.random() > 0.25) {
         pick = wanderOpts.reduce((a, b) =>
-          manhattan(b.c, b.r, target.col, target.row) < manhattan(a.c, a.r, target.col, target.row) ? b : a,
+          manhattan(b.c, b.r, target.col, target.row) < manhattan(a.c, a.r, target.col, target.row)
+            ? b
+            : a,
         );
       }
       moveBot(bot, pick, now);
@@ -983,14 +1079,27 @@ export class GameScene extends Phaser.Scene {
   private tweenContainer(objs: PlayerObjs, col: number, row: number, duration = 150): void {
     objs.col = col;
     objs.row = row;
-    this.tweens.add({ targets: objs.container, x: colX(col), y: rowY(row), duration, ease: "Linear" });
+    this.tweens.add({
+      targets: objs.container,
+      x: colX(col),
+      y: rowY(row),
+      duration,
+      ease: "Linear",
+    });
   }
 
   private playDeath(objs: PlayerObjs): void {
     objs.ring.setVisible(false);
     objs.marker?.setVisible(false);
     this.burst(objs.container.x, objs.container.y, 0xffffff, 22);
-    this.tweens.add({ targets: objs.sprite, angle: 540, scale: 0, alpha: 0.2, duration: 460, ease: "Cubic.In" });
+    this.tweens.add({
+      targets: objs.sprite,
+      angle: 540,
+      scale: 0,
+      alpha: 0.2,
+      duration: 460,
+      ease: "Cubic.In",
+    });
   }
 
   private reviveVisual(objs: PlayerObjs, col: number, row: number): void {
@@ -1026,7 +1135,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private shakeIfNear(tiles: Array<{ col: number; row: number }>): void {
-    const near = tiles.some((t) => Math.abs(t.col - this.myCol) + Math.abs(t.row - this.myRow) <= 3);
+    const near = tiles.some(
+      (t) => Math.abs(t.col - this.myCol) + Math.abs(t.row - this.myRow) <= 3,
+    );
     if (near) this.cameras.main.shake(110, 0.005);
   }
 
@@ -1063,7 +1174,13 @@ export class GameScene extends Phaser.Scene {
     const spawn = SPAWN_POINTS[idx] ?? SPAWN_POINTS[0]!;
     this.myCol = spawn.col;
     this.myRow = spawn.row;
-    this.client.updateMyState({ col: spawn.col, row: spawn.row, colorIdx: idx % COLORS.length, dir: "down", moving: false });
+    this.client.updateMyState({
+      col: spawn.col,
+      row: spawn.row,
+      colorIdx: idx % COLORS.length,
+      dir: "down",
+      moving: false,
+    });
   }
 
   private bombAt(col: number, row: number): boolean {
@@ -1126,8 +1243,10 @@ export class GameScene extends Phaser.Scene {
     const s = this.shared();
     let text = "";
     if (s?.winner === "draw") text = "Draw!";
-    else if (s?.winner) text = s.winner === this.client.playerId ? "🏆 You win!" : `${this.labelFor(s.winner)} wins!`;
-    else if (this.client.connectionStatus === "connected" && !this.isAlive(this.client.playerId)) text = "💥 Boom!";
+    else if (s?.winner)
+      text = s.winner === this.client.playerId ? "🏆 You win!" : `${this.labelFor(s.winner)} wins!`;
+    else if (this.client.connectionStatus === "connected" && !this.isAlive(this.client.playerId))
+      text = "💥 Boom!";
     this.bannerEl.textContent = text;
     this.bannerEl.style.opacity = text ? "1" : "0";
   }
@@ -1240,7 +1359,13 @@ function neighborOf(col: number, row: number, dir: Dir): Neighbor {
  * Walks only empty, bomb-free tiles. Used both to flee live danger and to
  * vet a prospective bomb's escape route.
  */
-function fleeDir(grid: Cell[][], bombs: Bomb[], col: number, row: number, unsafe: Set<string>): Dir | null {
+function fleeDir(
+  grid: Cell[][],
+  bombs: Bomb[],
+  col: number,
+  row: number,
+  unsafe: Set<string>,
+): Dir | null {
   const blocked = (c: number, r: number): boolean =>
     grid[r]?.[c]?.kind !== "empty" || bombs.some((b) => b.col === c && b.row === r);
   const visited = new Set<string>([tileKey(col, row)]);
@@ -1294,8 +1419,15 @@ function adjacentCrate(grid: Cell[][], col: number, row: number): boolean {
   });
 }
 
-function enemyInLine(grid: Cell[][], bot: Bot, range: number, fighters: Array<[string, number, number]>): boolean {
-  const enemyTiles = new Set(fighters.filter(([id]) => id !== bot.id).map(([, c, r]) => tileKey(c, r)));
+function enemyInLine(
+  grid: Cell[][],
+  bot: Bot,
+  range: number,
+  fighters: Array<[string, number, number]>,
+): boolean {
+  const enemyTiles = new Set(
+    fighters.filter(([id]) => id !== bot.id).map(([, c, r]) => tileKey(c, r)),
+  );
   for (const dir of DIRS) {
     const [dc, dr] = DIR_VECT[dir];
     for (let step = 1; step <= range; step++) {
@@ -1309,7 +1441,10 @@ function enemyInLine(grid: Cell[][], bot: Bot, range: number, fighters: Array<[s
   return false;
 }
 
-function nearestEnemy(bot: Bot, fighters: Array<[string, number, number]>): { col: number; row: number } | null {
+function nearestEnemy(
+  bot: Bot,
+  fighters: Array<[string, number, number]>,
+): { col: number; row: number } | null {
   let best: { col: number; row: number } | null = null;
   let bestD = Infinity;
   for (const [id, c, r] of fighters) {
@@ -1323,7 +1458,11 @@ function nearestEnemy(bot: Bot, fighters: Array<[string, number, number]>): { co
   return best;
 }
 
-function nearestCrate(grid: Cell[][], col: number, row: number): { col: number; row: number } | null {
+function nearestCrate(
+  grid: Cell[][],
+  col: number,
+  row: number,
+): { col: number; row: number } | null {
   let best: { col: number; row: number } | null = null;
   let bestD = Infinity;
   for (let r = 0; r < grid.length; r++) {
@@ -1353,7 +1492,13 @@ function moveBot(bot: Bot, to: Neighbor | null, now: number): void {
   bot.nextMoveAt = now + BOT_MOVE_MS;
 }
 
-function addBomb(next: SharedState, ownerId: string, col: number, row: number, stats: PlayerStats): void {
+function addBomb(
+  next: SharedState,
+  ownerId: string,
+  col: number,
+  row: number,
+  stats: PlayerStats,
+): void {
   if (Object.values(next.bombs).some((b) => b.col === col && b.row === row)) return;
   const id = `b-${ownerId}-${Date.now()}-${col}-${row}`;
   next.bombs[id] = { id, ownerId, col, row, placedAt: Date.now(), range: stats.range };

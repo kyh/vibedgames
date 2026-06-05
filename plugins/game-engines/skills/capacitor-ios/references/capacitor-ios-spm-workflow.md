@@ -53,6 +53,7 @@ npx cap run ios --target <TARGET_ID>
 ## Migrating from CocoaPods to SPM
 
 Two practical options:
+
 1. Recreate iOS platform with SPM template (`npx cap add ios --packagemanager SPM`) after backing up/removing old `ios/`.
 2. Use migration helper:
 
@@ -71,6 +72,7 @@ npx cap doctor
 ```
 
 Look for:
+
 - matching `@capacitor/*` versions
 - iOS status healthy
 - sync writing `Package.swift` for plugins
@@ -78,6 +80,7 @@ Look for:
 ## iOS Configuration Notes
 
 For app permissions and capabilities:
+
 - edit `ios/App/App/Info.plist`
 - configure Signing & Capabilities in Xcode
 

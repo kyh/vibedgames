@@ -8,19 +8,19 @@ Comprehensive guide for Phaser tilemap integration with Tiled Map Editor. The ti
 
 ### Tileset Types
 
-| Type | Description | Use Case |
-|------|-------------|----------|
-| **Image-based** | Single image with fixed tile size, margin, spacing | Standard tilesets, consistent tile sizes |
-| **Collection-based** | Each tile is separate image file | Variable-size tiles, sprites as tiles |
+| Type                 | Description                                        | Use Case                                 |
+| -------------------- | -------------------------------------------------- | ---------------------------------------- |
+| **Image-based**      | Single image with fixed tile size, margin, spacing | Standard tilesets, consistent tile sizes |
+| **Collection-based** | Each tile is separate image file                   | Variable-size tiles, sprites as tiles    |
 
 ### Layer Types
 
-| Layer | Purpose | Phaser Access |
-|-------|---------|---------------|
-| **Tile Layer** | Grid-based tile storage with flip flags | `map.createLayer()` |
+| Layer            | Purpose                                                | Phaser Access          |
+| ---------------- | ------------------------------------------------------ | ---------------------- |
+| **Tile Layer**   | Grid-based tile storage with flip flags                | `map.createLayer()`    |
 | **Object Layer** | Free-positioned shapes, points, polygons, tile objects | `map.getObjectLayer()` |
-| **Image Layer** | Background/foreground images with repeat | `map.images` array |
-| **Group Layer** | Hierarchical organization | Flattened on export |
+| **Image Layer**  | Background/foreground images with repeat               | `map.images` array     |
+| **Group Layer**  | Hierarchical organization                              | Flattened on export    |
 
 ### Recommended Layer Structure (Top to Bottom in Tiled)
 
@@ -121,17 +121,17 @@ Critical concept for understanding tilemap data.
 ### Flip Flags (Stored in High Bits)
 
 ```javascript
-const FLIPPED_HORIZONTALLY = 0x80000000;  // Bit 32
-const FLIPPED_VERTICALLY   = 0x40000000;  // Bit 31
-const FLIPPED_DIAGONALLY   = 0x20000000;  // Bit 30 (rotation)
-const ROTATED_HEX_120      = 0x10000000;  // Bit 29 (hexagonal only)
+const FLIPPED_HORIZONTALLY = 0x80000000; // Bit 32
+const FLIPPED_VERTICALLY = 0x40000000; // Bit 31
+const FLIPPED_DIAGONALLY = 0x20000000; // Bit 30 (rotation)
+const ROTATED_HEX_120 = 0x10000000; // Bit 29 (hexagonal only)
 
 // Extract flags then clear them
 function parseGID(rawGid) {
   const flipH = (rawGid & FLIPPED_HORIZONTALLY) !== 0;
   const flipV = (rawGid & FLIPPED_VERTICALLY) !== 0;
   const flipD = (rawGid & FLIPPED_DIAGONALLY) !== 0;
-  const gid = rawGid & ~(0xF0000000);  // Clear all flags
+  const gid = rawGid & ~0xf0000000; // Clear all flags
   return { gid, flipH, flipV, flipD };
 }
 ```
@@ -150,7 +150,7 @@ function findTileset(gid, tilesets) {
     if (tilesets[i].firstgid <= gid) {
       return {
         tileset: tilesets[i],
-        localId: gid - tilesets[i].firstgid
+        localId: gid - tilesets[i].firstgid,
       };
     }
   }
@@ -204,7 +204,7 @@ When tiles show thin lines between them, use extruded tilesets:
 // Tileset was extruded by 1px (use tile-extruder tool)
 // margin: 1 (border around entire image)
 // spacing: 2 (gap between tiles = 2 * extrusion)
-const tileset = map.addTilesetImage('tileset-name', 'tiles', 16, 16, 1, 2);
+const tileset = map.addTilesetImage("tileset-name", "tiles", 16, 16, 1, 2);
 ```
 
 ---
@@ -236,24 +236,20 @@ create() {
 ### Multiple Tilesets Per Layer
 
 ```javascript
-const terrainTileset = map.addTilesetImage('terrain', 'terrain-img');
-const propsTileset = map.addTilesetImage('props', 'props-img');
-const decorTileset = map.addTilesetImage('decorations', 'decor-img');
+const terrainTileset = map.addTilesetImage("terrain", "terrain-img");
+const propsTileset = map.addTilesetImage("props", "props-img");
+const decorTileset = map.addTilesetImage("decorations", "decor-img");
 
 // Layer can use array of tilesets
-const groundLayer = map.createLayer('Ground', [
-  terrainTileset,
-  propsTileset,
-  decorTileset
-]);
+const groundLayer = map.createLayer("Ground", [terrainTileset, propsTileset, decorTileset]);
 ```
 
 ### Layer Properties
 
 ```javascript
 // Scale
-layer.setScale(2);  // 2x zoom
-layer.setScale(1, 0.5);  // Different X/Y scale
+layer.setScale(2); // 2x zoom
+layer.setScale(1, 0.5); // Different X/Y scale
 
 // Position offset
 layer.setPosition(100, 50);
@@ -263,10 +259,10 @@ layer.setAlpha(0.8);
 layer.setVisible(false);
 
 // Tint (multiply color)
-layer.setTint(0xff8888);  // Reddish tint
+layer.setTint(0xff8888); // Reddish tint
 
 // Scroll factor (parallax)
-layer.setScrollFactor(0.5);  // Scrolls at 50% camera speed
+layer.setScrollFactor(0.5); // Scrolls at 50% camera speed
 ```
 
 ---
@@ -284,13 +280,13 @@ groundLayer.setCollisionByProperty({ collides: true });
 // Multiple property conditions (AND logic)
 groundLayer.setCollisionByProperty({
   solid: true,
-  type: 'wall'
+  type: "wall",
 });
 
 // Array of possible values (OR logic for that property)
 groundLayer.setCollisionByProperty({
   collides: true,
-  type: ['wall', 'platform', 'ground']
+  type: ["wall", "platform", "ground"],
 });
 ```
 
@@ -314,7 +310,7 @@ groundLayer.setCollisionByExclusion([-1, 0]);
 
 ```javascript
 // Only collide from above
-groundLayer.forEachTile(tile => {
+groundLayer.forEachTile((tile) => {
   if (tile.properties.oneWay) {
     tile.collideDown = false;
     tile.collideLeft = false;
@@ -371,26 +367,26 @@ this.matter.world.convertTilemapLayer(groundLayer, {
 
 ```javascript
 // Get entire object layer
-const objectLayer = map.getObjectLayer('Objects');
+const objectLayer = map.getObjectLayer("Objects");
 const objects = objectLayer.objects;
 
-objects.forEach(obj => {
-  console.log(obj.name, obj.type);  // Name and class/type
-  console.log(obj.x, obj.y);        // Position (pixels)
-  console.log(obj.width, obj.height);  // Size
-  console.log(obj.rotation);        // Rotation in degrees
-  console.log(obj.properties);      // Custom properties array
+objects.forEach((obj) => {
+  console.log(obj.name, obj.type); // Name and class/type
+  console.log(obj.x, obj.y); // Position (pixels)
+  console.log(obj.width, obj.height); // Size
+  console.log(obj.rotation); // Rotation in degrees
+  console.log(obj.properties); // Custom properties array
 });
 
 // Find specific object by name
-const spawnPoint = map.findObject('Objects', obj => obj.name === 'PlayerSpawn');
+const spawnPoint = map.findObject("Objects", (obj) => obj.name === "PlayerSpawn");
 if (spawnPoint) {
   player.setPosition(spawnPoint.x, spawnPoint.y);
 }
 
 // Filter objects by type/class
-const enemies = map.filterObjects('Enemies', obj => obj.type === 'goblin');
-const triggers = map.filterObjects('Objects', obj => obj.type === 'trigger');
+const enemies = map.filterObjects("Enemies", (obj) => obj.type === "goblin");
+const triggers = map.filterObjects("Objects", (obj) => obj.type === "trigger");
 ```
 
 ### Accessing Custom Properties
@@ -398,32 +394,32 @@ const triggers = map.filterObjects('Objects', obj => obj.type === 'trigger');
 Properties in Tiled are stored as array of `{name, type, value}`:
 
 ```javascript
-const door = map.findObject('Objects', o => o.name === 'door');
+const door = map.findObject("Objects", (o) => o.name === "door");
 
 // Helper function to get property value
 function getProperty(obj, propName) {
   if (!obj.properties) return undefined;
-  const prop = obj.properties.find(p => p.name === propName);
+  const prop = obj.properties.find((p) => p.name === propName);
   return prop ? prop.value : undefined;
 }
 
-const isLocked = getProperty(door, 'locked');       // boolean
-const requiredKey = getProperty(door, 'keyType');   // string
-const damage = getProperty(door, 'damage');         // int/float
+const isLocked = getProperty(door, "locked"); // boolean
+const requiredKey = getProperty(door, "keyType"); // string
+const damage = getProperty(door, "damage"); // int/float
 ```
 
 ### Creating Sprites from Objects
 
 ```javascript
 // Create sprites from object layer
-const coins = map.createFromObjects('Collectibles', {
-  name: 'coin',           // Object name in Tiled
-  key: 'coin',            // Texture key in Phaser
-  classType: Phaser.Physics.Arcade.Sprite  // Optional custom class
+const coins = map.createFromObjects("Collectibles", {
+  name: "coin", // Object name in Tiled
+  key: "coin", // Texture key in Phaser
+  classType: Phaser.Physics.Arcade.Sprite, // Optional custom class
 });
 
 // Enable physics on created sprites
-coins.forEach(coin => {
+coins.forEach((coin) => {
   this.physics.add.existing(coin);
   coin.body.setAllowGravity(false);
   coin.body.setImmovable(true);
@@ -439,21 +435,21 @@ class Goblin extends Phaser.Physics.Arcade.Sprite {
   }
 }
 
-const enemies = map.createFromObjects('Enemies', {
-  name: 'goblin',
-  key: 'goblin',
-  classType: Goblin
+const enemies = map.createFromObjects("Enemies", {
+  name: "goblin",
+  key: "goblin",
+  classType: Goblin,
 });
 ```
 
 ### Object Shapes
 
 ```javascript
-map.getObjectLayer('Collision').objects.forEach(obj => {
+map.getObjectLayer("Collision").objects.forEach((obj) => {
   if (obj.rectangle) {
     // Rectangle: use obj.x, obj.y, obj.width, obj.height
     this.physics.add.existing(
-      this.add.zone(obj.x + obj.width/2, obj.y + obj.height/2, obj.width, obj.height)
+      this.add.zone(obj.x + obj.width / 2, obj.y + obj.height / 2, obj.width, obj.height),
     );
   }
 
@@ -463,7 +459,7 @@ map.getObjectLayer('Collision').objects.forEach(obj => {
 
   if (obj.polygon) {
     // Polygon: obj.polygon is array of {x, y} points
-    const points = obj.polygon.map(p => `${p.x} ${p.y}`).join(' ');
+    const points = obj.polygon.map((p) => `${p.x} ${p.y}`).join(" ");
   }
 
   if (obj.polyline) {
@@ -492,11 +488,11 @@ const tile = groundLayer.getTileAtWorldXY(pointer.worldX, pointer.worldY);
 
 // Get tile at tile coordinates
 const tile = groundLayer.getTileAt(tileX, tileY);
-const tile = map.getTileAt(tileX, tileY, true, 'Ground');  // true = include empty
+const tile = map.getTileAt(tileX, tileY, true, "Ground"); // true = include empty
 
 // Check if tile exists
 if (tile && tile.index !== -1) {
-  console.log('Tile exists:', tile.index);
+  console.log("Tile exists:", tile.index);
 }
 
 // Place tile
@@ -525,9 +521,9 @@ groundLayer.randomize(x, y, width, height, [1, 2, 3, 4]);
 
 // Weighted randomize
 groundLayer.weightedRandomize(x, y, width, height, [
-  { index: 1, weight: 10 },   // Grass (common)
-  { index: 2, weight: 3 },    // Flower (uncommon)
-  { index: 3, weight: 1 }     // Mushroom (rare)
+  { index: 1, weight: 10 }, // Grass (common)
+  { index: 2, weight: 3 }, // Flower (uncommon)
+  { index: 3, weight: 1 }, // Mushroom (rare)
 ]);
 
 // Copy region
@@ -542,24 +538,24 @@ groundLayer.shuffle(x, y, width, height);
 ```javascript
 if (tile) {
   // Position
-  console.log(tile.x, tile.y);           // Tile coordinates
+  console.log(tile.x, tile.y); // Tile coordinates
   console.log(tile.pixelX, tile.pixelY); // World position (top-left)
-  console.log(tile.getCenterX(), tile.getCenterY());  // Center position
+  console.log(tile.getCenterX(), tile.getCenterY()); // Center position
 
   // Dimensions
-  console.log(tile.width, tile.height);  // Tile size
-  console.log(tile.baseWidth, tile.baseHeight);  // Map's base tile size
+  console.log(tile.width, tile.height); // Tile size
+  console.log(tile.baseWidth, tile.baseHeight); // Map's base tile size
 
   // Identity
-  console.log(tile.index);               // Tile index (-1 = empty)
-  console.log(tile.tileset);             // Tileset reference
-  console.log(tile.properties);          // Custom properties from Tiled
+  console.log(tile.index); // Tile index (-1 = empty)
+  console.log(tile.tileset); // Tileset reference
+  console.log(tile.properties); // Custom properties from Tiled
 
   // Collision
-  console.log(tile.canCollide);          // Has any collision
+  console.log(tile.canCollide); // Has any collision
   console.log(tile.collideLeft, tile.collideRight);
   console.log(tile.collideUp, tile.collideDown);
-  console.log(tile.faceLeft, tile.faceRight);  // Interesting faces
+  console.log(tile.faceLeft, tile.faceRight); // Interesting faces
 
   // Rendering
   tile.alpha = 0.5;
@@ -575,7 +571,7 @@ if (tile) {
 
 ```javascript
 // Process all tiles in layer
-groundLayer.forEachTile(tile => {
+groundLayer.forEachTile((tile) => {
   if (tile.properties.spawnEnemy) {
     spawnEnemy(tile.getCenterX(), tile.getCenterY());
     groundLayer.removeTileAt(tile.x, tile.y);
@@ -583,9 +579,14 @@ groundLayer.forEachTile(tile => {
 });
 
 // With filter options
-groundLayer.forEachTile(callback, context,
-  startX, startY, width, height,
-  { isNotEmpty: true }  // Only non-empty tiles
+groundLayer.forEachTile(
+  callback,
+  context,
+  startX,
+  startY,
+  width,
+  height,
+  { isNotEmpty: true }, // Only non-empty tiles
 );
 
 // Get tiles in area
@@ -597,9 +598,7 @@ const rect = new Phaser.Geom.Rectangle(100, 100, 200, 150);
 const tiles = groundLayer.getTilesWithinShape(rect);
 
 // Filter tiles
-const waterTiles = groundLayer.filterTiles(tile =>
-  tile.properties.type === 'water'
-);
+const waterTiles = groundLayer.filterTiles((tile) => tile.properties.type === "water");
 ```
 
 ---
@@ -609,7 +608,7 @@ const waterTiles = groundLayer.filterTiles(tile =>
 ```javascript
 // Map dimensions
 console.log(map.widthInPixels, map.heightInPixels);
-console.log(map.width, map.height);  // In tiles
+console.log(map.width, map.height); // In tiles
 
 // Set physics world bounds to map size
 this.physics.world.setBounds(0, 0, map.widthInPixels, map.heightInPixels);
@@ -629,7 +628,7 @@ this.cameras.main.roundPixels = true;
 
 ### Gotcha: `setBounds` + zoom reveals out-of-world void at corners
 
-`setBounds` clamps the follow camera against the camera's **unzoomed** width/height. If the world is narrower/shorter than the raw canvas but larger than the *zoomed* viewport (e.g. a 1216×960 world on a 1280px canvas at `zoom 1.3`), Phaser decides the world is "smaller than the camera," centers it, and shows dark void past the world edge — most visible at corners (exactly where players often spawn).
+`setBounds` clamps the follow camera against the camera's **unzoomed** width/height. If the world is narrower/shorter than the raw canvas but larger than the _zoomed_ viewport (e.g. a 1216×960 world on a 1280px canvas at `zoom 1.3`), Phaser decides the world is "smaller than the camera," centers it, and shows dark void past the world edge — most visible at corners (exactly where players often spawn).
 
 For a zoomed follow camera, clamp the centre yourself and skip `setBounds`/`startFollow` (leaving `setBounds` in re-clamps your manual scroll and re-introduces the void):
 
@@ -656,6 +655,7 @@ Recompute on `Scale.Events.RESIZE` (the clamp reads `cam.width`/`cam.zoom`, both
 ### In Tiled
 
 Set `parallaxx` and `parallaxy` properties on layers:
+
 - **1.0** = Normal scroll speed (default)
 - **0.5** = Half speed (appears farther away)
 - **0.0** = Fixed (doesn't scroll)
@@ -690,6 +690,7 @@ update() {
 ### Parallax Reference Point
 
 Tiled uses parallax origin (default 0,0) and view center distance:
+
 - When parallax origin == view center: no parallax effect
 - Distance × parallax factor = layer offset
 
@@ -708,18 +709,18 @@ let waterFrameIndex = 0;
 
 // Timer to cycle frames
 this.time.addEvent({
-  delay: 200,  // ms per frame
+  delay: 200, // ms per frame
   callback: () => {
     waterFrameIndex = (waterFrameIndex + 1) % WATER_FRAMES.length;
     const newIndex = WATER_FRAMES[waterFrameIndex];
 
-    waterLayer.forEachTile(tile => {
+    waterLayer.forEachTile((tile) => {
       if (WATER_FRAMES.includes(tile.index)) {
         tile.index = newIndex;
       }
     });
   },
-  loop: true
+  loop: true,
 });
 ```
 
@@ -727,13 +728,9 @@ this.time.addEvent({
 
 ```javascript
 // Replace animated tiles with actual sprites
-groundLayer.forEachTile(tile => {
+groundLayer.forEachTile((tile) => {
   if (tile.properties.animated) {
-    const sprite = this.add.sprite(
-      tile.getCenterX(),
-      tile.getCenterY(),
-      'animatedTiles'
-    );
+    const sprite = this.add.sprite(tile.getCenterX(), tile.getCenterY(), "animatedTiles");
     sprite.anims.play(tile.properties.animKey);
     groundLayer.removeTileAt(tile.x, tile.y);
   }
@@ -766,22 +763,22 @@ const map = this.make.tilemap({
   tileWidth: 32,
   tileHeight: 32,
   width: 100,
-  height: 50
+  height: 50,
 });
 
 // Add tileset
-const tileset = map.addTilesetImage('tiles');
+const tileset = map.addTilesetImage("tiles");
 
 // Create blank layer
-const layer = map.createBlankLayer('Ground', tileset);
+const layer = map.createBlankLayer("Ground", tileset);
 
 // Fill programmatically
 for (let x = 0; x < map.width; x++) {
   for (let y = 0; y < map.height; y++) {
     if (y === map.height - 1) {
-      layer.putTileAt(1, x, y);  // Ground
+      layer.putTileAt(1, x, y); // Ground
     } else if (y === map.height - 2 && Math.random() < 0.3) {
-      layer.putTileAt(2, x, y);  // Grass decoration
+      layer.putTileAt(2, x, y); // Grass decoration
     }
   }
 }
@@ -795,11 +792,13 @@ layer.setCollision([1]);
 ```javascript
 function generateCave(width, height, fillPercent, iterations) {
   // Initialize with random
-  let grid = Array(height).fill(null).map(() =>
-    Array(width).fill(null).map(() =>
-      Math.random() < fillPercent ? 1 : 0
-    )
-  );
+  let grid = Array(height)
+    .fill(null)
+    .map(() =>
+      Array(width)
+        .fill(null)
+        .map(() => (Math.random() < fillPercent ? 1 : 0)),
+    );
 
   // Run cellular automata
   for (let i = 0; i < iterations; i++) {
@@ -810,7 +809,7 @@ function generateCave(width, height, fillPercent, iterations) {
 }
 
 function iterate(grid) {
-  const newGrid = grid.map(row => [...row]);
+  const newGrid = grid.map((row) => [...row]);
 
   for (let y = 0; y < grid.length; y++) {
     for (let x = 0; x < grid[0].length; x++) {
@@ -842,13 +841,13 @@ caveData.forEach((row, y) => {
 // Debug collision tiles
 const debugGraphics = this.add.graphics();
 groundLayer.renderDebug(debugGraphics, {
-  tileColor: null,  // Non-colliding tiles (null = don't render)
+  tileColor: null, // Non-colliding tiles (null = don't render)
   collidingTileColor: new Phaser.Display.Color(243, 134, 48, 200),
-  faceColor: new Phaser.Display.Color(40, 39, 37, 255)  // Collision edges
+  faceColor: new Phaser.Display.Color(40, 39, 37, 255), // Collision edges
 });
 
 // Toggle with key
-this.input.keyboard.on('keydown-D', () => {
+this.input.keyboard.on("keydown-D", () => {
   debugGraphics.visible = !debugGraphics.visible;
 });
 ```
@@ -856,12 +855,14 @@ this.input.keyboard.on('keydown-D', () => {
 ### Tile Coordinates Overlay
 
 ```javascript
-groundLayer.forEachTile(tile => {
+groundLayer.forEachTile((tile) => {
   if (tile.index !== -1) {
-    this.add.text(tile.pixelX + 2, tile.pixelY + 2,
-      `${tile.x},${tile.y}`,
-      { fontSize: '8px', color: '#00ff00' }
-    ).setDepth(1000);
+    this.add
+      .text(tile.pixelX + 2, tile.pixelY + 2, `${tile.x},${tile.y}`, {
+        fontSize: "8px",
+        color: "#00ff00",
+      })
+      .setDepth(1000);
   }
 });
 ```
@@ -870,18 +871,18 @@ groundLayer.forEachTile(tile => {
 
 ```javascript
 // Log tile on click
-this.input.on('pointerdown', (pointer) => {
+this.input.on("pointerdown", (pointer) => {
   const worldPoint = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
   const tile = groundLayer.getTileAtWorldXY(worldPoint.x, worldPoint.y);
 
   if (tile) {
-    console.log('Clicked tile:', {
+    console.log("Clicked tile:", {
       index: tile.index,
       position: { x: tile.x, y: tile.y },
       worldPos: { x: tile.pixelX, y: tile.pixelY },
       properties: tile.properties,
       collides: tile.canCollide,
-      tileset: tile.tileset?.name
+      tileset: tile.tileset?.name,
     });
   }
 });
@@ -895,11 +896,11 @@ Tiled's Terrain Sets enable automatic tile selection for natural-looking maps.
 
 ### Terrain Set Types
 
-| Type | Description | Complete Set Size |
-|------|-------------|-------------------|
-| **Corner** | Matches at corners | 16 tiles (2 terrains) |
-| **Edge** | Matches at sides (roads, fences) | 16 tiles (2 terrains) |
-| **Mixed** | Both corners and edges | 256 tiles (2 terrains) |
+| Type       | Description                      | Complete Set Size      |
+| ---------- | -------------------------------- | ---------------------- |
+| **Corner** | Matches at corners               | 16 tiles (2 terrains)  |
+| **Edge**   | Matches at sides (roads, fences) | 16 tiles (2 terrains)  |
+| **Mixed**  | Both corners and edges           | 256 tiles (2 terrains) |
 
 ### Workflow
 
@@ -927,10 +928,10 @@ Tiled's Terrain Sets enable automatic tile selection for natural-looking maps.
 
 ```javascript
 // Check if layer is being culled efficiently
-console.log('Visible tiles:', layer.culledTiles.length);
+console.log("Visible tiles:", layer.culledTiles.length);
 
 // Force specific culling bounds
-layer.setCullPadding(2, 2);  // Extra tiles around viewport
+layer.setCullPadding(2, 2); // Extra tiles around viewport
 ```
 
 ---
@@ -940,48 +941,48 @@ layer.setCullPadding(2, 2);  // Extra tiles around viewport
 ### Map Properties
 
 ```javascript
-map.width / map.height           // Size in tiles
-map.widthInPixels / map.heightInPixels  // Size in pixels
-map.tileWidth / map.tileHeight   // Tile size
-map.layers                       // All layers
-map.tilesets                     // All tilesets
-map.properties                   // Custom properties
+map.width / map.height; // Size in tiles
+map.widthInPixels / map.heightInPixels; // Size in pixels
+map.tileWidth / map.tileHeight; // Tile size
+map.layers; // All layers
+map.tilesets; // All tilesets
+map.properties; // Custom properties
 ```
 
 ### Essential Layer Methods
 
 ```javascript
 // Creation
-map.createLayer(name, tileset, x, y)
-map.createBlankLayer(name, tileset, x, y, width, height)
+map.createLayer(name, tileset, x, y);
+map.createBlankLayer(name, tileset, x, y, width, height);
 
 // Collision
-layer.setCollision(indexes)
-layer.setCollisionBetween(start, end)
-layer.setCollisionByProperty({ prop: value })
-layer.setCollisionByExclusion([-1])
+layer.setCollision(indexes);
+layer.setCollisionBetween(start, end);
+layer.setCollisionByProperty({ prop: value });
+layer.setCollisionByExclusion([-1]);
 
 // Tiles
-layer.getTileAt(x, y)
-layer.getTileAtWorldXY(worldX, worldY)
-layer.putTileAt(index, x, y)
-layer.removeTileAt(x, y)
-layer.fill(index, x, y, w, h)
-layer.forEachTile(callback)
+layer.getTileAt(x, y);
+layer.getTileAtWorldXY(worldX, worldY);
+layer.putTileAt(index, x, y);
+layer.removeTileAt(x, y);
+layer.fill(index, x, y, w, h);
+layer.forEachTile(callback);
 
 // Rendering
-layer.setDepth(n)
-layer.setScrollFactor(x, y)
-layer.setAlpha(a)
-layer.setTint(color)
-layer.setScale(x, y)
+layer.setDepth(n);
+layer.setScrollFactor(x, y);
+layer.setAlpha(a);
+layer.setTint(color);
+layer.setScale(x, y);
 ```
 
 ### Object Layer Methods
 
 ```javascript
-map.getObjectLayer(name)
-map.findObject(layerName, callback)
-map.filterObjects(layerName, callback)
-map.createFromObjects(layerName, config)
+map.getObjectLayer(name);
+map.findObject(layerName, callback);
+map.filterObjects(layerName, callback);
+map.createFromObjects(layerName, config);
 ```

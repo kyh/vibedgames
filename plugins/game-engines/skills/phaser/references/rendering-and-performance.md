@@ -16,6 +16,7 @@ The answer is usually one of these:
 Use standard sprites, images, text, and tilemaps by default.
 
 They are the right choice when:
+
 - entities are interactive
 - state changes frequently
 - gameplay logic is per-object
@@ -28,12 +29,14 @@ Do not move to a more specialized path just because it sounds faster.
 Use `SpriteGPULayer` when you need huge numbers of mostly simple quads with predictable animation behavior.
 
 Good fit:
+
 - starfields
 - animated backgrounds
 - particle-like swarms
 - dense decorative motion
 
 Bad fit:
+
 - ordinary enemies with unique gameplay logic
 - objects that need constant structural edits
 - scenes where per-member mutation is more important than raw count
@@ -56,12 +59,14 @@ for (let i = 0; i < 100000; i++) {
 ### `TilemapGPULayer`
 
 Use `TilemapGPULayer` when:
+
 - the map is orthographic
 - one tileset is sufficient
 - very large visible tile counts matter
 - smooth filtering without seams matters
 
 Do not use it as a reflex upgrade over `TilemapLayer`. Its constraints are real:
+
 - orthographic maps only (not isometric or hexagonal)
 - single tileset per layer
 - max 4096×4096 tiles
@@ -71,6 +76,7 @@ After editing layer data, call `generateLayerDataTexture()` to regenerate the GP
 ### `RenderTexture` and `DynamicTexture`
 
 Use these when you need:
+
 - texture capture
 - compositing
 - reuse of generated visuals
@@ -112,11 +118,13 @@ Lighting specifically changes the shader. One lit object in a batch of 200 unlit
 Phaser 4 no longer defaults to old `roundPixels` behavior.
 
 For pixel art:
+
 - start with `roundPixels: false` in game config
 - enable per-object rounding only where needed via `vertexRoundMode`
 - test camera movement, scaling, and rotation before committing
 
 Available `vertexRoundMode` values:
+
 - `"off"`: Never round
 - `"safe"`: Round only when transform is position-only (no scale/rotation)
 - `"safeAuto"` (default): Like safe, but only when camera has `roundPixels` enabled

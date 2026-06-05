@@ -41,16 +41,16 @@ Run searches for these symbols early:
 
 ## Mechanical Replacements
 
-| Phaser 3 | Phaser 4 |
-|----------|----------|
-| `setTintFill(color)` | `setTint(color).setTintMode(Phaser.TintModes.FILL)` |
-| `Math.PI2` | `Math.TAU` |
-| `Math.TAU` (was PI/2) | `Math.PI_OVER_2` |
-| `setPipeline('Light2D')` | `setLighting(true)` |
-| `Phaser.Struct.Set` | native `Set` |
-| `Phaser.Struct.Map` | native `Map` |
-| `Phaser.Geom.Point` | `Phaser.Math.Vector2` |
-| `BitmapMask` | `sprite.filters.internal.addMask(maskObj)` |
+| Phaser 3                 | Phaser 4                                            |
+| ------------------------ | --------------------------------------------------- |
+| `setTintFill(color)`     | `setTint(color).setTintMode(Phaser.TintModes.FILL)` |
+| `Math.PI2`               | `Math.TAU`                                          |
+| `Math.TAU` (was PI/2)    | `Math.PI_OVER_2`                                    |
+| `setPipeline('Light2D')` | `setLighting(true)`                                 |
+| `Phaser.Struct.Set`      | native `Set`                                        |
+| `Phaser.Struct.Map`      | native `Map`                                        |
+| `Phaser.Geom.Point`      | `Phaser.Math.Vector2`                               |
+| `BitmapMask`             | `sprite.filters.internal.addMask(maskObj)`          |
 
 These are good codemod candidates, but still review call sites for behavior assumptions.
 
@@ -88,6 +88,7 @@ Texture cropping support is gone. If the old implementation depended on cropped 
 Standard camera properties usually port cleanly. Direct matrix work does not. Any code that reads or mutates camera matrices needs a focused review.
 
 Camera matrix split:
+
 - `Camera#matrix` = rotation + zoom + scroll (no position)
 - `Camera#matrixExternal` = position only
 - `Camera#matrixCombined` = both
