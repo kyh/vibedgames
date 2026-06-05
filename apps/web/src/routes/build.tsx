@@ -23,7 +23,7 @@ function InstallPrompt() {
   const { copied, copy } = useCopyToClipboard();
 
   return (
-    <header className="fixed inset-x-0 bottom-16 z-10 flex max-h-full flex-col px-4 md:right-auto md:w-96">
+    <header className="fixed inset-x-0 bottom-16 z-10 flex max-h-full flex-col px-4 md:right-auto md:w-[25rem]">
       <FadeInBlur className="text-muted-foreground mb-2 flex items-center gap-2 text-xs">
         <span>Just tell your llm</span>
         <span className="flex items-center gap-1.5">

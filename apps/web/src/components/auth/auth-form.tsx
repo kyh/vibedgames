@@ -7,6 +7,7 @@ import { Input } from "@repo/ui/components/input";
 import { OTPField, OTPFieldInput } from "@repo/ui/components/otp-field";
 import { toast } from "@repo/ui/components/sonner";
 import { cn } from "@repo/ui/lib/utils";
+import { useShake } from "@repo/ui/hooks/use-shake";
 import { useMutation } from "@tanstack/react-query";
 import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
@@ -17,23 +18,24 @@ import { useTRPC } from "@/lib/trpc";
 const INVITE_CODE_LENGTH = 6;
 const OTP_SLOT_KEYS = Array.from({ length: INVITE_CODE_LENGTH }, (_, i) => `otp-slot-${i}`);
 
-type AuthFormProps = {
-  type: "login" | "register";
-  callbackUrl?: string;
-} & React.HTMLAttributes<HTMLDivElement>;
-
-export const AuthForm = ({ className, type, callbackUrl, ...props }: AuthFormProps) => {
-  if (type === "register") {
-    return <RegisterForm className={className} callbackUrl={callbackUrl} {...props} />;
-  }
-  return <LoginForm className={className} callbackUrl={callbackUrl} {...props} />;
-};
-
 type StepFormProps = { callbackUrl?: string } & React.HTMLAttributes<HTMLDivElement>;
 
-const RegisterForm = ({ className, callbackUrl, ...props }: StepFormProps) => {
+/**
+ * Controlled two-step register flow. The parent owns `verifiedCode` so it can
+ * drive surrounding UI (e.g. hide the invite-required header once verified):
+ * `null` = invite step, a code = credentials step.
+ */
+export const RegisterForm = ({
+  className,
+  callbackUrl,
+  verifiedCode,
+  onVerifiedCodeChange,
+  ...props
+}: StepFormProps & {
+  verifiedCode: string | null;
+  onVerifiedCodeChange: (code: string | null) => void;
+}) => {
   const search = useSearch({ from: "/auth" });
-  const [verifiedCode, setVerifiedCode] = useState<string | null>(null);
 
   return (
     <div className={cn("grid gap-6", className)} {...props}>
@@ -41,12 +43,12 @@ const RegisterForm = ({ className, callbackUrl, ...props }: StepFormProps) => {
         <RegisterCredentialsStep
           inviteCode={verifiedCode}
           callbackUrl={callbackUrl}
-          onChangeCode={() => setVerifiedCode(null)}
+          onChangeCode={() => onVerifiedCodeChange(null)}
         />
       ) : (
         <InviteCodeStep
           defaultValue={search.invite ?? ""}
-          onValidated={(code) => setVerifiedCode(code)}
+          onValidated={(code) => onVerifiedCodeChange(code)}
         />
       )}
     </div>
@@ -62,19 +64,23 @@ const InviteCodeStep = ({
 }) => {
   const trpc = useTRPC();
   const [code, setCode] = useState(defaultValue.toUpperCase().slice(0, INVITE_CODE_LENGTH));
-  const [error, setError] = useState<string | null>(null);
   const autoSubmittedRef = useRef(false);
+  const [error, setError] = useState(false);
+  const [shakeScope, shake] = useShake();
 
   const validate = useMutation(
     trpc.auth.validateInvite.mutationOptions({
       onSuccess: (data) => onValidated(data.code),
-      onError: (err) => setError(err.message),
+      onError: (err) => {
+        toast.error(err.message);
+        setError(true);
+        shake();
+      },
     }),
   );
 
   const submit = (value: string) => {
     if (validate.isPending) return;
-    setError(null);
     validate.mutate({ code: value });
   };
 
@@ -102,35 +108,33 @@ const InviteCodeStep = ({
           Invite code
         </FieldLabel>
         <OTPField
+          ref={shakeScope}
           id="invite-code"
           data-test="invite-code-input"
+          className="justify-center"
           length={INVITE_CODE_LENGTH}
           validationType="alphanumeric"
+          // Uppercase via the component's own normalizer. Doing it in
+          // onValueChange instead breaks base-ui's focus advance: it compares
+          // its pending-focus value against the controlled value, and a cased
+          // mismatch ('d' vs 'D') silently cancels the focus move.
+          normalizeValue={(value) => value.toUpperCase()}
           value={code}
           onValueChange={(value) => {
-            setError(null);
-            setCode(value.toUpperCase());
+            setError(false);
+            setCode(value);
           }}
-          onValueComplete={(value) => submit(value.toUpperCase())}
-          disabled={validate.isPending}
+          onValueComplete={(value) => submit(value)}
         >
           {OTP_SLOT_KEYS.map((slotKey, index) => (
             <OTPFieldInput
               key={slotKey}
               aria-label={`Character ${index + 1} of ${INVITE_CODE_LENGTH}`}
-              aria-invalid={!!error}
+              aria-invalid={error}
             />
           ))}
         </OTPField>
-        {error ? <FieldError className="text-center">{error}</FieldError> : null}
       </Field>
-      <Button
-        type="submit"
-        loading={validate.isPending}
-        disabled={code.length !== INVITE_CODE_LENGTH}
-      >
-        Continue
-      </Button>
     </form>
   );
 };
@@ -212,7 +216,6 @@ const RegisterCredentialsStep = ({
                   autoCapitalize="none"
                   autoComplete="email"
                   autoCorrect="off"
-                  className="bg-input/40 backdrop-blur-sm"
                   {...field}
                 />
               </FieldContent>
@@ -239,7 +242,6 @@ const RegisterCredentialsStep = ({
                   autoCapitalize="none"
                   autoComplete="new-password"
                   autoCorrect="off"
-                  className="bg-input/40 backdrop-blur-sm"
                   {...field}
                 />
               </FieldContent>
@@ -255,10 +257,12 @@ const RegisterCredentialsStep = ({
   );
 };
 
-const LoginForm = ({ className, callbackUrl, ...props }: StepFormProps) => {
+export const LoginForm = ({ className, callbackUrl, ...props }: StepFormProps) => {
   const router = useRouter();
   const search = useSearch({ from: "/auth" });
   const nextPath = search.nextPath ?? "/";
+  const [authError, setAuthError] = useState(false);
+  const [shakeScope, shake] = useShake();
 
   const form = useForm({
     resolver: zodResolver(
@@ -280,6 +284,8 @@ const LoginForm = ({ className, callbackUrl, ...props }: StepFormProps) => {
         },
         onError: (ctx) => {
           toast.error(ctx.error.message);
+          setAuthError(true);
+          shake();
         },
       },
     });
@@ -287,13 +293,13 @@ const LoginForm = ({ className, callbackUrl, ...props }: StepFormProps) => {
 
   return (
     <div className={cn("grid gap-6", className)} {...props}>
-      <form className="grid gap-2" onSubmit={handleAuthWithPassword}>
+      <form ref={shakeScope} className="grid gap-2" onSubmit={handleAuthWithPassword}>
         <FieldGroup className="gap-2">
           <Controller
             control={form.control}
             name="email"
             render={({ field, fieldState }) => (
-              <Field data-invalid={!!fieldState.error} className="gap-1">
+              <Field data-invalid={!!fieldState.error || authError} className="gap-1">
                 <FieldLabel className="sr-only" htmlFor="email">
                   Email
                 </FieldLabel>
@@ -301,15 +307,19 @@ const LoginForm = ({ className, callbackUrl, ...props }: StepFormProps) => {
                   <Input
                     id="email"
                     data-test="email-input"
-                    aria-invalid={!!fieldState.error}
+                    aria-invalid={!!fieldState.error || authError}
                     required
                     type="email"
                     placeholder="name@example.com"
                     autoCapitalize="none"
                     autoComplete="email"
                     autoCorrect="off"
-                    className="bg-input/40 backdrop-blur-sm"
+                    variant="frosted"
                     {...field}
+                    onChange={(e) => {
+                      setAuthError(false);
+                      field.onChange(e);
+                    }}
                   />
                 </FieldContent>
                 <FieldError>{fieldState.error?.message}</FieldError>
@@ -320,7 +330,7 @@ const LoginForm = ({ className, callbackUrl, ...props }: StepFormProps) => {
             control={form.control}
             name="password"
             render={({ field, fieldState }) => (
-              <Field data-invalid={!!fieldState.error} className="gap-1">
+              <Field data-invalid={!!fieldState.error || authError} className="gap-1">
                 <FieldLabel className="sr-only" htmlFor="password">
                   Password
                 </FieldLabel>
@@ -328,15 +338,19 @@ const LoginForm = ({ className, callbackUrl, ...props }: StepFormProps) => {
                   <Input
                     id="password"
                     data-test="password-input"
-                    aria-invalid={!!fieldState.error}
+                    aria-invalid={!!fieldState.error || authError}
                     required
                     type="password"
                     placeholder="******"
                     autoCapitalize="none"
                     autoComplete="current-password"
                     autoCorrect="off"
-                    className="bg-input/40 backdrop-blur-sm"
+                    variant="frosted"
                     {...field}
+                    onChange={(e) => {
+                      setAuthError(false);
+                      field.onChange(e);
+                    }}
                   />
                 </FieldContent>
                 <FieldError>{fieldState.error?.message}</FieldError>
@@ -412,7 +426,6 @@ export const RequestPasswordResetForm = () => {
                   autoCapitalize="none"
                   autoComplete="email"
                   autoCorrect="off"
-                  className="bg-input/40 backdrop-blur-sm"
                   {...field}
                 />
               </FieldContent>
@@ -485,7 +498,6 @@ export const UpdatePasswordForm = () => {
                   autoCapitalize="none"
                   autoComplete="new-password"
                   autoCorrect="off"
-                  className="bg-input/40 backdrop-blur-sm"
                   {...field}
                 />
               </FieldContent>
@@ -511,7 +523,6 @@ export const UpdatePasswordForm = () => {
                   autoCapitalize="none"
                   autoComplete="new-password"
                   autoCorrect="off"
-                  className="bg-input/40 backdrop-blur-sm"
                   {...field}
                 />
               </FieldContent>

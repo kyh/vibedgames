@@ -10,7 +10,8 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/80",
+        default:
+          "bg-primary text-primary-foreground hover:bg-primary/80 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100",
         outline:
           "border-border bg-background shadow-xs hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
         secondary:
@@ -39,7 +40,13 @@ const buttonVariants = cva(
       },
     },
     compoundVariants: [
-      { variant: "default", loading: true, className: "[&>:first-child]:bg-primary" },
+      {
+        variant: "default",
+        loading: true,
+        // Loading also sets `disabled`; keep the primary fill (not the muted
+        // disabled fill) so a loading button still reads as primary.
+        className: "disabled:bg-primary disabled:text-primary-foreground [&>:first-child]:bg-primary",
+      },
       { variant: "destructive", loading: true, className: "[&>:first-child]:bg-destructive/10" },
       { variant: "outline", loading: true, className: "[&>:first-child]:bg-background" },
       { variant: "secondary", loading: true, className: "[&>:first-child]:bg-secondary" },

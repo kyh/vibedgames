@@ -6,6 +6,15 @@
 @source "../../../components/**/*.{ts,tsx}";
 @source "../**/*.{ts,tsx}";
 
+/*
+ * The palette below lives on :root and is dark-only (no light theme, no toggle).
+ * Drive the `dark:` variant off an explicit `.dark` class instead of
+ * `prefers-color-scheme`: on a light-mode OS the media variant silently dies and
+ * every component `dark:` fill falls back to transparent. `<html class="dark">`
+ * keeps it deterministically on.
+ */
+@custom-variant dark (&:is(.dark, .dark *));
+
 @theme inline {
     --font-heading: var(--font-sans);
     --font-sans: var(--font-sans);
@@ -50,6 +59,7 @@
 }
 
 :root {
+    color-scheme: dark;
     --background: oklch(0.141 0.005 285.823);
     --foreground: oklch(0.985 0 0);
     --card: oklch(0.21 0.006 285.885);

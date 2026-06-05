@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 
-import { AuthForm } from "@/components/auth/auth-form";
+import { LoginForm } from "@/components/auth/auth-form";
 
 export const Route = createFileRoute("/auth/login")({
   head: () => ({ meta: [{ title: "Login" }] }),
@@ -11,12 +11,14 @@ function LoginPage() {
   const { callbackUrl } = Route.useSearch();
 
   return (
-    <div className="mx-auto flex w-full flex-col justify-center space-y-6 sm:w-[350px]">
-      <div className="flex flex-col text-center">
-        <h1 className="text-lg font-light">Welcome back</h1>
+    <div className="mx-auto flex w-full flex-col sm:w-[350px]">
+      <div className="space-y-6">
+        <div className="flex flex-col text-center">
+          <h1 className="text-lg font-light">Welcome back</h1>
+        </div>
+        <LoginForm callbackUrl={callbackUrl} />
       </div>
-      <AuthForm type="login" callbackUrl={callbackUrl} />
-      <p className="text-muted-foreground px-8 text-center text-sm">
+      <p className="text-muted-foreground mt-6 px-8 text-center text-xs">
         Don't have an account?{" "}
         <Link to="/auth/register" className="underline">
           Register
