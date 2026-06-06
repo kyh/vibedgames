@@ -1,19 +1,19 @@
 ---
 name: game-playbook
-description: "The end-to-end recipe for building a GREAT browser game from a one-line idea, plus the game-feel/juice checklist that separates a tech demo from something fun. Use when the user says 'make a game', 'build a <genre> game' ('make a pixel art top-down slasher', 'build a platformer', 'make a shooter'), 'create a game', or asks to make a game feel better: 'it feels flat/static/boring', 'add juice/polish/game feel', 'screen shake', 'hit stop', 'make it feel good', 'why does my game feel cheap'."
+description: "The end-to-end recipe for building a GREAT browser game from a one-line idea, plus the craft checklist that separates a tech demo from something fun. Use when the user says 'make a game', 'build a <genre> game' ('make a pixel art top-down slasher', 'build a platformer', 'make a shooter'), 'create a game', or asks to make a game better: 'it feels flat/static/boring', 'add polish/craft', 'screen shake', 'hit stop', 'make it feel good', 'why does my game feel cheap'."
 ---
 
-# Building a game that feels great
+# Crafting a great game
 
 The platform promise is "studio-grade games from a prompt." The gap between a
-tech demo and that is two things: **the right build order** and **juice**. This
+tech demo and that is two things: **the right build order** and **craft**. This
 skill is the playbook. The engine/asset/deploy skills own the pieces; this owns
 how they fit together and how to make the result _fun_.
 
 ## The recipe (a complete game from "make a <genre> game")
 
 Do these in order — don't write the game loop before you have art, and don't
-ship before the juice pass.
+ship before the craft pass.
 
 1. **Scaffold.** `vg new <slug> --engine phaser` for 2D, `--engine threejs` for
    3D. (See the `phaser` / `threejs` skills.) The template is a skeleton, not a
@@ -33,7 +33,7 @@ ship before the juice pass.
    Phaser's `setBounds` reveals void), directional `applyAnim(dir, moving)`,
    Arcade physics for movement + `overlap` hit detection, `load.spritesheet`
    with the EXACT frame dims you normalized to.
-4. **Juice pass** — the checklist below. This is what makes it feel great.
+4. **Craft pass** — the checklist below. This is what makes it great.
 5. **Verify it's actually fun.** Run it (see `playwright` / `run`), play it —
    move, attack, take a hit, die, restart. A game that only "looks done" in a
    static screenshot usually feels dead in motion. Tune speeds/cooldowns/spawn
@@ -41,7 +41,7 @@ ship before the juice pass.
 6. **Ship.** `vg deploy ./dist` (see `deploy`); `add multiplayer` / `make it
 forkable` are one prompt each (see `multiplayer`, `fork`).
 
-## The juice checklist
+## The craft checklist
 
 Apply most of these to every interactive moment (hit, kill, pickup, jump, land,
 damage). Each is a few lines; together they're the whole difference.
@@ -101,4 +101,4 @@ damage). Each is a few lines; together they're the whole difference.
 A great first game = generated art (not placeholders) + a tight full-screen
 follow camera + a core loop where every hit shakes, flashes, knocks back, and
 sprays particles. Build the art, build the loop, then spend real time on the
-juice pass — it's 10% of the code and 90% of the feel.
+craft pass — it's 10% of the code and 90% of the difference.
