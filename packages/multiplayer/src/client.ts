@@ -38,11 +38,11 @@ type Listener = () => void;
  * Use directly in Phaser, Three.js, vanilla JS, or wrap with framework bindings.
  */
 export class MultiplayerClient {
-  private socket!: PartySocket;
+  private socket: PartySocket;
   private listeners = new Set<Listener>();
   private initialStateApplied = false;
   private options: MultiplayerClientOptions;
-  /** True while we tear down one socket to reconnect to an overflow room. */
+  /** True while we reconnect to an overflow room, to mask the interim close. */
   private redirecting = false;
 
   private _connectionStatus: MultiplayerConnectionStatus = "connecting";
@@ -59,57 +59,52 @@ export class MultiplayerClient {
     this._onEvent = options.onEvent;
     this._room = options.room;
 
-    this.connect(options.room);
-  }
-
-  /** Open a socket to a specific room and wire up listeners. */
-  private connect(room: string): void {
-    this._room = room;
-    this._connectionStatus = "connecting";
-
     const query: Record<string, string> = {};
-    if (this.options.maxPlayers && this.options.maxPlayers > 0) {
-      query[ROOM_CAP_QUERY_PARAM] = String(Math.floor(this.options.maxPlayers));
+    if (options.maxPlayers && options.maxPlayers > 0) {
+      query[ROOM_CAP_QUERY_PARAM] = String(Math.floor(options.maxPlayers));
     }
 
     this.socket = new PartySocket({
-      host: this.options.host,
-      party: this.options.party,
-      room,
+      host: options.host,
+      party: options.party,
+      room: options.room,
       query,
     });
 
+    // Listeners are registered once and survive PartySocket's reconnects,
+    // including the room switch we trigger on overflow (updateProperties +
+    // reconnect). No need to re-attach them per connection.
     this.socket.addEventListener("open", this.handleOpen);
     this.socket.addEventListener("message", this.handleMessage);
     this.socket.addEventListener("close", this.handleClose);
     this.socket.addEventListener("error", this.handleError);
   }
 
-  /** Remove listeners and close the current socket (suppresses reconnect). */
-  private teardownSocket(): void {
-    this.socket.removeEventListener("open", this.handleOpen);
-    this.socket.removeEventListener("message", this.handleMessage);
-    this.socket.removeEventListener("close", this.handleClose);
-    this.socket.removeEventListener("error", this.handleError);
-    this.socket.close();
-  }
-
   /**
    * Move to an overflow room after the current room reported it was full.
-   * The full room never admitted us, so reset to the caller-provided defaults
-   * (a fresh, empty room must not inherit optimistic writes made before the
-   * redirect) and re-seed as host if we end up first into the new room.
+   * Uses PartySocket's own `updateProperties` + `reconnect` so the rebuilt
+   * URL points at the overflow room before reconnecting — the library's
+   * reconnect then naturally targets the new room (no risk of looping back
+   * into the full one). The full room never admitted us, so reset to the
+   * caller-provided defaults; a fresh room must not inherit optimistic writes
+   * made before the redirect, and we re-seed as host if we land there first.
    */
   private redirectTo(room: string): void {
-    this.redirecting = true;
-    this.teardownSocket();
+    this._room = room;
+    this._connectionStatus = "connecting";
     this.initialStateApplied = false;
     this._players = {};
     this._hostId = null;
     this._playerId = null;
     this._sharedState = this.options.initialState ?? {};
-    this.connect(room);
+
+    // reconnect() synchronously dispatches a close for the old connection;
+    // flag it so handleClose doesn't surface a transient "disconnected".
+    this.redirecting = true;
+    this.socket.updateProperties({ room });
+    this.socket.reconnect();
     this.redirecting = false;
+
     this.notify();
   }
 
@@ -201,7 +196,11 @@ export class MultiplayerClient {
 
   /** Disconnect and clean up. */
   destroy(): void {
-    this.teardownSocket();
+    this.socket.removeEventListener("open", this.handleOpen);
+    this.socket.removeEventListener("message", this.handleMessage);
+    this.socket.removeEventListener("close", this.handleClose);
+    this.socket.removeEventListener("error", this.handleError);
+    this.socket.close();
     this.listeners.clear();
   }
 
