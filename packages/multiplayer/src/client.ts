@@ -98,12 +98,12 @@ export class MultiplayerClient {
     this._playerId = null;
     this._sharedState = this.options.initialState ?? {};
 
-    // reconnect() synchronously dispatches a close for the old connection;
-    // flag it so handleClose doesn't surface a transient "disconnected".
+    // Stay in the redirecting state until the overflow socket opens, so every
+    // interim close (the synchronous reconnect() one and the server's async
+    // close(4001)) is masked. handleOpen clears the flag.
     this.redirecting = true;
     this.socket.updateProperties({ room });
     this.socket.reconnect();
-    this.redirecting = false;
 
     this.notify();
   }
@@ -215,13 +215,17 @@ export class MultiplayerClient {
   }
 
   private handleOpen = (): void => {
+    // The overflow socket is up; the redirect is complete.
+    this.redirecting = false;
     this._connectionStatus = "connected";
     this._playerId = this.socket.id ?? null;
     this.notify();
   };
 
   private handleClose = (): void => {
-    // Ignore the close that fires while we swap sockets for an overflow room.
+    // While redirecting to an overflow room, mask the interim close(s) — both
+    // the synchronous one from reconnect() and the server's async close(4001)
+    // — until the new connection opens (which clears `redirecting`).
     if (this.redirecting) return;
     this._connectionStatus = "disconnected";
     this.notify();

@@ -14,6 +14,12 @@ type RoomState = {
   sharedState: Record<string, unknown>;
   players: PlayerMap;
   hostId: string | null;
+  /**
+   * The room's player cap, established by the first connection that advertises
+   * one and sticky thereafter, so a later join that omits the query param
+   * can't bypass it. `null` means no cap was ever advertised (unlimited).
+   */
+  cap: number | null;
 };
 
 /**
@@ -56,12 +62,21 @@ export class VgServer extends Server {
     sharedState: {},
     players: {},
     hostId: null,
+    cap: null,
   };
 
   onConnect(connection: Connection<Player>, ctx: ConnectionContext) {
+    // Establish the room's cap from the first connection that advertises one,
+    // then keep it sticky: a later join that omits `_maxPlayers` (a rogue or
+    // stale client) must not be able to bypass the cap legit clients set.
+    const requestedCap = readRoomCap(ctx);
+    if (this.room.cap === null && requestedCap !== null) {
+      this.room.cap = requestedCap;
+    }
+
     // Enforce the room cap before admitting the player. If full, point the
     // client at the overflow sibling and close — the SDK reconnects there.
-    const cap = readRoomCap(ctx);
+    const cap = this.room.cap;
     if (cap !== null && Object.keys(this.room.players).length >= cap) {
       const fullMessage: ServerMessage = {
         type: "room_full",
