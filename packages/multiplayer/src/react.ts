@@ -129,16 +129,20 @@ export function useMultiplayerState<
   initialState?: TShared,
 ): readonly [TShared, MultiplayerRoom<TShared>["updateSharedState"], MultiplayerRoom<TShared>] {
   const room = useRoom(roomOrConfig, initialState);
-  const initialStateApplied = useRef(false);
+  // Track which player identity we've seeded for, not a lifetime boolean: an
+  // overflow redirect (room_full) hands the client a fresh playerId, and the
+  // new room needs seeding too. playerId is stable across host promotion, so
+  // this still won't re-seed a promoted guest (the documented footgun).
+  const seededForPlayer = useRef<string | null>(null);
 
   useEffect(() => {
     if (
       room.hostId === room.playerId &&
       room.playerId !== null &&
       initialState &&
-      !initialStateApplied.current
+      seededForPlayer.current !== room.playerId
     ) {
-      initialStateApplied.current = true;
+      seededForPlayer.current = room.playerId;
       room.updateSharedState((prev) => ({ ...initialState, ...prev }));
     }
   }, [room.hostId, room.playerId, room.updateSharedState, initialState]);
@@ -158,7 +162,10 @@ export function usePlayerState<TPlayerState = Record<string, unknown>>(
   MultiplayerRoom<Record<string, unknown>>,
 ] {
   const room = useRoom(roomOrConfig, undefined);
-  const initialStateApplied = useRef(false);
+  // Re-seed per player identity so default state is applied again in the
+  // overflow room after a room_full redirect (which assigns a new playerId),
+  // rather than once for the whole client lifetime.
+  const seededForPlayer = useRef<string | null>(null);
 
   const playerState = useMemo(() => {
     const state = room.playerId
@@ -168,8 +175,8 @@ export function usePlayerState<TPlayerState = Record<string, unknown>>(
   }, [initialState, room.playerId, room.players]);
 
   useEffect(() => {
-    if (initialState && room.playerId && !initialStateApplied.current) {
-      initialStateApplied.current = true;
+    if (initialState && room.playerId && seededForPlayer.current !== room.playerId) {
+      seededForPlayer.current = room.playerId;
       room.updateMyState((prev) => ({ ...(initialState as Record<string, unknown>), ...prev }));
     }
   }, [room.playerId, room.updateMyState, initialState]);
