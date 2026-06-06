@@ -65,7 +65,7 @@ function InstallPrompt() {
   );
 }
 
-export const Route = createFileRoute("/build")({
+export const Route = createFileRoute("/_site/build")({
   head: () => ({ meta: [{ title: "Build — Vibedgames" }] }),
   component: BuildPage,
 });

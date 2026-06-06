@@ -2,7 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@repo/ui/components/button";
 import { ChevronUpIcon, ChevronDownIcon } from "lucide-react";
 
-import { Route } from "@/routes/index";
+import { Route } from "@/routes/_site/index";
 import { featuredGames } from "./data";
 
 export const GameNavArrows = () => {

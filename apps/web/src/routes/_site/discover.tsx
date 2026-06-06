@@ -5,7 +5,7 @@ import { RegisterLink } from "@/components/auth/register-link";
 import { FadeInBlur } from "@/components/ui/fade-in-blur";
 import { featuredGames, gameSearchSchema } from "@/components/game/data";
 
-export const Route = createFileRoute("/discover")({
+export const Route = createFileRoute("/_site/discover")({
   validateSearch: gameSearchSchema,
   head: () => ({ meta: [{ title: "Discover — Vibedgames" }] }),
   component: DiscoverPage,
