@@ -96,9 +96,9 @@ export class MultiplayerClient {
 
   /**
    * Move to an overflow room after the current room reported it was full.
-   * The previous room never sent us a `sync`, so local state is still the
-   * caller-provided defaults — we just reset identity and re-seed as host if
-   * we end up first into the new (empty) room.
+   * The full room never admitted us, so reset to the caller-provided defaults
+   * (a fresh, empty room must not inherit optimistic writes made before the
+   * redirect) and re-seed as host if we end up first into the new room.
    */
   private redirectTo(room: string): void {
     this.redirecting = true;
@@ -107,6 +107,7 @@ export class MultiplayerClient {
     this._players = {};
     this._hostId = null;
     this._playerId = null;
+    this._sharedState = this.options.initialState ?? {};
     this.connect(room);
     this.redirecting = false;
     this.notify();

@@ -104,6 +104,12 @@ export class VgServer extends Server {
 
   onMessage(sender: Connection<Player>, rawMessage: string): void | Promise<void> {
     try {
+      // Ignore messages from connections that were never admitted — e.g. a
+      // capacity-refused connection that sends in the window before its close
+      // settles. Such a connection isn't in `players`, so it must not be able
+      // to broadcast state or events into the room.
+      if (!this.room.players[sender.id]) return;
+
       const message = JSON.parse(rawMessage) as ClientMessage;
 
       switch (message.type) {
