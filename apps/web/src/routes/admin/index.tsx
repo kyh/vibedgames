@@ -1,14 +1,7 @@
-import { createFileRoute } from "@tanstack/react-router";
-
-import { InviteAdmin } from "@/components/admin/invite-admin";
-import { UserAdmin } from "@/components/admin/user-admin";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/admin/")({
-  head: () => ({ meta: [{ title: "Admin — Vibedgames" }] }),
-  component: () => (
-    <div className="space-y-12">
-      <UserAdmin />
-      <InviteAdmin />
-    </div>
-  ),
+  beforeLoad: () => {
+    throw redirect({ to: "/admin/users" });
+  },
 });

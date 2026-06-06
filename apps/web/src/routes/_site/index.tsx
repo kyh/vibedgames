@@ -7,7 +7,7 @@ import { installResponse } from "@/lib/install-response";
 
 const AI_BOT_UA = /(ClaudeBot|Claude-User|Claude-SearchBot|GPTBot|ChatGPT-User|OAI-SearchBot)/i;
 
-export const Route = createFileRoute("/")({
+export const Route = createFileRoute("/_site/")({
   validateSearch: gameSearchSchema,
   server: {
     handlers: {
