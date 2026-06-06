@@ -166,6 +166,11 @@ export class VgServer extends Server {
   }
 
   onClose(connection: Connection<Player>) {
+    // A connection refused at capacity (room_full) is closed before being
+    // admitted, so it was never in `players` and no client saw it join.
+    // Skip the cleanup/announce so we don't broadcast a spurious player_left.
+    if (!this.room.players[connection.id]) return;
+
     delete this.room.players[connection.id];
 
     const leftMessage: ServerMessage = {
