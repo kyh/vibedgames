@@ -20,6 +20,11 @@
       "description": "Add game features like real-time multiplayer, co-op, and PvP"
     },
     {
+      "name": "game-craft",
+      "source": "./plugins/game-craft",
+      "description": "Make browser games have taste — the build order and juice that separate a tech demo from something fun"
+    },
+    {
       "name": "generate",
       "source": "./plugins/generate",
       "description": "Generate game-ready assets — images, video, audio, 3D, characters, cinematics, sprites, voiceover — with the vg generate CLI"
