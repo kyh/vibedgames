@@ -215,23 +215,27 @@ export class MultiplayerClient {
   }
 
   private handleOpen = (): void => {
-    // The overflow socket is up; the redirect is complete.
-    this.redirecting = false;
-    this._connectionStatus = "connected";
-    this._playerId = this.socket.id ?? null;
+    // A live socket isn't admission: a full room replies `room_full` and
+    // closes without ever sending `sync`. Stay "connecting" and withhold
+    // playerId until `sync` confirms we're actually in the room.
+    this._connectionStatus = "connecting";
     this.notify();
   };
 
   private handleClose = (): void => {
     // While redirecting to an overflow room, mask the interim close(s) — both
     // the synchronous one from reconnect() and the server's async close(4001)
-    // — until the new connection opens (which clears `redirecting`).
+    // — until `sync` admits us to the new room (which clears `redirecting`).
     if (this.redirecting) return;
     this._connectionStatus = "disconnected";
     this.notify();
   };
 
   private handleError = (): void => {
+    // Masked during a redirect, like close: a transient failure on the
+    // overflow reconnect shouldn't surface "error" — RWS retries and
+    // admission completes on the next `sync`.
+    if (this.redirecting) return;
     this._connectionStatus = "error";
     this.notify();
   };
@@ -242,6 +246,11 @@ export class MultiplayerClient {
 
       switch (message.type) {
         case "sync": {
+          // `sync` is the admission signal: now we're really in the room, so
+          // surface "connected", adopt our playerId, and end any redirect.
+          this.redirecting = false;
+          this._connectionStatus = "connected";
+          this._playerId = this.socket.id ?? null;
           this._hostId = message.data.hostId;
           this._players = message.data.players;
           this._sharedState =
