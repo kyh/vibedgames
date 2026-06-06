@@ -68,6 +68,14 @@ These are bugs in the current code, not feature work.
 - **`connected` flag on `Player`.** Add to
   `packages/multiplayer/src/types.ts` so reconnection grace is
   observable to game logic (render "reconnecting…" overlays). **S.**
+- **Room caps + overflow rooms.** A room used to accept unlimited
+  players. Now `MultiplayerOptions.maxPlayers` caps a room; the SDK
+  advertises it via the `_maxPlayers` query param, the server rejects
+  over-cap connects with a `room_full` message naming the next overflow
+  sibling (`{room}~2`, `{room}~3`, …), and the client transparently
+  reconnects there. Cap is clamped server-side to `HARD_ROOM_CAP`.
+  Overflow rooms are independent worlds (no cross-room matchmaking — by
+  design, see "Intentionally omitted"). **(done — 2026-06-06.) S.**
 - **Server-side validation hook.** Let game authors register Zod
   schemas for `state_patch` / `player_state_patch` payloads. Today
   the server validates nothing. **M.**

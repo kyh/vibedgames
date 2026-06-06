@@ -8,6 +8,7 @@ import type {
   PlayerMap,
   ServerMessage,
 } from "./types";
+import { ROOM_CAP_QUERY_PARAM } from "./types";
 
 export type MultiplayerClientOptions = MultiplayerOptions & {
   initialState?: Record<string, unknown>;
@@ -19,6 +20,12 @@ export type MultiplayerSnapshot = {
   hostId: string | null;
   sharedState: Record<string, unknown>;
   players: PlayerMap;
+  /**
+   * The room the client is actually connected to. Equals the configured
+   * `room` until a cap is hit, then becomes the overflow sibling
+   * (`{room}~2`, …) the server redirected this client into.
+   */
+  room: string;
 };
 
 type Listener = () => void;
@@ -31,33 +38,78 @@ type Listener = () => void;
  * Use directly in Phaser, Three.js, vanilla JS, or wrap with framework bindings.
  */
 export class MultiplayerClient {
-  private socket: PartySocket;
+  private socket!: PartySocket;
   private listeners = new Set<Listener>();
   private initialStateApplied = false;
   private options: MultiplayerClientOptions;
+  /** True while we tear down one socket to reconnect to an overflow room. */
+  private redirecting = false;
 
   private _connectionStatus: MultiplayerConnectionStatus = "connecting";
   private _playerId: string | null = null;
   private _hostId: string | null = null;
   private _sharedState: Record<string, unknown>;
   private _players: PlayerMap = {};
+  private _room: string;
   private _onEvent: MultiplayerOptions["onEvent"];
 
   constructor(options: MultiplayerClientOptions) {
     this.options = options;
     this._sharedState = options.initialState ?? {};
     this._onEvent = options.onEvent;
+    this._room = options.room;
+
+    this.connect(options.room);
+  }
+
+  /** Open a socket to a specific room and wire up listeners. */
+  private connect(room: string): void {
+    this._room = room;
+    this._connectionStatus = "connecting";
+
+    const query: Record<string, string> = {};
+    if (this.options.maxPlayers && this.options.maxPlayers > 0) {
+      query[ROOM_CAP_QUERY_PARAM] = String(Math.floor(this.options.maxPlayers));
+    }
 
     this.socket = new PartySocket({
-      host: options.host,
-      party: options.party,
-      room: options.room,
+      host: this.options.host,
+      party: this.options.party,
+      room,
+      query,
     });
 
     this.socket.addEventListener("open", this.handleOpen);
     this.socket.addEventListener("message", this.handleMessage);
     this.socket.addEventListener("close", this.handleClose);
     this.socket.addEventListener("error", this.handleError);
+  }
+
+  /** Remove listeners and close the current socket (suppresses reconnect). */
+  private teardownSocket(): void {
+    this.socket.removeEventListener("open", this.handleOpen);
+    this.socket.removeEventListener("message", this.handleMessage);
+    this.socket.removeEventListener("close", this.handleClose);
+    this.socket.removeEventListener("error", this.handleError);
+    this.socket.close();
+  }
+
+  /**
+   * Move to an overflow room after the current room reported it was full.
+   * The previous room never sent us a `sync`, so local state is still the
+   * caller-provided defaults — we just reset identity and re-seed as host if
+   * we end up first into the new (empty) room.
+   */
+  private redirectTo(room: string): void {
+    this.redirecting = true;
+    this.teardownSocket();
+    this.initialStateApplied = false;
+    this._players = {};
+    this._hostId = null;
+    this._playerId = null;
+    this.connect(room);
+    this.redirecting = false;
+    this.notify();
   }
 
   // -- Public API ----------------------------------------------------------
@@ -80,6 +132,10 @@ export class MultiplayerClient {
   get isHost() {
     return this._hostId !== null && this._hostId === this._playerId;
   }
+  /** The room currently connected to (may be an overflow sibling). */
+  get room() {
+    return this._room;
+  }
 
   /** Get a readonly snapshot of the current state. */
   getSnapshot(): MultiplayerSnapshot {
@@ -89,6 +145,7 @@ export class MultiplayerClient {
       hostId: this._hostId,
       sharedState: this._sharedState,
       players: this._players,
+      room: this._room,
     };
   }
 
@@ -143,11 +200,7 @@ export class MultiplayerClient {
 
   /** Disconnect and clean up. */
   destroy(): void {
-    this.socket.removeEventListener("open", this.handleOpen);
-    this.socket.removeEventListener("message", this.handleMessage);
-    this.socket.removeEventListener("close", this.handleClose);
-    this.socket.removeEventListener("error", this.handleError);
-    this.socket.close();
+    this.teardownSocket();
     this.listeners.clear();
   }
 
@@ -168,6 +221,8 @@ export class MultiplayerClient {
   };
 
   private handleClose = (): void => {
+    // Ignore the close that fires while we swap sockets for an overflow room.
+    if (this.redirecting) return;
     this._connectionStatus = "disconnected";
     this.notify();
   };
@@ -237,6 +292,12 @@ export class MultiplayerClient {
         case "event": {
           this._onEvent?.(message.data.event, message.data.payload, message.data.from);
           break;
+        }
+        case "room_full": {
+          // The room hit its cap before we joined. Reconnect to the overflow
+          // sibling the server picked; redirectTo notifies on its own.
+          this.redirectTo(message.data.room);
+          return;
         }
       }
 

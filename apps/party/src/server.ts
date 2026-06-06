@@ -1,7 +1,8 @@
-import type { Connection } from "partyserver";
+import type { Connection, ConnectionContext } from "partyserver";
 import { routePartykitRequest, Server } from "partyserver";
 
 import type { ClientMessage, Player, PlayerMap, ServerMessage } from "@vibedgames/multiplayer";
+import { ROOM_CAP_QUERY_PARAM } from "@vibedgames/multiplayer";
 import { getColorById } from "./color";
 
 type Env = {
@@ -15,6 +16,41 @@ type RoomState = {
   hostId: string | null;
 };
 
+/**
+ * Upper bound on a single room's player cap, regardless of what a client
+ * requests via the query param. Games are untrusted code, so we never let a
+ * client size a room past this ceiling.
+ */
+const HARD_ROOM_CAP = 64;
+
+/** Separator for overflow sibling rooms: `home` → `home~2` → `home~3`. */
+const OVERFLOW_SEP = "~";
+
+/**
+ * Given a room id, return the next overflow sibling. Picks an unusual
+ * separator so a normal slug like `level-1` is never mistaken for an
+ * overflow room (which would alias two distinct games onto one room).
+ */
+const nextOverflowRoom = (room: string): string => {
+  const idx = room.lastIndexOf(OVERFLOW_SEP);
+  if (idx !== -1) {
+    const suffix = room.slice(idx + OVERFLOW_SEP.length);
+    if (/^\d+$/.test(suffix)) {
+      return `${room.slice(0, idx)}${OVERFLOW_SEP}${Number(suffix) + 1}`;
+    }
+  }
+  return `${room}${OVERFLOW_SEP}2`;
+};
+
+/** Read the client-requested player cap, clamped to the hard ceiling. */
+const readRoomCap = (ctx: ConnectionContext): number | null => {
+  const raw = new URL(ctx.request.url).searchParams.get(ROOM_CAP_QUERY_PARAM);
+  if (!raw) return null;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return Math.min(parsed, HARD_ROOM_CAP);
+};
+
 export class VgServer extends Server {
   private room: RoomState = {
     sharedState: {},
@@ -22,7 +58,20 @@ export class VgServer extends Server {
     hostId: null,
   };
 
-  onConnect(connection: Connection<Player>) {
+  onConnect(connection: Connection<Player>, ctx: ConnectionContext) {
+    // Enforce the room cap before admitting the player. If full, point the
+    // client at the overflow sibling and close — the SDK reconnects there.
+    const cap = readRoomCap(ctx);
+    if (cap !== null && Object.keys(this.room.players).length >= cap) {
+      const fullMessage: ServerMessage = {
+        type: "room_full",
+        data: { room: nextOverflowRoom(this.name), capacity: cap },
+      };
+      connection.send(JSON.stringify(fullMessage));
+      connection.close(4001, "room_full");
+      return;
+    }
+
     const { color, hue } = getColorById(connection.id);
     const player: Player = {
       id: connection.id,

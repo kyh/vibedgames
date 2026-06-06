@@ -28,6 +28,51 @@ Three types of state:
 
 The **host** (first player) runs authoritative game logic. If the host leaves, the next-joined player is reassigned as host.
 
+## Room caps (overflow to new rooms)
+
+By default a room is unlimited — everyone connecting to the same `room`
+shares one world. Pass `maxPlayers` to cap a room. When a room is full,
+the next player overflows into a sibling room (`{room}~2`, `{room}~3`, …)
+automatically — the SDK reconnects them there transparently. This is how
+you keep, say, an 8-player battle from turning into a 50-player mess:
+extra players get their own parallel match instead of being turned away.
+
+```ts
+const client = new MultiplayerClient({
+  host: "https://vibedgames-party.kyh.workers.dev",
+  party: "vg-server",
+  room: "arena",
+  maxPlayers: 8, // 9th player lands in "arena~2", 17th in "arena~3", …
+});
+
+// Which room you actually landed in (may be an overflow sibling):
+client.room; // "arena" or "arena~2" …
+```
+
+```tsx
+const room = useMultiplayerRoom({
+  host,
+  party,
+  room: "arena",
+  maxPlayers: 8,
+});
+room.room; // the live room id, for "Room #2"-style UI
+```
+
+Notes:
+
+- The cap is enforced server-side. A client can request a cap but the
+  server clamps it to a hard ceiling, so a misbehaving game can't size a
+  room arbitrarily large.
+- All clients of a game should pass the **same** `maxPlayers` — it ships
+  in your shared config, so they do. Mixing values makes the effective
+  cap depend on who connects.
+- Overflow rooms are independent worlds: separate host, separate
+  `sharedState`. Don't assume players in `arena` and `arena~2` can see
+  each other. There is no cross-room matchmaking — overflow is purely a
+  spillover, not a lobby.
+- Omit `maxPlayers` for the historical unlimited behaviour.
+
 ## Host-only writes (important)
 
 `updateSharedState` is rejected on the server unless the sender is the

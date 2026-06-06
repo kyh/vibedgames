@@ -36,8 +36,8 @@ export function useMultiplayerRoom<
 
   // Stable client instance — only recreate if connection params change
   const clientRef = useRef<MultiplayerClient | null>(null);
-  const keyRef = useRef(`${config.host}/${config.party}/${config.room}`);
-  const key = `${config.host}/${config.party}/${config.room}`;
+  const key = `${config.host}/${config.party}/${config.room}/${config.maxPlayers ?? ""}`;
+  const keyRef = useRef(key);
 
   if (!clientRef.current || keyRef.current !== key) {
     clientRef.current?.destroy();
@@ -46,6 +46,7 @@ export function useMultiplayerRoom<
       host: config.host,
       party: config.party,
       room: config.room,
+      maxPlayers: config.maxPlayers,
       initialState: config.initialState as Record<string, unknown>,
       onEvent: (event, payload, from) => onEventRef.current?.(event, payload, from),
     });
@@ -200,6 +201,7 @@ function useRoom<TShared extends Record<string, unknown> = Record<string, unknow
     host: roomOrConfig.host,
     party: roomOrConfig.party,
     room: roomOrConfig.room,
+    maxPlayers: roomOrConfig.maxPlayers,
     initialState: initialState ?? roomOrConfig.initialState,
   });
 }
