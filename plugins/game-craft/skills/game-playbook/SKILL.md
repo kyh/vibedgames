@@ -1,6 +1,6 @@
 ---
 name: game-playbook
-description: "The end-to-end recipe for building a GREAT browser game from a one-line idea, plus the juice/game-feel checklist that separates a tech demo from something fun. This is about taste — making the game feel good, not just work. Use when the user says 'make a game', 'build a <genre> game' ('make a pixel art top-down slasher', 'build a platformer', 'make a shooter'), 'create a game', or asks to make a game feel better: 'it feels flat/static/boring', 'add juice/polish/game feel/vibes', 'give it vibes', 'make it tasteful', 'screen shake', 'hit stop', 'make it feel good', 'why does my game feel cheap'."
+description: "The end-to-end recipe for building a GREAT browser game from a one-line idea, plus the game-feel/juice checklist that separates a tech demo from something fun. Use when the user says 'make a game', 'build a <genre> game' ('make a pixel art top-down slasher', 'build a platformer', 'make a shooter'), 'create a game', or asks to make a game feel better: 'it feels flat/static/boring', 'add juice/polish/game feel', 'screen shake', 'hit stop', 'make it feel good', 'why does my game feel cheap'."
 ---
 
 # Building a game that feels great
