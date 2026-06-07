@@ -211,6 +211,14 @@ export class VgServer extends Server {
         this.broadcast(JSON.stringify(hostMessage), []);
       }
     }
+
+    // Reset the sticky cap once the room empties so the next session
+    // re-establishes it from whoever joins first. Otherwise a cap set by an
+    // earlier session would outlive it on the (still-warm) Durable Object and
+    // wrongly cap a later session that wants the unlimited default.
+    if (Object.keys(this.room.players).length === 0) {
+      this.room.cap = null;
+    }
   }
 }
 
