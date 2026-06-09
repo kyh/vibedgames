@@ -249,28 +249,33 @@ export class GalleryScene extends Phaser.Scene {
     L.spritesheet("fp-warrior", "assets/fp/u-warrior.png", { frameWidth: 192, frameHeight: 192 });
     L.spritesheet("fp-lancer", "assets/fp/u-lancer.png", { frameWidth: 320, frameHeight: 320 });
     L.spritesheet("fp-pawn", "assets/fp/u-pawn.png", { frameWidth: 192, frameHeight: 192 });
+    L.spritesheet("fp-foam", "assets/fp/foam.png", { frameWidth: 192, frameHeight: 192 });
+    L.image("fp-shadow", "assets/fp/shadow.png");
     const showRef = !!new URLSearchParams(window.location.search).get("ref");
     if (showRef) L.image("refmap", "/ref_map.png");
     L.once(Phaser.Loader.Events.COMPLETE, () => this.renderMap(showRef));
     L.start();
   }
 
-  /** Compose the battlefield in the guide's layer order: BG → foam → flat ground
-   *  → (shadow → elevated ground) → cliffs/stairs → objects. */
+  /** Compose the battlefield in the guide's layer order: BG → Water Foam → Flat
+   *  Ground → Shadow → Elevated Ground → cliffs/stairs → objects. Each terrain
+   *  type is its own depth band so the shadow sits between flat and elevated. */
   private renderMap(showRef: boolean): void {
     const COLS = 25;
     const ROWS = MAP_MASK.length;
     const Wpx = COLS * CELL;
     const Hpx = ROWS * CELL;
 
-    // L0 BG water
-    if (this.textures.exists("t-water")) this.add.tileSprite(0, 0, Wpx, Hpx, "t-water").setOrigin(0, 0).setDepth(-1000);
+    this.registerMapAnims();
+    if (this.textures.exists("t-water")) this.add.tileSprite(0, 0, Wpx, Hpx, "t-water").setOrigin(0, 0).setDepth(-1000); // L0
     else this.add.rectangle(0, 0, Wpx, Hpx, 0x3a8f8a).setOrigin(0, 0).setDepth(-1000);
-
-    this.buildMapTerrain(COLS, ROWS); // L2 flat + L4 elevated (one tilemap)
+    this.buildMapFoam(COLS, ROWS); // L1 animated water foam
+    this.buildMapGround(COLS, ROWS, false, -900); // L2 flat ground
     this.buildMapShadows(COLS, ROWS); // L3 drop shadow (elevated footprint, 1 tile down)
-    this.buildMapShoreline(COLS, ROWS); // L1 foam (procedural band)
-    this.buildMapCliffs(COLS, ROWS); // cliff faces + stairs
+    this.buildMapGround(COLS, ROWS, true, -860); // L4 elevated ground
+    this.buildMapWash(COLS, ROWS); // olive tone over the grass
+    this.buildMapCliffs(COLS, ROWS);
+    this.buildMapStairs();
     this.buildMapObjects();
 
     const cam = this.cameras.main;
@@ -280,60 +285,76 @@ export class GalleryScene extends Phaser.Scene {
     if (showRef && this.textures.exists("refmap")) this.add.image(0, 0, "refmap").setOrigin(0, 0).setAlpha(0.45).setDepth(1_000_000);
   }
 
-  /** One tilemap: low land = flat-grass autotile, raised = elevated-grass autotile. */
-  private buildMapTerrain(cols: number, rows: number): void {
+  private registerMapAnims(): void {
+    if (this.textures.exists("fp-foam") && !this.anims.exists("fp-foam-anim")) this.anims.create({ key: "fp-foam-anim", frames: this.anims.generateFrameNumbers("fp-foam", { start: 0, end: 15 }), frameRate: 9, repeat: -1 });
+    if (this.textures.exists("t-tree") && !this.anims.exists("tree-sway")) this.anims.create({ key: "tree-sway", frames: this.anims.generateFrameNumbers("t-tree", { start: 0, end: 5 }), frameRate: 5, repeat: -1 });
+  }
+
+  /** Flat (elevated=false) or elevated (true) grass autotile as one tilemap layer. */
+  private buildMapGround(cols: number, rows: number, elevated: boolean, depth: number): void {
     if (!this.textures.exists("fp-tiles-img")) return;
+    const inSet = (cx: number, cy: number): boolean => (elevated ? this.high(cx, cy) : this.land(cx, cy) && !this.high(cx, cy));
+    const mask = (cx: number, cy: number): number => {
+      // a flat cell borders WATER (non-land); an elevated cell borders any non-high
+      const out = (ax: number, ay: number): boolean => (elevated ? !this.high(ax, ay) : !this.land(ax, ay));
+      return (out(cx, cy - 1) ? 8 : 0) | (out(cx + 1, cy) ? 4 : 0) | (out(cx, cy + 1) ? 2 : 0) | (out(cx - 1, cy) ? 1 : 0);
+    };
     const data: number[][] = [];
     for (let cy = 0; cy < rows; cy++) {
       const row: number[] = [];
-      for (let cx = 0; cx < cols; cx++) {
-        if (this.high(cx, cy)) {
-          const k = (this.high(cx, cy - 1) ? 0 : 8) | (this.high(cx + 1, cy) ? 0 : 4) | (this.high(cx, cy + 1) ? 0 : 2) | (this.high(cx - 1, cy) ? 0 : 1);
-          row.push(FP_ELEV[k] ?? 15);
-        } else if (this.land(cx, cy)) {
-          const k = (this.land(cx, cy - 1) ? 0 : 8) | (this.land(cx + 1, cy) ? 0 : 4) | (this.land(cx, cy + 1) ? 0 : 2) | (this.land(cx - 1, cy) ? 0 : 1);
-          row.push(FP_FLAT[k] ?? 10);
-        } else row.push(-1);
-      }
+      for (let cx = 0; cx < cols; cx++) row.push(inSet(cx, cy) ? (elevated ? (FP_ELEV[mask(cx, cy)] ?? 15) : (FP_FLAT[mask(cx, cy)] ?? 10)) : -1);
       data.push(row);
     }
     const map = this.make.tilemap({ data, tileWidth: CELL, tileHeight: CELL });
-    const tiles = map.addTilesetImage("fp", "fp-tiles-img");
-    if (tiles) map.createLayer(0, tiles, 0, 0)?.setDepth(-900);
-    // nudge the Free Pack green toward the promo's warmer olive (multiply wash on land only)
-    const wash = this.add.graphics().setDepth(-899).setBlendMode(Phaser.BlendModes.MULTIPLY);
-    wash.fillStyle(0xffe2b8, 0.5);
+    const tiles = map.addTilesetImage(elevated ? "fpE" : "fpF", "fp-tiles-img");
+    if (tiles) map.createLayer(0, tiles, 0, 0)?.setDepth(depth);
+  }
+
+  /** Multiply wash nudging the Free Pack green toward the promo's olive. */
+  private buildMapWash(cols: number, rows: number): void {
+    const wash = this.add.graphics().setDepth(-855).setBlendMode(Phaser.BlendModes.MULTIPLY);
+    wash.fillStyle(0xffe2b8, 0.45);
     for (let cy = 0; cy < rows; cy++) for (let cx = 0; cx < cols; cx++) if (this.land(cx, cy)) wash.fillRect(cx * CELL, cy * CELL, CELL, CELL);
   }
 
-  /** Drop shadow: the elevated footprint shifted one full tile down (per the guide),
-   *  so it peeks out below a platform's bottom edge to sell the height. */
-  private buildMapShadows(cols: number, rows: number): void {
+  /** Animated Water Foam on every water cell touching land (guide: 128px sprite on
+   *  the 64 grid, overlapping; each starts at a different frame). */
+  private buildMapFoam(cols: number, rows: number): void {
+    if (!this.textures.exists("fp-foam")) return;
     for (let cy = 0; cy < rows; cy++) {
       for (let cx = 0; cx < cols; cx++) {
-        if (!this.high(cx, cy)) continue;
-        this.add.rectangle(cx * CELL + CELL / 2, (cy + 1) * CELL + CELL / 2, CELL, CELL, 0x15323b, 0.45).setDepth(-895);
+        if (this.land(cx, cy)) continue;
+        const touches = ([[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [1, -1], [-1, 1], [1, 1]] as Array<[number, number]>).some(([dx, dy]) => this.land(cx + dx, cy + dy));
+        if (!touches) continue;
+        const f = this.add.sprite(cx * CELL + CELL / 2, cy * CELL + CELL / 2, "fp-foam", 0).setDepth(-950);
+        if (this.anims.exists("fp-foam-anim")) f.play({ key: "fp-foam-anim", startFrame: (cx * 7 + cy * 5) % 16 });
       }
     }
   }
 
-  private buildMapShoreline(cols: number, rows: number): void {
-    const band = (depth: number, width: number, color: number, alpha: number, off: number): void => {
-      const g = this.add.graphics().setDepth(depth).setBlendMode(Phaser.BlendModes.ADD);
-      g.lineStyle(width, color, alpha);
-      for (let cy = 0; cy < rows; cy++) {
-        for (let cx = 0; cx < cols; cx++) {
-          if (!this.land(cx, cy)) continue;
-          const x = cx * CELL, y = cy * CELL;
-          if (!this.land(cx, cy - 1)) g.lineBetween(x, y - off, x + CELL, y - off);
-          if (!this.land(cx, cy + 1)) g.lineBetween(x, y + CELL + off, x + CELL, y + CELL + off);
-          if (!this.land(cx + 1, cy)) g.lineBetween(x + CELL + off, y, x + CELL + off, y + CELL);
-          if (!this.land(cx - 1, cy)) g.lineBetween(x - off, y, x - off, y + CELL);
-        }
+  /** Drop shadow: the Free Pack Shadow sprite under the elevated footprint, shifted
+   *  one full tile down (per the guide) — between the flat and elevated layers. */
+  private buildMapShadows(cols: number, rows: number): void {
+    if (!this.textures.exists("fp-shadow")) return;
+    for (let cy = 0; cy < rows; cy++) {
+      for (let cx = 0; cx < cols; cx++) {
+        if (!this.high(cx, cy)) continue;
+        this.add.image(cx * CELL + CELL / 2, (cy + 1) * CELL + CELL / 2, "fp-shadow").setDepth(-880).setAlpha(0.8);
       }
-    };
-    band(-880, 10, 0xbfe9ff, 0.5, 2);
-    band(-882, 18, 0x8fd0e0, 0.28, 9);
+    }
+  }
+
+  /** Stairs/ramps down a platform's south face — two pieces (top connects the
+   *  walkable elevated grass, bottom connects the cliff base). [tileX, topRow, side]. */
+  private buildMapStairs(): void {
+    if (!this.textures.exists("fp-tiles")) return;
+    const stairs: Array<[number, number, "L" | "R"]> = [[4, 5, "L"], [13, 9, "R"], [4, 11, "L"], [13, 14, "R"]];
+    for (const [tx, ty, side] of stairs) {
+      const top = side === "L" ? FP_STAIR.topL : FP_STAIR.topR;
+      const bot = side === "L" ? FP_STAIR.botL : FP_STAIR.botR;
+      this.add.image(tx * CELL + CELL / 2, ty * CELL + CELL / 2, "fp-tiles", top).setDepth(-845);
+      this.add.image(tx * CELL + CELL / 2, (ty + 1) * CELL + CELL / 2, "fp-tiles", bot).setDepth(-845);
+    }
   }
 
   /** Cliff face below a platform's south edge: the Free Pack 2-row cliff (top row
@@ -351,8 +372,8 @@ export class GalleryScene extends Phaser.Scene {
         const narrow = leftEnd && rightEnd;
         const top = narrow ? FP_CLIFF.topNarrow : leftEnd ? FP_CLIFF.topL : rightEnd ? FP_CLIFF.topR : FP_CLIFF.topM;
         const bot = narrow ? FP_CLIFF.botNarrow : leftEnd ? FP_CLIFF.botL : rightEnd ? FP_CLIFF.botR : FP_CLIFF.botM;
-        this.add.image(cxp, (cy + 1) * CELL + CELL / 2, "fp-tiles", top).setDepth(-880);
-        this.add.image(cxp, (cy + 2) * CELL + CELL / 2, "fp-tiles", bot).setDepth(-880);
+        this.add.image(cxp, (cy + 1) * CELL + CELL / 2, "fp-tiles", top).setDepth(-850);
+        this.add.image(cxp, (cy + 2) * CELL + CELL / 2, "fp-tiles", bot).setDepth(-850);
       }
     }
   }
@@ -378,9 +399,9 @@ export class GalleryScene extends Phaser.Scene {
     // Lancer frames are 320px (taller, to fit the spear); warrior/pawn are 192px.
     const unit = (tex: string, tx: number, ty: number): void => {
       if (!this.textures.exists(tex)) return;
-      const scale = tex === "fp-lancer" ? 0.5 : 0.62;
+      const scale = tex === "fp-lancer" ? 0.72 : 0.9; // bigger — match the reference's ~1.3-tile knights
       const [x, y] = P(tx, ty);
-      this.placed(this.add.image(x, y + 8, "shadow").setScale(0.5).setAlpha(0.4), y, -1);
+      this.placed(this.add.image(x, y + 10, "shadow").setScale(0.7).setAlpha(0.4), y, -1);
       this.placed(this.add.image(x, y, tex, 0).setScale(scale).setOrigin(0.5, 0.78), y);
     };
     for (const [tx, ty] of [[6.4, 1.8], [7.2, 1.4], [7.9, 2.0], [6.6, 2.8], [7.5, 3.2], [6.0, 2.4]] as Array<[number, number]>) unit("fp-lancer", tx, ty);
@@ -389,24 +410,25 @@ export class GalleryScene extends Phaser.Scene {
     unit("fp-warrior", 11.2, 14.2);
     unit("fp-pawn", 16.0, 11.4);
 
-    // trees: STATIC single frame (the tree sheets are sway anims / variant strips;
-    // looping them made the sprites visibly scroll). A warm static tint turns the
-    // green leaf sheets into the reference's autumn trees.
-    const tree = (tex: string, tx: number, ty: number, scale: number, tint?: number): void => {
-      if (!this.textures.exists(tex)) return;
+    // trees: the t-tree pine sheet's frames 0-5 are a clean gentle sway (the ftree
+    // strips jumped between variants — that was the "scrolling"). One swaying pine,
+    // green for the canopy, warm-tinted for the autumn trees on the flanks.
+    const tree = (tx: number, ty: number, scale: number, tint?: number): void => {
+      if (!this.textures.exists("t-tree")) return;
       const [x, y] = P(tx, ty);
-      const img = this.placed(this.add.image(x, y, tex, 0).setScale(scale).setOrigin(0.5, 0.9), y);
-      if (tint !== undefined) img.setTint(tint);
+      const spr = this.placed(this.add.sprite(x, y, "t-tree", 0).setScale(scale).setOrigin(0.5, 0.9), y);
+      if (tint !== undefined) spr.setTint(tint);
+      if (this.anims.exists("tree-sway")) spr.play({ key: "tree-sway", startFrame: Math.floor((tx * 2 + ty) % 6) });
     };
     // dark-green pine cluster across the top + a few by the sign
-    for (const [tx, ty] of [[8.8, 0.8], [9.6, 0.5], [10.4, 0.8], [11.2, 0.5], [12.0, 0.9], [12.9, 0.6], [17.4, 0.8], [18.3, 1.6], [19.0, 0.7]] as Array<[number, number]>) tree("t-tree", tx, ty, 1.12);
-    // autumn (warm-tinted) leafy trees down the flanks & corners
+    for (const [tx, ty] of [[8.8, 0.8], [9.6, 0.5], [10.4, 0.8], [11.2, 0.5], [12.0, 0.9], [12.9, 0.6], [17.4, 0.8], [18.3, 1.6], [19.0, 0.7]] as Array<[number, number]>) tree(tx, ty, 1.15);
+    // autumn (warm-tinted) trees down the flanks & corners
     const AUTUMN = [0xf4d24a, 0xe9a23a, 0xf2c14e, 0xe6b34a];
     for (const [tx, ty, n] of [
-      [0.7, 1.8, 1], [0.9, 3.2, 2], [0.6, 4.6, 3], [1.0, 6.0, 4],
-      [17.6, 12.0, 1], [18.6, 13.4, 2], [19.3, 11.6, 3], [20.0, 13.0, 4],
-      [13.0, 16.0, 1], [4.6, 16.2, 2], [22.0, 8.4, 3],
-    ] as Array<[number, number, number]>) tree(`ftree${n}`, tx, ty, 0.6, AUTUMN[(n - 1) % AUTUMN.length]);
+      [0.7, 1.8, 0], [0.9, 3.2, 1], [0.6, 4.6, 2], [1.0, 6.0, 3],
+      [17.6, 12.0, 0], [18.6, 13.4, 1], [19.3, 11.6, 2], [20.0, 13.0, 3],
+      [13.0, 16.0, 0], [4.6, 16.2, 1], [22.0, 8.4, 2],
+    ] as Array<[number, number, number]>) tree(tx, ty, 1.0, AUTUMN[n % AUTUMN.length]);
 
     // sheep grazing near the village
     for (const [tx, ty] of [[17.6, 6.6], [19.0, 6.0], [16.2, 8.6], [12.8, 9.6], [15.0, 13.0]] as Array<[number, number]>) {
