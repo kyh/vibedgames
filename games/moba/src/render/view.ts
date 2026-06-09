@@ -19,6 +19,25 @@ const GRASS_AUTOTILE: Record<number, number> = {
   8: 1, 9: 0, 10: 31, 11: 30, 12: 2, 13: 3, 14: 32, 15: 33,
 };
 
+// Elevation (cliff) autotile — Tilemap_Elevation tall block. Same neighbour bits
+// (N=8,E=4,S=2,W=1, set when that neighbour is LOWER ground): TL=0 top=1 TR=2,
+// left=4 interior=5 right=6, cliff-BL=12 cliff-bottom=13 cliff-BR=14.
+const ELEV_AUTOTILE: Record<number, number> = {
+  0: 5, 8: 1, 4: 6, 2: 13, 1: 4, 9: 0, 12: 2, 3: 12,
+  6: 14, 10: 13, 5: 7, 13: 3, 7: 15, 11: 12, 14: 14, 15: 15,
+};
+
+// Raised grassy plateaus with rock cliff edges, in the off-lane jungle quadrants
+// (clear of the river + lanes). {x,y,r} circles → a "high" cell mask.
+const PLATEAUS: Array<{ x: number; y: number; r: number }> = [
+  { x: 1850, y: 4480, r: 380 }, // radiant top jungle
+  { x: 2980, y: 5180, r: 340 }, // radiant bottom jungle
+  { x: 4550, y: 1920, r: 380 }, // dire bottom jungle
+  { x: 3220, y: 1880, r: 340 }, // dire top jungle
+  { x: 1180, y: 5060, r: 300 }, // radiant base-side rise
+  { x: 5220, y: 1540, r: 300 }, // dire base-side rise
+];
+
 /** Deterministic 0..1 hash so decoration scatter is stable across reloads/peers. */
 function rng2(x: number, y: number): number {
   const v = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
@@ -38,6 +57,8 @@ type UnitView = {
   dy: number;
   curAnim: string;
   flashUntil: number;
+  lastAttackAt: number; // detect a fresh swing to play the attack anim once
+  dead: boolean; // playing/played the death anim while hidden (heroes)
 };
 
 type StructView = {
@@ -90,6 +111,9 @@ export class WorldView {
 
     // 2) autotiled grass landmass as a single tilemap layer (one draw)
     this.buildGroundLayer(isLand, cols, rows);
+
+    // 2b) raised stone mesas (cliff autotile) for vertical depth
+    if (this.scene.textures.exists("t-elev")) this.buildElevation(isLand, cols, rows);
 
     // 3) foam along the river shoreline (sampled so it stays cheap)
     if (this.scene.textures.exists("t-foam")) this.buildFoam(isLand, cols, rows);
@@ -152,6 +176,40 @@ export class WorldView {
       layer?.setDepth(DEPTH_GROUND);
     } else {
       s.add.tileSprite(0, 0, WORLD.width, WORLD.height, "t-ground", GRASS_FRAME).setOrigin(0, 0).setDepth(DEPTH_GROUND);
+    }
+  }
+
+  /** Raised stone mesas via the cliff autotile, with a grounding shadow at the drop. */
+  private buildElevation(isLand: (cx: number, cy: number) => boolean, cols: number, rows: number): void {
+    const s = this.scene;
+    const high = (cx: number, cy: number): boolean => {
+      if (cx < 0 || cy < 0 || cx >= cols || cy >= rows || !isLand(cx, cy)) return false;
+      const x = cx * CELL + CELL / 2;
+      const y = cy * CELL + CELL / 2;
+      for (const p of PLATEAUS) if ((x - p.x) ** 2 + (y - p.y) ** 2 <= p.r * p.r) return true;
+      return false;
+    };
+    for (let cy = 0; cy < rows; cy++) {
+      for (let cx = 0; cx < cols; cx++) {
+        if (!high(cx, cy)) continue;
+        const sLow = !high(cx, cy + 1);
+        const k =
+          (high(cx, cy - 1) ? 0 : 8) |
+          (high(cx + 1, cy) ? 0 : 4) |
+          (sLow ? 2 : 0) |
+          (high(cx - 1, cy) ? 0 : 1);
+        if (k === 0) continue; // interior stays grass — only edges get the rock rim/cliff
+        const frame = ELEV_AUTOTILE[k] ?? 5;
+        const x = cx * CELL;
+        const y = cy * CELL;
+        const cxp = x + CELL / 2;
+        // grounding shadow just below a south-facing cliff edge (the tileset's face
+        // is only ~half a tile, so a soft shadow sells the drop without terracing).
+        if (sLow) {
+          s.add.ellipse(cxp, y + CELL + 14, CELL + 16, 26, 0x000000, 0.34).setDepth(DEPTH_GROUND + 1);
+        }
+        s.add.image(cxp, y + CELL / 2, "t-elev", frame).setDepth(DEPTH_GROUND + 3);
+      }
     }
   }
 
@@ -293,15 +351,33 @@ export class WorldView {
     const seen = new Set<string>();
     for (const u of world.units.values()) {
       if (u.kind === "structure") continue;
-      // dead heroes: hide their view until respawn
+      // dead heroes: play the death anim once, then hide until respawn
       if (!u.alive) {
         const v = this.units.get(u.id);
-        if (v) v.container.setVisible(false);
+        if (v && !v.dead) {
+          v.dead = true;
+          const dkey = animKey(u, "death");
+          v.sprite.clearTint();
+          if (this.scene.anims.exists(dkey)) {
+            v.sprite.play(dkey);
+            v.curAnim = dkey;
+            v.sprite.once("animationcomplete", () => v.container.setVisible(false));
+          } else {
+            v.container.setVisible(false);
+          }
+        }
         continue;
       }
       seen.add(u.id);
       let v = this.units.get(u.id);
       if (!v) v = this.createUnitView(u);
+      if (v.dead) {
+        // respawned — snap back so we don't slide from the death spot to base
+        v.dead = false;
+        v.dx = u.x;
+        v.dy = u.y;
+        v.curAnim = "";
+      }
       v.container.setVisible(true);
 
       // smooth display position toward sim position
@@ -311,18 +387,30 @@ export class WorldView {
       v.container.setPosition(v.dx, v.dy);
       v.container.setDepth(v.dy);
 
-      // facing + animation
+      // facing + animation. A fresh attack (lastAttackAt advanced) plays the FULL
+      // attack swing once; while it's still playing we don't interrupt it with
+      // walk/idle, so each hit reads as a complete motion.
       v.sprite.setFlipX(u.facing < 0);
-      const moving = Math.hypot(u.vx, u.vy) > 12;
-      const anim = u.pendingAttack ? "attack" : moving ? "walk" : "idle";
-      const key = animKey(u, anim);
-      if (v.curAnim !== key && this.scene.anims.exists(key)) {
-        v.sprite.play(key, true);
-        v.curAnim = key;
+      const attackKey = animKey(u, "attack");
+      const attackPlaying = v.curAnim === attackKey && v.sprite.anims.isPlaying;
+      if (u.lastAttackAt !== v.lastAttackAt && u.pendingAttack) {
+        v.lastAttackAt = u.lastAttackAt;
+        if (this.scene.anims.exists(attackKey)) {
+          v.sprite.play(attackKey, true);
+          v.curAnim = attackKey;
+        }
+      } else if (!attackPlaying) {
+        const moving = Math.hypot(u.vx, u.vy) > 12;
+        const key = animKey(u, moving ? "walk" : "idle");
+        if (v.curAnim !== key && this.scene.anims.exists(key)) {
+          v.sprite.play(key, true);
+          v.curAnim = key;
+        }
       }
 
-      // hit flash
-      if (world.now < v.flashUntil) v.sprite.setTint(0xff6b6b);
+      // hit flash — compare against the SAME render clock that set flashUntil
+      // (scene.time.now), not the sim clock, so it lasts ~90ms instead of lingering.
+      if (this.scene.time.now < v.flashUntil) v.sprite.setTint(0xff6b6b);
       else if (u.kind === "hero") v.sprite.setTint(heroTint(u));
       else v.sprite.clearTint();
 
@@ -336,15 +424,33 @@ export class WorldView {
       const stunned = u.statuses.some((s) => s.kind === "stun" || s.kind === "taunt");
       v.ring.setAlpha(u.id === this.playerHeroId ? 1 : stunned ? 0.9 : u.kind === "hero" ? 0.5 : 0);
     }
-    // remove views for units gone from the world
+    // remove views for units gone from the world (creeps die + get reaped) —
+    // play a one-shot death anim from the sprite's last texture as it leaves.
     for (const [id, v] of this.units) {
       if (!world.units.has(id)) {
+        this.spawnDeathAnim(v);
         v.container.destroy();
         this.units.delete(id);
-      } else if (!seen.has(id)) {
-        // unit exists but not rendered this frame (dead hero) — already hidden
       }
     }
+  }
+
+  /** One-shot death animation at a unit's last position (for reaped creeps). */
+  private spawnDeathAnim(v: UnitView): void {
+    if (v.dead) return; // a hero already played its death in-place
+    const tex = v.sprite.texture.key;
+    const dkey = `${tex}-death`;
+    if (!this.scene.anims.exists(dkey)) return;
+    const s = this.scene;
+    const corpse = s.add
+      .sprite(v.dx, v.dy - 18, tex, 0)
+      .setScale(v.sprite.scaleX, v.sprite.scaleY)
+      .setFlipX(v.sprite.flipX)
+      .setDepth(v.dy - 2);
+    corpse.play(dkey);
+    corpse.once("animationcomplete", () => {
+      s.tweens.add({ targets: corpse, alpha: 0, duration: 260, onComplete: () => corpse.destroy() });
+    });
   }
 
   private createUnitView(u: Unit): UnitView {
@@ -375,7 +481,7 @@ export class WorldView {
       children.push(mpBg, mpFill, label);
     }
     const container = s.add.container(u.x, u.y, children).setDepth(u.y);
-    const v: UnitView = { container, sprite, shadow, ring, hpBg, hpFill, mpFill, label, dx: u.x, dy: u.y, curAnim: "", flashUntil: 0 };
+    const v: UnitView = { container, sprite, shadow, ring, hpBg, hpFill, mpFill, label, dx: u.x, dy: u.y, curAnim: "", flashUntil: 0, lastAttackAt: 0, dead: false };
     this.units.set(u.id, v);
     return v;
   }

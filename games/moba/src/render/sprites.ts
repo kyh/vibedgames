@@ -56,6 +56,6 @@ export function structureDestroyedTex(tier: string): string {
   return tier === "ancient" ? "b-castle-destroyed" : "b-tower-destroyed";
 }
 
-export function animKey(u: Unit, name: "idle" | "walk" | "attack"): string {
+export function animKey(u: Unit, name: "idle" | "walk" | "attack" | "death"): string {
   return `${unitSprite(u).tex}-${name}`;
 }

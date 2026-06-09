@@ -46,6 +46,7 @@ export class BootScene extends Phaser.Scene {
     });
     this.load.image("t-water", "assets/terrain/water.png");
     this.load.image("t-ground-img", "assets/terrain/ground_flat.png"); // tileset source for the map layer
+    this.load.spritesheet("t-elev", "assets/terrain/ground_elevation.png", { frameWidth: 64, frameHeight: 64 }); // cliff/plateau autotile
     this.load.spritesheet("t-foam", "assets/terrain/foam.png", { frameWidth: UNIT, frameHeight: UNIT });
     this.load.spritesheet("t-bridge", "assets/terrain/bridge.png", { frameWidth: 64, frameHeight: 64 });
     this.load.spritesheet("t-tree", "assets/terrain/tree.png", { frameWidth: UNIT, frameHeight: UNIT });
