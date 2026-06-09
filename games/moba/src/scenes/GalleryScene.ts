@@ -78,14 +78,15 @@ const MAP_MASK = [
   "0011100000000000000111100",
   "0000000000000000000000000",
 ];
-// Raised plateaus (tile rects [x0,y0,x1,y1] inclusive) → cliff walls at their edges.
+// Raised plateaus (tile rects [x0,y0,x1,y1] inclusive) → cliff walls at their south
+// edges. Traced against the &ref=1 overlay grid to match the reference's terraces.
 const HIGH_RECTS: Array<[number, number, number, number]> = [
-  [2, 1, 9, 3], // castle rise (top-left)
-  [3, 10, 8, 14], // mid-left terrace
-  [11, 6, 16, 9], // central plateau
+  [1, 0, 9, 4], // castle + spearmen platform (top-left), drops ~row 5
+  [10, 5, 15, 8], // central platform
   [16, 2, 22, 6], // village rise (right)
-  [10, 11, 15, 14], // lower-center terrace
-  [17, 8, 21, 11], // village south rise
+  [2, 8, 9, 10], // mid-left terrace
+  [2, 12, 7, 14], // lower-left terrace
+  [11, 10, 16, 13], // lower-right terrace
 ];
 
 export class GalleryScene extends Phaser.Scene {
@@ -299,6 +300,10 @@ export class GalleryScene extends Phaser.Scene {
     const map = this.make.tilemap({ data, tileWidth: CELL, tileHeight: CELL });
     const tiles = map.addTilesetImage("fp", "fp-tiles-img");
     if (tiles) map.createLayer(0, tiles, 0, 0)?.setDepth(-900);
+    // nudge the Free Pack green toward the promo's warmer olive (multiply wash on land only)
+    const wash = this.add.graphics().setDepth(-899).setBlendMode(Phaser.BlendModes.MULTIPLY);
+    wash.fillStyle(0xffe2b8, 0.5);
+    for (let cy = 0; cy < rows; cy++) for (let cx = 0; cx < cols; cx++) if (this.land(cx, cy)) wash.fillRect(cx * CELL, cy * CELL, CELL, CELL);
   }
 
   /** Drop shadow: the elevated footprint shifted one full tile down (per the guide),
@@ -363,11 +368,11 @@ export class GalleryScene extends Phaser.Scene {
       const [x, y] = P(tx, ty);
       this.placed(this.add.image(x, y, tex).setOrigin(0.5, 0.85), y);
     };
-    building("fp-castle", 4.2, 2.2);
-    building("fp-tower", 2.6, 8.4);
-    building("fp-tower", 9.2, 15.0);
+    building("fp-castle", 3.0, 3.2);
+    building("fp-tower", 1.6, 9.8);
+    building("fp-tower", 8.6, 15.8);
     const HOUSES = ["fp-house1", "fp-house2", "fp-house3"];
-    [[17.6, 4.6], [19.4, 4.4], [20.6, 5.6], [18.4, 6.0], [15.4, 9.0]].forEach(([tx, ty], i) => building(HOUSES[i % HOUSES.length]!, tx!, ty!));
+    [[13.6, 5.0], [15.4, 4.8], [14.5, 6.2], [16.5, 5.8], [11.6, 11.8]].forEach(([tx, ty], i) => building(HOUSES[i % HOUSES.length]!, tx!, ty!));
 
     // Free Pack knights: a Lancer (spearman) column by the castle + scattered units.
     // Lancer frames are 320px (taller, to fit the spear); warrior/pawn are 192px.
@@ -378,12 +383,11 @@ export class GalleryScene extends Phaser.Scene {
       this.placed(this.add.image(x, y + 8, "shadow").setScale(0.5).setAlpha(0.4), y, -1);
       this.placed(this.add.image(x, y, tex, 0).setScale(scale).setOrigin(0.5, 0.78), y);
     };
-    for (const [tx, ty] of [[6.6, 1.6], [7.4, 1.2], [8.2, 1.7], [7.0, 2.6], [8.0, 2.9], [6.2, 3.4]] as Array<[number, number]>) unit("fp-lancer", tx, ty);
-    unit("fp-warrior", 9.0, 5.4);
-    unit("fp-warrior", 8.4, 4.6);
-    unit("fp-pawn", 5.2, 12.8);
-    unit("fp-warrior", 13.0, 13.2);
-    unit("fp-pawn", 16.4, 11.6);
+    for (const [tx, ty] of [[6.4, 1.8], [7.2, 1.4], [7.9, 2.0], [6.6, 2.8], [7.5, 3.2], [6.0, 2.4]] as Array<[number, number]>) unit("fp-lancer", tx, ty);
+    unit("fp-warrior", 7.2, 5.2);
+    unit("fp-warrior", 4.2, 13.2);
+    unit("fp-warrior", 11.2, 14.2);
+    unit("fp-pawn", 16.0, 11.4);
 
     // trees: STATIC single frame (the tree sheets are sway anims / variant strips;
     // looping them made the sprites visibly scroll). A warm static tint turns the
@@ -394,18 +398,18 @@ export class GalleryScene extends Phaser.Scene {
       const img = this.placed(this.add.image(x, y, tex, 0).setScale(scale).setOrigin(0.5, 0.9), y);
       if (tint !== undefined) img.setTint(tint);
     };
-    // dark-green pine cluster across the top + along the upper coast & by the sign
-    for (const [tx, ty] of [[10.4, 0.7], [11.3, 0.4], [12.2, 0.7], [13.1, 0.4], [14.0, 0.7], [14.9, 0.4], [9.6, 1.0], [15.7, 1.0], [23.2, 1.2], [23.9, 2.6], [24.2, 4.2], [8.7, 0.6]] as Array<[number, number]>) tree("t-tree", tx, ty, 1.12);
+    // dark-green pine cluster across the top + a few by the sign
+    for (const [tx, ty] of [[8.8, 0.8], [9.6, 0.5], [10.4, 0.8], [11.2, 0.5], [12.0, 0.9], [12.9, 0.6], [17.4, 0.8], [18.3, 1.6], [19.0, 0.7]] as Array<[number, number]>) tree("t-tree", tx, ty, 1.12);
     // autumn (warm-tinted) leafy trees down the flanks & corners
     const AUTUMN = [0xf4d24a, 0xe9a23a, 0xf2c14e, 0xe6b34a];
     for (const [tx, ty, n] of [
-      [1.4, 1.8, 1], [1.7, 3.2, 2], [1.3, 4.6, 3], [1.9, 6.0, 4], [1.5, 7.4, 1], [2.2, 8.8, 2],
-      [22.4, 9.4, 1], [23.0, 11.0, 2], [22.1, 12.6, 3], [23.2, 14.0, 4], [21.4, 7.6, 1],
-      [13.2, 16.4, 4], [11.0, 16.6, 2], [4.6, 16.4, 3], [18.6, 15.6, 1],
+      [0.7, 1.8, 1], [0.9, 3.2, 2], [0.6, 4.6, 3], [1.0, 6.0, 4],
+      [17.6, 12.0, 1], [18.6, 13.4, 2], [19.3, 11.6, 3], [20.0, 13.0, 4],
+      [13.0, 16.0, 1], [4.6, 16.2, 2], [22.0, 8.4, 3],
     ] as Array<[number, number, number]>) tree(`ftree${n}`, tx, ty, 0.6, AUTUMN[(n - 1) % AUTUMN.length]);
 
     // sheep grazing near the village
-    for (const [tx, ty] of [[18.4, 7.4], [20.4, 6.6], [16.8, 9.8], [21.6, 8.2], [15.0, 11.0]] as Array<[number, number]>) {
+    for (const [tx, ty] of [[17.6, 6.6], [19.0, 6.0], [16.2, 8.6], [12.8, 9.6], [15.0, 13.0]] as Array<[number, number]>) {
       if (!this.textures.exists("sheep")) break;
       const [x, y] = P(tx, ty);
       const spr = this.placed(this.add.sprite(x, y, "sheep", 0).setScale(0.5).setOrigin(0.5, 0.8), y);
