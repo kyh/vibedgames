@@ -1,0 +1,1164 @@
+import Phaser from "phaser";
+import {
+  TILE,
+  ZOOM,
+  MAP_W,
+  MAP_H,
+  WALK_SPEED,
+  RUN_SPEED,
+  MAX_ENERGY,
+  ENERGY_PER_SWING,
+  CAN_MAX,
+  DAY_START_MIN,
+  DAY_END_MIN,
+  GAME_MIN_PER_REAL_SEC,
+  HP_REGEN_PER_DAY,
+  DEPTH,
+} from "../config";
+import { World, GROUND, inBounds, type WorldObject } from "../world/world";
+import { generateFarm } from "../world/mapgen";
+import { Inventory } from "../systems/inventory";
+import { Skills, type SkillId, SKILL_NAMES } from "../systems/skills";
+import { store } from "../systems/store";
+import { CROPS, cropStage, isMature, type CropId } from "../data/crops";
+import { isSellable, sellValue, type Item, type ForageId } from "../data/items";
+import { hasSave, loadSave, writeSave, type SaveData } from "../systems/save";
+import { burst, floatText, shake, pop } from "../render/fx";
+import { Sound } from "../render/audio";
+import { seasonOfDay, type Season } from "../data/calendar";
+import { weatherForDay, type Weather } from "../systems/weather";
+import { Fishing } from "../systems/fishing";
+import { makeGameKeys, NUM_KEY_NAMES, type GameKeys } from "../systems/keys";
+import { AnimalManager } from "../entities/animals";
+import { NpcManager } from "../entities/npcs";
+
+type CharAction = "dig" | "water" | "axe" | "mine" | "doing";
+const ACTION_TIMING: Record<CharAction, [number, number, number]> = {
+  dig: [18, 13, 9],
+  water: [9, 5, 3],
+  axe: [16, 10, 7],
+  mine: [16, 10, 7],
+  doing: [14, 8, 4],
+};
+
+export class GameScene extends Phaser.Scene {
+  world!: World;
+  day = 1;
+  timeMin = DAY_START_MIN;
+  canCharge = CAN_MAX;
+  uiOpen = false;
+  weather: Weather = "sunny";
+
+  private seed = 0;
+  player!: Phaser.GameObjects.Sprite;
+  private shadow!: Phaser.GameObjects.Ellipse;
+  facing = { x: 0, y: 1 };
+  acting = false;
+  private moving = false;
+
+  private soilImgs = new Map<number, Phaser.GameObjects.Image>();
+  private cropImgs = new Map<number, Phaser.GameObjects.Image>();
+  objSprites = new Map<number, Phaser.GameObjects.Sprite>();
+  private highlight!: Phaser.GameObjects.Graphics;
+  private nightOverlay!: Phaser.GameObjects.Rectangle;
+
+  private keys!: GameKeys;
+  transitioning = false;
+  private pendingSpawn = { x: 0, y: 0 };
+  private stepTimer = 0;
+
+  fishing!: Fishing;
+  animals!: AnimalManager;
+  npcs!: NpcManager;
+  private fainted = false;
+  private onResizeHandler?: (gs: Phaser.Structs.Size) => void;
+  private saveHandler = (): void => this.save();
+
+  constructor() {
+    super("Game");
+  }
+
+  // expose the store's inventory for HUD/other scenes
+  get inv(): Inventory {
+    return store.inv;
+  }
+
+  create(data: { mode: "new" | "continue"; fromMine?: boolean; fainted?: boolean }): void {
+    document.getElementById("veil")?.classList.add("hidden");
+    // reset reused-instance state (Phaser keeps the scene instance across start/stop)
+    this.soilImgs = new Map();
+    this.cropImgs = new Map();
+    this.objSprites = new Map();
+    this.acting = false;
+    this.transitioning = false;
+    this.uiOpen = false;
+    this.facing = { x: 0, y: 1 };
+    this.fainted = false;
+    this.stepTimer = 0;
+
+    if (data?.fromMine) {
+      // returning from the mine — world/state already initialized; just rebuild
+      this.restoreFromStore();
+      if (data.fainted) this.fainted = true;
+    } else {
+      const cont = data?.mode === "continue" && hasSave();
+      if (cont) this.loadFrom(loadSave()!);
+      else this.startNew();
+    }
+    this.weather = weatherForDay(this.seed, this.day);
+
+    this.buildGround();
+    this.buildObjects();
+    this.buildDecals();
+    this.buildSoilAndCrops();
+
+    this.shadow = this.add.ellipse(0, 0, 16, 7, 0x000000, 0.22).setDepth(DEPTH.entityBase);
+    this.player = this.add.sprite(0, 0, "p-idle").setOrigin(0.5, 0.82).play("p-idle");
+    this.player.setPosition(this.pendingSpawn.x, this.pendingSpawn.y);
+
+    this.highlight = this.add.graphics().setDepth(DEPTH.highlight);
+
+    this.nightOverlay = this.add
+      .rectangle(0, 0, this.scale.width, this.scale.height, 0x14224a, 0)
+      .setOrigin(0, 0)
+      .setScrollFactor(0)
+      .setDepth(DEPTH.night);
+    if (this.onResizeHandler) this.scale.off("resize", this.onResizeHandler);
+    this.onResizeHandler = (gs: Phaser.Structs.Size) =>
+      this.nightOverlay.setSize(gs.width, gs.height);
+    this.scale.on("resize", this.onResizeHandler);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      if (this.onResizeHandler) this.scale.off("resize", this.onResizeHandler);
+    });
+
+    const cam = this.cameras.main;
+    cam.setBounds(0, 0, MAP_W * TILE, MAP_H * TILE);
+    cam.setZoom(ZOOM);
+    cam.startFollow(this.player, true, 0.12, 0.12);
+    cam.setRoundPixels(true);
+
+    this.fishing = new Fishing(this);
+    this.animals = new AnimalManager(this, this.world);
+    this.npcs = new NpcManager(this, this.world);
+    this.animals.spawnAll();
+    this.npcs.spawnAll();
+
+    this.setupInput();
+
+    if (!this.scene.isActive("Hud")) this.scene.launch("Hud");
+    else this.scene.get("Hud").events.emit("hud-rebind");
+
+    this.game.events.off("hidden", this.saveHandler);
+    this.game.events.on("hidden", this.saveHandler);
+    window.removeEventListener("beforeunload", this.saveHandler);
+    window.addEventListener("beforeunload", this.saveHandler);
+
+    if (data?.fromMine) cam.fadeIn(400, 0, 0, 0);
+    else this.events.emit("daybanner", this.day, seasonOfDay(this.day), this.weather);
+
+    if (import.meta.env.DEV) (window as unknown as { __gs: GameScene }).__gs = this;
+  }
+
+  // ---------------------------------------------------------------- init
+
+  private startNew(): void {
+    this.seed = (Math.random() * 1e9) | 0;
+    const gen = generateFarm(this.seed);
+    this.world = gen.world;
+    store.initNew();
+    this.day = 1;
+    this.timeMin = DAY_START_MIN;
+    this.canCharge = CAN_MAX;
+    this.pendingSpawn = { x: gen.spawn.tx * TILE + 8, y: gen.spawn.ty * TILE + 12 };
+  }
+
+  private loadFrom(s: SaveData): void {
+    this.seed = s.seed;
+    this.world = World.fromJSON(s.world);
+    store.inv = Inventory.fromJSON(s.inv);
+    store.skills = Skills.fromJSON(s.skills);
+    store.gold = s.gold;
+    store.energy = s.energy;
+    store.hp = s.hp;
+    this.day = s.day;
+    this.timeMin = s.timeMin;
+    this.canCharge = s.canCharge;
+    this.pendingSpawn = { x: s.player.x, y: s.player.y };
+    if (s.animals) store.loadAnimals(s.animals, s.animalSeq ?? 1);
+    if (s.npcFriendship) store.npcFriendship = s.npcFriendship;
+  }
+
+  // Coming back from the mine: GameScene was stopped, so rebuild the WORLD and
+  // clock from the save — but keep inv/skills/gold/hp/energy/animals live in the
+  // store (they changed during the mine run and must not be reverted).
+  private restoreFromStore(): void {
+    const s = loadSave();
+    if (!s) {
+      this.startNew();
+      return;
+    }
+    this.seed = s.seed;
+    this.world = World.fromJSON(s.world);
+    this.day = s.day;
+    this.timeMin = s.timeMin;
+    this.canCharge = s.canCharge;
+    const cave = this.world.objects.find((o) => o.type === "cave");
+    this.pendingSpawn = cave
+      ? { x: cave.tx * TILE + 8, y: (cave.ty + 2) * TILE }
+      : { x: this.pendingSpawn.x, y: this.pendingSpawn.y };
+  }
+
+  private setupInput(): void {
+    const kb = this.input.keyboard;
+    if (!kb) return;
+    // scene instances + Key objects persist across restart — clear stale listeners
+    this.input.removeAllListeners();
+    kb.removeAllListeners();
+    kb.on("keydown", () => Sound.resume());
+    this.input.on("pointerdown", () => Sound.resume());
+    this.keys = makeGameKeys(kb);
+    for (const k of Object.values(this.keys)) k.removeAllListeners();
+    this.keys.M.on("down", () =>
+      this.toast(Sound.toggleMute() ? "Sound off" : "Sound on", "#dfe9ff"),
+    );
+    Sound.startMusic("farm");
+
+    NUM_KEY_NAMES.forEach((name, i) =>
+      this.keys[name].on("down", () => !this.uiOpen && store.inv.select(i)),
+    );
+
+    this.keys.SPACE.on("down", () => this.tryAction());
+    this.keys.E.on("down", () => this.tryAction());
+    this.input.on("wheel", (_p: unknown, _o: unknown, _dx: number, dy: number) => {
+      if (!this.uiOpen) store.inv.cycle(dy > 0 ? 1 : -1);
+    });
+    this.input.on("pointerdown", (p: Phaser.Input.Pointer) => {
+      if (this.uiOpen || p.button !== 0) return;
+      this.tryAction();
+    });
+    this.keys.I.on("down", () => this.toggleInventory());
+    this.keys.H.on("down", () => !this.uiOpen && this.events.emit("toggle-help"));
+  }
+
+  private toggleInventory(): void {
+    if (this.fishing.active) return;
+    if (this.scene.isActive("Inventory")) {
+      this.scene.stop("Inventory");
+      this.uiOpen = false;
+    } else if (!this.uiOpen) {
+      this.uiOpen = true;
+      this.scene.launch("Inventory");
+    }
+  }
+
+  // ---------------------------------------------------------------- render build
+
+  private buildGround(): void {
+    // textured grass base everywhere
+    this.add
+      .tileSprite(0, 0, MAP_W * TILE, MAP_H * TILE, "t-grass1")
+      .setOrigin(0, 0)
+      .setDepth(DEPTH.ground);
+    // grass variety decals on grass cells only
+    const vlayer = this.add.container(0, 0).setDepth(DEPTH.ground + 0.1);
+    for (let ty = 0; ty < MAP_H; ty++) {
+      for (let tx = 0; tx < MAP_W; tx++) {
+        if (this.world.getGround(tx, ty) !== GROUND.grass) continue;
+        const gv = (this.world.gv[this.world.idx(tx, ty)] ?? 0) % 6;
+        if (gv !== 1)
+          vlayer.add(this.add.image(tx * TILE, ty * TILE, `t-grass${gv}`).setOrigin(0, 0));
+      }
+    }
+    // dual-grid autotile overlays (sand under water where they ever touch)
+    this.drawDualGrid((tx, ty) => this.cellIs(tx, ty, GROUND.sand), "dt-sand", DEPTH.ground + 0.15);
+    this.drawDualGrid(
+      (tx, ty) => this.cellIs(tx, ty, GROUND.water),
+      "dt-water",
+      DEPTH.ground + 0.2,
+    );
+  }
+
+  private cellIs(tx: number, ty: number, g: number): boolean {
+    return inBounds(tx, ty) && this.world.getGround(tx, ty) === g;
+  }
+
+  // Dual-grid: render on a half-tile-offset grid; each tile samples the 4 world
+  // cells around its corner to pick the matching 16-mask transition tile.
+  private drawDualGrid(
+    pred: (tx: number, ty: number) => boolean,
+    prefix: string,
+    depth: number,
+  ): void {
+    const layer = this.add.container(0, 0).setDepth(depth);
+    for (let j = 0; j <= MAP_H; j++) {
+      for (let i = 0; i <= MAP_W; i++) {
+        const tl = pred(i - 1, j - 1) ? 1 : 0;
+        const tr = pred(i, j - 1) ? 1 : 0;
+        const bl = pred(i - 1, j) ? 1 : 0;
+        const br = pred(i, j) ? 1 : 0;
+        const mask = tl | (tr << 1) | (bl << 2) | (br << 3);
+        if (mask === 0) continue;
+        layer.add(
+          this.add
+            .image(i * TILE - TILE / 2, j * TILE - TILE / 2, `${prefix}-${mask}`)
+            .setOrigin(0, 0),
+        );
+      }
+    }
+  }
+
+  private buildObjects(): void {
+    for (const o of this.world.objects) this.spawnObjectSprite(o);
+  }
+
+  spawnObjectSprite(o: WorldObject): void {
+    const cx = o.tx * TILE + TILE / 2;
+    const by = (o.ty + 1) * TILE;
+    let spr: Phaser.GameObjects.Sprite;
+    switch (o.type) {
+      case "tree":
+        spr = this.add
+          .sprite(cx, by + 2, "obj-tree")
+          .setOrigin(0.5, 1)
+          .play("tree-sway");
+        spr.anims.setProgress(Math.random());
+        break;
+      case "rock":
+        spr = this.add.sprite(cx, by + 1, "obj-rock").setOrigin(0.5, 1);
+        break;
+      case "ore":
+        spr = this.add.sprite(cx, by + 1, `obj-ore-${o.variant ?? "coal"}`).setOrigin(0.5, 1);
+        break;
+      case "house":
+        spr = this.add.sprite(cx, by, "obj-house").setOrigin(0.5, 1);
+        break;
+      case "shop":
+        spr = this.add.sprite(cx, by, "obj-shop").setOrigin(0.5, 1);
+        break;
+      case "barn":
+        spr = this.add.sprite(cx, by, "obj-barn").setOrigin(0.5, 1);
+        break;
+      case "coop":
+        spr = this.add.sprite(cx, by, "obj-coop").setOrigin(0.5, 1);
+        break;
+      case "bin":
+        spr = this.add.sprite(cx, by, "obj-crate").setOrigin(0.5, 1);
+        break;
+      case "cave":
+        spr = this.add.sprite(cx, by, "obj-cave").setOrigin(0.5, 1);
+        break;
+      case "windmill":
+        spr = this.add
+          .sprite(cx, by + 8, "obj-windmill")
+          .setOrigin(0.5, 1)
+          .setScale(0.6)
+          .play("windmill-spin");
+        break;
+      case "fence":
+        spr = this.add
+          .sprite(cx, by, o.variant === "v" ? "obj-fence_v" : "obj-fence_h")
+          .setOrigin(0.5, 1);
+        break;
+      case "forage": {
+        const key = o.variant === "mushroom_blue" ? "obj-mushroom-blue" : "obj-mushroom-red";
+        spr = this.add.sprite(cx, by - 1, key, 0).setOrigin(0.5, 1);
+        break;
+      }
+    }
+    spr.setDepth(DEPTH.entityBase + by);
+    this.objSprites.set(o.id, spr);
+  }
+
+  private buildDecals(): void {
+    for (const d of this.world.decals) {
+      const cx = d.tx * TILE + TILE / 2;
+      const by = (d.ty + 1) * TILE;
+      if (d.type === "flower") {
+        this.add.image(cx, by, `obj-${d.variant}`).setOrigin(0.5, 1).setDepth(DEPTH.decalLow);
+      } else if (d.type === "bush") {
+        const s = this.add.image(cx, by + 2, `obj-${d.variant}`).setOrigin(0.5, 1);
+        s.setDepth(DEPTH.entityBase + by); // y-sorted so the player passes behind/in front
+      } else if (d.type === "coracle") {
+        this.add
+          .sprite(cx, by + 4, "obj-coracle")
+          .setOrigin(0.5, 1)
+          .setDepth(DEPTH.crop)
+          .play("coracle-bob");
+      }
+    }
+    this.spawnSceneryFx();
+  }
+
+  // chimney smoke from the house + occasional glints on the water
+  private spawnSceneryFx(): void {
+    const house = this.world.objects.find((o) => o.type === "house");
+    if (house) {
+      const x = house.tx * TILE + TILE / 2 - 5;
+      const y = (house.ty + 1) * TILE - 50;
+      this.add
+        .sprite(x, y, "vfx-smoke")
+        .setOrigin(0.5, 1)
+        .setDepth(DEPTH.entityBase + (house.ty + 1) * TILE + 1)
+        .play("smoke-rise");
+    }
+    // glints on a few water tiles
+    const water: { x: number; y: number }[] = [];
+    for (let ty = 0; ty < MAP_H && water.length < 200; ty++)
+      for (let tx = 0; tx < MAP_W; tx++)
+        if (this.world.getGround(tx, ty) === GROUND.water)
+          water.push({ x: tx * TILE + 8, y: ty * TILE + 8 });
+    for (let i = 0; i < 6 && water.length > 0; i++) {
+      const p = water[Math.floor(Math.random() * water.length)];
+      if (!p) continue;
+      const g = this.add.sprite(p.x, p.y, "vfx-glint", 0).setDepth(DEPTH.crop).setAlpha(0);
+      const loop = () => {
+        const np = water[Math.floor(Math.random() * water.length)];
+        if (np) g.setPosition(np.x, np.y);
+        g.setAlpha(1).play("glint");
+        g.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
+          g.setAlpha(0);
+          this.time.delayedCall(Phaser.Math.Between(900, 3500), loop);
+        });
+      };
+      this.time.delayedCall(Phaser.Math.Between(200, 3000), loop);
+    }
+  }
+
+  private buildSoilAndCrops(): void {
+    for (let i = 0; i < MAP_W * MAP_H; i++) if (this.world.tilled[i]) this.ensureSoil(i);
+    for (const [i, cs] of this.world.crops)
+      this.ensureCrop(i, cs.crop, cropStage(CROPS[cs.crop], cs.daysGrown));
+  }
+
+  private ensureSoil(i: number): void {
+    if (this.soilImgs.has(i)) return;
+    const tx = i % MAP_W,
+      ty = (i / MAP_W) | 0;
+    const img = this.add
+      .image(tx * TILE, ty * TILE + 4, "obj-soil")
+      .setOrigin(0, 0)
+      .setDepth(DEPTH.soil);
+    this.soilImgs.set(i, img);
+    this.refreshSoilTint(i);
+  }
+
+  private refreshSoilTint(i: number): void {
+    this.soilImgs.get(i)?.setTint(this.world.watered[i] ? 0x6b4f33 : 0xffffff);
+  }
+
+  private ensureCrop(i: number, crop: CropId, stage: number): void {
+    const tx = i % MAP_W,
+      ty = (i / MAP_W) | 0;
+    let img = this.cropImgs.get(i);
+    if (!img) {
+      img = this.add
+        .image(tx * TILE + 8, ty * TILE + 15, `crop-${crop}`, stage)
+        .setOrigin(0.5, 1)
+        .setDepth(DEPTH.crop);
+      this.cropImgs.set(i, img);
+    } else {
+      img.setTexture(`crop-${crop}`, stage);
+    }
+  }
+
+  // ---------------------------------------------------------------- update
+
+  override update(_t: number, dms: number): void {
+    const dt = Math.min(dms, 50) / 1000;
+    const busy = this.uiOpen || this.transitioning || this.fishing.active;
+    if (!busy) {
+      this.advanceTime(dt);
+      this.handleMovement(dt);
+    } else if (!this.acting && !this.fishing.active) {
+      this.setAnim("idle");
+    }
+    this.fishing.update(dt);
+    this.animals.update(dt);
+    this.npcs.update(dt);
+    this.updateHighlight();
+    this.updateNightTint();
+    this.player.setDepth(DEPTH.entityBase + this.player.y);
+    this.shadow.setPosition(this.player.x, this.player.y + 1);
+  }
+
+  private advanceTime(dt: number): void {
+    this.timeMin += dt * GAME_MIN_PER_REAL_SEC;
+    if (this.timeMin >= DAY_END_MIN) this.passOut();
+  }
+
+  private handleMovement(dt: number): void {
+    if (this.acting) {
+      this.moving = false;
+      return;
+    }
+    const k = this.keys;
+    let dx = 0,
+      dy = 0;
+    if (k.A.isDown || k.LEFT.isDown) dx -= 1;
+    if (k.D.isDown || k.RIGHT.isDown) dx += 1;
+    if (k.W.isDown || k.UP.isDown) dy -= 1;
+    if (k.S.isDown || k.DOWN.isDown) dy += 1;
+
+    this.moving = dx !== 0 || dy !== 0;
+    if (this.moving) {
+      if (dx !== 0) this.facing = { x: Math.sign(dx), y: 0 };
+      else this.facing = { x: 0, y: Math.sign(dy) };
+      const run = k.SHIFT.isDown && store.energy > 0;
+      const speed = run ? RUN_SPEED : WALK_SPEED;
+      const len = Math.hypot(dx, dy) || 1;
+      this.moveResolved((dx / len) * speed * dt, (dy / len) * speed * dt);
+      this.stepTimer -= dt;
+      if (this.stepTimer <= 0) {
+        Sound.footstep();
+        this.stepTimer = run ? 0.22 : 0.32;
+      }
+      this.setAnim(run ? "run" : "walk");
+      if (dx < 0) this.player.setFlipX(true);
+      else if (dx > 0) this.player.setFlipX(false);
+      this.tryForagePickup();
+    } else {
+      this.setAnim("idle");
+    }
+  }
+
+  private moveResolved(mx: number, my: number): void {
+    const hw = 4,
+      hh = 3;
+    const solid = (x: number, y: number) =>
+      this.world.isSolidTile(Math.floor(x / TILE), Math.floor(y / TILE));
+    const collides = (px: number, py: number) =>
+      solid(px - hw, py - hh) ||
+      solid(px + hw, py - hh) ||
+      solid(px - hw, py + hh) ||
+      solid(px + hw, py + hh);
+    const nx = this.player.x + mx;
+    if (!collides(nx, this.player.y)) this.player.x = nx;
+    const ny = this.player.y + my;
+    if (!collides(this.player.x, ny)) this.player.y = ny;
+    this.player.x = Phaser.Math.Clamp(this.player.x, hw, MAP_W * TILE - hw);
+    this.player.y = Phaser.Math.Clamp(this.player.y, hh + 4, MAP_H * TILE - hh);
+  }
+
+  private setAnim(name: "idle" | "walk" | "run" | null): void {
+    if (name === null) return;
+    const key = `p-${name}`;
+    if (this.player.anims.currentAnim?.key !== key || !this.player.anims.isPlaying)
+      this.player.play(key, true);
+  }
+
+  feetTile(): { tx: number; ty: number } {
+    return { tx: Math.floor(this.player.x / TILE), ty: Math.floor((this.player.y - 1) / TILE) };
+  }
+  targetTile(): { tx: number; ty: number } {
+    const f = this.feetTile();
+    return { tx: f.tx + this.facing.x, ty: f.ty + this.facing.y };
+  }
+
+  private updateHighlight(): void {
+    this.highlight.clear();
+    if (this.uiOpen || this.transitioning || this.fishing.active) return;
+    const { tx, ty } = this.targetTile();
+    if (!inBounds(tx, ty)) return;
+    const x = tx * TILE,
+      y = ty * TILE;
+    this.highlight.lineStyle(1, 0xffffff, 0.55);
+    this.highlight.strokeRect(x + 0.5, y + 0.5, TILE - 1, TILE - 1);
+    this.highlight.fillStyle(0xffffff, 0.08);
+    this.highlight.fillRect(x, y, TILE, TILE);
+  }
+
+  // walk-over pickup of forage at the player's feet
+  private tryForagePickup(): void {
+    const f = this.feetTile();
+    const o = this.world.objectAt(f.tx, f.ty);
+    if (o && o.type === "forage") this.pickForage(o);
+  }
+
+  // ---------------------------------------------------------------- actions
+
+  private tryAction(): void {
+    if (this.uiOpen || this.acting || this.transitioning) return;
+    if (this.fishing.active) {
+      this.fishing.onActionPress();
+      return;
+    }
+    const { tx, ty } = this.targetTile();
+    const obj = inBounds(tx, ty) ? this.world.objectAt(tx, ty) : null;
+    const item = store.inv.selectedItem();
+
+    if (obj) {
+      switch (obj.type) {
+        case "shop":
+          this.faceTowards(tx, ty);
+          this.openShop();
+          return;
+        case "house":
+          this.faceTowards(tx, ty);
+          this.confirmSleep();
+          return;
+        case "bin":
+          this.faceTowards(tx, ty);
+          this.shipProduce();
+          return;
+        case "cave":
+          this.faceTowards(tx, ty);
+          this.enterMine();
+          return;
+        case "barn":
+        case "coop":
+          this.faceTowards(tx, ty);
+          this.events.emit("open-animal-shop", obj.type);
+          this.uiOpen = true;
+          return;
+        case "forage":
+          this.pickForage(obj);
+          return;
+        case "tree":
+          if (item?.kind === "tool" && item.tool === "axe")
+            this.beginAction("axe", () => this.chop(obj));
+          else this.toast("You need an axe.", "#ffd27a");
+          return;
+        case "rock":
+          if (item?.kind === "tool" && item.tool === "pickaxe")
+            this.beginAction("mine", () => this.mineRock(obj));
+          else this.toast("You need a pickaxe.", "#ffd27a");
+          return;
+        case "ore":
+          return; // ore lives in the mine
+        case "windmill":
+        case "fence":
+          return; // decorative / solid only
+      }
+    }
+
+    // harvest a ripe crop in front takes priority over petting/gifting nearby
+    const idx = inBounds(tx, ty) ? this.world.idx(tx, ty) : -1;
+    const cs = idx >= 0 ? this.world.crops.get(idx) : undefined;
+    if (cs && isMature(CROPS[cs.crop], cs.daysGrown)) {
+      this.beginAction("doing", () => this.harvest(idx));
+      return;
+    }
+
+    // animal or NPC in front?
+    if (this.animals.tryPet(tx, ty)) return;
+    if (this.npcs.tryTalk(tx, ty, item)) return;
+    if (!item) return;
+    if (item.kind === "tool") {
+      if (item.tool === "hoe") {
+        if (this.world.canTill(tx, ty)) this.beginAction("dig", () => this.till(idx));
+        else this.toast("Can't till there.", "#ffd27a");
+      } else if (item.tool === "can") {
+        if (inBounds(tx, ty) && this.world.getGround(tx, ty) === GROUND.water)
+          this.beginAction("water", () => this.refillCan());
+        else if (idx >= 0 && this.world.tilled[idx]) {
+          if (this.canCharge <= 0) this.toast("Out of water — refill at the pond.", "#9fd8ff");
+          else this.beginAction("water", () => this.waterTile(idx));
+        } else this.toast("Till the soil first.", "#ffd27a");
+      } else if (item.tool === "rod") {
+        if (inBounds(tx, ty) && this.world.getGround(tx, ty) === GROUND.water)
+          this.fishing.startCast(tx, ty);
+        else this.toast("Face the water to fish.", "#9fd8ff");
+      } else if (item.tool === "sword") {
+        this.beginAction("doing", () => {
+          /* swung at nothing on the farm */
+        });
+      }
+    } else if (item.kind === "seed") {
+      const crop = item.crop;
+      if (idx >= 0 && this.world.tilled[idx] && !this.world.crops.has(idx)) {
+        if (!CROPS[crop].seasons.includes(seasonOfDay(this.day))) {
+          this.toast(`${CROPS[crop].name} won't grow in ${seasonOfDay(this.day)}.`, "#ffd27a");
+          return;
+        }
+        this.beginAction("doing", () => this.plant(idx, crop));
+      } else
+        this.toast(this.world.tilled[idx] ? "Already planted." : "Till the soil first.", "#ffd27a");
+    } else if (
+      item.kind === "animal_product" ||
+      item.kind === "fish" ||
+      item.kind === "forage" ||
+      item.kind === "produce"
+    ) {
+      // could be a gift to an NPC handled above; otherwise nothing
+    }
+  }
+
+  faceTowards(tx: number, ty: number): void {
+    const f = this.feetTile();
+    if (tx < f.tx) this.player.setFlipX(true);
+    else if (tx > f.tx) this.player.setFlipX(false);
+    this.facing = { x: Math.sign(tx - f.tx), y: tx === f.tx ? Math.sign(ty - f.ty) : 0 };
+  }
+
+  beginAction(action: CharAction, onImpact: () => void): void {
+    if (store.energy <= 0 && action !== "doing") {
+      this.toast("Too tired… time to sleep.", "#c8b6ff");
+      return;
+    }
+    this.acting = true;
+    const [rate, , impactFrame] = ACTION_TIMING[action];
+    this.player.play(`p-${action}`, true);
+    if (action !== "doing") store.spendEnergy(ENERGY_PER_SWING);
+    this.time.delayedCall((impactFrame / rate) * 1000, () => {
+      if (this.acting) onImpact();
+    });
+    this.player.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
+      this.acting = false;
+      this.player.play("p-idle", true);
+    });
+  }
+
+  awardXP(skill: SkillId, amount: number): void {
+    const newLevel = store.skills.addXP(skill, amount);
+    if (newLevel !== null) {
+      this.events.emit("levelup", skill, newLevel);
+      Sound.wake();
+      floatText(
+        this,
+        this.player.x,
+        this.player.y - 24,
+        `${SKILL_NAMES[skill]} Lv.${newLevel}!`,
+        "#ffe27a",
+      );
+    }
+  }
+
+  // ---- effects ----
+
+  private till(idx: number): void {
+    if (idx < 0) return;
+    this.world.tilled[idx] = 1;
+    this.ensureSoil(idx);
+    const tx = idx % MAP_W,
+      ty = (idx / MAP_W) | 0;
+    burst(this, tx * TILE + 8, ty * TILE + 12, {
+      colors: [0x8a6a43, 0x6b4f33, 0xa07b4c],
+      count: 9,
+      up: true,
+      speed: 45,
+    });
+    shake(this, 0.0025, 90);
+    Sound.dig();
+    this.awardXP("farming", 2);
+    this.save();
+  }
+
+  private waterTile(idx: number): void {
+    this.world.watered[idx] = 1;
+    this.canCharge = Math.max(0, this.canCharge - 1);
+    this.refreshSoilTint(idx);
+    const tx = idx % MAP_W,
+      ty = (idx / MAP_W) | 0;
+    burst(this, tx * TILE + 8, ty * TILE + 8, {
+      colors: [0x6fc6ff, 0x9fe0ff, 0xffffff],
+      count: 8,
+      up: true,
+      speed: 40,
+      gravity: 200,
+    });
+    Sound.water();
+    this.awardXP("farming", 1);
+  }
+
+  private refillCan(): void {
+    this.canCharge = CAN_MAX;
+    burst(this, this.player.x, this.player.y - 8, {
+      colors: [0x6fc6ff, 0x9fe0ff],
+      count: 12,
+      speed: 35,
+    });
+    Sound.water();
+    this.toast("Watering can refilled!", "#9fd8ff");
+  }
+
+  private plant(idx: number, crop: CropId): void {
+    if (!store.inv.consumeSlot(store.inv.selected, 1)) return;
+    this.world.crops.set(idx, { crop, daysGrown: 0 });
+    this.ensureCrop(idx, crop, 0);
+    const img = this.cropImgs.get(idx);
+    if (img) pop(this, img);
+    const tx = idx % MAP_W,
+      ty = (idx / MAP_W) | 0;
+    burst(this, tx * TILE + 8, ty * TILE + 12, {
+      colors: [0x7ec850, 0x4a9d3f],
+      count: 5,
+      up: true,
+      speed: 30,
+    });
+    Sound.plant();
+    this.awardXP("farming", 2);
+    this.save();
+  }
+
+  private harvest(idx: number): void {
+    const cs = this.world.crops.get(idx);
+    if (!cs) return;
+    const def = CROPS[cs.crop];
+    const [lo, hi] = def.yield;
+    let n = lo + ((Math.random() * (hi - lo + 1)) | 0);
+    if (Math.random() < store.skills.yieldBonusChance()) n += 1;
+    store.inv.add({ kind: "produce", crop: cs.crop }, n);
+    this.world.crops.delete(idx);
+    const img = this.cropImgs.get(idx);
+    if (img) {
+      pop(this, img);
+      this.time.delayedCall(80, () => img.destroy());
+    }
+    this.cropImgs.delete(idx);
+    this.world.watered[idx] = 0;
+    this.refreshSoilTint(idx);
+    const tx = idx % MAP_W,
+      ty = (idx / MAP_W) | 0;
+    burst(this, tx * TILE + 8, ty * TILE + 8, {
+      colors: [0x7ec850, 0xffe27a, 0xff9ed2],
+      count: 12,
+      up: true,
+      speed: 55,
+    });
+    floatText(this, tx * TILE + 8, ty * TILE + 4, `+${n} ${def.name}`, "#d8ffb0");
+    Sound.harvest();
+    this.awardXP("farming", 12);
+    this.save();
+  }
+
+  private chop(o: WorldObject): void {
+    o.hp -= 1;
+    const spr = this.objSprites.get(o.id);
+    if (spr) {
+      this.tweens.add({ targets: spr, x: spr.x + 1.5, duration: 50, yoyo: true, repeat: 2 });
+      burst(this, spr.x, spr.y - 16, {
+        colors: [0x4a9d3f, 0x7ec850, 0x2f6b3a],
+        count: 7,
+        speed: 50,
+      });
+    }
+    shake(this, 0.004, 110);
+    Sound.chop();
+    this.awardXP("foraging", 2);
+    if (o.hp <= 0) {
+      Sound.thud();
+      const got = 2 + ((Math.random() * 2) | 0);
+      store.inv.add({ kind: "resource", res: "wood" }, got);
+      if (spr)
+        this.tweens.add({
+          targets: spr,
+          alpha: 0,
+          y: spr.y + 3,
+          scaleX: 0.7,
+          scaleY: 0.6,
+          duration: 220,
+          onComplete: () => spr.destroy(),
+        });
+      this.objSprites.delete(o.id);
+      this.world.removeObject(o);
+      floatText(this, o.tx * TILE + 8, o.ty * TILE - 8, `+${got} Wood`, "#e8c79a");
+      this.awardXP("foraging", 6);
+    }
+    this.save();
+  }
+
+  private mineRock(o: WorldObject): void {
+    o.hp -= 1;
+    const spr = this.objSprites.get(o.id);
+    if (spr) {
+      this.tweens.add({ targets: spr, scaleX: 1.12, scaleY: 0.9, duration: 60, yoyo: true });
+      burst(this, spr.x, spr.y - 8, {
+        colors: [0xbfcad6, 0x8a98a8, 0xffffff],
+        count: 8,
+        speed: 55,
+      });
+    }
+    shake(this, 0.005, 110);
+    Sound.mine();
+    this.awardXP("mining", 3);
+    if (o.hp <= 0) {
+      Sound.thud();
+      const got = 1 + ((Math.random() * 2) | 0);
+      store.inv.add({ kind: "resource", res: "stone" }, got);
+      if (Math.random() < 0.25) store.inv.add({ kind: "resource", res: "coal" }, 1);
+      if (spr)
+        this.tweens.add({
+          targets: spr,
+          alpha: 0,
+          scaleX: 0.5,
+          scaleY: 0.5,
+          duration: 200,
+          onComplete: () => spr.destroy(),
+        });
+      this.objSprites.delete(o.id);
+      this.world.removeObject(o);
+      floatText(this, o.tx * TILE + 8, o.ty * TILE - 8, `+${got} Stone`, "#cdd6e0");
+      this.awardXP("mining", 5);
+    }
+    this.save();
+  }
+
+  private pickForage(o: WorldObject): void {
+    const kind: ForageId = o.variant === "mushroom_blue" ? "mushroom_blue" : "mushroom_red";
+    let n = 1;
+    if (Math.random() < store.skills.forageBonusChance()) n += 1;
+    store.inv.add({ kind: "forage", forage: kind }, n);
+    const spr = this.objSprites.get(o.id);
+    if (spr) {
+      burst(this, spr.x, spr.y - 4, {
+        colors: [0xff8a8a, 0x9fd8ff, 0xffffff],
+        count: 8,
+        up: true,
+        speed: 45,
+      });
+      this.tweens.add({
+        targets: spr,
+        y: spr.y - 6,
+        alpha: 0,
+        duration: 200,
+        onComplete: () => spr.destroy(),
+      });
+    }
+    this.objSprites.delete(o.id);
+    this.world.removeObject(o);
+    floatText(
+      this,
+      o.tx * TILE + 8,
+      o.ty * TILE - 4,
+      `+${n} ${kind === "mushroom_blue" ? "Blue" : "Red"} Mushroom`,
+      "#ffd0e0",
+    );
+    Sound.plant();
+    this.awardXP("foraging", 8);
+    this.save();
+  }
+
+  // ---------------------------------------------------------------- economy / ui
+
+  private openShop(): void {
+    this.uiOpen = true;
+    this.events.emit("open-shop");
+  }
+
+  buySeed(crop: CropId, qty: number): boolean {
+    return this.buyItem({ kind: "seed", crop }, qty, CROPS[crop].seedPrice);
+  }
+
+  // Deduct gold first, then refund any units that didn't fit — so a partial add
+  // can never leave the player with free items.
+  buyItem(item: Item, qty: number, unitCost: number): boolean {
+    const cost = unitCost * qty;
+    if (store.gold < cost) {
+      this.toast("Not enough gold.", "#ffb0b0");
+      return false;
+    }
+    store.gold -= cost;
+    const left = store.inv.add(item, qty);
+    if (left === qty) {
+      store.gold += cost;
+      this.toast("Inventory full.", "#ffb0b0");
+      return false;
+    }
+    if (left > 0) {
+      store.gold += unitCost * left;
+      this.toast("Only some fit — inventory full.", "#ffd27a");
+    }
+    Sound.coins();
+    this.save();
+    return true;
+  }
+
+  sellAll(): number {
+    let total = 0;
+    const sellFrom = (arr: typeof store.inv.slots) => {
+      for (let i = 0; i < arr.length; i++) {
+        const s = arr[i];
+        if (s && isSellable(s.item)) {
+          total += sellValue(s.item) * s.qty;
+          arr[i] = null;
+        }
+      }
+    };
+    sellFrom(store.inv.slots);
+    sellFrom(store.inv.pack);
+    if (total > 0) {
+      store.gold += total;
+      Sound.coins();
+      this.save();
+    }
+    return total;
+  }
+
+  private shipProduce(): void {
+    const total = this.sellAll();
+    if (total > 0) {
+      const bin = this.world.objects.find((o) => o.type === "bin");
+      if (bin) {
+        burst(this, bin.tx * TILE + 8, bin.ty * TILE + 4, {
+          colors: [0xffd34d, 0xffe27a, 0xffffff],
+          count: 14,
+          up: true,
+          speed: 55,
+        });
+        floatText(this, bin.tx * TILE + 8, bin.ty * TILE - 6, `+${total}g`, "#ffe27a");
+      }
+      this.toast(`Shipped goods for ${total}g!`, "#ffe27a");
+    } else {
+      this.toast("Nothing to ship. Gather produce first.", "#ffd27a");
+    }
+  }
+
+  closeUi(): void {
+    this.uiOpen = false;
+  }
+
+  private confirmSleep(): void {
+    this.uiOpen = true;
+    this.events.emit("confirm-sleep");
+  }
+
+  // ---------------------------------------------------------------- mine handoff
+
+  private enterMine(): void {
+    if (store.inv.count((it) => it.kind === "tool" && it.tool === "pickaxe") === 0) {
+      this.toast("You need a pickaxe to mine.", "#ffd27a");
+      return;
+    }
+    this.transitioning = true;
+    this.save();
+    this.cameras.main.fadeOut(450, 0, 0, 0);
+    this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+      this.scene.stop("Hud");
+      this.scene.start("Mine", { depth: 1 });
+    });
+  }
+
+  // ---------------------------------------------------------------- day cycle
+
+  doSleep(): void {
+    this.uiOpen = false;
+    this.endDay();
+  }
+
+  private passOut(): void {
+    if (this.transitioning) return;
+    this.toast("You passed out from exhaustion…", "#c8b6ff");
+    this.endDay(true);
+  }
+
+  endDay(exhausted = false): void {
+    this.transitioning = true;
+    const cam = this.cameras.main;
+    cam.fadeOut(600, 6, 10, 24);
+    cam.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => {
+      this.runOvernight();
+      this.day += 1;
+      this.timeMin = DAY_START_MIN;
+      store.energy = exhausted || this.fainted ? Math.floor(MAX_ENERGY * 0.55) : MAX_ENERGY;
+      store.hp = this.fainted
+        ? Math.floor(store.maxHp() * 0.5)
+        : Math.min(store.maxHp(), store.hp + HP_REGEN_PER_DAY);
+      this.fainted = false;
+      this.weather = weatherForDay(this.seed, this.day);
+      this.save();
+      this.events.emit("daybanner", this.day, seasonOfDay(this.day), this.weather);
+      Sound.wake();
+      cam.fadeIn(700, 6, 10, 24);
+      cam.once(Phaser.Cameras.Scene2D.Events.FADE_IN_COMPLETE, () => {
+        this.transitioning = false;
+      });
+    });
+  }
+
+  private runOvernight(): void {
+    const nextDay = this.day + 1;
+    const nextSeason = seasonOfDay(nextDay);
+    const nextWeather = weatherForDay(this.seed, nextDay);
+    const rainy = nextWeather === "rain" || nextWeather === "storm";
+
+    // grow watered crops; wither out-of-season; then reset/refresh watering
+    for (const [i, cs] of [...this.world.crops]) {
+      const def = CROPS[cs.crop];
+      if (!def.seasons.includes(nextSeason)) {
+        this.cropImgs.get(i)?.destroy();
+        this.cropImgs.delete(i);
+        this.world.crops.delete(i);
+        continue;
+      }
+      const watered = this.world.watered[i] === 1 || rainy;
+      if (watered && cs.daysGrown < def.growthDays) {
+        cs.daysGrown += 1;
+        this.ensureCrop(i, cs.crop, cropStage(def, cs.daysGrown));
+      }
+    }
+    for (let i = 0; i < this.world.watered.length; i++) {
+      const wet = rainy && this.world.tilled[i] === 1 ? 1 : 0;
+      if (this.world.watered[i] !== wet) {
+        this.world.watered[i] = wet;
+        this.refreshSoilTint(i);
+      }
+    }
+    this.canCharge = CAN_MAX;
+    this.animals.runOvernight();
+    this.npcs.runOvernight();
+  }
+
+  // ---------------------------------------------------------------- misc
+
+  private updateNightTint(): void {
+    const { color, alpha } = tintFor(this.timeMin, this.weather);
+    this.nightOverlay.setFillStyle(color);
+    this.nightOverlay.setAlpha(alpha);
+  }
+
+  toast(text: string, color = "#fff6d5"): void {
+    this.events.emit("toast", text, color);
+  }
+
+  save(): void {
+    const d: SaveData = {
+      v: 2,
+      seed: this.seed,
+      day: this.day,
+      timeMin: this.timeMin,
+      gold: store.gold,
+      energy: store.energy,
+      hp: store.hp,
+      canCharge: this.canCharge,
+      player: { x: this.player.x, y: this.player.y },
+      world: this.world.toJSON(),
+      inv: store.inv.toJSON(),
+      skills: store.skills.toJSON(),
+      animals: store.animalSave(),
+      animalSeq: store.animalSeq,
+      npcFriendship: store.npcFriendship,
+    };
+    writeSave(d);
+  }
+
+  selectedItem(): Item | null {
+    return store.inv.selectedItem();
+  }
+  season(): Season {
+    return seasonOfDay(this.day);
+  }
+  actionHeld(): boolean {
+    return this.keys.SPACE.isDown || this.keys.E.isDown || this.input.activePointer.isDown;
+  }
+  playerAnim(key: string): void {
+    this.player.play(key, true);
+  }
+}
+
+function tintFor(timeMin: number, weather: Weather): { color: number; alpha: number } {
+  const lerp = (a: number, b: number, t: number) => a + (b - a) * Phaser.Math.Clamp(t, 0, 1);
+  // weather darkens the day a touch
+  const wx = weather === "storm" ? 0.22 : weather === "rain" ? 0.12 : weather === "snow" ? 0.08 : 0;
+  const wcol = weather === "storm" || weather === "rain" ? 0x2a3550 : 0x9fb6d8;
+  let base: { color: number; alpha: number };
+  if (timeMin < 9 * 60)
+    base = { color: 0xffe2a8, alpha: lerp(0.16, 0, (timeMin - DAY_START_MIN) / (3 * 60)) };
+  else if (timeMin < 17 * 60) base = { color: 0xffffff, alpha: 0 };
+  else if (timeMin < 20 * 60)
+    base = { color: 0xff8a3a, alpha: lerp(0, 0.26, (timeMin - 17 * 60) / (3 * 60)) };
+  else if (timeMin < 24 * 60)
+    base = { color: 0x14224a, alpha: lerp(0.28, 0.52, (timeMin - 20 * 60) / (4 * 60)) };
+  else base = { color: 0x0a1230, alpha: lerp(0.52, 0.64, (timeMin - 24 * 60) / (2 * 60)) };
+  if (wx > 0 && base.alpha < wx) return { color: base.alpha > 0.1 ? base.color : wcol, alpha: wx };
+  return base;
+}
