@@ -91,4 +91,22 @@ export function registerAnims(scene: Phaser.Scene): void {
       repeat: -1,
     });
   }
+
+  // ambient + neutral loops (full sheet, derived frame count)
+  const loop = (key: string, tex: string, fps: number): void => {
+    if (!scene.textures.exists(tex) || scene.anims.exists(key)) return;
+    const end = scene.textures.get(tex).frameTotal - 2; // -1 __BASE, -1 to last index
+    if (end < 0) return;
+    scene.anims.create({ key, frames: scene.anims.generateFrameNumbers(tex, { start: 0, end }), frameRate: fps, repeat: -1 });
+  };
+  for (let i = 1; i <= 4; i++) loop(`wrock${i}-anim`, `wrock${i}`, 7);
+  for (let i = 1; i <= 4; i++) loop(`ftree${i}-sway`, `ftree${i}`, 6);
+  loop("sheep-idle", "sheep", 8);
+  // enemy-pack neutrals: idle from *_idle sheet, walk from *_run/_walk sheet
+  loop("e-skull-idle", "e-skull-idle", 8);
+  loop("e-skull-walk", "e-skull-run", 12);
+  loop("e-gnoll-idle", "e-gnoll-idle", 8);
+  loop("e-gnoll-walk", "e-gnoll-walk", 12);
+  loop("e-minotaur-idle", "e-minotaur-idle", 10);
+  loop("e-minotaur-walk", "e-minotaur-walk", 12);
 }

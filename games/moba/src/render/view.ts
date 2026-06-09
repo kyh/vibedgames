@@ -4,7 +4,7 @@ import { BASES, BRIDGES, NEUTRAL_CAMPS, TOWERS, TREE_CLUSTERS, WORLD, isRiver } 
 import type { Team } from "../data/config";
 import type { World, Unit, Projectile, GroundEffect, FxEvent } from "../sim/types";
 import { sfx } from "./audio";
-import { animKey, heroTint, structureDestroyedTex, unitSprite } from "./sprites";
+import { animKey, structureDestroyedTex, unitSprite } from "./sprites";
 
 const GRASS_FRAME = 11; // solid-green centre tile of ground_flat autotile
 const DEPTH_GROUND = -100;
@@ -56,7 +56,6 @@ type UnitView = {
   dx: number;
   dy: number;
   curAnim: string;
-  flashUntil: number;
   lastAttackAt: number; // detect a fresh swing to play the attack anim once
   dead: boolean; // playing/played the death anim while hidden (heroes)
 };
@@ -112,11 +111,12 @@ export class WorldView {
     // 2) autotiled grass landmass as a single tilemap layer (one draw)
     this.buildGroundLayer(isLand, cols, rows);
 
-    // 2b) raised stone mesas (cliff autotile) for vertical depth
+    // 2b) raised grass plateaus with rock cliff edges, for vertical depth
     if (this.scene.textures.exists("t-elev")) this.buildElevation(isLand, cols, rows);
 
-    // 3) foam along the river shoreline (sampled so it stays cheap)
-    if (this.scene.textures.exists("t-foam")) this.buildFoam(isLand, cols, rows);
+    // 3) shoreline accent: a soft foam line hugging the grass edge (the square
+    // foam-tile asset can't make a clean coast, so we stroke it ourselves).
+    this.buildShoreline(isLand, cols, rows);
 
     // 4) bridges where lanes cross the river
     this.buildBridges();
@@ -143,6 +143,65 @@ export class WorldView {
         .circle(c.x, c.y, boss ? 150 : 90, boss ? 0x7a2a2a : 0x2a3a22, boss ? 0.22 : 0.16)
         .setStrokeStyle(2, boss ? 0xc8643c : 0x6a8a4c, 0.5)
         .setDepth(DEPTH_GROUND + 2);
+    }
+
+    // 9) animated rocks dotting the water, 10) drifting clouds, 11) grazing sheep
+    this.buildWaterRocks(isLand, cols, rows);
+    this.buildClouds();
+    this.buildAmbientLife(isLand);
+  }
+
+  /** Animated rocks scattered through the open water for detail. */
+  private buildWaterRocks(isLand: (cx: number, cy: number) => boolean, cols: number, rows: number): void {
+    const s = this.scene;
+    if (!s.textures.exists("wrock1")) return;
+    for (let cy = 3; cy < rows - 3; cy += 3) {
+      for (let cx = 3; cx < cols - 3; cx += 3) {
+        if (isLand(cx, cy)) continue;
+        const r = rng2(cx * 2, cy * 2);
+        if (r > 0.12) continue; // sparse
+        const n = 1 + Math.floor(rng2(cx, cy + 7) * 4);
+        const x = cx * CELL + CELL / 2;
+        const y = cy * CELL + CELL / 2;
+        const rk = s.add.sprite(x, y, `wrock${n}`, 0).setScale(0.5).setDepth(DEPTH_GROUND - 7).setAlpha(0.95);
+        if (s.anims.exists(`wrock${n}-anim`)) rk.play({ key: `wrock${n}-anim`, startFrame: Math.floor(r * 8) });
+      }
+    }
+  }
+
+  /** Soft clouds drifting slowly across the water (depth above everything). */
+  private buildClouds(): void {
+    const s = this.scene;
+    if (!s.textures.exists("cloud1")) return;
+    const COUNT = 16;
+    for (let i = 0; i < COUNT; i++) {
+      const n = 1 + ((i * 3) % 8);
+      const x = rng2(i * 13, 1) * WORLD.width;
+      const y = rng2(1, i * 17) * WORLD.height;
+      const c = s.add
+        .image(x, y, `cloud${n}`)
+        .setScale(0.7 + rng2(i, i) * 0.6)
+        .setAlpha(0.5 + rng2(i, 3) * 0.25)
+        .setDepth(9000); // above units, below HUD
+      const dist = 600 + rng2(i, 9) * 900;
+      s.tweens.add({ targets: c, x: x + dist, duration: 30000 + rng2(i, 5) * 30000, yoyo: true, repeat: -1, ease: "Sine.InOut" });
+    }
+  }
+
+  /** Ambient grazing sheep on the grass — pure cosmetic life, wanders gently. */
+  private buildAmbientLife(isLand: (cx: number, cy: number) => boolean): void {
+    const s = this.scene;
+    if (!s.textures.exists("sheep")) return;
+    const spots: Array<{ x: number; y: number }> = [
+      { x: 1500, y: 4900 }, { x: 1650, y: 5000 }, { x: 4900, y: 1500 }, { x: 4750, y: 1400 },
+      { x: 2700, y: 2700 }, { x: 3700, y: 3700 }, { x: 1100, y: 1500 }, { x: 5300, y: 4900 },
+    ];
+    for (const p of spots) {
+      if (!isLand(Math.floor(p.x / CELL), Math.floor(p.y / CELL))) continue;
+      const sh = s.add.sprite(p.x, p.y, "sheep", 0).setScale(0.5).setDepth(p.y);
+      if (s.anims.exists("sheep-idle")) sh.play({ key: "sheep-idle", startFrame: Math.floor(rng2(p.x, p.y) * 8) });
+      // gentle wander
+      s.tweens.add({ targets: sh, x: p.x + (rng2(p.x, 2) - 0.5) * 160, y: p.y + (rng2(2, p.y) - 0.5) * 120, duration: 6000 + rng2(p.x, p.y) * 6000, yoyo: true, repeat: -1, ease: "Sine.InOut", onUpdate: () => sh.setDepth(sh.y) });
     }
   }
 
@@ -213,23 +272,26 @@ export class WorldView {
     }
   }
 
-  private buildFoam(isLand: (cx: number, cy: number) => boolean, cols: number, rows: number): void {
+  /** Soft foam line hugging the grass coastline (two strokes for a band). */
+  private buildShoreline(isLand: (cx: number, cy: number) => boolean, cols: number, rows: number): void {
     const s = this.scene;
-    for (let cy = 0; cy < rows; cy++) {
-      for (let cx = 0; cx < cols; cx++) {
-        if (isLand(cx, cy)) continue; // foam sits on the water side
-        const shore =
-          isLand(cx, cy - 1) || isLand(cx + 1, cy) || isLand(cx, cy + 1) || isLand(cx - 1, cy);
-        if (!shore) continue;
-        if ((cx + cy) % 2 !== 0) continue; // sample every other shore cell
-        const f = s.add
-          .sprite(cx * CELL + CELL / 2, cy * CELL + CELL / 2, "t-foam", 0)
-          .setScale(0.5)
-          .setAlpha(0.8)
-          .setDepth(DEPTH_GROUND - 8);
-        if (s.anims.exists("t-foam-loop")) f.play({ key: "t-foam-loop", startFrame: (cx + cy) % 8 });
+    const band = (depth: number, width: number, color: number, alpha: number, off: number): void => {
+      const g = s.add.graphics().setDepth(depth).setBlendMode(Phaser.BlendModes.ADD);
+      g.lineStyle(width, color, alpha);
+      for (let cy = 0; cy < rows; cy++) {
+        for (let cx = 0; cx < cols; cx++) {
+          if (!isLand(cx, cy)) continue;
+          const x = cx * CELL;
+          const y = cy * CELL;
+          if (!isLand(cx, cy - 1)) g.lineBetween(x, y - off, x + CELL, y - off); // N edge
+          if (!isLand(cx, cy + 1)) g.lineBetween(x, y + CELL + off, x + CELL, y + CELL + off); // S
+          if (!isLand(cx + 1, cy)) g.lineBetween(x + CELL + off, y, x + CELL + off, y + CELL); // E
+          if (!isLand(cx - 1, cy)) g.lineBetween(x - off, y, x - off, y + CELL); // W
+        }
       }
-    }
+    };
+    band(DEPTH_GROUND - 6, 9, 0x8fd0ef, 0.28, 7); // outer soft glow
+    band(DEPTH_GROUND - 5, 4, 0xeafaff, 0.4, 4); // inner crisp foam line
   }
 
   private buildBridges(): void {
@@ -259,31 +321,40 @@ export class WorldView {
 
   private buildTrees(isLand: (cx: number, cy: number) => boolean): void {
     const s = this.scene;
-    const hasTree = s.textures.exists("t-tree");
+    // varied swaying trees (Free-Pack Tree1-4, animated) for a lush, living canopy.
+    const swayKinds = [1, 2, 3, 4].filter((i) => s.textures.exists(`ftree${i}`));
     for (const t of TREE_CLUSTERS) {
-      const n = Math.max(6, Math.floor(t.r / 30));
+      const n = Math.max(7, Math.floor(t.r / 26));
       for (let i = 0; i < n; i++) {
         const a = (i / n) * Math.PI * 2 + (t.x % 7);
-        const rr = t.r * (0.25 + 0.7 * rng2(t.x + i, t.y - i));
+        const rr = t.r * (0.22 + 0.72 * rng2(t.x + i, t.y - i));
         const tx = t.x + Math.cos(a) * rr;
         const ty = t.y + Math.sin(a) * rr;
         if (!isLand(Math.floor(tx / CELL), Math.floor(ty / CELL))) continue;
-        s.add.image(tx, ty + 26, "shadow").setDisplaySize(70, 26).setAlpha(0.4).setDepth(ty - 1);
-        if (hasTree) s.add.image(tx, ty, "t-tree", 0).setScale(0.5 + rng2(tx, ty) * 0.18).setDepth(ty);
-        else s.add.circle(tx, ty, 26, 0x2f5a2a).setDepth(ty);
+        s.add.image(tx, ty + 30, "shadow").setDisplaySize(78, 28).setAlpha(0.4).setDepth(ty - 1);
+        if (swayKinds.length > 0) {
+          const kind = swayKinds[Math.floor(rng2(tx, ty) * swayKinds.length) % swayKinds.length]!;
+          const tree = s.add.sprite(tx, ty - 18, `ftree${kind}`, 0).setScale(0.42 + rng2(tx, ty) * 0.12).setDepth(ty);
+          if (s.anims.exists(`ftree${kind}-sway`)) tree.play({ key: `ftree${kind}-sway`, startFrame: Math.floor(rng2(ty, tx) * 6) });
+        } else if (s.textures.exists("t-tree")) {
+          s.add.image(tx, ty, "t-tree", 0).setScale(0.5 + rng2(tx, ty) * 0.18).setDepth(ty);
+        } else {
+          s.add.circle(tx, ty, 26, 0x2f5a2a).setDepth(ty);
+        }
       }
     }
   }
 
   private buildScatter(isLand: (cx: number, cy: number) => boolean, cols: number, rows: number): void {
     const s = this.scene;
-    const step = 5; // every ~5 cells, maybe drop a decal
+    const step = 4; // every ~4 cells, maybe drop a decal
     for (let cy = 4; cy < rows - 4; cy += step) {
       for (let cx = 4; cx < cols - 4; cx += step) {
         const r = rng2(cx, cy);
-        if (r > 0.34) continue;
-        const x = cx * CELL + CELL / 2 + (rng2(cx + 9, cy) - 0.5) * 120;
-        const y = cy * CELL + CELL / 2 + (rng2(cx, cy + 9) - 0.5) * 120;
+        if (r > 0.4) continue;
+        // wide jitter (~±1.4 cells) so decals scatter naturally instead of in rows
+        const x = cx * CELL + CELL / 2 + (rng2(cx + 9, cy) - 0.5) * step * CELL * 0.9;
+        const y = cy * CELL + CELL / 2 + (rng2(cx, cy + 9) - 0.5) * step * CELL * 0.9;
         if (!isLand(Math.floor(x / CELL), Math.floor(y / CELL))) continue;
         // keep decals out of the base/fountain footprints
         const near = (fx: number, fy: number) => (x - fx) ** 2 + (y - fy) ** 2 < 460 * 460;
@@ -380,11 +451,12 @@ export class WorldView {
       }
       v.container.setVisible(true);
 
-      // smooth display position toward sim position
-      const k = 1 - Math.pow(0.001, dt);
+      // smooth display position toward sim position — snappy enough to track the
+      // 30Hz sim without floating, smooth enough to hide the step.
+      const k = Math.min(1, dt * 18);
       v.dx = Phaser.Math.Linear(v.dx, u.x, k);
       v.dy = Phaser.Math.Linear(v.dy, u.y, k);
-      v.container.setPosition(v.dx, v.dy);
+      v.container.setPosition(Math.round(v.dx), Math.round(v.dy));
       v.container.setDepth(v.dy);
 
       // facing + animation. A fresh attack (lastAttackAt advanced) plays the FULL
@@ -408,11 +480,8 @@ export class WorldView {
         }
       }
 
-      // hit flash — compare against the SAME render clock that set flashUntil
-      // (scene.time.now), not the sim clock, so it lasts ~90ms instead of lingering.
-      if (this.scene.time.now < v.flashUntil) v.sprite.setTint(0xff6b6b);
-      else if (u.kind === "hero") v.sprite.setTint(heroTint(u));
-      else v.sprite.clearTint();
+      // no sprite tint at all — units show their true art; hit feedback is the
+      // impact puff + floating damage number, so nothing pulses while moving.
 
       // bars
       const bw = u.kind === "hero" ? 56 : 34;
@@ -463,7 +532,6 @@ export class WorldView {
     ring.lineStyle(isPlayer ? 4 : 2.5, isPlayer ? 0xffe14a : ringColor, 1).strokeEllipse(0, 10, u.kind === "hero" ? 56 : 38, u.kind === "hero" ? 26 : 18);
     const sprite = s.add.sprite(0, -18, tex, 0).setScale(scale);
     if (this.scene.anims.exists(animKey(u, "idle"))) sprite.play(animKey(u, "idle"));
-    if (u.kind === "hero") sprite.setTint(heroTint(u));
 
     const barY = u.kind === "hero" ? -64 : -42;
     const bw = u.kind === "hero" ? 56 : 34;
@@ -481,7 +549,7 @@ export class WorldView {
       children.push(mpBg, mpFill, label);
     }
     const container = s.add.container(u.x, u.y, children).setDepth(u.y);
-    const v: UnitView = { container, sprite, shadow, ring, hpBg, hpFill, mpFill, label, dx: u.x, dy: u.y, curAnim: "", flashUntil: 0, lastAttackAt: 0, dead: false };
+    const v: UnitView = { container, sprite, shadow, ring, hpBg, hpFill, mpFill, label, dx: u.x, dy: u.y, curAnim: "", lastAttackAt: 0, dead: false };
     this.units.set(u.id, v);
     return v;
   }
@@ -561,8 +629,15 @@ export class WorldView {
     switch (fx.t) {
       case "hit": {
         sfx.hit();
-        const v = this.units.get(fx.targetId);
-        if (v) v.flashUntil = (this.scene.time.now) + 90;
+        // impact puff at the strike point — the clash spark that sells combat
+        const puff = s.add
+          .image(fx.x + (Math.random() - 0.5) * 12, fx.y, "spark")
+          .setDepth(fx.y + 300)
+          .setScale(0.55)
+          .setTint(fx.dtype === "magic" ? 0xc78bff : 0xffffff)
+          .setAlpha(0.95)
+          .setBlendMode(Phaser.BlendModes.ADD);
+        s.tweens.add({ targets: puff, scale: fx.crit ? 2.4 : 1.7, alpha: 0, duration: fx.crit ? 260 : 180, ease: "Quad.Out", onComplete: () => puff.destroy() });
         // juice: a small camera kick when the player themselves takes a real hit
         if (fx.targetId === this.playerHeroId && fx.amount >= 35) {
           this.scene.cameras.main.shake(110, Math.min(0.006, 0.0016 + fx.amount / 40000));

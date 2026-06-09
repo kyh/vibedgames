@@ -61,6 +61,20 @@ export class BootScene extends Phaser.Scene {
       this.load.image(`deco-${n}`, `assets/deco/${n}.png`);
     }
 
+    // --- ambient + extra terrain (clouds, animated water rocks, swaying trees, sheep) ---
+    for (let i = 1; i <= 8; i++) this.load.image(`cloud${i}`, `assets/deco/cloud${i}.png`);
+    for (let i = 1; i <= 4; i++) this.load.spritesheet(`wrock${i}`, `assets/terrain/wrock${i}.png`, { frameWidth: 128, frameHeight: 128 });
+    for (let i = 1; i <= 4; i++) this.load.spritesheet(`ftree${i}`, `assets/deco/ftree${i}.png`, { frameWidth: 256, frameHeight: 256 });
+    this.load.spritesheet("sheep", "assets/deco/sheep.png", { frameWidth: 128, frameHeight: 128 });
+
+    // --- enemy-pack creatures for jungle neutrals + Roshan ---
+    this.load.spritesheet("e-skull-idle", "assets/enemies/skull_idle.png", { frameWidth: UNIT, frameHeight: UNIT });
+    this.load.spritesheet("e-skull-run", "assets/enemies/skull_run.png", { frameWidth: UNIT, frameHeight: UNIT });
+    this.load.spritesheet("e-gnoll-idle", "assets/enemies/gnoll_idle.png", { frameWidth: UNIT, frameHeight: UNIT });
+    this.load.spritesheet("e-gnoll-walk", "assets/enemies/gnoll_walk.png", { frameWidth: UNIT, frameHeight: UNIT });
+    this.load.spritesheet("e-minotaur-idle", "assets/enemies/minotaur_idle.png", { frameWidth: 320, frameHeight: 320 });
+    this.load.spritesheet("e-minotaur-walk", "assets/enemies/minotaur_walk.png", { frameWidth: 320, frameHeight: 320 });
+
     // --- fx ---
     this.load.spritesheet("fx-explosion", "assets/fx/explosion.png", { frameWidth: UNIT, frameHeight: UNIT });
     this.load.spritesheet("fx-fire", "assets/fx/fire.png", { frameWidth: 128, frameHeight: 128 });

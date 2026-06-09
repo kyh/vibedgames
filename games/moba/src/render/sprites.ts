@@ -9,27 +9,36 @@ export function teamColor(team: Team): "blue" | "red" {
   return team === "radiant" ? "blue" : "red";
 }
 
-/** Texture key + display scale for a unit's body sprite. */
-export function unitSprite(u: Unit): { tex: string; scale: number; tint: number } {
+type SpriteInfo = { tex: string; scale: number; tint: number; animBase: string };
+
+/** Texture key + display scale for a unit's body sprite. `animBase` is the prefix
+ * animKey appends idle/walk/... to (usually == tex, but differs for enemy creatures
+ * whose actions live in separate sheets). */
+export function unitSprite(u: Unit): SpriteInfo {
   const color = teamColor(u.team);
   if (u.kind === "hero" && u.hero) {
     const def = HERO_BY_ID[u.hero.defId];
     const sheet = def?.sheet ?? "warrior";
-    return { tex: `u-${sheet}-${color}`, scale: 0.62, tint: 0xffffff };
+    const tex = `u-${sheet}-${color}`;
+    return { tex, scale: 0.62, tint: 0xffffff, animBase: tex };
   }
   if (u.kind === "creep" && u.creep) {
-    // neutrals (jungle/Roshan) wear a neutral palette so they read as non-team.
+    // neutrals (jungle camps / Roshan) use Enemy-Pack monsters so they read as a
+    // distinct, threatening faction. Actions live in separate sheets, hence animBase.
     if (u.neutral) {
-      if (u.creep.boss) return { tex: "u-warrior-yellow", scale: 1.05, tint: 0xffffff };
+      if (u.creep.boss) return { tex: "e-minotaur-idle", scale: 0.42, tint: 0xffffff, animBase: "e-minotaur" };
       const big = u.radius >= 32;
-      return { tex: big ? "u-warrior-purple" : "u-torch-purple", scale: big ? 0.62 : 0.46, tint: 0xffffff };
+      const base = big ? "e-gnoll" : "e-skull";
+      return { tex: `${base}-idle`, scale: big ? 0.52 : 0.46, tint: 0xffffff, animBase: base };
     }
     const ck = u.creep.ckind;
-    if (ck === "melee") return { tex: u.team === "radiant" ? "u-pawn-blue" : "u-torch-red", scale: 0.42, tint: 0xffffff };
-    if (ck === "ranged") return { tex: u.team === "radiant" ? "u-archer-blue" : "u-tnt-red", scale: 0.42, tint: 0xffffff };
-    return { tex: `u-barrel-${color}`, scale: 0.5, tint: 0xffffff };
+    if (ck === "melee") { const t = u.team === "radiant" ? "u-pawn-blue" : "u-torch-red"; return { tex: t, scale: 0.42, tint: 0xffffff, animBase: t }; }
+    if (ck === "ranged") { const t = u.team === "radiant" ? "u-archer-blue" : "u-tnt-red"; return { tex: t, scale: 0.42, tint: 0xffffff, animBase: t }; }
+    const t = `u-barrel-${color}`;
+    return { tex: t, scale: 0.5, tint: 0xffffff, animBase: t };
   }
-  return { tex: `u-pawn-${color}`, scale: 0.5, tint: 0xffffff };
+  const t = `u-pawn-${color}`;
+  return { tex: t, scale: 0.5, tint: 0xffffff, animBase: t };
 }
 
 /** Texture for a hero by id+team — for menus/portraits without a live Unit. */
@@ -57,5 +66,5 @@ export function structureDestroyedTex(tier: string): string {
 }
 
 export function animKey(u: Unit, name: "idle" | "walk" | "attack" | "death"): string {
-  return `${unitSprite(u).tex}-${name}`;
+  return `${unitSprite(u).animBase}-${name}`;
 }
