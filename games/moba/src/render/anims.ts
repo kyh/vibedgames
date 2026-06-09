@@ -1,39 +1,44 @@
 import Phaser from "phaser";
 
-// Per-sheet animation frame ranges, taken from the Tiny Swords sheet layouts
-// (design/assets.json). Using the FULL attack range (not a truncated slice) makes
-// the swings read as complete motions. idle/walk loop; attack/death play once.
+// Per-sheet animation frame ranges. Every range was verified frame-by-frame
+// against labeled contact sheets of the actual art (see /tmp/sheets): ranges stop
+// before the empty padding cells that pad non-square sheets, and each range covers
+// exactly one legible, complete motion. idle/walk loop; attack plays once.
+//
+// DEATH: the Tiny Swords knight/goblin sheets do NOT contain a death sequence —
+// the "extra" rows are idle variants or directional attacks (NOT a death). Only
+// the Barrel goblin has a real death (its explosion). So death is declared ONLY
+// where it genuinely exists; every other unit falls back to a procedural collapse
+// (topple + sink + fade) in view.ts. Never map a non-death row to "death".
 type AnimRange = { name: "idle" | "walk" | "attack" | "death"; start: number; end: number; fps: number; loop: boolean };
 
 const UNIT_ANIMS: Record<string, AnimRange[]> = {
   warrior: [
     { name: "idle", start: 0, end: 5, fps: 8, loop: true },
     { name: "walk", start: 6, end: 11, fps: 10, loop: true },
-    { name: "attack", start: 12, end: 23, fps: 16, loop: false },
-    { name: "death", start: 36, end: 47, fps: 12, loop: false },
+    { name: "attack", start: 12, end: 17, fps: 14, loop: false }, // clean down-slash (rows 3-7 = more attack dirs, no death)
   ],
   pawn: [
     { name: "idle", start: 0, end: 5, fps: 8, loop: true },
     { name: "walk", start: 6, end: 11, fps: 10, loop: true },
-    { name: "attack", start: 12, end: 17, fps: 14, loop: false },
-    { name: "death", start: 24, end: 35, fps: 12, loop: false },
+    { name: "attack", start: 12, end: 17, fps: 14, loop: false }, // rows 4-5 are idle variants, not death
   ],
   archer: [
-    { name: "idle", start: 0, end: 7, fps: 8, loop: true },
-    { name: "walk", start: 8, end: 15, fps: 10, loop: true },
-    { name: "attack", start: 16, end: 31, fps: 18, loop: false },
-    { name: "death", start: 40, end: 55, fps: 12, loop: false },
+    // 8-wide sheet: cols 7-8 of rows 0-1 are empty padding — idle/walk stop before them.
+    { name: "idle", start: 0, end: 5, fps: 8, loop: true },
+    { name: "walk", start: 8, end: 13, fps: 10, loop: true },
+    { name: "attack", start: 16, end: 22, fps: 16, loop: false }, // raise→draw→loose (rows 4-7 = more fire dirs, no death)
   ],
   torch: [
+    // 7-wide sheet, col 7 of rows 1-4 is empty padding — ranges stop before it.
     { name: "idle", start: 0, end: 6, fps: 8, loop: true },
-    { name: "walk", start: 7, end: 13, fps: 10, loop: true },
-    { name: "attack", start: 14, end: 27, fps: 16, loop: false },
-    { name: "death", start: 28, end: 34, fps: 12, loop: false },
+    { name: "walk", start: 7, end: 12, fps: 10, loop: true },
+    { name: "attack", start: 14, end: 19, fps: 14, loop: false },
   ],
   tnt: [
-    { name: "idle", start: 0, end: 6, fps: 8, loop: true },
-    { name: "walk", start: 7, end: 13, fps: 10, loop: true },
-    { name: "attack", start: 14, end: 20, fps: 14, loop: false },
+    { name: "idle", start: 0, end: 5, fps: 8, loop: true },
+    { name: "walk", start: 7, end: 12, fps: 10, loop: true },
+    { name: "attack", start: 14, end: 19, fps: 14, loop: false },
   ],
   barrel: [
     { name: "idle", start: 0, end: 3, fps: 8, loop: true },

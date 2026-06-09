@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 
 import { BootScene } from "./scenes/BootScene";
+import { GalleryScene } from "./scenes/GalleryScene";
 import { GameScene } from "./scenes/GameScene";
 import { HudScene } from "./scenes/HudScene";
 import { MenuScene } from "./scenes/MenuScene";
@@ -19,7 +20,7 @@ const config: Phaser.Types.Core.GameConfig = {
   // GameScene owns its own pointer handling; disable the right-click menu so
   // right-click can drive move orders the way a MOBA expects.
   disableContextMenu: true,
-  scene: [BootScene, MenuScene, GameScene, HudScene],
+  scene: [BootScene, MenuScene, GameScene, HudScene, GalleryScene],
 };
 
 new Phaser.Game(config);

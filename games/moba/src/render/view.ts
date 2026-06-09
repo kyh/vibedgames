@@ -19,14 +19,6 @@ const GRASS_AUTOTILE: Record<number, number> = {
   8: 1, 9: 0, 10: 31, 11: 30, 12: 2, 13: 3, 14: 32, 15: 33,
 };
 
-// Elevation (cliff) autotile — Tilemap_Elevation tall block. Same neighbour bits
-// (N=8,E=4,S=2,W=1, set when that neighbour is LOWER ground): TL=0 top=1 TR=2,
-// left=4 interior=5 right=6, cliff-BL=12 cliff-bottom=13 cliff-BR=14.
-const ELEV_AUTOTILE: Record<number, number> = {
-  0: 5, 8: 1, 4: 6, 2: 13, 1: 4, 9: 0, 12: 2, 3: 12,
-  6: 14, 10: 13, 5: 7, 13: 3, 7: 15, 11: 12, 14: 14, 15: 15,
-};
-
 // Raised grassy plateaus with rock cliff edges, in the off-lane jungle quadrants
 // (clear of the river + lanes). {x,y,r} circles → a "high" cell mask.
 const PLATEAUS: Array<{ x: number; y: number; r: number }> = [
@@ -238,9 +230,13 @@ export class WorldView {
     }
   }
 
-  /** Raised stone mesas via the cliff autotile, with a grounding shadow at the drop. */
+  /** Raised GRASS plateaus: the top stays grass (the ground layer already covers
+   *  high cells); we draw only the tileset's stone CLIFF FACE (frames 12-15) at the
+   *  drops, plus a cast shadow + grass lip. The Tiny-Swords look — green platforms,
+   *  stone walls — verified by the ?gallery=map rebuild of their example battlefield. */
   private buildElevation(isLand: (cx: number, cy: number) => boolean, cols: number, rows: number): void {
     const s = this.scene;
+    const hasElev = s.textures.exists("t-elev");
     const high = (cx: number, cy: number): boolean => {
       if (cx < 0 || cy < 0 || cx >= cols || cy >= rows || !isLand(cx, cy)) return false;
       const x = cx * CELL + CELL / 2;
@@ -251,23 +247,17 @@ export class WorldView {
     for (let cy = 0; cy < rows; cy++) {
       for (let cx = 0; cx < cols; cx++) {
         if (!high(cx, cy)) continue;
+        const x = cx * CELL, y = cy * CELL, cxp = x + CELL / 2;
         const sLow = !high(cx, cy + 1);
-        const k =
-          (high(cx, cy - 1) ? 0 : 8) |
-          (high(cx + 1, cy) ? 0 : 4) |
-          (sLow ? 2 : 0) |
-          (high(cx - 1, cy) ? 0 : 1);
-        if (k === 0) continue; // interior stays grass — only edges get the rock rim/cliff
-        const frame = ELEV_AUTOTILE[k] ?? 5;
-        const x = cx * CELL;
-        const y = cy * CELL;
-        const cxp = x + CELL / 2;
-        // grounding shadow just below a south-facing cliff edge (the tileset's face
-        // is only ~half a tile, so a soft shadow sells the drop without terracing).
-        if (sLow) {
-          s.add.ellipse(cxp, y + CELL + 14, CELL + 16, 26, 0x000000, 0.34).setDepth(DEPTH_GROUND + 1);
-        }
-        s.add.image(cxp, y + CELL / 2, "t-elev", frame).setDepth(DEPTH_GROUND + 3);
+        const eLow = !high(cx + 1, cy);
+        const wLow = !high(cx - 1, cy);
+        if (eLow) s.add.rectangle(x + CELL - 4, y + CELL / 2, 9, CELL, 0x3f4a44, 0.6).setDepth(DEPTH_GROUND + 5);
+        if (wLow) s.add.rectangle(x + 4, y + CELL / 2, 9, CELL, 0x3f4a44, 0.6).setDepth(DEPTH_GROUND + 5);
+        if (!sLow) continue; // only the south drop gets a full stone face
+        s.add.ellipse(cxp, y + CELL + 34, CELL + 6, 20, 0x000000, 0.26).setDepth(DEPTH_GROUND + 4);
+        const frame = wLow ? 12 : eLow ? 14 : 13; // corner faces where the side also drops
+        if (hasElev) s.add.image(cxp, y + CELL + 8, "t-elev", frame).setDepth(DEPTH_GROUND + 6);
+        s.add.rectangle(cxp, y + CELL - 2, CELL, 6, 0x2c5a2b, 0.55).setDepth(DEPTH_GROUND + 7);
       }
     }
   }
@@ -432,9 +422,10 @@ export class WorldView {
           if (this.scene.anims.exists(dkey)) {
             v.sprite.play(dkey);
             v.curAnim = dkey;
-            v.sprite.once("animationcomplete", () => v.container.setVisible(false));
+            v.sprite.once("animationcomplete", () => this.collapseSprite(v.sprite, () => v.container.setVisible(false)));
           } else {
-            v.container.setVisible(false);
+            // no death sheet — procedural collapse (topple + sink + fade)
+            this.collapseSprite(v.sprite, () => v.container.setVisible(false));
           }
         }
         continue;
@@ -443,11 +434,15 @@ export class WorldView {
       let v = this.units.get(u.id);
       if (!v) v = this.createUnitView(u);
       if (v.dead) {
-        // respawned — snap back so we don't slide from the death spot to base
+        // respawned — snap back so we don't slide from the death spot to base,
+        // and undo the collapse transform (alpha/angle/local-y) the death applied.
         v.dead = false;
         v.dx = u.x;
         v.dy = u.y;
         v.curAnim = "";
+        this.scene.tweens.killTweensOf(v.sprite);
+        v.sprite.setAlpha(1).setAngle(0);
+        v.sprite.y = -18;
       }
       v.container.setVisible(true);
 
@@ -504,21 +499,41 @@ export class WorldView {
     }
   }
 
-  /** One-shot death animation at a unit's last position (for reaped creeps). */
+  /** One-shot death at a unit's last position (for reaped creeps): play the real
+   *  death sheet if the unit has one (barrel goblin's explosion), else collapse. */
   private spawnDeathAnim(v: UnitView): void {
     if (v.dead) return; // a hero already played its death in-place
+    const s = this.scene;
     const tex = v.sprite.texture.key;
     const dkey = `${tex}-death`;
-    if (!this.scene.anims.exists(dkey)) return;
-    const s = this.scene;
     const corpse = s.add
-      .sprite(v.dx, v.dy - 18, tex, 0)
+      .sprite(v.dx, v.dy - 18, tex, v.sprite.frame.name)
       .setScale(v.sprite.scaleX, v.sprite.scaleY)
       .setFlipX(v.sprite.flipX)
       .setDepth(v.dy - 2);
-    corpse.play(dkey);
-    corpse.once("animationcomplete", () => {
-      s.tweens.add({ targets: corpse, alpha: 0, duration: 260, onComplete: () => corpse.destroy() });
+    if (s.anims.exists(dkey)) {
+      corpse.play(dkey);
+      corpse.once("animationcomplete", () => {
+        s.tweens.add({ targets: corpse, alpha: 0, duration: 260, onComplete: () => corpse.destroy() });
+      });
+    } else {
+      this.collapseSprite(corpse, () => corpse.destroy());
+    }
+  }
+
+  /** Procedural death for sheets with no death sequence: freeze the current frame,
+   *  then topple over + sink + fade. Reads clearly as a death for any unit. */
+  private collapseSprite(sprite: Phaser.GameObjects.Sprite, onDone?: () => void): void {
+    sprite.anims.stop();
+    const dir = sprite.flipX ? -1 : 1;
+    this.scene.tweens.add({
+      targets: sprite,
+      angle: dir * 78,
+      y: sprite.y + 12,
+      alpha: 0,
+      duration: 520,
+      ease: "Quad.easeIn",
+      onComplete: () => onDone?.(),
     });
   }
 

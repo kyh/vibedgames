@@ -64,7 +64,9 @@ export class BootScene extends Phaser.Scene {
     // --- ambient + extra terrain (clouds, animated water rocks, swaying trees, sheep) ---
     for (let i = 1; i <= 8; i++) this.load.image(`cloud${i}`, `assets/deco/cloud${i}.png`);
     for (let i = 1; i <= 4; i++) this.load.spritesheet(`wrock${i}`, `assets/terrain/wrock${i}.png`, { frameWidth: 128, frameHeight: 128 });
-    for (let i = 1; i <= 4; i++) this.load.spritesheet(`ftree${i}`, `assets/deco/ftree${i}.png`, { frameWidth: 256, frameHeight: 256 });
+    // ftree1/2 are 256px frames; ftree3/4 are 192px (loading them all at 256 yields zero frames).
+    for (let i = 1; i <= 2; i++) this.load.spritesheet(`ftree${i}`, `assets/deco/ftree${i}.png`, { frameWidth: 256, frameHeight: 256 });
+    for (let i = 3; i <= 4; i++) this.load.spritesheet(`ftree${i}`, `assets/deco/ftree${i}.png`, { frameWidth: 192, frameHeight: 192 });
     this.load.spritesheet("sheep", "assets/deco/sheep.png", { frameWidth: 128, frameHeight: 128 });
 
     // --- enemy-pack creatures for jungle neutrals + Roshan ---
@@ -100,7 +102,9 @@ export class BootScene extends Phaser.Scene {
     // (imported lazily to keep BootScene's compile surface small)
     void import("../render/anims").then(({ registerAnims }) => {
       registerAnims(this);
-      this.scene.start("Menu");
+      // ?gallery=units|terrain|fx opens an asset showcase instead of the menu
+      const gallery = new URLSearchParams(window.location.search).get("gallery");
+      this.scene.start(gallery ? "Gallery" : "Menu", { section: gallery });
     });
   }
 
