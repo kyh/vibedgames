@@ -1,0 +1,456 @@
+{
+ "sheets": [
+  {
+   "logical": "knight-warrior",
+   "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Factions/Knights/Troops/Warrior/{COLOR}/Warrior_{COLOR}.png",
+   "frameW": 192,
+   "frameH": 192,
+   "cols": 6,
+   "rows": 8,
+   "confidence": "high",
+   "anims": [
+    {
+     "name": "idle",
+     "start": 0,
+     "end": 5,
+     "fps": 8,
+     "loop": true
+    },
+    {
+     "name": "walk",
+     "start": 6,
+     "end": 11,
+     "fps": 10,
+     "loop": true
+    },
+    {
+     "name": "attack",
+     "start": 12,
+     "end": 23,
+     "fps": 12,
+     "loop": false
+    },
+    {
+     "name": "special",
+     "start": 24,
+     "end": 35,
+     "fps": 12,
+     "loop": false
+    },
+    {
+     "name": "death",
+     "start": 36,
+     "end": 47,
+     "fps": 10,
+     "loop": false
+    }
+   ]
+  },
+  {
+   "logical": "knight-pawn",
+   "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Factions/Knights/Troops/Pawn/{COLOR}/Pawn_{COLOR}.png",
+   "frameW": 192,
+   "frameH": 192,
+   "cols": 6,
+   "rows": 6,
+   "confidence": "high",
+   "anims": [
+    {
+     "name": "idle",
+     "start": 0,
+     "end": 5,
+     "fps": 8,
+     "loop": true
+    },
+    {
+     "name": "walk",
+     "start": 6,
+     "end": 11,
+     "fps": 10,
+     "loop": true
+    },
+    {
+     "name": "attack",
+     "start": 12,
+     "end": 17,
+     "fps": 12,
+     "loop": false
+    },
+    {
+     "name": "special",
+     "start": 18,
+     "end": 23,
+     "fps": 12,
+     "loop": false
+    },
+    {
+     "name": "death",
+     "start": 24,
+     "end": 35,
+     "fps": 10,
+     "loop": false
+    }
+   ]
+  },
+  {
+   "logical": "knight-archer",
+   "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Factions/Knights/Troops/Archer/{COLOR}/Archer_{COLOR}.png",
+   "frameW": 192,
+   "frameH": 192,
+   "cols": 8,
+   "rows": 7,
+   "confidence": "medium",
+   "anims": [
+    {
+     "name": "idle",
+     "start": 0,
+     "end": 7,
+     "fps": 8,
+     "loop": true
+    },
+    {
+     "name": "walk",
+     "start": 8,
+     "end": 15,
+     "fps": 10,
+     "loop": true
+    },
+    {
+     "name": "attack",
+     "start": 16,
+     "end": 31,
+     "fps": 12,
+     "loop": false
+    },
+    {
+     "name": "special",
+     "start": 32,
+     "end": 39,
+     "fps": 12,
+     "loop": false
+    },
+    {
+     "name": "death",
+     "start": 40,
+     "end": 55,
+     "fps": 10,
+     "loop": false
+    }
+   ]
+  },
+  {
+   "logical": "goblin-torch",
+   "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Factions/Goblins/Troops/Torch/{COLOR}/Torch_{COLOR}.png",
+   "frameW": 192,
+   "frameH": 192,
+   "cols": 7,
+   "rows": 5,
+   "confidence": "medium",
+   "anims": [
+    {
+     "name": "idle",
+     "start": 0,
+     "end": 6,
+     "fps": 8,
+     "loop": true
+    },
+    {
+     "name": "walk",
+     "start": 7,
+     "end": 13,
+     "fps": 10,
+     "loop": true
+    },
+    {
+     "name": "attack",
+     "start": 14,
+     "end": 27,
+     "fps": 12,
+     "loop": false
+    },
+    {
+     "name": "death",
+     "start": 28,
+     "end": 34,
+     "fps": 10,
+     "loop": false
+    }
+   ]
+  },
+  {
+   "logical": "goblin-tnt",
+   "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Factions/Goblins/Troops/TNT/{COLOR}/TNT_{COLOR}.png",
+   "frameW": 192,
+   "frameH": 192,
+   "cols": 7,
+   "rows": 3,
+   "confidence": "medium",
+   "anims": [
+    {
+     "name": "idle",
+     "start": 0,
+     "end": 6,
+     "fps": 8,
+     "loop": true
+    },
+    {
+     "name": "walk",
+     "start": 7,
+     "end": 13,
+     "fps": 10,
+     "loop": true
+    },
+    {
+     "name": "attack",
+     "start": 14,
+     "end": 20,
+     "fps": 12,
+     "loop": false
+    }
+   ]
+  },
+  {
+   "logical": "goblin-barrel",
+   "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Factions/Goblins/Troops/Barrel/{COLOR}/Barrel_{COLOR}.png",
+   "frameW": 192,
+   "frameH": 192,
+   "cols": 4,
+   "rows": 4,
+   "confidence": "medium",
+   "anims": [
+    {
+     "name": "idle",
+     "start": 0,
+     "end": 3,
+     "fps": 8,
+     "loop": true
+    },
+    {
+     "name": "walk",
+     "start": 4,
+     "end": 7,
+     "fps": 8,
+     "loop": true
+    },
+    {
+     "name": "attack",
+     "start": 8,
+     "end": 11,
+     "fps": 10,
+     "loop": false
+    },
+    {
+     "name": "death",
+     "start": 12,
+     "end": 15,
+     "fps": 10,
+     "loop": false
+    }
+   ]
+  },
+  {
+   "logical": "wood-tower",
+   "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Factions/Goblins/Buildings/Wood_Tower/Wood_Tower_{COLOR}.png",
+   "frameW": 128,
+   "frameH": 192,
+   "cols": 8,
+   "rows": 1,
+   "confidence": "low",
+   "anims": [
+    {
+     "name": "idle",
+     "start": 0,
+     "end": 7,
+     "fps": 6,
+     "loop": true
+    }
+   ]
+  }
+ ],
+ "singles": [
+  {
+   "logical": "knight-castle",
+   "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Factions/Knights/Buildings/Castle/Castle_{COLOR}.png",
+   "w": 320,
+   "h": 256,
+   "colors": [
+    "Blue",
+    "Red",
+    "Purple",
+    "Yellow",
+    "Construction",
+    "Destroyed"
+   ]
+  },
+  {
+   "logical": "knight-tower",
+   "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Factions/Knights/Buildings/Tower/Tower_{COLOR}.png",
+   "w": 128,
+   "h": 256,
+   "colors": [
+    "Blue",
+    "Red",
+    "Purple",
+    "Yellow",
+    "Construction",
+    "Destroyed"
+   ]
+  },
+  {
+   "logical": "knight-house",
+   "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Factions/Knights/Buildings/House/House_{COLOR}.png",
+   "w": 128,
+   "h": 192,
+   "colors": [
+    "Blue",
+    "Red",
+    "Purple",
+    "Yellow",
+    "Construction",
+    "Destroyed"
+   ]
+  },
+  {
+   "logical": "goblin-house",
+   "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Factions/Goblins/Buildings/Wood_House/Goblin_House.png",
+   "w": 128,
+   "h": 192
+  },
+  {
+   "logical": "arrow",
+   "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Factions/Knights/Troops/Archer/Arrow/Arrow.png",
+   "w": 64,
+   "h": 128
+  }
+ ],
+ "terrain": [
+  {
+   "logical": "grass-autotile",
+   "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Terrain/Ground/Tilemap_Flat.png",
+   "tileW": 64,
+   "tileH": 64,
+   "cols": 10,
+   "rows": 4,
+   "usage": "Standard 16-tile autotile (10x4 grid). Top-left corners, T-junctions, corners, flat edges; last row reserved."
+  },
+  {
+   "logical": "water",
+   "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Terrain/Water/Water.png",
+   "tileW": 64,
+   "tileH": 64,
+   "cols": 1,
+   "rows": 1,
+   "usage": "Single water tile, static. Use for static water or pair with foam for animated shoreline."
+  },
+  {
+   "logical": "foam",
+   "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Terrain/Water/Foam/Foam.png",
+   "tileW": 64,
+   "tileH": 64,
+   "cols": 24,
+   "rows": 3,
+   "usage": "Water edge foam animation. 24 frames (3 rows x 8 cols semantic). Use for shoreline edge FX; or render 8-frame loop from first row."
+  },
+  {
+   "logical": "bridge",
+   "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Terrain/Bridge/Bridge_All.png",
+   "tileW": 64,
+   "tileH": 64,
+   "cols": 3,
+   "rows": 4,
+   "usage": "Bridge variants (3 wide). Top row: straight, left-bend, right-bend. Remaining rows: more variants or rotations."
+  },
+  {
+   "logical": "elevation",
+   "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Terrain/Ground/Tilemap_Elevation.png",
+   "tileW": 64,
+   "tileH": 64,
+   "cols": 4,
+   "rows": 8,
+   "usage": "Height/cliff transitions. 32 tile variants for ramps and elevation changes."
+  }
+ ],
+ "fx": [
+  {
+   "logical": "explosion-main",
+   "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Effects/Explosion/Explosions.png",
+   "frameW": 192,
+   "frameH": 192,
+   "frames": 9,
+   "fps": 12
+  },
+  {
+   "logical": "fire-main",
+   "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Effects/Fire/Fire.png",
+   "frameW": 128,
+   "frameH": 128,
+   "frames": 7,
+   "fps": 10
+  },
+  {
+   "logical": "dust-particle-01",
+   "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Free Pack)/Particle FX/Dust_01.png",
+   "frameW": 64,
+   "frameH": 64,
+   "frames": 8,
+   "fps": 12
+  },
+  {
+   "logical": "dust-particle-02",
+   "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Free Pack)/Particle FX/Dust_02.png",
+   "frameW": 64,
+   "frameH": 64,
+   "frames": 10,
+   "fps": 12
+  },
+  {
+   "logical": "explosion-particle-01",
+   "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Free Pack)/Particle FX/Explosion_01.png",
+   "frameW": 192,
+   "frameH": 192,
+   "frames": 8,
+   "fps": 12
+  },
+  {
+   "logical": "explosion-particle-02",
+   "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Free Pack)/Particle FX/Explosion_02.png",
+   "frameW": 192,
+   "frameH": 192,
+   "frames": 8,
+   "fps": 12
+  },
+  {
+   "logical": "fire-particle-01",
+   "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Free Pack)/Particle FX/Fire_01.png",
+   "frameW": 64,
+   "frameH": 64,
+   "frames": 8,
+   "fps": 10
+  },
+  {
+   "logical": "fire-particle-02",
+   "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Free Pack)/Particle FX/Fire_02.png",
+   "frameW": 64,
+   "frameH": 64,
+   "frames": 8,
+   "fps": 10
+  },
+  {
+   "logical": "fire-particle-03",
+   "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Free Pack)/Particle FX/Fire_03.png",
+   "frameW": 64,
+   "frameH": 64,
+   "frames": 8,
+   "fps": 10
+  },
+  {
+   "logical": "water-splash",
+   "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Free Pack)/Particle FX/Water Splash.png",
+   "frameW": 64,
+   "frameH": 64,
+   "frames": 8,
+   "fps": 12
+  }
+ ],
+ "recommendation": "Generate with `vg generate`: (1) Hero portraits (5 unique MOBA character profiles, 256x256 each for select screen) from existing Tiny Swords avatars or custom AI art. (2) Ability icons (8-12 skill icons, 64x64) for each hero (melee attack, ranged attack, special ability, ultimate). (3) Item/shop icons (rune, potion, armor, weapon variants, 64x64) for inventory/shop UI. (4) Game logo and menu background art (1920x1080). (5) Minimap icons (units, buildings, neutral objectives, 32x32). (6) Ensure all unit colors are present: Knights (Blue=Radiant, Red=Dire, Purple, Yellow for test bots); Goblins (Red=Dire, Blue, Purple, Yellow variants exist but unconfirmed for all units). (7) A visual frame-range discovery tool: render a contact sheet per sprite sheet (e.g., 6x8 grid for warrior) to verify idle/walk/attack/death ranges at load time, dump as debug overlay or console log.\""
+}
