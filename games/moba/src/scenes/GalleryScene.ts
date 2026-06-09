@@ -222,12 +222,19 @@ export class GalleryScene extends Phaser.Scene {
     this.buildMapCliffs(COLS, ROWS);
     this.buildMapObjects();
 
-    // fit the whole 1600×1216 map into the viewport
+    // fit the whole 1600×1216 map into the viewport (cap at 1:1 so a 1600×1216
+    // window renders pixel-for-pixel, directly comparable to the reference)
     const cam = this.cameras.main;
     cam.setBackgroundColor("#3a8f8a");
-    const zoom = Math.min(this.scale.width / Wpx, this.scale.height / Hpx) * 0.98;
-    cam.setZoom(zoom);
+    cam.setZoom(Math.min(1, this.scale.width / Wpx, this.scale.height / Hpx));
     cam.centerOn(Wpx / 2, Hpx / 2);
+
+    // ?gallery=map&ref=1 ghosts the reference battlefield on top for pixel alignment
+    if (new URLSearchParams(window.location.search).get("ref")) {
+      this.load.image("refmap", "/ref_map.png");
+      this.load.once("complete", () => this.add.image(0, 0, "refmap").setOrigin(0, 0).setAlpha(0.45).setDepth(1_000_000));
+      this.load.start();
+    }
   }
 
   private buildMapGrass(cols: number, rows: number): void {
@@ -270,27 +277,28 @@ export class GalleryScene extends Phaser.Scene {
     band(-882, 18, 0x8fd0e0, 0.28, 9);
   }
 
-  // The plateau TOP stays grass (the grass layer already covers high cells). We
-  // only draw the tileset's CLIFF FACE (frames 12-15) at the south drops, plus a
-  // grass lip + cast shadow — the Tiny Swords look: green platforms, stone walls.
+  // The plateau TOP stays grass; the south drop gets a CHUNKY full-tile stone face
+  // (cliff frames 20-23: 20=left end, 21/22=body, 23=right end) sitting on the lower
+  // ground, with a grass lip overhanging the top + a cast shadow at the base. Side
+  // (E/W) drops get a slim vertical stone strip. Tiny Swords look: green platforms,
+  // thick stone retaining walls.
   private buildMapCliffs(cols: number, rows: number): void {
     const hasElev = this.textures.exists("t-elev");
     for (let cy = 0; cy < rows; cy++) {
       for (let cx = 0; cx < cols; cx++) {
         if (!this.high(cx, cy)) continue;
         const x = cx * CELL, y = cy * CELL, cxp = x + CELL / 2;
-        const sLow = !this.high(cx, cy + 1);
         const eLow = !this.high(cx + 1, cy);
         const wLow = !this.high(cx - 1, cy);
-        // side drops: a slim dark stone strip down the platform edge
-        if (eLow) this.add.rectangle(x + CELL - 4, y + CELL / 2, 12, CELL, 0x394640, 0.7).setDepth(y + CELL - 2);
-        if (wLow) this.add.rectangle(x + 4, y + CELL / 2, 12, CELL, 0x394640, 0.7).setDepth(y + CELL - 2);
-        if (!sLow) continue;
-        // south drop: cast shadow on the lower ground, a chunkier stone face, grass lip
-        this.add.ellipse(cxp, y + CELL + 40, CELL + 6, 20, 0x000000, 0.28).setDepth(y + CELL - 3);
-        const frame = wLow ? 12 : eLow ? 14 : 13; // corner faces where the side also drops
-        if (hasElev) this.add.image(cxp, y + CELL + 12, "t-elev", frame).setScale(1, 1.18).setDepth(y + CELL);
-        this.add.rectangle(cxp, y + CELL - 1, CELL, 7, 0x2c5a2b, 0.6).setDepth(y + CELL + 1);
+        if (eLow) this.add.rectangle(x + CELL - 6, y + CELL / 2, 14, CELL, 0x46555a, 0.85).setDepth(y + CELL - 2);
+        if (wLow) this.add.rectangle(x + 6, y + CELL / 2, 14, CELL, 0x46555a, 0.85).setDepth(y + CELL - 2);
+        if (this.high(cx, cy + 1)) continue; // only the south drop gets the full face
+        const leftEnd = !this.high(cx - 1, cy) || this.high(cx - 1, cy + 1);
+        const rightEnd = !this.high(cx + 1, cy) || this.high(cx + 1, cy + 1);
+        const frame = leftEnd ? 20 : rightEnd ? 23 : 21;
+        this.add.ellipse(cxp, y + CELL + 54, CELL + 8, 18, 0x000000, 0.3).setDepth(y + CELL - 3);
+        if (hasElev) this.add.image(cxp, y + CELL + 30, "t-elev", frame).setDepth(y + CELL); // full 64px face on the low cell
+        this.add.rectangle(cxp, y + CELL, CELL, 9, 0x356a30, 0.7).setDepth(y + CELL + 1); // grass lip overhang
       }
     }
   }
@@ -305,11 +313,13 @@ export class GalleryScene extends Phaser.Scene {
       const [x, y] = P(tx, ty);
       if (this.textures.exists(blue(tex))) this.placed(this.add.image(x, y, blue(tex)).setScale(scale).setOrigin(0.5, 0.85), y);
     };
+    // buildings render at native scale (castle 320x256=5x4 tiles, tower 128x256=2x4,
+    // house 128x192=2x3) — they're authored for the 64px grid.
     building("b-castle", 4.2, 2.2, 1.0);
-    building("b-tower", 2.6, 8.4, 0.95);
-    building("b-tower", 9.2, 15.0, 0.95);
+    building("b-tower", 2.6, 8.4, 1.0);
+    building("b-tower", 9.2, 15.0, 1.0);
     // village cluster on the right, below the sign
-    for (const [tx, ty] of [[17.6, 4.6], [19.4, 4.4], [20.6, 5.6], [18.4, 6.0], [15.4, 9.0]] as Array<[number, number]>) building("b-house", tx, ty, 0.82);
+    for (const [tx, ty] of [[17.6, 4.6], [19.4, 4.4], [20.6, 5.6], [18.4, 6.0], [15.4, 9.0]] as Array<[number, number]>) building("b-house", tx, ty, 1.0);
 
     // units (blue knights): a spearman column near the castle + scattered warriors
     const unit = (tex: string, tx: number, ty: number, scale = 0.52): void => {
@@ -329,15 +339,14 @@ export class GalleryScene extends Phaser.Scene {
     unit("pawn", 16.4, 11.6);
     unit("archer", 11.4, 7.4);
 
-    // trees: green pines along the top, leafy trees on the flanks. A warm static
-    // tint turns the green leaf sheets into the reference's autumn trees (safe —
-    // it's set once on decor, never per-frame like the old unit-flash bug).
+    // trees: STATIC single frame (the tree sheets are sway anims / variant strips;
+    // looping them made the sprites visibly scroll). A warm static tint turns the
+    // green leaf sheets into the reference's autumn trees.
     const tree = (tex: string, tx: number, ty: number, scale: number, tint?: number): void => {
       if (!this.textures.exists(tex)) return;
       const [x, y] = P(tx, ty);
-      const spr = this.placed(this.add.sprite(x, y, tex, 0).setScale(scale).setOrigin(0.5, 0.9), y);
-      if (tint !== undefined) spr.setTint(tint);
-      if (this.anims.exists(`${tex}-sway`)) spr.play(`${tex}-sway`);
+      const img = this.placed(this.add.image(x, y, tex, 0).setScale(scale).setOrigin(0.5, 0.9), y);
+      if (tint !== undefined) img.setTint(tint);
     };
     // dark-green pine cluster across the top + along the upper coast & by the sign
     for (const [tx, ty] of [[10.4, 0.7], [11.3, 0.4], [12.2, 0.7], [13.1, 0.4], [14.0, 0.7], [14.9, 0.4], [9.6, 1.0], [15.7, 1.0], [23.2, 1.2], [23.9, 2.6], [24.2, 4.2], [8.7, 0.6]] as Array<[number, number]>) tree("t-tree", tx, ty, 1.12);

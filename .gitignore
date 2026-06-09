@@ -54,3 +54,6 @@ local.*
 .claude/scheduled_tasks.lock
 .claude/worktrees
 .playwright-mcp
+
+# dev-only reference tracing overlay
+games/moba/public/ref_map.png
