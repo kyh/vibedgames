@@ -245,6 +245,10 @@ export class GalleryScene extends Phaser.Scene {
     const map = this.make.tilemap({ data, tileWidth: CELL, tileHeight: CELL });
     const tiles = map.addTilesetImage("ground", "t-ground-img");
     if (tiles) map.createLayer(0, tiles, 0, 0)?.setDepth(-900);
+    // warm light wash over the grass to match the reference's brighter tone
+    const warm = this.add.graphics().setDepth(-899).setBlendMode(Phaser.BlendModes.ADD);
+    warm.fillStyle(0x6a5a10, 0.16);
+    for (let cy = 0; cy < rows; cy++) for (let cx = 0; cx < cols; cx++) if (this.land(cx, cy)) warm.fillRect(cx * CELL, cy * CELL, CELL, CELL);
   }
 
   private buildMapShoreline(cols: number, rows: number): void {
@@ -279,14 +283,14 @@ export class GalleryScene extends Phaser.Scene {
         const eLow = !this.high(cx + 1, cy);
         const wLow = !this.high(cx - 1, cy);
         // side drops: a slim dark stone strip down the platform edge
-        if (eLow) this.add.rectangle(x + CELL - 4, y + CELL / 2, 9, CELL, 0x3f4a44, 0.6).setDepth(y + CELL - 2);
-        if (wLow) this.add.rectangle(x + 4, y + CELL / 2, 9, CELL, 0x3f4a44, 0.6).setDepth(y + CELL - 2);
+        if (eLow) this.add.rectangle(x + CELL - 4, y + CELL / 2, 12, CELL, 0x394640, 0.7).setDepth(y + CELL - 2);
+        if (wLow) this.add.rectangle(x + 4, y + CELL / 2, 12, CELL, 0x394640, 0.7).setDepth(y + CELL - 2);
         if (!sLow) continue;
-        // south drop: cast shadow on the lower ground, the stone face, a grass lip
-        this.add.ellipse(cxp, y + CELL + 34, CELL + 6, 20, 0x000000, 0.26).setDepth(y + CELL - 3);
+        // south drop: cast shadow on the lower ground, a chunkier stone face, grass lip
+        this.add.ellipse(cxp, y + CELL + 40, CELL + 6, 20, 0x000000, 0.28).setDepth(y + CELL - 3);
         const frame = wLow ? 12 : eLow ? 14 : 13; // corner faces where the side also drops
-        if (hasElev) this.add.image(cxp, y + CELL + 8, "t-elev", frame).setDepth(y + CELL);
-        this.add.rectangle(cxp, y + CELL - 2, CELL, 6, 0x2c5a2b, 0.55).setDepth(y + CELL + 1);
+        if (hasElev) this.add.image(cxp, y + CELL + 12, "t-elev", frame).setScale(1, 1.18).setDepth(y + CELL);
+        this.add.rectangle(cxp, y + CELL - 1, CELL, 7, 0x2c5a2b, 0.6).setDepth(y + CELL + 1);
       }
     }
   }
@@ -308,31 +312,42 @@ export class GalleryScene extends Phaser.Scene {
     for (const [tx, ty] of [[17.6, 4.6], [19.4, 4.4], [20.6, 5.6], [18.4, 6.0], [15.4, 9.0]] as Array<[number, number]>) building("b-house", tx, ty, 0.82);
 
     // units (blue knights): a spearman column near the castle + scattered warriors
-    const unit = (tex: string, tx: number, ty: number, scale = 0.42): void => {
+    const unit = (tex: string, tx: number, ty: number, scale = 0.52): void => {
       const t = this.textures.exists(`u-${tex}-blue`) ? `u-${tex}-blue` : "";
       if (!t) return;
       const [x, y] = P(tx, ty);
+      this.placed(this.add.image(x, y + 8, "shadow").setScale(0.55).setAlpha(0.45), y, -1);
       const spr = this.placed(this.add.sprite(x, y, t, 0).setScale(scale).setOrigin(0.5, 0.8), y);
-      this.placed(this.add.image(x, y + 6, "shadow").setScale(0.5).setAlpha(0.5), y, -1);
       if (this.anims.exists(`u-${tex}-blue-idle`)) spr.play(`u-${tex}-blue-idle`);
     };
-    for (const [tx, ty] of [[7.2, 1.6], [7.9, 2.2], [8.6, 1.4], [6.4, 2.4], [8.0, 3.0]] as Array<[number, number]>) unit("warrior", tx, ty);
-    unit("warrior", 8.6, 5.2);
+    // a marching column of knights near the castle + scattered patrols
+    for (const [tx, ty] of [[6.6, 1.6], [7.4, 1.2], [8.2, 1.7], [7.0, 2.6], [8.0, 2.9], [6.2, 3.4]] as Array<[number, number]>) unit("warrior", tx, ty);
+    unit("warrior", 9.0, 5.4);
+    unit("warrior", 8.4, 4.6);
     unit("pawn", 5.2, 12.8);
     unit("warrior", 13.0, 13.2);
     unit("pawn", 16.4, 11.6);
+    unit("archer", 11.4, 7.4);
 
-    // trees: green pines along the top, leafy trees on the flanks
-    const tree = (tex: string, tx: number, ty: number, scale: number): void => {
+    // trees: green pines along the top, leafy trees on the flanks. A warm static
+    // tint turns the green leaf sheets into the reference's autumn trees (safe —
+    // it's set once on decor, never per-frame like the old unit-flash bug).
+    const tree = (tex: string, tx: number, ty: number, scale: number, tint?: number): void => {
       if (!this.textures.exists(tex)) return;
       const [x, y] = P(tx, ty);
       const spr = this.placed(this.add.sprite(x, y, tex, 0).setScale(scale).setOrigin(0.5, 0.9), y);
+      if (tint !== undefined) spr.setTint(tint);
       if (this.anims.exists(`${tex}-sway`)) spr.play(`${tex}-sway`);
     };
-    // pine row across the top + a few by the sign
-    for (const [tx, ty] of [[10.6, 0.8], [11.6, 0.5], [12.6, 0.8], [13.6, 0.5], [14.6, 0.8], [23.4, 1.4], [24.0, 3.0]] as Array<[number, number]>) tree("t-tree", tx, ty, 1.15);
-    // leafy/autumn trees down the flanks
-    for (const [tx, ty, n] of [[1.4, 1.8, 1], [1.7, 3.4, 2], [1.3, 5.0, 3], [1.9, 6.6, 4], [22.4, 9.6, 1], [23.0, 11.4, 2], [22.0, 13.2, 3], [13.2, 16.4, 4]] as Array<[number, number, number]>) tree(`ftree${n}`, tx, ty, 0.6);
+    // dark-green pine cluster across the top + along the upper coast & by the sign
+    for (const [tx, ty] of [[10.4, 0.7], [11.3, 0.4], [12.2, 0.7], [13.1, 0.4], [14.0, 0.7], [14.9, 0.4], [9.6, 1.0], [15.7, 1.0], [23.2, 1.2], [23.9, 2.6], [24.2, 4.2], [8.7, 0.6]] as Array<[number, number]>) tree("t-tree", tx, ty, 1.12);
+    // autumn (warm-tinted) leafy trees down the flanks & corners
+    const AUTUMN = [0xf4d24a, 0xe9a23a, 0xf2c14e, 0xe6b34a];
+    for (const [tx, ty, n] of [
+      [1.4, 1.8, 1], [1.7, 3.2, 2], [1.3, 4.6, 3], [1.9, 6.0, 4], [1.5, 7.4, 1], [2.2, 8.8, 2],
+      [22.4, 9.4, 1], [23.0, 11.0, 2], [22.1, 12.6, 3], [23.2, 14.0, 4], [21.4, 7.6, 1],
+      [13.2, 16.4, 4], [11.0, 16.6, 2], [4.6, 16.4, 3], [18.6, 15.6, 1],
+    ] as Array<[number, number, number]>) tree(`ftree${n}`, tx, ty, 0.6, AUTUMN[(n - 1) % AUTUMN.length]);
 
     // sheep grazing near the village
     for (const [tx, ty] of [[18.4, 7.4], [20.4, 6.6], [16.8, 9.8], [21.6, 8.2], [15.0, 11.0]] as Array<[number, number]>) {
