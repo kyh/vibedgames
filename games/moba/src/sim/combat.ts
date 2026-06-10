@@ -156,8 +156,10 @@ export function resolvePendingAttacks(w: World): void {
     u.pendingAttack = null;
     const target = w.units.get(pa.targetId);
     if (!target || !target.alive || !isEnemy(u, target)) continue;
-    // out of range now? (kiting) — fizzle but keep cooldown spent
-    if (dist(u, target) > u.attackRange + u.radius + 40) continue;
+    // out of range now? (kiting) — fizzle but keep cooldown spent. Must mirror
+    // the acquire/chase formula (incl. target radius) or attacks on big-radius
+    // targets (towers, the ancient) wind up and whiff forever.
+    if (dist(u, target) > u.attackRange + u.radius + target.radius + 40) continue;
 
     let dmg = effectiveAttackDamage(u);
     let crit = 1;

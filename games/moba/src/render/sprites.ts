@@ -34,8 +34,9 @@ export function unitSprite(u: Unit): SpriteInfo {
     const ck = u.creep.ckind;
     if (ck === "melee") { const t = u.team === "radiant" ? "u-pawn-blue" : "u-torch-red"; return { tex: t, scale: 0.42, tint: 0xffffff, animBase: t }; }
     if (ck === "ranged") { const t = u.team === "radiant" ? "u-archer-blue" : "u-tnt-red"; return { tex: t, scale: 0.42, tint: 0xffffff, animBase: t }; }
+    // barrel frames are 128px (others 192) — scale up so it reads the same size
     const t = `u-barrel-${color}`;
-    return { tex: t, scale: 0.5, tint: 0xffffff, animBase: t };
+    return { tex: t, scale: 0.72, tint: 0xffffff, animBase: t };
   }
   const t = `u-pawn-${color}`;
   return { tex: t, scale: 0.5, tint: 0xffffff, animBase: t };

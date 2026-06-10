@@ -6,6 +6,7 @@ import { HERO_BY_ID, valAt } from "../data/heroes";
 import type { AbilityKey } from "../data/heroes";
 import { ITEMS, ITEM_BY_ID } from "../data/items";
 import { BRIDGES, GRID, WORLD, isHighCell, isLandCell } from "../data/map";
+import { FONT } from "../render/font";
 import { heroSheetTex } from "../render/sprites";
 import { SLOT_LABEL } from "./GameScene";
 import type { GameScene } from "./GameScene";
@@ -16,6 +17,7 @@ const MINIMAP_H = Math.round(MINIMAP_SIZE * (WORLD.height / WORLD.width));
 
 type Slot = {
   key: AbilityKey;
+  panel: Phaser.GameObjects.Image; // carved backdrop; `box` on top carries the state stroke
   box: Phaser.GameObjects.Rectangle;
   icon: Phaser.GameObjects.Image;
   cd: Phaser.GameObjects.Rectangle;
@@ -40,7 +42,13 @@ export class HudScene extends Phaser.Scene {
   private apText!: Phaser.GameObjects.Text;
   private hintText!: Phaser.GameObjects.Text;
   private barW = 200;
-  private itemSlots: { box: Phaser.GameObjects.Rectangle; icon: Phaser.GameObjects.Image; key: Phaser.GameObjects.Text }[] = [];
+  private infoPanel!: Phaser.GameObjects.NineSlice;
+  private barPanel!: Phaser.GameObjects.NineSlice;
+  private dashPanel!: Phaser.GameObjects.Image;
+  private scoreRibbon!: Phaser.GameObjects.NineSlice;
+  private announceRibbon!: Phaser.GameObjects.NineSlice;
+  private mapFrame!: Phaser.GameObjects.NineSlice;
+  private itemSlots: { panel: Phaser.GameObjects.Image; box: Phaser.GameObjects.Rectangle; icon: Phaser.GameObjects.Image; key: Phaser.GameObjects.Text }[] = [];
   private shop!: Phaser.GameObjects.Container;
   private shopRows: { id: string; box: Phaser.GameObjects.Rectangle; cost: Phaser.GameObjects.Text }[] = [];
   private shopOpen = false;
@@ -127,7 +135,7 @@ export class HudScene extends Phaser.Scene {
   }
 
   private updateShopSelection(): void {
-    this.shopRows.forEach((r, i) => r.box.setStrokeStyle(i === this.shopSel ? 3 : 1, i === this.shopSel ? 0xffe14a : 0x2a3550));
+    this.shopRows.forEach((r, i) => r.box.setStrokeStyle(i === this.shopSel ? 3 : 1, i === this.shopSel ? 0xc9941e : 0xb89868));
   }
 
   private buySelected(): void {
@@ -137,67 +145,73 @@ export class HudScene extends Phaser.Scene {
   }
 
   private build(): void {
-    // top-left info
-    this.goldText = this.add.text(16, 14, "", { fontSize: "18px", color: "#ffd23a", fontStyle: "bold" });
-    this.clockText = this.add.text(16, 40, "", { fontSize: "14px", color: "#c7d2ee" });
-    this.kdaText = this.add.text(16, 62, "", { fontSize: "14px", color: "#c7d2ee" });
-    this.apText = this.add.text(16, 84, "", { fontSize: "14px", color: "#ffe14a", fontStyle: "bold" });
+    // top-left info on a carved parchment panel
+    this.infoPanel = this.add.nineslice(8, 8, "ui-carved9", 0, 226, 112, 20, 20, 20, 20).setOrigin(0, 0).setDepth(-1);
+    this.goldText = this.add.text(24, 20, "", { fontFamily: FONT, fontSize: "18px", color: "#8a6510" });
+    this.clockText = this.add.text(24, 46, "", { fontFamily: FONT, fontSize: "14px", color: "#5a4630" });
+    this.kdaText = this.add.text(24, 68, "", { fontFamily: FONT, fontSize: "14px", color: "#5a4630" });
+    this.apText = this.add.text(24, 90, "", { fontFamily: FONT, fontSize: "14px", color: "#9c2f2f" });
 
     // center bottom: portrait + bars + abilities (positioned in layout)
+    this.barPanel = this.add.nineslice(0, 0, "ui-carved3", 0, this.barW + 120, 64, 24, 24, 18, 18).setDepth(-1);
     this.portrait = this.add.image(0, 0, "ui-panel").setDisplaySize(74, 74);
-    this.lvlText = this.add.text(0, 0, "1", { fontSize: "20px", color: "#ffe14a", fontStyle: "bold", stroke: "#000", strokeThickness: 4 }).setOrigin(0.5);
+    this.lvlText = this.add.text(0, 0, "1", { fontFamily: FONT, fontSize: "20px", color: "#ffe14a", stroke: "#1c1410", strokeThickness: 4 }).setOrigin(0.5);
 
     this.add.existing(this.portrait);
     this.hpBar = this.add.rectangle(0, 0, this.barW, 16, 0x44d07a).setOrigin(0, 0.5);
     this.mpBar = this.add.rectangle(0, 0, this.barW, 10, 0x4a8fff).setOrigin(0, 0.5);
-    this.hpText = this.add.text(0, 0, "", { fontSize: "12px", color: "#eafff0", fontStyle: "bold" }).setOrigin(0.5);
-    this.mpText = this.add.text(0, 0, "", { fontSize: "11px", color: "#dfe8ff" }).setOrigin(0.5);
+    this.hpText = this.add.text(0, 0, "", { fontFamily: FONT, fontSize: "12px", color: "#ffffff", stroke: "#1c2a20", strokeThickness: 3 }).setOrigin(0.5);
+    this.mpText = this.add.text(0, 0, "", { fontFamily: FONT, fontSize: "11px", color: "#ffffff", stroke: "#1c2030", strokeThickness: 3 }).setOrigin(0.5);
 
     for (const key of KEYS) {
-      const box = this.add.rectangle(0, 0, 58, 58, 0x12182a).setStrokeStyle(2, 0x39456a).setInteractive({ useHandCursor: true });
-      const icon = this.add.image(0, 0, "ui-icon-01").setDisplaySize(46, 46);
+      const panel = this.add.image(0, 0, "ui-panel").setDisplaySize(62, 62);
+      const box = this.add.rectangle(0, 0, 58, 58, 0x1c1410, 0.12).setStrokeStyle(2, 0x8a7350).setInteractive({ useHandCursor: true });
+      // abilities read as big carved keycaps — the letter IS the icon
+      const icon = this.add.image(0, 0, "ui-icon-01").setDisplaySize(46, 46).setVisible(false);
+      const keyLabel = this.add.text(0, 0, SLOT_LABEL[key], { fontFamily: FONT, fontSize: "28px", color: "#4a3320", stroke: "#e8d8b0", strokeThickness: 3 }).setOrigin(0.5);
       const cd = this.add.rectangle(0, 0, 58, 58, 0x000000, 0.6).setOrigin(0.5, 1);
-      const cdText = this.add.text(0, 0, "", { fontSize: "18px", color: "#fff", fontStyle: "bold" }).setOrigin(0.5);
-      const keyLabel = this.add.text(0, 0, SLOT_LABEL[key], { fontSize: "12px", color: "#cfe", fontStyle: "bold" }).setOrigin(0.5);
-      const pips = [0, 1, 2, 3].map(() => this.add.rectangle(0, 0, 10, 4, 0x39456a));
+      const cdText = this.add.text(0, 0, "", { fontFamily: FONT, fontSize: "20px", color: "#fff", stroke: "#1c1410", strokeThickness: 4 }).setOrigin(0.5);
+      const pips = [0, 1, 2, 3].map(() => this.add.rectangle(0, 0, 10, 4, 0x8a7350));
       box.on("pointerdown", () => this.gs.castSlot(key));
-      this.slots.push({ key, box, icon, cd, cdText, pips, keyLabel });
+      this.slots.push({ key, panel, box, icon, cd, cdText, pips, keyLabel });
     }
 
     // dash (F) cooldown indicator, sits just left of the ability bar
-    this.dashBox = this.add.rectangle(0, 0, 50, 58, 0x12182a).setStrokeStyle(2, 0x6ab0ff);
-    this.dashLabel = this.add.text(0, 0, "F\ndash", { fontSize: "11px", color: "#bfe0ff", fontStyle: "bold", align: "center", lineSpacing: 2 }).setOrigin(0.5);
+    this.dashPanel = this.add.image(0, 0, "ui-panel").setDisplaySize(54, 62);
+    this.dashBox = this.add.rectangle(0, 0, 50, 58, 0x1c1410, 0.12).setStrokeStyle(2, 0x6ab0ff);
+    this.dashLabel = this.add.text(0, 0, "F\ndash", { fontFamily: FONT, fontSize: "11px", color: "#3a5a78", align: "center", lineSpacing: 2 }).setOrigin(0.5);
     this.dashCd = this.add.rectangle(0, 0, 50, 58, 0x000000, 0.62).setOrigin(0.5, 1);
 
     // inventory slots (1..6)
     for (let i = 0; i < 6; i++) {
-      const box = this.add.rectangle(0, 0, 38, 38, 0x12182a).setStrokeStyle(2, 0x39456a).setInteractive({ useHandCursor: true });
+      const panel = this.add.image(0, 0, "ui-panel").setDisplaySize(42, 42);
+      const box = this.add.rectangle(0, 0, 38, 38, 0x1c1410, 0.12).setStrokeStyle(2, 0x8a7350).setInteractive({ useHandCursor: true });
       const icon = this.add.image(0, 0, "ui-icon-01").setDisplaySize(30, 30).setVisible(false);
-      const key = this.add.text(0, 0, `${i + 1}`, { fontSize: "10px", color: "#9fb0d8" }).setOrigin(0.5);
+      const key = this.add.text(0, 0, `${i + 1}`, { fontFamily: FONT, fontSize: "10px", color: "#6b5530" }).setOrigin(0.5);
       box.on("pointerdown", () => this.gs.useItemForPlayer(i));
-      this.itemSlots.push({ box, icon, key });
+      this.itemSlots.push({ panel, box, icon, key });
     }
 
-    this.respawnText = this.add.text(0, 0, "", { fontSize: "40px", color: "#ff6a5a", fontStyle: "bold", stroke: "#000", strokeThickness: 6 }).setOrigin(0.5).setVisible(false);
-    this.hintText = this.add.text(0, 0, "Arrows move · Space attack · Q W E R abilities · F dash · 1-6 items · B shop · Tab scores", { fontSize: "13px", color: "#8ea0c8" }).setOrigin(0.5);
+    this.respawnText = this.add.text(0, 0, "", { fontFamily: FONT, fontSize: "42px", color: "#ff6a5a", stroke: "#1c1410", strokeThickness: 7 }).setOrigin(0.5).setVisible(false);
+    this.hintText = this.add.text(0, 0, "Arrows move · Space attack · Q W E R abilities · F dash · 1-6 items · B shop · Tab scores", { fontFamily: FONT, fontSize: "13px", color: "#f4eee0", stroke: "#27343c", strokeThickness: 3 }).setOrigin(0.5);
   }
 
   private buildShop(): void {
     const W = this.scale.width;
     const H = this.scale.height;
-    const panelW = 420;
-    const panelH = 80 + ITEMS.length * 46;
-    const bg = this.add.rectangle(0, 0, panelW, panelH, 0x0d1322, 0.97).setStrokeStyle(2, 0x39456a);
-    const title = this.add.text(0, -panelH / 2 + 22, "SHOP", { fontSize: "22px", color: "#ffe6a3", fontStyle: "bold" }).setOrigin(0.5);
-    const sub = this.add.text(0, -panelH / 2 + 46, "↑↓ select · Enter buy · B close (must be at base)", { fontSize: "12px", color: "#8ea0c8" }).setOrigin(0.5);
+    const panelW = 430;
+    const panelH = 92 + ITEMS.length * 46;
+    const bg = this.add.nineslice(0, 0, "ui-carved9", 0, panelW, panelH, 20, 20, 20, 20);
+    const title = this.add.text(0, -panelH / 2 + 26, "SHOP", { fontFamily: FONT, fontSize: "24px", color: "#4a3320" }).setOrigin(0.5);
+    const sub = this.add.text(0, -panelH / 2 + 52, "↑↓ select · Enter buy · B close (must be at base)", { fontFamily: FONT, fontSize: "12px", color: "#7a6240" }).setOrigin(0.5);
     const children: Phaser.GameObjects.GameObject[] = [bg, title, sub];
     ITEMS.forEach((it, i) => {
-      const y = -panelH / 2 + 76 + i * 46;
-      const row = this.add.rectangle(0, y, panelW - 24, 40, 0x161d2e).setStrokeStyle(1, 0x2a3550).setInteractive({ useHandCursor: true });
-      const icon = this.add.image(-panelW / 2 + 30, y, it.icon).setDisplaySize(30, 30);
-      const name = this.add.text(-panelW / 2 + 54, y - 8, it.name, { fontSize: "13px", color: "#eaf0ff", fontStyle: "bold" }).setOrigin(0, 0.5);
-      const desc = this.add.text(-panelW / 2 + 54, y + 9, it.desc, { fontSize: "9px", color: "#9fb0d8", wordWrap: { width: panelW - 150 } }).setOrigin(0, 0.5);
-      const cost = this.add.text(panelW / 2 - 20, y, `${it.cost}`, { fontSize: "14px", color: "#ffd23a", fontStyle: "bold" }).setOrigin(1, 0.5);
+      const y = -panelH / 2 + 84 + i * 46;
+      const row = this.add.rectangle(0, y, panelW - 36, 40, 0x4a3320, 0.08).setStrokeStyle(1, 0xb89868).setInteractive({ useHandCursor: true });
+      const icon = this.add.image(-panelW / 2 + 36, y, it.icon).setDisplaySize(30, 30);
+      const name = this.add.text(-panelW / 2 + 60, y - 8, it.name, { fontFamily: FONT, fontSize: "13px", color: "#4a3320" }).setOrigin(0, 0.5);
+      const desc = this.add.text(-panelW / 2 + 60, y + 9, it.desc, { fontFamily: FONT, fontSize: "9px", color: "#7a6240", wordWrap: { width: panelW - 160 } }).setOrigin(0, 0.5);
+      const cost = this.add.text(panelW / 2 - 26, y, `🪙${it.cost}`, { fontFamily: FONT, fontSize: "13px", color: "#8a6510" }).setOrigin(1, 0.5);
       row.on("pointerdown", () => {
         if (this.gs.buyItemForPlayer(it.id)) this.flashRow(row, 0x2a6f3a);
         else this.flashRow(row, 0x6f2a2a);
@@ -209,8 +223,8 @@ export class HudScene extends Phaser.Scene {
   }
 
   private flashRow(row: Phaser.GameObjects.Rectangle, color: number): void {
-    row.setFillStyle(color);
-    this.time.delayedCall(140, () => row.setFillStyle(0x161d2e));
+    row.setFillStyle(color, 0.5);
+    this.time.delayedCall(140, () => row.setFillStyle(0x4a3320, 0.08));
   }
 
   private toggleShop(): void {
@@ -221,12 +235,13 @@ export class HudScene extends Phaser.Scene {
       this.shopSel = 0;
       this.updateShopSelection();
     } else {
-      this.shopRows.forEach((r) => r.box.setStrokeStyle(1, 0x2a3550));
+      this.shopRows.forEach((r) => r.box.setStrokeStyle(1, 0xb89868));
     }
   }
 
   // ---- minimap -------------------------------------------------------------
   private buildMinimap(): void {
+    this.mapFrame = this.add.nineslice(0, 0, "ui-carved9", 0, MINIMAP_SIZE + 28, MINIMAP_H + 28, 20, 20, 20, 20).setOrigin(0, 0).setDepth(39998);
     this.mapTerrain = this.add.graphics().setDepth(39999);
     this.mapGfx = this.add.graphics().setDepth(40000);
     this.mapHit = this.add
@@ -251,9 +266,8 @@ export class HudScene extends Phaser.Scene {
     const oy = this.mapY;
     const cell = (WORLD.width / GRID.cols) * this.mapScale;
     g.clear();
-    g.fillStyle(0x05080e, 0.9).fillRect(ox - 4, oy - 4, MINIMAP_SIZE + 8, MINIMAP_H + 8);
-    g.lineStyle(2, 0x39456a, 0.95).strokeRect(ox - 4, oy - 4, MINIMAP_SIZE + 8, MINIMAP_H + 8);
     g.fillStyle(0x2e8f8a, 1).fillRect(ox, oy, MINIMAP_SIZE, MINIMAP_H);
+    g.lineStyle(2, 0x3a2c20, 0.8).strokeRect(ox, oy, MINIMAP_SIZE, MINIMAP_H);
     for (let cy = 0; cy < GRID.rows; cy++) {
       for (let cx = 0; cx < GRID.cols; cx++) {
         if (!isLandCell(cx, cy)) continue;
@@ -304,17 +318,23 @@ export class HudScene extends Phaser.Scene {
 
   // ---- kill feed + announcements -------------------------------------------
   private buildFeed(): void {
-    this.teamScore = this.add.text(0, 0, "", { fontSize: "20px", color: "#ffe6a3", fontStyle: "bold", stroke: "#000", strokeThickness: 4 }).setOrigin(0.5, 0).setDepth(40000);
-    this.announce = this.add.text(0, 0, "", { fontSize: "28px", color: "#ffe6a3", fontStyle: "bold", stroke: "#000", strokeThickness: 6, align: "center" }).setOrigin(0.5).setDepth(46000).setAlpha(0);
+    this.scoreRibbon = this.add.nineslice(0, 0, "ui-ribbon-yellow", 0, 252, 60, 58, 58, 22, 22).setOrigin(0.5, 0).setDepth(39990);
+    this.teamScore = this.add.text(0, 0, "", { fontFamily: FONT, fontSize: "20px", color: "#5a3a10" }).setOrigin(0.5, 0).setDepth(40000);
+    this.announceRibbon = this.add.nineslice(0, 0, "ui-ribbon-blue", 0, 560, 76, 58, 58, 22, 22).setOrigin(0.5).setDepth(45990).setAlpha(0);
+    this.announce = this.add.text(0, 0, "", { fontFamily: FONT, fontSize: "26px", color: "#ffe6a3", stroke: "#1e2a3a", strokeThickness: 5, align: "center" }).setOrigin(0.5).setDepth(46000).setAlpha(0);
   }
 
   private showAnnounce(text: string, tone: "good" | "bad" | "neutral"): void {
-    const color = tone === "good" ? "#7bf0a0" : tone === "bad" ? "#ff7a6a" : "#ffe6a3";
+    const color = tone === "good" ? "#9bf0b4" : tone === "bad" ? "#ffb0a4" : "#fff3c4";
+    const cx = this.scale.width / 2;
+    const cy = this.scale.height * 0.26;
     this.announce.setText(text).setColor(color).setAlpha(1).setScale(0.6);
-    this.announce.setPosition(this.scale.width / 2, this.scale.height * 0.26);
-    this.tweens.killTweensOf(this.announce);
-    this.tweens.add({ targets: this.announce, scale: 1, duration: 320, ease: "Back.Out" });
-    this.tweens.add({ targets: this.announce, alpha: 0, delay: 3200, duration: 700 });
+    this.announce.setPosition(cx, cy - 4);
+    this.announceRibbon.setPosition(cx, cy).setAlpha(1).setScale(0.6);
+    this.announceRibbon.setSize(Math.max(380, this.announce.width + 150), 76);
+    this.tweens.killTweensOf([this.announce, this.announceRibbon]);
+    this.tweens.add({ targets: [this.announce, this.announceRibbon], scale: 1, duration: 320, ease: "Back.Out" });
+    this.tweens.add({ targets: [this.announce, this.announceRibbon], alpha: 0, delay: 3200, duration: 700 });
   }
 
   private updateFeed(): void {
@@ -326,7 +346,7 @@ export class HudScene extends Phaser.Scene {
       }
       const col = e.team === "radiant" ? "#7fdcff" : "#ff9a8a";
       const txt = e.killer ? `${e.killer}  ⚔  ${e.victim}` : `${e.victim} has fallen`;
-      const line = this.add.text(0, 0, txt, { fontSize: "14px", color: col, fontStyle: "bold", stroke: "#000", strokeThickness: 3 }).setOrigin(1, 0).setDepth(44000);
+      const line = this.add.text(0, 0, txt, { fontFamily: FONT, fontSize: "14px", color: col, stroke: "#1c1410", strokeThickness: 3 }).setOrigin(1, 0).setDepth(44000);
       this.feedLines.push({ text: line, until: now + 6500 });
     }
     this.feedLines = this.feedLines.filter((f) => {
@@ -366,7 +386,7 @@ export class HudScene extends Phaser.Scene {
     const panelH = 420;
     const cx = W / 2;
     const cy = H / 2;
-    const bg = this.add.rectangle(cx, cy, panelW, panelH, 0x0a0f1c, 0.96).setStrokeStyle(2, 0x39456a);
+    const bg = this.add.nineslice(cx, cy, "ui-carved9", 0, panelW, panelH, 20, 20, 20, 20);
     this.board.add(bg);
 
     const heroes = [...w.units.values()].filter((u) => u.kind === "hero" && u.hero);
@@ -375,15 +395,15 @@ export class HudScene extends Phaser.Scene {
     for (const u of heroes) if (u.hero) teamKills[u.team] += u.hero.kills;
 
     this.board.add(
-      this.add.text(cx, cy - panelH / 2 + 22, `SCOREBOARD     ☀ ${teamKills.radiant}  –  ${teamKills.dire} 🌙`, { fontSize: "22px", color: "#ffe6a3", fontStyle: "bold" }).setOrigin(0.5),
+      this.add.text(cx, cy - panelH / 2 + 26, `SCOREBOARD     ☀ ${teamKills.radiant}  –  ${teamKills.dire} 🌙`, { fontFamily: FONT, fontSize: "22px", color: "#4a3320" }).setOrigin(0.5),
     );
 
     teams.forEach((team, ti) => {
-      const colX = cx - panelW / 2 + 30 + ti * (panelW / 2);
-      const headColor = team === "radiant" ? "#7fdcff" : "#ff9a8a";
-      let y = cy - panelH / 2 + 60;
-      this.board.add(this.add.text(colX, y, team === "radiant" ? "RADIANT" : "DIRE", { fontSize: "16px", color: headColor, fontStyle: "bold" }).setOrigin(0, 0));
-      this.board.add(this.add.text(colX + panelW / 2 - 60, y, "K / D / A    Net", { fontSize: "11px", color: "#8ea0c8" }).setOrigin(1, 0));
+      const colX = cx - panelW / 2 + 34 + ti * (panelW / 2);
+      const headColor = team === "radiant" ? "#2a6f9e" : "#9e2f2a";
+      let y = cy - panelH / 2 + 62;
+      this.board.add(this.add.text(colX, y, team === "radiant" ? "RADIANT" : "DIRE", { fontFamily: FONT, fontSize: "16px", color: headColor }).setOrigin(0, 0));
+      this.board.add(this.add.text(colX + panelW / 2 - 64, y, "K / D / A    Net", { fontFamily: FONT, fontSize: "11px", color: "#7a6240" }).setOrigin(1, 0));
       y += 26;
       // sort() is safe here — filter() already produced a fresh array
       const list = heroes.filter((u) => u.team === team).sort((a, b) => (b.hero?.gold ?? 0) - (a.hero?.gold ?? 0));
@@ -393,13 +413,13 @@ export class HudScene extends Phaser.Scene {
         const dead = !u.alive;
         const name = `${def?.name ?? h.defId}  Lv${h.level}${h.isBot ? " (bot)" : ""}`;
         const status = dead && h.respawnAt > w.now ? `  ☠ ${Math.ceil((h.respawnAt - w.now) / 1000)}s` : "";
-        this.board.add(this.add.text(colX, y, name + status, { fontSize: "13px", color: dead ? "#8a93a8" : "#eaf0ff", fontStyle: "bold" }).setOrigin(0, 0));
+        this.board.add(this.add.text(colX, y, name + status, { fontFamily: FONT, fontSize: "13px", color: dead ? "#9a8a70" : "#4a3320" }).setOrigin(0, 0));
         const net = Math.floor(h.gold);
-        this.board.add(this.add.text(colX + panelW / 2 - 60, y, `${h.kills}/${h.deaths}/${h.assists}    🪙${net}`, { fontSize: "12px", color: "#c7d2ee" }).setOrigin(1, 0));
+        this.board.add(this.add.text(colX + panelW / 2 - 64, y, `${h.kills}/${h.deaths}/${h.assists}    🪙${net}`, { fontFamily: FONT, fontSize: "12px", color: "#6b5530" }).setOrigin(1, 0));
         y += 24;
       }
     });
-    this.board.add(this.add.text(cx, cy + panelH / 2 - 18, "hold TAB to view", { fontSize: "11px", color: "#6b7a9c" }).setOrigin(0.5));
+    this.board.add(this.add.text(cx, cy + panelH / 2 - 22, "hold TAB to view", { fontFamily: FONT, fontSize: "11px", color: "#9a8a70" }).setOrigin(0.5));
   }
 
   private layout(): void {
@@ -408,6 +428,7 @@ export class HudScene extends Phaser.Scene {
     const cx = W / 2;
     const baseY = H - 50;
 
+    if (this.barPanel) this.barPanel.setPosition(cx - 104, baseY).setSize(this.barW + 130, 86);
     this.portrait.setPosition(cx - 220, baseY);
     this.lvlText.setPosition(cx - 220, baseY + 22);
 
@@ -417,24 +438,24 @@ export class HudScene extends Phaser.Scene {
     this.hpText.setPosition(barX + this.barW / 2, baseY - 14);
     this.mpText.setPosition(barX + this.barW / 2, baseY + 6);
 
-    const total = KEYS.length * 66;
     const startX = cx + 60;
     if (this.dashBox) {
       const dashX = startX - 64;
+      this.dashPanel.setPosition(dashX, baseY);
       this.dashBox.setPosition(dashX, baseY);
       this.dashLabel.setPosition(dashX, baseY);
       this.dashCd.setPosition(dashX, baseY + 29);
     }
     this.slots.forEach((s, i) => {
       const x = startX + i * 66;
+      s.panel.setPosition(x, baseY);
       s.box.setPosition(x, baseY);
       s.icon.setPosition(x, baseY);
       s.cd.setPosition(x, baseY + 29);
       s.cdText.setPosition(x, baseY);
-      s.keyLabel.setPosition(x - 22, baseY - 22);
+      s.keyLabel.setPosition(x, baseY - 2);
       s.pips.forEach((p, j) => p.setPosition(x - 16 + j * 11, baseY + 22));
     });
-    void total;
 
     // inventory slots: a 3x2 grid to the right of the ability bar
     const itemX0 = startX + KEYS.length * 66 + 24;
@@ -443,6 +464,7 @@ export class HudScene extends Phaser.Scene {
       const row = Math.floor(i / 3);
       const x = itemX0 + col * 42;
       const y = baseY - 20 + row * 42;
+      s.panel.setPosition(x, y);
       s.box.setPosition(x, y);
       s.icon.setPosition(x, y);
       s.key.setPosition(x - 13, y - 13);
@@ -455,11 +477,13 @@ export class HudScene extends Phaser.Scene {
     if (this.danger) this.danger.setSize(W, H).setPosition(0, 0);
 
     // minimap bottom-right; team score top-center
-    this.mapX = W - MINIMAP_SIZE - 16;
-    this.mapY = H - MINIMAP_H - 16;
+    this.mapX = W - MINIMAP_SIZE - 22;
+    this.mapY = H - MINIMAP_H - 22;
     if (this.mapHit) this.mapHit.setPosition(this.mapX, this.mapY);
+    if (this.mapFrame) this.mapFrame.setPosition(this.mapX - 14, this.mapY - 14);
     this.drawMapTerrain();
-    if (this.teamScore) this.teamScore.setPosition(cx, 12);
+    if (this.scoreRibbon) this.scoreRibbon.setPosition(cx, 4);
+    if (this.teamScore) this.teamScore.setPosition(cx, 18);
   }
 
   override update(): void {
@@ -512,7 +536,7 @@ export class HudScene extends Phaser.Scene {
       const left = Math.max(0, (h.dashReadyAt - world.now) / 1000);
       this.dashCd.setVisible(left > 0.05);
       this.dashCd.height = 58 * Math.min(1, left / 5);
-      this.dashBox.setStrokeStyle(2, left > 0.05 ? 0x39456a : 0x6ab0ff);
+      this.dashBox.setStrokeStyle(2, left > 0.05 ? 0x8a7350 : 0x4a90d9);
     }
 
     // portrait/level
@@ -542,19 +566,21 @@ export class HudScene extends Phaser.Scene {
         s.cd.setVisible(true);
         s.cd.height = 58;
         s.cdText.setText("");
-        s.box.setStrokeStyle(2, 0x2a3045);
+        s.box.setStrokeStyle(2, 0x6b5530);
       } else if (cdLeft > 0.05) {
         s.cd.setVisible(true);
         s.cd.height = 58 * Math.min(1, cdLeft / cdTotal);
         s.cdText.setText(cdLeft >= 1 ? `${Math.ceil(cdLeft)}` : "");
-        s.box.setStrokeStyle(2, 0x39456a);
+        s.keyLabel.setAlpha(cdLeft >= 1 ? 0.25 : 1); // the countdown replaces the keycap
+        s.box.setStrokeStyle(2, 0x8a7350);
       } else {
         const manaOk = me.mp >= valAt(ad.manaCost, rank);
         s.cd.setVisible(!manaOk);
         s.cd.height = manaOk ? 0 : 58;
         s.cd.setFillStyle(0x1a3a6a, manaOk ? 0 : 0.5);
         s.cdText.setText("");
-        s.box.setStrokeStyle(2, manaOk ? 0x9be36a : 0x39456a);
+        s.keyLabel.setAlpha(1);
+        s.box.setStrokeStyle(manaOk ? 3 : 2, manaOk ? 0x3f9e4d : 0x8a7350);
       }
     }
 
@@ -565,11 +591,11 @@ export class HudScene extends Phaser.Scene {
         const it = ITEM_BY_ID[id];
         s.icon.setVisible(true).setTexture(it?.icon ?? "ui-icon-01");
         const ready = (h.itemActiveReadyAt[id] ?? 0) <= world.now;
-        s.box.setStrokeStyle(2, it?.active ? (ready ? 0x9be36a : 0x6a5a2a) : 0x39456a);
+        s.box.setStrokeStyle(2, it?.active ? (ready ? 0x3f9e4d : 0x9a7a30) : 0x8a7350);
         s.key.setVisible(!!it?.active);
       } else {
         s.icon.setVisible(false);
-        s.box.setStrokeStyle(2, 0x39456a);
+        s.box.setStrokeStyle(2, 0x8a7350);
         s.key.setVisible(false);
       }
     });

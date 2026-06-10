@@ -79,6 +79,8 @@ const HIGH_RECTS: Array<[number, number, number, number]> = [
   [12, 31, 17, 34], // south jungle plateau
   [3, 6, 6, 9], // NW corner rise
   [3, 38, 6, 41], // SW corner rise
+  [5, 22, 9, 26], // castle outcrop — the ancient sits on this (promo look); its
+  // big radius (config STRUCTS.ancient) lets attackers reach it from the flat edge
 ];
 
 export function isHighCell(x: number, y: number): boolean {
@@ -212,18 +214,18 @@ export const BASES: Record<Team, BaseSpec> = {
   radiant: {
     team: "radiant",
     ancient: { x: 480, y: 1536 },
-    fountain: { x: 224, y: 1536 },
+    fountain: { x: 720, y: 1700 }, // healing pool at the foot of the castle outcrop
     fountainRadius: 280,
-    heroSpawn: { x: 640, y: 1536 },
+    heroSpawn: { x: 820, y: 1536 },
     shopRadius: 420,
     creepSpawn: { x: 704, y: 1536 },
   },
   dire: {
     team: "dire",
     ancient: { x: 3616, y: 1536 },
-    fountain: { x: 3872, y: 1536 },
+    fountain: { x: 3376, y: 1700 },
     fountainRadius: 280,
-    heroSpawn: { x: 3456, y: 1536 },
+    heroSpawn: { x: 3276, y: 1536 },
     shopRadius: 420,
     creepSpawn: { x: 3392, y: 1536 },
   },

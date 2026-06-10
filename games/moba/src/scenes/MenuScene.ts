@@ -1,11 +1,12 @@
 import Phaser from "phaser";
 
 import { HEROES } from "../data/heroes";
+import { FONT } from "../render/font";
 import { heroSheetTex } from "../render/sprites";
 
 export class MenuScene extends Phaser.Scene {
   private selected = "ironvow";
-  private cards: { id: string; box: Phaser.GameObjects.Rectangle }[] = [];
+  private cards: { id: string; ring: Phaser.GameObjects.Rectangle }[] = [];
   private detail!: Phaser.GameObjects.Text;
   private detailName!: Phaser.GameObjects.Text;
 
@@ -14,6 +15,9 @@ export class MenuScene extends Phaser.Scene {
   }
 
   create(): void {
+    // scene instance is reused on BACK TO MENU — rebuild card refs from scratch
+    this.cards = [];
+
     const veil = document.getElementById("veil");
     if (veil) {
       veil.classList.add("hidden");
@@ -31,68 +35,103 @@ export class MenuScene extends Phaser.Scene {
 
     const W = this.scale.width;
     const H = this.scale.height;
-    this.cameras.main.setBackgroundColor("#0a0e16");
+    this.cameras.main.setBackgroundColor("#47aba9");
 
-    // backdrop
-    this.add.rectangle(0, 0, W, H, 0x0a0e16).setOrigin(0).setScrollFactor(0);
+    // backdrop: open Tiny Swords water, slowly drifting, with rocks and clouds
+    const water = this.add.tileSprite(0, 0, W, H, "t-water").setOrigin(0).setScrollFactor(0);
+    this.tweens.add({ targets: water, tilePositionX: 128, tilePositionY: 64, duration: 24000, repeat: -1 });
+    for (let i = 0; i < 6; i++) {
+      const n = 1 + (i % 4);
+      const x = (0.06 + 0.88 * ((i * 0.61) % 1)) * W;
+      const y = (0.58 + 0.32 * ((i * 0.37) % 1)) * H; // keep below the card row
+      const rk = this.add.sprite(x, y, `wrock${n}`, 0).setScale(0.55).setAlpha(0.9);
+      if (this.anims.exists(`wrock${n}-anim`)) rk.play({ key: `wrock${n}-anim`, startFrame: (i * 3) % 8 });
+    }
+    for (let i = 0; i < 4; i++) {
+      const c = this.add.image(((i + 0.4) / 4) * W, (0.12 + 0.74 * ((i * 0.53) % 1)) * H, `cloud${1 + (i % 8)}`).setAlpha(0.4).setScale(0.8);
+      this.tweens.add({ targets: c, x: c.x + 320, duration: 26000 + i * 5000, yoyo: true, repeat: -1, ease: "Sine.InOut" });
+    }
+
+    // title ribbon
+    this.add.nineslice(W / 2, 64, "ui-ribbon-blue", 0, Math.min(720, W - 120), 84, 58, 58, 22, 22).setOrigin(0.5);
     this.add
-      .text(W / 2, 60, "ANCIENTS OF ELDERMOOR", { fontSize: "44px", color: "#ffe6a3", fontStyle: "bold", stroke: "#3a2a10", strokeThickness: 6 })
+      .text(W / 2, 58, "ANCIENTS OF ELDERMOOR", { fontFamily: FONT, fontSize: "36px", color: "#f4eee0", stroke: "#1e2a3a", strokeThickness: 6 })
       .setOrigin(0.5);
     this.add
-      .text(W / 2, 104, "Choose your champion · destroy the enemy Ancient", { fontSize: "16px", color: "#8ea0c8" })
+      .text(W / 2, 116, "Choose your champion · destroy the enemy Ancient", { fontFamily: FONT, fontSize: "16px", color: "#eafaf8", stroke: "#1e3a38", strokeThickness: 4 })
       .setOrigin(0.5);
 
-    // hero cards row
+    // hero cards on carved parchment panels
     const n = HEROES.length;
     const cardW = Math.min(160, (W - 80) / n - 16);
     const totalW = n * (cardW + 16) - 16;
     const startX = (W - totalW) / 2;
-    const cardY = 180;
-    const cardH = 200;
+    const cardY = 170;
+    const cardH = 204;
 
     HEROES.forEach((h, i) => {
       const x = startX + i * (cardW + 16) + cardW / 2;
-      const box = this.add
-        .rectangle(x, cardY + cardH / 2, cardW, cardH, 0x161d2e)
-        .setStrokeStyle(2, 0x2a3550)
-        .setInteractive({ useHandCursor: true });
+      const cy = cardY + cardH / 2;
+      const panel = this.add.nineslice(x, cy, "ui-carved9", 0, cardW, cardH, 20, 20, 20, 20).setInteractive({ useHandCursor: true });
+      const ring = this.add.rectangle(x, cy, cardW + 6, cardH + 6, 0x000000, 0).setStrokeStyle(4, 0xffe14a, 1).setVisible(false);
       const tex = heroSheetTex(h.id);
       if (this.textures.exists(tex)) {
-        this.add.sprite(x, cardY + 70, tex, 0).setScale(0.7).setTint(h.tint);
+        this.add.sprite(x, cardY + 72, tex, 0).setScale(0.72).setTint(h.tint);
       }
-      this.add.text(x, cardY + 130, h.name, { fontSize: "15px", color: "#eaf0ff", fontStyle: "bold" }).setOrigin(0.5);
-      this.add.text(x, cardY + 152, h.role, { fontSize: "11px", color: "#8ea0c8", align: "center", wordWrap: { width: cardW - 12 } }).setOrigin(0.5, 0);
-      box.on("pointerover", () => this.preview(h.id));
-      box.on("pointerdown", () => {
-        this.select(h.id);
-      });
-      this.cards.push({ id: h.id, box });
+      const nameText = this.add.text(x, cardY + 132, h.name, { fontFamily: FONT, fontSize: "16px", color: "#4a3320" }).setOrigin(0.5);
+      if (nameText.width > cardW - 16) nameText.setScale((cardW - 16) / nameText.width);
+      this.add
+        .text(x, cardY + 154, h.role, { fontFamily: FONT, fontSize: "11px", color: "#7a6240", align: "center", wordWrap: { width: cardW - 18 } })
+        .setOrigin(0.5, 0);
+      panel.on("pointerover", () => this.preview(h.id));
+      panel.on("pointerdown", () => this.select(h.id));
+      this.cards.push({ id: h.id, ring });
     });
 
     // detail panel
-    this.detailName = this.add.text(W / 2, cardY + cardH + 36, "", { fontSize: "20px", color: "#ffe6a3", fontStyle: "bold" }).setOrigin(0.5);
+    this.detailName = this.add
+      .text(W / 2, cardY + cardH + 38, "", { fontFamily: FONT, fontSize: "21px", color: "#fff3c4", stroke: "#27343c", strokeThickness: 5 })
+      .setOrigin(0.5);
     this.detail = this.add
-      .text(W / 2, cardY + cardH + 64, "", { fontSize: "14px", color: "#c7d2ee", align: "center", wordWrap: { width: Math.min(820, W - 80) }, lineSpacing: 6 })
+      .text(W / 2, cardY + cardH + 66, "", {
+        fontFamily: FONT,
+        fontSize: "14px",
+        color: "#f0fffd",
+        align: "center",
+        stroke: "#1e3a38",
+        strokeThickness: 3,
+        wordWrap: { width: Math.min(820, W - 80) },
+        lineSpacing: 6,
+      })
       .setOrigin(0.5, 0);
 
     // start buttons: vs Bots (local) and Online (multiplayer drop-in)
-    const mkBtn = (x: number, label: string, color: number, hover: number, online: boolean) => {
-      const b = this.add.rectangle(x, H - 72, 250, 56, color).setStrokeStyle(2, hover).setInteractive({ useHandCursor: true });
-      const t = this.add.text(x, H - 72, label, { fontSize: "20px", color: "#eafff0", fontStyle: "bold" }).setOrigin(0.5);
-      b.on("pointerover", () => b.setFillStyle(hover));
-      b.on("pointerout", () => b.setFillStyle(color));
+    const mkBtn = (x: number, label: string, color: "blue" | "red", online: boolean) => {
+      const b = this.add
+        .nineslice(x, H - 72, `ui-btn-${color}`, 0, 272, 66, 28, 28, 20, 26)
+        .setInteractive({ useHandCursor: true });
+      const t = this.add.text(x, H - 76, label, { fontFamily: FONT, fontSize: "21px", color: "#1e3a44", }).setOrigin(0.5);
+      b.on("pointerover", () => this.tweens.add({ targets: [b, t], scale: 1.05, duration: 110 }));
+      b.on("pointerout", () => this.tweens.add({ targets: [b, t], scale: 1, duration: 110 }));
       b.on("pointerdown", () => {
-        t.setText("LOADING…");
-        this.time.delayedCall(60, () => this.scene.start("Game", { heroId: this.selected, online }));
+        b.setTexture(`ui-btn-${color}-pressed`);
+        t.setText("LOADING…").setY(H - 72);
+        this.time.delayedCall(80, () => this.scene.start("Game", { heroId: this.selected, online }));
       });
     };
-    mkBtn(W / 2 - 140, "⚔  PLAY vs BOTS", 0x2a6f3a, 0x35864a, false);
-    mkBtn(W / 2 + 140, "🌐  PLAY ONLINE", 0x2a5a8f, 0x356fb0, true);
+    mkBtn(W / 2 - 150, "PLAY vs BOTS", "blue", false);
+    mkBtn(W / 2 + 150, "PLAY ONLINE", "red", true);
     this.add
-      .text(W / 2, H - 30, "Arrows move · Q W E R abilities (aim by facing, Shift+key levels) · Space attack · F dash · 1-6 items · B shop · Tab scores", { fontSize: "12px", color: "#6b7a9c" })
+      .text(W / 2, H - 26, "Arrows move · Q W E R abilities (aim by facing, Shift+key levels) · Space attack · F dash · 1-6 items · B shop · Tab scores", {
+        fontFamily: FONT,
+        fontSize: "12px",
+        color: "#dff5f3",
+        stroke: "#1e3a38",
+        strokeThickness: 3,
+      })
       .setOrigin(0.5);
 
-    this.select("ironvow");
+    this.select(this.selected);
   }
 
   private preview(id: string): void {
@@ -106,9 +145,6 @@ export class MenuScene extends Phaser.Scene {
   private select(id: string): void {
     this.selected = id;
     this.preview(id);
-    for (const c of this.cards) {
-      c.box.setStrokeStyle(c.id === id ? 3 : 2, c.id === id ? 0xffe14a : 0x2a3550);
-      c.box.setFillStyle(c.id === id ? 0x202942 : 0x161d2e);
-    }
+    for (const c of this.cards) c.ring.setVisible(c.id === id);
   }
 }

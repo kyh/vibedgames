@@ -15,6 +15,7 @@ import {
 import type { Team } from "../data/config";
 import type { World, Unit, Projectile, GroundEffect, FxEvent } from "../sim/types";
 import { sfx } from "./audio";
+import { FONT } from "./font";
 import { animKey, structureDestroyedTex, unitSprite } from "./sprites";
 
 const CELL = 64;
@@ -126,23 +127,41 @@ export class WorldView {
     // 6) wooden bridges across the channel
     this.buildBridges();
 
-    // 7) fountains (glowing pools at each base) + a couple of village houses
+    // 7) fountains (healing pools at the castle's foot) + a couple of village houses
     for (const team of ["radiant", "dire"] as const) {
       const b = BASES[team];
       const col = team === "radiant" ? 0x4fa3ff : 0xff5a4a;
       s.add.circle(b.fountain.x, b.fountain.y, b.fountainRadius, col, 0.05).setDepth(D_RING);
-      s.add.circle(b.fountain.x, b.fountain.y, 80, 0x2f6f9e, 0.85).setStrokeStyle(5, 0x9fd0ff, 0.7).setDepth(DEPTH_DECAL);
-      s.add.circle(b.fountain.x, b.fountain.y, 46, 0x9fd0ff, 0.5).setDepth(DEPTH_DECAL);
+      // carved pool: stone lip, teal water, bright centre, slow pulsing ring
+      s.add.ellipse(b.fountain.x, b.fountain.y, 168, 122, 0x6a7a82, 1).setDepth(DEPTH_DECAL - 2);
+      s.add.ellipse(b.fountain.x, b.fountain.y, 146, 102, 0x2e8f8a, 1).setDepth(DEPTH_DECAL - 1);
+      s.add.ellipse(b.fountain.x, b.fountain.y - 4, 104, 68, 0x6fd6cf, 0.85).setDepth(DEPTH_DECAL);
+      s.add.ellipse(b.fountain.x, b.fountain.y - 6, 56, 34, 0xc9f3ef, 0.9).setDepth(DEPTH_DECAL + 1);
+      const pulse = s.add.ellipse(b.fountain.x, b.fountain.y - 4, 70, 44, col, 0).setStrokeStyle(3, 0xeafffd, 0.8).setDepth(DEPTH_DECAL + 2);
+      s.tweens.add({ targets: pulse, scaleX: 1.7, scaleY: 1.7, alpha: 0, duration: 2200, repeat: -1, ease: "Sine.Out" });
+      // splash sparkle: the pool joins the ambient splash pool
+      this.shoreCells.push({ x: b.fountain.x, y: b.fountain.y });
       const houseTex = `b-house-${team === "radiant" ? "blue" : "red"}`;
       if (s.textures.exists(houseTex)) {
         const sign = team === "radiant" ? 1 : -1;
         for (const [hx, hy] of [
-          [b.fountain.x + sign * 80, b.fountain.y - 230],
-          [b.fountain.x + sign * 70, b.fountain.y + 250],
+          [b.fountain.x + sign * 110, b.fountain.y - 250],
+          [b.fountain.x + sign * 90, b.fountain.y + 240],
         ] as const) {
           if (!isLandCell(Math.floor(hx / CELL), Math.floor(hy / CELL))) continue;
           s.add.image(hx, hy, houseTex).setOrigin(0.5, 0.8).setDepth(hy);
         }
+      }
+    }
+
+    // 7b) Roshan pit dressing: a trampled dark patch ringed with bones and rocks
+    this.buildRoshanPit();
+
+    // 7c) gold mines behind the large jungle camps (flavour landmarks)
+    if (s.textures.exists("deco-goldmine")) {
+      for (const c of NEUTRAL_CAMPS) {
+        if (c.kind !== "large") continue;
+        s.add.image(c.x, c.y - 64, "deco-goldmine").setOrigin(0.5, 0.78).setDepth(c.y - 64);
       }
     }
 
@@ -165,6 +184,24 @@ export class WorldView {
     this.buildWaterRocks();
     this.buildClouds();
     this.buildAmbientLife();
+  }
+
+  /** The Roshan pit: dark trampled ground + a deterministic ring of bones/rocks. */
+  private buildRoshanPit(): void {
+    const s = this.scene;
+    const pit = NEUTRAL_CAMPS.find((c) => c.kind === "roshan");
+    if (!pit) return;
+    s.add.ellipse(pit.x, pit.y, 330, 240, 0x3a2c20, 0.30).setDepth(D_RING - 1).setBlendMode(Phaser.BlendModes.MULTIPLY);
+    s.add.ellipse(pit.x, pit.y, 220, 156, 0x2c2118, 0.25).setDepth(D_RING - 1).setBlendMode(Phaser.BlendModes.MULTIPLY);
+    const props = ["deco-14", "deco-15", "deco-rock2", "deco-14", "deco-15", "deco-rock3", "deco-15", "deco-14"];
+    props.forEach((key, i) => {
+      if (!s.textures.exists(key)) return;
+      const a = (i / props.length) * Math.PI * 2 + 0.5;
+      const r = 95 + rng2(i * 13, i * 7) * 75;
+      const x = pit.x + Math.cos(a) * r * 1.25;
+      const y = pit.y + Math.sin(a) * r * 0.8;
+      s.add.image(x, y, key).setScale(0.85 + rng2(i, i * 3) * 0.3).setAngle((rng2(i * 5, i) - 0.5) * 50).setDepth(y);
+    });
   }
 
   /** Animated 192px foam sprites on every water cell touching land — the guide's
@@ -324,12 +361,17 @@ export class WorldView {
         plant(t.x + Math.cos(a) * rr, t.y + Math.sin(a) * rr, i);
       }
     }
-    // sparse pines on the plateau tops so the heights read as wooded
+    // sparse pines on the plateau tops so the heights read as wooded — but not
+    // on the castle outcrops, where they'd poke through the keep
     for (let cy = 0; cy < ROWS; cy++) {
       for (let cx = 0; cx < COLS; cx++) {
         if (!isHighCell(cx, cy) || rng2(cx * 3, cy * 5) > 0.16) continue;
         const tx = cx * CELL + CELL / 2 + (rng2(cx, cy + 1) - 0.5) * 40;
         const ty = cy * CELL + CELL / 2 + (rng2(cx + 1, cy) - 0.5) * 40;
+        const nearAncient = (["radiant", "dire"] as const).some(
+          (t) => (tx - BASES[t].ancient.x) ** 2 + (ty - BASES[t].ancient.y) ** 2 < 320 * 320,
+        );
+        if (nearAncient) continue;
         if (hasPine) {
           const tree = s.add.sprite(tx, ty, "t-tree", 0).setOrigin(0.5, 0.86).setScale(0.9).setDepth(ty);
           if (s.anims.exists("tree-sway")) tree.play({ key: "tree-sway", startFrame: Math.floor(rng2(ty, tx) * 6) });
@@ -496,7 +538,28 @@ export class WorldView {
         const attackable = u.structure?.attackable ?? true;
         sv.hpFill.setFillStyle(attackable ? teamHpColor(u.team) : 0x6a7488);
         this.syncStructureFires(u, sv);
+        this.syncTowerRangeRing(world, u, sv);
       }
+    }
+  }
+
+  /** Show an enemy tower's attack radius while the player hero is close to it —
+   *  the "you are about to get shot" warning every MOBA needs. */
+  private syncTowerRangeRing(world: World, u: Unit, sv: StructView): void {
+    const me = world.units.get(this.playerHeroId);
+    const st = u.structure;
+    const range = u.attackRange + u.radius;
+    const show =
+      !!me && me.alive && !!st && st.tier !== "ancient" && st.attackable && u.team !== me.team &&
+      (me.x - u.x) ** 2 + (me.y - u.y) ** 2 <= (range + 280) ** 2;
+    if (show && !sv.range) {
+      sv.range = this.scene.add
+        .circle(u.x, u.y, range, 0xff5a4a, 0.04)
+        .setStrokeStyle(2.5, 0xff5a4a, 0.4)
+        .setDepth(D_RING + 1);
+    } else if (!show && sv.range) {
+      sv.range.destroy();
+      sv.range = null;
     }
   }
 
@@ -533,6 +596,7 @@ export class WorldView {
           v.dead = true;
           const dkey = animKey(u, "death");
           v.sprite.clearTint();
+          this.spawnSkull(v.dx, v.dy, u.kind === "hero" ? 0.62 : 0.5);
           if (this.scene.anims.exists(dkey)) {
             v.sprite.play(dkey);
             v.curAnim = dkey;
@@ -633,12 +697,14 @@ export class WorldView {
   }
 
   /** One-shot death at a unit's last position (for reaped creeps): play the real
-   *  death sheet if the unit has one (barrel goblin's explosion), else collapse. */
+   *  death sheet if the unit has one (barrel goblin's explosion), else collapse —
+   *  plus the Tiny Swords bouncing-skull pop either way. */
   private spawnDeathAnim(v: UnitView): void {
     if (v.dead) return; // a hero already played its death in-place
     const s = this.scene;
     const tex = v.sprite.texture.key;
     const dkey = `${tex}-death`;
+    this.spawnSkull(v.dx, v.dy, 0.5);
     const corpse = s.add
       .sprite(v.dx, v.dy - 18, tex, v.sprite.frame.name)
       .setScale(v.sprite.scaleX, v.sprite.scaleY)
@@ -652,6 +718,15 @@ export class WorldView {
     } else {
       this.collapseSprite(corpse, () => corpse.destroy());
     }
+  }
+
+  /** The pack's death skull: pops out, bounces, sinks into the ground. */
+  private spawnSkull(x: number, y: number, scale: number): void {
+    const s = this.scene;
+    if (!s.anims.exists("skull-pop")) return;
+    const sk = s.add.sprite(x + (Math.random() - 0.5) * 10, y - 14, "skull-pop", 0).setScale(scale).setDepth(y + 1);
+    sk.play("skull-pop");
+    sk.once("animationcomplete", () => sk.destroy());
   }
 
   /** Procedural death for sheets with no death sequence: freeze the current frame,
@@ -692,7 +767,7 @@ export class WorldView {
       const mpBg = s.add.rectangle(0, barY + 8, bw + 4, 5, 0x0c1018).setStrokeStyle(1, 0x000000, 0.6);
       mpFill = s.add.rectangle(-bw / 2, barY + 8, bw, 3, 0x4a8fff).setOrigin(0, 0.5);
       label = s.add
-        .text(0, barY - 12, "", { fontSize: "12px", color: "#eaf0ff", fontStyle: "bold", stroke: "#000", strokeThickness: 3 })
+        .text(0, barY - 12, "", { fontFamily: FONT, fontSize: "13px", color: "#eaf0ff", stroke: "#1c1410", strokeThickness: 3 })
         .setOrigin(0.5);
       children.push(mpBg, mpFill, label);
     }
@@ -791,9 +866,9 @@ export class WorldView {
           this.scene.cameras.main.shake(110, Math.min(0.006, 0.0016 + fx.amount / 40000));
         }
         const color = fx.dtype === "magic" ? "#c78bff" : fx.crit ? "#ffd23a" : "#ffffff";
-        const size = fx.crit ? "20px" : "14px";
+        const size = fx.crit ? "22px" : "15px";
         const t = s.add
-          .text(fx.x + (Math.random() - 0.5) * 16, fx.y, `${fx.amount}`, { fontSize: size, color, fontStyle: "bold", stroke: "#000", strokeThickness: 3 })
+          .text(fx.x + (Math.random() - 0.5) * 16, fx.y, `${fx.amount}`, { fontFamily: FONT, fontSize: size, color, stroke: "#1c1410", strokeThickness: 4 })
           .setOrigin(0.5)
           .setDepth(90000);
         s.tweens.add({ targets: t, y: fx.y - 38, alpha: 0, duration: 700, ease: "Cubic.Out", onComplete: () => t.destroy() });
@@ -836,12 +911,12 @@ export class WorldView {
       case "gold": {
         if (fx.heroId !== this.playerHeroId) break;
         sfx.gold();
-        const t = s.add.text(fx.x, fx.y, `+${fx.amount}`, { fontSize: "13px", color: "#ffd23a", fontStyle: "bold", stroke: "#000", strokeThickness: 3 }).setOrigin(0.5).setDepth(90000);
+        const t = s.add.text(fx.x, fx.y, `+${fx.amount}`, { fontFamily: FONT, fontSize: "14px", color: "#ffd23a", stroke: "#1c1410", strokeThickness: 4 }).setOrigin(0.5).setDepth(90000);
         s.tweens.add({ targets: t, y: fx.y - 30, alpha: 0, duration: 800, onComplete: () => t.destroy() });
         break;
       }
       case "heal": {
-        const t = s.add.text(fx.x, fx.y - 20, `+${Math.round(fx.amount)}`, { fontSize: "13px", color: "#7bf08b", fontStyle: "bold", stroke: "#000", strokeThickness: 3 }).setOrigin(0.5).setDepth(90000);
+        const t = s.add.text(fx.x, fx.y - 20, `+${Math.round(fx.amount)}`, { fontFamily: FONT, fontSize: "14px", color: "#7bf08b", stroke: "#1c1410", strokeThickness: 4 }).setOrigin(0.5).setDepth(90000);
         s.tweens.add({ targets: t, y: fx.y - 50, alpha: 0, duration: 700, onComplete: () => t.destroy() });
         break;
       }

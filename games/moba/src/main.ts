@@ -23,4 +23,11 @@ const config: Phaser.Types.Core.GameConfig = {
   scene: [BootScene, MenuScene, GameScene, HudScene, GalleryScene],
 };
 
-new Phaser.Game(config);
+// The display font must be resolved before any Phaser Text is created, or those
+// texts rasterise with the fallback. Cap the wait so a blocked font CDN can
+// never hold the game hostage.
+const fontReady = Promise.race([
+  document.fonts.load('20px "Lilita One"'),
+  new Promise((resolve) => setTimeout(resolve, 1500)),
+]);
+void fontReady.then(() => new Phaser.Game(config));

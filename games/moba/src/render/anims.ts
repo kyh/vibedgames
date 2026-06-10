@@ -40,11 +40,14 @@ const UNIT_ANIMS: Record<string, AnimRange[]> = {
     { name: "walk", start: 7, end: 12, fps: 10, loop: true },
     { name: "attack", start: 14, end: 19, fps: 14, loop: false },
   ],
+  // barrel is a 6×6 grid of 128px frames (everything else is 192): row 1 = the
+  // goblin peeking out (idle), row 4 = scuttling on little feet (walk), row 5 =
+  // fuse lit + red flash (attack AND death — it explodes either way).
   barrel: [
-    { name: "idle", start: 0, end: 3, fps: 8, loop: true },
-    { name: "walk", start: 4, end: 7, fps: 8, loop: true },
-    { name: "attack", start: 8, end: 11, fps: 12, loop: false },
-    { name: "death", start: 12, end: 15, fps: 10, loop: false },
+    { name: "idle", start: 6, end: 11, fps: 8, loop: true },
+    { name: "walk", start: 24, end: 26, fps: 10, loop: true },
+    { name: "attack", start: 30, end: 32, fps: 12, loop: false },
+    { name: "death", start: 30, end: 32, fps: 14, loop: false },
   ],
 };
 
@@ -99,6 +102,7 @@ export function registerAnims(scene: Phaser.Scene): void {
   oneShot("fx-explode1", "fx-explode1", 16);
   oneShot("fx-explode2", "fx-explode2", 16);
   oneShot("fx-splash", "fx-splash", 11);
+  oneShot("skull-pop", "skull-pop", 13); // bouncing skull on unit death, then sinks
 
   // ambient + neutral loops (full sheet, derived frame count)
   const loop = (key: string, tex: string, fps: number): void => {

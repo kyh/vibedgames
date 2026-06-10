@@ -24,9 +24,10 @@ export class BootScene extends Phaser.Scene {
     const f = { frameWidth: UNIT, frameHeight: UNIT };
 
     // --- unit sheets (every color variant we might team-paint) ---
+    // barrel is the one 128px-grid sheet in the set (6×6); the rest are 192
     for (const u of UNIT_KEYS) {
       for (const c of COLORS) {
-        this.load.spritesheet(`u-${u}-${c}`, `assets/units/${u}_${c}.png`, f);
+        this.load.spritesheet(`u-${u}-${c}`, `assets/units/${u}_${c}.png`, u === "barrel" ? { frameWidth: 128, frameHeight: 128 } : f);
       }
     }
 
@@ -97,15 +98,27 @@ export class BootScene extends Phaser.Scene {
     this.load.spritesheet("fx-explode2", "assets/fx/explode2.png", { frameWidth: UNIT, frameHeight: UNIT });
     this.load.spritesheet("fx-splash", "assets/fx/splash.png", { frameWidth: UNIT, frameHeight: UNIT });
 
-    // --- ui ---
+    // --- ui (Tiny Swords UI pack: carved panels, ribbons, buttons) ---
     this.load.image("ui-bar-base", "assets/ui/bar_base.png");
     this.load.image("ui-bar-fill", "assets/ui/bar_fill.png");
     this.load.image("ui-panel", "assets/ui/panel.png");
     this.load.image("ui-banner", "assets/ui/banner.png");
+    this.load.image("ui-carved9", "assets/ui/carved9.png");
+    this.load.image("ui-carved3", "assets/ui/carved3.png");
+    for (const c of ["blue", "red", "yellow"]) this.load.image(`ui-ribbon-${c}`, `assets/ui/ribbon_${c}.png`);
+    for (const c of ["blue", "red"]) {
+      this.load.image(`ui-btn-${c}`, `assets/ui/btn_${c}.png`);
+      this.load.image(`ui-btn-${c}-pressed`, `assets/ui/btn_${c}_pressed.png`);
+    }
+    this.load.image("ui-btn-hover", "assets/ui/btn_hover.png");
     for (let i = 1; i <= 10; i++) {
       const n = String(i).padStart(2, "0");
       this.load.image(`ui-icon-${n}`, `assets/ui/icon_${n}.png`);
     }
+
+    // gold mine prop (large jungle camps) + the shared skull death pop
+    this.load.image("deco-goldmine", "assets/deco/goldmine.png");
+    this.load.spritesheet("skull-pop", "assets/units/dead.png", { frameWidth: 128, frameHeight: 128 });
 
     // decorations: rocks/bushes/mushrooms — load whatever is present lazily by
     // numbering; missing files just warn. Handled in MapBuilder.

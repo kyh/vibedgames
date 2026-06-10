@@ -39,6 +39,7 @@ export class GameScene extends Phaser.Scene {
   private followGo = false;
   private heroChoice = "ironvow";
   private ended = false;
+  private hitStopUntil = 0; // brief sim freeze on nearby hero kills (game feel)
   private moveKeys: Record<"up" | "down" | "left" | "right", Phaser.Input.Keyboard.Key> | null = null;
   private lastDir = { dx: 0, dy: 0 };
   private aimDir = { x: 1, y: 0 }; // last movement direction — drives keyboard ability aim
@@ -74,6 +75,7 @@ export class GameScene extends Phaser.Scene {
     this.labelTimer = 0;
     this.followGo = false;
     this.ended = false;
+    this.hitStopUntil = 0;
     this.lastDir = { dx: 0, dy: 0 };
     this.aimDir = { x: 1, y: 0 };
     this.uiBlocking = false;
@@ -371,9 +373,14 @@ export class GameScene extends Phaser.Scene {
   /** Pull kill/announce events out of world.fx for the HUD before the view drains them. */
   private collectFeed(): void {
     const now = this.time.now;
+    const me = this.player;
     for (const fx of this.world.fx) {
       if (fx.t === "kill") this.feed.push({ kind: "kill", killer: fx.killer, victim: fx.victim, team: fx.team, at: now });
       else if (fx.t === "notify") this.feed.push({ kind: "notify", text: fx.text, tone: fx.tone, at: now });
+      else if (fx.t === "death" && fx.kind === "hero" && me && dist2(me, fx) < 900 * 900) {
+        // hit-stop: a beat of frozen sim when a hero dies near you sells the kill
+        this.hitStopUntil = now + 90;
+      }
     }
     if (this.feed.length > 40) this.feed.splice(0, this.feed.length - 40);
   }
@@ -534,6 +541,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private tickHost(dt: number): void {
+    if (this.time.now < this.hitStopUntil) return; // hit-stop: hold the sim a beat
     this.acc += dt;
     let steps = 0;
     while (this.acc >= SIM_DT && steps < 5) {
@@ -623,30 +631,40 @@ export class GameScene extends Phaser.Scene {
     const veil = this.add.rectangle(cx, cy, this.scale.width, this.scale.height, 0x05080e, 0).setScrollFactor(0).setDepth(99990);
     this.tweens.add({ targets: veil, fillAlpha: 0.55, duration: 600 });
 
+    const ribbon = this.add
+      .nineslice(cx, cy - 70, win ? "ui-ribbon-yellow" : "ui-ribbon-red", 0, 560, 120, 58, 58, 22, 22)
+      .setScrollFactor(0)
+      .setDepth(99998)
+      .setScale(0);
     const txt = this.add
-      .text(cx, cy - 70, win ? "VICTORY" : "DEFEAT", {
-        fontSize: "84px",
-        color: win ? "#ffe14a" : "#ff5a4a",
-        fontStyle: "bold",
-        stroke: "#000",
-        strokeThickness: 8,
+      .text(cx, cy - 78, win ? "VICTORY" : "DEFEAT", {
+        fontFamily: '"Lilita One", sans-serif',
+        fontSize: "72px",
+        color: win ? "#5a3a10" : "#f4eee0",
+        stroke: win ? "#fff3c4" : "#3a1410",
+        strokeThickness: 6,
       })
       .setOrigin(0.5)
       .setScrollFactor(0)
       .setDepth(99999);
     txt.setScale(0);
-    this.tweens.add({ targets: txt, scale: 1, duration: 500, ease: "Back.Out" });
+    this.tweens.add({ targets: [ribbon, txt], scale: 1, duration: 500, ease: "Back.Out" });
 
     let clicked = false;
-    const mkBtn = (dx: number, label: string, color: number, hover: number, onClick: () => void) => {
-      const b = this.add.rectangle(cx + dx, cy + 60, 230, 54, color).setStrokeStyle(2, hover).setScrollFactor(0).setDepth(99999).setInteractive({ useHandCursor: true });
-      const t = this.add.text(cx + dx, cy + 60, label, { fontSize: "19px", color: "#eafff0", fontStyle: "bold" }).setOrigin(0.5).setScrollFactor(0).setDepth(100000);
-      b.on("pointerover", () => b.setFillStyle(hover));
-      b.on("pointerout", () => b.setFillStyle(color));
+    const mkBtn = (dx: number, label: string, color: "blue" | "red", onClick: () => void) => {
+      const b = this.add
+        .nineslice(cx + dx, cy + 60, `ui-btn-${color}`, 0, 250, 60, 28, 28, 20, 26)
+        .setScrollFactor(0)
+        .setDepth(99999)
+        .setInteractive({ useHandCursor: true });
+      const t = this.add.text(cx + dx, cy + 56, label, { fontFamily: '"Lilita One", sans-serif', fontSize: "19px", color: "#1e3a44" }).setOrigin(0.5).setScrollFactor(0).setDepth(100000);
+      b.on("pointerover", () => this.tweens.add({ targets: [b, t], scale: 1.05, duration: 100 }));
+      b.on("pointerout", () => this.tweens.add({ targets: [b, t], scale: 1, duration: 100 }));
       b.on("pointerdown", () => {
         if (clicked) return; // ignore double-clicks / the other button once one fires
         clicked = true;
-        t.setText("…");
+        b.setTexture(`ui-btn-${color}-pressed`);
+        t.setText("…").setY(cy + 60);
         this.time.delayedCall(40, onClick);
       });
       b.setScale(0);
@@ -654,12 +672,12 @@ export class GameScene extends Phaser.Scene {
       this.tweens.add({ targets: [b, t], scale: 1, duration: 360, delay: 320, ease: "Back.Out" });
     };
     if (!this.online) {
-      mkBtn(-130, "⟳  PLAY AGAIN", 0x2a6f3a, 0x35864a, () => {
+      mkBtn(-140, "⟳  PLAY AGAIN", "blue", () => {
         this.scene.stop("Hud");
         this.scene.start("Game", { heroId: this.heroChoice, online: false });
       });
     }
-    mkBtn(this.online ? 0 : 130, "⌂  BACK TO MENU", 0x2a5a8f, 0x356fb0, () => {
+    mkBtn(this.online ? 0 : 140, "⌂  BACK TO MENU", "red", () => {
       this.net?.destroy();
       this.scene.stop("Hud");
       this.scene.start("Menu");
