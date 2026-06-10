@@ -233,9 +233,6 @@ export class GameScene extends Phaser.Scene {
 
     this.keys.SPACE.on("down", () => this.tryAction());
     this.keys.E.on("down", () => this.tryAction());
-    this.input.on("wheel", (_p: unknown, _o: unknown, _dx: number, dy: number) => {
-      if (!this.uiOpen) store.inv.cycle(dy > 0 ? 1 : -1);
-    });
     this.input.on("pointerdown", (p: Phaser.Input.Pointer) => {
       if (this.uiOpen || p.button !== 0) return;
       this.tryAction();

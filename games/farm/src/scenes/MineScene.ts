@@ -258,9 +258,6 @@ export class MineScene extends Phaser.Scene {
     NUM_KEY_NAMES.forEach((name, i) => this.keys[name].on("down", () => store.inv.select(i)));
     this.keys.SPACE.on("down", () => this.tryAction());
     this.keys.E.on("down", () => this.tryAction());
-    this.input.on("wheel", (_p: unknown, _o: unknown, _dx: number, dy: number) =>
-      store.inv.cycle(dy > 0 ? 1 : -1),
-    );
     this.input.on("pointerdown", (p: Phaser.Input.Pointer) => {
       if (p.button === 0) this.tryAction();
     });
