@@ -1,34 +1,59 @@
 import Phaser from "phaser";
 
-import { BASES, BRIDGES, NEUTRAL_CAMPS, TOWERS, TREE_CLUSTERS, WORLD, isRiver } from "../data/map";
+import {
+  BASES,
+  BRIDGES,
+  GRID,
+  NEUTRAL_CAMPS,
+  TOWERS,
+  TREE_CLUSTERS,
+  WORLD,
+  isCliffCell,
+  isHighCell,
+  isLandCell,
+} from "../data/map";
 import type { Team } from "../data/config";
 import type { World, Unit, Projectile, GroundEffect, FxEvent } from "../sim/types";
 import { sfx } from "./audio";
 import { animKey, structureDestroyedTex, unitSprite } from "./sprites";
 
-const GRASS_FRAME = 11; // solid-green centre tile of ground_flat autotile
-const DEPTH_GROUND = -100;
-const DEPTH_DECAL = -50;
 const CELL = 64;
+const COLS = GRID.cols;
+const ROWS = GRID.rows;
 
-// 4-bit autotile: which orthogonal neighbours are WATER (N=8,E=4,S=2,W=1) -> the
-// ground_flat green tile index whose dark edge faces that water. Verified against
-// the sheet: 0=TL corner, 11=interior, 33=isolated.
-const GRASS_AUTOTILE: Record<number, number> = {
-  0: 11, 1: 10, 2: 21, 3: 20, 4: 12, 5: 13, 6: 22, 7: 23,
-  8: 1, 9: 0, 10: 31, 11: 30, 12: 2, 13: 3, 14: 32, 15: 33,
+// Terrain depth bands, composed in the official tilemap-guide order: BG colour →
+// water foam → flat ground → drop shadow → elevated ground → cliff faces. All sit
+// far below unit depths (= their y, ≥ 0).
+const D_WATER = -130;
+const D_FOAM = -116;
+const D_FLAT = -110;
+const D_SHADOW = -105;
+const D_ELEV = -100;
+const D_CLIFF = -95;
+const D_WASH = -92;
+const D_RING = -90;
+const D_BRIDGE_SHADOW = -89;
+const D_BRIDGE = -84; // minus a per-strip index (northern strips on top), stays above the shadow
+const DEPTH_DECAL = -50;
+
+// Free Pack tileset autotile (9-wide sheet) — same mapping the ?gallery=map
+// reference rebuild verified tile-by-tile against the promo. Keyed by which
+// orthogonal neighbours are OUTSIDE the set: N=8,E=4,S=2,W=1.
+const FLAT_TILE: Record<number, number> = {
+  0: 10, 8: 1, 4: 11, 2: 19, 1: 9, 9: 0, 12: 2, 3: 18, 6: 20, 5: 12, 10: 28,
+  13: 3, 7: 21, 11: 27, 14: 29, 15: 30,
 };
-
-// Raised grassy plateaus with rock cliff edges, in the off-lane jungle quadrants
-// (clear of the river + lanes). {x,y,r} circles → a "high" cell mask.
-const PLATEAUS: Array<{ x: number; y: number; r: number }> = [
-  { x: 1850, y: 4480, r: 380 }, // radiant top jungle
-  { x: 2980, y: 5180, r: 340 }, // radiant bottom jungle
-  { x: 4550, y: 1920, r: 380 }, // dire bottom jungle
-  { x: 3220, y: 1880, r: 340 }, // dire top jungle
-  { x: 1180, y: 5060, r: 300 }, // radiant base-side rise
-  { x: 5220, y: 1540, r: 300 }, // dire base-side rise
-];
+// Elevated grass is the identical autotile shifted 5 columns right.
+const ELEV_TILE: Record<number, number> = Object.fromEntries(
+  Object.entries(FLAT_TILE).map(([k, v]) => [Number(k), v + 5]),
+);
+// Stone cliff faces (2 rows tall) under a plateau's south edge.
+const CLIFF = { topL: 41, topM: 42, topR: 43, topNarrow: 44, botL: 50, botM: 51, botR: 52, botNarrow: 53 };
+// Bridge_All frames: 0/1/2 = horizontal left-cap/middle/right-cap, 11 = shadow.
+const BRIDGE_L = 0;
+const BRIDGE_M = 1;
+const BRIDGE_R = 2;
+const BRIDGE_SHADOW = 11;
 
 /** Deterministic 0..1 hash so decoration scatter is stable across reloads/peers. */
 function rng2(x: number, y: number): number {
@@ -49,6 +74,7 @@ type UnitView = {
   dy: number;
   curAnim: string;
   lastAttackAt: number; // detect a fresh swing to play the attack anim once
+  lastDustAt: number; // throttle the running dust puffs
   dead: boolean; // playing/played the death anim while hidden (heroes)
 };
 
@@ -57,6 +83,7 @@ type StructView = {
   hpBg: Phaser.GameObjects.Rectangle;
   hpFill: Phaser.GameObjects.Rectangle;
   range: Phaser.GameObjects.Arc | null;
+  fires: Phaser.GameObjects.Sprite[]; // burning-damage flames, count scales with lost HP
   dead: boolean;
 };
 
@@ -67,6 +94,8 @@ export class WorldView {
   private projs = new Map<string, Phaser.GameObjects.Image>();
   private grounds = new Map<string, Phaser.GameObjects.Arc>();
   private mines = new Map<string, Phaser.GameObjects.Arc>();
+  private shoreCells: Array<{ x: number; y: number }> = []; // water cells touching land, for ambient splashes
+  private splashAcc = 0;
   playerHeroId = "";
   playerTeam: "radiant" | "dire" = "radiant";
 
@@ -76,96 +105,297 @@ export class WorldView {
 
   buildTerrain(): void {
     const s = this.scene;
-    const cols = Math.ceil(WORLD.width / CELL);
-    const rows = Math.ceil(WORLD.height / CELL);
 
-    // The whole world is an island: water everywhere, grass painted on top as an
-    // autotiled landmass with a 2-cell water border and the river carved through.
-    const isLand = (cx: number, cy: number): boolean => {
-      if (cx < 2 || cy < 2 || cx >= cols - 2 || cy >= rows - 2) return false;
-      return !isRiver(cx * CELL + CELL / 2, cy * CELL + CELL / 2);
-    };
+    // 1) open water everywhere underneath
+    s.add.tileSprite(0, 0, WORLD.width, WORLD.height, "t-water").setOrigin(0, 0).setDepth(D_WATER);
 
-    // 1) animated-feeling deep water underlay
-    s.add.tileSprite(0, 0, WORLD.width, WORLD.height, "t-water").setOrigin(0, 0).setDepth(DEPTH_GROUND - 10);
-    // a subtle darker tint band over the river centre to give it depth
-    const riverShade = s.add.graphics().setDepth(DEPTH_GROUND - 9);
-    for (let cy = 0; cy < rows; cy++) {
-      for (let cx = 0; cx < cols; cx++) {
-        const x = cx * CELL;
-        const y = cy * CELL;
-        if (!isLand(cx, cy) && isRiver(x + CELL / 2, y + CELL / 2)) {
-          riverShade.fillStyle(0x1c4a6e, 0.5).fillRect(x, y, CELL, CELL);
+    // 2) animated foam lapping every shoreline (under the grass edge tiles)
+    this.buildFoam();
+
+    // 3) flat grass islands as one autotiled tilemap layer
+    this.buildGroundLayer(false, D_FLAT);
+
+    // 4) plateau drop shadows, elevated grass tops, then their stone cliff faces
+    this.buildPlateauShadows();
+    this.buildGroundLayer(true, D_ELEV);
+    this.buildCliffs();
+
+    // 5) warm multiply wash nudging the tileset green toward the promo's olive
+    this.buildWash();
+
+    // 6) wooden bridges across the channel
+    this.buildBridges();
+
+    // 7) fountains (glowing pools at each base) + a couple of village houses
+    for (const team of ["radiant", "dire"] as const) {
+      const b = BASES[team];
+      const col = team === "radiant" ? 0x4fa3ff : 0xff5a4a;
+      s.add.circle(b.fountain.x, b.fountain.y, b.fountainRadius, col, 0.05).setDepth(D_RING);
+      s.add.circle(b.fountain.x, b.fountain.y, 80, 0x2f6f9e, 0.85).setStrokeStyle(5, 0x9fd0ff, 0.7).setDepth(DEPTH_DECAL);
+      s.add.circle(b.fountain.x, b.fountain.y, 46, 0x9fd0ff, 0.5).setDepth(DEPTH_DECAL);
+      const houseTex = `b-house-${team === "radiant" ? "blue" : "red"}`;
+      if (s.textures.exists(houseTex)) {
+        const sign = team === "radiant" ? 1 : -1;
+        for (const [hx, hy] of [
+          [b.fountain.x + sign * 80, b.fountain.y - 230],
+          [b.fountain.x + sign * 70, b.fountain.y + 250],
+        ] as const) {
+          if (!isLandCell(Math.floor(hx / CELL), Math.floor(hy / CELL))) continue;
+          s.add.image(hx, hy, houseTex).setOrigin(0.5, 0.8).setDepth(hy);
         }
       }
     }
 
-    // 2) autotiled grass landmass as a single tilemap layer (one draw)
-    this.buildGroundLayer(isLand, cols, rows);
+    // 8) jungle trees (depth-sorted so heroes weave between them)
+    this.buildTrees();
 
-    // 2b) raised grass plateaus with rock cliff edges, for vertical depth
-    if (this.scene.textures.exists("t-elev")) this.buildElevation(isLand, cols, rows);
+    // 9) scattered rocks / animated bushes / mushrooms for texture
+    this.buildScatter();
 
-    // 3) shoreline accent: a soft foam line hugging the grass edge (the square
-    // foam-tile asset can't make a clean coast, so we stroke it ourselves).
-    this.buildShoreline(isLand, cols, rows);
-
-    // 4) bridges where lanes cross the river
-    this.buildBridges();
-
-    // 5) fountains (glowing pools at each base)
-    for (const team of ["radiant", "dire"] as const) {
-      const b = BASES[team];
-      const col = team === "radiant" ? 0x4fa3ff : 0xff5a4a;
-      s.add.circle(b.fountain.x, b.fountain.y, b.fountainRadius, col, 0.06).setDepth(DEPTH_GROUND + 1);
-      s.add.circle(b.fountain.x, b.fountain.y, 90, 0x2f6f9e, 0.85).setStrokeStyle(5, 0x9fd0ff, 0.7).setDepth(DEPTH_DECAL);
-      s.add.circle(b.fountain.x, b.fountain.y, 54, 0x9fd0ff, 0.5).setDepth(DEPTH_DECAL);
-    }
-
-    // 6) jungle trees (depth-sorted so heroes weave between them)
-    this.buildTrees(isLand);
-
-    // 7) scattered rocks / bushes / mushrooms for texture
-    this.buildScatter(isLand, cols, rows);
-
-    // 8) faint marker rings at each neutral camp so the jungle reads as farmable
+    // 10) subtle marker rings at each neutral camp so the jungle reads as farmable
     for (const c of NEUTRAL_CAMPS) {
       const boss = c.kind === "roshan";
       s.add
-        .circle(c.x, c.y, boss ? 150 : 90, boss ? 0x7a2a2a : 0x2a3a22, boss ? 0.22 : 0.16)
-        .setStrokeStyle(2, boss ? 0xc8643c : 0x6a8a4c, 0.5)
-        .setDepth(DEPTH_GROUND + 2);
+        .circle(c.x, c.y, boss ? 130 : 70, 0x000000, 0)
+        .setStrokeStyle(boss ? 4 : 3, boss ? 0x8a3a2a : 0x4a6a34, boss ? 0.4 : 0.3)
+        .setDepth(D_RING);
     }
 
-    // 9) animated rocks dotting the water, 10) drifting clouds, 11) grazing sheep
-    this.buildWaterRocks(isLand, cols, rows);
+    // 11) animated rocks dotting the water, drifting clouds, grazing sheep
+    this.buildWaterRocks();
     this.buildClouds();
-    this.buildAmbientLife(isLand);
+    this.buildAmbientLife();
+  }
+
+  /** Animated 192px foam sprites on every water cell touching land — the guide's
+   *  recipe: oversized sprites on the 64 grid, each starting at a different frame. */
+  private buildFoam(): void {
+    const s = this.scene;
+    const hasFoam = s.textures.exists("foam");
+    for (let cy = 0; cy < ROWS; cy++) {
+      for (let cx = 0; cx < COLS; cx++) {
+        if (isLandCell(cx, cy)) continue;
+        const touches = (
+          [[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [1, -1], [-1, 1], [1, 1]] as Array<[number, number]>
+        ).some(([dx, dy]) => isLandCell(cx + dx, cy + dy));
+        if (!touches) continue;
+        const x = cx * CELL + CELL / 2;
+        const y = cy * CELL + CELL / 2;
+        this.shoreCells.push({ x, y });
+        if (!hasFoam) continue;
+        const f = s.add.sprite(x, y, "foam", 0).setDepth(D_FOAM);
+        if (s.anims.exists("foam-loop")) f.play({ key: "foam-loop", startFrame: (cx * 7 + cy * 5) % 16 });
+      }
+    }
+  }
+
+  /** Flat (elevated=false) or plateau-top (true) grass autotile as one layer. */
+  private buildGroundLayer(elevated: boolean, depth: number): void {
+    const s = this.scene;
+    if (!s.textures.exists("tiles-img")) return;
+    const inSet = (cx: number, cy: number): boolean =>
+      elevated ? isHighCell(cx, cy) : isLandCell(cx, cy) && !isHighCell(cx, cy);
+    const out = (cx: number, cy: number): boolean => (elevated ? !isHighCell(cx, cy) : !isLandCell(cx, cy));
+    const data: number[][] = [];
+    for (let cy = 0; cy < ROWS; cy++) {
+      const row: number[] = [];
+      for (let cx = 0; cx < COLS; cx++) {
+        if (!inSet(cx, cy)) {
+          row.push(-1);
+          continue;
+        }
+        const k =
+          (out(cx, cy - 1) ? 8 : 0) | (out(cx + 1, cy) ? 4 : 0) | (out(cx, cy + 1) ? 2 : 0) | (out(cx - 1, cy) ? 1 : 0);
+        row.push((elevated ? ELEV_TILE[k] : FLAT_TILE[k]) ?? (elevated ? 15 : 10));
+      }
+      data.push(row);
+    }
+    const map = s.make.tilemap({ data, tileWidth: CELL, tileHeight: CELL });
+    const tiles = map.addTilesetImage(elevated ? "tilesE" : "tilesF", "tiles-img");
+    if (tiles) map.createLayer(0, tiles, 0, 0)?.setDepth(depth);
+  }
+
+  /** Drop shadow under the elevated footprint, shifted one tile down (the guide's
+   *  layering: between the flat and elevated ground layers). */
+  private buildPlateauShadows(): void {
+    const s = this.scene;
+    if (!s.textures.exists("tshadow")) return;
+    for (let cy = 0; cy < ROWS; cy++) {
+      for (let cx = 0; cx < COLS; cx++) {
+        if (!isHighCell(cx, cy)) continue;
+        s.add.image(cx * CELL + CELL / 2, (cy + 1) * CELL + CELL / 2, "tshadow").setDepth(D_SHADOW).setAlpha(0.8);
+      }
+    }
+  }
+
+  /** Stone cliff faces (2 rows) below each plateau's south edge. */
+  private buildCliffs(): void {
+    const s = this.scene;
+    if (!s.textures.exists("tiles")) return;
+    for (let cy = 0; cy < ROWS; cy++) {
+      for (let cx = 0; cx < COLS; cx++) {
+        if (!isHighCell(cx, cy) || isHighCell(cx, cy + 1)) continue; // south edge only
+        const cxp = cx * CELL + CELL / 2;
+        // a wall run ends where the neighbour isn't itself a south-edge cell
+        const leftEnd = !isHighCell(cx - 1, cy) || isHighCell(cx - 1, cy + 1);
+        const rightEnd = !isHighCell(cx + 1, cy) || isHighCell(cx + 1, cy + 1);
+        const narrow = leftEnd && rightEnd;
+        const top = narrow ? CLIFF.topNarrow : leftEnd ? CLIFF.topL : rightEnd ? CLIFF.topR : CLIFF.topM;
+        const bot = narrow ? CLIFF.botNarrow : leftEnd ? CLIFF.botL : rightEnd ? CLIFF.botR : CLIFF.botM;
+        s.add.image(cxp, (cy + 1) * CELL + CELL / 2, "tiles", top).setDepth(D_CLIFF);
+        s.add.image(cxp, (cy + 2) * CELL + CELL / 2, "tiles", bot).setDepth(D_CLIFF);
+      }
+    }
+  }
+
+  /** Multiply wash over the land, nudging the Free Pack green toward the promo olive. */
+  private buildWash(): void {
+    const wash = this.scene.add.graphics().setDepth(D_WASH).setBlendMode(Phaser.BlendModes.MULTIPLY);
+    wash.fillStyle(0xffe2b8, 0.45);
+    for (let cy = 0; cy < ROWS; cy++) {
+      let run = -1;
+      for (let cx = 0; cx <= COLS; cx++) {
+        const land = cx < COLS && isLandCell(cx, cy);
+        if (land && run < 0) run = cx;
+        if (!land && run >= 0) {
+          wash.fillRect(run * CELL, cy * CELL, (cx - run) * CELL, CELL);
+          run = -1;
+        }
+      }
+    }
+  }
+
+  /** Wooden plank bridges with the kit's flat shadow square on the water beneath.
+   *  Each strip of the art is one tile tall with posts along its top edge, so a
+   *  wide crossing is built from overlapping strips every half tile, northern
+   *  strips drawn on top — continuous planking, posts only on the outer rail. */
+  private buildBridges(): void {
+    const s = this.scene;
+    if (!s.textures.exists("t-bridge")) return;
+    for (const b of BRIDGES) {
+      for (let cy = b.y0; cy <= b.y1; cy++) {
+        for (let cx = b.x0; cx <= b.x1; cx++) {
+          if (isLandCell(cx, cy)) continue;
+          s.add.image(cx * CELL + CELL / 2, cy * CELL + CELL / 2 + 14, "t-bridge", BRIDGE_SHADOW)
+            .setDepth(D_BRIDGE_SHADOW)
+            .setAlpha(0.55);
+        }
+      }
+      const yTop = b.y0 * CELL + CELL / 2;
+      const yBot = b.y1 * CELL + CELL / 2;
+      for (let y = yTop, i = 0; y <= yBot; y += CELL / 2, i++) {
+        for (let cx = b.x0; cx <= b.x1; cx++) {
+          const frame = cx === b.x0 ? BRIDGE_L : cx === b.x1 ? BRIDGE_R : BRIDGE_M;
+          s.add.image(cx * CELL + CELL / 2, y, "t-bridge", frame).setDepth(D_BRIDGE - i);
+        }
+      }
+    }
+  }
+
+  private buildTrees(): void {
+    const s = this.scene;
+    const deciduous = [1, 2, 3, 4].filter((i) => s.textures.exists(`ftree${i}`));
+    const hasPine = s.textures.exists("t-tree");
+    const AUTUMN = [0xf4d24a, 0xe9a23a, 0xf2c14e, 0xe6b34a];
+
+    const plant = (tx: number, ty: number, seed: number): void => {
+      const cx = Math.floor(tx / CELL);
+      const cy = Math.floor(ty / CELL);
+      if (!isLandCell(cx, cy) || isCliffCell(cx, cy)) return;
+      s.add.image(tx, ty + 6, "shadow").setDisplaySize(74, 26).setAlpha(0.4).setDepth(ty - 1);
+      const pick = rng2(tx + seed, ty - seed);
+      if (hasPine && (pick < 0.45 || deciduous.length === 0)) {
+        const tree = s.add.sprite(tx, ty, "t-tree", 0).setOrigin(0.5, 0.86).setScale(0.95 + pick * 0.3).setDepth(ty);
+        if (pick < 0.12) tree.setTint(AUTUMN[Math.floor(rng2(ty, tx) * AUTUMN.length) % AUTUMN.length]);
+        if (s.anims.exists("tree-sway")) tree.play({ key: "tree-sway", startFrame: Math.floor(rng2(ty, tx) * 6) });
+      } else {
+        const kind = deciduous[Math.floor(rng2(tx, ty) * deciduous.length) % deciduous.length] ?? 1;
+        const tree = s.add.sprite(tx, ty, `ftree${kind}`, 0).setOrigin(0.5, 0.82).setScale(0.5 + pick * 0.14).setDepth(ty);
+        if (s.anims.exists(`ftree${kind}-sway`)) tree.play({ key: `ftree${kind}-sway`, startFrame: Math.floor(rng2(ty, tx) * 8) });
+      }
+    };
+
+    // clusters in the jungle pockets
+    for (const t of TREE_CLUSTERS) {
+      const n = Math.max(6, Math.floor(t.r / 24));
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2 + (t.x % 7);
+        const rr = t.r * (0.2 + 0.75 * rng2(t.x + i, t.y - i));
+        plant(t.x + Math.cos(a) * rr, t.y + Math.sin(a) * rr, i);
+      }
+    }
+    // sparse pines on the plateau tops so the heights read as wooded
+    for (let cy = 0; cy < ROWS; cy++) {
+      for (let cx = 0; cx < COLS; cx++) {
+        if (!isHighCell(cx, cy) || rng2(cx * 3, cy * 5) > 0.16) continue;
+        const tx = cx * CELL + CELL / 2 + (rng2(cx, cy + 1) - 0.5) * 40;
+        const ty = cy * CELL + CELL / 2 + (rng2(cx + 1, cy) - 0.5) * 40;
+        if (hasPine) {
+          const tree = s.add.sprite(tx, ty, "t-tree", 0).setOrigin(0.5, 0.86).setScale(0.9).setDepth(ty);
+          if (s.anims.exists("tree-sway")) tree.play({ key: "tree-sway", startFrame: Math.floor(rng2(ty, tx) * 6) });
+        }
+      }
+    }
+  }
+
+  private buildScatter(): void {
+    const s = this.scene;
+    const step = 3; // every ~3 cells, maybe drop a decal
+    for (let cy = 2; cy < ROWS - 2; cy += step) {
+      for (let cx = 2; cx < COLS - 2; cx += step) {
+        const r = rng2(cx, cy);
+        if (r > 0.42) continue;
+        // wide jitter so decals scatter naturally instead of in rows
+        const x = cx * CELL + CELL / 2 + (rng2(cx + 9, cy) - 0.5) * step * CELL * 0.9;
+        const y = cy * CELL + CELL / 2 + (rng2(cx, cy + 9) - 0.5) * step * CELL * 0.9;
+        const ccx = Math.floor(x / CELL);
+        const ccy = Math.floor(y / CELL);
+        if (!isLandCell(ccx, ccy) || isCliffCell(ccx, ccy)) continue;
+        // keep decals out of the base/fountain footprints
+        const near = (fx: number, fy: number) => (x - fx) ** 2 + (y - fy) ** 2 < 420 * 420;
+        if (near(BASES.radiant.fountain.x, BASES.radiant.fountain.y)) continue;
+        if (near(BASES.dire.fountain.x, BASES.dire.fountain.y)) continue;
+        if (r < 0.08) {
+          const key = `deco-rock${1 + Math.floor(rng2(cx, cy + 3) * 4)}`;
+          if (s.textures.exists(key)) s.add.image(x, y, key).setScale(0.7 + rng2(x, y) * 0.3).setDepth(y);
+        } else if (r < 0.16) {
+          // bushes are animated sway strips — one 128px frame each, never the sheet
+          const n = 1 + Math.floor(rng2(cx + 3, cy) * 4);
+          const key = `deco-bush${n}`;
+          if (!s.textures.exists(key)) continue;
+          const bush = s.add.sprite(x, y, key, 0).setScale(0.55 + rng2(x, y) * 0.25).setDepth(y);
+          if (s.anims.exists(`${key}-sway`)) bush.play({ key: `${key}-sway`, startFrame: Math.floor(rng2(y, x) * 8) });
+        } else {
+          const key = `deco-${String(1 + Math.floor(rng2(cx + 5, cy + 5) * 18)).padStart(2, "0")}`;
+          if (s.textures.exists(key)) s.add.image(x, y, key).setScale(0.8 + rng2(x, y) * 0.3).setDepth(y).setAlpha(0.95);
+        }
+      }
+    }
   }
 
   /** Animated rocks scattered through the open water for detail. */
-  private buildWaterRocks(isLand: (cx: number, cy: number) => boolean, cols: number, rows: number): void {
+  private buildWaterRocks(): void {
     const s = this.scene;
     if (!s.textures.exists("wrock1")) return;
-    for (let cy = 3; cy < rows - 3; cy += 3) {
-      for (let cx = 3; cx < cols - 3; cx += 3) {
-        if (isLand(cx, cy)) continue;
+    for (let cy = 2; cy < ROWS - 2; cy += 2) {
+      for (let cx = 2; cx < COLS - 2; cx += 2) {
+        if (isLandCell(cx, cy)) continue;
         const r = rng2(cx * 2, cy * 2);
-        if (r > 0.12) continue; // sparse
+        if (r > 0.1) continue; // sparse
         const n = 1 + Math.floor(rng2(cx, cy + 7) * 4);
         const x = cx * CELL + CELL / 2;
         const y = cy * CELL + CELL / 2;
-        const rk = s.add.sprite(x, y, `wrock${n}`, 0).setScale(0.5).setDepth(DEPTH_GROUND - 7).setAlpha(0.95);
+        const rk = s.add.sprite(x, y, `wrock${n}`, 0).setScale(0.55).setDepth(D_FOAM + 1).setAlpha(0.95);
         if (s.anims.exists(`wrock${n}-anim`)) rk.play({ key: `wrock${n}-anim`, startFrame: Math.floor(r * 8) });
       }
     }
   }
 
-  /** Soft clouds drifting slowly across the water (depth above everything). */
+  /** Soft clouds drifting slowly across the map (depth above everything). */
   private buildClouds(): void {
     const s = this.scene;
     if (!s.textures.exists("cloud1")) return;
-    const COUNT = 16;
+    const COUNT = 10;
     for (let i = 0; i < COUNT; i++) {
       const n = 1 + ((i * 3) % 8);
       const x = rng2(i * 13, 1) * WORLD.width;
@@ -173,7 +403,7 @@ export class WorldView {
       const c = s.add
         .image(x, y, `cloud${n}`)
         .setScale(0.7 + rng2(i, i) * 0.6)
-        .setAlpha(0.5 + rng2(i, 3) * 0.25)
+        .setAlpha(0.45 + rng2(i, 3) * 0.25)
         .setDepth(9000); // above units, below HUD
       const dist = 600 + rng2(i, 9) * 900;
       s.tweens.add({ targets: c, x: x + dist, duration: 30000 + rng2(i, 5) * 30000, yoyo: true, repeat: -1, ease: "Sine.InOut" });
@@ -181,182 +411,19 @@ export class WorldView {
   }
 
   /** Ambient grazing sheep on the grass — pure cosmetic life, wanders gently. */
-  private buildAmbientLife(isLand: (cx: number, cy: number) => boolean): void {
+  private buildAmbientLife(): void {
     const s = this.scene;
     if (!s.textures.exists("sheep")) return;
     const spots: Array<{ x: number; y: number }> = [
-      { x: 1500, y: 4900 }, { x: 1650, y: 5000 }, { x: 4900, y: 1500 }, { x: 4750, y: 1400 },
-      { x: 2700, y: 2700 }, { x: 3700, y: 3700 }, { x: 1100, y: 1500 }, { x: 5300, y: 4900 },
+      { x: 1450, y: 850 }, { x: 950, y: 2250 }, { x: 2650, y: 2250 }, { x: 3150, y: 850 },
+      { x: 2000, y: 1340 }, { x: 2120, y: 1700 }, { x: 620, y: 980 }, { x: 3480, y: 2100 },
     ];
     for (const p of spots) {
-      if (!isLand(Math.floor(p.x / CELL), Math.floor(p.y / CELL))) continue;
+      if (!isLandCell(Math.floor(p.x / CELL), Math.floor(p.y / CELL))) continue;
       const sh = s.add.sprite(p.x, p.y, "sheep", 0).setScale(0.5).setDepth(p.y);
       if (s.anims.exists("sheep-idle")) sh.play({ key: "sheep-idle", startFrame: Math.floor(rng2(p.x, p.y) * 8) });
       // gentle wander
       s.tweens.add({ targets: sh, x: p.x + (rng2(p.x, 2) - 0.5) * 160, y: p.y + (rng2(2, p.y) - 0.5) * 120, duration: 6000 + rng2(p.x, p.y) * 6000, yoyo: true, repeat: -1, ease: "Sine.InOut", onUpdate: () => sh.setDepth(sh.y) });
-    }
-  }
-
-  private buildGroundLayer(isLand: (cx: number, cy: number) => boolean, cols: number, rows: number): void {
-    const s = this.scene;
-    if (!s.textures.exists("t-ground-img")) {
-      s.add.tileSprite(0, 0, WORLD.width, WORLD.height, "t-ground", GRASS_FRAME).setOrigin(0, 0).setDepth(DEPTH_GROUND);
-      return;
-    }
-    const data: number[][] = [];
-    for (let cy = 0; cy < rows; cy++) {
-      const row: number[] = [];
-      for (let cx = 0; cx < cols; cx++) {
-        if (!isLand(cx, cy)) {
-          row.push(-1);
-          continue;
-        }
-        const k =
-          (isLand(cx, cy - 1) ? 0 : 8) |
-          (isLand(cx + 1, cy) ? 0 : 4) |
-          (isLand(cx, cy + 1) ? 0 : 2) |
-          (isLand(cx - 1, cy) ? 0 : 1);
-        row.push(GRASS_AUTOTILE[k] ?? GRASS_FRAME);
-      }
-      data.push(row);
-    }
-    const map = s.make.tilemap({ data, tileWidth: CELL, tileHeight: CELL });
-    const tiles = map.addTilesetImage("ground", "t-ground-img");
-    if (tiles) {
-      const layer = map.createLayer(0, tiles, 0, 0);
-      layer?.setDepth(DEPTH_GROUND);
-    } else {
-      s.add.tileSprite(0, 0, WORLD.width, WORLD.height, "t-ground", GRASS_FRAME).setOrigin(0, 0).setDepth(DEPTH_GROUND);
-    }
-  }
-
-  /** Raised GRASS plateaus: the top stays grass (the ground layer already covers
-   *  high cells); we draw only the tileset's stone CLIFF FACE (frames 12-15) at the
-   *  drops, plus a cast shadow + grass lip. The Tiny-Swords look — green platforms,
-   *  stone walls — verified by the ?gallery=map rebuild of their example battlefield. */
-  private buildElevation(isLand: (cx: number, cy: number) => boolean, cols: number, rows: number): void {
-    const s = this.scene;
-    const hasElev = s.textures.exists("t-elev");
-    const high = (cx: number, cy: number): boolean => {
-      if (cx < 0 || cy < 0 || cx >= cols || cy >= rows || !isLand(cx, cy)) return false;
-      const x = cx * CELL + CELL / 2;
-      const y = cy * CELL + CELL / 2;
-      for (const p of PLATEAUS) if ((x - p.x) ** 2 + (y - p.y) ** 2 <= p.r * p.r) return true;
-      return false;
-    };
-    for (let cy = 0; cy < rows; cy++) {
-      for (let cx = 0; cx < cols; cx++) {
-        if (!high(cx, cy)) continue;
-        const x = cx * CELL, y = cy * CELL, cxp = x + CELL / 2;
-        const sLow = !high(cx, cy + 1);
-        const eLow = !high(cx + 1, cy);
-        const wLow = !high(cx - 1, cy);
-        if (eLow) s.add.rectangle(x + CELL - 4, y + CELL / 2, 9, CELL, 0x3f4a44, 0.6).setDepth(DEPTH_GROUND + 5);
-        if (wLow) s.add.rectangle(x + 4, y + CELL / 2, 9, CELL, 0x3f4a44, 0.6).setDepth(DEPTH_GROUND + 5);
-        if (!sLow) continue; // only the south drop gets a full stone face
-        s.add.ellipse(cxp, y + CELL + 34, CELL + 6, 20, 0x000000, 0.26).setDepth(DEPTH_GROUND + 4);
-        const frame = wLow ? 12 : eLow ? 14 : 13; // corner faces where the side also drops
-        if (hasElev) s.add.image(cxp, y + CELL + 8, "t-elev", frame).setDepth(DEPTH_GROUND + 6);
-        s.add.rectangle(cxp, y + CELL - 2, CELL, 6, 0x2c5a2b, 0.55).setDepth(DEPTH_GROUND + 7);
-      }
-    }
-  }
-
-  /** Soft foam line hugging the grass coastline (two strokes for a band). */
-  private buildShoreline(isLand: (cx: number, cy: number) => boolean, cols: number, rows: number): void {
-    const s = this.scene;
-    const band = (depth: number, width: number, color: number, alpha: number, off: number): void => {
-      const g = s.add.graphics().setDepth(depth).setBlendMode(Phaser.BlendModes.ADD);
-      g.lineStyle(width, color, alpha);
-      for (let cy = 0; cy < rows; cy++) {
-        for (let cx = 0; cx < cols; cx++) {
-          if (!isLand(cx, cy)) continue;
-          const x = cx * CELL;
-          const y = cy * CELL;
-          if (!isLand(cx, cy - 1)) g.lineBetween(x, y - off, x + CELL, y - off); // N edge
-          if (!isLand(cx, cy + 1)) g.lineBetween(x, y + CELL + off, x + CELL, y + CELL + off); // S
-          if (!isLand(cx + 1, cy)) g.lineBetween(x + CELL + off, y, x + CELL + off, y + CELL); // E
-          if (!isLand(cx - 1, cy)) g.lineBetween(x - off, y, x - off, y + CELL); // W
-        }
-      }
-    };
-    band(DEPTH_GROUND - 6, 9, 0x8fd0ef, 0.28, 7); // outer soft glow
-    band(DEPTH_GROUND - 5, 4, 0xeafaff, 0.4, 4); // inner crisp foam line
-  }
-
-  private buildBridges(): void {
-    const s = this.scene;
-    const hasTex = s.textures.exists("t-bridge");
-    for (const b of BRIDGES) {
-      if (hasTex) {
-        // plank strip (frame 1 = horizontal middle) spanning the river, with caps,
-        // rotated -45° to cross the y=x river perpendicular to its flow.
-        const len = b.r * 1.5;
-        const strip = s.add
-          .tileSprite(b.x, b.y, len, 64, "t-bridge", 1)
-          .setScale(1.25)
-          .setAngle(-45)
-          .setDepth(DEPTH_DECAL);
-        void strip;
-        const ang = (-45 * Math.PI) / 180;
-        const ex = Math.cos(ang) * (len * 1.25) / 2;
-        const ey = Math.sin(ang) * (len * 1.25) / 2;
-        s.add.image(b.x - ex, b.y - ey, "t-bridge", 0).setScale(1.25).setAngle(-45).setDepth(DEPTH_DECAL + 1);
-        s.add.image(b.x + ex, b.y + ey, "t-bridge", 2).setScale(1.25).setAngle(-45).setDepth(DEPTH_DECAL + 1);
-      } else {
-        s.add.rectangle(b.x, b.y, b.r * 1.6, b.r * 1.2, 0x8a5a2b).setStrokeStyle(6, 0x5e3c1a).setDepth(DEPTH_DECAL).setAngle(-45);
-      }
-    }
-  }
-
-  private buildTrees(isLand: (cx: number, cy: number) => boolean): void {
-    const s = this.scene;
-    // varied swaying trees (Free-Pack Tree1-4, animated) for a lush, living canopy.
-    const swayKinds = [1, 2, 3, 4].filter((i) => s.textures.exists(`ftree${i}`));
-    for (const t of TREE_CLUSTERS) {
-      const n = Math.max(7, Math.floor(t.r / 26));
-      for (let i = 0; i < n; i++) {
-        const a = (i / n) * Math.PI * 2 + (t.x % 7);
-        const rr = t.r * (0.22 + 0.72 * rng2(t.x + i, t.y - i));
-        const tx = t.x + Math.cos(a) * rr;
-        const ty = t.y + Math.sin(a) * rr;
-        if (!isLand(Math.floor(tx / CELL), Math.floor(ty / CELL))) continue;
-        s.add.image(tx, ty + 30, "shadow").setDisplaySize(78, 28).setAlpha(0.4).setDepth(ty - 1);
-        if (swayKinds.length > 0) {
-          const kind = swayKinds[Math.floor(rng2(tx, ty) * swayKinds.length) % swayKinds.length]!;
-          const tree = s.add.sprite(tx, ty - 18, `ftree${kind}`, 0).setScale(0.42 + rng2(tx, ty) * 0.12).setDepth(ty);
-          if (s.anims.exists(`ftree${kind}-sway`)) tree.play({ key: `ftree${kind}-sway`, startFrame: Math.floor(rng2(ty, tx) * 6) });
-        } else if (s.textures.exists("t-tree")) {
-          s.add.image(tx, ty, "t-tree", 0).setScale(0.5 + rng2(tx, ty) * 0.18).setDepth(ty);
-        } else {
-          s.add.circle(tx, ty, 26, 0x2f5a2a).setDepth(ty);
-        }
-      }
-    }
-  }
-
-  private buildScatter(isLand: (cx: number, cy: number) => boolean, cols: number, rows: number): void {
-    const s = this.scene;
-    const step = 4; // every ~4 cells, maybe drop a decal
-    for (let cy = 4; cy < rows - 4; cy += step) {
-      for (let cx = 4; cx < cols - 4; cx += step) {
-        const r = rng2(cx, cy);
-        if (r > 0.4) continue;
-        // wide jitter (~±1.4 cells) so decals scatter naturally instead of in rows
-        const x = cx * CELL + CELL / 2 + (rng2(cx + 9, cy) - 0.5) * step * CELL * 0.9;
-        const y = cy * CELL + CELL / 2 + (rng2(cx, cy + 9) - 0.5) * step * CELL * 0.9;
-        if (!isLand(Math.floor(x / CELL), Math.floor(y / CELL))) continue;
-        // keep decals out of the base/fountain footprints
-        const near = (fx: number, fy: number) => (x - fx) ** 2 + (y - fy) ** 2 < 460 * 460;
-        if (near(BASES.radiant.fountain.x, BASES.radiant.fountain.y)) continue;
-        if (near(BASES.dire.fountain.x, BASES.dire.fountain.y)) continue;
-        let key: string;
-        if (r < 0.1) key = `deco-rock${1 + Math.floor(rng2(cx, cy + 3) * 4)}`;
-        else if (r < 0.2) key = `deco-bush${1 + Math.floor(rng2(cx + 3, cy) * 4)}`;
-        else key = `deco-${String(1 + Math.floor(rng2(cx + 5, cy + 5) * 18)).padStart(2, "0")}`;
-        if (!s.textures.exists(key)) continue;
-        s.add.image(x, y, key).setScale(0.6 + rng2(x, y) * 0.4).setDepth(y).setAlpha(0.95);
-      }
     }
   }
 
@@ -370,7 +437,7 @@ export class WorldView {
       const sp = this.scene.add.image(x, y - 30, tex).setScale(scale).setDepth(y);
       const hpBg = this.scene.add.rectangle(x, y - hpY, w + 4, 9, 0x101522).setDepth(y + 1);
       const hpFill = this.scene.add.rectangle(x - w / 2, y - hpY, w, 7, teamHpColor(team)).setOrigin(0, 0.5).setDepth(y + 2);
-      this.structs.set(id, { sprite: sp, hpBg, hpFill, range: null, dead: false });
+      this.structs.set(id, { sprite: sp, hpBg, hpFill, range: null, fires: [], dead: false });
     };
     for (const t of TOWERS) make(t.id, t.team, t.tier, t.x, t.y);
     for (const team of ["radiant", "dire"] as Team[]) {
@@ -386,6 +453,28 @@ export class WorldView {
     this.syncGrounds(world);
     this.syncMines(world);
     this.drainFx(world);
+    this.tickAmbientSplashes(dt);
+  }
+
+  /** Occasional water splashes along shorelines near the camera, for living water. */
+  private tickAmbientSplashes(dt: number): void {
+    this.splashAcc += dt;
+    if (this.splashAcc < 0.55) return;
+    this.splashAcc = 0;
+    const s = this.scene;
+    if (this.shoreCells.length === 0 || !s.anims.exists("fx-splash")) return;
+    const view = s.cameras.main.worldView;
+    for (let tries = 0; tries < 10; tries++) {
+      const c = this.shoreCells[Math.floor(Math.random() * this.shoreCells.length)];
+      if (!c || c.x < view.x - 100 || c.x > view.right + 100 || c.y < view.y - 100 || c.y > view.bottom + 100) continue;
+      const sp = s.add.sprite(c.x + (Math.random() - 0.5) * 40, c.y + (Math.random() - 0.5) * 40, "fx-splash", 0)
+        .setDepth(D_FOAM + 2)
+        .setAlpha(0.9)
+        .setScale(0.8 + Math.random() * 0.4);
+      sp.play("fx-splash");
+      sp.once("animationcomplete", () => sp.destroy());
+      break;
+    }
   }
 
   private syncStructures(world: World): void {
@@ -397,6 +486,8 @@ export class WorldView {
         sv.sprite.setTexture(structureDestroyedTex(u.structure?.tier ?? "t1")).setAlpha(0.92);
         sv.hpBg.setVisible(false);
         sv.hpFill.setVisible(false);
+        for (const f of sv.fires) f.destroy();
+        sv.fires = [];
         continue;
       }
       if (u.alive) {
@@ -404,7 +495,30 @@ export class WorldView {
         sv.hpFill.width = Math.max(0, (u.hp / u.maxHp) * w);
         const attackable = u.structure?.attackable ?? true;
         sv.hpFill.setFillStyle(attackable ? teamHpColor(u.team) : 0x6a7488);
+        this.syncStructureFires(u, sv);
       }
+    }
+  }
+
+  /** Burning-damage flames on a structure: 1 below ~66% HP, 2 below ~33%. */
+  private syncStructureFires(u: Unit, sv: StructView): void {
+    const s = this.scene;
+    const pct = u.hp / u.maxHp;
+    const want = pct < 0.33 ? 2 : pct < 0.66 ? 1 : 0;
+    while (sv.fires.length > want) sv.fires.pop()?.destroy();
+    if (sv.fires.length >= want) return;
+    const big = u.structure?.tier === "ancient";
+    const offsets: Array<[number, number]> = big
+      ? [[-50, -78], [44, -28]]
+      : [[-17, -42], [19, -88]];
+    while (sv.fires.length < want) {
+      const i = sv.fires.length;
+      const [ox, oy] = offsets[i] ?? [0, -60];
+      const key = `fx-flame${1 + ((i + Math.abs(Math.round(u.x))) % 3)}`;
+      if (!s.anims.exists(key)) return;
+      const f = s.add.sprite(u.x + ox, u.y + oy, key, 0).setDepth(u.y + 3).setScale(big ? 2.3 : 1.8);
+      f.play({ key, startFrame: (i * 3) % 8 });
+      sv.fires.push(f);
     }
   }
 
@@ -454,6 +568,16 @@ export class WorldView {
       v.container.setPosition(Math.round(v.dx), Math.round(v.dy));
       v.container.setDepth(v.dy);
 
+      // running dust puffs at the feet (throttled per unit)
+      const speed = Math.hypot(u.vx, u.vy);
+      if (speed > 70) {
+        const now = this.scene.time.now;
+        if (now - v.lastDustAt > (u.kind === "hero" ? 240 : 340)) {
+          v.lastDustAt = now;
+          this.spawnDust(v.dx - u.facing * 12, v.dy + 6, u.kind === "hero" ? 0.85 : 0.6, u.facing < 0);
+        }
+      }
+
       // facing + animation. A fresh attack (lastAttackAt advanced) plays the FULL
       // attack swing once; while it's still playing we don't interrupt it with
       // walk/idle, so each hit reads as a complete motion.
@@ -497,6 +621,15 @@ export class WorldView {
         this.units.delete(id);
       }
     }
+  }
+
+  /** A little kicked-up dust puff at the feet of a running unit. */
+  private spawnDust(x: number, y: number, scale: number, flip: boolean): void {
+    const s = this.scene;
+    if (!s.anims.exists("fx-dust1")) return;
+    const d = s.add.sprite(x, y, "fx-dust1", 0).setScale(scale).setAlpha(0.75).setFlipX(flip).setDepth(y - 2);
+    d.play("fx-dust1");
+    d.once("animationcomplete", () => d.destroy());
   }
 
   /** One-shot death at a unit's last position (for reaped creeps): play the real
@@ -564,7 +697,7 @@ export class WorldView {
       children.push(mpBg, mpFill, label);
     }
     const container = s.add.container(u.x, u.y, children).setDepth(u.y);
-    const v: UnitView = { container, sprite, shadow, ring, hpBg, hpFill, mpFill, label, dx: u.x, dy: u.y, curAnim: "", lastAttackAt: 0, dead: false };
+    const v: UnitView = { container, sprite, shadow, ring, hpBg, hpFill, mpFill, label, dx: u.x, dy: u.y, curAnim: "", lastAttackAt: 0, lastDustAt: 0, dead: false };
     this.units.set(u.id, v);
     return v;
   }
@@ -668,7 +801,15 @@ export class WorldView {
       }
       case "explosion": {
         sfx.explosion();
-        if (s.anims.exists("fx-explode")) {
+        // the Particle FX pack's cartoon explosions, played raw (their art carries
+        // its own palette — no tint, no additive blend)
+        const key = fx.radius >= 130 && s.anims.exists("fx-explode2") ? "fx-explode2" : "fx-explode1";
+        if (s.anims.exists(key)) {
+          const e = s.add.sprite(fx.x, fx.y - 10, key, 0).setDepth(fx.y + 400);
+          e.setScale(Phaser.Math.Clamp(fx.radius / 85, 0.8, 2.4));
+          e.play(key);
+          e.once("animationcomplete", () => e.destroy());
+        } else if (s.anims.exists("fx-explode")) {
           const e = s.add.sprite(fx.x, fx.y, "fx-explosion", 0).setDepth(fx.y + 400).setBlendMode(Phaser.BlendModes.ADD);
           e.setScale((fx.radius / 96) * 1.2).setTint(fx.color);
           e.play("fx-explode");
@@ -707,13 +848,24 @@ export class WorldView {
       case "structureDown": {
         sfx.structureDown();
         s.cameras.main.shake(260, 0.006);
+        if (s.anims.exists("fx-explode2")) {
+          const e = s.add.sprite(fx.x, fx.y - 50, "fx-explode2", 0).setDepth(fx.y + 500).setScale(1.7);
+          e.play("fx-explode2");
+          e.once("animationcomplete", () => e.destroy());
+        }
         break;
       }
       case "death": {
         if (fx.kind === "hero") sfx.death();
         if (fx.kind === "creep") {
-          const puff = s.add.image(fx.x, fx.y - 10, "spark").setDepth(fx.y + 10).setTint(0xdddddd).setScale(1.5);
-          s.tweens.add({ targets: puff, scale: 0, alpha: 0, duration: 320, onComplete: () => puff.destroy() });
+          if (s.anims.exists("fx-dust2")) {
+            const puff = s.add.sprite(fx.x, fx.y - 8, "fx-dust2", 0).setDepth(fx.y + 10).setScale(1.1).setAlpha(0.9);
+            puff.play("fx-dust2");
+            puff.once("animationcomplete", () => puff.destroy());
+          } else {
+            const puff = s.add.image(fx.x, fx.y - 10, "spark").setDepth(fx.y + 10).setTint(0xdddddd).setScale(1.5);
+            s.tweens.add({ targets: puff, scale: 0, alpha: 0, duration: 320, onComplete: () => puff.destroy() });
+          }
         }
         break;
       }

@@ -145,7 +145,7 @@ export const WAVE = {
 };
 
 // ---- towers / ancient ------------------------------------------------------
-export type StructTier = "t1" | "t2" | "t3" | "base" | "ancient";
+export type StructTier = "t1" | "t2" | "base" | "ancient";
 
 export type StructDef = {
   tier: StructTier;
@@ -164,9 +164,8 @@ export type StructDef = {
 
 export const STRUCTS: Record<StructTier, StructDef> = {
   t1: { tier: "t1", hp: 1050, damage: 90, armor: 6, attackRange: 560, attackSpeed: 1, projectileSpeed: 900, bountyTeam: 100, bountyLocal: 150, attacks: true, regenPerSec: 22, radius: 60 },
-  t2: { tier: "t2", hp: 1400, damage: 122, armor: 8, attackRange: 560, attackSpeed: 1.05, projectileSpeed: 900, bountyTeam: 130, bountyLocal: 180, attacks: true, regenPerSec: 22, radius: 60 },
-  t3: { tier: "t3", hp: 1700, damage: 150, armor: 10, attackRange: 580, attackSpeed: 1.1, projectileSpeed: 950, bountyTeam: 160, bountyLocal: 200, attacks: true, regenPerSec: 22, radius: 64 },
-  base: { tier: "base", hp: 900, damage: 70, armor: 6, attackRange: 600, attackSpeed: 1.2, projectileSpeed: 1000, bountyTeam: 40, bountyLocal: 60, attacks: true, regenPerSec: 0, radius: 56 },
+  t2: { tier: "t2", hp: 1500, damage: 130, armor: 9, attackRange: 560, attackSpeed: 1.05, projectileSpeed: 900, bountyTeam: 140, bountyLocal: 190, attacks: true, regenPerSec: 22, radius: 60 },
+  base: { tier: "base", hp: 1000, damage: 80, armor: 7, attackRange: 600, attackSpeed: 1.2, projectileSpeed: 1000, bountyTeam: 40, bountyLocal: 60, attacks: true, regenPerSec: 0, radius: 56 },
   ancient: { tier: "ancient", hp: 2400, damage: 0, armor: 10, attackRange: 0, attackSpeed: 0, projectileSpeed: 0, bountyTeam: 0, bountyLocal: 0, attacks: false, regenPerSec: 20, radius: 110 },
 };
 

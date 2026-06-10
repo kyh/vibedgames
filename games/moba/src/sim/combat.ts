@@ -60,24 +60,31 @@ export function acquireTarget(w: World, u: Unit): Unit | null {
   const range = u.attackRange + u.radius;
   if (u.kind === "structure") return acquireForStructure(w, u, range);
 
-  // heroes/creeps: nearest targetable enemy in range. Heroes ignore structures
-  // for auto-acquire unless ordered; creeps will hit structures in their lane.
+  // heroes/creeps: nearest targetable enemy in range. Units (heroes/creeps) are
+  // preferred; with no unit in range, both will siege an attackable structure.
   let best: Unit | null = null;
   let bestD = Infinity;
+  let bestStruct: Unit | null = null;
+  let bestStructD = Infinity;
   for (const t of w.units.values()) {
     if (!isEnemy(u, t)) continue;
-    if (!targetable(t, { allowStructure: u.kind === "creep" })) continue;
+    if (!targetable(t, { allowStructure: true })) continue;
     const d2 = dist2(u, t);
     if (d2 > range * range) continue;
     // prefer the current attack target to avoid flip-flopping
     const bias = u.pendingAttack?.targetId === t.id ? 0.8 : 1;
     const score = d2 * bias;
-    if (score < bestD) {
+    if (t.kind === "structure") {
+      if (score < bestStructD) {
+        bestStructD = score;
+        bestStruct = t;
+      }
+    } else if (score < bestD) {
       bestD = score;
       best = t;
     }
   }
-  return best;
+  return best ?? bestStruct;
 }
 
 /**
@@ -321,6 +328,9 @@ export function dealDamage(
   opts: DamageOpts,
 ): void {
   if (!victim.alive) return;
+  // gating is absolute: nothing (orders, splash, projectiles) hurts a protected
+  // structure, so the tier ladder can't be bypassed
+  if (victim.kind === "structure" && victim.structure?.attackable === false) return;
   let amount = raw;
   if (opts.structureBonusPct && victim.kind === "structure") amount *= 1 + opts.structureBonusPct / 100;
   // creeps deal a class-specific multiplier to structures (siege 3.5×, melee 1.5×…)
@@ -521,9 +531,8 @@ function onStructureDown(w: World, victim: Unit, killer: Unit | null): void {
 }
 
 /**
- * Recompute which structures are attackable. Lane: t2 after t1, t3 after t2.
- * Base towers after any lane t3 of that team falls. Ancient after both base
- * towers fall.
+ * Recompute which structures are attackable. Lane: t2 after t1. Base towers
+ * after any lane t2 of that team falls. Ancient after both base towers fall.
  */
 export function updateStructureGating(w: World): void {
   const aliveStruct = (id: string): boolean => {
@@ -539,14 +548,9 @@ export function updateStructureGating(w: World): void {
     else if (st.tier === "t2") {
       const lane = laneCode(st.lane);
       st.attackable = !aliveStruct(`${prefix}-${lane}-t1`);
-    } else if (st.tier === "t3") {
-      const lane = laneCode(st.lane);
-      st.attackable = !aliveStruct(`${prefix}-${lane}-t2`);
     } else if (st.tier === "base") {
-      // attackable once any lane t3 of this team is dead
-      const anyT3Down =
-        !aliveStruct(`${prefix}-top-t3`) || !aliveStruct(`${prefix}-mid-t3`) || !aliveStruct(`${prefix}-bot-t3`);
-      st.attackable = anyT3Down;
+      // attackable once any lane t2 of this team is dead
+      st.attackable = !aliveStruct(`${prefix}-top-t2`) || !aliveStruct(`${prefix}-bot-t2`);
     } else if (st.tier === "ancient") {
       st.attackable = !aliveStruct(`${prefix}-base-1`) && !aliveStruct(`${prefix}-base-2`);
     }

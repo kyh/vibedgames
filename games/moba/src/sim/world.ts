@@ -14,7 +14,7 @@ import {
 import type { CreepKind, Team } from "../data/config";
 import { HERO_BY_ID } from "../data/heroes";
 import { ITEM_BY_ID, MAX_ITEMS } from "../data/items";
-import { BASES, LANE_IDS, NEUTRAL_CAMPS, TOWERS, WORLD, isRiver, lanePath } from "../data/map";
+import { BASES, LANE_IDS, NEUTRAL_CAMPS, TOWERS, WORLD, isWater, lanePath } from "../data/map";
 import type { LaneId, NeutralCampSpec, NeutralKind } from "../data/map";
 import {
   acquireTarget,
@@ -22,6 +22,7 @@ import {
   isEnemy,
   resolvePendingAttacks,
   stepProjectiles,
+  targetable,
   tryAttack,
   updateStructureGating,
 } from "./combat";
@@ -173,7 +174,7 @@ export function spawnHero(
     dashX: 1,
     dashY: 0,
     pendingLevelStat: false,
-    botLane: (["mid", "top", "bottom"] as const)[slot % 3]!,
+    botLane: (["top", "bottom"] as const)[slot % 2]!,
     botNextDecisionAt: 0,
     botRetreating: false,
   };
@@ -195,12 +196,12 @@ function spawnCreep(w: World, team: Team, lane: LaneId, ckind: CreepKind, idx: n
   const minutes = w.gameTime / 60;
   const hpRamp = Math.floor(minutes) * WAVE.hpRampPer60s;
   const dmgRamp = Math.floor(minutes) * WAVE.dmgRampPer60s;
-  // Megacreeps: once this team has destroyed the enemy's T3 in this lane, its
+  // Megacreeps: once this team has destroyed the enemy's T2 in this lane, its
   // creeps in that lane surge — the snowball that closes out a won lane.
   const enemyPrefix = team === "radiant" ? "d" : "r";
   const laneCode = lane === "bottom" ? "bot" : lane;
-  const enemyT3 = w.units.get(`${enemyPrefix}-${laneCode}-t3`);
-  const mega = enemyT3 ? !enemyT3.alive : false;
+  const enemyT2 = w.units.get(`${enemyPrefix}-${laneCode}-t2`);
+  const mega = enemyT2 ? !enemyT2.alive : false;
   const megaHp = mega ? 1.6 : 1;
   const megaDmg = mega ? 1.5 : 1;
   u.maxHp = (def.hp + hpRamp) * megaHp;
@@ -275,7 +276,7 @@ function spawnNeutralUnit(w: World, camp: NeutralCampSpec, st: NeutralStat, idx:
   u.projectileSpeed = st.projectileSpeed;
   u.moveSpeedBase = st.moveSpeed;
   u.order = { type: "neutral" };
-  u.creep = { ckind: "melee", lane: "mid", waypoints: [], wpIdx: 0, spawnWave: w.waveCount, camp: camp.id, goldOverride: st.gold, xpOverride: st.xp, boss };
+  u.creep = { ckind: "melee", lane: "top", waypoints: [], wpIdx: 0, spawnWave: w.waveCount, camp: camp.id, goldOverride: st.gold, xpOverride: st.xp, boss };
   w.units.set(u.id, u);
 }
 
@@ -473,7 +474,9 @@ function pickCombatTarget(w: World, u: Unit): Unit | null {
   }
   if (u.order.type === "attackUnit") {
     const t = w.units.get(u.order.targetId);
-    if (t && t.alive && isEnemy(u, t)) return t;
+    // targetable enforces structure gating, so an ordered attack on a protected
+    // tower is dropped instead of chased
+    if (t && isEnemy(u, t) && targetable(t, { allowStructure: true })) return t;
     u.order = { type: "idle" };
   }
   if (u.kind === "creep") {
@@ -725,16 +728,25 @@ function clampToWorld(w: World): void {
     if (u.kind === "structure") continue;
     u.x = Math.max(pad, Math.min(WORLD.width - pad, u.x));
     u.y = Math.max(pad, Math.min(WORLD.height - pad, u.y));
-    // shove out of impassable river (units can be pushed in by separation)
-    if (u.alive && isRiver(u.x, u.y)) nudgeOutOfRiver(u);
+    // shove out of impassable water (units can be pushed in by separation)
+    if (u.alive && isWater(u.x, u.y)) nudgeToLand(u);
   }
 }
 
-function nudgeOutOfRiver(u: Unit): void {
-  // push perpendicular to the y=x line toward the nearer side
-  const side = u.x - u.y > 0 ? 1 : -1;
-  u.x += side * 6;
-  u.y -= side * 6;
+/** Step toward the nearest dry ground (land or bridge), sampling outward rings. */
+function nudgeToLand(u: Unit): void {
+  for (let r = 32; r <= 256; r += 32) {
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2;
+      const x = u.x + Math.cos(a) * r;
+      const y = u.y + Math.sin(a) * r;
+      if (!isWater(x, y)) {
+        u.x += Math.cos(a) * 8;
+        u.y += Math.sin(a) * 8;
+        return;
+      }
+    }
+  }
 }
 
 // ---- intents (applied by host; see net layer) ------------------------------

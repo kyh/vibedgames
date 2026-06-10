@@ -222,14 +222,14 @@ function countAlliedCreepsNear(w: World, struct: Unit, r: number): number {
  * should converge to actually break a lane and reach the ancient. */
 function focusLane(w: World, team: Team): LaneId | null {
   const enemy = enemyOf(team);
-  const lanes: LaneId[] = ["top", "mid", "bottom"];
+  const lanes: LaneId[] = ["top", "bottom"];
   let bestLane: LaneId | null = null;
   let bestScore = Infinity;
   for (const lane of lanes) {
-    // frontmost = lowest tier still standing (t1 < t2 < t3)
+    // frontmost = lowest tier still standing (t1 < t2)
     let frontHp = Infinity;
     let anyAlive = false;
-    for (const tier of ["t1", "t2", "t3"] as const) {
+    for (const tier of ["t1", "t2"] as const) {
       const id = `${enemy === "radiant" ? "r" : "d"}-${lane === "bottom" ? "bot" : lane}-${tier}`;
       const su = w.units.get(id);
       if (su && su.alive) {

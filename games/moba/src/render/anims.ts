@@ -87,15 +87,18 @@ export function registerAnims(scene: Phaser.Scene): void {
       frameRate: 12,
       repeat: -1,
     });
-  }
-  if (scene.textures.exists("t-foam") && !scene.anims.exists("t-foam-loop")) {
-    scene.anims.create({
-      key: "t-foam-loop",
-      frames: scene.anims.generateFrameNumbers("t-foam", { start: 0, end: 7 }),
-      frameRate: 8,
-      repeat: -1,
-    });
-  }
+  }  // one-shot fx from the Free Pack Particle FX sheets (full sheet, derived count)
+  const oneShot = (key: string, tex: string, fps: number): void => {
+    if (!scene.textures.exists(tex) || scene.anims.exists(key)) return;
+    const end = scene.textures.get(tex).frameTotal - 2;
+    if (end < 0) return;
+    scene.anims.create({ key, frames: scene.anims.generateFrameNumbers(tex, { start: 0, end }), frameRate: fps, repeat: 0 });
+  };
+  oneShot("fx-dust1", "fx-dust1", 14);
+  oneShot("fx-dust2", "fx-dust2", 16);
+  oneShot("fx-explode1", "fx-explode1", 16);
+  oneShot("fx-explode2", "fx-explode2", 16);
+  oneShot("fx-splash", "fx-splash", 11);
 
   // ambient + neutral loops (full sheet, derived frame count)
   const loop = (key: string, tex: string, fps: number): void => {
@@ -104,8 +107,15 @@ export function registerAnims(scene: Phaser.Scene): void {
     if (end < 0) return;
     scene.anims.create({ key, frames: scene.anims.generateFrameNumbers(tex, { start: 0, end }), frameRate: fps, repeat: -1 });
   };
+  loop("foam-loop", "foam", 9);
+  for (let i = 1; i <= 3; i++) loop(`fx-flame${i}`, `fx-flame${i}`, 11);
+  for (let i = 1; i <= 4; i++) loop(`deco-bush${i}-sway`, `deco-bush${i}`, 7);
   for (let i = 1; i <= 4; i++) loop(`wrock${i}-anim`, `wrock${i}`, 7);
   for (let i = 1; i <= 4; i++) loop(`ftree${i}-sway`, `ftree${i}`, 6);
+  // the pine sheet's frames 0-5 are the gentle sway; the rest are hit/stump cells
+  if (scene.textures.exists("t-tree") && !scene.anims.exists("tree-sway")) {
+    scene.anims.create({ key: "tree-sway", frames: scene.anims.generateFrameNumbers("t-tree", { start: 0, end: 5 }), frameRate: 5, repeat: -1 });
+  }
   loop("sheep-idle", "sheep", 8);
   // enemy-pack neutrals: idle from *_idle sheet, walk from *_run/_walk sheet
   loop("e-skull-idle", "e-skull-idle", 8);

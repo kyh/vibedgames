@@ -40,21 +40,27 @@ export class BootScene extends Phaser.Scene {
     this.load.image("b-tower-destroyed", "assets/buildings/tower_destroyed.png");
 
     // --- terrain ---
-    this.load.spritesheet("t-ground", "assets/terrain/ground_flat.png", {
-      frameWidth: 64,
-      frameHeight: 64,
-    });
+    // The live map renders with the Free Pack tileset (flat + elevated autotile,
+    // cliffs, stairs) — the same sheet the ?gallery=map reference rebuild verified
+    // tile-by-tile against the promo art.
+    this.load.image("tiles-img", "assets/fp/tiles3.png");
+    this.load.spritesheet("tiles", "assets/fp/tiles3.png", { frameWidth: 64, frameHeight: 64 });
+    this.load.spritesheet("foam", "assets/fp/foam.png", { frameWidth: UNIT, frameHeight: UNIT });
+    this.load.image("tshadow", "assets/fp/shadow.png");
     this.load.image("t-water", "assets/terrain/water.png");
-    this.load.image("t-ground-img", "assets/terrain/ground_flat.png"); // tileset source for the map layer
-    this.load.spritesheet("t-elev", "assets/terrain/ground_elevation.png", { frameWidth: 64, frameHeight: 64 }); // cliff/plateau autotile
-    this.load.spritesheet("t-foam", "assets/terrain/foam.png", { frameWidth: UNIT, frameHeight: UNIT });
+    // Bridge_All: frames 0/1/2 = horizontal bridge left-cap/middle/right-cap,
+    // frame 11 = the flat shadow square that goes on the water underneath.
     this.load.spritesheet("t-bridge", "assets/terrain/bridge.png", { frameWidth: 64, frameHeight: 64 });
     this.load.spritesheet("t-tree", "assets/terrain/tree.png", { frameWidth: UNIT, frameHeight: UNIT });
+    // kept for the ?gallery=terrain showcase
+    this.load.spritesheet("t-ground", "assets/terrain/ground_flat.png", { frameWidth: 64, frameHeight: 64 });
+    this.load.spritesheet("t-elev", "assets/terrain/ground_elevation.png", { frameWidth: 64, frameHeight: 64 });
 
     // --- decorations (rocks / bushes / mushrooms) scattered over the field ---
     for (let i = 1; i <= 4; i++) {
       this.load.image(`deco-rock${i}`, `assets/deco/Rock${i}.png`);
-      this.load.image(`deco-bush${i}`, `assets/deco/Bushe${i}.png`);
+      // bushes are 8-frame 128px sway strips, not single images
+      this.load.spritesheet(`deco-bush${i}`, `assets/deco/Bushe${i}.png`, { frameWidth: 128, frameHeight: 128 });
     }
     for (let i = 1; i <= 18; i++) {
       const n = String(i).padStart(2, "0");
@@ -64,8 +70,10 @@ export class BootScene extends Phaser.Scene {
     // --- ambient + extra terrain (clouds, animated water rocks, swaying trees, sheep) ---
     for (let i = 1; i <= 8; i++) this.load.image(`cloud${i}`, `assets/deco/cloud${i}.png`);
     for (let i = 1; i <= 4; i++) this.load.spritesheet(`wrock${i}`, `assets/terrain/wrock${i}.png`, { frameWidth: 128, frameHeight: 128 });
-    // ftree1/2 are 256px frames; ftree3/4 are 192px (loading them all at 256 yields zero frames).
-    for (let i = 1; i <= 2; i++) this.load.spritesheet(`ftree${i}`, `assets/deco/ftree${i}.png`, { frameWidth: 256, frameHeight: 256 });
+    // all four ftree strips are 8 frames; 1/2 are 192×256 frames, 3/4 are 192×192
+    // (cutting 1/2 at 256 wide made every frame straddle two trees — the old
+    // "tree scrolls through the sheet" glitch).
+    for (let i = 1; i <= 2; i++) this.load.spritesheet(`ftree${i}`, `assets/deco/ftree${i}.png`, { frameWidth: 192, frameHeight: 256 });
     for (let i = 3; i <= 4; i++) this.load.spritesheet(`ftree${i}`, `assets/deco/ftree${i}.png`, { frameWidth: 192, frameHeight: 192 });
     this.load.spritesheet("sheep", "assets/deco/sheep.png", { frameWidth: 128, frameHeight: 128 });
 
@@ -81,6 +89,13 @@ export class BootScene extends Phaser.Scene {
     this.load.spritesheet("fx-explosion", "assets/fx/explosion.png", { frameWidth: UNIT, frameHeight: UNIT });
     this.load.spritesheet("fx-fire", "assets/fx/fire.png", { frameWidth: 128, frameHeight: 128 });
     this.load.image("fx-arrow", "assets/fx/arrow.png");
+    // Free Pack Particle FX: walk dust, building flames, cartoon explosions, splash
+    this.load.spritesheet("fx-dust1", "assets/fx/dust1.png", { frameWidth: 64, frameHeight: 64 });
+    this.load.spritesheet("fx-dust2", "assets/fx/dust2.png", { frameWidth: 64, frameHeight: 64 });
+    for (let i = 1; i <= 3; i++) this.load.spritesheet(`fx-flame${i}`, `assets/fx/flame${i}.png`, { frameWidth: 64, frameHeight: 64 });
+    this.load.spritesheet("fx-explode1", "assets/fx/explode1.png", { frameWidth: UNIT, frameHeight: UNIT });
+    this.load.spritesheet("fx-explode2", "assets/fx/explode2.png", { frameWidth: UNIT, frameHeight: UNIT });
+    this.load.spritesheet("fx-splash", "assets/fx/splash.png", { frameWidth: UNIT, frameHeight: UNIT });
 
     // --- ui ---
     this.load.image("ui-bar-base", "assets/ui/bar_base.png");

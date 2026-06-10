@@ -5,13 +5,14 @@ import type { Team } from "../data/config";
 import { HERO_BY_ID, valAt } from "../data/heroes";
 import type { AbilityKey } from "../data/heroes";
 import { ITEMS, ITEM_BY_ID } from "../data/items";
-import { WORLD } from "../data/map";
+import { BRIDGES, GRID, WORLD, isHighCell, isLandCell } from "../data/map";
 import { heroSheetTex } from "../render/sprites";
 import { SLOT_LABEL } from "./GameScene";
 import type { GameScene } from "./GameScene";
 
 const KEYS: AbilityKey[] = ["Q", "W", "E", "R"];
 const MINIMAP_SIZE = 232;
+const MINIMAP_H = Math.round(MINIMAP_SIZE * (WORLD.height / WORLD.width));
 
 type Slot = {
   key: AbilityKey;
@@ -46,6 +47,7 @@ export class HudScene extends Phaser.Scene {
   private shopSel = 0;
 
   // minimap
+  private mapTerrain!: Phaser.GameObjects.Graphics; // static land/water/bridges, drawn once per layout
   private mapGfx!: Phaser.GameObjects.Graphics;
   private mapHit!: Phaser.GameObjects.Rectangle;
   private mapX = 0;
@@ -60,6 +62,7 @@ export class HudScene extends Phaser.Scene {
   // scoreboard (Tab)
   private board!: Phaser.GameObjects.Container;
   private boardOpen = false;
+  private boardNextRenderAt = 0;
 
   // low-HP danger pulse
   private danger!: Phaser.GameObjects.Rectangle;
@@ -86,6 +89,7 @@ export class HudScene extends Phaser.Scene {
     this.feedLines = [];
     this.shopOpen = false;
     this.boardOpen = false;
+    this.boardNextRenderAt = 0;
 
     this.scale.on(Phaser.Scale.Events.RESIZE, this.layout, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.scale.off(Phaser.Scale.Events.RESIZE, this.layout, this));
@@ -223,9 +227,10 @@ export class HudScene extends Phaser.Scene {
 
   // ---- minimap -------------------------------------------------------------
   private buildMinimap(): void {
+    this.mapTerrain = this.add.graphics().setDepth(39999);
     this.mapGfx = this.add.graphics().setDepth(40000);
     this.mapHit = this.add
-      .rectangle(0, 0, MINIMAP_SIZE, MINIMAP_SIZE, 0x000000, 0.001)
+      .rectangle(0, 0, MINIMAP_SIZE, MINIMAP_H, 0x000000, 0.001)
       .setOrigin(0, 0)
       .setDepth(40002)
       .setInteractive({ useHandCursor: true });
@@ -235,6 +240,31 @@ export class HudScene extends Phaser.Scene {
       this.gs.moveToWorldPoint(wx, wy);
     };
     this.mapHit.on("pointerdown", order);
+  }
+
+  /** Static minimap terrain: teal water, the two islands + centre isle, plateaus,
+   *  and the wooden bridges — redrawn only when the layout moves the panel. */
+  private drawMapTerrain(): void {
+    if (!this.mapTerrain) return;
+    const g = this.mapTerrain;
+    const ox = this.mapX;
+    const oy = this.mapY;
+    const cell = (WORLD.width / GRID.cols) * this.mapScale;
+    g.clear();
+    g.fillStyle(0x05080e, 0.9).fillRect(ox - 4, oy - 4, MINIMAP_SIZE + 8, MINIMAP_H + 8);
+    g.lineStyle(2, 0x39456a, 0.95).strokeRect(ox - 4, oy - 4, MINIMAP_SIZE + 8, MINIMAP_H + 8);
+    g.fillStyle(0x2e8f8a, 1).fillRect(ox, oy, MINIMAP_SIZE, MINIMAP_H);
+    for (let cy = 0; cy < GRID.rows; cy++) {
+      for (let cx = 0; cx < GRID.cols; cx++) {
+        if (!isLandCell(cx, cy)) continue;
+        g.fillStyle(isHighCell(cx, cy) ? 0x4a7c34 : 0x5d9141, 1);
+        g.fillRect(ox + cx * cell, oy + cy * cell, cell + 0.5, cell + 0.5);
+      }
+    }
+    g.fillStyle(0x9a6a3a, 1);
+    for (const b of BRIDGES) {
+      g.fillRect(ox + b.x0 * cell, oy + b.y0 * cell, (b.x1 - b.x0 + 1) * cell, (b.y1 - b.y0 + 1) * cell);
+    }
   }
 
   private updateMinimap(): void {
@@ -247,12 +277,6 @@ export class HudScene extends Phaser.Scene {
     const tx = (x: number) => ox + x * sc;
     const ty = (y: number) => oy + y * sc;
     g.clear();
-    // frame, land fill, and the diagonal river band
-    g.fillStyle(0x05080e, 0.9).fillRect(ox - 4, oy - 4, MINIMAP_SIZE + 8, MINIMAP_SIZE + 8);
-    g.lineStyle(2, 0x39456a, 0.95).strokeRect(ox - 4, oy - 4, MINIMAP_SIZE + 8, MINIMAP_SIZE + 8);
-    g.fillStyle(0x243d1d, 1).fillRect(ox, oy, MINIMAP_SIZE, MINIMAP_SIZE);
-    g.lineStyle(MINIMAP_SIZE * 0.12, 0x1c4a6e, 0.85).lineBetween(ox, oy, ox + MINIMAP_SIZE, oy + MINIMAP_SIZE);
-
     for (const u of w.units.values()) {
       if (!u.alive) continue;
       if (u.kind === "structure") {
@@ -314,7 +338,7 @@ export class HudScene extends Phaser.Scene {
     });
     if (this.feedLines.length > 6) this.feedLines.splice(0, this.feedLines.length - 6).forEach((f) => f.text.destroy());
     const rightX = this.scale.width - 16;
-    const topY = this.mapY > 200 ? 88 : this.mapY + MINIMAP_SIZE + 14; // below minimap if it's up top
+    const topY = this.mapY > 200 ? 88 : this.mapY + MINIMAP_H + 14; // below minimap if it's up top
     this.feedLines.forEach((f, i) => {
       f.text.setPosition(rightX, topY + i * 20);
       f.text.setAlpha(Math.min(1, (f.until - now) / 1500));
@@ -432,8 +456,9 @@ export class HudScene extends Phaser.Scene {
 
     // minimap bottom-right; team score top-center
     this.mapX = W - MINIMAP_SIZE - 16;
-    this.mapY = H - MINIMAP_SIZE - 16;
+    this.mapY = H - MINIMAP_H - 16;
     if (this.mapHit) this.mapHit.setPosition(this.mapX, this.mapY);
+    this.drawMapTerrain();
     if (this.teamScore) this.teamScore.setPosition(cx, 12);
   }
 
@@ -444,7 +469,12 @@ export class HudScene extends Phaser.Scene {
     // minimap / feed / scoreboard run even while the player is dead or unspawned
     this.updateMinimap();
     this.updateFeed();
-    if (this.boardOpen) this.renderBoard();
+    // scoreboard refreshes at 4Hz, not per frame — renderBoard rebuilds every
+    // Text object, which is far too much churn to run at 60fps while Tab is held
+    if (this.boardOpen && this.time.now >= this.boardNextRenderAt) {
+      this.boardNextRenderAt = this.time.now + 250;
+      this.renderBoard();
+    }
     const wRef = this.gs?.worldRef;
     if (wRef && this.teamScore) {
       let rk = 0;

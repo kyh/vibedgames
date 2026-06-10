@@ -483,7 +483,10 @@ export class GameScene extends Phaser.Scene {
     let best: Unit | undefined;
     let bestD = Infinity;
     for (const u of this.world.units.values()) {
-      if (u.kind === "structure" || !pred(u)) continue;
+      if (!pred(u)) continue;
+      // structures are clickable attack targets too — but only once their tier
+      // gate is open, so a click on a protected tower falls through to a move
+      if (u.kind === "structure" && !u.structure?.attackable) continue;
       const r = (u.radius + 28) * (u.radius + 28);
       const d = dist2({ x, y }, u);
       if (d <= r && d < bestD) {
