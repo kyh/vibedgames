@@ -7,6 +7,7 @@ import {
   tileIndex,
   tileFlipX,
   tileFlipY,
+  tileRotate,
   isDecoSolidIndex,
   inField,
   layerByName,
@@ -69,21 +70,30 @@ export function buildTracedMap(
     if (!(created instanceof Phaser.Tilemaps.TilemapLayer)) return null;
     const tl = created;
     tl.setDepth(depth);
-    // flips + animation registration
+    // transforms + animation registration
     for (let y = 0; y < map.h; y++) {
       for (let x = 0; x < map.w; x++) {
         const v = layer.grid[y * map.w + x] ?? -1;
         if (v < 0) continue;
         const idx = tileIndex(v);
         if (keep && !keep(idx, x, y)) continue;
-        const flipX = tileFlipX(v);
-        const flipY = tileFlipY(v);
+        const fx = tileFlipX(v);
+        const fy = tileFlipY(v);
+        const rot = tileRotate(v);
         const seq = animBySeqMember.get(idx);
-        if (!flipX && !flipY && !seq) continue;
+        if (!fx && !fy && !rot && !seq) continue;
         const t = tl.getTileAt(x, y);
         if (!t) continue;
+        // Phaser 4.1's tile transformer offsets flipY tiles by a tile; since
+        // flips apply before rotation, flipY ≡ flipX + 180° — never set flipY.
+        let rotation = rot ? Math.PI / 2 : 0;
+        let flipX = fx;
+        if (fy) {
+          flipX = !fx;
+          rotation += Math.PI;
+        }
         if (flipX) t.flipX = true;
-        if (flipY) t.flipY = true;
+        if (rotation !== 0) t.rotation = rotation;
         if (seq) animated.push({ tile: t, seq });
       }
     }
@@ -94,9 +104,10 @@ export function buildTracedMap(
   // `bottomTy` overrides the sort row (component bottom for buildings).
   const imageTile = (v: number, tx: number, ty: number, depth: number): void => {
     const idx = tileIndex(v);
-    const img = scene.add.image(tx * TILE, ty * TILE, "atlas-sheet", idx).setOrigin(0, 0);
-    if (tileFlipX(v)) img.setFlipX(true);
-    if (tileFlipY(v)) img.setFlipY(true);
+    // centre origin so the 90° rotation stays inside the cell
+    const img = scene.add.image(tx * TILE + TILE / 2, ty * TILE + TILE / 2, "atlas-sheet", idx);
+    img.setFlip(tileFlipX(v), tileFlipY(v));
+    if (tileRotate(v)) img.setRotation(Math.PI / 2);
     img.setDepth(depth);
   };
 
@@ -131,7 +142,7 @@ export function buildTracedMap(
   const structureLayers = ["building", "walls", "decoration_02", "decoration_03"]
     .map((n) => layerByName(map, n))
     .filter((l): l is TracedTileLayer => l !== null);
-  renderComponents(map, structureLayers, (x, y) => !inField(x, y), imageTile);
+  const structures = renderComponents(map, structureLayers, (x, y) => !inField(x, y), imageTile);
   const forest = layerByName(map, "forest");
   if (forest) renderComponents(map, [forest], () => true, imageTile);
 
@@ -150,12 +161,28 @@ export function buildTracedMap(
     spr.setOrigin(def.fw > 0 ? def.ox / def.fw : 0.5, def.fh > 0 ? def.oy / def.fh : 0.5);
     spr.setScale(s.sx, s.sy);
     // shadow frames are baked opaque; the soft look is object alpha (tunable)
-    if (s.sprite.endsWith("shadow")) spr.setAlpha(0.3);
+    const isPureShadow = s.sprite.endsWith("shadow") && !s.sprite.endsWith("withshadow");
+    if (isPureShadow) spr.setAlpha(0.3);
     const bottomY = s.y - def.oy + def.fh;
     const isOverlay = s.sprite.startsWith("chimneysmoke") || s.sprite.startsWith("spr_deco_glint");
     if (isOverlay) spr.setDepth(D.overlayFx);
     else if (s.layer === "Assets_2") spr.setDepth(D.groundProps);
-    else spr.setDepth(DEPTH.entityBase + bottomY);
+    else {
+      // Sprites whose base sits inside a structure are mounted on it (windmill
+      // blades, roof props) — GM draws asset layers above building tiles, so
+      // lift them just over their structure instead of y-sorting underneath it.
+      let depth = DEPTH.entityBase + bottomY;
+      if (!isPureShadow) {
+        const ax = Math.floor((s.x - def.ox + def.fw / 2) / TILE);
+        const ay = Math.floor((bottomY - 1) / TILE);
+        if (ax >= 0 && ax < map.w && ay >= 0 && ay < map.h) {
+          const ci = structures.compId[ay * map.w + ax] ?? -1;
+          const bottom = ci >= 0 ? structures.bottoms[ci] : undefined;
+          if (bottom !== undefined) depth = DEPTH.entityBase + (bottom + 1) * TILE + 0.5;
+        }
+      }
+      spr.setDepth(depth);
+    }
     if (def.frames > 1 && scene.anims.exists(key)) {
       spr.play(key);
       spr.anims.setProgress(Math.random());
@@ -204,6 +231,8 @@ export function buildTracedMap(
   return { skippedSprites: skipped };
 }
 
+type Components = { compId: Int32Array; bottoms: number[] };
+
 // Flood-fill (8-neighbour) connected components over a set of layers; render
 // each component's tiles in layer paint order at a shared bottom-row depth.
 function renderComponents(
@@ -211,7 +240,7 @@ function renderComponents(
   layers: TracedTileLayer[],
   keep: (x: number, y: number) => boolean,
   imageTile: (v: number, tx: number, ty: number, depth: number) => void,
-): void {
+): Components {
   const { w, h } = map;
   const occupied = new Uint8Array(w * h);
   for (const l of layers)
@@ -262,4 +291,5 @@ function renderComponents(
         imageTile(v, x, y, DEPTH.entityBase + (bottom + 1) * TILE);
       }
   }
+  return { compId, bottoms };
 }

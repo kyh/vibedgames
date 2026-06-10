@@ -20,7 +20,7 @@ import { World, GROUND, inBounds, type WorldObject } from "../world/world";
 import { generateFarm, MINE_EXIT, consumedSprites } from "../world/mapgen";
 import { getTracedMap } from "../world/map-store";
 import { buildTracedMap } from "../render/traced-render";
-import type { TracedSprite } from "../world/traced";
+import { CELL, type TracedSprite } from "../world/traced";
 import { Inventory } from "../systems/inventory";
 import { Skills, type SkillId, SKILL_NAMES } from "../systems/skills";
 import { store } from "../systems/store";
@@ -242,6 +242,29 @@ export class GameScene extends Phaser.Scene {
     });
     this.keys.I.on("down", () => this.toggleInventory());
     this.keys.H.on("down", () => !this.uiOpen && this.events.emit("toggle-help"));
+    kb.on("keydown-T", () => this.toggleCollisionOverlay());
+  }
+
+  // debug aid (T): tint blocked cells — red solid, blue water/void (fishable)
+  private collisionOverlay: Phaser.GameObjects.Graphics | null = null;
+  private toggleCollisionOverlay(): void {
+    if (this.collisionOverlay) {
+      this.collisionOverlay.destroy();
+      this.collisionOverlay = null;
+      return;
+    }
+    const g = this.add.graphics();
+    g.setDepth(650_000);
+    for (let ty = 0; ty < MAP_H; ty++) {
+      for (let tx = 0; tx < MAP_W; tx++) {
+        const k = this.world.cellKind(tx, ty);
+        if (k === CELL.water || k === CELL.void) g.fillStyle(0x35b8ff, 0.35);
+        else if (this.world.isSolidTile(tx, ty)) g.fillStyle(0xff3b3b, 0.4);
+        else continue;
+        g.fillRect(tx * TILE, ty * TILE, TILE, TILE);
+      }
+    }
+    this.collisionOverlay = g;
   }
 
   private toggleInventory(): void {

@@ -33,9 +33,11 @@ const OUT_DECO = path.join(OUT_ASSETS, "deco");
 
 const EMPTY = -2147483648; // GM "no tile"
 const TILE_INDEX_MASK = 0x7ffff;
-const TILE_MIRROR = 0x8000000; // flip X
-const TILE_FLIP = 0x10000000; // flip Y
-const TILE_ROTATE = 0x20000000; // 90° rotation
+// Transform bits, verified empirically against the example-scene render:
+// mirror = bit 28, flip = bit 29, rotate = bit 30 (90° CW, applied after flips).
+const TILE_MIRROR = 0x10000000; // flip X
+const TILE_FLIP = 0x20000000; // flip Y
+const TILE_ROTATE = 0x40000000; // 90° CW rotation
 
 // GM .yy files are JSON with trailing commas.
 function parseYY(file) {
@@ -186,7 +188,8 @@ for (const name of uniqueSprites) {
     let file = path.join(dir, `${f.name}.png`);
     // Pure-shadow sprites are ~30%-alpha black in the source; bake them
     // opaque and let the game apply the soft alpha per object (tunable).
-    if (name.endsWith("shadow")) {
+    // ("..._withshadow" is a full sprite with a baked shadow — not one.)
+    if (name.endsWith("shadow") && !name.endsWith("withshadow")) {
       const solid = path.join(tmpShadowDir, `${name}_${i}.png`);
       execFileSync("magick", [file, "-channel", "A", "-threshold", "1%", "+channel", solid]);
       file = solid;

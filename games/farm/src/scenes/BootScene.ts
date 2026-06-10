@@ -235,7 +235,8 @@ export class BootScene extends Phaser.Scene {
       for (let y = 2; y < 16; y += 4) g.fillRect(2, y, 12, 2);
     });
 
-    this.scene.start("Title");
+    // #gallery opens the asset-inspection page instead of the game
+    this.scene.start(window.location.hash.includes("gallery") ? "Gallery" : "Title");
   }
 
   private makeIcon(

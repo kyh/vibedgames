@@ -42,6 +42,8 @@ export type TracedMap = {
 export const tileIndex = (v: number): number => v & 0xfffff;
 export const tileFlipX = (v: number): boolean => ((v >> 20) & 1) === 1;
 export const tileFlipY = (v: number): boolean => ((v >> 21) & 1) === 1;
+// 90° clockwise, applied after flips (GameMaker's transform order).
+export const tileRotate = (v: number): boolean => ((v >> 22) & 1) === 1;
 
 function isNumberArray(v: unknown): v is number[] {
   return Array.isArray(v) && v.every((n) => typeof n === "number");
@@ -108,20 +110,37 @@ export function layerByName(map: TracedMap, name: string): TracedTileLayer | nul
 // ground (cliff), which fails safe: you can't walk into un-vetted terrain.
 const LAND_GRASS = new Set([
   66, 129, 130, 131, 132, 133, 134, 193, 194, 195, 196, 197, 198, 200, 257, 258, 259, 260, 261, 262,
-  263, 326, 327, 329, 330, 332, 471, 472, 473, 474, 475, 477, 513, 534, 536, 537, 538, 539, 540,
-  2123, 2124, 2125,
+  263, 270, 271, 272, 273, 326, 327, 329, 330, 332, 2123, 2124, 2125,
+  // pond/river rims that are ~85% grass with a painted water lip — walkable;
+  // the adjacent full-water tiles still block
+  474, 534, 536, 537, 538, 539, 540,
 ]);
-const LAND_SAND = new Set([69, 71, 72, 73, 341]);
+const LAND_SAND = new Set([69, 71, 72, 73]);
 // the dark excavated mining yard (bottom-left) — walkable, not tillable
 const LAND_DIRT = new Set([
   1803, 1804, 1867, 1868, 1929, 1930, 1931, 1932, 1994, 1995, 2058, 2059, 2060, 2061,
 ]);
-// river / waterfall / sparkle overlays drawn on the land layer
-const LAND_WATER = new Set([211, 212, 215, 478, 542, 543, 544, 545]);
+// Water drawn on the land layer: sea-foam shores, sand shoals, waterfall
+// mouths (each listed with its animation partners), and the turquoise
+// river/pond family — fills, grass edges, corners, sparkles. 264 is the
+// fully-transparent spacer over open sea.
+const LAND_WATER = new Set([
+  147, 148, 149, 150, 151, 152, 211, 212, 213, 214, 215, 339, 340, 341, 342, 343, 344, 403, 404,
+  405, 406, 407, 408, 414, 415, 416, 417, 264, 470, 471, 472, 473, 475, 477, 478, 479, 480, 481,
+  542, 543, 544, 545, 859,
+]);
+// Cliff faces and bridge posts painted on the land layer — known solids.
+const LAND_SOLID = new Set([101, 165, 202, 203, 266, 267, 268, 394, 396, 418]);
 
-// Paths are walkable overrides (bridges, stairs, ladders, doorways) except
-// the structural posts that hold bridges up.
+// Structural posts that hold bridges up — never walkable.
 const PATH_SOLID = new Set([101, 165, 359, 361]);
+// Opaque walkway tiles (bridges, stairs, decks, the dirt-path core): these
+// override the land class, so a bridge over the river walks. Everything else
+// on the paths layer is translucent fringe and inherits the land class.
+const PATH_WALK = new Set([
+  132, 136, 139, 142, 334, 357, 358, 360, 424, 449, 457, 458, 459, 460, 468, 469, 482, 490, 491,
+  521, 522, 532, 533, 554, 555, 650, 808, 810,
+]);
 
 // Free-standing solid props on the decoration layers (fences, rocks, graves,
 // furniture). Everything else there is walk-over dressing.
@@ -161,6 +180,27 @@ export const inField = (tx: number, ty: number): boolean =>
 
 export type Semantics = { kind: Uint8Array };
 
+// Per-layer classification, shared by buildSemantics and the #gallery page.
+export function classifyLandIndex(i: number): Cell {
+  if (LAND_GRASS.has(i)) return CELL.grass;
+  if (LAND_SAND.has(i)) return CELL.sand;
+  if (LAND_DIRT.has(i)) return CELL.dirt;
+  if (LAND_WATER.has(i)) return CELL.water;
+  return CELL.solid;
+}
+export const isKnownLandIndex = (i: number): boolean =>
+  LAND_GRASS.has(i) ||
+  LAND_SAND.has(i) ||
+  LAND_DIRT.has(i) ||
+  LAND_WATER.has(i) ||
+  LAND_SOLID.has(i);
+export type PathClass = "solid" | "walk" | "overlay";
+export function classifyPathIndex(i: number): PathClass {
+  if (PATH_SOLID.has(i)) return "solid";
+  if (PATH_WALK.has(i)) return "walk";
+  return "overlay";
+}
+
 // Collapse the painted layers into one gameplay cell kind per tile.
 export function buildSemantics(map: TracedMap): Semantics {
   const { w, h } = map;
@@ -180,18 +220,16 @@ export function buildSemantics(map: TracedMap): Semantics {
     const lv = land?.grid[i] ?? -1;
     if (lv >= 0) {
       const li = tileIndex(lv);
-      if (LAND_GRASS.has(li)) kind[i] = CELL.grass;
-      else if (LAND_SAND.has(li)) kind[i] = CELL.sand;
-      else if (LAND_DIRT.has(li)) kind[i] = CELL.dirt;
-      else if (LAND_WATER.has(li)) kind[i] = CELL.water;
-      else {
-        kind[i] = CELL.solid;
-        unknownLand.add(li);
-      }
+      kind[i] = classifyLandIndex(li);
+      if (!isKnownLandIndex(li)) unknownLand.add(li);
     }
-    // walkable overrides: bridges, stairs, doorways, dirt paths
+    // walkway overrides (bridges, stairs, decks); fringe tiles inherit land
     const pv = paths?.grid[i] ?? -1;
-    if (pv >= 0) kind[i] = PATH_SOLID.has(tileIndex(pv)) ? CELL.solid : CELL.dirt;
+    if (pv >= 0) {
+      const pc = classifyPathIndex(tileIndex(pv));
+      if (pc === "solid") kind[i] = CELL.solid;
+      else if (pc === "walk") kind[i] = CELL.dirt;
+    }
     // field plots till like grass
     const tx = i % w;
     const ty = (i / w) | 0;
