@@ -24,14 +24,17 @@ const ANCHORS: Omit<WorldObject, "id">[] = [
   { type: "shop", tx: 56, ty: 28, w: 4, h: 3, hp: 1, maxHp: 1, solid: false },
   { type: "cave", tx: 44, ty: 41, w: 3, h: 3, hp: 1, maxHp: 1, solid: false },
   { type: "barn", tx: 62, ty: 10, w: 3, h: 4, hp: 1, maxHp: 1, solid: false },
-  { type: "coop", tx: 80, ty: 9, w: 3, h: 3, hp: 1, maxHp: 1, solid: false },
+  // the fenced pen SW of the barn — the GM scene's coop sits on a decorative
+  // floating sky island with no walkable connection
+  { type: "coop", tx: 58, ty: 13, w: 3, h: 3, hp: 1, maxHp: 1, solid: false },
 ];
 
 export const SPAWN = { tx: 31, ty: 16 } as const;
 export const MINE_EXIT = { tx: 44, ty: 42 } as const;
 
-// bottom-left excavated yard — rocks respawn here
-const ROCK_YARD = { x0: 1, y0: 38, x1: 14, y1: 46 } as const;
+// the sandy excavation canyon by the mine cave — rocks respawn here (the
+// bottom-left yard in the GM scene has no walkable connection to the map)
+const ROCK_YARD = { x0: 23, y0: 41, x1: 30, y1: 43 } as const;
 
 type Consumed = { sprite: TracedSprite; tx: number; ty: number; kind: "tree" | "forage" };
 
@@ -97,10 +100,11 @@ export function generateFarm(seed: number, traced: TracedMap): GenResult {
 
   // rocks in the excavated yard
   let rocks = 0;
-  for (let attempt = 0; attempt < 400 && rocks < 12; attempt++) {
+  for (let attempt = 0; attempt < 400 && rocks < 8; attempt++) {
     const tx = ROCK_YARD.x0 + Math.floor(rng() * (ROCK_YARD.x1 - ROCK_YARD.x0 + 1));
     const ty = ROCK_YARD.y0 + Math.floor(rng() * (ROCK_YARD.y1 - ROCK_YARD.y0 + 1));
-    if (w.cellKind(tx, ty) !== CELL.dirt || w.objectAt(tx, ty) !== null) continue;
+    const k = w.cellKind(tx, ty);
+    if ((k !== CELL.dirt && k !== CELL.sand) || w.objectAt(tx, ty) !== null) continue;
     w.addObject({ type: "rock", tx, ty, w: 1, h: 1, hp: 3, maxHp: 3 });
     rocks++;
   }

@@ -115,7 +115,12 @@ const LAND_GRASS = new Set([
   // the adjacent full-water tiles still block
   474, 534, 536, 537, 538, 539, 540,
 ]);
-const LAND_SAND = new Set([69, 71, 72, 73]);
+// Sand, including the animated foam waterline (147-152 sea foam, 339-344
+// sand-foam edges): the beach ring is wet sand you can walk, so shorelines
+// and the mine-cave spit connect; open water beyond still blocks.
+const LAND_SAND = new Set([
+  69, 71, 72, 73, 147, 148, 149, 150, 151, 152, 339, 340, 341, 342, 343, 344,
+]);
 // the dark excavated mining yard (bottom-left) — walkable, not tillable
 const LAND_DIRT = new Set([
   1803, 1804, 1867, 1868, 1929, 1930, 1931, 1932, 1994, 1995, 2058, 2059, 2060, 2061,
@@ -125,41 +130,53 @@ const LAND_DIRT = new Set([
 // river/pond family — fills, grass edges, corners, sparkles. 264 is the
 // fully-transparent spacer over open sea.
 const LAND_WATER = new Set([
-  147, 148, 149, 150, 151, 152, 211, 212, 213, 214, 215, 339, 340, 341, 342, 343, 344, 403, 404,
-  405, 406, 407, 408, 414, 415, 416, 417, 264, 470, 471, 472, 473, 475, 477, 478, 479, 480, 481,
-  542, 543, 544, 545, 859,
+  211, 212, 213, 214, 215, 403, 404, 405, 406, 407, 408, 414, 415, 416, 417, 264, 470, 471, 472,
+  473, 475, 477, 478, 479, 480, 481, 542, 543, 544, 545, 859,
 ]);
 // Cliff faces and bridge posts painted on the land layer — known solids.
 const LAND_SOLID = new Set([101, 165, 202, 203, 266, 267, 268, 394, 396, 418]);
 
 // Structural posts that hold bridges up — never walkable.
 const PATH_SOLID = new Set([101, 165, 359, 361]);
-// Opaque walkway tiles (bridges, stairs, decks, the dirt-path core): these
-// override the land class, so a bridge over the river walks. Everything else
-// on the paths layer is translucent fringe and inherits the land class.
-const PATH_WALK = new Set([
-  132, 136, 139, 142, 334, 357, 358, 360, 424, 449, 457, 458, 459, 460, 468, 469, 482, 490, 491,
-  521, 522, 532, 533, 554, 555, 650, 808, 810,
+// Translucent dressing on the paths layer that is NOT a walkway: grass tufts
+// hanging over cliff faces, dust/speckle transitions, rail shadows. These
+// inherit the land class. Every other paths tile is walkway art (dirt path,
+// bridges, stairs, ramps, decks) and overrides the land class — that's what
+// the layer is for, so bridges over the river walk.
+const PATH_OVERLAY = new Set([
+  // grass tufts over cliff faces
+  205, 206, 207, 397, 398, 399, 400,
+  // dust / speckle / shadow transition fringes
+  135, 137, 138, 140, 294, 336, 422, 452, 454, 455, 456, 463, 465, 467, 483, 484, 485, 486, 487,
+  489, 515, 516, 517, 518, 519, 526, 527, 528, 529, 530, 546, 548, 549, 550, 551, 552,
 ]);
+
+// Walkable overrides painted on the decoration layers: ladders against cliff
+// faces / over the stone wall (174, 810) and the plank footbridge over the
+// south-beach inlet (358, 360). They force the cell walkable.
+const DECO_CLIMB = new Set([174, 810, 358, 360]);
 
 // Free-standing solid props on the decoration layers (fences, rocks, graves,
 // furniture). Everything else there is walk-over dressing.
 const DECO_SOLID = new Set([
-  // wooden + stone fences, gates, hedges
-  38, 39, 113, 114, 166, 167, 170, 173, 174, 175, 108, 109, 110, 111, 177, 178,
+  // wooden + stone fences, hedges (NOT 170 — that's the open gate piece, and
+  // NOT 174 — that's the wall ladder)
+  38, 39, 113, 114, 166, 167, 173, 175, 108, 109, 110, 111, 177, 178,
   // trunks, stumps, big bushes & berry bushes, potted trees
+  // (small plant 372 and pebbles 287-290 are step-over dressing — GM paints
+  // them ON the narrow cliff-descent paths)
   103, 104, 106, 229, 231, 232, 233, 296, 305, 306, 307, 308, 351, 352, 369, 433, 499, 500, 701,
-  241, 242, 372,
+  241, 242,
   // rocks, ore boulders, gravestones, statues
-  236, 287, 288, 289, 290, 300, 301, 1003, 1004, 1005, 1006, 1067, 1068, 1069, 1070, 1071, 1521,
-  1522, 1523, 1524, 1525, 1526, 1585, 1586, 1587, 1588, 1589, 1590, 1591, 1777, 1778, 1779, 1780,
-  1781, 1782, 1841, 1842, 1843, 1844, 1845, 1846, 1907, 1908, 1909, 1910, 1971, 1972, 1973, 1974,
-  2163, 2164, 1324, 1325,
+  236, 300, 301, 1003, 1004, 1005, 1006, 1067, 1068, 1069, 1070, 1071, 1521, 1522, 1523, 1524, 1525,
+  1526, 1585, 1586, 1587, 1588, 1589, 1590, 1591, 1777, 1778, 1779, 1780, 1781, 1782, 1841, 1842,
+  1843, 1844, 1845, 1846, 1907, 1908, 1909, 1910, 1971, 1972, 1973, 1974, 2163, 2164, 1324, 1325,
   // crates, barrels, jars, furniture, dummies, anvils, fountains
+  // (NOT 919/920 — drying-line posts dressing the south bridge deck)
   613, 614, 615, 616, 648, 650, 677, 678, 679, 680, 684, 685, 846, 847, 861, 862, 863, 875, 876,
-  878, 879, 882, 919, 920, 936, 988, 1010, 1061, 1062, 1063, 1064, 1138, 1260, 1261, 1265, 1266,
-  1267, 1268, 1330, 1359, 1376, 1377, 1378, 1388, 1389, 1423, 2228, 2230, 2279, 2343, 797, 798, 799,
-  1131, 1132, 1133, 1134, 1135, 1248, 1249, 1250,
+  878, 879, 882, 936, 988, 1010, 1061, 1062, 1063, 1064, 1138, 1260, 1261, 1265, 1266, 1267, 1268,
+  1330, 1359, 1376, 1377, 1378, 1388, 1389, 1423, 2228, 2230, 2279, 2343, 797, 798, 799, 1131, 1132,
+  1133, 1134, 1135, 1248, 1249, 1250,
 ]);
 
 export const CELL = {
@@ -197,8 +214,8 @@ export const isKnownLandIndex = (i: number): boolean =>
 export type PathClass = "solid" | "walk" | "overlay";
 export function classifyPathIndex(i: number): PathClass {
   if (PATH_SOLID.has(i)) return "solid";
-  if (PATH_WALK.has(i)) return "walk";
-  return "overlay";
+  if (PATH_OVERLAY.has(i)) return "overlay";
+  return "walk";
 }
 
 // Collapse the painted layers into one gameplay cell kind per tile.
@@ -225,21 +242,27 @@ export function buildSemantics(map: TracedMap): Semantics {
     }
     // walkway overrides (bridges, stairs, decks); fringe tiles inherit land
     const pv = paths?.grid[i] ?? -1;
-    if (pv >= 0) {
-      const pc = classifyPathIndex(tileIndex(pv));
-      if (pc === "solid") kind[i] = CELL.solid;
-      else if (pc === "walk") kind[i] = CELL.dirt;
-    }
+    const pc = pv >= 0 ? classifyPathIndex(tileIndex(pv)) : null;
+    if (pc === "solid") kind[i] = CELL.solid;
+    else if (pc === "walk") kind[i] = CELL.dirt;
     // field plots till like grass
     const tx = i % w;
     const ty = (i / w) | 0;
     if (inField(tx, ty) && kind[i] !== CELL.solid) kind[i] = CELL.grass;
-    // solid structures override everything
-    if ((building?.grid[i] ?? -1) >= 0 || (walls?.grid[i] ?? -1) >= 0) kind[i] = CELL.solid;
-    if ((forest?.grid[i] ?? -1) >= 0) kind[i] = CELL.solid;
+    // Solid structures override everything EXCEPT a walkway: where GM paints
+    // road tiles through a structure (the village archway, canopy overhangs)
+    // the road passes underneath — the structure y-sorts over the player.
+    const structure =
+      (building?.grid[i] ?? -1) >= 0 || (walls?.grid[i] ?? -1) >= 0 || (forest?.grid[i] ?? -1) >= 0;
+    if (structure && pc !== "walk") kind[i] = CELL.solid;
     for (const d of [deco1, deco2]) {
       const dv = d?.grid[i] ?? -1;
       if (dv >= 0 && DECO_SOLID.has(tileIndex(dv)) && !inField(tx, ty)) kind[i] = CELL.solid;
+    }
+    // ladders climb over anything (cliff faces, the stone wall)
+    for (const d of [deco1, deco2]) {
+      const dv = d?.grid[i] ?? -1;
+      if (dv >= 0 && DECO_CLIMB.has(tileIndex(dv))) kind[i] = CELL.dirt;
     }
   }
   if (unknownLand.size > 0)
