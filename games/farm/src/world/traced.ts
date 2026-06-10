@@ -111,9 +111,10 @@ export function layerByName(map: TracedMap, name: string): TracedTileLayer | nul
 const LAND_GRASS = new Set([
   66, 129, 130, 131, 132, 133, 134, 193, 194, 195, 196, 197, 198, 200, 257, 258, 259, 260, 261, 262,
   263, 270, 271, 272, 273, 326, 327, 329, 330, 332, 2123, 2124, 2125,
-  // pond/river rims that are ~85% grass with a painted water lip — walkable;
-  // the adjacent full-water tiles still block
-  474, 534, 536, 537, 538, 539, 540,
+  // pond/river RIM tiles (grass with a painted water lip, all orientations) —
+  // walkable: you stand at the bank's edge; the full-water tiles still block.
+  // Classifying rims as water walled every bank off invisibly.
+  471, 472, 473, 474, 475, 477, 534, 536, 537, 538, 539, 540,
 ]);
 // Sand, including the animated foam waterline (147-152 sea foam, 339-344
 // sand-foam edges): the beach ring is wet sand you can walk, so shorelines
@@ -130,8 +131,8 @@ const LAND_DIRT = new Set([
 // river/pond family — fills, grass edges, corners, sparkles. 264 is the
 // fully-transparent spacer over open sea.
 const LAND_WATER = new Set([
-  211, 212, 213, 214, 215, 403, 404, 405, 406, 407, 408, 414, 415, 416, 417, 264, 470, 471, 472,
-  473, 475, 477, 478, 479, 480, 481, 542, 543, 544, 545, 859,
+  211, 212, 213, 214, 215, 403, 404, 405, 406, 407, 408, 414, 415, 416, 417, 264, 470, 478, 479,
+  480, 481, 542, 543, 544, 545, 859,
 ]);
 // Cliff faces and bridge posts painted on the land layer — known solids.
 const LAND_SOLID = new Set([101, 165, 202, 203, 266, 267, 268, 394, 396, 418]);
@@ -227,7 +228,6 @@ export function buildSemantics(map: TracedMap): Semantics {
   const paths = layerByName(map, "paths");
   const deco1 = layerByName(map, "decoration_01");
   const deco2 = layerByName(map, "decoration_02");
-  const forest = layerByName(map, "forest");
   const building = layerByName(map, "building");
   const walls = layerByName(map, "walls");
   const unknownLand = new Set<number>();
@@ -250,10 +250,11 @@ export function buildSemantics(map: TracedMap): Semantics {
     const ty = (i / w) | 0;
     if (inField(tx, ty) && kind[i] !== CELL.solid) kind[i] = CELL.grass;
     // Solid structures override everything EXCEPT a walkway: where GM paints
-    // road tiles through a structure (the village archway, canopy overhangs)
-    // the road passes underneath — the structure y-sorts over the player.
-    const structure =
-      (building?.grid[i] ?? -1) >= 0 || (walls?.grid[i] ?? -1) >= 0 || (forest?.grid[i] ?? -1) >= 0;
+    // road tiles through a structure (the village archway) the road passes
+    // underneath — the structure y-sorts over the player. The forest layer is
+    // treetop canopy, not collision: the player walks beneath it (it renders
+    // above); trunks block via the placed tree objects instead.
+    const structure = (building?.grid[i] ?? -1) >= 0 || (walls?.grid[i] ?? -1) >= 0;
     if (structure && pc !== "walk") kind[i] = CELL.solid;
     for (const d of [deco1, deco2]) {
       const dv = d?.grid[i] ?? -1;
