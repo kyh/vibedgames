@@ -6,6 +6,7 @@ import {
   MAP_H,
   WALK_SPEED,
   RUN_SPEED,
+  CHAR_ORIGIN_Y,
   MAX_ENERGY,
   ENERGY_PER_SWING,
   CAN_MAX,
@@ -16,7 +17,10 @@ import {
   DEPTH,
 } from "../config";
 import { World, GROUND, inBounds, type WorldObject } from "../world/world";
-import { generateFarm } from "../world/mapgen";
+import { generateFarm, MINE_EXIT, consumedSprites } from "../world/mapgen";
+import { getTracedMap } from "../world/map-store";
+import { buildTracedMap } from "../render/traced-render";
+import type { TracedSprite } from "../world/traced";
 import { Inventory } from "../systems/inventory";
 import { Skills, type SkillId, SKILL_NAMES } from "../systems/skills";
 import { store } from "../systems/store";
@@ -51,7 +55,7 @@ export class GameScene extends Phaser.Scene {
 
   private seed = 0;
   player!: Phaser.GameObjects.Sprite;
-  private shadow!: Phaser.GameObjects.Ellipse;
+  private shadow!: Phaser.GameObjects.Sprite;
   facing = { x: 0, y: 1 };
   acting = false;
   private moving = false;
@@ -109,11 +113,14 @@ export class GameScene extends Phaser.Scene {
 
     this.buildGround();
     this.buildObjects();
-    this.buildDecals();
     this.buildSoilAndCrops();
 
-    this.shadow = this.add.ellipse(0, 0, 16, 7, 0x000000, 0.22).setDepth(DEPTH.entityBase);
-    this.player = this.add.sprite(0, 0, "p-idle").setOrigin(0.5, 0.82).play("p-idle");
+    this.shadow = this.add
+      .sprite(0, 0, "char-shadow-tex")
+      .setOrigin(0.5, 0.5)
+      .setScale(1.1, 1)
+      .setAlpha(0.35);
+    this.player = this.add.sprite(0, 0, "p-idle").setOrigin(0.5, CHAR_ORIGIN_Y).play("p-idle");
     this.player.setPosition(this.pendingSpawn.x, this.pendingSpawn.y);
 
     this.highlight = this.add.graphics().setDepth(DEPTH.highlight);
@@ -163,7 +170,7 @@ export class GameScene extends Phaser.Scene {
 
   private startNew(): void {
     this.seed = (Math.random() * 1e9) | 0;
-    const gen = generateFarm(this.seed);
+    const gen = generateFarm(this.seed, getTracedMap());
     this.world = gen.world;
     store.initNew();
     this.day = 1;
@@ -174,7 +181,7 @@ export class GameScene extends Phaser.Scene {
 
   private loadFrom(s: SaveData): void {
     this.seed = s.seed;
-    this.world = World.fromJSON(s.world);
+    this.world = World.fromJSON(s.world, getTracedMap());
     store.inv = Inventory.fromJSON(s.inv);
     store.skills = Skills.fromJSON(s.skills);
     store.gold = s.gold;
@@ -198,14 +205,11 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     this.seed = s.seed;
-    this.world = World.fromJSON(s.world);
+    this.world = World.fromJSON(s.world, getTracedMap());
     this.day = s.day;
     this.timeMin = s.timeMin;
     this.canCharge = s.canCharge;
-    const cave = this.world.objects.find((o) => o.type === "cave");
-    this.pendingSpawn = cave
-      ? { x: cave.tx * TILE + 8, y: (cave.ty + 2) * TILE }
-      : { x: this.pendingSpawn.x, y: this.pendingSpawn.y };
+    this.pendingSpawn = { x: MINE_EXIT.tx * TILE + 8, y: MINE_EXIT.ty * TILE + 8 };
   }
 
   private setupInput(): void {
@@ -253,175 +257,58 @@ export class GameScene extends Phaser.Scene {
 
   // ---------------------------------------------------------------- render build
 
+  // Render the traced Sunnyside scene; placements that became live world
+  // objects (trees/mushrooms) are skipped — their sprites come from objects.
   private buildGround(): void {
-    // textured grass base everywhere
-    this.add
-      .tileSprite(0, 0, MAP_W * TILE, MAP_H * TILE, "t-grass1")
-      .setOrigin(0, 0)
-      .setDepth(DEPTH.ground);
-    // grass variety decals on grass cells only
-    const vlayer = this.add.container(0, 0).setDepth(DEPTH.ground + 0.1);
-    for (let ty = 0; ty < MAP_H; ty++) {
-      for (let tx = 0; tx < MAP_W; tx++) {
-        if (this.world.getGround(tx, ty) !== GROUND.grass) continue;
-        const gv = (this.world.gv[this.world.idx(tx, ty)] ?? 0) % 6;
-        if (gv !== 1)
-          vlayer.add(this.add.image(tx * TILE, ty * TILE, `t-grass${gv}`).setOrigin(0, 0));
-      }
-    }
-    // dual-grid autotile overlays (sand under water where they ever touch)
-    this.drawDualGrid((tx, ty) => this.cellIs(tx, ty, GROUND.sand), "dt-sand", DEPTH.ground + 0.15);
-    this.drawDualGrid(
-      (tx, ty) => this.cellIs(tx, ty, GROUND.water),
-      "dt-water",
-      DEPTH.ground + 0.2,
-    );
-  }
-
-  private cellIs(tx: number, ty: number, g: number): boolean {
-    return inBounds(tx, ty) && this.world.getGround(tx, ty) === g;
-  }
-
-  // Dual-grid: render on a half-tile-offset grid; each tile samples the 4 world
-  // cells around its corner to pick the matching 16-mask transition tile.
-  private drawDualGrid(
-    pred: (tx: number, ty: number) => boolean,
-    prefix: string,
-    depth: number,
-  ): void {
-    const layer = this.add.container(0, 0).setDepth(depth);
-    for (let j = 0; j <= MAP_H; j++) {
-      for (let i = 0; i <= MAP_W; i++) {
-        const tl = pred(i - 1, j - 1) ? 1 : 0;
-        const tr = pred(i, j - 1) ? 1 : 0;
-        const bl = pred(i - 1, j) ? 1 : 0;
-        const br = pred(i, j) ? 1 : 0;
-        const mask = tl | (tr << 1) | (bl << 2) | (br << 3);
-        if (mask === 0) continue;
-        layer.add(
-          this.add
-            .image(i * TILE - TILE / 2, j * TILE - TILE / 2, `${prefix}-${mask}`)
-            .setOrigin(0, 0),
-        );
-      }
-    }
+    const traced = getTracedMap();
+    const skip = new Set<TracedSprite>(consumedSprites(traced, this.world).map((c) => c.sprite));
+    buildTracedMap(this, traced, skip);
   }
 
   private buildObjects(): void {
     for (const o of this.world.objects) this.spawnObjectSprite(o);
   }
 
+  // Visuals for buildings/doors come from the traced tiles — those objects are
+  // interaction hotspots only and spawn no sprite.
   spawnObjectSprite(o: WorldObject): void {
     const cx = o.tx * TILE + TILE / 2;
     const by = (o.ty + 1) * TILE;
     let spr: Phaser.GameObjects.Sprite;
     switch (o.type) {
-      case "tree":
+      case "tree": {
+        const name = o.variant === "tree2" ? "spr_deco_tree_02" : "spr_deco_tree_01";
         spr = this.add
-          .sprite(cx, by + 2, "obj-tree")
+          .sprite(cx, by, "deco-atlas", `${name}/0`)
           .setOrigin(0.5, 1)
-          .play("tree-sway");
+          .play(`deco-${name}`);
         spr.anims.setProgress(Math.random());
         break;
+      }
       case "rock":
         spr = this.add.sprite(cx, by + 1, "obj-rock").setOrigin(0.5, 1);
         break;
       case "ore":
         spr = this.add.sprite(cx, by + 1, `obj-ore-${o.variant ?? "coal"}`).setOrigin(0.5, 1);
         break;
-      case "house":
-        spr = this.add.sprite(cx, by, "obj-house").setOrigin(0.5, 1);
-        break;
-      case "shop":
-        spr = this.add.sprite(cx, by, "obj-shop").setOrigin(0.5, 1);
-        break;
-      case "barn":
-        spr = this.add.sprite(cx, by, "obj-barn").setOrigin(0.5, 1);
-        break;
-      case "coop":
-        spr = this.add.sprite(cx, by, "obj-coop").setOrigin(0.5, 1);
-        break;
-      case "bin":
-        spr = this.add.sprite(cx, by, "obj-crate").setOrigin(0.5, 1);
-        break;
-      case "cave":
-        spr = this.add.sprite(cx, by, "obj-cave").setOrigin(0.5, 1);
-        break;
-      case "windmill":
-        spr = this.add
-          .sprite(cx, by + 8, "obj-windmill")
-          .setOrigin(0.5, 1)
-          .setScale(0.6)
-          .play("windmill-spin");
-        break;
-      case "fence":
-        spr = this.add
-          .sprite(cx, by, o.variant === "v" ? "obj-fence_v" : "obj-fence_h")
-          .setOrigin(0.5, 1);
-        break;
       case "forage": {
         const key = o.variant === "mushroom_blue" ? "obj-mushroom-blue" : "obj-mushroom-red";
-        spr = this.add.sprite(cx, by - 1, key, 0).setOrigin(0.5, 1);
+        spr = this.add
+          .sprite(cx, by - 1, key, 0)
+          .setOrigin(0.5, 1)
+          .play(o.variant === "mushroom_blue" ? "mushroom-blue-bob" : "mushroom-red-bob");
         break;
       }
+      case "house":
+      case "shop":
+      case "bin":
+      case "cave":
+      case "barn":
+      case "coop":
+        return;
     }
     spr.setDepth(DEPTH.entityBase + by);
     this.objSprites.set(o.id, spr);
-  }
-
-  private buildDecals(): void {
-    for (const d of this.world.decals) {
-      const cx = d.tx * TILE + TILE / 2;
-      const by = (d.ty + 1) * TILE;
-      if (d.type === "flower") {
-        this.add.image(cx, by, `obj-${d.variant}`).setOrigin(0.5, 1).setDepth(DEPTH.decalLow);
-      } else if (d.type === "bush") {
-        const s = this.add.image(cx, by + 2, `obj-${d.variant}`).setOrigin(0.5, 1);
-        s.setDepth(DEPTH.entityBase + by); // y-sorted so the player passes behind/in front
-      } else if (d.type === "coracle") {
-        this.add
-          .sprite(cx, by + 4, "obj-coracle")
-          .setOrigin(0.5, 1)
-          .setDepth(DEPTH.crop)
-          .play("coracle-bob");
-      }
-    }
-    this.spawnSceneryFx();
-  }
-
-  // chimney smoke from the house + occasional glints on the water
-  private spawnSceneryFx(): void {
-    const house = this.world.objects.find((o) => o.type === "house");
-    if (house) {
-      const x = house.tx * TILE + TILE / 2 - 5;
-      const y = (house.ty + 1) * TILE - 50;
-      this.add
-        .sprite(x, y, "vfx-smoke")
-        .setOrigin(0.5, 1)
-        .setDepth(DEPTH.entityBase + (house.ty + 1) * TILE + 1)
-        .play("smoke-rise");
-    }
-    // glints on a few water tiles
-    const water: { x: number; y: number }[] = [];
-    for (let ty = 0; ty < MAP_H && water.length < 200; ty++)
-      for (let tx = 0; tx < MAP_W; tx++)
-        if (this.world.getGround(tx, ty) === GROUND.water)
-          water.push({ x: tx * TILE + 8, y: ty * TILE + 8 });
-    for (let i = 0; i < 6 && water.length > 0; i++) {
-      const p = water[Math.floor(Math.random() * water.length)];
-      if (!p) continue;
-      const g = this.add.sprite(p.x, p.y, "vfx-glint", 0).setDepth(DEPTH.crop).setAlpha(0);
-      const loop = () => {
-        const np = water[Math.floor(Math.random() * water.length)];
-        if (np) g.setPosition(np.x, np.y);
-        g.setAlpha(1).play("glint");
-        g.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
-          g.setAlpha(0);
-          this.time.delayedCall(Phaser.Math.Between(900, 3500), loop);
-        });
-      };
-      this.time.delayedCall(Phaser.Math.Between(200, 3000), loop);
-    }
   }
 
   private buildSoilAndCrops(): void {
@@ -478,7 +365,9 @@ export class GameScene extends Phaser.Scene {
     this.updateHighlight();
     this.updateNightTint();
     this.player.setDepth(DEPTH.entityBase + this.player.y);
+    // shadow rides the feet, always one depth step under its owner
     this.shadow.setPosition(this.player.x, this.player.y + 1);
+    this.shadow.setDepth(this.player.depth - 1);
   }
 
   private advanceTime(dt: number): void {
@@ -625,9 +514,6 @@ export class GameScene extends Phaser.Scene {
           return;
         case "ore":
           return; // ore lives in the mine
-        case "windmill":
-        case "fence":
-          return; // decorative / solid only
       }
     }
 
@@ -1112,7 +998,7 @@ export class GameScene extends Phaser.Scene {
 
   save(): void {
     const d: SaveData = {
-      v: 2,
+      v: 3,
       seed: this.seed,
       day: this.day,
       timeMin: this.timeMin,

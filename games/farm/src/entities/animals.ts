@@ -11,6 +11,7 @@ import type { GameScene } from "../scenes/GameScene";
 type Live = {
   data: AnimalSave;
   spr: Phaser.GameObjects.Sprite;
+  shadow: Phaser.GameObjects.Sprite;
   tx: number;
   ty: number; // home building anchor
   target: { x: number; y: number };
@@ -44,12 +45,22 @@ export class AnimalManager {
     const home = this.homeOf(d.building);
     const x = d.x || home.x + Phaser.Math.Between(-20, 20);
     const y = d.y || home.y + Phaser.Math.Between(-12, 12);
-    const spr = this.scene.add.sprite(x, y, def.texture, 0).setOrigin(0.5, 1).play(def.anim);
+    const shadow = this.scene.add
+      .sprite(x, y, "char-shadow-tex")
+      .setOrigin(0.5, 0.5)
+      .setScale(def.shadowScale, 1)
+      .setAlpha(0.3);
+    const spr = this.scene.add
+      .sprite(x, y, def.texture, 0)
+      .setOrigin(0.5, def.originY)
+      .play(def.anim);
     spr.setDepth(DEPTH.entityBase + y);
+    shadow.setDepth(spr.depth - 1);
     spr.setInteractive({ useHandCursor: true });
     this.live.push({
       data: d,
       spr,
+      shadow,
       tx: x,
       ty: y,
       target: { x, y },
@@ -137,6 +148,8 @@ export class AnimalManager {
         else if (dx > 0.2) l.spr.setFlipX(false);
       }
       l.spr.setDepth(DEPTH.entityBase + l.spr.y);
+      l.shadow.setPosition(l.spr.x, l.spr.y);
+      l.shadow.setDepth(l.spr.depth - 1);
       l.data.x = l.spr.x;
       l.data.y = l.spr.y;
     }

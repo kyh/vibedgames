@@ -4,6 +4,7 @@ import {
   ZOOM,
   WALK_SPEED,
   RUN_SPEED,
+  CHAR_ORIGIN_Y,
   ENERGY_PER_SWING,
   SWORD_BASE_DAMAGE,
   PLAYER_INVULN_MS,
@@ -41,7 +42,7 @@ export class MineScene extends Phaser.Scene {
   depth = 1;
   private walls = new Uint8Array(MW * MH);
   private player!: Phaser.GameObjects.Sprite;
-  private shadow!: Phaser.GameObjects.Ellipse;
+  private shadow!: Phaser.GameObjects.Sprite;
   private facing = { x: 0, y: 1 };
   private acting = false;
   private invulnUntil = 0;
@@ -73,10 +74,15 @@ export class MineScene extends Phaser.Scene {
     this.generate();
     this.buildTiles();
 
-    this.shadow = this.add.ellipse(0, 0, 16, 7, 0x000000, 0.3).setDepth(DEPTH.entityBase);
+    this.shadow = this.add
+      .sprite(0, 0, "char-shadow-tex")
+      .setOrigin(0.5, 0.5)
+      .setScale(1.1, 1)
+      .setAlpha(0.4)
+      .setDepth(DEPTH.entityBase);
     this.player = this.add
       .sprite(this.ladderUp.tx * TILE + 8, (this.ladderUp.ty + 1) * TILE + 8, "p-idle")
-      .setOrigin(0.5, 0.82)
+      .setOrigin(0.5, CHAR_ORIGIN_Y)
       .play("p-idle");
 
     const cam = this.cameras.main;
@@ -173,7 +179,7 @@ export class MineScene extends Phaser.Scene {
       const maxHp = 4 + this.depth * 2;
       const spr = this.add
         .sprite(tx * TILE + 8, ty * TILE + 8, "e-skel-idle")
-        .setOrigin(0.5, 0.82)
+        .setOrigin(0.5, CHAR_ORIGIN_Y)
         .play("e-skel-idle");
       this.enemies.push({ spr, hp: maxHp, maxHp, invuln: 0, hurt: 0, dead: false, kx: 0, ky: 0 });
     }

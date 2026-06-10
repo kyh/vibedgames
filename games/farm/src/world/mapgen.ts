@@ -1,5 +1,6 @@
-import { MAP_W, MAP_H } from "../config";
-import { World, GROUND, inBounds } from "./world";
+import { TILE } from "../config";
+import { World, type WorldObject } from "./world";
+import { CELL, type TracedMap, type TracedSprite } from "./traced";
 
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
@@ -14,174 +15,95 @@ function mulberry32(seed: number): () => number {
 
 export type GenResult = { world: World; spawn: { tx: number; ty: number } };
 
-export function generateFarm(seed = (Math.random() * 1e9) | 0): GenResult {
+// Interaction hotspots laid over traced buildings. Visuals AND collision come
+// from the traced tiles — these are non-solid target zones reaching one row
+// past each building's south face so the player can always face into them.
+const ANCHORS: Omit<WorldObject, "id">[] = [
+  { type: "house", tx: 31, ty: 15, w: 4, h: 3, hp: 1, maxHp: 1, solid: false },
+  { type: "bin", tx: 6, ty: 10, w: 2, h: 3, hp: 1, maxHp: 1, solid: false },
+  { type: "shop", tx: 56, ty: 28, w: 4, h: 3, hp: 1, maxHp: 1, solid: false },
+  { type: "cave", tx: 44, ty: 41, w: 3, h: 3, hp: 1, maxHp: 1, solid: false },
+  { type: "barn", tx: 62, ty: 10, w: 3, h: 4, hp: 1, maxHp: 1, solid: false },
+  { type: "coop", tx: 80, ty: 9, w: 3, h: 3, hp: 1, maxHp: 1, solid: false },
+];
+
+export const SPAWN = { tx: 31, ty: 16 } as const;
+export const MINE_EXIT = { tx: 44, ty: 42 } as const;
+
+// bottom-left excavated yard — rocks respawn here
+const ROCK_YARD = { x0: 1, y0: 38, x1: 14, y1: 46 } as const;
+
+type Consumed = { sprite: TracedSprite; tx: number; ty: number; kind: "tree" | "forage" };
+
+// Traced tree/mushroom placements that stand on walkable ground become live
+// world objects (choppable / forageable). Depends only on the static traced
+// terrain (never on live objects), so generation and every later render boot
+// compute the identical set — chopped trees stay gone.
+export function consumedSprites(map: TracedMap, world: World): Consumed[] {
+  const out: Consumed[] = [];
+  const taken = new Set<number>();
+  for (const s of map.sprites) {
+    const def = map.deco[s.sprite];
+    if (!def) continue;
+    const isTree = s.sprite === "spr_deco_tree_01" || s.sprite === "spr_deco_tree_02";
+    const isMushroom = s.sprite.startsWith("spr_deco_mushroom_");
+    if (!isTree && !isMushroom) continue;
+    const baseX = s.x - def.ox + def.fw / 2;
+    const baseY = s.y - def.oy + def.fh;
+    const tx = Math.floor(baseX / TILE);
+    const ty = Math.floor((baseY - 1) / TILE);
+    const k = world.cellKind(tx, ty);
+    const walkable = k === CELL.grass || k === CELL.sand || k === CELL.dirt;
+    const key = ty * map.w + tx;
+    if (!walkable || taken.has(key)) continue;
+    taken.add(key);
+    out.push({ sprite: s, tx, ty, kind: isTree ? "tree" : "forage" });
+  }
+  return out;
+}
+
+export function generateFarm(seed: number, traced: TracedMap): GenResult {
   const rng = mulberry32(seed);
-  const w = new World();
+  const w = new World(traced);
 
-  // base: grass everywhere with varied tiles (weight toward plain variants)
-  for (let i = 0; i < MAP_W * MAP_H; i++) {
-    w.ground[i] = GROUND.grass;
-    const r = rng();
-    w.gv[i] = r < 0.55 ? (r < 0.3 ? 1 : 3) : (Math.floor(rng() * 6) as number);
-  }
+  for (const a of ANCHORS) w.addObject(a);
 
-  // pond in the lower-left, organic blob
-  const pcx = 9,
-    pcy = MAP_H - 9;
-  for (let ty = pcy - 4; ty <= pcy + 4; ty++) {
-    for (let tx = pcx - 5; tx <= pcx + 5; tx++) {
-      if (!inBounds(tx, ty)) continue;
-      const dx = (tx - pcx) / 5.2;
-      const dy = (ty - pcy) / 3.6;
-      if (dx * dx + dy * dy < 1 - rng() * 0.18) {
-        w.ground[w.idx(tx, ty)] = GROUND.water;
-      }
+  for (const c of consumedSprites(traced, w)) {
+    if (c.kind === "tree") {
+      w.addObject({
+        type: "tree",
+        tx: c.tx,
+        ty: c.ty,
+        w: 1,
+        h: 1,
+        hp: 3,
+        maxHp: 3,
+        variant: c.sprite.sprite === "spr_deco_tree_02" ? "tree2" : "tree",
+      });
+    } else {
+      w.addObject({
+        type: "forage",
+        tx: c.tx,
+        ty: c.ty,
+        w: 1,
+        h: 1,
+        hp: 1,
+        maxHp: 1,
+        variant: c.sprite.sprite.includes("blue") ? "mushroom_blue" : "mushroom_red",
+        solid: false,
+      });
     }
   }
 
-  // sandy clearing / plaza around the buildings (top area)
-  const sandRects = [
-    { x: 5, y: 4, w: 18, h: 7 }, // farmyard
-  ];
-  for (const r of sandRects) {
-    for (let ty = r.y; ty < r.y + r.h; ty++)
-      for (let tx = r.x; tx < r.x + r.w; tx++) {
-        if (inBounds(tx, ty) && w.getGround(tx, ty) === GROUND.grass && rng() < 0.92)
-          w.ground[w.idx(tx, ty)] = GROUND.sand;
-      }
-  }
-
-  const occupied = (tx: number, ty: number) =>
-    !inBounds(tx, ty) || w.getGround(tx, ty) === GROUND.water || w.objectAt(tx, ty) !== null;
-
-  // fenced crop field south of the yard — kept clear for planting
-  const field = { x0: 7, y0: 16, x1: 18, y1: 23 };
-  const inField = (tx: number, ty: number) =>
-    tx >= field.x0 && tx <= field.x1 && ty >= field.y0 && ty <= field.y1;
-  const inYard = (tx: number, ty: number) => tx >= 4 && tx <= 23 && ty >= 3 && ty <= 13;
-
-  // buildings: house (top-left of yard), shop (top-right of yard), bin near house
-  w.addObject({ type: "house", tx: 8, ty: 6, w: 2, h: 3, hp: 1, maxHp: 1 });
-  w.addObject({ type: "shop", tx: 19, ty: 6, w: 2, h: 3, hp: 1, maxHp: 1 });
-  w.addObject({ type: "bin", tx: 11, ty: 7, w: 1, h: 1, hp: 1, maxHp: 1 });
-  w.addObject({ type: "coop", tx: 15, ty: 11, w: 2, h: 3, hp: 1, maxHp: 1 });
-  w.addObject({ type: "barn", tx: 21, ty: 11, w: 2, h: 3, hp: 1, maxHp: 1 });
-
-  // a scenic windmill on the open grass to the east
-  w.addObject({ type: "windmill", tx: 40, ty: 5, w: 2, h: 2, hp: 1, maxHp: 1 });
-
-  // cave entrance on the rocky east edge
-  for (let attempt = 0; attempt < 60; attempt++) {
-    const tx = MAP_W - 4 - Math.floor(rng() * 4);
-    const ty = 16 + Math.floor(rng() * (MAP_H - 22));
-    if (!occupied(tx, ty) && !occupied(tx, ty - 1)) {
-      w.addObject({ type: "cave", tx, ty, w: 1, h: 1, hp: 1, maxHp: 1 });
-      break;
-    }
-  }
-
-  // fence the field perimeter, with a gate at top-center facing the yard
-  const gateX = Math.floor((field.x0 + field.x1) / 2);
-  const fence = (tx: number, ty: number, variant: string) =>
-    w.addObject({ type: "fence", tx, ty, w: 1, h: 1, hp: 1, maxHp: 1, variant });
-  for (let tx = field.x0; tx <= field.x1; tx++) {
-    if (tx !== gateX && tx !== gateX + 1) fence(tx, field.y0, "h");
-    fence(tx, field.y1, "h");
-  }
-  for (let ty = field.y0 + 1; ty < field.y1; ty++) {
-    fence(field.x0, ty, "v");
-    fence(field.x1, ty, "v");
-  }
-  // a sand path from the yard down through the gate into the field
-  for (let ty = 12; ty <= field.y0; ty++)
-    for (let tx = gateX; tx <= gateX + 1; tx++)
-      if (inBounds(tx, ty)) w.ground[w.idx(tx, ty)] = GROUND.sand;
-
-  // scatter trees (avoid yard + field + pond), clustered toward edges
-  let trees = 0;
-  for (let attempt = 0; attempt < 900 && trees < 72; attempt++) {
-    const tx = 2 + Math.floor(rng() * (MAP_W - 4));
-    const ty = 2 + Math.floor(rng() * (MAP_H - 4));
-    if (inYard(tx, ty) || inField(tx, ty)) continue;
-    if (occupied(tx, ty) || occupied(tx, ty - 1)) continue;
-    const edge = Math.min(tx, ty, MAP_W - 1 - tx, MAP_H - 1 - ty);
-    if (rng() > 0.18 + Math.max(0, 8 - edge) * 0.06) continue;
-    w.addObject({ type: "tree", tx, ty, w: 1, h: 1, hp: 3, maxHp: 3 });
-    trees++;
-  }
-
-  // scatter rocks (more toward the right/rocky side)
+  // rocks in the excavated yard
   let rocks = 0;
-  for (let attempt = 0; attempt < 500 && rocks < 34; attempt++) {
-    const tx = 2 + Math.floor(rng() * (MAP_W - 4));
-    const ty = 2 + Math.floor(rng() * (MAP_H - 4));
-    if (inYard(tx, ty) || inField(tx, ty) || occupied(tx, ty)) continue;
-    if (rng() > 0.12 + (tx / MAP_W) * 0.22) continue;
+  for (let attempt = 0; attempt < 400 && rocks < 12; attempt++) {
+    const tx = ROCK_YARD.x0 + Math.floor(rng() * (ROCK_YARD.x1 - ROCK_YARD.x0 + 1));
+    const ty = ROCK_YARD.y0 + Math.floor(rng() * (ROCK_YARD.y1 - ROCK_YARD.y0 + 1));
+    if (w.cellKind(tx, ty) !== CELL.dirt || w.objectAt(tx, ty) !== null) continue;
     w.addObject({ type: "rock", tx, ty, w: 1, h: 1, hp: 3, maxHp: 3 });
     rocks++;
   }
 
-  // forageable mushrooms on grass (walk-over pick)
-  let forage = 0;
-  for (let attempt = 0; attempt < 400 && forage < 14; attempt++) {
-    const tx = 2 + Math.floor(rng() * (MAP_W - 4));
-    const ty = 2 + Math.floor(rng() * (MAP_H - 4));
-    if (inYard(tx, ty) || inField(tx, ty) || occupied(tx, ty)) continue;
-    if (rng() > 0.25) continue;
-    const kind = rng() < 0.65 ? "mushroom_red" : "mushroom_blue";
-    w.addObject({
-      type: "forage",
-      tx,
-      ty,
-      w: 1,
-      h: 1,
-      hp: 1,
-      maxHp: 1,
-      variant: kind,
-      solid: false,
-    });
-    forage++;
-  }
-
-  // ---- decorative decals (non-colliding) ----
-  const flowers = ["flower_blue", "flower_blue2", "flower_red", "flower_yellow", "flower_white"];
-  const grassFree = (tx: number, ty: number) =>
-    inBounds(tx, ty) && w.getGround(tx, ty) === GROUND.grass && !w.objectAt(tx, ty);
-
-  let nf = 0;
-  for (let attempt = 0; attempt < 900 && nf < 70; attempt++) {
-    const tx = 2 + Math.floor(rng() * (MAP_W - 4));
-    const ty = 2 + Math.floor(rng() * (MAP_H - 4));
-    if (inYard(tx, ty) || !grassFree(tx, ty)) continue;
-    w.decals.push({
-      type: "flower",
-      tx,
-      ty,
-      variant: flowers[Math.floor(rng() * flowers.length)] ?? "flower_white",
-    });
-    nf++;
-  }
-  let nb = 0;
-  for (let attempt = 0; attempt < 500 && nb < 22; attempt++) {
-    const tx = 2 + Math.floor(rng() * (MAP_W - 4));
-    const ty = 2 + Math.floor(rng() * (MAP_H - 4));
-    if (inYard(tx, ty) || inField(tx, ty) || !grassFree(tx, ty)) continue;
-    w.decals.push({ type: "bush", tx, ty, variant: rng() < 0.5 ? "bush1" : "bush2" });
-    nb++;
-  }
-  // a little boat on the pond
-  for (let attempt = 0; attempt < 60; attempt++) {
-    const tx = pcx - 2 + Math.floor(rng() * 4);
-    const ty = pcy - 1 + Math.floor(rng() * 3);
-    if (
-      inBounds(tx, ty) &&
-      w.getGround(tx, ty) === GROUND.water &&
-      w.getGround(tx, ty + 1) === GROUND.water
-    ) {
-      w.decals.push({ type: "coracle", tx, ty, variant: "" });
-      break;
-    }
-  }
-
-  return { world: w, spawn: { tx: 12, ty: 9 } };
+  return { world: w, spawn: SPAWN };
 }

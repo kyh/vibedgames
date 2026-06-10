@@ -19,7 +19,7 @@ export type AnimalSave = {
 };
 
 export type SaveData = {
-  v: 2;
+  v: 3;
   seed: number;
   day: number;
   timeMin: number;
@@ -49,7 +49,7 @@ export function loadSave(): SaveData | null {
     const raw = localStorage.getItem(KEY);
     if (!raw) return null;
     const d = JSON.parse(raw) as SaveData;
-    if (d.v !== 2) return null;
+    if (d.v !== 3) return null;
     return d;
   } catch {
     return null;

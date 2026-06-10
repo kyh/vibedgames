@@ -3,13 +3,16 @@
 export const TILE = 16; // source art is 16px
 export const ZOOM = 3.25; // camera zoom — pixels are crisp at integer-ish zoom
 
-// World size in tiles.
-export const MAP_W = 50;
-export const MAP_H = 40;
+// World size in tiles (the traced Sunnyside example scene).
+export const MAP_W = 86;
+export const MAP_H = 48;
 
 // Player
 export const WALK_SPEED = 62; // px/sec (world units, pre-zoom)
 export const RUN_SPEED = 104;
+// Character frames are 96x64 with the body in the middle; the feet sit at
+// row ~39.5, so this origin puts them exactly on the sprite's anchor point.
+export const CHAR_ORIGIN_Y = 39.5 / 64;
 
 // Energy
 export const MAX_ENERGY = 100;

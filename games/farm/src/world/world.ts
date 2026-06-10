@@ -1,6 +1,9 @@
 import { MAP_W, MAP_H } from "../config";
 import type { CropId } from "../data/crops";
+import { CELL, type Cell, type TracedMap, buildSemantics } from "./traced";
 
+// Legacy ground vocabulary kept for the scenes: grass = tillable, water =
+// fishable/refill, sand = any other walkable ground.
 export const GROUND = { grass: 0, water: 1, sand: 2 } as const;
 export type Ground = (typeof GROUND)[keyof typeof GROUND];
 
@@ -19,8 +22,6 @@ export type ObjType =
   | "barn"
   | "coop"
   | "forage"
-  | "windmill"
-  | "fence"
   | "ore"; // ore nodes used in the mine
 
 export type WorldObject = {
@@ -32,7 +33,7 @@ export type WorldObject = {
   h: number; // footprint height in tiles (collision)
   hp: number;
   maxHp: number;
-  variant?: string; // e.g. forage kind, ore kind
+  variant?: string; // e.g. forage kind, ore kind, tree art
   solid?: boolean; // override: forage is non-solid (walk over to pick)
 };
 
@@ -40,30 +41,39 @@ export function inBounds(tx: number, ty: number): boolean {
   return tx >= 0 && ty >= 0 && tx < MAP_W && ty < MAP_H;
 }
 
-// Non-colliding, non-interactive scenery (flowers, bushes, boat). Render-only.
-export type Decal = {
-  type: "flower" | "bush" | "coracle";
-  tx: number;
-  ty: number;
-  variant: string;
-};
-
 export class World {
-  ground = new Uint8Array(MAP_W * MAP_H);
-  gv = new Uint8Array(MAP_W * MAP_H); // grass variant 0..5
-  tilled = new Uint8Array(MAP_W * MAP_H);
-  watered = new Uint8Array(MAP_W * MAP_H);
+  // static, derived from the traced map — never serialized
+  kind: Uint8Array = new Uint8Array(MAP_W * MAP_H);
+  // dynamic state
+  tilled: Uint8Array = new Uint8Array(MAP_W * MAP_H);
+  watered: Uint8Array = new Uint8Array(MAP_W * MAP_H);
   crops = new Map<number, CropState>();
   objects: WorldObject[] = [];
-  decals: Decal[] = [];
   nextId = 1;
+
+  constructor(traced?: TracedMap) {
+    if (traced) this.kind = buildSemantics(traced).kind;
+  }
 
   idx(tx: number, ty: number): number {
     return ty * MAP_W + tx;
   }
 
+  cellKind(tx: number, ty: number): Cell {
+    const v = this.kind[this.idx(tx, ty)] ?? CELL.void;
+    return v as Cell;
+  }
+
   getGround(tx: number, ty: number): Ground {
-    return this.ground[this.idx(tx, ty)] as Ground;
+    switch (this.cellKind(tx, ty)) {
+      case CELL.grass:
+        return GROUND.grass;
+      case CELL.water:
+      case CELL.void:
+        return GROUND.water;
+      default:
+        return GROUND.sand;
+    }
   }
 
   addObject(o: Omit<WorldObject, "id">): WorldObject {
@@ -92,43 +102,37 @@ export class World {
 
   isSolidTile(tx: number, ty: number): boolean {
     if (!inBounds(tx, ty)) return true;
-    if (this.getGround(tx, ty) === GROUND.water) return true;
+    const k = this.cellKind(tx, ty);
+    if (k === CELL.solid || k === CELL.water || k === CELL.void) return true;
     const o = this.objectAt(tx, ty);
     return o !== null && o.solid !== false;
   }
 
   canTill(tx: number, ty: number): boolean {
     if (!inBounds(tx, ty)) return false;
-    const g = this.getGround(tx, ty);
-    if (g === GROUND.water) return false;
+    if (this.cellKind(tx, ty) !== CELL.grass) return false;
     if (this.tilled[this.idx(tx, ty)]) return false;
     if (this.objectAt(tx, ty)) return false;
     return true;
   }
 
-  // ---- serialization (compact) ----
+  // ---- serialization (dynamic state only; terrain rebuilds from the trace) ----
   toJSON() {
     return {
-      ground: Array.from(this.ground),
-      gv: Array.from(this.gv),
       tilled: Array.from(this.tilled),
       watered: Array.from(this.watered),
       crops: Array.from(this.crops.entries()),
       objects: this.objects,
-      decals: this.decals,
       nextId: this.nextId,
     };
   }
 
-  static fromJSON(d: ReturnType<World["toJSON"]>): World {
-    const w = new World();
-    w.ground = Uint8Array.from(d.ground);
-    w.gv = Uint8Array.from(d.gv);
-    w.tilled = Uint8Array.from(d.tilled);
-    w.watered = Uint8Array.from(d.watered);
+  static fromJSON(d: ReturnType<World["toJSON"]>, traced: TracedMap): World {
+    const w = new World(traced);
+    w.tilled = new Uint8Array(d.tilled);
+    w.watered = new Uint8Array(d.watered);
     w.crops = new Map(d.crops);
     w.objects = d.objects;
-    w.decals = d.decals ?? [];
     w.nextId = d.nextId;
     return w;
   }

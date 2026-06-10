@@ -1,5 +1,7 @@
 import Phaser from "phaser";
 import { CROP_ORDER } from "../data/crops";
+import { parseTracedMap } from "../world/traced";
+import { setTracedMap, getTracedMap } from "../world/map-store";
 
 const CHAR = { frameWidth: 96, frameHeight: 64 };
 
@@ -45,10 +47,16 @@ export class BootScene extends Phaser.Scene {
       this.load.spritesheet(`e-skel-${a}`, `assets/enemy/skel_${a}.png`, CHAR);
     }
 
-    // ground tiles
-    for (let i = 0; i < 6; i++) this.load.image(`t-grass${i}`, `assets/tiles/grass${i}.png`);
-    this.load.image("t-water", "assets/tiles/water.png");
-    this.load.image("t-sand", "assets/tiles/sand.png");
+    // traced world: tileset atlas (as tileset image AND frame sheet), the
+    // packed deco sprite atlas, and the layout
+    this.load.image("atlas", "assets/tiles/atlas.png");
+    this.load.spritesheet("atlas-sheet", "assets/tiles/atlas.png", {
+      frameWidth: 16,
+      frameHeight: 16,
+    });
+    this.load.atlas("deco-atlas", "assets/deco-atlas.png", "assets/deco-atlas.json");
+    this.load.json("map", "assets/map.json");
+    this.load.image("char-shadow-tex", "assets/obj/charactershadow.png");
 
     // crops
     for (const c of CROP_ORDER) {
@@ -59,18 +67,12 @@ export class BootScene extends Phaser.Scene {
       this.load.image(`crop-${c}-icon`, `assets/crops/${c}_icon.png`);
     }
 
-    // objects
-    this.load.spritesheet("obj-tree", "assets/obj/tree.png", { frameWidth: 32, frameHeight: 34 });
+    // objects still spawned by gameplay (mine nodes, soil, icons)
     this.load.image("obj-rock", "assets/obj/rock.png");
     this.load.image("obj-ore-coal", "assets/obj/ore_coal.png");
     this.load.image("obj-ore-copper", "assets/obj/ore_copper.png");
     this.load.image("obj-ore-crystal", "assets/obj/ore_crystal.png");
     this.load.image("obj-soil", "assets/obj/soil.png");
-    this.load.image("obj-house", "assets/obj/house.png");
-    this.load.image("obj-shop", "assets/obj/shop.png");
-    this.load.image("obj-barn", "assets/obj/barn.png");
-    this.load.image("obj-coop", "assets/obj/coop.png");
-    this.load.image("obj-crate", "assets/obj/crate_base.png");
     this.load.image("obj-seeds", "assets/obj/seeds.png");
     this.load.image("obj-wood", "assets/obj/wood.png");
     this.load.image("obj-stone", "assets/obj/stone.png");
@@ -86,30 +88,6 @@ export class BootScene extends Phaser.Scene {
       frameHeight: 16,
     });
 
-    // world decorations
-    this.load.spritesheet("obj-windmill", "assets/obj/windmill.png", {
-      frameWidth: 112,
-      frameHeight: 112,
-    });
-    this.load.spritesheet("obj-coracle", "assets/obj/coracle.png", {
-      frameWidth: 48,
-      frameHeight: 37,
-    });
-    for (const f of [
-      "flower_blue",
-      "flower_blue2",
-      "flower_red",
-      "flower_yellow",
-      "flower_white",
-      "fence_h",
-      "fence_v",
-      "fence_post",
-      "bush1",
-      "bush2",
-    ])
-      this.load.image(`obj-${f}`, `assets/obj/${f}.png`);
-    this.load.spritesheet("vfx-smoke", "assets/vfx/smoke.png", { frameWidth: 15, frameHeight: 37 });
-
     // animals
     this.load.spritesheet("obj-chicken", "assets/obj/chicken.png", {
       frameWidth: 32,
@@ -117,7 +95,10 @@ export class BootScene extends Phaser.Scene {
     });
     this.load.spritesheet("obj-cow", "assets/obj/cow.png", { frameWidth: 32, frameHeight: 32 });
     this.load.spritesheet("obj-pig", "assets/obj/pig.png", { frameWidth: 32, frameHeight: 32 });
-    this.load.spritesheet("obj-sheep", "assets/obj/sheep.png", { frameWidth: 32, frameHeight: 32 });
+    this.load.spritesheet("obj-sheep", "assets/obj/sheep.png", {
+      frameWidth: 32,
+      frameHeight: 32,
+    });
     this.load.spritesheet("obj-duck", "assets/obj/duck.png", { frameWidth: 16, frameHeight: 16 });
     this.load.spritesheet("obj-bird", "assets/obj/bird.png", { frameWidth: 16, frameHeight: 16 });
 
@@ -126,12 +107,14 @@ export class BootScene extends Phaser.Scene {
       this.load.image(`ui-${n}`, `assets/ui/${n}.png`);
     this.load.image("ui-slot", "assets/ui/slot.png");
     this.load.image("ui-slot-sel", "assets/ui/slot_sel.png");
-
-    // vfx
-    this.load.spritesheet("vfx-glint", "assets/vfx/glint.png", { frameWidth: 7, frameHeight: 7 });
   }
 
   create(): void {
+    setTracedMap(parseTracedMap(this.cache.json.get("map")));
+    this.makeAnimsAndStart();
+  }
+
+  private makeAnimsAndStart(): void {
     const mk = (key: string, src: string, rate: number, repeat: number) =>
       this.anims.create({
         key,
@@ -162,17 +145,31 @@ export class BootScene extends Phaser.Scene {
     mk("e-skel-hurt", "e-skel-hurt", 14, 0);
     mk("e-skel-death", "e-skel-death", 12, 0);
 
-    mk("tree-sway", "obj-tree", 6, -1);
     mk("chicken-walk", "obj-chicken", 6, -1);
     mk("cow-idle", "obj-cow", 4, -1);
     mk("pig-idle", "obj-pig", 4, -1);
     mk("sheep-idle", "obj-sheep", 4, -1);
     mk("duck-walk", "obj-duck", 6, -1);
     mk("bird-fly", "obj-bird", 8, -1);
-    mk("glint", "vfx-glint", 14, 0);
-    mk("windmill-spin", "obj-windmill", 12, -1);
-    mk("coracle-bob", "obj-coracle", 4, -1);
-    mk("smoke-rise", "vfx-smoke", 14, -1);
+    mk("mushroom-red-bob", "obj-mushroom-red", 4, -1);
+    mk("mushroom-blue-bob", "obj-mushroom-blue", 4, -1);
+
+    // every animated deco sprite referenced by the traced map (frames live in
+    // the packed deco-atlas as "<name>/<i>")
+    const traced = getTracedMap();
+    for (const [name, def] of Object.entries(traced.deco)) {
+      if (def.frames > 1) {
+        this.anims.create({
+          key: `deco-${name}`,
+          frames: Array.from({ length: def.frames }, (_, i) => ({
+            key: "deco-atlas",
+            frame: `${name}/${i}`,
+          })),
+          frameRate: Phaser.Math.Clamp(def.fps, 1, 30),
+          repeat: -1,
+        });
+      }
+    }
 
     this.makeIcon("icon-wool", (g) => {
       g.fillStyle(0xf2f2f2, 1);
@@ -211,21 +208,6 @@ export class BootScene extends Phaser.Scene {
       4,
       4,
     );
-    this.makeIcon(
-      "obj-cave",
-      (g) => {
-        g.fillStyle(0x5b6068, 1);
-        g.fillEllipse(13, 16, 24, 12);
-        g.fillStyle(0x6f757e, 1);
-        g.fillEllipse(13, 11, 22, 14);
-        g.fillStyle(0x474c54, 1);
-        g.fillEllipse(13, 12, 17, 11);
-        g.fillStyle(0x0c0e13, 1);
-        g.fillEllipse(13, 13, 12, 9);
-      },
-      26,
-      24,
-    );
     this.makeIcon("t-cavefloor", (g) => {
       g.fillStyle(0x2c2f3a, 1);
       g.fillRect(0, 0, 16, 16);
@@ -253,61 +235,7 @@ export class BootScene extends Phaser.Scene {
       for (let y = 2; y < 16; y += 4) g.fillRect(2, y, 12, 2);
     });
 
-    // dual-grid terrain autotiles: 16 corner-mask tiles per terrain, drawn over
-    // the textured grass. Transparent on the grass side so grass shows through.
-    this.makeDualGrid("dt-water", (v, px, py) => {
-      if (v < 0.5) return [0, 0, 0, 0];
-      if (v < 0.6) return [222, 244, 255, 255]; // foam shoreline
-      if (v < 0.7) return [120, 200, 238, 255]; // shallow
-      const n = ((px * 7 + py * 13) % 5) - 2;
-      return [0, 153 + n * 3, 219 + n * 2, 255]; // deep water w/ subtle ripple
-    });
-    this.makeDualGrid("dt-sand", (v, px, py) => {
-      if (v < 0.5) return [0, 0, 0, 0];
-      if (v < 0.6) return [196, 140, 84, 255]; // darker dirt rim
-      const h = ((px * 73856093) ^ (py * 19349663)) >>> 0;
-      const d = h % 100 < 11 ? -16 : 0;
-      return [228 + d, 166 + d, 114 + d, 255];
-    });
-
     this.scene.start("Title");
-  }
-
-  // Generate a 16-tile dual-grid set. Each tile's 4 corners (TL,TR,BL,BR) are
-  // filled/empty per the mask; bilinear interpolation gives smooth chamfered
-  // shorelines. `paint(v,px,py)` returns RGBA for interpolated coverage v.
-  private makeDualGrid(
-    prefix: string,
-    paint: (v: number, px: number, py: number) => [number, number, number, number],
-  ): void {
-    for (let mask = 0; mask < 16; mask++) {
-      const key = `${prefix}-${mask}`;
-      if (this.textures.exists(key)) continue;
-      const tex = this.textures.createCanvas(key, 16, 16);
-      if (!tex) continue;
-      const ctx = tex.getContext();
-      const img = ctx.createImageData(16, 16);
-      const tl = mask & 1,
-        tr = (mask >> 1) & 1,
-        bl = (mask >> 2) & 1,
-        br = (mask >> 3) & 1;
-      for (let py = 0; py < 16; py++) {
-        for (let px = 0; px < 16; px++) {
-          const fx = (px + 0.5) / 16,
-            fy = (py + 0.5) / 16;
-          const v =
-            tl * (1 - fx) * (1 - fy) + tr * fx * (1 - fy) + bl * (1 - fx) * fy + br * fx * fy;
-          const [r, g, b, a] = paint(v, px, py);
-          const o = (py * 16 + px) * 4;
-          img.data[o] = r;
-          img.data[o + 1] = g;
-          img.data[o + 2] = b;
-          img.data[o + 3] = a;
-        }
-      }
-      ctx.putImageData(img, 0, 0);
-      tex.refresh();
-    }
   }
 
   private makeIcon(

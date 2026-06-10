@@ -20,7 +20,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     id: "willow",
     name: "Willow",
     role: "the gardener",
-    homeTile: { tx: 26, ty: 8 },
+    homeTile: { tx: 13, ty: 14 },
     tint: 0xffd2d2,
     greeting: "Oh, hello neighbour!",
     lines: [
@@ -42,7 +42,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     id: "finn",
     name: "Finn",
     role: "the angler",
-    homeTile: { tx: 11, ty: 28 },
+    homeTile: { tx: 70, ty: 33 },
     tint: 0xcfe2ff,
     greeting: "Ahoy! Fish biting today?",
     lines: [
@@ -64,7 +64,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
     id: "hazel",
     name: "Hazel",
     role: "the miner",
-    homeTile: { tx: 41, ty: 12 },
+    homeTile: { tx: 47, ty: 42 },
     tint: 0xd9d2b0,
     greeting: "Mind the skeletons down there.",
     lines: [

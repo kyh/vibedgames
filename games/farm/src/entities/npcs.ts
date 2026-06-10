@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { TILE, DEPTH } from "../config";
+import { TILE, DEPTH, CHAR_ORIGIN_Y } from "../config";
 import { World } from "../world/world";
 import { store } from "../systems/store";
 import {
@@ -19,6 +19,7 @@ import type { GameScene } from "../scenes/GameScene";
 type Live = {
   id: NpcId;
   spr: Phaser.GameObjects.Sprite;
+  shadow: Phaser.GameObjects.Sprite;
   home: { x: number; y: number };
   target: { x: number; y: number };
   rest: number;
@@ -41,12 +42,22 @@ export class NpcManager {
       if (store.npcFriendship[id] === undefined) store.npcFriendship[id] = 0;
       const x = def.homeTile.tx * TILE + 8,
         y = def.homeTile.ty * TILE + 14;
-      const spr = this.scene.add.sprite(x, y, "p-idle").setOrigin(0.5, 0.82).play("p-idle");
+      const shadow = this.scene.add
+        .sprite(x, y + 1, "char-shadow-tex")
+        .setOrigin(0.5, 0.5)
+        .setScale(1.1, 1)
+        .setAlpha(0.35);
+      const spr = this.scene.add
+        .sprite(x, y, "p-idle")
+        .setOrigin(0.5, CHAR_ORIGIN_Y)
+        .play("p-idle");
       spr.setTint(def.tint);
       spr.setDepth(DEPTH.entityBase + y);
+      shadow.setDepth(spr.depth - 1);
       this.live.push({
         id,
         spr,
+        shadow,
         home: { x, y },
         target: { x, y },
         rest: Phaser.Math.FloatBetween(0, 3),
@@ -79,6 +90,8 @@ export class NpcManager {
         l.spr.play("p-idle", true);
       }
       l.spr.setDepth(DEPTH.entityBase + l.spr.y);
+      l.shadow.setPosition(l.spr.x, l.spr.y + 1);
+      l.shadow.setDepth(l.spr.depth - 1);
     }
   }
 

@@ -12,6 +12,10 @@ export type AnimalDef = {
   texture: string;
   anim: string;
   scale: number;
+  // sprite origin Y so the art's feet sit exactly on the anchor (the frames
+  // have empty space below the body), and the ground-shadow width to match
+  originY: number;
+  shadowScale: number;
 };
 
 export const ANIMALS: Record<AnimalKind, AnimalDef> = {
@@ -24,6 +28,8 @@ export const ANIMALS: Record<AnimalKind, AnimalDef> = {
     texture: "obj-chicken",
     anim: "chicken-walk",
     scale: 1,
+    originY: 0.83,
+    shadowScale: 1.1,
   },
   duck: {
     kind: "duck",
@@ -34,6 +40,8 @@ export const ANIMALS: Record<AnimalKind, AnimalDef> = {
     texture: "obj-duck",
     anim: "duck-walk",
     scale: 1,
+    originY: 1,
+    shadowScale: 0.9,
   },
   cow: {
     kind: "cow",
@@ -44,6 +52,8 @@ export const ANIMALS: Record<AnimalKind, AnimalDef> = {
     texture: "obj-cow",
     anim: "cow-idle",
     scale: 1,
+    originY: 0.92,
+    shadowScale: 1.6,
   },
   sheep: {
     kind: "sheep",
@@ -54,6 +64,8 @@ export const ANIMALS: Record<AnimalKind, AnimalDef> = {
     texture: "obj-sheep",
     anim: "sheep-idle",
     scale: 1,
+    originY: 0.86,
+    shadowScale: 1.3,
   },
   pig: {
     kind: "pig",
@@ -64,6 +76,8 @@ export const ANIMALS: Record<AnimalKind, AnimalDef> = {
     texture: "obj-pig",
     anim: "pig-idle",
     scale: 1,
+    originY: 0.86,
+    shadowScale: 1.3,
   },
 };
 
