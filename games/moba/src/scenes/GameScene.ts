@@ -12,6 +12,7 @@ import { dist2 } from "../sim/math";
 import { buyItem, createWorld, dashHero, issueOrder, spawnHero, step } from "../sim/world";
 import type { Order, Unit, World } from "../sim/types";
 import { resumeAudio, sfx, toggleMute } from "../render/audio";
+import { FONT } from "../render/font";
 import { WorldView } from "../render/view";
 import { INTENT_EVENT, MULTIPLAYER_HOST, PARTY, ROOM } from "../net/protocol";
 import type { Intent } from "../net/protocol";
@@ -638,7 +639,7 @@ export class GameScene extends Phaser.Scene {
       .setScale(0);
     const txt = this.add
       .text(cx, cy - 78, win ? "VICTORY" : "DEFEAT", {
-        fontFamily: '"Lilita One", sans-serif',
+        fontFamily: FONT,
         fontSize: "72px",
         color: win ? "#5a3a10" : "#f4eee0",
         stroke: win ? "#fff3c4" : "#3a1410",
@@ -657,7 +658,7 @@ export class GameScene extends Phaser.Scene {
         .setScrollFactor(0)
         .setDepth(99999)
         .setInteractive({ useHandCursor: true });
-      const t = this.add.text(cx + dx, cy + 56, label, { fontFamily: '"Lilita One", sans-serif', fontSize: "19px", color: "#1e3a44" }).setOrigin(0.5).setScrollFactor(0).setDepth(100000);
+      const t = this.add.text(cx + dx, cy + 56, label, { fontFamily: FONT, fontSize: "19px", color: "#1e3a44" }).setOrigin(0.5).setScrollFactor(0).setDepth(100000);
       b.on("pointerover", () => this.tweens.add({ targets: [b, t], scale: 1.05, duration: 100 }));
       b.on("pointerout", () => this.tweens.add({ targets: [b, t], scale: 1, duration: 100 }));
       b.on("pointerdown", () => {
