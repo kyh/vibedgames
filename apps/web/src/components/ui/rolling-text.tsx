@@ -9,7 +9,7 @@ import {
 } from "motion/react";
 import { cn } from "@repo/ui/lib/utils";
 
-const NBSP = " ";
+const NBSP = "\u00A0";
 const glyph = (char: string) => (char === " " ? NBSP : char);
 
 // Springy overshoot — slot-text's "back" easing, so each letter lands with a
@@ -190,7 +190,10 @@ const RollingColumn = ({
     <motion.span
       aria-hidden
       style={{ width }}
-      className="relative inline-flex min-w-0 justify-center overflow-x-visible [overflow-y:clip]"
+      // overflow-y clips at the padding box, so the symmetric py/-my pair
+      // extends the clip past tight line-heights (descenders like "g" were
+      // getting cut) without changing the line metrics.
+      className="relative -my-[0.2em] inline-flex min-w-0 justify-center overflow-x-visible py-[0.2em] [overflow-y:clip]"
     >
       {/* Invisible sizer renders every glyph this column can show (overlapped
           in one grid cell) so the current one can be measured. It also keeps
