@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AnimatePresence, motion, type TargetAndTransition } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion, type TargetAndTransition } from "motion/react";
 import { cn } from "@repo/ui/lib/utils";
 
 const NBSP = " ";
@@ -78,12 +78,14 @@ export const RollingText = ({
   className,
 }: RollingTextProps) => {
   const [index, setIndex] = useState(0);
+  // Respect prefers-reduced-motion: no cycling, no roll — just the first word.
+  const reduceMotion = useReducedMotion();
 
   useEffect(() => {
-    if (words.length <= 1) return;
+    if (reduceMotion || words.length <= 1) return;
     const id = setInterval(() => setIndex((i) => (i + 1) % words.length), interval);
     return () => clearInterval(id);
-  }, [words.length, interval]);
+  }, [reduceMotion, words.length, interval]);
 
   // Pad to the longest word so trailing cells roll out instead of popping.
   const len = useMemo(() => words.reduce((max, word) => Math.max(max, word.length), 0), [words]);
@@ -101,6 +103,10 @@ export const RollingText = ({
   const word = words[index] ?? "";
   const enterY = direction === "down" ? "-100%" : "100%";
   const exitY = direction === "down" ? "100%" : "-100%";
+
+  if (reduceMotion) {
+    return <span className={cn("inline-flex", className)}>{words[0]}</span>;
+  }
 
   return (
     <span className={cn("inline-flex", className)} aria-label={words[0]}>
