@@ -1,0 +1,134 @@
+import Phaser from "phaser";
+import { hasSave, clearSave } from "../systems/save";
+import { Sound } from "../render/audio";
+
+export class TitleScene extends Phaser.Scene {
+  constructor() {
+    super("Title");
+  }
+
+  create(): void {
+    document.getElementById("veil")?.classList.add("hidden");
+    const { width, height } = this.scale;
+
+    // cozy sky->grass backdrop
+    const bg = this.add.graphics();
+    this.drawBackdrop(bg, width, height);
+    this.scale.on("resize", (gs: Phaser.Structs.Size) => {
+      bg.clear();
+      this.drawBackdrop(bg, gs.width, gs.height);
+      layout();
+    });
+
+    // decorative idle farmer
+    const farmer = this.add.sprite(0, 0, "p-idle").setScale(5).play("p-idle");
+
+    const title = this.add
+      .text(0, 0, "FARM", {
+        fontFamily: "ui-monospace, monospace",
+        fontSize: "84px",
+        fontStyle: "900",
+        color: "#fff6d5",
+        align: "center",
+        stroke: "#7a4a18",
+        strokeThickness: 10,
+      })
+      .setOrigin(0.5)
+      .setLineSpacing(-6);
+    title.setShadow(0, 8, "rgba(0,0,0,0.25)", 12, true, true);
+
+    const tag = this.add
+      .text(0, 0, "a cozy farming RPG", {
+        fontFamily: "ui-monospace, monospace",
+        fontSize: "20px",
+        color: "#eaffd0",
+      })
+      .setOrigin(0.5);
+
+    const newBtn = this.makeButton("🌱  New Farm", "#5fae3a");
+    const contBtn = this.makeButton("☀  Continue", "#3a86c8");
+    const hint = this.add
+      .text(0, 0, "WASD / arrows move · E or Space use tool · 1–9 select · I help", {
+        fontFamily: "ui-monospace, monospace",
+        fontSize: "14px",
+        color: "#dfeccc",
+      })
+      .setOrigin(0.5)
+      .setAlpha(0.85);
+
+    const save = hasSave();
+    contBtn.container.setAlpha(save ? 1 : 0.35);
+
+    newBtn.zone.on("pointerdown", () => {
+      Sound.resume();
+      Sound.click();
+      this.startNew();
+    });
+    if (save)
+      contBtn.zone.on("pointerdown", () => {
+        Sound.resume();
+        Sound.click();
+        this.scene.start("Game", { mode: "continue" });
+      });
+
+    this.input.keyboard?.on("keydown-N", () => this.startNew());
+    this.input.keyboard?.on("keydown-ENTER", () =>
+      save ? this.scene.start("Game", { mode: "continue" }) : this.startNew(),
+    );
+    if (save)
+      this.input.keyboard?.on("keydown-C", () => this.scene.start("Game", { mode: "continue" }));
+
+    const layout = () => {
+      const cx = this.scale.width / 2;
+      title.setPosition(cx, this.scale.height * 0.26);
+      tag.setPosition(cx, title.y + 92);
+      farmer.setPosition(cx, tag.y + 96);
+      newBtn.container.setPosition(cx, this.scale.height * 0.66);
+      contBtn.container.setPosition(cx, this.scale.height * 0.66 + 70);
+      hint.setPosition(cx, this.scale.height - 38);
+    };
+    layout();
+  }
+
+  private startNew(): void {
+    clearSave();
+    this.scene.start("Game", { mode: "new" });
+  }
+
+  private drawBackdrop(g: Phaser.GameObjects.Graphics, w: number, h: number): void {
+    g.fillGradientStyle(0x9fd8f0, 0x9fd8f0, 0x8fce5a, 0x6fb84a, 1);
+    g.fillRect(0, 0, w, h);
+    // soft sun
+    g.fillStyle(0xfff3c4, 0.5);
+    g.fillCircle(w * 0.8, h * 0.2, 80);
+    g.fillStyle(0xfff3c4, 0.8);
+    g.fillCircle(w * 0.8, h * 0.2, 52);
+  }
+
+  private makeButton(label: string, color: string) {
+    const container = this.add.container(0, 0);
+    const bg = this.add.graphics();
+    const w = 280,
+      h = 56;
+    const c = Phaser.Display.Color.HexStringToColor(color).color;
+    bg.fillStyle(0x000000, 0.18);
+    bg.fillRoundedRect(-w / 2 + 3, -h / 2 + 5, w, h, 14);
+    bg.fillStyle(c, 1);
+    bg.fillRoundedRect(-w / 2, -h / 2, w, h, 14);
+    bg.lineStyle(3, 0xffffff, 0.5);
+    bg.strokeRoundedRect(-w / 2, -h / 2, w, h, 14);
+    const txt = this.add
+      .text(0, 0, label, {
+        fontFamily: "ui-monospace, monospace",
+        fontSize: "24px",
+        fontStyle: "bold",
+        color: "#ffffff",
+      })
+      .setOrigin(0.5);
+    const zone = this.add.zone(0, 0, w, h).setInteractive({ useHandCursor: true });
+    container.add([bg, txt, zone]);
+    zone.on("pointerover", () => container.setScale(1.05));
+    zone.on("pointerout", () => container.setScale(1));
+    return { container, zone };
+  }
+}

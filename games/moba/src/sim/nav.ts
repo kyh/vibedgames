@@ -1,0 +1,29 @@
+// Lazily-built navigation grid for the (static) map. Heroes A* against this;
+// creeps follow authored lane waypoints and only steer locally.
+
+import { WORLD, buildBlockers } from "../data/map";
+import { NavGrid } from "./grid";
+import type { Vec2 } from "./math";
+
+let _nav: NavGrid | null = null;
+
+export function nav(): NavGrid {
+  if (!_nav) _nav = new NavGrid(WORLD.width, WORLD.height, WORLD.cell, buildBlockers());
+  return _nav;
+}
+
+export function findPath(from: Vec2, to: Vec2): Vec2[] {
+  const path = nav().findPath(from, to);
+  return path ?? [{ x: to.x, y: to.y }];
+}
+
+export function walkable(x: number, y: number): boolean {
+  return nav().isWalkableWorld(x, y);
+}
+
+/** Snap a point to the nearest walkable world position (for click orders). */
+export function snapWalkable(x: number, y: number): Vec2 {
+  const cell = nav().nearestWalkable(x, y);
+  if (!cell) return { x, y };
+  return nav().cellCenter(cell.c, cell.r);
+}

@@ -7,8 +7,6 @@ import { cn } from "@repo/ui/lib/utils";
 import { createRootRouteWithContext, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
 
 import type { AppRouter } from "@repo/api";
-import { Canvas } from "@/components/canvas/canvas";
-import { Nav } from "@/components/game/nav";
 import { siteConfig } from "@/lib/site-config";
 
 import appCss from "../styles/globals.css?url";
@@ -48,9 +46,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 function RootComponent() {
   return (
     <RootDocument>
-      <Canvas />
       <Outlet />
-      <Nav />
     </RootDocument>
   );
 }
