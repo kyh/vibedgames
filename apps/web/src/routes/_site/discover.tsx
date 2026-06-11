@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useWebHaptics } from "web-haptics/react";
 
-import { RegisterLink } from "@/components/auth/register-link";
+import { GitHubLink, RegisterLink } from "@/components/auth/register-link";
 import { FadeInBlur } from "@/components/ui/fade-in-blur";
 import { featuredGames, gameSearchSchema } from "@/components/game/data";
 
@@ -43,6 +43,7 @@ function DiscoverPage() {
           ))}
         </FadeInBlur>
       </header>
+      <GitHubLink />
     </>
   );
 }
