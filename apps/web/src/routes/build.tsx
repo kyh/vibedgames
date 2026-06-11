@@ -12,6 +12,7 @@ import { CheckIcon, ChevronRightIcon, CopyIcon } from "lucide-react";
 import { RegisterLink } from "@/components/auth/register-link";
 import { ClaudeIcon, CodexIcon, CursorIcon } from "@/components/ui/brand-icons";
 import { FadeInBlur } from "@/components/ui/fade-in-blur";
+import { RollingText } from "@/components/ui/rolling-text";
 import { useCopyToClipboard } from "@/lib/use-copy-to-clipboard";
 
 const INSTALL_PROMPT = "Use vibedgames.com to help me build my game";
@@ -359,9 +360,15 @@ function OfferingsDeck() {
     <section className="relative flex flex-col items-center justify-center overflow-x-clip pb-40 sm:h-dvh sm:overflow-hidden sm:pb-0">
       <FadeInBlur className="self-start px-6 pt-8 sm:absolute sm:left-[25px] sm:top-[25px] sm:z-10 sm:max-w-4xl sm:px-0 sm:pt-0">
         <h1 className="text-3xl font-medium leading-[0.9] -tracking-[0.03em] sm:text-5xl">
-          You bring the ideas.
+          A game studio
           <br />
-          <span className="text-muted-foreground">We bring the game studio.</span>
+          <span className="text-muted-foreground">
+            in your{" "}
+            <RollingText
+              words={["claude", "codex", "cursor", "agent"]}
+              className="text-foreground"
+            />
+          </span>
         </h1>
       </FadeInBlur>
 
