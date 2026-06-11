@@ -1,713 +1,713 @@
 {
- "world": {
-  "width": 6400,
-  "height": 6400,
-  "tile": 64
- },
- "lanes": [
-  {
-   "id": "top",
-   "radiantPath": [
+  "world": {
+    "width": 6400,
+    "height": 6400,
+    "tile": 64
+  },
+  "lanes": [
     {
-     "x": 760,
-     "y": 5640
+      "id": "top",
+      "radiantPath": [
+        {
+          "x": 760,
+          "y": 5640
+        },
+        {
+          "x": 600,
+          "y": 4400
+        },
+        {
+          "x": 600,
+          "y": 3000
+        },
+        {
+          "x": 640,
+          "y": 1800
+        },
+        {
+          "x": 760,
+          "y": 900
+        },
+        {
+          "x": 1100,
+          "y": 700
+        },
+        {
+          "x": 1800,
+          "y": 640
+        },
+        {
+          "x": 3000,
+          "y": 600
+        },
+        {
+          "x": 4400,
+          "y": 600
+        },
+        {
+          "x": 5500,
+          "y": 760
+        }
+      ],
+      "direPath": [
+        {
+          "x": 5640,
+          "y": 760
+        },
+        {
+          "x": 5500,
+          "y": 760
+        },
+        {
+          "x": 4400,
+          "y": 600
+        },
+        {
+          "x": 3000,
+          "y": 600
+        },
+        {
+          "x": 1800,
+          "y": 640
+        },
+        {
+          "x": 1100,
+          "y": 700
+        },
+        {
+          "x": 760,
+          "y": 900
+        },
+        {
+          "x": 640,
+          "y": 1800
+        },
+        {
+          "x": 600,
+          "y": 3000
+        },
+        {
+          "x": 600,
+          "y": 4400
+        },
+        {
+          "x": 760,
+          "y": 5640
+        }
+      ]
     },
     {
-     "x": 600,
-     "y": 4400
+      "id": "mid",
+      "radiantPath": [
+        {
+          "x": 900,
+          "y": 5500
+        },
+        {
+          "x": 1600,
+          "y": 4800
+        },
+        {
+          "x": 2400,
+          "y": 4000
+        },
+        {
+          "x": 3000,
+          "y": 3400
+        },
+        {
+          "x": 3200,
+          "y": 3200
+        },
+        {
+          "x": 3400,
+          "y": 3000
+        },
+        {
+          "x": 4000,
+          "y": 2400
+        },
+        {
+          "x": 4800,
+          "y": 1600
+        },
+        {
+          "x": 5500,
+          "y": 900
+        }
+      ],
+      "direPath": [
+        {
+          "x": 5500,
+          "y": 900
+        },
+        {
+          "x": 4800,
+          "y": 1600
+        },
+        {
+          "x": 4000,
+          "y": 2400
+        },
+        {
+          "x": 3400,
+          "y": 3000
+        },
+        {
+          "x": 3200,
+          "y": 3200
+        },
+        {
+          "x": 3000,
+          "y": 3400
+        },
+        {
+          "x": 2400,
+          "y": 4000
+        },
+        {
+          "x": 1600,
+          "y": 4800
+        },
+        {
+          "x": 900,
+          "y": 5500
+        }
+      ]
     },
     {
-     "x": 600,
-     "y": 3000
-    },
-    {
-     "x": 640,
-     "y": 1800
-    },
-    {
-     "x": 760,
-     "y": 900
-    },
-    {
-     "x": 1100,
-     "y": 700
-    },
-    {
-     "x": 1800,
-     "y": 640
-    },
-    {
-     "x": 3000,
-     "y": 600
-    },
-    {
-     "x": 4400,
-     "y": 600
-    },
-    {
-     "x": 5500,
-     "y": 760
+      "id": "bottom",
+      "radiantPath": [
+        {
+          "x": 900,
+          "y": 5640
+        },
+        {
+          "x": 1800,
+          "y": 5760
+        },
+        {
+          "x": 3000,
+          "y": 5800
+        },
+        {
+          "x": 4400,
+          "y": 5800
+        },
+        {
+          "x": 5300,
+          "y": 5760
+        },
+        {
+          "x": 5700,
+          "y": 5500
+        },
+        {
+          "x": 5760,
+          "y": 4400
+        },
+        {
+          "x": 5800,
+          "y": 3000
+        },
+        {
+          "x": 5760,
+          "y": 1800
+        },
+        {
+          "x": 5640,
+          "y": 900
+        }
+      ],
+      "direPath": [
+        {
+          "x": 5640,
+          "y": 900
+        },
+        {
+          "x": 5760,
+          "y": 1800
+        },
+        {
+          "x": 5800,
+          "y": 3000
+        },
+        {
+          "x": 5760,
+          "y": 4400
+        },
+        {
+          "x": 5700,
+          "y": 5500
+        },
+        {
+          "x": 5300,
+          "y": 5760
+        },
+        {
+          "x": 4400,
+          "y": 5800
+        },
+        {
+          "x": 3000,
+          "y": 5800
+        },
+        {
+          "x": 1800,
+          "y": 5760
+        },
+        {
+          "x": 900,
+          "y": 5640
+        }
+      ]
     }
-   ],
-   "direPath": [
+  ],
+  "towers": [
     {
-     "x": 5640,
-     "y": 760
+      "team": "radiant",
+      "lane": "top",
+      "tier": "t1",
+      "x": 640,
+      "y": 3000
     },
     {
-     "x": 5500,
-     "y": 760
+      "team": "radiant",
+      "lane": "top",
+      "tier": "t2",
+      "x": 640,
+      "y": 4000
     },
     {
-     "x": 4400,
-     "y": 600
+      "team": "radiant",
+      "lane": "top",
+      "tier": "t3",
+      "x": 760,
+      "y": 4900
     },
     {
-     "x": 3000,
-     "y": 600
+      "team": "radiant",
+      "lane": "mid",
+      "tier": "t1",
+      "x": 2700,
+      "y": 3700
     },
     {
-     "x": 1800,
-     "y": 640
+      "team": "radiant",
+      "lane": "mid",
+      "tier": "t2",
+      "x": 1900,
+      "y": 4500
     },
     {
-     "x": 1100,
-     "y": 700
+      "team": "radiant",
+      "lane": "mid",
+      "tier": "t3",
+      "x": 1250,
+      "y": 5150
     },
     {
-     "x": 760,
-     "y": 900
+      "team": "radiant",
+      "lane": "bottom",
+      "tier": "t1",
+      "x": 3000,
+      "y": 5760
     },
     {
-     "x": 640,
-     "y": 1800
+      "team": "radiant",
+      "lane": "bottom",
+      "tier": "t2",
+      "x": 4000,
+      "y": 5760
     },
     {
-     "x": 600,
-     "y": 3000
+      "team": "radiant",
+      "lane": "bottom",
+      "tier": "t3",
+      "x": 4900,
+      "y": 5640
     },
     {
-     "x": 600,
-     "y": 4400
+      "team": "radiant",
+      "lane": "base",
+      "tier": "base",
+      "x": 980,
+      "y": 5180
     },
     {
-     "x": 760,
-     "y": 5640
+      "team": "radiant",
+      "lane": "base",
+      "tier": "base",
+      "x": 1180,
+      "y": 5380
+    },
+    {
+      "team": "dire",
+      "lane": "top",
+      "tier": "t1",
+      "x": 3000,
+      "y": 640
+    },
+    {
+      "team": "dire",
+      "lane": "top",
+      "tier": "t2",
+      "x": 2000,
+      "y": 640
+    },
+    {
+      "team": "dire",
+      "lane": "top",
+      "tier": "t3",
+      "x": 1100,
+      "y": 760
+    },
+    {
+      "team": "dire",
+      "lane": "mid",
+      "tier": "t1",
+      "x": 3700,
+      "y": 2700
+    },
+    {
+      "team": "dire",
+      "lane": "mid",
+      "tier": "t2",
+      "x": 4500,
+      "y": 1900
+    },
+    {
+      "team": "dire",
+      "lane": "mid",
+      "tier": "t3",
+      "x": 5150,
+      "y": 1250
+    },
+    {
+      "team": "dire",
+      "lane": "bottom",
+      "tier": "t1",
+      "x": 5760,
+      "y": 3000
+    },
+    {
+      "team": "dire",
+      "lane": "bottom",
+      "tier": "t2",
+      "x": 5760,
+      "y": 2000
+    },
+    {
+      "team": "dire",
+      "lane": "bottom",
+      "tier": "t3",
+      "x": 5640,
+      "y": 1100
+    },
+    {
+      "team": "dire",
+      "lane": "base",
+      "tier": "base",
+      "x": 5420,
+      "y": 1020
+    },
+    {
+      "team": "dire",
+      "lane": "base",
+      "tier": "base",
+      "x": 5220,
+      "y": 1220
     }
-   ]
-  },
-  {
-   "id": "mid",
-   "radiantPath": [
+  ],
+  "bases": [
     {
-     "x": 900,
-     "y": 5500
+      "team": "radiant",
+      "ancient": {
+        "x": 760,
+        "y": 5640
+      },
+      "fountainCenter": {
+        "x": 560,
+        "y": 5840
+      },
+      "fountainHealRadius": 360,
+      "heroSpawn": {
+        "x": 760,
+        "y": 5640
+      },
+      "shopRadius": 420,
+      "color": "Blue"
     },
     {
-     "x": 1600,
-     "y": 4800
-    },
-    {
-     "x": 2400,
-     "y": 4000
-    },
-    {
-     "x": 3000,
-     "y": 3400
-    },
-    {
-     "x": 3200,
-     "y": 3200
-    },
-    {
-     "x": 3400,
-     "y": 3000
-    },
-    {
-     "x": 4000,
-     "y": 2400
-    },
-    {
-     "x": 4800,
-     "y": 1600
-    },
-    {
-     "x": 5500,
-     "y": 900
+      "team": "dire",
+      "ancient": {
+        "x": 5640,
+        "y": 760
+      },
+      "fountainCenter": {
+        "x": 5840,
+        "y": 560
+      },
+      "fountainHealRadius": 360,
+      "heroSpawn": {
+        "x": 5640,
+        "y": 760
+      },
+      "shopRadius": 420,
+      "color": "Red"
     }
-   ],
-   "direPath": [
+  ],
+  "blockers": [
     {
-     "x": 5500,
-     "y": 900
+      "kind": "rect",
+      "x": 0,
+      "y": 1000,
+      "w": 1200,
+      "h": 200,
+      "label": "river-NW-edge",
+      "note": "river band runs anti-diagonal; rects approximate segments along x+y~=3700"
     },
     {
-     "x": 4800,
-     "y": 1600
+      "kind": "rect",
+      "x": 2700,
+      "y": 760,
+      "w": 1000,
+      "h": 240,
+      "label": "river-seg-top",
+      "note": "north end of river near top lane; bridge gap at top lane crossing x~640..900"
     },
     {
-     "x": 4000,
-     "y": 2400
+      "kind": "rect",
+      "x": 760,
+      "y": 2700,
+      "w": 240,
+      "h": 1000,
+      "label": "river-seg-left",
+      "note": "west run of river near radiant top approach"
     },
     {
-     "x": 3400,
-     "y": 3000
+      "kind": "rect",
+      "x": 1400,
+      "y": 2300,
+      "w": 1400,
+      "h": 240,
+      "label": "river-NW",
+      "note": "anti-diagonal approximation, gap left at mid"
     },
     {
-     "x": 3200,
-     "y": 3200
+      "kind": "rect",
+      "x": 2200,
+      "y": 1500,
+      "w": 1400,
+      "h": 240,
+      "label": "river-N",
+      "note": "anti-diagonal approximation"
     },
     {
-     "x": 3000,
-     "y": 3400
+      "kind": "rect",
+      "x": 3000,
+      "y": 3000,
+      "w": 600,
+      "h": 600,
+      "label": "river-center",
+      "note": "central river/roshan pit area; mid bridge gap punched through center"
     },
     {
-     "x": 2400,
-     "y": 4000
+      "kind": "rect",
+      "x": 3700,
+      "y": 3700,
+      "w": 1400,
+      "h": 240,
+      "label": "river-SE",
+      "note": "anti-diagonal approximation toward bottom lane"
     },
     {
-     "x": 1600,
-     "y": 4800
+      "kind": "rect",
+      "x": 2300,
+      "y": 3700,
+      "w": 240,
+      "h": 1400,
+      "label": "river-S",
+      "note": "south run of river near radiant bottom approach"
     },
     {
-     "x": 900,
-     "y": 5500
+      "kind": "rect",
+      "x": 5400,
+      "y": 5200,
+      "w": 1000,
+      "h": 240,
+      "label": "river-SE-edge",
+      "note": "river band toward dire bottom; bridge gap at bottom lane x~5700"
+    },
+    {
+      "kind": "circle",
+      "x": 3300,
+      "y": 3300,
+      "r": 320,
+      "label": "roshan-pit",
+      "note": "central neutral objective pit, walled except entrance"
+    },
+    {
+      "kind": "rect",
+      "x": 640,
+      "y": 3000,
+      "w": 0,
+      "h": 0,
+      "label": "top-lane-bridge-gap",
+      "note": "BRIDGE: top lane crosses river at radiant t1 ~ (640,3000); leave passable corridor 700px wide centered on lane"
+    },
+    {
+      "kind": "rect",
+      "x": 3200,
+      "y": 3200,
+      "w": 0,
+      "h": 0,
+      "label": "mid-lane-bridge-gap",
+      "note": "BRIDGE: mid lane crosses river at center ~ (3200,3200); passable corridor along mid polyline"
+    },
+    {
+      "kind": "rect",
+      "x": 5760,
+      "y": 3000,
+      "w": 0,
+      "h": 0,
+      "label": "bottom-lane-bridge-gap",
+      "note": "BRIDGE: bottom lane crosses river near (5760,3000)... actual river cross at dire side; corridor along bottom polyline"
+    },
+    {
+      "kind": "rect",
+      "x": 100,
+      "y": 5400,
+      "w": 1100,
+      "h": 60,
+      "label": "radiant-base-wall-N",
+      "note": "base perimeter wall, gaps where lanes exit"
+    },
+    {
+      "kind": "rect",
+      "x": 1140,
+      "y": 5400,
+      "w": 60,
+      "h": 900,
+      "label": "radiant-base-wall-E",
+      "note": "base perimeter wall east"
+    },
+    {
+      "kind": "rect",
+      "x": 5200,
+      "y": 940,
+      "w": 1100,
+      "h": 60,
+      "label": "dire-base-wall-S",
+      "note": "base perimeter wall, gaps where lanes exit"
+    },
+    {
+      "kind": "rect",
+      "x": 5200,
+      "y": 100,
+      "w": 60,
+      "h": 900,
+      "label": "dire-base-wall-W",
+      "note": "base perimeter wall west"
     }
-   ]
-  },
-  {
-   "id": "bottom",
-   "radiantPath": [
+  ],
+  "jungle": [
     {
-     "x": 900,
-     "y": 5640
+      "kind": "trees",
+      "x": 1500,
+      "y": 4200,
+      "w": 700,
+      "h": 700,
+      "label": "radiant-top-jungle",
+      "note": "tree cluster between top and mid lanes, radiant side"
     },
     {
-     "x": 1800,
-     "y": 5760
+      "kind": "trees",
+      "x": 2600,
+      "y": 4900,
+      "w": 700,
+      "h": 700,
+      "label": "radiant-bottom-jungle",
+      "note": "tree cluster between mid and bottom lanes, radiant side"
     },
     {
-     "x": 3000,
-     "y": 5800
+      "kind": "trees",
+      "x": 4200,
+      "y": 1500,
+      "w": 700,
+      "h": 700,
+      "label": "dire-bottom-jungle",
+      "note": "tree cluster between bottom and mid lanes, dire side"
     },
     {
-     "x": 4400,
-     "y": 5800
+      "kind": "trees",
+      "x": 2900,
+      "y": 1600,
+      "w": 700,
+      "h": 700,
+      "label": "dire-top-jungle",
+      "note": "tree cluster between top and mid lanes, dire side"
     },
     {
-     "x": 5300,
-     "y": 5760
+      "kind": "trees",
+      "x": 1000,
+      "y": 1000,
+      "w": 600,
+      "h": 600,
+      "label": "top-left-corner-grove",
+      "note": "decorative corner trees"
     },
     {
-     "x": 5700,
-     "y": 5500
+      "kind": "trees",
+      "x": 4900,
+      "y": 4900,
+      "w": 600,
+      "h": 600,
+      "label": "bottom-right-corner-grove",
+      "note": "decorative corner trees"
     },
     {
-     "x": 5760,
-     "y": 4400
+      "kind": "camp",
+      "x": 1700,
+      "y": 3700,
+      "label": "radiant-top-camp",
+      "note": "neutral camp spot in radiant top jungle"
     },
     {
-     "x": 5800,
-     "y": 3000
+      "kind": "camp",
+      "x": 2400,
+      "y": 4400,
+      "label": "radiant-mid-camp",
+      "note": "neutral camp between mid/bottom radiant"
     },
     {
-     "x": 5760,
-     "y": 1800
+      "kind": "camp",
+      "x": 4000,
+      "y": 2000,
+      "label": "dire-bottom-camp",
+      "note": "neutral camp in dire bottom jungle"
     },
     {
-     "x": 5640,
-     "y": 900
+      "kind": "camp",
+      "x": 3700,
+      "y": 2400,
+      "label": "dire-mid-camp",
+      "note": "neutral camp dire side"
+    },
+    {
+      "kind": "camp",
+      "x": 1200,
+      "y": 4600,
+      "label": "radiant-small-camp",
+      "note": "easy camp near radiant base"
+    },
+    {
+      "kind": "camp",
+      "x": 4600,
+      "y": 1200,
+      "label": "dire-small-camp",
+      "note": "easy camp near dire base"
     }
-   ],
-   "direPath": [
-    {
-     "x": 5640,
-     "y": 900
-    },
-    {
-     "x": 5760,
-     "y": 1800
-    },
-    {
-     "x": 5800,
-     "y": 3000
-    },
-    {
-     "x": 5760,
-     "y": 4400
-    },
-    {
-     "x": 5700,
-     "y": 5500
-    },
-    {
-     "x": 5300,
-     "y": 5760
-    },
-    {
-     "x": 4400,
-     "y": 5800
-    },
-    {
-     "x": 3000,
-     "y": 5800
-    },
-    {
-     "x": 1800,
-     "y": 5760
-    },
-    {
-     "x": 900,
-     "y": 5640
-    }
-   ]
-  }
- ],
- "towers": [
-  {
-   "team": "radiant",
-   "lane": "top",
-   "tier": "t1",
-   "x": 640,
-   "y": 3000
-  },
-  {
-   "team": "radiant",
-   "lane": "top",
-   "tier": "t2",
-   "x": 640,
-   "y": 4000
-  },
-  {
-   "team": "radiant",
-   "lane": "top",
-   "tier": "t3",
-   "x": 760,
-   "y": 4900
-  },
-  {
-   "team": "radiant",
-   "lane": "mid",
-   "tier": "t1",
-   "x": 2700,
-   "y": 3700
-  },
-  {
-   "team": "radiant",
-   "lane": "mid",
-   "tier": "t2",
-   "x": 1900,
-   "y": 4500
-  },
-  {
-   "team": "radiant",
-   "lane": "mid",
-   "tier": "t3",
-   "x": 1250,
-   "y": 5150
-  },
-  {
-   "team": "radiant",
-   "lane": "bottom",
-   "tier": "t1",
-   "x": 3000,
-   "y": 5760
-  },
-  {
-   "team": "radiant",
-   "lane": "bottom",
-   "tier": "t2",
-   "x": 4000,
-   "y": 5760
-  },
-  {
-   "team": "radiant",
-   "lane": "bottom",
-   "tier": "t3",
-   "x": 4900,
-   "y": 5640
-  },
-  {
-   "team": "radiant",
-   "lane": "base",
-   "tier": "base",
-   "x": 980,
-   "y": 5180
-  },
-  {
-   "team": "radiant",
-   "lane": "base",
-   "tier": "base",
-   "x": 1180,
-   "y": 5380
-  },
-  {
-   "team": "dire",
-   "lane": "top",
-   "tier": "t1",
-   "x": 3000,
-   "y": 640
-  },
-  {
-   "team": "dire",
-   "lane": "top",
-   "tier": "t2",
-   "x": 2000,
-   "y": 640
-  },
-  {
-   "team": "dire",
-   "lane": "top",
-   "tier": "t3",
-   "x": 1100,
-   "y": 760
-  },
-  {
-   "team": "dire",
-   "lane": "mid",
-   "tier": "t1",
-   "x": 3700,
-   "y": 2700
-  },
-  {
-   "team": "dire",
-   "lane": "mid",
-   "tier": "t2",
-   "x": 4500,
-   "y": 1900
-  },
-  {
-   "team": "dire",
-   "lane": "mid",
-   "tier": "t3",
-   "x": 5150,
-   "y": 1250
-  },
-  {
-   "team": "dire",
-   "lane": "bottom",
-   "tier": "t1",
-   "x": 5760,
-   "y": 3000
-  },
-  {
-   "team": "dire",
-   "lane": "bottom",
-   "tier": "t2",
-   "x": 5760,
-   "y": 2000
-  },
-  {
-   "team": "dire",
-   "lane": "bottom",
-   "tier": "t3",
-   "x": 5640,
-   "y": 1100
-  },
-  {
-   "team": "dire",
-   "lane": "base",
-   "tier": "base",
-   "x": 5420,
-   "y": 1020
-  },
-  {
-   "team": "dire",
-   "lane": "base",
-   "tier": "base",
-   "x": 5220,
-   "y": 1220
-  }
- ],
- "bases": [
-  {
-   "team": "radiant",
-   "ancient": {
-    "x": 760,
-    "y": 5640
-   },
-   "fountainCenter": {
-    "x": 560,
-    "y": 5840
-   },
-   "fountainHealRadius": 360,
-   "heroSpawn": {
-    "x": 760,
-    "y": 5640
-   },
-   "shopRadius": 420,
-   "color": "Blue"
-  },
-  {
-   "team": "dire",
-   "ancient": {
-    "x": 5640,
-    "y": 760
-   },
-   "fountainCenter": {
-    "x": 5840,
-    "y": 560
-   },
-   "fountainHealRadius": 360,
-   "heroSpawn": {
-    "x": 5640,
-    "y": 760
-   },
-   "shopRadius": 420,
-   "color": "Red"
-  }
- ],
- "blockers": [
-  {
-   "kind": "rect",
-   "x": 0,
-   "y": 1000,
-   "w": 1200,
-   "h": 200,
-   "label": "river-NW-edge",
-   "note": "river band runs anti-diagonal; rects approximate segments along x+y~=3700"
-  },
-  {
-   "kind": "rect",
-   "x": 2700,
-   "y": 760,
-   "w": 1000,
-   "h": 240,
-   "label": "river-seg-top",
-   "note": "north end of river near top lane; bridge gap at top lane crossing x~640..900"
-  },
-  {
-   "kind": "rect",
-   "x": 760,
-   "y": 2700,
-   "w": 240,
-   "h": 1000,
-   "label": "river-seg-left",
-   "note": "west run of river near radiant top approach"
-  },
-  {
-   "kind": "rect",
-   "x": 1400,
-   "y": 2300,
-   "w": 1400,
-   "h": 240,
-   "label": "river-NW",
-   "note": "anti-diagonal approximation, gap left at mid"
-  },
-  {
-   "kind": "rect",
-   "x": 2200,
-   "y": 1500,
-   "w": 1400,
-   "h": 240,
-   "label": "river-N",
-   "note": "anti-diagonal approximation"
-  },
-  {
-   "kind": "rect",
-   "x": 3000,
-   "y": 3000,
-   "w": 600,
-   "h": 600,
-   "label": "river-center",
-   "note": "central river/roshan pit area; mid bridge gap punched through center"
-  },
-  {
-   "kind": "rect",
-   "x": 3700,
-   "y": 3700,
-   "w": 1400,
-   "h": 240,
-   "label": "river-SE",
-   "note": "anti-diagonal approximation toward bottom lane"
-  },
-  {
-   "kind": "rect",
-   "x": 2300,
-   "y": 3700,
-   "w": 240,
-   "h": 1400,
-   "label": "river-S",
-   "note": "south run of river near radiant bottom approach"
-  },
-  {
-   "kind": "rect",
-   "x": 5400,
-   "y": 5200,
-   "w": 1000,
-   "h": 240,
-   "label": "river-SE-edge",
-   "note": "river band toward dire bottom; bridge gap at bottom lane x~5700"
-  },
-  {
-   "kind": "circle",
-   "x": 3300,
-   "y": 3300,
-   "r": 320,
-   "label": "roshan-pit",
-   "note": "central neutral objective pit, walled except entrance"
-  },
-  {
-   "kind": "rect",
-   "x": 640,
-   "y": 3000,
-   "w": 0,
-   "h": 0,
-   "label": "top-lane-bridge-gap",
-   "note": "BRIDGE: top lane crosses river at radiant t1 ~ (640,3000); leave passable corridor 700px wide centered on lane"
-  },
-  {
-   "kind": "rect",
-   "x": 3200,
-   "y": 3200,
-   "w": 0,
-   "h": 0,
-   "label": "mid-lane-bridge-gap",
-   "note": "BRIDGE: mid lane crosses river at center ~ (3200,3200); passable corridor along mid polyline"
-  },
-  {
-   "kind": "rect",
-   "x": 5760,
-   "y": 3000,
-   "w": 0,
-   "h": 0,
-   "label": "bottom-lane-bridge-gap",
-   "note": "BRIDGE: bottom lane crosses river near (5760,3000)... actual river cross at dire side; corridor along bottom polyline"
-  },
-  {
-   "kind": "rect",
-   "x": 100,
-   "y": 5400,
-   "w": 1100,
-   "h": 60,
-   "label": "radiant-base-wall-N",
-   "note": "base perimeter wall, gaps where lanes exit"
-  },
-  {
-   "kind": "rect",
-   "x": 1140,
-   "y": 5400,
-   "w": 60,
-   "h": 900,
-   "label": "radiant-base-wall-E",
-   "note": "base perimeter wall east"
-  },
-  {
-   "kind": "rect",
-   "x": 5200,
-   "y": 940,
-   "w": 1100,
-   "h": 60,
-   "label": "dire-base-wall-S",
-   "note": "base perimeter wall, gaps where lanes exit"
-  },
-  {
-   "kind": "rect",
-   "x": 5200,
-   "y": 100,
-   "w": 60,
-   "h": 900,
-   "label": "dire-base-wall-W",
-   "note": "base perimeter wall west"
-  }
- ],
- "jungle": [
-  {
-   "kind": "trees",
-   "x": 1500,
-   "y": 4200,
-   "w": 700,
-   "h": 700,
-   "label": "radiant-top-jungle",
-   "note": "tree cluster between top and mid lanes, radiant side"
-  },
-  {
-   "kind": "trees",
-   "x": 2600,
-   "y": 4900,
-   "w": 700,
-   "h": 700,
-   "label": "radiant-bottom-jungle",
-   "note": "tree cluster between mid and bottom lanes, radiant side"
-  },
-  {
-   "kind": "trees",
-   "x": 4200,
-   "y": 1500,
-   "w": 700,
-   "h": 700,
-   "label": "dire-bottom-jungle",
-   "note": "tree cluster between bottom and mid lanes, dire side"
-  },
-  {
-   "kind": "trees",
-   "x": 2900,
-   "y": 1600,
-   "w": 700,
-   "h": 700,
-   "label": "dire-top-jungle",
-   "note": "tree cluster between top and mid lanes, dire side"
-  },
-  {
-   "kind": "trees",
-   "x": 1000,
-   "y": 1000,
-   "w": 600,
-   "h": 600,
-   "label": "top-left-corner-grove",
-   "note": "decorative corner trees"
-  },
-  {
-   "kind": "trees",
-   "x": 4900,
-   "y": 4900,
-   "w": 600,
-   "h": 600,
-   "label": "bottom-right-corner-grove",
-   "note": "decorative corner trees"
-  },
-  {
-   "kind": "camp",
-   "x": 1700,
-   "y": 3700,
-   "label": "radiant-top-camp",
-   "note": "neutral camp spot in radiant top jungle"
-  },
-  {
-   "kind": "camp",
-   "x": 2400,
-   "y": 4400,
-   "label": "radiant-mid-camp",
-   "note": "neutral camp between mid/bottom radiant"
-  },
-  {
-   "kind": "camp",
-   "x": 4000,
-   "y": 2000,
-   "label": "dire-bottom-camp",
-   "note": "neutral camp in dire bottom jungle"
-  },
-  {
-   "kind": "camp",
-   "x": 3700,
-   "y": 2400,
-   "label": "dire-mid-camp",
-   "note": "neutral camp dire side"
-  },
-  {
-   "kind": "camp",
-   "x": 1200,
-   "y": 4600,
-   "label": "radiant-small-camp",
-   "note": "easy camp near radiant base"
-  },
-  {
-   "kind": "camp",
-   "x": 4600,
-   "y": 1200,
-   "label": "dire-small-camp",
-   "note": "easy camp near dire base"
-  }
- ],
- "notes": "Coordinate system: y increases downward (screen space). Radiant (Blue) base bottom-left at ancient (760,5640); Dire (Red) base top-right at ancient (5640,760). The map is symmetric under 180-degree point rotation about center (3200,3200): for any radiant point (x,y), the dire mirror is (6400-x, 6400-y).\n\nRIVER: runs anti-diagonally along the line x+y ~= 6400 (top-left to bottom-right is the OTHER diagonal \u2014 note: the dividing river between the two bases lies along x+y=6400, i.e. from (0,6400) bottom-left... clarification: the river separates Radiant's bottom-left territory from Dire's top-right territory and therefore runs along the anti-diagonal from top-left (0,0)-ish toward bottom-right is the perpendicular). For implementation, treat the river centerline as the segment from (6400,0) to (0,6400) is the lane-of-symmetry; the river itself is the band straddling the perpendicular diagonal through center (3200,3200) running from upper-left to lower-right. The blocker rects above are coarse axis-aligned approximations of that band \u2014 engine should render an actual diagonal water strip ~240px wide and use these rects (or a polygon) for collision. Punch BRIDGE GAPS in the river band exactly where each lane polyline crosses it so creeps walk onto bridges, never water:\n - TOP lane crosses river at approx (640,3000) (radiant t1 / dire t1 region) \u2014 bridge corridor ~700px.\n - MID lane crosses river dead center at approx (3200,3200) \u2014 bridge corridor along the mid diagonal.\n - BOTTOM lane crosses river at approx (5760,3000) \u2014 bridge corridor ~700px.\nEach lane polyline is authored to pass straight through its bridge gap (waypoints at the crossing sit on the bridge centerline), so creeps following waypoints stay on bridges.\n\nLANES: 3 lanes, full polylines both directions (direPath is radiantPath reversed, lane-hugging). TOP lane hugs the west then north map edges (the long L-shaped safe lane for Radiant). BOTTOM lane hugs the south then east edges. MID lane runs straight along the anti-diagonal corner-to-corner through center. All waypoints kept >=560px from world edges for unit radius + tower placement margin.\n\nTOWERS: 3 per lane per team. t1 nearest river (contested), t2 mid-lane, t3 nearest base. Plus 2 base/ancient towers per team flanking the ancient. Radiant t1 top at (640,3000) right at the river crossing; mirrors apply for dire.\n\nBASES: fountain heal circle radius 360 at the back corner of each base (radiant (560,5840), dire (5840,560)); hero spawn at the ancient; shop radius 420 around the ancient. Use Blue troops/buildings for Radiant, Red for Dire (Castle_Blue / Castle_Red for ancients, Tower_Blue/Red for towers).\n\nJUNGLE: 4 main tree clusters between lanes (one between each adjacent lane pair per side) plus 2 decorative corner groves and 6 neutral camp spots (3 per side, symmetric). Trees are blocking; camps spawn neutral creeps (use Goblin units for neutrals). Central Roshan-style pit at (3300,3300) near mid river for a high-value neutral objective.\n\nIMPLEMENTATION NOTE for pathfinding: clamp creep movement to the lane polyline; do not run a general A* through the river except at bridges. The blocker rects are intentionally coarse \u2014 prefer a single diagonal river polygon + 3 rectangular bridge cutouts at the lane crossings for clean collision and rendering. All coordinates are in world pixels, tile size 64 (100x100 tile grid)."
+  ],
+  "notes": "Coordinate system: y increases downward (screen space). Radiant (Blue) base bottom-left at ancient (760,5640); Dire (Red) base top-right at ancient (5640,760). The map is symmetric under 180-degree point rotation about center (3200,3200): for any radiant point (x,y), the dire mirror is (6400-x, 6400-y).\n\nRIVER: runs anti-diagonally along the line x+y ~= 6400 (top-left to bottom-right is the OTHER diagonal \u2014 note: the dividing river between the two bases lies along x+y=6400, i.e. from (0,6400) bottom-left... clarification: the river separates Radiant's bottom-left territory from Dire's top-right territory and therefore runs along the anti-diagonal from top-left (0,0)-ish toward bottom-right is the perpendicular). For implementation, treat the river centerline as the segment from (6400,0) to (0,6400) is the lane-of-symmetry; the river itself is the band straddling the perpendicular diagonal through center (3200,3200) running from upper-left to lower-right. The blocker rects above are coarse axis-aligned approximations of that band \u2014 engine should render an actual diagonal water strip ~240px wide and use these rects (or a polygon) for collision. Punch BRIDGE GAPS in the river band exactly where each lane polyline crosses it so creeps walk onto bridges, never water:\n - TOP lane crosses river at approx (640,3000) (radiant t1 / dire t1 region) \u2014 bridge corridor ~700px.\n - MID lane crosses river dead center at approx (3200,3200) \u2014 bridge corridor along the mid diagonal.\n - BOTTOM lane crosses river at approx (5760,3000) \u2014 bridge corridor ~700px.\nEach lane polyline is authored to pass straight through its bridge gap (waypoints at the crossing sit on the bridge centerline), so creeps following waypoints stay on bridges.\n\nLANES: 3 lanes, full polylines both directions (direPath is radiantPath reversed, lane-hugging). TOP lane hugs the west then north map edges (the long L-shaped safe lane for Radiant). BOTTOM lane hugs the south then east edges. MID lane runs straight along the anti-diagonal corner-to-corner through center. All waypoints kept >=560px from world edges for unit radius + tower placement margin.\n\nTOWERS: 3 per lane per team. t1 nearest river (contested), t2 mid-lane, t3 nearest base. Plus 2 base/ancient towers per team flanking the ancient. Radiant t1 top at (640,3000) right at the river crossing; mirrors apply for dire.\n\nBASES: fountain heal circle radius 360 at the back corner of each base (radiant (560,5840), dire (5840,560)); hero spawn at the ancient; shop radius 420 around the ancient. Use Blue troops/buildings for Radiant, Red for Dire (Castle_Blue / Castle_Red for ancients, Tower_Blue/Red for towers).\n\nJUNGLE: 4 main tree clusters between lanes (one between each adjacent lane pair per side) plus 2 decorative corner groves and 6 neutral camp spots (3 per side, symmetric). Trees are blocking; camps spawn neutral creeps (use Goblin units for neutrals). Central Roshan-style pit at (3300,3300) near mid river for a high-value neutral objective.\n\nIMPLEMENTATION NOTE for pathfinding: clamp creep movement to the lane polyline; do not run a general A* through the river except at bridges. The blocker rects are intentionally coarse \u2014 prefer a single diagonal river polygon + 3 rectangular bridge cutouts at the lane crossings for clean collision and rendering. All coordinates are in world pixels, tile size 64 (100x100 tile grid)."
 }

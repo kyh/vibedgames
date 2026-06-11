@@ -113,10 +113,16 @@ function acquireForStructure(w: World, u: Unit, range: number): Unit | null {
         hero = t;
       }
       // is this hero attacking an allied hero within tower range?
-      const victimId = t.pendingAttack?.targetId ?? (t.order.type === "attackUnit" ? t.order.targetId : null);
+      const victimId =
+        t.pendingAttack?.targetId ?? (t.order.type === "attackUnit" ? t.order.targetId : null);
       if (victimId) {
         const victim = w.units.get(victimId);
-        if (victim && victim.kind === "hero" && victim.team === u.team && dist(u, victim) <= range) {
+        if (
+          victim &&
+          victim.kind === "hero" &&
+          victim.team === u.team &&
+          dist(u, victim) <= range
+        ) {
           priorityHero = t;
         }
       }
@@ -142,7 +148,8 @@ function attackSpeedVsTarget(u: Unit, target: Unit): number {
   // stormcaller Hunter's Mark grants bonus AS vs the marked hero (status on u)
   let bonus = 0;
   for (const s of u.statuses) {
-    if (s.kind === "attackSpeed" && s.id.startsWith("markAS:") && s.id.endsWith(target.id)) bonus += s.amount;
+    if (s.kind === "attackSpeed" && s.id.startsWith("markAS:") && s.id.endsWith(target.id))
+      bonus += s.amount;
   }
   return bonus;
 }
@@ -184,7 +191,12 @@ export function resolvePendingAttacks(w: World): void {
       spawnAttackProjectile(w, u, target, dmg);
     } else {
       applySplash(w, u, target, dmg);
-      dealDamage(w, u, target, dmg, "physical", { isAttack: true, crit: crit > 1, attackerSpellAmp: ampSelf, structureBonusPct: structBonus });
+      dealDamage(w, u, target, dmg, "physical", {
+        isAttack: true,
+        crit: crit > 1,
+        attackerSpellAmp: ampSelf,
+        structureBonusPct: structBonus,
+      });
     }
     // tower ramp accounting
     if (u.kind === "structure" && u.structure) {
@@ -222,10 +234,17 @@ function boomtinkerBuildingBonus(u: Unit, target: Unit): number {
 }
 
 function spawnAttackProjectile(w: World, u: Unit, target: Unit, dmg: number): void {
-  const kind = u.kind === "structure" ? "tower" : u.hero?.defId === "stormcaller" || u.creep?.ckind === "ranged" ? "arrow" : "bolt";
+  const kind =
+    u.kind === "structure"
+      ? "tower"
+      : u.hero?.defId === "stormcaller" || u.creep?.ckind === "ranged"
+        ? "arrow"
+        : "bolt";
   // Stormcaller Windfoot: while the speed buff is up, auto-attacks apply a slow.
   const windfoot = u.statuses.some((s) => s.kind === "speed" && s.id === "stormcaller:E:ms");
-  const onHit: ProjectileHit = windfoot ? { tag: "slow", pct: 0.12, duration: 0.8 } : { tag: "none" };
+  const onHit: ProjectileHit = windfoot
+    ? { tag: "slow", pct: 0.12, duration: 0.8 }
+    : { tag: "none" };
   const p: Projectile = {
     id: nextId(w, "p"),
     ownerId: u.id,
@@ -289,17 +308,39 @@ function impactProjectile(w: World, p: Projectile, x: number, y: number): void {
   const amp = owner ? spellAmp(owner) : 0;
   const applyTo = (v: Unit) => {
     let dmg = p.damage;
-    if (p.onHit && p.onHit.tag === "buildingBonus" && v.kind === "structure") dmg *= 1 + p.onHit.pct / 100;
-    dealDamage(w, owner ?? null, v, dmg, p.dtype, { attackerSpellAmp: p.dtype === "magic" ? amp : 0 });
+    if (p.onHit && p.onHit.tag === "buildingBonus" && v.kind === "structure")
+      dmg *= 1 + p.onHit.pct / 100;
+    dealDamage(w, owner ?? null, v, dmg, p.dtype, {
+      attackerSpellAmp: p.dtype === "magic" ? amp : 0,
+    });
     const oh = p.onHit;
     if (oh && oh.tag === "slow") {
-      addStatus(v, { kind: "slow", pct: oh.pct, until: w.now + oh.duration * 1000, id: `pslow:${p.id}` });
+      addStatus(v, {
+        kind: "slow",
+        pct: oh.pct,
+        until: w.now + oh.duration * 1000,
+        id: `pslow:${p.id}`,
+      });
     } else if (oh && oh.tag === "burn" && owner) {
-      addStatus(v, { kind: "dot", dps: oh.dps, until: w.now + oh.duration * 1000, nextTick: w.now + 500, dtype: "magic", sourceId: owner.id, id: `pburn:${p.id}` });
+      addStatus(v, {
+        kind: "dot",
+        dps: oh.dps,
+        until: w.now + oh.duration * 1000,
+        nextTick: w.now + 500,
+        dtype: "magic",
+        sourceId: owner.id,
+        id: `pburn:${p.id}`,
+      });
     }
   };
   if (p.radius > 0) {
-    w.fx.push({ t: "explosion", x, y, radius: p.radius, color: p.kind === "fireball" ? 0xff7a2a : 0xffd24d });
+    w.fx.push({
+      t: "explosion",
+      x,
+      y,
+      radius: p.radius,
+      color: p.kind === "fireball" ? 0xff7a2a : 0xffd24d,
+    });
     for (const v of w.units.values()) {
       // neutrals are enemies of every projectile's team (which is always radiant/dire)
       if (!v.alive || (!v.neutral && v.team === p.team)) continue;
@@ -334,13 +375,19 @@ export function dealDamage(
   // structure, so the tier ladder can't be bypassed
   if (victim.kind === "structure" && victim.structure?.attackable === false) return;
   let amount = raw;
-  if (opts.structureBonusPct && victim.kind === "structure") amount *= 1 + opts.structureBonusPct / 100;
+  if (opts.structureBonusPct && victim.kind === "structure")
+    amount *= 1 + opts.structureBonusPct / 100;
   // creeps deal a class-specific multiplier to structures (siege 3.5×, melee 1.5×…)
   if (attacker?.kind === "creep" && attacker.creep && victim.kind === "structure") {
     amount *= CREEPS[attacker.creep.ckind].structureDamageMult;
   }
   // siege creeps take reduced damage from units (not structures)
-  if (victim.kind === "creep" && victim.creep?.ckind === "siege" && attacker && attacker.kind !== "structure") {
+  if (
+    victim.kind === "creep" &&
+    victim.creep?.ckind === "siege" &&
+    attacker &&
+    attacker.kind !== "structure"
+  ) {
     amount *= CREEPS.siege.incomingFromUnitsMult;
   }
   let final = computeDamage(victim, amount, dtype, opts.attackerSpellAmp ?? 0);
@@ -358,7 +405,9 @@ export function dealDamage(
 
   // assist/last-hit bookkeeping
   if (attacker && victim.hero) {
-    victim.hero.recentDamageFrom[attacker.hero ? attacker.id : attackerHeroCredit(attacker) ?? attacker.id] = w.now;
+    victim.hero.recentDamageFrom[
+      attacker.hero ? attacker.id : (attackerHeroCredit(attacker) ?? attacker.id)
+    ] = w.now;
   }
   if (attacker && attacker.hero && opts.isAttack) {
     // lifesteal on attacks
@@ -369,7 +418,15 @@ export function dealDamage(
   }
 
   if (leftover > 0) {
-    w.fx.push({ t: "hit", x: victim.x, y: victim.y - victim.radius, dtype, amount: Math.round(leftover), crit: opts.crit, targetId: victim.id });
+    w.fx.push({
+      t: "hit",
+      x: victim.x,
+      y: victim.y - victim.radius,
+      dtype,
+      amount: Math.round(leftover),
+      crit: opts.crit,
+      targetId: victim.id,
+    });
   }
 
   if (victim.hp <= 0) handleDeath(w, victim, attacker);
@@ -405,7 +462,11 @@ function handleDeath(w: World, victim: Unit, killer: Unit | null): void {
       victim.mp = victim.maxMp;
       victim.pendingAttack = null;
       victim.order = { type: "idle" };
-      w.fx.push({ t: "notify", text: `${heroName(victim)} is reborn by the Aegis!`, tone: "neutral" });
+      w.fx.push({
+        t: "notify",
+        text: `${heroName(victim)} is reborn by the Aegis!`,
+        tone: "neutral",
+      });
       w.fx.push({ t: "levelup", x: victim.x, y: victim.y, unitId: victim.id });
     } else {
       h.respawnAt = w.now + respawnTime(h.level) * 1000;
@@ -443,7 +504,11 @@ function awardCreepKill(w: World, victim: Unit, killer: Unit | null): void {
       // Roshan: drop an Aegis (one free revive) on the killer + announce it.
       if (cs.boss) {
         addStatus(killer, { kind: "aegis", until: w.now + 300_000 });
-        w.fx.push({ t: "notify", text: `${heroName(killer)}'s team slew Roshan — Aegis claimed!`, tone: "good" });
+        w.fx.push({
+          t: "notify",
+          text: `${heroName(killer)}'s team slew Roshan — Aegis claimed!`,
+          tone: "good",
+        });
         w.fx.push({ t: "levelup", x: killer.x, y: killer.y, unitId: killer.id });
       }
     } else {
@@ -466,7 +531,8 @@ function heroName(u: Unit): string {
 function awardHeroKill(w: World, victim: Unit, killer: Unit | null): void {
   const vh = victim.hero!;
   const streak = vh.killStreak;
-  const streakBonus = streak >= 1 ? Math.min(ECON.streakBonusCap, ECON.streakBonusPerKill * streak) : 0;
+  const streakBonus =
+    streak >= 1 ? Math.min(ECON.streakBonusCap, ECON.streakBonusPerKill * streak) : 0;
   let bounty = ECON.heroKillBaseBounty + ECON.heroKillPerLevel * vh.level + streakBonus;
   if (streak >= 3 && killer) bounty += ECON.shutdownBonus; // shutting down a streak
 
@@ -482,7 +548,13 @@ function awardHeroKill(w: World, victim: Unit, killer: Unit | null): void {
     killer.hero.gold += Math.round(bounty);
     killer.hero.kills += 1;
     killer.hero.killStreak += 1;
-    w.fx.push({ t: "gold", x: killer.x, y: killer.y - 20, amount: Math.round(bounty), heroId: killer.id });
+    w.fx.push({
+      t: "gold",
+      x: killer.x,
+      y: killer.y - 20,
+      amount: Math.round(bounty),
+      heroId: killer.id,
+    });
     w.fx.push({ t: "kill", killer: heroName(killer), victim: heroName(victim), team: killer.team });
   } else {
     w.fx.push({ t: "kill", killer: "", victim: heroName(victim), team: enemyOf(victim.team) });

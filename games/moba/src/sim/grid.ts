@@ -187,7 +187,10 @@ export class NavGrid {
         if (!this.isWalkableCell(nc, nr)) continue;
         const diag = NEI[k]![0] !== 0 && NEI[k]![1] !== 0;
         // Disallow corner-cutting through blocked orthogonal neighbours.
-        if (diag && (!this.isWalkableCell(cc + NEI[k]![0], cr) || !this.isWalkableCell(cc, cr + NEI[k]![1])))
+        if (
+          diag &&
+          (!this.isWalkableCell(cc + NEI[k]![0], cr) || !this.isWalkableCell(cc, cr + NEI[k]![1]))
+        )
           continue;
         const nIdx = nr * this.cols + nc;
         if (closed[nIdx]) continue;
@@ -214,7 +217,7 @@ export class NavGrid {
     // Octile distance — admissible for 8-connected grids.
     const dc = Math.abs(c0 - c1);
     const dr = Math.abs(r0 - r1);
-    return (dc + dr) + (1.41421356 - 2) * Math.min(dc, dr);
+    return dc + dr + (1.41421356 - 2) * Math.min(dc, dr);
   }
 
   private reconstruct(came: Int32Array, end: number, _start: { c: number; r: number }): Vec2[] {

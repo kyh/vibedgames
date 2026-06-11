@@ -41,7 +41,8 @@ export class GameScene extends Phaser.Scene {
   private heroChoice = "ironvow";
   private ended = false;
   private hitStopUntil = 0; // brief sim freeze on nearby hero kills (game feel)
-  private moveKeys: Record<"up" | "down" | "left" | "right", Phaser.Input.Keyboard.Key> | null = null;
+  private moveKeys: Record<"up" | "down" | "left" | "right", Phaser.Input.Keyboard.Key> | null =
+    null;
   private lastDir = { dx: 0, dy: 0 };
   private aimDir = { x: 1, y: 0 }; // last movement direction — drives keyboard ability aim
   uiBlocking = false; // set by the HUD while a modal (shop) is open — pauses hero input
@@ -134,8 +135,12 @@ export class GameScene extends Phaser.Scene {
     this.playerId = player.id;
     this.view.playerHeroId = player.id;
     this.view.playerTeam = player.team;
-    pickRoster(this.heroChoice, TEAM_SIZE).slice(1).forEach((id, i) => spawnHero(this.world, id, "radiant", `botR${i}`, true, i + 1));
-    pickRoster("emberhex", TEAM_SIZE).forEach((id, i) => spawnHero(this.world, id, "dire", `botD${i}`, true, i));
+    pickRoster(this.heroChoice, TEAM_SIZE)
+      .slice(1)
+      .forEach((id, i) => spawnHero(this.world, id, "radiant", `botR${i}`, true, i + 1));
+    pickRoster("emberhex", TEAM_SIZE).forEach((id, i) =>
+      spawnHero(this.world, id, "dire", `botD${i}`, true, i),
+    );
   }
 
   private startOnline(): void {
@@ -172,7 +177,11 @@ export class GameScene extends Phaser.Scene {
         issueOrder(this.world, u, intent.order);
         break;
       case "cast":
-        castAbility(this.world, u, { key: intent.key, point: intent.point, targetId: intent.targetId });
+        castAbility(this.world, u, {
+          key: intent.key,
+          point: intent.point,
+          targetId: intent.targetId,
+        });
         break;
       case "level":
         levelAbility(this.world, u, intent.key);
@@ -225,7 +234,12 @@ export class GameScene extends Phaser.Scene {
       const existing = this.world.units.get(hid);
       if (!existing) {
         spawnHero(this.world, pick, a.team, id, false, a.slot);
-      } else if (existing.hero && existing.hero.defId !== pick && existing.hero.level === 1 && existing.hero.kills === 0) {
+      } else if (
+        existing.hero &&
+        existing.hero.defId !== pick &&
+        existing.hero.level === 1 &&
+        existing.hero.kills === 0
+      ) {
         // pick arrived after a provisional spawn: respawn as the chosen hero
         this.world.units.delete(hid);
         spawnHero(this.world, pick, a.team, id, false, a.slot);
@@ -237,7 +251,8 @@ export class GameScene extends Phaser.Scene {
         const hid = `h-bot-${team}-${s}`;
         want.add(hid);
         if (!this.world.units.has(hid)) {
-          const def = pickRoster(team === "radiant" ? "ironvow" : "emberhex", s + 1)[s] ?? "ironvow";
+          const def =
+            pickRoster(team === "radiant" ? "ironvow" : "emberhex", s + 1)[s] ?? "ironvow";
           spawnHero(this.world, def, team, `bot-${team}-${s}`, true, s);
         }
       }
@@ -333,7 +348,8 @@ export class GameScene extends Phaser.Scene {
     // while dead/unspawned or a modal (shop) is open, forget the last direction so a
     // still-held key re-fires a fresh order the moment control returns.
     if (!me || !me.alive || this.uiBlocking) {
-      if (this.uiBlocking && (this.lastDir.dx !== 0 || this.lastDir.dy !== 0)) this.cmd({ kind: "order", order: { type: "hold" } });
+      if (this.uiBlocking && (this.lastDir.dx !== 0 || this.lastDir.dy !== 0))
+        this.cmd({ kind: "order", order: { type: "hold" } });
       this.lastDir = { dx: 0, dy: 0 };
       return;
     }
@@ -376,8 +392,16 @@ export class GameScene extends Phaser.Scene {
     const now = this.time.now;
     const me = this.player;
     for (const fx of this.world.fx) {
-      if (fx.t === "kill") this.feed.push({ kind: "kill", killer: fx.killer, victim: fx.victim, team: fx.team, at: now });
-      else if (fx.t === "notify") this.feed.push({ kind: "notify", text: fx.text, tone: fx.tone, at: now });
+      if (fx.t === "kill")
+        this.feed.push({
+          kind: "kill",
+          killer: fx.killer,
+          victim: fx.victim,
+          team: fx.team,
+          at: now,
+        });
+      else if (fx.t === "notify")
+        this.feed.push({ kind: "notify", text: fx.text, tone: fx.tone, at: now });
       else if (fx.t === "death" && fx.kind === "hero" && me && dist2(me, fx) < 900 * 900) {
         // hit-stop: a beat of frozen sim when a hero dies near you sells the kill
         this.hitStopUntil = now + 90;
@@ -428,7 +452,9 @@ export class GameScene extends Phaser.Scene {
     if (!def) return;
     if (def.targeting === "unit") {
       const wantAlly = def.effect === "brewkeeper:Q";
-      const target = wantAlly ? (this.lowestAllyInRange(me, def.castRange) ?? me) : this.nearestEnemy(me, def.castRange);
+      const target = wantAlly
+        ? (this.lowestAllyInRange(me, def.castRange) ?? me)
+        : this.nearestEnemy(me, def.castRange);
       if (target) this.cmd({ kind: "cast", key, targetId: target.id });
     } else if (def.targeting === "point") {
       const r = def.castRange;
@@ -441,7 +467,9 @@ export class GameScene extends Phaser.Scene {
       } else {
         // stationary: soft auto-aim at the nearest enemy in range, else last facing
         const foe = this.nearestEnemy(me, r);
-        point = foe ? { x: foe.x, y: foe.y } : { x: me.x + this.aimDir.x * r, y: me.y + this.aimDir.y * r };
+        point = foe
+          ? { x: foe.x, y: foe.y }
+          : { x: me.x + this.aimDir.x * r, y: me.y + this.aimDir.y * r };
       }
       this.cmd({ kind: "cast", key, point });
     } else {
@@ -599,13 +627,19 @@ export class GameScene extends Phaser.Scene {
     if (this.snapAcc < 1 / SNAPSHOT_HZ) return;
     this.snapAcc = 0;
     this.fxSeqOut += 1;
-    this.net?.updateSharedState({ snap: encodeWorld(this.world), fx: this.netFx, fxSeq: this.fxSeqOut });
+    this.net?.updateSharedState({
+      snap: encodeWorld(this.world),
+      fx: this.netFx,
+      fxSeq: this.fxSeqOut,
+    });
     this.netFx = [];
   }
 
   private updateCamera(dt: number): void {
     const me = this.player;
-    const fallback = this.world.units.get(`${me?.team === "dire" ? "d" : "r"}-ancient`) ?? this.world.units.get("r-ancient");
+    const fallback =
+      this.world.units.get(`${me?.team === "dire" ? "d" : "r"}-ancient`) ??
+      this.world.units.get("r-ancient");
     const target = me && me.alive ? me : fallback;
     if (!target) return;
     const cam = this.cam;
@@ -618,7 +652,10 @@ export class GameScene extends Phaser.Scene {
       this.followGo = true;
     } else {
       const k = 1 - Math.pow(0.0001, dt);
-      cam.setScroll(Phaser.Math.Linear(cam.scrollX, cx - hw, k), Phaser.Math.Linear(cam.scrollY, cy - hh, k));
+      cam.setScroll(
+        Phaser.Math.Linear(cam.scrollX, cx - hw, k),
+        Phaser.Math.Linear(cam.scrollY, cy - hh, k),
+      );
     }
   }
 
@@ -629,11 +666,25 @@ export class GameScene extends Phaser.Scene {
     const cx = this.scale.width / 2;
     const cy = this.scale.height / 2;
 
-    const veil = this.add.rectangle(cx, cy, this.scale.width, this.scale.height, 0x05080e, 0).setScrollFactor(0).setDepth(99990);
+    const veil = this.add
+      .rectangle(cx, cy, this.scale.width, this.scale.height, 0x05080e, 0)
+      .setScrollFactor(0)
+      .setDepth(99990);
     this.tweens.add({ targets: veil, fillAlpha: 0.55, duration: 600 });
 
     const ribbon = this.add
-      .nineslice(cx, cy - 70, win ? "ui-ribbon-yellow" : "ui-ribbon-red", 0, 560, 120, 58, 58, 22, 22)
+      .nineslice(
+        cx,
+        cy - 70,
+        win ? "ui-ribbon-yellow" : "ui-ribbon-red",
+        0,
+        560,
+        120,
+        58,
+        58,
+        22,
+        22,
+      )
       .setScrollFactor(0)
       .setDepth(99998)
       .setScale(0);
@@ -658,7 +709,11 @@ export class GameScene extends Phaser.Scene {
         .setScrollFactor(0)
         .setDepth(99999)
         .setInteractive({ useHandCursor: true });
-      const t = this.add.text(cx + dx, cy + 56, label, { fontFamily: FONT, fontSize: "19px", color: "#1e3a44" }).setOrigin(0.5).setScrollFactor(0).setDepth(100000);
+      const t = this.add
+        .text(cx + dx, cy + 56, label, { fontFamily: FONT, fontSize: "19px", color: "#1e3a44" })
+        .setOrigin(0.5)
+        .setScrollFactor(0)
+        .setDepth(100000);
       b.on("pointerover", () => this.tweens.add({ targets: [b, t], scale: 1.05, duration: 100 }));
       b.on("pointerout", () => this.tweens.add({ targets: [b, t], scale: 1, duration: 100 }));
       b.on("pointerdown", () => {

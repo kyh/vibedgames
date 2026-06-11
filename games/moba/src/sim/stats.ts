@@ -41,7 +41,8 @@ export function effectiveMoveSpeed(u: Unit): number {
   let speedPct = 0;
   let flat = 0;
   for (const s of u.statuses) {
-    if (s.kind === "slow") slow = Math.max(slow, s.pct); // strongest slow only
+    if (s.kind === "slow")
+      slow = Math.max(slow, s.pct); // strongest slow only
     else if (s.kind === "speed") {
       speedPct += s.pct;
       flat += s.flat;

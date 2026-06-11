@@ -6,42 +6,89 @@
     <title>Ancients of Eldermoor</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lilita+One&display=swap" />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Lilita+One&display=swap"
+    />
     <style>
-      * { box-sizing: border-box; }
-      html, body {
-        margin: 0; padding: 0; height: 100%; overflow: hidden;
-        background: #0a0e16; color: #eaf0ff;
-        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-        -webkit-user-select: none; user-select: none;
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #0a0e16;
+        color: #eaf0ff;
+        font-family:
+          system-ui,
+          -apple-system,
+          "Segoe UI",
+          sans-serif;
+        -webkit-user-select: none;
+        user-select: none;
         touch-action: none;
       }
-      #game { position: fixed; inset: 0; }
-      #game canvas { display: block; }
+      #game {
+        position: fixed;
+        inset: 0;
+      }
+      #game canvas {
+        display: block;
+      }
       /* keep the OS cursor — the game uses standard pointer interactions */
 
       /* Loading veil shown until the first scene paints */
       #veil {
-        position: fixed; inset: 0; z-index: 50;
-        display: flex; flex-direction: column; align-items: center; justify-content: center;
-        gap: 18px; background: radial-gradient(circle at 50% 38%, #182338, #0a0e16 70%);
-        transition: opacity .5s ease; text-align: center;
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        background: radial-gradient(circle at 50% 38%, #182338, #0a0e16 70%);
+        transition: opacity 0.5s ease;
+        text-align: center;
       }
-      #veil.hidden { opacity: 0; pointer-events: none; }
+      #veil.hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
       #veil h1 {
-        margin: 0; font-size: clamp(28px, 6vw, 64px); font-weight: 900; letter-spacing: 1px;
+        margin: 0;
+        font-size: clamp(28px, 6vw, 64px);
+        font-weight: 900;
+        letter-spacing: 1px;
         font-family: "Lilita One", system-ui, sans-serif;
         background: linear-gradient(180deg, #ffe6a3, #d59b3a);
-        -webkit-background-clip: text; background-clip: text; color: transparent;
-        text-shadow: 0 2px 30px rgba(213,155,58,.25);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        text-shadow: 0 2px 30px rgba(213, 155, 58, 0.25);
       }
-      #veil .sub { color: #8ea0c8; font-size: 14px; letter-spacing: 3px; text-transform: uppercase; }
+      #veil .sub {
+        color: #8ea0c8;
+        font-size: 14px;
+        letter-spacing: 3px;
+        text-transform: uppercase;
+      }
       .spinner {
-        width: 34px; height: 34px; border-radius: 50%;
-        border: 3px solid rgba(255,255,255,.15); border-top-color: #ffd27a;
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        border: 3px solid rgba(255, 255, 255, 0.15);
+        border-top-color: #ffd27a;
         animation: spin 1s linear infinite;
       }
-      @keyframes spin { to { transform: rotate(360deg); } }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
     </style>
   </head>
   <body>

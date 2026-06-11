@@ -50,9 +50,20 @@ const FP_FLAT: Record<number, number> = {
   15: 30, // all → isolated (16)
 };
 // Elevated grass is the identical autotile shifted to cols 5-8 (frame + 5).
-const FP_ELEV: Record<number, number> = Object.fromEntries(Object.entries(FP_FLAT).map(([k, v]) => [Number(k), v + 5]));
+const FP_ELEV: Record<number, number> = Object.fromEntries(
+  Object.entries(FP_FLAT).map(([k, v]) => [Number(k), v + 5]),
+);
 // Cliff (elevated rows 4-5): guide 17-19/21-23 = wide top/bottom, 20/24 = narrow (1-wide).
-const FP_CLIFF = { topL: 41, topM: 42, topR: 43, topNarrow: 44, botL: 50, botM: 51, botR: 52, botNarrow: 53 };
+const FP_CLIFF = {
+  topL: 41,
+  topM: 42,
+  topR: 43,
+  topNarrow: 44,
+  botL: 50,
+  botM: 51,
+  botR: 52,
+  botNarrow: 53,
+};
 // Stairs: left ramp = 36(top)/45(bottom), right ramp = 39(top)/48(bottom).
 const FP_STAIR = { topL: 36, botL: 45, topR: 39, botR: 48 };
 
@@ -113,8 +124,21 @@ export class GalleryScene extends Phaser.Scene {
     }
 
     const W = this.scale.width;
-    this.add.text(W / 2, 26, `TINY SWORDS — ${this.section.toUpperCase()}`, { fontSize: "26px", color: "#fff8e0", fontStyle: "bold", stroke: "#234", strokeThickness: 5 }).setOrigin(0.5);
-    this.add.text(W / 2, 54, "?gallery=units · terrain · fx · map", { fontSize: "13px", color: "#cfeae6" }).setOrigin(0.5);
+    this.add
+      .text(W / 2, 26, `TINY SWORDS — ${this.section.toUpperCase()}`, {
+        fontSize: "26px",
+        color: "#fff8e0",
+        fontStyle: "bold",
+        stroke: "#234",
+        strokeThickness: 5,
+      })
+      .setOrigin(0.5);
+    this.add
+      .text(W / 2, 54, "?gallery=units · terrain · fx · map", {
+        fontSize: "13px",
+        color: "#cfeae6",
+      })
+      .setOrigin(0.5);
 
     if (this.section === "terrain") this.buildTerrainPage();
     else if (this.section === "fx") this.buildFxPage();
@@ -124,15 +148,30 @@ export class GalleryScene extends Phaser.Scene {
   /** Loop an animation (even non-looping ones) with a short pause, for inspection. */
   private playLoop(sprite: Phaser.GameObjects.Sprite, key: string): void {
     sprite.play(key);
-    sprite.on("animationcomplete", () => this.time.delayedCall(500, () => sprite.active && sprite.play(key)));
+    sprite.on("animationcomplete", () =>
+      this.time.delayedCall(500, () => sprite.active && sprite.play(key)),
+    );
   }
 
   /** Loop the procedural collapse death (topple + sink + fade), then reset. */
-  private collapseLoop(sprite: Phaser.GameObjects.Sprite, baseX: number, baseY: number, scale: number): void {
+  private collapseLoop(
+    sprite: Phaser.GameObjects.Sprite,
+    baseX: number,
+    baseY: number,
+    scale: number,
+  ): void {
     const run = (): void => {
       if (!sprite.active) return;
       sprite.setAngle(0).setAlpha(1).setScale(scale).setPosition(baseX, baseY);
-      this.tweens.add({ targets: sprite, angle: 78, y: baseY + 14, alpha: 0, duration: 520, ease: "Quad.easeIn", onComplete: () => this.time.delayedCall(450, run) });
+      this.tweens.add({
+        targets: sprite,
+        angle: 78,
+        y: baseY + 14,
+        alpha: 0,
+        duration: 520,
+        ease: "Quad.easeIn",
+        onComplete: () => this.time.delayedCall(450, run),
+      });
     };
     run();
   }
@@ -141,14 +180,24 @@ export class GalleryScene extends Phaser.Scene {
     const W = this.scale.width;
     const colX = [340, 600, 860, 1120]; // idle/walk/attack/death columns
     // column headers
-    this.add.text(160, 80, "UNIT", { fontSize: "13px", color: "#bfe", fontStyle: "bold" }).setOrigin(0.5);
-    UNIT_ANIMS.forEach((a, i) => this.add.text(colX[i]!, 80, a.toUpperCase(), { fontSize: "13px", color: "#bfe", fontStyle: "bold" }).setOrigin(0.5));
+    this.add
+      .text(160, 80, "UNIT", { fontSize: "13px", color: "#bfe", fontStyle: "bold" })
+      .setOrigin(0.5);
+    UNIT_ANIMS.forEach((a, i) =>
+      this.add
+        .text(colX[i]!, 80, a.toUpperCase(), { fontSize: "13px", color: "#bfe", fontStyle: "bold" })
+        .setOrigin(0.5),
+    );
 
     const rowH = Math.min(86, (this.scale.height - 110) / UNIT_SUBJECTS.length);
     UNIT_SUBJECTS.forEach((s, r) => {
       const y = 120 + r * rowH;
-      this.add.rectangle(W / 2, y, W - 60, rowH - 6, r % 2 ? 0x347f7a : 0x2e7570, 0.6).setOrigin(0.5);
-      this.add.text(160, y, s.name, { fontSize: "14px", color: "#fff", fontStyle: "bold" }).setOrigin(0.5);
+      this.add
+        .rectangle(W / 2, y, W - 60, rowH - 6, r % 2 ? 0x347f7a : 0x2e7570, 0.6)
+        .setOrigin(0.5);
+      this.add
+        .text(160, y, s.name, { fontSize: "14px", color: "#fff", fontStyle: "bold" })
+        .setOrigin(0.5);
       UNIT_ANIMS.forEach((a, i) => {
         const key = `${s.animBase}-${a}`;
         const x = colX[i]!;
@@ -172,10 +221,54 @@ export class GalleryScene extends Phaser.Scene {
   private buildFxPage(): void {
     const cx = this.scale.width / 2;
     const items: Array<{ label: string; play: (x: number, y: number) => void }> = [
-      { label: "Explosion", play: (x, y) => { const e = this.add.sprite(x, y, "fx-explosion", 0).setScale(1.4).setBlendMode(Phaser.BlendModes.ADD); if (this.anims.exists("fx-explode")) this.playLoop(e, "fx-explode"); } },
-      { label: "Fire", play: (x, y) => { const e = this.add.sprite(x, y, "fx-fire", 0).setScale(1.6).setBlendMode(Phaser.BlendModes.ADD); if (this.anims.exists("fx-fire-loop")) e.play("fx-fire-loop"); } },
-      { label: "Hit puff", play: (x, y) => { this.time.addEvent({ delay: 700, loop: true, callback: () => { const p = this.add.image(x, y, "spark").setScale(0.6).setBlendMode(Phaser.BlendModes.ADD); this.tweens.add({ targets: p, scale: 1.9, alpha: 0, duration: 220, onComplete: () => p.destroy() }); } }); } },
-      { label: "Arrow", play: (x, y) => { this.add.image(x, y, "fx-arrow").setScale(0.8); } },
+      {
+        label: "Explosion",
+        play: (x, y) => {
+          const e = this.add
+            .sprite(x, y, "fx-explosion", 0)
+            .setScale(1.4)
+            .setBlendMode(Phaser.BlendModes.ADD);
+          if (this.anims.exists("fx-explode")) this.playLoop(e, "fx-explode");
+        },
+      },
+      {
+        label: "Fire",
+        play: (x, y) => {
+          const e = this.add
+            .sprite(x, y, "fx-fire", 0)
+            .setScale(1.6)
+            .setBlendMode(Phaser.BlendModes.ADD);
+          if (this.anims.exists("fx-fire-loop")) e.play("fx-fire-loop");
+        },
+      },
+      {
+        label: "Hit puff",
+        play: (x, y) => {
+          this.time.addEvent({
+            delay: 700,
+            loop: true,
+            callback: () => {
+              const p = this.add
+                .image(x, y, "spark")
+                .setScale(0.6)
+                .setBlendMode(Phaser.BlendModes.ADD);
+              this.tweens.add({
+                targets: p,
+                scale: 1.9,
+                alpha: 0,
+                duration: 220,
+                onComplete: () => p.destroy(),
+              });
+            },
+          });
+        },
+      },
+      {
+        label: "Arrow",
+        play: (x, y) => {
+          this.add.image(x, y, "fx-arrow").setScale(0.8);
+        },
+      },
     ];
     const startX = cx - ((items.length - 1) * 220) / 2;
     items.forEach((it, i) => {
@@ -183,7 +276,9 @@ export class GalleryScene extends Phaser.Scene {
       const y = 300;
       this.add.rectangle(x, y, 180, 180, 0x2e7570, 0.6);
       it.play(x, y);
-      this.add.text(x, y + 110, it.label, { fontSize: "16px", color: "#fff", fontStyle: "bold" }).setOrigin(0.5);
+      this.add
+        .text(x, y + 110, it.label, { fontSize: "16px", color: "#fff", fontStyle: "bold" })
+        .setOrigin(0.5);
     });
   }
 
@@ -191,7 +286,13 @@ export class GalleryScene extends Phaser.Scene {
     // a small composed island: water bg, grass autotile patch, elevation, deco, foam line
     const cx = this.scale.width / 2;
     const cy = this.scale.height / 2 + 20;
-    const items: Array<{ label: string; tex: string; frame?: number; scale: number; sheet?: boolean }> = [
+    const items: Array<{
+      label: string;
+      tex: string;
+      frame?: number;
+      scale: number;
+      sheet?: boolean;
+    }> = [
       { label: "grass", tex: "t-ground", frame: 11, scale: 1.2 },
       { label: "water", tex: "t-water", scale: 1.2 },
       { label: "cliff", tex: "t-elev", frame: 5, scale: 1.2 },
@@ -211,10 +312,16 @@ export class GalleryScene extends Phaser.Scene {
       const y = startY + Math.floor(i / cols) * cellH;
       this.add.rectangle(x, y, cellW - 16, cellH - 16, 0x2e7570, 0.6);
       if (this.textures.exists(it.tex)) {
-        if (it.sheet && this.anims.exists(`${it.tex}-anim`)) { const sp = this.add.sprite(x, y, it.tex, 0).setScale(it.scale); sp.play(`${it.tex}-anim`); }
-        else if (it.sheet && this.anims.exists(`${it.tex}-sway`)) { const sp = this.add.sprite(x, y, it.tex, 0).setScale(it.scale); sp.play(`${it.tex}-sway`); }
-        else if (it.sheet && this.anims.exists("sheep-idle") && it.tex === "sheep") { const sp = this.add.sprite(x, y, it.tex, 0).setScale(it.scale); sp.play("sheep-idle"); }
-        else this.add.image(x, y, it.tex, it.frame ?? 0).setScale(it.scale);
+        if (it.sheet && this.anims.exists(`${it.tex}-anim`)) {
+          const sp = this.add.sprite(x, y, it.tex, 0).setScale(it.scale);
+          sp.play(`${it.tex}-anim`);
+        } else if (it.sheet && this.anims.exists(`${it.tex}-sway`)) {
+          const sp = this.add.sprite(x, y, it.tex, 0).setScale(it.scale);
+          sp.play(`${it.tex}-sway`);
+        } else if (it.sheet && this.anims.exists("sheep-idle") && it.tex === "sheep") {
+          const sp = this.add.sprite(x, y, it.tex, 0).setScale(it.scale);
+          sp.play("sheep-idle");
+        } else this.add.image(x, y, it.tex, it.frame ?? 0).setScale(it.scale);
       }
       this.add.text(x, y + 70, it.label, { fontSize: "14px", color: "#fff" }).setOrigin(0.5);
     });
@@ -232,7 +339,9 @@ export class GalleryScene extends Phaser.Scene {
   }
 
   /** Add a game object at world (x,y) with depth = y so it sorts back-to-front. */
-  private placed<T extends Phaser.GameObjects.Components.Depth & Phaser.GameObjects.Components.Transform>(obj: T, y: number, dz = 0): T {
+  private placed<
+    T extends Phaser.GameObjects.Components.Depth & Phaser.GameObjects.Components.Transform,
+  >(obj: T, y: number, dz = 0): T {
     obj.setDepth(y + dz);
     return obj;
   }
@@ -267,7 +376,8 @@ export class GalleryScene extends Phaser.Scene {
     const Hpx = ROWS * CELL;
 
     this.registerMapAnims();
-    if (this.textures.exists("t-water")) this.add.tileSprite(0, 0, Wpx, Hpx, "t-water").setOrigin(0, 0).setDepth(-1000); // L0
+    if (this.textures.exists("t-water"))
+      this.add.tileSprite(0, 0, Wpx, Hpx, "t-water").setOrigin(0, 0).setDepth(-1000); // L0
     else this.add.rectangle(0, 0, Wpx, Hpx, 0x3a8f8a).setOrigin(0, 0).setDepth(-1000);
     this.buildMapFoam(COLS, ROWS); // L1 animated water foam
     this.buildMapGround(COLS, ROWS, false, -900); // L2 flat ground
@@ -282,27 +392,54 @@ export class GalleryScene extends Phaser.Scene {
     cam.setBackgroundColor("#3a8f8a");
     cam.setZoom(Math.min(1, this.scale.width / Wpx, this.scale.height / Hpx));
     cam.centerOn(Wpx / 2, Hpx / 2);
-    if (showRef && this.textures.exists("refmap")) this.add.image(0, 0, "refmap").setOrigin(0, 0).setAlpha(0.45).setDepth(1_000_000);
+    if (showRef && this.textures.exists("refmap"))
+      this.add.image(0, 0, "refmap").setOrigin(0, 0).setAlpha(0.45).setDepth(1_000_000);
   }
 
   private registerMapAnims(): void {
-    if (this.textures.exists("fp-foam") && !this.anims.exists("fp-foam-anim")) this.anims.create({ key: "fp-foam-anim", frames: this.anims.generateFrameNumbers("fp-foam", { start: 0, end: 15 }), frameRate: 9, repeat: -1 });
-    if (this.textures.exists("t-tree") && !this.anims.exists("tree-sway")) this.anims.create({ key: "tree-sway", frames: this.anims.generateFrameNumbers("t-tree", { start: 0, end: 5 }), frameRate: 5, repeat: -1 });
+    if (this.textures.exists("fp-foam") && !this.anims.exists("fp-foam-anim"))
+      this.anims.create({
+        key: "fp-foam-anim",
+        frames: this.anims.generateFrameNumbers("fp-foam", { start: 0, end: 15 }),
+        frameRate: 9,
+        repeat: -1,
+      });
+    if (this.textures.exists("t-tree") && !this.anims.exists("tree-sway"))
+      this.anims.create({
+        key: "tree-sway",
+        frames: this.anims.generateFrameNumbers("t-tree", { start: 0, end: 5 }),
+        frameRate: 5,
+        repeat: -1,
+      });
   }
 
   /** Flat (elevated=false) or elevated (true) grass autotile as one tilemap layer. */
   private buildMapGround(cols: number, rows: number, elevated: boolean, depth: number): void {
     if (!this.textures.exists("fp-tiles-img")) return;
-    const inSet = (cx: number, cy: number): boolean => (elevated ? this.high(cx, cy) : this.land(cx, cy) && !this.high(cx, cy));
+    const inSet = (cx: number, cy: number): boolean =>
+      elevated ? this.high(cx, cy) : this.land(cx, cy) && !this.high(cx, cy);
     const mask = (cx: number, cy: number): number => {
       // a flat cell borders WATER (non-land); an elevated cell borders any non-high
-      const out = (ax: number, ay: number): boolean => (elevated ? !this.high(ax, ay) : !this.land(ax, ay));
-      return (out(cx, cy - 1) ? 8 : 0) | (out(cx + 1, cy) ? 4 : 0) | (out(cx, cy + 1) ? 2 : 0) | (out(cx - 1, cy) ? 1 : 0);
+      const out = (ax: number, ay: number): boolean =>
+        elevated ? !this.high(ax, ay) : !this.land(ax, ay);
+      return (
+        (out(cx, cy - 1) ? 8 : 0) |
+        (out(cx + 1, cy) ? 4 : 0) |
+        (out(cx, cy + 1) ? 2 : 0) |
+        (out(cx - 1, cy) ? 1 : 0)
+      );
     };
     const data: number[][] = [];
     for (let cy = 0; cy < rows; cy++) {
       const row: number[] = [];
-      for (let cx = 0; cx < cols; cx++) row.push(inSet(cx, cy) ? (elevated ? (FP_ELEV[mask(cx, cy)] ?? 15) : (FP_FLAT[mask(cx, cy)] ?? 10)) : -1);
+      for (let cx = 0; cx < cols; cx++)
+        row.push(
+          inSet(cx, cy)
+            ? elevated
+              ? (FP_ELEV[mask(cx, cy)] ?? 15)
+              : (FP_FLAT[mask(cx, cy)] ?? 10)
+            : -1,
+        );
       data.push(row);
     }
     const map = this.make.tilemap({ data, tileWidth: CELL, tileHeight: CELL });
@@ -314,7 +451,9 @@ export class GalleryScene extends Phaser.Scene {
   private buildMapWash(cols: number, rows: number): void {
     const wash = this.add.graphics().setDepth(-855).setBlendMode(Phaser.BlendModes.MULTIPLY);
     wash.fillStyle(0xffe2b8, 0.45);
-    for (let cy = 0; cy < rows; cy++) for (let cx = 0; cx < cols; cx++) if (this.land(cx, cy)) wash.fillRect(cx * CELL, cy * CELL, CELL, CELL);
+    for (let cy = 0; cy < rows; cy++)
+      for (let cx = 0; cx < cols; cx++)
+        if (this.land(cx, cy)) wash.fillRect(cx * CELL, cy * CELL, CELL, CELL);
   }
 
   /** Animated Water Foam on every water cell touching land (guide: 128px sprite on
@@ -324,10 +463,24 @@ export class GalleryScene extends Phaser.Scene {
     for (let cy = 0; cy < rows; cy++) {
       for (let cx = 0; cx < cols; cx++) {
         if (this.land(cx, cy)) continue;
-        const touches = ([[-1, 0], [1, 0], [0, -1], [0, 1], [-1, -1], [1, -1], [-1, 1], [1, 1]] as Array<[number, number]>).some(([dx, dy]) => this.land(cx + dx, cy + dy));
+        const touches = (
+          [
+            [-1, 0],
+            [1, 0],
+            [0, -1],
+            [0, 1],
+            [-1, -1],
+            [1, -1],
+            [-1, 1],
+            [1, 1],
+          ] as Array<[number, number]>
+        ).some(([dx, dy]) => this.land(cx + dx, cy + dy));
         if (!touches) continue;
-        const f = this.add.sprite(cx * CELL + CELL / 2, cy * CELL + CELL / 2, "fp-foam", 0).setDepth(-950);
-        if (this.anims.exists("fp-foam-anim")) f.play({ key: "fp-foam-anim", startFrame: (cx * 7 + cy * 5) % 16 });
+        const f = this.add
+          .sprite(cx * CELL + CELL / 2, cy * CELL + CELL / 2, "fp-foam", 0)
+          .setDepth(-950);
+        if (this.anims.exists("fp-foam-anim"))
+          f.play({ key: "fp-foam-anim", startFrame: (cx * 7 + cy * 5) % 16 });
       }
     }
   }
@@ -339,7 +492,10 @@ export class GalleryScene extends Phaser.Scene {
     for (let cy = 0; cy < rows; cy++) {
       for (let cx = 0; cx < cols; cx++) {
         if (!this.high(cx, cy)) continue;
-        this.add.image(cx * CELL + CELL / 2, (cy + 1) * CELL + CELL / 2, "fp-shadow").setDepth(-880).setAlpha(0.8);
+        this.add
+          .image(cx * CELL + CELL / 2, (cy + 1) * CELL + CELL / 2, "fp-shadow")
+          .setDepth(-880)
+          .setAlpha(0.8);
       }
     }
   }
@@ -348,12 +504,19 @@ export class GalleryScene extends Phaser.Scene {
    *  walkable elevated grass, bottom connects the cliff base). [tileX, topRow, side]. */
   private buildMapStairs(): void {
     if (!this.textures.exists("fp-tiles")) return;
-    const stairs: Array<[number, number, "L" | "R"]> = [[4, 5, "L"], [13, 9, "R"], [4, 11, "L"], [13, 14, "R"]];
+    const stairs: Array<[number, number, "L" | "R"]> = [
+      [4, 5, "L"],
+      [13, 9, "R"],
+      [4, 11, "L"],
+      [13, 14, "R"],
+    ];
     for (const [tx, ty, side] of stairs) {
       const top = side === "L" ? FP_STAIR.topL : FP_STAIR.topR;
       const bot = side === "L" ? FP_STAIR.botL : FP_STAIR.botR;
       this.add.image(tx * CELL + CELL / 2, ty * CELL + CELL / 2, "fp-tiles", top).setDepth(-845);
-      this.add.image(tx * CELL + CELL / 2, (ty + 1) * CELL + CELL / 2, "fp-tiles", bot).setDepth(-845);
+      this.add
+        .image(tx * CELL + CELL / 2, (ty + 1) * CELL + CELL / 2, "fp-tiles", bot)
+        .setDepth(-845);
     }
   }
 
@@ -370,8 +533,20 @@ export class GalleryScene extends Phaser.Scene {
         const leftEnd = !this.high(cx - 1, cy) || this.high(cx - 1, cy + 1);
         const rightEnd = !this.high(cx + 1, cy) || this.high(cx + 1, cy + 1);
         const narrow = leftEnd && rightEnd;
-        const top = narrow ? FP_CLIFF.topNarrow : leftEnd ? FP_CLIFF.topL : rightEnd ? FP_CLIFF.topR : FP_CLIFF.topM;
-        const bot = narrow ? FP_CLIFF.botNarrow : leftEnd ? FP_CLIFF.botL : rightEnd ? FP_CLIFF.botR : FP_CLIFF.botM;
+        const top = narrow
+          ? FP_CLIFF.topNarrow
+          : leftEnd
+            ? FP_CLIFF.topL
+            : rightEnd
+              ? FP_CLIFF.topR
+              : FP_CLIFF.topM;
+        const bot = narrow
+          ? FP_CLIFF.botNarrow
+          : leftEnd
+            ? FP_CLIFF.botL
+            : rightEnd
+              ? FP_CLIFF.botR
+              : FP_CLIFF.botM;
         this.add.image(cxp, (cy + 1) * CELL + CELL / 2, "fp-tiles", top).setDepth(-850);
         this.add.image(cxp, (cy + 2) * CELL + CELL / 2, "fp-tiles", bot).setDepth(-850);
       }
@@ -393,7 +568,13 @@ export class GalleryScene extends Phaser.Scene {
     building("fp-tower", 1.6, 9.8);
     building("fp-tower", 8.6, 15.8);
     const HOUSES = ["fp-house1", "fp-house2", "fp-house3"];
-    [[13.6, 5.0], [15.4, 4.8], [14.5, 6.2], [16.5, 5.8], [11.6, 11.8]].forEach(([tx, ty], i) => building(HOUSES[i % HOUSES.length]!, tx!, ty!));
+    [
+      [13.6, 5.0],
+      [15.4, 4.8],
+      [14.5, 6.2],
+      [16.5, 5.8],
+      [11.6, 11.8],
+    ].forEach(([tx, ty], i) => building(HOUSES[i % HOUSES.length]!, tx!, ty!));
 
     // Free Pack knights: a Lancer (spearman) column by the castle + scattered units.
     // Lancer frames are 320px (taller, to fit the spear); warrior/pawn are 192px.
@@ -401,10 +582,25 @@ export class GalleryScene extends Phaser.Scene {
       if (!this.textures.exists(tex)) return;
       const scale = tex === "fp-lancer" ? 0.72 : 0.9; // bigger — match the reference's ~1.3-tile knights
       const [x, y] = P(tx, ty);
-      this.placed(this.add.image(x, y + 10, "shadow").setScale(0.7).setAlpha(0.4), y, -1);
+      this.placed(
+        this.add
+          .image(x, y + 10, "shadow")
+          .setScale(0.7)
+          .setAlpha(0.4),
+        y,
+        -1,
+      );
       this.placed(this.add.image(x, y, tex, 0).setScale(scale).setOrigin(0.5, 0.78), y);
     };
-    for (const [tx, ty] of [[6.4, 1.8], [7.2, 1.4], [7.9, 2.0], [6.6, 2.8], [7.5, 3.2], [6.0, 2.4]] as Array<[number, number]>) unit("fp-lancer", tx, ty);
+    for (const [tx, ty] of [
+      [6.4, 1.8],
+      [7.2, 1.4],
+      [7.9, 2.0],
+      [6.6, 2.8],
+      [7.5, 3.2],
+      [6.0, 2.4],
+    ] as Array<[number, number]>)
+      unit("fp-lancer", tx, ty);
     unit("fp-warrior", 7.2, 5.2);
     unit("fp-warrior", 4.2, 13.2);
     unit("fp-warrior", 11.2, 14.2);
@@ -416,30 +612,69 @@ export class GalleryScene extends Phaser.Scene {
     const tree = (tx: number, ty: number, scale: number, tint?: number): void => {
       if (!this.textures.exists("t-tree")) return;
       const [x, y] = P(tx, ty);
-      const spr = this.placed(this.add.sprite(x, y, "t-tree", 0).setScale(scale).setOrigin(0.5, 0.9), y);
+      const spr = this.placed(
+        this.add.sprite(x, y, "t-tree", 0).setScale(scale).setOrigin(0.5, 0.9),
+        y,
+      );
       if (tint !== undefined) spr.setTint(tint);
-      if (this.anims.exists("tree-sway")) spr.play({ key: "tree-sway", startFrame: Math.floor((tx * 2 + ty) % 6) });
+      if (this.anims.exists("tree-sway"))
+        spr.play({ key: "tree-sway", startFrame: Math.floor((tx * 2 + ty) % 6) });
     };
     // dark-green pine cluster across the top + a few by the sign
-    for (const [tx, ty] of [[8.8, 0.8], [9.6, 0.5], [10.4, 0.8], [11.2, 0.5], [12.0, 0.9], [12.9, 0.6], [17.4, 0.8], [18.3, 1.6], [19.0, 0.7]] as Array<[number, number]>) tree(tx, ty, 1.15);
+    for (const [tx, ty] of [
+      [8.8, 0.8],
+      [9.6, 0.5],
+      [10.4, 0.8],
+      [11.2, 0.5],
+      [12.0, 0.9],
+      [12.9, 0.6],
+      [17.4, 0.8],
+      [18.3, 1.6],
+      [19.0, 0.7],
+    ] as Array<[number, number]>)
+      tree(tx, ty, 1.15);
     // autumn (warm-tinted) trees down the flanks & corners
     const AUTUMN = [0xf4d24a, 0xe9a23a, 0xf2c14e, 0xe6b34a];
     for (const [tx, ty, n] of [
-      [0.7, 1.8, 0], [0.9, 3.2, 1], [0.6, 4.6, 2], [1.0, 6.0, 3],
-      [17.6, 12.0, 0], [18.6, 13.4, 1], [19.3, 11.6, 2], [20.0, 13.0, 3],
-      [13.0, 16.0, 0], [4.6, 16.2, 1], [22.0, 8.4, 2],
-    ] as Array<[number, number, number]>) tree(tx, ty, 1.0, AUTUMN[n % AUTUMN.length]);
+      [0.7, 1.8, 0],
+      [0.9, 3.2, 1],
+      [0.6, 4.6, 2],
+      [1.0, 6.0, 3],
+      [17.6, 12.0, 0],
+      [18.6, 13.4, 1],
+      [19.3, 11.6, 2],
+      [20.0, 13.0, 3],
+      [13.0, 16.0, 0],
+      [4.6, 16.2, 1],
+      [22.0, 8.4, 2],
+    ] as Array<[number, number, number]>)
+      tree(tx, ty, 1.0, AUTUMN[n % AUTUMN.length]);
 
     // sheep grazing near the village
-    for (const [tx, ty] of [[17.6, 6.6], [19.0, 6.0], [16.2, 8.6], [12.8, 9.6], [15.0, 13.0]] as Array<[number, number]>) {
+    for (const [tx, ty] of [
+      [17.6, 6.6],
+      [19.0, 6.0],
+      [16.2, 8.6],
+      [12.8, 9.6],
+      [15.0, 13.0],
+    ] as Array<[number, number]>) {
       if (!this.textures.exists("sheep")) break;
       const [x, y] = P(tx, ty);
-      const spr = this.placed(this.add.sprite(x, y, "sheep", 0).setScale(0.5).setOrigin(0.5, 0.8), y);
+      const spr = this.placed(
+        this.add.sprite(x, y, "sheep", 0).setScale(0.5).setOrigin(0.5, 0.8),
+        y,
+      );
       if (this.anims.exists("sheep-idle")) spr.play("sheep-idle");
     }
 
     // shoreline rocks
-    for (const [tx, ty, n] of [[3.5, 5.5, 1], [13.5, 17.0, 2], [2.5, 16.0, 3], [23.0, 9.0, 4], [10.5, 9.5, 1]] as Array<[number, number, number]>) {
+    for (const [tx, ty, n] of [
+      [3.5, 5.5, 1],
+      [13.5, 17.0, 2],
+      [2.5, 16.0, 3],
+      [23.0, 9.0, 4],
+      [10.5, 9.5, 1],
+    ] as Array<[number, number, number]>) {
       const tex = `deco-rock${n}`;
       if (!this.textures.exists(tex)) continue;
       const [x, y] = P(tx, ty);
@@ -451,12 +686,22 @@ export class GalleryScene extends Phaser.Scene {
 
   /** Approximate the "Tiny Swords" stone-framed sign in the top-right corner. */
   private buildMapSign(): void {
-    const x = 21.4 * CELL, y = 1.35 * CELL;
+    const x = 21.4 * CELL,
+      y = 1.35 * CELL;
     const g = this.add.graphics().setDepth(100000);
     g.fillStyle(0x4a5562, 1).fillRoundedRect(x - 165, y - 64, 330, 128, 18); // stone frame
     g.fillStyle(0x2f3742, 1).fillRoundedRect(x - 153, y - 52, 306, 104, 13);
     g.fillStyle(0xe9dcb8, 1).fillRoundedRect(x - 141, y - 40, 282, 80, 10); // parchment
     g.lineStyle(3, 0x9b8a5e, 1).strokeRoundedRect(x - 141, y - 40, 282, 80, 10);
-    this.add.text(x, y, "Tiny Swords", { fontSize: "42px", color: "#b23a3a", fontStyle: "bold italic", stroke: "#6a1f1f", strokeThickness: 3 }).setOrigin(0.5).setDepth(100001);
+    this.add
+      .text(x, y, "Tiny Swords", {
+        fontSize: "42px",
+        color: "#b23a3a",
+        fontStyle: "bold italic",
+        stroke: "#6a1f1f",
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5)
+      .setDepth(100001);
   }
 }

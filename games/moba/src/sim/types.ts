@@ -23,7 +23,15 @@ export type Status =
   | { kind: "attackSpeed"; until: number; amount: number; id: string } // +flat attacks*100
   | { kind: "armorBonus"; until: number; amount: number; id: string }
   | { kind: "shield"; until: number; amount: number; id: string }
-  | { kind: "dot"; until: number; nextTick: number; dps: number; dtype: DamageType; sourceId: string; id: string }
+  | {
+      kind: "dot";
+      until: number;
+      nextTick: number;
+      dps: number;
+      dtype: DamageType;
+      sourceId: string;
+      id: string;
+    }
   | { kind: "heal"; until: number; nextTick: number; hps: number; id: string }
   | { kind: "damageReduction"; until: number; pct: number; id: string }
   | { kind: "reflect"; until: number; pct: number; id: string }
@@ -161,7 +169,12 @@ export type Unit = {
 
   lastAttackAt: number;
   // a wind-up attack in flight: damage resolves at `resolveAt`
-  pendingAttack: { targetId: string; resolveAt: number; crit?: number; onHitFromAbility?: boolean } | null;
+  pendingAttack: {
+    targetId: string;
+    resolveAt: number;
+    crit?: number;
+    onHitFromAbility?: boolean;
+  } | null;
 
   order: Order;
   path: Vec2[];
@@ -202,7 +215,15 @@ export type ProjectileHit =
 
 // ---- world events (one-shot, drained by the renderer each frame) -----------
 export type FxEvent =
-  | { t: "hit"; x: number; y: number; dtype: DamageType; amount: number; crit?: boolean; targetId: string }
+  | {
+      t: "hit";
+      x: number;
+      y: number;
+      dtype: DamageType;
+      amount: number;
+      crit?: boolean;
+      targetId: string;
+    }
   | { t: "death"; x: number; y: number; unitId: string; kind: UnitKind }
   | { t: "explosion"; x: number; y: number; radius: number; color: number }
   | { t: "cast"; x: number; y: number; effect: string; team: Team }
@@ -213,7 +234,16 @@ export type FxEvent =
   | { t: "structureDown"; x: number; y: number; team: Team; tier: StructTier }
   | { t: "kill"; killer: string; victim: string; team: Team } // hero kill, for the feed
   | { t: "notify"; text: string; tone: "good" | "bad" | "neutral" } // banner announce (Roshan, aegis…)
-  | { t: "ability"; effect: string; x: number; y: number; x2: number; y2: number; radius: number; team: Team };
+  | {
+      t: "ability";
+      effect: string;
+      x: number;
+      y: number;
+      x2: number;
+      y2: number;
+      radius: number;
+      team: Team;
+    };
 
 // ---- the world -------------------------------------------------------------
 export type GamePhase = "playing" | "ended";

@@ -26,14 +26,21 @@ export function unitSprite(u: Unit): SpriteInfo {
     // neutrals (jungle camps / Roshan) use Enemy-Pack monsters so they read as a
     // distinct, threatening faction. Actions live in separate sheets, hence animBase.
     if (u.neutral) {
-      if (u.creep.boss) return { tex: "e-minotaur-idle", scale: 0.42, tint: 0xffffff, animBase: "e-minotaur" };
+      if (u.creep.boss)
+        return { tex: "e-minotaur-idle", scale: 0.42, tint: 0xffffff, animBase: "e-minotaur" };
       const big = u.radius >= 32;
       const base = big ? "e-gnoll" : "e-skull";
       return { tex: `${base}-idle`, scale: big ? 0.52 : 0.46, tint: 0xffffff, animBase: base };
     }
     const ck = u.creep.ckind;
-    if (ck === "melee") { const t = u.team === "radiant" ? "u-pawn-blue" : "u-torch-red"; return { tex: t, scale: 0.42, tint: 0xffffff, animBase: t }; }
-    if (ck === "ranged") { const t = u.team === "radiant" ? "u-archer-blue" : "u-tnt-red"; return { tex: t, scale: 0.42, tint: 0xffffff, animBase: t }; }
+    if (ck === "melee") {
+      const t = u.team === "radiant" ? "u-pawn-blue" : "u-torch-red";
+      return { tex: t, scale: 0.42, tint: 0xffffff, animBase: t };
+    }
+    if (ck === "ranged") {
+      const t = u.team === "radiant" ? "u-archer-blue" : "u-tnt-red";
+      return { tex: t, scale: 0.42, tint: 0xffffff, animBase: t };
+    }
     // barrel frames are 128px (others 192) — scale up so it reads the same size
     const t = `u-barrel-${color}`;
     return { tex: t, scale: 0.72, tint: 0xffffff, animBase: t };

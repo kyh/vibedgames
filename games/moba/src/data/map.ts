@@ -163,11 +163,20 @@ const RADIANT_LANES: Record<LaneId, Vec2[]> = {
 
 export function lanePath(lane: LaneId, team: Team): Vec2[] {
   const base = RADIANT_LANES[lane];
-  return team === "radiant" ? base.map((p) => ({ ...p })) : [...base].reverse().map((p) => ({ ...p }));
+  return team === "radiant"
+    ? base.map((p) => ({ ...p }))
+    : [...base].reverse().map((p) => ({ ...p }));
 }
 
 // ---- structures ------------------------------------------------------------
-export type TowerSpec = { id: string; team: Team; lane: LaneId | "base"; tier: StructTier; x: number; y: number };
+export type TowerSpec = {
+  id: string;
+  team: Team;
+  lane: LaneId | "base";
+  tier: StructTier;
+  x: number;
+  y: number;
+};
 
 // Two towers per lane (t1 forward near the bridge, t2 guarding the lane bend),
 // two base towers in front of the castle, and the ancient. Dire is the x-mirror.
@@ -274,7 +283,8 @@ export function buildBlockers(): Blocker[] {
   for (let cy = 0; cy < ROWS; cy++) {
     let run = -1;
     for (let cx = 0; cx <= COLS; cx++) {
-      const blocked = cx < COLS && (!isLandCell(cx, cy) || isHighCell(cx, cy) || isCliffCell(cx, cy));
+      const blocked =
+        cx < COLS && (!isLandCell(cx, cy) || isHighCell(cx, cy) || isCliffCell(cx, cy));
       if (blocked && run < 0) run = cx;
       if (!blocked && run >= 0) {
         out.push({ kind: "rect", x: run * C, y: cy * C, w: (cx - run) * C, h: C });
@@ -288,7 +298,13 @@ export function buildBlockers(): Blocker[] {
 
   // Bridges re-open the water (gaps are applied after blockers in NavGrid).
   for (const b of BRIDGES) {
-    out.push({ kind: "gap", x: b.x0 * C, y: b.y0 * C, w: (b.x1 - b.x0 + 1) * C, h: (b.y1 - b.y0 + 1) * C });
+    out.push({
+      kind: "gap",
+      x: b.x0 * C,
+      y: b.y0 * C,
+      w: (b.x1 - b.x0 + 1) * C,
+      h: (b.y1 - b.y0 + 1) * C,
+    });
   }
 
   // Map border: a 1-cell wall so units never leave the world.

@@ -30,7 +30,13 @@ export function toggleMute(): boolean {
   return muted;
 }
 
-function tone(freq: number, dur: number, type: OscillatorType, gain: number, slideTo?: number): void {
+function tone(
+  freq: number,
+  dur: number,
+  type: OscillatorType,
+  gain: number,
+  slideTo?: number,
+): void {
   const c = ac();
   if (!c || !master || muted) return;
   const t = c.currentTime;

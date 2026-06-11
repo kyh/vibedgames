@@ -79,7 +79,8 @@ function decide(w: World, u: Unit): void {
   const enemyCount = countEnemies(w, u, 600);
 
   if (enemyHero) {
-    const myAdv = u.hp / u.maxHp + allyCount * 0.25 >= enemyHero.hp / enemyHero.maxHp + enemyCount * 0.25;
+    const myAdv =
+      u.hp / u.maxHp + allyCount * 0.25 >= enemyHero.hp / enemyHero.maxHp + enemyCount * 0.25;
     const closeEnough = dist(u, enemyHero) < 520;
     if (myAdv || closeEnough) {
       issueOrder(w, u, { type: "attackUnit", targetId: enemyHero.id });
@@ -186,7 +187,13 @@ function nearestEnemyCreep(w: World, u: Unit, near: Vec2, range: number): Unit |
   return best;
 }
 
-function nearestEnemyStructure(w: World, u: Unit, lane: LaneId, near: Vec2, range: number): Unit | null {
+function nearestEnemyStructure(
+  w: World,
+  u: Unit,
+  lane: LaneId,
+  near: Vec2,
+  range: number,
+): Unit | null {
   const enemy = enemyOf(u.team);
   let best: Unit | null = null;
   let bestD = range * range;
@@ -194,7 +201,10 @@ function nearestEnemyStructure(w: World, u: Unit, lane: LaneId, near: Vec2, rang
     if (t.team !== enemy || (t.lane !== lane && t.lane !== "base")) continue;
     const su = w.units.get(t.id);
     if (!su || !su.alive || !su.structure!.attackable) continue;
-    const d = Math.min((su.x - u.x) ** 2 + (su.y - u.y) ** 2, (su.x - near.x) ** 2 + (su.y - near.y) ** 2);
+    const d = Math.min(
+      (su.x - u.x) ** 2 + (su.y - u.y) ** 2,
+      (su.x - near.x) ** 2 + (su.y - near.y) ** 2,
+    );
     if (d < bestD) {
       bestD = d;
       best = su;
@@ -265,7 +275,8 @@ function laneObjective(w: World, u: Unit, lane: LaneId): Vec2 {
   let front: Unit | null = null;
   let frontProg = -1;
   for (const c of w.units.values()) {
-    if (c.kind !== "creep" || c.neutral || c.team !== u.team || !c.alive || c.creep?.lane !== lane) continue;
+    if (c.kind !== "creep" || c.neutral || c.team !== u.team || !c.alive || c.creep?.lane !== lane)
+      continue;
     const prog = c.creep!.wpIdx;
     if (prog > frontProg) {
       frontProg = prog;
@@ -294,12 +305,14 @@ function laneObjective(w: World, u: Unit, lane: LaneId): Vec2 {
 
 function countAllies(w: World, u: Unit, r: number): number {
   let n = 0;
-  for (const e of w.units.values()) if (e.kind === "hero" && e.team === u.team && e.alive && e !== u && dist(u, e) < r) n++;
+  for (const e of w.units.values())
+    if (e.kind === "hero" && e.team === u.team && e.alive && e !== u && dist(u, e) < r) n++;
   return n;
 }
 function countEnemies(w: World, u: Unit, r: number): number {
   let n = 0;
-  for (const e of w.units.values()) if (e.kind === "hero" && e.team !== u.team && e.alive && dist(u, e) < r) n++;
+  for (const e of w.units.values())
+    if (e.kind === "hero" && e.team !== u.team && e.alive && dist(u, e) < r) n++;
   return n;
 }
 function lowestAlly(w: World, u: Unit, range: number): Unit | null {
@@ -333,4 +346,3 @@ function tryShop(u: Unit): void {
     }
   }
 }
-

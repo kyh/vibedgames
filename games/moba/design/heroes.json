@@ -1,1096 +1,828 @@
 {
- "heroes": [
-  {
-   "id": "ironvow-paladin",
-   "name": "Sir Garran, the Ironvow",
-   "role": "tank",
-   "team_flavor": "radiant: a sworn knight-captain clad in cobalt plate, banner of the Ironvow order",
-   "sprite": "Tiny Swords (Update 010)/Factions/Knights/Troops/Warrior/{COLOR}/Warrior_{COLOR}.png",
-   "tint": "#5d9bff",
-   "baseStats": {
-    "hp": 660,
-    "mp": 220,
-    "hpRegen": 3,
-    "mpRegen": 0.8,
-    "damage": 48,
-    "armor": 4,
-    "attackRange": 80,
-    "attackSpeed": 0.65,
-    "moveSpeed": 290,
-    "projectileSpeed": 0
-   },
-   "growth": {
-    "hp": 88,
-    "mp": 14,
-    "damage": 3.4,
-    "armor": 0.45,
-    "hpRegen": 0.22,
-    "mpRegen": 0.05,
-    "attackSpeed": 0.012
-   },
-   "abilities": [
+  "heroes": [
     {
-     "key": "Q",
-     "name": "Shield Bash",
-     "type": "targeted-unit",
-     "desc": "Charge the buckler into a target, dealing physical damage and STUNNING. Garran's signature lockdown \u2014 short range, reliable hard stun.",
-     "manaCost": "75/80/85/90",
-     "cooldown": "11/10/9/8",
-     "values": {
-      "damage": [
-       70,
-       120,
-       170,
-       220
+      "id": "ironvow-paladin",
+      "name": "Sir Garran, the Ironvow",
+      "role": "tank",
+      "team_flavor": "radiant: a sworn knight-captain clad in cobalt plate, banner of the Ironvow order",
+      "sprite": "Tiny Swords (Update 010)/Factions/Knights/Troops/Warrior/{COLOR}/Warrior_{COLOR}.png",
+      "tint": "#5d9bff",
+      "baseStats": {
+        "hp": 660,
+        "mp": 220,
+        "hpRegen": 3,
+        "mpRegen": 0.8,
+        "damage": 48,
+        "armor": 4,
+        "attackRange": 80,
+        "attackSpeed": 0.65,
+        "moveSpeed": 290,
+        "projectileSpeed": 0
+      },
+      "growth": {
+        "hp": 88,
+        "mp": 14,
+        "damage": 3.4,
+        "armor": 0.45,
+        "hpRegen": 0.22,
+        "mpRegen": 0.05,
+        "attackSpeed": 0.012
+      },
+      "abilities": [
+        {
+          "key": "Q",
+          "name": "Shield Bash",
+          "type": "targeted-unit",
+          "desc": "Charge the buckler into a target, dealing physical damage and STUNNING. Garran's signature lockdown \u2014 short range, reliable hard stun.",
+          "manaCost": "75/80/85/90",
+          "cooldown": "11/10/9/8",
+          "values": {
+            "damage": [70, 120, 170, 220],
+            "stunDuration": [1, 1.3, 1.6, 1.9],
+            "castRange": 120,
+            "selfSlowOnCastMs": 0
+          }
+        },
+        {
+          "key": "W",
+          "name": "Oathguard",
+          "type": "self-buff",
+          "desc": "Raises an oath-bound aegis: gains bonus armor and a flat SHIELD that absorbs damage. While active, melee attackers take reflected physical damage.",
+          "manaCost": "60/65/70/75",
+          "cooldown": "16/15/14/13",
+          "values": {
+            "bonusArmor": [3, 5, 7, 9],
+            "shieldHp": [80, 140, 200, 260],
+            "reflectPct": [20, 25, 30, 35],
+            "duration": 6
+          }
+        },
+        {
+          "key": "E",
+          "name": "Banner of Resolve",
+          "type": "passive",
+          "desc": "Passive aura. Garran and nearby allied heroes gain bonus move speed and HP regen. Scales the whole team's sticking power in fights.",
+          "manaCost": "0",
+          "cooldown": "0",
+          "values": {
+            "auraRadius": 600,
+            "moveSpeedPct": [4, 6, 8, 10],
+            "hpRegenBonus": [2, 3.5, 5, 6.5]
+          }
+        },
+        {
+          "key": "R",
+          "name": "Unbreaking Vow",
+          "type": "point-aoe",
+          "desc": "Ultimate: slams the ground, TAUNTING all enemies in the area to attack Garran for the duration while he gains massive damage reduction. Initiation + peel teamfight ult.",
+          "manaCost": "120/150/180",
+          "cooldown": "90/80/70",
+          "values": {
+            "radius": 360,
+            "tauntDuration": [1.4, 1.8, 2.2],
+            "damageReductionPct": [40, 50, 60],
+            "buffDuration": [4, 5, 6],
+            "initialDamage": [80, 130, 180]
+          }
+        }
       ],
-      "stunDuration": [
-       1,
-       1.3,
-       1.6,
-       1.9
-      ],
-      "castRange": 120,
-      "selfSlowOnCastMs": 0
-     }
+      "playstyle": "Frontline initiator. Walk in, R to taunt the enemy core, Q-stun the priority target, W to survive the focus while allies clean up. Low cooldowns, high uptime, forgiving for new players \u2014 the recommended starter hero vs bots."
     },
     {
-     "key": "W",
-     "name": "Oathguard",
-     "type": "self-buff",
-     "desc": "Raises an oath-bound aegis: gains bonus armor and a flat SHIELD that absorbs damage. While active, melee attackers take reflected physical damage.",
-     "manaCost": "60/65/70/75",
-     "cooldown": "16/15/14/13",
-     "values": {
-      "bonusArmor": [
-       3,
-       5,
-       7,
-       9
+      "id": "duskblade-rogue",
+      "name": "Vesper, the Duskblade",
+      "role": "carry",
+      "team_flavor": "radiant: a quick light-footed squire turned blade-dancer, blue sash flickering as she blinks between foes",
+      "sprite": "Tiny Swords (Update 010)/Factions/Knights/Troops/Pawn/{COLOR}/Pawn_{COLOR}.png",
+      "tint": "#7af0c8",
+      "baseStats": {
+        "hp": 520,
+        "mp": 250,
+        "hpRegen": 1.8,
+        "mpRegen": 0.9,
+        "damage": 52,
+        "armor": 2,
+        "attackRange": 90,
+        "attackSpeed": 0.75,
+        "moveSpeed": 320,
+        "projectileSpeed": 0
+      },
+      "growth": {
+        "hp": 64,
+        "mp": 16,
+        "damage": 3.8,
+        "armor": 0.3,
+        "hpRegen": 0.16,
+        "mpRegen": 0.06,
+        "attackSpeed": 0.02
+      },
+      "abilities": [
+        {
+          "key": "Q",
+          "name": "Shadowstep",
+          "type": "dash",
+          "desc": "Blink a fixed distance toward the cursor, passing over units and terrain. Next attack within the window strikes for bonus physical damage. Core mobility + gap-close/escape.",
+          "manaCost": "50/55/60/65",
+          "cooldown": "9/8/7/6",
+          "values": {
+            "blinkDistance": 360,
+            "bonusNextAttack": [30, 55, 80, 105],
+            "empowerWindowSec": 3,
+            "castTimeMs": 100
+          }
+        },
+        {
+          "key": "W",
+          "name": "Fanned Daggers",
+          "type": "skillshot-aoe",
+          "desc": "Throws a spread of three daggers in a cone; each deals physical damage and applies a brief SLOW. Wave-clear and harass at the edge of her range.",
+          "manaCost": "70/80/90/100",
+          "cooldown": "8/7.5/7/6.5",
+          "values": {
+            "damagePerDagger": [40, 60, 80, 100],
+            "coneRange": 420,
+            "coneAngleDeg": 45,
+            "slowPct": [20, 25, 30, 35],
+            "slowDuration": 1.5
+          }
+        },
+        {
+          "key": "E",
+          "name": "Bloodthirst",
+          "type": "passive",
+          "desc": "Passive carry scaling: attacks LIFESTEAL a percent of damage and grant a stacking attack-speed buff that decays out of combat. Rewards staying on a target.",
+          "manaCost": "0",
+          "cooldown": "0",
+          "values": {
+            "lifestealPct": [10, 15, 20, 25],
+            "asPerStack": [4, 5, 6, 7],
+            "maxStacks": 5,
+            "stackDurationSec": 4
+          }
+        },
+        {
+          "key": "R",
+          "name": "Death Waltz",
+          "type": "targeted-unit",
+          "desc": "Ultimate: lock onto a hero and become briefly untargetable while striking them several times, finishing with a backstab CRIT. Pure single-target assassination burst.",
+          "manaCost": "100/130/160",
+          "cooldown": "75/65/55",
+          "values": {
+            "strikeCount": [3, 4, 5],
+            "damagePerStrike": [60, 80, 100],
+            "finalCritMultiplier": 2,
+            "untargetableDuration": [1.2, 1.5, 1.8],
+            "castRange": 350
+          }
+        }
       ],
-      "shieldHp": [
-       80,
-       140,
-       200,
-       260
-      ],
-      "reflectPct": [
-       20,
-       25,
-       30,
-       35
-      ],
-      "duration": 6
-     }
+      "playstyle": "Snowball assassin carry. Last-hit early, use Q to dodge ganks, fan daggers to push, then dive squishies with R. High skill ceiling and high reward \u2014 punishes overextended bots hard."
     },
     {
-     "key": "E",
-     "name": "Banner of Resolve",
-     "type": "passive",
-     "desc": "Passive aura. Garran and nearby allied heroes gain bonus move speed and HP regen. Scales the whole team's sticking power in fights.",
-     "manaCost": "0",
-     "cooldown": "0",
-     "values": {
-      "auraRadius": 600,
-      "moveSpeedPct": [
-       4,
-       6,
-       8,
-       10
+      "id": "stormcaller-ranger",
+      "name": "Aelwyn Stormcaller",
+      "role": "carry",
+      "team_flavor": "radiant: an azure-cloaked longbow ranger who calls down storm-touched arrows from the treeline",
+      "sprite": "Tiny Swords (Update 010)/Factions/Knights/Troops/Archer/{COLOR}/Archer_{COLOR}.png",
+      "tint": "#9ad0ff",
+      "baseStats": {
+        "hp": 480,
+        "mp": 300,
+        "hpRegen": 1.6,
+        "mpRegen": 1.1,
+        "damage": 46,
+        "armor": 1,
+        "attackRange": 520,
+        "attackSpeed": 0.7,
+        "moveSpeed": 300,
+        "projectileSpeed": 900
+      },
+      "growth": {
+        "hp": 56,
+        "mp": 18,
+        "damage": 3.6,
+        "armor": 0.28,
+        "hpRegen": 0.14,
+        "mpRegen": 0.07,
+        "attackSpeed": 0.018
+      },
+      "abilities": [
+        {
+          "key": "Q",
+          "name": "Piercing Shot",
+          "type": "skillshot-line",
+          "desc": "Fires a long-range arrow that pierces through all units in a line, dealing physical damage that falls off slightly per target hit. Poke and wave-pierce.",
+          "manaCost": "70/80/90/100",
+          "cooldown": "7/6.5/6/5.5",
+          "values": {
+            "damage": [90, 140, 190, 240],
+            "lineLength": 800,
+            "lineWidth": 80,
+            "falloffPctPerTarget": 12,
+            "minDamagePct": 50
+          }
+        },
+        {
+          "key": "W",
+          "name": "Hunter's Mark",
+          "type": "targeted-unit",
+          "desc": "Marks a hero: the target takes amplified attack damage and is REVEALED. Aelwyn gains bonus attack speed against the marked target. Sets up the kill.",
+          "manaCost": "50/55/60/65",
+          "cooldown": "14/13/12/11",
+          "values": {
+            "damageAmpPct": [12, 16, 20, 24],
+            "bonusASvsMarked": [20, 30, 40, 50],
+            "markDuration": [5, 6, 7, 8],
+            "castRange": 700
+          }
+        },
+        {
+          "key": "E",
+          "name": "Windfoot",
+          "type": "self-buff",
+          "desc": "Quick self buff: gains a burst of move speed and her next few attacks fire faster with mini-SLOW on hit, letting her kite. Active kiting tool for an immobile ranged carry.",
+          "manaCost": "40/45/50/55",
+          "cooldown": "16/14/12/10",
+          "values": {
+            "moveSpeedBonus": [60, 80, 100, 120],
+            "attackSpeedBonus": [25, 35, 45, 55],
+            "onHitSlowPct": 12,
+            "duration": [3, 3.5, 4, 4.5]
+          }
+        },
+        {
+          "key": "R",
+          "name": "Storm Volley",
+          "type": "point-aoe",
+          "desc": "Ultimate CHANNEL: rains storm arrows on a target area over several seconds, ticking AoE physical damage and slowing. Breaking channel ends it. Zoning + teamfight + siege damage.",
+          "manaCost": "150/175/200",
+          "cooldown": "100/90/80",
+          "values": {
+            "channelDuration": [3, 3.5, 4],
+            "tickInterval": 0.5,
+            "damagePerTick": [55, 75, 95],
+            "radius": 320,
+            "slowPctInArea": 25,
+            "castRange": 850
+          }
+        }
       ],
-      "hpRegenBonus": [
-       2,
-       3.5,
-       5,
-       6.5
-      ]
-     }
+      "playstyle": "Position-and-poke ranged carry. Farm safely with Q, mark the enemy carry, kite with E, and drop Storm Volley to win fights or break towers. Rewards good spacing; squishy if caught."
     },
     {
-     "key": "R",
-     "name": "Unbreaking Vow",
-     "type": "point-aoe",
-     "desc": "Ultimate: slams the ground, TAUNTING all enemies in the area to attack Garran for the duration while he gains massive damage reduction. Initiation + peel teamfight ult.",
-     "manaCost": "120/150/180",
-     "cooldown": "90/80/70",
-     "values": {
-      "radius": 360,
-      "tauntDuration": [
-       1.4,
-       1.8,
-       2.2
+      "id": "emberhex-pyromancer",
+      "name": "Grix the Emberhex",
+      "role": "nuker",
+      "team_flavor": "dire: a cackling goblin firebrand who hurls living flame, scorched-green skin lit by his own torch",
+      "sprite": "Tiny Swords (Update 010)/Factions/Goblins/Troops/Torch/{COLOR}/Torch_{COLOR}.png",
+      "tint": "#ff7a3d",
+      "baseStats": {
+        "hp": 500,
+        "mp": 340,
+        "hpRegen": 1.7,
+        "mpRegen": 1.3,
+        "damage": 40,
+        "armor": 1,
+        "attackRange": 110,
+        "attackSpeed": 0.6,
+        "moveSpeed": 300,
+        "projectileSpeed": 0
+      },
+      "growth": {
+        "hp": 58,
+        "mp": 22,
+        "damage": 2.8,
+        "armor": 0.26,
+        "hpRegen": 0.15,
+        "mpRegen": 0.09,
+        "attackSpeed": 0.01
+      },
+      "abilities": [
+        {
+          "key": "Q",
+          "name": "Fireball",
+          "type": "skillshot-aoe",
+          "desc": "Lobs a fireball that explodes on impact, dealing magic damage in an area. Grix's bread-and-butter nuke and wave-clear. Fast cooldown.",
+          "manaCost": "80/90/100/110",
+          "cooldown": "6/5.5/5/4.5",
+          "values": {
+            "damage": [90, 150, 210, 270],
+            "explosionRadius": 180,
+            "castRange": 550,
+            "projectileSpeed": 700
+          }
+        },
+        {
+          "key": "W",
+          "name": "Cinder Trail",
+          "type": "point-aoe",
+          "desc": "Ignites a patch of ground that burns for several seconds, dealing damage-over-time and applying a stacking BURN that slows. Zoning and chip nuke.",
+          "manaCost": "70/80/90/100",
+          "cooldown": "12/11/10/9",
+          "values": {
+            "dpsPerSecond": [30, 45, 60, 75],
+            "duration": 4,
+            "radius": 200,
+            "slowPctAtMaxStacks": 30,
+            "castRange": 500
+          }
+        },
+        {
+          "key": "E",
+          "name": "Flashfire",
+          "type": "self-buff",
+          "desc": "Self-immolation buff: surrounds Grix in flame, damaging adjacent enemies each second and granting spell amplification. Short-range bruiser-mage option in melee scraps.",
+          "manaCost": "60/65/70/75",
+          "cooldown": "18/16/14/12",
+          "values": {
+            "auraDps": [25, 40, 55, 70],
+            "auraRadius": 200,
+            "spellAmpPct": [8, 12, 16, 20],
+            "duration": 5
+          }
+        },
+        {
+          "key": "R",
+          "name": "Conflagration",
+          "type": "skillshot-aoe",
+          "desc": "Ultimate AoE NUKE: a massive delayed firestorm erupts at the target point, dealing huge magic damage and igniting all enemies hit (DoT). Teamfight wombo and big burst.",
+          "manaCost": "160/210/260",
+          "cooldown": "90/80/70",
+          "values": {
+            "impactDamage": [240, 340, 440],
+            "radius": 340,
+            "castRange": 700,
+            "fuseDelaySec": 0.9,
+            "burnDps": [40, 60, 80],
+            "burnDuration": 3
+          }
+        }
       ],
-      "damageReductionPct": [
-       40,
-       50,
-       60
+      "playstyle": "Burst caster. Spam Fireball to clear and poke, zone with Cinder Trail, and detonate Conflagration on grouped enemies for a teamfight swing. Mana-hungry; vulnerable between cooldowns."
+    },
+    {
+      "id": "boomtinker-sapper",
+      "name": "Fizzle Boomtinker",
+      "role": "pusher",
+      "team_flavor": "dire: a manic goblin demolitions sapper strapped with TNT, leaving a trail of mischief and craters",
+      "sprite": "Tiny Swords (Update 010)/Factions/Goblins/Troops/TNT/{COLOR}/TNT_{COLOR}.png",
+      "tint": "#ffd24d",
+      "baseStats": {
+        "hp": 560,
+        "mp": 240,
+        "hpRegen": 2.2,
+        "mpRegen": 0.9,
+        "damage": 44,
+        "armor": 2,
+        "attackRange": 100,
+        "attackSpeed": 0.62,
+        "moveSpeed": 305,
+        "projectileSpeed": 0
+      },
+      "growth": {
+        "hp": 70,
+        "mp": 15,
+        "damage": 3,
+        "armor": 0.34,
+        "hpRegen": 0.18,
+        "mpRegen": 0.05,
+        "attackSpeed": 0.012
+      },
+      "abilities": [
+        {
+          "key": "Q",
+          "name": "Lob Dynamite",
+          "type": "skillshot-aoe",
+          "desc": "Throws a stick of dynamite that explodes for magic damage in an area; deals BONUS damage to buildings. Primary harass and tower-chunking tool.",
+          "manaCost": "65/75/85/95",
+          "cooldown": "7/6.5/6/5.5",
+          "values": {
+            "damage": [80, 125, 170, 215],
+            "buildingBonusPct": 60,
+            "radius": 160,
+            "castRange": 520,
+            "projectileSpeed": 650
+          }
+        },
+        {
+          "key": "W",
+          "name": "Proximity Mines",
+          "type": "summon",
+          "desc": "Plants a hidden mine that arms after a delay and detonates when an enemy steps near, dealing burst magic damage and a brief SLOW. Up to several mines persist. Map control + ambush.",
+          "manaCost": "60/70/80/90",
+          "cooldown": "9/8/7/6",
+          "values": {
+            "mineDamage": [70, 110, 150, 190],
+            "maxActiveMines": [3, 4, 5, 6],
+            "armDelaySec": 1.2,
+            "triggerRadius": 140,
+            "slowOnHitPct": 25,
+            "mineLifetimeSec": 45
+          }
+        },
+        {
+          "key": "E",
+          "name": "Powder Keg",
+          "type": "self-buff",
+          "desc": "Straps on extra powder: next several attacks gain splash AoE and a chance to knock back. Passive base bonus building damage on attacks. Sustained siege + clear.",
+          "manaCost": "50/55/60/65",
+          "cooldown": "15/14/13/12",
+          "values": {
+            "splashRadius": 160,
+            "splashPct": [50, 60, 70, 80],
+            "empoweredAttacks": [3, 4, 5, 6],
+            "passiveBuildingDmgPct": [10, 15, 20, 25],
+            "knockbackChancePct": 25
+          }
+        },
+        {
+          "key": "R",
+          "name": "Demolition Run",
+          "type": "dash",
+          "desc": "Ultimate: sprints forward with a lit megabomb (move-speed surge, unstoppable), then SLAMS it down for massive AoE magic damage and a STUN, with huge bonus damage to structures. Dive-and-detonate finisher / base-race tool.",
+          "manaCost": "140/180/220",
+          "cooldown": "100/90/80",
+          "values": {
+            "dashSpeedBonus": 220,
+            "maxDashDurationSec": 2.5,
+            "impactDamage": [220, 320, 420],
+            "impactRadius": 280,
+            "stunDuration": [1.2, 1.5, 1.8],
+            "buildingBonusPct": 100
+          }
+        }
       ],
-      "buffDuration": [
-       4,
-       5,
-       6
+      "playstyle": "Splitpush / siege specialist with a summon kit. Mine chokepoints, Q+E to shred towers fast, and use Demolition Run to dive a fight or race the enemy ancient. Excellent for ending the match on time."
+    },
+    {
+      "id": "brewkeeper-shaman",
+      "name": "Old Bramblecask",
+      "role": "support",
+      "team_flavor": "dire: a rotund goblin brew-shaman who rolls a healing keg into battle, splashing restorative ale and bitter hexes",
+      "sprite": "Tiny Swords (Update 010)/Factions/Goblins/Troops/Barrel/{COLOR}/Barrel_{COLOR}.png",
+      "tint": "#b06bff",
+      "baseStats": {
+        "hp": 600,
+        "mp": 320,
+        "hpRegen": 2.6,
+        "mpRegen": 1.2,
+        "damage": 38,
+        "armor": 3,
+        "attackRange": 95,
+        "attackSpeed": 0.6,
+        "moveSpeed": 295,
+        "projectileSpeed": 0
+      },
+      "growth": {
+        "hp": 72,
+        "mp": 19,
+        "damage": 2.6,
+        "armor": 0.36,
+        "hpRegen": 0.2,
+        "mpRegen": 0.08,
+        "attackSpeed": 0.01
+      },
+      "abilities": [
+        {
+          "key": "Q",
+          "name": "Restoring Brew",
+          "type": "targeted-unit",
+          "desc": "Splashes ale on an allied hero, instantly HEALING and granting a short regen-over-time. Can target self. Bramblecask's primary save.",
+          "manaCost": "75/85/95/105",
+          "cooldown": "8/7.5/7/6.5",
+          "values": {
+            "instantHeal": [80, 130, 180, 230],
+            "regenPerSec": [10, 15, 20, 25],
+            "regenDuration": 4,
+            "castRange": 550
+          }
+        },
+        {
+          "key": "W",
+          "name": "Hex Bottle",
+          "type": "skillshot-aoe",
+          "desc": "Hurls a bottle that shatters in an area, SILENCING and SLOWING enemies caught and dealing minor magic damage. Disable + setup for the team.",
+          "manaCost": "80/90/100/110",
+          "cooldown": "16/15/14/13",
+          "values": {
+            "damage": [50, 80, 110, 140],
+            "silenceDuration": [1.2, 1.6, 2, 2.4],
+            "slowPct": [25, 30, 35, 40],
+            "radius": 220,
+            "castRange": 600
+          }
+        },
+        {
+          "key": "E",
+          "name": "Warding Keg",
+          "type": "self-buff",
+          "desc": "Pops the keg to grant himself and nearby allies a SHIELD plus bonus armor for a few seconds. Frontline-saving panic button in an aura.",
+          "manaCost": "70/80/90/100",
+          "cooldown": "18/17/16/15",
+          "values": {
+            "shieldHp": [70, 120, 170, 220],
+            "bonusArmor": [2, 3, 4, 5],
+            "auraRadius": 450,
+            "duration": 5
+          }
+        },
+        {
+          "key": "R",
+          "name": "Last Call",
+          "type": "point-aoe",
+          "desc": "Ultimate CHANNEL: pours out the great cask, creating a healing zone that rapidly restores allied HP and mana and cleanses slows each tick for its duration. Sustains the whole team through a teamfight or siege.",
+          "manaCost": "150/190/230",
+          "cooldown": "110/100/90",
+          "values": {
+            "channelDuration": [4, 5, 6],
+            "tickInterval": 0.5,
+            "healPerTick": [40, 60, 80],
+            "manaPerTick": [8, 12, 16],
+            "radius": 380,
+            "cleansesSlow": true
+          }
+        }
       ],
-      "initialDamage": [
-       80,
-       130,
-       180
-      ]
-     }
+      "playstyle": "Pure support enabler. Keep the carry alive with Brew, lock targets with Hex Bottle, blanket the team in shields, and channel Last Call to out-sustain pushes. The ideal ally to pair with a bot carry \u2014 or for a human to babysit a strong AI core."
     }
-   ],
-   "playstyle": "Frontline initiator. Walk in, R to taunt the enemy core, Q-stun the priority target, W to survive the focus while allies clean up. Low cooldowns, high uptime, forgiving for new players \u2014 the recommended starter hero vs bots."
-  },
-  {
-   "id": "duskblade-rogue",
-   "name": "Vesper, the Duskblade",
-   "role": "carry",
-   "team_flavor": "radiant: a quick light-footed squire turned blade-dancer, blue sash flickering as she blinks between foes",
-   "sprite": "Tiny Swords (Update 010)/Factions/Knights/Troops/Pawn/{COLOR}/Pawn_{COLOR}.png",
-   "tint": "#7af0c8",
-   "baseStats": {
-    "hp": 520,
-    "mp": 250,
-    "hpRegen": 1.8,
-    "mpRegen": 0.9,
-    "damage": 52,
-    "armor": 2,
-    "attackRange": 90,
-    "attackSpeed": 0.75,
-    "moveSpeed": 320,
-    "projectileSpeed": 0
-   },
-   "growth": {
-    "hp": 64,
-    "mp": 16,
-    "damage": 3.8,
-    "armor": 0.3,
-    "hpRegen": 0.16,
-    "mpRegen": 0.06,
-    "attackSpeed": 0.02
-   },
-   "abilities": [
-    {
-     "key": "Q",
-     "name": "Shadowstep",
-     "type": "dash",
-     "desc": "Blink a fixed distance toward the cursor, passing over units and terrain. Next attack within the window strikes for bonus physical damage. Core mobility + gap-close/escape.",
-     "manaCost": "50/55/60/65",
-     "cooldown": "9/8/7/6",
-     "values": {
-      "blinkDistance": 360,
-      "bonusNextAttack": [
-       30,
-       55,
-       80,
-       105
-      ],
-      "empowerWindowSec": 3,
-      "castTimeMs": 100
-     }
-    },
-    {
-     "key": "W",
-     "name": "Fanned Daggers",
-     "type": "skillshot-aoe",
-     "desc": "Throws a spread of three daggers in a cone; each deals physical damage and applies a brief SLOW. Wave-clear and harass at the edge of her range.",
-     "manaCost": "70/80/90/100",
-     "cooldown": "8/7.5/7/6.5",
-     "values": {
-      "damagePerDagger": [
-       40,
-       60,
-       80,
-       100
-      ],
-      "coneRange": 420,
-      "coneAngleDeg": 45,
-      "slowPct": [
-       20,
-       25,
-       30,
-       35
-      ],
-      "slowDuration": 1.5
-     }
-    },
-    {
-     "key": "E",
-     "name": "Bloodthirst",
-     "type": "passive",
-     "desc": "Passive carry scaling: attacks LIFESTEAL a percent of damage and grant a stacking attack-speed buff that decays out of combat. Rewards staying on a target.",
-     "manaCost": "0",
-     "cooldown": "0",
-     "values": {
-      "lifestealPct": [
-       10,
-       15,
-       20,
-       25
-      ],
-      "asPerStack": [
-       4,
-       5,
-       6,
-       7
-      ],
-      "maxStacks": 5,
-      "stackDurationSec": 4
-     }
-    },
-    {
-     "key": "R",
-     "name": "Death Waltz",
-     "type": "targeted-unit",
-     "desc": "Ultimate: lock onto a hero and become briefly untargetable while striking them several times, finishing with a backstab CRIT. Pure single-target assassination burst.",
-     "manaCost": "100/130/160",
-     "cooldown": "75/65/55",
-     "values": {
-      "strikeCount": [
-       3,
-       4,
-       5
-      ],
-      "damagePerStrike": [
-       60,
-       80,
-       100
-      ],
-      "finalCritMultiplier": 2,
-      "untargetableDuration": [
-       1.2,
-       1.5,
-       1.8
-      ],
-      "castRange": 350
-     }
-    }
-   ],
-   "playstyle": "Snowball assassin carry. Last-hit early, use Q to dodge ganks, fan daggers to push, then dive squishies with R. High skill ceiling and high reward \u2014 punishes overextended bots hard."
-  },
-  {
-   "id": "stormcaller-ranger",
-   "name": "Aelwyn Stormcaller",
-   "role": "carry",
-   "team_flavor": "radiant: an azure-cloaked longbow ranger who calls down storm-touched arrows from the treeline",
-   "sprite": "Tiny Swords (Update 010)/Factions/Knights/Troops/Archer/{COLOR}/Archer_{COLOR}.png",
-   "tint": "#9ad0ff",
-   "baseStats": {
-    "hp": 480,
-    "mp": 300,
-    "hpRegen": 1.6,
-    "mpRegen": 1.1,
-    "damage": 46,
-    "armor": 1,
-    "attackRange": 520,
-    "attackSpeed": 0.7,
-    "moveSpeed": 300,
-    "projectileSpeed": 900
-   },
-   "growth": {
-    "hp": 56,
-    "mp": 18,
-    "damage": 3.6,
-    "armor": 0.28,
-    "hpRegen": 0.14,
-    "mpRegen": 0.07,
-    "attackSpeed": 0.018
-   },
-   "abilities": [
-    {
-     "key": "Q",
-     "name": "Piercing Shot",
-     "type": "skillshot-line",
-     "desc": "Fires a long-range arrow that pierces through all units in a line, dealing physical damage that falls off slightly per target hit. Poke and wave-pierce.",
-     "manaCost": "70/80/90/100",
-     "cooldown": "7/6.5/6/5.5",
-     "values": {
-      "damage": [
-       90,
-       140,
-       190,
-       240
-      ],
-      "lineLength": 800,
-      "lineWidth": 80,
-      "falloffPctPerTarget": 12,
-      "minDamagePct": 50
-     }
-    },
-    {
-     "key": "W",
-     "name": "Hunter's Mark",
-     "type": "targeted-unit",
-     "desc": "Marks a hero: the target takes amplified attack damage and is REVEALED. Aelwyn gains bonus attack speed against the marked target. Sets up the kill.",
-     "manaCost": "50/55/60/65",
-     "cooldown": "14/13/12/11",
-     "values": {
-      "damageAmpPct": [
-       12,
-       16,
-       20,
-       24
-      ],
-      "bonusASvsMarked": [
-       20,
-       30,
-       40,
-       50
-      ],
-      "markDuration": [
-       5,
-       6,
-       7,
-       8
-      ],
-      "castRange": 700
-     }
-    },
-    {
-     "key": "E",
-     "name": "Windfoot",
-     "type": "self-buff",
-     "desc": "Quick self buff: gains a burst of move speed and her next few attacks fire faster with mini-SLOW on hit, letting her kite. Active kiting tool for an immobile ranged carry.",
-     "manaCost": "40/45/50/55",
-     "cooldown": "16/14/12/10",
-     "values": {
-      "moveSpeedBonus": [
-       60,
-       80,
-       100,
-       120
-      ],
-      "attackSpeedBonus": [
-       25,
-       35,
-       45,
-       55
-      ],
-      "onHitSlowPct": 12,
-      "duration": [
-       3,
-       3.5,
-       4,
-       4.5
-      ]
-     }
-    },
-    {
-     "key": "R",
-     "name": "Storm Volley",
-     "type": "point-aoe",
-     "desc": "Ultimate CHANNEL: rains storm arrows on a target area over several seconds, ticking AoE physical damage and slowing. Breaking channel ends it. Zoning + teamfight + siege damage.",
-     "manaCost": "150/175/200",
-     "cooldown": "100/90/80",
-     "values": {
-      "channelDuration": [
-       3,
-       3.5,
-       4
-      ],
-      "tickInterval": 0.5,
-      "damagePerTick": [
-       55,
-       75,
-       95
-      ],
-      "radius": 320,
-      "slowPctInArea": 25,
-      "castRange": 850
-     }
-    }
-   ],
-   "playstyle": "Position-and-poke ranged carry. Farm safely with Q, mark the enemy carry, kite with E, and drop Storm Volley to win fights or break towers. Rewards good spacing; squishy if caught."
-  },
-  {
-   "id": "emberhex-pyromancer",
-   "name": "Grix the Emberhex",
-   "role": "nuker",
-   "team_flavor": "dire: a cackling goblin firebrand who hurls living flame, scorched-green skin lit by his own torch",
-   "sprite": "Tiny Swords (Update 010)/Factions/Goblins/Troops/Torch/{COLOR}/Torch_{COLOR}.png",
-   "tint": "#ff7a3d",
-   "baseStats": {
-    "hp": 500,
-    "mp": 340,
-    "hpRegen": 1.7,
-    "mpRegen": 1.3,
-    "damage": 40,
-    "armor": 1,
-    "attackRange": 110,
-    "attackSpeed": 0.6,
-    "moveSpeed": 300,
-    "projectileSpeed": 0
-   },
-   "growth": {
-    "hp": 58,
-    "mp": 22,
-    "damage": 2.8,
-    "armor": 0.26,
-    "hpRegen": 0.15,
-    "mpRegen": 0.09,
-    "attackSpeed": 0.01
-   },
-   "abilities": [
-    {
-     "key": "Q",
-     "name": "Fireball",
-     "type": "skillshot-aoe",
-     "desc": "Lobs a fireball that explodes on impact, dealing magic damage in an area. Grix's bread-and-butter nuke and wave-clear. Fast cooldown.",
-     "manaCost": "80/90/100/110",
-     "cooldown": "6/5.5/5/4.5",
-     "values": {
-      "damage": [
-       90,
-       150,
-       210,
-       270
-      ],
-      "explosionRadius": 180,
-      "castRange": 550,
-      "projectileSpeed": 700
-     }
-    },
-    {
-     "key": "W",
-     "name": "Cinder Trail",
-     "type": "point-aoe",
-     "desc": "Ignites a patch of ground that burns for several seconds, dealing damage-over-time and applying a stacking BURN that slows. Zoning and chip nuke.",
-     "manaCost": "70/80/90/100",
-     "cooldown": "12/11/10/9",
-     "values": {
-      "dpsPerSecond": [
-       30,
-       45,
-       60,
-       75
-      ],
-      "duration": 4,
-      "radius": 200,
-      "slowPctAtMaxStacks": 30,
-      "castRange": 500
-     }
-    },
-    {
-     "key": "E",
-     "name": "Flashfire",
-     "type": "self-buff",
-     "desc": "Self-immolation buff: surrounds Grix in flame, damaging adjacent enemies each second and granting spell amplification. Short-range bruiser-mage option in melee scraps.",
-     "manaCost": "60/65/70/75",
-     "cooldown": "18/16/14/12",
-     "values": {
-      "auraDps": [
-       25,
-       40,
-       55,
-       70
-      ],
-      "auraRadius": 200,
-      "spellAmpPct": [
-       8,
-       12,
-       16,
-       20
-      ],
-      "duration": 5
-     }
-    },
-    {
-     "key": "R",
-     "name": "Conflagration",
-     "type": "skillshot-aoe",
-     "desc": "Ultimate AoE NUKE: a massive delayed firestorm erupts at the target point, dealing huge magic damage and igniting all enemies hit (DoT). Teamfight wombo and big burst.",
-     "manaCost": "160/210/260",
-     "cooldown": "90/80/70",
-     "values": {
-      "impactDamage": [
-       240,
-       340,
-       440
-      ],
-      "radius": 340,
-      "castRange": 700,
-      "fuseDelaySec": 0.9,
-      "burnDps": [
-       40,
-       60,
-       80
-      ],
-      "burnDuration": 3
-     }
-    }
-   ],
-   "playstyle": "Burst caster. Spam Fireball to clear and poke, zone with Cinder Trail, and detonate Conflagration on grouped enemies for a teamfight swing. Mana-hungry; vulnerable between cooldowns."
-  },
-  {
-   "id": "boomtinker-sapper",
-   "name": "Fizzle Boomtinker",
-   "role": "pusher",
-   "team_flavor": "dire: a manic goblin demolitions sapper strapped with TNT, leaving a trail of mischief and craters",
-   "sprite": "Tiny Swords (Update 010)/Factions/Goblins/Troops/TNT/{COLOR}/TNT_{COLOR}.png",
-   "tint": "#ffd24d",
-   "baseStats": {
-    "hp": 560,
-    "mp": 240,
-    "hpRegen": 2.2,
-    "mpRegen": 0.9,
-    "damage": 44,
-    "armor": 2,
-    "attackRange": 100,
-    "attackSpeed": 0.62,
-    "moveSpeed": 305,
-    "projectileSpeed": 0
-   },
-   "growth": {
-    "hp": 70,
-    "mp": 15,
-    "damage": 3,
-    "armor": 0.34,
-    "hpRegen": 0.18,
-    "mpRegen": 0.05,
-    "attackSpeed": 0.012
-   },
-   "abilities": [
-    {
-     "key": "Q",
-     "name": "Lob Dynamite",
-     "type": "skillshot-aoe",
-     "desc": "Throws a stick of dynamite that explodes for magic damage in an area; deals BONUS damage to buildings. Primary harass and tower-chunking tool.",
-     "manaCost": "65/75/85/95",
-     "cooldown": "7/6.5/6/5.5",
-     "values": {
-      "damage": [
-       80,
-       125,
-       170,
-       215
-      ],
-      "buildingBonusPct": 60,
-      "radius": 160,
-      "castRange": 520,
-      "projectileSpeed": 650
-     }
-    },
-    {
-     "key": "W",
-     "name": "Proximity Mines",
-     "type": "summon",
-     "desc": "Plants a hidden mine that arms after a delay and detonates when an enemy steps near, dealing burst magic damage and a brief SLOW. Up to several mines persist. Map control + ambush.",
-     "manaCost": "60/70/80/90",
-     "cooldown": "9/8/7/6",
-     "values": {
-      "mineDamage": [
-       70,
-       110,
-       150,
-       190
-      ],
-      "maxActiveMines": [
-       3,
-       4,
-       5,
-       6
-      ],
-      "armDelaySec": 1.2,
-      "triggerRadius": 140,
-      "slowOnHitPct": 25,
-      "mineLifetimeSec": 45
-     }
-    },
-    {
-     "key": "E",
-     "name": "Powder Keg",
-     "type": "self-buff",
-     "desc": "Straps on extra powder: next several attacks gain splash AoE and a chance to knock back. Passive base bonus building damage on attacks. Sustained siege + clear.",
-     "manaCost": "50/55/60/65",
-     "cooldown": "15/14/13/12",
-     "values": {
-      "splashRadius": 160,
-      "splashPct": [
-       50,
-       60,
-       70,
-       80
-      ],
-      "empoweredAttacks": [
-       3,
-       4,
-       5,
-       6
-      ],
-      "passiveBuildingDmgPct": [
-       10,
-       15,
-       20,
-       25
-      ],
-      "knockbackChancePct": 25
-     }
-    },
-    {
-     "key": "R",
-     "name": "Demolition Run",
-     "type": "dash",
-     "desc": "Ultimate: sprints forward with a lit megabomb (move-speed surge, unstoppable), then SLAMS it down for massive AoE magic damage and a STUN, with huge bonus damage to structures. Dive-and-detonate finisher / base-race tool.",
-     "manaCost": "140/180/220",
-     "cooldown": "100/90/80",
-     "values": {
-      "dashSpeedBonus": 220,
-      "maxDashDurationSec": 2.5,
-      "impactDamage": [
-       220,
-       320,
-       420
-      ],
-      "impactRadius": 280,
-      "stunDuration": [
-       1.2,
-       1.5,
-       1.8
-      ],
-      "buildingBonusPct": 100
-     }
-    }
-   ],
-   "playstyle": "Splitpush / siege specialist with a summon kit. Mine chokepoints, Q+E to shred towers fast, and use Demolition Run to dive a fight or race the enemy ancient. Excellent for ending the match on time."
-  },
-  {
-   "id": "brewkeeper-shaman",
-   "name": "Old Bramblecask",
-   "role": "support",
-   "team_flavor": "dire: a rotund goblin brew-shaman who rolls a healing keg into battle, splashing restorative ale and bitter hexes",
-   "sprite": "Tiny Swords (Update 010)/Factions/Goblins/Troops/Barrel/{COLOR}/Barrel_{COLOR}.png",
-   "tint": "#b06bff",
-   "baseStats": {
-    "hp": 600,
-    "mp": 320,
-    "hpRegen": 2.6,
-    "mpRegen": 1.2,
-    "damage": 38,
-    "armor": 3,
-    "attackRange": 95,
-    "attackSpeed": 0.6,
-    "moveSpeed": 295,
-    "projectileSpeed": 0
-   },
-   "growth": {
-    "hp": 72,
-    "mp": 19,
-    "damage": 2.6,
-    "armor": 0.36,
-    "hpRegen": 0.2,
-    "mpRegen": 0.08,
-    "attackSpeed": 0.01
-   },
-   "abilities": [
-    {
-     "key": "Q",
-     "name": "Restoring Brew",
-     "type": "targeted-unit",
-     "desc": "Splashes ale on an allied hero, instantly HEALING and granting a short regen-over-time. Can target self. Bramblecask's primary save.",
-     "manaCost": "75/85/95/105",
-     "cooldown": "8/7.5/7/6.5",
-     "values": {
-      "instantHeal": [
-       80,
-       130,
-       180,
-       230
-      ],
-      "regenPerSec": [
-       10,
-       15,
-       20,
-       25
-      ],
-      "regenDuration": 4,
-      "castRange": 550
-     }
-    },
-    {
-     "key": "W",
-     "name": "Hex Bottle",
-     "type": "skillshot-aoe",
-     "desc": "Hurls a bottle that shatters in an area, SILENCING and SLOWING enemies caught and dealing minor magic damage. Disable + setup for the team.",
-     "manaCost": "80/90/100/110",
-     "cooldown": "16/15/14/13",
-     "values": {
-      "damage": [
-       50,
-       80,
-       110,
-       140
-      ],
-      "silenceDuration": [
-       1.2,
-       1.6,
-       2,
-       2.4
-      ],
-      "slowPct": [
-       25,
-       30,
-       35,
-       40
-      ],
-      "radius": 220,
-      "castRange": 600
-     }
-    },
-    {
-     "key": "E",
-     "name": "Warding Keg",
-     "type": "self-buff",
-     "desc": "Pops the keg to grant himself and nearby allies a SHIELD plus bonus armor for a few seconds. Frontline-saving panic button in an aura.",
-     "manaCost": "70/80/90/100",
-     "cooldown": "18/17/16/15",
-     "values": {
-      "shieldHp": [
-       70,
-       120,
-       170,
-       220
-      ],
-      "bonusArmor": [
-       2,
-       3,
-       4,
-       5
-      ],
-      "auraRadius": 450,
-      "duration": 5
-     }
-    },
-    {
-     "key": "R",
-     "name": "Last Call",
-     "type": "point-aoe",
-     "desc": "Ultimate CHANNEL: pours out the great cask, creating a healing zone that rapidly restores allied HP and mana and cleanses slows each tick for its duration. Sustains the whole team through a teamfight or siege.",
-     "manaCost": "150/190/230",
-     "cooldown": "110/100/90",
-     "values": {
-      "channelDuration": [
-       4,
-       5,
-       6
-      ],
-      "tickInterval": 0.5,
-      "healPerTick": [
-       40,
-       60,
-       80
-      ],
-      "manaPerTick": [
-       8,
-       12,
-       16
-      ],
-      "radius": 380,
-      "cleansesSlow": true
-     }
-    }
-   ],
-   "playstyle": "Pure support enabler. Keep the carry alive with Brew, lock targets with Hex Bottle, blanket the team in shields, and channel Last Call to out-sustain pushes. The ideal ally to pair with a bot carry \u2014 or for a human to babysit a strong AI core."
-  }
- ],
- "creeps": {
-  "melee": {
-   "name": "Footman Creep (Pawn / Goblin Grunt)",
-   "spriteRadiant": "Tiny Swords (Update 010)/Factions/Knights/Troops/Pawn/Blue/Pawn_Blue.png",
-   "spriteDire": "Tiny Swords (Update 010)/Factions/Goblins/Troops/Torch/Red/Torch_Red.png",
-   "hp": 280,
-   "damage": 19,
-   "armor": 2,
-   "attackRange": 70,
-   "moveSpeed": 240,
-   "attackSpeed": 1,
-   "goldBounty": [
-    28,
-    40
-   ],
-   "xpBounty": 36,
-   "countPerWave": 3,
-   "waveIntervalSec": 30,
-   "firstWaveSec": 15,
-   "note": "hpScalesPerWave +6hp & +0.5dmg every 60s to push the game toward an end"
-  },
-  "ranged": {
-   "name": "Archer Creep (Archer / Goblin TNT)",
-   "spriteRadiant": "Tiny Swords (Update 010)/Factions/Knights/Troops/Archer/Blue/Archer_Blue.png",
-   "spriteDire": "Tiny Swords (Update 010)/Factions/Goblins/Troops/TNT/Red/TNT_Red.png",
-   "hp": 170,
-   "damage": 24,
-   "armor": 0,
-   "attackRange": 380,
-   "moveSpeed": 240,
-   "attackSpeed": 0.85,
-   "projectileSpeed": 800,
-   "goldBounty": [
-    34,
-    46
-   ],
-   "xpBounty": 44,
-   "countPerWave": 1,
-   "waveIntervalSec": 30,
-   "firstWaveSec": 15,
-   "note": "low hp, high value last-hit; same hpScalesPerWave rule as melee"
-  },
-  "siege": {
-   "name": "Battering Keg (Barrel siege)",
-   "spriteRadiant": "Tiny Swords (Update 010)/Factions/Goblins/Troops/Barrel/Blue/Barrel_Blue.png",
-   "spriteDire": "Tiny Swords (Update 010)/Factions/Goblins/Troops/Barrel/Red/Barrel_Red.png",
-   "hp": 420,
-   "damage": 40,
-   "armor": 4,
-   "attackRange": 200,
-   "moveSpeed": 220,
-   "attackSpeed": 0.5,
-   "goldBounty": [
-    60,
-    75
-   ],
-   "xpBounty": 70,
-   "countPerWave": 1,
-   "waveIntervalSec": 150,
-   "firstWaveSec": 300,
-   "note": "deals +150% damage to towers/ancient, only takes 40% of hero/creep damage; arrives every 5th wave to accelerate tower kills and shorten match length"
-  }
- },
- "towers": [
-  {
-   "tier": "T1",
-   "hp": 1400,
-   "damage": 90,
-   "armor": 8,
-   "attackRange": 560,
-   "attackSpeed": 1,
-   "projectileSpeed": 900,
-   "goldBounty": {
-    "team": 100,
-    "local": 150
-   },
-   "aggro": "Prioritizes: enemy hero attacking an allied hero in range > nearest enemy creep > nearest enemy hero. Switches to a hero immediately if that hero attacks an allied hero within range. Ramps damage +25% per consecutive hit on the same target (resets on switch).",
-   "note": "one per lane, 3 lanes; backdoor-protected: regenerates 30hp/s when no enemy creeps are nearby"
-  },
-  {
-   "tier": "T2",
-   "hp": 1900,
-   "damage": 122,
-   "armor": 10,
-   "attackRange": 560,
-   "attackSpeed": 1.05,
-   "projectileSpeed": 900,
-   "goldBounty": {
-    "team": 130,
-    "local": 180
-   },
-   "aggro": "Same priority rules as T1. Slightly faster attack and higher base damage. +25% ramp per consecutive hit.",
-   "note": "guards the entrance to the base; falls only after T1 in its lane is destroyed (lane-gated)"
-  },
-  {
-   "tier": "T3",
-   "hp": 2300,
-   "damage": 150,
-   "armor": 12,
-   "attackRange": 580,
-   "attackSpeed": 1.1,
-   "projectileSpeed": 950,
-   "goldBounty": {
-    "team": 160,
-    "local": 200
-   },
-   "aggro": "Same priority rules. Highest damage lane tower. +25% ramp per consecutive hit. Two T3 towers guard the ancient.",
-   "note": "the two T3 towers (guarding the ancient) must both fall before the ancient becomes attackable"
-  },
-  {
-   "tier": "base",
-   "hp": 1100,
-   "damage": 70,
-   "armor": 6,
-   "attackRange": 600,
-   "attackSpeed": 1.2,
-   "projectileSpeed": 1000,
-   "goldBounty": {
-    "team": 40,
-    "local": 60
-   },
-   "aggro": "The Ancient's own guardian tower (see ancient.guardianTowerNote). Attacks nearest enemy; fast attack speed, lower hp; exists purely to slow the final dive.",
-   "note": "this is the ancient guardian referenced in ancient; only active once both T3 towers are down"
-  }
- ],
- "ancient": {
-  "hp": 3200,
-  "armor": 14,
-  "attacks": false,
-  "winConditionNote": "Destroy the enemy Ancient (Castle_Blue for radiant / Goblin_House or Castle_Red for dire) to win the match. The ancient itself does NOT attack \u2014 it is a pure objective. It only becomes attackable after BOTH T3 towers in front of it are destroyed.",
-  "guardianTowerNote": "One 'base' tier guardian tower (1100hp, 70dmg, fast 1.2 attackSpeed) sits beside the ancient and activates only after the two T3 towers fall \u2014 it cannot be skipped and must be killed or tanked to free-hit the ancient. The ancient regenerates 25hp/s while no enemy creeps are within 700px, so it must be sieged with a creep wave present (no solo-hero backdoor).",
-  "spriteRadiant": "Tiny Swords (Update 010)/Factions/Knights/Buildings/Castle/Castle_Blue.png",
-  "spriteDire": "Tiny Swords (Update 010)/Factions/Knights/Buildings/Castle/Castle_Red.png",
-  "note": "Total objective HP path to win (one lane): T1 1400 + T2 1900 + T3 2300 + T3 2300 + guardian 1100 + ancient 3200. With Boomtinker building bonuses and siege creeps this falls in ~8-14 min."
- },
- "economy": {
-  "startingGold": 600,
-  "passiveGoldPerSec": 1.5,
-  "creepLastHitGold": "see creeps.goldBounty per type (melee 28-40, ranged 34-46, siege 60-75); only the last hit awards gold",
-  "denyNote": "Allied creeps below 50% hp can be denied (last-hit your own creep) to grant the enemy ZERO gold and only 50% XP. Denying a creep gives the denier no gold but the standard XP share. Heroes cannot be denied.",
-  "heroKillBaseBounty": 200,
-  "heroKillStreakNote": "Bounty scales with the victim's net worth and kill streak: base 200 + 12 per victim level + streak bonus (+40 per kill on the streak, capped +280 at a 7-kill 'godlike' streak). Ending an enemy's streak (3+) grants a +75 'shutdown' bonus. Dying resets your own streak to 0.",
-  "assistGold": "60% of the post-streak bounty, split evenly among all assisting heroes within the assist radius who damaged the victim in the last 15s",
-  "xpShareRadiusPx": 1200,
-  "buybackNote": "While dead, spend gold to instantly respawn: cost = 120 + 6*heroLevel + 0.10*currentGold. 60s cooldown, and buyback reduced gold income (-25%) for 12s after. Lets a defender break a game-ending push \u2014 important for the human vs an organized bot dive.",
-  "note": "Bots are given a flat +0.4 gold/sec handicap reduction on Easy and parity on Normal so a solo human + bot allies can out-econ a bot enemy team within the target match length."
- },
- "items": [
-  {
-   "id": "boots-of-march",
-   "name": "Boots of the March",
-   "cost": 450,
-   "desc": "Early movement item, nearly always the first buy. Flat move speed to get to lane, dodge ganks, and rotate.",
-   "stats": {
-    "moveSpeed": 45
-   },
-   "active": "",
-   "iconHint": "Tiny Swords UI/Icons Regular_01 boot/leather icon, or generate a simple winged-boot pixel icon"
-  },
-  {
-   "id": "ringmail-vest",
-   "name": "Ringmail Vest",
-   "cost": 550,
-   "desc": "Cheap survivability for tanks/offlaners. Flat armor and a little hp regen to win the lane.",
-   "stats": {
-    "armor": 6,
-    "hpRegen": 2
-   },
-   "active": "",
-   "iconHint": "generate a chainmail-vest pixel icon; or reuse a Tiny Swords shield UI icon"
-  },
-  {
-   "id": "whetstone-blade",
-   "name": "Whetstone Blade",
-   "cost": 700,
-   "desc": "Core damage component for carries. Pure attack damage; cheap and efficient.",
-   "stats": {
-    "damage": 22
-   },
-   "active": "",
-   "iconHint": "Tiny Swords UI Elements/Swords icon recolored, or generate a sharpened sword pixel icon"
-  },
-  {
-   "id": "huntsmans-quiver",
-   "name": "Huntsman's Quiver",
-   "cost": 900,
-   "desc": "Attack speed + a touch of damage for right-click carries (Vesper, Aelwyn). Powers up Bloodthirst stacks and DPS.",
-   "stats": {
-    "attackSpeed": 35,
-    "damage": 10
-   },
-   "active": "",
-   "iconHint": "generate a quiver-of-arrows pixel icon"
-  },
-  {
-   "id": "tome-of-embers",
-   "name": "Tome of Embers",
-   "cost": 950,
-   "desc": "Caster core: bonus mana, mana regen, and flat spell amplification for nukers/supports.",
-   "stats": {
-    "mana": 250,
-    "mpRegen": 2.5,
-    "spellAmpPct": 10
-   },
-   "active": "",
-   "iconHint": "generate a glowing spellbook pixel icon"
-  },
-  {
-   "id": "bulwark-plate",
-   "name": "Bulwark Plate",
-   "cost": 1300,
-   "desc": "Big tank item. Large hp pool plus armor; turns Garran or Bramblecask into a wall.",
-   "stats": {
-    "hp": 450,
-    "armor": 5,
-    "hpRegen": 3
-   },
-   "active": "",
-   "iconHint": "generate a heavy breastplate pixel icon; or reuse Tiny Swords shield UI"
-  },
-  {
-   "id": "vampiric-fang",
-   "name": "Vampiric Fang",
-   "cost": 1400,
-   "desc": "Damage + lifesteal carry item. Sustains right-clickers through fights and farm; stacks with Vesper's Bloodthirst.",
-   "stats": {
-    "damage": 28,
-    "lifestealPct": 18
-   },
-   "active": "",
-   "iconHint": "generate a dripping fang pixel icon"
-  },
-  {
-   "id": "sash-of-haste",
-   "name": "Sash of Haste",
-   "cost": 1600,
-   "desc": "Utility item with a chase/escape active. Decent move speed and hp; the active is a short untargetable-by-towers sprint.",
-   "stats": {
-    "moveSpeed": 60,
-    "hp": 200
-   },
-   "active": "Haste: +120 move speed for 3.5s and ignore unit collision. 30s cooldown.",
-   "iconHint": "generate a flowing sash/cloak pixel icon"
-  },
-  {
-   "id": "aegis-pendant",
-   "name": "Aegis Pendant",
-   "cost": 2100,
-   "desc": "Defensive active item that saves you from burst. Modest hp/armor and an on-demand barrier.",
-   "stats": {
-    "hp": 300,
-    "armor": 4,
-    "mpRegen": 1.5
-   },
-   "active": "Barrier: shields 350 damage for 5s and cleanses slows. 45s cooldown.",
-   "iconHint": "generate a radiant amulet/pendant pixel icon"
-  },
-  {
-   "id": "scepter-of-ruin",
-   "name": "Scepter of Ruin",
-   "cost": 2600,
-   "desc": "Late-game power spike. Big mixed stats and an active blink, the premier finisher item for any hero (especially Grix and Vesper to reposition for a kill).",
-   "stats": {
-    "damage": 30,
-    "hp": 250,
-    "spellAmpPct": 12,
-    "attackSpeed": 20
-   },
-   "active": "Blink: teleport up to 600px toward cursor. 14s cooldown, goes on a longer 3s cooldown if you took hero damage recently.",
-   "iconHint": "generate an ornate glowing scepter pixel icon"
-  }
- ],
- "globals": {
-  "worldUnitsNote": "1 tile = 64px (Tiny Swords terrain tile). All ranges/radii in this design are in PIXELS. Map is a 3-lane diamond roughly 96x96 tiles (~6144x6144px); lanes ~9 tiles wide; a thin river/jungle gap between lanes. Heroes render ~96-128px tall (192px source frame scaled ~0.5-0.66).",
-  "attackArmorFormula": "Damage taken multiplier = 1 - (0.06*armor)/(1 + 0.06*armor). So 10 armor ~= 37.5% reduction, 20 armor ~= 54.5%. Negative armor amplifies symmetrically. Magic damage ignores armor and is reduced by a flat 25% baseMagicResist on heroes (0% on creeps/buildings). Attacks are 'physical' unless an ability states 'magic'.",
-  "xpCurvePerLevel": [
-   0,
-   240,
-   600,
-   1080,
-   1680,
-   2400,
-   3240,
-   4200,
-   5280,
-   6480,
-   7800,
-   9240,
-   10800,
-   12480,
-   14280,
-   16200
   ],
-  "xpCurveNote": "Array is cumulative XP required to REACH each level index (index 0 = level 1 start at 0xp). 16 entries = max level 16. Per-level deltas: 240,360,480,600,720,840,960,1080,1200,1320,1440,1560,1680,1800,1920.",
-  "goldPerMinutePassive": 90,
-  "respawnTimeFormula": "respawnSec = 6 + 4*heroLevel, capped at 70s. (lvl1 ~10s, lvl8 ~38s, lvl16 70s.) Buyback bypasses this (see economy.buybackNote). Deaths get costlier as the game goes long, snowballing toward an ending.",
-  "dayLengthSec": 240,
-  "dayNightNote": "240s day/night cycle purely cosmetic + a small night vision reduction (-150px sight) for flavor; does not gate objectives.",
-  "maxLevel": 16,
-  "matchPacingNote": "Tuned for 8-14 min vs bots: creeps & ancient regen unless sieged with a wave (no backdoor), siege creeps every 5th wave, escalating respawn timers, and Boomtinker/siege building bonuses all push toward a decisive end. First objective (T1) typically dies ~3-5 min; ancient ~8-14 min.",
-  "abilityLevelingNote": "1 ability point per hero level. Q/W/E max at rank 4 (levels available 1,3,5,7); ultimate R has 3 ranks (available at hero levels 6, 11, 16). Standard MOBA leveling.",
-  "teamSizeNote": "Designed for 1 human + bots up to 5v5. Minimum fun config is 1 human + 1 bot ally (recommend Garran or a carry) vs 2 bots. Bots fill all empty hero slots and are host-driven."
- }
+  "creeps": {
+    "melee": {
+      "name": "Footman Creep (Pawn / Goblin Grunt)",
+      "spriteRadiant": "Tiny Swords (Update 010)/Factions/Knights/Troops/Pawn/Blue/Pawn_Blue.png",
+      "spriteDire": "Tiny Swords (Update 010)/Factions/Goblins/Troops/Torch/Red/Torch_Red.png",
+      "hp": 280,
+      "damage": 19,
+      "armor": 2,
+      "attackRange": 70,
+      "moveSpeed": 240,
+      "attackSpeed": 1,
+      "goldBounty": [28, 40],
+      "xpBounty": 36,
+      "countPerWave": 3,
+      "waveIntervalSec": 30,
+      "firstWaveSec": 15,
+      "note": "hpScalesPerWave +6hp & +0.5dmg every 60s to push the game toward an end"
+    },
+    "ranged": {
+      "name": "Archer Creep (Archer / Goblin TNT)",
+      "spriteRadiant": "Tiny Swords (Update 010)/Factions/Knights/Troops/Archer/Blue/Archer_Blue.png",
+      "spriteDire": "Tiny Swords (Update 010)/Factions/Goblins/Troops/TNT/Red/TNT_Red.png",
+      "hp": 170,
+      "damage": 24,
+      "armor": 0,
+      "attackRange": 380,
+      "moveSpeed": 240,
+      "attackSpeed": 0.85,
+      "projectileSpeed": 800,
+      "goldBounty": [34, 46],
+      "xpBounty": 44,
+      "countPerWave": 1,
+      "waveIntervalSec": 30,
+      "firstWaveSec": 15,
+      "note": "low hp, high value last-hit; same hpScalesPerWave rule as melee"
+    },
+    "siege": {
+      "name": "Battering Keg (Barrel siege)",
+      "spriteRadiant": "Tiny Swords (Update 010)/Factions/Goblins/Troops/Barrel/Blue/Barrel_Blue.png",
+      "spriteDire": "Tiny Swords (Update 010)/Factions/Goblins/Troops/Barrel/Red/Barrel_Red.png",
+      "hp": 420,
+      "damage": 40,
+      "armor": 4,
+      "attackRange": 200,
+      "moveSpeed": 220,
+      "attackSpeed": 0.5,
+      "goldBounty": [60, 75],
+      "xpBounty": 70,
+      "countPerWave": 1,
+      "waveIntervalSec": 150,
+      "firstWaveSec": 300,
+      "note": "deals +150% damage to towers/ancient, only takes 40% of hero/creep damage; arrives every 5th wave to accelerate tower kills and shorten match length"
+    }
+  },
+  "towers": [
+    {
+      "tier": "T1",
+      "hp": 1400,
+      "damage": 90,
+      "armor": 8,
+      "attackRange": 560,
+      "attackSpeed": 1,
+      "projectileSpeed": 900,
+      "goldBounty": {
+        "team": 100,
+        "local": 150
+      },
+      "aggro": "Prioritizes: enemy hero attacking an allied hero in range > nearest enemy creep > nearest enemy hero. Switches to a hero immediately if that hero attacks an allied hero within range. Ramps damage +25% per consecutive hit on the same target (resets on switch).",
+      "note": "one per lane, 3 lanes; backdoor-protected: regenerates 30hp/s when no enemy creeps are nearby"
+    },
+    {
+      "tier": "T2",
+      "hp": 1900,
+      "damage": 122,
+      "armor": 10,
+      "attackRange": 560,
+      "attackSpeed": 1.05,
+      "projectileSpeed": 900,
+      "goldBounty": {
+        "team": 130,
+        "local": 180
+      },
+      "aggro": "Same priority rules as T1. Slightly faster attack and higher base damage. +25% ramp per consecutive hit.",
+      "note": "guards the entrance to the base; falls only after T1 in its lane is destroyed (lane-gated)"
+    },
+    {
+      "tier": "T3",
+      "hp": 2300,
+      "damage": 150,
+      "armor": 12,
+      "attackRange": 580,
+      "attackSpeed": 1.1,
+      "projectileSpeed": 950,
+      "goldBounty": {
+        "team": 160,
+        "local": 200
+      },
+      "aggro": "Same priority rules. Highest damage lane tower. +25% ramp per consecutive hit. Two T3 towers guard the ancient.",
+      "note": "the two T3 towers (guarding the ancient) must both fall before the ancient becomes attackable"
+    },
+    {
+      "tier": "base",
+      "hp": 1100,
+      "damage": 70,
+      "armor": 6,
+      "attackRange": 600,
+      "attackSpeed": 1.2,
+      "projectileSpeed": 1000,
+      "goldBounty": {
+        "team": 40,
+        "local": 60
+      },
+      "aggro": "The Ancient's own guardian tower (see ancient.guardianTowerNote). Attacks nearest enemy; fast attack speed, lower hp; exists purely to slow the final dive.",
+      "note": "this is the ancient guardian referenced in ancient; only active once both T3 towers are down"
+    }
+  ],
+  "ancient": {
+    "hp": 3200,
+    "armor": 14,
+    "attacks": false,
+    "winConditionNote": "Destroy the enemy Ancient (Castle_Blue for radiant / Goblin_House or Castle_Red for dire) to win the match. The ancient itself does NOT attack \u2014 it is a pure objective. It only becomes attackable after BOTH T3 towers in front of it are destroyed.",
+    "guardianTowerNote": "One 'base' tier guardian tower (1100hp, 70dmg, fast 1.2 attackSpeed) sits beside the ancient and activates only after the two T3 towers fall \u2014 it cannot be skipped and must be killed or tanked to free-hit the ancient. The ancient regenerates 25hp/s while no enemy creeps are within 700px, so it must be sieged with a creep wave present (no solo-hero backdoor).",
+    "spriteRadiant": "Tiny Swords (Update 010)/Factions/Knights/Buildings/Castle/Castle_Blue.png",
+    "spriteDire": "Tiny Swords (Update 010)/Factions/Knights/Buildings/Castle/Castle_Red.png",
+    "note": "Total objective HP path to win (one lane): T1 1400 + T2 1900 + T3 2300 + T3 2300 + guardian 1100 + ancient 3200. With Boomtinker building bonuses and siege creeps this falls in ~8-14 min."
+  },
+  "economy": {
+    "startingGold": 600,
+    "passiveGoldPerSec": 1.5,
+    "creepLastHitGold": "see creeps.goldBounty per type (melee 28-40, ranged 34-46, siege 60-75); only the last hit awards gold",
+    "denyNote": "Allied creeps below 50% hp can be denied (last-hit your own creep) to grant the enemy ZERO gold and only 50% XP. Denying a creep gives the denier no gold but the standard XP share. Heroes cannot be denied.",
+    "heroKillBaseBounty": 200,
+    "heroKillStreakNote": "Bounty scales with the victim's net worth and kill streak: base 200 + 12 per victim level + streak bonus (+40 per kill on the streak, capped +280 at a 7-kill 'godlike' streak). Ending an enemy's streak (3+) grants a +75 'shutdown' bonus. Dying resets your own streak to 0.",
+    "assistGold": "60% of the post-streak bounty, split evenly among all assisting heroes within the assist radius who damaged the victim in the last 15s",
+    "xpShareRadiusPx": 1200,
+    "buybackNote": "While dead, spend gold to instantly respawn: cost = 120 + 6*heroLevel + 0.10*currentGold. 60s cooldown, and buyback reduced gold income (-25%) for 12s after. Lets a defender break a game-ending push \u2014 important for the human vs an organized bot dive.",
+    "note": "Bots are given a flat +0.4 gold/sec handicap reduction on Easy and parity on Normal so a solo human + bot allies can out-econ a bot enemy team within the target match length."
+  },
+  "items": [
+    {
+      "id": "boots-of-march",
+      "name": "Boots of the March",
+      "cost": 450,
+      "desc": "Early movement item, nearly always the first buy. Flat move speed to get to lane, dodge ganks, and rotate.",
+      "stats": {
+        "moveSpeed": 45
+      },
+      "active": "",
+      "iconHint": "Tiny Swords UI/Icons Regular_01 boot/leather icon, or generate a simple winged-boot pixel icon"
+    },
+    {
+      "id": "ringmail-vest",
+      "name": "Ringmail Vest",
+      "cost": 550,
+      "desc": "Cheap survivability for tanks/offlaners. Flat armor and a little hp regen to win the lane.",
+      "stats": {
+        "armor": 6,
+        "hpRegen": 2
+      },
+      "active": "",
+      "iconHint": "generate a chainmail-vest pixel icon; or reuse a Tiny Swords shield UI icon"
+    },
+    {
+      "id": "whetstone-blade",
+      "name": "Whetstone Blade",
+      "cost": 700,
+      "desc": "Core damage component for carries. Pure attack damage; cheap and efficient.",
+      "stats": {
+        "damage": 22
+      },
+      "active": "",
+      "iconHint": "Tiny Swords UI Elements/Swords icon recolored, or generate a sharpened sword pixel icon"
+    },
+    {
+      "id": "huntsmans-quiver",
+      "name": "Huntsman's Quiver",
+      "cost": 900,
+      "desc": "Attack speed + a touch of damage for right-click carries (Vesper, Aelwyn). Powers up Bloodthirst stacks and DPS.",
+      "stats": {
+        "attackSpeed": 35,
+        "damage": 10
+      },
+      "active": "",
+      "iconHint": "generate a quiver-of-arrows pixel icon"
+    },
+    {
+      "id": "tome-of-embers",
+      "name": "Tome of Embers",
+      "cost": 950,
+      "desc": "Caster core: bonus mana, mana regen, and flat spell amplification for nukers/supports.",
+      "stats": {
+        "mana": 250,
+        "mpRegen": 2.5,
+        "spellAmpPct": 10
+      },
+      "active": "",
+      "iconHint": "generate a glowing spellbook pixel icon"
+    },
+    {
+      "id": "bulwark-plate",
+      "name": "Bulwark Plate",
+      "cost": 1300,
+      "desc": "Big tank item. Large hp pool plus armor; turns Garran or Bramblecask into a wall.",
+      "stats": {
+        "hp": 450,
+        "armor": 5,
+        "hpRegen": 3
+      },
+      "active": "",
+      "iconHint": "generate a heavy breastplate pixel icon; or reuse Tiny Swords shield UI"
+    },
+    {
+      "id": "vampiric-fang",
+      "name": "Vampiric Fang",
+      "cost": 1400,
+      "desc": "Damage + lifesteal carry item. Sustains right-clickers through fights and farm; stacks with Vesper's Bloodthirst.",
+      "stats": {
+        "damage": 28,
+        "lifestealPct": 18
+      },
+      "active": "",
+      "iconHint": "generate a dripping fang pixel icon"
+    },
+    {
+      "id": "sash-of-haste",
+      "name": "Sash of Haste",
+      "cost": 1600,
+      "desc": "Utility item with a chase/escape active. Decent move speed and hp; the active is a short untargetable-by-towers sprint.",
+      "stats": {
+        "moveSpeed": 60,
+        "hp": 200
+      },
+      "active": "Haste: +120 move speed for 3.5s and ignore unit collision. 30s cooldown.",
+      "iconHint": "generate a flowing sash/cloak pixel icon"
+    },
+    {
+      "id": "aegis-pendant",
+      "name": "Aegis Pendant",
+      "cost": 2100,
+      "desc": "Defensive active item that saves you from burst. Modest hp/armor and an on-demand barrier.",
+      "stats": {
+        "hp": 300,
+        "armor": 4,
+        "mpRegen": 1.5
+      },
+      "active": "Barrier: shields 350 damage for 5s and cleanses slows. 45s cooldown.",
+      "iconHint": "generate a radiant amulet/pendant pixel icon"
+    },
+    {
+      "id": "scepter-of-ruin",
+      "name": "Scepter of Ruin",
+      "cost": 2600,
+      "desc": "Late-game power spike. Big mixed stats and an active blink, the premier finisher item for any hero (especially Grix and Vesper to reposition for a kill).",
+      "stats": {
+        "damage": 30,
+        "hp": 250,
+        "spellAmpPct": 12,
+        "attackSpeed": 20
+      },
+      "active": "Blink: teleport up to 600px toward cursor. 14s cooldown, goes on a longer 3s cooldown if you took hero damage recently.",
+      "iconHint": "generate an ornate glowing scepter pixel icon"
+    }
+  ],
+  "globals": {
+    "worldUnitsNote": "1 tile = 64px (Tiny Swords terrain tile). All ranges/radii in this design are in PIXELS. Map is a 3-lane diamond roughly 96x96 tiles (~6144x6144px); lanes ~9 tiles wide; a thin river/jungle gap between lanes. Heroes render ~96-128px tall (192px source frame scaled ~0.5-0.66).",
+    "attackArmorFormula": "Damage taken multiplier = 1 - (0.06*armor)/(1 + 0.06*armor). So 10 armor ~= 37.5% reduction, 20 armor ~= 54.5%. Negative armor amplifies symmetrically. Magic damage ignores armor and is reduced by a flat 25% baseMagicResist on heroes (0% on creeps/buildings). Attacks are 'physical' unless an ability states 'magic'.",
+    "xpCurvePerLevel": [
+      0, 240, 600, 1080, 1680, 2400, 3240, 4200, 5280, 6480, 7800, 9240, 10800, 12480, 14280, 16200
+    ],
+    "xpCurveNote": "Array is cumulative XP required to REACH each level index (index 0 = level 1 start at 0xp). 16 entries = max level 16. Per-level deltas: 240,360,480,600,720,840,960,1080,1200,1320,1440,1560,1680,1800,1920.",
+    "goldPerMinutePassive": 90,
+    "respawnTimeFormula": "respawnSec = 6 + 4*heroLevel, capped at 70s. (lvl1 ~10s, lvl8 ~38s, lvl16 70s.) Buyback bypasses this (see economy.buybackNote). Deaths get costlier as the game goes long, snowballing toward an ending.",
+    "dayLengthSec": 240,
+    "dayNightNote": "240s day/night cycle purely cosmetic + a small night vision reduction (-150px sight) for flavor; does not gate objectives.",
+    "maxLevel": 16,
+    "matchPacingNote": "Tuned for 8-14 min vs bots: creeps & ancient regen unless sieged with a wave (no backdoor), siege creeps every 5th wave, escalating respawn timers, and Boomtinker/siege building bonuses all push toward a decisive end. First objective (T1) typically dies ~3-5 min; ancient ~8-14 min.",
+    "abilityLevelingNote": "1 ability point per hero level. Q/W/E max at rank 4 (levels available 1,3,5,7); ultimate R has 3 ranks (available at hero levels 6, 11, 16). Standard MOBA leveling.",
+    "teamSizeNote": "Designed for 1 human + bots up to 5v5. Minimum fun config is 1 human + 1 bot ally (recommend Garran or a carry) vs 2 bots. Bots fill all empty hero slots and are host-driven."
+  }
 }

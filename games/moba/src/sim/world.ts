@@ -76,7 +76,14 @@ function spawnStructures(w: World): void {
     u.attackRange = def.attackRange;
     u.attackSpeedBase = def.attackSpeed;
     u.projectileSpeed = def.projectileSpeed;
-    u.structure = { tier: t.tier, lane: t.lane, structId: t.id, rampTargetId: null, rampStacks: 0, attackable: t.tier === "t1" };
+    u.structure = {
+      tier: t.tier,
+      lane: t.lane,
+      structId: t.id,
+      rampTargetId: null,
+      rampStacks: 0,
+      attackable: t.tier === "t1",
+    };
     w.units.set(u.id, u);
   }
   for (const team of ["radiant", "dire"] as Team[]) {
@@ -87,13 +94,27 @@ function spawnStructures(w: World): void {
     u.maxHp = def.hp;
     u.hp = def.hp;
     u.armor = def.armor;
-    u.structure = { tier: "ancient", lane: "base", structId: id, rampTargetId: null, rampStacks: 0, attackable: false };
+    u.structure = {
+      tier: "ancient",
+      lane: "base",
+      structId: id,
+      rampTargetId: null,
+      rampStacks: 0,
+      attackable: false,
+    };
     w.units.set(u.id, u);
   }
   updateStructureGating(w);
 }
 
-function baseUnit(id: string, kind: Unit["kind"], team: Team, x: number, y: number, radius: number): Unit {
+function baseUnit(
+  id: string,
+  kind: Unit["kind"],
+  team: Team,
+  x: number,
+  y: number,
+  radius: number,
+): Unit {
   return {
     id,
     kind,
@@ -191,7 +212,14 @@ function spawnCreep(w: World, team: Team, lane: LaneId, ckind: CreepKind, idx: n
   const wps = lanePath(lane, team);
   const start = wps[0] ?? BASES[team].creepSpawn;
   const jitter = (n: number) => (rand(w) - 0.5) * n;
-  const u = baseUnit(nextId(w, "c"), "creep", team, start.x + jitter(90) + idx * 12, start.y + jitter(90), def.radius);
+  const u = baseUnit(
+    nextId(w, "c"),
+    "creep",
+    team,
+    start.x + jitter(90) + idx * 12,
+    start.y + jitter(90),
+    def.radius,
+  );
   // ramp creep stats over time to push the game to a close
   const minutes = w.gameTime / 60;
   const hpRamp = Math.floor(minutes) * WAVE.hpRampPer60s;
@@ -232,7 +260,12 @@ function spawnWave(w: World): void {
 
 // ---- neutral jungle camps + Roshan -----------------------------------------
 const CAMP_ALIVE = -1; // sentinel in campRespawnAt: members still standing
-const CAMP_RESPAWN_SEC: Record<NeutralKind, number> = { small: 70, medium: 80, large: 90, roshan: 300 };
+const CAMP_RESPAWN_SEC: Record<NeutralKind, number> = {
+  small: 70,
+  medium: 80,
+  large: 90,
+  roshan: 300,
+};
 
 type NeutralStat = {
   hp: number;
@@ -246,9 +279,42 @@ type NeutralStat = {
   xp: number;
   radius: number;
 };
-const N_SMALL: NeutralStat = { hp: 240, damage: 20, armor: 2, attackRange: 80, moveSpeed: 200, attackSpeed: 0.8, projectileSpeed: 0, gold: [20, 28], xp: 38, radius: 26 };
-const N_LARGE: NeutralStat = { hp: 720, damage: 36, armor: 5, attackRange: 95, moveSpeed: 185, attackSpeed: 0.7, projectileSpeed: 0, gold: [55, 72], xp: 95, radius: 34 };
-const N_BOSS: NeutralStat = { hp: 4200, damage: 95, armor: 12, attackRange: 130, moveSpeed: 150, attackSpeed: 0.95, projectileSpeed: 0, gold: [200, 260], xp: 320, radius: 56 };
+const N_SMALL: NeutralStat = {
+  hp: 240,
+  damage: 20,
+  armor: 2,
+  attackRange: 80,
+  moveSpeed: 200,
+  attackSpeed: 0.8,
+  projectileSpeed: 0,
+  gold: [20, 28],
+  xp: 38,
+  radius: 26,
+};
+const N_LARGE: NeutralStat = {
+  hp: 720,
+  damage: 36,
+  armor: 5,
+  attackRange: 95,
+  moveSpeed: 185,
+  attackSpeed: 0.7,
+  projectileSpeed: 0,
+  gold: [55, 72],
+  xp: 95,
+  radius: 34,
+};
+const N_BOSS: NeutralStat = {
+  hp: 4200,
+  damage: 95,
+  armor: 12,
+  attackRange: 130,
+  moveSpeed: 150,
+  attackSpeed: 0.95,
+  projectileSpeed: 0,
+  gold: [200, 260],
+  xp: 320,
+  radius: 56,
+};
 
 const CAMP_PACK: Record<NeutralKind, NeutralStat[]> = {
   small: [N_SMALL, N_SMALL],
@@ -257,7 +323,13 @@ const CAMP_PACK: Record<NeutralKind, NeutralStat[]> = {
   roshan: [N_BOSS],
 };
 
-function spawnNeutralUnit(w: World, camp: NeutralCampSpec, st: NeutralStat, idx: number, boss: boolean): void {
+function spawnNeutralUnit(
+  w: World,
+  camp: NeutralCampSpec,
+  st: NeutralStat,
+  idx: number,
+  boss: boolean,
+): void {
   const jitter = (n: number) => (rand(w) - 0.5) * n;
   const ox = boss ? 0 : (idx - 0.5) * 70 + jitter(40);
   const oy = boss ? 0 : jitter(60);
@@ -276,7 +348,17 @@ function spawnNeutralUnit(w: World, camp: NeutralCampSpec, st: NeutralStat, idx:
   u.projectileSpeed = st.projectileSpeed;
   u.moveSpeedBase = st.moveSpeed;
   u.order = { type: "neutral" };
-  u.creep = { ckind: "melee", lane: "top", waypoints: [], wpIdx: 0, spawnWave: w.waveCount, camp: camp.id, goldOverride: st.gold, xpOverride: st.xp, boss };
+  u.creep = {
+    ckind: "melee",
+    lane: "top",
+    waypoints: [],
+    wpIdx: 0,
+    spawnWave: w.waveCount,
+    camp: camp.id,
+    goldOverride: st.gold,
+    xpOverride: st.xp,
+    boss,
+  };
   w.units.set(u.id, u);
 }
 
@@ -287,7 +369,8 @@ function spawnCamp(w: World, camp: NeutralCampSpec): void {
 function tickNeutrals(w: World): void {
   const aliveByCamp: Record<string, number> = {};
   for (const u of w.units.values()) {
-    if (u.neutral && u.alive && u.creep?.camp) aliveByCamp[u.creep.camp] = (aliveByCamp[u.creep.camp] ?? 0) + 1;
+    if (u.neutral && u.alive && u.creep?.camp)
+      aliveByCamp[u.creep.camp] = (aliveByCamp[u.creep.camp] ?? 0) + 1;
   }
   for (const camp of NEUTRAL_CAMPS) {
     const alive = aliveByCamp[camp.id] ?? 0;
@@ -383,7 +466,8 @@ function tickHero(w: World, u: Unit, dt: number): void {
     u.mp = Math.min(u.maxMp, u.mp + u.maxMp * 0.06 * dt);
   }
   // prune stale assist credit
-  for (const [k, t] of Object.entries(h.recentDamageFrom)) if (w.now - t > 15000) delete h.recentDamageFrom[k];
+  for (const [k, t] of Object.entries(h.recentDamageFrom))
+    if (w.now - t > 15000) delete h.recentDamageFrom[k];
 }
 
 function respawnHero(w: World, u: Unit): void {
@@ -652,7 +736,8 @@ function separation(w: World): void {
       if (b === a || !b.alive) continue;
       // keep units off each other; structures only push out of their actual
       // footprint so lane creeps flow past towers instead of jamming on them.
-      const minD = b.kind === "structure" ? b.radius + a.radius * 0.6 : (a.radius + b.radius) * 1.05;
+      const minD =
+        b.kind === "structure" ? b.radius + a.radius * 0.6 : (a.radius + b.radius) * 1.05;
       const dx = a.x - b.x;
       const dy = a.y - b.y;
       const d2 = dx * dx + dy * dy;
@@ -693,7 +778,12 @@ function detonateMine(w: World, m: Mine): void {
     if ((!u.neutral && u.team === m.team) || !u.alive || u.kind === "structure") continue;
     if (dist(u, m) <= m.triggerRadius + 30) {
       dealDamage(w, owner, u, m.damage, "magic", {});
-      u.statuses.push({ kind: "slow", pct: m.slowPct, until: w.now + 1000, id: `mine:${m.id}:${u.id}` });
+      u.statuses.push({
+        kind: "slow",
+        pct: m.slowPct,
+        until: w.now + 1000,
+        id: `mine:${m.id}:${u.id}`,
+      });
     }
   }
 }

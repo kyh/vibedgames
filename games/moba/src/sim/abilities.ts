@@ -77,7 +77,13 @@ function clampCastRange(caster: Unit, point: Vec2, range: number): Vec2 {
   return { x: caster.x + (dx / d) * range, y: caster.y + (dy / d) * range };
 }
 
-function enemiesInRadius(w: World, team: string, p: Vec2, radius: number, allowStructure = true): Unit[] {
+function enemiesInRadius(
+  w: World,
+  team: string,
+  p: Vec2,
+  radius: number,
+  allowStructure = true,
+): Unit[] {
   const out: Unit[] = [];
   const r2 = radius * radius;
   for (const u of w.units.values()) {
@@ -90,7 +96,13 @@ function enemiesInRadius(w: World, team: string, p: Vec2, radius: number, allowS
   return out;
 }
 
-function alliesInRadius(w: World, team: string, p: Vec2, radius: number, heroesOnly = false): Unit[] {
+function alliesInRadius(
+  w: World,
+  team: string,
+  p: Vec2,
+  radius: number,
+  heroesOnly = false,
+): Unit[] {
   const out: Unit[] = [];
   const r2 = radius * radius;
   for (const u of w.units.values()) {
@@ -104,34 +116,87 @@ function alliesInRadius(w: World, team: string, p: Vec2, radius: number, heroesO
 }
 
 // ---- the dispatch ----------------------------------------------------------
-function dispatch(w: World, c: Unit, def: AbilityDef, rank: number, p: Vec2, target?: Unit): boolean {
+function dispatch(
+  w: World,
+  c: Unit,
+  def: AbilityDef,
+  rank: number,
+  p: Vec2,
+  target?: Unit,
+): boolean {
   const amp = spellAmp(c);
   switch (def.effect) {
     // ---------------- IRONVOW ----------------
     case "ironvow:Q": {
       if (!target) return false;
       dealDamage(w, c, target, v(def, "damage", rank), "physical", {});
-      addStatus(target, { kind: "stun", until: w.now + v(def, "stun", rank) * 1000, sourceId: c.id });
-      w.fx.push({ t: "ability", effect: def.effect, x: c.x, y: c.y, x2: target.x, y2: target.y, radius: 40, team: c.team });
+      addStatus(target, {
+        kind: "stun",
+        until: w.now + v(def, "stun", rank) * 1000,
+        sourceId: c.id,
+      });
+      w.fx.push({
+        t: "ability",
+        effect: def.effect,
+        x: c.x,
+        y: c.y,
+        x2: target.x,
+        y2: target.y,
+        radius: 40,
+        team: c.team,
+      });
       return true;
     }
     case "ironvow:W": {
       const dur = v(def, "duration", rank) * 1000;
-      addStatus(c, { kind: "armorBonus", amount: v(def, "bonusArmor", rank), until: w.now + dur, id: "ironvow:W:armor" });
-      addStatus(c, { kind: "shield", amount: v(def, "shield", rank), until: w.now + dur, id: "ironvow:W:shield" });
-      addStatus(c, { kind: "reflect", pct: v(def, "reflectPct", rank) / 100, until: w.now + dur, id: "ironvow:W:reflect" });
+      addStatus(c, {
+        kind: "armorBonus",
+        amount: v(def, "bonusArmor", rank),
+        until: w.now + dur,
+        id: "ironvow:W:armor",
+      });
+      addStatus(c, {
+        kind: "shield",
+        amount: v(def, "shield", rank),
+        until: w.now + dur,
+        id: "ironvow:W:shield",
+      });
+      addStatus(c, {
+        kind: "reflect",
+        pct: v(def, "reflectPct", rank) / 100,
+        until: w.now + dur,
+        id: "ironvow:W:reflect",
+      });
       return true;
     }
     case "ironvow:R": {
       const radius = v(def, "radius", rank);
       const dur = v(def, "buffDuration", rank) * 1000;
-      addStatus(c, { kind: "damageReduction", pct: v(def, "damageReductionPct", rank) / 100, until: w.now + dur, id: "ironvow:R:dr" });
+      addStatus(c, {
+        kind: "damageReduction",
+        pct: v(def, "damageReductionPct", rank) / 100,
+        until: w.now + dur,
+        id: "ironvow:R:dr",
+      });
       for (const e of enemiesInRadius(w, c.team, c, radius, false)) {
         if (e.kind === "structure") continue;
         dealDamage(w, c, e, v(def, "damage", rank), "magic", { attackerSpellAmp: amp });
-        addStatus(e, { kind: "taunt", targetId: c.id, until: w.now + v(def, "taunt", rank) * 1000 });
+        addStatus(e, {
+          kind: "taunt",
+          targetId: c.id,
+          until: w.now + v(def, "taunt", rank) * 1000,
+        });
       }
-      w.fx.push({ t: "ability", effect: def.effect, x: c.x, y: c.y, x2: c.x, y2: c.y, radius, team: c.team });
+      w.fx.push({
+        t: "ability",
+        effect: def.effect,
+        x: c.x,
+        y: c.y,
+        x2: c.x,
+        y2: c.y,
+        radius,
+        team: c.team,
+      });
       return true;
     }
 
@@ -144,7 +209,12 @@ function dispatch(w: World, c: Unit, def: AbilityDef, rank: number, p: Vec2, tar
       c.y += Math.sin(ang) * d;
       c.path = [];
       c.order = { type: "idle" };
-      addStatus(c, { kind: "empowerNextAttack", bonus: v(def, "bonusNextAttack", rank), until: w.now + v(def, "window", rank) * 1000, id: "duskblade:Q:emp" });
+      addStatus(c, {
+        kind: "empowerNextAttack",
+        bonus: v(def, "bonusNextAttack", rank),
+        until: w.now + v(def, "window", rank) * 1000,
+        id: "duskblade:Q:emp",
+      });
       w.fx.push({ t: "blink", x: from.x, y: from.y, x2: c.x, y2: c.y });
       return true;
     }
@@ -158,10 +228,24 @@ function dispatch(w: World, c: Unit, def: AbilityDef, rank: number, p: Vec2, tar
         if (diff > Math.PI) diff = Math.PI * 2 - diff;
         if (diff <= half) {
           dealDamage(w, c, e, v(def, "damage", rank), "physical", {});
-          addStatus(e, { kind: "slow", pct: v(def, "slowPct", rank) / 100, until: w.now + v(def, "slowDuration", rank) * 1000, id: `duskblade:W:${e.id}` });
+          addStatus(e, {
+            kind: "slow",
+            pct: v(def, "slowPct", rank) / 100,
+            until: w.now + v(def, "slowDuration", rank) * 1000,
+            id: `duskblade:W:${e.id}`,
+          });
         }
       }
-      w.fx.push({ t: "ability", effect: def.effect, x: c.x, y: c.y, x2: p.x, y2: p.y, radius: range, team: c.team });
+      w.fx.push({
+        t: "ability",
+        effect: def.effect,
+        x: c.x,
+        y: c.y,
+        x2: p.x,
+        y2: p.y,
+        radius: range,
+        team: c.team,
+      });
       return true;
     }
     case "duskblade:R": {
@@ -174,7 +258,16 @@ function dispatch(w: World, c: Unit, def: AbilityDef, rank: number, p: Vec2, tar
       c.y = target.y + 6;
       const total = per * (strikes - 1) + per * v(def, "critMult", rank);
       dealDamage(w, c, target, total, "physical", { crit: true });
-      w.fx.push({ t: "ability", effect: def.effect, x: c.x, y: c.y, x2: target.x, y2: target.y, radius: 40, team: c.team });
+      w.fx.push({
+        t: "ability",
+        effect: def.effect,
+        x: c.x,
+        y: c.y,
+        x2: target.x,
+        y2: target.y,
+        radius: 40,
+        team: c.team,
+      });
       return true;
     }
 
@@ -193,21 +286,60 @@ function dispatch(w: World, c: Unit, def: AbilityDef, rank: number, p: Vec2, tar
         const mult = Math.max(minPct, 1 - falloff * i);
         dealDamage(w, c, e, v(def, "damage", rank) * mult, "physical", {});
       });
-      w.fx.push({ t: "ability", effect: def.effect, x: c.x, y: c.y, x2: end.x, y2: end.y, radius: width, team: c.team });
+      w.fx.push({
+        t: "ability",
+        effect: def.effect,
+        x: c.x,
+        y: c.y,
+        x2: end.x,
+        y2: end.y,
+        radius: width,
+        team: c.team,
+      });
       return true;
     }
     case "stormcaller:W": {
       if (!target || target.kind !== "hero") return false;
       const dur = v(def, "duration", rank) * 1000;
-      addStatus(target, { kind: "damageAmp", pct: v(def, "ampPct", rank) / 100, until: w.now + dur, id: "stormcaller:W:amp" });
-      addStatus(c, { kind: "attackSpeed", amount: v(def, "bonusAsVsMarked", rank), until: w.now + dur, id: `markAS:${target.id}` });
-      w.fx.push({ t: "ability", effect: def.effect, x: target.x, y: target.y, x2: target.x, y2: target.y, radius: 40, team: c.team });
+      addStatus(target, {
+        kind: "damageAmp",
+        pct: v(def, "ampPct", rank) / 100,
+        until: w.now + dur,
+        id: "stormcaller:W:amp",
+      });
+      addStatus(c, {
+        kind: "attackSpeed",
+        amount: v(def, "bonusAsVsMarked", rank),
+        until: w.now + dur,
+        id: `markAS:${target.id}`,
+      });
+      w.fx.push({
+        t: "ability",
+        effect: def.effect,
+        x: target.x,
+        y: target.y,
+        x2: target.x,
+        y2: target.y,
+        radius: 40,
+        team: c.team,
+      });
       return true;
     }
     case "stormcaller:E": {
       const dur = v(def, "duration", rank) * 1000;
-      addStatus(c, { kind: "speed", pct: 0, flat: v(def, "moveSpeed", rank), until: w.now + dur, id: "stormcaller:E:ms" });
-      addStatus(c, { kind: "attackSpeed", amount: v(def, "attackSpeed", rank), until: w.now + dur, id: "stormcaller:E:as" });
+      addStatus(c, {
+        kind: "speed",
+        pct: 0,
+        flat: v(def, "moveSpeed", rank),
+        until: w.now + dur,
+        id: "stormcaller:E:ms",
+      });
+      addStatus(c, {
+        kind: "attackSpeed",
+        amount: v(def, "attackSpeed", rank),
+        until: w.now + dur,
+        id: "stormcaller:E:as",
+      });
       return true;
     }
     case "stormcaller:R": {
@@ -223,26 +355,55 @@ function dispatch(w: World, c: Unit, def: AbilityDef, rank: number, p: Vec2, tar
     // ---------------- EMBERHEX ----------------
     case "emberhex:Q": {
       spawnAbilityProjectile(w, {
-        ownerId: c.id, team: c.team, x: c.x, y: c.y - 20, speed: v(def, "projectileSpeed", rank) || 700,
-        targetId: null, tx: p.x, ty: p.y, damage: v(def, "damage", rank), dtype: "magic",
-        kind: "fireball", radius: v(def, "radius", rank), fromAbility: true, onHit: { tag: "none" },
+        ownerId: c.id,
+        team: c.team,
+        x: c.x,
+        y: c.y - 20,
+        speed: v(def, "projectileSpeed", rank) || 700,
+        targetId: null,
+        tx: p.x,
+        ty: p.y,
+        damage: v(def, "damage", rank),
+        dtype: "magic",
+        kind: "fireball",
+        radius: v(def, "radius", rank),
+        fromAbility: true,
+        onHit: { tag: "none" },
       });
       return true;
     }
     case "emberhex:W": {
       createGround(w, c, def.effect, p, {
-        radius: v(def, "radius", rank), until: w.now + v(def, "duration", rank) * 1000,
-        enemyDps: v(def, "dps", rank), dtype: "magic", slowPct: v(def, "slowPct", rank) / 100,
+        radius: v(def, "radius", rank),
+        until: w.now + v(def, "duration", rank) * 1000,
+        enemyDps: v(def, "dps", rank),
+        dtype: "magic",
+        slowPct: v(def, "slowPct", rank) / 100,
       });
       return true;
     }
     case "emberhex:E": {
       const dur = v(def, "duration", rank) * 1000;
-      addStatus(c, { kind: "spellAmp", pct: v(def, "spellAmpPct", rank) / 100, until: w.now + dur, id: "emberhex:E:amp" });
-      // self-following burn aura
-      createGround(w, c, "flashfire", { x: c.x, y: c.y }, {
-        radius: v(def, "radius", rank), until: w.now + dur, enemyDps: v(def, "dps", rank), dtype: "magic", followOwner: true,
+      addStatus(c, {
+        kind: "spellAmp",
+        pct: v(def, "spellAmpPct", rank) / 100,
+        until: w.now + dur,
+        id: "emberhex:E:amp",
       });
+      // self-following burn aura
+      createGround(
+        w,
+        c,
+        "flashfire",
+        { x: c.x, y: c.y },
+        {
+          radius: v(def, "radius", rank),
+          until: w.now + dur,
+          enemyDps: v(def, "dps", rank),
+          dtype: "magic",
+          followOwner: true,
+        },
+      );
       return true;
     }
     case "emberhex:R": {
@@ -253,18 +414,39 @@ function dispatch(w: World, c: Unit, def: AbilityDef, rank: number, p: Vec2, tar
       const burnDur = v(def, "burnDuration", rank);
       // delayed firestorm via a one-shot ground effect that detonates on expiry
       createGround(w, c, "conflagration", p, {
-        radius, until: w.now + fuse * 1000, detonate: { dmg, amp, burnDps, burnDur },
+        radius,
+        until: w.now + fuse * 1000,
+        detonate: { dmg, amp, burnDps, burnDur },
       });
-      w.fx.push({ t: "ability", effect: def.effect, x: p.x, y: p.y, x2: p.x, y2: p.y, radius, team: c.team });
+      w.fx.push({
+        t: "ability",
+        effect: def.effect,
+        x: p.x,
+        y: p.y,
+        x2: p.x,
+        y2: p.y,
+        radius,
+        team: c.team,
+      });
       return true;
     }
 
     // ---------------- BOOMTINKER ----------------
     case "boomtinker:Q": {
       spawnAbilityProjectile(w, {
-        ownerId: c.id, team: c.team, x: c.x, y: c.y - 20, speed: v(def, "projectileSpeed", rank) || 650,
-        targetId: null, tx: p.x, ty: p.y, damage: v(def, "damage", rank), dtype: "magic",
-        kind: "dynamite", radius: v(def, "radius", rank), fromAbility: true,
+        ownerId: c.id,
+        team: c.team,
+        x: c.x,
+        y: c.y - 20,
+        speed: v(def, "projectileSpeed", rank) || 650,
+        targetId: null,
+        tx: p.x,
+        ty: p.y,
+        damage: v(def, "damage", rank),
+        dtype: "magic",
+        kind: "dynamite",
+        radius: v(def, "radius", rank),
+        fromAbility: true,
         onHit: { tag: "buildingBonus", pct: v(def, "buildingBonusPct", rank) },
       });
       return true;
@@ -272,9 +454,16 @@ function dispatch(w: World, c: Unit, def: AbilityDef, rank: number, p: Vec2, tar
     case "boomtinker:W": {
       const id = nextId(w, "m");
       w.mines.set(id, {
-        id, ownerId: c.id, team: c.team, x: p.x, y: p.y,
-        armedAt: w.now + v(def, "armDelay", rank) * 1000, expireAt: w.now + v(def, "lifetime", rank) * 1000,
-        damage: v(def, "damage", rank), triggerRadius: v(def, "triggerRadius", rank), slowPct: v(def, "slowPct", rank) / 100,
+        id,
+        ownerId: c.id,
+        team: c.team,
+        x: p.x,
+        y: p.y,
+        armedAt: w.now + v(def, "armDelay", rank) * 1000,
+        expireAt: w.now + v(def, "lifetime", rank) * 1000,
+        damage: v(def, "damage", rank),
+        triggerRadius: v(def, "triggerRadius", rank),
+        slowPct: v(def, "slowPct", rank) / 100,
       });
       // enforce max mines
       const max = v(def, "maxMines", rank);
@@ -285,7 +474,14 @@ function dispatch(w: World, c: Unit, def: AbilityDef, rank: number, p: Vec2, tar
       return true;
     }
     case "boomtinker:E": {
-      addStatus(c, { kind: "splashAttacks", left: v(def, "attacks", rank), radius: v(def, "splashRadius", rank), pct: v(def, "splashPct", rank) / 100, until: w.now + 12000, id: "boomtinker:E" });
+      addStatus(c, {
+        kind: "splashAttacks",
+        left: v(def, "attacks", rank),
+        radius: v(def, "splashRadius", rank),
+        pct: v(def, "splashPct", rank) / 100,
+        until: w.now + 12000,
+        id: "boomtinker:E",
+      });
       return true;
     }
     case "boomtinker:R": {
@@ -298,11 +494,28 @@ function dispatch(w: World, c: Unit, def: AbilityDef, rank: number, p: Vec2, tar
       addStatus(c, { kind: "unstoppable", until: w.now + 400 });
       const radius = v(def, "radius", rank);
       for (const e of enemiesInRadius(w, c.team, c, radius, true)) {
-        dealDamage(w, c, e, v(def, "damage", rank), "magic", { attackerSpellAmp: amp, structureBonusPct: v(def, "buildingBonusPct", rank) });
-        if (e.kind !== "structure") addStatus(e, { kind: "stun", until: w.now + v(def, "stun", rank) * 1000, sourceId: c.id });
+        dealDamage(w, c, e, v(def, "damage", rank), "magic", {
+          attackerSpellAmp: amp,
+          structureBonusPct: v(def, "buildingBonusPct", rank),
+        });
+        if (e.kind !== "structure")
+          addStatus(e, {
+            kind: "stun",
+            until: w.now + v(def, "stun", rank) * 1000,
+            sourceId: c.id,
+          });
       }
       w.fx.push({ t: "blink", x: from.x, y: from.y, x2: c.x, y2: c.y });
-      w.fx.push({ t: "ability", effect: def.effect, x: c.x, y: c.y, x2: c.x, y2: c.y, radius, team: c.team });
+      w.fx.push({
+        t: "ability",
+        effect: def.effect,
+        x: c.x,
+        y: c.y,
+        x2: c.x,
+        y2: c.y,
+        radius,
+        team: c.team,
+      });
       return true;
     }
 
@@ -311,7 +524,13 @@ function dispatch(w: World, c: Unit, def: AbilityDef, rank: number, p: Vec2, tar
       // heal a same-team non-neutral ally, else self (never heal a neutral)
       const ally = target && !target.neutral && target.team === c.team ? target : c;
       ally.hp = Math.min(ally.maxHp, ally.hp + v(def, "heal", rank));
-      addStatus(ally, { kind: "heal", hps: v(def, "regenPerSec", rank), until: w.now + v(def, "regenDuration", rank) * 1000, nextTick: w.now + 500, id: "brewkeeper:Q:regen" });
+      addStatus(ally, {
+        kind: "heal",
+        hps: v(def, "regenPerSec", rank),
+        until: w.now + v(def, "regenDuration", rank) * 1000,
+        nextTick: w.now + 500,
+        id: "brewkeeper:Q:regen",
+      });
       w.fx.push({ t: "heal", x: ally.x, y: ally.y, amount: v(def, "heal", rank) });
       return true;
     }
@@ -321,23 +540,57 @@ function dispatch(w: World, c: Unit, def: AbilityDef, rank: number, p: Vec2, tar
         if (e.kind === "structure") continue;
         dealDamage(w, c, e, v(def, "damage", rank), "magic", { attackerSpellAmp: amp });
         addStatus(e, { kind: "silence", until: w.now + v(def, "silence", rank) * 1000 });
-        addStatus(e, { kind: "slow", pct: v(def, "slowPct", rank) / 100, until: w.now + v(def, "silence", rank) * 1000, id: `brewkeeper:W:${e.id}` });
+        addStatus(e, {
+          kind: "slow",
+          pct: v(def, "slowPct", rank) / 100,
+          until: w.now + v(def, "silence", rank) * 1000,
+          id: `brewkeeper:W:${e.id}`,
+        });
       }
-      w.fx.push({ t: "ability", effect: def.effect, x: p.x, y: p.y, x2: p.x, y2: p.y, radius, team: c.team });
+      w.fx.push({
+        t: "ability",
+        effect: def.effect,
+        x: p.x,
+        y: p.y,
+        x2: p.x,
+        y2: p.y,
+        radius,
+        team: c.team,
+      });
       return true;
     }
     case "brewkeeper:E": {
       const dur = v(def, "duration", rank) * 1000;
       for (const a of alliesInRadius(w, c.team, c, v(def, "auraRadius", rank))) {
-        addStatus(a, { kind: "shield", amount: v(def, "shield", rank), until: w.now + dur, id: "brewkeeper:E:shield" });
-        addStatus(a, { kind: "armorBonus", amount: v(def, "bonusArmor", rank), until: w.now + dur, id: "brewkeeper:E:armor" });
+        addStatus(a, {
+          kind: "shield",
+          amount: v(def, "shield", rank),
+          until: w.now + dur,
+          id: "brewkeeper:E:shield",
+        });
+        addStatus(a, {
+          kind: "armorBonus",
+          amount: v(def, "bonusArmor", rank),
+          until: w.now + dur,
+          id: "brewkeeper:E:armor",
+        });
       }
       return true;
     }
     case "brewkeeper:R": {
-      startChannel(w, c, def, rank, { x: c.x, y: c.y }, {
-        radius: v(def, "radius", rank), allyHealPerTick: v(def, "healPerTick", rank), allyManaPerTick: v(def, "manaPerTick", rank), cleanse: true,
-      });
+      startChannel(
+        w,
+        c,
+        def,
+        rank,
+        { x: c.x, y: c.y },
+        {
+          radius: v(def, "radius", rank),
+          allyHealPerTick: v(def, "healPerTick", rank),
+          allyManaPerTick: v(def, "manaPerTick", rank),
+          cleanse: true,
+        },
+      );
       return true;
     }
   }
@@ -355,13 +608,34 @@ type ChannelBundle = {
   cleanse?: boolean;
 };
 
-function startChannel(w: World, c: Unit, def: AbilityDef, rank: number, p: Vec2, b: ChannelBundle): void {
+function startChannel(
+  w: World,
+  c: Unit,
+  def: AbilityDef,
+  rank: number,
+  p: Vec2,
+  b: ChannelBundle,
+): void {
   if (!c.hero) return;
   const dur = v(def, "channel", rank) * 1000;
-  c.hero.channel = { effect: def.effect, key: def.key, rank, until: w.now + dur, nextTick: w.now + TICK * 1000, point: { ...p } };
+  c.hero.channel = {
+    effect: def.effect,
+    key: def.key,
+    rank,
+    until: w.now + dur,
+    nextTick: w.now + TICK * 1000,
+    point: { ...p },
+  };
   createGround(w, c, def.effect, p, {
-    radius: b.radius, until: w.now + dur, enemyDps: b.enemyDps, dtype: b.dtype, slowPct: b.slowPct,
-    allyHealPerTick: b.allyHealPerTick, allyManaPerTick: b.allyManaPerTick, cleanse: b.cleanse, channel: true,
+    radius: b.radius,
+    until: w.now + dur,
+    enemyDps: b.enemyDps,
+    dtype: b.dtype,
+    slowPct: b.slowPct,
+    allyHealPerTick: b.allyHealPerTick,
+    allyManaPerTick: b.allyManaPerTick,
+    cleanse: b.cleanse,
+    channel: true,
   });
   c.order = { type: "idle" };
   c.path = [];
@@ -371,7 +645,9 @@ export function breakChannel(w: World, u: Unit): void {
   if (!u.hero?.channel) return;
   const eff = u.hero.channel.effect;
   u.hero.channel = null;
-  w.groundEffects = w.groundEffects.filter((g) => !(g.ownerId === u.id && g.effect === eff && g.channel));
+  w.groundEffects = w.groundEffects.filter(
+    (g) => !(g.ownerId === u.id && g.effect === eff && g.channel),
+  );
 }
 
 // ---- ground effects --------------------------------------------------------
@@ -444,9 +720,19 @@ function tickPassives(w: World, dt: number): void {
     const blood = u.hero.abilities.E.rank;
     if (def.abilities.E.effect === "duskblade:E" && blood > 0) {
       const b = def.abilities.E;
-      addStatus(u, { kind: "lifesteal", pct: v(b, "lifestealPct", blood) / 100, until: w.now + 500, id: "bloodthirst:ls" });
+      addStatus(u, {
+        kind: "lifesteal",
+        pct: v(b, "lifestealPct", blood) / 100,
+        until: w.now + 500,
+        id: "bloodthirst:ls",
+      });
       const asBonus = v(b, "asPerStack", blood) * v(b, "maxStacks", blood) * 0.6;
-      addStatus(u, { kind: "attackSpeed", amount: asBonus, until: w.now + 500, id: "bloodthirst:as" });
+      addStatus(u, {
+        kind: "attackSpeed",
+        amount: asBonus,
+        until: w.now + 500,
+        id: "bloodthirst:as",
+      });
     }
   }
 }
@@ -458,7 +744,9 @@ function tickStatusDots(w: World): void {
       if (s.kind === "dot") {
         while (w.now >= s.nextTick && s.nextTick <= s.until) {
           const src = w.units.get(s.sourceId) ?? null;
-          dealDamage(w, src, u, s.dps * 0.5, s.dtype, { attackerSpellAmp: src ? spellAmp(src) : 0 });
+          dealDamage(w, src, u, s.dps * 0.5, s.dtype, {
+            attackerSpellAmp: src ? spellAmp(src) : 0,
+          });
           s.nextTick += 500;
           if (!u.alive) break;
         }
@@ -503,11 +791,23 @@ function applyGroundTick(w: World, g: GroundEffect): void {
     const src = w.units.get(g.ownerId) ?? null;
     for (const e of enemiesInRadius(w, g.team, g, g.radius, false)) {
       if (e.kind === "structure") continue;
-      dealDamage(w, src, e, g.enemyDps * (g.tickInterval / 1000), g.dtype ?? "magic", { attackerSpellAmp: src ? spellAmp(src) : 0 });
-      if (g.slowPct && g.slowPct > 0) addStatus(e, { kind: "slow", pct: g.slowPct, until: w.now + 800, id: `ground:${g.id}:${e.id}` });
+      dealDamage(w, src, e, g.enemyDps * (g.tickInterval / 1000), g.dtype ?? "magic", {
+        attackerSpellAmp: src ? spellAmp(src) : 0,
+      });
+      if (g.slowPct && g.slowPct > 0)
+        addStatus(e, {
+          kind: "slow",
+          pct: g.slowPct,
+          until: w.now + 800,
+          id: `ground:${g.id}:${e.id}`,
+        });
     }
   }
-  if ((g.allyHealPerTick && g.allyHealPerTick > 0) || (g.allyManaPerTick && g.allyManaPerTick > 0) || g.cleanse) {
+  if (
+    (g.allyHealPerTick && g.allyHealPerTick > 0) ||
+    (g.allyManaPerTick && g.allyManaPerTick > 0) ||
+    g.cleanse
+  ) {
     for (const a of alliesInRadius(w, g.team, g, g.radius)) {
       if (g.allyHealPerTick) a.hp = Math.min(a.maxHp, a.hp + g.allyHealPerTick);
       if (g.allyManaPerTick) a.mp = Math.min(a.maxMp, a.mp + g.allyManaPerTick);
@@ -517,12 +817,25 @@ function applyGroundTick(w: World, g: GroundEffect): void {
   }
 }
 
-function detonateConflagration(w: World, g: GroundEffect, d: NonNullable<GroundOpts["detonate"]>): void {
+function detonateConflagration(
+  w: World,
+  g: GroundEffect,
+  d: NonNullable<GroundOpts["detonate"]>,
+): void {
   const src = w.units.get(g.ownerId) ?? null;
   w.fx.push({ t: "explosion", x: g.x, y: g.y, radius: g.radius, color: 0xff5a1a });
   for (const e of enemiesInRadius(w, g.team, g, g.radius, true)) {
     dealDamage(w, src, e, d.dmg, "magic", { attackerSpellAmp: d.amp });
-    if (e.kind !== "structure") addStatus(e, { kind: "dot", dps: d.burnDps, until: w.now + d.burnDur * 1000, nextTick: w.now + 500, dtype: "magic", sourceId: g.ownerId, id: `conflag:${e.id}` });
+    if (e.kind !== "structure")
+      addStatus(e, {
+        kind: "dot",
+        dps: d.burnDps,
+        until: w.now + d.burnDur * 1000,
+        nextTick: w.now + 500,
+        dtype: "magic",
+        sourceId: g.ownerId,
+        id: `conflag:${e.id}`,
+      });
   }
 }
 

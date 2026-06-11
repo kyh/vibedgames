@@ -18,8 +18,7 @@ export const DAY_LENGTH_SEC = 240;
 
 // Cumulative XP required to *reach* each level (index 0 = level 1).
 export const XP_CURVE = [
-  0, 240, 600, 1080, 1680, 2400, 3240, 4200, 5280, 6480, 7800, 9240, 10800,
-  12480, 14280, 16200,
+  0, 240, 600, 1080, 1680, 2400, 3240, 4200, 5280, 6480, 7800, 9240, 10800, 12480, 14280, 16200,
 ];
 
 export function levelForXp(xp: number): number {
@@ -163,12 +162,64 @@ export type StructDef = {
 };
 
 export const STRUCTS: Record<StructTier, StructDef> = {
-  t1: { tier: "t1", hp: 1050, damage: 90, armor: 6, attackRange: 560, attackSpeed: 1, projectileSpeed: 900, bountyTeam: 100, bountyLocal: 150, attacks: true, regenPerSec: 22, radius: 60 },
-  t2: { tier: "t2", hp: 1500, damage: 130, armor: 9, attackRange: 560, attackSpeed: 1.05, projectileSpeed: 900, bountyTeam: 140, bountyLocal: 190, attacks: true, regenPerSec: 22, radius: 60 },
-  base: { tier: "base", hp: 1000, damage: 80, armor: 7, attackRange: 600, attackSpeed: 1.2, projectileSpeed: 1000, bountyTeam: 40, bountyLocal: 60, attacks: true, regenPerSec: 0, radius: 56 },
+  t1: {
+    tier: "t1",
+    hp: 1050,
+    damage: 90,
+    armor: 6,
+    attackRange: 560,
+    attackSpeed: 1,
+    projectileSpeed: 900,
+    bountyTeam: 100,
+    bountyLocal: 150,
+    attacks: true,
+    regenPerSec: 22,
+    radius: 60,
+  },
+  t2: {
+    tier: "t2",
+    hp: 1500,
+    damage: 130,
+    armor: 9,
+    attackRange: 560,
+    attackSpeed: 1.05,
+    projectileSpeed: 900,
+    bountyTeam: 140,
+    bountyLocal: 190,
+    attacks: true,
+    regenPerSec: 22,
+    radius: 60,
+  },
+  base: {
+    tier: "base",
+    hp: 1000,
+    damage: 80,
+    armor: 7,
+    attackRange: 600,
+    attackSpeed: 1.2,
+    projectileSpeed: 1000,
+    bountyTeam: 40,
+    bountyLocal: 60,
+    attacks: true,
+    regenPerSec: 0,
+    radius: 56,
+  },
   // ancient radius is generous: the castle sits on a blocked plateau, so melee
   // attackers must be able to reach its hitbox from the flat ground at the edge
-  ancient: { tier: "ancient", hp: 2400, damage: 0, armor: 10, attackRange: 0, attackSpeed: 0, projectileSpeed: 0, bountyTeam: 0, bountyLocal: 0, attacks: false, regenPerSec: 20, radius: 170 },
+  ancient: {
+    tier: "ancient",
+    hp: 2400,
+    damage: 0,
+    armor: 10,
+    attackRange: 0,
+    attackSpeed: 0,
+    projectileSpeed: 0,
+    bountyTeam: 0,
+    bountyLocal: 0,
+    attacks: false,
+    regenPerSec: 20,
+    radius: 170,
+  },
 };
 
 export const TOWER_RAMP_PER_HIT = 0.25; // +25% dmg per consecutive hit, resets on switch

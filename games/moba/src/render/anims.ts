@@ -10,7 +10,13 @@ import Phaser from "phaser";
 // the Barrel goblin has a real death (its explosion). So death is declared ONLY
 // where it genuinely exists; every other unit falls back to a procedural collapse
 // (topple + sink + fade) in view.ts. Never map a non-death row to "death".
-type AnimRange = { name: "idle" | "walk" | "attack" | "death"; start: number; end: number; fps: number; loop: boolean };
+type AnimRange = {
+  name: "idle" | "walk" | "attack" | "death";
+  start: number;
+  end: number;
+  fps: number;
+  loop: boolean;
+};
 
 const UNIT_ANIMS: Record<string, AnimRange[]> = {
   warrior: [
@@ -90,12 +96,17 @@ export function registerAnims(scene: Phaser.Scene): void {
       frameRate: 12,
       repeat: -1,
     });
-  }  // one-shot fx from the Free Pack Particle FX sheets (full sheet, derived count)
+  } // one-shot fx from the Free Pack Particle FX sheets (full sheet, derived count)
   const oneShot = (key: string, tex: string, fps: number): void => {
     if (!scene.textures.exists(tex) || scene.anims.exists(key)) return;
     const end = scene.textures.get(tex).frameTotal - 2;
     if (end < 0) return;
-    scene.anims.create({ key, frames: scene.anims.generateFrameNumbers(tex, { start: 0, end }), frameRate: fps, repeat: 0 });
+    scene.anims.create({
+      key,
+      frames: scene.anims.generateFrameNumbers(tex, { start: 0, end }),
+      frameRate: fps,
+      repeat: 0,
+    });
   };
   oneShot("fx-dust1", "fx-dust1", 14);
   oneShot("fx-dust2", "fx-dust2", 16);
@@ -109,7 +120,12 @@ export function registerAnims(scene: Phaser.Scene): void {
     if (!scene.textures.exists(tex) || scene.anims.exists(key)) return;
     const end = scene.textures.get(tex).frameTotal - 2; // -1 __BASE, -1 to last index
     if (end < 0) return;
-    scene.anims.create({ key, frames: scene.anims.generateFrameNumbers(tex, { start: 0, end }), frameRate: fps, repeat: -1 });
+    scene.anims.create({
+      key,
+      frames: scene.anims.generateFrameNumbers(tex, { start: 0, end }),
+      frameRate: fps,
+      repeat: -1,
+    });
   };
   loop("foam-loop", "foam", 9);
   for (let i = 1; i <= 3; i++) loop(`fx-flame${i}`, `fx-flame${i}`, 11);
@@ -118,7 +134,12 @@ export function registerAnims(scene: Phaser.Scene): void {
   for (let i = 1; i <= 4; i++) loop(`ftree${i}-sway`, `ftree${i}`, 6);
   // the pine sheet's frames 0-5 are the gentle sway; the rest are hit/stump cells
   if (scene.textures.exists("t-tree") && !scene.anims.exists("tree-sway")) {
-    scene.anims.create({ key: "tree-sway", frames: scene.anims.generateFrameNumbers("t-tree", { start: 0, end: 5 }), frameRate: 5, repeat: -1 });
+    scene.anims.create({
+      key: "tree-sway",
+      frames: scene.anims.generateFrameNumbers("t-tree", { start: 0, end: 5 }),
+      frameRate: 5,
+      repeat: -1,
+    });
   }
   loop("sheep-idle", "sheep", 8);
   // enemy-pack neutrals: idle from *_idle sheet, walk from *_run/_walk sheet

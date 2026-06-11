@@ -1,15 +1,6 @@
 import { Separator } from "@repo/ui/components/separator";
-import {
-  SidebarInset,
-  SidebarProvider,
-  SidebarTrigger,
-} from "@repo/ui/components/sidebar";
-import {
-  createFileRoute,
-  Outlet,
-  redirect,
-  useLocation,
-} from "@tanstack/react-router";
+import { SidebarInset, SidebarProvider, SidebarTrigger } from "@repo/ui/components/sidebar";
+import { createFileRoute, Outlet, redirect, useLocation } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 
