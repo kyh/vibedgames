@@ -123,6 +123,16 @@ const OFFERINGS: Offering[] = [
   },
 ];
 
+// The card pastels above, saturated a touch so the chromatic flash still reads
+// once the letters settle into the muted heading color.
+const ROLL_PALETTE = [
+  "hsl(12 90% 66%)", // #F59279
+  "hsl(31 95% 62%)", // #F9B060
+  "hsl(50 94% 57%)", // #F5D84A
+  "hsl(125 55% 60%)", // #80D487
+  "hsl(204 75% 60%)", // #73B7E5
+];
+
 function randomOffset() {
   return {
     x: (Math.random() - 0.5) * 10,
@@ -366,8 +376,7 @@ function OfferingsDeck() {
             in your{" "}
             <RollingText
               words={["claude", "codex", "cursor", "agent"]}
-              color={chromatic()}
-              className="text-foreground"
+              color={chromatic({ palette: ROLL_PALETTE })}
             />
           </span>
         </h1>
