@@ -1,8 +1,8 @@
 import Phaser from "phaser";
 
 import { initPoseCamera, type PoseJumpHandler } from "./input/camera";
-import { BootScene } from "./scenes/BootScene";
-import { GameScene } from "./scenes/GameScene";
+import { BootScene } from "./scenes/boot-scene";
+import { GameScene } from "./scenes/game-scene";
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.WEBGL,

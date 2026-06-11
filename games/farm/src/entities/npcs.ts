@@ -14,7 +14,7 @@ import {
 import type { Item } from "../data/items";
 import { burst } from "../render/fx";
 import { Sound } from "../render/audio";
-import type { GameScene } from "../scenes/GameScene";
+import type { GameScene } from "../scenes/game-scene";
 
 type Live = {
   id: NpcId;

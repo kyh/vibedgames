@@ -6,7 +6,7 @@ import { ANIMALS, randomAnimalName, type AnimalKind, type BuildingKind } from ".
 import type { AnimalSave } from "../systems/save";
 import { floatText, burst } from "../render/fx";
 import { Sound } from "../render/audio";
-import type { GameScene } from "../scenes/GameScene";
+import type { GameScene } from "../scenes/game-scene";
 
 type Live = {
   data: AnimalSave;

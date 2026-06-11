@@ -2,7 +2,7 @@ import { MultiplayerClient } from "@vibedgames/multiplayer";
 import type { Player } from "@vibedgames/multiplayer";
 import Phaser from "phaser";
 
-import { Starfield } from "../render/Starfield";
+import { Starfield } from "../render/starfield";
 import {
   ASTEROID_CULL_MARGIN,
   ASTEROID_MAX_NUM,

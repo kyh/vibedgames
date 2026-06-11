@@ -1,13 +1,13 @@
 import Phaser from "phaser";
 
-import { BootScene } from "./scenes/BootScene";
-import { TitleScene } from "./scenes/TitleScene";
-import { GameScene } from "./scenes/GameScene";
-import { MineScene } from "./scenes/MineScene";
-import { MineHudScene } from "./scenes/MineHudScene";
-import { HudScene } from "./scenes/HudScene";
-import { InventoryScene } from "./scenes/InventoryScene";
-import { GalleryScene } from "./scenes/GalleryScene";
+import { BootScene } from "./scenes/boot-scene";
+import { TitleScene } from "./scenes/title-scene";
+import { GameScene } from "./scenes/game-scene";
+import { MineScene } from "./scenes/mine-scene";
+import { MineHudScene } from "./scenes/mine-hud-scene";
+import { HudScene } from "./scenes/hud-scene";
+import { InventoryScene } from "./scenes/inventory-scene";
+import { GalleryScene } from "./scenes/gallery-scene";
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.WEBGL,

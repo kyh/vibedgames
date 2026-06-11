@@ -4,7 +4,7 @@ import { HOTBAR, TOTAL } from "../systems/inventory";
 import { itemIcon, itemName, sellValue, isSellable } from "../data/items";
 import { SKILL_IDS, SKILL_NAMES, SKILL_ICON, xpToNext } from "../systems/skills";
 import { Sound } from "../render/audio";
-import type { GameScene } from "./GameScene";
+import type { GameScene } from "./game-scene";
 
 const FONT = "ui-monospace, monospace";
 const SZ = 44;

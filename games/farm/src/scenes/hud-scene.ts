@@ -15,7 +15,7 @@ import {
 } from "../data/animals";
 import { SKILL_NAMES, type SkillId } from "../systems/skills";
 import { Sound } from "../render/audio";
-import type { GameScene } from "./GameScene";
+import type { GameScene } from "./game-scene";
 
 const FONT = "ui-monospace, monospace";
 const SLOT = 42;

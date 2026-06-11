@@ -4,7 +4,7 @@ import { store } from "./store";
 import { rollFish, type FishDef } from "../data/fish";
 import { floatText, burst } from "../render/fx";
 import { Sound } from "../render/audio";
-import type { GameScene } from "../scenes/GameScene";
+import type { GameScene } from "../scenes/game-scene";
 
 type State = "idle" | "casting" | "waiting" | "bite" | "reeling" | "done";
 

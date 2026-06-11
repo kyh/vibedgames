@@ -3,7 +3,7 @@ import { store } from "../systems/store";
 import { HOTBAR } from "../systems/inventory";
 import { itemIcon } from "../data/items";
 import { MAX_ENERGY } from "../config";
-import type { MineScene } from "./MineScene";
+import type { MineScene } from "./mine-scene";
 
 const FONT = "ui-monospace, monospace";
 const SZ = 38;

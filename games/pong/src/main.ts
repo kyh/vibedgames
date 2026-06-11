@@ -1,7 +1,7 @@
 import * as THREE from "three";
 
 import { startHandTracking } from "./input/camera";
-import { GameScene } from "./scenes/GameScene";
+import { GameScene } from "./scenes/game-scene";
 import { MAX_DT } from "./shared/constants";
 
 const container = document.getElementById("game");

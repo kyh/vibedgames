@@ -8,8 +8,8 @@ import { ITEMS, ITEM_BY_ID } from "../data/items";
 import { BRIDGES, GRID, WORLD, isHighCell, isLandCell } from "../data/map";
 import { FONT } from "../render/font";
 import { heroSheetTex } from "../render/sprites";
-import { SLOT_LABEL } from "./GameScene";
-import type { GameScene } from "./GameScene";
+import { SLOT_LABEL } from "./game-scene";
+import type { GameScene } from "./game-scene";
 
 const KEYS: AbilityKey[] = ["Q", "W", "E", "R"];
 const MINIMAP_SIZE = 232;
