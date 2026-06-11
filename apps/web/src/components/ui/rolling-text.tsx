@@ -1,8 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
-import { AnimatePresence, motion, useReducedMotion, type TargetAndTransition } from "motion/react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  animate,
+  AnimatePresence,
+  motion,
+  useMotionValue,
+  useReducedMotion,
+  type TargetAndTransition,
+} from "motion/react";
 import { cn } from "@repo/ui/lib/utils";
 
-const NBSP = " ";
+const NBSP = " ";
 const glyph = (char: string) => (char === " " ? NBSP : char);
 
 // Springy overshoot — slot-text's "back" easing, so each letter lands with a
@@ -16,24 +23,47 @@ const wobble = (i: number, salt: number) => {
   return (n - Math.floor(n)) * 2 - 1;
 };
 
+// Width of the glyph `char` puts in a column, read off that column's hidden
+// candidate spans. 0 when the current word doesn't reach this column.
+const measureChar = (els: Map<string, HTMLSpanElement>, char: string) => {
+  if (!char) return 0;
+  const el = els.get(glyph(char));
+  return el ? el.getBoundingClientRect().width : null;
+};
+
 type ChromaticOptions = {
   from?: number;
   spread?: number;
   saturation?: number;
   lightness?: number;
+  /** Explicit color stops swept across the line instead of a hue ramp. */
+  palette?: string[];
 };
 
 /**
- * Hue sweep across the line: every glyph rolls in its own color, so the change
- * lands as a chromatic spectrum before settling to the resting color.
+ * Color sweep across the line: every glyph rolls in its own color, so the
+ * change lands as a chromatic spectrum before settling to the resting color.
  *
- *   <RollingText color={chromatic()} />            // full rainbow
+ *   <RollingText color={chromatic()} />              // full rainbow
  *   <RollingText color={chromatic({ from: 190 })} /> // start cyan
+ *   <RollingText color={chromatic({ palette: ["#f00", "#00f"] })} />
  */
 export const chromatic =
-  ({ from = 0, spread = 320, saturation = 92, lightness = 60 }: ChromaticOptions = {}) =>
+  ({ from = 0, spread = 320, saturation = 92, lightness = 60, palette }: ChromaticOptions = {}) =>
   (index: number, total: number) => {
     const t = total <= 1 ? 0 : index / (total - 1);
+    if (palette && palette.length > 0) {
+      if (palette.length === 1) return palette[0] ?? "";
+      // Interpolate between the two stops this glyph falls between.
+      const pos = t * (palette.length - 1);
+      const lower = Math.min(Math.floor(pos), palette.length - 2);
+      const mix = Math.round((pos - lower) * 100);
+      const a = palette[lower] ?? "";
+      const b = palette[lower + 1] ?? "";
+      if (mix <= 0) return a;
+      if (mix >= 100) return b;
+      return `color-mix(in oklab, ${b} ${mix}%, ${a})`;
+    }
     return `hsl(${(from + t * spread) % 360} ${saturation}% ${lightness}%)`;
   };
 
@@ -57,6 +87,156 @@ type RollingTextProps = {
   /** How long the chromatic tint fades back to rest, in seconds. */
   colorFade?: number;
   className?: string;
+};
+
+type RollingColumnProps = {
+  /** Every glyph this column can show, across all words. */
+  candidates: string[];
+  /** The glyph the current word puts in this column ("" when it's shorter). */
+  char: string;
+  /** Current word index — keys the faces so AnimatePresence swaps them. */
+  wordKey: number;
+  enterY: string;
+  exitY: string;
+  tilt: number;
+  delay: number;
+  exitOffset: number;
+  duration: number;
+  tint?: string;
+  colorFade: number;
+};
+
+const RollingColumn = ({
+  candidates,
+  char,
+  wordKey,
+  enterY,
+  exitY,
+  tilt,
+  delay,
+  exitOffset,
+  duration,
+  tint,
+  colorFade,
+}: RollingColumnProps) => {
+  const sizerRef = useRef<HTMLSpanElement>(null);
+  const candidateEls = useRef(new Map<string, HTMLSpanElement>());
+  const charRef = useRef(char);
+  charRef.current = char;
+  // "auto" until the first measurement, so SSR/pre-hydration falls back to the
+  // widest-candidate width the sizer provides.
+  const width = useMotionValue<number | "auto">("auto");
+
+  // Size the column to the glyph it's currently showing — measured off the
+  // hidden candidates — instead of the widest candidate, so narrow letters
+  // like "l" don't float in a slot sized for "o" or "u". The width rolls to
+  // the incoming glyph's in step with the letters.
+  useEffect(() => {
+    const target = measureChar(candidateEls.current, char);
+    if (target === null) return;
+    if (width.get() === "auto") {
+      width.set(target);
+      return;
+    }
+    const controls = animate(width, target, {
+      delay: delay + exitOffset,
+      duration,
+      ease: "easeOut",
+    });
+    return () => controls.stop();
+  }, [char, width, delay, exitOffset, duration]);
+
+  // Re-measure when the sizer's own box changes (font load, breakpoint font
+  // size) — jump straight to the new width, no roll.
+  useEffect(() => {
+    const sizer = sizerRef.current;
+    if (!sizer || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      const target = measureChar(candidateEls.current, charRef.current);
+      if (target !== null) width.set(target);
+    });
+    observer.observe(sizer);
+    return () => observer.disconnect();
+  }, [width]);
+
+  // The new glyph rolls in tinted (--flash: 1) and the tint mixes out to the
+  // resting color via color-mix, so it works regardless of the theme's color
+  // space (currentColor is oklch here).
+  const roll = { delay: delay + exitOffset, duration, ease: EASE };
+  const exitRoll = { delay, duration, ease: EASE };
+  const initial: TargetAndTransition = {
+    y: enterY,
+    rotate: tilt,
+    ...(tint && { "--flash": 1 }),
+  };
+  const enter: TargetAndTransition = {
+    y: "0%",
+    rotate: 0,
+    ...(tint && { "--flash": 0 }),
+    transition: {
+      y: roll,
+      rotate: roll,
+      ...(tint && {
+        "--flash": {
+          delay: delay + exitOffset + duration,
+          duration: colorFade,
+          ease: "linear",
+        },
+      }),
+    },
+  };
+
+  return (
+    <motion.span
+      aria-hidden
+      style={{ width }}
+      className="relative inline-flex justify-center overflow-x-visible [overflow-y:clip]"
+    >
+      {/* Invisible sizer renders every glyph this column can show (overlapped
+          in one grid cell) so the current one can be measured. It also keeps
+          the column at full text height while the faces are absolutely
+          positioned. Until the first measurement lands, it sizes the column
+          to its widest candidate. */}
+      <span ref={sizerRef} className="invisible inline-grid">
+        {(candidates.length ? candidates : [NBSP]).map((candidate) => (
+          <span
+            key={candidate}
+            ref={(el) => {
+              if (el) candidateEls.current.set(candidate, el);
+              else candidateEls.current.delete(candidate);
+            }}
+            // justifySelf keeps each candidate at its own glyph width instead
+            // of stretching to the cell, so the measurement is per-glyph.
+            style={{ gridArea: "1 / 1", justifySelf: "start" }}
+          >
+            {candidate}
+          </span>
+        ))}
+      </span>
+      <AnimatePresence initial={false}>
+        <motion.span
+          key={wordKey}
+          className="absolute inset-0 flex items-center justify-center will-change-transform"
+          style={
+            tint
+              ? {
+                  color: `color-mix(in oklab, ${tint} calc(var(--flash) * 100%), currentColor)`,
+                }
+              : undefined
+          }
+          initial={initial}
+          animate={enter}
+          exit={{
+            y: exitY,
+            rotate: -tilt,
+            transition: { y: exitRoll, rotate: exitRoll },
+          }}
+        >
+          {glyph(char)}
+        </motion.span>
+      </AnimatePresence>
+    </motion.span>
+  );
 };
 
 /**
@@ -87,10 +267,9 @@ export const RollingText = ({
     return () => clearInterval(id);
   }, [reduceMotion, words.length, interval]);
 
-  // Every glyph that can appear in each column, across all words (padded to the
-  // longest word). The sizer reserves the widest of them so a column's width
-  // never changes as words cycle — the line never reflows and an outgoing glyph
-  // stays aligned while it rolls, regardless of the incoming word's length.
+  // Every glyph that can appear in each column, across all words (padded to
+  // the longest word). The column renders them all in a hidden sizer so it can
+  // measure whichever one the current word shows.
   const columns = useMemo(() => {
     const len = words.reduce((max, word) => Math.max(max, word.length), 0);
     return Array.from({ length: len }, (_, i) =>
@@ -108,82 +287,22 @@ export const RollingText = ({
 
   return (
     <span className={cn("inline-flex", className)} aria-label={words[0]}>
-      {Array.from({ length: len }, (_, i) => {
-        const column = columns[i] ?? [];
-        const char = word[i] ?? "";
-        const tilt = bounce * 5 * wobble(i, 3);
-        const base = i * stagger;
-        const tint = color?.(i, len);
-
-        // The new glyph rolls in tinted (--flash: 1) and the tint mixes out to
-        // the resting color via color-mix, so it works regardless of the theme's
-        // color space (currentColor is oklch here).
-        const roll = { delay: base + exitOffset, duration, ease: EASE };
-        const exitRoll = { delay: base, duration, ease: EASE };
-        const initial: TargetAndTransition = {
-          y: enterY,
-          rotate: tilt,
-          ...(tint && { "--flash": 1 }),
-        };
-        const enter: TargetAndTransition = {
-          y: "0%",
-          rotate: 0,
-          ...(tint && { "--flash": 0 }),
-          transition: {
-            y: roll,
-            rotate: roll,
-            ...(tint && {
-              "--flash": {
-                delay: base + exitOffset + duration,
-                duration: colorFade,
-                ease: "linear",
-              },
-            }),
-          },
-        };
-
-        return (
-          <span
-            key={i}
-            aria-hidden
-            className="relative inline-flex justify-center overflow-x-visible [overflow-y:clip]"
-          >
-            {/* Invisible sizer reserves the widest glyph this column can ever
-                show (all candidates overlapped in one grid cell), so the cell
-                width is constant and the absolutely positioned faces never
-                reflow the line as they roll. */}
-            <span className="invisible inline-grid">
-              {(column.length ? column : [NBSP]).map((candidate) => (
-                <span key={candidate} style={{ gridArea: "1 / 1" }}>
-                  {candidate}
-                </span>
-              ))}
-            </span>
-            <AnimatePresence initial={false}>
-              <motion.span
-                key={index}
-                className="absolute inset-0 flex items-center justify-center will-change-transform"
-                style={
-                  tint
-                    ? {
-                        color: `color-mix(in oklab, ${tint} calc(var(--flash) * 100%), currentColor)`,
-                      }
-                    : undefined
-                }
-                initial={initial}
-                animate={enter}
-                exit={{
-                  y: exitY,
-                  rotate: -tilt,
-                  transition: { y: exitRoll, rotate: exitRoll },
-                }}
-              >
-                {glyph(char)}
-              </motion.span>
-            </AnimatePresence>
-          </span>
-        );
-      })}
+      {Array.from({ length: len }, (_, i) => (
+        <RollingColumn
+          key={i}
+          candidates={columns[i] ?? []}
+          char={word[i] ?? ""}
+          wordKey={index}
+          enterY={enterY}
+          exitY={exitY}
+          tilt={bounce * 5 * wobble(i, 3)}
+          delay={i * stagger}
+          exitOffset={exitOffset}
+          duration={duration}
+          tint={color?.(i, len)}
+          colorFade={colorFade}
+        />
+      ))}
     </span>
   );
 };
