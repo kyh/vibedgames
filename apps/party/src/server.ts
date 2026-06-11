@@ -66,17 +66,17 @@ export class VgServer extends Server {
   };
 
   onConnect(connection: Connection<Player>, ctx: ConnectionContext) {
-    // Establish the room's cap from the first connection that advertises one,
-    // then keep it sticky: a later join that omits `_maxPlayers` (a rogue or
-    // stale client) must not be able to bypass the cap legit clients set.
+    // The room's effective cap for this admission decision: the sticky cap an
+    // earlier admitted client established, or — if none yet — the cap this
+    // client advertises. We don't persist the requested cap until we've
+    // decided to admit (below), so a refused over-cap join can't retroactively
+    // cap a room that never accepted it — which would otherwise also bounce
+    // later, even uncapped, joins to overflow.
     const requestedCap = readRoomCap(ctx);
-    if (this.room.cap === null && requestedCap !== null) {
-      this.room.cap = requestedCap;
-    }
+    const cap = this.room.cap ?? requestedCap;
 
     // Enforce the room cap before admitting the player. If full, point the
     // client at the overflow sibling and close — the SDK reconnects there.
-    const cap = this.room.cap;
     if (cap !== null && Object.keys(this.room.players).length >= cap) {
       const fullMessage: ServerMessage = {
         type: "room_full",
@@ -85,6 +85,13 @@ export class VgServer extends Server {
       connection.send(JSON.stringify(fullMessage));
       connection.close(4001, "room_full");
       return;
+    }
+
+    // Admitted: establish the room's cap stickily from the first admitted
+    // client that advertises one, so a later join that omits `_maxPlayers` (a
+    // rogue or stale client) can't bypass the cap legit clients set.
+    if (this.room.cap === null && requestedCap !== null) {
+      this.room.cap = requestedCap;
     }
 
     const { color, hue } = getColorById(connection.id);
