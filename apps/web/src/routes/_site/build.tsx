@@ -114,9 +114,9 @@ const OFFERINGS: Offering[] = [
   },
   {
     index: "05",
-    title: "Learn together",
-    tag: "join the discord",
-    desc: "A Discord of vibe game devs learning side by side.",
+    title: "Learn as you build",
+    tag: "teach me game development",
+    desc: "A built-in tutor. Learn gamedev by shipping real games.",
     color: "#73B7E5",
     zIndex: 3,
   },
