@@ -6,6 +6,10 @@
 
 **The primary user of the `vg` CLI is a coding agent, not a human.** A human prompts their agent ("build me a bomberman game"), and the agent uses `vg` + the bundled skills to scaffold, generate assets, add multiplayer, and deploy. Optimise CLI UX accordingly: machine-readable output (`--json`), self-describing errors, deterministic exit codes, skills that document the exact commands the agent should run. Friction that a human would tolerate ("now open this URL...") blocks an agent.
 
+## Product & Business Context
+
+- **The bet (why us):** _Seed your coding agent with the abilities of a full game studio._ The wedge isn't "another hosting platform" — it's that an agent, armed with `vg` + the bundled skills, can do everything a studio does (scaffold, generate art/audio, add multiplayer, ship) without the human assembling an engine, art pipeline, or server stack. The differentiator is being _agent-native and end-to-end_.
+
 ## Key Architectural Decisions
 
 - **Games are untrusted user code.** Session cookies are scoped to apex domain only (`vibedgames.com`). Games on `{slug}.vibedgames.com` subdomains cannot access auth cookies. CSP `frame-ancestors` restricts embedding. Never weaken these boundaries.
