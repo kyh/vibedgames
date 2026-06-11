@@ -7,7 +7,7 @@ type Config = {
   baseUrl: string;
 };
 
-function getConfigDir(): string {
+export function getConfigDir(): string {
   const xdg = process.env.XDG_CONFIG_HOME;
   const base = xdg ?? join(homedir(), ".config");
   return join(base, "vg");

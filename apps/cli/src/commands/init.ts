@@ -1,25 +1,12 @@
 import { defineCommand } from "citty";
 import consola from "consola";
-import spawn from "cross-spawn";
+
+import { run } from "../lib/run.js";
 
 const REPO = "kyh/vibedgames";
 const PKG = "vibedgames";
 const DEFAULT_AGENTS = "claude-code,cursor,codex";
 const description = "Install/update vibedgames skills and the vg CLI";
-
-type RunResult = { code: number; output: string };
-
-const run = (cmd: string, args: string[]): Promise<RunResult> =>
-  new Promise((resolve) => {
-    const chunks: Buffer[] = [];
-    const child = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"] });
-    child.stdout?.on("data", (c: Buffer) => chunks.push(c));
-    child.stderr?.on("data", (c: Buffer) => chunks.push(c));
-    child.on("error", (err) => resolve({ code: 1, output: `${err.message}\n` }));
-    child.on("close", (code) =>
-      resolve({ code: code ?? 1, output: Buffer.concat(chunks).toString("utf8") }),
-    );
-  });
 
 const skillsAddArgs = (agents: string[], global: boolean, yes: boolean) => {
   const args = ["-y", "skills", "add", REPO];

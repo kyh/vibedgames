@@ -10,7 +10,8 @@
     ".expo",
     ".wxt",
     ".output",
-    "out"
+    "out",
+    "games/farm/public/assets"
   ],
   "experimentalSortPackageJson": {}
 }

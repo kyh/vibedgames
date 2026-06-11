@@ -10,7 +10,7 @@ import { CompassIcon, RefreshCwIcon } from "lucide-react";
 import { motion } from "motion/react";
 
 import { FadeInBlur } from "@/components/ui/fade-in-blur";
-import { Route } from "@/routes/index";
+import { Route } from "@/routes/_site/index";
 import { gameUrl } from "./data";
 
 export const PlayView = () => {
