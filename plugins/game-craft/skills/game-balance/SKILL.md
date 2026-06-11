@@ -121,7 +121,7 @@ player can't perceive doesn't exist (Sylvester) — surface the math.
 
 ## Sources
 
-- Schreiber, *Game Balance Concepts* (free course) — gamebalanceconcepts.wordpress.com (esp. Level 3: cost curves)
+- Schreiber, _Game Balance Concepts_ (free course) — gamebalanceconcepts.wordpress.com (esp. Level 3: cost curves)
 - Cook, "The Chemistry of Game Design" — lostgarden.com/2007/07/19/the-chemistry-of-game-design/
 - Cook, "Loops and Arcs" — lostgarden.com/2012/04/30/loops-and-arcs/
 - Cook, "Loot Drop Tables" — lostgarden.com/2014/12/08/loot-drop-tables/

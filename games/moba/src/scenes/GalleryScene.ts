@@ -354,7 +354,10 @@ export class GalleryScene extends Phaser.Scene {
     L.image("sc-castle", "assets/showcase/castle.png");
     L.image("sc-tower", "assets/showcase/tower.png");
     for (let i = 1; i <= 3; i++) L.image(`sc-house${i}`, `assets/showcase/house${i}.png`);
-    L.spritesheet("sc-warrior", "assets/showcase/warrior.png", { frameWidth: 192, frameHeight: 192 });
+    L.spritesheet("sc-warrior", "assets/showcase/warrior.png", {
+      frameWidth: 192,
+      frameHeight: 192,
+    });
     L.spritesheet("sc-lancer", "assets/showcase/lancer.png", { frameWidth: 320, frameHeight: 320 });
     L.spritesheet("sc-pawn", "assets/showcase/pawn.png", { frameWidth: 192, frameHeight: 192 });
     L.spritesheet("sc-foam", "assets/terrain/foam.png", { frameWidth: 192, frameHeight: 192 });

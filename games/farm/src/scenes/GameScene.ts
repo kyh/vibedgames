@@ -305,7 +305,9 @@ export class GameScene extends Phaser.Scene {
   // objects (trees/mushrooms) are skipped — their sprites come from objects.
   private buildGround(): void {
     const worldMap = getWorldMap();
-    const skip = new Set<WorldMapSprite>(consumedSprites(worldMap, this.world).map((c) => c.sprite));
+    const skip = new Set<WorldMapSprite>(
+      consumedSprites(worldMap, this.world).map((c) => c.sprite),
+    );
     buildWorldMap(this, worldMap, skip);
   }
 

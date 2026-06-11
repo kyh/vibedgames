@@ -39,7 +39,7 @@ their own skill (Maddy Thorson, "Celeste & Forgiveness").
   forgiveness knob is smoothing-vs-latency. Lerp the controlled object toward
   the input (factor ~0.1–0.3 per 60fps frame) to kill jitter, but keep total
   lag under the ~100ms cycle; add a small dead zone, and fudge the
-  *interaction* hitboxes (paddle/catch zones) larger than the visuals.
+  _interaction_ hitboxes (paddle/catch zones) larger than the visuals.
 
 ## Movement curves
 
@@ -117,7 +117,7 @@ values, the larger forgiveness / smaller effect is usually right.
 
 ## Sources
 
-- Swink, *Game Feel* — the theory: real-time control, ~100ms cycle.
+- Swink, _Game Feel_ — the theory: real-time control, ~100ms cycle.
 - Jonasson & Purho, "Juice It or Lose It" (GDC 2012) — youtube.com/watch?v=Fy0aCDmgnxg
 - Nijman (Vlambeer), "The Art of Screenshake" — youtube.com/watch?v=AJdEqssNZ-U
 - Thorson, "Celeste & Forgiveness" — maddymakesgames.com/articles/celeste_and_forgiveness/index.html

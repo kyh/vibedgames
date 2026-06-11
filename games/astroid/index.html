@@ -2,12 +2,99 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>VG - Astroid Game</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>Astroid</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #020617;
+        color: #fff;
+        font-family:
+          Inter,
+          system-ui,
+          -apple-system,
+          sans-serif;
+        cursor: crosshair;
+      }
+      #game {
+        position: fixed;
+        inset: 0;
+      }
+      #game canvas {
+        display: block;
+      }
+
+      #hud {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        padding: 16px 20px;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+      }
+      #score {
+        font-size: 24px;
+        font-weight: 200;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 2px;
+      }
+      #weapon {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        opacity: 0.6;
+      }
+      #players {
+        font-size: 11px;
+        opacity: 0.5;
+      }
+
+      #overlay {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        opacity: 0;
+        transition: opacity 0.2s ease;
+      }
+      #destroyed {
+        font-size: 32px;
+        font-weight: 200;
+        letter-spacing: 8px;
+        opacity: 0.8;
+      }
+      #countdown {
+        font-size: 14px;
+        opacity: 0.7;
+        font-variant-numeric: tabular-nums;
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <div id="game"></div>
+    <div id="hud">
+      <div>
+        <div id="score">0</div>
+        <div id="weapon">NORMAL BEAM</div>
+      </div>
+      <div id="players">connecting&hellip;</div>
+    </div>
+    <div id="overlay">
+      <div id="destroyed">DESTROYED</div>
+      <div id="countdown"></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

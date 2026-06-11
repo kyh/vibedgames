@@ -30,16 +30,16 @@ frames beat smooth: even inbetweening reads as mush.
 
 ## Frame budgets (small sprites)
 
-| Clip | Frames | Notes |
-|---|---|---|
-| Idle | 2–4 | 1px breathing bob; move interior pixels/hair, not the silhouette |
-| Walk | 4–8 | 4 = two contacts + two passing; cut "up/recoil" frames first |
-| Run | 6 (4 tiny, 3 with extreme poses) | not a fast walk: airborne moments, lean, arm swing |
-| Jump | 3–5 phases | crouch → stretch ascent → apex → fall → land squash; select by velocity, not a timed clip |
-| Attack | 3–8 | 1–3 anticipation, 1–2 strike, 1–3 recovery |
-| Hit react | 1–3 | one strong recoil pose + white flash beats three soft poses |
-| Death | 4–6 | one-shot, ends on a settled pose |
-| FX (slash/smoke) | 3–6 | expand → disperse → fade; can run 15–24fps |
+| Clip             | Frames                           | Notes                                                                                     |
+| ---------------- | -------------------------------- | ----------------------------------------------------------------------------------------- |
+| Idle             | 2–4                              | 1px breathing bob; move interior pixels/hair, not the silhouette                          |
+| Walk             | 4–8                              | 4 = two contacts + two passing; cut "up/recoil" frames first                              |
+| Run              | 6 (4 tiny, 3 with extreme poses) | not a fast walk: airborne moments, lean, arm swing                                        |
+| Jump             | 3–5 phases                       | crouch → stretch ascent → apex → fall → land squash; select by velocity, not a timed clip |
+| Attack           | 3–8                              | 1–3 anticipation, 1–2 strike, 1–3 recovery                                                |
+| Hit react        | 1–3                              | one strong recoil pose + white flash beats three soft poses                               |
+| Death            | 4–6                              | one-shot, ends on a settled pose                                                          |
+| FX (slash/smoke) | 3–6                              | expand → disperse → fade; can run 15–24fps                                                |
 
 (Shipped reference points: Celeste runs on 4 frames, Shovel Knight walks on
 6.) **AI-generated sheets: cut down to these budgets** — delete
@@ -48,7 +48,7 @@ near-duplicates first; redundancy reads as floatiness.
 ## The gameplay/animation contract
 
 Responsiveness vs weight is a contract, not a contest (Jonathan Cooper,
-*Game Anim*): put the weight in follow-through and recovery, which don't
+_Game Anim_): put the weight in follow-through and recovery, which don't
 delay input.
 
 - **Player attacks: short startup** (~2–5 logic frames for light moves),

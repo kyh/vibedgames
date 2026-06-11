@@ -38,7 +38,7 @@ deploy are the game too.
   types → meta-progression → settings menus → narrative → leaderboards.
 - **Never cut**: restart flow, lose/win states, audio toggle.
 - When behind: cut features. One mechanic deep beats three shallow.
-- If a project must die, the successor is *smaller*, not bigger.
+- If a project must die, the successor is _smaller_, not bigger.
 
 ## When is the core loop enough?
 

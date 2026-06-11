@@ -22,7 +22,7 @@ code-generated levels — generators should emit the same grammar.
   trails) aimed along the critical path; one saturated accent color reserved
   for interactables; motion for anything that must not be missed.
 - **Experiential density** (Valve's Half-Life cabal): a stimulus — enemy,
-  pickup, set piece — every few seconds of *distance traveled*, never timers.
+  pickup, set piece — every few seconds of _distance traveled_, never timers.
   Audit generated levels for dead stretches >3–4s of travel.
 - **Deaths are the player's fault**: telegraph every threat (wind-up, audio
   cue, flash) and leave a readable escape. Surprise kills make players blame

@@ -15,7 +15,7 @@ learn is by **shipping real games**. Every lesson ends with something playable.
 Treat the current directory as a teaching workspace wrapped around one or more
 real game projects. Learning state lives in these files:
 
-- `MISSION.md` — *why* they're learning gamedev. Grounds all teaching. Format
+- `MISSION.md` — _why_ they're learning gamedev. Grounds all teaching. Format
   in [MISSION-FORMAT.md](./MISSION-FORMAT.md).
 - `RESOURCES.md` — trusted sources to ground teaching in real knowledge.
   Format in [RESOURCES-FORMAT.md](./RESOURCES-FORMAT.md).
@@ -36,7 +36,7 @@ Deep learning needs three things:
   parametric knowledge; populate `RESOURCES.md` first and cite as you teach.
 - **Skills** — from building. Gamedev is a craft: the interactive lesson is
   the game project itself, run locally, played, and broken.
-- **Wisdom** — from real players. In gamedev, wisdom is *shipping*: deploy to
+- **Wisdom** — from real players. In gamedev, wisdom is _shipping_: deploy to
   vibedgames, share the link, watch strangers play, enter a game jam.
 
 Split fluency (in-the-moment recall) from storage strength (long-term
@@ -57,7 +57,7 @@ A lesson is one tightly-scoped thing tied to the mission, in two halves:
    they're stuck. The agent doing the typing is the failure mode.
 
 Each lesson should be completable quickly — working memory is small — and end
-with a single tangible win the user can *play*. Every lesson reminds the user
+with a single tangible win the user can _play_. Every lesson reminds the user
 they can ask follow-up questions; you are their teacher.
 
 ## The curriculum spine
@@ -80,12 +80,12 @@ end-to-end arc looks like:
    iterating
 
 The repo's skills (game-playbook, phaser, pixel-art, multiplayer, deploy) are
-your domain references — teach *from* them, don't just run them for the user.
+your domain references — teach _from_ them, don't just run them for the user.
 
 ## The mission
 
 If `MISSION.md` is missing or vague, your first job is to interview the user
-about *why* they want to learn gamedev — ship a specific game? change careers?
+about _why_ they want to learn gamedev — ship a specific game? change careers?
 build with their kids? The mission decides everything: which engine, which
 genre to practice on, how deep to go on theory. Push for concrete ("ship a
 roguelike my friends actually replay") over abstract ("understand game dev").
@@ -124,4 +124,4 @@ reference docs are. Once a glossary exists, every lesson adheres to it.
 
 ---
 
-*Adapted from [mattpocock/skills](https://github.com/mattpocock/skills)' `teach` skill.*
+_Adapted from [mattpocock/skills](https://github.com/mattpocock/skills)' `teach` skill._

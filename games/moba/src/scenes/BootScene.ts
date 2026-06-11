@@ -43,7 +43,10 @@ export class BootScene extends Phaser.Scene {
     // tile-by-tile.
     this.load.image("tiles-img", "assets/terrain/tiles.png");
     this.load.spritesheet("tiles", "assets/terrain/tiles.png", { frameWidth: 64, frameHeight: 64 });
-    this.load.spritesheet("foam", "assets/terrain/foam.png", { frameWidth: UNIT, frameHeight: UNIT });
+    this.load.spritesheet("foam", "assets/terrain/foam.png", {
+      frameWidth: UNIT,
+      frameHeight: UNIT,
+    });
     this.load.image("tshadow", "assets/terrain/shadow.png");
     this.load.image("t-water", "assets/terrain/water.png");
     // Bridge_All: frames 0/1/2 = horizontal bridge left-cap/middle/right-cap,

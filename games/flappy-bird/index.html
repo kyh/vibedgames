@@ -2,12 +2,72 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>VG - Flappy Bird</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <title>Flappy Bird</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #70c5ce;
+      }
+      #game {
+        position: fixed;
+        inset: 0;
+      }
+      #game canvas {
+        display: block;
+      }
+
+      #hud {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-end;
+      }
+      .pill {
+        background: rgba(10, 12, 28, 0.62);
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        padding: 7px 12px;
+        border-radius: 10px;
+        font:
+          13px/1.3 ui-monospace,
+          "SF Mono",
+          Menlo,
+          monospace;
+        color: #eef2ff;
+        letter-spacing: 1px;
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+        box-shadow: 0 4px 18px rgba(0, 0, 0, 0.3);
+      }
+      .pill:empty {
+        display: none;
+      }
+      #best {
+        margin-bottom: 10px;
+        font-size: 16px;
+      }
+      #hint {
+        margin-bottom: 18px;
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <div id="game"></div>
+    <div id="hud">
+      <div class="pill" id="best"></div>
+      <div class="pill" id="hint"></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

@@ -20,7 +20,7 @@ codebase, explore it instead of asking.
 Resolve in dependency order — later answers hang off earlier ones. Skip
 anything already answered; drill deeper wherever an answer is vague.
 
-1. **The hook.** What is the player *doing*, and why is it fun? One sentence.
+1. **The hook.** What is the player _doing_, and why is it fun? One sentence.
    Push until it's concrete: "dodge and counter in crowds" beats "an action
    game".
 2. **References.** "X meets Y" — which existing games is this closest to, and

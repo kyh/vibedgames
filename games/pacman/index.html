@@ -2,12 +2,179 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>VG - Pacman</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <link rel="icon" href="data:," />
+    <title>Pacman</title>
+    <style>
+      :root {
+        --ink: #f8fafc;
+        --gold: #facc15;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #09090b;
+        color: var(--ink);
+        font-family:
+          system-ui,
+          -apple-system,
+          sans-serif;
+      }
+      #game {
+        position: fixed;
+        inset: 0;
+        touch-action: none;
+      }
+      #game canvas {
+        display: block;
+      }
+
+      #hud {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+      }
+      .row {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
+      }
+      .pill {
+        background: rgba(12, 12, 26, 0.62);
+        border: 1px solid rgba(250, 204, 21, 0.22);
+        padding: 7px 12px;
+        border-radius: 10px;
+        font:
+          13px/1.3 ui-monospace,
+          "SF Mono",
+          Menlo,
+          monospace;
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+        box-shadow: 0 4px 18px rgba(0, 0, 0, 0.3);
+      }
+      #score {
+        color: var(--gold);
+      }
+      #stats {
+        align-self: center;
+        margin-top: auto;
+        margin-bottom: 6px;
+        font-size: 16px;
+        letter-spacing: 2px;
+        padding: 8px 16px;
+        color: #fda4af;
+      }
+      #stats:empty {
+        display: none;
+      }
+
+      #banner {
+        position: fixed;
+        top: 36%;
+        left: 0;
+        right: 0;
+        text-align: center;
+        opacity: 0;
+        transition: opacity 0.25s ease;
+        pointer-events: none;
+      }
+      #banner-title {
+        font:
+          800 clamp(34px, 7vw, 76px)/1.1 system-ui,
+          sans-serif;
+        color: var(--gold);
+        text-shadow:
+          0 4px 0 rgba(0, 0, 0, 0.4),
+          0 0 30px rgba(250, 204, 21, 0.55);
+      }
+      #banner-sub {
+        margin: 12px auto 0;
+        max-width: 640px;
+        font:
+          500 clamp(13px, 2vw, 18px)/1.4 ui-monospace,
+          Menlo,
+          monospace;
+        color: rgba(248, 250, 252, 0.85);
+        text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+      }
+
+      /* Webcam preview panel — legacy dimensions: 192x144 bottom-right
+         (right-1/bottom-1 = 4px), rounded-lg, bg-black/10; 384x288 on md+. */
+      #webcam {
+        position: fixed;
+        right: 4px;
+        bottom: 4px;
+        z-index: 10;
+        width: 192px;
+        height: 144px;
+        border-radius: 8px;
+        background: rgba(0, 0, 0, 0.1);
+      }
+      #webcam video {
+        display: block;
+        width: 100%;
+        height: auto;
+        border-radius: 8px;
+      }
+      #webcam canvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+      }
+      #webcam-status {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 10px;
+        font:
+          11px/1.5 ui-monospace,
+          Menlo,
+          monospace;
+        color: rgba(248, 250, 252, 0.75);
+        pointer-events: none;
+      }
+      @media (min-width: 768px) {
+        #webcam {
+          width: 384px;
+          height: 288px;
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <div id="game"></div>
+    <div id="hud">
+      <div class="row">
+        <div class="pill" id="score">SCORE 0</div>
+        <div class="pill" id="best">BEST 0</div>
+      </div>
+      <div class="pill" id="stats"></div>
+    </div>
+    <div id="banner">
+      <div id="banner-title"></div>
+      <div id="banner-sub"></div>
+    </div>
+    <div id="webcam">
+      <video id="webcam-video" playsinline></video>
+      <canvas id="webcam-overlay"></canvas>
+      <div id="webcam-status">starting camera…</div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

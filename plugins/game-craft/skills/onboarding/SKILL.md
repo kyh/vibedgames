@@ -118,11 +118,10 @@ multiple input schemes, pause anywhere.
 
 ## Sources
 
-- George Fan, "How I Got My Mom to Play Through Plants vs. Zombies" (GDC
-  2012) — gdcvault.com/play/1015541/How-I-Got-My-Mom
-- Jenova Chen, *Flow in Games* — jenovachen.com/flowingames/Flow_in_games_final.pdf
-- Koster, *A Theory of Fun* retrospective — gamedeveloper.com/design/raph-koster-s-theory-of-fun-ten-years-on
-- Juul, *The Art of Failure* — mitpress.mit.edu/9780262529952/the-art-of-failure/
+- George Fan, "How I Got My Mom to Play Through Plants vs. Zombies" (GDC 2012) — gdcvault.com/play/1015541/How-I-Got-My-Mom
+- Jenova Chen, _Flow in Games_ — jenovachen.com/flowingames/Flow_in_games_final.pdf
+- Koster, _A Theory of Fun_ retrospective — gamedeveloper.com/design/raph-koster-s-theory-of-fun-ten-years-on
+- Juul, _The Art of Failure_ — mitpress.mit.edu/9780262529952/the-art-of-failure/
 - GMTK, "Half-Life 2's Invisible Tutorial" — youtube.com/watch?v=MMggqenxuZc
 - Thorson on Celeste's Assist Mode — vice.com/en/article/celeste-difficulty-assist-mode/
 

@@ -5,8 +5,8 @@ description: "Real-time 2D VFX cookbook — layered explosions, hit sparks, muzz
 
 # Real-time VFX
 
-Effects spell out the mechanics first — that's rule one (Julian Love, *The
-VFX of Diablo*): before pretty, decide what the player must learn (hit
+Effects spell out the mechanics first — that's rule one (Julian Love, _The
+VFX of Diablo_): before pretty, decide what the player must learn (hit
 confirmed? danger radius?). Then the timing model (Keyser/Chamberlain, GDC):
 **anticipation → overload → processing** — brief windup, violent fast core,
 slow lingering decay. Fast in, slow out: peak size in the first ~20% of an
@@ -50,8 +50,8 @@ Phaser: create emitters once, fire with `explode(n, x, y)`.
   ground); smoke 5–8 (life 800–1500ms, drift up 20–60, scale 0.5→1.5, alpha
   0.6→0, NORMAL, dark grey).
 - **Dust puff** (land/dash): 4–8 particles, life 300–600ms, speed 30–100 out
-  + up, scale 0.4→1, NORMAL, grey. Few coherent particles beat a noisy
-  swarm — don't break the smoke's shape.
+  - up, scale 0.4→1, NORMAL, grey. Few coherent particles beat a noisy
+    swarm — don't break the smoke's shape.
 - **Muzzle flash**: star/cross sprite 1–2 frames (~30–60ms, ADD) + 3–5
   forward-cone sparks (life 100–200ms, speed 200–400) + a small smoke wisp.
   Camera kicks 1–2px opposite the shot.
@@ -106,7 +106,7 @@ Phaser: create emitters once, fire with `explode(n, x, y)`.
 
 ## Performance (mobile browsers)
 
-- **You are fillrate-bound**: cost ≈ pixels × overdraw. Cap particle *size*
+- **You are fillrate-bound**: cost ≈ pixels × overdraw. Cap particle _size_
   before count; many small beat few huge transparent ones.
 - **Limit additive stacking to ~3–4 layers deep** at any pixel; fewer, more
   opaque smoke particles beat many faint ones.

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { defineCommand } from "citty";
@@ -38,6 +38,9 @@ const ENGINES: Record<string, EnginePreset> = {
     repo: "pachoclo/vite-threejs-ts-template",
     label: "Three.js + Vite + TypeScript (community)",
     skill: "threejs",
+    postNotes: [
+      "The demo scene (src/scene.ts) wires lil-gui, stats.js and Drag/OrbitControls as a showcase — replace it with your game and drop the debug deps for production.",
+    ],
   },
   // React Three Fiber. Same author as the threejs preset — Vite + TS +
   // React 18 + R3F 8 + drei, with leva and r3f-perf wired up for debug.
@@ -206,7 +209,13 @@ export const newCommand = defineCommand({
       }
     }
 
-    // Post-process: name + vibedgames.json + README link to skills.
+    // Post-process: strip template-repo artifacts, then name + vibedgames.json
+    // + README link to skills.
+    if (!("inline" in preset)) {
+      cleanTemplateArtifacts(target);
+      ensureViteConfig(target);
+      ensureTypecheckScript(target);
+    }
     rewritePackageName(target, slug);
     writeVibedgamesJson(target, slug);
     writeReadme(target, slug, preset);
@@ -231,6 +240,55 @@ export const newCommand = defineCommand({
 async function fetchTemplate(repo: string, target: string, force: boolean): Promise<void> {
   const emitter = tiged(repo, { force, verbose: false, mode: "tar" });
   await emitter.clone(target);
+}
+
+/** Remove template-repo artifacts that never apply to a scaffolded game:
+ *  the template's own lockfile (wrong for whatever package manager the user
+ *  runs) and its CI workflows (reference the template repo, fail elsewhere). */
+function cleanTemplateArtifacts(target: string): void {
+  for (const f of ["package-lock.json", "yarn.lock", "pnpm-lock.yaml", "bun.lockb", "bun.lock"]) {
+    const p = resolve(target, f);
+    if (existsSync(p)) rmSync(p);
+  }
+  const gh = resolve(target, ".github");
+  if (existsSync(gh)) rmSync(gh, { recursive: true });
+}
+
+/** Some templates (threejs) ship no vite config at all, which means no
+ *  relative `base` — write a minimal one so built asset URLs are relative
+ *  and the bundle works wherever it's hosted. Never touches templates that
+ *  bring their own config (phaser uses a vite/ config dir wired into its
+ *  npm scripts). */
+function ensureViteConfig(target: string): void {
+  const hasConfig =
+    ["vite.config.ts", "vite.config.js", "vite.config.mjs"].some((f) =>
+      existsSync(resolve(target, f)),
+    ) || existsSync(resolve(target, "vite"));
+  if (hasConfig) return;
+  writeFileSync(
+    resolve(target, "vite.config.ts"),
+    `import { defineConfig } from "vite";\n\nexport default defineConfig({\n  base: "./",\n});\n`,
+  );
+}
+
+/** Agents lean on \`npm run typecheck\` to verify changes without a full
+ *  build — add it when the template doesn't define one. */
+function ensureTypecheckScript(target: string): void {
+  const pkgPath = resolve(target, "package.json");
+  if (!existsSync(pkgPath)) return;
+  try {
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as Record<string, unknown>;
+    const scripts =
+      typeof pkg.scripts === "object" && pkg.scripts !== null
+        ? (pkg.scripts as Record<string, unknown>)
+        : {};
+    if (typeof scripts.typecheck === "string") return;
+    scripts.typecheck = "tsc --noEmit";
+    pkg.scripts = scripts;
+    writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
+  } catch {
+    // malformed package.json — rewritePackageName will warn about it
+  }
 }
 
 function writeInlineTemplate(target: string, slug: string, force: boolean): void {
