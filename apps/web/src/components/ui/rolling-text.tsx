@@ -190,7 +190,7 @@ const RollingColumn = ({
     <motion.span
       aria-hidden
       style={{ width }}
-      className="relative inline-flex justify-center overflow-x-visible [overflow-y:clip]"
+      className="relative inline-flex min-w-0 justify-center overflow-x-visible [overflow-y:clip]"
     >
       {/* Invisible sizer renders every glyph this column can show (overlapped
           in one grid cell) so the current one can be measured. It also keeps
