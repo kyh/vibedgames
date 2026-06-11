@@ -96,6 +96,29 @@ damage). Each is a few lines; together they're the whole difference.
 - Linear tweens and instant state changes — no anticipation or follow-through.
 - Judging "done" from a static screenshot. **Play it in motion** before shipping.
 
+## Deep modules
+
+This playbook is the index; when a step needs real depth, load the module:
+
+- `ask-me` — the idea is fuzzy; interview the user into a build-ready spec.
+- `game-feel` — tuning numbers for input forgiveness, movement, hit stop,
+  trauma shake, audio feel. The craft checklist above is the summary; that's
+  the reference.
+- `animation` — sprite animation craft: frame budgets, attack timing, cancel
+  windows, smears, silhouette readability.
+- `vfx` — particle recipes (explosions, sparks, trails, weather), color
+  rules, mobile performance budgets.
+- `level-design` — level/wave/arena structure: kishōtenketsu beats, weenies,
+  experiential density, wave grammar, difficulty sawtooth.
+- `onboarding` — the first 30 seconds, teaching without tutorials, difficulty
+  curves, failure/retry loops, assist modes.
+- `game-balance` — loops, economies, cost curves, loot tables, prestige math,
+  dominant-strategy audits.
+- `design-lenses` — structured critique when the game exists but isn't fun;
+  severity-ranked findings mapped to the modules above.
+- `finish-it` — the project is sprawling or stalled; cut to a shippable core
+  and ship it.
+
 ## Remember
 
 A great first game = generated art (not placeholders) + a tight full-screen
