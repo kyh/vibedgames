@@ -373,7 +373,7 @@ function OfferingsDeck() {
           A game studio
           <br />
           <span className="text-muted-foreground">
-            in your{" "}
+            right in your{" "}
             <RollingText
               words={["claude", "codex", "cursor", "agent"]}
               color={chromatic({ palette: ROLL_PALETTE })}
