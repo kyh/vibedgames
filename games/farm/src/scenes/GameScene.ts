@@ -59,6 +59,9 @@ export class GameScene extends Phaser.Scene {
   facing = { x: 0, y: 1 };
   acting = false;
   private moving = false;
+  // click-to-move: waypoint pixel positions the player walks through
+  private clickPath: { x: number; y: number }[] = [];
+  private pathStuck = 0;
 
   private soilImgs = new Map<number, Phaser.GameObjects.Image>();
   private cropImgs = new Map<number, Phaser.GameObjects.Image>();
@@ -99,6 +102,8 @@ export class GameScene extends Phaser.Scene {
     this.facing = { x: 0, y: 1 };
     this.fainted = false;
     this.stepTimer = 0;
+    this.clickPath = [];
+    this.pathStuck = 0;
 
     if (data?.fromMine) {
       // returning from the mine — world/state already initialized; just rebuild
@@ -233,9 +238,28 @@ export class GameScene extends Phaser.Scene {
 
     this.keys.SPACE.on("down", () => this.tryAction());
     this.keys.E.on("down", () => this.tryAction());
+    // click: act on the clicked cell when it's within reach, else walk to it
     this.input.on("pointerdown", (p: Phaser.Input.Pointer) => {
       if (this.uiOpen || p.button !== 0) return;
-      this.tryAction();
+      const hud = this.scene.get("Hud");
+      if (hud.input.hitTestPointer(p).length > 0) return; // hotbar click
+      if (this.fishing.active) {
+        this.tryAction();
+        return;
+      }
+      const wp = this.cameras.main.getWorldPoint(p.x, p.y);
+      const tx = Math.floor(wp.x / TILE);
+      const ty = Math.floor(wp.y / TILE);
+      if (!inBounds(tx, ty)) return;
+      const f = this.feetTile();
+      const dist = Math.max(Math.abs(tx - f.tx), Math.abs(ty - f.ty));
+      if (dist <= 1) {
+        this.clickPath = [];
+        if (dist > 0) this.faceTowards(tx, ty);
+        this.tryAction({ tx, ty });
+      } else {
+        this.startClickMove(tx, ty, wp.x, wp.y);
+      }
     });
     this.keys.I.on("down", () => this.toggleInventory());
     this.keys.H.on("down", () => !this.uiOpen && this.events.emit("toggle-help"));
@@ -408,6 +432,23 @@ export class GameScene extends Phaser.Scene {
     if (k.W.isDown || k.UP.isDown) dy -= 1;
     if (k.S.isDown || k.DOWN.isDown) dy += 1;
 
+    // keyboard input cancels click-to-move; otherwise steer along the path
+    if (dx !== 0 || dy !== 0) this.clickPath = [];
+    else if (this.clickPath.length > 0) {
+      const wpt = this.clickPath[0];
+      if (wpt) {
+        const vx = wpt.x - this.player.x;
+        const vy = wpt.y - this.player.y;
+        const d = Math.hypot(vx, vy);
+        if (d < 2.5) {
+          this.clickPath.shift();
+        } else {
+          dx = vx / d;
+          dy = vy / d;
+        }
+      }
+    }
+
     this.moving = dx !== 0 || dy !== 0;
     if (this.moving) {
       if (dx !== 0) this.facing = { x: Math.sign(dx), y: 0 };
@@ -415,7 +456,18 @@ export class GameScene extends Phaser.Scene {
       const run = k.SHIFT.isDown && store.energy > 0;
       const speed = run ? RUN_SPEED : WALK_SPEED;
       const len = Math.hypot(dx, dy) || 1;
+      const beforeX = this.player.x;
+      const beforeY = this.player.y;
       this.moveResolved((dx / len) * speed * dt, (dy / len) * speed * dt);
+      // a path that makes no progress (snagged on a corner) gets dropped
+      if (this.clickPath.length > 0) {
+        const progress = Math.hypot(this.player.x - beforeX, this.player.y - beforeY);
+        this.pathStuck = progress < speed * dt * 0.25 ? this.pathStuck + dt : 0;
+        if (this.pathStuck > 0.4) {
+          this.clickPath = [];
+          this.pathStuck = 0;
+        }
+      }
       this.stepTimer -= dt;
       if (this.stepTimer <= 0) {
         Sound.footstep();
@@ -428,6 +480,88 @@ export class GameScene extends Phaser.Scene {
     } else {
       this.setAnim("idle");
     }
+  }
+
+  // ---------------------------------------------------------- click-to-move
+
+  // BFS over walkable cells (8-dir, no corner cutting) from the player's feet.
+  // If the clicked cell is blocked (water, props, buildings) the path leads to
+  // the nearest reachable cell beside it.
+  private startClickMove(tx: number, ty: number, wx: number, wy: number): void {
+    if (this.acting) return;
+    const W = MAP_W;
+    const H = MAP_H;
+    const f = this.feetTile();
+    const start = f.ty * W + f.tx;
+    const dist = new Int32Array(W * H).fill(-1);
+    const parent = new Int32Array(W * H).fill(-1);
+    const queue: number[] = [start];
+    dist[start] = 0;
+    const walkable = (x: number, y: number) =>
+      x >= 0 && y >= 0 && x < W && y < H && !this.world.isSolidTile(x, y);
+    for (let qi = 0; qi < queue.length; qi++) {
+      const cur = queue[qi];
+      if (cur === undefined) break;
+      const cx = cur % W;
+      const cy = (cur / W) | 0;
+      for (let oy = -1; oy <= 1; oy++) {
+        for (let ox = -1; ox <= 1; ox++) {
+          if (ox === 0 && oy === 0) continue;
+          const nx = cx + ox;
+          const ny = cy + oy;
+          if (!walkable(nx, ny)) continue;
+          // diagonals only when both orthogonal cells are open
+          if (ox !== 0 && oy !== 0 && (!walkable(cx + ox, cy) || !walkable(cx, cy + oy))) continue;
+          const ni = ny * W + nx;
+          if (dist[ni] !== -1) continue;
+          dist[ni] = (dist[cur] ?? 0) + 1;
+          parent[ni] = cur;
+          queue.push(ni);
+        }
+      }
+    }
+    const clicked = ty * W + tx;
+    let goal = -1;
+    if ((dist[clicked] ?? -1) >= 0) goal = clicked;
+    else {
+      let best = Infinity;
+      for (let oy = -1; oy <= 1; oy++) {
+        for (let ox = -1; ox <= 1; ox++) {
+          const nx = tx + ox;
+          const ny = ty + oy;
+          if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+          const d = dist[ny * W + nx] ?? -1;
+          if (d >= 0 && d < best) {
+            best = d;
+            goal = ny * W + nx;
+          }
+        }
+      }
+    }
+    if (goal < 0 || goal === start) return;
+    const path: { x: number; y: number }[] = [];
+    for (let c = goal; c !== -1 && c !== start; c = parent[c] ?? -1) {
+      path.push({ x: (c % W) * TILE + TILE / 2, y: ((c / W) | 0) * TILE + TILE / 2 + 1 });
+    }
+    path.reverse();
+    this.clickPath = path;
+    this.pathStuck = 0;
+    this.showClickMarker(wx, wy);
+  }
+
+  private showClickMarker(wx: number, wy: number): void {
+    const g = this.add.graphics({ x: wx, y: wy });
+    g.setDepth(600_000);
+    g.lineStyle(1.2, 0xffffff, 0.9);
+    g.strokeCircle(0, 0, 5);
+    this.tweens.add({
+      targets: g,
+      scaleX: 0.3,
+      scaleY: 0.3,
+      alpha: 0,
+      duration: 300,
+      onComplete: () => g.destroy(),
+    });
   }
 
   private moveResolved(mx: number, my: number): void {
@@ -485,13 +619,13 @@ export class GameScene extends Phaser.Scene {
 
   // ---------------------------------------------------------------- actions
 
-  private tryAction(): void {
+  private tryAction(target?: { tx: number; ty: number }): void {
     if (this.uiOpen || this.acting || this.transitioning) return;
     if (this.fishing.active) {
       this.fishing.onActionPress();
       return;
     }
-    const { tx, ty } = this.targetTile();
+    const { tx, ty } = target ?? this.targetTile();
     const obj = inBounds(tx, ty) ? this.world.objectAt(tx, ty) : null;
     const item = store.inv.selectedItem();
 
@@ -601,6 +735,7 @@ export class GameScene extends Phaser.Scene {
       this.toast("Too tired… time to sleep.", "#c8b6ff");
       return;
     }
+    this.clickPath = [];
     this.acting = true;
     const [rate, , impactFrame] = ACTION_TIMING[action];
     this.player.play(`p-${action}`, true);
