@@ -12,7 +12,7 @@ import { CheckIcon, ChevronRightIcon, CopyIcon } from "lucide-react";
 import { RegisterLink } from "@/components/auth/register-link";
 import { ClaudeIcon, CodexIcon, CursorIcon } from "@/components/ui/brand-icons";
 import { FadeInBlur } from "@/components/ui/fade-in-blur";
-import { RollingText } from "@/components/ui/rolling-text";
+import { chromatic, RollingText } from "@/components/ui/rolling-text";
 import { useCopyToClipboard } from "@/lib/use-copy-to-clipboard";
 
 const INSTALL_PROMPT = "Use vibedgames.com to help me build my game";
@@ -366,6 +366,7 @@ function OfferingsDeck() {
             in your{" "}
             <RollingText
               words={["claude", "codex", "cursor", "agent"]}
+              color={chromatic()}
               className="text-foreground"
             />
           </span>
