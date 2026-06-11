@@ -193,6 +193,7 @@ export class VgServer extends Server {
     if (!this.room.players[connection.id]) return;
 
     delete this.room.players[connection.id];
+    const remainingIds = Object.keys(this.room.players);
 
     const leftMessage: ServerMessage = {
       type: "player_left",
@@ -201,7 +202,6 @@ export class VgServer extends Server {
     this.broadcast(JSON.stringify(leftMessage), []);
 
     if (this.room.hostId === connection.id) {
-      const remainingIds = Object.keys(this.room.players);
       this.room.hostId = remainingIds[0] ?? null;
       if (this.room.hostId) {
         const hostMessage: ServerMessage = {
@@ -216,7 +216,7 @@ export class VgServer extends Server {
     // re-establishes it from whoever joins first. Otherwise a cap set by an
     // earlier session would outlive it on the (still-warm) Durable Object and
     // wrongly cap a later session that wants the unlimited default.
-    if (Object.keys(this.room.players).length === 0) {
+    if (remainingIds.length === 0) {
       this.room.cap = null;
     }
   }

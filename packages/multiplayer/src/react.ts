@@ -162,9 +162,7 @@ export function usePlayerState<TPlayerState = Record<string, unknown>>(
   MultiplayerRoom<Record<string, unknown>>,
 ] {
   const room = useRoom(roomOrConfig, undefined);
-  // Re-seed per player identity so default state is applied again in the
-  // overflow room after a room_full redirect (which assigns a new playerId),
-  // rather than once for the whole client lifetime.
+  // Per-player-identity seeding, same as useMultiplayerState above.
   const seededForPlayer = useRef<string | null>(null);
 
   const playerState = useMemo(() => {
