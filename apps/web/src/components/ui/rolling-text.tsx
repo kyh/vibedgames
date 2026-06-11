@@ -289,7 +289,11 @@ export const RollingText = ({
   }
 
   return (
-    <span className={cn("inline-flex", className)} aria-label={words[0]}>
+    <span className={cn("inline-flex", className)}>
+      {/* aria-label is unreliable on generic elements, so the accessible name
+          lives in a visually-hidden span instead; the animated columns are
+          aria-hidden. */}
+      <span className="sr-only">{words[0]}</span>
       {Array.from({ length: len }, (_, i) => (
         <RollingColumn
           key={i}
