@@ -87,19 +87,17 @@ export const RollingText = ({
     return () => clearInterval(id);
   }, [reduceMotion, words.length, interval]);
 
-  // Pad to the longest word so trailing cells roll out instead of popping.
-  const len = useMemo(() => words.reduce((max, word) => Math.max(max, word.length), 0), [words]);
-  // Every glyph that can appear in each column, across all words. The sizer
-  // reserves the widest of them so a column's width never changes as words
-  // cycle — the line never reflows and an outgoing glyph stays aligned while it
-  // rolls, regardless of the incoming word's length.
-  const columns = useMemo(
-    () =>
-      Array.from({ length: len }, (_, i) =>
-        [...new Set(words.map((word) => word[i]).filter(Boolean) as string[])].map(glyph),
-      ),
-    [words, len],
-  );
+  // Every glyph that can appear in each column, across all words (padded to the
+  // longest word). The sizer reserves the widest of them so a column's width
+  // never changes as words cycle — the line never reflows and an outgoing glyph
+  // stays aligned while it rolls, regardless of the incoming word's length.
+  const columns = useMemo(() => {
+    const len = words.reduce((max, word) => Math.max(max, word.length), 0);
+    return Array.from({ length: len }, (_, i) =>
+      [...new Set(words.map((word) => word[i]).filter(Boolean) as string[])].map(glyph),
+    );
+  }, [words]);
+  const len = columns.length;
   const word = words[index] ?? "";
   const enterY = direction === "down" ? "-100%" : "100%";
   const exitY = direction === "down" ? "100%" : "-100%";
@@ -111,6 +109,7 @@ export const RollingText = ({
   return (
     <span className={cn("inline-flex", className)} aria-label={words[0]}>
       {Array.from({ length: len }, (_, i) => {
+        const column = columns[i] ?? [];
         const char = word[i] ?? "";
         const tilt = bounce * 5 * wobble(i, 3);
         const base = i * stagger;
@@ -119,24 +118,29 @@ export const RollingText = ({
         // The new glyph rolls in tinted (--flash: 1) and the tint mixes out to
         // the resting color via color-mix, so it works regardless of the theme's
         // color space (currentColor is oklch here).
+        const roll = { delay: base + exitOffset, duration, ease: EASE };
+        const exitRoll = { delay: base, duration, ease: EASE };
+        const initial: TargetAndTransition = {
+          y: enterY,
+          rotate: tilt,
+          ...(tint && { "--flash": 1 }),
+        };
         const enter: TargetAndTransition = {
           y: "0%",
           rotate: 0,
+          ...(tint && { "--flash": 0 }),
           transition: {
-            y: { delay: base + exitOffset, duration, ease: EASE },
-            rotate: { delay: base + exitOffset, duration, ease: EASE },
+            y: roll,
+            rotate: roll,
+            ...(tint && {
+              "--flash": {
+                delay: base + exitOffset + duration,
+                duration: colorFade,
+                ease: "linear",
+              },
+            }),
           },
         };
-        const initial: TargetAndTransition = { y: enterY, rotate: tilt };
-        if (tint) {
-          initial["--flash"] = 1;
-          enter["--flash"] = 0;
-          (enter.transition as Record<string, unknown>)["--flash"] = {
-            delay: base + exitOffset + duration,
-            duration: colorFade,
-            ease: "linear",
-          };
-        }
 
         return (
           <span
@@ -149,7 +153,7 @@ export const RollingText = ({
                 width is constant and the absolutely positioned faces never
                 reflow the line as they roll. */}
             <span className="invisible inline-grid">
-              {(columns[i]?.length ? columns[i] : [NBSP]).map((candidate) => (
+              {(column.length ? column : [NBSP]).map((candidate) => (
                 <span key={candidate} style={{ gridArea: "1 / 1" }}>
                   {candidate}
                 </span>
@@ -171,10 +175,7 @@ export const RollingText = ({
                 exit={{
                   y: exitY,
                   rotate: -tilt,
-                  transition: {
-                    y: { delay: base, duration, ease: EASE },
-                    rotate: { delay: base, duration, ease: EASE },
-                  },
+                  transition: { y: exitRoll, rotate: exitRoll },
                 }}
               >
                 {glyph(char)}
