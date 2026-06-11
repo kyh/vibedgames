@@ -6,6 +6,16 @@
 
 **The primary user of the `vg` CLI is a coding agent, not a human.** A human prompts their agent ("build me a bomberman game"), and the agent uses `vg` + the bundled skills to scaffold, generate assets, add multiplayer, and deploy. Optimise CLI UX accordingly: machine-readable output (`--json`), self-describing errors, deterministic exit codes, skills that document the exact commands the agent should run. Friction that a human would tolerate ("now open this URL...") blocks an agent.
 
+## Product & Business Context
+
+- **The bet (why us):** *Seed your coding agent with the abilities of a full game studio.* The wedge isn't "another hosting platform" — it's that an agent, armed with `vg` + the bundled skills, can do everything a studio does (scaffold, generate art/audio, add multiplayer, ship) without the human assembling an engine, art pipeline, or server stack. Positioned against itch.io / Replit / Lovable / raw Cloudflare, the differentiator is being *agent-native and end-to-end*.
+- **Customer vs. user:** The CLI's direct *user* is a coding agent; the paying *customer* is the human behind it — **indie game devs and hobbyist "vibe-coders"** prompting from their LLM of choice.
+- **Stage:** **Pre-launch.** No large user base to protect yet — safe to move fast. Don't over-engineer for scale that isn't here.
+- **Access:** **Invite-only / waitlist.** The invite-code flow (e.g. `DEV123` locally) is a load-bearing product gate, not dev scaffolding — don't remove or bypass it.
+- **Monetization:** **Free / pre-revenue.** Pricing is TBD, so don't build billing assumptions into features. Note that `vg generate` proxies paid generative models — treat asset generation as a real cost center and avoid wasteful or unbounded generation in defaults and skills.
+- **Content / abuse policy:** **None yet (out of scope).** Games are untrusted code, but there is no moderation/takedown policy to design around at this stage — don't bake moderation assumptions into features unless asked.
+- **Non-goals:** No version history / rollback (single active deployment per game, by design).
+
 ## Key Architectural Decisions
 
 - **Games are untrusted user code.** Session cookies are scoped to apex domain only (`vibedgames.com`). Games on `{slug}.vibedgames.com` subdomains cannot access auth cookies. CSP `frame-ancestors` restricts embedding. Never weaken these boundaries.

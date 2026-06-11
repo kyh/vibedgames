@@ -1,6 +1,6 @@
 # Vibedgames
 
-**Your personal AI game studio.**
+**Seed your coding agent with the abilities of a full game studio.**
 
 Describe what you want to your LLM and we handle the rest — infrastructure, assets, features, and shipping.
 
@@ -44,7 +44,7 @@ apps/
 games/           Example games
 packages/
   api/           tRPC routers + better-auth
-  db/            Drizzle ORM schema + Turso
+  db/            Drizzle ORM schema + Cloudflare D1
   multiplayer/   React hooks for multiplayer
   ui/            Shared UI components (Radix + Tailwind)
 ```
