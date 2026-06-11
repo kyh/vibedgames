@@ -87,6 +87,17 @@ export const RollingText = ({
 
   // Pad to the longest word so trailing cells roll out instead of popping.
   const len = useMemo(() => words.reduce((max, word) => Math.max(max, word.length), 0), [words]);
+  // Every glyph that can appear in each column, across all words. The sizer
+  // reserves the widest of them so a column's width never changes as words
+  // cycle — the line never reflows and an outgoing glyph stays aligned while it
+  // rolls, regardless of the incoming word's length.
+  const columns = useMemo(
+    () =>
+      Array.from({ length: len }, (_, i) =>
+        [...new Set(words.map((word) => word[i]).filter(Boolean) as string[])].map(glyph),
+      ),
+    [words, len],
+  );
   const word = words[index] ?? "";
   const enterY = direction === "down" ? "-100%" : "100%";
   const exitY = direction === "down" ? "100%" : "-100%";
@@ -127,9 +138,17 @@ export const RollingText = ({
             aria-hidden
             className="relative inline-flex justify-center overflow-x-visible [overflow-y:clip]"
           >
-            {/* Invisible sizer keeps the cell glyph-sized so the absolutely
-                positioned faces never reflow the line as they roll. */}
-            <span className="invisible">{glyph(char) || NBSP}</span>
+            {/* Invisible sizer reserves the widest glyph this column can ever
+                show (all candidates overlapped in one grid cell), so the cell
+                width is constant and the absolutely positioned faces never
+                reflow the line as they roll. */}
+            <span className="invisible inline-grid">
+              {(columns[i]?.length ? columns[i] : [NBSP]).map((candidate) => (
+                <span key={candidate} style={{ gridArea: "1 / 1" }}>
+                  {candidate}
+                </span>
+              ))}
+            </span>
             <AnimatePresence initial={false}>
               <motion.span
                 key={index}
