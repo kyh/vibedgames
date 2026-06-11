@@ -5,7 +5,7 @@ import Phaser from "phaser";
 // before the empty padding cells that pad non-square sheets, and each range covers
 // exactly one legible, complete motion. idle/walk loop; attack plays once.
 //
-// DEATH: the Tiny Swords knight/goblin sheets do NOT contain a death sequence —
+// DEATH: the unit sheets do NOT contain a death sequence —
 // the "extra" rows are idle variants or directional attacks (NOT a death). Only
 // the Barrel goblin has a real death (its explosion). So death is declared ONLY
 // where it genuinely exists; every other unit falls back to a procedural collapse
@@ -96,7 +96,7 @@ export function registerAnims(scene: Phaser.Scene): void {
       frameRate: 12,
       repeat: -1,
     });
-  } // one-shot fx from the Free Pack Particle FX sheets (full sheet, derived count)
+  } // one-shot fx from the particle FX sheets (full sheet, derived count)
   const oneShot = (key: string, tex: string, fps: number): void => {
     if (!scene.textures.exists(tex) || scene.anims.exists(key)) return;
     const end = scene.textures.get(tex).frameTotal - 2;

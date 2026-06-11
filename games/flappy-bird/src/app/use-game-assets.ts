@@ -28,11 +28,7 @@ export const useGameAssets = () => {
 
   useEffect(() => {
     // Image assets
-    const birdUrls = [
-      "/yellowbird-downflap.png",
-      "/yellowbird-midflap.png",
-      "/yellowbird-upflap.png",
-    ];
+    const birdUrls = ["/bird-down.png", "/bird-mid.png", "/bird-up.png"];
     const numberUrls = [
       "/0.png",
       "/1.png",
@@ -45,16 +41,16 @@ export const useGameAssets = () => {
       "/8.png",
       "/9.png",
     ];
-    const backgroundUrl = "/background-day.png";
+    const backgroundUrl = "/background.png";
     const gameOverUrl = "/gameover.png";
-    const messageUrl = "/message.png";
-    const pipeUrl = "/pipe-green.png";
+    const messageUrl = "/ready.png";
+    const pipeUrl = "/pipe.png";
 
     // Sound assets
     const soundUrls = {
       point: "/point.wav",
       hit: "/hit.wav",
-      wing: "/wing.wav",
+      wing: "/flap.wav",
     };
 
     // Loader functions

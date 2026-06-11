@@ -1,7 +1,7 @@
 import Phaser from "phaser";
 import { CROP_ORDER } from "../data/crops";
-import { parseTracedMap } from "../world/traced";
-import { setTracedMap, getTracedMap } from "../world/map-store";
+import { parseWorldMap } from "../world/worldmap";
+import { setWorldMap, getWorldMap } from "../world/map-store";
 
 const CHAR = { frameWidth: 96, frameHeight: 64 };
 
@@ -47,7 +47,7 @@ export class BootScene extends Phaser.Scene {
       this.load.spritesheet(`e-skel-${a}`, `assets/enemy/skel_${a}.png`, CHAR);
     }
 
-    // traced world: tileset atlas (as tileset image AND frame sheet), the
+    // world map: tileset atlas (as tileset image AND frame sheet), the
     // packed deco sprite atlas, and the layout
     this.load.image("atlas", "assets/tiles/atlas.png");
     this.load.spritesheet("atlas-sheet", "assets/tiles/atlas.png", {
@@ -110,7 +110,7 @@ export class BootScene extends Phaser.Scene {
   }
 
   create(): void {
-    setTracedMap(parseTracedMap(this.cache.json.get("map")));
+    setWorldMap(parseWorldMap(this.cache.json.get("map")));
     this.makeAnimsAndStart();
   }
 
@@ -154,10 +154,10 @@ export class BootScene extends Phaser.Scene {
     mk("mushroom-red-bob", "obj-mushroom-red", 4, -1);
     mk("mushroom-blue-bob", "obj-mushroom-blue", 4, -1);
 
-    // every animated deco sprite referenced by the traced map (frames live in
+    // every animated deco sprite referenced by the world map (frames live in
     // the packed deco-atlas as "<name>/<i>")
-    const traced = getTracedMap();
-    for (const [name, def] of Object.entries(traced.deco)) {
+    const worldMap = getWorldMap();
+    for (const [name, def] of Object.entries(worldMap.deco)) {
       if (def.frames > 1) {
         this.anims.create({
           key: `deco-${name}`,

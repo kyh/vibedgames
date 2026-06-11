@@ -1,7 +1,7 @@
 import Phaser from "phaser";
 
-// Asset showcase pages (reachable via ?gallery=units|terrain|fx) that reimplement
-// the Tiny Swords itch sections in isolation — a viewer to verify every sprite,
+// Asset showcase pages (reachable via ?gallery=units|terrain|fx) that present
+// the game's asset sections in isolation — a viewer to verify every sprite,
 // animation, and terrain tile renders correctly before composing the live game.
 
 type Subject = { name: string; tex: string; animBase: string; scale: number };
@@ -19,20 +19,19 @@ const UNIT_SUBJECTS: Subject[] = [
 ];
 const UNIT_ANIMS = ["idle", "walk", "attack", "death"] as const;
 
-// --- map recreation (?gallery=map): a pixel-traced rebuild of the Tiny Swords
-// example battlefield, to learn how terrain + cliffs + buildings + units + props
+// --- showcase battlefield (?gallery=map): a composed example map, to learn how
+// terrain + cliffs + buildings + units + props
 // compose. CELL/autotile maps mirror render/view.ts so the gallery and the live
 // game render terrain identically.
 const CELL = 64;
 
-// Free Pack tileset (9-wide, 54 tiles). The promo + the official tilemap guide use
-// THIS, not the Update-010 sheet. Mapping derived from the guide's numbered tilemap
-// (1-indexed there → 0-indexed frame here). Flat grass = cols 0-3 rows 0-3; the 3×3
-// core (guide 1-9) handles corners/edges/centre, col 3 (13-15) = vertical strip,
+// Terrain tileset (9-wide, 54 tiles), numbered 1-indexed in the comments below
+// (→ 0-indexed frame here). Flat grass = cols 0-3 rows 0-3; the 3×3
+// core (cells 1-9) handles corners/edges/centre, col 3 (13-15) = vertical strip,
 // row 3 (10-12) = horizontal strip, 16 = isolated. Keyed by which orthogonal
 // neighbours are OUTSIDE (water for flat, lower for elevated): N=8,E=4,S=2,W=1.
 const FP_FLAT: Record<number, number> = {
-  0: 10, // centre (guide 5)
+  0: 10, // centre (cell 5)
   8: 1, // N edge (2)
   4: 11, // E edge (6)
   2: 19, // S edge (8)
@@ -53,7 +52,7 @@ const FP_FLAT: Record<number, number> = {
 const FP_ELEV: Record<number, number> = Object.fromEntries(
   Object.entries(FP_FLAT).map(([k, v]) => [Number(k), v + 5]),
 );
-// Cliff (elevated rows 4-5): guide 17-19/21-23 = wide top/bottom, 20/24 = narrow (1-wide).
+// Cliff (elevated rows 4-5): cells 17-19/21-23 = wide top/bottom, 20/24 = narrow (1-wide).
 const FP_CLIFF = {
   topL: 41,
   topM: 42,
@@ -67,7 +66,7 @@ const FP_CLIFF = {
 // Stairs: left ramp = 36(top)/45(bottom), right ramp = 39(top)/48(bottom).
 const FP_STAIR = { topL: 36, botL: 45, topR: 39, botR: 48 };
 
-// Island footprint auto-traced from the reference (1 = grass, 0 = water), 25×19 @ 64px.
+// Island footprint (1 = grass, 0 = water), 25×19 @ 64px.
 const MAP_MASK = [
   "0000000000000000000000000",
   "0000000000000011000011100",
@@ -90,7 +89,7 @@ const MAP_MASK = [
   "0000000000000000000000000",
 ];
 // Raised plateaus (tile rects [x0,y0,x1,y1] inclusive) → cliff walls at their south
-// edges. Traced against the &ref=1 overlay grid to match the reference's terraces.
+// edges.
 const HIGH_RECTS: Array<[number, number, number, number]> = [
   [1, 0, 9, 4], // castle + spearmen platform (top-left), drops ~row 5
   [10, 5, 15, 8], // central platform
@@ -112,7 +111,7 @@ export class GalleryScene extends Phaser.Scene {
   }
 
   create(): void {
-    this.cameras.main.setBackgroundColor("#3a8f8a"); // Tiny Swords teal backdrop
+    this.cameras.main.setBackgroundColor("#3a8f8a"); // teal backdrop
     const veil = document.getElementById("veil");
     if (veil) {
       veil.classList.add("hidden");
@@ -125,7 +124,7 @@ export class GalleryScene extends Phaser.Scene {
 
     const W = this.scale.width;
     this.add
-      .text(W / 2, 26, `TINY SWORDS — ${this.section.toUpperCase()}`, {
+      .text(W / 2, 26, `ELDERMOOR — ${this.section.toUpperCase()}`, {
         fontSize: "26px",
         color: "#fff8e0",
         fontStyle: "bold",
@@ -327,7 +326,7 @@ export class GalleryScene extends Phaser.Scene {
     });
   }
 
-  // ---- map: Tiny Swords example battlefield, rebuilt from the traced footprint ----
+  // ---- map: showcase battlefield, built from the island footprint ----
 
   private land(cx: number, cy: number): boolean {
     return cy >= 0 && cy < MAP_MASK.length && cx >= 0 && cx < 25 && MAP_MASK[cy]![cx] === "1";
@@ -347,29 +346,27 @@ export class GalleryScene extends Phaser.Scene {
   }
 
   private buildMapPage(): void {
-    // load the Free Pack tileset + buildings + units (the promo's actual art), then
+    // load the showcase tileset + buildings + units, then
     // render. Loaded dynamically so the game build isn't affected.
     const L = this.load;
-    L.image("fp-tiles-img", "assets/fp/tiles3.png");
-    L.spritesheet("fp-tiles", "assets/fp/tiles3.png", { frameWidth: CELL, frameHeight: CELL });
-    L.image("fp-castle", "assets/fp/b-castle.png");
-    L.image("fp-tower", "assets/fp/b-tower.png");
-    for (let i = 1; i <= 3; i++) L.image(`fp-house${i}`, `assets/fp/b-house${i}.png`);
-    L.spritesheet("fp-warrior", "assets/fp/u-warrior.png", { frameWidth: 192, frameHeight: 192 });
-    L.spritesheet("fp-lancer", "assets/fp/u-lancer.png", { frameWidth: 320, frameHeight: 320 });
-    L.spritesheet("fp-pawn", "assets/fp/u-pawn.png", { frameWidth: 192, frameHeight: 192 });
-    L.spritesheet("fp-foam", "assets/fp/foam.png", { frameWidth: 192, frameHeight: 192 });
-    L.image("fp-shadow", "assets/fp/shadow.png");
-    const showRef = !!new URLSearchParams(window.location.search).get("ref");
-    if (showRef) L.image("refmap", "/ref_map.png");
-    L.once(Phaser.Loader.Events.COMPLETE, () => this.renderMap(showRef));
+    L.image("sc-tiles-img", "assets/terrain/tiles.png");
+    L.spritesheet("sc-tiles", "assets/terrain/tiles.png", { frameWidth: CELL, frameHeight: CELL });
+    L.image("sc-castle", "assets/showcase/castle.png");
+    L.image("sc-tower", "assets/showcase/tower.png");
+    for (let i = 1; i <= 3; i++) L.image(`sc-house${i}`, `assets/showcase/house${i}.png`);
+    L.spritesheet("sc-warrior", "assets/showcase/warrior.png", { frameWidth: 192, frameHeight: 192 });
+    L.spritesheet("sc-lancer", "assets/showcase/lancer.png", { frameWidth: 320, frameHeight: 320 });
+    L.spritesheet("sc-pawn", "assets/showcase/pawn.png", { frameWidth: 192, frameHeight: 192 });
+    L.spritesheet("sc-foam", "assets/terrain/foam.png", { frameWidth: 192, frameHeight: 192 });
+    L.image("sc-shadow", "assets/terrain/shadow.png");
+    L.once(Phaser.Loader.Events.COMPLETE, () => this.renderMap());
     L.start();
   }
 
-  /** Compose the battlefield in the guide's layer order: BG → Water Foam → Flat
+  /** Compose the battlefield in layer order: BG → Water Foam → Flat
    *  Ground → Shadow → Elevated Ground → cliffs/stairs → objects. Each terrain
    *  type is its own depth band so the shadow sits between flat and elevated. */
-  private renderMap(showRef: boolean): void {
+  private renderMap(): void {
     const COLS = 25;
     const ROWS = MAP_MASK.length;
     const Wpx = COLS * CELL;
@@ -392,15 +389,13 @@ export class GalleryScene extends Phaser.Scene {
     cam.setBackgroundColor("#3a8f8a");
     cam.setZoom(Math.min(1, this.scale.width / Wpx, this.scale.height / Hpx));
     cam.centerOn(Wpx / 2, Hpx / 2);
-    if (showRef && this.textures.exists("refmap"))
-      this.add.image(0, 0, "refmap").setOrigin(0, 0).setAlpha(0.45).setDepth(1_000_000);
   }
 
   private registerMapAnims(): void {
-    if (this.textures.exists("fp-foam") && !this.anims.exists("fp-foam-anim"))
+    if (this.textures.exists("sc-foam") && !this.anims.exists("sc-foam-anim"))
       this.anims.create({
-        key: "fp-foam-anim",
-        frames: this.anims.generateFrameNumbers("fp-foam", { start: 0, end: 15 }),
+        key: "sc-foam-anim",
+        frames: this.anims.generateFrameNumbers("sc-foam", { start: 0, end: 15 }),
         frameRate: 9,
         repeat: -1,
       });
@@ -415,7 +410,7 @@ export class GalleryScene extends Phaser.Scene {
 
   /** Flat (elevated=false) or elevated (true) grass autotile as one tilemap layer. */
   private buildMapGround(cols: number, rows: number, elevated: boolean, depth: number): void {
-    if (!this.textures.exists("fp-tiles-img")) return;
+    if (!this.textures.exists("sc-tiles-img")) return;
     const inSet = (cx: number, cy: number): boolean =>
       elevated ? this.high(cx, cy) : this.land(cx, cy) && !this.high(cx, cy);
     const mask = (cx: number, cy: number): number => {
@@ -443,11 +438,11 @@ export class GalleryScene extends Phaser.Scene {
       data.push(row);
     }
     const map = this.make.tilemap({ data, tileWidth: CELL, tileHeight: CELL });
-    const tiles = map.addTilesetImage(elevated ? "fpE" : "fpF", "fp-tiles-img");
+    const tiles = map.addTilesetImage(elevated ? "tilesE" : "tilesF", "sc-tiles-img");
     if (tiles) map.createLayer(0, tiles, 0, 0)?.setDepth(depth);
   }
 
-  /** Multiply wash nudging the Free Pack green toward the promo's olive. */
+  /** Multiply wash nudging the tileset green toward olive. */
   private buildMapWash(cols: number, rows: number): void {
     const wash = this.add.graphics().setDepth(-855).setBlendMode(Phaser.BlendModes.MULTIPLY);
     wash.fillStyle(0xffe2b8, 0.45);
@@ -456,10 +451,10 @@ export class GalleryScene extends Phaser.Scene {
         if (this.land(cx, cy)) wash.fillRect(cx * CELL, cy * CELL, CELL, CELL);
   }
 
-  /** Animated Water Foam on every water cell touching land (guide: 128px sprite on
+  /** Animated Water Foam on every water cell touching land (128px sprite on
    *  the 64 grid, overlapping; each starts at a different frame). */
   private buildMapFoam(cols: number, rows: number): void {
-    if (!this.textures.exists("fp-foam")) return;
+    if (!this.textures.exists("sc-foam")) return;
     for (let cy = 0; cy < rows; cy++) {
       for (let cx = 0; cx < cols; cx++) {
         if (this.land(cx, cy)) continue;
@@ -477,23 +472,23 @@ export class GalleryScene extends Phaser.Scene {
         ).some(([dx, dy]) => this.land(cx + dx, cy + dy));
         if (!touches) continue;
         const f = this.add
-          .sprite(cx * CELL + CELL / 2, cy * CELL + CELL / 2, "fp-foam", 0)
+          .sprite(cx * CELL + CELL / 2, cy * CELL + CELL / 2, "sc-foam", 0)
           .setDepth(-950);
-        if (this.anims.exists("fp-foam-anim"))
-          f.play({ key: "fp-foam-anim", startFrame: (cx * 7 + cy * 5) % 16 });
+        if (this.anims.exists("sc-foam-anim"))
+          f.play({ key: "sc-foam-anim", startFrame: (cx * 7 + cy * 5) % 16 });
       }
     }
   }
 
-  /** Drop shadow: the Free Pack Shadow sprite under the elevated footprint, shifted
-   *  one full tile down (per the guide) — between the flat and elevated layers. */
+  /** Drop shadow: the shadow sprite under the elevated footprint, shifted
+   *  one full tile down — between the flat and elevated layers. */
   private buildMapShadows(cols: number, rows: number): void {
-    if (!this.textures.exists("fp-shadow")) return;
+    if (!this.textures.exists("sc-shadow")) return;
     for (let cy = 0; cy < rows; cy++) {
       for (let cx = 0; cx < cols; cx++) {
         if (!this.high(cx, cy)) continue;
         this.add
-          .image(cx * CELL + CELL / 2, (cy + 1) * CELL + CELL / 2, "fp-shadow")
+          .image(cx * CELL + CELL / 2, (cy + 1) * CELL + CELL / 2, "sc-shadow")
           .setDepth(-880)
           .setAlpha(0.8);
       }
@@ -503,7 +498,7 @@ export class GalleryScene extends Phaser.Scene {
   /** Stairs/ramps down a platform's south face — two pieces (top connects the
    *  walkable elevated grass, bottom connects the cliff base). [tileX, topRow, side]. */
   private buildMapStairs(): void {
-    if (!this.textures.exists("fp-tiles")) return;
+    if (!this.textures.exists("sc-tiles")) return;
     const stairs: Array<[number, number, "L" | "R"]> = [
       [4, 5, "L"],
       [13, 9, "R"],
@@ -513,18 +508,18 @@ export class GalleryScene extends Phaser.Scene {
     for (const [tx, ty, side] of stairs) {
       const top = side === "L" ? FP_STAIR.topL : FP_STAIR.topR;
       const bot = side === "L" ? FP_STAIR.botL : FP_STAIR.botR;
-      this.add.image(tx * CELL + CELL / 2, ty * CELL + CELL / 2, "fp-tiles", top).setDepth(-845);
+      this.add.image(tx * CELL + CELL / 2, ty * CELL + CELL / 2, "sc-tiles", top).setDepth(-845);
       this.add
-        .image(tx * CELL + CELL / 2, (ty + 1) * CELL + CELL / 2, "fp-tiles", bot)
+        .image(tx * CELL + CELL / 2, (ty + 1) * CELL + CELL / 2, "sc-tiles", bot)
         .setDepth(-845);
     }
   }
 
-  /** Cliff face below a platform's south edge: the Free Pack 2-row cliff (top row
+  /** Cliff face below a platform's south edge: the 2-row cliff (top row
    *  17-19 / bottom row 21-23, narrow 20/24), placed in the two cells below the
-   *  walkable elevated grass — exactly as the guide's Elevated Ground example. */
+   *  walkable elevated grass. */
   private buildMapCliffs(cols: number, rows: number): void {
-    if (!this.textures.exists("fp-tiles")) return;
+    if (!this.textures.exists("sc-tiles")) return;
     for (let cy = 0; cy < rows; cy++) {
       for (let cx = 0; cx < cols; cx++) {
         if (!this.high(cx, cy) || this.high(cx, cy + 1)) continue; // south edge only
@@ -547,8 +542,8 @@ export class GalleryScene extends Phaser.Scene {
             : rightEnd
               ? FP_CLIFF.botR
               : FP_CLIFF.botM;
-        this.add.image(cxp, (cy + 1) * CELL + CELL / 2, "fp-tiles", top).setDepth(-850);
-        this.add.image(cxp, (cy + 2) * CELL + CELL / 2, "fp-tiles", bot).setDepth(-850);
+        this.add.image(cxp, (cy + 1) * CELL + CELL / 2, "sc-tiles", top).setDepth(-850);
+        this.add.image(cxp, (cy + 2) * CELL + CELL / 2, "sc-tiles", bot).setDepth(-850);
       }
     }
   }
@@ -557,17 +552,17 @@ export class GalleryScene extends Phaser.Scene {
     // tile-coord helper → world center px
     const P = (tx: number, ty: number): [number, number] => [tx * CELL, ty * CELL];
 
-    // Free Pack buildings at native scale (castle 320x256=5x4 tiles, tower 128x256,
+    // Buildings at native scale (castle 320x256=5x4 tiles, tower 128x256,
     // house 128x192). origin (0.5,0.85) plants the base on its tile.
     const building = (tex: string, tx: number, ty: number): void => {
       if (!this.textures.exists(tex)) return;
       const [x, y] = P(tx, ty);
       this.placed(this.add.image(x, y, tex).setOrigin(0.5, 0.85), y);
     };
-    building("fp-castle", 3.0, 3.2);
-    building("fp-tower", 1.6, 9.8);
-    building("fp-tower", 8.6, 15.8);
-    const HOUSES = ["fp-house1", "fp-house2", "fp-house3"];
+    building("sc-castle", 3.0, 3.2);
+    building("sc-tower", 1.6, 9.8);
+    building("sc-tower", 8.6, 15.8);
+    const HOUSES = ["sc-house1", "sc-house2", "sc-house3"];
     [
       [13.6, 5.0],
       [15.4, 4.8],
@@ -576,11 +571,11 @@ export class GalleryScene extends Phaser.Scene {
       [11.6, 11.8],
     ].forEach(([tx, ty], i) => building(HOUSES[i % HOUSES.length]!, tx!, ty!));
 
-    // Free Pack knights: a Lancer (spearman) column by the castle + scattered units.
+    // Knights: a Lancer (spearman) column by the castle + scattered units.
     // Lancer frames are 320px (taller, to fit the spear); warrior/pawn are 192px.
     const unit = (tex: string, tx: number, ty: number): void => {
       if (!this.textures.exists(tex)) return;
-      const scale = tex === "fp-lancer" ? 0.72 : 0.9; // bigger — match the reference's ~1.3-tile knights
+      const scale = tex === "sc-lancer" ? 0.72 : 0.9; // bigger — ~1.3-tile knights
       const [x, y] = P(tx, ty);
       this.placed(
         this.add
@@ -600,11 +595,11 @@ export class GalleryScene extends Phaser.Scene {
       [7.5, 3.2],
       [6.0, 2.4],
     ] as Array<[number, number]>)
-      unit("fp-lancer", tx, ty);
-    unit("fp-warrior", 7.2, 5.2);
-    unit("fp-warrior", 4.2, 13.2);
-    unit("fp-warrior", 11.2, 14.2);
-    unit("fp-pawn", 16.0, 11.4);
+      unit("sc-lancer", tx, ty);
+    unit("sc-warrior", 7.2, 5.2);
+    unit("sc-warrior", 4.2, 13.2);
+    unit("sc-warrior", 11.2, 14.2);
+    unit("sc-pawn", 16.0, 11.4);
 
     // trees: the t-tree pine sheet's frames 0-5 are a clean gentle sway (the ftree
     // strips jumped between variants — that was the "scrolling"). One swaying pine,
@@ -684,7 +679,7 @@ export class GalleryScene extends Phaser.Scene {
     this.buildMapSign();
   }
 
-  /** Approximate the "Tiny Swords" stone-framed sign in the top-right corner. */
+  /** Stone-framed "Eldermoor" sign in the top-right corner. */
   private buildMapSign(): void {
     const x = 21.4 * CELL,
       y = 1.35 * CELL;
@@ -694,7 +689,7 @@ export class GalleryScene extends Phaser.Scene {
     g.fillStyle(0xe9dcb8, 1).fillRoundedRect(x - 141, y - 40, 282, 80, 10); // parchment
     g.lineStyle(3, 0x9b8a5e, 1).strokeRoundedRect(x - 141, y - 40, 282, 80, 10);
     this.add
-      .text(x, y, "Tiny Swords", {
+      .text(x, y, "Eldermoor", {
         fontSize: "42px",
         color: "#b23a3a",
         fontStyle: "bold italic",

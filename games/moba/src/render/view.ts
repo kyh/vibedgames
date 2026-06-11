@@ -37,8 +37,8 @@ const D_BRIDGE_SHADOW = -89;
 const D_BRIDGE = -84; // minus a per-strip index (northern strips on top), stays above the shadow
 const DEPTH_DECAL = -50;
 
-// Free Pack tileset autotile (9-wide sheet) — same mapping the ?gallery=map
-// reference rebuild verified tile-by-tile against the promo. Keyed by which
+// Terrain tileset autotile (9-wide sheet) — same mapping the ?gallery=map
+// showcase rebuild uses, verified tile-by-tile. Keyed by which
 // orthogonal neighbours are OUTSIDE the set: N=8,E=4,S=2,W=1.
 const FLAT_TILE: Record<number, number> = {
   0: 10,
@@ -144,7 +144,7 @@ export class WorldView {
     this.buildGroundLayer(true, D_ELEV);
     this.buildCliffs();
 
-    // 5) warm multiply wash nudging the tileset green toward the promo's olive
+    // 5) warm multiply wash nudging the tileset green toward olive
     this.buildWash();
 
     // 6) wooden bridges across the channel
@@ -262,8 +262,8 @@ export class WorldView {
     });
   }
 
-  /** Animated 192px foam sprites on every water cell touching land — the guide's
-   *  recipe: oversized sprites on the 64 grid, each starting at a different frame. */
+  /** Animated 192px foam sprites on every water cell touching land —
+   *  oversized sprites on the 64 grid, each starting at a different frame. */
   private buildFoam(): void {
     const s = this.scene;
     const hasFoam = s.textures.exists("foam");
@@ -324,8 +324,8 @@ export class WorldView {
     if (tiles) map.createLayer(0, tiles, 0, 0)?.setDepth(depth);
   }
 
-  /** Drop shadow under the elevated footprint, shifted one tile down (the guide's
-   *  layering: between the flat and elevated ground layers). */
+  /** Drop shadow under the elevated footprint, shifted one tile down
+   *  (layered between the flat and elevated ground layers). */
   private buildPlateauShadows(): void {
     const s = this.scene;
     if (!s.textures.exists("tshadow")) return;
@@ -372,7 +372,7 @@ export class WorldView {
     }
   }
 
-  /** Multiply wash over the land, nudging the Free Pack green toward the promo olive. */
+  /** Multiply wash over the land, nudging the tileset green toward olive. */
   private buildWash(): void {
     const wash = this.scene.add
       .graphics()
@@ -899,7 +899,7 @@ export class WorldView {
 
   /** One-shot death at a unit's last position (for reaped creeps): play the real
    *  death sheet if the unit has one (barrel goblin's explosion), else collapse —
-   *  plus the Tiny Swords bouncing-skull pop either way. */
+   *  plus the bouncing-skull pop either way. */
   private spawnDeathAnim(v: UnitView): void {
     if (v.dead) return; // a hero already played its death in-place
     const s = this.scene;

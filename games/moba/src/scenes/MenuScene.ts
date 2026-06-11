@@ -37,7 +37,7 @@ export class MenuScene extends Phaser.Scene {
     const H = this.scale.height;
     this.cameras.main.setBackgroundColor("#47aba9");
 
-    // backdrop: open Tiny Swords water, slowly drifting, with rocks and clouds
+    // backdrop: open water, slowly drifting, with rocks and clouds
     const water = this.add.tileSprite(0, 0, W, H, "t-water").setOrigin(0).setScrollFactor(0);
     this.tweens.add({
       targets: water,

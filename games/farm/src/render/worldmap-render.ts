@@ -1,9 +1,9 @@
 import Phaser from "phaser";
 import { TILE, DEPTH } from "../config";
 import {
-  type TracedMap,
-  type TracedTileLayer,
-  type TracedSprite,
+  type WorldMap,
+  type WorldMapTileLayer,
+  type WorldMapSprite,
   tileIndex,
   tileFlipX,
   tileFlipY,
@@ -11,9 +11,9 @@ import {
   isDecoSolidIndex,
   inField,
   layerByName,
-} from "../world/traced";
+} from "../world/worldmap";
 
-// Extra depths used only by the traced renderer. Entities y-sort in
+// Extra depths used only by the world-map renderer. Entities y-sort in
 // [DEPTH.entityBase .. ~entityBase + mapHeightPx]; overlays sit above them.
 const D = {
   sea: DEPTH.ground, // 0
@@ -30,13 +30,13 @@ const D = {
 
 type AnimatedTile = { tile: Phaser.Tilemaps.Tile; seq: number[] };
 
-export type TracedRenderResult = { skippedSprites: number };
+export type WorldMapRenderResult = { skippedSprites: number };
 
-export function buildTracedMap(
+export function buildWorldMap(
   scene: Phaser.Scene,
-  map: TracedMap,
-  skipSprites: ReadonlySet<TracedSprite>,
-): TracedRenderResult {
+  map: WorldMap,
+  skipSprites: ReadonlySet<WorldMapSprite>,
+): WorldMapRenderResult {
   // member tile index -> animation sequence
   const animBySeqMember = new Map<number, number[]>();
   for (const seq of map.animations)
@@ -44,7 +44,7 @@ export function buildTracedMap(
   const animated: AnimatedTile[] = [];
 
   const makeLayer = (
-    layer: TracedTileLayer,
+    layer: WorldMapTileLayer,
     depth: number,
     keep?: (idx: number, tx: number, ty: number) => boolean,
   ): Phaser.Tilemaps.TilemapLayer | null => {
@@ -141,7 +141,7 @@ export function buildTracedMap(
   // bottom row so the player walks behind and in front correctly.
   const structureLayers = ["building", "walls", "decoration_02", "decoration_03"]
     .map((n) => layerByName(map, n))
-    .filter((l): l is TracedTileLayer => l !== null);
+    .filter((l): l is WorldMapTileLayer => l !== null);
   const structures = renderComponents(map, structureLayers, (x, y) => !inField(x, y), imageTile);
   const forest = layerByName(map, "forest");
   if (forest) renderComponents(map, [forest], () => true, imageTile);
@@ -236,8 +236,8 @@ type Components = { compId: Int32Array; bottoms: number[] };
 // Flood-fill (8-neighbour) connected components over a set of layers; render
 // each component's tiles in layer paint order at a shared bottom-row depth.
 function renderComponents(
-  map: TracedMap,
-  layers: TracedTileLayer[],
+  map: WorldMap,
+  layers: WorldMapTileLayer[],
   keep: (x: number, y: number) => boolean,
   imageTile: (v: number, tx: number, ty: number, depth: number) => void,
 ): Components {

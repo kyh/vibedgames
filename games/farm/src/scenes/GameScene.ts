@@ -18,9 +18,9 @@ import {
 } from "../config";
 import { World, GROUND, inBounds, type WorldObject } from "../world/world";
 import { generateFarm, MINE_EXIT, consumedSprites } from "../world/mapgen";
-import { getTracedMap } from "../world/map-store";
-import { buildTracedMap } from "../render/traced-render";
-import { CELL, type TracedSprite } from "../world/traced";
+import { getWorldMap } from "../world/map-store";
+import { buildWorldMap } from "../render/worldmap-render";
+import { CELL, type WorldMapSprite } from "../world/worldmap";
 import { Inventory } from "../systems/inventory";
 import { Skills, type SkillId, SKILL_NAMES } from "../systems/skills";
 import { store } from "../systems/store";
@@ -175,7 +175,7 @@ export class GameScene extends Phaser.Scene {
 
   private startNew(): void {
     this.seed = (Math.random() * 1e9) | 0;
-    const gen = generateFarm(this.seed, getTracedMap());
+    const gen = generateFarm(this.seed, getWorldMap());
     this.world = gen.world;
     store.initNew();
     this.day = 1;
@@ -186,7 +186,7 @@ export class GameScene extends Phaser.Scene {
 
   private loadFrom(s: SaveData): void {
     this.seed = s.seed;
-    this.world = World.fromJSON(s.world, getTracedMap());
+    this.world = World.fromJSON(s.world, getWorldMap());
     store.inv = Inventory.fromJSON(s.inv);
     store.skills = Skills.fromJSON(s.skills);
     store.gold = s.gold;
@@ -210,7 +210,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     this.seed = s.seed;
-    this.world = World.fromJSON(s.world, getTracedMap());
+    this.world = World.fromJSON(s.world, getWorldMap());
     this.day = s.day;
     this.timeMin = s.timeMin;
     this.canCharge = s.canCharge;
@@ -301,19 +301,19 @@ export class GameScene extends Phaser.Scene {
 
   // ---------------------------------------------------------------- render build
 
-  // Render the traced Sunnyside scene; placements that became live world
+  // Render the world map; placements that became live world
   // objects (trees/mushrooms) are skipped — their sprites come from objects.
   private buildGround(): void {
-    const traced = getTracedMap();
-    const skip = new Set<TracedSprite>(consumedSprites(traced, this.world).map((c) => c.sprite));
-    buildTracedMap(this, traced, skip);
+    const worldMap = getWorldMap();
+    const skip = new Set<WorldMapSprite>(consumedSprites(worldMap, this.world).map((c) => c.sprite));
+    buildWorldMap(this, worldMap, skip);
   }
 
   private buildObjects(): void {
     for (const o of this.world.objects) this.spawnObjectSprite(o);
   }
 
-  // Visuals for buildings/doors come from the traced tiles — those objects are
+  // Visuals for buildings/doors come from the world-map tiles — those objects are
   // interaction hotspots only and spawn no sprite.
   spawnObjectSprite(o: WorldObject): void {
     const cx = o.tx * TILE + TILE / 2;

@@ -1,6 +1,6 @@
 import { TILE } from "../config";
 import { World, type WorldObject } from "./world";
-import { CELL, type TracedMap, type TracedSprite } from "./traced";
+import { CELL, type WorldMap, type WorldMapSprite } from "./worldmap";
 
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
@@ -15,8 +15,8 @@ function mulberry32(seed: number): () => number {
 
 export type GenResult = { world: World; spawn: { tx: number; ty: number } };
 
-// Interaction hotspots laid over traced buildings. Visuals AND collision come
-// from the traced tiles — these are non-solid target zones reaching one row
+// Interaction hotspots laid over the map's buildings. Visuals AND collision come
+// from the map tiles — these are non-solid target zones reaching one row
 // past each building's south face so the player can always face into them.
 const ANCHORS: Omit<WorldObject, "id">[] = [
   { type: "house", tx: 31, ty: 15, w: 4, h: 3, hp: 1, maxHp: 1, solid: false },
@@ -36,13 +36,13 @@ export const MINE_EXIT = { tx: 44, ty: 42 } as const;
 // bottom-left yard in the GM scene has no walkable connection to the map)
 const ROCK_YARD = { x0: 23, y0: 41, x1: 30, y1: 43 } as const;
 
-type Consumed = { sprite: TracedSprite; tx: number; ty: number; kind: "tree" | "forage" };
+type Consumed = { sprite: WorldMapSprite; tx: number; ty: number; kind: "tree" | "forage" };
 
-// Traced tree/mushroom placements that stand on walkable ground become live
-// world objects (choppable / forageable). Depends only on the static traced
+// World-map tree/mushroom placements that stand on walkable ground become live
+// world objects (choppable / forageable). Depends only on the static map
 // terrain (never on live objects), so generation and every later render boot
 // compute the identical set — chopped trees stay gone.
-export function consumedSprites(map: TracedMap, world: World): Consumed[] {
+export function consumedSprites(map: WorldMap, world: World): Consumed[] {
   const out: Consumed[] = [];
   const taken = new Set<number>();
   for (const s of map.sprites) {
@@ -65,13 +65,13 @@ export function consumedSprites(map: TracedMap, world: World): Consumed[] {
   return out;
 }
 
-export function generateFarm(seed: number, traced: TracedMap): GenResult {
+export function generateFarm(seed: number, worldMap: WorldMap): GenResult {
   const rng = mulberry32(seed);
-  const w = new World(traced);
+  const w = new World(worldMap);
 
   for (const a of ANCHORS) w.addObject(a);
 
-  for (const c of consumedSprites(traced, w)) {
+  for (const c of consumedSprites(worldMap, w)) {
     if (c.kind === "tree") {
       w.addObject({
         type: "tree",

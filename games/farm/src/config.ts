@@ -1,9 +1,9 @@
-// Core tunable constants for Sunnyside Valley.
+// Core tunable constants.
 
 export const TILE = 16; // source art is 16px
 export const ZOOM = 3.25; // camera zoom — pixels are crisp at integer-ish zoom
 
-// World size in tiles (the traced Sunnyside example scene).
+// World size in tiles (the world map, public/assets/map.json).
 export const MAP_W = 86;
 export const MAP_H = 48;
 

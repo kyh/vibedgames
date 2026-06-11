@@ -1,6 +1,6 @@
 import { MAP_W, MAP_H } from "../config";
 import type { CropId } from "../data/crops";
-import { CELL, type Cell, type TracedMap, buildSemantics } from "./traced";
+import { CELL, type Cell, type WorldMap, buildSemantics } from "./worldmap";
 
 // Legacy ground vocabulary kept for the scenes: grass = tillable, water =
 // fishable/refill, sand = any other walkable ground.
@@ -42,7 +42,7 @@ export function inBounds(tx: number, ty: number): boolean {
 }
 
 export class World {
-  // static, derived from the traced map — never serialized
+  // static, derived from the world map — never serialized
   kind: Uint8Array = new Uint8Array(MAP_W * MAP_H);
   // dynamic state
   tilled: Uint8Array = new Uint8Array(MAP_W * MAP_H);
@@ -51,8 +51,8 @@ export class World {
   objects: WorldObject[] = [];
   nextId = 1;
 
-  constructor(traced?: TracedMap) {
-    if (traced) this.kind = buildSemantics(traced).kind;
+  constructor(worldMap?: WorldMap) {
+    if (worldMap) this.kind = buildSemantics(worldMap).kind;
   }
 
   idx(tx: number, ty: number): number {
@@ -116,7 +116,7 @@ export class World {
     return true;
   }
 
-  // ---- serialization (dynamic state only; terrain rebuilds from the trace) ----
+  // ---- serialization (dynamic state only; terrain rebuilds from the world map) ----
   toJSON() {
     return {
       tilled: Array.from(this.tilled),
@@ -127,8 +127,8 @@ export class World {
     };
   }
 
-  static fromJSON(d: ReturnType<World["toJSON"]>, traced: TracedMap): World {
-    const w = new World(traced);
+  static fromJSON(d: ReturnType<World["toJSON"]>, worldMap: WorldMap): World {
+    const w = new World(worldMap);
     w.tilled = new Uint8Array(d.tilled);
     w.watered = new Uint8Array(d.watered);
     w.crops = new Map(d.crops);

@@ -1,4 +1,4 @@
-// Map geometry: a two-lane battlefield in the Tiny Swords style — two big grass
+// Map geometry: a two-lane battlefield — two big grass
 // islands (radiant west, dire east) separated by a water channel, joined by a
 // wooden bridge per lane plus a contested centre island (Roshan) reached by two
 // short bridges. The land/elevation cell masks here are the single source of
@@ -79,7 +79,7 @@ const HIGH_RECTS: Array<[number, number, number, number]> = [
   [12, 31, 17, 34], // south jungle plateau
   [3, 6, 6, 9], // NW corner rise
   [3, 38, 6, 41], // SW corner rise
-  [5, 22, 9, 26], // castle outcrop — the ancient sits on this (promo look); its
+  [5, 22, 9, 26], // castle outcrop — the ancient sits on this; its
   // big radius (config STRUCTS.ancient) lets attackers reach it from the flat edge
 ];
 

@@ -5,7 +5,7 @@
       "name": "Sir Garran, the Ironvow",
       "role": "tank",
       "team_flavor": "radiant: a sworn knight-captain clad in cobalt plate, banner of the Ironvow order",
-      "sprite": "Tiny Swords (Update 010)/Factions/Knights/Troops/Warrior/{COLOR}/Warrior_{COLOR}.png",
+      "sprite": "assets/units/warrior_{color}.png",
       "tint": "#5d9bff",
       "baseStats": {
         "hp": 660,
@@ -93,7 +93,7 @@
       "name": "Vesper, the Duskblade",
       "role": "carry",
       "team_flavor": "radiant: a quick light-footed squire turned blade-dancer, blue sash flickering as she blinks between foes",
-      "sprite": "Tiny Swords (Update 010)/Factions/Knights/Troops/Pawn/{COLOR}/Pawn_{COLOR}.png",
+      "sprite": "assets/units/pawn_{color}.png",
       "tint": "#7af0c8",
       "baseStats": {
         "hp": 520,
@@ -183,7 +183,7 @@
       "name": "Aelwyn Stormcaller",
       "role": "carry",
       "team_flavor": "radiant: an azure-cloaked longbow ranger who calls down storm-touched arrows from the treeline",
-      "sprite": "Tiny Swords (Update 010)/Factions/Knights/Troops/Archer/{COLOR}/Archer_{COLOR}.png",
+      "sprite": "assets/units/archer_{color}.png",
       "tint": "#9ad0ff",
       "baseStats": {
         "hp": 480,
@@ -274,7 +274,7 @@
       "name": "Grix the Emberhex",
       "role": "nuker",
       "team_flavor": "dire: a cackling goblin firebrand who hurls living flame, scorched-green skin lit by his own torch",
-      "sprite": "Tiny Swords (Update 010)/Factions/Goblins/Troops/Torch/{COLOR}/Torch_{COLOR}.png",
+      "sprite": "assets/units/torch_{color}.png",
       "tint": "#ff7a3d",
       "baseStats": {
         "hp": 500,
@@ -365,7 +365,7 @@
       "name": "Fizzle Boomtinker",
       "role": "pusher",
       "team_flavor": "dire: a manic goblin demolitions sapper strapped with TNT, leaving a trail of mischief and craters",
-      "sprite": "Tiny Swords (Update 010)/Factions/Goblins/Troops/TNT/{COLOR}/TNT_{COLOR}.png",
+      "sprite": "assets/units/tnt_{color}.png",
       "tint": "#ffd24d",
       "baseStats": {
         "hp": 560,
@@ -459,7 +459,7 @@
       "name": "Old Bramblecask",
       "role": "support",
       "team_flavor": "dire: a rotund goblin brew-shaman who rolls a healing keg into battle, splashing restorative ale and bitter hexes",
-      "sprite": "Tiny Swords (Update 010)/Factions/Goblins/Troops/Barrel/{COLOR}/Barrel_{COLOR}.png",
+      "sprite": "assets/units/barrel_{color}.png",
       "tint": "#b06bff",
       "baseStats": {
         "hp": 600,
@@ -549,8 +549,8 @@
   "creeps": {
     "melee": {
       "name": "Footman Creep (Pawn / Goblin Grunt)",
-      "spriteRadiant": "Tiny Swords (Update 010)/Factions/Knights/Troops/Pawn/Blue/Pawn_Blue.png",
-      "spriteDire": "Tiny Swords (Update 010)/Factions/Goblins/Troops/Torch/Red/Torch_Red.png",
+      "spriteRadiant": "assets/units/pawn_blue.png",
+      "spriteDire": "assets/units/torch_red.png",
       "hp": 280,
       "damage": 19,
       "armor": 2,
@@ -566,8 +566,8 @@
     },
     "ranged": {
       "name": "Archer Creep (Archer / Goblin TNT)",
-      "spriteRadiant": "Tiny Swords (Update 010)/Factions/Knights/Troops/Archer/Blue/Archer_Blue.png",
-      "spriteDire": "Tiny Swords (Update 010)/Factions/Goblins/Troops/TNT/Red/TNT_Red.png",
+      "spriteRadiant": "assets/units/archer_blue.png",
+      "spriteDire": "assets/units/tnt_red.png",
       "hp": 170,
       "damage": 24,
       "armor": 0,
@@ -584,8 +584,8 @@
     },
     "siege": {
       "name": "Battering Keg (Barrel siege)",
-      "spriteRadiant": "Tiny Swords (Update 010)/Factions/Goblins/Troops/Barrel/Blue/Barrel_Blue.png",
-      "spriteDire": "Tiny Swords (Update 010)/Factions/Goblins/Troops/Barrel/Red/Barrel_Red.png",
+      "spriteRadiant": "assets/units/barrel_blue.png",
+      "spriteDire": "assets/units/barrel_red.png",
       "hp": 420,
       "damage": 40,
       "armor": 4,
@@ -668,8 +668,8 @@
     "attacks": false,
     "winConditionNote": "Destroy the enemy Ancient (Castle_Blue for radiant / Goblin_House or Castle_Red for dire) to win the match. The ancient itself does NOT attack \u2014 it is a pure objective. It only becomes attackable after BOTH T3 towers in front of it are destroyed.",
     "guardianTowerNote": "One 'base' tier guardian tower (1100hp, 70dmg, fast 1.2 attackSpeed) sits beside the ancient and activates only after the two T3 towers fall \u2014 it cannot be skipped and must be killed or tanked to free-hit the ancient. The ancient regenerates 25hp/s while no enemy creeps are within 700px, so it must be sieged with a creep wave present (no solo-hero backdoor).",
-    "spriteRadiant": "Tiny Swords (Update 010)/Factions/Knights/Buildings/Castle/Castle_Blue.png",
-    "spriteDire": "Tiny Swords (Update 010)/Factions/Knights/Buildings/Castle/Castle_Red.png",
+    "spriteRadiant": "assets/buildings/castle_blue.png",
+    "spriteDire": "assets/buildings/castle_red.png",
     "note": "Total objective HP path to win (one lane): T1 1400 + T2 1900 + T3 2300 + T3 2300 + guardian 1100 + ancient 3200. With Boomtinker building bonuses and siege creeps this falls in ~8-14 min."
   },
   "economy": {
@@ -694,7 +694,7 @@
         "moveSpeed": 45
       },
       "active": "",
-      "iconHint": "Tiny Swords UI/Icons Regular_01 boot/leather icon, or generate a simple winged-boot pixel icon"
+      "iconHint": "generate a simple winged-boot pixel icon"
     },
     {
       "id": "ringmail-vest",
@@ -706,7 +706,7 @@
         "hpRegen": 2
       },
       "active": "",
-      "iconHint": "generate a chainmail-vest pixel icon; or reuse a Tiny Swords shield UI icon"
+      "iconHint": "generate a chainmail-vest pixel icon"
     },
     {
       "id": "whetstone-blade",
@@ -717,7 +717,7 @@
         "damage": 22
       },
       "active": "",
-      "iconHint": "Tiny Swords UI Elements/Swords icon recolored, or generate a sharpened sword pixel icon"
+      "iconHint": "generate a sharpened sword pixel icon"
     },
     {
       "id": "huntsmans-quiver",
@@ -755,7 +755,7 @@
         "hpRegen": 3
       },
       "active": "",
-      "iconHint": "generate a heavy breastplate pixel icon; or reuse Tiny Swords shield UI"
+      "iconHint": "generate a heavy breastplate pixel icon"
     },
     {
       "id": "vampiric-fang",
@@ -810,7 +810,7 @@
     }
   ],
   "globals": {
-    "worldUnitsNote": "1 tile = 64px (Tiny Swords terrain tile). All ranges/radii in this design are in PIXELS. Map is a 3-lane diamond roughly 96x96 tiles (~6144x6144px); lanes ~9 tiles wide; a thin river/jungle gap between lanes. Heroes render ~96-128px tall (192px source frame scaled ~0.5-0.66).",
+    "worldUnitsNote": "1 tile = 64px (terrain tile). All ranges/radii in this design are in PIXELS. Map is a 3-lane diamond roughly 96x96 tiles (~6144x6144px); lanes ~9 tiles wide; a thin river/jungle gap between lanes. Heroes render ~96-128px tall (192px source frame scaled ~0.5-0.66).",
     "attackArmorFormula": "Damage taken multiplier = 1 - (0.06*armor)/(1 + 0.06*armor). So 10 armor ~= 37.5% reduction, 20 armor ~= 54.5%. Negative armor amplifies symmetrically. Magic damage ignores armor and is reduced by a flat 25% baseMagicResist on heroes (0% on creeps/buildings). Attacks are 'physical' unless an ability states 'magic'.",
     "xpCurvePerLevel": [
       0, 240, 600, 1080, 1680, 2400, 3240, 4200, 5280, 6480, 7800, 9240, 10800, 12480, 14280, 16200

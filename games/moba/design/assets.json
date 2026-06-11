@@ -2,7 +2,7 @@
   "sheets": [
     {
       "logical": "knight-warrior",
-      "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Factions/Knights/Troops/Warrior/{COLOR}/Warrior_{COLOR}.png",
+      "path": "assets/units/warrior_{color}.png",
       "frameW": 192,
       "frameH": 192,
       "cols": 6,
@@ -48,7 +48,7 @@
     },
     {
       "logical": "knight-pawn",
-      "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Factions/Knights/Troops/Pawn/{COLOR}/Pawn_{COLOR}.png",
+      "path": "assets/units/pawn_{color}.png",
       "frameW": 192,
       "frameH": 192,
       "cols": 6,
@@ -94,7 +94,7 @@
     },
     {
       "logical": "knight-archer",
-      "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Factions/Knights/Troops/Archer/{COLOR}/Archer_{COLOR}.png",
+      "path": "assets/units/archer_{color}.png",
       "frameW": 192,
       "frameH": 192,
       "cols": 8,
@@ -140,7 +140,7 @@
     },
     {
       "logical": "goblin-torch",
-      "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Factions/Goblins/Troops/Torch/{COLOR}/Torch_{COLOR}.png",
+      "path": "assets/units/torch_{color}.png",
       "frameW": 192,
       "frameH": 192,
       "cols": 7,
@@ -179,7 +179,7 @@
     },
     {
       "logical": "goblin-tnt",
-      "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Factions/Goblins/Troops/TNT/{COLOR}/TNT_{COLOR}.png",
+      "path": "assets/units/tnt_{color}.png",
       "frameW": 192,
       "frameH": 192,
       "cols": 7,
@@ -211,7 +211,7 @@
     },
     {
       "logical": "goblin-barrel",
-      "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Factions/Goblins/Troops/Barrel/{COLOR}/Barrel_{COLOR}.png",
+      "path": "assets/units/barrel_{color}.png",
       "frameW": 192,
       "frameH": 192,
       "cols": 4,
@@ -250,7 +250,7 @@
     },
     {
       "logical": "wood-tower",
-      "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Factions/Goblins/Buildings/Wood_Tower/Wood_Tower_{COLOR}.png",
+      "path": "assets/buildings/tower_{color}.png",
       "frameW": 128,
       "frameH": 192,
       "cols": 8,
@@ -270,34 +270,34 @@
   "singles": [
     {
       "logical": "knight-castle",
-      "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Factions/Knights/Buildings/Castle/Castle_{COLOR}.png",
+      "path": "assets/buildings/castle_{color}.png",
       "w": 320,
       "h": 256,
       "colors": ["Blue", "Red", "Purple", "Yellow", "Construction", "Destroyed"]
     },
     {
       "logical": "knight-tower",
-      "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Factions/Knights/Buildings/Tower/Tower_{COLOR}.png",
+      "path": "assets/buildings/tower_{color}.png",
       "w": 128,
       "h": 256,
       "colors": ["Blue", "Red", "Purple", "Yellow", "Construction", "Destroyed"]
     },
     {
       "logical": "knight-house",
-      "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Factions/Knights/Buildings/House/House_{COLOR}.png",
+      "path": "assets/buildings/house_{color}.png",
       "w": 128,
       "h": 192,
       "colors": ["Blue", "Red", "Purple", "Yellow", "Construction", "Destroyed"]
     },
     {
       "logical": "goblin-house",
-      "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Factions/Goblins/Buildings/Wood_House/Goblin_House.png",
+      "path": "assets/buildings/house_red.png",
       "w": 128,
       "h": 192
     },
     {
       "logical": "arrow",
-      "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Factions/Knights/Troops/Archer/Arrow/Arrow.png",
+      "path": "assets/fx/arrow.png",
       "w": 64,
       "h": 128
     }
@@ -305,7 +305,7 @@
   "terrain": [
     {
       "logical": "grass-autotile",
-      "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Terrain/Ground/Tilemap_Flat.png",
+      "path": "assets/terrain/ground_flat.png",
       "tileW": 64,
       "tileH": 64,
       "cols": 10,
@@ -314,7 +314,7 @@
     },
     {
       "logical": "water",
-      "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Terrain/Water/Water.png",
+      "path": "assets/terrain/water.png",
       "tileW": 64,
       "tileH": 64,
       "cols": 1,
@@ -323,7 +323,7 @@
     },
     {
       "logical": "foam",
-      "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Terrain/Water/Foam/Foam.png",
+      "path": "assets/terrain/foam.png",
       "tileW": 64,
       "tileH": 64,
       "cols": 24,
@@ -332,7 +332,7 @@
     },
     {
       "logical": "bridge",
-      "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Terrain/Bridge/Bridge_All.png",
+      "path": "assets/terrain/bridge.png",
       "tileW": 64,
       "tileH": 64,
       "cols": 3,
@@ -341,7 +341,7 @@
     },
     {
       "logical": "elevation",
-      "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Terrain/Ground/Tilemap_Elevation.png",
+      "path": "assets/terrain/ground_elevation.png",
       "tileW": 64,
       "tileH": 64,
       "cols": 4,
@@ -352,7 +352,7 @@
   "fx": [
     {
       "logical": "explosion-main",
-      "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Effects/Explosion/Explosions.png",
+      "path": "assets/fx/explosion.png",
       "frameW": 192,
       "frameH": 192,
       "frames": 9,
@@ -360,7 +360,7 @@
     },
     {
       "logical": "fire-main",
-      "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Update 010)/Effects/Fire/Fire.png",
+      "path": "assets/fx/fire.png",
       "frameW": 128,
       "frameH": 128,
       "frames": 7,
@@ -368,7 +368,7 @@
     },
     {
       "logical": "dust-particle-01",
-      "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Free Pack)/Particle FX/Dust_01.png",
+      "path": "assets/fx/dust1.png",
       "frameW": 64,
       "frameH": 64,
       "frames": 8,
@@ -376,7 +376,7 @@
     },
     {
       "logical": "dust-particle-02",
-      "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Free Pack)/Particle FX/Dust_02.png",
+      "path": "assets/fx/dust2.png",
       "frameW": 64,
       "frameH": 64,
       "frames": 10,
@@ -384,7 +384,7 @@
     },
     {
       "logical": "explosion-particle-01",
-      "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Free Pack)/Particle FX/Explosion_01.png",
+      "path": "assets/fx/explode1.png",
       "frameW": 192,
       "frameH": 192,
       "frames": 8,
@@ -392,7 +392,7 @@
     },
     {
       "logical": "explosion-particle-02",
-      "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Free Pack)/Particle FX/Explosion_02.png",
+      "path": "assets/fx/explode2.png",
       "frameW": 192,
       "frameH": 192,
       "frames": 8,
@@ -400,7 +400,7 @@
     },
     {
       "logical": "fire-particle-01",
-      "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Free Pack)/Particle FX/Fire_01.png",
+      "path": "assets/fx/flame1.png",
       "frameW": 64,
       "frameH": 64,
       "frames": 8,
@@ -408,7 +408,7 @@
     },
     {
       "logical": "fire-particle-02",
-      "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Free Pack)/Particle FX/Fire_02.png",
+      "path": "assets/fx/flame2.png",
       "frameW": 64,
       "frameH": 64,
       "frames": 8,
@@ -416,7 +416,7 @@
     },
     {
       "logical": "fire-particle-03",
-      "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Free Pack)/Particle FX/Fire_03.png",
+      "path": "assets/fx/flame3.png",
       "frameW": 64,
       "frameH": 64,
       "frames": 8,
@@ -424,12 +424,12 @@
     },
     {
       "logical": "water-splash",
-      "path": "/Users/kyh/Desktop/vg/dota/Tiny Swords (Free Pack)/Particle FX/Water Splash.png",
+      "path": "assets/fx/splash.png",
       "frameW": 64,
       "frameH": 64,
       "frames": 8,
       "fps": 12
     }
   ],
-  "recommendation": "Generate with `vg generate`: (1) Hero portraits (5 unique MOBA character profiles, 256x256 each for select screen) from existing Tiny Swords avatars or custom AI art. (2) Ability icons (8-12 skill icons, 64x64) for each hero (melee attack, ranged attack, special ability, ultimate). (3) Item/shop icons (rune, potion, armor, weapon variants, 64x64) for inventory/shop UI. (4) Game logo and menu background art (1920x1080). (5) Minimap icons (units, buildings, neutral objectives, 32x32). (6) Ensure all unit colors are present: Knights (Blue=Radiant, Red=Dire, Purple, Yellow for test bots); Goblins (Red=Dire, Blue, Purple, Yellow variants exist but unconfirmed for all units). (7) A visual frame-range discovery tool: render a contact sheet per sprite sheet (e.g., 6x8 grid for warrior) to verify idle/walk/attack/death ranges at load time, dump as debug overlay or console log.\""
+  "recommendation": "Generate with `vg generate`: (1) Hero portraits (5 unique MOBA character profiles, 256x256 each for select screen) from the existing unit sprites or custom AI art. (2) Ability icons (8-12 skill icons, 64x64) for each hero (melee attack, ranged attack, special ability, ultimate). (3) Item/shop icons (rune, potion, armor, weapon variants, 64x64) for inventory/shop UI. (4) Game logo and menu background art (1920x1080). (5) Minimap icons (units, buildings, neutral objectives, 32x32). (6) Ensure all unit colors are present: Knights (Blue=Radiant, Red=Dire, Purple, Yellow for test bots); Goblins (Red=Dire, Blue, Purple, Yellow variants exist but unconfirmed for all units). (7) A visual frame-range discovery tool: render a contact sheet per sprite sheet (e.g., 6x8 grid for warrior) to verify idle/walk/attack/death ranges at load time, dump as debug overlay or console log.\""
 }

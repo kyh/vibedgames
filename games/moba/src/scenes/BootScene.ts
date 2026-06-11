@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 
-// Tiny Swords troop sheets are a uniform 192×192 grid. Terrain tiles are 64px.
+// Troop sheets are a uniform 192×192 grid. Terrain tiles are 64px.
 // FX strips vary. Frame *ranges* (which rows are idle/walk/attack) are resolved
 // in AnimRegistry, discovered/verified at runtime — see render/anims.ts.
 const UNIT = 192;
@@ -38,13 +38,13 @@ export class BootScene extends Phaser.Scene {
     this.load.image("b-tower-destroyed", "assets/buildings/tower_destroyed.png");
 
     // --- terrain ---
-    // The live map renders with the Free Pack tileset (flat + elevated autotile,
-    // cliffs, stairs) — the same sheet the ?gallery=map reference rebuild verified
-    // tile-by-tile against the promo art.
-    this.load.image("tiles-img", "assets/fp/tiles3.png");
-    this.load.spritesheet("tiles", "assets/fp/tiles3.png", { frameWidth: 64, frameHeight: 64 });
-    this.load.spritesheet("foam", "assets/fp/foam.png", { frameWidth: UNIT, frameHeight: UNIT });
-    this.load.image("tshadow", "assets/fp/shadow.png");
+    // The live map renders with the terrain tileset (flat + elevated autotile,
+    // cliffs, stairs) — the same sheet the ?gallery=map showcase composes
+    // tile-by-tile.
+    this.load.image("tiles-img", "assets/terrain/tiles.png");
+    this.load.spritesheet("tiles", "assets/terrain/tiles.png", { frameWidth: 64, frameHeight: 64 });
+    this.load.spritesheet("foam", "assets/terrain/foam.png", { frameWidth: UNIT, frameHeight: UNIT });
+    this.load.image("tshadow", "assets/terrain/shadow.png");
     this.load.image("t-water", "assets/terrain/water.png");
     // Bridge_All: frames 0/1/2 = horizontal bridge left-cap/middle/right-cap,
     // frame 11 = the flat shadow square that goes on the water underneath.
@@ -135,7 +135,7 @@ export class BootScene extends Phaser.Scene {
     });
     this.load.spritesheet("fx-fire", "assets/fx/fire.png", { frameWidth: 128, frameHeight: 128 });
     this.load.image("fx-arrow", "assets/fx/arrow.png");
-    // Free Pack Particle FX: walk dust, building flames, cartoon explosions, splash
+    // particle FX: walk dust, building flames, cartoon explosions, splash
     this.load.spritesheet("fx-dust1", "assets/fx/dust1.png", { frameWidth: 64, frameHeight: 64 });
     this.load.spritesheet("fx-dust2", "assets/fx/dust2.png", { frameWidth: 64, frameHeight: 64 });
     for (let i = 1; i <= 3; i++)
@@ -156,7 +156,7 @@ export class BootScene extends Phaser.Scene {
       frameHeight: UNIT,
     });
 
-    // --- ui (Tiny Swords UI pack: carved panels, ribbons, buttons) ---
+    // --- ui (ui sprites: carved panels, ribbons, buttons) ---
     this.load.image("ui-bar-base", "assets/ui/bar_base.png");
     this.load.image("ui-bar-fill", "assets/ui/bar_fill.png");
     this.load.image("ui-panel", "assets/ui/panel.png");

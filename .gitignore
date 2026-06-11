@@ -55,6 +55,4 @@ local.*
 .claude/worktrees
 .playwright-mcp
 
-# dev-only reference tracing overlay
-games/moba/public/ref_map.png
-games/moba/public/assets/fp/
+# local-only showcase terrain/unit sheets

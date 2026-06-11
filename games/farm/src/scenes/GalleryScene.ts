@@ -8,12 +8,12 @@ import {
   isDecoSolidIndex,
   tileIndex,
   layerByName,
-  type TracedMap,
-} from "../world/traced";
-import { getTracedMap } from "../world/map-store";
+  type WorldMap,
+} from "../world/worldmap";
+import { getWorldMap } from "../world/map-store";
 
 // Asset inspection page (open the game with #gallery). Every tile index the
-// traced map actually uses, with its gameplay classification; every placed
+// world map actually uses, with its gameplay classification; every placed
 // deco sprite with its animation; character/animal/crop sheets. Click any
 // cell to pin its details in the top bar.
 
@@ -47,7 +47,7 @@ export class GalleryScene extends Phaser.Scene {
     document.getElementById("veil")?.classList.add("hidden");
     this.cursorY = 0;
     this.cameras.main.setBackgroundColor(0x1d1f27);
-    const map = getTracedMap();
+    const map = getWorldMap();
 
     this.header(
       "FARM ASSET GALLERY — wheel/arrows scroll, click a cell to inspect. " +
@@ -130,7 +130,7 @@ export class GalleryScene extends Phaser.Scene {
 
   // all indices a tile layer uses, sorted, each with art + class border
   private tileSection(
-    map: TracedMap,
+    map: WorldMap,
     layerName: string,
     classify: (idx: number) => { color: number; label: string },
   ): void {
@@ -170,7 +170,7 @@ export class GalleryScene extends Phaser.Scene {
   }
 
   // every placed GM sprite, animating like in the world
-  private decoSpriteSection(map: TracedMap): void {
+  private decoSpriteSection(map: WorldMap): void {
     const placed = new Map<string, number>();
     for (const s of map.sprites) placed.set(s.sprite, (placed.get(s.sprite) ?? 0) + 1);
     const names = Object.keys(map.deco).sort();
