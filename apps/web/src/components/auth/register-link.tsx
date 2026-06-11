@@ -14,6 +14,12 @@ export const RegisterLink = () => (
     >
       Register
     </Link>
+  </FadeInBlur>
+);
+
+// Bottom-right, aligned right with RegisterLink and bottom with the Nav.
+export const GitHubLink = () => (
+  <FadeInBlur className="fixed right-0 bottom-0 z-10 flex items-center px-4 py-6">
     <a
       href={GITHUB_URL}
       target="_blank"

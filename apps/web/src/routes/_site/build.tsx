@@ -9,7 +9,7 @@ import {
 } from "@repo/ui/components/input-group";
 import { CheckIcon, ChevronRightIcon, CopyIcon } from "lucide-react";
 
-import { RegisterLink } from "@/components/auth/register-link";
+import { GitHubLink, RegisterLink } from "@/components/auth/register-link";
 import { ClaudeIcon, CodexIcon, CursorIcon } from "@/components/ui/brand-icons";
 import { FadeInBlur } from "@/components/ui/fade-in-blur";
 import { chromatic, RollingText } from "@/components/ui/rolling-text";
@@ -394,6 +394,7 @@ function BuildPage() {
       <RegisterLink />
       <OfferingsDeck />
       <InstallPrompt />
+      <GitHubLink />
     </main>
   );
 }
