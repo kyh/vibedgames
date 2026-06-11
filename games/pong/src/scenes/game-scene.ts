@@ -1,13 +1,19 @@
 import * as THREE from "three";
 
+import { ParticlePool } from "../fx/particles";
+import { sfx } from "../fx/sfx";
+import { RingPool } from "../fx/shock-rings";
 import {
-  AI_SPEED,
+  AI_SPEED_FRAC,
   ARC_LAND_MAX,
   ARC_LAND_MIN,
   ARC_PEAK,
+  AUTO_SERVE_S,
   BALL_R,
-  BALL_SPEED,
   BG,
+  BURST_GOAL,
+  BURST_PADDLE,
+  BURST_WALL,
   CAM_FOV,
   CAM_POS,
   CAM_RETURN_LERP,
@@ -25,7 +31,11 @@ import {
   HAND_TIMEOUT_MS,
   HIT_HALF_X,
   HIT_HALF_Y,
+  HIT_STOP_GOAL,
+  HIT_STOP_PADDLE,
+  HIT_STOP_WIN,
   INK,
+  INVERT_FLASH_S,
   KEY_SPEED,
   LEGACY_FPS,
   MIN_VY_FRAC,
@@ -38,11 +48,28 @@ import {
   PADDLE_Z,
   PULSE_DECAY,
   PULSE_SCALE,
+  RALLY_SPEED_BASE,
+  RALLY_SPEED_MAX,
+  RALLY_SPEED_STEP,
+  RING_GOAL,
+  RING_PADDLE,
+  SERVE_PULSE_FREQ,
+  SERVE_PULSE_SCALE,
   SERVE_SPREAD,
+  SHADOW_ARC_GROW,
   SHADOW_MAX_OPACITY,
+  SHAKE_FREQ,
+  SHAKE_MAX_OFFSET,
+  SHAKE_MAX_ROLL,
   SQUASH,
   SQUASH_RECOVER,
-  TABLE_THICK,
+  TRAIL_LIFE,
+  TRAIL_RATE,
+  TRAIL_SIZE,
+  TRAUMA_DECAY,
+  TRAUMA_GOAL,
+  TRAUMA_PADDLE,
+  TRAUMA_WALL,
   WALL_X,
   WIN_SCORE,
 } from "../shared/constants";
@@ -65,13 +92,25 @@ export class GameScene {
   private aiX = 0;
   private scoreYou = 0;
   private scoreAi = 0;
+  private rallySpeed = RALLY_SPEED_BASE;
+  private rallyHits = 0;
+  private serveAt: number | null = null; // elapsed time of the next auto-serve
 
   // ---- feel state ------------------------------------------------------------
+  private elapsed = 0;
+  private freeze = 0; // hit-stop: sim halts, rendering continues
   private playerPulse = 0;
   private aiPulse = 0;
   private camKick = new THREE.Vector3();
+  private trauma = 0; // 0-1; shake amplitude = trauma²
+  private shakeTime = 0;
+  private baseRotation = new THREE.Euler();
+  private invertFlash = 0; // seconds left of full-screen ink/paper swap
   private flashNear = 0; // player's goal line (conceded to AI)
   private flashFar = 0; // AI's goal line (conceded to player)
+  private trailAcc = 0;
+  private particles: ParticlePool;
+  private rings: RingPool;
 
   // ---- display objects ---------------------------------------------------------
   private playerRing: THREE.Mesh;
@@ -122,14 +161,22 @@ export class GameScene {
     // once, so drag-panning translates the view without re-aiming.
     this.camera.position.set(CAM_POS.x, CAM_POS.y + this.camDrag.y, CAM_POS.z);
     this.camera.lookAt(0, 0, 0);
+    // Shake rolls around the view axis each frame, relative to this rest pose.
+    this.baseRotation.copy(this.camera.rotation);
 
-    // Table: wireframe box edges, top face flush with the z=0 play plane.
+    // One key light, for the ball's Phong glint only — every other material
+    // is unlit. The glint's gradient is what the dither pass bites into.
+    const key = new THREE.DirectionalLight(0xffffff, 2);
+    key.position.set(-4, -8, 9);
+    this.scene.add(key);
+
+    // Table: a single flat outline on the z=0 play plane (the old box edges
+    // drew a second, lower rectangle that doubled every side line).
     const ink = new THREE.MeshBasicMaterial({ color: INK });
     const table = new THREE.LineSegments(
-      new THREE.EdgesGeometry(new THREE.BoxGeometry(COURT_W, COURT_D, TABLE_THICK)),
+      new THREE.EdgesGeometry(new THREE.PlaneGeometry(COURT_W, COURT_D)),
       new THREE.LineBasicMaterial({ color: INK }),
     );
-    table.position.z = -TABLE_THICK / 2;
     this.scene.add(table);
 
     const stripe = new THREE.Mesh(new THREE.PlaneGeometry(CENTER_STRIPE.w, CENTER_STRIPE.h), ink);
@@ -158,18 +205,28 @@ export class GameScene {
     this.aiRing.position.set(0, PADDLE_Y, PADDLE_Z);
     this.scene.add(this.playerRing, this.aiRing);
 
-    this.ball = new THREE.Mesh(new THREE.SphereGeometry(BALL_R, 16, 16), ink);
+    // Near-black Phong: reads as ink after dithering, but the specular
+    // highlight gives the sphere a dithered glint that sells the form.
+    this.ball = new THREE.Mesh(
+      new THREE.SphereGeometry(BALL_R, 16, 16),
+      new THREE.MeshPhongMaterial({ color: 0x111111, specular: 0xbbbbbb, shininess: 40 }),
+    );
     this.ball.position.z = BALL_R;
     this.scene.add(this.ball);
 
+    // Soft radial-gradient shadow — the falloff dithers into a speckle edge.
     this.shadowMat = new THREE.MeshBasicMaterial({
-      color: INK,
+      map: softCircleTexture(),
       transparent: true,
       opacity: SHADOW_MAX_OPACITY,
+      depthWrite: false,
     });
-    this.shadow = new THREE.Mesh(new THREE.CircleGeometry(BALL_R, 32), this.shadowMat);
+    this.shadow = new THREE.Mesh(new THREE.PlaneGeometry(BALL_R * 5, BALL_R * 5), this.shadowMat);
     this.shadow.position.z = 0.01;
     this.scene.add(this.shadow);
+
+    this.particles = new ParticlePool(this.scene);
+    this.rings = new RingPool(this.scene);
 
     window.addEventListener("keydown", this.onKeyDown);
     window.addEventListener("keyup", this.onKeyUp);
@@ -296,14 +353,37 @@ export class GameScene {
   private serve(): void {
     // Always toward the player, ±SERVE_SPREAD rad of straight down.
     const angle = -Math.PI / 2 + (Math.random() * 2 - 1) * SERVE_SPREAD;
-    this.ballVel.set(Math.cos(angle) * BALL_SPEED, Math.sin(angle) * BALL_SPEED);
+    this.rallySpeed = RALLY_SPEED_BASE;
+    this.rallyHits = 0;
+    this.serveAt = null;
+    this.ballVel.set(Math.cos(angle) * this.rallySpeed, Math.sin(angle) * this.rallySpeed);
     this.phase = "rally";
+    sfx.serve();
     this.syncHud();
   }
 
   // ---- simulation ------------------------------------------------------------
 
   update(dt: number): void {
+    this.elapsed += dt;
+    this.invertFlash = Math.max(0, this.invertFlash - dt);
+
+    // Hit-stop: the sim and visual decays hold for a beat while rendering
+    // continues. Deliberate exceptions that keep ticking: the invert flash
+    // (above — so the goal flash ends inside the goal freeze), the
+    // auto-serve clock (elapsed), the shake oscillator (a frozen offset
+    // reads as a glitch, not a shake), and the drag-pan camera (user input).
+    if (this.freeze > 0) {
+      this.freeze -= dt;
+      this.shakeTime += dt;
+      this.composeCamera();
+      return;
+    }
+
+    if (this.phase === "serving" && this.serveAt !== null && this.elapsed >= this.serveAt) {
+      this.serve();
+    }
+
     // Paddle input runs in every phase; ball/AI only during the rally.
     const keyDir = (this.held.right ? 1 : 0) - (this.held.left ? 1 : 0);
     if (keyDir !== 0) {
@@ -333,9 +413,11 @@ export class GameScene {
   }
 
   private updateAi(dt: number): void {
-    // Chase ball x, clamped to never overshoot it.
+    // Chase ball x, clamped to never overshoot it. Speed tracks the rally
+    // ramp at a fixed fraction, so the matchup stays constant as pace rises.
+    const aiSpeed = this.rallySpeed * AI_SPEED_FRAC;
     const dx = this.ballPos.x - this.aiX;
-    const step = clamp(dx, -AI_SPEED * dt, AI_SPEED * dt);
+    const step = clamp(dx, -aiSpeed * dt, aiSpeed * dt);
     this.aiX = clamp(this.aiX + step, -PADDLE_X_MAX, PADDLE_X_MAX);
   }
 
@@ -349,6 +431,15 @@ export class GameScene {
       vel.x = -vel.x;
       pos.x = clamp(pos.x, -WALL_X, WALL_X);
       this.squashBall("x");
+      this.trauma = Math.min(1, this.trauma + TRAUMA_WALL);
+      this.particles.burst({
+        x: pos.x,
+        y: pos.y,
+        z: this.ballHeight(),
+        dirX: -Math.sign(pos.x),
+        ...BURST_WALL,
+      });
+      sfx.wall();
     }
 
     // Paddle hits — only when the ball is moving toward that paddle.
@@ -374,20 +465,39 @@ export class GameScene {
     const paddleY = side === "player" ? -PADDLE_Y : PADDLE_Y;
     const towardY = side === "player" ? 1 : -1;
 
-    this.ballVel.copy(reflectOffPaddle(this.ballPos, paddleX, paddleY, towardY));
+    // Every return raises the rally speed — the pace ramp.
+    this.rallyHits += 1;
+    this.rallySpeed = Math.min(RALLY_SPEED_MAX, this.rallySpeed + RALLY_SPEED_STEP);
+    this.ballVel.copy(reflectOffPaddle(this.ballPos.x, paddleX, towardY, this.rallySpeed));
     this.arc = {
       fromY: this.ballPos.y,
       toY: towardY * (ARC_LAND_MIN + Math.random() * (ARC_LAND_MAX - ARC_LAND_MIN)),
     };
 
-    // Feel: ring pop, ball squash along travel, tiny camera kick with the ball.
+    // Feel: hit-stop beat, ring pop, ball squash along travel, camera kick
+    // with the ball plus a pinch of trauma shake, ink sparks fanning out
+    // along the return, a contact ring on the table, climbing-pitch blip.
+    this.freeze = HIT_STOP_PADDLE;
+    this.trauma = Math.min(1, this.trauma + TRAUMA_PADDLE);
     if (side === "player") this.playerPulse = 1;
     else this.aiPulse = 1;
     this.squashBall("y");
     this.camKick.set(this.ballVel.x * NUDGE_SCALE, this.ballVel.y * NUDGE_SCALE, 0);
+    this.particles.burst({
+      x: this.ballPos.x,
+      y: this.ballPos.y,
+      z: this.ballHeight(),
+      dirX: this.ballVel.x,
+      dirY: this.ballVel.y,
+      ...BURST_PADDLE,
+    });
+    this.rings.spawn({ x: this.ballPos.x, y: paddleY, ...RING_PADDLE });
+    sfx.paddleHit(this.rallyHits);
   }
 
   private onPoint(scorer: "you" | "ai"): void {
+    const goalY = scorer === "you" ? GOAL_Y : -GOAL_Y;
+    const crossX = clamp(this.ballPos.x, -WALL_X, WALL_X);
     if (scorer === "you") {
       this.scoreYou += 1;
       this.flashFar = 1;
@@ -398,10 +508,30 @@ export class GameScene {
       popScore(this.scoreAiEl);
     }
 
+    // The point is the loudest beat: screen inverts for a flash, sim holds,
+    // heavy shake, an ink explosion and shockwave at the crossing point.
+    this.invertFlash = INVERT_FLASH_S;
+    this.trauma = Math.min(1, this.trauma + TRAUMA_GOAL);
+    this.particles.burst({
+      x: crossX,
+      y: goalY,
+      z: BALL_R,
+      dirY: -Math.sign(goalY),
+      ...BURST_GOAL,
+    });
+    this.rings.spawn({ x: crossX, y: goalY, ...RING_GOAL });
+
     this.ballPos.set(0, 0);
     this.ballVel.set(0, 0);
     this.arc = null;
-    this.phase = this.scoreYou >= WIN_SCORE || this.scoreAi >= WIN_SCORE ? "won" : "serving";
+    const won = this.scoreYou >= WIN_SCORE || this.scoreAi >= WIN_SCORE;
+    this.phase = won ? "won" : "serving";
+    this.freeze = won ? HIT_STOP_WIN : HIT_STOP_GOAL;
+    if (won) sfx.win(this.scoreYou > this.scoreAi);
+    else {
+      sfx.score(scorer === "you");
+      this.serveAt = this.elapsed + AUTO_SERVE_S;
+    }
     this.syncHud();
   }
 
@@ -424,8 +554,35 @@ export class GameScene {
     const arcZ = this.arc ? arcHeight(this.arc, this.ballPos.y) : 0;
     this.ball.position.set(this.ballPos.x, this.ballPos.y, BALL_R + arcZ);
     this.ball.scale.lerp(UNIT_SCALE, 1 - Math.exp(-SQUASH_RECOVER * dt));
+    // Waiting to serve: the ball breathes — anticipation instead of a dead prop.
+    if (this.phase === "serving") {
+      this.ball.scale.setScalar(1 + SERVE_PULSE_SCALE * Math.sin(this.elapsed * SERVE_PULSE_FREQ));
+    }
+
+    // Trail: stationary ghosts dropped at a fixed rate, so a faster ball
+    // stretches them into a longer streak. Each dissolves ink → paper.
+    // Ghosts spawned in the same frame are back-projected along velocity to
+    // their ideal emission times, keeping trail spacing frame-rate-invariant.
+    if (this.phase === "rally") {
+      this.trailAcc += dt * TRAIL_RATE;
+      const ghosts = Math.floor(this.trailAcc);
+      this.trailAcc -= ghosts;
+      for (let i = 0; i < ghosts; i++) {
+        const back = (i + this.trailAcc) / TRAIL_RATE;
+        this.particles.ghost(
+          this.ballPos.x - this.ballVel.x * back,
+          this.ballPos.y - this.ballVel.y * back,
+          BALL_R + arcZ,
+          TRAIL_SIZE,
+          TRAIL_LIFE,
+        );
+      }
+    }
+    this.particles.update(dt);
+    this.rings.update(dt);
 
     this.shadow.position.set(this.ballPos.x, this.ballPos.y, 0.01);
+    this.shadow.scale.setScalar(1 + (arcZ / ARC_PEAK) * SHADOW_ARC_GROW);
     this.shadowMat.opacity = SHADOW_MAX_OPACITY * Math.max(0, 1 - arcZ / ARC_PEAK);
 
     this.flashNear *= Math.exp(-GOAL_FLASH_DECAY * dt);
@@ -437,11 +594,32 @@ export class GameScene {
     // 0.1 per 60fps frame). Orientation stays fixed — pan, don't re-aim.
     if (!this.dragging) this.camDrag.lerp(V3_ZERO, frameLerp(CAM_RETURN_LERP, dt));
     this.camKick.multiplyScalar(Math.exp(-NUDGE_DECAY * dt));
+    this.trauma = Math.max(0, this.trauma - TRAUMA_DECAY * dt);
+    this.shakeTime += dt;
+    this.composeCamera();
+  }
+
+  /** Rest pose + drag-pan + directional kick + trauma shake (offset and roll). */
+  private composeCamera(): void {
+    const shake = this.trauma * this.trauma;
+    const t = this.shakeTime * SHAKE_FREQ;
     this.camera.position.set(
-      CAM_POS.x + this.camDrag.x + this.camKick.x,
-      CAM_POS.y + this.camDrag.y + this.camKick.y,
+      CAM_POS.x + this.camDrag.x + this.camKick.x + SHAKE_MAX_OFFSET * shake * noise(t, 0),
+      CAM_POS.y + this.camDrag.y + this.camKick.y + SHAKE_MAX_OFFSET * shake * noise(t, 1),
       CAM_POS.z + this.camDrag.z + this.camKick.z,
     );
+    this.camera.rotation.copy(this.baseRotation);
+    this.camera.rotateZ(SHAKE_MAX_ROLL * shake * noise(t, 2));
+  }
+
+  /** Ball center height right now, arc hop included (for spawning fx). */
+  private ballHeight(): number {
+    return BALL_R + (this.arc ? arcHeight(this.arc, this.ballPos.y) : 0);
+  }
+
+  /** True while a goal's full-screen ink/paper swap is live (dither pass reads this). */
+  isScreenInverted(): boolean {
+    return this.invertFlash > 0;
   }
 
   // ---- HUD -----------------------------------------------------------------
@@ -449,7 +627,8 @@ export class GameScene {
   private syncHud(): void {
     this.scoreYouEl.textContent = String(this.scoreYou);
     this.scoreAiEl.textContent = String(this.scoreAi);
-    this.promptEl.style.opacity = this.phase === "serving" ? "1" : "0";
+    // Prompt only when input is actually needed — auto-serve gaps stay quiet.
+    this.promptEl.style.opacity = this.phase === "serving" && this.serveAt === null ? "1" : "0";
 
     if (this.phase === "won") {
       const strong = this.scoreYou > this.scoreAi ? "you win" : "ai wins";
@@ -503,22 +682,48 @@ function hitsPaddle(ball: THREE.Vector2, paddleX: number, paddleY: number): bool
 }
 
 /**
- * Angle-of-incidence return: reflect by the hit offset from paddle center,
- * with the toward-opponent component forced positive and floored at
- * MIN_VY_FRAC so a graze can't produce a horizontal crawl. Speed stays
- * BALL_SPEED exactly.
+ * Paddle return: the lateral component scales linearly with the hit's x
+ * offset from paddle center — dead-center returns straight, a full-edge
+ * graze leaves MIN_VY_FRAC of the speed pointing at the opponent. Derived
+ * from x alone: the y penetration depth at the detection frame varies with
+ * frame rate and must not steer the ball (the legacy atan2-of-penetration
+ * formula made the same hit return steep at 144Hz and shallow at 30Hz).
+ * Speed stays exactly the given rally speed.
  */
 function reflectOffPaddle(
-  ball: THREE.Vector2,
+  ballX: number,
   paddleX: number,
-  paddleY: number,
   towardY: 1 | -1,
+  speed: number,
 ): THREE.Vector2 {
-  const angle = Math.atan2(ball.y - paddleY, ball.x - paddleX);
-  const vyFrac = Math.max(Math.abs(Math.sin(angle)), MIN_VY_FRAC);
-  const vy = towardY * vyFrac * BALL_SPEED;
-  const vx = Math.sign(Math.cos(angle)) * Math.sqrt(BALL_SPEED * BALL_SPEED - vy * vy);
+  const offset = clamp((ballX - paddleX) / HIT_HALF_X, -1, 1);
+  const maxVxFrac = Math.sqrt(1 - MIN_VY_FRAC * MIN_VY_FRAC);
+  const vx = offset * maxVxFrac * speed;
+  const vy = towardY * Math.sqrt(speed * speed - vx * vx);
   return new THREE.Vector2(vx, vy);
+}
+
+/** Smooth ±1 pseudo-noise: two incommensurate sines, decorrelated per seed. */
+function noise(t: number, seed: number): number {
+  return 0.6 * Math.sin(t + seed * 17.31) + 0.4 * Math.sin(t * 2.3 + seed * 31.7);
+}
+
+/** Radial ink→transparent gradient — a soft blob the dither pass speckles. */
+function softCircleTexture(): THREE.CanvasTexture {
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("2d canvas unsupported");
+  const half = size / 2;
+  const grad = ctx.createRadialGradient(half, half, size * 0.06, half, half, half);
+  grad.addColorStop(0, "rgba(0,0,0,1)");
+  grad.addColorStop(0.55, "rgba(0,0,0,0.55)");
+  grad.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  return new THREE.CanvasTexture(canvas);
 }
 
 function arcProgress(arc: Arc, y: number): number {
