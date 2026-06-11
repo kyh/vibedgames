@@ -115,8 +115,8 @@ const OFFERINGS: Offering[] = [
   {
     index: "05",
     title: "Learn as you build",
-    tag: "/teach-me game development",
-    desc: "A built-in tutor for design, code, art, and juice. Every lesson ends playable.",
+    tag: "/teach-me how to build a platformer",
+    desc: "A built-in tutor. Learn gamedev by shipping real games.",
     color: "#73B7E5",
     zIndex: 3,
   },
