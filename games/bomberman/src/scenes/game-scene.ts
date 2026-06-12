@@ -20,6 +20,7 @@ import {
   POWERUP_DROP_CHANCE,
   SPAWN_POINTS,
   SPEED_STEP_MS,
+  OFFLINE_FALLBACK_MS,
   TARGET_FIGHTERS,
   TILE,
   tileKey,
@@ -163,6 +164,65 @@ export class GameScene extends Phaser.Scene {
   private statsEl: HTMLElement | null = null;
   private bannerEl: HTMLElement | null = null;
 
+  // Solo fallback: if the party server can't be reached, this client becomes
+  // its own host over the same code paths — events loop back, shared state
+  // lives locally, and the bots make it a real match (you vs 3 bots).
+  private offline = false;
+  private bootedAt = 0;
+  private offlineShared: SharedState | null = null;
+  private offlineMyState: Record<string, unknown> = {};
+
+  /** Connected to the room, or running the solo offline fallback. */
+  private get live(): boolean {
+    return this.offline || this.client.connectionStatus === "connected";
+  }
+
+  private get amHost(): boolean {
+    return this.offline || this.client.isHost;
+  }
+
+  private get myId(): string | null {
+    return this.offline ? "solo" : this.client.playerId;
+  }
+
+  private get peers(): typeof this.client.players {
+    return this.offline
+      ? { solo: { id: "solo", state: this.offlineMyState } }
+      : this.client.players;
+  }
+
+  /** Events loop straight back into the local host when offline. */
+  private netSendEvent(event: string, payload: Record<string, unknown>): void {
+    if (this.offline) this.handleEvent(event, payload, "solo");
+    else this.client.sendEvent(event, payload);
+  }
+
+  /** Per-player state shallow-merges, mirroring the package's semantics. */
+  private netUpdateMyState(patch: Record<string, unknown>): void {
+    if (this.offline) Object.assign(this.offlineMyState, patch);
+    else this.client.updateMyState(patch);
+  }
+
+  /** Shared-state patches shallow-merge, mirroring the package's semantics. */
+  private netPatchShared(patch: Record<string, unknown>): void {
+    if (this.offline) {
+      if (this.offlineShared) {
+        this.offlineShared = { ...this.offlineShared, ...patch } as SharedState;
+      }
+    } else {
+      this.client.updateSharedState(patch);
+    }
+  }
+
+  /** Give up on the party server after the grace window and go solo. */
+  private maybeGoOffline(): void {
+    const status = this.client.connectionStatus;
+    const failed = status === "disconnected" || status === "error";
+    if (!failed && Date.now() - this.bootedAt < OFFLINE_FALLBACK_MS) return;
+    this.offline = true;
+    this.client.destroy(); // stop reconnect attempts; refresh to go online
+  }
+
   constructor() {
     super("Game");
   }
@@ -197,12 +257,13 @@ export class GameScene extends Phaser.Scene {
       onEvent: (event, payload, from) => this.handleEvent(event, payload, from),
     });
     this.client.subscribe(() => this.onUpdate());
+    this.bootedAt = Date.now();
 
     this.bindInput();
 
     this.events.on(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.applyZoom, this);
-      this.client.destroy();
+      if (!this.offline) this.client.destroy(); // offline already destroyed it
     });
 
     if (import.meta.env.DEV) {
@@ -217,11 +278,17 @@ export class GameScene extends Phaser.Scene {
   }
 
   override update(_time: number, delta: number): void {
-    if (this.client.connectionStatus !== "connected") return;
+    if (!this.live) {
+      this.maybeGoOffline();
+      if (!this.live) return;
+    }
+    // Offline has no subscribe() notifications — drive the render sync from
+    // the game loop instead (sync* methods are diff-aware, so this is cheap).
+    if (this.offline) this.onUpdate();
     this.handleInput(delta);
     this.settleMoving();
     this.updateCamera();
-    if (this.client.isHost) this.hostTick(delta);
+    if (this.amHost) this.hostTick(delta);
   }
 
   /**
@@ -232,7 +299,7 @@ export class GameScene extends Phaser.Scene {
    * track of yourself.)
    */
   private updateCamera(): void {
-    const id = this.client.playerId;
+    const id = this.myId;
     if (!id) return;
     const me = this.players.get(id);
     if (!me) return;
@@ -291,7 +358,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handleInput(delta: number): void {
-    const id = this.client.playerId;
+    const id = this.myId;
     if (!this.isAlive(id)) return;
     this.moveCooldown = Math.max(0, this.moveCooldown - delta);
     if (this.moveCooldown > 0) return;
@@ -307,7 +374,7 @@ export class GameScene extends Phaser.Scene {
     this.moving = true;
     this.moveCooldown = this.myStats().speed;
     this.lastMoveAt = this.time.now;
-    this.client.updateMyState({ col: nc, row: nr, dir, moving: true, colorIdx: this.myColorIdx() });
+    this.netUpdateMyState({ col: nc, row: nr, dir, moving: true, colorIdx: this.myColorIdx() });
     this.tweenPlayer(id, nc, nr, this.moveCooldown);
   }
 
@@ -316,7 +383,7 @@ export class GameScene extends Phaser.Scene {
     if (!this.moving) return;
     if (this.time.now - this.lastMoveAt < this.myStats().speed + 70) return;
     this.moving = false;
-    if (this.client.playerId) this.client.updateMyState({ moving: false });
+    if (this.myId) this.netUpdateMyState({ moving: false });
   }
 
   private readDir(): Dir | null {
@@ -334,10 +401,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private requestBomb(): void {
-    const id = this.client.playerId;
+    const id = this.myId;
     if (!this.isAlive(id)) return;
     if (this.bombAt(this.myCol, this.myRow)) return;
-    this.client.sendEvent("place_bomb", {
+    this.netSendEvent("place_bomb", {
       col: this.myCol,
       row: this.myRow,
       localId: this.localBombSeq++,
@@ -345,19 +412,19 @@ export class GameScene extends Phaser.Scene {
   }
 
   private requestRestart(): void {
-    if (this.client.isHost) {
+    if (this.amHost) {
       this.writeShared(emptyShared());
-      this.client.sendEvent("round_restart", {});
+      this.netSendEvent("round_restart", {});
       this.respawnSelf();
     } else {
-      this.client.sendEvent("request_restart", {});
+      this.netSendEvent("request_restart", {});
     }
   }
 
   private respawnSelf(): void {
-    const id = this.client.playerId;
+    const id = this.myId;
     if (!id) return;
-    const idx = Object.keys(this.client.players).indexOf(id);
+    const idx = Object.keys(this.peers).indexOf(id);
     if (idx < 0) return;
     const spawn = SPAWN_POINTS[idx] ?? SPAWN_POINTS[0]!;
     this.myCol = spawn.col;
@@ -372,7 +439,7 @@ export class GameScene extends Phaser.Scene {
       objs.col = spawn.col;
       objs.row = spawn.row;
     }
-    this.client.updateMyState({
+    this.netUpdateMyState({
       col: spawn.col,
       row: spawn.row,
       colorIdx: idx % COLORS.length,
@@ -388,7 +455,7 @@ export class GameScene extends Phaser.Scene {
       this.respawnSelf();
       return;
     }
-    if (!this.client.isHost) return;
+    if (!this.amHost) return;
     if (event === "place_bomb") {
       const p = payload as { col?: unknown; row?: unknown };
       if (typeof p.col === "number" && typeof p.row === "number") {
@@ -396,7 +463,7 @@ export class GameScene extends Phaser.Scene {
       }
     } else if (event === "request_restart") {
       this.writeShared(emptyShared());
-      this.client.sendEvent("round_restart", {});
+      this.netSendEvent("round_restart", {});
     }
   }
 
@@ -417,6 +484,7 @@ export class GameScene extends Phaser.Scene {
   // ---- shared-state rendering ----------------------------------------------
 
   private shared(): SharedState | null {
+    if (this.offline) return this.offlineShared; // local state is authoritative solo
     return isShared(this.client.sharedState) ? this.client.sharedState : null;
   }
 
@@ -426,7 +494,11 @@ export class GameScene extends Phaser.Scene {
    * live round instead of resetting it.
    */
   private ensureSeeded(): void {
-    if (this.client.isHost && this.client.connectionStatus === "connected" && !this.shared()) {
+    if (this.offline) {
+      if (!this.offlineShared) this.offlineShared = emptyShared();
+      return;
+    }
+    if (this.amHost && this.client.connectionStatus === "connected" && !this.shared()) {
       this.writeShared(emptyShared());
     }
   }
@@ -434,9 +506,9 @@ export class GameScene extends Phaser.Scene {
   /** Humans (connections) + bots (shared state), unified for rendering. */
   private fighters(): Fighter[] {
     const out: Fighter[] = [];
-    const myId = this.client.playerId;
+    const myId = this.myId;
     let order = 0;
-    for (const [id, player] of Object.entries(this.client.players)) {
+    for (const [id, player] of Object.entries(this.peers)) {
       const ps = readPlayerState(player);
       const fb = SPAWN_POINTS[order] ?? SPAWN_POINTS[0]!;
       out.push({
@@ -748,7 +820,7 @@ export class GameScene extends Phaser.Scene {
 
     // Prune stats/deaths for fighters that no longer exist (departed humans or
     // removed bots) so the shared object can't grow unbounded over a session.
-    const activeIds = new Set([...Object.keys(this.client.players), ...Object.keys(next.bots)]);
+    const activeIds = new Set([...Object.keys(this.peers), ...Object.keys(next.bots)]);
     for (const id of Object.keys(next.stats))
       if (!activeIds.has(id)) {
         delete next.stats[id];
@@ -849,7 +921,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Last fighter standing wins (bots count — solo + bots still resolves).
-    const fighterIds = [...Object.keys(this.client.players), ...Object.keys(next.bots)];
+    const fighterIds = [...Object.keys(this.peers), ...Object.keys(next.bots)];
     if (fighterIds.length >= 2 && !next.winner) {
       const alive = fighterIds.filter((id) => !next.deaths[id]);
       if (alive.length === 1) {
@@ -870,7 +942,7 @@ export class GameScene extends Phaser.Scene {
     if (d.stats) patch["stats"] = next.stats;
     if (d.deaths) patch["deaths"] = next.deaths;
     if (d.winner) patch["winner"] = next.winner;
-    if (Object.keys(patch).length > 0) this.client.updateSharedState(patch);
+    if (Object.keys(patch).length > 0) this.netPatchShared(patch);
   }
 
   /**
@@ -883,7 +955,7 @@ export class GameScene extends Phaser.Scene {
     now: number,
     d: { bots: boolean; stats: boolean },
   ): void {
-    const humanCount = Object.keys(this.client.players).length;
+    const humanCount = Object.keys(this.peers).length;
     const want = new Set<number>();
     for (
       let c = humanCount;
@@ -1027,7 +1099,7 @@ export class GameScene extends Phaser.Scene {
    *  are read live, so bots already moved this tick are reflected). */
   private occupiedTiles(next: SharedState, exceptId: string): Set<string> {
     const occ = new Set<string>();
-    for (const [pid, p] of Object.entries(this.client.players)) {
+    for (const [pid, p] of Object.entries(this.peers)) {
       if (next.deaths[pid]) continue;
       const ps = readPlayerState(p);
       if (ps.col !== undefined && ps.row !== undefined) occ.add(tileKey(ps.col, ps.row));
@@ -1042,7 +1114,7 @@ export class GameScene extends Phaser.Scene {
   /** [id, col, row] for every living fighter (humans + bots). */
   private fighterPositions(next: SharedState): Array<[string, number, number]> {
     const out: Array<[string, number, number]> = [];
-    for (const [pid, player] of Object.entries(this.client.players)) {
+    for (const [pid, player] of Object.entries(this.peers)) {
       if (next.deaths[pid]) continue;
       const ps = readPlayerState(player);
       if (ps.col === undefined || ps.row === undefined) continue;
@@ -1065,7 +1137,7 @@ export class GameScene extends Phaser.Scene {
     if (active >= stats.bombs) return;
     const id = `b-${ownerId}-${Date.now()}-${col}-${row}`;
     const bomb: Bomb = { id, ownerId, col, row, placedAt: Date.now(), range: stats.range };
-    this.client.updateSharedState({ bombs: { ...s.bombs, [id]: bomb } });
+    this.netPatchShared({ bombs: { ...s.bombs, [id]: bomb } });
   }
 
   // ---- visual effects ------------------------------------------------------
@@ -1144,24 +1216,24 @@ export class GameScene extends Phaser.Scene {
   // ---- helpers -------------------------------------------------------------
 
   private myStats(): PlayerStats {
-    const id = this.client.playerId;
+    const id = this.myId;
     const s = this.shared();
     return (id && s?.stats[id]) || baseStats();
   }
 
   private myColorIdx(): number {
-    const id = this.client.playerId;
+    const id = this.myId;
     if (!id) return 0;
-    const ps = readPlayerState(this.client.players[id]);
+    const ps = readPlayerState(this.peers[id]);
     if (ps.colorIdx !== undefined) return ps.colorIdx % COLORS.length;
-    const idx = Object.keys(this.client.players).indexOf(id);
+    const idx = Object.keys(this.peers).indexOf(id);
     return (idx < 0 ? 0 : idx) % COLORS.length;
   }
 
   private ensureMySpawn(): void {
-    const id = this.client.playerId;
+    const id = this.myId;
     if (!id) return;
-    const ps = readPlayerState(this.client.players[id]);
+    const ps = readPlayerState(this.peers[id]);
     if (ps.col !== undefined && ps.row !== undefined) {
       if (!this.moving) {
         this.myCol = ps.col;
@@ -1169,12 +1241,12 @@ export class GameScene extends Phaser.Scene {
       }
       return;
     }
-    const idx = Object.keys(this.client.players).indexOf(id);
+    const idx = Object.keys(this.peers).indexOf(id);
     if (idx < 0) return;
     const spawn = SPAWN_POINTS[idx] ?? SPAWN_POINTS[0]!;
     this.myCol = spawn.col;
     this.myRow = spawn.row;
-    this.client.updateMyState({
+    this.netUpdateMyState({
       col: spawn.col,
       row: spawn.row,
       colorIdx: idx % COLORS.length,
@@ -1204,6 +1276,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private writeShared(next: SharedState): void {
+    if (this.offline) {
+      this.offlineShared = next;
+      return;
+    }
     // The client API takes an opaque record; SharedState is our typed view of it.
     this.client.updateSharedState(next as unknown as Record<string, unknown>);
   }
@@ -1211,28 +1287,31 @@ export class GameScene extends Phaser.Scene {
   // ---- HUD -----------------------------------------------------------------
 
   private statusText(): string {
-    const cs = this.client.connectionStatus;
-    if (cs !== "connected") return `${cs}…`;
+    if (!this.offline) {
+      const cs = this.client.connectionStatus;
+      if (cs !== "connected") return `${cs}…`;
+    }
     const s = this.shared();
     if (s?.winner) return "Round over — press R";
-    if (!this.isAlive(this.client.playerId)) return "💀 Out — bots fight on · R to restart";
-    return `WASD / arrows to move · SPACE to drop a bomb · R to restart · ${this.client.isHost ? "host" : "guest"}`;
+    if (!this.isAlive(this.myId)) return "💀 Out — bots fight on · R to restart";
+    const mode = this.offline ? "solo · offline" : this.amHost ? "host" : "guest";
+    return `WASD / arrows to move · SPACE to drop a bomb · R to restart · ${mode}`;
   }
 
   private playersListText(): string {
     const s = this.shared();
-    const ids = [...Object.keys(this.client.players), ...(s ? Object.keys(s.bots ?? {}) : [])];
+    const ids = [...Object.keys(this.peers), ...(s ? Object.keys(s.bots ?? {}) : [])];
     return ids
       .map((id) => {
         const dead = s?.deaths[id] ? "💀" : "";
-        const me = id === this.client.playerId ? "★" : id.startsWith("bot-") ? "🤖" : "•";
+        const me = id === this.myId ? "★" : id.startsWith("bot-") ? "🤖" : "•";
         return `${me} ${this.labelFor(id)}${dead}`;
       })
       .join("   ");
   }
 
   private statsText(): string {
-    if (!this.isAlive(this.client.playerId)) return "";
+    if (!this.isAlive(this.myId)) return "";
     const st = this.myStats();
     const speedLvl = Math.round((BASE_MOVE_MS - st.speed) / SPEED_STEP_MS);
     return `💣 ${st.bombs}   🔥 ${st.range}   👟 ${speedLvl}`;
@@ -1244,15 +1323,15 @@ export class GameScene extends Phaser.Scene {
     let text = "";
     if (s?.winner === "draw") text = "Draw!";
     else if (s?.winner)
-      text = s.winner === this.client.playerId ? "🏆 You win!" : `${this.labelFor(s.winner)} wins!`;
-    else if (this.client.connectionStatus === "connected" && !this.isAlive(this.client.playerId))
+      text = s.winner === this.myId ? "🏆 You win!" : `${this.labelFor(s.winner)} wins!`;
+    else if (this.client.connectionStatus === "connected" && !this.isAlive(this.myId))
       text = "💥 Boom!";
     this.bannerEl.textContent = text;
     this.bannerEl.style.opacity = text ? "1" : "0";
   }
 
   private labelFor(id: string): string {
-    if (id === this.client.playerId) return "you";
+    if (id === this.myId) return "you";
     if (id.startsWith("bot-")) return `CPU ${id.slice(4)}`;
     return id.slice(0, 4);
   }

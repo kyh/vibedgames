@@ -53,9 +53,83 @@
         letter-spacing: 1px;
         opacity: 0.6;
       }
+      #weaponbar {
+        height: 2px;
+        width: 0%;
+        margin-top: 3px;
+        background: #fff;
+        transition: width 100ms linear;
+      }
+      #shield {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        opacity: 0.8;
+        margin-top: 4px;
+        display: none;
+      }
       #players {
         font-size: 11px;
         opacity: 0.5;
+      }
+
+      #combo {
+        position: fixed;
+        top: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        pointer-events: none;
+        padding: 4px 14px;
+        background: rgba(0, 0, 0, 0.35);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 999px;
+        opacity: 0;
+        transition: opacity 0.2s ease;
+        text-align: center;
+      }
+      #comboval {
+        font-size: 14px;
+        font-weight: 200;
+        letter-spacing: 1px;
+        font-variant-numeric: tabular-nums;
+      }
+      #combobar {
+        height: 2px;
+        width: 100%;
+        margin-top: 3px;
+        background: rgba(255, 255, 255, 0.8);
+        transition: width 100ms linear;
+      }
+      #combo.pop {
+        animation: combo-pop 200ms cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+      @keyframes combo-pop {
+        0% {
+          transform: translateX(-50%) scale(1);
+        }
+        50% {
+          transform: translateX(-50%) scale(1.15);
+        }
+        100% {
+          transform: translateX(-50%) scale(1);
+        }
+      }
+
+      #attract {
+        position: fixed;
+        bottom: 28px;
+        left: 50%;
+        transform: translateX(-50%);
+        pointer-events: none;
+        padding: 4px 14px;
+        background: rgba(0, 0, 0, 0.35);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 999px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        opacity: 0.6;
+        transition: opacity 0.4s ease;
       }
 
       #overlay {
@@ -76,6 +150,23 @@
         letter-spacing: 8px;
         opacity: 0.8;
       }
+      #cause {
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 3px;
+        opacity: 0.7;
+      }
+      #hint {
+        font-size: 12px;
+        opacity: 0.55;
+        font-style: italic;
+      }
+      #replay {
+        font-size: 12px;
+        opacity: 0.6;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 1px;
+      }
       #countdown {
         font-size: 14px;
         opacity: 0.7;
@@ -89,11 +180,21 @@
       <div>
         <div id="score">0</div>
         <div id="weapon">NORMAL BEAM</div>
+        <div id="weaponbar"></div>
+        <div id="shield"></div>
       </div>
       <div id="players">connecting&hellip;</div>
     </div>
+    <div id="combo">
+      <div id="comboval">&times;2 &middot; 3</div>
+      <div id="combobar"></div>
+    </div>
+    <div id="attract">move &middot; mouse &mdash; fire &middot; hold</div>
     <div id="overlay">
       <div id="destroyed">DESTROYED</div>
+      <div id="cause"></div>
+      <div id="hint"></div>
+      <div id="replay"></div>
       <div id="countdown"></div>
     </div>
     <script type="module" src="/src/main.ts"></script>

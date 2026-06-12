@@ -156,3 +156,6 @@ export function newGrid(): Cell[][] {
   }
   return grid;
 }
+
+/** How long to wait for the party server before starting a solo match. */
+export const OFFLINE_FALLBACK_MS = 4000;
