@@ -106,7 +106,11 @@ export class GameScene extends Phaser.Scene {
     }));
 
     this.bird = this.add
-      .sprite(BIRD_X + DRAGON_SPRITE_OFFSET_X, BIRD_SPAWN_Y + DRAGON_SPRITE_OFFSET_Y, `dragon-${this.skin}-1`)
+      .sprite(
+        BIRD_X + DRAGON_SPRITE_OFFSET_X,
+        BIRD_SPAWN_Y + DRAGON_SPRITE_OFFSET_Y,
+        `dragon-${this.skin}-1`,
+      )
       .setScale(ART_SCALE)
       .setDepth(10);
     this.bird.play(`fly-${this.skin}`);
@@ -323,10 +327,7 @@ export class GameScene extends Phaser.Scene {
 
     const coin =
       Math.random() < COIN_CHANCE
-        ? this.add
-            .sprite(centerX, rollCoinY(topHeight), "coin-1")
-            .setScale(ART_SCALE)
-            .setDepth(4)
+        ? this.add.sprite(centerX, rollCoinY(topHeight), "coin-1").setScale(ART_SCALE).setDepth(4)
         : null;
     coin?.play("coin-spin");
 
