@@ -7,7 +7,7 @@ import { GameScene } from "./scenes/game-scene";
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.WEBGL,
   parent: "game",
-  backgroundColor: "#70c5ce",
+  backgroundColor: "#c6ecff",
   scale: {
     // Fill the window; GameScene re-lays-out the backdrop + HUD on resize.
     mode: Phaser.Scale.RESIZE,

@@ -1,40 +1,63 @@
 import Phaser from "phaser";
 
 import {
+  ART_SCALE,
   BEST_KEY,
+  BG_FACTORS,
+  BG_NATIVE_H,
   BIRD_H,
   BIRD_SPAWN_Y,
   BIRD_W,
   BIRD_X,
+  COIN_CHANCE,
   DIGIT_H,
   DIGIT_W,
+  DRAGON_SPRITE_OFFSET_X,
+  DRAGON_SPRITE_OFFSET_Y,
   flapVelocityFor,
   GRAVITY,
   MAX_TILT,
-  PIPE_DRAW_HEIGHT,
   PIPE_GAP,
   PIPE_SPAWN_DISTANCE,
   PIPE_SPEED,
   PIPE_WIDTH,
+  READY_DRIFT,
+  rollCoinY,
+  rollSkin,
   rollTopHeight,
   SCORE_Y,
   TILT_FACTOR,
+  TUBE_CAP_H,
   type Phase,
 } from "../shared/constants";
 
 type Pipe = {
-  /** Left edge. */
+  /** Left edge of the trunk body (collision rect). */
   x: number;
   /** Bottom of the top segment = top edge of the gap. */
   topHeight: number;
   scored: boolean;
-  top: Phaser.GameObjects.Image;
-  bottom: Phaser.GameObjects.Image;
+  topCap: Phaser.GameObjects.Image;
+  topBody: Phaser.GameObjects.TileSprite;
+  botCap: Phaser.GameObjects.Image;
+  botBody: Phaser.GameObjects.TileSprite;
+  /** Bonus coin floating in the gap (some trunks only). */
+  coin: Phaser.GameObjects.Sprite | null;
 };
+
+type BgLayer = {
+  sprite: Phaser.GameObjects.TileSprite;
+  /** Parallax factor × world scroll. */
+  factor: number;
+};
+
+/** Coin pickup AABB half-extents (dragon 76×48 + coin 32, with a little grace). */
+const COIN_PICKUP_X = 54;
+const COIN_PICKUP_Y = 44;
 
 /** Swallow inputs briefly after death so a flap-mash can't skip the gameover screen. */
 const RESTART_LOCKOUT_MS = 280;
-/** Cap delta so a backgrounded tab can't tunnel the bird through a pipe. */
+/** Cap delta so a backgrounded tab can't tunnel the dragon through a trunk. */
 const MAX_DT_MS = 50;
 
 const HINT_FLAP = "CLICK · TAP · SPACE — FLAP";
@@ -42,15 +65,18 @@ const HINT_RESTART = "TAP ANYWHERE TO RESTART";
 
 export class GameScene extends Phaser.Scene {
   private phase: Phase = "ready";
-  /** Top edge of the bird's AABB (legacy coordinate; sprite renders centered). */
+  /** Top edge of the dragon's AABB (legacy coordinate; sprite renders offset). */
   private birdY = BIRD_SPAWN_Y;
   private vy = 0;
   private pipes: Pipe[] = [];
   private score = 0;
   private best = 0;
   private diedAt = 0;
+  private skin = 1;
+  /** Cumulative world scroll driving the parallax layers. */
+  private worldX = 0;
 
-  private bg!: Phaser.GameObjects.Image;
+  private bgLayers: BgLayer[] = [];
   private bird!: Phaser.GameObjects.Sprite;
   private readyImg!: Phaser.GameObjects.Image;
   private overImg!: Phaser.GameObjects.Image;
@@ -67,14 +93,30 @@ export class GameScene extends Phaser.Scene {
     this.hintEl = document.getElementById("hint");
     this.bestEl = document.getElementById("best");
     this.best = readBest();
+    this.skin = rollSkin();
 
-    this.bg = this.add.image(0, 0, "background").setOrigin(0, 0).setDepth(-10);
+    // Trees World parallax: clouds, far trunks, near trunks behind the action;
+    // foreground bushes in front of the trunks but behind the dragon.
+    this.bgLayers = BG_FACTORS.map((factor, i) => ({
+      factor,
+      sprite: this.add
+        .tileSprite(0, 0, 1, 1, `bg-${i + 1}`)
+        .setOrigin(0, 0)
+        .setDepth(i === 3 ? 6 : -14 + i),
+    }));
+
     this.bird = this.add
-      .sprite(BIRD_X + BIRD_W / 2, BIRD_SPAWN_Y + BIRD_H / 2, "bird-mid")
+      .sprite(BIRD_X + DRAGON_SPRITE_OFFSET_X, BIRD_SPAWN_Y + DRAGON_SPRITE_OFFSET_Y, `dragon-${this.skin}-1`)
+      .setScale(ART_SCALE)
       .setDepth(10);
-    this.bird.play("flap");
-    this.readyImg = this.add.image(0, 0, "ready").setDepth(30);
-    this.overImg = this.add.image(0, 0, "gameover").setDepth(30).setVisible(false);
+    this.bird.play(`fly-${this.skin}`);
+
+    this.readyImg = this.add.image(0, 0, "msg-ready").setScale(ART_SCALE).setDepth(30);
+    this.overImg = this.add
+      .image(0, 0, "msg-gameover")
+      .setScale(ART_SCALE)
+      .setDepth(30)
+      .setVisible(false);
 
     this.input.on("pointerdown", () => this.handleInput());
     // Guard e.repeat: no Key object is registered for these codes, so the
@@ -100,24 +142,29 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(time: number, delta: number): void {
+    const dt = Math.min(delta, MAX_DT_MS) / 1000;
+
     if (this.phase === "ready") {
-      // Gentle hover so the title screen breathes.
-      this.bird.y = BIRD_SPAWN_Y + BIRD_H / 2 + Math.sin(time / 300) * 4;
+      // Gentle hover + drifting clouds so the title screen breathes.
+      this.bird.y = BIRD_SPAWN_Y + DRAGON_SPRITE_OFFSET_Y + Math.sin(time / 300) * 4;
+      this.worldX += READY_DRIFT * dt;
+      this.applyParallax();
       return;
     }
     if (this.phase !== "playing") return; // gameover: world frozen at death pose
 
-    const dt = Math.min(delta, MAX_DT_MS) / 1000;
-
     // Legacy integration order: position first, then gravity into velocity.
     this.birdY += this.vy * dt;
     this.vy += GRAVITY * dt;
-    this.bird.y = this.birdY + BIRD_H / 2;
+    this.bird.y = this.birdY + DRAGON_SPRITE_OFFSET_Y;
     this.bird.rotation = Phaser.Math.Clamp(this.vy * TILT_FACTOR, -MAX_TILT, MAX_TILT);
 
+    this.worldX += PIPE_SPEED * dt;
+    this.applyParallax();
     this.movePipes(dt);
     this.spawnAndPrunePipes();
     this.checkScore();
+    this.checkCoins();
     this.checkDeath();
   }
 
@@ -127,7 +174,7 @@ export class GameScene extends Phaser.Scene {
     if (this.phase === "ready") {
       // First input starts the run without flapping (legacy behavior).
       this.phase = "playing";
-      this.bird.y = this.birdY + BIRD_H / 2;
+      this.bird.y = this.birdY + DRAGON_SPRITE_OFFSET_Y;
       this.readyImg.setVisible(false);
       this.setHint("");
       return;
@@ -157,11 +204,11 @@ export class GameScene extends Phaser.Scene {
     // The legacy build loaded flap.wav but never played it — wired up here.
     this.sound.play("flap", { rate: 0.95 + Math.random() * 0.1 });
     this.tweens.killTweensOf(this.bird);
-    this.bird.setScale(1.15, 0.8);
+    this.bird.setScale(ART_SCALE * 1.15, ART_SCALE * 0.8);
     this.tweens.add({
       targets: this.bird,
-      scaleX: 1,
-      scaleY: 1,
+      scaleX: ART_SCALE,
+      scaleY: ART_SCALE,
       duration: 140,
       ease: "Quad.easeOut",
     });
@@ -171,23 +218,22 @@ export class GameScene extends Phaser.Scene {
 
   /** Any input on gameover drops straight back into playing (skips the ready screen). */
   private restart(): void {
-    for (const pipe of this.pipes) {
-      pipe.top.destroy();
-      pipe.bottom.destroy();
-    }
+    for (const pipe of this.pipes) destroyPipe(pipe);
     this.pipes = [];
     this.score = 0;
     this.birdY = BIRD_SPAWN_Y;
     this.vy = 0;
 
+    // Fresh run, fresh dragon.
+    this.skin = rollSkin();
     this.tweens.killTweensOf(this.bird);
     this.bird
-      .setPosition(BIRD_X + BIRD_W / 2, BIRD_SPAWN_Y + BIRD_H / 2)
+      .setPosition(BIRD_X + DRAGON_SPRITE_OFFSET_X, BIRD_SPAWN_Y + DRAGON_SPRITE_OFFSET_Y)
       .setRotation(0)
-      .setScale(1)
+      .setScale(ART_SCALE)
       .clearTint()
       .setTintMode(Phaser.TintModes.MULTIPLY);
-    this.bird.play("flap");
+    this.bird.play(`fly-${this.skin}`);
 
     this.overImg.setVisible(false);
     this.setBest("");
@@ -224,8 +270,11 @@ export class GameScene extends Phaser.Scene {
   private movePipes(dt: number): void {
     for (const pipe of this.pipes) {
       pipe.x -= PIPE_SPEED * dt;
-      pipe.top.x = pipe.x;
-      pipe.bottom.x = pipe.x;
+      pipe.topBody.x = pipe.x;
+      pipe.botBody.x = pipe.x;
+      pipe.topCap.x = pipe.x + PIPE_WIDTH / 2;
+      pipe.botCap.x = pipe.x + PIPE_WIDTH / 2;
+      if (pipe.coin) pipe.coin.x = pipe.x + PIPE_WIDTH / 2;
     }
   }
 
@@ -235,25 +284,53 @@ export class GameScene extends Phaser.Scene {
     if (!last || last.x < width - PIPE_SPAWN_DISTANCE) this.spawnPipe(width);
 
     while (this.pipes.length > 0 && this.pipes[0]!.x + PIPE_WIDTH < 0) {
-      const dead = this.pipes.shift()!;
-      dead.top.destroy();
-      dead.bottom.destroy();
+      destroyPipe(this.pipes.shift()!);
     }
   }
 
   private spawnPipe(x: number): void {
-    const topHeight = rollTopHeight(this.scale.height);
-    // Top segment hangs down to the gap, vertically mirrored so the cap faces it.
-    const top = this.add
-      .image(x, topHeight, "pipe")
-      .setOrigin(0, 1)
-      .setFlipY(true)
-      .setDisplaySize(PIPE_WIDTH, PIPE_DRAW_HEIGHT);
-    const bottom = this.add
-      .image(x, topHeight + PIPE_GAP, "pipe")
+    const viewH = this.scale.height;
+    // Integer height — fractional values open a 1px seam between body and cap.
+    const topHeight = Math.round(rollTopHeight(viewH));
+    const centerX = x + PIPE_WIDTH / 2;
+
+    // Each trunk = rounded log-end cap facing the gap + bark body tiling away
+    // from it. The cap (with its side branches) is wider than the body; only
+    // the body rect is lethal. Body heights clamp to 1px, never 0 — zero-sized
+    // TileSprites take down the WebGL context.
+    const topBody = this.add
+      .tileSprite(x, 0, PIPE_WIDTH, Math.max(1, topHeight - TUBE_CAP_H + 2), "tube-body")
       .setOrigin(0, 0)
-      .setDisplaySize(PIPE_WIDTH, PIPE_DRAW_HEIGHT);
-    this.pipes.push({ x, topHeight, scored: false, top, bottom });
+      .setTileScale(ART_SCALE)
+      .setDepth(0);
+    const topCap = this.add
+      .image(centerX, topHeight, "tube-cap")
+      .setOrigin(0.5, 1)
+      .setFlipY(true)
+      .setScale(ART_SCALE)
+      .setDepth(1);
+    const botCap = this.add
+      .image(centerX, topHeight + PIPE_GAP, "tube-cap")
+      .setOrigin(0.5, 0)
+      .setScale(ART_SCALE)
+      .setDepth(1);
+    const botBodyY = topHeight + PIPE_GAP + TUBE_CAP_H - 2;
+    const botBody = this.add
+      .tileSprite(x, botBodyY, PIPE_WIDTH, Math.max(1, viewH - botBodyY), "tube-body")
+      .setOrigin(0, 0)
+      .setTileScale(ART_SCALE)
+      .setDepth(0);
+
+    const coin =
+      Math.random() < COIN_CHANCE
+        ? this.add
+            .sprite(centerX, rollCoinY(topHeight), "coin-1")
+            .setScale(ART_SCALE)
+            .setDepth(4)
+        : null;
+    coin?.play("coin-spin");
+
+    this.pipes.push({ x, topHeight, scored: false, topCap, topBody, botCap, botBody, coin });
   }
 
   private checkScore(): void {
@@ -269,6 +346,36 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private checkCoins(): void {
+    const cx = BIRD_X + BIRD_W / 2;
+    const cy = this.birdY + BIRD_H / 2;
+    for (const pipe of this.pipes) {
+      const coin = pipe.coin;
+      if (!coin) continue;
+      if (Math.abs(coin.x - cx) >= COIN_PICKUP_X || Math.abs(coin.y - cy) >= COIN_PICKUP_Y) {
+        continue;
+      }
+      pipe.coin = null;
+      this.collectCoin(coin);
+    }
+  }
+
+  /** Coins are worth a point — a risk/reward detour inside the gap. */
+  private collectCoin(coin: Phaser.GameObjects.Sprite): void {
+    const burst = this.add
+      .sprite(coin.x, coin.y, "burst-1")
+      .setScale(ART_SCALE)
+      .setDepth(7)
+      .play("burst");
+    burst.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => burst.destroy());
+    coin.destroy();
+
+    this.score += 1;
+    this.sound.play("point", { rate: 1.5 });
+    this.refreshScore();
+    this.scorePop();
+  }
+
   private checkDeath(): void {
     // Floor only — no ceiling kill; flying above the screen is legal (legacy quirk).
     if (this.birdY > this.scale.height) {
@@ -277,7 +384,7 @@ export class GameScene extends Phaser.Scene {
     }
     for (const pipe of this.pipes) {
       if (BIRD_X + BIRD_W <= pipe.x || BIRD_X >= pipe.x + PIPE_WIDTH) continue;
-      // Top segment is the rect (pipe.x, 0, w, topHeight) — a bird fully above
+      // Top segment is the rect (pipe.x, 0, w, topHeight) — a dragon fully above
       // the screen overlaps nothing (legacy AABB; off-screen flight stays legal).
       if (
         (this.birdY < pipe.topHeight && this.birdY + BIRD_H > 0) ||
@@ -325,13 +432,13 @@ export class GameScene extends Phaser.Scene {
   private refreshScore(): void {
     const text = String(this.score);
     while (this.digits.length < text.length) {
-      this.digits.push(this.add.image(0, SCORE_Y, "digit-0").setOrigin(0, 0).setDepth(20));
+      this.digits.push(this.add.image(0, SCORE_Y, "digits", 0).setOrigin(0, 0).setDepth(20));
     }
     while (this.digits.length > text.length) this.digits.pop()!.destroy();
 
     const startX = (this.scale.width - text.length * DIGIT_W) / 2;
     for (let i = 0; i < text.length; i++) {
-      this.digits[i]!.setTexture(`digit-${text[i]!}`)
+      this.digits[i]!.setFrame(Number(text[i]!))
         .setPosition(startX + i * DIGIT_W, SCORE_Y)
         .setDisplaySize(DIGIT_W, DIGIT_H);
     }
@@ -349,14 +456,34 @@ export class GameScene extends Phaser.Scene {
 
   private layout(): void {
     const { width, height } = this.scale;
-    this.bg.setDisplaySize(width, height);
+    const tileScale = height / BG_NATIVE_H;
+    for (const layer of this.bgLayers) {
+      layer.sprite.setSize(width, height).setTileScale(tileScale);
+    }
+    this.applyParallax();
     this.readyImg.setPosition(width / 2, height / 2);
     this.overImg.setPosition(width / 2, height / 2);
     this.refreshScore();
   }
+
+  private applyParallax(): void {
+    const tileScale = this.scale.height / BG_NATIVE_H;
+    for (const layer of this.bgLayers) {
+      // tilePosition is in texture px; divide by tileScale to get screen px.
+      layer.sprite.tilePositionX = (this.worldX * layer.factor) / tileScale;
+    }
+  }
 }
 
 // ---- module helpers (pure) -----------------------------------------------------------
+
+function destroyPipe(pipe: Pipe): void {
+  pipe.topCap.destroy();
+  pipe.topBody.destroy();
+  pipe.botCap.destroy();
+  pipe.botBody.destroy();
+  pipe.coin?.destroy();
+}
 
 function readBest(): number {
   try {
