@@ -26,7 +26,7 @@ export const GitHubLink = () => (
       target="_blank"
       rel="noopener noreferrer"
       aria-label="X"
-      className="text-muted-foreground hover:text-foreground transition"
+      className="text-muted-foreground hover:text-foreground py-1.5 transition"
     >
       <XIcon className="size-4" />
     </a>
@@ -35,7 +35,7 @@ export const GitHubLink = () => (
       target="_blank"
       rel="noopener noreferrer"
       aria-label="GitHub"
-      className="text-muted-foreground hover:text-foreground transition"
+      className="text-muted-foreground hover:text-foreground py-1.5 transition"
     >
       <GitHubIcon className="size-4" />
     </a>
