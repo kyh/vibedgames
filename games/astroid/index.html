@@ -68,6 +68,62 @@
         margin-top: 4px;
         display: none;
       }
+      #shieldrow {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      #shieldtrack {
+        position: relative;
+        width: 70px;
+        height: 3px;
+        display: inline-block;
+      }
+      #shieldfill {
+        position: absolute;
+        left: 0;
+        top: 0;
+        height: 3px;
+        width: 40px;
+        background: #fff;
+        transition: width 100ms linear;
+      }
+      #shieldos {
+        position: absolute;
+        left: 41px;
+        top: 0;
+        height: 3px;
+        width: 0;
+        background: #7dd3fc;
+        transition: width 100ms linear;
+      }
+      /* low shield (<30): 6Hz blink */
+      #shield.low #shieldfill {
+        animation: shield-blink 167ms steps(1) infinite;
+      }
+      @keyframes shield-blink {
+        50% {
+          opacity: 0.25;
+        }
+      }
+      #shieldmod {
+        margin-top: 3px;
+        display: none;
+      }
+      #shieldmodbar {
+        height: 2px;
+        width: 0%;
+        margin-top: 2px;
+        transition: width 100ms linear;
+      }
+      #boosts {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-top: 4px;
+        opacity: 0.85;
+        font-variant-numeric: tabular-nums;
+      }
       #players {
         font-size: 11px;
         opacity: 0.5;
@@ -181,7 +237,15 @@
         <div id="score">0</div>
         <div id="weapon">NORMAL BEAM</div>
         <div id="weaponbar"></div>
-        <div id="shield"></div>
+        <div id="shield">
+          <div id="shieldrow">
+            <span>shield</span>
+            <span id="shieldtrack"><span id="shieldfill"></span><span id="shieldos"></span></span>
+          </div>
+          <div id="shieldmod"></div>
+          <div id="shieldmodbar"></div>
+        </div>
+        <div id="boosts"></div>
       </div>
       <div id="players">connecting&hellip;</div>
     </div>

@@ -9,12 +9,15 @@ import type { Vec } from "../shared/constants";
 
 /** Hard cap on live particles across both emitters. */
 const PARTICLE_BUDGET = 400;
-/** Trail emitters throttle ×2 above this. */
-export const PARTICLE_SOFT_BUDGET = 300;
+/** Trail emitters throttle ×2 above this (v2: earlier, for the bigger crowds). */
+export const PARTICLE_SOFT_BUDGET = 280;
+/** Skip non-kill hit-spark spawns above this (keep the white victim flash). */
+export const HITSPARK_SKIP_BUDGET = 340;
 /** Skip spawning effects further than this outside the camera rect. */
 const OFFSCREEN_PAD = 100;
 const MAX_SHATTER_GROUPS = 12;
-const MAX_RINGS = 6;
+/** NOVA pulses + mine blasts are ring-hungry; rings are pooled Graphics. */
+const MAX_RINGS = 8;
 const MAX_CONVERGES = 6;
 const SHATTER_LIFE_MS = 500;
 

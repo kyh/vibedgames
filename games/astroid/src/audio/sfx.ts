@@ -21,12 +21,17 @@ export type SfxName =
   | "enemy_death"
   | "shield_hit"
   | "shield_break"
+  | "shield_low"
+  | "shield_regen"
+  | "rail"
   | "pickup"
   | "pickup_shield"
+  | "pickup_booster"
   | "combo_up"
   | "player_death"
   | "telegraph_warn"
-  | "respawn";
+  | "respawn"
+  | "sentry_place";
 
 export type PlayOpts = { gain?: number; rate?: number };
 
@@ -241,6 +246,35 @@ const RECIPES: Record<SfxName, Recipe> = {
       );
     },
   },
+  // 350ms two-tone descending minor 2nd (620→585Hz triangle), anxious —
+  // the low-shield warning (gated to once per 1.2s by the caller)
+  shield_low: {
+    durMs: 350,
+    render: (t, dur) => {
+      const note = t < dur / 2 ? 620 : 585;
+      const local = t % (dur / 2);
+      return 0.28 * triangle(TAU * note * t) * env(local, dur / 2, 0.012, 1.2);
+    },
+  },
+  // 400ms rising sweep 300→900Hz sine, soft attack — the Halo recharge whine
+  shield_regen: {
+    durMs: 400,
+    render: (t, dur) => 0.3 * Math.sin(slidePhase(t, dur, 300, 900)) * env(t, dur, 0.08, 1.2),
+  },
+  // 200ms: 60ms rising whine into a 140ms saw crack 180→70Hz (RAILGUN release)
+  rail: {
+    durMs: 200,
+    render: (t, dur, rng) => {
+      const whineDur = 0.06;
+      if (t < whineDur) {
+        return 0.22 * Math.sin(slidePhase(t, whineDur, 500, 1500)) * (t / whineDur);
+      }
+      const t2 = t - whineDur;
+      const d2 = dur - whineDur;
+      const click = t2 < 0.005 ? 0.5 * rng() : 0;
+      return 0.55 * saw(slidePhase(t2, d2, 180, 70)) * env(t2, d2, 0.001, 2) + click;
+    },
+  },
   // 120ms rising two-note chirp (660→990Hz sine)
   pickup: {
     durMs: 120,
@@ -258,6 +292,18 @@ const RECIPES: Record<SfxName, Recipe> = {
       const note = t < third ? 660 : t < 2 * third ? 880 : 1100;
       const local = t % third;
       return 0.35 * Math.sin(TAU * note * t) * env(local, third, 0.004);
+    },
+  },
+  // booster pickup: bright octave-jump chirp with a sparkle overtone —
+  // distinct from the weapon two-note and the shield three-note
+  pickup_booster: {
+    durMs: 160,
+    render: (t, dur) => {
+      const half = dur / 2;
+      const note = t < half ? 740 : 1180;
+      const local = t % half;
+      const body = 0.7 * Math.sin(TAU * note * t) + 0.3 * triangle(TAU * note * 2 * t);
+      return 0.32 * body * env(local, half, 0.003);
     },
   },
   // 180ms rising arpeggio; caller pitches root +2 semitones per tier via rate
@@ -298,5 +344,15 @@ const RECIPES: Record<SfxName, Recipe> = {
   respawn: {
     durMs: 250,
     render: (t, dur) => 0.3 * Math.sin(slidePhase(t, dur, 220, 440)) * env(t, dur, 0.12, 1.2),
+  },
+  // 110ms mechanical clack: noise click + two-step square clunk 520->340Hz
+  // (the SENTRY turret locking onto its post)
+  sentry_place: {
+    durMs: 110,
+    render: (t, dur, rng) => {
+      const click = t < 0.008 ? 0.5 * rng() : 0;
+      const note = t < dur * 0.45 ? 520 : 340;
+      return 0.38 * square(TAU * note * t) * env(t, dur, 0.002, 2) + click;
+    },
   },
 };

@@ -3,28 +3,34 @@ import type { Player } from "@vibedgames/multiplayer";
 import Phaser from "phaser";
 
 import { sfx } from "../audio/sfx";
-import type { SfxName } from "../audio/sfx";
-import { FxPool, PARTICLE_SOFT_BUDGET } from "../render/fx-pool";
+import type { PlayOpts, SfxName } from "../audio/sfx";
+import { FxPool, HITSPARK_SKIP_BUDGET, PARTICLE_SOFT_BUDGET } from "../render/fx-pool";
 import { Starfield } from "../render/starfield";
 import { TraumaCamera } from "../render/trauma-camera";
 import {
   OFFLINE_FALLBACK_MS,
+  AEGIS_REGEN_DELAY_MS,
+  AEGIS_REGEN_MULT,
   ARC_CAST_CONE_DEG,
   ARC_FIZZLE_LEN,
   ARC_RENDER_MS,
   arenaIntensity,
   ASTEROID_CULL_MARGIN,
+  ASTEROID_DROP_CHANCE,
   ASTEROID_MAX_RADIUS,
   ASTEROID_MIN_RADIUS,
   ASTEROID_ROT_SPEED,
   ASTEROID_SEED_COUNT,
   asteroidCap,
+  asteroidContactDamage,
+  asteroidShardCount,
   asteroidSpawnIntervalMs,
   asteroidSpeed,
-  BARRIER_MAX_CHARGES,
-  BARRIER_REGEN_DELAY_MS,
-  BARRIER_REGEN_INTERVAL_MS,
+  BOOSTER_KINDS,
+  BOOSTER_SPECS,
   COMBO_WINDOW_MS,
+  CONTACT_IFRAME_MS,
+  DMG,
   comboMult,
   DRONE_COOLDOWN_MS,
   DRONE_FIRE_CONE_DEG,
@@ -48,12 +54,18 @@ import {
   enemyCap,
   enemySpawnIntervalMs,
   enemySpawnWeight,
+  FLAK_FRAG_WEAPON,
+  FODDER_DROP_CHANCE,
+  FODDER_SHARD_MAX,
+  FODDER_SHARD_MIN,
   GLAIVE_DECEL_PX,
   HOMING_LOCK_CONE_DEG,
   INVULN_BLINK_MS,
   INVULNERABLE_MS,
   ITEM_DRAW_RADIUS,
   ITEM_PICKUP_RADIUS,
+  ITEM_SPEED,
+  ITEM_STACK_CAP_MS,
   LANCER_CHARGE_HIT_RADIUS,
   LANCER_CHARGE_MS,
   LANCER_CHARGE_RANGE,
@@ -61,32 +73,80 @@ import {
   LANCER_CRUISE_SPEED,
   LANCER_RECOVER_MS,
   LANCER_WINDUP_MS,
+  LOOT_BOOSTER_WEIGHTS,
+  LOOT_CLASSES,
+  LOOT_PITY,
+  LOOT_SHIELD_WEIGHTS,
+  ITEMS_MAX_LIVE,
+  MAGNET_PULL_SPEED,
+  MAGNET_RANGE,
+  MINE_ARM_MS,
+  MINE_LIFETIME_MS,
+  MINE_MAX_LIVE,
+  MINE_TRIGGER_RADIUS,
   MINIMAP_H,
   MINIMAP_PAD,
   MINIMAP_W,
   NET_INTERVAL_MS,
+  NITRO_ACCEL_MULT,
+  NITRO_MAX_SPEED_MULT,
+  OVERDRIVE_RATE_MULT,
+  OVERSHIELD_BONUS,
   PHASE_COOLDOWN_MS,
+  PHASE_COST,
   PHASE_DURATION_MS,
+  PHASE_TRIGGER_HIT,
   playerPressure,
+  PVP_DAMAGE_MULT,
+  PVP_EXPLOSION_IFRAME_MS,
+  PVP_HIT_IFRAME_MS,
+  PVP_MAX_SINGLE_HIT,
   RAM_ARM_SPEED,
   RAM_ASTEROID_CHIP,
   RAM_ASTEROID_DESTROY_R,
   RAM_DAMAGE,
   RAM_IMMUNITY_MS,
   RAM_KNOCKBACK,
+  RAM_LANCER_DRAIN,
+  RAM_PVP_DRAIN,
+  RAM_SELF_DRAIN,
   randomWorldPoint,
-  REFLECT_COOLDOWN_MS,
-  REFLECT_PVP_IFRAME_MS,
+  REFLECT_BOUNCE_COST,
+  REFLECT_MIN_SHIELD,
   RESPAWN_ASTEROID_MIN_R,
   RESPAWN_ATTEMPTS,
   RESPAWN_CLEARANCE,
   RESPAWN_DELAY_MS,
-  rollShieldDrop,
+  rollLootClass,
+  rollWeightedKey,
   SCORE,
+  SENTRY_FIRE_MS,
+  SENTRY_LIFETIME_MS,
+  SENTRY_RANGE,
+  SHARD_DRIFT_SPEED,
+  SHARD_MAGNET_PULL_SPEED,
+  SHARD_PICKUP_RADIUS,
+  SHARD_SCORE,
+  SHARD_TINT,
+  SHARDS_MAX_LIVE,
   SHIELD_HALO_RADIUS,
-  SHIELD_KINDS,
-  SHIELD_PITY_KILLS,
-  SHIELD_SPECS,
+  SHIELD_LOW_FRACTION,
+  SHIELD_MAX,
+  SHIELD_MOD_DURATION_MS,
+  SHIELD_MOD_KINDS,
+  SHIELD_MOD_SPECS,
+  SHIELD_REGEN_DELAY_MS,
+  SHIELD_REGEN_FULL_MS,
+  SHIELD_RING_RADIUS,
+  SHIELD_RING_TINT,
+  SIPHON_HEAL_ASTEROID,
+  SIPHON_HEAL_ENEMY,
+  SIPHON_HEAL_PLAYER,
+  SINGULARITY_PULL_MS,
+  SINGULARITY_PULL_RANGE,
+  SINGULARITY_PULL_SPEED,
+  SIPHON_OVERHEAL_DECAY_PER_S,
+  SIPHON_OVERHEAL_MAX,
   SHIP_ACCEL,
   SHIP_BRAKE_DRAG,
   SHIP_DEAD_ZONE,
@@ -102,9 +162,13 @@ import {
   SPLITTER_SPEED,
   spawnAsteroidState,
   spawnEnemyState,
-  spawnShieldItemState,
+  spawnItemState,
+  spawnShardState,
   spawnUfoState,
   spawnWeaponItemState,
+  TWIN_ORBIT_DEG_PER_S,
+  TWIN_ORBIT_RADIUS,
+  TWIN_POWER_MULT,
   UFO_BLINK_MS,
   UFO_RADIUS,
   UFO_SPAWN_RATE,
@@ -123,14 +187,18 @@ import {
   WORLD_H,
   WORLD_W,
   type AsteroidState,
+  type BoosterKind,
+  type BoostNetState,
   type EnemyKind,
   type EnemyShotState,
+  type ItemDrop,
   type ItemState,
+  type LootClass,
   type PlayerNetState,
   type SerializedBeam,
   type SharedState,
-  type ShieldKind,
-  type ShieldNetState,
+  type ShieldModKind,
+  type ShieldModNetState,
   type Vec,
   type Weapon,
   type WeaponSfx,
@@ -165,8 +233,17 @@ type Beam = {
   chain: Vec[] | null;
   /** ARC fizzle bolt: render-only, never serialized (must not hit PvP victims). */
   fizzle: boolean;
-  /** ARC render expiry (0 = not an arc bolt). */
+  /** ARC render expiry / MINE lifetime expiry (0 = neither). */
   diesAt: number;
+  /** MINE: arm timestamp (inert + blinking until then; explodes on trigger). */
+  mine: { armAt: number } | null;
+  /** RICOCHET: bounces remaining off asteroids/world edges. */
+  bouncesLeft: number;
+  /** SINGULARITY: collapse window end (0 = not collapsing). The orb is
+   *  frozen while now < this; at expiry it pops (exploding). */
+  collapseUntil: number;
+  /** Distance flown since the muzzle (FLAK airburst trigger). */
+  traveled: number;
   /** GLAIVE visual spin. */
   spin: number;
 };
@@ -179,6 +256,16 @@ type ShipObjs = {
   seenState: boolean;
   /** Thruster trail emitter (null when over the remote-trail cap). */
   trail: Phaser.GameObjects.Particles.ParticleEmitter | null;
+  /** Trail currently configured as the NITRO flame. */
+  nitroTrail: boolean;
+  /** Last seen base shieldHp — a decrease between snapshots = hit flash.
+   *  Base shield only: overHp zeroes on overshield expiry/replacement with
+   *  no damage, so a combined total would phantom-flash. */
+  lastShieldHp: number;
+  /** Ring hit-flash window. */
+  flashUntil: number;
+  /** Ring regen visual window (an increase between snapshots opens it). */
+  regenUntil: number;
 };
 type AsteroidObjs = { gfx: Phaser.GameObjects.Graphics; drawnRadius: number };
 type ItemObjs = { gfx: Phaser.GameObjects.Graphics; tint: number };
@@ -234,11 +321,30 @@ const MULTIPLAYER_HOST = import.meta.env.DEV
   ? "http://localhost:8787"
   : "https://vibedgames-party.kyh.workers.dev";
 
-// Fresh room name: old deployed clients on the legacy "home" room can't
-// pollute this build's shared-state shape.
-const ROOM = "astroid-arena";
+// Fresh room name per shared-state shape change (v4 adds `pulls`): old
+// deployed clients can't pollute this build's world.
+const ROOM = "astroid-arena-v4";
 
 const DEG = Math.PI / 180;
+/** ARC per-hop falloff for victim-side chain drains. SerializedBeam carries
+ *  no weapon ref, so read it from the ARC spec (TESLA also carries an arc
+ *  spec, hence the !aura filter). */
+const ARC_FALLOFF = WEAPONS_SPECIAL.find((w) => w.arc !== null && !w.aura)?.arc?.falloff ?? 0.7;
+/** TESLA AURA spec for victim-side adjudication (the RAM pattern: power and
+ *  range come from the shared table, not the wire). */
+const TESLA_SPEC = WEAPONS_SPECIAL.find((w) => w.aura);
+const TESLA_POWER = TESLA_SPEC?.power ?? 0.27;
+const TESLA_RANGE = TESLA_SPEC?.arc?.castRange ?? 120;
+const TESLA_TINT = TESLA_SPEC?.tint ?? 0x00aaff;
+/** SENTRY stat block: the turret keeps firing it even after the owner's
+ *  weapon slot moves on (the turret outlives the trigger). */
+const SENTRY_WEAPON = WEAPONS_SPECIAL.find((w) => w.sentry) ?? WEAPON_DEFAULT;
+const SINGULARITY_TINT = WEAPONS_SPECIAL.find((w) => w.singularity)?.tint ?? 0x7c3aed;
+/** PLASMA CONE per-shot tint gradient endpoints (hot pink -> orange). */
+const PLASMA_TINT_A = 0xff2d78;
+const PLASMA_TINT_B = 0xff9a3d;
+/** PHASE LANCE: the asteroid pass iterates this instead (skip, zero alloc). */
+const NO_ASTEROIDS: ReadonlyArray<AsteroidState> = [];
 /** Beams vanish this far outside the world. */
 const BEAM_CULL_MARGIN = 200;
 /** Black mask thickness past the world edge (covers any screen half-width). */
@@ -259,6 +365,8 @@ function emptyShared(): SharedState {
     items: [],
     enemies: [],
     enemyShots: [],
+    shards: [],
+    pulls: [],
     arenaEpoch: Date.now(),
   };
 }
@@ -306,6 +414,9 @@ export class GameScene extends Phaser.Scene {
   private pointerSeen = false;
   /** Items we picked up locally, awaiting host confirmation (id → time). */
   private recentPickups = new Map<string, number>();
+  /** Shards we collected locally, awaiting host removal (id -> time), the
+   *  same claimer-guard pattern as items. */
+  private recentShardPickups = new Map<string, number>();
   /** Enemy shots we consumed locally (shield/death), awaiting host removal
    *  (id → time) — stops stale snapshots resurrecting them into the shield. */
   private recentConsumedShots = new Map<string, number>();
@@ -331,7 +442,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private get peers(): typeof this.client.players {
-    return this.offline ? {} : this.client.players;
+    // Offline: synthesize the self entry so every `id === myId` render path
+    // (ship gfx, shield ring, impact arcs, twin drone, windup glow, nitro
+    // trail, minimap own-dot) still runs solo. cssToInt(undefined) → white.
+    return this.offline ? { solo: { id: "solo" } } : this.client.players;
   }
 
   /** Events loop straight back into the local host when offline. */
@@ -355,19 +469,36 @@ export class GameScene extends Phaser.Scene {
    *  and re-intersects every frame until the host's echo lands). */
   private predictedKills = new Map<string, number>();
 
-  // shield (victim-side adjudication; mirrored into net state)
-  private shield: { kind: ShieldKind; charges: number; phased: boolean } | null = null;
-  private barrierNextRegenAt = 0;
-  private reflectReadyAt = 0;
+  // base shield + mod (victim-side adjudication; mirrored into net state)
+  private shieldHp = SHIELD_MAX;
+  private overHp = 0;
+  private lastDamageAt = 0;
+  private regenActive = false;
+  private lastShieldLowAt = 0;
+  private shieldMod: ShieldModKind | null = null;
+  private shieldModUntil = 0;
   private phasedUntil = 0;
   private phaseReadyAt = 0;
-  /** Generic post-absorb contact immunity (barrier bounces). */
+  /** Post-contact-drain immunity vs ALL contact sources (rock = one hit). */
   private contactIframeUntil = 0;
-  /** REFLECT/BARRIER vs PvP beams: the beam keeps rendering, so brief i-frames. */
-  private pvpIframeUntil = 0;
+  /** PvP beams persist across render frames between 20Hz snapshots: brief
+   *  per-SHOOTER i-frames after each volley drain (§A.2). */
+  private pvpIframeUntil = new Map<string, number>();
   /** RAM: per-target contact immunity after a hit (id → until). */
   private ramImmunity = new Map<string, number>();
   private haloFlashUntil = 0;
+  private siphonPulseUntil = 0;
+  /** REPAIR pickup: brief regen-sweep visual on the ring. */
+  private repairSweepUntil = 0;
+  /** 60° white impact arcs at the incoming-damage angle (150ms each). */
+  private impactArcs: Array<{ angle: number; diesAt: number }> = [];
+
+  // boosters (timed, stack across kinds; mirrored into net state)
+  private boosts = new Map<BoosterKind, number>();
+  /** RAILGUN charge accumulator, ms (resets on release). */
+  private windupAcc = 0;
+  /** SENTRY turret (owner-simulated; pos+until mirrored into net state). */
+  private sentry: { x: number; y: number; until: number; nextFireAt: number } | null = null;
 
   // combo (purely local; streak mirrored for nameplates/minimap)
   private streak = 0;
@@ -383,7 +514,15 @@ export class GameScene extends Phaser.Scene {
   // networking cadence
   private netAcc = 0;
   private shareAcc = 0;
-  private dirty = { asteroids: false, ufo: false, items: false, enemies: false, enemyShots: false };
+  private dirty = {
+    asteroids: false,
+    ufo: false,
+    items: false,
+    enemies: false,
+    enemyShots: false,
+    shards: false,
+    pulls: false,
+  };
   private lastAsteroidSpawnAt = 0;
 
   // host-only director state (lost on migration — acceptable per design)
@@ -394,7 +533,8 @@ export class GameScene extends Phaser.Scene {
   private lastBreatherDespawnAt = 0;
   private debuted = new Set<EnemyKind>();
   private debutSuppressUntil = 0;
-  private shieldPity = 0;
+  /** Per-class pity counters (host-local, lost on migration — acceptable). */
+  private lootPity: Record<LootClass, number> = { shield: 0, booster: 0, weapon: 0 };
 
   // camera recoil (directional kick; omni shake comes from TraumaCamera)
   private kickX = 0;
@@ -408,6 +548,7 @@ export class GameScene extends Phaser.Scene {
   private ufoGfx: Phaser.GameObjects.Graphics | null = null;
   private ufoId = "";
   private beamGfx!: Phaser.GameObjects.Graphics;
+  private shardGfx!: Phaser.GameObjects.Graphics;
   private enemyShotGfx!: Phaser.GameObjects.Graphics;
   private telegraphGfx!: Phaser.GameObjects.Graphics;
   private haloGfx!: Phaser.GameObjects.Graphics;
@@ -424,6 +565,12 @@ export class GameScene extends Phaser.Scene {
   private weaponEl: HTMLElement | null = null;
   private weaponBarEl: HTMLElement | null = null;
   private shieldEl: HTMLElement | null = null;
+  private shieldFillEl: HTMLElement | null = null;
+  private shieldOsEl: HTMLElement | null = null;
+  private shieldModEl: HTMLElement | null = null;
+  private shieldModBarEl: HTMLElement | null = null;
+  private boostsEl: HTMLElement | null = null;
+  private lastBoostsHtml = "";
   private comboEl: HTMLElement | null = null;
   private comboValEl: HTMLElement | null = null;
   private comboBarEl: HTMLElement | null = null;
@@ -444,6 +591,11 @@ export class GameScene extends Phaser.Scene {
     this.weaponEl = document.getElementById("weapon");
     this.weaponBarEl = document.getElementById("weaponbar");
     this.shieldEl = document.getElementById("shield");
+    this.shieldFillEl = document.getElementById("shieldfill");
+    this.shieldOsEl = document.getElementById("shieldos");
+    this.shieldModEl = document.getElementById("shieldmod");
+    this.shieldModBarEl = document.getElementById("shieldmodbar");
+    this.boostsEl = document.getElementById("boosts");
     this.comboEl = document.getElementById("combo");
     this.comboValEl = document.getElementById("comboval");
     this.comboBarEl = document.getElementById("combobar");
@@ -471,6 +623,8 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.beamGfx = this.add.graphics().setDepth(12);
+    // Shards: one pooled Graphics redrawn per frame (zero per-shard objects).
+    this.shardGfx = this.add.graphics().setDepth(4).setBlendMode(Phaser.BlendModes.ADD);
     this.enemyShotGfx = this.add.graphics().setDepth(12);
     this.telegraphGfx = this.add.graphics().setDepth(13).setBlendMode(Phaser.BlendModes.ADD);
     this.haloGfx = this.add.graphics().setDepth(11).setBlendMode(Phaser.BlendModes.ADD);
@@ -528,12 +682,15 @@ export class GameScene extends Phaser.Scene {
     this.steerShip(dt);
     this.handleShooting(delta, now);
     this.updateBeams(dt, now);
+    this.tickMines(now);
+    this.tickSentry(now);
     this.advanceWorld(dt);
     if (this.amHost) this.hostTick(now, dt, delta);
     this.detectMyHits(now);
-    this.detectMyDeath(now, dt);
+    this.detectIncomingDamage(now, dt);
     this.pickupItems(now);
-    this.tickShield(now);
+    this.collectShards(now);
+    this.tickShield(now, dt);
     if (this.weapon !== WEAPON_DEFAULT && now >= this.weaponUntil) this.weapon = WEAPON_DEFAULT;
     if (this.streak > 0 && now >= this.comboExpiresAt) {
       this.streak = 0;
@@ -545,8 +702,10 @@ export class GameScene extends Phaser.Scene {
     this.syncAsteroids(now);
     this.syncUfo(now);
     this.syncItems();
+    this.drawShards(now);
     this.syncEnemies(now);
     this.drawEnemyTelegraphs(now);
+    this.drawPulls(now);
     this.drawEnemyShots();
     this.drawBeams(now);
     this.updateSplinters(dt, now);
@@ -580,6 +739,10 @@ export class GameScene extends Phaser.Scene {
     this.alive = true;
     this.respawnAt = 0;
     this.invulnUntil = now + INVULNERABLE_MS;
+    this.shieldHp = SHIELD_MAX; // respawn at full (§A.1)
+    this.overHp = 0;
+    this.lastDamageAt = 0;
+    this.regenActive = false;
     this.kickX = 0;
     this.kickY = 0;
     this.cameras.main.centerOn(pos.x, pos.y);
@@ -627,6 +790,10 @@ export class GameScene extends Phaser.Scene {
    */
   private steerShip(dt: number): void {
     if (!this.alive || !this.spawned) return;
+    // NITRO deliberately breaks the "every projectile outruns the ship" floor.
+    const nitro = this.boosts.has("nitro");
+    const accel = SHIP_ACCEL * (nitro ? NITRO_ACCEL_MULT : 1);
+    const maxSpeed = SHIP_MAX_SPEED * (nitro ? NITRO_MAX_SPEED_MULT : 1);
     let drag = SHIP_BRAKE_DRAG;
     this.thrust = 0;
     if (this.pointerSeen) {
@@ -638,8 +805,8 @@ export class GameScene extends Phaser.Scene {
       if (dist > 0.001) this.shipAngle = Math.atan2(dy, dx);
       this.thrust = Math.min(1, Math.max(0, (dist - SHIP_DEAD_ZONE) / SHIP_THRUST_RAMP));
       if (this.thrust > 0 && dist > 0.001) {
-        this.shipVX += (dx / dist) * SHIP_ACCEL * this.thrust * dt;
-        this.shipVY += (dy / dist) * SHIP_ACCEL * this.thrust * dt;
+        this.shipVX += (dx / dist) * accel * this.thrust * dt;
+        this.shipVY += (dy / dist) * accel * this.thrust * dt;
       }
       drag = dist > SHIP_DEAD_ZONE ? SHIP_DRAG : SHIP_BRAKE_DRAG;
     }
@@ -647,8 +814,8 @@ export class GameScene extends Phaser.Scene {
     this.shipVX *= decay;
     this.shipVY *= decay;
     const speed = Math.hypot(this.shipVX, this.shipVY);
-    if (speed > SHIP_MAX_SPEED) {
-      const k = SHIP_MAX_SPEED / speed;
+    if (speed > maxSpeed) {
+      const k = maxSpeed / speed;
       this.shipVX *= k;
       this.shipVY *= k;
     }
@@ -668,11 +835,31 @@ export class GameScene extends Phaser.Scene {
   private handleShooting(delta: number, now: number): void {
     // The cooldown runs into (bounded) deficit and each shot pays intervalMs
     // back, so the leftover carries between shots — true average cadence on
-    // any refresh rate instead of rounding up to whole frames.
-    this.shootCooldown = Math.max(-this.weapon.intervalMs, this.shootCooldown - delta);
-    if (!this.alive || !this.spawned || now < this.phasedUntil) return;
-    if (!this.input.activePointer.isDown || this.shootCooldown > 0) return;
-    this.shootCooldown += this.weapon.intervalMs;
+    // any refresh rate instead of rounding up to whole frames. OVERDRIVE
+    // multiplies intervalMs and windupMs at fire time (+50% rate).
+    const rateMult = this.boosts.has("overdrive") ? OVERDRIVE_RATE_MULT : 1;
+    const interval = this.weapon.intervalMs * rateMult;
+    this.shootCooldown = Math.max(-interval, this.shootCooldown - delta);
+    if (!this.alive || !this.spawned || now < this.phasedUntil) {
+      this.windupAcc = 0;
+      return;
+    }
+    if (!this.input.activePointer.isDown) {
+      this.windupAcc = 0; // releasing mid-windup cancels
+      return;
+    }
+    const windupMs = this.weapon.windupMs * rateMult;
+    if (windupMs > 0) {
+      // Charge runs inside the interval (cycle = max(interval, windup)) and
+      // auto-repeats while held — the one-button identity holds.
+      this.windupAcc = Math.min(windupMs, this.windupAcc + delta);
+      if (this.windupAcc < windupMs || this.shootCooldown > 0) return;
+      this.windupAcc = 0;
+    } else {
+      this.windupAcc = 0;
+      if (this.shootCooldown > 0) return;
+    }
+    this.shootCooldown += interval;
     if (!this.firedOnce) {
       this.firedOnce = true;
       if (this.attractEl) this.attractEl.style.opacity = "0";
@@ -680,31 +867,254 @@ export class GameScene extends Phaser.Scene {
     this.fireWeapon(now);
   }
 
-  /** One volley of the current weapon (pellets / arc cast / single beam). */
+  /** 0–1 charge fraction of a windup weapon (0 for everything else). */
+  private windupFrac(): number {
+    const rateMult = this.boosts.has("overdrive") ? OVERDRIVE_RATE_MULT : 1;
+    const windupMs = this.weapon.windupMs * rateMult;
+    return windupMs > 0 ? Math.min(1, this.windupAcc / windupMs) : 0;
+  }
+
+  /** One volley of the current weapon (pellets / arc cast / mine / nova). */
   private fireWeapon(now: number): void {
     const nose = {
       x: this.shipX + Math.cos(this.shipAngle) * SHIP_RADIUS,
       y: this.shipY + Math.sin(this.shipAngle) * SHIP_RADIUS,
     };
-    const arc = this.weapon.arc;
+    const w = this.weapon;
+    const arc = w.arc;
     let gainScale = 1;
-    if (arc) {
+    if (arc && w.aura) {
+      // TESLA AURA: nothing in range = a silent tick (no sound, no muzzle).
+      if (!this.fireAuraZap(now, arc)) return;
+    } else if (arc) {
       if (this.fireArc(now, nose, arc)) gainScale = 0.5; // fizzle: quieter zap
+    } else if (w.mine) {
+      this.dropMine(now);
+    } else if (w.cluster) {
+      this.fireClusterVolley(w);
+    } else if (w.explosion && w.speed === 0) {
+      // NOVA: radial shockwave centered on the ship — serialized as an
+      // exploding beam (existing fields), so victims/remotes need zero new code.
+      const b = this.makeBeam({ x: this.shipX, y: this.shipY }, this.shipAngle, w, now);
+      b.released = true;
+      b.exploding = true;
+      this.beams.push(b);
     } else {
-      const n = this.weapon.pellets;
-      for (let i = 0; i < n; i++) {
-        const spread =
-          n > 1 ? -this.weapon.spreadDeg / 2 + (this.weapon.spreadDeg * i) / (n - 1) : 0;
-        const jitter = (Math.random() * 2 - 1) * this.weapon.jitterDeg;
-        const angle = this.shipAngle + (spread + jitter) * DEG;
-        this.beams.push(this.makeBeam(nose, angle, this.weapon, now));
+      // SENTRY: the trigger also places/moves the turret (sound gated there).
+      if (w.sentry) this.placeSentry(now);
+      // PLASMA: per-shot tint lerps the hot pink->orange gradient.
+      const vw = w.sfx === "plasma" ? { ...w, tint: lerpTint(PLASMA_TINT_A, PLASMA_TINT_B) } : w;
+      this.firePellets(nose, this.shipAngle, vw, now);
+      if (vw.mirror) {
+        // MIRROR: the 180-deg copy launches from the tail.
+        const back = {
+          x: this.shipX - Math.cos(this.shipAngle) * SHIP_RADIUS,
+          y: this.shipY - Math.sin(this.shipAngle) * SHIP_RADIUS,
+        };
+        this.firePellets(back, this.shipAngle + Math.PI, vw, now);
+      }
+      // TWIN mirrors beams only (mines/nova excluded above by branch).
+      const twin = this.twinPos();
+      if (twin) {
+        const tw = { ...vw, power: vw.power * TWIN_POWER_MULT };
+        this.firePellets(twin, this.shipAngle, tw, now);
+        if (tw.mirror) this.firePellets(twin, this.shipAngle + Math.PI, tw, now);
       }
     }
     this.muzzleFx(nose, now, gainScale);
   }
 
-  private makeBeam(nose: Vec, angle: number, weapon: Weapon, now: number): Beam {
+  /** TESLA AURA: zap the nearest non-player target within castRange of the
+   *  SHIP (omnidirectional, no cone) — a single-hop ARC chain. Players are
+   *  excluded on purpose: PvP runs victim-side off the serialized `tesla`
+   *  flag (RAM pattern), so a chain hit-test would double-dip. Returns
+   *  false when nothing was in range (the caller stays silent). */
+  private fireAuraZap(now: number, spec: NonNullable<Weapon["arc"]>): boolean {
+    const r2 = spec.castRange * spec.castRange;
+    let best: { ref: TargetRef; x: number; y: number } | null = null;
+    let bestD = Infinity;
+    for (const e of this.world.enemies) {
+      const d = dist2(e.x, e.y, this.shipX, this.shipY);
+      if (d <= r2 && d < bestD) {
+        bestD = d;
+        best = { ref: { kind: "enemy", id: e.id }, x: e.x, y: e.y };
+      }
+    }
+    const u = this.world.ufo;
+    if (u) {
+      const d = dist2(u.x, u.y, this.shipX, this.shipY);
+      if (d <= r2 && d < bestD) {
+        bestD = d;
+        best = { ref: { kind: "ufo" }, x: u.x, y: u.y };
+      }
+    }
+    for (const a of this.world.asteroids) {
+      const d = dist2(a.x, a.y, this.shipX, this.shipY);
+      if (d <= r2 && d < bestD) {
+        bestD = d;
+        best = { ref: { kind: "asteroid", id: a.id }, x: a.x, y: a.y };
+      }
+    }
+    if (!best) return false;
+    const origin = { x: this.shipX, y: this.shipY };
+    const chain: Vec[] = [origin, { x: best.x, y: best.y }];
+    this.applyArcDamage(best.ref, best.x, best.y, this.weapon.power * 100, now);
+    this.beams.push({
+      ...this.makeBeam(
+        origin,
+        Math.atan2(best.y - this.shipY, best.x - this.shipX),
+        this.weapon,
+        now,
+      ),
+      chain,
+      diesAt: now + ARC_RENDER_MS,
+    });
+    return true;
+  }
+
+  /** SENTRY: place (or move) the one turret at the ship; re-placing
+   *  refreshes its 12s life. The clack only plays on a real move so
+   *  drag-firing doesn't machine-gun the sound. */
+  private placeSentry(now: number): void {
+    const prev = this.sentry;
+    const moved = !prev || dist2(prev.x, prev.y, this.shipX, this.shipY) > 100 * 100;
+    this.sentry = {
+      x: this.shipX,
+      y: this.shipY,
+      until: now + SENTRY_LIFETIME_MS,
+      nextFireAt: prev?.nextFireAt ?? 0,
+    };
+    if (moved) {
+      sfx.play("sentry_place");
+      this.fx.ring(this.shipX, this.shipY, 4, 18, 200, SENTRY_WEAPON.tint, 0.6);
+    }
+  }
+
+  /** SENTRY turret sim: every SENTRY_FIRE_MS fire a bolt (ordinary owner
+   *  beam — hits, score and serialization all ride the normal pipelines)
+   *  at the nearest enemy, else the nearest asteroid, within range. */
+  private tickSentry(now: number): void {
+    const s = this.sentry;
+    if (!s) return;
+    if (!this.alive || now >= s.until) {
+      this.sentry = null;
+      return;
+    }
+    if (now < s.nextFireAt) return;
+    const r2 = SENTRY_RANGE * SENTRY_RANGE;
+    let best: Vec | null = null;
+    let bestD = Infinity;
+    for (const e of this.world.enemies) {
+      const d = dist2(e.x, e.y, s.x, s.y);
+      if (d <= r2 && d < bestD) {
+        bestD = d;
+        best = { x: e.x, y: e.y };
+      }
+    }
+    if (!best) {
+      for (const a of this.world.asteroids) {
+        const d = dist2(a.x, a.y, s.x, s.y);
+        if (d <= r2 && d < bestD) {
+          bestD = d;
+          best = { x: a.x, y: a.y };
+        }
+      }
+    }
+    if (!best) return; // nothing in range: rescan next frame, no cooldown
+    const ang = Math.atan2(best.y - s.y, best.x - s.x);
+    this.beams.push(this.makeBeam({ x: s.x, y: s.y }, ang, SENTRY_WEAPON, now));
+    s.nextFireAt = now + SENTRY_FIRE_MS;
+    this.fx.sparks(s.x, s.y, 2, SENTRY_WEAPON.tint, { lifeMin: 80, lifeMax: 140, scale: 0.4 });
+    if (this.onScreen(s.x, s.y)) sfx.play("fire_pulse", { gain: 0.35, rate: 1.15 });
+  }
+
+  /** TESLA AURA live = weapon held and able to fire (mirrored to the wire). */
+  private teslaActive(now: number): boolean {
+    return (
+      this.weapon.aura &&
+      this.alive &&
+      this.spawned &&
+      this.input.activePointer.isDown &&
+      now >= this.phasedUntil
+    );
+  }
+
+  /** The pellet/spread loop, parameterized by origin (ship nose or TWIN drone). */
+  private firePellets(origin: Vec, aimAngle: number, weapon: Weapon, now: number): void {
+    const n = weapon.pellets;
+    for (let i = 0; i < n; i++) {
+      const spread = n > 1 ? -weapon.spreadDeg / 2 + (weapon.spreadDeg * i) / (n - 1) : 0;
+      const jitter = (Math.random() * 2 - 1) * weapon.jitterDeg;
+      const angle = aimAngle + (spread + jitter) * DEG;
+      this.beams.push(this.makeBeam(origin, angle, weapon, now));
+    }
+  }
+
+  /** TWIN orbit phase — derived from the wall clock with the exact formula
+   *  remotes use, so the owner's drone and every remote render agree. */
+  private twinAngle(): number {
+    return (Date.now() / 1000) * TWIN_ORBIT_DEG_PER_S * DEG;
+  }
+
+  /** TWIN drone position while the booster is live, else null. */
+  private twinPos(): Vec | null {
+    if (!this.boosts.has("twin")) return null;
+    const a = this.twinAngle();
     return {
+      x: this.shipX + Math.cos(a) * TWIN_ORBIT_RADIUS,
+      y: this.shipY + Math.sin(a) * TWIN_ORBIT_RADIUS,
+    };
+  }
+
+  /** CLUSTER: launch `missiles` staggered homing missiles. Each missile
+   *  re-runs the nose position + HOMING lock at its own launch instant, so
+   *  the stagger fans locks across a crowd. TWIN mirrors every missile
+   *  (cluster missiles are ordinary beams). */
+  private fireClusterVolley(w: Weapon): void {
+    const spec = w.cluster;
+    if (!spec) return;
+    const launch = (): void => {
+      if (!this.alive || !this.spawned) return;
+      const t = Date.now();
+      const nose = {
+        x: this.shipX + Math.cos(this.shipAngle) * SHIP_RADIUS,
+        y: this.shipY + Math.sin(this.shipAngle) * SHIP_RADIUS,
+      };
+      this.firePellets(nose, this.shipAngle, w, t);
+      const twin = this.twinPos();
+      if (twin) {
+        this.firePellets(twin, this.shipAngle, { ...w, power: w.power * TWIN_POWER_MULT }, t);
+      }
+    };
+    launch();
+    for (let i = 1; i < spec.missiles; i++) this.time.delayedCall(spec.staggerMs * i, launch);
+  }
+
+  /** Drop a proximity mine at the ship's tail (owner-simulated, in beams[]). */
+  private dropMine(now: number): void {
+    const live = this.beams.filter((b) => b.mine && !b.exploding && !b.vanished);
+    if (live.length >= MINE_MAX_LIVE) {
+      const oldest = live[0];
+      if (oldest) {
+        // Over the cap: the oldest detonates harmlessly at 30% scale.
+        oldest.vanished = true;
+        const range = oldest.weapon.explosion?.range ?? 90;
+        this.fx.ring(oldest.head.x, oldest.head.y, 4, range * 0.3, 200, oldest.weapon.tint, 0.4);
+      }
+    }
+    const tail = {
+      x: this.shipX - Math.cos(this.shipAngle) * (SHIP_RADIUS + 4),
+      y: this.shipY - Math.sin(this.shipAngle) * (SHIP_RADIUS + 4),
+    };
+    const b = this.makeBeam(tail, this.shipAngle, this.weapon, now);
+    b.released = true;
+    b.mine = { armAt: now + MINE_ARM_MS };
+    b.diesAt = now + MINE_LIFETIME_MS;
+    this.beams.push(b);
+  }
+
+  private makeBeam(nose: Vec, angle: number, weapon: Weapon, now: number): Beam {
+    const b: Beam = {
       head: { ...nose },
       tail: { ...nose },
       angle,
@@ -718,20 +1128,80 @@ export class GameScene extends Phaser.Scene {
       glaive: weapon.boomerang ? { returning: false, traveled: 0 } : null,
       chain: null,
       fizzle: false,
-      diesAt: 0,
+      // Range-limited beams (PLASMA stream, SINGULARITY flight) expire after
+      // range px of travel; everything else rides 0 (callers may override).
+      diesAt: weapon.range > 0 && weapon.speed > 0 ? now + (weapon.range / weapon.speed) * 1000 : 0,
+      mine: null,
+      bouncesLeft: weapon.ricochet?.bounces ?? 0,
+      collapseUntil: 0,
+      traveled: 0,
       spin: now % 1000, // desync glaive spin phases a little
     };
+    if (weapon.windupMs > 0 && weapon.length > 0) {
+      // RAILGUN: near-hitscan — the full lance renders (and hits) immediately.
+      b.head.x += Math.cos(angle) * weapon.length;
+      b.head.y += Math.sin(angle) * weapon.length;
+      b.released = true;
+    }
+    return b;
   }
 
   /** Muzzle flash + camera kick + fire sfx, per weapon family (§9). */
   private muzzleFx(nose: Vec, now: number, gainScale = 1): void {
     const w = this.weapon;
     const sound = weaponSound(w.sfx);
-    sfx.play(sound.name, { gain: sound.gain * gainScale });
+    const playOpts: PlayOpts = { gain: sound.gain * gainScale };
+    if (sound.rate !== undefined) playOpts.rate = sound.rate;
+    sfx.play(sound.name, playOpts);
+    // OVERDRIVE: muzzle flashes gain a gold outer spark.
+    if (this.boosts.has("overdrive")) {
+      this.fx.sparks(nose.x, nose.y, 2, 0xfacc15, {
+        speedMin: 150,
+        speedMax: 320,
+        lifeMin: 100,
+        lifeMax: 180,
+        scale: 0.5,
+      });
+    }
     const aimDeg = this.shipAngle / DEG;
     switch (w.sfx) {
+      case "mine":
+        // Drop, not a shot: tiny puff, no kick.
+        this.fx.sparks(nose.x, nose.y, 2, w.tint, { lifeMin: 100, lifeMax: 160, scale: 0.4 });
+        break;
+      case "nova":
+        // The expanding ring IS the effect; no muzzle, no kick.
+        break;
+      case "rail":
+        // Heavy release (§C): kick 5px, trauma +0.08.
+        this.fx.sparks(nose.x, nose.y, 5, w.tint, {
+          angleMin: aimDeg - 12,
+          angleMax: aimDeg + 12,
+          speedMin: 250,
+          speedMax: 450,
+          lifeMin: 120,
+          lifeMax: 200,
+          scale: 0.5,
+        });
+        this.muzzleFlashes.push({
+          x: nose.x,
+          y: nose.y,
+          angle: this.shipAngle,
+          size: 12,
+          tint: w.tint,
+          diesAt: now + 50,
+          kind: "cross",
+        });
+        this.trauma.add(0.08);
+        this.kick(5);
+        break;
+      case "tesla":
+        // The zap chain is the whole show — no muzzle, no kick.
+        break;
       case "heavy":
       case "glaive":
+      case "drill":
+      case "singularity":
         this.fx.sparks(nose.x, nose.y, 5, w.tint, {
           angleMin: aimDeg - 15,
           angleMax: aimDeg + 15,
@@ -839,7 +1309,7 @@ export class GameScene extends Phaser.Scene {
     for (const [id, player] of Object.entries(this.peers)) {
       if (id === myId) continue;
       const st = readNetState(player);
-      if (!st || !st.alive || st.invuln || st.shield?.phased) continue;
+      if (!st || !st.alive || st.invuln || st.shieldMod?.phased) continue;
       const d = inCone(st.x, st.y);
       if (d !== null && d < bestD) {
         bestD = d;
@@ -961,7 +1431,7 @@ export class GameScene extends Phaser.Scene {
     for (const [id, player] of Object.entries(this.peers)) {
       if (id === myId) continue;
       const st = readNetState(player);
-      if (st && st.alive && !st.invuln && !st.shield?.phased) {
+      if (st && st.alive && !st.invuln && !st.shieldMod?.phased) {
         out.push({ ref: { kind: "player", id }, x: st.x, y: st.y });
       }
     }
@@ -983,7 +1453,7 @@ export class GameScene extends Phaser.Scene {
         e.blinkUntil = now + 150;
         if (e.hp - dmgHp <= 0 && !this.predictedKills.has(e.id)) {
           this.predictedKills.set(e.id, now);
-          this.registerKill(ENEMY_SPECS[e.kind].score, now);
+          this.registerKill(ENEMY_SPECS[e.kind].score, now, "enemy", e.x, e.y);
         }
         this.netSendEvent("enemy_hit", { enemyId: e.id, damage: dmgHp });
         return;
@@ -995,7 +1465,7 @@ export class GameScene extends Phaser.Scene {
         const destroyed = a.radius - ASTEROID_MAX_RADIUS * Math.min(power, 1) < ASTEROID_MIN_RADIUS;
         if (destroyed && !this.predictedKills.has(a.id)) {
           this.predictedKills.set(a.id, now);
-          this.registerKill(SCORE.ASTEROID_DESTROY, now);
+          this.registerKill(SCORE.ASTEROID_DESTROY, now, "asteroid", a.x, a.y);
         } else {
           this.score += SCORE.ASTEROID_CHIP;
         }
@@ -1007,7 +1477,7 @@ export class GameScene extends Phaser.Scene {
         if (!u) return;
         if (u.hp - dmgHp <= 0 && !this.predictedKills.has(u.id)) {
           this.predictedKills.set(u.id, now);
-          this.registerKill(SCORE.UFO_DESTROY, now);
+          this.registerKill(SCORE.UFO_DESTROY, now, "ufo", u.x, u.y);
         }
         this.netSendEvent("ufo_hit", { damage: dmgHp / 100 });
         return;
@@ -1022,6 +1492,11 @@ export class GameScene extends Phaser.Scene {
   private updateBeams(dt: number, now: number): void {
     this.beams = this.beams.filter((b) => !b.vanished);
     for (const b of this.beams) {
+      // Mine: stationary until triggered; lifetime expiry detonates it.
+      if (b.mine && !b.exploding) {
+        if (now >= b.diesAt) this.detonateMine(b);
+        continue;
+      }
       // ARC bolt: static geometry, render-only lifetime.
       if (b.chain) {
         if (now >= b.diesAt) b.vanished = true;
@@ -1035,6 +1510,23 @@ export class GameScene extends Phaser.Scene {
         }
         b.explosionRadius += explosion.growth * dt;
         if (b.explosionRadius >= explosion.range) b.vanished = true;
+        continue;
+      }
+      // SINGULARITY: freeze through the collapse, pop at its end; the
+      // flight leg collapses at diesAt instead of vanishing.
+      if (b.weapon.singularity) {
+        if (b.collapseUntil > 0) {
+          if (now >= b.collapseUntil) this.popSingularity(b);
+          continue;
+        }
+        if (b.diesAt > 0 && now >= b.diesAt) {
+          this.startCollapse(b, now);
+          continue;
+        }
+      }
+      // Range-limited plain beams (FLAK fragments, PLASMA): expire at diesAt.
+      if (b.diesAt > 0 && now >= b.diesAt) {
+        b.vanished = true;
         continue;
       }
       // GLAIVE: out, decelerate, boomerang home, catch.
@@ -1086,6 +1578,16 @@ export class GameScene extends Phaser.Scene {
       const sy = Math.sin(b.angle) * step;
       b.head.x += sx;
       b.head.y += sy;
+      b.traveled += step;
+      // FLAK: airburst at burstDist traveled (first-hit burst in onBeamHit).
+      if (b.weapon.flak && b.traveled >= b.weapon.flak.burstDist) {
+        this.burstFlak(b, now);
+        continue;
+      }
+      // RICOCHET: bounce off the world edge while bounces remain.
+      if (b.bouncesLeft > 0 && !inWorld(b.head.x, b.head.y, 0)) {
+        this.ricochetEdgeBounce(b);
+      }
       if (!inWorld(b.head.x, b.head.y, BEAM_CULL_MARGIN)) {
         b.vanished = true;
         continue;
@@ -1108,9 +1610,55 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  /** Beam reaction to a hit: explode, pass through, or vanish. */
-  private onBeamHit(b: Beam): void {
+  /** Armed mines trigger on enemy / remote player / UFO proximity (§C). */
+  private tickMines(now: number): void {
+    const r2 = MINE_TRIGGER_RADIUS * MINE_TRIGGER_RADIUS;
+    for (const b of this.beams) {
+      if (!b.mine || b.exploding || b.vanished || now < b.mine.armAt) continue;
+      const x = b.head.x;
+      const y = b.head.y;
+      let trigger = false;
+      for (const e of this.world.enemies) {
+        if (dist2(e.x, e.y, x, y) <= r2) {
+          trigger = true;
+          break;
+        }
+      }
+      const u = this.world.ufo;
+      if (!trigger && u && dist2(u.x, u.y, x, y) <= r2) trigger = true;
+      if (!trigger) {
+        const myId = this.myId;
+        for (const [id, player] of Object.entries(this.peers)) {
+          if (id === myId) continue;
+          const st = readNetState(player);
+          if (!st || !st.alive || st.invuln || st.shieldMod?.phased) continue;
+          if (dist2(st.x, st.y, x, y) <= r2) {
+            trigger = true;
+            break;
+          }
+        }
+      }
+      if (trigger) this.detonateMine(b);
+    }
+  }
+
+  /** Standard explosion through the existing exploding/explosionRadius path. */
+  private detonateMine(b: Beam): void {
+    b.exploding = true;
+    b.explosionRadius = 0;
+    if (this.onScreen(b.head.x, b.head.y)) {
+      sfx.play("fire_heavy", { gain: 0.8, rate: 0.85 });
+      this.trauma.add(0.06);
+    }
+  }
+
+  /** Beam reaction to a hit: explode, airburst, pass through, or vanish. */
+  private onBeamHit(b: Beam, now: number): void {
     if (b.exploding) return; // expanding AoE keeps going; updateBeams expires it at range
+    if (b.weapon.flak) {
+      this.burstFlak(b, now); // first hit pops the shell early
+      return;
+    }
     if (b.weapon.explosion) {
       b.exploding = true;
       b.explosionRadius = 0;
@@ -1119,10 +1667,152 @@ export class GameScene extends Phaser.Scene {
     if (!b.weapon.through) b.vanished = true;
   }
 
+  /** FLAK airburst: the shell vanishes into `fragments` radial beams, each
+   *  an ordinary beam with its own hit dedup, range-limited via diesAt.
+   *  Fragments inherit the shell's hitIds so a direct-hit victim eats the
+   *  shell once, not shell + 8 point-blank fragments. */
+  private burstFlak(b: Beam, now: number): void {
+    const spec = b.weapon.flak;
+    if (!spec || b.vanished) return;
+    b.vanished = true;
+    const ttlMs = (spec.fragRange / FLAK_FRAG_WEAPON.speed) * 1000;
+    for (let i = 0; i < spec.fragments; i++) {
+      const ang = (Math.PI * 2 * i) / spec.fragments;
+      const fb = this.makeBeam({ x: b.head.x, y: b.head.y }, ang, FLAK_FRAG_WEAPON, now);
+      fb.released = true;
+      fb.diesAt = now + ttlMs;
+      fb.hitIds = new Set(b.hitIds);
+      this.beams.push(fb);
+    }
+    this.fx.ring(b.head.x, b.head.y, 4, 36, 200, b.weapon.tint, 0.7);
+    if (this.onScreen(b.head.x, b.head.y)) {
+      sfx.play("fire_scatter", { gain: 0.7, rate: 0.9 });
+      this.trauma.add(0.04);
+    }
+  }
+
+  /** SINGULARITY collapse start (flight range reached or first contact):
+   *  freeze the orb, emit ONE shared pull event — the HOST applies the drag
+   *  to its simulated enemies/asteroids so all clients see the same motion
+   *  (offline: the event loops straight back into the local host). */
+  private startCollapse(b: Beam, now: number): void {
+    if (b.collapseUntil > 0 || b.exploding || b.vanished) return;
+    b.collapseUntil = now + SINGULARITY_PULL_MS;
+    b.diesAt = 0;
+    b.tail = { ...b.head };
+    this.netSendEvent("singularity", { x: b.head.x, y: b.head.y, until: b.collapseUntil });
+    if (this.onScreen(b.head.x, b.head.y)) sfx.play("fire_laser", { gain: 0.6, rate: 0.5 });
+  }
+
+  /** SINGULARITY pop: the standard exploding-beam path. hitIds is cleared so
+   *  a flight-contact target isn't deduped out of its own pop. */
+  private popSingularity(b: Beam): void {
+    b.collapseUntil = 0;
+    b.exploding = true;
+    b.explosionRadius = 0;
+    b.hitIds.clear();
+    this.fx.ring(b.head.x, b.head.y, 6, 90, 250, b.weapon.tint, 0.8);
+    if (this.onScreen(b.head.x, b.head.y)) {
+      // The boom, dropped well below the EXPLOSION family's pitch.
+      sfx.play("fire_heavy", { gain: 1.2, rate: 0.55 });
+      this.trauma.add(0.12);
+    }
+  }
+
+  /** RICOCHET world-edge bounce: clamp inside, reflect off the edge normal. */
+  private ricochetEdgeBounce(b: Beam): void {
+    let nx = 0;
+    let ny = 0;
+    if (b.head.x < 0) nx = 1;
+    else if (b.head.x > WORLD_W) nx = -1;
+    if (b.head.y < 0) ny = 1;
+    else if (b.head.y > WORLD_H) ny = -1;
+    b.head.x = Phaser.Math.Clamp(b.head.x, 0, WORLD_W);
+    b.head.y = Phaser.Math.Clamp(b.head.y, 0, WORLD_H);
+    const len = Math.hypot(nx, ny) || 1;
+    this.ricochetBounce(b, nx / len, ny / len);
+  }
+
+  /** RICOCHET bounce: reflect off the surface normal, then re-aim at the
+   *  nearest un-hit enemy/asteroid in range (the re-aim IS the weapon; the
+   *  reflection is the fallback). The tail re-grows from the kink so the
+   *  segment visibly bends; remotes see it via per-snapshot beams. */
+  private ricochetBounce(b: Beam, nx: number, ny: number): void {
+    b.bouncesLeft -= 1;
+    const dx = Math.cos(b.angle);
+    const dy = Math.sin(b.angle);
+    const dot = dx * nx + dy * ny;
+    b.angle = Math.atan2(dy - 2 * dot * ny, dx - 2 * dot * nx);
+    this.retargetRicochet(b);
+    b.tail = { ...b.head };
+    b.released = false;
+    this.fx.sparks(b.head.x, b.head.y, 3, b.weapon.tint, {
+      lifeMin: 100,
+      lifeMax: 180,
+      scale: 0.4,
+    });
+  }
+
+  /** Aim at the nearest enemy (preferred) or asteroid within retargetRange
+   *  that this beam hasn't already damaged. */
+  private retargetRicochet(b: Beam): void {
+    const range = b.weapon.ricochet?.retargetRange ?? 0;
+    if (range <= 0) return;
+    const r2 = range * range;
+    let best: Vec | null = null;
+    let bestD = Infinity;
+    for (const e of this.world.enemies) {
+      if (b.hitIds.has(e.id)) continue;
+      const d = dist2(e.x, e.y, b.head.x, b.head.y);
+      if (d <= r2 && d < bestD) {
+        bestD = d;
+        best = { x: e.x, y: e.y };
+      }
+    }
+    if (!best) {
+      for (const a of this.world.asteroids) {
+        if (b.hitIds.has(a.id)) continue;
+        const d = dist2(a.x, a.y, b.head.x, b.head.y);
+        if (d <= r2 && d < bestD) {
+          bestD = d;
+          best = { x: a.x, y: a.y };
+        }
+      }
+    }
+    if (best) b.angle = Math.atan2(best.y - b.head.y, best.x - b.head.x);
+  }
+
   // ---- hits, kills + combo ------------------------------------------------------
 
-  /** A kill: bump the streak, award table value × multiplier, milestone FX. */
-  private registerKill(base: number, now: number): void {
+  /** A kill: bump the streak, award table value × multiplier, milestone FX.
+   *  SIPHON hooks here, so predicted kills heal — consistent with the
+   *  self-award scoring grammar. */
+  private registerKill(
+    base: number,
+    now: number,
+    kind: "enemy" | "asteroid" | "ufo" | "player",
+    x = this.shipX,
+    y = this.shipY,
+  ): void {
+    if (this.shieldMod === "siphon" && this.alive) {
+      const heal =
+        kind === "asteroid"
+          ? SIPHON_HEAL_ASTEROID
+          : kind === "player"
+            ? SIPHON_HEAL_PLAYER
+            : SIPHON_HEAL_ENEMY;
+      this.shieldHp = Math.min(SIPHON_OVERHEAL_MAX, this.shieldHp + heal);
+      this.siphonPulseUntil = now + 250;
+      const d = Math.hypot(x - this.shipX, y - this.shipY);
+      this.fx.converge(
+        this.shipX,
+        this.shipY,
+        4,
+        Math.max(24, Math.min(300, d)),
+        250,
+        SHIELD_MOD_SPECS.siphon.tint,
+      );
+    }
     this.streak += 1;
     this.comboExpiresAt = now + COMBO_WINDOW_MS;
     const mult = comboMult(this.streak);
@@ -1160,25 +1850,49 @@ export class GameScene extends Phaser.Scene {
    */
   private detectMyHits(now: number): void {
     if (!this.spawned) return;
+    // Crowd-scale FX budget: skip non-kill hit-spark spawns over the cap
+    // (the victim's white flash stays — it's the readability signal).
+    const sparksOk = this.fx.aliveParticles() <= HITSPARK_SKIP_BUDGET;
     for (const b of this.beams) {
       if (b.vanished || b.chain) continue; // ARC damage applied at cast
-      for (const a of this.world.asteroids) {
+      if (b.mine && !b.exploding) continue; // inert until triggered
+      // Width is half-padded into every segment test below so wide beams
+      // (DRILL 8px) hit what they visually cover, not just their axis.
+      const pad = b.weapon.width / 2;
+      // PHASE LANCE: no asteroid hit-test at all — rocks aren't cover.
+      const rocks = b.weapon.phasesRock ? NO_ASTEROIDS : this.world.asteroids;
+      for (const a of rocks) {
         const hit = b.exploding
           ? dist2(b.head.x, b.head.y, a.x, a.y) <= b.explosionRadius * b.explosionRadius
-          : segHitsCircle(b.tail.x, b.tail.y, b.head.x, b.head.y, a.x, a.y, a.radius);
+          : segHitsCircle(b.tail.x, b.tail.y, b.head.x, b.head.y, a.x, a.y, a.radius + pad);
         if (!hit) continue;
+        if (b.weapon.singularity && !b.exploding) {
+          // Flight contact collapses the orb; damage comes from the pop.
+          this.startCollapse(b, now);
+          break;
+        }
         if (b.hitIds.has(a.id)) continue;
         b.hitIds.add(a.id);
-        this.onBeamHit(b);
+        if (b.weapon.ricochet && b.bouncesLeft > 0 && !b.exploding) {
+          // RICOCHET: damage lands below, but the bolt bounces instead of dying.
+          let nx = b.head.x - a.x;
+          let ny = b.head.y - a.y;
+          const nl = Math.hypot(nx, ny) || 1;
+          this.ricochetBounce(b, nx / nl, ny / nl);
+        } else {
+          this.onBeamHit(b, now);
+        }
         const destroyed =
           a.radius - ASTEROID_MAX_RADIUS * Math.min(b.weapon.power, 1) < ASTEROID_MIN_RADIUS;
         if (destroyed && !this.predictedKills.has(a.id)) {
           this.predictedKills.set(a.id, now);
-          this.registerKill(SCORE.ASTEROID_DESTROY, now);
+          this.registerKill(SCORE.ASTEROID_DESTROY, now, "asteroid", a.x, a.y);
         } else {
           this.score += SCORE.ASTEROID_CHIP; // flat, never multiplied
         }
-        this.fx.sparks(b.head.x, b.head.y, 6, b.weapon.tint, { lifeMin: 150, lifeMax: 250 });
+        if (sparksOk || destroyed) {
+          this.fx.sparks(b.head.x, b.head.y, 6, b.weapon.tint, { lifeMin: 150, lifeMax: 250 });
+        }
         sfx.play("hit_spark", { gain: 0.4 });
         this.netSendEvent("asteroid_hit", { asteroidId: a.id, damage: b.weapon.power });
         if (!b.exploding) break; // AoE circle keeps testing every target
@@ -1188,18 +1902,25 @@ export class GameScene extends Phaser.Scene {
         const r = e.chargeUntil > now ? LANCER_CHARGE_HIT_RADIUS : ENEMY_SPECS[e.kind].hitRadius;
         const hit = b.exploding
           ? dist2(b.head.x, b.head.y, e.x, e.y) <= b.explosionRadius * b.explosionRadius
-          : segHitsCircle(b.tail.x, b.tail.y, b.head.x, b.head.y, e.x, e.y, r);
+          : segHitsCircle(b.tail.x, b.tail.y, b.head.x, b.head.y, e.x, e.y, r + pad);
         if (!hit) continue;
+        if (b.weapon.singularity && !b.exploding) {
+          this.startCollapse(b, now);
+          break;
+        }
         if (b.hitIds.has(e.id)) continue;
         b.hitIds.add(e.id);
-        this.onBeamHit(b);
+        this.onBeamHit(b, now);
         const dmg = b.weapon.power * 100;
-        if (e.hp - dmg <= 0 && !this.predictedKills.has(e.id)) {
+        const killed = e.hp - dmg <= 0;
+        if (killed && !this.predictedKills.has(e.id)) {
           this.predictedKills.set(e.id, now);
-          this.registerKill(ENEMY_SPECS[e.kind].score, now);
+          this.registerKill(ENEMY_SPECS[e.kind].score, now, "enemy", e.x, e.y);
         }
         e.blinkUntil = now + 150; // immediate local feedback; host echoes
-        this.fx.sparks(b.head.x, b.head.y, 6, b.weapon.tint, { lifeMin: 150, lifeMax: 250 });
+        if (sparksOk || killed) {
+          this.fx.sparks(b.head.x, b.head.y, 6, b.weapon.tint, { lifeMin: 150, lifeMax: 250 });
+        }
         sfx.play("hit_spark", { gain: 0.4 });
         this.netSendEvent("enemy_hit", { enemyId: e.id, damage: dmg });
         if (!b.exploding) break; // AoE circle keeps testing every target
@@ -1209,15 +1930,22 @@ export class GameScene extends Phaser.Scene {
       if (u) {
         const hit = b.exploding
           ? dist2(b.head.x, b.head.y, u.x, u.y) <= b.explosionRadius * b.explosionRadius
-          : segHitsCircle(b.tail.x, b.tail.y, b.head.x, b.head.y, u.x, u.y, UFO_RADIUS);
+          : segHitsCircle(b.tail.x, b.tail.y, b.head.x, b.head.y, u.x, u.y, UFO_RADIUS + pad);
+        if (hit && b.weapon.singularity && !b.exploding) {
+          this.startCollapse(b, now);
+          continue;
+        }
         if (hit && !b.hitIds.has(u.id)) {
           b.hitIds.add(u.id);
-          this.onBeamHit(b);
-          if (u.hp - b.weapon.power * 100 <= 0 && !this.predictedKills.has(u.id)) {
+          this.onBeamHit(b, now);
+          const killed = u.hp - b.weapon.power * 100 <= 0;
+          if (killed && !this.predictedKills.has(u.id)) {
             this.predictedKills.set(u.id, now);
-            this.registerKill(SCORE.UFO_DESTROY, now);
+            this.registerKill(SCORE.UFO_DESTROY, now, "ufo", u.x, u.y);
           }
-          this.fx.sparks(b.head.x, b.head.y, 6, b.weapon.tint, { lifeMin: 150, lifeMax: 250 });
+          if (sparksOk || killed) {
+            this.fx.sparks(b.head.x, b.head.y, 6, b.weapon.tint, { lifeMin: 150, lifeMax: 250 });
+          }
           sfx.play("hit_spark", { gain: 0.4 });
           this.netSendEvent("ufo_hit", { damage: b.weapon.power });
         }
@@ -1228,10 +1956,15 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  // ---- shields + death (victim-side adjudication, §5.2) -----------------------------
+  // ---- shields + death (victim-side adjudication, v2 §A/§B) -------------------------
 
   private ramArmed(): boolean {
-    return this.shield?.kind === "ram" && Math.hypot(this.shipVX, this.shipVY) > RAM_ARM_SPEED;
+    return this.shieldMod === "ram" && Math.hypot(this.shipVX, this.shipVY) > RAM_ARM_SPEED;
+  }
+
+  /** REFLECT bounces only while the base shield is above the gate. */
+  private reflectArmed(): boolean {
+    return this.shieldMod === "reflect" && this.shieldHp > REFLECT_MIN_SHIELD;
   }
 
   /** Reflect my velocity off the obstacle at (cx,cy), scaled, plus a nudge out. */
@@ -1253,73 +1986,118 @@ export class GameScene extends Phaser.Scene {
     this.shipY += ny * 2;
   }
 
-  private shieldHitFx(now: number, impactX: number, impactY: number): void {
-    const sh = this.shield;
-    if (!sh) return;
+  /** Ring flash + 60° impact arc + sparks + retuned trauma + pitched ping. */
+  private shieldHitFx(now: number, impactX: number, impactY: number, amount: number): void {
     this.haloFlashUntil = now + 80;
-    const ang = Math.atan2(impactY - this.shipY, impactX - this.shipX) / DEG;
-    this.fx.sparks(impactX, impactY, 8, SHIELD_SPECS[sh.kind].tint, {
-      angleMin: ang - 22.5,
-      angleMax: ang + 22.5,
+    const ang = Math.atan2(impactY - this.shipY, impactX - this.shipX);
+    this.impactArcs.push({ angle: ang, diesAt: now + 150 });
+    this.fx.sparks(impactX, impactY, 8, SHIELD_RING_TINT, {
+      angleMin: ang / DEG - 22.5,
+      angleMax: ang / DEG + 22.5,
       lifeMin: 150,
       lifeMax: 250,
     });
-    sfx.play("shield_hit");
-    this.trauma.add(0.25);
+    // Hits sound lower as you get closer to death (§A.5).
+    const fraction = Math.max(0, Math.min(1, this.shieldHp / SHIELD_MAX));
+    sfx.play("shield_hit", { rate: 0.85 + 0.3 * fraction });
+    this.trauma.add(amount >= 40 ? 0.25 : 0.12);
   }
 
+  /** Halo break flash (PHASE blinks; death layers shield_break in die()). */
   private shieldBreakFx(now: number): void {
-    const sh = this.shield;
-    if (!sh) return;
     this.haloFlashUntil = now + 80;
-    this.fx.ring(
-      this.shipX,
-      this.shipY,
-      SHIELD_HALO_RADIUS,
-      40,
-      300,
-      SHIELD_SPECS[sh.kind].tint,
-      0.7,
-    );
-    sfx.play("shield_break");
+    this.fx.ring(this.shipX, this.shipY, SHIELD_RING_RADIUS, 40, 300, SHIELD_RING_TINT, 0.7);
     this.trauma.add(0.3);
   }
 
-  /** Consume BARRIER charges; assumes the caller verified them. */
-  private consumeBarrier(now: number, hits: number, impactX: number, impactY: number): void {
-    const sh = this.shield;
-    if (!sh || sh.kind !== "barrier") return;
-    sh.charges -= hits;
-    this.barrierNextRegenAt = now + BARRIER_REGEN_DELAY_MS;
-    this.shieldHitFx(now, impactX, impactY);
-    if (sh.charges <= 0) this.shieldBreakFx(now);
-  }
-
-  /** PHASE: negate a lethal hit if ready. Returns true when it triggered. */
-  private tryPhase(now: number): boolean {
-    const sh = this.shield;
-    if (!sh || sh.kind !== "phase" || now < this.phaseReadyAt) return false;
-    sh.phased = true;
-    this.phasedUntil = now + PHASE_DURATION_MS;
-    this.phaseReadyAt = now + PHASE_COOLDOWN_MS;
-    this.shieldBreakFx(now);
-    return true;
-  }
-
-  /** BARRIER regen + PHASE intangibility expiry. */
-  private tickShield(now: number): void {
-    const sh = this.shield;
-    if (!sh) return;
+  /**
+   * The one drain pipeline (§A): every damage source lands here. Runs the
+   * PHASE auto-blink, drains the OVERSHIELD bonus first, stamps the regen
+   * clock, drives ring FX + low-shield trauma, and dies at ≤0 — the killing
+   * blow's cause is what the overlay names.
+   */
+  private applyDamage(
+    amount: number,
+    fromX: number,
+    fromY: number,
+    cause: string,
+    killerId: string | null,
+    now: number,
+  ): "phased" | "dead" | "drained" {
+    if (!this.alive) return "dead";
+    // PHASE auto-blink: negate haymakers (≥40) and killing blows entirely.
     if (
-      sh.kind === "barrier" &&
-      sh.charges < BARRIER_MAX_CHARGES &&
-      now >= this.barrierNextRegenAt
+      this.shieldMod === "phase" &&
+      now >= this.phaseReadyAt &&
+      (amount >= PHASE_TRIGGER_HIT || amount >= this.shieldHp + this.overHp)
     ) {
-      sh.charges += 1;
-      this.barrierNextRegenAt = now + BARRIER_REGEN_INTERVAL_MS;
-      this.haloFlashUntil = now + 80;
+      this.phasedUntil = now + PHASE_DURATION_MS;
+      this.phaseReadyAt = now + PHASE_COOLDOWN_MS;
+      // Blink cost — phasing itself can never kill you.
+      this.shieldHp -= Math.min(PHASE_COST, Math.max(0, this.shieldHp - 1));
+      this.lastDamageAt = now;
+      this.regenActive = false;
+      this.shieldBreakFx(now);
+      sfx.play("shield_break", { gain: 0.6, rate: 1.25 });
+      return "phased";
     }
-    if (sh.kind === "phase" && sh.phased && now >= this.phasedUntil) sh.phased = false;
+    const wasLow = this.shieldHp < SHIELD_MAX * SHIELD_LOW_FRACTION;
+    let rest = amount;
+    if (this.overHp > 0) {
+      const fromOver = Math.min(this.overHp, rest);
+      this.overHp -= fromOver;
+      rest -= fromOver;
+    }
+    this.shieldHp -= rest;
+    this.lastDamageAt = now;
+    this.regenActive = false;
+    if (this.shieldHp <= 0) {
+      this.die(now, killerId, cause);
+      return "dead";
+    }
+    this.shieldHitFx(now, fromX, fromY, amount);
+    if (!wasLow && this.shieldHp < SHIELD_MAX * SHIELD_LOW_FRACTION) this.trauma.add(0.15);
+    return "drained";
+  }
+
+  /** Base regen (Halo grammar) + overheal decay + mod/booster expiry. */
+  private tickShield(now: number, dt: number): void {
+    if (this.shieldMod && now >= this.shieldModUntil) {
+      this.shieldMod = null;
+      this.overHp = 0; // remaining OVERSHIELD bonus vanishes with the mod
+    }
+    for (const [kind, until] of this.boosts) {
+      if (now >= until) this.boosts.delete(kind);
+    }
+    if (!this.alive) return;
+    // SIPHON overheal above 100 bleeds off and never regens.
+    if (this.shieldHp > SHIELD_MAX) {
+      this.shieldHp = Math.max(SHIELD_MAX, this.shieldHp - SIPHON_OVERHEAL_DECAY_PER_S * dt);
+    }
+    const delay = this.shieldMod === "aegis" ? AEGIS_REGEN_DELAY_MS : SHIELD_REGEN_DELAY_MS;
+    if (this.shieldHp < SHIELD_MAX && now - this.lastDamageAt >= delay) {
+      if (!this.regenActive) {
+        this.regenActive = true;
+        sfx.play("shield_regen"); // once, when regen starts after a drain
+      }
+      const rate =
+        (SHIELD_MAX / (SHIELD_REGEN_FULL_MS / 1000)) *
+        (this.shieldMod === "aegis" ? AEGIS_REGEN_MULT : 1);
+      this.shieldHp = Math.min(SHIELD_MAX, this.shieldHp + rate * dt);
+      if (this.shieldHp >= SHIELD_MAX) this.regenActive = false;
+    } else if (this.shieldHp >= SHIELD_MAX) {
+      this.regenActive = false;
+    }
+    // Low-shield warning tone: while low and not regenerating, 1.2s gate.
+    if (
+      this.shieldHp > 0 &&
+      this.shieldHp < SHIELD_MAX * SHIELD_LOW_FRACTION &&
+      !this.regenActive &&
+      now - this.lastShieldLowAt >= 1200
+    ) {
+      this.lastShieldLowAt = now;
+      sfx.play("shield_low");
+    }
   }
 
   /** Locally remove an enemy shot + tell the host (it owns the array). */
@@ -1333,80 +2111,84 @@ export class GameScene extends Phaser.Scene {
 
   /** REFLECT return shot: NORMAL-stat beam along the reversed incoming vector. */
   private fireReflectBeam(angle: number, now: number): void {
-    const weapon: Weapon = { ...WEAPON_DEFAULT, tint: SHIELD_SPECS.reflect.tint };
+    const weapon: Weapon = { ...WEAPON_DEFAULT, tint: SHIELD_MOD_SPECS.reflect.tint };
     this.beams.push(this.makeBeam({ x: this.shipX, y: this.shipY }, angle, weapon, now));
   }
 
   /**
-   * Victim-side death detection with the shield interaction matrix (§5.2):
-   * asteroids and hulls kill on contact with the ship CENTER (generous);
-   * shots/beams kill within the ship radius. The victim reports its own killer
-   * and adjudicates its own shield.
+   * Victim-side drain detection (§A.2/§B.2): asteroids and hulls drain on
+   * contact with the ship CENTER (generous); shots/beams drain within the
+   * ship radius. Every source computes a drain and runs the one applyDamage
+   * pipeline; the victim reports its own killer and adjudicates its own mods.
    */
-  private detectMyDeath(now: number, dt: number): void {
+  private detectIncomingDamage(now: number, dt: number): void {
     if (!this.alive || !this.spawned) return;
     if (now < this.phasedUntil) return; // intangible: no collisions either way
-    if (now < this.invulnUntil) return;
-    const sh = this.shield;
+    if (now < this.invulnUntil) return; // respawn invuln: zero shield interaction
 
-    // -- asteroid contact
+    // -- asteroid contact (one drain per CONTACT_IFRAME window)
     for (const a of this.world.asteroids) {
       if (dist2(a.x, a.y, this.shipX, this.shipY) > a.radius * a.radius) continue;
-      const imm = this.ramImmunity.get(a.id);
-      if (imm !== undefined && now < imm) continue;
       if (this.ramArmed()) {
-        // RAM stops matter: small rocks die, big rocks chip + bounce.
+        // RAM stops matter: small rocks die free, big rocks chip + 10 drain.
+        const imm = this.ramImmunity.get(a.id);
+        if (imm !== undefined && now < imm) continue;
+        this.ramImmunity.set(a.id, now + RAM_IMMUNITY_MS);
         if (a.radius <= RAM_ASTEROID_DESTROY_R) {
           if (!this.predictedKills.has(a.id)) {
             this.predictedKills.set(a.id, now);
-            this.registerKill(SCORE.ASTEROID_DESTROY, now);
+            this.registerKill(SCORE.ASTEROID_DESTROY, now, "asteroid", a.x, a.y);
           }
           this.netSendEvent("asteroid_hit", { asteroidId: a.id, damage: 1 });
-          this.fx.sparks(a.x, a.y, 8, SHIELD_SPECS.ram.tint, { lifeMin: 150, lifeMax: 250 });
+          this.fx.sparks(a.x, a.y, 8, SHIELD_MOD_SPECS.ram.tint, { lifeMin: 150, lifeMax: 250 });
           sfx.play("hit_spark");
           this.trauma.add(0.1);
-        } else {
-          this.score += SCORE.ASTEROID_CHIP;
-          this.netSendEvent("asteroid_hit", { asteroidId: a.id, damage: RAM_ASTEROID_CHIP });
-          this.bounceOff(a.x, a.y, 0.6);
-          this.shieldHitFx(now, a.x, a.y);
-        }
-        this.ramImmunity.set(a.id, now + RAM_IMMUNITY_MS);
-        continue;
-      }
-      if (sh?.kind === "barrier") {
-        if (now < this.contactIframeUntil) continue;
-        if (sh.charges >= 1) {
-          this.consumeBarrier(now, 1, a.x, a.y);
-          this.bounceOff(a.x, a.y, 0.5);
-          this.contactIframeUntil = now + 400;
           continue;
         }
+        this.score += SCORE.ASTEROID_CHIP;
+        this.netSendEvent("asteroid_hit", { asteroidId: a.id, damage: RAM_ASTEROID_CHIP });
+        this.bounceOff(a.x, a.y, 0.6);
+        if (this.applyDamage(RAM_SELF_DRAIN, a.x, a.y, "ASTEROID", null, now) !== "drained") {
+          return;
+        }
+        continue;
       }
-      if (this.tryPhase(now)) return;
-      this.die(now, null, "ASTEROID");
-      return;
+      if (now < this.contactIframeUntil) continue;
+      const res = this.applyDamage(
+        asteroidContactDamage(a.radius),
+        a.x,
+        a.y,
+        "ASTEROID",
+        null,
+        now,
+      );
+      if (res !== "drained") return;
+      this.bounceOff(a.x, a.y, 0.5);
+      this.contactIframeUntil = now + CONTACT_IFRAME_MS;
+      break;
     }
     if (!this.alive) return;
 
     // -- enemy hull contact + LANCER charge
     for (const e of this.world.enemies) {
-      if (e.graceUntil > now) continue; // flashing in: can't kill
+      if (e.graceUntil > now) continue; // flashing in: harmless
       const charging = e.kind === "lancer" && e.chargeUntil > now;
       const r = charging ? LANCER_CHARGE_HIT_RADIUS : ENEMY_SPECS[e.kind].hitRadius;
       if (dist2(e.x, e.y, this.shipX, this.shipY) > r * r) continue;
-      const imm = this.ramImmunity.get(e.id);
-      if (imm !== undefined && now < imm) continue;
       let nx = e.x - this.shipX;
       let ny = e.y - this.shipY;
       const nlen = Math.hypot(nx, ny) || 1;
       nx /= nlen;
       ny /= nlen;
       if (this.ramArmed()) {
-        // Armed RAM beats hull contact AND a mid-charge lancer.
+        // The shield becomes a weapon: enemy takes 60, I pay 10 (25 vs a
+        // mid-charge lancer, with the bounce + trauma).
+        const imm = this.ramImmunity.get(e.id);
+        if (imm !== undefined && now < imm) continue;
+        this.ramImmunity.set(e.id, now + RAM_IMMUNITY_MS);
         if (e.hp - RAM_DAMAGE <= 0 && !this.predictedKills.has(e.id)) {
           this.predictedKills.set(e.id, now);
-          this.registerKill(ENEMY_SPECS[e.kind].score, now);
+          this.registerKill(ENEMY_SPECS[e.kind].score, now, "enemy", e.x, e.y);
         }
         this.netSendEvent("enemy_hit", {
           enemyId: e.id,
@@ -1415,39 +2197,40 @@ export class GameScene extends Phaser.Scene {
           ky: ny * RAM_KNOCKBACK,
         });
         e.blinkUntil = now + 150;
-        this.ramImmunity.set(e.id, now + RAM_IMMUNITY_MS);
-        this.shieldHitFx(now, e.x, e.y);
         if (charging) {
           this.bounceOff(e.x, e.y, 0.6);
           this.trauma.add(0.3);
         }
+        const drain = charging ? RAM_LANCER_DRAIN : RAM_SELF_DRAIN;
+        if (this.applyDamage(drain, e.x, e.y, ENEMY_SPECS[e.kind].name, null, now) !== "drained") {
+          return;
+        }
         continue;
       }
-      if (sh?.kind === "barrier") {
-        if (now < this.contactIframeUntil) continue;
-        const cost = charging ? 2 : 1; // a charge rips 2 charges (or kills at 1)
-        if (sh.charges >= cost) {
-          this.consumeBarrier(now, cost, e.x, e.y);
-          this.bounceOff(e.x, e.y, 0.5);
-          // knock both back
-          this.netSendEvent("enemy_hit", {
-            enemyId: e.id,
-            damage: 0,
-            kx: nx * RAM_KNOCKBACK * 0.5,
-            ky: ny * RAM_KNOCKBACK * 0.5,
-          });
-          this.contactIframeUntil = now + 400;
-          continue;
-        }
-      }
-      if (this.tryPhase(now)) return;
-      this.die(now, null, ENEMY_SPECS[e.kind].name);
-      return;
+      if (now < this.contactIframeUntil) continue;
+      const amount = charging
+        ? DMG.LANCER_CHARGE
+        : e.kind === "lancer"
+          ? DMG.LANCER_HULL
+          : DMG.ENEMY_HULL;
+      const res = this.applyDamage(amount, e.x, e.y, ENEMY_SPECS[e.kind].name, null, now);
+      if (res !== "drained") return;
+      this.bounceOff(e.x, e.y, 0.5);
+      // knock both back (kept from v1)
+      this.netSendEvent("enemy_hit", {
+        enemyId: e.id,
+        damage: 0,
+        kx: nx * RAM_KNOCKBACK * 0.5,
+        ky: ny * RAM_KNOCKBACK * 0.5,
+      });
+      this.contactIframeUntil = now + CONTACT_IFRAME_MS;
+      break;
     }
     if (!this.alive) return;
 
     // -- enemy projectiles (host-owned; I detect my own hit, mirror of PvP
-    // beams). Reverse index loop: consumeShot splices mid-iteration.
+    // beams). Shots ignore contact i-frames and are always consumed.
+    // Reverse index loop: consumeShot splices mid-iteration.
     for (let i = this.world.enemyShots.length - 1; i >= 0; i--) {
       const s = this.world.enemyShots[i];
       if (!s || this.recentConsumedShots.has(s.id)) continue; // consumed; host echo pending
@@ -1461,114 +2244,171 @@ export class GameScene extends Phaser.Scene {
         SHIP_RADIUS,
       );
       if (!hit) continue;
-      if (sh?.kind === "barrier" && sh.charges >= 1) {
-        this.consumeBarrier(now, 1, s.x, s.y);
-        this.consumeShot(s);
-        continue;
-      }
-      if (sh?.kind === "reflect" && now >= this.reflectReadyAt) {
-        this.reflectReadyAt = now + REFLECT_COOLDOWN_MS;
-        this.fireReflectBeam(Math.atan2(-s.vy, -s.vx), now);
-        this.shieldHitFx(now, s.x, s.y);
-        this.consumeShot(s);
-        continue;
-      }
-      if (this.tryPhase(now)) {
-        this.consumeShot(s);
-        return;
-      }
-      this.consumeShot(s); // a death also kills the shot — same event
       // Shots aren't source-attributed on the wire; speed identifies the kind.
-      this.die(
-        now,
+      const slow = Math.hypot(s.vx, s.vy) <= (DRONE_SHOT_SPEED + WASP_SHOT_SPEED) / 2;
+      const cause = slow ? "DRONE" : "WASP";
+      this.consumeShot(s); // every shot that hits is consumed — same event
+      if (this.reflectArmed()) {
+        // Bounce: pay 12 shield instead of the damage, return the bolt.
+        this.fireReflectBeam(Math.atan2(-s.vy, -s.vx), now);
+        if (this.applyDamage(REFLECT_BOUNCE_COST, s.x, s.y, cause, null, now) !== "drained") {
+          return;
+        }
+        continue;
+      }
+      const res = this.applyDamage(
+        slow ? DMG.DRONE_SHOT : DMG.WASP_SHOT,
+        s.x,
+        s.y,
+        cause,
         null,
-        Math.hypot(s.vx, s.vy) <= (DRONE_SHOT_SPEED + WASP_SHOT_SPEED) / 2 ? "DRONE" : "WASP",
+        now,
       );
-      return;
+      if (res !== "drained") return;
     }
     if (!this.alive) return;
 
     // -- UFO contact (treated as a hull)
     const u = this.world.ufo;
     if (u && dist2(u.x, u.y, this.shipX, this.shipY) <= UFO_RADIUS * UFO_RADIUS) {
-      const imm = this.ramImmunity.get(u.id);
-      if (imm === undefined || now >= imm) {
-        if (this.ramArmed()) {
+      if (this.ramArmed()) {
+        const imm = this.ramImmunity.get(u.id);
+        if (imm === undefined || now >= imm) {
+          this.ramImmunity.set(u.id, now + RAM_IMMUNITY_MS);
           if (u.hp - RAM_DAMAGE <= 0 && !this.predictedKills.has(u.id)) {
             this.predictedKills.set(u.id, now);
-            this.registerKill(SCORE.UFO_DESTROY, now);
+            this.registerKill(SCORE.UFO_DESTROY, now, "ufo", u.x, u.y);
           }
           this.netSendEvent("ufo_hit", { damage: RAM_DAMAGE / 100 });
-          this.ramImmunity.set(u.id, now + RAM_IMMUNITY_MS);
-          this.shieldHitFx(now, u.x, u.y);
-        } else if (sh?.kind === "barrier" && now >= this.contactIframeUntil && sh.charges >= 1) {
-          this.consumeBarrier(now, 1, u.x, u.y);
-          this.bounceOff(u.x, u.y, 0.5);
-          this.contactIframeUntil = now + 400;
-        } else if (sh?.kind === "barrier" && now < this.contactIframeUntil) {
-          // just bounced — skip
-        } else if (this.tryPhase(now)) {
-          return;
-        } else {
-          this.die(now, null, "UFO");
-          return;
+          if (this.applyDamage(RAM_SELF_DRAIN, u.x, u.y, "UFO", null, now) !== "drained") return;
         }
+      } else if (now >= this.contactIframeUntil) {
+        const res = this.applyDamage(DMG.UFO_HULL, u.x, u.y, "UFO", null, now);
+        if (res !== "drained") return;
+        this.bounceOff(u.x, u.y, 0.5);
+        this.contactIframeUntil = now + CONTACT_IFRAME_MS;
       }
     }
+    if (!this.alive) return;
 
-    // -- other players' beams (incl. ARC chains + explosions)
-    if (now < this.pvpIframeUntil) return;
+    // -- other players: armed-RAM hull contact + the beam volley rule (§A.2)
     const myId = this.myId;
     for (const [id, player] of Object.entries(this.peers)) {
       if (id === myId) continue;
       const st = readNetState(player);
       if (!st || !st.alive) continue;
+
+      // Remote armed RAM: the victim adjudicates its own 35 drain.
+      const contact2 = SHIP_RADIUS * 2 * (SHIP_RADIUS * 2);
+      const touching = dist2(st.x, st.y, this.shipX, this.shipY) <= contact2;
+      if (touching && st.shieldMod?.kind === "ram" && st.shieldMod.active && !st.invuln) {
+        if (now >= this.contactIframeUntil) {
+          const res = this.applyDamage(RAM_PVP_DRAIN, st.x, st.y, "PLAYER", id, now);
+          if (res !== "drained") return;
+          this.bounceOff(st.x, st.y, 0.5);
+          this.contactIframeUntil = now + CONTACT_IFRAME_MS;
+        }
+      }
+      // My own armed RAM against their hull: I pay my 10 (they take their 35).
+      if (touching && this.ramArmed()) {
+        const imm = this.ramImmunity.get(id);
+        if (imm === undefined || now >= imm) {
+          this.ramImmunity.set(id, now + RAM_IMMUNITY_MS);
+          if (this.applyDamage(RAM_SELF_DRAIN, st.x, st.y, "PLAYER", id, now) !== "drained") {
+            return;
+          }
+        }
+      }
+
+      // Volley rule: test ALL of one shooter's beams this frame, sum the
+      // drains, clamp, apply once, then i-frame that shooter — this is what
+      // makes SCATTER one 48-drain volley instead of an instakill, and stops
+      // a persistent beam snapshot draining 60×/s between 20Hz updates.
+      const iframeUntil = this.pvpIframeUntil.get(id) ?? 0;
+      if (now < iframeUntil) continue;
+      let beamDrain = 0;
+      let aoeDrain = 0;
+      let anyExploding = false;
+      let anyGlaive = false;
+      let maxPower = 0;
+      let impact: Vec | null = null;
+      let reflectAngle = 0;
+      // TESLA AURA (RAM pattern): the shooter's serialized flag + MY
+      // proximity adjudicate the zap. It joins the same volley sum, so the
+      // aura and any stray beam clamp + i-frame together.
+      if (st.tesla && dist2(st.x, st.y, this.shipX, this.shipY) <= TESLA_RANGE * TESLA_RANGE) {
+        beamDrain += TESLA_POWER * 100 * PVP_DAMAGE_MULT;
+        maxPower = Math.max(maxPower, TESLA_POWER);
+        impact = { x: st.x, y: st.y };
+        reflectAngle = Math.atan2(st.y - this.shipY, st.x - this.shipX);
+      }
       for (const sb of st.beams) {
+        if (sb.mine && !sb.exploding) continue; // inert mines never hit-test
+        if (sb.orb) continue; // SINGULARITY orb: only the pop damages
+        // TESLA chains are render-only for PvP — the flag above is the drain.
+        if (st.tesla && sb.chain) continue;
         let hit = false;
+        let chainSeg = 0;
+        // Width is render-real: pad by half so wide beams hit their cover.
+        const pad = SHIP_RADIUS + sb.width / 2;
         if (sb.chain && sb.chain.length >= 2) {
           for (let i = 0; i < sb.chain.length - 1 && !hit; i++) {
             const p0 = sb.chain[i];
             const p1 = sb.chain[i + 1];
             if (p0 && p1) {
-              hit = segHitsCircle(p0.x, p0.y, p1.x, p1.y, this.shipX, this.shipY, SHIP_RADIUS);
+              hit = segHitsCircle(p0.x, p0.y, p1.x, p1.y, this.shipX, this.shipY, pad);
+              if (hit) chainSeg = i;
             }
           }
         } else if (sb.exploding) {
           hit =
             dist2(sb.hx, sb.hy, this.shipX, this.shipY) <= sb.explosionRadius * sb.explosionRadius;
         } else {
-          hit = segHitsCircle(sb.tx, sb.ty, sb.hx, sb.hy, this.shipX, this.shipY, SHIP_RADIUS);
+          hit = segHitsCircle(sb.tx, sb.ty, sb.hx, sb.hy, this.shipX, this.shipY, pad);
         }
         if (!hit) continue;
-        if (sh?.kind === "barrier" && sh.charges >= 1) {
-          // The incoming beam keeps rendering (can't mutate the shooter's
-          // state) — i-frames stop it draining a second charge. Return: the
-          // i-frames must also cover the REST of this frame's beams (a
-          // SCATTER volley is 6 serialized beams in one snapshot).
-          this.consumeBarrier(now, 1, sb.hx, sb.hy);
-          this.pvpIframeUntil = now + REFLECT_PVP_IFRAME_MS;
-          return;
+        const power = sb.power ?? WEAPON_DEFAULT.power;
+        maxPower = Math.max(maxPower, power);
+        // ARC hops decay like the owner-side cast: segment i ends at hop i+1,
+        // so segment 0 (muzzle→first target) is full power and each later
+        // segment falls off once per hop — matching the PvE falloff exactly.
+        const hopMult = sb.chain ? ARC_FALLOFF ** chainSeg : 1;
+        const drain = power * 100 * PVP_DAMAGE_MULT * hopMult;
+        if (sb.exploding) {
+          aoeDrain += drain;
+          anyExploding = true;
+        } else {
+          if (sb.glaive === true) anyGlaive = true;
+          beamDrain += drain;
+          reflectAngle = Math.atan2(sb.ty - sb.hy, sb.tx - sb.hx);
         }
-        if (sh?.kind === "reflect") {
-          if (sb.exploding) {
-            // Explosion AoE: consumed, no reflect.
-            this.shieldHitFx(now, sb.hx, sb.hy);
-            this.pvpIframeUntil = now + REFLECT_PVP_IFRAME_MS;
-            return;
-          }
-          if (now >= this.reflectReadyAt) {
-            this.reflectReadyAt = now + REFLECT_COOLDOWN_MS;
-            this.pvpIframeUntil = now + REFLECT_PVP_IFRAME_MS;
-            this.fireReflectBeam(Math.atan2(sb.ty - sb.hy, sb.tx - sb.hx), now);
-            this.shieldHitFx(now, sb.hx, sb.hy);
-            return;
-          }
-          // inside cooldown → falls through to death
-        }
-        if (this.tryPhase(now)) return;
-        this.die(now, id, "PLAYER");
-        return;
+        impact = impact ?? { x: sb.hx, y: sb.hy };
       }
+      if (!impact) continue;
+      // Heavy beams (RAILGUN, power ≥ 0.9) get the 300ms tier: a 320px lance
+      // covers the victim across ≥2 serialized snapshots (~150ms at 20Hz), so
+      // the 120ms i-frame would let one shot drain twice — 180 from full,
+      // breaking PVP_MAX_SINGLE_HIT's no-volley-kills-from-full invariant.
+      // No intended-TTK change: BLASTER (450ms) and RAILGUN (1100ms) both
+      // refire slower than 300ms. GLAIVE shares the tier: the blade stalls at
+      // its apex (GLAIVE_DECEL_PX), so a parked snapshot would otherwise
+      // re-drain 35 every 120ms — apex camping beats the intended ~per-pass hit.
+      this.pvpIframeUntil.set(
+        id,
+        now +
+          (anyExploding || anyGlaive || maxPower >= 0.9
+            ? PVP_EXPLOSION_IFRAME_MS
+            : PVP_HIT_IFRAME_MS),
+      );
+      if (beamDrain > 0 && this.reflectArmed()) {
+        // One bounce covers the entire same-frame volley; AoE is never
+        // reflected and drains normally on top.
+        this.fireReflectBeam(reflectAngle, now);
+        beamDrain = REFLECT_BOUNCE_COST;
+      }
+      const total = Math.min(PVP_MAX_SINGLE_HIT, beamDrain + aoeDrain);
+      const res = this.applyDamage(total, impact.x, impact.y, "PLAYER", id, now);
+      if (res !== "drained") return;
     }
   }
 
@@ -1578,15 +2418,24 @@ export class GameScene extends Phaser.Scene {
     this.fx.ring(this.shipX, this.shipY, 10, 90, 400, 0xffffff, 0.7);
     this.screenFlash();
     this.trauma.add(0.55);
+    sfx.play("shield_break"); // break = death, layered under the boom (§A.4)
     sfx.play("player_death");
     this.alive = false;
     this.respawnAt = now + RESPAWN_DELAY_MS;
     this.invulnUntil = 0;
-    this.beams = [];
-    // Death drops: weapon reverts, shield lost, combo resets, score kept.
+    this.beams = []; // mines included — they ride in beams[]
+    this.sentry = null; // the turret dies with its owner
+    // Death drops: weapon reverts, mod + boosters lost, combo resets, score kept.
     this.weapon = WEAPON_DEFAULT;
     this.weaponUntil = 0;
-    this.shield = null;
+    this.shieldHp = 0;
+    this.overHp = 0;
+    this.shieldMod = null;
+    this.shieldModUntil = 0;
+    this.boosts.clear();
+    this.windupAcc = 0;
+    this.regenActive = false;
+    this.impactArcs = [];
     this.phasedUntil = 0;
     this.streak = 0;
     this.comboTier = 1;
@@ -1626,8 +2475,18 @@ export class GameScene extends Phaser.Scene {
       }
       if (it.kind === "weapon") {
         const weapon = WEAPONS_SPECIAL[it.weaponIdx] ?? WEAPON_DEFAULT;
-        this.weapon = weapon;
-        this.weaponUntil = now + SPECIAL_WEAPON_DURATION_MS; // replace resets the timer
+        if (weapon.name === this.weapon.name && now < this.weaponUntil) {
+          // v3 stacking: same weapon EXTENDS the timer (+full duration,
+          // capped at ITEM_STACK_CAP_MS out from now).
+          this.weaponUntil = Math.min(
+            this.weaponUntil + SPECIAL_WEAPON_DURATION_MS,
+            now + ITEM_STACK_CAP_MS,
+          );
+        } else {
+          this.weapon = weapon;
+          this.weaponUntil = now + SPECIAL_WEAPON_DURATION_MS; // replace resets the timer
+          this.windupAcc = 0;
+        }
         this.fx.sparks(this.shipX, this.shipY, 14, weapon.tint, {
           speedMin: 30,
           speedMax: 140,
@@ -1635,24 +2494,59 @@ export class GameScene extends Phaser.Scene {
           lifeMax: 420,
         });
         sfx.play("pickup");
-      } else {
-        const kind = SHIELD_KINDS[it.shieldIdx] ?? "barrier";
-        this.shield = {
-          kind,
-          charges: kind === "barrier" ? BARRIER_MAX_CHARGES : 1,
-          phased: false,
-        };
-        this.barrierNextRegenAt = 0;
-        this.reflectReadyAt = 0;
-        this.phaseReadyAt = 0;
+      } else if (it.kind === "shield") {
+        // Timed shield MODIFIER on the base shield (one held; same kind
+        // extends +20s capped at 60s out AND refreshes its resource;
+        // different kind replaces).
+        const kind = SHIELD_MOD_KINDS[it.shieldIdx] ?? "overshield";
+        if (kind === this.shieldMod && now < this.shieldModUntil) {
+          this.shieldModUntil = Math.min(
+            this.shieldModUntil + SHIELD_MOD_DURATION_MS,
+            now + ITEM_STACK_CAP_MS,
+          );
+          if (kind === "overshield") this.overHp = OVERSHIELD_BONUS; // bonus refill
+          if (kind === "phase") this.phaseReadyAt = 0; // blink ready again
+        } else {
+          this.shieldMod = kind;
+          this.shieldModUntil = now + SHIELD_MOD_DURATION_MS;
+          this.overHp = kind === "overshield" ? OVERSHIELD_BONUS : 0;
+          this.phaseReadyAt = 0;
+        }
         this.haloFlashUntil = now + 200;
-        this.fx.sparks(this.shipX, this.shipY, 14, SHIELD_SPECS[kind].tint, {
+        this.fx.sparks(this.shipX, this.shipY, 14, SHIELD_MOD_SPECS[kind].tint, {
           speedMin: 30,
           speedMax: 140,
           lifeMin: 200,
           lifeMax: 420,
         });
         sfx.play("pickup_shield");
+      } else {
+        const kind = BOOSTER_KINDS[it.boosterIdx] ?? "repair";
+        if (kind === "repair") {
+          // Instant: base only — never fills the OVERSHIELD bonus.
+          this.shieldHp = Math.max(this.shieldHp, SHIELD_MAX);
+          this.lastDamageAt = 0;
+          this.repairSweepUntil = now + 200;
+          sfx.play("shield_regen");
+        } else {
+          // Different kinds stack freely; the SAME kind extends its timer
+          // (+its duration, capped at ITEM_STACK_CAP_MS out from now).
+          const cur = this.boosts.get(kind);
+          const dur = BOOSTER_SPECS[kind].durationMs;
+          this.boosts.set(
+            kind,
+            cur !== undefined && cur > now
+              ? Math.min(cur + dur, now + ITEM_STACK_CAP_MS)
+              : now + dur,
+          );
+        }
+        this.fx.sparks(this.shipX, this.shipY, 14, BOOSTER_SPECS[kind].tint, {
+          speedMin: 30,
+          speedMax: 140,
+          lifeMin: 200,
+          lifeMax: 420,
+        });
+        sfx.play("pickup_booster");
       }
       this.recentPickups.set(it.id, now);
       this.netSendEvent("item_pickup", { itemId: it.id });
@@ -1670,6 +2564,56 @@ export class GameScene extends Phaser.Scene {
     for (const [id, t] of this.ramImmunity) {
       if (now > t) this.ramImmunity.delete(id);
     }
+    for (const [id, t] of this.pvpIframeUntil) {
+      if (now > t) this.pvpIframeUntil.delete(id);
+    }
+  }
+
+  /** Score shards: generous-radius hoover, +SHARD_SCORE each (flat, never
+   *  combo-multiplied, same rule as asteroid chips). Same claimer pattern
+   *  as items: collect locally, tell the host, guard reconciles. */
+  private collectShards(now: number): void {
+    if (!this.alive || !this.spawned || now < this.phasedUntil) return;
+    const r2 = SHARD_PICKUP_RADIUS * SHARD_PICKUP_RADIUS;
+    const shards = this.world.shards;
+    for (let i = shards.length - 1; i >= 0; i--) {
+      const s = shards[i];
+      if (!s || this.recentShardPickups.has(s.id)) continue;
+      if (dist2(s.x, s.y, this.shipX, this.shipY) > r2) continue;
+      this.score += SHARD_SCORE;
+      this.recentShardPickups.set(s.id, now);
+      this.netSendEvent("shard_pickup", { shardId: s.id });
+      shards.splice(i, 1);
+      if (this.amHost) this.dirty.shards = true;
+      // Pooled sparkle + soft collect blip (pickup chirp, low gain, pitched up).
+      this.fx.sparks(s.x, s.y, 3, SHARD_TINT, {
+        speedMin: 20,
+        speedMax: 90,
+        lifeMin: 120,
+        lifeMax: 220,
+        scale: 0.4,
+      });
+      sfx.play("pickup", { gain: 0.25, rate: 1.6 });
+    }
+    for (const [id, t] of this.recentShardPickups) {
+      if (now - t > 5000) this.recentShardPickups.delete(id);
+    }
+  }
+
+  /** Tiny wireframe crystals, one pooled Graphics pass (additive layer):
+   *  4-point diamond + vertical facet, gentle pulse, fade in the last 1.5s. */
+  private drawShards(now: number): void {
+    const g = this.shardGfx;
+    g.clear();
+    for (const s of this.world.shards) {
+      const left = s.diesAt - now;
+      if (left <= 0) continue;
+      const alpha = 0.9 * Math.min(1, left / 1500);
+      const r = 2.5 + 0.7 * Math.sin(now / 180 + s.x * 0.05);
+      g.lineStyle(1, SHARD_TINT, alpha);
+      strokeDiamond(g, s.x, s.y, r);
+      g.lineBetween(s.x, s.y - r, s.x, s.y + r);
+    }
   }
 
   private netSend(delta: number, now: number): void {
@@ -1679,16 +2623,25 @@ export class GameScene extends Phaser.Scene {
     this.pushMyState(now);
   }
 
-  /** Wire shape of my shield: charges encode readiness for non-barrier kinds. */
-  private shieldNetState(now: number): ShieldNetState | null {
-    const sh = this.shield;
-    if (!sh) return null;
-    let charges = 1;
-    if (sh.kind === "barrier") charges = sh.charges;
-    else if (sh.kind === "reflect") charges = now >= this.reflectReadyAt ? 1 : 0;
-    else if (sh.kind === "ram") charges = this.ramArmed() ? 1 : 0;
-    else charges = now >= this.phaseReadyAt ? 1 : 0;
-    return { kind: sh.kind, charges, phased: now < this.phasedUntil };
+  /** Wire shape of my shield mod: `active` = ram-armed / reflect->40 / phase-ready. */
+  private shieldModNetState(now: number): ShieldModNetState | null {
+    const mod = this.shieldMod;
+    if (!mod) return null;
+    const active =
+      mod === "ram"
+        ? this.ramArmed()
+        : mod === "reflect"
+          ? this.reflectArmed()
+          : mod === "phase"
+            ? now >= this.phaseReadyAt
+            : true;
+    return { kind: mod, until: this.shieldModUntil, active, phased: now < this.phasedUntil };
+  }
+
+  private boostsNetState(): BoostNetState[] {
+    const out: BoostNetState[] = [];
+    for (const [kind, until] of this.boosts) out.push({ kind, until });
+    return out;
   }
 
   private pushMyState(now: number): void {
@@ -1704,7 +2657,16 @@ export class GameScene extends Phaser.Scene {
       score: this.score,
       streak: this.streak,
       weaponName: this.weapon.name,
-      shield: this.shieldNetState(now),
+      shieldHp: Math.max(0, Math.round(this.shieldHp)),
+      overHp: Math.max(0, Math.round(this.overHp)),
+      shieldMod: this.shieldModNetState(now),
+      boosts: this.boostsNetState(),
+      windup: this.windupFrac(),
+      tesla: this.teslaActive(now),
+      sentry:
+        this.sentry && now < this.sentry.until
+          ? { x: this.sentry.x, y: this.sentry.y, until: this.sentry.until }
+          : null,
       beams: this.beams.filter((b) => !b.vanished && !b.fizzle).map(serializeBeam),
     };
     if (!this.offline) this.client.updateMyState(state);
@@ -1717,7 +2679,7 @@ export class GameScene extends Phaser.Scene {
     if (event === "player_killed") {
       // The killer awards itself: every client hears the victim's report.
       if (p && p["killerId"] === this.myId) {
-        this.registerKill(SCORE.PLAYER_KILL, Date.now());
+        this.registerKill(SCORE.PLAYER_KILL, Date.now(), "player");
       }
       return;
     }
@@ -1754,6 +2716,24 @@ export class GameScene extends Phaser.Scene {
       if (idx !== -1) {
         this.world.items.splice(idx, 1);
         this.dirty.items = true;
+      }
+    } else if (event === "shard_pickup") {
+      const id = p["shardId"];
+      if (typeof id !== "string") return;
+      const idx = this.world.shards.findIndex((s) => s.id === id);
+      if (idx !== -1) {
+        this.world.shards.splice(idx, 1);
+        this.dirty.shards = true;
+      }
+    } else if (event === "singularity") {
+      // SINGULARITY collapse: one shared pull entry; hostApplyPulls drags
+      // enemies/asteroids until it expires (pruned in hostTick).
+      const x = p["x"];
+      const y = p["y"];
+      const until = p["until"];
+      if (typeof x === "number" && typeof y === "number" && typeof until === "number") {
+        this.world.pulls.push({ id: crypto.randomUUID(), x, y, until });
+        this.dirty.pulls = true;
       }
     }
   }
@@ -1873,6 +2853,22 @@ export class GameScene extends Phaser.Scene {
     }
     w.enemies = w.enemies.filter((x) => enemyIds.has(x.id));
 
+    const shardIds = new Set<string>();
+    for (const sd of s.shards ?? []) {
+      shardIds.add(sd.id);
+      if (this.recentShardPickups.has(sd.id)) continue; // collected locally, host lagging
+      const local = w.shards.find((x) => x.id === sd.id);
+      if (!local) {
+        w.shards.push({ ...sd });
+        continue;
+      }
+      local.vx = sd.vx;
+      local.vy = sd.vy;
+      local.diesAt = sd.diesAt;
+      blendPos(local, sd.x, sd.y);
+    }
+    w.shards = w.shards.filter((x) => shardIds.has(x.id) && !this.recentShardPickups.has(x.id));
+
     const shotIds = new Set<string>();
     for (const sh of s.enemyShots ?? []) {
       shotIds.add(sh.id);
@@ -1890,6 +2886,10 @@ export class GameScene extends Phaser.Scene {
     w.enemyShots = w.enemyShots.filter(
       (x) => shotIds.has(x.id) && !this.recentConsumedShots.has(x.id),
     );
+
+    // Pulls are static entries — adopt wholesale (the vortex renders from
+    // them; the host moves the affected bodies).
+    w.pulls = (s.pulls ?? []).map((p) => ({ id: p.id, x: p.x, y: p.y, until: p.until }));
   }
 
   // ---- world simulation ----------------------------------------------------------
@@ -1919,6 +2919,10 @@ export class GameScene extends Phaser.Scene {
     for (const it of this.world.items) {
       it.x += it.vx * dt;
       it.y += it.vy * dt;
+    }
+    for (const s of this.world.shards) {
+      s.x += s.vx * dt;
+      s.y += s.vy * dt;
     }
     for (const e of this.world.enemies) {
       e.x = Phaser.Math.Clamp(e.x + e.vx * dt, -40, WORLD_W + 40);
@@ -1961,9 +2965,9 @@ export class GameScene extends Phaser.Scene {
       d.asteroids = true;
     }
 
-    // UFO is the weapon piñata: only one weapon power-up in flight at a time.
-    const weaponItemsInFlight = w.items.some((it) => it.kind === "weapon");
-    if (!w.ufo && !weaponItemsInFlight && Math.random() < UFO_SPAWN_RATE * dt) {
+    // UFO is the weapon piñata; the v2 gate relaxes to < 2 weapon items live.
+    const weaponItemsInFlight = w.items.filter((it) => it.kind === "weapon").length;
+    if (!w.ufo && weaponItemsInFlight < 2 && Math.random() < UFO_SPAWN_RATE * dt) {
       w.ufo = spawnUfoState();
       d.ufo = true;
     }
@@ -1978,9 +2982,22 @@ export class GameScene extends Phaser.Scene {
       w.items = liveItems;
       d.items = true;
     }
+    const liveShards = w.shards.filter((s) => s.diesAt > now);
+    if (liveShards.length !== w.shards.length) {
+      w.shards = liveShards;
+      d.shards = true;
+    }
+    this.hostMagnetItems(now);
 
     this.hostSpawnEnemies(now, tSec, intensity, pressure);
     this.hostSimEnemies(now, dt);
+    // After the sim: the pull overrides steering for dragged enemies.
+    this.hostApplyPulls(now);
+    const livePulls = w.pulls.filter((p) => p.until > now);
+    if (livePulls.length !== w.pulls.length) {
+      w.pulls = livePulls;
+      d.pulls = true;
+    }
     this.hostDespawnBreather(now, intensity, pressure);
 
     const liveShots = w.enemyShots.filter((s) => s.diesAt > now && inWorld(s.x, s.y, 60));
@@ -1993,6 +3010,7 @@ export class GameScene extends Phaser.Scene {
     if (w.asteroids.length > 0) d.asteroids = true;
     if (w.ufo) d.ufo = true;
     if (w.items.length > 0) d.items = true;
+    if (w.shards.length > 0) d.shards = true;
     if (w.enemies.length > 0) d.enemies = true;
     if (w.enemyShots.length > 0) d.enemyShots = true;
 
@@ -2003,10 +3021,106 @@ export class GameScene extends Phaser.Scene {
     if (d.asteroids) patch["asteroids"] = w.asteroids;
     if (d.ufo) patch["ufo"] = w.ufo;
     if (d.items) patch["items"] = w.items;
+    if (d.shards) patch["shards"] = w.shards;
     if (d.enemies) patch["enemies"] = w.enemies;
     if (d.enemyShots) patch["enemyShots"] = w.enemyShots;
+    if (d.pulls) patch["pulls"] = w.pulls;
     if (!this.offline && Object.keys(patch).length > 0) this.client.updateSharedState(patch);
-    this.dirty = { asteroids: false, ufo: false, items: false, enemies: false, enemyShots: false };
+    this.dirty = {
+      asteroids: false,
+      ufo: false,
+      items: false,
+      enemies: false,
+      enemyShots: false,
+      shards: false,
+      pulls: false,
+    };
+  }
+
+  /**
+   * SINGULARITY drag (host-only): for every live pull, point asteroid and
+   * enemy velocities at the center. Speed scales down near the center
+   * (d/100 clamp) so bodies gather at the point instead of slingshotting
+   * through; the dragged velocities ride the normal snapshots, so guests
+   * dead-reckon the same motion.
+   */
+  private hostApplyPulls(now: number): void {
+    for (const p of this.world.pulls) {
+      if (p.until <= now) continue;
+      for (const a of this.world.asteroids) {
+        const d = Math.hypot(p.x - a.x, p.y - a.y);
+        if (d > SINGULARITY_PULL_RANGE || d < 1) continue;
+        const sp = SINGULARITY_PULL_SPEED * Math.min(1, Math.max(0.15, d / 100));
+        a.vx = ((p.x - a.x) / d) * sp;
+        a.vy = ((p.y - a.y) / d) * sp;
+      }
+      for (const e of this.world.enemies) {
+        const d = Math.hypot(p.x - e.x, p.y - e.y);
+        if (d > SINGULARITY_PULL_RANGE || d < 1) continue;
+        const sp = SINGULARITY_PULL_SPEED * Math.min(1, Math.max(0.15, d / 100));
+        e.vx = ((p.x - e.x) / d) * sp;
+        e.vy = ((p.y - e.y) / d) * sp;
+      }
+    }
+  }
+
+  /**
+   * MAGNET (host-side: items + shards are host-owned): steer any item within
+   * range of a magnet holder toward them at 140 px/s; shards get pulled
+   * harder (SHARD_MAGNET_PULL_SPEED); back to drift speed outside.
+   * Holders are read from per-player `boosts` state (mine locally).
+   */
+  private hostMagnetItems(now: number): void {
+    const w = this.world;
+    if (w.items.length === 0 && w.shards.length === 0) return;
+    const holders: Vec[] = [];
+    const mine = this.boosts.get("magnet");
+    if (mine !== undefined && mine > now && this.alive && this.spawned) {
+      holders.push({ x: this.shipX, y: this.shipY });
+    }
+    const myId = this.myId;
+    for (const [id, player] of Object.entries(this.peers)) {
+      if (id === myId) continue;
+      const st = readNetState(player);
+      if (!st || !st.alive) continue;
+      if (st.boosts.some((b) => b.kind === "magnet" && b.until > now)) {
+        holders.push({ x: st.x, y: st.y });
+      }
+    }
+    if (holders.length === 0) return;
+    for (const it of w.items) {
+      const h = nearestOf(holders, it.x, it.y);
+      if (!h) continue;
+      const d = Math.hypot(h.x - it.x, h.y - it.y);
+      if (d <= MAGNET_RANGE && d > 1) {
+        it.vx = ((h.x - it.x) / d) * MAGNET_PULL_SPEED;
+        it.vy = ((h.y - it.y) / d) * MAGNET_PULL_SPEED;
+      } else {
+        const sp = Math.hypot(it.vx, it.vy);
+        if (sp > ITEM_SPEED + 1) {
+          // Left the magnet's range: settle back to drift speed.
+          it.vx = (it.vx / sp) * ITEM_SPEED;
+          it.vy = (it.vy / sp) * ITEM_SPEED;
+        }
+      }
+    }
+    this.dirty.items = true;
+    for (const s of w.shards) {
+      const h = nearestOf(holders, s.x, s.y);
+      if (!h) continue;
+      const d = Math.hypot(h.x - s.x, h.y - s.y);
+      if (d <= MAGNET_RANGE && d > 1) {
+        s.vx = ((h.x - s.x) / d) * SHARD_MAGNET_PULL_SPEED;
+        s.vy = ((h.y - s.y) / d) * SHARD_MAGNET_PULL_SPEED;
+      } else {
+        const sp = Math.hypot(s.vx, s.vy);
+        if (sp > SHARD_DRIFT_SPEED + 1) {
+          s.vx = (s.vx / sp) * SHARD_DRIFT_SPEED;
+          s.vy = (s.vy / sp) * SHARD_DRIFT_SPEED;
+        }
+      }
+    }
+    this.dirty.shards = true;
   }
 
   /** Living player positions (mine locally + remotes from net state). */
@@ -2019,7 +3133,7 @@ export class GameScene extends Phaser.Scene {
     for (const [id, player] of Object.entries(this.peers)) {
       if (id === myId) continue;
       const st = readNetState(player);
-      if (st && st.alive && !st.shield?.phased) out.push({ x: st.x, y: st.y });
+      if (st && st.alive && !st.shieldMod?.phased) out.push({ x: st.x, y: st.y });
     }
     return out;
   }
@@ -2285,6 +3399,10 @@ export class GameScene extends Phaser.Scene {
     const newRadius = a.radius - ASTEROID_MAX_RADIUS * Math.min(damage, 1);
     if (newRadius < ASTEROID_MIN_RADIUS) {
       w.asteroids.splice(idx, 1); // display sweep bursts it
+      // v3: rocks shed shards scaled by size (~r/15, 1..5) + an 11% item roll
+      // (pure chance: asteroid rolls never feed or force pity).
+      this.hostSpawnShards(a.x, a.y, asteroidShardCount(a.radius));
+      this.hostRollLoot(a.x, a.y, ASTEROID_DROP_CHANCE, false);
     } else {
       // Scale the existing outline instead of re-rolling it — no shape pop.
       const ratio = newRadius / a.radius;
@@ -2355,17 +3473,85 @@ export class GameScene extends Phaser.Scene {
         w.enemies.push(child); // children bypass the cap
       }
     }
-    if (e.kind !== "drone") {
-      // WASP/LANCER/SPLITTER kills roll the shield table (+pity).
-      this.shieldPity += 1;
-      const drop = rollShieldDrop(this.shieldPity >= SHIELD_PITY_KILLS);
-      if (drop) {
-        this.shieldPity = 0;
-        w.items.push(spawnShieldItemState(e.x, e.y, SHIELD_KINDS.indexOf(drop)));
-        this.dirty.items = true;
-      }
+    // v3 universal drops: fodder always sheds 1-2 score shards + a 18% item
+    // roll; elites (lancer/splitter) drop a guaranteed item. UFO stays the
+    // guaranteed-weapon pinata in hostDamageUfo.
+    if (e.kind === "drone" || e.kind === "wasp") {
+      this.hostSpawnShards(
+        e.x,
+        e.y,
+        FODDER_SHARD_MIN + Math.floor(Math.random() * (FODDER_SHARD_MAX - FODDER_SHARD_MIN + 1)),
+      );
+      this.hostRollLoot(e.x, e.y, FODDER_DROP_CHANCE, true);
+    } else {
+      this.hostRollLoot(e.x, e.y, 1, true);
     }
     this.dirty.enemies = true;
+  }
+
+  /** Spawn `count` score shards at (x,y); oldest culled past the hard cap so
+   *  a swarm wipe can't flood the wire (separate array; ITEMS_MAX_LIVE
+   *  untouched). */
+  private hostSpawnShards(x: number, y: number, count: number): void {
+    const w = this.world;
+    for (let i = 0; i < count; i++) w.shards.push(spawnShardState(x, y));
+    if (w.shards.length > SHARDS_MAX_LIVE) {
+      w.shards.splice(0, w.shards.length - SHARDS_MAX_LIVE);
+    }
+    this.dirty.shards = true;
+  }
+
+  /**
+   * Hierarchical loot roll, v3: a per-source `chance` gates the drop (fodder
+   * 18%, elites 1.0, asteroids 11%), then the class split (with per-class
+   * pity when `feedPity`: enemy kills only, asteroid rolls never feed or
+   * force pity) -> child table. Skipped past ITEMS_MAX_LIVE (the dry streak
+   * still accrues pity); UFO drops bypass the cap.
+   */
+  private hostRollLoot(x: number, y: number, chance: number, feedPity: boolean): void {
+    const w = this.world;
+    const bumpAll = (): void => {
+      if (!feedPity) return;
+      for (const c of LOOT_CLASSES) this.lootPity[c] += 1;
+    };
+    if (w.items.length >= ITEMS_MAX_LIVE) {
+      bumpAll();
+      return;
+    }
+    let cls: LootClass | null = null;
+    if (feedPity) {
+      // Ripe pity forces the drop regardless of the chance gate.
+      if (this.lootPity.shield >= LOOT_PITY.shield) cls = "shield";
+      else if (this.lootPity.booster >= LOOT_PITY.booster) cls = "booster";
+      else if (this.lootPity.weapon >= LOOT_PITY.weapon) cls = "weapon";
+    }
+    if (!cls && Math.random() >= chance) {
+      bumpAll();
+      return;
+    }
+    if (!cls) cls = rollLootClass();
+    if (feedPity) {
+      for (const c of LOOT_CLASSES) {
+        if (c === cls) this.lootPity[c] = 0;
+        else this.lootPity[c] += 1;
+      }
+    }
+    let drop: ItemDrop;
+    if (cls === "shield") {
+      drop = {
+        kind: "shield",
+        shieldIdx: SHIELD_MOD_KINDS.indexOf(rollWeightedKey(LOOT_SHIELD_WEIGHTS)),
+      };
+    } else if (cls === "booster") {
+      drop = {
+        kind: "booster",
+        boosterIdx: BOOSTER_KINDS.indexOf(rollWeightedKey(LOOT_BOOSTER_WEIGHTS)),
+      };
+    } else {
+      drop = { kind: "weapon", weaponIdx: Math.floor(Math.random() * WEAPONS_SPECIAL.length) };
+    }
+    w.items.push(spawnItemState(x, y, drop));
+    this.dirty.items = true;
   }
 
   // ---- shared-state rendering ---------------------------------------------------------
@@ -2395,7 +3581,7 @@ export class GameScene extends Phaser.Scene {
     // is refresh-rate independent.
     const blend = 1 - Math.exp(-25 * dt);
     // Over the soft particle budget: trails throttle ×2 (vfx skill rule).
-    const trailFreq = this.fx.aliveParticles() > PARTICLE_SOFT_BUDGET ? 50 : 25;
+    const throttled = this.fx.aliveParticles() > PARTICLE_SOFT_BUDGET;
     const seen = new Set<string>();
     const myId = this.myId;
     this.haloGfx.clear();
@@ -2411,11 +3597,21 @@ export class GameScene extends Phaser.Scene {
           trail = this.makeTrailEmitter(tint);
           this.remoteTrailCount += 1;
         }
-        rec = { gfx: this.makeShipGfx(tint), tint, alive: true, seenState: false, trail };
+        rec = {
+          gfx: this.makeShipGfx(tint),
+          tint,
+          alive: true,
+          seenState: false,
+          trail,
+          nitroTrail: false,
+          lastShieldHp: SHIELD_MAX,
+          flashUntil: 0,
+          regenUntil: 0,
+        };
         this.ships.set(id, rec);
       }
-      if (rec.trail && rec.trail.frequency !== trailFreq) rec.trail.setFrequency(trailFreq);
       if (id === myId) {
+        this.configureTrail(rec, this.boosts.has("nitro"), throttled);
         rec.gfx.setPosition(this.shipX, this.shipY).setRotation(this.shipAngle);
         rec.gfx.setVisible(this.spawned && this.alive);
         const phased = now < this.phasedUntil;
@@ -2428,9 +3624,36 @@ export class GameScene extends Phaser.Scene {
             this.shipY - Math.sin(this.shipAngle) * 10,
           );
         }
-        const sh = this.shieldNetState(now);
-        if (sh && this.alive && this.spawned) {
-          this.drawHalo(this.shipX, this.shipY, this.shipAngle, sh, now, now < this.haloFlashUntil);
+        if (this.alive && this.spawned) {
+          this.drawShield(
+            this.shipX,
+            this.shipY,
+            this.shipAngle,
+            this.shieldHp,
+            this.overHp,
+            this.shieldModNetState(now),
+            now,
+            {
+              flash: now < this.haloFlashUntil,
+              regen: this.regenActive || now < this.repairSweepUntil,
+              siphonPulse: now < this.siphonPulseUntil,
+            },
+          );
+          this.drawImpactArcs(now);
+          if (this.boosts.has("twin")) {
+            this.drawTwinDrone(this.shipX, this.shipY, this.twinAngle());
+          }
+          this.drawWindupGlow(
+            this.shipX,
+            this.shipY,
+            this.shipAngle,
+            this.windupFrac(),
+            this.weapon.tint,
+          );
+          if (this.teslaActive(now)) this.drawTeslaAura(this.shipX, this.shipY, now);
+        }
+        if (this.sentry && now < this.sentry.until) {
+          this.drawSentry(this.sentry.x, this.sentry.y, this.sentry.until, now);
         }
         continue;
       }
@@ -2446,6 +3669,7 @@ export class GameScene extends Phaser.Scene {
         rec.seenState = true;
         rec.alive = st.alive;
         rec.gfx.setPosition(st.x, st.y);
+        rec.lastShieldHp = st.shieldHp;
       }
       if (rec.alive && !st.alive) {
         this.splinterBurst(rec.gfx.x, rec.gfx.y, 50, 30, now);
@@ -2463,10 +3687,32 @@ export class GameScene extends Phaser.Scene {
         );
         rec.gfx.setRotation(st.angle);
         rec.gfx.setAlpha(
-          st.shield?.phased ? 0.25 : st.invuln ? blinkAlpha(now) : 1, // networked invuln/phase
+          st.shieldMod?.phased ? 0.25 : st.invuln ? blinkAlpha(now) : 1, // networked invuln/phase
         );
-        if (st.shield) this.drawHalo(rec.gfx.x, rec.gfx.y, st.angle, st.shield, now, false);
+        // Drains are visible as shieldHp drops between snapshots: flash + sparks.
+        if (st.shieldHp < rec.lastShieldHp) {
+          rec.flashUntil = now + 80;
+          this.fx.sparks(rec.gfx.x, rec.gfx.y, 6, SHIELD_RING_TINT, { lifeMin: 150, lifeMax: 250 });
+        } else if (st.shieldHp > rec.lastShieldHp) {
+          rec.regenUntil = now + 250; // infer regen from increases
+        }
+        rec.lastShieldHp = st.shieldHp;
+        this.drawShield(rec.gfx.x, rec.gfx.y, st.angle, st.shieldHp, st.overHp, st.shieldMod, now, {
+          flash: now < rec.flashUntil,
+          regen: now < rec.regenUntil,
+          siphonPulse: false,
+        });
+        if (st.boosts.some((b) => b.kind === "twin" && b.until > now)) {
+          this.drawTwinDrone(rec.gfx.x, rec.gfx.y, (now / 1000) * TWIN_ORBIT_DEG_PER_S * DEG);
+        }
+        this.drawWindupGlow(rec.gfx.x, rec.gfx.y, st.angle, st.windup, weaponTint(st.weaponName));
+        if (st.tesla) this.drawTeslaAura(rec.gfx.x, rec.gfx.y, now);
+        if (st.sentry && now < st.sentry.until) {
+          this.drawSentry(st.sentry.x, st.sentry.y, st.sentry.until, now);
+        }
       }
+      const nitro = st.alive && st.boosts.some((b) => b.kind === "nitro" && b.until > now);
+      this.configureTrail(rec, nitro, throttled);
       if (rec.trail) {
         // Remote thrust isn't on the wire — speed from vx,vy is the proxy.
         rec.trail.emitting = st.alive && Math.hypot(st.vx, st.vy) > 100;
@@ -2488,28 +3734,83 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  /** Wireframe shield halo (1px stroke on the additive layer). */
-  private drawHalo(
+  /** Trail = thruster puffs, or the NITRO flame (others must see it). */
+  private configureTrail(rec: ShipObjs, nitro: boolean, throttled: boolean): void {
+    if (!rec.trail) return;
+    if (rec.nitroTrail !== nitro) {
+      rec.nitroTrail = nitro;
+      rec.trail.updateConfig({
+        lifespan: nitro ? 450 : 300,
+        tint: nitro ? BOOSTER_SPECS.nitro.tint : rec.tint,
+      });
+    }
+    const freq = nitro ? (throttled ? 24 : 12) : throttled ? 50 : 25;
+    if (rec.trail.frequency !== freq) rec.trail.setFrequency(freq);
+  }
+
+  /**
+   * The v2 shield stack on the additive layer (1px strokes): base ring at
+   * r=12 whose ARC SWEEP is the health bar, the OVERSHIELD hex, then the mod
+   * halo at r=15.
+   */
+  private drawShield(
     x: number,
     y: number,
     angle: number,
-    sh: ShieldNetState,
+    shieldHp: number,
+    overHp: number,
+    mod: ShieldModNetState | null,
     now: number,
-    flash: boolean,
+    opts: { flash: boolean; regen: boolean; siphonPulse: boolean },
   ): void {
     const g = this.haloGfx;
-    const tint = SHIELD_SPECS[sh.kind].tint;
-    switch (sh.kind) {
-      case "barrier": {
-        if (sh.charges <= 0 && !flash) return;
-        const alpha = flash ? 1 : sh.charges >= 2 ? 0.7 : 0.35;
-        g.lineStyle(1, tint, alpha);
-        strokeRegularPolygon(g, x, y, SHIELD_HALO_RADIUS, 6, 0);
-        return;
+    const frac = Math.max(0, Math.min(1, shieldHp / SHIELD_MAX));
+    if (frac > 0) {
+      // Completeness = shield fraction; the gap in the arc IS the health bar.
+      let alpha = 0.15 + 0.45 * frac + (opts.regen ? 0.15 : 0);
+      if (frac < SHIELD_LOW_FRACTION) {
+        // Low shield: pulse 0.2↔0.7 at 6Hz.
+        alpha = 0.45 + 0.25 * Math.sin((now / 1000) * Math.PI * 2 * 6);
       }
+      // SIPHON overheal banked above 100: the closed ring glows brighter.
+      if (shieldHp > SHIELD_MAX) alpha += 0.1;
+      if (opts.flash) alpha = 1;
+      g.lineStyle(1, SHIELD_RING_TINT, Math.min(1, alpha));
+      const sweep = Math.PI * 2 * frac;
+      g.beginPath();
+      g.arc(x, y, SHIELD_RING_RADIUS, angle - sweep / 2, angle + sweep / 2);
+      g.strokePath();
+      if (opts.regen && frac < 1) {
+        // Bright head dots ride the arc tips as the ring re-closes.
+        g.fillStyle(0xffffff, 0.95);
+        g.fillCircle(
+          x + Math.cos(angle - sweep / 2) * SHIELD_RING_RADIUS,
+          y + Math.sin(angle - sweep / 2) * SHIELD_RING_RADIUS,
+          1.5,
+        );
+        g.fillCircle(
+          x + Math.cos(angle + sweep / 2) * SHIELD_RING_RADIUS,
+          y + Math.sin(angle + sweep / 2) * SHIELD_RING_RADIUS,
+          1.5,
+        );
+      }
+    }
+    // OVERSHIELD bonus layer: Halo hexagon, fading with the remaining bonus.
+    if (overHp > 0) {
+      g.lineStyle(
+        1,
+        SHIELD_MOD_SPECS.overshield.tint,
+        0.8 * Math.min(1, overHp / OVERSHIELD_BONUS),
+      );
+      strokeRegularPolygon(g, x, y, SHIELD_HALO_RADIUS, 6, 0);
+    }
+    if (!mod) return;
+    const tint = SHIELD_MOD_SPECS[mod.kind].tint;
+    switch (mod.kind) {
+      case "overshield":
+        return; // the hexagon above IS the halo
       case "reflect": {
-        const alpha = flash ? 1 : sh.charges > 0 ? 0.7 : 0.3;
-        g.lineStyle(1, tint, alpha);
+        g.lineStyle(1, tint, mod.active ? 0.85 : 0.25); // dim = arm down (≤40)
         strokeRegularPolygon(
           g,
           x,
@@ -2521,26 +3822,111 @@ export class GameScene extends Phaser.Scene {
         return;
       }
       case "ram": {
-        const alpha = flash ? 1 : sh.charges > 0 ? 0.9 : 0.35; // bright when armed
-        g.lineStyle(1, tint, alpha);
+        g.lineStyle(1, tint, mod.active ? 0.9 : 0.35); // bright when armed
         g.beginPath();
         g.arc(x, y, SHIELD_HALO_RADIUS, angle - Math.PI / 4, angle + Math.PI / 4);
         g.strokePath();
         return;
       }
       case "phase": {
-        const alpha = sh.phased ? 0.25 : flash ? 1 : sh.charges > 0 ? 0.6 : 0.2;
+        const alpha = mod.phased ? 0.25 : mod.active ? 0.7 : 0.2;
         g.lineStyle(1, tint, alpha);
         const rot = (now / 1000) * 45 * DEG;
         for (let i = 0; i < 8; i++) {
           const a0 = rot + (Math.PI * 2 * i) / 8;
           g.beginPath();
-          g.arc(x, y, 13, a0, a0 + ((Math.PI * 2) / 8) * 0.55);
+          g.arc(x, y, SHIELD_HALO_RADIUS, a0, a0 + ((Math.PI * 2) / 8) * 0.55);
           g.strokePath();
         }
         return;
       }
+      case "siphon": {
+        const alpha = opts.siphonPulse ? 0.95 : 0.5;
+        g.lineStyle(1, tint, alpha);
+        g.strokeCircle(x, y, SHIELD_HALO_RADIUS);
+        g.strokeCircle(x, y, SHIELD_HALO_RADIUS + 2);
+        return;
+      }
+      case "aegis": {
+        g.lineStyle(1, tint, 0.5);
+        g.strokeCircle(x, y, SHIELD_HALO_RADIUS);
+        // 4 orbiting dots; spin ×3 + brighten while regen is running.
+        const spin = (now / 1000) * TWIN_ORBIT_DEG_PER_S * DEG * (opts.regen ? 3 : 1);
+        g.fillStyle(tint, opts.regen ? 1 : 0.7);
+        for (let i = 0; i < 4; i++) {
+          const a0 = spin + (Math.PI * 2 * i) / 4;
+          g.fillCircle(
+            x + Math.cos(a0) * SHIELD_HALO_RADIUS,
+            y + Math.sin(a0) * SHIELD_HALO_RADIUS,
+            1,
+          );
+        }
+        return;
+      }
     }
+  }
+
+  /** 60° white impact arcs at the incoming-damage angle, alpha 1→0 / 150ms. */
+  private drawImpactArcs(now: number): void {
+    this.impactArcs = this.impactArcs.filter((ia) => now < ia.diesAt);
+    const g = this.haloGfx;
+    for (const ia of this.impactArcs) {
+      const alpha = Math.max(0, (ia.diesAt - now) / 150);
+      g.lineStyle(2, 0xffffff, alpha);
+      g.beginPath();
+      g.arc(this.shipX, this.shipY, SHIELD_RING_RADIUS, ia.angle - 30 * DEG, ia.angle + 30 * DEG);
+      g.strokePath();
+    }
+  }
+
+  /** TWIN: 3px wireframe drone orbiting at r=28 (remotes drive it from boosts). */
+  private drawTwinDrone(cx: number, cy: number, orbitAngle: number): void {
+    const g = this.haloGfx;
+    const x = cx + Math.cos(orbitAngle) * TWIN_ORBIT_RADIUS;
+    const y = cy + Math.sin(orbitAngle) * TWIN_ORBIT_RADIUS;
+    g.lineStyle(1, BOOSTER_SPECS.twin.tint, 0.9);
+    strokeRegularPolygon(g, x, y, 3, 3, orbitAngle);
+  }
+
+  /** RAILGUN charge: nose glow scales 0→6px with the windup fraction. */
+  private drawWindupGlow(x: number, y: number, angle: number, frac: number, tint: number): void {
+    if (frac <= 0.02) return;
+    const g = this.haloGfx;
+    g.fillStyle(tint, 0.35 + 0.45 * frac);
+    g.fillCircle(
+      x + Math.cos(angle) * (SHIP_RADIUS + 2),
+      y + Math.sin(angle) * (SHIP_RADIUS + 2),
+      6 * frac,
+    );
+  }
+
+  /** TESLA AURA: crackling broken ring (per-frame random arc phases = the
+   *  electric flicker), driven locally for the owner and by the serialized
+   *  flag for remotes. */
+  private drawTeslaAura(x: number, y: number, now: number): void {
+    const g = this.haloGfx;
+    g.lineStyle(1, TESLA_TINT, 0.7);
+    const base = (now / 1000) * 240 * DEG;
+    for (let i = 0; i < 5; i++) {
+      const a0 = base + (Math.PI * 2 * i) / 5 + Math.random() * 0.5;
+      const r = SHIELD_HALO_RADIUS + 3 + Math.random() * 2;
+      g.beginPath();
+      g.arc(x, y, r, a0, a0 + 0.7);
+      g.strokePath();
+    }
+  }
+
+  /** SENTRY turret: amber wireframe triangle-on-post; the head spins slowly
+   *  and the whole glyph fades over its last 2s. */
+  private drawSentry(x: number, y: number, until: number, now: number): void {
+    const left = until - now;
+    if (left <= 0) return;
+    const g = this.haloGfx;
+    const alpha = 0.9 * Math.min(1, left / 2000);
+    g.lineStyle(1, SENTRY_WEAPON.tint, alpha);
+    g.lineBetween(x - 4, y + 8, x + 4, y + 8); // base
+    g.lineBetween(x, y + 8, x, y + 2); // post
+    strokeRegularPolygon(g, x, y - 2, 4.5, 3, (now / 1000) * 60 * DEG);
   }
 
   private syncAsteroids(now: number): void {
@@ -2736,6 +4122,30 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /** SINGULARITY vortices, from the shared pulls entries (every client
+   *  agrees). Appends to telegraphGfx, which drawEnemyTelegraphs cleared
+   *  this frame. The inward particle ring reuses the pooled converge FX. */
+  private drawPulls(now: number): void {
+    const g = this.telegraphGfx;
+    for (const p of this.world.pulls) {
+      if (p.until <= now) continue;
+      const frac = Math.max(0, Math.min(1, (p.until - now) / SINGULARITY_PULL_MS)); // 1 -> 0
+      // Event horizon shrinks as the collapse completes.
+      g.lineStyle(1, SINGULARITY_TINT, 0.3);
+      g.strokeCircle(p.x, p.y, 30 + (SINGULARITY_PULL_RANGE - 30) * frac);
+      // Three inward-spiraling arc shards.
+      const spin = (now / 1000) * 540 * DEG;
+      g.lineStyle(1, SINGULARITY_TINT, 0.85);
+      for (let i = 0; i < 3; i++) {
+        const a0 = spin + (Math.PI * 2 * i) / 3;
+        g.beginPath();
+        g.arc(p.x, p.y, 12 + 70 * frac, a0, a0 + Math.PI / 3);
+        g.strokePath();
+      }
+      if (Math.random() < 0.3) this.fx.converge(p.x, p.y, 2, 150, 200, SINGULARITY_TINT);
+    }
+  }
+
   /** Enemy projectiles: red is reserved — nothing friendly is ever red. */
   private drawEnemyShots(): void {
     const g = this.enemyShotGfx;
@@ -2756,6 +4166,15 @@ export class GameScene extends Phaser.Scene {
     g.clear();
     const myId = this.myId;
     const draw = (sb: SerializedBeam): void => {
+      if (sb.mine && !sb.exploding) {
+        // Remote mine: open diamond at the armed 1Hz blink (arm state isn't
+        // on the wire; owners render the 4Hz arming blink locally).
+        if (Math.floor(now / 500) % 2 === 0) {
+          g.lineStyle(1, sb.tint, 1);
+          strokeDiamond(g, sb.hx, sb.hy, 6);
+        }
+        return;
+      }
       if (sb.chain && sb.chain.length >= 2) {
         drawJitteredChain(g, sb.chain, sb.tint);
         return;
@@ -2767,6 +4186,14 @@ export class GameScene extends Phaser.Scene {
         strokeTransformed(g, GLAIVE_TRI, sb.hx, sb.hy, (now / 1000) * 12);
         return;
       }
+      if (sb.orb) {
+        // SINGULARITY orb: pulsing filled core + ring (flight and collapse;
+        // the collapse vortex itself renders from the shared pulls entry).
+        const r = 4 + Math.sin(now / 60) * 1.2;
+        g.fillStyle(sb.tint, 0.55).fillCircle(sb.hx, sb.hy, r * 0.6);
+        g.lineStyle(1, sb.tint, 0.95).strokeCircle(sb.hx, sb.hy, r + 2);
+        return;
+      }
       if (sb.exploding) {
         g.lineStyle(1, sb.tint, 1).strokeCircle(sb.hx, sb.hy, sb.explosionRadius);
       } else {
@@ -2775,6 +4202,16 @@ export class GameScene extends Phaser.Scene {
     };
     for (const b of this.beams) {
       if (b.vanished) continue;
+      if (b.mine && !b.exploding) {
+        // Blink 4Hz while arming, 1Hz once armed (zero particles, §C).
+        const armed = now >= b.mine.armAt;
+        const on = armed ? Math.floor(now / 500) % 2 === 0 : Math.floor(now / 125) % 2 === 0;
+        if (on) {
+          g.lineStyle(1, b.weapon.tint, 1);
+          strokeDiamond(g, b.head.x, b.head.y, 6);
+        }
+        continue;
+      }
       if (b.glaive) {
         // Spinning open triangle (remotes draw it via the serialized flag).
         g.lineStyle(2, b.weapon.tint, 1);
@@ -2894,11 +4331,52 @@ export class GameScene extends Phaser.Scene {
     return g;
   }
 
-  /** Weapon = hexagon + spokes; shield = double hexagon + its halo glyph. */
+  /** Self-describing shells: weapon = hexagon + spokes; shield = double
+   *  hexagon + its halo glyph; booster = diamond + its effect glyph. */
   private makeItemGfx(it: ItemState): Phaser.GameObjects.Graphics {
     const g = this.add.graphics().setDepth(4);
     const tint = itemTint(it);
     g.lineStyle(1, tint, 1);
+    if (it.kind === "booster") {
+      strokeDiamond(g, 0, 0, 9);
+      const kind = BOOSTER_KINDS[it.boosterIdx] ?? "repair";
+      if (kind === "overdrive") {
+        // 3 stacked chevrons.
+        for (let i = 0; i < 3; i++) {
+          const y0 = -3 + i * 3;
+          g.beginPath();
+          g.moveTo(-3, y0 + 2);
+          g.lineTo(0, y0 - 1);
+          g.lineTo(3, y0 + 2);
+          g.strokePath();
+        }
+      } else if (kind === "nitro") {
+        // Flame triangle.
+        g.beginPath();
+        g.moveTo(0, -4.5);
+        g.lineTo(3, 3);
+        g.lineTo(-3, 3);
+        g.closePath();
+        g.strokePath();
+      } else if (kind === "repair") {
+        // Plus.
+        g.lineBetween(-3, 0, 3, 0);
+        g.lineBetween(0, -3, 0, 3);
+      } else if (kind === "twin") {
+        // Two dots.
+        g.fillStyle(tint, 1);
+        g.fillCircle(-2.5, 0, 1.2);
+        g.fillCircle(2.5, 0, 1.2);
+      } else {
+        // MAGNET: a U.
+        g.beginPath();
+        g.arc(0, 0.5, 3, 0, Math.PI);
+        g.strokePath();
+        g.lineBetween(-3, 0.5, -3, -3.5);
+        g.lineBetween(3, 0.5, 3, -3.5);
+      }
+      return g;
+    }
     const outer = hexagonPoints(ITEM_DRAW_RADIUS);
     strokeClosed(g, outer);
     if (it.kind === "weapon") {
@@ -2910,9 +4388,9 @@ export class GameScene extends Phaser.Scene {
       return g;
     }
     strokeClosed(g, hexagonPoints(6));
-    const kind = SHIELD_KINDS[it.shieldIdx] ?? "barrier";
+    const kind = SHIELD_MOD_KINDS[it.shieldIdx] ?? "overshield";
     // Self-describing glyph: the halo shape the pickup grants.
-    if (kind === "barrier") {
+    if (kind === "overshield") {
       strokeRegularPolygon(g, 0, 0, 3, 6, 0);
     } else if (kind === "reflect") {
       strokeRegularPolygon(g, 0, 0, 3, 3, -Math.PI / 2);
@@ -2920,12 +4398,24 @@ export class GameScene extends Phaser.Scene {
       g.beginPath();
       g.arc(0, 0, 3, -Math.PI / 4, Math.PI / 4);
       g.strokePath();
-    } else {
+    } else if (kind === "phase") {
       for (let i = 0; i < 4; i++) {
         const a0 = (Math.PI * 2 * i) / 4;
         g.beginPath();
         g.arc(0, 0, 3, a0, a0 + ((Math.PI * 2) / 4) * 0.55);
         g.strokePath();
+      }
+    } else if (kind === "siphon") {
+      // Double-ring dot.
+      g.strokeCircle(0, 0, 3);
+      g.fillStyle(tint, 1);
+      g.fillCircle(0, 0, 1);
+    } else {
+      // AEGIS: 4-dot ring.
+      g.fillStyle(tint, 1);
+      for (let i = 0; i < 4; i++) {
+        const a0 = (Math.PI * 2 * i) / 4;
+        g.fillCircle(Math.cos(a0) * 3, Math.sin(a0) * 3, 0.9);
       }
     }
     return g;
@@ -2956,7 +4446,20 @@ export class GameScene extends Phaser.Scene {
     for (const it of this.world.items) {
       if (!inWorld(it.x, it.y, 0)) continue;
       g.fillStyle(itemTint(it), 1);
-      g.fillCircle(x0 + it.x * sx, y0 + it.y * sy, 1.5);
+      const px = x0 + it.x * sx;
+      const py = y0 + it.y * sy;
+      if (it.kind === "booster") {
+        // 2px diamonds — the third shell shape reads on the minimap too.
+        g.beginPath();
+        g.moveTo(px, py - 2);
+        g.lineTo(px + 2, py);
+        g.lineTo(px, py + 2);
+        g.lineTo(px - 2, py);
+        g.closePath();
+        g.fillPath();
+      } else {
+        g.fillCircle(px, py, 1.5);
+      }
     }
 
     const myId = this.myId;
@@ -2983,21 +4486,63 @@ export class GameScene extends Phaser.Scene {
     setText(this.scoreEl, String(this.score));
     setText(this.weaponEl, this.weapon.name);
     if (this.weaponBarEl) {
+      // Stacked pickups can push the timer past one base duration: clamp the
+      // bar full; the extra time drains invisibly until under 20s again.
       const frac =
         this.weapon === WEAPON_DEFAULT
           ? 0
-          : Math.max(0, (this.weaponUntil - now) / SPECIAL_WEAPON_DURATION_MS);
+          : Math.min(1, Math.max(0, (this.weaponUntil - now) / SPECIAL_WEAPON_DURATION_MS));
       this.weaponBarEl.style.width = `${(frac * 100).toFixed(1)}%`;
       this.weaponBarEl.style.background = hexCss(this.weapon.tint);
     }
     if (this.shieldEl) {
-      const sh = this.shield;
-      if (!sh || !this.alive) {
+      if (!this.alive || !this.spawned) {
         this.shieldEl.style.display = "none";
       } else {
         this.shieldEl.style.display = "block";
-        this.shieldEl.style.color = hexCss(SHIELD_SPECS[sh.kind].tint);
-        setText(this.shieldEl, shieldPillText(sh.kind, this.shieldNetState(now)));
+        // SIPHON overheal: the fill runs past the base 40px track (≤1.3×,
+        // SIPHON_OVERHEAL_MAX) and tints green while banked above 100.
+        const overhealCap = SIPHON_OVERHEAL_MAX / SHIELD_MAX;
+        const frac = Math.max(0, Math.min(overhealCap, this.shieldHp / SHIELD_MAX));
+        if (this.shieldFillEl) {
+          this.shieldFillEl.style.width = `${(frac * 40).toFixed(1)}px`;
+          this.shieldFillEl.style.background =
+            this.shieldHp > SHIELD_MAX ? hexCss(SHIELD_MOD_SPECS.siphon.tint) : "";
+        }
+        if (this.shieldOsEl) {
+          this.shieldOsEl.style.width = `${((Math.max(0, this.overHp) / OVERSHIELD_BONUS) * 30).toFixed(1)}px`;
+        }
+        this.shieldEl.classList.toggle("low", this.shieldHp < SHIELD_MAX * SHIELD_LOW_FRACTION);
+        const mod = this.shieldMod;
+        if (this.shieldModEl) {
+          this.shieldModEl.style.display = mod ? "block" : "none";
+          if (mod) {
+            this.shieldModEl.style.color = hexCss(SHIELD_MOD_SPECS[mod].tint);
+            setText(this.shieldModEl, SHIELD_MOD_SPECS[mod].name);
+          }
+        }
+        if (this.shieldModBarEl) {
+          const mfrac = mod
+            ? Math.min(1, Math.max(0, (this.shieldModUntil - now) / SHIELD_MOD_DURATION_MS))
+            : 0;
+          this.shieldModBarEl.style.width = `${(mfrac * 100).toFixed(1)}%`;
+          if (mod) this.shieldModBarEl.style.background = hexCss(SHIELD_MOD_SPECS[mod].tint);
+        }
+      }
+    }
+    if (this.boostsEl) {
+      const parts: string[] = [];
+      if (this.alive) {
+        for (const [kind, until] of this.boosts) {
+          const secs = Math.max(0, Math.ceil((until - now) / 1000));
+          const spec = BOOSTER_SPECS[kind];
+          parts.push(`<span style="color:${hexCss(spec.tint)}">${spec.name} ${secs}</span>`);
+        }
+      }
+      const html = parts.join(" &middot; ");
+      if (html !== this.lastBoostsHtml) {
+        this.lastBoostsHtml = html;
+        this.boostsEl.innerHTML = html;
       }
     }
     const mult = comboMult(this.streak);
@@ -3040,21 +4585,40 @@ export class GameScene extends Phaser.Scene {
         this.dirty.enemies = true;
         return e.id;
       },
+      /** Grant a shield MOD by kind name (validated — bad kinds are ignored). */
       grantShield: (raw: string): void => {
-        // Normalize + validate: an invalid kind stored here would crash every
-        // subsequent drawHalo frame.
         const lowered = raw.toLowerCase();
-        const kind = (Object.keys(SHIELD_SPECS) as ShieldKind[]).find((k) => k === lowered);
+        const kind = SHIELD_MOD_KINDS.find((k) => k === lowered);
         if (!kind) return;
-        this.shield = {
-          kind,
-          charges: kind === "barrier" ? BARRIER_MAX_CHARGES : 1,
-          phased: false,
-        };
-        this.barrierNextRegenAt = 0;
-        this.reflectReadyAt = 0;
+        const now = Date.now();
+        this.shieldMod = kind;
+        this.shieldModUntil = now + SHIELD_MOD_DURATION_MS;
+        this.overHp = kind === "overshield" ? OVERSHIELD_BONUS : 0;
         this.phaseReadyAt = 0;
       },
+      /** Grant a booster by kind name (repair applies instantly). */
+      grantBooster: (raw: string): void => {
+        const kind = BOOSTER_KINDS.find((k) => k === raw.toLowerCase());
+        if (!kind) return;
+        if (kind === "repair") {
+          this.shieldHp = Math.max(this.shieldHp, SHIELD_MAX);
+          this.lastDamageAt = 0;
+        } else {
+          this.boosts.set(kind, Date.now() + BOOSTER_SPECS[kind].durationMs);
+        }
+      },
+      /** Set the base shield directly; stamps the damage clock so regen
+       *  behaves as after a real drain. 0 = death (via the real pipeline). */
+      setShield: (hp: number): void => {
+        const now = Date.now();
+        this.shieldHp = Math.min(SIPHON_OVERHEAL_MAX, hp);
+        this.lastDamageAt = now;
+        this.regenActive = false;
+        if (this.shieldHp <= 0 && this.alive) this.die(now, null, "DEV");
+      },
+      /** Run a drain through the real applyDamage pipeline. */
+      damage: (amount: number): string =>
+        this.applyDamage(amount, this.shipX + 12, this.shipY, "DEV", null, Date.now()),
       grantWeapon: (ref: number | string): void => {
         const weapon =
           typeof ref === "number"
@@ -3063,6 +4627,31 @@ export class GameScene extends Phaser.Scene {
         if (!weapon) return;
         this.weapon = weapon;
         this.weaponUntil = Date.now() + SPECIAL_WEAPON_DURATION_MS;
+        this.windupAcc = 0;
+      },
+      /** Host only: drop a live item at (x,y) (defaults to the ship, so it gets
+       *  picked up next frame, which is how stacking is exercised). */
+      spawnItem: (cls: "weapon" | "shield" | "booster", name: string, x?: number, y?: number) => {
+        if (!this.amHost) return;
+        let drop: ItemDrop | null = null;
+        if (cls === "weapon") {
+          const i = WEAPONS_SPECIAL.findIndex((w) => w.name === name.toUpperCase());
+          if (i !== -1) drop = { kind: "weapon", weaponIdx: i };
+        } else if (cls === "shield") {
+          const i = SHIELD_MOD_KINDS.findIndex((k) => k === name.toLowerCase());
+          if (i !== -1) drop = { kind: "shield", shieldIdx: i };
+        } else {
+          const i = BOOSTER_KINDS.findIndex((k) => k === name.toLowerCase());
+          if (i !== -1) drop = { kind: "booster", boosterIdx: i };
+        }
+        if (!drop) return;
+        this.world.items.push(spawnItemState(x ?? this.shipX, y ?? this.shipY, drop));
+        this.dirty.items = true;
+      },
+      /** Host only: shed score shards near the ship. */
+      dropShards: (count: number, x?: number, y?: number): void => {
+        if (!this.amHost) return;
+        this.hostSpawnShards(x ?? this.shipX + 120, y ?? this.shipY, count);
       },
       /** Fire one volley of the current weapon, no pointer needed. */
       fire: (): void => {
@@ -3072,7 +4661,7 @@ export class GameScene extends Phaser.Scene {
       setArenaEpoch: (epochMs: number): void => {
         if (!this.amHost) return;
         this.world.arenaEpoch = epochMs;
-        this.client.updateSharedState({ arenaEpoch: epochMs });
+        if (!this.offline) this.client.updateSharedState({ arenaEpoch: epochMs });
       },
       intensity: (): number =>
         arenaIntensity(Math.max(0, (Date.now() - this.world.arenaEpoch) / 1000)),
@@ -3081,11 +4670,21 @@ export class GameScene extends Phaser.Scene {
         score: this.score,
         streak: this.streak,
         weapon: this.weapon.name,
-        shield: this.shield ? { ...this.shield } : null,
+        weaponUntil: this.weaponUntil,
+        windup: this.windupFrac(),
+        shieldHp: Math.round(this.shieldHp * 10) / 10,
+        overHp: this.overHp,
+        regen: this.regenActive,
+        mod: this.shieldMod ? { kind: this.shieldMod, until: this.shieldModUntil } : null,
+        boosts: this.boostsNetState(),
+        mines: this.beams.filter((b) => b.mine && !b.exploding && !b.vanished).length,
+        sentry: this.sentry ? { x: this.sentry.x, y: this.sentry.y } : null,
+        pulls: this.world.pulls.length,
         enemies: this.world.enemies.map((e) => e.kind),
         enemyShots: this.world.enemyShots.length,
         asteroids: this.world.asteroids.length,
-        items: this.world.items.length,
+        items: this.world.items.map((it) => it.kind),
+        shards: this.world.shards.length,
         beams: this.beams.length,
         isHost: this.amHost,
         intensity: arenaIntensity(Math.max(0, (Date.now() - this.world.arenaEpoch) / 1000)),
@@ -3125,7 +4724,7 @@ const DEATH_HINTS: Record<string, string> = {
   PLAYER: "keep moving, use your drift",
 };
 
-function weaponSound(kind: WeaponSfx): { name: SfxName; gain: number } {
+function weaponSound(kind: WeaponSfx): { name: SfxName; gain: number; rate?: number } {
   switch (kind) {
     case "pulse":
       return { name: "fire_pulse", gain: 1 };
@@ -3145,6 +4744,28 @@ function weaponSound(kind: WeaponSfx): { name: SfxName; gain: number } {
       return { name: "arc_zap", gain: 1 };
     case "glaive":
       return { name: "fire_heavy", gain: 0.8 };
+    case "rail":
+      return { name: "rail", gain: 1 };
+    case "mine":
+      return { name: "fire_pulse", gain: 0.5, rate: 0.7 };
+    case "nova":
+      // The design's "boom at 0.8 gain, −15% pitch".
+      return { name: "fire_heavy", gain: 0.8, rate: 0.85 };
+    case "drill":
+      // Pitched reuse: the heavy thump dropped ~an octave reads as a grind.
+      return { name: "fire_heavy", gain: 1.1, rate: 0.55 };
+    case "plasma":
+      // Quiet pitched-up blip at 70ms cadence reads as a hiss-stream.
+      return { name: "fire_pulse", gain: 0.4, rate: 1.45 };
+    case "tesla":
+      // arc_zap pitched up: a shorter, snappier crackle than ARC's cast.
+      return { name: "arc_zap", gain: 0.7, rate: 1.4 };
+    case "sentry":
+      // The own-bolt pew; the place clack is its own synth (sentry_place).
+      return { name: "fire_pulse", gain: 0.7, rate: 1.1 };
+    case "singularity":
+      // Slow dark launch; the pop reuses fire_heavy pitched down (popSingularity).
+      return { name: "fire_laser", gain: 0.8, rate: 0.6 };
   }
 }
 
@@ -3319,6 +4940,7 @@ function serializeBeam(b: Beam): SerializedBeam {
       exploding: false,
       explosionRadius: 0,
       chain: b.chain,
+      power: b.weapon.power,
     };
   }
   const sb: SerializedBeam = {
@@ -3330,8 +4952,11 @@ function serializeBeam(b: Beam): SerializedBeam {
     width: b.weapon.width,
     exploding: b.exploding,
     explosionRadius: b.explosionRadius,
+    power: b.weapon.power,
   };
   if (b.glaive) sb.glaive = true;
+  if (b.mine) sb.mine = true;
+  if (b.weapon.singularity && !b.exploding) sb.orb = true;
   return sb;
 }
 
@@ -3387,6 +5012,9 @@ function readNetState(player: Player | undefined): PlayerNetState | null {
         if (pts.length >= 2) beam.chain = pts;
       }
       if (b["glaive"] === true) beam.glaive = true;
+      if (b["mine"] === true) beam.mine = true;
+      if (b["orb"] === true) beam.orb = true;
+      if (typeof b["power"] === "number") beam.power = b["power"];
       beams.push(beam);
     }
   }
@@ -3395,17 +5023,41 @@ function readNetState(player: Player | undefined): PlayerNetState | null {
   const weaponName = s["weaponName"];
   const vx = s["vx"];
   const vy = s["vy"];
-  let shield: ShieldNetState | null = null;
-  const shRaw = asRecord(s["shield"]);
-  if (shRaw) {
-    const kind = shRaw["kind"];
-    if (kind === "barrier" || kind === "reflect" || kind === "ram" || kind === "phase") {
-      shield = {
+  let shieldMod: ShieldModNetState | null = null;
+  const modRaw = asRecord(s["shieldMod"]);
+  if (modRaw) {
+    const kind = SHIELD_MOD_KINDS.find((k) => k === modRaw["kind"]);
+    if (kind) {
+      shieldMod = {
         kind,
-        charges: typeof shRaw["charges"] === "number" ? shRaw["charges"] : 0,
-        phased: shRaw["phased"] === true,
+        until: typeof modRaw["until"] === "number" ? modRaw["until"] : 0,
+        active: modRaw["active"] === true,
+        phased: modRaw["phased"] === true,
       };
     }
+  }
+  const boosts: BoostNetState[] = [];
+  const boostsRaw = s["boosts"];
+  if (Array.isArray(boostsRaw)) {
+    for (const entry of boostsRaw) {
+      const r = asRecord(entry);
+      if (!r) continue;
+      const kind = BOOSTER_KINDS.find((k) => k === r["kind"]);
+      if (kind && typeof r["until"] === "number") boosts.push({ kind, until: r["until"] });
+    }
+  }
+  const shieldHp = s["shieldHp"];
+  const overHp = s["overHp"];
+  const windup = s["windup"];
+  let sentry: PlayerNetState["sentry"] = null;
+  const sentryRaw = asRecord(s["sentry"]);
+  if (
+    sentryRaw &&
+    typeof sentryRaw["x"] === "number" &&
+    typeof sentryRaw["y"] === "number" &&
+    typeof sentryRaw["until"] === "number"
+  ) {
+    sentry = { x: sentryRaw["x"], y: sentryRaw["y"], until: sentryRaw["until"] };
   }
   return {
     x,
@@ -3418,7 +5070,13 @@ function readNetState(player: Player | undefined): PlayerNetState | null {
     score: typeof score === "number" ? score : 0,
     streak: typeof streak === "number" ? streak : 0,
     weaponName: typeof weaponName === "string" ? weaponName : "",
-    shield,
+    shieldHp: typeof shieldHp === "number" ? shieldHp : SHIELD_MAX,
+    overHp: typeof overHp === "number" ? overHp : 0,
+    shieldMod,
+    boosts,
+    windup: typeof windup === "number" ? windup : 0,
+    tesla: s["tesla"] === true,
+    sentry,
     beams,
   };
 }
@@ -3517,7 +5175,35 @@ function targetKey(ref: TargetRef): string {
 
 function itemTint(it: ItemState): number {
   if (it.kind === "weapon") return WEAPONS_SPECIAL[it.weaponIdx]?.tint ?? 0xffffff;
-  return SHIELD_SPECS[SHIELD_KINDS[it.shieldIdx] ?? "barrier"].tint;
+  if (it.kind === "booster") return BOOSTER_SPECS[BOOSTER_KINDS[it.boosterIdx] ?? "repair"].tint;
+  return SHIELD_MOD_SPECS[SHIELD_MOD_KINDS[it.shieldIdx] ?? "overshield"].tint;
+}
+
+/** Remote windup glow tint from the shooter's weaponName (white fallback). */
+function weaponTint(name: string): number {
+  return WEAPONS_SPECIAL.find((w) => w.name === name)?.tint ?? 0xffffff;
+}
+
+/** Random lerp between two 0xRRGGBB tints (PLASMA's per-shot gradient). */
+function lerpTint(a: number, b: number): number {
+  const t = Math.random();
+  const ch = (shift: number): number => {
+    const ca = (a >> shift) & 0xff;
+    const cb = (b >> shift) & 0xff;
+    return Math.round(ca + (cb - ca) * t) << shift;
+  };
+  return ch(16) | ch(8) | ch(0);
+}
+
+/** 4-point open diamond, 1px stroke (mine + booster shells). */
+function strokeDiamond(g: Phaser.GameObjects.Graphics, x: number, y: number, r: number): void {
+  g.beginPath();
+  g.moveTo(x, y - r);
+  g.lineTo(x + r, y);
+  g.lineTo(x, y + r);
+  g.lineTo(x - r, y);
+  g.closePath();
+  g.strokePath();
 }
 
 function hexCss(tint: number): string {
@@ -3526,17 +5212,6 @@ function hexCss(tint: number): string {
 
 function fmtScore(v: number): string {
   return v.toLocaleString("en-US").replace(/,/g, " ");
-}
-
-function shieldPillText(kind: ShieldKind, net: ShieldNetState | null): string {
-  const name = SHIELD_SPECS[kind].name;
-  if (!net) return name;
-  if (kind === "barrier") {
-    const filled = Math.max(0, Math.min(BARRIER_MAX_CHARGES, net.charges));
-    return `${name} ${"◆".repeat(filled)}${"◇".repeat(BARRIER_MAX_CHARGES - filled)}`;
-  }
-  if (kind === "phase") return `${name} ${net.charges > 0 ? "●" : "◌"}`;
-  return `${name} ${net.charges > 0 ? "◆" : "◇"}`;
 }
 
 function setText(el: HTMLElement | null, text: string): void {
