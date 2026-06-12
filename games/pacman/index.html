@@ -7,8 +7,16 @@
     <title>Pacman</title>
     <style>
       :root {
-        --ink: #f8fafc;
-        --gold: #facc15;
+        --cream: #fdf1e6;
+        --ink: #6b5e66;
+        --ink-soft: #9d8e96;
+        --butter: #f5b942;
+        --blush: #f27e9d;
+        --card: rgba(255, 255, 255, 0.78);
+        --card-edge: rgba(242, 126, 157, 0.25);
+        --round-font:
+          ui-rounded, "SF Pro Rounded", "Hiragino Maru Gothic ProN", Quicksand, Varela Round,
+          system-ui, sans-serif;
       }
       * {
         box-sizing: border-box;
@@ -19,12 +27,9 @@
         padding: 0;
         height: 100%;
         overflow: hidden;
-        background: #09090b;
+        background: var(--cream);
         color: var(--ink);
-        font-family:
-          system-ui,
-          -apple-system,
-          sans-serif;
+        font-family: var(--round-font);
       }
       #game {
         position: fixed;
@@ -35,11 +40,31 @@
         display: block;
       }
 
+      /* Soft pink blink when caught — feedback, not punishment. */
+      #flash {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background: #f8a8bd;
+        opacity: 0;
+      }
+      #flash.on {
+        animation: flash-fade 350ms ease-out forwards;
+      }
+      @keyframes flash-fade {
+        from {
+          opacity: 0.4;
+        }
+        to {
+          opacity: 0;
+        }
+      }
+
       #hud {
         position: fixed;
         inset: 0;
         pointer-events: none;
-        padding: 14px;
+        padding: 16px;
         display: flex;
         flex-direction: column;
       }
@@ -50,38 +75,48 @@
         gap: 12px;
       }
       .pill {
-        background: rgba(12, 12, 26, 0.62);
-        border: 1px solid rgba(250, 204, 21, 0.22);
-        padding: 7px 12px;
-        border-radius: 10px;
-        font:
-          13px/1.3 ui-monospace,
-          "SF Mono",
-          Menlo,
-          monospace;
-        backdrop-filter: blur(6px);
-        -webkit-backdrop-filter: blur(6px);
-        box-shadow: 0 4px 18px rgba(0, 0, 0, 0.3);
+        background: var(--card);
+        border: 1.5px solid var(--card-edge);
+        padding: 8px 16px;
+        border-radius: 999px;
+        font: 700 14px/1.3 var(--round-font);
+        letter-spacing: 0.04em;
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        box-shadow: 0 6px 20px rgba(212, 150, 167, 0.25);
       }
       #score {
-        color: var(--gold);
+        color: var(--butter);
+      }
+      #best {
+        color: var(--ink-soft);
       }
       #stats {
         align-self: center;
         margin-top: auto;
-        margin-bottom: 6px;
-        font-size: 16px;
+        margin-bottom: 8px;
+        font-size: 17px;
         letter-spacing: 2px;
-        padding: 8px 16px;
-        color: #fda4af;
+        padding: 9px 20px;
+        color: var(--blush);
       }
       #stats:empty {
         display: none;
       }
 
+      /* Shown while WebAudio is still locked during play (face-only players
+         never press a key or tap, so the browser keeps audio gated). */
+      #sound-hint {
+        position: fixed;
+        left: 16px;
+        bottom: 16px;
+        color: var(--ink-soft);
+        font-size: 12px;
+      }
+
       #banner {
         position: fixed;
-        top: 36%;
+        top: 34%;
         left: 0;
         right: 0;
         text-align: center;
@@ -89,43 +124,60 @@
         transition: opacity 0.25s ease;
         pointer-events: none;
       }
+      #banner.pop {
+        animation: banner-pop 450ms cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+      @keyframes banner-pop {
+        from {
+          transform: scale(0.72);
+        }
+        to {
+          transform: scale(1);
+        }
+      }
       #banner-title {
-        font:
-          800 clamp(34px, 7vw, 76px)/1.1 system-ui,
-          sans-serif;
-        color: var(--gold);
+        font: 800 clamp(38px, 7.5vw, 80px)/1.1 var(--round-font);
+        letter-spacing: 0.02em;
+        color: var(--butter);
         text-shadow:
-          0 4px 0 rgba(0, 0, 0, 0.4),
-          0 0 30px rgba(250, 204, 21, 0.55);
+          0 3px 0 rgba(255, 255, 255, 0.9),
+          0 10px 28px rgba(212, 150, 167, 0.45);
       }
       #banner-sub {
-        margin: 12px auto 0;
-        max-width: 640px;
-        font:
-          500 clamp(13px, 2vw, 18px)/1.4 ui-monospace,
-          Menlo,
-          monospace;
-        color: rgba(248, 250, 252, 0.85);
-        text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+        margin: 14px auto 0;
+        max-width: 620px;
+        padding: 10px 22px;
+        display: inline-block;
+        background: var(--card);
+        border: 1.5px solid var(--card-edge);
+        border-radius: 18px;
+        font: 600 clamp(13px, 2vw, 16px)/1.5 var(--round-font);
+        color: var(--ink);
+        box-shadow: 0 6px 20px rgba(212, 150, 167, 0.25);
+      }
+      #banner-sub:empty {
+        display: none;
       }
 
-      /* Webcam preview panel — legacy dimensions: 192x144 bottom-right
-         (right-1/bottom-1 = 4px), rounded-lg, bg-black/10; 384x288 on md+. */
+      /* Webcam preview — the face IS the controller, so frame it like a
+         friendly little porthole. Legacy size kept: 192x144, 384x288 on md+. */
       #webcam {
         position: fixed;
-        right: 4px;
-        bottom: 4px;
+        right: 12px;
+        bottom: 12px;
         z-index: 10;
         width: 192px;
         height: 144px;
-        border-radius: 8px;
-        background: rgba(0, 0, 0, 0.1);
+        border-radius: 22px;
+        background: var(--card);
+        border: 3px solid rgba(255, 255, 255, 0.95);
+        box-shadow: 0 10px 30px rgba(212, 150, 167, 0.4);
+        overflow: hidden;
       }
       #webcam video {
         display: block;
         width: 100%;
         height: auto;
-        border-radius: 8px;
       }
       #webcam canvas {
         position: absolute;
@@ -141,12 +193,9 @@
         align-items: center;
         justify-content: center;
         text-align: center;
-        padding: 10px;
-        font:
-          11px/1.5 ui-monospace,
-          Menlo,
-          monospace;
-        color: rgba(248, 250, 252, 0.75);
+        padding: 12px;
+        font: 600 11px/1.5 var(--round-font);
+        color: var(--ink-soft);
         pointer-events: none;
       }
       @media (min-width: 768px) {
@@ -159,6 +208,7 @@
   </head>
   <body>
     <div id="game"></div>
+    <div id="flash"></div>
     <div id="hud">
       <div class="row">
         <div class="pill" id="score">SCORE 0</div>
@@ -166,6 +216,7 @@
       </div>
       <div class="pill" id="stats"></div>
     </div>
+    <div class="pill" id="sound-hint" style="display: none">🔇 tap anywhere for sound</div>
     <div id="banner">
       <div id="banner-title"></div>
       <div id="banner-sub"></div>

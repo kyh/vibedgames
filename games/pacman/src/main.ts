@@ -1,8 +1,9 @@
 import * as THREE from "three";
 
+import { music, sfx } from "./audio/sfx";
 import { FaceCamera } from "./input/face-camera";
 import { GameScene } from "./scenes/game-scene";
-import { MAX_DT } from "./shared/constants";
+import { MAX_DT, TONE_EXPOSURE } from "./shared/constants";
 
 const container = document.getElementById("game");
 if (!container) throw new Error("missing #game container");
@@ -10,13 +11,26 @@ if (!container) throw new Error("missing #game container");
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
-// r3f Canvas defaults the legacy build rendered through.
+// r3f Canvas defaults the legacy build rendered through, plus a touch of
+// extra exposure for the airy cream look.
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = TONE_EXPOSURE;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 container.appendChild(renderer.domElement);
 
 const game = new GameScene();
+
+// Browsers gate audio behind a user gesture — first tap/keypress unlocks the
+// synth context and starts the lullaby loop. Both calls are idempotent, and
+// keeping the listeners around lets a suspended context resume after tab
+// switches. Face-only players get sound on their first click anywhere.
+const unlockAudio = (): void => {
+  sfx.unlock();
+  music.start("audio/bgm.m4a");
+};
+window.addEventListener("pointerdown", unlockAudio);
+window.addEventListener("keydown", unlockAudio);
 
 // Webcam face control — auto-starts like the legacy build; on denial/failure
 // the panel shows a status line and keyboard input keeps working.

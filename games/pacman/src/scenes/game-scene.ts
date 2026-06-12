@@ -1,15 +1,33 @@
 // 3D first-person Pac-Man, restored from the legacy r3f build on plain three.js.
 // Step-per-chomp movement: each mouth-open transition (or SPACE) advances one
 // grid cell; head turns / arrow keys rotate the heading relative to the current
-// facing. Chase camera trails the yellow sphere; SHIFT flips to a selfie view.
+// facing. Chase camera trails Pacman; SHIFT flips to a selfie view.
+//
+// Look & feel: "plush clinic" — warm cream fog, marshmallow walls, Baymax-faced
+// ghost blobs, heart power pellets, squash & stretch, pooled puff/heart VFX and
+// a gentle trauma camera.
+//
+// The simulation follows the legacy build (step-per-chomp, relative steering,
+// ghost AI) with two deliberate departures: ghost contact uses radial
+// hitboxes checked every frame (legacy cell-snapping only ran on movement
+// frames, so a stationary Pacman could never be caught — played as a bug),
+// and the maze is a bigger generated braided board.
 
 import * as THREE from "three";
+import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 
+import { music, sfx } from "../audio/sfx";
+import { FxPool } from "../render/fx-pool";
+import { buildHeartGeometry } from "../render/heart";
+import type { PelletCell } from "../render/pellet-field";
+import { PelletField } from "../render/pellet-field";
+import { TraumaCamera } from "../render/trauma-camera";
 import type { Dir } from "../shared/constants";
 import {
-  AMBIENT_INTENSITY,
+  BASE_FOV,
   BEST_KEY,
   CAM_BACK,
+  CATCH_DIST,
   CAM_HEIGHT,
   CAM_LOOK_AHEAD,
   CAM_SELFIE_LOOK_BACK,
@@ -18,18 +36,37 @@ import {
   COLORS,
   DIR_VECT,
   DIRS,
+  EAT_DIST,
+  FLOOR_Y,
+  FOG_FAR,
+  FOG_NEAR,
+  FOV_KICK_DECAY,
+  FOV_KICK_POWER,
   GHOST_BOB_AMP,
   GHOST_BOB_BASE,
   GHOST_BOB_FREQ,
+  GHOST_BOB_STAGGER,
   GHOST_COLORS,
-  GHOST_RADIUS,
   GHOST_RESPAWN,
+  GHOST_SCARED_SCALE,
   GHOST_SCARED_SPEED,
   GHOST_SPAWNS,
   GHOST_SPEED,
+  GHOST_TREMBLE_AMP,
+  GHOST_TREMBLE_FREQ,
+  GHOST_YAW_RATE,
   GRID_COLS,
   GRID_ROWS,
+  HEART_PULSE_AMP,
+  HEART_PULSE_FREQ,
+  HEART_Y,
+  HEMI_GROUND,
+  HEMI_INTENSITY,
+  HEMI_SKY,
+  KEY_COLOR,
+  KEY_INTENSITY,
   MAP,
+  MOUTH_ANGLE_QUANT,
   MOUTH_LERP_RATE,
   MOUTH_OPEN_ANGLE,
   MOUTH_PHI_LENGTH,
@@ -39,19 +76,30 @@ import {
   PAC_RADIUS,
   PACMAN_SPAWN,
   PACMAN_STEP_SPEED,
-  PELLET_RADIUS,
-  PELLET_SPIN,
+  PELLET_BOB_FREQ,
   POWER_PELLET_RADIUS,
   READY_MS,
+  SCARED_BLINK_INTERVAL_MS,
   SCARED_MS,
+  SCARED_WARN_MS,
   SCORE_GHOST,
   SCORE_PELLET,
   SCORE_POWER,
   SPAWN_GRACE_MS,
+  SQUASH_RECOVER_RATE,
   START_LIVES,
+  STEP_SQUASH,
+  STEP_STRETCH,
+  TITLE_ORBIT_HEIGHT,
+  TITLE_ORBIT_RADIUS,
+  TITLE_ORBIT_SPEED,
+  TRAUMA_CAUGHT,
+  TRAUMA_GHOST_EATEN,
+  TRAUMA_POWER,
   TURN_LEFT,
   TURN_RIGHT,
   WALL_OPACITY,
+  WALL_TINT_WOBBLE,
   cellKey,
   isOpen,
 } from "../shared/constants";
@@ -62,11 +110,29 @@ type Ghost = {
   x: number;
   z: number;
   dir: Dir;
-  skin: number;
+  /** Body color, resolved once at construction. */
+  color: number;
   group: THREE.Group;
   bob: THREE.Group;
   bodyMat: THREE.MeshStandardMaterial;
+  /** Worried "o" mouth, shown while scared. */
+  worry: THREE.Mesh;
+  yaw: number;
+  /** 0→1 grow-in after a respawn teleport (nothing pops). */
+  spawnScale: number;
+  scale: number;
 };
+
+type Heart = {
+  mesh: THREE.Mesh;
+  /** Per-cell phase so the hearts breathe out of sync. */
+  phase: number;
+};
+
+/** Pentatonic combo ladder for quick pellet streaks (semitones above root). */
+const COMBO_SCALE: ReadonlyArray<number> = [0, 2, 4, 7, 9, 12, 14, 16, 19];
+/** Streak window: pellets eaten within this many seconds keep climbing. */
+const COMBO_WINDOW_S = 0.9;
 
 const SWIPE_MIN_PX = 24;
 const EPS = 1e-4;
@@ -91,7 +157,8 @@ export class GameScene {
     target: { x: PACMAN_SPAWN.col, z: PACMAN_SPAWN.row },
   };
   private ghosts: Ghost[] = [];
-  private pellets = new Map<string, THREE.Mesh>();
+  private pelletField: PelletField;
+  private hearts = new Map<string, Heart>();
   private score = 0;
   private best = 0;
   private lives = START_LIVES;
@@ -107,14 +174,37 @@ export class GameScene {
   private swiped = false;
 
   // ---- display objects -----------------------------------------------------------
+  /** Outer rig: world position + axis-aligned squash/stretch. */
+  private pacRig = new THREE.Group();
+  /** Inner group: facing rotation (so the rig's scale stays world-aligned). */
   private pacGroup: THREE.Group;
   private mouthMesh: THREE.Mesh;
   private mouthAngle = 0;
-  private mouthBuiltAngle = -1;
-  private pelletGeo = new THREE.SphereGeometry(PELLET_RADIUS, 8, 8);
-  private powerGeo = new THREE.SphereGeometry(POWER_PELLET_RADIUS, 8, 8);
-  private pelletMat = new THREE.MeshStandardMaterial({ color: COLORS.pellet });
-  private powerMat = new THREE.MeshStandardMaterial({ color: COLORS.power });
+  private mouthBuiltBucket = -1;
+  /** Quantized wedge geometries, built once each (~16 total, never disposed). */
+  private mouthGeoCache = new Map<number, THREE.SphereGeometry>();
+  private heartGeo = buildHeartGeometry(POWER_PELLET_RADIUS * 1.85);
+  private powerMat = new THREE.MeshStandardMaterial({
+    color: COLORS.power,
+    emissive: COLORS.heartGlow,
+    emissiveIntensity: 0.4,
+    roughness: 0.5,
+  });
+
+  // ---- feel / vfx state ---------------------------------------------------------
+  private fx: FxPool;
+  private shaker = new TraumaCamera();
+  private t = 0;
+  private fovKick = 0;
+  private squashKick = 0;
+  private stretchAmt = 0;
+  private comboIdx = 0;
+  private lastPelletAt = -Infinity;
+  private lastTurnTickAt = -Infinity;
+  private prevScared = false;
+  private winConfettiIn = 0;
+  private hintShown = false;
+  private noticeTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ---- chase camera (legacy PacmanCamera lerp state) -------------------------------
   private camInit = false;
@@ -130,37 +220,52 @@ export class GameScene {
   private bannerEl = el("banner");
   private bannerTitleEl = el("banner-title");
   private bannerSubEl = el("banner-sub");
+  private flashEl = el("flash");
+  private soundHintEl = el("sound-hint");
 
   constructor() {
     this.scene.background = new THREE.Color(COLORS.bg);
-    // r3f default camera the legacy build rendered through.
+    this.scene.fog = new THREE.Fog(COLORS.bg, FOG_NEAR, FOG_FAR);
     this.camera = new THREE.PerspectiveCamera(
-      75,
+      BASE_FOV,
       window.innerWidth / window.innerHeight,
       0.1,
       1000,
     );
 
-    // Legacy lighting: a single ambient light, intensity 1.0.
-    this.scene.add(new THREE.AmbientLight(0xffffff, AMBIENT_INTENSITY));
-
+    this.buildLights();
     this.buildMaze();
+    this.pelletField = new PelletField(this.scene, mapCells(2).length);
     this.resetBoard();
 
     this.pacGroup = buildPacman();
     const mouth = this.pacGroup.getObjectByName("mouth");
     if (!(mouth instanceof THREE.Mesh)) throw new Error("pacman mouth missing");
     this.mouthMesh = mouth;
-    this.scene.add(this.pacGroup);
+    this.pacRig.add(this.pacGroup);
+    this.scene.add(this.pacRig);
 
     this.ghosts = GHOST_SPAWNS.map((spawn, i) => {
-      const skin = i % GHOST_COLORS.length;
-      const { group, bob, bodyMat } = buildGhost(GHOST_COLORS[skin]!);
+      const color = GHOST_COLORS[i % GHOST_COLORS.length] ?? COLORS.power;
+      const { group, bob, bodyMat, worry } = buildGhost(color);
       group.position.set(spawn.col, 0, spawn.row);
       this.scene.add(group);
-      return { x: spawn.col, z: spawn.row, dir: spawn.dir, skin, group, bob, bodyMat };
+      return {
+        x: spawn.col,
+        z: spawn.row,
+        dir: spawn.dir,
+        color,
+        group,
+        bob,
+        bodyMat,
+        worry,
+        yaw: dirYaw(spawn.dir),
+        spawnScale: 1,
+        scale: 1,
+      };
     });
 
+    this.fx = new FxPool(this.scene);
     this.best = loadBest();
     this.bindInput();
     this.setPhase("title");
@@ -176,6 +281,8 @@ export class GameScene {
 
   update(dt: number): void {
     const dtMs = dt * 1000;
+    this.t += dt;
+    const scaredMsBefore = this.scaredMs;
 
     if (this.phase === "ready") {
       this.readyMs -= dtMs;
@@ -186,71 +293,147 @@ export class GameScene {
         this.stepRequested = false;
         this.takeStep();
       }
-      // Legacy quirk kept: pellet collection AND ghost contact only run on
-      // movement frames — a stationary Pacman can't be caught.
-      if (this.movePacman(dt)) {
-        this.collectPellet();
-        if (this.phase === "playing") this.checkGhostContact();
-      }
+      if (this.movePacman(dt)) this.collectPellet();
       if (this.phase === "playing") {
         this.scaredMs = Math.max(0, this.scaredMs - dtMs);
         this.graceMs = Math.max(0, this.graceMs - dtMs);
         this.moveGhosts(dt);
+        // Contact every frame — standing still is not a safe spot. (The
+        // legacy build only checked on movement frames; that played as a bug.)
+        this.checkGhostContact();
+      }
+    } else if (this.phase === "win") {
+      // Drifting celebration: another confetti wave every beat.
+      this.winConfettiIn -= dt;
+      if (this.winConfettiIn <= 0) {
+        this.fx.confettiRain(26);
+        this.winConfettiIn = 0.7;
       }
     }
 
+    // Power mode is a PLAYING-phase thing — leaving the round (win/gameover)
+    // must drop the sped-up music even though scaredMs froze mid-value.
+    const scared = this.scaredMs > 0 && this.phase === "playing";
+    if (scared !== this.prevScared) {
+      this.prevScared = scared;
+      music.setPowerMode(scared);
+    }
+    // One soft cue when power mode enters its blinking last stretch.
+    if (scared && scaredMsBefore > SCARED_WARN_MS && this.scaredMs <= SCARED_WARN_MS) {
+      sfx.play("warn");
+    }
+
+    // Face-only players never trigger the gesture that unlocks WebAudio —
+    // surface it instead of playing a silent game.
+    const wantHint = sfx.locked && this.phase === "playing";
+    if (wantHint !== this.hintShown) {
+      this.hintShown = wantHint;
+      this.soundHintEl.style.display = wantHint ? "" : "none";
+    }
+
     this.renderActors(dt);
-    this.updateCamera();
+    this.fx.update(dt);
+    this.updateCamera(dt);
+    music.update();
   }
 
   // ---- board ---------------------------------------------------------------
 
+  private buildLights(): void {
+    this.scene.add(new THREE.HemisphereLight(HEMI_SKY, HEMI_GROUND, HEMI_INTENSITY));
+
+    const cx = (GRID_COLS - 1) / 2;
+    const cz = (GRID_ROWS - 1) / 2;
+    const half = Math.max(GRID_COLS, GRID_ROWS) / 2 + 6;
+    const key = new THREE.DirectionalLight(KEY_COLOR, KEY_INTENSITY);
+    key.position.set(cx + 6, 16, cz - 6);
+    key.target.position.set(cx, 0, cz);
+    key.castShadow = true;
+    // 1024 over the maze-sized frustum — plenty for blobby plush shadows,
+    // half the depth-pass cost of 2048 on phones.
+    key.shadow.mapSize.set(1024, 1024);
+    key.shadow.camera.near = 1;
+    key.shadow.camera.far = 60;
+    key.shadow.camera.left = -half;
+    key.shadow.camera.right = half;
+    key.shadow.camera.top = half;
+    key.shadow.camera.bottom = -half;
+    key.shadow.normalBias = 0.03;
+    this.scene.add(key, key.target);
+  }
+
   private buildMaze(): void {
-    // Floor: legacy plane was offset half a cell from the maze — kept verbatim.
+    // Floor: a big plush plane (extends past the maze so it melts into fog),
+    // with a subtle polka-dot weave. Legacy half-cell offset kept.
+    const floorSize = Math.max(GRID_COLS, GRID_ROWS) + 44;
+    const floorTex = polkaDotTexture();
+    floorTex.repeat.set(floorSize / 2, floorSize / 2);
     const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(GRID_COLS, GRID_ROWS),
-      new THREE.MeshStandardMaterial({ color: COLORS.floor }),
+      new THREE.PlaneGeometry(floorSize, floorSize),
+      new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.95 }),
     );
     floor.rotation.x = -Math.PI / 2;
-    floor.position.set(GRID_COLS / 2, -0.5, GRID_ROWS / 2);
+    floor.position.set(GRID_COLS / 2, FLOOR_Y, GRID_ROWS / 2);
     floor.receiveShadow = true;
     this.scene.add(floor);
 
-    // Walls: translucent blue 1x1x1 boxes, centers at y=0.5.
-    const wallGeo = new THREE.BoxGeometry(1, 1, 1);
+    // Walls: one InstancedMesh of rounded marshmallow blocks, gently varied
+    // in height and tint so the candy field doesn't read as flat extrusion.
+    const cells = mapCells(1);
+    const wallGeo = new RoundedBoxGeometry(0.97, 0.92, 0.97, 4, 0.14);
+    // depthWrite OFF: instances inside one InstancedMesh draw in buffer
+    // order, not back-to-front — with depth writes, wall-behind-wall
+    // translucency flips between "invisible" and "blended" depending on
+    // which way the chase cam faces (measured 7.5× direction asymmetry).
     const wallMat = new THREE.MeshStandardMaterial({
-      color: COLORS.wall,
+      color: 0xffffff,
+      roughness: 0.85,
       transparent: true,
       opacity: WALL_OPACITY,
+      depthWrite: false,
     });
-    for (let row = 0; row < GRID_ROWS; row++) {
-      for (let col = 0; col < GRID_COLS; col++) {
-        if (MAP[row]![col]! !== 1) continue;
-        const wall = new THREE.Mesh(wallGeo, wallMat);
-        wall.position.set(col, 0.5, row);
-        wall.castShadow = true;
-        wall.receiveShadow = true;
-        this.scene.add(wall);
-      }
-    }
+    const walls = new THREE.InstancedMesh(wallGeo, wallMat, cells.length);
+    const dummy = new THREE.Object3D();
+    const tint = new THREE.Color();
+    cells.forEach(({ col, row }, i) => {
+      const h = hash2(col, row);
+      dummy.position.set(col, 0.44, row);
+      dummy.scale.set(1, 0.94 + h * 0.1, 1);
+      dummy.updateMatrix();
+      walls.setMatrixAt(i, dummy.matrix);
+      tint.setHex(COLORS.wall).offsetHSL(0, 0, (h - 0.5) * 2 * WALL_TINT_WOBBLE);
+      walls.setColorAt(i, tint);
+    });
+    walls.castShadow = true;
+    walls.receiveShadow = true;
+    this.scene.add(walls);
   }
 
   private resetBoard(): void {
-    for (const mesh of this.pellets.values()) this.scene.remove(mesh);
-    this.pellets.clear();
+    for (const heart of this.hearts.values()) this.scene.remove(heart.mesh);
+    this.hearts.clear();
+    const pearls: PelletCell[] = [];
     for (let row = 0; row < GRID_ROWS; row++) {
       for (let col = 0; col < GRID_COLS; col++) {
-        const cell = MAP[row]![col]!;
-        if (cell !== 2 && cell !== 3) continue;
-        const mesh =
-          cell === 3
-            ? new THREE.Mesh(this.powerGeo, this.powerMat)
-            : new THREE.Mesh(this.pelletGeo, this.pelletMat);
-        mesh.position.set(col, 0, row);
-        this.scene.add(mesh);
-        this.pellets.set(cellKey(col, row), mesh);
+        const cell = MAP[row]?.[col];
+        const phase = hash2(col, row) * Math.PI * 2;
+        if (cell === 2) {
+          pearls.push({ col, row, phase });
+        } else if (cell === 3) {
+          const mesh = new THREE.Mesh(this.heartGeo, this.powerMat);
+          mesh.position.set(col, HEART_Y, row);
+          mesh.castShadow = true;
+          this.scene.add(mesh);
+          this.hearts.set(cellKey(col, row), { mesh, phase });
+        }
       }
     }
+    this.pelletField.reset(pearls);
+  }
+
+  /** Pellets remaining (pearls + hearts) — win when it hits zero. */
+  private pelletsLeft(): number {
+    return this.pelletField.count + this.hearts.size;
   }
 
   // ---- input ---------------------------------------------------------------
@@ -267,6 +450,10 @@ export class GameScene {
   private onKeyDown = (e: KeyboardEvent): void => {
     if (e.key === "Shift") {
       this.shiftHeld = true;
+      return;
+    }
+    if (e.code === "KeyM") {
+      this.showNotice(music.toggle() ? "♪ music on" : "♪ music off");
       return;
     }
     if (this.phase === "title") {
@@ -344,6 +531,14 @@ export class GameScene {
     if (action === "reverse") this.pac.dir = OPPOSITE[this.pac.dir];
     else if (action === "left") this.pac.dir = TURN_LEFT[this.pac.dir];
     else this.pac.dir = TURN_RIGHT[this.pac.dir];
+    // Audible "turn registered" tick — vital for face input, where the only
+    // other confirmation is the slow camera swing. Throttled against
+    // key-repeat spam from held arrows.
+    if (this.t - this.lastTurnTickAt > 0.06) {
+      this.lastTurnTickAt = this.t;
+      const rate = action === "left" ? 0.94 : action === "right" ? 1.06 : 0.85;
+      sfx.play("turn", { gain: 0.5, rate });
+    }
   }
 
   // ---- face-gesture entry points (wired by main.ts to FaceCamera) -------------
@@ -385,9 +580,22 @@ export class GameScene {
     const [dx, dz] = DIR_VECT[this.pac.dir];
     const col = Math.round(this.pac.x) + dx;
     const row = Math.round(this.pac.z) + dz;
-    if (!isOpen(col, row)) return;
+    if (!isOpen(col, row)) {
+      // Blocked chomp still gets feedback — with face input, a silent no-op
+      // is indistinguishable from "the camera missed my gesture".
+      sfx.play("bump", { gain: 0.7 });
+      this.squashKick = Math.max(this.squashKick, 0.5);
+      this.fx.puff(
+        new THREE.Vector3(this.pac.x + dx * 0.55, 0.15, this.pac.z + dz * 0.55),
+        4,
+        COLORS.wall,
+        { speed: 0.8, sizeMin: 0.05, sizeMax: 0.1 },
+      );
+      return;
+    }
     this.pac.target = { x: col, z: row };
     this.pac.isMoving = true;
+    sfx.play("chomp", { gain: 0.55 });
   }
 
   /** Advances the step animation; returns true if this was a movement frame. */
@@ -402,6 +610,8 @@ export class GameScene {
       p.x = p.target.x;
       p.z = p.target.z;
       p.isMoving = false;
+      // Landing on the cell: a little plush squash.
+      this.squashKick = 1;
     } else {
       p.x += (dx / dist) * step;
       p.z += (dz / dist) * step;
@@ -412,19 +622,34 @@ export class GameScene {
   private collectPellet(): void {
     const col = Math.round(this.pac.x);
     const row = Math.round(this.pac.z);
-    const mesh = this.pellets.get(cellKey(col, row));
-    if (!mesh) return;
-    this.scene.remove(mesh);
-    this.pellets.delete(cellKey(col, row));
-    const isPower = MAP[row]![col]! === 3;
-    this.addScore(isPower ? SCORE_POWER : SCORE_PELLET);
-    if (isPower) {
+    const at = new THREE.Vector3(col, 0.35, row);
+    const heart = this.hearts.get(cellKey(col, row));
+    if (heart) {
+      this.scene.remove(heart.mesh);
+      this.hearts.delete(cellKey(col, row));
       // A second power pellet RESETS the clock (the legacy timer didn't —
       // a flagged bug; kept fixed per the rebuild).
       this.scaredMs = SCARED_MS;
+      this.addScore(SCORE_POWER);
+      this.fx.heartBurst(at, 9);
+      this.fx.puff(at, 10, COLORS.power, { speed: 1.8 });
+      this.fx.ring(col, row, 2.4, COLORS.power);
+      this.shaker.add(TRAUMA_POWER);
+      this.fovKick = FOV_KICK_POWER;
+      sfx.play("power");
+    } else if (this.pelletField.collect(col, row)) {
+      this.addScore(SCORE_PELLET);
+      this.fx.puff(at, 6, COLORS.pellet, { sizeMin: 0.06, sizeMax: 0.14 });
+      // Quick streaks climb a pentatonic ladder — eating fast plays a melody.
+      this.comboIdx = this.t - this.lastPelletAt < COMBO_WINDOW_S ? this.comboIdx + 1 : 0;
+      this.lastPelletAt = this.t;
+      const semis = COMBO_SCALE[Math.min(this.comboIdx, COMBO_SCALE.length - 1)] ?? 0;
+      sfx.play("pellet", { rate: Math.pow(2, semis / 12) });
+    } else {
+      return;
     }
     this.updateHud();
-    if (this.pellets.size === 0) this.setPhase("win");
+    if (this.pelletsLeft() === 0) this.setPhase("win");
   }
 
   private moveGhosts(dt: number): void {
@@ -444,15 +669,18 @@ export class GameScene {
     }
   }
 
-  /** Ghost contact = grid-cell equality after snapping both positions (legacy). */
+  /**
+   * Radial hitboxes on the ground plane (replaces the legacy cell-snap
+   * compare): forgiving when a ghost catches Pacman, generous when Pacman
+   * eats a scared ghost.
+   */
   private checkGhostContact(): void {
-    const pc = Math.round(this.pac.x);
-    const pr = Math.round(this.pac.z);
+    const scared = this.scaredMs > 0;
     for (const g of this.ghosts) {
-      if (Math.round(g.x) !== pc || Math.round(g.z) !== pr) continue;
-      if (this.scaredMs > 0) {
-        this.eatGhost(g);
-      } else if (this.graceMs <= 0) {
+      const dist = Math.hypot(g.x - this.pac.x, g.z - this.pac.z);
+      if (scared) {
+        if (dist < EAT_DIST) this.eatGhost(g);
+      } else if (dist < CATCH_DIST && this.graceMs <= 0) {
         this.caught();
         return;
       }
@@ -462,8 +690,14 @@ export class GameScene {
   /** Eaten scared ghost: +200, respawn at center, heading kept (legacy). */
   private eatGhost(g: Ghost): void {
     this.addScore(SCORE_GHOST);
+    const at = new THREE.Vector3(g.x, GHOST_BOB_BASE, g.z);
+    this.fx.puff(at, 14, 0xffffff, { speed: 2, sizeMin: 0.12, sizeMax: 0.26 });
+    this.fx.heartBurst(at, 5);
+    this.shaker.add(TRAUMA_GHOST_EATEN);
+    sfx.play("ghost_eaten");
     g.x = GHOST_RESPAWN.col;
     g.z = GHOST_RESPAWN.row;
+    g.spawnScale = 0;
   }
 
   /**
@@ -474,6 +708,14 @@ export class GameScene {
   private caught(): void {
     this.lives -= 1;
     this.updateHud();
+    this.shaker.add(TRAUMA_CAUGHT);
+    this.fx.puff(new THREE.Vector3(this.pac.x, 0.4, this.pac.z), 12, COLORS.power, {
+      speed: 1.6,
+    });
+    this.squashKick = 1.6; // deflate, Baymax-style
+    this.softFlash();
+    sfx.play("caught");
+    music.duck();
     if (this.lives <= 0) {
       this.setPhase("gameover");
       return;
@@ -493,6 +735,7 @@ export class GameScene {
     this.pac.target = { x: PACMAN_SPAWN.col, z: PACMAN_SPAWN.row };
     this.stepRequested = false;
     this.mouthAngle = 0;
+    this.stretchAmt = 0;
   }
 
   private resetGame(): void {
@@ -500,13 +743,18 @@ export class GameScene {
     this.lives = START_LIVES;
     this.scaredMs = 0;
     this.graceMs = 0;
+    this.comboIdx = 0;
+    this.lastPelletAt = -Infinity;
     this.resetBoard();
     this.resetPacman();
+    this.squashKick = 0;
     this.ghosts.forEach((g, i) => {
-      const spawn = GHOST_SPAWNS[i % GHOST_SPAWNS.length]!;
+      const spawn = GHOST_SPAWNS[i % GHOST_SPAWNS.length];
+      if (!spawn) return;
       g.x = spawn.col;
       g.z = spawn.row;
       g.dir = spawn.dir;
+      g.spawnScale = 1;
     });
     this.updateHud();
     this.beginReady();
@@ -515,32 +763,72 @@ export class GameScene {
   private beginReady(): void {
     this.readyMs = READY_MS;
     this.setPhase("ready");
+    sfx.play("ready");
   }
 
   private setPhase(phase: Phase): void {
     this.phase = phase;
     const texts: Record<Phase, readonly [string, string]> = {
       title: [
-        "PAC-MAN",
-        "open mouth (or SPACE) to step · turn head (or ←/→) to turn · ↓ reverse · hold SHIFT selfie cam · any key or tap to start",
+        "PAC·MAN",
+        "open your mouth to chomp forward · turn your head to steer · ↓ reverse · SHIFT selfie cam · M music · any key or tap to start",
       ],
-      ready: ["READY!", ""],
+      ready: ["READY?", ""],
       playing: ["", ""],
-      win: ["YOU WIN!", "chomp, press R, or tap to play again"],
-      gameover: ["GAME OVER", "chomp, press R, or tap to play again"],
+      win: ["MAZE CLEAR!", "every crumb tidied up ♥ chomp, press R, or tap to play again"],
+      gameover: ["OHH NO…", "you did your best ♥ chomp, press R, or tap to try again"],
     };
     const [title, sub] = texts[phase];
     this.bannerTitleEl.textContent = title;
     this.bannerSubEl.textContent = sub;
     this.bannerEl.style.opacity = title === "" ? "0" : "1";
+    if (title !== "") retrigger(this.bannerEl, "pop");
+    if (phase === "win") {
+      this.fx.confettiRain(110);
+      this.winConfettiIn = 0.7;
+      sfx.play("win");
+    } else if (phase === "gameover") {
+      sfx.play("gameover");
+    }
+  }
+
+  /** Soft pink full-screen blink on getting caught — feedback, not punishment. */
+  private softFlash(): void {
+    retrigger(this.flashEl, "on");
+  }
+
+  /** Borrow the stats pill for a transient message (e.g. music toggled). */
+  private showNotice(text: string): void {
+    this.statsEl.textContent = text;
+    if (this.noticeTimer !== null) clearTimeout(this.noticeTimer);
+    this.noticeTimer = setTimeout(() => {
+      this.noticeTimer = null;
+      this.updateHud();
+    }, 900);
   }
 
   // ---- rendering ---------------------------------------------------------------
 
   private renderActors(dt: number): void {
-    // Pacman: position + legacy orientation (rotation reset, then one axis).
+    const tMs = this.t * 1000;
+
+    // Pacman rig: world position + axis-aligned squash & stretch.
+    this.squashKick = Math.max(0, this.squashKick - SQUASH_RECOVER_RATE * dt * this.squashKick);
+    const stretchTarget = this.pac.isMoving ? 1 : 0;
+    this.stretchAmt += (stretchTarget - this.stretchAmt) * Math.min(1, dt * 14);
+    const breathe = 1 + 0.015 * Math.sin(this.t * 3);
+    const sy = (1 - STEP_SQUASH * this.squashKick - 0.05 * this.stretchAmt) * breathe;
+    const bulge = 1 + STEP_SQUASH * 0.6 * this.squashKick;
+    const forward = bulge + STEP_STRETCH * this.stretchAmt;
+    const side = bulge - 0.04 * this.stretchAmt;
+    const horizontal = this.pac.dir === "left" || this.pac.dir === "right";
+    this.pacRig.position.set(this.pac.x, 0, this.pac.z);
+    this.pacRig.scale.set(horizontal ? forward : side, sy, horizontal ? side : forward);
+    // Spawn-grace blink: classic readable invincibility flicker.
+    this.pacRig.visible = this.graceMs <= 0 || Math.floor(tMs / 120) % 2 === 0;
+
+    // Facing: legacy orientation (rotation reset, then one axis).
     const g = this.pacGroup;
-    g.position.set(this.pac.x, 0, this.pac.z);
     g.rotation.set(0, 0, 0);
     if (this.pac.dir === "up") g.rotation.x = -Math.PI / 2;
     else if (this.pac.dir === "down") g.rotation.x = Math.PI / 2;
@@ -553,35 +841,63 @@ export class GameScene {
     this.mouthAngle += (target - this.mouthAngle) * Math.min(dt * MOUTH_LERP_RATE, 1);
     this.syncMouth(this.pac.isMoving ? this.mouthAngle : 0);
 
-    // Ghosts: bob in unison (legacy used one shared Date.now() phase) and
-    // turn gray while scared.
-    const bobY = Math.sin(Date.now() * GHOST_BOB_FREQ) * GHOST_BOB_AMP + GHOST_BOB_BASE;
-    const scared = this.scaredMs > 0;
-    for (const ghost of this.ghosts) {
+    // Ghosts: staggered bob, face toward travel direction, tremble + worry
+    // while scared (blinking pale in the final stretch), grow-in after respawn.
+    const scared = this.scaredMs > 0 && this.phase === "playing";
+    const blinkOut =
+      scared &&
+      this.scaredMs < SCARED_WARN_MS &&
+      Math.floor(this.scaredMs / SCARED_BLINK_INTERVAL_MS) % 2 === 0;
+    this.ghosts.forEach((ghost, i) => {
+      const phase = i * GHOST_BOB_STAGGER;
+      const bobY = Math.sin(tMs * GHOST_BOB_FREQ + phase) * GHOST_BOB_AMP + GHOST_BOB_BASE;
       ghost.group.position.set(ghost.x, 0, ghost.z);
       ghost.bob.position.y = bobY;
-      ghost.bodyMat.color.setHex(scared ? COLORS.scared : GHOST_COLORS[ghost.skin]!);
-    }
+      ghost.bob.position.x = scared
+        ? Math.sin(this.t * GHOST_TREMBLE_FREQ + phase) * GHOST_TREMBLE_AMP
+        : 0;
+      ghost.yaw = lerpAngle(ghost.yaw, dirYaw(ghost.dir), Math.min(1, dt * GHOST_YAW_RATE));
+      ghost.bob.rotation.y = ghost.yaw;
+      ghost.bodyMat.color.setHex(
+        scared ? (blinkOut ? COLORS.scaredBlink : COLORS.scared) : ghost.color,
+      );
+      ghost.worry.visible = scared;
+      ghost.spawnScale = Math.min(1, ghost.spawnScale + dt * 3);
+      const grow = 1 - (1 - ghost.spawnScale) * (1 - ghost.spawnScale);
+      const targetScale = (scared ? GHOST_SCARED_SCALE : 1) * grow;
+      ghost.scale += (targetScale - ghost.scale) * Math.min(1, dt * 8);
+      ghost.group.scale.setScalar(Math.max(ghost.scale, 1e-3));
+    });
 
-    // Pellets spin in place (legacy 0.01 rad per frame).
-    for (const mesh of this.pellets.values()) mesh.rotation.y += PELLET_SPIN;
+    // Pearls shimmer (instanced); power hearts breathe and twirl.
+    this.pelletField.update(this.t);
+    for (const heart of this.hearts.values()) {
+      const pulse = 1 + HEART_PULSE_AMP * Math.sin(this.t * HEART_PULSE_FREQ + heart.phase);
+      heart.mesh.scale.setScalar(pulse);
+      heart.mesh.rotation.y = this.t * 1.6 + heart.phase;
+      heart.mesh.position.y = HEART_Y + Math.sin(this.t * PELLET_BOB_FREQ + heart.phase) * 0.05;
+    }
   }
 
   private syncMouth(angle: number): void {
-    this.mouthMesh.visible = angle > 0.002;
-    if (!this.mouthMesh.visible) return;
-    if (Math.abs(angle - this.mouthBuiltAngle) < 0.004) return;
-    this.mouthMesh.geometry.dispose();
-    this.mouthMesh.geometry = new THREE.SphereGeometry(
-      MOUTH_RADIUS,
-      32,
-      32,
-      MOUTH_PHI_START,
-      MOUTH_PHI_LENGTH,
-      0,
-      angle,
-    );
-    this.mouthBuiltAngle = angle;
+    const bucket = Math.round(angle / MOUTH_ANGLE_QUANT);
+    this.mouthMesh.visible = bucket > 0;
+    if (!this.mouthMesh.visible || bucket === this.mouthBuiltBucket) return;
+    let geo = this.mouthGeoCache.get(bucket);
+    if (!geo) {
+      geo = new THREE.SphereGeometry(
+        MOUTH_RADIUS,
+        24,
+        16,
+        MOUTH_PHI_START,
+        MOUTH_PHI_LENGTH,
+        0,
+        bucket * MOUTH_ANGLE_QUANT,
+      );
+      this.mouthGeoCache.set(bucket, geo);
+    }
+    this.mouthMesh.geometry = geo;
+    this.mouthBuiltBucket = bucket;
   }
 
   /**
@@ -589,13 +905,27 @@ export class GameScene {
    * looking at pos+facing*2; while SHIFT is held, flip to the front at
    * +facing*2.5 looking back at pos-facing. Both position and look-at lerp
    * at 0.1 per frame, initialized to their targets on the first frame.
+   * Title screen instead orbits the maze slowly. Trauma shake + FOV kick
+   * are layered on after the lerp.
    */
-  private updateCamera(): void {
-    const [dx, dz] = DIR_VECT[this.pac.dir];
-    const back = this.shiftHeld ? CAM_BACK : -CAM_BACK;
-    this.camTarget.set(this.pac.x + dx * back, CAM_HEIGHT, this.pac.z + dz * back);
-    const ahead = this.shiftHeld ? -CAM_SELFIE_LOOK_BACK : CAM_LOOK_AHEAD;
-    this.lookTarget.set(this.pac.x + dx * ahead, 0, this.pac.z + dz * ahead);
+  private updateCamera(dt: number): void {
+    if (this.phase === "title") {
+      const a = this.t * TITLE_ORBIT_SPEED;
+      const cx = (GRID_COLS - 1) / 2;
+      const cz = (GRID_ROWS - 1) / 2;
+      this.camTarget.set(
+        cx + Math.cos(a) * TITLE_ORBIT_RADIUS,
+        TITLE_ORBIT_HEIGHT,
+        cz + Math.sin(a) * TITLE_ORBIT_RADIUS,
+      );
+      this.lookTarget.set(cx, 0, cz);
+    } else {
+      const [dx, dz] = DIR_VECT[this.pac.dir];
+      const back = this.shiftHeld ? CAM_BACK : -CAM_BACK;
+      this.camTarget.set(this.pac.x + dx * back, CAM_HEIGHT, this.pac.z + dz * back);
+      const ahead = this.shiftHeld ? -CAM_SELFIE_LOOK_BACK : CAM_LOOK_AHEAD;
+      this.lookTarget.set(this.pac.x + dx * ahead, 0, this.pac.z + dz * ahead);
+    }
 
     if (!this.camInit) {
       this.camCur.copy(this.camTarget);
@@ -606,6 +936,20 @@ export class GameScene {
     this.lookCur.lerp(this.lookTarget, CAMERA_SMOOTHING);
     this.camera.position.copy(this.camCur);
     this.camera.lookAt(this.lookCur);
+
+    const shake = this.shaker.update(dt, this.t);
+    if (shake.ox !== 0 || shake.oy !== 0) {
+      this.camera.translateX(shake.ox);
+      this.camera.translateY(shake.oy);
+      this.camera.rotateZ(shake.roll);
+    }
+
+    this.fovKick *= Math.exp(-FOV_KICK_DECAY * dt);
+    const fov = BASE_FOV + this.fovKick;
+    if (Math.abs(fov - this.camera.fov) > 0.005) {
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+    }
   }
 
   // ---- hud -----------------------------------------------------------------
@@ -623,7 +967,7 @@ export class GameScene {
     this.scoreEl.textContent = `SCORE ${this.score}`;
     this.bestEl.textContent = `BEST ${this.best}`;
     const hearts = this.lives > 0 ? "♥".repeat(this.lives) : "×";
-    this.statsEl.textContent = `${hearts}  ·  ${this.pellets.size} left`;
+    this.statsEl.textContent = `${hearts}  ·  ${this.pelletsLeft()} left`;
   }
 }
 
@@ -635,15 +979,21 @@ function el(id: string): HTMLElement {
   return node;
 }
 
-/** Yellow sphere with the animated black mouth wedge (legacy PacMan component). */
+/**
+ * Butter-yellow plush ball with the animated mouth wedge, plus a face you
+ * only meet in the selfie cam: lens eyes and blush cheeks. Face is on +x
+ * (the mouth wedge's home), matching the "right" rest orientation.
+ */
 function buildPacman(): THREE.Group {
   const group = new THREE.Group();
   group.name = "pacman";
   const body = new THREE.Mesh(
     new THREE.SphereGeometry(PAC_RADIUS, 32, 32),
-    new THREE.MeshStandardMaterial({ color: COLORS.pacman }),
+    new THREE.MeshStandardMaterial({ color: COLORS.pacman, roughness: 0.5 }),
   );
+  body.castShadow = true;
   group.add(body);
+
   const mouth = new THREE.Mesh(
     new THREE.SphereGeometry(MOUTH_RADIUS, 32, 32, MOUTH_PHI_START, MOUTH_PHI_LENGTH, 0, 0.001),
     new THREE.MeshStandardMaterial({ color: COLORS.mouth, side: THREE.BackSide }),
@@ -651,49 +1001,153 @@ function buildPacman(): THREE.Group {
   mouth.name = "mouth";
   mouth.visible = false;
   group.add(mouth);
+
+  const eyeMat = new THREE.MeshStandardMaterial({ color: COLORS.eye, roughness: 0.3 });
+  for (const side of [1, -1]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 12), eyeMat);
+    eye.position.set(0.39, 0.2, 0.175 * side);
+    group.add(eye);
+  }
+  const blushMat = new THREE.MeshStandardMaterial({ color: COLORS.blush, roughness: 0.8 });
+  for (const side of [1, -1]) {
+    const blush = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 12), blushMat);
+    blush.position.set(0.34, 0.02, 0.34 * side);
+    blush.scale.set(0.4, 0.7, 1);
+    group.add(blush);
+  }
   return group;
 }
 
 /**
- * Ghost: sphere body (legacy args verbatim) + white eyes with black pupils
- * facing -z; the inner "bob" group floats at y = sin(t)*0.1 + 0.5.
+ * Ghost as a Baymax-style marshmallow: pastel capsule, two black lens eyes
+ * joined by a thin line, blush cheeks, and a hidden worried "o" mouth that
+ * appears while scared. Face is on -z; the bob group yaws toward travel.
  */
 function buildGhost(color: number): {
   group: THREE.Group;
   bob: THREE.Group;
   bodyMat: THREE.MeshStandardMaterial;
+  worry: THREE.Mesh;
 } {
   const group = new THREE.Group();
   const bob = new THREE.Group();
   group.add(bob);
 
-  const bodyMat = new THREE.MeshStandardMaterial({ color });
-  bob.add(
-    new THREE.Mesh(
-      new THREE.SphereGeometry(GHOST_RADIUS, 32, 16, 0, Math.PI * 2, 0, Math.PI),
-      bodyMat,
-    ),
-  );
+  const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.6 });
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.34, 0.24, 6, 20), bodyMat);
+  body.castShadow = true;
+  bob.add(body);
 
+  const darkMat = new THREE.MeshStandardMaterial({ color: COLORS.eye, roughness: 0.3 });
   for (const side of [1, -1]) {
-    const eye = new THREE.Group();
-    eye.position.set(0.2 * side, 0.1, -0.3);
-    eye.add(
-      new THREE.Mesh(
-        new THREE.SphereGeometry(0.15, 16, 16),
-        new THREE.MeshStandardMaterial({ color: COLORS.eye }),
-      ),
-    );
-    const pupil = new THREE.Mesh(
-      new THREE.SphereGeometry(0.07, 16, 16),
-      new THREE.MeshStandardMaterial({ color: COLORS.pupil }),
-    );
-    pupil.position.set(0, 0, -0.08);
-    eye.add(pupil);
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 12), darkMat);
+    eye.position.set(0.13 * side, 0.1, -0.3);
     bob.add(eye);
   }
+  const line = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.26, 8), darkMat);
+  line.rotation.z = Math.PI / 2;
+  line.position.set(0, 0.1, -0.345);
+  bob.add(line);
 
-  return { group, bob, bodyMat };
+  const blushMat = new THREE.MeshStandardMaterial({ color: COLORS.blush, roughness: 0.8 });
+  for (const side of [1, -1]) {
+    const blush = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 12), blushMat);
+    blush.position.set(0.23 * side, -0.05, -0.245);
+    blush.scale.set(1, 0.6, 0.4);
+    bob.add(blush);
+  }
+
+  const worry = new THREE.Mesh(new THREE.TorusGeometry(0.04, 0.013, 8, 16), darkMat);
+  worry.position.set(0, -0.06, -0.33);
+  worry.visible = false;
+  bob.add(worry);
+
+  return { group, bob, bodyMat, worry };
+}
+
+/** Yaw (rotation.y) that points the -z face along a grid direction. */
+function dirYaw(dir: Dir): number {
+  switch (dir) {
+    case "up":
+      return 0;
+    case "down":
+      return Math.PI;
+    case "left":
+      return Math.PI / 2;
+    case "right":
+      return -Math.PI / 2;
+  }
+}
+
+/** Shortest-arc angle lerp. */
+function lerpAngle(from: number, to: number, k: number): number {
+  let delta = (to - from) % (Math.PI * 2);
+  if (delta > Math.PI) delta -= Math.PI * 2;
+  if (delta < -Math.PI) delta += Math.PI * 2;
+  return from + delta * k;
+}
+
+/** Deterministic per-cell hash in [0, 1) — stable tint/height/phase wobble. */
+function hash2(col: number, row: number): number {
+  const n = Math.sin(col * 127.1 + row * 311.7) * 43758.5453;
+  return n - Math.floor(n);
+}
+
+/** All MAP cells of a given type (1 wall, 2 pellet, 3 power heart). */
+function mapCells(type: number): Array<{ col: number; row: number }> {
+  const cells: Array<{ col: number; row: number }> = [];
+  for (let row = 0; row < GRID_ROWS; row++) {
+    for (let col = 0; col < GRID_COLS; col++) {
+      if (MAP[row]?.[col] === type) cells.push({ col, row });
+    }
+  }
+  return cells;
+}
+
+/** Restart a CSS animation by re-applying its class. */
+function retrigger(el: HTMLElement, cls: string): void {
+  el.classList.remove(cls);
+  void el.offsetWidth;
+  el.classList.add(cls);
+}
+
+/** Cream weave with soft polka dots — repeats across the plush floor. */
+function polkaDotTexture(): THREE.CanvasTexture {
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    ctx.fillStyle = hexCss(COLORS.floor);
+    ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = hexCss(COLORS.floorDot);
+    const r = 11;
+    // Center dot + quarter dots in each corner = staggered diagonal grid.
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, r, 0, Math.PI * 2);
+    ctx.fill();
+    for (const [cx, cy] of [
+      [0, 0],
+      [size, 0],
+      [0, size],
+      [size, size],
+    ] as const) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+function hexCss(hex: number): string {
+  return `#${hex.toString(16).padStart(6, "0")}`;
 }
 
 /**
@@ -753,20 +1207,20 @@ function chooseGhostDir(
   if (open.length === 0) return null;
   const ahead = open.filter((d) => d !== OPPOSITE[dir]);
   const options = ahead.length > 0 ? ahead : open;
-  if (scared) return pick(options);
+  if (scared) return pick(options) ?? null;
   if (Math.random() < CHASE_CHANCE) {
     const here = (col - pacX) ** 2 + (row - pacZ) ** 2;
     const closer = options.filter((d) => {
       const [dx, dz] = DIR_VECT[d];
       return (col + dx - pacX) ** 2 + (row + dz - pacZ) ** 2 < here;
     });
-    if (closer.length > 0) return pick(closer);
+    if (closer.length > 0) return pick(closer) ?? null;
   }
-  return pick(options);
+  return pick(options) ?? null;
 }
 
-function pick<T>(arr: ReadonlyArray<T>): T {
-  return arr[Math.floor(Math.random() * arr.length)]!;
+function pick<T>(arr: ReadonlyArray<T>): T | undefined {
+  return arr[Math.floor(Math.random() * arr.length)];
 }
 
 function loadBest(): number {

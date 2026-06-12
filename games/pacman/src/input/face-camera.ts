@@ -145,24 +145,24 @@ export class FaceCamera {
     this.frameHandle = window.requestAnimationFrame(this.predict);
   };
 
-  /** Face-mesh overlay — legacy colors/order verbatim. */
+  /** Face-mesh overlay — legacy structure/order, restyled in pastels. */
   private drawMesh(landmarks: NormalizedLandmark[]): void {
     const du = this.drawingUtils;
     if (!du) return;
     du.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_TESSELATION, {
-      color: "#C0C0C070",
+      color: "#f5c9d655",
       lineWidth: 1,
     });
-    du.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_RIGHT_EYE, { color: "#30FF30" });
+    du.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_RIGHT_EYE, { color: "#f08aab" });
     du.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_RIGHT_EYEBROW, {
-      color: "#30FF30",
+      color: "#f08aab",
     });
-    du.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LEFT_EYE, { color: "#30FF30" });
-    du.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LEFT_EYEBROW, { color: "#30FF30" });
-    du.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_FACE_OVAL, { color: "#E0E0E0" });
-    du.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LIPS, { color: "#E0E0E0" });
-    du.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_RIGHT_IRIS, { color: "#30FF30" });
-    du.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LEFT_IRIS, { color: "#30FF30" });
+    du.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LEFT_EYE, { color: "#f08aab" });
+    du.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LEFT_EYEBROW, { color: "#f08aab" });
+    du.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_FACE_OVAL, { color: "#ecd9cf" });
+    du.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LIPS, { color: "#e8a8bd" });
+    du.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_RIGHT_IRIS, { color: "#f08aab" });
+    du.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LEFT_IRIS, { color: "#f08aab" });
   }
 
   /**
