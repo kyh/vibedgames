@@ -25,9 +25,3 @@ tRPC API layer. Routers, auth configuration, and procedure helpers shared by the
 
 - Runs inside the web app's Cloudflare Worker — context carries D1, R2, and auth bindings.
 - R2 types are declared structurally (`R2BucketLike` in `src/trpc.ts`) so `AppRouter` doesn't leak a `@cloudflare/workers-types` dependency to consumers.
-
-## Tests
-
-```sh
-pnpm --filter @repo/api test:generate
-```
