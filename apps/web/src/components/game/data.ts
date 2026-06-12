@@ -23,9 +23,9 @@ export const featuredGames: FeaturedGame[] = [
     colorScheme: "dark",
   },
   {
-    name: "Flappy Bird",
-    slug: "flappy-bird",
-    preview: "/covers/flappy-bird.webp",
+    name: "Flappy Dragons",
+    slug: "flappy-dragons",
+    preview: "/covers/flappy-dragons.webp",
     colorScheme: "light",
   },
   {

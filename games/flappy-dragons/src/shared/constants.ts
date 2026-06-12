@@ -11,7 +11,7 @@ export const PIPE_SPEED = 150;
 
 // ---- art scale --------------------------------------------------------------
 
-/** Tiny Dragons pack is 16px-grid pixel art; everything renders at 2×. */
+/** All art is 16px-grid pixel art; everything renders at 2×. */
 export const ART_SCALE = 2;
 
 // ---- geometry -----------------------------------------------------------------

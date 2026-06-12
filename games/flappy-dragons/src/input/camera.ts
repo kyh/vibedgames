@@ -1,6 +1,6 @@
 /**
  * Webcam pose-jump input — faithful port of the legacy React <Camera> component
- * (git HEAD: games/flappy-bird/src/app/camera.tsx) into a plain-TS module.
+ * (src/app/camera.tsx in the original build; see git history) into a plain-TS module.
  *
  * A physical jump in front of the webcam flaps the bird. MediaPipe
  * PoseLandmarker (lite) tracks the nose (landmark 0, visibility > 0.3) through

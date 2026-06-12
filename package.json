@@ -17,7 +17,7 @@
     "dev:web": "turbo watch dev -F @repo/web...",
     "dev:party": "turbo watch dev -F @repo/party...",
     "dev:games": "turbo watch dev -F @repo/games...",
-    "dev:flappy-bird": "turbo watch dev -F @repo/flappy-bird...",
+    "dev:flappy-dragons": "turbo watch dev -F @repo/flappy-dragons...",
     "dev:pacman": "turbo watch dev -F @repo/pacman...",
     "dev:tetris": "turbo watch dev -F @repo/tetris...",
     "dev:astroid": "turbo watch dev -F @repo/astroid...",

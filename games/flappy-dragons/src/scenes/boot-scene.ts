@@ -10,7 +10,7 @@ export class BootScene extends Phaser.Scene {
   preload(): void {
     this.makeUtilTextures();
 
-    // Tiny Dragons pack (by Albi Lico), flat in public/ (loaded by relative URL).
+    // Game art, flat in public/ (loaded by relative URL).
     for (let n = 1; n <= DRAGON_SKINS; n++) {
       for (let f = 1; f <= 4; f++) {
         this.load.image(`dragon-${n}-${f}`, `dragon-${n}-${f}.png`);
