@@ -8,13 +8,13 @@ type Client = ReturnType<typeof createClient>;
 
 /**
  * Upload one local file directly to fal's CDN. The proxy hands us a
- * presigned upload slot (upload_url + file_url) via the `media.forward`
+ * presigned upload slot (upload_url + file_url) via the `generate.forward`
  * storage target; bytes go straight from the client to fal, never
  * through the worker. The returned file_url is a stable fal CDN URL
  * that can be reused across runs without re-uploading.
  */
 export async function uploadFile(client: Client, file: LocalFile): Promise<string> {
-  const slot = await client.media.forward.mutate({
+  const slot = await client.generate.forward.mutate({
     target: "storage",
     method: "POST",
     path: "/storage/upload/initiate",
