@@ -4,6 +4,8 @@ export type FeaturedGame = {
   name: string;
   slug: string;
   preview: string;
+  /** Optional portrait key art, served when the viewport is portrait. */
+  previewPortrait?: string;
   colorScheme: "light" | "dark";
 };
 
@@ -20,36 +22,56 @@ export const featuredGames: FeaturedGame[] = [
     name: "Astroid",
     slug: "astroid",
     preview: "/covers/astroid.webp",
+    previewPortrait: "/covers/astroid-portrait.webp",
     colorScheme: "dark",
   },
   {
     name: "Flappy Dragons",
     slug: "flappy-dragons",
     preview: "/covers/flappy-dragons.webp",
+    previewPortrait: "/covers/flappy-dragons-portrait.webp",
     colorScheme: "light",
   },
   {
     name: "Pacman",
     slug: "pacman",
     preview: "/covers/pacman.webp",
+    previewPortrait: "/covers/pacman-portrait.webp",
     colorScheme: "dark",
   },
   {
     name: "Tetris",
     slug: "tetris",
     preview: "/covers/tetris.webp",
+    previewPortrait: "/covers/tetris-portrait.webp",
     colorScheme: "dark",
   },
   {
     name: "Pong",
     slug: "pong",
     preview: "/covers/pong.webp",
+    previewPortrait: "/covers/pong-portrait.webp",
     colorScheme: "light",
   },
   {
     name: "Bomberman",
     slug: "bomberman",
     preview: "/covers/bomberman.webp",
+    previewPortrait: "/covers/bomberman-portrait.webp",
+    colorScheme: "light",
+  },
+  {
+    name: "Ancients of Eldermoor",
+    slug: "moba",
+    preview: "/covers/moba.webp",
+    previewPortrait: "/covers/moba-portrait.webp",
+    colorScheme: "light",
+  },
+  {
+    name: "Farm",
+    slug: "farm",
+    preview: "/covers/farm.webp",
+    previewPortrait: "/covers/farm-portrait.webp",
     colorScheme: "light",
   },
 ];

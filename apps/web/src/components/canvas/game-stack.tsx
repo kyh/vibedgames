@@ -132,7 +132,7 @@ export const GameCard = ({
   );
 };
 
-type Props<T extends { preview: string; name: string; slug: string }> = {
+type Props<T extends { preview: string; previewPortrait?: string; name: string; slug: string }> = {
   data: T[];
   activeSlug?: string;
   showStack: boolean;
@@ -158,7 +158,9 @@ const useIsMobile = () => {
   return isMobile;
 };
 
-export const GameStack = <T extends { preview: string; name: string; slug: string }>({
+export const GameStack = <
+  T extends { preview: string; previewPortrait?: string; name: string; slug: string },
+>({
   data,
   activeSlug,
   showStack,
@@ -189,11 +191,16 @@ export const GameStack = <T extends { preview: string; name: string; slug: strin
                 exit={{ opacity: 0, filter: `blur(${BLUR_AMOUNT})` }}
                 transition={{ duration: 0.2 }}
               >
-                <img
-                  className="absolute inset-0 h-full w-full object-cover"
-                  src={item.preview}
-                  alt={item.name}
-                />
+                <picture>
+                  {item.previewPortrait && (
+                    <source media="(orientation: portrait)" srcSet={item.previewPortrait} />
+                  )}
+                  <img
+                    className="absolute inset-0 h-full w-full object-cover"
+                    src={item.preview}
+                    alt={item.name}
+                  />
+                </picture>
               </motion.button>
             </GameCard>
           ))}
