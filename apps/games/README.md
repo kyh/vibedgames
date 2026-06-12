@@ -16,3 +16,5 @@ Routes `{slug}.vibedgames.com/*` requests to game files stored in R2, with metad
 ```sh
 pnpm dev:games
 ```
+
+Runs on `http://localhost:3002`.

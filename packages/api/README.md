@@ -4,13 +4,13 @@ tRPC API layer. Routers, auth configuration, and procedure helpers shared by the
 
 ## Routers
 
-| Router     | Purpose                                                              |
-| ---------- | -------------------------------------------------------------------- |
-| `auth`     | Session info, device-code flow for CLI login, invite claiming        |
-| `waitlist` | Waitlist signup                                                      |
-| `deploy`   | Game deploys: create (presigned R2 upload URLs) + finalize           |
-| `media`    | Asset generation proxy for `vg generate` (server holds the API key)  |
-| `admin`    | Admin-only operations                                                |
+| Router     | Purpose                                                             |
+| ---------- | ------------------------------------------------------------------- |
+| `auth`     | Session info, device-code flow for CLI login, invite claiming       |
+| `waitlist` | Waitlist signup                                                     |
+| `deploy`   | Game deploys: create (presigned R2 upload URLs) + finalize          |
+| `generate` | Asset generation proxy for `vg generate` (server holds the API key) |
+| `admin`    | Admin-only operations                                               |
 
 `AppRouter` is the exported type — the CLI imports it for end-to-end type safety without bundling any server code.
 
@@ -29,5 +29,5 @@ tRPC API layer. Routers, auth configuration, and procedure helpers shared by the
 ## Tests
 
 ```sh
-pnpm --filter @repo/api test:media
+pnpm --filter @repo/api test:generate
 ```
