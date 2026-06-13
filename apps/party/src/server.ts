@@ -1,7 +1,8 @@
-import type { Connection } from "partyserver";
+import type { Connection, ConnectionContext } from "partyserver";
 import { routePartykitRequest, Server } from "partyserver";
 
 import type { ClientMessage, Player, PlayerMap, ServerMessage } from "@vibedgames/multiplayer";
+import { ROOM_CAP_QUERY_PARAM } from "@vibedgames/multiplayer";
 import { getColorById } from "./color";
 
 type Env = {
@@ -13,6 +14,47 @@ type RoomState = {
   sharedState: Record<string, unknown>;
   players: PlayerMap;
   hostId: string | null;
+  /**
+   * The room's player cap, established by the first connection that advertises
+   * one and sticky thereafter, so a later join that omits the query param
+   * can't bypass it. `null` means no cap was ever advertised (unlimited).
+   */
+  cap: number | null;
+};
+
+/**
+ * Upper bound on a single room's player cap, regardless of what a client
+ * requests via the query param. Games are untrusted code, so we never let a
+ * client size a room past this ceiling.
+ */
+const HARD_ROOM_CAP = 64;
+
+/** Separator for overflow sibling rooms: `home` → `home~2` → `home~3`. */
+const OVERFLOW_SEP = "~";
+
+/**
+ * Given a room id, return the next overflow sibling. Picks an unusual
+ * separator so a normal slug like `level-1` is never mistaken for an
+ * overflow room (which would alias two distinct games onto one room).
+ */
+const nextOverflowRoom = (room: string): string => {
+  const idx = room.lastIndexOf(OVERFLOW_SEP);
+  if (idx !== -1) {
+    const suffix = room.slice(idx + OVERFLOW_SEP.length);
+    if (/^\d+$/.test(suffix)) {
+      return `${room.slice(0, idx)}${OVERFLOW_SEP}${Number(suffix) + 1}`;
+    }
+  }
+  return `${room}${OVERFLOW_SEP}2`;
+};
+
+/** Read the client-requested player cap, clamped to the hard ceiling. */
+const readRoomCap = (ctx: ConnectionContext): number | null => {
+  const raw = new URL(ctx.request.url).searchParams.get(ROOM_CAP_QUERY_PARAM);
+  if (!raw) return null;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return Math.min(parsed, HARD_ROOM_CAP);
 };
 
 export class VgServer extends Server {
@@ -20,9 +62,38 @@ export class VgServer extends Server {
     sharedState: {},
     players: {},
     hostId: null,
+    cap: null,
   };
 
-  onConnect(connection: Connection<Player>) {
+  onConnect(connection: Connection<Player>, ctx: ConnectionContext) {
+    // The room's effective cap for this admission decision: the sticky cap an
+    // earlier admitted client established, or — if none yet — the cap this
+    // client advertises. We don't persist the requested cap until we've
+    // decided to admit (below), so a refused over-cap join can't retroactively
+    // cap a room that never accepted it — which would otherwise also bounce
+    // later, even uncapped, joins to overflow.
+    const requestedCap = readRoomCap(ctx);
+    const cap = this.room.cap ?? requestedCap;
+
+    // Enforce the room cap before admitting the player. If full, point the
+    // client at the overflow sibling and close — the SDK reconnects there.
+    if (cap !== null && Object.keys(this.room.players).length >= cap) {
+      const fullMessage: ServerMessage = {
+        type: "room_full",
+        data: { room: nextOverflowRoom(this.name), capacity: cap },
+      };
+      connection.send(JSON.stringify(fullMessage));
+      connection.close(4001, "room_full");
+      return;
+    }
+
+    // Admitted: establish the room's cap stickily from the first admitted
+    // client that advertises one, so a later join that omits `_maxPlayers` (a
+    // rogue or stale client) can't bypass the cap legit clients set.
+    if (this.room.cap === null && requestedCap !== null) {
+      this.room.cap = requestedCap;
+    }
+
     const { color, hue } = getColorById(connection.id);
     const player: Player = {
       id: connection.id,
@@ -55,6 +126,12 @@ export class VgServer extends Server {
 
   onMessage(sender: Connection<Player>, rawMessage: string): void | Promise<void> {
     try {
+      // Ignore messages from connections that were never admitted — e.g. a
+      // capacity-refused connection that sends in the window before its close
+      // settles. Such a connection isn't in `players`, so it must not be able
+      // to broadcast state or events into the room.
+      if (!this.room.players[sender.id]) return;
+
       const message = JSON.parse(rawMessage) as ClientMessage;
 
       switch (message.type) {
@@ -117,7 +194,13 @@ export class VgServer extends Server {
   }
 
   onClose(connection: Connection<Player>) {
+    // A connection refused at capacity (room_full) is closed before being
+    // admitted, so it was never in `players` and no client saw it join.
+    // Skip the cleanup/announce so we don't broadcast a spurious player_left.
+    if (!this.room.players[connection.id]) return;
+
     delete this.room.players[connection.id];
+    const remainingIds = Object.keys(this.room.players);
 
     const leftMessage: ServerMessage = {
       type: "player_left",
@@ -126,7 +209,6 @@ export class VgServer extends Server {
     this.broadcast(JSON.stringify(leftMessage), []);
 
     if (this.room.hostId === connection.id) {
-      const remainingIds = Object.keys(this.room.players);
       this.room.hostId = remainingIds[0] ?? null;
       if (this.room.hostId) {
         const hostMessage: ServerMessage = {
@@ -135,6 +217,14 @@ export class VgServer extends Server {
         };
         this.broadcast(JSON.stringify(hostMessage), []);
       }
+    }
+
+    // Reset the sticky cap once the room empties so the next session
+    // re-establishes it from whoever joins first. Otherwise a cap set by an
+    // earlier session would outlive it on the (still-warm) Durable Object and
+    // wrongly cap a later session that wants the unlimited default.
+    if (remainingIds.length === 0) {
+      this.room.cap = null;
     }
   }
 }

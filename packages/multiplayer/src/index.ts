@@ -9,3 +9,4 @@ export type {
   ClientMessage,
   ServerMessage,
 } from "./types";
+export { ROOM_CAP_QUERY_PARAM } from "./types";

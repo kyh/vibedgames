@@ -36,8 +36,8 @@ export function useMultiplayerRoom<
 
   // Stable client instance — only recreate if connection params change
   const clientRef = useRef<MultiplayerClient | null>(null);
-  const keyRef = useRef(`${config.host}/${config.party}/${config.room}`);
-  const key = `${config.host}/${config.party}/${config.room}`;
+  const key = `${config.host}/${config.party}/${config.room}/${config.maxPlayers ?? ""}`;
+  const keyRef = useRef(key);
 
   if (!clientRef.current || keyRef.current !== key) {
     clientRef.current?.destroy();
@@ -46,6 +46,7 @@ export function useMultiplayerRoom<
       host: config.host,
       party: config.party,
       room: config.room,
+      maxPlayers: config.maxPlayers,
       initialState: config.initialState as Record<string, unknown>,
       onEvent: (event, payload, from) => onEventRef.current?.(event, payload, from),
     });
@@ -128,16 +129,20 @@ export function useMultiplayerState<
   initialState?: TShared,
 ): readonly [TShared, MultiplayerRoom<TShared>["updateSharedState"], MultiplayerRoom<TShared>] {
   const room = useRoom(roomOrConfig, initialState);
-  const initialStateApplied = useRef(false);
+  // Track which player identity we've seeded for, not a lifetime boolean: an
+  // overflow redirect (room_full) hands the client a fresh playerId, and the
+  // new room needs seeding too. playerId is stable across host promotion, so
+  // this still won't re-seed a promoted guest (the documented footgun).
+  const seededForPlayer = useRef<string | null>(null);
 
   useEffect(() => {
     if (
       room.hostId === room.playerId &&
       room.playerId !== null &&
       initialState &&
-      !initialStateApplied.current
+      seededForPlayer.current !== room.playerId
     ) {
-      initialStateApplied.current = true;
+      seededForPlayer.current = room.playerId;
       room.updateSharedState((prev) => ({ ...initialState, ...prev }));
     }
   }, [room.hostId, room.playerId, room.updateSharedState, initialState]);
@@ -157,7 +162,8 @@ export function usePlayerState<TPlayerState = Record<string, unknown>>(
   MultiplayerRoom<Record<string, unknown>>,
 ] {
   const room = useRoom(roomOrConfig, undefined);
-  const initialStateApplied = useRef(false);
+  // Per-player-identity seeding, same as useMultiplayerState above.
+  const seededForPlayer = useRef<string | null>(null);
 
   const playerState = useMemo(() => {
     const state = room.playerId
@@ -167,8 +173,8 @@ export function usePlayerState<TPlayerState = Record<string, unknown>>(
   }, [initialState, room.playerId, room.players]);
 
   useEffect(() => {
-    if (initialState && room.playerId && !initialStateApplied.current) {
-      initialStateApplied.current = true;
+    if (initialState && room.playerId && seededForPlayer.current !== room.playerId) {
+      seededForPlayer.current = room.playerId;
       room.updateMyState((prev) => ({ ...(initialState as Record<string, unknown>), ...prev }));
     }
   }, [room.playerId, room.updateMyState, initialState]);
@@ -200,6 +206,7 @@ function useRoom<TShared extends Record<string, unknown> = Record<string, unknow
     host: roomOrConfig.host,
     party: roomOrConfig.party,
     room: roomOrConfig.room,
+    maxPlayers: roomOrConfig.maxPlayers,
     initialState: initialState ?? roomOrConfig.initialState,
   });
 }

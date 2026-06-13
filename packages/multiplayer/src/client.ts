@@ -8,6 +8,7 @@ import type {
   PlayerMap,
   ServerMessage,
 } from "./types";
+import { ROOM_CAP_QUERY_PARAM } from "./types";
 
 export type MultiplayerClientOptions = MultiplayerOptions & {
   initialState?: Record<string, unknown>;
@@ -19,6 +20,12 @@ export type MultiplayerSnapshot = {
   hostId: string | null;
   sharedState: Record<string, unknown>;
   players: PlayerMap;
+  /**
+   * The room the client is actually connected to. Equals the configured
+   * `room` until a cap is hit, then becomes the overflow sibling
+   * (`{room}~2`, …) the server redirected this client into.
+   */
+  room: string;
 };
 
 type Listener = () => void;
@@ -35,29 +42,80 @@ export class MultiplayerClient {
   private listeners = new Set<Listener>();
   private initialStateApplied = false;
   private options: MultiplayerClientOptions;
+  /** True while we reconnect to an overflow room, to mask the interim close. */
+  private redirecting = false;
+  /** Effective player cap advertised to the server (server-authoritative on overflow). */
+  private cap: number | null;
 
   private _connectionStatus: MultiplayerConnectionStatus = "connecting";
   private _playerId: string | null = null;
   private _hostId: string | null = null;
   private _sharedState: Record<string, unknown>;
   private _players: PlayerMap = {};
+  private _room: string;
   private _onEvent: MultiplayerOptions["onEvent"];
 
   constructor(options: MultiplayerClientOptions) {
     this.options = options;
     this._sharedState = options.initialState ?? {};
     this._onEvent = options.onEvent;
+    this._room = options.room;
+    this.cap = options.maxPlayers && options.maxPlayers > 0 ? Math.floor(options.maxPlayers) : null;
 
     this.socket = new PartySocket({
       host: options.host,
       party: options.party,
       room: options.room,
+      query: this.capQuery(),
     });
 
+    // Listeners are registered once and survive PartySocket's reconnects,
+    // including the room switch we trigger on overflow (updateProperties +
+    // reconnect). No need to re-attach them per connection.
     this.socket.addEventListener("open", this.handleOpen);
     this.socket.addEventListener("message", this.handleMessage);
     this.socket.addEventListener("close", this.handleClose);
     this.socket.addEventListener("error", this.handleError);
+  }
+
+  /** Query params advertising the current effective cap to the server. */
+  private capQuery(): Record<string, string> {
+    return this.cap !== null ? { [ROOM_CAP_QUERY_PARAM]: String(this.cap) } : {};
+  }
+
+  /**
+   * Move to an overflow room after the current room reported it was full.
+   * Uses PartySocket's own `updateProperties` + `reconnect` so the rebuilt
+   * URL points at the overflow room before reconnecting — the library's
+   * reconnect then naturally targets the new room (no risk of looping back
+   * into the full one). We carry the server's authoritative `capacity`
+   * forward so every overflow shard inherits the same cap as the room that
+   * rejected us (a client can't open a looser/uncapped shard). The full room
+   * never admitted us, so reset to the caller-provided defaults; a fresh room
+   * must not inherit optimistic writes, and we re-seed as host if we land
+   * there first.
+   */
+  private redirectTo(room: string, capacity: number): void {
+    this._room = room;
+    this.cap = capacity > 0 ? capacity : this.cap;
+    this._connectionStatus = "connecting";
+    this.initialStateApplied = false;
+    this._players = {};
+    this._hostId = null;
+    this._playerId = null;
+    this._sharedState = this.options.initialState ?? {};
+
+    // Mask only the one synchronous close that reconnect() dispatches for the
+    // old connection. The server's async close(4001) never reaches
+    // handleClose — reconnect()'s internal disconnect removes the old socket's
+    // listeners first — so clearing synchronously is safe and lets genuine
+    // overflow-connection failures still surface as error/disconnected.
+    this.redirecting = true;
+    this.socket.updateProperties({ room, query: this.capQuery() });
+    this.socket.reconnect();
+    this.redirecting = false;
+
+    this.notify();
   }
 
   // -- Public API ----------------------------------------------------------
@@ -80,6 +138,10 @@ export class MultiplayerClient {
   get isHost() {
     return this._hostId !== null && this._hostId === this._playerId;
   }
+  /** The room currently connected to (may be an overflow sibling). */
+  get room() {
+    return this._room;
+  }
 
   /** Get a readonly snapshot of the current state. */
   getSnapshot(): MultiplayerSnapshot {
@@ -89,6 +151,7 @@ export class MultiplayerClient {
       hostId: this._hostId,
       sharedState: this._sharedState,
       players: this._players,
+      room: this._room,
     };
   }
 
@@ -162,17 +225,26 @@ export class MultiplayerClient {
   }
 
   private handleOpen = (): void => {
-    this._connectionStatus = "connected";
-    this._playerId = this.socket.id ?? null;
+    // A live socket isn't admission: a full room replies `room_full` and
+    // closes without ever sending `sync`. Stay "connecting" and withhold
+    // playerId until `sync` confirms we're actually in the room.
+    this._connectionStatus = "connecting";
     this.notify();
   };
 
   private handleClose = (): void => {
+    // While redirecting to an overflow room, mask the interim close(s) — both
+    // the synchronous one from reconnect() and the server's async close(4001)
+    // — until `sync` admits us to the new room (which clears `redirecting`).
+    if (this.redirecting) return;
     this._connectionStatus = "disconnected";
     this.notify();
   };
 
   private handleError = (): void => {
+    // Not masked during redirect: redirecting is cleared synchronously after
+    // reconnect(), so any error here is a genuine failure of the overflow
+    // connection and should surface rather than hang at "connecting".
     this._connectionStatus = "error";
     this.notify();
   };
@@ -183,6 +255,10 @@ export class MultiplayerClient {
 
       switch (message.type) {
         case "sync": {
+          // `sync` is the admission signal: now we're really in the room, so
+          // surface "connected" and adopt our playerId.
+          this._connectionStatus = "connected";
+          this._playerId = this.socket.id ?? null;
           this._hostId = message.data.hostId;
           this._players = message.data.players;
           this._sharedState =
@@ -237,6 +313,13 @@ export class MultiplayerClient {
         case "event": {
           this._onEvent?.(message.data.event, message.data.payload, message.data.from);
           break;
+        }
+        case "room_full": {
+          // The room hit its cap before we joined. Reconnect to the overflow
+          // sibling the server picked, carrying its authoritative capacity so
+          // the shard keeps the same cap; redirectTo notifies on its own.
+          this.redirectTo(message.data.room, message.data.capacity);
+          return;
         }
       }
 
