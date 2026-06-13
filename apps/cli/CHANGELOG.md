@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0 — 2026-06-12
+
+- `vg` auto-update — CLI checks for and applies newer published versions
+- game-craft skill suite (gamedev canon: game-feel, level-design, vfx, balance, etc.)
+- tRPC media router renamed to `generate` (matches `vg generate`)
+- bundled example games rebuilt idiomatically, signature controls intact
+
 ## 0.1.0 — 2026-06-04
 
 - **`vg media` is now `vg generate`** — the asset-generation surface (run/status/models/schema/pricing/docs/upload) moved under `vg generate`. Update any scripts/skills calling `vg media`.
