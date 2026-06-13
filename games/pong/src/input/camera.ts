@@ -23,6 +23,7 @@ export function startHandTracking(onWristX: (x: number) => void): HandTracker {
   // ---- panel DOM (styles in index.html; legacy: bottom-right 384×288) ------
   const panel = document.createElement("div");
   panel.id = "camera-panel";
+  panel.dataset.state = "init"; // init | live | error — drives the panel styling
   const video = document.createElement("video");
   video.playsInline = true;
   video.muted = true;
@@ -48,7 +49,8 @@ export function startHandTracking(onWristX: (x: number) => void): HandTracker {
 
   const fail = (error: unknown): void => {
     console.error("Error starting hand tracking:", error);
-    status.textContent = "camera unavailable — mouse + keys control the paddle";
+    status.textContent = "no signal — mouse + keys control the paddle";
+    panel.dataset.state = "error";
   };
 
   // ---- prediction loop (logic identical to the legacy predictWebcam) -------
@@ -118,6 +120,7 @@ export function startHandTracking(onWristX: (x: number) => void): HandTracker {
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       status.textContent = "";
+      panel.dataset.state = "live";
       predictWebcam();
     });
   };

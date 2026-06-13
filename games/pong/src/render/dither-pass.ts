@@ -7,7 +7,7 @@
 
 import * as THREE from "three";
 
-import { BG, DITHER_PIXEL, INK } from "../shared/constants";
+import { BG, DITHER_PIXEL, INK, VIGNETTE_INNER, VIGNETTE_STRENGTH } from "../shared/constants";
 
 // Classic Bayer 8x8 threshold matrix (values 0-63, row-major).
 // prettier-ignore
@@ -39,11 +39,18 @@ uniform vec3 uInk;
 uniform vec3 uPaper;
 uniform float uBgLum;
 uniform float uInvert;
+uniform float uVignette;
+uniform float uVigInner;
 
 void main() {
   vec2 texel = floor(vUv * uSize) + 0.5;
   vec3 c = texture2D(uScene, texel / uSize).rgb;
   float lum = dot(c, vec3(0.299, 0.587, 0.114));
+  // Edge vignette: pull luminance down toward the frame past uVigInner so the
+  // bright paper field doesn't bleed to the borders. The falloff dithers into a
+  // speckle frame for free — no extra geometry or pass. dist: 0 center → 1 corner.
+  float dist = length(vUv - 0.5) * 1.41421356;
+  lum *= 1.0 - uVignette * smoothstep(uVigInner, 1.0, dist);
   // Remap so the paper tone is exactly 1.0 — the empty background stays
   // clean paper and only darker-than-paper pixels dither toward ink.
   float t = clamp(lum / uBgLum, 0.0, 1.0);
@@ -108,6 +115,8 @@ export class DitherPass {
         uInk: { value: rawColor(INK) },
         uPaper: { value: rawColor(BG) },
         uBgLum: { value: linearLuminance(BG) },
+        uVignette: { value: VIGNETTE_STRENGTH },
+        uVigInner: { value: VIGNETTE_INNER },
       },
       vertexShader: VERTEX,
       fragmentShader: FRAGMENT,

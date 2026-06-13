@@ -51,7 +51,7 @@ export class ParticlePool {
   private readonly pool: Particle[] = [];
   private live = 0;
 
-  constructor(scene: THREE.Scene, max = 192) {
+  constructor(scene: THREE.Scene, max = 256) {
     this.mesh = new THREE.InstancedMesh(
       new THREE.SphereGeometry(1, 6, 4),
       new THREE.MeshBasicMaterial(),

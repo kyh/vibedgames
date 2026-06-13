@@ -7,7 +7,10 @@ export const COURT_W = 10;
 export const COURT_D = 20;
 export const WALL_X = 4.9; // ball |x| at which it bounces off the side
 export const GOAL_Y = COURT_D / 2; // past ±this = point scored
-export const CENTER_STRIPE = { w: COURT_W, h: 0.1 } as const;
+// Dashed net at mid-court (replaces the old single hairline stripe). Ink dashes
+// → densest dither speckle; the count gives the classic Pong net read. h is
+// taller than the old stripe (0.1) so it survives the camera's foreshortening.
+export const NET_DASH = { count: 11, w: 0.34, h: 0.16 } as const;
 
 // ---- paddles -----------------------------------------------------------------
 export const PADDLE_Y = 8; // player at -8, AI at +8
@@ -77,14 +80,76 @@ export const LEGACY_FPS = 60;
 // ---- rules -------------------------------------------------------------------
 export const WIN_SCORE = 7;
 
+// ---- HUD (rally combo) -------------------------------------------------------
+// DOM "×N" counter (above the canvas — un-dithered, crisp ink). Shows from MIN
+// hits; its size scales toward a peak at PEAK_HITS, aligned with the sfx pitch
+// cap so the number and the rising blip peak together.
+export const COMBO_MIN = 2;
+export const COMBO_PEAK_HITS = 14;
+
 // ---- camera ------------------------------------------------------------------
-export const CAM_FOV = 50;
-export const CAM_POS = { x: 0, y: -13, z: 12 } as const;
+export const CAM_FOV = 44;
+// Low and a touch back from the player baseline (paddle is at y=−8) — an
+// immersive 3/4 that the proximity dip ducks lower still as the ball nears.
+export const CAM_POS = { x: 0, y: -15, z: 9 } as const;
+// Aim point biased toward the player (−y): a close, immersive 3/4 perspective
+// that fills the screen and gives the orbit real depth. The court's near edge
+// bleeds just off the bottom — the trade for the punchier angle.
+export const CAM_LOOK = { x: 0, y: -3, z: 0 } as const;
+
+// Paddle-follow parallax: the camera ORBITS a small angle around the court's
+// vertical axis with the player's paddle, re-aiming at CAM_LOOK so the table
+// turns to reveal depth (not just a flat slide). The drive is a smoothed,
+// normalized −1..1 in its OWN field (never camDrag, which self-centers each
+// frame); critically damped so fast flicks neither lag nor strobe.
+// The camera strafes left/right along the player's baseline with the paddle and
+// aims at court CENTER — so it yaws to face down the table as you move (rotation
+// via the camera angle). Kept modest because at this low 3/4 height a big strafe
+// swings the close paddle off the bottom edge. Aim is (0, CAM_AIM_Y, PADDLE_Z).
+export const CAM_STRAFE_X = 2.0; // camera x-offset at full paddle deflection
+export const CAM_AIM_Y = -3; // y the camera aims at (vertical framing)
+// Ball-proximity dip: the camera ducks lower the closer the ball is to the
+// player's side — 0 while the ball is at/past center toward the AI, ramping to
+// CAM_DIP_MAX at the player's goal line, so the view leans in as the action
+// comes to you. Eased toward the target each frame so it never jitters.
+export const CAM_DIP_MAX = 2.0; // max z the camera drops when the ball reaches your goal
+export const CAM_DIP_RATE = 10; // ease rate (1/s) tracking the ball's approach
+export const CAM_PARALLAX_OMEGA = 8; // critically-damped natural freq (rad/s) ≈0.25s settle
+// Idle breath: slow incommensurate Lissajous on position + a sub-perceptual
+// roll, an order of magnitude below shake so impacts mask it. Driven by elapsed
+// (ticks through hit-stop) so the dither stipple keeps shimmering on a still
+// scene instead of freezing — the only motion in dead air.
+export const CAM_BREATH_X = 0.06; // world units
+export const CAM_BREATH_Y = 0.05;
+export const CAM_BREATH_Z = 0.04;
+export const CAM_BREATH_FREQ_X = 0.31; // rad/s, incommensurate so it never loops
+export const CAM_BREATH_FREQ_Y = 0.23;
+export const CAM_BREATH_FREQ_Z = 0.17;
+export const CAM_BREATH_ROLL = 0.004; // rad — barely-there view roll
 
 // ---- look --------------------------------------------------------------------
 export const INK = 0x000000;
 export const BG = 0xd4d4d4;
 export const SHADOW_MAX_OPACITY = 0.3;
+
+// ---- backdrop (dither-native fill behind the AI) -----------------------------
+// A single far UNLIT plane: color IS luminance. The dither remaps t = lum/lum(BG);
+// t=1 (0xd4d4d4) is clean paper (invisible), t→0 (ink) is dense speckle. Kept
+// FAINT (horizon barely below paper) so it reads as a soft atmospheric horizon —
+// a distant anchor for the orbit parallax — without busying up the field.
+export const BACKDROP_WALL = {
+  size: { w: 60, h: 34 },
+  pos: { x: 0, y: 26, z: 9 },
+  tilt: -Math.PI * 0.32, // leans back to face the down-tilted camera
+  bottom: 0xbcbcbc, // horizon: just below paper → a quiet, sparse stipple gradient
+  top: 0xd4d4d4, // fades into clean paper toward the top of the frame
+} as const;
+// Edge vignette, applied in the dither shader (single pass, aspect-correct):
+// luminance is pulled down past VIGNETTE_INNER (fraction of the half-diagonal)
+// toward the frame. Kept subtle — just enough to keep the field from bleeding to
+// the borders, not a heavy stipple wash.
+export const VIGNETTE_STRENGTH = 0.1; // 0 = off; max luminance cut at the corners
+export const VIGNETTE_INNER = 0.6; // radius (0 center → 1 corner) where the falloff starts
 
 // ---- feel (craft pass) ---------------------------------------------------------
 export const MAX_DT = 0.05; // clamp delta after tab-switch so the ball can't tunnel
@@ -125,6 +190,11 @@ export const TRAIL_LIFE = 0.22; // ghost lifetime (s)
 export const TRAIL_SIZE = BALL_R * 0.85; // ghost radius
 export const INVERT_FLASH_S = 0.07; // full-screen ink/paper swap on a goal
 export const SHADOW_ARC_GROW = 0.8; // shadow scale gain at full arc height
+// Speed streak: a faster rally thickens & lengthens the ball trail, so the
+// dither speckle density literally reads as velocity (free — the ghost's
+// ink→paper fade already dissolves into speckle). 0 = unchanged at base speed.
+export const STREAK_SIZE_GAIN = 0.7;
+export const STREAK_LIFE_GAIN = 0.6;
 
 // Ink burst recipes (BurstOptions in fx/particles.ts minus position/direction,
 // which are per-event at the call site).
@@ -156,6 +226,19 @@ export const BURST_GOAL = {
   zKick: 3,
   gravity: 9,
   life: 0.5,
+  size: 0.07,
+} as const;
+// Win confetti: a full-circle ink rain spawned high above center on match end —
+// same pooled mechanism as the goal burst, just bigger and from a height so
+// gravity rains the flecks down across the court before they dissolve to paper.
+export const CONFETTI_Z = 6; // spawn height (world units)
+export const BURST_CONFETTI = {
+  count: 44,
+  speedMin: 1,
+  speedMax: 5,
+  zKick: 2,
+  gravity: 9,
+  life: 0.9,
   size: 0.07,
 } as const;
 

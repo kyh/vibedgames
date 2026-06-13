@@ -9,17 +9,33 @@ import {
   ARC_LAND_MIN,
   ARC_PEAK,
   AUTO_SERVE_S,
+  BACKDROP_WALL,
   BALL_R,
   BG,
+  BURST_CONFETTI,
   BURST_GOAL,
   BURST_PADDLE,
   BURST_WALL,
+  CAM_BREATH_FREQ_X,
+  CAM_BREATH_FREQ_Y,
+  CAM_BREATH_FREQ_Z,
+  CAM_BREATH_ROLL,
+  CAM_BREATH_X,
+  CAM_BREATH_Y,
+  CAM_BREATH_Z,
+  CAM_AIM_Y,
+  CAM_DIP_MAX,
+  CAM_DIP_RATE,
   CAM_FOV,
+  CAM_PARALLAX_OMEGA,
   CAM_POS,
   CAM_RETURN_LERP,
   CAM_START_OFFSET_Y,
-  CENTER_STRIPE,
+  CAM_STRAFE_X,
   CLICK_DRAG_TOLERANCE_PX,
+  COMBO_MIN,
+  COMBO_PEAK_HITS,
+  CONFETTI_Z,
   COURT_D,
   COURT_W,
   DRAG_PAN_SCALE,
@@ -39,6 +55,7 @@ import {
   KEY_SPEED,
   LEGACY_FPS,
   MIN_VY_FRAC,
+  NET_DASH,
   NUDGE_DECAY,
   NUDGE_SCALE,
   PADDLE_RING_R,
@@ -63,6 +80,8 @@ import {
   SHAKE_MAX_ROLL,
   SQUASH,
   SQUASH_RECOVER,
+  STREAK_LIFE_GAIN,
+  STREAK_SIZE_GAIN,
   TRAIL_LIFE,
   TRAIL_RATE,
   TRAIL_SIZE,
@@ -102,9 +121,11 @@ export class GameScene {
   private playerPulse = 0;
   private aiPulse = 0;
   private camKick = new THREE.Vector3();
+  private camParallax = 0; // paddle-follow camera x offset (own field, smoothed)
+  private camParallaxVel = 0; // carried velocity for the critically-damped spring
+  private camDip = 0; // camera z duck, eased toward a target set by ball proximity
   private trauma = 0; // 0-1; shake amplitude = trauma²
   private shakeTime = 0;
-  private baseRotation = new THREE.Euler();
   private invertFlash = 0; // seconds left of full-screen ink/paper swap
   private flashNear = 0; // player's goal line (conceded to AI)
   private flashFar = 0; // AI's goal line (conceded to player)
@@ -146,6 +167,9 @@ export class GameScene {
   private scoreAiEl = el("score-ai");
   private promptEl = el("prompt");
   private bannerEl = el("banner");
+  private comboEl = el("combo");
+  private serveMeterEl = el("serve-meter");
+  private serveMeterShown = false; // cached so we only touch classList on transitions
 
   constructor() {
     this.scene.background = new THREE.Color(BG);
@@ -156,13 +180,15 @@ export class GameScene {
       0.1,
       100,
     );
-    // Legacy quirk preserved: the camera starts 1 unit above rest —
-    // (0,-12,12) easing to (0,-13,12) — and the orientation is fixed here,
-    // once, so drag-panning translates the view without re-aiming.
+    // World-up = +z so every lookAt keeps the horizon level: as the orbit walks
+    // the camera sideways it YAWS around the vertical axis (the table turns as if
+    // you stepped to the side) instead of banking/rolling. Default up (0,1,0)
+    // would tilt the table like a seesaw under the same orbit.
+    this.camera.up.set(0, 0, 1);
+    // composeCamera() fully drives the camera every frame (strafe + aim at the
+    // enemy paddle + cosmetic offsets); this is just a sane initial pose.
     this.camera.position.set(CAM_POS.x, CAM_POS.y + this.camDrag.y, CAM_POS.z);
-    this.camera.lookAt(0, 0, 0);
-    // Shake rolls around the view axis each frame, relative to this rest pose.
-    this.baseRotation.copy(this.camera.rotation);
+    this.camera.lookAt(0, CAM_AIM_Y, PADDLE_Z);
 
     // One key light, for the ball's Phong glint only — every other material
     // is unlit. The glint's gradient is what the dither pass bites into.
@@ -179,9 +205,20 @@ export class GameScene {
     );
     this.scene.add(table);
 
-    const stripe = new THREE.Mesh(new THREE.PlaneGeometry(CENTER_STRIPE.w, CENTER_STRIPE.h), ink);
-    stripe.position.z = 0.004;
-    this.scene.add(stripe);
+    // Dashed net across mid-court — the classic Pong read, one InstancedMesh of
+    // ink quads (densest dither speckle). Inset so the end dashes clear the rails.
+    const net = new THREE.InstancedMesh(
+      new THREE.PlaneGeometry(NET_DASH.w, NET_DASH.h),
+      ink,
+      NET_DASH.count,
+    );
+    const netSpan = COURT_W - NET_DASH.w;
+    for (let i = 0; i < NET_DASH.count; i++) {
+      const x = -netSpan / 2 + (netSpan * i) / (NET_DASH.count - 1);
+      net.setMatrixAt(i, SCRATCH_M4.makeTranslation(x, 0, 0.004));
+    }
+    net.instanceMatrix.needsUpdate = true;
+    this.scene.add(net);
 
     // Goal-line flash bars (conceded-side feedback), invisible until a point lands.
     this.flashNearMat = flashMaterial();
@@ -194,6 +231,21 @@ export class GameScene {
       bar.position.set(0, y, 0.004);
       this.scene.add(bar);
     }
+
+    // Backdrop: a single tall UNLIT plane far behind the AI, leaning back to face
+    // the tilted camera. Its faint vertical gradient (a touch below paper at the
+    // horizon → clean paper toward the top) reads as a soft atmospheric horizon
+    // and gives the orbit parallax a distant anchor to turn against. Unlit, so
+    // color IS luminance — exactly what the dither pass quantizes.
+    const wall = new THREE.Mesh(
+      new THREE.PlaneGeometry(BACKDROP_WALL.size.w, BACKDROP_WALL.size.h),
+      new THREE.MeshBasicMaterial({
+        map: verticalGradientTexture(BACKDROP_WALL.top, BACKDROP_WALL.bottom),
+      }),
+    );
+    wall.position.set(BACKDROP_WALL.pos.x, BACKDROP_WALL.pos.y, BACKDROP_WALL.pos.z);
+    wall.rotation.x = BACKDROP_WALL.tilt;
+    this.scene.add(wall);
 
     // Paddles: upright torus rings the ball flies through.
     const ringGeo = new THREE.TorusGeometry(PADDLE_RING_R, PADDLE_TUBE_R, 16, 100);
@@ -356,6 +408,7 @@ export class GameScene {
     this.rallySpeed = RALLY_SPEED_BASE;
     this.rallyHits = 0;
     this.serveAt = null;
+    this.comboEl.style.opacity = "0"; // the rally counter resets with the new rally
     this.ballVel.set(Math.cos(angle) * this.rallySpeed, Math.sin(angle) * this.rallySpeed);
     this.phase = "rally";
     sfx.serve();
@@ -468,6 +521,7 @@ export class GameScene {
     // Every return raises the rally speed — the pace ramp.
     this.rallyHits += 1;
     this.rallySpeed = Math.min(RALLY_SPEED_MAX, this.rallySpeed + RALLY_SPEED_STEP);
+    this.showCombo();
     this.ballVel.copy(reflectOffPaddle(this.ballPos.x, paddleX, towardY, this.rallySpeed));
     this.arc = {
       fromY: this.ballPos.y,
@@ -524,11 +578,15 @@ export class GameScene {
     this.ballPos.set(0, 0);
     this.ballVel.set(0, 0);
     this.arc = null;
+    this.comboEl.style.opacity = "0"; // the rally is over
     const won = this.scoreYou >= WIN_SCORE || this.scoreAi >= WIN_SCORE;
     this.phase = won ? "won" : "serving";
     this.freeze = won ? HIT_STOP_WIN : HIT_STOP_GOAL;
-    if (won) sfx.win(this.scoreYou > this.scoreAi);
-    else {
+    if (won) {
+      sfx.win(this.scoreYou > this.scoreAi);
+      // Confetti rain from above center — pure flair on the match climax.
+      this.particles.burst({ x: 0, y: 0, z: CONFETTI_Z, ...BURST_CONFETTI });
+    } else {
       sfx.score(scorer === "you");
       this.serveAt = this.elapsed + AUTO_SERVE_S;
     }
@@ -564,6 +622,15 @@ export class GameScene {
     // Ghosts spawned in the same frame are back-projected along velocity to
     // their ideal emission times, keeping trail spacing frame-rate-invariant.
     if (this.phase === "rally") {
+      // Speed streak: the trail thickens & lengthens with rally pace, so the
+      // dither speckle density reads as velocity (0 at serve → 1 at the cap).
+      const spd = clamp(
+        (this.rallySpeed - RALLY_SPEED_BASE) / (RALLY_SPEED_MAX - RALLY_SPEED_BASE),
+        0,
+        1,
+      );
+      const ghostSize = TRAIL_SIZE * (1 + STREAK_SIZE_GAIN * spd);
+      const ghostLife = TRAIL_LIFE * (1 + STREAK_LIFE_GAIN * spd);
       this.trailAcc += dt * TRAIL_RATE;
       const ghosts = Math.floor(this.trailAcc);
       this.trailAcc -= ghosts;
@@ -573,8 +640,8 @@ export class GameScene {
           this.ballPos.x - this.ballVel.x * back,
           this.ballPos.y - this.ballVel.y * back,
           BALL_R + arcZ,
-          TRAIL_SIZE,
-          TRAIL_LIFE,
+          ghostSize,
+          ghostLife,
         );
       }
     }
@@ -594,22 +661,62 @@ export class GameScene {
     // 0.1 per 60fps frame). Orientation stays fixed — pan, don't re-aim.
     if (!this.dragging) this.camDrag.lerp(V3_ZERO, frameLerp(CAM_RETURN_LERP, dt));
     this.camKick.multiplyScalar(Math.exp(-NUDGE_DECAY * dt));
+    // Ball-proximity dip: duck lower as the ball nears the player's side (0 on
+    // the AI half → CAM_DIP_MAX at the player's goal), eased so it never jitters.
+    const dipTarget = CAM_DIP_MAX * clamp(-this.ballPos.y / GOAL_Y, 0, 1);
+    this.camDip += (dipTarget - this.camDip) * (1 - Math.exp(-CAM_DIP_RATE * dt));
     this.trauma = Math.max(0, this.trauma - TRAUMA_DECAY * dt);
     this.shakeTime += dt;
+
+    // Camera-strafe drive: a smoothed, normalized −1..1 tracking the paddle x,
+    // feeding the lateral camera strafe in composeCamera. Critically damped, in
+    // its OWN field — never camDrag (which self-centers every frame).
+    const parallaxTarget = this.playerX / PADDLE_X_MAX;
+    const damped = smoothDamp(
+      this.camParallax,
+      parallaxTarget,
+      this.camParallaxVel,
+      CAM_PARALLAX_OMEGA,
+      dt,
+    );
+    this.camParallax = damped.pos;
+    this.camParallaxVel = damped.vel;
+
+    this.updateServeMeter();
     this.composeCamera();
   }
 
-  /** Rest pose + drag-pan + directional kick + trauma shake (offset and roll). */
+  /**
+   * Drives the camera each frame: it STRAFES along the player's baseline with the
+   * paddle and aims at the ENEMY paddle, so the view yaws to keep the opponent in
+   * front of you as you move ("behind your paddle, facing the opponent"). Then
+   * the cosmetic translational offsets (drag-pan, kick, idle breath, trauma
+   * shake) are added AFTER the aim, so they translate the view without re-aiming,
+   * plus a shake/breath roll. Offsets stay << shake so impacts mask them.
+   */
   private composeCamera(): void {
     const shake = this.trauma * this.trauma;
     const t = this.shakeTime * SHAKE_FREQ;
-    this.camera.position.set(
-      CAM_POS.x + this.camDrag.x + this.camKick.x + SHAKE_MAX_OFFSET * shake * noise(t, 0),
-      CAM_POS.y + this.camDrag.y + this.camKick.y + SHAKE_MAX_OFFSET * shake * noise(t, 1),
-      CAM_POS.z + this.camDrag.z + this.camKick.z,
+    const e = this.elapsed;
+
+    // Strafe with the paddle and aim at court center — the re-aim as you strafe
+    // is the yaw. camDip ducks the camera lower as the ball nears the player's side.
+    this.camera.position.set(this.camParallax * CAM_STRAFE_X, CAM_POS.y, CAM_POS.z - this.camDip);
+    this.camera.lookAt(0, CAM_AIM_Y, PADDLE_Z);
+
+    // Cosmetic offsets, applied after the aim so they translate without re-aiming.
+    const breathX = CAM_BREATH_X * Math.sin(e * CAM_BREATH_FREQ_X);
+    const breathY = CAM_BREATH_Y * Math.sin(e * CAM_BREATH_FREQ_Y + 1.7);
+    const breathZ = CAM_BREATH_Z * Math.sin(e * CAM_BREATH_FREQ_Z + 0.5);
+    this.camera.position.x +=
+      this.camDrag.x + this.camKick.x + breathX + SHAKE_MAX_OFFSET * shake * noise(t, 0);
+    this.camera.position.y +=
+      this.camDrag.y + this.camKick.y + breathY + SHAKE_MAX_OFFSET * shake * noise(t, 1);
+    this.camera.position.z += this.camDrag.z + this.camKick.z + breathZ;
+    this.camera.rotateZ(
+      SHAKE_MAX_ROLL * shake * noise(t, 2) +
+        CAM_BREATH_ROLL * Math.sin(e * CAM_BREATH_FREQ_X * 0.5),
     );
-    this.camera.rotation.copy(this.baseRotation);
-    this.camera.rotateZ(SHAKE_MAX_ROLL * shake * noise(t, 2));
   }
 
   /** Ball center height right now, arc hop included (for spawning fx). */
@@ -638,12 +745,38 @@ export class GameScene {
       this.bannerEl.style.opacity = "0";
     }
   }
+
+  /** Surface the running rally length as an escalating "×N" once past MIN. */
+  private showCombo(): void {
+    if (this.rallyHits < COMBO_MIN) return;
+    const tier = clamp(this.rallyHits / COMBO_PEAK_HITS, 0, 1);
+    this.comboEl.textContent = `×${this.rallyHits}`;
+    this.comboEl.style.setProperty("--combo-tier", tier.toFixed(3));
+    this.comboEl.style.opacity = "1";
+    this.comboEl.classList.remove("pop");
+    void this.comboEl.offsetWidth; // restart the CSS pop
+    this.comboEl.classList.add("pop");
+  }
+
+  /** Deplete the serve-countdown bar over the auto-serve dead air between points. */
+  private updateServeMeter(): void {
+    const active = this.phase === "serving" && this.serveAt !== null;
+    if (active && this.serveAt !== null) {
+      const left = Math.max(0, this.serveAt - this.elapsed);
+      this.serveMeterEl.style.setProperty("--fill", `${(left / AUTO_SERVE_S) * 100}%`);
+    }
+    if (active !== this.serveMeterShown) {
+      this.serveMeterEl.classList.toggle("on", active);
+      this.serveMeterShown = active;
+    }
+  }
 }
 
 // ---- module helpers (pure) --------------------------------------------------
 
 const UNIT_SCALE = new THREE.Vector3(1, 1, 1);
 const V3_ZERO = new THREE.Vector3(0, 0, 0);
+const SCRATCH_M4 = new THREE.Matrix4();
 
 function clamp(v: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, v));
@@ -652,6 +785,25 @@ function clamp(v: number, min: number, max: number): number {
 /** Convert a legacy per-frame (60fps) lerp factor into a dt-correct one. */
 function frameLerp(perFrame: number, dt: number): number {
   return 1 - Math.pow(1 - perFrame, dt * LEGACY_FPS);
+}
+
+/**
+ * One step of a critically-damped spring toward `target` (Game Programming
+ * Gems 4). Frame-rate independent; `omega` is the natural frequency (rad/s) —
+ * higher snaps faster. Returns the new position and its carried velocity.
+ */
+function smoothDamp(
+  current: number,
+  target: number,
+  vel: number,
+  omega: number,
+  dt: number,
+): { pos: number; vel: number } {
+  const x = omega * dt;
+  const exp = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
+  const change = current - target;
+  const temp = (vel + omega * change) * dt;
+  return { pos: target + (change + temp) * exp, vel: (vel - omega * temp) * exp };
 }
 
 function el(id: string): HTMLElement {
@@ -724,6 +876,34 @@ function softCircleTexture(): THREE.CanvasTexture {
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, size, size);
   return new THREE.CanvasTexture(canvas);
+}
+
+/**
+ * Vertical sRGB gradient (plane top → bottom) for the backdrop wall. Marked
+ * sRGB so its grey values linearize the same way THREE.Color does — keeping the
+ * dither remap (t = lum / lum(BG)) matched to the intended halftone density.
+ */
+function verticalGradientTexture(topHex: number, bottomHex: number): THREE.CanvasTexture {
+  const w = 4;
+  const h = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("2d canvas unsupported");
+  const grad = ctx.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, cssHex(topHex));
+  grad.addColorStop(1, cssHex(bottomHex));
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** "#rrggbb" for a 24-bit hex color number. */
+function cssHex(hex: number): string {
+  return `#${hex.toString(16).padStart(6, "0")}`;
 }
 
 function arcProgress(arc: Arc, y: number): number {

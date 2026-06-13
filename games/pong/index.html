@@ -40,14 +40,16 @@
       #score {
         font-size: 17px;
         letter-spacing: 2px;
+        font-variant-numeric: tabular-nums;
       }
       #score span {
         display: inline-block;
         min-width: 1.2em;
         text-align: center;
+        font-weight: 700;
       }
       #score span.pop {
-        animation: pop 280ms ease-out;
+        animation: pop 280ms cubic-bezier(0.22, 1.4, 0.4, 1);
       }
       @keyframes pop {
         0% {
@@ -58,9 +60,61 @@
         }
       }
 
+      /* Rally combo — DOM above the canvas (crisp ink, un-dithered). Size grows
+         with the rally via --combo-tier (0→1, set per hit in game-scene). */
+      #combo {
+        position: fixed;
+        top: 27%;
+        left: 0;
+        right: 0;
+        text-align: center;
+        font-weight: 800;
+        font-variant-numeric: tabular-nums;
+        font-size: calc(28px + var(--combo-tier, 0) * 44px);
+        letter-spacing: 2px;
+        opacity: 0;
+        transition: opacity 0.18s ease;
+        pointer-events: none;
+      }
+      #combo.pop {
+        animation: combopop 220ms cubic-bezier(0.22, 1.4, 0.4, 1);
+      }
+      @keyframes combopop {
+        0% {
+          transform: scale(1.55);
+        }
+        100% {
+          transform: scale(1);
+        }
+      }
+
+      /* Serve countdown — drains over the auto-serve dead air (--fill 100%→0). */
+      #serve-meter {
+        position: fixed;
+        bottom: 3.5%;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 140px;
+        height: 3px;
+        opacity: 0;
+        transition: opacity 0.2s ease;
+        pointer-events: none;
+      }
+      #serve-meter.on {
+        opacity: 0.85;
+      }
+      #serve-meter::after {
+        content: "";
+        display: block;
+        height: 100%;
+        width: var(--fill, 100%);
+        margin: 0 auto;
+        background: #000;
+      }
+
       #prompt {
         position: fixed;
-        bottom: 16%;
+        bottom: 3.5%;
         left: 0;
         right: 0;
         text-align: center;
@@ -93,22 +147,41 @@
         letter-spacing: 3px;
       }
 
-      /* webcam hand-tracking panel (legacy: 384×288 rounded, bottom-right) */
+      /* Webcam hand-tracking panel — the project's core gimmick, framed to feel
+         intentional: ink border + hard offset shadow, an inverted label bar, and
+         a grayscale feed so it sits in the ink-on-paper palette (the green/red
+         hand skeleton on the canvas stays colored as the one live-data accent). */
       #camera-panel {
         position: fixed;
-        right: 4px;
-        bottom: 4px;
-        width: 384px;
-        height: 288px;
-        border-radius: 8px;
-        background: rgba(0, 0, 0, 0.1);
+        right: 14px;
+        bottom: 14px;
+        width: 224px;
+        height: 168px;
+        background: #d4d4d4;
+        border: 2px solid #000;
+        box-shadow: 5px 5px 0 rgba(0, 0, 0, 0.85);
+        overflow: hidden;
+      }
+      #camera-panel::before {
+        content: "HAND CONTROL";
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: 2;
+        background: #000;
+        color: #d4d4d4;
+        font-size: 10px;
+        letter-spacing: 2px;
+        padding: 3px 7px;
+        pointer-events: none;
       }
       #camera-panel video {
-        object-fit: fill;
+        object-fit: fill; /* fill (not cover) so the whole frame shows and stays aligned with the skeleton canvas */
         display: block;
         width: 100%;
         height: 100%;
-        border-radius: 8px;
+        filter: grayscale(1) contrast(1.15);
+        transform: scaleX(-1); /* selfie-mirror to match the mirrored paddle mapping */
       }
       #camera-panel canvas {
         position: absolute;
@@ -116,6 +189,12 @@
         left: 0;
         width: 100%;
         height: 100%;
+        transform: scaleX(-1);
+      }
+      /* Hide the feed until it's live so init/error states read as a clean panel. */
+      #camera-panel[data-state="init"] video,
+      #camera-panel[data-state="error"] video {
+        display: none;
       }
       #camera-status {
         position: absolute;
@@ -125,9 +204,9 @@
         justify-content: center;
         padding: 16px;
         text-align: center;
-        font-size: 12px;
+        font-size: 11px;
         letter-spacing: 1px;
-        color: #333;
+        color: #000;
         pointer-events: none;
       }
     </style>
@@ -137,6 +216,8 @@
     <div id="hud">
       <div id="score">You <span id="score-you">0</span> — <span id="score-ai">0</span> AI</div>
     </div>
+    <div id="combo"></div>
+    <div id="serve-meter"></div>
     <div id="prompt">press space or tap to serve</div>
     <div id="banner"></div>
     <script type="module" src="/src/main.ts"></script>
