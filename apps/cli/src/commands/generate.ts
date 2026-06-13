@@ -69,7 +69,7 @@ const runCommand = defineCommand({
     const client = createClient();
     const endpoint_id = args.endpoint_id;
 
-    const submission = await client.media.forward.mutate({
+    const submission = await client.generate.forward.mutate({
       target: "queue",
       method: "POST",
       path: `/${endpointPath(endpoint_id)}`,
@@ -182,7 +182,7 @@ const statusCommand = defineCommand({
         : action === "result"
           ? `/${ep}/requests/${args.request_id}`
           : `/${ep}/requests/${args.request_id}/status`;
-    const data = await client.media.forward.mutate({
+    const data = await client.generate.forward.mutate({
       target: "queue",
       method: action === "cancel" ? "PUT" : "GET",
       path,
@@ -269,7 +269,7 @@ const modelsCommand = defineCommand({
     if (expand.length > 0) query.expand = expand;
 
     const client = createClient();
-    const data = await client.media.forward.mutate({
+    const data = await client.generate.forward.mutate({
       target: "platform",
       method: "GET",
       path: "/v1/models",
@@ -316,7 +316,7 @@ const schemaCommand = defineCommand({
   run: async ({ args }) => {
     const expand = args.format === "openapi" ? ["openapi-3.0"] : [];
     const client = createClient();
-    const data = await client.media.forward.mutate({
+    const data = await client.generate.forward.mutate({
       target: "platform",
       method: "GET",
       path: "/v1/models",
@@ -340,7 +340,7 @@ const pricingCommand = defineCommand({
   },
   run: async ({ args }) => {
     const client = createClient();
-    const data = await client.media.forward.mutate({
+    const data = await client.generate.forward.mutate({
       target: "platform",
       method: "GET",
       path: "/v1/models/pricing",
@@ -360,7 +360,7 @@ const docsCommand = defineCommand({
   },
   run: async ({ args }) => {
     const client = createClient();
-    const data = await client.media.forward.mutate({
+    const data = await client.generate.forward.mutate({
       target: "docs",
       method: "POST",
       path: "/docs/mcp",

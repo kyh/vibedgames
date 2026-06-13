@@ -58,7 +58,7 @@ export type R2Config = {
 };
 
 /**
- * Server-held config for the fal proxy that backs `media.forward`. fal
+ * Server-held config for the fal proxy that backs `generate.forward`. fal
  * is the single gateway we route through; per-target base URLs let
  * deployments point each fal target at a Cloudflare AI Gateway prefix
  * for caching, rate limits, fallbacks, and observability.

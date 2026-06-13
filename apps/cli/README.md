@@ -1,6 +1,6 @@
 # vibedgames (CLI)
 
-CLI tool for deploying games to vibedgames.
+CLI tool for building and deploying games on vibedgames: scaffolding, asset generation, and deploys.
 
 ## Install
 
@@ -22,9 +22,20 @@ vg login              # authenticate via browser
 vg logout             # clear credentials
 vg whoami             # show current user
 vg deploy [dir]       # deploy a game directory (reads vibedgames.json or --slug)
+
+vg generate run <model> [params]   # run a generative model (waits for result)
+vg generate models [query]        # search/list available models
+vg generate schema <model>        # fetch a model's input/output schema
+vg generate pricing <model>       # fetch pricing for a model
+vg generate status <model> <id>   # check an async request
+vg generate upload <file>         # upload an asset, get a URL
+vg generate docs <query>          # search generative-model documentation
 ```
 
-`vg skills install` is an alias for `vg init`.
+`vg skills install` is an alias for `vg init`. Most commands support `--json` for machine-readable output.
+
+`vg generate` calls the `generate.forward` tRPC proc — the server holds the
+provider API key, so generation works for any logged-in user with no local keys.
 
 ## Using with Claude Code
 

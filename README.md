@@ -40,13 +40,14 @@ apps/
   web/           TanStack Start web app — game hub, auth, dashboard
   party/         PartyServer — real-time multiplayer backend
   games/         Cloudflare Worker — serves deployed games
-  cli/           CLI tool (vg) — login, deploy, manage games
+  cli/           CLI tool (vg) — login, deploy, generate assets, manage games
 games/           Example games
 packages/
   api/           tRPC routers + better-auth
   db/            Drizzle ORM schema + Cloudflare D1
   multiplayer/   React hooks for multiplayer
-  ui/            Shared UI components (Radix + Tailwind)
+  ui/            Shared UI components (Base UI + Tailwind)
+plugins/         Claude Code plugins — game-building skills bundled with the CLI
 ```
 
 ## Local development
@@ -65,7 +66,7 @@ pnpm dev:web          # web app only
 pnpm dev:party        # multiplayer server only
 pnpm build            # build everything
 pnpm typecheck        # type check all packages
-pnpm db:push          # push schema to local
+pnpm db:local         # push schema to local D1 + seed dev identity
 pnpm db:push-remote   # push schema to production
 ```
 

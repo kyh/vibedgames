@@ -8,7 +8,7 @@ import { fetchProviderResponse, readJsonBounded, readSseJson } from "./provider-
 
 // ---- fal target routing -----------------------------------------------------
 //
-// `media.forward` is the single proc the CLI talks to. Each call names a
+// `generate.forward` is the single proc the CLI talks to. Each call names a
 // target (queue / platform / storage / docs) which picks the upstream host;
 // the rest of the URL is the user-supplied `path` plus optional `query`.
 // Per-target overrides come from MediaProviderConfig so deployments can
@@ -141,7 +141,7 @@ function serializeBody(value: unknown): string {
 
 // ---- Router ----------------------------------------------------------------
 
-export const mediaRouter = createTRPCRouter({
+export const generateRouter = createTRPCRouter({
   /**
    * Single proxy hop to fal. The CLI builds the URL it wants, the
    * server attaches the FAL_KEY and the X-Fal-Store-IO directives,

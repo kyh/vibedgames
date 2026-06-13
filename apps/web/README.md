@@ -16,7 +16,9 @@ Main web app for vibedgames. Game hub, authentication, dashboard.
 pnpm dev:web
 ```
 
-Runs on `http://localhost:3000`. Uses Cloudflare D1 (local via miniflare) and R2 bindings.
+Runs on `http://localhost:5173`. Uses Cloudflare D1 (local via miniflare) and R2 bindings.
+
+For headless local setup (schema push + seeded dev identity), run `pnpm db:local` — see the root `CLAUDE.md` for the full local verification workflow.
 
 ## Environment
 
