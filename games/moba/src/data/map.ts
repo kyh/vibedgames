@@ -93,11 +93,15 @@ const HIGH_RECTS: HighRect[] = [
 // render as a grass slope and lift units smoothly. `dir` = direction of ascent
 // (toward the high ground). Left-island coords, mirrored (N/S need no x-flip).
 type RampSpec = { x0: number; y0: number; x1: number; y1: number; dir: "N" | "S" | "E" | "W" };
+// Ramps sit on the plateau's SIDE (east edge of the left-island plateaus → climb
+// west onto the top), since the tileset only provides side-slope art, not a
+// front-facing ramp. dir "W" = ascend westward onto the plateau. Mirrored to the
+// right island (E/W flipped) so dire plateaus are climbed from their west side.
 const RAMPS: RampSpec[] = [
-  { x0: 14, y0: 17, x1: 15, y1: 18, dir: "N" }, // up onto north jungle plateau (from south)
-  { x0: 14, y0: 35, x1: 15, y1: 36, dir: "N" }, // up onto south jungle plateau
-  { x0: 20, y0: 21, x1: 21, y1: 22, dir: "N" }, // up onto mid-north highland
-  { x0: 20, y0: 25, x1: 21, y1: 26, dir: "S" }, // up onto mid-south highland (from north)
+  { x0: 18, y0: 14, x1: 18, y1: 15, dir: "W" }, // onto north jungle plateau (east side)
+  { x0: 18, y0: 32, x1: 18, y1: 33, dir: "W" }, // onto south jungle plateau
+  { x0: 23, y0: 18, x1: 23, y1: 19, dir: "W" }, // onto mid-north highland
+  { x0: 23, y0: 28, x1: 23, y1: 29, dir: "W" }, // onto mid-south highland
 ];
 
 function highRectAt(x: number, y: number): HighRect | null {

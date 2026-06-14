@@ -14,6 +14,8 @@ import {
   isHighCell,
   isLandCell,
   isRampCell,
+  isWalkableHighCell,
+  rampAt,
 } from "../data/map";
 import type { Team } from "../data/config";
 import type { World, Unit, Projectile, GroundEffect, FxEvent } from "../sim/types";
@@ -79,6 +81,9 @@ const CLIFF = {
   topR: 43,
   topNarrow: 44,
 };
+// Diagonal grass slope tiles for SIDE ramps (top row + bottom row). The "right"
+// slope (descends to the east) fronts a ramp climbed westward; "left" the mirror.
+const SLOPE = { rightTop: 39, rightBot: 48, leftTop: 36, leftBot: 45 };
 // Bridge_All frames: 0/1/2 = horizontal left-cap/middle/right-cap, 11 = shadow.
 const BRIDGE_L = 0;
 const BRIDGE_M = 1;
@@ -395,23 +400,40 @@ export class WorldView {
     }
   }
 
-  /** Walkable ramps: grass cut into the cliff that rises from low ground to the
-   *  plateau. Each ramp cell's grass is lifted to its slope height (and stretched
-   *  down so adjacent steps overlap with no gaps); units crossing rise smoothly. */
+  /** Walkable SIDE ramps: a diagonal grass slope (tileset slope tiles) on the
+   *  plateau's side that rises from low ground up to the top. Lifted grass fills
+   *  behind the slope so there are no holes; units crossing rise smoothly. */
   private buildRamps(): void {
     const s = this.scene;
-    if (!s.textures.exists("tiles-img")) return;
-    const FILL = FLAT_TILE[0] ?? 10; // fully-surrounded grass interior tile
+    if (!s.textures.exists("tiles-img") || !s.textures.exists("tiles")) return;
+    const FILL = FLAT_TILE[0] ?? 10; // grass interior, to back-fill the slope
     for (let cy = 0; cy < ROWS; cy++) {
       for (let cx = 0; cx < COLS; cx++) {
-        if (!isRampCell(cx, cy)) continue;
+        const r = rampAt(cx, cy);
+        if (!r) continue;
         const cxp = cx * CELL + CELL / 2;
         const lift = elevationFrac(cxp, cy * CELL + CELL / 2) * LIFT;
+        // grass fill behind the slope (lifted to this cell's height, stretched down)
         s.add
           .image(cxp, cy * CELL - lift, "tiles", FILL)
           .setOrigin(0.5, 0)
-          .setDisplaySize(CELL + 2, CELL + LIFT) // overlap downward to hide step seams
+          .setDisplaySize(CELL + 2, CELL + LIFT)
           .setDepth(D_CLIFF + 1);
+        // diagonal slope tile on top: top vs bottom row of the ramp, left vs right
+        // facing by ascent direction (W = plateau to the west = east-descending).
+        const left = r.dir === "E";
+        const tile =
+          cy === r.y0
+            ? left
+              ? SLOPE.leftTop
+              : SLOPE.rightTop
+            : left
+              ? SLOPE.leftBot
+              : SLOPE.rightBot;
+        s.add
+          .image(cxp, cy * CELL - lift, "tiles", tile)
+          .setOrigin(0.5, 0)
+          .setDepth(D_CLIFF + 2);
       }
     }
   }
@@ -474,6 +496,8 @@ export class WorldView {
       const cx = Math.floor(tx / CELL);
       const cy = Math.floor(ty / CELL);
       if (!isLandCell(cx, cy) || isCliffCell(cx, cy)) return;
+      // keep walkable high ground + ramps clear so they read (and aren't cluttered)
+      if (isWalkableHighCell(cx, cy) || isRampCell(cx, cy)) return;
       // trees on a plateau stand on its raised surface, so lift the whole sprite
       const lift = isHighCell(cx, cy) ? -LIFT : 0;
       s.add
@@ -517,7 +541,8 @@ export class WorldView {
     // on the castle outcrops, where they'd poke through the keep
     for (let cy = 0; cy < ROWS; cy++) {
       for (let cx = 0; cx < COLS; cx++) {
-        if (!isHighCell(cx, cy) || rng2(cx * 3, cy * 5) > 0.16) continue;
+        if (!isHighCell(cx, cy) || isWalkableHighCell(cx, cy) || rng2(cx * 3, cy * 5) > 0.16)
+          continue; // pines only on blocked deco rises, never on walkable plateaus
         const tx = cx * CELL + CELL / 2 + (rng2(cx, cy + 1) - 0.5) * 40;
         const ty = cy * CELL + CELL / 2 + (rng2(cx + 1, cy) - 0.5) * 40;
         const nearAncient = (["radiant", "dire"] as const).some(
@@ -1609,46 +1634,83 @@ export class WorldView {
   }
 
   private playAbilityFx(fx: Extract<FxEvent, { t: "ability" }>): void {
-    const s = this.scene;
     const col = effectColor(fx.effect);
-    // targeted spell bursts (shield bash, fanned daggers, death waltz, hex…)
+    // targeted spell bursts (shield bash, fanned daggers, death waltz, hex, heal…)
     const spec = abilityCastFx(fx.effect);
-    if (spec && spec.at === "target") this.spawnSpellSprite(fx.x2, fx.y2, spec.sheet, spec.scale, spec.tint);
-    const isLine = Math.hypot(fx.x2 - fx.x, fx.y2 - fx.y) > 60 && fx.radius < 160;
-    if (isLine) {
-      // beam / skillshot line
-      const g = s.add
-        .graphics()
-        .setDepth(fx.y2 + 300)
-        .setBlendMode(Phaser.BlendModes.ADD);
-      g.lineStyle(Math.max(6, fx.radius), col, 0.8).lineBetween(fx.x, fx.y - 14, fx.x2, fx.y2 - 14);
-      s.tweens.add({ targets: g, alpha: 0, duration: 320, onComplete: () => g.destroy() });
+    if (spec && spec.at === "target")
+      this.spawnSpellSprite(fx.x2, fx.y2, spec.sheet, spec.scale, spec.tint);
+    // the one true skillshot LINE (Piercing Shot) → a soft electric beam, never a
+    // bare white line.
+    if (fx.effect === "stormcaller:Q") {
+      this.spawnBeam(fx.x, fx.y - 16, fx.x2, fx.y2 - 16, 0x8fd0ff);
+      return;
     }
-    // impact AoE ring at the target point (x2,y2)
-    const cx = fx.x2;
-    const cy = fx.y2;
-    const r = Math.max(40, fx.radius);
-    const fill = s.add
-      .circle(cx, cy, r, col, 0.22)
-      .setDepth(cy - 8)
-      .setBlendMode(Phaser.BlendModes.ADD);
-    const ring = s.add
-      .circle(cx, cy, r, col, 0)
-      .setStrokeStyle(4, col, 0.95)
-      .setDepth(cy - 7);
-    fill.setScale(0.4);
-    ring.setScale(0.4);
+    // area abilities → a soft radial impact glow sized to the zone (the detailed
+    // art is the cast-fx sprite / explosion / ground zone; this just reads the AoE).
+    if (fx.radius >= 90) this.spawnSoftImpact(fx.x2, fx.y2, fx.radius, col);
+  }
+
+  /** A soft glowing energy beam (stretched radial glow + bright core), not a flat
+   *  line — for the piercing skillshot. */
+  private spawnBeam(x1: number, y1: number, x2: number, y2: number, col: number): void {
+    const s = this.scene;
+    const len = Math.hypot(x2 - x1, y2 - y1);
+    const ang = Math.atan2(y2 - y1, x2 - x1);
+    const mx = (x1 + x2) / 2;
+    const my = (y1 + y2) / 2;
+    const depth = Math.max(y1, y2) + 320;
+    const glow = s.add
+      .image(mx, my, "glow")
+      .setRotation(ang)
+      .setDisplaySize(len, 60)
+      .setTint(col)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setAlpha(0.5)
+      .setDepth(depth);
+    const core = s.add
+      .image(mx, my, "glow")
+      .setRotation(ang)
+      .setDisplaySize(len, 16)
+      .setTint(0xeaf6ff)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setAlpha(0.95)
+      .setDepth(depth + 1);
     s.tweens.add({
-      targets: [fill, ring],
-      scale: 1,
+      targets: [glow, core],
       alpha: 0,
-      duration: 420,
+      duration: 300,
       ease: "Quad.Out",
       onComplete: () => {
-        fill.destroy();
-        ring.destroy();
+        glow.destroy();
+        core.destroy();
       },
     });
+    // a little crackle along the bolt
+    for (let i = 1; i <= 4; i++) {
+      const t = i / 5;
+      this.spawnHitSparks(x1 + (x2 - x1) * t, y1 + (y2 - y1) * t, Math.cos(ang + 1.6), Math.sin(ang + 1.6), col, false);
+    }
+  }
+
+  /** Soft radial impact glow + faint ring sized to an ability's radius (replaces
+   *  the old harsh hard-stroked ring). */
+  private spawnSoftImpact(x: number, y: number, r: number, col: number): void {
+    const s = this.scene;
+    const sc = (r * 2.2) / 128; // "glow" is 128px
+    const g = s.add
+      .image(x, y, "glow")
+      .setTint(col)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setAlpha(0.5)
+      .setDepth(y + 200)
+      .setScale(sc * 0.6);
+    s.tweens.add({ targets: g, scale: sc, alpha: 0, duration: 360, ease: "Quad.Out", onComplete: () => g.destroy() });
+    const ring = s.add
+      .circle(x, y, r, col, 0)
+      .setStrokeStyle(3, col, 0.45)
+      .setDepth(y + 201)
+      .setScale(0.5);
+    s.tweens.add({ targets: ring, scale: 1.05, alpha: 0, duration: 380, ease: "Quad.Out", onComplete: () => ring.destroy() });
   }
 }
 
