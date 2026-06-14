@@ -852,7 +852,7 @@ export class GameScene extends Phaser.Scene {
     this.thrust = 0;
     const steer = this.steerVector();
     if (steer) {
-      if (steer.thrust > 0 || steer.dist > steer.deadZone) this.shipAngle = steer.angle;
+      if (steer.aim) this.shipAngle = steer.angle;
       this.thrust = steer.thrust;
       if (this.thrust > 0) {
         this.shipVX += Math.cos(steer.angle) * accel * this.thrust * dt;
@@ -882,9 +882,21 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  /** The unified steering input: heading, 0–1 thrust, and the dead-zone test
-   *  (so steerShip can pick drift vs brake drag). Null = no live input. */
-  private steerVector(): { angle: number; thrust: number; dist: number; deadZone: number } | null {
+  /** The unified steering input: heading, 0–1 thrust, the dead-zone test (so
+   *  steerShip can pick drift vs brake drag), and `aim` (whether to re-point
+   *  the nose this frame). Null = no live input.
+   *
+   *  `aim` differs by source on purpose: the desktop nose tracks the cursor
+   *  even inside the dead zone (the cursor-aim identity — you keep aiming while
+   *  braking), but the touch nose holds steady when the finger sits near the
+   *  joystick anchor (no jitter from a parked thumb). */
+  private steerVector(): {
+    angle: number;
+    thrust: number;
+    dist: number;
+    deadZone: number;
+    aim: boolean;
+  } | null {
     if (this.isTouch) {
       const stick = this.moveStick;
       if (!stick) return null;
@@ -893,7 +905,13 @@ export class GameScene extends Phaser.Scene {
       const dist = Math.hypot(dx, dy);
       const span = JOYSTICK_RADIUS - JOYSTICK_DEAD_ZONE;
       const thrust = Math.min(1, Math.max(0, (dist - JOYSTICK_DEAD_ZONE) / span));
-      return { angle: Math.atan2(dy, dx), thrust, dist, deadZone: JOYSTICK_DEAD_ZONE };
+      return {
+        angle: Math.atan2(dy, dx),
+        thrust,
+        dist,
+        deadZone: JOYSTICK_DEAD_ZONE,
+        aim: dist > JOYSTICK_DEAD_ZONE,
+      };
     }
     if (!this.pointerSeen) return null;
     const cam = this.cameras.main;
@@ -902,7 +920,7 @@ export class GameScene extends Phaser.Scene {
     const dy = p.y + cam.scrollY - this.shipY;
     const dist = Math.hypot(dx, dy);
     const thrust = Math.min(1, Math.max(0, (dist - SHIP_DEAD_ZONE) / SHIP_THRUST_RAMP));
-    return { angle: Math.atan2(dy, dx), thrust, dist, deadZone: SHIP_DEAD_ZONE };
+    return { angle: Math.atan2(dy, dx), thrust, dist, deadZone: SHIP_DEAD_ZONE, aim: dist > 0.001 };
   }
 
   /** Switch to the touch control model and rewrite the attract hint. Idempotent. */
