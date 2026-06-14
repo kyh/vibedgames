@@ -24,6 +24,18 @@ export const SHIP_THRUST_RAMP = 96;
  *  180° point at half radius. */
 export const SHIP_HULL_DEG = [0, 140, 180, 220] as const;
 
+// ---- touch controls (mobile two-finger) ----------------------------------------
+// First finger = a floating move-joystick (anchored where it lands, drag from
+// center steers); any additional finger fires. Screen-space px.
+
+/** Drag distance from the anchor that maps to full thrust. */
+export const JOYSTICK_RADIUS = 64;
+/** No thrust / no re-aim within this drag of the anchor (a held still finger
+ *  parks the ship instead of jittering its heading). */
+export const JOYSTICK_DEAD_ZONE = 8;
+/** Knob (inner puck) radius for the joystick UI. */
+export const JOYSTICK_KNOB_RADIUS = 26;
+
 export const RESPAWN_DELAY_MS = 2_500;
 export const INVULNERABLE_MS = 2_000;
 /** Invulnerability blink: alpha alternates 0.3/0.9 on this period. */
