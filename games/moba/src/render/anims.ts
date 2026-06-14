@@ -1,5 +1,7 @@
 import Phaser from "phaser";
 
+import { SPELL_SHEETS } from "./fx-map";
+
 // Per-sheet animation frame ranges. Every range was verified frame-by-frame
 // against labeled contact sheets of the actual art (see /tmp/sheets): ranges stop
 // before the empty padding cells that pad non-square sheets, and each range covers
@@ -141,6 +143,28 @@ export function registerAnims(scene: Phaser.Scene): void {
       repeat: -1,
     });
   }
+  // spell effects: a one-shot (`<key>`) for cast bursts/impacts and a loop
+  // (`<key>-loop`) for persistent ground/aura zones.
+  for (const s of SPELL_SHEETS) {
+    if (!scene.textures.exists(s.key)) continue;
+    const end = Math.min(s.frames, scene.textures.get(s.key).frameTotal - 1) - 1;
+    if (end < 0) continue;
+    if (!scene.anims.exists(s.key))
+      scene.anims.create({
+        key: s.key,
+        frames: scene.anims.generateFrameNumbers(s.key, { start: 0, end }),
+        frameRate: s.fps,
+        repeat: 0,
+      });
+    if (!scene.anims.exists(`${s.key}-loop`))
+      scene.anims.create({
+        key: `${s.key}-loop`,
+        frames: scene.anims.generateFrameNumbers(s.key, { start: 0, end }),
+        frameRate: s.fps,
+        repeat: -1,
+      });
+  }
+
   loop("sheep-idle", "sheep", 8);
   // enemy-pack neutrals: idle from *_idle sheet, walk from *_run/_walk sheet
   loop("e-skull-idle", "e-skull-idle", 8);

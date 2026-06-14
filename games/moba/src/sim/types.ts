@@ -223,6 +223,10 @@ export type FxEvent =
       amount: number;
       crit?: boolean;
       targetId: string;
+      // unit vector attacker->victim, for knockback recoil + spark spray
+      nx: number;
+      ny: number;
+      isAttack?: boolean;
     }
   | { t: "death"; x: number; y: number; unitId: string; kind: UnitKind }
   | { t: "explosion"; x: number; y: number; radius: number; color: number }

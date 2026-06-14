@@ -7,6 +7,7 @@ import type { AbilityKey } from "../data/heroes";
 import { ITEMS, ITEM_BY_ID } from "../data/items";
 import { BRIDGES, GRID, WORLD, isHighCell, isLandCell } from "../data/map";
 import { FONT } from "../render/font";
+import { abilityIcon } from "../render/fx-map";
 import { heroSheetTex } from "../render/sprites";
 import { SLOT_LABEL } from "./game-scene";
 import type { GameScene } from "./game-scene";
@@ -231,17 +232,18 @@ export class HudScene extends Phaser.Scene {
         .rectangle(0, 0, 58, 58, 0x1c1410, 0.12)
         .setStrokeStyle(2, 0x8a7350)
         .setInteractive({ useHandCursor: true });
-      // abilities read as big carved keycaps — the letter IS the icon
-      const icon = this.add.image(0, 0, "ui-icon-01").setDisplaySize(46, 46).setVisible(false);
+      // abilities show their spell icon, with the key as a small corner badge
+      const icon = this.add.image(0, 0, "ui-icon-01").setDisplaySize(50, 50).setVisible(false);
       const keyLabel = this.add
         .text(0, 0, SLOT_LABEL[key], {
           fontFamily: FONT,
-          fontSize: "28px",
-          color: "#4a3320",
-          stroke: "#e8d8b0",
+          fontSize: "14px",
+          color: "#ffe8b0",
+          stroke: "#1c1410",
           strokeThickness: 3,
         })
-        .setOrigin(0.5);
+        .setOrigin(0, 0)
+        .setDepth(5);
       const cd = this.add.rectangle(0, 0, 58, 58, 0x000000, 0.6).setOrigin(0.5, 1);
       const cdText = this.add
         .text(0, 0, "", {
@@ -701,7 +703,7 @@ export class HudScene extends Phaser.Scene {
       s.icon.setPosition(x, baseY);
       s.cd.setPosition(x, baseY + 29);
       s.cdText.setPosition(x, baseY);
-      s.keyLabel.setPosition(x, baseY - 2);
+      s.keyLabel.setPosition(x - 26, baseY - 27);
       s.pips.forEach((p, j) => p.setPosition(x - 16 + j * 11, baseY + 22));
     });
 
@@ -814,6 +816,12 @@ export class HudScene extends Phaser.Scene {
       const slot = h.abilities[s.key];
       if (!ad) continue;
       const rank = slot.rank;
+      // ability spell icon (set once per hero)
+      const iconKey = abilityIcon(ad.effect);
+      if (iconKey && this.textures.exists(iconKey)) {
+        if (s.icon.texture.key !== iconKey) s.icon.setTexture(iconKey).setDisplaySize(50, 50);
+        s.icon.setVisible(true);
+      }
       s.pips.forEach((p, j) => p.setFillStyle(j < rank ? 0xffe14a : 0x39456a));
       const cdLeft = Math.max(0, (slot.readyAt - world.now) / 1000);
       const cdTotal = rank > 0 ? valAt(ad.cooldown, rank) : 1;
@@ -821,12 +829,13 @@ export class HudScene extends Phaser.Scene {
         s.cd.setVisible(true);
         s.cd.height = 58;
         s.cdText.setText("");
+        s.icon.setAlpha(0.32); // unlearned
         s.box.setStrokeStyle(2, 0x6b5530);
       } else if (cdLeft > 0.05) {
         s.cd.setVisible(true);
         s.cd.height = 58 * Math.min(1, cdLeft / cdTotal);
         s.cdText.setText(cdLeft >= 1 ? `${Math.ceil(cdLeft)}` : "");
-        s.keyLabel.setAlpha(cdLeft >= 1 ? 0.25 : 1); // the countdown replaces the keycap
+        s.icon.setAlpha(0.4); // on cooldown
         s.box.setStrokeStyle(2, 0x8a7350);
       } else {
         const manaOk = me.mp >= valAt(ad.manaCost, rank);
@@ -834,7 +843,7 @@ export class HudScene extends Phaser.Scene {
         s.cd.height = manaOk ? 0 : 58;
         s.cd.setFillStyle(0x1a3a6a, manaOk ? 0 : 0.5);
         s.cdText.setText("");
-        s.keyLabel.setAlpha(1);
+        s.icon.setAlpha(manaOk ? 1 : 0.6); // ready / no mana
         s.box.setStrokeStyle(manaOk ? 3 : 2, manaOk ? 0x3f9e4d : 0x8a7350);
       }
     }

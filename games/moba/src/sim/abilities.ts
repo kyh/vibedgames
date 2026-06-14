@@ -532,6 +532,16 @@ function dispatch(
         id: "brewkeeper:Q:regen",
       });
       w.fx.push({ t: "heal", x: ally.x, y: ally.y, amount: v(def, "heal", rank) });
+      w.fx.push({
+        t: "ability",
+        effect: def.effect,
+        x: ally.x,
+        y: ally.y,
+        x2: ally.x,
+        y2: ally.y,
+        radius: 40,
+        team: c.team,
+      });
       return true;
     }
     case "brewkeeper:W": {

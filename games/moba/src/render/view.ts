@@ -16,11 +16,17 @@ import type { Team } from "../data/config";
 import type { World, Unit, Projectile, GroundEffect, FxEvent } from "../sim/types";
 import { sfx } from "./audio";
 import { FONT } from "./font";
+import { abilityCastFx, effectColor, groundFxKind } from "./fx-map";
 import { animKey, structureDestroyedTex, unitSprite } from "./sprites";
 
 const CELL = 64;
 const COLS = GRID.cols;
 const ROWS = GRID.rows;
+
+// How far (px) a plateau visually rises above the flat ground. The elevated grass
+// layer + anything standing on it is drawn shifted up by this, and the stone cliff
+// face fills the gap down to the ground — the "fake z" that makes heights read.
+const LIFT = 30;
 
 // Terrain depth bands, composed in the official tilemap-guide order: BG colour →
 // water foam → flat ground → drop shadow → elevated ground → cliff faces. All sit
@@ -73,6 +79,9 @@ const CLIFF = {
   botR: 52,
   botNarrow: 53,
 };
+// Diagonal grass→ground ramp tiles (2 rows) that taper the ends of a cliff run
+// into the surrounding grass — the slope tiles from the tilemap guide.
+const RAMP = { topL: 36, botL: 45, topR: 39, botR: 48 };
 // Bridge_All frames: 0/1/2 = horizontal left-cap/middle/right-cap, 11 = shadow.
 const BRIDGE_L = 0;
 const BRIDGE_M = 1;
@@ -100,6 +109,17 @@ type UnitView = {
   lastAttackAt: number; // detect a fresh swing to play the attack anim once
   lastDustAt: number; // throttle the running dust puffs
   dead: boolean; // playing/played the death anim while hidden (heroes)
+  recoilX: number; // hit knockback offset (decays each frame)
+  recoilY: number;
+  flashUntil: number; // ms; sprite shows a red damage flash until then
+};
+
+/** A live ground zone's display: the coloured ring + any looping effect sprites
+ *  (each kept with its offset from the zone centre so followOwner zones can track). */
+type GroundView = {
+  arc: Phaser.GameObjects.Arc;
+  sprites: Array<{ sp: Phaser.GameObjects.Sprite; ox: number; oy: number }>;
+  nextStrikeAt: number; // for storm zones: when to drop the next lightning bolt
 };
 
 type StructView = {
@@ -115,11 +135,13 @@ export class WorldView {
   private scene: Phaser.Scene;
   private units = new Map<string, UnitView>();
   private structs = new Map<string, StructView>();
-  private projs = new Map<string, Phaser.GameObjects.Image>();
-  private grounds = new Map<string, Phaser.GameObjects.Arc>();
+  private projs = new Map<string, Phaser.GameObjects.Image | Phaser.GameObjects.Sprite>();
+  private grounds = new Map<string, GroundView>();
   private mines = new Map<string, Phaser.GameObjects.Arc>();
   private shoreCells: Array<{ x: number; y: number }> = []; // water cells touching land, for ambient splashes
   private splashAcc = 0;
+  private reticle: Phaser.GameObjects.Image | null = null; // target marker (Cursor_04)
+  private reticleId = ""; // unit the player is currently targeting/hovering
   playerHeroId = "";
   playerTeam: "radiant" | "dire" = "radiant";
 
@@ -139,10 +161,11 @@ export class WorldView {
     // 3) flat grass islands as one autotiled tilemap layer
     this.buildGroundLayer(false, D_FLAT);
 
-    // 4) plateau drop shadows, elevated grass tops, then their stone cliff faces
+    // 4) plateau drop shadows, then the cliff faces, then the elevated grass tops
+    //    LIFTED up so heights actually read as a raised 3rd dimension
     this.buildPlateauShadows();
-    this.buildGroundLayer(true, D_ELEV);
     this.buildCliffs();
+    this.buildGroundLayer(true, D_ELEV, -LIFT);
 
     // 5) warm multiply wash nudging the tileset green toward olive
     this.buildWash();
@@ -294,8 +317,9 @@ export class WorldView {
     }
   }
 
-  /** Flat (elevated=false) or plateau-top (true) grass autotile as one layer. */
-  private buildGroundLayer(elevated: boolean, depth: number): void {
+  /** Flat (elevated=false) or plateau-top (true) grass autotile as one layer.
+   *  `yOff` lifts the layer up (elevated grass) so plateaus read as raised. */
+  private buildGroundLayer(elevated: boolean, depth: number, yOff = 0): void {
     const s = this.scene;
     if (!s.textures.exists("tiles-img")) return;
     const inSet = (cx: number, cy: number): boolean =>
@@ -321,7 +345,7 @@ export class WorldView {
     }
     const map = s.make.tilemap({ data, tileWidth: CELL, tileHeight: CELL });
     const tiles = map.addTilesetImage(elevated ? "tilesE" : "tilesF", "tiles-img");
-    if (tiles) map.createLayer(0, tiles, 0, 0)?.setDepth(depth);
+    if (tiles) map.createLayer(0, tiles, 0, yOff)?.setDepth(depth);
   }
 
   /** Drop shadow under the elevated footprint, shifted one tile down
@@ -340,7 +364,9 @@ export class WorldView {
     }
   }
 
-  /** Stone cliff faces (2 rows) below each plateau's south edge. */
+  /** Stone cliff faces below each plateau's south edge. The 2-row (128px) stone
+   *  wall hangs from the LIFTED grass edge down past the ground, so the plateau
+   *  reads as a solid raised block. A soft contact shadow grounds the base. */
   private buildCliffs(): void {
     const s = this.scene;
     if (!s.textures.exists("tiles")) return;
@@ -352,22 +378,31 @@ export class WorldView {
         const leftEnd = !isHighCell(cx - 1, cy) || isHighCell(cx - 1, cy + 1);
         const rightEnd = !isHighCell(cx + 1, cy) || isHighCell(cx + 1, cy + 1);
         const narrow = leftEnd && rightEnd;
+        // ends of a wider run taper into the grass with the diagonal ramp tiles;
+        // the middle stays a chunky stone wall.
         const top = narrow
           ? CLIFF.topNarrow
           : leftEnd
-            ? CLIFF.topL
+            ? RAMP.topL
             : rightEnd
-              ? CLIFF.topR
+              ? RAMP.topR
               : CLIFF.topM;
         const bot = narrow
           ? CLIFF.botNarrow
           : leftEnd
-            ? CLIFF.botL
+            ? RAMP.botL
             : rightEnd
-              ? CLIFF.botR
+              ? RAMP.botR
               : CLIFF.botM;
-        s.add.image(cxp, (cy + 1) * CELL + CELL / 2, "tiles", top).setDepth(D_CLIFF);
-        s.add.image(cxp, (cy + 2) * CELL + CELL / 2, "tiles", bot).setDepth(D_CLIFF);
+        // wall hangs from the lifted grass edge (origin top-centre so it abuts the
+        // grass cleanly and the 2 rows stack continuously below it)
+        const wallTopY = (cy + 1) * CELL - LIFT;
+        // contact shadow on the flat ground at the wall's foot
+        s.add
+          .ellipse(cxp, wallTopY + 2 * CELL + 4, CELL + 12, 22, 0x05080e, 0.32)
+          .setDepth(D_SHADOW);
+        s.add.image(cxp, wallTopY, "tiles", top).setOrigin(0.5, 0).setDepth(D_CLIFF);
+        s.add.image(cxp, wallTopY + CELL, "tiles", bot).setOrigin(0.5, 0).setDepth(D_CLIFF);
       }
     }
   }
@@ -430,18 +465,20 @@ export class WorldView {
       const cx = Math.floor(tx / CELL);
       const cy = Math.floor(ty / CELL);
       if (!isLandCell(cx, cy) || isCliffCell(cx, cy)) return;
+      // trees on a plateau stand on its raised surface, so lift the whole sprite
+      const lift = isHighCell(cx, cy) ? -LIFT : 0;
       s.add
-        .image(tx, ty + 6, "shadow")
+        .image(tx, ty + 6 + lift, "shadow")
         .setDisplaySize(74, 26)
         .setAlpha(0.4)
-        .setDepth(ty - 1);
+        .setDepth(ty - 1 + lift);
       const pick = rng2(tx + seed, ty - seed);
       if (hasPine && (pick < 0.45 || deciduous.length === 0)) {
         const tree = s.add
-          .sprite(tx, ty, "t-tree", 0)
+          .sprite(tx, ty + lift, "t-tree", 0)
           .setOrigin(0.5, 0.86)
           .setScale(0.95 + pick * 0.3)
-          .setDepth(ty);
+          .setDepth(ty + lift);
         if (pick < 0.12)
           tree.setTint(AUTUMN[Math.floor(rng2(ty, tx) * AUTUMN.length) % AUTUMN.length]);
         if (s.anims.exists("tree-sway"))
@@ -449,10 +486,10 @@ export class WorldView {
       } else {
         const kind = deciduous[Math.floor(rng2(tx, ty) * deciduous.length) % deciduous.length] ?? 1;
         const tree = s.add
-          .sprite(tx, ty, `ftree${kind}`, 0)
+          .sprite(tx, ty + lift, `ftree${kind}`, 0)
           .setOrigin(0.5, 0.82)
           .setScale(0.5 + pick * 0.14)
-          .setDepth(ty);
+          .setDepth(ty + lift);
         if (s.anims.exists(`ftree${kind}-sway`))
           tree.play({ key: `ftree${kind}-sway`, startFrame: Math.floor(rng2(ty, tx) * 8) });
       }
@@ -480,10 +517,10 @@ export class WorldView {
         if (nearAncient) continue;
         if (hasPine) {
           const tree = s.add
-            .sprite(tx, ty, "t-tree", 0)
+            .sprite(tx, ty - LIFT, "t-tree", 0) // pines here are on the plateau top
             .setOrigin(0.5, 0.86)
             .setScale(0.9)
-            .setDepth(ty);
+            .setDepth(ty - LIFT);
           if (s.anims.exists("tree-sway"))
             tree.play({ key: "tree-sway", startFrame: Math.floor(rng2(ty, tx) * 6) });
         }
@@ -508,31 +545,33 @@ export class WorldView {
         const near = (fx: number, fy: number) => (x - fx) ** 2 + (y - fy) ** 2 < 420 * 420;
         if (near(BASES.radiant.fountain.x, BASES.radiant.fountain.y)) continue;
         if (near(BASES.dire.fountain.x, BASES.dire.fountain.y)) continue;
+        // decals on a plateau sit on its raised surface
+        const lift = isHighCell(ccx, ccy) ? -LIFT : 0;
         if (r < 0.08) {
           const key = `deco-rock${1 + Math.floor(rng2(cx, cy + 3) * 4)}`;
           if (s.textures.exists(key))
             s.add
-              .image(x, y, key)
+              .image(x, y + lift, key)
               .setScale(0.7 + rng2(x, y) * 0.3)
-              .setDepth(y);
+              .setDepth(y + lift);
         } else if (r < 0.16) {
           // bushes are animated sway strips — one 128px frame each, never the sheet
           const n = 1 + Math.floor(rng2(cx + 3, cy) * 4);
           const key = `deco-bush${n}`;
           if (!s.textures.exists(key)) continue;
           const bush = s.add
-            .sprite(x, y, key, 0)
+            .sprite(x, y + lift, key, 0)
             .setScale(0.55 + rng2(x, y) * 0.25)
-            .setDepth(y);
+            .setDepth(y + lift);
           if (s.anims.exists(`${key}-sway`))
             bush.play({ key: `${key}-sway`, startFrame: Math.floor(rng2(y, x) * 8) });
         } else {
           const key = `deco-${String(1 + Math.floor(rng2(cx + 5, cy + 5) * 18)).padStart(2, "0")}`;
           if (s.textures.exists(key))
             s.add
-              .image(x, y, key)
+              .image(x, y + lift, key)
               .setScale(0.8 + rng2(x, y) * 0.3)
-              .setDepth(y)
+              .setDepth(y + lift)
               .setAlpha(0.95);
         }
       }
@@ -654,15 +693,53 @@ export class WorldView {
     }
   }
 
+  /** Game scene tells us which enemy the player is targeting/hovering so we can
+   *  mark it with the Cursor_04 reticle. "" clears it. */
+  setTarget(id: string): void {
+    this.reticleId = id;
+  }
+
   /** Per-frame sync of all dynamic objects to the world. */
   sync(world: World, dt: number): void {
     this.syncStructures(world);
     this.syncUnits(world, dt);
     this.syncProjectiles(world);
-    this.syncGrounds(world);
+    this.syncGrounds(world, dt);
     this.syncMines(world);
+    this.syncReticle(world);
     this.drainFx(world);
     this.tickAmbientSplashes(dt);
+  }
+
+  /** Position the target reticle over the currently-targeted unit (4 corner
+   *  brackets that frame the body), or hide it when there's no valid target. */
+  private syncReticle(world: World): void {
+    const u = this.reticleId ? world.units.get(this.reticleId) : undefined;
+    // structures live in `structs`, not the unit-view map, so resolve them directly
+    const struct = !!u && u.kind === "structure";
+    const v = u && !struct ? this.units.get(u.id) : undefined;
+    const ok = !!u && u.alive && (struct || (!!v && !v.dead));
+    if (!ok) {
+      if (this.reticle) this.reticle.setVisible(false);
+      return;
+    }
+    if (!this.reticle) {
+      this.reticle = this.scene.add
+        .image(0, 0, "cursor-target")
+        .setDepth(89000)
+        .setBlendMode(Phaser.BlendModes.ADD);
+    }
+    const size = struct ? Math.max(110, u.radius * 2.4) : u.kind === "hero" ? 92 : 64;
+    const cx = struct ? u.x : (v?.dx ?? u.x);
+    const cy = struct ? u.y - 24 : (v?.dy ?? u.y) - 16;
+    this.reticle
+      .setVisible(true)
+      .setPosition(cx, cy)
+      .setDisplaySize(size, size)
+      .setTint(u.team === this.playerTeam ? 0x8bf0a0 : 0xff5a4a);
+    // gentle breathing so it reads as "locked on"
+    const pulse = 1 + 0.06 * Math.sin(this.scene.time.now / 120);
+    this.reticle.setScale(this.reticle.scaleX * pulse, this.reticle.scaleY * pulse);
   }
 
   /** Occasional water splashes along shorelines near the camera, for living water. */
@@ -820,8 +897,20 @@ export class WorldView {
       const k = Math.min(1, dt * 18);
       v.dx = Phaser.Math.Linear(v.dx, u.x, k);
       v.dy = Phaser.Math.Linear(v.dy, u.y, k);
-      v.container.setPosition(Math.round(v.dx), Math.round(v.dy));
+      // hit recoil: a quick knockback offset on the sprite that springs back —
+      // purely visual (the sim position is untouched, so nav/MP stay authoritative).
+      v.recoilX *= Math.pow(0.0008, dt);
+      v.recoilY *= Math.pow(0.0008, dt);
+      if (Math.abs(v.recoilX) < 0.3) v.recoilX = 0;
+      if (Math.abs(v.recoilY) < 0.3) v.recoilY = 0;
+      v.container.setPosition(Math.round(v.dx + v.recoilX), Math.round(v.dy + v.recoilY));
       v.container.setDepth(v.dy);
+
+      // damage flash: a brief red tint on the body when struck (cleared on expiry)
+      if (v.flashUntil > 0 && this.scene.time.now >= v.flashUntil) {
+        v.flashUntil = 0;
+        v.sprite.clearTint();
+      }
 
       // running dust puffs at the feet (throttled per unit)
       const speed = Math.hypot(u.vx, u.vy);
@@ -850,6 +939,7 @@ export class WorldView {
           v.sprite.play(attackKey, true);
           v.curAnim = attackKey;
         }
+        if (u.kind === "hero") this.spawnSwing(v.dx, v.dy, u.facing, u.projectileSpeed > 0);
       } else if (!attackPlaying) {
         const moving = Math.hypot(u.vx, u.vy) > 12;
         const key = animKey(u, moving ? "walk" : "idle");
@@ -880,6 +970,92 @@ export class WorldView {
         v.container.destroy();
         this.units.delete(id);
       }
+    }
+  }
+
+  /** Hero attack flourish: a sweeping slash arc for melee, a muzzle spark for
+   *  ranged — drawn in the facing direction so swings read as deliberate hits. */
+  private spawnSwing(x: number, y: number, facing: number, ranged: boolean): void {
+    const s = this.scene;
+    const cx = x + facing * (ranged ? 30 : 40);
+    const cy = y - 22;
+    if (ranged) {
+      const flash = s.add
+        .image(cx, cy, "spark")
+        .setDepth(y + 60)
+        .setScale(1.1)
+        .setTint(0xfff1c0)
+        .setBlendMode(Phaser.BlendModes.ADD);
+      s.tweens.add({
+        targets: flash,
+        scale: 0,
+        alpha: 0,
+        duration: 160,
+        ease: "Quad.Out",
+        onComplete: () => flash.destroy(),
+      });
+      return;
+    }
+    // melee: a thin bright arc that sweeps down-forward, fading fast
+    const g = s.add
+      .graphics()
+      .setDepth(y + 60)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    const baseAng = facing >= 0 ? -0.9 : Math.PI + 0.9;
+    const sweep = facing >= 0 ? 1.8 : -1.8;
+    const r = 46;
+    g.lineStyle(6, 0xffffff, 0.85);
+    g.beginPath();
+    g.arc(cx, cy, r, baseAng, baseAng + sweep, sweep < 0);
+    g.strokePath();
+    g.lineStyle(2, 0xbfe6ff, 0.9);
+    g.beginPath();
+    g.arc(cx, cy, r + 5, baseAng, baseAng + sweep, sweep < 0);
+    g.strokePath();
+    g.setScale(0.7);
+    s.tweens.add({
+      targets: g,
+      scaleX: 1.1,
+      scaleY: 1.1,
+      alpha: 0,
+      duration: 180,
+      ease: "Quad.Out",
+      onComplete: () => g.destroy(),
+    });
+  }
+
+  /** A short burst of sparks spraying away from the attacker on a hit — the
+   *  "damage particles" that give every strike a sense of impact. */
+  private spawnHitSparks(
+    x: number,
+    y: number,
+    nx: number,
+    ny: number,
+    tint: number,
+    crit?: boolean,
+  ): void {
+    const s = this.scene;
+    const baseAng = Math.atan2(ny, nx);
+    const n = crit ? 7 : 4;
+    for (let i = 0; i < n; i++) {
+      const a = baseAng + (Math.random() - 0.5) * 1.5;
+      const spd = (crit ? 90 : 60) + Math.random() * 70;
+      const sp = s.add
+        .image(x, y, "spark")
+        .setDepth(y + 320)
+        .setScale(0.18 + Math.random() * 0.16)
+        .setTint(tint)
+        .setBlendMode(Phaser.BlendModes.ADD);
+      s.tweens.add({
+        targets: sp,
+        x: x + Math.cos(a) * spd,
+        y: y + Math.sin(a) * spd + 18, // slight gravity droop
+        scale: 0,
+        alpha: 0,
+        duration: 230 + Math.random() * 130,
+        ease: "Quad.Out",
+        onComplete: () => sp.destroy(),
+      });
     }
   }
 
@@ -1013,6 +1189,9 @@ export class WorldView {
       lastAttackAt: 0,
       lastDustAt: 0,
       dead: false,
+      recoilX: 0,
+      recoilY: 0,
+      flashUntil: 0,
     };
     this.units.set(u.id, v);
     return v;
@@ -1033,17 +1212,27 @@ export class WorldView {
       seen.add(p.id);
       let img = this.projs.get(p.id);
       if (!img) {
-        img = this.scene.add.image(p.x, p.y, projTex(p)).setDepth(p.y + 200);
-        const sc = p.kind === "fireball" || p.kind === "dynamite" ? 0.5 : 0.7;
-        img.setScale(sc);
-        if (p.kind === "fireball") img.setTint(0xff8a3a);
+        if (p.kind === "fireball" && this.scene.anims.exists("sp-fireball-loop")) {
+          // a real tumbling fireball with a glow underneath
+          const fb = this.scene.add.sprite(p.x, p.y, "sp-fireball", 0).setScale(0.7);
+          fb.play("sp-fireball-loop");
+          img = fb;
+        } else {
+          img = this.scene.add.image(p.x, p.y, projTex(p));
+          const sc = p.kind === "fireball" || p.kind === "dynamite" ? 0.5 : 0.7;
+          img.setScale(sc);
+          if (p.kind === "fireball") img.setTint(0xff8a3a);
+        }
+        img.setDepth(p.y + 200);
         this.projs.set(p.id, img);
       }
       img.setPosition(p.x, p.y);
       img.setDepth(p.y + 200);
+      // arrows/bolts point along their flight; round projectiles don't spin
       img.setRotation(
-        Math.atan2(p.ty - p.y, p.tx - p.x) +
-          (p.kind === "arrow" || p.kind === "bolt" ? Math.PI / 2 : 0),
+        p.kind === "arrow" || p.kind === "bolt"
+          ? Math.atan2(p.ty - p.y, p.tx - p.x) + Math.PI / 2
+          : 0,
       );
     }
     for (const [id, img] of this.projs)
@@ -1053,21 +1242,76 @@ export class WorldView {
       }
   }
 
-  private syncGrounds(world: World): void {
+  private syncGrounds(world: World, dt: number): void {
+    const s = this.scene;
     const seen = new Set<string>();
     for (const g of world.groundEffects) {
       seen.add(g.id);
-      let arc = this.grounds.get(g.id);
-      if (!arc) {
-        arc = this.scene.add.circle(g.x, g.y, g.radius, groundColor(g), 0.22).setDepth(g.y - 10);
-        arc.setStrokeStyle(2, groundColor(g), 0.6);
-        this.grounds.set(g.id, arc);
+      const kind = groundFxKind(g.effect, !!g.allyHealPerTick);
+      let gv = this.grounds.get(g.id);
+      if (!gv) {
+        const col = groundColor(g);
+        const arc = s.add
+          .circle(g.x, g.y, g.radius, col, kind === "storm" ? 0.1 : 0.2)
+          .setStrokeStyle(2.5, col, 0.7)
+          .setDepth(g.y - 10);
+        const sprites: GroundView["sprites"] = [];
+        // fire / heal zones tile a few looping effect sprites across the radius
+        if (kind === "fire" || kind === "heal") {
+          const sheet = kind === "fire" ? "sp-fire" : "sp-water";
+          if (s.anims.exists(`${sheet}-loop`)) {
+            const ring = Phaser.Math.Clamp(Math.round(g.radius / 80), 0, 6);
+            const spots: Array<[number, number, number]> = [[0, 0, (g.radius * 1.1) / 128]];
+            for (let i = 0; i < ring; i++) {
+              const a = (i / ring) * Math.PI * 2;
+              const rr = g.radius * 0.6;
+              spots.push([Math.cos(a) * rr, Math.sin(a) * rr, (g.radius * 0.7) / 128]);
+            }
+            for (const [ox, oy, sc] of spots) {
+              const sp = s.add
+                .sprite(g.x + ox, g.y + oy, sheet, 0)
+                .setScale(sc)
+                .setAlpha(0.85)
+                .setDepth(g.y - 6);
+              if (kind === "heal") sp.setTint(0x9bf0b0).setBlendMode(Phaser.BlendModes.ADD);
+              sp.play({ key: `${sheet}-loop`, startFrame: Math.floor(Math.random() * 6) });
+              sprites.push({ sp, ox, oy });
+            }
+          }
+        }
+        gv = { arc, sprites, nextStrikeAt: 0 };
+        this.grounds.set(g.id, gv);
       }
-      arc.setPosition(g.x, g.y);
+      gv.arc.setPosition(g.x, g.y);
+      // followOwner zones (flashfire) move with the caster — keep sprites attached
+      for (const { sp, ox, oy } of gv.sprites) {
+        sp.setPosition(g.x + ox, g.y + oy);
+        sp.setDepth(g.y - 6);
+      }
+      // storm zones rain lightning bolts on random points inside the radius
+      if (kind === "storm" && s.anims.exists("sp-lightning")) {
+        gv.nextStrikeAt -= dt * 1000;
+        if (gv.nextStrikeAt <= 0) {
+          gv.nextStrikeAt = 200 + Math.random() * 160;
+          const a = Math.random() * Math.PI * 2;
+          const rr = Math.sqrt(Math.random()) * g.radius;
+          const bx = g.x + Math.cos(a) * rr;
+          const by = g.y + Math.sin(a) * rr;
+          const bolt = s.add
+            .sprite(bx, by, "sp-lightning", 0)
+            .setDepth(by + 500)
+            .setScale((g.radius / 320) * 1.1)
+            .setOrigin(0.5, 0.9)
+            .setBlendMode(Phaser.BlendModes.ADD);
+          bolt.play("sp-lightning");
+          bolt.once("animationcomplete", () => bolt.destroy());
+        }
+      }
     }
-    for (const [id, arc] of this.grounds)
+    for (const [id, gv] of this.grounds)
       if (!seen.has(id)) {
-        arc.destroy();
+        gv.arc.destroy();
+        for (const { sp } of gv.sprites) sp.destroy();
         this.grounds.delete(id);
       }
   }
@@ -1102,22 +1346,41 @@ export class WorldView {
     switch (fx.t) {
       case "hit": {
         sfx.hit();
+        const magic = fx.dtype === "magic";
+        const tintCol = magic ? 0xc78bff : 0xffffff;
         // impact puff at the strike point — the clash spark that sells combat
         const puff = s.add
           .image(fx.x + (Math.random() - 0.5) * 12, fx.y, "spark")
           .setDepth(fx.y + 300)
-          .setScale(0.55)
-          .setTint(fx.dtype === "magic" ? 0xc78bff : 0xffffff)
-          .setAlpha(0.95)
+          .setScale(0.5)
+          .setTint(tintCol)
+          .setAlpha(0.85)
           .setBlendMode(Phaser.BlendModes.ADD);
         s.tweens.add({
           targets: puff,
-          scale: fx.crit ? 2.4 : 1.7,
+          scale: fx.crit ? 2.0 : 1.35,
           alpha: 0,
-          duration: fx.crit ? 260 : 180,
+          duration: fx.crit ? 260 : 170,
           ease: "Quad.Out",
           onComplete: () => puff.destroy(),
         });
+        // damage flash + knockback recoil + spark spray on the victim's sprite —
+        // the impact reactions that make combat feel weighty/action-y. Recoil and
+        // sparks fire only on real swings / crits / big nukes; small DoT & ground
+        // ticks (every 0.5s) just get the cheap flash so burning units don't twitch
+        // or spray particles twice a second.
+        const bigHit = fx.isAttack === true || fx.crit === true || fx.amount >= 30;
+        const vv = this.units.get(fx.targetId);
+        if (vv && !vv.dead) {
+          vv.sprite.setTint(magic ? 0xd9a6ff : 0xff8a8a);
+          vv.flashUntil = s.time.now + (fx.crit ? 130 : 90);
+          if (bigHit) {
+            const kick = Math.min(fx.isAttack ? 16 : 9, 4 + fx.amount * 0.12) * (fx.crit ? 1.6 : 1);
+            vv.recoilX += fx.nx * kick;
+            vv.recoilY += fx.ny * kick;
+          }
+        }
+        if (bigHit) this.spawnHitSparks(fx.x, fx.y, fx.nx, fx.ny, tintCol, fx.crit);
         // juice: a small camera kick when the player themselves takes a real hit
         if (fx.targetId === this.playerHeroId && fx.amount >= 35) {
           this.scene.cameras.main.shake(110, Math.min(0.006, 0.0016 + fx.amount / 40000));
@@ -1298,6 +1561,9 @@ export class WorldView {
           ease: "Quad.Out",
           onComplete: () => ring.destroy(),
         });
+        // self/aura cast bursts (windfoot, flashfire, powder keg, blink puff…)
+        const spec = abilityCastFx(fx.effect);
+        if (spec && spec.at === "caster") this.spawnSpellSprite(fx.x, fx.y, spec.sheet, spec.scale, spec.tint);
         break;
       }
       case "ability": {
@@ -1307,9 +1573,32 @@ export class WorldView {
     }
   }
 
+  /** Play a one-shot spell-effect sprite centred at (x,y). The packed effect art
+   *  carries its own palette, so tint is applied lightly (ADD) only when given. */
+  private spawnSpellSprite(
+    x: number,
+    y: number,
+    sheet: string,
+    scale: number,
+    tint?: number,
+  ): void {
+    const s = this.scene;
+    if (!s.anims.exists(sheet)) return;
+    const sp = s.add
+      .sprite(x, y, sheet, 0)
+      .setDepth(y + 360)
+      .setScale(scale);
+    if (tint !== undefined) sp.setTint(tint);
+    sp.play(sheet);
+    sp.once("animationcomplete", () => sp.destroy());
+  }
+
   private playAbilityFx(fx: Extract<FxEvent, { t: "ability" }>): void {
     const s = this.scene;
     const col = effectColor(fx.effect);
+    // targeted spell bursts (shield bash, fanned daggers, death waltz, hex…)
+    const spec = abilityCastFx(fx.effect);
+    if (spec && spec.at === "target") this.spawnSpellSprite(fx.x2, fx.y2, spec.sheet, spec.scale, spec.tint);
     const isLine = Math.hypot(fx.x2 - fx.x, fx.y2 - fx.y) > 60 && fx.radius < 160;
     if (isLine) {
       // beam / skillshot line
@@ -1346,24 +1635,6 @@ export class WorldView {
       },
     });
   }
-}
-
-/** Color an ability/cast effect by its element keyword. */
-function effectColor(effect: string): number {
-  if (
-    effect.startsWith("emberhex") ||
-    effect.includes("fire") ||
-    effect.includes("flash") ||
-    effect.includes("conflag")
-  )
-    return 0xff7a2a;
-  if (effect.startsWith("stormcaller") || effect.includes("storm") || effect.includes("pierc"))
-    return 0x6ab8ff;
-  if (effect.startsWith("brewkeeper")) return 0x8be07a;
-  if (effect.startsWith("boomtinker")) return 0xffd24d;
-  if (effect.startsWith("duskblade")) return 0xb06bff;
-  if (effect.startsWith("ironvow")) return 0x9cc4ff;
-  return 0xffffff;
 }
 
 function teamHpColor(team: string): number {

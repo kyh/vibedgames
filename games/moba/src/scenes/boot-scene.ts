@@ -1,5 +1,9 @@
 import Phaser from "phaser";
 
+import { ABILITY_ICON, SPELL_SHEETS } from "../render/fx-map";
+
+const SPELL_ICONS = [...new Set(Object.values(ABILITY_ICON))];
+
 // Troop sheets are a uniform 192×192 grid. Terrain tiles are 64px.
 // FX strips vary. Frame *ranges* (which rows are idle/walk/attack) are resolved
 // in AnimRegistry, discovered/verified at runtime — see render/anims.ts.
@@ -184,6 +188,17 @@ export class BootScene extends Phaser.Scene {
       frameWidth: 128,
       frameHeight: 128,
     });
+
+    // --- spell effects + ability icons + target cursor ---
+    // packed effect strips (one row each; frame size + count from SPELL_SHEETS)
+    for (const s of SPELL_SHEETS) {
+      this.load.spritesheet(s.key, `assets/spell/${s.key}.png`, {
+        frameWidth: s.frame,
+        frameHeight: s.frame,
+      });
+    }
+    for (const ic of SPELL_ICONS) this.load.image(ic, `assets/spell/icons/${ic}.png`);
+    this.load.image("cursor-target", "assets/ui/cursor_target.png");
 
     // decorations: rocks/bushes/mushrooms — load whatever is present lazily by
     // numbering; missing files just warn. Handled in MapBuilder.

@@ -418,6 +418,18 @@ export function dealDamage(
   }
 
   if (leftover > 0) {
+    // knockback/spray direction: away from the attacker (fallback: straight up)
+    let nx = 0;
+    let ny = -1;
+    if (attacker) {
+      const dx = victim.x - attacker.x;
+      const dy = victim.y - attacker.y;
+      const d = Math.hypot(dx, dy);
+      if (d > 0.01) {
+        nx = dx / d;
+        ny = dy / d;
+      }
+    }
     w.fx.push({
       t: "hit",
       x: victim.x,
@@ -426,6 +438,9 @@ export function dealDamage(
       amount: Math.round(leftover),
       crit: opts.crit,
       targetId: victim.id,
+      nx,
+      ny,
+      isAttack: opts.isAttack,
     });
   }
 

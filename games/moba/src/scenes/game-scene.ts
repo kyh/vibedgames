@@ -114,7 +114,20 @@ export class GameScene extends Phaser.Scene {
 
     this.bindInput();
     this.scene.launch("Hud", { game: this });
-    if (import.meta.env.DEV) this.installDebug();
+    if (import.meta.env.DEV) {
+      this.installDebug();
+      // ?at=x,y drops the player at a world point on spawn so headless captures can
+      // frame any region (terrain plateaus etc.) deterministically.
+      const at = new URLSearchParams(window.location.search).get("at");
+      const me = this.player;
+      if (at && me) {
+        const [ax, ay] = at.split(",").map(Number);
+        if (Number.isFinite(ax) && Number.isFinite(ay)) {
+          me.x = ax ?? me.x;
+          me.y = ay ?? me.y;
+        }
+      }
+    }
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.applyZoom, this);
@@ -306,9 +319,18 @@ export class GameScene extends Phaser.Scene {
   // ---- input ---------------------------------------------------------------
   private bindInput(): void {
     this.input.mouse?.disableContextMenu();
+    // Mouse is a full complement to the keyboard scheme (which stays the primary,
+    // keyboard-first control): LEFT or RIGHT click moves to the point, or attacks
+    // an enemy clicked on. Keyboard steering/abilities remain fully usable.
     this.input.on("pointerdown", (p: Phaser.Input.Pointer) => {
       resumeAudio();
-      if (p.rightButtonDown()) this.issueClickOrder(p);
+      if (this.uiBlocking) return; // shop/modal open — ignore world clicks
+      if (!(p.leftButtonDown() || p.rightButtonDown())) return;
+      // don't move when the click was actually on a HUD widget (minimap, ability
+      // bar, item slots, shop) — that scene sits on top and handles its own clicks.
+      const hud = this.scene.get("Hud");
+      if (hud?.input && hud.input.hitTestPointer(p).length > 0) return;
+      this.issueClickOrder(p);
     });
 
     const kb = this.input.keyboard;
@@ -533,6 +555,32 @@ export class GameScene extends Phaser.Scene {
     return best;
   }
 
+  /** Mark the unit the player is engaging (attack order / current swing), else the
+   *  enemy under the cursor, with the Cursor_04 reticle. */
+  private updateTargetReticle(): void {
+    const me = this.player;
+    if (!me || !me.alive) {
+      this.view.setTarget("");
+      return;
+    }
+    let id = "";
+    if (me.order.type === "attackUnit") {
+      const t = this.world.units.get(me.order.targetId);
+      if (t && t.alive && isEnemy(me, t)) id = t.id;
+    }
+    if (!id && me.pendingAttack) {
+      const t = this.world.units.get(me.pendingAttack.targetId);
+      if (t && t.alive && isEnemy(me, t)) id = t.id;
+    }
+    if (!id) {
+      const p = this.input.activePointer;
+      const wp = this.cam.getWorldPoint(p.x, p.y);
+      const hov = this.unitAt(wp.x, wp.y, (u) => isEnemy(me, u) && u.alive);
+      if (hov) id = hov.id;
+    }
+    this.view.setTarget(id);
+  }
+
   private nearestEnemy(me: Unit, range: number): Unit | undefined {
     let best: Unit | undefined;
     let bestD = range * range;
@@ -555,6 +603,7 @@ export class GameScene extends Phaser.Scene {
     else this.tickHost(dt);
 
     this.collectFeed();
+    this.updateTargetReticle();
     this.view.sync(this.world, dt);
     this.labelTimer += dt;
     if (this.labelTimer > 0.25) {
