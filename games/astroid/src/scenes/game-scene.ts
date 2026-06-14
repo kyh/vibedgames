@@ -62,6 +62,9 @@ import {
   HOMING_LOCK_CONE_DEG,
   INVULN_BLINK_MS,
   INVULNERABLE_MS,
+  JOYSTICK_DEAD_ZONE,
+  JOYSTICK_KNOB_RADIUS,
+  JOYSTICK_RADIUS,
   ITEM_DRAW_RADIUS,
   ITEM_PICKUP_RADIUS,
   ITEM_SPEED,
@@ -412,6 +415,23 @@ export class GameScene extends Phaser.Scene {
   /** Phaser's activePointer sits at (0,0) until the first real pointer event —
    *  steering before then would yank the ship to the screen corner. */
   private pointerSeen = false;
+  /** Flips true the first time a touch is seen and stays true: desktop keeps
+   *  the mouse model (aim+thrust at the cursor), touch switches to the
+   *  two-finger model (move joystick + fire fingers). */
+  private isTouch = false;
+  /** The floating move-joystick: anchored where the first finger landed,
+   *  dragging from the anchor steers. Null when no move finger is down.
+   *  Coords are screen-space. */
+  private moveStick: {
+    id: number;
+    anchorX: number;
+    anchorY: number;
+    curX: number;
+    curY: number;
+  } | null = null;
+  /** Pointer ids of fingers currently firing (any finger that isn't the move
+   *  stick). Non-empty = holding fire. */
+  private fireTouchIds = new Set<number>();
   /** Items we picked up locally, awaiting host confirmation (id → time). */
   private recentPickups = new Map<string, number>();
   /** Shards we collected locally, awaiting host removal (id -> time), the
@@ -555,6 +575,7 @@ export class GameScene extends Phaser.Scene {
   private muzzleGfx!: Phaser.GameObjects.Graphics;
   private splinterGfx!: Phaser.GameObjects.Graphics;
   private minimapGfx!: Phaser.GameObjects.Graphics;
+  private joyGfx!: Phaser.GameObjects.Graphics;
   private flashRect!: Phaser.GameObjects.Rectangle;
   private splinters: Splinter[] = [];
   private muzzleFlashes: MuzzleFlash[] = [];
@@ -631,6 +652,13 @@ export class GameScene extends Phaser.Scene {
     this.muzzleGfx = this.add.graphics().setDepth(19).setBlendMode(Phaser.BlendModes.ADD);
     this.splinterGfx = this.add.graphics().setDepth(15);
     this.minimapGfx = this.add.graphics().setScrollFactor(0).setDepth(100);
+    // Move-joystick UI (touch only): screen-fixed, drawn above the world but
+    // below the DOM HUD. Additive so it glows over the dark starfield.
+    this.joyGfx = this.add
+      .graphics()
+      .setScrollFactor(0)
+      .setDepth(95)
+      .setBlendMode(Phaser.BlendModes.ADD);
     this.flashRect = this.add
       .rectangle(0, 0, 4, 4, 0xffffff)
       .setOrigin(0)
@@ -650,12 +678,32 @@ export class GameScene extends Phaser.Scene {
     this.client.subscribe(() => this.onUpdate());
     this.bootedAt = Date.now();
 
-    this.input.on(Phaser.Input.Events.POINTER_MOVE, () => {
+    // Track up to three simultaneous touches (move stick + two fire fingers).
+    this.input.addPointer(2);
+
+    this.input.on(Phaser.Input.Events.POINTER_MOVE, (p: Phaser.Input.Pointer) => {
       this.pointerSeen = true;
+      if (this.moveStick && p.id === this.moveStick.id) {
+        this.moveStick.curX = p.x;
+        this.moveStick.curY = p.y;
+      }
     });
-    this.input.on(Phaser.Input.Events.POINTER_DOWN, () => {
+    this.input.on(Phaser.Input.Events.POINTER_DOWN, (p: Phaser.Input.Pointer) => {
       this.pointerSeen = true;
       sfx.unlock(); // WebAudio needs a user gesture
+      if (!p.wasTouch) return; // mouse keeps the cursor-aim model
+      this.enterTouchMode();
+      if (!this.moveStick) {
+        // First finger down anchors the floating move-joystick where it landed.
+        this.moveStick = { id: p.id, anchorX: p.x, anchorY: p.y, curX: p.x, curY: p.y };
+      } else if (p.id !== this.moveStick.id) {
+        // Any other finger fires.
+        this.fireTouchIds.add(p.id);
+      }
+    });
+    this.input.on(Phaser.Input.Events.POINTER_UP, (p: Phaser.Input.Pointer) => {
+      if (this.moveStick && p.id === this.moveStick.id) this.moveStick = null;
+      else this.fireTouchIds.delete(p.id);
     });
 
     // Single-start assumption: this scene is started once per page load and
@@ -679,6 +727,7 @@ export class GameScene extends Phaser.Scene {
 
     this.ensureSpawned();
     this.tickRespawn(now);
+    this.reconcileTouch();
     this.steerShip(dt);
     this.handleShooting(delta, now);
     this.updateBeams(dt, now);
@@ -711,6 +760,7 @@ export class GameScene extends Phaser.Scene {
     this.updateSplinters(dt, now);
     this.fx.update(dt, this.time.now);
     this.drawMinimap();
+    this.drawJoystick();
     this.updateCamera(dt, time);
     this.updateHud(now);
   }
@@ -783,10 +833,14 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * The control identity, now with drift: the nose always points at the
-   * cursor (instant), thrust accelerates toward it scaled by distance, and
-   * exponential drag makes you glide. Stopping (dead zone) brakes harder than
-   * flying — responsive stop, drifty start. Touch works the same.
+   * The control identity, now with drift: the nose points along the steer
+   * direction (instant), thrust accelerates that way scaled by how far it's
+   * pushed, and exponential drag makes you glide. Stopping (dead zone) brakes
+   * harder than flying — responsive stop, drifty start.
+   *
+   * Desktop reads the steer vector from ship→cursor. Touch reads it from the
+   * floating move-joystick (drag from the anchor): same model, different
+   * source — `steerVector` unifies them.
    */
   private steerShip(dt: number): void {
     if (!this.alive || !this.spawned) return;
@@ -796,19 +850,15 @@ export class GameScene extends Phaser.Scene {
     const maxSpeed = SHIP_MAX_SPEED * (nitro ? NITRO_MAX_SPEED_MULT : 1);
     let drag = SHIP_BRAKE_DRAG;
     this.thrust = 0;
-    if (this.pointerSeen) {
-      const cam = this.cameras.main;
-      const p = this.input.activePointer;
-      const dx = p.x + cam.scrollX - this.shipX;
-      const dy = p.y + cam.scrollY - this.shipY;
-      const dist = Math.hypot(dx, dy);
-      if (dist > 0.001) this.shipAngle = Math.atan2(dy, dx);
-      this.thrust = Math.min(1, Math.max(0, (dist - SHIP_DEAD_ZONE) / SHIP_THRUST_RAMP));
-      if (this.thrust > 0 && dist > 0.001) {
-        this.shipVX += (dx / dist) * accel * this.thrust * dt;
-        this.shipVY += (dy / dist) * accel * this.thrust * dt;
+    const steer = this.steerVector();
+    if (steer) {
+      if (steer.aim) this.shipAngle = steer.angle;
+      this.thrust = steer.thrust;
+      if (this.thrust > 0) {
+        this.shipVX += Math.cos(steer.angle) * accel * this.thrust * dt;
+        this.shipVY += Math.sin(steer.angle) * accel * this.thrust * dt;
       }
-      drag = dist > SHIP_DEAD_ZONE ? SHIP_DRAG : SHIP_BRAKE_DRAG;
+      drag = steer.dist > steer.deadZone ? SHIP_DRAG : SHIP_BRAKE_DRAG;
     }
     const decay = Math.exp(-drag * dt);
     this.shipVX *= decay;
@@ -832,6 +882,70 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /** The unified steering input: heading, 0–1 thrust, the dead-zone test (so
+   *  steerShip can pick drift vs brake drag), and `aim` (whether to re-point
+   *  the nose this frame). Null = no live input.
+   *
+   *  `aim` differs by source on purpose: the desktop nose tracks the cursor
+   *  even inside the dead zone (the cursor-aim identity — you keep aiming while
+   *  braking), but the touch nose holds steady when the finger sits near the
+   *  joystick anchor (no jitter from a parked thumb). */
+  private steerVector(): {
+    angle: number;
+    thrust: number;
+    dist: number;
+    deadZone: number;
+    aim: boolean;
+  } | null {
+    if (this.isTouch) {
+      const stick = this.moveStick;
+      if (!stick) return null;
+      const dx = stick.curX - stick.anchorX;
+      const dy = stick.curY - stick.anchorY;
+      const dist = Math.hypot(dx, dy);
+      const span = JOYSTICK_RADIUS - JOYSTICK_DEAD_ZONE;
+      const thrust = Math.min(1, Math.max(0, (dist - JOYSTICK_DEAD_ZONE) / span));
+      return {
+        angle: Math.atan2(dy, dx),
+        thrust,
+        dist,
+        deadZone: JOYSTICK_DEAD_ZONE,
+        aim: dist > JOYSTICK_DEAD_ZONE,
+      };
+    }
+    if (!this.pointerSeen) return null;
+    const cam = this.cameras.main;
+    const p = this.input.activePointer;
+    const dx = p.x + cam.scrollX - this.shipX;
+    const dy = p.y + cam.scrollY - this.shipY;
+    const dist = Math.hypot(dx, dy);
+    const thrust = Math.min(1, Math.max(0, (dist - SHIP_DEAD_ZONE) / SHIP_THRUST_RAMP));
+    return { angle: Math.atan2(dy, dx), thrust, dist, deadZone: SHIP_DEAD_ZONE, aim: dist > 0.001 };
+  }
+
+  /** Switch to the touch control model and rewrite the attract hint. Idempotent. */
+  private enterTouchMode(): void {
+    if (this.isTouch) return;
+    this.isTouch = true;
+    if (this.attractEl)
+      this.attractEl.innerHTML = "move &middot; drag &mdash; fire &middot; 2nd finger";
+  }
+
+  /** Holding fire: any non-move finger on touch, or the mouse button on desktop. */
+  private isFiring(): boolean {
+    return this.isTouch ? this.fireTouchIds.size > 0 : this.input.activePointer.isDown;
+  }
+
+  /** Drop stale touch tracking if an `up` event was missed (e.g. a finger that
+   *  slid off-canvas), so the joystick / fire never sticks on. */
+  private reconcileTouch(): void {
+    if (!this.isTouch) return;
+    const down = (id: number): boolean =>
+      this.input.manager.pointers.some((p) => p.id === id && p.isDown);
+    if (this.moveStick && !down(this.moveStick.id)) this.moveStick = null;
+    for (const id of this.fireTouchIds) if (!down(id)) this.fireTouchIds.delete(id);
+  }
+
   private handleShooting(delta: number, now: number): void {
     // The cooldown runs into (bounded) deficit and each shot pays intervalMs
     // back, so the leftover carries between shots — true average cadence on
@@ -844,7 +958,7 @@ export class GameScene extends Phaser.Scene {
       this.windupAcc = 0;
       return;
     }
-    if (!this.input.activePointer.isDown) {
+    if (!this.isFiring()) {
       this.windupAcc = 0; // releasing mid-windup cancels
       return;
     }
@@ -1031,11 +1145,7 @@ export class GameScene extends Phaser.Scene {
   /** TESLA AURA live = weapon held and able to fire (mirrored to the wire). */
   private teslaActive(now: number): boolean {
     return (
-      this.weapon.aura &&
-      this.alive &&
-      this.spawned &&
-      this.input.activePointer.isDown &&
-      now >= this.phasedUntil
+      this.weapon.aura && this.alive && this.spawned && this.isFiring() && now >= this.phasedUntil
     );
   }
 
@@ -4480,6 +4590,33 @@ export class GameScene extends Phaser.Scene {
       }
       g.fillStyle(tint, 1).fillCircle(x0 + px * sx, y0 + py * sy, isMe ? 3 : 2);
     }
+  }
+
+  /** Brawl-Stars-style floating move-joystick: a faint base ring at the
+   *  anchor with a player-tinted puck that tracks the finger (clamped to the
+   *  ring). Only drawn while the move finger is down. */
+  private drawJoystick(): void {
+    const g = this.joyGfx;
+    g.clear();
+    const stick = this.moveStick;
+    if (!this.isTouch || !stick) return;
+    const ax = stick.anchorX;
+    const ay = stick.anchorY;
+    const dx = stick.curX - ax;
+    const dy = stick.curY - ay;
+    const dist = Math.hypot(dx, dy);
+    // Puck clamps to the ring edge so it never escapes the base.
+    const clamped = Math.min(dist, JOYSTICK_RADIUS);
+    const kx = dist > 0.001 ? ax + (dx / dist) * clamped : ax;
+    const ky = dist > 0.001 ? ay + (dy / dist) * clamped : ay;
+    const tint = this.myTint();
+    // Base ring.
+    g.fillStyle(0xffffff, 0.05).fillCircle(ax, ay, JOYSTICK_RADIUS);
+    g.lineStyle(2, 0xffffff, 0.2).strokeCircle(ax, ay, JOYSTICK_RADIUS);
+    g.fillStyle(0xffffff, 0.12).fillCircle(ax, ay, JOYSTICK_DEAD_ZONE);
+    // Puck.
+    g.fillStyle(tint, 0.22).fillCircle(kx, ky, JOYSTICK_KNOB_RADIUS);
+    g.lineStyle(2, tint, 0.85).strokeCircle(kx, ky, JOYSTICK_KNOB_RADIUS);
   }
 
   private updateHud(now: number): void {
