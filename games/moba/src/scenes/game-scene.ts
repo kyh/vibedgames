@@ -5,7 +5,7 @@ import { SIM_DT, SNAPSHOT_HZ } from "../data/config";
 import type { Team } from "../data/config";
 import { HEROES, HERO_BY_ID } from "../data/heroes";
 import type { AbilityKey } from "../data/heroes";
-import { WORLD } from "../data/map";
+import { ELEV_LIFT, WORLD, elevationFrac } from "../data/map";
 import { autoLevel, castAbility, levelAbility, useItem } from "../sim/abilities";
 import { dealDamage, isEnemy } from "../sim/combat";
 import { dist2 } from "../sim/math";
@@ -546,7 +546,9 @@ export class GameScene extends Phaser.Scene {
       // gate is open, so a click on a protected tower falls through to a move
       if (u.kind === "structure" && !u.structure?.attackable) continue;
       const r = (u.radius + 28) * (u.radius + 28);
-      const d = dist2({ x, y }, u);
+      // units on high ground render lifted, so test against their on-screen position
+      const ly = u.y - elevationFrac(u.x, u.y) * ELEV_LIFT;
+      const d = dist2({ x, y }, { x: u.x, y: ly });
       if (d <= r && d < bestD) {
         bestD = d;
         best = u;
@@ -555,8 +557,9 @@ export class GameScene extends Phaser.Scene {
     return best;
   }
 
-  /** Mark the unit the player is engaging (attack order / current swing), else the
-   *  enemy under the cursor, with the Cursor_04 reticle. */
+  /** Mark whoever the player is engaging with the Cursor_04 reticle. Resolves, in
+   *  priority: explicit attack order → current swing → the enemy the hero is set to
+   *  auto-attack (so it persists between swings) → the enemy under the cursor. */
   private updateTargetReticle(): void {
     const me = this.player;
     if (!me || !me.alive) {
@@ -572,6 +575,12 @@ export class GameScene extends Phaser.Scene {
       const t = this.world.units.get(me.pendingAttack.targetId);
       if (t && t.alive && isEnemy(me, t)) id = t.id;
     }
+    // auto-attack acquisition: while holding/idle/attack-moving the hero attacks the
+    // nearest enemy in range — keep the reticle pinned to it the whole time.
+    if (!id && (me.order.type === "idle" || me.order.type === "hold" || me.order.type === "attackMove")) {
+      const t = this.engageTarget(me);
+      if (t) id = t.id;
+    }
     if (!id) {
       const p = this.input.activePointer;
       const wp = this.cam.getWorldPoint(p.x, p.y);
@@ -579,6 +588,24 @@ export class GameScene extends Phaser.Scene {
       if (hov) id = hov.id;
     }
     this.view.setTarget(id);
+  }
+
+  /** Nearest enemy within auto-attack reach (mirrors the sim's acquire range). */
+  private engageTarget(me: Unit): Unit | undefined {
+    let best: Unit | undefined;
+    let bestD = Infinity;
+    for (const u of this.world.units.values()) {
+      if (!isEnemy(me, u) || !u.alive) continue;
+      if (u.kind === "structure" && !u.structure?.attackable) continue;
+      if (u.statuses.some((s) => s.kind === "untargetable")) continue;
+      const reach = me.attackRange + me.radius + u.radius + 30;
+      const d = dist2(me, u);
+      if (d <= reach * reach && d < bestD) {
+        bestD = d;
+        best = u;
+      }
+    }
+    return best;
   }
 
   private nearestEnemy(me: Unit, range: number): Unit | undefined {

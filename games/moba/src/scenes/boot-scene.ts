@@ -232,6 +232,16 @@ export class BootScene extends Phaser.Scene {
     g.generateTexture("glow", 128, 128);
     g.clear();
 
+    // a thrown bomb: dark sphere + highlight + a lit fuse spark (dynamite projectile)
+    g.fillStyle(0x2a2622, 1).fillCircle(16, 19, 12);
+    g.fillStyle(0x3c3630, 1).fillCircle(16, 19, 10);
+    g.fillStyle(0x6a625a, 0.9).fillCircle(12, 15, 3.5); // rim highlight
+    g.fillStyle(0x7a5a3a, 1).fillRect(15, 4, 3, 7); // fuse
+    g.fillStyle(0xffd24d, 1).fillCircle(16, 4, 3); // spark
+    g.fillStyle(0xfff3c0, 1).fillCircle(16, 4, 1.6);
+    g.generateTexture("bomb", 32, 32);
+    g.clear();
+
     // 1×1 white pixel for tints / bars / rect fills.
     g.fillStyle(0xffffff, 1).fillRect(0, 0, 1, 1);
     g.generateTexture("px", 1, 1);

@@ -165,6 +165,19 @@ export function registerAnims(scene: Phaser.Scene): void {
       });
   }
 
+  // fireball PROJECTILE: just the formed-and-flying frames (3-8), looped — NOT the
+  // grow-in or the explosion burst at the tail of the strip (those made it look
+  // like it kept detonating mid-flight). The tail points -x, so the renderer
+  // rotates it to face travel.
+  if (scene.textures.exists("sp-fireball") && !scene.anims.exists("sp-fireball-fly")) {
+    scene.anims.create({
+      key: "sp-fireball-fly",
+      frames: scene.anims.generateFrameNumbers("sp-fireball", { start: 3, end: 8 }),
+      frameRate: 18,
+      repeat: -1,
+    });
+  }
+
   loop("sheep-idle", "sheep", 8);
   // enemy-pack neutrals: idle from *_idle sheet, walk from *_run/_walk sheet
   loop("e-skull-idle", "e-skull-idle", 8);

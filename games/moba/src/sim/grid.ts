@@ -14,19 +14,54 @@ export type Blocker =
   // after blockers so bridges win over the water beneath them.
   | { kind: "gap"; x: number; y: number; w: number; h: number };
 
+/** Elevation metadata so the grid can keep units off cliffs: a cell's elevation
+ *  level and whether it's a ramp (the only legal cross-elevation step). */
+export type ElevMeta = {
+  elev: (c: number, r: number) => number;
+  ramp: (c: number, r: number) => boolean;
+};
+
 export class NavGrid {
   readonly cols: number;
   readonly rows: number;
   readonly cell: number;
   /** walkable[r*cols + c] — true if a unit may stand there. */
   private walkable: Uint8Array;
+  private elevLvl: Int8Array;
+  private rampFlag: Uint8Array;
 
-  constructor(worldW: number, worldH: number, cell: number, blockers: Blocker[]) {
+  constructor(
+    worldW: number,
+    worldH: number,
+    cell: number,
+    blockers: Blocker[],
+    meta?: ElevMeta,
+  ) {
     this.cell = cell;
     this.cols = Math.ceil(worldW / cell);
     this.rows = Math.ceil(worldH / cell);
     this.walkable = new Uint8Array(this.cols * this.rows).fill(1);
+    this.elevLvl = new Int8Array(this.cols * this.rows);
+    this.rampFlag = new Uint8Array(this.cols * this.rows);
+    if (meta) {
+      for (let r = 0; r < this.rows; r++) {
+        for (let c = 0; c < this.cols; c++) {
+          const i = r * this.cols + c;
+          this.elevLvl[i] = meta.elev(c, r);
+          this.rampFlag[i] = meta.ramp(c, r) ? 1 : 0;
+        }
+      }
+    }
     this.applyBlockers(blockers);
+  }
+
+  /** A step between two cells is legal unless it crosses an elevation change with
+   *  no ramp at either end (i.e. a cliff edge). */
+  private canStep(c0: number, r0: number, c1: number, r1: number): boolean {
+    const a = r0 * this.cols + c0;
+    const b = r1 * this.cols + c1;
+    if (this.elevLvl[a] === this.elevLvl[b]) return true;
+    return this.rampFlag[a] === 1 || this.rampFlag[b] === 1;
   }
 
   private applyBlockers(blockers: Blocker[]): void {
@@ -185,6 +220,8 @@ export class NavGrid {
         const nc = cc + NEI[k]![0];
         const nr = cr + NEI[k]![1];
         if (!this.isWalkableCell(nc, nr)) continue;
+        // can't climb a cliff edge — only ramps bridge elevations
+        if (!this.canStep(cc, cr, nc, nr)) continue;
         const diag = NEI[k]![0] !== 0 && NEI[k]![1] !== 0;
         // Disallow corner-cutting through blocked orthogonal neighbours.
         if (
@@ -263,6 +300,8 @@ export class NavGrid {
     for (;;) {
       if (!this.isWalkableCell(c0, r0)) return false;
       if (c0 === c1 && r0 === r1) return true;
+      const pc = c0;
+      const pr = r0;
       const e2 = 2 * err;
       if (e2 > -dr) {
         err -= dr;
@@ -272,6 +311,8 @@ export class NavGrid {
         err += dc;
         r0 += sr;
       }
+      // don't straight-line a path across a cliff edge (keeps paths on the ramp)
+      if (!this.canStep(pc, pr, c0, r0)) return false;
     }
   }
 }

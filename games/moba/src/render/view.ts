@@ -3,14 +3,17 @@ import Phaser from "phaser";
 import {
   BASES,
   BRIDGES,
+  ELEV_LIFT,
   GRID,
   NEUTRAL_CAMPS,
   TOWERS,
   TREE_CLUSTERS,
   WORLD,
+  elevationFrac,
   isCliffCell,
   isHighCell,
   isLandCell,
+  isRampCell,
 } from "../data/map";
 import type { Team } from "../data/config";
 import type { World, Unit, Projectile, GroundEffect, FxEvent } from "../sim/types";
@@ -23,10 +26,10 @@ const CELL = 64;
 const COLS = GRID.cols;
 const ROWS = GRID.rows;
 
-// How far (px) a plateau visually rises above the flat ground. The elevated grass
-// layer + anything standing on it is drawn shifted up by this, and the stone cliff
-// face fills the gap down to the ground — the "fake z" that makes heights read.
-const LIFT = 30;
+// How far (px) a plateau rises above flat ground (shared with the click-picker so
+// lifted units stay selectable). The elevated grass layer + anything on it is
+// drawn shifted up by this; the cliff fills the gap; ramps rise by it.
+const LIFT = ELEV_LIFT;
 
 // Terrain depth bands, composed in the official tilemap-guide order: BG colour →
 // water foam → flat ground → drop shadow → elevated ground → cliff faces. All sit
@@ -68,20 +71,14 @@ const FLAT_TILE: Record<number, number> = {
 const ELEV_TILE: Record<number, number> = Object.fromEntries(
   Object.entries(FLAT_TILE).map(([k, v]) => [Number(k), v + 5]),
 );
-// Stone cliff faces (2 rows tall) under a plateau's south edge.
+// Stone cliff face tiles under a plateau's south edge (single-tile wall — the
+// grass-lipped top row of the tileset's cliff block).
 const CLIFF = {
   topL: 41,
   topM: 42,
   topR: 43,
   topNarrow: 44,
-  botL: 50,
-  botM: 51,
-  botR: 52,
-  botNarrow: 53,
 };
-// Diagonal grass→ground ramp tiles (2 rows) that taper the ends of a cliff run
-// into the surrounding grass — the slope tiles from the tilemap guide.
-const RAMP = { topL: 36, botL: 45, topR: 39, botR: 48 };
 // Bridge_All frames: 0/1/2 = horizontal left-cap/middle/right-cap, 11 = shadow.
 const BRIDGE_L = 0;
 const BRIDGE_M = 1;
@@ -161,11 +158,12 @@ export class WorldView {
     // 3) flat grass islands as one autotiled tilemap layer
     this.buildGroundLayer(false, D_FLAT);
 
-    // 4) plateau drop shadows, then the cliff faces, then the elevated grass tops
-    //    LIFTED up so heights actually read as a raised 3rd dimension
+    // 4) plateau drop shadows, then cliff faces, then the elevated grass tops
+    //    LIFTED up so heights read as a raised 3rd dimension, then walkable ramps
     this.buildPlateauShadows();
     this.buildCliffs();
     this.buildGroundLayer(true, D_ELEV, -LIFT);
+    this.buildRamps();
 
     // 5) warm multiply wash nudging the tileset green toward olive
     this.buildWash();
@@ -364,45 +362,56 @@ export class WorldView {
     }
   }
 
-  /** Stone cliff faces below each plateau's south edge. The 2-row (128px) stone
-   *  wall hangs from the LIFTED grass edge down past the ground, so the plateau
-   *  reads as a solid raised block. A soft contact shadow grounds the base. */
+  /** Stone cliff face along each plateau's south edge: a one-tile wall hanging
+   *  from the LIFTED grass lip down to the ground, so the plateau reads as a raised
+   *  block. Skipped where a ramp descends (the ramp grass shows there instead). */
   private buildCliffs(): void {
     const s = this.scene;
     if (!s.textures.exists("tiles")) return;
     for (let cy = 0; cy < ROWS; cy++) {
       for (let cx = 0; cx < COLS; cx++) {
         if (!isHighCell(cx, cy) || isHighCell(cx, cy + 1)) continue; // south edge only
+        if (isRampCell(cx, cy + 1)) continue; // a ramp descends here — leave it open
         const cxp = cx * CELL + CELL / 2;
-        // a wall run ends where the neighbour isn't itself a south-edge cell
-        const leftEnd = !isHighCell(cx - 1, cy) || isHighCell(cx - 1, cy + 1);
-        const rightEnd = !isHighCell(cx + 1, cy) || isHighCell(cx + 1, cy + 1);
+        // a run ends where the neighbour isn't a south-edge wall (incl. ramp gaps)
+        const leftEnd =
+          !isHighCell(cx - 1, cy) || isHighCell(cx - 1, cy + 1) || isRampCell(cx - 1, cy + 1);
+        const rightEnd =
+          !isHighCell(cx + 1, cy) || isHighCell(cx + 1, cy + 1) || isRampCell(cx + 1, cy + 1);
         const narrow = leftEnd && rightEnd;
-        // ends of a wider run taper into the grass with the diagonal ramp tiles;
-        // the middle stays a chunky stone wall.
-        const top = narrow
+        const tile = narrow
           ? CLIFF.topNarrow
           : leftEnd
-            ? RAMP.topL
+            ? CLIFF.topL
             : rightEnd
-              ? RAMP.topR
+              ? CLIFF.topR
               : CLIFF.topM;
-        const bot = narrow
-          ? CLIFF.botNarrow
-          : leftEnd
-            ? RAMP.botL
-            : rightEnd
-              ? RAMP.botR
-              : CLIFF.botM;
-        // wall hangs from the lifted grass edge (origin top-centre so it abuts the
-        // grass cleanly and the 2 rows stack continuously below it)
         const wallTopY = (cy + 1) * CELL - LIFT;
-        // contact shadow on the flat ground at the wall's foot
+        s.add.ellipse(cxp, wallTopY + CELL + 2, CELL + 10, 16, 0x05080e, 0.3).setDepth(D_SHADOW);
+        // a natural-height tile from the lifted lip; its base laps slightly past the
+        // ground line so the stone meets the grass below cleanly.
+        s.add.image(cxp, wallTopY, "tiles", tile).setOrigin(0.5, 0).setDepth(D_CLIFF);
+      }
+    }
+  }
+
+  /** Walkable ramps: grass cut into the cliff that rises from low ground to the
+   *  plateau. Each ramp cell's grass is lifted to its slope height (and stretched
+   *  down so adjacent steps overlap with no gaps); units crossing rise smoothly. */
+  private buildRamps(): void {
+    const s = this.scene;
+    if (!s.textures.exists("tiles-img")) return;
+    const FILL = FLAT_TILE[0] ?? 10; // fully-surrounded grass interior tile
+    for (let cy = 0; cy < ROWS; cy++) {
+      for (let cx = 0; cx < COLS; cx++) {
+        if (!isRampCell(cx, cy)) continue;
+        const cxp = cx * CELL + CELL / 2;
+        const lift = elevationFrac(cxp, cy * CELL + CELL / 2) * LIFT;
         s.add
-          .ellipse(cxp, wallTopY + 2 * CELL + 4, CELL + 12, 22, 0x05080e, 0.32)
-          .setDepth(D_SHADOW);
-        s.add.image(cxp, wallTopY, "tiles", top).setOrigin(0.5, 0).setDepth(D_CLIFF);
-        s.add.image(cxp, wallTopY + CELL, "tiles", bot).setOrigin(0.5, 0).setDepth(D_CLIFF);
+          .image(cxp, cy * CELL - lift, "tiles", FILL)
+          .setOrigin(0.5, 0)
+          .setDisplaySize(CELL + 2, CELL + LIFT) // overlap downward to hide step seams
+          .setDepth(D_CLIFF + 1);
       }
     }
   }
@@ -540,7 +549,7 @@ export class WorldView {
         const y = cy * CELL + CELL / 2 + (rng2(cx, cy + 9) - 0.5) * step * CELL * 0.9;
         const ccx = Math.floor(x / CELL);
         const ccy = Math.floor(y / CELL);
-        if (!isLandCell(ccx, ccy) || isCliffCell(ccx, ccy)) continue;
+        if (!isLandCell(ccx, ccy) || isCliffCell(ccx, ccy) || isRampCell(ccx, ccy)) continue;
         // keep decals out of the base/fountain footprints
         const near = (fx: number, fy: number) => (x - fx) ** 2 + (y - fy) ** 2 < 420 * 420;
         if (near(BASES.radiant.fountain.x, BASES.radiant.fountain.y)) continue;
@@ -724,19 +733,21 @@ export class WorldView {
       return;
     }
     if (!this.reticle) {
-      this.reticle = this.scene.add
-        .image(0, 0, "cursor-target")
-        .setDepth(89000)
-        .setBlendMode(Phaser.BlendModes.ADD);
+      // crisp opaque corner-brackets (NORMAL blend) so the marker reads clearly
+      // over the busy map; tinted per relationship.
+      this.reticle = this.scene.add.image(0, 0, "cursor-target").setDepth(89000);
     }
-    const size = struct ? Math.max(110, u.radius * 2.4) : u.kind === "hero" ? 92 : 64;
-    const cx = struct ? u.x : (v?.dx ?? u.x);
-    const cy = struct ? u.y - 24 : (v?.dy ?? u.y) - 16;
+    const size = struct ? Math.max(120, u.radius * 2.4) : u.kind === "hero" ? 96 : 68;
+    const bx = struct ? u.x : (v?.dx ?? u.x);
+    const by = struct ? u.y : (v?.dy ?? u.y);
+    const elev = elevationFrac(bx, by) * LIFT; // ride the lifted sprite on high ground
+    const cx = bx;
+    const cy = (struct ? by - 24 : by - 16) - elev;
     this.reticle
       .setVisible(true)
       .setPosition(cx, cy)
       .setDisplaySize(size, size)
-      .setTint(u.team === this.playerTeam ? 0x8bf0a0 : 0xff5a4a);
+      .setTint(u.team === this.playerTeam ? 0x5dffa0 : 0xff3b3b);
     // gentle breathing so it reads as "locked on"
     const pulse = 1 + 0.06 * Math.sin(this.scene.time.now / 120);
     this.reticle.setScale(this.reticle.scaleX * pulse, this.reticle.scaleY * pulse);
@@ -903,8 +914,13 @@ export class WorldView {
       v.recoilY *= Math.pow(0.0008, dt);
       if (Math.abs(v.recoilX) < 0.3) v.recoilX = 0;
       if (Math.abs(v.recoilY) < 0.3) v.recoilY = 0;
-      v.container.setPosition(Math.round(v.dx + v.recoilX), Math.round(v.dy + v.recoilY));
-      v.container.setDepth(v.dy);
+      // elevation lift: raise the sprite when on a plateau / climbing a ramp so it
+      // stands on the high ground (sim x/y is untouched — depth still sorts by feet)
+      const elev = elevationFrac(v.dx, v.dy) * LIFT;
+      v.container.setPosition(Math.round(v.dx + v.recoilX), Math.round(v.dy + v.recoilY - elev));
+      // sort by the lifted "screen feet" so plateau units order correctly against
+      // the lifted plateau trees/decor (which use depth = y - LIFT)
+      v.container.setDepth(v.dy - elev);
 
       // damage flash: a brief red tint on the body when struck (cleared on expiry)
       if (v.flashUntil > 0 && this.scene.time.now >= v.flashUntil) {
@@ -1212,28 +1228,27 @@ export class WorldView {
       seen.add(p.id);
       let img = this.projs.get(p.id);
       if (!img) {
-        if (p.kind === "fireball" && this.scene.anims.exists("sp-fireball-loop")) {
-          // a real tumbling fireball with a glow underneath
-          const fb = this.scene.add.sprite(p.x, p.y, "sp-fireball", 0).setScale(0.7);
-          fb.play("sp-fireball-loop");
+        if (p.kind === "fireball" && this.scene.anims.exists("sp-fireball-fly")) {
+          // formed flying fireball (no mid-air explosion); rotated to face travel
+          const fb = this.scene.add.sprite(p.x, p.y, "sp-fireball", 3).setScale(0.85);
+          fb.play("sp-fireball-fly");
           img = fb;
+        } else if (p.kind === "dynamite") {
+          img = this.scene.add.image(p.x, p.y, "bomb").setScale(0.95);
         } else {
-          img = this.scene.add.image(p.x, p.y, projTex(p));
-          const sc = p.kind === "fireball" || p.kind === "dynamite" ? 0.5 : 0.7;
-          img.setScale(sc);
-          if (p.kind === "fireball") img.setTint(0xff8a3a);
+          img = this.scene.add.image(p.x, p.y, projTex(p)).setScale(0.7);
+          if (p.kind === "bolt") img.setTint(0xb98bff); // magic bolts read distinct from arrows
         }
         img.setDepth(p.y + 200);
         this.projs.set(p.id, img);
       }
       img.setPosition(p.x, p.y);
       img.setDepth(p.y + 200);
-      // arrows/bolts point along their flight; round projectiles don't spin
-      img.setRotation(
-        p.kind === "arrow" || p.kind === "bolt"
-          ? Math.atan2(p.ty - p.y, p.tx - p.x) + Math.PI / 2
-          : 0,
-      );
+      const ang = Math.atan2(p.ty - p.y, p.tx - p.x);
+      if (p.kind === "arrow" || p.kind === "bolt") img.setRotation(ang + Math.PI / 2);
+      else if (p.kind === "fireball") img.setRotation(ang); // tail trails behind the head
+      else if (p.kind === "dynamite") img.setRotation(img.rotation + 0.4); // tumble
+      else img.setRotation(0);
     }
     for (const [id, img] of this.projs)
       if (!seen.has(id)) {

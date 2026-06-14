@@ -72,32 +72,108 @@ export function isLandCell(x: number, y: number): boolean {
   return false;
 }
 
-// Raised plateaus (stone cliffs, unwalkable) for vertical depth in the jungle.
-// Cell rects [x0,y0,x1,y1] inclusive, on the left island; mirrored to the right.
-const HIGH_RECTS: Array<[number, number, number, number]> = [
-  [12, 13, 17, 16], // north jungle plateau
-  [12, 31, 17, 34], // south jungle plateau
-  [3, 6, 6, 9], // NW corner rise
-  [3, 38, 6, 41], // SW corner rise
-  [5, 22, 9, 26], // castle outcrop — the ancient sits on this; its
-  // big radius (config STRUCTS.ancient) lets attackers reach it from the flat edge
+// Raised plateaus for vertical depth. Cell rects [x0,y0,x1,y1] inclusive, on the
+// left island; mirrored to the right. `walk` plateaus are real high ground you
+// climb via a ramp (Dota-style chokes + dynamic terrain); non-`walk` ones are
+// blocked outcrops (the ancient's keep) so base mechanics stay untouched.
+type HighRect = { x0: number; y0: number; x1: number; y1: number; walk: boolean };
+const HIGH_RECTS: HighRect[] = [
+  { x0: 12, y0: 13, x1: 17, y1: 16, walk: true }, // north jungle plateau
+  { x0: 12, y0: 31, x1: 17, y1: 34, walk: true }, // south jungle plateau
+  { x0: 19, y0: 17, x1: 22, y1: 20, walk: true }, // mid-north highland (overlooks centre)
+  { x0: 19, y0: 27, x1: 22, y1: 30, walk: true }, // mid-south highland
+  { x0: 3, y0: 6, x1: 6, y1: 9, walk: false }, // NW corner rise (blocked deco)
+  { x0: 3, y0: 38, x1: 6, y1: 41, walk: false }, // SW corner rise (blocked deco)
+  { x0: 5, y0: 22, x1: 9, y1: 26, walk: false }, // castle outcrop — the ancient sits here;
+  // its big radius (config STRUCTS.ancient) lets attackers reach it from the flat edge
 ];
 
-export function isHighCell(x: number, y: number): boolean {
-  if (!isLandCell(x, y)) return false;
+// Walkable ramps connecting low ground up to a plateau — the ONLY way up/down a
+// `walk` plateau (every other high↔low edge is an impassable cliff). Cells here
+// render as a grass slope and lift units smoothly. `dir` = direction of ascent
+// (toward the high ground). Left-island coords, mirrored (N/S need no x-flip).
+type RampSpec = { x0: number; y0: number; x1: number; y1: number; dir: "N" | "S" | "E" | "W" };
+const RAMPS: RampSpec[] = [
+  { x0: 14, y0: 17, x1: 15, y1: 18, dir: "N" }, // up onto north jungle plateau (from south)
+  { x0: 14, y0: 35, x1: 15, y1: 36, dir: "N" }, // up onto south jungle plateau
+  { x0: 20, y0: 21, x1: 21, y1: 22, dir: "N" }, // up onto mid-north highland
+  { x0: 20, y0: 25, x1: 21, y1: 26, dir: "S" }, // up onto mid-south highland (from north)
+];
+
+function highRectAt(x: number, y: number): HighRect | null {
+  if (!isLandCell(x, y)) return null;
   const mx = Math.min(x, COLS - 1 - x); // mirror fold
-  for (const [x0, y0, x1, y1] of HIGH_RECTS) {
-    if (mx >= x0 && mx <= x1 && y >= y0 && y <= y1) return true;
+  for (const r of HIGH_RECTS) {
+    if (mx >= r.x0 && mx <= r.x1 && y >= r.y0 && y <= r.y1) return r;
   }
-  return false;
+  return null;
 }
 
-/** The two rows of stone wall below a plateau's south edge (drawn as cliff face,
- *  blocked for movement so units never walk "through" the wall art). */
+export function isHighCell(x: number, y: number): boolean {
+  return highRectAt(x, y) !== null;
+}
+/** High ground you can stand on (reached via ramps). */
+export function isWalkableHighCell(x: number, y: number): boolean {
+  return highRectAt(x, y)?.walk === true;
+}
+/** High ground that fully blocks movement (deco rises, the ancient's keep). */
+export function isBlockedHighCell(x: number, y: number): boolean {
+  const r = highRectAt(x, y);
+  return r !== null && !r.walk;
+}
+
+/** Ramp at this cell (in ACTUAL world-cell coords), or null. Handles the mirror. */
+export function rampAt(x: number, y: number): RampSpec | null {
+  for (const r of RAMPS) {
+    if (x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1) return r;
+    // mirror to the right island (flip the x range; N/S dir unchanged, E<->W flip)
+    const mx0 = COLS - 1 - r.x1;
+    const mx1 = COLS - 1 - r.x0;
+    if (x >= mx0 && x <= mx1 && y >= r.y0 && y <= r.y1) {
+      const dir = r.dir === "E" ? "W" : r.dir === "W" ? "E" : r.dir;
+      return { x0: mx0, y0: r.y0, x1: mx1, y1: r.y1, dir };
+    }
+  }
+  return null;
+}
+export function isRampCell(x: number, y: number): boolean {
+  return rampAt(x, y) !== null;
+}
+
+/** Cell elevation level for nav (1 = walkable high ground, 0 = low). Ramp cells
+ *  read as 0 here; the ramp FLAG is what permits the cross-elevation step. */
+export function cellElev(x: number, y: number): number {
+  return isWalkableHighCell(x, y) ? 1 : 0;
+}
+
+// Plateau lift in px: how high walkable high ground sits, shared by the renderer
+// (sprite/cliff offset) and the click-picker (so lifted units stay clickable).
+export const ELEV_LIFT = 48;
+
+/** Continuous render height 0..1 at a world point: 1 on a plateau top, ramped
+ *  across a ramp, 0 on flat ground. View multiplies by the plateau lift height. */
+export function elevationFrac(x: number, y: number): number {
+  const cx = Math.floor(x / C);
+  const cy = Math.floor(y / C);
+  if (isWalkableHighCell(cx, cy)) return 1;
+  const r = rampAt(cx, cy);
+  if (!r) return 0;
+  const w = (r.x1 - r.x0 + 1) * C;
+  const h = (r.y1 - r.y0 + 1) * C;
+  let f = 0;
+  if (r.dir === "N") f = ((r.y1 + 1) * C - y) / h;
+  else if (r.dir === "S") f = (y - r.y0 * C) / h;
+  else if (r.dir === "W") f = ((r.x1 + 1) * C - x) / w;
+  else f = (x - r.x0 * C) / w;
+  return Math.max(0, Math.min(1, f));
+}
+
+/** Stone wall below a `walk:false` plateau's south edge (blocked + drawn as the
+ *  cliff face). Walkable plateaus use the elevation edge rule + ramps instead. */
 export function isCliffCell(x: number, y: number): boolean {
   if (!isLandCell(x, y) || isHighCell(x, y)) return false;
-  if (isHighCell(x, y - 1)) return true;
-  return isHighCell(x, y - 2) && !isHighCell(x, y - 1);
+  if (isBlockedHighCell(x, y - 1)) return true;
+  return isBlockedHighCell(x, y - 2) && !isBlockedHighCell(x, y - 1);
 }
 
 // ---- bridges ----------------------------------------------------------------
@@ -279,12 +355,14 @@ export const TREE_CLUSTERS: TreeCluster[] = [
 export function buildBlockers(): Blocker[] {
   const out: Blocker[] = [];
 
-  // Water + plateaus + their cliff walls: one rect per horizontal run.
+  // Water + BLOCKED plateaus + their cliff walls: one rect per horizontal run.
+  // Walkable high ground + ramps stay open; the elevation edge rule (NavGrid)
+  // keeps units from climbing anywhere but the ramps.
   for (let cy = 0; cy < ROWS; cy++) {
     let run = -1;
     for (let cx = 0; cx <= COLS; cx++) {
       const blocked =
-        cx < COLS && (!isLandCell(cx, cy) || isHighCell(cx, cy) || isCliffCell(cx, cy));
+        cx < COLS && (!isLandCell(cx, cy) || isBlockedHighCell(cx, cy) || isCliffCell(cx, cy));
       if (blocked && run < 0) run = cx;
       if (!blocked && run >= 0) {
         out.push({ kind: "rect", x: run * C, y: cy * C, w: (cx - run) * C, h: C });
@@ -295,6 +373,18 @@ export function buildBlockers(): Blocker[] {
 
   // Tree clusters block.
   for (const t of TREE_CLUSTERS) out.push({ kind: "circle", x: t.x, y: t.y, r: t.r * 0.78 });
+
+  // Walkable high ground + ramps MUST stay open even when a tree cluster (or any
+  // blocker) overlaps them — re-open every such cell as a gap so a plateau is
+  // never accidentally sealed off (the elevation edge rule still gates the climb).
+  for (let cy = 0; cy < ROWS; cy++) {
+    for (let cx = 0; cx < COLS; cx++) {
+      // w/h = C-1 so the stamp covers exactly this cell (the rect stamp is
+      // inclusive on the far edge — a full C would also re-open the next cell).
+      if (isWalkableHighCell(cx, cy) || isRampCell(cx, cy))
+        out.push({ kind: "gap", x: cx * C, y: cy * C, w: C - 1, h: C - 1 });
+    }
+  }
 
   // Bridges re-open the water (gaps are applied after blockers in NavGrid).
   for (const b of BRIDGES) {

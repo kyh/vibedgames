@@ -14,7 +14,19 @@ import {
 import type { CreepKind, Team } from "../data/config";
 import { HERO_BY_ID } from "../data/heroes";
 import { ITEM_BY_ID, MAX_ITEMS } from "../data/items";
-import { BASES, LANE_IDS, NEUTRAL_CAMPS, TOWERS, WORLD, isWater, lanePath } from "../data/map";
+import {
+  BASES,
+  LANE_IDS,
+  NEUTRAL_CAMPS,
+  TOWERS,
+  WORLD,
+  cellElev,
+  isBlockedHighCell,
+  isCliffCell,
+  isRampCell,
+  isWater,
+  lanePath,
+} from "../data/map";
 import type { LaneId, NeutralCampSpec, NeutralKind } from "../data/map";
 import {
   acquireTarget,
@@ -38,6 +50,32 @@ import { nextId, rand } from "./types";
 
 const SEPARATION_PUSH = 0.5;
 const ARRIVE_RADIUS = 14;
+const CELL = WORLD.cell;
+
+/** Whether a unit may move from one point to another on foot: the destination is
+ *  standable terrain and the step doesn't climb a cliff edge (only ramps bridge
+ *  elevations). Mirrors the NavGrid edge rule so keyboard/chase movement and A*
+ *  paths agree on what's walkable. */
+function legalMove(fromX: number, fromY: number, toX: number, toY: number): boolean {
+  if (isWater(toX, toY)) return false;
+  const tc = Math.floor(toX / CELL);
+  const tr = Math.floor(toY / CELL);
+  if (isBlockedHighCell(tc, tr) || isCliffCell(tc, tr)) return false;
+  const fc = Math.floor(fromX / CELL);
+  const fr = Math.floor(fromY / CELL);
+  if (cellElev(fc, fr) !== cellElev(tc, tr) && !isRampCell(fc, fr) && !isRampCell(tc, tr))
+    return false;
+  return true;
+}
+
+/** Apply a desired move with terrain collision: take it if legal, else slide along
+ *  whichever axis is still legal, else stay put. Returns the resolved position. */
+function collide(u: Unit, toX: number, toY: number): { x: number; y: number } {
+  if (legalMove(u.x, u.y, toX, toY)) return { x: toX, y: toY };
+  if (legalMove(u.x, u.y, toX, u.y)) return { x: toX, y: u.y };
+  if (legalMove(u.x, u.y, u.x, toY)) return { x: u.x, y: toY };
+  return { x: u.x, y: u.y };
+}
 const LANE_ARRIVE = 110; // generous so creeps advance past waypoints near towers
 const CREEP_AGGRO = 480; // creeps notice enemies within this and peel off lane
 
@@ -704,8 +742,9 @@ function steerTo(w: World, u: Unit, to: Vec2, dt: number, _chase: boolean): void
   u.vx = nx * speed;
   u.vy = ny * speed;
   const next = moveToward(u, to, speed * dt);
-  u.x = next.x;
-  u.y = next.y;
+  const resolved = collide(u, next.x, next.y);
+  u.x = resolved.x;
+  u.y = resolved.y;
   if (Math.abs(nx) > 0.2) u.facing = nx >= 0 ? 1 : -1;
 }
 
@@ -748,8 +787,10 @@ function separation(w: World): void {
         sy += (dy / d) * push;
       }
     }
-    a.x += sx * SEPARATION_PUSH;
-    a.y += sy * SEPARATION_PUSH;
+    // resolve the push against terrain so crowding never shoves a unit off a cliff
+    const pushed = collide(a, a.x + sx * SEPARATION_PUSH, a.y + sy * SEPARATION_PUSH);
+    a.x = pushed.x;
+    a.y = pushed.y;
   }
 }
 
