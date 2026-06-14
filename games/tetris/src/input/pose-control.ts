@@ -1,66 +1,97 @@
-import { COLS } from "../shared/constants";
+// Pose → game-intent interpretation for 3D Tetris. Every verb is a body pose;
+// the GameScene routes these intents (camera-relative remap, DAS/ARR) and
+// mirrors each to a keyboard fallback.
+//
+// Channels (all can fire in one frame — the reference's "no blocking" property):
+//  - STEER:  nose-x vs a calibrated neutral, dead-zoned → screen-left/right.
+//  - ORBIT:  circle one RAISED hand → step the camera corner (spin dir = L/R).
+//  - ROTATE: turn sideways (shoulders narrow vs the calibrated baseline).
+//  - HOLD:   cross your wrists past the opposite shoulders → hold/swap (edge).
+//  - POWER:  T-pose (wrists out past the shoulders, shoulder height) → power-sweep
+//            (the scene only acts on it when the charge meter is full).
+//  - CATCH:  both wrists thrust UP fast → catch-the-collapse (scene gates by state).
+//
+// Calibration on the first ~24 full-body frames captures the neutral nose-x and
+// baseline shoulder width (fixes the legacy frozen-refW drift). recenter() re-runs it.
+
 import type { Keypoint, Pose } from "./camera";
+import {
+  CATCH_WRIST_VELOCITY,
+  CIRCLE_CENTER_LERP,
+  CIRCLE_MIN_RADIUS,
+  CIRCLE_TRIGGER_RAD,
+  HOLD_COOLDOWN_MS,
+  NOSE_DEAD_ZONE,
+  ORBIT_COOLDOWN_MS,
+  POWER_COOLDOWN_MS,
+  ROTATE_COOLDOWN_MS,
+  TPOSE_WRIST_OUT,
+} from "../shared/constants";
 
-/**
- * Pose → game-action interpretation (plain TS port of the legacy
- * `handlePoseDetected` in app.tsx). All box math, thresholds, colors and
- * evaluation order are verbatim from the legacy source:
- *
- * - next-piece poses, checked in legacy order I, T, O, S, Z, L, J — a held
- *   pose fires chooseNext EVERY detected frame (continuous pinning)
- * - rotation: |leftShoulder.x − rightShoulder.x| < 50px, 600ms cooldown,
- *   cooldown restarts only when the rotation actually applied
- * - nose-x: targetX = floor((1 − nose.x / refW) * COLS), absolute teleport
- * - dashed 5px guide boxes drawn on the camera overlay each frame.
- *
- * Legacy quirk preserved: several boxes and the nose divisor used the GAME
- * canvas dimensions — min(700, innerWidth) × innerHeight — captured once at
- * startup (no resize handling), not the camera frame size.
- */
-
-/** Game actions a detected pose can drive (wired to GameScene). */
+/** Game intents a detected pose can drive (wired to GameScene). */
 export type PoseActions = {
-  /** Absolute column for the active piece (legacy nose-x teleport). */
-  setColumn(targetX: number): void;
-  /** Clockwise rotate; reports whether the rotation was applied. */
+  /** Held screen-horizontal steer: -1 left, 0 none, +1 right. */
+  steer(dir: -1 | 0 | 1): void;
+  /** Clockwise rotate; returns whether it actually applied (for cooldown). */
   rotate(): boolean;
-  /** Pin the NEXT piece — called every detected frame while a pose is held. */
-  chooseNext(idx: number): void;
+  /** Step the scene camera one corner: -1 left, +1 right. */
+  orbit(dir: -1 | 1): void;
+  /** Cross-arms: hold/swap the active piece. */
+  hold(): void;
+  /** T-pose: spend a full charge to clear the lowest layer (scene gates). */
+  power(): void;
+  /** Throw-hands-up during the collapse (scene ignores it otherwise). */
+  catchCollapse(): void;
 };
 
-type Box = { x: number; y: number; width: number; height: number };
-
-/** Legacy rotation debounce (lastRotationTime). */
-const ROTATE_COOLDOWN_MS = 600;
-/** Legacy sideways-turn trigger: shoulder distance below this, in px. */
-const ROTATE_SHOULDER_PX = 50;
-
-/** Legacy used strict inequalities on all four edges. */
-const inBox = (kp: Keypoint, box: Box): boolean =>
-  kp.x > box.x && kp.x < box.x + box.width && kp.y > box.y && kp.y < box.y + box.height;
-
-const drawShapeGuide = (ctx: CanvasRenderingContext2D | null, box: Box, color: string): void => {
-  if (!ctx) return;
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 5;
-  ctx.setLineDash([5, 5]);
-  ctx.strokeRect(box.x, box.y, box.width, box.height);
-  ctx.setLineDash([]);
-};
+const CALIB_FRAMES = 24;
+const ROTATE_SQUEEZE_FRACTION = 0.58;
+const CATCH_COOLDOWN_MS = 500;
 
 export class PoseControls {
   readonly actions: PoseActions;
-  // Legacy canvasWidth/canvasHeight: frozen at mount, never resized.
-  private readonly refW = Math.min(700, window.innerWidth);
-  private readonly refH = window.innerHeight;
-  private lastRotationTime = 0;
+
+  // calibration
+  private calibCount = 0;
+  private neutralX = 0.5;
+  private baseShoulder = 0;
+  private sumNeutralX = 0;
+  private sumShoulder = 0;
+
+  // per-channel timers / arming (cooldown stamps start far in the past so the
+  // first gesture fires immediately rather than waiting out an absolute time).
+  private lastTime = 0;
+  private lastOrbitTime = -1e9;
+  private lastRotateTime = -1e9;
+  private lastCatchTime = -1e9;
+  private holdArmed = true;
+  private lastHoldTime = -1e9;
+  private powerArmed = true;
+  private lastPowerTime = -1e9;
+  private prevWristY = 0;
+  private hasPrev = false;
+  // hand-circle orbit detector (EMA centre + accumulated swept angle)
+  private centerX = 0;
+  private centerY = 0;
+  private hasCenter = false;
+  private circleAngle = 0;
+  private circleAccum = 0;
+  private hasCircleAngle = false;
 
   constructor(actions: PoseActions) {
     this.actions = actions;
   }
 
-  /** Bound method so it can be handed to PoseCamera (and the DEV hook) directly. */
+  /** Re-run neutral calibration (bound to the recenter key / a settle pose). */
+  recenter(): void {
+    this.calibCount = 0;
+    this.sumNeutralX = 0;
+    this.sumShoulder = 0;
+    this.hasPrev = false;
+  }
+
   handlePose = (pose: Pose, ctx: CanvasRenderingContext2D | null): void => {
+    void ctx; // overlay guides removed with pose-to-pick; skeleton still drawn by PoseCamera
     const find = (name: string): Keypoint | undefined =>
       pose.keypoints.find((kp) => kp.name === name);
 
@@ -70,163 +101,151 @@ export class PoseControls {
     const rightShoulder = find("right_shoulder");
     const leftHip = find("left_hip");
     const rightHip = find("right_hip");
-    const leftEye = find("left_eye");
-    const rightEye = find("right_eye");
-    const leftEar = find("left_ear");
-    const rightEar = find("right_ear");
     const nose = find("nose");
 
-    if (
-      !leftWrist ||
-      !rightWrist ||
-      !leftShoulder ||
-      !rightShoulder ||
-      !leftHip ||
-      !rightHip ||
-      !leftEye ||
-      !rightEye ||
-      !leftEar ||
-      !rightEar ||
-      !nose
-    ) {
+    if (!leftWrist || !rightWrist || !leftShoulder || !rightShoulder || !leftHip || !rightHip || !nose) {
+      this.hasPrev = false;
       return;
     }
 
+    const now = performance.now();
+    const dt = this.hasPrev ? Math.max(0.001, (now - this.lastTime) / 1000) : 0.033;
     const shoulderWidth = Math.abs(rightShoulder.x - leftShoulder.x);
-    const centerX = (leftShoulder.x + rightShoulder.x) / 2;
+    const shoulderY = (leftShoulder.y + rightShoulder.y) / 2;
+    const hipY = (leftHip.y + rightHip.y) / 2;
+    const W = pose.width || 1;
+    const H = pose.height || 1;
 
-    // Legacy assigned nextShapeRef silently per box (last write wins); calling
-    // chooseNext per box would re-trigger the preview pulse ~30x/s when guide
-    // boxes overlap. Record the last match, fire once per frame below.
-    let matched: number | null = null;
-
-    // I shape: Both arms straight up
-    const iShapeBox: Box = {
-      x: leftEar.x, // Start at left ear
-      y: 0, // Start at top of canvas
-      width: rightEar.x - leftEar.x, // Width spans between ears
-      height: leftEar.y, // Extend down to ear level
-    };
-    drawShapeGuide(ctx, iShapeBox, "rgba(255, 0, 0, 0.5)");
-    if (inBox(leftWrist, iShapeBox) && inBox(rightWrist, iShapeBox)) {
-      matched = 0;
+    // ---- calibration ---------------------------------------------------------
+    if (this.calibCount < CALIB_FRAMES) {
+      this.sumNeutralX += 1 - nose.x / W;
+      this.sumShoulder += shoulderWidth;
+      this.calibCount += 1;
+      if (this.calibCount === CALIB_FRAMES) {
+        this.neutralX = this.sumNeutralX / CALIB_FRAMES;
+        this.baseShoulder = this.sumShoulder / CALIB_FRAMES;
+      }
     }
 
-    // T shape: Extend arms straight out to sides
-    const tShapeBox: Box = {
-      x: 0, // Start at left edge of canvas
-      y: leftShoulder.y - shoulderWidth * 0.3, // Center the box on shoulders
-      width: this.refW, // Extend full width of canvas
-      height: shoulderWidth * 0.6, // Height centered on shoulders
-    };
-    drawShapeGuide(ctx, tShapeBox, "rgba(0, 0, 255, 0.5)");
-    if (inBox(leftWrist, tShapeBox) && inBox(rightWrist, tShapeBox)) {
-      matched = 2;
+    if (this.calibCount >= CALIB_FRAMES) {
+      // ---- STEER (nose-x vs neutral, dead-zoned) -----------------------------
+      const screenX = 1 - nose.x / W;
+      const off = screenX - this.neutralX;
+      const dir = off > NOSE_DEAD_ZONE ? 1 : off < -NOSE_DEAD_ZONE ? -1 : 0;
+      this.actions.steer(dir as -1 | 0 | 1);
+
+      // ---- ORBIT (circle one raised hand) ------------------------------------
+      this.detectCircleOrbit(leftWrist, rightWrist, shoulderY, W, H, now);
+
+      // ---- ROTATE (turn sideways) --------------------------------------------
+      if (
+        this.baseShoulder > 0 &&
+        shoulderWidth < ROTATE_SQUEEZE_FRACTION * this.baseShoulder &&
+        now - this.lastRotateTime > ROTATE_COOLDOWN_MS
+      ) {
+        if (this.actions.rotate()) this.lastRotateTime = now;
+      }
+
+      // ---- HOLD (crossed wrists at chest) ------------------------------------
+      const shoulderSign = Math.sign(rightShoulder.x - leftShoulder.x);
+      const wristSign = Math.sign(rightWrist.x - leftWrist.x);
+      const wristsAtChest =
+        leftWrist.y > shoulderY && leftWrist.y < hipY && rightWrist.y > shoulderY && rightWrist.y < hipY;
+      const crossed = shoulderSign !== 0 && wristSign === -shoulderSign && wristsAtChest;
+      if (!crossed) this.holdArmed = true;
+      if (this.holdArmed && crossed && now - this.lastHoldTime > HOLD_COOLDOWN_MS) {
+        this.actions.hold();
+        this.holdArmed = false;
+        this.lastHoldTime = now;
+      }
+
+      // ---- POWER (T-pose: wrists out past the shoulders, shoulder height) -----
+      const out = TPOSE_WRIST_OUT * W;
+      const wristSpread = Math.abs(rightWrist.x - leftWrist.x);
+      const wristsLevel =
+        Math.abs(leftWrist.y - shoulderY) < shoulderWidth * 0.6 &&
+        Math.abs(rightWrist.y - shoulderY) < shoulderWidth * 0.6;
+      const tpose = wristSpread > shoulderWidth + 2 * out && wristsLevel;
+      if (!tpose) this.powerArmed = true;
+      if (this.powerArmed && tpose && now - this.lastPowerTime > POWER_COOLDOWN_MS) {
+        this.actions.power();
+        this.powerArmed = false;
+        this.lastPowerTime = now;
+      }
     }
 
-    // O shape: Hands between torso forming an X
-    const oShapeBox: Box = {
-      x: centerX - shoulderWidth * 0.25, // Center between shoulders
-      y: leftShoulder.y, // Start at shoulder level
-      width: shoulderWidth * 0.5, // Width is half of shoulder width
-      height: shoulderWidth * 0.75, // Height extends down from shoulders
-    };
-    drawShapeGuide(ctx, oShapeBox, "rgba(0, 255, 0, 0.5)");
-    if (inBox(leftWrist, oShapeBox) && inBox(rightWrist, oShapeBox)) {
-      matched = 1;
+    // ---- CATCH / START (both wrists thrust UP fast) --------------------------
+    const avgWristY = (leftWrist.y + rightWrist.y) / 2;
+    if (this.hasPrev) {
+      const upVel = (this.prevWristY - avgWristY) / dt / H; // +up, normalised/s
+      if (upVel > CATCH_WRIST_VELOCITY && now - this.lastCatchTime > CATCH_COOLDOWN_MS) {
+        this.actions.catchCollapse();
+        this.lastCatchTime = now;
+      }
     }
-
-    // S shape: Right wrist above right shoulder, left wrist near left waist
-    const sShapeBox1: Box = {
-      x: 0, // Start at left edge of canvas
-      y: 0, // Start at top of canvas
-      width: rightEye.x * 0.75, // Extend from left edge toward right eye
-      height: rightEye.y * 0.75, // Extend down toward eye level
-    };
-    const sShapeBox2: Box = {
-      x: leftHip.x, // Start at left hip
-      y: leftHip.y * 0.8, // Start at hip level
-      width: this.refW - leftHip.x, // Extend to right edge of canvas
-      height: this.refH - leftHip.y, // Extend to bottom of canvas
-    };
-    drawShapeGuide(ctx, sShapeBox1, "rgba(255, 255, 0, 0.5)");
-    drawShapeGuide(ctx, sShapeBox2, "rgba(255, 255, 0, 0.5)");
-    if (inBox(rightWrist, sShapeBox1) && inBox(leftWrist, sShapeBox2)) {
-      matched = 3;
-    }
-
-    // Z shape: Left wrist above left shoulder, right wrist near right waist
-    const zShapeBox1: Box = {
-      x: this.refW - (this.refW - leftEye.x) * 0.75, // Start 0.75 distance from right edge
-      y: 0, // Start at top of canvas
-      width: (this.refW - leftEye.x) * 0.75, // Width is 0.75 of distance to left eye
-      height: leftEye.y * 0.75, // Extend down to eye level
-    };
-    const zShapeBox2: Box = {
-      x: 0, // Start at left edge of canvas
-      y: rightHip.y * 0.8, // Start at right hip level
-      width: rightHip.x, // Extend from right hip to left edge
-      height: this.refH - rightHip.y, // Extend to bottom of canvas
-    };
-    drawShapeGuide(ctx, zShapeBox1, "rgba(255, 0, 255, 0.5)");
-    drawShapeGuide(ctx, zShapeBox2, "rgba(255, 0, 255, 0.5)");
-    if (inBox(leftWrist, zShapeBox1) && inBox(rightWrist, zShapeBox2)) {
-      matched = 4;
-    }
-
-    // L shape: Left arm up and right arm out
-    const lShapeBox1: Box = {
-      x: leftShoulder.x - shoulderWidth * 0.25, // Left side box
-      y: 0, // Start at top of canvas
-      width: shoulderWidth * 0.5, // Width similar to I shape
-      height: leftShoulder.y, // Extend down to shoulder height
-    };
-    const lShapeBox2: Box = {
-      x: 0, // Start at left edge of canvas
-      y: rightShoulder.y - shoulderWidth * 0.3, // Same height as T shape
-      width: rightShoulder.x, // Extend to right shoulder
-      height: shoulderWidth * 0.6, // Same height as T shape
-    };
-    drawShapeGuide(ctx, lShapeBox1, "rgba(0, 255, 255, 0.5)");
-    drawShapeGuide(ctx, lShapeBox2, "rgba(0, 255, 255, 0.5)");
-    if (inBox(leftWrist, lShapeBox1) && inBox(rightWrist, lShapeBox2)) {
-      matched = 5;
-    }
-
-    // J shape: Right arm up and left arm out
-    const jShapeBox1: Box = {
-      x: rightShoulder.x - shoulderWidth * 0.25, // Right side box
-      y: 0, // Start at top of canvas
-      width: shoulderWidth * 0.5, // Width similar to I shape
-      height: rightShoulder.y, // Extend down to shoulder height
-    };
-    const jShapeBox2: Box = {
-      x: leftShoulder.x, // Start at left shoulder
-      y: leftShoulder.y - shoulderWidth * 0.3, // Same height as T shape
-      width: this.refW - leftShoulder.x, // Extend to right edge
-      height: shoulderWidth * 0.6, // Same height as T shape
-    };
-    drawShapeGuide(ctx, jShapeBox1, "rgba(255, 165, 0, 0.5)");
-    drawShapeGuide(ctx, jShapeBox2, "rgba(255, 165, 0, 0.5)");
-    if (inBox(rightWrist, jShapeBox1) && inBox(leftWrist, jShapeBox2)) {
-      matched = 6;
-    }
-
-    // Check for rotation by measuring distance between shoulders
-    const shoulderDistance = Math.abs(leftShoulder.x - rightShoulder.x);
-    const isRotating =
-      shoulderDistance < ROTATE_SHOULDER_PX &&
-      Date.now() - this.lastRotationTime > ROTATE_COOLDOWN_MS;
-    if (isRotating && this.actions.rotate()) {
-      // Legacy only restarted the cooldown when the rotation actually fit.
-      this.lastRotationTime = Date.now();
-    }
-
-    if (matched !== null) this.actions.chooseNext(matched);
-
-    // Update block position based on nose position (mirrored, absolute).
-    const noseXPercent = 1 - nose.x / this.refW;
-    const targetX = Math.floor(noseXPercent * COLS);
-    this.actions.setColumn(targetX);
+    this.prevWristY = avgWristY;
+    this.hasPrev = true;
+    this.lastTime = now;
   };
+
+  /**
+   * Orbit the camera by circling ONE raised hand. Tracks the higher wrist's
+   * recent path, estimates its centre, and accumulates the swept angle; once a
+   * near-full loop is swept (in a consistent direction) it steps one corner,
+   * direction = spin sign. Resets when the hand drops or stops circling, so a
+   * still or low hand can never drift the view.
+   */
+  private detectCircleOrbit(
+    leftWrist: Keypoint,
+    rightWrist: Keypoint,
+    shoulderY: number,
+    W: number,
+    H: number,
+    now: number,
+  ): void {
+    const cw = leftWrist.y < rightWrist.y ? leftWrist : rightWrist; // the higher hand
+    if (cw.y > shoulderY) {
+      // hand not raised above the shoulders → stop tracking
+      this.hasCenter = false;
+      this.hasCircleAngle = false;
+      this.circleAccum = 0;
+      return;
+    }
+    const nx = cw.x / W;
+    const ny = cw.y / H;
+
+    // EMA centre: settles on the middle of the circling motion.
+    if (!this.hasCenter) {
+      this.centerX = nx;
+      this.centerY = ny;
+      this.hasCenter = true;
+    } else {
+      this.centerX += (nx - this.centerX) * CIRCLE_CENTER_LERP;
+      this.centerY += (ny - this.centerY) * CIRCLE_CENTER_LERP;
+    }
+
+    const radius = Math.hypot(nx - this.centerX, ny - this.centerY);
+    if (radius < CIRCLE_MIN_RADIUS) {
+      // centre still converging, or hand not really circling
+      this.hasCircleAngle = false;
+      this.circleAccum = 0;
+      return;
+    }
+
+    const ang = Math.atan2(ny - this.centerY, nx - this.centerX);
+    if (this.hasCircleAngle) {
+      let d = ang - this.circleAngle;
+      while (d > Math.PI) d -= 2 * Math.PI;
+      while (d < -Math.PI) d += 2 * Math.PI;
+      this.circleAccum += d;
+    }
+    this.circleAngle = ang;
+    this.hasCircleAngle = true;
+
+    if (Math.abs(this.circleAccum) > CIRCLE_TRIGGER_RAD && now - this.lastOrbitTime > ORBIT_COOLDOWN_MS) {
+      this.actions.orbit(this.circleAccum > 0 ? 1 : -1);
+      this.lastOrbitTime = now;
+      this.circleAccum = 0;
+    }
+  }
 }

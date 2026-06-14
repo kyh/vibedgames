@@ -12,11 +12,13 @@
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "0.10.35",
-    "phaser": "^4.1.0"
+    "cannon-es": "^0.20.0",
+    "three": "^0.184.0"
   },
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
     "@types/node": "catalog:",
+    "@types/three": "^0.184.0",
     "typescript": "catalog:",
     "vite": "catalog:"
   }

@@ -1,19 +1,42 @@
-import Phaser from "phaser";
+import * as THREE from "three";
 
-import { BootScene } from "./scenes/boot-scene";
+import { PoseCamera } from "./input/camera";
+import { PoseControls } from "./input/pose-control";
 import { GameScene } from "./scenes/game-scene";
+import { MAX_DT } from "./shared/constants";
 
-const config: Phaser.Types.Core.GameConfig = {
-  type: Phaser.WEBGL,
-  parent: "game",
-  backgroundColor: "#1a1a1a",
-  scale: {
-    // Fill the window; GameScene scales/centers the playfield itself.
-    mode: Phaser.Scale.RESIZE,
-    width: "100%",
-    height: "100%",
-  },
-  scene: [BootScene, GameScene],
-};
+const container = document.getElementById("game");
+if (!container) throw new Error("missing #game container");
 
-new Phaser.Game(config);
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+container.appendChild(renderer.domElement);
+
+const game = new GameScene(window.innerWidth / window.innerHeight);
+
+// Pose control + webcam: auto-starts (no button), degrades to keyboard if the
+// camera is denied or the model fails to load.
+const poseControls = new PoseControls(game.poseActions);
+game.attachPoseControls(poseControls);
+const poseCamera = new PoseCamera(poseControls.handlePose);
+void poseCamera.start();
+
+window.addEventListener("resize", () => {
+  game.resize(window.innerWidth / window.innerHeight);
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+const timer = new THREE.Timer();
+renderer.setAnimationLoop((time) => {
+  timer.update(time);
+  const dt = Math.min(timer.getDelta(), MAX_DT);
+  game.update(dt);
+  renderer.render(game.scene, game.camera);
+});
+
+if (import.meta.env.DEV) {
+  // __tetris: the scene; __pose: feed synthetic poses or recenter() in the console.
+  Object.assign(window, { __tetris: game, __pose: poseControls });
+}

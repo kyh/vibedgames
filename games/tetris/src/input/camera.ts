@@ -37,6 +37,10 @@ export type Keypoint = {
 
 export type Pose = {
   keypoints: Keypoint[];
+  /** Source video frame dimensions (px) — keypoints are in this space, so
+   *  pose interpretation normalises against these (no frozen-refW drift). */
+  width: number;
+  height: number;
 };
 
 /** Called once per detected frame, after the skeleton has been drawn. */
@@ -99,7 +103,7 @@ export class PoseCamera {
   constructor(onPose: PoseHandler) {
     this.onPose = onPose;
 
-    // Phaser scene instances can be re-created; never stack a second panel.
+    // Never stack a second panel if the game is re-initialised.
     document.getElementById("camera-panel")?.remove();
 
     this.panel = document.createElement("div");
@@ -197,7 +201,10 @@ export class PoseCamera {
         if (landmarks) {
           this.drawSkeleton(landmarks);
           const keypoints = landmarksToKeypoints(landmarks, video.videoWidth, video.videoHeight);
-          this.onPose({ keypoints }, this.canvas.getContext("2d"));
+          this.onPose(
+            { keypoints, width: video.videoWidth, height: video.videoHeight },
+            this.canvas.getContext("2d"),
+          );
         }
       } catch (error) {
         console.error("Error detecting pose:", error);

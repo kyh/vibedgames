@@ -472,9 +472,12 @@ importers:
       '@mediapipe/tasks-vision':
         specifier: 0.10.35
         version: 0.10.35
-      phaser:
-        specifier: ^4.1.0
-        version: 4.1.0
+      cannon-es:
+        specifier: ^0.20.0
+        version: 0.20.0
+      three:
+        specifier: ^0.184.0
+        version: 0.184.0
     devDependencies:
       '@kyh/tsconfig':
         specifier: 'catalog:'
@@ -482,6 +485,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 25.9.1
+      '@types/three':
+        specifier: ^0.184.0
+        version: 0.184.1
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -4001,6 +4007,9 @@ packages:
 
   caniuse-lite@1.0.30001793:
     resolution: {integrity: sha512-iwSsYWaCOoh26cV8NwNRViHlrfUvYsHDfRVcbtmw0Kg6PJIZZXwMkj1442FYLBGkeUf1juAsU3DTfxW579mrPA==}
+
+  cannon-es@0.20.0:
+    resolution: {integrity: sha512-eZhWTZIkFOnMAJOgfXJa9+b3kVlvG+FX4mdkpePev/w/rP5V8NRquGyEozcjPfEoXUlb+p7d9SUcmDSn14prOA==}
 
   chalk@2.4.2:
     resolution: {integrity: sha512-Mti+f9lpJNcwF4tWV8/OrTTtF1gZi+f8FqlyAdouralcFWFQWF2+NgCHShjkCb+IFBLq9buZwE1xckQU4peSuQ==}
@@ -10945,6 +10954,8 @@ snapshots:
     optional: true
 
   caniuse-lite@1.0.30001793: {}
+
+  cannon-es@0.20.0: {}
 
   chalk@2.4.2:
     dependencies:
