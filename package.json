@@ -20,7 +20,7 @@
     "dev:flappy-dragons": "turbo watch dev -F @repo/flappy-dragons...",
     "dev:pacman": "turbo watch dev -F @repo/pacman...",
     "dev:tetris": "turbo watch dev -F @repo/tetris...",
-    "dev:astroid": "turbo watch dev -F @repo/astroid...",
+    "dev:starfall": "turbo watch dev -F @repo/starfall...",
     "dev:pong": "turbo watch dev -F @repo/pong...",
     "dev:bomberman": "turbo watch dev -F @repo/bomberman...",
     "dev:farm": "turbo watch dev -F @repo/farm...",
