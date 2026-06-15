@@ -41,12 +41,6 @@
         justify-content: space-between;
         align-items: flex-start;
       }
-      #score {
-        font-size: 24px;
-        font-weight: 200;
-        font-variant-numeric: tabular-nums;
-        letter-spacing: 2px;
-      }
       #weapon {
         font-size: 11px;
         text-transform: uppercase;
@@ -129,9 +123,32 @@
         opacity: 0.5;
       }
 
+      #bossbar {
+        position: fixed;
+        top: 14px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 44vw;
+        max-width: 720px;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.25s ease;
+      }
+      #bossbar .track {
+        height: 8px;
+        background: rgba(0, 0, 0, 0.5);
+        border: 1px solid rgba(255, 45, 45, 0.5);
+      }
+      #bosshp {
+        height: 100%;
+        width: 100%;
+        background: #ff2d2d;
+        box-shadow: 0 0 10px #ff2d2d;
+        transition: width 120ms linear;
+      }
       #combo {
         position: fixed;
-        top: 16px;
+        top: 48px;
         left: 50%;
         transform: translateX(-50%);
         pointer-events: none;
@@ -217,12 +234,6 @@
         opacity: 0.55;
         font-style: italic;
       }
-      #replay {
-        font-size: 12px;
-        opacity: 0.6;
-        font-variant-numeric: tabular-nums;
-        letter-spacing: 1px;
-      }
       #countdown {
         font-size: 14px;
         opacity: 0.7;
@@ -234,7 +245,6 @@
     <div id="game"></div>
     <div id="hud">
       <div>
-        <div id="score">0</div>
         <div id="weapon">NORMAL BEAM</div>
         <div id="weaponbar"></div>
         <div id="shield">
@@ -249,6 +259,9 @@
       </div>
       <div id="players">connecting&hellip;</div>
     </div>
+    <div id="bossbar">
+      <div class="track"><div id="bosshp"></div></div>
+    </div>
     <div id="combo">
       <div id="comboval">&times;2 &middot; 3</div>
       <div id="combobar"></div>
@@ -258,7 +271,6 @@
       <div id="destroyed">DESTROYED</div>
       <div id="cause"></div>
       <div id="hint"></div>
-      <div id="replay"></div>
       <div id="countdown"></div>
     </div>
     <script type="module" src="/src/main.ts"></script>
