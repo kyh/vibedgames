@@ -151,6 +151,18 @@ export class WorldView {
     this.scene = scene;
   }
 
+  /** Start a looping anim at a deterministic offset, CLAMPED to its real frame
+   *  count. A sheet can load with fewer frames than authored when its source PNG
+   *  exceeds the GPU's max texture size (e.g. a wide strip on a weaker/mobile GPU),
+   *  and a hardcoded `startFrame % N` would then index past the end and crash
+   *  Phaser's getFirstTick (`undefined.duration`). No-ops if the anim is missing. */
+  private playLoop(sprite: Phaser.GameObjects.Sprite, key: string, startSeed = 0): void {
+    const anim = this.scene.anims.get(key);
+    const n = anim?.frames.length ?? 0;
+    if (n <= 0) return;
+    sprite.play({ key, startFrame: ((Math.floor(startSeed) % n) + n) % n });
+  }
+
   buildTerrain(): void {
     const s = this.scene;
 
@@ -314,8 +326,7 @@ export class WorldView {
         this.shoreCells.push({ x, y });
         if (!hasFoam) continue;
         const f = s.add.sprite(x, y, "foam", 0).setDepth(D_FOAM);
-        if (s.anims.exists("foam-loop"))
-          f.play({ key: "foam-loop", startFrame: (cx * 7 + cy * 5) % 16 });
+        this.playLoop(f, "foam-loop", cx * 7 + cy * 5);
       }
     }
   }
@@ -514,8 +525,7 @@ export class WorldView {
           .setDepth(ty + lift);
         if (pick < 0.12)
           tree.setTint(AUTUMN[Math.floor(rng2(ty, tx) * AUTUMN.length) % AUTUMN.length]);
-        if (s.anims.exists("tree-sway"))
-          tree.play({ key: "tree-sway", startFrame: Math.floor(rng2(ty, tx) * 6) });
+        this.playLoop(tree, "tree-sway", Math.floor(rng2(ty, tx) * 6));
       } else {
         const kind = deciduous[Math.floor(rng2(tx, ty) * deciduous.length) % deciduous.length] ?? 1;
         const tree = s.add
@@ -523,8 +533,7 @@ export class WorldView {
           .setOrigin(0.5, 0.82)
           .setScale(0.5 + pick * 0.14)
           .setDepth(ty + lift);
-        if (s.anims.exists(`ftree${kind}-sway`))
-          tree.play({ key: `ftree${kind}-sway`, startFrame: Math.floor(rng2(ty, tx) * 8) });
+        this.playLoop(tree, `ftree${kind}-sway`, Math.floor(rng2(ty, tx) * 8));
       }
     };
 
@@ -555,8 +564,7 @@ export class WorldView {
             .setOrigin(0.5, 0.86)
             .setScale(0.9)
             .setDepth(ty - LIFT);
-          if (s.anims.exists("tree-sway"))
-            tree.play({ key: "tree-sway", startFrame: Math.floor(rng2(ty, tx) * 6) });
+          this.playLoop(tree, "tree-sway", Math.floor(rng2(ty, tx) * 6));
         }
       }
     }
@@ -597,8 +605,7 @@ export class WorldView {
             .sprite(x, y + lift, key, 0)
             .setScale(0.55 + rng2(x, y) * 0.25)
             .setDepth(y + lift);
-          if (s.anims.exists(`${key}-sway`))
-            bush.play({ key: `${key}-sway`, startFrame: Math.floor(rng2(y, x) * 8) });
+          this.playLoop(bush, `${key}-sway`, Math.floor(rng2(y, x) * 8));
         } else {
           const key = `deco-${String(1 + Math.floor(rng2(cx + 5, cy + 5) * 18)).padStart(2, "0")}`;
           if (s.textures.exists(key))
@@ -629,8 +636,7 @@ export class WorldView {
           .setScale(0.55)
           .setDepth(D_FOAM + 1)
           .setAlpha(0.95);
-        if (s.anims.exists(`wrock${n}-anim`))
-          rk.play({ key: `wrock${n}-anim`, startFrame: Math.floor(r * 8) });
+        this.playLoop(rk, `wrock${n}-anim`, Math.floor(r * 8));
       }
     }
   }
@@ -678,8 +684,7 @@ export class WorldView {
     for (const p of spots) {
       if (!isLandCell(Math.floor(p.x / CELL), Math.floor(p.y / CELL))) continue;
       const sh = s.add.sprite(p.x, p.y, "sheep", 0).setScale(0.5).setDepth(p.y);
-      if (s.anims.exists("sheep-idle"))
-        sh.play({ key: "sheep-idle", startFrame: Math.floor(rng2(p.x, p.y) * 8) });
+      this.playLoop(sh, "sheep-idle", Math.floor(rng2(p.x, p.y) * 8));
       // gentle wander
       s.tweens.add({
         targets: sh,
@@ -882,7 +887,7 @@ export class WorldView {
         .sprite(u.x + ox, u.y + oy, key, 0)
         .setDepth(u.y + 3)
         .setScale(big ? 2.3 : 1.8);
-      f.play({ key, startFrame: (i * 3) % 8 });
+      this.playLoop(f, key, i * 3);
       sv.fires.push(f);
     }
   }
@@ -1314,7 +1319,7 @@ export class WorldView {
                 .setAlpha(0.85)
                 .setDepth(g.y - 6);
               if (kind === "heal") sp.setTint(0x9bf0b0).setBlendMode(Phaser.BlendModes.ADD);
-              sp.play({ key: `${sheet}-loop`, startFrame: Math.floor(Math.random() * 6) });
+              this.playLoop(sp, `${sheet}-loop`, Math.floor(Math.random() * 6));
               sprites.push({ sp, ox, oy });
             }
           }

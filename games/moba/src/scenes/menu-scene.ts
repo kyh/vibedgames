@@ -51,8 +51,11 @@ export class MenuScene extends Phaser.Scene {
       const x = (0.06 + 0.88 * ((i * 0.61) % 1)) * W;
       const y = (0.58 + 0.32 * ((i * 0.37) % 1)) * H; // keep below the card row
       const rk = this.add.sprite(x, y, `wrock${n}`, 0).setScale(0.55).setAlpha(0.9);
-      if (this.anims.exists(`wrock${n}-anim`))
-        rk.play({ key: `wrock${n}-anim`, startFrame: (i * 3) % 8 });
+      const anim = this.anims.get(`wrock${n}-anim`);
+      // clamp startFrame to the real frame count — a sheet can load with fewer
+      // frames than authored if it exceeds the GPU's max texture size.
+      if (anim && anim.frames.length > 0)
+        rk.play({ key: `wrock${n}-anim`, startFrame: (i * 3) % anim.frames.length });
     }
     for (let i = 0; i < 4; i++) {
       const c = this.add
