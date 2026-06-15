@@ -41,11 +41,13 @@
         justify-content: space-between;
         align-items: flex-start;
       }
-      #score {
-        font-size: 24px;
-        font-weight: 200;
-        font-variant-numeric: tabular-nums;
-        letter-spacing: 2px;
+      #xpbar {
+        height: 3px;
+        width: 0%;
+        max-width: 120px;
+        background: #6ff7ff;
+        box-shadow: 0 0 6px #6ff7ff;
+        transition: width 140ms linear;
       }
       #weapon {
         font-size: 11px;
@@ -129,9 +131,32 @@
         opacity: 0.5;
       }
 
+      #bossbar {
+        position: fixed;
+        top: 14px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 44vw;
+        max-width: 720px;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.25s ease;
+      }
+      #bossbar .track {
+        height: 8px;
+        background: rgba(0, 0, 0, 0.5);
+        border: 1px solid rgba(255, 45, 45, 0.5);
+      }
+      #bosshp {
+        height: 100%;
+        width: 100%;
+        background: #ff2d2d;
+        box-shadow: 0 0 10px #ff2d2d;
+        transition: width 120ms linear;
+      }
       #combo {
         position: fixed;
-        top: 16px;
+        top: 48px;
         left: 50%;
         transform: translateX(-50%);
         pointer-events: none;
@@ -234,7 +259,7 @@
     <div id="game"></div>
     <div id="hud">
       <div>
-        <div id="score">0</div>
+        <div id="xpbar"></div>
         <div id="weapon">NORMAL BEAM</div>
         <div id="weaponbar"></div>
         <div id="shield">
@@ -248,6 +273,9 @@
         <div id="boosts"></div>
       </div>
       <div id="players">connecting&hellip;</div>
+    </div>
+    <div id="bossbar">
+      <div class="track"><div id="bosshp"></div></div>
     </div>
     <div id="combo">
       <div id="comboval">&times;2 &middot; 3</div>
