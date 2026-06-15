@@ -40,7 +40,9 @@ import {
   BOOSTER_SPECS,
   BULWARK_CONE_DEG,
   BULWARK_FRONT_MULT,
+  BOSS_BROOD_CAP,
   BOSS_CONTACT_DMG,
+  BOSS_LANCE_SHOT_SPEED,
   BOSS_ORBIT_RADIUS,
   BOSS_P1_CYCLE_MS,
   BOSS_P1_SPREAD_COUNT,
@@ -177,6 +179,7 @@ import {
   RESPAWN_ATTEMPTS,
   RESPAWN_CLEARANCE,
   RESPAWN_DELAY_MS,
+  RESPAWN_EDGE_MARGIN,
   rollLootClass,
   rollWeightedKey,
   SENTRY_FIRE_MS,
@@ -887,10 +890,11 @@ export class GameScene extends Phaser.Scene {
 
   /** Re-roll until clear of enemies + big asteroids; ≤8 attempts, take best. */
   private pickRespawnPoint(): Vec {
-    let best = randomWorldPoint();
+    const { playW, playH } = this.world; // respawn within the LIVE (scaled) play area
+    let best = randomWorldPoint(RESPAWN_EDGE_MARGIN, playW, playH);
     let bestClearance = -1;
     for (let i = 0; i < RESPAWN_ATTEMPTS; i++) {
-      const p = randomWorldPoint();
+      const p = randomWorldPoint(RESPAWN_EDGE_MARGIN, playW, playH);
       let minD = Infinity;
       for (const e of this.world.enemies) {
         minD = Math.min(minD, Math.hypot(e.x - p.x, e.y - p.y));
@@ -3029,19 +3033,30 @@ export class GameScene extends Phaser.Scene {
    * of resetting it.
    */
   private ensureSeeded(): void {
+    // Seed the opening asteroid field within the play bounds for the current
+    // player count (so a multi-player arena opens fully populated, not just the
+    // base 1-player box).
+    const seedField = (s: SharedState): void => {
+      const pc = Math.max(1, Object.keys(this.peers).length);
+      s.playW = playWidthForPlayers(pc);
+      s.playH = playHeightForPlayers(pc);
+      for (let i = 0; i < ASTEROID_SEED_COUNT; i++) {
+        s.asteroids.push(spawnAsteroidState(s.playW, s.playH));
+      }
+    };
     if (this.offline) {
       // Solo arena: seed the local world directly, nothing to broadcast.
       if (!this.offlineSeeded) {
         this.offlineSeeded = true;
         const seeded = emptyShared();
-        for (let i = 0; i < ASTEROID_SEED_COUNT; i++) seeded.asteroids.push(spawnAsteroidState());
+        seedField(seeded);
         this.world = seeded;
       }
       return;
     }
     if (this.amHost && this.client.connectionStatus === "connected" && !this.shared()) {
       const seeded = emptyShared();
-      for (let i = 0; i < ASTEROID_SEED_COUNT; i++) seeded.asteroids.push(spawnAsteroidState());
+      seedField(seeded);
       this.world = seeded;
       this.client.updateSharedState(seeded as unknown as Record<string, unknown>);
     }
@@ -3053,8 +3068,9 @@ export class GameScene extends Phaser.Scene {
     if (!s) return;
     const w = this.world;
     if (typeof s.arenaEpoch === "number") w.arenaEpoch = s.arenaEpoch;
-    if (typeof s.playW === "number") w.playW = s.playW;
-    if (typeof s.playH === "number") w.playH = s.playH;
+    // Clamp to valid bounds — never trust an out-of-range value from the host.
+    if (typeof s.playW === "number") w.playW = Phaser.Math.Clamp(s.playW, BASE_WORLD_W, WORLD_W);
+    if (typeof s.playH === "number") w.playH = Phaser.Math.Clamp(s.playH, BASE_WORLD_H, WORLD_H);
 
     const asteroidIds = new Set<string>();
     for (const a of s.asteroids) {
@@ -3314,11 +3330,13 @@ export class GameScene extends Phaser.Scene {
     if (d.enemies) patch["enemies"] = w.enemies;
     if (d.enemyShots) patch["enemyShots"] = w.enemyShots;
     if (d.pulls) patch["pulls"] = w.pulls;
-    if (this.playBoundsDirty) {
+    // Piggyback play bounds on ANY outgoing patch (cheap — 2 ints) so guests and
+    // a freshly-promoted host stay in sync; force a send if ONLY bounds changed.
+    if (this.playBoundsDirty || Object.keys(patch).length > 0) {
       patch["playW"] = w.playW;
       patch["playH"] = w.playH;
-      this.playBoundsDirty = false;
     }
+    this.playBoundsDirty = false;
     if (!this.offline && Object.keys(patch).length > 0) this.client.updateSharedState(patch);
     this.dirty = {
       asteroids: false,
@@ -3767,6 +3785,7 @@ export class GameScene extends Phaser.Scene {
     for (let i = 0; i < w.enemies.length; i++) {
       const e = w.enemies[i];
       if (!e) continue;
+      if (e.kind === "dreadnought") continue; // the boss is never auto-despawned
       let minD = Infinity;
       for (const p of players) minD = Math.min(minD, Math.hypot(e.x - p.x, e.y - p.y));
       if (minD > farDist) {
@@ -3882,7 +3901,13 @@ export class GameScene extends Phaser.Scene {
           sim.fireAt = 0;
           sim.nextAttackAt = now + BOSS_P2_CYCLE_MS;
           for (const aim of e.lances) {
-            this.hostSpawnShot(e.x, e.y, Math.atan2(aim.y - e.y, aim.x - e.x), SNIPER_SHOT_SPEED, now);
+            this.hostSpawnShot(
+              e.x,
+              e.y,
+              Math.atan2(aim.y - e.y, aim.x - e.x),
+              BOSS_LANCE_SHOT_SPEED, // distinct speed → BOSS_LANCE damage (70), not sniper 55
+              now,
+            );
           }
           e.lances = [];
         }
@@ -3914,7 +3939,8 @@ export class GameScene extends Phaser.Scene {
           for (let i = 0; i < BOSS_P3_NOVA_COUNT; i++) {
             this.hostSpawnShot(e.x, e.y, (Math.PI * 2 * i) / BOSS_P3_NOVA_COUNT, BOSS_SHOT_SPEED, now);
           }
-          this.hostBirthMites(e, BOSS_P3_MITES, now);
+          // Cap the brood so a long phase-3 can't balloon enemies[] unbounded.
+          if (sim.broodCount < BOSS_BROOD_CAP) this.hostBirthMites(e, BOSS_P3_MITES, now);
         }
       } else if (now >= sim.nextAttackAt) {
         e.telegraphUntil = now + BOSS_P3_TELEGRAPH_MS;
@@ -3961,6 +3987,7 @@ export class GameScene extends Phaser.Scene {
     if (intensity < BOSS_SPAWN_INTENSITY) return;
     if (this.lastBossKilledAt !== 0 && now - this.lastBossKilledAt < BOSS_SPAWN_COOLDOWN_MS) return;
     const players = this.livingPlayers();
+    if (players.length === 0) return; // never spawn a boss with nobody to fight it
     const busy = Object.keys(this.peers).length >= BOSS_SPAWN_MIN_PLAYERS;
     // Quiet rooms only get one once the cooldown has fully elapsed since the last.
     if (!busy && this.lastBossKilledAt === 0 && now < BOSS_SPAWN_COOLDOWN_MS) return;
