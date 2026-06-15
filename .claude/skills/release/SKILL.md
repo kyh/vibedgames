@@ -6,7 +6,7 @@ allowed-tools: Bash(*), Read, Edit, Write
 
 # Release
 
-Cut a new npm version of one or both publishable packages in this repo.
+Cut a new npm version of one or more publishable packages in this repo.
 
 ## Context
 
@@ -44,7 +44,7 @@ Run in parallel:
   LAST=$(git tag --list '<tag-prefix>*' --sort=-v:refname | head -1)
   git log --oneline ${LAST:+$LAST..}HEAD -- <pkg-path>
   ```
-  If the log is empty and `--force` was not passed, **drop that package from the release set** with a note. If both packages drop, stop.
+  If the log is empty and `--force` was not passed, **drop that package from the release set** with a note. Release whatever remains — a single changed package (e.g. only `@vibedgames/gamepad`) still ships. Stop only if *every* candidate drops (nothing to release).
 
 ### 2. Bump
 
@@ -131,7 +131,7 @@ If anything failed, lead with the failure and what state the registry / git remo
 ## Rules
 
 - Never run `wrangler deploy` here. This skill is npm-only. Worker deploys go through GitHub Actions on push to main (which this skill _will_ trigger by pushing — that's fine for a release).
-- Never `--force` push or amend prior release commits. If a publish half-succeeds (e.g. one of two packages), commit + tag + push what shipped, then handle the other separately.
+- Never `--force` push or amend prior release commits. If a publish half-succeeds (e.g. one of several packages), commit + tag + push what shipped, then handle the others separately.
 - If `npm publish` fails with `EPUBLISHCONFLICT` (version already on registry), bump again rather than try to overwrite.
 - Tags must be created **after** successful publish + verify, never before. A tag without a matching registry version is worse than no tag.
 - Skipping is the default for packages with no path-scoped commits since their last tag. Pass `--force` to override.
