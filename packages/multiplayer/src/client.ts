@@ -8,7 +8,7 @@ import type {
   PlayerMap,
   ServerMessage,
 } from "./types";
-import { ROOM_CAP_QUERY_PARAM } from "./types";
+import { HEARTBEAT_INTERVAL_MS, ROOM_CAP_QUERY_PARAM } from "./types";
 
 export type MultiplayerClientOptions = MultiplayerOptions & {
   initialState?: Record<string, unknown>;
@@ -46,6 +46,13 @@ export class MultiplayerClient {
   private redirecting = false;
   /** Effective player cap advertised to the server (server-authoritative on overflow). */
   private cap: number | null;
+  /** Liveness ping driven by requestAnimationFrame so it PAUSES when the tab is
+   *  hidden/asleep — exactly when the game loop also stalls — letting the server
+   *  migrate host off a backgrounded/dead client. Falls back to setInterval where
+   *  rAF isn't available (non-browser). */
+  private heartbeatRaf: number | null = null;
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private lastHeartbeatAt = 0;
 
   private _connectionStatus: MultiplayerConnectionStatus = "connecting";
   private _playerId: string | null = null;
@@ -76,6 +83,31 @@ export class MultiplayerClient {
     this.socket.addEventListener("message", this.handleMessage);
     this.socket.addEventListener("close", this.handleClose);
     this.socket.addEventListener("error", this.handleError);
+
+    this.startHeartbeat();
+  }
+
+  /** Drive the heartbeat off rAF so a hidden/asleep tab stops pinging (its rAF is
+   *  paused), and the server promptly migrates host away from it. */
+  private startHeartbeat(): void {
+    const ping = (t: number): void => {
+      if (t - this.lastHeartbeatAt >= HEARTBEAT_INTERVAL_MS) {
+        this.lastHeartbeatAt = t;
+        if (this._connectionStatus === "connected") this.send({ type: "heartbeat" });
+      }
+    };
+    if (typeof requestAnimationFrame === "function") {
+      const loop = (t: number): void => {
+        this.heartbeatRaf = requestAnimationFrame(loop);
+        ping(t);
+      };
+      this.heartbeatRaf = requestAnimationFrame(loop);
+    } else {
+      // non-browser fallback (SSR/tests) — liveness isn't meaningful there anyway
+      this.heartbeatTimer = setInterval(() => {
+        if (this._connectionStatus === "connected") this.send({ type: "heartbeat" });
+      }, HEARTBEAT_INTERVAL_MS);
+    }
   }
 
   /** Query params advertising the current effective cap to the server. */
@@ -206,6 +238,14 @@ export class MultiplayerClient {
 
   /** Disconnect and clean up. */
   destroy(): void {
+    if (this.heartbeatRaf !== null && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(this.heartbeatRaf);
+      this.heartbeatRaf = null;
+    }
+    if (this.heartbeatTimer !== null) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
     this.socket.removeEventListener("open", this.handleOpen);
     this.socket.removeEventListener("message", this.handleMessage);
     this.socket.removeEventListener("close", this.handleClose);

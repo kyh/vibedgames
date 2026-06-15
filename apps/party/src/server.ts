@@ -2,7 +2,7 @@ import type { Connection, ConnectionContext } from "partyserver";
 import { routePartykitRequest, Server } from "partyserver";
 
 import type { ClientMessage, Player, PlayerMap, ServerMessage } from "@vibedgames/multiplayer";
-import { ROOM_CAP_QUERY_PARAM } from "@vibedgames/multiplayer";
+import { HOST_LIVENESS_TIMEOUT_MS, ROOM_CAP_QUERY_PARAM } from "@vibedgames/multiplayer";
 import { getColorById } from "./color";
 
 type Env = {
@@ -20,6 +20,9 @@ type RoomState = {
    * can't bypass it. `null` means no cap was ever advertised (unlimited).
    */
   cap: number | null;
+  /** Last time (ms) we heard anything from each connection — drives host-liveness
+   *  migration when a host vanishes ungracefully (sleep/crash/network drop). */
+  lastSeen: Record<string, number>;
 };
 
 /**
@@ -63,7 +66,26 @@ export class VgServer extends Server {
     players: {},
     hostId: null,
     cap: null,
+    lastSeen: {},
   };
+
+  /** Migrate host off a connection we haven't heard from within the liveness
+   *  window (it vanished without a clean close). Picks the lowest-id live peer
+   *  for determinism. No-op while the host is responsive or no live peer exists. */
+  private checkHostLiveness(): void {
+    const host = this.room.hostId;
+    if (!host) return;
+    const now = Date.now();
+    if (now - (this.room.lastSeen[host] ?? 0) <= HOST_LIVENESS_TIMEOUT_MS) return;
+    const next = Object.keys(this.room.players)
+      .filter((id) => id !== host && now - (this.room.lastSeen[id] ?? 0) <= HOST_LIVENESS_TIMEOUT_MS)
+      .sort()[0];
+    if (!next) return; // nobody healthier to hand off to — keep the current host
+    this.room.hostId = next;
+    this.room.lastSeen[next] = now; // grace, so we don't immediately re-migrate
+    const hostMessage: ServerMessage = { type: "host", data: { id: next } };
+    this.broadcast(JSON.stringify(hostMessage), []);
+  }
 
   onConnect(connection: Connection<Player>, ctx: ConnectionContext) {
     // The room's effective cap for this admission decision: the sticky cap an
@@ -103,9 +125,13 @@ export class VgServer extends Server {
     };
 
     this.room.players[connection.id] = player;
+    this.room.lastSeen[connection.id] = Date.now();
     if (!this.room.hostId) {
       this.room.hostId = connection.id;
     }
+    // a fresh join is a good moment to evict a host that vanished while the room
+    // was idle — so the newcomer lands in a live game, not a frozen one
+    this.checkHostLiveness();
 
     const syncMessage: ServerMessage = {
       type: "sync",
@@ -132,9 +158,15 @@ export class VgServer extends Server {
       // to broadcast state or events into the room.
       if (!this.room.players[sender.id]) return;
 
+      // any message proves this connection is alive
+      this.room.lastSeen[sender.id] = Date.now();
+
       const message = JSON.parse(rawMessage) as ClientMessage;
 
       switch (message.type) {
+        case "heartbeat":
+          // liveness only — the lastSeen bump above is the whole point
+          break;
         case "state_patch": {
           // Shared state is host-authoritative: only the elected host
           // can write. Non-host writes get a `state` echo back so the
@@ -188,6 +220,10 @@ export class VgServer extends Server {
         default:
           break;
       }
+
+      // every inbound message is a chance to notice the host went silent and
+      // hand off — guests heartbeat every ~2s, so this fires often enough.
+      this.checkHostLiveness();
     } catch (error) {
       console.error("Error handling message", error);
     }
@@ -200,6 +236,7 @@ export class VgServer extends Server {
     if (!this.room.players[connection.id]) return;
 
     delete this.room.players[connection.id];
+    delete this.room.lastSeen[connection.id];
     const remainingIds = Object.keys(this.room.players);
 
     const leftMessage: ServerMessage = {
@@ -225,6 +262,7 @@ export class VgServer extends Server {
     // wrongly cap a later session that wants the unlimited default.
     if (remainingIds.length === 0) {
       this.room.cap = null;
+      this.room.lastSeen = {};
     }
   }
 }

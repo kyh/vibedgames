@@ -37,7 +37,16 @@ export type PlayerMap = Record<string, Player>;
 export type ClientMessage =
   | { type: "state_patch"; data: Record<string, unknown> }
   | { type: "player_state_patch"; data: Record<string, unknown> }
-  | { type: "emit"; data: { event: string; payload: unknown } };
+  | { type: "emit"; data: { event: string; payload: unknown } }
+  // Liveness ping sent on an interval so the server can detect a host that has
+  // gone away ungracefully (laptop sleep, crashed tab, dropped network) without
+  // waiting for the WebSocket's much-longer TCP timeout, and migrate host.
+  | { type: "heartbeat" };
+
+/** How often the SDK sends a heartbeat (ms). */
+export const HEARTBEAT_INTERVAL_MS = 2000;
+/** Server migrates host if it hasn't heard from the host within this window (ms). */
+export const HOST_LIVENESS_TIMEOUT_MS = 6000;
 
 export type ServerMessage =
   | { type: "sync"; data: { players: PlayerMap; state: Record<string, unknown>; hostId: string } }
