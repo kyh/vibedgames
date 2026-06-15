@@ -38,7 +38,7 @@ Run in parallel:
 
 - `npm whoami` — must be `kaiyuhsu`. If not, stop and tell the user to `npm login`.
 - `git status --porcelain` — if dirty in unrelated files, surface and ask whether to proceed.
-- `npm view vibedgames version` and/or `npm view @vibedgames/multiplayer version` — current published.
+- `npm view <pkg> version` for each candidate (`vibedgames`, `@vibedgames/multiplayer`, `@vibedgames/gamepad`) — current published.
 - For each candidate package, find its last release tag and check for changes:
   ```
   LAST=$(git tag --list '<tag-prefix>*' --sort=-v:refname | head -1)
@@ -120,6 +120,7 @@ One short block:
 Released:
   vibedgames@X.Y.Z          (tag: vibedgames@X.Y.Z)
   @vibedgames/multiplayer@X.Y.Z (tag: @vibedgames/multiplayer@X.Y.Z)
+  @vibedgames/gamepad@X.Y.Z (tag: @vibedgames/gamepad@X.Y.Z)
 Skipped (no changes): <pkg> (since <last-tag>)
 Commit: <sha> (pushed to origin/<branch>)
 Actions: triggered if pushed to main — verify deploy

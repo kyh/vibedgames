@@ -170,11 +170,12 @@ export class VirtualGamepad {
   getStick(): StickState {
     const o = this.stickOpts;
     const s = this.stick;
-    if (!o || !s) return IDLE_STICK;
+    if (!o || !s) return { ...IDLE_STICK }; // fresh copy — never hand out the shared singleton
     const dx = s.curX - s.anchorX;
     const dy = s.curY - s.anchorY;
     const distance = Math.hypot(dx, dy);
-    const span = o.radius - o.deadZone;
+    // Guard against a misconfigured deadZone >= radius (span <= 0 → NaN/∞).
+    const span = Math.max(1, o.radius - o.deadZone);
     const magnitude = Math.min(1, Math.max(0, (distance - o.deadZone) / span));
     return {
       active: true,
