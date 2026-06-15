@@ -1333,10 +1333,16 @@ export const DMG = {
   BOSS_LANCE: 70, // 3 simultaneous in boss phase 2
 } as const;
 
+/** Boss phase-2 lances ride a distinct (faster) speed than the SNIPER so the
+ *  speed→damage classifier can give them their heavier BOSS_LANCE damage. */
+export const BOSS_LANCE_SHOT_SPEED = 820;
+
 /** Enemy shots aren't source-tagged on the wire — speed identifies the kind, so
- *  each kind's shot damage and death cause are recovered from its bolt speed. */
+ *  each kind's shot damage and death cause are recovered from its bolt speed.
+ *  (Both host and victim run this on the same serialized vx/vy, so they agree.) */
 export function enemyShotHit(speed: number): { cause: string; dmg: number } {
-  if (speed >= 600) return { cause: "SNIPER", dmg: DMG.SNIPER_BOLT }; // sniper + boss lance
+  if (speed >= 800) return { cause: "DREADNOUGHT", dmg: DMG.BOSS_LANCE }; // boss lance (820)
+  if (speed >= 600) return { cause: "SNIPER", dmg: DMG.SNIPER_BOLT }; // sniper (720)
   if (speed <= 270) return { cause: "DRONE", dmg: DMG.DRONE_SHOT }; // drone, warden, boss plasma/nova
   return { cause: "WASP", dmg: DMG.WASP_SHOT };
 }
@@ -1696,6 +1702,9 @@ export const BOSS_P3_CYCLE_MS = 1_900;
 export const BOSS_P3_TELEGRAPH_MS = 700;
 export const BOSS_P3_NOVA_COUNT = 16;
 export const BOSS_P3_MITES = 4;
+/** Max live mites the boss can sustain (phase 3 births stop adding past this —
+ *  prevents unbounded enemies[] growth over a long phase-3). */
+export const BOSS_BROOD_CAP = 16;
 export const BOSS_SHOT_SPEED = 260; // plasma/nova → DRONE-tier cause
 export const BOSS_CONTACT_DMG = 60;
 /** Boss spawns only near a wave peak (max intensity 2.6) … */
