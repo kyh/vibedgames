@@ -1,5 +1,5 @@
 import { appRouter, createTRPCContext } from "@repo/api";
-import { MAX_TRPC_BODY_BYTES } from "@repo/api/media/limits";
+import { MAX_TRPC_BODY_BYTES } from "@repo/api/generate/limits";
 import { createFileRoute } from "@tanstack/react-router";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 
