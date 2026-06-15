@@ -108,6 +108,10 @@ This covers both the twin-stick model (stick + a rest "fire" button: any
 second finger shoots) and the d-pad-style model (stick + a fixed action
 button).
 
+## Related
+
+- [`@vibedgames/multiplayer`](https://www.npmjs.com/package/@vibedgames/multiplayer) — real-time multiplayer for browser games (framework-agnostic core + React hooks). Pairs naturally: recolor the joystick/buttons per player with `setTint`.
+
 ## License
 
 MIT

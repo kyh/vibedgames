@@ -197,3 +197,7 @@ vg deploy ./dist --slug my-game
 
 If `vg` isn't on PATH, substitute `npx vibedgames deploy`. Live at
 `https://my-game.vibedgames.com`.
+
+## See also
+
+- `multiplayer` (`@vibedgames/multiplayer`) — real-time sync, shared/player state, and host-authoritative logic. Pairs naturally: tint the stick/buttons to each player's color via `setTint`.

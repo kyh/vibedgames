@@ -432,3 +432,7 @@ vg deploy ./dist --slug my-game
 If `vg` isn't on PATH, substitute `npx vibedgames deploy` — works identically.
 
 Live at `https://my-game.vibedgames.com` — party server is shared infrastructure.
+
+## See also
+
+- `gamepad` (`@vibedgames/gamepad`) — on-screen touch controls (virtual joystick + buttons) so the multiplayer game is playable on phones, not just desktop.
