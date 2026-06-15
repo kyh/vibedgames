@@ -60,6 +60,16 @@ export class GameScene extends Phaser.Scene {
   private netFx: World["fx"] = [];
   private fxSeqOut = 0; // host: increments per fx broadcast
   private lastFxSeq = -1; // guest: last fx batch ingested
+  // stale-host takeover: a backgrounded/throttled tab stays "connected" and keeps
+  // hosting a frozen game, so the server never migrates host and new players are
+  // stuck spectating. We sample the broadcast snapshot's sim rate and, if it stalls,
+  // the elected non-host player reseeds a fresh match and hosts it.
+  private forcedHost = false;
+  private tookOverFrom: string | null = null;
+  private joinResendAt = 0; // re-announce our pick so a new/forced host learns it
+  private rateAt0 = 0; // host-liveness sample window start (scene clock ms)
+  private rateGameTime0 = -1; // snapshot gameTime at the window start
+  private slowWindows = 0; // consecutive ~2s windows the host ran < 0.5× real-time
 
   constructor() {
     super("Game");
@@ -89,6 +99,12 @@ export class GameScene extends Phaser.Scene {
     this.netFx = [];
     this.fxSeqOut = 0;
     this.lastFxSeq = -1;
+    this.forcedHost = false;
+    this.tookOverFrom = null;
+    this.joinResendAt = 0;
+    this.rateAt0 = 0;
+    this.rateGameTime0 = -1;
+    this.slowWindows = 0;
     this.feed.length = 0;
     this.moveKeys = null;
   }
@@ -168,17 +184,20 @@ export class GameScene extends Phaser.Scene {
   }
 
   private get amHost(): boolean {
-    return !this.online || (this.net?.isHost ?? false);
+    return !this.online || (this.net?.isHost ?? false) || this.forcedHost;
   }
 
   // ---- networking ----------------------------------------------------------
   private onNetEvent(event: string, payload: unknown, from: string): void {
-    if (event !== INTENT_EVENT || !this.amHost) return;
+    if (event !== INTENT_EVENT) return;
     const intent = payload as Intent;
+    // record hero picks even as a guest, so if we later take over a stale host we
+    // already know everyone's choice and can spawn their hero immediately.
     if (intent.kind === "join") {
       this.picks[from] = intent.defId;
       return;
     }
+    if (!this.amHost) return; // only the host applies gameplay intents
     const u = this.world.units.get(`h-${from}`);
     if (!u || !u.alive) return;
     this.applyIntent(u, intent);
@@ -667,7 +686,34 @@ export class GameScene extends Phaser.Scene {
       this.playerId = `h-${net.playerId}`;
       this.view.playerHeroId = this.playerId;
       net.sendEvent(INTENT_EVENT, { kind: "join", defId: this.heroChoice } satisfies Intent);
+      this.joinResendAt = this.time.now + 3000;
     }
+    // periodically re-announce our pick so a host that joined/took over after us
+    // still learns which hero to spawn for us.
+    if (this.joinedSelf && this.time.now >= this.joinResendAt) {
+      this.joinResendAt = this.time.now + 3000;
+      net.sendEvent(INTENT_EVENT, { kind: "join", defId: this.heroChoice } satisfies Intent);
+    }
+
+    // watch the host's broadcast for a stall and take over if it's dead
+    this.sampleHostLiveness(net);
+    if (!net.isHost && !this.forcedHost && this.shouldTakeOverHost(net)) {
+      this.forcedHost = true;
+      this.tookOverFrom = net.hostId;
+      this.world = createWorld(1234); // fresh match; keep accumulated hero picks
+      this.assign = {};
+    }
+    // server promoted us to real host → fold the takeover into the normal path;
+    // or it migrated to a different live host → yield back to a guest.
+    if (this.forcedHost && net.isHost) this.forcedHost = false;
+    else if (
+      this.forcedHost &&
+      net.hostId &&
+      net.hostId !== net.playerId &&
+      net.hostId !== this.tookOverFrom
+    )
+      this.forcedHost = false;
+
     if (this.amHost) {
       this.becomeHostIfNeeded();
       this.reconcileOnlineHeroes();
@@ -696,6 +742,47 @@ export class GameScene extends Phaser.Scene {
       const me = this.player;
       if (me) this.view.playerTeam = me.team;
     }
+  }
+
+  /** Sample the broadcast snapshot's sim rate over ~2s windows. A healthy host
+   *  advances gameTime at ~1×; a throttled/backgrounded one crawls (<0.5×) and an
+   *  ended/frozen one is 0. Counts consecutive slow windows. */
+  private sampleHostLiveness(net: MultiplayerClient): void {
+    const snap = net.sharedState["snap"];
+    if (!isSnapshot(snap)) return;
+    const gt = snap.gameTime;
+    const now = this.time.now;
+    if (this.rateAt0 === 0) {
+      this.rateAt0 = now;
+      this.rateGameTime0 = gt;
+      return;
+    }
+    if (now - this.rateAt0 >= 2000) {
+      const rate = (gt - this.rateGameTime0) / ((now - this.rateAt0) / 1000);
+      this.slowWindows = rate < 0.5 ? this.slowWindows + 1 : 0;
+      this.rateAt0 = now;
+      this.rateGameTime0 = gt;
+    }
+  }
+
+  /** Should we seize a stalled host's room? True when the snapshot is ended, or
+   *  has run slow for two windows (~4s), AND we're the elected candidate. */
+  private shouldTakeOverHost(net: MultiplayerClient): boolean {
+    const snap = net.sharedState["snap"];
+    const ended = isSnapshot(snap) && snap.phase === "ended";
+    if (!ended && this.slowWindows < 2) return false;
+    return this.isTakeoverCandidate(net);
+  }
+
+  /** Exactly one client takes over: the lowest-id connected player that ISN'T the
+   *  (stale) host — deterministic, so peers don't all reseed at once. */
+  private isTakeoverCandidate(net: MultiplayerClient): boolean {
+    const me = net.playerId;
+    if (!me) return false;
+    const others = Object.keys(net.players).filter((id) => id !== net.hostId);
+    if (others.length === 0) return true;
+    others.sort();
+    return me === others[0];
   }
 
   private broadcast(dt: number): void {
