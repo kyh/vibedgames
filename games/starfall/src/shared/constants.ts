@@ -357,9 +357,10 @@ export const WEAPON_DEFAULT: Weapon = {
 };
 
 /** Your BASE weapon at a given level: an upgraded NORMAL BEAM (more power, faster
- *  cadence, +width and a 2-pellet spread at the top, a rear mirror shot at the
- *  cap). Tuned to stay a clear notch BELOW the special weapons — picking up a
- *  special is always still an upgrade — so the level power gap stays narrow.
+ *  cadence, +width and an extra forward pellet per level). Tuned to stay a clear
+ *  notch BELOW the special weapons — picking up a special is always still an
+ *  upgrade — so the level power gap stays narrow. All pellets fire FORWARD; the
+ *  level count is the pellet count (L1 → 1, L2 → 2, L3 → 3) fanned tightly.
  *  Specials override temporarily; on expiry/respawn you revert to THIS, not L1. */
 export function baseWeaponForLevel(level: number): Weapon {
   const L = Math.max(1, Math.min(LEVEL_CAP, Math.round(level)));
@@ -372,10 +373,10 @@ export function baseWeaponForLevel(level: number): Weapon {
     power,
     intervalMs,
     width: L >= 3 ? 2 : 1,
-    pellets: L >= 3 ? 2 : 1, // L3 (cap): a tight 2-shot spread for crowd clear
-    spreadDeg: L >= 3 ? 6 : 0,
+    pellets: L, // L1 → 1, L2 → 2, L3 → 3 forward shots
+    spreadDeg: (L - 1) * 7, // tight forward fan: L2 7°, L3 14° (center stays straight)
     jitterDeg: L >= 3 ? 2 : 1,
-    mirror: L >= 3, // capstone: a rear shot like MIRROR
+    mirror: false, // base weapon never fires backward
     tint,
     sfx: "pulse",
   };
