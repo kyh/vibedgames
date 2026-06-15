@@ -141,7 +141,9 @@ export class BootScene extends Phaser.Scene {
       frameHeight: UNIT,
     });
     this.load.spritesheet("fx-fire", "assets/fx/fire.png", { frameWidth: 128, frameHeight: 128 });
-    this.load.image("fx-arrow", "assets/fx/arrow.png");
+    // arrow.png is a 64×64 2-frame strip (arrow + tail); frame 0 is the full
+    // arrow, pointing EAST. Load as a sheet so we draw one clean arrow.
+    this.load.spritesheet("fx-arrow", "assets/fx/arrow.png", { frameWidth: 64, frameHeight: 64 });
     // particle FX: walk dust, building flames, cartoon explosions, splash
     this.load.spritesheet("fx-dust1", "assets/fx/dust1.png", { frameWidth: 64, frameHeight: 64 });
     this.load.spritesheet("fx-dust2", "assets/fx/dust2.png", { frameWidth: 64, frameHeight: 64 });
@@ -233,13 +235,19 @@ export class BootScene extends Phaser.Scene {
     g.clear();
 
     // a thrown bomb: dark sphere + highlight + a lit fuse spark (dynamite projectile)
-    g.fillStyle(0x2a2622, 1).fillCircle(16, 19, 12);
-    g.fillStyle(0x3c3630, 1).fillCircle(16, 19, 10);
-    g.fillStyle(0x6a625a, 0.9).fillCircle(12, 15, 3.5); // rim highlight
-    g.fillStyle(0x7a5a3a, 1).fillRect(15, 4, 3, 7); // fuse
-    g.fillStyle(0xffd24d, 1).fillCircle(16, 4, 3); // spark
-    g.fillStyle(0xfff3c0, 1).fillCircle(16, 4, 1.6);
-    g.generateTexture("bomb", 32, 32);
+    // thrown bomb (boomtinker dynamite): a round iron ball on a soft warm glow,
+    // with a lit fuse — reads clearly + lively against the map at small size.
+    const bx = 24;
+    for (let i = 7; i >= 1; i--) g.fillStyle(0xff9a3a, 0.07).fillCircle(bx, 26, (i / 7) * 22); // glow halo
+    g.fillStyle(0x14110e, 1).fillCircle(bx, 26, 13); // dark rim
+    g.fillStyle(0x33302b, 1).fillCircle(bx, 26, 11); // body
+    g.fillStyle(0x5a554c, 1).fillCircle(bx, 26, 7); // mid sheen
+    g.fillStyle(0xb8b2a4, 0.95).fillCircle(bx - 4, 21, 3.2); // glossy highlight
+    g.fillStyle(0x6a4a2a, 1).fillRect(bx - 1, 8, 3, 9); // fuse
+    for (let i = 5; i >= 1; i--) g.fillStyle(0xffb43a, 0.22).fillCircle(bx + 1, 7, i); // spark glow
+    g.fillStyle(0xffe066, 1).fillCircle(bx + 1, 7, 3);
+    g.fillStyle(0xfff6d0, 1).fillCircle(bx + 1, 6, 1.6); // hot core
+    g.generateTexture("bomb", 48, 48);
     g.clear();
 
     // 1×1 white pixel for tints / bars / rect fills.

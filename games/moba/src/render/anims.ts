@@ -172,8 +172,10 @@ export function registerAnims(scene: Phaser.Scene): void {
   if (scene.textures.exists("sp-fireball") && !scene.anims.exists("sp-fireball-fly")) {
     scene.anims.create({
       key: "sp-fireball-fly",
-      frames: scene.anims.generateFrameNumbers("sp-fireball", { start: 3, end: 8 }),
-      frameRate: 18,
+      // formed-ball frames only (skip the small grow-in 0-4 and the burst 9+) so
+      // the projectile holds a steady size with a flickering tail instead of pulsing
+      frames: scene.anims.generateFrameNumbers("sp-fireball", { start: 5, end: 8 }),
+      frameRate: 16,
       repeat: -1,
     });
   }

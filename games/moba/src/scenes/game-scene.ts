@@ -485,17 +485,23 @@ export class GameScene extends Phaser.Scene {
     else this.cmd({ kind: "order", order: { type: "move", to: { x: wp.x, y: wp.y } } });
   }
 
-  /** Cast an ability, aimed entirely from the keyboard. */
+  /** Cast an ability, aimed at the mouse cursor (any direction, incl. diagonals).
+   *  Keyboard players who steer with the arrow keys free-aim along their facing. */
   castSlot(key: AbilityKey): void {
     const me = this.player;
     if (!me || !me.alive || !me.hero || this.uiBlocking) return;
     const def = HERO_BY_ID[me.hero.defId]?.abilities[key];
     if (!def) return;
+    const cursor = this.cam.getWorldPoint(this.input.activePointer.x, this.input.activePointer.y);
     if (def.targeting === "unit") {
       const wantAlly = def.effect === "brewkeeper:Q";
-      const target = wantAlly
-        ? (this.lowestAllyInRange(me, def.castRange) ?? me)
-        : this.nearestEnemy(me, def.castRange);
+      // prefer the unit under the cursor; fall back to the obvious auto-target
+      const hovered = this.unitAt(cursor.x, cursor.y, (u) =>
+        wantAlly ? !isEnemy(me, u) && u.kind === "hero" && u.alive : isEnemy(me, u) && u.alive,
+      );
+      const target =
+        hovered ??
+        (wantAlly ? (this.lowestAllyInRange(me, def.castRange) ?? me) : this.nearestEnemy(me, def.castRange));
       if (target) this.cmd({ kind: "cast", key, targetId: target.id });
     } else if (def.targeting === "point") {
       const r = def.castRange;
@@ -503,14 +509,14 @@ export class GameScene extends Phaser.Scene {
       if (r <= 0) {
         point = { x: me.x, y: me.y }; // self-centred (e.g. Last Call)
       } else if (this.lastDir.dx !== 0 || this.lastDir.dy !== 0) {
-        // FREE-AIM: while moving, fire along the direction you're steering
+        // keyboard steering: fire along the direction you're holding
         point = { x: me.x + this.aimDir.x * r, y: me.y + this.aimDir.y * r };
       } else {
-        // stationary: soft auto-aim at the nearest enemy in range, else last facing
-        const foe = this.nearestEnemy(me, r);
-        point = foe
-          ? { x: foe.x, y: foe.y }
-          : { x: me.x + this.aimDir.x * r, y: me.y + this.aimDir.y * r };
+        // aim at the cursor, clamped to cast range
+        const dx = cursor.x - me.x;
+        const dy = cursor.y - me.y;
+        const d = Math.hypot(dx, dy);
+        point = d > r && d > 0 ? { x: me.x + (dx / d) * r, y: me.y + (dy / d) * r } : cursor;
       }
       this.cmd({ kind: "cast", key, point });
     } else {

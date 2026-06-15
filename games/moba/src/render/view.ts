@@ -1259,14 +1259,15 @@ export class WorldView {
       let img = this.projs.get(p.id);
       if (!img) {
         if (p.kind === "fireball" && this.scene.anims.exists("sp-fireball-fly")) {
-          // formed flying fireball (no mid-air explosion); rotated to face travel
-          const fb = this.scene.add.sprite(p.x, p.y, "sp-fireball", 3).setScale(0.85);
+          // formed flying fireball (steady-size frames, no grow/explode); faces travel
+          const fb = this.scene.add.sprite(p.x, p.y, "sp-fireball", 6).setScale(0.8);
           fb.play("sp-fireball-fly");
           img = fb;
         } else if (p.kind === "dynamite") {
-          img = this.scene.add.image(p.x, p.y, "bomb").setScale(0.95);
+          img = this.scene.add.image(p.x, p.y, "bomb").setScale(0.6);
         } else {
-          img = this.scene.add.image(p.x, p.y, projTex(p)).setScale(0.7);
+          // arrow/bolt/tower share the arrow sheet — frame 0 is the full arrow
+          img = this.scene.add.image(p.x, p.y, projTex(p), 0).setScale(0.7);
           if (p.kind === "bolt") img.setTint(0xb98bff); // magic bolts read distinct from arrows
         }
         img.setDepth(p.y + 200);
@@ -1275,10 +1276,10 @@ export class WorldView {
       img.setPosition(p.x, p.y);
       img.setDepth(p.y + 200);
       const ang = Math.atan2(p.ty - p.y, p.tx - p.x);
-      if (p.kind === "arrow" || p.kind === "bolt") img.setRotation(ang + Math.PI / 2);
-      else if (p.kind === "fireball") img.setRotation(ang); // tail trails behind the head
-      else if (p.kind === "dynamite") img.setRotation(img.rotation + 0.4); // tumble
-      else img.setRotation(0);
+      // arrow/bolt/tower art and the fireball both point EAST (+x) natively → face travel
+      if (p.kind === "arrow" || p.kind === "bolt" || p.kind === "fireball" || p.kind === "tower")
+        img.setRotation(ang);
+      else img.setRotation(0); // dynamite stays upright so its lit fuse reads
     }
     for (const [id, img] of this.projs)
       if (!seen.has(id)) {
