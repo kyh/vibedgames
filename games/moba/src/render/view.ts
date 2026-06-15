@@ -3,6 +3,7 @@ import Phaser from "phaser";
 import {
   BASES,
   BRIDGES,
+  CELL,
   ELEV_LIFT,
   GRID,
   NEUTRAL_CAMPS,
@@ -19,12 +20,12 @@ import {
 } from "../data/map";
 import type { Team } from "../data/config";
 import type { World, Unit, Projectile, GroundEffect, FxEvent } from "../sim/types";
+import { CLIFF_FRAMES, FLAT_AUTOTILE, SLOPE_FRAMES, autotileFrame, autotileMask } from "./autotile";
 import { sfx } from "./audio";
 import { FONT } from "./font";
 import { abilityCastFx, effectColor, groundFxKind } from "./fx-map";
 import { animKey, structureDestroyedTex, unitSprite } from "./sprites";
 
-const CELL = 64;
 const COLS = GRID.cols;
 const ROWS = GRID.rows;
 
@@ -48,42 +49,8 @@ const D_BRIDGE_SHADOW = -89;
 const D_BRIDGE = -84; // minus a per-strip index (northern strips on top), stays above the shadow
 const DEPTH_DECAL = -50;
 
-// Terrain tileset autotile (9-wide sheet) — same mapping the ?gallery=map
-// showcase rebuild uses, verified tile-by-tile. Keyed by which
-// orthogonal neighbours are OUTSIDE the set: N=8,E=4,S=2,W=1.
-const FLAT_TILE: Record<number, number> = {
-  0: 10,
-  8: 1,
-  4: 11,
-  2: 19,
-  1: 9,
-  9: 0,
-  12: 2,
-  3: 18,
-  6: 20,
-  5: 12,
-  10: 28,
-  13: 3,
-  7: 21,
-  11: 27,
-  14: 29,
-  15: 30,
-};
-// Elevated grass is the identical autotile shifted 5 columns right.
-const ELEV_TILE: Record<number, number> = Object.fromEntries(
-  Object.entries(FLAT_TILE).map(([k, v]) => [Number(k), v + 5]),
-);
-// Stone cliff face tiles under a plateau's south edge (single-tile wall — the
-// grass-lipped top row of the tileset's cliff block).
-const CLIFF = {
-  topL: 41,
-  topM: 42,
-  topR: 43,
-  topNarrow: 44,
-};
-// Diagonal grass slope tiles for SIDE ramps (top row + bottom row). The "right"
-// slope (descends to the east) fronts a ramp climbed westward; "left" the mirror.
-const SLOPE = { rightTop: 39, rightBot: 48, leftTop: 36, leftBot: 45 };
+// Terrain autotile tables (flat/elevated grass), cliff + slope frames live in
+// ./autotile — the single source shared with the ?ui=map gallery.
 // Bridge_All frames: 0/1/2 = horizontal left-cap/middle/right-cap, 11 = shadow.
 const BRIDGE_L = 0;
 const BRIDGE_M = 1;
@@ -348,12 +315,7 @@ export class WorldView {
           row.push(-1);
           continue;
         }
-        const k =
-          (out(cx, cy - 1) ? 8 : 0) |
-          (out(cx + 1, cy) ? 4 : 0) |
-          (out(cx, cy + 1) ? 2 : 0) |
-          (out(cx - 1, cy) ? 1 : 0);
-        row.push((elevated ? ELEV_TILE[k] : FLAT_TILE[k]) ?? (elevated ? 15 : 10));
+        row.push(autotileFrame(elevated, autotileMask(out, cx, cy)));
       }
       data.push(row);
     }
@@ -396,12 +358,12 @@ export class WorldView {
           !isHighCell(cx + 1, cy) || isHighCell(cx + 1, cy + 1) || isRampCell(cx + 1, cy + 1);
         const narrow = leftEnd && rightEnd;
         const tile = narrow
-          ? CLIFF.topNarrow
+          ? CLIFF_FRAMES.topNarrow
           : leftEnd
-            ? CLIFF.topL
+            ? CLIFF_FRAMES.topL
             : rightEnd
-              ? CLIFF.topR
-              : CLIFF.topM;
+              ? CLIFF_FRAMES.topR
+              : CLIFF_FRAMES.topM;
         const wallTopY = (cy + 1) * CELL - LIFT;
         s.add.ellipse(cxp, wallTopY + CELL + 2, CELL + 10, 16, 0x05080e, 0.3).setDepth(D_SHADOW);
         // a natural-height tile from the lifted lip; its base laps slightly past the
@@ -417,7 +379,7 @@ export class WorldView {
   private buildRamps(): void {
     const s = this.scene;
     if (!s.textures.exists("tiles-img") || !s.textures.exists("tiles")) return;
-    const FILL = FLAT_TILE[0] ?? 10; // grass interior, to back-fill the slope
+    const FILL = FLAT_AUTOTILE[0] ?? 10; // grass interior, to back-fill the slope
     for (let cy = 0; cy < ROWS; cy++) {
       for (let cx = 0; cx < COLS; cx++) {
         const r = rampAt(cx, cy);
@@ -436,11 +398,11 @@ export class WorldView {
         const tile =
           cy === r.y0
             ? left
-              ? SLOPE.leftTop
-              : SLOPE.rightTop
+              ? SLOPE_FRAMES.leftTop
+              : SLOPE_FRAMES.rightTop
             : left
-              ? SLOPE.leftBot
-              : SLOPE.rightBot;
+              ? SLOPE_FRAMES.leftBot
+              : SLOPE_FRAMES.rightBot;
         s.add
           .image(cxp, cy * CELL - lift, "tiles", tile)
           .setOrigin(0.5, 0)
@@ -1019,6 +981,14 @@ export class WorldView {
     }
   }
 
+  /** Drop every unit sprite immediately, with no death animation. The showcase
+   *  uses this when swapping subjects — a character swap isn't a death, so the
+   *  default "unit vanished → death pop" path would litter the stage with skulls. */
+  clearUnitViews(): void {
+    for (const [, v] of this.units) v.container.destroy();
+    this.units.clear();
+  }
+
   /** Hero attack flourish: a sweeping slash arc for melee, a muzzle spark for
    *  ranged — drawn in the facing direction so swings read as deliberate hits. */
   private spawnSwing(x: number, y: number, facing: number, ranged: boolean): void {
@@ -1042,9 +1012,13 @@ export class WorldView {
       });
       return;
     }
-    // melee: a thin bright arc that sweeps down-forward, fading fast
+    // melee: a thin bright arc that sweeps down-forward, fading fast. Position the
+    // graphics AT the swing point and draw the arc at its local origin — drawing at
+    // absolute coords and then scaling would pivot around (0,0) and slide the slice
+    // clear across the screen.
     const g = s.add
       .graphics()
+      .setPosition(cx, cy)
       .setDepth(y + 60)
       .setBlendMode(Phaser.BlendModes.ADD);
     const baseAng = facing >= 0 ? -0.9 : Math.PI + 0.9;
@@ -1052,11 +1026,11 @@ export class WorldView {
     const r = 46;
     g.lineStyle(6, 0xffffff, 0.85);
     g.beginPath();
-    g.arc(cx, cy, r, baseAng, baseAng + sweep, sweep < 0);
+    g.arc(0, 0, r, baseAng, baseAng + sweep, sweep < 0);
     g.strokePath();
     g.lineStyle(2, 0xbfe6ff, 0.9);
     g.beginPath();
-    g.arc(cx, cy, r + 5, baseAng, baseAng + sweep, sweep < 0);
+    g.arc(0, 0, r + 5, baseAng, baseAng + sweep, sweep < 0);
     g.strokePath();
     g.setScale(0.7);
     s.tweens.add({
@@ -1609,7 +1583,8 @@ export class WorldView {
         });
         // self/aura cast bursts (windfoot, flashfire, powder keg, blink puff…)
         const spec = abilityCastFx(fx.effect);
-        if (spec && spec.at === "caster") this.spawnSpellSprite(fx.x, fx.y, spec.sheet, spec.scale, spec.tint);
+        if (spec && spec.at === "caster")
+          this.spawnSpellSprite(fx.x, fx.y, spec.sheet, spec.scale, spec.tint);
         break;
       }
       case "ability": {
@@ -1694,7 +1669,14 @@ export class WorldView {
     // a little crackle along the bolt
     for (let i = 1; i <= 4; i++) {
       const t = i / 5;
-      this.spawnHitSparks(x1 + (x2 - x1) * t, y1 + (y2 - y1) * t, Math.cos(ang + 1.6), Math.sin(ang + 1.6), col, false);
+      this.spawnHitSparks(
+        x1 + (x2 - x1) * t,
+        y1 + (y2 - y1) * t,
+        Math.cos(ang + 1.6),
+        Math.sin(ang + 1.6),
+        col,
+        false,
+      );
     }
   }
 
@@ -1710,13 +1692,27 @@ export class WorldView {
       .setAlpha(0.5)
       .setDepth(y + 200)
       .setScale(sc * 0.6);
-    s.tweens.add({ targets: g, scale: sc, alpha: 0, duration: 360, ease: "Quad.Out", onComplete: () => g.destroy() });
+    s.tweens.add({
+      targets: g,
+      scale: sc,
+      alpha: 0,
+      duration: 360,
+      ease: "Quad.Out",
+      onComplete: () => g.destroy(),
+    });
     const ring = s.add
       .circle(x, y, r, col, 0)
       .setStrokeStyle(3, col, 0.45)
       .setDepth(y + 201)
       .setScale(0.5);
-    s.tweens.add({ targets: ring, scale: 1.05, alpha: 0, duration: 380, ease: "Quad.Out", onComplete: () => ring.destroy() });
+    s.tweens.add({
+      targets: ring,
+      scale: 1.05,
+      alpha: 0,
+      duration: 380,
+      ease: "Quad.Out",
+      onComplete: () => ring.destroy(),
+    });
   }
 }
 

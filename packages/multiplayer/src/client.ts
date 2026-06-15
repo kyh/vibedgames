@@ -30,6 +30,14 @@ export type MultiplayerSnapshot = {
 
 type Listener = () => void;
 
+/** rAF/cAF are browser-only, but this SDK is also bundled where the DOM lib is
+ *  absent (the party Worker typechecks this source). Reach them through a
+ *  structurally-typed view of globalThis so no DOM lib is required. */
+const rafHost: typeof globalThis & {
+  requestAnimationFrame?: (cb: (time: number) => void) => number;
+  cancelAnimationFrame?: (handle: number) => void;
+} = globalThis;
+
 /**
  * Framework-agnostic multiplayer client.
  *
@@ -96,12 +104,14 @@ export class MultiplayerClient {
         if (this._connectionStatus === "connected") this.send({ type: "heartbeat" });
       }
     };
-    if (typeof requestAnimationFrame === "function") {
+    // bind to the host so browsers don't throw "Illegal invocation" on a detached rAF
+    const raf = rafHost.requestAnimationFrame ? rafHost.requestAnimationFrame.bind(rafHost) : null;
+    if (raf) {
       const loop = (t: number): void => {
-        this.heartbeatRaf = requestAnimationFrame(loop);
+        this.heartbeatRaf = raf(loop);
         ping(t);
       };
-      this.heartbeatRaf = requestAnimationFrame(loop);
+      this.heartbeatRaf = raf(loop);
     } else {
       // non-browser fallback (SSR/tests) — liveness isn't meaningful there anyway
       this.heartbeatTimer = setInterval(() => {
@@ -238,8 +248,8 @@ export class MultiplayerClient {
 
   /** Disconnect and clean up. */
   destroy(): void {
-    if (this.heartbeatRaf !== null && typeof cancelAnimationFrame === "function") {
-      cancelAnimationFrame(this.heartbeatRaf);
+    if (this.heartbeatRaf !== null) {
+      rafHost.cancelAnimationFrame?.(this.heartbeatRaf);
       this.heartbeatRaf = null;
     }
     if (this.heartbeatTimer !== null) {

@@ -11,6 +11,9 @@ import type { Vec2 } from "../sim/math";
 
 export const WORLD = { width: 4096, height: 3072, cell: 64 };
 export const GRID = { cols: 64, rows: 48 };
+/** Tile/cell size in px — the single source for every terrain grid (renderer +
+ *  gallery import this instead of re-declaring a `64` literal). */
+export const CELL = WORLD.cell;
 
 const C = WORLD.cell;
 const COLS = GRID.cols;

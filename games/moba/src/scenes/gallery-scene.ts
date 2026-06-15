@@ -1,6 +1,10 @@
 import Phaser from "phaser";
 
-// Asset showcase pages (reachable via ?gallery=units|terrain|fx) that present
+import { CELL } from "../data/map";
+import { CLIFF_FRAMES, SLOPE_FRAMES, autotileFrame, autotileMask } from "../render/autotile";
+import { buildGalleryNav } from "./gallery-nav";
+
+// Asset showcase pages (reachable via ?ui=units|terrain|fx) that present
 // the game's asset sections in isolation — a viewer to verify every sprite,
 // animation, and terrain tile renders correctly before composing the live game.
 
@@ -19,52 +23,10 @@ const UNIT_SUBJECTS: Subject[] = [
 ];
 const UNIT_ANIMS = ["idle", "walk", "attack", "death"] as const;
 
-// --- showcase battlefield (?gallery=map): a composed example map, to learn how
-// terrain + cliffs + buildings + units + props
-// compose. CELL/autotile maps mirror render/view.ts so the gallery and the live
-// game render terrain identically.
-const CELL = 64;
-
-// Terrain tileset (9-wide, 54 tiles), numbered 1-indexed in the comments below
-// (→ 0-indexed frame here). Flat grass = cols 0-3 rows 0-3; the 3×3
-// core (cells 1-9) handles corners/edges/centre, col 3 (13-15) = vertical strip,
-// row 3 (10-12) = horizontal strip, 16 = isolated. Keyed by which orthogonal
-// neighbours are OUTSIDE (water for flat, lower for elevated): N=8,E=4,S=2,W=1.
-const FP_FLAT: Record<number, number> = {
-  0: 10, // centre (cell 5)
-  8: 1, // N edge (2)
-  4: 11, // E edge (6)
-  2: 19, // S edge (8)
-  1: 9, // W edge (4)
-  9: 0, // N+W corner (1)
-  12: 2, // N+E corner (3)
-  3: 18, // S+W corner (7)
-  6: 20, // S+E corner (9)
-  5: 12, // E+W → vertical mid (14)
-  10: 28, // N+S → horizontal mid (11)
-  13: 3, // N+E+W → vertical top end (13)
-  7: 21, // S+E+W → vertical bottom end (15)
-  11: 27, // N+S+W → horizontal left end (10)
-  14: 29, // N+S+E → horizontal right end (12)
-  15: 30, // all → isolated (16)
-};
-// Elevated grass is the identical autotile shifted to cols 5-8 (frame + 5).
-const FP_ELEV: Record<number, number> = Object.fromEntries(
-  Object.entries(FP_FLAT).map(([k, v]) => [Number(k), v + 5]),
-);
-// Cliff (elevated rows 4-5): cells 17-19/21-23 = wide top/bottom, 20/24 = narrow (1-wide).
-const FP_CLIFF = {
-  topL: 41,
-  topM: 42,
-  topR: 43,
-  topNarrow: 44,
-  botL: 50,
-  botM: 51,
-  botR: 52,
-  botNarrow: 53,
-};
-// Stairs: left ramp = 36(top)/45(bottom), right ramp = 39(top)/48(bottom).
-const FP_STAIR = { topL: 36, botL: 45, topR: 39, botR: 48 };
+// --- showcase battlefield (?ui=map): a composed example map, to learn how
+// terrain + cliffs + buildings + units + props compose. CELL + the autotile/cliff/
+// slope frame tables come from the shared sources (data/map + render/autotile), so
+// the gallery and the live game render terrain identically with no hand-sync.
 
 // Island footprint (1 = grass, 0 = water), 25×19 @ 64px.
 const MAP_MASK = [
@@ -119,25 +81,21 @@ export class GalleryScene extends Phaser.Scene {
     }
     if (this.section === "map") {
       this.buildMapPage();
+      buildGalleryNav(this, "map");
       return;
     }
 
     const W = this.scale.width;
     this.add
-      .text(W / 2, 26, `ELDERMOOR — ${this.section.toUpperCase()}`, {
-        fontSize: "26px",
+      .text(W / 2, 64, `ELDERMOOR — ${this.section.toUpperCase()}`, {
+        fontSize: "20px",
         color: "#fff8e0",
         fontStyle: "bold",
         stroke: "#234",
-        strokeThickness: 5,
+        strokeThickness: 4,
       })
       .setOrigin(0.5);
-    this.add
-      .text(W / 2, 54, "?gallery=units · terrain · fx · map", {
-        fontSize: "13px",
-        color: "#cfeae6",
-      })
-      .setOrigin(0.5);
+    buildGalleryNav(this, this.section);
 
     if (this.section === "terrain") this.buildTerrainPage();
     else if (this.section === "fx") this.buildFxPage();
@@ -416,28 +374,14 @@ export class GalleryScene extends Phaser.Scene {
     if (!this.textures.exists("sc-tiles-img")) return;
     const inSet = (cx: number, cy: number): boolean =>
       elevated ? this.high(cx, cy) : this.land(cx, cy) && !this.high(cx, cy);
-    const mask = (cx: number, cy: number): number => {
-      // a flat cell borders WATER (non-land); an elevated cell borders any non-high
-      const out = (ax: number, ay: number): boolean =>
-        elevated ? !this.high(ax, ay) : !this.land(ax, ay);
-      return (
-        (out(cx, cy - 1) ? 8 : 0) |
-        (out(cx + 1, cy) ? 4 : 0) |
-        (out(cx, cy + 1) ? 2 : 0) |
-        (out(cx - 1, cy) ? 1 : 0)
-      );
-    };
+    // a flat cell borders WATER (non-land); an elevated cell borders any non-high
+    const out = (cx: number, cy: number): boolean =>
+      elevated ? !this.high(cx, cy) : !this.land(cx, cy);
     const data: number[][] = [];
     for (let cy = 0; cy < rows; cy++) {
       const row: number[] = [];
       for (let cx = 0; cx < cols; cx++)
-        row.push(
-          inSet(cx, cy)
-            ? elevated
-              ? (FP_ELEV[mask(cx, cy)] ?? 15)
-              : (FP_FLAT[mask(cx, cy)] ?? 10)
-            : -1,
-        );
+        row.push(inSet(cx, cy) ? autotileFrame(elevated, autotileMask(out, cx, cy)) : -1);
       data.push(row);
     }
     const map = this.make.tilemap({ data, tileWidth: CELL, tileHeight: CELL });
@@ -509,8 +453,8 @@ export class GalleryScene extends Phaser.Scene {
       [13, 14, "R"],
     ];
     for (const [tx, ty, side] of stairs) {
-      const top = side === "L" ? FP_STAIR.topL : FP_STAIR.topR;
-      const bot = side === "L" ? FP_STAIR.botL : FP_STAIR.botR;
+      const top = side === "L" ? SLOPE_FRAMES.leftTop : SLOPE_FRAMES.rightTop;
+      const bot = side === "L" ? SLOPE_FRAMES.leftBot : SLOPE_FRAMES.rightBot;
       this.add.image(tx * CELL + CELL / 2, ty * CELL + CELL / 2, "sc-tiles", top).setDepth(-845);
       this.add
         .image(tx * CELL + CELL / 2, (ty + 1) * CELL + CELL / 2, "sc-tiles", bot)
@@ -532,19 +476,19 @@ export class GalleryScene extends Phaser.Scene {
         const rightEnd = !this.high(cx + 1, cy) || this.high(cx + 1, cy + 1);
         const narrow = leftEnd && rightEnd;
         const top = narrow
-          ? FP_CLIFF.topNarrow
+          ? CLIFF_FRAMES.topNarrow
           : leftEnd
-            ? FP_CLIFF.topL
+            ? CLIFF_FRAMES.topL
             : rightEnd
-              ? FP_CLIFF.topR
-              : FP_CLIFF.topM;
+              ? CLIFF_FRAMES.topR
+              : CLIFF_FRAMES.topM;
         const bot = narrow
-          ? FP_CLIFF.botNarrow
+          ? CLIFF_FRAMES.botNarrow
           : leftEnd
-            ? FP_CLIFF.botL
+            ? CLIFF_FRAMES.botL
             : rightEnd
-              ? FP_CLIFF.botR
-              : FP_CLIFF.botM;
+              ? CLIFF_FRAMES.botR
+              : CLIFF_FRAMES.botM;
         this.add.image(cxp, (cy + 1) * CELL + CELL / 2, "sc-tiles", top).setDepth(-850);
         this.add.image(cxp, (cy + 2) * CELL + CELL / 2, "sc-tiles", bot).setDepth(-850);
       }

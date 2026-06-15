@@ -43,7 +43,7 @@ export class BootScene extends Phaser.Scene {
 
     // --- terrain ---
     // The live map renders with the terrain tileset (flat + elevated autotile,
-    // cliffs, stairs) — the same sheet the ?gallery=map showcase composes
+    // cliffs, stairs) — the same sheet the ?ui=map showcase composes
     // tile-by-tile.
     this.load.image("tiles-img", "assets/terrain/tiles.png");
     this.load.spritesheet("tiles", "assets/terrain/tiles.png", { frameWidth: 64, frameHeight: 64 });
@@ -63,7 +63,7 @@ export class BootScene extends Phaser.Scene {
       frameWidth: UNIT,
       frameHeight: UNIT,
     });
-    // kept for the ?gallery=terrain showcase
+    // kept for the ?ui=terrain showcase
     this.load.spritesheet("t-ground", "assets/terrain/ground_flat.png", {
       frameWidth: 64,
       frameHeight: 64,
@@ -212,9 +212,18 @@ export class BootScene extends Phaser.Scene {
     // (imported lazily to keep BootScene's compile surface small)
     void import("../render/anims").then(({ registerAnims }) => {
       registerAnims(this);
-      // ?gallery=units|terrain|fx opens an asset showcase instead of the menu
-      const gallery = new URLSearchParams(window.location.search).get("gallery");
-      this.scene.start(gallery ? "Gallery" : "Menu", { section: gallery });
+      // Everything dev-facing is nested under ?ui: bare ?ui opens the UI hub (the
+      // character/bot showcase); ?ui=units|terrain|fx|map opens that asset page.
+      // No param → the menu.
+      const params = new URLSearchParams(window.location.search);
+      if (params.has("ui")) {
+        const sub = params.get("ui") ?? "";
+        const SECTIONS = ["units", "terrain", "fx", "map"];
+        if (SECTIONS.includes(sub)) this.scene.start("Gallery", { section: sub });
+        else this.scene.start("Showcase");
+      } else {
+        this.scene.start("Menu");
+      }
     });
   }
 

@@ -145,7 +145,7 @@ function spawnStructures(w: World): void {
   updateStructureGating(w);
 }
 
-function baseUnit(
+export function baseUnit(
   id: string,
   kind: Unit["kind"],
   team: Team,
@@ -317,7 +317,7 @@ type NeutralStat = {
   xp: number;
   radius: number;
 };
-const N_SMALL: NeutralStat = {
+export const N_SMALL: NeutralStat = {
   hp: 240,
   damage: 20,
   armor: 2,
@@ -329,7 +329,7 @@ const N_SMALL: NeutralStat = {
   xp: 38,
   radius: 26,
 };
-const N_LARGE: NeutralStat = {
+export const N_LARGE: NeutralStat = {
   hp: 720,
   damage: 36,
   armor: 5,
@@ -341,7 +341,7 @@ const N_LARGE: NeutralStat = {
   xp: 95,
   radius: 34,
 };
-const N_BOSS: NeutralStat = {
+export const N_BOSS: NeutralStat = {
   hp: 4200,
   damage: 95,
   armor: 12,

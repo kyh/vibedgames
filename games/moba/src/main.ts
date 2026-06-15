@@ -5,6 +5,7 @@ import { GalleryScene } from "./scenes/gallery-scene";
 import { GameScene } from "./scenes/game-scene";
 import { HudScene } from "./scenes/hud-scene";
 import { MenuScene } from "./scenes/menu-scene";
+import { ShowcaseScene } from "./scenes/showcase-scene";
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.WEBGL,
@@ -20,7 +21,7 @@ const config: Phaser.Types.Core.GameConfig = {
   // GameScene owns its own pointer handling; disable the right-click menu so
   // right-click can drive move orders the way a MOBA expects.
   disableContextMenu: true,
-  scene: [BootScene, MenuScene, GameScene, HudScene, GalleryScene],
+  scene: [BootScene, MenuScene, GameScene, HudScene, GalleryScene, ShowcaseScene],
 };
 
 // The display font must be resolved before any Phaser Text is created, or those
