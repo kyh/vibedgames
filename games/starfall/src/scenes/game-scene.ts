@@ -326,7 +326,7 @@ const MULTIPLAYER_HOST = import.meta.env.DEV
 
 // Fresh room name per shared-state shape change (v4 adds `pulls`): old
 // deployed clients can't pollute this build's world.
-const ROOM = "astroid-arena-v4";
+const ROOM = "starfall-arena-v4";
 
 const DEG = Math.PI / 180;
 /** ARC per-hop falloff for victim-side chain drains. SerializedBeam carries
@@ -4711,7 +4711,7 @@ export class GameScene extends Phaser.Scene {
 
   private installDevHooks(): void {
     if (!import.meta.env.DEV) return;
-    (window as unknown as { __astroid?: unknown }).__astroid = {
+    (window as unknown as { __starfall?: unknown }).__starfall = {
       scene: this,
       client: this.client,
       /** Host only: spawn an enemy near (or at) the given point. */

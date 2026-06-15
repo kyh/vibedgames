@@ -1,4 +1,4 @@
-// Synthesized WebAudio SFX (zzfx-style, same engine as games/astroid): every
+// Synthesized WebAudio SFX (zzfx-style, same engine as games/starfall): every
 // sound is rendered once into an AudioBuffer at init and replayed via pooled
 // BufferSource nodes with ±6% pitch jitter. Tuned CUTE — sines and triangles,
 // soft attacks, music-box registers; nothing buzzes or booms. Unlocked on the
