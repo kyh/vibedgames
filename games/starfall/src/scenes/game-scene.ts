@@ -33,6 +33,7 @@ import {
   BASE_WORLD_W,
   baseRegenMult,
   baseWeaponForLevel,
+  scaleWeaponForLevel,
   playHeightForPlayers,
   playWidthForPlayers,
   BOOSTER_KINDS,
@@ -487,6 +488,9 @@ export class GameScene extends Phaser.Scene {
   private invulnUntil = 0;
   private weapon: Weapon = WEAPON_DEFAULT;
   private weaponUntil = 0;
+  /** Unscaled base of the held special (null on base weapon) — re-scaled per
+   *  level so specials grow with you without compounding. */
+  private specialBase: Weapon | null = null;
   private shootCooldown = 0;
   /** Levelling: you level by destroying things; XP is into the current level. */
   private level = 1;
@@ -594,7 +598,6 @@ export class GameScene extends Phaser.Scene {
   private streak = 0;
   private comboExpiresAt = 0;
   private comboTier = 1;
-  private sessionBest = 0;
 
   // boss (host-private; recomputed from the world each tick so migration adopts it)
   private bossAlive = false;
@@ -675,7 +678,6 @@ export class GameScene extends Phaser.Scene {
   private overlayEl: HTMLElement | null = null;
   private causeEl: HTMLElement | null = null;
   private hintEl: HTMLElement | null = null;
-  private replayEl: HTMLElement | null = null;
   private countdownEl: HTMLElement | null = null;
   private attractEl: HTMLElement | null = null;
 
@@ -701,7 +703,6 @@ export class GameScene extends Phaser.Scene {
     this.overlayEl = document.getElementById("overlay");
     this.causeEl = document.getElementById("cause");
     this.hintEl = document.getElementById("hint");
-    this.replayEl = document.getElementById("replay");
     this.countdownEl = document.getElementById("countdown");
     this.attractEl = document.getElementById("attract");
 
@@ -819,6 +820,7 @@ export class GameScene extends Phaser.Scene {
     this.tickShield(now, dt);
     // Special expired → revert to the CURRENT level's base weapon, not L1.
     if (this.weaponUntil !== 0 && now >= this.weaponUntil) {
+      this.specialBase = null;
       this.weapon = baseWeaponForLevel(this.level);
       this.weaponUntil = 0;
     }
@@ -2070,11 +2072,17 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  /** Set the level's shield-regen multiplier and, when no special is active,
-   *  the level's base weapon. Called on level-up, respawn, and special expiry. */
+  /** Apply the level's regen + weapon. A held special is re-scaled for the new
+   *  level (from its unscaled base, so it never compounds); otherwise the level
+   *  base weapon. Called on level-up, respawn, and special expiry. */
   private applyBaseLoadout(now: number): void {
     this.regenMult = baseRegenMult(this.level);
-    if (this.weaponUntil <= now) this.weapon = baseWeaponForLevel(this.level);
+    if (this.weaponUntil > now && this.specialBase) {
+      this.weapon = scaleWeaponForLevel(this.specialBase, this.level);
+    } else {
+      this.specialBase = null;
+      this.weapon = baseWeaponForLevel(this.level);
+    }
   }
 
   /** Death tax: lose XP_DEATH_PENALTY_FRAC of progress into the current level;
@@ -2681,6 +2689,7 @@ export class GameScene extends Phaser.Scene {
     // Death tax: lose XP (and maybe one level), then revert to the new level's
     // base weapon. Mod + boosters lost, combo resets.
     this.applyDeathXpPenalty();
+    this.specialBase = null;
     this.weapon = baseWeaponForLevel(this.level);
     this.weaponUntil = 0;
     this.regenMult = baseRegenMult(this.level);
@@ -2695,7 +2704,6 @@ export class GameScene extends Phaser.Scene {
     this.phasedUntil = 0;
     this.streak = 0;
     this.comboTier = 1;
-    this.sessionBest = Math.max(this.sessionBest, this.level);
     this.deathCause = cause;
     const count = (this.deathCounts.get(cause) ?? 0) + 1;
     this.deathCounts.set(cause, count);
@@ -2739,7 +2747,9 @@ export class GameScene extends Phaser.Scene {
             now + ITEM_STACK_CAP_MS,
           );
         } else {
-          this.weapon = weapon;
+          // Keep the unscaled base so a later level-up re-scales it (no compounding).
+          this.specialBase = weapon;
+          this.weapon = scaleWeaponForLevel(weapon, this.level);
           this.weaponUntil = now + SPECIAL_WEAPON_DURATION_MS; // replace resets the timer
           this.windupAcc = 0;
         }
@@ -4916,8 +4926,8 @@ export class GameScene extends Phaser.Scene {
 
   // ---- display-object factories ---------------------------------------------------------
 
-  /** Hull grows + gains detail per level (1..5): wings at L2, a cockpit at L3,
-   *  an inner frame at L4, nose spike + wingtip nodes at L5. */
+  /** Hull grows + gains detail per level (1..3): L2 adds swept wings + a
+   *  cockpit; L3 adds an inner frame, a nose spike + wingtip nodes. */
   private makeShipGfx(tint: number, level = 1): Phaser.GameObjects.Graphics {
     const g = this.add.graphics().setDepth(10);
     const L = Math.max(1, Math.min(LEVEL_CAP, Math.round(level)));
@@ -4925,24 +4935,20 @@ export class GameScene extends Phaser.Scene {
     g.lineStyle(1, tint, 1);
     strokeClosed(g, shipHullPoints(L));
     if (L >= 2) {
-      g.lineBetween(-2 * s, -3 * s, -9 * s, -7 * s);
+      g.lineBetween(-2 * s, -3 * s, -9 * s, -7 * s); // swept wings
       g.lineBetween(-2 * s, 3 * s, -9 * s, 7 * s);
+      g.fillStyle(tint, 0.9).fillCircle(2 * s, 0, 1.4 * s); // cockpit
     }
     if (L >= 3) {
-      g.fillStyle(tint, 0.9).fillCircle(2 * s, 0, 1.4 * s);
-    }
-    if (L >= 4) {
-      g.lineStyle(1, tint, 0.4);
+      g.lineStyle(1, tint, 0.4); // inner frame
       strokeClosed(
         g,
         shipHullPoints(L).map((p) => ({ x: p.x * 0.55, y: p.y * 0.55 })),
       );
       g.lineStyle(1, tint, 1);
-    }
-    if (L >= 5) {
-      g.lineBetween(SHIP_RADIUS * s, 0, (SHIP_RADIUS + 4) * s, 0);
+      g.lineBetween(SHIP_RADIUS * s, 0, (SHIP_RADIUS + 4) * s, 0); // nose spike
       g.fillStyle(0xffffff, 0.9);
-      g.fillCircle(-9 * s, -7 * s, 1.2 * s);
+      g.fillCircle(-9 * s, -7 * s, 1.2 * s); // wingtip nodes
       g.fillCircle(-9 * s, 7 * s, 1.2 * s);
     }
     return g;
@@ -5238,7 +5244,6 @@ export class GameScene extends Phaser.Scene {
     if (dead) {
       setText(this.causeEl, this.deathCause ? `— ${this.deathCause}` : "");
       setText(this.hintEl, this.deathHint);
-      setText(this.replayEl, `LEVEL ${this.level} — BEST ${this.sessionBest}`);
     }
     const secs = dead ? Math.max(0, Math.ceil((this.respawnAt - now) / 1000)) : 0;
     setText(this.countdownEl, secs > 0 ? `Respawning in ${secs}...` : "");
@@ -5299,7 +5304,8 @@ export class GameScene extends Phaser.Scene {
             ? WEAPONS_SPECIAL[ref]
             : WEAPONS_SPECIAL.find((w) => w.name === ref);
         if (!weapon) return;
-        this.weapon = weapon;
+        this.specialBase = weapon;
+        this.weapon = scaleWeaponForLevel(weapon, this.level);
         this.weaponUntil = Date.now() + SPECIAL_WEAPON_DURATION_MS;
         this.windupAcc = 0;
       },
@@ -5519,7 +5525,7 @@ function hexagonPoints(radius: number): Vec[] {
  *  makes you LOOK bigger/tougher, not easier to hit). L1 1.0 → L5 ~1.52. */
 function shipScaleForLevel(level: number): number {
   const L = Math.max(1, Math.min(LEVEL_CAP, Math.round(level)));
-  return 1 + (L - 1) * 0.13;
+  return 1 + (L - 1) * 0.2; // L1 1.0 → L3 1.4 (a clear size jump each level)
 }
 
 function shipHullPoints(level = 1): Array<{ x: number; y: number }> {

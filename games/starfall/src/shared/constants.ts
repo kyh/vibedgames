@@ -214,12 +214,12 @@ export const XP = {
   ORB: 4,
 } as const;
 
-/** Bounded so the base loadout plateaus below special-weapon power — caps the
- *  snowball: past the cap only picked-up specials make you stronger. Short (5)
- *  so each level is a visible step (the ship hull upgrades each level). */
-export const LEVEL_CAP = 5;
-export const XP_BASE = 60;
-export const XP_GROWTH = 1.45;
+/** Bounded so the base loadout stays a notch below specials — caps the
+ *  snowball. Short (3) so each level is a big, visible step: the ship hull
+ *  upgrades AND every weapon (base + picked-up specials) scales each level. */
+export const LEVEL_CAP = 3;
+export const XP_BASE = 70;
+export const XP_GROWTH = 1.6;
 /** XP needed to go from `level` → `level+1`. Super-linear: fast early ramp
  *  (L1→2 = 40), grindy top end (L11→12 ≈ 457), ~2000 total to cap. */
 export function xpToNext(level: number): number {
@@ -244,7 +244,7 @@ export function comboMult(streak: number): number {
  *  HP, so the PvP eHP gap to a fresh player stays narrow. */
 export function baseRegenMult(level: number): number {
   const L = Math.max(1, Math.min(LEVEL_CAP, Math.round(level)));
-  return 1 + 0.075 * (L - 1); // L1 1.0 → L5 1.3
+  return 1 + 0.15 * (L - 1); // L1 1.0 → L3 1.3
 }
 
 // ---- weapons (§4) ----------------------------------------------------------------
@@ -363,22 +363,41 @@ export const WEAPON_DEFAULT: Weapon = {
  *  Specials override temporarily; on expiry/respawn you revert to THIS, not L1. */
 export function baseWeaponForLevel(level: number): Weapon {
   const L = Math.max(1, Math.min(LEVEL_CAP, Math.round(level)));
-  const power = 0.25 + 0.0375 * (L - 1); // L1 .25 → L5 .40 (below BLASTER .9)
-  const intervalMs = Math.round(250 - 13 * (L - 1)); // L1 250 → L5 ~198
-  const pellets = L >= 4 ? 2 : 1; // L4+: a tight 2-shot spread for crowd clear
-  const tint = L >= 5 ? 0xfff1a8 : L >= 3 ? 0xeaf6ff : 0xffffff; // warms as you level
+  const power = 0.25 + 0.075 * (L - 1); // L1 .25 → L3 .40 (below BLASTER .9)
+  const intervalMs = Math.round(250 - 26 * (L - 1)); // L1 250 → L3 ~198
+  const tint = L >= 3 ? 0xfff1a8 : L >= 2 ? 0xeaf6ff : 0xffffff; // warms as you level
   return {
     ...WEAPON_DEFAULT,
     name: L <= 1 ? "BEAM" : `BEAM Lv${L}`,
     power,
     intervalMs,
-    width: L >= 5 ? 2 : 1,
-    pellets,
-    spreadDeg: pellets > 1 ? 6 : 0,
-    jitterDeg: pellets > 1 ? 2 : 1,
-    mirror: L >= 5, // capstone: a rear shot like MIRROR
+    width: L >= 3 ? 2 : 1,
+    pellets: L >= 3 ? 2 : 1, // L3 (cap): a tight 2-shot spread for crowd clear
+    spreadDeg: L >= 3 ? 6 : 0,
+    jitterDeg: L >= 3 ? 2 : 1,
+    mirror: L >= 3, // capstone: a rear shot like MIRROR
     tint,
     sfx: "pulse",
+  };
+}
+
+/** Per-level multiplier applied to a PICKED-UP special weapon, so specials get
+ *  stronger as you level too (the base weapon scales via baseWeaponForLevel). */
+export function weaponLevelMult(level: number): number {
+  const L = Math.max(1, Math.min(LEVEL_CAP, Math.round(level)));
+  return 1 + (L - 1) * 0.18; // L1 1.0 → L3 1.36 power
+}
+
+/** Return a level-scaled clone of a special weapon (more power + a bit faster).
+ *  Same `name`, so HUD + pickup-stacking still match. L1 returns the input ref. */
+export function scaleWeaponForLevel(w: Weapon, level: number): Weapon {
+  const L = Math.max(1, Math.min(LEVEL_CAP, Math.round(level)));
+  if (L <= 1) return w;
+  const fireMult = 1 + (L - 1) * 0.07; // L3 ~1.14× fire rate
+  return {
+    ...w,
+    power: w.power * weaponLevelMult(L),
+    intervalMs: Math.max(40, Math.round(w.intervalMs / fireMult)),
   };
 }
 
