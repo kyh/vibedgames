@@ -1,0 +1,59 @@
+{
+  "name": "@vibedgames/gamepad",
+  "version": "0.0.1",
+  "private": false,
+  "description": "On-screen touch controls for browser games — framework-agnostic core + Phaser adapter",
+  "keywords": [
+    "gamedev",
+    "gamepad",
+    "joystick",
+    "mobile",
+    "phaser",
+    "touch",
+    "virtual-controller"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kyh/vibedgames",
+    "directory": "packages/gamepad"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./phaser": "./src/phaser.ts"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./phaser": {
+        "types": "./dist/phaser.d.ts",
+        "default": "./dist/phaser.js"
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf .cache .turbo dist node_modules",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@kyh/tsconfig": "catalog:",
+    "phaser": "^4.1.0",
+    "typescript": "catalog:"
+  },
+  "peerDependencies": {
+    "phaser": ">=3"
+  },
+  "peerDependenciesMeta": {
+    "phaser": {
+      "optional": true
+    }
+  }
+}

@@ -1,6 +1,6 @@
 ---
 name: release
-description: Bump, build, publish, tag, and changelog vibedgames npm packages — `vibedgames` (CLI) and/or `@vibedgames/multiplayer`. Skips packages with no changes since last release. Use when the user wants to ship a new version. Args optional: package(s) and bump type, e.g. "release multiplayer patch", "release cli minor", "release both patch".
+description: Bump, build, publish, tag, and changelog vibedgames npm packages — `vibedgames` (CLI), `@vibedgames/multiplayer`, and/or `@vibedgames/gamepad`. Skips packages with no changes since last release. Use when the user wants to ship a new version. Args optional: package(s) and bump type, e.g. "release multiplayer patch", "release gamepad patch", "release cli minor", "release all patch".
 allowed-tools: Bash(*), Read, Edit, Write
 ---
 
@@ -14,8 +14,9 @@ Cut a new npm version of one or both publishable packages in this repo.
 - Publishable packages (path = where commits "count" for change detection):
   - `vibedgames` → `apps/cli` → tag prefix `vibedgames@`
   - `@vibedgames/multiplayer` → `packages/multiplayer` → tag prefix `@vibedgames/multiplayer@`
-- Both ship `dist/` built by `tsc`. `tsBuildInfoFile` lives in `dist/.tsbuildinfo` so cleaning dist invalidates incremental cache.
-- No internal workspace consumers — these are end-user packages. No downstream sync needed.
+  - `@vibedgames/gamepad` → `packages/gamepad` → tag prefix `@vibedgames/gamepad@`
+- All ship `dist/` built by `tsc`. `tsBuildInfoFile` lives in `dist/.tsbuildinfo` so cleaning dist invalidates incremental cache.
+- `vibedgames` and `@vibedgames/multiplayer` have no internal workspace consumers. `@vibedgames/gamepad` IS consumed in-repo by the example games via `workspace:^`, but `pnpm publish` rewrites that to the published version automatically — no manual downstream sync needed.
 - Current branch: !`git -C /Users/kyh/Documents/Projects/vibedgames rev-parse --abbrev-ref HEAD`
 - Working tree: !`git -C /Users/kyh/Documents/Projects/vibedgames status --short`
 
@@ -23,7 +24,7 @@ Cut a new npm version of one or both publishable packages in this repo.
 
 Parse from the user message:
 
-- Which package(s): `cli`, `multiplayer`, or `both`. Default `both`.
+- Which package(s): `cli`, `multiplayer`, `gamepad`, or `all` (`both` is still accepted as an alias for cli + multiplayer). Default `all`.
 - Bump type: `patch`, `minor`, `major`. Default `patch`.
 - `--force` to release even if no changes since last tag (otherwise unchanged packages are skipped).
 
