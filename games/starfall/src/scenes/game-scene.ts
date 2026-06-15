@@ -1,3 +1,5 @@
+import { attachVirtualGamepad } from "@vibedgames/gamepad/phaser";
+import type { PhaserGamepad } from "@vibedgames/gamepad/phaser";
 import { MultiplayerClient } from "@vibedgames/multiplayer";
 import type { Player } from "@vibedgames/multiplayer";
 import Phaser from "phaser";
@@ -415,23 +417,10 @@ export class GameScene extends Phaser.Scene {
   /** Phaser's activePointer sits at (0,0) until the first real pointer event —
    *  steering before then would yank the ship to the screen corner. */
   private pointerSeen = false;
-  /** Flips true the first time a touch is seen and stays true: desktop keeps
-   *  the mouse model (aim+thrust at the cursor), touch switches to the
-   *  two-finger model (move joystick + fire fingers). */
-  private isTouch = false;
-  /** The floating move-joystick: anchored where the first finger landed,
-   *  dragging from the anchor steers. Null when no move finger is down.
-   *  Coords are screen-space. */
-  private moveStick: {
-    id: number;
-    anchorX: number;
-    anchorY: number;
-    curX: number;
-    curY: number;
-  } | null = null;
-  /** Pointer ids of fingers currently firing (any finger that isn't the move
-   *  stick). Non-empty = holding fire. */
-  private fireTouchIds = new Set<number>();
+  /** The mobile controller (floating move-joystick + a "rest" fire button:
+   *  any finger that isn't the stick fires). Desktop keeps the mouse model
+   *  (aim+thrust at the cursor); the gamepad only activates on first touch. */
+  private gamepad!: PhaserGamepad;
   /** Items we picked up locally, awaiting host confirmation (id → time). */
   private recentPickups = new Map<string, number>();
   /** Shards we collected locally, awaiting host removal (id -> time), the
@@ -575,7 +564,6 @@ export class GameScene extends Phaser.Scene {
   private muzzleGfx!: Phaser.GameObjects.Graphics;
   private splinterGfx!: Phaser.GameObjects.Graphics;
   private minimapGfx!: Phaser.GameObjects.Graphics;
-  private joyGfx!: Phaser.GameObjects.Graphics;
   private flashRect!: Phaser.GameObjects.Rectangle;
   private splinters: Splinter[] = [];
   private muzzleFlashes: MuzzleFlash[] = [];
@@ -652,13 +640,6 @@ export class GameScene extends Phaser.Scene {
     this.muzzleGfx = this.add.graphics().setDepth(19).setBlendMode(Phaser.BlendModes.ADD);
     this.splinterGfx = this.add.graphics().setDepth(15);
     this.minimapGfx = this.add.graphics().setScrollFactor(0).setDepth(100);
-    // Move-joystick UI (touch only): screen-fixed, drawn above the world but
-    // below the DOM HUD. Additive so it glows over the dark starfield.
-    this.joyGfx = this.add
-      .graphics()
-      .setScrollFactor(0)
-      .setDepth(95)
-      .setBlendMode(Phaser.BlendModes.ADD);
     this.flashRect = this.add
       .rectangle(0, 0, 4, 4, 0xffffff)
       .setOrigin(0)
@@ -678,38 +659,36 @@ export class GameScene extends Phaser.Scene {
     this.client.subscribe(() => this.onUpdate());
     this.bootedAt = Date.now();
 
-    // Track up to three simultaneous touches (move stick + two fire fingers).
-    this.input.addPointer(2);
-
-    this.input.on(Phaser.Input.Events.POINTER_MOVE, (p: Phaser.Input.Pointer) => {
+    // Desktop steers from the cursor (activePointer); the gamepad below owns
+    // the touch path. These two listeners only track that a pointer exists and
+    // unlock audio on the first gesture.
+    this.input.on(Phaser.Input.Events.POINTER_MOVE, () => {
       this.pointerSeen = true;
-      if (this.moveStick && p.id === this.moveStick.id) {
-        this.moveStick.curX = p.x;
-        this.moveStick.curY = p.y;
-      }
     });
-    this.input.on(Phaser.Input.Events.POINTER_DOWN, (p: Phaser.Input.Pointer) => {
+    this.input.on(Phaser.Input.Events.POINTER_DOWN, () => {
       this.pointerSeen = true;
       sfx.unlock(); // WebAudio needs a user gesture
-      if (!p.wasTouch) return; // mouse keeps the cursor-aim model
-      this.enterTouchMode();
-      if (!this.moveStick) {
-        // First finger down anchors the floating move-joystick where it landed.
-        this.moveStick = { id: p.id, anchorX: p.x, anchorY: p.y, curX: p.x, curY: p.y };
-      } else if (p.id !== this.moveStick.id) {
-        // Any other finger fires.
-        this.fireTouchIds.add(p.id);
-      }
     });
-    this.input.on(Phaser.Input.Events.POINTER_UP, (p: Phaser.Input.Pointer) => {
-      if (this.moveStick && p.id === this.moveStick.id) this.moveStick = null;
-      else this.fireTouchIds.delete(p.id);
+
+    // Mobile controller: a floating move-joystick (first finger) plus a "rest"
+    // fire button — any finger that isn't the stick fires. Screen-fixed,
+    // additive glow at depth 95 (above the world, below the DOM HUD).
+    this.gamepad = attachVirtualGamepad(this, {
+      stick: {
+        radius: JOYSTICK_RADIUS,
+        deadZone: JOYSTICK_DEAD_ZONE,
+        knobRadius: JOYSTICK_KNOB_RADIUS,
+      },
+      buttons: [{ id: "fire" }],
+      render: { depth: 95 },
+      onFirstTouch: () => this.enterTouchMode(),
     });
 
     // Single-start assumption: this scene is started once per page load and
     // never restarted, so create()-initialized fields are never stale. `once`
     // keeps the shutdown hook from stacking if that ever changes.
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.gamepad.destroy();
       if (!this.offline) this.client.destroy(); // offline already destroyed it
     });
 
@@ -727,7 +706,10 @@ export class GameScene extends Phaser.Scene {
 
     this.ensureSpawned();
     this.tickRespawn(now);
-    this.reconcileTouch();
+    // Tint the joystick + fire button to the local ship's color, then let the
+    // gamepad reconcile dropped touches and redraw its overlay.
+    this.gamepad.setTint(this.myTint());
+    this.gamepad.update();
     this.steerShip(dt);
     this.handleShooting(delta, now);
     this.updateBeams(dt, now);
@@ -760,7 +742,6 @@ export class GameScene extends Phaser.Scene {
     this.updateSplinters(dt, now);
     this.fx.update(dt, this.time.now);
     this.drawMinimap();
-    this.drawJoystick();
     this.updateCamera(dt, time);
     this.updateHud(now);
   }
@@ -897,20 +878,15 @@ export class GameScene extends Phaser.Scene {
     deadZone: number;
     aim: boolean;
   } | null {
-    if (this.isTouch) {
-      const stick = this.moveStick;
-      if (!stick) return null;
-      const dx = stick.curX - stick.anchorX;
-      const dy = stick.curY - stick.anchorY;
-      const dist = Math.hypot(dx, dy);
-      const span = JOYSTICK_RADIUS - JOYSTICK_DEAD_ZONE;
-      const thrust = Math.min(1, Math.max(0, (dist - JOYSTICK_DEAD_ZONE) / span));
+    if (this.gamepad.isTouch) {
+      const stick = this.gamepad.getStick();
+      if (!stick.active) return null;
       return {
-        angle: Math.atan2(dy, dx),
-        thrust,
-        dist,
+        angle: stick.angle,
+        thrust: stick.magnitude,
+        dist: stick.distance,
         deadZone: JOYSTICK_DEAD_ZONE,
-        aim: dist > JOYSTICK_DEAD_ZONE,
+        aim: !stick.inDeadZone,
       };
     }
     if (!this.pointerSeen) return null;
@@ -923,27 +899,18 @@ export class GameScene extends Phaser.Scene {
     return { angle: Math.atan2(dy, dx), thrust, dist, deadZone: SHIP_DEAD_ZONE, aim: dist > 0.001 };
   }
 
-  /** Switch to the touch control model and rewrite the attract hint. Idempotent. */
+  /** Rewrite the attract hint for the touch control scheme. Fired once, the
+   *  first time the gamepad sees a finger. */
   private enterTouchMode(): void {
-    if (this.isTouch) return;
-    this.isTouch = true;
     if (this.attractEl)
       this.attractEl.innerHTML = "move &middot; drag &mdash; fire &middot; 2nd finger";
   }
 
-  /** Holding fire: any non-move finger on touch, or the mouse button on desktop. */
+  /** Holding fire: any non-stick finger on touch, or the mouse button on desktop. */
   private isFiring(): boolean {
-    return this.isTouch ? this.fireTouchIds.size > 0 : this.input.activePointer.isDown;
-  }
-
-  /** Drop stale touch tracking if an `up` event was missed (e.g. a finger that
-   *  slid off-canvas), so the joystick / fire never sticks on. */
-  private reconcileTouch(): void {
-    if (!this.isTouch) return;
-    const down = (id: number): boolean =>
-      this.input.manager.pointers.some((p) => p.id === id && p.isDown);
-    if (this.moveStick && !down(this.moveStick.id)) this.moveStick = null;
-    for (const id of this.fireTouchIds) if (!down(id)) this.fireTouchIds.delete(id);
+    return this.gamepad.isTouch
+      ? this.gamepad.isButtonDown("fire")
+      : this.input.activePointer.isDown;
   }
 
   private handleShooting(delta: number, now: number): void {
@@ -4590,33 +4557,6 @@ export class GameScene extends Phaser.Scene {
       }
       g.fillStyle(tint, 1).fillCircle(x0 + px * sx, y0 + py * sy, isMe ? 3 : 2);
     }
-  }
-
-  /** Brawl-Stars-style floating move-joystick: a faint base ring at the
-   *  anchor with a player-tinted puck that tracks the finger (clamped to the
-   *  ring). Only drawn while the move finger is down. */
-  private drawJoystick(): void {
-    const g = this.joyGfx;
-    g.clear();
-    const stick = this.moveStick;
-    if (!this.isTouch || !stick) return;
-    const ax = stick.anchorX;
-    const ay = stick.anchorY;
-    const dx = stick.curX - ax;
-    const dy = stick.curY - ay;
-    const dist = Math.hypot(dx, dy);
-    // Puck clamps to the ring edge so it never escapes the base.
-    const clamped = Math.min(dist, JOYSTICK_RADIUS);
-    const kx = dist > 0.001 ? ax + (dx / dist) * clamped : ax;
-    const ky = dist > 0.001 ? ay + (dy / dist) * clamped : ay;
-    const tint = this.myTint();
-    // Base ring.
-    g.fillStyle(0xffffff, 0.05).fillCircle(ax, ay, JOYSTICK_RADIUS);
-    g.lineStyle(2, 0xffffff, 0.2).strokeCircle(ax, ay, JOYSTICK_RADIUS);
-    g.fillStyle(0xffffff, 0.12).fillCircle(ax, ay, JOYSTICK_DEAD_ZONE);
-    // Puck.
-    g.fillStyle(tint, 0.22).fillCircle(kx, ky, JOYSTICK_KNOB_RADIUS);
-    g.lineStyle(2, tint, 0.85).strokeCircle(kx, ky, JOYSTICK_KNOB_RADIUS);
   }
 
   private updateHud(now: number): void {

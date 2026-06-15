@@ -95,6 +95,11 @@ vg deploy ./dist --slug my-game
 
 After deploy, the CLI prints the live URL. Open it to verify.
 
+> **Playable on mobile?** Deployed games are shared by link and frequently
+> opened on phones. If the game is mouse/keyboard-only, add on-screen touch
+> controls (a virtual joystick + buttons) so the link works on a phone — see
+> the `gamepad` skill (`@vibedgames/gamepad`). One prompt: "add touch controls".
+
 ## Rules
 
 - **Always build before deploying** if the project uses a build tool

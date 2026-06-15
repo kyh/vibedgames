@@ -1,3 +1,5 @@
+import { attachVirtualGamepad, stickDirection4 } from "@vibedgames/gamepad/phaser";
+import type { PhaserGamepad } from "@vibedgames/gamepad/phaser";
 import { MultiplayerClient } from "@vibedgames/multiplayer";
 import type { Player } from "@vibedgames/multiplayer";
 import Phaser from "phaser";
@@ -158,6 +160,9 @@ export class GameScene extends Phaser.Scene {
     up: Phaser.Input.Keyboard.Key;
     down: Phaser.Input.Keyboard.Key;
   };
+  /** Touch controls: a floating move-joystick (snapped to 4 directions) plus a
+   *  fixed bomb button. Inert until the first finger lands. */
+  private gamepad!: PhaserGamepad;
 
   private statusEl: HTMLElement | null = null;
   private playersEl: HTMLElement | null = null;
@@ -263,6 +268,7 @@ export class GameScene extends Phaser.Scene {
 
     this.events.on(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.applyZoom, this);
+      this.gamepad.destroy();
       if (!this.offline) this.client.destroy(); // offline already destroyed it
     });
 
@@ -285,6 +291,7 @@ export class GameScene extends Phaser.Scene {
     // Offline has no subscribe() notifications — drive the render sync from
     // the game loop instead (sync* methods are diff-aware, so this is cheap).
     if (this.offline) this.onUpdate();
+    this.gamepad.update(); // reconcile dropped touches + redraw the overlay
     this.handleInput(delta);
     this.settleMoving();
     this.updateCamera();
@@ -324,6 +331,24 @@ export class GameScene extends Phaser.Scene {
   // ---- input ---------------------------------------------------------------
 
   private bindInput(): void {
+    // Mobile controls: a floating move-joystick anywhere on screen, plus a
+    // fixed bomb button bottom-right. Screen-fixed (ignores camera zoom/scroll)
+    // and above the board. Tap-to-bomb fires on the press edge. Attached before
+    // the keyboard guard so touch works even with no keyboard present.
+    this.gamepad = attachVirtualGamepad(this, {
+      buttons: [
+        {
+          id: "bomb",
+          position: ({ width, height }) => ({ x: width - 84, y: height - 84 }),
+          radius: 52,
+        },
+      ],
+      render: { depth: 1000, blendMode: Phaser.BlendModes.NORMAL },
+      onButtonDown: (id) => {
+        if (id === "bomb") this.requestBomb();
+      },
+    });
+
     const k = this.input.keyboard;
     if (!k) return;
     k.on("keydown-SPACE", () => this.requestBomb());
@@ -392,12 +417,14 @@ export class GameScene extends Phaser.Scene {
       this.queuedDir = null;
       return d;
     }
-    if (!this.heldKeys) return null;
-    if (this.heldKeys.left.isDown) return "left";
-    if (this.heldKeys.right.isDown) return "right";
-    if (this.heldKeys.up.isDown) return "up";
-    if (this.heldKeys.down.isDown) return "down";
-    return null;
+    if (this.heldKeys) {
+      if (this.heldKeys.left.isDown) return "left";
+      if (this.heldKeys.right.isDown) return "right";
+      if (this.heldKeys.up.isDown) return "up";
+      if (this.heldKeys.down.isDown) return "down";
+    }
+    // Held touch stick, snapped to the grid's 4 directions.
+    return stickDirection4(this.gamepad.getStick());
   }
 
   private requestBomb(): void {
