@@ -12,17 +12,17 @@ export type FeaturedGame = {
 export const gameUrl = (slug: string) => `https://${slug}.vibedgames.com`;
 
 export const gameSearchSchema = z.object({
-  game: z.string().default("astroid"),
+  game: z.string().default("starfall"),
 });
 
 export type GameSearch = z.infer<typeof gameSearchSchema>;
 
 export const featuredGames: FeaturedGame[] = [
   {
-    name: "Astroid",
-    slug: "astroid",
-    preview: "/covers/astroid.webp",
-    previewPortrait: "/covers/astroid-portrait.webp",
+    name: "Starfall",
+    slug: "starfall",
+    preview: "/covers/starfall.webp",
+    previewPortrait: "/covers/starfall-portrait.webp",
     colorScheme: "dark",
   },
   {

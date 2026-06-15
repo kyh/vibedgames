@@ -42,7 +42,7 @@ games/         # Bundled example games (not platform code)
   pacman/      # (@repo/pacman)
   tetris/      # (@repo/tetris)
   pong/        # (@repo/pong)
-  astroid/     # (@repo/astroid)
+  starfall/    # (@repo/starfall)
 packages/
   api/         # tRPC routers (@repo/api)
   db/          # Drizzle schema + migrations (@repo/db) — source of truth for data model
@@ -62,7 +62,7 @@ pnpm dev:web          # Run web only
 pnpm dev:party        # Run party server only
 pnpm dev:games        # Run games worker only
 pnpm dev:cli          # Watch-rebuild the vg CLI
-pnpm dev:<game>       # Run specific game (flappy-dragons, pacman, tetris, pong, astroid)
+pnpm dev:<game>       # Run specific game (flappy-dragons, pacman, tetris, pong, starfall)
 pnpm build            # Build all packages
 pnpm typecheck        # Type check all
 pnpm lint             # Lint all (oxlint)
