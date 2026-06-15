@@ -1,11 +1,33 @@
 // ---- world -------------------------------------------------------------------
 
+// WORLD_W/H is the fixed VISUAL/MAX extent — the starfield + off-world mask are
+// built to this size. The live PLAY bounds (SharedState.playW/playH) scale from
+// the 1-player BASE up to this max with player count; the area between the play
+// barrier and this extent is just star-bleed.
 export const WORLD_W = 7680;
 export const WORLD_H = 4320;
+/** 1-player play size (the arena felt right at this for solo). */
+export const BASE_WORLD_W = 3840;
+export const BASE_WORLD_H = 2160;
 /** How far past the world edge the starfield scatters and the void fades — the
  *  single knob for the bleed ring (starfield + masks reference it). Keeps the
  *  arena from looking hard-cut at the boundary. */
 export const WORLD_BLEED_PX = 1200;
+
+/** Play-area linear scale from player count: 1.0 at 1p → 2.0 at 32p (so the
+ *  play box grows from BASE_WORLD to the full WORLD max). sqrt so each added
+ *  player widens the arena less than the last. Both dims scale equally, so the
+ *  16:9 aspect (and the minimap) is preserved. */
+export function worldScaleForPlayers(playerCount: number): number {
+  const n = Math.max(1, playerCount);
+  return Math.min(2, 1 + (Math.sqrt(n) - 1) / (Math.sqrt(32) - 1));
+}
+export function playWidthForPlayers(playerCount: number): number {
+  return Math.min(WORLD_W, Math.round(BASE_WORLD_W * worldScaleForPlayers(playerCount)));
+}
+export function playHeightForPlayers(playerCount: number): number {
+  return Math.min(WORLD_H, Math.round(BASE_WORLD_H * worldScaleForPlayers(playerCount)));
+}
 
 // All speeds are px/second (the legacy build used px/tick at 60Hz; ×60 here).
 
@@ -193,10 +215,11 @@ export const XP = {
 } as const;
 
 /** Bounded so the base loadout plateaus below special-weapon power — caps the
- *  snowball: past L12 only picked-up specials make you stronger. */
-export const LEVEL_CAP = 12;
-export const XP_BASE = 40;
-export const XP_GROWTH = 1.28;
+ *  snowball: past the cap only picked-up specials make you stronger. Short (5)
+ *  so each level is a visible step (the ship hull upgrades each level). */
+export const LEVEL_CAP = 5;
+export const XP_BASE = 60;
+export const XP_GROWTH = 1.45;
 /** XP needed to go from `level` → `level+1`. Super-linear: fast early ramp
  *  (L1→2 = 40), grindy top end (L11→12 ≈ 457), ~2000 total to cap. */
 export function xpToNext(level: number): number {
@@ -221,7 +244,7 @@ export function comboMult(streak: number): number {
  *  HP, so the PvP eHP gap to a fresh player stays narrow. */
 export function baseRegenMult(level: number): number {
   const L = Math.max(1, Math.min(LEVEL_CAP, Math.round(level)));
-  return 1 + 0.036 * (L - 1);
+  return 1 + 0.075 * (L - 1); // L1 1.0 → L5 1.3
 }
 
 // ---- weapons (§4) ----------------------------------------------------------------
@@ -340,20 +363,20 @@ export const WEAPON_DEFAULT: Weapon = {
  *  Specials override temporarily; on expiry/respawn you revert to THIS, not L1. */
 export function baseWeaponForLevel(level: number): Weapon {
   const L = Math.max(1, Math.min(LEVEL_CAP, Math.round(level)));
-  const power = 0.25 + 0.0155 * (L - 1); // L1 .25 → L12 .42 (below BLASTER .9)
-  const intervalMs = Math.round(250 - 5.5 * (L - 1)); // L1 250 → L12 ~189
-  const pellets = L >= 9 ? 2 : 1; // L9+: a tight 2-shot spread for crowd clear
-  const tint = L >= 12 ? 0xfff1a8 : L >= 8 ? 0xeaf6ff : 0xffffff; // warms as you level
+  const power = 0.25 + 0.0375 * (L - 1); // L1 .25 → L5 .40 (below BLASTER .9)
+  const intervalMs = Math.round(250 - 13 * (L - 1)); // L1 250 → L5 ~198
+  const pellets = L >= 4 ? 2 : 1; // L4+: a tight 2-shot spread for crowd clear
+  const tint = L >= 5 ? 0xfff1a8 : L >= 3 ? 0xeaf6ff : 0xffffff; // warms as you level
   return {
     ...WEAPON_DEFAULT,
     name: L <= 1 ? "BEAM" : `BEAM Lv${L}`,
     power,
     intervalMs,
-    width: L >= 9 ? 2 : 1,
+    width: L >= 5 ? 2 : 1,
     pellets,
     spreadDeg: pellets > 1 ? 6 : 0,
     jitterDeg: pellets > 1 ? 2 : 1,
-    mirror: L >= 12, // capstone: a rear shot like MIRROR
+    mirror: L >= 5, // capstone: a rear shot like MIRROR
     tint,
     sfx: "pulse",
   };
@@ -1854,6 +1877,12 @@ export type SharedState = {
   /** Epoch-ms wall clock of arena start — the intensity director's t=0.
    *  Lives in sharedState so it survives host migration. */
   arenaEpoch: number;
+  /** Play-area bounds (host-owned, grow-only with player count). All clients
+   *  clamp/spawn/cull/render the barrier to these so they agree. The VISUAL
+   *  extent (starfield + mask) stays the fixed WORLD_W/H max; the gap between
+   *  the barrier and the max just reads as more star-bleed. */
+  playW: number;
+  playH: number;
 };
 
 /** Beam snapshot in another player's state — drawn raw, never simulated. */
@@ -1926,10 +1955,14 @@ export type PlayerNetState = {
 
 // ---- pure world-gen helpers -----------------------------------------------------
 
-export function randomWorldPoint(margin = RESPAWN_EDGE_MARGIN): Vec {
+export function randomWorldPoint(
+  margin = RESPAWN_EDGE_MARGIN,
+  w = BASE_WORLD_W,
+  h = BASE_WORLD_H,
+): Vec {
   return {
-    x: margin + Math.random() * (WORLD_W - margin * 2),
-    y: margin + Math.random() * (WORLD_H - margin * 2),
+    x: margin + Math.random() * (w - margin * 2),
+    y: margin + Math.random() * (h - margin * 2),
   };
 }
 
@@ -1943,24 +1976,28 @@ export function makeAsteroidVerts(radius: number): Vec[] {
   return verts;
 }
 
-/** Pick a point just past a random world edge, plus an inward heading. */
-export function edgeSpawn(margin: number): { x: number; y: number; ang: number } {
+/** Pick a point just past a random play-area edge, plus an inward heading. */
+export function edgeSpawn(
+  margin: number,
+  w = BASE_WORLD_W,
+  h = BASE_WORLD_H,
+): { x: number; y: number; ang: number } {
   const side = Math.floor(Math.random() * 4);
   const spread = Math.random() * (Math.PI / 2); // 90° fan, aimed inward below
   if (side <= 1) {
-    const y = -margin + Math.random() * (WORLD_H + margin * 2);
-    const x = side === 0 ? -margin : WORLD_W + margin;
+    const y = -margin + Math.random() * (h + margin * 2);
+    const x = side === 0 ? -margin : w + margin;
     const ang = side === 0 ? spread - Math.PI * 0.25 : spread + Math.PI * 0.75;
     return { x, y, ang };
   }
-  const x = -margin + Math.random() * (WORLD_W + margin * 2);
-  const y = side === 2 ? -margin : WORLD_H + margin;
+  const x = -margin + Math.random() * (w + margin * 2);
+  const y = side === 2 ? -margin : h + margin;
   const ang = side === 2 ? spread + Math.PI * 0.25 : spread - Math.PI * 0.75;
   return { x, y, ang };
 }
 
-export function spawnAsteroidState(): AsteroidState {
-  const { x, y, ang } = edgeSpawn(ASTEROID_MAX_RADIUS);
+export function spawnAsteroidState(w = BASE_WORLD_W, h = BASE_WORLD_H): AsteroidState {
+  const { x, y, ang } = edgeSpawn(ASTEROID_MAX_RADIUS, w, h);
   const radius = ASTEROID_MIN_RADIUS + Math.random() * (ASTEROID_MAX_RADIUS - ASTEROID_MIN_RADIUS);
   const speed = asteroidSpeed(radius);
   return {
@@ -1975,14 +2012,14 @@ export function spawnAsteroidState(): AsteroidState {
   };
 }
 
-export function spawnUfoState(): UfoState {
-  const { x, y } = edgeSpawn(30);
+export function spawnUfoState(w = BASE_WORLD_W, h = BASE_WORLD_H): UfoState {
+  const { x, y } = edgeSpawn(30, w, h);
   return {
     id: crypto.randomUUID(),
     x,
     y,
-    destX: Math.random() * WORLD_W,
-    destY: Math.random() * WORLD_H,
+    destX: Math.random() * w,
+    destY: Math.random() * h,
     hp: UFO_HP,
     blinkUntil: 0,
   };

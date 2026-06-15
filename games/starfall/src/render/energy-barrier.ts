@@ -1,7 +1,5 @@
 import Phaser from "phaser";
 
-import { WORLD_H, WORLD_W } from "../shared/constants";
-
 const BARRIER_CORE_TINT = 0x6ff7ff; // hot cyan core — energized arcade neon
 const BARRIER_BLOOM_TINT = 0xb24bff; // magenta outer bloom (cyan/magenta = retro neon)
 const BARRIER_PULSE_HZ = 0.5; // slow breath, one pulse per 2s
@@ -29,42 +27,43 @@ export class EnergyBarrier {
     this.drawVignette();
   }
 
-  /** Animated; call from scene.update() with the scene clock (ms). */
-  update(timeMs: number): void {
+  /** Animated; call from scene.update() with the scene clock (ms) and the live
+   *  play bounds (the barrier marks the play area, which grows with players). */
+  update(timeMs: number, worldW: number, worldH: number): void {
     const t = timeMs / 1000;
     const pulse = 0.75 + 0.25 * Math.sin(t * BARRIER_PULSE_HZ * Math.PI * 2);
     const g = this.frame;
     g.clear();
-    // Outer bloom → core: three stroked passes on the world rect.
-    g.lineStyle(26, BARRIER_BLOOM_TINT, 0.1 * pulse).strokeRect(0, 0, WORLD_W, WORLD_H);
-    g.lineStyle(10, BARRIER_CORE_TINT, 0.22 * pulse).strokeRect(0, 0, WORLD_W, WORLD_H);
-    g.lineStyle(2, 0xffffff, 0.85 * pulse).strokeRect(0, 0, WORLD_W, WORLD_H);
+    // Outer bloom → core: three stroked passes on the play rect.
+    g.lineStyle(26, BARRIER_BLOOM_TINT, 0.1 * pulse).strokeRect(0, 0, worldW, worldH);
+    g.lineStyle(10, BARRIER_CORE_TINT, 0.22 * pulse).strokeRect(0, 0, worldW, worldH);
+    g.lineStyle(2, 0xffffff, 0.85 * pulse).strokeRect(0, 0, worldW, worldH);
     // Scanline shimmer: a bright segment traveling along each edge.
     const span = 600;
-    const fx = ((timeMs * 0.25) % (WORLD_W + span)) - span;
-    const fy = ((timeMs * 0.25) % (WORLD_H + span)) - span;
+    const fx = ((timeMs * 0.25) % (worldW + span)) - span;
+    const fy = ((timeMs * 0.25) % (worldH + span)) - span;
     g.lineStyle(3, BARRIER_CORE_TINT, 0.5 * pulse);
     g.lineBetween(fx, 0, fx + span, 0);
-    g.lineBetween(WORLD_W - fx, WORLD_H, WORLD_W - fx - span, WORLD_H);
+    g.lineBetween(worldW - fx, worldH, worldW - fx - span, worldH);
     g.lineBetween(0, fy, 0, fy + span);
-    g.lineBetween(WORLD_W, WORLD_H - fy, WORLD_W, WORLD_H - fy - span);
+    g.lineBetween(worldW, worldH - fy, worldW, worldH - fy - span);
     // Inner-edge fade: faint additive strokes stepping inward (playfield glow).
     for (let i = 1; i <= 4; i++) {
       const inset = i * 14;
       g.lineStyle(2, BARRIER_CORE_TINT, 0.06 * (1 - i / 5) * pulse).strokeRect(
         inset,
         inset,
-        WORLD_W - inset * 2,
-        WORLD_H - inset * 2,
+        worldW - inset * 2,
+        worldH - inset * 2,
       );
     }
     // Corner node accents.
     g.fillStyle(0xffffff, 0.7 * pulse);
     for (const [cx, cy] of [
       [0, 0],
-      [WORLD_W, 0],
-      [0, WORLD_H],
-      [WORLD_W, WORLD_H],
+      [worldW, 0],
+      [0, worldH],
+      [worldW, worldH],
     ] as const) {
       g.fillCircle(cx, cy, 4 + 2 * pulse);
     }
