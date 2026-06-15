@@ -1,7 +1,11 @@
 // ---- world -------------------------------------------------------------------
 
-export const WORLD_W = 3840;
-export const WORLD_H = 2160;
+export const WORLD_W = 7680;
+export const WORLD_H = 4320;
+/** How far past the world edge the starfield scatters and the void fades — the
+ *  single knob for the bleed ring (starfield + masks reference it). Keeps the
+ *  arena from looking hard-cut at the boundary. */
+export const WORLD_BLEED_PX = 1200;
 
 // All speeds are px/second (the legacy build used px/tick at 60Hz; ×60 here).
 
@@ -57,21 +61,46 @@ export function arenaIntensity(tSec: number): number {
   return Math.min(2.6, Math.max(0.2, raw));
 }
 
-/** Multiplayer pressure scale P(N). */
+/** Asymptote of the multiplayer pressure curve (reached well past 32p). */
+export const PRESSURE_MAX = 6.0;
+
+/** Multiplayer pressure scale P(N). Sub-linear (sqrt) so each added player's
+ *  marginal swarm contribution shrinks — host CPU + readability stay sane while
+ *  a busy 32p room still swarms a 4× map. P(1)=1.0, P(4)≈2.2, P(8)≈2.5,
+ *  P(16)≈3.5, P(32)≈5.0, asymptote PRESSURE_MAX. */
 export function playerPressure(playerCount: number): number {
-  return Math.min(1.75, Math.max(1.0, 0.75 + 0.25 * playerCount));
+  return Math.min(PRESSURE_MAX, Math.max(1.0, 0.6 + 0.78 * Math.sqrt(Math.max(1, playerCount))));
 }
 
-export function asteroidCap(intensity: number, pressure: number): number {
-  return Math.min(32, Math.round((6 + 11 * intensity) * pressure));
+// ---- wave pulse (§2b) ------------------------------------------------------------
+// A faster build→peak→breather envelope layered ON TOP of arenaIntensity's 90s
+// macro wave, so a busy room visibly inhales/exhales. Shared-arenaEpoch driven →
+// all clients agree. The trough is where hostDespawnBreather drains the field so
+// the next build starts from clear space and 60fps recovers.
+
+export const WAVE_PERIOD_S = 45;
+export const WAVE_PEAK_MULT = 1.35;
+export const WAVE_TROUGH_MULT = 0.7;
+/** Cap multiplier oscillating WAVE_TROUGH_MULT (trough) → WAVE_PEAK_MULT (peak). */
+export function wavePulse(tSec: number): number {
+  const s = 0.5 - 0.5 * Math.cos((2 * Math.PI * tSec) / WAVE_PERIOD_S); // 0 trough → 1 peak
+  return WAVE_TROUGH_MULT + (WAVE_PEAK_MULT - WAVE_TROUGH_MULT) * s;
+}
+
+/** Hard ceilings, lifted from the ≤4p era so 32p actually swarms a 4× map. */
+export const ASTEROID_CAP_MAX = 110;
+export const ENEMY_CAP_MAX = 80;
+
+export function asteroidCap(intensity: number, pressure: number, wave = 1): number {
+  return Math.min(ASTEROID_CAP_MAX, Math.round((6 + 11 * intensity) * pressure * wave));
 }
 
 export function asteroidSpawnIntervalMs(intensity: number): number {
   return Math.min(4000, Math.max(300, 1500 / intensity));
 }
 
-export function enemyCap(intensity: number, pressure: number): number {
-  return Math.min(22, Math.round((2 + 6.5 * intensity) * pressure));
+export function enemyCap(intensity: number, pressure: number, wave = 1): number {
+  return Math.min(ENEMY_CAP_MAX, Math.round((2 + 6.5 * intensity) * pressure * wave));
 }
 
 export function enemySpawnIntervalMs(intensity: number): number {

@@ -1,10 +1,24 @@
 import Phaser from "phaser";
 
-import { WORLD_H, WORLD_W } from "../shared/constants";
+import { WORLD_BLEED_PX, WORLD_H, WORLD_W } from "../shared/constants";
 
 const STAR_TINTS = [0xffffff, 0xffffaa, 0xaaaaff, 0xffaaaa, 0xaaffaa, 0xffaaff, 0xaaffff];
-const STAR_DENSITY = 0.00004; // stars per px² (~331 over the world)
+const STAR_DENSITY = 0.00004; // stars per px² (~1327 over the 4× world)
 const STAR_PX = 5;
+/** Outer-ring density (~30% of STAR_DENSITY): stars fade into the void past the
+ *  world edge instead of stopping dead, so the arena never looks hard-cut. */
+const BLEED_DENSITY = 0.000012;
+/** Far-parallax layer: sparse, dim, scrollFactor < 1 for depth. */
+const PARALLAX_DENSITY = 0.000006;
+const PARALLAX_SCROLL = 0.35;
+const PARALLAX_DEPTH = -1;
+const PARALLAX_PX = 3;
+const PARALLAX_ALPHA = 0.4;
+/** Inflated playfield rect: the world plus the bleed band on every side. */
+const FIELD_X0 = -WORLD_BLEED_PX;
+const FIELD_Y0 = -WORLD_BLEED_PX;
+const FIELD_W = WORLD_W + WORLD_BLEED_PX * 2;
+const FIELD_H = WORLD_H + WORLD_BLEED_PX * 2;
 const TWINKLE_CHANCE = 0.7;
 /** Twinklers alternate bright/dim every 2–4s. */
 const TWINKLE_HALF_MS_MIN = 2000;
@@ -65,8 +79,12 @@ export class Starfield {
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
-    const count = Math.floor(WORLD_W * WORLD_H * STAR_DENSITY);
-    for (let i = 0; i < count; i++) {
+    // Playfield keeps STAR_DENSITY; the bleed ring (inflated area minus the
+    // world) uses the sparser BLEED_DENSITY. rerollStar scatters across the
+    // full inflated field and dims/shrinks stars toward the outer edge.
+    const playfieldCount = Math.floor(WORLD_W * WORLD_H * STAR_DENSITY);
+    const ringCount = Math.floor((FIELD_W * FIELD_H - WORLD_W * WORLD_H) * BLEED_DENSITY);
+    for (let i = 0; i < playfieldCount + ringCount; i++) {
       const img = scene.add
         .image(0, 0, "star")
         .setOrigin(0)
@@ -75,6 +93,20 @@ export class Starfield {
       const star: Star = { img, base: 1, twinkle: false, halfMs: 1, phaseMs: 0 };
       rerollStar(star);
       this.stars.push(star);
+    }
+    // Far-parallax layer: static, dim, drifts slower than the world for depth.
+    const pCount = Math.floor(FIELD_W * FIELD_H * PARALLAX_DENSITY);
+    for (let i = 0; i < pCount; i++) {
+      const x = FIELD_X0 + Math.random() * FIELD_W;
+      const y = FIELD_Y0 + Math.random() * FIELD_H;
+      scene.add
+        .image(x, y, "star")
+        .setOrigin(0)
+        .setDisplaySize(PARALLAX_PX, PARALLAX_PX)
+        .setScrollFactor(PARALLAX_SCROLL)
+        .setDepth(PARALLAX_DEPTH)
+        .setAlpha(PARALLAX_ALPHA * (0.4 + Math.random() * 0.6))
+        .setTint(STAR_TINTS[Math.floor(Math.random() * STAR_TINTS.length)] ?? 0xffffff);
     }
     this.gfx = scene.add.graphics().setDepth(1);
   }
@@ -149,12 +181,18 @@ function randBetween(min: number, max: number): number {
 }
 
 function rerollStar(star: Star): void {
-  const x = Math.floor(Math.random() * (WORLD_W / STAR_PX)) * STAR_PX;
-  const y = Math.floor(Math.random() * (WORLD_H / STAR_PX)) * STAR_PX;
+  const x = Math.floor((FIELD_X0 + Math.random() * FIELD_W) / STAR_PX) * STAR_PX;
+  const y = Math.floor((FIELD_Y0 + Math.random() * FIELD_H) / STAR_PX) * STAR_PX;
+  // edge: 0 anywhere inside the playfield → 1 at the outer bleed edge.
+  const ox = Math.max(0, Math.max(-x, x - WORLD_W));
+  const oy = Math.max(0, Math.max(-y, y - WORLD_H));
+  const edge = Math.min(1, Math.hypot(ox, oy) / WORLD_BLEED_PX);
+  const fade = 1 - edge; // 1 inside → 0 at the outer edge
   const tint = STAR_TINTS[Math.floor(Math.random() * STAR_TINTS.length)] ?? 0xffffff;
-  star.base = 0.5 + Math.random() * 0.5;
-  star.twinkle = Math.random() < TWINKLE_CHANCE;
+  star.base = (0.5 + Math.random() * 0.5) * (0.15 + 0.85 * fade); // dimmer outward
+  star.twinkle = edge < 0.6 && Math.random() < TWINKLE_CHANCE; // ring is steady
   star.halfMs = randBetween(TWINKLE_HALF_MS_MIN, TWINKLE_HALF_MS_MAX);
   star.phaseMs = Math.random() * star.halfMs * 2;
-  star.img.setPosition(x, y).setTint(tint).setAlpha(star.base);
+  const px = STAR_PX * (0.5 + 0.5 * fade); // smaller outward
+  star.img.setPosition(x, y).setDisplaySize(px, px).setTint(tint).setAlpha(star.base);
 }

@@ -7,6 +7,7 @@ import Phaser from "phaser";
 import { sfx } from "../audio/sfx";
 import type { PlayOpts, SfxName } from "../audio/sfx";
 import { FxPool, HITSPARK_SKIP_BUDGET, PARTICLE_SOFT_BUDGET } from "../render/fx-pool";
+import { EnergyBarrier } from "../render/energy-barrier";
 import { Starfield } from "../render/starfield";
 import { TraumaCamera } from "../render/trauma-camera";
 import {
@@ -187,8 +188,10 @@ import {
   WASP_TELEGRAPH_MS,
   WASP_WOBBLE_AMP,
   WASP_WOBBLE_HZ,
+  wavePulse,
   WEAPON_DEFAULT,
   WEAPONS_SPECIAL,
+  WORLD_BLEED_PX,
   WORLD_H,
   WORLD_W,
   type AsteroidState,
@@ -329,6 +332,9 @@ const MULTIPLAYER_HOST = import.meta.env.DEV
 // Fresh room name per shared-state shape change (v4 adds `pulls`): old
 // deployed clients can't pollute this build's world.
 const ROOM = "starfall-arena-v4";
+/** Per-arena cap. The party server clamps to its own hard ceiling and overflows
+ *  player #33+ into a sibling arena (starfall-arena-v4~2, …) automatically. */
+const STARFALL_MAX_PLAYERS = 32;
 
 const DEG = Math.PI / 180;
 /** ARC per-hop falloff for victim-side chain drains. SerializedBeam carries
@@ -353,7 +359,9 @@ const NO_ASTEROIDS: ReadonlyArray<AsteroidState> = [];
 /** Beams vanish this far outside the world. */
 const BEAM_CULL_MARGIN = 200;
 /** Black mask thickness past the world edge (covers any screen half-width). */
-const MASK_PAD = 4000;
+// Masks start OUTSIDE the bleed ring so they hide truly-off-world entities but
+// not the fading bleed stars; still wide enough to cover any screen half-width.
+const MASK_PAD = WORLD_BLEED_PX + 4000;
 /** Reconcile snaps instead of blending past this offset. */
 const SNAP_DIST = 80;
 const SPLINTER_LIFE_MS = 7000;
@@ -385,6 +393,7 @@ function isShared(v: unknown): v is SharedState {
 export class GameScene extends Phaser.Scene {
   private client!: MultiplayerClient;
   private starfield!: Starfield;
+  private barrier!: EnergyBarrier;
   private fx!: FxPool;
   private trauma = new TraumaCamera();
 
@@ -619,13 +628,17 @@ export class GameScene extends Phaser.Scene {
     this.starfield = new Starfield(this);
     this.fx = new FxPool(this);
 
-    // Black mask outside the world: entities legitimately exist past the edge
-    // (spawning asteroids, escaping beams) but must not be visible there.
+    this.barrier?.destroy(); // scene-reuse safety: drop a prior instance's Graphics
+    this.barrier = new EnergyBarrier(this);
+
+    // Black mask past the bleed ring: entities legitimately exist beyond the
+    // edge (spawning asteroids, escaping beams) but must not be visible there.
+    // Inset by WORLD_BLEED_PX so the fading bleed starfield stays visible.
     const edges: ReadonlyArray<readonly [number, number, number, number]> = [
-      [-MASK_PAD, -MASK_PAD, WORLD_W + MASK_PAD * 2, MASK_PAD],
-      [-MASK_PAD, WORLD_H, WORLD_W + MASK_PAD * 2, MASK_PAD],
-      [-MASK_PAD, 0, MASK_PAD, WORLD_H],
-      [WORLD_W, 0, MASK_PAD, WORLD_H],
+      [-MASK_PAD, -MASK_PAD, WORLD_W + MASK_PAD * 2, MASK_PAD - WORLD_BLEED_PX],
+      [-MASK_PAD, WORLD_H + WORLD_BLEED_PX, WORLD_W + MASK_PAD * 2, MASK_PAD - WORLD_BLEED_PX],
+      [-MASK_PAD, -WORLD_BLEED_PX, MASK_PAD - WORLD_BLEED_PX, WORLD_H + WORLD_BLEED_PX * 2],
+      [WORLD_W + WORLD_BLEED_PX, -WORLD_BLEED_PX, MASK_PAD - WORLD_BLEED_PX, WORLD_H + WORLD_BLEED_PX * 2],
     ];
     for (const [x, y, w, h] of edges) {
       this.add.rectangle(x, y, w, h, 0x020617).setOrigin(0).setDepth(50);
@@ -654,6 +667,7 @@ export class GameScene extends Phaser.Scene {
       host: MULTIPLAYER_HOST,
       party: "vg-server",
       room: ROOM,
+      maxPlayers: STARFALL_MAX_PLAYERS,
       onEvent: (event, payload, from) => this.handleEvent(event, payload, from),
     });
     this.client.subscribe(() => this.onUpdate());
@@ -698,6 +712,7 @@ export class GameScene extends Phaser.Scene {
   override update(time: number, delta: number): void {
     const dt = Math.min(delta, 100) / 1000; // clamp tab-switch spikes
     this.starfield.update(dt, time);
+    this.barrier.update(time);
     if (!this.live) {
       this.maybeGoOffline(Date.now());
       if (!this.live) return;
@@ -903,7 +918,7 @@ export class GameScene extends Phaser.Scene {
    *  first time the gamepad sees a finger. */
   private enterTouchMode(): void {
     if (this.attractEl)
-      this.attractEl.innerHTML = "move &middot; drag &mdash; fire &middot; 2nd finger";
+      this.attractEl.innerHTML = "Drag to move. Tap to shoot";
   }
 
   /** Holding fire: any non-stick finger on touch, or the mouse button on desktop. */
@@ -3026,9 +3041,10 @@ export class GameScene extends Phaser.Scene {
     const tSec = Math.max(0, (now - w.arenaEpoch) / 1000);
     const intensity = arenaIntensity(tSec);
     const pressure = playerPressure(Math.max(1, Object.keys(this.peers).length));
+    const wave = wavePulse(tSec);
 
     if (
-      w.asteroids.length < asteroidCap(intensity, pressure) &&
+      w.asteroids.length < asteroidCap(intensity, pressure, wave) &&
       now - this.lastAsteroidSpawnAt > asteroidSpawnIntervalMs(intensity)
     ) {
       w.asteroids.push(spawnAsteroidState());
@@ -3066,7 +3082,7 @@ export class GameScene extends Phaser.Scene {
     }
     this.hostMagnetItems(now);
 
-    this.hostSpawnEnemies(now, tSec, intensity, pressure);
+    this.hostSpawnEnemies(now, tSec, intensity, pressure, wave);
     this.hostSimEnemies(now, dt);
     // After the sim: the pull overrides steering for dragged enemies.
     this.hostApplyPulls(now);
@@ -3075,7 +3091,7 @@ export class GameScene extends Phaser.Scene {
       w.pulls = livePulls;
       d.pulls = true;
     }
-    this.hostDespawnBreather(now, intensity, pressure);
+    this.hostDespawnBreather(now, intensity, pressure, wave);
 
     const liveShots = w.enemyShots.filter((s) => s.diesAt > now && inWorld(s.x, s.y, 60));
     if (liveShots.length !== w.enemyShots.length) {
@@ -3215,11 +3231,17 @@ export class GameScene extends Phaser.Scene {
     return out;
   }
 
-  private hostSpawnEnemies(now: number, tSec: number, intensity: number, pressure: number): void {
+  private hostSpawnEnemies(
+    now: number,
+    tSec: number,
+    intensity: number,
+    pressure: number,
+    wave: number,
+  ): void {
     if (tSec * 1000 < ARENA_SAFE_MS) return; // safe opening
     if (now < this.debutSuppressUntil) return;
     const w = this.world;
-    if (w.enemies.length >= enemyCap(intensity, pressure)) return;
+    if (w.enemies.length >= enemyCap(intensity, pressure, wave)) return;
     if (now - this.lastEnemySpawnAt < enemySpawnIntervalMs(intensity)) return;
     const avail = ENEMY_KINDS.filter((k) => enemySpawnWeight(k, intensity) > 0);
     if (avail.length === 0) return;
@@ -3441,9 +3463,14 @@ export class GameScene extends Phaser.Scene {
    * the enemy farthest from all living players: no loot, no score, only if
    * it's beyond ENEMY_DESPAWN_MIN_DIST from everyone, max one per interval.
    */
-  private hostDespawnBreather(now: number, intensity: number, pressure: number): void {
+  private hostDespawnBreather(
+    now: number,
+    intensity: number,
+    pressure: number,
+    wave: number,
+  ): void {
     const w = this.world;
-    if (w.enemies.length <= enemyCap(intensity, pressure) + ENEMY_DESPAWN_SLACK) return;
+    if (w.enemies.length <= enemyCap(intensity, pressure, wave) + ENEMY_DESPAWN_SLACK) return;
     if (now - this.lastBreatherDespawnAt < ENEMY_DESPAWN_INTERVAL_MS) return;
     const players = this.livingPlayers();
     let farIdx = -1;
