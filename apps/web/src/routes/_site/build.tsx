@@ -15,7 +15,7 @@ import { FadeInBlur } from "@/components/ui/fade-in-blur";
 import { chromatic, RollingText } from "@/components/ui/rolling-text";
 import { useCopyToClipboard } from "@/lib/use-copy-to-clipboard";
 
-const INSTALL_PROMPT = "Use vibedgames.com to help me build my game";
+const INSTALL_PROMPT = "Read https://vibedgames.com/install then help me build my game";
 
 function InstallPrompt() {
   const { copied, copy } = useCopyToClipboard();
