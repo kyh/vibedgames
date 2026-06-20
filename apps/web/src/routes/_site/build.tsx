@@ -1,12 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { motion, useInView } from "motion/react";
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupButton,
-  InputGroupInput,
-} from "@repo/ui/components/input-group";
 import { CheckIcon, ChevronRightIcon, CopyIcon } from "lucide-react";
 
 import { GitHubLink, RegisterLink } from "@/components/auth/register-link";
@@ -23,7 +17,7 @@ function InstallPrompt() {
   return (
     <header className="fixed inset-x-0 bottom-16 z-10 flex max-h-full flex-col px-4 md:right-auto md:w-[25rem]">
       <FadeInBlur className="text-muted-foreground mb-2 flex items-center gap-2 text-xs">
-        <span>Just tell your llm</span>
+        <span>prompt to install</span>
         <span className="flex items-center gap-1.5">
           <ClaudeIcon className="size-3.5" />
           <CodexIcon className="size-3.5" />
@@ -31,35 +25,25 @@ function InstallPrompt() {
         </span>
       </FadeInBlur>
       <div className="relative pb-4">
-        <motion.div className="bg-input/40 absolute inset-0 mb-4 rounded-md backdrop-blur-sm" />
         <FadeInBlur>
-          <InputGroup className="text-foreground border-none bg-transparent text-sm">
-            <InputGroupInput
-              type="text"
-              className="py-2.5 font-mono text-xs md:text-xs"
-              onClick={(event) => event.currentTarget.select()}
-              value={INSTALL_PROMPT}
-              readOnly
-            />
-            <InputGroupAddon align="inline-end">
-              <InputGroupButton
-                onClick={() => copy(INSTALL_PROMPT)}
-                size="icon-xs"
-                aria-label="Copy install prompt"
-              >
-                <motion.span
-                  key={copied ? "check" : "copy"}
-                  initial={{ opacity: 0, scale: 0.6 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.6 }}
-                  transition={{ type: "spring", stiffness: 400, damping: 20 }}
-                  className="flex items-center justify-center"
-                >
-                  {copied ? <CheckIcon /> : <CopyIcon />}
-                </motion.span>
-              </InputGroupButton>
-            </InputGroupAddon>
-          </InputGroup>
+          <button
+            type="button"
+            onClick={() => copy(INSTALL_PROMPT)}
+            aria-label="Copy install prompt"
+            className="group bg-input/40 hover:bg-input/60 flex w-full cursor-pointer items-center gap-3 rounded-md px-3 py-2.5 text-left font-mono text-xs backdrop-blur-sm transition-colors"
+          >
+            <span className="text-foreground flex-1 truncate">{INSTALL_PROMPT}</span>
+            <motion.span
+              key={copied ? "check" : "copy"}
+              initial={{ opacity: 0, scale: 0.6 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.6 }}
+              transition={{ type: "spring", stiffness: 400, damping: 20 }}
+              className="text-muted-foreground group-hover:text-foreground flex shrink-0 items-center justify-center transition-colors"
+            >
+              {copied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
+            </motion.span>
+          </button>
         </FadeInBlur>
       </div>
     </header>
