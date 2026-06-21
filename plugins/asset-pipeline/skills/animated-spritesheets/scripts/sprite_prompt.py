@@ -3,17 +3,16 @@
 # requires-python = ">=3.11"
 # dependencies = []
 # ///
-# Model-facing prompt builders for directional anchors and image-to-video motion
-# clips. The constraint wording — per-direction facing locks, per-action cadence
-# paragraphs, the no-baked-shadow litany — is the craft that makes the generated
-# sprites well-formed; do not paraphrase it. Standalone PEP723 CLI; no model
-# invocation.
+# Model-facing prompt builders for directional anchor sprites and labeled
+# pose-board spritesheets. The constraint wording — per-direction facing locks,
+# per-frame pose labels, the no-baked-shadow litany — is the craft that makes the
+# generated sprites well-formed; do not paraphrase it. Standalone PEP723 CLI; no
+# model invocation.
 """Build model-facing prompts for the sprite animation pipeline.
 
-Three prompt families, each printed to stdout:
+Two prompt families, each printed to stdout:
 
   anchor      single-frame directional anchor sprite (game-view + role + direction)
-  video       an in-place image-to-video motion clip (the generation path)
   pose-board  a labeled pose-board spritesheet (the IMAGE generation path)
 
 The wording is deliberately verbose: the litanies (no baked shadow, no scenery,
@@ -23,7 +22,6 @@ paraphrase them.
 Usage:
   sprite_prompt.py anchor --direction w [--game-view platformer] [--role character] \\
       [--anchor-context "..."] [--style lobit-v1] [--chroma '#00FF00']
-  sprite_prompt.py video --action walk --direction w [--style ...] [--chroma '#00FF00']
   sprite_prompt.py pose-board --action attack --direction e --frames 8 \\
       [--pose-board standard] [--frame-prompt-style specific] [--style ...] [--chroma '#00FF00']
   sprite_prompt.py --selftest
@@ -401,151 +399,6 @@ def _anchor_context_guidance(anchor_context: str | None) -> str:
 
 
 # --------------------------------------------------------------------------- #
-# Video prompt builder.
-# --------------------------------------------------------------------------- #
-def render_video_prompt(
-    action: ActionPreset,
-    direction: Direction,
-    *,
-    chroma: str = "#00FF00",
-) -> str:
-    chroma_phrase = _chroma_phrase(chroma)
-    motion = action.id
-    looping_actions = {"idle", "run", "walk", "walk_forward", "walk_backward", "talk"}
-    motion_kind = "cycle" if action.id in looping_actions else "animation"
-    facing_lock = _video_facing_lock_for_motion(direction, motion=motion)
-    cadence = _video_cadence(action.id)
-    equipment_guidance = _video_equipment_guidance(action.id)
-    exclusions = _video_action_exclusions(action.id)
-    return f"""Animate this single character into a simple {direction.prompt_name} in-place {motion} {motion_kind} for a 2D game sprite.
-
-Use the input image as a strict first-frame identity, palette, scale, and sprite-style reference.
-Preserve the exact costume colors, pixel-art color blocks, outline weight, facial proportions, hair shape, boots, gloves, belts, buckles, pouches, scarf, cloak edges, goggles, patches, stitching, and other small outfit details.
-Do not redesign, repaint, recolor, simplify, smooth, airbrush, modernize, replace, remove, or invent character details.
-
-The character must face {direction.prompt_name} for the entire clip.
-Do not turn toward any other direction.
-Do not pivot, rotate, or show a quarter-turn view.
-{facing_lock}
-
-Keep the camera fixed and centered.
-Keep the framing unchanged.
-Keep the full-body character large in the frame at the same apparent scale as the input image, with head-to-boot detail still readable.
-Keep the plain background as one uninterrupted flat exact {chroma_phrase} plate.
-The sprite source must not include baked shadows; the game engine will add shadows separately if needed.
-Do not add a cast shadow, contact shadow, ground shadow, ambient-occlusion blob, base ellipse, reflection, footprint, dust puff, floor line, ground line, platform edge, or any visible mark under the character.
-Do not turn the background into a floor, room, horizon, scene, contact surface, floor plane, platform, or perspective grid.
-Do not add lighting gradients, texture, matte-color spill, background motion, motion blur, defocus blur, smear frames, cinematic lighting, color grading, or ground-contact effects.
-Treat foot-down timing as character pose only, never as a visible floor/shadow cue.
-
-Make the motion low-fidelity, readable, and suited to a game sprite reference.
-Use a {'looping' if action.id in looping_actions else 'short'} in-place {motion} {motion_kind} with readable game-animation key poses, controlled vertical bobbing, and light clothing/equipment sway.
-{cadence}
-Preserve the sprite-like pixelated look and the exact character identity in every frame.
-Preserve any existing held or worn equipment from the reference as attached parts of the character.
-{equipment_guidance}
-
-One character only.
-Flat chroma background only.
-No scene.
-No new props.
-No effects.
-{exclusions}
-No palette drift.
-No costume drift.
-No boot simplification.
-"""
-
-
-def _video_facing_lock_for_motion(direction: Direction, *, motion: str) -> str:
-    if motion == "idle":
-        movement = "Keep the body rooted in one spot: feet stay fused to the ground, the body stays centered, and the character does not travel across the frame, slide, or take steps. Use only subtle breathing, tiny hand shifts, blink, and light cloth/equipment sway."
-    elif motion in {"run", "walk", "walk_forward", "walk_backward"}:
-        movement = "Move arms and legs in a side-view locomotion plane, forward and backward across the screen, not toward the viewer."
-    else:
-        movement = "Keep the action in the same fixed view plane, centered in frame, without moving toward the viewer."
-    if direction.id == "w":
-        return f"""Maintain a pure side-profile silhouette facing screen-left in every frame.
-Only the side of the head and side of the torso should be visible; do not reveal both eyes, the full front of the chest, or both shoulders.
-{movement}"""
-    if direction.id == "e":
-        return f"""Maintain a pure side-profile silhouette facing screen-right in every frame.
-Only the side of the head and side of the torso should be visible; do not reveal both eyes, the full front of the chest, or both shoulders.
-{movement}"""
-    if direction.id == "n":
-        return f"""Maintain a back-facing silhouette in every frame.
-Do not reveal the face, front of the torso, or a side-profile turn.
-{movement if motion == "idle" else "Move arms and legs as a back-view cycle without rotating the body."}"""
-    if direction.id == "s":
-        return f"""Maintain a front-facing silhouette in every frame.
-Do not rotate into side profile or back view.
-{movement if motion == "idle" else "Move arms and legs as a front-view cycle without turning the body."}"""
-    return ""
-
-
-def _video_cadence(action_id: str) -> str:
-    if action_id == "idle":
-        return "Use a quiet looping idle where the character stays planted in one spot with feet fused to the ground and the body centered: the only motion is a subtle breathing rise/fall of the body and cap, tiny scarf or cloak sway, and an optional blink. Keep both feet down with no stepping and no travel across the frame. Do not make a walk, run, attack, stagger, or bounce-only cycle."
-    if action_id == "crouch":
-        return "Use a compact crouch or duck animation: start upright, bend knees and lower the body, hold the crouched pose briefly, then return toward the starting stance. Keep both feet planted in place. Do not step, walk, run, jump, attack, slide, or turn toward the camera."
-    if action_id == "walk":
-        return "Use clear alternating left/right stride poses: left foot forward while right foot back, then right foot forward while left foot back. Arms counter-swing opposite the legs. Show foot-down timing through limb pose only. Do not move both arms forward together. Do not move both feet together. Do not make a shuffle, wiggle, bounce-only idle, marching-in-place twitch, or synchronized arm-and-foot sway."
-    if action_id == "walk_forward":
-        return "Use a fighting-game walk-forward cycle: guarded upper body, confident forward pressure, alternating stride poses, arms ready to defend, and feet sliding only through pose timing. Do not run, hop, attack, or turn toward the camera."
-    if action_id == "walk_backward":
-        return "Use a fighting-game walk-backward cycle: guarded upper body, cautious retreating footwork, alternating stride poses, arms ready to defend, and feet sliding only through pose timing. Do not run, hop, attack, or turn toward the camera."
-    if action_id == "run":
-        return "Use clear alternating left/right running stride poses with readable foot-down and passing poses. Arms counter-swing opposite the legs. Show foot-down timing through limb pose only. Do not move both arms forward together. Do not move both feet together. Do not make a bounce-only idle or synchronized arm-and-foot sway."
-    if action_id == "roll":
-        return "Use a quick evasive forward roll/dodge: drop low, tuck the body and tumble forward along the ground in a compact ball, then rise back to a ready stance. The character stays low through the middle of the move. Keep it fast and grounded. Do not float, fly, leave a motion trail, or add effects."
-    if action_id == "dash":
-        return "Use a fast horizontal dash burst: a sharp lean into a quick forward lunge that holds a streamlined low pose, then settles to a ready stance. Keep feet near the ground and the body committed forward. Do not float, fly, leave a motion trail, or add speed-line effects."
-    if action_id == "block_high":
-        return "Use a high block animation: raise guard to protect head and torso, absorb impact in place, then return toward guard. Keep feet planted. Do not attack, walk, crouch, or fall."
-    if action_id == "block_low":
-        return "Use a low block animation: lower stance and guard the legs/body, absorb impact in place, then return toward guard. Keep feet planted. Do not attack, walk, jump, or fall."
-    if action_id == "knockdown":
-        return "Use a knockdown animation: impact recoil, loss of balance, fall to the ground, and settle into a readable downed pose. Keep it compact and do not bounce back up."
-    if action_id == "get_up":
-        return "Use a get-up recovery animation: start from a downed pose, push up, regain footing, and return to fighting guard. Do not turn toward the camera or become a jump."
-    if action_id == "light_attack":
-        return "Use a quick light attack animation: short anticipation, fast jab or kick, crisp contact pose, and quick recovery to guard. Keep it compact with no projectile or large VFX."
-    if action_id == "heavy_attack":
-        return "Use a heavier attack animation: readable wind-up, committed strike, follow-through, and recovery to guard. Keep one clear attack only with no projectile or large VFX."
-    if action_id == "talk":
-        return "Use a looping dialogue gesture: small head movement, hand emphasis, subtle torso rhythm, and return to a natural speaking stance. Do not create lip-sync text, speech bubbles, or a combat action."
-    if action_id == "interact":
-        return "Use a short context-sensitive adventure interaction: reach toward an object, operate or take it, then recover to idle. Keep it generic enough to cover use and take verbs."
-    if action_id == "pick_up":
-        return "Use a short pick-up animation: bend or lean, reach down or forward, grasp an object-sized target, and return toward idle. Do not add a visible object unless it is already in the reference."
-    if action_id == "use":
-        return "Use a short operate/use animation: reach out, press, turn, pull, or manipulate an implied object, then return toward idle. Do not add scenery or a visible device."
-    if action_id == "examine":
-        return "Use a short examine animation: lean in, peer, hand-to-chin or thoughtful look, then return toward idle. Keep feet planted and do not turn into a walk."
-    if action_id == "give":
-        return "Use a short hand-over animation: extend one hand forward as if offering an item, hold briefly, then return toward idle. Do not invent a detailed prop unless already present."
-    if action_id == "shrug":
-        return "Use a short confused reaction: shoulders lift, hands open or head tilts, then return toward idle. Keep it readable as a point-and-click 'that does not work' response."
-    return "Use clear readable key poses for the requested action while keeping it compact and game-sprite-like. Show weight shifts through character pose only; do not add a visible floor, ground line, contact mark, dust, shadow, impact effect, or extra prop."
-
-
-def _video_action_exclusions(action_id: str) -> str:
-    if action_id in {"attack", "light_attack", "heavy_attack"}:
-        return "No detached weapon, projectile, muzzle flash, slash trail, or VFX unless it is already part of the requested character action."
-    if action_id in {"talk", "interact", "pick_up", "use", "examine", "give", "shrug"}:
-        return "No attack animation.\nNo combat VFX.\nNo speech bubble, caption, UI, or visible room object."
-    return "No attack animation.\nNo weapon or held-item swing."
-
-
-def _video_equipment_guidance(action_id: str) -> str:
-    if action_id in {"attack", "light_attack", "heavy_attack"}:
-        return "If the reference includes a held item, keep it gripped by the same hand in every frame; it may move only as part of the requested attack and must not float, detach, or duplicate."
-    if action_id in {"interact", "pick_up", "use", "give"}:
-        return "If the reference includes a held item, keep it attached to the same hand or let the hand gesture around it; it must not float, detach, duplicate, or become a new object."
-    return "If the reference includes a held item, keep it gripped by the same hand in every frame; it must not float, detach, duplicate, or swing as an attack."
-
-
-# --------------------------------------------------------------------------- #
 # Pose-board prompt builder.
 #
 # The IMAGE method: one generation lays the same character out in a uniform grid
@@ -768,14 +621,6 @@ def _cmd_anchor(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_video(args: argparse.Namespace) -> int:
-    action = get_action(args.action)
-    direction = get_direction(args.direction)
-    prompt = render_video_prompt(action, direction, chroma=args.chroma)
-    print(_with_style(prompt, args.style))
-    return 0
-
-
 def _cmd_pose_board(args: argparse.Namespace) -> int:
     action = get_action(args.action)
     direction = get_direction(args.direction)
@@ -809,13 +654,6 @@ def _build_parser() -> argparse.ArgumentParser:
     anchor.add_argument("--chroma", default="#00FF00", help="(anchor matte is fixed green; flag accepted for parity)")
     anchor.set_defaults(func=_cmd_anchor)
 
-    video = sub.add_parser("video", help="in-place image-to-video motion clip prompt")
-    video.add_argument("--action", required=True, help="action id, e.g. walk, idle, attack")
-    video.add_argument("--direction", required=True, help="n,s,e,w,ne,nw,se,sw")
-    video.add_argument("--style", default=None, choices=_STYLE_CHOICES)
-    video.add_argument("--chroma", default="#00FF00")
-    video.set_defaults(func=_cmd_video)
-
     pose_board = sub.add_parser("pose-board", help="labeled pose-board spritesheet prompt (IMAGE method)")
     pose_board.add_argument("--action", required=True, help="action id, e.g. attack, idle, walk")
     pose_board.add_argument("--direction", required=True, help="n,s,e,w,ne,nw,se,sw")
@@ -832,20 +670,6 @@ def _build_parser() -> argparse.ArgumentParser:
 def selftest() -> int:
     w = DIRECTIONS["w"]
 
-    # video walk: side-profile facing lock + no-baked-shadow litany + chroma + stride.
-    walk = render_video_prompt(ACTION_PRESETS["walk"], w)
-    assert "side-profile" in walk, "walk video must carry the side-profile facing lock"
-    assert "shadow" in walk, "walk video must carry the no-baked-shadow litany"
-    assert "chroma" in walk, "walk video must name the chroma plate"
-    assert "alternating left/right stride" in walk, "walk video must describe alternating stride"
-
-    # video idle: rooted/standing language + shadow litany.
-    idle = render_video_prompt(ACTION_PRESETS["idle"], w)
-    assert "feet" in idle, "idle video must mention feet"
-    assert "does not travel" in idle, "idle video must say the character does not travel"
-    assert "step" in idle, "idle video must address stepping (no stepping)"
-    assert "shadow" in idle, "idle video must carry the no-baked-shadow litany"
-
     # anchor platformer w -> side-view profile; turret role -> barrel/base; rts -> RTS.
     anchor_plat = render_anchor_prompt(w, game_view="platformer", anchor_role="character")
     assert "side-view profile" in anchor_plat, "platformer w anchor must be a side-view profile"
@@ -854,14 +678,10 @@ def selftest() -> int:
     anchor_rts = render_anchor_prompt(w, game_view="rts-oblique", anchor_role="character")
     assert "RTS" in anchor_rts, "rts-oblique anchor must mention RTS"
 
-    # --style lobit-v1 injects the low-bit constraint on the video + anchor builders.
-    for blk in (_with_style(walk, "lobit-v1"), _with_style(anchor_plat, "lobit-v1")):
-        assert "8 to 12 color" in blk, "lobit-v1 must spell out the 8 to 12 color constraint"
-        assert "big readable pixel clusters" in blk.lower(), "lobit-v1 must mention big pixel clusters"
-
-    # chroma override flows through to the named phrase.
-    magenta = render_video_prompt(ACTION_PRESETS["walk"], w, chroma="#FF00FF")
-    assert "chroma magenta #FF00FF" in magenta, "chroma override must name the matte"
+    # --style lobit-v1 injects the low-bit constraint on the anchor builder.
+    anchor_lobit = _with_style(anchor_plat, "lobit-v1")
+    assert "8 to 12 color" in anchor_lobit, "lobit-v1 must spell out the 8 to 12 color constraint"
+    assert "big readable pixel clusters" in anchor_lobit.lower(), "lobit-v1 must mention big pixel clusters"
 
     e = DIRECTIONS["e"]
 
@@ -872,6 +692,10 @@ def selftest() -> int:
     assert "Frame 1" in board, "pose-board specific must label Frame 1"
     assert "Frame 8" in board, "pose-board specific must label Frame 8"
     assert "exact solid #00FF00" in board, "pose-board must carry the chroma constraint"
+
+    # chroma override flows through to the pose-board prompt.
+    board_magenta = render_pose_board_prompt(ACTION_PRESETS["attack"], e, 8, chroma="#FF00FF")
+    assert "#FF00FF" in board_magenta, "chroma override must flow into the pose-board prompt"
 
     # frame_label tables return sensible non-empty labels.
     assert frame_label("attack", 1, 8) == "ready idle", "attack frame 1 of 8 must read as ready idle"

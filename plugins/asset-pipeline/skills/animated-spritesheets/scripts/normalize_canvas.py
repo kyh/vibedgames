@@ -3,17 +3,15 @@
 # requires-python = ">=3.11"
 # dependencies = ["pillow>=11.0.0"]
 # ///
-"""Preserve-motion normalization for **video-derived** frames.
+"""Shared-transform canvas normalization for a sliced pose-board action.
 
-Why this exists separately from normalize_frames.py:
-- normalize_frames.py recenters EACH frame on its own alpha bbox (center-x /
-  bottom-y). That is right for posed image sheets, but wrong for a walk/run clip:
-  re-centering every frame cancels the very translation that makes it read as
-  motion, so the sprite "skates" in place.
-- Image-to-video frames already share ONE camera canvas. So we compute a single
-  shared crop + scale + ground anchor from the UNION of all frames and apply the
-  SAME transform to every frame. Relative motion is preserved; scale and the
-  ground line stay consistent across the loop.
+Every frame of one action is placed on the SAME canvas with the SAME crop +
+scale + ground anchor, derived from the UNION of all frames' alpha bounding
+boxes. Re-centering each frame on its own bbox would cancel the inter-frame
+translation that makes an action read as motion (a roll's travel, an attack's
+reach), so the sprite would "skate" in place. One shared transform keeps both
+the character scale and the ground line consistent across the whole loop, with
+headroom (--char-fill) so big poses never clip the cell edge.
 
 Usage:
   normalize_canvas.py --input-dir keyed/ --out-dir runtime/ --canvas 256x256
@@ -22,11 +20,15 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import statistics
 import sys
 import tempfile
 from pathlib import Path
 
 from PIL import Image
+
+
+DEFAULT_CANVAS = (256, 256)
 
 
 def _parse_size(text: str) -> tuple[int, int]:
@@ -39,7 +41,7 @@ def normalize_canvas(
     out_dir: Path,
     *,
     glob: str = "frame-*.png",
-    canvas: tuple[int, int] = (256, 256),
+    canvas: tuple[int, int] = DEFAULT_CANVAS,
     pad: int = 6,
     allow_upscale: bool = True,
     target_height: int | None = None,
@@ -64,9 +66,7 @@ def normalize_canvas(
     avail_w, avail_h = cw - 2 * pad, ch - 2 * pad
     # The CHARACTER (median per-frame visible height, robust to the vertical travel
     # baked into the union) is what we keep consistent across actions.
-    hs = sorted(b[3] - b[1] for b in boxes)
-    n = len(hs)
-    char_h = (hs[n // 2] if n % 2 else (hs[n // 2 - 1] + hs[n // 2]) / 2) or 1
+    char_h = statistics.median(b[3] - b[1] for b in boxes) or 1
     # Aim the character at a FRACTION of the cell (default ~50%) so there is headroom
     # for attack arcs and jump travel — hand-authored sheets keep the character small
     # with margin so a big slash never clips. A size contract overrides the fraction
@@ -129,11 +129,11 @@ def selftest() -> int:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Preserve-motion normalization for video-derived frames.")
+    ap = argparse.ArgumentParser(description="Shared-transform canvas normalization for a sliced pose-board action.")
     ap.add_argument("--input-dir", type=Path)
     ap.add_argument("--out-dir", type=Path)
     ap.add_argument("--glob", default="frame-*.png")
-    ap.add_argument("--canvas", default="256x256")
+    ap.add_argument("--canvas", default=f"{DEFAULT_CANVAS[0]}x{DEFAULT_CANVAS[1]}")
     ap.add_argument("--pad", type=int, default=6)
     ap.add_argument("--no-upscale", action="store_true", help="do not scale a small sprite up to fill the cell")
     ap.add_argument("--target-height", type=int, default=None,

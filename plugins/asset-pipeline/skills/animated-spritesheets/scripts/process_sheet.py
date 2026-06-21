@@ -17,7 +17,7 @@ run connected-component recovery (Spriterrific-style), which tolerates the model
 spilling a pose across cell borders; pass --pixel-snap for the crisp low-bit look.
 
 Pipeline: (slice grid | --recover components) -> chroma_clean (per cell) ->
-normalize_frames (per-frame anchor) -> [--pixel-snap per frame] -> pack -> gif.
+normalize_canvas (shared-transform anchor) -> [--pixel-snap per frame] -> pack -> gif.
 
 Example:
   process_sheet.py board.png --action attack --rows 2 --cols 2 --out-dir runs/hero-attack-img

@@ -43,7 +43,9 @@ def is_green_screen_pixel(
 
 def keep_largest_components(image: Image.Image, min_area: int) -> Image.Image:
     rgba = image.convert("RGBA")
-    alpha = rgba.getchannel("A")
+    # Read alpha once into a numpy array (indexed [y, x]); per-pixel getpixel() in
+    # the flood below is ~an order of magnitude slower across a full frame.
+    alpha = np.asarray(rgba.getchannel("A"))
     width, height = rgba.size
     px = rgba.load()
     seen: set[tuple[int, int]] = set()
@@ -51,7 +53,7 @@ def keep_largest_components(image: Image.Image, min_area: int) -> Image.Image:
 
     for y in range(height):
         for x in range(width):
-            if (x, y) in seen or alpha.getpixel((x, y)) == 0:
+            if (x, y) in seen or alpha[y, x] == 0:
                 continue
             queue: deque[tuple[int, int]] = deque([(x, y)])
             seen.add((x, y))
@@ -60,7 +62,7 @@ def keep_largest_components(image: Image.Image, min_area: int) -> Image.Image:
                 cx, cy = queue.popleft()
                 points.append((cx, cy))
                 for nx, ny in ((cx + 1, cy), (cx - 1, cy), (cx, cy + 1), (cx, cy - 1)):
-                    if 0 <= nx < width and 0 <= ny < height and (nx, ny) not in seen and alpha.getpixel((nx, ny)) > 0:
+                    if 0 <= nx < width and 0 <= ny < height and (nx, ny) not in seen and alpha[ny, nx] > 0:
                         seen.add((nx, ny))
                         queue.append((nx, ny))
             components.append(points)
@@ -203,19 +205,6 @@ def fringe_warning(removed: int, kept: int, *, chroma_rgb: tuple[int, int, int])
             "been removed. Use a matte color absent from the sprite or pass --no-green-fringe-cleanup."
         )
     return None
-
-
-def is_keyable_fringe_pixel(
-    rgb: tuple[int, int, int],
-    dominant: tuple[int, ...],
-    suppressed: tuple[int, ...],
-    *,
-    min_level: int,
-    dominance: int,
-) -> bool:
-    low = min(rgb[index] for index in dominant)
-    high = max(rgb[index] for index in suppressed)
-    return low >= min_level and low - high >= dominance
 
 
 def remove_chroma_fringe(
