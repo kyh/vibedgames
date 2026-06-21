@@ -33,6 +33,10 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    if args.rows <= 0 or args.cols <= 0:
+        raise SystemExit("--rows and --cols must be positive integers")
+    if args.frames is not None and args.frames <= 0:
+        raise SystemExit("--frames must be a positive integer")
     img = Image.open(args.sheet).convert("RGBA")
     width, height = img.size
     px = img.load()

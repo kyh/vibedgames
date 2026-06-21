@@ -7,13 +7,13 @@
 """Single source of truth for *how* each animation should be generated and curated.
 
 The core insight: an animation's *type* should drive
-both how many frames it needs and how frames are selected from a motion clip.
+both how many frames it needs and which frames carry the action.
 
 - timing          : loop | one_shot | transition | hold  -> the animation's shape.
-- selectionPolicy : how frame_select.py should pick frames from extracted video:
+- selectionPolicy : which frames carry the meaningful action — a hint for budgeting frames:
                       cycle                     -> compact loop window (idle/walk/run)
                       action_window             -> the meaningful action span (attack)
-                      full_duration_include_end -> sample whole clip, KEEP final frame
+                      full_duration_include_end -> use the whole span, KEEP the final frame
                                                    (jump/death/get_up land on an end pose)
                       hold_pose                 -> a stable held pose, little motion
                                                    (crouch/block)

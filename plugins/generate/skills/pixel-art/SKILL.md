@@ -25,30 +25,22 @@ Full pipeline for 2D pixel art game assets: character → sprite sheets → back
 
 Always use `--json` so output is machine-readable. Use `--download` to save files locally. Do **not** curl URLs manually, use the `--download` flag.
 
-> **Two craft skills — pick by what the action needs.** The recipes below are the
-> **fast path**: 4-frame 2×2 image sheets, great for a quick playable. For
-> **well-crafted** animations there are two sibling skills, each a different
-> generation method (a live A/B settled the trade-off):
-> - **`spritesheet-image`** — one pose-board image per action, sliced. Holds the
->   character's **identity consistent** across frames; best for attack/posed/combat
->   actions. Fewer frames.
-> - **`spritesheet-video`** — a short image-to-video clip. **Smoother motion**,
->   many frames; best for **locomotion** (walk/run). Drifts identity somewhat.
->
-> Both produce an engine-loadable `spritesheet.png` + manifest in one command.
+> **For well-crafted animations, use the `animated-spritesheets` skill.** The
+> recipes below are the **fast path**: 4-frame 2×2 image sheets, great for a quick
+> playable. When the animation needs to look polished, `animated-spritesheets`
+> generates one labeled pose-board image per action, slices it, and packs an
+> engine-loadable `spritesheet.png` + manifest in one command — holding the
+> character's **identity consistent** across the whole animation.
 
 Two craft rules that apply to **all** paths:
 
 1. **No baked shadows in the sprite.** Prompt against cast/contact/ground
    shadows, base ellipses, and floor lines — the game engine adds shadows at
    render time. A shadow baked into the frame fights the engine's.
-2. **Pick the method per action.** Posed/combat actions (attack, hurt, cast)
-   want **identity consistency** → `spritesheet-image`. Locomotion (walk, run)
-   wants **smooth motion** → `spritesheet-video`. The 2×2
-   image recipes here are the **quick-prototype / cheapest-first** path — fine for
-   a near-static pose or a fast playable, but reach for video when the animation
-   actually needs to look good. (Trade-off: short clips keep i2v from drifting
-   the character's detail, which is why the pipeline prefers them.)
+2. **Quick prototype vs polished.** The 2×2 image recipes here are the
+   **quick-prototype / cheapest-first** path — fine for a near-static pose or a
+   fast playable. For a real animation (attack arcs, walk/run cycles, hurt,
+   death), reach for the `animated-spritesheets` skill.
 
 ---
 

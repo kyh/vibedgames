@@ -13,11 +13,12 @@ anchor, and packs the spritesheet.
 By default this assumes a UNIFORM grid (which is how hand-authored sheets are
 laid out and what you should prompt the model for) and slices it directly — far
 more predictable than trying to recover drifted blobs. Pass --recover to instead
-run connected-component recovery (Spriterrific-style), which tolerates the model
-spilling a pose across cell borders; pass --pixel-snap for the crisp low-bit look.
+run connected-component recovery, which tolerates the model spilling a pose across
+cell borders; pass --pixel-snap for the crisp low-bit look.
 
 Pipeline: (slice grid | --recover components) -> chroma_clean (per cell) ->
-normalize_canvas (shared-transform anchor) -> [--pixel-snap per frame] -> pack -> gif.
+[--pixel-snap per frame] -> normalize_canvas (shared-transform anchor) -> pack ->
+qc -> gif.
 
 Example:
   process_sheet.py board.png --action attack --rows 2 --cols 2 --out-dir runs/hero-attack-img
@@ -58,6 +59,12 @@ def action_facts(action: str) -> dict:
 
 def slice_grid(board: Path, rows: int, cols: int, frames: int, out_dir: Path) -> int:
     img = Image.open(board).convert("RGBA")
+    if img.width % cols or img.height % rows:
+        sys.stderr.write(
+            f"[process_sheet] warning: board {img.width}x{img.height} does not divide evenly into "
+            f"{cols}x{rows} cells ({img.width % cols}px wide / {img.height % rows}px tall remainder "
+            f"dropped). Regenerate at a divisible size or adjust --rows/--cols if frames look shifted.\n"
+        )
     cw, ch = img.width // cols, img.height // rows
     out_dir.mkdir(parents=True, exist_ok=True)
     n = 0
@@ -70,8 +77,8 @@ def slice_grid(board: Path, rows: int, cols: int, frames: int, out_dir: Path) ->
 
 
 def recover_grid(board: Path, rows: int, cols: int, frames: int, out_dir: Path) -> int:
-    """Connected-component recovery (Spriterrific-style): tolerates poses spilling
-    across cell borders. Emits frame-NN.png; returns the frame count."""
+    """Connected-component recovery: tolerates poses spilling across cell borders.
+    Emits frame-NN.png; returns the frame count."""
     run_step("recover", "recover_component_frames.py", str(board),
              "--rows", str(rows), "--cols", str(cols), "--frames", str(frames),
              "--out-dir", str(out_dir), "--prefix", "frame")
@@ -100,7 +107,7 @@ def main() -> int:
     ap.add_argument("--recover", action="store_true",
                     help="recover frames by connected components (handles poses spilling across cells) instead of naive grid slicing")
     ap.add_argument("--pixel-snap", action="store_true",
-                    help="snap each runtime frame onto its native pixel grid after normalize (crisp low-bit look)")
+                    help="snap each keyed frame onto its native pixel grid before normalize (crisp low-bit look); normalize then re-uniforms them")
     ap.add_argument("--snap-k-colors", type=int, default=16, help="palette size for --pixel-snap (k-means)")
     ap.add_argument("--no-qc", action="store_true", help="skip the spritesheet QC pass (size/facing/clip/empty)")
     ap.add_argument("--json", action="store_true")
@@ -108,12 +115,24 @@ def main() -> int:
 
     if not args.board.exists():
         raise SystemExit(f"board not found: {args.board}")
+    if args.rows <= 0 or args.cols <= 0:
+        ap.error("--rows and --cols must be positive integers")
+    if args.frames is not None and args.frames <= 0:
+        ap.error("--frames must be a positive integer")
+    if not 0.0 < args.char_fill <= 1.0:
+        ap.error("--char-fill must be in (0, 1]")
+    if args.snap_k_colors <= 0:
+        ap.error("--snap-k-colors must be a positive integer")
     facts = action_facts(args.action)
     fps = int(facts["fps"])
     frames = args.frames if args.frames is not None else args.rows * args.cols
 
     out = args.out_dir
     d_cells, d_keyed, d_runtime, d_review = out/"cells", out/"_keyed", out/"runtime", out/"review"
+    # clear intermediate dirs so a rerun (esp. with fewer --frames) can't pack stale frames
+    for d in (d_cells, d_keyed, d_runtime):
+        if d.exists():
+            shutil.rmtree(d)
 
     # 1. produce per-frame cells: naive uniform slice (default) or component recovery
     if args.recover:

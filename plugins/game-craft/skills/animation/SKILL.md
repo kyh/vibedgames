@@ -1,6 +1,6 @@
 ---
 name: animation
-description: "2D game animation craft — timing & spacing, frame budgets per clip (idle/walk/run/attack/death), the responsiveness-vs-weight contract, cancel windows, smears, silhouette readability, secondary motion — from Williams' Survival Kit, Mariel Cartwright's Skullgirls GDC talk, saint11, and fighting-game frame practice. Use when: 'the animation looks stiff/floaty/mushy', 'how many frames for a walk cycle?', 'attacks feel laggy', 'character feels dead', 'animate this sprite sheet', wiring sprite anims in Phaser, or cleaning AI-generated frames into a usable set. For GENERATING the frames see pixel-art / spritesheet-image / spritesheet-video; this is what makes them good."
+description: "2D game animation craft — timing & spacing, frame budgets per clip (idle/walk/run/attack/death), the responsiveness-vs-weight contract, cancel windows, smears, silhouette readability, secondary motion — from Williams' Survival Kit, Mariel Cartwright's Skullgirls GDC talk, saint11, and fighting-game frame practice. Use when: 'the animation looks stiff/floaty/mushy', 'how many frames for a walk cycle?', 'attacks feel laggy', 'character feels dead', 'animate this sprite sheet', wiring sprite anims in Phaser, or cleaning AI-generated frames into a usable set. For GENERATING the frames see pixel-art / animated-spritesheets; this is what makes them good."
 ---
 
 # Animation craft
@@ -125,6 +125,6 @@ delay input.
 - Schlitter, Pixelblog 8 & 9 (cycles, melee attacks) — slynyrd.com/blog/2018/8/19/pixelblog-8-intro-to-animation
 - 2D Will Never Die, sub-pixel animation — 2dwillneverdie.com/tutorial/give-your-sprites-depth-with-sub-pixel-animation/
 
-Related skills: `pixel-art` / `spritesheet-image / spritesheet-video` (generate the frames),
+Related skills: `pixel-art` / `animated-spritesheets` (generate the frames),
 `vfx` (effects animation), `game-feel` (hit stop, squash from code),
 `phaser` (animation API).

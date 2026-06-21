@@ -33,7 +33,10 @@ DEFAULT_CANVAS = (256, 256)
 
 def _parse_size(text: str) -> tuple[int, int]:
     w, h = text.lower().split("x")
-    return int(w), int(h)
+    w, h = int(w), int(h)
+    if w <= 0 or h <= 0:
+        raise SystemExit(f"--canvas dimensions must be positive, got: {text!r}")
+    return w, h
 
 
 def normalize_canvas(
@@ -146,6 +149,12 @@ def main() -> int:
         return selftest()
     if not args.input_dir or not args.out_dir:
         ap.error("--input-dir and --out-dir are required (or use --selftest)")
+    if args.pad < 0:
+        ap.error("--pad must be >= 0")
+    if not 0.0 < args.char_fill <= 1.0:
+        ap.error("--char-fill must be in (0, 1]")
+    if args.target_height is not None and args.target_height <= 0:
+        ap.error("--target-height must be a positive integer")
     written = normalize_canvas(
         args.input_dir, args.out_dir, glob=args.glob,
         canvas=_parse_size(args.canvas), pad=args.pad, allow_upscale=not args.no_upscale,

@@ -8,8 +8,8 @@
 This is the final step the rest of the pipeline was missing: it turns the loose
 `runtime/frame-*.png` into ONE packed PNG (uniform grid, exact frame cells, no
 labels, no gaps, transparent background) plus a JSON manifest a 2D engine loads
-directly. This is NOT build_contact_sheet.py — that one adds labels/gaps/bg for
-human review and is not loadable.
+directly. This is an engine-loadable sheet, not a labeled contact/review sheet
+(no labels, gaps, or background).
 
 Default layout is a single horizontal strip (rows=1), which loads cleanly with
 Phaser's `load.spritesheet(key, url, { frameWidth, frameHeight })` +

@@ -9,8 +9,7 @@ metadata:
 
 Turn a character into a packed, engine-loadable spritesheet by generating **one
 labeled pose-board image** — a grid of the *same* character in the frames of an
-action — then recovering/slicing it. This is the **image-generation** method,
-modelled on Spriterrific's pipeline.
+action — then recovering/slicing it. This is the **image-generation** method.
 
 > **Why image generation.** A live A/B against an image-to-video approach settled
 > it: one generation per action keeps the character's **identity consistent**
@@ -65,7 +64,7 @@ this.anims.create({ key: "attack", frameRate: 10,
 
 1. **slice/recover** — `--recover` runs `recover_component_frames.py` (detect the
    foreground component in each grid cell — robust to the model spilling poses
-   across cell edges, Spriterrific-style); default is a naive uniform `--rows ×
+   across cell edges); default is a naive uniform `--rows ×
    --cols` slice. `--frames N` takes the first N cells.
 2. `chroma_clean.py clean` — key the matte → fringe → despill → decontaminate
    (global speck-removal so dark/low-contrast sprites stay clean).

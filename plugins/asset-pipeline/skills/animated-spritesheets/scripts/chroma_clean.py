@@ -187,7 +187,7 @@ def green_fringe_warning(removed: int, kept: int) -> str | None:
     if ratio >= HIGH_GREEN_FRINGE_REMOVAL_RATIO:
         return (
             "high green-fringe removal ratio; green foreground details may have been removed. "
-            "Use a non-green matte such as #FF00FF or pass --no-green-fringe-cleanup."
+            "Use a non-green matte such as #FF00FF, or pass --no-decontam to keep green specks."
         )
     return None
 
@@ -202,7 +202,7 @@ def fringe_warning(removed: int, kept: int, *, chroma_rgb: tuple[int, int, int])
     if removed / total >= HIGH_GREEN_FRINGE_REMOVAL_RATIO:
         return (
             "high fringe removal ratio; foreground details close to the matte color may have "
-            "been removed. Use a matte color absent from the sprite or pass --no-green-fringe-cleanup."
+            "been removed. Use a matte color absent from the sprite, or pass --no-decontam."
         )
     return None
 

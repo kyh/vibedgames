@@ -398,6 +398,8 @@ def _parse_cell(value: str) -> tuple[int, int]:
         width, height = int(parts[0]), int(parts[1])
     except ValueError as exc:
         raise argparse.ArgumentTypeError(f"cell must be WxH integers, got: {value!r}") from exc
+    if width <= 0 or height <= 0:
+        raise argparse.ArgumentTypeError(f"cell width and height must be positive, got: {value!r}")
     return width, height
 
 

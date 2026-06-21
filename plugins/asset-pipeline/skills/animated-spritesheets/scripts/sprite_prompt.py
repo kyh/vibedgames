@@ -682,6 +682,13 @@ def _cmd_pose_board(args: argparse.Namespace) -> int:
     action = get_action(args.action)
     direction = get_direction(args.direction)
     pose_board = resolve_pose_board_preset(args.pose_board)
+    if args.frames <= 0:
+        raise SystemExit("--frames must be a positive integer")
+    if args.frames > pose_board.total_cells:
+        raise SystemExit(
+            f"--frames {args.frames} exceeds the {pose_board.id} board's {pose_board.total_cells} cells; "
+            f"use fewer frames or a larger --pose-board"
+        )
     prompt = render_pose_board_prompt(
         action,
         direction,

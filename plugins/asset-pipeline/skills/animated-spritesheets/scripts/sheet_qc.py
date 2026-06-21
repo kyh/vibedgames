@@ -57,16 +57,34 @@ SIZE_DRIFT_TOL = 0.35
 FACING_CX_TOL = 0.18
 
 
-def frame_geometry(sheet: Image.Image, sheet_path: Path, fw: int | None, fh: int | None) -> tuple[int, int, int]:
-    """Resolve (frame_width, frame_height, frame_count). Prefer an explicit override,
-    then a sibling spritesheet.json manifest, else assume a single row of squares."""
-    if fw and fh:
-        return fw, fh, sheet.width // fw
+def frame_geometry(sheet: Image.Image, sheet_path: Path, fw: int | None, fh: int | None) -> tuple[int, int, int, int, int]:
+    """Resolve (frame_width, frame_height, frame_count, columns, rows). Prefer an
+    explicit override, then a sibling spritesheet.json manifest (which carries the
+    real columns/rows for multi-row sheets), else assume a single row of squares."""
+    if fw is not None and fh is not None:
+        if fw <= 0 or fh <= 0:
+            raise SystemExit("--frame-width and --frame-height must be positive")
+        cols = max(1, sheet.width // fw)
+        return fw, fh, cols, cols, 1
     manifest = sheet_path.with_suffix(".json")
     if manifest.exists():
         m = json.loads(manifest.read_text())
-        return int(m["frameWidth"]), int(m["frameHeight"]), int(m["frameCount"])
-    return sheet.height, sheet.height, max(1, sheet.width // sheet.height)
+        count = int(m["frameCount"])
+        cols = int(m.get("columns") or count)
+        rows = int(m.get("rows") or 1)
+        return int(m["frameWidth"]), int(m["frameHeight"]), count, cols, rows
+    side = sheet.height
+    return side, side, max(1, sheet.width // side), max(1, sheet.width // side), 1
+
+
+def split_frame_alphas(arr: np.ndarray, fw: int, fh: int, count: int, cols: int) -> list[np.ndarray]:
+    """Slice the packed sheet's alpha channel into per-frame views, row-major —
+    respects a multi-row grid (cols/rows from the manifest), not just a single strip."""
+    out = []
+    for i in range(count):
+        r, c = divmod(i, cols)
+        out.append(arr[r * fh:(r + 1) * fh, c * fw:(c + 1) * fw, 3])
+    return out
 
 
 def frame_metrics(alpha: np.ndarray, fw: int, fh: int) -> dict[str, object]:
@@ -154,13 +172,14 @@ def verdict_for(checks: list[dict[str, object]]) -> str:
 
 def run(sheet_path: Path, fw: int | None, fh: int | None) -> dict[str, object]:
     sheet = Image.open(sheet_path).convert("RGBA")
-    frame_w, frame_h, count = frame_geometry(sheet, sheet_path, fw, fh)
+    frame_w, frame_h, count, cols, rows = frame_geometry(sheet, sheet_path, fw, fh)
     arr = np.asarray(sheet)
-    metrics = [frame_metrics(arr[:, i * frame_w:(i + 1) * frame_w, 3], frame_w, frame_h) for i in range(count)]
+    metrics = [frame_metrics(a, frame_w, frame_h) for a in split_frame_alphas(arr, frame_w, frame_h, count, cols)]
     checks = qc(metrics)
     return {
         "sheet": str(sheet_path),
         "frameWidth": frame_w, "frameHeight": frame_h, "frameCount": count,
+        "columns": cols, "rows": rows,
         "verdict": verdict_for(checks),
         "checks": checks,
         "frames": metrics,
@@ -231,6 +250,14 @@ def selftest() -> int:
     # facing flip: one frame's mass shoved far to one side.
     r = report_for([_make_frame(40, 56), _make_frame(40, 56), _make_frame(40, 56, cx_shift=18)])
     assert any(c["check"] == "facing" for c in r["checks"]), "off-side frame must flag facing"
+
+    # row-major split honours a multi-row grid: pack 4 frames as 2x2, mark only
+    # the bottom-right cell, and confirm it lands at index 3 (not a single-row read).
+    grid = Image.new("RGBA", (s * 2, s * 2), (0, 0, 0, 0))
+    grid.alpha_composite(_make_frame(40, 56), (s, s))  # col 1, row 1 -> frame index 3
+    alphas = split_frame_alphas(np.asarray(grid), s, s, 4, 2)
+    nonempty = [i for i, a in enumerate(alphas) if (a > ALPHA_ON).any()]
+    assert nonempty == [3], f"2x2 row-major split must place the bottom-right cell at index 3, got {nonempty}"
 
     print("sheet_qc selftest: OK")
     return 0
