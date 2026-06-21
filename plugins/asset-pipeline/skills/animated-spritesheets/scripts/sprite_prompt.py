@@ -484,7 +484,20 @@ def frame_label(action: str, index: int, frame_count: int) -> str:
         labels = ["idle start", "hit reaction", "stagger", "collapse start", "falling", "impact", "settle", "still pose", "final still", "final hold"]
         return _label_for_index(labels, index, frame_count)
     if action in {"attack", "light_attack", "heavy_attack"}:
-        labels = ["ready idle", "anticipation", "wind-up", "aim set", "strike or shot", "recoil", "follow-through", "recovery", "settle", "return to idle"]
+        # Spatial-progression labels (a single arc, not abstract beats) so the model
+        # advances the weapon monotonically along one swing instead of drawing N poses.
+        labels = [
+            "ready stance, weapon held back",
+            "anticipation, weapon drawing back and up",
+            "wind-up peak, weapon at the top of the back-swing",
+            "swing begins, weapon starting forward along the strike arc",
+            "mid-strike, weapon sweeping across the body centerline",
+            "contact, weapon at the far forward end of the arc",
+            "follow-through, weapon overshooting past contact",
+            "recovery, weapon returning toward the ready guard",
+            "settle toward ready",
+            "return to ready stance",
+        ]
         return _label_for_index(labels, index, frame_count)
     if action == "talk":
         labels = ["settled speaking idle", "small head turn", "hand gesture begins", "gesture opens", "gesture peak", "soft emphasis", "gesture relaxes", "hand returns", "near speaking idle", "loop hold matching frame 1"]
@@ -535,6 +548,32 @@ def render_frame_guidance(action: str, frame_count: int, frame_prompt_style: str
 - Keep identity, scale, facing direction, and foot baseline consistent across all frames."""
 
 
+_LOOPING_ACTIONS = {"idle", "run", "walk", "walk_forward", "walk_backward", "talk"}
+
+
+def _motion_continuity_block(action_id: str, frame_count: int) -> str:
+    """The instruction that turns N standalone poses into N frames of ONE motion.
+
+    Without this the model reads each grid cell as an independent dramatic pose;
+    with it, it samples a single continuous motion at evenly-spaced instants.
+    """
+    if action_id in _LOOPING_ACTIONS:
+        ending = f"Frame {frame_count} returns toward frame 1 so the cycle loops seamlessly."
+    else:
+        ending = f"Frame 1 is the start of the motion and frame {frame_count} is its end."
+    return (
+        f"\nCritical — read the used cells in order (left to right, top to bottom) as ONE continuous "
+        f"{action_id} motion sampled as {frame_count} consecutive film frames, not {frame_count} "
+        f"separate poses. Each cell is the very next instant in time, a small even step after the one "
+        f"before it. Between adjacent frames the pose changes only a little: the same limbs, body, held "
+        f"items, and cloth travel a bit further along the SAME single path, weight shifts gradually, and "
+        f"feet plant or lift in sequence. Flipping through the cells in order must look like smooth, "
+        f"continuous movement with no sudden jumps or unrelated poses. Do not draw {frame_count} "
+        f"different dramatic poses; draw the SAME motion decomposed into {frame_count} evenly spaced "
+        f"in-between frames. {ending}\n"
+    )
+
+
 def render_pose_board_prompt(
     action: ActionPreset,
     direction: Direction,
@@ -560,7 +599,7 @@ Subject:
 
 Primary request: create a {frame_count}-frame {action.id} sequence on a {pose_board.width}x{pose_board.height} pose board. Place the animation frames in the first {frame_count} cells of an implied {pose_board.columns} column x {pose_board.rows} row grid, reading left to right, top to bottom.
 {frame_lines}
-
+{_motion_continuity_block(action.id, frame_count)}
 Look and rendering:
 - High-resolution pixelated sprite art.
 - Crisp chunky sprite edges.
@@ -697,8 +736,12 @@ def selftest() -> int:
     board_magenta = render_pose_board_prompt(ACTION_PRESETS["attack"], e, 8, chroma="#FF00FF")
     assert "#FF00FF" in board_magenta, "chroma override must flow into the pose-board prompt"
 
+    # the continuity block turns N poses into N frames of one motion (reuses `board`)
+    assert "consecutive film frames" in board, "pose-board must carry the motion-continuity block"
+
     # frame_label tables return sensible non-empty labels.
-    assert frame_label("attack", 1, 8) == "ready idle", "attack frame 1 of 8 must read as ready idle"
+    assert frame_label("attack", 1, 8) == "ready stance, weapon held back", "attack frame 1 must read as the ready stance"
+    assert "mid-strike" in board, "attack pose-board must carry spatial-progression frame labels"
     assert frame_label("idle", 1, 4) == "settled idle", "idle frame 1 of 4 must read as settled idle"
 
     # pose-board presets resolve to the documented sizes.
