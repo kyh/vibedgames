@@ -87,9 +87,18 @@ shrink frames unevenly on non-native AI art — eyeball the gif. Off by default.
 - **Grid the model can actually do.** A 4×3 board (use the first 6–10 cells) is
   the sweet spot — enough frames for a readable action, still laid out cleanly.
   Past ~12 cells the model loses layout consistency.
-- **Per-frame labels do the heavy lifting.** `--frame-prompt-style specific`
-  gives the model a named pose per cell (ready → anticipation → strike → recovery)
-  — far better than asking for "an attack animation."
+- **Make it ONE motion, not N poses.** The model's default failure is drawing
+  each cell as a separate dramatic pose, so the sliced frames don't read as a
+  single animation (an attack's frames jump around instead of tracing one swing).
+  Two prompt moves beat this, both built into `sprite_prompt.py pose-board`:
+  (1) frame the used cells as *consecutive film frames of one continuous motion
+  sampled at evenly-spaced instants* — a timeline, each cell a small step from the
+  last, not N independent poses; (2) write per-frame labels as **monotonic spatial
+  progression along a single path** (weapon back → wind-up peak → mid-strike across
+  centerline → contact → follow-through → recover), not abstract beats.
+  `--frame-prompt-style specific` emits both. **If you add an action** to
+  `sprite_presets.py` / `frame_label`, label it as progression along one path —
+  that, not the frame count, is what makes the animation read as motion.
 - **Matte.** Flat `#00FF00` (`#FF00FF` if the subject is green). Generate-time
   prompts must forbid baked shadows — the engine adds those.
 - **Genre/action data** comes from `sprite_presets.py` (frames, fps, profiles).
