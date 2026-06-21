@@ -574,6 +574,23 @@ def _motion_continuity_block(action_id: str, frame_count: int) -> str:
     )
 
 
+def _pose_board_facing_lock(direction: Direction) -> str:
+    """Keep every cell facing the same way — the model loves to mirror frame 1."""
+    base = (
+        f"Facing lock: every single cell must keep the SAME facing — {direction.screen_facing}. "
+        f"Never mirror, flip, rotate, or reverse the body to face the other way in any frame, including "
+        f"the first and last. A wind-up, recoil, reach, or step that moves backward keeps this same "
+        f"facing; do not turn the character around."
+    )
+    if direction.id in {"e", "w"}:
+        side = "screen-right" if direction.id == "e" else "screen-left"
+        base += (
+            f" Hold a consistent side profile facing {side} in every frame: do not present a mirrored "
+            f"profile, a front view, or a back view in any cell."
+        )
+    return base
+
+
 def render_pose_board_prompt(
     action: ActionPreset,
     direction: Direction,
@@ -595,6 +612,7 @@ Image 2 role: black-and-white alternating-pixel pose-board geometry guide at the
 Subject:
 - Same already-approved sprite character.
 - Direction: {direction.screen_facing}.
+- {_pose_board_facing_lock(direction)}
 - Keep this as the same character, not a redesign.
 
 Primary request: create a {frame_count}-frame {action.id} sequence on a {pose_board.width}x{pose_board.height} pose board. Place the animation frames in the first {frame_count} cells of an implied {pose_board.columns} column x {pose_board.rows} row grid, reading left to right, top to bottom.
@@ -621,8 +639,8 @@ Composition and background constraints:
 - Keep every full-body figure entirely inside the canvas and entirely inside its own implied frame area.
 - Leave clear empty {chroma_phrase} margin around the left edge, right edge, top, bottom, and between neighboring figures.
 - The first and last figures must not touch or crop against the canvas edge.
-- Keep scale consistent across all frames.
-- Keep the same foot baseline across all frames.
+- Scale lock: the character must be the EXACT same size in every cell — same height, same body proportions, same distance from one fixed imaginary camera, as if filmed without zooming in or out. Changing pose is fine; changing the character's scale is not. Do not draw any frame noticeably larger or smaller than the others.
+- Anchor every figure to the same foot baseline: feet rest on the same horizontal line across all cells, so the character does not float, sink, or drift up and down between frames.
 - Center each character inside the 256x256 safe area of its implied {pose_board.cell_width}x{pose_board.cell_height} cell.
 - Keep the figures separated and fully readable.
 - No overlapping between frame areas.
@@ -738,6 +756,10 @@ def selftest() -> int:
 
     # the continuity block turns N poses into N frames of one motion (reuses `board`)
     assert "consecutive film frames" in board, "pose-board must carry the motion-continuity block"
+
+    # facing lock (no per-frame mirror) + scale lock (consistent size) — e -> screen-right side profile
+    assert "Facing lock" in board and "screen-right" in board, "pose-board must carry the per-cell facing lock"
+    assert "Scale lock" in board, "pose-board must carry the scale lock"
 
     # frame_label tables return sensible non-empty labels.
     assert frame_label("attack", 1, 8) == "ready stance, weapon held back", "attack frame 1 must read as the ready stance"

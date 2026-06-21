@@ -73,6 +73,12 @@ this.anims.create({ key: "attack", frameRate: 10,
    **headroom** (`--char-fill`, default ~0.5 of the cell) so attack arcs and big
    poses never clip the edge.
 4. `pack_spritesheet.py` — pack to `spritesheet.png` + manifest.
+5. `sheet_qc.py` — QC the packed sheet and print a verdict: **`OK`** / **`REVIEW`**
+   (soft hints to eyeball — size outliers, possible facing flips) / **`WARN`** (hard
+   defects — empty cells, edge-clipping, foot-baseline wander). Runs automatically;
+   `--no-qc` skips it. **Read the verdict:** regenerate the board on `WARN`; eyeball
+   `review/<action>.gif` on `REVIEW`. Run it standalone too: `sheet_qc.py sheet.png
+   [--json] [--strict]`.
 
 Optional: `--pixel-snap` snaps frames onto a recovered native pixel grid (the
 crisp low-bit look). It runs *before* normalize so frames re-uniform; note it can
@@ -99,6 +105,16 @@ shrink frames unevenly on non-native AI art — eyeball the gif. Off by default.
   `--frame-prompt-style specific` emits both. **If you add an action** to
   `sprite_presets.py` / `frame_label`, label it as progression along one path —
   that, not the frame count, is what makes the animation read as motion.
+- **Lock the facing.** The model loves to mirror a cell (often frame 1), so the
+  character faces the wrong way for part of the animation. The pose-board prompt
+  pins the facing in *every* cell (`_pose_board_facing_lock`); a `--direction` of
+  `e`/`w` adds a side-profile lock. Subtle stance flips can still slip through —
+  `sheet_qc.py` catches gross ones, but eyeball the gif.
+- **Lock the scale.** The character must be the same *size* in every cell on a
+  shared foot baseline — a pose change is fine, a scale change is not. The prompt
+  says so explicitly. `normalize_canvas` keeps a consistent board consistent but
+  can't un-drift one the model drew at mixed scales, so `sheet_qc.py` flags size
+  outliers (sparing legit pose arcs like a death collapse — those are monotonic).
 - **Matte.** Flat `#00FF00` (`#FF00FF` if the subject is green). Generate-time
   prompts must forbid baked shadows — the engine adds those.
 - **Genre/action data** comes from `sprite_presets.py` (frames, fps, profiles).

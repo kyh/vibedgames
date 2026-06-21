@@ -102,6 +102,7 @@ def main() -> int:
     ap.add_argument("--pixel-snap", action="store_true",
                     help="snap each runtime frame onto its native pixel grid after normalize (crisp low-bit look)")
     ap.add_argument("--snap-k-colors", type=int, default=16, help="palette size for --pixel-snap (k-means)")
+    ap.add_argument("--no-qc", action="store_true", help="skip the spritesheet QC pass (size/facing/clip/empty)")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
 
@@ -140,11 +141,25 @@ def main() -> int:
     run_step("gif", "build_sequence_gif.py", "--input-dir", str(d_runtime), "--pattern", "frame-{id}.png",
              "--order", order, "--out", str(gif), "--durations-ms", ",".join([str(round(1000 / fps))] * n))
 
+    # 5. QC the packed sheet (size/facing/clip/empty/baseline) -> accept/regenerate signal
+    qc = None if args.no_qc else json.loads(run_step("qc", "sheet_qc.py", str(sheet_png), "--json"))
+
     summary = {"action": args.action, "frames": n, "fps": fps, "path": "image",
                "slicing": "recover" if args.recover else "naive", "pixelSnap": bool(args.pixel_snap),
-               "spritesheet": str(sheet_png), "gif": str(gif), "runtimeFrames": str(d_runtime)}
-    print(json.dumps(summary, indent=2) if args.json else
-          f"\n=== {args.action} (image): {n} frames @ {fps}fps ===\n  sheet: {sheet_png}\n  gif: {gif}")
+               "spritesheet": str(sheet_png), "gif": str(gif), "runtimeFrames": str(d_runtime),
+               "qc": qc["verdict"] if qc else "skipped"}
+    if args.json:
+        if qc:
+            summary["qcChecks"] = qc["checks"]
+        print(json.dumps(summary, indent=2))
+    else:
+        lines = [f"\n=== {args.action} (image): {n} frames @ {fps}fps ===", f"  sheet: {sheet_png}", f"  gif: {gif}"]
+        if qc:
+            mark = {"clean": "OK", "review": "REVIEW", "warn": "WARN"}[qc["verdict"]]
+            lines.append(f"  qc: [{mark}]")
+            for c in qc["checks"]:
+                lines.append(f"      {'!' if c['severity'] == 'warn' else '?'} {c['check']}: frames {c['frames']} — {c['detail']}")
+        print("\n".join(lines))
     return 0
 
 
