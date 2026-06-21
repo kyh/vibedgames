@@ -54,7 +54,7 @@ def pack(
     if len(sizes) != 1:
         raise SystemExit(
             f"frames are not a uniform size ({sorted(sizes)}); normalize them first "
-            "(normalize_frames.py for image sheets, normalize_canvas.py for video)."
+            "(run normalize_canvas.py)."
         )
     fw, fh = images[0].size
     n = len(images)

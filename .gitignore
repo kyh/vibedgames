@@ -9,6 +9,10 @@ node_modules
 # testing
 coverage
 
+# python (uv-run skill scripts)
+__pycache__/
+*.pyc
+
 # tanstack router
 routeTree.gen.ts
 
