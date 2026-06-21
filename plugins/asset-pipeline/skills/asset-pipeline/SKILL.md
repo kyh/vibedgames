@@ -193,23 +193,23 @@ Run from repo root:
 
 ```bash
 # 1) Check manifest coverage (manifest ↔ disk)
-uv run .claude/skills/gamedev-assets/scripts/asset_manifest_check.py --manifest path/to/assets_index.lua --root assets
+uv run .claude/skills/asset-pipeline/scripts/asset_manifest_check.py --manifest path/to/assets_index.lua --root assets
 
 # 1b) Export Lua manifest to portable JSON (recommended for non-Lua engines/tools)
-uv run .claude/skills/gamedev-assets/scripts/asset_manifest_export_json.py --manifest path/to/assets_index.lua --out path/to/assets_index.json
+uv run .claude/skills/asset-pipeline/scripts/asset_manifest_export_json.py --manifest path/to/assets_index.lua --out path/to/assets_index.json
 
 # 2) List PNG sizes
-uv run .claude/skills/gamedev-assets/scripts/asset_sizes.py --root assets --json tmp/asset_sizes.json
+uv run .claude/skills/asset-pipeline/scripts/asset_sizes.py --root assets --json tmp/asset_sizes.json
 
 # 3) Probe sprite sheet for non-empty frames
-uv run .claude/skills/gamedev-assets/scripts/asset_sheet_probe.py path/to/sheet.png --frame 32x32 --list --json tmp/probe.json
+uv run .claude/skills/asset-pipeline/scripts/asset_sheet_probe.py path/to/sheet.png --frame 32x32 --list --json tmp/probe.json
 
 # 3b) Audit/fix visible foot baselines inside sprite frames
 uv run .claude/skills/asset-pipeline/scripts/asset_sprite_baseline.py assets/characters --frame 256x256 --json tmp/baselines.json
 uv run .claude/skills/asset-pipeline/scripts/asset_sprite_baseline.py assets/characters --frame 256x256 --target-bottom 255 --out-dir tmp/baseline-fixed
 
 # 4) Debug tilesets / tilemaps with a manifest-driven GUI editor
-uv run .claude/skills/gamedev-assets/scripts/asset_tilemap_editor.py --manifest path/to/assets_index.json
+uv run .claude/skills/asset-pipeline/scripts/asset_tilemap_editor.py --manifest path/to/assets_index.json
 ```
 
 Without `uv`: Python 3.11+ with Pillow installed.
@@ -221,7 +221,7 @@ All Python scripts shipped with this skill include PEP 723 metadata (`# /// scri
 If you have an existing `assets_index.lua` (Love2D-style), export it to a portable `assets_index.json`:
 
 ```bash
-uv run .claude/skills/gamedev-assets/scripts/asset_manifest_export_json.py \
+uv run .claude/skills/asset-pipeline/scripts/asset_manifest_export_json.py \
   --manifest path/to/assets_index.lua \
   --out path/to/assets_index.json
 ```
@@ -239,7 +239,7 @@ Use the manifest-driven editor to verify:
 Run:
 
 ```bash
-uv run .claude/skills/gamedev-assets/scripts/asset_tilemap_editor.py --manifest path/to/assets_index.json
+uv run .claude/skills/asset-pipeline/scripts/asset_tilemap_editor.py --manifest path/to/assets_index.json
 ```
 
 Note: this GUI uses `tkinter`, which is provided by your Python distribution/OS (it’s not installed via `uv`/pip).
@@ -248,20 +248,20 @@ Headless exports (no `tkinter` required):
 
 ```bash
 # Export a grid-overlay PNG for a tileset
-uv run .claude/skills/gamedev-assets/scripts/asset_tilemap_editor.py \
+uv run .claude/skills/asset-pipeline/scripts/asset_tilemap_editor.py \
   --manifest path/to/assets_index.json --tileset <tileset_name> \
   --export-tileset-grid tmp/tileset_grid.png --label-ids --scale 6 --trim
 
 # Generate a self-test tilemap (all non-empty tiles in-place) and render it
-uv run .claude/skills/gamedev-assets/scripts/asset_tilemap_editor.py \
+uv run .claude/skills/asset-pipeline/scripts/asset_tilemap_editor.py \
   --manifest path/to/assets_index.json --tileset <tileset_name> \
   --make-selftest-map tmp/selftest.json
-uv run .claude/skills/gamedev-assets/scripts/asset_tilemap_editor.py \
+uv run .claude/skills/asset-pipeline/scripts/asset_tilemap_editor.py \
   --manifest path/to/assets_index.json --map tmp/selftest.json \
   --export-map-render tmp/selftest.png --scale 6 --trim
 
 # Optional: set a background color and fill rectangles behind tiles (useful for concept mockups)
-uv run .claude/skills/gamedev-assets/scripts/asset_tilemap_editor.py \
+uv run .claude/skills/asset-pipeline/scripts/asset_tilemap_editor.py \
   --manifest path/to/assets_index.json --map tmp/selftest.json \
   --export-map-render tmp/selftest_bg.png --scale 6 --bg '#77cfd8' --fill-rect '0,40,24,6,#12a7d5'
 ```
@@ -282,8 +282,8 @@ Controls:
 Verify every PNG on disk appears in manifest and vice versa.
 
 ```bash
-uv run .claude/skills/gamedev-assets/scripts/asset_manifest_check.py
-uv run .claude/skills/gamedev-assets/scripts/asset_manifest_check.py --json tmp/coverage.json
+uv run .claude/skills/asset-pipeline/scripts/asset_manifest_check.py
+uv run .claude/skills/asset-pipeline/scripts/asset_manifest_check.py --json tmp/coverage.json
 ```
 
 ### 1b) Manifest Export (`asset_manifest_export_json.py`)
@@ -291,7 +291,7 @@ uv run .claude/skills/gamedev-assets/scripts/asset_manifest_check.py --json tmp/
 Export `assets_index.lua` to `assets_index.json` (portable across engines/tooling):
 
 ```bash
-uv run .claude/skills/gamedev-assets/scripts/asset_manifest_export_json.py --manifest path/to/assets_index.lua --out path/to/assets_index.json
+uv run .claude/skills/asset-pipeline/scripts/asset_manifest_export_json.py --manifest path/to/assets_index.lua --out path/to/assets_index.json
 ```
 
 ### 2) Sprite-Sheet Probe (`asset_sheet_probe.py`)
@@ -299,8 +299,8 @@ uv run .claude/skills/gamedev-assets/scripts/asset_manifest_export_json.py --man
 Find non-empty cells in a sprite sheet grid. Essential for building `frames` arrays.
 
 ```bash
-uv run .claude/skills/gamedev-assets/scripts/asset_sheet_probe.py image.png --frame 32x32
-uv run .claude/skills/gamedev-assets/scripts/asset_sheet_probe.py folder/ --frame 16x16 --list --json tmp/probe.json
+uv run .claude/skills/asset-pipeline/scripts/asset_sheet_probe.py image.png --frame 32x32
+uv run .claude/skills/asset-pipeline/scripts/asset_sheet_probe.py folder/ --frame 16x16 --list --json tmp/probe.json
 ```
 
 ### 2b) Sprite Baseline Audit/Fix (`asset_sprite_baseline.py`)
@@ -332,8 +332,8 @@ Treat the script as a runtime export guardrail. It does not decide animation qua
 Get dimensions for all PNGs under a folder.
 
 ```bash
-uv run .claude/skills/gamedev-assets/scripts/asset_sizes.py
-uv run .claude/skills/gamedev-assets/scripts/asset_sizes.py --root assets/ --json tmp/sizes.json
+uv run .claude/skills/asset-pipeline/scripts/asset_sizes.py
+uv run .claude/skills/asset-pipeline/scripts/asset_sizes.py --root assets/ --json tmp/sizes.json
 ```
 
 ### 4) Tileset/Tilemap Editor (`asset_tilemap_editor.py`)
@@ -341,5 +341,5 @@ uv run .claude/skills/gamedev-assets/scripts/asset_sizes.py --root assets/ --jso
 GUI tool for selecting tiles and painting a grid to validate tileset assumptions.
 
 ```bash
-uv run .claude/skills/gamedev-assets/scripts/asset_tilemap_editor.py --manifest path/to/assets_index.json
+uv run .claude/skills/asset-pipeline/scripts/asset_tilemap_editor.py --manifest path/to/assets_index.json
 ```

@@ -17,6 +17,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("sheet", type=Path)
     parser.add_argument("--rows", type=int, required=True)
     parser.add_argument("--cols", type=int, required=True)
+    parser.add_argument(
+        "--frames",
+        type=int,
+        default=None,
+        help="Only require the first N grid cells (row-major) to be non-empty; "
+        "trailing cells may be empty. Output is the first N frames, renumbered. "
+        "Default: strict, all rows*cols cells must be present.",
+    )
     parser.add_argument("--threshold", type=int, default=15, help="Color-distance threshold from sampled background.")
     parser.add_argument("--out-dir", type=Path, required=True)
     parser.add_argument("--prefix", default="frame")
@@ -86,9 +94,16 @@ def main() -> None:
         if current is None or int(comp["area"]) > int(current["area"]):
             assigned[idx] = comp
 
-    missing = [i + 1 for i, item in enumerate(assigned) if item is None]
+    # With --frames N, only the FIRST N grid cells (row-major) must be filled;
+    # trailing cells may be empty (the model laid out fewer poses than rows*cols).
+    # Without it, keep the original strict behaviour: every cell must be present.
+    required = wanted if args.frames is None else min(args.frames, wanted)
+    missing = [i + 1 for i, item in enumerate(assigned[:required]) if item is None]
     if missing:
         raise SystemExit(f"Missing recovered frames for grid slots: {missing}")
+
+    # Emit only the first N (renumbered 1..N); trailing empties are dropped.
+    emitted = assigned[:required] if args.frames is not None else assigned
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     metadata = {
@@ -99,8 +114,10 @@ def main() -> None:
         "threshold": args.threshold,
         "frames": [],
     }
+    if args.frames is not None:
+        metadata["requested_frames"] = required
 
-    for index, comp in enumerate(assigned, start=1):
+    for index, comp in enumerate(emitted, start=1):
         assert comp is not None
         minx, miny, maxx, maxy = comp["bbox"]  # type: ignore[misc]
         crop = Image.new("RGBA", (maxx - minx + 1, maxy - miny + 1), (0, 0, 0, 0))

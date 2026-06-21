@@ -1,0 +1,100 @@
+{
+  "_about": "Endpoint field-quirk map for sprite generation through `vg generate run <endpoint_id> --<field> <value>`. Different endpoints name the same concept differently (image_url vs image_urls vs start_image_url) and only some support a first+last-frame edit. This map saves the agent from re-deriving each schema. It is NOT a guarantee of availability or current defaults: confirm with `vg generate schema <endpoint_id> --json` before relying on a field, and `vg generate models <query> --json` to discover endpoints. Endpoint IDs are passed to the CLI verbatim — never rewrite them.",
+  "_usage": {
+    "image": "vg generate run <endpoint_id> --prompt \"...\" [--image_urls '[\"<url>\"]'] --aspect_ratio 1:1 --resolution 1K --download out.png --json   (edit endpoints take --image_urls, a JSON array; t2i endpoints omit it)",
+    "video": "vg generate run <endpoint_id> --prompt \"...\" --<inputImageField> \"<url>\" [--<endImageField> \"<url>\"] --duration <n> --download clip.mp4 --json   (async by default; poll with `vg generate status <endpoint_id> <request_id> --result --download clip.mp4 --json`)",
+    "queue": "Most generation endpoints are queue-based — fire with --async, poll with `vg generate status`. Background removal (bria) is synchronous: run it without --async."
+  },
+  "defaults": {
+    "characterAnchor": "fal-ai/nano-banana-pro",
+    "anchorEdit": "fal-ai/nano-banana-pro/edit",
+    "backgroundRemove": "fal-ai/bria/background/remove",
+    "spriteMotionI2V": "xai/grok-imagine-video/image-to-video",
+    "_motionRationale": "Short i2v clips (duration 1-2s) are the recommended default for sprite motion: a short sample gives the model less time to drift identity/palette/scale. Prefer several short attempts over one long cinematic clip. Use chroma key + despill (chroma_clean.py) or bria to remove the matte after frame recovery."
+  },
+  "image": {
+    "nano-banana-pro-t2i": {
+      "endpoint_id": "fal-ai/nano-banana-pro",
+      "taskType": "text-to-image",
+      "downloadKeys": ["images[0].url"],
+      "defaults": { "num_images": 1, "aspect_ratio": "1:1", "output_format": "png", "resolution": "1K" },
+      "note": "Recommended default for character/anchor generation: fast, strong on chunky pixel art."
+    },
+    "nano-banana-pro-edit": {
+      "endpoint_id": "fal-ai/nano-banana-pro/edit",
+      "taskType": "image-edit",
+      "inputImageField": "image_urls",
+      "inputImageIsArray": true,
+      "downloadKeys": ["images[0].url"],
+      "defaults": { "num_images": 1, "aspect_ratio": "auto", "output_format": "png", "resolution": "1K" },
+      "note": "Edit endpoint: derive directional anchors / variants from an approved character image. The i2v motion clip is generated from the resulting anchor."
+    },
+    "gpt-image-2-t2i": {
+      "endpoint_id": "openai/gpt-image-2",
+      "taskType": "text-to-image",
+      "downloadKeys": ["images[0].url"],
+      "defaults": { "num_images": 1, "image_size": "1024x1024", "output_format": "png", "quality": "high" },
+      "note": "Stronger character consistency + text rendering; slower and pricier than nano-banana-pro."
+    },
+    "gpt-image-2-edit": {
+      "endpoint_id": "openai/gpt-image-2/edit",
+      "taskType": "image-edit",
+      "inputImageField": "image_urls",
+      "inputImageIsArray": true,
+      "downloadKeys": ["images[0].url"],
+      "defaults": { "num_images": 1, "image_size": "auto", "output_format": "png", "quality": "high" }
+    },
+    "bria-background-remove": {
+      "endpoint_id": "fal-ai/bria/background/remove",
+      "taskType": "background-removal",
+      "inputImageField": "image_url",
+      "inputImageIsArray": false,
+      "synchronous": true,
+      "downloadKeys": ["image.url"],
+      "note": "Semantic segmentation (not chroma key) — works even on white-on-white. Synchronous: do not pass --async. Alternative to chroma_clean.py when you did not generate on a flat matte."
+    }
+  },
+  "video_i2v": {
+    "grok-imagine-video-i2v": {
+      "endpoint_id": "xai/grok-imagine-video/image-to-video",
+      "taskType": "image-to-video",
+      "inputImageField": "image_url",
+      "supportsEndImage": false,
+      "supportsNegativePrompt": false,
+      "downloadKeys": ["video.url"],
+      "defaults": { "duration": 1, "resolution": "720p", "aspect_ratio": "1:1" },
+      "note": "Recommended sprite-motion default. duration=1 (use 2 for walk so a full stride lands). No negative_prompt field — steer with POSITIVE descriptions of the wanted pose, not 'do not' phrasing."
+    },
+    "seedance-2.0-i2v": {
+      "endpoint_id": "bytedance/seedance-2.0/image-to-video",
+      "taskType": "image-to-video",
+      "inputImageField": "image_url",
+      "supportsEndImage": true,
+      "endImageField": "end_image_url",
+      "downloadKeys": ["video.url"],
+      "defaults": { "duration": 4, "resolution": "720p", "aspect_ratio": "16:9" },
+      "note": "Supports a last frame (end_image_url) — good for transitions like get_up (start=downed frame, end=standing anchor). Min duration 4s."
+    },
+    "wan-2.7-i2v": {
+      "endpoint_id": "fal-ai/wan/v2.7/image-to-video",
+      "taskType": "image-to-video",
+      "inputImageField": "image_url",
+      "supportsEndImage": true,
+      "endImageField": "end_image_url",
+      "supportsNegativePrompt": true,
+      "downloadKeys": ["video.url"],
+      "defaults": { "duration": 2, "resolution": "1080p", "aspect_ratio": "1:1" },
+      "note": "Higher fidelity, supports end frame + negative_prompt. Min duration 2s; expect an early settling segment — start frame review near the middle of the clip."
+    },
+    "kling-v3-pro-i2v": {
+      "endpoint_id": "fal-ai/kling-video/v3/pro/image-to-video",
+      "taskType": "image-to-video",
+      "inputImageField": "start_image_url",
+      "supportsEndImage": false,
+      "supportsNegativePrompt": true,
+      "downloadKeys": ["video.url"],
+      "defaults": { "duration": 6 },
+      "note": "Note the input field is start_image_url (not image_url)."
+    }
+  }
+}
