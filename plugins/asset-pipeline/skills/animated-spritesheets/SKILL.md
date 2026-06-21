@@ -45,9 +45,10 @@ vg generate run fal-ai/nano-banana-pro/edit --prompt "<from step 2>" \
   --image_urls '["<anchor_url>"]' --aspect_ratio "4:3" --resolution "1K" \
   --download attack-board.png --json
 
-# 4. PROCESS into runtime frames with ONE command. --recover handles the model
-#    spilling across cells (Spriterrific-style); falls back to naive grid slice:
-uv run scripts/process_sheet.py attack-board.png --action attack --rows 3 --cols 4 --frames 8 --recover --out-dir runs/hero-attack
+# 4. PROCESS into runtime frames with ONE command. Default = naive uniform slice
+#    (the robust path). If the model spilled a pose across cell borders, add
+#    --recover to segment by connected components instead:
+uv run scripts/process_sheet.py attack-board.png --action attack --rows 3 --cols 4 --frames 8 --out-dir runs/hero-attack
 ```
 
 The deliverable is `<out-dir>/spritesheet.png` + `spritesheet.json`, with
@@ -57,7 +58,7 @@ The deliverable is `<out-dir>/spritesheet.png` + `spritesheet.json`, with
 // spritesheet.json -> { frameWidth, frameHeight, frameCount, fps, animations }
 this.load.spritesheet("attack", "assets/hero-attack/spritesheet.png", { frameWidth: 256, frameHeight: 256 });
 this.anims.create({ key: "attack", frameRate: 10,
-  frames: this.anims.generateFrameNumbers("attack", { start: 0, end: 3 }) });
+  frames: this.anims.generateFrameNumbers("attack", { start: 0, end: 7 }) }); // end = frameCount - 1
 ```
 
 ## What `process_sheet.py` does (under the hood)

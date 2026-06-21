@@ -5,10 +5,10 @@
 # ///
 """One command: turn a generated **image pose board / strip** into runtime frames.
 
-The image generation path (vs process_video.py). You generate ONE image whose
-cells are the animation frames — a uniform R x C grid (or a 1-row strip) of the
-same character in different poses — then this slices it on that grid, cleans the
-matte, normalizes per-frame to a shared anchor, and packs the spritesheet.
+You generate ONE image whose cells are the animation frames — a uniform R x C
+grid (or a 1-row strip) of the same character in different poses — then this
+slices it on that grid, cleans the matte, normalizes per-frame to a shared
+anchor, and packs the spritesheet.
 
 By default this assumes a UNIFORM grid (which is how hand-authored sheets are
 laid out and what you should prompt the model for) and slices it directly — far

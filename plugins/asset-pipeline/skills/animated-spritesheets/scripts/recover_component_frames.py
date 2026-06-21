@@ -100,7 +100,12 @@ def main() -> None:
     required = wanted if args.frames is None else min(args.frames, wanted)
     missing = [i + 1 for i, item in enumerate(assigned[:required]) if item is None]
     if missing:
-        raise SystemExit(f"Missing recovered frames for grid slots: {missing}")
+        raise SystemExit(
+            f"Recovery found {len(components)} distinct pose(s) but {required} frame(s) "
+            f"were requested; grid slots {missing} came up empty. The model likely merged "
+            f"poses across cells or laid out fewer than {required}. Re-run without --recover "
+            f"to slice the grid uniformly instead."
+        )
 
     # Emit only the first N (renumbered 1..N); trailing empties are dropped.
     emitted = assigned[:required] if args.frames is not None else assigned
