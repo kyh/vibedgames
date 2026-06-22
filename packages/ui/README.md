@@ -5,7 +5,7 @@ Shared UI components, hooks, and global styles for the web app.
 ## Stack
 
 - [Base UI](https://base-ui.com) primitives, shadcn-style component wrappers
-- [Tailwind CSS 4](https://tailwindcss.com) + `class-variance-authority` + `tailwind-merge`
+- [Tailwind CSS 4](https://tailwindcss.com) + `class-variance-authority` + `cnfast`
 - [motion](https://motion.dev) for animation, [sonner](https://sonner.emilkowal.ski) for toasts
 
 ## Usage
