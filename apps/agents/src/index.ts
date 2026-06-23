@@ -97,7 +97,7 @@ const startCommand = defineCommand({
     // A stale STOP sentinel is cleared inside runStudio once the workspace lock
     // is held, so a restart can never wipe a still-running process's stop.
 
-    await runStudio({
+    const started = await runStudio({
       slug,
       idea: args.idea.trim(),
       workspace,
@@ -108,6 +108,7 @@ const startCommand = defineCommand({
       noShip: Boolean(args["skip-ship"]),
       skipPermissions: !args.guarded,
     });
+    if (!started) process.exit(1);
   },
 });
 

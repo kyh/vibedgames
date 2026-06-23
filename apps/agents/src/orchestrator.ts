@@ -34,7 +34,8 @@ export type StudioOptions = {
 
 const MAX_RETRIES = 5;
 
-export async function runStudio(opts: StudioOptions): Promise<void> {
+/** Resolves true if the studio ran, false if it couldn't start (lock held). */
+export async function runStudio(opts: StudioOptions): Promise<boolean> {
   const repoRoot = findRepoRoot();
   const bb = blackboard(opts.workspace);
   const now = new Date().toISOString();
@@ -57,10 +58,11 @@ export async function runStudio(opts: StudioOptions): Promise<void> {
   // impatient `start` wipe a still-running process's pending STOP).
   const owner = acquireLock(bb);
   if (owner !== null) {
+    const who = owner > 0 ? `pid ${owner}` : "another process";
     consola.error(
-      `A studio is already running for "${opts.slug}" (pid ${owner}). Stop it first with \`vg-studio stop ${opts.slug}\`, or wait for it to finish.`,
+      `A studio is already running for "${opts.slug}" (${who}). Stop it first with \`vg-studio stop ${opts.slug}\`, or wait for it to finish.`,
     );
-    return;
+    return false;
   }
   process.on("exit", () => releaseLock(bb));
 
@@ -69,6 +71,14 @@ export async function runStudio(opts: StudioOptions): Promise<void> {
   clearStop(bb);
 
   let state = initWorkspace(bb, seed);
+  // The persisted slug is authoritative for an existing workspace (R2 keys and
+  // the deploy URL are tied to it). Warn rather than silently honor a different
+  // CLI slug aimed at the same blackboard (only possible via --workspace).
+  if (state.slug !== opts.slug) {
+    consola.warn(
+      `Workspace already belongs to "${state.slug}"; ignoring the "${opts.slug}" slug for this run.`,
+    );
+  }
   // Re-seed mutable knobs on restart so flags take effect.
   state.idea = opts.idea || state.idea;
   state.model = opts.model;
@@ -195,6 +205,7 @@ export async function runStudio(opts: StudioOptions): Promise<void> {
       `Resume anytime: vg-studio start ${state.slug}`,
     ].join("\n"),
   );
+  return true;
 }
 
 /**

@@ -124,17 +124,37 @@ function lockOwner(bb: Blackboard): number | null {
   }
 }
 
+/** Sentinel pid for "lock is held but we couldn't read whose it is". */
+export const LOCK_BUSY_UNKNOWN = -1;
+
 /**
- * Take the per-workspace lock so only one studio runs per game. Returns the
- * live owner pid if another process already holds it; otherwise claims the lock
- * (taking over a stale one) and returns null.
+ * Take the per-workspace lock so only one studio runs per game. Claims it via
+ * an atomic exclusive create (O_EXCL) so two simultaneous `start`s can't both
+ * see an empty slot and proceed. Returns null on success; otherwise the live
+ * owner pid (or LOCK_BUSY_UNKNOWN). A stale lock left by a dead process is
+ * reclaimed.
  */
 export function acquireLock(bb: Blackboard): number | null {
-  const owner = lockOwner(bb);
-  if (owner !== null && owner !== process.pid) return owner;
   mkdirSync(bb.dir, { recursive: true });
-  writeFileSync(bb.lock, `${JSON.stringify({ pid: process.pid, at: new Date().toISOString() })}\n`);
-  return null;
+  const payload = `${JSON.stringify({ pid: process.pid, at: new Date().toISOString() })}\n`;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      // "wx" => fail if the file already exists; the create is atomic.
+      writeFileSync(bb.lock, payload, { flag: "wx" });
+      return null;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+      const owner = lockOwner(bb);
+      if (owner !== null && owner !== process.pid) return owner; // a live, different owner
+      // Stale (dead owner) or ours from a prior run — drop it and retry once.
+      try {
+        rmSync(bb.lock);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  return lockOwner(bb) ?? LOCK_BUSY_UNKNOWN;
 }
 
 /** Release the lock if (and only if) we own it. */
