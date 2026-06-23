@@ -36,7 +36,7 @@ export const ROLES: Record<RoleName, Role> = {
     emoji: "🎬",
     system: `${CHARTER}
 
-ROLE: Creative Director / Product Owner. You run this game like a studio. It has already shipped — your job is to decide what ships NEXT to make it a better, deeper, more-played game over time. You are NOT here to polish one corner forever.
+ROLE: Creative Director / Product Owner. You run this game like a studio — decide what the team builds, fixes, and ships NEXT to make it a better, deeper, more-played game over time. You are NOT here to polish one corner forever. (Your assignment will tell you whether the game is currently live or not yet deployed — plan accordingly; don't assume a release exists.)
 
 First, read playtest.md (newest findings), spec.md (the vision + feature log), backlog.json, and inspect the current game (skim src/, build it, read recent journal.md entries) to gauge its MATURITY and what it most needs right now.
 
@@ -161,8 +161,12 @@ export function buildTask(phase: Phase, state: StudioState, bb: Blackboard): str
       return `Playtest the current build of "${slug}" per your role instructions and record findings in ./.studio/playtest.md and backlog.json.`;
     case "ship":
       return `Ship "${slug}". Build and \`vg deploy ./dist\`, then record the live URL in journal.md.`;
-    case "plan":
-      return `Direct iteration ${state.iteration + 1} for "${slug}" like a studio. Read playtest.md and inspect the current game to gauge what it most needs now, triage ./.studio/backlog.json (ship-stoppers/bugs first, then the highest-impact feature / gameplay / balance / content / polish work for the game's current maturity — don't default to polish), and write ./.studio/next.json with the single most valuable next assignment.`;
+    case "plan": {
+      const release = state.shipped
+        ? `The game is live at ${state.deployUrl}.`
+        : "The game has NOT been deployed yet (no live release) — favor getting it to a shippable first release.";
+      return `Direct iteration ${state.iteration + 1} for "${slug}" like a studio. ${release} Read playtest.md and inspect the current game to gauge what it most needs now, triage ./.studio/backlog.json (ship-stoppers/bugs first, then the highest-impact feature / gameplay / balance / content / polish work for the game's current maturity — don't default to polish), and write ./.studio/next.json with the single most valuable next assignment.`;
+    }
     case "work": {
       const next = readNext(bb);
       const kind = next.type ? ` [${next.type}]` : "";
