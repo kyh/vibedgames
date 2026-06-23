@@ -1,6 +1,6 @@
 ---
 name: capacitor-ios
-description: "Build and ship Three.js apps on Capacitor iOS with Vite and Swift Package Manager: GLTF loading, assets_index animation UI, OrbitControls mouse/touch mappings, and iOS sync/run troubleshooting. Routing: ship phase; pairs with `threejs` (wraps the build for native iOS)."
+description: "Build and ship Three.js apps on Capacitor iOS with Vite and Swift Package Manager: GLTF loading, assets_index animation UI, OrbitControls mouse/touch mappings, and iOS sync/run troubleshooting. Routing: ship phase (native iOS wrapper for a Three.js build)."
 ---
 
 # Three.js Capacitor iOS

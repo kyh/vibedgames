@@ -1,6 +1,6 @@
 ---
 name: onboarding
-description: "First-30-seconds design, invisible tutorials, difficulty curves, failure/retry loops and assist modes for link-shared browser games — distilled from George Fan's PvZ tutorial rules, Jenova Chen's flow thesis, Koster's Theory of Fun, Juul's Art of Failure, and Celeste's Assist Mode. Use when: 'players don't get it', 'people quit immediately', 'does it need a tutorial?', 'too hard/too easy', 'tune the difficulty', 'make the start better', 'add an easy mode', or auditing a game's first minute before shipping. Routing: craft phase; pairs with `design-lenses`; then `finish-it`/`deploy`."
+description: "First-30-seconds design, invisible tutorials, difficulty curves, failure/retry loops and assist modes for link-shared browser games — distilled from George Fan's PvZ tutorial rules, Jenova Chen's flow thesis, Koster's Theory of Fun, Juul's Art of Failure, and Celeste's Assist Mode. Use when: 'players don't get it', 'people quit immediately', 'does it need a tutorial?', 'too hard/too easy', 'tune the difficulty', 'make the start better', 'add an easy mode', or auditing a game's first minute before shipping. Routing: craft phase; pairs with `design-lenses`/`finish-it`; then `deploy`."
 ---
 
 # Onboarding & difficulty

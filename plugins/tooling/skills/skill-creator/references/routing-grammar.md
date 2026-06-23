@@ -96,7 +96,7 @@ description: "Generate 2D pixel art game assets ... Routing: asset phase; runs t
 description: "Deep game-feel and juice reference ... Routing: craft phase; deepens `game-playbook`."
 
 # disambiguation between siblings
-description: "Structured game-design critique ... Routing: craft phase; use `game-feel` instead for feel/juice tuning, or code review for bugs."
+description: "Structured game-design critique ... Routing: craft phase; use `game-feel` instead for feel/juice tuning, not code-level bugs."
 
 # the orchestrator itself (role token in the phase slot; sequences its pieces)
 description: "The end-to-end recipe for building a GREAT browser game ... Routing: orchestrator; sequences `phaser`/`threejs` → `pixel-art` → `game-feel`/`vfx`/`animation` → `playwright` → `deploy`."
@@ -109,6 +109,12 @@ description: "The end-to-end recipe for building a GREAT browser game ... Routin
   routing only matters once it is.
 - **Only true edges.** A wrong "then `X`" sends the agent down a dead path. If
   you're unsure an edge holds, omit it.
+- **One edge, one type.** A directed edge `A → B` must read consistently from
+  both ends: state it once, or use the forward/backward pair (`A` says
+  ``then `B` ``, `B` says ``refines output of `A` ``). Never label the same pair
+  directional on one side and ``pairs with`` (lateral) on the other — that hands
+  the agent two contradictory models. Reserve ``pairs with`` for genuinely
+  lateral siblings, reciprocated on both ends.
 - **Keep it short.** Phase + one or two edges. If a skill needs a five-node map,
   that belongs in its SKILL.md body, not the description.
 - **The orchestrator is the index.** Any piece-skill in a game build should be
