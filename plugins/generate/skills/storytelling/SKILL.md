@@ -3,7 +3,7 @@ name: storytelling
 description: >
   Build multi-shot narrative image, video, and audio workflows with `vg generate`.
   Use this for storyboards, shot lists, multi-prompt video, first-frame to
-  last-frame pipelines, social stories, brand films, and sequence continuity.
+  last-frame pipelines, social stories, brand films, and sequence continuity. Routing: asset phase (workflow); runs through `generate`; pairs with `cinematography`/`character-design`.
 ---
 
 # Storytelling with `vg generate`

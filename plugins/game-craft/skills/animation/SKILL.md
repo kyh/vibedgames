@@ -1,6 +1,6 @@
 ---
 name: animation
-description: "2D game animation craft — timing & spacing, frame budgets per clip (idle/walk/run/attack/death), the responsiveness-vs-weight contract, cancel windows, smears, silhouette readability, secondary motion — from Williams' Survival Kit, Mariel Cartwright's Skullgirls GDC talk, saint11, and fighting-game frame practice. Use when: 'the animation looks stiff/floaty/mushy', 'how many frames for a walk cycle?', 'attacks feel laggy', 'character feels dead', 'animate this sprite sheet', wiring sprite anims in Phaser, or cleaning AI-generated frames into a usable set. For GENERATING the frames see pixel-art / animated-spritesheets; this is what makes them good."
+description: "2D game animation craft — timing & spacing, frame budgets per clip (idle/walk/run/attack/death), the responsiveness-vs-weight contract, cancel windows, smears, silhouette readability, secondary motion — from Williams' Survival Kit, Mariel Cartwright's Skullgirls GDC talk, saint11, and fighting-game frame practice. Use when: 'the animation looks stiff/floaty/mushy', 'how many frames for a walk cycle?', 'attacks feel laggy', 'character feels dead', 'animate this sprite sheet', wiring sprite anims in Phaser, or cleaning AI-generated frames into a usable set. For GENERATING the frames see pixel-art / animated-spritesheets; this is what makes them good. Routing: craft phase; refines output of `pixel-art`/`animated-spritesheets`; deepens `game-playbook`."
 ---
 
 # Animation craft

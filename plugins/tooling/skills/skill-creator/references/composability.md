@@ -488,6 +488,31 @@ Skill C (metadata loaded) ──┘
 
 ---
 
+## When skills aren't orthogonal: routing a suite
+
+The principles above assume **orthogonal** skills that combine multiplicatively
+and don't know about each other. Some skill sets aren't like that — they form a
+**dependency stack** where one skill's output feeds the next (the Layer Cake
+pattern, made explicit). The vibedgames suite is the canonical example:
+
+```
+craft    (game-feel, vfx, animation)         ← judgment applied on top
+workflow (pixel-art, animated-spritesheets)  ← procedures that compose verbs
+capability (generate, deploy)                ← raw tools
+```
+
+For these, "avoid explicit cross-references" is too strict. The right move is to
+encode the edges — *runs through*, *then*, *use X instead* — in a fixed
+vocabulary the agent can walk, while keeping each skill independently usable
+(the references are hints, not imports). See **routing-grammar.md** for that
+convention.
+
+The line to hold: a **routing hint** ("the natural next step is `X`") is fine; a
+**hard dependency** ("first run the X skill, then…") that breaks the skill when
+`X` is absent is not.
+
+---
+
 ## Summary
 
 **Composability makes the whole greater than the sum of parts.**
@@ -496,7 +521,7 @@ Key principles:
 
 - Skills work together automatically based on descriptions
 - Design for independence but allow combination
-- Avoid conflicts and explicit cross-references
+- Avoid hard cross-skill dependencies; lightweight routing hints are fine for a suite (see routing-grammar.md)
 - Focus on orthogonal concerns
 - Test both individual and combined use
 - Use flexible guidance that allows override

@@ -1,6 +1,6 @@
 ---
 name: game-feel
-description: "Deep game-feel and juice reference — input forgiveness windows, movement curves, hit stop, trauma-based screen shake, squash & stretch, camera kick, audio feel — with concrete numbers from the canonical sources (Swink, Vlambeer, Celeste, Smash). Use when tuning how a game FEELS: 'the controls feel floaty/sluggish/slippery', 'jumping feels bad', 'hits don't land', 'make combat feel weighty', 'add juice', 'coyote time', 'input buffering', 'screen shake feels wrong', or any movement/impact tuning pass. The game-playbook craft checklist covers the basics; this is the deep module with the tuning values."
+description: "Deep game-feel and juice reference — input forgiveness windows, movement curves, hit stop, trauma-based screen shake, squash & stretch, camera kick, audio feel — with concrete numbers from the canonical sources (Swink, Vlambeer, Celeste, Smash). Use when tuning how a game FEELS: 'the controls feel floaty/sluggish/slippery', 'jumping feels bad', 'hits don't land', 'make combat feel weighty', 'add juice', 'coyote time', 'input buffering', 'screen shake feels wrong', or any movement/impact tuning pass. The game-playbook craft checklist covers the basics; this is the deep module with the tuning values. Routing: craft phase; deepens `game-playbook`; for visual effects go to `vfx`."
 ---
 
 # Game feel: the numbers

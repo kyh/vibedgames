@@ -1,6 +1,6 @@
 ---
 name: gamepad
-description: "Add on-screen touch controls (virtual joystick + buttons) to browser games using @vibedgames/gamepad. Use when the user wants mobile/touch controls, a virtual joystick or d-pad, on-screen action buttons, or to make a desktop game playable on phones. Triggers on: 'add touch controls', 'mobile controls', 'make it work on mobile', 'virtual joystick', 'on-screen buttons', 'd-pad', 'thumbstick', 'gamepad'."
+description: "Add on-screen touch controls (virtual joystick + buttons) to browser games using @vibedgames/gamepad. Use when the user wants mobile/touch controls, a virtual joystick or d-pad, on-screen action buttons, or to make a desktop game playable on phones. Triggers on: 'add touch controls', 'mobile controls', 'make it work on mobile', 'virtual joystick', 'on-screen buttons', 'd-pad', 'thumbstick', 'gamepad'. Routing: feature phase; pairs with `multiplayer`; add before `deploy` so link-shared games work on phones."
 ---
 
 # Vibedgames Gamepad

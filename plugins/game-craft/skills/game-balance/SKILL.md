@@ -1,6 +1,6 @@
 ---
 name: game-balance
-description: "Game systems, loops, economy and balance math — core-loop construction, sources/sinks, cost & power curves with real formulas, loot tables, pity timers, prestige math, dominant-strategy audits — from Schreiber's Game Balance Concepts, Daniel Cook's skill atoms & loot tables, Machinations, Hopson's reward schedules, and idle-game math. Use when: 'balance my game', 'tune the upgrades', 'design the economy', 'add progression/levels/XP', 'players found one strategy and spam it', 'design loot drops', 'add a prestige system', 'is my difficulty curve right?', or auditing for soft-locks and dominant strategies."
+description: "Game systems, loops, economy and balance math — core-loop construction, sources/sinks, cost & power curves with real formulas, loot tables, pity timers, prestige math, dominant-strategy audits — from Schreiber's Game Balance Concepts, Daniel Cook's skill atoms & loot tables, Machinations, Hopson's reward schedules, and idle-game math. Use when: 'balance my game', 'tune the upgrades', 'design the economy', 'add progression/levels/XP', 'players found one strategy and spam it', 'design loot drops', 'add a prestige system', 'is my difficulty curve right?', or auditing for soft-locks and dominant strategies. Routing: craft phase (systems); pairs with `level-design`; deepens `game-playbook`."
 ---
 
 # Systems, loops & balance

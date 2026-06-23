@@ -12,7 +12,7 @@ description: >
   "photoreal", "realistic photo", "candid photo", "editorial portrait",
   "documentary photo", "looks like a real photograph", "iPhone-style photo",
   "film photo", "archival photo". Each recipe describes inputs, the `vg generate`
-  call sequence, and quality checks.
+  call sequence, and quality checks. Routing: asset phase (workflow); runs through `generate`; for free-form pipelines use `media-workflow`.
 ---
 
 # `vg generate` Recipes

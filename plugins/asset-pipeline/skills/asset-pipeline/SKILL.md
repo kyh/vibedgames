@@ -1,6 +1,6 @@
 ---
 name: asset-pipeline
-description: "Asset pipeline utilities for 2D game projects: validate an asset manifest against PNGs on disk, probe sprite sheets/tilesets to find non-empty grid frames, and report PNG dimensions. Use when adding/updating art, debugging missing/unused assets, auditing sprite sheets, or generating frame/size metadata for import pipelines (especially for Love2D projects with Lua asset indexes)."
+description: "Asset pipeline utilities for 2D game projects: validate an asset manifest against PNGs on disk, probe sprite sheets/tilesets to find non-empty grid frames, and report PNG dimensions. Use when adding/updating art, debugging missing/unused assets, auditing sprite sheets, or generating frame/size metadata for import pipelines (especially for Love2D projects with Lua asset indexes). Routing: asset phase; validates art before the `loop` is wired; pairs with `pixel-art`/`animated-spritesheets` output."
 ---
 
 # Gamedev Assets

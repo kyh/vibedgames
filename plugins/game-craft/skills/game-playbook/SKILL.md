@@ -1,6 +1,6 @@
 ---
 name: game-playbook
-description: "The end-to-end recipe for building a GREAT browser game from a one-line idea, plus the craft checklist that separates a tech demo from something fun. Use when the user says 'make a game', 'build a <genre> game' ('make a pixel art top-down slasher', 'build a platformer', 'make a shooter'), 'create a game', or asks to make a game better: 'it feels flat/static/boring', 'add polish/craft', 'screen shake', 'hit stop', 'make it feel good', 'why does my game feel cheap'."
+description: "The end-to-end recipe for building a GREAT browser game from a one-line idea, plus the craft checklist that separates a tech demo from something fun. Use when the user says 'make a game', 'build a <genre> game' ('make a pixel art top-down slasher', 'build a platformer', 'make a shooter'), 'create a game', or asks to make a game better: 'it feels flat/static/boring', 'add polish/craft', 'screen shake', 'hit stop', 'make it feel good', 'why does my game feel cheap'. Routing: orchestrator (scaffold→ship); sequences `phaser`/`threejs`, `pixel-art`, `game-feel`/`vfx`/`animation`, `playwright`, `deploy`."
 ---
 
 # Crafting a great game

@@ -1,6 +1,6 @@
 ---
 name: fork
-description: "Fork another vibedgames project's source to build on it, and ship your own source so others can fork you. Use when the user wants to remix, fork, clone, or build on top of an existing deployed game, or asks how source-on-deploy works. Triggers: 'fork <slug>', 'remix this game', 'build on <slug>', 'start from an existing project', 'clone a deployed game', 'make source forkable'."
+description: "Fork another vibedgames project's source to build on it, and ship your own source so others can fork you. Use when the user wants to remix, fork, clone, or build on top of an existing deployed game, or asks how source-on-deploy works. Triggers: 'fork <slug>', 'remix this game', 'build on <slug>', 'start from an existing project', 'clone a deployed game', 'make source forkable'. Routing: scaffold/ship phase; see `deploy` for the deploy flow."
 ---
 
 # Forking vibedgames projects

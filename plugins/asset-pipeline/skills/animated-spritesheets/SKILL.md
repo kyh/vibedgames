@@ -1,6 +1,6 @@
 ---
 name: animated-spritesheets
-description: "Turn a single character reference image into an animated spritesheet with model prompting, full-sheet frame recovery, background cleanup, normalization, contact sheets, and GIF previews. Use for AI-generated 2D character animation pipelines."
+description: "Turn a single character reference image into an animated spritesheet with model prompting, full-sheet frame recovery, background cleanup, normalization, contact sheets, and GIF previews. Use for AI-generated 2D character animation pipelines. Routing: asset phase; runs through `generate`; then `animation` to make the frames move well, `phaser` to wire them in."
 metadata:
   short-description: "Reference image to animated spritesheet pipeline."
 ---

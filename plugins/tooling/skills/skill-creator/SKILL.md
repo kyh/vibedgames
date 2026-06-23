@@ -1,6 +1,6 @@
 ---
 name: skill-creator
-description: "Enhanced skill creation framework emphasizing philosophy-first design, anti-pattern prevention, and variation encouragement. Use when creating new skills, improving existing skills, analyzing skill quality, or when users request help designing effective skills that unlock capabilities rather than constraining them. Includes analysis tools and upgrade suggestions for existing skills."
+description: "Enhanced skill creation framework emphasizing philosophy-first design, anti-pattern prevention, and variation encouragement. Use when creating new skills, improving existing skills, analyzing skill quality, or when users request help designing effective skills that unlock capabilities rather than constraining them. Includes analysis tools and upgrade suggestions for existing skills. Routing: meta; authors the skills the rest of the suite is made of."
 ---
 
 # Skill Creator Plus
@@ -335,6 +335,7 @@ An effective skill should:
 - [ ] **Provide specifics** - concrete over abstract
 - [ ] **Stay concise** - lean SKILL.md, details in references
 - [ ] **Compose well** - work with other skills
+- [ ] **Route clearly** - in a skill suite, end the `description` with a routing clause (phase + handoff/disambiguation edges) per references/routing-grammar.md, and make sure any orchestrator skill references this one
 
 Run analyze_skill.py to check these objectively.
 
@@ -446,11 +447,16 @@ Skills work together automatically based on descriptions. Design for composition
 ✅ **Orthogonal concerns** - Non-overlapping when possible
 ✅ **Flexible guidance** - "Prefer X unless..." not "Always X"
 ✅ **Test combinations** - Try multiple skills together
+✅ **Route, don't import** - lightweight handoff hints ("then `X`", "use `Y` instead for Z") are good; hard dependencies that break a skill when `X` is absent are not
 
-❌ **Don't reference other skills explicitly** - Breaks modularity
+❌ **Don't hard-depend on other skills** - a skill must still work alone
 ❌ **Don't create hard conflicts** - "Always X" vs "Never X"
 
-See references/composability.md for detailed composability patterns.
+See references/composability.md for detailed composability patterns. For a
+**suite** of related skills that form a dependency stack (like vibedgames'
+engine → asset → craft → ship skills), see references/routing-grammar.md — a
+fixed vocabulary for encoding build-order and disambiguation edges in the
+`description` so the agent can walk between skills reliably.
 
 ---
 

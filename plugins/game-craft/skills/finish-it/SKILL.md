@@ -1,6 +1,6 @@
 ---
 name: finish-it
-description: "Scope-cutting and shipping discipline from Derek Yu's 'Finishing a Game' and 'Death Loops', jam culture, and veteran shipping practice — diagnose why a game project stalled, cut to a shippable core, define a binary finish line, ship it. Use when: a game project is stalled or sprawling, 'I keep adding features', 'it's never done', 'should I add X before shipping?' (usually no), 'help me finish this', 'is this ready to ship?', or scoping a new game so it actually ships."
+description: "Scope-cutting and shipping discipline from Derek Yu's 'Finishing a Game' and 'Death Loops', jam culture, and veteran shipping practice — diagnose why a game project stalled, cut to a shippable core, define a binary finish line, ship it. Use when: a game project is stalled or sprawling, 'I keep adding features', 'it's never done', 'should I add X before shipping?' (usually no), 'help me finish this', 'is this ready to ship?', or scoping a new game so it actually ships. Routing: ship phase; pairs with `design-lenses`/`onboarding` as a pre-ship pass, then `deploy`."
 ---
 
 # Finish it

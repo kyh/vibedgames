@@ -1,6 +1,6 @@
 ---
 name: aseprite
-description: "Infer structure/metadata from Aseprite files (.ase/.aseprite; common typo .aes): parse headers/frames/chunks (layers, cels, tags, slices, palettes, tilesets), compute durations/bounds, and generate JSON for engines/tools."
+description: "Infer structure/metadata from Aseprite files (.ase/.aseprite; common typo .aes): parse headers/frames/chunks (layers, cels, tags, slices, palettes, tilesets), compute durations/bounds, and generate JSON for engines/tools. Routing: asset phase; utility — feeds frame/tag metadata to `asset-pipeline` and engine import."
 ---
 
 # Aseprite Inference

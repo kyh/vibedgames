@@ -7,7 +7,7 @@ description: >
   tips"), or when prompts to a routed endpoint keep coming back generic and
   the family's known nuances should be applied. For endpoint selection
   ("which model for X"), use `model-catalog` instead. This skill is
-  about how to talk to a model once it has been chosen.
+  about how to talk to a model once it has been chosen. Routing: meta; use `model-catalog` instead to choose a model; supports the `generate` skills.
 ---
 
 # Model Prompting

@@ -3,7 +3,7 @@ name: character-design
 description: >
   Build consistent character designs and character media with `vg generate`. Use
   this for original characters, reference sheets, expression sheets, outfit
-  variations, identity-preserving edits, and character-to-video workflows.
+  variations, identity-preserving edits, and character-to-video workflows. Routing: asset phase; runs through `generate`; defaults via `model-routing`; then `animation`/`phaser` for sprites or `storytelling` for video.
 ---
 
 # Character design with `vg generate`
