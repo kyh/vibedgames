@@ -3,7 +3,17 @@
 // background tone, so they dissolve cleanly on the dark backdrop. One pool,
 // preallocated, no per-event allocation (adapted from pong's pool).
 
-import { Color, DynamicDrawUsage, InstancedMesh, Matrix4, MeshBasicMaterial, Quaternion, type Scene, SphereGeometry, Vector3 } from "three";
+import {
+  Color,
+  DynamicDrawUsage,
+  InstancedMesh,
+  Matrix4,
+  MeshBasicMaterial,
+  Quaternion,
+  type Scene,
+  SphereGeometry,
+  Vector3,
+} from "three";
 
 import { BG } from "../shared/constants";
 

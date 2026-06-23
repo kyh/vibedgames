@@ -208,9 +208,7 @@ export class Board {
   }
 
   /** Visit every locked cube (for rendering / physics handoff). */
-  forEachCube(
-    cb: (x: number, y: number, z: number, colorIndex: number, id: number) => void,
-  ): void {
+  forEachCube(cb: (x: number, y: number, z: number, colorIndex: number, id: number) => void): void {
     for (let x = 0; x < this.width; x++) {
       for (let y = 0; y < this.height; y++) {
         for (let z = 0; z < this.depth; z++) {

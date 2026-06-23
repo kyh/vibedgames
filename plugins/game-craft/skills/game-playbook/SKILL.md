@@ -40,8 +40,8 @@ ship before the craft pass.
    rates until the core loop is satisfying in the first 10 seconds.
 6. **Ship.** `vg deploy ./dist` (see `deploy`); `add multiplayer` / `add touch
 controls` / `make it forkable` are one prompt each (see `multiplayer`,
-`gamepad`, `fork`). Link-shared games get opened on phones — if the game is
-mouse/keyboard-only, add on-screen touch controls so it's playable there.
+   `gamepad`, `fork`). Link-shared games get opened on phones — if the game is
+   mouse/keyboard-only, add on-screen touch controls so it's playable there.
 
 ## The craft checklist
 

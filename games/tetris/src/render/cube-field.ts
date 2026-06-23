@@ -92,7 +92,13 @@ export class CubeField {
       mesh.position.set(x, y, z);
       mesh.scale.setScalar(0.01); // pop in
       this.group.add(mesh);
-      this.locked.set(id, { mesh, material, target: new Vector3(x, y, z), scale: 0.01, scaleTarget: 1 });
+      this.locked.set(id, {
+        mesh,
+        material,
+        target: new Vector3(x, y, z),
+        scale: 0.01,
+        scaleTarget: 1,
+      });
     });
     // Cubes no longer present begin shrinking out.
     for (const [id, cube] of this.locked) {

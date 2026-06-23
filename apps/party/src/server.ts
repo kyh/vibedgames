@@ -78,7 +78,9 @@ export class VgServer extends Server {
     const now = Date.now();
     if (now - (this.room.lastSeen[host] ?? 0) <= HOST_LIVENESS_TIMEOUT_MS) return;
     const next = Object.keys(this.room.players)
-      .filter((id) => id !== host && now - (this.room.lastSeen[id] ?? 0) <= HOST_LIVENESS_TIMEOUT_MS)
+      .filter(
+        (id) => id !== host && now - (this.room.lastSeen[id] ?? 0) <= HOST_LIVENESS_TIMEOUT_MS,
+      )
       .sort()[0];
     if (!next) return; // nobody healthier to hand off to — keep the current host
     this.room.hostId = next;

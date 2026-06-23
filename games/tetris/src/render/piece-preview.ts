@@ -95,8 +95,32 @@ export function drawPiecePreview(
       ctx.stroke();
     };
     // left face, right face, then top diamond on top
-    face([[cx - hw, cy], [cx, cy + hh], [cx, cy + hh + d], [cx - hw, cy + d]], left);
-    face([[cx + hw, cy], [cx, cy + hh], [cx, cy + hh + d], [cx + hw, cy + d]], right);
-    face([[cx, cy - hh], [cx + hw, cy], [cx, cy + hh], [cx - hw, cy]], top);
+    face(
+      [
+        [cx - hw, cy],
+        [cx, cy + hh],
+        [cx, cy + hh + d],
+        [cx - hw, cy + d],
+      ],
+      left,
+    );
+    face(
+      [
+        [cx + hw, cy],
+        [cx, cy + hh],
+        [cx, cy + hh + d],
+        [cx + hw, cy + d],
+      ],
+      right,
+    );
+    face(
+      [
+        [cx, cy - hh],
+        [cx + hw, cy],
+        [cx, cy + hh],
+        [cx - hw, cy],
+      ],
+      top,
+    );
   }
 }

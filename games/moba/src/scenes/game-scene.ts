@@ -501,7 +501,9 @@ export class GameScene extends Phaser.Scene {
       );
       const target =
         hovered ??
-        (wantAlly ? (this.lowestAllyInRange(me, def.castRange) ?? me) : this.nearestEnemy(me, def.castRange));
+        (wantAlly
+          ? (this.lowestAllyInRange(me, def.castRange) ?? me)
+          : this.nearestEnemy(me, def.castRange));
       if (target) this.cmd({ kind: "cast", key, targetId: target.id });
     } else if (def.targeting === "point") {
       const r = def.castRange;
@@ -602,7 +604,10 @@ export class GameScene extends Phaser.Scene {
     }
     // auto-attack acquisition: while holding/idle/attack-moving the hero attacks the
     // nearest enemy in range — keep the reticle pinned to it the whole time.
-    if (!id && (me.order.type === "idle" || me.order.type === "hold" || me.order.type === "attackMove")) {
+    if (
+      !id &&
+      (me.order.type === "idle" || me.order.type === "hold" || me.order.type === "attackMove")
+    ) {
       const t = this.engageTarget(me);
       if (t) id = t.id;
     }

@@ -30,13 +30,7 @@ export class NavGrid {
   private elevLvl: Int8Array;
   private rampFlag: Uint8Array;
 
-  constructor(
-    worldW: number,
-    worldH: number,
-    cell: number,
-    blockers: Blocker[],
-    meta?: ElevMeta,
-  ) {
+  constructor(worldW: number, worldH: number, cell: number, blockers: Blocker[], meta?: ElevMeta) {
     this.cell = cell;
     this.cols = Math.ceil(worldW / cell);
     this.rows = Math.ceil(worldH / cell);
