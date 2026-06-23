@@ -148,10 +148,23 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
       resolvePromise(res);
     };
 
+    // `claude --dangerously-skip-permissions` refuses to run as root/sudo
+    // unless IS_SANDBOX=1 marks the environment as already-isolated. The studio
+    // is built for exactly this — unattended runs in containers/CI, often as
+    // root — and the operator has already opted into skip-permissions, so set
+    // the flag for the child when we're root and asking for it. claude only
+    // accepts the literal "1" (a stray IS_SANDBOX=yes in the env still gets
+    // rejected), so force that value rather than preserving whatever's there.
+    const env: NodeJS.ProcessEnv = { ...process.env };
+    const isRoot = typeof process.getuid === "function" && process.getuid() === 0;
+    if (opts.skipPermissions && isRoot && env.IS_SANDBOX !== "1") {
+      env.IS_SANDBOX = "1";
+    }
+
     try {
       child = spawn(opts.claudeBin, args, {
         cwd: opts.cwd,
-        env: process.env,
+        env,
         stdio: ["ignore", "pipe", "pipe"],
         signal: opts.signal,
       });

@@ -412,6 +412,18 @@ function banner(opts: StudioOptions, state: StudioState, repoRoot: string): void
     consola.warn(
       `Running with --dangerously-skip-permissions: agents run shell/file tools and \`vg generate\` (which costs money) WITHOUT asking. ${deployNote} Stop with Ctrl-C.`,
     );
+    // claude rejects --dangerously-skip-permissions under root unless the
+    // environment is marked as a sandbox; we set IS_SANDBOX=1 for the children
+    // so unattended container/CI runs (which are typically root) actually work.
+    if (
+      typeof process.getuid === "function" &&
+      process.getuid() === 0 &&
+      process.env.IS_SANDBOX !== "1"
+    ) {
+      consola.info(
+        "Detected root: setting IS_SANDBOX=1 for agents so skip-permissions is allowed.",
+      );
+    }
   }
 }
 
