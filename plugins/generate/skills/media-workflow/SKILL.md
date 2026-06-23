@@ -3,7 +3,7 @@ name: media-workflow
 description: >
   Design and execute multi-step media workflows with `vg generate`. Use this for
   pipelines that combine planning, generation, editing, image or video
-  utilities, audio, subtitles, batching, and final delivery manifests. Routing: asset phase (workflow); runs through `generate`; for ready-made pipelines use `media-recipes`.
+  utilities, audio, subtitles, batching, and final delivery manifests. Routing: asset phase (workflow); runs through `generate`; use `media-recipes` instead for ready-made pipelines.
 ---
 
 # `vg generate` workflow production

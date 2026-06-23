@@ -1,6 +1,6 @@
 ---
 name: phaser
-description: "Build 2D browser games with Phaser 4: scene lifecycle, sprites, Arcade/Matter physics, tilemaps, WebGL rendering, filters, lighting, shaders, DynamicTexture/RenderTexture, SpriteGPULayer, TilemapGPULayer, and Phaser 3 to 4 migration. Trigger: phaser, phaser 4, phaser v4, create phaser game, add phaser scene, phaser sprite, phaser physics, phaser tilemap, phaser arcade, phaser webgl renderer, phaser filters, phaser SpriteGPULayer, phaser TilemapGPULayer, migrate phaser 3 to 4. Routing: scaffold+loop phase (2D engine); assets from `pixel-art`/`animated-spritesheets`; craft via `game-feel`/`vfx`; orchestrated by `game-playbook`."
+description: "Build 2D browser games with Phaser 4: scene lifecycle, sprites, Arcade/Matter physics, tilemaps, WebGL rendering, filters, lighting, shaders, DynamicTexture/RenderTexture, SpriteGPULayer, TilemapGPULayer, and Phaser 3 to 4 migration. Trigger: phaser, phaser 4, phaser v4, create phaser game, add phaser scene, phaser sprite, phaser physics, phaser tilemap, phaser arcade, phaser webgl renderer, phaser filters, phaser SpriteGPULayer, phaser TilemapGPULayer, migrate phaser 3 to 4. Routing: scaffold+loop phase (2D engine); pairs with `game-feel`/`vfx` for craft; orchestrated by `game-playbook`."
 ---
 
 # Phaser 4 Game Development

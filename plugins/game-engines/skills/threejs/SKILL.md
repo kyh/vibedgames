@@ -1,6 +1,6 @@
 ---
 name: threejs
-description: "Creates simple Three.js web apps with scene setup, lighting, geometries, materials animations, and responsive rendering. Use for: 'Create a threejs scene/app/showcase' or when user wants 3D web content. Supports ES modules, modern Three.js r150+ APIs. Routing: scaffold+loop phase (3D engine); assets from `generate`/`regenerate-3d`; ship to iOS via `capacitor-ios`."
+description: "Creates simple Three.js web apps with scene setup, lighting, geometries, materials animations, and responsive rendering. Use for: 'Create a threejs scene/app/showcase' or when user wants 3D web content. Supports ES modules, modern Three.js r150+ APIs. Routing: scaffold+loop phase (3D engine); pairs with `regenerate-3d`; then `capacitor-ios` to ship on iOS."
 ---
 
 # Three.js Builder

@@ -1,6 +1,6 @@
 ---
 name: vfx
-description: "Real-time 2D VFX cookbook — layered explosions, hit sparks, muzzle flashes, trails, smoke, pickups, heals, shockwaves, weather — with particle parameter recipes, color/readability rules, and mobile-browser performance budgets, from Diablo's VFX talk, Riot's style guide, saint11, and the GDC VFX bootcamps. Use when: 'add effects', 'make the explosion better', 'hits need more impact' (visual side), 'add a trail/aura/sparkle', 'the effects look muddy/noisy', 'particles tank the framerate', or any Phaser particle emitter / blend mode / post-FX work. Routing: craft phase; runs through `phaser` particles/blend modes; assets from `pixel-art`; companion to `game-feel`."
+description: "Real-time 2D VFX cookbook — layered explosions, hit sparks, muzzle flashes, trails, smoke, pickups, heals, shockwaves, weather — with particle parameter recipes, color/readability rules, and mobile-browser performance budgets, from Diablo's VFX talk, Riot's style guide, saint11, and the GDC VFX bootcamps. Use when: 'add effects', 'make the explosion better', 'hits need more impact' (visual side), 'add a trail/aura/sparkle', 'the effects look muddy/noisy', 'particles tank the framerate', or any Phaser particle emitter / blend mode / post-FX work. Routing: craft phase; runs through `phaser`; pairs with `game-feel`."
 ---
 
 # Real-time VFX

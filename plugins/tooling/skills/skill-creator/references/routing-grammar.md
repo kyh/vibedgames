@@ -51,14 +51,18 @@ One of, in build order:
 | ---------- | ---------------------------------------------------- | -------------------------------- |
 | `meta`     | helps you build/choose, not part of one game's build | skill-creator, model-catalog, ask-me |
 | `scaffold` | stand a project up                                   | phaser, threejs, fork            |
-| `asset`    | make the art/audio/3D that goes in                   | pixel-art, animated-spritesheets, generate |
+| `asset`    | make the art/audio/3D that goes in                   | pixel-art, animated-spritesheets, character-design |
 | `loop`     | build the playable systems                           | phaser, threejs, game-balance    |
 | `craft`    | make it feel good / look good / read well            | game-feel, vfx, animation, onboarding |
 | `feature`  | add a bolt-on capability                             | multiplayer, gamepad             |
 | `ship`     | verify, deploy, publish, finish                      | deploy, playwright, finish-it    |
 
-A skill can legitimately span phases (an engine is `scaffold`+`loop`); name the
-one a user is most often in when they reach for it.
+A skill can legitimately span phases — join them with `+` (an engine is
+`scaffold+loop`); otherwise name the one a user is most often in when they reach
+for it. Two foundational kinds of skill use a **role token** in the phase slot
+instead of a phase: `capability` (a raw CLI everything else runs through, e.g.
+`generate`, `deploy`) and `orchestrator` (the playbook that sequences a whole
+build).
 
 ### Edge verbs (fixed lexicon)
 
@@ -68,10 +72,16 @@ one a user is most often in when they reach for it.
 | ``then `X` ``                       | the natural next step after this one in the build order            |
 | ``refines output of `X` ``          | this skill takes `X`'s artifacts and improves them                 |
 | ``deepens `X` ``                    | this is the detailed module behind a lighter skill `X`             |
+| ``pairs with `X` ``                 | a sibling commonly used alongside this one (a lateral edge)        |
+| ``consult `X` for <case>``          | read reference skill `X` for `<case>` — you don't execute through it |
 | ``use `X` instead for <case>``      | disambiguation — `X` is the right call for `<case>`, not this skill |
 | ``orchestrated by `X` ``            | a piece-skill that `X` (an orchestrator) sequences                 |
 
-Backtick every skill name so it's machine-greppable and visually distinct.
+Backtick every skill name so it's machine-greppable and visually distinct. Two
+inverse forms exist for the hub skills: an **orchestrator** lists its pieces with
+``sequences `A` → `B` → `C` `` and a **reference** lists its consumers with
+``consulted by `A`, `B` ``. Notation: `` `A`/`B` `` = alternatives, `→` = build
+order, `+` = a skill spanning two phases.
 
 ## Worked examples
 
@@ -86,10 +96,10 @@ description: "Generate 2D pixel art game assets ... Routing: asset phase; runs t
 description: "Deep game-feel and juice reference ... Routing: craft phase; deepens `game-playbook`."
 
 # disambiguation between siblings
-description: "Structured game-design critique ... Routing: craft phase; use `game-feel` instead for feel/juice tuning, `code review` for bugs."
+description: "Structured game-design critique ... Routing: craft phase; use `game-feel` instead for feel/juice tuning, or code review for bugs."
 
-# the orchestrator itself
-description: "The end-to-end recipe for building a GREAT browser game ... Routing: orchestrator (scaffold→ship); sequences `phaser`/`threejs`, `pixel-art`, `game-feel`, `deploy`."
+# the orchestrator itself (role token in the phase slot; sequences its pieces)
+description: "The end-to-end recipe for building a GREAT browser game ... Routing: orchestrator; sequences `phaser`/`threejs` → `pixel-art` → `game-feel`/`vfx`/`animation` → `playwright` → `deploy`."
 ```
 
 ## Rules

@@ -1,6 +1,6 @@
 ---
 name: deploy
-description: "Deploy browser games to vibedgames. Use when the user wants to deploy, publish, ship, or host a game — especially static HTML/JS games built with Vite, Phaser, Three.js, or plain HTML. Triggers on: 'deploy this game', 'publish my game', 'ship it', 'host this', 'put this online', 'make it playable'. Routing: ship phase (capability); preceded by `playwright` verify; `fork` builds on a deployed game."
+description: "Deploy browser games to vibedgames. Use when the user wants to deploy, publish, ship, or host a game — especially static HTML/JS games built with Vite, Phaser, Three.js, or plain HTML. Triggers on: 'deploy this game', 'publish my game', 'ship it', 'host this', 'put this online', 'make it playable'. Routing: ship phase (capability)."
 ---
 
 # Vibedgames Deploy

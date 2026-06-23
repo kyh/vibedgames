@@ -4,7 +4,7 @@ description: >
   Choose the right model endpoint for a given task. Modality-organized catalog
   of production endpoint defaults, text-to-image, image-to-image, text-to-video,
   image-to-video, and more. Use when the user has not named a specific model,
-  or asks "which model for X", "best endpoint for Y", "what should I use for Z". Routing: meta; supports the `generate` skills; for how to prompt a chosen model use `model-prompting`.
+  or asks "which model for X", "best endpoint for Y", "what should I use for Z". Routing: meta (model-selection reference); then `model-prompting` for how to prompt the chosen model.
 ---
 
 # Models Catalog
