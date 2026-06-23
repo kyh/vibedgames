@@ -1,10 +1,22 @@
-# Routing Grammar
+# Routing notes
 
-A convention for making skill **relationships** legible to the agent, used by the
-vibedgames skill suite. This is a complement to automatic composability (see
-`composability.md`), not a replacement for it.
+A convention for making skill **relationships** legible — to a human reading the
+descriptions, and as a prose hint to the agent. Used by the vibedgames skill
+suite. This complements automatic composability (see `composability.md`); it does
+not replace it.
 
-## Why this exists
+> **Scope, honestly.** These are **human-readable cross-references written in
+> consistent prose** — not a parsed format. Nothing in the codebase reads a
+> `Routing:` clause; the agent treats it as ordinary description text. A small
+> blind eval (6 prompts × no-routing / full / trimmed) found the clauses changed
+> skill selection on **one** prompt — inserting the craft step into a full
+> "build and ship" sequence — and that win traced to **one line**:
+> `game-playbook`'s `sequences …` index. The per-skill edges did not measurably
+> change routing on those prompts. So treat this as documentation hygiene with a
+> single load-bearing element (the orchestrator's build-order index), not an
+> agent-routing engine. Keep clauses short; don't over-invest.
+
+## Why it exists
 
 Automatic composability — the agent loading several skills at once purely from
 their descriptions — is the right default for **orthogonal** skills that don't
@@ -20,19 +32,17 @@ capability / CLI     (generate, deploy, fork)                                 �
 ```
 
 A spritesheet workflow *runs through* `generate`; its frames are then *refined
-by* `animation`; the whole build is *orchestrated by* `game-playbook`. Those are
-real edges. When they live only in prose ("see the pixel-art skill", "for feel
-go to game-feel") the phrasing is inconsistent and the agent has to re-derive the
-build order every time. The routing grammar encodes the edges in a fixed
-vocabulary the agent can walk reliably, and that a developer can grep and keep
-from drifting.
+by* `animation`; the whole build is *orchestrated by* `game-playbook`. When those
+relationships live only in ad-hoc prose ("see the pixel-art skill", "for feel go
+to game-feel") the phrasing drifts. Writing them in a consistent vocabulary keeps
+them readable and easy to keep in sync — most importantly the one that earns its
+keep: the orchestrator's build-order index.
 
-This does **not** contradict "don't hard-depend on other skills." A skill must
-still be usable on its own. Routing clauses are *hints* — "the natural next step
-is X", "use Y instead for Z" — not imports. They degrade gracefully: if the
-referenced skill isn't installed, the sentence is still readable English.
+Routing clauses are *hints*, not imports — a skill must still be usable on its
+own. They degrade gracefully: if a referenced skill isn't installed, the sentence
+is still readable English.
 
-## The grammar
+## The convention
 
 Append a single `Routing:` sentence to the **end** of the `description` field,
 after the what/when/triggers. Clauses are semicolon-separated. Every clause is
@@ -64,7 +74,7 @@ instead of a phase: `capability` (a raw CLI everything else runs through, e.g.
 `generate`, `deploy`) and `orchestrator` (the playbook that sequences a whole
 build).
 
-### Edge verbs (fixed lexicon)
+### Edge verbs (a small, consistent set)
 
 | clause                              | meaning                                                            |
 | ----------------------------------- | ------------------------------------------------------------------ |
@@ -77,7 +87,7 @@ build).
 | ``use `X` instead for <case>``      | disambiguation — `X` is the right call for `<case>`, not this skill |
 | ``orchestrated by `X` ``            | a piece-skill that `X` (an orchestrator) sequences                 |
 
-Backtick every skill name so it's machine-greppable and visually distinct. Two
+Backtick every skill name so it's easy to grep and visually distinct. Two
 inverse forms exist for the hub skills: an **orchestrator** lists its pieces with
 ``sequences `A` → `B` → `C` `` and a **reference** lists its consumers with
 ``consulted by `A`, `B` ``. Notation: `` `A`/`B` `` = alternatives, `→` = build

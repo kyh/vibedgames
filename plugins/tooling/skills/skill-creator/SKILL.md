@@ -455,8 +455,9 @@ Skills work together automatically based on descriptions. Design for composition
 See references/composability.md for detailed composability patterns. For a
 **suite** of related skills that form a dependency stack (like vibedgames'
 engine → asset → craft → ship skills), see references/routing-grammar.md — a
-fixed vocabulary for encoding build-order and disambiguation edges in the
-`description` so the agent can walk between skills reliably.
+consistent prose convention for noting build-order and disambiguation hints in
+the `description`. These are human-readable cross-references, not a parsed format;
+the load-bearing one is the orchestrator skill's build-order index.
 
 ---
 

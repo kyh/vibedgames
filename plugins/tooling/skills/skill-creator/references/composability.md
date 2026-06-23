@@ -502,10 +502,10 @@ capability (generate, deploy)                ← raw tools
 ```
 
 For these, "avoid explicit cross-references" is too strict. The right move is to
-encode the edges — *runs through*, *then*, *use X instead* — in a fixed
-vocabulary the agent can walk, while keeping each skill independently usable
-(the references are hints, not imports). See **routing-grammar.md** for that
-convention.
+note the edges — *runs through*, *then*, *use X instead* — in a consistent prose
+vocabulary, while keeping each skill independently usable (the references are
+hints, not imports). See **routing-grammar.md** for that convention, including a
+note on how much it actually moves agent behavior.
 
 The line to hold: a **routing hint** ("the natural next step is `X`") is fine; a
 **hard dependency** ("first run the X skill, then…") that breaks the skill when
