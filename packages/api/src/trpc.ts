@@ -137,21 +137,25 @@ export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
 });
 
 // Like `protectedProcedure`, but rejects callers authenticated with an API
-// key. Use for surfaces an automation/CI credential must not reach — e.g.
-// managing API keys themselves, so a leaked key can't mint or revoke siblings.
-// API-key sessions are synthesized with a namespaced `apikey:` token (see
-// `resolveApiKeySession`); real better-auth tokens never collide with it.
+// key — for surfaces an automation/CI credential must not reach (managing API
+// keys, admin actions). Keeps API keys scoped to their intended use
+// (deploy/generate) so a leaked key can't escalate. API-key sessions are
+// synthesized with a namespaced `apikey:` token (see `resolveApiKeySession`);
+// real better-auth tokens never collide with it.
 export const sessionOnlyProcedure = protectedProcedure.use(({ ctx, next }) => {
   if (ctx.session.session.token.startsWith(API_KEY_SESSION_PREFIX)) {
     throw new TRPCError({
       code: "FORBIDDEN",
-      message: "API keys can't manage API keys. Use `vg login` or the web app.",
+      message: "This action requires an interactive login, not an API key. Use the web app.",
     });
   }
   return next();
 });
 
-export const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
+// Admin actions are interactive/web-only — build on `sessionOnlyProcedure` so
+// an admin's API key (which would otherwise pass the role check) can't reach
+// them.
+export const adminProcedure = sessionOnlyProcedure.use(({ ctx, next }) => {
   if (ctx.session.user.role !== "admin") {
     throw new TRPCError({ code: "FORBIDDEN" });
   }
