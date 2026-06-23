@@ -121,7 +121,7 @@ Re-run `pnpm dogfood` after adding or removing a skill, then commit the symlink 
 
 Remote sessions clone the repo fresh into an ephemeral container. The committed `.claude/skills/` symlinks mean **skills resolve without any setup** — but `node_modules` and the `vg` CLI are not present, and `vg` is not on PATH. Most sessions (editing web/party/game code, running `pnpm typecheck`/`lint`/tests) only need `pnpm install`.
 
-There's deliberately **no SessionStart hook** — full end-to-end `vg` testing is an explicit activity, not something every session should pay for. When you actually need to exercise the CLI end-to-end (`vg deploy`, `vg generate`, `vg whoami`), run the one-shot setup yourself:
+Full end-to-end `vg` testing is an explicit activity, not something every session needs, so setup isn't automated. When you actually need to exercise the CLI end-to-end (`vg deploy`, `vg generate`, `vg whoami`), run the one-shot setup yourself:
 
 ```bash
 pnpm install && pnpm dogfood   # installs deps, builds + npm-links vg, syncs skills
