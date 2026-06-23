@@ -157,16 +157,17 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
       break;
     }
 
-    // The operator approved a deploy — ship the CURRENT build promptly instead
-    // of iterating further, so what goes live is the build they approved rather
-    // than a newer, unreviewed one. Only preempt once a build actually exists,
-    // so an early approval doesn't skip bootstrap and deploy nothing; before
-    // that, the approval simply waits and is honored at the natural ship phase.
+    // In the forever loop (after the first release), an operator approval ships
+    // the CURRENT build promptly instead of iterating further, so what goes live
+    // is the build they approved rather than a newer, unreviewed one. We do NOT
+    // preempt during the initial bootstrap (before the first ship): an early
+    // approval simply waits and is honored at the natural ship phase, once
+    // assets/build/playtest have run — so it can't deploy an incomplete game.
     // Checked before the cycle-budget stop so an explicit approval is honored
     // even when --max-cycles is already spent.
     if (
       state.phase !== "ship" &&
-      state.built &&
+      state.shipped &&
       !opts.autoDeploy &&
       !opts.noShip &&
       approvalPending(bb, state.lastApproval)
