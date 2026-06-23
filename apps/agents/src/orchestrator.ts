@@ -92,7 +92,7 @@ export async function runStudio(opts: StudioOptions): Promise<void> {
 
     // Optionally skip shipping (no prod deploy) while testing.
     if (state.phase === "ship" && opts.noShip) {
-      consola.info("--no-ship set; skipping the ship phase.");
+      consola.info("--skip-ship set; skipping the ship phase.");
       advance(state);
       saveState(bb, state);
       continue;
@@ -157,6 +157,8 @@ export async function runStudio(opts: StudioOptions): Promise<void> {
     );
     consola.success(`${role.name} done${costNote(res.costUsd)} · ${res.numTurns ?? "?"} turns`);
 
+    // Only a real, successful ship marks the game deployed.
+    if (phase === "ship") recordShip(state);
     advance(state);
     saveState(bb, state);
 
@@ -175,7 +177,12 @@ export async function runStudio(opts: StudioOptions): Promise<void> {
   );
 }
 
-/** Phase machine: bootstrap once, then loop the polish cycle forever. */
+/**
+ * Pure phase transition: bootstrap once, then loop the polish cycle forever.
+ * Deliberately has NO side effects on shipped/deployUrl/iteration — those only
+ * happen on a *successful* ship (see recordShip), never when the ship phase is
+ * skipped (--no-ship) or abandoned after repeated failures.
+ */
 function advance(state: StudioState): void {
   const transitions: Record<Phase, Phase> = {
     spec: "scaffold",
@@ -187,16 +194,22 @@ function advance(state: StudioState): void {
     plan: "work",
     work: "playtest",
   };
-
-  if (state.phase === "ship") {
-    if (!state.shipped) {
-      state.shipped = true;
-      state.deployUrl = `https://${state.slug}.vibedgames.com`;
-    } else {
-      state.iteration += 1;
-    }
-  }
   state.phase = transitions[state.phase];
+}
+
+/**
+ * Record a confirmed deploy. Called only after the shipper actually succeeds,
+ * so state.json / status never claim a shipped game or live URL that wasn't
+ * deployed. The first success flips `shipped`; each later success counts a
+ * completed polish iteration.
+ */
+function recordShip(state: StudioState): void {
+  if (state.shipped) {
+    state.iteration += 1;
+  } else {
+    state.shipped = true;
+    state.deployUrl = `https://${state.slug}.vibedgames.com`;
+  }
 }
 
 function banner(opts: StudioOptions, state: StudioState, repoRoot: string): void {
@@ -211,7 +224,7 @@ function banner(opts: StudioOptions, state: StudioState, repoRoot: string): void
       `Repo:      ${repoRoot}`,
       `Mode:      ${opts.skipPermissions ? "unattended (tools auto-approved)" : "guarded (will block on approvals!)"}`,
       opts.noShip
-        ? `Shipping:  disabled (--no-ship)`
+        ? `Shipping:  disabled (--skip-ship)`
         : `Shipping:  vg deploy → ${state.slug}.vibedgames.com`,
       opts.maxCycles > 0
         ? `Stops at:  ${opts.maxCycles} cycles`

@@ -54,7 +54,7 @@ const startCommand = defineCommand({
       type: "string",
       description: "Milliseconds to pause between specialist runs (default 0).",
     },
-    "no-ship": {
+    "skip-ship": {
       type: "boolean",
       description: "Skip the deploy phase — no production deploys (useful while testing the loop).",
       default: false,
@@ -100,7 +100,7 @@ const startCommand = defineCommand({
       maxTurns: toInt(args["max-turns"], DEFAULT_MAX_TURNS),
       maxCycles: toInt(args["max-cycles"], 0),
       interval: toInt(args.interval, 0),
-      noShip: Boolean(args["no-ship"]),
+      noShip: Boolean(args["skip-ship"]),
       skipPermissions: !args.guarded,
     });
   },

@@ -81,7 +81,7 @@ node apps/agents/dist/index.js start <slug> --idea "<one-line idea>"
 | `--max-cycles`  | `0` (forever)                    | Stop after N specialist runs.                                       |
 | `--max-turns`   | `40`                             | Per-specialist agentic turn ceiling.                                |
 | `--interval`    | `0`                              | ms to pause between specialist runs.                                |
-| `--no-ship`     | off                              | Skip deploys — no production R2 writes (use while testing).         |
+| `--skip-ship`     | off                              | Skip deploys — no production R2 writes (use while testing).         |
 | `--workspace`   | `apps/agents/.workspaces/<slug>` | Override the game workspace dir.                                     |
 | `--guarded`     | off                              | Do **not** auto-approve tools — for debugging only; breaks autonomy.|
 
@@ -95,7 +95,7 @@ block waiting for approvals and is no longer autonomous). That means agents run
 shell/file tools, **`vg generate` (costs money)** and **`vg deploy` (writes to
 production R2 and publishes a live game)** without asking.
 
-- Use `--no-ship` and/or `--max-cycles` while you're trying it out.
+- Use `--skip-ship` and/or `--max-cycles` while you're trying it out.
 - Watch the streamed output; stop anytime with `Ctrl-C` or `vg-studio stop <slug>`.
 - `status --json` is machine-readable for monitoring.
 - Approximate spend is tracked in `state.json` (`totalCostUsd`).

@@ -74,6 +74,7 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
     }
 
     let final: RunResult = { ok: false, result: "" };
+    let gotResult = false;
     let stderr = "";
 
     const rl = createInterface({ input: child.stdout! });
@@ -88,6 +89,7 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
       }
       printEvent(opts.label, evt);
       if (evt.type === "result") {
+        gotResult = true;
         final = {
           ok: evt.subtype === "success" && !evt.is_error,
           result: typeof evt.result === "string" ? evt.result : "",
@@ -108,14 +110,17 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
     });
 
     child.on("close", (code) => {
-      if (final.result || final.ok || code === 0) {
-        resolvePromise(final.result || final.ok ? final : { ...final, ok: true });
+      // Success is defined solely by a parsed stream-json `result` event — a
+      // bare exit 0 with no result means we have no confirmed outcome, so we
+      // treat it as a failure rather than silently advancing the phase.
+      if (gotResult) {
+        resolvePromise(final);
         return;
       }
       resolvePromise({
         ok: false,
-        result: final.result,
-        error: stderr.trim() || `claude exited with code ${code}`,
+        result: "",
+        error: stderr.trim() || `claude exited with code ${code} without a result event`,
       });
     });
   });
