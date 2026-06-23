@@ -170,7 +170,17 @@ export function buildTask(phase: Phase, state: StudioState, bb: Blackboard): str
     case "work": {
       const next = readNext(bb);
       const kind = next.type ? ` [${next.type}]` : "";
-      return `Current assignment from the director (./.studio/next.json)${kind}:\n\n${next.task}\n\nDo exactly this for "${slug}". If it's a bug, reproduce it and fix the root cause. When done, set the item's status to "done" in backlog.json and append a 2–3 line note to journal.md.`;
+      // The closing instruction must match the assigned specialist — engineer-only
+      // guidance (fix the bug, mark the item done) would contradict QA/artist/designer.
+      const close: Record<RoleName, string> = {
+        engineer: `If it's a bug, reproduce it and fix the root cause; verify with typecheck + build. When done, set the item's status to "done" in backlog.json and append a 2–3 line note to journal.md.`,
+        artist: `Generate/update the assets, place them where the game loads them, and record file paths + exact frame sizes. When done, set the item's status to "done" in backlog.json and append a note to journal.md naming the files.`,
+        designer: `Append the design to the "Features & iterations" section of spec.md with crisp acceptance criteria. When done, set the item's status to "done" in backlog.json and append a note to journal.md.`,
+        qa: `Playtest as described, record findings in ./.studio/playtest.md, and file/triage concrete items in backlog.json. Do NOT change game code — your output is findings; leave status updates to the director.`,
+        director: "",
+        shipper: "",
+      };
+      return `Current assignment from the director (./.studio/next.json)${kind}:\n\n${next.task}\n\nDo exactly this for "${slug}". ${close[next.role]}`;
     }
   }
 }
