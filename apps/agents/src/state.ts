@@ -5,7 +5,8 @@ import { resolve } from "node:path";
  * The studio advances a single game through a fixed phase machine. The first
  * pass (spec → scaffold → assets → build → playtest → ship) takes a one-line
  * idea to a deployed game. After the first ship it enters the forever loop
- * (plan → work → playtest → ship → plan …), polishing the same game until the
+ * (plan → work → playtest → ship → plan …), evolving the same game like a
+ * studio — bugs, features, gameplay/balance, content, polish — until the
  * operator stops it.
  */
 export type Phase =
@@ -25,7 +26,7 @@ export type StudioState = {
   phase: Phase;
   /** Total specialist invocations so far. */
   cycle: number;
-  /** Completed polish iterations (post first ship). */
+  /** Completed studio iterations shipped (post first ship). */
   iteration: number;
   shipped: boolean;
   deployUrl: string | null;

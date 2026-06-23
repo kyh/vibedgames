@@ -1,8 +1,9 @@
 # @repo/agents — autonomous game studio
 
 A long-running, multi-agent orchestrator that builds **one** browser game
-end-to-end and then **polishes it forever** — with no human in the loop. You
-start it with a one-line idea; it keeps running until you stop it.
+end-to-end and then **runs it like a studio** — shipping bug fixes, new
+features, gameplay & balance iteration, content, and polish — with no human in
+the loop. You start it with a one-line idea; it keeps running until you stop it.
 
 It does not reimplement any game knowledge. It drives the **vibedgames skills**
 and the **`vg` CLI** by spawning headless Claude Code sessions (`claude -p`),
@@ -30,10 +31,14 @@ prompt, the dogfooded skills, and the `vg` CLI available:
 | `playtest` | 🔎 QA             | Drives the build, files findings + bugs                 |
 | `ship`     | 🚀 Shipper        | `vg deploy ./dist` → `{slug}.vibedgames.com`            |
 
-After the first ship it enters the **forever loop**:
+After the first ship it enters the **forever loop**, where the Director runs the
+game like a product owner — triaging a typed backlog (bug / feature / gameplay /
+balance / content / polish / art), fixing ship-stoppers first, then picking the
+highest-impact work for the game's current maturity so it keeps *growing*, not
+just glistening:
 
 ```
-plan (🎬 Director picks the highest-leverage task) → work (the assigned specialist) → playtest → ship → plan → …
+plan (🎬 Director triages the backlog & assigns the next item) → work (designer | engineer | artist | QA) → playtest → ship → plan → …
 ```
 
 ### Coordination: the blackboard

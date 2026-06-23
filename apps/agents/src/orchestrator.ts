@@ -222,7 +222,7 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
 }
 
 /**
- * Pure phase transition: bootstrap once, then loop the polish cycle forever.
+ * Pure phase transition: bootstrap once, then loop the studio cycle forever.
  * Deliberately has NO side effects on shipped/deployUrl/iteration — those only
  * happen on a *successful* ship (see recordShip), never when the ship phase is
  * skipped (--no-ship) or abandoned after repeated failures.
@@ -245,7 +245,7 @@ function advance(state: StudioState): void {
  * Record a confirmed deploy. Called only after the shipper actually succeeds,
  * so state.json / status never claim a shipped game or live URL that wasn't
  * deployed. The first success flips `shipped`; each later success counts a
- * completed polish iteration.
+ * completed studio iteration (a shipped feature/fix/iteration pass).
  */
 function recordShip(state: StudioState): void {
   if (state.shipped) {
