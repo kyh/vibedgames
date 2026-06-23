@@ -2,16 +2,18 @@
 /**
  * Mint invite codes directly in the D1 database.
  *
- * Inserts rows into the `invite_code` table via `wrangler d1 execute`. Mirrors
- * the admin `createInvites` tRPC mutation, but runnable from the shell without
- * an admin session — handy for seeding codes locally or in production.
+ * Builds the rows with the shared `buildInviteRows` helper (the same one the
+ * admin `createInvites` tRPC mutation uses, so they can't drift) and inserts
+ * them into the `invite_code` table via `wrangler d1 execute` — runnable from
+ * the shell without an admin session, handy for seeding codes locally or in
+ * production. Run it with `tsx`:
  *
- *   pnpm -F @repo/api invite:create                       # one random single-use code
- *   pnpm -F @repo/api invite:create -- --code FRIEND       # a specific custom code
- *   pnpm -F @repo/api invite:create -- --count 10          # ten random codes
- *   pnpm -F @repo/api invite:create -- --max-uses 5 --note 'launch'
- *   pnpm -F @repo/api invite:create -- --expires-days 30
- *   pnpm -F @repo/api invite:create -- --code GOLDEN --max-uses 100 --remote
+ *   pnpm exec tsx packages/api/scripts/create-invite.ts                     # one random single-use code
+ *   pnpm exec tsx packages/api/scripts/create-invite.ts -- --code FRIEND     # a specific custom code
+ *   pnpm exec tsx packages/api/scripts/create-invite.ts -- --count 10        # ten random codes
+ *   pnpm exec tsx packages/api/scripts/create-invite.ts -- --max-uses 5 --note 'launch'
+ *   pnpm exec tsx packages/api/scripts/create-invite.ts -- --expires-days 30
+ *   pnpm exec tsx packages/api/scripts/create-invite.ts -- --code GOLDEN --max-uses 100 --remote
  *
  * Pass --remote to target production D1 (default is local).
  *
@@ -28,7 +30,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { generateShortCode } from "../src/auth/utils";
+import { buildInviteRows } from "../src/auth/invite-create";
 
 type Args = {
   code: string | null;
@@ -40,8 +42,8 @@ type Args = {
 };
 
 const usage =
-  "Usage: pnpm -F @repo/api invite:create -- [--code <CODE>] [--count <n>]\n" +
-  "         [--max-uses <n|unlimited>] [--expires-days <n>] [--note <text>] [--remote]\n" +
+  "Usage: pnpm exec tsx packages/api/scripts/create-invite.ts -- [--code <CODE>]\n" +
+  "         [--count <n>] [--max-uses <n|unlimited>] [--expires-days <n>] [--note <text>] [--remote]\n" +
   "\n" +
   "  --code <CODE>          Mint one code with this exact value (default: random).\n" +
   "  --count <n>            How many random codes to mint (default: 1).\n" +
@@ -118,40 +120,36 @@ const parseArgs = (argv: string[]): Args => {
   return out;
 };
 
-// SQLite/D1 string literal — single quotes doubled.
-const lit = (s: string) => `'${s.replace(/'/g, "''")}'`;
-
-// `n` distinct random codes — regenerates on the vanishingly rare in-batch repeat.
-const uniqueCodes = (n: number): Set<string> => {
-  const set = new Set<string>();
-  while (set.size < n) set.add(generateShortCode());
-  return set;
-};
+// SQLite/D1 literal — string single-quoted (quotes doubled), null → NULL.
+const lit = (v: string | null) => (v === null ? "NULL" : `'${v.replace(/'/g, "''")}'`);
 
 const main = () => {
   const args = parseArgs(process.argv.slice(2));
-  const now = Date.now();
-  const expiresAt = args.expiresDays === null ? null : now + args.expiresDays * 86_400_000;
 
-  // A custom code is used verbatim; random codes are deduped within the batch
-  // (the `code` column is UNIQUE, so an intra-batch repeat would fail the whole
-  // INSERT). Collisions are astronomically unlikely with a 32^6 space, but the
-  // Set makes intra-batch repeats impossible regardless.
-  const codes = args.code ? [args.code] : Array.from(uniqueCodes(args.count));
+  // Domain logic (code generation, in-batch dedup, custom-code normalization,
+  // column defaults) lives in the shared helper; the script only serializes the
+  // resulting rows to SQL since it can't reach a D1 binding offline. created_by
+  // is null — these codes aren't attributed to an admin session.
+  const rows = buildInviteRows({
+    code: args.code,
+    count: args.count,
+    maxUses: args.maxUses,
+    expiresAt:
+      args.expiresDays === null ? null : new Date(Date.now() + args.expiresDays * 86_400_000),
+    note: args.note,
+    createdBy: null,
+  });
 
-  // Columns left to their schema defaults: used_count (0), revoked_at (NULL).
-  // created_by is NULL — these codes aren't attributed to an admin session.
-  const values = codes
-    .map((code) => {
-      const id = crypto.randomUUID();
-      const maxUses = args.maxUses === null ? "NULL" : String(args.maxUses);
-      const exp = expiresAt === null ? "NULL" : String(expiresAt);
-      const note = args.note === null ? "NULL" : lit(args.note);
-      return `(${lit(id)}, ${lit(code)}, NULL, ${now}, ${exp}, ${maxUses}, 0, NULL, ${note})`;
+  // Columns omitted (created_at, used_count, revoked_at) fall back to schema defaults.
+  const values = rows
+    .map((r) => {
+      const maxUses = r.maxUses == null ? "NULL" : String(r.maxUses);
+      const exp = r.expiresAt == null ? "NULL" : String(r.expiresAt.getTime());
+      return `(${lit(r.id ?? null)}, ${lit(r.code)}, ${lit(r.createdBy ?? null)}, ${maxUses}, ${exp}, ${lit(r.note ?? null)})`;
     })
     .join(",\n  ");
 
-  const sql = `INSERT INTO invite_code (id, code, created_by, created_at, expires_at, max_uses, used_count, revoked_at, note)\nVALUES\n  ${values};`;
+  const sql = `INSERT INTO invite_code (id, code, created_by, max_uses, expires_at, note)\nVALUES\n  ${values};`;
 
   const tmpDir = mkdtempSync(join(tmpdir(), "vg-invite-"));
   const sqlFile = join(tmpDir, "create-invite.sql");
@@ -170,7 +168,7 @@ const main = () => {
   ];
 
   const target = args.remote ? "remote" : "local";
-  console.log(`Creating ${codes.length} invite code(s) (${target} D1)…`);
+  console.log(`Creating ${rows.length} invite code(s) (${target} D1)…`);
   const result = spawnSync("pnpm", ["exec", ...wranglerArgs], { cwd, stdio: "inherit" });
   rmSync(tmpDir, { recursive: true, force: true });
 
@@ -180,8 +178,8 @@ const main = () => {
   }
 
   const cap = args.maxUses === null ? "unlimited uses" : `${args.maxUses} use(s) each`;
-  console.log(`\nCreated ${codes.length} invite code(s) — ${cap}:`);
-  for (const code of codes) console.log(`  ${code}`);
+  console.log(`\nCreated ${rows.length} invite code(s) — ${cap}:`);
+  for (const r of rows) console.log(`  ${r.code}`);
 };
 
 main();

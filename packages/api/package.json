@@ -10,7 +10,6 @@
   "scripts": {
     "build": "tsc",
     "clean": "rm -rf .cache .turbo dist node_modules",
-    "invite:create": "tsx scripts/create-invite.ts",
     "typecheck": "tsc --noEmit --emitDeclarationOnly false"
   },
   "dependencies": {
@@ -28,7 +27,6 @@
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "tsx": "^4.22.3",
     "typescript": "catalog:"
   }
 }
