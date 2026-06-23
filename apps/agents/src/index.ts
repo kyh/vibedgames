@@ -125,7 +125,7 @@ const startCommand = defineCommand({
     },
     model: {
       type: "string",
-      description: `Model alias passed to claude --model (default ${DEFAULT_MODEL}; try "opus" for higher craft).`,
+      description: `Model passed to claude --model (default ${DEFAULT_MODEL}, the latest model; pass "sonnet" for a cheaper run).`,
       default: DEFAULT_MODEL,
     },
     dir: {

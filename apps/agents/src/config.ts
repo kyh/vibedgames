@@ -31,10 +31,11 @@ export function claudeBin(): string {
 }
 
 /**
- * Default model alias passed to `claude --model`. Sonnet keeps a forever-loop
- * affordable and within plan limits; pass `--model opus` for higher-craft runs.
+ * Default model passed to `claude --model`. Opus 4.8 — the latest, most capable
+ * model — for the highest-craft games; override with `--model sonnet` for a
+ * cheaper forever-loop.
  */
-export const DEFAULT_MODEL = "sonnet";
+export const DEFAULT_MODEL = "claude-opus-4-8";
 
 /** Default per-role agentic turn ceiling. Keeps any single step bounded. */
 export const DEFAULT_MAX_TURNS = 40;

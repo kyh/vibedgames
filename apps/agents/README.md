@@ -135,20 +135,20 @@ straight through.
 
 ### `start` options
 
-| Flag                | Default                          | Meaning                                                                       |
-| ------------------- | -------------------------------- | ----------------------------------------------------------------------------- |
-| `--idea`            | — (one of idea/context/existing) | Seed idea. Optional with `--context` or when `--dir` has a project.           |
-| `--context`         | —                                | Extra brief: literal text, a file (read inline), or a directory (referenced). |
-| `--model`           | `sonnet`                         | `claude --model` alias. Try `opus` for higher-craft (pricier) runs.           |
-| `--max-cycles`      | `0` (forever)                    | Stop after N specialist runs.                                                 |
-| `--max-turns`       | `40`                             | Per-specialist agentic turn ceiling.                                          |
-| `--idle-timeout`    | `45`                             | Kill a specialist that emits no output for this many minutes (0 disables).    |
-| `--session-timeout` | `120`                            | Absolute cap on a single specialist session, in minutes (0 disables).         |
-| `--interval`        | `0`                              | ms to pause between specialist runs.                                          |
-| `--auto-deploy`     | off                              | Deploy automatically. Default OFF — deploys wait for `pnpm approve <slug>`.   |
-| `--skip-ship`       | off                              | Never prepare a release at all (use while testing).                           |
-| `--dir`             | `apps/agents/.workspaces/<slug>` | Where the game lives — its project directory.                                 |
-| `--guarded`         | off                              | Do **not** auto-approve tools — for debugging only; breaks autonomy.          |
+| Flag                | Default                          | Meaning                                                                          |
+| ------------------- | -------------------------------- | -------------------------------------------------------------------------------- |
+| `--idea`            | — (one of idea/context/existing) | Seed idea. Optional with `--context` or when `--dir` has a project.              |
+| `--context`         | —                                | Extra brief: literal text, a file (read inline), or a directory (referenced).    |
+| `--model`           | `claude-opus-4-8`                | `claude --model`. Defaults to the latest model; pass `sonnet` for a cheaper run. |
+| `--max-cycles`      | `0` (forever)                    | Stop after N specialist runs.                                                    |
+| `--max-turns`       | `40`                             | Per-specialist agentic turn ceiling.                                             |
+| `--idle-timeout`    | `45`                             | Kill a specialist that emits no output for this many minutes (0 disables).       |
+| `--session-timeout` | `120`                            | Absolute cap on a single specialist session, in minutes (0 disables).            |
+| `--interval`        | `0`                              | ms to pause between specialist runs.                                             |
+| `--auto-deploy`     | off                              | Deploy automatically. Default OFF — deploys wait for `pnpm approve <slug>`.      |
+| `--skip-ship`       | off                              | Never prepare a release at all (use while testing).                              |
+| `--dir`             | `apps/agents/.workspaces/<slug>` | Where the game lives — its project directory.                                    |
+| `--guarded`         | off                              | Do **not** auto-approve tools — for debugging only; breaks autonomy.             |
 
 Re-running `pnpm start <slug>` **resumes** from the saved phase.
 
