@@ -116,3 +116,20 @@ Schema workflow: edit `packages/db/src/drizzle-schema*.ts` → `pnpm db:push-loc
 `pnpm dogfood` builds + npm-links the local `vg` CLI and syncs `.claude/skills/` to match `plugins/*/skills/*` (creates new relative symlinks, removes stale ones). Symlinks are committed, so a fresh clone gets working skills automatically — only the `npm link` step is per-machine. `pnpm dogfood:reset` undoes the link.
 
 Re-run `pnpm dogfood` after adding or removing a skill, then commit the symlink change in `.claude/skills/`.
+
+## Claude Code on the web (remote sessions)
+
+Remote sessions clone the repo fresh into an ephemeral container. The committed `.claude/skills/` symlinks mean **skills resolve without any setup** — but `node_modules` and the `vg` CLI are not present, and `vg` is not on PATH. Most sessions (editing web/party/game code, running `pnpm typecheck`/`lint`/tests) only need `pnpm install`.
+
+There's deliberately **no SessionStart hook** — full end-to-end `vg` testing is an explicit activity, not something every session should pay for. When you actually need to exercise the CLI end-to-end (`vg deploy`, `vg generate`, `vg whoami`), run the one-shot setup yourself:
+
+```bash
+pnpm install && pnpm dogfood   # installs deps, builds + npm-links vg, syncs skills
+```
+
+For `vg` to reach the backend from a remote session you also need:
+
+- **Auth:** set `VG_TOKEN` as an environment secret on the cloud environment. Device-code `vg login` needs a browser and will block an agent. `VG_API_URL` defaults to prod (`vibedgames.com`); override it for local/staging. (See the headless-auth note above for the local seeded token.)
+- **Network:** the environment's network policy must allow egress to `registry.npmjs.org` (for `pnpm install`) and the target API host.
+
+Heed the prod-R2 footgun above: a successful `vg deploy` writes to **production** R2 regardless of which D1 the API points at.
