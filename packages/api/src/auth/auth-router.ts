@@ -4,7 +4,13 @@ import { user, verification } from "@repo/db/drizzle-schema-auth";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
-import { adminProcedure, createTRPCRouter, protectedProcedure, publicProcedure } from "../trpc";
+import {
+  adminProcedure,
+  createTRPCRouter,
+  protectedProcedure,
+  publicProcedure,
+  sessionOnlyProcedure,
+} from "../trpc";
 import { inviteCodeAvailabilityClause, normalizeInviteCode } from "./invite-claim";
 import { generateShortCode } from "./utils";
 
@@ -43,7 +49,11 @@ export const authRouter = createTRPCRouter({
     return { code };
   }),
 
-  cliConfirm: protectedProcedure
+  // sessionOnlyProcedure (not protectedProcedure): this persists
+  // `ctx.session.session.token` as the CLI's login credential, so the caller
+  // must hold a real better-auth session. An API-key session's synthetic
+  // `apikey:` token would be handed to the CLI and rejected by getSession.
+  cliConfirm: sessionOnlyProcedure
     .input(z.object({ code: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const identifier = `${CLI_IDENTIFIER_PREFIX}${input.code}`;
