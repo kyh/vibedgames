@@ -46,6 +46,7 @@ export type Blackboard = {
   playtest: string;
   journal: string;
   stop: string;
+  approve: string;
   lock: string;
 };
 
@@ -61,6 +62,7 @@ export function blackboard(workspace: string): Blackboard {
     playtest: resolve(dir, "playtest.md"),
     journal: resolve(dir, "journal.md"),
     stop: resolve(dir, "STOP"),
+    approve: resolve(dir, "APPROVE"),
     lock: resolve(dir, "studio.lock"),
   };
 }
@@ -103,6 +105,26 @@ export function stopRequested(bb: Blackboard): boolean {
 export function clearStop(bb: Blackboard): void {
   try {
     if (existsSync(bb.stop)) rmSync(bb.stop);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** A human has approved the current build for ONE deployment. */
+export function approvalRequested(bb: Blackboard): boolean {
+  return existsSync(bb.approve);
+}
+
+/** Grant a one-shot deploy approval (written by `vg-studio approve`). */
+export function requestApproval(bb: Blackboard): void {
+  mkdirSync(bb.dir, { recursive: true });
+  writeFileSync(bb.approve, `approved ${new Date().toISOString()}\n`);
+}
+
+/** Consume the one-shot approval after a successful deploy. */
+export function consumeApproval(bb: Blackboard): void {
+  try {
+    if (existsSync(bb.approve)) rmSync(bb.approve);
   } catch {
     /* ignore */
   }

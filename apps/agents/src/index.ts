@@ -14,7 +14,7 @@ import {
   findRepoRoot,
 } from "./config.js";
 import { runStudio } from "./orchestrator.js";
-import { blackboard, loadState } from "./state.js";
+import { approvalRequested, blackboard, loadState, requestApproval } from "./state.js";
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/;
 
@@ -43,7 +43,7 @@ const startCommand = defineCommand({
   meta: {
     name: "start",
     description:
-      "Start (or resume) the autonomous studio for a game. Runs a multi-agent loop that builds the game end-to-end and polishes it forever until you stop it.",
+      "Start (or resume) the autonomous studio for a game. Builds the game end-to-end and evolves it like a studio until you stop it. Deploys are gated on `vg-studio approve` unless --auto-deploy is set.",
   },
   args: {
     slug: {
@@ -61,9 +61,10 @@ const startCommand = defineCommand({
       description: `Model alias passed to claude --model (default ${DEFAULT_MODEL}; try "opus" for higher craft).`,
       default: DEFAULT_MODEL,
     },
-    workspace: {
+    dir: {
       type: "string",
-      description: "Override the game workspace dir (default apps/agents/.workspaces/<slug>).",
+      description:
+        "Where the game lives — its project directory (default apps/agents/.workspaces/<slug>). Outside this repo, run `vg init` first so the skills resolve.",
     },
     "max-turns": {
       type: "string",
@@ -87,7 +88,13 @@ const startCommand = defineCommand({
     },
     "skip-ship": {
       type: "boolean",
-      description: "Skip the deploy phase — no production deploys (useful while testing the loop).",
+      description: "Skip the deploy phase entirely — never even prepare a release.",
+      default: false,
+    },
+    "auto-deploy": {
+      type: "boolean",
+      description:
+        "Deploy automatically without per-release approval. Default is OFF: nothing goes live until you run `vg-studio approve <slug>`.",
       default: false,
     },
     guarded: {
@@ -100,7 +107,7 @@ const startCommand = defineCommand({
   run: async ({ args }) => {
     const slug = requireSlug(args.slug);
 
-    const workspace = resolveWorkspace(slug, args.workspace);
+    const workspace = resolveWorkspace(slug, args.dir);
     const bb = blackboard(workspace);
     const fresh = !existsSync(bb.state);
     if (fresh && !args.idea.trim()) {
@@ -123,6 +130,7 @@ const startCommand = defineCommand({
       maxCycles: toInt(args["max-cycles"], 0),
       interval: toInt(args.interval, 0),
       noShip: Boolean(args["skip-ship"]),
+      autoDeploy: Boolean(args["auto-deploy"]),
       skipPermissions: !args.guarded,
     });
     if (!started) process.exit(1);
@@ -136,11 +144,11 @@ const stopCommand = defineCommand({
   },
   args: {
     slug: { type: "positional", description: "Game slug.", required: true },
-    workspace: { type: "string", description: "Override workspace dir." },
+    dir: { type: "string", description: "Game directory (if you set --dir on start)." },
   },
   run: ({ args }) => {
     const slug = requireSlug(args.slug);
-    const bb = blackboard(resolveWorkspace(slug, args.workspace));
+    const bb = blackboard(resolveWorkspace(slug, args.dir));
     if (!existsSync(bb.dir)) {
       consola.error(`No studio workspace found for "${slug}".`);
       process.exit(1);
@@ -159,12 +167,12 @@ const statusCommand = defineCommand({
   },
   args: {
     slug: { type: "positional", description: "Game slug.", required: true },
-    workspace: { type: "string", description: "Override workspace dir." },
+    dir: { type: "string", description: "Game directory (if you set --dir on start)." },
     json: { type: "boolean", description: "Machine-readable output.", default: false },
   },
   run: ({ args }) => {
     const slug = requireSlug(args.slug);
-    const bb = blackboard(resolveWorkspace(slug, args.workspace));
+    const bb = blackboard(resolveWorkspace(slug, args.dir));
     if (!existsSync(bb.state)) {
       consola.error(`No studio state found for "${slug}".`);
       process.exit(1);
@@ -183,10 +191,35 @@ const statusCommand = defineCommand({
         `Iterations: ${state.iteration}`,
         `Shipped:    ${state.shipped ? "yes" : "no"}`,
         state.deployUrl ? `Live:       ${state.deployUrl}` : `Live:       —`,
+        `Approval:   ${approvalRequested(bb) ? "pending — will deploy at next ship" : "none (run `vg-studio approve` to publish)"}`,
         `Spend:      ~$${state.totalCostUsd.toFixed(2)}`,
         `Updated:    ${state.updatedAt}`,
-        `Workspace:  ${bb.root}`,
+        `Game dir:   ${bb.root}`,
       ].join("\n"),
+    );
+  },
+});
+
+const approveCommand = defineCommand({
+  meta: {
+    name: "approve",
+    description:
+      "Approve the current build for ONE deployment. A running studio publishes it at its next ship step (or immediately if it's waiting); the next release needs fresh approval.",
+  },
+  args: {
+    slug: { type: "positional", description: "Game slug.", required: true },
+    dir: { type: "string", description: "Game directory (if you set --dir on start)." },
+  },
+  run: ({ args }) => {
+    const slug = requireSlug(args.slug);
+    const bb = blackboard(resolveWorkspace(slug, args.dir));
+    if (!existsSync(bb.dir)) {
+      consola.error(`No studio workspace found for "${slug}".`);
+      process.exit(1);
+    }
+    requestApproval(bb);
+    consola.success(
+      `Approved "${slug}" for one deployment. It will publish at the next ship step (or now, if the studio is waiting).`,
     );
   },
 });
@@ -195,12 +228,13 @@ const main = defineCommand({
   meta: {
     name: "vg-studio",
     description:
-      "vibedgames autonomous studio — a multi-agent loop that builds one browser game end-to-end and polishes it forever.",
+      "vibedgames autonomous studio — a multi-agent loop that builds one browser game and evolves it like a studio. Deploys require approval (`vg-studio approve`).",
   },
   subCommands: {
     start: startCommand,
     stop: stopCommand,
     status: statusCommand,
+    approve: approveCommand,
   },
 });
 

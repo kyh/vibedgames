@@ -6,8 +6,10 @@ import { buildTask, roleForPhase, ROLES } from "./roles.js";
 import {
   acquireLock,
   appendJournal,
+  approvalRequested,
   blackboard,
   clearStop,
+  consumeApproval,
   initWorkspace,
   releaseLock,
   saveState,
@@ -32,6 +34,8 @@ export type StudioOptions = {
   interval: number;
   /** Skip the ship phase (no prod deploys — useful while testing the loop). */
   noShip: boolean;
+  /** Deploy automatically without per-release human approval. */
+  autoDeploy: boolean;
   /** Pass --dangerously-skip-permissions so tools run unattended. */
   skipPermissions: boolean;
 };
@@ -141,6 +145,20 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
       continue;
     }
 
+    // Deploys require explicit human approval unless --auto-deploy is set. When
+    // there's no standing approval we don't even run the shipper: the build is
+    // ready, we just don't publish it — the loop keeps improving the game
+    // locally until a human runs `vg-studio approve <slug>`.
+    if (state.phase === "ship" && !opts.autoDeploy && !approvalRequested(bb)) {
+      consola.warn(
+        `Build ready but NOT deployed — approval required. Run \`vg-studio approve ${state.slug}\` to publish it (or start with --auto-deploy).`,
+      );
+      appendJournal(bb, "ship: build ready, awaiting human approval (not deployed).");
+      advance(state);
+      saveState(bb, state);
+      continue;
+    }
+
     const phase = state.phase;
     const role = ROLES[roleForPhase(phase, bb)];
     const task = buildTask(phase, state, bb);
@@ -202,8 +220,12 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
     );
     consola.success(`${role.name} done${costNote(res.costUsd)} · ${res.numTurns ?? "?"} turns`);
 
-    // Only a real, successful ship marks the game deployed.
-    if (phase === "ship") recordShip(state);
+    // Only a real, successful ship marks the game deployed; a one-shot approval
+    // is spent on this deploy, so the next release needs fresh approval.
+    if (phase === "ship") {
+      recordShip(state);
+      consumeApproval(bb);
+    }
     advance(state);
     saveState(bb, state);
 
@@ -267,20 +289,27 @@ function banner(opts: StudioOptions, state: StudioState, repoRoot: string): void
       `Game:      ${state.slug}`,
       `Idea:      ${state.idea}`,
       `Model:     ${state.model}`,
-      `Workspace: ${opts.workspace}`,
+      `Game dir:  ${opts.workspace}`,
       `Repo:      ${repoRoot}`,
       `Mode:      ${opts.skipPermissions ? "unattended (tools auto-approved)" : "guarded (will block on approvals!)"}`,
       opts.noShip
-        ? `Shipping:  disabled (--skip-ship)`
-        : `Shipping:  vg deploy → ${state.slug}.vibedgames.com`,
+        ? `Deploy:    disabled (--skip-ship)`
+        : opts.autoDeploy
+          ? `Deploy:    AUTOMATIC → ${state.slug}.vibedgames.com`
+          : `Deploy:    on approval only — \`vg-studio approve ${state.slug}\` → ${state.slug}.vibedgames.com`,
       opts.maxCycles > 0
         ? `Stops at:  ${opts.maxCycles} cycles`
         : `Runs:      until you stop it (Ctrl-C or \`vg-studio stop ${state.slug}\`)`,
     ].join("\n"),
   );
   if (opts.skipPermissions) {
+    const deployNote = opts.noShip
+      ? "Deploys are disabled."
+      : opts.autoDeploy
+        ? "Deploys to production run AUTOMATICALLY."
+        : "Deploys are gated on `vg-studio approve` — nothing goes live without you.";
     consola.warn(
-      "Running with --dangerously-skip-permissions: agents run shell/file tools, `vg generate`, and `vg deploy` WITHOUT asking. These cost money and deploy to production. Stop with Ctrl-C.",
+      `Running with --dangerously-skip-permissions: agents run shell/file tools and \`vg generate\` (which costs money) WITHOUT asking. ${deployNote} Stop with Ctrl-C.`,
     );
   }
 }
