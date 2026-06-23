@@ -7,6 +7,8 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { ZodError } from "zod";
 
+import { resolveApiKeySession } from "./auth/api-key";
+
 /**
  * Minimal structural view of the R2 binding methods this package uses.
  * Intentionally NOT imported from `@cloudflare/workers-types` so the
@@ -88,7 +90,12 @@ export type CreateTRPCContextOptions = {
 };
 
 export const createTRPCContext = async (opts: CreateTRPCContextOptions) => {
-  const session = await opts.auth.api.getSession({ headers: opts.headers });
+  // Try a normal better-auth session first (cookie or session bearer token).
+  // Fall back to a long-lived API key (`vg_…`) so CLI/HTTP clients can
+  // authenticate in CI; both resolve to the same `Session` shape.
+  const session =
+    (await opts.auth.api.getSession({ headers: opts.headers })) ??
+    (await resolveApiKeySession(opts.db, opts.headers));
 
   return {
     session,

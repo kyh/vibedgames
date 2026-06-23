@@ -12,6 +12,16 @@ const CLI_CODE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const CLI_IDENTIFIER_PREFIX = "cli-auth:";
 
 export const authRouter = createTRPCRouter({
+  // Current authenticated identity. Works for both better-auth sessions and
+  // API keys (both resolve to `ctx.session` in the tRPC context), so the CLI
+  // can use it for `vg whoami` regardless of how it authenticated.
+  me: protectedProcedure.query(({ ctx }) => ({
+    id: ctx.session.user.id,
+    name: ctx.session.user.name,
+    email: ctx.session.user.email,
+    role: ctx.session.user.role ?? null,
+  })),
+
   // ---------------------------------------------------------------------------
   // CLI device-code flow
   // ---------------------------------------------------------------------------

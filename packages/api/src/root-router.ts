@@ -1,4 +1,5 @@
 import { adminRouter } from "./admin/admin-router";
+import { apiKeyRouter } from "./auth/api-key-router";
 import { authRouter } from "./auth/auth-router";
 import { deployRouter } from "./deploy/deploy-router";
 import { generateRouter } from "./generate/generate-router";
@@ -7,6 +8,7 @@ import { waitlistRouter } from "./waitlist/waitlist-router";
 
 export const appRouter = createTRPCRouter({
   auth: authRouter,
+  apiKeys: apiKeyRouter,
   waitlist: waitlistRouter,
   deploy: deployRouter,
   generate: generateRouter,

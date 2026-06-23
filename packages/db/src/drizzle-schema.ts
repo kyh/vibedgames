@@ -42,6 +42,50 @@ export const inviteCodeRelations = relations(inviteCode, ({ one }) => ({
   }),
 }));
 
+/**
+ * Long-lived API keys for programmatic access (CLI in CI, scripts).
+ *
+ * Unlike better-auth sessions (which expire and rotate), an API key is a
+ * stable credential a user can mint, paste into a CI secret, and revoke at
+ * will. We never store the raw key — only its SHA-256 hash (`keyHash`,
+ * unique + indexed for O(1) lookup) plus a short `keyPrefix` (e.g.
+ * `vg_a1b2c3d4`) for display so users can tell keys apart in the UI/CLI.
+ *
+ * A key authenticates over the SAME `Authorization: Bearer <key>` header the
+ * CLI already uses for session tokens — the tRPC context distinguishes keys
+ * by the `vg_` prefix and resolves them to the owning user. A key is valid
+ * when `revokedAt IS NULL` and (`expiresAt IS NULL` OR in the future). It
+ * inherits the owning user's access; there is no per-key scoping yet.
+ */
+export const apiKey = sqliteTable(
+  "api_key",
+  {
+    id: text("id").primaryKey().notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    keyHash: text("key_hash").notNull().unique(),
+    keyPrefix: text("key_prefix").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+      .notNull(),
+    lastUsedAt: integer("last_used_at", { mode: "timestamp_ms" }),
+    expiresAt: integer("expires_at", { mode: "timestamp_ms" }),
+    revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
+  },
+  (table) => ({
+    userIdx: index("api_key_user_idx").on(table.userId),
+  }),
+);
+
+export const apiKeyRelations = relations(apiKey, ({ one }) => ({
+  user: one(user, {
+    fields: [apiKey.userId],
+    references: [user.id],
+  }),
+}));
+
 export const waitlist = sqliteTable("waitlist", {
   id: text("id").primaryKey().notNull(),
   userId: text("user_id").references(() => user.id),

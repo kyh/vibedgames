@@ -1,7 +1,8 @@
 import { defineCommand } from "citty";
 import consola from "consola";
 
-import { getBaseUrl, getToken } from "../lib/config.js";
+import { createClient } from "../lib/api.js";
+import { getToken } from "../lib/config.js";
 
 export const whoamiCommand = defineCommand({
   meta: {
@@ -16,28 +17,16 @@ export const whoamiCommand = defineCommand({
       process.exit(1);
     }
 
-    const baseUrl = getBaseUrl();
+    // Goes through tRPC (not the raw better-auth endpoint) so it resolves
+    // both session tokens and `vg_…` API keys.
+    const client = createClient();
 
-    const res = await fetch(`${baseUrl}/api/auth/get-session`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-
-    if (!res.ok) {
-      consola.error("Failed to fetch session. Try `vg login` again.");
+    try {
+      const user = await client.auth.me.query();
+      consola.log(`${user.name} (${user.email})`);
+    } catch {
+      consola.warn("Not authenticated. Run `vg login`, or check your VG_TOKEN / API key.");
       process.exit(1);
     }
-
-    const data = (await res.json()) as {
-      user?: { name: string; email: string };
-    } | null;
-
-    if (!data?.user) {
-      consola.warn("Session expired. Run `vg login` to re-authenticate.");
-      process.exit(1);
-    }
-
-    consola.log(`${data.user.name} (${data.user.email})`);
   },
 });
