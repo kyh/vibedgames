@@ -7,7 +7,7 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { ZodError } from "zod";
 
-import { resolveApiKeySession } from "./auth/api-key";
+import { API_KEY_SESSION_PREFIX, resolveApiKeySession } from "./auth/api-key";
 
 /**
  * Minimal structural view of the R2 binding methods this package uses.
@@ -134,6 +134,21 @@ export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
       session: { ...ctx.session, user: ctx.session.user },
     },
   });
+});
+
+// Like `protectedProcedure`, but rejects callers authenticated with an API
+// key. Use for surfaces an automation/CI credential must not reach — e.g.
+// managing API keys themselves, so a leaked key can't mint or revoke siblings.
+// API-key sessions are synthesized with a namespaced `apikey:` token (see
+// `resolveApiKeySession`); real better-auth tokens never collide with it.
+export const sessionOnlyProcedure = protectedProcedure.use(({ ctx, next }) => {
+  if (ctx.session.session.token.startsWith(API_KEY_SESSION_PREFIX)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "API keys can't manage API keys. Use `vg login` or the web app.",
+    });
+  }
+  return next();
 });
 
 export const adminProcedure = protectedProcedure.use(({ ctx, next }) => {

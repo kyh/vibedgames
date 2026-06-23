@@ -18,6 +18,11 @@ import { user as userTable } from "@repo/db/drizzle-schema-auth";
 
 export const API_KEY_PREFIX = "vg_";
 
+// Namespaces the synthetic session token minted for API-key auth so it can
+// never collide with a real better-auth session token, and lets
+// `sessionOnlyProcedure` tell the two apart.
+export const API_KEY_SESSION_PREFIX = "apikey:";
+
 /**
  * Collect candidate raw API keys off a request, in priority order
  * (`x-api-key` first, then `Authorization: Bearer`). Returning *all*
@@ -67,6 +72,14 @@ export const resolveApiKeySession = async (
     const user = rows[0];
     if (!user) continue;
 
+    // Honor admin bans — the plugin's `verifyApiKey` only checks the key, so
+    // without this a banned user's key would still pass every protected
+    // procedure. Treat an elapsed `banExpires` as no longer banned (matches
+    // the admin plugin's auto-unban on session validation).
+    if (user.banned && (!user.banExpires || user.banExpires.getTime() > Date.now())) {
+      continue;
+    }
+
     // Synthesize the better-auth `Session` shape. Only `user` (and rarely
     // `session.token`) is read downstream; the token is namespaced so it can
     // never collide with a real session token.
@@ -74,8 +87,8 @@ export const resolveApiKeySession = async (
     return {
       user,
       session: {
-        id: `apikey:${record.id}`,
-        token: `apikey:${record.id}`,
+        id: `${API_KEY_SESSION_PREFIX}${record.id}`,
+        token: `${API_KEY_SESSION_PREFIX}${record.id}`,
         userId: user.id,
         expiresAt: record.expiresAt ?? new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000),
         createdAt: now,
