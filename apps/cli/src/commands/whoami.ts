@@ -24,8 +24,17 @@ export const whoamiCommand = defineCommand({
     try {
       const user = await client.auth.me.query();
       consola.log(`${user.name} (${user.email})`);
-    } catch {
-      consola.warn("Not authenticated. Run `vg login`, or check your VG_TOKEN / API key.");
+    } catch (err) {
+      // Only an auth error means "log in"; surface network/server failures as
+      // themselves so they aren't mistaken for a bad credential.
+      const code = (err as { data?: { code?: string } } | null)?.data?.code;
+      if (code === "UNAUTHORIZED" || code === "FORBIDDEN") {
+        consola.warn("Not authenticated. Run `vg login`, or check your VG_TOKEN / API key.");
+      } else {
+        consola.error(
+          `Failed to fetch current user: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
       process.exit(1);
     }
   },

@@ -118,6 +118,7 @@ export const apikey = sqliteTable(
   },
   (table) => ({
     referenceIdx: index("apikey_reference_id_idx").on(table.referenceId),
+    configIdx: index("apikey_config_id_idx").on(table.configId),
     keyIdx: index("apikey_key_idx").on(table.key),
   }),
 );

@@ -6,6 +6,16 @@ import { createTRPCRouter, sessionOnlyProcedure } from "../trpc";
 
 const DAY_SECONDS = 24 * 60 * 60;
 
+// Map better-auth APIError statuses (HTTP-status name strings) to tRPC error
+// codes. Anything not listed falls back to INTERNAL_SERVER_ERROR.
+const API_ERROR_TO_TRPC: Record<string, TRPCError["code"]> = {
+  NOT_FOUND: "NOT_FOUND",
+  UNAUTHORIZED: "UNAUTHORIZED",
+  FORBIDDEN: "FORBIDDEN",
+  BAD_REQUEST: "BAD_REQUEST",
+  TOO_MANY_REQUESTS: "TOO_MANY_REQUESTS",
+};
+
 // Thin tRPC wrappers over the @better-auth/api-key plugin's server API. They
 // use `sessionOnlyProcedure`, so managing keys requires a real session (web
 // cookie or a `vg login` token) — an API-key-authenticated caller is rejected,
@@ -66,12 +76,13 @@ export const apiKeyRouter = createTRPCRouter({
         await ctx.auth.api.deleteApiKey({ headers: ctx.headers, body: { keyId: input.id } });
         return { id: input.id };
       } catch (err) {
-        // Map a missing/foreign key to NOT_FOUND, but don't mask auth or
-        // transient failures behind it — surface them honestly.
+        // Translate the plugin's APIError to the matching tRPC code (a missing
+        // key is NOT_FOUND, a bad input BAD_REQUEST, etc.) instead of flattening
+        // everything — so callers see the real failure. Unknown statuses fall
+        // back to INTERNAL_SERVER_ERROR.
         if (err instanceof APIError) {
-          const status = String(err.status);
           throw new TRPCError({
-            code: status === "NOT_FOUND" ? "NOT_FOUND" : "INTERNAL_SERVER_ERROR",
+            code: API_ERROR_TO_TRPC[String(err.status)] ?? "INTERNAL_SERVER_ERROR",
             message: err.message || "Failed to revoke key",
           });
         }
