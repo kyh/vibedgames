@@ -8,7 +8,6 @@ import { deployCommand } from "./commands/deploy.js";
 import { forkCommand } from "./commands/fork.js";
 import { generateCommand } from "./commands/generate.js";
 import { initCommand } from "./commands/init.js";
-import { keysCommand } from "./commands/keys.js";
 import { loginCommand } from "./commands/login.js";
 import { logoutCommand } from "./commands/logout.js";
 import { newCommand } from "./commands/new.js";
@@ -32,7 +31,6 @@ const main = defineCommand({
     init: initCommand,
     login: loginCommand,
     logout: logoutCommand,
-    keys: keysCommand,
     deploy: deployCommand,
     fork: forkCommand,
     generate: generateCommand,
