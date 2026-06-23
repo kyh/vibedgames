@@ -126,19 +126,26 @@ const lit = (v: string | null) => (v === null ? "NULL" : `'${v.replace(/'/g, "''
 const main = () => {
   const args = parseArgs(process.argv.slice(2));
 
-  // Domain logic (code generation, in-batch dedup, custom-code normalization,
-  // column defaults) lives in the shared helper; the script only serializes the
-  // resulting rows to SQL since it can't reach a D1 binding offline. created_by
-  // is null — these codes aren't attributed to an admin session.
-  const rows = buildInviteRows({
-    code: args.code,
-    count: args.count,
-    maxUses: args.maxUses,
-    expiresAt:
-      args.expiresDays === null ? null : new Date(Date.now() + args.expiresDays * 86_400_000),
-    note: args.note,
-    createdBy: null,
-  });
+  // Domain logic (code generation, in-batch dedup, custom-code validation +
+  // normalization, column defaults) lives in the shared helper; the script only
+  // serializes the resulting rows to SQL since it can't reach a D1 binding
+  // offline. created_by is null — these codes aren't attributed to an admin
+  // session. The helper rejects unredeemable custom codes; surface that cleanly.
+  let rows: ReturnType<typeof buildInviteRows>;
+  try {
+    rows = buildInviteRows({
+      code: args.code,
+      count: args.count,
+      maxUses: args.maxUses,
+      expiresAt:
+        args.expiresDays === null ? null : new Date(Date.now() + args.expiresDays * 86_400_000),
+      note: args.note,
+      createdBy: null,
+    });
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
 
   // Columns omitted (created_at, used_count, revoked_at) fall back to schema defaults.
   const values = rows
