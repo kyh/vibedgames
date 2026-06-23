@@ -70,6 +70,7 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
     iteration: 0,
     phaseFailures: 0,
     existingProject,
+    contextDir: opts.contextDir ?? null,
     built: false,
     lastApproval: null,
     shipped: false,
@@ -116,6 +117,9 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
   // `built:false, shipped:true` can't make the ship guard and preemption spin.
   state.built = (state.built ?? false) || state.shipped;
   state.lastApproval = state.lastApproval ?? null;
+  // A new --context overrides; otherwise keep the persisted reference dir so it
+  // survives a resume that doesn't repeat --context.
+  state.contextDir = opts.contextDir ?? state.contextDir ?? null;
   // Record the operator's brief/reference so the specialists can read it.
   if (opts.context) writeFileSync(bb.context, `${opts.context.trim()}\n`);
   saveState(bb, state);
@@ -244,7 +248,7 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
       idleTimeoutMs: opts.idleTimeoutMs,
       maxSessionMs: opts.maxSessionMs,
       claudeBin: claudeBin(),
-      addDirs: opts.contextDir ? [repoRoot, opts.contextDir] : [repoRoot],
+      addDirs: state.contextDir ? [repoRoot, state.contextDir] : [repoRoot],
       skipPermissions: opts.skipPermissions,
       signal: abort.signal,
       label: role.name,
@@ -366,6 +370,7 @@ function recordShip(state: StudioState): void {
 }
 
 function banner(opts: StudioOptions, state: StudioState, repoRoot: string): void {
+  const bb = blackboard(opts.workspace);
   consola.box(
     [
       `🎮 vibedgames autonomous studio`,
@@ -375,8 +380,8 @@ function banner(opts: StudioOptions, state: StudioState, repoRoot: string): void
       `Model:     ${state.model}`,
       `Game dir:  ${opts.workspace}`,
       state.existingProject ? `Source:    building on existing files in the game dir` : null,
-      opts.context
-        ? `Context:   provided${opts.contextDir ? ` (+ reference dir: ${opts.contextDir})` : ""}`
+      existsSync(bb.context)
+        ? `Context:   provided${state.contextDir ? ` (+ reference dir: ${state.contextDir})` : ""}`
         : null,
       `Repo:      ${repoRoot}`,
       `Mode:      ${opts.skipPermissions ? "unattended (tools auto-approved)" : "guarded (will block on approvals!)"}`,

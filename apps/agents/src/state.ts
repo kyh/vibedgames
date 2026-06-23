@@ -37,6 +37,8 @@ export type StudioState = {
   phaseFailures: number;
   /** True when the studio is building ON an existing project in the game dir. */
   existingProject: boolean;
+  /** Absolute path of a --context reference directory, persisted across resumes. */
+  contextDir: string | null;
   /** True once the first playable build exists — gates deploy preemption. */
   built: boolean;
   /**
