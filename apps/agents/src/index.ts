@@ -12,15 +12,15 @@ import {
   DEFAULT_SESSION_MINUTES,
   defaultWorkspace,
   findRepoRoot,
-} from "./config.js";
-import { runStudio } from "./orchestrator.js";
+} from "./config.ts";
+import { runStudio } from "./orchestrator.ts";
 import {
   approvalPending,
   blackboard,
   hasExistingProject,
   loadState,
   requestApproval,
-} from "./state.js";
+} from "./state.ts";
 
 /** Cap how much of a context file we inline into the brief. */
 const MAX_CONTEXT_BYTES = 20_000;

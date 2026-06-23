@@ -3,11 +3,7 @@
   "compilerOptions": {
     "lib": ["ES2023"],
     "types": ["node"],
-    "noEmit": false,
-    "declaration": false,
-    "outDir": "dist",
-    "rootDir": "src",
-    "tsBuildInfoFile": "./dist/.tsbuildinfo"
+    "allowImportingTsExtensions": true
   },
   "include": ["src"]
 }

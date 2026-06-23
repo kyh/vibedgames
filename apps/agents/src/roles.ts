@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 
-import type { Blackboard, Phase, StudioState } from "./state.js";
+import type { Blackboard, Phase, StudioState } from "./state.ts";
 
 export type RoleName = "director" | "designer" | "engineer" | "artist" | "qa" | "shipper";
 

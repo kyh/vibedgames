@@ -2,9 +2,9 @@ import { existsSync, writeFileSync } from "node:fs";
 
 import consola from "consola";
 
-import { claudeBin, findRepoRoot } from "./config.js";
-import { runClaude } from "./claude.js";
-import { buildTask, roleForPhase, ROLES } from "./roles.js";
+import { claudeBin, findRepoRoot } from "./config.ts";
+import { runClaude } from "./claude.ts";
+import { buildTask, roleForPhase, ROLES } from "./roles.ts";
 import {
   acquireLock,
   appendJournal,
@@ -20,7 +20,7 @@ import {
   stopRequested,
   type Phase,
   type StudioState,
-} from "./state.js";
+} from "./state.ts";
 
 export type StudioOptions = {
   slug: string;

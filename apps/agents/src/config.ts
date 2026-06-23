@@ -16,7 +16,7 @@ export function findRepoRoot(start: string = process.cwd()): string {
     if (parent === dir) break;
     dir = parent;
   }
-  // Fallback: this file compiles to apps/agents/dist/config.js → ../../.. is repo root.
+  // Fallback: this file lives at apps/agents/src/config.ts → ../../.. is repo root.
   return resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 }
 

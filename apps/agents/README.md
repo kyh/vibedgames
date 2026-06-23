@@ -113,25 +113,25 @@ The game itself is scaffolded directly into the game directory (default
 3. Anything `vg generate` / `vg deploy` need (a logged-in `vg`, env from
    `.env`). The agents call `vg login`-gated commands.
 
-## Install & run
+## Run
 
-Build once, then drive it with the package's pnpm scripts. From `apps/agents/`:
+There's no build step — the scripts run the TypeScript sources directly with
+Node's built-in type stripping (Node ≥ 22.18). From `apps/agents/`:
 
 ```bash
-pnpm build
 pnpm start <slug> --idea "<one-line idea>"
 ```
 
 From the repo root, target the package with `-F`:
 
 ```bash
-pnpm -F @repo/agents build
 pnpm -F @repo/agents start <slug> --idea "<one-line idea>"
 ```
 
-The `start`, `stop`, `status`, and `approve` scripts map to the orchestrator's
-subcommands; everything after the script name (the slug and any flags) is passed
-straight through.
+The `start`, `stop`, `status`, and `approve` scripts each run `node
+src/index.ts <cmd>`; everything after the script name (the slug and any flags)
+is passed straight through. `pnpm typecheck` runs `tsc --noEmit` (the only
+TypeScript step — nothing is emitted).
 
 ### `start` options
 
