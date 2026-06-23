@@ -23,7 +23,8 @@ const main = defineCommand({
   meta: {
     name: "vg",
     version: pkg.version,
-    description: "vibedgames CLI",
+    description:
+      "vibedgames CLI — agent-native game deploy & asset tooling (use --json for machine-readable output)",
   },
   subCommands: {
     new: newCommand,
