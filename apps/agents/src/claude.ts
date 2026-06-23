@@ -3,6 +3,15 @@ import { createInterface } from "node:readline";
 
 import consola from "consola";
 
+/**
+ * After the stream-json `result` event arrives we already have the outcome.
+ * Normally the CLI exits right after, but stream-json has a known failure mode
+ * where it keeps the process alive — so if `close` doesn't fire within this
+ * grace window we kill the child and resolve with the result we have, rather
+ * than blocking the loop (and holding the workspace lock) forever.
+ */
+const RESULT_EXIT_GRACE_MS = 10_000;
+
 export type RunOptions = {
   /** The task prompt (the "user" turn). */
   prompt: string;
@@ -56,7 +65,39 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
   for (const dir of opts.addDirs ?? []) args.push("--add-dir", dir);
 
   return new Promise((resolvePromise) => {
-    let child: ReturnType<typeof spawn>;
+    let child: ReturnType<typeof spawn> | undefined;
+    let rl: ReturnType<typeof createInterface> | undefined;
+    let final: RunResult = { ok: false, result: "" };
+    let gotResult = false;
+    let stderr = "";
+    let settled = false;
+    let graceTimer: ReturnType<typeof setTimeout> | undefined;
+
+    // Resolve exactly once and release every handle we hold. Tearing down the
+    // pipes/child matters because a killed child's orphaned grandchild can keep
+    // the stdout pipe (and thus the event loop) alive after we already have our
+    // answer — without this, the loop could never exit cleanly.
+    const settle = (res: RunResult): void => {
+      if (settled) return;
+      settled = true;
+      if (graceTimer) clearTimeout(graceTimer);
+      try {
+        rl?.close();
+      } catch {
+        /* ignore */
+      }
+      try {
+        child?.stdout?.destroy();
+        child?.stderr?.destroy();
+        child?.unref();
+      } catch {
+        /* ignore */
+      }
+      // `settled` guarantees this runs once; oxlint can't see the guard.
+      // oxlint-disable-next-line promise/no-multiple-resolved
+      resolvePromise(res);
+    };
+
     try {
       child = spawn(opts.claudeBin, args, {
         cwd: opts.cwd,
@@ -65,7 +106,7 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
         signal: opts.signal,
       });
     } catch (err) {
-      resolvePromise({
+      settle({
         ok: false,
         result: "",
         error: `failed to spawn ${opts.claudeBin}: ${err instanceof Error ? err.message : String(err)}`,
@@ -73,11 +114,7 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
       return;
     }
 
-    let final: RunResult = { ok: false, result: "" };
-    let gotResult = false;
-    let stderr = "";
-
-    const rl = createInterface({ input: child.stdout! });
+    rl = createInterface({ input: child.stdout! });
     rl.on("line", (line) => {
       const trimmed = line.trim();
       if (!trimmed) return;
@@ -98,6 +135,18 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
           numTurns: evt.num_turns,
           error: evt.is_error ? (evt.result ?? "agent reported an error") : undefined,
         };
+        // Prefer a clean exit (the `close` handler), but don't wait forever.
+        if (!graceTimer) {
+          graceTimer = setTimeout(() => {
+            try {
+              child?.kill("SIGKILL");
+            } catch {
+              /* already gone */
+            }
+            settle(final);
+          }, RESULT_EXIT_GRACE_MS);
+          graceTimer.unref?.();
+        }
       }
     });
 
@@ -106,7 +155,7 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
     });
 
     child.on("error", (err: Error) => {
-      resolvePromise({ ok: false, result: "", error: `${opts.claudeBin}: ${err.message}` });
+      settle({ ok: false, result: "", error: `${opts.claudeBin}: ${err.message}` });
     });
 
     child.on("close", (code) => {
@@ -114,10 +163,10 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
       // bare exit 0 with no result means we have no confirmed outcome, so we
       // treat it as a failure rather than silently advancing the phase.
       if (gotResult) {
-        resolvePromise(final);
+        settle(final);
         return;
       }
-      resolvePromise({
+      settle({
         ok: false,
         result: "",
         error: stderr.trim() || `claude exited with code ${code} without a result event`,
