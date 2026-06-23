@@ -6,12 +6,12 @@
  * the admin `createInvites` tRPC mutation, but runnable from the shell without
  * an admin session — handy for seeding codes locally or in production.
  *
- *   pnpm invite:create                          # one random single-use code
- *   pnpm invite:create -- --code FRIEND          # a specific custom code
- *   pnpm invite:create -- --count 10             # ten random codes
- *   pnpm invite:create -- --max-uses 5 --note 'launch'
- *   pnpm invite:create -- --expires-days 30
- *   pnpm invite:create -- --code GOLDEN --max-uses 100 --remote
+ *   pnpm -F @repo/api invite:create                       # one random single-use code
+ *   pnpm -F @repo/api invite:create -- --code FRIEND       # a specific custom code
+ *   pnpm -F @repo/api invite:create -- --count 10          # ten random codes
+ *   pnpm -F @repo/api invite:create -- --max-uses 5 --note 'launch'
+ *   pnpm -F @repo/api invite:create -- --expires-days 30
+ *   pnpm -F @repo/api invite:create -- --code GOLDEN --max-uses 100 --remote
  *
  * Pass --remote to target production D1 (default is local).
  *
@@ -25,8 +25,10 @@
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import { generateShortCode } from "../src/auth/utils";
 
 type Args = {
   code: string | null;
@@ -37,22 +39,9 @@ type Args = {
   remote: boolean;
 };
 
-// Avoids `0/O/1/I` so codes stay readable when copied by hand or read aloud.
-// Kept in sync with `generateShortCode` in packages/api/src/auth/utils.ts.
-const UNAMBIGUOUS_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-
-const generateShortCode = () => {
-  const bytes = crypto.getRandomValues(new Uint8Array(6));
-  let code = "";
-  for (const b of bytes) {
-    code += UNAMBIGUOUS_ALPHABET[b % UNAMBIGUOUS_ALPHABET.length];
-  }
-  return code;
-};
-
 const usage =
-  "Usage: pnpm invite:create -- [--code <CODE>] [--count <n>] [--max-uses <n|unlimited>]\n" +
-  "                              [--expires-days <n>] [--note <text>] [--remote]\n" +
+  "Usage: pnpm -F @repo/api invite:create -- [--code <CODE>] [--count <n>]\n" +
+  "         [--max-uses <n|unlimited>] [--expires-days <n>] [--note <text>] [--remote]\n" +
   "\n" +
   "  --code <CODE>          Mint one code with this exact value (default: random).\n" +
   "  --count <n>            How many random codes to mint (default: 1).\n" +
@@ -132,14 +121,23 @@ const parseArgs = (argv: string[]): Args => {
 // SQLite/D1 string literal — single quotes doubled.
 const lit = (s: string) => `'${s.replace(/'/g, "''")}'`;
 
+// `n` distinct random codes — regenerates on the vanishingly rare in-batch repeat.
+const uniqueCodes = (n: number): Set<string> => {
+  const set = new Set<string>();
+  while (set.size < n) set.add(generateShortCode());
+  return set;
+};
+
 const main = () => {
   const args = parseArgs(process.argv.slice(2));
   const now = Date.now();
   const expiresAt = args.expiresDays === null ? null : now + args.expiresDays * 86_400_000;
 
-  const codes = args.code
-    ? [args.code]
-    : Array.from({ length: args.count }, () => generateShortCode());
+  // A custom code is used verbatim; random codes are deduped within the batch
+  // (the `code` column is UNIQUE, so an intra-batch repeat would fail the whole
+  // INSERT). Collisions are astronomically unlikely with a 32^6 space, but the
+  // Set makes intra-batch repeats impossible regardless.
+  const codes = args.code ? [args.code] : Array.from(uniqueCodes(args.count));
 
   // Columns left to their schema defaults: used_count (0), revoked_at (NULL).
   // created_by is NULL — these codes aren't attributed to an admin session.
@@ -159,7 +157,8 @@ const main = () => {
   const sqlFile = join(tmpDir, "create-invite.sql");
   writeFileSync(sqlFile, sql);
 
-  const repoRoot = join(fileURLToPath(import.meta.url), "..", "..");
+  // packages/api/scripts → repo root → apps/web (where wrangler is configured).
+  const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
   const cwd = join(repoRoot, "apps", "web");
   const wranglerArgs = [
     "wrangler",
