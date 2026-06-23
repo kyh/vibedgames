@@ -181,8 +181,13 @@ const startCommand = defineCommand({
     // A new game needs *something* to go on: a seed idea, an operator brief, or
     // an existing project in the game dir to build upon.
     if (fresh && !args.idea.trim() && !context && !hasExistingProject(workspace)) {
+      // Distinguish "no --context given" from "--context given but empty", so an
+      // operator who pointed at an empty file isn't told to "add --context".
+      const contextAttempted = Boolean((args.context ?? "").trim());
       consola.error(
-        'Nothing to build from. Pass --idea "your one-line idea", add --context, or point --dir at an existing project.',
+        contextAttempted
+          ? "The --context you provided is empty (blank text or an empty file). Provide non-empty context, pass --idea, or point --dir at an existing project."
+          : 'Nothing to build from. Pass --idea "your one-line idea", add --context, or point --dir at an existing project.',
       );
       process.exit(1);
     }

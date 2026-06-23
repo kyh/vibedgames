@@ -110,9 +110,12 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
   state.idea = opts.idea || state.idea;
   state.model = opts.model;
   state.phaseFailures = state.phaseFailures ?? 0; // backfill pre-field workspaces
-  // Reconcile against the dir each start (monotonic) so files added between
-  // runs are adopted, not overwritten by a fresh scaffold.
-  state.existingProject = (state.existingProject ?? false) || hasExistingProject(opts.workspace);
+  // Keep the adopt flag reflecting whether a project is actually present to
+  // build upon: it starts true only when the workspace was created on existing
+  // files, and clears if those files later go away — so a wiped workspace stops
+  // claiming adoption. A fresh game never flips to "adopt" just because
+  // scaffolding created files (false stays false).
+  state.existingProject = (state.existingProject ?? false) && hasExistingProject(opts.workspace);
   // shipped implies built — force the invariant so an inconsistent persisted
   // `built:false, shipped:true` can't make the ship guard and preemption spin.
   state.built = (state.built ?? false) || state.shipped;
