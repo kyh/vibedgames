@@ -5,6 +5,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
 import { adminProcedure, createTRPCRouter, protectedProcedure, publicProcedure } from "../trpc";
+import { buildInviteRows, MAX_INVITE_BATCH } from "./invite-create";
 import { inviteCodeAvailabilityClause, normalizeInviteCode } from "./invite-claim";
 import { generateShortCode } from "./utils";
 
@@ -139,21 +140,20 @@ export const authRouter = createTRPCRouter({
   createInvites: adminProcedure
     .input(
       z.object({
-        count: z.number().int().min(1).max(100).default(1),
+        count: z.number().int().min(1).max(MAX_INVITE_BATCH).default(1),
         maxUses: z.number().int().min(1).nullable().default(1),
         expiresAt: z.date().nullable().default(null),
         note: z.string().max(200).nullable().default(null),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const rows = Array.from({ length: input.count }, () => ({
-        id: crypto.randomUUID(),
-        code: generateShortCode(),
-        createdBy: ctx.session.user.id,
+      const rows = buildInviteRows({
+        count: input.count,
         maxUses: input.maxUses,
         expiresAt: input.expiresAt,
         note: input.note,
-      }));
+        createdBy: ctx.session.user.id,
+      });
 
       const created = await ctx.db.insert(inviteCode).values(rows).returning();
       return { codes: created };

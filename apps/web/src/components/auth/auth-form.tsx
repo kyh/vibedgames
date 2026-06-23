@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearch } from "@tanstack/react-router";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { INVITE_CODE_LENGTH } from "@repo/api/auth/utils";
 import { Button } from "@repo/ui/components/button";
 import { Field, FieldContent, FieldError, FieldGroup, FieldLabel } from "@repo/ui/components/field";
 import { Input } from "@repo/ui/components/input";
@@ -15,7 +16,6 @@ import { z } from "zod";
 import { authClient } from "@/auth/client";
 import { useTRPC } from "@/lib/trpc";
 
-const INVITE_CODE_LENGTH = 6;
 const OTP_SLOT_KEYS = Array.from({ length: INVITE_CODE_LENGTH }, (_, i) => `otp-slot-${i}`);
 
 type StepFormProps = { callbackUrl?: string } & React.HTMLAttributes<HTMLDivElement>;
