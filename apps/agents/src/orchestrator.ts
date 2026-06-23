@@ -105,6 +105,16 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
   process.on("SIGINT", onSignal);
   process.on("SIGTERM", onSignal);
 
+  // A sleep that wakes early if a stop is requested (Ctrl-C or STOP sentinel),
+  // so backoff/interval waits never delay shutdown.
+  const sleepUnlessStopping = async (ms: number): Promise<void> => {
+    const step = 250;
+    for (let waited = 0; waited < ms; waited += step) {
+      if (stopping || stopRequested(bb)) return;
+      await sleep(Math.min(step, ms - waited));
+    }
+  };
+
   let failures = 0;
 
   // `stopping` is flipped by the SIGINT/SIGTERM handler above (and we also
@@ -177,7 +187,7 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
         consola.info(
           `Retrying "${phase}" in ${backoff}s (attempt ${failures + 1}/${MAX_RETRIES}).`,
         );
-        await sleep(backoff * 1000);
+        await sleepUnlessStopping(backoff * 1000);
       }
       continue;
     }
@@ -194,7 +204,7 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
     advance(state);
     saveState(bb, state);
 
-    if (opts.interval > 0 && !stopping) await sleep(opts.interval);
+    if (opts.interval > 0 && !stopping) await sleepUnlessStopping(opts.interval);
   }
 
   saveState(bb, state);
