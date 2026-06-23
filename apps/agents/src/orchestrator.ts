@@ -300,10 +300,12 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
     );
     consola.success(`${role.name} done${costNote(res.costUsd)} · ${res.numTurns ?? "?"} turns`);
 
-    // A deployable build exists once the scaffold confirms the project builds
-    // (or a gameplay build lands). This gates ship and approval preemption and,
-    // set at scaffold, can't deadlock if a later build phase keeps failing.
-    if (phase === "scaffold" || phase === "build") state.built = true;
+    // A deployable build exists once a phase that builds the game succeeds:
+    // scaffold (confirms the template/adopted project builds), build, or
+    // playtest (QA builds to run it). Including playtest — which recurs in the
+    // forever loop — means a game made buildable by later work can still ship;
+    // built never gets permanently stuck false after a skipped bootstrap build.
+    if (phase === "scaffold" || phase === "build" || phase === "playtest") state.built = true;
 
     // Only a real, successful ship marks the game deployed; the one-shot
     // approval is recorded as consumed in state (authoritative even if the
