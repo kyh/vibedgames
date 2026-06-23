@@ -41,67 +41,83 @@ export const hashApiKey = async (token: string): Promise<string> => {
 /** Short, non-secret slice of a key for display (`vg_a1b2c3d4`). */
 export const apiKeyDisplayPrefix = (token: string): string => token.slice(0, DISPLAY_PREFIX_LENGTH);
 
-/** Pull a raw API key off a request, if present. Prefers `x-api-key`. */
-const extractApiKey = (headers: Headers): string | null => {
+/**
+ * Collect candidate raw API keys off a request, in priority order
+ * (`x-api-key` first, then `Authorization: Bearer`). Returning *all*
+ * candidates — rather than the first header that carries a `vg_…` value —
+ * means a junk or proxy-injected `x-api-key` can't shadow an otherwise valid
+ * Bearer key: `resolveApiKeySession` falls through to the next candidate.
+ */
+const extractApiKeys = (headers: Headers): string[] => {
+  const candidates: string[] = [];
+
   const direct = headers.get("x-api-key");
-  if (direct?.startsWith(API_KEY_PREFIX)) return direct;
+  if (direct?.startsWith(API_KEY_PREFIX)) candidates.push(direct);
 
   const auth = headers.get("authorization");
   if (auth?.startsWith("Bearer ")) {
     const token = auth.slice("Bearer ".length).trim();
-    if (token.startsWith(API_KEY_PREFIX)) return token;
+    if (token.startsWith(API_KEY_PREFIX)) candidates.push(token);
   }
-  return null;
+
+  // De-dup so the same key in both headers isn't looked up twice.
+  return [...new Set(candidates)];
 };
 
 /**
  * Resolve a request's API key (if any) to a better-auth-shaped session so the
  * existing `protectedProcedure`/`adminProcedure` checks work unchanged. Returns
- * `null` when there's no key, or the key is unknown/revoked/expired.
+ * `null` when there's no key, or no candidate is valid (unknown/revoked/expired).
  *
- * Best-effort touches `lastUsedAt` so users can spot stale keys. This is the
- * only write on the hot auth path; it's a single indexed UPDATE.
+ * Tries each candidate header in turn; the common single-header case is one
+ * lookup. Best-effort touches `lastUsedAt` so users can spot stale keys — the
+ * only write on the hot auth path, a single indexed UPDATE.
  */
 export const resolveApiKeySession = async (db: Db, headers: Headers): Promise<Session | null> => {
-  const raw = extractApiKey(headers);
-  if (!raw) return null;
+  const candidates = extractApiKeys(headers);
+  if (candidates.length === 0) return null;
 
-  const keyHash = await hashApiKey(raw);
   const now = new Date();
 
-  const rows = await db
-    .select({
-      keyId: apiKey.id,
-      expiresAt: apiKey.expiresAt,
-      revokedAt: apiKey.revokedAt,
-      user: userTable,
-    })
-    .from(apiKey)
-    .innerJoin(userTable, eq(apiKey.userId, userTable.id))
-    .where(eq(apiKey.keyHash, keyHash))
-    .limit(1);
+  for (const raw of candidates) {
+    const keyHash = await hashApiKey(raw);
 
-  const row = rows[0];
-  if (!row) return null;
-  if (row.revokedAt) return null;
-  if (row.expiresAt && row.expiresAt.getTime() < now.getTime()) return null;
+    const rows = await db
+      .select({
+        keyId: apiKey.id,
+        expiresAt: apiKey.expiresAt,
+        revokedAt: apiKey.revokedAt,
+        user: userTable,
+      })
+      .from(apiKey)
+      .innerJoin(userTable, eq(apiKey.userId, userTable.id))
+      .where(eq(apiKey.keyHash, keyHash))
+      .limit(1);
 
-  await db.update(apiKey).set({ lastUsedAt: now }).where(eq(apiKey.id, row.keyId));
+    const row = rows[0];
+    if (!row) continue;
+    if (row.revokedAt) continue;
+    if (row.expiresAt && row.expiresAt.getTime() < now.getTime()) continue;
 
-  // Synthesize the better-auth `Session` shape. Only `user` (and rarely
-  // `session.token`) is read downstream; the token is namespaced so it can
-  // never collide with a real session token.
-  return {
-    user: row.user,
-    session: {
-      id: `apikey:${row.keyId}`,
-      token: `apikey:${row.keyId}`,
-      userId: row.user.id,
-      expiresAt: row.expiresAt ?? new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000),
-      createdAt: now,
-      updatedAt: now,
-      ipAddress: null,
-      userAgent: null,
-    },
-  } as unknown as Session;
+    await db.update(apiKey).set({ lastUsedAt: now }).where(eq(apiKey.id, row.keyId));
+
+    // Synthesize the better-auth `Session` shape. Only `user` (and rarely
+    // `session.token`) is read downstream; the token is namespaced so it can
+    // never collide with a real session token.
+    return {
+      user: row.user,
+      session: {
+        id: `apikey:${row.keyId}`,
+        token: `apikey:${row.keyId}`,
+        userId: row.user.id,
+        expiresAt: row.expiresAt ?? new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000),
+        createdAt: now,
+        updatedAt: now,
+        ipAddress: null,
+        userAgent: null,
+      },
+    } as unknown as Session;
+  }
+
+  return null;
 };
