@@ -11,6 +11,7 @@
     "db:seed-local": "pnpm -C apps/web exec wrangler d1 execute vibedgames --local --file=../../packages/db/seed.sql",
     "db:local": "pnpm db:push-local && pnpm db:seed-local",
     "admin:create": "tsx scripts/create-admin.ts",
+    "invite:create": "tsx scripts/create-invite.ts",
     "dogfood": "tsx scripts/dogfood.ts",
     "dogfood:reset": "tsx scripts/dogfood-reset.ts",
     "dev": "turbo watch db studio dev --continue --filter=!./games/*",
