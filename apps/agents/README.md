@@ -86,6 +86,7 @@ node apps/agents/dist/index.js start <slug> --idea "<one-line idea>"
 | `--max-cycles`  | `0` (forever)                    | Stop after N specialist runs.                                       |
 | `--max-turns`   | `40`                             | Per-specialist agentic turn ceiling.                                |
 | `--idle-timeout`| `45`                             | Kill a specialist that emits no output for this many minutes (0 disables). |
+| `--session-timeout`| `120`                         | Absolute cap on a single specialist session, in minutes (0 disables). |
 | `--interval`    | `0`                              | ms to pause between specialist runs.                                |
 | `--skip-ship`     | off                              | Skip deploys — no production R2 writes (use while testing).         |
 | `--workspace`   | `apps/agents/.workspaces/<slug>` | Override the game workspace dir.                                     |

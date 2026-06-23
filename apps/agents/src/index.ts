@@ -9,6 +9,7 @@ import {
   DEFAULT_IDLE_MINUTES,
   DEFAULT_MAX_TURNS,
   DEFAULT_MODEL,
+  DEFAULT_SESSION_MINUTES,
   defaultWorkspace,
   findRepoRoot,
 } from "./config.js";
@@ -72,6 +73,10 @@ const startCommand = defineCommand({
       type: "string",
       description: `Kill a specialist that emits no output for this many minutes (default ${DEFAULT_IDLE_MINUTES}; 0 disables).`,
     },
+    "session-timeout": {
+      type: "string",
+      description: `Absolute cap on a single specialist session in minutes (default ${DEFAULT_SESSION_MINUTES}; 0 disables).`,
+    },
     "max-cycles": {
       type: "string",
       description: "Stop after N specialist runs (default 0 = run forever).",
@@ -114,6 +119,7 @@ const startCommand = defineCommand({
       model: args.model,
       maxTurns: toInt(args["max-turns"], DEFAULT_MAX_TURNS),
       idleTimeoutMs: toInt(args["idle-timeout"], DEFAULT_IDLE_MINUTES) * 60_000,
+      maxSessionMs: toInt(args["session-timeout"], DEFAULT_SESSION_MINUTES) * 60_000,
       maxCycles: toInt(args["max-cycles"], 0),
       interval: toInt(args.interval, 0),
       noShip: Boolean(args["skip-ship"]),

@@ -45,3 +45,10 @@ export const DEFAULT_MAX_TURNS = 40;
  * min — so it only ever catches a genuinely wedged session.
  */
 export const DEFAULT_IDLE_MINUTES = 45;
+
+/**
+ * Default absolute ceiling on a single specialist session. A backstop for a
+ * session that streams forever without finishing; generous enough not to cut
+ * off legitimate long art/build work.
+ */
+export const DEFAULT_SESSION_MINUTES = 120;

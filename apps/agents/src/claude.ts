@@ -18,6 +18,10 @@ import consola from "consola";
  */
 const RESULT_EXIT_GRACE_MS = 10_000;
 
+/** Human-friendly duration for watchdog messages ("45m", "3s"). */
+const fmtMs = (ms: number): string =>
+  ms >= 60_000 ? `${Math.round(ms / 60_000)}m` : `${Math.round(ms / 1000)}s`;
+
 export type RunOptions = {
   /** The task prompt (the "user" turn). */
   prompt: string;
@@ -42,6 +46,13 @@ export type RunOptions = {
    * Reset on every event, so it never fires during active work. 0 disables it.
    */
   idleTimeoutMs: number;
+  /**
+   * Absolute ceiling on a single session, regardless of activity (ms; 0
+   * disables). Catches a session that keeps streaming events but never emits a
+   * terminal `result` — which the idle watchdog can't, since output keeps
+   * resetting it.
+   */
+  maxSessionMs: number;
 };
 
 export type RunResult = {
@@ -85,6 +96,7 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
     let settled = false;
     let graceTimer: ReturnType<typeof setTimeout> | undefined;
     let idleTimer: ReturnType<typeof setTimeout> | undefined;
+    let sessionTimer: ReturnType<typeof setTimeout> | undefined;
 
     // Watchdog: if the session produces no output at all for idleTimeoutMs, the
     // process is wedged (or a tool is stuck) — kill it and fail so the phase
@@ -99,14 +111,10 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
         } catch {
           /* already gone */
         }
-        const idle =
-          opts.idleTimeoutMs >= 60_000
-            ? `${Math.round(opts.idleTimeoutMs / 60_000)}m`
-            : `${Math.round(opts.idleTimeoutMs / 1000)}s`;
         settle({
           ok: false,
           result: "",
-          error: `no output for ${idle} — treating claude as hung`,
+          error: `no output for ${fmtMs(opts.idleTimeoutMs)} — treating claude as hung`,
         });
       }, opts.idleTimeoutMs);
       idleTimer.unref?.();
@@ -121,6 +129,7 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
       settled = true;
       if (graceTimer) clearTimeout(graceTimer);
       if (idleTimer) clearTimeout(idleTimer);
+      if (sessionTimer) clearTimeout(sessionTimer);
       try {
         rl?.close();
       } catch {
@@ -152,7 +161,25 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
       return;
     }
 
-    pokeIdle(); // arm the watchdog before the first byte arrives
+    pokeIdle(); // arm the inactivity watchdog before the first byte arrives
+
+    // Absolute ceiling: fires even while the session is actively streaming, so a
+    // run that never emits a terminal `result` can't hang the loop forever.
+    if (opts.maxSessionMs > 0) {
+      sessionTimer = setTimeout(() => {
+        try {
+          child?.kill("SIGKILL");
+        } catch {
+          /* already gone */
+        }
+        settle({
+          ok: false,
+          result: "",
+          error: `exceeded the ${fmtMs(opts.maxSessionMs)} session limit — killed`,
+        });
+      }, opts.maxSessionMs);
+      sessionTimer.unref?.();
+    }
 
     rl = createInterface({ input: child.stdout! });
     rl.on("line", (line) => {
@@ -168,7 +195,10 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
       printEvent(opts.label, evt);
       if (evt.type === "result") {
         gotResult = true;
-        if (idleTimer) clearTimeout(idleTimer); // grace timer governs from here
+        // The grace timer governs from here; stand down the watchdogs so a late
+        // idle/session deadline can't clobber a result we already have.
+        if (idleTimer) clearTimeout(idleTimer);
+        if (sessionTimer) clearTimeout(sessionTimer);
         final = {
           ok: evt.subtype === "success" && !evt.is_error,
           result: typeof evt.result === "string" ? evt.result : "",
