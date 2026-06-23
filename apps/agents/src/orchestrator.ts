@@ -117,11 +117,15 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
   // `built:false, shipped:true` can't make the ship guard and preemption spin.
   state.built = (state.built ?? false) || state.shipped;
   state.lastApproval = state.lastApproval ?? null;
-  // A new --context overrides; otherwise keep the persisted reference dir so it
-  // survives a resume that doesn't repeat --context.
-  state.contextDir = opts.contextDir ?? state.contextDir ?? null;
-  // Record the operator's brief/reference so the specialists can read it.
-  if (opts.context) writeFileSync(bb.context, `${opts.context.trim()}\n`);
+  // A new --context this run fully replaces the prior brief AND reference dir
+  // (so switching to a file/text brief clears a stale reference folder);
+  // otherwise keep what's persisted so a plain resume retains them.
+  if (opts.context !== undefined) {
+    writeFileSync(bb.context, `${opts.context.trim()}\n`);
+    state.contextDir = opts.contextDir ?? null;
+  } else {
+    state.contextDir = state.contextDir ?? null;
+  }
   saveState(bb, state);
 
   banner(opts, state, repoRoot);
