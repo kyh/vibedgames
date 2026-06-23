@@ -1,17 +1,16 @@
 import type { inviteCode } from "@repo/db/drizzle-schema";
 
 import { normalizeInviteCode } from "./invite-claim";
-import { generateShortCode } from "./utils";
+import { generateShortCode, INVITE_CODE_LENGTH } from "./utils";
 
 export type NewInviteCode = typeof inviteCode.$inferInsert;
 
-/**
- * Codes must be exactly this many alphanumeric characters: signup enters them
- * through a fixed-length OTP field (`INVITE_CODE_LENGTH` in the web auth form)
- * that only accepts alphanumerics, and `?invite=` links auto-submit only at
- * that length. A custom code outside this shape would be unredeemable.
- */
-export const INVITE_CODE_LENGTH = 6;
+/** Most codes mintable in a single batch — guards against pathological inputs. */
+export const MAX_INVITE_BATCH = 100;
+
+// Custom codes must match what signup can redeem: exactly INVITE_CODE_LENGTH
+// alphanumeric chars (the web auth form's fixed-length OTP field), else the
+// code would be unredeemable through the registration UI or a `?invite=` link.
 const CUSTOM_CODE_RE = new RegExp(`^[A-Z0-9]{${INVITE_CODE_LENGTH}}$`);
 
 export type BuildInviteRowsOptions = {
@@ -43,6 +42,15 @@ const normalizeCustomCode = (raw: string): string => {
   return code;
 };
 
+/** Validate the requested batch size, defaulting to 1. Throws on bad input. */
+const resolveCount = (count: number | undefined): number => {
+  const n = count ?? 1;
+  if (!Number.isInteger(n) || n < 1 || n > MAX_INVITE_BATCH) {
+    throw new Error(`count must be an integer between 1 and ${MAX_INVITE_BATCH}; got ${n}.`);
+  }
+  return n;
+};
+
 /** `n` distinct random codes — regenerates on the vanishingly rare in-batch repeat. */
 const uniqueCodes = (n: number): string[] => {
   const set = new Set<string>();
@@ -59,7 +67,9 @@ const uniqueCodes = (n: number): string[] => {
  * `revokedAt`) fall back to their schema defaults.
  */
 export const buildInviteRows = (opts: BuildInviteRowsOptions = {}): NewInviteCode[] => {
-  const codes = opts.code ? [normalizeCustomCode(opts.code)] : uniqueCodes(opts.count ?? 1);
+  const codes = opts.code
+    ? [normalizeCustomCode(opts.code)]
+    : uniqueCodes(resolveCount(opts.count));
   return codes.map((code) => ({
     id: crypto.randomUUID(),
     code,

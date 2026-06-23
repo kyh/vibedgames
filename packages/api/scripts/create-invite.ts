@@ -30,7 +30,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { buildInviteRows } from "../src/auth/invite-create";
+import { buildInviteRows, MAX_INVITE_BATCH } from "../src/auth/invite-create";
 
 type Args = {
   code: string | null;
@@ -94,8 +94,8 @@ const parseArgs = (argv: string[]): Args => {
     }
   }
 
-  if (!Number.isInteger(out.count) || out.count < 1 || out.count > 100) {
-    console.error("--count must be an integer between 1 and 100.");
+  if (!Number.isInteger(out.count) || out.count < 1 || out.count > MAX_INVITE_BATCH) {
+    console.error(`--count must be an integer between 1 and ${MAX_INVITE_BATCH}.`);
     process.exit(1);
   }
   if (out.maxUses !== null && (!Number.isInteger(out.maxUses) || out.maxUses < 1)) {

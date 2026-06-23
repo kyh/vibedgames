@@ -5,7 +5,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
 import { adminProcedure, createTRPCRouter, protectedProcedure, publicProcedure } from "../trpc";
-import { buildInviteRows } from "./invite-create";
+import { buildInviteRows, MAX_INVITE_BATCH } from "./invite-create";
 import { inviteCodeAvailabilityClause, normalizeInviteCode } from "./invite-claim";
 import { generateShortCode } from "./utils";
 
@@ -140,7 +140,7 @@ export const authRouter = createTRPCRouter({
   createInvites: adminProcedure
     .input(
       z.object({
-        count: z.number().int().min(1).max(100).default(1),
+        count: z.number().int().min(1).max(MAX_INVITE_BATCH).default(1),
         maxUses: z.number().int().min(1).nullable().default(1),
         expiresAt: z.date().nullable().default(null),
         note: z.string().max(200).nullable().default(null),
