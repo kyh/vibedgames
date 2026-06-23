@@ -11,6 +11,22 @@ import { blackboard, loadState } from "./state.js";
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/;
 
+/**
+ * Validate + normalize a slug before it's ever used to build a filesystem
+ * path. Rejecting anything outside [a-z0-9-] keeps `..`/path segments from
+ * resolving `.studio` outside the workspaces dir.
+ */
+function requireSlug(raw: string): string {
+  const slug = raw.trim().toLowerCase();
+  if (!SLUG_RE.test(slug)) {
+    consola.error(
+      `Invalid slug: ${raw}\n  Use lowercase letters, digits, and hyphens (e.g. "asteroid-belt").`,
+    );
+    process.exit(1);
+  }
+  return slug;
+}
+
 function resolveWorkspace(slug: string, override?: string): string {
   if (override) return resolve(process.cwd(), override);
   return defaultWorkspace(findRepoRoot(), slug);
@@ -67,11 +83,7 @@ const startCommand = defineCommand({
     },
   },
   run: async ({ args }) => {
-    const slug = args.slug.trim().toLowerCase();
-    if (!SLUG_RE.test(slug)) {
-      consola.error(`Invalid slug: ${args.slug}\n  Use lowercase letters, digits, and hyphens.`);
-      process.exit(1);
-    }
+    const slug = requireSlug(args.slug);
 
     const workspace = resolveWorkspace(slug, args.workspace);
     const bb = blackboard(workspace);
@@ -82,15 +94,8 @@ const startCommand = defineCommand({
       );
       process.exit(1);
     }
-    // Clear a stale STOP sentinel from a previous run.
-    if (existsSync(bb.stop)) {
-      try {
-        const { rmSync } = await import("node:fs");
-        rmSync(bb.stop);
-      } catch {
-        /* ignore */
-      }
-    }
+    // A stale STOP sentinel is cleared inside runStudio once the workspace lock
+    // is held, so a restart can never wipe a still-running process's stop.
 
     await runStudio({
       slug,
@@ -116,7 +121,7 @@ const stopCommand = defineCommand({
     workspace: { type: "string", description: "Override workspace dir." },
   },
   run: ({ args }) => {
-    const slug = args.slug.trim().toLowerCase();
+    const slug = requireSlug(args.slug);
     const bb = blackboard(resolveWorkspace(slug, args.workspace));
     if (!existsSync(bb.dir)) {
       consola.error(`No studio workspace found for "${slug}".`);
@@ -140,7 +145,7 @@ const statusCommand = defineCommand({
     json: { type: "boolean", description: "Machine-readable output.", default: false },
   },
   run: ({ args }) => {
-    const slug = args.slug.trim().toLowerCase();
+    const slug = requireSlug(args.slug);
     const bb = blackboard(resolveWorkspace(slug, args.workspace));
     if (!existsSync(bb.state)) {
       consola.error(`No studio state found for "${slug}".`);

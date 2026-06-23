@@ -4,9 +4,12 @@ import { claudeBin, findRepoRoot } from "./config.js";
 import { runClaude } from "./claude.js";
 import { buildTask, roleForPhase, ROLES } from "./roles.js";
 import {
+  acquireLock,
   appendJournal,
   blackboard,
+  clearStop,
   initWorkspace,
+  releaseLock,
   saveState,
   stopRequested,
   type Phase,
@@ -49,6 +52,22 @@ export async function runStudio(opts: StudioOptions): Promise<void> {
     createdAt: now,
     updatedAt: now,
   };
+  // One studio per workspace: refuse to start a second process on the same
+  // game, which would let two loops fight over the same files (and let an
+  // impatient `start` wipe a still-running process's pending STOP).
+  const owner = acquireLock(bb);
+  if (owner !== null) {
+    consola.error(
+      `A studio is already running for "${opts.slug}" (pid ${owner}). Stop it first with \`vg-studio stop ${opts.slug}\`, or wait for it to finish.`,
+    );
+    return;
+  }
+  process.on("exit", () => releaseLock(bb));
+
+  // We now hold the lock, so any STOP sentinel is necessarily stale (left by a
+  // previous run that has since exited) — safe to clear before we loop.
+  clearStop(bb);
+
   let state = initWorkspace(bb, seed);
   // Re-seed mutable knobs on restart so flags take effect.
   state.idea = opts.idea || state.idea;
@@ -166,6 +185,7 @@ export async function runStudio(opts: StudioOptions): Promise<void> {
   }
 
   saveState(bb, state);
+  releaseLock(bb);
   consola.box(
     [
       `Studio stopped for "${state.slug}".`,

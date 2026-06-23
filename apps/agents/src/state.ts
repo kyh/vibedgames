@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 /**
@@ -45,6 +45,7 @@ export type Blackboard = {
   playtest: string;
   journal: string;
   stop: string;
+  lock: string;
 };
 
 export function blackboard(workspace: string): Blackboard {
@@ -59,6 +60,7 @@ export function blackboard(workspace: string): Blackboard {
     playtest: resolve(dir, "playtest.md"),
     journal: resolve(dir, "journal.md"),
     stop: resolve(dir, "STOP"),
+    lock: resolve(dir, "studio.lock"),
   };
 }
 
@@ -94,4 +96,53 @@ export function appendJournal(bb: Blackboard, line: string): void {
 
 export function stopRequested(bb: Blackboard): boolean {
   return existsSync(bb.stop);
+}
+
+/** Remove a stale STOP sentinel. Only safe to call while holding the lock. */
+export function clearStop(bb: Blackboard): void {
+  try {
+    if (existsSync(bb.stop)) rmSync(bb.stop);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** The pid currently owning the workspace lock, or null if free/stale. */
+function lockOwner(bb: Blackboard): number | null {
+  try {
+    const { pid } = JSON.parse(readFileSync(bb.lock, "utf8")) as { pid?: number };
+    if (typeof pid !== "number" || !Number.isFinite(pid)) return null;
+    try {
+      process.kill(pid, 0); // probe liveness without signalling
+      return pid;
+    } catch (err) {
+      // EPERM => process exists but isn't ours; ESRCH => gone (stale lock).
+      return (err as NodeJS.ErrnoException).code === "EPERM" ? pid : null;
+    }
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Take the per-workspace lock so only one studio runs per game. Returns the
+ * live owner pid if another process already holds it; otherwise claims the lock
+ * (taking over a stale one) and returns null.
+ */
+export function acquireLock(bb: Blackboard): number | null {
+  const owner = lockOwner(bb);
+  if (owner !== null && owner !== process.pid) return owner;
+  mkdirSync(bb.dir, { recursive: true });
+  writeFileSync(bb.lock, `${JSON.stringify({ pid: process.pid, at: new Date().toISOString() })}\n`);
+  return null;
+}
+
+/** Release the lock if (and only if) we own it. */
+export function releaseLock(bb: Blackboard): void {
+  try {
+    const { pid } = JSON.parse(readFileSync(bb.lock, "utf8")) as { pid?: number };
+    if (pid === process.pid) rmSync(bb.lock);
+  } catch {
+    /* ignore */
+  }
 }
