@@ -1,35 +1,35 @@
-import { and, desc, eq, isNull } from "@repo/db";
-import { apiKey } from "@repo/db/drizzle-schema";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
 import { createTRPCRouter, protectedProcedure } from "../trpc";
-import { apiKeyDisplayPrefix, generateApiKeyToken, hashApiKey } from "./api-key";
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+const DAY_SECONDS = 24 * 60 * 60;
 
+// Thin tRPC wrappers over the @better-auth/api-key plugin's server API. They
+// run with the request's headers so the plugin scopes keys to the session
+// user — note this means key management requires a real session (web cookie
+// or a `vg login` token); an API-key-authenticated caller can't mint or
+// revoke keys, which is the posture we want for CI credentials.
+//
+// Field names are mapped to the shape the CLI/web already consume:
+// `keyPrefix` ← the plugin's `start` (first chars incl. prefix),
+// `lastUsedAt` ← `lastRequest`.
 export const apiKeyRouter = createTRPCRouter({
-  // Active (non-revoked) keys for the current user. Never returns the raw key
-  // or its hash — only the display prefix and metadata.
   list: protectedProcedure.query(async ({ ctx }) => {
-    const keys = await ctx.db
-      .select({
-        id: apiKey.id,
-        name: apiKey.name,
-        keyPrefix: apiKey.keyPrefix,
-        createdAt: apiKey.createdAt,
-        lastUsedAt: apiKey.lastUsedAt,
-        expiresAt: apiKey.expiresAt,
-      })
-      .from(apiKey)
-      .where(and(eq(apiKey.userId, ctx.session.user.id), isNull(apiKey.revokedAt)))
-      .orderBy(desc(apiKey.createdAt));
-
+    const { apiKeys } = await ctx.auth.api.listApiKeys({ headers: ctx.headers });
+    const keys = apiKeys.map((k) => ({
+      id: k.id,
+      name: k.name,
+      keyPrefix: k.start ?? k.prefix ?? "",
+      createdAt: k.createdAt,
+      lastUsedAt: k.lastRequest,
+      expiresAt: k.expiresAt,
+    }));
     return { keys };
   }),
 
   // Mint a new key. The raw `key` is returned exactly once here and is never
-  // recoverable afterwards — only its hash is stored.
+  // recoverable afterwards — the plugin stores only its hash.
   create: protectedProcedure
     .input(
       z.object({
@@ -38,53 +38,33 @@ export const apiKeyRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const token = generateApiKeyToken();
-      const keyHash = await hashApiKey(token);
-      const keyPrefix = apiKeyDisplayPrefix(token);
-      const expiresAt =
-        input.expiresInDays == null ? null : new Date(Date.now() + input.expiresInDays * DAY_MS);
-
-      const [created] = await ctx.db
-        .insert(apiKey)
-        .values({
-          id: crypto.randomUUID(),
-          userId: ctx.session.user.id,
+      const created = await ctx.auth.api.createApiKey({
+        headers: ctx.headers,
+        body: {
           name: input.name,
-          keyHash,
-          keyPrefix,
-          expiresAt,
-        })
-        .returning({
-          id: apiKey.id,
-          name: apiKey.name,
-          keyPrefix: apiKey.keyPrefix,
-          createdAt: apiKey.createdAt,
-          expiresAt: apiKey.expiresAt,
-        });
+          expiresIn: input.expiresInDays == null ? null : input.expiresInDays * DAY_SECONDS,
+        },
+      });
 
-      // `key` is the only time the caller sees the raw value.
-      return { ...created, key: token };
+      return {
+        id: created.id,
+        name: created.name,
+        keyPrefix: created.start ?? created.prefix ?? "",
+        createdAt: created.createdAt,
+        expiresAt: created.expiresAt,
+        // `key` is the only time the caller sees the raw value.
+        key: created.key,
+      };
     }),
 
   revoke: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const [revoked] = await ctx.db
-        .update(apiKey)
-        .set({ revokedAt: new Date() })
-        .where(
-          and(
-            eq(apiKey.id, input.id),
-            eq(apiKey.userId, ctx.session.user.id),
-            isNull(apiKey.revokedAt),
-          ),
-        )
-        .returning({ id: apiKey.id });
-
-      if (!revoked) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Key not found or already revoked" });
+      try {
+        await ctx.auth.api.deleteApiKey({ headers: ctx.headers, body: { keyId: input.id } });
+      } catch {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Key not found" });
       }
-
-      return { id: revoked.id };
+      return { id: input.id };
     }),
 });

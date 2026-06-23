@@ -95,7 +95,7 @@ export const createTRPCContext = async (opts: CreateTRPCContextOptions) => {
   // authenticate in CI; both resolve to the same `Session` shape.
   const session =
     (await opts.auth.api.getSession({ headers: opts.headers })) ??
-    (await resolveApiKeySession(opts.db, opts.headers));
+    (await resolveApiKeySession(opts.auth, opts.db, opts.headers));
 
   return {
     session,

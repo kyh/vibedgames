@@ -1,45 +1,22 @@
 /**
- * API-key generation, hashing, and request resolution.
+ * Request-time API-key resolution.
  *
- * Keys are long-lived credentials for programmatic access (CLI in CI). They
- * travel over the same `Authorization: Bearer <key>` header the CLI uses for
- * session tokens — the `vg_` prefix is what lets the tRPC context tell a key
- * apart from a better-auth session token. The `x-api-key` header is also
- * accepted for non-CLI HTTP clients.
+ * The @better-auth/api-key plugin owns key storage, hashing, validation, and
+ * management. We don't enable its session-mocking (the plugin flags that as
+ * not production-safe), so this module bridges a `vg_…` key on an incoming
+ * request to the better-auth `Session` shape the tRPC context expects — by
+ * calling the plugin's `verifyApiKey` and loading the owning user.
  *
- * We only ever persist a SHA-256 hash of the key (see `apiKey.keyHash`); the
- * raw value is shown to the user exactly once at creation time.
+ * Keys ride the same `Authorization: Bearer` header the CLI uses for session
+ * tokens (so `VG_TOKEN=vg_… vg deploy` works in CI unchanged); the `vg_`
+ * prefix is what distinguishes them. `x-api-key` is also accepted.
  */
-import type { Session } from "./auth";
+import type { Auth, Session } from "./auth";
 import type { Db } from "@repo/db/drizzle-client";
 import { eq } from "@repo/db";
-import { apiKey } from "@repo/db/drizzle-schema";
 import { user as userTable } from "@repo/db/drizzle-schema-auth";
 
 export const API_KEY_PREFIX = "vg_";
-
-// `vg_` + 8 hex chars — enough to disambiguate keys in a list without
-// revealing anything sensitive (the hash, not the prefix, is the secret).
-const DISPLAY_PREFIX_LENGTH = API_KEY_PREFIX.length + 8;
-
-const toHex = (bytes: Uint8Array): string =>
-  Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-
-/** Mint a fresh API key: `vg_` followed by 32 bytes of hex randomness. */
-export const generateApiKeyToken = (): string => {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  return API_KEY_PREFIX + toHex(bytes);
-};
-
-/** SHA-256 hex digest of a raw key — what we store and look up by. */
-export const hashApiKey = async (token: string): Promise<string> => {
-  const data = new TextEncoder().encode(token);
-  const digest = await crypto.subtle.digest("SHA-256", data);
-  return toHex(new Uint8Array(digest));
-};
-
-/** Short, non-secret slice of a key for display (`vg_a1b2c3d4`). */
-export const apiKeyDisplayPrefix = (token: string): string => token.slice(0, DISPLAY_PREFIX_LENGTH);
 
 /**
  * Collect candidate raw API keys off a request, in priority order
@@ -60,57 +37,47 @@ const extractApiKeys = (headers: Headers): string[] => {
     if (token.startsWith(API_KEY_PREFIX)) candidates.push(token);
   }
 
-  // De-dup so the same key in both headers isn't looked up twice.
+  // De-dup so the same key in both headers isn't verified twice.
   return [...new Set(candidates)];
 };
 
 /**
  * Resolve a request's API key (if any) to a better-auth-shaped session so the
- * existing `protectedProcedure`/`adminProcedure` checks work unchanged. Returns
- * `null` when there's no key, or no candidate is valid (unknown/revoked/expired).
- *
- * Tries each candidate header in turn; the common single-header case is one
- * lookup. Best-effort touches `lastUsedAt` so users can spot stale keys — the
- * only write on the hot auth path, a single indexed UPDATE.
+ * existing `protectedProcedure`/`adminProcedure` checks work unchanged.
+ * Returns `null` when there's no key, or no candidate verifies (the plugin
+ * handles unknown/disabled/expired). Tries each candidate header in turn.
  */
-export const resolveApiKeySession = async (db: Db, headers: Headers): Promise<Session | null> => {
+export const resolveApiKeySession = async (
+  auth: Auth,
+  db: Db,
+  headers: Headers,
+): Promise<Session | null> => {
   const candidates = extractApiKeys(headers);
   if (candidates.length === 0) return null;
 
-  const now = new Date();
-
-  for (const raw of candidates) {
-    const keyHash = await hashApiKey(raw);
+  for (const key of candidates) {
+    const { valid, key: record } = await auth.api.verifyApiKey({ body: { key } });
+    if (!valid || !record) continue;
 
     const rows = await db
-      .select({
-        keyId: apiKey.id,
-        expiresAt: apiKey.expiresAt,
-        revokedAt: apiKey.revokedAt,
-        user: userTable,
-      })
-      .from(apiKey)
-      .innerJoin(userTable, eq(apiKey.userId, userTable.id))
-      .where(eq(apiKey.keyHash, keyHash))
+      .select()
+      .from(userTable)
+      .where(eq(userTable.id, record.referenceId))
       .limit(1);
-
-    const row = rows[0];
-    if (!row) continue;
-    if (row.revokedAt) continue;
-    if (row.expiresAt && row.expiresAt.getTime() < now.getTime()) continue;
-
-    await db.update(apiKey).set({ lastUsedAt: now }).where(eq(apiKey.id, row.keyId));
+    const user = rows[0];
+    if (!user) continue;
 
     // Synthesize the better-auth `Session` shape. Only `user` (and rarely
     // `session.token`) is read downstream; the token is namespaced so it can
     // never collide with a real session token.
+    const now = new Date();
     return {
-      user: row.user,
+      user,
       session: {
-        id: `apikey:${row.keyId}`,
-        token: `apikey:${row.keyId}`,
-        userId: row.user.id,
-        expiresAt: row.expiresAt ?? new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000),
+        id: `apikey:${record.id}`,
+        token: `apikey:${record.id}`,
+        userId: user.id,
+        expiresAt: record.expiresAt ?? new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000),
         createdAt: now,
         updatedAt: now,
         ipAddress: null,
