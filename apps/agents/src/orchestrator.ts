@@ -109,7 +109,9 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
   state.idea = opts.idea || state.idea;
   state.model = opts.model;
   state.phaseFailures = state.phaseFailures ?? 0; // backfill pre-field workspaces
-  state.existingProject = state.existingProject ?? false;
+  // Reconcile against the dir each start (monotonic) so files added between
+  // runs are adopted, not overwritten by a fresh scaffold.
+  state.existingProject = (state.existingProject ?? false) || hasExistingProject(opts.workspace);
   state.built = state.built ?? state.shipped; // a shipped game has necessarily built
   state.lastApproval = state.lastApproval ?? null;
   // Record the operator's brief/reference so the specialists can read it.
@@ -190,6 +192,16 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
     // Optionally skip shipping (no prod deploy) while testing.
     if (state.phase === "ship" && opts.noShip) {
       consola.info("--skip-ship set; skipping the ship phase.");
+      advance(state);
+      saveState(bb, state);
+      continue;
+    }
+
+    // Never deploy without a recorded successful build — e.g. if the build
+    // phase was skipped after repeated failures. Wait until a build lands.
+    if (state.phase === "ship" && !state.built) {
+      consola.warn("Reached ship with no successful build recorded — not deploying yet.");
+      appendJournal(bb, "ship: skipped — no successful build recorded.");
       advance(state);
       saveState(bb, state);
       continue;
@@ -277,8 +289,10 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
     );
     consola.success(`${role.name} done${costNote(res.costUsd)} · ${res.numTurns ?? "?"} turns`);
 
-    // A completed build means a deployable game now exists.
-    if (phase === "build") state.built = true;
+    // A deployable build exists once the scaffold confirms the project builds
+    // (or a gameplay build lands). This gates ship and approval preemption and,
+    // set at scaffold, can't deadlock if a later build phase keeps failing.
+    if (phase === "scaffold" || phase === "build") state.built = true;
 
     // Only a real, successful ship marks the game deployed; the one-shot
     // approval is recorded as consumed in state (authoritative even if the
