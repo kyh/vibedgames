@@ -1,6 +1,11 @@
 # vibedgames (CLI)
 
-CLI tool for building and deploying games on vibedgames: scaffolding, asset generation, and deploys.
+The `vg` CLI is designed to be driven by a coding agent, not a human. A human
+prompts their agent ("build me a bomberman game"); the agent runs `vg` + the
+bundled skills to scaffold, generate assets, add multiplayer, and deploy.
+Machine-readable output (`--json`), deterministic exit codes, and self-describing
+errors are first-class — optimised so an agent never gets stuck on friction a
+human would tolerate.
 
 ## Install
 
