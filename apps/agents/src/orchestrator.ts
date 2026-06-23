@@ -55,6 +55,7 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
     phase: "spec",
     cycle: 0,
     iteration: 0,
+    phaseFailures: 0,
     shipped: false,
     deployUrl: null,
     totalCostUsd: 0,
@@ -90,6 +91,7 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
   // Re-seed mutable knobs on restart so flags take effect.
   state.idea = opts.idea || state.idea;
   state.model = opts.model;
+  state.phaseFailures = state.phaseFailures ?? 0; // backfill pre-field workspaces
   saveState(bb, state);
 
   banner(opts, state, repoRoot);
@@ -121,8 +123,6 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
     }
   };
 
-  let failures = 0;
-
   // `stopping` is flipped by the SIGINT/SIGTERM handler above (and we also
   // honor the STOP sentinel inside the loop) — oxlint can't see the async
   // mutation, so silence its unmodified-condition heuristic.
@@ -148,6 +148,7 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
     ) {
       consola.info("Approval received — shipping the current build before continuing.");
       state.phase = "ship";
+      state.phaseFailures = 0; // entering a new phase: fresh retry budget
       saveState(bb, state);
     }
 
@@ -204,33 +205,34 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
     saveState(bb, state);
 
     if (!res.ok) {
-      failures += 1;
+      state.phaseFailures += 1;
+      saveState(bb, state); // persist so a restart can't reset the retry budget
       appendJournal(
         bb,
         `${role.name} (${phase}) FAILED: ${truncate(res.error ?? "unknown error")}`,
       );
       consola.error(`${role.name} failed: ${res.error ?? "unknown error"}`);
-      if (failures >= MAX_RETRIES) {
+      if (state.phaseFailures >= MAX_RETRIES) {
         consola.warn(
           `${MAX_RETRIES} consecutive failures on "${phase}" — skipping ahead to avoid a stuck loop.`,
         );
         // A spent attempt consumes the deploy approval too, so a broken ship
         // can't re-trigger itself forever; the operator can re-approve.
         if (phase === "ship") consumeApproval(bb);
+        state.phaseFailures = 0;
         advance(state);
         saveState(bb, state);
-        failures = 0;
       } else {
-        const backoff = Math.min(2 ** failures, 60);
+        const backoff = Math.min(2 ** state.phaseFailures, 60);
         consola.info(
-          `Retrying "${phase}" in ${backoff}s (attempt ${failures + 1}/${MAX_RETRIES}).`,
+          `Retrying "${phase}" in ${backoff}s (attempt ${state.phaseFailures + 1}/${MAX_RETRIES}).`,
         );
         await sleepUnlessStopping(backoff * 1000);
       }
       continue;
     }
 
-    failures = 0;
+    state.phaseFailures = 0;
     appendJournal(
       bb,
       `${role.name} (${phase}) done${costNote(res.costUsd)}: ${truncate(res.result)}`,

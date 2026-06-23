@@ -28,6 +28,12 @@ export type StudioState = {
   cycle: number;
   /** Completed studio iterations shipped (post first ship). */
   iteration: number;
+  /**
+   * Consecutive failures on the CURRENT phase. Persisted so a stop/restart
+   * doesn't reset the retry budget — a phase that keeps failing still reaches
+   * the skip-ahead threshold and advances instead of getting stuck forever.
+   */
+  phaseFailures: number;
   shipped: boolean;
   deployUrl: string | null;
   totalCostUsd: number;
