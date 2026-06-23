@@ -132,14 +132,11 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
       consola.warn("STOP sentinel found in .studio/ — halting.");
       break;
     }
-    if (opts.maxCycles > 0 && state.cycle >= opts.maxCycles) {
-      consola.info(`Reached --max-cycles=${opts.maxCycles}. Stopping.`);
-      break;
-    }
 
     // The operator approved a deploy — ship the CURRENT build promptly instead
     // of iterating further, so what goes live is the build they approved rather
-    // than a newer, unreviewed one.
+    // than a newer, unreviewed one. Checked before the cycle-budget stop so an
+    // explicit approval is honored even when --max-cycles is already spent.
     if (
       state.phase !== "ship" &&
       !opts.autoDeploy &&
@@ -150,6 +147,15 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
       state.phase = "ship";
       state.phaseFailures = 0; // entering a new phase: fresh retry budget
       saveState(bb, state);
+    }
+
+    // An operator-approved deploy is a deliberate command — let that single ship
+    // run even if the autonomous cycle budget is used up.
+    const approvedShipPending =
+      state.phase === "ship" && !opts.autoDeploy && !opts.noShip && approvalRequested(bb);
+    if (opts.maxCycles > 0 && state.cycle >= opts.maxCycles && !approvedShipPending) {
+      consola.info(`Reached --max-cycles=${opts.maxCycles}. Stopping.`);
+      break;
     }
 
     // Optionally skip shipping (no prod deploy) while testing.
