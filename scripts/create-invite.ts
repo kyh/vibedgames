@@ -71,18 +71,29 @@ const parseArgs = (argv: string[]): Args => {
     note: null,
     remote: false,
   };
+  // Read the value following a flag, erroring clearly if it's missing (e.g.
+  // the flag was the last token) rather than letting `undefined` slip through.
+  const nextValue = (i: number, flag: string): string => {
+    const v = argv[i];
+    if (v === undefined) {
+      console.error(`${flag} expects a value.\n\n${usage}`);
+      process.exit(1);
+    }
+    return v;
+  };
+
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--")
       continue; // bare separator forwarded by `pnpm run -- …`
     else if (arg === "--remote") out.remote = true;
-    else if (arg === "--code") out.code = argv[++i];
-    else if (arg === "--count") out.count = Number(argv[++i]);
+    else if (arg === "--code") out.code = nextValue(++i, arg);
+    else if (arg === "--count") out.count = Number(nextValue(++i, arg));
     else if (arg === "--max-uses") {
-      const v = argv[++i];
+      const v = nextValue(++i, arg);
       out.maxUses = v === "unlimited" || v === "0" ? null : Number(v);
-    } else if (arg === "--expires-days") out.expiresDays = Number(argv[++i]);
-    else if (arg === "--note") out.note = argv[++i];
+    } else if (arg === "--expires-days") out.expiresDays = Number(nextValue(++i, arg));
+    else if (arg === "--note") out.note = nextValue(++i, arg);
     else if (arg === "--help" || arg === "-h") {
       console.log(usage);
       process.exit(0);
