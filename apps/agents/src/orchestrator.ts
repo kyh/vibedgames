@@ -112,7 +112,9 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
   // Reconcile against the dir each start (monotonic) so files added between
   // runs are adopted, not overwritten by a fresh scaffold.
   state.existingProject = (state.existingProject ?? false) || hasExistingProject(opts.workspace);
-  state.built = state.built ?? state.shipped; // a shipped game has necessarily built
+  // shipped implies built — force the invariant so an inconsistent persisted
+  // `built:false, shipped:true` can't make the ship guard and preemption spin.
+  state.built = (state.built ?? false) || state.shipped;
   state.lastApproval = state.lastApproval ?? null;
   // Record the operator's brief/reference so the specialists can read it.
   if (opts.context) writeFileSync(bb.context, `${opts.context.trim()}\n`);
