@@ -1,3 +1,5 @@
+import { existsSync, writeFileSync } from "node:fs";
+
 import consola from "consola";
 
 import { claudeBin, findRepoRoot } from "./config.js";
@@ -6,10 +8,12 @@ import { buildTask, roleForPhase, ROLES } from "./roles.js";
 import {
   acquireLock,
   appendJournal,
-  approvalRequested,
+  approvalPending,
+  approvalToken,
   blackboard,
   clearStop,
   consumeApproval,
+  hasExistingProject,
   initWorkspace,
   releaseLock,
   saveState,
@@ -38,6 +42,10 @@ export type StudioOptions = {
   autoDeploy: boolean;
   /** Pass --dangerously-skip-permissions so tools run unattended. */
   skipPermissions: boolean;
+  /** Optional operator brief written to .studio/context.md for the specialists. */
+  context?: string;
+  /** Optional reference directory the specialists are granted read access to. */
+  contextDir?: string;
 };
 
 const MAX_RETRIES = 5;
@@ -48,6 +56,11 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
   const bb = blackboard(opts.workspace);
   const now = new Date().toISOString();
 
+  // Detect an existing project to build upon (only meaningful on a fresh start;
+  // on resume the flag is already persisted).
+  const isFresh = !existsSync(bb.state);
+  const existingProject = isFresh && hasExistingProject(opts.workspace);
+
   const seed: StudioState = {
     slug: opts.slug,
     idea: opts.idea,
@@ -56,6 +69,9 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
     cycle: 0,
     iteration: 0,
     phaseFailures: 0,
+    existingProject,
+    built: false,
+    lastApproval: null,
     shipped: false,
     deployUrl: null,
     totalCostUsd: 0,
@@ -73,7 +89,8 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
     );
     return false;
   }
-  process.on("exit", () => releaseLock(bb));
+  const onExit = () => releaseLock(bb);
+  process.on("exit", onExit);
 
   // We now hold the lock, so any STOP sentinel is necessarily stale (left by a
   // previous run that has since exited) — safe to clear before we loop.
@@ -92,6 +109,11 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
   state.idea = opts.idea || state.idea;
   state.model = opts.model;
   state.phaseFailures = state.phaseFailures ?? 0; // backfill pre-field workspaces
+  state.existingProject = state.existingProject ?? false;
+  state.built = state.built ?? state.shipped; // a shipped game has necessarily built
+  state.lastApproval = state.lastApproval ?? null;
+  // Record the operator's brief/reference so the specialists can read it.
+  if (opts.context) writeFileSync(bb.context, `${opts.context.trim()}\n`);
   saveState(bb, state);
 
   banner(opts, state, repoRoot);
@@ -135,13 +157,17 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
 
     // The operator approved a deploy — ship the CURRENT build promptly instead
     // of iterating further, so what goes live is the build they approved rather
-    // than a newer, unreviewed one. Checked before the cycle-budget stop so an
-    // explicit approval is honored even when --max-cycles is already spent.
+    // than a newer, unreviewed one. Only preempt once a build actually exists,
+    // so an early approval doesn't skip bootstrap and deploy nothing; before
+    // that, the approval simply waits and is honored at the natural ship phase.
+    // Checked before the cycle-budget stop so an explicit approval is honored
+    // even when --max-cycles is already spent.
     if (
       state.phase !== "ship" &&
+      state.built &&
       !opts.autoDeploy &&
       !opts.noShip &&
-      approvalRequested(bb)
+      approvalPending(bb, state.lastApproval)
     ) {
       consola.info("Approval received — shipping the current build before continuing.");
       state.phase = "ship";
@@ -152,7 +178,10 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
     // An operator-approved deploy is a deliberate command — let that single ship
     // run even if the autonomous cycle budget is used up.
     const approvedShipPending =
-      state.phase === "ship" && !opts.autoDeploy && !opts.noShip && approvalRequested(bb);
+      state.phase === "ship" &&
+      !opts.autoDeploy &&
+      !opts.noShip &&
+      approvalPending(bb, state.lastApproval);
     if (opts.maxCycles > 0 && state.cycle >= opts.maxCycles && !approvedShipPending) {
       consola.info(`Reached --max-cycles=${opts.maxCycles}. Stopping.`);
       break;
@@ -170,7 +199,7 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
     // there's no standing approval we don't even run the shipper: the build is
     // ready, we just don't publish it — the loop keeps improving the game
     // locally until a human runs `vg-studio approve <slug>`.
-    if (state.phase === "ship" && !opts.autoDeploy && !approvalRequested(bb)) {
+    if (state.phase === "ship" && !opts.autoDeploy && !approvalPending(bb, state.lastApproval)) {
       consola.warn(
         `Build ready but NOT deployed — approval required. Run \`vg-studio approve ${state.slug}\` to publish it (or start with --auto-deploy).`,
       );
@@ -200,7 +229,7 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
       idleTimeoutMs: opts.idleTimeoutMs,
       maxSessionMs: opts.maxSessionMs,
       claudeBin: claudeBin(),
-      addDirs: [repoRoot],
+      addDirs: opts.contextDir ? [repoRoot, opts.contextDir] : [repoRoot],
       skipPermissions: opts.skipPermissions,
       signal: abort.signal,
       label: role.name,
@@ -224,7 +253,10 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
         );
         // A spent attempt consumes the deploy approval too, so a broken ship
         // can't re-trigger itself forever; the operator can re-approve.
-        if (phase === "ship") consumeApproval(bb);
+        if (phase === "ship") {
+          state.lastApproval = approvalToken(bb) ?? state.lastApproval;
+          consumeApproval(bb);
+        }
         state.phaseFailures = 0;
         advance(state);
         saveState(bb, state);
@@ -245,10 +277,15 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
     );
     consola.success(`${role.name} done${costNote(res.costUsd)} · ${res.numTurns ?? "?"} turns`);
 
-    // Only a real, successful ship marks the game deployed; a one-shot approval
-    // is spent on this deploy, so the next release needs fresh approval.
+    // A completed build means a deployable game now exists.
+    if (phase === "build") state.built = true;
+
+    // Only a real, successful ship marks the game deployed; the one-shot
+    // approval is recorded as consumed in state (authoritative even if the
+    // sentinel file fails to delete), so the next release needs fresh approval.
     if (phase === "ship") {
       recordShip(state);
+      state.lastApproval = approvalToken(bb) ?? state.lastApproval;
       consumeApproval(bb);
     }
     advance(state);
@@ -256,6 +293,11 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
 
     if (opts.interval > 0 && !stopping) await sleepUnlessStopping(opts.interval);
   }
+
+  // Don't leak handlers if runStudio is called more than once in a process.
+  process.off("SIGINT", onSignal);
+  process.off("SIGTERM", onSignal);
+  process.off("exit", onExit);
 
   saveState(bb, state);
   releaseLock(bb);
@@ -312,9 +354,13 @@ function banner(opts: StudioOptions, state: StudioState, repoRoot: string): void
       `🎮 vibedgames autonomous studio`,
       ``,
       `Game:      ${state.slug}`,
-      `Idea:      ${state.idea}`,
+      `Idea:      ${state.idea || "(from existing project / context)"}`,
       `Model:     ${state.model}`,
       `Game dir:  ${opts.workspace}`,
+      state.existingProject ? `Source:    building on existing files in the game dir` : null,
+      opts.context
+        ? `Context:   provided${opts.contextDir ? ` (+ reference dir: ${opts.contextDir})` : ""}`
+        : null,
       `Repo:      ${repoRoot}`,
       `Mode:      ${opts.skipPermissions ? "unattended (tools auto-approved)" : "guarded (will block on approvals!)"}`,
       opts.noShip
@@ -325,7 +371,9 @@ function banner(opts: StudioOptions, state: StudioState, repoRoot: string): void
       opts.maxCycles > 0
         ? `Stops at:  ${opts.maxCycles} cycles`
         : `Runs:      until you stop it (Ctrl-C or \`vg-studio stop ${state.slug}\`)`,
-    ].join("\n"),
+    ]
+      .filter(Boolean)
+      .join("\n"),
   );
   if (opts.skipPermissions) {
     const deployNote = opts.noShip

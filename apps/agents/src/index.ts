@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { defineCommand, runMain } from "citty";
@@ -14,7 +14,43 @@ import {
   findRepoRoot,
 } from "./config.js";
 import { runStudio } from "./orchestrator.js";
-import { approvalRequested, blackboard, loadState, requestApproval } from "./state.js";
+import {
+  approvalPending,
+  blackboard,
+  hasExistingProject,
+  loadState,
+  requestApproval,
+} from "./state.js";
+
+/** Cap how much of a context file we inline into the brief. */
+const MAX_CONTEXT_CHARS = 20_000;
+
+/**
+ * Resolve the optional --context value into a brief (and maybe a reference dir
+ * the agents get read access to). A path to a file is read inline; a path to a
+ * directory becomes a reference the agents explore; anything else is literal
+ * text.
+ */
+function resolveContext(raw: string | undefined): { context?: string; contextDir?: string } {
+  const value = (raw ?? "").trim();
+  if (!value) return {};
+  const p = resolve(process.cwd(), value);
+  try {
+    const st = existsSync(p) ? statSync(p) : null;
+    if (st?.isDirectory()) {
+      return {
+        contextDir: p,
+        context: `Reference material is provided in this directory (you have read access): ${p}\nExplore it and take direction from / build upon what's there.`,
+      };
+    }
+    if (st?.isFile()) {
+      return { context: readFileSync(p, "utf8").slice(0, MAX_CONTEXT_CHARS) };
+    }
+  } catch {
+    /* fall through to literal text */
+  }
+  return { context: value };
+}
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/;
 
@@ -53,8 +89,14 @@ const startCommand = defineCommand({
     },
     idea: {
       type: "string",
-      description: 'Seed idea, e.g. --idea "a neon roguelike where you fight with sound".',
+      description:
+        'Seed idea, e.g. --idea "a neon roguelike where you fight with sound". Optional when --dir points at an existing project or you pass --context.',
       default: "",
+    },
+    context: {
+      type: "string",
+      description:
+        "Extra context for the build: literal text, a path to a file (read inline), or a path to a directory (the agents get read access and build upon it).",
     },
     model: {
       type: "string",
@@ -110,9 +152,12 @@ const startCommand = defineCommand({
     const workspace = resolveWorkspace(slug, args.dir);
     const bb = blackboard(workspace);
     const fresh = !existsSync(bb.state);
-    if (fresh && !args.idea.trim()) {
+    const { context, contextDir } = resolveContext(args.context);
+    // A new game needs *something* to go on: a seed idea, an operator brief, or
+    // an existing project in the game dir to build upon.
+    if (fresh && !args.idea.trim() && !context && !hasExistingProject(workspace)) {
       consola.error(
-        'A seed idea is required for a new game. Pass --idea "your one-line game idea".',
+        'Nothing to build from. Pass --idea "your one-line idea", add --context, or point --dir at an existing project.',
       );
       process.exit(1);
     }
@@ -124,7 +169,7 @@ const startCommand = defineCommand({
       idea: args.idea.trim(),
       workspace,
       model: args.model,
-      maxTurns: toInt(args["max-turns"], DEFAULT_MAX_TURNS),
+      maxTurns: toInt(args["max-turns"], DEFAULT_MAX_TURNS, 1),
       idleTimeoutMs: toInt(args["idle-timeout"], DEFAULT_IDLE_MINUTES) * 60_000,
       maxSessionMs: toInt(args["session-timeout"], DEFAULT_SESSION_MINUTES) * 60_000,
       maxCycles: toInt(args["max-cycles"], 0),
@@ -132,6 +177,8 @@ const startCommand = defineCommand({
       noShip: Boolean(args["skip-ship"]),
       autoDeploy: Boolean(args["auto-deploy"]),
       skipPermissions: !args.guarded,
+      context,
+      contextDir,
     });
     if (!started) process.exit(1);
   },
@@ -191,7 +238,7 @@ const statusCommand = defineCommand({
         `Iterations: ${state.iteration}`,
         `Shipped:    ${state.shipped ? "yes" : "no"}`,
         state.deployUrl ? `Live:       ${state.deployUrl}` : `Live:       —`,
-        `Approval:   ${approvalRequested(bb) ? "pending — deploys the current build shortly" : "none (run `vg-studio approve` to publish)"}`,
+        `Approval:   ${approvalPending(bb, state.lastApproval) ? "pending — deploys the current build shortly" : "none (run `vg-studio approve` to publish)"}`,
         `Spend:      ~$${state.totalCostUsd.toFixed(2)}`,
         `Updated:    ${state.updatedAt}`,
         `Game dir:   ${bb.root}`,
@@ -238,10 +285,17 @@ const main = defineCommand({
   },
 });
 
-function toInt(v: string | undefined, fallback: number): number {
+/**
+ * Parse a CLI integer strictly: only a plain non-negative integer (>= min) is
+ * accepted; anything malformed or out of range falls back, so a typo can't
+ * silently disable a timeout or set a nonsensical budget.
+ */
+function toInt(v: string | undefined, fallback: number, min = 0): number {
   if (v == null) return fallback;
-  const n = Number.parseInt(v, 10);
-  return Number.isFinite(n) ? n : fallback;
+  const t = v.trim();
+  if (!/^\d+$/.test(t)) return fallback;
+  const n = Number(t);
+  return Number.isSafeInteger(n) && n >= min ? n : fallback;
 }
 
 runMain(main);

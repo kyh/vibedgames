@@ -27,13 +27,33 @@ so what goes live is the build you approved, not a newer one). Approval grants
 **one** deployment; the next release needs fresh approval. Pass `--auto-deploy`
 on `start` to opt into continuous, unattended deploys instead.
 
-### Choosing where the game lives
+### Choosing where the game lives + building on existing files
 
 The game's project directory defaults to `apps/agents/.workspaces/<slug>/`
 (gitignored). Pass `--dir <path>` to put it anywhere you like — e.g.
 `vg-studio start my-game --idea "…" --dir ~/games/my-game`. If you point it
 **outside this repo**, run `vg init` there first so Claude Code can resolve the
 vibedgames skills. (`stop`, `status`, and `approve` take the same `--dir`.)
+
+If `--dir` points at a directory that **already contains a project**, the studio
+**builds upon it** instead of scaffolding fresh: it reads the existing source,
+adopts the stack/engine, makes it deployable, and evolves it. `--idea` is
+optional in that case.
+
+```bash
+vg-studio start my-proto --dir ~/code/my-proto   # adopt & evolve an existing game
+```
+
+### Giving it context
+
+Pass `--context` to steer the build with more than a one-liner. It accepts:
+
+- **literal text** — `--context "co-op only, controller-first, synthwave palette"`
+- **a file** — `--context ./design-brief.md` (read inline)
+- **a directory** — `--context ./references` (the agents get read access and build upon it)
+
+The brief is written to `<dir>/.studio/context.md` and every specialist reads it
+first. With `--context`, `--idea` is optional.
 
 ## How it works
 
@@ -69,6 +89,7 @@ loop survives restarts and individual context windows):
 - `state.json` — orchestrator-owned phase / cycle / iteration / deploy URL
 - `spec.md` — the game design (designer)
 - `backlog.json` — prioritized work, `[{id,title,detail,role,priority,status}]` (director)
+- `context.md` — optional operator brief / reference (from `--context`), read first by every specialist
 - `next.json` — the current assignment `{role, type, task}` (director → work phase)
 - `playtest.md` — QA findings
 - `journal.md` — append-only history every specialist writes to
@@ -101,7 +122,8 @@ node apps/agents/dist/index.js start <slug> --idea "<one-line idea>"
 
 | Flag            | Default                          | Meaning                                                              |
 | --------------- | -------------------------------- | ------------------------------------------------------------------- |
-| `--idea`        | — (required for a new game)      | Seed idea. Optional when resuming an existing workspace.            |
+| `--idea`        | — (one of idea/context/existing) | Seed idea. Optional with `--context` or when `--dir` has a project. |
+| `--context`     | —                                | Extra brief: literal text, a file (read inline), or a directory (referenced). |
 | `--model`       | `sonnet`                         | `claude --model` alias. Try `opus` for higher-craft (pricier) runs. |
 | `--max-cycles`  | `0` (forever)                    | Stop after N specialist runs.                                       |
 | `--max-turns`   | `40`                             | Per-specialist agentic turn ceiling.                                |

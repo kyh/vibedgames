@@ -18,6 +18,9 @@ import consola from "consola";
  */
 const RESULT_EXIT_GRACE_MS = 10_000;
 
+/** Keep only the tail of stderr — it's used solely for final error reporting. */
+const STDERR_TAIL_MAX = 16_000;
+
 /** Human-friendly duration for watchdog messages ("45m", "3s"). */
 const fmtMs = (ms: number): string =>
   ms >= 60_000 ? `${Math.round(ms / 60_000)}m` : `${Math.round(ms / 1000)}s`;
@@ -224,7 +227,7 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
 
     child.stderr!.on("data", (d: Buffer) => {
       pokeIdle(); // stderr output is also a sign of life
-      stderr += d.toString();
+      stderr = (stderr + d.toString()).slice(-STDERR_TAIL_MAX); // bounded tail
     });
 
     child.on("error", (err: Error) => {

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 import type { Blackboard, Phase, StudioState } from "./state.js";
 
@@ -13,11 +13,13 @@ export type Role = {
 
 /**
  * Shared charter injected into every specialist. It establishes the blackboard
- * protocol and the hard rule that nobody ever waits on a human.
+ * protocol and that each specialist works autonomously on its own task (while
+ * the operator still gates production deploys, which the orchestrator handles).
  */
-const CHARTER = `You are one specialist in an AUTONOMOUS browser-game studio. A single game is being built, shipped, and then evolved like a real studio — bug fixes, new features, gameplay and balance iteration, new content, and polish — with ZERO human supervision. There is no one to ask, approve, or unblock you. Decide with strong, opinionated defaults and act.
+const CHARTER = `You are one specialist in an autonomous browser-game studio that builds a single game and then evolves it like a real studio — bug fixes, new features, gameplay and balance iteration, new content, and polish. Operate autonomously: don't pause to ask the operator questions, request permission, or wait to be unblocked mid-task — decide with strong, opinionated defaults and act. (Publishing to production is gated by a separate human approval the orchestrator manages outside your turn — that's not something you arrange, approve, or wait on; just do your specialist job well.)
 
 The game lives in your current working directory. Coordinate with the other specialists ONLY through the shared blackboard in ./.studio/:
+- context.md     — optional operator brief / reference notes (present only if provided); read it FIRST if it exists
 - spec.md        — the game design + a running "Features & iterations" log (owned by the designer)
 - backlog.json   — prioritized work, array of {id, title, detail, type, role, priority, status}; type ∈ "bug"|"feature"|"gameplay"|"balance"|"content"|"polish"|"art"
 - next.json      — the current assignment {role, type, task} (written by the director)
@@ -148,15 +150,33 @@ function readNext(bb: Blackboard): NextAssignment {
 /** The task ("user" turn) for a phase, grounded in current state. */
 export function buildTask(phase: Phase, state: StudioState, bb: Blackboard): string {
   const slug = state.slug;
+  // Tell specialists to read the operator's brief/reference when one was given.
+  const ctx = existsSync(bb.context)
+    ? "First read ./.studio/context.md for the operator's brief / reference, and honor it. "
+    : "";
   switch (phase) {
     case "spec":
-      return `Design the game from this seed idea: "${state.idea}".\nThe game slug is "${slug}". Produce ./.studio/spec.md per your role instructions, then append a one-line summary to journal.md.`;
+      if (state.existingProject) {
+        return `${ctx}The game directory ALREADY contains a project — build UPON it, don't start over. Read the existing source (package.json, src/, index.html, any README) to understand what it is and which engine/stack it uses. Then write ./.studio/spec.md describing the current game honestly and a concrete plan to finish/evolve it, and record the detected engine as a line exactly like \`engine: phaser\`, \`engine: threejs\`, or \`engine: other\`. Slug is "${slug}". Append a one-line summary to journal.md.`;
+      }
+      return `${ctx}Design the game from this seed idea: "${state.idea}".\nThe game slug is "${slug}". Produce ./.studio/spec.md per your role instructions, then append a one-line summary to journal.md.`;
     case "scaffold":
-      return `Read ./.studio/spec.md for the engine choice. The current directory IS the game project root (it already contains the ./.studio folder). Scaffold the engine here by running \`vg new ${slug} --engine <phaser|threejs from spec> --here --force\`, then \`npm install\`. Confirm \`npm run build\` works on the fresh template. Append what you did to journal.md.`;
-    case "assets":
-      return `Read ./.studio/spec.md and generate the initial art set for "${slug}" per your role instructions. This is the FIRST art pass — produce at least a hero, one enemy, one pickup, an impact VFX, and a background/tileset. Record frame sizes and file paths in journal.md.`;
-    case "build":
-      return `Read ./.studio/spec.md. Build the core gameplay loop for "${slug}" using the assets the artist generated (check journal.md for paths and frame sizes). Implement movement, the central mechanic, win/lose, and the mandatory craft pass. This is the first playable — make the first 10 seconds feel good. Verify with typecheck + build.`;
+      if (state.existingProject) {
+        return `${ctx}A project already exists in the current directory — do NOT run \`vg new\` (it would overwrite the existing code). Instead make it deployable: \`npm install\`, ensure \`npm run build\` and \`npm run typecheck\` succeed (add a typecheck script if missing), make sure a \`vibedgames.json\` with {"slug":"${slug}"} exists (\`vg deploy\` needs it), and add \`.studio/\` to .gitignore. Fix any build breakage. Append what you did to journal.md.`;
+      }
+      return `${ctx}Read ./.studio/spec.md for the engine choice. The current directory IS the game project root (it already contains the ./.studio folder). Scaffold the engine here by running \`vg new ${slug} --engine <phaser|threejs from spec> --here --force\`, then \`npm install\`. Confirm \`npm run build\` works on the fresh template. Append what you did to journal.md.`;
+    case "assets": {
+      const note = state.existingProject
+        ? "The project may already ship art — only generate what's MISSING or what the spec calls for; never delete existing assets."
+        : "This is the FIRST art pass — produce at least a hero, one enemy, one pickup, an impact VFX, and a background/tileset.";
+      return `${ctx}Read ./.studio/spec.md and produce the art for "${slug}" per your role instructions. ${note} Record frame sizes and file paths in journal.md.`;
+    }
+    case "build": {
+      const note = state.existingProject
+        ? "Build upon the EXISTING code (don't rewrite it from scratch); wire in the generated assets and bring the core loop up to the spec."
+        : "Implement movement, the central mechanic, win/lose, and the mandatory craft pass. This is the first playable — make the first 10 seconds feel good.";
+      return `${ctx}Read ./.studio/spec.md. Get the core gameplay loop for "${slug}" working using the assets the artist generated (check journal.md for paths and frame sizes). ${note} Verify with typecheck + build.`;
+    }
     case "playtest":
       return `Playtest the current build of "${slug}" per your role instructions and record findings in ./.studio/playtest.md and backlog.json.`;
     case "ship":

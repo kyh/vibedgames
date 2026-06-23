@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 /**
@@ -34,6 +35,17 @@ export type StudioState = {
    * the skip-ahead threshold and advances instead of getting stuck forever.
    */
   phaseFailures: number;
+  /** True when the studio is building ON an existing project in the game dir. */
+  existingProject: boolean;
+  /** True once the first playable build exists — gates deploy preemption. */
+  built: boolean;
+  /**
+   * Token of the last deploy approval that was acted on. Approval is "pending"
+   * only when the APPROVE sentinel's token differs from this — so consumption
+   * is authoritative in persisted state and a failed file delete can't let one
+   * approval trigger a second deploy.
+   */
+  lastApproval: string | null;
   shipped: boolean;
   deployUrl: string | null;
   totalCostUsd: number;
@@ -51,6 +63,7 @@ export type Blackboard = {
   next: string;
   playtest: string;
   journal: string;
+  context: string;
   stop: string;
   approve: string;
   lock: string;
@@ -67,10 +80,26 @@ export function blackboard(workspace: string): Blackboard {
     next: resolve(dir, "next.json"),
     playtest: resolve(dir, "playtest.md"),
     journal: resolve(dir, "journal.md"),
+    context: resolve(dir, "context.md"),
     stop: resolve(dir, "STOP"),
     approve: resolve(dir, "APPROVE"),
     lock: resolve(dir, "studio.lock"),
   };
+}
+
+/**
+ * Does the game directory already hold a project to build upon? True when it
+ * contains anything other than the studio's own bookkeeping — so pointing the
+ * studio at an existing app adopts it instead of scaffolding fresh.
+ */
+export function hasExistingProject(dir: string): boolean {
+  try {
+    if (!existsSync(dir)) return false;
+    const ignore = new Set([".studio", ".git", ".DS_Store"]);
+    return readdirSync(dir).some((entry) => !ignore.has(entry));
+  } catch {
+    return false;
+  }
 }
 
 export function initWorkspace(bb: Blackboard, seed: StudioState): StudioState {
@@ -116,40 +145,77 @@ export function clearStop(bb: Blackboard): void {
   }
 }
 
-/** A human has approved the current build for ONE deployment. */
-export function approvalRequested(bb: Blackboard): boolean {
-  return existsSync(bb.approve);
+/** The current approval token (APPROVE file contents), or null if none. */
+export function approvalToken(bb: Blackboard): string | null {
+  try {
+    const token = readFileSync(bb.approve, "utf8").trim();
+    return token || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Is there an unacted-on deploy approval? Pending only when the sentinel's
+ * token differs from the last one we consumed (tracked in persisted state), so
+ * a one-shot approval can't be re-used even if the file fails to delete.
+ */
+export function approvalPending(bb: Blackboard, lastApproval: string | null): boolean {
+  const token = approvalToken(bb);
+  return token !== null && token !== lastApproval;
 }
 
 /** Grant a one-shot deploy approval (written by `vg-studio approve`). */
 export function requestApproval(bb: Blackboard): void {
   mkdirSync(bb.dir, { recursive: true });
-  writeFileSync(bb.approve, `approved ${new Date().toISOString()}\n`);
+  // The nonce makes every approval a distinct token, so the orchestrator can
+  // tell a fresh approval from one it already deployed.
+  writeFileSync(bb.approve, `approved ${new Date().toISOString()} ${randomUUID()}\n`);
 }
 
-/** Consume the one-shot approval after a successful deploy. */
+/** Best-effort removal of the approval sentinel after it's been acted on. */
 export function consumeApproval(bb: Blackboard): void {
   try {
     if (existsSync(bb.approve)) rmSync(bb.approve);
   } catch {
-    /* ignore */
+    /* ignore — consumption is authoritative via state.lastApproval */
   }
 }
 
-/** The pid currently owning the workspace lock, or null if free/stale. */
-function lockOwner(bb: Blackboard): number | null {
+type LockStatus =
+  | { state: "free" } // no lock file
+  | { state: "alive"; pid: number } // a live owner (possibly another user's process)
+  | { state: "stale" } // dead owner, our own prior pid, or junk contents — reclaimable
+  | { state: "unknown" }; // exists but couldn't be read (transient IO) — do NOT reclaim
+
+/** Inspect the lock file without mutating it. */
+function readLock(bb: Blackboard): LockStatus {
+  let raw: string;
   try {
-    const { pid } = JSON.parse(readFileSync(bb.lock, "utf8")) as { pid?: number };
-    if (typeof pid !== "number" || !Number.isFinite(pid)) return null;
-    try {
-      process.kill(pid, 0); // probe liveness without signalling
-      return pid;
-    } catch (err) {
-      // EPERM => process exists but isn't ours; ESRCH => gone (stale lock).
-      return (err as NodeJS.ErrnoException).code === "EPERM" ? pid : null;
-    }
+    raw = readFileSync(bb.lock, "utf8");
+  } catch (err) {
+    // Gone => free to take. Any other read error (e.g. transient EACCES) is
+    // ambiguous; treat as held so we never delete a possibly-live lock.
+    return (err as NodeJS.ErrnoException).code === "ENOENT"
+      ? { state: "free" }
+      : { state: "unknown" };
+  }
+  let pid: number | undefined;
+  try {
+    pid = (JSON.parse(raw) as { pid?: number }).pid;
   } catch {
-    return null;
+    return { state: "stale" }; // corrupt contents — safe to reclaim
+  }
+  if (typeof pid !== "number" || !Number.isFinite(pid)) return { state: "stale" };
+  if (pid === process.pid) return { state: "stale" }; // our own lock from a prior run
+  try {
+    process.kill(pid, 0); // probe liveness without signalling
+    return { state: "alive", pid };
+  } catch (err) {
+    // EPERM => the process exists but isn't ours (alive); ESRCH => gone (stale).
+    return (err as NodeJS.ErrnoException).code === "EPERM"
+      ? { state: "alive", pid }
+      : { state: "stale" };
   }
 }
 
@@ -160,8 +226,8 @@ export const LOCK_BUSY_UNKNOWN = -1;
  * Take the per-workspace lock so only one studio runs per game. Claims it via
  * an atomic exclusive create (O_EXCL) so two simultaneous `start`s can't both
  * see an empty slot and proceed. Returns null on success; otherwise the live
- * owner pid (or LOCK_BUSY_UNKNOWN). A stale lock left by a dead process is
- * reclaimed.
+ * owner pid (or LOCK_BUSY_UNKNOWN). Only a genuinely stale lock is reclaimed —
+ * an unreadable lock file is treated as held, never deleted.
  */
 export function acquireLock(bb: Blackboard): number | null {
   mkdirSync(bb.dir, { recursive: true });
@@ -173,9 +239,10 @@ export function acquireLock(bb: Blackboard): number | null {
       return null;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
-      const owner = lockOwner(bb);
-      if (owner !== null && owner !== process.pid) return owner; // a live, different owner
-      // Stale (dead owner) or ours from a prior run — drop it and retry once.
+      const status = readLock(bb);
+      if (status.state === "alive") return status.pid;
+      if (status.state === "unknown") return LOCK_BUSY_UNKNOWN; // don't reclaim a lock we can't read
+      // free (vanished between create and read) or stale — drop and retry once.
       try {
         rmSync(bb.lock);
       } catch {
@@ -183,7 +250,8 @@ export function acquireLock(bb: Blackboard): number | null {
       }
     }
   }
-  return lockOwner(bb) ?? LOCK_BUSY_UNKNOWN;
+  const final = readLock(bb);
+  return final.state === "alive" ? final.pid : LOCK_BUSY_UNKNOWN;
 }
 
 /** Release the lock if (and only if) we own it. */
