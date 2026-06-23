@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, openSync, readSync, statSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { defineCommand, runMain } from "citty";
@@ -23,31 +23,56 @@ import {
 } from "./state.js";
 
 /** Cap how much of a context file we inline into the brief. */
-const MAX_CONTEXT_CHARS = 20_000;
+const MAX_CONTEXT_BYTES = 20_000;
+
+/** Read at most maxBytes from a file without loading the whole thing. */
+function readBounded(path: string, maxBytes: number): string {
+  const fd = openSync(path, "r");
+  try {
+    const buf = Buffer.alloc(maxBytes);
+    const n = readSync(fd, buf, 0, maxBytes, 0);
+    return buf.subarray(0, n).toString("utf8");
+  } finally {
+    closeSync(fd);
+  }
+}
 
 /**
  * Resolve the optional --context value into a brief (and maybe a reference dir
- * the agents get read access to). A path to a file is read inline; a path to a
- * directory becomes a reference the agents explore; anything else is literal
- * text.
+ * the agents get read access to). A path to a file is read inline (bounded); a
+ * path to a directory becomes a reference the agents explore; anything that
+ * isn't an existing path is treated as literal brief text. A path that exists
+ * but can't be read is a hard error (don't silently treat it as text).
  */
 function resolveContext(raw: string | undefined): { context?: string; contextDir?: string } {
   const value = (raw ?? "").trim();
   if (!value) return {};
   const p = resolve(process.cwd(), value);
+
+  let stat;
   try {
-    const st = existsSync(p) ? statSync(p) : null;
-    if (st?.isDirectory()) {
-      return {
-        contextDir: p,
-        context: `Reference material is provided in this directory (you have read access): ${p}\nExplore it and take direction from / build upon what's there.`,
-      };
+    stat = statSync(p);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return { context: value }; // not a path — a literal brief
     }
-    if (st?.isFile()) {
-      return { context: readFileSync(p, "utf8").slice(0, MAX_CONTEXT_CHARS) };
+    consola.error(`Could not access --context path ${p}: ${(err as Error).message}`);
+    process.exit(1);
+  }
+
+  if (stat.isDirectory()) {
+    return {
+      contextDir: p,
+      context: `Reference material is provided in this directory (you have read access): ${p}\nExplore it and take direction from / build upon what's there.`,
+    };
+  }
+  if (stat.isFile()) {
+    try {
+      return { context: readBounded(p, MAX_CONTEXT_BYTES) };
+    } catch (err) {
+      consola.error(`Could not read --context file ${p}: ${(err as Error).message}`);
+      process.exit(1);
     }
-  } catch {
-    /* fall through to literal text */
   }
   return { context: value };
 }
