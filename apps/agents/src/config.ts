@@ -38,3 +38,10 @@ export const DEFAULT_MODEL = "sonnet";
 
 /** Default per-role agentic turn ceiling. Keeps any single step bounded. */
 export const DEFAULT_MAX_TURNS = 40;
+
+/**
+ * Default idle watchdog: kill a specialist that emits no output for this long.
+ * Generous on purpose — a single `vg generate` poll can stay silent for ~30
+ * min — so it only ever catches a genuinely wedged session.
+ */
+export const DEFAULT_IDLE_MINUTES = 45;

@@ -22,6 +22,8 @@ export type StudioOptions = {
   workspace: string;
   model: string;
   maxTurns: number;
+  /** Kill a specialist that emits no output for this long (ms; 0 disables). */
+  idleTimeoutMs: number;
   /** 0 = run forever (until stopped). */
   maxCycles: number;
   /** ms to pause between specialist runs. */
@@ -144,6 +146,7 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
       cwd: opts.workspace,
       model: state.model,
       maxTurns: opts.maxTurns,
+      idleTimeoutMs: opts.idleTimeoutMs,
       claudeBin: claudeBin(),
       addDirs: [repoRoot],
       skipPermissions: opts.skipPermissions,

@@ -3,6 +3,12 @@ import { createInterface } from "node:readline";
 
 import consola from "consola";
 
+// Every resolution path funnels through the `settle()` helper below, which is
+// guarded by a `settled` flag so it resolves exactly once. oxlint's static
+// check can't see that guard and flags each settle() caller, so disable the
+// rule for this file.
+/* oxlint-disable promise/no-multiple-resolved */
+
 /**
  * After the stream-json `result` event arrives we already have the outcome.
  * Normally the CLI exits right after, but stream-json has a known failure mode
@@ -30,6 +36,12 @@ export type RunOptions = {
   signal?: AbortSignal;
   /** Label shown in streamed output, e.g. "engineer". */
   label: string;
+  /**
+   * Kill the session and fail if it produces NO output (no stream-json events,
+   * no stderr) for this long — a watchdog for a wedged `claude`/stuck tool.
+   * Reset on every event, so it never fires during active work. 0 disables it.
+   */
+  idleTimeoutMs: number;
 };
 
 export type RunResult = {
@@ -72,6 +84,33 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
     let stderr = "";
     let settled = false;
     let graceTimer: ReturnType<typeof setTimeout> | undefined;
+    let idleTimer: ReturnType<typeof setTimeout> | undefined;
+
+    // Watchdog: if the session produces no output at all for idleTimeoutMs, the
+    // process is wedged (or a tool is stuck) — kill it and fail so the phase
+    // loop and workspace lock can never block forever. Reset on every event, so
+    // it never trips during active work (long-but-busy runs keep emitting).
+    const pokeIdle = (): void => {
+      if (opts.idleTimeoutMs <= 0 || settled || gotResult) return;
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        try {
+          child?.kill("SIGKILL");
+        } catch {
+          /* already gone */
+        }
+        const idle =
+          opts.idleTimeoutMs >= 60_000
+            ? `${Math.round(opts.idleTimeoutMs / 60_000)}m`
+            : `${Math.round(opts.idleTimeoutMs / 1000)}s`;
+        settle({
+          ok: false,
+          result: "",
+          error: `no output for ${idle} — treating claude as hung`,
+        });
+      }, opts.idleTimeoutMs);
+      idleTimer.unref?.();
+    };
 
     // Resolve exactly once and release every handle we hold. Tearing down the
     // pipes/child matters because a killed child's orphaned grandchild can keep
@@ -81,6 +120,7 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
       if (settled) return;
       settled = true;
       if (graceTimer) clearTimeout(graceTimer);
+      if (idleTimer) clearTimeout(idleTimer);
       try {
         rl?.close();
       } catch {
@@ -93,8 +133,6 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
       } catch {
         /* ignore */
       }
-      // `settled` guarantees this runs once; oxlint can't see the guard.
-      // oxlint-disable-next-line promise/no-multiple-resolved
       resolvePromise(res);
     };
 
@@ -114,8 +152,11 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
       return;
     }
 
+    pokeIdle(); // arm the watchdog before the first byte arrives
+
     rl = createInterface({ input: child.stdout! });
     rl.on("line", (line) => {
+      pokeIdle(); // any output is a sign of life
       const trimmed = line.trim();
       if (!trimmed) return;
       let evt: StreamEvent;
@@ -127,6 +168,7 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
       printEvent(opts.label, evt);
       if (evt.type === "result") {
         gotResult = true;
+        if (idleTimer) clearTimeout(idleTimer); // grace timer governs from here
         final = {
           ok: evt.subtype === "success" && !evt.is_error,
           result: typeof evt.result === "string" ? evt.result : "",
@@ -151,6 +193,7 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
     });
 
     child.stderr!.on("data", (d: Buffer) => {
+      pokeIdle(); // stderr output is also a sign of life
       stderr += d.toString();
     });
 
