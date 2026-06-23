@@ -2,14 +2,14 @@
   "name": "@repo/agents",
   "version": "0.0.0",
   "private": true,
-  "bin": {
-    "vg-studio": "./dist/index.js"
-  },
   "type": "module",
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
-    "start": "node dist/index.js",
+    "start": "node dist/index.js start",
+    "stop": "node dist/index.js stop",
+    "status": "node dist/index.js status",
+    "approve": "node dist/index.js approve",
     "clean": "rm -rf .turbo dist node_modules .workspaces",
     "typecheck": "tsc --noEmit"
   },

@@ -104,7 +104,7 @@ const startCommand = defineCommand({
   meta: {
     name: "start",
     description:
-      "Start (or resume) the autonomous studio for a game. Builds the game end-to-end and evolves it like a studio until you stop it. Deploys are gated on `vg-studio approve` unless --auto-deploy is set.",
+      "Start (or resume) the autonomous studio for a game. Builds the game end-to-end and evolves it like a studio until you stop it. Deploys are gated on `pnpm approve <slug>` unless --auto-deploy is set.",
   },
   args: {
     slug: {
@@ -161,7 +161,7 @@ const startCommand = defineCommand({
     "auto-deploy": {
       type: "boolean",
       description:
-        "Deploy automatically without per-release approval. Default is OFF: nothing goes live until you run `vg-studio approve <slug>`.",
+        "Deploy automatically without per-release approval. Default is OFF: nothing goes live until you run `pnpm approve <slug>`.",
       default: false,
     },
     guarded: {
@@ -263,7 +263,7 @@ const statusCommand = defineCommand({
         `Iterations: ${state.iteration}`,
         `Shipped:    ${state.shipped ? "yes" : "no"}`,
         state.deployUrl ? `Live:       ${state.deployUrl}` : `Live:       —`,
-        `Approval:   ${approvalPending(bb, state.lastApproval) ? "pending — deploys the current build shortly" : "none (run `vg-studio approve` to publish)"}`,
+        `Approval:   ${approvalPending(bb, state.lastApproval) ? "pending — deploys the current build shortly" : "none (run `pnpm approve <slug>` to publish)"}`,
         `Spend:      ~$${state.totalCostUsd.toFixed(2)}`,
         `Updated:    ${state.updatedAt}`,
         `Game dir:   ${bb.root}`,
@@ -298,9 +298,9 @@ const approveCommand = defineCommand({
 
 const main = defineCommand({
   meta: {
-    name: "vg-studio",
+    name: "studio",
     description:
-      "vibedgames autonomous studio — a multi-agent loop that builds one browser game and evolves it like a studio. Deploys require approval (`vg-studio approve`).",
+      "vibedgames autonomous studio — a multi-agent loop that builds one browser game and evolves it like a studio. Run via pnpm scripts (start/stop/status/approve). Deploys require approval (`pnpm approve <slug>`).",
   },
   subCommands: {
     start: startCommand,

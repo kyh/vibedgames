@@ -86,7 +86,7 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
   if (owner !== null) {
     const who = owner > 0 ? `pid ${owner}` : "another process";
     consola.error(
-      `A studio is already running for "${opts.slug}" (${who}). Stop it first with \`vg-studio stop ${opts.slug}\`, or wait for it to finish.`,
+      `A studio is already running for "${opts.slug}" (${who}). Stop it first with \`pnpm stop ${opts.slug}\`, or wait for it to finish.`,
     );
     return false;
   }
@@ -221,10 +221,10 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
     // Deploys require explicit human approval unless --auto-deploy is set. When
     // there's no standing approval we don't even run the shipper: the build is
     // ready, we just don't publish it — the loop keeps improving the game
-    // locally until a human runs `vg-studio approve <slug>`.
+    // locally until a human runs `pnpm approve <slug>`.
     if (state.phase === "ship" && !opts.autoDeploy && !approvalPending(bb, state.lastApproval)) {
       consola.warn(
-        `Build ready but NOT deployed — approval required. Run \`vg-studio approve ${state.slug}\` to publish it (or start with --auto-deploy).`,
+        `Build ready but NOT deployed — approval required. Run \`pnpm approve ${state.slug}\` to publish it (or start with --auto-deploy).`,
       );
       appendJournal(bb, "ship: build ready, awaiting human approval (not deployed).");
       advance(state);
@@ -334,7 +334,7 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
       `Cycles run: ${state.cycle} · iterations: ${state.iteration}`,
       state.deployUrl ? `Live: ${state.deployUrl}` : "Not yet shipped.",
       `Approx spend: $${state.totalCostUsd.toFixed(2)}`,
-      `Resume anytime: vg-studio start ${state.slug}`,
+      `Resume anytime: pnpm start ${state.slug}`,
     ].join("\n"),
   );
   return true;
@@ -395,10 +395,10 @@ function banner(opts: StudioOptions, state: StudioState, repoRoot: string): void
         ? `Deploy:    disabled (--skip-ship)`
         : opts.autoDeploy
           ? `Deploy:    AUTOMATIC → ${state.slug}.vibedgames.com`
-          : `Deploy:    on approval only — \`vg-studio approve ${state.slug}\` → ${state.slug}.vibedgames.com`,
+          : `Deploy:    on approval only — \`pnpm approve ${state.slug}\` → ${state.slug}.vibedgames.com`,
       opts.maxCycles > 0
         ? `Stops at:  ${opts.maxCycles} cycles`
-        : `Runs:      until you stop it (Ctrl-C or \`vg-studio stop ${state.slug}\`)`,
+        : `Runs:      until you stop it (Ctrl-C or \`pnpm stop ${state.slug}\`)`,
     ]
       .filter(Boolean)
       .join("\n"),
@@ -408,7 +408,7 @@ function banner(opts: StudioOptions, state: StudioState, repoRoot: string): void
       ? "Deploys are disabled."
       : opts.autoDeploy
         ? "Deploys to production run AUTOMATICALLY."
-        : "Deploys are gated on `vg-studio approve` — nothing goes live without you.";
+        : "Deploys are gated on `pnpm approve <slug>` — nothing goes live without you.";
     consola.warn(
       `Running with --dangerously-skip-permissions: agents run shell/file tools and \`vg generate\` (which costs money) WITHOUT asking. ${deployNote} Stop with Ctrl-C.`,
     );

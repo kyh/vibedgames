@@ -167,7 +167,7 @@ export function approvalPending(bb: Blackboard, lastApproval: string | null): bo
   return token !== null && token !== lastApproval;
 }
 
-/** Grant a one-shot deploy approval (written by `vg-studio approve`). */
+/** Grant a one-shot deploy approval (written by `pnpm approve <slug>`). */
 export function requestApproval(bb: Blackboard): void {
   mkdirSync(bb.dir, { recursive: true });
   // The nonce makes every approval a distinct token, so the orchestrator can
