@@ -36,11 +36,11 @@ const extractApiKeys = (headers: Headers): string[] => {
   const direct = headers.get("x-api-key");
   if (direct?.startsWith(API_KEY_PREFIX)) candidates.push(direct);
 
+  // The auth scheme is case-insensitive per RFC 6750/7235, so match `Bearer`
+  // in any case (and tolerate extra whitespace) — some clients send `bearer`.
   const auth = headers.get("authorization");
-  if (auth?.startsWith("Bearer ")) {
-    const token = auth.slice("Bearer ".length).trim();
-    if (token.startsWith(API_KEY_PREFIX)) candidates.push(token);
-  }
+  const token = auth ? /^Bearer\s+(.+)$/i.exec(auth)?.[1]?.trim() : undefined;
+  if (token?.startsWith(API_KEY_PREFIX)) candidates.push(token);
 
   // De-dup so the same key in both headers isn't verified twice.
   return [...new Set(candidates)];
