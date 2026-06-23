@@ -137,6 +137,20 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
       break;
     }
 
+    // The operator approved a deploy — ship the CURRENT build promptly instead
+    // of iterating further, so what goes live is the build they approved rather
+    // than a newer, unreviewed one.
+    if (
+      state.phase !== "ship" &&
+      !opts.autoDeploy &&
+      !opts.noShip &&
+      approvalRequested(bb)
+    ) {
+      consola.info("Approval received — shipping the current build before continuing.");
+      state.phase = "ship";
+      saveState(bb, state);
+    }
+
     // Optionally skip shipping (no prod deploy) while testing.
     if (state.phase === "ship" && opts.noShip) {
       consola.info("--skip-ship set; skipping the ship phase.");
@@ -200,6 +214,9 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
         consola.warn(
           `${MAX_RETRIES} consecutive failures on "${phase}" — skipping ahead to avoid a stuck loop.`,
         );
+        // A spent attempt consumes the deploy approval too, so a broken ship
+        // can't re-trigger itself forever; the operator can re-approve.
+        if (phase === "ship") consumeApproval(bb);
         advance(state);
         saveState(bb, state);
         failures = 0;

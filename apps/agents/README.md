@@ -20,10 +20,12 @@ vg-studio stop    neon-slasher    # graceful stop (or just Ctrl-C the running pr
 ### Deploys need your approval
 
 By default **nothing goes live without you.** The studio builds, playtests, and
-keeps improving the game locally; when it reaches a release point it stops at the
-gate and waits. Run `vg-studio approve <slug>` to publish the current build —
-that grants **one** deployment, and the next release needs fresh approval. Pass
-`--auto-deploy` on `start` to opt into continuous, unattended deploys instead.
+keeps improving the game locally; when it reaches a release point it does **not**
+publish — it just records that a build is ready. Run `vg-studio approve <slug>`
+and the studio ships the **current** build (after the in-flight step finishes,
+so what goes live is the build you approved, not a newer one). Approval grants
+**one** deployment; the next release needs fresh approval. Pass `--auto-deploy`
+on `start` to opt into continuous, unattended deploys instead.
 
 ### Choosing where the game lives
 

@@ -191,7 +191,7 @@ const statusCommand = defineCommand({
         `Iterations: ${state.iteration}`,
         `Shipped:    ${state.shipped ? "yes" : "no"}`,
         state.deployUrl ? `Live:       ${state.deployUrl}` : `Live:       —`,
-        `Approval:   ${approvalRequested(bb) ? "pending — will deploy at next ship" : "none (run `vg-studio approve` to publish)"}`,
+        `Approval:   ${approvalRequested(bb) ? "pending — deploys the current build shortly" : "none (run `vg-studio approve` to publish)"}`,
         `Spend:      ~$${state.totalCostUsd.toFixed(2)}`,
         `Updated:    ${state.updatedAt}`,
         `Game dir:   ${bb.root}`,
@@ -219,7 +219,7 @@ const approveCommand = defineCommand({
     }
     requestApproval(bb);
     consola.success(
-      `Approved "${slug}" for one deployment. It will publish at the next ship step (or now, if the studio is waiting).`,
+      `Approved "${slug}" for one deployment. A running studio publishes the current build shortly (after the in-flight step finishes); the next release needs fresh approval.`,
     );
   },
 });
