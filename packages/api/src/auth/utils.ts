@@ -23,12 +23,20 @@ export const slugify = (str: string) => {
 const UNAMBIGUOUS_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 /**
- * 6-char alphanumeric code from an unambiguous alphabet (no `0/O/1/I`) so it
- * stays readable when copied by hand or read aloud. Shared by both the CLI
+ * Length of CLI device-codes and invite codes. The single source of truth for
+ * this contract: the web signup form enters invite codes through a fixed-length
+ * alphanumeric OTP field of this size, so minting (here) and redemption (the
+ * form) can't drift.
+ */
+export const INVITE_CODE_LENGTH = 6;
+
+/**
+ * Alphanumeric code from an unambiguous alphabet (no `0/O/1/I`) so it stays
+ * readable when copied by hand or read aloud. Shared by both the CLI
  * device-code auth flow and the invite-code system.
  */
 export const generateShortCode = () => {
-  const bytes = crypto.getRandomValues(new Uint8Array(6));
+  const bytes = crypto.getRandomValues(new Uint8Array(INVITE_CODE_LENGTH));
   let code = "";
   for (const b of bytes) {
     code += UNAMBIGUOUS_ALPHABET[b % UNAMBIGUOUS_ALPHABET.length];
