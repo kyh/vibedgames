@@ -239,6 +239,16 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
     const role = ROLES[roleForPhase(phase, bb)];
     const task = buildTask(phase, state, bb);
 
+    // A work phase mutates the game, so the prior scaffold/build/playtest no
+    // longer verifies the current tree. Drop `built` here; the next playtest
+    // (or build) re-establishes it. Without this, a playtest that exhausts its
+    // retries and skips ahead would let ship deploy — or burn an approval on —
+    // a tree QA never passed.
+    if (phase === "work" && state.built) {
+      state.built = false;
+      saveState(bb, state);
+    }
+
     consola.log("");
     consola.start(
       `${role.emoji} ${role.name} — phase "${phase}" · cycle ${state.cycle + 1}${
