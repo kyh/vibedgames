@@ -116,3 +116,11 @@ Schema workflow: edit `packages/db/src/drizzle-schema*.ts` → `pnpm db:push-loc
 `pnpm dogfood` builds + npm-links the local `vg` CLI and syncs `.claude/skills/` to match `plugins/*/skills/*` (creates new relative symlinks, removes stale ones). Symlinks are committed, so a fresh clone gets working skills automatically — only the `npm link` step is per-machine. `pnpm dogfood:reset` undoes the link.
 
 Re-run `pnpm dogfood` after adding or removing a skill, then commit the symlink change in `.claude/skills/`.
+
+## Claude Code on the web (remote sessions)
+
+A fresh remote clone resolves `.claude/skills/` automatically (the symlinks are committed), but `node_modules` and the `vg` CLI are not present and `vg` is not on PATH. Most sessions only need `pnpm install`; for end-to-end CLI testing (`vg deploy`/`generate`/`whoami`) run `pnpm install && pnpm dogfood` (see Dogfooding above). To reach the backend you also need:
+
+- **Auth:** `VG_TOKEN` set as an environment secret (device-code `vg login` needs a browser and blocks an agent). `VG_API_URL` defaults to prod; override for local/staging.
+- **Network:** egress allowed to `registry.npmjs.org` and the target API host.
+- **Prod-R2 footgun (above):** a successful `vg deploy` writes to **production** R2 regardless of which D1 the API points at.
