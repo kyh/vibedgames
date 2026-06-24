@@ -119,17 +119,8 @@ Re-run `pnpm dogfood` after adding or removing a skill, then commit the symlink 
 
 ## Claude Code on the web (remote sessions)
 
-Remote sessions clone the repo fresh into an ephemeral container. The committed `.claude/skills/` symlinks mean **skills resolve without any setup** — but `node_modules` and the `vg` CLI are not present, and `vg` is not on PATH. Most sessions (editing web/party/game code, running `pnpm typecheck`/`lint`/tests) only need `pnpm install`.
+A fresh remote clone resolves `.claude/skills/` automatically (the symlinks are committed), but `node_modules` and the `vg` CLI are not present and `vg` is not on PATH. Most sessions only need `pnpm install`; for end-to-end CLI testing (`vg deploy`/`generate`/`whoami`) run `pnpm install && pnpm dogfood` (see Dogfooding above). To reach the backend you also need:
 
-Full end-to-end `vg` testing is an explicit activity, not something every session needs, so setup isn't automated. When you actually need to exercise the CLI end-to-end (`vg deploy`, `vg generate`, `vg whoami`), run the one-shot setup yourself:
-
-```bash
-pnpm install && pnpm dogfood   # installs deps, builds + npm-links vg, syncs skills
-```
-
-For `vg` to reach the backend from a remote session you also need:
-
-- **Auth:** set `VG_TOKEN` as an environment secret on the cloud environment. Device-code `vg login` needs a browser and will block an agent. `VG_API_URL` defaults to prod (`vibedgames.com`); override it for local/staging. (See the headless-auth note above for the local seeded token.)
-- **Network:** the environment's network policy must allow egress to `registry.npmjs.org` (for `pnpm install`) and the target API host.
-
-Heed the prod-R2 footgun above: a successful `vg deploy` writes to **production** R2 regardless of which D1 the API points at.
+- **Auth:** `VG_TOKEN` set as an environment secret (device-code `vg login` needs a browser and blocks an agent). `VG_API_URL` defaults to prod; override for local/staging.
+- **Network:** egress allowed to `registry.npmjs.org` and the target API host.
+- **Prod-R2 footgun (above):** a successful `vg deploy` writes to **production** R2 regardless of which D1 the API points at.
