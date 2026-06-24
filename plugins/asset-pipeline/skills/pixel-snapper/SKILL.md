@@ -1,6 +1,6 @@
 ---
 name: pixel-snapper
-description: "Recover the true low-resolution pixel grid from upscaled or AI-generated fake pixel art PNGs. Use for snap-to-grid cleanup, native-resolution sprite assets, palette-quantized game art, and known-layout spritesheets. Bundles uv Python scripts ported from Hugo Duprez's spritefusion-pixel-snapper. Routing: asset phase; refines output of `pixel-art`; then `animation`/`phaser`."
+description: "Recover the true low-resolution pixel grid from upscaled or AI-generated fake pixel art PNGs. Use for snap-to-grid cleanup, native-resolution sprite assets, palette-quantized game art, and known-layout spritesheets. Bundles uv Python scripts ported from Hugo Duprez's spritefusion-pixel-snapper."
 metadata:
   short-description: "Recover native pixel grids from fake pixel art."
 ---

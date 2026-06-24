@@ -1,6 +1,6 @@
 ---
 name: design-lenses
-description: "Structured game-design critique: review a game through Schell's design lenses and the MDA framework, producing severity-ranked findings with concrete fixes. Use when the user asks 'is my game fun?', 'review my game design', 'why is it boring?', 'critique this game', 'what's missing?', 'how do I make it better?' (design-level, not bug-level), or before shipping as a design QA pass. For feel/juice tuning go to game-feel; for bugs use code review. Routing: craft phase (design QA); use `game-feel` instead for feel/juice tuning, not code-level bugs."
+description: "Structured game-design critique: review a game through Schell's design lenses and the MDA framework, producing severity-ranked findings with concrete fixes. Use when the user asks 'is my game fun?', 'review my game design', 'why is it boring?', 'critique this game', 'what's missing?', 'how do I make it better?' (design-level, not bug-level), or before shipping as a design QA pass. For feel/juice tuning go to game-feel; for bugs use code review."
 ---
 
 # Design lens review

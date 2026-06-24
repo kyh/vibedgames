@@ -11,7 +11,7 @@ description: >
   generation (nano-banana-pro / gpt-image-2), sprite sheet animation (nano/edit
   or fal-ai/gpt-image-2/edit), top-down 4-directional walkers, background removal
   (Bria), background generation (parallax layers or isometric map), and animated
-  VFX derived from a generated video rendered with additive blend. Routing: asset phase; runs through `generate`; then `pixel-snapper` to clean fakes, `animation` to refine frames, `phaser` to wire them in.
+  VFX derived from a generated video rendered with additive blend.
 metadata:
   author: vibedgames
   version: "0.1.0"

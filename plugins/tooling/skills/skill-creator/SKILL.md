@@ -1,6 +1,6 @@
 ---
 name: skill-creator
-description: "Enhanced skill creation framework emphasizing philosophy-first design, anti-pattern prevention, and variation encouragement. Use when creating new skills, improving existing skills, analyzing skill quality, or when users request help designing effective skills that unlock capabilities rather than constraining them. Includes analysis tools and upgrade suggestions for existing skills. Routing: meta; authors the skills the rest of the suite is made of."
+description: "Enhanced skill creation framework emphasizing philosophy-first design, anti-pattern prevention, and variation encouragement. Use when creating new skills, improving existing skills, analyzing skill quality, or when users request help designing effective skills that unlock capabilities rather than constraining them. Includes analysis tools and upgrade suggestions for existing skills."
 ---
 
 # Skill Creator Plus
@@ -335,7 +335,7 @@ An effective skill should:
 - [ ] **Provide specifics** - concrete over abstract
 - [ ] **Stay concise** - lean SKILL.md, details in references
 - [ ] **Compose well** - work with other skills
-- [ ] **Route clearly** - in a skill suite, end the `description` with a routing clause (phase + handoff/disambiguation edges) per references/routing-grammar.md, and make sure any orchestrator skill references this one
+- [ ] **Index in the orchestrator** - in a skill suite with an orchestrator (e.g. game-playbook), add a new build-step skill to that orchestrator's build-order index rather than annotating the skill with edges pointing back. Per-skill routing tails were tried and didn't move agent selection — see references/routing-grammar.md
 
 Run analyze_skill.py to check these objectively.
 
@@ -454,10 +454,10 @@ Skills work together automatically based on descriptions. Design for composition
 
 See references/composability.md for detailed composability patterns. For a
 **suite** of related skills that form a dependency stack (like vibedgames'
-engine → asset → craft → ship skills), see references/routing-grammar.md — a
-consistent prose convention for noting build-order and disambiguation hints in
-the `description`. These are human-readable cross-references, not a parsed format;
-the load-bearing one is the orchestrator skill's build-order index.
+engine → asset → craft → ship skills), see references/routing-grammar.md — the
+short version is that the one cross-reference shown to move agent routing is the
+orchestrator skill's build-order index in its `description`; per-skill edge
+annotations were tried and dropped.
 
 ---
 

@@ -1,6 +1,6 @@
 ---
 name: teach-me
-description: "Teach the user end-to-end browser game development over multiple sessions — design, engine, art, audio, juice, multiplayer, shipping — by building real games together. Use when the user wants to LEARN to make games themselves: 'teach me game development', 'I want to learn to make games', 'teach me Phaser', 'how do games work, teach me'. Not for when the user just wants a game built for them — use game-playbook for that. Routing: meta (learning track); use `game-playbook` instead to just get a game built."
+description: "Teach the user end-to-end browser game development over multiple sessions — design, engine, art, audio, juice, multiplayer, shipping — by building real games together. Use when the user wants to LEARN to make games themselves: 'teach me game development', 'I want to learn to make games', 'teach me Phaser', 'how do games work, teach me'. Not for when the user just wants a game built for them — use game-playbook for that."
 argument-hint: "What part of game development do you want to learn?"
 ---
 

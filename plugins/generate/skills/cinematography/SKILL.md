@@ -3,7 +3,7 @@ name: cinematography
 description: >
   Design cinematic image and video prompts for `vg generate`. Use this for shot
   language, camera movement, lighting, lens choices, color grade, film texture,
-  scene blocking, and production-ready visual direction. Routing: asset phase; runs through `generate`; pairs with `storytelling`/`media-workflow`.
+  scene blocking, and production-ready visual direction.
 ---
 
 # Cinematography with `vg generate`

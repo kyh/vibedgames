@@ -492,20 +492,15 @@ Skill C (metadata loaded) ──┘
 
 The principles above assume **orthogonal** skills that combine multiplicatively
 and don't know about each other. Some skill sets aren't like that — they form a
-**dependency stack** where one skill's output feeds the next (the Layer Cake
-pattern, made explicit). The vibedgames suite is the canonical example:
+**dependency stack** where one skill's output feeds the next (generate → pixel-art
+→ game-feel → deploy), sequenced by an orchestrator skill. The vibedgames suite is
+the canonical example.
 
-```
-craft    (game-feel, vfx, animation)         ← judgment applied on top
-workflow (pixel-art, animated-spritesheets)  ← procedures that compose verbs
-capability (generate, deploy)                ← raw tools
-```
-
-For these, "avoid explicit cross-references" is too strict. The right move is to
-note the edges — *runs through*, *then*, *use X instead* — in a consistent prose
-vocabulary, while keeping each skill independently usable (the references are
-hints, not imports). See **routing-grammar.md** for that convention, including a
-note on how much it actually moves agent behavior.
+For these, "avoid explicit cross-references" is too strict — but the useful
+cross-reference turns out to be just one: the **orchestrator's build-order index**
+in its description. Per-skill edge annotations were tried and didn't measurably
+change agent routing. See **routing-grammar.md** for what was kept, what was
+dropped, and the eval behind it.
 
 The line to hold: a **routing hint** ("the natural next step is `X`") is fine; a
 **hard dependency** ("first run the X skill, then…") that breaks the skill when

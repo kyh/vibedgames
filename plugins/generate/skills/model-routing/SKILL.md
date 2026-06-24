@@ -4,7 +4,7 @@ description: >
   Choose default model endpoint IDs for the production skills in this
   plugin. Use this with character-design, cinematography, storytelling,
   pixel-art, regenerate-3d, and media-workflow when the user
-  has not named a specific model. Routing: meta (default-endpoint reference); consulted by `character-design`, `cinematography`, `storytelling`, `pixel-art`, `regenerate-3d`, `media-workflow`.
+  has not named a specific model.
 ---
 
 # Model routing

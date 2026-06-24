@@ -7,7 +7,7 @@ description: >
   "upload an asset", "queue async job", "track request", or any direct
   interaction with the model endpoint catalog. This is the foundational skill.
   Every other media skill in this repo executes its work through `vg generate`
-  commands. Use `--json` whenever the output will be parsed by an agent. Routing: capability; the generate-plugin skills all run through this.
+  commands. Use `--json` whenever the output will be parsed by an agent.
 ---
 
 # vg generate: model endpoint runner
