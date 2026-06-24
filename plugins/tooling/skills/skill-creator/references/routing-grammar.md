@@ -16,8 +16,9 @@ skipped the craft pass. That single win traced entirely to **one line** —
 `game-playbook`'s description naming its build order:
 
 ```
-… Build order it sequences: `phaser`/`threejs` → `pixel-art` →
-`game-feel`/`vfx`/`animation` → `playwright` → `deploy`.
+… Build order it sequences: scaffold (`phaser`/`threejs`) → art (`pixel-art`)
+→ core loop (`phaser`/`threejs`) → craft (`game-feel`/`vfx`/`animation`) →
+verify (`playwright`) → ship (`deploy`).
 ```
 
 The orchestrator is selected first and routes the rest of the build from there,
