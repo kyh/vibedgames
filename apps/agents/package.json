@@ -1,0 +1,23 @@
+{
+  "name": "@repo/agents",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.ts start",
+    "stop": "node src/index.ts stop",
+    "status": "node src/index.ts status",
+    "approve": "node src/index.ts approve",
+    "clean": "rm -rf .turbo .cache node_modules .workspaces",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "citty": "^0.2.2",
+    "consola": "^3.4.2"
+  },
+  "devDependencies": {
+    "@kyh/tsconfig": "catalog:",
+    "@types/node": "catalog:",
+    "typescript": "catalog:"
+  }
+}

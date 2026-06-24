@@ -44,7 +44,7 @@ Run in parallel:
   LAST=$(git tag --list '<tag-prefix>*' --sort=-v:refname | head -1)
   git log --oneline ${LAST:+$LAST..}HEAD -- <pkg-path>
   ```
-  If the log is empty and `--force` was not passed, **drop that package from the release set** with a note. Release whatever remains — a single changed package (e.g. only `@vibedgames/gamepad`) still ships. Stop only if *every* candidate drops (nothing to release).
+  If the log is empty and `--force` was not passed, **drop that package from the release set** with a note. Release whatever remains — a single changed package (e.g. only `@vibedgames/gamepad`) still ships. Stop only if _every_ candidate drops (nothing to release).
 
 ### 2. Bump
 

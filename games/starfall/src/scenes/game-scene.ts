@@ -722,7 +722,12 @@ export class GameScene extends Phaser.Scene {
       [-MASK_PAD, -MASK_PAD, WORLD_W + MASK_PAD * 2, MASK_PAD - WORLD_BLEED_PX],
       [-MASK_PAD, WORLD_H + WORLD_BLEED_PX, WORLD_W + MASK_PAD * 2, MASK_PAD - WORLD_BLEED_PX],
       [-MASK_PAD, -WORLD_BLEED_PX, MASK_PAD - WORLD_BLEED_PX, WORLD_H + WORLD_BLEED_PX * 2],
-      [WORLD_W + WORLD_BLEED_PX, -WORLD_BLEED_PX, MASK_PAD - WORLD_BLEED_PX, WORLD_H + WORLD_BLEED_PX * 2],
+      [
+        WORLD_W + WORLD_BLEED_PX,
+        -WORLD_BLEED_PX,
+        MASK_PAD - WORLD_BLEED_PX,
+        WORLD_H + WORLD_BLEED_PX * 2,
+      ],
     ];
     for (const [x, y, w, h] of edges) {
       this.add.rectangle(x, y, w, h, 0x020617).setOrigin(0).setDepth(50);
@@ -1009,8 +1014,7 @@ export class GameScene extends Phaser.Scene {
   /** Rewrite the attract hint for the touch control scheme. Fired once, the
    *  first time the gamepad sees a finger. */
   private enterTouchMode(): void {
-    if (this.attractEl)
-      this.attractEl.innerHTML = "Drag to move. Tap to shoot";
+    if (this.attractEl) this.attractEl.innerHTML = "Drag to move. Tap to shoot";
   }
 
   /** Holding fire: any non-stick finger on touch, or the mouse button on desktop. */
@@ -1743,7 +1747,8 @@ export class GameScene extends Phaser.Scene {
         b.head.y += Math.sin(b.angle) * step;
         b.tail.x = b.head.x - Math.cos(b.angle) * b.weapon.length;
         b.tail.y = b.head.y - Math.sin(b.angle) * b.weapon.length;
-        if (!inWorld(b.head.x, b.head.y, BEAM_CULL_MARGIN, this.world.playW, this.world.playH)) b.vanished = true;
+        if (!inWorld(b.head.x, b.head.y, BEAM_CULL_MARGIN, this.world.playW, this.world.playH))
+          b.vanished = true;
         continue;
       }
       // HOMING: steer toward the live lock, capped turn rate.
@@ -1769,7 +1774,10 @@ export class GameScene extends Phaser.Scene {
         continue;
       }
       // RICOCHET: bounce off the world edge while bounces remain.
-      if (b.bouncesLeft > 0 && !inWorld(b.head.x, b.head.y, 0, this.world.playW, this.world.playH)) {
+      if (
+        b.bouncesLeft > 0 &&
+        !inWorld(b.head.x, b.head.y, 0, this.world.playW, this.world.playH)
+      ) {
         this.ricochetEdgeBounce(b);
       }
       if (!inWorld(b.head.x, b.head.y, BEAM_CULL_MARGIN, this.world.playW, this.world.playH)) {
@@ -3937,7 +3945,13 @@ export class GameScene extends Phaser.Scene {
           sim.fireAt = 0;
           sim.nextAttackAt = now + BOSS_P3_CYCLE_MS;
           for (let i = 0; i < BOSS_P3_NOVA_COUNT; i++) {
-            this.hostSpawnShot(e.x, e.y, (Math.PI * 2 * i) / BOSS_P3_NOVA_COUNT, BOSS_SHOT_SPEED, now);
+            this.hostSpawnShot(
+              e.x,
+              e.y,
+              (Math.PI * 2 * i) / BOSS_P3_NOVA_COUNT,
+              BOSS_SHOT_SPEED,
+              now,
+            );
           }
           // Cap the brood so a long phase-3 can't balloon enemies[] unbounded.
           if (sim.broodCount < BOSS_BROOD_CAP) this.hostBirthMites(e, BOSS_P3_MITES, now);
@@ -3994,7 +4008,8 @@ export class GameScene extends Phaser.Scene {
     let placed: { x: number; y: number; ang: number } | null = null;
     for (let i = 0; i < 8 && !placed; i++) {
       const c = edgeSpawn(30, this.world.playW, this.world.playH);
-      if (players.every((p) => Math.hypot(p.x - c.x, p.y - c.y) >= ENEMY_SPAWN_CLEARANCE)) placed = c;
+      if (players.every((p) => Math.hypot(p.x - c.x, p.y - c.y) >= ENEMY_SPAWN_CLEARANCE))
+        placed = c;
     }
     if (!placed) return;
     const e = spawnEnemyState("dreadnought", placed.x, placed.y);
@@ -4700,10 +4715,18 @@ export class GameScene extends Phaser.Scene {
       if (boss) {
         // Big multi-ring death blast for the marquee kill.
         this.fx.ring(x, y, 10, 140, 500, 0xffffff, 0.9);
-        this.fx.sparks(x, y, 40, spec.tint, { speedMin: 120, speedMax: 360, lifeMin: 300, lifeMax: 600 });
+        this.fx.sparks(x, y, 40, spec.tint, {
+          speedMin: 120,
+          speedMax: 360,
+          lifeMin: 300,
+          lifeMax: 600,
+        });
       }
       if (this.onScreen(x, y)) {
-        sfx.play("enemy_death", boss ? { gain: 1.5, rate: 0.6 } : big ? { gain: 1.3, rate: 0.8 } : {});
+        sfx.play(
+          "enemy_death",
+          boss ? { gain: 1.5, rate: 0.6 } : big ? { gain: 1.3, rate: 0.8 } : {},
+        );
         this.trauma.add(boss ? 0.5 : big ? 0.18 : 0.1);
       }
       rec.gfx.destroy();
@@ -4773,7 +4796,11 @@ export class GameScene extends Phaser.Scene {
           // Phase-1/3 muzzle bloom during the windup.
           const p = Math.min(1, (e.telegraphUntil - now) / 600);
           g.fillStyle(ENEMY_SPECS.dreadnought.tint, 0.5);
-          g.fillCircle(e.x + Math.cos(e.angle) * 40, e.y + Math.sin(e.angle) * 40, 4 + 10 * (1 - p));
+          g.fillCircle(
+            e.x + Math.cos(e.angle) * 40,
+            e.y + Math.sin(e.angle) * 40,
+            4 + 10 * (1 - p),
+          );
         }
       }
     }
@@ -5850,13 +5877,7 @@ function blinkAlpha(now: number): number {
   return Math.floor(now / INVULN_BLINK_MS) % 2 === 0 ? 0.9 : 0.3;
 }
 
-function inWorld(
-  x: number,
-  y: number,
-  margin: number,
-  w = WORLD_W,
-  h = WORLD_H,
-): boolean {
+function inWorld(x: number, y: number, margin: number, w = WORLD_W, h = WORLD_H): boolean {
   return x >= -margin && x <= w + margin && y >= -margin && y <= h + margin;
 }
 

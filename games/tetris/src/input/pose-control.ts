@@ -103,7 +103,15 @@ export class PoseControls {
     const rightHip = find("right_hip");
     const nose = find("nose");
 
-    if (!leftWrist || !rightWrist || !leftShoulder || !rightShoulder || !leftHip || !rightHip || !nose) {
+    if (
+      !leftWrist ||
+      !rightWrist ||
+      !leftShoulder ||
+      !rightShoulder ||
+      !leftHip ||
+      !rightHip ||
+      !nose
+    ) {
       this.hasPrev = false;
       return;
     }
@@ -150,7 +158,10 @@ export class PoseControls {
       const shoulderSign = Math.sign(rightShoulder.x - leftShoulder.x);
       const wristSign = Math.sign(rightWrist.x - leftWrist.x);
       const wristsAtChest =
-        leftWrist.y > shoulderY && leftWrist.y < hipY && rightWrist.y > shoulderY && rightWrist.y < hipY;
+        leftWrist.y > shoulderY &&
+        leftWrist.y < hipY &&
+        rightWrist.y > shoulderY &&
+        rightWrist.y < hipY;
       const crossed = shoulderSign !== 0 && wristSign === -shoulderSign && wristsAtChest;
       if (!crossed) this.holdArmed = true;
       if (this.holdArmed && crossed && now - this.lastHoldTime > HOLD_COOLDOWN_MS) {
@@ -242,7 +253,10 @@ export class PoseControls {
     this.circleAngle = ang;
     this.hasCircleAngle = true;
 
-    if (Math.abs(this.circleAccum) > CIRCLE_TRIGGER_RAD && now - this.lastOrbitTime > ORBIT_COOLDOWN_MS) {
+    if (
+      Math.abs(this.circleAccum) > CIRCLE_TRIGGER_RAD &&
+      now - this.lastOrbitTime > ORBIT_COOLDOWN_MS
+    ) {
       this.actions.orbit(this.circleAccum > 0 ? 1 : -1);
       this.lastOrbitTime = now;
       this.circleAccum = 0;

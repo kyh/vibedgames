@@ -44,6 +44,9 @@ yarn-error.log*
 # turbo
 .turbo
 
+# autonomous game studio (apps/agents) — generated game workspaces
+apps/agents/.workspaces/
+
 # Supabase
 .branches
 .temp

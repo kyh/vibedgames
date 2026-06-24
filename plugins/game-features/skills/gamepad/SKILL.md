@@ -27,7 +27,7 @@ npm install @vibedgames/gamepad
 ## Core concepts
 
 - **Floating stick** — the first free touch anchors a virtual analog stick wherever the finger lands; dragging from the anchor steers. Reads back as `angle` + `magnitude` (0–1 thrust after a dead zone).
-- **Action buttons** — either **fixed** (a circle pinned on-screen, e.g. a bottom-right bomb/jump button) or **"rest"** (no position — catches *any* touch that isn't the stick or a fixed button; this is the "any second finger fires" model).
+- **Action buttons** — either **fixed** (a circle pinned on-screen, e.g. a bottom-right bomb/jump button) or **"rest"** (no position — catches _any_ touch that isn't the stick or a fixed button; this is the "any second finger fires" model).
 - **Touch is the overlay.** The adapter ignores the mouse, so a desktop game keeps whatever controls it already had. `isTouch` flips true the first time a finger lands — use it to switch control schemes or swap an on-screen hint.
 
 ### Touch routing
@@ -35,7 +35,7 @@ npm install @vibedgames/gamepad
 Each touch-down is routed in order: **fixed buttons → the stick → a "rest" button**. This one model covers both common layouts:
 
 - **Twin-stick / shooter:** a stick + a rest "fire" button → move with one thumb, any other finger fires.
-- **Grid / platformer:** a stick + a *fixed* action button → move with the stick, tap the button to bomb/jump.
+- **Grid / platformer:** a stick + a _fixed_ action button → move with the stick, tap the button to bomb/jump.
 
 ## Phaser quickstart (twin-stick shooter)
 
@@ -101,7 +101,7 @@ if (dir) this.step(dir);
 
 ## Keep desktop controls; touch is additive
 
-The gamepad never touches the mouse path, so wire it *alongside* your existing
+The gamepad never touches the mouse path, so wire it _alongside_ your existing
 keyboard/mouse code and read whichever is active:
 
 ```ts
@@ -128,15 +128,15 @@ if (this.gamepad.isTouch) {
 ```ts
 attachVirtualGamepad(this, {
   stick: {
-    radius: 64,      // drag distance (px) that maps to full magnitude
-    deadZone: 8,     // no thrust / no re-aim within this drag (parked thumb)
-    knobRadius: 26,  // visual puck size
+    radius: 64, // drag distance (px) that maps to full magnitude
+    deadZone: 8, // no thrust / no re-aim within this drag (parked thumb)
+    knobRadius: 26, // visual puck size
   },
   // stick: false,   // disable the stick entirely (buttons-only)
-  extraPointers: 2,  // simultaneous touches beyond the default (default 2 → 3 total)
+  extraPointers: 2, // simultaneous touches beyond the default (default 2 → 3 total)
   render: {
-    depth: 95,                        // above the world, below a DOM HUD
-    tint: 0xffffff,                   // knob + button color
+    depth: 95, // above the world, below a DOM HUD
+    tint: 0xffffff, // knob + button color
     blendMode: Phaser.BlendModes.ADD, // ADD glows on dark scenes; NORMAL for bright
   },
 });

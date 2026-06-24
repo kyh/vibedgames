@@ -39,7 +39,11 @@ export class Collapse {
         (Math.random() - 0.5) * 6,
         (Math.random() - 0.5) * 6,
       );
-      body.velocity.set((Math.random() - 0.5) * 4 * lift, 2 * lift, (Math.random() - 0.5) * 4 * lift);
+      body.velocity.set(
+        (Math.random() - 0.5) * 4 * lift,
+        2 * lift,
+        (Math.random() - 0.5) * 4 * lift,
+      );
       world.addBody(body);
       this.pairs.push({ mesh, body });
     }

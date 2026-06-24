@@ -13,13 +13,33 @@ export type Move = { dx: number; dz: number };
 // mapping a quarter turn so the slab always tracks the player's screen.
 const TABLE: Record<ScreenDir, Move>[] = [
   // corner 0
-  { left: { dx: -1, dz: 0 }, right: { dx: 1, dz: 0 }, away: { dx: 0, dz: -1 }, near: { dx: 0, dz: 1 } },
+  {
+    left: { dx: -1, dz: 0 },
+    right: { dx: 1, dz: 0 },
+    away: { dx: 0, dz: -1 },
+    near: { dx: 0, dz: 1 },
+  },
   // corner 1
-  { left: { dx: 0, dz: 1 }, right: { dx: 0, dz: -1 }, away: { dx: -1, dz: 0 }, near: { dx: 1, dz: 0 } },
+  {
+    left: { dx: 0, dz: 1 },
+    right: { dx: 0, dz: -1 },
+    away: { dx: -1, dz: 0 },
+    near: { dx: 1, dz: 0 },
+  },
   // corner 2
-  { left: { dx: 1, dz: 0 }, right: { dx: -1, dz: 0 }, away: { dx: 0, dz: 1 }, near: { dx: 0, dz: -1 } },
+  {
+    left: { dx: 1, dz: 0 },
+    right: { dx: -1, dz: 0 },
+    away: { dx: 0, dz: 1 },
+    near: { dx: 0, dz: -1 },
+  },
   // corner 3
-  { left: { dx: 0, dz: -1 }, right: { dx: 0, dz: 1 }, away: { dx: 1, dz: 0 }, near: { dx: -1, dz: 0 } },
+  {
+    left: { dx: 0, dz: -1 },
+    right: { dx: 0, dz: 1 },
+    away: { dx: 1, dz: 0 },
+    near: { dx: -1, dz: 0 },
+  },
 ];
 
 /** Resolve a screen-relative direction to a world move for the active corner. */
