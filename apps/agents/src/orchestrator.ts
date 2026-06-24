@@ -116,9 +116,12 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
   // claiming adoption. A fresh game never flips to "adopt" just because
   // scaffolding created files (false stays false).
   state.existingProject = (state.existingProject ?? false) && hasExistingProject(opts.workspace);
-  // shipped implies built — force the invariant so an inconsistent persisted
-  // `built:false, shipped:true` can't make the ship guard and preemption spin.
-  state.built = (state.built ?? false) || state.shipped;
+  // Backfill `built` for pre-field workspaces, but do NOT resurrect a persisted
+  // `built:false`: once a work phase invalidates it (see the loop), false must
+  // survive a restart so ship stays gated until a fresh playtest re-verifies the
+  // current tree. The preemption and ship-built guards are themselves gated on
+  // `built`, so a `built:false, shipped:true` state can't spin.
+  state.built = state.built ?? false;
   state.lastApproval = state.lastApproval ?? null;
   // A new --context this run fully replaces the prior brief AND reference dir
   // (so switching to a file/text brief clears a stale reference folder);
@@ -172,7 +175,11 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
 
     // In the forever loop (after the first release), an operator approval ships
     // the CURRENT build promptly instead of iterating further, so what goes live
-    // is the build they approved rather than a newer, unreviewed one. We do NOT
+    // is the build they approved rather than a newer, unreviewed one. Only
+    // preempt when a VERIFIED build exists (`built`): mid-iteration — right after
+    // a work phase cleared it — there's nothing safe to ship, so let playtest
+    // re-verify first. Gating on `built` also stops a built:false/shipped:true
+    // state from spinning between here and the ship-built guard. We do NOT
     // preempt during the initial bootstrap (before the first ship): an early
     // approval simply waits and is honored at the natural ship phase, once
     // assets/build/playtest have run — so it can't deploy an incomplete game.
@@ -181,6 +188,7 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
     if (
       state.phase !== "ship" &&
       state.shipped &&
+      state.built &&
       !opts.autoDeploy &&
       !opts.noShip &&
       approvalPending(bb, state.lastApproval)
@@ -192,9 +200,11 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
     }
 
     // An operator-approved deploy is a deliberate command — let that single ship
-    // run even if the autonomous cycle budget is used up.
+    // run even if the autonomous cycle budget is used up. Only when a verified
+    // build exists; otherwise ship would just be skipped, so don't burn budget.
     const approvedShipPending =
       state.phase === "ship" &&
+      state.built &&
       !opts.autoDeploy &&
       !opts.noShip &&
       approvalPending(bb, state.lastApproval);
