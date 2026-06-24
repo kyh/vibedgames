@@ -1,5 +1,0 @@
-# Generated game workspaces (the autonomous studio writes here).
-.workspaces/
-dist
-node_modules
-.turbo
