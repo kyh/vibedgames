@@ -6,13 +6,14 @@
  * script — it is NOT imported at runtime by the Worker, avoiding side effects
  * on cold start.
  */
+import { apiKey } from "@better-auth/api-key";
 import { expo } from "@better-auth/expo";
 import { betterAuth } from "better-auth";
 import { admin, oAuthProxy } from "better-auth/plugins";
 
 export const auth = betterAuth({
   database: { provider: "sqlite", type: "sqlite" } as never,
-  plugins: [oAuthProxy(), expo(), admin()],
+  plugins: [oAuthProxy(), expo(), admin(), apiKey()],
   emailAndPassword: { enabled: true },
   user: {
     additionalFields: {

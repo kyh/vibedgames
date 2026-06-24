@@ -1,4 +1,5 @@
 import type { Db } from "@repo/db/drizzle-client";
+import { apiKey } from "@better-auth/api-key";
 import { expo } from "@better-auth/expo";
 import { eq } from "@repo/db";
 import { user as userTable } from "@repo/db/drizzle-schema-auth";
@@ -34,6 +35,17 @@ export const createAuth = (opts: AuthOptions) => {
       bearer(),
       expo(),
       admin(),
+      // Long-lived API keys for CLI/CI. Keys carry the `vg_` prefix so the
+      // tRPC context can tell them apart from session tokens on the shared
+      // `Authorization: Bearer` header. We do NOT enable session-mocking for
+      // keys (the plugin flags it as not production-safe); instead the tRPC
+      // context resolves keys explicitly via `verifyApiKey`. Rate limiting is
+      // off — these are deploy/automation keys, not public-facing.
+      apiKey({
+        defaultPrefix: "vg_",
+        requireName: true,
+        rateLimit: { enabled: false },
+      }),
     ],
     emailAndPassword: {
       enabled: true,

@@ -7,6 +7,8 @@ import { initTRPC, TRPCError } from "@trpc/server";
 import superjson from "superjson";
 import { ZodError } from "zod";
 
+import { API_KEY_SESSION_PREFIX, resolveApiKeySession } from "./auth/api-key";
+
 /**
  * Minimal structural view of the R2 binding methods this package uses.
  * Intentionally NOT imported from `@cloudflare/workers-types` so the
@@ -88,7 +90,12 @@ export type CreateTRPCContextOptions = {
 };
 
 export const createTRPCContext = async (opts: CreateTRPCContextOptions) => {
-  const session = await opts.auth.api.getSession({ headers: opts.headers });
+  // Try a normal better-auth session first (cookie or session bearer token).
+  // Fall back to a long-lived API key (`vg_…`) so CLI/HTTP clients can
+  // authenticate in CI; both resolve to the same `Session` shape.
+  const session =
+    (await opts.auth.api.getSession({ headers: opts.headers })) ??
+    (await resolveApiKeySession(opts.auth, opts.db, opts.headers));
 
   return {
     session,
@@ -129,7 +136,26 @@ export const protectedProcedure = t.procedure.use(({ ctx, next }) => {
   });
 });
 
-export const adminProcedure = protectedProcedure.use(({ ctx, next }) => {
+// Like `protectedProcedure`, but rejects callers authenticated with an API
+// key — for surfaces an automation/CI credential must not reach (managing API
+// keys, admin actions). Keeps API keys scoped to their intended use
+// (deploy/generate) so a leaked key can't escalate. API-key sessions are
+// synthesized with a namespaced `apikey:` token (see `resolveApiKeySession`);
+// real better-auth tokens never collide with it.
+export const sessionOnlyProcedure = protectedProcedure.use(({ ctx, next }) => {
+  if (ctx.session.session.token.startsWith(API_KEY_SESSION_PREFIX)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "This action requires an interactive login, not an API key. Use the web app.",
+    });
+  }
+  return next();
+});
+
+// Admin actions are interactive/web-only — build on `sessionOnlyProcedure` so
+// an admin's API key (which would otherwise pass the role check) can't reach
+// them.
+export const adminProcedure = sessionOnlyProcedure.use(({ ctx, next }) => {
   if (ctx.session.user.role !== "admin") {
     throw new TRPCError({ code: "FORBIDDEN" });
   }

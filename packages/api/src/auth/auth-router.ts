@@ -4,7 +4,13 @@ import { user, verification } from "@repo/db/drizzle-schema-auth";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
-import { adminProcedure, createTRPCRouter, protectedProcedure, publicProcedure } from "../trpc";
+import {
+  adminProcedure,
+  createTRPCRouter,
+  protectedProcedure,
+  publicProcedure,
+  sessionOnlyProcedure,
+} from "../trpc";
 import { buildInviteRows, MAX_INVITE_BATCH } from "./invite-create";
 import { inviteCodeAvailabilityClause, normalizeInviteCode } from "./invite-claim";
 import { generateShortCode } from "./utils";
@@ -13,6 +19,16 @@ const CLI_CODE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const CLI_IDENTIFIER_PREFIX = "cli-auth:";
 
 export const authRouter = createTRPCRouter({
+  // Current authenticated identity. Works for both better-auth sessions and
+  // API keys (both resolve to `ctx.session` in the tRPC context), so the CLI
+  // can use it for `vg whoami` regardless of how it authenticated.
+  me: protectedProcedure.query(({ ctx }) => ({
+    id: ctx.session.user.id,
+    name: ctx.session.user.name,
+    email: ctx.session.user.email,
+    role: ctx.session.user.role ?? null,
+  })),
+
   // ---------------------------------------------------------------------------
   // CLI device-code flow
   // ---------------------------------------------------------------------------
@@ -34,7 +50,11 @@ export const authRouter = createTRPCRouter({
     return { code };
   }),
 
-  cliConfirm: protectedProcedure
+  // sessionOnlyProcedure (not protectedProcedure): this persists
+  // `ctx.session.session.token` as the CLI's login credential, so the caller
+  // must hold a real better-auth session. An API-key session's synthetic
+  // `apikey:` token would be handed to the CLI and rejected by getSession.
+  cliConfirm: sessionOnlyProcedure
     .input(z.object({ code: z.string() }))
     .mutation(async ({ ctx, input }) => {
       const identifier = `${CLI_IDENTIFIER_PREFIX}${input.code}`;
