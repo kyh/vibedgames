@@ -72,12 +72,13 @@ this.anims.create({ key: "attack", frameRate: 10,
    **headroom** (`--char-fill`, default ~0.5 of the cell) so attack arcs and big
    poses never clip the edge.
 4. `pack_spritesheet.py` — pack to `spritesheet.png` + manifest.
-5. `sheet_qc.py` — QC the packed sheet and print a verdict: **`OK`** / **`REVIEW`**
-   (soft hints to eyeball — size outliers, possible facing flips) / **`WARN`** (hard
-   defects — empty cells, edge-clipping, foot-baseline wander). Runs automatically;
-   `--no-qc` skips it. **Read the verdict:** regenerate the board on `WARN`; eyeball
-   `review/<action>.gif` on `REVIEW`. Run it standalone too: `sheet_qc.py sheet.png
-   [--json] [--strict]`.
+5. `sheet_qc.py` — QC the packed sheet and report a verdict (same token in the
+   `--json` `qc` field and the human badge, just uppercased there): **`clean`** /
+   **`review`** (soft hints to eyeball — size outliers, possible facing flips) /
+   **`warn`** (hard defects — empty cells, edge-clipping, foot-baseline wander).
+   Runs automatically; `--no-qc` skips it. **Read the verdict:** regenerate the board
+   on `warn`; eyeball `review/<action>.gif` on `review`. Run it standalone too:
+   `sheet_qc.py sheet.png [--json] [--strict]`.
 
 Optional: `--pixel-snap` snaps frames onto a recovered native pixel grid (the
 crisp low-bit look). It runs *before* normalize so frames re-uniform; note it can

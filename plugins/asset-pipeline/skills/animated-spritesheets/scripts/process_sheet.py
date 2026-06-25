@@ -177,8 +177,8 @@ def main() -> int:
     else:
         lines = [f"\n=== {args.action} (image): {n} frames @ {fps}fps ===", f"  sheet: {sheet_png}", f"  gif: {gif}"]
         if qc:
-            mark = {"clean": "OK", "review": "REVIEW", "warn": "WARN"}[qc["verdict"]]
-            lines.append(f"  qc: [{mark}]")
+            # same vocabulary as the --json `qc` field (clean/review/warn), just uppercased
+            lines.append(f"  qc: [{qc['verdict'].upper()}]")
             for c in qc["checks"]:
                 lines.append(f"      {'!' if c['severity'] == 'warn' else '?'} {c['check']}: frames {c['frames']} — {c['detail']}")
         print("\n".join(lines))

@@ -187,9 +187,8 @@ def run(sheet_path: Path, fw: int | None, fh: int | None) -> dict[str, object]:
 
 
 def _print_human(report: dict[str, object]) -> None:
-    v = report["verdict"]
-    mark = {"clean": "OK", "review": "REVIEW", "warn": "WARN"}[str(v)]
-    print(f"[{mark}] {report['sheet']}  ({report['frameCount']} frames {report['frameWidth']}x{report['frameHeight']})")
+    # human badge = the JSON `verdict` (clean/review/warn) uppercased — one vocabulary
+    print(f"[{str(report['verdict']).upper()}] {report['sheet']}  ({report['frameCount']} frames {report['frameWidth']}x{report['frameHeight']})")
     for c in report["checks"]:  # type: ignore[union-attr]
         sev = "!" if c["severity"] == "warn" else "?"
         print(f"  {sev} {c['check']}: frames {c['frames']} — {c['detail']}")
