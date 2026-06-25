@@ -125,7 +125,10 @@ def main() -> int:
         ap.error("--snap-k-colors must be a positive integer")
     facts = action_facts(args.action)
     fps = int(facts["fps"])
-    frames = args.frames if args.frames is not None else args.rows * args.cols
+    # default to the preset's recommended frame count (the board was prompted for that
+    # many), not rows*cols — trailing grid cells are flat chroma and would pack as junk.
+    cells = args.rows * args.cols
+    frames = args.frames if args.frames is not None else min(int(facts["defaultFrames"]), cells)
 
     out = args.out_dir
     d_cells, d_keyed, d_runtime, d_review = out/"cells", out/"_keyed", out/"runtime", out/"review"
