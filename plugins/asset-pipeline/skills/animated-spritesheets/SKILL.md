@@ -91,10 +91,10 @@ shrink frames unevenly on non-native AI art — eyeball the gif. Off by default.
   Past ~12 cells the model loses layout consistency.
 - **Make it ONE motion, not N poses.** The model's default failure is each cell as
   a separate dramatic pose, so frames jump around instead of tracing one swing.
-  Two prompt moves beat this, both in `sprite_prompt.py pose-board` via
-  `--frame-prompt-style specific`: (1) frame the used cells as *consecutive film
-  frames of one continuous motion sampled at evenly-spaced instants*; (2) write
-  per-frame labels as **monotonic spatial progression along a single path**
+  Two prompt moves beat this, both built into `sprite_prompt.py pose-board`:
+  (1) it always frames the used cells as *consecutive film frames of one continuous
+  motion sampled at evenly-spaced instants*; (2) with `--frame-prompt-style specific`
+  (the default) it writes per-frame labels as **monotonic spatial progression along a single path**
   (weapon back → wind-up peak → mid-strike across centerline → contact →
   follow-through → recover), not abstract beats. **If you add an action** to
   `sprite_presets.py` / `frame_label`, label it as progression along one path —

@@ -42,7 +42,7 @@ For the full command surface (every flag, every option, every example), see [ref
 
 ## Standard workflow
 
-The canonical genmedia loop every domain skill (character-design, cinematography, storytelling, …) runs:
+The canonical genmedia loop that every domain skill (character-design, cinematography, storytelling, …) runs:
 
 1. **Resolve the endpoint.** Verify a known ID with `vg generate models --endpoint_id <id> --json`; fall back to `vg generate models "<task>" --json` / `vg generate docs "<topic>" --json` only when no routed endpoint covers the role.
 2. **Inspect before running.** `vg generate schema <id> --json` for exact fields, `vg generate pricing <id> --json` when cost matters. Use only schema-supported fields (seed, reference image, image strength, negative prompt) and record what you used.

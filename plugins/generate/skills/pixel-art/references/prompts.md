@@ -60,7 +60,7 @@ result as a second image, so generate `attack-down` first.
 
 ## Recipe 4 — backgrounds
 
-The character's environment is keyed off `<character_desc>` / `$CHARACTER_DESC`.
+The character's environment is keyed off the `<character_desc>` placeholder.
 Layers 2 and 3 are image-to-video edits that reference the prior layers.
 
 ```bash
@@ -70,7 +70,7 @@ LAYER2_MID_PROMPT="Create the MIDDLE layer of a 3-layer parallax background for 
 
 LAYER3_FG_PROMPT="Create the FOREGROUND layer of a 3-layer parallax background for a side-scrolling pixel art game. I've sent you images of: 1) the character, 2) the sky layer, 3) the middle layer. Create the closest foreground elements (ground, grass, rocks, platforms) that complete the scene. Style: Pixel art matching the other images. IMPORTANT: Use a transparent background so this layer can overlay the others."
 
-ISO_MAP_PROMPT="Create a large, detailed top-down isometric pixel art game world map for a character: $CHARACTER_DESC. Do not place the character on the map. Style: Classic RPG top-down map, 3/4 overhead perspective. Include: winding dirt/stone paths connecting areas, a small body of water, a few buildings or structures that fit the character's world, rocky areas or hills, various terrain types. Single large continuous map image (NOT tiled, NOT a tileset). Complete explorable game world viewed from above. Detailed 32-bit pixel art style. Fill the entire image with map content, no empty borders."
+ISO_MAP_PROMPT="Create a large, detailed top-down isometric pixel art game world map for a character: <character_desc>. Do not place the character on the map. Style: Classic RPG top-down map, 3/4 overhead perspective. Include: winding dirt/stone paths connecting areas, a small body of water, a few buildings or structures that fit the character's world, rocky areas or hills, various terrain types. Single large continuous map image (NOT tiled, NOT a tileset). Complete explorable game world viewed from above. Detailed 32-bit pixel art style. Fill the entire image with map content, no empty borders."
 ```
 
 ---
