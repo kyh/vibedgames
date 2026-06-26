@@ -29,13 +29,13 @@ An Aseprite file is "truth"; your code is the hypothesis. Prefer **reading and v
 Use the bundled inspector to turn a file into JSON you can reason about:
 
 ```bash
-python3 .claude/skills/aseprite-inference/scripts/aseprite_inspect.py path/to/sprite.aseprite --json
+python3 .claude/skills/aseprite/scripts/aseprite_inspect.py path/to/sprite.aseprite --json
 ```
 
 If you need pixel-derived inference (e.g., tight bounds), opt in:
 
 ```bash
-python3 .claude/skills/aseprite-inference/scripts/aseprite_inspect.py path/to/sprite.aseprite --json --decode-cels
+python3 .claude/skills/aseprite/scripts/aseprite_inspect.py path/to/sprite.aseprite --json --decode-cels
 ```
 
 ## What You Can Infer Reliably

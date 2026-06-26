@@ -146,6 +146,10 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    if args.cols <= 0 or args.rows <= 0:
+        raise SystemExit("--cols and --rows must be positive integers")
+    if args.k_colors <= 0:
+        raise SystemExit("--k-colors must be a positive integer")
     cfg = Config(k_colors=args.k_colors, k_seed=args.seed)
     info = snap_sheet(args.input, args.output, args.cols, args.rows, cfg, args.shared_palette)
     fw, fh = info["target_frame_dims"]

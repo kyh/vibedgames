@@ -1,6 +1,6 @@
 # Utility endpoint reference
 
-These are workflow utility candidates from the falgen workflow notes. Verify
+These are workflow utility candidates. Verify
 availability with `vg generate models --endpoint_id <id> --json` or search, then
 inspect schema before use.
 

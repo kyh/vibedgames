@@ -249,6 +249,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    if args.k_colors <= 0:
+        raise SystemExit("--k-colors must be a positive integer")
     cfg = Config(k_colors=args.k_colors, k_seed=args.seed)
     out_w, out_h = snap_image(args.input, args.output, cfg)
     print(f"Snapped {args.input} -> {args.output} ({out_w}x{out_h})")
