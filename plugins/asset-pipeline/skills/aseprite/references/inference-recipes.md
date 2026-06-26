@@ -1,6 +1,6 @@
 # Inference recipes (what to compute, and how to avoid lying)
 
-This guide is about _deriving_ useful runtime facts from `.ase`/`.aseprite` files, without pretending the file said more than it did.
+Derive runtime facts from `.ase`/`.aseprite` files without pretending the file said more than it did.
 
 ## 1) Effective timeline
 

@@ -32,10 +32,7 @@ npm install @vibedgames/gamepad
 
 ### Touch routing
 
-Each touch-down is routed in order: **fixed buttons → the stick → a "rest" button**. This one model covers both common layouts:
-
-- **Twin-stick / shooter:** a stick + a rest "fire" button → move with one thumb, any other finger fires.
-- **Grid / platformer:** a stick + a _fixed_ action button → move with the stick, tap the button to bomb/jump.
+Each touch-down is routed in order: **fixed buttons → the stick → a "rest" button**. This one model covers both common layouts — a stick + rest "fire" button (twin-stick: move one thumb, any other finger fires), and a stick + fixed action button (grid/platformer: move with the stick, tap to bomb/jump). Both are shown below.
 
 ## Phaser quickstart (twin-stick shooter)
 
@@ -191,12 +188,9 @@ Leaves pointer listeners and the overlay Graphics dangling. Tie it to `SHUTDOWN`
 
 ## Deploy
 
-```sh
-vg deploy ./dist --slug my-game
-```
-
-If `vg` isn't on PATH, substitute `npx vibedgames deploy`. Live at
-`https://my-game.vibedgames.com`.
+`vg deploy ./dist --slug my-game` → live at `https://my-game.vibedgames.com`.
+See the `deploy` skill for the full flow (use `npx vibedgames deploy` if `vg`
+isn't on PATH).
 
 ## See also
 

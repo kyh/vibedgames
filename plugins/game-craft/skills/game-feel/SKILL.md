@@ -20,7 +20,7 @@ isn't fixed-step.
 ## Input forgiveness (the invisible half of "tight controls")
 
 Fudge everything slightly in the player's favor — players read forgiveness as
-their own skill (Maddy Thorson, "Celeste & Forgiveness").
+their own skill (Celeste).
 
 - **Input buffer 4–10 frames**: a jump/attack pressed slightly early fires on
   the first legal frame. Celeste ~4, Smash 10. Start at 5 for precise games,
@@ -88,7 +88,7 @@ their own skill (Maddy Thorson, "Celeste & Forgiveness").
 
 - **Lerp-follow with look-ahead** in the facing/aim direction. Phaser:
   `startFollow(player, true, 0.08–0.15)` + manual look-ahead offset.
-- **Trauma shake** (Eiserloh, GDC 2016): events add 0.2–0.5 to a 0–1 trauma
+- **Trauma shake** (Eiserloh): events add 0.2–0.5 to a 0–1 trauma
   value; decay to 0 over 0.5–1s; offset = maxOffset × trauma², sampled from
   smooth noise per axis. Add rotational shake (max ~5–10°) — cheapest way to
   make 2D shake feel violent. Maxima ~5–10% of screen size. Trauma stacks
@@ -114,16 +114,6 @@ Numbers above are starting points, not answers. Wire the 5–6 feel constants
 (accel frames, buffer, coyote, hit-stop, shake trauma) to a debug panel or
 query params, play 2 minutes, adjust, repeat. If you can't decide between two
 values, the larger forgiveness / smaller effect is usually right.
-
-## Sources
-
-- Swink, _Game Feel_ — the theory: real-time control, ~100ms cycle.
-- Jonasson & Purho, "Juice It or Lose It" (GDC 2012) — youtube.com/watch?v=Fy0aCDmgnxg
-- Nijman (Vlambeer), "The Art of Screenshake" — youtube.com/watch?v=AJdEqssNZ-U
-- Thorson, "Celeste & Forgiveness" — maddymakesgames.com/articles/celeste_and_forgiveness/index.html
-- Eiserloh, "Juicing Your Cameras With Math" (GDC 2016) — youtube.com/watch?v=tu-Qe66AvtY
-- Sakurai on hitstop — ssbwiki.com/Hitlag
-- GMTK Platformer Toolkit (feel the variables yourself) — gmtk.itch.io/platformer-toolkit
 
 Related skills: `game-playbook` (build order + basic craft pass), `phaser`
 (engine APIs), `onboarding` (difficulty feel), `design-lenses` (is it fun at

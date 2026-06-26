@@ -31,74 +31,23 @@ Ask only when missing information affects execution.
 - Continuity anchors: character, product, wardrobe, environment, color.
 - Source media: first frame, reference image, product shot, audio track.
 - Audio needs: narration, music, sound design, transcript, no audio.
-- Preferred model or model family, if the user wants to decide quality, cost,
-  speed, audio, or multi-shot tradeoffs.
+- Preferred model: `model-catalog` defaults unless the user names one.
 
 ## Genmedia workflow
 
-1. Start from routed endpoint IDs.
+Follow the standard workflow in the [`generate` skill](../generate/SKILL.md): resolve endpoint → inspect schema/pricing → upload references (first frame, character, product, voiceover) → run each shot `--async` + `status` → download to `./outputs/story/{request_id}_{index}.{ext}`. Default endpoint IDs are in the Model routing section below.
 
-   ```bash
-   vg generate models --endpoint_id bytedance/seedance-2.0/text-to-video --json
-   vg generate models --endpoint_id bytedance/seedance-2.0/image-to-video --json
-   vg generate models --endpoint_id bytedance/seedance-2.0/reference-to-video --json
-   vg generate models --endpoint_id fal-ai/kling-video/v3/pro/text-to-video --json
-   vg generate models --endpoint_id alibaba/happy-horse/text-to-video --json
-   vg generate models --endpoint_id veed/fabric-1.0 --json
-   ```
+Then choose the sequence route:
 
-   Use text search only as fallback discovery for an unsupported sequence
-   control:
+- Highest quality video: start with Seedance 2.0 endpoints from `model-catalog`.
+- Native multi-prompt: use if schema has shot arrays, prompt lists, or timeline fields.
+- First/last frame: controlled transitions between key frames.
+- Image-to-video per shot: maximum continuity from approved stills.
+- Manual per-shot generation: when the model only supports one prompt.
+- Audio-first: generate or upload audio, then plan visual shot lengths.
+- Lip-sync or talking avatar: Fabric 1.0 or Creatify Aurora from `model-catalog`.
 
-   ```bash
-   vg generate models "first frame last frame video generation" --json
-   vg generate docs "multi shot video generation" --json
-   ```
-
-2. Inspect schema before planning exact payloads.
-
-   ```bash
-   vg generate schema <endpoint_id> --json
-   vg generate pricing <endpoint_id> --json
-   ```
-
-3. Upload references.
-
-   ```bash
-   vg generate upload ./first-frame.png --json
-   vg generate upload ./character.png --json
-   vg generate upload ./product.png --json
-   vg generate upload ./voiceover.wav --json
-   ```
-
-4. Choose the sequence route.
-   - Highest quality video: start with Seedance 2.0 endpoints from
-     `model-catalog`.
-   - Native multi-prompt: use if schema has shot arrays, prompt lists, or
-     timeline fields.
-   - First/last frame: use for controlled transitions between key frames.
-   - Image-to-video per shot: use for maximum continuity from approved stills.
-   - Manual per-shot generation: use when the model only supports one prompt.
-   - Audio-first: generate or upload audio, then plan visual shot lengths.
-   - Lip-sync or talking avatar: use Fabric 1.0 or Creatify Aurora from
-     `model-catalog`.
-
-5. Run long jobs async and download every result with a unique template.
-
-   ```bash
-   vg generate run <endpoint_id> \
-     --prompt "<shot or sequence prompt>" \
-     --async \
-     --json
-
-   vg generate status <endpoint_id> <request_id> \
-     --download "./outputs/story/{request_id}_{index}.{ext}" \
-     --json
-   ```
-
-6. Return a shot table with endpoint, request id, prompt summary, local path,
-   and any continuity issues. Genmedia downloads clips; it does not replace a
-   timeline editor unless the chosen model returns a complete stitched video.
+Return a shot table with endpoint, request id, prompt summary, local path, and any continuity issues. Genmedia downloads clips; it does not replace a timeline editor unless the chosen model returns a complete stitched video.
 
 ## Shot planning
 

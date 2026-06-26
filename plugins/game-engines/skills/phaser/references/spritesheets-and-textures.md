@@ -1,39 +1,21 @@
 # Phaser 4 Spritesheets and Textures
 
-Most "rendering bugs" in 2D games are still asset metadata bugs.
-
-Measure first.
+Most "rendering bugs" in 2D games are asset metadata bugs. Measure first — never infer from appearance.
 
 ## Before Loading
 
-Confirm these values from the source asset:
-
-- full image width and height
-- frame width and height
-- spacing
-- margin
-- atlas frame bounds
-- whether the asset is pixel art or smooth art
-- whether the texture is compressed
-
-Do not infer any of these from appearance alone.
+Confirm from the source asset: full image width/height, frame width/height, spacing, margin, atlas frame bounds, pixel-art vs smooth, and whether the texture is compressed.
 
 ## Spritesheets
-
-For spritesheets:
 
 - compute the frame grid from exact dimensions
 - verify spacing and margin numerically
 - confirm whether frames are square or rectangular
 - test the final frame index and row count, not just the first frame
 
-One wrong measurement can look like a timing, animation, or rendering issue later.
-
 Verification formula: `imageWidth = (frameWidth × cols) + (spacing × (cols - 1)) + (margin × 2)`
 
 ## Atlases
-
-For atlases:
 
 - trust the atlas data, not visual intuition
 - confirm the frame names the code expects actually exist
@@ -41,17 +23,7 @@ For atlases:
 
 ## Texture Orientation
 
-Phaser 4 uses GL-style texture orientation internally (Y=0 at bottom).
-
-This matters most when:
-
-- writing custom shaders
-- using framebuffer outputs
-- loading compressed textures
-
-For ordinary PNG or JPG loading, Phaser handles the common cases for you.
-
-For compressed textures, verify the Y-axis orientation during asset generation. If the old asset pipeline targeted Phaser 3 assumptions, it may need regeneration.
+Phaser 4 uses GL-style texture orientation internally (Y=0 at bottom). This matters most for custom shaders, framebuffer outputs, and compressed textures. Ordinary PNG/JPG loading is handled for you.
 
 **If a shader effect looks upside down, mirrored, or vertically offset:**
 

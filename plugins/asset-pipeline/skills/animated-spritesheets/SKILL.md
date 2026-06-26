@@ -11,14 +11,11 @@ Turn a character into a packed, engine-loadable spritesheet by generating **one
 labeled pose-board image** — a grid of the *same* character in the frames of an
 action — then recovering/slicing it. This is the **image-generation** method.
 
-> **Why image generation.** A live A/B against an image-to-video approach settled
-> it: one generation per action keeps the character's **identity consistent**
-> (cloak / face / weapon stay the same across frames), which is what a game sprite
-> needs most — image-to-video morphs the character mid-clip. The trade-off is
-> fewer frames (a model reliably lays out ~4–12 grid cells, not a long strip), so
-> motion is a touch choppier; per-frame pose labels + pixel-snapping make the few
-> frames count. Neither AI method matches hand-drawn pixel art — this gets close
-> while staying consistent.
+> **Why image generation, not image-to-video.** One generation per action keeps
+> identity consistent (cloak/face/weapon stay the same across frames); video
+> morphs the character mid-clip. Trade-off: fewer frames (a model reliably lays
+> out ~4–12 grid cells, not a long strip), so motion is choppier — per-frame pose
+> labels + pixel-snapping make the few frames count.
 
 ## The happy path
 
@@ -86,35 +83,30 @@ shrink frames unevenly on non-native AI art — eyeball the gif. Off by default.
 
 ## Craft
 
-- **Consistency is the whole point.** Lean on the prompt: "identical character,
-  do not redesign between frames," and reference the anchor as identity.
-- **Headroom.** Tell the model to draw the character small with margin — hand-art
-  keeps the character at ~20–50% of the frame so effects have room.
-- **Grid the model can actually do.** A 4×3 board (use the first 6–10 cells) is
-  the sweet spot — enough frames for a readable action, still laid out cleanly.
+- **Consistency is the whole point.** Prompt "identical character, do not redesign
+  between frames," and reference the anchor as identity.
+- **Headroom.** Draw the character small with margin (~20–50% of the frame) so
+  effects/arcs have room.
+- **Grid the model can do.** A 4×3 board (first 6–10 cells) is the sweet spot.
   Past ~12 cells the model loses layout consistency.
-- **Make it ONE motion, not N poses.** The model's default failure is drawing
-  each cell as a separate dramatic pose, so the sliced frames don't read as a
-  single animation (an attack's frames jump around instead of tracing one swing).
+- **Make it ONE motion, not N poses.** The model's default failure is each cell as
+  a separate dramatic pose, so frames jump around instead of tracing one swing.
   Two prompt moves beat this, both built into `sprite_prompt.py pose-board`:
-  (1) frame the used cells as *consecutive film frames of one continuous motion
-  sampled at evenly-spaced instants* — a timeline, each cell a small step from the
-  last, not N independent poses; (2) write per-frame labels as **monotonic spatial
-  progression along a single path** (weapon back → wind-up peak → mid-strike across
-  centerline → contact → follow-through → recover), not abstract beats.
-  `--frame-prompt-style specific` emits both. **If you add an action** to
+  (1) it always frames the used cells as *consecutive film frames of one continuous
+  motion sampled at evenly-spaced instants*; (2) with `--frame-prompt-style specific`
+  (the default) it writes per-frame labels as **monotonic spatial progression along a single path**
+  (weapon back → wind-up peak → mid-strike across centerline → contact →
+  follow-through → recover), not abstract beats. **If you add an action** to
   `sprite_presets.py` / `frame_label`, label it as progression along one path —
-  that, not the frame count, is what makes the animation read as motion.
-- **Lock the facing.** The model loves to mirror a cell (often frame 1), so the
-  character faces the wrong way for part of the animation. The pose-board prompt
-  pins the facing in *every* cell (`_pose_board_facing_lock`); a `--direction` of
-  `e`/`w` adds a side-profile lock. Subtle stance flips can still slip through —
-  `sheet_qc.py` catches gross ones, but eyeball the gif.
-- **Lock the scale.** The character must be the same *size* in every cell on a
-  shared foot baseline — a pose change is fine, a scale change is not. The prompt
-  says so explicitly. `normalize_canvas` keeps a consistent board consistent but
-  can't un-drift one the model drew at mixed scales, so `sheet_qc.py` flags size
-  outliers (sparing legit pose arcs like a death collapse — those are monotonic).
+  that, not the frame count, makes it read as motion.
+- **Lock the facing.** The model loves to mirror a cell (often frame 1). The
+  pose-board prompt pins facing in *every* cell (`_pose_board_facing_lock`);
+  `--direction e`/`w` adds a side-profile lock. `sheet_qc.py` catches gross flips;
+  eyeball the gif for subtle ones.
+- **Lock the scale.** Same *size* in every cell on a shared foot baseline — pose
+  change fine, scale change not. The prompt says so. `normalize_canvas` can't
+  un-drift mixed scales, so `sheet_qc.py` flags size outliers (sparing monotonic
+  pose arcs like a death collapse).
 - **Matte.** Flat `#00FF00` (`#FF00FF` if the subject is green). Generate-time
   prompts must forbid baked shadows — the engine adds those.
 - **Genre/action data** comes from `sprite_presets.py` (frames, fps, profiles).

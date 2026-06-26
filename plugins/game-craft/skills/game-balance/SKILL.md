@@ -5,10 +5,10 @@ description: "Game systems, loops, economy and balance math — core-loop constr
 
 # Systems, loops & balance
 
-Games are loops, not arcs (Daniel Cook): model → action → rules → feedback,
-nested at every timescale. Fun is acquiring skills before old ones burn out;
-balance is mostly figuring out what numbers to use (Ian Schreiber). What the
-player can't perceive doesn't exist (Sylvester) — surface the math.
+Games are loops, not arcs: model → action → rules → feedback, nested at every
+timescale. Fun is acquiring skills before old ones burn out; balance is mostly
+figuring out what numbers to use. What the player can't perceive doesn't exist
+— surface the math.
 
 ## Core loop construction
 
@@ -118,17 +118,6 @@ player can't perceive doesn't exist (Sylvester) — surface the math.
    at ≈ intended session length.
 8. **Watch one real first-timer** (or cold playtest): your numbers were
    calibrated by someone who's played 1,000 times.
-
-## Sources
-
-- Schreiber, _Game Balance Concepts_ (free course) — gamebalanceconcepts.wordpress.com (esp. Level 3: cost curves)
-- Cook, "The Chemistry of Game Design" — lostgarden.com/2007/07/19/the-chemistry-of-game-design/
-- Cook, "Loops and Arcs" — lostgarden.com/2012/04/30/loops-and-arcs/
-- Cook, "Loot Drop Tables" — lostgarden.com/2014/12/08/loot-drop-tables/
-- Adams on Dormans' Machinations — gamedeveloper.com/design/the-designer-s-notebook-machinations-a-new-way-to-design-game-mechanics
-- Hopson, "Behavioral Game Design" — gamedeveloper.com/design/behavioral-game-design
-- Pecorella, "The Math of Idle Games" I & III — gamedeveloper.com/design/the-math-of-idle-games-part-i
-- Sylvester, "The Simulation Dream" — tynansylvester.com/2013/06/the-simulation-dream/
 
 Related skills: `design-lenses` (Meaningful Choices/Reward lenses find what
 this fixes), `level-design` (wave scaling), `onboarding` (difficulty feel),

@@ -533,31 +533,11 @@ loader.load("model.gltf", (gltf) => {
 
 ### ❌ Animated Model Floats Above Ground
 
-**Problem**: Character model hovers above the floor after positioning
+**Problem**: Character model hovers above the floor after positioning.
 
-**Cause**: `Box3.setFromObject()` includes invisible skeleton bones/armatures in the bounding box calculation. Armature origins are typically at hip level, not feet.
+**Cause**: `Box3.setFromObject()` includes invisible skeleton bones/armatures (origins typically at hip level, not feet) in the bounding box, so `box.min.y` sits below the feet.
 
-**Solution**: Compute bounds only from visible mesh geometry:
-
-```javascript
-// ❌ WRONG
-const box = new THREE.Box3().setFromObject(model);
-model.position.y = -box.min.y; // Model floats!
-
-// ✓ CORRECT
-const box = new THREE.Box3();
-model.traverse((child) => {
-  if (child.isMesh && child.geometry) {
-    child.geometry.computeBoundingBox();
-    const meshBox = child.geometry.boundingBox.clone();
-    meshBox.applyMatrix4(child.matrixWorld);
-    box.union(meshBox);
-  }
-});
-model.position.y = -box.min.y; // Feet on ground
-```
-
-See **Pattern 6: Model Normalization** for the complete solution.
+**Solution**: Compute bounds only from visible mesh geometry — see **Pattern 6: Model Normalization** above for the complete code.
 
 ### ❌ Cloned Animated Model Stays at Origin
 

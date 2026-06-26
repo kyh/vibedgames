@@ -46,8 +46,6 @@ Background      (decoration, no collision)
 
 ## Tiled JSON Format Structure
 
-Understanding the JSON format is critical for debugging and advanced manipulation.
-
 ### Map Root Object
 
 ```javascript

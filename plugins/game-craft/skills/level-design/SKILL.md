@@ -84,14 +84,5 @@ code-generated levels — generators should emit the same grammar.
 - **Risk/reward in waves**: bonus points/drops for risky play early — fights
   early-game boredom in score chasers (ABA Games).
 
-## Sources
-
-- Hayashida on Mario's kishōtenketsu — gamedeveloper.com/design/the-secret-to-i-mario-i-level-design
-- GMTK, "Super Mario 3D World's 4 Step Level Design" — youtube.com/watch?v=dBmIkEvEBtA
-- Rogers, "Everything I Learned About Level Design I Learned from Disneyland" (GDC 2009) — youtube.com/watch?v=P4uPwhSqW8Q
-- Thorson, "Level Design Workshop: Designing Celeste" (GDC 2017) — youtube.com/watch?v=4RlpMhBKNr0
-- Valve's cabal process — gamedeveloper.com/design/the-cabal-valve-s-design-process-for-creating-i-half-life-i-
-- ABA Games, difficulty curves for small games — abagames.github.io/joys-of-small-game-development-en/difficulty/curve.html
-
 Related skills: `game-playbook` (build order), `onboarding` (the first 30
 seconds), `game-balance` (wave economy/scaling math), `phaser` (tilemaps).

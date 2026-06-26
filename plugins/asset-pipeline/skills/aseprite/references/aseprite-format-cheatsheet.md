@@ -1,16 +1,6 @@
 # Aseprite file format (quick cheatsheet for inference)
 
-This is a condensed, implementation-oriented map of `.ase` / `.aseprite` files.
-
-## Mental model
-
-An `.aseprite` file is:
-
-- A **128-byte header** (global sprite settings)
-- Followed by **N frames**
-- Each frame is a list of **chunks** (layer defs, cels, tags, slices, tilesets, etc.)
-
-Use little-endian for all numbers.
+Structure: a **128-byte header** (global settings) → **N frames**, each a list of **chunks** (layer defs, cels, tags, slices, tilesets, etc.). All numbers little-endian.
 
 ## Header highlights (128 bytes)
 

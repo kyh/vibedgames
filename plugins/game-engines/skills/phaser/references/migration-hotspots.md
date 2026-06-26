@@ -1,18 +1,10 @@
 # Phaser 3 to 4 Migration Hotspots
 
-Use this reference before touching a Phaser 3 codebase. The first pass is not implementation; it is search, classification, and scope control.
-
-## Migration Philosophy
-
-Do not treat migration as a flat rename exercise.
-
-Split findings into three buckets:
+Use before touching a Phaser 3 codebase. The first pass is search, classification, and scope control — not implementation. Don't treat migration as a flat rename. Split findings into three buckets:
 
 1. **Usually mechanical**: straightforward API updates
-2. **Behavioral review required**: code may compile but behave differently
+2. **Behavioral review required**: compiles but behaves differently
 3. **Architectural rewrite**: the underlying renderer or feature model changed
-
-This prevents wasting time hand-editing easy cases while missing the renderer-level risks.
 
 ## First Search Pass
 

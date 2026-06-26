@@ -117,42 +117,16 @@ mcp__playwright__browser_take_screenshot({
 
 ## Workflow: Complete Test Sequence
 
-1. **Navigate** to app URL (with `?test=1` for deterministic mode)
-2. **Wait** for readiness signal
-3. **Check** console for pre-existing errors
-4. **Drive** user input sequence
-5. **Assert** state via test seams
-6. **Screenshot** if visual verification needed
-7. **Check** console/network for errors introduced by actions
+Navigate (with `?test=1`) → wait for readiness → check console for pre-existing
+errors → drive input → assert state via seams → screenshot if needed → re-check
+console/network for errors the actions introduced. (Full walkthrough: the
+"Concrete MCP Workflow" in the main SKILL.md.)
 
 ## Test Seam Recommendations
 
-Minimal, stable, read-only seams to add to the app:
-
-```javascript
-window.__TEST__ = {
-  ready: false, // Set true after first interactive frame
-  version: "1.0.0", // For cache invalidation
-  seed: null, // Current RNG seed (if seeded)
-  sceneKey: null, // Current scene/route
-  state: () => ({
-    // Returns JSON-serializable snapshot
-    scene: this.sceneKey,
-    player: { x, y, hp, state },
-    score: currentScore,
-    entities: [...entityList.map((e) => ({ id, type, x, y }))],
-  }),
-  commands: {
-    // Optional mutation commands
-    reset: () => {}, // Reset to initial state
-    seed: (n) => {}, // Set RNG seed
-    skipIntro: () => {}, // Jump past animations
-    setTime: (t) => {}, // Control game clock
-  },
-};
-```
-
-**Key principle**: Expose IDs + essential fields, not raw engine objects.
+Use the `window.__TEST__` seam from the main SKILL.md ("Recommended Test
+Seams"). **Key principle**: expose IDs + essential fields, not raw engine
+objects.
 
 ## Common Gotchas
 

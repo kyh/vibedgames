@@ -16,6 +16,7 @@ import {
 } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { checkSkillRefs, reportSkillRefs } from "./check-skill-refs.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PLUGINS = join(ROOT, "plugins");
@@ -79,6 +80,15 @@ for (const [skill, src] of expected) {
   linked++;
 }
 console.log(`  ${linked} skills linked`);
+
+// Validate skill cross-references after syncing. Non-fatal: a broken link
+// while you're mid-edit shouldn't block the symlink setup, but you should see
+// it now (right when skills changed) rather than ship it.
+console.log();
+const refs = checkSkillRefs(ROOT);
+if (!reportSkillRefs(refs, ROOT)) {
+  console.log("  ⚠ skill references above are broken — fix before committing.");
+}
 
 const which = spawnSync("sh", ["-c", "command -v vg"], { encoding: "utf8" });
 const vgPath = which.stdout?.trim() || "not on PATH";

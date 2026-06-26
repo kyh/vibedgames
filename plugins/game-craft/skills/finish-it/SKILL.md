@@ -5,14 +5,13 @@ description: "Scope-cutting and shipping discipline from Derek Yu's 'Finishing a
 
 # Finish it
 
-Finishing is a skill, separate from designing, programming, or art — and a
-finished mediocre game proves more than a brilliant fragment (Derek Yu).
-Projects die in two loops: the **restart loop** (skills improved mid-project,
-so the dev remakes early content sideways forever — "your code will always be
-a mess") and the **polish loop** (near-done, endlessly refining details out
-of fear of judgment). Diagnose the loop before intervening. And remember Yu's
-ratio: **the last 10% is really 90%** — menus, death states, audio plumbing,
-deploy are the game too.
+Finishing is a separate skill, and a finished mediocre game proves more than a
+brilliant fragment. Projects die in two loops: the **restart loop** (skills
+improved mid-project, so the dev remakes early content sideways forever — "your
+code will always be a mess") and the **polish loop** (near-done, endlessly
+refining details out of fear of judgment). Diagnose the loop before
+intervening. And remember: **the last 10% is really 90%** — menus, death
+states, audio plumbing, deploy are the game too.
 
 ## Scoping a new game (so this skill is never needed)
 
@@ -92,13 +91,6 @@ scope creep — route it to `NEXT_GAME.md` and switch to finishing mode.
 - [ ] All assets load on the deployed path (no localhost/absolute refs)
 - [ ] Deployed URL cold-loads in incognito; one full session played LIVE
 - [ ] (Multiplayer) host-leave/rejoin tested; solo player not soft-locked
-
-## Sources
-
-- Derek Yu, "Finishing a Game" — makegames.tumblr.com/post/1136623767/finishing-a-game
-- Derek Yu, "Death Loops" — derekyu.com/makegames/deathloops.html
-- Spelunky's path to done — newsletter.gamediscover.co/p/how-spelunky-got-its-procedural-hook
-- Thorson, "Designing Celeste" (the PICO-8 origin) — gdcvault.com/play/1024307
 
 Related skills: `game-playbook` (the build order that avoids stalling),
 `deploy` (the finish line), `design-lenses` (is the core loop enough),

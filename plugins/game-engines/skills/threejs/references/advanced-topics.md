@@ -1,73 +1,11 @@
 # Advanced Three.js Topics
 
-Progressive disclosure reference for topics beyond simple scenes.
+Topics beyond simple scenes.
 
 **Related guides:**
 
-- [`gltf-loading-guide.md`](gltf-loading-guide.md) - Loading, caching, and cloning 3D models
-- [`game-patterns.md`](game-patterns.md) - Game loops, screen effects, animation states, parallax
-
----
-
-## Loading 3D Models (GLTF/GLB)
-
-**→ See dedicated guide: [`gltf-loading-guide.md`](gltf-loading-guide.md)**
-
-For comprehensive GLTF loading patterns including basic loading, promise-based approaches, fallbacks, batch loading, caching, and troubleshooting, refer to the dedicated GLTF loading guide.
-
-Quick example using import maps:
-
-```html
-<script type="importmap">
-  {
-    "imports": {
-      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-    }
-  }
-</script>
-
-<script type="module">
-  import * as THREE from "three";
-  import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
-
-  const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  document.body.appendChild(renderer.domElement);
-
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
-  scene.add(ambientLight);
-
-  const loader = new GLTFLoader();
-  loader.load(
-    "path/to/model.glb",
-    (gltf) => {
-      gltf.scene.traverse((child) => {
-        if (child.isMesh) {
-          child.castShadow = true;
-          child.receiveShadow = true;
-        }
-      });
-      scene.add(gltf.scene);
-      camera.position.z = 5;
-    },
-    (progress) => {
-      console.log(((progress.loaded / progress.total) * 100).toFixed(0) + "%");
-    },
-    (error) => {
-      console.error("Failed to load model:", error);
-    },
-  );
-
-  renderer.setAnimationLoop(() => {
-    renderer.render(scene, camera);
-  });
-</script>
-```
-
-**Key improvement: Import maps** resolve Three.js module paths correctly, avoiding long unpkg URLs.
+- [`gltf-loading-guide.md`](gltf-loading-guide.md) — loading 3D models (GLTF/GLB): basic/promise/fallback/batch loading, caching, cloning, normalization, troubleshooting
+- [`game-patterns.md`](game-patterns.md) — game loops, screen effects, animation states, parallax
 
 ---
 

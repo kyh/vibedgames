@@ -36,60 +36,7 @@ Ask only for what affects the shot:
 
 ## Genmedia workflow
 
-1. Start from routed endpoint IDs.
-
-   ```bash
-   vg generate models --endpoint_id openai/gpt-image-2 --json
-   vg generate models --endpoint_id fal-ai/nano-banana-pro --json
-   vg generate models --endpoint_id bytedance/seedance-2.0/text-to-video --json
-   vg generate models --endpoint_id bytedance/seedance-2.0/image-to-video --json
-   vg generate models --endpoint_id xai/grok-imagine-video/text-to-video --json
-   ```
-
-   Use text search only as fallback discovery for a missing camera-control
-   role:
-
-   ```bash
-   vg generate models "cinematic video generation camera movement" --json
-   vg generate docs "video generation camera movement prompt" --json
-   ```
-
-2. Inspect schema and use only supported controls.
-
-   ```bash
-   vg generate schema <endpoint_id> --json
-   vg generate pricing <endpoint_id> --json
-   ```
-
-3. Upload references when using image-to-video, first frame, last frame, style
-   reference, or character/product continuity.
-
-   ```bash
-   vg generate upload ./frame.png --json
-   ```
-
-4. Run stills with direct download.
-
-   ```bash
-   vg generate run <endpoint_id> \
-     --prompt "<cinematography prompt>" \
-     --download "./outputs/cinema/{request_id}_{index}.{ext}" \
-     --json
-   ```
-
-5. Run video async.
-
-   ```bash
-   vg generate run <endpoint_id> \
-     --prompt "<shot prompt>" \
-     --image_url "<uploaded frame if supported>" \
-     --async \
-     --json
-
-   vg generate status <endpoint_id> <request_id> \
-     --download "./outputs/cinema/{request_id}_{index}.{ext}" \
-     --json
-   ```
+Follow the standard workflow in the [`generate` skill](../generate/SKILL.md): resolve endpoint → inspect schema/pricing → upload references (first/last frame, style, continuity) → run (stills inline, video `--async` + `status`) → download to `./outputs/cinema/{request_id}_{index}.{ext}`. Default endpoint IDs are in the Model routing section below.
 
 ## Prompt build order
 
