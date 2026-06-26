@@ -33,7 +33,10 @@ def main() -> None:
     frames = []
     for frame_id in order:
         path = args.input_dir / args.pattern.format(id=frame_id)
-        img = Image.open(path).convert("RGBA")
+        try:
+            img = Image.open(path).convert("RGBA")
+        except FileNotFoundError:
+            raise SystemExit(f"frame file not found: {path}")
         if args.flat_bg:
             flat = Image.new("RGBA", img.size, ImageColor.getrgb(args.flat_bg) + (255,))
             flat.alpha_composite(img, (0, 0))

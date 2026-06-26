@@ -1,0 +1,55 @@
+{
+  "_about": "Endpoint field-quirk map for sprite IMAGE generation through `vg generate run <endpoint_id> --<field> <value>`. Different endpoints name the same concept differently (image_url vs image_urls). This map saves the agent from re-deriving each schema. It is NOT a guarantee of availability or current defaults: confirm with `vg generate schema <endpoint_id> --json` before relying on a field, and `vg generate models <query> --json` to discover endpoints. Endpoint IDs are passed to the CLI verbatim — never rewrite them.",
+  "_usage": {
+    "image": "vg generate run <endpoint_id> --prompt \"...\" [--image_urls '[\"<url>\"]'] --aspect_ratio 4:3 --resolution 1K --download out.png --json   (edit endpoints take --image_urls, a JSON array; t2i endpoints omit it)",
+    "queue": "Most generation endpoints are queue-based — fire with --async, poll with `vg generate status`. Background removal (bria) is synchronous: run it without --async."
+  },
+  "defaults": {
+    "characterAnchor": "fal-ai/nano-banana-pro",
+    "anchorEdit": "fal-ai/nano-banana-pro/edit",
+    "poseBoard": "fal-ai/nano-banana-pro/edit",
+    "backgroundRemove": "fal-ai/bria/background/remove"
+  },
+  "image": {
+    "nano-banana-pro-t2i": {
+      "endpoint_id": "fal-ai/nano-banana-pro",
+      "taskType": "text-to-image",
+      "downloadKeys": ["images[0].url"],
+      "defaults": { "num_images": 1, "aspect_ratio": "1:1", "output_format": "png", "resolution": "1K" },
+      "note": "Recommended default for character/anchor generation: fast, strong on chunky pixel art."
+    },
+    "nano-banana-pro-edit": {
+      "endpoint_id": "fal-ai/nano-banana-pro/edit",
+      "taskType": "image-edit",
+      "inputImageField": "image_urls",
+      "inputImageIsArray": true,
+      "downloadKeys": ["images[0].url"],
+      "defaults": { "num_images": 1, "aspect_ratio": "auto", "output_format": "png", "resolution": "1K" },
+      "note": "Edit endpoint: derive directional anchors and labeled pose boards from an approved character image (the pose-board step uses this endpoint). For a pose board pass --aspect_ratio 4:3."
+    },
+    "gpt-image-2-t2i": {
+      "endpoint_id": "openai/gpt-image-2",
+      "taskType": "text-to-image",
+      "downloadKeys": ["images[0].url"],
+      "defaults": { "num_images": 1, "image_size": "1024x1024", "output_format": "png", "quality": "high" },
+      "note": "Stronger character consistency + text rendering; slower and pricier than nano-banana-pro."
+    },
+    "gpt-image-2-edit": {
+      "endpoint_id": "openai/gpt-image-2/edit",
+      "taskType": "image-edit",
+      "inputImageField": "image_urls",
+      "inputImageIsArray": true,
+      "downloadKeys": ["images[0].url"],
+      "defaults": { "num_images": 1, "image_size": "auto", "output_format": "png", "quality": "high" }
+    },
+    "bria-background-remove": {
+      "endpoint_id": "fal-ai/bria/background/remove",
+      "taskType": "background-removal",
+      "inputImageField": "image_url",
+      "inputImageIsArray": false,
+      "synchronous": true,
+      "downloadKeys": ["image.url"],
+      "note": "Semantic segmentation (not chroma key) — works even on white-on-white. Synchronous: do not pass --async. Alternative to chroma_clean.py when you did not generate on a flat matte."
+    }
+  }
+}

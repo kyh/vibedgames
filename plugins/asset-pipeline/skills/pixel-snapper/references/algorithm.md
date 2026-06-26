@@ -1,6 +1,6 @@
 # Algorithm Walkthrough
 
-The snapper recovers the true pixel grid from an upscaled/AI-faked pixel-art image in five stages. This file documents the pipeline at the level needed to debug bad outputs or extend the script. All credit for the algorithm design and parameter defaults belongs to Hugo Duprez (see `credits.md`).
+The snapper recovers the true pixel grid from an upscaled/AI-faked pixel-art image in five stages. This file documents the pipeline at the level needed to debug bad outputs or extend the script. Algorithm and defaults are by Hugo Duprez (MIT — see `credits.md`).
 
 ## Pipeline at a Glance
 

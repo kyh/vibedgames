@@ -9,10 +9,10 @@ The tool is intentionally manifest-driven and only assumes an assets_index.json
 exists with a `tilesets` section.
 
 Examples:
-  uv run .claude/skills/gamedev-assets/scripts/asset_tilemap_editor.py \\
+  uv run .claude/skills/asset-pipeline/scripts/asset_tilemap_editor.py \\
     --manifest path/to/assets_index.json
 
-  uv run .claude/skills/gamedev-assets/scripts/asset_tilemap_editor.py \\
+  uv run .claude/skills/asset-pipeline/scripts/asset_tilemap_editor.py \\
     --manifest path/to/assets_index.json --map maps/level1.json
 """
 

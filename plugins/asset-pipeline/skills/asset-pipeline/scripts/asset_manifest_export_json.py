@@ -9,7 +9,7 @@ This is intentionally dependency-free so the skill can be used in any project
 without requiring Lua or extra Python packages.
 
 Examples:
-  uv run .claude/skills/gamedev-assets/scripts/asset_manifest_export_json.py \\
+  uv run .claude/skills/asset-pipeline/scripts/asset_manifest_export_json.py \\
     --manifest path/to/assets_index.lua \\
     --out path/to/assets_index.json
 """

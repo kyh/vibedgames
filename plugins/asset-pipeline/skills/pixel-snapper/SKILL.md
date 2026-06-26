@@ -1,6 +1,6 @@
 ---
 name: pixel-snapper
-description: "Recover the true low-resolution pixel grid from upscaled or AI-generated fake pixel art PNGs. Use for snap-to-grid cleanup, native-resolution sprite assets, palette-quantized game art, and known-layout spritesheets. Bundles uv Python scripts ported from Hugo Duprez's spritefusion-pixel-snapper."
+description: "Recover the true low-resolution pixel grid from upscaled or AI-generated fake pixel art PNGs. Use for snap-to-grid cleanup, native-resolution sprite assets, palette-quantized game art, and known-layout spritesheets. Bundles self-contained uv Python scripts."
 metadata:
   short-description: "Recover native pixel grids from fake pixel art."
 ---
@@ -9,7 +9,7 @@ metadata:
 
 Recover the underlying low-resolution pixel grid from images that _look_ like pixel art but are stored at a much higher resolution with anti-aliased or smudged edges. Common case: a 1024×1024 AI-generated character that conceptually has ~100×100 chunky pixels.
 
-This skill bundles a Python port (`scripts/pixel_snapper.py`) of [Hugo Duprez's Rust `spritefusion-pixel-snapper`](https://github.com/Hugo-Dz/spritefusion-pixel-snapper) (MIT). The port produces dimensionally identical output to the original Rust binary and runs as a uv self-contained script. No project install is required.
+`scripts/pixel_snapper.py` is a Python port of an MIT-licensed Rust implementation (see `references/credits.md`). It produces dimensionally identical output and runs as a uv self-contained script — no project install required.
 
 It also includes `scripts/pixel_snapper_sheet.py`, a known-layout spritesheet helper that crops frames first, snaps each frame independently, and reassembles the sheet.
 
@@ -117,10 +117,6 @@ Better: Always snap from the original source PNG. Keep snapped outputs as termin
 Why bad: Snapping is a creative process — first run is rarely the keeper. Premature promotion makes iteration harder.
 Better: Save to `experiments/<timestamp>-pixel-snapper-<subject>/`. Promote only after review.
 
-❌ **Anti-pattern: omitting attribution**
-Why bad: The algorithm and parameter defaults are Hugo Duprez's design, MIT-licensed. Re-publishing without credit violates the license.
-Better: Keep the credit block in `references/credits.md` whenever this skill is shared, forked, or referenced.
-
 ## Variation Guidance
 
 **IMPORTANT**: Don't run the snapper with the same parameters on every input.
@@ -134,11 +130,9 @@ Better: Keep the credit block in `references/credits.md` whenever this skill is 
 ## References
 
 - `references/algorithm.md` — detailed pipeline walkthrough (quantize → profile → step-size → walk → resample)
-- `references/credits.md` — MIT license terms and full attribution to Hugo Duprez
+- `references/credits.md` — MIT license + attribution
 - `references/usage-examples.md` — concrete invocation patterns and inspection recipes
 
 ## Remember
 
 The snapper does one thing well: it recovers a hidden pixel grid. It's not a general-purpose image downscaler, not an asset cleaner, not a palette converter for arbitrary art. When the input fits — upscaled or AI-faked pixel art — it produces output that a human pixel artist would have drawn in the first place. When the input doesn't fit, no parameter tuning will save you; reach for a different tool.
-
-Credit where it's due: the algorithm design, the parameter defaults, and the original Rust implementation are Hugo Duprez's work, distributed under MIT. This Python port exists for portability and for use inside uv-driven workflows; it is not a replacement for the upstream project.
