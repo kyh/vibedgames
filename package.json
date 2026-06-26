@@ -27,7 +27,6 @@
     "dev:moba": "turbo watch dev -F @repo/moba...",
     "dev:cli": "turbo watch dev -F vibedgames...",
     "lint": "oxlint --report-unused-disable-directives",
-    "check:skills": "tsx scripts/check-skill-refs.ts",
     "r2:lifecycle": "pnpm -C apps/web exec wrangler r2 bucket lifecycle set vibedgames-games --file ./infra/r2/vibedgames-games.lifecycle.json --force",
     "typecheck": "turbo run typecheck",
     "format": "oxfmt",
