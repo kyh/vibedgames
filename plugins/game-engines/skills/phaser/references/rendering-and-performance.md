@@ -1,8 +1,6 @@
 # Phaser 4 Rendering and Performance
 
-Phaser 4 performance work starts with one question: what is actually expensive here?
-
-The answer is usually one of these:
+Performance work starts with one question: what is actually expensive? Usually one of:
 
 - too many independent objects and CPU-side updates
 - too many shader or filter changes breaking batches
@@ -13,35 +11,14 @@ The answer is usually one of these:
 
 ### Standard Game Objects
 
-Use standard sprites, images, text, and tilemaps by default.
-
-They are the right choice when:
-
-- entities are interactive
-- state changes frequently
-- gameplay logic is per-object
-- debugging clarity matters more than raw maximum counts
-
-Do not move to a more specialized path just because it sounds faster.
+Default. Use sprites, images, text, and tilemaps when entities are interactive, state changes frequently, gameplay logic is per-object, or debugging clarity matters more than max counts. Don't move to a specialized path just because it sounds faster.
 
 ### `SpriteGPULayer`
 
-Use `SpriteGPULayer` when you need huge numbers of mostly simple quads with predictable animation behavior.
+Huge numbers of mostly simple quads with predictable animation. Fast because it avoids per-object CPU work; the tradeoff is flexibility.
 
-Good fit:
-
-- starfields
-- animated backgrounds
-- particle-like swarms
-- dense decorative motion
-
-Bad fit:
-
-- ordinary enemies with unique gameplay logic
-- objects that need constant structural edits
-- scenes where per-member mutation is more important than raw count
-
-The layer is fast because it avoids ordinary per-object CPU work. The tradeoff is flexibility.
+- Good fit: starfields, animated backgrounds, particle-like swarms, dense decorative motion.
+- Bad fit: enemies with unique gameplay logic, objects needing constant structural edits, scenes where per-member mutation matters more than raw count.
 
 **Populating efficiently**: Reuse a single config object when calling `addMember` in a loop. Creating millions of JS objects has significant allocation and GC cost.
 
@@ -58,31 +35,13 @@ for (let i = 0; i < 100000; i++) {
 
 ### `TilemapGPULayer`
 
-Use `TilemapGPULayer` when:
-
-- the map is orthographic
-- one tileset is sufficient
-- very large visible tile counts matter
-- smooth filtering without seams matters
-
-Do not use it as a reflex upgrade over `TilemapLayer`. Its constraints are real:
-
-- orthographic maps only (not isometric or hexagonal)
-- single tileset per layer
-- max 4096×4096 tiles
+Use when the map is orthographic, one tileset suffices, very large visible tile counts matter, and smooth seamless filtering matters. Not a reflex upgrade over `TilemapLayer` — constraints are real: orthographic only (no isometric/hexagonal), single tileset per layer, max 4096×4096 tiles.
 
 After editing layer data, call `generateLayerDataTexture()` to regenerate the GPU representation.
 
 ### `RenderTexture` and `DynamicTexture`
 
-Use these when you need:
-
-- texture capture
-- compositing
-- reuse of generated visuals
-- staged multi-pass effects
-
-Remember that queued work is not the same as executed work. Call `render()` when the texture must update.
+Use for texture capture, compositing, reuse of generated visuals, or staged multi-pass effects. Queued work is not executed work — call `render()` when the texture must update.
 
 ```ts
 rt.draw(sprite, x, y);
@@ -93,17 +52,9 @@ Use `preserve()` to retain commands for re-rendering across frames. Use `renderM
 
 ## Batch Breakers
 
-These features are valuable, but they are not free:
+Valuable but not free — each can break the current batch, forcing a new draw call: filters, lighting, shader changes, unusual blend behavior, render target switches. Use where the effect is visible and justified (a subtle glow on one hero, not on every prop).
 
-- filters
-- lighting
-- shader changes
-- unusual blend behavior
-- render target switches
-
-Each of these can break the current batch, forcing a new draw call. Use them where the effect is visible and justified. A subtle glow on one hero object may be worth it; the same glow on every prop usually is not.
-
-Lighting specifically changes the shader. One lit object in a batch of 200 unlit sprites breaks the batch.
+Lighting specifically changes the shader: one lit object in a batch of 200 unlit sprites breaks the batch.
 
 ## New in Phaser 4
 

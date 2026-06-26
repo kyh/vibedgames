@@ -31,68 +31,11 @@ Only ask for missing inputs that affect identity or model routing.
   set, action still, video shot, edit of an existing character.
 - References: source image, approved design, costume, pose, style board.
 - Consistency level: exploratory, pitch-ready, production continuity.
-- Model preference: use `model-catalog` defaults unless the user names a model
-  or the job needs a quality/cost tradeoff decision.
+- Model preference: `model-catalog` defaults unless the user names one.
 
 ## Genmedia workflow
 
-1. Start from routed endpoint IDs.
-
-   ```bash
-   vg generate models --endpoint_id openai/gpt-image-2 --json
-   vg generate models --endpoint_id fal-ai/nano-banana-pro/edit --json
-   vg generate models --endpoint_id bytedance/seedance-2.0/image-to-video --json
-   vg generate models --endpoint_id veed/fabric-1.0 --json
-   ```
-
-   Use text search only as fallback discovery for an unsupported role:
-
-   ```bash
-   vg generate docs "consistent character generation" --json
-   vg generate models "image editing character consistency" --json
-   ```
-
-2. Inspect schema before each endpoint run.
-
-   ```bash
-   vg generate schema <endpoint_id> --json
-   vg generate pricing <endpoint_id> --json
-   ```
-
-3. Upload references.
-
-   ```bash
-   vg generate upload ./character-reference.png --json
-   vg generate upload ./costume-reference.png --json
-   ```
-
-4. Run stills or sheets with download.
-
-   ```bash
-   vg generate run <endpoint_id> \
-     --prompt "<anchor + variable prompt>" \
-     --image_url "<reference url if supported>" \
-     --download "./outputs/characters/{request_id}_{index}.{ext}" \
-     --json
-   ```
-
-5. Run video async.
-
-   ```bash
-   vg generate run <endpoint_id> \
-     --prompt "<anchor + shot action>" \
-     --image_url "<approved character frame if supported>" \
-     --async \
-     --json
-
-   vg generate status <endpoint_id> <request_id> \
-     --download "./outputs/characters/{request_id}_{index}.{ext}" \
-     --json
-   ```
-
-Use only schema-supported fields. If the model supports seed, reference image,
-image strength, multiple image inputs, or negative prompt, use them deliberately
-and record what was used.
+Follow the standard workflow in the [`generate` skill](../generate/SKILL.md): resolve endpoint → inspect schema/pricing → upload references → run (stills inline, video `--async` + `status`) → download to `./outputs/characters/{request_id}_{index}.{ext}`. Default endpoint IDs are in the Model routing section below; routing details live in `model-catalog`.
 
 ## Character anchor
 

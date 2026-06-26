@@ -25,22 +25,9 @@ Full pipeline for 2D pixel art game assets: character → sprite sheets → back
 
 Always use `--json` so output is machine-readable. Use `--download` to save files locally. Do **not** curl URLs manually, use the `--download` flag.
 
-> **For well-crafted animations, use the `animated-spritesheets` skill.** The
-> recipes below are the **fast path**: 4-frame 2×2 image sheets, great for a quick
-> playable. When the animation needs to look polished, `animated-spritesheets`
-> generates one labeled pose-board image per action, slices it, and packs an
-> engine-loadable `spritesheet.png` + manifest in one command — holding the
-> character's **identity consistent** across the whole animation.
+> **These recipes are the fast path** — 4-frame 2×2 image sheets, great for a quick playable or near-static pose. For polished animation (attack arcs, walk/run cycles, hurt, death) use the `animated-spritesheets` skill: it generates one labeled pose-board image per action, slices it, and packs an engine-loadable `spritesheet.png` + manifest in one command, holding the character's identity consistent across the whole animation.
 
-Two craft rules that apply to **all** paths:
-
-1. **No baked shadows in the sprite.** Prompt against cast/contact/ground
-   shadows, base ellipses, and floor lines — the game engine adds shadows at
-   render time. A shadow baked into the frame fights the engine's.
-2. **Quick prototype vs polished.** The 2×2 image recipes here are the
-   **quick-prototype / cheapest-first** path — fine for a near-static pose or a
-   fast playable. For a real animation (attack arcs, walk/run cycles, hurt,
-   death), reach for the `animated-spritesheets` skill.
+**Craft rule (all paths): no baked shadows in the sprite.** Prompt against cast/contact/ground shadows, base ellipses, and floor lines — the engine adds shadows at render time, and a baked-in shadow fights the engine's.
 
 ---
 
@@ -99,15 +86,6 @@ https://...
 
 ---
 
-## When to use
-
-- Generating a pixel art character from a text description or reference image
-- Creating sprite sheet animations (walk, jump, attack, idle) for a side-scroller
-- Creating isometric RPG sprite sheets (walk, attack, idle across directions)
-- Removing backgrounds from sprite sheets to get transparent PNGs
-- Generating parallax backgrounds (3-layer) for side-scrollers
-- Generating top-down isometric game maps for RPGs
-
 ## Models in the stack
 
 - **Nano Banana Pro**: `fal-ai/nano-banana-pro`, character + background generation; better quality and faster, recommended default
@@ -122,11 +100,9 @@ https://...
 
 Ask the user: character description (text) or an existing image to convert. Ask model preference: `nano` (default, better quality + faster) or `gpt` (slower; use `quality=low` if user wants cheaper output).
 
+Define the prompt vars `$CHARACTER_STYLE_PROMPT` and `$IMAGE_TO_PIXEL_PROMPT` from [references/prompts.md](references/prompts.md) (Recipe 1), then:
+
 ```bash
-CHARACTER_STYLE_PROMPT="Generate a single character only, centered in the frame on a plain white background. The character should be rendered in detailed 32-bit pixel art style (like PlayStation 1 / SNES era games). Include proper shading, highlights, and anti-aliased edges for a polished look. The character should have well-defined features, expressive details, and rich colors. Show in a front-facing or 3/4 view pose, standing idle, suitable for sprite sheet animation."
-
-IMAGE_TO_PIXEL_PROMPT="Transform this character into detailed 32-bit pixel art style (like PlayStation 1 / SNES era games). IMPORTANT: Must be a FULL BODY shot showing the entire character from head to feet. Keep the character centered in the frame on a plain white background. Include proper shading, highlights, and anti-aliased edges for a polished look. The character should have well-defined features, expressive details, and rich colors. Show in a front-facing or 3/4 view pose, standing idle, suitable for sprite sheet animation. Maintain the character's key features, colors, and identity while converting to pixel art."
-
 # Text → pixel art character (nano)
 vg generate run fal-ai/nano-banana-pro \
  --prompt "$CHARACTER_STYLE_PROMPT Character: <character_desc>" \
@@ -158,19 +134,9 @@ Pass `CHARACTER_URL` from Recipe 1. Choose `--style side` (side-scroller) or `--
 
 **Side-scroller sheets**: 4-frame 2×2 grid animations. Covered types: `walk`, `jump`, `attack`, `idle`. Do not generate additional animation types (hurt, death, run, etc.) unless the user explicitly requests them.
 
-Fire all sheets async (each is its own Bash tool call), then poll sequentially:
+Define the side-scroller prompt vars (`$WALK_PROMPT`, `$WALK_PROMPT_GPT`, `$JUMP_PROMPT`, `$ATTACK_PROMPT`, `$IDLE_PROMPT`) from [references/prompts.md](references/prompts.md) (Recipe 2 — side-scroller). Fire all sheets async (each is its own Bash tool call), then poll sequentially:
 
 ```bash
-WALK_PROMPT="Create a 4-frame pixel art walk cycle sprite sheet of this character. Arrange the 4 frames in a 2x2 grid on white background. The character is walking to the right. Top row (frames 1-2): Frame 1 (top-left): Right leg forward, left leg back - stride position. Frame 2 (top-right): Legs close together, passing/crossing - transition. Bottom row (frames 3-4): Frame 3 (bottom-left): Left leg forward, right leg back - opposite stride. Frame 4 (bottom-right): Legs close together, passing/crossing - transition back. Each frame shows a different phase of the walking motion. This creates a smooth looping walk cycle. Use detailed 32-bit pixel art style with proper shading and highlights. Same character design in all frames. Character facing right."
-
-WALK_PROMPT_GPT="Create a 4-frame pixel art walk cycle sprite sheet of this character. Character orientation (critical): The character is shown in SIDE PROFILE, with their face, chest, and front foot pointing toward the RIGHT edge of the image. The character's back is on the LEFT side of the image. This is the same side-profile orientation used in classic 2D platformers like Super Mario Bros or Mega Man moving rightward across the screen. Arrange the 4 frames in a 2x2 grid on white background. Top row (frames 1-2): Frame 1 (top-left): Front leg (right leg) extended forward toward the right edge of the image, back leg extended behind toward the left edge. Frame 2 (top-right): Legs close together, passing pose. Bottom row (frames 3-4): Frame 3 (bottom-left): Opposite stride, back leg (left leg) now forward toward the right edge. Frame 4 (bottom-right): Legs close together, passing pose. Use detailed 32-bit pixel art style with proper shading and highlights. Same character design in all frames. All 4 frames must show the character from the SAME side profile angle, facing the RIGHT edge of the image."
-
-JUMP_PROMPT="Create a 4-frame pixel art jump animation sprite sheet of this character. Arrange the 4 frames in a 2x2 grid on white background. The character is jumping. Top row (frames 1-2): Frame 1 (top-left): Crouch/anticipation - character slightly crouched, knees bent, preparing to jump. Frame 2 (top-right): Rising - character in air, legs tucked up, arms up, ascending. Bottom row (frames 3-4): Frame 3 (bottom-left): Apex/peak - character at highest point of jump, body stretched or tucked. Frame 4 (bottom-right): Landing - character landing, slight crouch to absorb impact. Use detailed 32-bit pixel art style with proper shading and highlights. Same character design in all frames. Character facing right."
-
-ATTACK_PROMPT="Create a 4-frame pixel art attack animation sprite sheet of this character. Arrange the 4 frames in a 2x2 grid on white background. The character is performing an attack that fits their design - could be a sword slash, magic spell, punch, kick, or energy blast depending on what suits the character best. Top row (frames 1-2): Frame 1 (top-left): Wind-up/anticipation - character preparing to attack, pulling back weapon or gathering energy. Frame 2 (top-right): Attack in motion - the strike or spell being unleashed. Bottom row (frames 3-4): Frame 3 (bottom-left): Impact/peak - maximum extension of attack, weapon fully swung or spell at full power. Frame 4 (bottom-right): Recovery - returning to ready stance. Use detailed 32-bit pixel art style with proper shading and highlights. Same character design in all frames. Character facing right. Make the attack visually dynamic and exciting."
-
-IDLE_PROMPT="Create a 4-frame pixel art idle/breathing animation sprite sheet of this character. Arrange the 4 frames in a 2x2 grid on white background. The character is standing still but with subtle idle animation. Top row (frames 1-2): Frame 1 (top-left): Neutral standing pose - relaxed stance. Frame 2 (top-right): Slight inhale - chest/body rises subtly, maybe slight arm movement. Bottom row (frames 3-4): Frame 3 (bottom-left): Full breath - slight upward posture. Frame 4 (bottom-right): Exhale - returning to neutral, slight settle. Keep movements SUBTLE - this is a gentle breathing/idle loop, not dramatic motion. Character should look alive but relaxed. Use detailed 32-bit pixel art style with proper shading and highlights. Same character design in all frames. Character facing right."
-
 # Fire all 4 async, each is its own Bash tool call
 vg generate run fal-ai/nano-banana-pro/edit --prompt "$WALK_PROMPT" --image_urls "[\"$CHARACTER_URL\"]" --aspect_ratio "1:1" --resolution "1K" --async --json
 vg generate run fal-ai/nano-banana-pro/edit --prompt "$JUMP_PROMPT" --image_urls "[\"$CHARACTER_URL\"]" --aspect_ratio "1:1" --resolution "1K" --async --json
@@ -196,21 +162,9 @@ vg generate status fal-ai/nano-banana-pro/edit <idle_request_id> --result --down
 
 > Generate attack-down first, attack-up and attack-side both reference it for style consistency.
 
+Define the isometric prompt vars (`$WALK_DOWN_PROMPT`, `$WALK_UP_PROMPT`, `$WALK_SIDE_PROMPT`, `$ATTACK_DOWN_PROMPT`, `$ATTACK_UP_PROMPT`, `$ATTACK_SIDE_PROMPT`, `$IDLE_ISO_PROMPT`) from [references/prompts.md](references/prompts.md) (Recipe 2 — isometric), then:
+
 ```bash
-WALK_DOWN_PROMPT="Create a 4-frame pixel art walk cycle sprite sheet of this character walking DOWNWARD (toward the camera) in a top-down isometric RPG perspective (3/4 overhead view, like a classic top-down RPG). Arrange the 4 frames in a 2x2 grid on white background. The character is walking toward the viewer (south/down). Top row: Frame 1 (top-left): Left foot forward stride, arms swinging naturally. Frame 2 (top-right): Feet together, passing/transition pose. Bottom row: Frame 3 (bottom-left): Right foot forward stride, arms swinging naturally. Frame 4 (bottom-right): Feet together, passing/transition back. We see the character's front/face. Top-down 3/4 view - we see the top of their head slightly. Use detailed 32-bit pixel art style with proper shading and highlights. Same character design in all frames."
-
-WALK_UP_PROMPT="Create a 4-frame pixel art walk cycle sprite sheet of this character walking UPWARD (away from the camera) in a top-down isometric RPG perspective (3/4 overhead view, like a classic top-down RPG). Arrange the 4 frames in a 2x2 grid on white background. CRITICAL: ALL 4 frames must show the character from EXACTLY the same angle, their BACK, facing directly away from the camera. Do NOT rotate or twist the character between frames. The ONLY difference between frames should be the leg and arm positions. Top row: Frame 1 (top-left): Left foot forward. BACK VIEW. Frame 2 (top-right): Feet together. BACK VIEW. Bottom row: Frame 3 (bottom-left): Right foot forward. BACK VIEW. Frame 4 (bottom-right): Feet together. BACK VIEW. Use detailed 32-bit pixel art style. Same character design in all frames."
-
-WALK_SIDE_PROMPT="Create a 4-frame pixel art walk cycle sprite sheet of this character WALKING TO THE RIGHT in a top-down isometric RPG perspective (3/4 overhead view, like a classic top-down RPG). Arrange the 4 frames in a 2x2 grid on white background. The character is FACING RIGHT and WALKING RIGHT. Top row: Frame 1 (top-left): Right leg forward, left leg back - stride, arms swinging. Frame 2 (top-right): Legs close together, passing - transition. Bottom row: Frame 3 (bottom-left): Left leg forward, right leg back - opposite stride, arms swinging. Frame 4 (bottom-right): Legs close together, passing - transition back. We see the character's RIGHT-facing side profile from a top-down 3/4 overhead angle. Use detailed 32-bit pixel art style. Same character design in all frames."
-
-ATTACK_DOWN_PROMPT="Create a 4-frame pixel art ATTACK animation sprite sheet of this character attacking DOWNWARD (toward the camera) in a top-down isometric RPG perspective (3/4 overhead view). Arrange the 4 frames in a 2x2 grid on white background. Top row: Frame 1 (top-left): Wind-up/anticipation - preparing to strike. Frame 2 (top-right): Attack in motion - strike unleashed toward camera. Bottom row: Frame 3 (bottom-left): Impact/peak - maximum extension. Frame 4 (bottom-right): Recovery. We see the character's front/face. The attack should fit the character's design. Use detailed 32-bit pixel art style. Make the attack visually dynamic."
-
-ATTACK_UP_PROMPT="Create a 4-frame pixel art ATTACK animation sprite sheet of this character attacking UPWARD (away from the camera) in a top-down isometric RPG perspective. I've also sent you a reference of the same character's front-facing attack. Use the EXACT SAME attack type, weapon, and visual effects - just show it from behind. Arrange the 4 frames in a 2x2 grid on white background. Top row: Frame 1 (top-left): Wind-up from behind. Frame 2 (top-right): Attack unleashed upward/away. Bottom row: Frame 3 (bottom-left): Impact/peak. Frame 4 (bottom-right): Recovery. We see the character's back. MUST use the same attack style as the reference image. Use detailed 32-bit pixel art style."
-
-ATTACK_SIDE_PROMPT="Create a 4-frame pixel art ATTACK animation sprite sheet of this character attacking SIDEWAYS (to the right) in a top-down isometric RPG perspective. I've also sent you a reference of the same character's front-facing attack. Use the EXACT SAME attack type, weapon, and visual effects - just show it from the side profile. Arrange the 4 frames in a 2x2 grid on white background. Character faces RIGHT. Top row: Frame 1 (top-left): Wind-up from side, facing right. Frame 2 (top-right): Strike unleashed to the right. Bottom row: Frame 3 (bottom-left): Impact/peak. Frame 4 (bottom-right): Recovery. IMPORTANT: Show the character's SIDE PROFILE facing RIGHT. MUST use the same attack style as the reference image. Use detailed 32-bit pixel art style."
-
-IDLE_ISO_PROMPT="Create a 4-frame pixel art idle/breathing animation sprite sheet of this character in a top-down isometric RPG perspective (3/4 overhead view). Arrange the 4 frames in a 2x2 grid on white background. Character is FACING TOWARD THE CAMERA (south/down). Top row: Frame 1 (top-left): Neutral standing pose, facing down. Frame 2 (top-right): Slight inhale - body rises subtly. Bottom row: Frame 3 (bottom-left): Full breath - slight upward posture. Frame 4 (bottom-right): Exhale - returning to neutral. Keep movements SUBTLE. Use detailed 32-bit pixel art style. Same character design in all frames."
-
 # Fire walk sheets + idle async, each is its own Bash tool call
 vg generate run fal-ai/nano-banana-pro/edit --prompt "$WALK_DOWN_PROMPT" --image_urls "[\"$CHARACTER_URL\"]" --aspect_ratio "1:1" --resolution "1K" --async --json
 vg generate run fal-ai/nano-banana-pro/edit --prompt "$WALK_UP_PROMPT" --image_urls "[\"$CHARACTER_URL\"]" --aspect_ratio "1:1" --resolution "1K" --async --json
@@ -261,31 +215,23 @@ vg generate run fal-ai/bria/background/remove --image_url "<idle_url>" --downloa
 
 **Pipeline note:** Layer 1 (sky) and the isometric map only need `CHARACTER_DESC`, no image reference. Fire Layer 1 async immediately after character generation so it runs in parallel while you generate sprite sheets. Layers 2 and 3 are sequential (each needs the previous layer's URL from the tool result).
 
-**Side-scroller, 3-layer parallax**
+**Side-scroller, 3-layer parallax** — define `$LAYER1_SKY_PROMPT`, `$LAYER2_MID_PROMPT`, `$LAYER3_FG_PROMPT`, `$ISO_MAP_PROMPT` from [references/prompts.md](references/prompts.md) (Recipe 4).
 
 ```bash
 # Layer 1, sky/backdrop. Fire async (no image dep) so it runs in parallel with sprite generation
-vg generate run fal-ai/nano-banana-pro \
- --prompt "Create the SKY/BACKDROP layer for a side-scrolling pixel art game parallax background. This is for a character: <character_desc>. Create an environment that fits this character's world. This is the FURTHEST layer - only sky and very distant elements (distant mountains, clouds, horizon). Style: Pixel art, 32-bit retro game aesthetic. Wide panoramic scene." \
- --aspect_ratio "21:9" --resolution "1K" --async --json
+vg generate run fal-ai/nano-banana-pro --prompt "$LAYER1_SKY_PROMPT" --aspect_ratio "21:9" --resolution "1K" --async --json
 
 # Poll Layer 1 (after sprite sheets are done), then read its URL from the result
 vg generate status fal-ai/nano-banana-pro <layer1_request_id> --result --download ./game-assets/<slug>/backgrounds/layer1-sky.png --json
 
 # Layer 2, midground (needs CHARACTER_URL + layer1 URL from above result)
-vg generate run fal-ai/nano-banana-pro/edit \
- --prompt "Create the MIDDLE layer of a 3-layer parallax background for a side-scrolling pixel art game. I've sent you images of: 1) the character, 2) the sky layer already created. Create the character's ICONIC/CANONICAL location from their story, home village, famous landmarks, signature battlegrounds. Elements should fill the frame from middle down to bottom. Style: Pixel art matching the other images. IMPORTANT: Use a transparent background so this layer can overlay the others." \
- --image_urls "[\"<character_url>\", \"<layer1_url>\"]" \
- --aspect_ratio "21:9" --resolution "1K" --download ./game-assets/<slug>/backgrounds/layer2-midground.png --json
+vg generate run fal-ai/nano-banana-pro/edit --prompt "$LAYER2_MID_PROMPT" --image_urls "[\"<character_url>\", \"<layer1_url>\"]" --aspect_ratio "21:9" --resolution "1K" --download ./game-assets/<slug>/backgrounds/layer2-midground.png --json
 
 # Bria bg-remove on layer 2 (sync, no queue endpoint)
 vg generate run fal-ai/bria/background/remove --image_url "<layer2_url>" --download ./game-assets/<slug>/backgrounds/layer2-transparent.png --json
 
 # Layer 3, foreground (needs CHARACTER_URL + layer1 URL + layer2-transparent URL from above result)
-vg generate run fal-ai/nano-banana-pro/edit \
- --prompt "Create the FOREGROUND layer of a 3-layer parallax background for a side-scrolling pixel art game. I've sent you images of: 1) the character, 2) the sky layer, 3) the middle layer. Create the closest foreground elements (ground, grass, rocks, platforms) that complete the scene. Style: Pixel art matching the other images. IMPORTANT: Use a transparent background so this layer can overlay the others." \
- --image_urls "[\"<character_url>\", \"<layer1_url>\", \"<layer2_transparent_url>\"]" \
- --aspect_ratio "21:9" --resolution "1K" --download ./game-assets/<slug>/backgrounds/layer3-foreground.png --json
+vg generate run fal-ai/nano-banana-pro/edit --prompt "$LAYER3_FG_PROMPT" --image_urls "[\"<character_url>\", \"<layer1_url>\", \"<layer2_transparent_url>\"]" --aspect_ratio "21:9" --resolution "1K" --download ./game-assets/<slug>/backgrounds/layer3-foreground.png --json
 
 # Bria bg-remove on layer 3 (sync, no queue endpoint)
 vg generate run fal-ai/bria/background/remove --image_url "<layer3_url>" --download ./game-assets/<slug>/backgrounds/layer3-transparent.png --json
@@ -297,10 +243,7 @@ vg generate run fal-ai/bria/background/remove --image_url "<layer3_url>" --downl
 **Isometric, single top-down map**
 
 ```bash
-vg generate run fal-ai/nano-banana-pro \
- --prompt "Create a large, detailed top-down isometric pixel art game world map for a character: $CHARACTER_DESC. Do not place the character on the map. Style: Classic RPG top-down map, 3/4 overhead perspective. Include: winding dirt/stone paths connecting areas, a small body of water, a few buildings or structures that fit the character's world, rocky areas or hills, various terrain types. Single large continuous map image (NOT tiled, NOT a tileset). Complete explorable game world viewed from above. Detailed 32-bit pixel art style. Fill the entire image with map content, no empty borders." \
- --aspect_ratio "1:1" --resolution "1K" \
- --download ./game-assets/<slug>/backgrounds/map.png --json
+vg generate run fal-ai/nano-banana-pro --prompt "$ISO_MAP_PROMPT" --aspect_ratio "1:1" --resolution "1K" --download ./game-assets/<slug>/backgrounds/map.png --json
 ```
 
 ---
@@ -309,10 +252,10 @@ vg generate run fal-ai/nano-banana-pro \
 
 Real fire/explosion motion beats an AI-drawn frame strip, and you can sidestep alpha extraction entirely with one trick: **generate the effect on pure black, then render it additively** (`BlendModes.ADD`), where black contributes nothing — no background removal needed.
 
-1. **Generate** a short clip on a pure-black background. Prompt hard for a locked-off camera and no smoke/grey haze (grey survives ADD blend and shows as a haze square):
+1. **Generate** a short clip on a pure-black background. Use `$EXPLOSION_PROMPT` from [references/prompts.md](references/prompts.md) (Recipe 5) — it prompts hard for a locked-off camera and no smoke/grey haze (grey survives ADD blend and shows as a haze square):
 
 ```bash
-vg generate run bytedance/seedance-2.0/fast/text-to-video --prompt "A single fiery explosion fireball erupting in the dead center of the frame on a SOLID PURE BLACK background. Bright orange, yellow and white flames burst outward then dissipate. Completely static locked-off camera, no camera movement, no smoke, no grey haze, no debris, no text. Pure black everywhere except the central fireball." --aspect_ratio "1:1" --resolution "720p" --async --json
+vg generate run bytedance/seedance-2.0/fast/text-to-video --prompt "$EXPLOSION_PROMPT" --aspect_ratio "1:1" --resolution "720p" --async --json
 # then: vg generate status bytedance/seedance-2.0/fast/text-to-video <id> --result --download ./game-assets/<slug>/fx/explosion.mp4 --json
 ```
 

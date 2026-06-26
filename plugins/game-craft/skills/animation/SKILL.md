@@ -5,11 +5,10 @@ description: "2D game animation craft — timing & spacing, frame budgets per cl
 
 # Animation craft
 
-Timing and spacing ARE the animation (Richard Williams): per-frame durations
-carry more weight than frame counts. With 4–8 frame budgets, every frame is a
-key pose — if it doesn't read from keys alone, more inbetweens won't save it
-(Mariel Cartwright delivered a Skullgirls punch in six). Fewer, stronger
-frames beat smooth: even inbetweening reads as mush.
+Timing and spacing ARE the animation: per-frame durations carry more weight
+than frame counts. With 4–8 frame budgets, every frame is a key pose — if it
+doesn't read from keys alone, more inbetweens won't save it. Fewer, stronger
+frames beat smooth; even inbetweening reads as mush.
 
 ## Timing & spacing
 
@@ -47,9 +46,8 @@ near-duplicates first; redundancy reads as floatiness.
 
 ## The gameplay/animation contract
 
-Responsiveness vs weight is a contract, not a contest (Jonathan Cooper,
-_Game Anim_): put the weight in follow-through and recovery, which don't
-delay input.
+Responsiveness vs weight is a contract, not a contest: put the weight in
+follow-through and recovery, which don't delay input.
 
 - **Player attacks: short startup** (~2–5 logic frames for light moves),
   compensating with exaggerated poses and smears. Long windups are a
@@ -115,15 +113,6 @@ delay input.
 10. Land/hit squash triggered by the game event, not the clip timeline?
 11. Hitboxes on 60Hz timers, sprites at 8–15fps — decoupled?
 12. Watched each clip 10s straight — idle still alive, run still energetic?
-
-## Sources
-
-- saint11 (Pedro Medeiros) pixel animation tutorials — saint11.art/blog/pixel-art-tutorials/
-- Cooper, "The 12 Principles of Animation in Video Games" — gameanim.com/2019/05/15/the-12-principles-of-animation-in-video-games/
-- Cartwright, "Fluid and Powerful Animation within Frame Restrictions" (GDC 2014) — gdcvault.com/play/1020575
-- Rivals of Aether workshop guide (anticipation/action/recovery) — rivalslib.com/workshop_guide/art/anticipation_action_recovery.html
-- Schlitter, Pixelblog 8 & 9 (cycles, melee attacks) — slynyrd.com/blog/2018/8/19/pixelblog-8-intro-to-animation
-- 2D Will Never Die, sub-pixel animation — 2dwillneverdie.com/tutorial/give-your-sprites-depth-with-sub-pixel-animation/
 
 Related skills: `pixel-art` / `animated-spritesheets` (generate the frames),
 `vfx` (effects animation), `game-feel` (hit stop, squash from code),

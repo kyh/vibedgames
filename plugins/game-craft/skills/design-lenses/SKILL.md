@@ -5,10 +5,10 @@ description: "Structured game-design critique: review a game through Schell's de
 
 # Design lens review
 
-A lens is a viewpoint plus questions, not a rule (Jesse Schell, _The Art of
-Game Design_). This skill runs a battery of lenses against a game and outputs
-findings an agent can implement. The defining failure of prompt-built games:
-mechanically correct, sensorially and emotionally dead. The lenses find where.
+A lens is a viewpoint plus questions, not a rule (Schell). This skill runs a
+battery of lenses against a game and outputs findings an agent can implement.
+The defining failure of prompt-built games: mechanically correct, sensorially
+and emotionally dead. The lenses find where.
 
 ## Procedure
 
@@ -110,8 +110,6 @@ browser-game failure mode.)
 
 ## MDA quick reference
 
-(Hunicke/LeBlanc/Zubek, 2004 — users.cs.northwestern.edu/~hunicke/MDA.pdf)
-
 Mechanics (authored rules) → Dynamics (runtime behavior) → Aesthetics (felt
 emotion). Designers build M→A; players experience A→M — review from the
 player's side. Eight aesthetics: Sensation, Fantasy, Narrative, Challenge,
@@ -123,13 +121,6 @@ implementable change.
 **Koster cross-check** (_A Theory of Fun_): fun is pattern-learning; mastered
 = boring. What is the player still learning at minute 1, 3, 5? "Nothing" by
 minute 1 = no legs, regardless of polish.
-
-## Sources
-
-- Schell, _The Art of Game Design: A Book of Lenses_ — official deck:
-  deck.artofgamedesign.com
-- MDA paper — users.cs.northwestern.edu/~hunicke/MDA.pdf
-- Koster, _A Theory of Fun_ — theoryoffun.com
 
 Related skills: `game-feel` (implements Juiciness/Feedback findings),
 `onboarding` (implements Accessibility/Flow findings), `game-balance`

@@ -6,9 +6,9 @@ description: "First-30-seconds design, invisible tutorials, difficulty curves, f
 # Onboarding & difficulty
 
 A vibedgames player arrives cold from a link, mid-conversation, with seconds
-of patience. The first session is the whole funnel. Fun is learning (Koster):
-the game lives while there's a pattern left to master, and difficulty must
-rise with skill to stay in the flow channel (Chen, after Csikszentmihalyi).
+of patience. The first session is the whole funnel. Fun is learning: the game
+lives while there's a pattern left to master, and difficulty must rise with
+skill to stay in the flow channel.
 
 ## The first 30 seconds
 
@@ -115,15 +115,6 @@ multiple input schemes, pause anywhere.
 13. Skill-gated game has a neutral, mid-game-reachable assist option?
 14. Something softens after 3–5 failures at the same spot?
 15. Score/goal visible at all times?
-
-## Sources
-
-- George Fan, "How I Got My Mom to Play Through Plants vs. Zombies" (GDC 2012) — gdcvault.com/play/1015541/How-I-Got-My-Mom
-- Jenova Chen, _Flow in Games_ — jenovachen.com/flowingames/Flow_in_games_final.pdf
-- Koster, _A Theory of Fun_ retrospective — gamedeveloper.com/design/raph-koster-s-theory-of-fun-ten-years-on
-- Juul, _The Art of Failure_ — mitpress.mit.edu/9780262529952/the-art-of-failure/
-- GMTK, "Half-Life 2's Invisible Tutorial" — youtube.com/watch?v=MMggqenxuZc
-- Thorson on Celeste's Assist Mode — vice.com/en/article/celeste-difficulty-assist-mode/
 
 Related skills: `design-lenses` (finds the problems this skill fixes),
 `level-design` (teaching through geometry), `game-feel` (the juicy first

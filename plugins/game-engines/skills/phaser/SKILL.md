@@ -9,40 +9,22 @@ description: "Build 2D browser games with Phaser 4: scene lifecycle, sprites, Ar
 
 Build 2D browser games using Phaser 4's WebGL-first renderer, scene model, and updated rendering APIs.
 
-## Philosophy: Renderer-Aware, Asset-Exact
+## Core principles
 
-Phaser 4 is not Phaser 3 with a few renamed methods. The renderer, filter model, shader assumptions, texture orientation, and batching behavior changed. Good Phaser 4 work starts by choosing the right rendering path and measuring assets before code is written.
+Phaser 4 is not Phaser 3 with renamed methods — the renderer, filter model, shader assumptions, texture orientation, and batching all changed.
 
-**Before coding, ask:**
-
-- Is this a new Phaser 4 feature or a Phaser 3 migration?
-- Does this feature stay on standard game object APIs, or does it depend on filters, shaders, lighting, or custom rendering?
-- What is the asset source of truth: exact frame size, spacing, margin, atlas bounds, and texture orientation?
-- Is the bottleneck CPU object churn, GPU fill rate, or batch breaking?
-- Would `SpriteGPULayer`, `TilemapGPULayer`, `RenderTexture`, or a plain `Sprite` solve this more cleanly?
-
-**Core principles**:
-
-1. **WebGL-first, not Canvas-first**: Phaser 4 is designed around WebGL. Treat Canvas as legacy compatibility, not the default target.
-2. **Measure assets before loader config**: Sprite and tile bugs often start as incorrect frame metadata, not rendering bugs.
-3. **Prefer the simplest rendering path**: Use standard game objects until scale or effect requirements justify filters, GPU layers, or shader work.
-4. **Treat rendering features as architectural choices**: Filters, lighting, shaders, and render textures affect coordinate systems, batching, and debugging.
-5. **Migration is selective redesign**: Basic scene code may port cleanly, but masks, FX, custom pipelines, shaders, and texture workflows usually need real updates.
+1. **WebGL-first, not Canvas-first**: treat Canvas as legacy compatibility.
+2. **Measure assets before loader config**: most sprite/tile bugs are incorrect frame metadata, not rendering bugs.
+3. **Prefer the simplest rendering path**: standard game objects until scale or effects justify filters, GPU layers, or shaders.
+4. **Migration is selective redesign**: basic scene code ports cleanly; masks, FX, custom pipelines, shaders, and texture workflows usually need real updates.
 
 ## STOP: Before Loading Any Spritesheet or Atlas
 
-Read `references/spritesheets-and-textures.md` first.
-
-Spritesheet loading is still fragile. A few pixels off in frame size, spacing, or margin can create silent corruption that looks like animation or rendering bugs later.
-
-**NEVER** guess frame dimensions.
-**DO NOT** assume texture orientation details are irrelevant if compressed textures or custom shaders are involved.
+Read `references/spritesheets-and-textures.md` first. A few pixels off in frame size, spacing, or margin creates silent corruption that surfaces later as animation/rendering bugs. Never guess frame dimensions; don't assume texture orientation is irrelevant when compressed textures or custom shaders are involved.
 
 ## STOP: Before Porting Phaser 3 Code
 
-Read `references/migration-hotspots.md` first.
-
-Search for the Phaser 3 APIs that changed meaning or disappeared. These are where most migration time goes:
+Read `references/migration-hotspots.md` first. Search for the APIs that changed meaning or disappeared — where most migration time goes:
 
 - `setTintFill`
 - `BitmapMask`
@@ -311,22 +293,12 @@ Use rounding intentionally for pixel art. Leave it off for rotated, scaled, or c
 
 ## Variation Guidance
 
-Avoid converging on a single Phaser 4 setup. Choose based on context:
+Don't converge on a single setup — choose per context. What varies is the architecture, not the rigor (always measure assets and check batching costs):
 
 - Rendering path: standard objects vs GPU layers vs textures vs shader/filter pipelines
 - Physics: Arcade vs Matter vs none
 - Content: tilemaps vs pure sprites vs hybrid
-- Pixel art handling: `roundPixels` off, safe per-object rounding, or deliberate full rounding
+- Pixel art: `roundPixels` off, safe per-object rounding, or deliberate full rounding
 - Assets: spritesheets vs atlases vs single textures
 - Scene layout: separate `UIScene` vs in-scene HUD
 - Tilemap: `TilemapLayer` vs `TilemapGPULayer` (only when constraints fit)
-
-What should vary is the architecture, not the rigor. Measure assets, check batching costs, and adapt the solution to the game's real constraints.
-
-## Remember
-
-Phaser 4 gives you a more capable renderer and more explicit rendering tools, but it expects better architectural choices in return.
-
-Before coding: what rendering path are you choosing, what assets define the truth, and what batch-breaking features are actually worth their cost?
-
-Claude can do strong Phaser 4 work when the problem is framed precisely: scene boundaries, asset dimensions, rendering constraints, performance targets, and migration scope. These guidelines illuminate the path; they do not replace engineering judgment.

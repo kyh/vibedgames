@@ -5,25 +5,14 @@ description: "Creates simple Three.js web apps with scene setup, lighting, geome
 
 # Three.js Builder
 
-A focused skill for creating simple, performant Three.js web applications using modern ES module patterns.
+Create simple, performant Three.js web apps using modern ES module patterns (r150+).
 
-## Philosophy: The Scene Graph Mental Model
+**Core principles:**
 
-Three.js is built on the **scene graph**—a hierarchical tree of objects where parent transformations affect children. Understanding this mental model is key to effective 3D web development.
-
-**Before creating a Three.js app, ask**:
-
-- What is the **core visual element**? (geometry, shape, model)
-- What **interaction** does the user need? (none, orbit controls, custom input)
-- What **performance** constraints exist? (mobile, desktop, WebGL capabilities)
-- What **animation** brings it to life? (rotation, movement, transitions)
-
-**Core principles**:
-
-1. **Scene Graph First**: Everything added to `scene` renders. Use `Group` for hierarchical transforms.
-2. **Primitives as Building Blocks**: Built-in geometries (Box, Sphere, Torus) cover 80% of simple use cases.
-3. **Animation as Transformation**: Change position/rotation/scale over time using `requestAnimationFrame` or `renderer.setAnimationLoop`.
-4. **Performance Through Simplicity**: Fewer objects, fewer draw calls, reusable geometries/materials.
+1. **Scene Graph First**: everything added to `scene` renders. Use `Group` for hierarchical transforms (parent transforms affect children).
+2. **Primitives as building blocks**: built-in geometries (Box, Sphere, Torus) cover most simple cases.
+3. **Animation as transformation**: change position/rotation/scale over time in `renderer.setAnimationLoop`.
+4. **Performance through simplicity**: fewer objects, fewer draw calls, reusable geometries/materials.
 
 ---
 
@@ -328,89 +317,34 @@ Common hex colors:
 
 ## Anti-Patterns to Avoid
 
-### Basic Setup Mistakes
-
-❌ **Not importing OrbitControls from correct path**
-Why bad: Controls won't load, `THREE.OrbitControls` is undefined in modern Three.js
-Better: Use `import { OrbitControls } from 'three/addons/controls/OrbitControls.js'` or unpkg examples/jsm path
-
-❌ **Forgetting to add object to scene**
-Why bad: Object won't render, silent failure
-Better: Always call `scene.add(object)` after creating meshes/lights
-
-❌ **Using old `requestAnimationFrame` pattern instead of `setAnimationLoop`**
-Why bad: More verbose, doesn't handle XR/WebXR automatically
-Better: `renderer.setAnimationLoop((time) => { ... })`
-
-### Performance Issues
-
-❌ **Creating new geometries in animation loop**
-Why bad: Massive memory allocation, frame rate collapse
-Better: Create geometry once, reuse it. Transform only position/rotation/scale
-
-❌ **Using too many segments on primitives**
-Why bad: Unnecessary vertices, GPU overhead
-Better: Default segments are usually fine. `SphereGeometry(1, 32, 16)` not `SphereGeometry(1, 128, 64)`
-
-❌ **Not setting pixelRatio cap**
-Why bad: 4K/5K displays run at full resolution, poor performance
-Better: `Math.min(window.devicePixelRatio, 2)`
-
-### Code Organization
-
-❌ **Everything in one giant function**
-Why bad: Hard to modify, hard to debug
-Better: Separate setup into functions: `createScene()`, `createLights()`, `createMeshes()`
-
-❌ **Hardcoding all values**
-Why bad: Difficult to tweak and experiment
-Better: Define constants at top: `const CONFIG = { color: 0x00ff88, speed: 0.001 }`
+- **Wrong OrbitControls path** → `THREE.OrbitControls` is undefined in modern Three.js. Import from `three/addons/controls/OrbitControls.js` (or the unpkg `examples/jsm/` path).
+- **Forgetting `scene.add(object)`** → object won't render, silent failure.
+- **Old `requestAnimationFrame` instead of `setAnimationLoop`** → more verbose, doesn't handle WebXR. Use `renderer.setAnimationLoop((time) => { ... })`.
+- **Creating geometries in the animation loop** → memory allocation, frame-rate collapse. Create once, reuse; transform only position/rotation/scale.
+- **Too many segments on primitives** → wasted vertices. `SphereGeometry(1, 32, 16)`, not `(1, 128, 64)`.
+- **No pixelRatio cap** → 4K/5K runs at full res. Use `Math.min(window.devicePixelRatio, 2)`.
+- **Everything in one function / hardcoded values** → split into `createScene()`/`createLights()`/`createMeshes()`; hoist constants into a `CONFIG` object.
 
 ---
 
 ## Variation Guidance
 
-**IMPORTANT**: Each Three.js app should feel unique and context-appropriate.
+Each app should feel context-appropriate, not templated. Vary by scenario:
 
-**Vary by scenario**:
+- **Portfolio/showcase**: elegant, smooth animations, muted colors
+- **Game/interactive**: bright colors, snappy controls, particle effects
+- **Data visualization**: clean lines, grid helpers, clear labels
+- **Background effect**: subtle, slow movement, dark/gradient backgrounds
+- **Product viewer**: realistic lighting, PBR materials, smooth orbit
 
-- **Portfolio/showcase**: Elegant, smooth animations, muted colors
-- **Game/interactive**: Bright colors, snappy controls, particle effects
-- **Data visualization**: Clean lines, grid helpers, clear labels
-- **Background effect**: Subtle, slow movement, dark/gradient backgrounds
-- **Product viewer**: Realistic lighting, PBR materials, smooth orbit
+Vary geometry (not always a cube), material style, color palette, and animation style. Avoid converging on the default green cube at z=5 with a directional light at (1,1,1).
 
-**Vary visual elements**:
-
-- **Geometry choice**: Not everything needs to be a cube. Explore spheres, tori, icosahedra
-- **Material style**: Mix flat shaded, glossy, metallic, wireframe
-- **Color palettes**: Use complementary, analogous, or monochromatic schemes
-- **Animation style**: Rotation, oscillation, wave motion, mouse tracking
-
-**Avoid converging on**:
-
-- Default green cube as first example every time
-- Same camera angle (front-facing, z=5)
-- Identical lighting setup (always directional light at 1,1,1)
+Use ES modules from the `three` package or CDN — CommonJS and the global `THREE` are legacy.
 
 ---
 
-## Remember
+## See Also
 
-**Three.js is a tool for interactive 3D on the web.**
-
-Effective Three.js apps:
-
-- Start with the scene graph mental model
-- Use primitives as building blocks
-- Keep animations simple and performant
-- Vary visual style based on purpose
-- Import from modern ES module paths
-
-**Modern Three.js (r150+) uses ES modules from `three` package or CDN.** CommonJS patterns and global `THREE` variable are legacy.
-
-For advanced topics (GLTF models, shaders, post-processing), see references/advanced-topics.md.
-
-**Claude is capable of creating elegant, performant 3D web experiences. These patterns guide the way—they don't limit the result.**
-
-For game development (state machines, screen effects, animation switching, parallax), see references/game-patterns.md.
+- [`references/advanced-topics.md`](references/advanced-topics.md) — GLTF models, shaders, post-processing, instancing, physics, npm/TypeScript setup
+- [`references/gltf-loading-guide.md`](references/gltf-loading-guide.md) — loading, caching, cloning, normalizing 3D models
+- [`references/game-patterns.md`](references/game-patterns.md) — state machines, screen effects, animation switching, parallax, pooling

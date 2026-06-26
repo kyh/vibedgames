@@ -30,12 +30,10 @@ The **host** (first player) runs authoritative game logic. If the host leaves, t
 
 ## Room caps (overflow to new rooms)
 
-By default a room is unlimited — everyone connecting to the same `room`
-shares one world. Pass `maxPlayers` to cap a room. When a room is full,
-the next player overflows into a sibling room (`{room}~2`, `{room}~3`, …)
-automatically — the SDK reconnects them there transparently. This is how
-you keep, say, an 8-player battle from turning into a 50-player mess:
-extra players get their own parallel match instead of being turned away.
+By default a room is unlimited. Pass `maxPlayers` to cap it; when full, the
+next player overflows into a sibling room (`{room}~2`, `{room}~3`, …) and the
+SDK reconnects them there transparently — extra players get a parallel match
+instead of being turned away.
 
 ```ts
 const client = new MultiplayerClient({
@@ -44,34 +42,21 @@ const client = new MultiplayerClient({
   room: "arena",
   maxPlayers: 8, // 9th player lands in "arena~2", 17th in "arena~3", …
 });
-
-// Which room you actually landed in (may be an overflow sibling):
-client.room; // "arena" or "arena~2" …
+client.room; // the room you actually landed in — "arena" or an overflow sibling
 ```
 
-```tsx
-const room = useMultiplayerRoom({
-  host,
-  party,
-  room: "arena",
-  maxPlayers: 8,
-});
-room.room; // the live room id, for "Room #2"-style UI
-```
+`useMultiplayerRoom` takes the same `maxPlayers` option; read the live id off `room.room` for "Room #2"-style UI.
 
 Notes:
 
-- The cap is enforced server-side. A client can request a cap but the
-  server clamps it to a hard ceiling, so a misbehaving game can't size a
+- Enforced server-side and clamped to a hard ceiling — a client can't size a
   room arbitrarily large.
-- All clients of a game should pass the **same** `maxPlayers` — it ships
-  in your shared config, so they do. Mixing values makes the effective
-  cap depend on who connects.
-- Overflow rooms are independent worlds: separate host, separate
-  `sharedState`. Don't assume players in `arena` and `arena~2` can see
-  each other. There is no cross-room matchmaking — overflow is purely a
-  spillover, not a lobby.
-- Omit `maxPlayers` for the historical unlimited behaviour.
+- All clients must pass the **same** `maxPlayers` (ship it in shared config);
+  mixing values makes the effective cap depend on who connects.
+- Overflow rooms are independent worlds (separate host, separate
+  `sharedState`) — no cross-room matchmaking. Players in `arena` and `arena~2`
+  can't see each other.
+- Omit `maxPlayers` for unlimited.
 
 ## Host-only writes (important)
 
@@ -357,13 +342,6 @@ Why this matters:
 - **One place to fix bugs.** Throttling, reconnection UI, intent validation — all in `session.ts`.
 - **Renderer doesn't change.** The Phaser scene calls `session.setScore(10)`, not `client.updateSharedState({...})`.
 
-### Host-authoritative
-
-Host runs simulation, broadcasts via `updateSharedState` (gated by
-`client.isHost`). Non-hosts render the broadcast state and send intents
-via `sendEvent`. The host is the only one allowed to mutate
-`sharedState`; the server enforces this.
-
 ### Throttling
 
 Don't send state every frame. ~20Hz is plenty:
@@ -425,13 +403,9 @@ A disconnected game looks identical to a frozen one. Render the status.
 
 ## Deploy
 
-```sh
-vg deploy ./dist --slug my-game
-```
-
-If `vg` isn't on PATH, substitute `npx vibedgames deploy` — works identically.
-
-Live at `https://my-game.vibedgames.com` — party server is shared infrastructure.
+`vg deploy ./dist --slug my-game` → live at `https://my-game.vibedgames.com`;
+the party server is shared infrastructure. See the `deploy` skill for the full
+flow (use `npx vibedgames deploy` if `vg` isn't on PATH).
 
 ## See also
 

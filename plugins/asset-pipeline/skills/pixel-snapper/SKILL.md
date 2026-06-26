@@ -7,68 +7,48 @@ metadata:
 
 # Pixel Snapper
 
-Recover the underlying low-resolution pixel grid from images that _look_ like pixel art but are stored at a much higher resolution with anti-aliased or smudged edges. Common case: a 1024×1024 AI-generated character that conceptually has ~100×100 chunky pixels.
+Recover the underlying low-resolution pixel grid from images that _look_ like pixel art but are stored at high resolution with anti-aliased/smudged edges (e.g. a 1024×1024 AI-generated character that conceptually has ~100×100 chunky pixels).
 
-`scripts/pixel_snapper.py` is a Python port of an MIT-licensed Rust implementation (see `references/credits.md`). It produces dimensionally identical output and runs as a uv self-contained script — no project install required.
+`scripts/pixel_snapper.py` is a Python port of an MIT-licensed Rust implementation (see `references/credits.md`), dimensionally identical to upstream, run as a uv self-contained script. `scripts/pixel_snapper_sheet.py` is a known-layout spritesheet helper: crops frames first, snaps each independently, reassembles.
 
-It also includes `scripts/pixel_snapper_sheet.py`, a known-layout spritesheet helper that crops frames first, snaps each frame independently, and reassembles the sheet.
+## Discover, Don't Resize
 
-## Philosophy: Discover, Don't Resize
-
-A naive "downscale" (Lanczos, bilinear, nearest) just averages neighboring pixels and produces blur or aliasing. Pixel-snapping is fundamentally different: the algorithm _discovers_ where the conceptual pixel boundaries already exist in the input and snaps to them. The output resolution is **a property of the input**, not a parameter you set.
+Naive downscale (Lanczos/bilinear/nearest) averages neighbors → blur or aliasing. Snapping instead _discovers_ where the conceptual pixel boundaries already exist and snaps to them. **Output resolution is a property of the input, not a parameter.**
 
 **Before running, ask**:
 
-- Is this actually pixel art that's been upscaled or AI-faked, or is it a real photograph / continuous-tone illustration? (Pixel-snapping only makes sense for the former.)
-- What palette complexity does the input have? Bright cartoony art tolerates `--k-colors 256`; pre-quantized retro palettes may benefit from a much smaller `k` (16, 32, 64).
-- Do you want the native snapped output, or a nearest-neighbour upscale for inspection? You almost always want both.
-- Are the conceptual pixels actually square, or did the source apply non-uniform scaling? The snapper assumes one shared cell pitch for both axes.
+- Is this genuinely upscaled/AI-faked pixel art, or a photo / continuous-tone illustration? (Snapping only fits the former.)
+- Palette complexity? Bright cartoony art tolerates `--k-colors 256`; pre-quantized retro palettes may want a smaller `k` (16, 32, 64).
+- Native snapped output, or a nearest-neighbour upscale for inspection? Usually you want both.
+- Are the cells actually square? The snapper assumes one shared cell pitch for both axes.
 
-**Core principles**:
-
-1. **Output resolution is discovered**, not specified. The snapper detects the cell pitch from edge profiles and resamples accordingly. Don't fight this.
-2. **`k_colors` is the only user-facing knob.** Twelve other internal tunables exist (peak thresholds, walker windows, fallback segments) but you should only touch them by editing the `Config` dataclass.
-3. **Always inspect output visually.** Dimensions are a sanity check, not a quality check. A snapper run can produce a "correct" 50×50 output that's actually missing detail — you only see this by eye.
-4. **Original concept stays the source of truth.** Snapped output is a derivative; keep the source PNG so you can re-snap with different `k_colors` later.
+**Core principles**: output resolution is discovered, not specified · `k_colors` is the only user-facing knob (other tunables live in the `Config` dataclass) · always inspect the output by eye — dimensions are a sanity check, not a quality check · keep the source PNG so you can re-snap with a different `k_colors` later.
 
 ## When to Use
 
-Trigger this skill when the user:
+Use when the user has AI-generated "pixel art" (gpt-image, retro-diffusion, etc.) and wants a cleaner/smaller/palette-quantized version, needs a high-res mockup converted to a true pixel-art asset, wants to recover an upscaled retro asset's grid, or mentions "snap to pixel grid", "fake pixel art", "downsample to native res", or the Hugo-Dz repo.
 
-- has AI-generated "pixel art" (gpt-image, retro-diffusion, etc.) and wants a cleaner, smaller, palette-quantized version
-- needs to convert a high-res mockup into a true pixel-art asset for a spritesheet or tilemap
-- wants to recover the underlying grid of an upscaled retro asset
-- mentions "snap to pixel grid", "fake pixel art", "downsample to native res", or links the Hugo-Dz repo
-
-Skip this skill for:
-
-- photographs, continuous-tone illustrations, or vector art (no underlying grid to recover)
-- already-native pixel art (the snapper would just round-trip it, possibly losing detail)
-- spritesheet _layout_ recovery where rows/columns are unknown (use an asset-probing workflow first; `pixel_snapper_sheet.py` expects known `--cols` and `--rows`)
+Skip for: photographs / continuous-tone / vector art (no grid to recover); already-native pixel art (would just round-trip, possibly losing detail); spritesheet _layout_ recovery where rows/cols are unknown (probe first — `pixel_snapper_sheet.py` expects known `--cols`/`--rows`).
 
 ## Quick Start
 
-The script is self-contained via PEP 723 inline metadata (numpy + pillow). No `pip install` needed:
+Self-contained via PEP 723 (numpy + pillow); uv installs deps on first run and caches:
 
 ```bash
 uv run .claude/skills/pixel-snapper/scripts/pixel_snapper.py input.png output.png --k-colors 256
 ```
 
-Or, after `chmod +x`, the shebang `#!/usr/bin/env -S uv run --script` lets you call it directly:
+After `chmod +x`, the shebang `#!/usr/bin/env -S uv run --script` lets you call it directly:
 
 ```bash
 .claude/skills/pixel-snapper/scripts/pixel_snapper.py input.png output.png --k-colors 256
 ```
 
-uv installs deps on first run and caches them. Output is one snapped PNG at the discovered native resolution.
-
-For inspection, follow up with an integer-multiple nearest-neighbour upscale via ffmpeg:
+Output is one snapped PNG at the discovered native resolution. For inspection, follow up with an integer nearest-neighbour upscale via ffmpeg:
 
 ```bash
 ffmpeg -y -i snapped.png -vf "scale=iw*8:ih*8:flags=neighbor" snapped-x8.png
 ```
-
-See `references/usage-examples.md` for batch processing and verification recipes.
 
 For a known-layout spritesheet, snap frames independently:
 
@@ -77,62 +57,42 @@ uv run .claude/skills/pixel-snapper/scripts/pixel_snapper_sheet.py \
   sheet.png sheet-snapped.png --cols 6 --rows 1 --k-colors 256
 ```
 
+See `references/usage-examples.md` for batch processing and verification recipes.
+
 ## Workflow
 
-1. **Identify the source.** Confirm the input genuinely has a pixel-art design buried in it — not a photograph or continuous painting.
-2. **Pick `k_colors`.** Start with 256 for AI renders (vibrant palettes). For quantized retro art, try 16, 32, 64 in ascending order until detail is preserved without keeping noise.
-3. **Run the snapper.** The script prints output dimensions; sanity-check those against your expectation (e.g. a "32×32 sprite" should snap near 32×32, not 5×5 or 800×800).
-4. **Inspect the upscale.** `iw*8` nearest-neighbour gives a viewable size while preserving the recovered pixels exactly.
-5. **Iterate if needed.** If the output looks wrong, the most common fixes are:
-   - Different `k_colors` (try halving or doubling)
-   - The input has non-square cells (snapper picks the smaller pitch — may need pre-resize)
-   - Step-detection failed (output is exactly 64×64 → fallback fired; input may not have detectable pixel structure)
-6. **Save outputs to `experiments/`**, never directly into `public/assets/`. Snapping is exploratory; promote to assets only after visual approval.
+1. **Identify the source** — confirm a buried pixel-art design, not a photo/painting.
+2. **Pick `k_colors`** — start 256 for AI renders; for quantized retro art try 16, 32, 64 ascending until detail survives without noise.
+3. **Run** — sanity-check printed dims against expectation (a "32×32 sprite" snaps near 32×32, not 5×5 or 800×800).
+4. **Inspect** the `iw*8` nearest-neighbour upscale.
+5. **Iterate** — common fixes: different `k_colors` (halve/double); non-square cells (snapper picks the smaller pitch → may need pre-resize); exactly 64×64 output = step-detection fallback fired (input may lack detectable pixel structure).
+6. **Save to `experiments/`**, never directly into `public/assets/`. Promote only after visual approval.
 
-## Common Pitfalls and Anti-Patterns to Avoid
+## Anti-Patterns
 
-WARNING: DO NOT treat pixel snapping as a mandatory cleanup step for every generated asset. Use it only when the input has a recoverable pixel grid.
+DO NOT treat snapping as a mandatory cleanup step for every asset — use it only when the input has a recoverable pixel grid.
 
-❌ **Anti-pattern: treating snapper as a generic downscaler**
-Why bad: The algorithm assumes the input has a hidden pixel grid. On a photograph it produces a low-color, low-resolution mess that looks like neither the input nor good pixel art.
-Better: Use this only for upscaled / AI-faked pixel art. For continuous images, use Lanczos or bicubic downscaling.
-
-❌ **Anti-pattern: using default `k_colors=16` on vibrant AI renders**
-Why bad: 16 colors is fine for retro-style inputs but crushes detail on AI renders that may have hundreds of meaningful colors.
-Better: Default to 256 for AI sources. Drop `k_colors` only if the output looks too noisy.
-
-❌ **Anti-pattern: trusting dimensions as the only quality check**
-Why bad: A snapped 100×100 output can be missing limbs, fingers, or weapon edges and the dimensions look fine.
-Better: Always view the nearest-neighbour upscale and compare side-by-side with the source.
-
-❌ **Anti-pattern: trying to set output resolution**
-Why bad: There's no `--width` or `--height` flag, by design. Output resolution is discovered.
-Better: If you need a specific output size, snap first (recover native), then nearest-neighbour upscale to a multiple. Don't snap-and-resize in one step.
-
-❌ **Anti-pattern: running on already-snapped outputs**
-Why bad: Re-snapping just round-trips through k-means again and loses data.
-Better: Always snap from the original source PNG. Keep snapped outputs as terminal artifacts.
-
-❌ **Anti-pattern: dropping snapped output straight into `public/assets/`**
-Why bad: Snapping is a creative process — first run is rarely the keeper. Premature promotion makes iteration harder.
-Better: Save to `experiments/<timestamp>-pixel-snapper-<subject>/`. Promote only after review.
+- **Generic downscaler** — on a photo it produces a low-color mess. Use Lanczos/bicubic for continuous images.
+- **Default `k_colors=16` on vibrant AI renders** — crushes detail. Default to 256 for AI sources; drop only if output looks noisy.
+- **Trusting dimensions as the only quality check** — a snapped 100×100 can be missing limbs/fingers/weapon edges. Always view the nearest-neighbour upscale side-by-side with the source.
+- **Trying to set output resolution** — there's no `--width`/`--height` by design. Snap first (recover native), then nearest-neighbour upscale to a multiple; don't snap-and-resize in one step.
+- **Running on already-snapped outputs** — re-snapping round-trips k-means and loses data. Always snap from the original source; keep snapped outputs as terminal artifacts.
+- **Dropping snapped output straight into `public/assets/`** — save to `experiments/<timestamp>-pixel-snapper-<subject>/`, promote after review.
 
 ## Variation Guidance
 
-**IMPORTANT**: Don't run the snapper with the same parameters on every input.
+Don't run the same parameters on every input.
 
-- **`k_colors` should match palette complexity.** A retro pixel art file with a 16-color NES-style palette doesn't need 256; an AI render with smooth shading might lose definition at 16. Pick by input.
-- **Inspect at multiple zoom levels.** Native (e.g. 100×100) for grid sanity, x8 for visual review, x16 if you need to debug specific pixels.
-- **Source vs. style.** A logo, a character sprite, and a tile may all be "pixel art" but want different `k_colors` (logos: low; character: medium; tile: high).
-- **Adapt sheet handling to the input.** Single sprites, known-layout sheets, and unknown-layout sheets need different workflows; do not force them through the same command.
-- **Don't chain snapper runs.** One run per source PNG. If results are bad, change `k_colors` and re-run from source.
+- **Match `k_colors` to palette complexity** — a 16-color NES-style file doesn't need 256; an AI render with smooth shading may lose definition at 16.
+- **Inspect at multiple zooms** — native for grid sanity, x8 for review, x16 to debug specific pixels.
+- **Source vs style** — logo/character/tile may all be "pixel art" but want different `k_colors` (logos low, character medium, tile high).
+- **Adapt sheet handling** — single sprites, known-layout sheets, and unknown-layout sheets need different workflows.
+- **Don't chain runs** — one per source PNG; if bad, change `k_colors` and re-run from source.
 
 ## References
 
-- `references/algorithm.md` — detailed pipeline walkthrough (quantize → profile → step-size → walk → resample)
+- `references/algorithm.md` — pipeline walkthrough (quantize → profile → step-size → walk → resample)
 - `references/credits.md` — MIT license + attribution
-- `references/usage-examples.md` — concrete invocation patterns and inspection recipes
+- `references/usage-examples.md` — invocation patterns + inspection recipes
 
-## Remember
-
-The snapper does one thing well: it recovers a hidden pixel grid. It's not a general-purpose image downscaler, not an asset cleaner, not a palette converter for arbitrary art. When the input fits — upscaled or AI-faked pixel art — it produces output that a human pixel artist would have drawn in the first place. When the input doesn't fit, no parameter tuning will save you; reach for a different tool.
+The snapper does one thing well: recover a hidden pixel grid. It's not a general downscaler, asset cleaner, or palette converter for arbitrary art. When the input fits — upscaled/AI-faked pixel art — it produces what a human pixel artist would have drawn. When it doesn't, no parameter tuning will save you; use a different tool.

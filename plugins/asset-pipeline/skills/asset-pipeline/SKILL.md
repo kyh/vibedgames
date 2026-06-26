@@ -5,98 +5,27 @@ description: "Asset pipeline utilities for 2D game projects: validate an asset m
 
 # Gamedev Assets
 
-Use the bundled scripts in `scripts/` to keep your game's art pipeline consistent and debuggable.
+Bundled `scripts/` keep a game's art pipeline consistent and debuggable. Run from repo root.
 
-## Asset Index Learnings (from Rocky Roads)
-
-Keep a short “worked example” doc in your own repo whenever you establish an asset-index convention.
-
-In this repo, the practical “what worked / what didn’t” notes from building a Love2D asset index live at:
-
-- `docs/asset-index-learnings.md`
-
-Key takeaways to apply when building/managing an asset index:
-
-- Prefer a **native** manifest format (Lua table for Love2D), but keep it **JSON-shaped** for export.
-- Categorize by **how you use the asset** (`backgrounds`, `tilesets`, `images`, `spritesheets`), not by size alone.
-- Pick a **tile size** first for tilesets (this pack is consistently **16×16**), then derive `columns/rows`.
-- Treat many sprite sheets as **sparse**: compute and store **non-empty** `{col,row}` frames (alpha-based) instead of assuming a full grid.
-- Use **stable, sanitized keys**; keep `path` as the on-disk truth (case + spaces preserved).
-- Always run a **coverage check** after asset changes so the manifest stays trustworthy.
-
-## Animation Normalization Learnings
-
-When importing AI-generated sprite strips or extracted video frames into game-sized animation frames:
-
-- Use one **approved in-game frame** as the target size reference.
-- Use one **shared runtime anchor** from metadata for placement.
-- Use one **shared scale** for the whole sequence. Do not scale each frame independently unless the source is genuinely inconsistent.
-- Choose the shared-scale reference deliberately:
-  - use a **baseline / median-lower** pose height for states like attack or hurt, where some frames are taller but the character should not be rescaled per pose
-  - use the **first frame** for crouch-like states, where frame `01` should match idle height and later frames should remain visibly shorter
-- For video-frame imports, compute one **union crop** across the full frame set and crop every frame with that same box.
-- Align frames with a stable rule such as **fixed center + fixed bottom** or your known runtime anchor. Do not re-center each frame from its own local silhouette unless the source frames were hand-authored as isolated cells.
-
-Why this matters:
-
-- per-frame cropping/alignment often creates fake sideways drift or "skateboarding"
-- per-frame scaling often shrinks tall poses like raised weapons or hurt reactions
-- many apparent animation problems are actually registration problems introduced during import
-- keeping every extracted frame from a source video often gives you repeated cycles rather than one usable game loop
-
-Practical rule:
-
-- preserve sequence framing first
-- normalize second
-- derive collision/body bounds only after the normalized export exists
-
-For strip importers that support explicit scaling modes, prefer:
-
-- `median-lower` for attack, hurt, or other states with upward pose variation
-- `first-frame` for crouch or other enter-and-lower states that begin from an idle-like standing pose
-
-For video-derived animation specifically:
-
-1. Use a dense extraction first if you need to inspect the motion clearly.
-2. Normalize that dense sequence with one shared crop, one shared scale, and one shared anchor.
-3. Treat that result as analysis material.
-4. Curate one clean loop cycle for the runtime asset.
-
-This repo's run-animation experiments established an important distinction:
-
-- dense import is good for diagnosis
-- curated single-cycle export is better for the actual game asset
-
-If an animation looks like it is "skating" or sliding sideways, check these in order:
-
-1. whether frames were cropped independently
-2. whether frames were centered independently
-3. whether tall poses were scaled differently from short poses
-4. whether the source motion itself contains true root-motion drift
-
-If a character looks like it is **floating above its shadow** or standing at different heights by direction, check the visible alpha bounds:
-
-1. measure the lowest non-transparent pixel for each frame
-2. compare the bottom baseline across directions and states
-3. normalize the PNG frames so feet land on a shared baseline, commonly `bottomY = frameHeight - 1`
-4. only then tune engine-side sprite origin or shadow offsets
-
-Do not use the asset manifest as the first fix for bad foot placement. Manifests can describe frame size, atlas size, frame count, fps, and sometimes engine pivots, but they do not repair transparent padding inside the PNG. Prefer fixing the runtime spritesheet unless the engine has deliberate per-animation pivot metadata and the team has standardized on using it.
-
-Nearest-neighbor import preserves pixels. If the in-between poses still look soft after correct normalization, the softness is usually already present in the source frames.
+`uv` is recommended: every script ships PEP 723 metadata (`# /// script ...`) so `uv run <script.py>` installs deps automatically (no `pip install`). Without `uv`: Python 3.11+ with Pillow.
 
 ## Asset Index Theory
 
-An asset index (manifest) is a structured metadata file that serves as the single source of truth for all game art. It enables:
+An asset index (manifest) is the single source of truth for game art — centralized loading by logical name, frame metadata (grid dims, sequences, timing), and validation that disk matches code.
 
-- **Centralized loading** - One place to reference all assets by logical name
-- **Frame metadata** - Grid dimensions, animation sequences, timing
-- **Validation** - Ensure disk files match what code expects
+Conventions that worked (Love2D / Rocky Roads; keep your own "what worked" notes at `docs/asset-index-learnings.md`):
+
+- Prefer a **native** manifest format (Lua table for Love2D) but keep it **JSON-shaped** for export.
+- Categorize by **how the asset is used**, not by size.
+- Pick a **tile size** first for tilesets (this pack: **16×16**), then derive `columns/rows`.
+- Treat sprite sheets as **sparse**: store **non-empty** `{col,row}` frames (alpha-based), don't assume a full grid.
+- Use **stable, sanitized keys**; keep `path` as on-disk truth (case + spaces preserved).
+- Always run a **coverage check** after asset changes.
 
 ### Output Formats
 
-- **JSON** (preferred) - Universal, works with any engine
-- **Lua table** - For Love2D or other Lua-based projects
+- **JSON** (preferred) — universal, any engine.
+- **Lua table** — Love2D / Lua projects.
 
 ### Asset Categories
 
@@ -169,90 +98,102 @@ An asset index (manifest) is a structured metadata file that serves as the singl
 }
 ```
 
-### Frame Coordinates
-
-Frames are referenced as `[column, row]` pairs within the sprite sheet grid:
-
-- **Zero-based indexing** - First cell is `[0, 0]`
-- **Grid defined by frame dimensions** - `frameWidth × frameHeight` subdivides the image
-- **Sparse sheets** - When not all cells contain content, use explicit `frames` array
-- **Named animations** - Group frame sequences with timing under `animations` object
+Frames are `[column, row]` pairs, zero-based (`[0,0]` = first cell). Grid is `frameWidth × frameHeight`. Use explicit `frames` for sparse sheets; group sequences + timing under `animations`.
 
 ### Workflow: Building an Asset Index
 
-1. **Inventory** - Run `asset_sizes.py` to get dimensions of all PNGs
-2. **Probe sheets** - Run `asset_sheet_probe.py --frame WxH --list` to find non-empty cells
-3. **Categorize** - Determine if each asset is background, tileset, static image, or spritesheet
-4. **Define animations** - For spritesheets, identify frame sequences and fps
-5. **Write manifest** - Create JSON (or Lua for Love2D projects)
-6. **Validate** - Run `asset_manifest_check.py` to ensure manifest ↔ disk sync
+1. **Inventory** — `asset_sizes.py` for all PNG dimensions.
+2. **Probe sheets** — `asset_sheet_probe.py --frame WxH --list` for non-empty cells.
+3. **Categorize** — background / tileset / static image / spritesheet.
+4. **Define animations** — frame sequences + fps for spritesheets.
+5. **Write manifest** — JSON (or Lua for Love2D).
+6. **Validate** — `asset_manifest_check.py` for manifest ↔ disk sync.
 
-## Quick Start (recommended: `uv`)
+## Animation Normalization
 
-Run from repo root:
+When importing AI-generated sprite strips or extracted video frames into game-sized frames, **preserve sequence framing first, normalize second, derive collision/body bounds only after the normalized export exists.**
+
+- Use one **approved in-game frame** as the size reference, one **shared runtime anchor** for placement, one **shared scale** for the whole sequence (don't scale frames independently unless the source is genuinely inconsistent).
+- Pick the shared-scale reference deliberately:
+  - **`median-lower`** for attack/hurt — taller frames shouldn't rescale the character.
+  - **`first-frame`** for crouch-like states — frame `01` matches idle height, later frames stay shorter.
+- For video-frame imports, compute one **union crop** across the full set and crop every frame with that box.
+- Align with a stable rule (**fixed center + fixed bottom**, or your runtime anchor). Don't re-center each frame from its own silhouette unless frames were hand-authored as isolated cells.
+
+Why: per-frame cropping/alignment creates fake drift ("skateboarding"); per-frame scaling shrinks tall poses; many "animation" problems are registration problems from import; keeping every video frame gives repeated cycles, not one usable loop. For video specifically: dense extraction is good for diagnosis, a curated single-cycle export is the actual game asset.
+
+If a character looks like it's **floating above its shadow** or stands at different heights by direction, check visible alpha bounds: measure the lowest non-transparent pixel per frame, compare the bottom baseline across directions/states, normalize PNG frames so feet land on a shared baseline (commonly `bottomY = frameHeight - 1`), then tune engine sprite origin / shadow offsets. Don't use the manifest as the first fix for bad foot placement — it describes size/atlas/frame/fps/pivot but can't repair transparent padding inside the PNG. Nearest-neighbor import preserves pixels; if in-betweens still look soft, the softness is in the source frames.
+
+## Tools
+
+### Manifest Coverage Check (`asset_manifest_check.py`)
+
+Verify every PNG on disk appears in the manifest and vice versa.
 
 ```bash
-# 1) Check manifest coverage (manifest ↔ disk)
+uv run .claude/skills/asset-pipeline/scripts/asset_manifest_check.py
 uv run .claude/skills/asset-pipeline/scripts/asset_manifest_check.py --manifest path/to/assets_index.lua --root assets
+uv run .claude/skills/asset-pipeline/scripts/asset_manifest_check.py --json tmp/coverage.json
+```
 
-# 1b) Export Lua manifest to portable JSON (recommended for non-Lua engines/tools)
+### Manifest Export (`asset_manifest_export_json.py`)
+
+Export `assets_index.lua` (Love2D-style) to a portable `assets_index.json`. By default it rewrites all `path` entries relative to the output folder and sets `meta.root` to `"."`, so the result can be copied/zipped and still work.
+
+```bash
 uv run .claude/skills/asset-pipeline/scripts/asset_manifest_export_json.py --manifest path/to/assets_index.lua --out path/to/assets_index.json
-
-# 2) List PNG sizes
-uv run .claude/skills/asset-pipeline/scripts/asset_sizes.py --root assets --json tmp/asset_sizes.json
-
-# 3) Probe sprite sheet for non-empty frames
-uv run .claude/skills/asset-pipeline/scripts/asset_sheet_probe.py path/to/sheet.png --frame 32x32 --list --json tmp/probe.json
-
-# 3b) Audit/fix visible foot baselines inside sprite frames
-uv run .claude/skills/asset-pipeline/scripts/asset_sprite_baseline.py assets/characters --frame 256x256 --json tmp/baselines.json
-uv run .claude/skills/asset-pipeline/scripts/asset_sprite_baseline.py assets/characters --frame 256x256 --target-bottom 255 --out-dir tmp/baseline-fixed
-
-# 4) Debug tilesets / tilemaps with a manifest-driven GUI editor
-uv run .claude/skills/asset-pipeline/scripts/asset_tilemap_editor.py --manifest path/to/assets_index.json
 ```
 
-Without `uv`: Python 3.11+ with Pillow installed.
+### Sprite-Sheet Probe (`asset_sheet_probe.py`)
 
-All Python scripts shipped with this skill include PEP 723 metadata (`# /// script ...`) so `uv run <script.py>` installs dependencies automatically (no manual `pip install` steps).
-
-## Asset Index Export (Lua → JSON)
-
-If you have an existing `assets_index.lua` (Love2D-style), export it to a portable `assets_index.json`:
+Find non-empty cells in a sheet grid. Essential for building `frames` arrays.
 
 ```bash
-uv run .claude/skills/asset-pipeline/scripts/asset_manifest_export_json.py \
-  --manifest path/to/assets_index.lua \
-  --out path/to/assets_index.json
+uv run .claude/skills/asset-pipeline/scripts/asset_sheet_probe.py image.png --frame 32x32
+uv run .claude/skills/asset-pipeline/scripts/asset_sheet_probe.py folder/ --frame 16x16 --list --json tmp/probe.json
 ```
 
-By default the exporter rewrites all `path` entries to be relative to the output manifest folder and sets `meta.root` to `"."`, so the resulting folder can be copied/zip'd and still work.
+### Sprite Baseline Audit/Fix (`asset_sprite_baseline.py`)
 
-## Tilemap Debugging (Python tileset/tilemap editor)
+Audit visible alpha bounds inside a sheet grid and optionally write baseline-corrected copies. Use when a character floats above its shadow in one direction, a directional idle was made from an attack frame, AI sheets have inconsistent transparent padding under the feet, or engine origins are correct but visual foot placement differs. It's a runtime export guardrail — it verifies final PNG frames agree with engine sprite-origin/shadow assumptions, not animation quality.
 
-Use the manifest-driven editor to verify:
+```bash
+# Report per-frame alpha bounds, visible bottom pixel, required shift.
+uv run .claude/skills/asset-pipeline/scripts/asset_sprite_baseline.py public/assets/kaede --frame 256x256 --json tmp/kaede-baselines.json
 
-- `tileWidth`/`tileHeight` grid math and `columns`/`rows`
-- that cursor movement is exactly 1 cell per keypress
-- that saving/loading a JSON tilemap preserves the same layout
+# Write fixed copies whose visible feet land on y=255.
+uv run .claude/skills/asset-pipeline/scripts/asset_sprite_baseline.py public/assets/kaede --frame 256x256 --target-bottom 255 --out-dir tmp/kaede-baseline-fixed
 
-Run:
+# Also normalize horizontal center (for idle/standing sources).
+uv run .claude/skills/asset-pipeline/scripts/asset_sprite_baseline.py public/assets/kaede/idle-n.png --frame 256x256 --target-bottom 255 --target-center-x 128 --out tmp/idle-n-fixed.png
+```
+
+### PNG Dimension Listing (`asset_sizes.py`)
+
+```bash
+uv run .claude/skills/asset-pipeline/scripts/asset_sizes.py
+uv run .claude/skills/asset-pipeline/scripts/asset_sizes.py --root assets/ --json tmp/sizes.json
+```
+
+### Tileset/Tilemap Editor (`asset_tilemap_editor.py`)
+
+Manifest-driven GUI to verify `tileWidth`/`tileHeight` grid math + `columns`/`rows`, that cursor movement is exactly 1 cell per keypress, and that save/load preserves layout. The GUI uses `tkinter` (provided by your Python distro/OS, not installed via uv/pip).
 
 ```bash
 uv run .claude/skills/asset-pipeline/scripts/asset_tilemap_editor.py --manifest path/to/assets_index.json
 ```
 
-Note: this GUI uses `tkinter`, which is provided by your Python distribution/OS (it’s not installed via `uv`/pip).
+Controls: arrows move cursor cell-by-cell · `WASD` move palette selection · `Space/Enter` paint, `X/Backspace` erase · `[`/`]` switch tileset, `+/-` zoom · `F5` quick-save (`tilemap.json`), `F9` quick-load (requires `--map`) · `G` grid, `H` help.
 
-Headless exports (no `tkinter` required):
+Headless exports (no `tkinter`):
 
 ```bash
-# Export a grid-overlay PNG for a tileset
+# Grid-overlay PNG for a tileset
 uv run .claude/skills/asset-pipeline/scripts/asset_tilemap_editor.py \
   --manifest path/to/assets_index.json --tileset <tileset_name> \
   --export-tileset-grid tmp/tileset_grid.png --label-ids --scale 6 --trim
 
-# Generate a self-test tilemap (all non-empty tiles in-place) and render it
+# Self-test tilemap (all non-empty tiles in-place) and render it
 uv run .claude/skills/asset-pipeline/scripts/asset_tilemap_editor.py \
   --manifest path/to/assets_index.json --tileset <tileset_name> \
   --make-selftest-map tmp/selftest.json
@@ -260,86 +201,8 @@ uv run .claude/skills/asset-pipeline/scripts/asset_tilemap_editor.py \
   --manifest path/to/assets_index.json --map tmp/selftest.json \
   --export-map-render tmp/selftest.png --scale 6 --trim
 
-# Optional: set a background color and fill rectangles behind tiles (useful for concept mockups)
+# Background color + fill rectangles behind tiles (concept mockups)
 uv run .claude/skills/asset-pipeline/scripts/asset_tilemap_editor.py \
   --manifest path/to/assets_index.json --map tmp/selftest.json \
   --export-map-render tmp/selftest_bg.png --scale 6 --bg '#77cfd8' --fill-rect '0,40,24,6,#12a7d5'
-```
-
-Controls:
-
-- Arrows: move cursor cell-by-cell
-- `WASD`: move palette selection on the tileset
-- `Space/Enter`: paint, `X/Backspace`: erase
-- `[` / `]`: switch tileset, `+/-`: zoom map
-- `F5`: quick-save (`tilemap.json` by default), `F9`: quick-load (requires `--map`)
-- `G`: grid, `H`: help
-
-## Tools
-
-### 1) Manifest Coverage Check (`asset_manifest_check.py`)
-
-Verify every PNG on disk appears in manifest and vice versa.
-
-```bash
-uv run .claude/skills/asset-pipeline/scripts/asset_manifest_check.py
-uv run .claude/skills/asset-pipeline/scripts/asset_manifest_check.py --json tmp/coverage.json
-```
-
-### 1b) Manifest Export (`asset_manifest_export_json.py`)
-
-Export `assets_index.lua` to `assets_index.json` (portable across engines/tooling):
-
-```bash
-uv run .claude/skills/asset-pipeline/scripts/asset_manifest_export_json.py --manifest path/to/assets_index.lua --out path/to/assets_index.json
-```
-
-### 2) Sprite-Sheet Probe (`asset_sheet_probe.py`)
-
-Find non-empty cells in a sprite sheet grid. Essential for building `frames` arrays.
-
-```bash
-uv run .claude/skills/asset-pipeline/scripts/asset_sheet_probe.py image.png --frame 32x32
-uv run .claude/skills/asset-pipeline/scripts/asset_sheet_probe.py folder/ --frame 16x16 --list --json tmp/probe.json
-```
-
-### 2b) Sprite Baseline Audit/Fix (`asset_sprite_baseline.py`)
-
-Audit visible alpha bounds inside a spritesheet grid and optionally write baseline-corrected copies.
-
-Use this when:
-
-- a character floats above its shadow in one direction but not another
-- a directional idle was made from an attack frame
-- AI-generated sheets have inconsistent transparent padding under the feet
-- engine origins are correct, but visual foot placement still differs
-
-```bash
-# Report per-frame alpha bounds, visible bottom pixel, and required shift.
-uv run .claude/skills/asset-pipeline/scripts/asset_sprite_baseline.py public/assets/kaede --frame 256x256 --json tmp/kaede-baselines.json
-
-# Write fixed copies whose visible feet land on y=255.
-uv run .claude/skills/asset-pipeline/scripts/asset_sprite_baseline.py public/assets/kaede --frame 256x256 --target-bottom 255 --out-dir tmp/kaede-baseline-fixed
-
-# Optionally normalize horizontal center too, when the source is meant to be idle/standing.
-uv run .claude/skills/asset-pipeline/scripts/asset_sprite_baseline.py public/assets/kaede/idle-n.png --frame 256x256 --target-bottom 255 --target-center-x 128 --out tmp/idle-n-fixed.png
-```
-
-Treat the script as a runtime export guardrail. It does not decide animation quality; it verifies that final PNG frames agree with the engine's sprite-origin and shadow assumptions.
-
-### 3) PNG Dimension Listing (`asset_sizes.py`)
-
-Get dimensions for all PNGs under a folder.
-
-```bash
-uv run .claude/skills/asset-pipeline/scripts/asset_sizes.py
-uv run .claude/skills/asset-pipeline/scripts/asset_sizes.py --root assets/ --json tmp/sizes.json
-```
-
-### 4) Tileset/Tilemap Editor (`asset_tilemap_editor.py`)
-
-GUI tool for selecting tiles and painting a grid to validate tileset assumptions.
-
-```bash
-uv run .claude/skills/asset-pipeline/scripts/asset_tilemap_editor.py --manifest path/to/assets_index.json
 ```

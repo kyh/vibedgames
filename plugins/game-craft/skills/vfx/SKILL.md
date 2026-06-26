@@ -5,18 +5,17 @@ description: "Real-time 2D VFX cookbook — layered explosions, hit sparks, muzz
 
 # Real-time VFX
 
-Effects spell out the mechanics first — that's rule one (Julian Love, _The
-VFX of Diablo_): before pretty, decide what the player must learn (hit
-confirmed? danger radius?). Then the timing model (Keyser/Chamberlain, GDC):
+Effects spell out the mechanics first: before pretty, decide what the player
+must learn (hit confirmed? danger radius?). Then the timing model:
 **anticipation → overload → processing** — brief windup, violent fast core,
 slow lingering decay. Fast in, slow out: peak size in the first ~20% of an
 effect's life, the rest is decay.
 
 Two more laws: **scale of importance** — a basic attack must never outshine
-an ultimate (Riot's LoL style guide) — and **if it feels long, it's way too
-long**: effects live in a busy scene, default shorter than feels right alone.
+an ultimate — and **if it feels long, it's way too long**: effects live in a
+busy scene, default shorter than feels right alone.
 
-## Anatomy of an explosion (saint11's layers)
+## Anatomy of an explosion (layered)
 
 Build as independent layers — flash → blast → fire → smoke — each with its
 own timing. Medium explosion ≈ 600–900ms total:
@@ -121,15 +120,6 @@ Phaser: create emitters once, fire with `explode(n, x, y)`.
   behind a quality flag.
 - **Kill invisible work**: stop off-screen ambient emitters; shorten
   lifespans before cutting counts — lifetime is overdraw-time.
-
-## Sources
-
-- Love, "The VFX of Diablo" (GDC 2013) — gdcvault.com/play/1017660
-- Keyser & Chamberlain, "Artistic Principles of VFX" (GDC 2017) — gdcvault.com/play/1024439
-- saint11 VFX tutorials (explosion/impact/fire/smoke) — saint11.art/blog/pixel-art-tutorials/
-- Riot LoL VFX style guide, distilled — vfxapprentice.com/blog/10-league-of-legends-vfx-design-tips
-- Nijman, "The Art of Screenshake" — youtube.com/watch?v=AJdEqssNZ-U
-- RealtimeVFX community canon — realtimevfx.com/t/getting-started-in-real-time-vfx-start-here/3415
 
 Related skills: `game-feel` (hit stop/shake/flash that pair with these),
 `animation` (sprite-frame FX timing), `pixel-art` (generating FX sprites on

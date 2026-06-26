@@ -89,108 +89,12 @@ Skeleton:
 [duration or aspect ratio], [continuity constraints]
 ```
 
-## Shot language
+## Shot language, lighting, lens, and color
 
-### Shot sizes
+These vocabularies live in the `cinematography` skill — use them as the menu when filling the SCLCAM skeleton:
 
-- **Extreme close-up**: one detail, texture, eye, hand, product edge.
-- **Close-up**: face or object detail with emotional focus.
-- **Medium close-up**: chest-up subject, useful for dialogue and portraits.
-- **Medium shot**: waist-up subject, body language visible.
-- **Full shot**: entire body or object, silhouette and stance readable.
-- **Wide shot**: subject inside environment.
-- **Extreme wide**: scale, isolation, worldbuilding, architecture.
-
-### Angles
-
-- **Eye level**: natural, direct, grounded.
-- **Low angle**: power, threat, awe.
-- **High angle**: vulnerability, surveillance, layout clarity.
-- **Dutch angle**: unease, instability. Use sparingly.
-- **Over-the-shoulder**: relationship, conversation, pursuit.
-- **POV**: subjective experience.
-- **Profile**: graphic composition, ritual, tension, fashion.
-
-### Camera movement
-
-- **Slow push-in**: attention, realization, premium product reveal.
-- **Pull-back**: isolation, context, reveal.
-- **Dolly left/right**: spatial discovery.
-- **Tracking shot**: follow action with continuity.
-- **Crane up**: scale reveal or emotional release.
-- **Handheld**: urgency, intimacy, instability.
-- **Locked-off**: control, deadpan, formalism, surveillance.
-- **Orbit**: product reveal, character inspection, heightened drama.
-- **Macro glide**: product texture, food, jewelry, electronics.
-
-### Composition
-
-- **Centered symmetry**: control, ritual, luxury, unease.
-- **Rule of thirds**: natural editorial composition.
-- **Negative space**: loneliness, premium ad copy area, tension.
-- **Foreground obstruction**: secrecy, surveillance, voyeurism.
-- **Leading lines**: architecture, movement, precision.
-- **Frame within frame**: confinement, observation, layered space.
-
-### Continuity language
-
-- "same subject and wardrobe as the reference"
-- "preserve product shape and label"
-- "continue from the uploaded first frame"
-- "single continuous shot"
-- "no cutaways"
-- "no time jump"
-- "same lighting direction throughout"
-
-## Lighting, lens, and color
-
-### Lighting setups
-
-- **Soft key**: flattering, commercial, calm.
-- **Hard key**: graphic, dramatic, fashion, noir.
-- **Backlight**: separation, glow, silhouette, premium edge.
-- **Rim light**: subject outline, product glass, metal highlights.
-- **Practical light**: lamps, signs, screens, candles in the scene.
-- **Motivated light**: light with a visible or logical source.
-- **Low key**: dark frame, selective highlights, suspense.
-- **High key**: bright, low contrast, beauty, comedy, clean product work.
-- **Top light**: interrogation, overhead realism, harsh institutional mood.
-- **Window light**: natural, intimate, documentary.
-
-### Lens feel
-
-- **14-20mm wide**: scale, distortion, kinetic interiors, action.
-- **24-28mm wide-normal**: environmental realism, travel, documentary.
-- **35mm**: natural cinematic perspective, street, lifestyle, narrative.
-- **50mm**: classic portrait and product balance.
-- **85mm**: compressed portrait, beauty, isolation.
-- **100mm macro**: product detail, jewelry, food texture, eyes.
-- **Telephoto compression**: distance, surveillance, fashion runway.
-
-### Depth of field
-
-- **Shallow focus**: isolate subject, premium portrait, product hero.
-- **Deep focus**: environment and blocking stay readable.
-- **Rack focus**: attention shifts between two subjects or details.
-
-### Color and grade
-
-- **Clean neutral grade**: commercial, e-commerce, architecture.
-- **Warm golden grade**: nostalgia, comfort, luxury hospitality.
-- **Cool cyan shadows**: thriller, tech, night exterior.
-- **Desaturated earth palette**: realism, documentary, survival.
-- **High contrast monochrome**: noir, fashion, graphic product.
-- **Pastel palette**: beauty, wellness, light lifestyle.
-- **Sodium vapor night**: urban realism, tension.
-
-### Texture
-
-- **Fine film grain**: organic image, period mood.
-- **Clean digital**: tech, luxury, e-commerce, architecture.
-- **Halation**: glowing highlights, dream, night practicals.
-- **Mist filter**: soft bloom, romance, beauty.
-- **Crisp high shutter**: action clarity.
-- **Motion blur**: speed, energy, handheld realism.
+- Shot sizes, angles, camera movement, composition, continuity language: [../../cinematography/references/shot-language.md](../../cinematography/references/shot-language.md)
+- Lighting setups, lens feel, depth of field, color grade, texture: [../../cinematography/references/lighting-lens-color.md](../../cinematography/references/lighting-lens-color.md)
 
 ## Examples
 

@@ -40,6 +40,16 @@ For the full command surface (every flag, every option, every example), see [ref
 
 > `vg generate` is a model-call surface only. Install/update the CLI with `npm install -g vibedgames`; skills live in this repo under `plugins/generate/skills/` and sync via `pnpm dogfood`.
 
+## Standard workflow
+
+The canonical genmedia loop every domain skill (character-design, cinematography, storytelling, …) runs:
+
+1. **Resolve the endpoint.** Verify a known ID with `vg generate models --endpoint_id <id> --json`; fall back to `vg generate models "<task>" --json` / `vg generate docs "<topic>" --json` only when no routed endpoint covers the role.
+2. **Inspect before running.** `vg generate schema <id> --json` for exact fields, `vg generate pricing <id> --json` when cost matters. Use only schema-supported fields (seed, reference image, image strength, negative prompt) and record what you used.
+3. **Upload references** with `vg generate upload <path> --json`; reuse the returned URL.
+4. **Run.** Stills usually complete inline; video/audio/3D need `--async` then `vg generate status <id> <request_id> --json` to poll.
+5. **Download** via `--download "./outputs/<dir>/{request_id}_{index}.{ext}"`, reading paths from `downloaded_files[]` — never curl URLs.
+
 ## Quick patterns
 
 ### Run a model and download the result

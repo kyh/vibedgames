@@ -113,27 +113,21 @@ window.__TEST__ = {
 ## Anti-Patterns to Avoid
 
 ❌ **Testing the wrong layer**: E2E tests for pure logic
-_Why tempting_: "Let's just test everything through the browser"
 _Better_: Unit tests for logic; reserve E2E for integration contracts
 
 ❌ **Testing implementation details**: Asserting DOM structure/classnames
-_Why tempting_: Easy to assert what you can see in DevTools
 _Better_: Assert user-meaningful outputs (text, score, HP changes)
 
 ❌ **Sleep-driven tests**: `wait 2s then click`
-_Why tempting_: Simple and "works on my machine"
 _Better_: Wait on explicit readiness (DOM marker, `window.__TEST__.ready`)
 
 ❌ **Uncontrolled randomness**: RNG/time in assertions
-_Why tempting_: "The game uses random, so the test should too"
 _Better_: Seed RNG (`?seed=42`), freeze time, assert stable invariants
 
 ❌ **Pixel snapshots without determinism**: Canvas screenshots that flake
-_Why tempting_: "I'll catch visual bugs automatically"
 _Better_: Deterministic mode first; then screenshot at known stable frames
 
 ❌ **Retries as a strategy**: "Just bump retries to 3"
-_Why tempting_: Quick fix that makes CI green
 _Better_: Fix the flake source; retries hide real problems
 
 ## Debugging Failed Tests
