@@ -15,7 +15,7 @@ references as needed:
 - `references/workflows.md`
 - `references/examples.md`
 
-Load `model-routing` alongside this skill for default endpoint choices.
+Load `model-catalog` alongside this skill for default endpoint choices.
 
 The goal is to produce clear story beats and executable vg generate runs. Avoid
 generic inspiration copy, fake dialogue, and em dashes.
@@ -73,7 +73,7 @@ Ask only when missing information affects execution.
 
 4. Choose the sequence route.
    - Highest quality video: start with Seedance 2.0 endpoints from
-     `model-routing`.
+     `model-catalog`.
    - Native multi-prompt: use if schema has shot arrays, prompt lists, or
      timeline fields.
    - First/last frame: use for controlled transitions between key frames.
@@ -81,7 +81,7 @@ Ask only when missing information affects execution.
    - Manual per-shot generation: use when the model only supports one prompt.
    - Audio-first: generate or upload audio, then plan visual shot lengths.
    - Lip-sync or talking avatar: use Fabric 1.0 or Creatify Aurora from
-     `model-routing`.
+     `model-catalog`.
 
 5. Run long jobs async and download every result with a unique template.
 

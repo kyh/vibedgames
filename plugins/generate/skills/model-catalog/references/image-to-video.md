@@ -87,7 +87,7 @@ Talking head, avatar, lip-sync video. The widest bucket in this modality, models
 - `fal-ai/kling-video/lipsync/text-to-video`: Kling · Lipsync Text-to-Video
 - `fal-ai/flashtalk`: Flashtalk
 
-For the multi-step TTS → lipsync recipe, see [media-recipes/references/character-lipsync.md](../../media-recipes/references/character-lipsync.md).
+For the multi-step TTS → lipsync recipe, see [media-workflow/references/character-lipsync.md](../../media-workflow/references/character-lipsync.md).
 
 ## Family-specific prompting
 

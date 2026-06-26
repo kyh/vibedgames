@@ -74,6 +74,6 @@ vg generate models "sound effect" --json
 
 ## See also
 
-- For TTS chained into talking-head video: [media-recipes/references/character-lipsync.md](../../media-recipes/references/character-lipsync.md)
-- For TTS chained into video narration: [media-recipes/references/video-with-audio.md](../../media-recipes/references/video-with-audio.md)
+- For TTS chained into talking-head video: [media-workflow/references/character-lipsync.md](../../media-workflow/references/character-lipsync.md)
+- For TTS chained into video narration: [media-workflow/references/video-with-audio.md](../../media-workflow/references/video-with-audio.md)
 - For STT (audio → text), see [audio-to-text.md](audio-to-text.md)

@@ -15,7 +15,7 @@ Load the reference files when needed:
 - `references/prompt-patterns.md`
 - `references/examples.md`
 
-Load `model-routing` alongside this skill for default endpoint choices.
+Load `model-catalog` alongside this skill for default endpoint choices.
 
 The main objective is consistency. Keep the character anchor stable and change
 only the requested scene, expression, outfit, camera, or action.
@@ -31,7 +31,7 @@ Only ask for missing inputs that affect identity or model routing.
   set, action still, video shot, edit of an existing character.
 - References: source image, approved design, costume, pose, style board.
 - Consistency level: exploratory, pitch-ready, production continuity.
-- Model preference: use `model-routing` defaults unless the user names a model
+- Model preference: use `model-catalog` defaults unless the user names a model
   or the job needs a quality/cost tradeoff decision.
 
 ## Genmedia workflow

@@ -18,7 +18,7 @@
 
 ## Image generation node
 
-- Choose the endpoint from `model-routing` first.
+- Choose the endpoint from `model-catalog` first.
 - Verify it with `vg generate models --endpoint_id <endpoint_id> --json`.
 - Use free-text `vg generate models "<query>" --json` only when the routed
   endpoint is missing or the role is not covered.

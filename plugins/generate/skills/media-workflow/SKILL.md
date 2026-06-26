@@ -1,28 +1,68 @@
 ---
 name: media-workflow
 description: >
-  Design and execute multi-step media workflows with `vg generate`. Use this for
-  pipelines that combine planning, generation, editing, image or video
-  utilities, audio, subtitles, batching, and final delivery manifests.
+  Design and execute multi-step media workflows with `vg generate` — both
+  opinionated use-case recipes and custom pipelines. Use for any production that
+  needs more than a single endpoint call: "make a commercial", "ad creative",
+  "product photography", "cinematic shot", "film look", "character design",
+  "consistent character", "storyboard", "multi-shot", "narrative video",
+  "talking head", "lip sync", "make this person talk", "virtual try-on",
+  "restore image", "deblur", "fix face", "old photo restore", "add audio to
+  video", "video sound effects", "photoreal", "editorial portrait", plus custom
+  pipelines combining planning, generation, editing, image/video utilities,
+  audio, subtitles, batching, and final delivery manifests.
 ---
 
 # `vg generate` workflow production
 
 > **Runtime:** All endpoint calls use the `vg generate` CLI (`npm install -g vibedgames`, or `pnpm dogfood` in this repo). The API key lives on the vibedgames server, so there is no per-machine setup. See the `generate` skill for the command reference.
 
-Use this skill when a single model call is not enough. A workflow is a planned
-sequence of vg generate calls with clear inputs, outputs, dependencies, and
-quality checks.
+Use this skill when a single model call is not enough. There are two ways in:
 
-Load references as needed:
+- **Use-case recipe** — your task matches a known kind of content production
+  (commercial, character, lip-sync, restoration…). Start from the recipe table
+  below; each recipe lists inputs, the `vg generate` call sequence, and a quality
+  bar.
+- **Custom pipeline** — no recipe matches. Design the workflow from scratch using
+  the orchestration patterns in this skill.
+
+A workflow either way is a planned sequence of vg generate calls with clear
+inputs, outputs, dependencies, and quality checks.
+
+## Use-case recipes
+
+Match the user's intent to a recipe, then load that reference. If two apply
+(e.g. "commercial featuring a consistent character"), load both and run the more
+specific one first. If the task is a single endpoint call, skip recipes and go
+straight to the right `model-catalog` reference.
+
+| Reference                                               | Use for                                                                                                                 |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| [cinematography.md](references/cinematography.md)       | Cinematic stills and video, shot language, lighting, lens, color grade                                                  |
+| [character-design.md](references/character-design.md)   | Original characters with consistent identity across shots                                                               |
+| [commercial.md](references/commercial.md)               | Product photography, ads, e-commerce batches, hero shots                                                                |
+| [storytelling.md](references/storytelling.md)           | Multi-shot narratives, short films, ads, brand films, social stories                                                    |
+| [character-lipsync.md](references/character-lipsync.md) | Talking head / lip-sync video (TTS → animated portrait)                                                                 |
+| [image-restoration.md](references/image-restoration.md) | Smart-dispatch restoration, deblur, denoise, dehaze, fix faces, document restore                                        |
+| [virtual-tryon.md](references/virtual-tryon.md)         | Apply a garment onto a person photo (with optional cleanup chain)                                                       |
+| [video-with-audio.md](references/video-with-audio.md)   | Add narration / SFX / music to a silent video                                                                           |
+| [product-shot.md](references/product-shot.md)           | Hero product photography from a packshot reference                                                                      |
+| [realism.md](references/realism.md)                     | Photoreal stills (candid, editorial, documentary, archival, food, nature, architectural) with an anti-AI-look checklist |
+
+Each recipe links to `model-catalog` for endpoint defaults rather than listing
+models inline, so the catalog stays the single source of truth.
+
+## Custom pipelines
+
+Load these references as needed:
 
 - `references/pipeline-patterns.md`
 - `references/node-rules.md`
 - `references/utility-endpoints.md`
-- `references/recipes.md`
-- `model-routing` for creative model defaults
+- `references/recipes.md` — generic workflow recipes (multi-scene video, dataset, social batch…)
+- `model-catalog` for creative model defaults
 
-Use `model-routing` for default creative model choices. Still inspect schemas,
+Use `model-catalog` for default creative model choices. Still inspect schemas,
 check pricing when cost matters, and use exact endpoint fields.
 
 ## Inputs to collect
@@ -59,7 +99,7 @@ Ask only for missing information that changes the pipeline:
    ```
 
    Use text search only as fallback discovery for roles not covered by
-   `model-routing` or the utility reference:
+   `model-catalog` or the utility reference:
 
    ```bash
    vg generate models "image generation product photography" --json
@@ -128,7 +168,7 @@ Ask only for missing information that changes the pipeline:
 - Keep sequential chains only when node B needs node A output.
 - For consistency, prefer reference/edit or image-to-video over independent
   text-only generations.
-- For default creative model choices, follow `model-routing` unless the user
+- For default creative model choices, follow `model-catalog` unless the user
   names a model.
 - Use utility endpoints for deterministic work: crop, resize, grid, composite,
   audio merge, subtitle, speed change, compression.

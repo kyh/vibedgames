@@ -88,7 +88,7 @@ vg generate schema fal-ai/kling-video/v3/pro/text-to-video --json
 - **Lens feel:** "35mm cinematic", "85mm portrait", "100mm macro", "wide 24mm"
 - **Lighting:** "rim light", "backlight", "soft key", "noir hard key", "practical lights", "blue hour"
 
-For full cinema vocabulary across families, see [media-recipes/references/cinematography.md](../../media-recipes/references/cinematography.md).
+For full cinema vocabulary across families, see [media-workflow/references/cinematography.md](../../media-workflow/references/cinematography.md).
 
 ## Image-to-video specifics
 

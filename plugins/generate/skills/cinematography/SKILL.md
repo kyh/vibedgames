@@ -15,7 +15,7 @@ cinematic" prompting. Load references as needed:
 - `references/lighting-lens-color.md`
 - `references/examples.md`
 
-Load `model-routing` alongside this skill for default endpoint choices.
+Load `model-catalog` alongside this skill for default endpoint choices.
 
 Write concrete visual direction. Avoid empty prestige words and em dashes.
 

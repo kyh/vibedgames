@@ -64,4 +64,4 @@ vg generate docs "vision" --json
 ## See also
 
 - For mask manipulation utilities, search the catalog with `vg generate models --category <modality>`
-- For document scan cleanup before OCR, see [media-recipes/references/image-restoration.md](../../media-recipes/references/image-restoration.md)
+- For document scan cleanup before OCR, see [media-workflow/references/image-restoration.md](../../media-workflow/references/image-restoration.md)

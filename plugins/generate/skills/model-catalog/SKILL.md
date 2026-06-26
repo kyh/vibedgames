@@ -1,10 +1,13 @@
 ---
 name: model-catalog
 description: >
-  Choose the right model endpoint for a given task. Modality-organized catalog
-  of production endpoint defaults, text-to-image, image-to-image, text-to-video,
-  image-to-video, and more. Use when the user has not named a specific model,
-  or asks "which model for X", "best endpoint for Y", "what should I use for Z".
+  Choose the right model endpoint for a given task, and the default endpoint IDs
+  the production skills (character-design, cinematography, storytelling, pixel-art,
+  regenerate-3d, media-workflow) use when the user has not named a model.
+  Modality-organized catalog of production endpoint defaults, text-to-image,
+  image-to-image, text-to-video, image-to-video, and more. Use when the user has
+  not named a specific model, or asks "which model for X", "best endpoint for Y",
+  "what should I use for Z".
 ---
 
 # Models Catalog
@@ -42,6 +45,7 @@ Load the reference matching the user's task:
 - [text-to-audio.md](references/text-to-audio.md). TTS, music, SFX generation
 - [audio-to-text.md](references/audio-to-text.md), speech-to-text (Whisper, ElevenLabs Scribe with diarization)
 - [image-to-text.md](references/image-to-text.md). OCR, captioning, VQA, detection, segmentation
+- [campaign-ugc.md](references/campaign-ugc.md), use-case routing for marketing campaign assets and creator/UGC ads
 
 ## Utility endpoints
 

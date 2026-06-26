@@ -56,4 +56,4 @@ vg generate docs "speech to text" --json
 ## See also
 
 - For TTS (the inverse), see [text-to-audio.md](text-to-audio.md)
-- For video subtitle workflow, see [media-recipes/references/video-with-audio.md](../../media-recipes/references/video-with-audio.md)
+- For video subtitle workflow, see [media-workflow/references/video-with-audio.md](../../media-workflow/references/video-with-audio.md)
