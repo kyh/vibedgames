@@ -63,8 +63,8 @@ class Beacon {
     this.mat.color.setHex(color);
     this.ringMat.color.setHex(color);
   }
-  setPos(x: number, z: number): void {
-    this.group.position.set(x, 0, z);
+  setPos(x: number, y: number, z: number): void {
+    this.group.position.set(x, y, z);
   }
   update(dt: number): void {
     this.t += dt;
@@ -155,11 +155,9 @@ export class FareManager {
     }
     const [dx, dz] = DIR_DELTA[dir];
     const off = ROAD_TILE * 0.3;
-    return new THREE.Vector3(
-      this.city.worldX(cell.gx) + dx * off,
-      0,
-      this.city.worldZ(cell.gz) + dz * off,
-    );
+    const x = this.city.worldX(cell.gx) + dx * off;
+    const z = this.city.worldZ(cell.gz) + dz * off;
+    return new THREE.Vector3(x, this.city.terrain.heightAt(x, z), z);
   }
 
   private spawnSeek(gx: number, gz: number): void {
@@ -173,7 +171,7 @@ export class FareManager {
     passenger.rotation.y = this.rng.range(0, Math.PI * 2);
     this.group.add(passenger);
     this.beacon.setColor(0x49e0ff);
-    this.beacon.setPos(pos.x, pos.z);
+    this.beacon.setPos(pos.x, pos.y, pos.z);
     this.phase = { tag: "seek", cell, pos, passenger };
   }
 
@@ -189,7 +187,7 @@ export class FareManager {
 
     if (this.phase.tag === "seek") {
       const p = this.phase.passenger;
-      p.position.y = Math.sin(this.clock * 4) * 0.08; // idle bob
+      p.position.y = this.phase.pos.y + Math.sin(this.clock * 4) * 0.08; // idle bob
       const dx = car.position.x - this.phase.pos.x;
       const dz = car.position.z - this.phase.pos.z;
       if (dx * dx + dz * dz <= FARE.pickupRadius * FARE.pickupRadius) {
@@ -198,7 +196,7 @@ export class FareManager {
         const dest = this.pickCell(from, 5, 14);
         const pos = this.curbPoint(dest);
         this.beacon.setColor(0x6bff8e);
-        this.beacon.setPos(pos.x, pos.z);
+        this.beacon.setPos(pos.x, pos.y, pos.z);
         this.phase = { tag: "carry", from, dest, pos, rideStart: this.clock };
         return { kind: "pickup", pos: this.phase.pos };
       }

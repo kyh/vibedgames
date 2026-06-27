@@ -143,6 +143,7 @@ export class GameScene {
 
     this.spawn = this.computeSpawn(city);
     const car = new Car(this.cache);
+    car.setTerrain(city.terrain);
     this.scene.add(car.object3D);
     car.reset(this.spawn.x, this.spawn.z, this.spawn.yaw);
     this.car = car;
@@ -232,10 +233,9 @@ export class GameScene {
     this.topView = on;
   }
   private applyTopView(): void {
-    const car = this.car;
-    if (!car) return;
-    this.rig.camera.position.set(car.position.x, 80, car.position.z + 42);
-    this.rig.camera.lookAt(car.position.x, 0, car.position.z);
+    // Debug survey aimed at the downtown hills (Nob/Russian/Telegraph, ~north-center).
+    this.rig.camera.position.set(20, 60, 60);
+    this.rig.camera.lookAt(35, 10, -95);
   }
 
   update(dt: number): void {
@@ -345,6 +345,10 @@ export class GameScene {
     }
 
     this.rig.update(dt, car, city.solids);
+    // Keep the camera above the terrain (hills can rise behind the car).
+    const cam = this.rig.camera;
+    const minY = city.terrain.heightAt(cam.position.x, cam.position.z) + 2.5;
+    if (cam.position.y < minY) cam.position.y = minY;
     this.updateSun();
     this.updateHud(car, fares);
 

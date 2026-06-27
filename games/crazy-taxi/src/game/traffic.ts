@@ -9,6 +9,10 @@ import type { CityModel, RoadCell } from "../world/city";
 
 const MODEL_YAW_OFFSET = 0; // Kenney cars face +Z; no offset (π drives rear-first)
 const ALL_DIRS: readonly Dir[] = [0, 1, 2, 3];
+const UP = new THREE.Vector3(0, 1, 0);
+const SCRATCH_N = new THREE.Vector3();
+const SCRATCH_TILT = new THREE.Quaternion();
+const SCRATCH_SPIN = new THREE.Quaternion();
 const OPPOSITE: Record<Dir, Dir> = { 0: 2, 1: 3, 2: 0, 3: 1 };
 
 export class TrafficCar {
@@ -80,18 +84,19 @@ export class TrafficCar {
     // Drive slightly to the right of lane center so the player has room.
     const laneX = -ndz * ROAD_TILE * 0.12;
     const laneZ = ndx * ROAD_TILE * 0.12;
-    this.position.set(
-      cx + ndx * ROAD_TILE * this.t + laneX,
-      ROAD_Y,
-      cz + ndz * ROAD_TILE * this.t + laneZ,
-    );
+    const px = cx + ndx * ROAD_TILE * this.t + laneX;
+    const pz = cz + ndz * ROAD_TILE * this.t + laneZ;
+    this.position.set(px, city.terrain.heightAt(px, pz) + ROAD_Y, pz);
     this.object3D.position.copy(this.position);
 
     const targetYaw = Math.atan2(ndx, ndz) + MODEL_YAW_OFFSET;
     let d = ((targetYaw - this.yaw + Math.PI) % (Math.PI * 2)) - Math.PI;
     if (d < -Math.PI) d += Math.PI * 2;
     this.yaw += d * Math.min(1, dt * 8);
-    this.object3D.rotation.y = this.yaw;
+    const n = city.terrain.normalInto(SCRATCH_N, px, pz);
+    const tilt = SCRATCH_TILT.setFromUnitVectors(UP, n);
+    const spin = SCRATCH_SPIN.setFromAxisAngle(n, this.yaw);
+    this.object3D.quaternion.copy(spin).multiply(tilt);
   }
 }
 

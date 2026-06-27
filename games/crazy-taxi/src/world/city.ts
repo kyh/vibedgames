@@ -15,6 +15,8 @@ import { CITY_SEED, GRID, ROAD_ROT_SIGN, ROAD_TILE, ROAD_Y, WORLD_HALF } from ".
 import { Rng } from "../shared/rng";
 import { type Dir, DIR_DELTA, E, N, S, W } from "../shared/types";
 import { type CityPlan, generateCity } from "./grid";
+import { makeTerrain } from "./sf-map";
+import type { Terrain } from "./terrain";
 
 export type Solid = {
   readonly minX: number;
@@ -26,6 +28,7 @@ export type Solid = {
 export type RoadCell = { readonly gx: number; readonly gz: number };
 
 const HALF_PI = Math.PI / 2;
+const UP = new THREE.Vector3(0, 1, 0);
 
 // Building front faces +Z in the native model; this offset rotates it to face
 // the street. Tune if entrances point the wrong way.
@@ -52,13 +55,34 @@ export class CityModel {
   readonly solids: Solid[] = [];
   readonly roadCells: RoadCell[] = [];
   readonly plan: CityPlan;
+  readonly terrain: Terrain;
+  private scratchN = new THREE.Vector3();
+  private scratchTilt = new THREE.Quaternion();
+  private scratchSpin = new THREE.Quaternion();
 
   constructor(
     private cache: ModelCache,
     private rng = new Rng(CITY_SEED),
   ) {
+    this.terrain = makeTerrain();
     this.plan = generateCity();
     this.build();
+  }
+
+  // Lay a Y-up object on the terrain: tilt its up-axis to the slope normal,
+  // spin it around that normal by `yaw`, and seat it at the ground height.
+  private placeOnTerrain(
+    obj: THREE.Object3D,
+    wx: number,
+    wz: number,
+    yaw: number,
+    yOffset: number,
+  ): void {
+    const n = this.terrain.normalInto(this.scratchN, wx, wz);
+    const tilt = this.scratchTilt.setFromUnitVectors(UP, n);
+    const spin = this.scratchSpin.setFromAxisAngle(n, yaw);
+    obj.quaternion.copy(spin).multiply(tilt);
+    obj.position.set(wx, this.terrain.heightAt(wx, wz) + yOffset, wz);
   }
 
   worldX(gx: number): number {
@@ -102,8 +126,13 @@ export class CityModel {
         this.roadCells.push({ gx, gz });
         const tile = this.cache.instance(modelUrl("roads", r.tile));
         tile.scale.set(ROAD_TILE, ROAD_TILE, ROAD_TILE);
-        tile.rotation.y = ROAD_ROT_SIGN * r.quarterTurns * HALF_PI;
-        tile.position.set(this.worldX(gx), ROAD_Y, this.worldZ(gz));
+        this.placeOnTerrain(
+          tile,
+          this.worldX(gx),
+          this.worldZ(gz),
+          ROAD_ROT_SIGN * r.quarterTurns * HALF_PI,
+          ROAD_Y,
+        );
         collect(tile);
       }
     }
@@ -122,7 +151,8 @@ export class CityModel {
       node.rotation.y = dirToYaw(b.faceDir) + BUILDING_FRONT_OFFSET;
       const wx = this.worldX(b.gx);
       const wz = this.worldZ(b.gz);
-      node.position.set(wx, 0, wz);
+      // Buildings stay vertical; sink the base a touch so it digs into a slope.
+      node.position.set(wx, this.terrain.heightAt(wx, wz) - 0.4, wz);
       collect(node);
 
       // Solid footprint (a touch smaller than the visual so curbs are forgiving).
@@ -137,11 +167,9 @@ export class CityModel {
         const ts = (ROAD_TILE * 0.32) / Math.max(tb.size.y, 0.001);
         const tree = this.cache.instance(treeUrl);
         tree.scale.setScalar(ts);
-        tree.position.set(
-          wx + dx * ROAD_TILE * 0.46 + this.rng.range(-1, 1),
-          0,
-          wz + dz * ROAD_TILE * 0.46 + this.rng.range(-1, 1),
-        );
+        const tx = wx + dx * ROAD_TILE * 0.46 + this.rng.range(-1, 1);
+        const tz = wz + dz * ROAD_TILE * 0.46 + this.rng.range(-1, 1);
+        tree.position.set(tx, this.terrain.heightAt(tx, tz), tz);
         tree.rotation.y = this.rng.range(0, Math.PI * 2);
         collect(tree);
       }
@@ -150,12 +178,12 @@ export class CityModel {
     // --- Green / park cells: grass + trees in the interiors of big blocks ---
     const grassMat = new THREE.MeshStandardMaterial({ color: 0x52803d, roughness: 1 });
     const grassGeo = new THREE.PlaneGeometry(ROAD_TILE, ROAD_TILE);
+    grassGeo.rotateX(-HALF_PI); // normal → +Y so placeOnTerrain tilts it to the slope
     for (const g of this.plan.greenCells) {
       const wx = this.worldX(g.gx);
       const wz = this.worldZ(g.gz);
       const quad = new THREE.Mesh(grassGeo, grassMat);
-      quad.rotation.x = -HALF_PI;
-      quad.position.set(wx, 0.012, wz);
+      this.placeOnTerrain(quad, wx, wz, 0, 0.04);
       quad.receiveShadow = true;
       collect(quad);
       if (this.rng.chance(0.5)) {
@@ -166,14 +194,35 @@ export class CityModel {
           const ts = (ROAD_TILE * 0.42) / Math.max(tb.size.y, 0.001);
           const tree = this.cache.instance(treeUrl);
           tree.scale.setScalar(ts);
-          tree.position.set(wx + this.rng.range(-2.6, 2.6), 0, wz + this.rng.range(-2.6, 2.6));
+          const tx = wx + this.rng.range(-2.6, 2.6);
+          const tz = wz + this.rng.range(-2.6, 2.6);
+          tree.position.set(tx, this.terrain.heightAt(tx, tz), tz);
           tree.rotation.y = this.rng.range(0, Math.PI * 2);
           collect(tree);
         }
       }
     }
 
-    // --- Outer border walls (keep the taxi inside the map) ---
+    // --- Shoreline collision: wall off each water cell that borders land so
+    // the taxi can reach the waterfront but not drive into the bay. ---
+    for (let gx = 0; gx < GRID; gx++) {
+      for (let gz = 0; gz < GRID; gz++) {
+        if (this.plan.cells[gx]?.[gz] !== "water") continue;
+        let coastal = false;
+        for (const d of [N, E, S, W] as const) {
+          const [dx, dz] = DIR_DELTA[d];
+          const nb = this.plan.cells[gx + dx]?.[gz + dz];
+          if (nb === "road" || nb === "lot") coastal = true;
+        }
+        if (!coastal) continue;
+        const wx = this.worldX(gx);
+        const wz = this.worldZ(gz);
+        const half = ROAD_TILE * 0.46;
+        this.solids.push({ minX: wx - half, maxX: wx + half, minZ: wz - half, maxZ: wz + half });
+      }
+    }
+
+    // --- Outer border walls (close the south/inland map edge) ---
     const t = 3;
     const L = WORLD_HALF;
     this.solids.push({ minX: -L - t, maxX: -L, minZ: -L - t, maxZ: L + t });
@@ -181,16 +230,9 @@ export class CityModel {
     this.solids.push({ minX: -L - t, maxX: L + t, minZ: -L - t, maxZ: -L });
     this.solids.push({ minX: -L - t, maxX: L + t, minZ: L, maxZ: L + t });
 
-    // --- Island ground (ocean is added at scene level around it) ---
-    const groundSize = WORLD_HALF * 2 + ROAD_TILE * 6;
-    const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(groundSize, groundSize),
-      new THREE.MeshStandardMaterial({ color: 0x3b3e36, roughness: 1 }),
-    );
-    ground.rotation.x = -HALF_PI;
-    ground.position.y = -0.05;
-    ground.receiveShadow = true;
-    this.group.add(ground);
+    // --- Displaced terrain ground (hills + island; ocean plane sits below) ---
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0x3b3e36, roughness: 1 });
+    this.group.add(this.terrain.buildMesh(groundMat));
 
     // --- Merge static meshes by material to slash draw calls ---
     for (const merged of mergeByMaterial(staticMeshes)) this.group.add(merged);

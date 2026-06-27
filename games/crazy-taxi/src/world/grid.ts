@@ -7,6 +7,7 @@ import {
 } from "../assets/manifest";
 import { CITY_SEED, GRID } from "../shared/constants";
 import { Rng } from "../shared/rng";
+import { isLandCell } from "./sf-map";
 import {
   type Dir,
   DIR_DELTA,
@@ -20,7 +21,7 @@ import {
   W,
 } from "../shared/types";
 
-export type CellKind = "road" | "lot";
+export type CellKind = "road" | "lot" | "water";
 
 export type RoadResolved = { readonly tile: string; readonly quarterTurns: number };
 export type BuildingCell = { readonly gx: number; readonly gz: number; readonly faceDir: Dir };
@@ -178,6 +179,7 @@ export function generateCity(): CityPlan {
 
   const isRoad = (gx: number, gz: number): boolean => {
     if (gx < 0 || gz < 0 || gx >= GRID || gz >= GRID) return false;
+    if (!isLandCell(gx, gz)) return false; // roads stop at the shoreline
     if (!(vSet.has(gx) || hSet.has(gz))) return false;
     return !removed.has(key(gx, gz));
   };
@@ -207,7 +209,10 @@ export function generateCity(): CityPlan {
     const cellCol: CellKind[] = [];
     const roadCol: (RoadResolved | null)[] = [];
     for (let gz = 0; gz < GRID; gz++) {
-      if (isRoad(gx, gz)) {
+      if (!isLandCell(gx, gz)) {
+        cellCol[gz] = "water";
+        roadCol[gz] = null;
+      } else if (isRoad(gx, gz)) {
         cellCol[gz] = "road";
         roadCol[gz] = resolveRoad(neighborMask(gx, gz));
       } else {

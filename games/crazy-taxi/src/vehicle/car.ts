@@ -4,6 +4,9 @@ import type { ModelCache } from "../assets/loader";
 import { modelUrl, PLAYER_CAR } from "../assets/manifest";
 import { CAR, ROAD_Y } from "../shared/constants";
 import type { Solid } from "../world/city";
+import type { Terrain } from "../world/terrain";
+
+const UP = new THREE.Vector3(0, 1, 0);
 
 export type CarInput = {
   readonly throttle: number; // -1 brake/reverse, 0, +1 gas
@@ -32,11 +35,19 @@ export class Car {
   private roll = 0; // visual body lean
   private pitch = 0; // visual dive/squat
   private steerSmoothed = 0; // ramped steering input
+  private terrain: Terrain | null = null;
+  private scratchN = new THREE.Vector3();
+  private tiltQ = new THREE.Quaternion();
+  private yawQ = new THREE.Quaternion();
 
   constructor(cache: ModelCache) {
     this.object3D = new THREE.Group();
     this.body = cache.instance(modelUrl("cars", PLAYER_CAR));
     this.object3D.add(this.body);
+  }
+
+  setTerrain(t: Terrain): void {
+    this.terrain = t;
   }
 
   get speed(): number {
@@ -201,8 +212,17 @@ export class Car {
   }
 
   private syncTransform(): void {
-    this.object3D.position.copy(this.position);
-    this.object3D.rotation.y = this.heading + MODEL_YAW_OFFSET;
+    if (this.terrain) {
+      this.position.y = this.terrain.heightAt(this.position.x, this.position.z) + ROAD_Y;
+      const n = this.terrain.normalInto(this.scratchN, this.position.x, this.position.z);
+      const tilt = this.tiltQ.setFromUnitVectors(UP, n);
+      const spin = this.yawQ.setFromAxisAngle(n, this.heading + MODEL_YAW_OFFSET);
+      this.object3D.quaternion.copy(spin).multiply(tilt);
+      this.object3D.position.copy(this.position);
+    } else {
+      this.object3D.position.copy(this.position);
+      this.object3D.rotation.y = this.heading + MODEL_YAW_OFFSET;
+    }
     this.body.rotation.z = this.roll;
     this.body.rotation.x = this.pitch;
   }
