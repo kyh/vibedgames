@@ -36,6 +36,7 @@ export const CAR = {
   driftTurnBoost: 1.7, // extra steering while drifting
   driftMinSpeed: 18, // must be moving this fast to drift
   miniBoostImpulse: 14, // instant forward pop when releasing a charged drift
+  slopeGravity: 40, // how hard SF hills pull the car back uphill / drag it downhill
   boostDrain: 34, // boost units/s spent while boosting
   boostRefill: 16, // boost units/s regained otherwise
   boostMax: 100,

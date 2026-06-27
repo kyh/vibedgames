@@ -103,6 +103,15 @@ export class Car {
     }
     vForward = THREE.MathUtils.clamp(vForward, -CAR.reverseMax, topSpeed);
 
+    // Slope gravity — crawl up SF hills, plunge down them (can overspeed downhill).
+    if (this.terrain) {
+      const n = this.terrain.normalInto(this.scratchN, this.position.x, this.position.z);
+      const ny = Math.max(n.y, 0.05);
+      const slope = (-n.x / ny) * Math.sin(this.heading) + (-n.z / ny) * Math.cos(this.heading);
+      vForward -= CAR.slopeGravity * slope * dt;
+      vForward = THREE.MathUtils.clamp(vForward, -CAR.reverseMax * 1.5, topSpeed * 1.35);
+    }
+
     if (wantBoost) this.boostMeter = Math.max(0, this.boostMeter - CAR.boostDrain * dt);
     else this.boostMeter = Math.min(CAR.boostMax, this.boostMeter + CAR.boostRefill * dt);
 
