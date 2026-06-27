@@ -22,7 +22,7 @@ export const GameNavArrows = () => {
   if (currentIndex === -1) return null;
 
   return (
-    <div className="fixed right-4 top-1/2 z-10 hidden -translate-y-1/2 flex-col gap-1 md:flex">
+    <div className="fixed right-4 top-1/2 z-10 hidden -translate-y-1/2 flex-col gap-1 sm:flex">
       <Button
         variant="ghost"
         size="icon"

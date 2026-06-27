@@ -41,10 +41,10 @@ export const PlayView = () => {
   );
 
   return (
-    <div className="relative pb-4">
+    <div className="relative">
       <motion.div
         layoutId="compose-view"
-        className="bg-input/40 absolute inset-0 mb-4 rounded-md backdrop-blur-sm"
+        className="bg-input/40 absolute inset-0 rounded-md backdrop-blur-sm"
       />
       <FadeInBlur>
         <InputGroup className="text-foreground border-none bg-transparent text-sm">
@@ -60,7 +60,7 @@ export const PlayView = () => {
           {game && (
             <InputGroupInput
               type="text"
-              className="py-2.5 font-mono text-xs md:text-xs"
+              className="py-2.5 font-mono text-xs sm:text-xs"
               onClick={(event) => event.currentTarget.select()}
               value={url}
               readOnly

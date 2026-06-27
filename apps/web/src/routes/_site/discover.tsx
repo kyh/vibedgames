@@ -19,8 +19,8 @@ function DiscoverPage() {
   return (
     <>
       <RegisterLink />
-      <header className="fixed bottom-16 left-0 z-10 flex max-h-full max-w-dvw flex-col px-4 md:w-96">
-        <FadeInBlur className="scroll-fade flex gap-4 overflow-auto pb-4 md:flex-col-reverse">
+      <header className="fixed bottom-16 left-0 z-10 flex max-h-full max-w-dvw flex-col px-4 sm:w-96">
+        <FadeInBlur className="scroll-fade flex gap-4 overflow-auto pb-2 sm:flex-col-reverse">
           {featuredGames.map((game) => (
             <button
               key={game.slug}

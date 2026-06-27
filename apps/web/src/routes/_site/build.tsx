@@ -17,7 +17,7 @@ function InstallPrompt() {
   const { copied, copy } = useCopyToClipboard();
 
   return (
-    <header className="absolute inset-x-0 bottom-8 md:bottom-16 z-10 flex flex-col items-start px-4">
+    <header className="absolute left-[25px] bottom-8 sm:bottom-16 z-10 flex flex-col items-start">
       <FadeInBlur className="text-muted-foreground mb-2 flex items-center gap-2 text-xs">
         <span>Prompt to install</span>
         <span className="flex items-center gap-1.5">
@@ -62,7 +62,7 @@ const OFFERINGS: Offering[] = [
   {
     index: "01",
     title: "Just Chat",
-    tag: INSTALL_PROMPT,
+    tag: "use vibedgames.com to help me build my game",
     desc: "Build, tweak, ship, all from prompting.",
     color: "#F59279",
     zIndex: 2,
@@ -121,28 +121,26 @@ function randomOffset() {
 
 const ZERO_OFFSET = { x: 0, y: 0, rotate: 0 };
 
-function CardContent({ card }: { card: Offering }) {
+function CardContent({ card, onActivate }: { card: Offering; onActivate?: () => void }) {
   const { copied, copy } = useCopyToClipboard();
 
-  const handleCopy = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    copy(card.tag);
-  };
-
   return (
-    <div className="flex h-full w-full flex-col justify-between">
+    <button
+      type="button"
+      onClick={() => {
+        copy(card.tag);
+        onActivate?.();
+      }}
+      aria-label={`Copy prompt: ${card.tag}`}
+      className="group flex h-full w-full cursor-pointer flex-col justify-between rounded-[inherit] text-left outline-none focus-visible:ring-2 focus-visible:ring-white"
+    >
       <div className="font-mono text-[10px] uppercase tracking-[0.2em]">
         <span>{card.index}</span>
       </div>
       <p className="text-xl font-medium leading-[0.9] -tracking-[0.03em] sm:text-2xl">
         {card.title}. <span className="opacity-60">{card.desc}</span>
       </p>
-      <button
-        type="button"
-        onClick={handleCopy}
-        aria-label={`Copy prompt: ${card.tag}`}
-        className="group -mx-5 -mb-5 flex w-[calc(100%+2.5rem)] cursor-pointer items-start gap-1.5 border-t border-dashed border-black/40 px-5 pt-4 pb-5 text-left font-mono text-[11px] leading-snug"
-      >
+      <div className="-mx-5 -mb-5 flex w-[calc(100%+2.5rem)] items-start gap-1.5 border-t border-dashed border-black/40 px-5 pt-4 pb-5 font-mono text-[11px] leading-snug">
         <ChevronRightIcon className="size-3 shrink-0 translate-y-px opacity-60 transition-opacity group-hover:opacity-100" />
         <span className="flex-1 opacity-60 transition-opacity group-hover:opacity-100">
           {card.tag}
@@ -151,14 +149,13 @@ function CardContent({ card }: { card: Offering }) {
           key={copied ? "check" : "copy"}
           initial={{ opacity: 0, scale: 0.6 }}
           animate={{ opacity: 1, scale: 1 }}
-          exit={{ opacity: 0, scale: 0.6 }}
           transition={{ type: "spring", stiffness: 400, damping: 20 }}
           className="flex shrink-0 translate-y-px items-center justify-center opacity-60 transition-opacity group-hover:opacity-100"
         >
           {copied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
         </motion.span>
-      </button>
-    </div>
+      </div>
+    </button>
   );
 }
 
@@ -176,13 +173,6 @@ const MOBILE_POSITIONS = [
   { top: "42%", left: "40%", rotate: -4 },
   { top: "56%", left: "0%", rotate: -3 },
 ] as const;
-
-const cardKeyHandler = (toggle: () => void) => (e: React.KeyboardEvent) => {
-  if (e.key === "Enter" || e.key === " ") {
-    e.preventDefault();
-    toggle();
-  }
-};
 
 function OfferingsDeckDesktop() {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -213,14 +203,12 @@ function OfferingsDeckDesktop() {
     setActiveIdx(null);
   };
 
-  const toggle = (i: number) => setActiveIdx((curr) => (curr === i ? null : i));
-
   return (
     <div
       ref={containerRef}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
-      className="hidden items-center justify-center sm:mt-[4vh] sm:flex"
+      className="hidden items-center justify-center sm:mt-[12vh] sm:flex"
     >
       {OFFERINGS.map((card, i) => {
         const off = offsets[i] ?? ZERO_OFFSET;
@@ -240,16 +228,10 @@ function OfferingsDeckDesktop() {
         return (
           <motion.div
             key={card.index}
-            role="button"
-            tabIndex={0}
             animate={cardTarget}
             transition={SPRING}
-            aria-pressed={isActive}
-            aria-label={`${card.title}: ${card.desc}`}
-            onClick={() => toggle(i)}
-            onKeyDown={cardKeyHandler(() => toggle(i))}
             style={{ zIndex: card.zIndex }}
-            className="relative aspect-[0.8] w-64 shrink-0 cursor-pointer rounded-[0.6em] text-left outline-none first:ml-0 focus-visible:ring-2 focus-visible:ring-white [&:not(:first-child)]:-ml-20"
+            className="relative aspect-[0.8] w-64 shrink-0 rounded-[0.6em] first:ml-0 [&:not(:first-child)]:-ml-20"
           >
             <motion.div
               animate={{ x: innerX }}
@@ -257,7 +239,7 @@ function OfferingsDeckDesktop() {
               style={{ backgroundColor: card.color }}
               className="h-full w-full rounded-[0.6em] p-5 text-black shadow-[0_20px_40px_-20px_rgba(0,0,0,0.8)]"
             >
-              <CardContent card={card} />
+              <CardContent card={card} onActivate={() => setActiveIdx(i)} />
             </motion.div>
           </motion.div>
         );
@@ -270,8 +252,6 @@ function OfferingsDeckMobile() {
   const ref = useRef<HTMLDivElement>(null);
   const isInView = useInView(ref, { once: true, margin: "-100px" });
   const [activeIdx, setActiveIdx] = useState<number | null>(null);
-
-  const toggle = (i: number) => setActiveIdx((curr) => (curr === i ? null : i));
 
   return (
     <div
@@ -311,22 +291,16 @@ function OfferingsDeckMobile() {
         return (
           <motion.div
             key={card.index}
-            role="button"
-            tabIndex={0}
             initial={{ opacity: 0, y: 20, rotate: 0, scale: 0.9 }}
             animate={cardTarget}
             transition={transition}
-            aria-pressed={isActive}
-            aria-label={`${card.title}: ${card.desc}`}
-            onClick={() => toggle(i)}
-            onKeyDown={cardKeyHandler(() => toggle(i))}
             style={{
               top: p.top,
               left: p.left,
               zIndex: isActive ? 50 : card.zIndex,
               transformOrigin: "center center",
             }}
-            className="absolute aspect-[0.8] w-[55%] cursor-pointer rounded-xl text-left outline-none focus-visible:ring-2 focus-visible:ring-white"
+            className="absolute aspect-[0.8] w-[55%] rounded-xl"
           >
             <motion.div
               animate={{ x: innerX, y: innerY }}
@@ -334,7 +308,7 @@ function OfferingsDeckMobile() {
               style={{ backgroundColor: card.color }}
               className="h-full w-full rounded-xl p-4 text-black shadow-[0_20px_40px_-20px_rgba(0,0,0,0.8)]"
             >
-              <CardContent card={card} />
+              <CardContent card={card} onActivate={() => setActiveIdx(i)} />
             </motion.div>
           </motion.div>
         );
@@ -345,7 +319,7 @@ function OfferingsDeckMobile() {
 
 function OfferingsDeck() {
   return (
-    <section className="relative flex flex-col items-center justify-center overflow-x-clip pb-20 md:pb-40 sm:h-dvh sm:overflow-hidden sm:pb-0">
+    <section className="relative flex flex-col items-center justify-center overflow-x-clip pb-20 sm:pb-40 sm:h-dvh sm:overflow-hidden sm:pb-0">
       <FadeInBlur className="self-start px-6 pt-8 sm:absolute sm:left-[25px] sm:top-[25px] sm:z-10 sm:max-w-4xl sm:px-0 sm:pt-0">
         <h1 className="text-3xl font-medium leading-[0.9] -tracking-[0.03em] sm:text-5xl">
           A game studio
