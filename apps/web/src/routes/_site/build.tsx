@@ -8,7 +8,7 @@ import { Button } from "@repo/ui/components/button";
 import { GitHubLink, RegisterLink } from "@/components/auth/register-link";
 import { ClaudeIcon, CodexIcon, CursorIcon } from "@/components/ui/brand-icons";
 import { FadeInBlur } from "@/components/ui/fade-in-blur";
-import { chromatic, RollingText } from "@/components/ui/rolling-text";
+import { chromatic, RollingLabel, RollingText } from "@/components/ui/rolling-text";
 import { useCopyToClipboard } from "@/lib/use-copy-to-clipboard";
 
 const INSTALL_PROMPT = "Read https://vibedgames.com/install then help me build my game";
@@ -28,7 +28,7 @@ function InstallPrompt() {
       </FadeInBlur>
       <FadeInBlur>
         <Button onClick={() => copy(INSTALL_PROMPT)} aria-label="Copy prompt to install">
-          Copy Prompt
+          <RollingLabel words={["Copy Prompt", "Paste in your agent"]} index={copied ? 1 : 0} />
           <motion.span
             key={copied ? "check" : "copy"}
             initial={{ opacity: 0, scale: 0.6 }}
@@ -141,16 +141,21 @@ function CardContent({ card, onActivate }: { card: Offering; onActivate?: () => 
         {card.title}. <span className="opacity-60">{card.desc}</span>
       </p>
       <div className="-mx-5 -mb-5 flex w-[calc(100%+2.5rem)] items-start gap-1.5 border-t border-dashed border-black/40 px-5 pt-4 pb-5 font-mono text-[11px] leading-snug">
-        <ChevronRightIcon className="size-3 shrink-0 translate-y-px opacity-60 transition-opacity group-hover:opacity-100" />
-        <span className="flex-1 opacity-60 transition-opacity group-hover:opacity-100">
-          {card.tag}
+        <span className="flex h-[1lh] shrink-0 items-center">
+          <ChevronRightIcon className="size-3 opacity-60 transition-opacity group-hover:opacity-100" />
         </span>
+        <RollingLabel
+          words={[card.tag, "Paste in your agent"]}
+          index={copied ? 1 : 0}
+          fluid={false}
+          className="flex-1 opacity-60 transition-opacity group-hover:opacity-100"
+        />
         <motion.span
           key={copied ? "check" : "copy"}
           initial={{ opacity: 0, scale: 0.6 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ type: "spring", stiffness: 400, damping: 20 }}
-          className="flex shrink-0 translate-y-px items-center justify-center opacity-60 transition-opacity group-hover:opacity-100"
+          className="flex h-[1lh] shrink-0 items-center justify-center opacity-60 transition-opacity group-hover:opacity-100"
         >
           {copied ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
         </motion.span>

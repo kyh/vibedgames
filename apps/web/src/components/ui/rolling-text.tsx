@@ -313,3 +313,88 @@ export const RollingText = ({
     </span>
   );
 };
+
+type RollingLabelProps = {
+  words: string[];
+  index: number;
+  fluid?: boolean;
+  className?: string;
+};
+
+const LABEL_ROLL = { duration: 0.3, ease: EASE };
+
+export const RollingLabel = ({ words, index, fluid = true, className }: RollingLabelProps) => {
+  const reduceMotion = useReducedMotion();
+  const label = words[index] ?? words[0] ?? "";
+  const sizerRef = useRef<HTMLSpanElement>(null);
+  const width = useMotionValue<number | "auto">("auto");
+
+  useEffect(() => {
+    if (!fluid) return;
+    const el = sizerRef.current;
+    if (!el) return;
+    const target = el.getBoundingClientRect().width;
+    if (width.get() === "auto") {
+      width.set(target);
+      return;
+    }
+    const controls = animate(width, target, { duration: 0.3, ease: "easeOut" });
+    return () => controls.stop();
+  }, [fluid, label, width]);
+
+  if (reduceMotion) {
+    return <span className={cn("inline-flex", className)}>{label}</span>;
+  }
+
+  if (!fluid) {
+    return (
+      <span className={cn("relative grid grid-cols-1 [overflow-y:clip]", className)}>
+        {words.map((candidate, i) => (
+          <span key={i} aria-hidden className="invisible" style={{ gridArea: "1 / 1" }}>
+            {candidate}
+          </span>
+        ))}
+        <AnimatePresence initial={false}>
+          <motion.span
+            key={label}
+            className="absolute inset-0 will-change-transform"
+            initial={{ y: "-110%" }}
+            animate={{ y: "0%" }}
+            exit={{ y: "110%" }}
+            transition={LABEL_ROLL}
+          >
+            {label}
+          </motion.span>
+        </AnimatePresence>
+      </span>
+    );
+  }
+
+  return (
+    <motion.span
+      style={{ width }}
+      className={cn("relative -my-[0.2em] inline-grid py-[0.2em] [overflow:clip]", className)}
+    >
+      <span
+        ref={sizerRef}
+        aria-hidden
+        className="invisible whitespace-nowrap"
+        style={{ gridArea: "1 / 1", justifySelf: "start" }}
+      >
+        {label}
+      </span>
+      <AnimatePresence initial={false}>
+        <motion.span
+          key={label}
+          className="absolute inset-0 flex items-center whitespace-nowrap will-change-transform"
+          initial={{ y: "-115%" }}
+          animate={{ y: "0%" }}
+          exit={{ y: "115%" }}
+          transition={LABEL_ROLL}
+        >
+          {label}
+        </motion.span>
+      </AnimatePresence>
+    </motion.span>
+  );
+};
