@@ -59,5 +59,6 @@ if (import.meta.env.DEV) {
     __freeze: (b: boolean) => game.debugFreezeTime(b),
     __warp: () => game.debugWarpToObjective(),
     __obj: () => game.debugObjective(),
+    __top: (on: boolean) => game.debugTopView(on),
   });
 }

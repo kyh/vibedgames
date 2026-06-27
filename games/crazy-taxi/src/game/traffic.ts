@@ -7,7 +7,7 @@ import { Rng } from "../shared/rng";
 import { type Dir, DIR_DELTA } from "../shared/types";
 import type { CityModel, RoadCell } from "../world/city";
 
-const MODEL_YAW_OFFSET = Math.PI;
+const MODEL_YAW_OFFSET = 0; // Kenney cars face +Z; no offset (π drives rear-first)
 const ALL_DIRS: readonly Dir[] = [0, 1, 2, 3];
 const OPPOSITE: Record<Dir, Dir> = { 0: 2, 1: 3, 2: 0, 3: 1 };
 

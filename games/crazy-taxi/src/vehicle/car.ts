@@ -12,9 +12,9 @@ export type CarInput = {
   readonly boost: boolean;
 };
 
-// The taxi model's body faces -Z; this offset aligns the mesh with heading 0
-// (which we define as facing +Z). Tune if the car drives backwards.
-const MODEL_YAW_OFFSET = Math.PI;
+// The Kenney car's body faces +Z, which matches our heading-0 forward (sin,cos),
+// so no yaw offset is needed. (π here makes it drive rear-first.)
+const MODEL_YAW_OFFSET = 0;
 const COLLIDE_RADIUS = 1.05;
 
 export class Car {
@@ -105,7 +105,9 @@ export class Car {
     const driftMul = canDrift ? CAR.driftTurnBoost : 1;
     const dir = vForward >= 0 ? 1 : -1;
     this.steerSmoothed += (input.steer - this.steerSmoothed) * Math.min(1, dt / CAR.steerRamp);
-    this.heading += this.steerSmoothed * CAR.turnRate * authority * startFade * driftMul * dir * dt;
+    // Subtract: with the chase cam looking along +forward, increasing heading
+    // veers screen-left, so steer-right (+1) must decrease heading.
+    this.heading -= this.steerSmoothed * CAR.turnRate * authority * startFade * driftMul * dir * dt;
 
     if (canDrift) this.driftSustain += dt;
     else {

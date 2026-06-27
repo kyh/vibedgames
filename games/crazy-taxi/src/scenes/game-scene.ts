@@ -158,6 +158,17 @@ export class GameScene {
     return this.city ? this.city.worldZ(cell) : 0;
   }
 
+  private topView = false;
+  debugTopView(on: boolean): void {
+    this.topView = on;
+  }
+  private applyTopView(): void {
+    const car = this.car;
+    if (!car) return;
+    this.rig.camera.position.set(car.position.x, 80, car.position.z + 42);
+    this.rig.camera.lookAt(car.position.x, 0, car.position.z);
+  }
+
   update(dt: number): void {
     if (this.input.consumeStart()) this.handleStartPress();
     // Single read — calling consumeRestart() twice would clear the one-shot flag
@@ -179,6 +190,8 @@ export class GameScene {
         this.updateTitle(dt);
         break;
     }
+
+    if (this.topView) this.applyTopView();
   }
 
   private updateTitle(dt: number): void {
@@ -409,12 +422,13 @@ export class GameScene {
   get debugMode(): string {
     return this.mode.kind;
   }
-  get debugInfo(): { speed: number; score: number; fares: number; time: number } {
+  get debugInfo(): { speed: number; score: number; fares: number; time: number; heading: number } {
     return {
       speed: this.car ? this.car.speed : 0,
       score: this.state.displayScore,
       fares: this.state.fares,
       time: this.state.timeLeft,
+      heading: this.car ? this.car.heading : 0,
     };
   }
 
