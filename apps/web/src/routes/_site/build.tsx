@@ -3,6 +3,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { motion, useInView } from "motion/react";
 import { CheckIcon, ChevronRightIcon, CopyIcon } from "lucide-react";
 
+import { Button } from "@repo/ui/components/button";
+
 import { GitHubLink, RegisterLink } from "@/components/auth/register-link";
 import { ClaudeIcon, CodexIcon, CursorIcon } from "@/components/ui/brand-icons";
 import { FadeInBlur } from "@/components/ui/fade-in-blur";
@@ -15,37 +17,29 @@ function InstallPrompt() {
   const { copied, copy } = useCopyToClipboard();
 
   return (
-    <header className="fixed inset-x-0 bottom-16 z-10 flex max-h-full flex-col px-4 md:right-auto md:w-[25rem]">
+    <header className="absolute inset-x-0 bottom-8 md:bottom-16 z-10 flex flex-col items-start px-4">
       <FadeInBlur className="text-muted-foreground mb-2 flex items-center gap-2 text-xs">
-        <span>prompt to install</span>
+        <span>Prompt to install</span>
         <span className="flex items-center gap-1.5">
           <ClaudeIcon className="size-3.5" />
           <CodexIcon className="size-3.5" />
           <CursorIcon className="size-3.5" />
         </span>
       </FadeInBlur>
-      <div className="relative pb-4">
-        <FadeInBlur>
-          <button
-            type="button"
-            onClick={() => copy(INSTALL_PROMPT)}
-            aria-label="Copy install prompt"
-            className="group bg-input/40 hover:bg-input/60 flex w-full cursor-pointer items-center gap-3 rounded-md px-3 py-2.5 text-left font-mono text-xs backdrop-blur-sm transition-colors"
+      <FadeInBlur>
+        <Button onClick={() => copy(INSTALL_PROMPT)} aria-label="Copy prompt to install">
+          Copy Prompt
+          <motion.span
+            key={copied ? "check" : "copy"}
+            initial={{ opacity: 0, scale: 0.6 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ type: "spring", stiffness: 400, damping: 20 }}
+            className="flex items-center justify-center"
           >
-            <span className="text-foreground flex-1 truncate">{INSTALL_PROMPT}</span>
-            <motion.span
-              key={copied ? "check" : "copy"}
-              initial={{ opacity: 0, scale: 0.6 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.6 }}
-              transition={{ type: "spring", stiffness: 400, damping: 20 }}
-              className="text-muted-foreground group-hover:text-foreground flex shrink-0 items-center justify-center transition-colors"
-            >
-              {copied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
-            </motion.span>
-          </button>
-        </FadeInBlur>
-      </div>
+            {copied ? <CheckIcon /> : <CopyIcon />}
+          </motion.span>
+        </Button>
+      </FadeInBlur>
     </header>
   );
 }
@@ -351,7 +345,7 @@ function OfferingsDeckMobile() {
 
 function OfferingsDeck() {
   return (
-    <section className="relative flex flex-col items-center justify-center overflow-x-clip pb-40 sm:h-dvh sm:overflow-hidden sm:pb-0">
+    <section className="relative flex flex-col items-center justify-center overflow-x-clip pb-20 md:pb-40 sm:h-dvh sm:overflow-hidden sm:pb-0">
       <FadeInBlur className="self-start px-6 pt-8 sm:absolute sm:left-[25px] sm:top-[25px] sm:z-10 sm:max-w-4xl sm:px-0 sm:pt-0">
         <h1 className="text-3xl font-medium leading-[0.9] -tracking-[0.03em] sm:text-5xl">
           A game studio
