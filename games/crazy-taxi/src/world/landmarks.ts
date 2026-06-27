@@ -2,7 +2,9 @@ import * as THREE from "three";
 
 import type { ModelCache } from "../assets/loader";
 import { BUILDINGS_SUBURBAN, modelUrl } from "../assets/manifest";
-import { WORLD_SIZE } from "../shared/constants";
+import { ROAD_TILE, WORLD_SIZE } from "../shared/constants";
+
+const LANDMARK_SCALE = ROAD_TILE / 8; // keep landmarks proportional to the world
 import { Rng } from "../shared/rng";
 import type { Terrain } from "./terrain";
 
@@ -187,6 +189,7 @@ export function buildLandmarks(terrain: Terrain, cache: ModelCache): THREE.Group
     }
     node.position.set(x, y, z);
     node.rotation.y = THREE.MathUtils.degToRad(lm.rotDeg);
+    node.scale.multiplyScalar(LANDMARK_SCALE);
     root.add(node);
   }
   return root;
