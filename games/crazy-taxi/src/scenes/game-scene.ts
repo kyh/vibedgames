@@ -81,7 +81,7 @@ export class GameScene {
     this.scene.add(sky);
     this.sky = sky;
 
-    this.scene.fog = new THREE.Fog(0xaecee8, WORLD_SIZE * 0.55, WORLD_SIZE * 1.45);
+    this.scene.fog = new THREE.Fog(0xaecee8, WORLD_SIZE * 0.7, WORLD_SIZE * 2.1);
 
     const hemi = new THREE.HemisphereLight(0xbfe0ff, 0x4a4a3e, 0.35);
     this.scene.add(hemi);
@@ -236,9 +236,9 @@ export class GameScene {
     this.topView = on;
   }
   private applyTopView(): void {
-    // Full-island survey from high above the centre (debug only).
-    this.rig.camera.position.set(10, 300, 150);
-    this.rig.camera.lookAt(0, 0, -10);
+    // Debug survey of the downtown / Embarcadero landmarks (NE).
+    this.rig.camera.position.set(60, 55, 35);
+    this.rig.camera.lookAt(66, 14, -100);
   }
 
   update(dt: number): void {

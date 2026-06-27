@@ -15,6 +15,7 @@ import { CITY_SEED, GRID, ROAD_ROT_SIGN, ROAD_TILE, ROAD_Y, WORLD_HALF } from ".
 import { Rng } from "../shared/rng";
 import { type Dir, DIR_DELTA, E, N, S, W } from "../shared/types";
 import { type CityPlan, generateCity } from "./grid";
+import { buildLandmarks } from "./landmarks";
 import { type DistrictChar, districtAt, makeTerrain } from "./sf-map";
 import type { Terrain } from "./terrain";
 
@@ -291,6 +292,9 @@ export class CityModel {
 
     // --- Merge static meshes by material to slash draw calls ---
     for (const merged of mergeByMaterial(staticMeshes)) this.group.add(merged);
+
+    // --- Iconic landmarks (procedural; kept separate from the merge) ---
+    this.group.add(buildLandmarks(this.terrain, this.cache));
   }
 
   // Is the world position over a road cell (vs a building lot)?
