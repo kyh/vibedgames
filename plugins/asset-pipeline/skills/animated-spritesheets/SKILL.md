@@ -1,6 +1,6 @@
 ---
 name: animated-spritesheets
-description: "Turn a character anchor into an engine-loadable animated spritesheet by generating ONE labeled pose-board image (a grid of the same character in the frames of an action) and slicing it. Works for any action — idle, run, jump, attack, hurt, crouch, death, roll. Generates a per-frame-labeled pose board on a flat chroma matte, recovers/slices the frames, keys + despills, normalizes with headroom, optionally pixel-snaps, and packs spritesheet.png + a manifest. Triggers: 'sprite animation', 'animated spritesheet', 'attack animation', 'walk/run cycle', 'animate this character', 'game sprite animation', 'sprite pose sheet'."
+description: "Turn a character anchor into an engine-loadable animated spritesheet by generating ONE labeled pose-board image (a grid of the same character in the frames of an action) and slicing it. Works for any action — idle, run, jump, attack, hurt, crouch, death, roll. Generates a per-frame-labeled pose board on a flat chroma matte, recovers/slices the frames, keys + despills, snaps to crisp native pixels, normalizes with headroom, and packs spritesheet.png + a manifest. Triggers: 'sprite animation', 'animated spritesheet', 'attack animation', 'walk/run cycle', 'animate this character', 'game sprite animation', 'sprite pose sheet'."
 metadata:
   short-description: "Character anchor -> labeled pose-board image -> engine-loadable spritesheet."
 ---
@@ -36,14 +36,16 @@ uv run scripts/sprite_prompt.py pose-board --action attack --direction e --frame
   --frame-prompt-style specific --pose-board standard --style lobit-v1 --chroma '#00FF00'
 
 # 3. GENERATE the pose board with the anchor as the identity reference. The board
-#    is a 4-col x 3-row grid; the first N cells are the frames (4:3 aspect):
+#    is a 4-col x 3-row grid; the first N cells are the frames (4:3 aspect). Use 2K
+#    so each cell clears ~512px — pixel snapping (step 4) needs that resolution to
+#    recover a clean grid:
 vg generate run fal-ai/nano-banana-pro/edit --prompt "<from step 2>" \
-  --image_urls '["<anchor_url>"]' --aspect_ratio "4:3" --resolution "1K" \
+  --image_urls '["<anchor_url>"]' --aspect_ratio "4:3" --resolution "2K" \
   --download attack-board.png --json
 
 # 4. PROCESS into runtime frames with ONE command. Default = naive uniform slice
-#    (the robust path). If the model spilled a pose across cell borders, add
-#    --recover to segment by connected components instead:
+#    (the robust path). Add --recover to re-center a pose that drifted off its cell
+#    (it falls back to the uniform slice if it can't, so passing it is always safe):
 uv run scripts/process_sheet.py attack-board.png --action attack --rows 3 --cols 4 --frames 8 --out-dir runs/hero-attack
 ```
 
@@ -59,27 +61,31 @@ this.anims.create({ key: "attack", frameRate: 10,
 
 ## What `process_sheet.py` does (under the hood)
 
-1. **slice/recover** — `--recover` runs `recover_component_frames.py` (detect the
-   foreground component in each grid cell — robust to the model spilling poses
-   across cell edges); default is a naive uniform `--rows ×
-   --cols` slice. `--frames N` takes the first N cells.
+1. **slice / recover** — default is a naive uniform `--rows × --cols` slice (the
+   robust path). `--recover` instead re-centers each cell's foreground component to
+   rescue a pose that drifted off-grid; it can't split poses that merged into one
+   blob, so it falls back to the uniform slice when it can't fill the cells —
+   passing `--recover` is always safe. `--frames N` takes the first N cells.
 2. `chroma_clean.py clean` — key the matte → fringe → despill → decontaminate
    (global speck-removal so dark/low-contrast sprites stay clean).
-3. `normalize_canvas.py` — place each frame on a shared 256×256 anchor with
+3. **pixel snap (on by default)** — recover crisp native pixels from the AI's
+   fake-pixel "mixels". All frames are assembled into one strip and snapped
+   together so the snapper finds a *single* grid pitch for the action — every frame
+   ends up the same scale, so the character doesn't "breathe" size between frames.
+   `--no-pixel-snap` keeps the smooth high-res look (for painterly/non-pixel
+   sprites); `--snap-k-colors` sets palette size. Needs ≥~512px cells to work well
+   — hence the 2K board (see `pixel-snapper`).
+4. `normalize_canvas.py` — place each frame on a shared 256×256 anchor with
    **headroom** (`--char-fill`, default ~0.5 of the cell) so attack arcs and big
    poses never clip the edge.
-4. `pack_spritesheet.py` — pack to `spritesheet.png` + manifest.
-5. `sheet_qc.py` — QC the packed sheet and report a verdict (same token in the
+5. `pack_spritesheet.py` — pack to `spritesheet.png` + manifest.
+6. `sheet_qc.py` — QC the packed sheet and report a verdict (same token in the
    `--json` `qc` field and the human badge, just uppercased there): **`clean`** /
    **`review`** (soft hints to eyeball — size outliers, possible facing flips) /
    **`warn`** (hard defects — empty cells, edge-clipping, foot-baseline wander).
    Runs automatically; `--no-qc` skips it. **Read the verdict:** regenerate the board
    on `warn`; eyeball `review/<action>.gif` on `review`. Run it standalone too:
    `sheet_qc.py sheet.png [--json] [--strict]`.
-
-Optional: `--pixel-snap` snaps frames onto a recovered native pixel grid (the
-crisp low-bit look). It runs *before* normalize so frames re-uniform; note it can
-shrink frames unevenly on non-native AI art — eyeball the gif. Off by default.
 
 ## Craft
 

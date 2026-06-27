@@ -58,4 +58,18 @@ loop, controls, win/lose, progression, MVP cut list, art/audio direction,
 multiplayer decision, title/slug. Keep it to one page — it's a compass, not a
 plan.
 
-Then hand off to the **game-playbook** skill to build it.
+The SPEC is now the foundation, not the finish line. Point the user at the
+craft skills that turn a sound design into a game worth replaying, and pull
+each in at its moment rather than dumping them all at once:
+
+- **`design-lenses`** — pressure-test whether the idea is actually fun before
+  building.
+- **`game-feel`** + **`vfx`** — make movement and impact feel good.
+- **`level-design`** + **`game-balance`** — shape the content and the
+  difficulty curve.
+- **`onboarding`** — the first 30 seconds and teaching without a manual.
+- **`finish-it`** — hold scope to the MVP cut and actually ship.
+
+If you reached this interview from a **`teach-me`** session, return to it: the
+user builds the game themselves, lesson by lesson, with you guiding — don't
+build it for them.

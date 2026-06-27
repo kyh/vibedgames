@@ -9,7 +9,7 @@ metadata:
 
 Recover the underlying low-resolution pixel grid from images that _look_ like pixel art but are stored at high resolution with anti-aliased/smudged edges (e.g. a 1024×1024 AI-generated character that conceptually has ~100×100 chunky pixels).
 
-`scripts/pixel_snapper.py` is a Python port of an MIT-licensed Rust implementation (see `references/credits.md`), dimensionally identical to upstream, run as a uv self-contained script. `scripts/pixel_snapper_sheet.py` is a known-layout spritesheet helper: crops frames first, snaps each independently, reassembles.
+`scripts/pixel_snapper.py` is a Python port of an MIT-licensed Rust implementation (see `references/credits.md`), dimensionally identical to upstream, run as a uv self-contained script. `scripts/pixel_snapper_sheet.py` is a known-layout spritesheet helper: crops frames, snaps them together as one strip so every frame shares a single pixel grid, reassembles.
 
 ## Discover, Don't Resize
 
@@ -22,7 +22,7 @@ Naive downscale (Lanczos/bilinear/nearest) averages neighbors → blur or aliasi
 - Native snapped output, or a nearest-neighbour upscale for inspection? Usually you want both.
 - Are the cells actually square? The snapper assumes one shared cell pitch for both axes.
 
-**Core principles**: output resolution is discovered, not specified · `k_colors` is the only user-facing knob (other tunables live in the `Config` dataclass) · always inspect the output by eye — dimensions are a sanity check, not a quality check · keep the source PNG so you can re-snap with a different `k_colors` later.
+**Core principles**: output resolution is discovered, not specified · `k_colors` is the only user-facing knob (other tunables live in the `Config` dataclass) · always inspect the output by eye — dimensions are a sanity check, not a quality check · keep the source PNG so you can re-snap with a different `k_colors` later · **snapping needs resolution to find the grid — feed it a large source (≥~512px across the subject; a lone character ~1024²). Undersized inputs (256²) blur the grid away or trip the 64×64 fallback; the fix is to regenerate larger, not to upscale a small source first.**
 
 ## When to Use
 
@@ -50,7 +50,7 @@ Output is one snapped PNG at the discovered native resolution. For inspection, f
 ffmpeg -y -i snapped.png -vf "scale=iw*8:ih*8:flags=neighbor" snapped-x8.png
 ```
 
-For a known-layout spritesheet, snap frames independently:
+For a known-layout spritesheet, snap every frame to one shared pixel grid:
 
 ```bash
 uv run .claude/skills/pixel-snapper/scripts/pixel_snapper_sheet.py \

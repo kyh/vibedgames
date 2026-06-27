@@ -77,21 +77,13 @@ Then visually compare. Smaller `k` = blockier, more "vintage". Larger `k` = clos
 
 ## Known-Layout Spritesheet
 
-Use `pixel_snapper_sheet.py` when the input is already a sheet with known rows and columns. The script crops each frame before snapping so the sheet grid does not interfere with the recovered pixel grid inside each frame.
+Use `pixel_snapper_sheet.py` when the input is already a sheet with known rows and columns. It crops the frames out of the sheet (removing the frame-grid scale that would otherwise confuse step detection), snaps them together as one strip so every frame lands on the same pixel grid and stays the same size, then reassembles the sheet.
 
 ```bash
 uv run .claude/skills/pixel-snapper/scripts/pixel_snapper_sheet.py \
   concepts/sprites/characters/walk-south.png \
   experiments/<timestamp>-pixel-snap-walk/walk-south-snapped.png \
   --cols 6 --rows 1 --k-colors 256
-```
-
-Use `--shared-palette` when all frames should quantize against one palette:
-
-```bash
-uv run .claude/skills/pixel-snapper/scripts/pixel_snapper_sheet.py \
-  input-sheet.png output-sheet.png \
-  --cols 4 --rows 4 --k-colors 128 --shared-palette
 ```
 
 ## Quick Sanity Checks

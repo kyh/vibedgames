@@ -14,15 +14,16 @@ By default this assumes a UNIFORM grid (which is how hand-authored sheets are
 laid out and what you should prompt the model for) and slices it directly — far
 more predictable than trying to recover drifted blobs. Pass --recover to instead
 run connected-component recovery, which tolerates the model spilling a pose across
-cell borders; pass --pixel-snap for the crisp low-bit look.
+cell borders. Pixel snapping (crisp native pixels) is on by default; pass
+--no-pixel-snap to keep the smooth high-res look for painterly/non-pixel sprites.
 
 Pipeline: (slice grid | --recover components) -> chroma_clean (per cell) ->
-[--pixel-snap per frame] -> normalize_canvas (shared-transform anchor) -> pack ->
-qc -> gif.
+[pixel-snap as one shared-pitch strip] -> normalize_canvas (shared-transform anchor)
+-> pack -> qc -> gif.
 
 Example:
   process_sheet.py board.png --action attack --rows 2 --cols 2 --out-dir runs/hero-attack-img
-  process_sheet.py board.png --action attack --rows 2 --cols 2 --recover --pixel-snap --out-dir runs/...
+  process_sheet.py board.png --action attack --rows 2 --cols 2 --recover --no-pixel-snap --out-dir runs/...
 """
 from __future__ import annotations
 
@@ -77,21 +78,55 @@ def slice_grid(board: Path, rows: int, cols: int, frames: int, out_dir: Path) ->
 
 
 def recover_grid(board: Path, rows: int, cols: int, frames: int, out_dir: Path) -> int:
-    """Connected-component recovery: tolerates poses spilling across cell borders.
-    Emits frame-NN.png; returns the frame count."""
-    run_step("recover", "recover_component_frames.py", str(board),
-             "--rows", str(rows), "--cols", str(cols), "--frames", str(frames),
-             "--out-dir", str(out_dir), "--prefix", "frame")
-    return len(sorted(out_dir.glob("frame-[0-9]*.png")))
+    """Best-effort connected-component recovery: re-centers a pose that drifted
+    off-grid within its cell. Emits frame-NN.png; returns the frame count.
+
+    Recovery can't separate poses that *merged* into one blob (a wide swing
+    bridging two cells reads as a single component), so if it can't fill the
+    requested cells it falls back to a uniform slice rather than aborting — passing
+    --recover is always safe."""
+    p = subprocess.run(
+        [_uv(), "run", str(HERE / "recover_component_frames.py"), str(board),
+         "--rows", str(rows), "--cols", str(cols), "--frames", str(frames),
+         "--out-dir", str(out_dir), "--prefix", "frame"],
+        capture_output=True, text=True,
+    )
+    if p.returncode == 0:
+        return len(sorted(out_dir.glob("frame-[0-9]*.png")))
+    reason = p.stderr.strip().splitlines()[-1] if p.stderr.strip() else "recovery failed"
+    sys.stderr.write(f"[process_sheet] --recover fell back to uniform slice: {reason}\n")
+    return slice_grid(board, rows, cols, frames, out_dir)
 
 
 def pixel_snap_frames(frames_dir: Path, k_colors: int) -> None:
-    """Snap each frame onto its native pixel grid, in place. Run before normalize:
-    snapping shrinks frames to per-frame native sizes, so the downstream anchor
-    normalization must re-uniform them for the packer."""
-    for frame in sorted(frames_dir.glob("frame-*.png")):
-        run_step("pixel-snap", "pixel_snapper.py", str(frame), str(frame),
-                 "--k-colors", str(k_colors))
+    """Snap every frame to ONE shared native pixel grid, in place. Run before
+    normalize. We assemble the frames into a single strip and snap that strip once,
+    so the snapper discovers a single grid pitch for the whole action. Snapping each
+    frame independently would recover a slightly different pitch per frame, drifting
+    the character's size between frames — a "breathing" wobble normalize re-centers
+    but can't rescale away. One strip = one pitch = one scale."""
+    frames = sorted(frames_dir.glob("frame-*.png"))
+    if not frames:
+        return
+    imgs = [Image.open(f).convert("RGBA") for f in frames]
+    n = len(imgs)
+    cw = max(im.width for im in imgs)
+    ch = max(im.height for im in imgs)
+    strip = Image.new("RGBA", (cw * n, ch), (0, 0, 0, 0))
+    for i, im in enumerate(imgs):
+        strip.paste(im, (i * cw + (cw - im.width) // 2, (ch - im.height) // 2), im)
+    strip_path = frames_dir / "_snap_strip.png"
+    strip.save(strip_path)
+    run_step("pixel-snap", "pixel_snapper.py", str(strip_path), str(strip_path),
+             "--k-colors", str(k_colors))
+    snapped = Image.open(strip_path).convert("RGBA")
+    sw, sh = snapped.size
+    fw = sw // n  # native cell width; the character sits in the centred margin, so a
+    # sub-pixel boundary drift lands in empty space and normalize re-crops it away
+    for i, f in enumerate(frames):
+        x1 = sw if i == n - 1 else (i + 1) * fw
+        snapped.crop((i * fw, 0, x1, sh)).save(f)
+    strip_path.unlink()
 
 
 def main() -> int:
@@ -106,9 +141,9 @@ def main() -> int:
     ap.add_argument("--char-fill", type=float, default=0.5, help="character height as a fraction of the cell (headroom)")
     ap.add_argument("--recover", action="store_true",
                     help="recover frames by connected components (handles poses spilling across cells) instead of naive grid slicing")
-    ap.add_argument("--pixel-snap", action="store_true",
-                    help="snap each keyed frame onto its native pixel grid before normalize (crisp low-bit look); normalize then re-uniforms them")
-    ap.add_argument("--snap-k-colors", type=int, default=16, help="palette size for --pixel-snap (k-means)")
+    ap.add_argument("--no-pixel-snap", action="store_true",
+                    help="skip pixel snapping (keep the smooth high-res look, e.g. for painterly/non-pixel sprites); snapping is on by default for crisp native pixels")
+    ap.add_argument("--snap-k-colors", type=int, default=16, help="palette size for pixel snapping (k-means)")
     ap.add_argument("--no-qc", action="store_true", help="skip the spritesheet QC pass (size/facing/clip/empty)")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
@@ -145,10 +180,9 @@ def main() -> int:
     # 2. key the matte + fringe + despill + decontaminate (per cell, one batch call)
     run_step("clean", "chroma_clean.py", "clean", "--input", str(d_cells),
              "--out-dir", str(d_keyed), "--chroma", args.chroma)
-    # 2b. optional: snap each keyed frame onto its native pixel grid. Done BEFORE
-    # normalize so the per-frame anchor step re-uniforms the (variably-shrunk)
-    # snapped frames back onto the shared canvas — the packer needs uniform sizes.
-    if args.pixel_snap:
+    # 2b. snap the keyed frames onto a shared native pixel grid (on by default).
+    # Done BEFORE normalize, which then anchors them onto the shared runtime canvas.
+    if not args.no_pixel_snap:
         pixel_snap_frames(d_keyed, args.snap_k_colors)
     # 3. per-frame anchor normalization with headroom (image poses are discrete)
     run_step("normalize", "normalize_canvas.py", "--input-dir", str(d_keyed), "--out-dir", str(d_runtime),
@@ -167,7 +201,7 @@ def main() -> int:
     qc = None if args.no_qc else json.loads(run_step("qc", "sheet_qc.py", str(sheet_png), "--json"))
 
     summary = {"action": args.action, "frames": n, "fps": fps, "path": "image",
-               "slicing": "recover" if args.recover else "naive", "pixelSnap": bool(args.pixel_snap),
+               "slicing": "recover" if args.recover else "naive", "pixelSnap": not args.no_pixel_snap,
                "spritesheet": str(sheet_png), "gif": str(gif), "runtimeFrames": str(d_runtime),
                "qc": qc["verdict"] if qc else "skipped"}
     if args.json:
