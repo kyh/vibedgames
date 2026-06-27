@@ -82,7 +82,9 @@ function ferryBuilding(): THREE.Group {
   return g;
 }
 
-// A suspension bridge along +X: two towers + deck + catenary main cables.
+// A suspension bridge spanning along +Z (north–south): two towers, a deck, and
+// main cables that peak at the tower tops and sag (above the deck) between them,
+// with vertical suspenders hanging to the deck. Rotated into place by the caller.
 function suspensionBridge(
   span: number,
   towerH: number,
@@ -91,28 +93,36 @@ function suspensionBridge(
 ): THREE.Group {
   const g = new THREE.Group();
   const half = span / 2;
-  const deck = mesh(new THREE.BoxGeometry(span, 0.8, 7), mat, 0, deckY, 0);
-  g.add(deck);
-  for (const tx of [-half * 0.5, half * 0.5]) {
-    g.add(mesh(new THREE.BoxGeometry(1.6, towerH, 1.6), mat, tx, deckY + towerH / 2 - 2, 2.6));
-    g.add(mesh(new THREE.BoxGeometry(1.6, towerH, 1.6), mat, tx, deckY + towerH / 2 - 2, -2.6));
-    g.add(mesh(new THREE.BoxGeometry(4.6, 1.2, 0.8), mat, tx, deckY + towerH - 6, 0));
-    g.add(mesh(new THREE.BoxGeometry(4.6, 1.2, 0.8), mat, tx, deckY + towerH - 14, 0));
+  const towerZ = half * 0.5; // towers at the ±25% points
+  const topY = deckY + towerH;
+  const sagY = deckY + 4;
+  const legX = 2.8;
+  g.add(mesh(new THREE.BoxGeometry(8, 0.8, span), mat, 0, deckY, 0)); // deck
+
+  for (const tz of [-towerZ, towerZ]) {
+    g.add(mesh(new THREE.BoxGeometry(1.6, towerH + 2, 1.6), mat, legX, deckY + towerH / 2, tz));
+    g.add(mesh(new THREE.BoxGeometry(1.6, towerH + 2, 1.6), mat, -legX, deckY + towerH / 2, tz));
+    g.add(mesh(new THREE.BoxGeometry(2 * legX + 1.6, 1.1, 0.8), mat, 0, deckY + towerH - 4, tz));
+    g.add(mesh(new THREE.BoxGeometry(2 * legX + 1.6, 1.1, 0.8), mat, 0, deckY + towerH - 13, tz));
   }
-  // Main cables (catenary) per side, as a thin tube following the curve.
-  const topY = deckY + towerH - 3;
-  for (const sz of [2.6, -2.6]) {
-    const pts: THREE.Vector3[] = [];
-    for (let i = 0; i <= 24; i++) {
-      const t = i / 24;
-      const x = -half + t * span;
-      // piecewise dip between tower tops; sag toward the deck mid-span
-      const m = Math.abs((t - 0.5) * 2); // 0 mid .. 1 ends
-      const y = deckY + 1 + (topY - deckY - 1) * m * m;
-      pts.push(new THREE.Vector3(x, y, sz));
+
+  for (const sx of [legX, -legX]) {
+    const key = [
+      new THREE.Vector3(sx, deckY + 0.5, -half),
+      new THREE.Vector3(sx, topY, -towerZ),
+      new THREE.Vector3(sx, sagY, 0),
+      new THREE.Vector3(sx, topY, towerZ),
+      new THREE.Vector3(sx, deckY + 0.5, half),
+    ];
+    const curve = new THREE.CatmullRomCurve3(key);
+    g.add(mesh(new THREE.TubeGeometry(curve, 48, 0.18, 6), mat));
+    // Vertical suspenders from the main span cable down to the deck.
+    for (let i = -4; i <= 4; i++) {
+      const z = (i / 4) * towerZ;
+      const t = Math.abs(z) / towerZ; // 0 mid .. 1 tower
+      const cy = sagY + (topY - sagY) * t * t;
+      g.add(mesh(new THREE.BoxGeometry(0.1, cy - deckY, 0.1), mat, sx, (cy + deckY) / 2, z));
     }
-    const curve = new THREE.CatmullRomCurve3(pts);
-    g.add(mesh(new THREE.TubeGeometry(curve, 28, 0.18, 6), mat));
   }
   return g;
 }

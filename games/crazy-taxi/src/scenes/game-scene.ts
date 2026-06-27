@@ -235,10 +235,15 @@ export class GameScene {
   debugTopView(on: boolean): void {
     this.topView = on;
   }
+  private topCam = { px: 60, py: 55, pz: 35, lx: 66, ly: 14, lz: -100 };
+  debugSetCam(px: number, py: number, pz: number, lx: number, ly: number, lz: number): void {
+    this.topCam = { px, py, pz, lx, ly, lz };
+    this.topView = true;
+  }
   private applyTopView(): void {
-    // Debug survey of the downtown / Embarcadero landmarks (NE).
-    this.rig.camera.position.set(60, 55, 35);
-    this.rig.camera.lookAt(66, 14, -100);
+    const c = this.topCam;
+    this.rig.camera.position.set(c.px, c.py, c.pz);
+    this.rig.camera.lookAt(c.lx, c.ly, c.lz);
   }
 
   update(dt: number): void {
@@ -491,6 +496,13 @@ export class GameScene {
   }
   debugFreezeTime(b: boolean): void {
     this.testNoTimeout = b;
+  }
+  debugTeleport(x: number, z: number): void {
+    this.topView = false;
+    if (this.car) {
+      this.car.reset(x, z, 0);
+      this.rig.snapTo(this.car);
+    }
   }
   debugObjective(): { kind: string; tiles: number } | null {
     const o = this.fares?.objective();

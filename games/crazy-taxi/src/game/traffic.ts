@@ -6,13 +6,11 @@ import { ROAD_TILE, ROAD_Y, TRAFFIC } from "../shared/constants";
 import { Rng } from "../shared/rng";
 import { type Dir, DIR_DELTA } from "../shared/types";
 import type { CityModel, RoadCell } from "../world/city";
+import { slopeQuaternion } from "../world/terrain";
 
 const MODEL_YAW_OFFSET = 0; // Kenney cars face +Z; no offset (π drives rear-first)
 const ALL_DIRS: readonly Dir[] = [0, 1, 2, 3];
-const UP = new THREE.Vector3(0, 1, 0);
 const SCRATCH_N = new THREE.Vector3();
-const SCRATCH_TILT = new THREE.Quaternion();
-const SCRATCH_SPIN = new THREE.Quaternion();
 const OPPOSITE: Record<Dir, Dir> = { 0: 2, 1: 3, 2: 0, 3: 1 };
 
 export class TrafficCar {
@@ -94,9 +92,7 @@ export class TrafficCar {
     if (d < -Math.PI) d += Math.PI * 2;
     this.yaw += d * Math.min(1, dt * 8);
     const n = city.terrain.normalInto(SCRATCH_N, px, pz);
-    const tilt = SCRATCH_TILT.setFromUnitVectors(UP, n);
-    const spin = SCRATCH_SPIN.setFromAxisAngle(n, this.yaw);
-    this.object3D.quaternion.copy(spin).multiply(tilt);
+    slopeQuaternion(this.object3D.quaternion, this.yaw, n);
   }
 }
 

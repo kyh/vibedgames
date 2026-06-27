@@ -63,5 +63,8 @@ if (import.meta.env.DEV) {
     __warp: () => game.debugWarpToObjective(),
     __obj: () => game.debugObjective(),
     __top: (on: boolean) => game.debugTopView(on),
+    __cam: (px: number, py: number, pz: number, lx: number, ly: number, lz: number) =>
+      game.debugSetCam(px, py, pz, lx, ly, lz),
+    __tp: (x: number, z: number) => game.debugTeleport(x, z),
   });
 }

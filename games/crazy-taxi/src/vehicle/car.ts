@@ -4,9 +4,7 @@ import type { ModelCache } from "../assets/loader";
 import { modelUrl, PLAYER_CAR } from "../assets/manifest";
 import { CAR, ROAD_Y } from "../shared/constants";
 import type { Solid } from "../world/city";
-import type { Terrain } from "../world/terrain";
-
-const UP = new THREE.Vector3(0, 1, 0);
+import { slopeQuaternion, type Terrain } from "../world/terrain";
 
 export type CarInput = {
   readonly throttle: number; // -1 brake/reverse, 0, +1 gas
@@ -37,8 +35,6 @@ export class Car {
   private steerSmoothed = 0; // ramped steering input
   private terrain: Terrain | null = null;
   private scratchN = new THREE.Vector3();
-  private tiltQ = new THREE.Quaternion();
-  private yawQ = new THREE.Quaternion();
 
   constructor(cache: ModelCache) {
     this.object3D = new THREE.Group();
@@ -224,9 +220,7 @@ export class Car {
     if (this.terrain) {
       this.position.y = this.terrain.heightAt(this.position.x, this.position.z) + ROAD_Y;
       const n = this.terrain.normalInto(this.scratchN, this.position.x, this.position.z);
-      const tilt = this.tiltQ.setFromUnitVectors(UP, n);
-      const spin = this.yawQ.setFromAxisAngle(n, this.heading + MODEL_YAW_OFFSET);
-      this.object3D.quaternion.copy(spin).multiply(tilt);
+      slopeQuaternion(this.object3D.quaternion, this.heading + MODEL_YAW_OFFSET, n);
       this.object3D.position.copy(this.position);
     } else {
       this.object3D.position.copy(this.position);

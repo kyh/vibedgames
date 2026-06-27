@@ -17,7 +17,7 @@ import { type Dir, DIR_DELTA, E, N, S, W } from "../shared/types";
 import { type CityPlan, generateCity } from "./grid";
 import { buildLandmarks } from "./landmarks";
 import { type DistrictChar, districtAt, makeTerrain } from "./sf-map";
-import type { Terrain } from "./terrain";
+import { slopeQuaternion, type Terrain } from "./terrain";
 
 export type Solid = {
   readonly minX: number;
@@ -29,7 +29,6 @@ export type Solid = {
 export type RoadCell = { readonly gx: number; readonly gz: number };
 
 const HALF_PI = Math.PI / 2;
-const UP = new THREE.Vector3(0, 1, 0);
 
 // Building front faces +Z in the native model; this offset rotates it to face
 // the street. Tune if entrances point the wrong way.
@@ -58,8 +57,6 @@ export class CityModel {
   readonly plan: CityPlan;
   readonly terrain: Terrain;
   private scratchN = new THREE.Vector3();
-  private scratchTilt = new THREE.Quaternion();
-  private scratchSpin = new THREE.Quaternion();
   private tintCache = new Map<string, THREE.Material>();
 
   constructor(
@@ -81,9 +78,7 @@ export class CityModel {
     yOffset: number,
   ): void {
     const n = this.terrain.normalInto(this.scratchN, wx, wz);
-    const tilt = this.scratchTilt.setFromUnitVectors(UP, n);
-    const spin = this.scratchSpin.setFromAxisAngle(n, yaw);
-    obj.quaternion.copy(spin).multiply(tilt);
+    slopeQuaternion(obj.quaternion, yaw, n);
     obj.position.set(wx, this.terrain.heightAt(wx, wz) + yOffset, wz);
   }
 
@@ -201,7 +196,8 @@ export class CityModel {
         if (!r) continue;
         this.roadCells.push({ gx, gz });
         const tile = this.cache.instance(modelUrl("roads", r.tile));
-        tile.scale.set(ROAD_TILE, ROAD_TILE, ROAD_TILE);
+        // Overlap neighbours slightly so curved hills don't open seams between tiles.
+        tile.scale.set(ROAD_TILE * 1.08, ROAD_TILE, ROAD_TILE * 1.08);
         this.placeOnTerrain(
           tile,
           this.worldX(gx),

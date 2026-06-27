@@ -15,6 +15,26 @@ export type LandFactor = (u: number, v: number) => number;
 
 const SHORE_DROP = 5; // how far the ground dips below sea level past the coast
 
+const scrFwd = new THREE.Vector3();
+const scrRight = new THREE.Vector3();
+const scrRealFwd = new THREE.Vector3();
+const scrBasis = new THREE.Matrix4();
+
+// Orientation that keeps an object's facing along `yaw` (horizontal road/heading
+// direction) while tilting its up-axis to the terrain normal — WITHOUT the
+// incidental twist that setFromUnitVectors(UP, n) introduces on a slope.
+export function slopeQuaternion(
+  out: THREE.Quaternion,
+  yaw: number,
+  n: THREE.Vector3,
+): THREE.Quaternion {
+  scrFwd.set(Math.sin(yaw), 0, Math.cos(yaw));
+  scrRight.crossVectors(n, scrFwd).normalize();
+  scrRealFwd.crossVectors(scrRight, n).normalize();
+  scrBasis.makeBasis(scrRight, n, scrRealFwd);
+  return out.setFromRotationMatrix(scrBasis);
+}
+
 function worldToU(x: number): number {
   return x / WORLD_SIZE + 0.5;
 }
