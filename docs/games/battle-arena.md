@@ -1,7 +1,7 @@
-# Build Doc — Overthrow-style Arena (working title: **OVERTHRONE**)
+# Build Doc — **Battle Arena** (an Overthrow-style PvP arena)
 
 > **For the implementing agent:** This is a self-contained build spec. Read it top to
-> bottom, then build the game in `games/overthrow/` using the vibedgames `vg` CLI and the
+> bottom, then build the game in `games/battle-arena/` using the vibedgames `vg` CLI and the
 > bundled Claude Code skills. It is opinionated about scope and architecture on purpose —
 > follow the MVP milestones in order, and **ship the vertical slice before adding breadth**.
 > Where a number is marked _(tunable)_ it is a starting default, not gospel — put it in
@@ -114,7 +114,7 @@ vertical slice works.
 | **FFA** | 2–6 | First to **25 kills** _(tunable)_, or most kills at **8:00** _(tunable)_ | **MVP** |
 | **Teams (2–3 teams)** | up to 6 | Most team kills at timer; sudden death on tie | Phase 2 |
 
-- **Lobby:** one room = one match. Use a room id like `overthrow-<lobbyCode>`. First player
+- **Lobby:** one room = one match. Use a room id like `battle-arena-<lobbyCode>`. First player
   in is host. Players pick a champion in a pre-match lobby; host starts the match when ≥2
   players are ready (or a countdown).
 - **Sudden death:** if tied at timer, first to go +1 ahead wins (mirror Overthrow).
@@ -362,7 +362,7 @@ Mirror the proven `games/moba` split (sim / render / net / data are separate so 
 authoritative sim is engine-agnostic and testable). Use Vite + TypeScript.
 
 ```
-games/overthrow/
+games/battle-arena/
   package.json            # deps: three, @vibedgames/multiplayer, @vibedgames/gamepad
   vite.config.ts
   index.html
@@ -499,7 +499,7 @@ leader bounty — those four _are_ the game.
 | Testing (deterministic sim, canvas/WebGL) | `playwright` |
 | Scope discipline / finish line | `finish-it` |
 | Design QA before ship | `design-lenses` |
-| Ship it | `deploy` (`vg deploy --slug overthrow`) |
+| Ship it | `deploy` (`vg deploy --slug battle-arena`) |
 
 ---
 
