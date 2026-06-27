@@ -14,6 +14,14 @@ import { CAR, FARE, GRID, MPH_FACTOR, WORLD_SIZE } from "../shared/constants";
 import type { GameMode } from "../shared/types";
 import { Hud } from "../ui/hud";
 import { setupTouch } from "../ui/touch";
+import {
+  modelUrl,
+  ROAD_BEND,
+  ROAD_CROSSROAD,
+  ROAD_END,
+  ROAD_INTERSECTION,
+  ROAD_STRAIGHT,
+} from "../assets/manifest";
 import { Car } from "../vehicle/car";
 import { CityModel, type Solid } from "../world/city";
 import { districtAt } from "../world/sf-map";
@@ -496,6 +504,34 @@ export class GameScene {
   }
   debugFreezeTime(b: boolean): void {
     this.testNoTimeout = b;
+  }
+  // Lay each road tile UNROTATED with a compass (red=North/-Z, blue=East/+X)
+  // so the native connection directions can be read straight-down.
+  debugTileRack(): void {
+    const tiles = [ROAD_STRAIGHT, ROAD_BEND, ROAD_CROSSROAD, ROAD_INTERSECTION, ROAD_END];
+    const X0 = 180;
+    const Z0 = 0;
+    const S = 12;
+    const g = new THREE.Group();
+    tiles.forEach((t, i) => {
+      const tile = this.cache.instance(modelUrl("roads", t));
+      tile.scale.setScalar(8);
+      tile.position.set(X0 + i * S, 0.5, Z0);
+      g.add(tile);
+    });
+    const north = new THREE.Mesh(
+      new THREE.BoxGeometry(2, 4, 2),
+      new THREE.MeshBasicMaterial({ color: 0xff0000 }),
+    );
+    north.position.set(X0, 2, Z0 - 5); // red marker to the NORTH (-Z) of tile 0
+    const east = new THREE.Mesh(
+      new THREE.BoxGeometry(2, 4, 2),
+      new THREE.MeshBasicMaterial({ color: 0x0000ff }),
+    );
+    east.position.set(X0 + 5, 2, Z0); // blue marker to the EAST (+X) of tile 0
+    g.add(north, east);
+    this.scene.add(g);
+    this.debugSetCam(X0 + 2 * S, 70, 4, X0 + 2 * S, 0, 0); // straight down over the rack
   }
   debugTeleport(x: number, z: number): void {
     this.topView = false;

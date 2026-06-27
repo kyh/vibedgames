@@ -35,13 +35,15 @@ export type CityPlan = {
   readonly greenCells: readonly GreenCell[];
 };
 
-// Default connection masks per tile in native orientation. N=-Z,E=+X,S=+Z,W=-X.
+// Default connection masks per tile in native orientation (N=-Z,E=+X,S=+Z,W=-X).
+// Verified against the actual Kenney GLBs via the debug tile rack: the tiles'
+// native axis runs E–W, a quarter-turn from the obvious guess.
 const DEFAULT_MASK: Record<string, Mask> = {
-  [ROAD_STRAIGHT]: (1 << N) | (1 << S),
-  [ROAD_BEND]: (1 << N) | (1 << E),
+  [ROAD_STRAIGHT]: (1 << E) | (1 << W), // runs along X
+  [ROAD_BEND]: (1 << E) | (1 << S), // connects East + South
   [ROAD_CROSSROAD]: (1 << N) | (1 << E) | (1 << S) | (1 << W),
-  [ROAD_INTERSECTION]: (1 << E) | (1 << S) | (1 << W),
-  [ROAD_END]: 1 << S,
+  [ROAD_INTERSECTION]: (1 << N) | (1 << S) | (1 << W), // T, missing East
+  [ROAD_END]: 1 << W, // stub opening to the West
 };
 
 function resolveRoad(mask: Mask): RoadResolved {

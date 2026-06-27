@@ -66,5 +66,6 @@ if (import.meta.env.DEV) {
     __cam: (px: number, py: number, pz: number, lx: number, ly: number, lz: number) =>
       game.debugSetCam(px, py, pz, lx, ly, lz),
     __tp: (x: number, z: number) => game.debugTeleport(x, z),
+    __rack: () => game.debugTileRack(),
   });
 }
