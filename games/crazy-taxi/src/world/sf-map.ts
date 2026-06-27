@@ -74,3 +74,245 @@ export const SF_HILLS: readonly Hill[] = SF_HILLS_M.map((h) => ({
 export function makeTerrain(): Terrain {
   return new Terrain(SF_HILLS, landFactor);
 }
+
+// --- Neighborhoods (traced (u,v) boxes from the research) ---
+export type DistrictChar =
+  | "downtown"
+  | "highrise"
+  | "commercial"
+  | "wharf"
+  | "residential"
+  | "victorian"
+  | "industrial"
+  | "park";
+
+export type District = {
+  readonly name: string;
+  readonly character: DistrictChar;
+  readonly color: number;
+};
+
+type Box = District & {
+  readonly uMin: number;
+  readonly uMax: number;
+  readonly vMin: number;
+  readonly vMax: number;
+};
+
+const NEIGHBORHOODS: readonly Box[] = [
+  {
+    name: "the Presidio",
+    character: "park",
+    color: 0x2e6f4e,
+    uMin: 0.2,
+    uMax: 0.41,
+    vMin: 0.03,
+    vMax: 0.21,
+  },
+  {
+    name: "the Marina",
+    character: "residential",
+    color: 0xc9d6df,
+    uMin: 0.42,
+    uMax: 0.56,
+    vMin: 0.02,
+    vMax: 0.13,
+  },
+  {
+    name: "Fisherman's Wharf",
+    character: "wharf",
+    color: 0x356a8a,
+    uMin: 0.56,
+    uMax: 0.685,
+    vMin: 0,
+    vMax: 0.07,
+  },
+  {
+    name: "Russian Hill",
+    character: "residential",
+    color: 0x9cae86,
+    uMin: 0.575,
+    uMax: 0.645,
+    vMin: 0.07,
+    vMax: 0.155,
+  },
+  {
+    name: "North Beach",
+    character: "commercial",
+    color: 0xb5384a,
+    uMin: 0.645,
+    uMax: 0.7,
+    vMin: 0.07,
+    vMax: 0.15,
+  },
+  {
+    name: "the Financial District",
+    character: "highrise",
+    color: 0x9aa7b2,
+    uMin: 0.7,
+    uMax: 0.775,
+    vMin: 0.11,
+    vMax: 0.225,
+  },
+  {
+    name: "the Embarcadero",
+    character: "wharf",
+    color: 0x4a7c9b,
+    uMin: 0.775,
+    uMax: 0.85,
+    vMin: 0.07,
+    vMax: 0.33,
+  },
+  {
+    name: "Chinatown",
+    character: "commercial",
+    color: 0xc8442b,
+    uMin: 0.645,
+    uMax: 0.7,
+    vMin: 0.15,
+    vMax: 0.225,
+  },
+  {
+    name: "Nob Hill",
+    character: "residential",
+    color: 0x8c7b9e,
+    uMin: 0.575,
+    uMax: 0.645,
+    vMin: 0.155,
+    vMax: 0.225,
+  },
+  {
+    name: "Pacific Heights",
+    character: "residential",
+    color: 0xd8c7a8,
+    uMin: 0.42,
+    uMax: 0.575,
+    vMin: 0.13,
+    vMax: 0.245,
+  },
+  {
+    name: "SoMa",
+    character: "highrise",
+    color: 0xa87c53,
+    uMin: 0.66,
+    uMax: 0.775,
+    vMin: 0.225,
+    vMax: 0.42,
+  },
+  {
+    name: "Dogpatch",
+    character: "industrial",
+    color: 0xa8623e,
+    uMin: 0.77,
+    uMax: 0.85,
+    vMin: 0.45,
+    vMax: 0.57,
+  },
+  {
+    name: "Alamo Square",
+    character: "victorian",
+    color: 0xe7b5c6,
+    uMin: 0.44,
+    uMax: 0.555,
+    vMin: 0.245,
+    vMax: 0.37,
+  },
+  {
+    name: "Hayes Valley",
+    character: "commercial",
+    color: 0xd89a5c,
+    uMin: 0.555,
+    uMax: 0.595,
+    vMin: 0.245,
+    vMax: 0.375,
+  },
+  {
+    name: "Civic Center",
+    character: "downtown",
+    color: 0xbfa75e,
+    uMin: 0.595,
+    uMax: 0.66,
+    vMin: 0.225,
+    vMax: 0.37,
+  },
+  {
+    name: "the Richmond",
+    character: "residential",
+    color: 0xb6c2bc,
+    uMin: 0.03,
+    uMax: 0.42,
+    vMin: 0.21,
+    vMax: 0.36,
+  },
+  {
+    name: "Golden Gate Park",
+    character: "park",
+    color: 0x3c8147,
+    uMin: 0.03,
+    uMax: 0.4,
+    vMin: 0.36,
+    vMax: 0.44,
+  },
+  {
+    name: "the Sunset",
+    character: "residential",
+    color: 0xc6ccc6,
+    uMin: 0.02,
+    uMax: 0.4,
+    vMin: 0.44,
+    vMax: 0.79,
+  },
+  {
+    name: "the Haight",
+    character: "victorian",
+    color: 0x8e4fa8,
+    uMin: 0.4,
+    uMax: 0.48,
+    vMin: 0.37,
+    vMax: 0.44,
+  },
+  {
+    name: "the Mission",
+    character: "victorian",
+    color: 0xe0564b,
+    uMin: 0.575,
+    uMax: 0.69,
+    vMin: 0.42,
+    vMax: 0.6,
+  },
+  {
+    name: "the Castro",
+    character: "commercial",
+    color: 0xd14e9b,
+    uMin: 0.46,
+    uMax: 0.555,
+    vMin: 0.44,
+    vMax: 0.55,
+  },
+  {
+    name: "Bernal Heights",
+    character: "residential",
+    color: 0x9db07c,
+    uMin: 0.575,
+    uMax: 0.675,
+    vMin: 0.63,
+    vMax: 0.77,
+  },
+];
+
+const DEFAULT_DISTRICT: District = {
+  name: "San Francisco",
+  character: "residential",
+  color: 0xbfc6c2,
+};
+
+export function districtAt(gx: number, gz: number): District {
+  const u = (gx + 0.5) / GRID;
+  const v = (gz + 0.5) / GRID;
+  for (const n of NEIGHBORHOODS) {
+    if (u >= n.uMin && u <= n.uMax && v >= n.vMin && v <= n.vMax) {
+      return { name: n.name, character: n.character, color: n.color };
+    }
+  }
+  return DEFAULT_DISTRICT;
+}

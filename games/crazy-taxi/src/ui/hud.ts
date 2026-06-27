@@ -15,6 +15,7 @@ export class Hud {
   private timer = el("timer");
   private timerVal = el("timer").querySelector<HTMLElement>(".value");
   private timeBonus = el("time-bonus");
+  private district = el("district");
   private scoreVal = el("score").querySelector<HTMLElement>(".value");
   private faresVal = el("fares").querySelector<HTMLElement>(".value");
   private speedVal = el("speed").querySelector<HTMLElement>(".value");
@@ -52,6 +53,18 @@ export class Hud {
   }
   setScore(n: number): void {
     if (this.scoreVal) this.scoreVal.textContent = n.toLocaleString("en-US");
+  }
+  showDistrict(name: string): void {
+    this.district.textContent = `◢ ${name.toUpperCase()}`;
+    this.district.animate(
+      [
+        { opacity: 0, transform: "translateX(-50%) translateY(-8px)" },
+        { opacity: 1, transform: "translateX(-50%) translateY(0)", offset: 0.18 },
+        { opacity: 1, transform: "translateX(-50%) translateY(0)", offset: 0.78 },
+        { opacity: 0, transform: "translateX(-50%) translateY(0)" },
+      ],
+      { duration: 2600, easing: "ease-out" },
+    );
   }
   setFares(n: number): void {
     if (this.faresVal) this.faresVal.textContent = String(n);

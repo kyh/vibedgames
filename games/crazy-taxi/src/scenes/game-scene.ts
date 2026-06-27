@@ -16,6 +16,7 @@ import { Hud } from "../ui/hud";
 import { setupTouch } from "../ui/touch";
 import { Car } from "../vehicle/car";
 import { CityModel, type Solid } from "../world/city";
+import { districtAt } from "../world/sf-map";
 
 const HALF_PI = Math.PI / 2;
 // Afternoon sun direction (matches the Sky shader); the shadow light sits along it.
@@ -58,6 +59,7 @@ export class GameScene {
   private testNoTimeout = false;
   private hitStop = 0; // brief sim freeze for crash impact
   private spawn = { x: 0, z: 0, yaw: 0, gx: 0, gz: 0 };
+  private lastDistrict = "";
 
   constructor(aspect: number) {
     this.rig = new ChaseCamera(aspect);
@@ -198,6 +200,7 @@ export class GameScene {
     this.rig.snapTo(car);
     this.hud.hideBanner();
     this.lowBeepAt = -1;
+    this.lastDistrict = "";
     this.mode = { kind: "playing" };
   }
 
@@ -233,9 +236,9 @@ export class GameScene {
     this.topView = on;
   }
   private applyTopView(): void {
-    // Debug survey aimed at the downtown hills (Nob/Russian/Telegraph, ~north-center).
-    this.rig.camera.position.set(20, 60, 60);
-    this.rig.camera.lookAt(35, 10, -95);
+    // Full-island survey from high above the centre (debug only).
+    this.rig.camera.position.set(10, 300, 150);
+    this.rig.camera.lookAt(0, 0, -10);
   }
 
   update(dt: number): void {
@@ -342,6 +345,13 @@ export class GameScene {
       this.fx.burst(car.position.x, 1, car.position.z, 0.07, 10, 6 + p * 8);
       this.sfx.crash(car.lastWallHit);
       if (car.lastWallHit > 16) this.hitStop = 0.07; // hit-stop only on hard hits
+    }
+
+    // Announce the SF neighborhood as the taxi crosses into it.
+    const dist = districtAt(city.gridX(car.position.x), city.gridZ(car.position.z));
+    if (dist.name !== this.lastDistrict) {
+      this.lastDistrict = dist.name;
+      this.hud.showDistrict(dist.name);
     }
 
     this.rig.update(dt, car, city.solids);

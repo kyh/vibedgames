@@ -82,6 +82,23 @@
       #timer.low .value {
         color: #ff5a52;
       }
+      #district {
+        position: fixed;
+        top: 96px;
+        left: 50%;
+        transform: translateX(-50%);
+        font:
+          800 italic 22px/1 system-ui,
+          sans-serif;
+        letter-spacing: 1px;
+        color: #fff;
+        white-space: nowrap;
+        text-shadow:
+          0 2px 0 rgba(0, 0, 0, 0.5),
+          0 0 18px rgba(255, 209, 71, 0.45);
+        opacity: 0;
+        pointer-events: none;
+      }
       #time-bonus {
         position: fixed;
         top: 78px;
@@ -422,6 +439,7 @@
     <div id="hud">
       <div class="pill" id="timer"><span class="label">TIME</span><span class="value">60</span></div>
       <div id="time-bonus"></div>
+      <div id="district"></div>
       <div class="pill" id="score"><span class="label">SCORE</span><span class="value">0</span></div>
       <div class="pill" id="fares"><span class="label">FARES</span><span class="value">0</span></div>
       <div class="pill" id="boost">
