@@ -8,8 +8,7 @@ export const MAX_DT = 1 / 30; // clamp delta on tab-away
 // --- World / city grid ---
 export const ROAD_TILE = 8; // world units per grid cell
 export const ROAD_Y = 0.02; // lift road tiles above the ground plane
-export const GRID = 19; // cells per side; (GRID-1) % BLOCK === 0 → road perimeter
-export const BLOCK = 3; // a road line every BLOCK cells → 2×2 lot blocks
+export const GRID = 37; // cells per side (irregular road network laid on this)
 export const CITY_SEED = 1337;
 // Rotation sign mapping grid clockwise quarter-turns → Three.js Y rotation.
 // Verified visually; flip to +1 if road tiles point the wrong way.

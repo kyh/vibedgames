@@ -25,9 +25,12 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 0.62;
 container.appendChild(renderer.domElement);
 
 const game = new GameScene(window.innerWidth / window.innerHeight);
+game.applyEnvironment(renderer);
 
 function renderHeightPx(): number {
   return window.innerHeight * renderer.getPixelRatio();

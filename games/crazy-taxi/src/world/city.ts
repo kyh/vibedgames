@@ -147,6 +147,32 @@ export class CityModel {
       }
     }
 
+    // --- Green / park cells: grass + trees in the interiors of big blocks ---
+    const grassMat = new THREE.MeshStandardMaterial({ color: 0x52803d, roughness: 1 });
+    const grassGeo = new THREE.PlaneGeometry(ROAD_TILE, ROAD_TILE);
+    for (const g of this.plan.greenCells) {
+      const wx = this.worldX(g.gx);
+      const wz = this.worldZ(g.gz);
+      const quad = new THREE.Mesh(grassGeo, grassMat);
+      quad.rotation.x = -HALF_PI;
+      quad.position.set(wx, 0.012, wz);
+      quad.receiveShadow = true;
+      collect(quad);
+      if (this.rng.chance(0.5)) {
+        const count = 1 + this.rng.int(2);
+        for (let i = 0; i < count; i++) {
+          const treeUrl = modelUrl("props", this.rng.chance(0.6) ? TREE_LARGE : TREE_SMALL);
+          const tb = this.cache.bounds(treeUrl);
+          const ts = (ROAD_TILE * 0.42) / Math.max(tb.size.y, 0.001);
+          const tree = this.cache.instance(treeUrl);
+          tree.scale.setScalar(ts);
+          tree.position.set(wx + this.rng.range(-2.6, 2.6), 0, wz + this.rng.range(-2.6, 2.6));
+          tree.rotation.y = this.rng.range(0, Math.PI * 2);
+          collect(tree);
+        }
+      }
+    }
+
     // --- Outer border walls (keep the taxi inside the map) ---
     const t = 3;
     const L = WORLD_HALF;
@@ -155,13 +181,14 @@ export class CityModel {
     this.solids.push({ minX: -L - t, maxX: L + t, minZ: -L - t, maxZ: -L });
     this.solids.push({ minX: -L - t, maxX: L + t, minZ: L, maxZ: L + t });
 
-    // --- Ground ---
+    // --- Island ground (ocean is added at scene level around it) ---
+    const groundSize = WORLD_HALF * 2 + ROAD_TILE * 6;
     const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(WORLD_HALF * 2.6, WORLD_HALF * 2.6),
-      new THREE.MeshStandardMaterial({ color: 0x2c2f3a, roughness: 1 }),
+      new THREE.PlaneGeometry(groundSize, groundSize),
+      new THREE.MeshStandardMaterial({ color: 0x3b3e36, roughness: 1 }),
     );
     ground.rotation.x = -HALF_PI;
-    ground.position.y = -0.02;
+    ground.position.y = -0.05;
     ground.receiveShadow = true;
     this.group.add(ground);
 

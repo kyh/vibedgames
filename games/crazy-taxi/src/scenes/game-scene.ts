@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { Sky } from "three/addons/objects/Sky.js";
 
 import { ModelCache } from "../assets/loader";
 import { allModelUrls } from "../assets/manifest";
@@ -16,12 +17,18 @@ import { setupTouch } from "../ui/touch";
 import { Car } from "../vehicle/car";
 import { CityModel, type Solid } from "../world/city";
 
-const SUN_OFFSET = new THREE.Vector3(38, 70, 26);
+const HALF_PI = Math.PI / 2;
+// Afternoon sun direction (matches the Sky shader); the shadow light sits along it.
+const SUN_DIR = new THREE.Vector3().setFromSphericalCoords(
+  1,
+  THREE.MathUtils.degToRad(90 - 32),
+  THREE.MathUtils.degToRad(150),
+);
+const SUN_OFFSET = SUN_DIR.clone().multiplyScalar(90);
 const NEAR_MISS_MIN = 2.8; // above the contact zone so a hit isn't also a "near miss"
 const NEAR_MISS_MAX = 4.6;
 const NEAR_MISS_SPEED = 22;
 const CRASH_THRESHOLD = 7;
-const START_CELL = Math.floor((GRID - 1) / 2);
 
 export class GameScene {
   readonly scene = new THREE.Scene();
@@ -38,7 +45,8 @@ export class GameScene {
   private fares: FareManager | null = null;
   private traffic: Traffic | null = null;
 
-  private sun = new THREE.DirectionalLight(0xfff1d6, 2.1);
+  private sun = new THREE.DirectionalLight(0xfff2d8, 2.0);
+  private sky: Sky;
   private mode: GameMode = { kind: "loading", progress: 0 };
   private titleT = 0;
   private lowBeepAt = -1;
@@ -49,31 +57,58 @@ export class GameScene {
   private allSolids: Solid[] = [];
   private testNoTimeout = false;
   private hitStop = 0; // brief sim freeze for crash impact
+  private spawn = { x: 0, z: 0, yaw: 0, gx: 0, gz: 0 };
 
   constructor(aspect: number) {
     this.rig = new ChaseCamera(aspect);
 
-    this.scene.background = new THREE.Color(0x8ec9ff);
-    this.scene.fog = new THREE.Fog(0x9ed0ff, WORLD_SIZE * 0.4, WORLD_SIZE * 1.05);
+    // Atmospheric sky + sun.
+    const sky = new Sky();
+    sky.scale.setScalar(12000);
+    const su = sky.material.uniforms;
+    const setU = (name: string, value: number): void => {
+      const u = su[name];
+      if (u) u.value = value;
+    };
+    setU("turbidity", 8);
+    setU("rayleigh", 1.8);
+    setU("mieCoefficient", 0.005);
+    setU("mieDirectionalG", 0.85);
+    const sunU = su.sunPosition;
+    if (sunU && sunU.value instanceof THREE.Vector3) sunU.value.copy(SUN_DIR);
+    this.scene.add(sky);
+    this.sky = sky;
 
-    const hemi = new THREE.HemisphereLight(0xcfe8ff, 0x40404a, 1.0);
+    this.scene.fog = new THREE.Fog(0xaecee8, WORLD_SIZE * 0.55, WORLD_SIZE * 1.45);
+
+    const hemi = new THREE.HemisphereLight(0xbfe0ff, 0x4a4a3e, 0.35);
     this.scene.add(hemi);
-    this.scene.add(new THREE.AmbientLight(0xffffff, 0.25));
+    this.scene.add(new THREE.AmbientLight(0xffffff, 0.08));
 
     this.sun.position.copy(SUN_OFFSET);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
     this.sun.shadow.camera.near = 1;
-    this.sun.shadow.camera.far = 220;
+    this.sun.shadow.camera.far = 260;
     const sc = this.sun.shadow.camera;
-    sc.left = -48;
-    sc.right = 48;
-    sc.top = 48;
-    sc.bottom = -48;
+    sc.left = -58;
+    sc.right = 58;
+    sc.top = 58;
+    sc.bottom = -58;
     sc.updateProjectionMatrix();
-    this.sun.shadow.bias = -0.0006;
+    this.sun.shadow.bias = -0.0005;
+    this.sun.shadow.normalBias = 0.04;
     this.scene.add(this.sun);
     this.scene.add(this.sun.target);
+
+    // Ocean surrounding the island (reflects the sky via scene.environment).
+    const ocean = new THREE.Mesh(
+      new THREE.PlaneGeometry(9000, 9000),
+      new THREE.MeshStandardMaterial({ color: 0x205886, roughness: 0.16, metalness: 0.55 }),
+    );
+    ocean.rotation.x = -HALF_PI;
+    ocean.position.y = -0.5;
+    this.scene.add(ocean);
 
     this.fx.addTo(this.scene);
     setupTouch(this.input);
@@ -82,6 +117,19 @@ export class GameScene {
 
   get camera(): THREE.PerspectiveCamera {
     return this.rig.camera;
+  }
+
+  // Bake a sky environment map so PBR materials (ocean, glass, paint) pick up
+  // subtle sky reflections. Called once from main after the renderer exists.
+  applyEnvironment(renderer: THREE.WebGLRenderer): void {
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const tmp = new THREE.Scene();
+    tmp.add(this.sky);
+    const rt = pmrem.fromScene(tmp);
+    this.scene.environment = rt.texture;
+    this.scene.environmentIntensity = 0.32; // the HDR sky is bright; keep fill subtle
+    this.scene.add(this.sky); // move the sky back into the live scene
+    pmrem.dispose();
   }
 
   async load(): Promise<void> {
@@ -93,13 +141,14 @@ export class GameScene {
     this.scene.add(city.group);
     this.city = city;
 
+    this.spawn = this.computeSpawn(city);
     const car = new Car(this.cache);
     this.scene.add(car.object3D);
-    car.reset(city.worldX(START_CELL), city.worldZ(START_CELL), 0);
+    car.reset(this.spawn.x, this.spawn.z, this.spawn.yaw);
     this.car = car;
 
     this.traffic = new Traffic(this.cache, city, {
-      avoid: { gx: START_CELL, gz: START_CELL },
+      avoid: { gx: this.spawn.gx, gz: this.spawn.gz },
       avoidR: 4,
     });
     this.scene.add(this.traffic.group);
@@ -142,8 +191,8 @@ export class GameScene {
     if (!car || !fares) return;
     this.sfx.ensure();
     this.state.reset();
-    car.reset(this.cityX(START_CELL), this.cityZ(START_CELL), 0);
-    this.traffic?.reset({ gx: START_CELL, gz: START_CELL }, 4);
+    car.reset(this.spawn.x, this.spawn.z, this.spawn.yaw);
+    this.traffic?.reset({ gx: this.spawn.gx, gz: this.spawn.gz }, 4);
     fares.reset(car.position.x, car.position.z);
     this.rig.snapTo(car);
     this.hud.hideBanner();
@@ -151,11 +200,31 @@ export class GameScene {
     this.mode = { kind: "playing" };
   }
 
-  private cityX(cell: number): number {
-    return this.city ? this.city.worldX(cell) : 0;
-  }
-  private cityZ(cell: number): number {
-    return this.city ? this.city.worldZ(cell) : 0;
+  // Nearest road cell to the centre, facing an open road direction.
+  private computeSpawn(city: CityModel): {
+    x: number;
+    z: number;
+    yaw: number;
+    gx: number;
+    gz: number;
+  } {
+    const c = (GRID - 1) / 2;
+    let bg = { gx: Math.round(c), gz: Math.round(c) };
+    let bd = Infinity;
+    for (const rc of city.roadCells) {
+      const d = Math.abs(rc.gx - c) + Math.abs(rc.gz - c);
+      if (d < bd) {
+        bd = d;
+        bg = { gx: rc.gx, gz: rc.gz };
+      }
+    }
+    const isRoad = (gx: number, gz: number): boolean => city.plan.cells[gx]?.[gz] === "road";
+    let yaw = 0;
+    if (isRoad(bg.gx, bg.gz + 1)) yaw = 0;
+    else if (isRoad(bg.gx, bg.gz - 1)) yaw = Math.PI;
+    else if (isRoad(bg.gx + 1, bg.gz)) yaw = HALF_PI;
+    else if (isRoad(bg.gx - 1, bg.gz)) yaw = -HALF_PI;
+    return { x: city.worldX(bg.gx), z: city.worldZ(bg.gz), yaw, gx: bg.gx, gz: bg.gz };
   }
 
   private topView = false;
