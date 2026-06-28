@@ -196,8 +196,8 @@ export class CityModel {
         if (!r) continue;
         this.roadCells.push({ gx, gz });
         const tile = this.cache.instance(modelUrl("roads", r.tile));
-        // Overlap neighbours slightly so curved hills don't open seams between tiles.
-        tile.scale.set(ROAD_TILE * 1.08, ROAD_TILE, ROAD_TILE * 1.08);
+        // Overlap neighbours so curved hills don't open seams between tiles.
+        tile.scale.set(ROAD_TILE * 1.14, ROAD_TILE, ROAD_TILE * 1.14);
         this.placeOnTerrain(
           tile,
           this.worldX(gx),
@@ -282,8 +282,9 @@ export class CityModel {
     this.solids.push({ minX: -L - t, maxX: L + t, minZ: -L - t, maxZ: -L });
     this.solids.push({ minX: -L - t, maxX: L + t, minZ: L, maxZ: L + t });
 
-    // --- Displaced terrain ground (hills + island; ocean plane sits below) ---
-    const groundMat = new THREE.MeshStandardMaterial({ color: 0x3b3e36, roughness: 1 });
+    // --- Displaced terrain ground (hills + island; ocean plane sits below). A
+    // pavement grey close to the road colour so any tile seams blend in. ---
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0x484e5a, roughness: 1 });
     this.group.add(this.terrain.buildMesh(groundMat));
 
     // --- Merge static meshes by material to slash draw calls ---

@@ -47,7 +47,7 @@ export function isLandCell(gx: number, gz: number): boolean {
 
 // Real SF hills (summit u,v + elevation in metres). Scaled to playable game
 // units — steep enough to crest and plunge, not unclimbable.
-const HILL_SCALE = 0.072; // metres → game units (scales with the wider world)
+const HILL_SCALE = 0.06; // metres → game units (gentler grades tile more cleanly)
 const SF_HILLS_M: ReadonlyArray<{ u: number; v: number; m: number; r: number }> = [
   { u: 0.377, v: 0.693, m: 283, r: 0.08 }, // Mount Davidson
   { u: 0.42, v: 0.56, m: 280, r: 0.09 }, // Twin Peaks
