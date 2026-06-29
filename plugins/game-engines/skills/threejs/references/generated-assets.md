@@ -26,6 +26,8 @@ vg generate status fal-ai/meshy/v6/text-to-3d "$REQ" \
 
 A generated mesh arrives at an arbitrary scale and origin. Normalize it to a target world height and recenter before placing — otherwise it's a kilometer wide or buried in the floor. (Full loader/cache patterns: [`gltf-loading-guide.md`](gltf-loading-guide.md).)
 
+> **Static props only.** `Box3.setFromObject` includes a rigged model's invisible skeleton bones (origins sit at hip level, not the feet), so an animated character normalized this way **floats**. For rigged/animated GLTFs, use the mesh-only normalization (Pattern 6) in [`gltf-loading-guide.md`](gltf-loading-guide.md) instead.
+
 ```javascript
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
@@ -70,7 +72,9 @@ Use the measured bounds to build a *primitive* collider. A capsule/box collider 
 
 ```javascript
 const { model } = await loadNormalized("/models/chest.glb", 1.2);
-model.position.set(spawnX, 0, spawnZ); // place it where you want it first
+// keep loadNormalized's y (it grounds the mesh bottom on y=0); only pick x/z
+model.position.x = spawnX;
+model.position.z = spawnZ;
 scene.add(model);
 
 // Re-measure the WORLD AABB at the final position, then place the collider at
@@ -89,7 +93,7 @@ world.createCollider(
 );
 ```
 
-For animated characters, keep `gltf.animations` and drive them with the mixer/crossfade patterns in `game-patterns.md`. For a full rigged-character generation pipeline, use the `regenerate-3d` skill.
+For animated characters, **don't normalize with `loadNormalized`** (its `setFromObject` bounds include the skeleton — see the note above); use the mesh-only normalization in `gltf-loading-guide.md` (Pattern 6), then keep `gltf.animations` and drive them with the mixer/crossfade patterns in `game-patterns.md`. For a full rigged-character generation pipeline, use the `regenerate-3d` skill.
 
 ---
 
