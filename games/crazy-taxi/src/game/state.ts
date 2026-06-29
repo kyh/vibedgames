@@ -28,8 +28,8 @@ export class GameState {
     this.driftAccum = 0;
   }
 
-  update(dt: number, freezeTimer = false): void {
-    if (!freezeTimer) this.timeLeft -= dt;
+  update(dt: number): void {
+    this.timeLeft -= dt;
     if (this.comboTimer > 0) {
       this.comboTimer -= dt;
       if (this.comboTimer <= 0) this.combo = 1;

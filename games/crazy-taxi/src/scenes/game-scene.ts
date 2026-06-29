@@ -14,14 +14,6 @@ import { CAR, FARE, GRID, MPH_FACTOR, WORLD_SIZE } from "../shared/constants";
 import type { GameMode } from "../shared/types";
 import { Hud } from "../ui/hud";
 import { setupTouch } from "../ui/touch";
-import {
-  modelUrl,
-  ROAD_BEND,
-  ROAD_CROSSROAD,
-  ROAD_END,
-  ROAD_INTERSECTION,
-  ROAD_STRAIGHT,
-} from "../assets/manifest";
 import { Car } from "../vehicle/car";
 import { CityModel, type Solid } from "../world/city";
 import { districtAt } from "../world/sf-map";
@@ -64,7 +56,6 @@ export class GameScene {
   // (same object refs live in allSolids, so we mutate in place, never realloc).
   private trafficBoxes: { minX: number; maxX: number; minZ: number; maxZ: number }[] = [];
   private allSolids: Solid[] = [];
-  private testNoTimeout = false;
   private hitStop = 0; // brief sim freeze for crash impact
   private spawn = { x: 0, z: 0, yaw: 0, gx: 0, gz: 0 };
   private lastDistrict = "";
@@ -239,21 +230,6 @@ export class GameScene {
     return { x: city.worldX(bg.gx), z: city.worldZ(bg.gz), yaw, gx: bg.gx, gz: bg.gz };
   }
 
-  private topView = false;
-  debugTopView(on: boolean): void {
-    this.topView = on;
-  }
-  private topCam = { px: 60, py: 55, pz: 35, lx: 66, ly: 14, lz: -100 };
-  debugSetCam(px: number, py: number, pz: number, lx: number, ly: number, lz: number): void {
-    this.topCam = { px, py, pz, lx, ly, lz };
-    this.topView = true;
-  }
-  private applyTopView(): void {
-    const c = this.topCam;
-    this.rig.camera.position.set(c.px, c.py, c.pz);
-    this.rig.camera.lookAt(c.lx, c.ly, c.lz);
-  }
-
   update(dt: number): void {
     if (this.input.consumeStart()) this.handleStartPress();
     // Single read — calling consumeRestart() twice would clear the one-shot flag
@@ -275,8 +251,6 @@ export class GameScene {
         this.updateTitle(dt);
         break;
     }
-
-    if (this.topView) this.applyTopView();
   }
 
   private updateTitle(dt: number): void {
@@ -331,7 +305,7 @@ export class GameScene {
     const ev = fares.update(dt, car);
     this.handleFareEvent(ev);
 
-    this.state.update(dt, this.testNoTimeout);
+    this.state.update(dt);
 
     // Drift: score + screech + smoke.
     const drifting = car.isDrifting && car.speed > 8;
@@ -493,74 +467,6 @@ export class GameScene {
     const dy = sy - window.innerHeight / 2;
     const rot = Math.atan2(dx, -dy);
     this.hud.setArrow(true, sx - 32, sy - 32, rot);
-  }
-
-  // --- Dev hooks (used for headless verification) ---
-  debugStart(): void {
-    this.handleStartPress();
-  }
-  debugSet(btn: "gas" | "brake" | "left" | "right" | "drift", down: boolean): void {
-    this.input.setTouch(btn, down);
-  }
-  debugFreezeTime(b: boolean): void {
-    this.testNoTimeout = b;
-  }
-  // Lay each road tile UNROTATED with a compass (red=North/-Z, blue=East/+X)
-  // so the native connection directions can be read straight-down.
-  debugTileRack(): void {
-    const tiles = [ROAD_STRAIGHT, ROAD_BEND, ROAD_CROSSROAD, ROAD_INTERSECTION, ROAD_END];
-    const X0 = 180;
-    const Z0 = 0;
-    const S = 12;
-    const g = new THREE.Group();
-    tiles.forEach((t, i) => {
-      const tile = this.cache.instance(modelUrl("roads", t));
-      tile.scale.setScalar(8);
-      tile.position.set(X0 + i * S, 0.5, Z0);
-      g.add(tile);
-    });
-    const north = new THREE.Mesh(
-      new THREE.BoxGeometry(2, 4, 2),
-      new THREE.MeshBasicMaterial({ color: 0xff0000 }),
-    );
-    north.position.set(X0, 2, Z0 - 5); // red marker to the NORTH (-Z) of tile 0
-    const east = new THREE.Mesh(
-      new THREE.BoxGeometry(2, 4, 2),
-      new THREE.MeshBasicMaterial({ color: 0x0000ff }),
-    );
-    east.position.set(X0 + 5, 2, Z0); // blue marker to the EAST (+X) of tile 0
-    g.add(north, east);
-    this.scene.add(g);
-    this.debugSetCam(X0 + 2 * S, 70, 4, X0 + 2 * S, 0, 0); // straight down over the rack
-  }
-  debugTeleport(x: number, z: number): void {
-    this.topView = false;
-    if (this.car) {
-      this.car.reset(x, z, 0);
-      this.rig.snapTo(this.car);
-    }
-  }
-  debugObjective(): { kind: string; tiles: number } | null {
-    const o = this.fares?.objective();
-    return o ? { kind: o.kind, tiles: o.tiles } : null;
-  }
-  debugWarpToObjective(): void {
-    const o = this.fares?.objective();
-    const car = this.car;
-    if (!o || !car) return;
-    car.reset(o.pos.x + 1.2, o.pos.z + 1.2, 0);
-  }
-  get debugMode(): string {
-    return this.mode.kind;
-  }
-  get debugInfo(): { speed: number; score: number; fares: number; time: number; heading: number } {
-    return {
-      speed: this.car ? this.car.speed : 0,
-      score: this.state.displayScore,
-      fares: this.state.fares,
-      time: this.state.timeLeft,
-      heading: this.car ? this.car.heading : 0,
-    };
   }
 
   private endRun(): void {

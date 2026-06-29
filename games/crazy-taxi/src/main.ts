@@ -51,21 +51,3 @@ renderer.setAnimationLoop((t) => {
 });
 
 void game.load();
-
-if (import.meta.env.DEV) {
-  Object.assign(window, {
-    __game: game,
-    __start: () => game.debugStart(),
-    __set: (btn: "gas" | "brake" | "left" | "right" | "drift", down: boolean) =>
-      game.debugSet(btn, down),
-    __info: () => game.debugInfo,
-    __freeze: (b: boolean) => game.debugFreezeTime(b),
-    __warp: () => game.debugWarpToObjective(),
-    __obj: () => game.debugObjective(),
-    __top: (on: boolean) => game.debugTopView(on),
-    __cam: (px: number, py: number, pz: number, lx: number, ly: number, lz: number) =>
-      game.debugSetCam(px, py, pz, lx, ly, lz),
-    __tp: (x: number, z: number) => game.debugTeleport(x, z),
-    __rack: () => game.debugTileRack(),
-  });
-}
