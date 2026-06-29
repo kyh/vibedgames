@@ -139,20 +139,29 @@ _lookAt
 
 ### Camera collision (don't clip through walls)
 
-Raycast from the player to the desired camera position; if something's in the way, pull the camera in:
+Clamp the **desired** position (`_targetPos`), not the already-lerped `camera.position` — the ray must cover the full player→target segment, then you smooth toward the clamped point. Clamping after the lerp rays along a shorter segment and can miss a wall the camera is sliding into.
 
 ```javascript
 const _dir = new THREE.Vector3();
-function clampCameraToWalls() {
-  _dir.subVectors(camera.position, player.position);
+// mutates `desired` in place; call BEFORE the lerp
+function clampToWalls(desired) {
+  _dir.subVectors(desired, player.position);
   const dist = _dir.length();
-  _dir.normalize();
+  if (dist < 1e-4) return;
+  _dir.divideScalar(dist); // normalize
   raycaster.set(player.position, _dir);
   const hit = raycaster.intersectObjects(walls, true)[0];
   if (hit && hit.distance < dist) {
-    camera.position.copy(player.position).addScaledVector(_dir, hit.distance * 0.9);
+    desired.copy(player.position).addScaledVector(_dir, hit.distance * 0.9);
   }
 }
+```
+
+Wire it into `updateCamera`, right after `_targetPos` is computed and before the lerp:
+
+```javascript
+clampToWalls(_targetPos); // pull the target in if a wall is between player and camera
+camera.position.lerp(_targetPos, t);
 ```
 
 ---
