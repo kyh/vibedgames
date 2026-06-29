@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-import { WORLD_SIZE } from "../shared/constants";
+import { GRID, ROAD_TILE, WORLD_HALF, WORLD_SIZE } from "../shared/constants";
 
 // A hill in normalized map coords (u = west→east, v = north→south, both 0..1).
 export type Hill = {
@@ -42,21 +42,32 @@ function worldToV(z: number): number {
   return z / WORLD_SIZE + 0.5;
 }
 
-// Smooth terrain: gentle island base that dips under the ocean at the coast,
-// plus a sum of Gaussian hills. Sampled by roads, buildings, the car, traffic,
-// fares and the camera so the whole city rolls like San Francisco.
+// Grid-quantized terrain: the underlying SF hill field is sampled once per grid
+// cell centre, then bilinearly interpolated. Because every road tile owns one
+// cell, each tile tilts to bridge its neighbours' cell heights and meets them at
+// shared edges — the road surface stays gap-free and grid-aligned on the hills.
 export class Terrain {
+  private cellH: Float64Array;
+
   constructor(
     private hills: readonly Hill[],
     private land: LandFactor,
-  ) {}
+  ) {
+    this.cellH = new Float64Array(GRID * GRID);
+    for (let gx = 0; gx < GRID; gx++) {
+      for (let gz = 0; gz < GRID; gz++) {
+        const x = (gx + 0.5) * ROAD_TILE - WORLD_HALF;
+        const z = (gz + 0.5) * ROAD_TILE - WORLD_HALF;
+        this.cellH[gx * GRID + gz] = this.rawHeight(x, z);
+      }
+    }
+  }
 
-  heightAt(x: number, z: number): number {
+  // The raw continuous SF field (island base + Gaussian hills) before grid-snap.
+  private rawHeight(x: number, z: number): number {
     const u = worldToU(x);
     const v = worldToV(z);
     const landAmt = this.land(u, v); // 0 water .. 1 inland
-    // Plateau (height ~0.3) covers everything buildable; the dip to the ocean
-    // happens in the 0.28..0.42 band, which sits beyond the road mask (>0.5).
     const t = THREE.MathUtils.smoothstep(landAmt, 0.28, 0.42);
     let h = THREE.MathUtils.lerp(-SHORE_DROP, 0.3, t);
     for (const hl of this.hills) {
@@ -68,9 +79,31 @@ export class Terrain {
     return h;
   }
 
-  // Surface normal from the height gradient (central differences).
+  private cellHeight(gx: number, gz: number): number {
+    const cx = Math.min(GRID - 1, Math.max(0, gx));
+    const cz = Math.min(GRID - 1, Math.max(0, gz));
+    return this.cellH[cx * GRID + cz] ?? 0;
+  }
+
+  heightAt(x: number, z: number): number {
+    const cf = (x + WORLD_HALF) / ROAD_TILE - 0.5;
+    const cg = (z + WORLD_HALF) / ROAD_TILE - 0.5;
+    const gx0 = Math.floor(cf);
+    const gz0 = Math.floor(cg);
+    const fx = cf - gx0;
+    const fz = cg - gz0;
+    const h00 = this.cellHeight(gx0, gz0);
+    const h10 = this.cellHeight(gx0 + 1, gz0);
+    const h01 = this.cellHeight(gx0, gz0 + 1);
+    const h11 = this.cellHeight(gx0 + 1, gz0 + 1);
+    const a = h00 + (h10 - h00) * fx;
+    const b = h01 + (h11 - h01) * fx;
+    return a + (b - a) * fz;
+  }
+
+  // Surface normal from the cell-scale height gradient (matches the tile tilt).
   normalInto(out: THREE.Vector3, x: number, z: number): THREE.Vector3 {
-    const e = 1.6;
+    const e = ROAD_TILE * 0.5;
     const hl = this.heightAt(x - e, z);
     const hr = this.heightAt(x + e, z);
     const hd = this.heightAt(x, z - e);
