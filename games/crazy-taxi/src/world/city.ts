@@ -222,7 +222,7 @@ export class CityModel {
       const url = modelUrl("buildings", key);
       const bounds = this.cache.bounds(url);
       const footprint = Math.max(bounds.size.x, bounds.size.z, 0.001);
-      const targetFootprint = ROAD_TILE * this.rng.range(0.58, 0.7);
+      const targetFootprint = ROAD_TILE * this.rng.range(0.74, 0.86); // fill lots, less bare ground
       const scale = targetFootprint / footprint;
       const node = this.cache.instance(url);
       node.scale.set(scale, scale * this.heightScaleFor(district.character), scale);
@@ -282,8 +282,10 @@ export class CityModel {
     this.solids.push({ minX: -L - t, maxX: L + t, minZ: -L - t, maxZ: -L });
     this.solids.push({ minX: -L - t, maxX: L + t, minZ: L, maxZ: L + t });
 
-    // --- Displaced terrain ground (hills + island; ocean plane sits below) ---
-    const groundMat = new THREE.MeshStandardMaterial({ color: 0x7d8a73, roughness: 1 });
+    // --- Displaced terrain ground (hills + island; ocean plane sits below). A
+    // light concrete grey reads as paved city ground/sidewalk; parks add the
+    // green on top, so the city doesn't look like one big lawn. ---
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0x9a9b92, roughness: 1 });
     this.group.add(this.terrain.buildMesh(groundMat));
 
     // --- Merge static meshes by material to slash draw calls ---
