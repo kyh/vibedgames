@@ -26,7 +26,7 @@ vg generate status fal-ai/meshy/v6/text-to-3d "$REQ" \
 
 A generated mesh arrives at an arbitrary scale and origin. Normalize it to a target world height and recenter before placing — otherwise it's a kilometer wide or buried in the floor. (Full loader/cache patterns: [`gltf-loading-guide.md`](gltf-loading-guide.md).)
 
-> **Static props only.** `Box3.setFromObject` includes a rigged model's invisible skeleton bones (origins sit at hip level, not the feet), so an animated character normalized this way **floats**. For rigged/animated GLTFs, use the mesh-only normalization (Pattern 6) in [`gltf-loading-guide.md`](gltf-loading-guide.md) instead.
+> **Static props only.** On a rigged/skinned model, `Box3.setFromObject` measures the **bind-pose** bounds (the geometry's rest-pose box, transformed by the mesh's world matrix), which don't match the animated pose — so `box.min.y` often sits below the visible feet and the character **floats**. (Bones themselves have no geometry and don't contribute.) For rigged/animated GLTFs, use the mesh-only normalization (Pattern 6) in [`gltf-loading-guide.md`](gltf-loading-guide.md) instead.
 
 ```javascript
 import * as THREE from "three";
