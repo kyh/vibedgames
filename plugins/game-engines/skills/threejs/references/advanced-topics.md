@@ -6,6 +6,34 @@ Topics beyond simple scenes.
 
 - [`gltf-loading-guide.md`](gltf-loading-guide.md) — loading 3D models (GLTF/GLB): basic/promise/fallback/batch loading, caching, cloning, normalization, troubleshooting
 - [`game-patterns.md`](game-patterns.md) — game loops, screen effects, animation states, parallax
+- [`debugging-and-profiling.md`](debugging-and-profiling.md) — black-screen triage, draw-call/FPS profiling, mobile, memory leaks
+
+---
+
+## Color Management & Tone Mapping
+
+Modern Three.js (r152+) is color-managed by default, but a few settings decide whether a scene looks washed-out/blown-out or correct. Set these once on the renderer:
+
+```javascript
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+
+// r152+: output is sRGB by default, but be explicit when mixing CDN versions
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+// Tone mapping maps HDR lighting into displayable range. ACESFilmic is the
+// safe cinematic default; without it, bright/PBR scenes blow out to white.
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0; // raise/lower overall brightness
+```
+
+**Texture color space matters too.** Color/albedo textures must be tagged sRGB; data textures (normal, roughness, metalness, AO) must stay linear — mis-tagging is the usual cause of "my model looks too dark/too bright":
+
+```javascript
+albedoTexture.colorSpace = THREE.SRGBColorSpace; // base color / emissive maps
+normalTexture.colorSpace = THREE.NoColorSpace; // normal / roughness / metalness / AO
+```
+
+GLTF loaders set these correctly automatically — only set them by hand for textures you load yourself (`TextureLoader`).
 
 ---
 

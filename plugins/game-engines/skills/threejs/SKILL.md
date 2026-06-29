@@ -345,6 +345,8 @@ Use ES modules from the `three` package or CDN — CommonJS and the global `THRE
 
 ## See Also
 
-- [`references/advanced-topics.md`](references/advanced-topics.md) — GLTF models, shaders, post-processing, instancing, physics, npm/TypeScript setup
+- [`references/advanced-topics.md`](references/advanced-topics.md) — GLTF models, shaders, post-processing, instancing, physics, color management, npm/TypeScript setup
 - [`references/gltf-loading-guide.md`](references/gltf-loading-guide.md) — loading, caching, cloning, normalizing 3D models
 - [`references/game-patterns.md`](references/game-patterns.md) — state machines, screen effects, animation switching, parallax, pooling
+- [`references/debugging-and-profiling.md`](references/debugging-and-profiling.md) — black-screen triage, FPS/draw-call profiling, mobile, memory leaks, and `scripts/check-canvas.mjs` to verify a build renders non-blank
+- **Making it a game?** Use the `threejs-gameplay` skill — physics (Rapier/cannon-es), character controllers, follow cameras, fixed-timestep loops, and wiring generated GLB/SFX into a running scene.
