@@ -65,16 +65,22 @@ function loadNormalized(url, targetHeight = 2) {
 Use the measured bounds to build a *primitive* collider. A capsule/box collider is far cheaper and more stable than colliding against the GLB's triangle mesh, and players can't feel the difference.
 
 ```javascript
-const { model, box } = await loadNormalized("/models/chest.glb", 1.2);
+const { model } = await loadNormalized("/models/chest.glb", 1.2);
+model.position.set(spawnX, 0, spawnZ); // place it where you want it first
 scene.add(model);
 
-const half = box.getSize(new THREE.Vector3()).multiplyScalar(0.5);
+// Re-measure the WORLD AABB at the final position, then place the collider at
+// its center. Don't reuse model.position — loadNormalized offsets it to recenter
+// the mesh, so it isn't the model's visible center.
+const worldBox = new THREE.Box3().setFromObject(model);
+const half = worldBox.getSize(new THREE.Vector3()).multiplyScalar(0.5);
+const center = worldBox.getCenter(new THREE.Vector3());
 // Rapier static collider sized to bounds (see physics.md)
 world.createCollider(
   RAPIER.ColliderDesc.cuboid(half.x, half.y, half.z).setTranslation(
-    model.position.x,
-    model.position.y + half.y,
-    model.position.z,
+    center.x,
+    center.y,
+    center.z,
   ),
 );
 ```
