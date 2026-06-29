@@ -29,7 +29,8 @@ function fixedUpdate(dt) {
   // input → movement → physics step → collisions → game rules
   updateInput();
   controller.update(dt);
-  world.step(); // physics (Rapier/cannon) advances here
+  stepPhysics(dt); // advance physics ONE fixed step — engine-specific signature:
+  // Rapier: world.step()  (uses world.timestep) · cannon-es: world.step(dt). See physics.md.
   syncMeshesToBodies();
   gameRules(dt);
 }

@@ -42,7 +42,8 @@ function loadNormalized(url, targetHeight = 2) {
         // measure, then scale to target height
         const box = new THREE.Box3().setFromObject(model);
         const size = box.getSize(new THREE.Vector3());
-        const scale = targetHeight / size.y;
+        // guard a flat/degenerate mesh (size.y === 0) → no Infinity/NaN scale
+        const scale = size.y > 1e-6 ? targetHeight / size.y : 1;
         model.scale.setScalar(scale);
 
         // recenter so the model sits on y=0 at its own origin
@@ -52,6 +53,8 @@ function loadNormalized(url, targetHeight = 2) {
         model.position.z -= center.z;
         model.position.y -= box.min.y;
 
+        // re-measure AFTER the offsets so the returned box reflects final bounds
+        box.setFromObject(model);
         resolve({ model, animations: gltf.animations, box });
       },
       undefined,
