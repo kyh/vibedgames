@@ -66,7 +66,7 @@ function updatePlatformer(dt) {
 
 ## cannon-es
 
-Pure-JS rigid bodies. Create a body per mesh, step the world, copy transforms back. (Minimal falling-sphere example is in the `threejs` skill's `advanced-topics.md`; here's the reusable sync pattern for many bodies.)
+Pure-JS rigid bodies. Create a body per mesh, step the world, copy transforms back. (Minimal falling-sphere example is in [`advanced-topics.md`](advanced-topics.md); here's the reusable sync pattern for many bodies.)
 
 ```javascript
 import * as CANNON from "https://unpkg.com/cannon-es@0.20.0/dist/cannon-es.js";
@@ -198,7 +198,7 @@ if (i !== -1) bodies.splice(i, 1);
 
 ## Performance notes
 
-- **One `world.step()` per fixed step**, never per render frame (see SKILL.md loop).
+- **One `world.step()` per fixed step**, never per render frame (see the loop in [`gameplay-systems.md`](gameplay-systems.md)).
 - **Reuse scratch vectors** (`const _v = new THREE.Vector3()` at module scope) — never allocate in the step.
 - **Sleep static-heavy scenes** — Rapier auto-sleeps idle bodies; don't wake them by writing transforms every frame.
 - **Collider count, not mesh count, drives physics cost.** Use compound/simplified colliders for detailed models — a capsule or box, not the GLB's full mesh, unless you need precise collision.

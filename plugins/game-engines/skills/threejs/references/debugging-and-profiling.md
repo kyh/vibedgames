@@ -63,7 +63,7 @@ console.log(renderer.info.memory); // { geometries, textures }
 - **DPR cap** (above) — single biggest mobile win.
 - **Resize handling** — listen for `resize` *and* orientation change; update `camera.aspect`, `updateProjectionMatrix()`, `renderer.setSize()`. A stretched scene after rotation means this is missing.
 - **Touch vs pointer** — use `pointerdown`/`pointermove` (covers mouse + touch) rather than `mousedown`. Register listeners on the canvas, and call `preventDefault` to stop scroll/zoom hijacking the game.
-- **Audio suspended** — `AudioContext` starts suspended; resume on first gesture (see `threejs-gameplay` `generated-assets.md`).
+- **Audio suspended** — `AudioContext` starts suspended; resume on first gesture (see [`generated-assets.md`](generated-assets.md)).
 - **Power preference** — `new WebGLRenderer({ powerPreference: "high-performance" })` on mobile GPUs.
 
 ---
@@ -91,7 +91,7 @@ function disposeObject(obj) {
 }
 ```
 
-Also unregister the entity's **animation mixer and physics body** when removing it (see `game-patterns.md` and `threejs-gameplay`), or they keep updating ghosts.
+Also unregister the entity's **animation mixer and physics body** when removing it (see `game-patterns.md` and `gameplay-systems.md`), or they keep updating ghosts.
 
 ---
 

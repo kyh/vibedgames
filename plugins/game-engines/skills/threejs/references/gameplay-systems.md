@@ -1,11 +1,6 @@
----
-name: threejs-gameplay
-description: "Turn a Three.js scene into a playable 3D game: physics (Rapier / cannon-es / arcade), character controllers, third-person & follow cameras, fixed-timestep game loops, and an entity/systems structure. Also bridges generated assets (GLB models, SFX) into a running scene. Use when a Three.js project needs MOVEMENT, COLLISION, or GAMEPLAY — 'add physics to my three.js game', 'third-person controller', 'character movement', 'follow camera', 'jump and gravity', 'pick up / collide with objects', 'structure my 3d game'. For simple/static scenes use `threejs`; for 2D games use `phaser`; for engine-agnostic feel/balance/level craft use the game-craft skills."
----
-
 # Three.js Gameplay Systems
 
-The `threejs` skill builds scenes — meshes, lights, an animation loop. This skill makes a scene **playable**: a body that moves under input, collides with the world, a camera that follows it, and a loop that updates deterministically. It's the bridge from "rotating cube" to "game."
+The main skill builds scenes — meshes, lights, an animation loop. This guide makes a scene **playable**: a body that moves under input, collides with the world, a camera that follows it, and a loop that updates deterministically. It's the bridge from "rotating cube" to "game."
 
 **Build order (don't skip ahead):**
 
@@ -15,7 +10,7 @@ The `threejs` skill builds scenes — meshes, lights, an animation loop. This sk
 4. **Camera** — follow/third-person with frame-rate-independent smoothing.
 5. **Assets & feel** — load real models, wire SFX, then tune with the game-craft skills.
 
-Pair this with the `threejs` references (`gltf-loading-guide.md`, `game-patterns.md`, `advanced-topics.md`) and `game-feel` for tuning values — this skill is the *systems*, those are the *craft*.
+Pair this with the sibling references (`gltf-loading-guide.md`, `game-patterns.md`, `advanced-topics.md`) and the `game-feel` skill for tuning values — this guide is the *systems*, those are the *craft*.
 
 ---
 
@@ -88,7 +83,7 @@ src/
 
 ## Choosing a physics approach
 
-Don't reach for a full engine by default — match the tool to the feel you need. Full decision table and recipes in [`references/physics.md`](references/physics.md).
+Don't reach for a full engine by default — match the tool to the feel you need. Full decision table and recipes in [`physics.md`](physics.md).
 
 | Approach | Use when | Cost |
 | --- | --- | --- |
@@ -102,7 +97,7 @@ A common mistake is simulating things that want authored feel (a coin you walk t
 
 ## Controllers & camera
 
-A responsive controller and a camera that never hides the next decision are most of "game feel" in 3D. Recipes — transform-based WASD, Rapier kinematic character controller (autostep, snap-to-ground), third-person follow with lookahead, and frame-rate-independent smoothing — in [`references/controllers-and-camera.md`](references/controllers-and-camera.md).
+A responsive controller and a camera that never hides the next decision are most of "game feel" in 3D. Recipes — transform-based WASD, Rapier kinematic character controller (autostep, snap-to-ground), third-person follow with lookahead, and frame-rate-independent smoothing — in [`controllers-and-camera.md`](controllers-and-camera.md).
 
 The one rule to internalize now — **frame-rate-independent smoothing.** `camera.position.lerp(target, 0.1)` moves faster at 144fps than 30fps. Make the factor depend on `dt`:
 
@@ -116,7 +111,7 @@ camera.position.lerp(targetPos, t);
 
 ## Wiring in generated assets
 
-Generated GLB models and sound effects only matter once they're *in the running game* — loaded, scale-normalized, placed, collidable, and triggered by events. The generate skills produce the files; this closes the loop. See [`references/generated-assets.md`](references/generated-assets.md) for:
+Generated GLB models and sound effects only matter once they're *in the running game* — loaded, scale-normalized, placed, collidable, and triggered by events. The generate skills produce the files; this closes the loop. See [`generated-assets.md`](generated-assets.md) for:
 
 - `vg generate` → GLB → `GLTFLoader` → normalize scale → attach a collider sized to the model's bounds.
 - `vg generate` → SFX/music → Web Audio buffer pool → trigger on collision/jump/pickup (with the gesture-unlock dance mobile requires).
@@ -139,8 +134,8 @@ Use the `model-catalog` skill to pick endpoints (text-to-3d / image-to-3d / text
 
 ## See Also
 
-- [`references/physics.md`](references/physics.md) — Rapier (rigid bodies, colliders, raycasts), cannon-es, arcade overlap, selection
-- [`references/controllers-and-camera.md`](references/controllers-and-camera.md) — WASD & kinematic controllers, follow/third-person camera, smoothing
-- [`references/generated-assets.md`](references/generated-assets.md) — generated GLB & SFX into a running scene
-- `threejs` skill — scene/lighting/material setup, `gltf-loading-guide.md`, `game-patterns.md` (state machine, pooling, shake), `advanced-topics.md`, and `references/debugging-and-profiling.md` for diagnosing a black screen / frame drops
-- `game-feel`, `game-balance`, `level-design` — tuning values and design craft (engine-agnostic)
+- [`physics.md`](physics.md) — Rapier (rigid bodies, colliders, raycasts), cannon-es, arcade overlap, selection
+- [`controllers-and-camera.md`](controllers-and-camera.md) — WASD & kinematic controllers, follow/third-person camera, smoothing
+- [`generated-assets.md`](generated-assets.md) — generated GLB & SFX into a running scene
+- [`gltf-loading-guide.md`](gltf-loading-guide.md), [`game-patterns.md`](game-patterns.md) (state machine, pooling, shake), [`advanced-topics.md`](advanced-topics.md), [`debugging-and-profiling.md`](debugging-and-profiling.md) — black-screen / frame-drop triage
+- `game-feel`, `game-balance`, `level-design` skills — tuning values and design craft (engine-agnostic)

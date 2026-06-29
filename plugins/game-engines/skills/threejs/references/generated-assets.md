@@ -24,7 +24,7 @@ vg generate status fal-ai/meshy/v6/text-to-3d "$REQ" \
 
 ### 2. Load + normalize + collide
 
-A generated mesh arrives at an arbitrary scale and origin. Normalize it to a target world height and recenter before placing — otherwise it's a kilometer wide or buried in the floor. (Full loader/cache patterns: `threejs` skill `gltf-loading-guide.md`.)
+A generated mesh arrives at an arbitrary scale and origin. Normalize it to a target world height and recenter before placing — otherwise it's a kilometer wide or buried in the floor. (Full loader/cache patterns: [`gltf-loading-guide.md`](gltf-loading-guide.md).)
 
 ```javascript
 import * as THREE from "three";
