@@ -1,11 +1,11 @@
 ---
 name: threejs
-description: "Creates simple Three.js web apps with scene setup, lighting, geometries, materials animations, and responsive rendering. Use for: 'Create a threejs scene/app/showcase' or when user wants 3D web content. Supports ES modules, modern Three.js r150+ APIs."
+description: "Build 3D browser apps AND games with Three.js (r150+, ES modules): scene setup, geometries, materials, lighting, animation, GLTF models, physics (Rapier/cannon-es/arcade), character controllers, follow/third-person cameras, fixed-timestep loops, post-processing, and performance/debugging. Use for 'create a three.js scene/app/showcase', any 3D web content, and turning a scene into a game — 'add physics to my three.js game', 'third-person/character controller', 'follow camera', 'jump and gravity', 'collide with / pick up objects', 'structure my 3d game'. Trigger: threejs, three.js, 3D scene, WebGL scene, GLTF/GLB, OrbitControls, Rapier, cannon-es, 3D game, third-person controller. For 2D games use `phaser`; for engine-agnostic feel/balance/level craft use the game-craft skills."
 ---
 
-# Three.js Builder
+# Three.js
 
-Create simple, performant Three.js web apps using modern ES module patterns (r150+).
+Build performant 3D browser apps and games with Three.js using modern ES module patterns (r150+). This file covers scene setup inline; physics, controllers, gameplay architecture, and deep topics live in `references/`.
 
 **Core principles:**
 
@@ -13,6 +13,37 @@ Create simple, performant Three.js web apps using modern ES module patterns (r15
 2. **Primitives as building blocks**: built-in geometries (Box, Sphere, Torus) cover most simple cases.
 3. **Animation as transformation**: change position/rotation/scale over time in `renderer.setAnimationLoop`.
 4. **Performance through simplicity**: fewer objects, fewer draw calls, reusable geometries/materials.
+5. **A scene is not a game**: gameplay needs a fixed-timestep loop, a controller driven by input, collision, and a follow camera — see the Reference Files below before building one.
+
+---
+
+## Reference Files
+
+Scene setup is inline below. Read the relevant reference before working on that area:
+
+| When you're working on...                                              | Read first                              |
+| ---------------------------------------------------------------------- | --------------------------------------- |
+| Turning a scene into a playable game (fixed-timestep loop, structure)  | `references/gameplay-systems.md`        |
+| Physics or collision (Rapier / cannon-es / arcade overlap)             | `references/physics.md`                 |
+| Movement controllers + follow/third-person camera                      | `references/controllers-and-camera.md`  |
+| Loading/caching/normalizing GLTF/GLB models                            | `references/gltf-loading-guide.md`      |
+| Game loop, state machine, object pooling, screen effects               | `references/game-patterns.md`           |
+| Dropping generated GLB models / SFX into a running scene               | `references/generated-assets.md`        |
+| Post-processing, shaders, instancing, env maps, color management       | `references/advanced-topics.md`         |
+| Black screen, low FPS, mobile issues, memory leaks                     | `references/debugging-and-profiling.md` |
+
+**Verify it actually renders.** `scripts/check-canvas.mjs` loads a build in headless Chromium and fails on a blank canvas or uncaught page error — run it in CI / before `vg deploy` (details in `references/debugging-and-profiling.md`).
+
+### Physics: pick the lightest tool (decide early)
+
+| Approach            | Use when                                                                   |
+| ------------------- | -------------------------------------------------------------------------- |
+| Arcade / custom     | Pickups, triggers, hand-tuned jumps — overlap checks, no dependency        |
+| cannon-es           | A few dozen dynamic rigid bodies, pure-JS simplicity                       |
+| **Rapier**          | Serious games: stable stacking, many bodies, a real character controller   |
+| None                | Showcases, product viewers, data viz, background effects                   |
+
+Recipes for all three are in `references/physics.md`; don't simulate things that want authored feel.
 
 ---
 
@@ -345,6 +376,4 @@ Use ES modules from the `three` package or CDN — CommonJS and the global `THRE
 
 ## See Also
 
-- [`references/advanced-topics.md`](references/advanced-topics.md) — GLTF models, shaders, post-processing, instancing, physics, npm/TypeScript setup
-- [`references/gltf-loading-guide.md`](references/gltf-loading-guide.md) — loading, caching, cloning, normalizing 3D models
-- [`references/game-patterns.md`](references/game-patterns.md) — state machines, screen effects, animation switching, parallax, pooling
+See the **Reference Files** table near the top for the full map of `references/` (gameplay systems, physics, controllers/camera, GLTF loading, game patterns, generated assets, advanced topics, debugging) and `scripts/check-canvas.mjs`. For 2D games use the `phaser` skill; for engine-agnostic feel/balance/level/onboarding craft use the `game-craft` skills.

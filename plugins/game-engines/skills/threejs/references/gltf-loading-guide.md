@@ -413,12 +413,12 @@ function animate() {
 
 Scale and position GLTF models consistently.
 
-**CRITICAL:** Do NOT use `box.setFromObject(model)` for animated GLTF models! It includes invisible armature bones, helpers, and skeleton rigs which extend far beyond the visible mesh. This causes models to float above the ground.
+**CRITICAL:** Do NOT use `box.setFromObject(model)` for animated/skinned GLTF models! It measures the `SkinnedMesh` **bind-pose** bounds (the rest-pose geometry box, transformed by the mesh's world matrix), not the visibly posed mesh — so `box.min.y` often sits well below the feet and the model floats above the ground.
 
 ```javascript
-// ❌ WRONG - includes bones/armatures, model will float
+// ❌ WRONG - bind-pose bounds don't match the posed mesh, model will float
 function badNormalize(model, targetSize) {
-  const box = new THREE.Box3().setFromObject(model); // Includes skeleton!
+  const box = new THREE.Box3().setFromObject(model); // bind-pose box, not the posed mesh
   // ... model will be positioned incorrectly
 }
 
@@ -483,10 +483,10 @@ loader.load("models/character.gltf", (gltf) => {
 
 **Why this matters:**
 
-- GLTF characters have skeleton armatures for animation
-- Armature bones (hips, spine, etc.) are positioned at body center, not feet
-- `setFromObject()` includes these invisible bones in the bounding box
-- Result: `box.min.y` is much lower than actual feet → model floats
+- GLTF characters are `SkinnedMesh`es whose geometry bounding box is the **bind (rest) pose**
+- `setFromObject()` copies that bind-pose box and transforms it by the mesh's world matrix, ignoring the current animated pose
+- The rest-pose box (plus the armature root's transform) frequently extends below the posed feet
+- Result: `box.min.y` is lower than the actual feet → model floats
 
 ---
 
@@ -535,7 +535,7 @@ loader.load("model.gltf", (gltf) => {
 
 **Problem**: Character model hovers above the floor after positioning.
 
-**Cause**: `Box3.setFromObject()` includes invisible skeleton bones/armatures (origins typically at hip level, not feet) in the bounding box, so `box.min.y` sits below the feet.
+**Cause**: `Box3.setFromObject()` measures the `SkinnedMesh` **bind-pose** bounds (transformed by the mesh's world matrix), which don't reflect the animated pose, so `box.min.y` often sits below the visible feet.
 
 **Solution**: Compute bounds only from visible mesh geometry — see **Pattern 6: Model Normalization** above for the complete code.
 
