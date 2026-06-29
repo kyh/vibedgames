@@ -5,8 +5,9 @@ A scene that builds but renders black, or runs at 12fps on a phone, is the most 
 **Verify objectively, not by eyeballing.** Use [`../scripts/check-canvas.mjs`](../scripts/check-canvas.mjs) to confirm a running build actually draws non-blank pixels — it loads the page in headless Chromium, screenshots the canvas, and reports pixel variance. A green check beats "looks fine to me," and it catches black-screen regressions in CI / before `vg deploy`.
 
 ```bash
-node check-canvas.mjs http://localhost:5173 --out /tmp/frame.png
-# exit 0 = rendered something; exit 1 = blank; exit 2 = error
+# run from the threejs skill directory (the script lives in scripts/)
+node scripts/check-canvas.mjs http://localhost:5173 --out /tmp/frame.png
+# exit 0 = rendered; 1 = blank/solid or uncaught page error; 2 = error
 ```
 
 ---

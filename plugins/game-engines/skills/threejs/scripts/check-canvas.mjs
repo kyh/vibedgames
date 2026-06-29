@@ -16,8 +16,8 @@
  *
  * Exit codes:
  *   0 = canvas rendered non-blank content
- *   1 = canvas is blank / solid color (likely a render failure)
- *   2 = error (no canvas, page error, missing Playwright, bad args)
+ *   1 = render failure: blank/solid canvas, or an uncaught page exception
+ *   2 = error (no canvas, navigation failure, missing Playwright, bad args)
  *
  * Requires Playwright (already used by the `playwright` skill); Chromium is
  * pre-resolved via PLAYWRIGHT_BROWSERS_PATH in this environment.
@@ -178,19 +178,20 @@ async function main() {
   // browser declared before the try so `finally` can always close it, even if
   // launch()/newPage() throws (otherwise a failure here leaks a Chromium process).
   let browser;
-  const consoleErrors = [];
+  const consoleErrors = []; // console.error() — advisory (benign 404s etc.)
+  const pageErrors = []; // uncaught exceptions — fail the check
   try {
     browser = await chromium.launch();
     const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
     page.on("console", (m) => m.type() === "error" && consoleErrors.push(m.text()));
-    page.on("pageerror", (e) => consoleErrors.push(String(e)));
+    page.on("pageerror", (e) => pageErrors.push(String(e)));
 
     await page.goto(toUrl(opts.target), { waitUntil: "load", timeout: 30000 });
     await page.waitForTimeout(opts.wait); // let assets load + a few frames render
 
     const canvas = await page.$(opts.selector);
     if (!canvas) {
-      report(opts, { ok: false, reason: `no element matching "${opts.selector}"`, consoleErrors });
+      report(opts, { ok: false, reason: `no element matching "${opts.selector}"`, consoleErrors, pageErrors });
       return 2;
     }
     const png = await canvas.screenshot();
@@ -200,17 +201,19 @@ async function main() {
     // positive comparisons negated, so a non-finite metric fails (never a false pass)
     const blankLum = !(stats.stdLum >= opts.minStd);
     const nearEmpty = !(stats.opaqueFraction > 0.01);
-    const ok = !blankLum && !nearEmpty;
-    // cite the gate that actually failed, not always luminance
+    // an uncaught page exception is a real render regression even if pixels drew
+    const ok = !blankLum && !nearEmpty && pageErrors.length === 0;
     const reason = ok
       ? "rendered non-blank content"
-      : nearEmpty
-        ? `near-empty canvas (opaque ${(stats.opaqueFraction * 100).toFixed(1)}% ≤ 1%)`
-        : `blank/solid (stdLum ${stats.stdLum.toFixed(2)} < ${opts.minStd})`;
-    report(opts, { ok, reason, ...stats, out: opts.out, consoleErrors });
+      : pageErrors.length
+        ? `uncaught page error: ${pageErrors[0]}`
+        : nearEmpty
+          ? `near-empty canvas (opaque ${(stats.opaqueFraction * 100).toFixed(1)}% ≤ 1%)`
+          : `blank/solid (stdLum ${stats.stdLum.toFixed(2)} < ${opts.minStd})`;
+    report(opts, { ok, reason, ...stats, out: opts.out, consoleErrors, pageErrors });
     return ok ? 0 : 1;
   } catch (err) {
-    report(opts, { ok: false, reason: String(err?.message || err), consoleErrors });
+    report(opts, { ok: false, reason: String(err?.message || err), consoleErrors, pageErrors });
     return 2;
   } finally {
     if (browser) await browser.close();
@@ -227,8 +230,12 @@ function report(opts, result) {
     console.log(`  luminance stddev: ${result.stdLum.toFixed(2)}  mean: ${result.meanLum.toFixed(1)}  opaque: ${(result.opaqueFraction * 100).toFixed(1)}%`);
   }
   if (result.out) console.log(`  screenshot: ${result.out}`);
+  if (result.pageErrors?.length) {
+    console.log(`  uncaught page errors (${result.pageErrors.length}):`);
+    for (const e of result.pageErrors.slice(0, 5)) console.log(`    - ${e}`);
+  }
   if (result.consoleErrors?.length) {
-    console.log(`  console errors (${result.consoleErrors.length}):`);
+    console.log(`  console errors (${result.consoleErrors.length}, advisory):`);
     for (const e of result.consoleErrors.slice(0, 5)) console.log(`    - ${e}`);
   }
 }

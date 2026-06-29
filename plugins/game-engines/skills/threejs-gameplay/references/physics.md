@@ -103,7 +103,7 @@ function stepPhysics(dt) {
 `@dimforge/rapier3d-compat` is WASM, so it must be initialized once before use.
 
 ```javascript
-import RAPIER from "https://cdn.skypack.dev/@dimforge/rapier3d-compat";
+import RAPIER from "https://esm.sh/@dimforge/rapier3d-compat";
 
 await RAPIER.init(); // REQUIRED before any RAPIER.* constructor
 const world = new RAPIER.World({ x: 0, y: -9.81, z: 0 });
