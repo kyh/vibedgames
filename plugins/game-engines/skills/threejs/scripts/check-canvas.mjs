@@ -160,13 +160,16 @@ async function main() {
     return 2;
   }
 
-  const browser = await chromium.launch();
-  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+  // browser declared before the try so `finally` can always close it, even if
+  // launch()/newPage() throws (otherwise a failure here leaks a Chromium process).
+  let browser;
   const consoleErrors = [];
-  page.on("console", (m) => m.type() === "error" && consoleErrors.push(m.text()));
-  page.on("pageerror", (e) => consoleErrors.push(String(e)));
-
   try {
+    browser = await chromium.launch();
+    const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+    page.on("console", (m) => m.type() === "error" && consoleErrors.push(m.text()));
+    page.on("pageerror", (e) => consoleErrors.push(String(e)));
+
     await page.goto(toUrl(opts.target), { waitUntil: "load", timeout: 30000 });
     await page.waitForTimeout(opts.wait); // let assets load + a few frames render
 
@@ -179,20 +182,22 @@ async function main() {
     if (opts.out) writeFileSync(opts.out, png);
 
     const stats = analyze(decodePng(png));
-    const ok = stats.stdLum >= opts.minStd && stats.opaqueFraction > 0.01;
-    report(opts, {
-      ok,
-      reason: ok ? "rendered non-blank content" : `blank/solid (stdLum ${stats.stdLum.toFixed(2)} < ${opts.minStd})`,
-      ...stats,
-      out: opts.out,
-      consoleErrors,
-    });
+    const blankLum = stats.stdLum < opts.minStd;
+    const nearEmpty = stats.opaqueFraction <= 0.01;
+    const ok = !blankLum && !nearEmpty;
+    // cite the gate that actually failed, not always luminance
+    const reason = ok
+      ? "rendered non-blank content"
+      : nearEmpty
+        ? `near-empty canvas (opaque ${(stats.opaqueFraction * 100).toFixed(1)}% ≤ 1%)`
+        : `blank/solid (stdLum ${stats.stdLum.toFixed(2)} < ${opts.minStd})`;
+    report(opts, { ok, reason, ...stats, out: opts.out, consoleErrors });
     return ok ? 0 : 1;
   } catch (err) {
     report(opts, { ok: false, reason: String(err?.message || err), consoleErrors });
     return 2;
   } finally {
-    await browser.close();
+    if (browser) await browser.close();
   }
 }
 

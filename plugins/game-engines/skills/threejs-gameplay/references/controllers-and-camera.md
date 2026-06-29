@@ -159,12 +159,11 @@ function clampCameraToWalls() {
 
 ## Helpers
 
-Frame-rate-independent angle damping (handles wrap-around at ±π):
+Frame-rate-independent angle damping. `player.rotation.y` accumulates without bound, so take the *shortest* signed turn to the target — `atan2(sin, cos)` always returns it in `(-π, π]` regardless of how large either angle has grown:
 
 ```javascript
 function dampAngle(current, target, smoothing, dt) {
-  let diff = ((target - current + Math.PI) % (Math.PI * 2)) - Math.PI;
-  if (diff < -Math.PI) diff += Math.PI * 2;
+  const diff = Math.atan2(Math.sin(target - current), Math.cos(target - current));
   return current + diff * (1 - Math.pow(smoothing, dt));
 }
 ```
