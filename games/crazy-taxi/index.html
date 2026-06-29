@@ -1,0 +1,494 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <link rel="icon" href="data:," />
+    <title>Crazy Taxi</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #14111a;
+        color: #fff;
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        touch-action: none;
+      }
+      #game {
+        position: fixed;
+        inset: 0;
+      }
+      #game canvas {
+        display: block;
+      }
+
+      /* ---- HUD ---- */
+      #hud {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 5;
+        font-weight: 700;
+      }
+      .pill {
+        position: fixed;
+        background: rgba(18, 16, 26, 0.62);
+        border: 2px solid rgba(255, 209, 71, 0.5);
+        border-radius: 12px;
+        padding: 8px 14px;
+        letter-spacing: 1px;
+        backdrop-filter: blur(7px);
+        -webkit-backdrop-filter: blur(7px);
+        box-shadow: 0 4px 0 rgba(0, 0, 0, 0.35);
+      }
+      .label {
+        font-size: 10px;
+        letter-spacing: 2px;
+        opacity: 0.7;
+        display: block;
+      }
+      .value {
+        font-size: 22px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      /* Timer — big, top-center */
+      #timer {
+        top: calc(14px + env(safe-area-inset-top));
+        left: 50%;
+        transform: translateX(-50%);
+        text-align: center;
+        border-color: rgba(255, 209, 71, 0.85);
+        padding: 6px 22px;
+      }
+      #timer .value {
+        font-size: 46px;
+        color: #ffd147;
+        text-shadow: 0 3px 0 rgba(0, 0, 0, 0.5);
+        line-height: 1;
+      }
+      #timer.low .value {
+        color: #ff5a52;
+      }
+      #district {
+        position: fixed;
+        top: 96px;
+        left: 50%;
+        transform: translateX(-50%);
+        font:
+          800 italic 22px/1 system-ui,
+          sans-serif;
+        letter-spacing: 1px;
+        color: #fff;
+        white-space: nowrap;
+        text-shadow:
+          0 2px 0 rgba(0, 0, 0, 0.5),
+          0 0 18px rgba(255, 209, 71, 0.45);
+        opacity: 0;
+        pointer-events: none;
+      }
+      #time-bonus {
+        position: fixed;
+        top: 78px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 30px;
+        color: #6bff8e;
+        text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5);
+        opacity: 0;
+        pointer-events: none;
+        font-weight: 800;
+      }
+
+      /* Score — top-left */
+      #score {
+        top: calc(14px + env(safe-area-inset-top));
+        left: calc(14px + env(safe-area-inset-left));
+      }
+      #score .value {
+        color: #fff;
+      }
+      #fares {
+        top: 70px;
+        left: calc(14px + env(safe-area-inset-left));
+        padding: 5px 12px;
+      }
+      #fares .value {
+        font-size: 16px;
+      }
+
+      #boost {
+        top: 112px;
+        left: calc(14px + env(safe-area-inset-left));
+        padding: 6px 12px;
+      }
+      #boost-track {
+        width: 84px;
+        height: 8px;
+        border-radius: 5px;
+        background: rgba(255, 255, 255, 0.16);
+        overflow: hidden;
+        margin-top: 4px;
+      }
+      #boost-fill {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, #ffd147, #ff8a3c);
+        transition: width 0.1s linear;
+      }
+
+      /* Speed — bottom-left */
+      #speed {
+        left: calc(14px + env(safe-area-inset-left));
+        bottom: calc(14px + env(safe-area-inset-bottom));
+        padding: 5px 12px;
+      }
+      #speed .value {
+        font-size: 16px;
+        color: #8fd9ff;
+      }
+
+      /* Fare card — top-right (passenger + destination) */
+      #fare-card {
+        top: calc(14px + env(safe-area-inset-top));
+        right: calc(14px + env(safe-area-inset-right));
+        min-width: 180px;
+        text-align: right;
+        border-color: rgba(120, 200, 255, 0.55);
+        transition:
+          opacity 0.2s,
+          transform 0.2s;
+        opacity: 0;
+        transform: translateX(20px);
+      }
+      #fare-card.show {
+        opacity: 1;
+        transform: translateX(0);
+      }
+      #fare-card .who {
+        font-size: 13px;
+        color: #aee3ff;
+      }
+      #fare-card .dist {
+        font-size: 22px;
+        font-variant-numeric: tabular-nums;
+        color: #fff;
+      }
+      #fare-card .reward {
+        font-size: 12px;
+        color: #6bff8e;
+        letter-spacing: 1px;
+      }
+
+      /* Combo — center-ish, punchy */
+      #combo {
+        position: fixed;
+        top: 30%;
+        left: 50%;
+        transform: translate(-50%, 0) scale(0.6);
+        font-size: clamp(26px, 6vw, 60px);
+        font-weight: 900;
+        font-style: italic;
+        color: #ffd147;
+        text-shadow:
+          0 0 18px rgba(255, 160, 40, 0.8),
+          0 4px 0 rgba(0, 0, 0, 0.5);
+        opacity: 0;
+        pointer-events: none;
+        letter-spacing: 1px;
+      }
+
+      /* Destination off-screen arrow */
+      #dest-arrow {
+        position: fixed;
+        left: 0;
+        top: 0;
+        width: 64px;
+        height: 64px;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.15s;
+        will-change: transform;
+      }
+      #dest-arrow svg {
+        width: 100%;
+        height: 100%;
+        filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.6));
+      }
+
+      /* Center banner: title / game over */
+      #banner {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+        background: radial-gradient(circle at 50% 40%, rgba(20, 16, 28, 0.35), rgba(10, 8, 14, 0.78));
+      }
+      #banner.show {
+        opacity: 1;
+      }
+      #banner-title {
+        font:
+          900 clamp(44px, 11vw, 120px) / 0.95 system-ui,
+          sans-serif;
+        font-style: italic;
+        color: #ffd147;
+        letter-spacing: -2px;
+        text-shadow:
+          0 6px 0 rgba(0, 0, 0, 0.45),
+          0 0 40px rgba(255, 160, 40, 0.5);
+        transform: rotate(-3deg);
+      }
+      #banner-sub {
+        margin-top: 18px;
+        font-size: clamp(15px, 3.4vw, 22px);
+        color: #fff;
+        max-width: 80vw;
+        line-height: 1.5;
+        text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5);
+      }
+      #banner-stats {
+        margin-top: 10px;
+        font-size: clamp(13px, 2.6vw, 17px);
+        color: #aee3ff;
+        font-variant-numeric: tabular-nums;
+      }
+      #banner-cta {
+        margin-top: 26px;
+        font-size: 15px;
+        letter-spacing: 2px;
+        color: #14111a;
+        background: #ffd147;
+        border-radius: 10px;
+        padding: 12px 22px;
+        pointer-events: auto;
+        cursor: pointer;
+        box-shadow: 0 5px 0 rgba(0, 0, 0, 0.4);
+        animation: pulse 1.4s ease-in-out infinite;
+      }
+      @keyframes pulse {
+        50% {
+          transform: scale(1.05);
+        }
+      }
+
+      /* Screen flash overlay */
+      #flash {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        opacity: 0;
+        z-index: 4;
+        mix-blend-mode: screen;
+      }
+
+      /* Loading */
+      #loading {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: #14111a;
+        z-index: 20;
+        gap: 16px;
+      }
+      #loading .lt {
+        font: 900 italic clamp(34px, 9vw, 80px) / 1 system-ui, sans-serif;
+        color: #ffd147;
+        transform: rotate(-3deg);
+        letter-spacing: -2px;
+      }
+      #bar {
+        width: min(60vw, 320px);
+        height: 10px;
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.12);
+        overflow: hidden;
+      }
+      #bar-fill {
+        height: 100%;
+        width: 0%;
+        background: #ffd147;
+        transition: width 0.2s;
+      }
+      #loading .ls {
+        font-size: 12px;
+        letter-spacing: 2px;
+        opacity: 0.6;
+      }
+
+      /* Touch controls */
+      #touch {
+        position: fixed;
+        inset: 0;
+        z-index: 6;
+        pointer-events: none;
+        display: none;
+      }
+      #touch.on {
+        display: block;
+      }
+      .tbtn {
+        position: fixed;
+        pointer-events: auto;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.1);
+        border: 2px solid rgba(255, 255, 255, 0.35);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 26px;
+        color: #fff;
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+      }
+      .tbtn:active {
+        background: rgba(255, 209, 71, 0.4);
+      }
+      #t-left {
+        left: 18px;
+        bottom: 96px;
+        width: 76px;
+        height: 76px;
+      }
+      #t-right {
+        left: 110px;
+        bottom: 96px;
+        width: 76px;
+        height: 76px;
+      }
+      #t-gas {
+        right: 18px;
+        bottom: 110px;
+        width: 92px;
+        height: 92px;
+        background: rgba(107, 255, 142, 0.18);
+        border-color: rgba(107, 255, 142, 0.5);
+      }
+      #t-brake {
+        right: 120px;
+        bottom: 40px;
+        width: 74px;
+        height: 74px;
+        background: rgba(255, 90, 82, 0.16);
+        border-color: rgba(255, 90, 82, 0.5);
+      }
+      #t-drift {
+        right: 30px;
+        bottom: 214px;
+        width: 64px;
+        height: 64px;
+        font-size: 13px;
+        letter-spacing: 1px;
+      }
+
+      #legend {
+        position: fixed;
+        bottom: calc(14px + env(safe-area-inset-bottom));
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 12px;
+        letter-spacing: 0.6px;
+        color: rgba(255, 255, 255, 0.55);
+        text-align: center;
+        pointer-events: none;
+        white-space: nowrap;
+      }
+      #legend b {
+        color: #ffd147;
+        font-weight: 700;
+      }
+      @media (max-width: 720px) {
+        #legend {
+          display: none;
+        }
+        #speed {
+          display: none;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #banner-cta {
+          animation: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="game"></div>
+
+    <div id="hud">
+      <div class="pill" id="timer"><span class="label">TIME</span><span class="value">60</span></div>
+      <div id="time-bonus"></div>
+      <div id="district"></div>
+      <div class="pill" id="score"><span class="label">SCORE</span><span class="value">0</span></div>
+      <div class="pill" id="fares"><span class="label">FARES</span><span class="value">0</span></div>
+      <div class="pill" id="boost">
+        <span class="label">BOOST</span>
+        <div id="boost-track"><div id="boost-fill"></div></div>
+      </div>
+      <div class="pill" id="speed"><span class="label">MPH</span><span class="value">0</span></div>
+      <div class="pill" id="fare-card">
+        <span class="who"></span>
+        <div class="dist"></div>
+        <div class="reward"></div>
+      </div>
+      <div id="combo"></div>
+      <div id="dest-arrow">
+        <svg viewBox="0 0 64 64">
+          <polygon points="32,4 56,40 32,30 8,40" fill="#6bff8e" stroke="#0c2414" stroke-width="3"
+            stroke-linejoin="round" />
+        </svg>
+      </div>
+    </div>
+
+    <div id="banner">
+      <div id="banner-title">CRAZY TAXI</div>
+      <div id="banner-sub"></div>
+      <div id="banner-stats"></div>
+      <div id="banner-cta" role="button" tabindex="0" aria-label="Start driving">PRESS ENTER</div>
+    </div>
+
+    <div id="flash"></div>
+
+    <div id="touch" aria-hidden="true">
+      <div class="tbtn" id="t-left" role="button" aria-label="Steer left">◀</div>
+      <div class="tbtn" id="t-right" role="button" aria-label="Steer right">▶</div>
+      <div class="tbtn" id="t-gas" role="button" aria-label="Accelerate">GAS</div>
+      <div class="tbtn" id="t-brake" role="button" aria-label="Brake">BRK</div>
+      <div class="tbtn" id="t-drift" role="button" aria-label="Drift">DRIFT</div>
+    </div>
+
+    <div id="legend">
+      <b>↑/W</b> gas · <b>↓/S</b> brake · <b>←→/AD</b> steer · <b>SPACE</b> drift · <b>SHIFT</b> boost ·
+      <b>R</b> restart
+    </div>
+
+    <div id="loading">
+      <div class="lt">CRAZY TAXI</div>
+      <div id="bar"><div id="bar-fill"></div></div>
+      <div class="ls">REVVING ENGINES…</div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
