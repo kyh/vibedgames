@@ -40,6 +40,14 @@ function parseArgs(argv) {
     else rest.push(a);
   }
   opts.target = rest[0];
+  // reject malformed numeric flags (e.g. a missing arg → NaN) rather than
+  // silently treating NaN thresholds as "passing"
+  if (!Number.isFinite(opts.wait) || opts.wait < 0) {
+    throw new Error(`--wait must be a non-negative number (got ${opts.wait})`);
+  }
+  if (!Number.isFinite(opts.minStd) || opts.minStd < 0) {
+    throw new Error(`--min-std must be a non-negative number (got ${opts.minStd})`);
+  }
   return opts;
 }
 
@@ -140,13 +148,20 @@ function analyze({ width, height, channels, data }) {
       n++;
     }
   }
+  if (n === 0) return { sampled: 0, meanLum: 0, stdLum: 0, opaqueFraction: 0 };
   const mean = sum / n;
   const std = Math.sqrt(Math.max(0, sumSq / n - mean * mean));
   return { sampled: n, meanLum: mean, stdLum: std, opaqueFraction: opaque / n };
 }
 
 async function main() {
-  const opts = parseArgs(process.argv.slice(2));
+  let opts;
+  try {
+    opts = parseArgs(process.argv.slice(2));
+  } catch (err) {
+    console.error(String(err?.message || err));
+    return 2;
+  }
   if (!opts.target) {
     console.error("usage: node check-canvas.mjs <url|file> [--selector css] [--out png] [--wait ms] [--min-std n] [--json]");
     return 2;
@@ -182,8 +197,9 @@ async function main() {
     if (opts.out) writeFileSync(opts.out, png);
 
     const stats = analyze(decodePng(png));
-    const blankLum = stats.stdLum < opts.minStd;
-    const nearEmpty = stats.opaqueFraction <= 0.01;
+    // positive comparisons negated, so a non-finite metric fails (never a false pass)
+    const blankLum = !(stats.stdLum >= opts.minStd);
+    const nearEmpty = !(stats.opaqueFraction > 0.01);
     const ok = !blankLum && !nearEmpty;
     // cite the gate that actually failed, not always luminance
     const reason = ok
