@@ -3,13 +3,13 @@
 // guests send INTENT events and render snapshots; the host simulates and
 // broadcasts under sharedState.snap, with stale-host takeover.
 import { MultiplayerClient } from "@vibedgames/multiplayer";
-import { ARENA_BOT_FILL, SHOP_RADIUS, SIM_DT } from "../data/config";
-import { DEFAULT_CHAMP } from "../data/champions";
-import { HALF, SPAWNS } from "../data/map";
+import { ARENA_BOT_FILL, KILL_GOAL_FFA, SHOP_RADIUS, SIM_DT } from "../data/config";
+import { CHAMP_BY_ID, DEFAULT_CHAMP, valAt } from "../data/champions";
+import { HALF, isInThrone, SPAWNS } from "../data/map";
 import { terrainHeight } from "../data/terrain";
-import type { AbilityKey, Unit, World } from "../sim/types";
-import { castAbility, useItemActive } from "../sim/abilities";
-import { buyItem, createWorld, ensureBots, setHeroInput, spawnHero, step, tryDodge, tryJump } from "../sim/world";
+import { ABILITY_KEYS, type AbilityKey, type Unit, type World } from "../sim/types";
+import { requestCast, useItemActive } from "../sim/abilities";
+import { buyItem, createWorld, ensureBots, requestDodge, setHeroInput, spawnHero, step, tryJump } from "../sim/world";
 import { INTENT_EVENT, MULTIPLAYER_HOST, PARTY, type Intent } from "../net/protocol";
 import { applySnapshot, emptyGuestWorld, encodeWorld, isSnapshot } from "../net/snapshot";
 import { SNAPSHOT_HZ } from "../data/config";
@@ -21,8 +21,14 @@ import { WorldView } from "../render/world-view";
 import { Environment } from "../render/environment";
 import { Fx } from "../render/fx";
 import { Hud } from "../render/hud";
+import { Hints } from "../render/hints";
 
 const ONLINE_SEED = 0xbada55;
+const INTRO_S = 2.4; // camera fly-in length; solo holds the sim this long (NEVER online)
+const CAST_BUFFER_MS = 350; // mirror of the sim's cast-buffer window — deny-feedback only
+const MUSIC_SAMPLE_S = 0.25; // intensity driver runs at 4Hz
+const MUSIC_DROP_HYST_S = 4; // intensity only drops after 4s of sustained calm
+const JOINING_TEXT = `JOINING — FIRST TO ${KILL_GOAL_FFA} KILLS`; // online intro banner
 
 export type SceneOpts = {
   champId: string;
@@ -46,7 +52,18 @@ export class GameScene {
   private name: string;
   private localId = "h-local";
   private statusEl: HTMLDivElement;
-  private crosshairEl: HTMLDivElement;
+  private hints: Hints;
+  // intro fly-in + countdown (solo: 3-2-1-FIGHT; online: camera sweep only)
+  private introTime = 0;
+  private lastCount = -1; // change-gate for count()/fight() one-shots
+  // music intensity driver (4Hz sample, 4s drop hysteresis)
+  private musicClock = 0;
+  private musicAcc = 0;
+  private musicIntensity: 0 | 1 | 2 | 3 = 0;
+  private musicLowSince = -1;
+  // touch integration (change-gated per-frame feeds)
+  private boundChamp = "";
+  private readonly touchCdLast: Record<AbilityKey, number> = { Q: -1, W: -1, E: -1, R: -1 };
 
   // online state
   private picks: Record<string, { champId: string; name: string }> = {};
@@ -83,7 +100,9 @@ export class GameScene {
         onEvent: (e, p, from) => this.onNetEvent(e, p, from),
       });
     } else {
-      this.world = createWorld(0x1234abc);
+      // soloMercy: hidden bot-damage softening for struggling humans — OFFLINE
+      // ONLY (never set online; it must not shift the shared sim's balance)
+      this.world = createWorld(0x1234abc, { soloMercy: true });
       spawnHero(this.world, {
         id: this.localId,
         ownerId: "local",
@@ -101,31 +120,32 @@ export class GameScene {
     this.worldView.setupBoss();
     this.environment = new Environment(view.scene, lib);
     this.environment.setup();
+    view.refreshShadows(); // scenery is final — bake the static shadow map once
     this.fx = new Fx(view.scene, view);
     this.fx.localId = this.localId;
+    // ownerId flavor of the local identity ("local" offline, connId online —
+    // refreshed per-frame in tickOnline once the connection knows itself)
+    if (!opts.online) this.fx.localOwnerId = "local";
     this.worldView.fx = this.fx;
     this.hud = new Hud(view, this.fx, {
       buy: (id) => this.requestBuy(id),
       canShop: () => this.canShop(),
     });
+    // contextual hint engine — DOM-free; the HUD renders via showHint("" hides)
+    this.hints = new Hints(
+      () => this.touch?.active ?? false,
+      (t) => this.hud.showHint(t),
+    );
 
     this.statusEl = document.createElement("div");
     this.statusEl.style.cssText =
       "position:fixed;inset:0;display:flex;align-items:center;justify-content:center;font:800 22px ui-monospace,monospace;color:#9fd0ff;text-shadow:0 2px 6px #000;z-index:9;pointer-events:none";
     document.body.appendChild(this.statusEl);
 
-    // fixed center crosshair — the aim reticle (FPS-style centered camera)
-    this.crosshairEl = document.createElement("div");
-    this.crosshairEl.style.cssText =
-      "position:fixed;left:50%;top:50%;width:26px;height:26px;transform:translate(-50%,-50%);z-index:8;pointer-events:none;" +
-      "background:" +
-      "radial-gradient(circle,rgba(255,255,255,.95) 0 1.5px,transparent 2px)," +
-      "linear-gradient(rgba(255,255,255,.85),rgba(255,255,255,.85)) 50% 0/2px 8px no-repeat," +
-      "linear-gradient(rgba(255,255,255,.85),rgba(255,255,255,.85)) 50% 100%/2px 8px no-repeat," +
-      "linear-gradient(rgba(255,255,255,.85),rgba(255,255,255,.85)) 0 50%/8px 2px no-repeat," +
-      "linear-gradient(rgba(255,255,255,.85),rgba(255,255,255,.85)) 100% 50%/8px 2px no-repeat;" +
-      "filter:drop-shadow(0 1px 2px #000)";
-    document.body.appendChild(this.crosshairEl);
+    // NB: the old fixed-center crosshair div lived here; superseded by the
+    // HUD's #ba-reticle (hit-confirm ticks, fed by fx.localHits).
+
+    view.startIntro(); // cinematic fly-in (both modes; only solo holds the sim)
   }
 
   private get amHost(): boolean {
@@ -138,6 +158,7 @@ export class GameScene {
 
   // ── per-frame ──
   update(frameDt: number): void {
+    this.introTime += frameDt; // real-time clock for the fly-in/countdown
     if (this.net) this.tickOnline(frameDt);
     else this.tickLocal(frameDt);
 
@@ -150,22 +171,63 @@ export class GameScene {
     this.worldView.sync(this.world, rdt);
     if (me) {
       this.statusEl.textContent = "";
-      this.hud.update(this.world, me);
+      this.hud.update(this.world, me, this.controls.scoreHeld());
+      this.fx.audio.setListener(me.x, me.y, this.aimX, this.aimY);
+      if (this.touch && me.champId !== this.boundChamp) {
+        this.boundChamp = me.champId;
+        this.touch.bindChamp(me.champId); // icon backgrounds + keycaps, once
+      }
+      this.feedTouchCooldowns(me);
     } else {
       this.statusEl.textContent =
         this.net && this.net.connectionStatus !== "connected" ? "Connecting…" : "Joining the arena…";
     }
+    this.hints.update(this.world, me);
+    this.driveIntro();
+    this.driveMusic(frameDt, me);
     const cx = me ? me.x : 0;
     const cy = me ? me.y : 0;
     const pitch = this.touch?.active ? 0 : this.controls.aimPitch();
     this.view.follow(cx, cy, this.aimX, this.aimY, pitch, rdt, terrainHeight(cx, cy));
     this.view.tickAura(this.world.gameTime);
+    this.environment.setLocalPos(cx, cy); // proximity-driven decor (fountain rims)
+    if (me) this.environment.setHomeSlot(me.slot); // own fountain never warns
     this.environment.update(this.world.gameTime);
     this.view.render();
   }
 
   // ── local mode ──
   private tickLocal(frameDt: number): void {
+    // Intro fly-in (SOLO ONLY): the world literally waits for you — hold the
+    // fixed-step accumulator and suppress input until the countdown ends.
+    // NEVER hold online: guests join a live match (camera sweep only there).
+    if (this.introTime < INTRO_S) {
+      this.acc = 0;
+      // seed the heading from spawn facing NOW so the fly-in lands on the same
+      // chase pose readInput will use (no camera snap at FIGHT)
+      const me = this.localUnit();
+      if (me && !this.aimInit) {
+        this.controls.setYaw(Math.atan2(me.aimX, me.aimY));
+        this.aimInit = true;
+      }
+      const yaw = this.controls.aimYaw();
+      this.aimX = Math.sin(yaw);
+      this.aimY = Math.cos(yaw);
+      // discard buffered edges so a stray click/keypress during the fly-in
+      // doesn't fire the moment the countdown hits FIGHT
+      this.controls.consumeAbilities();
+      this.controls.consumeItems();
+      this.controls.consumeJump();
+      this.controls.consumeDodge();
+      this.controls.consumeBuy();
+      if (this.touch) {
+        this.touch.consumeAbilities();
+        this.touch.consumeBuy();
+        this.touch.consumeJump();
+        this.touch.consumeDodge();
+      }
+      return;
+    }
     const me = this.localUnit();
     if (me) this.readInput(me, true);
     this.acc += frameDt;
@@ -174,6 +236,118 @@ export class GameScene {
       step(this.world);
       this.acc -= SIM_DT;
       n++;
+    }
+  }
+
+  /** Drive the HUD countdown + count/fight one-shots off the intro clock.
+   *  hud.showIntro renders the text (change-gated; "" hides; "FIGHT!" pops). */
+  private driveIntro(): void {
+    const t = this.introTime;
+    if (t > INTRO_S + 1.2) return; // countdown + FIGHT flash fully done
+    if (this.net) {
+      // online: the sim is live — no numerals, just the goal during the sweep
+      this.hud.showIntro(t < 2.0 ? JOINING_TEXT : "");
+      return;
+    }
+    const n = t < 0.8 ? 3 : t < 1.6 ? 2 : t < INTRO_S ? 1 : 0;
+    this.hud.showIntro(n > 0 ? String(n) : t < INTRO_S + 0.5 ? "FIGHT!" : "");
+    if (n !== this.lastCount) {
+      this.lastCount = n;
+      if (n > 0) this.fx.audio.count();
+      else this.fx.audio.fight();
+    }
+  }
+
+  // ── music intensity driver (result-05 A5) ──
+  private driveMusic(frameDt: number, me: Unit | null): void {
+    this.musicClock += frameDt;
+    this.musicAcc += frameDt;
+    if (this.musicAcc < MUSIC_SAMPLE_S) return;
+    this.musicAcc = 0;
+    if (this.world.phase !== "playing" || !me) return;
+    // null until the audio unlock gesture — don't track state the music system
+    // never heard, or it would come up out of sync after unlock
+    const music = this.fx.audio.music;
+    if (!music) return;
+    const desired = this.musicDesired(this.world, me);
+    if (desired > this.musicIntensity) {
+      // escalate immediately
+      this.musicIntensity = desired;
+      this.musicLowSince = -1;
+      music.setIntensity(desired);
+    } else if (desired < this.musicIntensity) {
+      // de-escalate only after sustained calm (drop hysteresis)
+      if (this.musicLowSince < 0) this.musicLowSince = this.musicClock;
+      else if (this.musicClock - this.musicLowSince >= MUSIC_DROP_HYST_S) {
+        this.musicIntensity = desired;
+        this.musicLowSince = -1;
+        music.setIntensity(desired);
+      }
+    } else {
+      this.musicLowSince = -1;
+    }
+  }
+
+  private musicDesired(w: World, me: Unit): 0 | 1 | 2 | 3 {
+    // 3: endgame stakes or a contested throne
+    if (w.suddenDeath || w.matchTime - w.gameTime < 60) return 3;
+    if (isInThrone(me.x, me.y) && this.enemyHeroNear(me, 0, 0, 11)) return 3;
+    // 2: you lead, or you're close to the leader
+    if (w.leaderId !== null && w.leaderId === me.team) return 2;
+    const leader = this.leaderUnit(w);
+    if (leader && leader.alive) {
+      const dx = leader.x - me.x;
+      const dy = leader.y - me.y;
+      if (dx * dx + dy * dy < 400) return 2;
+    }
+    // 1: enemies near or recent combat
+    if (this.enemyHeroNear(me, me.x, me.y, 14)) return 1;
+    if (w.now - me.lastHitAt < 3000 || w.now - me.lastAttackAt < 3000) return 1;
+    return 0;
+  }
+
+  private enemyHeroNear(me: Unit, x: number, y: number, r: number): boolean {
+    const r2 = r * r;
+    for (const u of this.world.units.values()) {
+      if (u.kind !== "hero" || !u.alive || u.team === me.team) continue;
+      const dx = u.x - x;
+      const dy = u.y - y;
+      if (dx * dx + dy * dy < r2) return true;
+    }
+    return false;
+  }
+
+  private leaderUnit(w: World): Unit | null {
+    if (w.leaderId === null) return null;
+    for (const u of w.units.values()) {
+      if (u.kind === "hero" && u.team === w.leaderId) return u;
+    }
+    return null;
+  }
+
+  /** Feed QWER cooldown sweeps to the touch buttons (int-percent change-gated). */
+  private feedTouchCooldowns(me: Unit): void {
+    const touch = this.touch;
+    if (!touch || !touch.active) return;
+    const def = CHAMP_BY_ID[me.champId];
+    if (!def) return;
+    for (const key of ABILITY_KEYS) {
+      const slot = me.abilities[key];
+      let pct = 0;
+      if (slot.rank < 1) {
+        pct = 1; // locked reads as a full sweep (dimmed)
+      } else {
+        const left = Math.max(0, (slot.readyAt - this.world.now) / 1000);
+        if (left > 0) {
+          const total = valAt(def.abilities[key].cooldown, slot.rank);
+          pct = total > 0 ? Math.min(1, left / total) : 0;
+        }
+      }
+      const q = Math.round(pct * 100);
+      if (q !== this.touchCdLast[key]) {
+        this.touchCdLast[key] = q;
+        touch.setCooldown(key, q / 100);
+      }
     }
   }
 
@@ -186,6 +360,7 @@ export class GameScene {
     this.localId = `h-${net.playerId}`;
     this.worldView.localId = this.localId;
     this.fx.localId = this.localId;
+    this.fx.localOwnerId = net.playerId;
 
     // announce our champ pick (and re-announce so a migrated host learns it)
     if (this.world.now - this.joinResendAt > 3000 || this.joinResendAt === 0) {
@@ -294,8 +469,13 @@ export class GameScene {
 
     const keys = [...this.controls.consumeAbilities(), ...(this.touch?.consumeAbilities() ?? [])];
     for (const key of keys) {
-      if (host) castAbility(this.world, me, key, { point: castPoint, dir: { x: this.aimX, y: this.aimY } });
-      else
+      // deny feedback is a pre-check (locked / beyond the buffer window) — a
+      // requestCast returning false may just mean "buffered", which is not a
+      // deny. The cast/intent is ALWAYS issued; the host stays authoritative.
+      if (this.wouldDeny(me, key)) this.fx.audio.castDeny();
+      if (host) {
+        requestCast(this.world, me, key, { point: castPoint, dir: { x: this.aimX, y: this.aimY } });
+      } else {
         this.net?.sendEvent(INTENT_EVENT, {
           kind: "cast",
           key,
@@ -304,17 +484,22 @@ export class GameScene {
           ax: this.aimX,
           ay: this.aimY,
         } satisfies Intent);
+      }
     }
 
-    // Space: evasive hop
-    if (this.controls.consumeJump()) {
+    // Space / touch JUMP: evasive hop (drain both edges every frame)
+    const kbJump = this.controls.consumeJump();
+    const tJump = this.touch?.consumeJump() ?? false;
+    if (kbJump || tJump) {
       if (host) tryJump(this.world, me);
       else this.net?.sendEvent(INTENT_EVENT, { kind: "jump" } satisfies Intent);
     }
 
-    // Shift: dodge-roll (i-frames) in the movement direction
-    if (this.controls.consumeDodge()) {
-      if (host) tryDodge(this.world, me, mv.x, mv.y);
+    // Shift / touch DODGE: dodge-roll (i-frames) in the movement direction
+    const kbDodge = this.controls.consumeDodge();
+    const tDodge = this.touch?.consumeDodge() ?? false;
+    if (kbDodge || tDodge) {
+      if (host) requestDodge(this.world, me, mv.x, mv.y);
       else this.net?.sendEvent(INTENT_EVENT, { kind: "dodge", mx: mv.x, my: mv.y } satisfies Intent);
     }
 
@@ -324,7 +509,16 @@ export class GameScene {
     }
 
     const buy = this.controls.consumeBuy() || (this.touch?.consumeBuy() ?? false);
-    if (buy && (this.canShop() || this.hud.isShopOpen)) this.hud.toggleShop();
+    if (buy && (this.canShop() || this.hud.isShopOpen)) {
+      this.hud.toggleShop();
+      if (this.hud.isShopOpen) this.hints.notifyShopOpened(); // early-dismiss the shop hint
+    }
+  }
+
+  /** Locked, or on cooldown past the sim's buffer window → the press is a deny. */
+  private wouldDeny(me: Unit, key: AbilityKey): boolean {
+    const slot = me.abilities[key];
+    return slot.rank < 1 || slot.readyAt - this.world.now > CAST_BUFFER_MS;
   }
 
   private requestBuy(itemId: string): void {
@@ -354,7 +548,8 @@ export class GameScene {
         setHeroInput(u, clamp1(f(intent.mx)), clamp1(f(intent.my)), clamp1(f(intent.ax)), clamp1(f(intent.ay)), intent.attack === true);
         break;
       case "cast":
-        castAbility(this.world, u, intent.key, { point: { x: fc(intent.px), y: fc(intent.py) }, dir: { x: clamp1(f(intent.ax)), y: clamp1(f(intent.ay)) } });
+        // requestCast so guests get the same host-side input buffer as locals
+        requestCast(this.world, u, intent.key, { point: { x: fc(intent.px), y: fc(intent.py) }, dir: { x: clamp1(f(intent.ax)), y: clamp1(f(intent.ay)) } });
         break;
       case "buy":
         if (typeof intent.itemId === "string") buyItem(this.world, u, intent.itemId);
@@ -366,7 +561,7 @@ export class GameScene {
         tryJump(this.world, u);
         break;
       case "dodge":
-        tryDodge(this.world, u, clamp1(f(intent.mx)), clamp1(f(intent.my)));
+        requestDodge(this.world, u, clamp1(f(intent.mx)), clamp1(f(intent.my)));
         break;
     }
   }
@@ -479,7 +674,6 @@ export class GameScene {
   dispose(): void {
     this.net?.destroy();
     this.statusEl.remove();
-    this.crosshairEl.remove();
     this.hud.dispose();
     if (document.pointerLockElement) document.exitPointerLock();
   }
@@ -488,6 +682,21 @@ export class GameScene {
 const clamp1 = (n: number): number => (n < -1 ? -1 : n > 1 ? 1 : n);
 const clampArena = (n: number): number => (n < -HALF ? -HALF : n > HALF ? HALF : n);
 
+/** Champion for quick-start boots: ?champ → localStorage["ba-champ"] → default.
+ *  Both sources are validated against the roster so a stale/typo'd id can never
+ *  crash the boot. The menu's START writes the localStorage key. */
 export function chosenChamp(): string {
-  return new URLSearchParams(location.search).get("champ") ?? DEFAULT_CHAMP;
+  const fromUrl = new URLSearchParams(location.search).get("champ");
+  if (fromUrl && CHAMP_BY_ID[fromUrl]) return fromUrl;
+  const stored = localStorage.getItem("ba-champ");
+  if (stored && CHAMP_BY_ID[stored]) return stored;
+  return DEFAULT_CHAMP;
+}
+
+/** Player name for quick-start boots: ?name → localStorage["ba-name"] → "Player". */
+export function chosenName(): string {
+  const fromUrl = new URLSearchParams(location.search).get("name")?.trim();
+  if (fromUrl) return fromUrl.slice(0, 14);
+  const stored = localStorage.getItem("ba-name")?.trim();
+  return stored ? stored.slice(0, 14) : "Player";
 }

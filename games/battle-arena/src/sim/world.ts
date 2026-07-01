@@ -15,24 +15,25 @@ import {
   STARTING_GOLD,
 } from "../data/config";
 import { ITEM_BY_ID, MAX_ITEMS } from "../data/items";
-import { BOSS_POS, CAMPS, SPAWNS, clampToArena, resolveObstacles } from "../data/map";
+import { BOSS_POS, CAMPS, SPAWNS, clampToArena, resolveObstacles, type CampSpec } from "../data/map";
 import { resolveElevation } from "./elevation";
 import { ABILITY_KEYS, type Unit, type World, nextId } from "./types";
 import { addStatus, effectiveMoveSpeed, expireStatuses, isDisabled, isRooted, recomputeStats } from "./stats";
 import { applyKnockback, dealDamage, resolveAttacks, stepProjectiles } from "./combat";
-import { tickAbilities } from "./abilities";
+import { castAbility, tickAbilities } from "./abilities";
 import { tickEconomy, updateLeader } from "./economy";
 import { tickBots } from "./ai";
 
 const BOT_NAMES = ["Ru{}", "Vex", "Kato", "Mire", "Brak", "Nyx", "Orin", "Pyra"];
-const BOT_CHAMPS = ["knight", "ranger", "mage", "rogue", "barbarian", "necromancer"];
+const BOT_CHAMPS = ["knight", "ranger", "mage", "rogue", "barbarian", "necromancer", "paladin", "blackknight", "vampire", "witch"];
 
-export function createWorld(seed: number): World {
+export function createWorld(seed: number, opts: { soloMercy?: boolean } = {}): World {
   const boss = { x: BOSS_POS.x, y: BOSS_POS.y, hp: 4000, maxHp: 4000, alive: true };
   return {
     now: 0,
     gameTime: 0,
     phase: "playing",
+    soloMercy: opts.soloMercy ?? false,
     winner: null,
     killGoal: KILL_GOAL_FFA,
     matchTime: MATCH_TIME,
@@ -81,7 +82,7 @@ export function spawnHero(w: World, args: SpawnArgs): Unit {
     vx: 0,
     vy: 0,
     facing: sp.facing,
-    radius: 0.62,
+    radius: def.radius ?? 0.62,
     alive: true,
     hp: 1,
     maxHp: 1,
@@ -119,6 +120,10 @@ export function spawnHero(w: World, args: SpawnArgs): Unit {
     pendingAttack: null,
     statuses: [],
     recentDamageFrom: {},
+    queuedCast: null,
+    queuedDodge: null,
+    steerVx: 0,
+    steerVy: 0,
     moveX: 0,
     moveY: 0,
     aimX: Math.cos(sp.facing),
@@ -140,6 +145,7 @@ export function spawnHero(w: World, args: SpawnArgs): Unit {
     deaths: 0,
     assists: 0,
     killStreak: 0,
+    mercy: 0,
   };
   recomputeStats(u);
   u.hp = u.maxHp;
@@ -170,12 +176,17 @@ type CreepStat = {
   radius: number;
   bounty: number;
   xp: number;
+  name?: string; // display name (default "Skeleton")
+  hpRegen?: number; // hp/s (default 6; the golem regens hard between fights)
 };
 
 const CREEP_STATS: Record<string, CreepStat> = {
   skwarrior: { model: "Skeleton_Warrior", attackType: "melee", attackDamageType: "physical", attackKind: "melee", hp: 340, damage: 34, armor: 3, attackRange: 2.2, attackSpeed: 0.8, moveSpeed: 5, projectileSpeed: 0, radius: 0.6, bounty: 55, xp: 50 },
   skmage: { model: "Skeleton_Mage", attackType: "ranged", attackDamageType: "magic", attackKind: "bolt", hp: 230, damage: 30, armor: 1, attackRange: 8, attackSpeed: 0.7, moveSpeed: 4.6, projectileSpeed: 16, radius: 0.55, bounty: 70, xp: 60 },
   skminion: { model: "Skeleton_Minion", attackType: "melee", attackDamageType: "physical", attackKind: "melee", hp: 200, damage: 24, armor: 1, attackRange: 2, attackSpeed: 0.95, moveSpeed: 5.4, projectileSpeed: 0, radius: 0.52, bounty: 35, xp: 32 },
+  skrogue: { model: "Skeleton_Rogue", attackType: "melee", attackDamageType: "physical", attackKind: "melee", hp: 260, damage: 30, armor: 1, attackRange: 1.8, attackSpeed: 1.3, moveSpeed: 6.0, projectileSpeed: 0, radius: 0.55, bounty: 60, xp: 55 },
+  orcbrute: { model: "OrcRaider", attackType: "melee", attackDamageType: "physical", attackKind: "melee", hp: 700, damage: 55, armor: 4, attackRange: 2.2, attackSpeed: 0.9, moveSpeed: 5.2, projectileSpeed: 0, radius: 0.7, bounty: 150, xp: 120, name: "Orc Raider" },
+  frostgolem: { model: "FrostGolem", attackType: "melee", attackDamageType: "physical", attackKind: "melee", hp: 2400, damage: 95, armor: 8, attackRange: 3.2, attackSpeed: 0.6, moveSpeed: 4.4, projectileSpeed: 0, radius: 1.25, bounty: 500, xp: 350, name: "Frost Golem", hpRegen: 20 },
 };
 
 export function spawnCreep(w: World, type: string, x: number, y: number, camp: { id: string; x: number; y: number }): void {
@@ -187,7 +198,7 @@ export function spawnCreep(w: World, type: string, x: number, y: number, camp: {
     ownerId: "neutral",
     champId: type,
     isBot: true,
-    name: "Skeleton",
+    name: s.name ?? "Skeleton",
     slot: 0,
     campId: camp.id,
     homeX: camp.x,
@@ -201,7 +212,7 @@ export function spawnCreep(w: World, type: string, x: number, y: number, camp: {
     alive: true,
     hp: s.hp,
     maxHp: s.hp,
-    hpRegen: 6,
+    hpRegen: s.hpRegen ?? 6,
     baseDamage: s.damage,
     armor: s.armor,
     magicResist: 0.1,
@@ -230,6 +241,10 @@ export function spawnCreep(w: World, type: string, x: number, y: number, camp: {
     pendingAttack: null,
     statuses: [],
     recentDamageFrom: {},
+    queuedCast: null,
+    queuedDodge: null,
+    steerVx: 0,
+    steerVy: 0,
     moveX: 0,
     moveY: 0,
     aimX: 0,
@@ -251,6 +266,7 @@ export function spawnCreep(w: World, type: string, x: number, y: number, camp: {
     deaths: 0,
     assists: 0,
     killStreak: 0,
+    mercy: 0,
   };
   w.units.set(u.id, u);
 }
@@ -261,8 +277,21 @@ export function creepReward(type: string): { bounty: number; xp: number } {
   return { bounty: s.bounty, xp: s.xp };
 }
 
-function spawnCampPack(w: World, camp: { id: string; x: number; y: number }): void {
-  const pack = ["skwarrior", "skwarrior", "skmage", "skminion"];
+// Themed lineups per camp (camp0 = Armory, camp3 = Cellar get an orc brute);
+// the default pack trades a warrior for the quick skeleton rogue.
+const CAMP_PACKS: Record<string, string[]> = {
+  camp0: ["orcbrute", "skwarrior", "skminion"],
+  camp3: ["orcbrute", "skrogue", "skminion"],
+};
+const DEFAULT_PACK = ["skwarrior", "skrogue", "skmage", "skminion"];
+
+function spawnCampPack(w: World, camp: CampSpec): void {
+  const pack = camp.pack ?? CAMP_PACKS[camp.id] ?? DEFAULT_PACK;
+  if (pack.length === 1) {
+    // a lone elite (the Frost Golem) holds the center of its lair
+    spawnCreep(w, pack[0]!, camp.x, camp.y, camp);
+    return;
+  }
   pack.forEach((type, i) => {
     const a = (i / pack.length) * Math.PI * 2;
     spawnCreep(w, type, camp.x + Math.cos(a) * 2.2, camp.y + Math.sin(a) * 2.2, camp);
@@ -278,7 +307,7 @@ function tickCamps(w: World): void {
     if (alive > 0) continue;
     const at = w.campRespawnAt[camp.id] ?? 0;
     if (at === POPULATED) {
-      w.campRespawnAt[camp.id] = w.gameTime + CAMP_RESPAWN_SEC; // just cleared → schedule
+      w.campRespawnAt[camp.id] = w.gameTime + (camp.respawnSec ?? CAMP_RESPAWN_SEC); // just cleared → schedule
     } else if (w.gameTime >= at) {
       spawnCampPack(w, camp);
       w.campRespawnAt[camp.id] = POPULATED;
@@ -380,6 +409,7 @@ export function step(w: World, dt: number = SIM_DT): void {
 
   tickCamps(w); // (re)populate skeleton camps
   tickBots(w); // bots + skeletons decide intent before movement resolves
+  drainInputBuffers(w); // buffered casts/dodges fire the moment they're legal
 
   for (const u of w.units.values()) {
     if (!u.alive || u.kind === "boss" || u.kind === "dummy") continue;
@@ -404,6 +434,24 @@ function tickHeroLifecycle(w: World, u: Unit, _dt: number): void {
   }
 }
 
+/** Retry queued casts/dodges (input buffer). Runs after bot intent, before
+ *  movement, so a buffered press lands the first tick it becomes legal. */
+function drainInputBuffers(w: World): void {
+  for (const u of w.units.values()) {
+    if (u.kind !== "hero" || !u.alive) continue;
+    const qc = u.queuedCast;
+    if (qc) {
+      if (w.now > qc.until) u.queuedCast = null;
+      else if (castAbility(w, u, qc.key, { point: { x: qc.px, y: qc.py }, dir: { x: qc.ax, y: qc.ay } })) u.queuedCast = null;
+    }
+    const qd = u.queuedDodge;
+    if (qd) {
+      if (w.now > qd.until) u.queuedDodge = null;
+      else if (tryDodge(w, u, qd.mx, qd.my)) u.queuedDodge = null;
+    }
+  }
+}
+
 export function respawn(w: World, u: Unit): void {
   const sp = SPAWNS[slotOf(u) % SPAWNS.length]!;
   u.alive = true;
@@ -420,6 +468,10 @@ export function respawn(w: World, u: Unit): void {
   u.jumpUntil = 0;
   u.dodgeUntil = 0;
   u.dodgeReadyAt = 0;
+  u.queuedCast = null;
+  u.queuedDodge = null;
+  u.steerVx = 0;
+  u.steerVy = 0;
   recomputeStats(u);
   u.hp = u.maxHp;
 }
@@ -443,11 +495,12 @@ const DODGE_CD = 1100; // cooldown — i-frame uptime ~24% (was ~38%, too passiv
 const DODGE_SPEED = 16; // units/sec during the roll
 
 /** Roll in the given direction (movement input; backpedal if idle), keeping
- *  aim-facing, with brief i-frames so you dodge attacks. Host-authoritative. */
-export function tryDodge(w: World, u: Unit, mx: number, my: number): void {
-  if (!u.alive || u.kind !== "hero") return;
-  if (isDisabled(u) || isRooted(u)) return;
-  if (w.now < u.dodgeReadyAt) return;
+ *  aim-facing, with brief i-frames so you dodge attacks. Host-authoritative.
+ *  Returns true when the roll started. */
+export function tryDodge(w: World, u: Unit, mx: number, my: number): boolean {
+  if (!u.alive || u.kind !== "hero") return false;
+  if (isDisabled(u) || isRooted(u)) return false;
+  if (w.now < u.dodgeReadyAt) return false;
   let dx = mx;
   let dy = my;
   if (Math.hypot(dx, dy) < 0.01) {
@@ -463,6 +516,26 @@ export function tryDodge(w: World, u: Unit, mx: number, my: number): void {
   u.dodgeReadyAt = w.now + DODGE_CD;
   u.lastDodgeAt = w.now;
   addStatus(u, { kind: "untargetable", until: w.now + DODGE_IFRAME_MS, id: "dodge" });
+  return true;
+}
+
+const DODGE_BUFFER_LEAD = 250; // press this early into the cooldown tail → queue
+const DODGE_BUFFER_MS = 250; // how long a queued dodge lives
+
+/** Dodge now, or buffer the press if it's almost legal (cooldown tail, mid-
+ *  dash, stunned). Drains in step(). Returns true when the roll started now. */
+export function requestDodge(w: World, u: Unit, mx: number, my: number): boolean {
+  if (tryDodge(w, u, mx, my)) {
+    u.queuedDodge = null;
+    return true;
+  }
+  if (!u.alive || u.kind !== "hero") return false;
+  const soon =
+    u.dodgeReadyAt - w.now <= DODGE_BUFFER_LEAD ||
+    w.now < u.dashUntil ||
+    u.statuses.some((s) => s.kind === "stun");
+  if (soon) u.queuedDodge = { mx, my, until: w.now + DODGE_BUFFER_MS };
+  return false;
 }
 
 function regen(u: Unit, dt: number): void {
@@ -475,35 +548,49 @@ function pruneAssist(u: Unit, now: number): void {
   }
 }
 
-function moveUnit(w: World, u: Unit, dt: number): void {
-  let vx = 0;
-  let vy = 0;
+// Steering accel/decel (units/s of blend rate): starts ramp over ~3 ticks,
+// stops snap in ~1-2 — stop-faster-than-start reads planted, not slippery.
+const MOVE_ACCEL = 16;
+const MOVE_DECEL = 26;
 
+function moveUnit(w: World, u: Unit, dt: number): void {
   if (w.now < u.dashUntil) {
-    // dash overrides steering
-    vx = u.dashVx;
-    vy = u.dashVy;
+    // dash overrides steering (writes it directly — dashes stay instant)
+    u.steerVx = u.dashVx;
+    u.steerVy = u.dashVy;
     // ability dashes face their travel; a dodge-roll keeps facing the crosshair
-    if (w.now >= u.dodgeUntil) u.facing = Math.atan2(vy, vx);
-  } else if (!isRooted(u)) {
-    const jumping = w.now < u.jumpUntil;
-    const ms = effectiveMoveSpeed(u) * (jumping ? 1.25 : 1); // hops cover ground
-    let mx = u.moveX;
-    let my = u.moveY;
-    let mag = Math.hypot(mx, my);
-    // a standing hop still bounds forward along your facing (reads as a leap)
-    if (jumping && mag < 0.01) {
-      mx = Math.cos(u.facing);
-      my = Math.sin(u.facing);
-      mag = 1;
+    if (w.now >= u.dodgeUntil) u.facing = Math.atan2(u.dashVy, u.dashVx);
+  } else {
+    // target velocity from intent, then smooth steer toward it
+    let tx = 0;
+    let ty = 0;
+    if (!isRooted(u)) {
+      const jumping = w.now < u.jumpUntil;
+      const ms = effectiveMoveSpeed(u) * (jumping ? 1.25 : 1); // hops cover ground
+      let mx = u.moveX;
+      let my = u.moveY;
+      let mag = Math.hypot(mx, my);
+      // a standing hop still bounds forward along your facing (reads as a leap)
+      if (jumping && mag < 0.01) {
+        mx = Math.cos(u.facing);
+        my = Math.sin(u.facing);
+        mag = 1;
+      }
+      if (mag > 0.01) {
+        tx = (mx / mag) * ms;
+        ty = (my / mag) * ms;
+      }
     }
-    if (mag > 0.01) {
-      vx = (mx / mag) * ms;
-      vy = (my / mag) * ms;
-    }
+    const rate = tx !== 0 || ty !== 0 ? MOVE_ACCEL : MOVE_DECEL;
+    const a = Math.min(1, rate * dt);
+    u.steerVx += (tx - u.steerVx) * a;
+    u.steerVy += (ty - u.steerVy) * a;
   }
 
-  // knockback impulse (decays linearly to kbUntil)
+  let vx = u.steerVx;
+  let vy = u.steerVy;
+
+  // knockback impulse (decays linearly to kbUntil) stacks on top of steering
   if (w.now < u.kbUntil) {
     const frac = (u.kbUntil - w.now) / 1000;
     vx += u.kbx * frac;

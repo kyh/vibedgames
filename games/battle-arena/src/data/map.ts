@@ -39,16 +39,21 @@ export const RUNE_SPOTS: Vec2[] = Array.from({ length: 4 }, (_, i) => {
   return { x: Math.cos(a) * 33, y: Math.sin(a) * 33 };
 });
 
-/** Neutral skeleton camps — PvE pockets in the outer dungeon, between bases. */
-export type CampSpec = { id: string; x: number; y: number };
+/** Neutral skeleton camps — PvE pockets in the outer dungeon, between bases.
+ *  `pack` overrides the default skeleton lineup; `respawnSec` the cadence. */
+export type CampSpec = { id: string; x: number; y: number; pack?: string[]; respawnSec?: number };
 export const CAMPS: CampSpec[] = Array.from({ length: 6 }, (_, i) => {
   // radius 24 keeps camps clear of the pillar rings (16 & 30) so skeletons
   // don't spawn inside a column and grind against it
   const a = (i / 6) * Math.PI * 2 - Math.PI / 2 + Math.PI / 6; // offset from the bases
   return { id: `camp${i}`, x: Math.cos(a) * 24, y: Math.sin(a) * 24 };
 });
+// Elite lair: the Frost Golem miniboss holds a 7th camp at ring r33 @15° —
+// verified clear of pillars, camps, delivery pads, bases, and rune spots.
+CAMPS.push({ id: "golem", x: 31.9, y: 8.5, pack: ["frostgolem"], respawnSec: 90 });
 
-export type Obstacle = { x: number; y: number; radius: number; height: number };
+/** `model` is a render hint only — the sim reads just x/y/radius. */
+export type Obstacle = { x: number; y: number; radius: number; height: number; model?: string };
 
 /** Cover pillars that break line of sight in the mid-ring. Kept off the
  *  base→center spokes so nobody spawns inside one. */
@@ -64,6 +69,21 @@ export const OBSTACLES: Obstacle[] = (() => {
     const a = (i / 6) * Math.PI * 2;
     out.push({ x: Math.cos(a) * 30, y: Math.sin(a) * 30, radius: 1.1, height: 3.8 });
   }
+  // shrine statues on the delivery-pad spokes — outside the coin ring (r9–22)
+  // and ≥6.8u off the nearest base spoke, so mid-ring flow is untouched
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    out.push({
+      x: Math.cos(a) * 27,
+      y: Math.sin(a) * 27,
+      radius: 0.55,
+      height: 2.6,
+      model: "paladin_statue",
+    });
+  }
+  // two collidable trees where the Breach forest invades the west rim
+  out.push({ x: -36.4, y: 6.4, radius: 1.0, height: 6.5, model: "tree_a" });
+  out.push({ x: -37.7, y: -10.1, radius: 1.0, height: 6.5, model: "tree_c" });
   return out;
 })();
 

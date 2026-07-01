@@ -4,6 +4,7 @@ import { ATTACK_VARIANCE, attackIntervalMs, respawnTime, type DamageType } from 
 import { angleDelta, angleOf, norm, rand } from "./math";
 import {
   absorbShield,
+  addStatus,
   breakStealth,
   computeDamage,
   effectiveAttackSpeed,
@@ -58,7 +59,18 @@ export function resolveAttacks(w: World): void {
     u.lastAttackAt = w.now;
     u.facing = angleOf(u.aimX, u.aimY);
     breakStealth(u);
-    u.pendingAttack = { resolveAt: w.now + (u.attackType === "ranged" ? RANGED_WINDUP : MELEE_WINDUP) };
+    // per-champ melee windup — heavies wind visibly, daggers snap (creeps default)
+    const windup = u.attackType === "ranged" ? RANGED_WINDUP : (CHAMP_BY_ID[u.champId]?.windupMs ?? MELEE_WINDUP);
+    u.pendingAttack = { resolveAt: w.now + windup };
+
+    // attacker lunge / kickback (never fight a real knockback): melee pounces
+    // into the swing; ranged shoulder-kicks against the shot
+    if (w.now >= u.kbUntil) {
+      const push = u.attackType === "ranged" ? -1.4 : 3.0;
+      u.kbx = Math.cos(u.facing) * push;
+      u.kby = Math.sin(u.facing) * push;
+      u.kbUntil = w.now + (u.attackType === "ranged" ? 120 : 140);
+    }
 
     // Melee swing VFX is now a render-side weapon trail that traces the actual
     // animated blade (see render/weapon-trail.ts) — so it always lines up with
@@ -122,14 +134,23 @@ function doAttackHit(w: World, u: Unit): void {
   }
   hits.sort((a, b) => a.d - b.d || (a.t.id < b.t.id ? -1 : 1));
   for (let i = 0; i < hits.length && i < cap; i++) {
+    const t = hits[i]!.t;
     const mult = i === 0 ? 1 : MELEE_CLEAVE_FALLOFF;
-    dealDamage(w, u, hits[i]!.t, raw * mult, u.attackDamageType, { isAttack: true });
+    const heavy = dealDamage(w, u, t, raw * mult, u.attackDamageType, { isAttack: true });
+    // micro-shove on the primary target — basics finally *move* people
+    if (i === 0 && t.alive) applyKnockback(t, u.x, u.y, heavy ? 2.6 : 1.4, w);
+    // FrostGolem on-hit chill (fixed id → refreshes, never stacks)
+    if (u.champId === "frostgolem" && t.alive) {
+      addStatus(t, { kind: "slow", until: w.now + 1500, pct: 25, id: "chill" });
+    }
   }
 }
 
 // ── Central damage ───────────────────────────────────────────────────────────
 export type DamageOpts = { isAttack?: boolean; ap?: number; silentFx?: boolean };
 
+/** Returns true when the hit was HEAVY (≥18% of the victim's max HP) — the
+ *  render heavy/crit tier and the primary-target shove key off it. */
 export function dealDamage(
   w: World,
   attacker: Unit | null,
@@ -137,10 +158,15 @@ export function dealDamage(
   raw: number,
   dtype: DamageType,
   opts: DamageOpts = {},
-): void {
-  if (!victim.alive || raw <= 0) return;
+): boolean {
+  if (!victim.alive || raw <= 0) return false;
   const ap = opts.ap ?? attacker?.abilityPower ?? 0;
-  const final = computeDamage(victim, raw, dtype, ap);
+  let final = computeDamage(victim, raw, dtype, ap);
+  // hidden solo mercy (opt-in, offline): soften AI damage on a struggling human
+  if (w.soloMercy && attacker?.isBot && !victim.isBot && victim.mercy > 0) {
+    final *= 1 - 0.07 * victim.mercy;
+  }
+  const heavy = final >= victim.maxHp * 0.18;
   const leftover = absorbShield(victim, final);
   victim.hp -= leftover;
   victim.lastHitAt = w.now;
@@ -156,11 +182,12 @@ export function dealDamage(
   victim.lastHitDx = dir.x;
   victim.lastHitDy = dir.y;
   if (!opts.silentFx) {
-    w.fx.push({ t: "hit", x: victim.x, y: victim.y, dx: dir.x, dy: dir.y, dtype, by: attacker?.id ?? "" });
-    w.fx.push({ t: "damage", x: victim.x, y: victim.y, amount: Math.round(final), dtype });
+    w.fx.push({ t: "hit", x: victim.x, y: victim.y, dx: dir.x, dy: dir.y, dtype, by: attacker?.id ?? "", to: victim.id, crit: heavy });
+    w.fx.push({ t: "damage", x: victim.x, y: victim.y, amount: Math.round(final), dtype, by: attacker?.id ?? "", crit: heavy });
   }
 
   if (victim.hp <= 0) handleDeath(w, victim, attacker?.ownerId ?? null);
+  return heavy;
 }
 
 export function applyKnockback(u: Unit, fromX: number, fromY: number, force: number, w: World): void {
@@ -185,11 +212,22 @@ export function handleDeath(w: World, victim: Unit, killerId: string | null): vo
   victim.moveX = 0;
   victim.moveY = 0;
   victim.empowerNext = 0;
-  w.fx.push({ t: "death", x: victim.x, y: victim.y, team: victim.team });
+  victim.queuedCast = null;
+  victim.queuedDodge = null;
+  w.fx.push({ t: "death", x: victim.x, y: victim.y, team: victim.team, by: killerId ?? "" });
 
   if (victim.kind === "hero") {
     victim.deaths += 1;
     victim.killStreak = 0;
+    // hidden mercy ramp: a kill-less human dying to a bot earns softening;
+    // any other death decays it (only ever consulted when World.soloMercy)
+    if (!victim.isBot) {
+      if (killerId !== null && killerId.startsWith("bot:") && victim.kills === 0) {
+        victim.mercy = Math.min(3, victim.mercy + 1);
+      } else {
+        victim.mercy = Math.max(0, victim.mercy - 1);
+      }
+    }
     victim.respawnAt = w.now + respawnTime(victim.level) * 1000;
     awardKill(w, killerId, victim);
   } else if (victim.kind === "creep") {
@@ -270,10 +308,20 @@ export function stepProjectiles(w: World, dt: number): void {
     for (const u of w.units.values()) {
       if (!u.alive || u.kind === "boss") continue;
       if (u.team === p.team || u.id === p.ownerId) continue;
-      if (isUntargetable(u)) continue;
       if (p.hitIds.includes(u.id)) continue;
       const reach = p.hitRadius + u.radius;
-      if ((u.x - p.x) ** 2 + (u.y - p.y) ** 2 <= reach * reach) {
+      const overlap = (u.x - p.x) ** 2 + (u.y - p.y) ** 2 <= reach * reach;
+      if (isUntargetable(u)) {
+        // perfect dodge: the shot passes through an active roll's i-frames —
+        // reward with a half-refunded dodge cooldown (one trigger per shot)
+        if (overlap && u.dodgeUntil > w.now) {
+          p.hitIds.push(u.id);
+          u.dodgeReadyAt = w.now + 400;
+          w.fx.push({ t: "perfectDodge", x: u.x, y: u.y, unit: u.id });
+        }
+        continue;
+      }
+      if (overlap) {
         onProjectileHit(w, p, u);
         if (p.pierce) {
           p.hitIds.push(u.id);

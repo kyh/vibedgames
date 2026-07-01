@@ -1,20 +1,29 @@
 // Twin-stick touch controls (build-doc §12). Left half = floating move stick;
-// right half = floating aim stick that auto-fires while held. Ability buttons
-// (Q / W / E / R) + shop are fixed bottom-right. Activates on first touch;
-// stays out of the way on desktop.
+// right half = floating aim stick that auto-fires while held. Fixed bottom-right
+// button grid: Q/W/E · R/JUMP/DODGE · B. Ability buttons take champ icon
+// backgrounds via bindChamp() and per-button conic cooldown sweeps via
+// setCooldown(). Activates on first touch; stays out of the way on desktop.
+import { abilityIcon } from "../data/icons";
 import type { AbilityKey } from "../sim/types";
 
 type Stick = { id: number; baseX: number; baseY: number; dx: number; dy: number };
 
 const STICK_R = 60;
 const KNOB_R = 28;
-const BTN_KEYS: { id: AbilityKey | "B"; label: string }[] = [
-  { id: "Q", label: "SP" },
+
+type BtnId = AbilityKey | "B" | "J" | "D";
+const BTN_KEYS: { id: BtnId; label: string }[] = [
+  { id: "Q", label: "1" },
   { id: "W", label: "2" },
   { id: "E", label: "3" },
   { id: "R", label: "4" },
+  { id: "J", label: "JUMP" },
+  { id: "D", label: "DODGE" },
   { id: "B", label: "B" },
 ];
+const ABILITY_IDS = new Set<string>(["Q", "W", "E", "R"]);
+
+type Btn = { el: HTMLDivElement; label: HTMLSpanElement; cd: HTMLDivElement | null; lastCd: number };
 
 export class TouchControls {
   active = false;
@@ -22,12 +31,16 @@ export class TouchControls {
   private aim: Stick | null = null;
   private queue: AbilityKey[] = [];
   private buy = false;
+  private jump = false;
+  private dodge = false;
   private layer: HTMLDivElement;
   private moveEl: HTMLDivElement;
   private aimEl: HTMLDivElement;
-  private buttons = new Map<string, HTMLDivElement>();
+  private buttons = new Map<string, Btn>();
+  private champBound = "";
 
   constructor() {
+    injectTouchStyle();
     this.layer = document.createElement("div");
     this.layer.id = "ba-touch";
     this.layer.style.cssText = "position:fixed;inset:0;z-index:7;display:none;touch-action:none";
@@ -41,17 +54,28 @@ export class TouchControls {
     for (const b of BTN_KEYS) {
       const el = document.createElement("div");
       el.className = "ba-tbtn";
-      el.textContent = b.label;
-      el.style.cssText =
-        "width:58px;height:58px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(20,26,42,.7);border:2px solid rgba(255,255,255,.25);font:800 18px ui-monospace,monospace;color:#fff";
+      const label = document.createElement("span");
+      label.className = "ba-tl";
+      label.textContent = b.label;
+      if (b.label.length > 1) label.classList.add("word");
+      el.appendChild(label);
+      let cd: HTMLDivElement | null = null;
+      if (ABILITY_IDS.has(b.id)) {
+        cd = document.createElement("div");
+        cd.className = "ba-tcd";
+        el.appendChild(cd);
+      }
       el.addEventListener("pointerdown", (e) => {
         e.stopPropagation();
-        el.style.background = "rgba(255,209,71,.4)";
+        el.classList.add("press");
         if (b.id === "B") this.buy = true;
+        else if (b.id === "J") this.jump = true;
+        else if (b.id === "D") this.dodge = true;
         else this.queue.push(b.id);
       });
-      el.addEventListener("pointerup", () => (el.style.background = "rgba(20,26,42,.7)"));
-      this.buttons.set(b.id, el);
+      el.addEventListener("pointerup", () => el.classList.remove("press"));
+      el.addEventListener("pointercancel", () => el.classList.remove("press"));
+      this.buttons.set(b.id, { el, label, cd, lastCd: -1 });
       pad.appendChild(el);
     }
     this.layer.appendChild(pad);
@@ -63,10 +87,35 @@ export class TouchControls {
     window.addEventListener("pointercancel", this.onUp);
   }
 
+  /** Paint the local champ's ability icons onto Q/W/E/R and demote the digit
+   *  labels to corner keycaps. Idempotent — re-binding the same champ no-ops. */
+  bindChamp(champId: string): void {
+    if (champId === this.champBound) return;
+    this.champBound = champId;
+    for (const key of ["Q", "W", "E", "R"] as AbilityKey[]) {
+      const btn = this.buttons.get(key);
+      if (!btn) continue;
+      btn.el.style.backgroundImage = `url("${abilityIcon(champId, key)}")`;
+      btn.label.classList.add("kc");
+    }
+  }
+
+  /** Per-button conic cooldown sweep. `pct` = fraction of cooldown remaining
+   *  (0 = ready, 1 = just cast). Change-gated to whole-percent writes. */
+  setCooldown(key: AbilityKey, pct: number): void {
+    const btn = this.buttons.get(key);
+    if (!btn || !btn.cd) return;
+    const v = Math.round(Math.max(0, Math.min(1, pct)) * 100);
+    if (v === btn.lastCd) return;
+    btn.lastCd = v;
+    btn.cd.style.setProperty("--cd", `${v}`);
+  }
+
   private activate(): void {
     if (this.active) return;
     this.active = true;
     this.layer.style.display = "block";
+    document.body.classList.add("ba-touch-on");
   }
 
   private onDown = (e: PointerEvent): void => {
@@ -126,6 +175,32 @@ export class TouchControls {
     this.buy = false;
     return b;
   }
+  consumeJump(): boolean {
+    const j = this.jump;
+    this.jump = false;
+    return j;
+  }
+  consumeDodge(): boolean {
+    const d = this.dodge;
+    this.dodge = false;
+    return d;
+  }
+}
+
+let touchStyleInjected = false;
+function injectTouchStyle(): void {
+  if (touchStyleInjected) return;
+  touchStyleInjected = true;
+  const s = document.createElement("style");
+  s.textContent = `
+.ba-tbtn{position:relative;width:58px;height:58px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(20,26,42,.7);border:2px solid rgba(255,255,255,.25);color:#fff;overflow:hidden;background-size:cover;background-position:center;touch-action:none}
+.ba-tbtn.press{filter:brightness(1.6);border-color:rgba(255,209,71,.8)}
+.ba-tbtn .ba-tl{font:800 18px ui-monospace,monospace;pointer-events:none}
+.ba-tbtn .ba-tl.word{font-size:11px;letter-spacing:.5px}
+.ba-tbtn .ba-tl.kc{position:absolute;right:6px;bottom:4px;font:800 10px/14px ui-monospace,monospace;color:#ffd24a;background:rgba(5,8,16,.85);border-radius:4px;padding:0 4px}
+.ba-tcd{position:absolute;inset:0;border-radius:50%;background:conic-gradient(rgba(5,8,16,.75) calc(var(--cd,0)*1%),transparent 0);pointer-events:none}
+`;
+  document.head.appendChild(s);
 }
 
 function stickEl(): HTMLDivElement {

@@ -29,7 +29,9 @@ export type Status =
   | { kind: "armor"; until: number; amount: number; id?: string }
   | { kind: "attackSpeed"; until: number; amount: number; id?: string } // +pct points
   | { kind: "damageAmp"; until: number; pct: number; id?: string }
-  | { kind: "taunt"; until: number; sourceId: string; id?: string };
+  | { kind: "taunt"; until: number; sourceId: string; id?: string }
+  // polymorph (witch R): can't attack or cast, move-slowed by pct. Cleansable.
+  | { kind: "hex"; until: number; pct: number; id?: string };
 
 // ── Unit ─────────────────────────────────────────────────────────────────────
 export type Unit = {
@@ -92,6 +94,16 @@ export type Unit = {
   statuses: Status[];
   recentDamageFrom: Record<string, number>; // attackerId -> ms (assist credit)
 
+  // input buffering — a cast/dodge pressed slightly too early fires the moment
+  // it becomes legal (drained in step() each tick; plain data → rides snapshots)
+  queuedCast: { key: AbilityKey; px: number; py: number; ax: number; ay: number; until: number } | null;
+  queuedDodge: { mx: number; my: number; until: number } | null;
+
+  // steering velocity with accel/decel smoothing (movement reads/writes this;
+  // dashes write it directly, knockback stacks on top)
+  steerVx: number;
+  steerVy: number;
+
   // input intent (host writes from intents each frame)
   moveX: number;
   moveY: number;
@@ -128,6 +140,10 @@ export type Unit = {
   deaths: number;
   assists: number;
   killStreak: number;
+
+  // hidden solo mercy (0–3): bot→human damage softens while a kill-less human
+  // keeps dying (only active when World.soloMercy; never announced)
+  mercy: number;
 };
 
 // ── Projectile ───────────────────────────────────────────────────────────────
@@ -173,6 +189,7 @@ export type GroundEffect = {
   nextTick: number; // ms
   tickInterval: number; // ms
   enemyDps?: number;
+  allyHps?: number; // heal/s for the owner's side inside the zone (consecrate)
   dtype?: DamageType;
   slowPct?: number;
   rootMs?: number;
@@ -212,11 +229,12 @@ export type BossState = {
 
 // ── One-shot FX pulses (host → renderer; also forwarded over the wire) ───────
 export type FxEvent =
-  | { t: "hit"; x: number; y: number; dx: number; dy: number; dtype: DamageType; by: string; crit?: boolean }
+  | { t: "hit"; x: number; y: number; dx: number; dy: number; dtype: DamageType; by: string; to: string; crit?: boolean }
   | { t: "swing"; x: number; y: number; ang: number; r: number; melee: boolean; dtype: DamageType }
-  | { t: "damage"; x: number; y: number; amount: number; dtype: DamageType; crit?: boolean }
+  | { t: "damage"; x: number; y: number; amount: number; dtype: DamageType; by: string; crit?: boolean }
   | { t: "cast"; x: number; y: number; dx: number; dy: number; champId: string; key: AbilityKey }
-  | { t: "death"; x: number; y: number; team: Team }
+  | { t: "death"; x: number; y: number; team: Team; by: string }
+  | { t: "itemUse"; x: number; y: number; item: string }
   | { t: "kill"; killer: string; victim: string; killerName: string; victimName: string; leader?: boolean }
   | { t: "coinGrab"; x: number; y: number; gold: number }
   | { t: "coinThrow"; x: number; y: number; tx: number; ty: number }
@@ -225,6 +243,7 @@ export type FxEvent =
   | { t: "explosion"; x: number; y: number; radius: number; kind: string }
   | { t: "blink"; x: number; y: number; tx: number; ty: number }
   | { t: "heal"; x: number; y: number; amount: number }
+  | { t: "perfectDodge"; x: number; y: number; unit: string }
   | { t: "notify"; text: string; kind: string };
 
 // ── The World ────────────────────────────────────────────────────────────────
@@ -248,6 +267,7 @@ export type World = {
   nextCoinAt: number; // gameTime s
   nextDeliveryAt: number; // gameTime s
   campRespawnAt: Record<string, number>; // campId → gameTime to repopulate
+  soloMercy?: boolean; // offline-only opt-in: enables the hidden mercy scaling
 
   fx: FxEvent[]; // drained by renderer each frame
   seq: number; // id counter
