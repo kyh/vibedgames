@@ -5,6 +5,7 @@ import { afterEach, test } from "node:test";
 
 import {
   buildCodexPrompt,
+  CodexError,
   parseCodexInput,
   placeCodexOutputs,
   renderLocalTarget,
@@ -33,6 +34,18 @@ test("resolveProvider: flag, env fallback, aliases, and unknown", () => {
   assert.equal(resolveProvider("vibedgames"), "vibedgames");
 
   assert.throws(() => resolveProvider("coddex"), /Unknown --provider/);
+});
+
+test("CodexError carries notInstalled and output for clean surfacing", () => {
+  const missing = new CodexError("not found", { notInstalled: true });
+  assert.equal(missing.name, "CodexError");
+  assert.equal(missing.notInstalled, true);
+  assert.equal(missing.output, "");
+  assert.ok(missing instanceof Error);
+
+  const failed = new CodexError("exec failed", { output: "codex said no" });
+  assert.equal(failed.notInstalled, false);
+  assert.equal(failed.output, "codex said no");
 });
 
 test("parseCodexInput extracts prompt, count (clamped), size hint, and references", () => {

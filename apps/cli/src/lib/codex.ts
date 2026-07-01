@@ -3,7 +3,6 @@ import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, statSync } from "nod
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve } from "node:path";
 
-import consola from "consola";
 import spawn from "cross-spawn";
 
 import { readExplicitLocalFile } from "./media-args.js";
@@ -15,6 +14,23 @@ import { disambiguateTargets } from "./media-download.js";
 // touches the vibedgames backend — useful for users whose plan already
 // bundles image generation.
 export type Provider = "vibedgames" | "codex";
+
+/**
+ * Expected, user-facing failure of the codex provider. Carries a clean
+ * message plus any output Codex itself emitted, so the caller can present
+ * it directly instead of dumping a stack trace. `notInstalled` flags the
+ * "`codex` binary missing" case so callers can suggest a fallback.
+ */
+export class CodexError extends Error {
+  readonly notInstalled: boolean;
+  readonly output: string;
+  constructor(message: string, opts: { notInstalled?: boolean; output?: string } = {}) {
+    super(message);
+    this.name = "CodexError";
+    this.notInstalled = opts.notInstalled ?? false;
+    this.output = opts.output ?? "";
+  }
+}
 
 /**
  * Resolve the effective provider from the `--provider` flag, falling back
@@ -175,6 +191,13 @@ type CodexRun = {
   prompt: string;
   /** Absolute paths to the images Codex produced, in a stable order. */
   rawFiles: string[];
+  /**
+   * Reference inputs that were dropped because they weren't local files
+   * (Codex can only attach on-disk references). Surfaced to the caller so
+   * it isn't silently lost — especially under --json, where a warning to
+   * a suppressed logger would vanish.
+   */
+  ignoredReferences: string[];
 };
 
 function codexHome(): string {
@@ -231,20 +254,21 @@ function pickNewest(paths: string[], limit: number): string[] {
  */
 export async function generateImagesWithCodex(opts: {
   input: Record<string, unknown>;
-  quiet: boolean;
 }): Promise<CodexRun> {
   const parsed = parseCodexInput(opts.input);
   if (!parsed.prompt) {
-    throw new Error("codex image generation requires a prompt (--prompt).");
+    throw new CodexError("codex image generation requires a prompt (--prompt).");
   }
 
+  // Codex can only attach on-disk references. Record any non-local ones
+  // (e.g. uploaded URLs) so the caller can surface them even under --json,
+  // rather than silently generating plain text-to-image.
   const references: string[] = [];
+  const ignoredReferences: string[] = [];
   for (const candidate of parsed.referenceCandidates) {
     const local = readExplicitLocalFile(candidate);
     if (local) references.push(local.path);
-    else if (!opts.quiet) {
-      consola.warn(`Ignoring non-local reference for codex provider: ${candidate}`);
-    }
+    else ignoredReferences.push(candidate);
   }
 
   const requestId = randomBytes(4).toString("hex");
@@ -269,16 +293,19 @@ export async function generateImagesWithCodex(opts: {
   const storeDir = join(codexHome(), "generated_images");
   const before = new Set(listImages(storeDir));
 
-  const outcome = await spawnCodex(bin, args, workDir, opts.quiet);
+  const outcome = await spawnCodex(bin, args, workDir);
   if (outcome.notFound) {
-    throw new Error(
+    throw new CodexError(
       `The \`codex\` CLI was not found on PATH. Install it (npm install -g @openai/codex) ` +
         `and sign in with \`codex login\`, or drop --provider codex to use vibedgames. ` +
         `Set VG_CODEX_BIN to point at a specific binary.`,
+      { notInstalled: true },
     );
   }
   if (outcome.code !== 0) {
-    throw new Error(`codex exec exited with code ${outcome.code}.${tail(outcome.stderr)}`);
+    throw new CodexError(`codex exec exited with code ${outcome.code}.`, {
+      output: outcome.output,
+    });
   }
 
   // Prefer the exact filenames we pinned in the prompt — those are the
@@ -297,16 +324,24 @@ export async function generateImagesWithCodex(opts: {
     parsed.count,
   );
   // Pinned workspace files win; then the store; then, as a last resort,
-  // any workspace PNG (Codex saved images but chose different names).
-  const rawFiles = pinnedWork.length > 0 ? pinnedWork : fromStore.length > 0 ? fromStore : fromWork;
+  // any workspace PNG (Codex saved images but chose different names) —
+  // capped to `count` like the store branch so an unexpected extra file
+  // can't inflate the output set.
+  const rawFiles =
+    pinnedWork.length > 0
+      ? pinnedWork
+      : fromStore.length > 0
+        ? fromStore
+        : pickNewest(fromWork, parsed.count);
   if (rawFiles.length === 0) {
-    throw new Error(
+    throw new CodexError(
       `codex produced no image files. It may have declined the request or lack ` +
-        `image-generation access on the signed-in plan.${tail(outcome.stderr)}`,
+        `image-generation access on the signed-in plan.`,
+      { output: outcome.output },
     );
   }
 
-  return { requestId, prompt, rawFiles };
+  return { requestId, prompt, rawFiles, ignoredReferences };
 }
 
 /**
@@ -349,40 +384,36 @@ export function placeCodexOutputs(
   return { downloaded, failed };
 }
 
-function tail(stderr: string): string {
-  const trimmed = stderr.trim();
-  if (!trimmed) return "";
-  const lines = trimmed.split("\n").slice(-8).join("\n");
-  return `\n${lines}`;
-}
-
 function spawnCodex(
   bin: string,
   args: string[],
   cwd: string,
-  quiet: boolean,
-): Promise<{ code: number; stderr: string; notFound: boolean }> {
+): Promise<{ code: number; output: string; notFound: boolean }> {
   return new Promise((resolvePromise) => {
     const child = spawn(bin, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
-    let stderr = "";
+    let output = "";
+    // Forward Codex's own stdout/stderr straight to our stderr so the user
+    // sees its progress and messages directly. It goes to stderr (never
+    // stdout) so it can't corrupt our `--json` payload. We also buffer it
+    // so a failure can surface the tail even for a caller that isn't
+    // watching the live stream.
     child.stdout?.on("data", (c: Buffer) => {
-      // Codex prints only its final message to stdout; surface it as
-      // progress for humans but keep it out of our JSON on stdout.
-      if (!quiet) process.stderr.write(c);
+      output += c.toString("utf8");
+      process.stderr.write(c);
     });
     child.stderr?.on("data", (c: Buffer) => {
-      stderr += c.toString("utf8");
-      if (!quiet) process.stderr.write(c);
+      output += c.toString("utf8");
+      process.stderr.write(c);
     });
     child.on("error", (err: NodeJS.ErrnoException) => {
       resolvePromise({
         code: 1,
-        stderr: stderr + err.message,
+        output: output + err.message,
         notFound: err.code === "ENOENT",
       });
     });
     child.on("close", (code) => {
-      resolvePromise({ code: code ?? 1, stderr, notFound: false });
+      resolvePromise({ code: code ?? 1, output, notFound: false });
     });
   });
 }

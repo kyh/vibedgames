@@ -106,14 +106,19 @@ Notes:
   "request_id": "8455b74a", // locally-generated id (not a queue id — cannot be polled)
   "result": { "provider": "codex", "prompt": "<expanded prompt>", "images": [{ "path": "…png" }] },
   "downloaded_files": ["/abs/out/8455b74a.png"], // ← the deliverable
-  "download_failures": [{ "url": "<source path>", "error": "…" }] // only if a copy failed
+  "download_failures": [{ "url": "<source path>", "error": "…" }], // only if a copy failed
+  "ignored_references": ["https://…/cat.png"] // only if a non-local reference was dropped
 }
 ```
+
+`ignored_references` lists any `--image_url`/`--image_urls` values that were **not** local files — Codex can only attach on-disk references, so URLs are dropped (also warned on stderr). If you need a URL as a reference, download it locally first and pass the path.
+
+**Output passthrough.** Codex's own stdout/stderr (progress and messages) is forwarded straight to this command's **stderr** as it runs — even under `--json`/`--quiet` — so `stdout` stays a clean JSON document while the user still sees what Codex is doing.
 
 **Failure semantics** (deterministic, for agent control flow):
 
 - Success → exit `0`, `downloaded_files` non-empty.
-- `codex` not on `PATH`, exec non-zero, or zero images produced → the command throws and exits **non-zero**; the message on stderr says which (missing binary / declined request / no image access). Fall back to the default provider or surface the message.
+- `codex` not on `PATH`, exec non-zero, or zero images produced → the command prints a single clean `ERROR` line to stderr (no stack trace) and exits **non-zero**; the message says which (missing binary / declined request / no image access) and names the vibedgames fallback. Codex's own output already streamed to stderr above it.
 - Every copy failed → exit `1` with `download_failures` populated and `downloaded_files` empty.
 
 ## status: async job

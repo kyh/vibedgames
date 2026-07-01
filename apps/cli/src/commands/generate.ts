@@ -2,7 +2,12 @@ import { defineCommand } from "citty";
 import consola from "consola";
 
 import { createClient } from "../lib/api.js";
-import { generateImagesWithCodex, placeCodexOutputs, resolveProvider } from "../lib/codex.js";
+import {
+  CodexError,
+  generateImagesWithCodex,
+  placeCodexOutputs,
+  resolveProvider,
+} from "../lib/codex.js";
 import { parseDownloadFlag, parseRunInput, readExplicitLocalFile } from "../lib/media-args.js";
 import { downloadMedia, extractMediaRefs } from "../lib/media-download.js";
 import { endpointPath, queueAppId, waitForCompletion } from "../lib/media-poll.js";
@@ -172,11 +177,29 @@ async function runViaCodex(opts: {
     process.exit(1);
   }
 
-  const quiet = Boolean(args.quiet) || isJsonOutput(args);
-  const { requestId, rawFiles, prompt } = await generateImagesWithCodex({
-    input: finalInput,
-    quiet,
-  });
+  let result: Awaited<ReturnType<typeof generateImagesWithCodex>>;
+  try {
+    result = await generateImagesWithCodex({ input: finalInput });
+  } catch (err) {
+    if (err instanceof CodexError) {
+      // Expected, user-facing failure (codex missing / declined / exec
+      // error). Present it cleanly with a deterministic exit code instead
+      // of an unhandled stack trace — consola.error goes to stderr, so it
+      // never corrupts a --json consumer's stdout. Codex's own output
+      // already streamed straight to stderr as it ran (and the message
+      // already names the vibedgames fallback), so we don't reprint here.
+      consola.error(err.message);
+      process.exit(1);
+    }
+    throw err;
+  }
+  const { requestId, rawFiles, prompt, ignoredReferences } = result;
+  // Warn about dropped (non-local) references on stderr regardless of
+  // --json/--quiet — stderr never corrupts the JSON payload — and also
+  // record them in the JSON so an agent parsing stdout sees the signal.
+  for (const ref of ignoredReferences) {
+    consola.warn(`Ignored non-local reference (codex needs a local file path): ${ref}`);
+  }
 
   const template = downloadFlag.mode === "on" ? downloadFlag.template : undefined;
   const { downloaded, failed } = placeCodexOutputs(rawFiles, template, requestId);
@@ -189,6 +212,7 @@ async function runViaCodex(opts: {
     result: { provider: "codex", prompt, images: downloaded.map((path) => ({ path })) },
     downloaded_files: downloaded,
     ...(failed.length > 0 ? { download_failures: failed } : {}),
+    ...(ignoredReferences.length > 0 ? { ignored_references: ignoredReferences } : {}),
   };
 
   if (isJsonOutput(args)) {
