@@ -96,6 +96,26 @@ Notes:
 - Recognized inputs: `--prompt` (required), `--num_images` (1–8), size hints (`--image_size` / `--aspect_ratio` / `--width` + `--height`), and local reference files (`--image_url` / `--image_urls`). Other model params are ignored.
 - Output always lands on disk (there are no remote URLs). Without `--download`, files are written to the cwd as `codex-image-<request_id>-<index>.png`; paths appear under `downloaded_files` in JSON.
 
+**JSON output shape** (agents: read `downloaded_files` for the on-disk paths — there are no URLs to fetch):
+
+```jsonc
+{
+  "status": "completed",
+  "provider": "codex", // present only on the codex path; absent for vibedgames
+  "endpoint_id": "codex", // echoes the positional arg; not meaningful for codex
+  "request_id": "8455b74a", // locally-generated id (not a queue id — cannot be polled)
+  "result": { "provider": "codex", "prompt": "<expanded prompt>", "images": [{ "path": "…png" }] },
+  "downloaded_files": ["/abs/out/8455b74a.png"], // ← the deliverable
+  "download_failures": [{ "url": "<source path>", "error": "…" }] // only if a copy failed
+}
+```
+
+**Failure semantics** (deterministic, for agent control flow):
+
+- Success → exit `0`, `downloaded_files` non-empty.
+- `codex` not on `PATH`, exec non-zero, or zero images produced → the command throws and exits **non-zero**; the message on stderr says which (missing binary / declined request / no image access). Fall back to the default provider or surface the message.
+- Every copy failed → exit `1` with `download_failures` populated and `downloaded_files` empty.
+
 ## status: async job
 
 ```bash
