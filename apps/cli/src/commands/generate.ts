@@ -2,6 +2,7 @@ import { defineCommand } from "citty";
 import consola from "consola";
 
 import { createClient } from "../lib/api.js";
+import { generateImagesWithCodex, placeCodexOutputs, resolveProvider } from "../lib/codex.js";
 import { parseDownloadFlag, parseRunInput, readExplicitLocalFile } from "../lib/media-args.js";
 import { downloadMedia, extractMediaRefs } from "../lib/media-download.js";
 import { endpointPath, queueAppId, waitForCompletion } from "../lib/media-poll.js";
@@ -53,6 +54,11 @@ const runCommand = defineCommand({
       type: "boolean",
       description: "Submit to queue and return request_id without waiting.",
     },
+    provider: {
+      type: "string",
+      description:
+        "Execution backend: vibedgames (default) or codex (delegate image generation to the local Codex CLI / your Codex plan). Also settable via VG_GENERATE_PROVIDER.",
+    },
     download: {
       type: "string",
       description:
@@ -66,8 +72,15 @@ const runCommand = defineCommand({
     // parseRunInput already skips non-`--` tokens, so the positional
     // endpoint_id and any subcommand name in argv are no-ops.
     const finalInput = parseRunInput(rawArgs);
-    const client = createClient();
     const endpoint_id = args.endpoint_id;
+
+    const provider = resolveProvider(args.provider);
+    if (provider === "codex") {
+      await runViaCodex({ args, finalInput, downloadFlag, endpoint_id });
+      return;
+    }
+
+    const client = createClient();
 
     const submission = await client.generate.forward.mutate({
       target: "queue",
@@ -141,6 +154,53 @@ const runCommand = defineCommand({
     }
   },
 });
+
+// Delegate image generation to the local Codex CLI instead of the
+// vibedgames model runner. Produces local files directly (Codex writes
+// to disk), so there's no queue, no request polling, and no vibedgames
+// backend call. The `--download` template still controls output naming;
+// without it we default to cwd.
+async function runViaCodex(opts: {
+  args: { async?: boolean; json?: boolean; quiet?: boolean };
+  finalInput: Record<string, unknown>;
+  downloadFlag: { mode: "off" | "on"; template?: string };
+  endpoint_id: string;
+}): Promise<void> {
+  const { args, finalInput, downloadFlag, endpoint_id } = opts;
+  if (args.async) {
+    consola.error("--async is not supported with --provider codex (Codex runs synchronously).");
+    process.exit(1);
+  }
+
+  const quiet = Boolean(args.quiet) || isJsonOutput(args);
+  const { requestId, rawFiles, prompt } = await generateImagesWithCodex({
+    input: finalInput,
+    quiet,
+  });
+
+  const template = downloadFlag.mode === "on" ? downloadFlag.template : undefined;
+  const { downloaded, failed } = placeCodexOutputs(rawFiles, template, requestId);
+
+  const payload = {
+    status: "completed",
+    provider: "codex",
+    endpoint_id,
+    request_id: requestId,
+    result: { provider: "codex", prompt, images: downloaded.map((path) => ({ path })) },
+    downloaded_files: downloaded,
+    ...(failed.length > 0 ? { download_failures: failed } : {}),
+  };
+
+  if (isJsonOutput(args)) {
+    writeJson(payload);
+  } else {
+    consola.success(`Codex generated ${downloaded.length} image(s) (${requestId})`);
+    for (const path of downloaded) consola.log(`  ${path}`);
+    for (const f of failed) consola.warn(`  failed: ${f.source} (${f.error})`);
+  }
+
+  if (failed.length > 0 && downloaded.length === 0) process.exit(1);
+}
 
 // ---- status -----------------------------------------------------------------
 

@@ -8,7 +8,14 @@ import { basename, extname, isAbsolute, join, resolve } from "node:path";
 // here: it's a `vg generate status` flag, not a `run` flag, so swallowing it
 // would block users from passing a legitimate `logs` parameter to a
 // model endpoint.
-const RUN_RESERVED_FLAGS = new Set(["--json", "--help", "--quiet", "--async", "--download"]);
+const RUN_RESERVED_FLAGS = new Set([
+  "--json",
+  "--help",
+  "--quiet",
+  "--async",
+  "--download",
+  "--provider",
+]);
 
 /**
  * Parse `--<key> value` pairs from argv into a JS object, JSON-decoding

@@ -64,7 +64,37 @@ Any model input parameter can be passed as `--<param> <value>`. Run `vg generate
 | `--<param>`             | Any model input parameter                                                                                                                                                                                                                                                                                                                   |
 | `--logs`                | Stream logs while the model runs (pretty mode only)                                                                                                                                                                                                                                                                                         |
 | `--async`               | Submit to queue without waiting, returns a `request_id`                                                                                                                                                                                                                                                                                     |
+| `--provider <name>`     | Execution backend. `vibedgames` (default) runs the model catalog. `codex` delegates **image generation** to a locally-installed Codex CLI (see below). Also settable via `VG_GENERATE_PROVIDER`.                                                                                                                                             |
 | `--download [template]` | Save every media URL in the result. Optional template uses `{index}`, `{name}`, `{ext}`, `{request_id}` placeholders. Omitted → cwd with source file names. Trailing `/` or existing dir → dir + source names. Plain filename + multiple outputs → `_1`, `_2` collision suffixes. Downloaded paths appear under `downloaded_files` in JSON. |
+
+### Provider: codex (use your own Codex plan for images)
+
+If you have a Codex plan that includes image generation, `--provider codex` generates images locally through the `codex` CLI instead of the vibedgames catalog — nothing hits the vibedgames backend.
+
+```bash
+# Text-to-image via your Codex plan. The endpoint_id is required by the
+# command but ignored for codex (Codex uses its own built-in image model).
+vg generate run codex --provider codex --prompt "a fox in a hat" --json
+
+# Multiple images + a download template (same {index}/{ext}/{request_id} syntax).
+vg generate run codex --provider codex --prompt "a fox" --num_images 2 \
+  --download "./out/{request_id}_{index}.{ext}" --json
+
+# Image edit: pass a LOCAL file path as the reference (no upload needed).
+vg generate run codex --provider codex --image_url ./cat.png \
+  --prompt "make the sky stormy" --download ./out/ --json
+
+# Set it globally so skills that call `vg generate run` route to Codex.
+export VG_GENERATE_PROVIDER=codex
+```
+
+Notes:
+
+- **Requirements:** the `codex` CLI on `PATH` (`npm install -g @openai/codex`) and a signed-in Codex plan with image generation (`codex login`). Point `VG_CODEX_BIN` at a specific binary if it isn't on `PATH`.
+- **Images only.** Codex has no video/audio/3D generation; use the default provider for those.
+- **Always synchronous.** `--async` is rejected — Codex writes files directly, so there is no queue or `request_id` to poll.
+- Recognized inputs: `--prompt` (required), `--num_images` (1–8), size hints (`--image_size` / `--aspect_ratio` / `--width` + `--height`), and local reference files (`--image_url` / `--image_urls`). Other model params are ignored.
+- Output always lands on disk (there are no remote URLs). Without `--download`, files are written to the cwd as `codex-image-<request_id>-<index>.png`; paths appear under `downloaded_files` in JSON.
 
 ## status: async job
 
@@ -199,3 +229,8 @@ vg generate pricing <endpoint_id> --json
 ## Environment
 
 The CLI itself takes no required env vars — it talks to the vibedgames proxy, which holds the generation credentials server-side. Override the proxy URL with `VIBEDGAMES_API_URL` if pointing at a non-default deployment.
+
+| Env var                | Effect                                                                                             |
+| ---------------------- | -------------------------------------------------------------------------------------------------- |
+| `VG_GENERATE_PROVIDER` | Default execution backend for `vg generate run` (`vibedgames` or `codex`). The `--provider` flag wins over it. |
+| `VG_CODEX_BIN`         | Path to the `codex` binary when using `--provider codex` and `codex` isn't on `PATH` (default `codex`). |
