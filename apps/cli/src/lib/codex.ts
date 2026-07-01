@@ -7,6 +7,7 @@ import consola from "consola";
 import spawn from "cross-spawn";
 
 import { readExplicitLocalFile } from "./media-args.js";
+import { disambiguateTargets } from "./media-download.js";
 
 // `vg generate run` can execute against the vibedgames model runner
 // (default) or delegate image generation to a locally-installed Codex
@@ -201,6 +202,26 @@ function listImages(dir: string): string[] {
   return out.toSorted();
 }
 
+// Keep the `limit` most-recently-modified paths (by mtime), returned in
+// stable name order. Used to bound the shared-store fallback.
+function pickNewest(paths: string[], limit: number): string[] {
+  if (paths.length <= limit) return paths;
+  const withTime = paths.map((p) => {
+    let mtimeMs = 0;
+    try {
+      mtimeMs = statSync(p).mtimeMs;
+    } catch {
+      // Gone between listing and stat; sort it oldest.
+    }
+    return { p, mtimeMs };
+  });
+  return withTime
+    .toSorted((a, b) => b.mtimeMs - a.mtimeMs)
+    .slice(0, limit)
+    .map((x) => x.p)
+    .toSorted();
+}
+
 /**
  * Delegate image generation to the local `codex` CLI. Runs
  * `codex exec` in an isolated temp workspace, then collects the produced
@@ -261,7 +282,15 @@ export async function generateImagesWithCodex(opts: {
   }
 
   const fromWork = listImages(workDir);
-  const fromStore = listImages(storeDir).filter((p) => !before.has(p));
+  // Fallback only when Codex ignored the workspace and wrote to its
+  // shared store. That store is not scoped to this invocation, so cap to
+  // the newest `count` new files to limit picking up a concurrent run's
+  // outputs (best-effort — Codex names store files itself, so there's no
+  // requestId to match on).
+  const fromStore = pickNewest(
+    listImages(storeDir).filter((p) => !before.has(p)),
+    parsed.count,
+  );
   const rawFiles = fromWork.length > 0 ? fromWork : fromStore;
   if (rawFiles.length === 0) {
     throw new Error(
@@ -285,9 +314,17 @@ export function placeCodexOutputs(
 ): { downloaded: string[]; failed: { source: string; error: string }[] } {
   const downloaded: string[] = [];
   const failed: { source: string; error: string }[] = [];
-  rawFiles.forEach((source, index) => {
+  // Render every target first, then disambiguate colliding paths the same
+  // way downloadMedia does — a multi-image run with a template that lacks
+  // {index} (e.g. `{request_id}.{ext}` or a fixed filename) would
+  // otherwise overwrite earlier outputs while still reporting each path.
+  const rendered = rawFiles.map((source, index) => {
     const ext = extname(source).slice(1).toLowerCase() || "png";
-    const target = renderLocalTarget(template, index, ext, requestId, rawFiles.length);
+    return renderLocalTarget(template, index, ext, requestId, rawFiles.length);
+  });
+  const targets = disambiguateTargets(rendered);
+  rawFiles.forEach((source, index) => {
+    const target = targets[index]!;
     try {
       if (resolve(source) !== target) {
         mkdirSync(dirname(target), { recursive: true });

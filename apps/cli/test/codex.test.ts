@@ -105,6 +105,24 @@ test("placeCodexOutputs copies raw files to rendered targets", () => {
   assert.equal(readFileSync(downloaded[1]!, "utf8"), "BBB");
 });
 
+test("placeCodexOutputs disambiguates colliding targets instead of overwriting", () => {
+  const src = makeTmpDir(cleanups, "vg-codex-collide-src-");
+  const dst = makeTmpDir(cleanups, "vg-codex-collide-dst-");
+  const a = join(src, "output-0.png");
+  const b = join(src, "output-1.png");
+  writeFileSync(a, "AAA");
+  writeFileSync(b, "BBB");
+
+  // Template lacks {index}, so both outputs render to the same path.
+  const template = join(dst, "{request_id}.{ext}");
+  const { downloaded, failed } = placeCodexOutputs([a, b], template, "zz99");
+  assert.equal(failed.length, 0);
+  // Second file gets a `_1` suffix rather than clobbering the first.
+  assert.deepEqual(downloaded, [join(dst, "zz99.png"), join(dst, "zz99_1.png")]);
+  assert.equal(readFileSync(downloaded[0]!, "utf8"), "AAA");
+  assert.equal(readFileSync(downloaded[1]!, "utf8"), "BBB");
+});
+
 test("placeCodexOutputs is a no-op copy when target equals source", () => {
   const dir = makeTmpDir(cleanups, "vg-codex-same-");
   mkdirSync(dir, { recursive: true });
