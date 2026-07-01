@@ -69,7 +69,7 @@ Any model input parameter can be passed as `--<param> <value>`. Run `vg generate
 
 ### Provider: codex (use your own Codex plan for images)
 
-If you have a Codex plan that includes image generation, `--provider codex` generates images locally through the `codex` CLI instead of the vibedgames catalog — nothing hits the vibedgames backend.
+If you have a Codex plan that includes image generation, `--provider codex` generates images locally through the `codex` CLI instead of the vibedgames catalog — nothing hits the vibedgames backend. It needs **no vibedgames auth** (`vg login` / `VG_TOKEN` are not required); the only credential is your own signed-in Codex plan.
 
 ```bash
 # Text-to-image via your Codex plan. The endpoint_id is required by the
