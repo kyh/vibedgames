@@ -19,14 +19,18 @@ function DiscoverPage() {
   return (
     <>
       <RegisterLink />
-      <header className="fixed bottom-16 left-0 z-10 flex max-h-full max-w-dvw flex-col px-4 sm:w-96">
+      <header className="fixed bottom-16 left-0 z-10 flex max-h-[70vh] max-w-dvw flex-col px-4">
         <FadeInBlur className="scroll-fade flex gap-4 overflow-auto pb-2 sm:flex-col-reverse">
           {featuredGames.map((game) => (
             <button
               key={game.slug}
               onMouseEnter={() => {
                 if (activeGame === game.slug) return;
-                void navigate({ to: "/discover", search: { game: game.slug }, replace: true });
+                void navigate({
+                  to: "/discover",
+                  search: { game: game.slug },
+                  replace: true,
+                });
               }}
               onClick={() => {
                 trigger("selection");
