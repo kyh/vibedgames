@@ -100,3 +100,5 @@ vg --help                 # confirm the CLI is on PATH
 ```
 
 In this repo, run `pnpm dogfood` instead — it links the local CLI build and syncs `.claude/skills/`. The vibedgames server holds the API key, so there is no per-machine API-key step. See [full-reference.md](references/full-reference.md) for output modes and JSON conventions.
+
+**Auth is just-in-time — don't log in at install.** `vg generate` proxies through the vibedgames backend (which attaches the credentials), so it needs a session. Run a `vg generate` command unauthenticated and the CLI stops with `Not logged in. Run vg login` (device-code flow); for headless/agent use set `VG_TOKEN` instead. Nothing needs authenticating until you actually generate. (The `--provider codex` path is the exception — it runs locally and needs no vibedgames auth at all.)

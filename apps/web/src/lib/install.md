@@ -32,8 +32,14 @@ If you're a different agent, pass `--agent <name>` (supports 45+ agents
 
 The skills you just installed tell you how to handle prompts like _"add
 multiplayer"_, _"generate pixel art for the player"_, or _"deploy this
-game"_. The `deploy` skill will prompt the user to authenticate
-(`vg login`, device-code flow) the first time they ship something — no
-need to log in now.
+game"_.
+
+**Don't log in yet.** Authentication is only for actions that hit the
+vibedgames backend — deploying a game (`vg deploy`) or generating assets
+(`vg generate`). The first time you run one of those unauthenticated, the
+CLI stops and tells you to run `vg login` (device-code flow) — not before.
+Installing, scaffolding
+(`vg new`), building, and local preview need no account, so there's
+nothing to authenticate now.
 
 Docs: https://vibedgames.com/docs
