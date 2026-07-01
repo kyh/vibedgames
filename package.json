@@ -26,6 +26,7 @@
     "dev:farm": "turbo watch dev -F @repo/farm...",
     "dev:moba": "turbo watch dev -F @repo/moba...",
     "dev:crazy-taxi": "turbo watch dev -F @repo/crazy-taxi...",
+    "dev:battle-arena": "turbo watch dev -F @repo/battle-arena...",
     "dev:cli": "turbo watch dev -F vibedgames...",
     "lint": "oxlint --report-unused-disable-directives",
     "r2:lifecycle": "pnpm -C apps/web exec wrangler r2 bucket lifecycle set vibedgames-games --file ./infra/r2/vibedgames-games.lifecycle.json --force",

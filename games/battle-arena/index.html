@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <link rel="icon" href="data:," />
+    <title>Battle Arena</title>
+    <style>
+      * {
+        box-sizing: border-box;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #0a0c14;
+        color: #fff;
+        font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        touch-action: none;
+      }
+      #game {
+        position: fixed;
+        inset: 0;
+        cursor: crosshair;
+      }
+      #game canvas {
+        display: block;
+      }
+      #hud {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 5;
+      }
+      #loading {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        background: #0a0c14;
+        z-index: 30;
+      }
+      #loading .lt {
+        font: 900 italic clamp(38px, 9vw, 86px) / 1 system-ui, sans-serif;
+        letter-spacing: -2px;
+        color: #ffd24a;
+        transform: rotate(-3deg);
+        text-shadow: 0 0 40px rgba(255, 160, 40, 0.4);
+      }
+      #bar {
+        width: min(60vw, 340px);
+        height: 10px;
+        border-radius: 6px;
+        background: rgba(255, 255, 255, 0.12);
+        overflow: hidden;
+      }
+      #bar-fill {
+        height: 100%;
+        width: 0%;
+        background: #ffd24a;
+        transition: width 0.2s;
+      }
+      #loading .ls {
+        font-size: 12px;
+        letter-spacing: 2px;
+        opacity: 0.6;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="game"></div>
+    <div id="hud"></div>
+    <div id="loading">
+      <div class="lt">BATTLE ARENA</div>
+      <div id="bar"><div id="bar-fill"></div></div>
+      <div class="ls">ENTERING THE ARENA…</div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,25 @@
+{
+  "name": "@repo/battle-arena",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "clean": "rm -rf .turbo dist node_modules",
+    "dev": "vite",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@vibedgames/gamepad": "workspace:^",
+    "@vibedgames/multiplayer": "workspace:^",
+    "three": "^0.184.0"
+  },
+  "devDependencies": {
+    "@kyh/tsconfig": "catalog:",
+    "@types/node": "catalog:",
+    "@types/three": "^0.184.0",
+    "typescript": "catalog:",
+    "vite": "catalog:"
+  }
+}
