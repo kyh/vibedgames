@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, statSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { dirname, extname, join, resolve } from "node:path";
+import { basename, dirname, extname, join, resolve } from "node:path";
 
 import consola from "consola";
 import spawn from "cross-spawn";
@@ -281,9 +281,14 @@ export async function generateImagesWithCodex(opts: {
     throw new Error(`codex exec exited with code ${outcome.code}.${tail(outcome.stderr)}`);
   }
 
+  // Prefer the exact filenames we pinned in the prompt — those are the
+  // images Codex produced for this run. A stray/incidental PNG in the
+  // workspace must NOT count as output nor suppress the store fallback.
+  const pinned = new Set(filenames);
   const fromWork = listImages(workDir);
-  // Fallback only when Codex ignored the workspace and wrote to its
-  // shared store. That store is not scoped to this invocation, so cap to
+  const pinnedWork = fromWork.filter((p) => pinned.has(basename(p)));
+  // Fallback for when Codex ignored the workspace and wrote to its shared
+  // store instead. That store is not scoped to this invocation, so cap to
   // the newest `count` new files to limit picking up a concurrent run's
   // outputs (best-effort — Codex names store files itself, so there's no
   // requestId to match on).
@@ -291,7 +296,9 @@ export async function generateImagesWithCodex(opts: {
     listImages(storeDir).filter((p) => !before.has(p)),
     parsed.count,
   );
-  const rawFiles = fromWork.length > 0 ? fromWork : fromStore;
+  // Pinned workspace files win; then the store; then, as a last resort,
+  // any workspace PNG (Codex saved images but chose different names).
+  const rawFiles = pinnedWork.length > 0 ? pinnedWork : fromStore.length > 0 ? fromStore : fromWork;
   if (rawFiles.length === 0) {
     throw new Error(
       `codex produced no image files. It may have declined the request or lack ` +
@@ -311,9 +318,13 @@ export function placeCodexOutputs(
   rawFiles: string[],
   template: string | undefined,
   requestId: string,
-): { downloaded: string[]; failed: { source: string; error: string }[] } {
+): { downloaded: string[]; failed: { url: string; error: string }[] } {
   const downloaded: string[] = [];
-  const failed: { source: string; error: string }[] = [];
+  // Keyed `url` (holding the source path) to match the shape the
+  // vibedgames run/status paths use for `download_failures`, so agents
+  // reading `download_failures[].url` on the shared --json surface work
+  // uniformly across providers.
+  const failed: { url: string; error: string }[] = [];
   // Render every target first, then disambiguate colliding paths the same
   // way downloadMedia does — a multi-image run with a template that lacks
   // {index} (e.g. `{request_id}.{ext}` or a fixed filename) would
@@ -332,7 +343,7 @@ export function placeCodexOutputs(
       }
       downloaded.push(target);
     } catch (err) {
-      failed.push({ source, error: err instanceof Error ? err.message : String(err) });
+      failed.push({ url: source, error: err instanceof Error ? err.message : String(err) });
     }
   });
   return { downloaded, failed };

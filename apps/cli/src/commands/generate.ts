@@ -196,7 +196,7 @@ async function runViaCodex(opts: {
   } else {
     consola.success(`Codex generated ${downloaded.length} image(s) (${requestId})`);
     for (const path of downloaded) consola.log(`  ${path}`);
-    for (const f of failed) consola.warn(`  failed: ${f.source} (${f.error})`);
+    for (const f of failed) consola.warn(`  failed: ${f.url} (${f.error})`);
   }
 
   if (failed.length > 0 && downloaded.length === 0) process.exit(1);
