@@ -19,6 +19,20 @@ export type GameSearch = z.infer<typeof gameSearchSchema>;
 
 export const featuredGames: FeaturedGame[] = [
   {
+    name: "Battle Arena",
+    slug: "battle-arena",
+    preview: "/covers/battle-arena.webp",
+    previewPortrait: "/covers/battle-arena-portrait.webp",
+    colorScheme: "dark",
+  },
+  {
+    name: "Crazy Taxi",
+    slug: "crazy-taxi",
+    preview: "/covers/crazy-taxi.webp",
+    previewPortrait: "/covers/crazy-taxi-portrait.webp",
+    colorScheme: "light",
+  },
+  {
     name: "Starfall",
     slug: "starfall",
     preview: "/covers/starfall.webp",
