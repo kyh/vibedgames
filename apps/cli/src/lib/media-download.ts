@@ -180,7 +180,9 @@ function sanitizeFilename(name: string): string | null {
   return base;
 }
 
-function disambiguateTargets(paths: string[]): string[] {
+// Exported so the codex provider (lib/codex.ts) reuses identical
+// `_1`/`_2` collision-suffix behavior when placing its local outputs.
+export function disambiguateTargets(paths: string[]): string[] {
   const counts = new Map<string, number>();
   for (const p of paths) counts.set(p, (counts.get(p) ?? 0) + 1);
   const seen = new Map<string, number>();

@@ -40,6 +40,8 @@ For the full command surface (every flag, every option, every example), see [ref
 
 > `vg generate` is a model-call surface only. Install/update the CLI with `npm install -g vibedgames`; skills live in this repo under `plugins/generate/skills/` and sync via `pnpm dogfood`.
 
+> **Own a Codex plan with image generation?** Add `--provider codex` to `vg generate run` (or set `VG_GENERATE_PROVIDER=codex`) to generate **images** through your local `codex` CLI instead of the vibedgames catalog — nothing hits the vibedgames backend, and it needs no vibedgames auth (`vg login`/`VG_TOKEN` not required; only your signed-in Codex plan). Constraints an agent must respect: images only (no video/audio/3D — use the default provider), synchronous (no `--async`), and output is saved straight to disk — read `downloaded_files[]` from the `--json` result (there are no URLs). Requires the `codex` CLI on `PATH` and a signed-in Codex plan; if it's missing the command exits non-zero, so fall back to the default provider. Full contract (recognized inputs, JSON shape, failure semantics): [full-reference.md](references/full-reference.md#provider-codex-use-your-own-codex-plan-for-images).
+
 ## Standard workflow
 
 The canonical genmedia loop that every domain skill (character-design, cinematography, storytelling, …) runs:
