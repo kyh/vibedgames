@@ -506,7 +506,7 @@ export class GameScene {
     if (step !== this.countdownShown) {
       this.countdownShown = step;
       this.hud.showCountdown(String(3 - step), false);
-      this.sfx.countdown();
+      this.sfx.countdown(3 - step);
     }
     // Swoop: ease from the orbit pose into the chase pose.
     const f = THREE.MathUtils.smoothstep(Math.min(1, mode.t / total), 0, 1);

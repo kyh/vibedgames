@@ -108,6 +108,19 @@ export const LIGHT_CURVED = "light-curved";
 export const LIGHT_SQUARE = "light-square";
 export const LIGHT_SQUARE_DOUBLE = "light-square-double";
 export const LIGHT_CURVED_CROSS = "light-curved-cross";
+// Victorian gas lamps (KayKit City Builder Bits).
+export const LIGHT_OLD = "kk-lamp-old";
+export const LIGHT_OLD_DOUBLE = "kk-lamp-old-double";
+// KayKit street details (City Builder Bits).
+export const PROP_HYDRANT = "kk-hydrant";
+export const PROP_BENCH = "kk-bench";
+export const PROP_TRASH_A = "kk-trash-a";
+export const PROP_TRASH_B = "kk-trash-b";
+export const PROP_TRAFFICLIGHT = "kk-trafficlight";
+export const PROP_DUMPSTER = "kk-dumpster";
+export const PROP_WATERTOWER = "kk-watertower";
+export const PROP_BOX_A = "kk-box-a";
+export const PROP_BOX_B = "kk-box-b";
 // Commercial frontage details.
 export const PROP_AWNING = "awning";
 export const PROP_AWNING_WIDE = "awning-wide";
@@ -163,6 +176,17 @@ const PROPS = [
   LIGHT_SQUARE,
   LIGHT_SQUARE_DOUBLE,
   LIGHT_CURVED_CROSS,
+  LIGHT_OLD,
+  LIGHT_OLD_DOUBLE,
+  PROP_HYDRANT,
+  PROP_BENCH,
+  PROP_TRASH_A,
+  PROP_TRASH_B,
+  PROP_TRAFFICLIGHT,
+  PROP_DUMPSTER,
+  PROP_WATERTOWER,
+  PROP_BOX_A,
+  PROP_BOX_B,
   PROP_AWNING,
   PROP_AWNING_WIDE,
   PROP_OVERHANG,

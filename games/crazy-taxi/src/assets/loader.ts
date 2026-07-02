@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 export type Bounds = {
@@ -34,6 +35,11 @@ export class ModelCache {
   private loader = new GLTFLoader();
   private templates = new Map<string, THREE.Object3D>();
   private boundsCache = new Map<string, Bounds>();
+
+  constructor() {
+    // Bundled GLBs are meshopt-compressed (EXT_meshopt_compression).
+    this.loader.setMeshoptDecoder(MeshoptDecoder);
+  }
 
   private loadOne(url: string): Promise<void> {
     return new Promise((resolve, reject) => {

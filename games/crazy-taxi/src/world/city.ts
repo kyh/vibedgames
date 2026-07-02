@@ -28,8 +28,9 @@ import {
 } from "../shared/constants";
 import { Rng } from "../shared/rng";
 import { type Dir, DIR_DELTA, E, N, S, W } from "../shared/types";
-import { conformToTerrain } from "./conform";
+import { conformToTerrain, toFloat32Attributes } from "./conform";
 import { buildFurniture } from "./furniture";
+import { buildGoldenGate } from "./golden-gate";
 import { type CityPlan, generateCity } from "./grid";
 import { buildLandmarks, landmarkProtection } from "./landmarks";
 import { type DistrictChar, districtAt, makeTerrain, paletteFor, tintAmountFor } from "./sf-map";
@@ -174,6 +175,7 @@ export class CityModel {
         const mat = c.material;
         if (Array.isArray(mat)) return;
         const baked = c.geometry.clone();
+        toFloat32Attributes(baked); // dequantize BEFORE baking world coords
         baked.applyMatrix4(c.matrixWorld);
         const draped = conformToTerrain(baked, this.terrain, lift);
         staticMeshes.push(new THREE.Mesh(draped, mat));
@@ -328,14 +330,29 @@ export class CityModel {
     });
     for (const o of fr.objects) collect(o);
     for (const s of fr.solids) this.solids.push(s);
-    this.addPierDecks(fr.pierDecks);
+    this.addDecks(fr.pierDecks);
+
+    // --- The drivable Golden Gate: ramp off the Presidio coast road onto an
+    // orange deck over the strait, out to a railed vista turnaround. ---
+    const gg = buildGoldenGate({
+      plan: this.plan,
+      terrain: this.terrain,
+      cache: this.cache,
+      worldX: (g) => this.worldX(g),
+      worldZ: (g) => this.worldZ(g),
+    });
+    for (const o of gg.objects) collect(o);
+    for (const s of gg.solids) this.solids.push(s);
+    this.addDecks(gg.decks);
 
     // --- Shoreline collision: wall off each water cell that borders land so
     // the taxi can reach the waterfront but not drive into the bay. ---
     for (let gx = 0; gx < GRID; gx++) {
       for (let gz = 0; gz < GRID; gz++) {
         if (this.plan.cells[gx]?.[gz] !== "water") continue;
-        if (fr.openWaterCells.has(`${gx},${gz}`)) continue; // pier runs out here
+        const waterKey = `${gx},${gz}`;
+        if (fr.openWaterCells.has(waterKey)) continue; // pier runs out here
+        if (gg.openWaterCells.has(waterKey)) continue; // Golden Gate span
         let coastal = false;
         for (const d of [N, E, S, W] as const) {
           const [dx, dz] = DIR_DELTA[d];
@@ -399,32 +416,54 @@ export class CityModel {
     return this.plan.cells[gx]?.[gz] === "road";
   }
 
-  // --- Surface (what the car drives on): terrain, overridden by flat decks
-  // (wharf piers) so the taxi can drive out over the water. ---
-  private pierDecks: { minX: number; maxX: number; minZ: number; maxZ: number; y: number }[] = [];
+  // --- Surface (what the car drives on): terrain, overridden by decks —
+  // flat (wharf piers) or Z-sloped ramps (bridge approaches). `y` is the
+  // height at minZ; `y2` (when set) is the height at maxZ, lerped between. ---
+  private decks: SurfaceDeck[] = [];
 
-  addPierDecks(decks: readonly { minX: number; maxX: number; minZ: number; maxZ: number; y: number }[]): void {
-    for (const d of decks) this.pierDecks.push(d);
+  addDecks(decks: readonly SurfaceDeck[]): void {
+    for (const d of decks) this.decks.push(d);
+  }
+
+  private deckHeight(d: SurfaceDeck, z: number): number {
+    if (d.y2 === undefined || d.maxZ <= d.minZ) return d.y;
+    const t = (z - d.minZ) / (d.maxZ - d.minZ);
+    return d.y + (d.y2 - d.y) * t;
   }
 
   heightAt(x: number, z: number): number {
-    for (const d of this.pierDecks) {
+    for (const d of this.decks) {
       if (x >= d.minX && x <= d.maxX && z >= d.minZ && z <= d.maxZ) {
-        return Math.max(d.y, this.terrain.heightAt(x, z));
+        return Math.max(this.deckHeight(d, z), this.terrain.heightAt(x, z));
       }
     }
     return this.terrain.heightAt(x, z);
   }
 
   normalInto(out: THREE.Vector3, x: number, z: number): THREE.Vector3 {
-    for (const d of this.pierDecks) {
+    for (const d of this.decks) {
       if (x >= d.minX && x <= d.maxX && z >= d.minZ && z <= d.maxZ) {
-        return out.set(0, 1, 0);
+        // Only take the deck normal where the deck actually IS the surface.
+        if (this.deckHeight(d, z) >= this.terrain.heightAt(x, z) - 0.05) {
+          if (d.y2 === undefined || d.maxZ <= d.minZ) return out.set(0, 1, 0);
+          const slope = (d.y2 - d.y) / (d.maxZ - d.minZ);
+          return out.set(0, 1, -slope).normalize();
+        }
       }
     }
     return this.terrain.normalInto(out, x, z);
   }
 }
+
+// A drivable surface patch floating over the terrain (pier deck, bridge ramp).
+export type SurfaceDeck = {
+  readonly minX: number;
+  readonly maxX: number;
+  readonly minZ: number;
+  readonly maxZ: number;
+  readonly y: number; // height at minZ
+  readonly y2?: number; // height at maxZ (sloped ramp when set)
+};
 
 // Bake world transforms and merge geometries that share a material, producing a
 // handful of static meshes instead of hundreds of draw calls.
@@ -440,6 +479,7 @@ function mergeByMaterial(meshes: readonly THREE.Mesh[]): THREE.Mesh[] {
     // De-index up front: conformed geometry is non-indexed, and mergeGeometries
     // refuses to mix indexed with non-indexed in one group.
     const baked = geo.index ? geo.toNonIndexed() : geo.clone();
+    toFloat32Attributes(baked); // dequantize meshopt attrs BEFORE baking world coords
     baked.applyMatrix4(mesh.matrixWorld);
     // Normalize attributes so merge never fails on a mismatched set.
     const wanted = new Set(["position", "normal", "uv"]);

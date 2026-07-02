@@ -18,8 +18,9 @@ const LANDMARK_SCALE = ROAD_TILE / 8; // keep landmarks proportional to the worl
 
 // Iconic SF landmarks at traced (u,v) positions (from the sf-trace research).
 type Landmark = { kind: string; u: number; v: number; rotDeg: number };
+// (The Golden Gate is no longer a landmark prop — it's the DRIVABLE bridge
+// built by world/golden-gate.ts.)
 const LANDMARKS: readonly Landmark[] = [
-  { kind: "ggbridge", u: 0.25, v: 0.012, rotDeg: 352 },
   { kind: "baybridge", u: 0.93, v: 0.205, rotDeg: 90 },
   { kind: "pyramid", u: 0.701, v: 0.15, rotDeg: 0 },
   { kind: "salesforce", u: 0.736, v: 0.203, rotDeg: 0 },

@@ -12,6 +12,27 @@ const MIN_EDGE = 1.6; // never split edges shorter than this (runaway guard)
 const MAX_DEPTH = 5;
 const UP_DOT = 0.8; // vertices at least this upright adopt the terrain normal
 
+// Meshopt-compressed GLBs arrive with quantized (Int16/interleaved) attributes.
+// Baking world transforms writes float world coords back into those arrays —
+// which truncates them to garbage — so promote to plain Float32 first.
+export function toFloat32Attributes(geo: THREE.BufferGeometry): void {
+  for (const name of ["position", "normal", "uv"] as const) {
+    const a = geo.getAttribute(name);
+    if (!a) continue;
+    if (a instanceof THREE.BufferAttribute && a.array instanceof Float32Array && !a.normalized) {
+      continue;
+    }
+    const size = a.itemSize;
+    const arr = new Float32Array(a.count * size);
+    for (let i = 0; i < a.count; i++) {
+      arr[i * size] = a.getX(i);
+      if (size > 1) arr[i * size + 1] = a.getY(i);
+      if (size > 2) arr[i * size + 2] = a.getZ(i);
+    }
+    geo.setAttribute(name, new THREE.BufferAttribute(arr, size));
+  }
+}
+
 // A vertex is [x, y, z, nx, ny, nz, u, v].
 type Vert = readonly [number, number, number, number, number, number, number, number];
 

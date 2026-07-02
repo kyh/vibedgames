@@ -1,10 +1,14 @@
-// Procedural WebAudio sound — no asset files. Created lazily on first input so
-// browsers don't block the context. All methods are safe no-ops until ensure()
-// has run (and if the browser has no AudioContext at all).
+// Hybrid WebAudio sound. The continuous layers (engine, screech, wind, scrape,
+// boost loop) and the music are fully procedural; one-shots are sample-backed
+// where a real recording beats synthesis, with the original procedural voices
+// kept as fallbacks — the game sounds complete even if /audio 404s or a decode
+// is still in flight. Created lazily on first input so browsers don't block
+// the context. All methods are safe no-ops until ensure() has run (and if the
+// browser has no AudioContext at all).
 //
 // Signal flow:
-//   one-shots + loops ─┐
-//   music bus ─────────┴→ master gain → compressor (-18dB, 4:1) → destination
+//   one-shots (samples + synth) + loops ─┐
+//   music bus ───────────────────────────┴→ master gain → compressor (-18dB, 4:1) → destination
 
 const MASTER_LEVEL = 0.5;
 /** Music bus sits at ~half of the sfx mix — a subtle driving groove, not loud. */
@@ -13,6 +17,118 @@ const BPM = 138;
 const EIGHTH = 60 / BPM / 2;
 /** A-pentatonic bass riff, one bar of 8ths: A1 A1 C2 D2 | A1 G1 A1 rest. */
 const BASS_RIFF: readonly (number | null)[] = [55, 55, 65.41, 73.42, 55, 49, 55, null];
+
+// ── Samples ─────────────────────────────────────────────────────────────────
+// Kenney one-shot recordings under public/audio/. Variant families map to
+// `${base}-${0..count-1}.ogg`; a random loaded variant is picked per play.
+
+const SAMPLE_VARIANTS = {
+  "impact-metal-heavy": 4, // hard crash clank
+  "impact-metal-medium": 2, // softer crash clank
+  "impact-glass-heavy": 3, // glass layer on hard crashes
+  "impact-generic-light": 3, // curb tap / cone bump
+  "impact-plate-heavy": 3, // suspension slam on landing
+  confirmation: 2, // passenger pickup
+  "jingle-dropoff": 3, // rising sax stinger per fare
+  woosh: 2, // near-miss air-cut layer
+  error: 2, // boost denied
+} as const;
+
+/** Single files: announcer voice lines + win/lose jingles. */
+const SAMPLE_SINGLES = [
+  "vo-three",
+  "vo-two",
+  "vo-one",
+  "vo-go",
+  "vo-time-over",
+  "vo-new-highscore",
+  "jingle-win",
+  "jingle-lose",
+] as const;
+
+type SampleName = keyof typeof SAMPLE_VARIANTS | (typeof SAMPLE_SINGLES)[number];
+
+/** name → concrete file keys (variant families expand to their N files). */
+const SAMPLE_KEYS: ReadonlyMap<string, readonly string[]> = (() => {
+  const m = new Map<string, string[]>();
+  for (const [fam, count] of Object.entries(SAMPLE_VARIANTS)) {
+    m.set(
+      fam,
+      Array.from({ length: count }, (_, i) => `${fam}-${i}`),
+    );
+  }
+  for (const s of SAMPLE_SINGLES) m.set(s, [s]);
+  return m;
+})();
+
+interface SamplePlayOptions {
+  /** Peak gain into the output bus (default 0.3). */
+  vol?: number;
+  /** Base playback rate (default 1). */
+  rate?: number;
+  /** Random rate spread, e.g. 0.08 → ±8% (the default). 0 for voice/jingles. */
+  jitter?: number;
+  /** Stereo position −1..1 (omit for center, no panner node). */
+  pan?: number;
+}
+
+/**
+ * Lazy sample bank. `load()` kicks off fetch+decode for every file without
+ * blocking; `play()` returns false while a buffer is missing or failed so the
+ * caller can fall back to its procedural voice.
+ */
+class SamplePlayer {
+  private buffers = new Map<string, AudioBuffer>();
+  private loading = false;
+
+  load(ctx: AudioContext): void {
+    if (this.loading) return;
+    this.loading = true;
+    const base = import.meta.env.BASE_URL;
+    for (const keys of SAMPLE_KEYS.values()) {
+      for (const key of keys) {
+        void fetch(`${base}audio/${key}.ogg`)
+          .then((res) =>
+            res.ok ? res.arrayBuffer() : Promise.reject(new Error(`HTTP ${res.status}`)),
+          )
+          .then((buf) => ctx.decodeAudioData(buf))
+          .then((decoded) => this.buffers.set(key, decoded))
+          .catch(() => undefined); // this sound stays procedural
+      }
+    }
+  }
+
+  /** True once at least one variant of `name` has decoded. */
+  has(name: SampleName): boolean {
+    const keys = SAMPLE_KEYS.get(name) ?? [];
+    return keys.some((k) => this.buffers.has(k));
+  }
+
+  play(ctx: AudioContext, out: AudioNode, name: SampleName, opts: SamplePlayOptions = {}): boolean {
+    const keys = SAMPLE_KEYS.get(name) ?? [];
+    const loaded = keys.filter((k) => this.buffers.has(k));
+    const key = loaded[Math.floor(Math.random() * loaded.length)];
+    const buf = key === undefined ? undefined : this.buffers.get(key);
+    if (!buf) return false;
+    const { vol = 0.3, rate = 1, jitter = 0.08, pan } = opts;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.playbackRate.value = rate * (1 - jitter + Math.random() * 2 * jitter);
+    const g = ctx.createGain();
+    g.gain.value = vol;
+    src.connect(g);
+    let tail: AudioNode = g;
+    if (pan !== undefined) {
+      const p = ctx.createStereoPanner();
+      p.pan.value = Math.max(-1, Math.min(1, pan));
+      g.connect(p);
+      tail = p;
+    }
+    tail.connect(out);
+    src.start();
+    return true;
+  }
+}
 
 export class Sfx {
   private ctx: AudioContext | null = null;
@@ -44,6 +160,13 @@ export class Sfx {
   private musicTimer: number | null = null;
   private nextNoteTime = 0;
   private musicStep = 0;
+
+  // Sample bank + one-shot state.
+  private readonly samples = new SamplePlayer();
+  /** Which number the next bare countdown() call speaks (3 → 2 → 1). */
+  private countdownStep = 3;
+  /** Pending sad-jingle timer from gameOver(); fanfare() (new best) cancels it. */
+  private loseJingleTimer: number | null = null;
 
   muted = false;
 
@@ -152,7 +275,18 @@ export class Sfx {
     this.boostLoopGain = boostLoop.gain;
     this.boostLoopFilter = boostLoop.filter;
 
+    // Kick off (non-blocking) sample fetches; one-shots upgrade as they land.
+    this.samples.load(ctx);
+
     this.startMusicScheduler();
+  }
+
+  /** Play a one-shot sample into the master bus; false → caller falls back. */
+  private sample(name: SampleName, opts: SamplePlayOptions = {}): boolean {
+    const ctx = this.ctx;
+    const master = this.master;
+    if (!ctx || !master) return false;
+    return this.samples.play(ctx, master, name, opts);
   }
 
   /** Looped noise → filter → zero gain → out. Returns the gate gain + filter. */
@@ -375,16 +509,19 @@ export class Sfx {
     this.blip(220, 0.3, "sawtooth", 0.12, 720);
   }
 
-  /** Wall/traffic impact: metallic clank + body thud (+ glass tinkle when hard). */
+  /** Wall/traffic impact: metallic clank + body thud (+ glass layer when hard). */
   crash(power: number): void {
     const k = Math.min(1, 0.4 + power * 0.03);
-    // (a) metallic clank
-    this.noiseHit(0.04, 2800, 0.25 * k, "bandpass", 2);
-    // (b) body thud
+    // (a) metallic clank — recorded metal hit when loaded, synth bandpass otherwise.
+    const metal = power > 12 ? "impact-metal-heavy" : "impact-metal-medium";
+    if (!this.sample(metal, { vol: 0.5 * k })) {
+      this.noiseHit(0.04, 2800, 0.25 * k, "bandpass", 2);
+    }
+    // (b) body thud — synth low end always stays under the sample for weight.
     this.noiseHit(0.25, 160, 0.3 * k, "lowpass");
     this.blip(55, 0.15, "sine", 0.2 * k);
-    // (c) glass tinkle on hard hits
-    if (power > 15) {
+    // (c) glass on hard hits
+    if (power > 15 && !this.sample("impact-glass-heavy", { vol: 0.35 })) {
       const n = 3 + (Math.random() < 0.5 ? 1 : 0);
       let delay = 60;
       for (let i = 0; i < n; i++) {
@@ -396,15 +533,20 @@ export class Sfx {
     this.duck(0.2, 350);
   }
 
-  /** Small curb tap. */
+  /** Small curb tap / cone bump. */
   thud(): void {
+    if (this.sample("impact-generic-light", { vol: 0.2 })) return;
     this.noiseHit(0.08, 300, 0.06, "lowpass");
   }
 
   /** Hill-jump landing; power 0..1-ish scales weight. */
   landThud(power: number): void {
     const k = Math.max(0.3, Math.min(1, power));
-    this.noiseHit(0.2, 180, 0.22 * k, "lowpass");
+    // Plate slam pitched down ~8% reads as suspension bottoming out; the sine
+    // sub always plays underneath for weight.
+    if (!this.sample("impact-plate-heavy", { vol: 0.45 * k, rate: 0.92 })) {
+      this.noiseHit(0.2, 180, 0.22 * k, "lowpass");
+    }
     this.blip(50, 0.12, "sine", 0.15 * k);
   }
 
@@ -418,6 +560,8 @@ export class Sfx {
   nearMiss(pan = 0): void {
     this.noiseHit(0.22, 1200, 0.1, "bandpass", 1.5, pan);
     this.blip(1500, 0.2, "sine", 0.08, 700, pan);
+    // Subtle recorded air-cut on top (additive — no fallback needed).
+    this.sample("woosh", { vol: 0.12, pan });
   }
 
   /** Rising two-blip when the drift charge arms. */
@@ -427,15 +571,21 @@ export class Sfx {
   }
 
   pickup(): void {
+    if (this.sample("confirmation", { vol: 0.35, jitter: 0.04 })) return;
     this.blip(560, 0.12, "square", 0.18);
     this.blip(840, 0.14, "square", 0.14);
   }
 
   dropoff(combo: number): void {
-    const base = 520 + combo * 40;
-    this.blip(base, 0.1, "triangle", 0.2);
-    this.blip(base * 1.33, 0.12, "triangle", 0.18);
-    this.blip(base * 1.7, 0.18, "triangle", 0.16);
+    // Rising sax stinger, nudged sharper as the combo climbs. The old
+    // combo-pitched blips would clutter the melody, so they're fallback-only.
+    const rate = 1 + Math.min(10, Math.max(0, combo)) * 0.012;
+    if (!this.sample("jingle-dropoff", { vol: 0.5, rate, jitter: 0 })) {
+      const base = 520 + combo * 40;
+      this.blip(base, 0.1, "triangle", 0.2);
+      this.blip(base * 1.33, 0.12, "triangle", 0.18);
+      this.blip(base * 1.7, 0.18, "triangle", 0.16);
+    }
     this.duck(0.4, 250);
   }
 
@@ -443,32 +593,66 @@ export class Sfx {
     this.blip(880, 0.08, "square", 0.16);
   }
 
+  /** New-best fanfare. Called right after gameOver(); cancels its sad jingle. */
   fanfare(): void {
-    [523, 659, 784, 1046].forEach((f, i) => {
-      window.setTimeout(() => this.blip(f, 0.18, "triangle", 0.16), i * 90);
-    });
+    if (this.loseJingleTimer !== null) {
+      window.clearTimeout(this.loseJingleTimer);
+      this.loseJingleTimer = null;
+    }
+    const jingled = this.sample("jingle-win", { vol: 0.55, jitter: 0 });
+    // "New highscore!" once gameOver()'s "time over!" line has finished.
+    window.setTimeout(() => this.sample("vo-new-highscore", { vol: 0.7, jitter: 0 }), 1100);
+    if (!jingled) {
+      [523, 659, 784, 1046].forEach((f, i) => {
+        window.setTimeout(() => this.blip(f, 0.18, "triangle", 0.16), i * 90);
+      });
+    }
   }
 
   gameOver(): void {
     this.duck(0.1, 900);
     this.noiseHit(0.4, 900, 0.1, "lowpass"); // a final skid
-    [440, 349, 262].forEach((f, i) => {
-      window.setTimeout(() => this.blip(f, 0.24, "triangle", 0.16), 180 + i * 150);
-    });
+    const spoke = this.sample("vo-time-over", { vol: 0.7, jitter: 0 });
+    if (this.samples.has("jingle-lose")) {
+      // Sad sax after the voice line — fanfare() (new best) cancels it.
+      this.loseJingleTimer = window.setTimeout(
+        () => {
+          this.loseJingleTimer = null;
+          this.sample("jingle-lose", { vol: 0.45, jitter: 0 });
+        },
+        spoke ? 800 : 150,
+      );
+    } else if (!spoke) {
+      [440, 349, 262].forEach((f, i) => {
+        window.setTimeout(() => this.blip(f, 0.24, "triangle", 0.16), 180 + i * 150);
+      });
+    }
+    this.countdownStep = 3;
   }
 
-  /** Pre-round count blip. */
-  countdown(): void {
-    this.blip(440, 0.09, "square", 0.15);
+  /**
+   * Pre-round count. Pass the displayed number (3, 2 or 1) to pick the voice
+   * line explicitly; when omitted, an internal 3→2→1 cycle (reset by go() and
+   * gameOver()) infers it. The blip stays underneath as a timing tick.
+   */
+  countdown(step?: number): void {
+    const n = step ?? this.countdownStep;
+    this.countdownStep = n > 1 ? n - 1 : 3;
+    const voice = n >= 3 ? "vo-three" : n === 2 ? "vo-two" : "vo-one";
+    const spoke = this.sample(voice, { vol: 0.7, jitter: 0 });
+    this.blip(440, 0.09, "square", spoke ? 0.07 : 0.15);
   }
 
-  /** "GO!" blip. */
+  /** "GO!" */
   go(): void {
-    this.blip(880, 0.22, "square", 0.18);
+    this.countdownStep = 3;
+    const spoke = this.sample("vo-go", { vol: 0.75, jitter: 0 });
+    this.blip(880, 0.22, "square", spoke ? 0.08 : 0.18);
   }
 
-  /** Dry click for boost-with-empty-meter. */
+  /** Dry error click for boost-with-empty-meter. */
   denied(): void {
+    if (this.sample("error", { vol: 0.3 })) return;
     this.blip(180, 0.05, "square", 0.08);
   }
 

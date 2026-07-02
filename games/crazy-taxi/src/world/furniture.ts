@@ -5,19 +5,26 @@ import {
   BRIDGE_PILLAR,
   LIGHT_CURVED,
   LIGHT_CURVED_CROSS,
+  LIGHT_OLD,
+  LIGHT_OLD_DOUBLE,
   LIGHT_SQUARE,
   LIGHT_SQUARE_DOUBLE,
   modelUrl,
   PROP_AWNING,
   PROP_AWNING_WIDE,
   PROP_BARRIER,
+  PROP_BENCH,
+  PROP_BOX_A,
+  PROP_BOX_B,
   PROP_CHIMNEY_LARGE,
   PROP_CHIMNEY_MEDIUM,
   PROP_CHIMNEY_SMALL,
   PROP_CONE,
   PROP_CONSTRUCTION_LIGHT,
   PROP_DRIVEWAY,
+  PROP_DUMPSTER,
   PROP_FENCE_LOW,
+  PROP_HYDRANT,
   PROP_OVERHANG,
   PROP_PARASOL_A,
   PROP_PARASOL_B,
@@ -25,6 +32,10 @@ import {
   PROP_PATH_STONES,
   PROP_PLANTER,
   PROP_TANK,
+  PROP_TRAFFICLIGHT,
+  PROP_TRASH_A,
+  PROP_TRASH_B,
+  PROP_WATERTOWER,
   ROAD_CROSSROAD,
   ROAD_INTERSECTION,
   ROAD_STRAIGHT,
@@ -84,6 +95,16 @@ const CHIMNEYS: readonly string[] = [PROP_CHIMNEY_SMALL, PROP_CHIMNEY_MEDIUM, PR
 // Pier 39 stand-ins at the middle pier's end (commercial kit, tinted brick-red).
 const PIER_END_BUILDINGS: readonly string[] = ["com-building-a", "com-building-f"];
 const PIER_BUILDING_TINT = 0xc45a3a;
+// KayKit props run warmer than the Kenney kits — nudge them toward the Kenney
+// paper tone so the street reads as one palette. Tints go through tintMaterial,
+// so each (material, tint) pair clones exactly once and merged batches stay few.
+const KK_TINT = 0xd8d2c4;
+const KK_TINT_AMT = 0.15;
+// KayKit pass caps + sizes.
+const HYDRANT_CAP = 40;
+const SIGNAL_CAP = 25;
+const SEATING_CAP = 50; // benches + trash cans combined
+const VICTORIAN_LAMP_HEIGHT = 4.2;
 
 // Shared static geometry/materials at module scope so merged batches stay few.
 const UNIT_BOX = new THREE.BoxGeometry(1, 1, 1);
@@ -175,6 +196,37 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
   const seat = (url: string, x: number, z: number, yaw: number, s: number): void => {
     place(url, x, terrain.heightAt(x, z), z, yaw, s);
   };
+  // KayKit variants: same as place/seat but tinted toward the Kenney palette.
+  const placeKK = (url: string, x: number, y: number, z: number, yaw: number, s: number): void => {
+    const node = cache.instance(url);
+    tintNode(node, KK_TINT, KK_TINT_AMT);
+    node.scale.setScalar(s);
+    node.rotation.y = yaw;
+    node.position.set(x, y, z);
+    node.updateMatrixWorld(true);
+    objects.push(node);
+  };
+  const seatKK = (url: string, x: number, z: number, yaw: number, s: number): void => {
+    placeKK(url, x, terrain.heightAt(x, z), z, yaw, s);
+  };
+  // True when a 4-neighbor is a junction tile (crossroad or T).
+  const nextToJunction = (gx: number, gz: number): boolean => {
+    for (const d of DIRS) {
+      const [dx, dz] = DIR_DELTA[d];
+      const nb = roadAt(gx + dx, gz + dz);
+      if (nb && (nb.tile === ROAD_CROSSROAD || nb.tile === ROAD_INTERSECTION)) return true;
+    }
+    return false;
+  };
+  // Mirrors city.ts's decoratedTile: straights feeding a junction in walkable
+  // districts render as zebra crossings.
+  const isCrossingCell = (gx: number, gz: number): boolean => {
+    const r = roadAt(gx, gz);
+    if (!r || r.tile !== ROAD_STRAIGHT) return false;
+    const c = districtAt(gx, gz).character;
+    if (c !== "commercial" && c !== "downtown" && c !== "wharf" && c !== "victorian") return false;
+    return nextToJunction(gx, gz);
+  };
   const scaleToHeight = (url: string, h: number): number =>
     h / Math.max(cache.bounds(url).size.y, 0.001);
   // Long-axis info for strip pieces (fences, paths): scale by the long side and
@@ -245,8 +297,23 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
       const pz = alongX ? wz + side * LIGHT_LATERAL : wz;
       // Lamp arm (local +Z) points back toward the road centreline.
       const yaw = alongX ? (side > 0 ? Math.PI : 0) : -side * HALF_PI;
-      const url = modelUrl("props", lightFor(districtAt(gx, gz).character));
-      seat(url, px, pz, yaw, scaleToHeight(url, LIGHT_HEIGHT));
+      const char = districtAt(gx, gz).character;
+      if (char === "victorian") {
+        // Gas-lamp era ironwork; a two-lantern post where a crossing is next
+        // door. The double's lanterns run local ±X, so quarter-turn the arm
+        // rule to swing them curb→road.
+        let doubled = false;
+        for (const d of DIRS) {
+          const [dx, dz] = DIR_DELTA[d];
+          if (isCrossingCell(gx + dx, gz + dz)) doubled = true;
+        }
+        const url = modelUrl("props", doubled ? LIGHT_OLD_DOUBLE : LIGHT_OLD);
+        const kkYaw = doubled ? yaw + HALF_PI : yaw;
+        seatKK(url, px, pz, kkYaw, scaleToHeight(url, VICTORIAN_LAMP_HEIGHT));
+      } else {
+        const url = modelUrl("props", lightFor(char));
+        seat(url, px, pz, yaw, scaleToHeight(url, LIGHT_HEIGHT));
+      }
       lightSide.set(cellKey(gx, gz), side);
     }
   }
@@ -642,6 +709,164 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
         else box(SEAWALL_MAT, ROAD_TILE, 1.0, 0.6, ex, groundY + 0.15, ez);
       }
     }
+  }
+
+  // ------------------------------------------------------------------
+  // 10. FIRE HYDRANTS — sidewalk corners of walkable streets that feed a
+  // junction (where SF actually puts them).
+  // ------------------------------------------------------------------
+  const hydrantUrl = modelUrl("props", PROP_HYDRANT);
+  const hydrantScale = scaleToHeight(hydrantUrl, 0.9);
+  let hydrants = 0;
+  for (let gx = 0; gx < GRID && hydrants < HYDRANT_CAP; gx++) {
+    for (let gz = 0; gz < GRID && hydrants < HYDRANT_CAP; gz++) {
+      if (!roadAt(gx, gz)) continue;
+      if (reserved.has(cellKey(gx, gz))) continue;
+      const char = districtAt(gx, gz).character;
+      if (char !== "commercial" && char !== "downtown" && char !== "wharf") continue;
+      if (!nextToJunction(gx, gz)) continue;
+      if (!rng.chance(0.3)) continue;
+      const sx: 1 | -1 = rng.chance(0.5) ? 1 : -1;
+      const sz: 1 | -1 = rng.chance(0.5) ? 1 : -1;
+      const px = worldX(gx) + sx * ROAD_TILE * 0.42;
+      const pz = worldZ(gz) + sz * ROAD_TILE * 0.42;
+      seatKK(hydrantUrl, px, pz, rng.range(0, Math.PI * 2), hydrantScale);
+      hydrants++;
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // 11. TRAFFIC SIGNALS — downtown/highrise crossroads get one corner
+  // signal, arm swung out over the junction.
+  // ------------------------------------------------------------------
+  const signalUrl = modelUrl("props", PROP_TRAFFICLIGHT);
+  const signalScale = scaleToHeight(signalUrl, 5);
+  let signals = 0;
+  for (let gx = 0; gx < GRID && signals < SIGNAL_CAP; gx++) {
+    for (let gz = 0; gz < GRID && signals < SIGNAL_CAP; gz++) {
+      const road = roadAt(gx, gz);
+      if (!road || road.tile !== ROAD_CROSSROAD) continue;
+      if (reserved.has(cellKey(gx, gz))) continue;
+      const char = districtAt(gx, gz).character;
+      if (char !== "downtown" && char !== "highrise") continue;
+      const sx: 1 | -1 = rng.chance(0.5) ? 1 : -1;
+      const sz: 1 | -1 = rng.chance(0.5) ? 1 : -1;
+      const px = worldX(gx) + sx * ROAD_TILE * 0.44;
+      const pz = worldZ(gz) + sz * ROAD_TILE * 0.44;
+      // The signal arm hangs along local -X: yaw so -X points back across the
+      // corner toward the junction centre.
+      seatKK(signalUrl, px, pz, Math.atan2(-sz, sx), signalScale);
+      signals++;
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // 12. BENCHES + TRASH — wharf/park kerbs that front a lot or green get a
+  // bench facing the street with a trash can beside it.
+  // ------------------------------------------------------------------
+  const benchUrl = modelUrl("props", PROP_BENCH);
+  const benchScale = scaleToHeight(benchUrl, 0.85);
+  let seating = 0;
+  for (let gx = 0; gx < GRID && seating < SEATING_CAP; gx++) {
+    for (let gz = 0; gz < GRID && seating < SEATING_CAP; gz++) {
+      const road = roadAt(gx, gz);
+      if (!road) continue;
+      if (reserved.has(cellKey(gx, gz))) continue;
+      const char = districtAt(gx, gz).character;
+      if (char !== "wharf" && char !== "park") continue;
+      let lotDir: Dir | null = null;
+      for (const d of DIRS) {
+        const [dx, dz] = DIR_DELTA[d];
+        if (cellAt(gx + dx, gz + dz) === "lot") {
+          lotDir = d;
+          break;
+        }
+      }
+      if (lotDir === null) continue;
+      if (!rng.chance(0.25)) continue;
+      const [dx, dz] = DIR_DELTA[lotDir];
+      // If this cell's streetlight took the same kerb, slide down the block.
+      const lampSide = lightSide.get(cellKey(gx, gz));
+      const alongX = road.tile === ROAD_STRAIGHT && road.quarterTurns % 2 === 0;
+      const clash = lampSide !== undefined && (alongX ? dz : dx) === lampSide;
+      const slide = clash ? ROAD_TILE * 0.24 : 0;
+      // perp (dz, dx) runs along the kerb; lotDir is the lateral axis.
+      const bx = worldX(gx) + dx * ROAD_TILE * 0.42 + dz * slide;
+      const bz = worldZ(gz) + dz * ROAD_TILE * 0.42 + dx * slide;
+      // Back to the lot: bench long axis (local X) runs parallel to the road.
+      seatKK(benchUrl, bx, bz, dirToYaw(lotDir) + Math.PI, benchScale);
+      seating++;
+      if (seating >= SEATING_CAP) break;
+      const along: 1 | -1 = clash ? 1 : rng.chance(0.5) ? 1 : -1;
+      const trashUrl = modelUrl("props", rng.chance(0.5) ? PROP_TRASH_A : PROP_TRASH_B);
+      const trashBounds = cache.bounds(trashUrl);
+      // KayKit's "trash" is a low kerbside pile, not a can — size it by
+      // footprint (scaling to a can's height would blow it up 17×).
+      const trashScale = 0.55 / Math.max(trashBounds.size.x, trashBounds.size.z, 0.001);
+      seatKK(
+        trashUrl,
+        bx + dz * along * 1.3,
+        bz + dx * along * 1.3,
+        rng.range(0, Math.PI * 2),
+        trashScale,
+      );
+      seating++;
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // 13. DUMPSTERS + CRATES — service clutter at industrial back corners
+  // (offsets tucked inside the smokestack ring so the two passes coexist).
+  // ------------------------------------------------------------------
+  const dumpsterUrl = modelUrl("props", PROP_DUMPSTER);
+  const dumpsterScale = scaleToHeight(dumpsterUrl, 1.5);
+  for (const b of plan.buildingCells) {
+    if (reserved.has(cellKey(b.gx, b.gz))) continue;
+    if (districtAt(b.gx, b.gz).character !== "industrial") continue;
+    const [dx, dz] = DIR_DELTA[b.faceDir];
+    const perpX = dz;
+    const perpZ = dx;
+    const wx = worldX(b.gx);
+    const wz = worldZ(b.gz);
+    if (rng.chance(0.4)) {
+      const corner: 1 | -1 = rng.chance(0.5) ? 1 : -1;
+      const px = wx - dx * ROAD_TILE * 0.4 + perpX * corner * ROAD_TILE * 0.16;
+      const pz = wz - dz * ROAD_TILE * 0.4 + perpZ * corner * ROAD_TILE * 0.16;
+      // Long axis (local X) parallel to the back wall, hand-shoved jitter.
+      seatKK(dumpsterUrl, px, pz, dirToYaw(b.faceDir) + rng.range(-0.08, 0.08), dumpsterScale);
+    }
+    if (rng.chance(0.5)) {
+      const crates = 1 + rng.int(2);
+      for (let i = 0; i < crates; i++) {
+        const url = modelUrl("props", rng.chance(0.5) ? PROP_BOX_A : PROP_BOX_B);
+        const back = 0.28 + rng.range(0, 0.1);
+        const lat = rng.range(-0.24, 0.24);
+        const px = wx - dx * ROAD_TILE * back + perpX * lat * ROAD_TILE;
+        const pz = wz - dz * ROAD_TILE * back + perpZ * lat * ROAD_TILE;
+        seatKK(url, px, pz, rng.range(0, Math.PI * 2), scaleToHeight(url, 0.8));
+      }
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // 14. WATER TOWERS — 2–3 tank-on-legs landmarks for the Dogpatch skyline,
+  // tall enough that the tank clears the host building's roofline.
+  // ------------------------------------------------------------------
+  const towerLots = plan.buildingCells.filter(
+    (b) => !reserved.has(cellKey(b.gx, b.gz)) && districtAt(b.gx, b.gz).character === "industrial",
+  );
+  const towerUrl = modelUrl("props", PROP_WATERTOWER);
+  const towerScale = scaleToHeight(towerUrl, 13);
+  const towerCount = Math.min(2 + rng.int(2), towerLots.length);
+  for (let i = 0; i < towerCount; i++) {
+    const idx = rng.int(towerLots.length);
+    const lot = towerLots[idx];
+    if (lot === undefined) continue;
+    towerLots.splice(idx, 1);
+    const [dx, dz] = DIR_DELTA[lot.faceDir];
+    const px = worldX(lot.gx) - dx * ROAD_TILE * 0.18;
+    const pz = worldZ(lot.gz) - dz * ROAD_TILE * 0.18;
+    seatKK(towerUrl, px, pz, rng.range(0, Math.PI * 2), towerScale);
   }
 
   return { objects, solids, openWaterCells, pierDecks };

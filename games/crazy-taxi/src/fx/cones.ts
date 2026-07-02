@@ -5,6 +5,7 @@ import { modelUrl, PROP_CONE } from "../assets/manifest";
 import { ROAD_TILE } from "../shared/constants";
 import type { Rng } from "../shared/rng";
 import type { CityModel } from "../world/city";
+import { toFloat32Attributes } from "../world/conform";
 
 // Smashable traffic cones — the free destruction toy. Scattered on road
 // shoulders; driving through one launches it ballistically (+$ and a spark
@@ -46,22 +47,29 @@ export class SmashCones {
     private city: CityModel,
     rng: Rng,
   ) {
-    // Pull geometry + material out of the cone GLB (first mesh wins).
+    // Pull geometry + material out of the cone GLB (first mesh wins). The node
+    // matrix must be baked in — meshopt-quantized GLBs store the dequantization
+    // scale there, so raw geometry is integer-sized.
     const url = modelUrl("props", PROP_CONE);
     const template = cache.instance(url);
+    template.updateMatrixWorld(true);
     let geo: THREE.BufferGeometry = new THREE.ConeGeometry(0.3, 0.7, 8);
     let mat: THREE.Material = new THREE.MeshStandardMaterial({ color: 0xe06428 });
+    let nodeMatrix = new THREE.Matrix4();
     template.traverse((c) => {
       if (c instanceof THREE.Mesh && c.geometry instanceof THREE.BufferGeometry) {
         if (!Array.isArray(c.material)) {
           geo = c.geometry;
           mat = c.material;
+          nodeMatrix = c.matrixWorld.clone();
         }
       }
     });
     const b = cache.bounds(url);
     const scale = 0.85 / Math.max(b.size.y, 0.001);
     const scaled = geo.clone();
+    toFloat32Attributes(scaled); // meshopt attrs are quantized; matrix bake writes floats
+    scaled.applyMatrix4(nodeMatrix);
     scaled.scale(scale, scale, scale);
     this.mesh = new THREE.InstancedMesh(scaled, mat, COUNT);
     this.mesh.castShadow = true;
