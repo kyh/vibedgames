@@ -60,7 +60,7 @@ export class WaveSpawnDirector {
     };
   }
 
-  step({ activeUnits }) {
+  step({ activeUnits = this.activeUnits } = {}) {
     this.activeUnits = activeUnits;
 
     this.completeIfDone(activeUnits);

@@ -135,6 +135,7 @@ export class GridPathPlanner {
     const blockedKeys = normalizeBlockedCells(blocked);
     if (allowStartOccupied) blockedKeys.delete(startKey);
     if (allowGoalOccupied) blockedKeys.delete(goalKey);
+    if (blockedKeys.has(startKey)) return null;
 
     if (startKey === goalKey) {
       return [startCell];
