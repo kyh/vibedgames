@@ -93,11 +93,17 @@ function startDash(u: Unit, dir: { x: number; y: number }, speed: number, distan
   u.facing = angleOf(dir.x, dir.y);
 }
 
+/** Abilities hit anything fightable — heroes AND camp creeps (the boss is
+ *  handled separately and stays out of reach). */
+function targetable(u: Unit): boolean {
+  return u.kind === "hero" || u.kind === "creep";
+}
+
 /** Sweep a corridor from caster along dir for `length`; returns enemies hit. */
 function corridorHits(w: World, c: Unit, dir: { x: number; y: number }, length: number, width: number): Unit[] {
   const hits: Unit[] = [];
   for (const t of w.units.values()) {
-    if (t === c || !t.alive || t.kind !== "hero" || !isEnemy(c, t)) continue;
+    if (t === c || !t.alive || !targetable(t) || !isEnemy(c, t)) continue;
     const rx = t.x - c.x;
     const ry = t.y - c.y;
     const along = rx * dir.x + ry * dir.y;
@@ -111,7 +117,7 @@ function corridorHits(w: World, c: Unit, dir: { x: number; y: number }, length: 
 function aoeEnemies(w: World, team: string, x: number, y: number, radius: number): Unit[] {
   const out: Unit[] = [];
   for (const u of w.units.values()) {
-    if (!u.alive || u.kind !== "hero" || u.team === team) continue;
+    if (!u.alive || !targetable(u) || u.team === team) continue;
     if ((u.x - x) ** 2 + (u.y - y) ** 2 <= radius * radius) out.push(u);
   }
   return out;
@@ -147,7 +153,7 @@ function dispatch(
       const half = deg2rad(v("cone")) / 2;
       const range = def.castRange;
       for (const t of w.units.values()) {
-        if (t === c || !t.alive || t.kind !== "hero" || !isEnemy(c, t)) continue;
+        if (t === c || !t.alive || !targetable(t) || !isEnemy(c, t)) continue;
         if (dist(c, t) > range + t.radius) continue;
         if (Math.abs(angleDelta(ang, angleOf(t.x - c.x, t.y - c.y))) > half) continue;
         dealDamage(w, c, t, v("damage"), "physical", { ap });
@@ -158,7 +164,7 @@ function dispatch(
     case "knight:W": {
       const dist0 = def.castRange;
       startDash(c, dir, v("speed"), dist0, w);
-      for (const t of corridorHits(w, c, dir, dist0, 1.1)) {
+      for (const t of corridorHits(w, c, dir, dist0, 1.6)) {
         dealDamage(w, c, t, v("damage"), "physical", { ap });
         applyKnockback(t, c.x, c.y, v("knockback"), w);
         addStatus(t, { kind: "stun", until: w.now + 350, id: "knight:W" });
@@ -203,7 +209,7 @@ function dispatch(
           dtype: "physical",
           kind: "arrow",
           speed: 28,
-          radius: 0,
+          radius: 1.0, // small splash — grazing arrows still connect
           range: def.castRange,
         });
       }
@@ -307,8 +313,8 @@ function dispatch(
     case "rogue:Q": {
       meleeSwing(w, c, dir);
       startDash(c, dir, v("speed"), def.castRange, w);
-      const hit = corridorHits(w, c, dir, def.castRange, 0.9)[0];
-      if (hit) {
+      // poison lunge cuts everyone along the dash line — forgiving to aim
+      for (const hit of corridorHits(w, c, dir, def.castRange, 1.4)) {
         dealDamage(w, c, hit, v("damage"), "physical", { ap });
         addStatus(hit, { kind: "dot", until: w.now + v("dur") * 1000, nextTick: w.now + 500, dps: v("dps"), dtype: "magic", sourceId: c.id, id: "rogue:Q" });
       }
@@ -331,7 +337,7 @@ function dispatch(
       let bestD = Infinity;
       const base = angleOf(dir.x, dir.y);
       for (const t of w.units.values()) {
-        if (t === c || !t.alive || t.kind !== "hero" || !isEnemy(c, t) || isUntargetable(t)) continue;
+        if (t === c || !t.alive || !targetable(t) || !isEnemy(c, t) || isUntargetable(t)) continue;
         const d = dist(c, t);
         if (d > def.castRange + t.radius) continue;
         if (Math.abs(angleDelta(base, angleOf(t.x - c.x, t.y - c.y))) > deg2rad(70)) continue;
@@ -358,7 +364,7 @@ function dispatch(
       const ang = angleOf(dir.x, dir.y);
       const half = deg2rad(v("cone")) / 2;
       for (const t of w.units.values()) {
-        if (t === c || !t.alive || t.kind !== "hero" || !isEnemy(c, t)) continue;
+        if (t === c || !t.alive || !targetable(t) || !isEnemy(c, t)) continue;
         if (dist(c, t) > def.castRange + t.radius) continue;
         if (Math.abs(angleDelta(ang, angleOf(t.x - c.x, t.y - c.y))) > half) continue;
         dealDamage(w, c, t, v("damage"), "physical", { ap });
@@ -369,7 +375,7 @@ function dispatch(
     case "blackknight:W": {
       const dist0 = def.castRange;
       startDash(c, dir, v("speed"), dist0, w);
-      for (const t of corridorHits(w, c, dir, dist0, 1.3)) {
+      for (const t of corridorHits(w, c, dir, dist0, 1.8)) {
         dealDamage(w, c, t, v("damage"), "physical", { ap });
         applyKnockback(t, c.x, c.y, v("knockback"), w);
         addStatus(t, { kind: "slow", until: w.now + v("slowDur") * 1000, pct: v("slow"), id: "blackknight:W" });
@@ -402,7 +408,7 @@ function dispatch(
         dtype: "magic",
         kind: "hexbolt",
         speed: v("speed"),
-        radius: 0,
+        radius: 1.8, // curdled burst — the slow spreads to everyone splashed
         range: def.castRange,
         onHit: { tag: "slow", pct: v("slow"), duration: v("slowDur") },
       });
