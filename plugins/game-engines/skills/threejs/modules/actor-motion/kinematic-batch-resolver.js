@@ -203,6 +203,7 @@ export class KinematicBatchResolver {
         this.world.updateSceneQueries();
         this.results.set(move.actor, this._resolveMove(move, undefined, true, deltaSeconds));
       }
+      this.queuedMoves.length = 0;
       this._stepWorld(deltaSeconds);
       return this.results;
     }
@@ -221,6 +222,7 @@ export class KinematicBatchResolver {
       this.results.set(move.actor, this._resolveMove(move, predicate, false, deltaSeconds));
     }
 
+    this.queuedMoves.length = 0;
     this._stepWorld(deltaSeconds);
     return this.results;
   }

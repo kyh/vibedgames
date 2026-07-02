@@ -152,7 +152,7 @@ export class WaveSpawnDirector {
       inProgress: this.inProgress,
       unitsToSpawn: this.unitsToSpawn,
       unitsSpawned: this.unitsSpawned,
-      pending: 0,
+      pending: this.inProgress ? Math.max(0, this.unitsToSpawn - this.unitsSpawned) : 0,
       activeUnits: this.activeUnits,
       lastSpawnedType: this.lastSpawnedType,
     };
