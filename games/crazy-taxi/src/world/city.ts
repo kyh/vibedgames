@@ -23,6 +23,7 @@ import {
 import { Rng } from "../shared/rng";
 import { type Dir, DIR_DELTA, E, N, S, W } from "../shared/types";
 import { conformToTerrain, toFloat32Attributes } from "./conform";
+import { CUSTOM_PROPS } from "./custom-props";
 import { buildFurniture } from "./furniture";
 import { buildGoldenGate } from "./golden-gate";
 import { type CityPlan, generateCity } from "./grid";
@@ -348,20 +349,41 @@ export class CityModel {
     const CONCRETE = new THREE.Color(0x9a9b92);
     const SAND = new THREE.Color(0xd9c9a1);
     const PARK = new THREE.Color(0x74975c);
-    this.group.add(
-      this.terrain.buildMesh(groundMat, (x, z, into) => {
-        into.copy(CONCRETE);
-        const gx = Math.min(GRID - 1, Math.max(0, this.gridX(x)));
-        const gz = Math.min(GRID - 1, Math.max(0, this.gridZ(z)));
-        if (districtAt(gx, gz).character === "park") into.lerp(PARK, 0.8);
-        const land = this.terrain.landAt(x, z);
-        const shore = 1 - THREE.MathUtils.smoothstep(land, 0.3, 0.55);
-        if (shore > 0) {
-          const u = x / WORLD_SIZE + 0.5;
-          into.lerp(SAND, u < 0.12 ? shore : shore * 0.5); // Ocean Beach reads strongest
-        }
-      }),
-    );
+    const ground = this.terrain.buildMesh(groundMat, (x, z, into) => {
+      into.copy(CONCRETE);
+      const gx = Math.min(GRID - 1, Math.max(0, this.gridX(x)));
+      const gz = Math.min(GRID - 1, Math.max(0, this.gridZ(z)));
+      if (districtAt(gx, gz).character === "park") into.lerp(PARK, 0.8);
+      const land = this.terrain.landAt(x, z);
+      const shore = 1 - THREE.MathUtils.smoothstep(land, 0.3, 0.55);
+      if (shore > 0) {
+        const u = x / WORLD_SIZE + 0.5;
+        into.lerp(SAND, u < 0.12 ? shore : shore * 0.5); // Ocean Beach reads strongest
+      }
+    });
+    ground.name = "terrain-ground"; // the map editor raycasts against this
+    this.group.add(ground);
+
+    // --- Hand-placed decorations from the map editor (world/custom-props.ts) ---
+    for (const p of CUSTOM_PROPS) {
+      const parts = p.model.split("/");
+      const cat = parts[0];
+      const name = parts[1];
+      if (!cat || !name) continue;
+      const node = this.cache.instance(modelUrl(cat, name));
+      node.scale.setScalar(p.s);
+      node.rotation.y = p.yaw;
+      const x = (p.u - 0.5) * WORLD_SIZE;
+      const z = (p.v - 0.5) * WORLD_SIZE;
+      node.position.set(x, this.heightAt(x, z), z);
+      collect(node);
+      if (p.solid) {
+        const b = this.cache.bounds(modelUrl(cat, name));
+        const hx = (b.size.x * p.s) / 2;
+        const hz = (b.size.z * p.s) / 2;
+        this.solids.push({ minX: x - hx, maxX: x + hx, minZ: z - hz, maxZ: z + hz });
+      }
+    }
 
     // --- Merge static meshes by material to slash draw calls ---
     for (const merged of mergeByMaterial(staticMeshes)) this.group.add(merged);

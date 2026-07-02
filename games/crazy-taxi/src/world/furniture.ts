@@ -184,6 +184,10 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
     inBounds(gx, gz) ? (plan.roads[gx]?.[gz] ?? null) : null;
   const cellAt = (gx: number, gz: number): "road" | "lot" | "water" | null =>
     inBounds(gx, gz) ? (plan.cells[gx]?.[gz] ?? null) : null;
+  // Road axis from actual neighbours — tile quarterTurns encode the tile set's
+  // native orientation and flip when the set changes; neighbours never lie.
+  const straightAlongX = (gx: number, gz: number): boolean =>
+    cellAt(gx + 1, gz) === "road" || cellAt(gx - 1, gz) === "road";
   const centre = (GRID - 1) / 2;
   const nearCentre = (gx: number, gz: number, r: number): boolean =>
     Math.hypot(gx - centre, gz - centre) <= r;
@@ -293,7 +297,7 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
         }
       }
       if (nearJunction) continue;
-      const alongX = road.quarterTurns % 2 === 0; // straight base mask runs E–W
+      const alongX = straightAlongX(gx, gz);
       const side: 1 | -1 = Math.floor((gx + gz) / 2) % 2 === 0 ? 1 : -1;
       const wx = worldX(gx);
       const wz = worldZ(gz);
@@ -336,7 +340,7 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
       if (!rng.chance(0.3)) continue;
       const taken = lightSide.get(cellKey(gx, gz));
       const side: 1 | -1 = taken !== undefined ? (taken > 0 ? -1 : 1) : rng.chance(0.5) ? 1 : -1;
-      const alongX = road.quarterTurns % 2 === 0;
+      const alongX = straightAlongX(gx, gz);
       const wx = worldX(gx);
       const wz = worldZ(gz);
       const px = alongX ? wx : wx + side * PARK_LATERAL;
@@ -457,7 +461,7 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
       if (!road || road.tile !== ROAD_STRAIGHT) continue;
       if (reserved.has(cellKey(gx, gz))) continue;
       if (nearCentre(gx, gz, 3)) continue;
-      pocketCandidates.push({ gx, gz, alongX: road.quarterTurns % 2 === 0 });
+      pocketCandidates.push({ gx, gz, alongX: straightAlongX(gx, gz) });
     }
   }
   const pocketCount = Math.min(CONSTRUCTION_POCKETS, pocketCandidates.length);
@@ -790,7 +794,7 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
       const [dx, dz] = DIR_DELTA[lotDir];
       // If this cell's streetlight took the same kerb, slide down the block.
       const lampSide = lightSide.get(cellKey(gx, gz));
-      const alongX = road.tile === ROAD_STRAIGHT && road.quarterTurns % 2 === 0;
+      const alongX = road.tile === ROAD_STRAIGHT && straightAlongX(gx, gz);
       const clash = lampSide !== undefined && (alongX ? dz : dx) === lampSide;
       const slide = clash ? ROAD_TILE * 0.24 : 0;
       // perp (dz, dx) runs along the kerb; lotDir is the lateral axis.

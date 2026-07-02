@@ -164,7 +164,7 @@ export const CHARACTERS = [
   "character-female-f",
 ] as const;
 
-const PROPS = [
+export const PROPS = [
   TREE_LARGE,
   TREE_SMALL,
   PROP_CONE,

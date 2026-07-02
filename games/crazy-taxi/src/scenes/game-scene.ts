@@ -203,6 +203,14 @@ export class GameScene {
     return this.rig.camera;
   }
 
+  // Used by the map editor (?editor=1) and DEV hooks.
+  getCity(): CityModel | null {
+    return this.city;
+  }
+  getCache(): ModelCache {
+    return this.cache;
+  }
+
   // Bake a sky environment map so PBR materials (ocean, glass, paint) pick up
   // subtle sky reflections. Called once from main after the renderer exists.
   applyEnvironment(renderer: THREE.WebGLRenderer): void {
