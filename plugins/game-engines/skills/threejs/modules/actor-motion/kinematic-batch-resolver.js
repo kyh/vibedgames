@@ -201,7 +201,7 @@ export class KinematicBatchResolver {
       for (const move of this.queuedMoves) {
         this.syncActor(move.actor, move.startPosition);
         this.world.updateSceneQueries();
-        this.results.set(move.actor, this._resolveMove(move, undefined, true));
+        this.results.set(move.actor, this._resolveMove(move, undefined, true, deltaSeconds));
       }
       this._stepWorld(deltaSeconds);
       return this.results;
@@ -218,7 +218,7 @@ export class KinematicBatchResolver {
         moveMode === KINEMATIC_ACTOR_COLLISION_MODES.ignoreActors
           ? (collider) => !this.actorColliderHandles.has(collider.handle)
           : undefined;
-      this.results.set(move.actor, this._resolveMove(move, predicate, false));
+      this.results.set(move.actor, this._resolveMove(move, predicate, false, deltaSeconds));
     }
 
     this._stepWorld(deltaSeconds);
@@ -229,8 +229,9 @@ export class KinematicBatchResolver {
     return this.results.get(actor) ?? null;
   }
 
-  _resolveMove(move, filterPredicate, commitCurrentTranslation) {
-    const { actor, startPosition, desiredDelta, deltaSeconds } = move;
+  _resolveMove(move, filterPredicate, commitCurrentTranslation, fallbackDeltaSeconds) {
+    const { actor, startPosition, desiredDelta } = move;
+    const deltaSeconds = move.deltaSeconds ?? fallbackDeltaSeconds;
 
     actor.characterController.computeColliderMovement(
       actor.collider,

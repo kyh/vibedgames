@@ -98,7 +98,8 @@ export class WaveSpawnDirector {
       total += weight;
     }
 
-    if (entries.length === 0) return available[0];
+    // Before any rule unlocks (or all weights are zero), fall back to the earliest rule's type.
+    if (entries.length === 0) return available[0] ?? this.unlockRules[0]?.type;
 
     let pick = this.prng.random() * total;
     for (const entry of entries) {
