@@ -2,6 +2,8 @@
 
 Responsive movement and a camera that always shows the next decision are most of 3D game feel. Tune the numbers here with the `game-feel` skill.
 
+> **Copy before you code:** `modules/` ships working character controllers (click-to-move, cardinal, tank, mouse-look) and camera rigs (position-follow, pose-follow, first-person, free-look) — see `modules/summary.md`. Use this guide to understand and tune them, not to rewrite them.
+
 ## Input → intent
 
 The controller never reads the keyboard. `input.js` translates raw events into an `intent` object; the controller consumes it. This lets touch controls (`gamepad` skill) and AI feed the same controller, and makes movement testable.
