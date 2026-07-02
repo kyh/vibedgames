@@ -82,9 +82,60 @@
       #timer.low .value {
         color: #ff5a52;
       }
+      #timer.low {
+        animation: heartbeat 1s ease-in-out infinite;
+      }
+      @keyframes heartbeat {
+        0%,
+        60%,
+        100% {
+          transform: translateX(-50%) scale(1);
+        }
+        30% {
+          transform: translateX(-50%) scale(1.07);
+        }
+      }
+
+      /* Combo chain meter — under the timer */
+      #combo-meter {
+        position: fixed;
+        top: calc(84px + env(safe-area-inset-top));
+        left: 50%;
+        transform: translateX(-50%);
+        width: 120px;
+        text-align: center;
+        opacity: 0;
+        transition: opacity 0.25s;
+        pointer-events: none;
+      }
+      #combo-meter.show {
+        opacity: 1;
+      }
+      #combo-meter .mult {
+        font-size: 18px;
+        font-weight: 900;
+        font-style: italic;
+        color: #ffd147;
+        text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5);
+      }
+      #combo-track {
+        height: 5px;
+        border-radius: 3px;
+        background: rgba(255, 255, 255, 0.18);
+        overflow: hidden;
+        margin-top: 3px;
+      }
+      #combo-fill {
+        height: 100%;
+        width: 100%;
+        background: #ffd147;
+      }
+      #combo-meter.urgent #combo-fill {
+        background: #ff5a52;
+      }
       #district {
         position: fixed;
-        top: 96px;
+        top: calc(96px + env(safe-area-inset-top));
         left: 50%;
         transform: translateX(-50%);
         font:
@@ -101,7 +152,7 @@
       }
       #time-bonus {
         position: fixed;
-        top: 78px;
+        top: calc(78px + env(safe-area-inset-top));
         left: 50%;
         transform: translateX(-50%);
         font-size: 30px;
@@ -148,6 +199,20 @@
         background: linear-gradient(90deg, #ffd147, #ff8a3c);
         transition: width 0.1s linear;
       }
+      #boost.denied {
+        animation: denyshake 0.16s linear 2;
+      }
+      #boost.denied #boost-fill {
+        background: #ff5a52;
+      }
+      @keyframes denyshake {
+        25% {
+          transform: translateX(-3px);
+        }
+        75% {
+          transform: translateX(3px);
+        }
+      }
 
       /* Speed — bottom-left */
       #speed {
@@ -191,6 +256,22 @@
         color: #6bff8e;
         letter-spacing: 1px;
       }
+      #patience-track {
+        height: 5px;
+        border-radius: 3px;
+        background: rgba(255, 255, 255, 0.16);
+        overflow: hidden;
+        margin-top: 6px;
+        display: none;
+      }
+      #fare-card.carrying #patience-track {
+        display: block;
+      }
+      #patience-fill {
+        height: 100%;
+        width: 100%;
+        background: #6bff8e;
+      }
 
       /* Combo — center-ish, punchy */
       #combo {
@@ -208,6 +289,101 @@
         opacity: 0;
         pointer-events: none;
         letter-spacing: 1px;
+      }
+
+      /* Minor announcements (near-miss, smash, air) — below the major slot */
+      #announce-minor {
+        position: fixed;
+        top: 42%;
+        left: 50%;
+        transform: translate(-50%, 0);
+        font-size: clamp(16px, 3.2vw, 30px);
+        font-weight: 800;
+        font-style: italic;
+        color: #aee3ff;
+        text-shadow:
+          0 0 12px rgba(80, 180, 255, 0.6),
+          0 3px 0 rgba(0, 0, 0, 0.5);
+        opacity: 0;
+        pointer-events: none;
+        letter-spacing: 1px;
+      }
+
+      /* Itemized dropoff receipt */
+      #receipt {
+        position: fixed;
+        top: 34%;
+        right: 12%;
+        text-align: right;
+        pointer-events: none;
+      }
+      #receipt div {
+        font-size: clamp(16px, 3vw, 28px);
+        font-weight: 900;
+        font-style: italic;
+        letter-spacing: 1px;
+        text-shadow: 0 3px 0 rgba(0, 0, 0, 0.5);
+        margin-top: 2px;
+      }
+
+      /* Speed vignette */
+      #vignette {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 3;
+        opacity: 0;
+        background: radial-gradient(ellipse at center, transparent 55%, rgba(8, 6, 14, 0.55) 100%);
+      }
+
+      /* Countdown 3-2-1-GO */
+      #countdown {
+        position: fixed;
+        top: 34%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        font:
+          900 italic clamp(70px, 16vw, 170px) / 1 system-ui,
+          sans-serif;
+        color: #ffd147;
+        text-shadow:
+          0 8px 0 rgba(0, 0, 0, 0.45),
+          0 0 50px rgba(255, 160, 40, 0.6);
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      /* Mute + pause */
+      #mute {
+        position: fixed;
+        right: calc(14px + env(safe-area-inset-right));
+        bottom: calc(14px + env(safe-area-inset-bottom));
+        font-size: 14px;
+        padding: 6px 10px;
+        pointer-events: auto;
+        cursor: pointer;
+        opacity: 0.75;
+      }
+      #paused {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(10, 8, 14, 0.55);
+        backdrop-filter: blur(3px);
+        -webkit-backdrop-filter: blur(3px);
+        z-index: 8;
+        font:
+          900 italic clamp(34px, 8vw, 70px) / 1 system-ui,
+          sans-serif;
+        color: #ffd147;
+        letter-spacing: 2px;
+        text-shadow: 0 5px 0 rgba(0, 0, 0, 0.5);
+        pointer-events: none;
+      }
+      #paused.show {
+        display: flex;
       }
 
       /* Destination off-screen arrow */
@@ -386,12 +562,45 @@
         border-color: rgba(107, 255, 142, 0.5);
       }
       #t-brake {
-        right: 120px;
+        right: 124px;
         bottom: 40px;
         width: 74px;
         height: 74px;
         background: rgba(255, 90, 82, 0.16);
         border-color: rgba(255, 90, 82, 0.5);
+      }
+      /* Narrow phones: shrink + retuck the clusters so steer and brake never overlap. */
+      @media (max-width: 420px) {
+        #t-left {
+          left: 12px;
+          bottom: 88px;
+          width: 64px;
+          height: 64px;
+        }
+        #t-right {
+          left: 88px;
+          bottom: 88px;
+          width: 64px;
+          height: 64px;
+        }
+        #t-gas {
+          right: 12px;
+          bottom: 104px;
+          width: 78px;
+          height: 78px;
+        }
+        #t-brake {
+          right: 100px;
+          bottom: 34px;
+          width: 62px;
+          height: 62px;
+        }
+        #t-drift {
+          right: 22px;
+          bottom: 200px;
+          width: 56px;
+          height: 56px;
+        }
       }
       #t-drift {
         right: 30px;
@@ -425,9 +634,34 @@
         #speed {
           display: none;
         }
+        /* Keep the fare card clear of the centred timer on narrow screens. */
+        #timer .value {
+          font-size: 34px;
+        }
+        #fare-card {
+          top: calc(66px + env(safe-area-inset-top));
+          min-width: 128px;
+          padding: 6px 10px;
+        }
+        #fare-card .dist {
+          font-size: 16px;
+        }
+        #combo-meter {
+          top: 64px;
+        }
+        #district {
+          top: 132px;
+        }
+        #receipt {
+          top: 40%;
+          right: 6%;
+        }
       }
       @media (prefers-reduced-motion: reduce) {
         #banner-cta {
+          animation: none;
+        }
+        #timer.low {
           animation: none;
         }
       }
@@ -438,9 +672,13 @@
 
     <div id="hud">
       <div class="pill" id="timer"><span class="label">TIME</span><span class="value">60</span></div>
+      <div id="combo-meter">
+        <span class="mult"></span>
+        <div id="combo-track"><div id="combo-fill"></div></div>
+      </div>
       <div id="time-bonus"></div>
       <div id="district"></div>
-      <div class="pill" id="score"><span class="label">SCORE</span><span class="value">0</span></div>
+      <div class="pill" id="score"><span class="label">EARNED</span><span class="value">0</span></div>
       <div class="pill" id="fares"><span class="label">FARES</span><span class="value">0</span></div>
       <div class="pill" id="boost">
         <span class="label">BOOST</span>
@@ -451,8 +689,13 @@
         <span class="who"></span>
         <div class="dist"></div>
         <div class="reward"></div>
+        <div id="patience-track"><div id="patience-fill"></div></div>
       </div>
       <div id="combo"></div>
+      <div id="announce-minor"></div>
+      <div id="receipt"></div>
+      <div id="countdown"></div>
+      <div class="pill" id="mute" role="button" aria-label="Toggle sound">🔊</div>
       <div id="dest-arrow">
         <svg viewBox="0 0 64 64">
           <polygon points="32,4 56,40 32,30 8,40" fill="#6bff8e" stroke="#0c2414" stroke-width="3"
@@ -469,6 +712,8 @@
     </div>
 
     <div id="flash"></div>
+    <div id="vignette"></div>
+    <div id="paused">PAUSED</div>
 
     <div id="touch" aria-hidden="true">
       <div class="tbtn" id="t-left" role="button" aria-label="Steer left">◀</div>

@@ -38,5 +38,6 @@ export function rotateMask(mask: Mask, q: number): Mask {
 export type GameMode =
   | { readonly kind: "loading"; readonly progress: number }
   | { readonly kind: "title" }
+  | { readonly kind: "countdown"; t: number } // 3-2-1-GO launch + camera swoop
   | { readonly kind: "playing" }
   | { readonly kind: "gameover"; readonly score: number; readonly fares: number };

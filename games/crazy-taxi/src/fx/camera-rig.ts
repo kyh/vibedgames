@@ -15,7 +15,13 @@ export class ChaseCamera {
   private camYaw = 0;
   private look = new THREE.Vector3();
   private shake = 0;
+  private shakeT = 0; // summed-sine phase (framerate-independent shake)
   private shakeOff = new THREE.Vector3();
+  // Per-frame scratch — update() runs hot, never allocate in it.
+  private scrFwd = new THREE.Vector2();
+  private scrPerp = new THREE.Vector2();
+  private scrDesired = new THREE.Vector3();
+  private scrLook = new THREE.Vector3();
 
   constructor(aspect: number) {
     this.camera = new THREE.PerspectiveCamera(CAMERA.fov, aspect, 0.1, 2000);
@@ -46,48 +52,63 @@ export class ChaseCamera {
     // Drift swing: bias the follow yaw toward the velocity direction during a
     // slide so the camera lags to the outside and you see the taxi's flank.
     let targetYaw = car.heading;
+    const slip = THREE.MathUtils.clamp(car.slip, -CAMERA.driftSwing, CAMERA.driftSwing);
     const vh = car.velAngle;
-    if (vh !== null) {
-      let slip = ((vh - car.heading + Math.PI) % (Math.PI * 2)) - Math.PI;
-      if (slip < -Math.PI) slip += Math.PI * 2;
-      targetYaw = car.heading + THREE.MathUtils.clamp(slip, -CAMERA.driftSwing, CAMERA.driftSwing);
-    }
+    if (vh !== null) targetYaw = car.heading + slip;
     this.camYaw = lerpAngle(this.camYaw, targetYaw, Math.min(1, CAMERA.yawLerp * dt));
-    const fwd = new THREE.Vector2(Math.sin(this.camYaw), Math.cos(this.camYaw));
+    const fwd = this.scrFwd.set(Math.sin(this.camYaw), Math.cos(this.camYaw));
+    const perp = this.scrPerp.set(fwd.y, -fwd.x);
 
-    const desired = new THREE.Vector3(
-      car.position.x - fwd.x * CAMERA.distance,
-      car.position.y + CAMERA.height,
-      car.position.z - fwd.y * CAMERA.distance,
+    // Speed crouch: at full tilt the camera drops lower and hangs farther back —
+    // a lower horizon reads faster.
+    const speedFrac = THREE.MathUtils.clamp(car.speed / CAR.maxSpeed, 0, 1);
+    const height = THREE.MathUtils.lerp(CAMERA.height, CAMERA.height - 1.7, speedFrac);
+    const distance = THREE.MathUtils.lerp(CAMERA.distance, CAMERA.distance + 1.5, speedFrac);
+
+    const desired = this.scrDesired.set(
+      car.position.x - fwd.x * distance,
+      car.position.y + height,
+      car.position.z - fwd.y * distance,
     );
     this.avoidClip(car.position, desired, solids);
     this.camera.position.lerp(desired, Math.min(1, CAMERA.posLerp * dt));
 
-    const speedFrac = THREE.MathUtils.clamp(car.speed / CAR.maxSpeed, 0, 1);
+    // Look ahead along the camera yaw, biased into the corner being steered.
     const la = CAMERA.lookAhead + CAMERA.lookAheadSpeed * speedFrac;
-    const lookTarget = new THREE.Vector3(
-      car.position.x + fwd.x * la,
+    const steerBias = car.steer * -4.5;
+    const lookTarget = this.scrLook.set(
+      car.position.x + fwd.x * la + perp.x * steerBias,
       car.position.y + CAMERA.lookHeight,
-      car.position.z + fwd.y * la,
+      car.position.z + fwd.y * la + perp.y * steerBias,
     );
     this.look.lerp(lookTarget, Math.min(1, CAMERA.aimLerp * dt));
 
-    // Trauma-based shake (quadratic falloff feels punchier than linear).
+    // Trauma shake: summed sines (framerate-independent), quadratic falloff.
     this.shake = Math.max(0, this.shake - dt * 1.7);
+    this.shakeT += dt;
     const s = this.shake * this.shake;
+    const t = this.shakeT;
     this.shakeOff.set(
-      (Math.random() - 0.5) * s * 2.2,
-      (Math.random() - 0.5) * s * 1.6,
-      (Math.random() - 0.5) * s * 2.2,
+      (Math.sin(t * 31) + Math.sin(t * 57) * 0.6) * s * 1.1,
+      (Math.sin(t * 43) + Math.sin(t * 71) * 0.6) * s * 0.8,
+      (Math.sin(t * 37) + Math.sin(t * 61) * 0.6) * s * 1.1,
     );
     this.camera.position.add(this.shakeOff);
 
     this.camera.lookAt(this.look);
 
-    // Speed FOV: widen as we approach top/boost speed for a rush.
+    // Roll AFTER lookAt (which re-levels the camera): drift tilts the horizon,
+    // trauma adds a rotational jitter — this is what makes shake feel physical.
+    const rollShake = (Math.sin(t * 47) + Math.sin(t * 89) * 0.5) * 0.08 * s;
+    const driftRoll = THREE.MathUtils.clamp(car.slip, -1, 1) * 0.045;
+    this.camera.rotateZ(rollShake + driftRoll);
+
+    // Speed FOV: kick wide fast, recover slow — boost hits like a gear change.
     const frac = THREE.MathUtils.clamp(car.speed / CAR.boostSpeed, 0, 1);
-    const targetFov = THREE.MathUtils.lerp(CAMERA.fov, CAMERA.fovBoost, frac);
-    this.camera.fov += (targetFov - this.camera.fov) * Math.min(1, dt * 4);
+    const targetFov =
+      THREE.MathUtils.lerp(CAMERA.fov, CAMERA.fovBoost, frac) + (car.isBoosting ? 4 : 0);
+    const fovRate = targetFov > this.camera.fov ? 10 : 3;
+    this.camera.fov += (targetFov - this.camera.fov) * Math.min(1, dt * fovRate);
     this.camera.updateProjectionMatrix();
   }
 

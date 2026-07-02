@@ -35,10 +35,16 @@ export const CAR = {
   gripDrift: 1.5, // low grip while drifting → big hangable slide
   driftTurnBoost: 1.7, // extra steering while drifting
   driftMinSpeed: 18, // must be moving this fast to drift
+  driftMinSlip: 0.1, // radians of real slip before a drift counts (no spam scoring)
   miniBoostImpulse: 14, // instant forward pop when releasing a charged drift
   slopeGravity: 40, // how hard SF hills pull the car back uphill / drag it downhill
+  // Hill jumps: cresting fast enough goes ballistic instead of gluing to the road.
+  gravity: 34, // vertical fall accel while airborne
+  minAirSpeed: 20, // slower than this just sticks to the ground
+  launchDropRate: -6, // go airborne when the ground falls away faster than this (u/s)
+  airSteerFactor: 0.3, // steering authority in the air
   boostDrain: 34, // boost units/s spent while boosting
-  boostRefill: 16, // boost units/s regained otherwise
+  boostRefill: 5, // trickle only — real boost comes from drifts/near-misses/fares
   boostMax: 100,
   boostPerDrift: 26, // boost gained for a sustained drift release
   boostPerNearMiss: 10,
@@ -74,18 +80,30 @@ export const FARE = {
   farePerTile: 14, // reward scales with trip distance (grid tiles)
   timePerTile: 1.5, // seconds added to the clock per trip tile
   minTimeBonus: 8,
-  maxTimeBonus: 28,
+  maxTimeBonus: 20,
+  timeCap: 90, // the clock never banks past this; overflow converts to cash
+  overflowDollarPerSec: 5, // $ per second of time bonus lost to the cap
   tipFastBonus: 120, // tip for a speedy delivery (scaled by leftover time frac)
-  comboWindow: 6, // s after a dropoff to chain the next for a multiplier
+  // Combo: the chain timer ticks ONLY while carrying a fare — it judges how
+  // fast you deliver, not how lucky the next spawn is.
+  comboWindow: 10,
   comboMax: 8,
-  nearMissBonus: 25,
+  nearMissBonus: 25, // scaled up to 3× by speed in state.nearMiss
   nearMissRadius: 3.4, // pass traffic this close (and fast) for a bonus
   driftScorePerSec: 40,
+  waitingFares: 3, // simultaneous customers on the street
+  // Trip tiers (trip length in grid tiles): pay + beacon color identity.
+  tierShortMax: 6, // green $
+  tierMediumMax: 10, // amber $$
+  tierLongMax: 14, // red $$$ (superlinear payout)
+  firstSeekMax: 5, // the very first customer spawns close (fast first loop)
+  patienceParMult: 2.2, // patience budget = par seconds × this
+  smashBonus: 5, // $ per smashed cone
 } as const;
 
 // --- Traffic ---
 export const TRAFFIC = {
-  count: 26,
+  count: 36,
   minSpeed: 8,
   maxSpeed: 18,
 } as const;

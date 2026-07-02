@@ -10,24 +10,36 @@ type EmitOpts = {
   life: number;
   gravity: number;
   drag: number;
+  // Optional directional term: final velocity = radial term + dir * dirSpeed.
+  dir?: { x: number; y: number; z: number };
+  dirSpeed?: number;
 };
 
+// vAlpha = remaining life fraction (1 at birth -> 0 at death).
+// uGrow selects the size ramp: 0 = shrink over life (sparks: 1.4 -> 0.6),
+// 1 = grow over life (smoke: 0.7 -> 1.5).
 const VERT = `
   attribute float aLife;
   attribute float aMax;
   attribute float aSize;
   attribute vec3 aColor;
   uniform float uScale;
+  uniform float uGrow;
   varying float vAlpha;
   varying vec3 vColor;
   void main() {
     vColor = aColor;
     vAlpha = clamp(aLife / max(aMax, 0.0001), 0.0, 1.0);
+    float shrinkRamp = mix(0.6, 1.4, vAlpha);
+    float growRamp = mix(1.5, 0.7, vAlpha);
+    float ramp = mix(shrinkRamp, growRamp, uGrow);
     vec4 mv = modelViewMatrix * vec4(position, 1.0);
     gl_Position = projectionMatrix * mv;
-    gl_PointSize = (aLife <= 0.0) ? 0.0 : aSize * uScale / max(-mv.z, 0.1);
+    gl_PointSize = (aLife <= 0.0) ? 0.0 : aSize * ramp * uScale / max(-mv.z, 0.1);
   }
 `;
+// Color cools toward death (hot core early, dark residue late); alpha is
+// fast-in-slow-out (vAlpha^2 spends most of the life dim, popping at birth).
 const FRAG = `
   varying float vAlpha;
   varying vec3 vColor;
@@ -36,7 +48,8 @@ const FRAG = `
     float r = dot(d, d);
     if (r > 0.25) discard;
     float soft = smoothstep(0.25, 0.0, r);
-    gl_FragColor = vec4(vColor, vAlpha * soft);
+    vec3 color = mix(vColor * 0.35, vColor, pow(vAlpha, 0.6));
+    gl_FragColor = vec4(color, vAlpha * vAlpha * soft);
   }
 `;
 
@@ -51,12 +64,14 @@ class ParticleField {
   private grav: Float32Array;
   private drag: Float32Array;
   private cursor = 0;
+  private wasEmpty = false;
   private mat: THREE.ShaderMaterial;
   private scaleUniform = { value: window.innerHeight };
 
   constructor(
     private n: number,
     blending: THREE.Blending,
+    grow: boolean,
   ) {
     this.pos = new Float32Array(n * 3);
     this.col = new Float32Array(n * 3);
@@ -76,7 +91,7 @@ class ParticleField {
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
 
     this.mat = new THREE.ShaderMaterial({
-      uniforms: { uScale: this.scaleUniform },
+      uniforms: { uScale: this.scaleUniform, uGrow: { value: grow ? 1 : 0 } },
       vertexShader: VERT,
       fragmentShader: FRAG,
       transparent: true,
@@ -92,6 +107,11 @@ class ParticleField {
   }
 
   emit(x: number, y: number, z: number, o: EmitOpts): void {
+    const dir = o.dir;
+    const ds = o.dirSpeed ?? 0;
+    const dx = dir ? dir.x * ds : 0;
+    const dy = dir ? dir.y * ds : 0;
+    const dz = dir ? dir.z * ds : 0;
     for (let k = 0; k < o.count; k++) {
       const i = this.cursor;
       this.cursor = (this.cursor + 1) % this.n;
@@ -100,9 +120,9 @@ class ParticleField {
       this.pos[i * 3 + 2] = z;
       const ang = Math.random() * Math.PI * 2;
       const sp = o.speed * (0.4 + Math.random() * 0.6);
-      this.vel[i * 3] = Math.cos(ang) * o.spread + Math.cos(ang) * sp;
-      this.vel[i * 3 + 1] = o.up * (0.5 + Math.random());
-      this.vel[i * 3 + 2] = Math.sin(ang) * o.spread + Math.sin(ang) * sp;
+      this.vel[i * 3] = Math.cos(ang) * o.spread + Math.cos(ang) * sp + dx;
+      this.vel[i * 3 + 1] = o.up * (0.5 + Math.random()) + dy;
+      this.vel[i * 3 + 2] = Math.sin(ang) * o.spread + Math.sin(ang) * sp + dz;
       this.col[i * 3] = o.color.r;
       this.col[i * 3 + 1] = o.color.g;
       this.col[i * 3 + 2] = o.color.b;
@@ -115,9 +135,11 @@ class ParticleField {
   }
 
   update(dt: number): void {
+    let alive = 0;
     for (let i = 0; i < this.n; i++) {
       const life = this.life[i] ?? 0;
       if (life <= 0) continue;
+      alive++;
       this.life[i] = life - dt;
       const dragF = Math.exp(-(this.drag[i] ?? 0) * dt);
       const b = i * 3;
@@ -131,19 +153,24 @@ class ParticleField {
       this.pos[b + 1] = (this.pos[b + 1] ?? 0) + vy * dt;
       this.pos[b + 2] = (this.pos[b + 2] ?? 0) + vz * dt;
     }
+    // One idle frame still uploads (to clear the last dying particle), then rest.
+    if (alive === 0 && this.wasEmpty) return;
+    this.wasEmpty = alive === 0;
     const geo = this.points.geometry;
     geo.getAttribute("position").needsUpdate = true;
     geo.getAttribute("aColor").needsUpdate = true;
     geo.getAttribute("aSize").needsUpdate = true;
     geo.getAttribute("aLife").needsUpdate = true;
+    geo.getAttribute("aMax").needsUpdate = true;
   }
 }
 
 // High-level effects used by the game.
 export class Fx {
-  readonly smoke = new ParticleField(420, THREE.NormalBlending);
-  readonly sparks = new ParticleField(500, THREE.AdditiveBlending);
+  readonly smoke = new ParticleField(420, THREE.NormalBlending, true); // grows over life
+  readonly sparks = new ParticleField(500, THREE.AdditiveBlending, false); // shrinks over life
   private tmp = new THREE.Color();
+  private tmpDir = { x: 0, y: 0, z: 0 };
 
   addTo(scene: THREE.Scene): void {
     scene.add(this.smoke.points);
@@ -154,7 +181,9 @@ export class Fx {
     this.sparks.setScale(px);
   }
 
-  driftPuff(x: number, z: number, boosting: boolean): void {
+  // Tire smoke while drifting. `charged` is the Mario-Kart mini-turbo tell:
+  // sparks turn cyan and the count jumps 2 -> 5.
+  driftPuff(x: number, z: number, boosting: boolean, charged = false): void {
     this.tmp.setHSL(0, 0, boosting ? 0.85 : 0.72);
     this.smoke.emit(x, 0.3, z, {
       count: 2,
@@ -167,10 +196,10 @@ export class Fx {
       gravity: -1.2,
       drag: 2.4,
     });
-    if (boosting) {
-      this.tmp.setHSL(0.08, 1, 0.6);
+    if (boosting || charged) {
+      this.tmp.setHSL(charged ? 0.55 : 0.08, 1, 0.6);
       this.sparks.emit(x, 0.3, z, {
-        count: 3,
+        count: charged ? 5 : 2,
         color: this.tmp,
         speed: 5,
         spread: 1,
@@ -181,6 +210,95 @@ export class Fx {
         drag: 3,
       });
     }
+  }
+
+  // Boost exhaust: hot flame tongues shot backwards along (dirX, dirZ).
+  // Call per frame while boosting; one white-hot core + orange tails.
+  exhaustFlame(x: number, y: number, z: number, dirX: number, dirZ: number): void {
+    const len = Math.hypot(dirX, dirZ);
+    const inv = len > 0.0001 ? 1 / len : 0;
+    this.tmpDir.x = dirX * inv;
+    this.tmpDir.y = 0;
+    this.tmpDir.z = dirZ * inv;
+    // White-hot core — small and fast, or additive stacking blows out.
+    this.tmp.setHSL(0.09, 0.6, 0.72);
+    this.sparks.emit(x, y, z, {
+      count: 1,
+      color: this.tmp,
+      speed: 0.4,
+      spread: 0.2,
+      up: 0.2,
+      size: 0.8,
+      life: 0.14,
+      gravity: 0,
+      drag: 2.5,
+      dir: this.tmpDir,
+      dirSpeed: 10,
+    });
+    // Orange tongue.
+    this.tmp.setHSL(0.06, 1, 0.5);
+    this.sparks.emit(x, y, z, {
+      count: 1,
+      color: this.tmp,
+      speed: 0.6,
+      spread: 0.3,
+      up: 0.3,
+      size: 1.0,
+      life: 0.18,
+      gravity: 0,
+      drag: 2.5,
+      dir: this.tmpDir,
+      dirSpeed: 9,
+    });
+  }
+
+  // Landing dust: a ring of warm-gray puffs pushed outward at evenly spaced
+  // fixed angles (coherent shape beats a noisy swarm).
+  dustRing(x: number, y: number, z: number, count: number): void {
+    this.tmp.setHSL(0.09, 0.14, 0.66);
+    for (let i = 0; i < count; i++) {
+      const ang = (i / count) * Math.PI * 2;
+      this.tmpDir.x = Math.cos(ang);
+      this.tmpDir.y = 0;
+      this.tmpDir.z = Math.sin(ang);
+      this.smoke.emit(x, y, z, {
+        count: 1,
+        color: this.tmp,
+        speed: 0,
+        spread: 0,
+        up: 1,
+        size: 2.2,
+        life: 0.5,
+        gravity: -0.6,
+        drag: 3,
+        dir: this.tmpDir,
+        dirSpeed: 7,
+      });
+    }
+  }
+
+  // Wall-grind sparks biased along the wall normal (nx, nz). Small and short:
+  // a continuous scrape tell, not an impact.
+  scrapeSparks(x: number, y: number, z: number, nx: number, nz: number): void {
+    const len = Math.hypot(nx, nz);
+    const inv = len > 0.0001 ? 1 / len : 0;
+    this.tmpDir.x = nx * inv;
+    this.tmpDir.y = 0.25;
+    this.tmpDir.z = nz * inv;
+    this.tmp.setHSL(0.13, 1, 0.6);
+    this.sparks.emit(x, y, z, {
+      count: 2 + (Math.random() < 0.5 ? 1 : 0),
+      color: this.tmp,
+      speed: 2,
+      spread: 0.8,
+      up: 0.6,
+      size: 0.8,
+      life: 0.25,
+      gravity: 5,
+      drag: 2,
+      dir: this.tmpDir,
+      dirSpeed: 4.5,
+    });
   }
 
   burst(x: number, y: number, z: number, hue: number, count: number, power: number): void {

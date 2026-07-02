@@ -6,11 +6,17 @@ export class InputState {
   private touch = { gas: false, brake: false, left: false, right: false, drift: false };
   startPressed = false;
   restartPressed = false;
+  pausePressed = false;
+  mutePressed = false;
+  blurred = false; // window lost focus (auto-pause)
 
   constructor() {
     window.addEventListener("keydown", this.onKeyDown);
     window.addEventListener("keyup", this.onKeyUp);
-    window.addEventListener("blur", () => this.keys.clear());
+    window.addEventListener("blur", () => {
+      this.keys.clear();
+      this.blurred = true;
+    });
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
@@ -18,6 +24,8 @@ export class InputState {
     if ([" ", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(k)) e.preventDefault();
     if (k === "enter") this.startPressed = true;
     if (k === "r") this.restartPressed = true;
+    if (k === "p" || k === "escape") this.pausePressed = true;
+    if (k === "m") this.mutePressed = true;
     this.keys.add(k);
   };
   private onKeyUp = (e: KeyboardEvent): void => {
@@ -54,6 +62,21 @@ export class InputState {
   consumeRestart(): boolean {
     const v = this.restartPressed;
     this.restartPressed = false;
+    return v;
+  }
+  consumePause(): boolean {
+    const v = this.pausePressed;
+    this.pausePressed = false;
+    return v;
+  }
+  consumeMute(): boolean {
+    const v = this.mutePressed;
+    this.mutePressed = false;
+    return v;
+  }
+  consumeBlur(): boolean {
+    const v = this.blurred;
+    this.blurred = false;
     return v;
   }
 }

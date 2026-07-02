@@ -179,12 +179,52 @@ export function generateCity(): CityPlan {
   const hSet = new Set(hLines);
   const removed = carve(vLines, hLines, rng);
 
-  const isRoad = (gx: number, gz: number): boolean => {
+  const isRoadRaw = (gx: number, gz: number): boolean => {
     if (gx < 0 || gz < 0 || gx >= GRID || gz >= GRID) return false;
     if (!isLandCell(gx, gz)) return false; // roads stop at the shoreline
     if (!(vSet.has(gx) || hSet.has(gz))) return false;
     return !removed.has(key(gx, gz));
   };
+
+  // carve() guarantees connectivity on the full lattice, but the shoreline cut
+  // above can still split the network (water inlets sever whole fingers).
+  // Keep only the component containing the map centre — every fare, spawn and
+  // traffic cell must be mutually reachable.
+  const mainRoads = new Set<string>();
+  {
+    const c = (GRID - 1) / 2;
+    let seed: { gx: number; gz: number } | null = null;
+    let bd = Infinity;
+    for (let gx = 0; gx < GRID; gx++) {
+      for (let gz = 0; gz < GRID; gz++) {
+        if (!isRoadRaw(gx, gz)) continue;
+        const d = Math.abs(gx - c) + Math.abs(gz - c);
+        if (d < bd) {
+          bd = d;
+          seed = { gx, gz };
+        }
+      }
+    }
+    if (seed) {
+      const stack = [seed];
+      mainRoads.add(key(seed.gx, seed.gz));
+      while (stack.length > 0) {
+        const cur = stack.pop();
+        if (!cur) break;
+        for (const d of [N, E, S, W] as const) {
+          const [dx, dz] = DIR_DELTA[d];
+          const nx = cur.gx + dx;
+          const nz = cur.gz + dz;
+          const k = key(nx, nz);
+          if (!mainRoads.has(k) && isRoadRaw(nx, nz)) {
+            mainRoads.add(k);
+            stack.push({ gx: nx, gz: nz });
+          }
+        }
+      }
+    }
+  }
+  const isRoad = (gx: number, gz: number): boolean => mainRoads.has(key(gx, gz));
 
   const neighborMask = (gx: number, gz: number): Mask => {
     let mask = 0;

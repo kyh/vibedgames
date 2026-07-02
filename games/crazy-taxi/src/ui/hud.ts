@@ -11,21 +11,36 @@ export type BannerSpec = {
   readonly cta: string;
 };
 
+export type ReceiptLine = { readonly text: string; readonly color: string };
+
 export class Hud {
   private timer = el("timer");
   private timerVal = el("timer").querySelector<HTMLElement>(".value");
   private timeBonus = el("time-bonus");
   private district = el("district");
   private scoreVal = el("score").querySelector<HTMLElement>(".value");
+  private scorePill = el("score");
   private faresVal = el("fares").querySelector<HTMLElement>(".value");
   private speedVal = el("speed").querySelector<HTMLElement>(".value");
+  private boostPill = el("boost");
   private boostFill = el("boost-fill");
   private fareCard = el("fare-card");
   private fareWho = el("fare-card").querySelector<HTMLElement>(".who");
   private fareDist = el("fare-card").querySelector<HTMLElement>(".dist");
   private fareReward = el("fare-card").querySelector<HTMLElement>(".reward");
+  private patienceFill = el("patience-fill");
   private combo = el("combo");
+  private announceMinorEl = el("announce-minor");
+  private receipt = el("receipt");
+  private comboMeter = el("combo-meter");
+  private comboMult = el("combo-meter").querySelector<HTMLElement>(".mult");
+  private comboFill = el("combo-fill");
+  private countdown = el("countdown");
+  private vignette = el("vignette");
+  private muteBtn = el("mute");
+  private pausedEl = el("paused");
   private arrow = el("dest-arrow");
+  private arrowPoly = el("dest-arrow").querySelector<SVGPolygonElement>("polygon");
   private banner = el("banner");
   private bannerTitle = el("banner-title");
   private bannerSub = el("banner-sub");
@@ -35,6 +50,24 @@ export class Hud {
   private loading = el("loading");
   private barFill = el("bar-fill");
   private reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  // Score rolls up toward the real value — dollars should count, not teleport.
+  private scoreShown = 0;
+  private scoreTarget = 0;
+  private lastScorePop = 0;
+
+  update(dt: number): void {
+    if (this.scoreShown !== this.scoreTarget) {
+      const diff = this.scoreTarget - this.scoreShown;
+      const step = Math.max(1, Math.abs(diff) * Math.min(1, dt * 9));
+      this.scoreShown =
+        diff > 0
+          ? Math.min(this.scoreTarget, this.scoreShown + step)
+          : Math.max(this.scoreTarget, this.scoreShown - step);
+      if (this.scoreVal) {
+        this.scoreVal.textContent = `$${Math.round(this.scoreShown).toLocaleString("en-US")}`;
+      }
+    }
+  }
 
   setTimer(seconds: number, low: boolean): void {
     if (this.timerVal) this.timerVal.textContent = String(Math.max(0, Math.ceil(seconds)));
@@ -52,7 +85,23 @@ export class Hud {
     );
   }
   setScore(n: number): void {
-    if (this.scoreVal) this.scoreVal.textContent = n.toLocaleString("en-US");
+    if (this.scoreTarget === n) return;
+    this.scoreTarget = n;
+    // Throttle the pop: drift score trickles in every frame and would restart
+    // the animation forever.
+    const now = performance.now();
+    if (now - this.lastScorePop < 300) return;
+    this.lastScorePop = now;
+    this.scorePill.animate(
+      [{ transform: "scale(1)" }, { transform: "scale(1.1)" }, { transform: "scale(1)" }],
+      { duration: 180, easing: "ease-out" },
+    );
+  }
+  // Instant sync (run start/reset) — no roll-up, no pop.
+  resetScore(n: number): void {
+    this.scoreTarget = n;
+    this.scoreShown = n;
+    if (this.scoreVal) this.scoreVal.textContent = `$${n.toLocaleString("en-US")}`;
   }
   showDistrict(name: string): void {
     this.district.textContent = `◢ ${name.toUpperCase()}`;
@@ -75,17 +124,45 @@ export class Hud {
   setBoost(frac: number): void {
     this.boostFill.style.width = `${Math.round(Math.max(0, Math.min(1, frac)) * 100)}%`;
   }
+  boostDenied(): void {
+    this.boostPill.classList.remove("denied");
+    // Force a reflow so re-adding restarts the shake animation.
+    void this.boostPill.offsetWidth;
+    this.boostPill.classList.add("denied");
+  }
 
-  setFareCard(title: string, distance: number, reward: string): void {
+  setCombo(mult: number, frac: number): void {
+    const show = mult > 1;
+    this.comboMeter.classList.toggle("show", show);
+    if (!show) return;
+    if (this.comboMult) this.comboMult.textContent = `${mult}× COMBO`;
+    this.comboFill.style.width = `${Math.round(Math.max(0, Math.min(1, frac)) * 100)}%`;
+    this.comboMeter.classList.toggle("urgent", frac < 0.3);
+  }
+
+  setFareCard(title: string, distance: number, reward: string, accent?: string): void {
     this.fareCard.classList.add("show");
-    if (this.fareWho) this.fareWho.textContent = title;
+    if (this.fareWho) {
+      this.fareWho.textContent = title;
+      this.fareWho.style.color = accent ?? "#aee3ff";
+    }
     if (this.fareDist) this.fareDist.textContent = `${Math.round(distance)} m`;
     if (this.fareReward) this.fareReward.textContent = reward;
+    this.fareCard.style.borderColor = accent ? `${accent}99` : "rgba(120, 200, 255, 0.55)";
+  }
+  setPatience(frac: number | null): void {
+    this.fareCard.classList.toggle("carrying", frac !== null);
+    if (frac === null) return;
+    const f = Math.max(0, Math.min(1, frac));
+    this.patienceFill.style.width = `${Math.round(f * 100)}%`;
+    this.patienceFill.style.background = f > 0.5 ? "#6bff8e" : f > 0.25 ? "#ffb64d" : "#ff5a52";
   }
   hideFareCard(): void {
     this.fareCard.classList.remove("show");
+    this.fareCard.classList.remove("carrying");
   }
 
+  // Major slot: fare payoffs, combos, big moments. Gold and loud.
   showCombo(text: string): void {
     this.combo.textContent = text;
     this.combo.animate(
@@ -99,14 +176,79 @@ export class Hud {
     );
   }
 
+  // Minor slot: near-misses, smashes, air time — never masks a fare payoff.
+  announceMinor(text: string, color = "#aee3ff"): void {
+    this.announceMinorEl.textContent = text;
+    this.announceMinorEl.style.color = color;
+    this.announceMinorEl.animate(
+      [
+        { opacity: 0, transform: "translate(-50%,8px) scale(0.7)" },
+        { opacity: 1, transform: "translate(-50%,0) scale(1.05)", offset: 0.25 },
+        { opacity: 1, transform: "translate(-50%,0) scale(1)", offset: 0.65 },
+        { opacity: 0, transform: "translate(-50%,-18px) scale(1)" },
+      ],
+      { duration: 850, easing: "ease-out" },
+    );
+  }
+
+  // Itemized dropoff receipt, lines staggered 150ms apart.
+  showReceipt(lines: readonly ReceiptLine[]): void {
+    this.receipt.replaceChildren();
+    lines.forEach((line, i) => {
+      const div = document.createElement("div");
+      div.textContent = line.text;
+      div.style.color = line.color;
+      div.style.opacity = "0";
+      this.receipt.appendChild(div);
+      div.animate(
+        [
+          { opacity: 0, transform: "translateX(30px) scale(0.8)" },
+          { opacity: 1, transform: "translateX(0) scale(1.06)", offset: 0.25 },
+          { opacity: 1, transform: "translateX(0) scale(1)", offset: 0.75 },
+          { opacity: 0, transform: "translateY(-14px)" },
+        ],
+        { duration: 1500, delay: i * 150, easing: "ease-out", fill: "forwards" },
+      );
+    });
+  }
+
+  showCountdown(text: string, big: boolean): void {
+    this.countdown.textContent = text;
+    this.countdown.animate(
+      [
+        { opacity: 0, transform: `translate(-50%,-50%) scale(${big ? 1.6 : 1.35})` },
+        { opacity: 1, transform: "translate(-50%,-50%) scale(1)", offset: 0.3 },
+        { opacity: 1, transform: "translate(-50%,-50%) scale(0.95)", offset: 0.8 },
+        { opacity: 0, transform: "translate(-50%,-50%) scale(0.9)" },
+      ],
+      { duration: big ? 700 : 480, easing: "ease-out" },
+    );
+  }
+
+  setVignette(intensity: number): void {
+    const v = this.reduceMotion ? 0 : Math.max(0, Math.min(1, intensity));
+    this.vignette.style.opacity = v.toFixed(2);
+  }
+
+  setMuted(muted: boolean): void {
+    this.muteBtn.textContent = muted ? "🔇" : "🔊";
+  }
+  onMute(fn: () => void): void {
+    this.muteBtn.addEventListener("click", fn);
+  }
+  setPaused(paused: boolean): void {
+    this.pausedEl.classList.toggle("show", paused);
+  }
+
   // Off-screen objective arrow. When visible it sits at (x,y) rotated to point.
-  setArrow(visible: boolean, x: number, y: number, rot: number): void {
+  setArrow(visible: boolean, x: number, y: number, rot: number, color?: string): void {
     if (!visible) {
       this.arrow.style.opacity = "0";
       return;
     }
     this.arrow.style.opacity = "1";
     this.arrow.style.transform = `translate(${x}px, ${y}px) rotate(${rot}rad)`;
+    if (color && this.arrowPoly) this.arrowPoly.setAttribute("fill", color);
   }
 
   showBanner(spec: BannerSpec): void {

@@ -19,6 +19,8 @@ export const TRAFFIC_CARS = [
   "delivery",
   "hatchback-sports",
 ] as const;
+// Service vehicles spice the traffic mix (weighted by district in traffic.ts).
+export const SERVICE_CARS = ["ambulance", "firetruck", "garbage-truck"] as const;
 export const POLICE_CAR = "police";
 
 // --- Roads (autotile set) ---
@@ -29,6 +31,12 @@ export const ROAD_CROSSROAD = "road-crossroad";
 export const ROAD_INTERSECTION = "road-intersection";
 export const ROAD_END = "road-end";
 export const ROAD_CROSSING = "road-crossing";
+export const ROAD_CROSSROAD_LINE = "road-crossroad-line";
+export const ROAD_INTERSECTION_LINE = "road-intersection-line";
+// Bridge kit pieces (Golden Gate / Bay Bridge).
+export const ROAD_BRIDGE = "road-bridge";
+export const BRIDGE_PILLAR = "bridge-pillar";
+export const BRIDGE_PILLAR_WIDE = "bridge-pillar-wide";
 
 // --- Buildings (by district prefix) ---
 export const BUILDINGS_COMMERCIAL = [
@@ -77,6 +85,15 @@ export const BUILDINGS_SUBURBAN = [
   "sub-building-type-j",
   "sub-building-type-k",
   "sub-building-type-l",
+  "sub-building-type-m",
+  "sub-building-type-n",
+  "sub-building-type-o",
+  "sub-building-type-p",
+  "sub-building-type-q",
+  "sub-building-type-r",
+  "sub-building-type-s",
+  "sub-building-type-t",
+  "sub-building-type-u",
 ] as const;
 
 // --- Props ---
@@ -84,6 +101,40 @@ export const TREE_LARGE = "tree-large";
 export const TREE_SMALL = "tree-small";
 export const PROP_CONE = "construction-cone";
 export const PROP_PLANTER = "planter";
+export const PROP_BARRIER = "construction-barrier";
+export const PROP_CONSTRUCTION_LIGHT = "construction-light";
+// Streetlights (by district character).
+export const LIGHT_CURVED = "light-curved";
+export const LIGHT_SQUARE = "light-square";
+export const LIGHT_SQUARE_DOUBLE = "light-square-double";
+export const LIGHT_CURVED_CROSS = "light-curved-cross";
+// Commercial frontage details.
+export const PROP_AWNING = "awning";
+export const PROP_AWNING_WIDE = "awning-wide";
+export const PROP_OVERHANG = "overhang";
+export const PROP_OVERHANG_WIDE = "overhang-wide";
+export const PROP_PARASOL_A = "parasol-a";
+export const PROP_PARASOL_B = "parasol-b";
+// Suburban yards.
+export const PROP_FENCE = "fence";
+export const PROP_FENCE_LOW = "fence-low";
+export const PROP_DRIVEWAY = "driveway-short";
+export const PROP_PATH = "path-short";
+export const PROP_PATH_STONES = "path-stones-short";
+// Industrial skyline.
+export const PROP_CHIMNEY_SMALL = "chimney-small";
+export const PROP_CHIMNEY_MEDIUM = "chimney-medium";
+export const PROP_CHIMNEY_LARGE = "chimney-large";
+export const PROP_TANK = "tank";
+
+// --- Crash debris (Car Kit) ---
+export const DEBRIS_SMALL = [
+  "debris-bolt",
+  "debris-nut",
+  "debris-plate-small-a",
+  "debris-plate-small-b",
+] as const;
+export const DEBRIS_BIG = ["debris-tire", "debris-bumper", "debris-plate-a", "debris-door"] as const;
 
 // --- Characters (passengers) ---
 export const CHARACTERS = [
@@ -101,21 +152,56 @@ export const CHARACTERS = [
   "character-female-f",
 ] as const;
 
+const PROPS = [
+  TREE_LARGE,
+  TREE_SMALL,
+  PROP_CONE,
+  PROP_PLANTER,
+  PROP_BARRIER,
+  PROP_CONSTRUCTION_LIGHT,
+  LIGHT_CURVED,
+  LIGHT_SQUARE,
+  LIGHT_SQUARE_DOUBLE,
+  LIGHT_CURVED_CROSS,
+  PROP_AWNING,
+  PROP_AWNING_WIDE,
+  PROP_OVERHANG,
+  PROP_OVERHANG_WIDE,
+  PROP_PARASOL_A,
+  PROP_PARASOL_B,
+  PROP_FENCE,
+  PROP_FENCE_LOW,
+  PROP_DRIVEWAY,
+  PROP_PATH,
+  PROP_PATH_STONES,
+  PROP_CHIMNEY_SMALL,
+  PROP_CHIMNEY_MEDIUM,
+  PROP_CHIMNEY_LARGE,
+  PROP_TANK,
+] as const;
+
+const ROADS = [
+  ROAD_STRAIGHT,
+  ROAD_BEND,
+  ROAD_CROSSROAD,
+  ROAD_INTERSECTION,
+  ROAD_END,
+  ROAD_CROSSING,
+  ROAD_CROSSROAD_LINE,
+  ROAD_INTERSECTION_LINE,
+  ROAD_BRIDGE,
+  BRIDGE_PILLAR,
+  BRIDGE_PILLAR_WIDE,
+] as const;
+
 // Everything that must be preloaded before the game starts.
 export function allModelUrls(): string[] {
   const urls: string[] = [];
   urls.push(modelUrl("cars", PLAYER_CAR));
   urls.push(modelUrl("cars", POLICE_CAR));
   for (const c of TRAFFIC_CARS) urls.push(modelUrl("cars", c));
-  for (const r of [
-    ROAD_STRAIGHT,
-    ROAD_BEND,
-    ROAD_CROSSROAD,
-    ROAD_INTERSECTION,
-    ROAD_END,
-    ROAD_CROSSING,
-  ])
-    urls.push(modelUrl("roads", r));
+  for (const c of SERVICE_CARS) urls.push(modelUrl("cars", c));
+  for (const r of ROADS) urls.push(modelUrl("roads", r));
   for (const b of [
     ...BUILDINGS_COMMERCIAL,
     ...BUILDINGS_SKYSCRAPER,
@@ -123,8 +209,8 @@ export function allModelUrls(): string[] {
     ...BUILDINGS_SUBURBAN,
   ])
     urls.push(modelUrl("buildings", b));
-  for (const p of [TREE_LARGE, TREE_SMALL, PROP_CONE, PROP_PLANTER])
-    urls.push(modelUrl("props", p));
+  for (const p of PROPS) urls.push(modelUrl("props", p));
+  for (const d of [...DEBRIS_SMALL, ...DEBRIS_BIG]) urls.push(modelUrl("debris", d));
   for (const c of CHARACTERS) urls.push(modelUrl("characters", c));
   return urls;
 }

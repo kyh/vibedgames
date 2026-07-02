@@ -8,22 +8,41 @@ import {
   BUILDINGS_SKYSCRAPER,
   BUILDINGS_SUBURBAN,
   modelUrl,
+  ROAD_CROSSING,
+  ROAD_CROSSROAD,
+  ROAD_CROSSROAD_LINE,
+  ROAD_INTERSECTION,
+  ROAD_INTERSECTION_LINE,
+  ROAD_STRAIGHT,
   TREE_LARGE,
   TREE_SMALL,
 } from "../assets/manifest";
-import { CITY_SEED, GRID, ROAD_ROT_SIGN, ROAD_TILE, ROAD_Y, WORLD_HALF } from "../shared/constants";
+import {
+  CITY_SEED,
+  GRID,
+  ROAD_ROT_SIGN,
+  ROAD_TILE,
+  ROAD_Y,
+  WORLD_HALF,
+  WORLD_SIZE,
+} from "../shared/constants";
 import { Rng } from "../shared/rng";
 import { type Dir, DIR_DELTA, E, N, S, W } from "../shared/types";
+import { conformToTerrain } from "./conform";
+import { buildFurniture } from "./furniture";
 import { type CityPlan, generateCity } from "./grid";
-import { buildLandmarks } from "./landmarks";
-import { type DistrictChar, districtAt, makeTerrain } from "./sf-map";
-import { slopeQuaternion, type Terrain } from "./terrain";
+import { buildLandmarks, landmarkProtection } from "./landmarks";
+import { type DistrictChar, districtAt, makeTerrain, paletteFor, tintAmountFor } from "./sf-map";
+import type { Terrain } from "./terrain";
 
 export type Solid = {
   readonly minX: number;
   readonly maxX: number;
   readonly minZ: number;
   readonly maxZ: number;
+  // World-space top of the obstacle, when it CAN be jumped over (traffic).
+  // Absent = infinitely tall (buildings, walls).
+  readonly maxY?: number;
 };
 
 export type RoadCell = { readonly gx: number; readonly gz: number };
@@ -56,7 +75,6 @@ export class CityModel {
   readonly roadCells: RoadCell[] = [];
   readonly plan: CityPlan;
   readonly terrain: Terrain;
-  private scratchN = new THREE.Vector3();
   private tintCache = new Map<string, THREE.Material>();
 
   constructor(
@@ -66,20 +84,6 @@ export class CityModel {
     this.terrain = makeTerrain();
     this.plan = generateCity();
     this.build();
-  }
-
-  // Lay a Y-up object on the terrain: tilt its up-axis to the slope normal,
-  // spin it around that normal by `yaw`, and seat it at the ground height.
-  private placeOnTerrain(
-    obj: THREE.Object3D,
-    wx: number,
-    wz: number,
-    yaw: number,
-    yOffset: number,
-  ): void {
-    const n = this.terrain.normalInto(this.scratchN, wx, wz);
-    slopeQuaternion(obj.quaternion, yaw, n);
-    obj.position.set(wx, this.terrain.heightAt(wx, wz) + yOffset, wz);
   }
 
   worldX(gx: number): number {
@@ -160,18 +164,32 @@ export class CityModel {
         if (c instanceof THREE.Mesh) staticMeshes.push(c);
       });
     };
+    // Bake an object's meshes to world space, drape them over the terrain
+    // (subdivide + displace through the shared height field), and collect the
+    // result. Used for anything that must hug the hills: roads, grass.
+    const collectConformed = (obj: THREE.Object3D, lift: number): void => {
+      obj.updateMatrixWorld(true);
+      obj.traverse((c) => {
+        if (!(c instanceof THREE.Mesh) || !(c.geometry instanceof THREE.BufferGeometry)) return;
+        const mat = c.material;
+        if (Array.isArray(mat)) return;
+        const baked = c.geometry.clone();
+        baked.applyMatrix4(c.matrixWorld);
+        const draped = conformToTerrain(baked, this.terrain, lift);
+        staticMeshes.push(new THREE.Mesh(draped, mat));
+      });
+    };
 
     // Grass patch + scattered trees on a cell (parks + block interiors).
     const grassMat = new THREE.MeshStandardMaterial({ color: 0x52803d, roughness: 1 });
-    const grassGeo = new THREE.PlaneGeometry(ROAD_TILE, ROAD_TILE);
-    grassGeo.rotateX(-HALF_PI); // normal → +Y so placeOnTerrain tilts it to the slope
+    const grassGeo = new THREE.PlaneGeometry(ROAD_TILE, ROAD_TILE, 4, 4);
+    grassGeo.rotateX(-HALF_PI); // normal → +Y; conform drapes it over the slope
     const placeGreen = (gx: number, gz: number): void => {
       const wx = this.worldX(gx);
       const wz = this.worldZ(gz);
       const quad = new THREE.Mesh(grassGeo, grassMat);
-      this.placeOnTerrain(quad, wx, wz, 0, 0.04);
-      quad.receiveShadow = true;
-      collect(quad);
+      quad.position.set(wx, 0, wz);
+      collectConformed(quad, 0.05);
       if (this.rng.chance(0.55)) {
         const count = 1 + this.rng.int(2);
         for (let i = 0; i < count; i++) {
@@ -190,31 +208,60 @@ export class CityModel {
     };
 
     // --- Roads ---
+    // Swap in decorated variants: zebra crossings on straights that feed an
+    // intersection in walkable districts; lane-marked junctions downtown.
+    const decoratedTile = (gx: number, gz: number, tile: string): string => {
+      const d = districtAt(gx, gz).character;
+      if (tile === ROAD_STRAIGHT) {
+        const walkable =
+          d === "commercial" || d === "downtown" || d === "wharf" || d === "victorian";
+        if (!walkable) return tile;
+        for (const [dx, dz] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ] as const) {
+          const nb = this.plan.roads[gx + dx]?.[gz + dz];
+          if (nb && (nb.tile === ROAD_CROSSROAD || nb.tile === ROAD_INTERSECTION)) {
+            return ROAD_CROSSING;
+          }
+        }
+        return tile;
+      }
+      if (d === "downtown" || d === "highrise") {
+        if (tile === ROAD_CROSSROAD) return ROAD_CROSSROAD_LINE;
+        if (tile === ROAD_INTERSECTION) return ROAD_INTERSECTION_LINE;
+      }
+      return tile;
+    };
     for (let gx = 0; gx < GRID; gx++) {
       for (let gz = 0; gz < GRID; gz++) {
         const r = this.plan.roads[gx]?.[gz];
         if (!r) continue;
         this.roadCells.push({ gx, gz });
-        const tile = this.cache.instance(modelUrl("roads", r.tile));
-        // Tiny overlap; the grid-quantized terrain already makes tiles meet.
+        const tile = this.cache.instance(modelUrl("roads", decoratedTile(gx, gz, r.tile)));
+        // Laid flat with a hair of overlap, then draped over the height field —
+        // adjacent tiles displace through the same surface, so they meet.
         tile.scale.set(ROAD_TILE * 1.03, ROAD_TILE, ROAD_TILE * 1.03);
-        this.placeOnTerrain(
-          tile,
-          this.worldX(gx),
-          this.worldZ(gz),
-          ROAD_ROT_SIGN * r.quarterTurns * HALF_PI,
-          ROAD_Y,
-        );
-        collect(tile);
+        tile.position.set(this.worldX(gx), 0, this.worldZ(gz));
+        tile.rotation.y = ROAD_ROT_SIGN * r.quarterTurns * HALF_PI;
+        collectConformed(tile, ROAD_Y);
       }
     }
 
-    // --- Buildings (district-driven pool, tint, height) ---
+    // --- Landmark footprints: cells the procedural city leaves alone ---
+    const lm = landmarkProtection(this.plan);
+    for (const s of lm.solids) this.solids.push(s);
+
+    // --- Buildings (district-driven pool, palette tint, height) ---
     for (const b of this.plan.buildingCells) {
+      const cellId = `${b.gx},${b.gz}`;
+      if (lm.reserved.has(cellId)) continue; // a landmark stands here
       const district = districtAt(b.gx, b.gz);
       const wx = this.worldX(b.gx);
       const wz = this.worldZ(b.gz);
-      if (district.character === "park") {
+      if (district.character === "park" || lm.parkGreen.has(cellId)) {
         placeGreen(b.gx, b.gz); // park frontage → green, drivable (no solid)
         continue;
       }
@@ -225,11 +272,24 @@ export class CityModel {
       const targetFootprint = ROAD_TILE * this.rng.range(0.74, 0.86); // fill lots, less bare ground
       const scale = targetFootprint / footprint;
       const node = this.cache.instance(url);
-      node.scale.set(scale, scale * this.heightScaleFor(district.character), scale);
+      // Victorians go narrow and tall — the SF row-house silhouette.
+      const vict = district.character === "victorian";
+      const sxz = scale * (vict ? 0.75 : 1);
+      const sy = scale * this.heightScaleFor(district.character) * (vict ? 1.4 : 1);
+      node.scale.set(sxz, sy, sxz);
       node.rotation.y = dirToYaw(b.faceDir) + BUILDING_FRONT_OFFSET;
-      // Buildings stay vertical; sink the base a touch so it digs into a slope.
-      node.position.set(wx, this.terrain.heightAt(wx, wz) - 0.4, wz);
-      this.tintNode(node, district.color, district.character === "victorian" ? 0.42 : 0.26);
+      // Buildings stay vertical, seated at the LOWEST corner of the footprint so
+      // no edge floats on a slope — the uphill side digs in, like real SF.
+      const fh = targetFootprint / 2;
+      const seatY = Math.min(
+        this.terrain.heightAt(wx, wz),
+        this.terrain.heightAt(wx - fh, wz - fh),
+        this.terrain.heightAt(wx + fh, wz - fh),
+        this.terrain.heightAt(wx - fh, wz + fh),
+        this.terrain.heightAt(wx + fh, wz + fh),
+      );
+      node.position.set(wx, seatY - 0.15, wz);
+      this.tintNode(node, this.rng.pick(paletteFor(district)), tintAmountFor(district));
       collect(node);
 
       // Solid footprint (a touch smaller than the visual so curbs are forgiving).
@@ -255,11 +315,27 @@ export class CityModel {
     // --- Green block interiors ---
     for (const g of this.plan.greenCells) placeGreen(g.gx, g.gz);
 
+    // --- Street furniture: lights, parked cars, yards, awnings, smokestacks,
+    // construction chicanes, park allées, wharf piers + seawall. ---
+    const fr = buildFurniture({
+      plan: this.plan,
+      terrain: this.terrain,
+      cache: this.cache,
+      rng: this.rng,
+      reserved: lm.reserved,
+      worldX: (g) => this.worldX(g),
+      worldZ: (g) => this.worldZ(g),
+    });
+    for (const o of fr.objects) collect(o);
+    for (const s of fr.solids) this.solids.push(s);
+    this.addPierDecks(fr.pierDecks);
+
     // --- Shoreline collision: wall off each water cell that borders land so
     // the taxi can reach the waterfront but not drive into the bay. ---
     for (let gx = 0; gx < GRID; gx++) {
       for (let gz = 0; gz < GRID; gz++) {
         if (this.plan.cells[gx]?.[gz] !== "water") continue;
+        if (fr.openWaterCells.has(`${gx},${gz}`)) continue; // pier runs out here
         let coastal = false;
         for (const d of [N, E, S, W] as const) {
           const [dx, dz] = DIR_DELTA[d];
@@ -282,11 +358,31 @@ export class CityModel {
     this.solids.push({ minX: -L - t, maxX: L + t, minZ: -L - t, maxZ: -L });
     this.solids.push({ minX: -L - t, maxX: L + t, minZ: L, maxZ: L + t });
 
-    // --- Displaced terrain ground (hills + island; ocean plane sits below). A
-    // light concrete grey reads as paved city ground/sidewalk; parks add the
-    // green on top, so the city doesn't look like one big lawn. ---
-    const groundMat = new THREE.MeshStandardMaterial({ color: 0x9a9b92, roughness: 1 });
-    this.group.add(this.terrain.buildMesh(groundMat));
+    // --- Displaced terrain ground (hills + island; ocean plane sits below),
+    // vertex-graded: concrete in the city, Ocean Beach sand along the west
+    // shore (half-strength on other shores), park green under the big parks. ---
+    const groundMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      vertexColors: true,
+      roughness: 1,
+    });
+    const CONCRETE = new THREE.Color(0x9a9b92);
+    const SAND = new THREE.Color(0xd9c9a1);
+    const PARK = new THREE.Color(0x74975c);
+    this.group.add(
+      this.terrain.buildMesh(groundMat, (x, z, into) => {
+        into.copy(CONCRETE);
+        const gx = Math.min(GRID - 1, Math.max(0, this.gridX(x)));
+        const gz = Math.min(GRID - 1, Math.max(0, this.gridZ(z)));
+        if (districtAt(gx, gz).character === "park") into.lerp(PARK, 0.8);
+        const land = this.terrain.landAt(x, z);
+        const shore = 1 - THREE.MathUtils.smoothstep(land, 0.3, 0.55);
+        if (shore > 0) {
+          const u = x / WORLD_SIZE + 0.5;
+          into.lerp(SAND, u < 0.12 ? shore : shore * 0.5); // Ocean Beach reads strongest
+        }
+      }),
+    );
 
     // --- Merge static meshes by material to slash draw calls ---
     for (const merged of mergeByMaterial(staticMeshes)) this.group.add(merged);
@@ -302,6 +398,32 @@ export class CityModel {
     if (gx < 0 || gz < 0 || gx >= GRID || gz >= GRID) return false;
     return this.plan.cells[gx]?.[gz] === "road";
   }
+
+  // --- Surface (what the car drives on): terrain, overridden by flat decks
+  // (wharf piers) so the taxi can drive out over the water. ---
+  private pierDecks: { minX: number; maxX: number; minZ: number; maxZ: number; y: number }[] = [];
+
+  addPierDecks(decks: readonly { minX: number; maxX: number; minZ: number; maxZ: number; y: number }[]): void {
+    for (const d of decks) this.pierDecks.push(d);
+  }
+
+  heightAt(x: number, z: number): number {
+    for (const d of this.pierDecks) {
+      if (x >= d.minX && x <= d.maxX && z >= d.minZ && z <= d.maxZ) {
+        return Math.max(d.y, this.terrain.heightAt(x, z));
+      }
+    }
+    return this.terrain.heightAt(x, z);
+  }
+
+  normalInto(out: THREE.Vector3, x: number, z: number): THREE.Vector3 {
+    for (const d of this.pierDecks) {
+      if (x >= d.minX && x <= d.maxX && z >= d.minZ && z <= d.maxZ) {
+        return out.set(0, 1, 0);
+      }
+    }
+    return this.terrain.normalInto(out, x, z);
+  }
 }
 
 // Bake world transforms and merge geometries that share a material, producing a
@@ -315,7 +437,9 @@ function mergeByMaterial(meshes: readonly THREE.Mesh[]): THREE.Mesh[] {
     if (Array.isArray(mat)) continue; // multi-material meshes left un-merged (rare here)
     const geo = mesh.geometry;
     if (!(geo instanceof THREE.BufferGeometry)) continue;
-    const baked = geo.clone();
+    // De-index up front: conformed geometry is non-indexed, and mergeGeometries
+    // refuses to mix indexed with non-indexed in one group.
+    const baked = geo.index ? geo.toNonIndexed() : geo.clone();
     baked.applyMatrix4(mesh.matrixWorld);
     // Normalize attributes so merge never fails on a mismatched set.
     const wanted = new Set(["position", "normal", "uv"]);

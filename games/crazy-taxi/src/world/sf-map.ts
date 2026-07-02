@@ -92,6 +92,40 @@ export type District = {
   readonly color: number;
 };
 
+// Building tint palettes per district character. Each building picks one color
+// so streets read as a mixed row, not a monotone block. SF pastels for the
+// residential west, saturated victorians for the Mission/Haight, cool glass
+// and stone downtown.
+const PALETTES: Record<DistrictChar, readonly number[]> = {
+  downtown: [0xbfc4c9, 0xa8b2ba, 0xcfc9bd, 0x9aa7b2, 0xd8d2c4],
+  highrise: [0x9fb2c4, 0x8ea3b8, 0xb8c4cf, 0xa2afb8, 0xc4cdd6],
+  commercial: [0xd8b48a, 0xc9917a, 0xb5384a, 0xd89a5c, 0xe0c9a0, 0x8fae9e],
+  wharf: [0xd6cfc0, 0x9fb4bf, 0xc9b68f, 0xb5384a, 0xdde2e4],
+  residential: [0xf2e3d5, 0xf6c8d4, 0xcfe3dd, 0xf2e0b0, 0xdfd7ea, 0xe8d0b8],
+  victorian: [0xe0564b, 0x8e4fa8, 0x2f9e8f, 0xf6c8d4, 0xe8b458, 0x6f8fc9],
+  industrial: [0xa8623e, 0x8f7a5f, 0xb08968, 0x7f8a8f, 0xa89078],
+  park: [0xe8e0cc, 0xd8cfb8, 0xcfc4a8],
+};
+
+// Tint strength per character — victorians get bold paint, glass stays subtle.
+const TINT_AMOUNT: Record<DistrictChar, number> = {
+  downtown: 0.28,
+  highrise: 0.22,
+  commercial: 0.4,
+  wharf: 0.38,
+  residential: 0.5,
+  victorian: 0.58,
+  industrial: 0.4,
+  park: 0.35,
+};
+
+export function paletteFor(d: District): readonly number[] {
+  return PALETTES[d.character];
+}
+export function tintAmountFor(d: District): number {
+  return TINT_AMOUNT[d.character];
+}
+
 type Box = District & {
   readonly uMin: number;
   readonly uMax: number;

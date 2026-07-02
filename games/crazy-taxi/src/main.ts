@@ -32,6 +32,10 @@ container.appendChild(renderer.domElement);
 const game = new GameScene(window.innerWidth / window.innerHeight);
 game.applyEnvironment(renderer);
 
+if (import.meta.env.DEV) {
+  void import("./debug/dev-hooks").then(({ installDevHooks }) => installDevHooks(game));
+}
+
 function renderHeightPx(): number {
   return window.innerHeight * renderer.getPixelRatio();
 }
