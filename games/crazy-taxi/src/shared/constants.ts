@@ -6,7 +6,7 @@
 export const MAX_DT = 1 / 30; // clamp delta on tab-away
 
 // --- World / city grid ---
-export const ROAD_TILE = 11; // world units per grid cell (wider arcade boulevards)
+export const ROAD_TILE = 13; // world units per grid cell (wider arcade boulevards)
 export const ROAD_Y = 0.02; // lift road tiles above the ground plane
 export const GRID = 37; // cells per side (irregular road network laid on this)
 export const CITY_SEED = 1337;
@@ -39,7 +39,8 @@ export const CAR = {
   miniBoostImpulse: 14, // instant forward pop when releasing a charged drift
   slopeGravity: 40, // how hard SF hills pull the car back uphill / drag it downhill
   // Hill jumps: cresting fast enough goes ballistic instead of gluing to the road.
-  gravity: 34, // vertical fall accel while airborne
+  gravity: 52, // vertical fall accel while airborne (snappy arcs, not moon-floats)
+  maxLaunchVy: 8, // cap the upward pop off a crest so air time stays a beat
   minAirSpeed: 20, // slower than this just sticks to the ground
   launchDropRate: -6, // go airborne when the ground falls away faster than this (u/s)
   airSteerFactor: 0.3, // steering authority in the air
@@ -56,13 +57,15 @@ export const CAR = {
 export const MPH_FACTOR = 2.1; // displayed "MPH" = speed * factor (flavor only)
 
 // --- Chase camera ---
+// Close and low: the taxi should fill real screen space — a far, high camera
+// makes the hero read tiny and the streets hard to judge.
 export const CAMERA = {
   fov: 58,
-  fovBoost: 72, // widen FOV with speed for a rush
-  distance: 17, // behind the car
-  height: 10.5,
+  fovBoost: 70, // widen FOV with speed for a rush
+  distance: 13, // behind the car
+  height: 6.8,
   lookHeight: 1.6,
-  lookAhead: 13, // aim ahead of the car (see corners sooner)
+  lookAhead: 12, // aim ahead of the car (see corners sooner)
   lookAheadSpeed: 9, // extra look-ahead at top speed (road opens up)
   posLerp: 4.5, // position follow stiffness
   aimLerp: 7, // look-at follow stiffness
@@ -74,8 +77,8 @@ export const CAMERA = {
 // --- Fares / scoring / timer ---
 export const FARE = {
   startTime: 75, // seconds on the clock at start
-  pickupRadius: 4.0, // distance to auto-board a waiting passenger
-  dropoffRadius: 4.5, // distance to complete a delivery
+  pickupRadius: 4.8, // distance to auto-board a waiting passenger
+  dropoffRadius: 5.4, // distance to complete a delivery
   baseFare: 60,
   farePerTile: 14, // reward scales with trip distance (grid tiles)
   timePerTile: 1.5, // seconds added to the clock per trip tile

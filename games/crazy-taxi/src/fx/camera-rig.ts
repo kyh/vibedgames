@@ -62,7 +62,7 @@ export class ChaseCamera {
     // Speed crouch: at full tilt the camera drops lower and hangs farther back —
     // a lower horizon reads faster.
     const speedFrac = THREE.MathUtils.clamp(car.speed / CAR.maxSpeed, 0, 1);
-    const height = THREE.MathUtils.lerp(CAMERA.height, CAMERA.height - 1.7, speedFrac);
+    const height = THREE.MathUtils.lerp(CAMERA.height, CAMERA.height - 1.1, speedFrac);
     const distance = THREE.MathUtils.lerp(CAMERA.distance, CAMERA.distance + 1.5, speedFrac);
 
     const desired = this.scrDesired.set(
@@ -89,9 +89,9 @@ export class ChaseCamera {
     const s = this.shake * this.shake;
     const t = this.shakeT;
     this.shakeOff.set(
-      (Math.sin(t * 31) + Math.sin(t * 57) * 0.6) * s * 1.1,
-      (Math.sin(t * 43) + Math.sin(t * 71) * 0.6) * s * 0.8,
-      (Math.sin(t * 37) + Math.sin(t * 61) * 0.6) * s * 1.1,
+      (Math.sin(t * 31) + Math.sin(t * 57) * 0.6) * s * 0.5,
+      (Math.sin(t * 43) + Math.sin(t * 71) * 0.6) * s * 0.35,
+      (Math.sin(t * 37) + Math.sin(t * 61) * 0.6) * s * 0.5,
     );
     this.camera.position.add(this.shakeOff);
 
@@ -99,7 +99,7 @@ export class ChaseCamera {
 
     // Roll AFTER lookAt (which re-levels the camera): drift tilts the horizon,
     // trauma adds a rotational jitter — this is what makes shake feel physical.
-    const rollShake = (Math.sin(t * 47) + Math.sin(t * 89) * 0.5) * 0.08 * s;
+    const rollShake = (Math.sin(t * 47) + Math.sin(t * 89) * 0.5) * 0.035 * s;
     const driftRoll = THREE.MathUtils.clamp(car.slip, -1, 1) * 0.045;
     this.camera.rotateZ(rollShake + driftRoll);
 

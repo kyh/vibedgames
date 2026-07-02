@@ -14,7 +14,7 @@ import { FareManager, type FareEvent, tierColor, tierPayMult } from "../game/far
 import { GameState } from "../game/state";
 import { Traffic } from "../game/traffic";
 import { InputState } from "../input/keyboard";
-import { CAR, FARE, GRID, MPH_FACTOR, WORLD_SIZE } from "../shared/constants";
+import { CAMERA, CAR, FARE, GRID, MPH_FACTOR, WORLD_SIZE } from "../shared/constants";
 import { Rng } from "../shared/rng";
 import type { GameMode } from "../shared/types";
 import { Hud } from "../ui/hud";
@@ -517,9 +517,9 @@ export class GameScene {
     const f = THREE.MathUtils.smoothstep(Math.min(1, mode.t / total), 0, 1);
     const fwd = new THREE.Vector2(Math.sin(car.heading), Math.cos(car.heading));
     const chase = new THREE.Vector3(
-      car.position.x - fwd.x * 17,
-      car.position.y + 10.5,
-      car.position.z - fwd.y * 17,
+      car.position.x - fwd.x * CAMERA.distance,
+      car.position.y + CAMERA.height,
+      car.position.z - fwd.y * CAMERA.distance,
     );
     this.rig.camera.position.lerpVectors(this.camFrom, chase, f);
     this.rig.camera.lookAt(car.position.x, car.position.y + 1.6, car.position.z);

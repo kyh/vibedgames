@@ -242,10 +242,14 @@ export class CityModel {
         const r = this.plan.roads[gx]?.[gz];
         if (!r) continue;
         this.roadCells.push({ gx, gz });
-        const tile = this.cache.instance(modelUrl("roads", decoratedTile(gx, gz, r.tile)));
-        // Laid flat with a hair of overlap, then draped over the height field —
+        const url = modelUrl("roads", decoratedTile(gx, gz, r.tile));
+        const tb = this.cache.bounds(url);
+        const tile = this.cache.instance(url);
+        // Scale by measured footprint (KayKit tiles aren't unit-sized), laid
+        // flat with a hair of overlap, then draped over the height field —
         // adjacent tiles displace through the same surface, so they meet.
-        tile.scale.set(ROAD_TILE * 1.03, ROAD_TILE, ROAD_TILE * 1.03);
+        const ts = (ROAD_TILE * 1.03) / Math.max(tb.size.x, tb.size.z, 0.001);
+        tile.scale.set(ts, ts, ts);
         tile.position.set(this.worldX(gx), 0, this.worldZ(gz));
         tile.rotation.y = ROAD_ROT_SIGN * r.quarterTurns * HALF_PI;
         collectConformed(tile, ROAD_Y);

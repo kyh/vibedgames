@@ -35,32 +35,35 @@ export type CityPlan = {
   readonly greenCells: readonly GreenCell[];
 };
 
-// Native connection masks (N=-Z,E=+X,S=+Z,W=-X), read tile-by-tile off the
-// actual Kenney GLBs with the debug compass rack (__rack). Each tile has its
-// own native rotation — there is NO uniform offset, so they were read directly.
+// Native connection masks (N=-Z,E=+X,S=+Z,W=-X) for the KayKit street tiles,
+// verified visually in-game. KayKit ships no dead-end piece, so a count-1 cell
+// lays the straight along its single connection instead.
 const DEFAULT_MASK: Record<string, Mask> = {
-  [ROAD_STRAIGHT]: (1 << E) | (1 << W), // runs East–West
+  [ROAD_STRAIGHT]: (1 << N) | (1 << S), // runs North–South
   [ROAD_BEND]: (1 << S) | (1 << W), // curve connects South + West
   [ROAD_CROSSROAD]: (1 << N) | (1 << E) | (1 << S) | (1 << W),
   [ROAD_INTERSECTION]: (1 << E) | (1 << S) | (1 << W), // T closed on the North
-  [ROAD_END]: 1 << W, // stub opening to the West
 };
 
 function resolveRoad(mask: Mask): RoadResolved {
   const count = maskCount(mask);
   let tile: string;
+  let matchMask = mask;
   if (count >= 4) tile = ROAD_CROSSROAD;
   else if (count === 3) tile = ROAD_INTERSECTION;
   else if (count === 2) {
     const opposite =
       (maskHas(mask, N) && maskHas(mask, S)) || (maskHas(mask, E) && maskHas(mask, W));
     tile = opposite ? ROAD_STRAIGHT : ROAD_BEND;
-  } else if (count === 1) tile = ROAD_END;
-  else tile = ROAD_STRAIGHT;
+  } else if (count === 1) {
+    // Dead end: no stub piece — align a straight along the one connection.
+    tile = ROAD_END;
+    matchMask = mask | rotateMask(mask, 2);
+  } else tile = ROAD_STRAIGHT;
 
-  const base = DEFAULT_MASK[tile] ?? 0;
+  const base = DEFAULT_MASK[tile] ?? DEFAULT_MASK[ROAD_STRAIGHT] ?? 0;
   for (let q = 0; q < 4; q++) {
-    if (rotateMask(base, q) === mask) return { tile, quarterTurns: q };
+    if (rotateMask(base, q) === matchMask) return { tile, quarterTurns: q };
   }
   return { tile, quarterTurns: 0 };
 }

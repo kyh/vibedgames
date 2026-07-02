@@ -24,15 +24,18 @@ export const SERVICE_CARS = ["ambulance", "firetruck", "garbage-truck"] as const
 export const POLICE_CAR = "police";
 
 // --- Roads (autotile set) ---
-// The five base tiles the autotiler resolves to, plus decorative variants.
-export const ROAD_STRAIGHT = "road-straight";
-export const ROAD_BEND = "road-bend";
-export const ROAD_CROSSROAD = "road-crossroad";
-export const ROAD_INTERSECTION = "road-intersection";
-export const ROAD_END = "road-end";
-export const ROAD_CROSSING = "road-crossing";
-export const ROAD_CROSSROAD_LINE = "road-crossroad-line";
-export const ROAD_INTERSECTION_LINE = "road-intersection-line";
+// KayKit street tiles (match the KayKit props; wider, softer curbs than the
+// Kenney kit). Buildings stay Kenney for variety. KayKit ships no dead-end
+// piece and no lane-marked junction variants, so ends reuse the straight and
+// the -LINE names alias their plain junctions.
+export const ROAD_STRAIGHT = "kk-road-straight";
+export const ROAD_BEND = "kk-road-corner";
+export const ROAD_CROSSROAD = "kk-road-junction";
+export const ROAD_INTERSECTION = "kk-road-tsplit";
+export const ROAD_END = "kk-road-straight";
+export const ROAD_CROSSING = "kk-road-straight-crossing";
+export const ROAD_CROSSROAD_LINE = "kk-road-junction";
+export const ROAD_INTERSECTION_LINE = "kk-road-tsplit";
 // Bridge kit pieces (Golden Gate / Bay Bridge).
 export const ROAD_BRIDGE = "road-bridge";
 export const BRIDGE_PILLAR = "bridge-pillar";

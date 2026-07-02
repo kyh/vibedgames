@@ -608,7 +608,9 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
       const gz = pier.landGz - i;
       openWaterCells.add(cellKey(pier.gx, gz));
       const tile = cache.instance(deckTileUrl);
-      tile.scale.set(PIER_WIDTH, ROAD_TILE, PIER_WIDTH);
+      const tb = cache.bounds(deckTileUrl);
+      const ts = PIER_WIDTH / Math.max(tb.size.x, tb.size.z, 0.001);
+      tile.scale.set(ts, ts, ts);
       tile.rotation.y = HALF_PI; // run north–south
       tile.position.set(px, deckY, worldZ(gz));
       tile.updateMatrixWorld(true);
@@ -630,7 +632,9 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
     const drop = deckY - shoreH;
     const rampLen = Math.hypot(PIER_RAMP_RUN, drop);
     const ramp = cache.instance(deckTileUrl);
-    ramp.scale.set(rampLen, ROAD_TILE, PIER_WIDTH);
+    const rb = cache.bounds(deckTileUrl);
+    const rf = Math.max(rb.size.x, rb.size.z, 0.001);
+    ramp.scale.set(rampLen / rf, ROAD_TILE / rf, PIER_WIDTH / rf);
     ramp.rotation.order = "YZX";
     ramp.rotation.y = HALF_PI;
     ramp.rotation.z = Math.asin(drop / rampLen);

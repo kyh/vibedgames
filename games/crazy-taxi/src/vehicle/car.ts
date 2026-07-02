@@ -64,6 +64,8 @@ export class Car {
 
   constructor(cache: ModelCache) {
     this.object3D = new THREE.Group();
+    // Hero scale: the taxi reads slightly larger than traffic so it owns the frame.
+    this.object3D.scale.setScalar(1.12);
     this.body = cache.instance(modelUrl("cars", PLAYER_CAR));
     this.body.traverse((c) => {
       if (c.name.startsWith("wheel")) {
@@ -247,7 +249,9 @@ export class Car {
         if (groundAccel < -(CAR.gravity + 8) && this.speed > CAR.minAirSpeed) {
           this.airborne = true;
           this.airTime = 0;
-          this.yVel = this.vyGround - CAR.gravity * dt;
+          // Cap the launch pop — a steep crest at boost speed shouldn't put
+          // the taxi into orbit.
+          this.yVel = Math.min(this.vyGround, CAR.maxLaunchVy) - CAR.gravity * dt;
           this.position.y = Math.max(g, prevY + this.yVel * dt);
         } else {
           this.position.y = g;
