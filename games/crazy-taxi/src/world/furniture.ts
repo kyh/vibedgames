@@ -47,6 +47,7 @@ import type { Rng } from "../shared/rng";
 import { type Dir, DIR_DELTA, E, N, S, W } from "../shared/types";
 import type { Solid } from "./city";
 import { conformToTerrain } from "./conform";
+import { ASPHALT_W, SIDEWALK_W } from "./roads";
 import type { CityPlan, RoadResolved } from "./grid";
 import { type DistrictChar, districtAt } from "./sf-map";
 import type { Terrain } from "./terrain";
@@ -82,11 +83,14 @@ const DIRS: readonly Dir[] = [N, E, S, W];
 
 // --- Tunables ---
 const LIGHT_HEIGHT = 5; // streetlight world height
-const LIGHT_LATERAL = ROAD_TILE * 0.42; // lamp offset from the road centreline
-const PARK_LATERAL = ROAD_TILE * 0.36; // parked-car offset from centreline
+// Offsets derive from the procedural street profile (world/roads.ts): lamps
+// stand on the sidewalk, parked cars sit inside the outer parking lane.
+const LIGHT_LATERAL = ASPHALT_W / 2 + SIDEWALK_W * 0.45;
+const PARK_LATERAL = ASPHALT_W / 2 - 1.05;
 const PIER_DECK_Y = 0.55; // flat pier deck height over the water
 const PIER_WIDTH = ROAD_TILE * 1.03; // decks scaled like road tiles
 const PIER_RAMP_RUN = ROAD_TILE * 0.6; // horizontal run of the shore→deck ramp
+const PIER_DECK_MAT = new THREE.MeshStandardMaterial({ color: 0x9c8158, roughness: 0.9 });
 const CONSTRUCTION_POCKETS = 6;
 
 // Model catalogs used only here.
@@ -595,7 +599,6 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
   }
   const pillarUrl = modelUrl("roads", BRIDGE_PILLAR);
   const pillarBounds = cache.bounds(pillarUrl);
-  const deckTileUrl = modelUrl("roads", ROAD_STRAIGHT);
   for (let pierIdx = 0; pierIdx < chosenPiers.length; pierIdx++) {
     const pier = chosenPiers[pierIdx];
     if (pier === undefined) continue;
@@ -607,12 +610,11 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
     for (let i = 1; i <= len; i++) {
       const gz = pier.landGz - i;
       openWaterCells.add(cellKey(pier.gx, gz));
-      const tile = cache.instance(deckTileUrl);
-      const tb = cache.bounds(deckTileUrl);
-      const ts = PIER_WIDTH / Math.max(tb.size.x, tb.size.z, 0.001);
-      tile.scale.set(ts, ts, ts);
-      tile.rotation.y = HALF_PI; // run north–south
-      tile.position.set(px, deckY, worldZ(gz));
+      // Generated deck slab — top face exactly at deck height.
+      const tile = new THREE.Mesh(new THREE.BoxGeometry(PIER_WIDTH, 0.5, PIER_WIDTH), PIER_DECK_MAT);
+      tile.castShadow = true;
+      tile.receiveShadow = true;
+      tile.position.set(px, deckY - 0.25, worldZ(gz));
       tile.updateMatrixWorld(true);
       objects.push(tile);
       const pScale = 5.5 / Math.max(pillarBounds.size.y, 0.001);
@@ -626,19 +628,16 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
       pillar.updateMatrixWorld(true);
       objects.push(pillar);
     }
-    // Ramp tile connecting the shore grid to the deck (pitched road tile, so
-    // the entry reads as part of the street). Local +X ends up pointing north.
+    // Ramp slab connecting the shore grid to the deck (pitched box; the car
+    // rides the stepped surface rects below, the slab just has to match).
     const shoreH = terrain.heightAt(px, boundary + PIER_RAMP_RUN) + ROAD_Y;
     const drop = deckY - shoreH;
     const rampLen = Math.hypot(PIER_RAMP_RUN, drop);
-    const ramp = cache.instance(deckTileUrl);
-    const rb = cache.bounds(deckTileUrl);
-    const rf = Math.max(rb.size.x, rb.size.z, 0.001);
-    ramp.scale.set(rampLen / rf, ROAD_TILE / rf, PIER_WIDTH / rf);
-    ramp.rotation.order = "YZX";
-    ramp.rotation.y = HALF_PI;
-    ramp.rotation.z = Math.asin(drop / rampLen);
-    ramp.position.set(px, (deckY + shoreH) / 2, boundary + PIER_RAMP_RUN / 2);
+    const ramp = new THREE.Mesh(new THREE.BoxGeometry(PIER_WIDTH, 0.5, rampLen), PIER_DECK_MAT);
+    ramp.castShadow = true;
+    ramp.receiveShadow = true;
+    ramp.rotation.x = Math.atan(drop / PIER_RAMP_RUN);
+    ramp.position.set(px, (deckY + shoreH) / 2 - 0.25, boundary + PIER_RAMP_RUN / 2);
     ramp.updateMatrixWorld(true);
     objects.push(ramp);
     // Drivable surface rects: the flat deck plus stepped slices down the ramp

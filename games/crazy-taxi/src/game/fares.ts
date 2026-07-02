@@ -275,7 +275,7 @@ export class FareManager {
       }
     }
     const [dx, dz] = DIR_DELTA[dir];
-    const off = ROAD_TILE * 0.3;
+    const off = ROAD_TILE * 0.425; // on the sidewalk, not the parking lane
     const x = this.city.worldX(cell.gx) + dx * off;
     const z = this.city.worldZ(cell.gz) + dz * off;
     return new THREE.Vector3(x, this.city.terrain.heightAt(x, z), z);

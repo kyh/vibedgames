@@ -6,6 +6,7 @@ import { ROAD_TILE, ROAD_Y, TRAFFIC } from "../shared/constants";
 import { Rng } from "../shared/rng";
 import { type Dir, DIR_DELTA } from "../shared/types";
 import type { CityModel, RoadCell } from "../world/city";
+import { LANE_CENTER } from "../world/roads";
 import { type DistrictChar, districtAt } from "../world/sf-map";
 import { slopeQuaternion } from "../world/terrain";
 
@@ -155,9 +156,9 @@ export class TrafficCar {
     const [ndx, ndz] = DIR_DELTA[this.dir];
     const cx = city.worldX(this.gx);
     const cz = city.worldZ(this.gz);
-    // Drive slightly to the right of lane center so the player has room.
-    const laneX = -ndz * ROAD_TILE * 0.12;
-    const laneZ = ndx * ROAD_TILE * 0.12;
+    // Keep right of the yellow line (lane centre from the street profile).
+    const laneX = -ndz * LANE_CENTER;
+    const laneZ = ndx * LANE_CENTER;
     const px = cx + ndx * ROAD_TILE * this.t + laneX;
     const pz = cz + ndz * ROAD_TILE * this.t + laneZ;
     this.position.set(px, city.terrain.heightAt(px, pz) + ROAD_Y, pz);

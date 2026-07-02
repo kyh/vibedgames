@@ -23,20 +23,16 @@ export const TRAFFIC_CARS = [
 export const SERVICE_CARS = ["ambulance", "firetruck", "garbage-truck"] as const;
 export const POLICE_CAR = "police";
 
-// --- Roads (autotile set) ---
-// KayKit street tiles (match the KayKit props; wider, softer curbs than the
-// Kenney kit). Buildings stay Kenney for variety. KayKit ships no dead-end
-// piece and no lane-marked junction variants, so ends reuse the straight and
-// the -LINE names alias their plain junctions.
-export const ROAD_STRAIGHT = "kk-road-straight";
-export const ROAD_BEND = "kk-road-corner";
-export const ROAD_CROSSROAD = "kk-road-junction";
-export const ROAD_INTERSECTION = "kk-road-tsplit";
-export const ROAD_END = "kk-road-straight";
-export const ROAD_CROSSING = "kk-road-straight-crossing";
-export const ROAD_CROSSROAD_LINE = "kk-road-junction";
-export const ROAD_INTERSECTION_LINE = "kk-road-tsplit";
-// Bridge kit pieces (Golden Gate / Bay Bridge).
+// --- Roads ---
+// Street geometry is generated procedurally (world/roads.ts) — these ids are
+// only shape labels the autotiler writes into the plan (grid.ts) and gameplay
+// code matches on (e.g. "is this a straight cell"). No road-tile GLBs load.
+export const ROAD_STRAIGHT = "road-straight";
+export const ROAD_BEND = "road-bend";
+export const ROAD_CROSSROAD = "road-crossroad";
+export const ROAD_INTERSECTION = "road-intersection";
+export const ROAD_END = "road-end";
+// Bridge kit pieces (Golden Gate / wharf piers) — these ARE real models.
 export const ROAD_BRIDGE = "road-bridge";
 export const BRIDGE_PILLAR = "bridge-pillar";
 export const BRIDGE_PILLAR_WIDE = "bridge-pillar-wide";
@@ -207,19 +203,7 @@ const PROPS = [
   PROP_TANK,
 ] as const;
 
-const ROADS = [
-  ROAD_STRAIGHT,
-  ROAD_BEND,
-  ROAD_CROSSROAD,
-  ROAD_INTERSECTION,
-  ROAD_END,
-  ROAD_CROSSING,
-  ROAD_CROSSROAD_LINE,
-  ROAD_INTERSECTION_LINE,
-  ROAD_BRIDGE,
-  BRIDGE_PILLAR,
-  BRIDGE_PILLAR_WIDE,
-] as const;
+const ROADS = [ROAD_BRIDGE, BRIDGE_PILLAR, BRIDGE_PILLAR_WIDE] as const;
 
 // Everything that must be preloaded before the game starts.
 export function allModelUrls(): string[] {

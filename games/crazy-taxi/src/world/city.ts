@@ -8,12 +8,6 @@ import {
   BUILDINGS_SKYSCRAPER,
   BUILDINGS_SUBURBAN,
   modelUrl,
-  ROAD_CROSSING,
-  ROAD_CROSSROAD,
-  ROAD_CROSSROAD_LINE,
-  ROAD_INTERSECTION,
-  ROAD_INTERSECTION_LINE,
-  ROAD_STRAIGHT,
   TREE_LARGE,
   TREE_SMALL,
 } from "../assets/manifest";
@@ -32,6 +26,7 @@ import { conformToTerrain, toFloat32Attributes } from "./conform";
 import { buildFurniture } from "./furniture";
 import { buildGoldenGate } from "./golden-gate";
 import { type CityPlan, generateCity } from "./grid";
+import { buildRoads } from "./roads";
 import { buildLandmarks, landmarkProtection } from "./landmarks";
 import { type DistrictChar, districtAt, makeTerrain, paletteFor, tintAmountFor } from "./sf-map";
 import type { Terrain } from "./terrain";
@@ -209,52 +204,15 @@ export class CityModel {
       }
     };
 
-    // --- Roads ---
-    // Swap in decorated variants: zebra crossings on straights that feed an
-    // intersection in walkable districts; lane-marked junctions downtown.
-    const decoratedTile = (gx: number, gz: number, tile: string): string => {
-      const d = districtAt(gx, gz).character;
-      if (tile === ROAD_STRAIGHT) {
-        const walkable =
-          d === "commercial" || d === "downtown" || d === "wharf" || d === "victorian";
-        if (!walkable) return tile;
-        for (const [dx, dz] of [
-          [1, 0],
-          [-1, 0],
-          [0, 1],
-          [0, -1],
-        ] as const) {
-          const nb = this.plan.roads[gx + dx]?.[gz + dz];
-          if (nb && (nb.tile === ROAD_CROSSROAD || nb.tile === ROAD_INTERSECTION)) {
-            return ROAD_CROSSING;
-          }
-        }
-        return tile;
-      }
-      if (d === "downtown" || d === "highrise") {
-        if (tile === ROAD_CROSSROAD) return ROAD_CROSSROAD_LINE;
-        if (tile === ROAD_INTERSECTION) return ROAD_INTERSECTION_LINE;
-      }
-      return tile;
-    };
+    // --- Roads: procedural street geometry generated straight from the
+    // network graph (world/roads.ts) — asphalt/curbs/sidewalks/markings can
+    // never disagree with the connections. ---
     for (let gx = 0; gx < GRID; gx++) {
       for (let gz = 0; gz < GRID; gz++) {
-        const r = this.plan.roads[gx]?.[gz];
-        if (!r) continue;
-        this.roadCells.push({ gx, gz });
-        const url = modelUrl("roads", decoratedTile(gx, gz, r.tile));
-        const tb = this.cache.bounds(url);
-        const tile = this.cache.instance(url);
-        // Scale by measured footprint (KayKit tiles aren't unit-sized), laid
-        // flat with a hair of overlap, then draped over the height field —
-        // adjacent tiles displace through the same surface, so they meet.
-        const ts = (ROAD_TILE * 1.03) / Math.max(tb.size.x, tb.size.z, 0.001);
-        tile.scale.set(ts, ts, ts);
-        tile.position.set(this.worldX(gx), 0, this.worldZ(gz));
-        tile.rotation.y = ROAD_ROT_SIGN * r.quarterTurns * HALF_PI;
-        collectConformed(tile, ROAD_Y);
+        if (this.plan.roads[gx]?.[gz]) this.roadCells.push({ gx, gz });
       }
     }
+    for (const mesh of buildRoads(this.plan, this.terrain)) staticMeshes.push(mesh);
 
     // --- Landmark footprints: cells the procedural city leaves alone ---
     const lm = landmarkProtection(this.plan);
