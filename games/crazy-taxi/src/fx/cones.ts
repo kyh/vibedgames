@@ -1,34 +1,36 @@
+import type { RigidBody } from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
 
 import type { ModelCache } from "../assets/loader";
 import { modelUrl, PROP_CONE } from "../assets/manifest";
+import type { PhysicsWorld } from "../physics/physics-world";
 import { ROAD_TILE } from "../shared/constants";
 import type { Rng } from "../shared/rng";
 import type { CityModel } from "../world/city";
 import { toFloat32Attributes } from "../world/conform";
 
 // Smashable traffic cones — the free destruction toy. Scattered on road
-// shoulders; driving through one launches it ballistically (+$ and a spark
-// burst are the scene's job). One InstancedMesh, zero draw-call growth.
+// shoulders; driving through one hands it to the physics world, so cones
+// scatter into piles, carom off buildings and tumble down hills. One
+// InstancedMesh, zero draw-call growth; a body exists only while flying.
 
 const COUNT = 64;
 const HIT_RADIUS = 1.7;
-const GRAVITY = 26;
+const REST_SPEED = 0.7; // slower than this (for REST_TIME) → settle
+const REST_TIME = 0.7;
+const MAX_FLIGHT_S = 8; // runaway cones eventually settle wherever they are
 
 type ConeState = {
   x: number;
   y: number;
   z: number;
-  vx: number;
-  vy: number;
-  vz: number;
-  spinX: number;
-  spinZ: number;
-  rotX: number;
-  rotZ: number;
   yaw: number;
-  // resting = smashable; flying = ballistic; fading = despawning; dead = hidden
-  mode: "resting" | "flying" | "fading" | "dead";
+  quat: THREE.Quaternion; // pose while physics-driven / settled
+  body: RigidBody | null;
+  restTimer: number;
+  flightTime: number;
+  // resting = smashable; physical = rapier-driven; fading = despawn; dead = hidden
+  mode: "resting" | "physical" | "fading" | "dead";
   fade: number;
 };
 
@@ -46,6 +48,7 @@ export class SmashCones {
     cache: ModelCache,
     private city: CityModel,
     rng: Rng,
+    private physics: PhysicsWorld | null = null,
   ) {
     // Pull geometry + material out of the cone GLB (first mesh wins). The node
     // matrix must be baked in — meshopt-quantized GLBs store the dequantization
@@ -95,14 +98,11 @@ export class SmashCones {
           x,
           y: city.terrain.heightAt(x, z),
           z,
-          vx: 0,
-          vy: 0,
-          vz: 0,
-          spinX: 0,
-          spinZ: 0,
-          rotX: 0,
-          rotZ: 0,
           yaw: rng.range(0, Math.PI * 2),
+          quat: new THREE.Quaternion(),
+          body: null,
+          restTimer: 0,
+          flightTime: 0,
           mode: "resting",
           fade: 1,
         });
@@ -114,14 +114,11 @@ export class SmashCones {
         x: 0,
         y: -50,
         z: 0,
-        vx: 0,
-        vy: 0,
-        vz: 0,
-        spinX: 0,
-        spinZ: 0,
-        rotX: 0,
-        rotZ: 0,
         yaw: 0,
+        quat: new THREE.Quaternion(),
+        body: null,
+        restTimer: 0,
+        flightTime: 0,
         mode: "dead",
         fade: 0,
       });
@@ -142,21 +139,23 @@ export class SmashCones {
       const c = this.cones[i];
       const h = this.homes[i];
       if (!c || !h) continue;
+      this.releaseBody(c);
       c.x = h.x;
       c.y = h.y;
       c.z = h.z;
       c.yaw = h.yaw;
-      c.vx = 0;
-      c.vy = 0;
-      c.vz = 0;
-      c.spinX = 0;
-      c.spinZ = 0;
-      c.rotX = 0;
-      c.rotZ = 0;
+      c.quat.identity();
+      c.restTimer = 0;
+      c.flightTime = 0;
       c.fade = 1;
       c.mode = h.live ? "resting" : "dead";
     }
     this.writeAll();
+  }
+
+  // DEV: where the resting cones are (verification harness).
+  restingPositions(): { x: number; z: number }[] {
+    return this.cones.filter((c) => c.mode === "resting").map((c) => ({ x: c.x, z: c.z }));
   }
 
   // Launch any resting cone the car clips. Returns how many were smashed.
@@ -169,12 +168,23 @@ export class SmashCones {
       if (dx * dx + dz * dz > HIT_RADIUS * HIT_RADIUS) continue;
       const sp = Math.hypot(vx, vz);
       const dir = sp > 1 ? { x: vx / sp, z: vz / sp } : { x: dx, z: dz };
-      c.mode = "flying";
-      c.vx = dir.x * sp * 0.55 + dx * 2;
-      c.vz = dir.z * sp * 0.55 + dz * 2;
-      c.vy = 5.5 + Math.min(6, sp * 0.12);
-      c.spinX = 4 + Math.random() * 9;
-      c.spinZ = (Math.random() - 0.5) * 10;
+      if (this.physics) {
+        c.mode = "physical";
+        c.restTimer = 0;
+        c.flightTime = 0;
+        c.body = this.physics.createConeBody(
+          c.x,
+          c.y + 0.5,
+          c.z,
+          dir.x * sp * 0.55 + dx * 2,
+          5.5 + Math.min(6, sp * 0.12),
+          dir.z * sp * 0.55 + dz * 2,
+        );
+      } else {
+        // No physics (wasm failed): just despawn with a fade.
+        c.mode = "fading";
+        c.fade = 1;
+      }
       hits++;
     }
     return hits;
@@ -186,27 +196,21 @@ export class SmashCones {
       const c = this.cones[i];
       if (!c || c.mode === "resting" || c.mode === "dead") continue;
       dirty = true;
-      if (c.mode === "flying") {
-        c.vy -= GRAVITY * dt;
-        c.x += c.vx * dt;
-        c.y += c.vy * dt;
-        c.z += c.vz * dt;
-        c.rotX += c.spinX * dt;
-        c.rotZ += c.spinZ * dt;
-        const ground = this.city.terrain.heightAt(c.x, c.z);
-        if (c.y <= ground && c.vy < 0) {
-          if (Math.abs(c.vy) > 4) {
-            c.y = ground;
-            c.vy = -c.vy * 0.35;
-            c.vx *= 0.6;
-            c.vz *= 0.6;
-            c.spinX *= 0.5;
-            c.spinZ *= 0.5;
-          } else {
-            c.y = ground;
-            c.mode = "fading";
-            c.fade = 1;
-          }
+      if (c.mode === "physical" && c.body) {
+        const t = c.body.translation();
+        const r = c.body.rotation();
+        c.x = t.x;
+        c.y = t.y - 0.42; // collider centre → mesh base
+        c.z = t.z;
+        c.quat.set(r.x, r.y, r.z, r.w);
+        c.flightTime += dt;
+        const v = c.body.linvel();
+        const speedSq = v.x * v.x + v.y * v.y + v.z * v.z;
+        c.restTimer = speedSq < REST_SPEED * REST_SPEED ? c.restTimer + dt : 0;
+        if (c.restTimer > REST_TIME || c.flightTime > MAX_FLIGHT_S || c.y < -12) {
+          this.releaseBody(c);
+          c.mode = "fading";
+          c.fade = 1;
         }
       } else {
         c.fade -= dt / 2.5;
@@ -223,13 +227,22 @@ export class SmashCones {
   private write(i: number): void {
     const c = this.cones[i];
     if (!c) return;
-    this.eul.set(c.rotX, c.yaw, c.rotZ);
-    this.quat.setFromEuler(this.eul);
+    if (c.mode === "resting") {
+      this.eul.set(0, c.yaw, 0);
+      this.quat.setFromEuler(this.eul);
+    } else {
+      this.quat.copy(c.quat);
+    }
     const s = c.mode === "fading" ? Math.max(0.001, c.fade) : 1;
     this.scl.set(s, s, s);
     this.posV.set(c.x, c.y, c.z);
     this.mat4.compose(this.posV, this.quat, this.scl);
     this.mesh.setMatrixAt(i, this.mat4);
+  }
+
+  private releaseBody(c: ConeState): void {
+    if (c.body && this.physics) this.physics.remove(c.body);
+    c.body = null;
   }
 
   private writeAll(): void {

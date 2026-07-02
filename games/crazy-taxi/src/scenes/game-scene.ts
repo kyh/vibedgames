@@ -262,7 +262,7 @@ export class GameScene {
     this.scene.add(this.skids.mesh);
     this.debris = new Debris(this.cache, (x, z) => city.heightAt(x, z));
     this.scene.add(this.debris.group);
-    this.cones = new SmashCones(this.cache, city, new Rng(777));
+    this.cones = new SmashCones(this.cache, city, new Rng(777), physics);
     this.scene.add(this.cones.mesh);
     this.minimap = new Minimap(city.plan, city.getDecks());
 
@@ -407,6 +407,33 @@ export class GameScene {
   // DEV-only: force the run clock (endgame testing).
   debugSetTime(seconds: number): void {
     this.state.timeLeft = seconds;
+  }
+
+  // DEV-only: smash the nearest resting cone in place (exercises the physics
+  // launch path without needing pixel-perfect scripted driving).
+  debugSmashNearestCone(): boolean {
+    const cones = this.cones;
+    const car = this.car;
+    if (!cones || !car) return false;
+    const p = cones.restingPositions()[0];
+    if (!p) return false;
+    return cones.tryHit(p.x, p.z, 30, 12) > 0;
+  }
+
+  // DEV-only: nearest resting cone to the taxi, in normalized coords.
+  debugNearestCone(): { u: number; v: number } | null {
+    const car = this.car;
+    if (!car || !this.cones) return null;
+    let best: { x: number; z: number } | null = null;
+    let bd = Infinity;
+    for (const p of this.cones.restingPositions()) {
+      const d = (p.x - car.position.x) ** 2 + (p.z - car.position.z) ** 2;
+      if (d < bd) {
+        bd = d;
+        best = p;
+      }
+    }
+    return best ? { u: best.x / WORLD_SIZE + 0.5, v: best.z / WORLD_SIZE + 0.5 } : null;
   }
 
   // DEV-only: live car state for headless verification.
@@ -849,6 +876,11 @@ export class GameScene {
       c.punt(physics, nx * k, mass * Math.min(3.5, impact * 0.14), nz * k);
       // Feed the existing crash pipeline (sfx/debris/shake scale with it).
       car.lastWallHit = Math.max(car.lastWallHit, impact * 0.55);
+      // Real hits cost money — traffic is the risk side of weaving.
+      if (impact > 7) {
+        const pen = this.state.trafficHit(impact);
+        this.hud.announceMinor(`TRAFFIC HIT −$${pen}`, "#ff5a52");
+      }
     }
   }
 

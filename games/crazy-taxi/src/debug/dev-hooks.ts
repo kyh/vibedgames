@@ -30,6 +30,10 @@ export type TaxiDebugApi = {
   } | null;
   // Force the run clock (endgame testing).
   setTime(seconds: number): void;
+  // Nearest resting cone (verification).
+  nearestCone(): { u: number; v: number } | null;
+  // Launch the nearest resting cone through the physics path (verification).
+  smashCone(): boolean;
 };
 
 declare global {
@@ -58,6 +62,12 @@ export function installDevHooks(game: GameScene): void {
     },
     setTime(seconds: number): void {
       game.debugSetTime(seconds);
+    },
+    nearestCone() {
+      return game.debugNearestCone();
+    },
+    smashCone(): boolean {
+      return game.debugSmashNearestCone();
     },
   };
 }

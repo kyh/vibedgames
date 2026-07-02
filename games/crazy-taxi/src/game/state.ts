@@ -108,6 +108,13 @@ export class GameState {
     return FARE.smashBonus;
   }
 
+  // Ramming traffic costs money (cones are toys; cars are not).
+  trafficHit(impact: number): number {
+    const pen = Math.min(80, Math.round(12 + impact * 1.4));
+    this.score = Math.max(0, this.score - pen);
+    return pen;
+  }
+
   // Near-miss pays with the risk: up to 3× at boost speed (no combo — see landAir).
   nearMiss(speedFrac: number): number {
     const pts = Math.round(FARE.nearMissBonus * (1 + 2 * Math.min(1, speedFrac)));

@@ -101,6 +101,34 @@ export class PhysicsWorld {
     return body;
   }
 
+  // A launched traffic cone: light dynamic cylinder born with its fling velocity.
+  createConeBody(
+    x: number,
+    y: number,
+    z: number,
+    vx: number,
+    vy: number,
+    vz: number,
+  ): RAPIER.RigidBody {
+    const body = this.world.createRigidBody(
+      RAPIER.RigidBodyDesc.dynamic()
+        .setTranslation(x, y, z)
+        .setLinvel(vx, vy, vz)
+        .setAngvel({ x: vz * 0.8, y: 0, z: -vx * 0.8 }) // tumble across travel
+        .setLinearDamping(0.3)
+        .setAngularDamping(1.1),
+    );
+    this.world.createCollider(
+      RAPIER.ColliderDesc.cylinder(0.42, 0.3).setFriction(0.8).setRestitution(0.35).setDensity(0.5),
+      body,
+    );
+    return body;
+  }
+
+  remove(body: RAPIER.RigidBody): void {
+    this.world.removeRigidBody(body);
+  }
+
   makeDynamic(body: RAPIER.RigidBody): void {
     body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
   }
