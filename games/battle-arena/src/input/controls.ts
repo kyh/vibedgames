@@ -21,6 +21,10 @@ export class Controls {
   private pitch = 0; // view tilt (camera only; >0 looks up)
   private lmb = false;
   private hadInput = false;
+  // MOUSE MODE: menus need a free cursor (shop, end screen). While on, the
+  // pointer stays unlocked, mouse motion doesn't steer, and clicks are UI —
+  // never attacks. ACTION MODE (default) is the FPS-style locked pointer.
+  private uiMode = false;
 
   constructor(private canvas: HTMLElement) {
     window.addEventListener("keydown", this.onKeyDown);
@@ -42,12 +46,32 @@ export class Controls {
    *  (e.g. not a trusted gesture, or an embedded document) — swallow both the
    *  sync throw and the async rejection so it never surfaces as an error. */
   lockPointer(): void {
-    if (this.locked) return;
+    if (this.locked || this.uiMode) return;
     try {
       Promise.resolve(this.canvas.requestPointerLock()).catch(() => {});
     } catch {
       /* unsupported — fall back to free mouse */
     }
+  }
+
+  /** Flip between MOUSE mode (free cursor for menus) and ACTION mode.
+   *  Turning action mode back on attempts an immediate relock — valid while the
+   *  triggering gesture's transient activation lasts; if the browser refuses,
+   *  the next canvas click relocks (the familiar FPS pattern). */
+  setMouseMode(on: boolean): void {
+    if (this.uiMode === on) return;
+    this.uiMode = on;
+    document.body.classList.toggle("ba-mouse-mode", on);
+    if (on) {
+      this.lmb = false; // an in-flight attack hold must not survive into a menu
+      if (this.locked) document.exitPointerLock();
+    } else {
+      this.lockPointer();
+    }
+  }
+
+  get inMouseMode(): boolean {
+    return this.uiMode;
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
@@ -81,6 +105,7 @@ export class Controls {
   };
 
   private onMouseMove = (e: MouseEvent): void => {
+    if (this.uiMode) return; // free cursor is browsing menus, not steering
     // turn/tilt by relative motion (works locked or not); crosshair stays
     // centered. mouse-right turns the view right → decrease yaw; mouse-up
     // looks up → increase pitch.
@@ -90,6 +115,7 @@ export class Controls {
   };
 
   private onMouseDown = (e: MouseEvent): void => {
+    if (this.uiMode) return; // clicks belong to the menu UI
     this.lockPointer(); // first click grabs the pointer; later clicks just act
     if (e.button === 0) {
       this.lmb = true;

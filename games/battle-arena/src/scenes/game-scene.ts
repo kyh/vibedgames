@@ -412,6 +412,9 @@ export class GameScene {
 
   /** Read controls → apply locally (host) or send as an intent (guest). */
   private readInput(me: Unit, host: boolean): void {
+    // MOUSE mode while a menu owns the cursor (shop, end screen); ACTION mode
+    // (locked pointer) the rest of the match. Controls no-ops when unchanged.
+    this.controls.setMouseMode(this.hud.isShopOpen || this.world.phase === "ended");
     if (!me.alive) {
       if (host) setHeroInput(me, 0, 0, this.aimX, this.aimY, false);
       return;

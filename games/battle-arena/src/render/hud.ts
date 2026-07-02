@@ -1292,6 +1292,8 @@ const STYLE = `
 .ba-pips i.on{background:#ffd24a;box-shadow:0 0 4px #ffd24a}
 .ba-abil.ready{animation:ba-ready .4s}
 @keyframes ba-ready{0%{box-shadow:0 0 0 0 rgba(255,210,74,.9)}100%{box-shadow:0 0 0 14px rgba(255,210,74,0)}}
+/* MOUSE mode (menus own the cursor): swap the gameplay crosshair for a pointer */
+body.ba-mouse-mode canvas{cursor:default}
 #ba-items{display:flex;gap:5px;min-height:2px}
 .ba-item-chip{position:relative;width:40px;height:40px;background:rgba(18,22,34,.8);border:1px solid rgba(255,255,255,.16);border-radius:7px;overflow:hidden;pointer-events:auto;touch-action:none}
 .ba-item-chip.active{border-color:rgba(107,255,142,.6)}
