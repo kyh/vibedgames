@@ -281,6 +281,9 @@ export class Fx {
           : e.kind === "meteor" ? 0xff5a2c
           : e.kind === "trap" ? 0x9affc0
           : e.kind === "execute" ? 0xff3060
+          : e.kind === "sanguine" ? 0xd6304a
+          : e.kind === "judgement" ? 0xffd76a
+          : e.kind === "soulburst" ? 0x7affb0
           : e.kind === "hex" ? 0x7fe08a
           : 0xffa030;
         const big = e.kind === "meteor";

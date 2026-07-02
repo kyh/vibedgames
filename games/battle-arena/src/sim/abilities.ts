@@ -447,7 +447,7 @@ function dispatch(
         c.hp = Math.min(c.maxHp, c.hp + healed);
         w.fx.push({ t: "heal", x: c.x, y: c.y, amount: healed });
       }
-      w.fx.push({ t: "explosion", x: c.x, y: c.y, radius: v("radius"), kind: "meteor" });
+      w.fx.push({ t: "explosion", x: c.x, y: c.y, radius: v("radius"), kind: "soulburst" });
       return true;
     }
 
@@ -500,7 +500,7 @@ function dispatch(
         c.hp = Math.min(c.maxHp, c.hp + healed);
         w.fx.push({ t: "heal", x: c.x, y: c.y, amount: healed });
       }
-      w.fx.push({ t: "explosion", x: c.x, y: c.y, radius: v("radius"), kind: "meteor" });
+      w.fx.push({ t: "explosion", x: c.x, y: c.y, radius: v("radius"), kind: "judgement" });
       return true;
     }
 
@@ -595,7 +595,7 @@ function dispatch(
         c.hp = Math.min(c.maxHp, c.hp + healed);
         w.fx.push({ t: "heal", x: c.x, y: c.y, amount: healed });
       }
-      w.fx.push({ t: "explosion", x: c.x, y: c.y, radius: v("radius"), kind: "meteor" });
+      w.fx.push({ t: "explosion", x: c.x, y: c.y, radius: v("radius"), kind: "sanguine" });
       return true;
     }
 
