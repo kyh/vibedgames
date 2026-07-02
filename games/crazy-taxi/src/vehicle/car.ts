@@ -26,6 +26,7 @@ const MODEL_YAW_OFFSET = 0;
 const COLLIDE_RADIUS = 1.05;
 const WHEEL_RADIUS = 0.35;
 const UP = new THREE.Vector3(0, 1, 0);
+const X_AXIS = new THREE.Vector3(1, 0, 0);
 
 export class Car {
   readonly object3D: THREE.Group;
@@ -55,12 +56,15 @@ export class Car {
   slip = 0; // signed angle between velocity and heading (radians)
   private roll = 0; // visual body lean
   private pitch = 0; // visual dive/squat
-  private trajPitch = 0; // airborne nose-follow
   private squash = 0; // landing suspension squash (1 = full)
   private steerSmoothed = 0; // ramped steering input
   private wheelSpin = 0;
   private surface: Surface | null = null;
   private scratchN = new THREE.Vector3();
+  // Chassis attitude is slerped toward its target: smooths terrain-normal
+  // jitter into suspension feel, and blends launches/landings.
+  private targetQuat = new THREE.Quaternion();
+  private pitchQuat = new THREE.Quaternion();
 
   constructor(cache: ModelCache) {
     this.object3D = new THREE.Group();
@@ -113,10 +117,9 @@ export class Car {
     this.slip = 0;
     this.roll = 0;
     this.pitch = 0;
-    this.trajPitch = 0;
     this.steerSmoothed = 0;
     if (this.surface) this.position.y = this.surface.heightAt(x, z) + ROAD_Y;
-    this.syncTransform();
+    this.syncTransform(1, true);
   }
 
   addBoost(amount: number): void {
@@ -265,11 +268,6 @@ export class Car {
     this.roll += (targetRoll - this.roll) * Math.min(1, dt * 10);
     const targetPitch = input.throttle < 0 && vForward > 1 ? 0.05 : input.throttle > 0 ? -0.025 : 0;
     this.pitch += (targetPitch - this.pitch) * Math.min(1, dt * 8);
-    // Airborne: the nose follows the flight arc.
-    const targetTraj = this.airborne
-      ? THREE.MathUtils.clamp(-this.yVel / Math.max(this.speed, 12), -0.3, 0.35)
-      : 0;
-    this.trajPitch += (targetTraj - this.trajPitch) * Math.min(1, dt * 6);
     this.squash = Math.max(0, this.squash - dt * 5.5); // springs back ~180ms
 
     // --- Wheels: spin with speed, fronts steer ---
@@ -279,7 +277,7 @@ export class Car {
       if (w.front) w.node.rotation.y = this.steerSmoothed * -0.42;
     }
 
-    this.syncTransform();
+    this.syncTransform(dt);
   }
 
   private resolveCollisions(solids: readonly Solid[]): void {
@@ -338,20 +336,34 @@ export class Car {
     }
   }
 
-  private syncTransform(): void {
+  // `snap = true` (resets) copies the target attitude instead of blending.
+  private syncTransform(dt: number, snap = false): void {
     if (this.surface && !this.airborne) {
       const n = this.surface.normalInto(this.scratchN, this.position.x, this.position.z);
-      slopeQuaternion(this.object3D.quaternion, this.heading + MODEL_YAW_OFFSET, n);
-      this.object3D.position.copy(this.position);
+      slopeQuaternion(this.targetQuat, this.heading + MODEL_YAW_OFFSET, n);
     } else if (this.airborne) {
-      slopeQuaternion(this.object3D.quaternion, this.heading + MODEL_YAW_OFFSET, UP);
-      this.object3D.position.copy(this.position);
+      // The nose follows the flight arc: up off the crest, down as it falls.
+      slopeQuaternion(this.targetQuat, this.heading + MODEL_YAW_OFFSET, UP);
+      const arc = THREE.MathUtils.clamp(
+        Math.atan2(-this.yVel, Math.max(this.speed, 8)),
+        -0.5,
+        0.6,
+      );
+      this.pitchQuat.setFromAxisAngle(X_AXIS, arc);
+      this.targetQuat.multiply(this.pitchQuat);
     } else {
-      this.object3D.position.copy(this.position);
-      this.object3D.rotation.y = this.heading + MODEL_YAW_OFFSET;
+      slopeQuaternion(this.targetQuat, this.heading + MODEL_YAW_OFFSET, UP);
     }
+    // Slerp instead of snapping — terrain-normal jitter becomes suspension
+    // travel; launches and landings blend instead of popping.
+    if (snap) this.object3D.quaternion.copy(this.targetQuat);
+    else {
+      const rate = this.airborne ? 6 : 13;
+      this.object3D.quaternion.slerp(this.targetQuat, Math.min(1, dt * rate));
+    }
+    this.object3D.position.copy(this.position);
     this.body.rotation.z = this.roll;
-    this.body.rotation.x = this.pitch + this.trajPitch;
+    this.body.rotation.x = this.pitch;
     // Landing squash: volume-conserving squish that springs back.
     const sq = this.squash;
     this.body.scale.set(1 + 0.12 * sq, 1 - 0.26 * sq, 1 + 0.12 * sq);

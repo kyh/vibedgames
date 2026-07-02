@@ -72,6 +72,7 @@ export class TrafficCar {
   private brakeTimer = 0;
   private honkCooldown = 0;
   private yaw = 0;
+  private targetQuat = new THREE.Quaternion();
 
   constructor(
     object3D: THREE.Object3D,
@@ -169,7 +170,10 @@ export class TrafficCar {
     if (d < -Math.PI) d += Math.PI * 2;
     this.yaw += d * Math.min(1, dt * 8);
     const n = city.terrain.normalInto(SCRATCH_N, px, pz);
-    slopeQuaternion(this.object3D.quaternion, this.yaw, n);
+    slopeQuaternion(this.targetQuat, this.yaw, n);
+    // Slerp instead of snapping — terrain-normal jitter reads as suspension.
+    if (dt === 0) this.object3D.quaternion.copy(this.targetQuat);
+    else this.object3D.quaternion.slerp(this.targetQuat, Math.min(1, dt * 10));
   }
 }
 
