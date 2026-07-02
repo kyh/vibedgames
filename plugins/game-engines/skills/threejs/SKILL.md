@@ -17,14 +17,11 @@ Build performant 3D browser apps and games with Three.js using modern ES module 
 
 ---
 
-## Prebuilt Modules — copy, don't re-derive
+## Prebuilt Modules — copy the hard parts, generate the rest
 
-`modules/` contains copy-verbatim ES modules for the parts of a 3D game that natural language conveys badly: coordinate conventions, character locomotion, camera rigs, batched Rapier collision, steering, grid pathfinding, wave spawning, minimap projection. Retyping this math from prose is how inverted axes and unstable motion happen.
+`modules/` holds a small set of TypeScript files for the parts of a 3D game that are hard to get right and the same across games: framerate-independent smoothing + a deterministic PRNG (`math.ts`), Y-up orientation-frame helpers + a grounded character controller (`character-movement.ts`), and a Rapier kinematic character-collision resolver (`kinematic-resolver.ts`). Copy these into the project rather than re-deriving them — inverted axes, framerate-dependent smoothing, and mis-wired Rapier controllers are the classic ways this goes wrong.
 
-Before writing a character controller, camera rig, or movement/spawn system by hand, read `modules/summary.md` (the catalog) and copy the matching files into the project, preserving their directory layout so imports resolve. Two rules from the catalog worth repeating:
-
-1. **Declare the basis once.** `modules/math/world-basis.js` is the authoritative mapping of right/up/forward onto world axes; every module is basis-aware. Never hand-roll axis/yaw math next to it.
-2. **Record usage.** Note which modules you copied, and any edits, in a `modules-usage.md` in the project.
+Everything else — camera rigs, enemy waves, pathfinding, steering, minimaps, input schemes — is **not** prebuilt on purpose: it differs per game and is cheap to write, so generate it live against the references below. Read `modules/summary.md` before pulling anything in.
 
 ## Reference Files
 
@@ -32,7 +29,7 @@ Scene setup is inline below. Read the relevant reference before working on that 
 
 | When you're working on...                                              | Read first                              |
 | ---------------------------------------------------------------------- | --------------------------------------- |
-| Character/camera/movement/waves — anything covered by a prebuilt module | `modules/summary.md`                    |
+| Character locomotion / Rapier character collision / smoothing / seeded RNG | `modules/summary.md`                    |
 | Turning a scene into a playable game (fixed-timestep loop, structure)  | `references/gameplay-systems.md`        |
 | Physics or collision (Rapier / cannon-es / arcade overlap)             | `references/physics.md`                 |
 | Movement controllers + follow/third-person camera                      | `references/controllers-and-camera.md`  |

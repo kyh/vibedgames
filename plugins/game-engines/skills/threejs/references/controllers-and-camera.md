@@ -2,7 +2,7 @@
 
 Responsive movement and a camera that always shows the next decision are most of 3D game feel. Tune the numbers here with the `game-feel` skill.
 
-> **Copy before you code:** `modules/` ships working character controllers (click-to-move, cardinal, tank, mouse-look) and camera rigs (position-follow, pose-follow, first-person, free-look) — see `modules/summary.md`. Use this guide to understand and tune them, not to rewrite them.
+> **Copy the controller, generate the camera:** `modules/character-movement.ts` ships a grounded `CharacterController` + Y-up frame helpers, and `modules/kinematic-resolver.ts` wraps Rapier character collision — copy those rather than re-deriving them (see `modules/summary.md`). Camera rigs and input schemes are game-specific; build them live from this guide.
 
 ## Input → intent
 
