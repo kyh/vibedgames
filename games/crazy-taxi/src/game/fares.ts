@@ -224,6 +224,11 @@ export class FareManager {
     return this.carrying;
   }
 
+  // Waiting customers for the minimap.
+  waitingList(): readonly { x: number; z: number; tier: FareTier }[] {
+    return this.waiting.map((w) => ({ x: w.pos.x, z: w.pos.z, tier: w.tier }));
+  }
+
   patienceFrac(): number {
     const c = this.carrying;
     if (!c) return 1;

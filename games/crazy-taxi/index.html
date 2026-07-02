@@ -353,6 +353,33 @@
         pointer-events: none;
       }
 
+      /* Minimap — north-up SF, bottom-right above the mute pill */
+      #minimap {
+        position: fixed;
+        right: calc(14px + env(safe-area-inset-right));
+        bottom: calc(58px + env(safe-area-inset-bottom));
+        width: 148px;
+        height: 148px;
+        border-radius: 12px;
+        border: 2px solid rgba(255, 209, 71, 0.5);
+        background: rgba(18, 16, 26, 0.62);
+        box-shadow: 0 4px 0 rgba(0, 0, 0, 0.35);
+        display: none;
+        z-index: 5;
+        pointer-events: none;
+        opacity: 0.92;
+      }
+      @media (max-width: 720px) {
+        #minimap {
+          width: 104px;
+          height: 104px;
+          right: auto;
+          bottom: auto;
+          left: calc(12px + env(safe-area-inset-left));
+          top: 170px;
+        }
+      }
+
       /* Mute + pause */
       #mute {
         position: fixed;
@@ -695,6 +722,7 @@
       <div id="announce-minor"></div>
       <div id="receipt"></div>
       <div id="countdown"></div>
+      <canvas id="minimap" aria-hidden="true"></canvas>
       <div class="pill" id="mute" role="button" aria-label="Toggle sound">🔊</div>
       <div id="dest-arrow">
         <svg viewBox="0 0 64 64">

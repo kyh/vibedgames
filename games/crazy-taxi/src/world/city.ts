@@ -425,6 +425,10 @@ export class CityModel {
     for (const d of decks) this.decks.push(d);
   }
 
+  getDecks(): readonly SurfaceDeck[] {
+    return this.decks;
+  }
+
   private deckHeight(d: SurfaceDeck, z: number): number {
     if (d.y2 === undefined || d.maxZ <= d.minZ) return d.y;
     const t = (z - d.minZ) / (d.maxZ - d.minZ);

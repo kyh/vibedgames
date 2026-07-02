@@ -18,6 +18,7 @@ import { CAR, FARE, GRID, MPH_FACTOR, WORLD_SIZE } from "../shared/constants";
 import { Rng } from "../shared/rng";
 import type { GameMode } from "../shared/types";
 import { Hud } from "../ui/hud";
+import { Minimap, type MinimapMarker } from "../ui/minimap";
 import { setupTouch } from "../ui/touch";
 import { Car } from "../vehicle/car";
 import { CityModel, type Solid } from "../world/city";
@@ -102,6 +103,7 @@ export class GameScene {
   private debris: Debris | null = null;
   private speedLines = new SpeedLines();
   private cones: SmashCones | null = null;
+  private minimap: Minimap | null = null;
 
   private sun = new THREE.DirectionalLight(0xfff2d8, 2.0);
   private sky: Sky;
@@ -253,6 +255,7 @@ export class GameScene {
     this.scene.add(this.debris.group);
     this.cones = new SmashCones(this.cache, city, new Rng(777));
     this.scene.add(this.cones.mesh);
+    this.minimap = new Minimap(city.plan, city.getDecks());
 
     this.rig.snapTo(car);
     this.hud.hideLoading();
@@ -266,6 +269,7 @@ export class GameScene {
 
   private toTitle(): void {
     this.mode = { kind: "title" };
+    this.minimap?.setVisible(false);
     this.hud.hideFareCard();
     this.hud.setArrow(false, 0, 0, 0);
     this.hud.setTimer(FARE.startTime, false);
@@ -317,6 +321,7 @@ export class GameScene {
     this.lastDistrict = "";
     this.countdownShown = -1;
     this.camFrom.copy(this.rig.camera.position);
+    this.minimap?.setVisible(true);
     this.mode = { kind: "countdown", t: 0 };
   }
 
@@ -743,6 +748,7 @@ export class GameScene {
     this.hud.setVignette(THREE.MathUtils.clamp((car.speed - 45) / 40, 0, 1) * 0.6);
     this.updateSun();
     this.updateHud(car, fares);
+    this.updateMinimap(dt, car, fares);
 
     if (this.state.timeLeft <= 10) {
       const sec = Math.ceil(this.state.timeLeft);
@@ -881,6 +887,25 @@ export class GameScene {
     }
   }
 
+  private updateMinimap(dt: number, car: Car, fares: FareManager): void {
+    const minimap = this.minimap;
+    if (!minimap) return;
+    const markers: MinimapMarker[] = [];
+    const carrying = fares.carryingInfo();
+    if (carrying) {
+      markers.push({ x: carrying.pos.x, z: carrying.pos.z, color: "#49e0ff", ring: true });
+    } else {
+      for (const w of fares.waitingList()) {
+        markers.push({
+          x: w.x,
+          z: w.z,
+          color: `#${tierColor(w.tier).toString(16).padStart(6, "0")}`,
+        });
+      }
+    }
+    minimap.update(dt, car.position.x, car.position.z, car.heading, markers);
+  }
+
   private updateSun(): void {
     // Shadows follow the camera in freecam so any inspected spot is lit.
     const anchor = this.freecam ? this.rig.camera.position : this.car?.position;
@@ -955,6 +980,7 @@ export class GameScene {
     this.silenceLoops();
     this.sfx.stopMusic();
     this.sfx.gameOver();
+    this.minimap?.setVisible(false);
     this.hud.hideFareCard();
     this.hud.setArrow(false, 0, 0, 0);
     this.hud.setVignette(0);
