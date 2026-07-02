@@ -188,6 +188,12 @@ export class AnimatedCharacter {
     this.play(clipName, { ...opts, loop: false, clamp: opts.clamp ?? false });
   }
 
+  /** Live playback-rate control for the current action (viewer speed slider —
+   *  play()'s timeScale only applies at clip start). */
+  setTimeScale(s: number): void {
+    this.current?.setEffectiveTimeScale(s);
+  }
+
   /** Attach an object to a named bone (e.g. "handslot.r") so it follows the
    *  hand through animations. Matches on a normalized name because GLTFLoader
    *  strips reserved chars (handslot.r → handslotr). Returns false if not found. */

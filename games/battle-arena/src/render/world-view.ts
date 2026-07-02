@@ -46,6 +46,20 @@ const ATTACK_SETS: Record<string, string[]> = {
 // KayKit medium characters face +Z; sim aim is (cos facing, sin facing) on (x,z).
 const MODEL_YAW = 0;
 
+// Per-weapon mount corrections (radians), applied to the instance before it
+// parents to the handslot bone. Most KayKit weapons are authored to sit right
+// in the hand as-is; the bow ships pointing backwards.
+const WEAPON_MOUNT: Record<string, { rx?: number; ry?: number; rz?: number }> = {
+  bow: { ry: Math.PI },
+};
+
+/** Apply a weapon's mount correction (no-op for unlisted weapons). */
+function mountWeapon(obj: THREE.Object3D, name: string): void {
+  const m = WEAPON_MOUNT[name];
+  if (!m) return;
+  obj.rotation.set(m.rx ?? 0, m.ry ?? 0, m.rz ?? 0);
+}
+
 // Per-champ basic-attack timing: window (ms) + clip timescale. Heavier weapons
 // wind up longer and play slower — the axe hangs, the daggers snap.
 const ATTACK_TIMING: Record<string, { ms: number; ts: number }> = {
@@ -237,6 +251,7 @@ class UnitView {
     // are ALSO cloned per-instance (windup glint / empower glow must not bleed).
     if (def.weaponR) {
       const wr = lib.instance(def.weaponR);
+      mountWeapon(wr, def.weaponR);
       // a blade trail on the main weapon (melee only) — computed pre-attach so
       // the blade segment is in local space
       const trail = def.attackType === "melee" ? new WeaponTrail(wr, isLocal ? 0xfff4d8 : 0xdbe8ff) : null;
@@ -251,6 +266,7 @@ class UnitView {
     }
     if (def.weaponL) {
       const wl = lib.instance(def.weaponL);
+      mountWeapon(wl, def.weaponL);
       if (this.char.attach(wl, "handslot.l")) {
         this.weapons.push(wl);
         this.weaponMats.push(...cloneMats(wl, null));

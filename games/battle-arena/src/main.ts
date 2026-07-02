@@ -149,6 +149,22 @@ async function main(): Promise<void> {
     return;
   }
 
+  // ── Character & animation viewer (?viewer=1): its own scene + input; a
+  //    separate vite chunk so gameplay never pays for the viewer code ──
+  if (params.has("viewer")) {
+    const { ViewerScene } = await import("./scenes/viewer-scene");
+    const viewer = new ViewerScene(view, lib);
+    viewer.init();
+    if (import.meta.env.DEV) Object.assign(window, { __vw: viewer, __view: view });
+    const vwTimer = new THREE.Timer();
+    view.renderer.setAnimationLoop((t) => {
+      vwTimer.update(t);
+      viewer.update(Math.min(vwTimer.getDelta(), 1 / 30));
+    });
+    window.addEventListener("resize", () => view.resize());
+    return;
+  }
+
   // ── Custom map resolution (applied per-launch, before the world/renderer
   //    read OBSTACLES/decor): the bundled maps/default.json applies everywhere
   //    (identical for every client, so online-safe); a localStorage draft (the
