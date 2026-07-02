@@ -615,8 +615,9 @@ export class Environment {
     const flag = this.geoOf("floor_tile_large");
     const worn = this.geoOf("floor_tile_large_rocks");
     const dirt = this.geoOf("floor_dirt_large");
+    const grate = this.geoOf("floor_tile_big_grate");
     if (!flag) return;
-    for (const info of [flag, worn, dirt]) {
+    for (const info of [flag, worn, dirt, grate]) {
       if (!info) continue;
       const c = info.box.getCenter(V_POS);
       info.geo.translate(-c.x, 0, -c.z); // center each tile on its origin
@@ -630,7 +631,7 @@ export class Environment {
     }
     const tile = 4;
     type Cell = [number, number, number, number]; // x, z, y, rotY
-    const cells: Record<"flag" | "worn" | "dirt", Cell[]> = { flag: [], worn: [], dirt: [] };
+    const cells: Record<"flag" | "worn" | "dirt" | "grate", Cell[]> = { flag: [], worn: [], dirt: [], grate: [] };
     const lim = Math.ceil((WALL_APOTHEM + 4) / tile) * tile;
     for (let gx = -lim; gx <= lim; gx += tile) {
       for (let gz = -lim; gz <= lim; gz += tile) {
@@ -655,6 +656,8 @@ export class Environment {
         }
         if (inBlob && dirt) cells.dirt.push([gx, gz, 0, rot]);
         else if (r > 13 && h < 0.16 && worn) cells.worn.push([gx, gz, 0, rot]);
+        // rusted drainage grates mid-field — the sample-render density layer
+        else if (r > 15 && r < 32 && h >= 0.16 && h < 0.205 && grate) cells.grate.push([gx, gz, 0, rot]);
         else cells.flag.push([gx, gz, 0, rot]);
       }
     }
@@ -662,6 +665,7 @@ export class Environment {
       [flag, cells.flag],
       [worn, cells.worn],
       [dirt, cells.dirt],
+      [grate, cells.grate],
     ];
     for (const [info, list] of bands) {
       if (!info || list.length === 0) continue;

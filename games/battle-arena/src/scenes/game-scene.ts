@@ -503,7 +503,8 @@ export class GameScene {
       else this.net?.sendEvent(INTENT_EVENT, { kind: "dodge", mx: mv.x, my: mv.y } satisfies Intent);
     }
 
-    for (const slot of this.controls.consumeItems()) {
+    // item actives: 5–0 keys + belt-chip taps (the only touch path to items)
+    for (const slot of [...this.controls.consumeItems(), ...this.hud.consumeItemTaps()]) {
       if (host) useItemActive(this.world, me, slot, castPoint);
       else this.net?.sendEvent(INTENT_EVENT, { kind: "useItem", slot, px: castPoint.x, py: castPoint.y } satisfies Intent);
     }

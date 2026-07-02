@@ -136,7 +136,7 @@ function injectStyle(): void {
 .ba-i-role{font-size:12px;letter-spacing:1px;opacity:.85;margin-top:4px}
 .ba-i-diff{color:var(--accent);letter-spacing:2px}
 .ba-i-blurb{font-size:12px;opacity:.65;margin-top:3px;max-width:520px;line-height:1.35}
-.ba-i-abrow{display:flex;gap:10px;margin-top:8px;justify-content:center}
+.ba-i-abrow{display:flex;gap:10px;margin-top:8px;justify-content:center;padding:8px 12px 6px;background:rgba(8,10,18,.62);border:1px solid rgba(255,255,255,.08);border-radius:12px;backdrop-filter:blur(3px)}
 .ba-i-a{position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;width:66px}
 .ba-i-a img{width:40px;height:40px;border-radius:8px;border:1px solid rgba(255,255,255,.25);background:#0a0e1a}
 .ba-i-a i{position:absolute;top:-5px;left:7px;font:800 9px ui-monospace,monospace;font-style:normal;color:#ffd24a;background:rgba(10,14,24,.92);border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:0 3px}
@@ -157,6 +157,17 @@ function injectStyle(): void {
 .ba-go.bots{background:#3a7bd5;color:#fff}
 .ba-go.online{background:#ffd24a;color:#14111a}
 .ba-help{margin-top:16px;text-align:center;font:600 12px ui-monospace,monospace;opacity:.5}
+/* short viewports: compact the info panel so the ability strip clears the
+   3D roster row instead of sitting on the champions' heads */
+@media (max-height: 800px){
+  .ba-info{min-height:0}
+  .ba-i-name{font-size:22px}
+  .ba-i-blurb{display:none}
+  .ba-i-a{width:56px}
+  .ba-i-a img{width:32px;height:32px}
+  .ba-i-a em{display:none}
+  .ba-tag{margin:4px 0 8px}
+}
 `;
   document.head.appendChild(s);
 }

@@ -83,6 +83,7 @@ const DUNGEON_NAMES = [
   "wall_pillar",
   "stairs_wide",
   "floor_tile_large_rocks",
+  "floor_tile_big_grate",
   "floor_dirt_large",
   "floor_tile_small_weeds_A",
   "rubble_half",

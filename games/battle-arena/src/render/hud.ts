@@ -96,6 +96,7 @@ export class Hud {
   private respawnTip!: HTMLElement;
   private itemsEl!: HTMLElement;
   private itemSockets: ItemSocket[] = [];
+  private itemTaps: number[] = []; // belt-chip taps → item-use slots (touch path)
   private itemSig = "";
   private minimap!: HTMLCanvasElement;
   private mmCtx!: CanvasRenderingContext2D;
@@ -311,6 +312,14 @@ export class Hud {
       const cd = document.createElement("div");
       cd.className = "ba-icd";
       chip.append(img, key, cd);
+      // tappable belt: pointerdown (not click — no 300ms delay, works mid-drag)
+      // queues the slot; game-scene drains alongside the 5–0 keys. This is the
+      // only way touch players can fire item actives.
+      const slot = i;
+      chip.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        this.itemTaps.push(slot);
+      });
       this.itemsEl.appendChild(chip);
       this.itemSockets.push({ chip, img, cd, lastPct: -1, lastText: "", lastRdy: false });
     }
@@ -335,6 +344,14 @@ export class Hud {
         this.shop.buy(id);
       });
     });
+  }
+
+  /** Drain belt-chip taps (slots 0-5). The touch complement to the 5–0 keys. */
+  consumeItemTaps(): number[] {
+    if (this.itemTaps.length === 0) return this.itemTaps;
+    const taps = this.itemTaps;
+    this.itemTaps = [];
+    return taps;
   }
 
   toggleShop(): void {
@@ -1276,7 +1293,7 @@ const STYLE = `
 .ba-abil.ready{animation:ba-ready .4s}
 @keyframes ba-ready{0%{box-shadow:0 0 0 0 rgba(255,210,74,.9)}100%{box-shadow:0 0 0 14px rgba(255,210,74,0)}}
 #ba-items{display:flex;gap:5px;min-height:2px}
-.ba-item-chip{position:relative;width:40px;height:40px;background:rgba(18,22,34,.8);border:1px solid rgba(255,255,255,.16);border-radius:7px;overflow:hidden}
+.ba-item-chip{position:relative;width:40px;height:40px;background:rgba(18,22,34,.8);border:1px solid rgba(255,255,255,.16);border-radius:7px;overflow:hidden;pointer-events:auto;touch-action:none}
 .ba-item-chip.active{border-color:rgba(107,255,142,.6)}
 .ba-item-chip.active.rdy{box-shadow:0 0 8px -2px #6bff8e}
 .ba-item-chip.empty{background:rgba(18,22,34,.5);border-style:dashed;opacity:.5}
