@@ -287,7 +287,11 @@ export class KinematicResolver {
     const velocity =
       deltaSeconds > EPS ? correctedDelta.clone().multiplyScalar(1 / deltaSeconds) : new Vector3();
     const collisions = actor.characterController.numComputedCollisions();
-    const grounded = actor.characterController.computedGrounded() || this.probeGrounded(actor);
+    // Probe from the post-move position: the collider itself isn't repositioned until
+    // world.step() runs, so casting from its current translation would use the stale
+    // frame-start spot and keep an actor "grounded" after it walked off a ledge.
+    const grounded =
+      actor.characterController.computedGrounded() || this.probeGrounded(actor, nextBody);
 
     return {
       position,
@@ -299,11 +303,11 @@ export class KinematicResolver {
     };
   }
 
-  private probeGrounded(actor: Actor): boolean {
+  private probeGrounded(actor: Actor, origin: RAPIER.Vector): boolean {
     const distance = Math.max(0, actor.groundedProbeDistance);
     if (distance <= 0) return false;
     const hit = this.world.castShape(
-      actor.collider.translation(),
+      origin,
       actor.collider.rotation(),
       { x: 0, y: -1, z: 0 },
       actor.collider.shape,
