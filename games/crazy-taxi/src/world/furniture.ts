@@ -367,8 +367,23 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
   // (residential/victorian), smokestack yards (industrial). One sweep over
   // buildingCells keeps the rng stream deterministic and cache-friendly.
   // ------------------------------------------------------------------
+  // Mirrors the building pass: lots too steep to build get greenery, so no
+  // awnings/fences/yard bits should orphan there either.
+  const steepLot = (gx: number, gz: number): boolean => {
+    const wx = worldX(gx);
+    const wz = worldZ(gz);
+    const fh = ROAD_TILE * 0.4;
+    const hs = [
+      terrain.heightAt(wx - fh, wz - fh),
+      terrain.heightAt(wx + fh, wz - fh),
+      terrain.heightAt(wx - fh, wz + fh),
+      terrain.heightAt(wx + fh, wz + fh),
+    ];
+    return Math.max(...hs) - Math.min(...hs) > 5;
+  };
   for (const b of plan.buildingCells) {
     if (reserved.has(cellKey(b.gx, b.gz))) continue;
+    if (steepLot(b.gx, b.gz)) continue;
     const district = districtAt(b.gx, b.gz);
     const [dx, dz] = DIR_DELTA[b.faceDir]; // toward the street
     const perpX = dz; // lot-side axis (perpendicular to faceDir)
@@ -627,7 +642,7 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
         // Gate posts at the entry gap.
         const ex = along === "x" ? wx : wx + dx * edgeOff;
         const ez = along === "x" ? wz + dz * edgeOff : wz;
-        seat(entryUrl, ex, ez, along === "x" ? 0 : HALF_PI, wallH);
+        seat(entryUrl, ex, ez, along === "x" ? 0 : HALF_PI, scaleToHeight(entryUrl, 2.3));
       }
 
       // Fountain plaza: basin + water + radiating tan paths + benches/lamps.

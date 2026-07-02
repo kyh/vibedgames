@@ -1,7 +1,7 @@
 // DEV-only hooks for headless inspection (freecam + teleport), driven from
 // Playwright via `window.__taxi`. main.ts only imports this module when
 // import.meta.env.DEV is true, so none of it reaches production builds.
-import type * as THREE from "three";
+import * as THREE from "three";
 
 import type { GameScene } from "../scenes/game-scene";
 
@@ -34,6 +34,8 @@ export type TaxiDebugApi = {
   nearestCone(): { u: number; v: number } | null;
   // Launch the nearest resting cone through the physics path (verification).
   smashCone(): boolean;
+  // Raycast from the camera through NDC (nx, ny in -1..1); returns what's hit.
+  pick(nx: number, ny: number): { name: string; chain: string; point: number[] } | null;
 };
 
 declare global {
@@ -68,6 +70,23 @@ export function installDevHooks(game: GameScene): void {
     },
     smashCone(): boolean {
       return game.debugSmashNearestCone();
+    },
+    pick(nx: number, ny: number) {
+      const ray = new THREE.Raycaster();
+      ray.setFromCamera(new THREE.Vector2(nx, ny), game.camera);
+      const hit = ray.intersectObjects(game.scene.children, true)[0];
+      if (!hit) return null;
+      const chain: string[] = [];
+      let o: THREE.Object3D | null = hit.object;
+      while (o) {
+        chain.push(`${o.name || o.type}@${o.scale.x.toFixed(2)}`);
+        o = o.parent;
+      }
+      return {
+        name: hit.object.name || hit.object.type,
+        chain: chain.join(" < "),
+        point: [hit.point.x, hit.point.y, hit.point.z].map((v) => Math.round(v * 10) / 10),
+      };
     },
   };
 }

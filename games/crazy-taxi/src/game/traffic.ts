@@ -195,7 +195,15 @@ export class TrafficCar {
     const laneZ = ndx * LANE_CENTER;
     const px = cx + ndx * ROAD_TILE * this.t + laneX;
     const pz = cz + ndz * ROAD_TILE * this.t + laneZ;
-    this.position.set(px, city.terrain.heightAt(px, pz) + ROAD_Y, pz);
+    // Axle-composite ground height — centre-only sampling buries the
+    // nose/tail on convex hill crests.
+    const gy = Math.max(
+      city.terrain.heightAt(px, pz),
+      (city.terrain.heightAt(px + ndx * 1.2, pz + ndz * 1.2) +
+        city.terrain.heightAt(px - ndx * 1.2, pz - ndz * 1.2)) /
+        2,
+    );
+    this.position.set(px, gy + ROAD_Y, pz);
     this.object3D.position.copy(this.position);
 
     const targetYaw = Math.atan2(ndx, ndz) + MODEL_YAW_OFFSET;

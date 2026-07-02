@@ -49,6 +49,9 @@ const HALF_PI = Math.PI / 2;
 // Building front faces +Z in the native model; this offset rotates it to face
 // the street. Tune if entrances point the wrong way.
 const BUILDING_FRONT_OFFSET = Math.PI;
+// Hillside foundations: concrete plinth under buildings on a grade.
+const PLINTH_GEO = new THREE.BoxGeometry(1, 1, 1);
+const PLINTH_MAT = new THREE.MeshStandardMaterial({ color: 0xb3aca0, roughness: 1 });
 
 function dirToYaw(d: Dir): number {
   // Yaw that points "toward" the given grid direction (about +Y).
@@ -243,16 +246,44 @@ export class CityModel {
       const sy = scale * this.heightScaleFor(district.character) * (vict ? 1.4 : 1);
       node.scale.set(sxz, sy, sxz);
       node.rotation.y = dirToYaw(b.faceDir) + BUILDING_FRONT_OFFSET;
-      // Buildings stay vertical, seated at the LOWEST corner of the footprint so
-      // no edge floats on a slope — the uphill side digs in, like real SF.
+      // Buildings stay vertical. Seat at the HIGHEST corner so the hill never
+      // cuts through walls; a concrete plinth fills the downhill gap (stilted
+      // SF hillside foundations). Extreme grades get greenery instead.
       const fh = targetFootprint / 2;
-      const seatY = Math.min(
+      const corners = [
         this.terrain.heightAt(wx, wz),
         this.terrain.heightAt(wx - fh, wz - fh),
         this.terrain.heightAt(wx + fh, wz - fh),
         this.terrain.heightAt(wx - fh, wz + fh),
         this.terrain.heightAt(wx + fh, wz + fh),
-      );
+      ];
+      const loY = Math.min(...corners);
+      const seatY = Math.max(...corners);
+      const drop = seatY - loY;
+      if (drop > 5) {
+        // Too steep to build — real SF leaves these faces green.
+        for (let i = 0; i < 3; i++) {
+          const steepTreeUrl = modelUrl("props", this.rng.chance(0.5) ? TREE_LARGE : TREE_SMALL);
+          const stb = this.cache.bounds(steepTreeUrl);
+          const sts = (ROAD_TILE * 0.3) / Math.max(stb.size.y, 0.001);
+          const steepTree = this.cache.instance(steepTreeUrl);
+          steepTree.scale.setScalar(sts);
+          const stx = wx + this.rng.range(-3.5, 3.5);
+          const stz = wz + this.rng.range(-3.5, 3.5);
+          steepTree.position.set(stx, this.terrain.heightAt(stx, stz), stz);
+          steepTree.rotation.y = this.rng.range(0, Math.PI * 2);
+          collect(steepTree);
+        }
+        continue;
+      }
+      if (drop > 0.7) {
+        const plinth = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
+        const ph = drop + 0.8;
+        plinth.scale.set(targetFootprint * 0.98, ph, targetFootprint * 0.98);
+        plinth.position.set(wx, seatY - 0.1 - ph / 2, wz);
+        plinth.updateMatrixWorld(true);
+        collect(plinth);
+      }
       node.position.set(wx, seatY - 0.15, wz);
       this.tintNode(node, this.rng.pick(paletteFor(district)), tintAmountFor(district));
       collect(node);

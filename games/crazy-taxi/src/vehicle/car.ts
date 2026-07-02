@@ -229,7 +229,18 @@ export class Car {
     // --- Vertical: follow the ground until it falls away faster than gravity
     // could pull us — then go ballistic and fly the hill crest. ---
     if (this.surface) {
-      const g = this.surface.heightAt(this.position.x, this.position.z) + ROAD_Y;
+      // Sample under both axles, not just the centre — on convex crests a
+      // single centre sample buries the nose/tail in the hill.
+      const s = this.surface;
+      const axX = Math.sin(this.heading) * 1.2;
+      const axZ = Math.cos(this.heading) * 1.2;
+      const g =
+        Math.max(
+          s.heightAt(this.position.x, this.position.z),
+          (s.heightAt(this.position.x + axX, this.position.z + axZ) +
+            s.heightAt(this.position.x - axX, this.position.z - axZ)) /
+            2,
+        ) + ROAD_Y;
       if (this.airborne) {
         this.yVel -= CAR.gravity * dt;
         this.position.y += this.yVel * dt;

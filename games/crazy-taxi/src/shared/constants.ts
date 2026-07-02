@@ -19,19 +19,19 @@ export const WORLD_HALF = WORLD_SIZE / 2;
 
 // --- Taxi (arcade handling) ---
 export const CAR = {
-  maxSpeed: 58, // top forward speed
-  boostSpeed: 84, // top speed while boosting
+  maxSpeed: 51, // top forward speed (down from 58 — corners were outrunning steering)
+  boostSpeed: 74, // top speed while boosting
   accel: 40, // forward acceleration
   brakeDecel: 85, // braking / active slow-down
   coastDecel: 14, // engine braking when no input
   reverseMax: 18,
   reverseAccel: 26,
   // Steering: angular speed (rad/s) you can turn, scaled by how fast you go.
-  turnRate: 2.7,
-  turnSpeedFalloff: 0.72, // keep more steering authority at speed (easier turns)
-  steerRamp: 0.12, // seconds to ramp steering input to full lock (crisp, not icy)
+  turnRate: 3.05,
+  turnSpeedFalloff: 0.82, // keep more steering authority at speed (easier turns)
+  steerRamp: 0.09, // seconds to ramp steering input to full lock (crisp, not icy)
   // Grip controls how fast the velocity vector realigns to the car's heading.
-  gripNormal: 7.0, // high grip → little slide (THE feel knob: lower = slidier)
+  gripNormal: 8.2, // high grip → little slide (THE feel knob: lower = slidier)
   gripDrift: 1.5, // low grip while drifting → big hangable slide
   driftTurnBoost: 1.7, // extra steering while drifting
   driftMinSpeed: 18, // must be moving this fast to drift
