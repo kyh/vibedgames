@@ -129,7 +129,11 @@
  * when the content isn't scrollable at all). Browsers without scroll-driven
  * animations fall back to no fade — the registered custom properties stay at 0.
  *
- * Horizontal by default; switches to vertical at the `md` breakpoint.
+ * Horizontal by default; switches to vertical at the `sm` breakpoint, matching
+ * the sole consumer (the discover header). That container is `column-reverse`
+ * (bottom-anchored), which reverses the scroll timeline — so the vertical mask
+ * fades `to top` (not `to bottom`) to keep the leading fade on the edge with
+ * hidden content. Flip back to `to bottom` only if used on a normal-flow column.
  */
 @property --scroll-fade-start {
   syntax: "<length-percentage>";
@@ -153,10 +157,10 @@
     );
   }
 
-  @media (width >= 48rem) {
+  @media (width >= 40rem) {
     .scroll-fade {
       mask: linear-gradient(
-        to bottom,
+        to top,
         transparent,
         black var(--scroll-fade-start),
         black calc(100% - var(--scroll-fade-end)),
@@ -177,7 +181,7 @@
       animation-fill-mode: both;
     }
 
-    @media (width >= 48rem) {
+    @media (width >= 40rem) {
       .scroll-fade {
         animation-timeline: scroll(self y), scroll(self y);
       }
