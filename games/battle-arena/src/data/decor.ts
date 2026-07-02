@@ -18,6 +18,7 @@
 // client, zero runtime RNG.
 import { APOTHEM, CAMPS, DELIVERY_PADS, EDGE_ANGLES, PARTITION_RUNS, RUNE_SPOTS, SPAWNS } from "./map";
 import { STAIR_ANGLES } from "../sim/elevation";
+import type { MapProp } from "./map-format";
 
 export type Decor = {
   model: string;
@@ -58,7 +59,26 @@ function hexDepth(x: number, y: number): number {
   return d;
 }
 
+// Custom-map hook (main.ts / map-format.ts): when set, buildDecor() returns
+// these placements instead of the procedural default. Render-only — colliders
+// travel separately through map.ts's applyMapData.
+let decorOverride: Decor[] | null = null;
+
+export function setDecorOverride(props: MapProp[] | null): void {
+  decorOverride =
+    props === null
+      ? null
+      : props.map((p) => ({ model: p.model, x: p.x, y: p.y, rot: p.rot, scale: p.scale, lie: p.lie ?? false, h: p.h ?? 0 }));
+}
+
+/** The renderer's set-dressing list: the custom-map override when one is
+ *  loaded, else the procedural default. */
 export function buildDecor(): Decor[] {
+  return decorOverride ?? buildProceduralDecor();
+}
+
+/** The procedural default dressing (also the editor's RESET baseline). */
+export function buildProceduralDecor(): Decor[] {
   const out: Decor[] = [];
   const add = (model: string, x: number, y: number, rot: number, scale: number, lie = false, h = 0): void => {
     out.push({ model, x, y, rot, scale, lie, h });

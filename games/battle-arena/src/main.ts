@@ -8,6 +8,9 @@ import { GameScene, chosenChamp, chosenName, type SceneOpts } from "./scenes/gam
 import { Menu } from "./scenes/menu-scene";
 import { MenuStage } from "./render/menu-stage";
 import { roomId } from "./net/protocol";
+import { DUNGEON_MODELS, MAP_STORAGE_KEY, parseMapData, type MapData } from "./data/map-format";
+import { applyMapData } from "./data/map";
+import { setDecorOverride } from "./data/decor";
 
 const container = document.getElementById("game")!;
 const loadingEl = document.getElementById("loading");
@@ -62,63 +65,48 @@ const CLIP_LIBS_LARGE = [
   "Rig_Large_CombatMelee",
   "Rig_Large_Simulation", // Flexing — the boss taunt fallback
 ];
-const DUNGEON_NAMES = [
-  "floor_tile_large",
-  "wall",
-  "pillar",
-  "pillar_decorated",
-  "column",
-  "torch_lit",
-  "crate_large",
-  "barrel_large",
-  "banner_red",
-  "banner_blue",
-  "floor_foundation_allsides",
-  "floor_foundation_corner",
-  "stairs",
-  "wall_corner",
-  // Sunken Court buildout
-  "wall_broken",
-  "wall_gated",
-  "wall_pillar",
-  "stairs_wide",
-  "floor_tile_large_rocks",
-  "floor_tile_big_grate",
-  "floor_dirt_large",
-  "floor_tile_small_weeds_A",
-  "rubble_half",
-  "rocks",
-  "rocks_small",
-  "rocks_gold",
-  "chest_gold",
-  "chest_large_gold",
-  "chest_mimic",
-  "chest",
-  "coin_stack_small",
-  "coin_stack_medium",
-  "keg",
-  "keg_decorated",
-  "crates_stacked",
-  "trunk_large_A",
-  "post",
-  "candle_triple",
-  "sword_shield_broken",
-  "scaffold_frame_small",
-  "bucket_pickaxes",
-  "banner_thin_yellow",
-  "banner_white",
-];
+// the dungeon prop vocabulary lives in data/map-format.ts (shared with the
+// map editor's palette, which must not import this boot module)
 type PropSpec = { name: string; url: string };
 const PROP_SPECS: PropSpec[] = [
-  ...DUNGEON_NAMES.map((m) => ({ name: m, url: `./models/dungeon/${m}.gltf` })),
+  ...DUNGEON_MODELS.map((m) => ({ name: m, url: `./models/dungeon/${m}.gltf` })),
   { name: "vampire_throne", url: "./models/props/Vampire_Throne.gltf" },
   { name: "paladin_statue", url: "./models/props/paladin_statue.gltf" },
   { name: "mushroom", url: "./models/props/Mushroom.gltf" }, // Witch hex-polymorph body
 ];
 
+/** Fetch the bundled custom map (public/maps/default.json). Absence or an
+ *  invalid file = keep the procedural arena — today's behavior exactly. */
+async function fetchBundledMap(): Promise<MapData | null> {
+  try {
+    const res = await fetch("./maps/default.json");
+    if (!res.ok) return null;
+    const parsed = parseMapData(await res.json());
+    if (!parsed) console.warn("[map] maps/default.json is invalid — using the procedural arena");
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/** The editor's localStorage draft (offline test loop). */
+function readLocalMapDraft(): MapData | null {
+  const raw = localStorage.getItem(MAP_STORAGE_KEY);
+  if (raw === null) return null;
+  try {
+    const parsed = parseMapData(JSON.parse(raw));
+    if (!parsed) console.warn(`[map] localStorage ${MAP_STORAGE_KEY} is invalid — ignoring`);
+    return parsed;
+  } catch {
+    console.warn(`[map] localStorage ${MAP_STORAGE_KEY} is not JSON — ignoring`);
+    return null;
+  }
+}
+
 async function main(): Promise<void> {
   const view = new View(container);
   const lib = new ModelLibrary();
+  const bundledMapJob = fetchBundledMap(); // in parallel with the model loads
 
   const jobs: Promise<void>[] = [
     ...CHAMP_MODELS.map((m) => lib.loadCharacter(m, `./models/characters/${m}.glb`)),
@@ -143,8 +131,39 @@ async function main(): Promise<void> {
 
   if (loadingEl) loadingEl.style.display = "none";
 
+  const params = new URLSearchParams(location.search);
+
+  // ── Map editor (?editor=1): its own scene + input; a separate vite chunk so
+  //    gameplay never pays for the editor code ──
+  if (params.has("editor")) {
+    const { EditorScene } = await import("./scenes/editor-scene");
+    const editor = new EditorScene(view, lib);
+    await editor.init();
+    if (import.meta.env.DEV) Object.assign(window, { __ed: editor, __view: view });
+    const edTimer = new THREE.Timer();
+    view.renderer.setAnimationLoop((t) => {
+      edTimer.update(t);
+      editor.update(Math.min(edTimer.getDelta(), 1 / 30));
+    });
+    window.addEventListener("resize", () => view.resize());
+    return;
+  }
+
+  // ── Custom map resolution (applied per-launch, before the world/renderer
+  //    read OBSTACLES/decor): the bundled maps/default.json applies everywhere
+  //    (identical for every client, so online-safe); a localStorage draft (the
+  //    editor's TEST loop) overrides it in OFFLINE matches only — colliders
+  //    are sim state and must match across clients. ──
+  const bundledMap = await bundledMapJob;
+  const localMapDraft = readLocalMapDraft();
+
   const timer = new THREE.Timer();
   const launch = (opts: SceneOpts): void => {
+    const custom = (opts.online ? null : localMapDraft) ?? bundledMap;
+    if (custom) {
+      applyMapData(custom);
+      setDecorOverride(custom.props);
+    }
     // create input only when a match starts, so menu clicks never grab the
     // pointer (Controls' mousedown requests pointer lock).
     const controls = new Controls(view.renderer.domElement);
@@ -165,7 +184,6 @@ async function main(): Promise<void> {
   // shared link — first-time visitors choose a champion instead of being
   // dropped into a match). Quick-start deep-links skip it: ?auto = instant solo
   // vs bots, ?online[&room=] = instant online. Champ/name persist in localStorage.
-  const params = new URLSearchParams(location.search);
   if (params.has("auto") || params.has("online")) {
     launch({
       champId: chosenChamp(),

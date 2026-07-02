@@ -8,6 +8,7 @@
 // = HEX_R·cos(30°). The 6 spawn bases sit at the 6 edge midpoints.
 import { THRONE_RADIUS } from "./config";
 import type { Vec2 } from "../sim/math";
+import type { MapData } from "./map-format";
 
 export const HEX_R = 44; // center → vertex (units)
 export const APOTHEM = HEX_R * Math.cos(Math.PI / 6); // center → edge ≈ 38.105
@@ -82,8 +83,9 @@ export const PARTITION_RUNS: PartitionRun[] = Array.from({ length: 6 }, (_, k) =
 
 /** Cover in the mid-ring: 4 throne-flank pillars + the partition runs +
  *  shrine statues watching the delivery pads. Kept off the base→center lanes
- *  so nobody spawns inside one. */
-export const OBSTACLES: Obstacle[] = (() => {
+ *  so nobody spawns inside one. Exported separately from OBSTACLES so the map
+ *  editor can recover the pristine default after a custom map was applied. */
+export function buildDefaultObstacles(): Obstacle[] {
   const out: Obstacle[] = [];
   // inner ring of 4 pillars flanking the throne approaches (45° diagonals —
   // 15° off the nearest base lane)
@@ -112,7 +114,87 @@ export const OBSTACLES: Obstacle[] = (() => {
     });
   }
   return out;
-})();
+}
+
+export const OBSTACLES: Obstacle[] = buildDefaultObstacles();
+
+// ── Custom maps (map-format.ts / the ?editor=1 editor) ──────────────────────
+
+let customMap = false;
+
+/** True once applyMapData replaced the default arena colliders. */
+export function hasCustomMap(): boolean {
+  return customMap;
+}
+
+/** Replace the arena colliders with a custom map's — IN PLACE, because the sim
+ *  (resolveObstacles) and the renderer both hold references to OBSTACLES. Must
+ *  run before world creation and before Environment.setup. */
+export function applyMapData(data: MapData): void {
+  customMap = true;
+  OBSTACLES.length = 0;
+  for (const c of data.colliders) {
+    OBSTACLES.push({ x: c.x, y: c.y, radius: c.radius, height: c.height, model: c.model });
+  }
+}
+
+/** Partition runs the renderer dresses as continuous walls. The default arena
+ *  uses the authored PARTITION_RUNS; custom maps reconstruct straight runs
+ *  from their "wall_run" colliders (greedy chain clustering — circles within
+ *  2.6u link into a run, singletons become short stubs). For the default
+ *  collider set the reconstruction reproduces PARTITION_RUNS exactly. */
+export function activePartitionRuns(): PartitionRun[] {
+  if (!customMap) return PARTITION_RUNS;
+  const pts = OBSTACLES.filter((o) => o.model === "wall_run");
+  const used = new Set<number>();
+  const runs: PartitionRun[] = [];
+  for (let i = 0; i < pts.length; i++) {
+    const seed = pts[i];
+    if (!seed || used.has(i)) continue;
+    used.add(i);
+    const chain: Obstacle[] = [seed];
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (let j = 0; j < pts.length; j++) {
+        const p = pts[j];
+        if (!p || used.has(j)) continue;
+        const head = chain[0];
+        const tail = chain[chain.length - 1];
+        if (!head || !tail) continue;
+        if (Math.hypot(p.x - tail.x, p.y - tail.y) <= 2.6) {
+          chain.push(p);
+          used.add(j);
+          grew = true;
+        } else if (Math.hypot(p.x - head.x, p.y - head.y) <= 2.6) {
+          chain.unshift(p);
+          used.add(j);
+          grew = true;
+        }
+      }
+    }
+    let cx = 0;
+    let cy = 0;
+    for (const p of chain) {
+      cx += p.x;
+      cy += p.y;
+    }
+    cx /= chain.length;
+    cy /= chain.length;
+    const head = chain[0];
+    const tail = chain[chain.length - 1];
+    let dir = 0;
+    if (head && tail && chain.length > 1) {
+      dir = Math.atan2(tail.y - head.y, tail.x - head.x);
+      if (dir < 0) dir += Math.PI; // normalize to [0, π) — offsets are symmetric
+    }
+    const offsets = chain
+      .map((p) => (p.x - cx) * Math.cos(dir) + (p.y - cy) * Math.sin(dir))
+      .sort((a, b) => a - b);
+    runs.push({ x: cx, y: cy, dir, offsets });
+  }
+  return runs;
+}
 
 // ── Pure spatial helpers ─────────────────────────────────────────────────────
 

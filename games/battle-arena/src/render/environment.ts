@@ -18,13 +18,14 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import {
+  activePartitionRuns,
   APOTHEM,
   ARENA,
   BOSS_PLATFORM_RADIUS,
   BOSS_POS,
   CAMPS,
+  hasCustomMap,
   OBSTACLES,
-  PARTITION_RUNS,
   RUNE_SPOTS,
   SPAWNS,
 } from "../data/map";
@@ -36,8 +37,9 @@ import { refreshStaticShadows } from "./view";
 import { teamColor } from "./palette";
 
 /** Standing-tall models scale-to-height (target × decor scale) so they match
- *  the arena pillars; everything else keeps native size × scale. */
-const TALL_TARGET: Record<string, number> = {
+ *  the arena pillars; everything else keeps native size × scale. (Exported for
+ *  the map editor, which replicates this planting math for pickable props.) */
+export const TALL_TARGET: Record<string, number> = {
   pillar: 3.8,
   column: 3.8,
   pillar_decorated: 3.8,
@@ -117,6 +119,10 @@ export class Environment {
   constructor(
     private scene: THREE.Scene,
     private lib: ModelLibrary,
+    /** Editor hooks (game code passes nothing): decor=false skips the
+     *  set-dressing instancing; obstacles=false skips the obstacle models +
+     *  partition walls — the editor renders those itself as pickable objects. */
+    private opts: { decor?: boolean; obstacles?: boolean } = {},
   ) {}
 
   setup(): void {
@@ -127,16 +133,21 @@ export class Environment {
     // map's render hint; bare pillars keep the classic cycle. Partition-run
     // circles ("wall_run") are rendered as continuous wall segments instead —
     // see buildPartitions.
-    OBSTACLES.forEach((o, i) => {
-      if (o.model === "wall_run") return;
-      const name = o.model ?? (i % 3 === 0 ? "pillar_decorated" : i % 3 === 1 ? "column" : "pillar");
-      // shrine statues gaze over their pad toward the throne
-      const rot = o.model === "paladin_statue" ? Math.atan2(-o.x, -o.y) : i * 0.7;
-      this.add(this.place(name, o.x, o.y, o.height, rot));
-    });
+    if (this.opts.obstacles !== false) {
+      OBSTACLES.forEach((o, i) => {
+        if (o.model === "wall_run") return;
+        // custom maps carry explicit models (their props render via the decor
+        // override) — the index-cycle fallback only fits the authored default
+        const name = o.model ?? (hasCustomMap() ? null : i % 3 === 0 ? "pillar_decorated" : i % 3 === 1 ? "column" : "pillar");
+        if (name === null) return;
+        // shrine statues gaze over their pad toward the throne
+        const rot = o.model === "paladin_statue" ? Math.atan2(-o.x, -o.y) : i * 0.7;
+        this.add(this.place(name, o.x, o.y, o.height, rot));
+      });
+    }
 
     // data-driven set-dressing, grouped by model into InstancedMeshes
-    this.buildDecorInstanced();
+    if (this.opts.decor !== false) this.buildDecorInstanced();
 
     // torch ring around the throne, with warm atmosphere lights
     const torchN = 6;
@@ -225,7 +236,7 @@ export class Environment {
       return;
     }
     this.buildPerimeter();
-    this.buildPartitions();
+    if (this.opts.obstacles !== false) this.buildPartitions();
     refreshStaticShadows();
   }
 
@@ -812,9 +823,10 @@ export class Environment {
     for (const [model, list] of mats) this.addInstanced(model, list);
   }
 
-  /** Interior partition walls: each PARTITION_RUNS row of circle colliders is
-   *  dressed as a continuous low wall — wall_half segments with endcaps. Two
-   *  InstancedMeshes total. */
+  /** Interior partition walls: each partition run of circle colliders (the
+   *  authored PARTITION_RUNS, or runs reconstructed from a custom map's
+   *  "wall_run" colliders) is dressed as a continuous low wall — wall
+   *  segments with endcaps. Two InstancedMeshes total. */
   private buildPartitions(): void {
     const seg = this.geoOf("wall");
     const cap = this.geoOf("wall_half_endcap");
@@ -826,7 +838,7 @@ export class Environment {
     const capSy = cap ? 2.7 / capH : 1;
     const segMats: THREE.Matrix4[] = [];
     const capMats: THREE.Matrix4[] = [];
-    for (const run of PARTITION_RUNS) {
+    for (const run of activePartitionRuns()) {
       const first = run.offsets[0] ?? 0;
       const last = run.offsets[run.offsets.length - 1] ?? 0;
       const len = last - first + 2.2; // cover the collider row ends
