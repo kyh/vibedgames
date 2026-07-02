@@ -185,14 +185,18 @@ export class CharacterController {
     velocity.x = smoothToward(velocity.x, target.x, lag, dt);
     velocity.z = smoothToward(velocity.z, target.z, lag, dt);
 
+    let jumped = false;
     if (grounded) {
       velocity.y = 0;
       if (input.jump && !input.crouch) {
         velocity.y = cfg.jumpVelocity;
         grounded = false;
+        jumped = true;
       }
     }
-    if (!grounded) {
+    // Gravity applies while airborne, but not on the takeoff frame — otherwise the
+    // jump launches at jumpVelocity - gravity*dt and peak height varies with framerate.
+    if (!grounded && !jumped) {
       velocity.y = Math.max(velocity.y - cfg.gravity * dt, -cfg.maxFallSpeed);
     }
 

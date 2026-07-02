@@ -223,19 +223,20 @@ export class KinematicResolver {
       for (const move of this.queuedMoves) {
         this.syncActor(move.actor, move.startPosition);
         this.world.updateSceneQueries();
-        this.results.set(move.actor, this.resolveMove(move, undefined, true, deltaSeconds));
+        this.results.set(
+          move.actor,
+          this.resolveMove(move, this.actorFilter(move.actor, mode), true, deltaSeconds),
+        );
       }
     } else {
       for (const move of this.queuedMoves) this.syncActor(move.actor, move.startPosition);
       this.world.updateSceneQueries();
 
       for (const move of this.queuedMoves) {
-        const actorMode = move.actor.actorCollisionMode ?? mode;
-        const filter =
-          actorMode === "ignore-actors"
-            ? (collider: RAPIER.Collider) => !this.actorColliderHandles.has(collider.handle)
-            : undefined;
-        this.results.set(move.actor, this.resolveMove(move, filter, false, deltaSeconds));
+        this.results.set(
+          move.actor,
+          this.resolveMove(move, this.actorFilter(move.actor, mode), false, deltaSeconds),
+        );
       }
     }
 
@@ -247,6 +248,17 @@ export class KinematicResolver {
 
   getResult(actor: Actor): MoveResult | null {
     return this.results.get(actor) ?? null;
+  }
+
+  /** Rapier collision filter honoring the actor's `ignore-actors` mode, in every batch mode. */
+  private actorFilter(
+    actor: Actor,
+    mode: ActorCollisionMode,
+  ): ((collider: RAPIER.Collider) => boolean) | undefined {
+    const actorMode = actor.actorCollisionMode ?? mode;
+    return actorMode === "ignore-actors"
+      ? (collider) => !this.actorColliderHandles.has(collider.handle)
+      : undefined;
   }
 
   private resolveMove(
