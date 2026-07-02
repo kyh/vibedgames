@@ -107,6 +107,23 @@ export class Audio {
     return this.musicInst;
   }
 
+  /** MUTED BY DEFAULT — sound is opt-in (link-shared browser game; autoplaying
+   *  audio is hostile). localStorage remembers the choice across visits. */
+  get isMuted(): boolean {
+    return localStorage.getItem("ba-muted") !== "0";
+  }
+
+  setMuted(on: boolean): void {
+    try {
+      localStorage.setItem("ba-muted", on ? "1" : "0");
+    } catch {
+      /* private mode — session-only */
+    }
+    if (this.master && this.ctx) {
+      this.master.gain.setTargetAtTime(on ? 0 : 0.5, this.ctx.currentTime, 0.03);
+    }
+  }
+
   private ensure(): void {
     if (this.ctx) return;
     const scope: typeof globalThis & { webkitAudioContext?: typeof AudioContext } = globalThis;
@@ -115,7 +132,7 @@ export class Audio {
     const ctx = new Ctor();
     this.ctx = ctx;
     this.master = ctx.createGain();
-    this.master.gain.value = 0.5;
+    this.master.gain.value = this.isMuted ? 0 : 0.5;
     this.master.connect(ctx.destination);
     const comp = ctx.createDynamicsCompressor();
     comp.threshold.value = -18;
