@@ -132,7 +132,8 @@ export function awardCreepKill(w: World, killerId: string | null, victim: Unit):
     killer.gold += reward.bounty;
     grantXp(w, killer, reward.xp);
   }
-  // visible loot coin (uses the coin pickup system) — claimable immediately
+  // visible loot drop (uses the coin pickup system) — claimable immediately.
+  // loot: true renders it as a weapon piece instead of a boss coin.
   w.coins.push({
     id: nextId(w, "loot"),
     x: victim.x,
@@ -142,6 +143,7 @@ export function awardCreepKill(w: World, killerId: string | null, victim: Unit):
     gold: Math.round(reward.bounty * 0.8),
     landAt: w.now,
     expireAt: w.now + COIN_LIFETIME * 1000,
+    loot: true,
   });
   // the elite bounty is an announcement-worthy event
   if (victim.champId === "frostgolem") {

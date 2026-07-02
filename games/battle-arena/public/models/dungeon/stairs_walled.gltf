@@ -15,24 +15,24 @@
     "nodes" : [
         {
             "mesh" : 0,
-            "name" : "Tree_2_C_Color1"
+            "name" : "stairs_walled"
         }
     ],
     "materials" : [
         {
-            "name" : "forest",
+            "name" : "texture",
             "pbrMetallicRoughness" : {
                 "baseColorTexture" : {
                     "index" : 0
                 },
                 "metallicFactor" : 0,
-                "roughnessFactor" : 0.6000000238418579
+                "roughnessFactor" : 0.44999998807907104
             }
         }
     ],
     "meshes" : [
         {
-            "name" : "Tree_2_C_Color1",
+            "name" : "stairs_walled",
             "primitives" : [
                 {
                     "attributes" : {
@@ -55,69 +55,69 @@
     "images" : [
         {
             "mimeType" : "image/png",
-            "name" : "forest_texture",
-            "uri" : "forest_texture.png"
+            "name" : "dungeon_texture",
+            "uri" : "dungeon_texture.png"
         }
     ],
     "accessors" : [
         {
             "bufferView" : 0,
             "componentType" : 5126,
-            "count" : 361,
+            "count" : 1526,
             "max" : [
-                2.0875790119171143,
-                6.527140140533447,
-                1.5108027458190918
+                2.5,
+                4,
+                4
             ],
             "min" : [
-                -2.512420892715454,
-                -0.39324718713760376,
-                -1.8891973495483398
+                -2.500000238418579,
+                0,
+                -1.092784742695585e-07
             ],
             "type" : "VEC3"
         },
         {
             "bufferView" : 1,
             "componentType" : 5126,
-            "count" : 361,
+            "count" : 1526,
             "type" : "VEC2"
         },
         {
             "bufferView" : 2,
             "componentType" : 5126,
-            "count" : 361,
+            "count" : 1526,
             "type" : "VEC3"
         },
         {
             "bufferView" : 3,
             "componentType" : 5123,
-            "count" : 1944,
+            "count" : 2370,
             "type" : "SCALAR"
         }
     ],
     "bufferViews" : [
         {
             "buffer" : 0,
-            "byteLength" : 4332,
+            "byteLength" : 18312,
             "byteOffset" : 0,
             "target" : 34962
         },
         {
             "buffer" : 0,
-            "byteLength" : 2888,
-            "byteOffset" : 4332,
+            "byteLength" : 12208,
+            "byteOffset" : 18312,
             "target" : 34962
         },
         {
             "buffer" : 0,
-            "byteLength" : 4332,
-            "byteOffset" : 7220,
+            "byteLength" : 18312,
+            "byteOffset" : 30520,
             "target" : 34962
         },
         {
             "buffer" : 0,
-            "byteLength" : 3888,
-            "byteOffset" : 11552,
+            "byteLength" : 4740,
+            "byteOffset" : 48832,
             "target" : 34963
         }
     ],
@@ -129,8 +129,8 @@
     ],
     "buffers" : [
         {
-            "byteLength" : 15440,
-            "uri" : "Tree_2_C_Color1.bin"
+            "byteLength" : 53572,
+            "uri" : "stairs_walled.bin"
         }
     ]
 }

@@ -210,6 +210,7 @@ export type Coin = {
   gold: number;
   landAt: number; // ms; flying (telegraph arc) until then, claimable after
   expireAt: number; // ms
+  loot?: boolean; // creep drop → renders as a weapon pickup (boss coins omit it)
 };
 
 export type Delivery = {

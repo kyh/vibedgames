@@ -11,12 +11,13 @@ import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js";
 import { FXAAShader } from "three/addons/shaders/FXAAShader.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import {
+  APOTHEM,
   ARENA,
   BOSS_PLATFORM_RADIUS,
   BOSS_HEIGHT,
   CAMPS,
   DELIVERY_PADS,
-  HALF,
+  HEX_R,
   OBSTACLES,
   SPAWNS,
 } from "../data/map";
@@ -43,8 +44,10 @@ const GradeShader = {
     tDiffuse: { value: null },
     uContrast: { value: 1.08 },
     uSaturation: { value: 1.1 },
-    uVignette: { value: 0.32 },
-    uVigStart: { value: 0.58 },
+    // gentle + late start: over the hall's uniform flagstone midtone, a strong
+    // radial vignette reads as a bright vertical band down the screen center
+    uVignette: { value: 0.18 },
+    uVigStart: { value: 0.7 },
     uLift: { value: new THREE.Vector3(-0.006, -0.003, 0.012) },
     uGain: { value: new THREE.Vector3(1.03, 1.01, 0.97) },
   },
@@ -70,19 +73,23 @@ function sstep(e0: number, e1: number, x: number): number {
   return t * t * (3 - 2 * t);
 }
 
+// The live View's shadow re-bake hook (one View per page) — lets late scenery
+// loaders re-bake the static shadow map without holding a View reference
+// (see Environment.initArchitecture).
+let shadowRefresher: (() => void) | null = null;
+
+/** Re-render the static shadow map once — safe no-op before the View exists. */
+export function refreshStaticShadows(): void {
+  shadowRefresher?.();
+}
+
 const GROUND_STONE = new THREE.Color(0x565b68); // readable cool dungeon stone
-const GROUND_MOSS = new THREE.Color(0x44523f); // forest-invaded west (the Breach)
 const GROUND_DIRT = new THREE.Color(0x4a4238); // trampled earth around camp lairs
 
-/** Zone tint for a ground-disc vertex: moss creeps in from the west rim, dirt
- *  rings each camp lair. Pure function of position — identical on every client. */
+/** Zone tint for a ground-disc vertex: dirt darkens around each camp lair.
+ *  Pure function of position — identical on every client. */
 function groundZoneColor(x: number, z: number, out: THREE.Color): THREE.Color {
   out.copy(GROUND_STONE);
-  const r = Math.hypot(x, z);
-  const ang = Math.atan2(z, x);
-  const west = Math.abs(Math.atan2(Math.sin(ang - Math.PI), Math.cos(ang - Math.PI)));
-  const mossK = (1 - sstep(0.2, 0.6, west)) * sstep(24, 32, r);
-  if (mossK > 0) out.lerp(GROUND_MOSS, mossK);
   let campD2 = Infinity;
   for (const c of CAMPS) {
     const d2 = (x - c.x) ** 2 + (z - c.y) ** 2;
@@ -94,9 +101,10 @@ function groundZoneColor(x: number, z: number, out: THREE.Color): THREE.Color {
 }
 
 /** Build the terrain-displaced ground disc — a flat stone base under the
- *  flagstone tiles (it only shows in tile gaps + the platform skirt). One mesh. */
+ *  flagstone tiles (it only shows in tile gaps + the platform skirt). Sized to
+ *  reach past the hex walls; the corners tuck under the second story. One mesh. */
 function buildGroundDisc(): THREE.Mesh {
-  const R = HALF + 3;
+  const R = HEX_R + 6;
   const rings = 40;
   const seg = 96;
   const zc = new THREE.Color();
@@ -217,10 +225,11 @@ export class View {
     this.sun.shadow.camera.far = 80;
     this.sun.shadow.radius = 4; // soft penumbra (PCFSoft)
     const sc = this.sun.shadow.camera;
-    sc.left = -HALF;
-    sc.right = HALF;
-    sc.top = HALF;
-    sc.bottom = -HALF;
+    const shadowR = HEX_R + 8; // cover the hex + the two-story perimeter
+    sc.left = -shadowR;
+    sc.right = shadowR;
+    sc.top = shadowR;
+    sc.bottom = -shadowR;
     sc.updateProjectionMatrix();
     this.sun.shadow.bias = -0.0004;
     this.sun.shadow.normalBias = 0.05;
@@ -233,6 +242,7 @@ export class View {
 
     this.throneAura = this.buildArena();
     this.buildComposer();
+    shadowRefresher = () => this.refreshShadows();
   }
 
   private buildArena(): THREE.Mesh {
@@ -249,23 +259,20 @@ export class View {
         uniforms: {
           uTop: { value: new THREE.Color(0x0a0e1c) },
           uBot: { value: new THREE.Color(0x1a1626) },
-          uWest: { value: new THREE.Color(0x14231c) }, // mossy Breach horizon
         },
         vertexShader: "varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
         fragmentShader:
-          "varying vec3 vP; uniform vec3 uTop; uniform vec3 uBot; uniform vec3 uWest;" +
+          "varying vec3 vP; uniform vec3 uTop; uniform vec3 uBot;" +
           " void main(){ vec3 n = normalize(vP); float h = smoothstep(-0.1,0.5, n.y);" +
           " vec3 c = mix(uBot,uTop,h);" +
-          " float west = smoothstep(0.15,0.85,-n.x) * (1.0 - smoothstep(0.02,0.4,abs(n.y)));" +
-          " c = mix(c, uWest, west*0.85);" +
           " gl_FragColor = vec4(c,1.0); }",
       }),
     );
     sky.renderOrder = -1;
     arenaGroup.add(sky);
 
-    // tessellated, terrain-displaced, vertex-colored ground disc — reads the
-    // hills + the zone bands (stone plaza → grass field → mossy earth berm)
+    // tessellated, terrain-displaced, vertex-colored ground disc — the stone
+    // base under the hex tiles (dirt-darkened around the camp lairs)
     arenaGroup.add(buildGroundDisc());
 
     // throne dais — sits atop the raised central plateau
@@ -294,8 +301,8 @@ export class View {
     // slim beacon over the throne itself — wide enough to read as "the magnet"
     // from across the arena, narrow enough not to curtain the sky behind the dais
     this.throneColumn = new THREE.Mesh(
-      new THREE.CylinderGeometry(1.6, 2.6, 11, 24, 1, true),
-      new THREE.MeshBasicMaterial({ color: 0xffcc55, transparent: true, opacity: 0.05, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }),
+      new THREE.CylinderGeometry(1.2, 2.0, 11, 24, 1, true),
+      new THREE.MeshBasicMaterial({ color: 0xffcc55, transparent: true, opacity: 0.03, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }),
     );
     this.throneColumn.position.set(ARENA.throne.x, plateauTop + 5.5, ARENA.throne.y);
     arenaGroup.add(this.throneColumn);
@@ -373,11 +380,14 @@ export class View {
     const vert = Math.max(1.4, Math.sin(elev) * dist) + this.camGroundY;
     this.camPos.set(this.focus.x - fx * horiz, vert, this.focus.z - fz * horiz);
 
-    // keep the camera from sailing out past the dungeon walls at the rim
+    // keep the camera inside the hall: the two-story perimeter is a THICK band
+    // of geometry (walls at apothem+1.5, ledge/towers beyond), so the camera
+    // clamps to the circle inscribed in the hex, just shy of the wall face —
+    // it can never enter the masonry, even at the vertex towers.
+    const camMax = APOTHEM + 0.4;
     const camR = Math.hypot(this.camPos.x, this.camPos.z);
-    const maxR = HALF + 5;
-    if (camR > maxR) {
-      const s = maxR / camR;
+    if (camR > camMax) {
+      const s = camMax / camR;
       this.camPos.x *= s;
       this.camPos.z *= s;
     }
@@ -397,7 +407,7 @@ export class View {
     this.shakeT += dt * 31; // rotational-shake phase
     if (this.bloom) this.bloom.strength = 0.6 + this.shake * 0.5;
     const vig = this.grade?.uniforms["uVignette"];
-    if (vig) vig.value = 0.32 + this.shake * 0.25;
+    if (vig) vig.value = 0.18 + this.shake * 0.25; // base must match the GradeShader default
     const s = this.shake * this.shake;
     this.shakeOff.set((Math.random() - 0.5) * s * 1.4, (Math.random() - 0.5) * s * 0.8, (Math.random() - 0.5) * s * 1.4);
 
@@ -470,11 +480,15 @@ export class View {
       const entry = b - Math.sqrt(disc);
       if (entry > 0.5 && entry - 0.5 < dist) dist = entry - 0.5;
     };
-    // only the tall cover pillars can actually block the chase cam. The throne
-    // dais is a low (1.6u) platform players stand on constantly — including it
-    // here (the check is 2D, ignoring height) yanked the camera to its minimum
-    // whenever you contested the throne, the one place everyone fights.
-    for (const o of OBSTACLES) consider(o.x, o.y, o.radius);
+    // only the TALL cover pillars can actually block the chase cam — the check
+    // is 2D (ignores height), so low obstacles (partition walls 2.4u, shrine
+    // statues 2.6u) must be skipped or they'd yank the camera every time you
+    // fight around cover. The throne dais (1.6u platform) is excluded for the
+    // same reason.
+    for (const o of OBSTACLES) {
+      if (o.height < 3) continue;
+      consider(o.x, o.y, o.radius);
+    }
     return Math.max(4, dist);
   }
 
@@ -494,7 +508,9 @@ export class View {
     const m = this.throneAura.material as THREE.MeshBasicMaterial;
     m.opacity = 0.35 + Math.sin(t * 2) * 0.15;
     if (this.throneColumn) {
-      (this.throneColumn.material as THREE.MeshBasicMaterial).opacity = 0.05 + Math.abs(Math.sin(t * 1.5)) * 0.05;
+      // faint breathing beacon — against the dark two-story backdrop anything
+      // past ~0.05 reads as a giant ghost column over the throne
+      (this.throneColumn.material as THREE.MeshBasicMaterial).opacity = 0.022 + Math.abs(Math.sin(t * 1.5)) * 0.022;
     }
   }
 

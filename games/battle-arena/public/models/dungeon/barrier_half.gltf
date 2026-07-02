@@ -15,24 +15,24 @@
     "nodes" : [
         {
             "mesh" : 0,
-            "name" : "Bush_2_B_Color1"
+            "name" : "barrier_half"
         }
     ],
     "materials" : [
         {
-            "name" : "forest",
+            "name" : "texture",
             "pbrMetallicRoughness" : {
                 "baseColorTexture" : {
                     "index" : 0
                 },
                 "metallicFactor" : 0,
-                "roughnessFactor" : 0.6000000238418579
+                "roughnessFactor" : 0.44999998807907104
             }
         }
     ],
     "meshes" : [
         {
-            "name" : "Bush_2_B_Color1",
+            "name" : "barrier_half",
             "primitives" : [
                 {
                     "attributes" : {
@@ -55,69 +55,69 @@
     "images" : [
         {
             "mimeType" : "image/png",
-            "name" : "forest_texture",
-            "uri" : "forest_texture.png"
+            "name" : "dungeon_texture",
+            "uri" : "dungeon_texture.png"
         }
     ],
     "accessors" : [
         {
             "bufferView" : 0,
             "componentType" : 5126,
-            "count" : 56,
+            "count" : 84,
             "max" : [
-                0.42899999022483826,
-                0.857999861240387,
-                0.42899999022483826
+                2,
+                1.100000023841858,
+                0.25
             ],
             "min" : [
-                -0.42899999022483826,
-                -1.1801719779214181e-07,
-                -0.42899999022483826
+                0,
+                0,
+                -0.25000008940696716
             ],
             "type" : "VEC3"
         },
         {
             "bufferView" : 1,
             "componentType" : 5126,
-            "count" : 56,
+            "count" : 84,
             "type" : "VEC2"
         },
         {
             "bufferView" : 2,
             "componentType" : 5126,
-            "count" : 56,
+            "count" : 84,
             "type" : "VEC3"
         },
         {
             "bufferView" : 3,
             "componentType" : 5123,
-            "count" : 324,
+            "count" : 126,
             "type" : "SCALAR"
         }
     ],
     "bufferViews" : [
         {
             "buffer" : 0,
-            "byteLength" : 672,
+            "byteLength" : 1008,
             "byteOffset" : 0,
             "target" : 34962
         },
         {
             "buffer" : 0,
-            "byteLength" : 448,
-            "byteOffset" : 672,
-            "target" : 34962
-        },
-        {
-            "buffer" : 0,
             "byteLength" : 672,
-            "byteOffset" : 1120,
+            "byteOffset" : 1008,
             "target" : 34962
         },
         {
             "buffer" : 0,
-            "byteLength" : 648,
-            "byteOffset" : 1792,
+            "byteLength" : 1008,
+            "byteOffset" : 1680,
+            "target" : 34962
+        },
+        {
+            "buffer" : 0,
+            "byteLength" : 252,
+            "byteOffset" : 2688,
             "target" : 34963
         }
     ],
@@ -129,8 +129,8 @@
     ],
     "buffers" : [
         {
-            "byteLength" : 2440,
-            "uri" : "Bush_2_B_Color1.bin"
+            "byteLength" : 2940,
+            "uri" : "barrier_half.bin"
         }
     ]
 }

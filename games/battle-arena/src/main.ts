@@ -18,32 +18,32 @@ const CHAMP_MODELS = [
   "Ranger",
   "Mage",
   "Rogue_Hooded",
-  "Barbarian",
-  "Necromancer",
-  "Paladin",
   "BlackKnight",
-  "Vampire",
   "Witch",
-  "Barbarian_Large", // render-only enrage swap for barbarian R (Rig_Large)
 ];
 const BOSS_MODEL = "Skeleton_Golem";
-const ENEMY_MODELS = ["Skeleton_Warrior", "Skeleton_Mage", "Skeleton_Minion", "FrostGolem", "OrcRaider", "Skeleton_Rogue"];
+const ENEMY_MODELS = ["Skeleton_Warrior", "Skeleton_Mage", "Skeleton_Minion", "FrostGolem", "Skeleton_Rogue"];
 const WEAPON_MODELS = [
   "sword_1handed",
   "shield_round",
   "bow",
   "staff",
   "dagger",
-  "axe_2handed",
   "Skeleton_Staff",
-  "paladin_hammer",
-  "paladin_shield",
   "BlackKnight_Sword_Large",
   "BlackKnight_Shield_Large",
-  "Vampire_Sword",
   "FrostGolem_Axe_Large",
   "wand_A",
   "Skeleton_Dagger",
+  // Fantasy Weapons Bits — the creep-drop loot pickups (world-view syncCoins)
+  "sword_A",
+  "sword_D",
+  "axe_A",
+  "hammer_B",
+  "dagger_A",
+  "spear_A",
+  "staff_B",
+  "wand_B",
 ];
 const CLIP_LIBS = [
   "Rig_Medium_General",
@@ -110,15 +110,6 @@ const DUNGEON_NAMES = [
 type PropSpec = { name: string; url: string };
 const PROP_SPECS: PropSpec[] = [
   ...DUNGEON_NAMES.map((m) => ({ name: m, url: `./models/dungeon/${m}.gltf` })),
-  { name: "tree_a", url: "./models/forest/Tree_1_B_Color1.gltf" },
-  { name: "tree_b", url: "./models/forest/Tree_2_C_Color1.gltf" },
-  { name: "tree_c", url: "./models/forest/Tree_5_A_Color1.gltf" },
-  { name: "tree_bare", url: "./models/forest/Tree_Bare_1_A_Color1.gltf" },
-  { name: "bush_a", url: "./models/forest/Bush_1_C_Color1.gltf" },
-  { name: "bush_b", url: "./models/forest/Bush_2_B_Color1.gltf" },
-  { name: "rock_a", url: "./models/forest/Rock_3_D_Color1.gltf" },
-  { name: "rock_b", url: "./models/forest/Rock_5_C_Color1.gltf" },
-  { name: "grass_a", url: "./models/forest/Grass_1_A_Singlesided_Color1.gltf" },
   { name: "vampire_throne", url: "./models/props/Vampire_Throne.gltf" },
   { name: "paladin_statue", url: "./models/props/paladin_statue.gltf" },
   { name: "mushroom", url: "./models/props/Mushroom.gltf" }, // Witch hex-polymorph body
@@ -138,8 +129,6 @@ async function main(): Promise<void> {
     // takes a warm-dark tint so the pale floor mortar stops reading as neon
     ...PROP_SPECS.map((p) => lib.loadCharacter(p.name, p.url, p.url.includes("/dungeon/") ? { matte: true, tint: 0xcabb9f } : { matte: true })),
     ...WEAPON_MODELS.map((m) => lib.loadCharacter(m, `./models/weapons/${m}.gltf`)),
-    // Orc pack ships self-contained ".gltf.glb" binaries — url form differs.
-    lib.loadCharacter("Orc_Axe", "./models/weapons/Orc_Axe.gltf.glb"),
   ];
   let done = 0;
   await Promise.all(

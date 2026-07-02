@@ -15,24 +15,24 @@
     "nodes" : [
         {
             "mesh" : 0,
-            "name" : "Rock_5_C_Color1"
+            "name" : "spear_A"
         }
     ],
     "materials" : [
         {
-            "name" : "forest",
+            "name" : "weapons",
             "pbrMetallicRoughness" : {
                 "baseColorTexture" : {
                     "index" : 0
                 },
                 "metallicFactor" : 0,
-                "roughnessFactor" : 0.6000000238418579
+                "roughnessFactor" : 0.5
             }
         }
     ],
     "meshes" : [
         {
-            "name" : "Rock_5_C_Color1",
+            "name" : "spear_A",
             "primitives" : [
                 {
                     "attributes" : {
@@ -55,69 +55,69 @@
     "images" : [
         {
             "mimeType" : "image/png",
-            "name" : "forest_texture",
-            "uri" : "forest_texture.png"
+            "name" : "weapons_bits_texture",
+            "uri" : "weapons_bits_texture.png"
         }
     ],
     "accessors" : [
         {
             "bufferView" : 0,
             "componentType" : 5126,
-            "count" : 82,
+            "count" : 1420,
             "max" : [
-                0.4607766568660736,
-                0.6171138882637024,
-                0.46077635884284973
+                0.13921411335468292,
+                2.1065518856048584,
+                0.12297331541776657
             ],
             "min" : [
-                -0.46077659726142883,
-                9.550366257826681e-07,
-                -0.4607761800289154
+                -0.13921281695365906,
+                -1.032182216644287,
+                -0.1229734867811203
             ],
             "type" : "VEC3"
         },
         {
             "bufferView" : 1,
             "componentType" : 5126,
-            "count" : 82,
+            "count" : 1420,
             "type" : "VEC2"
         },
         {
             "bufferView" : 2,
             "componentType" : 5126,
-            "count" : 82,
+            "count" : 1420,
             "type" : "VEC3"
         },
         {
             "bufferView" : 3,
             "componentType" : 5123,
-            "count" : 432,
+            "count" : 3648,
             "type" : "SCALAR"
         }
     ],
     "bufferViews" : [
         {
             "buffer" : 0,
-            "byteLength" : 984,
+            "byteLength" : 17040,
             "byteOffset" : 0,
             "target" : 34962
         },
         {
             "buffer" : 0,
-            "byteLength" : 656,
-            "byteOffset" : 984,
+            "byteLength" : 11360,
+            "byteOffset" : 17040,
             "target" : 34962
         },
         {
             "buffer" : 0,
-            "byteLength" : 984,
-            "byteOffset" : 1640,
+            "byteLength" : 17040,
+            "byteOffset" : 28400,
             "target" : 34962
         },
         {
             "buffer" : 0,
-            "byteLength" : 864,
-            "byteOffset" : 2624,
+            "byteLength" : 7296,
+            "byteOffset" : 45440,
             "target" : 34963
         }
     ],
@@ -129,8 +129,8 @@
     ],
     "buffers" : [
         {
-            "byteLength" : 3488,
-            "uri" : "Rock_5_C_Color1.bin"
+            "byteLength" : 52736,
+            "uri" : "spear_A.bin"
         }
     ]
 }

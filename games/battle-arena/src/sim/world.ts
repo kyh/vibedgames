@@ -25,7 +25,7 @@ import { tickEconomy, updateLeader } from "./economy";
 import { tickBots } from "./ai";
 
 const BOT_NAMES = ["Ru{}", "Vex", "Kato", "Mire", "Brak", "Nyx", "Orin", "Pyra"];
-const BOT_CHAMPS = ["knight", "ranger", "mage", "rogue", "barbarian", "necromancer", "paladin", "blackknight", "vampire", "witch"];
+const BOT_CHAMPS = ["knight", "ranger", "mage", "rogue", "blackknight", "witch"];
 
 export function createWorld(seed: number, opts: { soloMercy?: boolean } = {}): World {
   const boss = { x: BOSS_POS.x, y: BOSS_POS.y, hp: 4000, maxHp: 4000, alive: true };
@@ -185,7 +185,6 @@ const CREEP_STATS: Record<string, CreepStat> = {
   skmage: { model: "Skeleton_Mage", attackType: "ranged", attackDamageType: "magic", attackKind: "bolt", hp: 230, damage: 30, armor: 1, attackRange: 8, attackSpeed: 0.7, moveSpeed: 4.6, projectileSpeed: 16, radius: 0.55, bounty: 70, xp: 60 },
   skminion: { model: "Skeleton_Minion", attackType: "melee", attackDamageType: "physical", attackKind: "melee", hp: 200, damage: 24, armor: 1, attackRange: 2, attackSpeed: 0.95, moveSpeed: 5.4, projectileSpeed: 0, radius: 0.52, bounty: 35, xp: 32 },
   skrogue: { model: "Skeleton_Rogue", attackType: "melee", attackDamageType: "physical", attackKind: "melee", hp: 260, damage: 30, armor: 1, attackRange: 1.8, attackSpeed: 1.3, moveSpeed: 6.0, projectileSpeed: 0, radius: 0.55, bounty: 60, xp: 55 },
-  orcbrute: { model: "OrcRaider", attackType: "melee", attackDamageType: "physical", attackKind: "melee", hp: 700, damage: 55, armor: 4, attackRange: 2.2, attackSpeed: 0.9, moveSpeed: 5.2, projectileSpeed: 0, radius: 0.7, bounty: 150, xp: 120, name: "Orc Raider" },
   frostgolem: { model: "FrostGolem", attackType: "melee", attackDamageType: "physical", attackKind: "melee", hp: 2400, damage: 95, armor: 8, attackRange: 3.2, attackSpeed: 0.6, moveSpeed: 4.4, projectileSpeed: 0, radius: 1.25, bounty: 500, xp: 350, name: "Frost Golem", hpRegen: 20 },
 };
 
@@ -277,11 +276,11 @@ export function creepReward(type: string): { bounty: number; xp: number } {
   return { bounty: s.bounty, xp: s.xp };
 }
 
-// Themed lineups per camp (camp0 = Armory, camp3 = Cellar get an orc brute);
-// the default pack trades a warrior for the quick skeleton rogue.
+// Themed lineups per camp (camp0 = Armory runs warrior-heavy, camp3 = Cellar
+// runs quick rogues); the default pack trades a warrior for the skeleton rogue.
 const CAMP_PACKS: Record<string, string[]> = {
-  camp0: ["orcbrute", "skwarrior", "skminion"],
-  camp3: ["orcbrute", "skrogue", "skminion"],
+  camp0: ["skwarrior", "skwarrior", "skmage", "skminion"],
+  camp3: ["skwarrior", "skrogue", "skrogue", "skminion"],
 };
 const DEFAULT_PACK = ["skwarrior", "skrogue", "skmage", "skminion"];
 

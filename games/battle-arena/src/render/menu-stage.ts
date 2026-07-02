@@ -11,7 +11,7 @@ import { CHAMPIONS } from "../data/champions";
 import { AnimatedCharacter, ModelLibrary } from "./models";
 
 const ARC_R = 15; // arc radius — edge champs curve gently back into the fog
-const ARC_GAP = 1.92; // spacing along the arc between champions
+const ARC_GAP = 2.35; // spacing along the arc between champions (6-champ row)
 const CAM_Z = 11.5;
 
 type Slot = {

@@ -15,24 +15,24 @@
     "nodes" : [
         {
             "mesh" : 0,
-            "name" : "Tree_1_B_Color1"
+            "name" : "wall_arched"
         }
     ],
     "materials" : [
         {
-            "name" : "forest",
+            "name" : "texture",
             "pbrMetallicRoughness" : {
                 "baseColorTexture" : {
                     "index" : 0
                 },
                 "metallicFactor" : 0,
-                "roughnessFactor" : 0.6000000238418579
+                "roughnessFactor" : 0.44999998807907104
             }
         }
     ],
     "meshes" : [
         {
-            "name" : "Tree_1_B_Color1",
+            "name" : "wall_arched",
             "primitives" : [
                 {
                     "attributes" : {
@@ -55,69 +55,69 @@
     "images" : [
         {
             "mimeType" : "image/png",
-            "name" : "forest_texture",
-            "uri" : "forest_texture.png"
+            "name" : "dungeon_texture",
+            "uri" : "dungeon_texture.png"
         }
     ],
     "accessors" : [
         {
             "bufferView" : 0,
             "componentType" : 5126,
-            "count" : 475,
+            "count" : 1449,
             "max" : [
-                2.217304229736328,
-                4.588586807250977,
-                1.722744107246399
+                2,
+                4,
+                0.5000005960464478
             ],
             "min" : [
-                -1.7895218133926392,
-                -0.3410367965698242,
-                -1.7227431535720825
+                -2.000000238418579,
+                0,
+                -0.4999999701976776
             ],
             "type" : "VEC3"
         },
         {
             "bufferView" : 1,
             "componentType" : 5126,
-            "count" : 475,
+            "count" : 1449,
             "type" : "VEC2"
         },
         {
             "bufferView" : 2,
             "componentType" : 5126,
-            "count" : 475,
+            "count" : 1449,
             "type" : "VEC3"
         },
         {
             "bufferView" : 3,
             "componentType" : 5123,
-            "count" : 1908,
+            "count" : 2172,
             "type" : "SCALAR"
         }
     ],
     "bufferViews" : [
         {
             "buffer" : 0,
-            "byteLength" : 5700,
+            "byteLength" : 17388,
             "byteOffset" : 0,
             "target" : 34962
         },
         {
             "buffer" : 0,
-            "byteLength" : 3800,
-            "byteOffset" : 5700,
+            "byteLength" : 11592,
+            "byteOffset" : 17388,
             "target" : 34962
         },
         {
             "buffer" : 0,
-            "byteLength" : 5700,
-            "byteOffset" : 9500,
+            "byteLength" : 17388,
+            "byteOffset" : 28980,
             "target" : 34962
         },
         {
             "buffer" : 0,
-            "byteLength" : 3816,
-            "byteOffset" : 15200,
+            "byteLength" : 4344,
+            "byteOffset" : 46368,
             "target" : 34963
         }
     ],
@@ -129,8 +129,8 @@
     ],
     "buffers" : [
         {
-            "byteLength" : 19016,
-            "uri" : "Tree_1_B_Color1.bin"
+            "byteLength" : 50712,
+            "uri" : "wall_arched.bin"
         }
     ]
 }

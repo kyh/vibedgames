@@ -15,24 +15,24 @@
     "nodes" : [
         {
             "mesh" : 0,
-            "name" : "Bush_1_C_Color1"
+            "name" : "wall_inset_candles"
         }
     ],
     "materials" : [
         {
-            "name" : "forest",
+            "name" : "texture",
             "pbrMetallicRoughness" : {
                 "baseColorTexture" : {
                     "index" : 0
                 },
                 "metallicFactor" : 0,
-                "roughnessFactor" : 0.6000000238418579
+                "roughnessFactor" : 0.44999998807907104
             }
         }
     ],
     "meshes" : [
         {
-            "name" : "Bush_1_C_Color1",
+            "name" : "wall_inset_candles",
             "primitives" : [
                 {
                     "attributes" : {
@@ -55,69 +55,69 @@
     "images" : [
         {
             "mimeType" : "image/png",
-            "name" : "forest_texture",
-            "uri" : "forest_texture.png"
+            "name" : "dungeon_texture",
+            "uri" : "dungeon_texture.png"
         }
     ],
     "accessors" : [
         {
             "bufferView" : 0,
             "componentType" : 5126,
-            "count" : 114,
+            "count" : 1669,
             "max" : [
-                0.602061927318573,
-                0.7960658073425293,
-                0.602061927318573
+                2,
+                4,
+                0.5
             ],
             "min" : [
-                -0.6020617485046387,
-                -0.011357247829437256,
-                -0.602061927318573
+                -2,
+                0,
+                -0.5
             ],
             "type" : "VEC3"
         },
         {
             "bufferView" : 1,
             "componentType" : 5126,
-            "count" : 114,
+            "count" : 1669,
             "type" : "VEC2"
         },
         {
             "bufferView" : 2,
             "componentType" : 5126,
-            "count" : 114,
+            "count" : 1669,
             "type" : "VEC3"
         },
         {
             "bufferView" : 3,
             "componentType" : 5123,
-            "count" : 504,
+            "count" : 2751,
             "type" : "SCALAR"
         }
     ],
     "bufferViews" : [
         {
             "buffer" : 0,
-            "byteLength" : 1368,
+            "byteLength" : 20028,
             "byteOffset" : 0,
             "target" : 34962
         },
         {
             "buffer" : 0,
-            "byteLength" : 912,
-            "byteOffset" : 1368,
+            "byteLength" : 13352,
+            "byteOffset" : 20028,
             "target" : 34962
         },
         {
             "buffer" : 0,
-            "byteLength" : 1368,
-            "byteOffset" : 2280,
+            "byteLength" : 20028,
+            "byteOffset" : 33380,
             "target" : 34962
         },
         {
             "buffer" : 0,
-            "byteLength" : 1008,
-            "byteOffset" : 3648,
+            "byteLength" : 5502,
+            "byteOffset" : 53408,
             "target" : 34963
         }
     ],
@@ -129,8 +129,8 @@
     ],
     "buffers" : [
         {
-            "byteLength" : 4656,
-            "uri" : "Bush_1_C_Color1.bin"
+            "byteLength" : 58912,
+            "uri" : "wall_inset_candles.bin"
         }
     ]
 }

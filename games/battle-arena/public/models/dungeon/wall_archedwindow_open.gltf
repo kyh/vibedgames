@@ -15,24 +15,24 @@
     "nodes" : [
         {
             "mesh" : 0,
-            "name" : "Tree_5_A_Color1"
+            "name" : "wall_archedwindow_open"
         }
     ],
     "materials" : [
         {
-            "name" : "forest",
+            "name" : "texture",
             "pbrMetallicRoughness" : {
                 "baseColorTexture" : {
                     "index" : 0
                 },
                 "metallicFactor" : 0,
-                "roughnessFactor" : 0.6000000238418579
+                "roughnessFactor" : 0.44999998807907104
             }
         }
     ],
     "meshes" : [
         {
-            "name" : "Tree_5_A_Color1",
+            "name" : "wall_archedwindow_open",
             "primitives" : [
                 {
                     "attributes" : {
@@ -55,69 +55,69 @@
     "images" : [
         {
             "mimeType" : "image/png",
-            "name" : "forest_texture",
-            "uri" : "forest_texture.png"
+            "name" : "dungeon_texture",
+            "uri" : "dungeon_texture.png"
         }
     ],
     "accessors" : [
         {
             "bufferView" : 0,
             "componentType" : 5126,
-            "count" : 512,
+            "count" : 1135,
             "max" : [
-                0.968046247959137,
-                3.808311700820923,
-                1.1872912645339966
+                2,
+                4,
+                0.5
             ],
             "min" : [
-                -1.1518698930740356,
-                -0.27313005924224854,
-                -1.1872886419296265
+                -2,
+                0,
+                -0.5
             ],
             "type" : "VEC3"
         },
         {
             "bufferView" : 1,
             "componentType" : 5126,
-            "count" : 512,
+            "count" : 1135,
             "type" : "VEC2"
         },
         {
             "bufferView" : 2,
             "componentType" : 5126,
-            "count" : 512,
+            "count" : 1135,
             "type" : "VEC3"
         },
         {
             "bufferView" : 3,
             "componentType" : 5123,
-            "count" : 1152,
+            "count" : 1905,
             "type" : "SCALAR"
         }
     ],
     "bufferViews" : [
         {
             "buffer" : 0,
-            "byteLength" : 6144,
+            "byteLength" : 13620,
             "byteOffset" : 0,
             "target" : 34962
         },
         {
             "buffer" : 0,
-            "byteLength" : 4096,
-            "byteOffset" : 6144,
+            "byteLength" : 9080,
+            "byteOffset" : 13620,
             "target" : 34962
         },
         {
             "buffer" : 0,
-            "byteLength" : 6144,
-            "byteOffset" : 10240,
+            "byteLength" : 13620,
+            "byteOffset" : 22700,
             "target" : 34962
         },
         {
             "buffer" : 0,
-            "byteLength" : 2304,
-            "byteOffset" : 16384,
+            "byteLength" : 3810,
+            "byteOffset" : 36320,
             "target" : 34963
         }
     ],
@@ -129,8 +129,8 @@
     ],
     "buffers" : [
         {
-            "byteLength" : 18688,
-            "uri" : "Tree_5_A_Color1.bin"
+            "byteLength" : 40132,
+            "uri" : "wall_archedwindow_open.bin"
         }
     ]
 }

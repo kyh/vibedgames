@@ -10,7 +10,7 @@ import { CHAMP_BY_ID, valAt } from "../data/champions";
 import { abilityIcon, attackIcon, champSigil, iconUrl, statusIcon } from "../data/icons";
 import { ITEMS, ITEM_BY_ID, MAX_ITEMS, type ItemDef } from "../data/items";
 import { KILL_GOAL_FFA, LEVEL_CAP, XP_CURVE, respawnTime } from "../data/config";
-import { ARENA, HALF, OBSTACLES } from "../data/map";
+import { ARENA, HEX_R, OBSTACLES } from "../data/map";
 import { ABILITY_KEYS, type AbilityKey, type Unit, type World } from "../sim/types";
 import type { Audio } from "./audio";
 import type { Fx } from "./fx";
@@ -231,7 +231,7 @@ export class Hud {
         <div class="ba-rwrap"><div class="ba-rring"></div><div class="ba-rtimer"></div></div>
         <div class="ba-rtip"></div>
       </div>
-      <canvas id="ba-minimap" width="150" height="150"></canvas>
+      <canvas id="ba-minimap" width="150" height="132"></canvas>
       <div id="ba-shop" hidden></div>
       <div id="ba-end" hidden></div>`;
 
@@ -446,31 +446,52 @@ export class Hud {
 
   private drawMinimap(w: World, me: Unit): void {
     const ctx = this.mmCtx;
-    const N = this.minimap.width;
-    const c = N / 2;
-    const scale = (N / 2 - 4) / HALF;
-    const to = (x: number, y: number): [number, number] => [c + x * scale, c + y * scale];
-    ctx.clearRect(0, 0, N, N);
-    // arena disc
-    ctx.beginPath();
-    ctx.arc(c, c, N / 2 - 2, 0, Math.PI * 2);
+    const W = this.minimap.width;
+    const H = this.minimap.height;
+    const cx = W / 2;
+    const cy = H / 2;
+    const scale = (W / 2 - 5) / HEX_R; // uniform — the arena is a regular hex
+    const to = (x: number, y: number): [number, number] => [cx + x * scale, cy + y * scale];
+    // regular-hexagon path, vertices at k·60° (vertex on +x — mirrors the arena)
+    const hexPath = (r: number): void => {
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const a = (i * Math.PI) / 3;
+        const px = cx + Math.cos(a) * r;
+        const py = cy + Math.sin(a) * r;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+    };
+    ctx.clearRect(0, 0, W, H);
+    const frameR = W / 2 - 3;
+    // arena slab
+    hexPath(frameR);
     ctx.fillStyle = "rgba(14,18,28,0.78)";
     ctx.fill();
     ctx.strokeStyle = "rgba(120,140,180,0.5)";
     ctx.lineWidth = 1.5;
     ctx.stroke();
-    // cardinal ticks just inside the rim (frame read)
-    ctx.strokeStyle = "rgba(255,210,74,0.5)";
+    // gold frame + vertex ticks (frame read)
+    hexPath(frameR);
+    ctx.strokeStyle = "rgba(255,210,74,0.4)";
     ctx.lineWidth = 2;
-    for (let i = 0; i < 4; i++) {
-      const a = (i * Math.PI) / 2;
+    ctx.stroke();
+    ctx.strokeStyle = "rgba(255,210,74,0.5)";
+    for (let i = 0; i < 6; i++) {
+      const a = (i * Math.PI) / 3;
       const ca = Math.cos(a);
       const sa = Math.sin(a);
       ctx.beginPath();
-      ctx.moveTo(c + ca * (c - 8), c + sa * (c - 8));
-      ctx.lineTo(c + ca * (c - 2), c + sa * (c - 2));
+      ctx.moveTo(cx + ca * (frameR - 7), cy + sa * (frameR - 7));
+      ctx.lineTo(cx + ca * (frameR - 1), cy + sa * (frameR - 1));
       ctx.stroke();
     }
+    // contents clip to the arena hex
+    ctx.save();
+    hexPath(frameR);
+    ctx.clip();
     // throne aura + faint crown ring
     const [tx, ty] = to(ARENA.throne.x, ARENA.throne.y);
     ctx.beginPath();
@@ -529,6 +550,7 @@ export class Hud {
         ctx.fill();
       }
     }
+    ctx.restore();
   }
 
   private updatePlates(w: World, me: Unit): void {
@@ -1290,7 +1312,7 @@ const STYLE = `
 #ba-reticle.hit i{background:#ffd24a}
 #ba-reticle.hitcrit i{background:#ff5a52;transform:scale(1.5)}
 #ba-hitdir{position:fixed;left:50%;top:50%;width:240px;height:240px;margin:-120px;border-radius:50%;pointer-events:none;z-index:6;opacity:0;background:conic-gradient(from calc(var(--a,0deg) - 30deg),transparent 0deg,rgba(255,60,48,.75) 30deg,transparent 60deg);-webkit-mask:radial-gradient(circle,transparent 62%,#000 63%,#000 78%,transparent 79%);mask:radial-gradient(circle,transparent 62%,#000 63%,#000 78%,transparent 79%)}
-#ba-minimap{position:fixed;right:calc(12px + env(safe-area-inset-right));bottom:calc(12px + env(safe-area-inset-bottom));width:150px;height:150px;border-radius:50%;opacity:.92;pointer-events:none;border:2px solid rgba(255,210,74,.4);box-shadow:0 0 0 4px rgba(10,14,24,.7),0 0 14px rgba(0,0,0,.6),inset 0 0 20px rgba(0,0,0,.5);background:rgba(10,14,24,.4)}
+#ba-minimap{position:fixed;right:calc(12px + env(safe-area-inset-right));bottom:calc(12px + env(safe-area-inset-bottom));width:150px;height:132px;opacity:.92;pointer-events:none;filter:drop-shadow(0 0 10px rgba(0,0,0,.65))}
 #ba-respawn{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(circle,rgba(40,10,10,.3),rgba(8,8,12,.7));pointer-events:none}
 .ba-rtitle{font:900 italic 56px system-ui,sans-serif;color:#ff5a52;text-shadow:0 4px 0 rgba(0,0,0,.5)}
 .ba-rslain{font:600 14px ui-monospace,monospace;color:#ff9a94;margin-top:6px}

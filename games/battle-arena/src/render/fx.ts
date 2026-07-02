@@ -18,11 +18,7 @@ export const CHAMP_FX: Record<string, FxPalette> = {
   ranger: { primary: 0x7dffb0, secondary: 0xffe6a0, accent: 0x2c8f5e }, // verdant / gold-arrow / deep-green
   mage: { primary: 0xff8040, secondary: 0xffd060, accent: 0x9a7bff }, // ember / flare / arcane
   rogue: { primary: 0xff3060, secondary: 0x6a5a9a, accent: 0x7fff8e }, // crimson / shadow-violet / poison
-  barbarian: { primary: 0xff8a3c, secondary: 0xd8985a, accent: 0xff4422 }, // rage-orange / earth / blood
-  necromancer: { primary: 0x7affb0, secondary: 0xcfd8e0, accent: 0x9a7bff }, // soul-green / bone-white / curse-violet
-  paladin: { primary: 0xffd76a, secondary: 0xfff2c0, accent: 0xffe6a0 }, // gold / white-gold / dawn
   blackknight: { primary: 0x8a4a5f, secondary: 0xc03050, accent: 0x6a5a6f }, // dead-purple / crimson / smoke
-  vampire: { primary: 0xd6304a, secondary: 0xff5a52, accent: 0xff8090 }, // blood / scarlet / pale-red
   witch: { primary: 0x7fe08a, secondary: 0xb98ae0, accent: 0x4a7a3a }, // bog-green / hex-violet / moss
 };
 
@@ -100,8 +96,6 @@ export class Fx {
   // per-frame local-hit accumulation → one hardFreeze application per frame
   private hitsThisFrame = 0;
   private heavyThisFrame = false;
-  // necromancer R soul-return window (hits within 150ms stream back to caster)
-  private necroR: { x: number; y: number; at: number } | null = null;
 
   constructor(
     private scene: THREE.Scene,
@@ -258,8 +252,6 @@ export class Fx {
           this.view.addTrauma(0.06 * this.att(e.x, e.y));
         }
         this.audio.hit(e.x, e.y, e.dtype);
-        // necromancer R soul return: hits inside the window stream to the caster
-        if (this.necroR && this.clock - this.necroR.at < 0.15) this.soulStreak(e.x, e.y, this.necroR.x, this.necroR.y);
         break;
       }
       case "swing": {
@@ -281,9 +273,6 @@ export class Fx {
           : e.kind === "meteor" ? 0xff5a2c
           : e.kind === "trap" ? 0x9affc0
           : e.kind === "execute" ? 0xff3060
-          : e.kind === "sanguine" ? 0xd6304a
-          : e.kind === "judgement" ? 0xffd76a
-          : e.kind === "soulburst" ? 0x7affb0
           : e.kind === "hex" ? 0x7fe08a
           : 0xffa030;
         const big = e.kind === "meteor";
@@ -340,7 +329,6 @@ export class Fx {
         this.signatureCast(`${e.champId}:${e.key}`, e.x, e.y, e.dx, e.dy);
         this.audio.cast(e.champId, e.key, e.x, e.y);
         if (e.key === "R" && this.within(e.x, e.y, 1.5)) this.view.punchFov(2.2); // your R
-        if (e.champId === "necromancer" && e.key === "R") this.necroR = { x: e.x, y: e.y, at: this.clock };
         break;
       case "levelup":
         // converge → flash → rise: the one effect allowed to run long
@@ -441,7 +429,7 @@ export class Fx {
     }
   }
 
-  // ── per-ability signature casts (10 champs × QWER, layered A/C/S/L) ──
+  // ── per-ability signature casts (6 champs × QWER, layered A/C/S/L) ──
   private signatureCast(tag: string, x: number, y: number, dx: number, dy: number): void {
     switch (tag) {
       // KNIGHT — heavy steel, white-hot edges
@@ -464,31 +452,11 @@ export class Fx {
       case "rogue:W": this.castStreak(x, y, dx, dy, 0x9a7bff, 16, 12, 0.16); this.smoke(x, y, 5); break;
       case "rogue:E": this.smoke(x, y, 10); this.castDome(x, y, 0x6a5a9a, 2.4, 0.5); this.telegraphs.spawnResidue(x, y, 2.4, 0x201830, 2); break;
       case "rogue:R": this.castStreak(x, y, dx, dy, 0xff3060, 22, 14, 0.14); this.flash(x + dx * 2, 1.2, y + dy * 2, 0xff5070, 1.3, 2.0); this.crossGlint(x + dx * 2, 1.2, y + dy * 2, dx, dy, 0xff3060, 1.6); this.impactRing(x + dx * 2, y + dy * 2, 0xff3060, 2.4); this.debris(x + dx * 2, y + dy * 2, 4, 0x801020); if (this.within(x, y, 10)) this.bumpFreeze(35); break;
-      // BARBARIAN — earth and blood, widest shapes
-      case "barbarian:Q": this.sectorRim(x, y, dx, dy, 0xffb060, 3.4, 0.96); this.castCone(x, y, dx, dy, 0xd8985a, 3.4, 0.96); this.sparks(x + dx, 1.1, y + dy, dx, dy, 8, 0xffb060); this.dust(x, y, 4); break;
-      case "barbarian:W": this.fountain(x, y, 14, 0x9a7050); this.shockwave(x, y, 0xc08040, 2.6, 0.3); this.footDust(x, y, dx, dy); break;
-      case "barbarian:E": this.castDome(x, y, 0xff6a4a, 2.0, 0.45); this.fountain(x, y, 8, 0xffaa44); break;
-      case "barbarian:R": this.implode(x, y, 0xff4422, 3, 14, 0.26); this.castDome(x, y, 0xff4422, 2.6, 0.5); this.shockwave(x, y, 0xff5a2c, 3.5); this.shockwave(x, y, 0xff8a3c, 4, 0.5); this.burst(x, 1.2, y, 16, 0xff4422, 8, 0.4); if (this.within(x, y, 10)) this.bumpFreeze(50); this.view.addTrauma(0.16); break;
-      // NECROMANCER — souls flow, bone pierces
-      case "necromancer:Q": this.castStreak(x, y, dx, dy, 0xcfd8e0, 16, 10, 0.1); this.sparks(x + dx, 1.2, y + dy, dx, dy, 6, 0xeef2f6); break;
-      case "necromancer:W": this.castDome(x, y, 0x9a7bff, 1.6, 0.34); this.fallingWisps(x, y, 8, 0x9a7bff); break;
-      case "necromancer:E": this.fountain(x, y, 10, 0x7affa0); this.smoke(x, y, 4); break;
-      case "necromancer:R": this.implode(x, y, 0x7affa0, 5, 16, 0.3); this.castDome(x, y, 0x7affa0, 2.8, 0.5); this.shockwave(x, y, 0x7affa0, 3.5); this.fountain(x, y, 14, 0xaeffd0); break;
-      // PALADIN — gold and white, holy verticals
-      case "paladin:Q": this.sectorRim(x, y, dx, dy, 0xfff2c0, 3.4, 0.65); this.castCone(x, y, dx, dy, 0xffd76a, 3.4, 0.65); this.sparks(x + dx, 1.2, y + dy, dx, dy, 10, 0xfff2c0); break;
-      case "paladin:W": this.shockwave(x, y, 0xffd76a, 3.6, 0.5); this.castDome(x, y, 0xffe6a0, 3.4, 0.5); break;
-      case "paladin:E": this.castDome(x, y, 0xfff2c0, 2.2); this.fountain(x, y, 8, 0xffd76a); break;
-      case "paladin:R": this.implode(x, y, 0xfff2c0, 4, 12, 0.26); this.beam(x, y, 0xffd76a); this.shockwave(x, y, 0xfff2c0, 5.5); this.flash(x, 3.5, y, 0xffe6a0, 2.0, 2.0); this.view.addTrauma(0.14); break;
       // BLACK KNIGHT — dead purple, crimson edge, smoke
       case "blackknight:Q": this.sectorRim(x, y, dx, dy, 0xc03050, 3.8, 0.96); this.castCone(x, y, dx, dy, 0x8a4a5f, 3.8, 0.96); this.smoke(x, y, 3); break;
       case "blackknight:W": this.castStreak(x, y, dx, dy, 0x8a4a5f, 14, 12, 0.2); this.footDust(x, y, -dx, -dy); break;
       case "blackknight:E": this.castDome(x, y, 0x6a5a6f, 2.4, 0.5); this.sparks(x, 0.4, y, 0, 1, 8, 0xc0a0b0); break;
       case "blackknight:R": this.implode(x, y, 0xc03050, 4, 12, 0.24); this.shockwave(x, y, 0xc03050, 5.5); this.shockwave(x, y, 0x8a4a5f, 4, 0.5); this.burst(x, 1.2, y, 20, 0xc03050, 9, 0.4); this.smoke(x, y, 6); this.debris(x, y, 5, 0x3a2a34); if (this.within(x, y, 10)) this.bumpFreeze(60); this.view.addTrauma(0.18); break;
-      // VAMPIRE — blood reds, drinking motion
-      case "vampire:Q": this.castCone(x, y, dx, dy, 0xd6304a, 3.2, 0.78); this.sparks(x + dx, 1.2, y + dy, dx, dy, 8, 0xff8090); break;
-      case "vampire:W": this.castStreak(x, y, dx, dy, 0xd6304a, 18, 12, 0.14); this.smoke(x, y, 4); break;
-      case "vampire:E": this.impactRing(x, y, 0xff5a52, 2.0); this.fountain(x, y, 8, 0xd6304a); break;
-      case "vampire:R": this.castDome(x, y, 0xd6304a, 2.8, 0.5); this.shockwave(x, y, 0xff5a52, 5.5); this.fountain(x, y, 14, 0xd6304a); if (this.within(x, y, 10)) this.bumpFreeze(40); break;
       // WITCH — bog-green hexcraft
       case "witch:Q": this.castStreak(x, y, dx, dy, 0x7fe08a, 16, 10, 0.12); this.crossGlint(x + dx * 0.6, 1.3, y + dy * 0.6, dx, dy, 0x7fe08a, 0.8); this.flash(x + dx, 1.3, y + dy, 0xb0ffb8, 0.9, 1.6); break;
       case "witch:W": this.castDome(x, y, 0x7fe08a, 1.8, 0.35); this.bubbles(x, y, 6, 0x7fe08a); break;
@@ -563,21 +531,6 @@ export class Fx {
           o.color = 0xff5a2c;
           o.size = 0.24;
           o.life = 0.5;
-          this.pools.spawn("add", o);
-        }
-        break;
-      }
-      case "consecrate": {
-        if (now < st.next) return;
-        st.next = now + 300;
-        for (let i = 0; i < 3; i++) {
-          const a = Math.random() * Math.PI * 2;
-          const rr = Math.sqrt(Math.random()) * r;
-          const o = sp(g.x + Math.cos(a) * rr, 0.25, g.y + Math.sin(a) * rr);
-          o.vy = 1.8;
-          o.color = 0xffe6a0;
-          o.size = 0.22;
-          o.life = 0.6;
           this.pools.spawn("add", o);
         }
         break;
@@ -670,17 +623,6 @@ export class Fx {
     this.footDust(x, y, -0.5, 0.87);
     this.footDust(x, y, -0.5, -0.87);
     this.audio.land();
-  }
-
-  /** Heavy leap landing (barbarian W): ring + dust + radial sparks + trauma. */
-  landingThump(x: number, y: number): void {
-    this.impactRing(x, y, 0xc08040, 2.8);
-    this.dust(x, y, 6);
-    for (let i = 0; i < 8; i++) {
-      const a = (i / 8) * Math.PI * 2;
-      this.sparks(x, 0.4, y, Math.cos(a), Math.sin(a), 1, 0xffb060);
-    }
-    this.view.addTrauma(0.1 * this.att(x, y));
   }
 
   /** Per-champ basic-attack whoosh (delegates to the audio timbre table). */
@@ -950,18 +892,6 @@ export class Fx {
     }
   }
 
-  /** Falling wisps (curse) — falling = negative, free information. */
-  private fallingWisps(x: number, y: number, n: number, color: number): void {
-    for (let i = 0; i < n; i++) {
-      const o = sp(x + (Math.random() - 0.5) * 2.4, 2.5, y + (Math.random() - 0.5) * 2.4);
-      o.vy = -2;
-      o.life = 0.6 + Math.random() * 0.3;
-      o.size = 0.3;
-      o.color = color;
-      this.pools.spawn("add", o);
-    }
-  }
-
   /** Rising bog bubbles (witch brew / hex). */
   private bubbles(x: number, y: number, n: number, color: number, r = 1.2): void {
     for (let i = 0; i < n; i++) {
@@ -974,21 +904,6 @@ export class Fx {
       o.color = color;
       this.pools.spawn("add", o);
     }
-  }
-
-  /** Soul streak: one stretched particle flying from a hit victim to a point. */
-  private soulStreak(x: number, y: number, tx: number, ty: number): void {
-    const dx = tx - x;
-    const dy = ty - y;
-    const d = Math.hypot(dx, dy) || 1;
-    const o = sp(x, 1.2, y);
-    o.vx = (dx / d) * 14;
-    o.vz = (dy / d) * 14;
-    o.life = Math.min(0.6, d / 14);
-    o.size = 0.4;
-    o.stretch = true;
-    o.color = 0x7affb0;
-    this.pools.spawn("add", o);
   }
 
   // ── pooled transient meshes ──

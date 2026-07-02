@@ -1,15 +1,26 @@
 // The arena as DATA (build-doc §6). Both the sim and the renderer read this —
-// nothing is hand-placed in the renderer. Centered on the origin so the Throne
-// sits at (0,0); coords run [-HALF, HALF] on both axes. Sim plane is (x, y);
-// the renderer maps y → world-z.
+// nothing is hand-placed in the renderer. The arena is a regular HEXAGONAL
+// dungeon hall (KayKit Dungeon Remastered interior) centered on the origin so
+// the Throne sits at (0,0). Sim plane is (x, y); the renderer maps y → world-z.
+//
+// Hexagon convention: vertices at angles k·60° (vertex on the +x axis); edges
+// centered at 30° + k·60°; center→vertex = HEX_R; center→edge (apothem)
+// = HEX_R·cos(30°). The 6 spawn bases sit at the 6 edge midpoints.
 import { THRONE_RADIUS } from "./config";
 import type { Vec2 } from "../sim/math";
 
-export const HALF = 48; // arena half-extent (units)
+export const HEX_R = 44; // center → vertex (units)
+export const APOTHEM = HEX_R * Math.cos(Math.PI / 6); // center → edge ≈ 38.105
+export const HALF = 44; // compat half-extent (== HEX_R) — coarse consumers only
 export const ARENA = {
   half: HALF,
+  hexR: HEX_R,
+  apothem: APOTHEM,
   throne: { x: 0, y: 0, radius: THRONE_RADIUS },
 } as const;
+
+/** Outward unit normal of hex edge k (edge centered at 30° + k·60°). */
+export const EDGE_ANGLES: number[] = Array.from({ length: 6 }, (_, k) => Math.PI / 6 + (k * Math.PI) / 3);
 
 export const BOSS_POS: Vec2 = { x: 0, y: 0 };
 export const BOSS_PLATFORM_RADIUS = 5.5; // raised dais the boss stands on
@@ -17,73 +28,89 @@ export const BOSS_HEIGHT = 1.6; // dais lift (render + the coin-throw origin)
 
 export type SpawnPoint = { slot: number; x: number; y: number; facing: number };
 
-const SPAWN_RING = 42;
-const NUM_BASES = 6;
-/** Six bases evenly around the rim; each faces the center. */
-export const SPAWNS: SpawnPoint[] = Array.from({ length: NUM_BASES }, (_, i) => {
-  const a = (i / NUM_BASES) * Math.PI * 2 - Math.PI / 2; // start at top, go CW
-  const x = Math.cos(a) * SPAWN_RING;
-  const y = Math.sin(a) * SPAWN_RING;
+const SPAWN_R = APOTHEM - 5; // ≈ 33.1 — base pad inset from its wall
+/** Six bases at the six edge midpoints; each faces the center. */
+export const SPAWNS: SpawnPoint[] = EDGE_ANGLES.map((a, i) => {
+  const x = Math.cos(a) * SPAWN_R;
+  const y = Math.sin(a) * SPAWN_R;
   return { slot: i, x, y, facing: Math.atan2(-y, -x) };
 });
 
-/** Catch-up delivery drop zones — between the bases, mid-field. */
-export const DELIVERY_PADS: Vec2[] = Array.from({ length: 4 }, (_, i) => {
-  const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
-  return { x: Math.cos(a) * 24, y: Math.sin(a) * 24 };
-});
+/** Catch-up delivery drop zones — on four of the six vertex axes, mid-field
+ *  (between the dais ring and the vertex camps; point-symmetric pairs). */
+const PAD_ANGLES = [0, 2, 3, 5].map((k) => (k * Math.PI) / 3);
+export const DELIVERY_PADS: Vec2[] = PAD_ANGLES.map((a) => ({ x: Math.cos(a) * 18, y: Math.sin(a) * 18 }));
 
-/** Timed rune pickups (Phase 2 — positions reserved). */
+/** Timed rune pickups (Phase 2 — positions reserved): on the 45°+k·90°
+ *  diagonals, off every base lane and vertex axis. */
 export const RUNE_SPOTS: Vec2[] = Array.from({ length: 4 }, (_, i) => {
-  const a = (i / 4) * Math.PI * 2;
-  return { x: Math.cos(a) * 33, y: Math.sin(a) * 33 };
+  const a = Math.PI / 4 + (i * Math.PI) / 2;
+  return { x: Math.cos(a) * 25, y: Math.sin(a) * 25 };
 });
 
-/** Neutral skeleton camps — PvE pockets in the outer dungeon, between bases.
- *  `pack` overrides the default skeleton lineup; `respawnSec` the cadence. */
+/** Neutral skeleton camps — PvE pockets at the six hex vertices, between the
+ *  bases. `pack` overrides the default skeleton lineup; `respawnSec` the
+ *  cadence. */
 export type CampSpec = { id: string; x: number; y: number; pack?: string[]; respawnSec?: number };
 export const CAMPS: CampSpec[] = Array.from({ length: 6 }, (_, i) => {
-  // radius 24 keeps camps clear of the pillar rings (16 & 30) so skeletons
-  // don't spawn inside a column and grind against it
-  const a = (i / 6) * Math.PI * 2 - Math.PI / 2 + Math.PI / 6; // offset from the bases
-  return { id: `camp${i}`, x: Math.cos(a) * 24, y: Math.sin(a) * 24 };
+  const a = (i * Math.PI) / 3; // the vertex axes (0° = +x)
+  return { id: `camp${i}`, x: Math.cos(a) * 27, y: Math.sin(a) * 27 };
 });
-// Elite lair: the Frost Golem miniboss holds a 7th camp at ring r33 @15° —
-// verified clear of pillars, camps, delivery pads, bases, and rune spots.
-CAMPS.push({ id: "golem", x: 31.9, y: 8.5, pack: ["frostgolem"], respawnSec: 90 });
+// Elite lair: the Frost Golem miniboss holds the NE vertex corner, deeper in
+// behind camp1 — 9u behind the camp, clear of pads, bases, and rune spots.
+CAMPS.push({ id: "golem", x: Math.cos(Math.PI / 3) * 35.5, y: Math.sin(Math.PI / 3) * 35.5, pack: ["frostgolem"], respawnSec: 90 });
 
 /** `model` is a render hint only — the sim reads just x/y/radius. */
 export type Obstacle = { x: number; y: number; radius: number; height: number; model?: string };
 
-/** Cover pillars that break line of sight in the mid-ring. Kept off the
- *  base→center spokes so nobody spawns inside one. */
+/** Interior partition-wall runs (image-1 sub-room stubs): straight rows of
+ *  circle colliders the renderer dresses as continuous low wall segments.
+ *  angle = outward angle of the run's center; the run extends tangentially. */
+export type PartitionRun = { x: number; y: number; /** tangent direction (radians, sim plane) */ dir: number; /** collider centers along the tangent */ offsets: number[] };
+export const PARTITION_RUNS: PartitionRun[] = Array.from({ length: 6 }, (_, k) => {
+  // one cover run per sextant at 12° past each vertex axis, radius 22 —
+  // breaks the dais↔camp sightline while keeping every base→center lane
+  // (edge angles 30°+k·60°) ≥ 4u clear on both sides.
+  const a = (k * Math.PI) / 3 + (12 * Math.PI) / 180;
+  return {
+    x: Math.cos(a) * 22,
+    y: Math.sin(a) * 22,
+    dir: a + Math.PI / 2,
+    offsets: [-3, -1, 1, 3],
+  };
+});
+
+/** Cover in the mid-ring: 4 throne-flank pillars + the partition runs +
+ *  shrine statues watching the delivery pads. Kept off the base→center lanes
+ *  so nobody spawns inside one. */
 export const OBSTACLES: Obstacle[] = (() => {
   const out: Obstacle[] = [];
-  // inner ring of 4 pillars guarding the throne approaches
+  // inner ring of 4 pillars flanking the throne approaches (45° diagonals —
+  // 15° off the nearest base lane)
   for (let i = 0; i < 4; i++) {
-    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    const a = Math.PI / 4 + (i * Math.PI) / 2;
     out.push({ x: Math.cos(a) * 16, y: Math.sin(a) * 16, radius: 1.2, height: 4.5 });
   }
-  // outer ring of 6 pillars between the bases
-  for (let i = 0; i < 6; i++) {
-    const a = (i / 6) * Math.PI * 2;
-    out.push({ x: Math.cos(a) * 30, y: Math.sin(a) * 30, radius: 1.1, height: 3.8 });
+  // partition-wall colliders (rendered as continuous wall_half runs — the
+  // "wall_run" hint tells the renderer to skip per-circle models)
+  for (const run of PARTITION_RUNS) {
+    const tx = Math.cos(run.dir);
+    const ty = Math.sin(run.dir);
+    for (const t of run.offsets) {
+      out.push({ x: run.x + tx * t, y: run.y + ty * t, radius: 1.1, height: 2.4, model: "wall_run" });
+    }
   }
-  // shrine statues on the delivery-pad spokes — outside the coin ring (r9–22)
-  // and ≥6.8u off the nearest base spoke, so mid-ring flow is untouched
-  for (let i = 0; i < 4; i++) {
-    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+  // shrine statues on the delivery-pad axes, behind each pad (r21.5 vs pad
+  // r18) — outside the coin ring and ≥11u off the nearest base lane
+  for (const a of PAD_ANGLES) {
     out.push({
-      x: Math.cos(a) * 27,
-      y: Math.sin(a) * 27,
+      x: Math.cos(a) * 21.5,
+      y: Math.sin(a) * 21.5,
       radius: 0.55,
       height: 2.6,
       model: "paladin_statue",
     });
   }
-  // two collidable trees where the Breach forest invades the west rim
-  out.push({ x: -36.4, y: 6.4, radius: 1.0, height: 6.5, model: "tree_a" });
-  out.push({ x: -37.7, y: -10.1, radius: 1.0, height: 6.5, model: "tree_c" });
   return out;
 })();
 
@@ -93,13 +120,29 @@ export function isInThrone(x: number, y: number): boolean {
   return x * x + y * y <= THRONE_RADIUS * THRONE_RADIUS;
 }
 
-/** Clamp a point inside the (circular) arena, leaving a margin for the radius. */
+/** Signed distance helpers for the hex edge half-planes (edge normals at
+ *  30° + k·60°). Precomputed — clampToArena runs per unit per tick. */
+const EDGE_NX = EDGE_ANGLES.map((a) => Math.cos(a));
+const EDGE_NY = EDGE_ANGLES.map((a) => Math.sin(a));
+
+/** Clamp a point inside the hexagonal arena, leaving a margin for the radius.
+ *  Two passes over the 6 edge half-planes so vertex corners resolve cleanly. */
 export function clampToArena(x: number, y: number, radius = 0): Vec2 {
-  const max = HALF - radius;
-  const r = Math.sqrt(x * x + y * y);
-  if (r <= max) return { x, y };
-  const s = max / r;
-  return { x: x * s, y: y * s };
+  const max = APOTHEM - radius;
+  let px = x;
+  let py = y;
+  for (let pass = 0; pass < 2; pass++) {
+    for (let k = 0; k < 6; k++) {
+      const nx = EDGE_NX[k] ?? 0;
+      const ny = EDGE_NY[k] ?? 0;
+      const d = px * nx + py * ny;
+      if (d > max) {
+        px -= nx * (d - max);
+        py -= ny * (d - max);
+      }
+    }
+  }
+  return { x: px, y: py };
 }
 
 /** Push a circle (cx,cy,cr) out of any overlapping obstacle / the boss dais.

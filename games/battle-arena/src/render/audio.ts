@@ -83,7 +83,7 @@ export class Audio {
   private ly = 0;
   private rx = 0;
   private ry = 1;
-  private hissFlip = false; // rogue/vampire alternating dagger pan
+  private hissFlip = false; // rogue alternating dagger pan
   private ambStarted = false;
   private ambTimer: number | null = null;
   private ambNextPop = 0;
@@ -441,9 +441,6 @@ export class Audio {
       case "knight":
         this.atkKnight(t, x, y);
         break;
-      case "barbarian":
-        this.atkBarbarian(t, x, y);
-        break;
       case "rogue":
         this.atkRogueHiss(t, x, y, true);
         break;
@@ -466,22 +463,9 @@ export class Audio {
         this.atkMageBeat(t, x, y, 1, 0.08);
         this.tone({ at: t, x, y, freq: 1860, dur: 0.04, type: "sine", gain: 0.05 });
         break;
-      case "necromancer":
-        this.atkNecroRasp(t, x, y, 1, 1, 0.11);
-        break;
-      case "paladin":
-        // bright hammer ring: knight steel + sine 1568 ping
-        this.atkKnight(t, x, y);
-        this.tone({ at: t, x, y, freq: 1568, dur: 0.09, type: "sine", gain: 0.07 });
-        break;
       case "blackknight":
-        // barbarian heft pitched 0.8×, longer
-        this.atkBarbarian(t, x, y, 0.8, 1.25);
-        break;
-      case "vampire":
-        // rogue hiss + mage beat pair (drain shimmer)
-        this.atkRogueHiss(t, x, y, false);
-        this.atkMageBeat(t, x, y, 1, 0.07);
+        // heavy 2H heft pitched 0.8×, longer
+        this.atkHeavy(t, x, y, 0.8, 1.25);
         break;
       case "witch":
         this.witchVoice(t, x, y, 1, 1, 0.07);
@@ -504,8 +488,8 @@ export class Audio {
     });
   }
 
-  /** Heavy whoosh + 65Hz sub heft. */
-  private atkBarbarian(
+  /** Heavy whoosh + 65Hz sub heft (the 2H weight — Black Knight's swing). */
+  private atkHeavy(
     t: number,
     x: number | undefined,
     y: number | undefined,
@@ -555,27 +539,6 @@ export class Audio {
   ): void {
     this.tone({ at: t, x, y, freq: 620 * p, dur: 0.12, type: "sine", gain });
     this.tone({ at: t, x, y, freq: 627 * p, dur: 0.12, type: "sine", gain });
-  }
-
-  /** LFO-wobbled lowpass rasp (sawtooth 140 through lp520 wobbled at 9Hz). */
-  private atkNecroRasp(
-    t: number,
-    x: number | undefined,
-    y: number | undefined,
-    p: number,
-    d: number,
-    gain: number,
-  ): void {
-    this.tone({
-      at: t,
-      x,
-      y,
-      freq: 140 * p,
-      dur: 0.18 * d,
-      type: "sawtooth",
-      gain,
-      filter: { type: "lowpass", from: 520, lfo: { freq: 9, depth: 60 } },
-    });
   }
 
   /** Witch: wobbly detuned sine pair (7Hz beat, woozy downward slide) + rising
@@ -684,25 +647,8 @@ export class Audio {
       case "rogue":
         this.castRogue(t, x, y, p, d);
         break;
-      case "barbarian":
-        this.castBarbarian(t, x, y, p, d);
-        break;
-      case "necromancer":
-        // rasp base pitched 0.75×, stretched to 0.3s + detuned saw pair
-        this.atkNecroRasp(t, x, y, 0.75 * p, (0.3 / 0.18) * d, 0.11);
-        this.tone({ at: t, x, y, freq: 98 * p, dur: 0.3 * d, type: "sawtooth", gain: 0.06 });
-        this.tone({ at: t, x, y, freq: 99 * p, dur: 0.3 * d, type: "sawtooth", gain: 0.06 });
-        break;
-      case "paladin":
-        this.castKnight(t, x, y, p, d);
-        this.tone({ at: t, x, y, freq: 1568 * p, dur: 0.09, type: "sine", gain: 0.07 });
-        break;
       case "blackknight":
-        this.castBarbarian(t, x, y, p * 0.8, d * 1.25);
-        break;
-      case "vampire":
-        this.castRogue(t, x, y, p, d);
-        this.atkMageBeat(t, x, y, p, 0.06);
+        this.castHeavy(t, x, y, p * 0.8, d * 1.25);
         break;
       case "witch":
         this.witchVoice(t, x, y, p, 1.2 * d, 0.08);
@@ -769,7 +715,7 @@ export class Audio {
     });
   }
 
-  private castBarbarian(
+  private castHeavy(
     t: number,
     x: number | undefined,
     y: number | undefined,

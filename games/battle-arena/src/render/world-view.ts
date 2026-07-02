@@ -22,12 +22,8 @@ const ABILITY_CLIPS: Record<string, Partial<Record<AbilityKey, string>>> = {
   ranger: { Q: "Ranged_Bow_Release_Up", W: "Dodge_Forward", E: "PickUp", R: "Ranged_Bow_Release_Up" },
   mage: { Q: "Ranged_Magic_Shoot", W: "Ranged_Magic_Raise", E: "Ranged_Magic_Raise", R: "Ranged_Magic_Summon" },
   rogue: { Q: "Melee_Dualwield_Attack_Stab", W: "Dodge_Forward", E: "Dodge_Backward", R: "Melee_Dualwield_Attack_Slice" },
-  barbarian: { Q: "Melee_2H_Attack_Slice", W: "Melee_2H_Attack_Chop", E: "Use_Item", R: "Melee_2H_Attack_Spin" },
-  necromancer: { Q: "Ranged_Magic_Shoot", W: "Ranged_Magic_Raise", E: "Ranged_Magic_Spellcasting", R: "Ranged_Magic_Summon" },
-  paladin: { Q: "Melee_1H_Attack_Chop", W: "Ranged_Magic_Raise", E: "Melee_Blocking", R: "Ranged_Magic_Summon" },
   // Black Knight rides Rig_Large — these are native Large clip names
   blackknight: { Q: "Melee_2H_Attack", W: "Melee_Block_Attack", E: "Melee_Blocking", R: "Melee_2H_Slam" },
-  vampire: { Q: "Melee_1H_Attack_Slice_Diagonal", W: "Dodge_Forward", E: "Use_Item", R: "Ranged_Magic_Summon" },
   witch: { Q: "Ranged_Magic_Shoot", W: "Ranged_Magic_Summon", E: "Dodge_Forward", R: "Ranged_Magic_Raise" },
 };
 
@@ -36,19 +32,14 @@ const ABILITY_CLIPS: Record<string, Partial<Record<AbilityKey, string>>> = {
 const ATTACK_SETS: Record<string, string[]> = {
   knight: ["Melee_1H_Attack_Slice_Horizontal", "Melee_1H_Attack_Chop", "Melee_1H_Attack_Slice_Diagonal"],
   rogue: ["Melee_Dualwield_Attack_Slice", "Melee_Dualwield_Attack_Chop"],
-  barbarian: ["Melee_2H_Attack_Slice", "Melee_2H_Attack_Chop"],
   ranger: ["Ranged_Bow_Release", "Ranged_Bow_Release_Up"],
   mage: ["Ranged_Magic_Shoot"],
-  necromancer: ["Ranged_Magic_Shoot"],
-  paladin: ["Melee_1H_Attack_Slice_Horizontal", "Melee_1H_Attack_Stab", "Melee_1H_Attack_Chop"],
   blackknight: ["Melee_1H_Slash", "Melee_1H_Stab"], // native Large names
-  vampire: ["Melee_1H_Attack_Slice_Horizontal", "Melee_1H_Attack_Stab"],
   witch: ["Ranged_Magic_Shoot"],
   skwarrior: ["Melee_1H_Attack_Chop", "Melee_1H_Attack_Stab"],
   skminion: ["Melee_Unarmed_Attack_Punch_A", "Melee_1H_Attack_Chop"],
   skmage: ["Ranged_Magic_Shoot"],
   skrogue: ["Melee_Dualwield_Attack_Stab", "Melee_Dualwield_Attack_Slice"],
-  orcbrute: ["Melee_2H_Attack_Chop", "Melee_2H_Attack_Slice"],
   frostgolem: ["Melee_2H_Attack", "Melee_2H_Slam", "Melee_Unarmed_Smash"], // native Large names
 };
 
@@ -60,10 +51,7 @@ const MODEL_YAW = 0;
 const ATTACK_TIMING: Record<string, { ms: number; ts: number }> = {
   rogue: { ms: 300, ts: 1.6 },
   knight: { ms: 340, ts: 1.45 },
-  barbarian: { ms: 420, ts: 1.15 },
   blackknight: { ms: 440, ts: 1.1 },
-  paladin: { ms: 340, ts: 1.45 },
-  vampire: { ms: 320, ts: 1.5 },
 };
 const DEFAULT_TIMING = { ms: 340, ts: 1.45 };
 
@@ -93,9 +81,44 @@ const CREEP_VIEW: Record<string, ViewDef> = {
   skmage: { id: "skmage", model: "Skeleton_Mage", attackType: "ranged", attackDamageType: "magic", weaponR: "Skeleton_Staff" },
   skminion: { id: "skminion", model: "Skeleton_Minion", attackType: "melee", attackDamageType: "physical" },
   skrogue: { id: "skrogue", model: "Skeleton_Rogue", attackType: "melee", attackDamageType: "physical", weaponR: "Skeleton_Dagger" },
-  orcbrute: { id: "orcbrute", model: "OrcRaider", attackType: "melee", attackDamageType: "physical", weaponR: "Orc_Axe" },
   frostgolem: { id: "frostgolem", model: "FrostGolem", attackType: "melee", attackDamageType: "physical", weaponR: "FrostGolem_Axe_Large", rig: "large", scale: 1.45 },
 };
+
+// ── creep loot pickups (Fantasy Weapons Bits) ────────────────────────────────
+// A creep drop (coin.loot) renders as a spinning weapon piece instead of a boss
+// coin. The piece is picked by hashing the synced coin id, so every client
+// shows the same weapon without another wire field (and no Math.random).
+const LOOT_WEAPONS = ["sword_A", "sword_D", "axe_A", "hammer_B", "dagger_A", "spear_A", "staff_B", "wand_B"];
+const LOOT_HEIGHT = 0.9; // world units for the piece's largest dimension
+
+function hashId(id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return h;
+}
+
+/** Build a loot pickup: the hashed weapon piece, centered, small, laid at a
+ *  jaunty angle inside a pivot group (the pivot spins/bobs like a coin). */
+function makeLootPickup(lib: ModelLibrary, id: string): THREE.Group {
+  const h = hashId(id);
+  const piece = lib.instance(LOOT_WEAPONS[h % LOOT_WEAPONS.length]!);
+  const box = new THREE.Box3().setFromObject(piece);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  const s = LOOT_HEIGHT / Math.max(0.1, Math.max(size.x, size.y, size.z));
+  piece.scale.setScalar(s);
+  const center = new THREE.Vector3();
+  box.getCenter(center);
+  piece.position.set(-center.x * s, -center.y * s, -center.z * s);
+  // jaunty display angle — leaned over like it stuck in the ground sideways
+  const tilt = new THREE.Group();
+  tilt.add(piece);
+  tilt.rotation.z = 0.55 + (h % 3) * 0.12;
+  tilt.rotation.x = 0.25;
+  const pivot = new THREE.Group();
+  pivot.add(tilt);
+  return pivot;
+}
 
 // shared soft radial texture for blob contact-shadows
 let blobTexCache: THREE.Texture | null = null;
@@ -127,7 +150,6 @@ function locomotion(u: Unit): string {
 
 function attackClip(def: ViewDef): string {
   if (def.attackType === "ranged") return def.attackDamageType === "magic" ? "Ranged_Magic_Shoot" : "Ranged_Bow_Release";
-  if (def.id === "barbarian") return "Melee_2H_Attack_Chop"; // 2H axe
   return def.id === "rogue" ? "Melee_1H_Attack_Slice_Diagonal" : "Melee_1H_Attack_Chop";
 }
 
@@ -173,7 +195,6 @@ class UnitView {
   private recoilX = 0; // render-only knockback lurch (decays); shadow stays put
   private recoilZ = 0;
   private weapons: THREE.Object3D[] = [];
-  private weaponSlots: string[] = []; // bone name each weapon binds to (enrage re-attach)
   private mats: THREE.MeshStandardMaterial[] = [];
   private weaponMats: THREE.MeshStandardMaterial[] = [];
   private trails: WeaponTrail[] = [];
@@ -192,10 +213,6 @@ class UnitView {
   private mushroom: THREE.Object3D | null = null;
   private mushScale = 1;
   private hexShown = false;
-  // barbarian enrage: render-only swap to the Barbarian_Large model
-  private largeChar: AnimatedCharacter | null = null;
-  private largeMats: THREE.MeshStandardMaterial[] = [];
-  private enraged = false;
 
   constructor(
     private scene: THREE.Scene,
@@ -225,7 +242,6 @@ class UnitView {
       const trail = def.attackType === "melee" ? new WeaponTrail(wr, isLocal ? 0xfff4d8 : 0xdbe8ff) : null;
       if (this.char.attach(wr, "handslot.r")) {
         this.weapons.push(wr);
-        this.weaponSlots.push("handslot.r");
         this.weaponMats.push(...cloneMats(wr, null));
         if (trail) {
           this.trails.push(trail);
@@ -237,7 +253,6 @@ class UnitView {
       const wl = lib.instance(def.weaponL);
       if (this.char.attach(wl, "handslot.l")) {
         this.weapons.push(wl);
-        this.weaponSlots.push("handslot.l");
         this.weaponMats.push(...cloneMats(wl, null));
       }
     }
@@ -271,15 +286,6 @@ class UnitView {
 
     this.char.play("Idle_A", { fade: 0 });
     this.spawnClipPending = isCreep; // camp creeps rise from the ground
-  }
-
-  /** The character currently driving the visuals (enrage swaps to the Large). */
-  private charNow(): AnimatedCharacter {
-    return this.enraged && this.largeChar ? this.largeChar : this.char;
-  }
-
-  private matsNow(): THREE.MeshStandardMaterial[] {
-    return this.enraged && this.largeMats.length ? this.largeMats : this.mats;
   }
 
   update(u: Unit, now: number, dt: number, fx: Fx | null): void {
@@ -321,7 +327,6 @@ class UnitView {
     this.wasAlive = u.alive;
 
     if (!u.alive) {
-      if (this.enraged) this.setEnrage(false, u); // die in the small body
       if (this.hexShown) this.setHex(false);
       if (!this.deadShown) {
         this.char.play("Death_A", { fade: 0.12, loop: false, clamp: true });
@@ -390,10 +395,7 @@ class UnitView {
       this.mushroom.scale.set(this.mushScale * (1 - 0.07 * b), this.mushScale * (1 + 0.12 * b), this.mushScale * (1 - 0.07 * b));
       this.mushroom.position.y = Math.max(0, b) * 0.14;
     }
-    const wantEnrage = this.def.id === "barbarian" && u.statuses.some((s) => s.kind === "attackSpeed");
-    if (wantEnrage !== this.enraged) this.setEnrage(wantEnrage, u);
-
-    const ch = this.charNow();
+    const ch = this.char;
 
     // one-shots are triggered ON THE EVENT (delta), never per-frame — otherwise
     // play() would reset the clip to frame 0 every frame and freeze it.
@@ -465,12 +467,10 @@ class UnitView {
     if (this.prevHop > 0.2 && hopY === 0) {
       this.squash = 1;
       fx?.landJuice(u.x, u.y);
-      // the barbarian lands like a dropped anvil (his W leap rides this channel)
-      if (this.def.id === "barbarian") fx?.landingThump(u.x, u.y);
     }
     this.prevHop = hopY;
     this.squash *= Math.max(0, 1 - 9 * dt);
-    const bs = this.enraged ? this.baseScale * 1.15 : this.baseScale;
+    const bs = this.baseScale;
     ch.root.scale.set(bs * (1 + 0.12 * this.squash), bs * (1 - 0.18 * this.squash), bs * (1 + 0.12 * this.squash));
 
     // ── dash trail: streaks + dust shed behind any ability dash (not dodges) ──
@@ -515,10 +515,9 @@ class UnitView {
       }
     }
 
-    // hit flash (white pulse on damage) — on the ACTIVE body's cloned materials
+    // hit flash (white pulse on damage) — on this unit's cloned materials
     const flash = Math.max(0, 1 - (now - u.lastHitAt) / 110);
-    for (const m of this.matsNow()) m.emissive.setRGB(flash, flash * 0.85, flash * 0.7);
-    if (this.enraged) for (const m of this.largeMats) m.emissive.r += 0.15; // rage rim
+    for (const m of this.mats) m.emissive.setRGB(flash, flash * 0.85, flash * 0.7);
     // melee windup glint — micro-anticipation while a swing charges (90–140ms)
     const glint = u.pendingAttack ? 0.35 : 0;
     for (const m of this.weaponMats) m.emissive.setRGB(glint, glint, glint);
@@ -557,32 +556,7 @@ class UnitView {
       this.mushroom = pivot;
     }
     if (this.mushroom) this.mushroom.visible = on;
-    this.charNow().root.visible = !on;
-  }
-
-  /** Render-only Barbarian_Large swap while his enrage (attackSpeed) runs. */
-  private setEnrage(on: boolean, u: Unit): void {
-    if (on && !this.largeChar) {
-      this.largeChar = new AnimatedCharacter(this.lib, "Barbarian_Large", "Large/");
-      const tint = new THREE.Color(this.isLocal ? LOCAL_COLOR : this.color);
-      this.largeMats = cloneMats(this.largeChar.root, tint);
-      this.largeChar.root.scale.setScalar(this.baseScale * 1.15);
-      this.largeChar.root.visible = false;
-      this.group.add(this.largeChar.root);
-    }
-    this.enraged = on && this.largeChar !== null;
-    const target = this.charNow();
-    // re-home the weapons onto the active rig's hand bones
-    for (let i = 0; i < this.weapons.length; i++) {
-      const w = this.weapons[i];
-      const slot = this.weaponSlots[i];
-      if (w && slot) target.attach(w, slot);
-    }
-    this.char.root.visible = !this.enraged && !this.hexShown;
-    if (this.largeChar) this.largeChar.root.visible = this.enraged && !this.hexShown;
-    this.oneShotUntil = 0;
-    target.play(locomotion(u), { fade: 0.1 });
-    target.update(0);
+    this.char.root.visible = !on;
   }
 
   /** Begin a weapon trail on every melee weapon for the next `dur` ms. */
@@ -606,10 +580,8 @@ class UnitView {
     }
     this.statusFx?.dispose();
     this.char.dispose();
-    this.largeChar?.dispose();
     // free per-instance materials (shared skinned geometry stays with the template)
     for (const m of this.mats) m.dispose();
-    for (const m of this.largeMats) m.dispose();
     for (const m of this.weaponMats) m.dispose();
     this.ring.geometry.dispose();
     this.ringMat.dispose();
@@ -643,7 +615,7 @@ function disposeMat(m: THREE.Material | THREE.Material[]): void {
 export class WorldView {
   private units = new Map<string, UnitView>();
   private projectiles = new Map<string, THREE.Object3D>();
-  private coins = new Map<string, THREE.Mesh>();
+  private coins = new Map<string, THREE.Object3D>();
   private deliveries = new Map<string, THREE.Group>();
   private boss: AnimatedCharacter | null = null;
   private seenCoins = new Set<string>();
@@ -750,22 +722,29 @@ export class WorldView {
     const seen = new Set<string>();
     for (const c of w.coins) {
       seen.add(c.id);
-      // a freshly-spawned, still-flying coin = the boss just hurled it → animate
+      // a freshly-spawned, still-flying coin = the boss just hurled it → animate;
+      // a fresh loot drop (lands instantly) gets its landing pop right away
       if (!this.seenCoins.has(c.id)) {
         this.seenCoins.add(c.id);
         if (now < c.landAt && this.boss) {
           this.boss.play("Throw", { fade: 0.08, loop: false });
           this.bossReturnAt = now + 800;
+        } else if (c.loot) {
+          this.fx?.impactRing(c.x, c.y, 0xffd24a, 1.0);
+          this.fx?.sparks(c.x, 0.6, c.y, 0, 1, 5, 0xfff2b0);
+          this.fx?.dust(c.x, c.y, 2);
         }
       }
       let mesh = this.coins.get(c.id);
       if (!mesh) {
-        mesh = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.45, 0.45, 0.14, 18),
-          new THREE.MeshStandardMaterial({ color: 0xffd24a, emissive: 0xffaa20, emissiveIntensity: 1.0, metalness: 0.4, roughness: 0.4 }),
-        );
-        // no castShadow: the shadow map is static (rendered once) — a moving
-        // coin would leave a stale silhouette
+        // no castShadow on either shape: the shadow map is static (rendered
+        // once) — a moving pickup would leave a stale silhouette
+        mesh = c.loot
+          ? makeLootPickup(this.lib, c.id)
+          : new THREE.Mesh(
+              new THREE.CylinderGeometry(0.45, 0.45, 0.14, 18),
+              new THREE.MeshStandardMaterial({ color: 0xffd24a, emissive: 0xffaa20, emissiveIntensity: 1.0, metalness: 0.4, roughness: 0.4 }),
+            );
         this.coins.set(c.id, mesh);
         this.scene.add(mesh);
       }
@@ -795,15 +774,20 @@ export class WorldView {
           this.fx?.dust(c.x, c.y, 2);
         }
         mesh.position.set(c.x, terrainHeight(c.x, c.y) + 0.6 + Math.sin(now * 0.004) * 0.15, c.y);
-        // grounded coins wink — a cheap "come get me"
+        // grounded pickups wink — a cheap "come get me"
         const lastSparkle = this.coinSparkleAt.get(c.id) ?? 0;
         if (this.fx && now - lastSparkle > 700) {
           this.coinSparkleAt.set(c.id, now);
           this.fx.crossGlint(c.x, terrainHeight(c.x, c.y) + 0.9, c.y, 1, 0, 0xfff2b0, 0.5);
         }
       }
-      mesh.rotation.y = now * 0.005;
-      mesh.rotation.x = Math.PI / 2;
+      if (c.loot) {
+        // weapon piece: slow showcase spin (tilt lives on the inner group)
+        mesh.rotation.y = now * 0.0022 + (hashId(c.id) % 7);
+      } else {
+        mesh.rotation.y = now * 0.005;
+        mesh.rotation.x = Math.PI / 2;
+      }
     }
     for (const [id, mesh] of this.coins) {
       if (!seen.has(id)) {
