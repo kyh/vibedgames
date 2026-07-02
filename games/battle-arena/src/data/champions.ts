@@ -2,8 +2,8 @@
 // data-driven ability defs. The ability `effect` tag is dispatched by a switch
 // in sim/abilities.ts. Values are per-rank arrays read with valAt().
 //
-// Mapped to KayKit Adventurers/Skeletons models (all share the Rig_Medium
-// skeleton → one shared clip library animates every champion).
+// Mapped to KayKit Adventurers/Skeletons models (Rig_Medium by default → one
+// shared clip library; `rig: "large"` champs bind the "Large/"-prefixed set).
 import type { AbilityKey } from "../sim/types";
 import type { DamageType } from "./config";
 
@@ -50,12 +50,17 @@ export type ChampDef = {
   attackType: "melee" | "ranged";
   attackDamageType: DamageType;
   attackKind: string; // projectile visual for ranged; "melee" for melee
+  windupMs?: number; // melee basic-attack windup override (default MELEE_WINDUP)
   model: string; // GLB basename under public/models/characters
   weaponR?: string; // weapon model attached to handslot.r
   weaponL?: string; // weapon/shield attached to handslot.l
   cleaveTargets?: number; // max enemies a basic attack damages (default 3; rogue 1)
+  rig?: "large"; // needs the Rig_Large clip library ("Large/" prefix)
+  scale?: number; // render scale multiplier (default 1)
+  radius?: number; // sim collision radius override (default 0.62)
   tint: number; // fallback identity color (team color overrides in-match)
   blurb: string;
+  difficulty: 1 | 2 | 3; // select-screen difficulty pips (render-only)
   base: ChampStats;
   growth: Partial<ChampStats>;
   attr: { str: number; agi: number; int: number };
@@ -93,11 +98,13 @@ export const CHAMPIONS: ChampDef[] = [
     attackType: "melee",
     attackDamageType: "physical",
     attackKind: "melee",
+    windupMs: 100,
     model: "Knight",
     weaponR: "sword_1handed",
     weaponL: "shield_round",
     tint: 0x4f86ff,
     blurb: "A walking wall. Stun, charge in, and spin the throne to bloody mulch.",
+    difficulty: 1,
     base: { hp: 640, mp: 240, hpRegen: 4.5, mpRegen: 1.6, damage: 46, armor: 4, attackRange: 2.3, attackSpeed: 1.2, moveSpeed: 6.0, projectileSpeed: 0 },
     growth: { hp: 92, mp: 20, hpRegen: 0.45, mpRegen: 0.12, damage: 5, armor: 0.7, attackSpeed: 0.018 },
     attr: { str: 26, agi: 14, int: 12 },
@@ -121,6 +128,7 @@ export const CHAMPIONS: ChampDef[] = [
     weaponL: "bow",
     tint: 0x49d67a,
     blurb: "Death at range. Spread shots, dodge rolls, and a sky full of arrows.",
+    difficulty: 2,
     base: { hp: 490, mp: 280, hpRegen: 3.0, mpRegen: 2.0, damage: 48, armor: 2, attackRange: 9.5, attackSpeed: 0.9, moveSpeed: 6.2, projectileSpeed: 26 },
     growth: { hp: 72, mp: 22, hpRegen: 0.3, mpRegen: 0.16, damage: 5.5, armor: 0.5, attackSpeed: 0.03 },
     attr: { str: 15, agi: 26, int: 14 },
@@ -144,6 +152,7 @@ export const CHAMPIONS: ChampDef[] = [
     weaponR: "staff",
     tint: 0xc060ff,
     blurb: "Glass and fire. Nuke from afar, freeze the brave, and drop a meteor on the throne.",
+    difficulty: 2,
     base: { hp: 450, mp: 400, hpRegen: 2.6, mpRegen: 3.0, damage: 44, armor: 1, attackRange: 8.5, attackSpeed: 0.78, moveSpeed: 5.9, projectileSpeed: 20 },
     growth: { hp: 66, mp: 36, hpRegen: 0.26, mpRegen: 0.24, damage: 4.5, armor: 0.4, attackSpeed: 0.014 },
     attr: { str: 13, agi: 13, int: 28 },
@@ -163,12 +172,14 @@ export const CHAMPIONS: ChampDef[] = [
     attackType: "melee",
     attackDamageType: "physical",
     attackKind: "melee",
+    windupMs: 70,
     model: "Rogue_Hooded",
     weaponR: "dagger",
     weaponL: "dagger",
     cleaveTargets: 1, // single-target assassin — daggers don't cleave the cone
     tint: 0xff5a78,
     blurb: "In, out, gone. Poison, vanish, and execute anyone clinging to life.",
+    difficulty: 3,
     base: { hp: 480, mp: 260, hpRegen: 3.0, mpRegen: 1.8, damage: 44, armor: 2, attackRange: 2.2, attackSpeed: 1.4, moveSpeed: 6.5, projectileSpeed: 0 },
     growth: { hp: 70, mp: 22, hpRegen: 0.3, mpRegen: 0.14, damage: 6, armor: 0.6, attackSpeed: 0.035 },
     attr: { str: 15, agi: 28, int: 13 },
@@ -188,10 +199,12 @@ export const CHAMPIONS: ChampDef[] = [
     attackType: "melee",
     attackDamageType: "physical",
     attackKind: "melee",
+    windupMs: 140, // anticipation on the heavy — the axe hangs, then lands
     model: "Barbarian",
     weaponR: "axe_2handed",
     tint: 0xff8a3c,
     blurb: "Leap in, cleave wide, and rage until the throne is yours or you're dead.",
+    difficulty: 1,
     base: { hp: 600, mp: 290, hpRegen: 4.2, mpRegen: 2.0, damage: 54, armor: 3, attackRange: 2.4, attackSpeed: 1.05, moveSpeed: 6.1, projectileSpeed: 0 },
     growth: { hp: 86, mp: 24, hpRegen: 0.42, mpRegen: 0.14, damage: 6, armor: 0.6, attackSpeed: 0.022 },
     attr: { str: 25, agi: 16, int: 11 },
@@ -215,6 +228,7 @@ export const CHAMPIONS: ChampDef[] = [
     weaponR: "Skeleton_Staff",
     tint: 0x7affb0,
     blurb: "Control the ground. Curse the brave, rot their path, and feed on the dying.",
+    difficulty: 2,
     base: { hp: 500, mp: 360, hpRegen: 2.6, mpRegen: 2.8, damage: 46, armor: 1, attackRange: 8, attackSpeed: 0.8, moveSpeed: 6.05, projectileSpeed: 19 },
     growth: { hp: 68, mp: 32, hpRegen: 0.26, mpRegen: 0.22, damage: 4.6, armor: 0.4, attackSpeed: 0.015 },
     attr: { str: 13, agi: 14, int: 27 },
@@ -223,6 +237,110 @@ export const CHAMPIONS: ChampDef[] = [
       W: ab({ key: "W", name: "Curse", effect: "necromancer:W", targeting: "ground", castRange: 10, manaCost: [70, 80, 90, 100], cooldown: [12, 11, 10, 9], values: { damage: [40, 65, 90, 115], amp: [20, 25, 30, 35], dur: [4, 4, 4, 4], radius: [3.2, 3.4, 3.6, 3.8] }, desc: "Curse a zone — cursed enemies take extra damage." }),
       E: ab({ key: "E", name: "Decay", effect: "necromancer:E", targeting: "ground", castRange: 11, manaCost: [70, 80, 90, 100], cooldown: [13, 12, 11, 10], values: { dps: [70, 100, 130, 160], slow: [25, 30, 35, 40], radius: [3, 3.2, 3.4, 3.6], dur: [4, 4, 4, 4] }, desc: "Rot the ground — damage and slow over time." }),
       R: ab({ key: "R", name: "Soul Harvest", effect: "necromancer:R", targeting: "self", castRange: 0, manaCost: [120, 150, 180], cooldown: [70, 62, 54], values: { damage: [180, 260, 340], heal: [60, 90, 120], radius: [5, 5.5, 6] }, desc: "Tear the souls from everyone around you, healing for each one struck." }),
+    },
+  },
+  {
+    id: "paladin",
+    name: "Aurelius",
+    title: "the Dawnward",
+    role: "Vanguard Healer",
+    primary: "str",
+    attackType: "melee",
+    attackDamageType: "physical",
+    attackKind: "melee",
+    windupMs: 100,
+    model: "Paladin",
+    weaponR: "paladin_hammer",
+    weaponL: "paladin_shield",
+    tint: 0xffd76a,
+    blurb: "Holy ground and hammer law. Stand in his light and outlast everyone.",
+    difficulty: 2,
+    base: { hp: 620, mp: 260, hpRegen: 4.2, mpRegen: 1.6, damage: 45, armor: 3.5, attackRange: 2.3, attackSpeed: 1.0, moveSpeed: 5.9, projectileSpeed: 0 },
+    growth: { hp: 88, mp: 20, hpRegen: 0.4, mpRegen: 0.12, damage: 4.5, armor: 0.65, attackSpeed: 0.016 },
+    attr: { str: 24, agi: 12, int: 18 },
+    abilities: {
+      Q: ab({ key: "Q", name: "Hammer Verdict", effect: "paladin:Q", targeting: "direction", castRange: 3.4, manaCost: [60, 65, 70, 75], cooldown: [7, 6.5, 6, 5.5], values: { damage: [75, 115, 155, 195], slow: [25, 30, 35, 40], slowDur: [1.4, 1.4, 1.4, 1.4], cone: [75, 75, 75, 75] }, desc: "Swing a holy arc — damage and slow." }),
+      W: ab({ key: "W", name: "Consecration", effect: "paladin:W", targeting: "ground", castRange: 8, manaCost: [70, 80, 90, 100], cooldown: [13, 12, 11, 10], values: { dps: [50, 75, 100, 125], heal: [35, 50, 65, 80], radius: [3.4, 3.6, 3.8, 4.0], duration: [4, 4, 4, 4] }, desc: "Sanctify the ground — burn enemies, mend your own." }),
+      E: ab({ key: "E", name: "Aegis of Dawn", effect: "paladin:E", targeting: "self", castRange: 0, manaCost: [50, 55, 60, 65], cooldown: [15, 14, 13, 12], values: { shield: [110, 180, 250, 320], duration: [3.5, 3.5, 3.5, 3.5] }, desc: "Raise a radiant shield and shrug off disables." }),
+      R: ab({ key: "R", name: "Judgement", effect: "paladin:R", targeting: "self", castRange: 0, manaCost: [120, 140, 160], cooldown: [70, 62, 54], values: { damage: [170, 250, 330], radius: [5, 5.5, 6], stun: [0.9, 1.1, 1.3], healPer: [45, 70, 95] }, desc: "Smite all around you — stun the guilty, heal per soul judged." }),
+    },
+  },
+  {
+    id: "blackknight",
+    name: "Morvane",
+    title: "the Dread March",
+    role: "Juggernaut",
+    primary: "str",
+    attackType: "melee",
+    attackDamageType: "physical",
+    attackKind: "melee",
+    windupMs: 120,
+    model: "BlackKnight",
+    weaponR: "BlackKnight_Sword_Large",
+    weaponL: "BlackKnight_Shield_Large",
+    rig: "large",
+    scale: 1.06,
+    radius: 0.75,
+    tint: 0x8a4a5f,
+    blurb: "Slow is a choice. The wall that walks, and everything breaks against it.",
+    difficulty: 1,
+    base: { hp: 720, mp: 220, hpRegen: 5.0, mpRegen: 1.4, damage: 58, armor: 5, attackRange: 2.6, attackSpeed: 0.85, moveSpeed: 5.6, projectileSpeed: 0 },
+    growth: { hp: 100, mp: 18, hpRegen: 0.5, mpRegen: 0.1, damage: 6, armor: 0.8, attackSpeed: 0.014 },
+    attr: { str: 30, agi: 8, int: 10 },
+    abilities: {
+      Q: ab({ key: "Q", name: "Executioner's Arc", effect: "blackknight:Q", targeting: "direction", castRange: 3.8, manaCost: [50, 55, 60, 65], cooldown: [6, 5.5, 5, 4.5], values: { damage: [85, 130, 175, 220], cone: [110, 110, 110, 110], slow: [20, 20, 20, 20], slowDur: [1, 1, 1, 1] }, desc: "A vast sweeping cut — carve and slow everyone in front." }),
+      W: ab({ key: "W", name: "Dread March", effect: "blackknight:W", targeting: "dash", castRange: 8, manaCost: [70, 75, 80, 85], cooldown: [12, 11, 10, 9], values: { damage: [70, 110, 150, 190], speed: [20, 20, 20, 20], knockback: [5, 5.5, 6, 6.5], slow: [30, 30, 30, 30], slowDur: [1.5, 1.5, 1.5, 1.5] }, desc: "Advance like doom — shove aside and slow all you trample." }),
+      E: ab({ key: "E", name: "Iron Bastion", effect: "blackknight:E", targeting: "self", castRange: 0, manaCost: [55, 60, 65, 70], cooldown: [16, 15, 14, 13], values: { armor: [8, 12, 16, 20], hps: [30, 45, 60, 75], duration: [4, 4, 4, 4] }, desc: "Become the wall — armor up and mend while you march." }),
+      R: ab({ key: "R", name: "Oblivion Slam", effect: "blackknight:R", targeting: "self", castRange: 0, manaCost: [110, 130, 150], cooldown: [70, 62, 54], values: { damage: [220, 320, 420], radius: [4.5, 5, 5.5], stun: [0.8, 1.0, 1.2], knockback: [8, 8, 8] }, desc: "Bring the sword down — everything nearby is thrown and stunned." }),
+    },
+  },
+  {
+    id: "vampire",
+    name: "Vhalric",
+    title: "the Crimson",
+    role: "Drain Skirmisher",
+    primary: "int",
+    attackType: "melee",
+    attackDamageType: "magic",
+    attackKind: "melee",
+    windupMs: 80,
+    model: "Vampire",
+    weaponR: "Vampire_Sword",
+    tint: 0xd6304a,
+    blurb: "Every wound he gives is a meal. Trade with him and starve.",
+    difficulty: 2,
+    base: { hp: 520, mp: 280, hpRegen: 3.6, mpRegen: 2.0, damage: 46, armor: 2, attackRange: 2.4, attackSpeed: 1.15, moveSpeed: 6.3, projectileSpeed: 0 },
+    growth: { hp: 78, mp: 24, hpRegen: 0.35, mpRegen: 0.16, damage: 5, armor: 0.55, attackSpeed: 0.026 },
+    attr: { str: 14, agi: 20, int: 22 },
+    abilities: {
+      Q: ab({ key: "Q", name: "Bloodletting", effect: "vampire:Q", targeting: "direction", castRange: 3.2, manaCost: [45, 50, 55, 60], cooldown: [6, 5.5, 5, 4.5], values: { damage: [65, 100, 135, 170], heal: [25, 40, 55, 70], cone: [90, 90, 90, 90] }, desc: "Open veins in an arc — drink from everyone you cut." }),
+      W: ab({ key: "W", name: "Bat Rush", effect: "vampire:W", targeting: "dash", castRange: 8, manaCost: [50, 50, 50, 50], cooldown: [10, 9, 8, 7], values: { damage: [50, 80, 110, 140], heal: [30, 45, 60, 75], speed: [28, 28, 28, 28], invuln: [0.25, 0.25, 0.25, 0.25] }, desc: "Scatter into bats — dash through, feeding on each enemy passed." }),
+      E: ab({ key: "E", name: "Blood Rite", effect: "vampire:E", targeting: "self", castRange: 0, manaCost: [60, 60, 60, 60], cooldown: [15, 14, 13, 12], values: { shield: [110, 180, 250, 320], aspd: [20, 28, 36, 44], duration: [4, 4, 4, 4] }, desc: "Pay in blood — trade health for a shield and faster strikes." }),
+      R: ab({ key: "R", name: "Crimson Feast", effect: "vampire:R", targeting: "self", castRange: 0, manaCost: [100, 120, 140], cooldown: [70, 62, 54], values: { damage: [170, 250, 330], radius: [5, 5.5, 6], dotDps: [40, 55, 70], healPer: [80, 120, 160] }, desc: "Erupt in gore — burst, bleed, and gorge on every soul struck." }),
+    },
+  },
+  {
+    id: "witch",
+    name: "Grimelda",
+    title: "the Bog Witch",
+    role: "Hex Zoner",
+    primary: "int",
+    attackType: "ranged",
+    attackDamageType: "magic",
+    attackKind: "bolt",
+    model: "Witch",
+    weaponR: "wand_A",
+    tint: 0x7fe08a,
+    blurb: "Curses bubble, brooms fly, and her enemies make lovely mushrooms.",
+    difficulty: 3,
+    base: { hp: 500, mp: 300, hpRegen: 3.2, mpRegen: 2.2, damage: 42, armor: 2, attackRange: 7.5, attackSpeed: 1.05, moveSpeed: 6.0, projectileSpeed: 16 },
+    growth: { hp: 72, mp: 26, hpRegen: 0.3, mpRegen: 0.18, damage: 4.2, armor: 0.5, attackSpeed: 0.02 },
+    attr: { str: 12, agi: 14, int: 26 },
+    abilities: {
+      Q: ab({ key: "Q", name: "Hex Bolt", effect: "witch:Q", targeting: "direction", castRange: 9, manaCost: [55, 60, 65, 70], cooldown: [7, 6.5, 6, 5.5], values: { damage: [70, 110, 150, 190], slow: [20, 25, 30, 35], slowDur: [1.2, 1.2, 1.2, 1.2], speed: [18, 18, 18, 18] }, desc: "Spit a curdled bolt — damage and slow whoever it strikes." }),
+      W: ab({ key: "W", name: "Cauldron Brew", effect: "witch:W", targeting: "ground", castRange: 8, manaCost: [70, 80, 90, 100], cooldown: [13, 12, 11, 10], values: { dps: [45, 70, 95, 120], slow: [25, 30, 35, 40], radius: [3.2, 3.4, 3.6, 3.8], duration: [4, 4, 4, 4] }, desc: "Spill the cauldron — the brew burns and slows all who wade in." }),
+      E: ab({ key: "E", name: "Broom Surge", effect: "witch:E", targeting: "dash", castRange: 9, manaCost: [45, 45, 45, 45], cooldown: [12, 11, 10, 9], values: { speed: [24, 24, 24, 24], haste: [25, 30, 35, 40], hasteDur: [2, 2, 2, 2] }, desc: "Take to the broom — dash free and keep the wind after." }),
+      R: ab({ key: "R", name: "Grand Hex", effect: "witch:R", targeting: "ground", castRange: 8, manaCost: [110, 130, 150], cooldown: [80, 70, 60], values: { radius: [4, 4.5, 5], duration: [2.0, 2.4, 2.8], slow: [40, 40, 40] }, desc: "Hex the ground — everyone caught becomes a harmless mushroom." }),
     },
   },
 ];

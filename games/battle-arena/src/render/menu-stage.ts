@@ -1,13 +1,18 @@
 // 3D character-select stage for the lobby. Reuses the game's WebGLRenderer with
-// its own scene + camera: the six champions stand in a row, idle-animated, and
-// you click one to select it (highlight ring + glow + step forward). Raycasts
-// pointer events against per-champion proxy boxes.
+// its own scene + camera: the champion roster stands on a shallow arc (curving
+// away at the edges so all ten fit the frustum), idle-animated, each turned
+// slightly toward the camera. Click one to select it (highlight ring + glow +
+// step forward). Raycasts pointer events against per-champion proxy boxes.
+// Rig-aware: `rig: "large"` champs bind the "Large/" clip prefix and their
+// ChampDef scale, so the Black Knight reads properly huge in select.
 import * as THREE from "three";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { CHAMPIONS } from "../data/champions";
 import { AnimatedCharacter, ModelLibrary } from "./models";
 
-const SPACING = 2.35;
+const ARC_R = 15; // arc radius — edge champs curve gently back into the fog
+const ARC_GAP = 1.92; // spacing along the arc between champions
+const CAM_Z = 11.5;
 
 type Slot = {
   id: string;
@@ -16,6 +21,8 @@ type Slot = {
   group: THREE.Group;
   ring: THREE.Mesh;
   mats: THREE.MeshStandardMaterial[];
+  baseYaw: number; // resting turn toward the camera (arc lineup look)
+  baseZ: number; // resting depth on the arc (selected steps forward from here)
 };
 
 export class MenuStage {
@@ -34,7 +41,7 @@ export class MenuStage {
     private onSelect: (id: string) => void,
   ) {
     this.scene.background = new THREE.Color(0x0a0e1a);
-    this.scene.fog = new THREE.Fog(0x0a0e1a, 13, 30);
+    this.scene.fog = new THREE.Fog(0x0a0e1a, 15, 34);
 
     const pmrem = new THREE.PMREMGenerator(renderer);
     this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
@@ -60,18 +67,25 @@ export class MenuStage {
     const ringGeo = new THREE.RingGeometry(0.72, 0.98, 36);
     CHAMPIONS.forEach((c, i) => {
       const group = new THREE.Group();
-      group.position.x = (i - (n - 1) / 2) * SPACING;
+      // shallow arc: x sweeps the row, edges bow away from the camera
+      const th = (i - (n - 1) / 2) * (ARC_GAP / ARC_R);
+      group.position.x = Math.sin(th) * ARC_R;
+      group.position.z = (Math.cos(th) - 1) * ARC_R;
+      // half-turn each champion toward the camera so the lineup faces you
+      const baseYaw = Math.atan2(-group.position.x, CAM_Z - group.position.z) * 0.55;
+      group.rotation.y = baseYaw;
 
-      const char = new AnimatedCharacter(lib, c.model);
+      const scale = c.scale ?? 1;
+      const char = new AnimatedCharacter(lib, c.model, c.rig === "large" ? "Large/" : "");
       const mats: THREE.MeshStandardMaterial[] = [];
       char.root.traverse((o) => {
-        const m = o as THREE.Mesh;
-        if (!m.isMesh) return;
-        if (Array.isArray(m.material)) m.material = m.material.map((mm) => mm.clone());
-        else m.material = m.material.clone();
-        const mat = (Array.isArray(m.material) ? m.material[0] : m.material) as THREE.MeshStandardMaterial;
-        if (mat) mats.push(mat);
+        if (!(o instanceof THREE.Mesh)) return;
+        if (Array.isArray(o.material)) o.material = o.material.map((mm) => mm.clone());
+        else o.material = o.material.clone();
+        const mat = Array.isArray(o.material) ? o.material[0] : o.material;
+        if (mat instanceof THREE.MeshStandardMaterial) mats.push(mat);
       });
+      char.root.scale.setScalar(scale);
       group.add(char.root);
       if (c.weaponR) char.attach(lib.instance(c.weaponR), "handslot.r");
       if (c.weaponL) char.attach(lib.instance(c.weaponL), "handslot.l");
@@ -85,10 +99,10 @@ export class MenuStage {
       group.add(ring);
 
       const proxy = new THREE.Mesh(
-        new THREE.BoxGeometry(1.5, 2.3, 1.5),
+        new THREE.BoxGeometry(1.5, 2.3 * scale, 1.5),
         new THREE.MeshBasicMaterial({ visible: false }),
       );
-      proxy.position.y = 1.15;
+      proxy.position.y = 1.15 * scale;
       proxy.userData["champId"] = c.id;
       group.add(proxy);
       this.picks.push(proxy);
@@ -97,15 +111,15 @@ export class MenuStage {
       char.play("Idle_A", { fade: 0 });
       char.update(i * 0.37); // stagger so the idles don't march in lockstep
 
-      this.slots.push({ id: c.id, tint: c.tint, char, group, ring, mats });
+      this.slots.push({ id: c.id, tint: c.tint, char, group, ring, mats, baseYaw, baseZ: group.position.z });
     });
 
-    this.camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
-    this.camera.position.set(0, 2.7, 10.5);
-    this.camera.lookAt(0, 1.1, 0);
+    this.camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
+    this.camera.position.set(0, 2.8, CAM_Z);
+    this.camera.lookAt(0, 1.05, 0);
     this.resize();
-    // NB: don't notify onSelect here — `menu` isn't constructed yet. The Menu
-    // seeds its own initial selection (same default, CHAMPIONS[0]).
+    // NB: don't notify onSelect here — `menu` isn't constructed yet. main.ts
+    // calls stage.select(chosenChamp()) once both exist (persisted pick).
   }
 
   /** Programmatic select (also called from raycast hits). */
@@ -143,12 +157,12 @@ export class MenuStage {
       const selected = s.id === this.selectedId;
       const hovered = s.id === this.hoverId;
       // selected steps forward + bobs + spins its ring; hovered lifts a touch
-      const targetZ = selected ? 1.2 : 0;
+      const targetZ = s.baseZ + (selected ? 1.2 : 0);
       const targetScale = selected ? 1.12 : hovered ? 1.05 : 1;
       s.group.position.z += (targetZ - s.group.position.z) * Math.min(1, 8 * dt);
       const sc = s.group.scale.x + (targetScale - s.group.scale.x) * Math.min(1, 8 * dt);
       s.group.scale.setScalar(sc);
-      s.group.rotation.y = selected ? Math.sin(this.t * 0.6) * 0.25 : 0;
+      s.group.rotation.y = s.baseYaw + (selected ? Math.sin(this.t * 0.6) * 0.25 : 0);
       const ringMat = s.ring.material as THREE.MeshBasicMaterial;
       const targetOp = selected ? 0.85 + Math.sin(this.t * 4) * 0.15 : hovered ? 0.4 : 0;
       ringMat.opacity += (targetOp - ringMat.opacity) * Math.min(1, 10 * dt);

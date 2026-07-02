@@ -9,7 +9,10 @@ import type { AbilityKey, Projectile, Unit, World } from "../sim/types";
 import { AnimatedCharacter, ModelLibrary } from "./models";
 import { WeaponTrail } from "./weapon-trail";
 import { terrainHeight } from "../data/terrain";
-import type { Fx } from "./fx";
+import { CHAMP_FX, type Fx } from "./fx";
+import { applyDissolve, type DissolveHandle } from "./dissolve";
+import { StatusFx } from "./status-fx";
+import { groundFxColor } from "./telegraph";
 import { LOCAL_COLOR, teamColor } from "./palette";
 
 // Per-ability cast clips — uses the breadth of the KayKit library so each
@@ -21,6 +24,11 @@ const ABILITY_CLIPS: Record<string, Partial<Record<AbilityKey, string>>> = {
   rogue: { Q: "Melee_Dualwield_Attack_Stab", W: "Dodge_Forward", E: "Dodge_Backward", R: "Melee_Dualwield_Attack_Slice" },
   barbarian: { Q: "Melee_2H_Attack_Slice", W: "Melee_2H_Attack_Chop", E: "Use_Item", R: "Melee_2H_Attack_Spin" },
   necromancer: { Q: "Ranged_Magic_Shoot", W: "Ranged_Magic_Raise", E: "Ranged_Magic_Spellcasting", R: "Ranged_Magic_Summon" },
+  paladin: { Q: "Melee_1H_Attack_Chop", W: "Ranged_Magic_Raise", E: "Melee_Blocking", R: "Ranged_Magic_Summon" },
+  // Black Knight rides Rig_Large — these are native Large clip names
+  blackknight: { Q: "Melee_2H_Attack", W: "Melee_Block_Attack", E: "Melee_Blocking", R: "Melee_2H_Slam" },
+  vampire: { Q: "Melee_1H_Attack_Slice_Diagonal", W: "Dodge_Forward", E: "Use_Item", R: "Ranged_Magic_Summon" },
+  witch: { Q: "Ranged_Magic_Shoot", W: "Ranged_Magic_Summon", E: "Dodge_Forward", R: "Ranged_Magic_Raise" },
 };
 
 // Basic-attack clip rotations — swings vary shot-to-shot instead of repeating.
@@ -32,22 +40,41 @@ const ATTACK_SETS: Record<string, string[]> = {
   ranger: ["Ranged_Bow_Release", "Ranged_Bow_Release_Up"],
   mage: ["Ranged_Magic_Shoot"],
   necromancer: ["Ranged_Magic_Shoot"],
+  paladin: ["Melee_1H_Attack_Slice_Horizontal", "Melee_1H_Attack_Stab", "Melee_1H_Attack_Chop"],
+  blackknight: ["Melee_1H_Slash", "Melee_1H_Stab"], // native Large names
+  vampire: ["Melee_1H_Attack_Slice_Horizontal", "Melee_1H_Attack_Stab"],
+  witch: ["Ranged_Magic_Shoot"],
   skwarrior: ["Melee_1H_Attack_Chop", "Melee_1H_Attack_Stab"],
   skminion: ["Melee_Unarmed_Attack_Punch_A", "Melee_1H_Attack_Chop"],
   skmage: ["Ranged_Magic_Shoot"],
+  skrogue: ["Melee_Dualwield_Attack_Stab", "Melee_Dualwield_Attack_Slice"],
+  orcbrute: ["Melee_2H_Attack_Chop", "Melee_2H_Attack_Slice"],
+  frostgolem: ["Melee_2H_Attack", "Melee_2H_Slam", "Melee_Unarmed_Smash"], // native Large names
 };
 
 // KayKit medium characters face +Z; sim aim is (cos facing, sin facing) on (x,z).
 const MODEL_YAW = 0;
 
-const ATTACK_ANIM_MS = 340; // snappy swing window
-const ATTACK_TIMESCALE = 1.45; // play the swing clip faster so it fits the window
+// Per-champ basic-attack timing: window (ms) + clip timescale. Heavier weapons
+// wind up longer and play slower — the axe hangs, the daggers snap.
+const ATTACK_TIMING: Record<string, { ms: number; ts: number }> = {
+  rogue: { ms: 300, ts: 1.6 },
+  knight: { ms: 340, ts: 1.45 },
+  barbarian: { ms: 420, ts: 1.15 },
+  blackknight: { ms: 440, ts: 1.1 },
+  paladin: { ms: 340, ts: 1.45 },
+  vampire: { ms: 320, ts: 1.5 },
+};
+const DEFAULT_TIMING = { ms: 340, ts: 1.45 };
+
 const CAST_ANIM_MS = 520;
 const HIT_ANIM_MS = 280;
 const JUMP_ANIM_MS = 600;
 const JUMP_RENDER_MS = 620; // mirrors sim JUMP_MS — drives the hop-arc height
 const HOP_HEIGHT = 1.4; // peak lift of the jump arc (world units)
 const DODGE_ANIM_MS = 360; // mirrors sim DODGE_MS
+const SPAWN_ANIM_MS = 700; // Spawn_Air / Skeletons_Spawn_Ground one-shots
+const GOLD = new THREE.Color(0xffd24a);
 
 // minimal descriptor a UnitView needs (ChampDef satisfies it; so do creeps)
 type ViewDef = {
@@ -57,12 +84,17 @@ type ViewDef = {
   attackDamageType: DamageType;
   weaponR?: string;
   weaponL?: string;
+  rig?: "large";
+  scale?: number;
 };
 
 const CREEP_VIEW: Record<string, ViewDef> = {
   skwarrior: { id: "skwarrior", model: "Skeleton_Warrior", attackType: "melee", attackDamageType: "physical" },
   skmage: { id: "skmage", model: "Skeleton_Mage", attackType: "ranged", attackDamageType: "magic", weaponR: "Skeleton_Staff" },
   skminion: { id: "skminion", model: "Skeleton_Minion", attackType: "melee", attackDamageType: "physical" },
+  skrogue: { id: "skrogue", model: "Skeleton_Rogue", attackType: "melee", attackDamageType: "physical", weaponR: "Skeleton_Dagger" },
+  orcbrute: { id: "orcbrute", model: "OrcRaider", attackType: "melee", attackDamageType: "physical", weaponR: "Orc_Axe" },
+  frostgolem: { id: "frostgolem", model: "FrostGolem", attackType: "melee", attackDamageType: "physical", weaponR: "FrostGolem_Axe_Large", rig: "large", scale: 1.45 },
 };
 
 // shared soft radial texture for blob contact-shadows
@@ -119,7 +151,10 @@ class UnitView {
   readonly group = new THREE.Group();
   private char: AnimatedCharacter;
   private ring: THREE.Mesh;
+  private ringMat: THREE.MeshBasicMaterial;
+  private ringBase: THREE.Color;
   private def: ViewDef;
+  private baseScale: number;
   private deadShown = false;
   private placed = false;
   private wasAlive = true;
@@ -138,37 +173,51 @@ class UnitView {
   private recoilX = 0; // render-only knockback lurch (decays); shadow stays put
   private recoilZ = 0;
   private weapons: THREE.Object3D[] = [];
+  private weaponSlots: string[] = []; // bone name each weapon binds to (enrage re-attach)
   private mats: THREE.MeshStandardMaterial[] = [];
+  private weaponMats: THREE.MeshStandardMaterial[] = [];
   private trails: WeaponTrail[] = [];
   private blob: THREE.Mesh; // contact shadow (scene sibling, decoupled from hopY)
+  private dissolve: DissolveHandle;
+  private statusFx: StatusFx | null = null;
+  // landing squash & dash-trail state
+  private prevHop = 0;
+  private squash = 0;
+  private wasDashing = false;
+  private lastDashTrailAt = 0;
+  private lastDashDustAt = 0;
+  private lastUltMoteAt = 0;
+  private spawnClipPending = false;
+  // witch hex: character swaps to a hopping mushroom while the status lives
+  private mushroom: THREE.Object3D | null = null;
+  private mushScale = 1;
+  private hexShown = false;
+  // barbarian enrage: render-only swap to the Barbarian_Large model
+  private largeChar: AnimatedCharacter | null = null;
+  private largeMats: THREE.MeshStandardMaterial[] = [];
+  private enraged = false;
 
   constructor(
     private scene: THREE.Scene,
-    lib: ModelLibrary,
+    private lib: ModelLibrary,
     def: ViewDef,
-    color: number,
-    isLocal: boolean,
+    private color: number,
+    private isLocal: boolean,
+    private isCreep: boolean,
   ) {
     this.def = def;
-    this.char = new AnimatedCharacter(lib, def.model);
+    this.baseScale = def.scale ?? 1;
+    this.char = new AnimatedCharacter(lib, def.model, def.rig === "large" ? "Large/" : "");
+    this.char.root.scale.setScalar(this.baseScale);
     this.group.add(this.char.root);
 
     // clone materials per-instance so hit-flash / stealth / team-tint don't
     // bleed across units that share a model (SkeletonUtils.clone shares mats).
     const tint = new THREE.Color(isLocal ? LOCAL_COLOR : color);
-    this.char.root.traverse((o) => {
-      const m = o as THREE.Mesh;
-      if (!m.isMesh) return;
-      if (Array.isArray(m.material)) m.material = m.material.map((mm) => mm.clone());
-      else m.material = m.material.clone();
-      const mat = (Array.isArray(m.material) ? m.material[0] : m.material) as THREE.MeshStandardMaterial;
-      if (mat) {
-        mat.color.lerp(tint, 0.18); // subtle team/identity hue
-        this.mats.push(mat);
-      }
-    });
+    this.mats = cloneMats(this.char.root, tint);
 
-    // give the champion their weapon(s), bound to the hand bones
+    // give the champion their weapon(s), bound to the hand bones. Weapon mats
+    // are ALSO cloned per-instance (windup glint / empower glow must not bleed).
     if (def.weaponR) {
       const wr = lib.instance(def.weaponR);
       // a blade trail on the main weapon (melee only) — computed pre-attach so
@@ -176,6 +225,8 @@ class UnitView {
       const trail = def.attackType === "melee" ? new WeaponTrail(wr, isLocal ? 0xfff4d8 : 0xdbe8ff) : null;
       if (this.char.attach(wr, "handslot.r")) {
         this.weapons.push(wr);
+        this.weaponSlots.push("handslot.r");
+        this.weaponMats.push(...cloneMats(wr, null));
         if (trail) {
           this.trails.push(trail);
           this.scene.add(trail.mesh);
@@ -184,19 +235,26 @@ class UnitView {
     }
     if (def.weaponL) {
       const wl = lib.instance(def.weaponL);
-      if (this.char.attach(wl, "handslot.l")) this.weapons.push(wl);
+      if (this.char.attach(wl, "handslot.l")) {
+        this.weapons.push(wl);
+        this.weaponSlots.push("handslot.l");
+        this.weaponMats.push(...cloneMats(wl, null));
+      }
     }
+
+    // death dissolve — patched ONCE at construction on the per-instance mats
+    this.dissolve = applyDissolve(this.mats);
+    this.dissolve.setEdge(isCreep ? 0xcfd8e0 : (isLocal ? LOCAL_COLOR : color));
 
     const ringColor = isLocal ? LOCAL_COLOR : color;
     // local ring is larger + fainter so it reads as a clean circle on the ground
     // around your feet — a tight ring gets occluded by the body into "floating"
     // slivers. Non-local stays a small footprint tag.
-    const innerR = isLocal ? 1.15 : 0.7;
-    const outerR = isLocal ? 1.35 : 0.95;
-    this.ring = new THREE.Mesh(
-      new THREE.RingGeometry(innerR, outerR, 48),
-      new THREE.MeshBasicMaterial({ color: ringColor, transparent: true, opacity: isLocal ? 0.55 : 0.6, side: THREE.DoubleSide, depthWrite: false }),
-    );
+    const innerR = (isLocal ? 1.15 : 0.7) * this.baseScale;
+    const outerR = (isLocal ? 1.35 : 0.95) * this.baseScale;
+    this.ringBase = new THREE.Color(ringColor);
+    this.ringMat = new THREE.MeshBasicMaterial({ color: ringColor, transparent: true, opacity: isLocal ? 0.55 : 0.6, side: THREE.DoubleSide, depthWrite: false });
+    this.ring = new THREE.Mesh(new THREE.RingGeometry(innerR, outerR, 48), this.ringMat);
     this.ring.rotation.x = -Math.PI / 2;
     this.ring.position.y = 0.04;
     this.group.add(this.ring);
@@ -212,6 +270,16 @@ class UnitView {
     this.scene.add(this.blob);
 
     this.char.play("Idle_A", { fade: 0 });
+    this.spawnClipPending = isCreep; // camp creeps rise from the ground
+  }
+
+  /** The character currently driving the visuals (enrage swaps to the Large). */
+  private charNow(): AnimatedCharacter {
+    return this.enraged && this.largeChar ? this.largeChar : this.char;
+  }
+
+  private matsNow(): THREE.MeshStandardMaterial[] {
+    return this.enraged && this.largeMats.length ? this.largeMats : this.mats;
   }
 
   update(u: Unit, now: number, dt: number, fx: Fx | null): void {
@@ -243,7 +311,7 @@ class UnitView {
     // unit rises so it reads as a cast shadow
     this.blob.position.set(u.x, groundY + 0.02, u.y);
     this.blob.visible = u.alive;
-    this.blob.scale.setScalar(Math.max(0.45, 1 - hopY * 0.28));
+    this.blob.scale.setScalar(this.baseScale * Math.max(0.45, 1 - hopY * 0.28));
 
     // shortest-arc yaw smoothing (no instant 180° snaps)
     const targetYaw = Math.atan2(u.aimX, u.aimY) + MODEL_YAW;
@@ -253,31 +321,43 @@ class UnitView {
     this.wasAlive = u.alive;
 
     if (!u.alive) {
+      if (this.enraged) this.setEnrage(false, u); // die in the small body
+      if (this.hexShown) this.setHex(false);
       if (!this.deadShown) {
         this.char.play("Death_A", { fade: 0.12, loop: false, clamp: true });
         this.deadShown = true;
         this.deadAt = now;
         this.oneShotUntil = 0;
-        // rising soul wisps + a ground ring on the death frame
+        // rising soul wisps on the death frame
         const soul = new THREE.Color(this.def.attackDamageType === "magic" ? 0x9a7bff : 0x9fd0ff);
         fx?.fountain(u.x, u.y, 12, soul.getHex());
       }
       this.ring.visible = false;
-      // dissolve: fade to a faint cold ghost over ~600ms, then hold
       const k = Math.min(1, (now - this.deadAt) / 600);
-      const op = 1 - k * 0.82;
-      const glow = (1 - k) * 0.25;
-      for (const m of this.mats) {
-        m.transparent = true;
-        m.opacity = op;
-        m.emissive.setRGB(glow * 0.5, glow * 0.6, glow);
+      if (this.isCreep) {
+        // creeps dissolve away completely, sinking as they go (bone-white edge)
+        this.dissolve.set(k);
+        this.group.position.y = groundY - 0.4 * k;
+      } else {
+        // heroes dissolve partway (cap 0.55) into the cold-ghost hold — the
+        // corpse stays readable until the respawn
+        this.dissolve.set(0.55 * k);
+        const op = 1 - k * 0.82;
+        const glow = (1 - k) * 0.25;
+        for (const m of this.mats) {
+          m.transparent = true;
+          m.opacity = op;
+          m.emissive.setRGB(glow * 0.5, glow * 0.6, glow);
+        }
       }
+      this.statusFx?.update(u, dt, now); // clears status writes for the dissolve
       this.char.update(dt);
       this.updateTrails(now, dt); // let any lingering trail fade out
       return;
     }
     if (this.deadShown) {
       // respawned — restore the material state the dissolve clobbered
+      this.dissolve.set(0);
       for (const m of this.mats) {
         m.opacity = 1;
         m.transparent = false;
@@ -287,24 +367,54 @@ class UnitView {
     this.deadShown = false;
     this.ring.visible = true;
 
+    // hero respawn: beam + converge + Spawn_Air drop-in
+    if (respawned && !this.isCreep) {
+      fx?.respawnBurst(u.x, u.y, this.isLocal ? LOCAL_COLOR : this.color, this.isLocal);
+      this.char.play("Spawn_Air", { loop: false, fade: 0.05 });
+      this.oneShotUntil = now + SPAWN_ANIM_MS;
+    }
+    // camp creeps rise out of the ground on their first frame
+    if (this.spawnClipPending) {
+      this.spawnClipPending = false;
+      this.char.play("Skeletons_Spawn_Ground", { loop: false, fade: 0 });
+      this.oneShotUntil = now + SPAWN_ANIM_MS + 200;
+      fx?.dust(u.x, u.y, 4);
+    }
+
+    // ── render-only status swaps (synced statuses → identical on guests) ──
+    const hexed = u.statuses.some((s) => s.kind === "hex");
+    if (hexed !== this.hexShown) this.setHex(hexed);
+    if (this.mushroom && this.hexShown) {
+      // hop-squash idle: volume-conserving wobble + a tiny bounce
+      const b = Math.sin(now * 0.009);
+      this.mushroom.scale.set(this.mushScale * (1 - 0.07 * b), this.mushScale * (1 + 0.12 * b), this.mushScale * (1 - 0.07 * b));
+      this.mushroom.position.y = Math.max(0, b) * 0.14;
+    }
+    const wantEnrage = this.def.id === "barbarian" && u.statuses.some((s) => s.kind === "attackSpeed");
+    if (wantEnrage !== this.enraged) this.setEnrage(wantEnrage, u);
+
+    const ch = this.charNow();
+
     // one-shots are triggered ON THE EVENT (delta), never per-frame — otherwise
     // play() would reset the clip to frame 0 every frame and freeze it.
+    const timing = ATTACK_TIMING[this.def.id] ?? DEFAULT_TIMING;
     if (u.lastCastAt !== this.lastCastShown) {
       this.lastCastShown = u.lastCastAt;
       if (now - u.lastCastAt < CAST_ANIM_MS) {
         const byKey = u.lastCastKey ? ABILITY_CLIPS[this.def.id]?.[u.lastCastKey] : undefined;
-        this.char.play(byKey ?? castClip(this.def), { loop: false, fade: 0.06 });
+        ch.play(byKey ?? castClip(this.def), { loop: false, fade: 0.06 });
         this.oneShotUntil = now + CAST_ANIM_MS;
         this.emitTrails(now, CAST_ANIM_MS);
       }
     } else if (u.lastAttackAt !== this.lastAttackShown) {
       this.lastAttackShown = u.lastAttackAt;
-      if (now - u.lastAttackAt < ATTACK_ANIM_MS) {
+      if (now - u.lastAttackAt < timing.ms) {
         const set = ATTACK_SETS[this.def.id] ?? [attackClip(this.def)];
         const clip = set[this.attackIdx++ % set.length]!;
-        this.char.play(clip, { loop: false, fade: 0.04, timeScale: ATTACK_TIMESCALE });
-        this.oneShotUntil = now + ATTACK_ANIM_MS;
-        this.emitTrails(now, ATTACK_ANIM_MS); // weapon-trail ribbon traces the blade
+        ch.play(clip, { loop: false, fade: 0.04, timeScale: timing.ts });
+        this.oneShotUntil = now + timing.ms;
+        this.emitTrails(now, timing.ms); // weapon-trail ribbon traces the blade
+        fx?.attackSound(this.def.id, u.x, u.y);
       }
     }
     // get-hit flinch — when freshly damaged and not mid-swing/cast (throttled so
@@ -317,7 +427,7 @@ class UnitView {
         this.recoilZ = u.lastHitDy * 0.34;
       }
       if (u.alive && now - u.lastHitAt < 180 && now >= this.oneShotUntil && now - this.lastFlinchAt > 420) {
-        this.char.play(this.hitIdx++ % 2 ? "Hit_B" : "Hit_A", { loop: false, fade: 0.05 });
+        ch.play(this.hitIdx++ % 2 ? "Hit_B" : "Hit_A", { loop: false, fade: 0.05 });
         this.oneShotUntil = now + HIT_ANIM_MS;
         this.lastFlinchAt = now;
       }
@@ -326,7 +436,7 @@ class UnitView {
     if (u.jumpUntil !== this.lastJumpShown) {
       this.lastJumpShown = u.jumpUntil;
       if (u.jumpUntil > now) {
-        this.char.play("Jump_Full_Long", { loop: false, fade: 0.05 });
+        ch.play("Jump_Full_Long", { loop: false, fade: 0.05 });
         this.oneShotUntil = now + JUMP_ANIM_MS;
       }
     }
@@ -334,8 +444,9 @@ class UnitView {
     if (u.lastDodgeAt !== this.lastDodgeShown) {
       this.lastDodgeShown = u.lastDodgeAt;
       if (u.alive && now - u.lastDodgeAt < 200) {
-        this.char.play(dodgeClip(u), { loop: false, fade: 0.05 });
+        ch.play(dodgeClip(u), { loop: false, fade: 0.05 });
         this.oneShotUntil = now + DODGE_ANIM_MS;
+        fx?.dodgeJuice(u.x, u.y, u.dashVx, u.dashVy);
       }
     }
     // an active one-shot (attack/cast/ability incl. dash-abilities) plays out;
@@ -343,12 +454,42 @@ class UnitView {
     if (now < this.oneShotUntil) {
       // hold the current one-shot
     } else if (now < u.dashUntil) {
-      this.char.play("Running_A", { fade: 0.1 });
+      ch.play("Running_A", { fade: 0.1 });
     } else {
-      this.char.play(locomotion(u), { fade: 0.16 });
+      ch.play(locomotion(u), { fade: 0.16 });
     }
-    this.char.update(dt);
+    ch.update(dt);
     this.updateTrails(now, dt); // sample the blade AFTER the pose updates
+
+    // ── landing squash & stretch (volume-conserving, ~150ms recover) ──
+    if (this.prevHop > 0.2 && hopY === 0) {
+      this.squash = 1;
+      fx?.landJuice(u.x, u.y);
+      // the barbarian lands like a dropped anvil (his W leap rides this channel)
+      if (this.def.id === "barbarian") fx?.landingThump(u.x, u.y);
+    }
+    this.prevHop = hopY;
+    this.squash *= Math.max(0, 1 - 9 * dt);
+    const bs = this.enraged ? this.baseScale * 1.15 : this.baseScale;
+    ch.root.scale.set(bs * (1 + 0.12 * this.squash), bs * (1 - 0.18 * this.squash), bs * (1 + 0.12 * this.squash));
+
+    // ── dash trail: streaks + dust shed behind any ability dash (not dodges) ──
+    const dashing = now < u.dashUntil && now >= u.dodgeUntil;
+    if (dashing && fx) {
+      const primary = CHAMP_FX[this.def.id]?.primary ?? 0x9fd0ff;
+      if (now - this.lastDashTrailAt > 40) {
+        this.lastDashTrailAt = now;
+        fx.castStreak(u.x, u.y, -u.dashVx, -u.dashVy, primary, 6, 2, 0.35);
+      }
+      if (now - this.lastDashDustAt > 80) {
+        this.lastDashDustAt = now;
+        fx.footDust(u.x, u.y, -u.dashVx, -u.dashVy);
+      }
+    }
+    if (this.wasDashing && !dashing && fx) {
+      fx.impactRing(u.x, u.y, CHAMP_FX[this.def.id]?.primary ?? 0x9fd0ff, 1.6); // dash-expiry pop
+    }
+    this.wasDashing = dashing;
 
     // footstep dust on fast ground movement (grounds the run cycle)
     const spd = Math.hypot(u.vx, u.vy);
@@ -357,18 +498,96 @@ class UnitView {
       fx.footDust(u.x, u.y, -u.vx, -u.vy);
     }
 
-    // hit flash (white pulse on damage) + stealth dim — on cloned materials
-    const flash = Math.max(0, 1 - (now - u.lastHitAt) / 110);
-    const stealthed = u.statuses.some((s) => s.kind === "stealth");
-    for (const m of this.mats) {
-      m.emissive.setRGB(flash, flash * 0.85, flash * 0.7);
-      m.transparent = stealthed;
-      m.opacity = stealthed ? 0.4 : 1;
+    // ── ult-ready ring: your selection ring turns molten gold (1.2Hz pulse) ──
+    if (this.isLocal) {
+      const rReady = u.abilities.R.rank >= 1 && u.abilities.R.readyAt <= now;
+      if (rReady) {
+        const pulse = 0.5 + 0.5 * Math.sin(now * 0.0075);
+        this.ringMat.color.copy(this.ringBase).lerp(GOLD, 0.55 + 0.4 * pulse);
+        this.ringMat.opacity = 0.55 + 0.2 * pulse;
+        if (fx && now - this.lastUltMoteAt > 500) {
+          this.lastUltMoteAt = now;
+          fx.mote(u.x + (Math.random() - 0.5), 0.3, u.y + (Math.random() - 0.5), 0xffd24a, 1.5, 0.6, 0.2);
+        }
+      } else {
+        this.ringMat.color.copy(this.ringBase);
+        this.ringMat.opacity = 0.55;
+      }
     }
+
+    // hit flash (white pulse on damage) — on the ACTIVE body's cloned materials
+    const flash = Math.max(0, 1 - (now - u.lastHitAt) / 110);
+    for (const m of this.matsNow()) m.emissive.setRGB(flash, flash * 0.85, flash * 0.7);
+    if (this.enraged) for (const m of this.largeMats) m.emissive.r += 0.15; // rage rim
+    // melee windup glint — micro-anticipation while a swing charges (90–140ms)
+    const glint = u.pendingAttack ? 0.35 : 0;
+    for (const m of this.weaponMats) m.emissive.setRGB(glint, glint, glint);
+
+    // ── status indicators (stun star / shield dome / slow tint / embers…) ──
+    // built lazily on the first status; StatusFx owns stealth opacity + empower
+    // weapon glow (per-frame, AFTER the glint baseline above).
+    if (fx && !this.statusFx && (u.statuses.length > 0 || u.empowerNext > 0)) {
+      this.statusFx = new StatusFx(
+        {
+          group: this.group,
+          bodyMats: this.mats,
+          weaponMats: this.weaponMats,
+          accent: CHAMP_FX[this.def.id]?.accent ?? 0x9fd0ff,
+          isLocal: this.isLocal,
+        },
+        fx.pools,
+      );
+    }
+    this.statusFx?.update(u, dt, now);
+  }
+
+  /** Swap the character for a hopping mushroom (witch's Grand Hex). */
+  private setHex(on: boolean): void {
+    this.hexShown = on;
+    if (on && !this.mushroom) {
+      const inst = this.lib.instance("mushroom");
+      const box = new THREE.Box3().setFromObject(inst);
+      const h = Math.max(0.1, box.max.y - box.min.y);
+      this.mushScale = 1.2 / h;
+      inst.position.y = -box.min.y;
+      const pivot = new THREE.Group();
+      pivot.add(inst);
+      pivot.scale.setScalar(this.mushScale);
+      this.group.add(pivot);
+      this.mushroom = pivot;
+    }
+    if (this.mushroom) this.mushroom.visible = on;
+    this.charNow().root.visible = !on;
+  }
+
+  /** Render-only Barbarian_Large swap while his enrage (attackSpeed) runs. */
+  private setEnrage(on: boolean, u: Unit): void {
+    if (on && !this.largeChar) {
+      this.largeChar = new AnimatedCharacter(this.lib, "Barbarian_Large", "Large/");
+      const tint = new THREE.Color(this.isLocal ? LOCAL_COLOR : this.color);
+      this.largeMats = cloneMats(this.largeChar.root, tint);
+      this.largeChar.root.scale.setScalar(this.baseScale * 1.15);
+      this.largeChar.root.visible = false;
+      this.group.add(this.largeChar.root);
+    }
+    this.enraged = on && this.largeChar !== null;
+    const target = this.charNow();
+    // re-home the weapons onto the active rig's hand bones
+    for (let i = 0; i < this.weapons.length; i++) {
+      const w = this.weapons[i];
+      const slot = this.weaponSlots[i];
+      if (w && slot) target.attach(w, slot);
+    }
+    this.char.root.visible = !this.enraged && !this.hexShown;
+    if (this.largeChar) this.largeChar.root.visible = this.enraged && !this.hexShown;
+    this.oneShotUntil = 0;
+    target.play(locomotion(u), { fade: 0.1 });
+    target.update(0);
   }
 
   /** Begin a weapon trail on every melee weapon for the next `dur` ms. */
   private emitTrails(now: number, dur: number): void {
+    if (this.hexShown) return; // no blade arcs off a mushroom
     for (const t of this.trails) t.emit(now, dur);
   }
 
@@ -380,28 +599,45 @@ class UnitView {
     scene.remove(this.group);
     scene.remove(this.blob);
     this.blob.geometry.dispose();
-    (this.blob.material as THREE.Material).dispose();
+    disposeMat(this.blob.material);
     for (const t of this.trails) {
       scene.remove(t.mesh);
       t.dispose();
     }
+    this.statusFx?.dispose();
     this.char.dispose();
-    // free per-instance GPU resources (shared skinned geometry stays with the template)
+    this.largeChar?.dispose();
+    // free per-instance materials (shared skinned geometry stays with the template)
     for (const m of this.mats) m.dispose();
+    for (const m of this.largeMats) m.dispose();
+    for (const m of this.weaponMats) m.dispose();
     this.ring.geometry.dispose();
-    (this.ring.material as THREE.Material).dispose();
-    for (const w of this.weapons) {
-      w.traverse((o) => {
-        const m = o as THREE.Mesh;
-        if (m.isMesh) {
-          m.geometry?.dispose();
-          const mat = m.material;
-          if (Array.isArray(mat)) mat.forEach((x) => x.dispose());
-          else mat?.dispose();
-        }
-      });
-    }
+    this.ringMat.dispose();
   }
+}
+
+/** Clone every mesh material under `root` per-instance (optionally tinting),
+ *  returning the standard-material list for emissive/opacity writes. */
+function cloneMats(root: THREE.Object3D, tint: THREE.Color | null): THREE.MeshStandardMaterial[] {
+  const out: THREE.MeshStandardMaterial[] = [];
+  root.traverse((o) => {
+    if (!(o instanceof THREE.Mesh)) return;
+    if (Array.isArray(o.material)) o.material = o.material.map((mm) => mm.clone());
+    else o.material = o.material.clone();
+    const list = Array.isArray(o.material) ? o.material : [o.material];
+    for (const mat of list) {
+      if (mat instanceof THREE.MeshStandardMaterial) {
+        if (tint) mat.color.lerp(tint, 0.18); // subtle team/identity hue
+        out.push(mat);
+      }
+    }
+  });
+  return out;
+}
+
+function disposeMat(m: THREE.Material | THREE.Material[]): void {
+  if (Array.isArray(m)) for (const mm of m) mm.dispose();
+  else m.dispose();
 }
 
 export class WorldView {
@@ -409,11 +645,16 @@ export class WorldView {
   private projectiles = new Map<string, THREE.Object3D>();
   private coins = new Map<string, THREE.Mesh>();
   private deliveries = new Map<string, THREE.Group>();
-  private grounds = new Map<string, THREE.Mesh>();
   private boss: AnimatedCharacter | null = null;
   private seenCoins = new Set<string>();
+  private flyingCoins = new Set<string>();
+  private coinTrailAt = new Map<string, number>();
+  private coinSparkleAt = new Map<string, number>();
+  private deliveryEmitAt = new Map<string, number>();
+  private emberNext = new Map<string, number>(); // unit id → next zone-ember ms
   private bossReturnAt = 0;
   private bossNextTaunt = 6000;
+  private fireballFlip = false;
   fx: Fx | null = null; // set by the scene, for projectile trails
   localId = "";
 
@@ -423,7 +664,9 @@ export class WorldView {
   ) {}
 
   setupBoss(): void {
-    this.boss = new AnimatedCharacter(this.lib, "Skeleton_Golem");
+    // the throne golem is a Rig_Large body — bind the Large clip set (the
+    // Medium clips squash its proportions)
+    this.boss = new AnimatedCharacter(this.lib, "Skeleton_Golem", "Large/");
     this.boss.root.position.set(BOSS_POS.x, terrainHeight(BOSS_POS.x, BOSS_POS.y) + BOSS_HEIGHT, BOSS_POS.y);
     this.boss.root.scale.setScalar(1.5);
     this.scene.add(this.boss.root);
@@ -433,7 +676,7 @@ export class WorldView {
   sync(w: World, dt: number): void {
     const now = w.now;
 
-    // units (heroes + neutral skeletons)
+    // units (heroes + neutral creeps)
     const seen = new Set<string>();
     for (const u of w.units.values()) {
       if (u.kind !== "hero" && u.kind !== "creep") continue;
@@ -443,7 +686,7 @@ export class WorldView {
         const isCreep = u.kind === "creep";
         const def = (isCreep ? CREEP_VIEW[u.champId] : CHAMP_BY_ID[u.champId]) ?? CHAMP_BY_ID["knight"]!;
         const color = isCreep ? 0x9aa3b5 : teamColor(u.team);
-        view = new UnitView(this.scene, this.lib, def, color, !isCreep && u.id === this.localId);
+        view = new UnitView(this.scene, this.lib, def, color, !isCreep && u.id === this.localId, isCreep);
         this.units.set(u.id, view);
         this.scene.add(view.group);
       }
@@ -453,6 +696,7 @@ export class WorldView {
       if (!seen.has(id)) {
         view.dispose(this.scene);
         this.units.delete(id);
+        this.emberNext.delete(id);
       }
     }
 
@@ -469,8 +713,12 @@ export class WorldView {
       mesh.position.set(p.x, 1.1, p.y);
       mesh.rotation.y = Math.atan2(p.vx, p.vy);
       // additive trail behind the projectile
-      const tc = p.kind === "fireball" ? 0xff7a2c : p.kind === "bolt" ? 0xb070ff : p.kind === "arrow" ? 0xffe6a0 : 0xffffff;
-      this.fx?.trail(p.x, p.y, tc);
+      this.fx?.trail(p.x, p.y, projectileColor(p.kind));
+      // fireballs drag a smoke tracer — matter under the energy
+      if (p.kind === "fireball") {
+        this.fireballFlip = !this.fireballFlip;
+        if (this.fireballFlip) this.fx?.smokePuff(p.x, 1.1, p.y);
+      }
     }
     for (const [id, mesh] of this.projectiles) {
       if (!seenP.has(id)) {
@@ -479,9 +727,11 @@ export class WorldView {
       }
     }
 
+    // grounds BEFORE coins: Telegraphs.sync advances the frame stamp that the
+    // coin-landing marks (telegraphs.mark) must be stamped with.
+    this.syncGrounds(w, now);
     this.syncCoins(w, now);
     this.syncDeliveries(w, now);
-    this.syncGrounds(w, now);
 
     if (this.boss) {
       this.boss.update(dt);
@@ -514,7 +764,8 @@ export class WorldView {
           new THREE.CylinderGeometry(0.45, 0.45, 0.14, 18),
           new THREE.MeshStandardMaterial({ color: 0xffd24a, emissive: 0xffaa20, emissiveIntensity: 1.0, metalness: 0.4, roughness: 0.4 }),
         );
-        mesh.castShadow = true;
+        // no castShadow: the shadow map is static (rendered once) — a moving
+        // coin would leave a stale silhouette
         this.coins.set(c.id, mesh);
         this.scene.add(mesh);
       }
@@ -525,8 +776,31 @@ export class WorldView {
         const z = c.fromY + (c.y - c.fromY) * t;
         const arc = Math.sin(t * Math.PI) * 6 + BOSS_HEIGHT * (1 - t);
         mesh.position.set(x, 0.5 + arc, z);
+        this.flyingCoins.add(c.id);
+        if (this.fx) {
+          // landing telegraph: a gold sweep races the coin down — contest signal
+          this.fx.telegraphs.mark(`coin:${c.id}`, c.x, c.y, 1.2, 0xffd24a, Math.min(1, Math.max(0, t)));
+          const lastTrail = this.coinTrailAt.get(c.id) ?? 0;
+          if (now - lastTrail > 40) {
+            this.coinTrailAt.set(c.id, now);
+            this.fx.trailAt(x, 0.5 + arc, z, 0xffd24a, 0.35);
+          }
+        }
       } else {
+        if (this.flyingCoins.has(c.id)) {
+          // landing frame: thump + sparks
+          this.flyingCoins.delete(c.id);
+          this.fx?.impactRing(c.x, c.y, 0xffd24a, 1.2);
+          this.fx?.sparks(c.x, 0.6, c.y, 0, 1, 6, 0xffd24a);
+          this.fx?.dust(c.x, c.y, 2);
+        }
         mesh.position.set(c.x, terrainHeight(c.x, c.y) + 0.6 + Math.sin(now * 0.004) * 0.15, c.y);
+        // grounded coins wink — a cheap "come get me"
+        const lastSparkle = this.coinSparkleAt.get(c.id) ?? 0;
+        if (this.fx && now - lastSparkle > 700) {
+          this.coinSparkleAt.set(c.id, now);
+          this.fx.crossGlint(c.x, terrainHeight(c.x, c.y) + 0.9, c.y, 1, 0, 0xfff2b0, 0.5);
+        }
       }
       mesh.rotation.y = now * 0.005;
       mesh.rotation.x = Math.PI / 2;
@@ -536,6 +810,9 @@ export class WorldView {
         this.scene.remove(mesh);
         this.coins.delete(id);
         this.seenCoins.delete(id);
+        this.flyingCoins.delete(id);
+        this.coinTrailAt.delete(id);
+        this.coinSparkleAt.delete(id);
       }
     }
   }
@@ -551,8 +828,7 @@ export class WorldView {
           new THREE.BoxGeometry(1.1, 1.1, 1.1),
           new THREE.MeshStandardMaterial({ color: 0x66ffcc, emissive: 0x22cc88, emissiveIntensity: 0.5, roughness: 0.6 }),
         );
-        crate.position.y = 0.7;
-        crate.castShadow = true;
+        crate.position.y = 0.7; // no castShadow — static shadow map
         const beam = new THREE.Mesh(
           new THREE.CylinderGeometry(0.7, 1.3, 9, 16, 1, true),
           new THREE.MeshBasicMaterial({ color: 0x66ffcc, transparent: true, opacity: 0.14, side: THREE.DoubleSide, depthWrite: false }),
@@ -565,64 +841,62 @@ export class WorldView {
       group.position.set(d.x, terrainHeight(d.x, d.y), d.y);
       group.rotation.y = now * 0.0015;
       group.children[0]!.position.y = 0.7 + Math.sin(now * 0.003) * 0.18;
+      // beacon pulse + a double-helix of motes climbing the beam
+      group.children[1]!.scale.setScalar(1 + 0.06 * (0.5 + 0.5 * Math.sin(now * 0.004)));
+      if (this.fx) {
+        const last = this.deliveryEmitAt.get(d.id) ?? 0;
+        if (now - last > 120) {
+          this.deliveryEmitAt.set(d.id, now);
+          const a = now * 0.004;
+          for (const off of [0, Math.PI]) {
+            this.fx.mote(d.x + Math.cos(a + off) * 0.9, 0.4, d.y + Math.sin(a + off) * 0.9, 0x66ffcc, 2.4, 0.7, 0.22);
+          }
+        }
+      }
     }
     for (const [id, group] of this.deliveries) {
       if (!seen.has(id)) {
         this.scene.remove(group);
         this.deliveries.delete(id);
+        this.deliveryEmitAt.delete(id);
       }
     }
   }
 
   private syncGrounds(w: World, now: number): void {
-    const seen = new Set<string>();
+    const fx = this.fx;
+    if (!fx) return;
+    const localTeam = w.units.get(this.localId)?.team ?? "";
+    fx.telegraphs.sync(w.grounds, localTeam, now);
     for (const g of w.grounds) {
-      seen.add(g.id);
-      let mesh = this.grounds.get(g.id);
-      if (!mesh) {
-        const color = groundColor(g.effect);
-        mesh = new THREE.Mesh(
-          new THREE.CircleGeometry(g.radius, 28),
-          new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false }),
-        );
-        mesh.rotation.x = -Math.PI / 2;
-        this.grounds.set(g.id, mesh);
-        this.scene.add(mesh);
-      }
-      mesh.position.set(g.x, terrainHeight(g.x, g.y) + 0.07, g.y);
-      const mat = mesh.material as THREE.MeshBasicMaterial;
-      // telegraphs pulse urgently; damage zones glow steadily
-      mat.opacity = g.telegraph ? 0.3 + Math.abs(Math.sin(now * 0.012)) * 0.4 : 0.22 + Math.sin(now * 0.008) * 0.08;
-    }
-    for (const [id, mesh] of this.grounds) {
-      if (!seen.has(id)) {
-        this.scene.remove(mesh);
-        this.grounds.delete(id);
+      fx.zoneAmbient(g, now);
+      // ambient-ize silent tick damage: units standing in a hostile dps zone
+      // shed embers in the zone color (throttled per unit)
+      if (!g.enemyDps) continue;
+      const r2 = g.radius * g.radius;
+      for (const u of w.units.values()) {
+        if (!u.alive || u.team === g.team) continue;
+        if (u.kind !== "hero" && u.kind !== "creep") continue;
+        if ((u.x - g.x) ** 2 + (u.y - g.y) ** 2 > r2) continue;
+        const next = this.emberNext.get(u.id) ?? 0;
+        if (now < next) continue;
+        this.emberNext.set(u.id, now + 250);
+        fx.zoneEmber(u.x, u.y, groundFxColor(g.effect));
       }
     }
   }
 }
 
-function groundColor(effect: string): number {
-  switch (effect) {
-    case "meteor":
-      return 0xff4422;
-    case "frost":
-      return 0x7fd4ff;
-    case "trap":
-      return 0x9affc0;
-    case "rain":
-      return 0xffe08a;
-    case "whirlwind":
-      return 0xffffff;
-    default:
-      return 0xffaa44;
-  }
+function projectileColor(kind: string): number {
+  return kind === "fireball" ? 0xff7a2c
+    : kind === "bolt" ? 0xb070ff
+    : kind === "arrow" ? 0xffe6a0
+    : kind === "hexbolt" ? 0x7fe08a
+    : 0xffffff;
 }
 
 function makeProjectileMesh(p: Projectile): THREE.Object3D {
-  const color =
-    p.kind === "fireball" ? 0xff7a2c : p.kind === "bolt" ? 0xb070ff : p.kind === "arrow" ? 0xffe6a0 : 0xffffff;
+  const color = projectileColor(p.kind);
   const g = new THREE.Group();
   const coreR = p.kind === "fireball" ? 0.34 : 0.18;
 
@@ -652,6 +926,17 @@ function makeProjectileMesh(p: Projectile): THREE.Object3D {
       new THREE.MeshBasicMaterial({ color, transparent: true, blending: THREE.AdditiveBlending, opacity: 0.3, depthWrite: false }),
     );
     g.add(glow);
+  } else if (p.kind === "hexbolt") {
+    // witch's curdled wisp — a small hot core wrapped in a bog-green halo
+    const core = new THREE.Mesh(
+      new THREE.SphereGeometry(0.14, 10, 10),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(1.2, 2.2, 1.3), blending: THREE.AdditiveBlending, transparent: true, opacity: 0.95, depthWrite: false }),
+    );
+    const halo = new THREE.Mesh(
+      new THREE.SphereGeometry(0.32, 10, 10),
+      new THREE.MeshBasicMaterial({ color, blending: THREE.AdditiveBlending, transparent: true, opacity: 0.4, depthWrite: false }),
+    );
+    g.add(core, halo);
   } else {
     // bright core (HDR >1 so it blooms) + soft additive halo (energy/magic glow)
     const core = new THREE.Mesh(

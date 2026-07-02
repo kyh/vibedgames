@@ -80,6 +80,7 @@ export function awardKill(w: World, killerId: string | null, victim: Unit): void
   if (killer && killer !== victim && killer.team !== victim.team) {
     killer.kills += 1;
     killer.killStreak += 1;
+    if (!killer.isBot) killer.mercy = 0; // a human kill ends the mercy ramp
     let gold = KILL_GOLD + Math.min(150, victim.killStreak * 25) + victim.level * 6;
     const wasLeader = w.leaderId !== null && victim.team === w.leaderId && victim.kills >= 1;
     if (wasLeader) gold += LEADER_BOUNTY;
@@ -142,6 +143,10 @@ export function awardCreepKill(w: World, killerId: string | null, victim: Unit):
     landAt: w.now,
     expireAt: w.now + COIN_LIFETIME * 1000,
   });
+  // the elite bounty is an announcement-worthy event
+  if (victim.champId === "frostgolem") {
+    w.fx.push({ t: "notify", text: "FROST GOLEM SLAIN", kind: "leader" });
+  }
 }
 
 function findByOwner(w: World, ownerId: string): Unit | null {

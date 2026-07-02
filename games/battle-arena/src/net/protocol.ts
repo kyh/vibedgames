@@ -2,8 +2,21 @@
 // and broadcasts the snapshot under sharedState.snap. Mirrors games/moba.
 import type { AbilityKey } from "../sim/types";
 
+/**
+ * Dev-only override for the party host: `?party=8788` (port) or
+ * `?party=http://host:port`. Lets QA point at a party server on a
+ * non-default port without rebuilding. Ignored in production builds.
+ */
+function devPartyHost(): string {
+  const fallback = "http://localhost:8787";
+  if (typeof location === "undefined") return fallback;
+  const p = new URLSearchParams(location.search).get("party");
+  if (!p) return fallback;
+  return /^https?:\/\//.test(p) ? p : `http://localhost:${p}`;
+}
+
 export const MULTIPLAYER_HOST = import.meta.env.DEV
-  ? "http://localhost:8787"
+  ? devPartyHost()
   : "https://vibedgames-party.kyh.workers.dev";
 export const PARTY = "vg-server";
 export const ROOM_PREFIX = "battle-arena-";

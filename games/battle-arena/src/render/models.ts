@@ -26,26 +26,52 @@ export class ModelLibrary {
   private templates = new Map<string, THREE.Object3D>();
   private clips = new Map<string, THREE.AnimationClip>();
 
-  /** Load a character GLB (self-contained skinned mesh, no clips). */
-  async loadCharacter(name: string, url: string): Promise<void> {
+  /** Load a character/prop GLB or gltf (no clips). `matte` kills the glossy
+   *  KayKit default (roughness ~0.45 + full IBL = plastic sheen); `tint`
+   *  multiplies the atlas (the dungeon pack's pale mortar swatch reads as
+   *  glowing seams without a warm-dark grade). */
+  async loadCharacter(name: string, url: string, opts?: { matte?: boolean; tint?: number }): Promise<void> {
     const gltf = await loadGltf(url);
     const scene = gltf.scene;
+    const graded = new Set<THREE.Material>();
     scene.traverse((o) => {
+      if (opts && o instanceof THREE.Mesh) {
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        for (const m of mats) {
+          if (!(m instanceof THREE.MeshStandardMaterial) || graded.has(m)) continue;
+          graded.add(m);
+          if (opts.matte) {
+            m.roughness = Math.max(m.roughness, 0.82);
+            m.envMapIntensity = 0.35;
+          }
+          if (opts.tint !== undefined) m.color.setHex(opts.tint);
+        }
+      }
       const mesh = o as THREE.Mesh;
       if (mesh.isMesh) {
-        mesh.castShadow = true;
+        // characters ground themselves with blob shadows — keeping them out of
+        // the shadow map lets the whole map render its shadows ONCE (static)
+        mesh.castShadow = false;
         mesh.receiveShadow = true;
-        mesh.frustumCulled = false; // skinned bounds are bind-pose; avoid wrong-cull popping
+        // skinned bounds are bind-pose; inflate them generously so real frustum
+        // culling is safe (233 skinned meshes × no culling was the #1 call sink)
+        const geo = mesh.geometry;
+        if (!geo.boundingSphere) geo.computeBoundingSphere();
+        if (geo.boundingSphere) geo.boundingSphere.radius = Math.max(geo.boundingSphere.radius * 2.5, 2.5);
+        mesh.frustumCulled = true;
       }
     });
     this.templates.set(name, scene);
   }
 
-  /** Harvest every clip from an animation-library GLB into the shared pool. */
-  async loadClips(url: string): Promise<void> {
+  /** Harvest every clip from an animation-library GLB into the shared pool.
+   *  Rig_Large clip names collide with Rig_Medium (Idle_A, Running_A, …), so
+   *  Large libraries load under a key prefix (e.g. "Large/") and characters on
+   *  that rig resolve through AnimatedCharacter's clipPrefix. */
+  async loadClips(url: string, prefix = ""): Promise<void> {
     const gltf = await loadGltf(url);
     for (const clip of gltf.animations) {
-      if (!this.clips.has(clip.name)) this.clips.set(clip.name, clip);
+      if (!this.clips.has(prefix + clip.name)) this.clips.set(prefix + clip.name, clip);
     }
   }
 
@@ -72,6 +98,27 @@ export class ModelLibrary {
   }
 }
 
+// The Rig_Large library is much smaller than Rig_Medium's — map the Medium
+// clip names the game plays onto their closest Large equivalent. A fallback
+// must resolve to a LARGE clip (never cross-rig: the rest proportions differ).
+const RIG_LARGE_FALLBACK: Record<string, string> = {
+  Hit_B: "Hit_A", Death_B: "Death_A",
+  Dodge_Backward: "Dodge_Backwards", // Large lib pluralizes this one clip name
+  Jump_Full_Long: "Dodge_Forward", Jump_Full_Short: "Dodge_Forward",
+  Walking_B: "Walking_A", Walking_C: "Walking_A", Running_B: "Running_A",
+  Spawn_Ground: "Idle_A", Spawn_Air: "Idle_A", PickUp: "Idle_A", Interact: "Idle_A",
+  Use_Item: "Melee_Block", Throw: "Melee_2H_Attack",
+  Melee_1H_Attack_Chop: "Melee_1H_Slash", Melee_1H_Attack_Slice_Horizontal: "Melee_1H_Slash",
+  Melee_1H_Attack_Slice_Diagonal: "Melee_1H_Slash", Melee_1H_Attack_Stab: "Melee_1H_Stab",
+  Melee_1H_Attack_Jump_Chop: "Melee_1H_Slash",
+  Melee_2H_Attack_Chop: "Melee_2H_Attack", Melee_2H_Attack_Slice: "Melee_2H_Attack",
+  Melee_2H_Attack_Stab: "Melee_2H_Attack", Melee_2H_Attack_Spin: "Melee_2H_Slam",
+  Melee_2H_Attack_Spinning: "Melee_2H_Slam",
+  Melee_Unarmed_Attack_Punch_A: "Melee_Unarmed_Punch", Melee_Unarmed_Attack_Kick: "Melee_Unarmed_Kick",
+  Ranged_Magic_Spellcasting: "Melee_2H_Attack", Ranged_Magic_Shoot: "Melee_2H_Attack",
+  Skeletons_Taunt: "Flexing", Skeletons_Idle: "Idle_B",
+};
+
 export type PlayOpts = {
   fade?: number;
   loop?: boolean;
@@ -92,6 +139,8 @@ export class AnimatedCharacter {
   constructor(
     private lib: ModelLibrary,
     modelName: string,
+    /** Clip-pool key prefix for this character's rig (e.g. "Large/"). */
+    private clipPrefix = "",
   ) {
     this.root = lib.instance(modelName);
     this.mixer = new THREE.AnimationMixer(this.root);
@@ -104,7 +153,12 @@ export class AnimatedCharacter {
   private action(clipName: string): THREE.AnimationAction | null {
     const existing = this.actions.get(clipName);
     if (existing) return existing;
-    const clip = this.lib.getClip(clipName);
+    // Resolve: prefixed exact → prefixed fallback → unprefixed (Medium rig only).
+    const clip =
+      this.lib.getClip(this.clipPrefix + clipName) ??
+      (this.clipPrefix
+        ? this.lib.getClip(this.clipPrefix + (RIG_LARGE_FALLBACK[clipName] ?? ""))
+        : this.lib.getClip(clipName));
     if (!clip) return null;
     const action = this.mixer.clipAction(clip);
     this.actions.set(clipName, action);

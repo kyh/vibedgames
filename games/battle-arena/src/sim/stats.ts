@@ -54,19 +54,22 @@ export function hasStatus(u: Unit, kind: Status["kind"]): boolean {
 }
 
 export const isUnstoppable = (u: Unit): boolean => hasStatus(u, "unstoppable");
-export const isDisabled = (u: Unit): boolean => !isUnstoppable(u) && hasStatus(u, "stun");
+/** Can't attack or act (stun; hex polymorphs share the gate — mushrooms don't swing). */
+export const isDisabled = (u: Unit): boolean =>
+  !isUnstoppable(u) && (hasStatus(u, "stun") || hasStatus(u, "hex"));
 export const isRooted = (u: Unit): boolean =>
   !isUnstoppable(u) && (hasStatus(u, "stun") || hasStatus(u, "root"));
-export const isSilenced = (u: Unit): boolean => hasStatus(u, "stun") || hasStatus(u, "silence");
+export const isSilenced = (u: Unit): boolean =>
+  hasStatus(u, "stun") || hasStatus(u, "silence") || hasStatus(u, "hex");
 export const isStealthed = (u: Unit): boolean => hasStatus(u, "stealth");
 /** Can't be auto-attacked / homed onto by enemies. */
 export const isUntargetable = (u: Unit): boolean =>
   hasStatus(u, "untargetable") || hasStatus(u, "stealth");
 
-/** Remove disables + slows (cleanse). */
+/** Remove disables + slows (cleanse). Strips hex too — a cleanse un-mushrooms. */
 export function cleanseDisables(u: Unit): void {
   u.statuses = u.statuses.filter(
-    (s) => s.kind !== "stun" && s.kind !== "root" && s.kind !== "silence" && s.kind !== "slow",
+    (s) => s.kind !== "stun" && s.kind !== "root" && s.kind !== "silence" && s.kind !== "slow" && s.kind !== "hex",
   );
 }
 
@@ -81,7 +84,7 @@ export function effectiveMoveSpeed(u: Unit): number {
   let strongestSlow = 0;
   for (const s of u.statuses) {
     if (s.kind === "speed") speedPct += s.pct;
-    else if (s.kind === "slow") strongestSlow = Math.max(strongestSlow, s.pct);
+    else if (s.kind === "slow" || s.kind === "hex") strongestSlow = Math.max(strongestSlow, s.pct);
   }
   if (isUnstoppable(u)) strongestSlow = 0;
   const ms = u.moveSpeed * (1 + speedPct / 100) * (1 - strongestSlow / 100);

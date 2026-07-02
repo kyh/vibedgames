@@ -18,6 +18,38 @@ export type CastCtx = { point?: { x: number; y: number }; dir?: { x: number; y: 
 
 const deg2rad = (d: number) => (d * Math.PI) / 180;
 
+// Input buffer windows: a press up to CAST_BUFFER_LEAD ms before the cooldown
+// ends (or while dashing/stunned) queues and fires the moment it's legal.
+const CAST_BUFFER_LEAD = 350; // how early a press may queue
+const CAST_BUFFER_MS = 300; // how long the queue lives (≈9 ticks ≈ Smash 10f)
+
+/** Cast now, or buffer the press if it's *almost* legal (cooldown tail, mid-
+ *  dash, stunned). The queue drains in step() — host-side, so guests get the
+ *  same forgiveness. Returns true only when the cast fired immediately. */
+export function requestCast(w: World, u: Unit, key: AbilityKey, ctx: CastCtx): boolean {
+  if (castAbility(w, u, key, ctx)) {
+    u.queuedCast = null;
+    return true;
+  }
+  const slot = u.abilities[key];
+  const soon =
+    slot.rank >= 1 &&
+    (slot.readyAt - w.now <= CAST_BUFFER_LEAD ||
+      w.now < u.dashUntil ||
+      u.statuses.some((s) => s.kind === "stun"));
+  if (soon) {
+    u.queuedCast = {
+      key,
+      px: ctx.point?.x ?? u.x,
+      py: ctx.point?.y ?? u.y,
+      ax: ctx.dir?.x ?? u.aimX,
+      ay: ctx.dir?.y ?? u.aimY,
+      until: w.now + CAST_BUFFER_MS,
+    };
+  }
+  return false;
+}
+
 /** Try to cast caster's ability `key`. Returns true on success (host-side). */
 export function castAbility(w: World, caster: Unit, key: AbilityKey, ctx: CastCtx): boolean {
   if (!caster.alive || caster.kind !== "hero") return false;
@@ -415,7 +447,201 @@ function dispatch(
         c.hp = Math.min(c.maxHp, c.hp + healed);
         w.fx.push({ t: "heal", x: c.x, y: c.y, amount: healed });
       }
-      w.fx.push({ t: "explosion", x: c.x, y: c.y, radius: v("radius"), kind: "meteor" });
+      w.fx.push({ t: "explosion", x: c.x, y: c.y, radius: v("radius"), kind: "soulburst" });
+      return true;
+    }
+
+    // ── Paladin ──
+    case "paladin:Q": {
+      meleeSwing(w, c, dir);
+      const ang = angleOf(dir.x, dir.y);
+      const half = deg2rad(v("cone")) / 2;
+      for (const t of w.units.values()) {
+        if (t === c || !t.alive || t.kind !== "hero" || !isEnemy(c, t)) continue;
+        if (dist(c, t) > def.castRange + t.radius) continue;
+        if (Math.abs(angleDelta(ang, angleOf(t.x - c.x, t.y - c.y))) > half) continue;
+        dealDamage(w, c, t, v("damage"), "magic", { ap });
+        addStatus(t, { kind: "slow", until: w.now + v("slowDur") * 1000, pct: v("slow"), id: "paladin:Q" });
+      }
+      return true;
+    }
+    case "paladin:W": {
+      pushGround(w, {
+        ownerId: c.id,
+        team: c.team,
+        effect: "consecrate",
+        x: point.x,
+        y: point.y,
+        radius: v("radius"),
+        until: w.now + v("duration") * 1000,
+        nextTick: w.now + 300,
+        tickInterval: 300,
+        enemyDps: v("dps") * (1 + ap),
+        dtype: "magic",
+        allyHps: v("heal"),
+        telegraph: false,
+      });
+      return true;
+    }
+    case "paladin:E": {
+      addStatus(c, { kind: "shield", until: w.now + v("duration") * 1000, amount: v("shield"), id: "paladin:E" });
+      cleanseDisables(c); // shrug off stun/root/silence/slow/hex
+      w.fx.push({ t: "heal", x: c.x, y: c.y, amount: v("shield") });
+      return true;
+    }
+    case "paladin:R": {
+      const hit = aoeEnemies(w, c.team, c.x, c.y, v("radius"));
+      for (const t of hit) {
+        dealDamage(w, c, t, v("damage"), "magic", { ap });
+        addStatus(t, { kind: "stun", until: w.now + v("stun") * 1000, id: "paladin:R" });
+      }
+      const healed = v("healPer") * Math.min(3, hit.length); // capped sustain
+      if (healed > 0) {
+        c.hp = Math.min(c.maxHp, c.hp + healed);
+        w.fx.push({ t: "heal", x: c.x, y: c.y, amount: healed });
+      }
+      w.fx.push({ t: "explosion", x: c.x, y: c.y, radius: v("radius"), kind: "judgement" });
+      return true;
+    }
+
+    // ── Black Knight ──
+    case "blackknight:Q": {
+      meleeSwing(w, c, dir);
+      const ang = angleOf(dir.x, dir.y);
+      const half = deg2rad(v("cone")) / 2;
+      for (const t of w.units.values()) {
+        if (t === c || !t.alive || t.kind !== "hero" || !isEnemy(c, t)) continue;
+        if (dist(c, t) > def.castRange + t.radius) continue;
+        if (Math.abs(angleDelta(ang, angleOf(t.x - c.x, t.y - c.y))) > half) continue;
+        dealDamage(w, c, t, v("damage"), "physical", { ap });
+        addStatus(t, { kind: "slow", until: w.now + v("slowDur") * 1000, pct: v("slow"), id: "blackknight:Q" });
+      }
+      return true;
+    }
+    case "blackknight:W": {
+      const dist0 = def.castRange;
+      startDash(c, dir, v("speed"), dist0, w);
+      for (const t of corridorHits(w, c, dir, dist0, 1.3)) {
+        dealDamage(w, c, t, v("damage"), "physical", { ap });
+        applyKnockback(t, c.x, c.y, v("knockback"), w);
+        addStatus(t, { kind: "slow", until: w.now + v("slowDur") * 1000, pct: v("slow"), id: "blackknight:W" });
+      }
+      return true;
+    }
+    case "blackknight:E": {
+      const dur = v("duration") * 1000;
+      addStatus(c, { kind: "armor", until: w.now + dur, amount: v("armor"), id: "blackknight:E" });
+      addStatus(c, { kind: "heal", until: w.now + dur, nextTick: w.now + 500, hps: v("hps"), id: "blackknight:E" });
+      w.fx.push({ t: "heal", x: c.x, y: c.y, amount: v("hps") });
+      return true;
+    }
+    case "blackknight:R": {
+      for (const t of aoeEnemies(w, c.team, c.x, c.y, v("radius"))) {
+        dealDamage(w, c, t, v("damage"), "physical", { ap });
+        applyKnockback(t, c.x, c.y, v("knockback"), w);
+        addStatus(t, { kind: "stun", until: w.now + v("stun") * 1000, id: "blackknight:R" });
+      }
+      w.fx.push({ t: "explosion", x: c.x, y: c.y, radius: v("radius"), kind: "execute" });
+      return true;
+    }
+
+    // ── Vampire ──
+    case "vampire:Q": {
+      meleeSwing(w, c, dir);
+      const ang = angleOf(dir.x, dir.y);
+      const half = deg2rad(v("cone")) / 2;
+      let struck = 0;
+      for (const t of w.units.values()) {
+        if (t === c || !t.alive || t.kind !== "hero" || !isEnemy(c, t)) continue;
+        if (dist(c, t) > def.castRange + t.radius) continue;
+        if (Math.abs(angleDelta(ang, angleOf(t.x - c.x, t.y - c.y))) > half) continue;
+        dealDamage(w, c, t, v("damage"), "magic", { ap });
+        struck += 1;
+      }
+      const healed = v("heal") * Math.min(2, struck); // drink from at most 2
+      if (healed > 0) {
+        c.hp = Math.min(c.maxHp, c.hp + healed);
+        w.fx.push({ t: "heal", x: c.x, y: c.y, amount: healed });
+      }
+      return true;
+    }
+    case "vampire:W": {
+      startDash(c, dir, v("speed"), def.castRange, w);
+      addStatus(c, { kind: "untargetable", until: w.now + v("invuln") * 1000, id: "vampire:W" });
+      const hits = corridorHits(w, c, dir, def.castRange, 1.0);
+      for (const t of hits) dealDamage(w, c, t, v("damage"), "magic", { ap });
+      const healed = v("heal") * hits.length;
+      if (healed > 0) {
+        c.hp = Math.min(c.maxHp, c.hp + healed);
+        w.fx.push({ t: "heal", x: c.x, y: c.y, amount: healed });
+      }
+      return true;
+    }
+    case "vampire:E": {
+      c.hp = Math.max(1, c.hp - c.hp * 0.12); // pay in blood (current hp)
+      const dur = v("duration") * 1000;
+      addStatus(c, { kind: "shield", until: w.now + dur, amount: v("shield"), id: "vampire:E" });
+      addStatus(c, { kind: "attackSpeed", until: w.now + dur, amount: v("aspd"), id: "vampire:E" });
+      return true;
+    }
+    case "vampire:R": {
+      const hit = aoeEnemies(w, c.team, c.x, c.y, v("radius"));
+      for (const t of hit) {
+        dealDamage(w, c, t, v("damage"), "magic", { ap });
+        addStatus(t, { kind: "dot", until: w.now + 3000, nextTick: w.now + 500, dps: v("dotDps"), dtype: "magic", sourceId: c.id, id: "vampire:R" });
+      }
+      const healed = v("healPer") * Math.min(3, hit.length); // capped sustain
+      if (healed > 0) {
+        c.hp = Math.min(c.maxHp, c.hp + healed);
+        w.fx.push({ t: "heal", x: c.x, y: c.y, amount: healed });
+      }
+      w.fx.push({ t: "explosion", x: c.x, y: c.y, radius: v("radius"), kind: "sanguine" });
+      return true;
+    }
+
+    // ── Witch ──
+    case "witch:Q": {
+      spawnProjectile(w, c, {
+        dirX: dir.x,
+        dirY: dir.y,
+        damage: v("damage"),
+        dtype: "magic",
+        kind: "hexbolt",
+        speed: v("speed"),
+        radius: 0,
+        range: def.castRange,
+        onHit: { tag: "slow", pct: v("slow"), duration: v("slowDur") },
+      });
+      return true;
+    }
+    case "witch:W": {
+      pushGround(w, {
+        ownerId: c.id,
+        team: c.team,
+        effect: "brew",
+        x: point.x,
+        y: point.y,
+        radius: v("radius"),
+        until: w.now + v("duration") * 1000,
+        nextTick: w.now + 300,
+        tickInterval: 300,
+        enemyDps: v("dps") * (1 + ap),
+        dtype: "magic",
+        slowPct: v("slow"), // refreshed per tick with id "brew" (= effect tag)
+        telegraph: true,
+      });
+      return true;
+    }
+    case "witch:E": {
+      startDash(c, dir, v("speed"), def.castRange, w);
+      addStatus(c, { kind: "speed", until: w.now + v("hasteDur") * 1000, pct: v("haste"), id: "witch:E" });
+      return true;
+    }
+    case "witch:R": {
+      for (const t of aoeEnemies(w, c.team, point.x, point.y, v("radius"))) {
+        addStatus(t, { kind: "hex", until: w.now + v("duration") * 1000, pct: v("slow"), id: "witch:R" });
+      }
+      w.fx.push({ t: "explosion", x: point.x, y: point.y, radius: v("radius"), kind: "hex" });
       return true;
     }
   }
@@ -464,13 +690,23 @@ function tickGround(w: World): void {
       continue;
     }
 
-    // periodic damage zones (whirlwind / rain)
-    if (g.enemyDps && w.now >= g.nextTick) {
+    // periodic zones (whirlwind / rain / brew burn enemies; consecrate also
+    // heals the owner's side — a zone with only allyHps still ticks)
+    if ((g.enemyDps || g.allyHps) && w.now >= g.nextTick) {
       g.nextTick += g.tickInterval;
       const owner = w.units.get(g.ownerId) ?? null;
-      for (const t of aoeEnemies(w, g.team, g.x, g.y, g.radius)) {
-        dealDamage(w, owner, t, g.enemyDps * (g.tickInterval / 1000), g.dtype ?? "physical", { silentFx: true });
-        if (g.slowPct) addStatus(t, { kind: "slow", until: w.now + 600, pct: g.slowPct, id: g.effect });
+      if (g.enemyDps) {
+        for (const t of aoeEnemies(w, g.team, g.x, g.y, g.radius)) {
+          dealDamage(w, owner, t, g.enemyDps * (g.tickInterval / 1000), g.dtype ?? "physical", { silentFx: true });
+          if (g.slowPct) addStatus(t, { kind: "slow", until: w.now + 600, pct: g.slowPct, id: g.effect });
+        }
+      }
+      if (g.allyHps) {
+        for (const t of w.units.values()) {
+          if (!t.alive || t.team !== g.team) continue;
+          if ((t.x - g.x) ** 2 + (t.y - g.y) ** 2 > g.radius * g.radius) continue;
+          t.hp = Math.min(t.maxHp, t.hp + g.allyHps * (g.tickInterval / 1000));
+        }
       }
     }
 
@@ -507,6 +743,7 @@ export function useItemActive(w: World, u: Unit, slot: number, point?: { x: numb
   switch (a.kind) {
     case "haste":
       addStatus(u, { kind: "speed", until: w.now + 3000, pct: a.amount ?? 40, id: `item:${id}` });
+      w.fx.push({ t: "itemUse", x: u.x, y: u.y, item: id });
       break;
     case "heal":
       u.hp = Math.min(u.maxHp, u.hp + (a.amount ?? 0));
@@ -514,9 +751,11 @@ export function useItemActive(w: World, u: Unit, slot: number, point?: { x: numb
       break;
     case "cleanse":
       cleanseDisables(u);
+      w.fx.push({ t: "itemUse", x: u.x, y: u.y, item: id });
       break;
     case "shield":
       addStatus(u, { kind: "shield", until: w.now + 4000, amount: a.amount ?? 0, id: `item:${id}` });
+      w.fx.push({ t: "itemUse", x: u.x, y: u.y, item: id });
       break;
     case "blink": {
       const dir = norm(u.aimX, u.aimY);
