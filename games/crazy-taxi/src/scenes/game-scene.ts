@@ -14,6 +14,7 @@ import { FareManager, type FareEvent, tierColor, tierPayMult } from "../game/far
 import { GameState } from "../game/state";
 import { Traffic } from "../game/traffic";
 import { InputState } from "../input/keyboard";
+import { PhysicsWorld } from "../physics/physics-world";
 import { CAMERA, CAR, FARE, GRID, MPH_FACTOR, WORLD_SIZE } from "../shared/constants";
 import { Rng } from "../shared/rng";
 import type { GameMode } from "../shared/types";
@@ -38,6 +39,7 @@ const NEAR_MISS_SPEED = 22;
 const CRASH_THRESHOLD = 7;
 const COUNTDOWN_STEP = 0.45; // seconds per 3-2-1 beat
 const BEST_KEY = "crazy-taxi:best";
+const SOUND_KEY = "crazy-taxi:sound";
 const HINT_DRIFT_KEY = "crazy-taxi:hint-drift";
 const HINT_BOOST_KEY = "crazy-taxi:hint-boost";
 
@@ -123,16 +125,10 @@ export class GameScene {
   private hintDriftShown = storageGet(HINT_DRIFT_KEY) !== null;
   private hintBoostShown = storageGet(HINT_BOOST_KEY) !== null;
   private turnHold = 0;
-  // Reused per-frame collision set: static city solids + mutable traffic boxes
-  // (same object refs live in allSolids, so we mutate in place, never realloc).
-  private trafficBoxes: {
-    minX: number;
-    maxX: number;
-    minZ: number;
-    maxZ: number;
-    maxY: number;
-  }[] = [];
+  // Static city solids only — traffic contact is handled by the physics punt
+  // path (the taxi shoves cars instead of bouncing off them like walls).
   private allSolids: Solid[] = [];
+  private physics: PhysicsWorld | null = null;
   private hitStop = 0; // brief sim freeze for crash impact
   private spawn = { x: 0, z: 0, yaw: 0, gx: 0, gz: 0 };
   private lastDistrict = "";
@@ -197,6 +193,9 @@ export class GameScene {
     setupTouch(this.input);
     this.hud.onCta(() => this.handleStartPress());
     this.hud.onMute(() => this.toggleMute());
+    // Muted by default; returning players who opted into sound stay unmuted.
+    this.sfx.setMuted(storageGet(SOUND_KEY) !== "1");
+    this.hud.setMuted(this.sfx.muted);
   }
 
   get camera(): THREE.PerspectiveCamera {
@@ -240,19 +239,21 @@ export class GameScene {
     car.reset(this.spawn.x, this.spawn.z, this.spawn.yaw);
     this.car = car;
 
-    this.traffic = new Traffic(this.cache, city, {
-      avoid: { gx: this.spawn.gx, gz: this.spawn.gz },
-      avoidR: 4,
-    });
+    // Physics: the world is rigid bodies (terrain, buildings, traffic); the
+    // taxi stays on the arcade controller and pushes things through impulses.
+    const physics = await PhysicsWorld.create();
+    physics.addGround(city.terrain);
+    physics.addStaticSolids(city.solids, city.terrain);
+    this.physics = physics;
+
+    this.traffic = new Traffic(
+      this.cache,
+      city,
+      { avoid: { gx: this.spawn.gx, gz: this.spawn.gz }, avoidR: 4 },
+      physics,
+    );
     this.scene.add(this.traffic.group);
-    this.trafficBoxes = this.traffic.cars.map(() => ({
-      minX: 0,
-      maxX: 0,
-      minZ: 0,
-      maxZ: 0,
-      maxY: 0,
-    }));
-    this.allSolids = city.solids.concat(this.trafficBoxes);
+    this.allSolids = city.solids;
 
     this.fares = new FareManager(this.cache, city);
     this.scene.add(this.fares.group);
@@ -299,6 +300,7 @@ export class GameScene {
   private toggleMute(): void {
     this.sfx.setMuted(!this.sfx.muted);
     this.hud.setMuted(this.sfx.muted);
+    storageSet(SOUND_KEY, this.sfx.muted ? "0" : "1");
   }
 
   private start(): void {
@@ -419,10 +421,21 @@ export class GameScene {
     boosting: boolean;
     carrying: boolean;
     objective: { u: number; v: number } | null;
+    wreckedCount: number;
+    nearestTraffic: { dist: number; wrecked: boolean; y: number } | null;
   } | null {
     const car = this.car;
     if (!car) return null;
     const obj = this.fares?.objective() ?? null;
+    let nearestTraffic: { dist: number; wrecked: boolean; y: number } | null = null;
+    if (this.traffic) {
+      for (const c of this.traffic.cars) {
+        const d = Math.hypot(c.position.x - car.position.x, c.position.z - car.position.z);
+        if (!nearestTraffic || d < nearestTraffic.dist) {
+          nearestTraffic = { dist: Math.round(d * 10) / 10, wrecked: c.wrecked, y: Math.round(c.position.y * 10) / 10 };
+        }
+      }
+    }
     return {
       x: car.position.x,
       z: car.position.z,
@@ -436,6 +449,8 @@ export class GameScene {
       objective: obj
         ? { u: obj.pos.x / WORLD_SIZE + 0.5, v: obj.pos.z / WORLD_SIZE + 0.5 }
         : null,
+      wreckedCount: this.traffic ? this.traffic.cars.filter((c) => c.wrecked).length : 0,
+      nearestTraffic,
     };
   }
 
@@ -574,20 +589,11 @@ export class GameScene {
 
     const input = this.input.carInput();
 
-    // Refresh the moving traffic boxes in place (allSolids shares these refs).
-    for (let i = 0; i < traffic.cars.length; i++) {
-      const c = traffic.cars[i];
-      const b = this.trafficBoxes[i];
-      if (!c || !b) continue;
-      b.minX = c.position.x - 1.05;
-      b.maxX = c.position.x + 1.05;
-      b.minZ = c.position.z - 1.25;
-      b.maxZ = c.position.z + 1.25;
-      b.maxY = c.position.y + 1.9; // jumpable: airborne taxis clear the roof
-    }
-
     car.update(dt, input, this.allSolids);
+    this.handleTrafficImpacts(car, traffic);
     traffic.update(dt, city, car.position.x, car.position.z, car.heading);
+    this.physics?.step(dt);
+    traffic.syncWrecked();
     this.handleNearMiss(car, traffic);
     this.handleHonks(traffic);
     this.handleCones(car);
@@ -817,6 +823,32 @@ export class GameScene {
       this.hud.announceMinor(`SMASH +$${cash}`, "#ffb64d");
       this.sfx.thud();
       this.fx.burst(car.position.x, 0.8, car.position.z, 0.07, 5, 4);
+    }
+  }
+
+  // Ram a traffic car → it gets punted into the physics world (dynamic body,
+  // impulse along the contact normal); the taxi sheds some speed but keeps
+  // its line. Airborne taxis clear roofs (handled by the height check).
+  private handleTrafficImpacts(car: Car, traffic: Traffic): void {
+    const physics = this.physics;
+    if (!physics) return;
+    for (const c of traffic.cars) {
+      if (c.puntCooldown > 0) continue;
+      if (car.position.y > c.position.y + 1.9) continue; // flying over it
+      const dx = c.position.x - car.position.x;
+      const dz = c.position.z - car.position.z;
+      const d = Math.hypot(dx, dz);
+      if (d > 2.5 || d < 1e-4) continue;
+      const nx = dx / d;
+      const nz = dz / d;
+      const impact = car.contactPunt(nx, nz, Math.max(0, 2.5 - d) * 0.5);
+      if (impact < 1.5) continue;
+      c.puntCooldown = 0.35;
+      const mass = c.body ? c.body.mass() : 8;
+      const k = mass * (impact * 0.85 + 3);
+      c.punt(physics, nx * k, mass * Math.min(3.5, impact * 0.14), nz * k);
+      // Feed the existing crash pipeline (sfx/debris/shake scale with it).
+      car.lastWallHit = Math.max(car.lastWallHit, impact * 0.55);
     }
   }
 

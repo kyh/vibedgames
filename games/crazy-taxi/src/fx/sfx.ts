@@ -168,7 +168,7 @@ export class Sfx {
   /** Pending sad-jingle timer from gameOver(); fanfare() (new best) cancels it. */
   private loseJingleTimer: number | null = null;
 
-  muted = false;
+  muted = true; // muted by default — the player opts into sound (M / speaker pill)
 
   ensure(): void {
     if (this.ctx) {

@@ -1,0 +1,131 @@
+import RAPIER from "@dimforge/rapier3d-compat";
+import * as THREE from "three";
+
+import { WORLD_HALF, WORLD_SIZE } from "../shared/constants";
+import type { Solid } from "../world/city";
+import type { Terrain } from "../world/terrain";
+
+// Rapier-backed rigid-body world for everything the taxi is NOT: traffic cars
+// become dynamic bodies when punted, and slide/tumble against the terrain and
+// the city's static colliders. The taxi itself stays on the custom arcade
+// controller — kinematic feel is the game — it just applies impulses here.
+
+const FIXED_DT = 1 / 60;
+const MAX_STEPS = 4; // per frame; drop time beyond this (tab-back spike guard)
+const GROUND_SAMPLE = 4; // world units between terrain collider samples
+const STATIC_HALF_HEIGHT = 6; // buildings/walls modeled as tall boxes
+
+export class PhysicsWorld {
+  private world: RAPIER.World;
+  private acc = 0;
+
+  static async create(): Promise<PhysicsWorld> {
+    await RAPIER.init();
+    return new PhysicsWorld();
+  }
+
+  private constructor() {
+    this.world = new RAPIER.World({ x: 0, y: -30, z: 0 });
+    this.world.timestep = FIXED_DT;
+  }
+
+  // Terrain as a trimesh sampled from the same height field the game drives on.
+  addGround(terrain: Terrain): void {
+    const span = WORLD_SIZE * 1.06;
+    const n = Math.ceil(span / GROUND_SAMPLE);
+    const verts = new Float32Array((n + 1) * (n + 1) * 3);
+    for (let i = 0; i <= n; i++) {
+      for (let j = 0; j <= n; j++) {
+        const x = -span / 2 + (i / n) * span;
+        const z = -span / 2 + (j / n) * span;
+        const k = (i * (n + 1) + j) * 3;
+        verts[k] = x;
+        verts[k + 1] = terrain.heightAt(x, z);
+        verts[k + 2] = z;
+      }
+    }
+    const indices = new Uint32Array(n * n * 6);
+    let w = 0;
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        const a = i * (n + 1) + j;
+        const b = a + 1;
+        const c = a + (n + 1);
+        const d = c + 1;
+        indices[w++] = a;
+        indices[w++] = b;
+        indices[w++] = c;
+        indices[w++] = b;
+        indices[w++] = d;
+        indices[w++] = c;
+      }
+    }
+    const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
+    this.world.createCollider(RAPIER.ColliderDesc.trimesh(verts, indices).setFriction(0.9), body);
+  }
+
+  // City solids (buildings, walls, railings) as tall static boxes.
+  addStaticSolids(solids: readonly Solid[], terrain: Terrain): void {
+    for (const s of solids) {
+      const cx = (s.minX + s.maxX) / 2;
+      const cz = (s.minZ + s.maxZ) / 2;
+      if (Math.abs(cx) > WORLD_HALF + 30 || Math.abs(cz) > WORLD_HALF + 30) continue;
+      const hx = Math.max(0.1, (s.maxX - s.minX) / 2);
+      const hz = Math.max(0.1, (s.maxZ - s.minZ) / 2);
+      const base = terrain.heightAt(cx, cz);
+      const body = this.world.createRigidBody(
+        RAPIER.RigidBodyDesc.fixed().setTranslation(cx, base + STATIC_HALF_HEIGHT - 1, cz),
+      );
+      this.world.createCollider(
+        RAPIER.ColliderDesc.cuboid(hx, STATIC_HALF_HEIGHT, hz).setFriction(0.6),
+        body,
+      );
+    }
+  }
+
+  // A traffic car: kinematic while it follows its route, dynamic once punted.
+  createCarBody(x: number, y: number, z: number): RAPIER.RigidBody {
+    const body = this.world.createRigidBody(
+      RAPIER.RigidBodyDesc.kinematicPositionBased()
+        .setTranslation(x, y, z)
+        .setLinearDamping(1.1)
+        .setAngularDamping(1.6),
+    );
+    this.world.createCollider(
+      RAPIER.ColliderDesc.cuboid(1.0, 0.75, 1.25)
+        .setFriction(0.7)
+        .setRestitution(0.25)
+        .setDensity(1.4),
+      body,
+    );
+    return body;
+  }
+
+  makeDynamic(body: RAPIER.RigidBody): void {
+    body.setBodyType(RAPIER.RigidBodyType.Dynamic, true);
+  }
+
+  makeKinematic(body: RAPIER.RigidBody): void {
+    body.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
+    body.setLinvel({ x: 0, y: 0, z: 0 }, false);
+    body.setAngvel({ x: 0, y: 0, z: 0 }, false);
+  }
+
+  teleport(body: RAPIER.RigidBody, x: number, y: number, z: number, q: THREE.Quaternion): void {
+    body.setTranslation({ x, y, z }, false);
+    body.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, false);
+    body.setLinvel({ x: 0, y: 0, z: 0 }, false);
+    body.setAngvel({ x: 0, y: 0, z: 0 }, false);
+  }
+
+  step(dt: number): void {
+    this.acc += dt;
+    let steps = 0;
+    while (this.acc >= FIXED_DT && steps < MAX_STEPS) {
+      this.world.step();
+      this.acc -= FIXED_DT;
+      steps++;
+    }
+    if (steps === MAX_STEPS) this.acc = 0;
+  }
+}

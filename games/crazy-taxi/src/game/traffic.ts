@@ -1,7 +1,9 @@
+import type { RigidBody } from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
 
 import type { ModelCache } from "../assets/loader";
 import { modelUrl, POLICE_CAR, SERVICE_CARS, TRAFFIC_CARS } from "../assets/manifest";
+import type { PhysicsWorld } from "../physics/physics-world";
 import { ROAD_TILE, ROAD_Y, TRAFFIC } from "../shared/constants";
 import { Rng } from "../shared/rng";
 import { type Dir, DIR_DELTA } from "../shared/types";
@@ -32,6 +34,9 @@ const REACT_DOT = 0.5; // cos threshold: travel dir vs. direction to the player
 const BRAKE_FACTOR = 0.35; // speed multiplier while braking
 const BRAKE_DURATION = 1.0; // seconds of braking after the last trigger
 const HONK_COOLDOWN = 2.5; // seconds between honks per car
+const BODY_LIFT = 0.8; // rigid-body centre above the mesh origin (wheels)
+const WRECK_RESPAWN_S = 7; // a punted car rejoins the flow after this long
+const BODY_OFFSET = new THREE.Vector3();
 
 export type VehicleKind = "civilian" | "service" | "police";
 
@@ -64,6 +69,11 @@ export class TrafficCar {
   // Set on the brake-reaction rising edge; the game scene consumes it (plays a
   // honk) and clears it. Rate-limited to one honk per HONK_COOLDOWN per car.
   wantsHonk = false;
+  // Rigid body (kinematic on route, dynamic once punted by the taxi).
+  body: RigidBody | null = null;
+  wrecked = false;
+  wreckTime = 0;
+  puntCooldown = 0;
   private gx: number;
   private gz: number;
   private dir: Dir;
@@ -99,6 +109,21 @@ export class TrafficCar {
     this.brakeTimer = 0;
     this.honkCooldown = 0;
     this.wantsHonk = false;
+    this.wrecked = false;
+    this.wreckTime = 0;
+    this.puntCooldown = 0;
+  }
+
+  // The taxi hit this car: hand it to the physics world with an impulse.
+  punt(physics: PhysicsWorld, ix: number, iy: number, iz: number): void {
+    const body = this.body;
+    if (!body) return;
+    if (!this.wrecked) {
+      physics.makeDynamic(body);
+      this.wrecked = true;
+      this.wreckTime = 0;
+    }
+    body.applyImpulse({ x: ix, y: iy, z: iz }, true);
   }
 
   private isRoad(city: CityModel, gx: number, gz: number): boolean {
@@ -125,6 +150,14 @@ export class TrafficCar {
     if (this.hitCooldown > 0) this.hitCooldown -= dt;
     if (this.missCooldown > 0) this.missCooldown -= dt;
     if (this.honkCooldown > 0) this.honkCooldown -= dt;
+    if (this.puntCooldown > 0) this.puntCooldown -= dt;
+
+    // Wrecked: physics owns it — the mesh follows the body after the step
+    // (syncFromBody), route logic pauses until the recycler respawns it.
+    if (this.wrecked) {
+      this.wreckTime += dt;
+      return;
+    }
 
     // --- Player reaction: taxi close AND roughly ahead → brake, honk once ---
     if (dt > 0) {
@@ -174,6 +207,29 @@ export class TrafficCar {
     // Slerp instead of snapping — terrain-normal jitter reads as suspension.
     if (dt === 0) this.object3D.quaternion.copy(this.targetQuat);
     else this.object3D.quaternion.slerp(this.targetQuat, Math.min(1, dt * 10));
+
+    // Drag the kinematic body along the route (it shoves wrecks aside).
+    if (this.body) {
+      this.body.setNextKinematicTranslation({
+        x: this.position.x,
+        y: this.position.y + BODY_LIFT,
+        z: this.position.z,
+      });
+      const q = this.object3D.quaternion;
+      this.body.setNextKinematicRotation({ x: q.x, y: q.y, z: q.z, w: q.w });
+    }
+  }
+
+  // After the physics step: wrecked meshes follow their rigid bodies.
+  syncFromBody(): void {
+    const body = this.body;
+    if (!body || !this.wrecked) return;
+    const t = body.translation();
+    const r = body.rotation();
+    this.object3D.quaternion.set(r.x, r.y, r.z, r.w);
+    BODY_OFFSET.set(0, BODY_LIFT, 0).applyQuaternion(this.object3D.quaternion);
+    this.object3D.position.set(t.x - BODY_OFFSET.x, t.y - BODY_OFFSET.y, t.z - BODY_OFFSET.z);
+    this.position.copy(this.object3D.position);
   }
 }
 
@@ -190,7 +246,12 @@ export class Traffic {
   private readonly weightedCells: RoadCell[] = [];
   private readonly industrialCells: RoadCell[] = []; // garbage-truck home turf
 
-  constructor(cache: ModelCache, city: CityModel, opts: TrafficOpts = {}) {
+  constructor(
+    cache: ModelCache,
+    city: CityModel,
+    opts: TrafficOpts = {},
+    private physics: PhysicsWorld | null = null,
+  ) {
     this.city = city;
     this.rng = new Rng(opts.seed ?? 99);
 
@@ -253,6 +314,13 @@ export class Traffic {
         (kind === "police" ? POLICE_SPEED_MULT : 1);
       const car = new TrafficCar(obj, kind, cell, dir, speed);
       car.update(0, city, this.rng, 0, 0); // place it (dt=0 skips reaction)
+      if (this.physics) {
+        car.body = this.physics.createCarBody(
+          car.position.x,
+          car.position.y + BODY_LIFT,
+          car.position.z,
+        );
+      }
       this.cars.push(car);
     }
   }
@@ -340,7 +408,21 @@ export class Traffic {
         : this.rng.pick(this.weightedCells);
       c.respawn(cell, this.rng.pick(ALL_DIRS));
       c.update(0, this.city, this.rng, 0, 0);
+      this.restoreBody(c);
     }
+  }
+
+  // Put a (possibly wrecked) car's rigid body back into kinematic route mode.
+  private restoreBody(c: TrafficCar): void {
+    if (!c.body || !this.physics) return;
+    this.physics.makeKinematic(c.body);
+    this.physics.teleport(
+      c.body,
+      c.position.x,
+      c.position.y + BODY_LIFT,
+      c.position.z,
+      c.object3D.quaternion,
+    );
   }
 
   // Player heading: forward = (sin h, cos h) in XZ. Cars that drift beyond
@@ -359,11 +441,22 @@ export class Traffic {
     const hz = Math.cos(playerHeading);
     for (const c of this.cars) {
       const d = Math.abs(city.gridX(c.position.x) - pgx) + Math.abs(city.gridZ(c.position.z) - pgz);
-      if (d > RECYCLE_TILES) {
+      // Wrecks rejoin the flow once they've had their moment (or drift far).
+      const recycleWreck = c.wrecked && c.wreckTime > WRECK_RESPAWN_S;
+      if (d > RECYCLE_TILES || recycleWreck) {
         const cell = this.respawnCell(pgx, pgz, hx, hz);
-        if (cell) c.respawn(cell, this.rng.pick(ALL_DIRS));
+        if (cell) {
+          c.respawn(cell, this.rng.pick(ALL_DIRS));
+          c.update(0, city, this.rng, 0, 0);
+          this.restoreBody(c);
+        }
       }
       c.update(dt, city, this.rng, playerX, playerZ);
     }
+  }
+
+  // Called after the physics step: wrecked meshes follow their bodies.
+  syncWrecked(): void {
+    for (const c of this.cars) c.syncFromBody();
   }
 }

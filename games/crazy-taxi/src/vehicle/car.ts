@@ -280,6 +280,21 @@ export class Car {
     this.syncTransform(dt);
   }
 
+  // The taxi rammed something dynamic: shed some velocity along the contact
+  // normal (n points taxi→object) and separate. Returns the closing speed.
+  contactPunt(nx: number, nz: number, separation: number): number {
+    const vn = this.velocity.x * nx + this.velocity.y * nz;
+    if (separation > 0) {
+      this.position.x -= nx * separation;
+      this.position.z -= nz * separation;
+    }
+    if (vn > 0) {
+      this.velocity.x -= nx * vn * 0.55;
+      this.velocity.y -= nz * vn * 0.55;
+    }
+    return Math.max(0, vn);
+  }
+
   private resolveCollisions(solids: readonly Solid[]): void {
     for (const s of solids) {
       // Airborne taxis fly clean over height-capped obstacles (traffic).

@@ -25,6 +25,8 @@ export type TaxiDebugApi = {
     boosting: boolean;
     carrying: boolean;
     objective: { u: number; v: number } | null;
+    wreckedCount: number;
+    nearestTraffic: { dist: number; wrecked: boolean; y: number } | null;
   } | null;
   // Force the run clock (endgame testing).
   setTime(seconds: number): void;
