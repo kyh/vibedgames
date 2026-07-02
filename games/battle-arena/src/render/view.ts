@@ -382,6 +382,14 @@ export class View {
       this.camPos.z *= s;
     }
 
+    // when the chase cam crosses the dais footprint (player hugging the platform,
+    // facing away), glide OVER it instead of clipping through the stone wall and
+    // the warden standing on top. Framing from above/outside is untouched.
+    const daisR = BOSS_PLATFORM_RADIUS + 1.2;
+    if (camR < daisR) {
+      this.camPos.y = Math.max(this.camPos.y, BOSS_HEIGHT + 2.8);
+    }
+
     this.look.set(this.focus.x + fx * CAM.lookAhead, CAM.lookHeight + this.camPitch * 5 + this.camGroundY, this.focus.z + fz * CAM.lookAhead);
 
     // trauma shake (+ a brief bloom/vignette punch on big impacts — free juice)

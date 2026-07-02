@@ -54,6 +54,9 @@ export class TouchControls {
     for (const b of BTN_KEYS) {
       const el = document.createElement("div");
       el.className = "ba-tbtn";
+      // B rides the right-most column (under DODGE) so the third row never
+      // reaches over the item belt pinned bottom-left on phones.
+      if (b.id === "B") el.style.gridColumn = "3";
       const label = document.createElement("span");
       label.className = "ba-tl";
       label.textContent = b.label;

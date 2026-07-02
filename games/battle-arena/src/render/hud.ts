@@ -1071,7 +1071,8 @@ export class Hud {
       el.className = "ba-toast " + t.kind;
       el.textContent = t.text;
       this.toastEl.appendChild(el);
-      setTimeout(() => el.remove(), 2400);
+      // objective callouts (golem/leader slain) deserve a longer read than chatter
+      setTimeout(() => el.remove(), t.kind === "leader" ? 3600 : 2400);
     }
   }
 
@@ -1341,7 +1342,12 @@ const STYLE = `
 #ba-goal-banner{font-size:14px;padding:9px 14px}
 #ba-hint{bottom:calc(186px + env(safe-area-inset-bottom));font-size:13px}
 #ba-intro{font-size:54px}
-body.ba-touch-on #ba-bottom{transform:translateX(calc(-50% - 46px))}
+/* touch mode: the touch grid (bottom-right) duplicates the ability tiles
+   (icons + cooldown sweeps), so hide the desktop row and pin the remaining
+   vitals/belt cluster bottom-LEFT, clear of the 3-column button grid. */
+body.ba-touch-on #ba-bottom{left:12px;transform:none;align-items:flex-start}
+body.ba-touch-on #ba-abilities{display:none}
+body.ba-touch-on #ba-vitals{width:170px}
 }
 `;
 
