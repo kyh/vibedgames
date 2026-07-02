@@ -171,11 +171,12 @@ async function main(): Promise<void> {
     });
   };
 
-  // Boot flow: bare URL = instant solo vs bots (time-to-first-input ≈ load
-  // time; first click grabs pointer lock). The lobby lives at ?menu; the old
-  // ?auto/?online deep links keep working. Champ/name persist in localStorage.
+  // Boot flow: bare URL = champion-select lobby (the right default for a cold
+  // shared link — first-time visitors choose a champion instead of being
+  // dropped into a match). Quick-start deep-links skip it: ?auto = instant solo
+  // vs bots, ?online[&room=] = instant online. Champ/name persist in localStorage.
   const params = new URLSearchParams(location.search);
-  if (!params.has("menu")) {
+  if (params.has("auto") || params.has("online")) {
     launch({
       champId: chosenChamp(),
       name: chosenName(),
