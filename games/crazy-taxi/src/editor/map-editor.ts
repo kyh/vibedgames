@@ -72,13 +72,13 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     true,
   );
 
-  camera.position.set(0, 170, 130);
+  camera.position.set(0, WORLD_SIZE * 0.35, WORLD_SIZE * 0.27);
   camera.lookAt(0, 0, -20);
   const controls = new MapControls(camera, renderer.domElement);
   controls.enableDamping = false;
   controls.maxPolarAngle = Math.PI / 2 - 0.06;
   controls.minDistance = 12;
-  controls.maxDistance = 600;
+  controls.maxDistance = WORLD_SIZE * 1.3;
 
   const ground = game.scene.getObjectByName("terrain-ground");
   const raycaster = new THREE.Raycaster();

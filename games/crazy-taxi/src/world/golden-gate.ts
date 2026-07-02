@@ -17,8 +17,10 @@ const DECK_W = 10; // drivable width
 const RAMP_LEN = 26;
 const RAIL_T = 0.8;
 const TOWER_H = 26; // above deck
-const APPROACH_X_MIN = -130; // hunt for the shore anchor around u≈0.25
-const APPROACH_X_MAX = -75;
+// Hunt for the shore anchor around u≈0.25 (map fractions, not world units —
+// the map rescales).
+const APPROACH_U_MIN = 0.19;
+const APPROACH_U_MAX = 0.35;
 
 const ORANGE = new THREE.MeshStandardMaterial({ color: 0xc0362c, roughness: 0.6 });
 const RAIL_ORANGE = new THREE.MeshStandardMaterial({ color: 0xa93227, roughness: 0.7 });
@@ -57,7 +59,8 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
   let anchor: { gx: number; gz: number } | null = null;
   for (let gx = 0; gx < GRID; gx++) {
     const wx = ctx.worldX(gx);
-    if (wx < APPROACH_X_MIN || wx > APPROACH_X_MAX) continue;
+    const u = wx / (WORLD_HALF * 2) + 0.5;
+    if (u < APPROACH_U_MIN || u > APPROACH_U_MAX) continue;
     for (let gz = 0; gz < GRID; gz++) {
       if (ctx.plan.cells[gx]?.[gz] !== "road") continue;
       if (!anchor || gz < anchor.gz) anchor = { gx, gz };

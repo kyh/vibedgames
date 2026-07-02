@@ -47,7 +47,10 @@ export function isLandCell(gx: number, gz: number): boolean {
 
 // Real SF hills (summit u,v + elevation in metres). Scaled to playable game
 // units — steep enough to crest and plunge, not unclimbable.
-const HILL_SCALE = 0.08; // metres → game units (grid-quantized terrain tiles cleanly even when steep)
+// metres → game units. Hill radii are map fractions, so doubling the map's
+// linear size would halve every slope — heights scale up with it to keep the
+// crest-and-plunge feel.
+const HILL_SCALE = 0.15;
 const SF_HILLS_M: ReadonlyArray<{ u: number; v: number; m: number; r: number }> = [
   { u: 0.377, v: 0.693, m: 283, r: 0.08 }, // Mount Davidson
   { u: 0.42, v: 0.56, m: 280, r: 0.09 }, // Twin Peaks
@@ -134,6 +137,52 @@ type Box = District & {
 };
 
 const NEIGHBORHOODS: readonly Box[] = [
+  // Real SF green spaces (traced): the 4× map has room for the small parks.
+  {
+    name: "Dolores Park",
+    character: "park",
+    color: 0x3c8147,
+    uMin: 0.555,
+    uMax: 0.585,
+    vMin: 0.46,
+    vMax: 0.5,
+  },
+  {
+    name: "Buena Vista Park",
+    character: "park",
+    color: 0x2e6f4e,
+    uMin: 0.445,
+    uMax: 0.475,
+    vMin: 0.395,
+    vMax: 0.425,
+  },
+  {
+    name: "Mount Davidson Park",
+    character: "park",
+    color: 0x2e6f4e,
+    uMin: 0.355,
+    uMax: 0.4,
+    vMin: 0.67,
+    vMax: 0.715,
+  },
+  {
+    name: "McLaren Park",
+    character: "park",
+    color: 0x3c8147,
+    uMin: 0.63,
+    uMax: 0.72,
+    vMin: 0.79,
+    vMax: 0.87,
+  },
+  {
+    name: "the Panhandle",
+    character: "park",
+    color: 0x3c8147,
+    uMin: 0.4,
+    uMax: 0.475,
+    vMin: 0.36,
+    vMax: 0.385,
+  },
   {
     name: "the Presidio",
     character: "park",

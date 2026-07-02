@@ -261,6 +261,27 @@ export class CityModel {
       const half = (targetFootprint / 2) * 0.96;
       this.solids.push({ minX: wx - half, maxX: wx + half, minZ: wz - half, maxZ: wz + half });
 
+      // Rooftop watertower — the classic city-builder silhouette — on some
+      // mid-rise commercial roofs.
+      if (
+        (district.character === "commercial" || district.character === "downtown") &&
+        this.rng.chance(0.09)
+      ) {
+        const towerUrl = modelUrl("props", "kk-watertower");
+        const twb = this.cache.bounds(towerUrl);
+        const roofY = seatY - 0.15 + bounds.size.y * sy;
+        const tws = 3.4 / Math.max(twb.size.y, 0.001);
+        const tower = this.cache.instance(towerUrl);
+        tower.scale.setScalar(tws);
+        tower.rotation.y = this.rng.range(0, Math.PI * 2);
+        tower.position.set(
+          wx + this.rng.range(-1.5, 1.5),
+          roofY - 0.1,
+          wz + this.rng.range(-1.5, 1.5),
+        );
+        collect(tower);
+      }
+
       // Occasional curbside tree, nudged toward the street.
       if (this.rng.chance(0.3)) {
         const [dx, dz] = DIR_DELTA[b.faceDir];

@@ -3,6 +3,7 @@ import * as THREE from "three";
 import type { ModelCache } from "../assets/loader";
 import {
   BRIDGE_PILLAR,
+  BUSHES,
   LIGHT_CURVED,
   LIGHT_CURVED_CROSS,
   LIGHT_OLD,
@@ -10,6 +11,9 @@ import {
   LIGHT_SQUARE,
   LIGHT_SQUARE_DOUBLE,
   modelUrl,
+  PARK_ENTRY,
+  PARK_TREES,
+  PARK_WALL,
   PROP_AWNING,
   PROP_AWNING_WIDE,
   PROP_BARRIER,
@@ -115,6 +119,7 @@ const UNIT_BOX = new THREE.BoxGeometry(1, 1, 1);
 const RAIL_MAT = new THREE.MeshStandardMaterial({ color: 0x8a6f4d, roughness: 0.9 }); // pier wood
 const SEAWALL_MAT = new THREE.MeshStandardMaterial({ color: 0x9aa2a6, roughness: 1 }); // concrete lip
 const LAKE_MAT = new THREE.MeshStandardMaterial({ color: 0x3f6f8f, roughness: 0.4 }); // Stow Lake
+const PATH_MAT = new THREE.MeshStandardMaterial({ color: 0xd9c3a1, roughness: 1 }); // park paths
 
 // Tinted material clones, cached so tinted meshes still merge into one batch.
 const tintCache = new Map<string, THREE.Material>();
@@ -558,6 +563,148 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
     lake.rotation.x = -HALF_PI;
     lake.position.set((0.22 - 0.5) * WORLD_SIZE, 0, (0.4 - 0.5) * WORLD_SIZE);
     drape(lake, 0.07);
+  }
+
+  // ------------------------------------------------------------------
+  // 7b. PARK BLOCKS (all park districts) — the KayKit-sample look: low
+  // stone walls with entry gates on road-facing edges, fountains where
+  // tan paths cross, benches + lamps around them, bushes and blobby
+  // KayKit trees filling the lawns.
+  // ------------------------------------------------------------------
+  const isParkCell = (gx: number, gz: number): boolean =>
+    inBounds(gx, gz) && cellAt(gx, gz) === "lot" && districtAt(gx, gz).character === "park";
+  const wallUrl = modelUrl("props", PARK_WALL);
+  const entryUrl = modelUrl("props", PARK_ENTRY);
+  const wallBounds = cache.bounds(wallUrl);
+  const wallH = 1.1 / Math.max(wallBounds.size.y, 0.001); // low stone wall
+  const parkBenchUrl = modelUrl("props", PROP_BENCH);
+  const parkLampUrl = modelUrl("props", LIGHT_OLD);
+  for (let gx = 0; gx < GRID; gx++) {
+    for (let gz = 0; gz < GRID; gz++) {
+      if (!isParkCell(gx, gz)) continue;
+      if (reserved.has(cellKey(gx, gz))) continue;
+      const wx = worldX(gx);
+      const wz = worldZ(gz);
+
+      // Walls + a centre entry on every edge that faces a road.
+      for (const d of DIRS) {
+        const [dx, dz] = DIR_DELTA[d];
+        if (cellAt(gx + dx, gz + dz) !== "road") continue;
+        const edgeOff = ROAD_TILE / 2 - 0.5;
+        const along = dx === 0 ? "x" : "z"; // wall runs perpendicular to dir
+        const runLen = ROAD_TILE / 2 - 2.2; // leave a 4.4u centre gap
+        const wallScaleX = runLen / Math.max(wallBounds.size.x, 0.001);
+        for (const side of [-1, 1] as const) {
+          const mid = side * (2.2 + runLen / 2);
+          const px = along === "x" ? wx + mid : wx + dx * edgeOff;
+          const pz = along === "x" ? wz + dz * edgeOff : wz + mid;
+          const wall = cache.instance(wallUrl);
+          wall.scale.set(wallScaleX, wallH, wallH);
+          wall.rotation.y = along === "x" ? 0 : HALF_PI;
+          wall.position.set(px, terrain.heightAt(px, pz), pz);
+          wall.updateMatrixWorld(true);
+          objects.push(wall);
+          // Matching low solid so the wall is real (enter via the gate).
+          const t = 0.5;
+          solids.push(
+            along === "x"
+              ? {
+                  minX: px - runLen / 2,
+                  maxX: px + runLen / 2,
+                  minZ: pz - t,
+                  maxZ: pz + t,
+                  maxY: terrain.heightAt(px, pz) + 1.4,
+                }
+              : {
+                  minX: px - t,
+                  maxX: px + t,
+                  minZ: pz - runLen / 2,
+                  maxZ: pz + runLen / 2,
+                  maxY: terrain.heightAt(px, pz) + 1.4,
+                },
+          );
+        }
+        // Gate posts at the entry gap.
+        const ex = along === "x" ? wx : wx + dx * edgeOff;
+        const ez = along === "x" ? wz + dz * edgeOff : wz;
+        seat(entryUrl, ex, ez, along === "x" ? 0 : HALF_PI, wallH);
+      }
+
+      // Fountain plaza: basin + water + radiating tan paths + benches/lamps.
+      if (rng.chance(0.08)) {
+        const fy = terrain.heightAt(wx, wz);
+        const basin = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.7, 0.75, 18), SEAWALL_MAT);
+        basin.position.set(wx, fy + 0.35, wz);
+        basin.updateMatrixWorld(true);
+        objects.push(basin);
+        const water = new THREE.Mesh(new THREE.CircleGeometry(2.1, 18), LAKE_MAT);
+        water.rotation.x = -HALF_PI;
+        water.position.set(wx, fy + 0.72, wz);
+        water.updateMatrixWorld(true);
+        objects.push(water);
+        const spire = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.55, 1.5, 10), SEAWALL_MAT);
+        spire.position.set(wx, fy + 1.3, wz);
+        spire.updateMatrixWorld(true);
+        objects.push(spire);
+        // Tan paths out to each edge.
+        for (const [px, pz] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ] as const) {
+          const path = new THREE.Mesh(new THREE.PlaneGeometry(2.4, ROAD_TILE / 2 - 2.4, 1, 3), PATH_MAT);
+          path.rotation.x = -HALF_PI;
+          path.rotation.z = px !== 0 ? HALF_PI : 0;
+          const off = 2.6 + (ROAD_TILE / 2 - 2.4) / 2;
+          path.position.set(wx + px * off, 0, wz + pz * off);
+          drape(path, 0.06);
+        }
+        // Benches facing the water, victorian lamps at the diagonals.
+        for (const [bx, bz] of [
+          [3.6, 0],
+          [-3.6, 0],
+          [0, 3.6],
+          [0, -3.6],
+        ] as const) {
+          if (!rng.chance(0.75)) continue;
+          const yaw = Math.atan2(-bx, -bz);
+          seat(parkBenchUrl, wx + bx, wz + bz, yaw, scaleToHeight(parkBenchUrl, 0.85));
+        }
+        for (const [lx, lz] of [
+          [3.2, 3.2],
+          [-3.2, -3.2],
+        ] as const) {
+          seat(parkLampUrl, wx + lx, wz + lz, 0, scaleToHeight(parkLampUrl, 4.2));
+        }
+      } else {
+        // Lawn cells: bushes + blobby KayKit trees (denser than street green).
+        const bushes = 2 + rng.int(3);
+        for (let i = 0; i < bushes; i++) {
+          const bUrl = modelUrl("props", rng.pick(BUSHES));
+          seat(
+            bUrl,
+            wx + rng.range(-4.6, 4.6),
+            wz + rng.range(-4.6, 4.6),
+            rng.range(0, Math.PI * 2),
+            scaleToHeight(bUrl, rng.range(0.8, 1.5)),
+          );
+        }
+        if (rng.chance(0.55)) {
+          const count = 1 + rng.int(2);
+          for (let i = 0; i < count; i++) {
+            const tUrl = modelUrl("props", rng.pick(PARK_TREES));
+            seat(
+              tUrl,
+              wx + rng.range(-4, 4),
+              wz + rng.range(-4, 4),
+              rng.range(0, Math.PI * 2),
+              scaleToHeight(tUrl, rng.range(4.5, 6.5)),
+            );
+          }
+        }
+      }
+    }
   }
 
   // ------------------------------------------------------------------

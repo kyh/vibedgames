@@ -128,7 +128,7 @@ export class Terrain {
   // pair it with a vertexColors material.
   buildMesh(material: THREE.Material, colorAt?: (x: number, z: number, into: THREE.Color) => void): THREE.Mesh {
     const span = WORLD_SIZE * 1.08;
-    const segs = 200;
+    const segs = Math.min(400, Math.max(120, Math.round(span / 3))); // ~3u per quad
     const geo = new THREE.PlaneGeometry(span, span, segs, segs);
     const pos = geo.attributes.position;
     if (pos instanceof THREE.BufferAttribute) {

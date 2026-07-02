@@ -110,6 +110,12 @@ export const LIGHT_CURVED_CROSS = "light-curved-cross";
 // Victorian gas lamps (KayKit City Builder Bits).
 export const LIGHT_OLD = "kk-lamp-old";
 export const LIGHT_OLD_DOUBLE = "kk-lamp-old-double";
+// KayKit park kit (City Builder Bits): walls, bushes, blobby trees.
+export const PARK_WALL = "kk-park-wall";
+export const PARK_WALL_CORNER = "kk-park-wall-corner";
+export const PARK_ENTRY = "kk-park-entry";
+export const BUSHES = ["kk-bush-a", "kk-bush-b", "kk-bush-c"] as const;
+export const PARK_TREES = ["kk-tree-a", "kk-tree-b", "kk-tree-c"] as const;
 // KayKit street details (City Builder Bits).
 export const PROP_HYDRANT = "kk-hydrant";
 export const PROP_BENCH = "kk-bench";
@@ -201,6 +207,11 @@ export const PROPS = [
   PROP_CHIMNEY_MEDIUM,
   PROP_CHIMNEY_LARGE,
   PROP_TANK,
+  PARK_WALL,
+  PARK_WALL_CORNER,
+  PARK_ENTRY,
+  ...BUSHES,
+  ...PARK_TREES,
 ] as const;
 
 const ROADS = [ROAD_BRIDGE, BRIDGE_PILLAR, BRIDGE_PILLAR_WIDE] as const;
