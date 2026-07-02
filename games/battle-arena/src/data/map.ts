@@ -87,12 +87,9 @@ export const PARTITION_RUNS: PartitionRun[] = Array.from({ length: 6 }, (_, k) =
  *  editor can recover the pristine default after a custom map was applied. */
 export function buildDefaultObstacles(): Obstacle[] {
   const out: Obstacle[] = [];
-  // inner ring of 4 pillars flanking the throne approaches (45° diagonals —
-  // 15° off the nearest base lane)
-  for (let i = 0; i < 4; i++) {
-    const a = Math.PI / 4 + (i * Math.PI) / 2;
-    out.push({ x: Math.cos(a) * 16, y: Math.sin(a) * 16, radius: 1.2, height: 4.5 });
-  }
+  // NO pillars on the 45° diagonals: those are the STAIR spokes — the only
+  // four ways onto the plateau. A collider there jams everyone approaching
+  // the throne (the mid-ring cover job belongs to the partition runs).
   // partition-wall colliders (rendered as continuous wall_half runs — the
   // "wall_run" hint tells the renderer to skip per-circle models)
   for (const run of PARTITION_RUNS) {
