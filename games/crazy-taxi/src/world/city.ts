@@ -12,13 +12,18 @@ import {
   TREE_SMALL,
 } from "../assets/manifest";
 import {
+  CHUNK,
   CITY_SEED,
-  GRID,
+  DRAW_DISTANCE,
+  GRID_X,
+  GRID_Z,
   ROAD_ROT_SIGN,
   ROAD_TILE,
   ROAD_Y,
-  WORLD_HALF,
-  WORLD_SIZE,
+  WORLD_H,
+  WORLD_HALF_X,
+  WORLD_HALF_Z,
+  WORLD_W,
 } from "../shared/constants";
 import { Rng } from "../shared/rng";
 import { type Dir, DIR_DELTA, E, N, S, W } from "../shared/types";
@@ -69,6 +74,10 @@ function dirToYaw(d: Dir): number {
   }
 }
 
+// A streamed tile of static city geometry: its own merged meshes under one
+// group, tagged with a centre + cull radius so it can be hidden when far away.
+type Chunk = { cx: number; cz: number; radius: number; group: THREE.Group };
+
 export class CityModel {
   readonly group = new THREE.Group();
   readonly solids: Solid[] = [];
@@ -76,6 +85,7 @@ export class CityModel {
   readonly plan: CityPlan;
   readonly terrain: Terrain;
   private tintCache = new Map<string, THREE.Material>();
+  private chunks: Chunk[] = [];
 
   constructor(
     private cache: ModelCache,
@@ -87,16 +97,16 @@ export class CityModel {
   }
 
   worldX(gx: number): number {
-    return (gx + 0.5) * ROAD_TILE - WORLD_HALF;
+    return (gx + 0.5) * ROAD_TILE - WORLD_HALF_X;
   }
   worldZ(gz: number): number {
-    return (gz + 0.5) * ROAD_TILE - WORLD_HALF;
+    return (gz + 0.5) * ROAD_TILE - WORLD_HALF_Z;
   }
   gridX(x: number): number {
-    return Math.floor((x + WORLD_HALF) / ROAD_TILE);
+    return Math.floor((x + WORLD_HALF_X) / ROAD_TILE);
   }
   gridZ(z: number): number {
-    return Math.floor((z + WORLD_HALF) / ROAD_TILE);
+    return Math.floor((z + WORLD_HALF_Z) / ROAD_TILE);
   }
 
   private poolFor(c: DistrictChar): readonly string[] {
@@ -211,8 +221,8 @@ export class CityModel {
     // --- Roads: procedural street geometry generated straight from the
     // network graph (world/roads.ts) — asphalt/curbs/sidewalks/markings can
     // never disagree with the connections. ---
-    for (let gx = 0; gx < GRID; gx++) {
-      for (let gz = 0; gz < GRID; gz++) {
+    for (let gx = 0; gx < GRID_X; gx++) {
+      for (let gz = 0; gz < GRID_Z; gz++) {
         if (this.plan.roads[gx]?.[gz]) this.roadCells.push({ gx, gz });
       }
     }
@@ -362,8 +372,8 @@ export class CityModel {
 
     // --- Shoreline collision: wall off each water cell that borders land so
     // the taxi can reach the waterfront but not drive into the bay. ---
-    for (let gx = 0; gx < GRID; gx++) {
-      for (let gz = 0; gz < GRID; gz++) {
+    for (let gx = 0; gx < GRID_X; gx++) {
+      for (let gz = 0; gz < GRID_Z; gz++) {
         if (this.plan.cells[gx]?.[gz] !== "water") continue;
         const waterKey = `${gx},${gz}`;
         if (fr.openWaterCells.has(waterKey)) continue; // pier runs out here
@@ -384,11 +394,12 @@ export class CityModel {
 
     // --- Outer border walls (close the south/inland map edge) ---
     const t = 3;
-    const L = WORLD_HALF;
-    this.solids.push({ minX: -L - t, maxX: -L, minZ: -L - t, maxZ: L + t });
-    this.solids.push({ minX: L, maxX: L + t, minZ: -L - t, maxZ: L + t });
-    this.solids.push({ minX: -L - t, maxX: L + t, minZ: -L - t, maxZ: -L });
-    this.solids.push({ minX: -L - t, maxX: L + t, minZ: L, maxZ: L + t });
+    const LX = WORLD_HALF_X;
+    const LZ = WORLD_HALF_Z;
+    this.solids.push({ minX: -LX - t, maxX: -LX, minZ: -LZ - t, maxZ: LZ + t }); // west
+    this.solids.push({ minX: LX, maxX: LX + t, minZ: -LZ - t, maxZ: LZ + t }); // east
+    this.solids.push({ minX: -LX - t, maxX: LX + t, minZ: -LZ - t, maxZ: -LZ }); // north
+    this.solids.push({ minX: -LX - t, maxX: LX + t, minZ: LZ, maxZ: LZ + t }); // south
 
     // --- Displaced terrain ground (hills + island; ocean plane sits below),
     // vertex-graded: concrete in the city, Ocean Beach sand along the west
@@ -403,13 +414,13 @@ export class CityModel {
     const PARK = new THREE.Color(0x74975c);
     const ground = this.terrain.buildMesh(groundMat, (x, z, into) => {
       into.copy(CONCRETE);
-      const gx = Math.min(GRID - 1, Math.max(0, this.gridX(x)));
-      const gz = Math.min(GRID - 1, Math.max(0, this.gridZ(z)));
+      const gx = Math.min(GRID_X - 1, Math.max(0, this.gridX(x)));
+      const gz = Math.min(GRID_Z - 1, Math.max(0, this.gridZ(z)));
       if (districtAt(gx, gz).character === "park") into.lerp(PARK, 0.8);
       const land = this.terrain.landAt(x, z);
       const shore = 1 - THREE.MathUtils.smoothstep(land, 0.3, 0.55);
       if (shore > 0) {
-        const u = x / WORLD_SIZE + 0.5;
+        const u = x / WORLD_W + 0.5;
         into.lerp(SAND, u < 0.12 ? shore : shore * 0.5); // Ocean Beach reads strongest
       }
     });
@@ -425,8 +436,8 @@ export class CityModel {
       const node = this.cache.instance(modelUrl(cat, name));
       node.scale.setScalar(p.s);
       node.rotation.y = p.yaw;
-      const x = (p.u - 0.5) * WORLD_SIZE;
-      const z = (p.v - 0.5) * WORLD_SIZE;
+      const x = (p.u - 0.5) * WORLD_W;
+      const z = (p.v - 0.5) * WORLD_H;
       node.position.set(x, this.heightAt(x, z), z);
       collect(node);
       if (p.solid) {
@@ -437,18 +448,62 @@ export class CityModel {
       }
     }
 
-    // --- Merge static meshes by material to slash draw calls ---
-    for (const merged of mergeByMaterial(staticMeshes)) this.group.add(merged);
+    // --- Bucket static meshes into spatial chunks, then merge each chunk by
+    // material. Per-chunk merges keep draw calls low while giving the renderer
+    // tight bounds to frustum-cull, and let updateStreaming() hide far tiles. ---
+    const nx = Math.ceil(WORLD_W / CHUNK);
+    const nz = Math.ceil(WORLD_H / CHUNK);
+    const buckets = new Map<number, THREE.Mesh[]>();
+    const centroid = new THREE.Vector3();
+    for (const mesh of staticMeshes) {
+      if (!(mesh.geometry instanceof THREE.BufferGeometry)) continue;
+      mesh.geometry.computeBoundingBox();
+      mesh.geometry.boundingBox?.getCenter(centroid);
+      centroid.applyMatrix4(mesh.matrixWorld);
+      const cx = Math.min(nx - 1, Math.max(0, Math.floor((centroid.x + WORLD_HALF_X) / CHUNK)));
+      const cz = Math.min(nz - 1, Math.max(0, Math.floor((centroid.z + WORLD_HALF_Z) / CHUNK)));
+      const key = cz * nx + cx;
+      const list = buckets.get(key);
+      if (list) list.push(mesh);
+      else buckets.set(key, [mesh]);
+    }
+    // Half-diagonal of a chunk, plus slack for geometry (trees, tall roofs) that
+    // overhangs its tile — used as the cull radius so nothing pops at the edge.
+    const cullRadius = CHUNK * 0.71 + ROAD_TILE * 2;
+    for (const [key, meshes] of buckets) {
+      const cx = key % nx;
+      const cz = Math.floor(key / nx);
+      const group = new THREE.Group();
+      for (const merged of mergeByMaterial(meshes)) group.add(merged);
+      this.group.add(group);
+      this.chunks.push({
+        cx: (cx + 0.5) * CHUNK - WORLD_HALF_X,
+        cz: (cz + 0.5) * CHUNK - WORLD_HALF_Z,
+        radius: cullRadius,
+        group,
+      });
+    }
 
-    // --- Iconic landmarks (procedural; kept separate from the merge) ---
+    // --- Iconic landmarks (procedural; kept separate — always visible) ---
     this.group.add(buildLandmarks(this.terrain, this.cache));
+  }
+
+  // Hide chunks whose nearest point is beyond the draw distance from the camera.
+  // Frustum culling (per merged mesh, automatic) removes tiles behind and beside
+  // the camera; this removes distant tiles ahead, past the fog.
+  updateStreaming(camX: number, camZ: number): void {
+    for (const c of this.chunks) {
+      const d = Math.hypot(camX - c.cx, camZ - c.cz) - c.radius;
+      const visible = d < DRAW_DISTANCE;
+      if (c.group.visible !== visible) c.group.visible = visible;
+    }
   }
 
   // Is the world position over a road cell (vs a building lot)?
   isOnRoad(x: number, z: number): boolean {
     const gx = this.gridX(x);
     const gz = this.gridZ(z);
-    if (gx < 0 || gz < 0 || gx >= GRID || gz >= GRID) return false;
+    if (gx < 0 || gz < 0 || gx >= GRID_X || gz >= GRID_Z) return false;
     return this.plan.cells[gx]?.[gz] === "road";
   }
 

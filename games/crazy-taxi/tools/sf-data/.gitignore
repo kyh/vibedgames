@@ -1,0 +1,5 @@
+# Raw OSM dump (~15 MB) — regenerate with ./fetch-streets.sh
+sf-streets.raw.json
+# Rendered previews / verification screenshots
+*.png
+*.svg

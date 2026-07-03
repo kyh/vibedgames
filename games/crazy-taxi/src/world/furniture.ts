@@ -46,7 +46,7 @@ import {
   TRAFFIC_CARS,
   TREE_LARGE,
 } from "../assets/manifest";
-import { GRID, ROAD_TILE, ROAD_Y, WORLD_SIZE } from "../shared/constants";
+import { GRID_X, GRID_Z, ROAD_TILE, ROAD_Y, WORLD_H, WORLD_W } from "../shared/constants";
 import type { Rng } from "../shared/rng";
 import { type Dir, DIR_DELTA, E, N, S, W } from "../shared/types";
 import type { Solid } from "./city";
@@ -142,7 +142,7 @@ function tintNode(node: THREE.Object3D, hex: number, amt: number): void {
 }
 
 const cellKey = (gx: number, gz: number): string => `${gx},${gz}`;
-const inBounds = (gx: number, gz: number): boolean => gx >= 0 && gz >= 0 && gx < GRID && gz < GRID;
+const inBounds = (gx: number, gz: number): boolean => gx >= 0 && gz >= 0 && gx < GRID_X && gz < GRID_Z;
 
 // Yaw that points local +Z toward the given grid direction (matches city.ts).
 function dirToYaw(d: Dir): number {
@@ -193,9 +193,10 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
   // native orientation and flip when the set changes; neighbours never lie.
   const straightAlongX = (gx: number, gz: number): boolean =>
     cellAt(gx + 1, gz) === "road" || cellAt(gx - 1, gz) === "road";
-  const centre = (GRID - 1) / 2;
+  const centreX = (GRID_X - 1) / 2;
+  const centreZ = (GRID_Z - 1) / 2;
   const nearCentre = (gx: number, gz: number, r: number): boolean =>
-    Math.hypot(gx - centre, gz - centre) <= r;
+    Math.hypot(gx - centreX, gz - centreZ) <= r;
 
   // Place a cached model with world transform baked (caller merges).
   const place = (url: string, x: number, y: number, z: number, yaw: number, s: number): void => {
@@ -286,8 +287,8 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
   // 1. STREETLIGHTS — every 2nd straight road cell, alternating curb side.
   // ------------------------------------------------------------------
   const lightSide = new Map<string, 1 | -1>(); // which side a cell's lamp took
-  for (let gx = 0; gx < GRID; gx++) {
-    for (let gz = 0; gz < GRID; gz++) {
+  for (let gx = 0; gx < GRID_X; gx++) {
+    for (let gz = 0; gz < GRID_Z; gz++) {
       const road = roadAt(gx, gz);
       if (!road || road.tile !== ROAD_STRAIGHT) continue;
       if ((gx + gz) % 2 !== 0) continue;
@@ -334,8 +335,8 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
   // ------------------------------------------------------------------
   // 2. PARKED CARS — curbs of residential/victorian/commercial streets.
   // ------------------------------------------------------------------
-  for (let gx = 0; gx < GRID; gx++) {
-    for (let gz = 0; gz < GRID; gz++) {
+  for (let gx = 0; gx < GRID_X; gx++) {
+    for (let gz = 0; gz < GRID_Z; gz++) {
       const road = roadAt(gx, gz);
       if (!road || road.tile !== ROAD_STRAIGHT) continue;
       if (reserved.has(cellKey(gx, gz))) continue;
@@ -475,8 +476,8 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
   // 6. CONSTRUCTION POCKETS — cones + barrier + light across half a lane.
   // ------------------------------------------------------------------
   const pocketCandidates: { gx: number; gz: number; alongX: boolean }[] = [];
-  for (let gx = 0; gx < GRID; gx++) {
-    for (let gz = 0; gz < GRID; gz++) {
+  for (let gx = 0; gx < GRID_X; gx++) {
+    for (let gz = 0; gz < GRID_Z; gz++) {
       const road = roadAt(gx, gz);
       if (!road || road.tile !== ROAD_STRAIGHT) continue;
       if (reserved.has(cellKey(gx, gz))) continue;
@@ -540,8 +541,8 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
   const treeUrl = modelUrl("props", TREE_LARGE);
   const planterUrl = modelUrl("props", PROP_PLANTER);
   const planterScale = 1.5 / Math.max(cache.bounds(planterUrl).size.x, 0.001);
-  for (let gx = 0; gx < GRID; gx++) {
-    for (let gz = 0; gz < GRID; gz++) {
+  for (let gx = 0; gx < GRID_X; gx++) {
+    for (let gz = 0; gz < GRID_Z; gz++) {
       if (!isGGPark(gx, gz)) continue;
       if (reserved.has(cellKey(gx, gz))) continue;
       if (cellAt(gx, gz) !== "lot") continue; // keep park roads + water clear
@@ -570,13 +571,13 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
     }
   }
   // Stow Lake: a flat blue ellipse draped into the park bowl at u≈0.22 v≈0.40.
-  const lakeGx = Math.round(0.22 * GRID - 0.5);
-  const lakeGz = Math.round(0.4 * GRID - 0.5);
+  const lakeGx = Math.round(0.22 * GRID_X - 0.5);
+  const lakeGz = Math.round(0.4 * GRID_Z - 0.5);
   if (isGGPark(lakeGx, lakeGz) && !reserved.has(cellKey(lakeGx, lakeGz))) {
     const lake = new THREE.Mesh(new THREE.CircleGeometry(1, 48), LAKE_MAT);
     lake.scale.set(ROAD_TILE * 1.15, ROAD_TILE * 0.75, 1);
     lake.rotation.x = -HALF_PI;
-    lake.position.set((0.22 - 0.5) * WORLD_SIZE, 0, (0.4 - 0.5) * WORLD_SIZE);
+    lake.position.set((0.22 - 0.5) * WORLD_W, 0, (0.4 - 0.5) * WORLD_H);
     drape(lake, 0.07);
   }
 
@@ -594,8 +595,8 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
   const wallH = 1.1 / Math.max(wallBounds.size.y, 0.001); // low stone wall
   const parkBenchUrl = modelUrl("props", PROP_BENCH);
   const parkLampUrl = modelUrl("props", LIGHT_OLD);
-  for (let gx = 0; gx < GRID; gx++) {
-    for (let gz = 0; gz < GRID; gz++) {
+  for (let gx = 0; gx < GRID_X; gx++) {
+    for (let gz = 0; gz < GRID_Z; gz++) {
       if (!isParkCell(gx, gz)) continue;
       if (reserved.has(cellKey(gx, gz))) continue;
       const wx = worldX(gx);
@@ -729,9 +730,9 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
   // ------------------------------------------------------------------
   type PierColumn = { gx: number; landGz: number };
   const pierCandidates: PierColumn[] = [];
-  for (let gx = 0; gx < GRID; gx++) {
+  for (let gx = 0; gx < GRID_X; gx++) {
     let landGz = -1;
-    for (let gz = 0; gz < GRID; gz++) {
+    for (let gz = 0; gz < GRID_Z; gz++) {
       if (cellAt(gx, gz) !== "water") {
         landGz = gz;
         break;
@@ -858,8 +859,8 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
   // 9. SEAWALL — concrete lip where wharf/Embarcadero land meets the bay
   // (purely visual; the shoreline solids already exist). Pier cells skipped.
   // ------------------------------------------------------------------
-  for (let gx = 0; gx < GRID; gx++) {
-    for (let gz = 0; gz < GRID; gz++) {
+  for (let gx = 0; gx < GRID_X; gx++) {
+    for (let gz = 0; gz < GRID_Z; gz++) {
       if (cellAt(gx, gz) !== "water") continue;
       if (openWaterCells.has(cellKey(gx, gz))) continue;
       if (reserved.has(cellKey(gx, gz))) continue;
@@ -887,8 +888,8 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
   const hydrantUrl = modelUrl("props", PROP_HYDRANT);
   const hydrantScale = scaleToHeight(hydrantUrl, 0.9);
   let hydrants = 0;
-  for (let gx = 0; gx < GRID && hydrants < HYDRANT_CAP; gx++) {
-    for (let gz = 0; gz < GRID && hydrants < HYDRANT_CAP; gz++) {
+  for (let gx = 0; gx < GRID_X && hydrants < HYDRANT_CAP; gx++) {
+    for (let gz = 0; gz < GRID_Z && hydrants < HYDRANT_CAP; gz++) {
       if (!roadAt(gx, gz)) continue;
       if (reserved.has(cellKey(gx, gz))) continue;
       const char = districtAt(gx, gz).character;
@@ -911,8 +912,8 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
   const signalUrl = modelUrl("props", PROP_TRAFFICLIGHT);
   const signalScale = scaleToHeight(signalUrl, 5);
   let signals = 0;
-  for (let gx = 0; gx < GRID && signals < SIGNAL_CAP; gx++) {
-    for (let gz = 0; gz < GRID && signals < SIGNAL_CAP; gz++) {
+  for (let gx = 0; gx < GRID_X && signals < SIGNAL_CAP; gx++) {
+    for (let gz = 0; gz < GRID_Z && signals < SIGNAL_CAP; gz++) {
       const road = roadAt(gx, gz);
       if (!road || road.tile !== ROAD_CROSSROAD) continue;
       if (reserved.has(cellKey(gx, gz))) continue;
@@ -936,8 +937,8 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
   const benchUrl = modelUrl("props", PROP_BENCH);
   const benchScale = scaleToHeight(benchUrl, 0.85);
   let seating = 0;
-  for (let gx = 0; gx < GRID && seating < SEATING_CAP; gx++) {
-    for (let gz = 0; gz < GRID && seating < SEATING_CAP; gz++) {
+  for (let gx = 0; gx < GRID_X && seating < SEATING_CAP; gx++) {
+    for (let gz = 0; gz < GRID_Z && seating < SEATING_CAP; gz++) {
       const road = roadAt(gx, gz);
       if (!road) continue;
       if (reserved.has(cellKey(gx, gz))) continue;

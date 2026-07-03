@@ -1,6 +1,10 @@
 import * as THREE from "three";
 
-import { WORLD_HALF, WORLD_SIZE } from "../shared/constants";
+import { WORLD_H, WORLD_HALF_X, WORLD_HALF_Z, WORLD_W } from "../shared/constants";
+
+// Single reference scale for radially-symmetric features (hill Gaussians) so
+// they stay circular in world space on the rectangular map.
+const MAP_REF = (WORLD_W + WORLD_H) / 2;
 
 // A hill in normalized map coords (u = west→east, v = north→south, both 0..1).
 export type Hill = {
@@ -15,7 +19,10 @@ export type LandFactor = (u: number, v: number) => number;
 
 const SHORE_DROP = 5; // how far the ground dips below sea level past the coast
 const MARGIN = 24; // cached field extends past the map edge (camera, shoreline)
-const FIELD_STEP = 1; // world units between cached height samples
+// World units between cached height samples. The field is bilinearly
+// interpolated and the hills are broad Gaussians, so a 2u grid is visually
+// indistinguishable from 1u while quartering the cache (O(area) on the big map).
+const FIELD_STEP = 2;
 const NORMAL_EPS = 1.6; // finite-difference step for surface normals
 
 const scrFwd = new THREE.Vector3();
@@ -39,10 +46,10 @@ export function slopeQuaternion(
 }
 
 function worldToU(x: number): number {
-  return x / WORLD_SIZE + 0.5;
+  return x / WORLD_W + 0.5;
 }
 function worldToV(z: number): number {
-  return z / WORLD_SIZE + 0.5;
+  return z / WORLD_H + 0.5;
 }
 
 // One smooth, continuous SF height field shared by EVERYTHING — the ground
@@ -52,21 +59,25 @@ function worldToV(z: number): number {
 // per-tile tilting and therefore no seams. The raw field (island base +
 // Gaussian hills) is cached on a fine grid so per-frame lookups stay cheap.
 export class Terrain {
-  private field: Float64Array;
-  private n: number; // cached samples per side
-  private min: number; // world coordinate of sample 0 (both axes)
+  private field: Float32Array; // ~map-area samples; Float32 halves the cache
+  private nx: number; // cached samples east-west
+  private nz: number; // cached samples north-south
+  private minX: number; // world coordinate of sample 0 (x axis)
+  private minZ: number; // world coordinate of sample 0 (z axis)
 
   constructor(
     private hills: readonly Hill[],
     private land: LandFactor,
   ) {
-    this.min = -WORLD_HALF - MARGIN;
-    this.n = Math.ceil((WORLD_SIZE + MARGIN * 2) / FIELD_STEP) + 1;
-    this.field = new Float64Array(this.n * this.n);
-    for (let ix = 0; ix < this.n; ix++) {
-      const x = this.min + ix * FIELD_STEP;
-      for (let iz = 0; iz < this.n; iz++) {
-        this.field[ix * this.n + iz] = this.rawHeight(x, this.min + iz * FIELD_STEP);
+    this.minX = -WORLD_HALF_X - MARGIN;
+    this.minZ = -WORLD_HALF_Z - MARGIN;
+    this.nx = Math.ceil((WORLD_W + MARGIN * 2) / FIELD_STEP) + 1;
+    this.nz = Math.ceil((WORLD_H + MARGIN * 2) / FIELD_STEP) + 1;
+    this.field = new Float32Array(this.nx * this.nz);
+    for (let ix = 0; ix < this.nx; ix++) {
+      const x = this.minX + ix * FIELD_STEP;
+      for (let iz = 0; iz < this.nz; iz++) {
+        this.field[ix * this.nz + iz] = this.rawHeight(x, this.minZ + iz * FIELD_STEP);
       }
     }
   }
@@ -79,23 +90,23 @@ export class Terrain {
     const t = THREE.MathUtils.smoothstep(landAmt, 0.28, 0.42);
     let h = THREE.MathUtils.lerp(-SHORE_DROP, 0.3, t);
     for (const hl of this.hills) {
-      const du = (u - hl.u) * WORLD_SIZE;
-      const dv = (v - hl.v) * WORLD_SIZE;
-      const r = hl.radius * WORLD_SIZE;
+      const du = (u - hl.u) * WORLD_W;
+      const dv = (v - hl.v) * WORLD_H;
+      const r = hl.radius * MAP_REF;
       h += hl.height * t * Math.exp(-(du * du + dv * dv) / (r * r * 0.5));
     }
     return h;
   }
 
   private sample(ix: number, iz: number): number {
-    const cx = Math.min(this.n - 1, Math.max(0, ix));
-    const cz = Math.min(this.n - 1, Math.max(0, iz));
-    return this.field[cx * this.n + cz] ?? 0;
+    const cx = Math.min(this.nx - 1, Math.max(0, ix));
+    const cz = Math.min(this.nz - 1, Math.max(0, iz));
+    return this.field[cx * this.nz + cz] ?? 0;
   }
 
   heightAt(x: number, z: number): number {
-    const fx = (x - this.min) / FIELD_STEP;
-    const fz = (z - this.min) / FIELD_STEP;
+    const fx = (x - this.minX) / FIELD_STEP;
+    const fz = (z - this.minZ) / FIELD_STEP;
     const ix = Math.floor(fx);
     const iz = Math.floor(fz);
     const tx = fx - ix;
@@ -127,9 +138,14 @@ export class Terrain {
   // it). `colorAt` grades the surface per vertex (sand, park green, concrete) —
   // pair it with a vertexColors material.
   buildMesh(material: THREE.Material, colorAt?: (x: number, z: number, into: THREE.Color) => void): THREE.Mesh {
-    const span = WORLD_SIZE * 1.08;
-    const segs = Math.min(400, Math.max(120, Math.round(span / 3))); // ~3u per quad
-    const geo = new THREE.PlaneGeometry(span, span, segs, segs);
+    const spanX = WORLD_W * 1.08;
+    const spanZ = WORLD_H * 1.08;
+    // The ground is one uncullable mesh spanning the whole map, so cap the
+    // tessellation: the hills are broad and roads carry their own fine geometry,
+    // so ~9u/quad reads fine while keeping the always-on triangle count sane.
+    const segsX = Math.min(360, Math.max(120, Math.round(spanX / 9)));
+    const segsZ = Math.min(360, Math.max(120, Math.round(spanZ / 9)));
+    const geo = new THREE.PlaneGeometry(spanX, spanZ, segsX, segsZ);
     const pos = geo.attributes.position;
     if (pos instanceof THREE.BufferAttribute) {
       const colors = colorAt ? new Float32Array(pos.count * 3) : null;

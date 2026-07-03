@@ -8,14 +8,30 @@ export const MAX_DT = 1 / 30; // clamp delta on tab-away
 // --- World / city grid ---
 export const ROAD_TILE = 13; // world units per grid cell (wider arcade boulevards)
 export const ROAD_Y = 0.02; // lift road tiles above the ground plane
-export const GRID = 75; // cells per side — full-scale SF (2× linear, 4× area)
-export const CITY_SEED = 1337;
+// Rectangular grid matching SF's true ~1.22:1 aspect (14.1km E-W × 11.6km N-S) —
+// GRID_X cells east-west, GRID_Z cells north-south. The road network is the real
+// SF street grid (OpenStreetMap), rasterized at this resolution by
+// tools/sf-data/rasterize.mjs — keep the baked mask (src/world/sf-streets.ts) in
+// sync: `node tools/sf-data/rasterize.mjs 244 200`.
+export const GRID_X = 244; // cells east-west (u axis)
+export const GRID_Z = 200; // cells north-south (v axis)
+export const CITY_SEED = 1337; // still seeds traffic, props and other scatter
 // Rotation sign mapping grid clockwise quarter-turns → Three.js Y rotation.
 // Verified visually; flip to +1 if road tiles point the wrong way.
 export const ROAD_ROT_SIGN = -1;
 
-export const WORLD_SIZE = GRID * ROAD_TILE;
-export const WORLD_HALF = WORLD_SIZE / 2;
+// World extent per axis. x spans WORLD_W (east-west), z spans WORLD_H (north-south).
+export const WORLD_W = GRID_X * ROAD_TILE;
+export const WORLD_H = GRID_Z * ROAD_TILE;
+export const WORLD_HALF_X = WORLD_W / 2;
+export const WORLD_HALF_Z = WORLD_H / 2;
+
+// Chunk streaming: static city geometry is bucketed into CHUNK-sized square
+// tiles so the renderer frustum-culls off-screen tiles, and tiles whose nearest
+// point is farther than DRAW_DISTANCE from the camera are hidden each frame.
+// Keep DRAW_DISTANCE ≥ the fog far plane so nothing pops in ahead of the haze.
+export const CHUNK = 320;
+export const DRAW_DISTANCE = 1900;
 
 // --- Taxi (arcade handling) ---
 export const CAR = {

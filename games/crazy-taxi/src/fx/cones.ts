@@ -80,8 +80,9 @@ export class SmashCones {
 
     // Scatter little clusters along road shoulders, away from the spawn.
     const cells = city.roadCells.filter((c) => {
-      const cGrid = (city.plan.size - 1) / 2;
-      return Math.abs(c.gx - cGrid) + Math.abs(c.gz - cGrid) > 5;
+      const cx = (city.plan.sizeX - 1) / 2;
+      const cz = (city.plan.sizeZ - 1) / 2;
+      return Math.abs(c.gx - cx) + Math.abs(c.gz - cz) > 5;
     });
     let placed = 0;
     while (placed < COUNT && cells.length > 0) {

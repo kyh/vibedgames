@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-import { GRID, ROAD_TILE, ROAD_Y, WORLD_HALF } from "../shared/constants";
+import { GRID_X, GRID_Z, ROAD_TILE, ROAD_Y, WORLD_HALF_X, WORLD_HALF_Z } from "../shared/constants";
 import { DIR_DELTA, E, type Mask, maskHas, N, S, W } from "../shared/types";
 import { conformToTerrain } from "./conform";
 import type { CityPlan } from "./grid";
@@ -61,15 +61,15 @@ function curb(x0: number, z0: number, x1: number, z1: number): THREE.BufferGeome
 
 export function buildRoads(plan: CityPlan, terrain: Terrain): THREE.Mesh[] {
   const parts: Part[] = [];
-  const wx = (gx: number): number => (gx + 0.5) * ROAD_TILE - WORLD_HALF;
-  const wz = (gz: number): number => (gz + 0.5) * ROAD_TILE - WORLD_HALF;
+  const wx = (gx: number): number => (gx + 0.5) * ROAD_TILE - WORLD_HALF_X;
+  const wz = (gz: number): number => (gz + 0.5) * ROAD_TILE - WORLD_HALF_Z;
   const isRoad = (gx: number, gz: number): boolean => plan.cells[gx]?.[gz] === "road";
 
   const half = ROAD_TILE / 2;
   const aHalf = ASPHALT_W / 2;
 
-  for (let gx = 0; gx < GRID; gx++) {
-    for (let gz = 0; gz < GRID; gz++) {
+  for (let gx = 0; gx < GRID_X; gx++) {
+    for (let gz = 0; gz < GRID_Z; gz++) {
       if (!isRoad(gx, gz)) continue;
       let mask: Mask = 0;
       for (const d of [N, E, S, W] as const) {
