@@ -82,10 +82,10 @@ export const featuredGames: FeaturedGame[] = [
     colorScheme: "dark",
   },
   {
-    name: "Crazy Taxi",
-    slug: "crazy-taxi",
-    preview: "/covers/crazy-taxi.webp",
-    previewPortrait: "/covers/crazy-taxi-portrait.webp",
+    name: "Crazy Waymo",
+    slug: "crazy-waymo",
+    preview: "/covers/crazy-waymo.webp",
+    previewPortrait: "/covers/crazy-waymo-portrait.webp",
     colorScheme: "light",
   },
 ];

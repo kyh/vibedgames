@@ -9,7 +9,7 @@ if (!container) throw new Error("missing #game container");
 function showFatal(message: string): void {
   const loading = document.getElementById("loading");
   if (loading) {
-    loading.innerHTML = `<div class="lt">CRAZY TAXI</div><div class="ls" style="opacity:1;color:#ff8a8a">${message}</div>`;
+    loading.innerHTML = `<div class="lt">CRAZY WAYMO</div><div class="ls" style="opacity:1;color:#ff8a8a">${message}</div>`;
   }
 }
 
@@ -17,7 +17,7 @@ let renderer: THREE.WebGLRenderer;
 try {
   renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
 } catch (err) {
-  console.error("[crazy-taxi] WebGL init failed", err);
+  console.error("[crazy-waymo] WebGL init failed", err);
   showFatal("WebGL unavailable — try a different browser or enable hardware acceleration.");
   throw err instanceof Error ? err : new Error("WebGL init failed");
 }
