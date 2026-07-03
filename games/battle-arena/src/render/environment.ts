@@ -846,8 +846,11 @@ export class Environment {
       // per-piece coping trim read as a row of separate stubs)
       const nSeg = Math.max(1, Math.round(len / segW));
       const pieceW = len / nSeg;
-      // rotY: local +X along the run direction (sim dir → renderer yaw)
-      const rot = Math.PI / 2 - run.dir;
+      // rotY: local +X along the run direction. Perimeter convention: a piece
+      // marching along (edgeA + 90°) takes rot = π/2 − edgeA, so an along-dir
+      // of run.dir takes π − run.dir (π/2 − run.dir lay every piece ACROSS the
+      // run — a row of parallel slats instead of one wall).
+      const rot = Math.PI - run.dir;
       const tx = Math.cos(run.dir);
       const ty = Math.sin(run.dir);
       for (let i = 0; i < nSeg; i++) {
