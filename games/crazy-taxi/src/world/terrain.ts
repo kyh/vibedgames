@@ -19,7 +19,10 @@ export type LandFactor = (u: number, v: number) => number;
 
 const SHORE_DROP = 5; // how far the ground dips below sea level past the coast
 const MARGIN = 24; // cached field extends past the map edge (camera, shoreline)
-const FIELD_STEP = 1; // world units between cached height samples
+// World units between cached height samples. The field is bilinearly
+// interpolated and the hills are broad Gaussians, so a 2u grid is visually
+// indistinguishable from 1u while quartering the cache (O(area) on the big map).
+const FIELD_STEP = 2;
 const NORMAL_EPS = 1.6; // finite-difference step for surface normals
 
 const scrFwd = new THREE.Vector3();
@@ -56,7 +59,7 @@ function worldToV(z: number): number {
 // per-tile tilting and therefore no seams. The raw field (island base +
 // Gaussian hills) is cached on a fine grid so per-frame lookups stay cheap.
 export class Terrain {
-  private field: Float64Array;
+  private field: Float32Array; // ~map-area samples; Float32 halves the cache
   private nx: number; // cached samples east-west
   private nz: number; // cached samples north-south
   private minX: number; // world coordinate of sample 0 (x axis)
@@ -70,7 +73,7 @@ export class Terrain {
     this.minZ = -WORLD_HALF_Z - MARGIN;
     this.nx = Math.ceil((WORLD_W + MARGIN * 2) / FIELD_STEP) + 1;
     this.nz = Math.ceil((WORLD_H + MARGIN * 2) / FIELD_STEP) + 1;
-    this.field = new Float64Array(this.nx * this.nz);
+    this.field = new Float32Array(this.nx * this.nz);
     for (let ix = 0; ix < this.nx; ix++) {
       const x = this.minX + ix * FIELD_STEP;
       for (let iz = 0; iz < this.nz; iz++) {
@@ -137,8 +140,11 @@ export class Terrain {
   buildMesh(material: THREE.Material, colorAt?: (x: number, z: number, into: THREE.Color) => void): THREE.Mesh {
     const spanX = WORLD_W * 1.08;
     const spanZ = WORLD_H * 1.08;
-    const segsX = Math.min(520, Math.max(120, Math.round(spanX / 3))); // ~3u per quad
-    const segsZ = Math.min(520, Math.max(120, Math.round(spanZ / 3)));
+    // The ground is one uncullable mesh spanning the whole map, so cap the
+    // tessellation: the hills are broad and roads carry their own fine geometry,
+    // so ~9u/quad reads fine while keeping the always-on triangle count sane.
+    const segsX = Math.min(360, Math.max(120, Math.round(spanX / 9)));
+    const segsZ = Math.min(360, Math.max(120, Math.round(spanZ / 9)));
     const geo = new THREE.PlaneGeometry(spanX, spanZ, segsX, segsZ);
     const pos = geo.attributes.position;
     if (pos instanceof THREE.BufferAttribute) {

@@ -524,6 +524,11 @@ export class GameScene {
         this.updateTitle(dt);
         break;
     }
+
+    // Stream city chunks around wherever the camera ended up this frame (works
+    // in gameplay and freecam alike) so distant tiles stop drawing.
+    const cam = this.rig.camera.position;
+    this.city?.updateStreaming(cam.x, cam.z);
   }
 
   private silenceLoops(): void {

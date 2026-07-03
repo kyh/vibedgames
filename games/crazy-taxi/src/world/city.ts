@@ -12,7 +12,9 @@ import {
   TREE_SMALL,
 } from "../assets/manifest";
 import {
+  CHUNK,
   CITY_SEED,
+  DRAW_DISTANCE,
   GRID_X,
   GRID_Z,
   ROAD_ROT_SIGN,
@@ -72,6 +74,10 @@ function dirToYaw(d: Dir): number {
   }
 }
 
+// A streamed tile of static city geometry: its own merged meshes under one
+// group, tagged with a centre + cull radius so it can be hidden when far away.
+type Chunk = { cx: number; cz: number; radius: number; group: THREE.Group };
+
 export class CityModel {
   readonly group = new THREE.Group();
   readonly solids: Solid[] = [];
@@ -79,6 +85,7 @@ export class CityModel {
   readonly plan: CityPlan;
   readonly terrain: Terrain;
   private tintCache = new Map<string, THREE.Material>();
+  private chunks: Chunk[] = [];
 
   constructor(
     private cache: ModelCache,
@@ -441,11 +448,55 @@ export class CityModel {
       }
     }
 
-    // --- Merge static meshes by material to slash draw calls ---
-    for (const merged of mergeByMaterial(staticMeshes)) this.group.add(merged);
+    // --- Bucket static meshes into spatial chunks, then merge each chunk by
+    // material. Per-chunk merges keep draw calls low while giving the renderer
+    // tight bounds to frustum-cull, and let updateStreaming() hide far tiles. ---
+    const nx = Math.ceil(WORLD_W / CHUNK);
+    const nz = Math.ceil(WORLD_H / CHUNK);
+    const buckets = new Map<number, THREE.Mesh[]>();
+    const centroid = new THREE.Vector3();
+    for (const mesh of staticMeshes) {
+      if (!(mesh.geometry instanceof THREE.BufferGeometry)) continue;
+      mesh.geometry.computeBoundingBox();
+      mesh.geometry.boundingBox?.getCenter(centroid);
+      centroid.applyMatrix4(mesh.matrixWorld);
+      const cx = Math.min(nx - 1, Math.max(0, Math.floor((centroid.x + WORLD_HALF_X) / CHUNK)));
+      const cz = Math.min(nz - 1, Math.max(0, Math.floor((centroid.z + WORLD_HALF_Z) / CHUNK)));
+      const key = cz * nx + cx;
+      const list = buckets.get(key);
+      if (list) list.push(mesh);
+      else buckets.set(key, [mesh]);
+    }
+    // Half-diagonal of a chunk, plus slack for geometry (trees, tall roofs) that
+    // overhangs its tile — used as the cull radius so nothing pops at the edge.
+    const cullRadius = CHUNK * 0.71 + ROAD_TILE * 2;
+    for (const [key, meshes] of buckets) {
+      const cx = key % nx;
+      const cz = Math.floor(key / nx);
+      const group = new THREE.Group();
+      for (const merged of mergeByMaterial(meshes)) group.add(merged);
+      this.group.add(group);
+      this.chunks.push({
+        cx: (cx + 0.5) * CHUNK - WORLD_HALF_X,
+        cz: (cz + 0.5) * CHUNK - WORLD_HALF_Z,
+        radius: cullRadius,
+        group,
+      });
+    }
 
-    // --- Iconic landmarks (procedural; kept separate from the merge) ---
+    // --- Iconic landmarks (procedural; kept separate — always visible) ---
     this.group.add(buildLandmarks(this.terrain, this.cache));
+  }
+
+  // Hide chunks whose nearest point is beyond the draw distance from the camera.
+  // Frustum culling (per merged mesh, automatic) removes tiles behind and beside
+  // the camera; this removes distant tiles ahead, past the fog.
+  updateStreaming(camX: number, camZ: number): void {
+    for (const c of this.chunks) {
+      const d = Math.hypot(camX - c.cx, camZ - c.cz) - c.radius;
+      const visible = d < DRAW_DISTANCE;
+      if (c.group.visible !== visible) c.group.visible = visible;
+    }
   }
 
   // Is the world position over a road cell (vs a building lot)?

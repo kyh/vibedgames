@@ -12,7 +12,11 @@ import type { Terrain } from "../world/terrain";
 
 const FIXED_DT = 1 / 60;
 const MAX_STEPS = 4; // per frame; drop time beyond this (tab-back spike guard)
-const GROUND_SAMPLE = 4; // world units between terrain collider samples
+// World units between terrain collider samples. The car's height is kinematic
+// (city.heightAt), so this trimesh only serves loose bodies (cones, debris,
+// traffic punts) — a coarse sampling is plenty and keeps the collider from
+// exploding on the full-size map (finer = O(area) triangles for Rapier's BVH).
+const GROUND_SAMPLE = 8;
 const STATIC_HALF_HEIGHT = 6; // buildings/walls modeled as tall boxes
 
 export class PhysicsWorld {

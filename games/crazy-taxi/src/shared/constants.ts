@@ -26,6 +26,13 @@ export const WORLD_H = GRID_Z * ROAD_TILE;
 export const WORLD_HALF_X = WORLD_W / 2;
 export const WORLD_HALF_Z = WORLD_H / 2;
 
+// Chunk streaming: static city geometry is bucketed into CHUNK-sized square
+// tiles so the renderer frustum-culls off-screen tiles, and tiles whose nearest
+// point is farther than DRAW_DISTANCE from the camera are hidden each frame.
+// Keep DRAW_DISTANCE ≥ the fog far plane so nothing pops in ahead of the haze.
+export const CHUNK = 320;
+export const DRAW_DISTANCE = 1900;
+
 // --- Taxi (arcade handling) ---
 export const CAR = {
   maxSpeed: 51, // top forward speed (down from 58 — corners were outrunning steering)
