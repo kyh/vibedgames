@@ -5,7 +5,7 @@ import {
   ROAD_INTERSECTION,
   ROAD_STRAIGHT,
 } from "../assets/manifest";
-import { GRID } from "../shared/constants";
+import { GRID_X, GRID_Z } from "../shared/constants";
 import { SF_STREET_MASK, streetMaskAt } from "./sf-streets";
 import { isLandCell } from "./sf-map";
 import {
@@ -28,7 +28,8 @@ export type BuildingCell = { readonly gx: number; readonly gz: number; readonly 
 export type GreenCell = { readonly gx: number; readonly gz: number };
 
 export type CityPlan = {
-  readonly size: number;
+  readonly sizeX: number;
+  readonly sizeZ: number;
   readonly cells: readonly (readonly CellKind[])[];
   readonly roads: readonly (readonly (RoadResolved | null)[])[];
   readonly buildingCells: readonly BuildingCell[];
@@ -75,16 +76,16 @@ function key(gx: number, gz: number): string {
 export function generateCity(): CityPlan {
   // The road network IS the real San Francisco street grid (OpenStreetMap),
   // rasterized to this game grid by tools/sf-data/rasterize.mjs. The baked mask
-  // must be generated at the same resolution as GRID, or streets misalign.
-  if (SF_STREET_MASK.gx !== GRID || SF_STREET_MASK.gz !== GRID) {
+  // must be generated at the same resolution as the grid, or streets misalign.
+  if (SF_STREET_MASK.gx !== GRID_X || SF_STREET_MASK.gz !== GRID_Z) {
     throw new Error(
-      `SF street mask is ${SF_STREET_MASK.gx}x${SF_STREET_MASK.gz} but GRID is ${GRID}; ` +
-        `regenerate: node tools/sf-data/rasterize.mjs ${GRID} ${GRID}`,
+      `SF street mask is ${SF_STREET_MASK.gx}x${SF_STREET_MASK.gz} but grid is ${GRID_X}x${GRID_Z}; ` +
+        `regenerate: node tools/sf-data/rasterize.mjs ${GRID_X} ${GRID_Z}`,
     );
   }
 
   const isRoadRaw = (gx: number, gz: number): boolean => {
-    if (gx < 0 || gz < 0 || gx >= GRID || gz >= GRID) return false;
+    if (gx < 0 || gz < 0 || gx >= GRID_X || gz >= GRID_Z) return false;
     if (!isLandCell(gx, gz)) return false; // roads stop at the shoreline
     return streetMaskAt(gx, gz);
   };
@@ -96,13 +97,14 @@ export function generateCity(): CityPlan {
   // mutually reachable.
   const mainRoads = new Set<string>();
   {
-    const c = (GRID - 1) / 2;
+    const cx = (GRID_X - 1) / 2;
+    const cz = (GRID_Z - 1) / 2;
     let seed: { gx: number; gz: number } | null = null;
     let bd = Infinity;
-    for (let gx = 0; gx < GRID; gx++) {
-      for (let gz = 0; gz < GRID; gz++) {
+    for (let gx = 0; gx < GRID_X; gx++) {
+      for (let gz = 0; gz < GRID_Z; gz++) {
         if (!isRoadRaw(gx, gz)) continue;
-        const d = Math.abs(gx - c) + Math.abs(gz - c);
+        const d = Math.abs(gx - cx) + Math.abs(gz - cz);
         if (d < bd) {
           bd = d;
           seed = { gx, gz };
@@ -151,10 +153,10 @@ export function generateCity(): CityPlan {
   const buildingCells: BuildingCell[] = [];
   const greenCells: GreenCell[] = [];
 
-  for (let gx = 0; gx < GRID; gx++) {
+  for (let gx = 0; gx < GRID_X; gx++) {
     const cellCol: CellKind[] = [];
     const roadCol: (RoadResolved | null)[] = [];
-    for (let gz = 0; gz < GRID; gz++) {
+    for (let gz = 0; gz < GRID_Z; gz++) {
       if (!isLandCell(gx, gz)) {
         cellCol[gz] = "water";
         roadCol[gz] = null;
@@ -173,5 +175,5 @@ export function generateCity(): CityPlan {
     roads[gx] = roadCol;
   }
 
-  return { size: GRID, cells, roads, buildingCells, greenCells };
+  return { sizeX: GRID_X, sizeZ: GRID_Z, cells, roads, buildingCells, greenCells };
 }

@@ -1,4 +1,4 @@
-import { GRID } from "../shared/constants";
+import { GRID_X, GRID_Z } from "../shared/constants";
 import { type Hill, type LandFactor, Terrain } from "./terrain";
 
 // San Francisco, traced from real geography (DataSF / lat-lon), normalized
@@ -42,7 +42,7 @@ export const landFactor: LandFactor = (u, v) => {
 };
 
 export function isLandCell(gx: number, gz: number): boolean {
-  return landFactor((gx + 0.5) / GRID, (gz + 0.5) / GRID) > 0.5;
+  return landFactor((gx + 0.5) / GRID_X, (gz + 0.5) / GRID_Z) > 0.5;
 }
 
 // Real SF hills (summit u,v + elevation in metres). Scaled to playable game
@@ -390,8 +390,8 @@ const DEFAULT_DISTRICT: District = {
 };
 
 export function districtAt(gx: number, gz: number): District {
-  const u = (gx + 0.5) / GRID;
-  const v = (gz + 0.5) / GRID;
+  const u = (gx + 0.5) / GRID_X;
+  const v = (gz + 0.5) / GRID_Z;
   for (const n of NEIGHBORHOODS) {
     if (u >= n.uMin && u <= n.uMax && v >= n.vMin && v <= n.vMax) {
       return { name: n.name, character: n.character, color: n.color };

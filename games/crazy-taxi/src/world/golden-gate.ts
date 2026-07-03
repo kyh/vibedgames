@@ -2,7 +2,7 @@ import * as THREE from "three";
 
 import type { ModelCache } from "../assets/loader";
 import { BRIDGE_PILLAR_WIDE, modelUrl, ROAD_BRIDGE } from "../assets/manifest";
-import { GRID, WORLD_HALF } from "../shared/constants";
+import { GRID_X, GRID_Z, WORLD_HALF_Z, WORLD_W } from "../shared/constants";
 import type { CityPlan } from "./grid";
 import type { Solid, SurfaceDeck } from "./city";
 import type { Terrain } from "./terrain";
@@ -57,11 +57,11 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
 
   // --- Anchor: the northernmost road cell on the Presidio coast near u 0.25 ---
   let anchor: { gx: number; gz: number } | null = null;
-  for (let gx = 0; gx < GRID; gx++) {
+  for (let gx = 0; gx < GRID_X; gx++) {
     const wx = ctx.worldX(gx);
-    const u = wx / (WORLD_HALF * 2) + 0.5;
+    const u = wx / WORLD_W + 0.5;
     if (u < APPROACH_U_MIN || u > APPROACH_U_MAX) continue;
-    for (let gz = 0; gz < GRID; gz++) {
+    for (let gz = 0; gz < GRID_Z; gz++) {
       if (ctx.plan.cells[gx]?.[gz] !== "road") continue;
       if (!anchor || gz < anchor.gz) anchor = { gx, gz };
       break; // first road in this column is the northernmost
@@ -72,7 +72,7 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
   const ax = ctx.worldX(anchor.gx);
   const shoreZ = ctx.worldZ(anchor.gz);
   const shoreH = ctx.terrain.heightAt(ax, shoreZ) + 0.04;
-  const endZ = -WORLD_HALF + 3.5; // vista pad stops just inside the border wall
+  const endZ = -WORLD_HALF_Z + 3.5; // vista pad stops just inside the border wall
   // Fit the ramp to the water span actually available; cap the climb at ~20°.
   const span = shoreZ - endZ;
   const rampLen = THREE.MathUtils.clamp(span * 0.6, 10, RAMP_LEN);
@@ -131,7 +131,7 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
     seg.updateMatrixWorld(true);
     objects.push(seg);
   }
-  for (let z = rampTopZ; z > -WORLD_HALF - segLen; z -= segLen) {
+  for (let z = rampTopZ; z > -WORLD_HALF_Z - segLen; z -= segLen) {
     const seg = ctx.cache.instance(deckUrl);
     seg.scale.set(boardScaleX, 1.6, boardScaleZ);
     seg.position.set(ax, deckY - 0.32, z - segLen / 2);
@@ -152,7 +152,7 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
   // Piers under the deck.
   const pillarUrl = modelUrl("roads", BRIDGE_PILLAR_WIDE);
   const pb = ctx.cache.bounds(pillarUrl);
-  for (const pz of [rampTopZ - 6, -WORLD_HALF + 10]) {
+  for (const pz of [rampTopZ - 6, -WORLD_HALF_Z + 10]) {
     const p = ctx.cache.instance(pillarUrl);
     p.scale.set(
       (DECK_W + 2) / Math.max(pb.size.x, 0.001),
@@ -165,7 +165,7 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
   }
 
   // Tower: legs OUTSIDE the drivable width, portal beams the car passes under.
-  const towerZ = -WORLD_HALF + 14;
+  const towerZ = -WORLD_HALF_Z + 14;
   const topY = deckY + TOWER_H;
   for (const sx of [-(half + 2.2), half + 2.2]) {
     objects.push(
@@ -185,7 +185,7 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
       new THREE.Vector3(ax + sx, shoreH + 1.5, shoreZ + 2),
       new THREE.Vector3(ax + sx, deckY + 5, (rampTopZ + towerZ) / 2),
       new THREE.Vector3(ax + sx, topY - 0.5, towerZ),
-      new THREE.Vector3(ax + sx, topY - 6, -WORLD_HALF - 8),
+      new THREE.Vector3(ax + sx, topY - 6, -WORLD_HALF_Z - 8),
     ];
     const curve = new THREE.CatmullRomCurve3(pts);
     const cable = new THREE.Mesh(new THREE.TubeGeometry(curve, 40, 0.22, 6), ORANGE);

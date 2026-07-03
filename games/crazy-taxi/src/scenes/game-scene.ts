@@ -15,7 +15,7 @@ import { GameState } from "../game/state";
 import { Traffic } from "../game/traffic";
 import { InputState } from "../input/keyboard";
 import { PhysicsWorld } from "../physics/physics-world";
-import { CAMERA, CAR, FARE, GRID, MPH_FACTOR, WORLD_SIZE } from "../shared/constants";
+import { CAMERA, CAR, FARE, GRID_X, GRID_Z, MPH_FACTOR, WORLD_H, WORLD_W } from "../shared/constants";
 import { Rng } from "../shared/rng";
 import type { GameMode } from "../shared/types";
 import { Hud } from "../ui/hud";
@@ -157,7 +157,10 @@ export class GameScene {
     this.scene.add(sky);
     this.sky = sky;
 
-    this.scene.fog = new THREE.Fog(0xbcd7ea, WORLD_SIZE * 0.75, WORLD_SIZE * 2.3);
+    // Draw-distance fog: the map is far larger than the view, so haze the
+    // horizon well inside the camera far plane (2000). Doubles as the visual cue
+    // for the chunk draw-distance cull.
+    this.scene.fog = new THREE.Fog(0xbcd7ea, 620, 1850);
 
     const hemi = new THREE.HemisphereLight(0xbfe0ff, 0x4a4a3e, 0.35);
     this.scene.add(hemi);
@@ -343,11 +346,12 @@ export class GameScene {
     gx: number;
     gz: number;
   } {
-    const c = (GRID - 1) / 2;
-    let bg = { gx: Math.round(c), gz: Math.round(c) };
+    const cx = (GRID_X - 1) / 2;
+    const cz = (GRID_Z - 1) / 2;
+    let bg = { gx: Math.round(cx), gz: Math.round(cz) };
     let bd = Infinity;
     for (const rc of city.roadCells) {
-      const d = Math.abs(rc.gx - c) + Math.abs(rc.gz - c);
+      const d = Math.abs(rc.gx - cx) + Math.abs(rc.gz - cz);
       if (d < bd) {
         bd = d;
         bg = { gx: rc.gx, gz: rc.gz };
@@ -369,8 +373,8 @@ export class GameScene {
     const car = this.car;
     const city = this.city;
     if (!car || !city) return;
-    const x = (u - 0.5) * WORLD_SIZE;
-    const z = (v - 0.5) * WORLD_SIZE;
+    const x = (u - 0.5) * WORLD_W;
+    const z = (v - 0.5) * WORLD_H;
     let best: { gx: number; gz: number } | null = null;
     let bd = Infinity;
     for (const rc of city.roadCells) {
@@ -433,7 +437,7 @@ export class GameScene {
         best = p;
       }
     }
-    return best ? { u: best.x / WORLD_SIZE + 0.5, v: best.z / WORLD_SIZE + 0.5 } : null;
+    return best ? { u: best.x / WORLD_W + 0.5, v: best.z / WORLD_H + 0.5 } : null;
   }
 
   // DEV-only: live car state for headless verification.
@@ -474,7 +478,7 @@ export class GameScene {
       boosting: car.isBoosting,
       carrying: this.fares?.carryingInfo() !== null && this.fares !== null,
       objective: obj
-        ? { u: obj.pos.x / WORLD_SIZE + 0.5, v: obj.pos.z / WORLD_SIZE + 0.5 }
+        ? { u: obj.pos.x / WORLD_W + 0.5, v: obj.pos.z / WORLD_H + 0.5 }
         : null,
       wreckedCount: this.traffic ? this.traffic.cars.filter((c) => c.wrecked).length : 0,
       nearestTraffic,

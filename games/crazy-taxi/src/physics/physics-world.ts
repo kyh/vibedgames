@@ -1,7 +1,7 @@
 import RAPIER from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
 
-import { WORLD_HALF, WORLD_SIZE } from "../shared/constants";
+import { WORLD_H, WORLD_HALF_X, WORLD_HALF_Z, WORLD_W } from "../shared/constants";
 import type { Solid } from "../world/city";
 import type { Terrain } from "../world/terrain";
 
@@ -31,26 +31,28 @@ export class PhysicsWorld {
 
   // Terrain as a trimesh sampled from the same height field the game drives on.
   addGround(terrain: Terrain): void {
-    const span = WORLD_SIZE * 1.06;
-    const n = Math.ceil(span / GROUND_SAMPLE);
-    const verts = new Float32Array((n + 1) * (n + 1) * 3);
-    for (let i = 0; i <= n; i++) {
-      for (let j = 0; j <= n; j++) {
-        const x = -span / 2 + (i / n) * span;
-        const z = -span / 2 + (j / n) * span;
-        const k = (i * (n + 1) + j) * 3;
+    const spanX = WORLD_W * 1.06;
+    const spanZ = WORLD_H * 1.06;
+    const nx = Math.ceil(spanX / GROUND_SAMPLE);
+    const nz = Math.ceil(spanZ / GROUND_SAMPLE);
+    const verts = new Float32Array((nx + 1) * (nz + 1) * 3);
+    for (let i = 0; i <= nx; i++) {
+      for (let j = 0; j <= nz; j++) {
+        const x = -spanX / 2 + (i / nx) * spanX;
+        const z = -spanZ / 2 + (j / nz) * spanZ;
+        const k = (i * (nz + 1) + j) * 3;
         verts[k] = x;
         verts[k + 1] = terrain.heightAt(x, z);
         verts[k + 2] = z;
       }
     }
-    const indices = new Uint32Array(n * n * 6);
+    const indices = new Uint32Array(nx * nz * 6);
     let w = 0;
-    for (let i = 0; i < n; i++) {
-      for (let j = 0; j < n; j++) {
-        const a = i * (n + 1) + j;
+    for (let i = 0; i < nx; i++) {
+      for (let j = 0; j < nz; j++) {
+        const a = i * (nz + 1) + j;
         const b = a + 1;
-        const c = a + (n + 1);
+        const c = a + (nz + 1);
         const d = c + 1;
         indices[w++] = a;
         indices[w++] = b;
@@ -69,7 +71,7 @@ export class PhysicsWorld {
     for (const s of solids) {
       const cx = (s.minX + s.maxX) / 2;
       const cz = (s.minZ + s.maxZ) / 2;
-      if (Math.abs(cx) > WORLD_HALF + 30 || Math.abs(cz) > WORLD_HALF + 30) continue;
+      if (Math.abs(cx) > WORLD_HALF_X + 30 || Math.abs(cz) > WORLD_HALF_Z + 30) continue;
       const hx = Math.max(0.1, (s.maxX - s.minX) / 2);
       const hz = Math.max(0.1, (s.maxZ - s.minZ) / 2);
       const base = terrain.heightAt(cx, cz);

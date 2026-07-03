@@ -13,7 +13,7 @@ import {
   TRAFFIC_CARS,
 } from "../assets/manifest";
 import type { GameScene } from "../scenes/game-scene";
-import { WORLD_SIZE } from "../shared/constants";
+import { WORLD_H, WORLD_W } from "../shared/constants";
 import { CUSTOM_PROPS, type CustomProp } from "../world/custom-props";
 
 // The map editor (?editor=1): fly around the built city, place assets on the
@@ -72,13 +72,13 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     true,
   );
 
-  camera.position.set(0, WORLD_SIZE * 0.35, WORLD_SIZE * 0.27);
+  camera.position.set(0, WORLD_W * 0.35, WORLD_W * 0.27);
   camera.lookAt(0, 0, -20);
   const controls = new MapControls(camera, renderer.domElement);
   controls.enableDamping = false;
   controls.maxPolarAngle = Math.PI / 2 - 0.06;
   controls.minDistance = 12;
-  controls.maxDistance = WORLD_SIZE * 1.3;
+  controls.maxDistance = WORLD_W * 1.3;
 
   const ground = game.scene.getObjectByName("terrain-ground");
   const raycaster = new THREE.Raycaster();
@@ -258,8 +258,8 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     const node = cache.instance(modelUrl(parts[0] ?? "props", parts[1] ?? ""));
     node.scale.setScalar(entry.s);
     node.rotation.y = entry.yaw;
-    const x = (entry.u - 0.5) * WORLD_SIZE;
-    const z = (entry.v - 0.5) * WORLD_SIZE;
+    const x = (entry.u - 0.5) * WORLD_W;
+    const z = (entry.v - 0.5) * WORLD_H;
     node.position.set(x, city.heightAt(x, z), z);
     game.scene.add(node);
     return node;
@@ -290,8 +290,8 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     if (moved > 5 || !ghost || !selected || !ghostOnGround) return;
     const entry: Entry = {
       model: `${selected.cat}/${selected.name}`,
-      u: Math.round((ghostPos.x / WORLD_SIZE + 0.5) * 10000) / 10000,
-      v: Math.round((ghostPos.z / WORLD_SIZE + 0.5) * 10000) / 10000,
+      u: Math.round((ghostPos.x / WORLD_W + 0.5) * 10000) / 10000,
+      v: Math.round((ghostPos.z / WORLD_H + 0.5) * 10000) / 10000,
       yaw: Math.round(ghostYaw * 1000) / 1000,
       s: Math.round(ghostScale * 100) / 100,
     };

@@ -8,7 +8,7 @@ import {
   modelUrl,
   ROAD_BRIDGE,
 } from "../assets/manifest";
-import { GRID, ROAD_TILE, WORLD_HALF, WORLD_SIZE } from "../shared/constants";
+import { GRID_X, GRID_Z, ROAD_TILE, WORLD_H, WORLD_HALF_X, WORLD_HALF_Z, WORLD_W } from "../shared/constants";
 import { Rng } from "../shared/rng";
 import type { Solid } from "./city";
 import type { CityPlan } from "./grid";
@@ -42,10 +42,10 @@ const GATE_GREEN = new THREE.MeshStandardMaterial({ color: 0x3e7d54, roughness: 
 const ROCK = new THREE.MeshStandardMaterial({ color: 0x8a8578, roughness: 1 });
 
 function uWorld(u: number): number {
-  return (u - 0.5) * WORLD_SIZE;
+  return (u - 0.5) * WORLD_W;
 }
 function vWorld(v: number): number {
-  return (v - 0.5) * WORLD_SIZE;
+  return (v - 0.5) * WORLD_H;
 }
 
 function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, x = 0, y = 0, z = 0): THREE.Mesh {
@@ -286,10 +286,10 @@ function cellKey(gx: number, gz: number): string {
   return `${gx},${gz}`;
 }
 function gxOf(u: number): number {
-  return Math.min(GRID - 1, Math.max(0, Math.floor(u * GRID)));
+  return Math.min(GRID_X - 1, Math.max(0, Math.floor(u * GRID_X)));
 }
 function gzOf(v: number): number {
-  return Math.min(GRID - 1, Math.max(0, Math.floor(v * GRID)));
+  return Math.min(GRID_Z - 1, Math.max(0, Math.floor(v * GRID_Z)));
 }
 
 export function landmarkProtection(plan: CityPlan): LandmarkProtection {
@@ -307,16 +307,16 @@ export function landmarkProtection(plan: CityPlan): LandmarkProtection {
     const maxX = x + halfX;
     const minZ = z - halfZ;
     const maxZ = z + halfZ;
-    const g0x = Math.max(0, Math.floor((minX + WORLD_HALF) / ROAD_TILE));
-    const g1x = Math.min(GRID - 1, Math.floor((maxX + WORLD_HALF) / ROAD_TILE));
-    const g0z = Math.max(0, Math.floor((minZ + WORLD_HALF) / ROAD_TILE));
-    const g1z = Math.min(GRID - 1, Math.floor((maxZ + WORLD_HALF) / ROAD_TILE));
+    const g0x = Math.max(0, Math.floor((minX + WORLD_HALF_X) / ROAD_TILE));
+    const g1x = Math.min(GRID_X - 1, Math.floor((maxX + WORLD_HALF_X) / ROAD_TILE));
+    const g0z = Math.max(0, Math.floor((minZ + WORLD_HALF_Z) / ROAD_TILE));
+    const g1z = Math.min(GRID_Z - 1, Math.floor((maxZ + WORLD_HALF_Z) / ROAD_TILE));
     for (let gx = g0x; gx <= g1x; gx++) {
       for (let gz = g0z; gz <= g1z; gz++) {
         reserved.add(cellKey(gx, gz));
         if (plan.cells[gx]?.[gz] !== "lot") continue;
-        const cMinX = gx * ROAD_TILE - WORLD_HALF;
-        const cMinZ = gz * ROAD_TILE - WORLD_HALF;
+        const cMinX = gx * ROAD_TILE - WORLD_HALF_X;
+        const cMinZ = gz * ROAD_TILE - WORLD_HALF_Z;
         solids.push({
           minX: Math.max(minX, cMinX),
           maxX: Math.min(maxX, cMinX + ROAD_TILE),
