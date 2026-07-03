@@ -203,6 +203,8 @@ class UnitView {
   private lastJumpShown = -1;
   private lastDodgeShown = -1;
   private oneShotUntil = 0;
+  private mirrorSwingUntil = 0; // "@mirror" swing: flip char.root.x so the same
+  //                              (correct) hand swings the opposite direction
   private deadAt = -1;
   private lastDustAt = 0;
   private attackIdx = 0;
@@ -438,7 +440,14 @@ class UnitView {
       this.lastAttackShown = u.lastAttackAt;
       if (now - u.lastAttackAt < timing.ms) {
         const set = ATTACK_SETS[this.def.id] ?? [attackClip(this.def)];
-        const clip = set[this.attackIdx++ % set.length]!;
+        const raw = set[this.attackIdx++ % set.length]!;
+        // "@mirror": play the clip on its normal (correct-hand) bones but mirror
+        // the whole character on X, so the same hand swings the opposite way —
+        // a real backhand. (Mirroring the clip's own l/r tracks would move the
+        // swing onto the shield arm.)
+        const mirror = raw.endsWith("@mirror");
+        const clip = mirror ? raw.slice(0, -"@mirror".length) : raw;
+        this.mirrorSwingUntil = mirror ? now + timing.ms : 0;
         ch.play(clip, { loop: false, fade: 0.04, timeScale: timing.ts });
         this.oneShotUntil = now + timing.ms;
         this.emitTrails(now, timing.ms); // weapon-trail ribbon traces the blade
@@ -500,7 +509,8 @@ class UnitView {
     this.prevHop = hopY;
     this.squash *= Math.max(0, 1 - 9 * dt);
     const bs = this.baseScale;
-    ch.root.scale.set(bs * (1 + 0.12 * this.squash), bs * (1 - 0.18 * this.squash), bs * (1 + 0.12 * this.squash));
+    const mx = now < this.mirrorSwingUntil ? -1 : 1; // backhand swing mirror
+    ch.root.scale.set(mx * bs * (1 + 0.12 * this.squash), bs * (1 - 0.18 * this.squash), bs * (1 + 0.12 * this.squash));
 
     // ── dash trail: streaks + dust shed behind any ability dash (not dodges) ──
     const dashing = now < u.dashUntil && now >= u.dodgeUntil;

@@ -22,52 +22,6 @@ function loadGltf(url: string): Promise<GLTF> {
   });
 }
 
-const MIRROR_SUFFIX = "@mirror";
-
-/** The mirror-pair bone name (limb bones end in 'l'/'r'; central bones — root,
- *  hips, spine, chest, head — don't and stay put). Only swaps when the paired
- *  bone actually exists in the clip. GLTFLoader strips the '.' so bones read
- *  "upperarml" / "handslotr" etc. */
-function mirrorBone(bone: string, present: Set<string>): string {
-  if (bone.endsWith("l")) {
-    const m = `${bone.slice(0, -1)}r`;
-    if (present.has(m)) return m;
-  } else if (bone.endsWith("r")) {
-    const m = `${bone.slice(0, -1)}l`;
-    if (present.has(m)) return m;
-  }
-  return bone;
-}
-
-/** Reflect a clip across the sagittal (X=0) plane so a swing sweeps the other
- *  way: swap l/r bone tracks, negate position-X, and negate the quaternion's
- *  y,z (matrix conjugation M·R·M with M = diag(-1,1,1) → (x, −y, −z, w)). */
-function mirrorClip(base: THREE.AnimationClip, name: string): THREE.AnimationClip {
-  const bones = new Set<string>();
-  for (const t of base.tracks) bones.add(t.name.slice(0, Math.max(0, t.name.indexOf("."))));
-  const tracks: THREE.KeyframeTrack[] = [];
-  for (const t of base.tracks) {
-    const dot = t.name.indexOf(".");
-    const prop = t.name.slice(dot + 1);
-    const trackName = `${mirrorBone(t.name.slice(0, dot), bones)}.${prop}`;
-    const times = Array.from(t.times);
-    const values = Array.from(t.values);
-    if (prop === "position") {
-      for (let i = 0; i < values.length; i += 3) values[i] = -(values[i] ?? 0);
-      tracks.push(new THREE.VectorKeyframeTrack(trackName, times, values));
-    } else if (prop === "quaternion") {
-      for (let i = 0; i < values.length; i += 4) {
-        values[i + 1] = -(values[i + 1] ?? 0);
-        values[i + 2] = -(values[i + 2] ?? 0);
-      }
-      tracks.push(new THREE.QuaternionKeyframeTrack(trackName, times, values));
-    } else {
-      tracks.push(new THREE.VectorKeyframeTrack(trackName, times, values)); // scale: unchanged
-    }
-  }
-  return new THREE.AnimationClip(name, base.duration, tracks);
-}
-
 export class ModelLibrary {
   private templates = new Map<string, THREE.Object3D>();
   private clips = new Map<string, THREE.AnimationClip>();
@@ -126,20 +80,7 @@ export class ModelLibrary {
   }
 
   getClip(name: string): THREE.AnimationClip | undefined {
-    const cached = this.clips.get(name);
-    if (cached) return cached;
-    // "<clip>@mirror" = the clip reflected left↔right, built + cached on demand.
-    // A right-to-left slice becomes a clean backhand left-to-right one, time
-    // still forward (no un-swing). Keyed WITH the rig prefix so Large mirrors
-    // never collide with Medium ones.
-    if (name.endsWith(MIRROR_SUFFIX)) {
-      const base = this.clips.get(name.slice(0, -MIRROR_SUFFIX.length));
-      if (!base) return undefined;
-      const mirrored = mirrorClip(base, name);
-      this.clips.set(name, mirrored);
-      return mirrored;
-    }
-    return undefined;
+    return this.clips.get(name);
   }
 
   /** A fresh, independently-animatable copy of a loaded character. */
