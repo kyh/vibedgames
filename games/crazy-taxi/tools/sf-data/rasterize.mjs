@@ -158,7 +158,9 @@ function bake(GX, GZ) {
     }
   };
   // Minor first, then major on top, so `major` marks the protected arterials.
-  for (const pl of polylines) if (!pl.major) draw(pl.pts, false);
+  // MAJORS_ONLY drops the residential grid entirely — the game reads better
+  // (and runs faster) with SF's arterial network + superblocks.
+  if (!MAJORS_ONLY) for (const pl of polylines) if (!pl.major) draw(pl.pts, false);
   for (const pl of polylines) if (pl.major) draw(pl.pts, true);
 
   // --- Thinning: open building blocks by forbidding any fully-road 2x2 window.
@@ -251,7 +253,8 @@ function svgPreview(res, path) {
   writeFileSync(path, svg);
 }
 
-const arg = process.argv.slice(2).map(Number);
+const MAJORS_ONLY = process.argv.includes("--majors-only");
+const arg = process.argv.slice(2).filter((a) => a !== "--majors-only").map(Number);
 if (arg.length === 2) {
   // Bake one chosen size to a TS module + preview.
   const res = bake(arg[0], arg[1]);
