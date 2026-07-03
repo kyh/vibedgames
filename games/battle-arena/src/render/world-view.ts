@@ -69,16 +69,24 @@ function mountWeapon(obj: THREE.Object3D, name: string): void {
   obj.rotation.set(m.rx ?? 0, m.ry ?? 0, m.rz ?? 0);
 }
 
-// Per-champ basic-attack timing: window (ms) + clip timescale. Heavier weapons
-// wind up longer and play slower — the axe hangs, the daggers snap.
-const ATTACK_TIMING: Record<string, { ms: number; ts: number }> = {
-  rogue: { ms: 300, ts: 1.6 },
-  knight: { ms: 340, ts: 1.45 },
-  blackknight: { ms: 400, ts: 1.2 },
-};
-const DEFAULT_TIMING = { ms: 340, ts: 1.45 };
+// Basic-swing timing (render only). Each swing plays at a per-champ snappiness
+// (heavier blades slower) and its one-shot window is SIZED TO THE CLIP so the
+// strike always shows — long clips (the 1.6s chop, the 2.4s spin) no longer cut
+// at the wind-up, short ones don't finish early. A cap stops any one swing from
+// dominating the combo. Flourishes play the whole clip.
+const SWING_TS: Record<string, number> = { rogue: 2.1, knight: 1.7, blackknight: 1.55 };
+const DEFAULT_SWING_TS = 1.7;
+const SWING_SHOWN = 0.72; // fraction of a clip shown: wind-up → strike → early recovery
+const SWING_WIN_CAP = 820; // ms — never let one swing linger
+const FULL_CLIP_SWINGS = new Set(["Melee_2H_Attack_Spin"]); // show 100%, fast flourish
+const FULL_SWING_MS = 600; // target real duration of a full-clip flourish
+const ATTACK_RECENCY_MS = 340; // an attack event older than this is stale — skip
 
 const CAST_ANIM_MS = 520;
+// Cast clips play fast enough that the gesture shows inside the window (a 4.3s
+// Summon at 1× would show ~12%); capped so it never reads frantic.
+const CAST_SHOWN = 0.6;
+const CAST_TS_MAX = 2.6;
 const HIT_ANIM_MS = 280;
 const JUMP_ANIM_MS = 600;
 const JUMP_RENDER_MS = 620; // mirrors sim JUMP_MS — drives the hop-arc height
@@ -424,23 +432,31 @@ class UnitView {
 
     // one-shots are triggered ON THE EVENT (delta), never per-frame — otherwise
     // play() would reset the clip to frame 0 every frame and freeze it.
-    const timing = ATTACK_TIMING[this.def.id] ?? DEFAULT_TIMING;
     if (u.lastCastAt !== this.lastCastShown) {
       this.lastCastShown = u.lastCastAt;
       if (now - u.lastCastAt < CAST_ANIM_MS) {
-        const byKey = u.lastCastKey ? ABILITY_CLIPS[this.def.id]?.[u.lastCastKey] : undefined;
-        ch.play(byKey ?? castClip(this.def), { loop: false, fade: 0.06 });
+        const clip = (u.lastCastKey ? ABILITY_CLIPS[this.def.id]?.[u.lastCastKey] : undefined) ?? castClip(this.def);
+        const durMs = (ch.clipDuration(clip) || 1) * 1000;
+        // speed a long cast clip up so its gesture lands within the window
+        const ts = Math.min(CAST_TS_MAX, Math.max(1, (CAST_SHOWN * durMs) / CAST_ANIM_MS));
+        ch.play(clip, { loop: false, fade: 0.06, timeScale: ts });
         this.oneShotUntil = now + CAST_ANIM_MS;
         this.emitTrails(now, CAST_ANIM_MS); // weapon-trail ribbon on the ability swing
       }
     } else if (u.lastAttackAt !== this.lastAttackShown) {
       this.lastAttackShown = u.lastAttackAt;
-      if (now - u.lastAttackAt < timing.ms) {
+      if (now - u.lastAttackAt < ATTACK_RECENCY_MS) {
         const set = ATTACK_SETS[this.def.id] ?? [attackClip(this.def)];
         const clip = set[this.attackIdx++ % set.length]!;
-        ch.play(clip, { loop: false, fade: 0.04, timeScale: timing.ts });
-        this.oneShotUntil = now + timing.ms;
-        this.emitTrails(now, timing.ms); // weapon-trail ribbon traces the blade
+        const durMs = (ch.clipDuration(clip) || 1) * 1000;
+        const flourish = FULL_CLIP_SWINGS.has(clip);
+        let ts = SWING_TS[this.def.id] ?? DEFAULT_SWING_TS;
+        if (flourish) ts = Math.max(ts, durMs / FULL_SWING_MS); // whole clip fast
+        // window sized to the clip → the strike always shows (capped)
+        const winMs = Math.min(SWING_WIN_CAP, ((flourish ? 1 : SWING_SHOWN) * durMs) / ts);
+        ch.play(clip, { loop: false, fade: 0.04, timeScale: ts });
+        this.oneShotUntil = now + winMs;
+        this.emitTrails(now, winMs); // weapon-trail ribbon traces the blade
         fx?.attackSound(this.def.id, u.x, u.y);
       }
     }

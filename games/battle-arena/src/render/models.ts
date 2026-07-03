@@ -154,15 +154,27 @@ export class AnimatedCharacter {
     return this.currentName;
   }
 
-  private action(clipName: string): THREE.AnimationAction | null {
-    const existing = this.actions.get(clipName);
-    if (existing) return existing;
-    // Resolve: prefixed exact → prefixed fallback → unprefixed (Medium rig only).
-    const clip =
+  /** Resolve a clip name to its loaded THREE.AnimationClip (prefixed exact →
+   *  prefixed fallback → unprefixed), or null. */
+  private resolveClip(clipName: string): THREE.AnimationClip | undefined {
+    return (
       this.lib.getClip(this.clipPrefix + clipName) ??
       (this.clipPrefix
         ? this.lib.getClip(this.clipPrefix + (RIG_LARGE_FALLBACK[clipName] ?? ""))
-        : this.lib.getClip(clipName));
+        : this.lib.getClip(clipName))
+    );
+  }
+
+  /** Duration (seconds) of a resolved clip, or 0 if it isn't loaded. Used to
+   *  size one-shot windows so a swing/cast always plays through its strike. */
+  clipDuration(clipName: string): number {
+    return this.resolveClip(clipName)?.duration ?? 0;
+  }
+
+  private action(clipName: string): THREE.AnimationAction | null {
+    const existing = this.actions.get(clipName);
+    if (existing) return existing;
+    const clip = this.resolveClip(clipName);
     if (!clip) return null;
     const action = this.mixer.clipAction(clip);
     this.actions.set(clipName, action);

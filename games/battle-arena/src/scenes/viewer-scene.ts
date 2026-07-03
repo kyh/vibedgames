@@ -25,7 +25,10 @@ import { terrainHeight } from "../data/terrain";
 import { castAbility } from "../sim/abilities";
 import { dist, norm } from "../sim/math";
 import { recomputeStats } from "../sim/stats";
-import { ABILITY_KEYS, type AbilityKey, type Unit, type World } from "../sim/types";
+import { ABILITY_KEYS, ALL_ABILITY_KEYS, type AbilityKey, type Unit, type World } from "../sim/types";
+
+/** Key label for the ability row (⇧ dash / ␣ jump; number keys otherwise). */
+const VIEWER_KEYCAP: Partial<Record<AbilityKey, string>> = { DASH: "⇧", JUMP: "␣" };
 import { createWorld, spawnHero, step, syncAbilityRanks } from "../sim/world";
 import { Fx } from "../render/fx";
 import { AnimatedCharacter, type ModelLibrary } from "../render/models";
@@ -521,7 +524,7 @@ export class ViewerScene {
     const h = this.hero();
     const d = this.dummy();
     if (!h || !d) return;
-    for (const key of ABILITY_KEYS) h.abilities[key].readyAt = 0; // always ready
+    for (const key of ALL_ABILITY_KEYS) h.abilities[key].readyAt = 0; // always ready
     h.hp = h.maxHp;
     const to = norm(d.x - h.x, d.y - h.y);
     const dd = dist(h, d);
@@ -783,13 +786,13 @@ export class ViewerScene {
       document.getElementById("vw-atk")?.addEventListener("click", () => this.attack());
       return;
     }
-    const abilityRows = ABILITY_KEYS.map((key) => {
+    const abilityRows = ALL_ABILITY_KEYS.map((key) => {
       const a = def.abilities[key];
       const on = this.action === key;
       return `
         <button class="vwa ${on ? "on" : ""}" data-key="${key}" title="${a.desc}">
           <img src="${abilityIcon(def.id, key)}" alt="">
-          <span class="vwa-key">${key}</span>
+          <span class="vwa-key">${VIEWER_KEYCAP[key] ?? key}</span>
           <span class="vwa-txt"><b>${a.name}${a.isUltimate ? " ★" : ""}${on ? " · LOOPING" : ""}</b><i>${a.desc}</i></span>
         </button>`;
     }).join("");
@@ -807,7 +810,8 @@ export class ViewerScene {
     box.querySelectorAll<HTMLButtonElement>(".vwa[data-key]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const key = btn.dataset["key"];
-        if (key === "Q" || key === "W" || key === "E" || key === "R") this.cast(key);
+        const match = ALL_ABILITY_KEYS.find((k) => k === key);
+        if (match) this.cast(match);
       });
     });
   }
