@@ -13,12 +13,13 @@ import {
   defaultWorkspace,
   findRepoRoot,
 } from "./config.ts";
-import { runStudio } from "./orchestrator.ts";
+import { runAgent } from "./orchestrator.ts";
 import {
   approvalPending,
   blackboard,
   hasExistingProject,
   loadState,
+  migrateLegacyLayout,
   requestApproval,
 } from "./state.ts";
 
@@ -82,7 +83,7 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/;
 /**
  * Validate + normalize a slug before it's ever used to build a filesystem
  * path. Rejecting anything outside [a-z0-9-] keeps `..`/path segments from
- * resolving `.studio` outside the workspaces dir.
+ * resolving `.agent` outside the workspaces dir.
  */
 function requireSlug(raw: string): string {
   const slug = raw.trim().toLowerCase();
@@ -96,15 +97,21 @@ function requireSlug(raw: string): string {
 }
 
 function resolveWorkspace(slug: string, override?: string): string {
-  if (override) return resolve(process.cwd(), override);
-  return defaultWorkspace(findRepoRoot(), slug);
+  const workspace = override
+    ? resolve(process.cwd(), override)
+    : defaultWorkspace(findRepoRoot(), slug);
+  // Every command resolves the workspace here, so this is the one place to move
+  // a pre-rename `.studio/` layout to `.agent/` before anything inspects it —
+  // keeping resume, status, stop, and approve working on old workspaces.
+  migrateLegacyLayout(workspace);
+  return workspace;
 }
 
 const startCommand = defineCommand({
   meta: {
     name: "start",
     description:
-      "Start (or resume) the autonomous studio for a game. Builds the game end-to-end and evolves it like a studio until you stop it. Deploys are gated on `pnpm approve <slug>` unless --auto-deploy is set.",
+      "Start (or resume) the autonomous agent for a game. Builds the game end-to-end and evolves it like a studio until you stop it. Deploys are gated on `pnpm approve <slug>` unless --auto-deploy is set.",
   },
   args: {
     slug: {
@@ -191,10 +198,10 @@ const startCommand = defineCommand({
       );
       process.exit(1);
     }
-    // A stale STOP sentinel is cleared inside runStudio once the workspace lock
+    // A stale STOP sentinel is cleared inside runAgent once the workspace lock
     // is held, so a restart can never wipe a still-running process's stop.
 
-    const started = await runStudio({
+    const started = await runAgent({
       slug,
       idea: args.idea.trim(),
       workspace,
@@ -217,7 +224,7 @@ const startCommand = defineCommand({
 const stopCommand = defineCommand({
   meta: {
     name: "stop",
-    description: "Signal a running studio to stop after its current step (writes a STOP sentinel).",
+    description: "Signal a running agent to stop after its current step (writes a STOP sentinel).",
   },
   args: {
     slug: { type: "positional", description: "Game slug.", required: true },
@@ -227,7 +234,7 @@ const stopCommand = defineCommand({
     const slug = requireSlug(args.slug);
     const bb = blackboard(resolveWorkspace(slug, args.dir));
     if (!existsSync(bb.dir)) {
-      consola.error(`No studio workspace found for "${slug}".`);
+      consola.error(`No agent workspace found for "${slug}".`);
       process.exit(1);
     }
     writeFileSync(bb.stop, `stop requested ${new Date().toISOString()}\n`);
@@ -240,7 +247,7 @@ const stopCommand = defineCommand({
 const statusCommand = defineCommand({
   meta: {
     name: "status",
-    description: "Show the current state of a game's studio.",
+    description: "Show the current state of a game's agent.",
   },
   args: {
     slug: { type: "positional", description: "Game slug.", required: true },
@@ -251,7 +258,7 @@ const statusCommand = defineCommand({
     const slug = requireSlug(args.slug);
     const bb = blackboard(resolveWorkspace(slug, args.dir));
     if (!existsSync(bb.state)) {
-      consola.error(`No studio state found for "${slug}".`);
+      consola.error(`No agent state found for "${slug}".`);
       process.exit(1);
     }
     const state = loadState(bb);
@@ -281,7 +288,7 @@ const approveCommand = defineCommand({
   meta: {
     name: "approve",
     description:
-      "Approve the current build for ONE deployment. A running studio publishes it at its next ship step (or immediately if it's waiting); the next release needs fresh approval.",
+      "Approve the current build for ONE deployment. A running agent publishes it at its next ship step (or immediately if it's waiting); the next release needs fresh approval.",
   },
   args: {
     slug: { type: "positional", description: "Game slug.", required: true },
@@ -291,21 +298,21 @@ const approveCommand = defineCommand({
     const slug = requireSlug(args.slug);
     const bb = blackboard(resolveWorkspace(slug, args.dir));
     if (!existsSync(bb.dir)) {
-      consola.error(`No studio workspace found for "${slug}".`);
+      consola.error(`No agent workspace found for "${slug}".`);
       process.exit(1);
     }
     requestApproval(bb);
     consola.success(
-      `Approved "${slug}" for one deployment. A running studio publishes the current build shortly (after the in-flight step finishes); the next release needs fresh approval.`,
+      `Approved "${slug}" for one deployment. A running agent publishes the current build shortly (after the in-flight step finishes); the next release needs fresh approval.`,
     );
   },
 });
 
 const main = defineCommand({
   meta: {
-    name: "studio",
+    name: "factory",
     description:
-      "vibedgames autonomous studio — a multi-agent loop that builds one browser game and evolves it like a studio. Run via pnpm scripts (start/stop/status/approve). Deploys require approval (`pnpm approve <slug>`).",
+      "vibedgames factory — runs one autonomous agent per game that builds a browser game and evolves it like a studio (a durable, checkpointed loop of clean-context subagents). Run via pnpm scripts (start/stop/status/approve). Deploys require approval (`pnpm approve <slug>`).",
   },
   subCommands: {
     start: startCommand,
