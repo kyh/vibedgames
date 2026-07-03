@@ -13,12 +13,11 @@ Each agent operates in the shape of Vercel's [Eve](https://vercel.com/blog/intro
   resumes exactly where it stopped.
 - **Clean-context subagents.** Each phase spawns a fresh headless Claude Code
   session — a specialist (director / designer / engineer / artist / QA /
-  shipper) that starts with a clean context window and only the tools its
-  definition grants. Everything it needs to know lives on disk, not in memory.
+  shipper) that starts with a clean context window and the full toolbelt.
+  Everything it needs to know lives on disk, not in memory.
 - **Filesystem-first definitions.** A subagent is a directory of markdown under
   [`agents/`](./agents): its name and place in the tree _is_ its definition.
-  Edit the markdown (prompt, emoji, tool scope) to redefine a subagent — no code
-  change.
+  Edit the markdown (prompt or emoji) to redefine a subagent — no code change.
 - **Per-turn observability.** Every turn appends one span to
   `.agent/trace.jsonl` (role, phase, cost, duration, outcome) — an append-only,
   machine-readable trail you can replay, audit, or monitor.
@@ -83,7 +82,7 @@ first. With `--context`, `--idea` is optional.
 
 A single Node process runs the agent's **durable phase machine**. Each phase
 invokes one subagent as a fresh headless Claude Code session with a role-specific
-system prompt (loaded from [`agents/`](./agents)), a scoped toolbelt, the
+system prompt (loaded from [`agents/`](./agents)), the full toolbelt, the
 dogfooded skills, and the `vg` CLI available:
 
 | Phase      | Subagent    | Does                                                                  |
@@ -112,7 +111,7 @@ Each subagent is defined by files on disk, not constants in code:
 ```
 agents/
   charter.md            # shared system prompt, prepended to every subagent
-  director/AGENT.md     # role prompt + frontmatter (emoji, tool scope)
+  director/AGENT.md     # role prompt + frontmatter (emoji)
   designer/AGENT.md
   engineer/AGENT.md
   artist/AGENT.md
@@ -125,15 +124,12 @@ Each `AGENT.md` opens with YAML-ish frontmatter and then the role prompt:
 ```md
 ---
 emoji: 🛠️
-allowedTools:          # empty = the full toolbelt
-disallowedTools:       # tighten a subagent's tools with no code change
 ---
 ROLE: Game Engineer …
 ```
 
-`allowedTools` / `disallowedTools` are passed straight to `claude --allowedTools`
-/ `--disallowedTools`, so a subagent runs with only the tools you give it. Leave
-them empty for the full toolbelt.
+Every subagent runs with the full toolbelt — the charter and role prompt steer
+what each one does. To retune a role, edit its prompt; no code change needed.
 
 ### Coordination + durable memory: the shared `.agent/`
 

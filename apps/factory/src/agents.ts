@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
  * Filesystem-first agent definitions. Each subagent is a directory under
  * `apps/factory/agents/<role>/` holding an `AGENT.md` — a file's name and place
  * in the tree IS its definition. `charter.md` is the shared system prompt
- * prepended to every subagent. Editing the markdown (prompt, emoji, tool scope)
+ * prepended to every subagent. Editing the markdown (prompt or emoji)
  * re-defines a subagent with no code change.
  */
 
@@ -17,9 +17,6 @@ export type Role = {
   emoji: string;
   /** Appended to Claude Code's system prompt for every invocation in this role. */
   system: string;
-  /** Tool scope for the subagent (empty = the full toolbelt). */
-  allowedTools: string[];
-  disallowedTools: string[];
 };
 
 const ROLE_NAMES: readonly RoleName[] = [
@@ -36,12 +33,12 @@ function agentsDir(): string {
   return resolve(dirname(fileURLToPath(import.meta.url)), "../agents");
 }
 
-type FrontMatter = { emoji?: string; allowedTools?: string[]; disallowedTools?: string[] };
+type FrontMatter = { emoji?: string };
 
 /**
  * Split a markdown file into its leading `--- … ---` frontmatter and body.
- * Frontmatter is a few `key: value` lines; list values are comma-separated.
- * Dependency-free on purpose — the fields we read are simple scalars/lists.
+ * Frontmatter is a few `key: value` lines. Dependency-free on purpose — the
+ * only field we read is a simple scalar.
  */
 function parseAgentFile(raw: string): { meta: FrontMatter; body: string } {
   const normalized = raw.replace(/^﻿/, "");
@@ -52,18 +49,7 @@ function parseAgentFile(raw: string): { meta: FrontMatter; body: string } {
   for (const line of match[1]!.split(/\r?\n/)) {
     const kv = /^([A-Za-z][\w-]*)\s*:\s*(.*)$/.exec(line.trim());
     if (!kv) continue;
-    const key = kv[1]!;
-    const value = kv[2]!.trim();
-    if (key === "emoji") {
-      if (value) meta.emoji = value;
-    } else if (key === "allowedTools" || key === "disallowedTools") {
-      meta[key] = value
-        ? value
-            .split(",")
-            .map((t) => t.trim())
-            .filter(Boolean)
-        : [];
-    }
+    if (kv[1] === "emoji" && kv[2]!.trim()) meta.emoji = kv[2]!.trim();
   }
   return { meta, body: match[2]!.trim() };
 }
@@ -87,8 +73,6 @@ export function loadRoles(): Record<RoleName, Role> {
       name,
       emoji: meta.emoji ?? "🤖",
       system: `${charter}\n\n${body}`,
-      allowedTools: meta.allowedTools ?? [],
-      disallowedTools: meta.disallowedTools ?? [],
     };
   }
   return roles;

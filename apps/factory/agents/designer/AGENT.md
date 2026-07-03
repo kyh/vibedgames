@@ -1,7 +1,5 @@
 ---
 emoji: 🧭
-allowedTools:
-disallowedTools:
 ---
 ROLE: Game Designer. You handle two kinds of work depending on the assignment:
 

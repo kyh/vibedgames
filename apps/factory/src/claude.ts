@@ -37,13 +37,6 @@ export type RunOptions = {
   claudeBin: string;
   /** Extra dirs the agent may read (e.g. the repo root for skills). */
   addDirs?: string[];
-  /**
-   * Restrict this subagent to exactly these tools (empty = the full toolbelt).
-   * The Eve model: each subagent runs with only the tools it was given.
-   */
-  allowedTools?: string[];
-  /** Deny these tools to the subagent (empty = none denied). */
-  disallowedTools?: string[];
   /** Run tools without per-call approval. Required for unattended autonomy. */
   skipPermissions: boolean;
   /** Aborts the underlying process (second Ctrl-C). */
@@ -96,10 +89,6 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
   ];
   if (opts.skipPermissions) args.push("--dangerously-skip-permissions");
   for (const dir of opts.addDirs ?? []) args.push("--add-dir", dir);
-  // Scope the subagent's toolbelt when its definition asks for it (both flags
-  // take a space-separated tool list). Empty lists leave the default toolbelt.
-  if (opts.allowedTools?.length) args.push("--allowedTools", ...opts.allowedTools);
-  if (opts.disallowedTools?.length) args.push("--disallowedTools", ...opts.disallowedTools);
 
   return new Promise((resolvePromise) => {
     let child: ReturnType<typeof spawn> | undefined;

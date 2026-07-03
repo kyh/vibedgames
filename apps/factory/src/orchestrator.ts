@@ -258,10 +258,6 @@ export async function runAgent(opts: AgentOptions): Promise<boolean> {
       maxSessionMs: opts.maxSessionMs,
       claudeBin: claudeBin(),
       addDirs: state.contextDir ? [repoRoot, state.contextDir] : [repoRoot],
-      // Each subagent runs with only the tools its definition grants (empty
-      // lists = the full toolbelt).
-      allowedTools: role.allowedTools,
-      disallowedTools: role.disallowedTools,
       skipPermissions: opts.skipPermissions,
       signal: abort.signal,
       label: role.name,
