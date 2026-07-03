@@ -1,8 +1,9 @@
 // Twin-stick touch controls (build-doc §12). Left half = floating move stick;
 // right half = floating aim stick that auto-fires while held. Fixed bottom-right
-// button grid: Q/W/E · R/JUMP/DODGE · B. Ability buttons take champ icon
-// backgrounds via bindChamp() and per-button conic cooldown sweeps via
-// setCooldown(). Activates on first touch; stays out of the way on desktop.
+// button grid: Q/W/E · R/DASH/JUMP · hop/B. DASH casts the hero's dash, JUMP the
+// leaping strike (self-leaps if grounded); the hop button is the plain Space hop.
+// Ability buttons take champ icon backgrounds via bindChamp() and per-button
+// conic cooldown sweeps via setCooldown(). Activates on first touch; idle on desktop.
 import { abilityIcon } from "../data/icons";
 import type { AbilityKey } from "../sim/types";
 
@@ -11,17 +12,20 @@ type Stick = { id: number; baseX: number; baseY: number; dx: number; dy: number 
 const STICK_R = 60;
 const KNOB_R = 28;
 
-type BtnId = AbilityKey | "B" | "J" | "D";
+// "DASH"/"JUMP" are AbilityKeys → their buttons carry cooldown sweeps and icons
+// like Q/W/E/R. "J" is the plain hop (Space), "B" the shop toggle.
+type BtnId = AbilityKey | "B" | "J";
 const BTN_KEYS: { id: BtnId; label: string }[] = [
   { id: "Q", label: "1" },
   { id: "W", label: "2" },
   { id: "E", label: "3" },
   { id: "R", label: "4" },
-  { id: "J", label: "JUMP" },
-  { id: "D", label: "DODGE" },
+  { id: "DASH", label: "DASH" },
+  { id: "JUMP", label: "JUMP↯" },
+  { id: "J", label: "HOP" },
   { id: "B", label: "B" },
 ];
-const ABILITY_IDS = new Set<string>(["Q", "W", "E", "R"]);
+const ABILITY_IDS = new Set<string>(["Q", "W", "E", "R", "DASH", "JUMP"]);
 
 type Btn = { el: HTMLDivElement; label: HTMLSpanElement; cd: HTMLDivElement | null; lastCd: number };
 
@@ -31,8 +35,9 @@ export class TouchControls {
   private aim: Stick | null = null;
   private queue: AbilityKey[] = [];
   private buy = false;
-  private jump = false;
-  private dodge = false;
+  private jump = false; // plain hop (Space)
+  private dash = false; // cast DASH
+  private jumpAttack = false; // cast JUMP (leaping strike)
   private layer: HTMLDivElement;
   private moveEl: HTMLDivElement;
   private aimEl: HTMLDivElement;
@@ -54,8 +59,8 @@ export class TouchControls {
     for (const b of BTN_KEYS) {
       const el = document.createElement("div");
       el.className = "ba-tbtn";
-      // B rides the right-most column (under DODGE) so the third row never
-      // reaches over the item belt pinned bottom-left on phones.
+      // B rides the right-most column of the third row so that row (HOP · B)
+      // never reaches over the item belt pinned bottom-left on phones.
       if (b.id === "B") el.style.gridColumn = "3";
       const label = document.createElement("span");
       label.className = "ba-tl";
@@ -73,7 +78,8 @@ export class TouchControls {
         el.classList.add("press");
         if (b.id === "B") this.buy = true;
         else if (b.id === "J") this.jump = true;
-        else if (b.id === "D") this.dodge = true;
+        else if (b.id === "DASH") this.dash = true;
+        else if (b.id === "JUMP") this.jumpAttack = true;
         else this.queue.push(b.id);
       });
       el.addEventListener("pointerup", () => el.classList.remove("press"));
@@ -91,15 +97,16 @@ export class TouchControls {
   }
 
   /** Paint the local champ's ability icons onto Q/W/E/R and demote the digit
-   *  labels to corner keycaps. Idempotent — re-binding the same champ no-ops. */
+   *  labels to corner keycaps. DASH/JUMP get the shared glyph icon (abilityIcon
+   *  special-cases them) but keep their word label. Idempotent per champ. */
   bindChamp(champId: string): void {
     if (champId === this.champBound) return;
     this.champBound = champId;
-    for (const key of ["Q", "W", "E", "R"] as AbilityKey[]) {
+    for (const key of ["Q", "W", "E", "R", "DASH", "JUMP"] as AbilityKey[]) {
       const btn = this.buttons.get(key);
       if (!btn) continue;
       btn.el.style.backgroundImage = `url("${abilityIcon(champId, key)}")`;
-      btn.label.classList.add("kc");
+      if (key === "Q" || key === "W" || key === "E" || key === "R") btn.label.classList.add("kc");
     }
   }
 
@@ -183,10 +190,17 @@ export class TouchControls {
     this.jump = false;
     return j;
   }
-  consumeDodge(): boolean {
-    const d = this.dodge;
-    this.dodge = false;
+  /** Edge: DASH button pressed (cast the hero's dash). */
+  consumeDash(): boolean {
+    const d = this.dash;
+    this.dash = false;
     return d;
+  }
+  /** Edge: JUMP button pressed (cast the leaping strike; self-leaps if grounded). */
+  consumeJumpAttack(): boolean {
+    const j = this.jumpAttack;
+    this.jumpAttack = false;
+    return j;
   }
 }
 

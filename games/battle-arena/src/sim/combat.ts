@@ -213,7 +213,6 @@ export function handleDeath(w: World, victim: Unit, killerId: string | null): vo
   victim.moveY = 0;
   victim.empowerNext = 0;
   victim.queuedCast = null;
-  victim.queuedDodge = null;
   w.fx.push({ t: "death", x: victim.x, y: victim.y, team: victim.team, by: killerId ?? "" });
 
   if (victim.kind === "hero") {
@@ -309,18 +308,9 @@ export function stepProjectiles(w: World, dt: number): void {
       if (!u.alive || u.kind === "boss") continue;
       if (u.team === p.team || u.id === p.ownerId) continue;
       if (p.hitIds.includes(u.id)) continue;
+      if (isUntargetable(u)) continue; // dash i-frames: the shot passes through
       const reach = p.hitRadius + u.radius;
       const overlap = (u.x - p.x) ** 2 + (u.y - p.y) ** 2 <= reach * reach;
-      if (isUntargetable(u)) {
-        // perfect dodge: the shot passes through an active roll's i-frames —
-        // reward with a half-refunded dodge cooldown (one trigger per shot)
-        if (overlap && u.dodgeUntil > w.now) {
-          p.hitIds.push(u.id);
-          u.dodgeReadyAt = w.now + 400;
-          w.fx.push({ t: "perfectDodge", x: u.x, y: u.y, unit: u.id });
-        }
-        continue;
-      }
       if (overlap) {
         onProjectileHit(w, p, u);
         if (p.pierce) {

@@ -105,3 +105,8 @@ export function levelForXp(xp: number): number {
 export function respawnTime(level: number): number {
   return Math.min(RESPAWN_CAP, RESPAWN_BASE + RESPAWN_PER_LVL * level);
 }
+
+// Jump timing (shared by sim/world tryJump + sim/abilities JUMP-attack gating,
+// so it lives here to avoid a world↔abilities import cycle).
+export const JUMP_MS = 620; // airborne window (drives the render hop arc + Jump clip)
+export const JUMP_RECOVER = 520; // landing recovery before you can hop again

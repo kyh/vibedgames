@@ -7,7 +7,7 @@ import type { DamageType } from "../data/config";
 import { BOSS_HEIGHT, BOSS_POS } from "../data/map";
 import type { AbilityKey, Projectile, Unit, World } from "../sim/types";
 import { AnimatedCharacter, ModelLibrary } from "./models";
-import { WeaponTrail } from "./weapon-trail";
+import { WeaponTrail, type TrailOverride } from "./weapon-trail";
 import { terrainHeight } from "../data/terrain";
 import { CHAMP_FX, type Fx } from "./fx";
 import { applyDissolve, type DissolveHandle } from "./dissolve";
@@ -18,14 +18,24 @@ import { LOCAL_COLOR, teamColor } from "./palette";
 // Per-ability cast clips — uses the breadth of the KayKit library so each
 // ability reads distinctly (bash/spin/leap/blink/summon…), not one generic cast.
 // Garran (knight) wields a 2H greatsword — his combat clips are the Rig_Medium
-// Melee_2H_* set. The other melee champs keep their 1H / dualwield sets.
+// Melee_2H_* set. The other melee champs keep their 1H / dualwield sets. DASH
+// (Shift roll) uses Dodge_Forward everywhere; JUMP (Space+click leaping strike)
+// plays each champ's attack/cast clip so the aerial hit reads as a real swing.
 const ABILITY_CLIPS: Record<string, Partial<Record<AbilityKey, string>>> = {
-  knight: { Q: "Melee_2H_Attack_Chop", W: "Melee_2H_Attack_Stab", E: "Melee_2H_Idle", R: "Melee_2H_Attack_Spinning" },
-  ranger: { Q: "Ranged_Bow_Release_Up", W: "Dodge_Forward", E: "PickUp", R: "Ranged_Bow_Release_Up" },
-  mage: { Q: "Ranged_Magic_Shoot", W: "Ranged_Magic_Raise", E: "Ranged_Magic_Raise", R: "Ranged_Magic_Summon" },
-  rogue: { Q: "Melee_Dualwield_Attack_Stab", W: "Dodge_Forward", E: "Dodge_Backward", R: "Melee_Dualwield_Attack_Slice" },
-  blackknight: { Q: "Melee_1H_Attack_Chop", W: "Melee_1H_Attack_Jump_Chop", E: "Melee_Blocking", R: "Melee_2H_Attack_Chop" },
-  witch: { Q: "Ranged_Magic_Shoot", W: "Ranged_Magic_Summon", E: "Dodge_Forward", R: "Ranged_Magic_Raise" },
+  knight: { Q: "Melee_2H_Attack_Slice", W: "Melee_2H_Attack_Chop", E: "Melee_2H_Attack_Stab", R: "Melee_2H_Attack_Spinning", DASH: "Dodge_Forward", JUMP: "Melee_2H_Attack_Chop" },
+  ranger: { Q: "Ranged_Bow_Release_Up", W: "Ranged_Bow_Release", E: "PickUp", R: "Ranged_Bow_Release_Up", DASH: "Dodge_Forward", JUMP: "Ranged_Bow_Release" },
+  mage: { Q: "Ranged_Magic_Shoot", W: "Ranged_Magic_Raise", E: "Ranged_Magic_Shoot", R: "Ranged_Magic_Summon", DASH: "Dodge_Forward", JUMP: "Ranged_Magic_Raise" },
+  rogue: { Q: "Melee_Dualwield_Attack_Stab", W: "Melee_Dualwield_Attack_Slice", E: "Dodge_Backward", R: "Melee_Dualwield_Attack_Slice", DASH: "Dodge_Forward", JUMP: "Melee_1H_Attack_Jump_Chop" },
+  blackknight: { Q: "Melee_1H_Attack_Slice_Horizontal", W: "Melee_1H_Attack_Chop", E: "Melee_Blocking", R: "Melee_2H_Attack_Chop", DASH: "Dodge_Forward", JUMP: "Melee_1H_Attack_Jump_Chop" },
+  witch: { Q: "Ranged_Magic_Shoot", W: "Ranged_Magic_Summon", E: "Ranged_Magic_Raise", R: "Ranged_Magic_Raise", DASH: "Dodge_Forward", JUMP: "Ranged_Magic_Raise" },
+};
+
+// 2H/hammer blades whose bbox longest-axis heuristic degenerates (the head is
+// wider than the shaft, so the ribbon sweeps sideways off the head instead of
+// tracing the swing). Force the swing axis + blade extents so the arc reads.
+const TRAIL_OVERRIDE: Record<string, TrailOverride> = {
+  paladin_hammer: { axis: "y", base: 0.15, tip: 1.15, opacity: 0.44 },
+  sword_2handed: { axis: "y", base: 0.2, tip: 1.0 },
 };
 
 // Basic-attack clip rotations — swings vary shot-to-shot instead of repeating.
@@ -73,7 +83,6 @@ const HIT_ANIM_MS = 280;
 const JUMP_ANIM_MS = 600;
 const JUMP_RENDER_MS = 620; // mirrors sim JUMP_MS — drives the hop-arc height
 const HOP_HEIGHT = 1.4; // peak lift of the jump arc (world units)
-const DODGE_ANIM_MS = 360; // mirrors sim DODGE_MS
 const SPAWN_ANIM_MS = 700; // Spawn_Air / Skeletons_Spawn_Ground one-shots
 const GOLD = new THREE.Color(0xffd24a);
 
@@ -165,6 +174,9 @@ function locomotion(u: Unit, twoHanded: boolean): string {
 
 function attackClip(def: ViewDef): string {
   if (def.attackType === "ranged") return def.attackDamageType === "magic" ? "Ranged_Magic_Shoot" : "Ranged_Bow_Release";
+  // Garran (2H greatsword) swings the Melee_2H set; Aurelius (1H hammer) + the
+  // dagger rogue keep their 1H/dualwield clips.
+  if (def.twoHanded) return "Melee_2H_Attack_Chop";
   return def.id === "rogue" ? "Melee_1H_Attack_Slice_Diagonal" : "Melee_1H_Attack_Chop";
 }
 
@@ -172,16 +184,6 @@ function castClip(def: ViewDef): string {
   if (def.attackDamageType === "magic") return "Ranged_Magic_Spellcasting";
   // physical champs "cast" with a weapon-appropriate swing, not a throw
   return attackClip(def);
-}
-
-/** Pick the directional dodge clip from the roll velocity vs the facing. */
-function dodgeClip(u: Unit): string {
-  const rollAng = Math.atan2(u.dashVy, u.dashVx);
-  const rel = Math.atan2(Math.sin(rollAng - u.facing), Math.cos(rollAng - u.facing));
-  const a = Math.abs(rel);
-  if (a < Math.PI / 4) return "Dodge_Forward";
-  if (a > (3 * Math.PI) / 4) return "Dodge_Backward";
-  return rel > 0 ? "Dodge_Left" : "Dodge_Right";
 }
 
 class UnitView {
@@ -201,7 +203,6 @@ class UnitView {
   private lastHitShown = -1;
   private lastFlinchAt = -1;
   private lastJumpShown = -1;
-  private lastDodgeShown = -1;
   private oneShotUntil = 0;
   private deadAt = -1;
   private lastDustAt = 0;
@@ -254,8 +255,13 @@ class UnitView {
       const wr = lib.instance(def.weaponR);
       mountWeapon(wr, def.weaponR);
       // a blade trail on the main weapon (melee only) — computed pre-attach so
-      // the blade segment is in local space
-      const trail = def.attackType === "melee" ? new WeaponTrail(wr, isLocal ? 0xfff4d8 : 0xdbe8ff) : null;
+      // the blade segment is in local space. Tinted per champ (gold hammer vs
+      // steel greatsword) with a per-weapon axis override for the 2H/hammer bits.
+      const trailColor =
+        def.id === "blackknight" ? (isLocal ? 0xffe6a0 : 0xffd76a) // Aurelius — dawn gold
+        : def.id === "knight" ? (isLocal ? 0xeaf2ff : 0xdbe8ff) // Garran — steel white
+        : (isLocal ? 0xfff4d8 : 0xdbe8ff);
+      const trail = def.attackType === "melee" ? new WeaponTrail(wr, trailColor, TRAIL_OVERRIDE[def.weaponR]) : null;
       if (this.char.attach(wr, "handslot.r")) {
         this.weapons.push(wr);
         this.weaponMats.push(...cloneMats(wr, null));
@@ -461,15 +467,8 @@ class UnitView {
         this.oneShotUntil = now + JUMP_ANIM_MS;
       }
     }
-    // dodge-roll — directional roll clip; overrides any swing (evasive)
-    if (u.lastDodgeAt !== this.lastDodgeShown) {
-      this.lastDodgeShown = u.lastDodgeAt;
-      if (u.alive && now - u.lastDodgeAt < 200) {
-        ch.play(dodgeClip(u), { loop: false, fade: 0.05 });
-        this.oneShotUntil = now + DODGE_ANIM_MS;
-        fx?.dodgeJuice(u.x, u.y, u.dashVx, u.dashVy);
-      }
-    }
+    // (dodge-roll removed — Shift now casts the champ's DASH, which plays
+    //  Dodge_Forward through the cast one-shot above via lastCastKey.)
     // an active one-shot (attack/cast/hit/ability incl. dash-abilities) plays
     // out; then a live whirlwind loops its spin; then a dash shows the run,
     // else normal locomotion. (Death outranks everything via the early return.)
@@ -495,8 +494,8 @@ class UnitView {
     const bs = this.baseScale;
     ch.root.scale.set(bs * (1 + 0.12 * this.squash), bs * (1 - 0.18 * this.squash), bs * (1 + 0.12 * this.squash));
 
-    // ── dash trail: streaks + dust shed behind any ability dash (not dodges) ──
-    const dashing = now < u.dashUntil && now >= u.dodgeUntil;
+    // ── dash trail: streaks + dust shed behind any ability dash ──
+    const dashing = now < u.dashUntil;
     if (dashing && fx) {
       const primary = CHAMP_FX[this.def.id]?.primary ?? 0x9fd0ff;
       if (now - this.lastDashTrailAt > 40) {

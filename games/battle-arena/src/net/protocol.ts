@@ -33,5 +33,4 @@ export type Intent =
   | { kind: "cast"; key: AbilityKey; px: number; py: number; ax: number; ay: number }
   | { kind: "buy"; itemId: string }
   | { kind: "useItem"; slot: number; px: number; py: number }
-  | { kind: "jump" }
-  | { kind: "dodge"; mx: number; my: number };
+  | { kind: "jump" };

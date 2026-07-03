@@ -59,12 +59,16 @@ const F3 = 174.61;
 const A3 = 220.0;
 const C4 = 261.63;
 
-/** Key modifiers applied to each champ's base cast voice (result-05 A3). */
+/** Key modifiers applied to each champ's base cast voice (result-05 A3). DASH =
+ *  short + pitched-up zip (a whoosh layer rides on top); JUMP = longer + pitched-
+ *  down heave (the landing thud is the explosion fx event). */
 const CAST_MOD: Record<AbilityKey, { d: number; p: number; ult?: boolean }> = {
   Q: { d: 0.8, p: 1.0 },
   W: { d: 1.0, p: 1.15 },
   E: { d: 1.1, p: 0.85 },
   R: { d: 1.6, p: 0.7, ult: true },
+  DASH: { d: 0.5, p: 1.2 },
+  JUMP: { d: 0.9, p: 0.85 },
 };
 
 export class Audio {
@@ -601,6 +605,7 @@ export class Audio {
     const t = this.now();
     const m = CAST_MOD[key];
     this.castVoice(champId, t, x, y, m.p, m.d);
+    if (key === "DASH") this.dodge(x, y); // crisp air-whoosh on top of the zip
     if (m.ult && this.gate("ult", 300)) {
       this.tone({ at: t, x, y, freq: 55, slideTo: 38, dur: 0.4, type: "sine", gain: 0.22 });
       this.noise({
@@ -856,11 +861,12 @@ export class Audio {
       bus: "ui",
     });
   }
-  dodge(): void {
+  /** Air-whoosh — the DASH launch (spatialized when a position is given). */
+  dodge(x?: number, y?: number): void {
     if (!this.gate("dodge", 150)) return;
     const t = this.now();
-    this.noise({ at: t, dur: 0.1, gain: 0.12, filter: { type: "highpass", from: 5000 } });
-    this.tone({ at: t, freq: 240, slideTo: 90, dur: 0.1, type: "sine", gain: 0.06 });
+    this.noise({ at: t, x, y, dur: 0.1, gain: 0.12, filter: { type: "highpass", from: 5000 } });
+    this.tone({ at: t, x, y, freq: 240, slideTo: 90, dur: 0.1, type: "sine", gain: 0.06 });
   }
   land(): void {
     if (!this.gate("land", 150)) return;

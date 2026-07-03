@@ -1,6 +1,7 @@
 // Ability casting + per-tick ability processing (ground zones, DoTs, meteors).
 // Data-driven defs live in data/champions; this switches on def.effect.
 import { CHAMP_BY_ID, valAt, type AbilityDef } from "../data/champions";
+import { JUMP_MS } from "../data/config";
 import { ITEM_BY_ID } from "../data/items";
 import { angleDelta, angleOf, dist, norm } from "./math";
 import { clampToArena, resolveObstacles } from "../data/map";
@@ -162,12 +163,10 @@ function dispatch(
       return true;
     }
     case "knight:W": {
-      const dist0 = def.castRange;
-      startDash(c, dir, v("speed"), dist0, w);
-      for (const t of corridorHits(w, c, dir, dist0, 1.6)) {
+      // Seismic Slam: a fissure line — damage + slow everyone in a corridor.
+      for (const t of corridorHits(w, c, dir, def.castRange, v("width") / 2)) {
         dealDamage(w, c, t, v("damage"), "physical", { ap });
-        applyKnockback(t, c.x, c.y, v("knockback"), w);
-        addStatus(t, { kind: "stun", until: w.now + 350, id: "knight:W" });
+        addStatus(t, { kind: "slow", until: w.now + v("slowDur") * 1000, pct: v("slow"), id: "knight:W" });
       }
       return true;
     }
@@ -194,6 +193,24 @@ function dispatch(
       });
       return true;
     }
+    case "knight:DASH": {
+      startDash(c, dir, v("speed"), def.castRange, w);
+      addStatus(c, { kind: "untargetable", until: w.now + v("iframe") * 1000, id: "dash" });
+      return true;
+    }
+    case "knight:JUMP": {
+      // Skyfall Cleave: self-leap if grounded, slam AoE on the landing point.
+      if (w.now >= c.jumpUntil) c.jumpUntil = w.now + JUMP_MS;
+      const lx = c.x + dir.x * def.castRange;
+      const ly = c.y + dir.y * def.castRange;
+      const dmg = v("base") + v("perLevel") * (c.level - 1);
+      for (const t of aoeEnemies(w, c.team, lx, ly, v("radius"))) {
+        dealDamage(w, c, t, dmg, "physical", { ap });
+        addStatus(t, { kind: "slow", until: w.now + v("slowDur") * 1000, pct: v("slow"), id: "knight:JUMP" });
+      }
+      w.fx.push({ t: "explosion", x: lx, y: ly, radius: v("radius"), kind: "execute" });
+      return true;
+    }
 
     // ── Ranger ──
     case "ranger:Q": {
@@ -216,8 +233,10 @@ function dispatch(
       return true;
     }
     case "ranger:W": {
-      startDash(c, dir, v("speed"), def.castRange, w);
-      addStatus(c, { kind: "untargetable", until: w.now + v("invuln") * 1000, id: "ranger:W" });
+      // Hunter's Focus: self buff — attack + move speed for a few seconds.
+      const dur = v("duration") * 1000;
+      addStatus(c, { kind: "attackSpeed", until: w.now + dur, amount: v("atkSpeed"), id: "ranger:W" });
+      addStatus(c, { kind: "speed", until: w.now + dur, pct: v("moveSpeed"), id: "ranger:W" });
       return true;
     }
     case "ranger:E": {
@@ -256,6 +275,23 @@ function dispatch(
       });
       return true;
     }
+    case "ranger:DASH": {
+      startDash(c, dir, v("speed"), def.castRange, w);
+      addStatus(c, { kind: "untargetable", until: w.now + v("iframe") * 1000, id: "dash" });
+      return true;
+    }
+    case "ranger:JUMP": {
+      // Falcon Dive: self-leap, physical arrow-slam AoE (no CC).
+      if (w.now >= c.jumpUntil) c.jumpUntil = w.now + JUMP_MS;
+      const lx = c.x + dir.x * def.castRange;
+      const ly = c.y + dir.y * def.castRange;
+      const dmg = v("base") + v("perLevel") * (c.level - 1);
+      for (const t of aoeEnemies(w, c.team, lx, ly, v("radius"))) {
+        dealDamage(w, c, t, dmg, "physical", { ap });
+      }
+      w.fx.push({ t: "explosion", x: lx, y: ly, radius: v("radius"), kind: "execute" });
+      return true;
+    }
 
     // ── Mage ──
     case "mage:Q": {
@@ -280,12 +316,22 @@ function dispatch(
       return true;
     }
     case "mage:E": {
-      const range = v("range");
-      const dest = clampToArena(c.x + dir.x * range, c.y + dir.y * range, c.radius);
-      const safe = resolveObstacles(dest.x, dest.y, c.radius);
-      w.fx.push({ t: "blink", x: c.x, y: c.y, tx: safe.x, ty: safe.y });
-      c.x = safe.x;
-      c.y = safe.y;
+      // Cinderfall: a persistent ember zone — burns + slows enemies who stand in it.
+      pushGround(w, {
+        ownerId: c.id,
+        team: c.team,
+        effect: "cinderfall",
+        x: point.x,
+        y: point.y,
+        radius: v("radius"),
+        until: w.now + v("duration") * 1000,
+        nextTick: w.now + 500,
+        tickInterval: 500,
+        enemyDps: v("dps") * (1 + ap),
+        dtype: "magic",
+        slowPct: v("slow"),
+        telegraph: false,
+      });
       return true;
     }
     case "mage:R": {
@@ -308,6 +354,32 @@ function dispatch(
       });
       return true;
     }
+    case "mage:DASH": {
+      // Blink: instant teleport along the aim, clamped to arena + obstacles.
+      const range = v("range");
+      const oldX = c.x;
+      const oldY = c.y;
+      const dest = clampToArena(c.x + dir.x * range, c.y + dir.y * range, c.radius);
+      const safe = resolveObstacles(dest.x, dest.y, c.radius);
+      w.fx.push({ t: "blink", x: oldX, y: oldY, tx: safe.x, ty: safe.y });
+      c.x = safe.x;
+      c.y = safe.y;
+      addStatus(c, { kind: "untargetable", until: w.now + v("iframe") * 1000, id: "dash" });
+      return true;
+    }
+    case "mage:JUMP": {
+      // Emberdrop: comet slam — magic AoE + a lingering burn.
+      if (w.now >= c.jumpUntil) c.jumpUntil = w.now + JUMP_MS;
+      const lx = c.x + dir.x * def.castRange;
+      const ly = c.y + dir.y * def.castRange;
+      const dmg = v("base") + v("perLevel") * (c.level - 1);
+      for (const t of aoeEnemies(w, c.team, lx, ly, v("radius"))) {
+        dealDamage(w, c, t, dmg, "magic", { ap });
+        addStatus(t, { kind: "dot", until: w.now + v("burnDur") * 1000, nextTick: w.now + 500, dps: v("burnDps"), dtype: "magic", sourceId: c.id, id: "mage:JUMP" });
+      }
+      w.fx.push({ t: "explosion", x: lx, y: ly, radius: v("radius"), kind: "meteor" });
+      return true;
+    }
 
     // ── Rogue ──
     case "rogue:Q": {
@@ -321,9 +393,13 @@ function dispatch(
       return true;
     }
     case "rogue:W": {
-      startDash(c, dir, v("speed"), def.castRange, w);
-      addStatus(c, { kind: "stealth", until: w.now + v("stealth") * 1000, id: "rogue:W" });
-      c.empowerNext = v("bonus");
+      // Rupture: a bleeding gash down a corridor — damage + bleed DoT + a damage-amp
+      // mark that sets up Execute.
+      for (const t of corridorHits(w, c, dir, def.castRange, 1.2)) {
+        dealDamage(w, c, t, v("damage"), "physical", { ap });
+        addStatus(t, { kind: "dot", until: w.now + v("bleedDur") * 1000, nextTick: w.now + 500, dps: v("bleedDps"), dtype: "physical", sourceId: c.id, id: "rogue:W" });
+        addStatus(t, { kind: "damageAmp", until: w.now + v("ampDur") * 1000, pct: v("dmgAmp"), id: "rogue:W" });
+      }
       return true;
     }
     case "rogue:E": {
@@ -357,6 +433,24 @@ function dispatch(
       w.fx.push({ t: "explosion", x: target.x, y: target.y, radius: 1.6, kind: "execute" });
       return true;
     }
+    case "rogue:DASH": {
+      startDash(c, dir, v("speed"), def.castRange, w);
+      addStatus(c, { kind: "untargetable", until: w.now + v("iframe") * 1000, id: "dash" });
+      return true;
+    }
+    case "rogue:JUMP": {
+      // Deathfall: tight, high-burst self-leap slam — physical AoE + brief slow.
+      if (w.now >= c.jumpUntil) c.jumpUntil = w.now + JUMP_MS;
+      const lx = c.x + dir.x * def.castRange;
+      const ly = c.y + dir.y * def.castRange;
+      const dmg = v("base") + v("perLevel") * (c.level - 1);
+      for (const t of aoeEnemies(w, c.team, lx, ly, v("radius"))) {
+        dealDamage(w, c, t, dmg, "physical", { ap });
+        addStatus(t, { kind: "slow", until: w.now + v("slowDur") * 1000, pct: v("slow"), id: "rogue:JUMP" });
+      }
+      w.fx.push({ t: "explosion", x: lx, y: ly, radius: v("radius"), kind: "execute" });
+      return true;
+    }
 
     // ── Black Knight ──
     case "blackknight:Q": {
@@ -373,13 +467,12 @@ function dispatch(
       return true;
     }
     case "blackknight:W": {
-      const dist0 = def.castRange;
-      startDash(c, dir, v("speed"), dist0, w);
-      for (const t of corridorHits(w, c, dir, dist0, 1.8)) {
+      // Consecrating Smite: a pillar of holy light at the target point — damage + stun.
+      for (const t of aoeEnemies(w, c.team, point.x, point.y, v("radius"))) {
         dealDamage(w, c, t, v("damage"), "physical", { ap });
-        applyKnockback(t, c.x, c.y, v("knockback"), w);
-        addStatus(t, { kind: "slow", until: w.now + v("slowDur") * 1000, pct: v("slow"), id: "blackknight:W" });
+        addStatus(t, { kind: "stun", until: w.now + v("stun") * 1000, id: "blackknight:W" });
       }
+      w.fx.push({ t: "explosion", x: point.x, y: point.y, radius: v("radius"), kind: "execute" });
       return true;
     }
     case "blackknight:E": {
@@ -396,6 +489,24 @@ function dispatch(
         addStatus(t, { kind: "stun", until: w.now + v("stun") * 1000, id: "blackknight:R" });
       }
       w.fx.push({ t: "explosion", x: c.x, y: c.y, radius: v("radius"), kind: "execute" });
+      return true;
+    }
+    case "blackknight:DASH": {
+      startDash(c, dir, v("speed"), def.castRange, w);
+      addStatus(c, { kind: "untargetable", until: w.now + v("iframe") * 1000, id: "dash" });
+      return true;
+    }
+    case "blackknight:JUMP": {
+      // Dawnbreaker: the biggest slam — wide physical AoE + a stun on landing.
+      if (w.now >= c.jumpUntil) c.jumpUntil = w.now + JUMP_MS;
+      const lx = c.x + dir.x * def.castRange;
+      const ly = c.y + dir.y * def.castRange;
+      const dmg = v("base") + v("perLevel") * (c.level - 1);
+      for (const t of aoeEnemies(w, c.team, lx, ly, v("radius"))) {
+        dealDamage(w, c, t, dmg, "physical", { ap });
+        addStatus(t, { kind: "stun", until: w.now + v("stun") * 1000, id: "blackknight:JUMP" });
+      }
+      w.fx.push({ t: "explosion", x: lx, y: ly, radius: v("radius"), kind: "execute" });
       return true;
     }
 
@@ -433,8 +544,12 @@ function dispatch(
       return true;
     }
     case "witch:E": {
-      startDash(c, dir, v("speed"), def.castRange, w);
-      addStatus(c, { kind: "speed", until: w.now + v("hasteDur") * 1000, pct: v("haste"), id: "witch:E" });
+      // Bog Grasp: vines erupt at the point — magic damage + root.
+      for (const t of aoeEnemies(w, c.team, point.x, point.y, v("radius"))) {
+        dealDamage(w, c, t, v("damage"), "magic", { ap });
+        addStatus(t, { kind: "root", until: w.now + v("root") * 1000, id: "witch:E" });
+      }
+      w.fx.push({ t: "explosion", x: point.x, y: point.y, radius: v("radius"), kind: "trap" });
       return true;
     }
     case "witch:R": {
@@ -442,6 +557,24 @@ function dispatch(
         addStatus(t, { kind: "hex", until: w.now + v("duration") * 1000, pct: v("slow"), id: "witch:R" });
       }
       w.fx.push({ t: "explosion", x: point.x, y: point.y, radius: v("radius"), kind: "hex" });
+      return true;
+    }
+    case "witch:DASH": {
+      startDash(c, dir, v("speed"), def.castRange, w);
+      addStatus(c, { kind: "untargetable", until: w.now + v("iframe") * 1000, id: "dash" });
+      return true;
+    }
+    case "witch:JUMP": {
+      // Hexfall: broom-dive slam — magic AoE + a cursed slow on landing.
+      if (w.now >= c.jumpUntil) c.jumpUntil = w.now + JUMP_MS;
+      const lx = c.x + dir.x * def.castRange;
+      const ly = c.y + dir.y * def.castRange;
+      const dmg = v("base") + v("perLevel") * (c.level - 1);
+      for (const t of aoeEnemies(w, c.team, lx, ly, v("radius"))) {
+        dealDamage(w, c, t, dmg, "magic", { ap });
+        addStatus(t, { kind: "slow", until: w.now + v("slowDur") * 1000, pct: v("slow"), id: "witch:JUMP" });
+      }
+      w.fx.push({ t: "explosion", x: lx, y: ly, radius: v("radius"), kind: "hex" });
       return true;
     }
   }

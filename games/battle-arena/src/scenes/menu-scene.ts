@@ -7,7 +7,7 @@
 // localStorage["ba-champ"] / ["ba-name"] for future quick-start boots.
 import { CHAMPIONS } from "../data/champions";
 import { abilityIcon, champSigil } from "../data/icons";
-import { ABILITY_KEYS, type AbilityKey } from "../sim/types";
+import { ALL_ABILITY_KEYS, type AbilityKey } from "../sim/types";
 import { roomId } from "../net/protocol";
 import type { SceneOpts } from "./game-scene";
 
@@ -16,8 +16,8 @@ const hex = (n: number): string => "#" + n.toString(16).padStart(6, "0");
 const esc = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const dots = (difficulty: number): string => "●".repeat(difficulty) + "○".repeat(Math.max(0, 3 - difficulty));
-// display keycaps match the actual binds (1-4), not the QWER kit letters
-const KEYCAP: Record<AbilityKey, string> = { Q: "1", W: "2", E: "3", R: "4" };
+// display keycaps match the actual binds (1-4 + Shift/Space), not QWER letters
+const KEYCAP: Record<AbilityKey, string> = { Q: "1", W: "2", E: "3", R: "4", DASH: "⇧", JUMP: "␣" };
 
 export type MenuOpts = {
   initial: string;
@@ -67,7 +67,7 @@ export class Menu {
           <button id="ba-bots" class="ba-go bots">PLAY vs BOTS</button>
           <button id="ba-online" class="ba-go online">PLAY ONLINE</button>
         </div>
-        <div class="ba-help">click a champion · WASD move · mouse looks · LMB attack · Space jump · Shift dodge · 1/2/3/4 abilities · B shop</div>
+        <div class="ba-help">click a champion · WASD move · mouse looks · LMB attack · ␣ jump · ⇧ dash · 1/2/3/4 abilities · B shop</div>
       </div>`;
 
     this.el.querySelectorAll<HTMLButtonElement>(".ba-chip").forEach((btn) => {
@@ -95,7 +95,7 @@ export class Menu {
     const c = CHAMPIONS.find((x) => x.id === id);
     const info = document.getElementById("ba-info");
     if (c && info) {
-      const ab = ABILITY_KEYS.map(
+      const ab = ALL_ABILITY_KEYS.map(
         (k) =>
           `<span class="ba-i-a"><img src="${abilityIcon(c.id, k)}" alt=""><i>${KEYCAP[k]}</i><em>${c.abilities[k].name}</em></span>`,
       ).join("");
@@ -136,7 +136,7 @@ function injectStyle(): void {
 .ba-i-role{font-size:12px;letter-spacing:1px;opacity:.85;margin-top:4px}
 .ba-i-diff{color:var(--accent);letter-spacing:2px}
 .ba-i-blurb{font-size:12px;opacity:.65;margin-top:3px;max-width:520px;line-height:1.35}
-.ba-i-abrow{display:flex;gap:10px;margin-top:8px;justify-content:center;padding:8px 12px 6px;background:rgba(8,10,18,.62);border:1px solid rgba(255,255,255,.08);border-radius:12px;backdrop-filter:blur(3px)}
+.ba-i-abrow{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px;justify-content:center;padding:8px 12px 6px;background:rgba(8,10,18,.62);border:1px solid rgba(255,255,255,.08);border-radius:12px;backdrop-filter:blur(3px)}
 .ba-i-a{position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;width:66px}
 .ba-i-a img{width:40px;height:40px;border-radius:8px;border:1px solid rgba(255,255,255,.25);background:#0a0e1a}
 .ba-i-a i{position:absolute;top:-5px;left:7px;font:800 9px ui-monospace,monospace;font-style:normal;color:#ffd24a;background:rgba(10,14,24,.92);border:1px solid rgba(255,255,255,.3);border-radius:4px;padding:0 3px}

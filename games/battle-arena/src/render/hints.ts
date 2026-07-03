@@ -108,11 +108,18 @@ const RULES: Rule[] = [
     done: (_w, _me, st) => st.everInThrone,
   },
   {
-    id: "dodge",
-    text: "Shift — dodge roll",
-    touch: "Tap DODGE — dodge roll",
+    id: "dash",
+    text: "Shift — dash (brief i-frames)",
+    touch: "Tap DASH — quick dodge",
     when: (_w, me) => me.deaths === 2 && me.alive,
-    done: (_w, me) => me.lastDodgeAt > 0,
+    done: (_w, me) => me.lastCastKey === "DASH",
+  },
+  {
+    id: "jump",
+    text: "Space then click — jump attack",
+    touch: "Tap JUMP↯ — leaping strike",
+    when: (w, me) => w.gameTime > 40 && me.alive,
+    done: (_w, me) => me.lastCastKey === "JUMP",
   },
 ];
 
