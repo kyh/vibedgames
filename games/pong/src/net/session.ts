@@ -32,6 +32,7 @@ export class NetSession {
   private readonly onEvent?: (event: string, payload: unknown, from: string) => void;
 
   private solo = false;
+  private everConnected = false;
   private bootedAt = 0;
   private offlineMyState: Record<string, unknown> = {};
   private offlineShared: Record<string, unknown> | null = null;
@@ -46,17 +47,29 @@ export class NetSession {
       maxPlayers: opts.maxPlayers,
       onEvent: (event, payload, from) => this.onEvent?.(event, payload, from),
     });
-    this.bootedAt = performance.now();
   }
 
   /** Call once per frame: drives the offline fallback timer. */
   tick(): void {
     if (this.solo) return;
+    // Start the grace window on the FIRST tick, not at construction: heavy games
+    // (lots of assets/wasm) can take longer than the window just to reach their
+    // first frame, and counting that load time would wrongly drop a client to
+    // solo before its socket ever got a chance to connect.
+    if (this.bootedAt === 0) this.bootedAt = performance.now();
     const status = this.client.connectionStatus;
+    if (status === "connected") {
+      this.everConnected = true;
+      return;
+    }
+    // Once we've been in a room, a drop is transient — let partysocket
+    // reconnect instead of stranding the player in solo. (A reset under heavy
+    // load must not permanently drop a real player out of the game.)
+    if (this.everConnected) return;
     const failed = status === "disconnected" || status === "error";
     if (!failed && performance.now() - this.bootedAt < this.fallbackMs) return;
-    if (!failed && status === "connected") return;
-    // Never connected within the grace window (or the socket errored): go solo.
+    // Never reached a room within the grace window (or errored first): the
+    // party server is unreachable — fall back to a local solo game.
     this.solo = true;
     this.client.destroy(); // stop reconnect attempts; refresh the page to retry
   }

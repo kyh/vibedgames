@@ -276,3 +276,15 @@ export function isOpen(col: number, row: number): boolean {
 export function cellKey(col: number, row: number): string {
   return `${col},${row}`;
 }
+
+// ---- multiplayer -------------------------------------------------------------
+// Shared-maze race: the maze + pellet layout come from the static MAP, so every
+// client already shares an identical board. The host owns the authoritative set
+// of eaten cells; players compete to grab pellets first. Each player runs their
+// OWN ghosts locally (a personal hazard), so only pellets and pac positions are
+// synced. Alone (or offline) it's the classic single-player game.
+export const MP_ROOM = "pacman-default";
+export const MP_MAX_PLAYERS = 4;
+export const OFFLINE_FALLBACK_MS = 8000;
+/** Player position/score broadcast rate. */
+export const NET_TICK_HZ = 15;

@@ -22,8 +22,14 @@ import { buildHeartGeometry } from "../render/heart";
 import type { PelletCell } from "../render/pellet-field";
 import { PelletField } from "../render/pellet-field";
 import { TraumaCamera } from "../render/trauma-camera";
+import { RemotePacs } from "../net/remote-pacs";
+import { NetSession } from "../net/session";
 import type { Dir } from "../shared/constants";
 import {
+  MP_ROOM,
+  MP_MAX_PLAYERS,
+  OFFLINE_FALLBACK_MS,
+  NET_TICK_HZ,
   BASE_FOV,
   BEST_KEY,
   CAM_BACK,
@@ -161,6 +167,24 @@ export class GameScene {
   private hearts = new Map<string, Heart>();
   private score = 0;
   private best = 0;
+
+  // ---- multiplayer (shared-maze pellet race) ---------------------------------
+  // The maze + pellets come from the static MAP (identical on every client). The
+  // host owns the authoritative set of eaten cells; players race to grab them.
+  // Ghosts stay LOCAL — each player dodges their own. Solo/offline is unchanged.
+  private net = new NetSession({
+    room: MP_ROOM,
+    maxPlayers: MP_MAX_PLAYERS,
+    fallbackMs: OFFLINE_FALLBACK_MS,
+    onEvent: (event, payload, from) => this.handleNetEvent(event, payload, from),
+  });
+  private remotePacs!: RemotePacs;
+  private netAcc = 0;
+  private boardRound = 0;
+  private hostEaten = new Set<string>(); // host: authoritative eaten cells
+  private appliedEaten = new Set<string>(); // cells already removed locally
+  private boardEl = document.getElementById("board");
+  private netInfoEl = document.getElementById("netinfo");
   private lives = START_LIVES;
   private scaredMs = 0;
   private graceMs = 0;
@@ -266,10 +290,185 @@ export class GameScene {
     });
 
     this.fx = new FxPool(this.scene);
+    this.remotePacs = new RemotePacs(this.scene);
     this.best = loadBest();
     this.bindInput();
     this.setPhase("title");
     this.updateHud();
+  }
+
+  // ---- multiplayer ---------------------------------------------------------
+
+  /** A rival is sharing the maze (so the game runs in race mode). */
+  private get racing(): boolean {
+    return this.net.otherPlayer() !== null;
+  }
+
+  private handleNetEvent(event: string, payload: unknown, from: string): void {
+    // Host arbitrates pellet eats: first claim on a cell wins.
+    if (event === "eat" && this.net.isHost) {
+      const key = (payload as { key?: unknown })?.key;
+      if (typeof key === "string" && !this.hostEaten.has(key)) {
+        this.hostEaten.add(key);
+        this.broadcastBoard();
+      }
+    }
+    void from;
+  }
+
+  private broadcastBoard(): void {
+    if (this.net.offline) return;
+    const eaten: Record<string, number> = {};
+    for (const k of this.hostEaten) eaten[k] = 1;
+    this.net.patchShared({ board: { round: this.boardRound, eaten } });
+  }
+
+  /** Record that the LOCAL player ate a cell (already removed + scored locally),
+   *  and propagate it to the shared board. */
+  private markEaten(col: number, row: number): void {
+    const key = cellKey(col, row);
+    if (this.appliedEaten.has(key)) return;
+    this.appliedEaten.add(key);
+    if (this.net.isHost) {
+      this.hostEaten.add(key);
+      this.broadcastBoard();
+    } else {
+      this.net.sendEvent("eat", { key });
+    }
+  }
+
+  /** Adopt the host's authoritative eaten set: remove pellets others grabbed,
+   *  and honour a round reset. */
+  private reconcileBoard(): void {
+    if (this.net.isHost && this.sharedBoard() === null) {
+      // First host seeds an empty board.
+      this.broadcastBoard();
+      return;
+    }
+    const board = this.sharedBoard();
+    if (!board) return;
+    if (board.round !== this.boardRound) {
+      this.applyNewRound(board.round);
+      return;
+    }
+    for (const key of Object.keys(board.eaten)) {
+      if (this.appliedEaten.has(key)) continue;
+      this.appliedEaten.add(key);
+      this.removeCellVisual(key);
+    }
+    if (this.racing && this.phase === "playing" && this.pelletsLeft() === 0) {
+      this.setPhase("win");
+    }
+  }
+
+  private sharedBoard(): { round: number; eaten: Record<string, number> } | null {
+    const s = this.net.sharedState;
+    const b = s?.["board"];
+    if (!b || typeof b !== "object") return null;
+    const rec = b as { round?: unknown; eaten?: unknown };
+    const round = typeof rec.round === "number" ? rec.round : 0;
+    const eaten =
+      rec.eaten && typeof rec.eaten === "object" ? (rec.eaten as Record<string, number>) : {};
+    return { round, eaten };
+  }
+
+  /** Remove a pellet/heart at a cell key that a rival ate (no score, no sfx). */
+  private removeCellVisual(key: string): void {
+    const heart = this.hearts.get(key);
+    if (heart) {
+      this.scene.remove(heart.mesh);
+      this.hearts.delete(key);
+      return;
+    }
+    const [col, row] = key.split(",").map(Number);
+    if (col !== undefined && row !== undefined) this.pelletField.collect(col, row);
+  }
+
+  /** Host starts a fresh round; everyone resets when they see the new number. */
+  private hostNewRound(): void {
+    this.boardRound += 1;
+    this.hostEaten.clear();
+    this.broadcastBoard();
+    this.applyNewRound(this.boardRound);
+  }
+
+  private applyNewRound(round: number): void {
+    this.boardRound = round;
+    this.appliedEaten.clear();
+    this.resetBoard();
+    this.score = 0;
+    this.resetPacman();
+    this.graceMs = SPAWN_GRACE_MS;
+    this.updateHud();
+    this.setPhase("playing");
+  }
+
+  /** Tap/gesture to start or restart — solo resets the board; in a race it just
+   *  drops you into the ongoing shared maze (host can start a new round). */
+  private handleStart(): void {
+    if (this.racing) {
+      if (this.phase === "win" && this.net.isHost) {
+        this.hostNewRound();
+        return;
+      }
+      this.resetPacman();
+      this.graceMs = SPAWN_GRACE_MS;
+      this.setPhase("playing");
+      return;
+    }
+    this.resetGame();
+  }
+
+  private updateNet(dt: number): void {
+    if (!this.net.offline) {
+      this.netAcc += dt;
+      if (this.netAcc >= 1 / NET_TICK_HZ) {
+        this.netAcc = 0;
+        this.net.updateMyState({ x: this.pac.x, z: this.pac.z, score: this.score });
+      }
+    }
+    this.remotePacs.sync(this.net.players, this.net.playerId);
+    this.remotePacs.update(dt, this.t);
+    this.updateNetHud();
+  }
+
+  private updateNetHud(): void {
+    if (this.netInfoEl) {
+      this.netInfoEl.textContent =
+        !this.net.live || this.net.offline
+          ? ""
+          : this.racing
+            ? `RACE · ${Object.keys(this.net.players).length} PLAYERS`
+            : "ONLINE · WAITING";
+    }
+    if (!this.boardEl) return;
+    if (!this.racing) {
+      if (this.boardEl.childElementCount > 0) this.boardEl.replaceChildren();
+      return;
+    }
+    const me = this.net.playerId;
+    const rows: Array<{ id: string; score: number; me: boolean }> = [];
+    for (const [id, player] of Object.entries(this.net.players)) {
+      if (id === me) rows.push({ id, score: this.score, me: true });
+      else {
+        const st = player.state as { score?: unknown } | undefined;
+        rows.push({ id, score: typeof st?.score === "number" ? st.score : 0, me: false });
+      }
+    }
+    rows.sort((a, b) => b.score - a.score);
+    const frag = document.createDocumentFragment();
+    for (const r of rows.slice(0, 4)) {
+      const row = document.createElement("div");
+      row.className = `row${r.me ? " me" : ""}`;
+      const name = document.createElement("span");
+      name.textContent = r.me ? "you" : r.id.slice(0, 4);
+      const sc = document.createElement("span");
+      sc.className = "sc";
+      sc.textContent = String(r.score);
+      row.append(name, sc);
+      frag.append(row);
+    }
+    this.boardEl.replaceChildren(frag);
   }
 
   resize(aspect: number): void {
@@ -283,6 +482,9 @@ export class GameScene {
     const dtMs = dt * 1000;
     this.t += dt;
     const scaredMsBefore = this.scaredMs;
+
+    this.net.tick();
+    this.reconcileBoard();
 
     if (this.phase === "ready") {
       this.readyMs -= dtMs;
@@ -335,6 +537,7 @@ export class GameScene {
     this.fx.update(dt);
     this.updateCamera(dt);
     music.update();
+    this.updateNet(dt);
   }
 
   // ---- board ---------------------------------------------------------------
@@ -457,12 +660,12 @@ export class GameScene {
       return;
     }
     if (this.phase === "title") {
-      this.resetGame();
+      this.handleStart();
       return;
     }
     if (e.code === "KeyR") {
       if (this.phase === "playing" || this.phase === "win" || this.phase === "gameover") {
-        this.resetGame();
+        this.handleStart();
       }
       return;
     }
@@ -521,7 +724,7 @@ export class GameScene {
 
   private onPointerUp = (): void => {
     const tappable = this.phase === "title" || this.phase === "win" || this.phase === "gameover";
-    if (!this.swiped && this.swipeOrigin && tappable) this.resetGame();
+    if (!this.swiped && this.swipeOrigin && tappable) this.handleStart();
     this.swipeOrigin = null;
   };
 
@@ -549,7 +752,7 @@ export class GameScene {
     this.prevMouthOpen = open;
     if (!open || wasOpen) return;
     if (this.phase === "title" || this.phase === "win" || this.phase === "gameover") {
-      this.resetGame();
+      this.handleStart();
       return;
     }
     this.stepRequested = true;
@@ -558,7 +761,7 @@ export class GameScene {
   /** Legacy fired a synthetic ArrowLeft on head-turn-left. */
   onHeadTurnLeft(): void {
     if (this.phase === "title" || this.phase === "win" || this.phase === "gameover") {
-      this.resetGame();
+      this.handleStart();
       return;
     }
     this.steer("left");
@@ -566,7 +769,7 @@ export class GameScene {
 
   onHeadTurnRight(): void {
     if (this.phase === "title" || this.phase === "win" || this.phase === "gameover") {
-      this.resetGame();
+      this.handleStart();
       return;
     }
     this.steer("right");
@@ -648,6 +851,8 @@ export class GameScene {
     } else {
       return;
     }
+    // Claim this cell on the shared board so rivals see it vanish too.
+    this.markEaten(col, row);
     this.updateHud();
     if (this.pelletsLeft() === 0) this.setPhase("win");
   }
@@ -706,8 +911,6 @@ export class GameScene {
    * rebuild's additions, kept.
    */
   private caught(): void {
-    this.lives -= 1;
-    this.updateHud();
     this.shaker.add(TRAUMA_CAUGHT);
     this.fx.puff(new THREE.Vector3(this.pac.x, 0.4, this.pac.z), 12, COLORS.power, {
       speed: 1.6,
@@ -716,6 +919,17 @@ export class GameScene {
     this.softFlash();
     sfx.play("caught");
     music.duck();
+
+    // In a race, dying is a setback, not an elimination — respawn and keep
+    // grabbing pellets (the shared board keeps going regardless).
+    if (this.racing) {
+      this.resetPacman();
+      this.graceMs = SPAWN_GRACE_MS;
+      return;
+    }
+
+    this.lives -= 1;
+    this.updateHud();
     if (this.lives <= 0) {
       this.setPhase("gameover");
       return;

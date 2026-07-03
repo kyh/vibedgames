@@ -136,6 +136,6 @@ export const TRAFFIC = {
 // and local. 64 is the party server's hard per-room ceiling.
 export const MP_ROOM = "crazy-waymo-default";
 export const MP_MAX_PLAYERS = 64;
-export const OFFLINE_FALLBACK_MS = 4000;
+export const OFFLINE_FALLBACK_MS = 8000;
 /** Car-transform broadcast rate; remote cars interpolate between updates. */
 export const NET_TICK_HZ = 15;
