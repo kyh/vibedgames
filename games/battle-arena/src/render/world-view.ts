@@ -28,11 +28,10 @@ const ABILITY_CLIPS: Record<string, Partial<Record<AbilityKey, string>>> = {
 };
 
 // Basic-attack clip rotations — swings vary shot-to-shot instead of repeating.
-// Three distinct forward swings (diagonal slice → horizontal slice → overhead
-// chop); each has real anticipation→strike→recovery, so every hit reads as a
-// swing (time-reversing a clip looked like the blade un-swinging).
+// An "@mirror" suffix plays the clip reflected left↔right (a backhand
+// return-stroke that still swings forward — see ModelLibrary.getClip).
 const ATTACK_SETS: Record<string, string[]> = {
-  knight: ["Melee_1H_Attack_Slice_Diagonal", "Melee_1H_Attack_Slice_Horizontal", "Melee_1H_Attack_Chop"],
+  knight: ["Melee_1H_Attack_Slice_Diagonal", "Melee_1H_Attack_Slice_Horizontal", "Melee_1H_Attack_Slice_Horizontal@mirror"],
   rogue: ["Melee_Dualwield_Attack_Chop", "Melee_Dualwield_Attack_Slice", "Melee_2H_Attack_Spin"],
   ranger: ["Ranged_Bow_Release", "Ranged_Bow_Release_Up"],
   mage: ["Ranged_Magic_Shoot"],
