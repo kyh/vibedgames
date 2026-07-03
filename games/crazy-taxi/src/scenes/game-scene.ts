@@ -12,6 +12,7 @@ import { SkidMarks } from "../fx/skids";
 import { SpeedLines } from "../fx/speedlines";
 import { FareManager, type FareEvent, tierColor, tierPayMult } from "../game/fares";
 import { GameState } from "../game/state";
+import { ParkedCars } from "../game/parked-cars";
 import { Traffic } from "../game/traffic";
 import { InputState } from "../input/keyboard";
 import { PhysicsWorld } from "../physics/physics-world";
@@ -105,6 +106,7 @@ export class GameScene {
   private debris: Debris | null = null;
   private speedLines = new SpeedLines();
   private cones: SmashCones | null = null;
+  private parked: ParkedCars | null = null;
   private minimap: Minimap | null = null;
 
   private sun = new THREE.DirectionalLight(0xfff2d8, 2.0);
@@ -257,6 +259,12 @@ export class GameScene {
     );
     this.scene.add(this.traffic.group);
     this.allSolids = city.solids;
+
+    // Parked cars: punt-able bodies (bounce when rammed), not static solids.
+    this.parked = new ParkedCars(this.cache, city.parkedCarSpecs, physics, (x, z) =>
+      city.heightAt(x, z),
+    );
+    this.scene.add(this.parked.group);
 
     this.fares = new FareManager(this.cache, city);
     this.scene.add(this.fares.group);
@@ -626,9 +634,11 @@ export class GameScene {
 
     car.update(dt, input, this.allSolids);
     this.handleTrafficImpacts(car, traffic);
+    this.handleParkedImpacts(car);
     traffic.update(dt, city, car.position.x, car.position.z, car.heading);
     this.physics?.step(dt);
     traffic.syncWrecked();
+    this.parked?.sync();
     this.handleNearMiss(car, traffic);
     this.handleHonks(traffic);
     this.handleCones(car);
@@ -888,6 +898,21 @@ export class GameScene {
         const pen = this.state.trafficHit(impact);
         this.hud.announceMinor(`TRAFFIC HIT −$${pen}`, "#ff5a52");
       }
+    }
+  }
+
+  // Ram a parked car → it bounces (dynamic body + impulse), same as traffic
+  // but with no run/wreck bookkeeping. The taxi sheds a little speed.
+  private handleParkedImpacts(car: Car): void {
+    const parked = this.parked;
+    if (!parked) return;
+    const sp = car.speed;
+    if (sp < 6) return; // needs real momentum to knock a parked car
+    // Shove along the taxi's heading so it reads as a plough-through.
+    const nx = Math.sin(car.heading);
+    const nz = Math.cos(car.heading);
+    if (parked.punt(car.position.x, car.position.z, nx, nz, sp)) {
+      car.lastWallHit = Math.max(car.lastWallHit, sp * 0.4);
     }
   }
 

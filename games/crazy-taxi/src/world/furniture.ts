@@ -11,7 +11,6 @@ import {
   LIGHT_SQUARE,
   LIGHT_SQUARE_DOUBLE,
   modelUrl,
-  PARK_ENTRY,
   PARK_TREES,
   PARK_WALL,
   PROP_AWNING,
@@ -74,12 +73,14 @@ export type FurnitureCtx = {
 };
 
 export type PierDeck = { minX: number; maxX: number; minZ: number; maxZ: number; y: number };
+export type ParkedSpec = { x: number; z: number; yaw: number; model: string };
 
 export type FurnitureResult = {
   readonly objects: THREE.Object3D[]; // static, world-transform set; caller merges
   readonly solids: Solid[]; // collision boxes to append
   readonly openWaterCells: ReadonlySet<string>; // water cells the shoreline-wall pass must skip (piers)
   readonly pierDecks: readonly PierDeck[]; // drivable flat decks (caller overrides surface height)
+  readonly parkedCars: readonly ParkedSpec[]; // punt-able parked cars (physics, not static)
 };
 
 const HALF_PI = Math.PI / 2;
@@ -174,6 +175,7 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
   const solids: Solid[] = [];
   const openWaterCells = new Set<string>();
   const pierDecks: PierDeck[] = [];
+  const parkedCars: ParkedSpec[] = [];
 
   const roadAt = (gx: number, gz: number): RoadResolved | null =>
     inBounds(gx, gz) ? (plan.roads[gx]?.[gz] ?? null) : null;
@@ -333,7 +335,9 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
       if (nearCentre(gx, gz, 2)) continue; // keep the spawn block clear
       const char = districtAt(gx, gz).character;
       if (char !== "residential" && char !== "victorian" && char !== "commercial") continue;
-      if (!rng.chance(0.3)) continue;
+      // Each parked car is a live physics body + individual mesh — keep the
+      // fleet modest (~250) so broad-phase and draw calls stay cheap.
+      if (!rng.chance(0.12)) continue;
       const taken = lightSide.get(cellKey(gx, gz));
       const side: 1 | -1 = taken !== undefined ? (taken > 0 ? -1 : 1) : rng.chance(0.5) ? 1 : -1;
       const alongX = straightAlongX(gx, gz);
@@ -344,12 +348,10 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
       // Length axis along the road; side flips facing so cars read as parked
       // with the flow of their curb. Tiny yaw jitter sells hand-parking.
       const yaw = (alongX ? HALF_PI : 0) + (side > 0 ? 0 : Math.PI) + rng.range(-0.04, 0.04);
-      seat(modelUrl("cars", rng.pick(TRAFFIC_CARS)), px, pz, yaw, 1);
-      solids.push(
-        alongX
-          ? { minX: px - 2, maxX: px + 2, minZ: pz - 1, maxZ: pz + 1 }
-          : { minX: px - 1, maxX: px + 1, minZ: pz - 2, maxZ: pz + 2 },
-      );
+      // Parked cars are punt-able physics bodies (see game/parked-cars.ts), not
+      // baked static geometry — ramming one shoves it aside instead of walling
+      // the taxi off. The manager builds the mesh + kinematic-until-hit body.
+      parkedCars.push({ x: px, z: pz, yaw, model: rng.pick(TRAFFIC_CARS) });
     }
   }
 
@@ -580,7 +582,6 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
   const isParkCell = (gx: number, gz: number): boolean =>
     inBounds(gx, gz) && cellAt(gx, gz) === "lot" && districtAt(gx, gz).character === "park";
   const wallUrl = modelUrl("props", PARK_WALL);
-  const entryUrl = modelUrl("props", PARK_ENTRY);
   const wallBounds = cache.bounds(wallUrl);
   const wallH = 1.1 / Math.max(wallBounds.size.y, 0.001); // low stone wall
   const parkBenchUrl = modelUrl("props", PROP_BENCH);
@@ -632,10 +633,22 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
                 },
           );
         }
-        // Gate posts at the entry gap.
-        const ex = along === "x" ? wx : wx + dx * edgeOff;
-        const ez = along === "x" ? wz + dz * edgeOff : wz;
-        seat(entryUrl, ex, ez, along === "x" ? HALF_PI : 0, scaleToHeight(entryUrl, 2.3));
+        // Gate posts flanking the 4.4u entry gap. Two simple stone pillars —
+        // taller than the wall — read as a park entrance without the KayKit
+        // arch's orientation ambiguity.
+        const gy = terrain.heightAt(
+          along === "x" ? wx : wx + dx * edgeOff,
+          along === "x" ? wz + dz * edgeOff : wz,
+        );
+        for (const side of [-2.2, 2.2] as const) {
+          const px = along === "x" ? wx + side : wx + dx * edgeOff;
+          const pz = along === "x" ? wz + dz * edgeOff : wz + side;
+          const post = new THREE.Mesh(UNIT_BOX, SEAWALL_MAT);
+          post.scale.set(0.9, 2.4, 0.9);
+          post.position.set(px, gy + 1.2, pz);
+          post.updateMatrixWorld(true);
+          objects.push(post);
+        }
       }
 
       // Fountain plaza: basin + water + radiating tan paths + benches/lamps.
@@ -1031,5 +1044,5 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
     seatKK(towerUrl, px, pz, rng.range(0, Math.PI * 2), towerScale);
   }
 
-  return { objects, solids, openWaterCells, pierDecks };
+  return { objects, solids, openWaterCells, pierDecks, parkedCars };
 }

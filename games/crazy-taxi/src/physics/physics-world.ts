@@ -131,6 +131,26 @@ export class PhysicsWorld {
     return body;
   }
 
+  // A parked car: kinematic (stays exactly put) until the taxi punts it, then
+  // makeDynamic() lets it bounce. Yawed to face along its curb.
+  createParkedBody(x: number, y: number, z: number, yaw: number): RAPIER.RigidBody {
+    const body = this.world.createRigidBody(
+      RAPIER.RigidBodyDesc.kinematicPositionBased()
+        .setTranslation(x, y, z)
+        .setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) })
+        .setLinearDamping(1.1)
+        .setAngularDamping(1.6),
+    );
+    this.world.createCollider(
+      RAPIER.ColliderDesc.cuboid(1.0, 0.75, 1.25)
+        .setFriction(0.7)
+        .setRestitution(0.3)
+        .setDensity(1.4),
+      body,
+    );
+    return body;
+  }
+
   remove(body: RAPIER.RigidBody): void {
     this.world.removeRigidBody(body);
   }

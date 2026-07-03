@@ -29,7 +29,7 @@ import { Rng } from "../shared/rng";
 import { type Dir, DIR_DELTA, E, N, S, W } from "../shared/types";
 import { conformToTerrain, toFloat32Attributes } from "./conform";
 import { CUSTOM_PROPS } from "./custom-props";
-import { buildFurniture } from "./furniture";
+import { buildFurniture, type ParkedSpec } from "./furniture";
 import { buildGoldenGate } from "./golden-gate";
 import { type CityPlan, generateCity } from "./grid";
 import { buildRoads } from "./roads";
@@ -93,6 +93,7 @@ export class CityModel {
   readonly roadCells: RoadCell[] = [];
   readonly plan: CityPlan;
   readonly terrain: Terrain;
+  parkedCarSpecs: readonly ParkedSpec[] = []; // punt-able parked cars (built by furniture)
   private chunks: Chunk[] = [];
   // Global model batches; instances flip visibility by chunk on transitions.
   private batches: { mesh: THREE.BatchedMesh; chunkIds: Uint16Array }[] = [];
@@ -326,16 +327,17 @@ export class CityModel {
       ) {
         const towerUrl = modelUrl("props", "kk-watertower");
         const twb = this.cache.bounds(towerUrl);
-        const roofY = seatY - 0.15 + bounds.size.y * sy;
+        // Actual world-space roof of the placed building — bulletproof against
+        // any model origin/height quirk that made towers float.
+        node.updateMatrixWorld(true);
+        const roofBox = new THREE.Box3().setFromObject(node);
+        const roofY = roofBox.max.y;
         const tws = 3.4 / Math.max(twb.size.y, 0.001);
         const tower = this.cache.instance(towerUrl);
         tower.scale.setScalar(tws);
         tower.rotation.y = this.rng.range(0, Math.PI * 2);
-        tower.position.set(
-          wx + this.rng.range(-1.5, 1.5),
-          roofY - 0.1,
-          wz + this.rng.range(-1.5, 1.5),
-        );
+        // Dead-centre on the roof so it never reads as hanging off an edge.
+        tower.position.set(wx, roofY - 0.15, wz);
         collect(tower);
       }
 
@@ -372,6 +374,7 @@ export class CityModel {
     for (const o of fr.objects) collect(o);
     for (const s of fr.solids) this.solids.push(s);
     this.addDecks(fr.pierDecks);
+    this.parkedCarSpecs = fr.parkedCars;
 
     // --- The drivable Golden Gate: ramp off the Presidio coast road onto an
     // orange deck over the strait, out to a railed vista turnaround. ---

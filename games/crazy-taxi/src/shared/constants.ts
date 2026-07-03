@@ -37,22 +37,22 @@ export const DRAW_DISTANCE = 1000;
 
 // --- Taxi (arcade handling) ---
 export const CAR = {
-  maxSpeed: 51, // top forward speed (down from 58 — corners were outrunning steering)
-  boostSpeed: 74, // top speed while boosting
-  accel: 40, // forward acceleration
+  maxSpeed: 42, // top forward speed — calm enough to read arterial corners
+  boostSpeed: 64, // top speed while boosting
+  accel: 36, // forward acceleration
   brakeDecel: 85, // braking / active slow-down
-  coastDecel: 14, // engine braking when no input
+  coastDecel: 16, // engine braking when no input (settles quicker off-throttle)
   reverseMax: 18,
   reverseAccel: 26,
   // Steering: angular speed (rad/s) you can turn, scaled by how fast you go.
-  turnRate: 3.3,
-  turnSpeedFalloff: 0.82, // keep more steering authority at speed (easier turns)
-  steerRamp: 0.09, // seconds to ramp steering input to full lock (crisp, not icy)
+  turnRate: 3.5,
+  turnSpeedFalloff: 0.86, // keep more steering authority at speed (easier turns)
+  steerRamp: 0.08, // seconds to ramp steering input to full lock (crisp, not icy)
   // Grip controls how fast the velocity vector realigns to the car's heading.
-  gripNormal: 8.2, // high grip → little slide (THE feel knob: lower = slidier)
-  gripDrift: 1.9, // low grip while drifting → hangable but recoverable slide
-  driftTurnBoost: 1.7, // extra steering while drifting
-  driftMinSpeed: 14, // must be moving this fast to drift
+  gripNormal: 7.4, // high grip → little slide (THE feel knob: lower = slidier)
+  gripDrift: 2.2, // low grip while drifting → hangable but recoverable slide
+  driftTurnBoost: 1.9, // extra steering while drifting
+  driftMinSpeed: 11, // must be moving this fast to drift (easy to break loose)
   driftMinSlip: 0.1, // radians of real slip before a drift counts (no spam scoring)
   miniBoostImpulse: 14, // instant forward pop when releasing a charged drift
   slopeGravity: 40, // how hard SF hills pull the car back uphill / drag it downhill
