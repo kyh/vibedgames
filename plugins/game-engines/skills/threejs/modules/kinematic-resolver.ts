@@ -55,8 +55,12 @@ export interface CreateActorOptions {
   colliderShape: ColliderShape;
   colliderOptions?: ColliderOptions;
   controllerOptions?: ControllerOptions;
-  /** Per-actor override of the batch collision mode. */
-  actorCollisionMode?: ActorCollisionMode;
+  /**
+   * Force this actor to ignore other actors' colliders (collide with static world
+   * only), regardless of the batch mode. Ordering/commit behavior is always a
+   * whole-batch property (the `mode` argument to resolveQueuedMoves), never per-actor.
+   */
+  ignoreActors?: boolean;
   /** Extra downward shapecast distance to still count as grounded (0 = disabled). */
   groundedProbeDistance?: number;
 }
@@ -67,7 +71,7 @@ export interface Actor {
   readonly collider: RAPIER.Collider;
   readonly bodyOffset: Vector3;
   readonly groundedProbeDistance: number;
-  readonly actorCollisionMode: ActorCollisionMode | null;
+  readonly ignoreActors: boolean | null;
 }
 
 export interface MoveRequest {
@@ -184,11 +188,27 @@ export class KinematicResolver {
       collider,
       bodyOffset,
       groundedProbeDistance: options.groundedProbeDistance ?? 0,
-      actorCollisionMode: options.actorCollisionMode ?? null,
+      ignoreActors: options.ignoreActors ?? null,
     };
     this.actorColliderHandles.add(collider.handle);
     this.world.updateSceneQueries();
     return actor;
+  }
+
+  /**
+   * Remove an actor and free its Rapier body, collider, and character controller.
+   * Call on despawn — otherwise handles leak and a reused collider handle can make
+   * `ignore-actors` filtering treat a later, unrelated collider as an actor.
+   */
+  removeActor(actor: Actor): void {
+    this.actorColliderHandles.delete(actor.collider.handle);
+    this.results.delete(actor);
+    // Drop any queued move for this actor so a mid-frame removal can't sweep a freed collider.
+    for (let i = this.queuedMoves.length - 1; i >= 0; i -= 1) {
+      if (this.queuedMoves[i].actor === actor) this.queuedMoves.splice(i, 1);
+    }
+    this.world.removeCharacterController(actor.characterController);
+    this.world.removeRigidBody(actor.rigidBody); // also removes its attached collider
   }
 
   /** Clear last frame's queued moves and results. Call once per frame before queueing. */
@@ -250,15 +270,13 @@ export class KinematicResolver {
     return this.results.get(actor) ?? null;
   }
 
-  /** Rapier collision filter honoring the actor's `ignore-actors` mode, in every batch mode. */
+  /** Rapier collision filter that excludes other actors when this actor ignores them. */
   private actorFilter(
     actor: Actor,
     mode: ActorCollisionMode,
   ): ((collider: RAPIER.Collider) => boolean) | undefined {
-    const actorMode = actor.actorCollisionMode ?? mode;
-    return actorMode === "ignore-actors"
-      ? (collider) => !this.actorColliderHandles.has(collider.handle)
-      : undefined;
+    const ignore = actor.ignoreActors ?? mode === "ignore-actors";
+    return ignore ? (collider) => !this.actorColliderHandles.has(collider.handle) : undefined;
   }
 
   private resolveMove(

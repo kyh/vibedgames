@@ -202,9 +202,14 @@ export class CharacterController {
 
     let yaw = input.yaw ?? this.yaw;
     if (input.facing) {
-      const targetYaw = forwardToYaw(flattenUnit(input.facing));
-      const delta = Math.atan2(Math.sin(targetYaw - yaw), Math.cos(targetYaw - yaw));
-      yaw += delta * smoothingAlpha(cfg.turnLag, dt);
+      const facing = flattenUnit(input.facing);
+      // Skip a facing with no horizontal component (e.g. looking straight up): its
+      // flattened yaw is 0 and would snap the character to face -Z.
+      if (facing.lengthSq() > EPS_SQ) {
+        const targetYaw = forwardToYaw(facing);
+        const delta = Math.atan2(Math.sin(targetYaw - yaw), Math.cos(targetYaw - yaw));
+        yaw += delta * smoothingAlpha(cfg.turnLag, dt);
+      }
     }
     const pitch = clamp(input.pitch ?? this.pitch, cfg.pitchMin, cfg.pitchMax);
 
@@ -234,7 +239,9 @@ export class CharacterController {
     // A ceiling clipped the upward move: cancel the remaining upward velocity.
     if (intent.desiredDelta.y > correctedDelta.y + 1e-5 && velocity.y > 0) velocity.y = 0;
     // Still rising into a jump this frame: stay airborne even if the probe says grounded.
-    if (!intent.grounded && intent.velocity.y > 0) grounded = false;
+    // Use the post-collision velocity so a jump stopped dead by a low ceiling (velocity
+    // clipped to 0 above) doesn't get forced airborne for a frame.
+    if (!intent.grounded && velocity.y > 0) grounded = false;
     // Landed: drop residual downward velocity so the character doesn't sink.
     if (grounded && velocity.y < 0) velocity.y = 0;
 
