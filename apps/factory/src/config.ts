@@ -16,13 +16,13 @@ export function findRepoRoot(start: string = process.cwd()): string {
     if (parent === dir) break;
     dir = parent;
   }
-  // Fallback: this file lives at apps/agents/src/config.ts → ../../.. is repo root.
+  // Fallback: this file lives at apps/factory/src/config.ts → ../../.. is repo root.
   return resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 }
 
 /** Default workspace location for a given game slug (gitignored). */
 export function defaultWorkspace(repoRoot: string, slug: string): string {
-  return resolve(repoRoot, "apps/agents/.workspaces", slug);
+  return resolve(repoRoot, "apps/factory/.workspaces", slug);
 }
 
 /** Path to the `claude` CLI. Override with CLAUDE_BIN for non-PATH installs. */

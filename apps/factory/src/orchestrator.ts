@@ -18,23 +18,24 @@ import {
   releaseLock,
   saveState,
   stopRequested,
+  type AgentState,
   type Phase,
-  type StudioState,
 } from "./state.ts";
+import { appendSpan } from "./trace.ts";
 
-export type StudioOptions = {
+export type AgentOptions = {
   slug: string;
   idea: string;
   workspace: string;
   model: string;
   maxTurns: number;
-  /** Kill a specialist that emits no output for this long (ms; 0 disables). */
+  /** Kill a subagent that emits no output for this long (ms; 0 disables). */
   idleTimeoutMs: number;
-  /** Absolute ceiling on a single specialist session (ms; 0 disables). */
+  /** Absolute ceiling on a single subagent session (ms; 0 disables). */
   maxSessionMs: number;
   /** 0 = run forever (until stopped). */
   maxCycles: number;
-  /** ms to pause between specialist runs. */
+  /** ms to pause between subagent runs. */
   interval: number;
   /** Skip the ship phase (no prod deploys — useful while testing the loop). */
   noShip: boolean;
@@ -42,16 +43,16 @@ export type StudioOptions = {
   autoDeploy: boolean;
   /** Pass --dangerously-skip-permissions so tools run unattended. */
   skipPermissions: boolean;
-  /** Optional operator brief written to .studio/context.md for the specialists. */
+  /** Optional operator brief written to .agent/context.md for the subagents. */
   context?: string;
-  /** Optional reference directory the specialists are granted read access to. */
+  /** Optional reference directory the subagents are granted read access to. */
   contextDir?: string;
 };
 
 const MAX_RETRIES = 5;
 
-/** Resolves true if the studio ran, false if it couldn't start (lock held). */
-export async function runStudio(opts: StudioOptions): Promise<boolean> {
+/** Resolves true if the agent ran, false if it couldn't start (lock held). */
+export async function runAgent(opts: AgentOptions): Promise<boolean> {
   const repoRoot = findRepoRoot();
   const bb = blackboard(opts.workspace);
   const now = new Date().toISOString();
@@ -61,7 +62,7 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
   const isFresh = !existsSync(bb.state);
   const existingProject = isFresh && hasExistingProject(opts.workspace);
 
-  const seed: StudioState = {
+  const seed: AgentState = {
     slug: opts.slug,
     idea: opts.idea,
     model: opts.model,
@@ -79,14 +80,14 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
     createdAt: now,
     updatedAt: now,
   };
-  // One studio per workspace: refuse to start a second process on the same
+  // One agent per workspace: refuse to start a second process on the same
   // game, which would let two loops fight over the same files (and let an
   // impatient `start` wipe a still-running process's pending STOP).
   const owner = acquireLock(bb);
   if (owner !== null) {
     const who = owner > 0 ? `pid ${owner}` : "another process";
     consola.error(
-      `A studio is already running for "${opts.slug}" (${who}). Stop it first with \`pnpm stop ${opts.slug}\`, or wait for it to finish.`,
+      `An agent is already running for "${opts.slug}" (${who}). Stop it first with \`pnpm stop ${opts.slug}\`, or wait for it to finish.`,
     );
     return false;
   }
@@ -166,7 +167,7 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
   // oxlint-disable-next-line no-unmodified-loop-condition
   while (!stopping) {
     if (stopRequested(bb)) {
-      consola.warn("STOP sentinel found in .studio/ — halting.");
+      consola.warn("STOP sentinel found in .agent/ — halting.");
       break;
     }
 
@@ -246,6 +247,7 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
       }`,
     );
 
+    const turnStartedAt = Date.now();
     const res = await runClaude({
       prompt: task,
       systemPrompt: role.system,
@@ -256,6 +258,10 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
       maxSessionMs: opts.maxSessionMs,
       claudeBin: claudeBin(),
       addDirs: state.contextDir ? [repoRoot, state.contextDir] : [repoRoot],
+      // Each subagent runs with only the tools its definition grants (empty
+      // lists = the full toolbelt).
+      allowedTools: role.allowedTools,
+      disallowedTools: role.disallowedTools,
       skipPermissions: opts.skipPermissions,
       signal: abort.signal,
       label: role.name,
@@ -264,6 +270,22 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
     state.cycle += 1;
     if (typeof res.costUsd === "number") state.totalCostUsd += res.costUsd;
     saveState(bb, state);
+
+    // One span per turn — the agent's durable observability trail.
+    appendSpan(bb, {
+      ts: new Date().toISOString(),
+      turn: state.cycle,
+      role: role.name,
+      phase,
+      cycle: state.cycle,
+      iteration: state.iteration,
+      model: state.model,
+      ok: res.ok,
+      durationMs: Date.now() - turnStartedAt,
+      costUsd: res.costUsd,
+      numTurns: res.numTurns,
+      detail: truncate(res.ok ? res.result : (res.error ?? "unknown error"), 200),
+    });
 
     if (!res.ok) {
       state.phaseFailures += 1;
@@ -324,7 +346,7 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
     if (opts.interval > 0 && !stopping) await sleepUnlessStopping(opts.interval);
   }
 
-  // Don't leak handlers if runStudio is called more than once in a process.
+  // Don't leak handlers if runAgent is called more than once in a process.
   process.off("SIGINT", onSignal);
   process.off("SIGTERM", onSignal);
   process.off("exit", onExit);
@@ -333,7 +355,7 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
   releaseLock(bb);
   consola.box(
     [
-      `Studio stopped for "${state.slug}".`,
+      `Agent stopped for "${state.slug}".`,
       `Cycles run: ${state.cycle} · iterations: ${state.iteration}`,
       state.deployUrl ? `Live: ${state.deployUrl}` : "Not yet shipped.",
       `Approx spend: $${state.totalCostUsd.toFixed(2)}`,
@@ -344,12 +366,12 @@ export async function runStudio(opts: StudioOptions): Promise<boolean> {
 }
 
 /**
- * Pure phase transition: bootstrap once, then loop the studio cycle forever.
+ * Pure phase transition: bootstrap once, then loop the agent's cycle forever.
  * Deliberately has NO side effects on shipped/deployUrl/iteration — those only
  * happen on a *successful* ship (see recordShip), never when the ship phase is
  * skipped (--no-ship) or abandoned after repeated failures.
  */
-function advance(state: StudioState): void {
+function advance(state: AgentState): void {
   const transitions: Record<Phase, Phase> = {
     spec: "scaffold",
     scaffold: "assets",
@@ -369,7 +391,7 @@ function advance(state: StudioState): void {
  * deployed. The first success flips `shipped`; each later success counts a
  * completed studio iteration (a shipped feature/fix/iteration pass).
  */
-function recordShip(state: StudioState): void {
+function recordShip(state: AgentState): void {
   if (state.shipped) {
     state.iteration += 1;
   } else {
@@ -378,11 +400,11 @@ function recordShip(state: StudioState): void {
   }
 }
 
-function banner(opts: StudioOptions, state: StudioState, repoRoot: string): void {
+function banner(opts: AgentOptions, state: AgentState, repoRoot: string): void {
   const bb = blackboard(opts.workspace);
   consola.box(
     [
-      `🎮 vibedgames autonomous studio`,
+      `🎮 vibedgames factory — autonomous game agent`,
       ``,
       `Game:      ${state.slug}`,
       `Idea:      ${state.idea || "(from existing project / context)"}`,

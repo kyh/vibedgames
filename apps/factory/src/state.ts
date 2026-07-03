@@ -3,12 +3,13 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { resolve } from "node:path";
 
 /**
- * The studio advances a single game through a fixed phase machine. The first
- * pass (spec → scaffold → assets → build → playtest → ship) takes a one-line
- * idea to a deployed game. After the first ship it enters the forever loop
- * (plan → work → playtest → ship → plan …), evolving the same game like a
- * studio — bugs, features, gameplay/balance, content, polish — until the
- * operator stops it.
+ * The agent advances a single game through a fixed phase machine — a durable,
+ * checkpointed loop. The first pass (spec → scaffold → assets → build →
+ * playtest → ship) takes a one-line idea to a deployed game. After the first
+ * ship it enters the forever loop (plan → work → playtest → ship → plan …),
+ * evolving the same game like a studio — bugs, features, gameplay/balance,
+ * content, polish — until the operator stops it. Every turn is checkpointed to
+ * disk, so the agent survives restarts and individual context windows.
  */
 export type Phase =
   | "spec"
@@ -20,7 +21,7 @@ export type Phase =
   | "plan"
   | "work";
 
-export type StudioState = {
+export type AgentState = {
   slug: string;
   idea: string;
   model: string;
@@ -55,7 +56,7 @@ export type StudioState = {
   updatedAt: string;
 };
 
-/** Resolved paths for the per-game blackboard the specialists coordinate through. */
+/** Resolved paths for the per-game shared memory the subagents coordinate through. */
 export type Blackboard = {
   root: string;
   dir: string;
@@ -66,13 +67,15 @@ export type Blackboard = {
   playtest: string;
   journal: string;
   context: string;
+  /** Per-turn observability: one span (JSON line) per subagent turn. */
+  trace: string;
   stop: string;
   approve: string;
   lock: string;
 };
 
 export function blackboard(workspace: string): Blackboard {
-  const dir = resolve(workspace, ".studio");
+  const dir = resolve(workspace, ".agent");
   return {
     root: workspace,
     dir,
@@ -83,28 +86,29 @@ export function blackboard(workspace: string): Blackboard {
     playtest: resolve(dir, "playtest.md"),
     journal: resolve(dir, "journal.md"),
     context: resolve(dir, "context.md"),
+    trace: resolve(dir, "trace.jsonl"),
     stop: resolve(dir, "STOP"),
     approve: resolve(dir, "APPROVE"),
-    lock: resolve(dir, "studio.lock"),
+    lock: resolve(dir, "agent.lock"),
   };
 }
 
 /**
  * Does the game directory already hold a project to build upon? True when it
- * contains anything other than the studio's own bookkeeping — so pointing the
- * studio at an existing app adopts it instead of scaffolding fresh.
+ * contains anything other than the agent's own bookkeeping — so pointing the
+ * factory at an existing app adopts it instead of scaffolding fresh.
  */
 export function hasExistingProject(dir: string): boolean {
   try {
     if (!existsSync(dir)) return false;
-    const ignore = new Set([".studio", ".git", ".DS_Store"]);
+    const ignore = new Set([".agent", ".git", ".DS_Store"]);
     return readdirSync(dir).some((entry) => !ignore.has(entry));
   } catch {
     return false;
   }
 }
 
-export function initWorkspace(bb: Blackboard, seed: StudioState): StudioState {
+export function initWorkspace(bb: Blackboard, seed: AgentState): AgentState {
   mkdirSync(bb.dir, { recursive: true });
   if (existsSync(bb.state)) {
     const existing = loadState(bb);
@@ -119,11 +123,11 @@ export function initWorkspace(bb: Blackboard, seed: StudioState): StudioState {
   return seed;
 }
 
-export function loadState(bb: Blackboard): StudioState {
-  return JSON.parse(readFileSync(bb.state, "utf8")) as StudioState;
+export function loadState(bb: Blackboard): AgentState {
+  return JSON.parse(readFileSync(bb.state, "utf8")) as AgentState;
 }
 
-export function saveState(bb: Blackboard, state: StudioState): void {
+export function saveState(bb: Blackboard, state: AgentState): void {
   state.updatedAt = new Date().toISOString();
   writeFileSync(bb.state, `${JSON.stringify(state, null, 2)}\n`);
 }
