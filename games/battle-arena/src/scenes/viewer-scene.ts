@@ -303,8 +303,8 @@ export class ViewerScene {
     this.soloEntry = entry;
     this.soloBlob = blob;
     this.soloChainAt = -1;
-    char.play("Idle_A", { fade: 0 });
-    this.activeClip = "Idle_A";
+    char.play("Idle_B", { fade: 0 });
+    this.activeClip = "Idle_B";
   }
 
   /** Weapon instance with its mount correction (mirrors world-view's
@@ -501,8 +501,8 @@ export class ViewerScene {
       solo.update(dt);
       if (this.soloChainAt > 0 && this.t >= this.soloChainAt) {
         this.soloChainAt = -1;
-        solo.play("Idle_A", { loop: true, timeScale: this.speed, fade: 0.25 });
-        this.activeClip = "Idle_A";
+        solo.play("Idle_B", { loop: true, timeScale: this.speed, fade: 0.25 });
+        this.activeClip = "Idle_B";
         this.refreshClipHighlight();
       }
     }

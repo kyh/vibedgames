@@ -18,7 +18,7 @@ export const CHAMP_FX: Record<string, FxPalette> = {
   ranger: { primary: 0x7dffb0, secondary: 0xffe6a0, accent: 0x2c8f5e }, // verdant / gold-arrow / deep-green
   mage: { primary: 0xff8040, secondary: 0xffd060, accent: 0x9a7bff }, // ember / flare / arcane
   rogue: { primary: 0xff3060, secondary: 0x6a5a9a, accent: 0x7fff8e }, // crimson / shadow-violet / poison
-  blackknight: { primary: 0x8a4a5f, secondary: 0xc03050, accent: 0x6a5a6f }, // dead-purple / crimson / smoke
+  blackknight: { primary: 0xffd76a, secondary: 0xfff2c0, accent: 0xffe6a0 }, // dawn-gold / white-gold / halo
   witch: { primary: 0x7fe08a, secondary: 0xb98ae0, accent: 0x4a7a3a }, // bog-green / hex-violet / moss
 };
 
@@ -452,11 +452,11 @@ export class Fx {
       case "rogue:W": this.castStreak(x, y, dx, dy, 0x9a7bff, 16, 12, 0.16); this.smoke(x, y, 5); break;
       case "rogue:E": this.smoke(x, y, 10); this.castDome(x, y, 0x6a5a9a, 2.4, 0.5); this.telegraphs.spawnResidue(x, y, 2.4, 0x201830, 2); break;
       case "rogue:R": this.castStreak(x, y, dx, dy, 0xff3060, 22, 14, 0.14); this.flash(x + dx * 2, 1.2, y + dy * 2, 0xff5070, 1.3, 2.0); this.crossGlint(x + dx * 2, 1.2, y + dy * 2, dx, dy, 0xff3060, 1.6); this.impactRing(x + dx * 2, y + dy * 2, 0xff3060, 2.4); this.debris(x + dx * 2, y + dy * 2, 4, 0x801020); if (this.within(x, y, 10)) this.bumpFreeze(35); break;
-      // BLACK KNIGHT — dead purple, crimson edge, smoke
-      case "blackknight:Q": this.sectorRim(x, y, dx, dy, 0xc03050, 3.8, 0.96); this.castCone(x, y, dx, dy, 0x8a4a5f, 3.8, 0.96); this.smoke(x, y, 3); break;
-      case "blackknight:W": this.castStreak(x, y, dx, dy, 0x8a4a5f, 14, 12, 0.2); this.footDust(x, y, -dx, -dy); break;
-      case "blackknight:E": this.castDome(x, y, 0x6a5a6f, 2.4, 0.5); this.sparks(x, 0.4, y, 0, 1, 8, 0xc0a0b0); break;
-      case "blackknight:R": this.implode(x, y, 0xc03050, 4, 12, 0.24); this.shockwave(x, y, 0xc03050, 5.5); this.shockwave(x, y, 0x8a4a5f, 4, 0.5); this.burst(x, 1.2, y, 20, 0xc03050, 9, 0.4); this.smoke(x, y, 6); this.debris(x, y, 5, 0x3a2a34); if (this.within(x, y, 10)) this.bumpFreeze(60); this.view.addTrauma(0.18); break;
+      // AURELIUS (id blackknight) — dawn-gold consecration, white-gold edges
+      case "blackknight:Q": this.sectorRim(x, y, dx, dy, 0xfff2c0, 3.8, 0.96); this.castCone(x, y, dx, dy, 0xffd76a, 3.8, 0.96); this.smoke(x, y, 3); break;
+      case "blackknight:W": this.castStreak(x, y, dx, dy, 0xffd76a, 14, 12, 0.2); this.footDust(x, y, -dx, -dy); break;
+      case "blackknight:E": this.castDome(x, y, 0xffe6a0, 2.4, 0.5); this.sparks(x, 0.4, y, 0, 1, 8, 0xfff2c0); break;
+      case "blackknight:R": this.implode(x, y, 0xfff2c0, 4, 12, 0.24); this.shockwave(x, y, 0xffd76a, 5.5); this.shockwave(x, y, 0xfff2c0, 4, 0.5); this.burst(x, 1.2, y, 20, 0xffd76a, 9, 0.4); this.smoke(x, y, 6); this.debris(x, y, 5, 0x8a6a2a); if (this.within(x, y, 10)) this.bumpFreeze(60); this.view.addTrauma(0.18); break;
       // WITCH — bog-green hexcraft
       case "witch:Q": this.castStreak(x, y, dx, dy, 0x7fe08a, 16, 10, 0.12); this.crossGlint(x + dx * 0.6, 1.3, y + dy * 0.6, dx, dy, 0x7fe08a, 0.8); this.flash(x + dx, 1.3, y + dy, 0xb0ffb8, 0.9, 1.6); break;
       case "witch:W": this.castDome(x, y, 0x7fe08a, 1.8, 0.35); this.bubbles(x, y, 6, 0x7fe08a); break;

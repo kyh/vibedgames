@@ -23,8 +23,8 @@ export class WeaponTrail {
   private readonly v = new THREE.Vector3();
 
   constructor(weapon: THREE.Object3D, color: number) {
-    // push the head color into HDR (>1) so the blade streak blooms
-    this.color = new THREE.Color(color).multiplyScalar(1.6);
+    // mild HDR head — the streak should read as displaced air, not a light saber
+    this.color = new THREE.Color(color).multiplyScalar(1.35);
     // blade segment in the weapon's LOCAL space — compute before it's parented to
     // a bone, so the box is local (handle at one end, tip at the other).
     const box = new THREE.Box3().setFromObject(weapon);
@@ -59,6 +59,7 @@ export class WeaponTrail {
     const mat = new THREE.MeshBasicMaterial({
       vertexColors: true,
       transparent: true,
+      opacity: 0.38, // low peak alpha — a whoosh, not a ribbon of paper
       blending: THREE.AdditiveBlending,
       side: THREE.DoubleSide,
       depthWrite: false,
@@ -100,14 +101,19 @@ export class WeaponTrail {
     const col = this.colAttr.array as Float32Array;
     for (let i = 0; i < n; i++) {
       const s = this.segs[i]!;
-      const k = Math.max(0, 1 - (now - s.t) / FADE_MS); // brightness: new→bright, old→black
+      const age = Math.max(0, 1 - (now - s.t) / FADE_MS); // 1 fresh → 0 expired
+      const along = i / (n - 1); // 0 tail → 1 head (segments append at the end)
+      // brightness fades over lifetime AND along the ribbon (soft-out tail)
+      const k = age * (0.2 + 0.8 * along);
+      // width tapers toward the tail: pull the tip edge in toward the base
+      const w = 0.4 + 0.6 * along * age;
       const o = i * 6;
       pos[o] = s.bx;
       pos[o + 1] = s.by;
       pos[o + 2] = s.bz;
-      pos[o + 3] = s.tx;
-      pos[o + 4] = s.ty;
-      pos[o + 5] = s.tz;
+      pos[o + 3] = s.bx + (s.tx - s.bx) * w;
+      pos[o + 4] = s.by + (s.ty - s.by) * w;
+      pos[o + 5] = s.bz + (s.tz - s.bz) * w;
       const r = this.color.r * k;
       const g = this.color.g * k;
       const b = this.color.b * k;

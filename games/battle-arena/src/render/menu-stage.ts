@@ -108,7 +108,7 @@ export class MenuStage {
       this.picks.push(proxy);
 
       this.scene.add(group);
-      char.play("Idle_A", { fade: 0 });
+      char.play("Idle_B", { fade: 0 });
       char.update(i * 0.37); // stagger so the idles don't march in lockstep
 
       this.slots.push({ id: c.id, tint: c.tint, char, group, ring, mats, baseYaw, baseZ: group.position.z });

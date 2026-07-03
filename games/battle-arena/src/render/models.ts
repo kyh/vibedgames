@@ -105,7 +105,7 @@ const RIG_LARGE_FALLBACK: Record<string, string> = {
   Hit_B: "Hit_A", Death_B: "Death_A",
   Dodge_Backward: "Dodge_Backwards", // Large lib pluralizes this one clip name
   Jump_Full_Long: "Dodge_Forward", Jump_Full_Short: "Dodge_Forward",
-  Walking_B: "Walking_A", Walking_C: "Walking_A", Running_B: "Running_A",
+  Walking_B: "Walking_A", Walking_C: "Walking_A", Running_B: "Running_A", Idle_B: "Idle_A",
   Spawn_Ground: "Idle_A", Spawn_Air: "Idle_A", PickUp: "Idle_A", Interact: "Idle_A",
   Use_Item: "Melee_Block", Throw: "Melee_2H_Attack",
   Melee_1H_Attack_Chop: "Melee_1H_Slash", Melee_1H_Attack_Slice_Horizontal: "Melee_1H_Slash",
@@ -117,6 +117,10 @@ const RIG_LARGE_FALLBACK: Record<string, string> = {
   Melee_Unarmed_Attack_Punch_A: "Melee_Unarmed_Punch", Melee_Unarmed_Attack_Kick: "Melee_Unarmed_Kick",
   Ranged_Magic_Spellcasting: "Melee_2H_Attack", Ranged_Magic_Shoot: "Melee_2H_Attack",
   Skeletons_Taunt: "Flexing", Skeletons_Idle: "Idle_B",
+  // camp-creep spawn path: Large bodies (frostgolem elite) have no skeleton
+  // rise-from-the-ground clip — resolve to idle instead of T-posing (a play()
+  // miss no-ops and HOLDS whatever pose the rig is in)
+  Skeletons_Spawn_Ground: "Idle_B",
 };
 
 export type PlayOpts = {
@@ -126,6 +130,9 @@ export type PlayOpts = {
   clamp?: boolean;
   /** Playback rate multiplier. */
   timeScale?: number;
+  /** Play the clip backwards (starts at the last frame, runs to the first).
+   *  One-shot callers time their own windows, so LoopOnce backwards is safe. */
+  reverse?: boolean;
 };
 
 /** Wraps one character instance + its mixer; crossfades named clips. */
@@ -167,14 +174,16 @@ export class AnimatedCharacter {
 
   /** Crossfade to a clip. No-op if already the current clip (unless one-shot). */
   play(clipName: string, opts: PlayOpts = {}): void {
-    const { fade = 0.2, loop = true, clamp = false, timeScale = 1 } = opts;
+    const { fade = 0.2, loop = true, clamp = false, timeScale = 1, reverse = false } = opts;
     if (this.currentName === clipName && loop) return;
     const next = this.action(clipName);
     if (!next) return;
     next.reset();
     next.enabled = true;
     next.setEffectiveWeight(1);
-    next.setEffectiveTimeScale(timeScale);
+    next.setEffectiveTimeScale(reverse ? -timeScale : timeScale);
+    // backwards playback: start on the final frame and run down to t=0
+    if (reverse) next.time = next.getClip().duration;
     next.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1);
     next.clampWhenFinished = clamp;
     next.play();

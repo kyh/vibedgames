@@ -6,7 +6,7 @@ import { CHAMP_BY_ID } from "../data/champions";
 import type { DamageType } from "../data/config";
 import { BOSS_HEIGHT, BOSS_POS } from "../data/map";
 import type { AbilityKey, Projectile, Unit, World } from "../sim/types";
-import { AnimatedCharacter, ModelLibrary } from "./models";
+import { AnimatedCharacter, ModelLibrary, type PlayOpts } from "./models";
 import { WeaponTrail } from "./weapon-trail";
 import { terrainHeight } from "../data/terrain";
 import { CHAMP_FX, type Fx } from "./fx";
@@ -22,19 +22,19 @@ const ABILITY_CLIPS: Record<string, Partial<Record<AbilityKey, string>>> = {
   ranger: { Q: "Ranged_Bow_Release_Up", W: "Dodge_Forward", E: "PickUp", R: "Ranged_Bow_Release_Up" },
   mage: { Q: "Ranged_Magic_Shoot", W: "Ranged_Magic_Raise", E: "Ranged_Magic_Raise", R: "Ranged_Magic_Summon" },
   rogue: { Q: "Melee_Dualwield_Attack_Stab", W: "Dodge_Forward", E: "Dodge_Backward", R: "Melee_Dualwield_Attack_Slice" },
-  // Black Knight rides Rig_Large — these are native Large clip names
-  blackknight: { Q: "Melee_2H_Attack", W: "Melee_Block_Attack", E: "Melee_Blocking", R: "Melee_2H_Slam" },
+  // Aurelius (id "blackknight") is the Rig_Medium Paladin — hammer + shield
+  blackknight: { Q: "Melee_1H_Attack_Chop", W: "Melee_1H_Attack_Jump_Chop", E: "Melee_Blocking", R: "Melee_2H_Attack_Chop" },
   witch: { Q: "Ranged_Magic_Shoot", W: "Ranged_Magic_Summon", E: "Dodge_Forward", R: "Ranged_Magic_Raise" },
 };
 
 // Basic-attack clip rotations — swings vary shot-to-shot instead of repeating.
-// melee swing order = slice-horizontal → chop → slice-diagonal
+// An "@rev" suffix plays the clip backwards (return-stroke swings for free).
 const ATTACK_SETS: Record<string, string[]> = {
-  knight: ["Melee_1H_Attack_Slice_Horizontal", "Melee_1H_Attack_Chop", "Melee_1H_Attack_Slice_Diagonal"],
-  rogue: ["Melee_Dualwield_Attack_Slice", "Melee_Dualwield_Attack_Chop"],
+  knight: ["Melee_1H_Attack_Slice_Diagonal", "Melee_1H_Attack_Slice_Horizontal", "Melee_1H_Attack_Slice_Horizontal@rev"],
+  rogue: ["Melee_Dualwield_Attack_Chop", "Melee_Dualwield_Attack_Slice", "Melee_2H_Attack_Spin"],
   ranger: ["Ranged_Bow_Release", "Ranged_Bow_Release_Up"],
   mage: ["Ranged_Magic_Shoot"],
-  blackknight: ["Melee_1H_Slash", "Melee_1H_Stab"], // native Large names
+  blackknight: ["Melee_1H_Attack_Chop", "Melee_1H_Attack_Slice_Horizontal", "Melee_1H_Attack_Stab"],
   witch: ["Ranged_Magic_Shoot"],
   skwarrior: ["Melee_1H_Attack_Chop", "Melee_1H_Attack_Stab"],
   skminion: ["Melee_Unarmed_Attack_Punch_A", "Melee_1H_Attack_Chop"],
@@ -65,7 +65,7 @@ function mountWeapon(obj: THREE.Object3D, name: string): void {
 const ATTACK_TIMING: Record<string, { ms: number; ts: number }> = {
   rogue: { ms: 300, ts: 1.6 },
   knight: { ms: 340, ts: 1.45 },
-  blackknight: { ms: 440, ts: 1.1 },
+  blackknight: { ms: 400, ts: 1.2 },
 };
 const DEFAULT_TIMING = { ms: 340, ts: 1.45 };
 
@@ -157,9 +157,15 @@ function blobTex(): THREE.Texture {
 
 function locomotion(u: Unit): string {
   const speed = Math.hypot(u.vx, u.vy);
-  if (speed > u.moveSpeed * 0.55) return "Running_A";
+  if (speed > u.moveSpeed * 0.55) return "Running_B";
   if (speed > 0.4) return "Walking_A";
-  return "Idle_A";
+  return "Idle_B";
+}
+
+/** Play a clip that may carry the "@rev" reversed-playback suffix. */
+function playSwing(ch: AnimatedCharacter, clip: string, opts: PlayOpts): void {
+  if (clip.endsWith("@rev")) ch.play(clip.slice(0, -"@rev".length), { ...opts, reverse: true });
+  else ch.play(clip, opts);
 }
 
 function attackClip(def: ViewDef): string {
@@ -210,7 +216,10 @@ class UnitView {
   private recoilZ = 0;
   private weapons: THREE.Object3D[] = [];
   private mats: THREE.MeshStandardMaterial[] = [];
-  private weaponMats: THREE.MeshStandardMaterial[] = [];
+  private weaponMats: THREE.MeshStandardMaterial[] = []; // combined view (StatusFx empower, dispose)
+  private weaponMatsR: THREE.MeshStandardMaterial[] = []; // main-hand (windup glint)
+  private weaponMatsL: THREE.MeshStandardMaterial[] = []; // off-hand (shield-bash flash)
+  private shieldFlashAt = -1; // knight:Q — emissive pulse on the off-hand shield
   private trails: WeaponTrail[] = [];
   private blob: THREE.Mesh; // contact shadow (scene sibling, decoupled from hopY)
   private dissolve: DissolveHandle;
@@ -257,7 +266,7 @@ class UnitView {
       const trail = def.attackType === "melee" ? new WeaponTrail(wr, isLocal ? 0xfff4d8 : 0xdbe8ff) : null;
       if (this.char.attach(wr, "handslot.r")) {
         this.weapons.push(wr);
-        this.weaponMats.push(...cloneMats(wr, null));
+        this.weaponMatsR = cloneMats(wr, null);
         if (trail) {
           this.trails.push(trail);
           this.scene.add(trail.mesh);
@@ -269,9 +278,10 @@ class UnitView {
       mountWeapon(wl, def.weaponL);
       if (this.char.attach(wl, "handslot.l")) {
         this.weapons.push(wl);
-        this.weaponMats.push(...cloneMats(wl, null));
+        this.weaponMatsL = cloneMats(wl, null);
       }
     }
+    this.weaponMats = [...this.weaponMatsR, ...this.weaponMatsL];
 
     // death dissolve — patched ONCE at construction on the per-instance mats
     this.dissolve = applyDissolve(this.mats);
@@ -300,11 +310,13 @@ class UnitView {
     this.blob.renderOrder = -0.5; // under additive VFX
     this.scene.add(this.blob);
 
-    this.char.play("Idle_A", { fade: 0 });
+    // bind a base idle IMMEDIATELY — a unit must never render its bind T-pose,
+    // even for the frame(s) before the first sync-driven clip lands
+    this.char.play("Idle_B", { fade: 0 });
     this.spawnClipPending = isCreep; // camp creeps rise from the ground
   }
 
-  update(u: Unit, now: number, dt: number, fx: Fx | null): void {
+  update(u: Unit, now: number, dt: number, fx: Fx | null, spinning: boolean): void {
     // smooth toward the sim position; snap on first appearance, respawn, or a
     // big jump (blink/teleport) so the character doesn't slide across the map.
     const respawned = u.alive && !this.wasAlive;
@@ -422,14 +434,17 @@ class UnitView {
         const byKey = u.lastCastKey ? ABILITY_CLIPS[this.def.id]?.[u.lastCastKey] : undefined;
         ch.play(byKey ?? castClip(this.def), { loop: false, fade: 0.06 });
         this.oneShotUntil = now + CAST_ANIM_MS;
-        this.emitTrails(now, CAST_ANIM_MS);
+        // knight:Q is a SHIELD bash (Melee_Block_Attack): the vfx belongs on
+        // the off-hand shield, not the sword — no blade trail, flash the shield
+        if (this.def.id === "knight" && u.lastCastKey === "Q") this.shieldFlashAt = now;
+        else this.emitTrails(now, CAST_ANIM_MS);
       }
     } else if (u.lastAttackAt !== this.lastAttackShown) {
       this.lastAttackShown = u.lastAttackAt;
       if (now - u.lastAttackAt < timing.ms) {
         const set = ATTACK_SETS[this.def.id] ?? [attackClip(this.def)];
         const clip = set[this.attackIdx++ % set.length]!;
-        ch.play(clip, { loop: false, fade: 0.04, timeScale: timing.ts });
+        playSwing(ch, clip, { loop: false, fade: 0.04, timeScale: timing.ts });
         this.oneShotUntil = now + timing.ms;
         this.emitTrails(now, timing.ms); // weapon-trail ribbon traces the blade
         fx?.attackSound(this.def.id, u.x, u.y);
@@ -467,12 +482,15 @@ class UnitView {
         fx?.dodgeJuice(u.x, u.y, u.dashVx, u.dashVy);
       }
     }
-    // an active one-shot (attack/cast/ability incl. dash-abilities) plays out;
-    // otherwise a dash shows the run, else normal locomotion
+    // an active one-shot (attack/cast/hit/ability incl. dash-abilities) plays
+    // out; then a live whirlwind loops its spin; then a dash shows the run,
+    // else normal locomotion. (Death outranks everything via the early return.)
     if (now < this.oneShotUntil) {
       // hold the current one-shot
+    } else if (spinning) {
+      ch.play("Melee_2H_Attack_Spinning", { fade: 0.1 });
     } else if (now < u.dashUntil) {
-      ch.play("Running_A", { fade: 0.1 });
+      ch.play("Running_B", { fade: 0.1 });
     } else {
       ch.play(locomotion(u), { fade: 0.16 });
     }
@@ -534,9 +552,14 @@ class UnitView {
     // hit flash (white pulse on damage) — on this unit's cloned materials
     const flash = Math.max(0, 1 - (now - u.lastHitAt) / 110);
     for (const m of this.mats) m.emissive.setRGB(flash, flash * 0.85, flash * 0.7);
-    // melee windup glint — micro-anticipation while a swing charges (90–140ms)
+    // melee windup glint — micro-anticipation while a swing charges (90–140ms).
+    // Main-hand only: the off-hand slot belongs to the shield-bash flash below.
     const glint = u.pendingAttack ? 0.35 : 0;
-    for (const m of this.weaponMats) m.emissive.setRGB(glint, glint, glint);
+    for (const m of this.weaponMatsR) m.emissive.setRGB(glint, glint, glint);
+    // shield-bash flash — warm emissive pulse on the off-hand, fading ~250ms
+    const bash = this.shieldFlashAt >= 0 ? Math.max(0, 1 - (now - this.shieldFlashAt) / 250) * 0.85 : 0;
+    const lGlow = Math.max(glint, bash);
+    for (const m of this.weaponMatsL) m.emissive.setRGB(lGlow, lGlow * 0.92, lGlow * 0.72);
 
     // ── status indicators (stun star / shield dome / slow tint / embers…) ──
     // built lazily on the first status; StatusFx owns stealth opacity + empower
@@ -640,6 +663,7 @@ export class WorldView {
   private coinSparkleAt = new Map<string, number>();
   private deliveryEmitAt = new Map<string, number>();
   private emberNext = new Map<string, number>(); // unit id → next zone-ember ms
+  private spinners = new Set<string>(); // unit ids owning a live whirlwind zone
   private bossReturnAt = 0;
   private bossNextTaunt = 6000;
   private fireballFlip = false;
@@ -658,11 +682,18 @@ export class WorldView {
     this.boss.root.position.set(BOSS_POS.x, terrainHeight(BOSS_POS.x, BOSS_POS.y) + BOSS_HEIGHT, BOSS_POS.y);
     this.boss.root.scale.setScalar(1.5);
     this.scene.add(this.boss.root);
-    this.boss.play("Idle_A", { fade: 0 });
+    this.boss.play("Idle_B", { fade: 0 });
   }
 
   sync(w: World, dt: number): void {
     const now = w.now;
+
+    // units owning a live whirlwind loop their spin clip (knight R keeps
+    // spinning visually for the zone's whole duration, not just the cast)
+    this.spinners.clear();
+    for (const g of w.grounds) {
+      if (g.effect === "whirlwind" && g.until > now) this.spinners.add(g.ownerId);
+    }
 
     // units (heroes + neutral creeps)
     const seen = new Set<string>();
@@ -678,7 +709,7 @@ export class WorldView {
         this.units.set(u.id, view);
         this.scene.add(view.group);
       }
-      view.update(u, now, dt, this.fx);
+      view.update(u, now, dt, this.fx, this.spinners.has(u.id));
     }
     for (const [id, view] of this.units) {
       if (!seen.has(id)) {
@@ -724,7 +755,7 @@ export class WorldView {
     if (this.boss) {
       this.boss.update(dt);
       if (this.bossReturnAt && now >= this.bossReturnAt) {
-        this.boss.play("Idle_A", { fade: 0.2 });
+        this.boss.play("Idle_B", { fade: 0.2 });
         this.bossReturnAt = 0;
       } else if (!this.bossReturnAt && now >= this.bossNextTaunt) {
         this.boss.play("Skeletons_Taunt", { fade: 0.2, loop: false });

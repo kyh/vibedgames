@@ -7,9 +7,15 @@ import type { AbilityKey } from "../sim/types";
 /** Icon basename (no extension) → served path, e.g. iconUrl("item-boots"). */
 export const iconUrl = (name: string): string => `./icons/${name}.webp`;
 
-/** Ability tile icon: `{champId}-{q|w|e|r}.webp`. */
+// Champs whose icon files ship under a different prefix than their champ id
+// (identity reskins keep the id for sim/net compat but get fresh art).
+const ICON_PREFIX_ALIAS: Record<string, string> = {
+  blackknight: "paladin", // Aurelius the Dawnward — gold paladin icon set
+};
+
+/** Ability tile icon: `{champId}-{q|w|e|r}.webp` (id → art-prefix aliased). */
 export const abilityIcon = (champId: string, key: AbilityKey): string =>
-  iconUrl(`${champId}-${key.toLowerCase()}`);
+  iconUrl(`${ICON_PREFIX_ALIAS[champId] ?? champId}-${key.toLowerCase()}`);
 
 /** Basic-attack icon, keyed by ChampDef.attackKind (unknown kinds → melee). */
 export const attackIcon = (attackKind: string): string =>

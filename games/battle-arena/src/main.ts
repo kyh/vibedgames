@@ -21,7 +21,7 @@ const CHAMP_MODELS = [
   "Ranger",
   "Mage",
   "Rogue_Hooded",
-  "BlackKnight",
+  "Paladin_with_Helmet",
   "Witch",
 ];
 const BOSS_MODEL = "Skeleton_Golem";
@@ -33,8 +33,8 @@ const WEAPON_MODELS = [
   "staff",
   "dagger",
   "Skeleton_Staff",
-  "BlackKnight_Sword_Large",
-  "BlackKnight_Shield_Large",
+  "paladin_hammer",
+  "paladin_shield",
   "FrostGolem_Axe_Large",
   "wand_A",
   "Skeleton_Dagger",
