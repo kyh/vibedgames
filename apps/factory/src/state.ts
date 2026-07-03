@@ -1,5 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { resolve } from "node:path";
 
 /**
@@ -101,10 +109,30 @@ export function blackboard(workspace: string): Blackboard {
 export function hasExistingProject(dir: string): boolean {
   try {
     if (!existsSync(dir)) return false;
-    const ignore = new Set([".agent", ".git", ".DS_Store"]);
+    // `.studio` is the agent's pre-rename bookkeeping dir — still ignored so a
+    // leftover legacy folder isn't misread as real game code.
+    const ignore = new Set([".agent", ".studio", ".git", ".DS_Store"]);
     return readdirSync(dir).some((entry) => !ignore.has(entry));
   } catch {
     return false;
+  }
+}
+
+/**
+ * Migrate a pre-rename workspace. The per-game dir used to be `.studio/`; it is
+ * now `.agent/`. If a legacy `.studio/` exists and the current `.agent/` does
+ * not, move it across so a resume keeps its checkpoint (state.json, backlog,
+ * approval sentinels) instead of restarting at the spec phase. Best-effort and
+ * idempotent — a failed migration just means a fresh start. Call it before the
+ * blackboard is inspected (fresh/adopt detection, status/stop/approve lookups).
+ */
+export function migrateLegacyLayout(workspace: string): void {
+  const legacy = resolve(workspace, ".studio");
+  const current = resolve(workspace, ".agent");
+  try {
+    if (existsSync(legacy) && !existsSync(current)) renameSync(legacy, current);
+  } catch {
+    /* best-effort — leave the legacy dir in place and start fresh */
   }
 }
 

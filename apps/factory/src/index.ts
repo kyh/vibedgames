@@ -19,6 +19,7 @@ import {
   blackboard,
   hasExistingProject,
   loadState,
+  migrateLegacyLayout,
   requestApproval,
 } from "./state.ts";
 
@@ -96,8 +97,14 @@ function requireSlug(raw: string): string {
 }
 
 function resolveWorkspace(slug: string, override?: string): string {
-  if (override) return resolve(process.cwd(), override);
-  return defaultWorkspace(findRepoRoot(), slug);
+  const workspace = override
+    ? resolve(process.cwd(), override)
+    : defaultWorkspace(findRepoRoot(), slug);
+  // Every command resolves the workspace here, so this is the one place to move
+  // a pre-rename `.studio/` layout to `.agent/` before anything inspects it —
+  // keeping resume, status, stop, and approve working on old workspaces.
+  migrateLegacyLayout(workspace);
+  return workspace;
 }
 
 const startCommand = defineCommand({
