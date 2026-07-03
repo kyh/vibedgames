@@ -33,19 +33,23 @@ rasterize.mjs      →  src/world/sf-streets.ts   (baked road mask the game load
 ./fetch-streets.sh                 # once, or when you want fresh OSM data
 node calibrate.mjs                 # optional: inspect the projection + SF aspect ratio
 node rasterize.mjs                 # sweep candidate sizes + print density stats
-node rasterize.mjs 96 96           # bake one size -> src/world/sf-streets.ts
+node rasterize.mjs 244 200         # bake one size -> src/world/sf-streets.ts
 ```
 
-The baked mask's `gx`/`gz` **must equal `GRID`** in `src/shared/constants.ts`
-(`generateCity()` throws otherwise). If you change `GRID`, re-bake at that size.
+The baked mask's `gx`/`gz` **must equal `GRID_X`/`GRID_Z`** in
+`src/shared/constants.ts` (`generateCity()` throws otherwise). If you change the
+grid, re-bake at those dimensions: `node rasterize.mjs <GRID_X> <GRID_Z>`.
 
 ## Notes on sizing
 
 - SF's true geographic box is ~14.1 km × 11.6 km — an aspect ratio of **1.219 : 1**
-  (wider E–W than N–S). The game grid is currently **square** (`GRID × GRID`),
-  which compresses the city ~18% east-west. Removing that distortion needs a
-  rectangular grid (`GRID_X × GRID_Z`) — a larger change tracked separately.
-- Density vs. resolution (post-thinning): ~110 m/cell (128×105) and ~85 m/cell
-  (166×136) both read clearly as SF. Coarser than ~150 m/cell the downtown grid
-  merges into a blob; finer than ~70 m/cell the cell count (and draw calls) climb
-  steeply. `GRID = 96` (≈147 m/cell on the square grid) is the current setting.
+  (wider E–W than N–S). The grid is **rectangular** (`GRID_X × GRID_Z`) to match,
+  so the city renders at its real proportions (an earlier square grid compressed
+  it ~18% east-west).
+- Current setting: **`GRID_X = 244`, `GRID_Z = 200`** (~58 m/cell). `ROAD_TILE`
+  (road width) is held fixed, so a higher cell count makes the world physically
+  bigger and the car proportionally smaller.
+- Density vs. resolution (post-thinning): coarser than ~150 m/cell the downtown
+  grid merges into a blob; finer than ~70 m/cell the cell count (and draw calls)
+  climb steeply — the chunked streaming in `city.ts` is what keeps the large map
+  affordable to render.

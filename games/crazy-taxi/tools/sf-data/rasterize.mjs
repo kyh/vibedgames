@@ -288,7 +288,7 @@ export function streetMaskAt(gx: number, gz: number): boolean {
 }
 `;
   writeFileSync(new URL("../../src/world/sf-streets.ts", import.meta.url), ts);
-  svgPreview(res, new URL(`./preview-${res.GX}x${res.GZ}.svg`, import.meta.url).pathname);
+  svgPreview(res, new URL(`./preview-${res.GX}x${res.GZ}.svg`, import.meta.url));
   console.log(`Wrote src/world/sf-streets.ts and preview-${res.GX}x${res.GZ}.svg`);
 } else {
   // Sweep candidate sizes (aspect locked to 1.219:1) and report density.
@@ -314,7 +314,7 @@ export function streetMaskAt(gx: number, gz: number): boolean {
         `${String(GX * GZ).padStart(6)}   ${String(res.road).padStart(7)}      ` +
         `${pct.toFixed(1).padStart(5)}%   ${note}`,
     );
-    svgPreview(res, new URL(`./preview-${GX}x${GZ}.svg`, import.meta.url).pathname);
+    svgPreview(res, new URL(`./preview-${GX}x${GZ}.svg`, import.meta.url));
   }
   console.log("\nWrote preview-*.svg for each candidate. Re-run with `node rasterize.mjs GX GZ` to bake one.");
 }
