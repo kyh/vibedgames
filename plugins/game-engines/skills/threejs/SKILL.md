@@ -17,12 +17,19 @@ Build performant 3D browser apps and games with Three.js using modern ES module 
 
 ---
 
+## Prebuilt Modules — copy the hard parts, generate the rest
+
+`modules/` holds a small set of TypeScript files for the parts of a 3D game that are hard to get right and the same across games: framerate-independent smoothing + a deterministic PRNG (`math.ts`), Y-up orientation-frame helpers + a grounded character controller (`character-movement.ts`), and a Rapier kinematic character-collision resolver (`kinematic-resolver.ts`). Copy these into the project rather than re-deriving them — inverted axes, framerate-dependent smoothing, and mis-wired Rapier controllers are the classic ways this goes wrong.
+
+Everything else — camera rigs, enemy waves, pathfinding, steering, minimaps, input schemes — is **not** prebuilt on purpose: it differs per game and is cheap to write, so generate it live against the references below. Read `modules/summary.md` before pulling anything in.
+
 ## Reference Files
 
 Scene setup is inline below. Read the relevant reference before working on that area:
 
 | When you're working on...                                              | Read first                              |
 | ---------------------------------------------------------------------- | --------------------------------------- |
+| Character locomotion / Rapier character collision / smoothing / seeded RNG | `modules/summary.md`                    |
 | Turning a scene into a playable game (fixed-timestep loop, structure)  | `references/gameplay-systems.md`        |
 | Physics or collision (Rapier / cannon-es / arcade overlap)             | `references/physics.md`                 |
 | Movement controllers + follow/third-person camera                      | `references/controllers-and-camera.md`  |

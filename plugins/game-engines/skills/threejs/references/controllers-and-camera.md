@@ -2,6 +2,8 @@
 
 Responsive movement and a camera that always shows the next decision are most of 3D game feel. Tune the numbers here with the `game-feel` skill.
 
+> **Copy the controller, generate the camera:** `modules/character-movement.ts` ships a grounded `CharacterController` + Y-up frame helpers, and `modules/kinematic-resolver.ts` wraps Rapier character collision — copy those rather than re-deriving them (see `modules/summary.md`). Camera rigs and input schemes are game-specific; build them live from this guide.
+
 ## Input → intent
 
 The controller never reads the keyboard. `input.js` translates raw events into an `intent` object; the controller consumes it. This lets touch controls (`gamepad` skill) and AI feed the same controller, and makes movement testable.

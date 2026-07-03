@@ -2,6 +2,8 @@
 
 The main skill builds scenes — meshes, lights, an animation loop. This guide makes a scene **playable**: a body that moves under input, collides with the world, a camera that follows it, and a loop that updates deterministically. It's the bridge from "rotating cube" to "game."
 
+> **Copy the hard parts:** a grounded character controller and a Rapier character-collision resolver live in `modules/` (see `modules/summary.md`). Game-specific systems — waves, pathfinding, camera rigs — aren't prebuilt; generate them live from this guide.
+
 **Build order (don't skip ahead):**
 
 1. **Loop & structure first** — a fixed-timestep update and a clear file layout, before any feature.
