@@ -114,8 +114,10 @@ export class TrafficCar {
     this.puntCooldown = 0;
   }
 
-  // The taxi hit this car: hand it to the physics world with an impulse.
-  punt(physics: PhysicsWorld, ix: number, iy: number, iz: number): void {
+  // The taxi hit this car: hand it to the physics world and SET its velocity.
+  // (Impulses scaled by body.mass() silently no-op when the body is still
+  // kinematic — mass reads 0 — which left punted cars glued in place.)
+  punt(physics: PhysicsWorld, vx: number, vy: number, vz: number): void {
     const body = this.body;
     if (!body) return;
     if (!this.wrecked) {
@@ -123,7 +125,8 @@ export class TrafficCar {
       this.wrecked = true;
       this.wreckTime = 0;
     }
-    body.applyImpulse({ x: ix, y: iy, z: iz }, true);
+    const v = body.linvel();
+    body.setLinvel({ x: v.x * 0.3 + vx, y: Math.max(v.y, vy), z: v.z * 0.3 + vz }, true);
   }
 
   private isRoad(city: CityModel, gx: number, gz: number): boolean {

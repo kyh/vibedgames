@@ -40,7 +40,9 @@ export class GameState {
   // The combo window only burns while CARRYING a fare — the chain judges how
   // fast you deliver, not how lucky the next spawn happens to be.
   update(dt: number, carrying: boolean): void {
-    this.timeLeft -= dt;
+    // No global run clock — sessions are endless; pressure comes from each
+    // passenger's own patience/delivery timer. timeLeft stays for time-bonus
+    // math but never counts down to a game over.
     if (this.comboTimer > 0 && carrying) {
       this.comboTimer -= dt;
       if (this.comboTimer <= 0) this.combo = 1;

@@ -69,9 +69,10 @@ export class Hud {
     }
   }
 
-  setTimer(seconds: number, low: boolean): void {
-    if (this.timerVal) this.timerVal.textContent = String(Math.max(0, Math.ceil(seconds)));
-    this.timer.classList.toggle("low", low);
+  setTimer(_seconds: number, _low: boolean): void {
+    // Global run clock removed — the passenger patience/delivery bar is the
+    // only timer. Keep the hook so call sites stay stable; hide the pill.
+    this.timer.style.display = "none";
   }
   flashTimeBonus(amount: number): void {
     this.timeBonus.textContent = `+${amount}s`;

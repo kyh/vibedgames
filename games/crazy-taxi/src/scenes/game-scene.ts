@@ -877,11 +877,10 @@ export class GameScene {
       const nx = dx / d;
       const nz = dz / d;
       const impact = car.contactPunt(nx, nz, Math.max(0, 2.5 - d) * 0.5);
-      if (impact < 1.5) continue;
-      c.puntCooldown = 0.35;
-      const mass = c.body ? c.body.mass() : 8;
-      const k = mass * (impact * 0.85 + 3);
-      c.punt(physics, nx * k, mass * Math.min(3.5, impact * 0.14), nz * k);
+      if (impact < 0.4) continue; // even slow nudges shove the car
+      c.puntCooldown = 0.25;
+      const shove = Math.max(impact * 0.85, 3);
+      c.punt(physics, nx * shove, Math.min(4, impact * 0.16), nz * shove);
       // Feed the existing crash pipeline (sfx/debris/shake scale with it).
       car.lastWallHit = Math.max(car.lastWallHit, impact * 0.55);
       // Real hits cost money — traffic is the risk side of weaving.
