@@ -28,6 +28,15 @@ window.addEventListener("resize", () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
+// Keyboard events only reach the frame that holds focus. When the game runs
+// inside an iframe (the vibedgames hub, a forked embed), the parent document
+// keeps focus on load, so our window keydown handlers never fire and the
+// controls appear dead until the player clicks in. Claim focus on load and on
+// any pointer interaction so the keys work immediately, no stray click first.
+const claimFocus = (): void => window.focus();
+claimFocus();
+window.addEventListener("pointerdown", claimFocus);
+
 const timer = new THREE.Timer();
 renderer.setAnimationLoop((time) => {
   timer.update(time);
