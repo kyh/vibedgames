@@ -27,17 +27,17 @@ const CHAMP_MODELS = [
 const BOSS_MODEL = "Skeleton_Golem";
 const ENEMY_MODELS = ["Skeleton_Warrior", "Skeleton_Mage", "Skeleton_Minion", "FrostGolem", "Skeleton_Rogue"];
 const WEAPON_MODELS = [
-  "sword_1handed",
-  "shield_round",
+  // melee champs all wield a 2H weapon (greatsword / great axe)
+  "sword_2handed",
+  "axe_2handed",
   "bow",
   "staff",
-  "dagger",
   "Skeleton_Staff",
-  "paladin_hammer",
-  "paladin_shield",
   "FrostGolem_Axe_Large",
   "wand_A",
-  "Skeleton_Dagger",
+  // melee skeleton creeps wield 2H skeleton weapons
+  "Skeleton_Blade",
+  "Skeleton_Axe",
   // Fantasy Weapons Bits — the creep-drop loot pickups (world-view syncCoins)
   "sword_A",
   "sword_D",

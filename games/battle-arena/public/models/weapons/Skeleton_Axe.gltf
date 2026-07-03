@@ -15,13 +15,12 @@
     "nodes" : [
         {
             "mesh" : 0,
-            "name" : "sword_1handed"
+            "name" : "Skeleton_Axe"
         }
     ],
     "materials" : [
         {
-            "doubleSided" : true,
-            "name" : "knight",
+            "name" : "skeleton",
             "pbrMetallicRoughness" : {
                 "baseColorTexture" : {
                     "index" : 0
@@ -33,7 +32,7 @@
     ],
     "meshes" : [
         {
-            "name" : "sword_1handed",
+            "name" : "Cylinder.002",
             "primitives" : [
                 {
                     "attributes" : {
@@ -56,69 +55,69 @@
     "images" : [
         {
             "mimeType" : "image/png",
-            "name" : "knight_texture",
-            "uri" : "knight_texture.png"
+            "name" : "skeleton_texture_A",
+            "uri" : "skeleton_texture_A.png"
         }
     ],
     "accessors" : [
         {
             "bufferView" : 0,
             "componentType" : 5126,
-            "count" : 358,
+            "count" : 692,
             "max" : [
-                0.2517259120941162,
-                1.4094958305358887,
-                0.06531671434640884
+                0.4942930340766907,
+                1.0012037754058838,
+                0.1409231275320053
             ],
             "min" : [
-                -0.251718670129776,
-                -0.36576569080352783,
-                -0.06531673669815063
+                -0.4942930340766907,
+                -0.2508419454097748,
+                -0.14094749093055725
             ],
             "type" : "VEC3"
         },
         {
             "bufferView" : 1,
             "componentType" : 5126,
-            "count" : 358,
+            "count" : 692,
             "type" : "VEC2"
         },
         {
             "bufferView" : 2,
             "componentType" : 5126,
-            "count" : 358,
+            "count" : 692,
             "type" : "VEC3"
         },
         {
             "bufferView" : 3,
             "componentType" : 5123,
-            "count" : 900,
+            "count" : 1602,
             "type" : "SCALAR"
         }
     ],
     "bufferViews" : [
         {
             "buffer" : 0,
-            "byteLength" : 4296,
+            "byteLength" : 8304,
             "byteOffset" : 0,
             "target" : 34962
         },
         {
             "buffer" : 0,
-            "byteLength" : 2864,
-            "byteOffset" : 4296,
+            "byteLength" : 5536,
+            "byteOffset" : 8304,
             "target" : 34962
         },
         {
             "buffer" : 0,
-            "byteLength" : 4296,
-            "byteOffset" : 7160,
+            "byteLength" : 8304,
+            "byteOffset" : 13840,
             "target" : 34962
         },
         {
             "buffer" : 0,
-            "byteLength" : 1800,
-            "byteOffset" : 11456,
+            "byteLength" : 3204,
+            "byteOffset" : 22144,
             "target" : 34963
         }
     ],
@@ -130,8 +129,8 @@
     ],
     "buffers" : [
         {
-            "byteLength" : 13256,
-            "uri" : "sword_1handed.bin"
+            "byteLength" : 25348,
+            "uri" : "Skeleton_Axe.bin"
         }
     ]
 }

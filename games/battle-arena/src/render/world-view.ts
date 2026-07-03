@@ -17,30 +17,30 @@ import { LOCAL_COLOR, teamColor } from "./palette";
 
 // Per-ability cast clips — uses the breadth of the KayKit library so each
 // ability reads distinctly (bash/spin/leap/blink/summon…), not one generic cast.
+// The melee champs all wield a 2H greatsword/axe now, so their combat clips are
+// the Rig_Medium Melee_2H_* set (Idle/Chop/Slice/Stab/Spin/Spinning).
 const ABILITY_CLIPS: Record<string, Partial<Record<AbilityKey, string>>> = {
-  knight: { Q: "Melee_Block_Attack", W: "Melee_1H_Attack_Jump_Chop", E: "Melee_Blocking", R: "Melee_2H_Attack_Spinning" },
+  knight: { Q: "Melee_2H_Attack_Chop", W: "Melee_2H_Attack_Stab", E: "Melee_2H_Idle", R: "Melee_2H_Attack_Spinning" },
   ranger: { Q: "Ranged_Bow_Release_Up", W: "Dodge_Forward", E: "PickUp", R: "Ranged_Bow_Release_Up" },
   mage: { Q: "Ranged_Magic_Shoot", W: "Ranged_Magic_Raise", E: "Ranged_Magic_Raise", R: "Ranged_Magic_Summon" },
-  rogue: { Q: "Melee_Dualwield_Attack_Stab", W: "Dodge_Forward", E: "Dodge_Backward", R: "Melee_Dualwield_Attack_Slice" },
-  // Aurelius (id "blackknight") is the Rig_Medium Paladin — hammer + shield
-  blackknight: { Q: "Melee_1H_Attack_Chop", W: "Melee_1H_Attack_Jump_Chop", E: "Melee_Blocking", R: "Melee_2H_Attack_Chop" },
+  rogue: { Q: "Melee_2H_Attack_Slice", W: "Dodge_Forward", E: "Dodge_Backward", R: "Melee_2H_Attack_Spin" },
+  // Aurelius (id "blackknight") is the Rig_Medium Paladin — now a great-axe juggernaut
+  blackknight: { Q: "Melee_2H_Attack_Chop", W: "Melee_2H_Attack_Stab", E: "Melee_2H_Idle", R: "Melee_2H_Attack_Spinning" },
   witch: { Q: "Ranged_Magic_Shoot", W: "Ranged_Magic_Summon", E: "Dodge_Forward", R: "Ranged_Magic_Raise" },
 };
 
 // Basic-attack clip rotations — swings vary shot-to-shot instead of repeating.
-// An "@mirror" suffix plays the clip reflected left↔right (a backhand
-// return-stroke that still swings forward — see ModelLibrary.getClip).
 const ATTACK_SETS: Record<string, string[]> = {
-  knight: ["Melee_1H_Attack_Slice_Diagonal", "Melee_1H_Attack_Slice_Horizontal", "Melee_1H_Attack_Slice_Horizontal@mirror"],
-  rogue: ["Melee_Dualwield_Attack_Chop", "Melee_Dualwield_Attack_Slice", "Melee_2H_Attack_Spin"],
+  knight: ["Melee_2H_Attack_Chop", "Melee_2H_Attack_Slice", "Melee_2H_Attack_Stab"],
+  rogue: ["Melee_2H_Attack_Slice", "Melee_2H_Attack_Spin", "Melee_2H_Attack_Chop"],
   ranger: ["Ranged_Bow_Release", "Ranged_Bow_Release_Up"],
   mage: ["Ranged_Magic_Shoot"],
-  blackknight: ["Melee_1H_Attack_Chop", "Melee_1H_Attack_Slice_Horizontal", "Melee_1H_Attack_Stab"],
+  blackknight: ["Melee_2H_Attack_Chop", "Melee_2H_Attack_Slice", "Melee_2H_Attack_Stab"],
   witch: ["Ranged_Magic_Shoot"],
-  skwarrior: ["Melee_1H_Attack_Chop", "Melee_1H_Attack_Stab"],
-  skminion: ["Melee_Unarmed_Attack_Punch_A", "Melee_1H_Attack_Chop"],
+  skwarrior: ["Melee_2H_Attack_Chop", "Melee_2H_Attack_Slice", "Melee_2H_Attack_Stab"],
+  skminion: ["Melee_2H_Attack_Chop", "Melee_2H_Attack_Stab"],
   skmage: ["Ranged_Magic_Shoot"],
-  skrogue: ["Melee_Dualwield_Attack_Stab", "Melee_Dualwield_Attack_Slice"],
+  skrogue: ["Melee_2H_Attack_Slice", "Melee_2H_Attack_Spin", "Melee_2H_Attack_Chop"],
   frostgolem: ["Melee_2H_Attack", "Melee_2H_Slam", "Melee_Unarmed_Smash"], // native Large names
 };
 
@@ -89,13 +89,14 @@ type ViewDef = {
   weaponL?: string;
   rig?: "large";
   scale?: number;
+  twoHanded?: boolean; // rests + idles holding a 2H weapon (Melee_2H_Idle)
 };
 
 const CREEP_VIEW: Record<string, ViewDef> = {
-  skwarrior: { id: "skwarrior", model: "Skeleton_Warrior", attackType: "melee", attackDamageType: "physical" },
+  skwarrior: { id: "skwarrior", model: "Skeleton_Warrior", attackType: "melee", attackDamageType: "physical", weaponR: "Skeleton_Blade", twoHanded: true },
   skmage: { id: "skmage", model: "Skeleton_Mage", attackType: "ranged", attackDamageType: "magic", weaponR: "Skeleton_Staff" },
-  skminion: { id: "skminion", model: "Skeleton_Minion", attackType: "melee", attackDamageType: "physical" },
-  skrogue: { id: "skrogue", model: "Skeleton_Rogue", attackType: "melee", attackDamageType: "physical", weaponR: "Skeleton_Dagger" },
+  skminion: { id: "skminion", model: "Skeleton_Minion", attackType: "melee", attackDamageType: "physical", weaponR: "Skeleton_Axe", twoHanded: true },
+  skrogue: { id: "skrogue", model: "Skeleton_Rogue", attackType: "melee", attackDamageType: "physical", weaponR: "Skeleton_Axe", twoHanded: true },
   frostgolem: { id: "frostgolem", model: "FrostGolem", attackType: "melee", attackDamageType: "physical", weaponR: "FrostGolem_Axe_Large", rig: "large", scale: 1.45 },
 };
 
@@ -156,11 +157,13 @@ function blobTex(): THREE.Texture {
   return blobTexCache;
 }
 
-function locomotion(u: Unit): string {
+function locomotion(u: Unit, twoHanded: boolean): string {
   const speed = Math.hypot(u.vx, u.vy);
   if (speed > u.moveSpeed * 0.55) return "Running_B";
   if (speed > 0.4) return "Walking_A";
-  return "Idle_B";
+  // 2H wielders rest holding the weapon (KayKit has no 2H run — walk/run stay
+  // generic); the 2H idle only kicks in when effectively stationary
+  return twoHanded ? "Melee_2H_Idle" : "Idle_B";
 }
 
 function attackClip(def: ViewDef): string {
@@ -203,8 +206,6 @@ class UnitView {
   private lastJumpShown = -1;
   private lastDodgeShown = -1;
   private oneShotUntil = 0;
-  private mirrorSwingUntil = 0; // "@mirror" swing: flip char.root.x so the same
-  //                              (correct) hand swings the opposite direction
   private deadAt = -1;
   private lastDustAt = 0;
   private attackIdx = 0;
@@ -213,10 +214,7 @@ class UnitView {
   private recoilZ = 0;
   private weapons: THREE.Object3D[] = [];
   private mats: THREE.MeshStandardMaterial[] = [];
-  private weaponMats: THREE.MeshStandardMaterial[] = []; // combined view (StatusFx empower, dispose)
-  private weaponMatsR: THREE.MeshStandardMaterial[] = []; // main-hand (windup glint)
-  private weaponMatsL: THREE.MeshStandardMaterial[] = []; // off-hand (shield-bash flash)
-  private shieldFlashAt = -1; // knight:Q — emissive pulse on the off-hand shield
+  private weaponMats: THREE.MeshStandardMaterial[] = []; // windup glint + StatusFx empower / dispose
   private trails: WeaponTrail[] = [];
   private blob: THREE.Mesh; // contact shadow (scene sibling, decoupled from hopY)
   private dissolve: DissolveHandle;
@@ -263,7 +261,7 @@ class UnitView {
       const trail = def.attackType === "melee" ? new WeaponTrail(wr, isLocal ? 0xfff4d8 : 0xdbe8ff) : null;
       if (this.char.attach(wr, "handslot.r")) {
         this.weapons.push(wr);
-        this.weaponMatsR = cloneMats(wr, null);
+        this.weaponMats.push(...cloneMats(wr, null));
         if (trail) {
           this.trails.push(trail);
           this.scene.add(trail.mesh);
@@ -275,10 +273,9 @@ class UnitView {
       mountWeapon(wl, def.weaponL);
       if (this.char.attach(wl, "handslot.l")) {
         this.weapons.push(wl);
-        this.weaponMatsL = cloneMats(wl, null);
+        this.weaponMats.push(...cloneMats(wl, null));
       }
     }
-    this.weaponMats = [...this.weaponMatsR, ...this.weaponMatsL];
 
     // death dissolve — patched ONCE at construction on the per-instance mats
     this.dissolve = applyDissolve(this.mats);
@@ -431,23 +428,13 @@ class UnitView {
         const byKey = u.lastCastKey ? ABILITY_CLIPS[this.def.id]?.[u.lastCastKey] : undefined;
         ch.play(byKey ?? castClip(this.def), { loop: false, fade: 0.06 });
         this.oneShotUntil = now + CAST_ANIM_MS;
-        // knight:Q is a SHIELD bash (Melee_Block_Attack): the vfx belongs on
-        // the off-hand shield, not the sword — no blade trail, flash the shield
-        if (this.def.id === "knight" && u.lastCastKey === "Q") this.shieldFlashAt = now;
-        else this.emitTrails(now, CAST_ANIM_MS);
+        this.emitTrails(now, CAST_ANIM_MS); // weapon-trail ribbon on the ability swing
       }
     } else if (u.lastAttackAt !== this.lastAttackShown) {
       this.lastAttackShown = u.lastAttackAt;
       if (now - u.lastAttackAt < timing.ms) {
         const set = ATTACK_SETS[this.def.id] ?? [attackClip(this.def)];
-        const raw = set[this.attackIdx++ % set.length]!;
-        // "@mirror": play the clip on its normal (correct-hand) bones but mirror
-        // the whole character on X, so the same hand swings the opposite way —
-        // a real backhand. (Mirroring the clip's own l/r tracks would move the
-        // swing onto the shield arm.)
-        const mirror = raw.endsWith("@mirror");
-        const clip = mirror ? raw.slice(0, -"@mirror".length) : raw;
-        this.mirrorSwingUntil = mirror ? now + timing.ms : 0;
+        const clip = set[this.attackIdx++ % set.length]!;
         ch.play(clip, { loop: false, fade: 0.04, timeScale: timing.ts });
         this.oneShotUntil = now + timing.ms;
         this.emitTrails(now, timing.ms); // weapon-trail ribbon traces the blade
@@ -496,7 +483,7 @@ class UnitView {
     } else if (now < u.dashUntil) {
       ch.play("Running_B", { fade: 0.1 });
     } else {
-      ch.play(locomotion(u), { fade: 0.16 });
+      ch.play(locomotion(u, this.def.twoHanded ?? false), { fade: 0.16 });
     }
     ch.update(dt);
     this.updateTrails(now, dt); // sample the blade AFTER the pose updates
@@ -509,8 +496,7 @@ class UnitView {
     this.prevHop = hopY;
     this.squash *= Math.max(0, 1 - 9 * dt);
     const bs = this.baseScale;
-    const mx = now < this.mirrorSwingUntil ? -1 : 1; // backhand swing mirror
-    ch.root.scale.set(mx * bs * (1 + 0.12 * this.squash), bs * (1 - 0.18 * this.squash), bs * (1 + 0.12 * this.squash));
+    ch.root.scale.set(bs * (1 + 0.12 * this.squash), bs * (1 - 0.18 * this.squash), bs * (1 + 0.12 * this.squash));
 
     // ── dash trail: streaks + dust shed behind any ability dash (not dodges) ──
     const dashing = now < u.dashUntil && now >= u.dodgeUntil;
@@ -557,14 +543,9 @@ class UnitView {
     // hit flash (white pulse on damage) — on this unit's cloned materials
     const flash = Math.max(0, 1 - (now - u.lastHitAt) / 110);
     for (const m of this.mats) m.emissive.setRGB(flash, flash * 0.85, flash * 0.7);
-    // melee windup glint — micro-anticipation while a swing charges (90–140ms).
-    // Main-hand only: the off-hand slot belongs to the shield-bash flash below.
+    // melee windup glint — micro-anticipation while a swing charges (90–140ms)
     const glint = u.pendingAttack ? 0.35 : 0;
-    for (const m of this.weaponMatsR) m.emissive.setRGB(glint, glint, glint);
-    // shield-bash flash — warm emissive pulse on the off-hand, fading ~250ms
-    const bash = this.shieldFlashAt >= 0 ? Math.max(0, 1 - (now - this.shieldFlashAt) / 250) * 0.85 : 0;
-    const lGlow = Math.max(glint, bash);
-    for (const m of this.weaponMatsL) m.emissive.setRGB(lGlow, lGlow * 0.92, lGlow * 0.72);
+    for (const m of this.weaponMats) m.emissive.setRGB(glint, glint, glint);
 
     // ── status indicators (stun star / shield dome / slow tint / embers…) ──
     // built lazily on the first status; StatusFx owns stealth opacity + empower

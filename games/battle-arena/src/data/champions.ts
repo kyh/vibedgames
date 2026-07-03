@@ -56,6 +56,7 @@ export type ChampDef = {
   weaponL?: string; // weapon/shield attached to handslot.l
   cleaveTargets?: number; // max enemies a basic attack damages (default 3; rogue 1)
   rig?: "large"; // needs the Rig_Large clip library ("Large/" prefix)
+  twoHanded?: boolean; // wields a 2H weapon: rests/idles two-handed (Melee_2H_Idle)
   scale?: number; // render scale multiplier (default 1)
   radius?: number; // sim collision radius override (default 0.62)
   tint: number; // fallback identity color (team color overrides in-match)
@@ -100,8 +101,8 @@ export const CHAMPIONS: ChampDef[] = [
     attackKind: "melee",
     windupMs: 100,
     model: "Knight",
-    weaponR: "sword_1handed",
-    weaponL: "shield_round",
+    weaponR: "sword_2handed",
+    twoHanded: true,
     tint: 0x4f86ff,
     blurb: "A walking wall. Stun, charge in, and spin the throne to bloody mulch.",
     difficulty: 1,
@@ -174,9 +175,9 @@ export const CHAMPIONS: ChampDef[] = [
     attackKind: "melee",
     windupMs: 70,
     model: "Rogue_Hooded",
-    weaponR: "dagger",
-    weaponL: "dagger",
-    cleaveTargets: 1, // single-target assassin — daggers don't cleave the cone
+    weaponR: "sword_2handed",
+    twoHanded: true,
+    cleaveTargets: 1, // single-target assassin — the cone doesn't cleave
     tint: 0xff5a78,
     blurb: "In, out, gone. Poison, vanish, and execute anyone clinging to life.",
     difficulty: 3,
@@ -201,8 +202,8 @@ export const CHAMPIONS: ChampDef[] = [
     attackKind: "melee",
     windupMs: 120,
     model: "Paladin_with_Helmet",
-    weaponR: "paladin_hammer",
-    weaponL: "paladin_shield",
+    weaponR: "axe_2handed",
+    twoHanded: true,
     scale: 1.06,
     radius: 0.75,
     tint: 0xffd76a,
