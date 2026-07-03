@@ -15,7 +15,7 @@
     "nodes" : [
         {
             "mesh" : 0,
-            "name" : "Skeleton_Axe"
+            "name" : "Skeleton_Dagger"
         }
     ],
     "materials" : [
@@ -32,7 +32,7 @@
     ],
     "meshes" : [
         {
-            "name" : "Cylinder.002",
+            "name" : "Cube.16554",
             "primitives" : [
                 {
                     "attributes" : {
@@ -63,61 +63,61 @@
         {
             "bufferView" : 0,
             "componentType" : 5126,
-            "count" : 692,
+            "count" : 972,
             "max" : [
-                0.4942930340766907,
-                1.0012037754058838,
-                0.1409231275320053
+                0.13892139494419098,
+                0.9973046779632568,
+                0.09695024788379669
             ],
             "min" : [
-                -0.4942930340766907,
-                -0.2508419454097748,
-                -0.14094749093055725
+                -0.20387227833271027,
+                -0.27911534905433655,
+                -0.09694932401180267
             ],
             "type" : "VEC3"
         },
         {
             "bufferView" : 1,
             "componentType" : 5126,
-            "count" : 692,
+            "count" : 972,
             "type" : "VEC2"
         },
         {
             "bufferView" : 2,
             "componentType" : 5126,
-            "count" : 692,
+            "count" : 972,
             "type" : "VEC3"
         },
         {
             "bufferView" : 3,
             "componentType" : 5123,
-            "count" : 1602,
+            "count" : 2040,
             "type" : "SCALAR"
         }
     ],
     "bufferViews" : [
         {
             "buffer" : 0,
-            "byteLength" : 8304,
+            "byteLength" : 11664,
             "byteOffset" : 0,
             "target" : 34962
         },
         {
             "buffer" : 0,
-            "byteLength" : 5536,
-            "byteOffset" : 8304,
+            "byteLength" : 7776,
+            "byteOffset" : 11664,
             "target" : 34962
         },
         {
             "buffer" : 0,
-            "byteLength" : 8304,
-            "byteOffset" : 13840,
+            "byteLength" : 11664,
+            "byteOffset" : 19440,
             "target" : 34962
         },
         {
             "buffer" : 0,
-            "byteLength" : 3204,
-            "byteOffset" : 22144,
+            "byteLength" : 4080,
+            "byteOffset" : 31104,
             "target" : 34963
         }
     ],
@@ -129,8 +129,8 @@
     ],
     "buffers" : [
         {
-            "byteLength" : 25348,
-            "uri" : "Skeleton_Axe.bin"
+            "byteLength" : 35184,
+            "uri" : "Skeleton_Dagger.bin"
         }
     ]
 }

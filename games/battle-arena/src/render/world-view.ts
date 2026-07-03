@@ -17,30 +17,29 @@ import { LOCAL_COLOR, teamColor } from "./palette";
 
 // Per-ability cast clips — uses the breadth of the KayKit library so each
 // ability reads distinctly (bash/spin/leap/blink/summon…), not one generic cast.
-// The melee champs all wield a 2H greatsword/axe now, so their combat clips are
-// the Rig_Medium Melee_2H_* set (Idle/Chop/Slice/Stab/Spin/Spinning).
+// Garran (knight) wields a 2H greatsword — his combat clips are the Rig_Medium
+// Melee_2H_* set. The other melee champs keep their 1H / dualwield sets.
 const ABILITY_CLIPS: Record<string, Partial<Record<AbilityKey, string>>> = {
   knight: { Q: "Melee_2H_Attack_Chop", W: "Melee_2H_Attack_Stab", E: "Melee_2H_Idle", R: "Melee_2H_Attack_Spinning" },
   ranger: { Q: "Ranged_Bow_Release_Up", W: "Dodge_Forward", E: "PickUp", R: "Ranged_Bow_Release_Up" },
   mage: { Q: "Ranged_Magic_Shoot", W: "Ranged_Magic_Raise", E: "Ranged_Magic_Raise", R: "Ranged_Magic_Summon" },
-  rogue: { Q: "Melee_2H_Attack_Slice", W: "Dodge_Forward", E: "Dodge_Backward", R: "Melee_2H_Attack_Spin" },
-  // Aurelius (id "blackknight") is the Rig_Medium Paladin — now a great-axe juggernaut
-  blackknight: { Q: "Melee_2H_Attack_Chop", W: "Melee_2H_Attack_Stab", E: "Melee_2H_Idle", R: "Melee_2H_Attack_Spinning" },
+  rogue: { Q: "Melee_Dualwield_Attack_Stab", W: "Dodge_Forward", E: "Dodge_Backward", R: "Melee_Dualwield_Attack_Slice" },
+  blackknight: { Q: "Melee_1H_Attack_Chop", W: "Melee_1H_Attack_Jump_Chop", E: "Melee_Blocking", R: "Melee_2H_Attack_Chop" },
   witch: { Q: "Ranged_Magic_Shoot", W: "Ranged_Magic_Summon", E: "Dodge_Forward", R: "Ranged_Magic_Raise" },
 };
 
 // Basic-attack clip rotations — swings vary shot-to-shot instead of repeating.
 const ATTACK_SETS: Record<string, string[]> = {
   knight: ["Melee_2H_Attack_Chop", "Melee_2H_Attack_Slice", "Melee_2H_Attack_Stab"],
-  rogue: ["Melee_2H_Attack_Slice", "Melee_2H_Attack_Spin", "Melee_2H_Attack_Chop"],
+  rogue: ["Melee_Dualwield_Attack_Chop", "Melee_Dualwield_Attack_Slice", "Melee_2H_Attack_Spin"],
   ranger: ["Ranged_Bow_Release", "Ranged_Bow_Release_Up"],
   mage: ["Ranged_Magic_Shoot"],
-  blackknight: ["Melee_2H_Attack_Chop", "Melee_2H_Attack_Slice", "Melee_2H_Attack_Stab"],
+  blackknight: ["Melee_1H_Attack_Chop", "Melee_1H_Attack_Slice_Horizontal", "Melee_1H_Attack_Stab"],
   witch: ["Ranged_Magic_Shoot"],
-  skwarrior: ["Melee_2H_Attack_Chop", "Melee_2H_Attack_Slice", "Melee_2H_Attack_Stab"],
-  skminion: ["Melee_2H_Attack_Chop", "Melee_2H_Attack_Stab"],
+  skwarrior: ["Melee_1H_Attack_Chop", "Melee_1H_Attack_Stab"],
+  skminion: ["Melee_Unarmed_Attack_Punch_A", "Melee_1H_Attack_Chop"],
   skmage: ["Ranged_Magic_Shoot"],
-  skrogue: ["Melee_2H_Attack_Slice", "Melee_2H_Attack_Spin", "Melee_2H_Attack_Chop"],
+  skrogue: ["Melee_Dualwield_Attack_Stab", "Melee_Dualwield_Attack_Slice"],
   frostgolem: ["Melee_2H_Attack", "Melee_2H_Slam", "Melee_Unarmed_Smash"], // native Large names
 };
 
@@ -93,10 +92,10 @@ type ViewDef = {
 };
 
 const CREEP_VIEW: Record<string, ViewDef> = {
-  skwarrior: { id: "skwarrior", model: "Skeleton_Warrior", attackType: "melee", attackDamageType: "physical", weaponR: "Skeleton_Blade", twoHanded: true },
+  skwarrior: { id: "skwarrior", model: "Skeleton_Warrior", attackType: "melee", attackDamageType: "physical" },
   skmage: { id: "skmage", model: "Skeleton_Mage", attackType: "ranged", attackDamageType: "magic", weaponR: "Skeleton_Staff" },
-  skminion: { id: "skminion", model: "Skeleton_Minion", attackType: "melee", attackDamageType: "physical", weaponR: "Skeleton_Axe", twoHanded: true },
-  skrogue: { id: "skrogue", model: "Skeleton_Rogue", attackType: "melee", attackDamageType: "physical", weaponR: "Skeleton_Axe", twoHanded: true },
+  skminion: { id: "skminion", model: "Skeleton_Minion", attackType: "melee", attackDamageType: "physical" },
+  skrogue: { id: "skrogue", model: "Skeleton_Rogue", attackType: "melee", attackDamageType: "physical", weaponR: "Skeleton_Dagger" },
   frostgolem: { id: "frostgolem", model: "FrostGolem", attackType: "melee", attackDamageType: "physical", weaponR: "FrostGolem_Axe_Large", rig: "large", scale: 1.45 },
 };
 

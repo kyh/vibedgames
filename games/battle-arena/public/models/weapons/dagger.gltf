@@ -15,12 +15,13 @@
     "nodes" : [
         {
             "mesh" : 0,
-            "name" : "Skeleton_Blade"
+            "name" : "dagger"
         }
     ],
     "materials" : [
         {
-            "name" : "skeleton",
+            "doubleSided" : true,
+            "name" : "rogue",
             "pbrMetallicRoughness" : {
                 "baseColorTexture" : {
                     "index" : 0
@@ -32,7 +33,7 @@
     ],
     "meshes" : [
         {
-            "name" : "Cube.007",
+            "name" : "dagger",
             "primitives" : [
                 {
                     "attributes" : {
@@ -55,69 +56,69 @@
     "images" : [
         {
             "mimeType" : "image/png",
-            "name" : "skeleton_texture_A",
-            "uri" : "skeleton_texture_A.png"
+            "name" : "rogue_texture",
+            "uri" : "rogue_texture.png"
         }
     ],
     "accessors" : [
         {
             "bufferView" : 0,
             "componentType" : 5126,
-            "count" : 541,
+            "count" : 207,
             "max" : [
-                0.2863381505012512,
-                1.1677672863006592,
-                0.11112511903047562
+                0.1391316056251526,
+                0.9809512495994568,
+                0.07587061822414398
             ],
             "min" : [
-                -0.2863137722015381,
-                -0.32942676544189453,
-                -0.11112514138221741
+                -0.12016583234071732,
+                -0.22489459812641144,
+                -0.07587060332298279
             ],
             "type" : "VEC3"
         },
         {
             "bufferView" : 1,
             "componentType" : 5126,
-            "count" : 541,
+            "count" : 207,
             "type" : "VEC2"
         },
         {
             "bufferView" : 2,
             "componentType" : 5126,
-            "count" : 541,
+            "count" : 207,
             "type" : "VEC3"
         },
         {
             "bufferView" : 3,
             "componentType" : 5123,
-            "count" : 1371,
+            "count" : 516,
             "type" : "SCALAR"
         }
     ],
     "bufferViews" : [
         {
             "buffer" : 0,
-            "byteLength" : 6492,
+            "byteLength" : 2484,
             "byteOffset" : 0,
             "target" : 34962
         },
         {
             "buffer" : 0,
-            "byteLength" : 4328,
-            "byteOffset" : 6492,
+            "byteLength" : 1656,
+            "byteOffset" : 2484,
             "target" : 34962
         },
         {
             "buffer" : 0,
-            "byteLength" : 6492,
-            "byteOffset" : 10820,
+            "byteLength" : 2484,
+            "byteOffset" : 4140,
             "target" : 34962
         },
         {
             "buffer" : 0,
-            "byteLength" : 2742,
-            "byteOffset" : 17312,
+            "byteLength" : 1032,
+            "byteOffset" : 6624,
             "target" : 34963
         }
     ],
@@ -129,8 +130,8 @@
     ],
     "buffers" : [
         {
-            "byteLength" : 20056,
-            "uri" : "Skeleton_Blade.bin"
+            "byteLength" : 7656,
+            "uri" : "dagger.bin"
         }
     ]
 }

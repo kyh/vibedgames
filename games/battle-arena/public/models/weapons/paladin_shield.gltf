@@ -1,0 +1,217 @@
+{
+    "asset" : {
+        "generator" : "Khronos glTF Blender I/O v3.4.50",
+        "version" : "2.0"
+    },
+    "scene" : 0,
+    "scenes" : [
+        {
+            "name" : "Scene",
+            "nodes" : [
+                0
+            ]
+        }
+    ],
+    "nodes" : [
+        {
+            "mesh" : 0,
+            "name" : "paladin_shield"
+        }
+    ],
+    "materials" : [
+        {
+            "doubleSided" : true,
+            "name" : "paladin",
+            "pbrMetallicRoughness" : {
+                "baseColorTexture" : {
+                    "index" : 0
+                },
+                "metallicFactor" : 0,
+                "roughnessFactor" : 0.5
+            }
+        },
+        {
+            "name" : "paladin_metallic",
+            "pbrMetallicRoughness" : {
+                "baseColorTexture" : {
+                    "index" : 1
+                },
+                "roughnessFactor" : 0.25
+            }
+        }
+    ],
+    "meshes" : [
+        {
+            "name" : "paladin_shield",
+            "primitives" : [
+                {
+                    "attributes" : {
+                        "POSITION" : 0,
+                        "TEXCOORD_0" : 1,
+                        "NORMAL" : 2
+                    },
+                    "indices" : 3,
+                    "material" : 0
+                },
+                {
+                    "attributes" : {
+                        "POSITION" : 4,
+                        "TEXCOORD_0" : 5,
+                        "NORMAL" : 6
+                    },
+                    "indices" : 7,
+                    "material" : 1
+                }
+            ]
+        }
+    ],
+    "textures" : [
+        {
+            "sampler" : 0,
+            "source" : 0
+        },
+        {
+            "sampler" : 0,
+            "source" : 0
+        }
+    ],
+    "images" : [
+        {
+            "mimeType" : "image/png",
+            "name" : "paladin_texture_A",
+            "uri" : "paladin_texture_A.png"
+        }
+    ],
+    "accessors" : [
+        {
+            "bufferView" : 0,
+            "componentType" : 5126,
+            "count" : 130,
+            "max" : [
+                0.28896385431289673,
+                0.306429386138916,
+                0.08178795129060745
+            ],
+            "min" : [
+                -0.28896385431289673,
+                -0.3930247724056244,
+                -0.1258852332830429
+            ],
+            "type" : "VEC3"
+        },
+        {
+            "bufferView" : 1,
+            "componentType" : 5126,
+            "count" : 130,
+            "type" : "VEC2"
+        },
+        {
+            "bufferView" : 2,
+            "componentType" : 5126,
+            "count" : 130,
+            "type" : "VEC3"
+        },
+        {
+            "bufferView" : 3,
+            "componentType" : 5123,
+            "count" : 366,
+            "type" : "SCALAR"
+        },
+        {
+            "bufferView" : 4,
+            "componentType" : 5126,
+            "count" : 255,
+            "max" : [
+                0.4029799699783325,
+                0.42929261922836304,
+                0.08322343975305557
+            ],
+            "min" : [
+                -0.4029799699783325,
+                -0.5298879146575928,
+                -0.08279004693031311
+            ],
+            "type" : "VEC3"
+        },
+        {
+            "bufferView" : 5,
+            "componentType" : 5126,
+            "count" : 255,
+            "type" : "VEC2"
+        },
+        {
+            "bufferView" : 6,
+            "componentType" : 5126,
+            "count" : 255,
+            "type" : "VEC3"
+        },
+        {
+            "bufferView" : 7,
+            "componentType" : 5123,
+            "count" : 726,
+            "type" : "SCALAR"
+        }
+    ],
+    "bufferViews" : [
+        {
+            "buffer" : 0,
+            "byteLength" : 1560,
+            "byteOffset" : 0,
+            "target" : 34962
+        },
+        {
+            "buffer" : 0,
+            "byteLength" : 1040,
+            "byteOffset" : 1560,
+            "target" : 34962
+        },
+        {
+            "buffer" : 0,
+            "byteLength" : 1560,
+            "byteOffset" : 2600,
+            "target" : 34962
+        },
+        {
+            "buffer" : 0,
+            "byteLength" : 732,
+            "byteOffset" : 4160,
+            "target" : 34963
+        },
+        {
+            "buffer" : 0,
+            "byteLength" : 3060,
+            "byteOffset" : 4892,
+            "target" : 34962
+        },
+        {
+            "buffer" : 0,
+            "byteLength" : 2040,
+            "byteOffset" : 7952,
+            "target" : 34962
+        },
+        {
+            "buffer" : 0,
+            "byteLength" : 3060,
+            "byteOffset" : 9992,
+            "target" : 34962
+        },
+        {
+            "buffer" : 0,
+            "byteLength" : 1452,
+            "byteOffset" : 13052,
+            "target" : 34963
+        }
+    ],
+    "samplers" : [
+        {
+            "magFilter" : 9729,
+            "minFilter" : 9987
+        }
+    ],
+    "buffers" : [
+        {
+            "byteLength" : 14504,
+            "uri" : "paladin_shield.bin"
+        }
+    ]
+}

@@ -27,17 +27,16 @@ const CHAMP_MODELS = [
 const BOSS_MODEL = "Skeleton_Golem";
 const ENEMY_MODELS = ["Skeleton_Warrior", "Skeleton_Mage", "Skeleton_Minion", "FrostGolem", "Skeleton_Rogue"];
 const WEAPON_MODELS = [
-  // melee champs all wield a 2H weapon (greatsword / great axe)
-  "sword_2handed",
-  "axe_2handed",
+  "sword_2handed", // Garran (knight) — the one 2H greatsword champ
+  "dagger", // Vesper (rogue) — dualwield
+  "paladin_hammer", // Aurelius — hammer + shield
+  "paladin_shield",
   "bow",
   "staff",
   "Skeleton_Staff",
+  "Skeleton_Dagger", // skrogue creep
   "FrostGolem_Axe_Large",
   "wand_A",
-  // melee skeleton creeps wield 2H skeleton weapons
-  "Skeleton_Blade",
-  "Skeleton_Axe",
   // Fantasy Weapons Bits — the creep-drop loot pickups (world-view syncCoins)
   "sword_A",
   "sword_D",

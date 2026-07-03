@@ -175,9 +175,9 @@ export const CHAMPIONS: ChampDef[] = [
     attackKind: "melee",
     windupMs: 70,
     model: "Rogue_Hooded",
-    weaponR: "sword_2handed",
-    twoHanded: true,
-    cleaveTargets: 1, // single-target assassin — the cone doesn't cleave
+    weaponR: "dagger",
+    weaponL: "dagger",
+    cleaveTargets: 1, // single-target assassin — daggers don't cleave the cone
     tint: 0xff5a78,
     blurb: "In, out, gone. Poison, vanish, and execute anyone clinging to life.",
     difficulty: 3,
@@ -202,8 +202,8 @@ export const CHAMPIONS: ChampDef[] = [
     attackKind: "melee",
     windupMs: 120,
     model: "Paladin_with_Helmet",
-    weaponR: "axe_2handed",
-    twoHanded: true,
+    weaponR: "paladin_hammer",
+    weaponL: "paladin_shield",
     scale: 1.06,
     radius: 0.75,
     tint: 0xffd76a,
