@@ -25,7 +25,7 @@ const CHAMP_MODELS = [
   "Witch",
 ];
 const BOSS_MODEL = "Skeleton_Golem";
-const ENEMY_MODELS = ["Skeleton_Warrior", "Skeleton_Mage", "Skeleton_Minion", "FrostGolem", "Skeleton_Rogue"];
+const ENEMY_MODELS = ["Skeleton_Warrior", "Skeleton_Mage", "Skeleton_Minion", "FrostGolem"];
 const WEAPON_MODELS = [
   "sword_2handed", // Garran (knight) — the one 2H greatsword champ
   "dagger", // Vesper (rogue) — dualwield
@@ -34,7 +34,6 @@ const WEAPON_MODELS = [
   "bow",
   "staff",
   "Skeleton_Staff",
-  "Skeleton_Dagger", // skrogue creep
   "FrostGolem_Axe_Large",
   "wand_A",
   // Fantasy Weapons Bits — the creep-drop loot pickups (world-view syncCoins)

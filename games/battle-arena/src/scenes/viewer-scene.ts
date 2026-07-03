@@ -91,7 +91,6 @@ const CREEPS: RosterEntry[] = [
   { id: "skwarrior", label: "Skeleton Warrior", sub: "camp creep", kind: "creep", model: "Skeleton_Warrior", attackClips: ["Melee_1H_Attack_Chop", "Melee_1H_Attack_Stab"] },
   { id: "skmage", label: "Skeleton Mage", sub: "camp creep", kind: "creep", model: "Skeleton_Mage", weaponR: "Skeleton_Staff", attackClips: ["Ranged_Magic_Shoot"] },
   { id: "skminion", label: "Skeleton Minion", sub: "camp creep", kind: "creep", model: "Skeleton_Minion", attackClips: ["Melee_Unarmed_Attack_Punch_A", "Melee_1H_Attack_Chop"] },
-  { id: "skrogue", label: "Skeleton Rogue", sub: "camp creep", kind: "creep", model: "Skeleton_Rogue", weaponR: "Skeleton_Dagger", attackClips: ["Melee_Dualwield_Attack_Stab", "Melee_Dualwield_Attack_Slice"] },
   { id: "frostgolem", label: "Frost Golem", sub: "elite (Rig_Large)", kind: "creep", model: "FrostGolem", weaponR: "FrostGolem_Axe_Large", rig: "large", scale: 1.45, attackClips: ["Melee_2H_Attack", "Melee_2H_Slam", "Melee_Unarmed_Smash"] },
   { id: "boss", label: "Skeleton Golem", sub: "throne boss (Rig_Large)", kind: "creep", model: "Skeleton_Golem", rig: "large", scale: 1.5, attackClips: ["Melee_2H_Slam", "Melee_2H_Attack"] },
 ];

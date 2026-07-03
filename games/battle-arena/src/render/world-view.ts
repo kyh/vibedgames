@@ -39,7 +39,6 @@ const ATTACK_SETS: Record<string, string[]> = {
   skwarrior: ["Melee_1H_Attack_Chop", "Melee_1H_Attack_Stab"],
   skminion: ["Melee_Unarmed_Attack_Punch_A", "Melee_1H_Attack_Chop"],
   skmage: ["Ranged_Magic_Shoot"],
-  skrogue: ["Melee_Dualwield_Attack_Stab", "Melee_Dualwield_Attack_Slice"],
   frostgolem: ["Melee_2H_Attack", "Melee_2H_Slam", "Melee_Unarmed_Smash"], // native Large names
 };
 
@@ -95,7 +94,6 @@ const CREEP_VIEW: Record<string, ViewDef> = {
   skwarrior: { id: "skwarrior", model: "Skeleton_Warrior", attackType: "melee", attackDamageType: "physical" },
   skmage: { id: "skmage", model: "Skeleton_Mage", attackType: "ranged", attackDamageType: "magic", weaponR: "Skeleton_Staff" },
   skminion: { id: "skminion", model: "Skeleton_Minion", attackType: "melee", attackDamageType: "physical" },
-  skrogue: { id: "skrogue", model: "Skeleton_Rogue", attackType: "melee", attackDamageType: "physical", weaponR: "Skeleton_Dagger" },
   frostgolem: { id: "frostgolem", model: "FrostGolem", attackType: "melee", attackDamageType: "physical", weaponR: "FrostGolem_Axe_Large", rig: "large", scale: 1.45 },
 };
 

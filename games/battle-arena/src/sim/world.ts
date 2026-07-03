@@ -184,7 +184,6 @@ const CREEP_STATS: Record<string, CreepStat> = {
   skwarrior: { model: "Skeleton_Warrior", attackType: "melee", attackDamageType: "physical", attackKind: "melee", hp: 340, damage: 34, armor: 3, attackRange: 2.2, attackSpeed: 0.8, moveSpeed: 5, projectileSpeed: 0, radius: 0.6, bounty: 55, xp: 50 },
   skmage: { model: "Skeleton_Mage", attackType: "ranged", attackDamageType: "magic", attackKind: "bolt", hp: 230, damage: 30, armor: 1, attackRange: 8, attackSpeed: 0.7, moveSpeed: 4.6, projectileSpeed: 16, radius: 0.55, bounty: 70, xp: 60 },
   skminion: { model: "Skeleton_Minion", attackType: "melee", attackDamageType: "physical", attackKind: "melee", hp: 200, damage: 24, armor: 1, attackRange: 2, attackSpeed: 0.95, moveSpeed: 5.4, projectileSpeed: 0, radius: 0.52, bounty: 35, xp: 32 },
-  skrogue: { model: "Skeleton_Rogue", attackType: "melee", attackDamageType: "physical", attackKind: "melee", hp: 260, damage: 30, armor: 1, attackRange: 1.8, attackSpeed: 1.3, moveSpeed: 6.0, projectileSpeed: 0, radius: 0.55, bounty: 60, xp: 55 },
   frostgolem: { model: "FrostGolem", attackType: "melee", attackDamageType: "physical", attackKind: "melee", hp: 2400, damage: 95, armor: 8, attackRange: 3.2, attackSpeed: 0.6, moveSpeed: 4.4, projectileSpeed: 0, radius: 1.25, bounty: 500, xp: 350, name: "Frost Golem", hpRegen: 20 },
 };
 
@@ -277,12 +276,12 @@ export function creepReward(type: string): { bounty: number; xp: number } {
 }
 
 // Themed lineups per camp (camp0 = Armory runs warrior-heavy, camp3 = Cellar
-// runs quick rogues); the default pack trades a warrior for the skeleton rogue.
+// runs a minion swarm); the default pack is a balanced mix.
 const CAMP_PACKS: Record<string, string[]> = {
   camp0: ["skwarrior", "skwarrior", "skmage", "skminion"],
-  camp3: ["skwarrior", "skrogue", "skrogue", "skminion"],
+  camp3: ["skwarrior", "skmage", "skminion", "skminion"],
 };
-const DEFAULT_PACK = ["skwarrior", "skrogue", "skmage", "skminion"];
+const DEFAULT_PACK = ["skwarrior", "skmage", "skminion", "skminion"];
 
 function spawnCampPack(w: World, camp: CampSpec): void {
   const pack = camp.pack ?? CAMP_PACKS[camp.id] ?? DEFAULT_PACK;
