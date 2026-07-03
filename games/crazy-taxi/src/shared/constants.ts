@@ -8,8 +8,11 @@ export const MAX_DT = 1 / 30; // clamp delta on tab-away
 // --- World / city grid ---
 export const ROAD_TILE = 13; // world units per grid cell (wider arcade boulevards)
 export const ROAD_Y = 0.02; // lift road tiles above the ground plane
-export const GRID = 75; // cells per side — full-scale SF (2× linear, 4× area)
-export const CITY_SEED = 1337;
+// cells per side. The road network is the real SF street grid (OpenStreetMap),
+// rasterized at this resolution by tools/sf-data/rasterize.mjs — keep the baked
+// mask (src/world/sf-streets.ts) in sync: `node tools/sf-data/rasterize.mjs 96 96`.
+export const GRID = 96;
+export const CITY_SEED = 1337; // still seeds traffic, props and other scatter
 // Rotation sign mapping grid clockwise quarter-turns → Three.js Y rotation.
 // Verified visually; flip to +1 if road tiles point the wrong way.
 export const ROAD_ROT_SIGN = -1;
