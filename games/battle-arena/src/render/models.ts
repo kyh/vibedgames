@@ -130,9 +130,6 @@ export type PlayOpts = {
   clamp?: boolean;
   /** Playback rate multiplier. */
   timeScale?: number;
-  /** Play the clip backwards (starts at the last frame, runs to the first).
-   *  One-shot callers time their own windows, so LoopOnce backwards is safe. */
-  reverse?: boolean;
 };
 
 /** Wraps one character instance + its mixer; crossfades named clips. */
@@ -174,16 +171,14 @@ export class AnimatedCharacter {
 
   /** Crossfade to a clip. No-op if already the current clip (unless one-shot). */
   play(clipName: string, opts: PlayOpts = {}): void {
-    const { fade = 0.2, loop = true, clamp = false, timeScale = 1, reverse = false } = opts;
+    const { fade = 0.2, loop = true, clamp = false, timeScale = 1 } = opts;
     if (this.currentName === clipName && loop) return;
     const next = this.action(clipName);
     if (!next) return;
     next.reset();
     next.enabled = true;
     next.setEffectiveWeight(1);
-    next.setEffectiveTimeScale(reverse ? -timeScale : timeScale);
-    // backwards playback: start on the final frame and run down to t=0
-    if (reverse) next.time = next.getClip().duration;
+    next.setEffectiveTimeScale(timeScale);
     next.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1);
     next.clampWhenFinished = clamp;
     next.play();
