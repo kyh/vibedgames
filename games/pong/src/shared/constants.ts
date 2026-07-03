@@ -80,6 +80,21 @@ export const LEGACY_FPS = 60;
 // ---- rules -------------------------------------------------------------------
 export const WIN_SCORE = 7;
 
+// ---- multiplayer -------------------------------------------------------------
+// Head-to-head: the first player in a room hosts (owns the ball + slot A, the
+// near paddle); the second controls slot B (the far paddle). A third player
+// overflows into a sibling room, so every room is a clean 1v1. Alone in a room,
+// the host plays the AI exactly like single-player — the opponent seamlessly
+// swaps to the human the moment they join, and back to the AI if they leave.
+export const MP_ROOM = "pong-default";
+export const MP_MAX_PLAYERS = 2;
+// Give up on the party server after this long with no connection and fall back
+// to a local solo match vs the AI (same value the other bundled games use).
+export const OFFLINE_FALLBACK_MS = 4000;
+// Host broadcasts the ball/score state at this rate; the guest dead-reckons the
+// ball between updates so it stays smooth at the full frame rate.
+export const NET_TICK_HZ = 30;
+
 // ---- HUD (rally combo) -------------------------------------------------------
 // DOM "×N" counter (above the canvas — un-dithered, crisp ink). Shows from MIN
 // hits; its size scales toward a peak at PEAK_HITS, aligned with the sfx pitch
