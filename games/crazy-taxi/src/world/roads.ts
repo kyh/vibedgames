@@ -16,7 +16,7 @@ import type { Terrain } from "./terrain";
 // Asphalt span within a tile. Everything else derives from it: sidewalks fill
 // to the tile edge, parked cars sit inside the outer lane, traffic drives at
 // ±LANE_CENTER, streetlights stand on the sidewalk.
-export const ASPHALT_W = ROAD_TILE * 0.72;
+export const ASPHALT_W = ROAD_TILE * 0.8; // wider tarmac — drifting needs room
 export const SIDEWALK_W = (ROAD_TILE - ASPHALT_W) / 2;
 export const LANE_CENTER = ASPHALT_W * 0.19; // traffic keeps right of the yellow line
 const CURB_H = 0.13;

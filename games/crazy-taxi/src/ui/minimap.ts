@@ -1,12 +1,14 @@
-import { GRID_X, GRID_Z, ROAD_TILE, WORLD_H, WORLD_HALF_X, WORLD_HALF_Z, WORLD_W } from "../shared/constants";
+import { GRID_X, GRID_Z, WORLD_H, WORLD_HALF_X, WORLD_HALF_Z, WORLD_W } from "../shared/constants";
 import type { CityPlan } from "../world/grid";
 import type { SurfaceDeck } from "../world/city";
 import { districtAt } from "../world/sf-map";
 
-// Corner minimap: a north-up map of SF painted once from the city plan
-// (water/land/parks/roads + drivable decks), with live markers composited
-// over it each frame — waiting fares (tier colors), the destination, and
-// the taxi as a heading arrow.
+// Corner minimap: a ZOOMED north-up viewport (~VIEW world units across)
+// following the taxi — the full-map view made streets unreadably small at SF
+// scale. The whole map is painted once into a high-res offscreen base; each
+// frame blits the window around the car and composites live markers: waiting
+// fares (tier colors), the destination, and the taxi as a heading arrow.
+// Off-window markers clamp to the edge so you always know which way to go.
 
 export type MinimapMarker = {
   readonly x: number;
@@ -21,6 +23,9 @@ const PARK = "#6f9455";
 const ROAD = "#c9cdd2";
 const DECK = "#c0483c";
 
+const VIEW = 560; // world units across the minimap window
+const BASE_PX = 2048; // offscreen full-map resolution (px on the long axis)
+
 export class Minimap {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D | null;
@@ -28,18 +33,7 @@ export class Minimap {
   private size: number;
   private dpr: number;
   private t = 0;
-  // Uniform fit of the rectangular world into the square canvas (letterboxed).
-  private scale: number;
-  private offX: number;
-  private offZ: number;
-
-  // World → canvas pixel, preserving the map's real aspect ratio.
-  private pxX(x: number): number {
-    return (x + WORLD_HALF_X) * this.scale + this.offX;
-  }
-  private pxZ(z: number): number {
-    return (z + WORLD_HALF_Z) * this.scale + this.offZ;
-  }
+  private baseScale: number; // world units → base px
 
   constructor(plan: CityPlan, decks: readonly SurfaceDeck[]) {
     const node = document.getElementById("minimap");
@@ -50,19 +44,16 @@ export class Minimap {
     this.canvas.height = this.size * this.dpr;
     this.ctx = this.canvas.getContext("2d");
 
-    // Fit the wider (E-W) axis to the canvas, centre the shorter axis vertically.
-    this.scale = this.size / Math.max(WORLD_W, WORLD_H);
-    this.offX = (this.size - WORLD_W * this.scale) / 2;
-    this.offZ = (this.size - WORLD_H * this.scale) / 2;
-    const cell = ROAD_TILE * this.scale;
-
-    // Paint the static base once.
+    // Paint the static base once, at high resolution so the zoom window
+    // stays crisp (VIEW window → this.size px needs ~0.6 px/u; we bake 0.65).
+    this.baseScale = BASE_PX / Math.max(WORLD_W, WORLD_H);
     this.base = document.createElement("canvas");
-    this.base.width = this.size * this.dpr;
-    this.base.height = this.size * this.dpr;
+    this.base.width = Math.ceil(WORLD_W * this.baseScale);
+    this.base.height = Math.ceil(WORLD_H * this.baseScale);
     const b = this.base.getContext("2d");
     if (b) {
-      b.scale(this.dpr, this.dpr);
+      const cellX = (WORLD_W * this.baseScale) / GRID_X;
+      const cellZ = (WORLD_H * this.baseScale) / GRID_Z;
       for (let gx = 0; gx < GRID_X; gx++) {
         for (let gz = 0; gz < GRID_Z; gz++) {
           const kind = plan.cells[gx]?.[gz];
@@ -72,17 +63,17 @@ export class Minimap {
             fill = districtAt(gx, gz).character === "park" ? PARK : LAND;
           }
           b.fillStyle = fill;
-          b.fillRect(gx * cell + this.offX, gz * cell + this.offZ, cell + 0.5, cell + 0.5);
+          b.fillRect(gx * cellX, gz * cellZ, cellX + 0.5, cellZ + 0.5);
         }
       }
       // Drivable decks (Golden Gate + wharf piers) read as landmarks.
       b.fillStyle = DECK;
       for (const d of decks) {
         b.fillRect(
-          this.pxX(d.minX),
-          this.pxZ(d.minZ),
-          Math.max(2, (d.maxX - d.minX) * this.scale),
-          Math.max(2, (d.maxZ - d.minZ) * this.scale),
+          (d.minX + WORLD_HALF_X) * this.baseScale,
+          (d.minZ + WORLD_HALF_Z) * this.baseScale,
+          Math.max(2, (d.maxX - d.minX) * this.baseScale),
+          Math.max(2, (d.maxZ - d.minZ) * this.baseScale),
         );
       }
     }
@@ -96,41 +87,53 @@ export class Minimap {
     const ctx = this.ctx;
     if (!ctx) return;
     this.t += dt;
+
+    // Blit the window around the car (base px), water-blue beyond the map.
+    const winPx = VIEW * this.baseScale;
+    const sx = (carX + WORLD_HALF_X) * this.baseScale - winPx / 2;
+    const sz = (carZ + WORLD_HALF_Z) * this.baseScale - winPx / 2;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.drawImage(this.base, 0, 0);
+    ctx.fillStyle = WATER;
+    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    ctx.drawImage(this.base, sx, sz, winPx, winPx, 0, 0, this.canvas.width, this.canvas.height);
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
 
+    // World → viewport CSS px.
+    const vScale = this.size / VIEW;
+    const px = (x: number): number => (x - carX + VIEW / 2) * vScale;
+    const pz = (z: number): number => (z - carZ + VIEW / 2) * vScale;
+
     for (const m of markers) {
-      const px = this.pxX(m.x);
-      const pz = this.pxZ(m.z);
-      if (m.ring) {
-        const pulse = 3.4 + Math.sin(this.t * 5) * 1.2;
+      // Clamp off-window markers to the edge (direction hint).
+      const mx = Math.min(this.size - 5, Math.max(5, px(m.x)));
+      const mz = Math.min(this.size - 5, Math.max(5, pz(m.z)));
+      const clamped = mx !== px(m.x) || mz !== pz(m.z);
+      if (m.ring && !clamped) {
+        const pulse = 4 + Math.sin(this.t * 5) * 1.4;
         ctx.strokeStyle = m.color;
-        ctx.lineWidth = 1.6;
+        ctx.lineWidth = 1.8;
         ctx.beginPath();
-        ctx.arc(px, pz, pulse, 0, Math.PI * 2);
+        ctx.arc(mx, mz, pulse, 0, Math.PI * 2);
         ctx.stroke();
       }
       ctx.fillStyle = m.color;
       ctx.beginPath();
-      ctx.arc(px, pz, 2.4, 0, Math.PI * 2);
+      ctx.arc(mx, mz, clamped ? 3.2 : 2.8, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    // The taxi: a heading arrow. Screen up is -Z (north); heading 0 faces +Z.
-    const cx = this.pxX(carX);
-    const cz = this.pxZ(carZ);
+    // The taxi: centred heading arrow. Screen up is -Z; heading 0 faces +Z.
     ctx.save();
-    ctx.translate(cx, cz);
+    ctx.translate(this.size / 2, this.size / 2);
     ctx.rotate(Math.PI - heading);
     ctx.fillStyle = "#ffd147";
     ctx.strokeStyle = "#14111a";
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.moveTo(0, -5);
-    ctx.lineTo(3.6, 4);
-    ctx.lineTo(0, 2.1);
-    ctx.lineTo(-3.6, 4);
+    ctx.moveTo(0, -6);
+    ctx.lineTo(4.2, 4.6);
+    ctx.lineTo(0, 2.4);
+    ctx.lineTo(-4.2, 4.6);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();

@@ -599,14 +599,16 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
         const edgeOff = ROAD_TILE / 2 - 0.5;
         const along = dx === 0 ? "x" : "z"; // wall runs perpendicular to dir
         const runLen = ROAD_TILE / 2 - 2.2; // leave a 4.4u centre gap
-        const wallScaleX = runLen / Math.max(wallBounds.size.x, 0.001);
+        // The KayKit wall piece runs along its LOCAL Z — scale the run there
+        // and yaw so that axis lies along the park edge (X-edges need the 90°).
+        const wallRun = runLen / Math.max(wallBounds.size.z, 0.001);
         for (const side of [-1, 1] as const) {
           const mid = side * (2.2 + runLen / 2);
           const px = along === "x" ? wx + mid : wx + dx * edgeOff;
           const pz = along === "x" ? wz + dz * edgeOff : wz + mid;
           const wall = cache.instance(wallUrl);
-          wall.scale.set(wallScaleX, wallH, wallH);
-          wall.rotation.y = along === "x" ? 0 : HALF_PI;
+          wall.scale.set(wallH, wallH, wallRun);
+          wall.rotation.y = along === "x" ? HALF_PI : 0;
           wall.position.set(px, terrain.heightAt(px, pz), pz);
           wall.updateMatrixWorld(true);
           objects.push(wall);
@@ -633,7 +635,7 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
         // Gate posts at the entry gap.
         const ex = along === "x" ? wx : wx + dx * edgeOff;
         const ez = along === "x" ? wz + dz * edgeOff : wz;
-        seat(entryUrl, ex, ez, along === "x" ? 0 : HALF_PI, scaleToHeight(entryUrl, 2.3));
+        seat(entryUrl, ex, ez, along === "x" ? HALF_PI : 0, scaleToHeight(entryUrl, 2.3));
       }
 
       // Fountain plaza: basin + water + radiating tan paths + benches/lamps.

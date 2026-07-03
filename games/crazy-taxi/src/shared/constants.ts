@@ -45,14 +45,14 @@ export const CAR = {
   reverseMax: 18,
   reverseAccel: 26,
   // Steering: angular speed (rad/s) you can turn, scaled by how fast you go.
-  turnRate: 3.05,
+  turnRate: 3.3,
   turnSpeedFalloff: 0.82, // keep more steering authority at speed (easier turns)
   steerRamp: 0.09, // seconds to ramp steering input to full lock (crisp, not icy)
   // Grip controls how fast the velocity vector realigns to the car's heading.
   gripNormal: 8.2, // high grip → little slide (THE feel knob: lower = slidier)
-  gripDrift: 1.5, // low grip while drifting → big hangable slide
+  gripDrift: 1.9, // low grip while drifting → hangable but recoverable slide
   driftTurnBoost: 1.7, // extra steering while drifting
-  driftMinSpeed: 18, // must be moving this fast to drift
+  driftMinSpeed: 14, // must be moving this fast to drift
   driftMinSlip: 0.1, // radians of real slip before a drift counts (no spam scoring)
   miniBoostImpulse: 14, // instant forward pop when releasing a charged drift
   slopeGravity: 40, // how hard SF hills pull the car back uphill / drag it downhill
