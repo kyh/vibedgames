@@ -37,7 +37,7 @@ const CATEGORIES: readonly { label: string; cat: string; names: readonly string[
   { label: "Houses", cat: "buildings", names: BUILDINGS_SUBURBAN },
   { label: "Commercial", cat: "buildings", names: [...BUILDINGS_COMMERCIAL, ...BUILDINGS_SKYSCRAPER] },
   { label: "Industrial", cat: "buildings", names: BUILDINGS_INDUSTRIAL },
-  { label: "Cars", cat: "cars", names: [...TRAFFIC_CARS, ...SERVICE_CARS, "taxi", "police"] },
+  { label: "Cars", cat: "cars", names: [...TRAFFIC_CARS, ...SERVICE_CARS, "waymo", "police"] },
   { label: "People", cat: "characters", names: CHARACTERS },
 ];
 

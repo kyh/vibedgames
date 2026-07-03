@@ -28,6 +28,59 @@ const WHEEL_RADIUS = 0.35;
 const UP = new THREE.Vector3(0, 1, 0);
 const X_AXIS = new THREE.Vector3(1, 0, 0);
 
+// The Waymo self-driving sensor suite grafted onto the white crossover: the
+// signature rooftop lidar dome, side mirror pods, and front bumper sensors.
+// Built in the body's local space (model faces +Z; roof top ≈ y 1.5).
+const LIDAR_WHITE = new THREE.MeshStandardMaterial({ color: 0xeef0f2, roughness: 0.7 });
+const LIDAR_DARK = new THREE.MeshStandardMaterial({ color: 0x24272e, roughness: 0.5, metalness: 0.2 });
+const LIDAR_BLUE = new THREE.MeshStandardMaterial({
+  color: 0x2f7de0,
+  emissive: 0x1a5fbf,
+  emissiveIntensity: 0.4,
+  roughness: 0.4,
+});
+
+function buildWaymoSensors(): THREE.Group {
+  const g = new THREE.Group();
+  const add = (
+    geo: THREE.BufferGeometry,
+    mat: THREE.Material,
+    x: number,
+    y: number,
+    z: number,
+  ): THREE.Mesh => {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(x, y, z);
+    m.castShadow = true;
+    g.add(m);
+    return m;
+  };
+
+  // Rooftop lidar (roof top ≈ y 1.3): a short white pylon flush to the roof, a
+  // dark drum (the spinning sensor), a thin blue accent ring, and a domed cap —
+  // the unmistakable Waymo silhouette, kept compact so it isn't gumball-tall.
+  const roofY = 1.3;
+  add(new THREE.CylinderGeometry(0.15, 0.19, 0.12, 12), LIDAR_WHITE, 0, roofY + 0.05, 0.08);
+  add(new THREE.CylinderGeometry(0.24, 0.24, 0.2, 16), LIDAR_DARK, 0, roofY + 0.2, 0.08);
+  add(new THREE.CylinderGeometry(0.25, 0.25, 0.04, 16), LIDAR_BLUE, 0, roofY + 0.25, 0.08);
+  add(new THREE.SphereGeometry(0.24, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), LIDAR_WHITE, 0, roofY + 0.3, 0.08);
+
+  // Perimeter "mirror" sensor pods on the A-pillars.
+  for (const sx of [-0.78, 0.78] as const) {
+    add(new THREE.BoxGeometry(0.17, 0.13, 0.26), LIDAR_DARK, sx, 1.0, 0.42);
+    add(new THREE.CylinderGeometry(0.05, 0.05, 0.06, 8), LIDAR_BLUE, sx + (sx < 0 ? -0.09 : 0.09), 1.0, 0.42).rotateZ(
+      Math.PI / 2,
+    );
+  }
+
+  // Front + rear bumper radar nubs.
+  for (const z of [1.28, -1.28] as const) {
+    add(new THREE.BoxGeometry(0.46, 0.11, 0.09), LIDAR_DARK, 0, 0.42, z);
+  }
+
+  return g;
+}
+
 export class Car {
   readonly object3D: THREE.Group;
   private body: THREE.Object3D;
@@ -68,7 +121,8 @@ export class Car {
 
   constructor(cache: ModelCache) {
     this.object3D = new THREE.Group();
-    // Hero scale: the taxi reads slightly larger than traffic so it owns the frame.
+    // Hero scale: the player car reads slightly larger than traffic so it owns
+    // the frame.
     this.object3D.scale.setScalar(1.12);
     this.body = cache.instance(modelUrl("cars", PLAYER_CAR));
     this.body.traverse((c) => {
@@ -76,6 +130,7 @@ export class Car {
         this.wheels.push({ node: c, front: c.name.includes("front") });
       }
     });
+    this.body.add(buildWaymoSensors());
     this.object3D.add(this.body);
   }
 

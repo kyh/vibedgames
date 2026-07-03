@@ -8,7 +8,7 @@ export function modelUrl(category: string, name: string): string {
 }
 
 // --- Cars ---
-export const PLAYER_CAR = "taxi";
+export const PLAYER_CAR = "waymo";
 export const TRAFFIC_CARS = [
   "sedan",
   "sedan-sports",
