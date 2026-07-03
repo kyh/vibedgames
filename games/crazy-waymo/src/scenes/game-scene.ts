@@ -15,8 +15,23 @@ import { GameState } from "../game/state";
 import { ParkedCars } from "../game/parked-cars";
 import { Traffic } from "../game/traffic";
 import { InputState } from "../input/keyboard";
+import { NetSession } from "../net/session";
+import { RemoteCars } from "../net/remote-cars";
 import { PhysicsWorld } from "../physics/physics-world";
-import { CAMERA, CAR, FARE, GRID_X, GRID_Z, MPH_FACTOR, WORLD_H, WORLD_W } from "../shared/constants";
+import {
+  CAMERA,
+  CAR,
+  FARE,
+  GRID_X,
+  GRID_Z,
+  MP_MAX_PLAYERS,
+  MP_ROOM,
+  MPH_FACTOR,
+  NET_TICK_HZ,
+  OFFLINE_FALLBACK_MS,
+  WORLD_H,
+  WORLD_W,
+} from "../shared/constants";
 import { Rng } from "../shared/rng";
 import type { GameMode } from "../shared/types";
 import { Hud } from "../ui/hud";
@@ -97,6 +112,18 @@ export class GameScene {
   private fx = new Fx();
   private sfx = new Sfx();
   private state = new GameState();
+
+  // Multiplayer: free-roam presence over the shared (fixed-seed) city. Connects
+  // as soon as the scene exists; falls back to solo if the party server is
+  // unreachable. Only the local car transform is broadcast — no shared scoring.
+  private net = new NetSession({
+    room: MP_ROOM,
+    maxPlayers: MP_MAX_PLAYERS,
+    fallbackMs: OFFLINE_FALLBACK_MS,
+  });
+  private remoteCars: RemoteCars | null = null;
+  private netAcc = 0;
+  private netInfoEl = document.getElementById("netinfo");
 
   private city: CityModel | null = null;
   private car: Car | null = null;
@@ -243,6 +270,10 @@ export class GameScene {
     this.scene.add(car.object3D);
     car.reset(this.spawn.x, this.spawn.z, this.spawn.yaw);
     this.car = car;
+
+    // Other players' taxis, placed on the same deterministic city.
+    this.remoteCars = new RemoteCars(this.cache, city);
+    this.scene.add(this.remoteCars.group);
 
     // Physics: the world is rigid bodies (terrain, buildings, traffic); the
     // taxi stays on the arcade controller and pushes things through impulses.
@@ -536,6 +567,40 @@ export class GameScene {
     // Stream city chunks around wherever the camera ended up this frame (works
     // in gameplay and freecam alike) so distant tiles stop drawing.
     this.city?.updateStreaming(this.rig.camera);
+
+    this.updateNet(dt);
+  }
+
+  /** Broadcast the local taxi and render the other players' taxis. Runs in
+   *  every mode so you see the city populated even on the title screen. */
+  private updateNet(dt: number): void {
+    this.net.tick();
+    const car = this.car;
+    const remote = this.remoteCars;
+    if (!car || !remote) return;
+
+    if (!this.net.offline) {
+      this.netAcc += dt;
+      if (this.netAcc >= 1 / NET_TICK_HZ) {
+        this.netAcc = 0;
+        this.net.updateMyState({
+          x: car.position.x,
+          y: car.position.y,
+          z: car.position.z,
+          h: car.heading,
+        });
+      }
+    }
+
+    remote.sync(this.net.players, this.net.playerId, car.position);
+    remote.update(dt);
+
+    if (this.netInfoEl) {
+      this.netInfoEl.textContent =
+        !this.net.live || this.net.offline
+          ? ""
+          : `${Object.keys(this.net.players).length} DRIVERS ONLINE`;
+    }
   }
 
   private silenceLoops(): void {
