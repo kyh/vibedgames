@@ -39,12 +39,12 @@ const NEAR_MISS_MAX = 4.6;
 const NEAR_MISS_SPEED = 22;
 const CRASH_THRESHOLD = 7;
 const COUNTDOWN_STEP = 0.45; // seconds per 3-2-1 beat
-const BEST_KEY = "crazy-taxi:best";
-const SOUND_KEY = "crazy-taxi:sound";
-const HINT_DRIFT_KEY = "crazy-taxi:hint-drift";
-const HINT_BOOST_KEY = "crazy-taxi:hint-boost";
+const BEST_KEY = "crazy-waymo:best";
+const SOUND_KEY = "crazy-waymo:sound";
+const HINT_DRIFT_KEY = "crazy-waymo:hint-drift";
+const HINT_BOOST_KEY = "crazy-waymo:hint-boost";
 
-// Crazy-Taxi-style license classes; give the score a name and a next target.
+// Arcade license classes; give the score a name and a next target.
 const RANKS: readonly { min: number; rank: string }[] = [
   { min: 12000, rank: "S" },
   { min: 8000, rank: "A" },
@@ -297,7 +297,7 @@ export class GameScene {
     this.hud.setCombo(1, 0);
     const best = readBest();
     this.hud.showBanner({
-      title: "CRAZY TAXI",
+      title: "CRAZY WAYMO",
       sub: "Pick up fares, beat the clock, drive like a maniac.",
       stats: best > 0 ? `BEST $${best.toLocaleString("en-US")}` : "Every drop-off buys you more time.",
       cta: "PRESS ENTER TO DRIVE",

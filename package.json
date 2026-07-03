@@ -25,7 +25,7 @@
     "dev:bomberman": "turbo watch dev -F @repo/bomberman...",
     "dev:farm": "turbo watch dev -F @repo/farm...",
     "dev:moba": "turbo watch dev -F @repo/moba...",
-    "dev:crazy-taxi": "turbo watch dev -F @repo/crazy-taxi...",
+    "dev:crazy-waymo": "turbo watch dev -F @repo/crazy-waymo...",
     "dev:battle-arena": "turbo watch dev -F @repo/battle-arena...",
     "dev:cli": "turbo watch dev -F vibedgames...",
     "lint": "oxlint --report-unused-disable-directives",
