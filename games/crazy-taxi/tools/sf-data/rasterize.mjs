@@ -107,8 +107,12 @@ function rasterizeSeg(grid, gx0, gz0, gx1, gz1, GX, GZ) {
   }
 }
 
-// 4-connectivity check over a road grid restricted to land, between two cells.
-function connectedOnLand(grid, GX, GZ, ax, az, bx, bz) {
+// 4-connectivity check over road cells that are ALSO on land, between two
+// cells. Restricting the flood-fill to land matters because generateCity drops
+// water cells (isLandCell) — road cells rasterized onto water (bridge
+// approaches, Treasure Island) don't exist in the playable graph, so a path
+// that routes through them would falsely report the network as still connected.
+function connectedOnLand(grid, onLand, GX, GZ, ax, az, bx, bz) {
   const seen = new Uint8Array(GX * GZ);
   const stack = [[ax, az]];
   seen[ax * GZ + az] = 1;
@@ -125,7 +129,7 @@ function connectedOnLand(grid, GX, GZ, ax, az, bx, bz) {
         nz = z + dz;
       if (nx < 0 || nz < 0 || nx >= GX || nz >= GZ) continue;
       const idx = nx * GZ + nz;
-      if (seen[idx] || !grid[idx]) continue;
+      if (seen[idx] || !grid[idx] || !onLand[idx]) continue;
       seen[idx] = 1;
       stack.push([nx, nz]);
     }
@@ -192,7 +196,7 @@ function bake(GX, GZ) {
         ].filter(([x, z]) => x >= 0 && z >= 0 && x < GX && z < GZ && grid[x * GZ + z] && onLandCache[x * GZ + z]);
         let ok = true;
         for (let i = 1; i < nbrs.length; i++) {
-          if (!connectedOnLand(grid, GX, GZ, nbrs[0][0], nbrs[0][1], nbrs[i][0], nbrs[i][1])) {
+          if (!connectedOnLand(grid, onLandCache, GX, GZ, nbrs[0][0], nbrs[0][1], nbrs[i][0], nbrs[i][1])) {
             ok = false;
             break;
           }
