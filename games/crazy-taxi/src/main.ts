@@ -34,6 +34,7 @@ game.applyEnvironment(renderer);
 
 if (import.meta.env.DEV) {
   void import("./debug/dev-hooks").then(({ installDevHooks }) => installDevHooks(game));
+  Object.assign(window, { __renderer: renderer });
 }
 
 function renderHeightPx(): number {

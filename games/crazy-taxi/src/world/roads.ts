@@ -24,7 +24,7 @@ const CURB_H = 0.13;
 // through on slopes (their tessellations approximate the same field ±~0.03).
 const ASPHALT_LIFT = ROAD_Y + 0.05;
 const SIDEWALK_LIFT = ROAD_Y + CURB_H;
-const LINE_LIFT = ASPHALT_LIFT + 0.025;
+const LINE_LIFT = ASPHALT_LIFT + 0.07; // above the conform error tolerance
 const LINE_W = 0.24;
 const EDGE_INSET = 0.5; // white edge line inset from the asphalt edge
 const DASH_LEN = 2.2;

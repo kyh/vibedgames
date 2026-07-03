@@ -47,10 +47,12 @@ export function isLandCell(gx: number, gz: number): boolean {
 
 // Real SF hills (summit u,v + elevation in metres). Scaled to playable game
 // units — steep enough to crest and plunge, not unclimbable.
-// metres → game units. Hill radii are map fractions, so doubling the map's
-// linear size would halve every slope — heights scale up with it to keep the
-// crest-and-plunge feel.
-const HILL_SCALE = 0.15;
+// metres → game units. Hill radii are map fractions, so growing the map's
+// linear size flattens every slope unless heights grow with it — slope feel is
+// height/(radius·world). At the 244×200 map, 0.15 left Twin Peaks a ~12% grade
+// (SF's steep streets are 25-30%); 0.38 restores the crest-and-plunge and the
+// hill jumps. ~2× vertical exaggeration vs real SF, which reads right in-game.
+const HILL_SCALE = 0.38;
 const SF_HILLS_M: ReadonlyArray<{ u: number; v: number; m: number; r: number }> = [
   { u: 0.377, v: 0.693, m: 283, r: 0.08 }, // Mount Davidson
   { u: 0.42, v: 0.56, m: 280, r: 0.09 }, // Twin Peaks

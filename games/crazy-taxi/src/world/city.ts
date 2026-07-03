@@ -78,14 +78,34 @@ function dirToYaw(d: Dir): number {
 // group, tagged with a centre + cull radius so it can be hidden when far away.
 type Chunk = { cx: number; cz: number; radius: number; group: THREE.Group };
 
+// Batched-instance streaming scratch (per-frame, allocation-free).
+const NEAR_ALWAYS = 220; // chunks this close are always on (off-screen shadow casters)
+const DETAIL_DISTANCE = 520; // trees/cars/props cull here; buildings at DRAW_DISTANCE
+const BIG_SILHOUETTE_R = 5; // world-space radius that counts as skyline
+const SCRATCH_SCALE = new THREE.Vector3();
+const STREAM_MAT = new THREE.Matrix4();
+const STREAM_FRUSTUM = new THREE.Frustum();
+const STREAM_SPHERE = new THREE.Sphere();
+
 export class CityModel {
   readonly group = new THREE.Group();
   readonly solids: Solid[] = [];
   readonly roadCells: RoadCell[] = [];
   readonly plan: CityPlan;
   readonly terrain: Terrain;
-  private tintCache = new Map<string, THREE.Material>();
   private chunks: Chunk[] = [];
+  // Global model batches; instances flip visibility by chunk on transitions.
+  private batches: { mesh: THREE.BatchedMesh; chunkIds: Uint16Array }[] = [];
+  private batchChunkGrid = { nx: 1, nz: 1 };
+  private chunkVisible: Uint8Array | null = null;
+  // chunk key → [batchIndex, instanceId] pairs, so a chunk transition touches
+  // only its own instances (a moving camera transitions chunks every frame).
+  // Two tiers: big silhouettes (buildings) draw to the fog line; detail
+  // (trees, parked cars, props) only needs DETAIL_DISTANCE — the far city
+  // stays a skyline instead of 36k full-detail instances.
+  private chunkInstancesFar = new Map<number, [number, number][]>();
+  private chunkInstancesNear = new Map<number, [number, number][]>();
+  private chunkVisibleNear: Uint8Array | null = null;
 
   constructor(
     private cache: ModelCache,
@@ -148,20 +168,14 @@ export class CityModel {
   }
 
   // District-tinted material clones, cached so tinted buildings still merge.
-  private tintMaterial(base: THREE.Material, hex: number, amt: number): THREE.Material {
-    if (!(base instanceof THREE.MeshStandardMaterial)) return base;
-    const key = `${base.uuid}:${hex}:${amt}`;
-    const cached = this.tintCache.get(key);
-    if (cached) return cached;
-    const m = base.clone();
-    m.color.copy(base.color).lerp(new THREE.Color(hex), amt);
-    this.tintCache.set(key, m);
-    return m;
-  }
+  // Tint via per-INSTANCE color (BatchedMesh.setColorAt): the batcher
+  // multiplies it with the material map exactly like the old cloned-material
+  // lerp did for white-based kit materials — and tint variants stop
+  // multiplying batch count (and material count).
   private tintNode(node: THREE.Object3D, hex: number, amt: number): void {
     node.traverse((c) => {
-      if (c instanceof THREE.Mesh && c.material instanceof THREE.Material) {
-        c.material = this.tintMaterial(c.material, hex, amt);
+      if (c instanceof THREE.Mesh && c.material instanceof THREE.MeshStandardMaterial) {
+        c.userData.tint = c.material.color.clone().lerp(new THREE.Color(hex), amt);
       }
     });
   }
@@ -187,20 +201,19 @@ export class CityModel {
         toFloat32Attributes(baked); // dequantize BEFORE baking world coords
         baked.applyMatrix4(c.matrixWorld);
         const draped = conformToTerrain(baked, this.terrain, lift);
-        staticMeshes.push(new THREE.Mesh(draped, mat));
+        const conformed = new THREE.Mesh(draped, mat);
+        conformed.userData.merge = true; // unique buffers — merge, don't batch
+        staticMeshes.push(conformed);
       });
     };
 
     // Grass patch + scattered trees on a cell (parks + block interiors).
-    const grassMat = new THREE.MeshStandardMaterial({ color: 0x52803d, roughness: 1 });
-    const grassGeo = new THREE.PlaneGeometry(ROAD_TILE, ROAD_TILE, 4, 4);
-    grassGeo.rotateX(-HALF_PI); // normal → +Y; conform drapes it over the slope
     const placeGreen = (gx: number, gz: number): void => {
       const wx = this.worldX(gx);
       const wz = this.worldZ(gz);
-      const quad = new THREE.Mesh(grassGeo, grassMat);
-      quad.position.set(wx, 0, wz);
-      collectConformed(quad, 0.05);
+      // The lawn itself is painted by the ground mesh's vertex grading (see
+      // colorAt below) — a draped quad per green cell was ~half the map's
+      // conform geometry for something vertex colors do for free.
       if (this.rng.chance(0.55)) {
         const count = 1 + this.rng.int(2);
         for (let i = 0; i < count; i++) {
@@ -226,7 +239,10 @@ export class CityModel {
         if (this.plan.roads[gx]?.[gz]) this.roadCells.push({ gx, gz });
       }
     }
-    for (const mesh of buildRoads(this.plan, this.terrain)) staticMeshes.push(mesh);
+    for (const mesh of buildRoads(this.plan, this.terrain)) {
+      mesh.userData.merge = true; // road ribbons are unique conformed buffers
+      staticMeshes.push(mesh);
+    }
 
     // --- Landmark footprints: cells the procedural city leaves alone ---
     const lm = landmarkProtection(this.plan);
@@ -412,11 +428,14 @@ export class CityModel {
     const CONCRETE = new THREE.Color(0x9a9b92);
     const SAND = new THREE.Color(0xd9c9a1);
     const PARK = new THREE.Color(0x74975c);
+    const greenSet = new Set(this.plan.greenCells.map((g) => `${g.gx},${g.gz}`));
     const ground = this.terrain.buildMesh(groundMat, (x, z, into) => {
       into.copy(CONCRETE);
       const gx = Math.min(GRID_X - 1, Math.max(0, this.gridX(x)));
       const gz = Math.min(GRID_Z - 1, Math.max(0, this.gridZ(z)));
-      if (districtAt(gx, gz).character === "park") into.lerp(PARK, 0.8);
+      if (districtAt(gx, gz).character === "park" || greenSet.has(`${gx},${gz}`)) {
+        into.lerp(PARK, 0.8);
+      }
       const land = this.terrain.landAt(x, z);
       const shore = 1 - THREE.MathUtils.smoothstep(land, 0.3, 0.55);
       if (shore > 0) {
@@ -448,29 +467,63 @@ export class CityModel {
       }
     }
 
-    // --- Bucket static meshes into spatial chunks, then merge each chunk by
-    // material. Per-chunk merges keep draw calls low while giving the renderer
-    // tight bounds to frustum-cull, and let updateStreaming() hide far tiles. ---
+    // --- Two render paths for the static city ---
+    // 1) Unique conformed buffers (roads, drapes; userData.merge): merged by
+    //    material into spatial CHUNK tiles the streamer shows/hides.
+    // 2) Everything else (buildings, trees, props — repeated models): ONE
+    //    global BatchedMesh per (material, attribute layout). Geometry is
+    //    uploaded once per unique mesh; placements are 64B matrices. Streaming
+    //    is per-instance (setVisibleAt on a slow cadence) — per-chunk batches
+    //    would re-copy each model's geometry into every chunk that uses it.
     const nx = Math.ceil(WORLD_W / CHUNK);
     const nz = Math.ceil(WORLD_H / CHUNK);
-    const buckets = new Map<number, THREE.Mesh[]>();
+    type BatchBucket = {
+      material: THREE.Material;
+      geoVerts: Map<THREE.BufferGeometry, number>;
+      items: { geo: THREE.BufferGeometry; matrix: THREE.Matrix4; tint?: THREE.Color }[];
+      verts: number;
+      indices: number;
+    };
+    const mergeBuckets = new Map<number, THREE.Mesh[]>();
+    const batchBuckets = new Map<string, BatchBucket>();
     const centroid = new THREE.Vector3();
     for (const mesh of staticMeshes) {
       if (!(mesh.geometry instanceof THREE.BufferGeometry)) continue;
-      mesh.geometry.computeBoundingBox();
-      mesh.geometry.boundingBox?.getCenter(centroid);
-      centroid.applyMatrix4(mesh.matrixWorld);
-      const cx = Math.min(nx - 1, Math.max(0, Math.floor((centroid.x + WORLD_HALF_X) / CHUNK)));
-      const cz = Math.min(nz - 1, Math.max(0, Math.floor((centroid.z + WORLD_HALF_Z) / CHUNK)));
-      const key = cz * nx + cx;
-      const list = buckets.get(key);
-      if (list) list.push(mesh);
-      else buckets.set(key, [mesh]);
+      const mat = mesh.material;
+      if (mesh.userData.merge === true || Array.isArray(mat)) {
+        mesh.geometry.computeBoundingBox();
+        mesh.geometry.boundingBox?.getCenter(centroid);
+        centroid.applyMatrix4(mesh.matrixWorld);
+        const cx = Math.min(nx - 1, Math.max(0, Math.floor((centroid.x + WORLD_HALF_X) / CHUNK)));
+        const cz = Math.min(nz - 1, Math.max(0, Math.floor((centroid.z + WORLD_HALF_Z) / CHUNK)));
+        const key = cz * nx + cx;
+        const list = mergeBuckets.get(key);
+        if (list) list.push(mesh);
+        else mergeBuckets.set(key, [mesh]);
+        continue;
+      }
+      // Batches must share an attribute layout — key on material + attrs.
+      const geo = mesh.geometry;
+      const attrKey = Object.keys(geo.attributes).sort().join(",");
+      const bKey = `${mat.uuid}|${attrKey}|${geo.index ? "i" : "n"}`;
+      let bucket = batchBuckets.get(bKey);
+      if (!bucket) {
+        bucket = { material: mat, geoVerts: new Map(), items: [], verts: 0, indices: 0 };
+        batchBuckets.set(bKey, bucket);
+      }
+      if (!bucket.geoVerts.has(geo)) {
+        const vCount = geo.attributes.position?.count ?? 0;
+        bucket.geoVerts.set(geo, vCount);
+        bucket.verts += vCount;
+        bucket.indices += geo.index ? geo.index.count : vCount;
+      }
+      const tint = mesh.userData.tint instanceof THREE.Color ? mesh.userData.tint : undefined;
+      bucket.items.push({ geo, matrix: mesh.matrixWorld.clone(), ...(tint ? { tint } : {}) });
     }
-    // Half-diagonal of a chunk, plus slack for geometry (trees, tall roofs) that
-    // overhangs its tile — used as the cull radius so nothing pops at the edge.
+
+    // Chunked merges (roads + drapes).
     const cullRadius = CHUNK * 0.71 + ROAD_TILE * 2;
-    for (const [key, meshes] of buckets) {
+    for (const [key, meshes] of mergeBuckets) {
       const cx = key % nx;
       const cz = Math.floor(key / nx);
       const group = new THREE.Group();
@@ -484,18 +537,114 @@ export class CityModel {
       });
     }
 
+    // Global batches (models). Each instance is assigned to a spatial chunk;
+    // updateStreaming() flips whole chunks of instances on visibility
+    // transitions, so per-frame cost is ~chunk count, not instance count.
+    const pos = new THREE.Vector3();
+    for (const bucket of batchBuckets.values()) {
+      const batched = new THREE.BatchedMesh(
+        bucket.items.length,
+        bucket.verts,
+        bucket.indices,
+        bucket.material,
+      );
+      batched.castShadow = true;
+      batched.receiveShadow = true;
+      // Whole-batch bounds span the map — chunk visibility below is the cull.
+      batched.perObjectFrustumCulled = false;
+      batched.sortObjects = false;
+      const geoIds = new Map<THREE.BufferGeometry, number>();
+      const chunkIds = new Uint16Array(bucket.items.length);
+      for (let i = 0; i < bucket.items.length; i++) {
+        const item = bucket.items[i];
+        if (!item) continue;
+        let gid = geoIds.get(item.geo);
+        if (gid === undefined) {
+          gid = batched.addGeometry(item.geo);
+          geoIds.set(item.geo, gid);
+        }
+        const iid = batched.addInstance(gid);
+        batched.setMatrixAt(iid, item.matrix);
+        if (item.tint) batched.setColorAt(iid, item.tint);
+        pos.setFromMatrixPosition(item.matrix);
+        const ccx = Math.min(nx - 1, Math.max(0, Math.floor((pos.x + WORLD_HALF_X) / CHUNK)));
+        const ccz = Math.min(nz - 1, Math.max(0, Math.floor((pos.z + WORLD_HALF_Z) / CHUNK)));
+        chunkIds[iid] = ccz * nx + ccx;
+      }
+      batched.computeBoundingSphere();
+      this.group.add(batched);
+      const bIndex = this.batches.length;
+      this.batches.push({ mesh: batched, chunkIds });
+      let anyBig = false;
+      for (let iid = 0; iid < chunkIds.length; iid++) {
+        const key = chunkIds[iid] ?? 0;
+        const item = bucket.items[iid];
+        let worldR = 3;
+        if (item) {
+          if (!item.geo.boundingSphere) item.geo.computeBoundingSphere();
+          const sc = SCRATCH_SCALE.setFromMatrixScale(item.matrix);
+          worldR = (item.geo.boundingSphere?.radius ?? 1) * Math.max(sc.x, sc.y, sc.z);
+        }
+        const big = worldR >= BIG_SILHOUETTE_R;
+        if (big) anyBig = true;
+        const map = big ? this.chunkInstancesFar : this.chunkInstancesNear;
+        const list = map.get(key);
+        if (list) list.push([bIndex, iid]);
+        else map.set(key, [[bIndex, iid]]);
+      }
+      // Small-prop shadows don't read at chase-cam scale; skip their pass.
+      if (!anyBig) batched.castShadow = false;
+    }
+    // Chunk centres for the batched-instance visibility pass.
+    this.batchChunkGrid = { nx, nz };
+
     // --- Iconic landmarks (procedural; kept separate — always visible) ---
     this.group.add(buildLandmarks(this.terrain, this.cache));
   }
 
-  // Hide chunks whose nearest point is beyond the draw distance from the camera.
-  // Frustum culling (per merged mesh, automatic) removes tiles behind and beside
-  // the camera; this removes distant tiles ahead, past the fog.
-  updateStreaming(camX: number, camZ: number): void {
+  // Chunked visibility: merged road/drape tiles show/hide as whole groups
+  // (three frustum-culls them per mesh); batched model instances flip by chunk
+  // — distance AND view frustum, near chunks always on so shadow casters just
+  // off-screen keep their shadows. Flips apply only on TRANSITIONS, so the
+  // steady-state per-frame cost is one sphere test per chunk.
+  updateStreaming(camera: THREE.Camera): void {
+    const camX = camera.position.x;
+    const camZ = camera.position.z;
     for (const c of this.chunks) {
       const d = Math.hypot(camX - c.cx, camZ - c.cz) - c.radius;
       const visible = d < DRAW_DISTANCE;
       if (c.group.visible !== visible) c.group.visible = visible;
+    }
+    const { nx, nz } = this.batchChunkGrid;
+    const total = nx * nz;
+    if (!this.chunkVisible) this.chunkVisible = new Uint8Array(total).fill(1);
+    if (!this.chunkVisibleNear) this.chunkVisibleNear = new Uint8Array(total).fill(1);
+    STREAM_MAT.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    STREAM_FRUSTUM.setFromProjectionMatrix(STREAM_MAT);
+    const pad = CHUNK * 0.71 + ROAD_TILE * 2;
+    for (let key = 0; key < total; key++) {
+      const cx = ((key % nx) + 0.5) * CHUNK - WORLD_HALF_X;
+      const cz = (Math.floor(key / nx) + 0.5) * CHUNK - WORLD_HALF_Z;
+      const dist = Math.hypot(camX - cx, camZ - cz);
+      let inFrustum = false;
+      if (dist - pad < DRAW_DISTANCE) {
+        STREAM_SPHERE.center.set(cx, 14, cz);
+        STREAM_SPHERE.radius = pad + 30; // tall roofs/trees overhang the tile
+        inFrustum = STREAM_FRUSTUM.intersectsSphere(STREAM_SPHERE);
+      }
+      const near = dist < NEAR_ALWAYS;
+      const visFar: 0 | 1 = near || (inFrustum && dist - pad < DRAW_DISTANCE) ? 1 : 0;
+      const visNear: 0 | 1 = near || (inFrustum && dist - pad < DETAIL_DISTANCE) ? 1 : 0;
+      if (this.chunkVisible[key] !== visFar) {
+        this.chunkVisible[key] = visFar;
+        const list = this.chunkInstancesFar.get(key);
+        if (list) for (const [b, iid] of list) this.batches[b]?.mesh.setVisibleAt(iid, visFar === 1);
+      }
+      if (this.chunkVisibleNear[key] !== visNear) {
+        this.chunkVisibleNear[key] = visNear;
+        const list = this.chunkInstancesNear.get(key);
+        if (list) for (const [b, iid] of list) this.batches[b]?.mesh.setVisibleAt(iid, visNear === 1);
+      }
     }
   }
 

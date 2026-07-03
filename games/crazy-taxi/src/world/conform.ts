@@ -7,9 +7,13 @@ import type { Terrain } from "./terrain";
 // underneath them, then every vertex is displaced by the terrain height. Since
 // the ground mesh samples the same field, roads hug the hills with no seams.
 
-const MAX_ERROR = 0.03; // split a triangle when the surface bows past this
-const MIN_EDGE = 1.6; // never split edges shorter than this (runaway guard)
-const MAX_DEPTH = 5;
+// Coarser than the original 0.03/1.6/5: at the full-SF cell count the conform
+// output dominates heap (non-indexed verts x 16k road cells), and a 6cm bow
+// under a 13u-wide road is invisible. Markings float on a raised lift so the
+// looser tolerance can't tuck them under the asphalt.
+const MAX_ERROR = 0.06; // split a triangle when the surface bows past this
+const MIN_EDGE = 2.4; // never split edges shorter than this (runaway guard)
+const MAX_DEPTH = 4;
 const UP_DOT = 0.8; // vertices at least this upright adopt the terrain normal
 
 // Meshopt-compressed GLBs arrive with quantized (Int16/interleaved) attributes.

@@ -31,7 +31,9 @@ export const WORLD_HALF_Z = WORLD_H / 2;
 // point is farther than DRAW_DISTANCE from the camera are hidden each frame.
 // Keep DRAW_DISTANCE ≥ the fog far plane so nothing pops in ahead of the haze.
 export const CHUNK = 320;
-export const DRAW_DISTANCE = 1900;
+// ~12M tris/frame at 1900 (the whole city fit inside the fog) — SF haze pulls
+// in instead: full fog by ~1250, chunks released just past it.
+export const DRAW_DISTANCE = 1000;
 
 // --- Taxi (arcade handling) ---
 export const CAR = {

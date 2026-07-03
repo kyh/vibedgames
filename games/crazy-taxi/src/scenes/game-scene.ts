@@ -160,7 +160,7 @@ export class GameScene {
     // Draw-distance fog: the map is far larger than the view, so haze the
     // horizon well inside the camera far plane (2000). Doubles as the visual cue
     // for the chunk draw-distance cull.
-    this.scene.fog = new THREE.Fog(0xbcd7ea, 620, 1850);
+    this.scene.fog = new THREE.Fog(0xbcd7ea, 420, 960);
 
     const hemi = new THREE.HemisphereLight(0xbfe0ff, 0x4a4a3e, 0.35);
     this.scene.add(hemi);
@@ -527,8 +527,7 @@ export class GameScene {
 
     // Stream city chunks around wherever the camera ended up this frame (works
     // in gameplay and freecam alike) so distant tiles stop drawing.
-    const cam = this.rig.camera.position;
-    this.city?.updateStreaming(cam.x, cam.z);
+    this.city?.updateStreaming(this.rig.camera);
   }
 
   private silenceLoops(): void {

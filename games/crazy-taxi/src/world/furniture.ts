@@ -121,22 +121,12 @@ const SEAWALL_MAT = new THREE.MeshStandardMaterial({ color: 0x9aa2a6, roughness:
 const LAKE_MAT = new THREE.MeshStandardMaterial({ color: 0x3f6f8f, roughness: 0.4 }); // Stow Lake
 const PATH_MAT = new THREE.MeshStandardMaterial({ color: 0xd9c3a1, roughness: 1 }); // park paths
 
-// Tinted material clones, cached so tinted meshes still merge into one batch.
-const tintCache = new Map<string, THREE.Material>();
-function tintMaterial(base: THREE.Material, hex: number, amt: number): THREE.Material {
-  if (!(base instanceof THREE.MeshStandardMaterial)) return base;
-  const cacheKey = `${base.uuid}:${hex}:${amt}`;
-  const cached = tintCache.get(cacheKey);
-  if (cached) return cached;
-  const m = base.clone();
-  m.color.copy(base.color).lerp(new THREE.Color(hex), amt);
-  tintCache.set(cacheKey, m);
-  return m;
-}
+// Tint via per-instance color (picked up by the city batcher's setColorAt) —
+// tint variants no longer clone materials or multiply batch count.
 function tintNode(node: THREE.Object3D, hex: number, amt: number): void {
   node.traverse((c) => {
-    if (c instanceof THREE.Mesh && c.material instanceof THREE.Material) {
-      c.material = tintMaterial(c.material, hex, amt);
+    if (c instanceof THREE.Mesh && c.material instanceof THREE.MeshStandardMaterial) {
+      c.userData.tint = c.material.color.clone().lerp(new THREE.Color(hex), amt);
     }
   });
 }
