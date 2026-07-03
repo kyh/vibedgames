@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 
+import { NetSession } from "../net/session";
 import {
   ART_SCALE,
   BEST_KEY,
@@ -9,7 +10,8 @@ import {
   BIRD_SPAWN_Y,
   BIRD_W,
   BIRD_X,
-  COIN_CHANCE,
+  coinPresentFor,
+  coinYFor,
   DIGIT_H,
   DIGIT_W,
   DRAGON_SPRITE_OFFSET_X,
@@ -17,73 +19,101 @@ import {
   flapVelocityFor,
   GRAVITY,
   MAX_TILT,
+  MP_MAX_PLAYERS,
+  MP_ROOM,
+  NET_TICK_HZ,
+  OFFLINE_FALLBACK_MS,
   PIPE_GAP,
+  pipeCourseX,
   PIPE_SPAWN_DISTANCE,
   PIPE_SPEED,
   PIPE_WIDTH,
   READY_DRIFT,
-  rollCoinY,
+  RESPAWN_MS,
   rollSkin,
-  rollTopHeight,
+  RUNWAY,
   SCORE_Y,
   TILT_FACTOR,
+  topHeightFor,
   TUBE_CAP_H,
+  WORLD_TICK_HZ,
   type Phase,
 } from "../shared/constants";
 
+/** A trunk built for course index `i`; sprites are positioned each frame. */
 type Pipe = {
-  /** Left edge of the trunk body (collision rect). */
-  x: number;
-  /** Bottom of the top segment = top edge of the gap. */
+  index: number;
   topHeight: number;
-  scored: boolean;
   topCap: Phaser.GameObjects.Image;
   topBody: Phaser.GameObjects.TileSprite;
   botCap: Phaser.GameObjects.Image;
   botBody: Phaser.GameObjects.TileSprite;
-  /** Bonus coin floating in the gap (some trunks only). */
   coin: Phaser.GameObjects.Sprite | null;
 };
 
 type BgLayer = {
   sprite: Phaser.GameObjects.TileSprite;
-  /** Parallax factor × world scroll. */
   factor: number;
 };
 
-/** Coin pickup AABB half-extents (dragon 76×48 + coin 32, with a little grace). */
+/** Another player's live dragon, drawn as a translucent ghost. */
+type Ghost = {
+  sprite: Phaser.GameObjects.Sprite;
+  skin: number;
+  seat: number;
+};
+
 const COIN_PICKUP_X = 54;
 const COIN_PICKUP_Y = 44;
-
-/** Swallow inputs briefly after death so a flap-mash can't skip the gameover screen. */
 const RESTART_LOCKOUT_MS = 280;
-/** Cap delta so a backgrounded tab can't tunnel the dragon through a trunk. */
 const MAX_DT_MS = 50;
 
 const HINT_FLAP = "CLICK · TAP · SPACE — FLAP";
 const HINT_RESTART = "TAP ANYWHERE TO RESTART";
+const HINT_RACE = "FLAP TO JOIN THE RACE";
+
+type PeerState = { yf: number; live: boolean; score: number; skin: number; rot: number };
 
 export class GameScene extends Phaser.Scene {
+  private net!: NetSession;
+
   private phase: Phase = "ready";
-  /** Top edge of the dragon's AABB (legacy coordinate; sprite renders offset). */
   private birdY = BIRD_SPAWN_Y;
   private vy = 0;
-  private pipes: Pipe[] = [];
   private score = 0;
   private best = 0;
   private diedAt = 0;
   private skin = 1;
-  /** Cumulative world scroll driving the parallax layers. */
-  private worldX = 0;
 
+  /** Global course scroll. The host owns it; guests mirror the host's value. */
+  private worldX = 0;
+  /** Cosmetic parallax drift used only on the solo ready screen. */
+  private readyDrift = 0;
+  /** Shared course seed (0 until the host seeds it). */
+  private seed = 0;
+
+  /** Highest pipe index already scored in the current life. */
+  private lastScoredIndex = -1;
+  private collectedCoins = new Set<number>();
+
+  private pipes = new Map<number, Pipe>();
+  private ghosts = new Map<string, Ghost>();
   private bgLayers: BgLayer[] = [];
   private bird!: Phaser.GameObjects.Sprite;
   private readyImg!: Phaser.GameObjects.Image;
   private overImg!: Phaser.GameObjects.Image;
   private digits: Phaser.GameObjects.Image[] = [];
 
+  // Net bookkeeping.
+  private stateAcc = 0;
+  private worldAcc = 0;
+  private hostSeq = 0;
+  private lastSeq = -1;
+
   private hintEl: HTMLElement | null = null;
   private bestEl: HTMLElement | null = null;
+  private boardEl: HTMLElement | null = null;
+  private netInfoEl: HTMLElement | null = null;
 
   constructor() {
     super("Game");
@@ -92,11 +122,17 @@ export class GameScene extends Phaser.Scene {
   create(): void {
     this.hintEl = document.getElementById("hint");
     this.bestEl = document.getElementById("best");
+    this.boardEl = document.getElementById("board");
+    this.netInfoEl = document.getElementById("netinfo");
     this.best = readBest();
     this.skin = rollSkin();
 
-    // Trees World parallax: clouds, far trunks, near trunks behind the action;
-    // foreground bushes in front of the trunks but behind the dragon.
+    this.net = new NetSession({
+      room: MP_ROOM,
+      maxPlayers: MP_MAX_PLAYERS,
+      fallbackMs: OFFLINE_FALLBACK_MS,
+    });
+
     this.bgLayers = BG_FACTORS.map((factor, i) => ({
       factor,
       sprite: this.add
@@ -123,8 +159,6 @@ export class GameScene extends Phaser.Scene {
       .setVisible(false);
 
     this.input.on("pointerdown", () => this.handleInput());
-    // Guard e.repeat: no Key object is registered for these codes, so the
-    // KeyboardPlugin won't suppress OS auto-repeat itself.
     this.input.keyboard?.on("keydown-SPACE", (e: KeyboardEvent) => {
       if (!e.repeat) this.handleInput();
     });
@@ -135,52 +169,112 @@ export class GameScene extends Phaser.Scene {
     this.scale.on(Phaser.Scale.Events.RESIZE, this.layout, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.layout, this);
+      this.net.destroy();
     });
 
     this.layout();
     this.setHint(HINT_FLAP);
 
     if (import.meta.env.DEV) {
-      (window as unknown as { __fb?: unknown }).__fb = { scene: this };
+      (window as unknown as { __fb?: unknown }).__fb = { scene: this, net: this.net };
     }
+  }
+
+  // ---- role helpers --------------------------------------------------------
+
+  private get racing(): boolean {
+    return this.net.otherPlayer() !== null;
+  }
+  private get alive(): boolean {
+    return this.phase === "playing";
+  }
+  /** The shared course is scrolling (someone started, or we're in a race). */
+  private get raceActive(): boolean {
+    return this.racing || this.worldX > 0;
   }
 
   update(time: number, delta: number): void {
     const dt = Math.min(delta, MAX_DT_MS) / 1000;
+    this.net.tick();
+    this.ensureSeed();
+    this.advanceWorld(dt);
 
     if (this.phase === "ready") {
-      // Gentle hover + drifting clouds so the title screen breathes.
+      // Idle hover; in a live race the bird is a translucent, invulnerable
+      // spectator until the first flap.
       this.bird.y = BIRD_SPAWN_Y + DRAGON_SPRITE_OFFSET_Y + Math.sin(time / 300) * 4;
-      this.worldX += READY_DRIFT * dt;
-      this.applyParallax();
-      return;
+      if (!this.racing) this.readyDrift += READY_DRIFT * dt;
+    } else if (this.phase === "playing") {
+      // Legacy integration order: position first, then gravity into velocity.
+      this.birdY += this.vy * dt;
+      this.vy += GRAVITY * dt;
+      this.bird.y = this.birdY + DRAGON_SPRITE_OFFSET_Y;
+      this.bird.rotation = Phaser.Math.Clamp(this.vy * TILT_FACTOR, -MAX_TILT, MAX_TILT);
+      this.checkScore();
+      this.checkCoins();
+      this.checkDeath();
+    } else if (this.phase === "gameover" && this.racing) {
+      // Multiplayer: crash is a brief setback, then rejoin the live course.
+      if (time - this.diedAt >= RESPAWN_MS) this.respawn();
     }
-    if (this.phase !== "playing") return; // gameover: world frozen at death pose
 
-    // Legacy integration order: position first, then gravity into velocity.
-    this.birdY += this.vy * dt;
-    this.vy += GRAVITY * dt;
-    this.bird.y = this.birdY + DRAGON_SPRITE_OFFSET_Y;
-    this.bird.rotation = Phaser.Math.Clamp(this.vy * TILT_FACTOR, -MAX_TILT, MAX_TILT);
-
-    this.worldX += PIPE_SPEED * dt;
     this.applyParallax();
-    this.movePipes(dt);
-    this.spawnAndPrunePipes();
-    this.checkScore();
-    this.checkCoins();
-    this.checkDeath();
+    this.syncPipes();
+    this.syncGhosts();
+    this.broadcast(dt);
+    this.updateBoard();
   }
 
-  // ---- input -----------------------------------------------------------------
+  // ---- seed + world scroll -------------------------------------------------
+
+  private ensureSeed(): void {
+    const s = this.net.sharedState;
+    const shared = s ? numField(s, "seed") : null;
+    if (shared !== null) {
+      this.seed = shared;
+      return;
+    }
+    // First host seeds the course. Guests wait for it (bird just hovers).
+    if (this.net.isHost) {
+      if (this.seed === 0) this.seed = randomSeed();
+      this.net.patchShared({ seed: this.seed });
+    }
+  }
+
+  private advanceWorld(dt: number): void {
+    if (this.net.isHost) {
+      // Host owns the global scroll: run it while we're flying, or whenever a
+      // guest is in the room so the shared course keeps moving for everyone.
+      if (this.alive || this.racing) this.worldX += PIPE_SPEED * dt;
+      return;
+    }
+    // Guest: mirror the host's scroll, dead-reckoned between snapshots.
+    const s = this.net.sharedState;
+    if (!s) return;
+    const seq = numField(s, "wseq");
+    const wx = numField(s, "wx");
+    if (seq !== null && seq !== this.lastSeq && wx !== null) {
+      this.lastSeq = seq;
+      this.worldX = wx;
+    } else {
+      this.worldX += PIPE_SPEED * dt;
+    }
+  }
+
+  // ---- input ---------------------------------------------------------------
 
   private handleInput(strength = 1, refire = false): void {
     if (this.phase === "ready") {
-      // First input starts the run without flapping (legacy behavior).
       this.phase = "playing";
+      this.birdY = this.racing ? this.spawnY() : BIRD_SPAWN_Y;
+      this.vy = 0;
+      this.bird.setAlpha(1).clearTint().setTintMode(Phaser.TintModes.MULTIPLY);
       this.bird.y = this.birdY + DRAGON_SPRITE_OFFSET_Y;
+      this.lastScoredIndex = this.frontIndex();
+      this.collectedCoins.clear();
       this.readyImg.setVisible(false);
       this.setHint("");
+      this.flap(strength, refire);
       return;
     }
     if (this.phase === "playing") {
@@ -191,21 +285,13 @@ export class GameScene extends Phaser.Scene {
     this.restart();
   }
 
-  /**
-   * Webcam pose-jump entry point (variable strength 0..1). Routes through the
-   * same path as tap/keyboard: starts the run from ready, restarts from
-   * gameover. refire = airborne min-Y update of the same physical jump —
-   * refreshes velocity (legacy set it on every callback) without re-juicing.
-   */
   poseJump(strength: number, refire: boolean): void {
     this.handleInput(strength, refire);
   }
 
   private flap(strength: number, refire = false): void {
-    // Legacy mapping: -8..-12 px/tick scaled by strength → -480..-720 px/s.
     this.vy = flapVelocityFor(strength);
-    if (refire) return; // velocity-only refresh; no sound/squash spam mid-jump
-    // The legacy build loaded flap.wav but never played it — wired up here.
+    if (refire) return;
     this.sound.play("flap", { rate: 0.95 + Math.random() * 0.1 });
     this.tweens.killTweensOf(this.bird);
     this.bird.setScale(ART_SCALE * 1.15, ART_SCALE * 0.8);
@@ -218,27 +304,52 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  // ---- state flow --------------------------------------------------------------
+  // ---- state flow ----------------------------------------------------------
 
-  /** Any input on gameover drops straight back into playing (skips the ready screen). */
+  /** Solo: any input on gameover drops straight back into playing. */
   private restart(): void {
-    for (const pipe of this.pipes) destroyPipe(pipe);
-    this.pipes = [];
     this.score = 0;
     this.birdY = BIRD_SPAWN_Y;
     this.vy = 0;
+    this.worldX = 0; // solo: start the course over
+    this.lastScoredIndex = -1;
+    this.collectedCoins.clear();
+    if (!this.racing) this.seed = randomSeed(); // fresh course when truly alone
+    this.clearPipes();
 
-    // Fresh run, fresh dragon.
     this.skin = rollSkin();
     this.tweens.killTweensOf(this.bird);
     this.bird
       .setPosition(BIRD_X + DRAGON_SPRITE_OFFSET_X, BIRD_SPAWN_Y + DRAGON_SPRITE_OFFSET_Y)
       .setRotation(0)
       .setScale(ART_SCALE)
+      .setAlpha(1)
       .clearTint()
       .setTintMode(Phaser.TintModes.MULTIPLY);
     this.bird.play(`fly-${this.skin}`);
 
+    this.overImg.setVisible(false);
+    this.setBest("");
+    this.setHint("");
+    this.refreshScore();
+    this.phase = "playing";
+  }
+
+  /** Multiplayer: respawn into the still-scrolling shared course. */
+  private respawn(): void {
+    this.score = 0;
+    this.birdY = this.spawnY();
+    this.vy = 0;
+    this.lastScoredIndex = this.frontIndex();
+    this.collectedCoins.clear();
+    this.tweens.killTweensOf(this.bird);
+    this.bird
+      .setRotation(0)
+      .setScale(ART_SCALE)
+      .setAlpha(1)
+      .clearTint()
+      .setTintMode(Phaser.TintModes.MULTIPLY);
+    this.bird.play(`fly-${this.skin}`);
     this.overImg.setVisible(false);
     this.setBest("");
     this.setHint("");
@@ -251,11 +362,9 @@ export class GameScene extends Phaser.Scene {
     this.diedAt = this.time.now;
     this.sound.play("hit");
     this.bird.stop();
-
-    // Hit flash + brief shake; the world otherwise freezes at the death pose.
     this.bird.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
     this.time.delayedCall(90, () => {
-      this.bird.clearTint().setTintMode(Phaser.TintModes.MULTIPLY);
+      if (this.phase === "gameover") this.bird.clearTint().setTintMode(Phaser.TintModes.MULTIPLY);
     });
     this.cameras.main.shake(120, 0.008);
 
@@ -266,79 +375,107 @@ export class GameScene extends Phaser.Scene {
     }
     this.overImg.setVisible(true);
     this.setBest(`${isNewBest ? "NEW BEST" : "BEST"} ${this.best}`);
-    this.setHint(HINT_RESTART);
+    this.setHint(this.racing ? "" : HINT_RESTART);
   }
 
-  // ---- simulation ----------------------------------------------------------------
+  // ---- deterministic course ------------------------------------------------
 
-  private movePipes(dt: number): void {
-    for (const pipe of this.pipes) {
-      pipe.x -= PIPE_SPEED * dt;
-      pipe.topBody.x = pipe.x;
-      pipe.botBody.x = pipe.x;
-      pipe.topCap.x = pipe.x + PIPE_WIDTH / 2;
-      pipe.botCap.x = pipe.x + PIPE_WIDTH / 2;
-      if (pipe.coin) pipe.coin.x = pipe.x + PIPE_WIDTH / 2;
+  /** Screen x of pipe `i` given the current global scroll. */
+  private screenX(i: number): number {
+    return pipeCourseX(i) - this.worldX;
+  }
+
+  /** The pipe index whose trailing edge is at the bird right now. */
+  private frontIndex(): number {
+    return Math.floor((this.worldX + BIRD_X - PIPE_WIDTH - RUNWAY) / PIPE_SPAWN_DISTANCE);
+  }
+
+  private spawnY(): number {
+    return BIRD_SPAWN_Y;
+  }
+
+  private syncPipes(): void {
+    if (!this.raceActive || this.seed === 0) {
+      if (this.pipes.size > 0) this.clearPipes();
+      return;
     }
-  }
-
-  private spawnAndPrunePipes(): void {
-    const width = this.scale.width;
-    const last = this.pipes[this.pipes.length - 1];
-    if (!last || last.x < width - PIPE_SPAWN_DISTANCE) this.spawnPipe(width);
-
-    while (this.pipes.length > 0 && this.pipes[0]!.x + PIPE_WIDTH < 0) {
-      destroyPipe(this.pipes.shift()!);
-    }
-  }
-
-  private spawnPipe(x: number): void {
     const viewH = this.scale.height;
-    // Integer height — fractional values open a 1px seam between body and cap.
-    const topHeight = Math.round(rollTopHeight(viewH));
-    const centerX = x + PIPE_WIDTH / 2;
+    const width = this.scale.width;
+    const iLow = Math.max(0, Math.floor((this.worldX - PIPE_WIDTH - RUNWAY) / PIPE_SPAWN_DISTANCE));
+    const iHigh = Math.floor((this.worldX + width - RUNWAY) / PIPE_SPAWN_DISTANCE);
 
-    // Each trunk = rounded log-end cap facing the gap + bark body tiling away
-    // from it. The cap (with its side branches) is wider than the body; only
-    // the body rect is lethal. Body heights clamp to 1px, never 0 — zero-sized
-    // TileSprites take down the WebGL context.
+    for (let i = iLow; i <= iHigh; i++) {
+      let pipe = this.pipes.get(i);
+      if (!pipe) pipe = this.spawnPipe(i, viewH);
+      this.positionPipe(pipe);
+    }
+    for (const [i, pipe] of this.pipes) {
+      if (i < iLow || i > iHigh) {
+        destroyPipe(pipe);
+        this.pipes.delete(i);
+      }
+    }
+  }
+
+  private spawnPipe(i: number, viewH: number): Pipe {
+    const topHeight = topHeightFor(this.seed, i, viewH);
     const topBody = this.add
-      .tileSprite(x, 0, PIPE_WIDTH, Math.max(1, topHeight - TUBE_CAP_H + 2), "tube-body")
+      .tileSprite(0, 0, PIPE_WIDTH, Math.max(1, topHeight - TUBE_CAP_H + 2), "tube-body")
       .setOrigin(0, 0)
       .setTileScale(ART_SCALE)
       .setDepth(0);
     const topCap = this.add
-      .image(centerX, topHeight, "tube-cap")
+      .image(0, topHeight, "tube-cap")
       .setOrigin(0.5, 1)
       .setFlipY(true)
       .setScale(ART_SCALE)
       .setDepth(1);
     const botCap = this.add
-      .image(centerX, topHeight + PIPE_GAP, "tube-cap")
+      .image(0, topHeight + PIPE_GAP, "tube-cap")
       .setOrigin(0.5, 0)
       .setScale(ART_SCALE)
       .setDepth(1);
     const botBodyY = topHeight + PIPE_GAP + TUBE_CAP_H - 2;
     const botBody = this.add
-      .tileSprite(x, botBodyY, PIPE_WIDTH, Math.max(1, viewH - botBodyY), "tube-body")
+      .tileSprite(0, botBodyY, PIPE_WIDTH, Math.max(1, viewH - botBodyY), "tube-body")
       .setOrigin(0, 0)
       .setTileScale(ART_SCALE)
       .setDepth(0);
 
     const coin =
-      Math.random() < COIN_CHANCE
-        ? this.add.sprite(centerX, rollCoinY(topHeight), "coin-1").setScale(ART_SCALE).setDepth(4)
+      coinPresentFor(this.seed, i) && !this.collectedCoins.has(i)
+        ? this.add
+            .sprite(0, coinYFor(this.seed, i, topHeight), "coin-1")
+            .setScale(ART_SCALE)
+            .setDepth(4)
         : null;
     coin?.play("coin-spin");
 
-    this.pipes.push({ x, topHeight, scored: false, topCap, topBody, botCap, botBody, coin });
+    const pipe: Pipe = { index: i, topHeight, topCap, topBody, botCap, botBody, coin };
+    this.pipes.set(i, pipe);
+    return pipe;
+  }
+
+  private positionPipe(pipe: Pipe): void {
+    const x = this.screenX(pipe.index);
+    const centerX = x + PIPE_WIDTH / 2;
+    pipe.topBody.x = x;
+    pipe.botBody.x = x;
+    pipe.topCap.x = centerX;
+    pipe.botCap.x = centerX;
+    if (pipe.coin) pipe.coin.x = centerX;
+  }
+
+  private clearPipes(): void {
+    for (const pipe of this.pipes.values()) destroyPipe(pipe);
+    this.pipes.clear();
   }
 
   private checkScore(): void {
-    for (const pipe of this.pipes) {
-      if (pipe.scored || pipe.x + PIPE_WIDTH > BIRD_X) continue;
-      // Once per pipe — the legacy 2px window vs 2.5px step could skip points.
-      pipe.scored = true;
+    for (const pipe of this.pipes.values()) {
+      if (pipe.index <= this.lastScoredIndex) continue;
+      if (this.screenX(pipe.index) + PIPE_WIDTH > BIRD_X) continue;
+      this.lastScoredIndex = pipe.index;
       this.score += 1;
       this.sound.play("point");
       this.refreshScore();
@@ -350,18 +487,16 @@ export class GameScene extends Phaser.Scene {
   private checkCoins(): void {
     const cx = BIRD_X + BIRD_W / 2;
     const cy = this.birdY + BIRD_H / 2;
-    for (const pipe of this.pipes) {
+    for (const pipe of this.pipes.values()) {
       const coin = pipe.coin;
       if (!coin) continue;
-      if (Math.abs(coin.x - cx) >= COIN_PICKUP_X || Math.abs(coin.y - cy) >= COIN_PICKUP_Y) {
-        continue;
-      }
+      if (Math.abs(coin.x - cx) >= COIN_PICKUP_X || Math.abs(coin.y - cy) >= COIN_PICKUP_Y) continue;
       pipe.coin = null;
+      this.collectedCoins.add(pipe.index);
       this.collectCoin(coin);
     }
   }
 
-  /** Coins are worth a point — a risk/reward detour inside the gap. */
   private collectCoin(coin: Phaser.GameObjects.Sprite): void {
     const burst = this.add
       .sprite(coin.x, coin.y, "burst-1")
@@ -370,7 +505,6 @@ export class GameScene extends Phaser.Scene {
       .play("burst");
     burst.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => burst.destroy());
     coin.destroy();
-
     this.score += 1;
     this.sound.play("point", { rate: 1.5 });
     this.refreshScore();
@@ -378,15 +512,13 @@ export class GameScene extends Phaser.Scene {
   }
 
   private checkDeath(): void {
-    // Floor only — no ceiling kill; flying above the screen is legal (legacy quirk).
     if (this.birdY > this.scale.height) {
       this.die();
       return;
     }
-    for (const pipe of this.pipes) {
-      if (BIRD_X + BIRD_W <= pipe.x || BIRD_X >= pipe.x + PIPE_WIDTH) continue;
-      // Top segment is the rect (pipe.x, 0, w, topHeight) — a dragon fully above
-      // the screen overlaps nothing (legacy AABB; off-screen flight stays legal).
+    for (const pipe of this.pipes.values()) {
+      const x = this.screenX(pipe.index);
+      if (BIRD_X + BIRD_W <= x || BIRD_X >= x + PIPE_WIDTH) continue;
       if (
         (this.birdY < pipe.topHeight && this.birdY + BIRD_H > 0) ||
         this.birdY + BIRD_H > pipe.topHeight + PIPE_GAP
@@ -397,7 +529,88 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  // ---- visual effects --------------------------------------------------------------
+  // ---- ghosts (other players) ----------------------------------------------
+
+  private syncGhosts(): void {
+    if (!this.racing) {
+      for (const g of this.ghosts.values()) g.sprite.destroy();
+      this.ghosts.clear();
+      return;
+    }
+    const viewH = this.scale.height;
+    const me = this.net.playerId;
+    const seen = new Set<string>();
+    let seat = 0;
+    for (const [id, player] of Object.entries(this.net.players)) {
+      if (id === me) continue;
+      const ps = readPeer(player.state);
+      if (!ps) {
+        seat++;
+        continue;
+      }
+      seen.add(id);
+      let ghost = this.ghosts.get(id);
+      if (!ghost || ghost.skin !== ps.skin) {
+        ghost?.sprite.destroy();
+        const sprite = this.add
+          .sprite(0, 0, `dragon-${ps.skin}-1`)
+          .setScale(ART_SCALE)
+          .setDepth(8)
+          .setAlpha(0.55);
+        sprite.play(`fly-${ps.skin}`);
+        ghost = { sprite, skin: ps.skin, seat };
+        this.ghosts.set(id, ghost);
+      }
+      // Ghosts share the course position (global scroll), so they're all near
+      // BIRD_X; nudge each seat sideways so a cluster stays legible.
+      const offset = (ghost.seat % 4) * 16 - 24;
+      ghost.sprite.setPosition(
+        BIRD_X + DRAGON_SPRITE_OFFSET_X + offset,
+        ps.yf * viewH + DRAGON_SPRITE_OFFSET_Y,
+      );
+      ghost.sprite.setRotation(Phaser.Math.Clamp(ps.rot, -MAX_TILT, MAX_TILT));
+      if (ps.live) {
+        ghost.sprite.setAlpha(0.55).clearTint();
+      } else {
+        // Crashed players fade to a grey silhouette until they respawn.
+        ghost.sprite.setAlpha(0.28).setTint(0x9099b0);
+      }
+      seat++;
+    }
+    for (const [id, ghost] of this.ghosts) {
+      if (!seen.has(id)) {
+        ghost.sprite.destroy();
+        this.ghosts.delete(id);
+      }
+    }
+  }
+
+  // ---- networking ----------------------------------------------------------
+
+  private broadcast(dt: number): void {
+    if (this.net.offline) return;
+    this.stateAcc += dt;
+    if (this.stateAcc >= 1 / NET_TICK_HZ) {
+      this.stateAcc = 0;
+      this.net.updateMyState({
+        yf: this.birdY / Math.max(1, this.scale.height),
+        live: this.alive,
+        score: this.score,
+        skin: this.skin,
+        rot: this.bird.rotation,
+      });
+    }
+    if (this.net.isHost) {
+      this.worldAcc += dt;
+      if (this.worldAcc >= 1 / WORLD_TICK_HZ) {
+        this.worldAcc = 0;
+        this.hostSeq++;
+        this.net.patchShared({ wx: this.worldX, wseq: this.hostSeq });
+      }
+    }
+  }
+
+  // ---- visual effects ------------------------------------------------------
 
   private puff(x: number, y: number): void {
     const emitter = this.add.particles(x, y, "spark", {
@@ -418,18 +631,12 @@ export class GameScene extends Phaser.Scene {
     for (const digit of this.digits) {
       this.tweens.killTweensOf(digit);
       digit.setY(SCORE_Y - 6);
-      this.tweens.add({
-        targets: digit,
-        y: SCORE_Y,
-        duration: 160,
-        ease: "Back.easeOut",
-      });
+      this.tweens.add({ targets: digit, y: SCORE_Y, duration: 160, ease: "Back.easeOut" });
     }
   }
 
-  // ---- HUD -------------------------------------------------------------------------
+  // ---- HUD -----------------------------------------------------------------
 
-  /** Sprite-digit score, top-center (legacy presentation, kept visible on gameover). */
   private refreshScore(): void {
     const text = String(this.score);
     while (this.digits.length < text.length) {
@@ -453,7 +660,53 @@ export class GameScene extends Phaser.Scene {
     if (this.bestEl) this.bestEl.textContent = text;
   }
 
-  // ---- layout ------------------------------------------------------------------------
+  /** Live race leaderboard + connection info (multiplayer only). */
+  private updateBoard(): void {
+    if (this.netInfoEl) {
+      this.netInfoEl.textContent = !this.net.live
+        ? "connecting…"
+        : this.net.offline
+          ? "offline · solo"
+          : this.racing
+            ? `race · ${Object.keys(this.net.players).length} players`
+            : "online · waiting";
+    }
+    if (!this.boardEl) return;
+    if (!this.racing) {
+      if (this.boardEl.childElementCount > 0) this.boardEl.replaceChildren();
+      if (this.phase === "ready" && this.net.live && !this.net.offline) this.setHint(HINT_FLAP);
+      return;
+    }
+    if (this.phase === "ready") this.setHint(HINT_RACE);
+
+    const me = this.net.playerId;
+    const rows: Array<{ id: string; score: number; live: boolean; me: boolean }> = [];
+    for (const [id, player] of Object.entries(this.net.players)) {
+      if (id === me) {
+        rows.push({ id, score: this.score, live: this.alive, me: true });
+      } else {
+        const ps = readPeer(player.state);
+        rows.push({ id, score: ps?.score ?? 0, live: ps?.live ?? false, me: false });
+      }
+    }
+    rows.sort((a, b) => b.score - a.score);
+
+    const frag = document.createDocumentFragment();
+    for (const r of rows.slice(0, 8)) {
+      const row = document.createElement("div");
+      row.className = `row${r.me ? " me" : ""}${r.live ? "" : " dead"}`;
+      const name = document.createElement("span");
+      name.textContent = `${r.live ? "🐉" : "💀"} ${r.me ? "you" : r.id.slice(0, 4)}`;
+      const sc = document.createElement("span");
+      sc.className = "sc";
+      sc.textContent = String(r.score);
+      row.append(name, sc);
+      frag.append(row);
+    }
+    this.boardEl.replaceChildren(frag);
+  }
+
+  // ---- layout --------------------------------------------------------------
 
   private layout(): void {
     const { width, height } = this.scale;
@@ -465,18 +718,20 @@ export class GameScene extends Phaser.Scene {
     this.readyImg.setPosition(width / 2, height / 2);
     this.overImg.setPosition(width / 2, height / 2);
     this.refreshScore();
+    // Pipe heights depend on viewport height — rebuild them after a resize.
+    this.clearPipes();
   }
 
   private applyParallax(): void {
     const tileScale = this.scale.height / BG_NATIVE_H;
+    const px = this.worldX + this.readyDrift;
     for (const layer of this.bgLayers) {
-      // tilePosition is in texture px; divide by tileScale to get screen px.
-      layer.sprite.tilePositionX = (this.worldX * layer.factor) / tileScale;
+      layer.sprite.tilePositionX = (px * layer.factor) / tileScale;
     }
   }
 }
 
-// ---- module helpers (pure) -----------------------------------------------------------
+// ---- module helpers (pure) --------------------------------------------------
 
 function destroyPipe(pipe: Pipe): void {
   pipe.topCap.destroy();
@@ -486,13 +741,36 @@ function destroyPipe(pipe: Pipe): void {
   pipe.coin?.destroy();
 }
 
+function randomSeed(): number {
+  // 1..2^31 (never 0 — 0 marks "unseeded").
+  return 1 + Math.floor(Math.random() * 0x7fffffff);
+}
+
+function numField(s: Record<string, unknown>, key: string): number | null {
+  const v = s[key];
+  return typeof v === "number" ? v : null;
+}
+
+function readPeer(state: unknown): PeerState | null {
+  if (!state || typeof state !== "object") return null;
+  const s = state as Record<string, unknown>;
+  if (typeof s["yf"] !== "number" || typeof s["skin"] !== "number") return null;
+  return {
+    yf: s["yf"] as number,
+    live: s["live"] === true,
+    score: typeof s["score"] === "number" ? (s["score"] as number) : 0,
+    skin: s["skin"] as number,
+    rot: typeof s["rot"] === "number" ? (s["rot"] as number) : 0,
+  };
+}
+
 function readBest(): number {
   try {
     const raw = localStorage.getItem(BEST_KEY);
     const parsed = raw === null ? 0 : Number.parseInt(raw, 10);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
   } catch {
-    return 0; // storage blocked (private mode) — best just won't persist
+    return 0;
   }
 }
 

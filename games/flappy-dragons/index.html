@@ -60,10 +60,64 @@
       #hint {
         margin-bottom: 18px;
       }
+      /* Live race leaderboard (multiplayer only) — top-left, above the action. */
+      #board {
+        position: fixed;
+        top: 12px;
+        left: 12px;
+        pointer-events: none;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font:
+          12px/1.25 ui-monospace,
+          "SF Mono",
+          Menlo,
+          monospace;
+        color: #eef2ff;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+        letter-spacing: 1px;
+      }
+      #board .row {
+        display: flex;
+        gap: 8px;
+        align-items: baseline;
+        background: rgba(10, 12, 28, 0.5);
+        border-radius: 8px;
+        padding: 3px 9px;
+      }
+      #board .row.me {
+        outline: 1px solid rgba(255, 255, 255, 0.5);
+      }
+      #board .row.dead {
+        opacity: 0.45;
+      }
+      #board .sc {
+        margin-left: auto;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
+      #netinfo {
+        position: fixed;
+        top: 12px;
+        right: 12px;
+        pointer-events: none;
+        font:
+          11px/1.2 ui-monospace,
+          Menlo,
+          monospace;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        color: #eef2ff;
+        opacity: 0.6;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+      }
     </style>
   </head>
   <body>
     <div id="game"></div>
+    <div id="board"></div>
+    <div id="netinfo"></div>
     <div id="hud">
       <div class="pill" id="best"></div>
       <div class="pill" id="hint"></div>

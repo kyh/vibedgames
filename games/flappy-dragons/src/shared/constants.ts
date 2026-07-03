@@ -77,6 +77,61 @@ export const MAX_TILT = Math.PI / 4;
 
 export const BEST_KEY = "flappy-best";
 
+// ---- multiplayer -------------------------------------------------------------
+// Survival race: everyone flies through the SAME endless course (one shared
+// seed → identical pipe layout) on a single global scroll clock the host owns.
+// Each player runs their own dragon and dies independently; you see the others
+// as live ghosts weaving the same pipes. Crash → brief respawn, keep racing.
+// Alone (or with the party server unreachable) it degrades to the classic solo
+// game: the world freezes on a crash and you tap to restart.
+export const MP_ROOM = "flappy-dragons-default";
+export const MP_MAX_PLAYERS = 8;
+export const OFFLINE_FALLBACK_MS = 4000;
+/** Per-player state (bird height / score / liveness) broadcast rate. */
+export const NET_TICK_HZ = 20;
+/** Host's global world-scroll broadcast rate (guests dead-reckon between). */
+export const WORLD_TICK_HZ = 15;
+/** Empty runway (course units) before the first pipe of the course. */
+export const RUNWAY = 700;
+/** How long a crashed dragon waits before respawning in a multiplayer race. */
+export const RESPAWN_MS = 1300;
+
+// ---- deterministic course (seeded, identical on every client) ----------------
+
+/** A stable 0..1 hash for course slot `i` under `seed` (mulberry32-style). */
+export function hash01(seed: number, i: number): number {
+  let t = (seed ^ (i * 0x9e3779b9)) >>> 0;
+  t = (t + 0x6d2b79f5) >>> 0;
+  let x = Math.imul(t ^ (t >>> 15), 1 | t);
+  x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x;
+  return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+}
+
+/** Course x of pipe `i` (absolute, viewport-independent). */
+export function pipeCourseX(i: number): number {
+  return RUNWAY + i * PIPE_SPAWN_DISTANCE;
+}
+
+/**
+ * Top-segment height for pipe `i`, as the SAME relative placement on every
+ * client: a seeded fraction of the local play area, so differently-sized
+ * viewports still put the gap at the same relative height (fair enough for a
+ * drop-in demo without a virtual-resolution rewrite). Mirrors rollTopHeight.
+ */
+export function topHeightFor(seed: number, i: number, viewHeight: number): number {
+  return Math.round(hash01(seed, i) * Math.max(0, viewHeight - PIPE_GAP - 100) + 50);
+}
+
+/** Whether pipe `i` carries a coin (deterministic). */
+export function coinPresentFor(seed: number, i: number): boolean {
+  return hash01(seed, i * 2 + 1) < COIN_CHANCE;
+}
+
+/** Coin Y within pipe `i`'s gap (deterministic). */
+export function coinYFor(seed: number, i: number, topHeight: number): number {
+  return topHeight + COIN_MARGIN + hash01(seed, i * 2 + 7) * (PIPE_GAP - 2 * COIN_MARGIN);
+}
+
 // ---- types ----------------------------------------------------------------------
 
 export type Phase = "ready" | "playing" | "gameover";
