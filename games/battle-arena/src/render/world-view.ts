@@ -23,7 +23,7 @@ import { LOCAL_COLOR, teamColor } from "./palette";
 // plays each champ's attack/cast clip so the aerial hit reads as a real swing.
 const ABILITY_CLIPS: Record<string, Partial<Record<AbilityKey, string>>> = {
   // JUMP is the airborne dive-strike → the 1H jump-chop for every champ.
-  knight: { Q: "Melee_2H_Attack_Slice", W: "Melee_2H_Attack_Chop", E: "Melee_2H_Attack_Stab", R: "Melee_2H_Attack_Spinning", DASH: "Dodge_Forward", JUMP: "Melee_1H_Attack_Jump_Chop" },
+  knight: { Q: "Melee_2H_Attack_Slice", W: "Melee_2H_Attack_Chop", E: "Melee_Blocking", R: "Melee_2H_Attack_Spinning", DASH: "Dodge_Forward", JUMP: "Melee_1H_Attack_Jump_Chop" },
   ranger: { Q: "Ranged_Bow_Release_Up", W: "Ranged_Bow_Release", E: "PickUp", R: "Ranged_Bow_Release_Up", DASH: "Dodge_Forward", JUMP: "Melee_1H_Attack_Jump_Chop" },
   mage: { Q: "Ranged_Magic_Shoot", W: "Ranged_Magic_Raise", E: "Ranged_Magic_Shoot", R: "Ranged_Magic_Summon", DASH: "Dodge_Forward", JUMP: "Melee_1H_Attack_Jump_Chop" },
   rogue: { Q: "Melee_Dualwield_Attack_Stab", W: "Melee_Dualwield_Attack_Slice", E: "Dodge_Backward", R: "Melee_Dualwield_Attack_Slice", DASH: "Dodge_Forward", JUMP: "Melee_1H_Attack_Jump_Chop" },
