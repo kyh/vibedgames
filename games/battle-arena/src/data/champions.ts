@@ -50,7 +50,6 @@ export type ChampDef = {
   attackType: "melee" | "ranged";
   attackDamageType: DamageType;
   attackKind: string; // projectile visual for ranged; "melee" for melee
-  windupMs?: number; // melee basic-attack windup override (default MELEE_WINDUP)
   model: string; // GLB basename under public/models/characters
   weaponR?: string; // weapon model attached to handslot.r
   weaponL?: string; // weapon/shield attached to handslot.l
@@ -103,16 +102,16 @@ export const CHAMPIONS: ChampDef[] = [
     attackType: "melee",
     attackDamageType: "physical",
     attackKind: "melee",
-    windupMs: 100,
     model: "Knight",
     weaponR: "sword_2handed",
     twoHanded: true,
-    // chop, slice, then a big 2H spin: the spin takes ~2.9× as long (so its
-    // 2.4s clip plays in full) and lands ~2.5× the damage.
+    // chop, slice, then a big 2H spin. The spin's 2.4s clip plays at 1.5× (the
+    // 2H speed-up) ≈ 1.6s, so its swing holds ~1.9× the base interval (clip
+    // plays in full, no idle gap) and lands ~2.5× the damage.
     basicRhythm: [
       { timeMult: 1, dmgMult: 1 },
       { timeMult: 1, dmgMult: 1 },
-      { timeMult: 2.9, dmgMult: 2.5 },
+      { timeMult: 1.92, dmgMult: 2.5 },
     ],
     tint: 0x4f86ff,
     blurb: "A walking wall. Stun, charge in, and spin the throne to bloody mulch.",
@@ -190,7 +189,6 @@ export const CHAMPIONS: ChampDef[] = [
     attackType: "melee",
     attackDamageType: "physical",
     attackKind: "melee",
-    windupMs: 70,
     model: "Rogue_Hooded",
     weaponR: "dagger",
     weaponL: "dagger",
@@ -219,7 +217,6 @@ export const CHAMPIONS: ChampDef[] = [
     attackType: "melee",
     attackDamageType: "physical",
     attackKind: "melee",
-    windupMs: 120,
     model: "Paladin_with_Helmet",
     weaponR: "paladin_hammer",
     weaponL: "paladin_shield",

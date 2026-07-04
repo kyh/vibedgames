@@ -17,8 +17,11 @@ import { awardCreepKill, awardKill } from "./economy";
 
 export const isEnemy = (a: Unit, b: Unit): boolean => a.team !== b.team;
 
-const MELEE_WINDUP = 90; // snappier — hits land fast after the swing starts
-const RANGED_WINDUP = 90;
+// Melee damage lands this fraction into the swing (its interval) — ~halfway, so
+// the hit + victim flash coincide with the blade sweeping through, not the
+// wind-up. Scales with attack speed and the per-swing rhythm automatically.
+const MELEE_STRIKE_FRAC = 0.5;
+const RANGED_WINDUP = 160; // arrow/bolt leaves as the bow/staff visually releases
 const MELEE_HALF_ANGLE = (5 * Math.PI) / 18; // 100° cleave cone
 const MELEE_OVERREACH = 1.4; // melee hits a bit past attackRange (cleave feel)
 const MELEE_CLEAVE_CAP = 3; // max enemies a swing damages
@@ -62,18 +65,23 @@ export function resolveAttacks(w: World): void {
     }
 
     if (!u.attackHeld || w.now < u.dashUntil) continue;
+    const baseInterval = attackIntervalMs(effectiveAttackSpeed(u));
     // the swing currently occupying time paces the next one — a slow swing (the
     // 2H spin) holds longer before the next basic can start
-    const interval = attackIntervalMs(effectiveAttackSpeed(u)) * lastSwingStep(u).timeMult;
-    if (w.now - u.lastAttackAt < interval) continue;
+    if (w.now - u.lastAttackAt < baseInterval * lastSwingStep(u).timeMult) continue;
 
     // swing regardless of whether anything is in range
     u.lastAttackAt = w.now;
     u.swingCount++;
     u.facing = angleOf(u.aimX, u.aimY);
     breakStealth(u);
-    // per-champ melee windup — heavies wind visibly, daggers snap (creeps default)
-    const windup = u.attackType === "ranged" ? RANGED_WINDUP : (CHAMP_BY_ID[u.champId]?.windupMs ?? MELEE_WINDUP);
+    // Melee damage lands MID-SWING so the victim's flash matches the blade
+    // (not at the very start). Scale by THIS swing's length: a heavy 2H spin
+    // connects later than a quick chop. Ranged fires the projectile on release.
+    const windup =
+      u.attackType === "ranged"
+        ? RANGED_WINDUP
+        : baseInterval * lastSwingStep(u).timeMult * MELEE_STRIKE_FRAC;
     u.pendingAttack = { resolveAt: w.now + windup };
 
     // attacker lunge / kickback (never fight a real knockback): melee pounces

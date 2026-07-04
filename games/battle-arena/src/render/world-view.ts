@@ -77,9 +77,17 @@ function mountWeapon(obj: THREE.Object3D, name: string): void {
 // or a new cast arrives it interrupts naturally.
 const ONE_SHOT_MIN_MS = 240; // floor so a very short clip still holds a beat
 const ONE_SHOT_CAP_MS = 2500; // ceiling so nothing locks the character forever
-/** Natural one-shot window (ms) for a clip: its own duration, clamped. */
-function clipWindowMs(durSec: number): number {
-  return Math.min(ONE_SHOT_CAP_MS, Math.max(ONE_SHOT_MIN_MS, durSec * 1000));
+// 2H greatsword/hammer swings play 1.5× faster than authored — snappier heavy
+// weapons. (The sim spin rhythm's timeMult is tuned to this — see champions.ts.)
+const TWO_H_SPEED = 1.5;
+/** Playback rate for a clip — 2H swings are sped up, everything else natural. */
+function clipSpeed(clip: string): number {
+  return clip.startsWith("Melee_2H_") ? TWO_H_SPEED : 1;
+}
+/** Natural one-shot window (ms) for a clip playing at `speed`: its own duration
+ *  divided by the rate, clamped. */
+function clipWindowMs(durSec: number, speed = 1): number {
+  return Math.min(ONE_SHOT_CAP_MS, Math.max(ONE_SHOT_MIN_MS, (durSec / speed) * 1000));
 }
 const ATTACK_RECENCY_MS = 340; // an attack event older than this is stale — skip
 const CAST_ANIM_MS = 520; // recency window for detecting a fresh cast event
@@ -436,8 +444,9 @@ class UnitView {
       this.lastCastShown = u.lastCastAt;
       if (now - u.lastCastAt < CAST_ANIM_MS) {
         const clip = (u.lastCastKey ? ABILITY_CLIPS[this.def.id]?.[u.lastCastKey] : undefined) ?? castClip(this.def);
-        const winMs = clipWindowMs(ch.clipDuration(clip)); // natural speed + duration
-        ch.play(clip, { loop: false, fade: 0.06 });
+        const ts = clipSpeed(clip);
+        const winMs = clipWindowMs(ch.clipDuration(clip), ts); // natural (2H sped 1.5×)
+        ch.play(clip, { loop: false, fade: 0.06, timeScale: ts });
         this.oneShotUntil = now + winMs;
         this.emitTrails(now, winMs); // weapon-trail ribbon on the ability swing
       }
@@ -448,8 +457,9 @@ class UnitView {
         // pick by the SYNCED swing counter so the clip matches the sim rhythm
         // (the slow swing that hits harder plays its heavy clip)
         const clip = set[Math.max(0, u.swingCount - 1) % set.length]!;
-        const winMs = clipWindowMs(ch.clipDuration(clip)); // natural speed + duration
-        ch.play(clip, { loop: false, fade: 0.04 });
+        const ts = clipSpeed(clip);
+        const winMs = clipWindowMs(ch.clipDuration(clip), ts); // natural (2H sped 1.5×)
+        ch.play(clip, { loop: false, fade: 0.04, timeScale: ts });
         this.oneShotUntil = now + winMs;
         this.emitTrails(now, winMs); // weapon-trail ribbon traces the blade
         fx?.attackSound(this.def.id, u.x, u.y);
@@ -493,7 +503,7 @@ class UnitView {
         else ch.play(JUMP_LAND_CLIP, { loop: false, fade: 0.06 });
       }
     } else if (spinning) {
-      ch.play("Melee_2H_Attack_Spinning", { fade: 0.1 });
+      ch.play("Melee_2H_Attack_Spinning", { fade: 0.1, timeScale: TWO_H_SPEED });
     } else if (now < u.dashUntil) {
       ch.play("Running_B", { fade: 0.1 });
     } else {
