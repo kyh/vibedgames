@@ -469,8 +469,11 @@ export class GameScene {
    *  drops you into the ongoing shared maze (host can start a new round). */
   private handleStart(): void {
     if (this.racing) {
-      if (this.phase === "win" && this.net.isHost) {
-        this.hostNewRound();
+      if (this.phase === "win") {
+        // Only the host can start the next round; a guest flipping to
+        // "playing" here would bounce straight back on the next reconcile,
+        // replaying the win fanfare every press.
+        if (this.net.isHost) this.hostNewRound();
         return;
       }
       this.resetPacman();
