@@ -1,7 +1,6 @@
 // Ability casting + per-tick ability processing (ground zones, DoTs, meteors).
 // Data-driven defs live in data/champions; this switches on def.effect.
 import { CHAMP_BY_ID, valAt, type AbilityDef } from "../data/champions";
-import { JUMP_MS } from "../data/config";
 import { ITEM_BY_ID } from "../data/items";
 import { angleDelta, angleOf, dist, norm } from "./math";
 import { clampToArena, resolveObstacles } from "../data/map";
@@ -18,6 +17,11 @@ import { nextId } from "./types";
 export type CastCtx = { point?: { x: number; y: number }; dir?: { x: number; y: number } };
 
 const deg2rad = (d: number) => (d * Math.PI) / 180;
+
+// JUMP attack = a dive: clicking in the air brings you DOWN fast to slam. This
+// caps the remaining airtime (or gives a grounded caster a quick hop) so the
+// strike lands right away, centred on where you come down.
+const JUMP_DIVE_MS = 200;
 
 // Input buffer windows: a press up to CAST_BUFFER_LEAD ms before the cooldown
 // ends (or while dashing/stunned) queues and fires the moment it's legal.
@@ -200,9 +204,9 @@ function dispatch(
     }
     case "knight:JUMP": {
       // Skyfall Cleave: self-leap if grounded, slam AoE on the landing point.
-      if (w.now >= c.jumpUntil) c.jumpUntil = w.now + JUMP_MS;
-      const lx = c.x + dir.x * def.castRange;
-      const ly = c.y + dir.y * def.castRange;
+      c.jumpUntil = c.jumpUntil > w.now ? Math.min(c.jumpUntil, w.now + JUMP_DIVE_MS) : w.now + JUMP_DIVE_MS;
+      const lx = c.x; // dive slams straight down on the caster
+      const ly = c.y;
       const dmg = v("base") + v("perLevel") * (c.level - 1);
       for (const t of aoeEnemies(w, c.team, lx, ly, v("radius"))) {
         dealDamage(w, c, t, dmg, "physical", { ap });
@@ -282,9 +286,9 @@ function dispatch(
     }
     case "ranger:JUMP": {
       // Falcon Dive: self-leap, physical arrow-slam AoE (no CC).
-      if (w.now >= c.jumpUntil) c.jumpUntil = w.now + JUMP_MS;
-      const lx = c.x + dir.x * def.castRange;
-      const ly = c.y + dir.y * def.castRange;
+      c.jumpUntil = c.jumpUntil > w.now ? Math.min(c.jumpUntil, w.now + JUMP_DIVE_MS) : w.now + JUMP_DIVE_MS;
+      const lx = c.x; // dive slams straight down on the caster
+      const ly = c.y;
       const dmg = v("base") + v("perLevel") * (c.level - 1);
       for (const t of aoeEnemies(w, c.team, lx, ly, v("radius"))) {
         dealDamage(w, c, t, dmg, "physical", { ap });
@@ -369,9 +373,9 @@ function dispatch(
     }
     case "mage:JUMP": {
       // Emberdrop: comet slam — magic AoE + a lingering burn.
-      if (w.now >= c.jumpUntil) c.jumpUntil = w.now + JUMP_MS;
-      const lx = c.x + dir.x * def.castRange;
-      const ly = c.y + dir.y * def.castRange;
+      c.jumpUntil = c.jumpUntil > w.now ? Math.min(c.jumpUntil, w.now + JUMP_DIVE_MS) : w.now + JUMP_DIVE_MS;
+      const lx = c.x; // dive slams straight down on the caster
+      const ly = c.y;
       const dmg = v("base") + v("perLevel") * (c.level - 1);
       for (const t of aoeEnemies(w, c.team, lx, ly, v("radius"))) {
         dealDamage(w, c, t, dmg, "magic", { ap });
@@ -440,9 +444,9 @@ function dispatch(
     }
     case "rogue:JUMP": {
       // Deathfall: tight, high-burst self-leap slam — physical AoE + brief slow.
-      if (w.now >= c.jumpUntil) c.jumpUntil = w.now + JUMP_MS;
-      const lx = c.x + dir.x * def.castRange;
-      const ly = c.y + dir.y * def.castRange;
+      c.jumpUntil = c.jumpUntil > w.now ? Math.min(c.jumpUntil, w.now + JUMP_DIVE_MS) : w.now + JUMP_DIVE_MS;
+      const lx = c.x; // dive slams straight down on the caster
+      const ly = c.y;
       const dmg = v("base") + v("perLevel") * (c.level - 1);
       for (const t of aoeEnemies(w, c.team, lx, ly, v("radius"))) {
         dealDamage(w, c, t, dmg, "physical", { ap });
@@ -498,9 +502,9 @@ function dispatch(
     }
     case "blackknight:JUMP": {
       // Dawnbreaker: the biggest slam — wide physical AoE + a stun on landing.
-      if (w.now >= c.jumpUntil) c.jumpUntil = w.now + JUMP_MS;
-      const lx = c.x + dir.x * def.castRange;
-      const ly = c.y + dir.y * def.castRange;
+      c.jumpUntil = c.jumpUntil > w.now ? Math.min(c.jumpUntil, w.now + JUMP_DIVE_MS) : w.now + JUMP_DIVE_MS;
+      const lx = c.x; // dive slams straight down on the caster
+      const ly = c.y;
       const dmg = v("base") + v("perLevel") * (c.level - 1);
       for (const t of aoeEnemies(w, c.team, lx, ly, v("radius"))) {
         dealDamage(w, c, t, dmg, "physical", { ap });
@@ -566,9 +570,9 @@ function dispatch(
     }
     case "witch:JUMP": {
       // Hexfall: broom-dive slam — magic AoE + a cursed slow on landing.
-      if (w.now >= c.jumpUntil) c.jumpUntil = w.now + JUMP_MS;
-      const lx = c.x + dir.x * def.castRange;
-      const ly = c.y + dir.y * def.castRange;
+      c.jumpUntil = c.jumpUntil > w.now ? Math.min(c.jumpUntil, w.now + JUMP_DIVE_MS) : w.now + JUMP_DIVE_MS;
+      const lx = c.x; // dive slams straight down on the caster
+      const ly = c.y;
       const dmg = v("base") + v("perLevel") * (c.level - 1);
       for (const t of aoeEnemies(w, c.team, lx, ly, v("radius"))) {
         dealDamage(w, c, t, dmg, "magic", { ap });

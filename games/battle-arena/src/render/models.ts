@@ -132,6 +132,10 @@ export type PlayOpts = {
   timeScale?: number;
 };
 
+// The universal fallback pose — every rig (Medium + Large) resolves Idle_B, so
+// a missing clip lands here instead of the bind T-pose.
+const FALLBACK_IDLE = "Idle_B";
+
 /** Wraps one character instance + its mixer; crossfades named clips. */
 export class AnimatedCharacter {
   readonly root: THREE.Object3D;
@@ -186,7 +190,14 @@ export class AnimatedCharacter {
     const { fade = 0.2, loop = true, clamp = false, timeScale = 1 } = opts;
     if (this.currentName === clipName && loop) return;
     const next = this.action(clipName);
-    if (!next) return;
+    if (!next) {
+      // Clip missing on this rig — NEVER leave the character in its bind T-pose.
+      // Fall back to a neutral idle (if that resolves; else give up silently).
+      if (clipName !== FALLBACK_IDLE && this.action(FALLBACK_IDLE)) {
+        this.play(FALLBACK_IDLE, { fade, loop: true });
+      }
+      return;
+    }
     next.reset();
     next.enabled = true;
     next.setEffectiveWeight(1);

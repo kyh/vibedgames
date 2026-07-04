@@ -108,5 +108,5 @@ export function respawnTime(level: number): number {
 
 // Jump timing (shared by sim/world tryJump + sim/abilities JUMP-attack gating,
 // so it lives here to avoid a world↔abilities import cycle).
-export const JUMP_MS = 620; // airborne window (drives the render hop arc + Jump clip)
-export const JUMP_RECOVER = 520; // landing recovery before you can hop again
+export const JUMP_MS = 880; // airborne window (drives the render hop arc + Jump clip); high floaty jump
+export const JUMP_RECOVER = 460; // landing recovery before you can hop again
