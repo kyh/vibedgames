@@ -92,6 +92,8 @@ export type Unit = {
 
   // combat runtime
   lastAttackAt: number;
+  swingCount: number; // total basic swings started (cycles the per-champ rhythm +
+  //                     picks the render swing clip; slow swings hit harder)
   lastCastAt: number; // ms of last successful ability cast (drives the cast anim)
   lastCastKey: AbilityKey | ""; // which ability fired last (picks the cast clip)
   lastHitAt: number; // ms this unit last took damage (drives the hit flash)

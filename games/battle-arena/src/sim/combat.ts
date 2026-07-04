@@ -29,6 +29,16 @@ function meleeReach(u: Unit): number {
   return u.attackRange + MELEE_OVERREACH;
 }
 
+const UNIFORM_SWING = { timeMult: 1, dmgMult: 1 };
+/** The rhythm step of the swing this unit most recently STARTED — paces the next
+ *  swing (timeMult) and weights this swing's damage (dmgMult). Uniform for
+ *  creeps and any champ without a basicRhythm. */
+function lastSwingStep(u: Unit): { timeMult: number; dmgMult: number } {
+  const rhythm = CHAMP_BY_ID[u.champId]?.basicRhythm;
+  if (!rhythm || rhythm.length === 0 || u.swingCount < 1) return UNIFORM_SWING;
+  return rhythm[(u.swingCount - 1) % rhythm.length] ?? UNIFORM_SWING;
+}
+
 // Action combat (Dragon-Nest style): a click always swings/shoots in the AIM
 // direction — no target lock. Melee cleaves a cone (hits everything in front);
 // ranged fires a straight, non-homing shot.
@@ -52,11 +62,14 @@ export function resolveAttacks(w: World): void {
     }
 
     if (!u.attackHeld || w.now < u.dashUntil) continue;
-    const interval = attackIntervalMs(effectiveAttackSpeed(u));
+    // the swing currently occupying time paces the next one — a slow swing (the
+    // 2H spin) holds longer before the next basic can start
+    const interval = attackIntervalMs(effectiveAttackSpeed(u)) * lastSwingStep(u).timeMult;
     if (w.now - u.lastAttackAt < interval) continue;
 
     // swing regardless of whether anything is in range
     u.lastAttackAt = w.now;
+    u.swingCount++;
     u.facing = angleOf(u.aimX, u.aimY);
     breakStealth(u);
     // per-champ melee windup — heavies wind visibly, daggers snap (creeps default)
@@ -91,7 +104,7 @@ export function resolveAttacks(w: World): void {
 
 function doAttackHit(w: World, u: Unit): void {
   const variance = 1 - ATTACK_VARIANCE + rand(w) * (ATTACK_VARIANCE * 2);
-  let raw = u.baseDamage * variance;
+  let raw = u.baseDamage * variance * lastSwingStep(u).dmgMult; // slow swings hit harder
   if (u.empowerNext > 0) {
     raw += u.empowerNext;
     u.empowerNext = 0;

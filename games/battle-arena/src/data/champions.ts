@@ -55,6 +55,10 @@ export type ChampDef = {
   weaponR?: string; // weapon model attached to handslot.r
   weaponL?: string; // weapon/shield attached to handslot.l
   cleaveTargets?: number; // max enemies a basic attack damages (default 3; rogue 1)
+  // Per-swing basic-attack rhythm, cycled by swingCount (parallel to the render
+  // ATTACK_SETS clips). A slow swing (bigger timeMult) also hits harder
+  // (dmgMult) — heavy commitments pay off. Omit → every swing is uniform 1×.
+  basicRhythm?: { timeMult: number; dmgMult: number }[];
   rig?: "large"; // needs the Rig_Large clip library ("Large/" prefix)
   twoHanded?: boolean; // wields a 2H weapon: rests/idles two-handed (Melee_2H_Idle)
   scale?: number; // render scale multiplier (default 1)
@@ -103,6 +107,13 @@ export const CHAMPIONS: ChampDef[] = [
     model: "Knight",
     weaponR: "sword_2handed",
     twoHanded: true,
+    // chop, slice, then a big 2H spin: the spin takes ~2.9× as long (so its
+    // 2.4s clip plays in full) and lands ~2.5× the damage.
+    basicRhythm: [
+      { timeMult: 1, dmgMult: 1 },
+      { timeMult: 1, dmgMult: 1 },
+      { timeMult: 2.9, dmgMult: 2.5 },
+    ],
     tint: 0x4f86ff,
     blurb: "A walking wall. Stun, charge in, and spin the throne to bloody mulch.",
     difficulty: 1,

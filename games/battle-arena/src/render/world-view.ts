@@ -213,7 +213,6 @@ class UnitView {
   private oneShotUntil = 0;
   private deadAt = -1;
   private lastDustAt = 0;
-  private attackIdx = 0;
   private hitIdx = 0;
   private recoilX = 0; // render-only knockback lurch (decays); shadow stays put
   private recoilZ = 0;
@@ -446,7 +445,9 @@ class UnitView {
       this.lastAttackShown = u.lastAttackAt;
       if (now - u.lastAttackAt < ATTACK_RECENCY_MS) {
         const set = ATTACK_SETS[this.def.id] ?? [attackClip(this.def)];
-        const clip = set[this.attackIdx++ % set.length]!;
+        // pick by the SYNCED swing counter so the clip matches the sim rhythm
+        // (the slow swing that hits harder plays its heavy clip)
+        const clip = set[Math.max(0, u.swingCount - 1) % set.length]!;
         const winMs = clipWindowMs(ch.clipDuration(clip)); // natural speed + duration
         ch.play(clip, { loop: false, fade: 0.04 });
         this.oneShotUntil = now + winMs;
