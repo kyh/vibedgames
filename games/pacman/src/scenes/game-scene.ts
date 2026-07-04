@@ -305,15 +305,59 @@ export class GameScene {
   }
 
   private handleNetEvent(event: string, payload: unknown, from: string): void {
+    const p = (payload ?? {}) as Record<string, unknown>;
     // Host arbitrates pellet eats: first claim on a cell wins.
     if (event === "eat" && this.net.isHost) {
-      const key = (payload as { key?: unknown })?.key;
-      if (typeof key === "string" && !this.hostEaten.has(key)) {
-        this.hostEaten.add(key);
-        this.broadcastBoard();
+      const key = p["key"];
+      if (typeof key === "string") this.hostArbitrate(key, from);
+      return;
+    }
+    // Loser of a contested cell rolls back the points it awarded optimistically.
+    if (event === "reject") {
+      const key = p["key"];
+      const amount = p["amount"];
+      if (
+        p["to"] === this.net.playerId &&
+        typeof key === "string" &&
+        typeof amount === "number" &&
+        Number.isFinite(amount)
+      ) {
+        // Clamp to the max a legitimate cell is worth (defence-in-depth).
+        this.addScore(-Math.max(0, Math.min(SCORE_POWER, amount)));
       }
     }
-    void from;
+  }
+
+  /** Parse + validate a wire cell key: it must be an in-bounds eatable cell. */
+  private parseEatKey(key: string): { col: number; row: number } | null {
+    const parts = key.split(",");
+    if (parts.length !== 2) return null;
+    const col = Number(parts[0]);
+    const row = Number(parts[1]);
+    if (!Number.isInteger(col) || !Number.isInteger(row)) return null;
+    if (col < 0 || row < 0 || col >= GRID_COLS || row >= GRID_ROWS) return null;
+    const cell = MAP[row]?.[col];
+    if (cell !== 2 && cell !== 3) return null; // 2 = pellet, 3 = power
+    return { col, row };
+  }
+
+  /**
+   * Host decides who owns a cell: the first valid claim wins. A late claim
+   * (the same cell already taken) loses the points it optimistically awarded —
+   * the host rolls its own back, or tells the guest to via a `reject`. The
+   * amount is derived from the map, never trusted from the wire.
+   */
+  private hostArbitrate(key: string, claimer: string): void {
+    const cell = this.parseEatKey(key);
+    if (!cell) return; // malformed / out-of-bounds / not a pellet cell — drop it
+    if (this.hostEaten.has(key)) {
+      const amount = MAP[cell.row]?.[cell.col] === 3 ? SCORE_POWER : SCORE_PELLET;
+      if (claimer === (this.net.playerId ?? "solo")) this.addScore(-amount);
+      else this.net.sendEvent("reject", { key, amount, to: claimer });
+      return;
+    }
+    this.hostEaten.add(key);
+    this.broadcastBoard();
   }
 
   private broadcastBoard(): void {
@@ -330,8 +374,9 @@ export class GameScene {
     if (this.appliedEaten.has(key)) return;
     this.appliedEaten.add(key);
     if (this.net.isHost) {
-      this.hostEaten.add(key);
-      this.broadcastBoard();
+      // Route the host's own eat through arbitration too, so it rolls back if a
+      // guest claimed the same cell first this tick.
+      this.hostArbitrate(key, this.net.playerId ?? "solo");
     } else {
       this.net.sendEvent("eat", { key });
     }
@@ -416,6 +461,13 @@ export class GameScene {
       this.setPhase("playing");
       return;
     }
+    // Leaving a race for a solo restart: clear the shared-board authority so a
+    // future joiner reconciles against a clean slate, not last round's eaten
+    // set (which would also make markEaten silently drop re-eaten pellets).
+    this.hostEaten.clear();
+    this.appliedEaten.clear();
+    this.boardRound = 0;
+    if (!this.net.offline && this.net.isHost) this.broadcastBoard();
     this.resetGame();
   }
 

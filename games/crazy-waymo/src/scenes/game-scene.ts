@@ -568,7 +568,10 @@ export class GameScene {
     // in gameplay and freecam alike) so distant tiles stop drawing.
     this.city?.updateStreaming(this.rig.camera);
 
-    this.updateNet(dt);
+    // Don't start the net session (or its offline-fallback grace clock) until
+    // the scene has loaded — asset + physics load can otherwise outlast the
+    // grace window and drop us to solo before the socket ever connects.
+    if (this.mode.kind !== "loading") this.updateNet(dt);
   }
 
   /** Broadcast the local taxi and render the other players' taxis. Runs in

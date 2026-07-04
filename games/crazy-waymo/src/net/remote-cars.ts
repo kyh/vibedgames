@@ -21,18 +21,21 @@ const LERP_RATE = 12;
 
 export type RemoteTransform = { x: number; y: number; z: number; h: number };
 
+/** A finite number, or null. `typeof NaN === "number"`, so guard finiteness. */
+function finiteNum(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
 export function readTransform(state: unknown): RemoteTransform | null {
   if (!state || typeof state !== "object") return null;
   const s = state as Record<string, unknown>;
-  if (typeof s["x"] !== "number" || typeof s["z"] !== "number" || typeof s["h"] !== "number") {
-    return null;
-  }
-  return {
-    x: s["x"] as number,
-    y: typeof s["y"] === "number" ? (s["y"] as number) : 0,
-    z: s["z"] as number,
-    h: s["h"] as number,
-  };
+  // Reject non-finite values so a bad/hostile peer can't feed NaN/Infinity into
+  // slopeQuaternion and the Three.js transforms (which would freeze rendering).
+  const x = finiteNum(s["x"]);
+  const z = finiteNum(s["z"]);
+  const h = finiteNum(s["h"]);
+  if (x === null || z === null || h === null) return null;
+  return { x, y: finiteNum(s["y"]) ?? 0, z, h };
 }
 
 type RemoteCar = {

@@ -470,6 +470,9 @@ export class GameScene extends Phaser.Scene {
     if (event !== "tile" || !this.amHost) return;
     const p = payload as { idx?: unknown; action?: unknown; crop?: unknown };
     if (typeof p.idx !== "number" || typeof p.action !== "string") return;
+    // Validate the guest-sent tile index against the map — never let a bad or
+    // hostile client index outside the world arrays.
+    if (!Number.isInteger(p.idx) || p.idx < 0 || p.idx >= MAP_W * MAP_H) return;
     const idx = p.idx;
     switch (p.action) {
       case "till":
@@ -479,7 +482,11 @@ export class GameScene extends Phaser.Scene {
         this.world.watered[idx] = 1;
         break;
       case "plant":
-        if (typeof p.crop === "string") this.world.crops.set(idx, { crop: p.crop as CropId, daysGrown: 0 });
+        // Only plant a crop the game actually knows about.
+        if (typeof p.crop !== "string" || !Object.prototype.hasOwnProperty.call(CROPS, p.crop)) {
+          return;
+        }
+        this.world.crops.set(idx, { crop: p.crop as CropId, daysGrown: 0 });
         break;
       case "harvest":
         this.world.crops.delete(idx);
