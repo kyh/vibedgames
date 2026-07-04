@@ -133,6 +133,7 @@ export class GameScene {
   private lastSeq = -1; // guest: last applied host sequence number
   private connWas = false; // tracks the connecting→live transition for the HUD
   private oppWas = false; // tracks opponent join/leave for the HUD
+  private roleWasGuest: boolean | null = null; // last role while live (host migration)
 
   // ---- feel state ------------------------------------------------------------
   private elapsed = 0;
@@ -362,6 +363,34 @@ export class GameScene {
     return this.net.otherPlayer() !== null;
   }
 
+  /** The old host left mid-game and the server promoted us. Our slot flips
+   *  from B to A, which silently changes what every canonical-frame field
+   *  MEANS on screen (the view flip negates x) — remap so nothing teleports,
+   *  then restart the point from a clean serve on our own clock. */
+  private becomeHost(): void {
+    const myOld = this.aiX; // slot B was ours
+    const oppOld = this.playerX;
+    this.playerX = -myOld; // same screen position under the new flip sign
+    this.aiX = -oppOld;
+    if (this.phase !== "won") {
+      // The rally state (ball, streak, serve clock) was the old host's; the
+      // serve clock in particular was in ITS `elapsed` timeline, which can sit
+      // hours ahead of ours and stall the auto-serve forever.
+      this.phase = "serving";
+      this.ballPos.set(0, 0);
+      this.ballVel.set(0, 0);
+      this.arc = null;
+      this.rallyHits = 0;
+      this.rallySpeed = RALLY_SPEED_BASE;
+      this.serveAt = this.elapsed + AUTO_SERVE_S;
+    } else {
+      this.serveAt = null; // rematch waits for confirm, as usual
+    }
+    this.hostSeq = 0;
+    this.lastSeq = -1;
+    this.syncHud();
+  }
+
   // ---- input ---------------------------------------------------------------
 
   private onKeyDown = (e: KeyboardEvent): void => {
@@ -461,6 +490,9 @@ export class GameScene {
 
   /** Space / click / tap: rematch when won, serve when waiting. */
   private confirm(): void {
+    // Still handshaking: a reflexive tap must not start a phantom rally that
+    // sits frozen until the connection resolves.
+    if (!this.net.live) return;
     // A guest can't touch the authoritative ball/score — forward the intent so
     // the host serves / rematches for both of us.
     if (this.isGuest()) {
@@ -506,6 +538,13 @@ export class GameScene {
     if (opp !== this.oppWas) {
       this.oppWas = opp;
       this.syncHud();
+    }
+    if (this.net.live && !this.net.offline) {
+      // Host migration: the server elected us after the old host left (the
+      // check spans reconnect gaps, when `live` briefly drops).
+      const guestNow = this.isGuest();
+      if (this.roleWasGuest === true && !guestNow) this.becomeHost();
+      this.roleWasGuest = guestNow;
     }
     if (!this.net.live) {
       // Still handshaking with the party server: render an idle court rather
@@ -791,8 +830,12 @@ export class GameScene {
     }
     // Host → guest fx beats — the host already ran these locally.
     if (!this.isGuest()) return;
-    const p = (payload ?? {}) as Record<string, unknown>;
-    const num = (k: string): number => (typeof p[k] === "number" ? (p[k] as number) : 0);
+    const p: Record<string, unknown> = {};
+    if (payload && typeof payload === "object") Object.assign(p, payload);
+    const num = (k: string): number => {
+      const v = p[k];
+      return typeof v === "number" ? v : 0;
+    };
     const bool = (k: string): boolean => p[k] === true;
     switch (event) {
       case "phit":
@@ -813,7 +856,10 @@ export class GameScene {
 
   /** Host: broadcast the authoritative ball/score snapshot at ~NET_TICK_HZ. */
   private broadcastShared(dt: number): void {
-    if (this.net.offline) return; // solo: nobody reads shared state
+    // Solo/alone: nobody reads shared state — don't stream ~30 msg/s at the
+    // Durable Object for an empty room. (The first snapshot after a guest
+    // joins goes out within one net tick.)
+    if (this.net.offline || !this.hasOpponent()) return;
     this.netAcc += dt;
     if (this.netAcc < 1 / NET_TICK_HZ) return;
     this.netAcc = 0;
@@ -826,7 +872,9 @@ export class GameScene {
       bvy: this.ballVel.y,
       phase: this.phase,
       rally: this.rallyHits,
-      serveAt: this.serveAt,
+      // Remaining time, not the absolute deadline: `serveAt` lives in OUR
+      // `elapsed` timeline, which the guest's clock has no relation to.
+      serveLeft: this.serveAt === null ? null : Math.max(0, this.serveAt - this.elapsed),
       scoreA: this.scoreYou,
       scoreB: this.scoreAi,
       arcFrom: this.arc ? this.arc.fromY : null,
@@ -836,7 +884,7 @@ export class GameScene {
 
   /** Broadcast the local paddle position at ~NET_TICK_HZ (canonical frame). */
   private broadcastPaddle(dt: number): void {
-    if (this.net.offline) return;
+    if (this.net.offline || !this.hasOpponent()) return;
     this.paddleAcc += dt;
     if (this.paddleAcc < 1 / NET_TICK_HZ) return;
     this.paddleAcc = 0;
@@ -853,8 +901,12 @@ export class GameScene {
 
     this.ballVel.set(numField(s, "bvx") ?? 0, numField(s, "bvy") ?? 0);
     this.rallyHits = numField(s, "rally") ?? 0;
-    const sa = s["serveAt"];
-    this.serveAt = typeof sa === "number" ? sa : null;
+    // Re-anchor the host's remaining serve time in OUR timeline (only on a
+    // fresh snapshot — re-anchoring stale data would freeze the meter).
+    if (fresh) {
+      const sl = numField(s, "serveLeft");
+      this.serveAt = sl === null ? null : this.elapsed + sl;
+    }
 
     // Slots A/B map to opponent/me for a guest.
     const prevYou = this.scoreYou;
