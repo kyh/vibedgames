@@ -11,13 +11,23 @@ import type { PlayerMap } from "@vibedgames/multiplayer";
 import type { ModelCache } from "../assets/loader";
 import { modelUrl, PLAYER_CAR } from "../assets/manifest";
 import type { Surface } from "../vehicle/car";
+import { buildWaymoSensors } from "../vehicle/car";
 import { slopeQuaternion } from "../world/terrain";
 
-/** Cull taxis farther than this (world units) from the local car. */
-const RENDER_RADIUS = 320;
+/** Instance taxis inside this radius (matches the city's DETAIL_DISTANCE so
+ *  cars don't pop against still-visible props)… */
+const RENDER_RADIUS = 520;
 const RENDER_RADIUS_SQ = RENDER_RADIUS * RENDER_RADIUS;
+/** …and only drop them beyond this — the hysteresis band stops a taxi pacing
+ *  the boundary from re-cloning its GLB every few frames. */
+const DROP_RADIUS_SQ = 580 * 580;
 /** Position/heading smoothing toward the networked target (per second). */
 const LERP_RATE = 12;
+/** A target jumping farther than this is a respawn/reset — snap, don't streak. */
+const SNAP_DIST_SQ = 40 * 40;
+/** Remove taxis whose transform hasn't changed in this long (hidden tabs keep
+ *  their socket open with rAF paused — they'd freeze mid-street forever). */
+const IDLE_CULL_MS = 10_000;
 
 export type RemoteTransform = { x: number; y: number; z: number; h: number };
 
@@ -28,14 +38,13 @@ function finiteNum(v: unknown): number | null {
 
 export function readTransform(state: unknown): RemoteTransform | null {
   if (!state || typeof state !== "object") return null;
-  const s = state as Record<string, unknown>;
   // Reject non-finite values so a bad/hostile peer can't feed NaN/Infinity into
   // slopeQuaternion and the Three.js transforms (which would freeze rendering).
-  const x = finiteNum(s["x"]);
-  const z = finiteNum(s["z"]);
-  const h = finiteNum(s["h"]);
+  const x = finiteNum("x" in state ? state.x : null);
+  const z = finiteNum("z" in state ? state.z : null);
+  const h = finiteNum("h" in state ? state.h : null);
   if (x === null || z === null || h === null) return null;
-  return { x, y: finiteNum(s["y"]) ?? 0, z, h };
+  return { x, y: finiteNum("y" in state ? state.y : null) ?? 0, z, h };
 }
 
 type RemoteCar = {
@@ -52,6 +61,7 @@ type RemoteCar = {
 export class RemoteCars {
   readonly group = new THREE.Group();
   private cars = new Map<string, RemoteCar>();
+  private lastMoved = new Map<string, { sig: string; at: number }>();
   private scratchN = new THREE.Vector3();
   private quat = new THREE.Quaternion();
 
@@ -62,17 +72,27 @@ export class RemoteCars {
 
   /** Adopt the latest player snapshot; `origin` is the local car for culling. */
   sync(players: PlayerMap, myId: string | null, origin: THREE.Vector3): void {
+    const now = performance.now();
     const seen = new Set<string>();
     for (const [id, player] of Object.entries(players)) {
       if (id === myId) continue;
       const t = readTransform(player.state);
       if (!t) continue;
       seen.add(id);
+
+      const sig = `${t.x}:${t.y}:${t.z}:${t.h}`;
+      const moved = this.lastMoved.get(id);
+      if (!moved || moved.sig !== sig) this.lastMoved.set(id, { sig, at: now });
+      const idle = moved !== undefined && moved.sig === sig && now - moved.at > IDLE_CULL_MS;
+
       const dx = t.x - origin.x;
       const dz = t.z - origin.z;
-      const near = dx * dx + dz * dz <= RENDER_RADIUS_SQ;
+      const distSq = dx * dx + dz * dz;
       let car = this.cars.get(id);
-      if (!near) {
+      // Hysteresis: instance when near, drop only when clearly far (or idle),
+      // so a taxi pacing the boundary doesn't re-clone its GLB every frame.
+      const keep = !idle && distSq <= (car ? DROP_RADIUS_SQ : RENDER_RADIUS_SQ);
+      if (!keep) {
         // Out of range: drop the instance to keep 64-player rooms cheap. It
         // re-instances (snapped to the fresh pose) when it comes back near.
         if (car) this.remove(id, car);
@@ -81,9 +101,15 @@ export class RemoteCars {
       if (!car) car = this.spawn(id, t);
       car.target.set(t.x, t.y, t.z);
       car.targetHeading = t.h;
+      // A big jump is a respawn/reset, not motion — snap instead of streaking
+      // the taxi across the map through buildings.
+      if (car.cur.distanceToSquared(car.target) > SNAP_DIST_SQ) car.seededPose = true;
     }
     for (const [id, car] of this.cars) {
       if (!seen.has(id)) this.remove(id, car);
+    }
+    for (const id of this.lastMoved.keys()) {
+      if (!seen.has(id)) this.lastMoved.delete(id);
     }
   }
 
@@ -117,6 +143,8 @@ export class RemoteCars {
     const group = new THREE.Group();
     group.scale.setScalar(1.12);
     group.add(this.cache.instance(modelUrl("cars", PLAYER_CAR)));
+    // Every driver is a Waymo — remotes get the signature lidar dome too.
+    group.add(buildWaymoSensors());
 
     // A colored roof beacon so players are told apart in a crowd.
     const beaconGeo = new THREE.SphereGeometry(0.32, 12, 8);

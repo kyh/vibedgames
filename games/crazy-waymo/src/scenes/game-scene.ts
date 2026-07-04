@@ -577,20 +577,29 @@ export class GameScene {
   /** Broadcast the local taxi and render the other players' taxis. Runs in
    *  every mode so you see the city populated even on the title screen. */
   private updateNet(dt: number): void {
-    this.net.tick();
     const car = this.car;
     const remote = this.remoteCars;
+    // Don't tick the net before assets are in: the offline-fallback grace
+    // window starts on the first tick, and this game's GLB + wasm load can
+    // eat the whole window on a slow link — wrongly dropping us to solo
+    // while the socket never got a chance.
     if (!car || !remote) return;
+    this.net.tick();
 
-    if (!this.net.offline) {
+    // Only an active driver broadcasts: title idlers all park at the same
+    // deterministic spawn, and streaming that pose 15×/s just piles identical
+    // frozen taxis onto everyone's spawn plaza.
+    const driving =
+      this.mode.kind === "countdown" || this.mode.kind === "playing" || this.mode.kind === "gameover";
+    if (!this.net.offline && driving) {
       this.netAcc += dt;
       if (this.netAcc >= 1 / NET_TICK_HZ) {
         this.netAcc = 0;
         this.net.updateMyState({
-          x: car.position.x,
-          y: car.position.y,
-          z: car.position.z,
-          h: car.heading,
+          x: roundNet(car.position.x),
+          y: roundNet(car.position.y),
+          z: roundNet(car.position.z),
+          h: roundNet(car.heading),
         });
       }
     }
@@ -599,10 +608,11 @@ export class GameScene {
     remote.update(dt);
 
     if (this.netInfoEl) {
+      const others = Math.max(0, Object.keys(this.net.players).length - 1);
       this.netInfoEl.textContent =
-        !this.net.live || this.net.offline
+        !this.net.live || this.net.offline || others === 0
           ? ""
-          : `${Object.keys(this.net.players).length} DRIVERS ONLINE`;
+          : `${others} OTHER ${others === 1 ? "DRIVER" : "DRIVERS"} ONLINE`;
     }
   }
 
@@ -1175,4 +1185,10 @@ export class GameScene {
       cta: "PRESS ENTER TO RETRY",
     });
   }
+}
+
+/** Centimeter precision is plenty for remote taxis and trims the 15 Hz
+ *  payload (~64 players of full-precision float64 JSON adds up). */
+function roundNet(v: number): number {
+  return Math.round(v * 100) / 100;
 }

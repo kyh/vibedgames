@@ -40,7 +40,7 @@ const LIDAR_BLUE = new THREE.MeshStandardMaterial({
   roughness: 0.4,
 });
 
-function buildWaymoSensors(): THREE.Group {
+export function buildWaymoSensors(): THREE.Group {
   const g = new THREE.Group();
   const add = (
     geo: THREE.BufferGeometry,
