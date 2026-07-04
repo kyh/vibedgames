@@ -35,7 +35,7 @@ const UNIFORM_SWING = { timeMult: 1, dmgMult: 1 };
 /** The rhythm step of the swing this unit most recently STARTED — paces the next
  *  swing (timeMult), weights its damage (dmgMult), and can override when its
  *  blade connects (strikeFrac). Uniform for creeps and champs with no rhythm. */
-function lastSwingStep(u: Unit): { timeMult: number; dmgMult: number; strikeFrac?: number } {
+function lastSwingStep(u: Unit): { timeMult: number; dmgMult: number; strikeFrac?: number; aoe?: number } {
   const rhythm = CHAMP_BY_ID[u.champId]?.basicRhythm;
   if (!rhythm || rhythm.length === 0 || u.swingCount < 1) return UNIFORM_SWING;
   return rhythm[(u.swingCount - 1) % rhythm.length] ?? UNIFORM_SWING;
@@ -108,14 +108,28 @@ export function resolveAttacks(w: World): void {
 }
 
 function doAttackHit(w: World, u: Unit): void {
+  const step = lastSwingStep(u);
   const variance = 1 - ATTACK_VARIANCE + rand(w) * (ATTACK_VARIANCE * 2);
-  let raw = u.baseDamage * variance * lastSwingStep(u).dmgMult; // slow swings hit harder
+  let raw = u.baseDamage * variance * step.dmgMult; // slow swings hit harder
   if (u.empowerNext > 0) {
     raw += u.empowerNext;
     u.empowerNext = 0;
   }
   const fx = Math.cos(u.facing);
   const fy = Math.sin(u.facing);
+
+  // a "spin" swing (rhythm aoe) whirls all the way around: every enemy inside
+  // the radius takes full damage, no cone or cleave cap.
+  if (step.aoe && step.aoe > 0) {
+    for (const t of w.units.values()) {
+      if (t === u || !t.alive || (t.kind !== "hero" && t.kind !== "creep")) continue;
+      if (!isEnemy(u, t) || isUntargetable(t)) continue;
+      if (Math.hypot(t.x - u.x, t.y - u.y) > step.aoe + t.radius) continue;
+      dealDamage(w, u, t, raw, u.attackDamageType, { isAttack: true });
+    }
+    w.fx.push({ t: "swing", x: u.x, y: u.y, ang: u.facing, r: step.aoe, melee: true, dtype: u.attackDamageType });
+    return;
+  }
 
   if (u.attackType === "ranged") {
     spawnProjectile(w, u, {

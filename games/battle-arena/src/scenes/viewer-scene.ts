@@ -178,6 +178,7 @@ export class ViewerScene {
   private searchQ = "";
   private panelEl: HTMLElement | null = null;
   private nameEl: HTMLElement | null = null;
+  private dummyHudEl: HTMLElement | null = null;
   private rosterEl: HTMLElement | null = null;
 
   constructor(
@@ -579,16 +580,30 @@ export class ViewerScene {
     this.nextSwingT = this.t + dur + SWING_GAP_S;
   }
 
-  /** The dummy soaks everything but never dies, acts, or wanders off. */
+  private dummyPrevHp = -1;
+  private dummyDmgWindow: { t: number; d: number }[] = [];
+  private dummyLastDmg = 0;
+  private dummyKills = 0;
+
+  /** The dummy takes real damage (so you can read hits/DPS for balance) but
+   *  revives at full when it dies, and never acts or wanders off. */
   private neutralizeDummy(dt: number): void {
     const d = this.dummy();
     if (!d) return;
-    if (!d.alive) {
+    // measure damage taken since last frame (drives the HP bar / DPS readout)
+    if (this.dummyPrevHp >= 0 && d.hp < this.dummyPrevHp) {
+      const dmg = this.dummyPrevHp - d.hp;
+      this.dummyLastDmg = Math.round(dmg);
+      this.dummyDmgWindow.push({ t: this.t, d: dmg });
+    }
+    // revive at full on death so the training loop continues (count the kill)
+    if (!d.alive || d.hp <= 0) {
+      this.dummyKills++;
       d.alive = true;
       d.respawnAt = 0;
       d.statuses = [];
+      d.hp = d.maxHp;
     }
-    d.hp = d.maxHp;
     d.attackHeld = false;
     d.moveX = 0;
     d.moveY = 0;
@@ -604,6 +619,21 @@ export class ViewerScene {
         d.aimY = to.y;
       }
     }
+    this.dummyPrevHp = d.hp;
+    const cut = this.t - 3; // 3s rolling DPS window
+    while (this.dummyDmgWindow.length && (this.dummyDmgWindow[0]?.t ?? 0) < cut) this.dummyDmgWindow.shift();
+    this.updateDummyHud(d);
+  }
+
+  /** Live HP bar + last-hit + DPS readout for the dummy (balance tuning). */
+  private updateDummyHud(d: Unit): void {
+    const el = this.dummyHudEl;
+    if (!el) return;
+    const dps = Math.round(this.dummyDmgWindow.reduce((s, x) => s + x.d, 0) / 3);
+    const pct = Math.max(0, Math.min(100, (d.hp / d.maxHp) * 100));
+    el.innerHTML =
+      `<div class="vw-dh-bar"><i style="width:${pct.toFixed(1)}%"></i></div>` +
+      `<span class="vw-dh-txt">DUMMY ${Math.round(d.hp)}/${d.maxHp} · hit ${this.dummyLastDmg} · ${dps} DPS · deaths ${this.dummyKills}</span>`;
   }
 
   // ── camera ───────────────────────────────────────────────────────────────
@@ -719,10 +749,12 @@ export class ViewerScene {
         </div>
         <div class="vw-body" id="vw-body"></div>
       </div>
+      <div class="vw-dummyhp" id="vw-dummyhp"></div>
       <div class="vw-help">LMB drag orbit · wheel zoom · RMB pan · Q/W/E/R cast · A attack</div>`;
     document.body.appendChild(ui);
     this.panelEl = document.getElementById("vw-body");
     this.nameEl = document.getElementById("vw-name");
+    this.dummyHudEl = document.getElementById("vw-dummyhp");
     this.rosterEl = document.getElementById("vw-roster");
 
     // creep divider — insert before the first creep button
@@ -920,6 +952,10 @@ function injectStyle(): void {
 .vwc span{opacity:.5;font-weight:600}
 .vwc.on{border-color:#7dffb0;color:#7dffb0;background:rgba(20,52,34,.9)}
 .vw-help{position:absolute;left:0;right:0;bottom:0;text-align:center;padding:8px;font:600 11px ui-monospace,monospace;opacity:.55;background:linear-gradient(#080a1200,#080a12dd)}
+.vw-dummyhp{position:absolute;top:52px;left:50%;transform:translateX(-50%);width:340px;max-width:60vw;display:flex;flex-direction:column;gap:3px;align-items:center;pointer-events:none}
+.vw-dh-bar{width:100%;height:9px;border-radius:5px;background:rgba(10,14,22,.85);border:1px solid rgba(255,80,90,.35);overflow:hidden}
+.vw-dh-bar>i{display:block;height:100%;background:linear-gradient(90deg,#ff5a5a,#ff9a5a);transition:width .08s linear}
+.vw-dh-txt{font:700 11px ui-monospace,monospace;color:#ffd9b0;text-shadow:0 1px 2px #000;letter-spacing:.02em}
 `;
   document.head.appendChild(s);
 }

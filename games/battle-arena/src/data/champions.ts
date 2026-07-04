@@ -59,8 +59,9 @@ export type ChampDef = {
   // so the clip plays more/at natural speed) and `dmgMult` scales its damage.
   // `strikeFrac` overrides when the blade connects (fraction of the swing's
   // interval) for a swing whose contact isn't near the default ~0.45 — e.g. a
-  // spin connects later. Omit → uniform 1× swing at the default strike frac.
-  basicRhythm?: { timeMult: number; dmgMult: number; strikeFrac?: number }[];
+  // spin connects later. `aoe` (radius) makes that swing hit ALL enemies around
+  // (full damage, no cone/cap) — a spinning whirl. Omit → uniform 1× swing.
+  basicRhythm?: { timeMult: number; dmgMult: number; strikeFrac?: number; aoe?: number }[];
   rig?: "large"; // needs the Rig_Large clip library ("Large/" prefix)
   twoHanded?: boolean; // wields a 2H weapon: rests/idles two-handed (Melee_2H_Idle)
   scale?: number; // render scale multiplier (default 1)
@@ -114,7 +115,7 @@ export const CHAMPIONS: ChampDef[] = [
     basicRhythm: [
       { timeMult: 1, dmgMult: 1 },
       { timeMult: 1, dmgMult: 1 },
-      { timeMult: 1.92, dmgMult: 2.5, strikeFrac: 0.7 }, // spin connects on the committed sweep
+      { timeMult: 1.92, dmgMult: 2.5, strikeFrac: 0.7, aoe: 4 }, // spin: whirls, hits all around
     ],
     tint: 0x4f86ff,
     blurb: "A walking wall. Stun, charge in, and spin the throne to bloody mulch.",
@@ -128,7 +129,7 @@ export const CHAMPIONS: ChampDef[] = [
       E: ab({ key: "E", name: "Iron Stance", effect: "knight:E", targeting: "self", castRange: 0, manaCost: [0, 0, 0, 0], cooldown: [16, 15, 14, 13], values: { shield: [120, 200, 280, 360], duration: [4, 4, 4, 4], speed: [16, 18, 20, 22] }, desc: "Plant your feet — a shield of will absorbs damage and steadies your march." }),
       R: ab({ key: "R", name: "Whirlwind", effect: "knight:R", targeting: "self", castRange: 0, manaCost: [0, 0, 0], cooldown: [70, 62, 54], values: { dps: [140, 200, 260], radius: [4.5, 5, 5.5], duration: [2.4, 2.6, 2.8], slow: [30, 35, 40] }, desc: "Spin in a deadly cyclone, shredding and slowing all around you." }),
       DASH: ab({ key: "DASH", name: "Charge", effect: "knight:DASH", targeting: "dash", castRange: 7, manaCost: [0], cooldown: [6], maxRank: 1, values: { speed: [26], iframe: [0.24] }, desc: "Barrel forward, briefly unstoppable." }),
-      JUMP: ab({ key: "JUMP", name: "Skyfall Cleave", effect: "knight:JUMP", targeting: "self", castRange: 1.6, manaCost: [0], cooldown: [8], maxRank: 1, values: { base: [45], perLevel: [4], radius: [2.6], slow: [25], slowDur: [1] }, desc: "Leap and bring the greatsword down — a slowing shockwave on landing." }),
+      JUMP: ab({ key: "JUMP", name: "Skyfall Cleave", effect: "knight:JUMP", targeting: "self", castRange: 5, manaCost: [0], cooldown: [8], maxRank: 1, values: { base: [45], perLevel: [4], radius: [2.6], slow: [25], slowDur: [1] }, desc: "Leap and bring the greatsword down — a slowing shockwave on landing." }),
     },
   },
   {
@@ -154,7 +155,7 @@ export const CHAMPIONS: ChampDef[] = [
       E: ab({ key: "E", name: "Snare Trap", effect: "ranger:E", targeting: "ground", castRange: 10, manaCost: [0, 0, 0, 0], cooldown: [14, 13, 12, 11], values: { damage: [40, 70, 100, 130], root: [1.2, 1.5, 1.8, 2.1], radius: [2.2, 2.2, 2.4, 2.4], life: [8, 8, 8, 8] }, desc: "Arm a trap — first enemy in is rooted and hurt." }),
       R: ab({ key: "R", name: "Rain of Arrows", effect: "ranger:R", targeting: "ground", castRange: 14, manaCost: [0, 0, 0], cooldown: [60, 54, 48], values: { dps: [130, 180, 230], radius: [5.5, 6, 6.5], duration: [3, 3.2, 3.4], slow: [25, 30, 35] }, desc: "Blanket a wide area in arrows." }),
       DASH: ab({ key: "DASH", name: "Roll", effect: "ranger:DASH", targeting: "dash", castRange: 7, manaCost: [0], cooldown: [5], maxRank: 1, values: { speed: [30], iframe: [0.28] }, desc: "Combat roll — briefly untargetable." }),
-      JUMP: ab({ key: "JUMP", name: "Falcon Dive", effect: "ranger:JUMP", targeting: "self", castRange: 1.6, manaCost: [0], cooldown: [7], maxRank: 1, values: { base: [40], perLevel: [4], radius: [3.0] }, desc: "Leap and rain arrows straight down on landing." }),
+      JUMP: ab({ key: "JUMP", name: "Falcon Dive", effect: "ranger:JUMP", targeting: "self", castRange: 5, manaCost: [0], cooldown: [7], maxRank: 1, values: { base: [40], perLevel: [4], radius: [3.0] }, desc: "Leap and rain arrows straight down on landing." }),
     },
   },
   {
@@ -180,7 +181,7 @@ export const CHAMPIONS: ChampDef[] = [
       E: ab({ key: "E", name: "Cinderfall", effect: "mage:E", targeting: "ground", castRange: 10, manaCost: [0, 0, 0, 0], cooldown: [12, 11, 10, 9], values: { dps: [45, 70, 95, 120], radius: [3.0, 3.2, 3.4, 3.6], duration: [4, 4, 4, 4], slow: [15, 15, 20, 20] }, desc: "Rain embers over an area — burns and slows all who stand in it." }),
       R: ab({ key: "R", name: "Meteor", effect: "mage:R", targeting: "ground", castRange: 13, manaCost: [0, 0, 0], cooldown: [75, 66, 57], values: { damage: [260, 380, 520], radius: [4.5, 5, 5.5], delay: [1.2, 1.2, 1.2], slow: [40, 45, 50] }, desc: "Call down a meteor after a brief telegraph — massive burst." }),
       DASH: ab({ key: "DASH", name: "Blink", effect: "mage:DASH", targeting: "dash", castRange: 9, manaCost: [0], cooldown: [6], maxRank: 1, values: { range: [9], iframe: [0.22] }, desc: "Teleport a short distance instantly." }),
-      JUMP: ab({ key: "JUMP", name: "Emberdrop", effect: "mage:JUMP", targeting: "self", castRange: 1.6, manaCost: [0], cooldown: [8], maxRank: 1, values: { base: [50], perLevel: [4], radius: [2.8], burnDps: [30], burnDur: [1.2] }, desc: "Drop like a comet — scorching the ground on impact." }),
+      JUMP: ab({ key: "JUMP", name: "Emberdrop", effect: "mage:JUMP", targeting: "self", castRange: 5, manaCost: [0], cooldown: [8], maxRank: 1, values: { base: [50], perLevel: [4], radius: [2.8], burnDps: [30], burnDur: [1.2] }, desc: "Drop like a comet — scorching the ground on impact." }),
     },
   },
   {
@@ -215,7 +216,7 @@ export const CHAMPIONS: ChampDef[] = [
       E: ab({ key: "E", name: "Smoke", effect: "rogue:E", targeting: "self", castRange: 0, manaCost: [0, 0, 0, 0], cooldown: [18, 16, 14, 12], values: { duration: [3, 3.5, 4, 4.5], speed: [22, 24, 26, 28] }, desc: "Vanish in smoke and slip away (breaks on attack)." }),
       R: ab({ key: "R", name: "Execute", effect: "rogue:R", targeting: "direction", castRange: 6, manaCost: [0, 0, 0], cooldown: [70, 62, 54], values: { damage: [120, 180, 240], execMult: [3, 3.25, 3.5], speed: [40, 40, 40] }, desc: "Blink-strike the enemy ahead — lethal to the wounded." }),
       DASH: ab({ key: "DASH", name: "Shadowstep", effect: "rogue:DASH", targeting: "dash", castRange: 8, manaCost: [0], cooldown: [5], maxRank: 1, values: { speed: [34], iframe: [0.26] }, desc: "Slip through shadow — briefly untargetable." }),
-      JUMP: ab({ key: "JUMP", name: "Deathfall", effect: "rogue:JUMP", targeting: "self", castRange: 1.6, manaCost: [0], cooldown: [7], maxRank: 1, values: { base: [60], perLevel: [5], radius: [1.8], slow: [20], slowDur: [0.75], freeze: [35] }, desc: "Plunge from above with both blades — a tight burst on landing." }),
+      JUMP: ab({ key: "JUMP", name: "Deathfall", effect: "rogue:JUMP", targeting: "self", castRange: 5, manaCost: [0], cooldown: [7], maxRank: 1, values: { base: [60], perLevel: [5], radius: [1.8], slow: [20], slowDur: [0.75], freeze: [35] }, desc: "Plunge from above with both blades — a tight burst on landing." }),
     },
   },
   {
@@ -244,7 +245,7 @@ export const CHAMPIONS: ChampDef[] = [
       E: ab({ key: "E", name: "Iron Bastion", effect: "blackknight:E", targeting: "self", castRange: 0, manaCost: [0, 0, 0, 0], cooldown: [16, 15, 14, 13], values: { armor: [8, 12, 16, 20], hps: [30, 45, 60, 75], duration: [4, 4, 4, 4] }, desc: "Become the wall — armor up and mend while you march." }),
       R: ab({ key: "R", name: "Oblivion Slam", effect: "blackknight:R", targeting: "self", castRange: 0, manaCost: [0, 0, 0], cooldown: [70, 62, 54], values: { damage: [220, 320, 420], radius: [4.5, 5, 5.5], stun: [0.8, 1.0, 1.2], knockback: [8, 8, 8] }, desc: "Bring the hammer down — everything nearby is thrown and stunned." }),
       DASH: ab({ key: "DASH", name: "Dread March", effect: "blackknight:DASH", targeting: "dash", castRange: 7, manaCost: [0], cooldown: [6.5], maxRank: 1, values: { speed: [20], iframe: [0.24] }, desc: "Advance like doom — briefly unstoppable." }),
-      JUMP: ab({ key: "JUMP", name: "Dawnbreaker", effect: "blackknight:JUMP", targeting: "self", castRange: 1.6, manaCost: [0], cooldown: [9], maxRank: 1, values: { base: [55], perLevel: [5], radius: [3.0], stun: [0.4], freeze: [60] }, desc: "Leap and shatter the earth — a wide stunning slam." }),
+      JUMP: ab({ key: "JUMP", name: "Dawnbreaker", effect: "blackknight:JUMP", targeting: "self", castRange: 5, manaCost: [0], cooldown: [9], maxRank: 1, values: { base: [55], perLevel: [5], radius: [3.0], stun: [0.4], freeze: [60] }, desc: "Leap and shatter the earth — a wide stunning slam." }),
     },
   },
   {
@@ -270,7 +271,7 @@ export const CHAMPIONS: ChampDef[] = [
       E: ab({ key: "E", name: "Bog Grasp", effect: "witch:E", targeting: "ground", castRange: 8, manaCost: [0, 0, 0, 0], cooldown: [13, 12, 11, 10], values: { damage: [40, 65, 90, 115], root: [1.0, 1.25, 1.5, 1.75], radius: [2.2, 2.2, 2.4, 2.4] }, desc: "Vines erupt from the bog — damage and root everyone caught." }),
       R: ab({ key: "R", name: "Grand Hex", effect: "witch:R", targeting: "ground", castRange: 8, manaCost: [0, 0, 0], cooldown: [80, 70, 60], values: { radius: [4, 4.5, 5], duration: [2.0, 2.4, 2.8], slow: [40, 40, 40] }, desc: "Hex the ground — everyone caught becomes a harmless mushroom." }),
       DASH: ab({ key: "DASH", name: "Broom Surge", effect: "witch:DASH", targeting: "dash", castRange: 9, manaCost: [0], cooldown: [5.5], maxRank: 1, values: { speed: [24], iframe: [0.22] }, desc: "Take to the broom — a quick, untargetable dash." }),
-      JUMP: ab({ key: "JUMP", name: "Hexfall", effect: "witch:JUMP", targeting: "self", castRange: 1.6, manaCost: [0], cooldown: [8], maxRank: 1, values: { base: [45], perLevel: [4], radius: [2.8], slow: [25], slowDur: [1] }, desc: "Dive off the broom — a cursed burst that slows on landing." }),
+      JUMP: ab({ key: "JUMP", name: "Hexfall", effect: "witch:JUMP", targeting: "self", castRange: 5, manaCost: [0], cooldown: [8], maxRank: 1, values: { base: [45], perLevel: [4], radius: [2.8], slow: [25], slowDur: [1] }, desc: "Dive off the broom — a cursed burst that slows on landing." }),
     },
   },
 ];

@@ -80,6 +80,7 @@ const ONE_SHOT_CAP_MS = 2500; // ceiling so nothing locks the character forever
 // 2H greatsword/hammer swings play 1.5× faster than authored — snappier heavy
 // weapons. (The sim spin rhythm's timeMult is tuned to this — see champions.ts.)
 const TWO_H_SPEED = 1.5;
+const SPIN_LOOP_CLIP = "Melee_2H_Attack_Spinning"; // whirlwind ult — a looping channel
 /** Playback rate for a clip — 2H swings are sped up, everything else natural. */
 function clipSpeed(clip: string): number {
   return clip.startsWith("Melee_2H_") ? TWO_H_SPEED : 1;
@@ -444,11 +445,15 @@ class UnitView {
       this.lastCastShown = u.lastCastAt;
       if (now - u.lastCastAt < CAST_ANIM_MS) {
         const clip = (u.lastCastKey ? ABILITY_CLIPS[this.def.id]?.[u.lastCastKey] : undefined) ?? castClip(this.def);
-        const ts = clipSpeed(clip);
-        const winMs = clipWindowMs(ch.clipDuration(clip), ts); // natural (2H sped 1.5×)
-        ch.play(clip, { loop: false, fade: 0.06, timeScale: ts });
-        this.oneShotUntil = now + winMs;
-        this.emitTrails(now, winMs); // weapon-trail ribbon on the ability swing
+        // The whirlwind's clip is a LOOP (the `spinning` branch drives it) — don't
+        // fire it as a one-shot here or it plays once and freezes.
+        if (clip !== SPIN_LOOP_CLIP) {
+          const ts = clipSpeed(clip);
+          const winMs = clipWindowMs(ch.clipDuration(clip), ts); // natural (2H sped 1.5×)
+          ch.play(clip, { loop: false, fade: 0.06, timeScale: ts });
+          this.oneShotUntil = now + winMs;
+          this.emitTrails(now, winMs); // weapon-trail ribbon on the ability swing
+        }
       }
     } else if (u.lastAttackAt !== this.lastAttackShown) {
       this.lastAttackShown = u.lastAttackAt;
@@ -483,7 +488,7 @@ class UnitView {
         this.recoilX = u.lastHitDx * 0.34;
         this.recoilZ = u.lastHitDy * 0.34;
       }
-      if (u.alive && now - u.lastHitAt < 180 && now >= this.oneShotUntil && now - this.lastFlinchAt > 420) {
+      if (!spinning && u.alive && now - u.lastHitAt < 180 && now >= this.oneShotUntil && now - this.lastFlinchAt > 420) {
         ch.play(this.hitIdx++ % 2 ? "Hit_B" : "Hit_A", { loop: false, fade: 0.05 });
         this.oneShotUntil = now + HIT_ANIM_MS;
         this.lastFlinchAt = now;
@@ -512,7 +517,7 @@ class UnitView {
         else ch.play(JUMP_LAND_CLIP, { loop: false, fade: 0.06 });
       }
     } else if (spinning) {
-      ch.play("Melee_2H_Attack_Spinning", { fade: 0.1, timeScale: TWO_H_SPEED });
+      ch.play(SPIN_LOOP_CLIP, { loop: true, fade: 0.1, timeScale: TWO_H_SPEED });
     } else if (now < u.dashUntil) {
       ch.play("Running_B", { fade: 0.1 });
     } else {
