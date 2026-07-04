@@ -60,13 +60,18 @@ type BgLayer = {
 type Ghost = {
   sprite: Phaser.GameObjects.Sprite;
   skin: number;
-  seat: number;
 };
 
 const COIN_PICKUP_X = 54;
 const COIN_PICKUP_Y = 44;
 const RESTART_LOCKOUT_MS = 280;
 const MAX_DT_MS = 50;
+/**
+ * Everyone shares the same course position (one global scroll), so all dragons
+ * would stack at BIRD_X. Your own dragon stays at BIRD_X — the back of the view
+ * — and rivals fan out to the right by their stable lane so the flock reads.
+ */
+const GHOST_LANE_GAP = 46;
 
 const HINT_FLAP = "CLICK · TAP · SPACE — FLAP";
 const HINT_RESTART = "TAP ANYWHERE TO RESTART";
@@ -539,15 +544,17 @@ export class GameScene extends Phaser.Scene {
     }
     const viewH = this.scale.height;
     const me = this.net.playerId;
+    // Stable left-to-right ordering shared by every client (same players map),
+    // so each rival keeps a consistent lane instead of jittering frame to frame.
+    // `.filter()` already returns a fresh array, so sorting it in place is safe.
+    const others = Object.keys(this.net.players)
+      .filter((id) => id !== me)
+      .sort();
     const seen = new Set<string>();
-    let seat = 0;
-    for (const [id, player] of Object.entries(this.net.players)) {
-      if (id === me) continue;
-      const ps = readPeer(player.state);
-      if (!ps) {
-        seat++;
-        continue;
-      }
+
+    others.forEach((id, rank) => {
+      const ps = readPeer(this.net.players[id]?.state);
+      if (!ps) return;
       seen.add(id);
       let ghost = this.ghosts.get(id);
       if (!ghost || ghost.skin !== ps.skin) {
@@ -558,14 +565,13 @@ export class GameScene extends Phaser.Scene {
           .setDepth(8)
           .setAlpha(0.55);
         sprite.play(`fly-${ps.skin}`);
-        ghost = { sprite, skin: ps.skin, seat };
+        ghost = { sprite, skin: ps.skin };
         this.ghosts.set(id, ghost);
       }
-      // Ghosts share the course position (global scroll), so they're all near
-      // BIRD_X; nudge each seat sideways so a cluster stays legible.
-      const offset = (ghost.seat % 4) * 16 - 24;
+      // Fan rivals out to the right of your own dragon (which stays at BIRD_X)
+      // so the whole flock is visible without occluding you.
       ghost.sprite.setPosition(
-        BIRD_X + DRAGON_SPRITE_OFFSET_X + offset,
+        BIRD_X + DRAGON_SPRITE_OFFSET_X + (rank + 1) * GHOST_LANE_GAP,
         ps.yf * viewH + DRAGON_SPRITE_OFFSET_Y,
       );
       ghost.sprite.setRotation(Phaser.Math.Clamp(ps.rot, -MAX_TILT, MAX_TILT));
@@ -575,8 +581,8 @@ export class GameScene extends Phaser.Scene {
         // Crashed players fade to a grey silhouette until they respawn.
         ghost.sprite.setAlpha(0.28).setTint(0x9099b0);
       }
-      seat++;
-    }
+    });
+
     for (const [id, ghost] of this.ghosts) {
       if (!seen.has(id)) {
         ghost.sprite.destroy();
