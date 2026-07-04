@@ -12,13 +12,14 @@ export type FarmerState = { x: number; y: number; f: boolean; m: boolean };
 
 export function readFarmer(state: unknown): FarmerState | null {
   if (!state || typeof state !== "object") return null;
-  const s = state as Record<string, unknown>;
-  if (typeof s["x"] !== "number" || typeof s["y"] !== "number") return null;
+  const x = "x" in state ? state.x : null;
+  const y = "y" in state ? state.y : null;
+  if (typeof x !== "number" || typeof y !== "number") return null;
   return {
-    x: s["x"] as number,
-    y: s["y"] as number,
-    f: s["f"] === true,
-    m: s["m"] === true,
+    x,
+    y,
+    f: ("f" in state ? state.f : null) === true,
+    m: ("m" in state ? state.m : null) === true,
   };
 }
 
