@@ -313,7 +313,9 @@ export class GameScene {
       return;
     }
     // Loser of a contested cell rolls back the points it awarded optimistically.
-    if (event === "reject") {
+    // Only the host may order a rollback — otherwise a guest could forge a
+    // `reject` to drive a rival's score down.
+    if (event === "reject" && from === this.net.hostId) {
       const key = p["key"];
       const amount = p["amount"];
       if (
