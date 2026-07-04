@@ -55,6 +55,12 @@ const LOOK_H = 1.2;
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 
+// hit-surface overlay geometry (hero-local, forward = +Z)
+type HitShape =
+  | { kind: "cone"; radius: number; half: number }
+  | { kind: "corridor"; length: number; halfWidth: number }
+  | { kind: "circle"; radius: number; forward: number };
+
 // ── roster ───────────────────────────────────────────────────────────────────
 type RosterEntry = {
   id: string;
@@ -182,7 +188,7 @@ export class ViewerScene {
   // hit-surface overlay: the damage geometry (cone/corridor/circle) of the
   // selected action, drawn flat on the ground and oriented to the hero's aim.
   private showHitViz = false;
-  private hitVizMesh: THREE.Mesh | null = null;
+  private hitVizGroup: THREE.Group | null = null;
   private hitVizKey = "";
   private rosterEl: HTMLElement | null = null;
 
@@ -631,79 +637,82 @@ export class ViewerScene {
     this.updateDummyHud(d);
   }
 
-  /** The damage geometry of the currently-selected action (basic or ability),
-   *  in the hero's local frame (forward = +Z). null = no damage shape. */
-  private hitShapeFor(): { kind: "cone"; radius: number; half: number } | { kind: "corridor"; length: number; halfWidth: number } | { kind: "circle"; radius: number; forward: number } | null {
+  /** ALL damage shapes of the currently-selected action, in the hero's local
+   *  frame (forward = +Z). A basic attack can yield several (e.g. Garran's
+   *  chop/slice cone PLUS the spin's 360° whirl). [] = no damage shape. */
+  private hitShapesFor(): HitShape[] {
     const champ = this.selected.champ;
     const me = this.hero();
-    if (!champ || !me) return null;
+    if (!champ || !me) return [];
     const act = this.action;
     if (act === "attack") {
-      if (champ.attackType === "melee") return { kind: "cone", radius: me.attackRange + 1.4, half: (50 * Math.PI) / 180 }; // MELEE_OVERREACH + 100° cleave
-      return { kind: "corridor", length: me.attackRange, halfWidth: 0.4 }; // ranged shot line
+      const out: HitShape[] = [];
+      if (champ.attackType === "melee") out.push({ kind: "cone", radius: me.attackRange + 1.4, half: (50 * Math.PI) / 180 }); // MELEE_OVERREACH + 100° cleave
+      else out.push({ kind: "corridor", length: me.attackRange, halfWidth: 0.4 }); // ranged shot line
+      // rhythm swings that whirl (Garran's spin) hit a full 360° circle around
+      for (const step of champ.basicRhythm ?? []) if (step.aoe) out.push({ kind: "circle", radius: step.aoe, forward: 0 });
+      return out;
     }
-    if (!act) return null;
+    if (!act) return [];
     const def = champ.abilities[act];
-    if (!def) return null;
+    if (!def) return [];
     const v = (f: string): number => valAt(def.values[f], def.maxRank);
-    if (def.values["cone"]) return { kind: "cone", radius: def.castRange, half: ((v("cone") / 2) * Math.PI) / 180 };
-    if (def.values["width"]) return { kind: "corridor", length: def.castRange, halfWidth: v("width") / 2 };
-    if (act === "JUMP") return { kind: "corridor", length: def.castRange, halfWidth: Math.max(0.5, v("radius")) };
-    if (def.targeting === "self" && def.values["radius"]) return { kind: "circle", radius: v("radius"), forward: 0 };
+    if (def.values["cone"]) return [{ kind: "cone", radius: def.castRange, half: ((v("cone") / 2) * Math.PI) / 180 }];
+    if (def.values["width"]) return [{ kind: "corridor", length: def.castRange, halfWidth: v("width") / 2 }];
+    if (act === "JUMP") return [{ kind: "corridor", length: def.castRange, halfWidth: Math.max(0.5, v("radius")) }];
+    if (def.targeting === "self" && def.values["radius"]) return [{ kind: "circle", radius: v("radius"), forward: 0 }];
     if (def.targeting === "ground" && def.values["radius"]) {
       const d = this.dummy();
       const fwd = d ? Math.min(def.castRange, Math.hypot(d.x - me.x, d.y - me.y)) : def.castRange;
-      return { kind: "circle", radius: v("radius"), forward: fwd };
+      return [{ kind: "circle", radius: v("radius"), forward: fwd }];
     }
-    if (def.targeting === "direction" && def.values["radius"]) return { kind: "corridor", length: def.castRange, halfWidth: v("radius") };
-    if (def.targeting === "direction") return { kind: "corridor", length: def.castRange, halfWidth: 0.5 };
-    return null; // pure utility (dash/shield/buff/stealth)
+    if (def.targeting === "direction" && def.values["radius"]) return [{ kind: "corridor", length: def.castRange, halfWidth: v("radius") }];
+    if (def.targeting === "direction") return [{ kind: "corridor", length: def.castRange, halfWidth: 0.5 }];
+    return []; // pure utility (dash/shield/buff/stealth)
   }
 
   /** Draw/position the hit-surface overlay flat under the hero, oriented to aim. */
   private updateHitViz(): void {
-    if (!this.showHitViz) {
-      if (this.hitVizMesh) this.hitVizMesh.visible = false;
-      return;
-    }
     const me = this.hero();
-    const shape = me ? this.hitShapeFor() : null;
-    if (!me || !shape) {
-      if (this.hitVizMesh) this.hitVizMesh.visible = false;
+    const shapes = this.showHitViz && me ? this.hitShapesFor() : [];
+    if (shapes.length === 0) {
+      if (this.hitVizGroup) this.hitVizGroup.visible = false;
       return;
     }
-    const key =
-      shape.kind === "cone" ? `cone:${shape.radius.toFixed(2)}:${shape.half.toFixed(3)}` :
-      shape.kind === "corridor" ? `corr:${shape.length.toFixed(2)}:${shape.halfWidth.toFixed(2)}` :
-      `circ:${shape.radius.toFixed(2)}:${shape.forward.toFixed(2)}`;
-    if (key !== this.hitVizKey || !this.hitVizMesh) {
+    const key = shapes.map((s) => (s.kind === "cone" ? `co${s.radius.toFixed(1)},${s.half.toFixed(2)}` : s.kind === "corridor" ? `cr${s.length.toFixed(1)},${s.halfWidth.toFixed(1)}` : `ci${s.radius.toFixed(1)},${s.forward.toFixed(1)}`)).join("|");
+    if (key !== this.hitVizKey || !this.hitVizGroup) {
       this.hitVizKey = key;
-      this.hitVizMesh?.geometry.dispose();
-      let geo: THREE.BufferGeometry;
-      if (shape.kind === "cone") {
-        geo = new THREE.CircleGeometry(shape.radius, 40, Math.PI / 2 - shape.half, 2 * shape.half); // sector centered on +Y
-      } else if (shape.kind === "corridor") {
-        geo = new THREE.PlaneGeometry(2 * shape.halfWidth, shape.length);
-        geo.translate(0, shape.length / 2, 0); // start at the hero, extend forward
-      } else {
-        geo = new THREE.CircleGeometry(shape.radius, 40);
-        geo.translate(0, shape.forward, 0); // circle placed `forward` ahead
+      if (!this.hitVizGroup) {
+        this.hitVizGroup = new THREE.Group();
+        this.hitVizGroup.renderOrder = 3;
+        this.scene.add(this.hitVizGroup);
       }
-      geo.rotateX(Math.PI / 2); // lay the XY shape flat on the ground: +Y (forward) → +Z
-      if (!this.hitVizMesh) {
-        const mat = new THREE.MeshBasicMaterial({ color: 0xff5a3c, transparent: true, opacity: 0.24, side: THREE.DoubleSide, depthWrite: false });
-        this.hitVizMesh = new THREE.Mesh(geo, mat);
-        this.hitVizMesh.renderOrder = 3;
-        this.scene.add(this.hitVizMesh);
-      } else {
-        this.hitVizMesh.geometry = geo;
+      const g = this.hitVizGroup;
+      for (const c of [...g.children]) {
+        if (c instanceof THREE.Mesh) c.geometry.dispose();
+        g.remove(c);
+      }
+      for (const s of shapes) {
+        let geo: THREE.BufferGeometry;
+        if (s.kind === "cone") {
+          geo = new THREE.CircleGeometry(s.radius, 40, Math.PI / 2 - s.half, 2 * s.half); // sector centered on +Y
+        } else if (s.kind === "corridor") {
+          geo = new THREE.PlaneGeometry(2 * s.halfWidth, s.length);
+          geo.translate(0, s.length / 2, 0); // start at the hero, extend forward
+        } else {
+          geo = new THREE.CircleGeometry(s.radius, 40);
+          geo.translate(0, s.forward, 0); // circle placed `forward` ahead
+        }
+        geo.rotateX(Math.PI / 2); // lay the XY shape flat: +Y (forward) → +Z
+        const mat = new THREE.MeshBasicMaterial({ color: s.kind === "circle" && s.forward === 0 ? 0xffb03c : 0xff5a3c, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false });
+        g.add(new THREE.Mesh(geo, mat));
       }
     }
-    const m = this.hitVizMesh;
-    if (!m) return;
-    m.visible = true;
-    m.position.set(me.x, terrainHeight(me.x, me.y) + 0.06, me.y);
-    m.rotation.y = Math.atan2(me.aimX, me.aimY); // orient +Z to the hero's aim
+    const grp = this.hitVizGroup;
+    if (!grp || !me) return;
+    grp.visible = true;
+    grp.position.set(me.x, terrainHeight(me.x, me.y) + 0.06, me.y);
+    grp.rotation.y = Math.atan2(me.aimX, me.aimY); // orient +Z to the hero's aim
   }
 
   /** Live HP bar + last-hit + DPS readout for the dummy (balance tuning). */
@@ -864,7 +873,7 @@ export class ViewerScene {
     hv?.addEventListener("click", () => {
       this.showHitViz = !this.showHitViz;
       hv.classList.toggle("on", this.showHitViz);
-      if (!this.showHitViz && this.hitVizMesh) this.hitVizMesh.visible = false;
+      if (!this.showHitViz && this.hitVizGroup) this.hitVizGroup.visible = false;
     });
     document.getElementById("vw-reset")?.addEventListener("click", () => this.reset());
     document.getElementById("vw-editor")?.addEventListener("click", () => {
