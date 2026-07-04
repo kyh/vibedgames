@@ -35,24 +35,29 @@ export const CHUNK = 320;
 // in instead: full fog by ~1250, chunks released just past it.
 export const DRAW_DISTANCE = 1000;
 
-// --- Taxi (arcade handling) ---
+// --- Car (arcade handling) ---
+// Tuned so the car can actually take street corners at cruise. The turn radius
+// is R = speed / (turnRate·authority); a road tile is ROAD_TILE (13u) with
+// ~10u of asphalt, so a corner needs R ≈ 6u. At maxSpeed the radius must stay
+// close to that or the city becomes unnavigable:
+//   R_top = 30 / (4.2·0.94) ≈ 7.6u  → most corners taken with only a light lift.
 export const CAR = {
-  maxSpeed: 42, // top forward speed — calm enough to read arterial corners
-  boostSpeed: 64, // top speed while boosting
-  accel: 36, // forward acceleration
-  brakeDecel: 85, // braking / active slow-down
-  coastDecel: 16, // engine braking when no input (settles quicker off-throttle)
-  reverseMax: 18,
-  reverseAccel: 26,
+  maxSpeed: 30, // top forward speed — corner-makeable on the arterial grid
+  boostSpeed: 44, // top speed while boosting (a burst, still controllable)
+  accel: 20, // forward acceleration — gentle launch, no twitchy leap to top
+  brakeDecel: 82, // braking / active slow-down (scrub hard for tight corners)
+  coastDecel: 22, // engine braking when no input — lifting off scrubs speed for turns
+  reverseMax: 16,
+  reverseAccel: 24,
   // Steering: angular speed (rad/s) you can turn, scaled by how fast you go.
-  turnRate: 3.5,
-  turnSpeedFalloff: 0.86, // keep more steering authority at speed (easier turns)
+  turnRate: 4.2, // tighter turning so corners are makeable at speed
+  turnSpeedFalloff: 0.94, // keep almost all steering authority at top speed
   steerRamp: 0.08, // seconds to ramp steering input to full lock (crisp, not icy)
   // Grip controls how fast the velocity vector realigns to the car's heading.
-  gripNormal: 7.4, // high grip → little slide (THE feel knob: lower = slidier)
+  gripNormal: 8.0, // high grip → predictable, goes where it points (nav feel)
   gripDrift: 2.2, // low grip while drifting → hangable but recoverable slide
   driftTurnBoost: 1.9, // extra steering while drifting
-  driftMinSpeed: 11, // must be moving this fast to drift (easy to break loose)
+  driftMinSpeed: 10, // must be moving this fast to drift (easy to break loose)
   driftMinSlip: 0.1, // radians of real slip before a drift counts (no spam scoring)
   miniBoostImpulse: 14, // instant forward pop when releasing a charged drift
   slopeGravity: 40, // how hard SF hills pull the car back uphill / drag it downhill
