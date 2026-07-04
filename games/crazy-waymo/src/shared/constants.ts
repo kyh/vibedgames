@@ -36,13 +36,15 @@ export const CHUNK = 320;
 export const DRAW_DISTANCE = 1000;
 
 // --- Car (arcade handling) ---
-// Tuned so the car can actually take street corners at cruise. The turn radius
-// is R = speed / (turnRate·authority); a road tile is ROAD_TILE (13u) with
-// ~10u of asphalt, so a corner needs R ≈ 6u. At maxSpeed the radius must stay
-// close to that or the city becomes unnavigable:
-//   R_top = 30 / (4.2·0.94) ≈ 7.6u  → most corners taken with only a light lift.
+// Turn radius R = speed / (turnRate·authority). A road tile is ROAD_TILE (13u)
+// with ~10u of asphalt, so a right-angle corner needs R ≈ 6u. The design:
+// plain steering is for lane-following and gentle curves ONLY — at cruise its
+// radius is deliberately too wide to take a 90° corner (R_top ≈ 30/(3.0·0.7) ≈
+// 14u), so you must either slow right down or DRIFT. The drift (Space) breaks
+// traction and multiplies the turn (driftTurnBoost), carving the corner:
+//   ω_drift at 24u/s ≈ 3.0·0.76·2.0 ≈ 4.6 rad/s → a ~90° sweep in ~0.34s.
 export const CAR = {
-  maxSpeed: 30, // top forward speed — corner-makeable on the arterial grid
+  maxSpeed: 30, // top forward speed
   boostSpeed: 44, // top speed while boosting (a burst, still controllable)
   accel: 20, // forward acceleration — gentle launch, no twitchy leap to top
   brakeDecel: 82, // braking / active slow-down (scrub hard for tight corners)
@@ -50,13 +52,13 @@ export const CAR = {
   reverseMax: 16,
   reverseAccel: 24,
   // Steering: angular speed (rad/s) you can turn, scaled by how fast you go.
-  turnRate: 4.2, // tighter turning so corners are makeable at speed
-  turnSpeedFalloff: 0.94, // keep almost all steering authority at top speed
+  turnRate: 3.0, // gentle steering — lane changes and sweeping curves, not 90°s
+  turnSpeedFalloff: 0.7, // authority drops with speed → can't hard-corner at cruise
   steerRamp: 0.08, // seconds to ramp steering input to full lock (crisp, not icy)
   // Grip controls how fast the velocity vector realigns to the car's heading.
   gripNormal: 8.0, // high grip → predictable, goes where it points (nav feel)
-  gripDrift: 2.2, // low grip while drifting → hangable but recoverable slide
-  driftTurnBoost: 1.9, // extra steering while drifting
+  gripDrift: 2.6, // low grip while drifting → slides, but carves the corner
+  driftTurnBoost: 2.0, // Space-drift multiplies the turn to whip through right angles
   driftMinSpeed: 10, // must be moving this fast to drift (easy to break loose)
   driftMinSlip: 0.1, // radians of real slip before a drift counts (no spam scoring)
   miniBoostImpulse: 14, // instant forward pop when releasing a charged drift
