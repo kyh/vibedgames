@@ -114,7 +114,7 @@ export const CHAMPIONS: ChampDef[] = [
     basicRhythm: [
       { timeMult: 1, dmgMult: 1 },
       { timeMult: 1, dmgMult: 1 },
-      { timeMult: 1.92, dmgMult: 2.5, strikeFrac: 0.62 }, // spin connects late, mid-sweep
+      { timeMult: 1.92, dmgMult: 2.5, strikeFrac: 0.8 }, // spin connects on the late committed sweep
     ],
     tint: 0x4f86ff,
     blurb: "A walking wall. Stun, charge in, and spin the throne to bloody mulch.",
