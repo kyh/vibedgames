@@ -60,7 +60,7 @@ export const CAR = {
   gripDrift: 2.6, // low grip while drifting → slides, but carves the corner
   driftTurnBoost: 2.0, // Space-drift multiplies the turn to whip through right angles
   driftMinSpeed: 10, // must be moving this fast to drift (easy to break loose)
-  driftMinSlip: 0.1, // radians of real slip before a drift counts (no spam scoring)
+  driftMinSlip: 0.05, // radians of real slip before a drift counts — low, so even light drifts earn boost
   miniBoostImpulse: 14, // instant forward pop when releasing a charged drift
   slopeGravity: 40, // how hard SF hills pull the car back uphill / drag it downhill
   // Hill jumps: cresting fast enough goes ballistic instead of gluing to the road.
@@ -72,7 +72,8 @@ export const CAR = {
   boostDrain: 34, // boost units/s spent while boosting
   boostRefill: 5, // trickle only — real boost comes from drifts/near-misses/fares
   boostMax: 100,
-  boostPerDrift: 26, // boost gained for a sustained drift release
+  boostPerDriftSec: 50, // boost/s gained continuously WHILE drifting — fills fast, easy to earn
+  driftSlingArm: 0.22, // seconds of drift before the release slingshot arms (low = forgiving)
   boostPerNearMiss: 10,
   bodyHalfWidth: 0.85, // collision half-extents (a bit > visual for forgiveness)
   bodyHalfLength: 1.5,

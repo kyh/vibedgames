@@ -159,9 +159,9 @@ export class Car {
   get steer(): number {
     return this.steerSmoothed;
   }
-  // 0..1 — how close the current drift is to arming the release boost.
+  // 0..1 — how close the current drift is to arming the release slingshot.
   get driftCharge(): number {
-    return Math.min(1, this.driftSustain / 0.5);
+    return Math.min(1, this.driftSustain / CAR.driftSlingArm);
   }
 
   reset(x: number, z: number, yaw: number): void {
@@ -258,10 +258,14 @@ export class Car {
     // veers screen-left, so steer-right (+1) must decrease heading.
     this.heading -= this.steerSmoothed * CAR.turnRate * authority * startFade * driftMul * dir * dt;
 
-    if (this.isDrifting) this.driftSustain += dt;
-    else if (!physicsDrift) {
-      if (this.driftSustain > 0.5) {
-        this.addBoost(CAR.boostPerDrift);
+    // Drift boost is EASY: the meter fills continuously the whole time you're
+    // drifting (no threshold to clear first), and a brief drift also arms the
+    // slingshot pop on release.
+    if (this.isDrifting) {
+      this.driftSustain += dt;
+      this.addBoost(CAR.boostPerDriftSec * dt);
+    } else if (!physicsDrift) {
+      if (this.driftSustain > CAR.driftSlingArm) {
         vForward = Math.min(topSpeed, vForward + CAR.miniBoostImpulse); // slingshot out of a drift
         this.miniBoostFired = true;
       }
