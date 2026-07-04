@@ -11,7 +11,7 @@ import { isInThrone, SPAWNS } from "../data/map";
 import { castAbility, useItemActive } from "./abilities";
 import { isEnemy } from "./combat";
 import { isDisabled, isUntargetable } from "./stats";
-import { ABILITY_KEYS, type Unit, type World } from "./types";
+import { ALL_ABILITY_KEYS, type Unit, type World } from "./types";
 import { buyItem, inOwnBase } from "./world";
 
 const BUY_LISTS: Record<string, string[]> = {
@@ -156,15 +156,22 @@ export function tickBots(w: World): void {
     u.aimY = aim.y;
     u.attackHeld = d <= u.attackRange + target.radius + 0.6;
 
-    // cast by real ability range; hold the ult for a worthwhile target
+    // cast by real ability range; hold the ult for a worthwhile target. Iterate
+    // all six slots so bots fire DASH + JUMP too: the same range-gate makes DASH
+    // (its castRange is the dash distance) close the gap and JUMP (castRange 1.6)
+    // strike an adjacent enemy — the dispatch self-leaps if grounded, so bots
+    // don't hop first. DASH/JUMP are rank 1 for heroes, rank 0 for creeps, and
+    // creeps route through tickSkeleton so they never reach this loop anyway.
     const point = { x: target.x, y: target.y };
-    for (const key of ABILITY_KEYS) {
+    const closing = d > wantRange; // advancing on the target, not strafing in-range
+    for (const key of ALL_ABILITY_KEYS) {
       const slot = u.abilities[key];
       if (slot.rank < 1 || w.now < slot.readyAt) continue;
       const range = def.abilities[key].castRange || u.attackRange + 3;
       if (d > range + target.radius) continue;
       if (key === "R" && !(target.hp < target.maxHp * 0.55 || d < 6)) continue; // ult on value
-      castAbility(w, u, key, { point, dir: aim });
+      if (key === "DASH" && !closing) continue; // only dash to gap-close, never past a target in-range
+      castAbility(w, u, key, { point, dir: aim }); // dir=aim → dash/jump land toward the target
       break; // one ability per tick
     }
   }

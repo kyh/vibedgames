@@ -3,11 +3,11 @@
 // animation clip from its unit state. Never mutates the sim.
 import * as THREE from "three";
 import { CHAMP_BY_ID } from "../data/champions";
-import type { DamageType } from "../data/config";
+import { JUMP_MS, type DamageType } from "../data/config";
 import { BOSS_HEIGHT, BOSS_POS } from "../data/map";
 import type { AbilityKey, Projectile, Unit, World } from "../sim/types";
 import { AnimatedCharacter, ModelLibrary } from "./models";
-import { WeaponTrail } from "./weapon-trail";
+import { WeaponTrail, type TrailOverride } from "./weapon-trail";
 import { terrainHeight } from "../data/terrain";
 import { CHAMP_FX, type Fx } from "./fx";
 import { applyDissolve, type DissolveHandle } from "./dissolve";
@@ -18,23 +18,34 @@ import { LOCAL_COLOR, teamColor } from "./palette";
 // Per-ability cast clips — uses the breadth of the KayKit library so each
 // ability reads distinctly (bash/spin/leap/blink/summon…), not one generic cast.
 // Garran (knight) wields a 2H greatsword — his combat clips are the Rig_Medium
-// Melee_2H_* set. The other melee champs keep their 1H / dualwield sets.
+// Melee_2H_* set. The other melee champs keep their 1H / dualwield sets. DASH
+// (Shift roll) uses Dodge_Forward everywhere; JUMP (Space+click leaping strike)
+// plays each champ's attack/cast clip so the aerial hit reads as a real swing.
 const ABILITY_CLIPS: Record<string, Partial<Record<AbilityKey, string>>> = {
-  knight: { Q: "Melee_2H_Attack_Chop", W: "Melee_2H_Attack_Stab", E: "Melee_2H_Idle", R: "Melee_2H_Attack_Spinning" },
-  ranger: { Q: "Ranged_Bow_Release_Up", W: "Dodge_Forward", E: "PickUp", R: "Ranged_Bow_Release_Up" },
-  mage: { Q: "Ranged_Magic_Shoot", W: "Ranged_Magic_Raise", E: "Ranged_Magic_Raise", R: "Ranged_Magic_Summon" },
-  rogue: { Q: "Melee_Dualwield_Attack_Stab", W: "Dodge_Forward", E: "Dodge_Backward", R: "Melee_Dualwield_Attack_Slice" },
-  blackknight: { Q: "Melee_1H_Attack_Chop", W: "Melee_1H_Attack_Jump_Chop", E: "Melee_Blocking", R: "Melee_2H_Attack_Chop" },
-  witch: { Q: "Ranged_Magic_Shoot", W: "Ranged_Magic_Summon", E: "Dodge_Forward", R: "Ranged_Magic_Raise" },
+  // JUMP is the airborne dive-strike → the 1H jump-chop for every champ.
+  knight: { Q: "Melee_2H_Attack_Slice", W: "Melee_2H_Attack_Chop", E: "Melee_Blocking", R: "Melee_2H_Attack_Spinning", DASH: "Dodge_Forward", JUMP: "Melee_1H_Attack_Jump_Chop" },
+  ranger: { Q: "Ranged_Bow_Release_Up", W: "Ranged_Bow_Release", E: "PickUp", R: "Ranged_Bow_Release_Up", DASH: "Dodge_Forward", JUMP: "Melee_1H_Attack_Jump_Chop" },
+  mage: { Q: "Ranged_Magic_Shoot", W: "Ranged_Magic_Raise", E: "Ranged_Magic_Shoot", R: "Ranged_Magic_Summon", DASH: "Dodge_Forward", JUMP: "Melee_1H_Attack_Jump_Chop" },
+  rogue: { Q: "Melee_Dualwield_Attack_Stab", W: "Melee_Dualwield_Attack_Slice", E: "Dodge_Backward", R: "Melee_Dualwield_Attack_Slice", DASH: "Dodge_Forward", JUMP: "Melee_1H_Attack_Jump_Chop" },
+  blackknight: { Q: "Melee_1H_Attack_Slice_Horizontal", W: "Melee_1H_Attack_Chop", E: "Melee_Blocking", R: "Melee_2H_Attack_Chop", DASH: "Dodge_Forward", JUMP: "Melee_1H_Attack_Jump_Chop" },
+  witch: { Q: "Ranged_Magic_Shoot", W: "Ranged_Magic_Summon", E: "Ranged_Magic_Raise", R: "Ranged_Magic_Raise", DASH: "Dodge_Forward", JUMP: "Melee_1H_Attack_Jump_Chop" },
+};
+
+// 2H/hammer blades whose bbox longest-axis heuristic degenerates (the head is
+// wider than the shaft, so the ribbon sweeps sideways off the head instead of
+// tracing the swing). Force the swing axis + blade extents so the arc reads.
+const TRAIL_OVERRIDE: Record<string, TrailOverride> = {
+  paladin_hammer: { axis: "y", base: 0.15, tip: 1.15, opacity: 0.44 },
+  sword_2handed: { axis: "y", base: 0.2, tip: 1.0 },
 };
 
 // Basic-attack clip rotations — swings vary shot-to-shot instead of repeating.
 const ATTACK_SETS: Record<string, string[]> = {
-  knight: ["Melee_2H_Attack_Chop", "Melee_2H_Attack_Slice", "Melee_2H_Attack_Stab"],
-  rogue: ["Melee_Dualwield_Attack_Chop", "Melee_Dualwield_Attack_Slice", "Melee_2H_Attack_Spin"],
-  ranger: ["Ranged_Bow_Release", "Ranged_Bow_Release_Up"],
+  knight: ["Melee_2H_Attack_Chop", "Melee_2H_Attack_Slice", "Melee_2H_Attack_Spin"],
+  rogue: ["Melee_Dualwield_Attack_Chop", "Melee_Dualwield_Attack_Slice"],
+  ranger: ["Ranged_Bow_Release"],
   mage: ["Ranged_Magic_Shoot"],
-  blackknight: ["Melee_1H_Attack_Chop", "Melee_1H_Attack_Slice_Horizontal", "Melee_1H_Attack_Stab"],
+  blackknight: ["Melee_1H_Attack_Chop", "Melee_1H_Attack_Slice_Diagonal", "Melee_1H_Attack_Slice_Horizontal"],
   witch: ["Ranged_Magic_Shoot"],
   skwarrior: ["Melee_1H_Attack_Chop", "Melee_1H_Attack_Stab"],
   skminion: ["Melee_Unarmed_Attack_Punch_A", "Melee_1H_Attack_Chop"],
@@ -59,22 +70,36 @@ function mountWeapon(obj: THREE.Object3D, name: string): void {
   obj.rotation.set(m.rx ?? 0, m.ry ?? 0, m.rz ?? 0);
 }
 
-// Per-champ basic-attack timing: window (ms) + clip timescale. Heavier weapons
-// wind up longer and play slower — the axe hangs, the daggers snap.
-const ATTACK_TIMING: Record<string, { ms: number; ts: number }> = {
-  rogue: { ms: 300, ts: 1.6 },
-  knight: { ms: 340, ts: 1.45 },
-  blackknight: { ms: 400, ts: 1.2 },
-};
-const DEFAULT_TIMING = { ms: 340, ts: 1.45 };
-
-const CAST_ANIM_MS = 520;
+// Animation timing (render only). Clips play at their NATURAL speed (timeScale
+// 1) — the same timings the character viewer shows — and each one-shot's window
+// is the clip's own length (clamped), so a swing/cast plays through its full
+// motion instead of being cut at the wind-up or sped up. When a faster attack
+// or a new cast arrives it interrupts naturally.
+const ONE_SHOT_MIN_MS = 240; // floor so a very short clip still holds a beat
+const ONE_SHOT_CAP_MS = 2500; // ceiling so nothing locks the character forever
+// 2H greatsword/hammer swings play 1.5× faster than authored — snappier heavy
+// weapons. (The sim spin rhythm's timeMult is tuned to this — see champions.ts.)
+const TWO_H_SPEED = 1.5;
+const SPIN_LOOP_CLIP = "Melee_2H_Attack_Spinning"; // whirlwind ult — a looping channel
+/** Playback rate for a clip — 2H swings are sped up, everything else natural. */
+function clipSpeed(clip: string): number {
+  return clip.startsWith("Melee_2H_") ? TWO_H_SPEED : 1;
+}
+/** Natural one-shot window (ms) for a clip playing at `speed`: its own duration
+ *  divided by the rate, clamped. */
+function clipWindowMs(durSec: number, speed = 1): number {
+  return Math.min(ONE_SHOT_CAP_MS, Math.max(ONE_SHOT_MIN_MS, (durSec / speed) * 1000));
+}
+const ATTACK_RECENCY_MS = 340; // an attack event older than this is stale — skip
+const CAST_ANIM_MS = 520; // recency window for detecting a fresh cast event
 const HIT_ANIM_MS = 280;
-const JUMP_ANIM_MS = 600;
-const JUMP_RENDER_MS = 620; // mirrors sim JUMP_MS — drives the hop-arc height
-const HOP_HEIGHT = 1.4; // peak lift of the jump arc (world units)
-const DODGE_ANIM_MS = 360; // mirrors sim DODGE_MS
-const SPAWN_ANIM_MS = 700; // Spawn_Air / Skeletons_Spawn_Ground one-shots
+const HOP_HEIGHT = 2.8; // peak lift of the jump arc (world units) — a high, floaty hop
+// Jump animation is a 3-phase state machine: takeoff → airborne float → land.
+const JUMP_START_CLIP = "Jump_Start";
+const JUMP_IDLE_CLIP = "Jump_Idle";
+const JUMP_LAND_CLIP = "Jump_Land";
+const JUMP_START_MS = 340; // takeoff clip plays over the first slice of airtime
+const JUMP_LAND_MS = 340; // land clip plays over the last slice (Idle floats the middle)
 const GOLD = new THREE.Color(0xffd24a);
 
 // minimal descriptor a UnitView needs (ChampDef satisfies it; so do creeps)
@@ -165,6 +190,9 @@ function locomotion(u: Unit, twoHanded: boolean): string {
 
 function attackClip(def: ViewDef): string {
   if (def.attackType === "ranged") return def.attackDamageType === "magic" ? "Ranged_Magic_Shoot" : "Ranged_Bow_Release";
+  // Garran (2H greatsword) swings the Melee_2H set; Aurelius (1H hammer) + the
+  // dagger rogue keep their 1H/dualwield clips.
+  if (def.twoHanded) return "Melee_2H_Attack_Chop";
   return def.id === "rogue" ? "Melee_1H_Attack_Slice_Diagonal" : "Melee_1H_Attack_Chop";
 }
 
@@ -172,16 +200,6 @@ function castClip(def: ViewDef): string {
   if (def.attackDamageType === "magic") return "Ranged_Magic_Spellcasting";
   // physical champs "cast" with a weapon-appropriate swing, not a throw
   return attackClip(def);
-}
-
-/** Pick the directional dodge clip from the roll velocity vs the facing. */
-function dodgeClip(u: Unit): string {
-  const rollAng = Math.atan2(u.dashVy, u.dashVx);
-  const rel = Math.atan2(Math.sin(rollAng - u.facing), Math.cos(rollAng - u.facing));
-  const a = Math.abs(rel);
-  if (a < Math.PI / 4) return "Dodge_Forward";
-  if (a > (3 * Math.PI) / 4) return "Dodge_Backward";
-  return rel > 0 ? "Dodge_Left" : "Dodge_Right";
 }
 
 class UnitView {
@@ -200,12 +218,10 @@ class UnitView {
   private lastCastShown = -1;
   private lastHitShown = -1;
   private lastFlinchAt = -1;
-  private lastJumpShown = -1;
-  private lastDodgeShown = -1;
+  private jumpPhase = ""; // "" | "start" | "idle" | "land" — 3-phase hop state
   private oneShotUntil = 0;
   private deadAt = -1;
   private lastDustAt = 0;
-  private attackIdx = 0;
   private hitIdx = 0;
   private recoilX = 0; // render-only knockback lurch (decays); shadow stays put
   private recoilZ = 0;
@@ -254,8 +270,13 @@ class UnitView {
       const wr = lib.instance(def.weaponR);
       mountWeapon(wr, def.weaponR);
       // a blade trail on the main weapon (melee only) — computed pre-attach so
-      // the blade segment is in local space
-      const trail = def.attackType === "melee" ? new WeaponTrail(wr, isLocal ? 0xfff4d8 : 0xdbe8ff) : null;
+      // the blade segment is in local space. Tinted per champ (gold hammer vs
+      // steel greatsword) with a per-weapon axis override for the 2H/hammer bits.
+      const trailColor =
+        def.id === "blackknight" ? (isLocal ? 0xffe6a0 : 0xffd76a) // Aurelius — dawn gold
+        : def.id === "knight" ? (isLocal ? 0xeaf2ff : 0xdbe8ff) // Garran — steel white
+        : (isLocal ? 0xfff4d8 : 0xdbe8ff);
+      const trail = def.attackType === "melee" ? new WeaponTrail(wr, trailColor, TRAIL_OVERRIDE[def.weaponR]) : null;
       if (this.char.attach(wr, "handslot.r")) {
         this.weapons.push(wr);
         this.weaponMats.push(...cloneMats(wr, null));
@@ -304,7 +325,7 @@ class UnitView {
     // bind a base idle IMMEDIATELY — a unit must never render its bind T-pose,
     // even for the frame(s) before the first sync-driven clip lands
     this.char.play("Idle_B", { fade: 0 });
-    this.spawnClipPending = isCreep; // camp creeps rise from the ground
+    this.spawnClipPending = true; // heroes drop in (Spawn_Air); skeletons awaken from the floor
   }
 
   update(u: Unit, now: number, dt: number, fx: Fx | null, spinning: boolean): void {
@@ -314,7 +335,7 @@ class UnitView {
     const jumped = (u.x - this.group.position.x) ** 2 + (u.y - this.group.position.z) ** 2 > 36;
     // vertical hop arc while airborne (sin 0→π over the jump window) + the
     // terrain height under the unit (render-only; the sim stays flat)
-    const hopY = u.alive && u.jumpUntil > now ? Math.sin((1 - (u.jumpUntil - now) / JUMP_RENDER_MS) * Math.PI) * HOP_HEIGHT : 0;
+    const hopY = u.alive && u.jumpUntil > now ? Math.sin((1 - (u.jumpUntil - now) / JUMP_MS) * Math.PI) * HOP_HEIGHT : 0;
     const groundY = terrainHeight(u.x, u.y);
     if (!this.placed || respawned || jumped) {
       this.group.position.set(u.x, groundY + hopY, u.y);
@@ -395,13 +416,15 @@ class UnitView {
     if (respawned && !this.isCreep) {
       fx?.respawnBurst(u.x, u.y, this.isLocal ? LOCAL_COLOR : this.color, this.isLocal);
       this.char.play("Spawn_Air", { loop: false, fade: 0.05 });
-      this.oneShotUntil = now + SPAWN_ANIM_MS;
+      this.oneShotUntil = now + clipWindowMs(this.char.clipDuration("Spawn_Air"));
     }
-    // camp creeps rise out of the ground on their first frame
+    // first frame: heroes drop from the air (Spawn_Air), skeletons awaken from
+    // the floor (Skeletons_Awaken_Floor) — the full clip at natural speed
     if (this.spawnClipPending) {
       this.spawnClipPending = false;
-      this.char.play("Skeletons_Spawn_Ground", { loop: false, fade: 0 });
-      this.oneShotUntil = now + SPAWN_ANIM_MS + 200;
+      const spawnClip = this.isCreep ? "Skeletons_Awaken_Floor" : "Spawn_Air";
+      this.char.play(spawnClip, { loop: false, fade: 0 });
+      this.oneShotUntil = now + clipWindowMs(this.char.clipDuration(spawnClip));
       fx?.dust(u.x, u.y, 4);
     }
 
@@ -418,23 +441,41 @@ class UnitView {
 
     // one-shots are triggered ON THE EVENT (delta), never per-frame — otherwise
     // play() would reset the clip to frame 0 every frame and freeze it.
-    const timing = ATTACK_TIMING[this.def.id] ?? DEFAULT_TIMING;
     if (u.lastCastAt !== this.lastCastShown) {
       this.lastCastShown = u.lastCastAt;
       if (now - u.lastCastAt < CAST_ANIM_MS) {
-        const byKey = u.lastCastKey ? ABILITY_CLIPS[this.def.id]?.[u.lastCastKey] : undefined;
-        ch.play(byKey ?? castClip(this.def), { loop: false, fade: 0.06 });
-        this.oneShotUntil = now + CAST_ANIM_MS;
-        this.emitTrails(now, CAST_ANIM_MS); // weapon-trail ribbon on the ability swing
+        const clip = (u.lastCastKey ? ABILITY_CLIPS[this.def.id]?.[u.lastCastKey] : undefined) ?? castClip(this.def);
+        // The whirlwind's clip is a LOOP (the `spinning` branch drives it) — don't
+        // fire it as a one-shot here or it plays once and freezes.
+        if (clip !== SPIN_LOOP_CLIP) {
+          const ts = clipSpeed(clip);
+          const winMs = clipWindowMs(ch.clipDuration(clip), ts); // natural (2H sped 1.5×)
+          ch.play(clip, { loop: false, fade: 0.06, timeScale: ts });
+          this.oneShotUntil = now + winMs;
+          this.emitTrails(now, winMs); // weapon-trail ribbon on the ability swing
+        }
       }
     } else if (u.lastAttackAt !== this.lastAttackShown) {
       this.lastAttackShown = u.lastAttackAt;
-      if (now - u.lastAttackAt < timing.ms) {
+      if (now - u.lastAttackAt < ATTACK_RECENCY_MS) {
         const set = ATTACK_SETS[this.def.id] ?? [attackClip(this.def)];
-        const clip = set[this.attackIdx++ % set.length]!;
-        ch.play(clip, { loop: false, fade: 0.04, timeScale: timing.ts });
-        this.oneShotUntil = now + timing.ms;
-        this.emitTrails(now, timing.ms); // weapon-trail ribbon traces the blade
+        // pick by the SYNCED swing counter so the clip matches the sim rhythm
+        // (the slow swing that hits harder plays its heavy clip)
+        const swing = Math.max(0, u.swingCount - 1);
+        const clip = set[swing % set.length]!;
+        const clipDur = ch.clipDuration(clip);
+        // NO SWING EVER CLIPS: speed each swing just enough that the WHOLE clip
+        // plays within its actual interval (base rate × this swing's rhythm
+        // timeMult — so a slowed swing like Vesper's plays at natural speed, and
+        // a fast one is sped to fit). 2H clips keep their 1.5× floor.
+        const rhythm = CHAMP_BY_ID[this.def.id]?.basicRhythm;
+        const timeMult = rhythm && rhythm.length ? (rhythm[swing % rhythm.length]?.timeMult ?? 1) : 1;
+        const intervalMs = (timeMult * 1000) / Math.max(0.1, u.attackSpeed);
+        const ts = clipDur > 0 ? Math.max(clipSpeed(clip), (clipDur * 1000) / intervalMs) : clipSpeed(clip);
+        const winMs = clipWindowMs(clipDur, ts);
+        ch.play(clip, { loop: false, fade: 0.04, timeScale: ts });
+        this.oneShotUntil = now + winMs;
+        this.emitTrails(now, winMs); // weapon-trail ribbon traces the blade
         fx?.attackSound(this.def.id, u.x, u.y);
       }
     }
@@ -447,36 +488,36 @@ class UnitView {
         this.recoilX = u.lastHitDx * 0.34;
         this.recoilZ = u.lastHitDy * 0.34;
       }
-      if (u.alive && now - u.lastHitAt < 180 && now >= this.oneShotUntil && now - this.lastFlinchAt > 420) {
+      if (!spinning && u.alive && now - u.lastHitAt < 180 && now >= this.oneShotUntil && now - this.lastFlinchAt > 420) {
         ch.play(this.hitIdx++ % 2 ? "Hit_B" : "Hit_A", { loop: false, fade: 0.05 });
         this.oneShotUntil = now + HIT_ANIM_MS;
         this.lastFlinchAt = now;
       }
     }
-    // jump takeoff — plays a full hop clip; cancels a swing/flinch (evasive)
-    if (u.jumpUntil !== this.lastJumpShown) {
-      this.lastJumpShown = u.jumpUntil;
-      if (u.jumpUntil > now) {
-        ch.play("Jump_Full_Long", { loop: false, fade: 0.05 });
-        this.oneShotUntil = now + JUMP_ANIM_MS;
-      }
-    }
-    // dodge-roll — directional roll clip; overrides any swing (evasive)
-    if (u.lastDodgeAt !== this.lastDodgeShown) {
-      this.lastDodgeShown = u.lastDodgeAt;
-      if (u.alive && now - u.lastDodgeAt < 200) {
-        ch.play(dodgeClip(u), { loop: false, fade: 0.05 });
-        this.oneShotUntil = now + DODGE_ANIM_MS;
-        fx?.dodgeJuice(u.x, u.y, u.dashVx, u.dashVy);
-      }
-    }
-    // an active one-shot (attack/cast/hit/ability incl. dash-abilities) plays
-    // out; then a live whirlwind loops its spin; then a dash shows the run,
-    // else normal locomotion. (Death outranks everything via the early return.)
+    // (dodge-roll removed — Shift now casts the champ's DASH, which plays
+    //  Dodge_Forward through the cast one-shot above via lastCastKey. A jump
+    //  ATTACK is the JUMP cast — Melee_1H_Attack_Jump_Chop via lastCastKey.)
+    // Priority: an active one-shot (attack/cast/hit/dash-ability/jump-attack)
+    // plays out; then a mid-air hop runs its 3-phase state machine; then a live
+    // whirlwind loops; then a dash shows the run; else locomotion. (Death
+    // outranks all via the early return.)
+    const airborne = u.jumpUntil > now;
+    if (!airborne && this.jumpPhase) this.jumpPhase = ""; // grounded → reset
     if (now < this.oneShotUntil) {
       // hold the current one-shot
+    } else if (airborne) {
+      // takeoff → float → land, keyed to airtime; trigger each clip ONCE
+      const remain = u.jumpUntil - now;
+      const elapsed = JUMP_MS - remain;
+      const phase = remain <= JUMP_LAND_MS ? "land" : elapsed < JUMP_START_MS ? "start" : "idle";
+      if (phase !== this.jumpPhase) {
+        this.jumpPhase = phase;
+        if (phase === "start") ch.play(JUMP_START_CLIP, { loop: false, fade: 0.06 });
+        else if (phase === "idle") ch.play(JUMP_IDLE_CLIP, { loop: true, fade: 0.12 });
+        else ch.play(JUMP_LAND_CLIP, { loop: false, fade: 0.06 });
+      }
     } else if (spinning) {
-      ch.play("Melee_2H_Attack_Spinning", { fade: 0.1 });
+      ch.play(SPIN_LOOP_CLIP, { loop: true, fade: 0.1, timeScale: TWO_H_SPEED });
     } else if (now < u.dashUntil) {
       ch.play("Running_B", { fade: 0.1 });
     } else {
@@ -495,8 +536,8 @@ class UnitView {
     const bs = this.baseScale;
     ch.root.scale.set(bs * (1 + 0.12 * this.squash), bs * (1 - 0.18 * this.squash), bs * (1 + 0.12 * this.squash));
 
-    // ── dash trail: streaks + dust shed behind any ability dash (not dodges) ──
-    const dashing = now < u.dashUntil && now >= u.dodgeUntil;
+    // ── dash trail: streaks + dust shed behind any ability dash ──
+    const dashing = now < u.dashUntil;
     if (dashing && fx) {
       const primary = CHAMP_FX[this.def.id]?.primary ?? 0x9fd0ff;
       if (now - this.lastDashTrailAt > 40) {

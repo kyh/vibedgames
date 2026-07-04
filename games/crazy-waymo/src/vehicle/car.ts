@@ -65,12 +65,20 @@ export function buildWaymoSensors(): THREE.Group {
   add(new THREE.CylinderGeometry(0.25, 0.25, 0.04, 16), LIDAR_BLUE, 0, roofY + 0.25, 0.08);
   add(new THREE.SphereGeometry(0.24, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), LIDAR_WHITE, 0, roofY + 0.3, 0.08);
 
-  // Perimeter "mirror" sensor pods on the A-pillars.
-  for (const sx of [-0.78, 0.78] as const) {
-    add(new THREE.BoxGeometry(0.17, 0.13, 0.26), LIDAR_DARK, sx, 1.0, 0.42);
-    add(new THREE.CylinderGeometry(0.05, 0.05, 0.06, 8), LIDAR_BLUE, sx + (sx < 0 ? -0.09 : 0.09), 1.0, 0.42).rotateZ(
-      Math.PI / 2,
-    );
+  // Perimeter sensor pods mounted on the front-door shoulder. The body side
+  // there sits at |x| ≈ 0.65, so the pod centre straddles it (inner half sunk
+  // into the door, no floating gap) and the blue lens caps the outer face.
+  const doorX = 0.63;
+  const podY = 0.9;
+  for (const sx of [-1, 1] as const) {
+    add(new THREE.BoxGeometry(0.2, 0.15, 0.3), LIDAR_DARK, sx * doorX, podY, 0.42);
+    add(
+      new THREE.CylinderGeometry(0.055, 0.055, 0.08, 10),
+      LIDAR_BLUE,
+      sx * (doorX + 0.1),
+      podY,
+      0.42,
+    ).rotateZ(Math.PI / 2);
   }
 
   // Front + rear bumper radar nubs.
@@ -151,9 +159,9 @@ export class Car {
   get steer(): number {
     return this.steerSmoothed;
   }
-  // 0..1 — how close the current drift is to arming the release boost.
+  // 0..1 — how close the current drift is to arming the release slingshot.
   get driftCharge(): number {
-    return Math.min(1, this.driftSustain / 0.5);
+    return Math.min(1, this.driftSustain / CAR.driftSlingArm);
   }
 
   reset(x: number, z: number, yaw: number): void {
@@ -250,10 +258,14 @@ export class Car {
     // veers screen-left, so steer-right (+1) must decrease heading.
     this.heading -= this.steerSmoothed * CAR.turnRate * authority * startFade * driftMul * dir * dt;
 
-    if (this.isDrifting) this.driftSustain += dt;
-    else if (!physicsDrift) {
-      if (this.driftSustain > 0.5) {
-        this.addBoost(CAR.boostPerDrift);
+    // Drift boost is EASY: the meter fills continuously the whole time you're
+    // drifting (no threshold to clear first), and a brief drift also arms the
+    // slingshot pop on release.
+    if (this.isDrifting) {
+      this.driftSustain += dt;
+      this.addBoost(CAR.boostPerDriftSec * dt);
+    } else if (!physicsDrift) {
+      if (this.driftSustain > CAR.driftSlingArm) {
         vForward = Math.min(topSpeed, vForward + CAR.miniBoostImpulse); // slingshot out of a drift
         this.miniBoostFired = true;
       }

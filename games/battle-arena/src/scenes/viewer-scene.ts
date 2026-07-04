@@ -17,15 +17,19 @@
 // Loaded via dynamic import (own vite chunk) like the editor; owns its input
 // (orbit/zoom/pan camera written directly every frame — View.follow unused).
 import * as THREE from "three";
-import { CHAMPIONS, type ChampDef } from "../data/champions";
+import { CHAMPIONS, valAt, type ChampDef } from "../data/champions";
 import { SIM_DT, LEVEL_CAP, XP_CURVE } from "../data/config";
 import { abilityIcon, attackIcon, champSigil } from "../data/icons";
 import { CAMPS } from "../data/map";
 import { terrainHeight } from "../data/terrain";
 import { castAbility } from "../sim/abilities";
+import { abilityShapes, basicAttackShape, type HitShape } from "../sim/hit-shapes";
 import { dist, norm } from "../sim/math";
 import { recomputeStats } from "../sim/stats";
-import { ABILITY_KEYS, type AbilityKey, type Unit, type World } from "../sim/types";
+import { ABILITY_KEYS, ALL_ABILITY_KEYS, type AbilityKey, type Unit, type World } from "../sim/types";
+
+/** Key label for the ability row (⇧ dash / ␣ jump; number keys otherwise). */
+const VIEWER_KEYCAP: Partial<Record<AbilityKey, string>> = { DASH: "⇧", JUMP: "␣" };
 import { createWorld, spawnHero, step, syncAbilityRanks } from "../sim/world";
 import { Fx } from "../render/fx";
 import { AnimatedCharacter, type ModelLibrary } from "../render/models";
@@ -51,6 +55,13 @@ const MAX_PITCH = 1.35;
 const LOOK_H = 1.2;
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
+
+// hit-surface overlay geometry, positioned in the hero's local frame (forward =
+// +Z) ready to draw — derived from the sim's abilityShapes() by placeShape().
+type DrawShape =
+  | { kind: "cone"; radius: number; half: number }
+  | { kind: "corridor"; length: number; halfWidth: number }
+  | { kind: "circle"; radius: number; forward: number };
 
 // ── roster ───────────────────────────────────────────────────────────────────
 type RosterEntry = {
@@ -175,6 +186,12 @@ export class ViewerScene {
   private searchQ = "";
   private panelEl: HTMLElement | null = null;
   private nameEl: HTMLElement | null = null;
+  private dummyHudEl: HTMLElement | null = null;
+  // hit-surface overlay: the damage geometry (cone/corridor/circle) of the
+  // selected action, drawn flat on the ground and oriented to the hero's aim.
+  private showHitViz = false;
+  private hitVizGroup: THREE.Group | null = null;
+  private hitVizKey = "";
   private rosterEl: HTMLElement | null = null;
 
   constructor(
@@ -493,6 +510,7 @@ export class ViewerScene {
       n++;
     }
     this.neutralizeDummy(dt);
+    this.updateHitViz();
 
     // standalone subject: advance + chain one-shots back into idle
     const solo = this.solo;
@@ -521,7 +539,7 @@ export class ViewerScene {
     const h = this.hero();
     const d = this.dummy();
     if (!h || !d) return;
-    for (const key of ABILITY_KEYS) h.abilities[key].readyAt = 0; // always ready
+    for (const key of ALL_ABILITY_KEYS) h.abilities[key].readyAt = 0; // always ready
     h.hp = h.maxHp;
     const to = norm(d.x - h.x, d.y - h.y);
     const dd = dist(h, d);
@@ -576,16 +594,30 @@ export class ViewerScene {
     this.nextSwingT = this.t + dur + SWING_GAP_S;
   }
 
-  /** The dummy soaks everything but never dies, acts, or wanders off. */
+  private dummyPrevHp = -1;
+  private dummyDmgWindow: { t: number; d: number }[] = [];
+  private dummyLastDmg = 0;
+  private dummyKills = 0;
+
+  /** The dummy takes real damage (so you can read hits/DPS for balance) but
+   *  revives at full when it dies, and never acts or wanders off. */
   private neutralizeDummy(dt: number): void {
     const d = this.dummy();
     if (!d) return;
-    if (!d.alive) {
+    // measure damage taken since last frame (drives the HP bar / DPS readout)
+    if (this.dummyPrevHp >= 0 && d.hp < this.dummyPrevHp) {
+      const dmg = this.dummyPrevHp - d.hp;
+      this.dummyLastDmg = Math.round(dmg);
+      this.dummyDmgWindow.push({ t: this.t, d: dmg });
+    }
+    // revive at full on death so the training loop continues (count the kill)
+    if (!d.alive || d.hp <= 0) {
+      this.dummyKills++;
       d.alive = true;
       d.respawnAt = 0;
       d.statuses = [];
+      d.hp = d.maxHp;
     }
-    d.hp = d.maxHp;
     d.attackHeld = false;
     d.moveX = 0;
     d.moveY = 0;
@@ -601,6 +633,124 @@ export class ViewerScene {
         d.aimY = to.y;
       }
     }
+    this.dummyPrevHp = d.hp;
+    const cut = this.t - 3; // 3s rolling DPS window
+    while (this.dummyDmgWindow.length && (this.dummyDmgWindow[0]?.t ?? 0) < cut) this.dummyDmgWindow.shift();
+    this.updateDummyHud(d);
+  }
+
+  // representative target radius: the sim's cone/corridor tests add each target's
+  // own radius, so the drawn hit area widens the raw geometry by this to match.
+  private static readonly HIT_TARGET_R = 0.6;
+
+  /** Damage shapes of the action the character is CURRENTLY doing, ready to draw.
+   *  Geometry comes straight from the sim's abilityShapes()/basicAttackShape() —
+   *  the same definition the hit test uses — so the overlay can't drift. */
+  private hitShapesFor(): DrawShape[] {
+    const champ = this.selected.champ;
+    const me = this.hero();
+    if (!champ || !me) return [];
+    const act = this.action;
+    if (act === "attack") {
+      // the rhythm cycles chop/slice → spin, so the shape switches live with the
+      // sim's swingCount — show only the swing happening right now.
+      const rhythm = champ.basicRhythm;
+      const step = rhythm && rhythm.length ? rhythm[Math.max(0, me.swingCount - 1) % rhythm.length] : undefined;
+      if (step?.aoe) return [{ kind: "circle", radius: step.aoe, forward: 0 }]; // spin whirl
+      return this.placeShape(basicAttackShape(champ.attackType, me.attackRange), me.attackRange + 5);
+    }
+    if (!act) return [];
+    const def = champ.abilities[act];
+    if (!def) return [];
+    const rank = Math.max(1, me.abilities[act]?.rank ?? def.maxRank);
+    return abilityShapes(def, rank).flatMap((s) => this.placeShape(s, def.castRange));
+  }
+
+  /** Position a sim HitShape in the hero's local frame for drawing: cone/corridor
+   *  widen by the target-radius margin; circleAt/projectile land ahead at the
+   *  cast point (toward the dummy); a projectile also draws its splash. */
+  private placeShape(s: HitShape, range: number): DrawShape[] {
+    const TR = ViewerScene.HIT_TARGET_R;
+    switch (s.kind) {
+      case "cone":
+        return [{ kind: "cone", radius: s.radius + TR, half: s.half }];
+      case "corridor":
+        return [{ kind: "corridor", length: s.length, halfWidth: s.halfWidth + TR }];
+      case "circleSelf":
+        return [{ kind: "circle", radius: s.radius, forward: 0 }];
+      case "circleAt":
+        return [{ kind: "circle", radius: s.radius, forward: this.castForward(range) }];
+      case "projectile": {
+        const out: DrawShape[] = [{ kind: "corridor", length: s.length, halfWidth: 0.5 }];
+        if (s.splash > 0) out.push({ kind: "circle", radius: s.splash, forward: this.castForward(range) });
+        return out;
+      }
+    }
+  }
+
+  /** How far ahead a ground/projectile hit lands — at the dummy if in range. */
+  private castForward(range: number): number {
+    const me = this.hero();
+    const d = this.dummy();
+    return me && d ? Math.min(range, Math.hypot(d.x - me.x, d.y - me.y)) : range;
+  }
+
+  /** Draw/position the hit-surface overlay flat under the hero, oriented to aim. */
+  private updateHitViz(): void {
+    const me = this.hero();
+    const shapes = this.showHitViz && me ? this.hitShapesFor() : [];
+    if (shapes.length === 0) {
+      if (this.hitVizGroup) this.hitVizGroup.visible = false;
+      return;
+    }
+    const key = shapes.map((s) => (s.kind === "cone" ? `co${s.radius.toFixed(1)},${s.half.toFixed(2)}` : s.kind === "corridor" ? `cr${s.length.toFixed(1)},${s.halfWidth.toFixed(1)}` : `ci${s.radius.toFixed(1)},${s.forward.toFixed(1)}`)).join("|");
+    if (key !== this.hitVizKey || !this.hitVizGroup) {
+      this.hitVizKey = key;
+      if (!this.hitVizGroup) {
+        this.hitVizGroup = new THREE.Group();
+        this.hitVizGroup.renderOrder = 3;
+        this.scene.add(this.hitVizGroup);
+      }
+      const g = this.hitVizGroup;
+      for (const c of [...g.children]) {
+        if (c instanceof THREE.Mesh) c.geometry.dispose();
+        g.remove(c);
+      }
+      for (const s of shapes) {
+        let geo: THREE.BufferGeometry;
+        if (s.kind === "cone") {
+          geo = new THREE.CircleGeometry(s.radius, 40, Math.PI / 2 - s.half, 2 * s.half); // sector centered on +Y
+        } else if (s.kind === "corridor") {
+          geo = new THREE.PlaneGeometry(2 * s.halfWidth, s.length);
+          geo.translate(0, s.length / 2, 0); // start at the hero, extend forward
+        } else {
+          geo = new THREE.CircleGeometry(s.radius, 40);
+          geo.translate(0, s.forward, 0); // circle placed `forward` ahead
+        }
+        geo.rotateX(Math.PI / 2); // lay the XY shape flat: +Y (forward) → +Z
+        // colour by kind so different attacks read distinctly: cone=red,
+        // corridor=orange, self-whirl=gold, ground/splash circle=cyan
+        const color = s.kind === "cone" ? 0xff5a3c : s.kind === "corridor" ? 0xff9a3c : s.forward === 0 ? 0xffc83c : 0x3cc8ff;
+        const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.24, side: THREE.DoubleSide, depthWrite: false });
+        g.add(new THREE.Mesh(geo, mat));
+      }
+    }
+    const grp = this.hitVizGroup;
+    if (!grp || !me) return;
+    grp.visible = true;
+    grp.position.set(me.x, terrainHeight(me.x, me.y) + 0.06, me.y);
+    grp.rotation.y = Math.atan2(me.aimX, me.aimY); // orient +Z to the hero's aim
+  }
+
+  /** Live HP bar + last-hit + DPS readout for the dummy (balance tuning). */
+  private updateDummyHud(d: Unit): void {
+    const el = this.dummyHudEl;
+    if (!el) return;
+    const dps = Math.round(this.dummyDmgWindow.reduce((s, x) => s + x.d, 0) / 3);
+    const pct = Math.max(0, Math.min(100, (d.hp / d.maxHp) * 100));
+    el.innerHTML =
+      `<div class="vw-dh-bar"><i style="width:${pct.toFixed(1)}%"></i></div>` +
+      `<span class="vw-dh-txt">DUMMY ${Math.round(d.hp)}/${d.maxHp} · hit ${this.dummyLastDmg} · ${dps} DPS · deaths ${this.dummyKills}</span>`;
   }
 
   // ── camera ───────────────────────────────────────────────────────────────
@@ -701,6 +851,7 @@ export class ViewerScene {
       <div class="vw-top">
         <span class="vw-logo">CHARACTER VIEWER</span>
         <span class="vw-name" id="vw-name"></span>
+        <button id="vw-hitviz">HIT SURFACE</button>
         <button id="vw-reset">RESET</button>
         <button id="vw-editor">MAP EDITOR</button>
         <button id="vw-lobby">LOBBY</button>
@@ -716,10 +867,12 @@ export class ViewerScene {
         </div>
         <div class="vw-body" id="vw-body"></div>
       </div>
+      <div class="vw-dummyhp" id="vw-dummyhp"></div>
       <div class="vw-help">LMB drag orbit · wheel zoom · RMB pan · Q/W/E/R cast · A attack</div>`;
     document.body.appendChild(ui);
     this.panelEl = document.getElementById("vw-body");
     this.nameEl = document.getElementById("vw-name");
+    this.dummyHudEl = document.getElementById("vw-dummyhp");
     this.rosterEl = document.getElementById("vw-roster");
 
     // creep divider — insert before the first creep button
@@ -742,6 +895,12 @@ export class ViewerScene {
         const tab = btn.dataset["tab"];
         if (tab === "abilities" || tab === "animations") this.setTab(tab);
       });
+    });
+    const hv = document.getElementById("vw-hitviz");
+    hv?.addEventListener("click", () => {
+      this.showHitViz = !this.showHitViz;
+      hv.classList.toggle("on", this.showHitViz);
+      if (!this.showHitViz && this.hitVizGroup) this.hitVizGroup.visible = false;
     });
     document.getElementById("vw-reset")?.addEventListener("click", () => this.reset());
     document.getElementById("vw-editor")?.addEventListener("click", () => {
@@ -783,13 +942,13 @@ export class ViewerScene {
       document.getElementById("vw-atk")?.addEventListener("click", () => this.attack());
       return;
     }
-    const abilityRows = ABILITY_KEYS.map((key) => {
+    const abilityRows = ALL_ABILITY_KEYS.map((key) => {
       const a = def.abilities[key];
       const on = this.action === key;
       return `
         <button class="vwa ${on ? "on" : ""}" data-key="${key}" title="${a.desc}">
           <img src="${abilityIcon(def.id, key)}" alt="">
-          <span class="vwa-key">${key}</span>
+          <span class="vwa-key">${VIEWER_KEYCAP[key] ?? key}</span>
           <span class="vwa-txt"><b>${a.name}${a.isUltimate ? " ★" : ""}${on ? " · LOOPING" : ""}</b><i>${a.desc}</i></span>
         </button>`;
     }).join("");
@@ -807,7 +966,8 @@ export class ViewerScene {
     box.querySelectorAll<HTMLButtonElement>(".vwa[data-key]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const key = btn.dataset["key"];
-        if (key === "Q" || key === "W" || key === "E" || key === "R") this.cast(key);
+        const match = ALL_ABILITY_KEYS.find((k) => k === key);
+        if (match) this.cast(match);
       });
     });
   }
@@ -891,11 +1051,11 @@ function injectStyle(): void {
 .vwr-txt{display:flex;flex-direction:column;min-width:0}
 .vwr-txt b{font-size:11px}
 .vwr-txt i{font-style:normal;font-size:9px;opacity:.6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.vwr.on{border-color:#ffd24a;background:rgba(64,54,20,.9)}
+#ba-viewer .vwr.on{border-color:#ffd24a;background:rgba(64,54,20,.9)}
 .vw-panel{position:absolute;top:46px;right:10px;bottom:44px;width:280px;display:flex;flex-direction:column;gap:6px;background:rgba(8,10,18,.85);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:8px;pointer-events:auto}
 .vw-tabs{display:flex;gap:4px}
 .vwt{flex:1}
-.vwt.on{border-color:#ffd24a;color:#ffd24a;background:rgba(64,54,20,.9)}
+#ba-viewer .vwt.on{border-color:#ffd24a;color:#ffd24a;background:rgba(64,54,20,.9)}
 .vw-body{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:4px;min-height:0}
 .vw-sect{font:800 10px ui-monospace,monospace;letter-spacing:1px;opacity:.55;padding:7px 2px 2px}
 .vw-dim{opacity:.6;font-weight:600;letter-spacing:0}
@@ -905,7 +1065,7 @@ function injectStyle(): void {
 .vwa-txt{display:flex;flex-direction:column;min-width:0}
 .vwa-txt b{font-size:11px}
 .vwa-txt i{font-style:normal;font-size:9px;opacity:.65;line-height:1.25;white-space:normal}
-.vwa.on{border-color:#7dffb0;background:rgba(20,52,34,.9)}
+#ba-viewer .vwa.on{border-color:#7dffb0;background:rgba(20,52,34,.9)}
 .vw-note{font:600 9px ui-monospace,monospace;opacity:.45;padding:8px 2px;line-height:1.4}
 .vw-ctl{display:flex;align-items:center;gap:8px;padding:2px 0}
 .vw-chk{display:flex;align-items:center;gap:4px;font:600 11px ui-monospace,monospace}
@@ -914,8 +1074,12 @@ function injectStyle(): void {
 .vw-clips{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:3px;min-height:0}
 .vwc{display:flex;justify-content:space-between;gap:6px;text-align:left;background:rgba(20,26,42,.85);border-radius:5px;padding:4px 8px;font-weight:600}
 .vwc span{opacity:.5;font-weight:600}
-.vwc.on{border-color:#7dffb0;color:#7dffb0;background:rgba(20,52,34,.9)}
+#ba-viewer .vwc.on{border-color:#7dffb0;color:#7dffb0;background:rgba(20,52,34,.9)}
 .vw-help{position:absolute;left:0;right:0;bottom:0;text-align:center;padding:8px;font:600 11px ui-monospace,monospace;opacity:.55;background:linear-gradient(#080a1200,#080a12dd)}
+.vw-dummyhp{position:absolute;top:52px;left:50%;transform:translateX(-50%);width:340px;max-width:60vw;display:flex;flex-direction:column;gap:3px;align-items:center;pointer-events:none}
+.vw-dh-bar{width:100%;height:9px;border-radius:5px;background:rgba(10,14,22,.85);border:1px solid rgba(255,80,90,.35);overflow:hidden}
+.vw-dh-bar>i{display:block;height:100%;background:linear-gradient(90deg,#ff5a5a,#ff9a5a);transition:width .08s linear}
+.vw-dh-txt{font:700 11px ui-monospace,monospace;color:#ffd9b0;text-shadow:0 1px 2px #000;letter-spacing:.02em}
 `;
   document.head.appendChild(s);
 }

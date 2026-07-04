@@ -7,9 +7,9 @@ import { ARENA_BOT_FILL, KILL_GOAL_FFA, SHOP_RADIUS, SIM_DT } from "../data/conf
 import { CHAMP_BY_ID, DEFAULT_CHAMP, valAt } from "../data/champions";
 import { HALF, isInThrone, SPAWNS } from "../data/map";
 import { terrainHeight } from "../data/terrain";
-import { ABILITY_KEYS, type AbilityKey, type Unit, type World } from "../sim/types";
+import { ALL_ABILITY_KEYS, type AbilityKey, type Unit, type World } from "../sim/types";
 import { requestCast, useItemActive } from "../sim/abilities";
-import { buyItem, createWorld, ensureBots, requestDodge, setHeroInput, spawnHero, step, tryJump } from "../sim/world";
+import { buyItem, createWorld, ensureBots, setHeroInput, spawnHero, step, tryJump } from "../sim/world";
 import { INTENT_EVENT, MULTIPLAYER_HOST, PARTY, type Intent } from "../net/protocol";
 import { applySnapshot, emptyGuestWorld, encodeWorld, isSnapshot } from "../net/snapshot";
 import { SNAPSHOT_HZ } from "../data/config";
@@ -63,7 +63,7 @@ export class GameScene {
   private musicLowSince = -1;
   // touch integration (change-gated per-frame feeds)
   private boundChamp = "";
-  private readonly touchCdLast: Record<AbilityKey, number> = { Q: -1, W: -1, E: -1, R: -1 };
+  private readonly touchCdLast: Record<AbilityKey, number> = { Q: -1, W: -1, E: -1, R: -1, DASH: -1, JUMP: -1 };
 
   // online state
   private picks: Record<string, { champId: string; name: string }> = {};
@@ -218,13 +218,15 @@ export class GameScene {
       this.controls.consumeAbilities();
       this.controls.consumeItems();
       this.controls.consumeJump();
-      this.controls.consumeDodge();
+      this.controls.consumeDash();
+      this.controls.consumeAttackEdge();
       this.controls.consumeBuy();
       if (this.touch) {
         this.touch.consumeAbilities();
         this.touch.consumeBuy();
         this.touch.consumeJump();
-        this.touch.consumeDodge();
+        this.touch.consumeDash();
+        this.touch.consumeJumpAttack();
       }
       return;
     }
@@ -331,7 +333,7 @@ export class GameScene {
     if (!touch || !touch.active) return;
     const def = CHAMP_BY_ID[me.champId];
     if (!def) return;
-    for (const key of ABILITY_KEYS) {
+    for (const key of ALL_ABILITY_KEYS) {
       const slot = me.abilities[key];
       let pct = 0;
       if (slot.rank < 1) {
@@ -457,6 +459,30 @@ export class GameScene {
       castPoint = { x: me.x + this.aimX * 8, y: me.y + this.aimY * 8 };
     }
 
+    // JUMP ability: while AIRBORNE an LMB-edge casts the leaping strike and
+    // suppresses that frame's basic (a grounded click stays a normal attack).
+    // Touch fires it directly via its JUMP button — dispatch self-leaps if
+    // grounded, so the ability works uniformly for touch/bots/guests. The LMB
+    // edge is drained every frame so a grounded click never lingers into a hop.
+    const airborne = this.world.now < me.jumpUntil;
+    const lmbJump = this.controls.consumeAttackEdge() && airborne;
+    const touchJump = this.touch?.consumeJumpAttack() ?? false;
+    if (lmbJump || touchJump) {
+      if (lmbJump) attack = false; // resolve the ambiguous airborne LMB toward JUMP
+      if (host) {
+        requestCast(this.world, me, "JUMP", { point: castPoint, dir: { x: this.aimX, y: this.aimY } });
+      } else {
+        this.net?.sendEvent(INTENT_EVENT, {
+          kind: "cast",
+          key: "JUMP",
+          px: castPoint.x,
+          py: castPoint.y,
+          ax: this.aimX,
+          ay: this.aimY,
+        } satisfies Intent);
+      }
+    }
+
     if (host) {
       setHeroInput(me, mv.x, mv.y, this.aimX, this.aimY, attack);
     } else {
@@ -490,7 +516,7 @@ export class GameScene {
       }
     }
 
-    // Space / touch JUMP: evasive hop (drain both edges every frame)
+    // Space / touch HOP: evasive hop (drain both edges every frame)
     const kbJump = this.controls.consumeJump();
     const tJump = this.touch?.consumeJump() ?? false;
     if (kbJump || tJump) {
@@ -498,12 +524,24 @@ export class GameScene {
       else this.net?.sendEvent(INTENT_EVENT, { kind: "jump" } satisfies Intent);
     }
 
-    // Shift / touch DODGE: dodge-roll (i-frames) in the movement direction
-    const kbDodge = this.controls.consumeDodge();
-    const tDodge = this.touch?.consumeDodge() ?? false;
-    if (kbDodge || tDodge) {
-      if (host) requestDodge(this.world, me, mv.x, mv.y);
-      else this.net?.sendEvent(INTENT_EVENT, { kind: "dodge", mx: mv.x, my: mv.y } satisfies Intent);
+    // Shift / touch DASH: cast the hero's DASH ability (mobility + i-frames).
+    // It goes in the MOVEMENT (arrow) direction — where you're steering — and
+    // only falls back to the aim direction when standing still.
+    const dash = this.controls.consumeDash() || (this.touch?.consumeDash() ?? false);
+    if (dash) {
+      const dashDir = mv.x !== 0 || mv.y !== 0 ? mv : { x: this.aimX, y: this.aimY };
+      if (host) {
+        requestCast(this.world, me, "DASH", { point: castPoint, dir: dashDir });
+      } else {
+        this.net?.sendEvent(INTENT_EVENT, {
+          kind: "cast",
+          key: "DASH",
+          px: castPoint.x,
+          py: castPoint.y,
+          ax: dashDir.x,
+          ay: dashDir.y,
+        } satisfies Intent);
+      }
     }
 
     // item actives: 5–0 keys + belt-chip taps (the only touch path to items)
@@ -552,7 +590,9 @@ export class GameScene {
         setHeroInput(u, clamp1(f(intent.mx)), clamp1(f(intent.my)), clamp1(f(intent.ax)), clamp1(f(intent.ay)), intent.attack === true);
         break;
       case "cast":
-        // requestCast so guests get the same host-side input buffer as locals
+        // reject a bad/spoofed key before it reaches the sim; requestCast so
+        // guests get the same host-side input buffer as locals
+        if (!ALL_ABILITY_KEYS.includes(intent.key)) break;
         requestCast(this.world, u, intent.key, { point: { x: fc(intent.px), y: fc(intent.py) }, dir: { x: clamp1(f(intent.ax)), y: clamp1(f(intent.ay)) } });
         break;
       case "buy":
@@ -563,9 +603,6 @@ export class GameScene {
         break;
       case "jump":
         tryJump(this.world, u);
-        break;
-      case "dodge":
-        requestDodge(this.world, u, clamp1(f(intent.mx)), clamp1(f(intent.my)));
         break;
     }
   }

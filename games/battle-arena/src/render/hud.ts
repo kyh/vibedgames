@@ -11,20 +11,23 @@ import { abilityIcon, attackIcon, champSigil, iconUrl, statusIcon } from "../dat
 import { ITEMS, ITEM_BY_ID, MAX_ITEMS, type ItemDef } from "../data/items";
 import { KILL_GOAL_FFA, LEVEL_CAP, XP_CURVE, respawnTime } from "../data/config";
 import { ARENA, HEX_R, OBSTACLES } from "../data/map";
-import { ABILITY_KEYS, type AbilityKey, type Unit, type World } from "../sim/types";
+import { ALL_ABILITY_KEYS, type AbilityKey, type Unit, type World } from "../sim/types";
 import type { Audio } from "./audio";
 import type { Fx } from "./fx";
 import { LOCAL_COLOR, teamColor } from "./palette";
 import type { View } from "./view";
 
-const KEYCAP: Record<AbilityKey, string> = { Q: "1", W: "2", E: "3", R: "4" };
+// Q/W/E/R map to number keys 1-4; DASH/JUMP are the flat util pair (Shift/Space).
+const KEYCAP: Record<AbilityKey, string> = { Q: "1", W: "2", E: "3", R: "4", DASH: "⇧", JUMP: "␣" };
+/** The flat, always-unlocked mobility pair — no rank pips, no level lock. */
+const UTIL_KEYS = new Set<AbilityKey>(["DASH", "JUMP"]);
 
 /** Status kinds rendered with a red (hostile) border in the buff row. */
 const DEBUFF_KINDS = new Set(["stun", "root", "slow", "dot", "damageAmp", "hex"]);
 
 /** Death-screen tips, rotated by death count (result-05 B5, verbatim). */
 const TIPS: string[] = [
-  "Shift dodge has invulnerability frames",
+  "Shift dash has invulnerability frames",
   "Buy items at base — press B",
   "The throne pays bonus gold",
   "The leader carries a 650g bounty",
@@ -297,9 +300,16 @@ export class Hud {
     });
 
     const abilEl = byId("ba-abilities");
-    for (const key of ABILITY_KEYS) {
+    for (const key of ALL_ABILITY_KEYS) {
+      // spacer splits the levelled 1/2/3/4 group from the flat ⇧/␣ util pair
+      if (key === "DASH") {
+        const gap = document.createElement("div");
+        gap.className = "ba-abil-gap";
+        abilEl.appendChild(gap);
+      }
+      const util = UTIL_KEYS.has(key);
       const wrap = document.createElement("div");
-      wrap.className = key === "R" ? "ba-abil ult" : "ba-abil";
+      wrap.className = key === "R" ? "ba-abil ult" : util ? "ba-abil util" : "ba-abil";
       const img = document.createElement("img");
       img.className = "ba-ic";
       img.alt = "";
@@ -698,23 +708,25 @@ export class Hud {
     if (!def) return;
     if (me.champId !== this.champBound) {
       this.champBound = me.champId;
-      for (const key of ABILITY_KEYS) {
+      for (const key of ALL_ABILITY_KEYS) {
         const el = this.abilityEls.get(key)!;
         el.img.src = abilityIcon(me.champId, key);
         el.lastRank = -1; // force pip rebuild
       }
     }
-    for (const key of ABILITY_KEYS) {
+    for (const key of ALL_ABILITY_KEYS) {
       const el = this.abilityEls.get(key)!;
       const slot = me.abilities[key];
       const ad = def.abilities[key];
-      if (slot.rank !== el.lastRank) {
+      // DASH/JUMP are flat (maxRank 1): no rank pips, never level-locked.
+      const util = UTIL_KEYS.has(key);
+      if (!util && slot.rank !== el.lastRank) {
         el.lastRank = slot.rank;
         let pips = "";
         for (let i = 0; i < ad.maxRank; i++) pips += i < slot.rank ? "<i class='on'></i>" : "<i></i>";
         el.pips.innerHTML = pips;
       }
-      if (slot.rank < 1) {
+      if (!util && slot.rank < 1) {
         el.wrap.classList.add("locked");
         if (el.lastCd !== 0) {
           el.lastCd = 0;
@@ -730,7 +742,7 @@ export class Hud {
       }
       el.wrap.classList.remove("locked");
       const cdLeft = Math.max(0, (slot.readyAt - w.now) / 1000);
-      const cdTotal = Math.max(0.01, valAt(ad.cooldown, slot.rank));
+      const cdTotal = Math.max(0.01, valAt(ad.cooldown, util ? 1 : slot.rank));
       const frac = cdLeft > 0 ? Math.min(1, cdLeft / cdTotal) : 0;
       const pct = Math.round(frac * 100);
       if (pct !== el.lastCd) {
@@ -1302,6 +1314,8 @@ const STYLE = `
 #ba-abilities{display:flex;gap:8px;align-items:flex-end}
 .ba-abil{position:relative;width:56px;height:56px;background:#0c101c;border:2px solid rgba(255,255,255,.22);border-radius:11px;overflow:hidden;box-shadow:0 3px 0 rgba(0,0,0,.45),inset 0 0 0 1px rgba(0,0,0,.6)}
 .ba-abil.ult{width:62px;height:62px;border-color:rgba(255,210,74,.55)}
+.ba-abil.util{width:44px;height:44px;border-color:rgba(150,200,255,.4)}
+.ba-abil-gap{width:10px;flex:0 0 auto}
 .ba-abil .ba-ic{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .ba-abil.oncd .ba-ic{filter:saturate(.3) brightness(.55)}
 .ba-abil.locked .ba-ic{filter:grayscale(1) brightness(.4)}
@@ -1397,6 +1411,8 @@ body.ba-mouse-mode canvas{cursor:default}
 #ba-minimap{display:none}
 .ba-abil{width:48px;height:48px}
 .ba-abil.ult{width:52px;height:52px}
+.ba-abil.util{width:38px;height:38px}
+.ba-abil-gap{width:6px}
 #ba-vitals{width:250px}
 .ba-item-chip{width:32px;height:32px}
 .ba-buff{width:22px;height:22px}

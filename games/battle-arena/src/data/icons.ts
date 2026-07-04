@@ -13,9 +13,13 @@ const ICON_PREFIX_ALIAS: Record<string, string> = {
   blackknight: "paladin", // Aurelius the Dawnward — gold paladin icon set
 };
 
-/** Ability tile icon: `{champId}-{q|w|e|r}.webp` (id → art-prefix aliased). */
+/** Ability tile icon. Q/W/E/R → per-champ `{prefix}-{q|w|e|r}.webp` (id →
+ *  art-prefix aliased). DASH/JUMP are the flat util pair: they share one glyph
+ *  each (`ability-dash`/`ability-jump`) across every champion. */
 export const abilityIcon = (champId: string, key: AbilityKey): string =>
-  iconUrl(`${ICON_PREFIX_ALIAS[champId] ?? champId}-${key.toLowerCase()}`);
+  key === "DASH" || key === "JUMP"
+    ? iconUrl(`ability-${key.toLowerCase()}`)
+    : iconUrl(`${ICON_PREFIX_ALIAS[champId] ?? champId}-${key.toLowerCase()}`);
 
 /** Basic-attack icon, keyed by ChampDef.attackKind (unknown kinds → melee). */
 export const attackIcon = (attackKind: string): string =>

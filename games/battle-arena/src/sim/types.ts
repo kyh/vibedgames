@@ -3,8 +3,15 @@
 // No engine imports — the sim is engine-agnostic and testable headless.
 import type { DamageType, Team } from "../data/config";
 
-export type AbilityKey = "Q" | "W" | "E" | "R";
+// Q/W/E = number-key skills 1/2/3, R = ultimate (4). DASH (Shift) + JUMP
+// (Space+click leaping strike) are cooldown abilities too — they ride the same
+// cast/cooldown/snapshot machinery but are FLAT (maxRank 1, not level-ranked).
+export type AbilityKey = "Q" | "W" | "E" | "R" | "DASH" | "JUMP";
+// The four LEVELLED slots: number input, rank sync, HUD rank pips, R-lock.
 export const ABILITY_KEYS: AbilityKey[] = ["Q", "W", "E", "R"];
+// All six slots: ability-Record init, HUD cooldown sweep, clip lookup, bot
+// cast loop, net-intent key guard, touch buttons.
+export const ALL_ABILITY_KEYS: AbilityKey[] = ["Q", "W", "E", "R", "DASH", "JUMP"];
 
 export type GamePhase = "lobby" | "playing" | "ended";
 export type UnitKind = "hero" | "boss" | "dummy" | "creep";
@@ -85,6 +92,8 @@ export type Unit = {
 
   // combat runtime
   lastAttackAt: number;
+  swingCount: number; // total basic swings started (cycles the per-champ rhythm +
+  //                     picks the render swing clip; slow swings hit harder)
   lastCastAt: number; // ms of last successful ability cast (drives the cast anim)
   lastCastKey: AbilityKey | ""; // which ability fired last (picks the cast clip)
   lastHitAt: number; // ms this unit last took damage (drives the hit flash)
@@ -94,10 +103,9 @@ export type Unit = {
   statuses: Status[];
   recentDamageFrom: Record<string, number>; // attackerId -> ms (assist credit)
 
-  // input buffering — a cast/dodge pressed slightly too early fires the moment
-  // it becomes legal (drained in step() each tick; plain data → rides snapshots)
+  // input buffering — a cast pressed slightly too early fires the moment it
+  // becomes legal (drained in step() each tick; plain data → rides snapshots)
   queuedCast: { key: AbilityKey; px: number; py: number; ax: number; ay: number; until: number } | null;
-  queuedDodge: { mx: number; my: number; until: number } | null;
 
   // steering velocity with accel/decel smoothing (movement reads/writes this;
   // dashes write it directly, knockback stacks on top)
@@ -124,13 +132,6 @@ export type Unit = {
 
   // jump/hop (Space) — a brief evasive bound; mostly visual, slight speed boost
   jumpUntil: number;
-
-  // dodge-roll (Shift) — rolls via the dash channel but keeps aim-facing; grants
-  // brief i-frames (untargetable). dodgeUntil marks the roll, lastDodgeAt drives
-  // the render clip, dodgeReadyAt is the cooldown gate.
-  dodgeUntil: number;
-  dodgeReadyAt: number;
-  lastDodgeAt: number;
 
   // death / respawn
   respawnAt: number; // ms; 0 while alive

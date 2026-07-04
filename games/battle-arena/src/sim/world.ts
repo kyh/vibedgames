@@ -5,6 +5,8 @@ import { CHAMP_BY_ID, champStatAt } from "../data/champions";
 import {
   ARENA_BOT_FILL,
   FOUNTAIN_HEAL_PER_SEC,
+  JUMP_MS,
+  JUMP_RECOVER,
   KILL_GOAL_FFA,
   MATCH_TIME,
   NEUTRAL_TEAM,
@@ -18,7 +20,7 @@ import { ITEM_BY_ID, MAX_ITEMS } from "../data/items";
 import { BOSS_POS, CAMPS, SPAWNS, clampToArena, resolveObstacles, type CampSpec } from "../data/map";
 import { resolveElevation } from "./elevation";
 import { ABILITY_KEYS, type Unit, type World, nextId } from "./types";
-import { addStatus, effectiveMoveSpeed, expireStatuses, isDisabled, isRooted, recomputeStats } from "./stats";
+import { effectiveMoveSpeed, expireStatuses, isDisabled, isRooted, recomputeStats } from "./stats";
 import { applyKnockback, dealDamage, resolveAttacks, stepProjectiles } from "./combat";
 import { castAbility, tickAbilities } from "./abilities";
 import { tickEconomy, updateLeader } from "./economy";
@@ -108,10 +110,13 @@ export function spawnHero(w: World, args: SpawnArgs): Unit {
       W: { rank: 1, readyAt: 0 },
       E: { rank: 1, readyAt: 0 },
       R: { rank: 0, readyAt: 0 },
+      DASH: { rank: 1, readyAt: 0 },
+      JUMP: { rank: 1, readyAt: 0 },
     },
     items: [],
     itemReadyAt: {},
     lastAttackAt: 0,
+    swingCount: 0,
     lastCastAt: 0,
     lastCastKey: "",
     lastHitAt: 0,
@@ -121,7 +126,6 @@ export function spawnHero(w: World, args: SpawnArgs): Unit {
     statuses: [],
     recentDamageFrom: {},
     queuedCast: null,
-    queuedDodge: null,
     steerVx: 0,
     steerVy: 0,
     moveX: 0,
@@ -137,9 +141,6 @@ export function spawnHero(w: World, args: SpawnArgs): Unit {
     dashVy: 0,
     empowerNext: 0,
     jumpUntil: 0,
-    dodgeUntil: 0,
-    dodgeReadyAt: 0,
-    lastDodgeAt: 0,
     respawnAt: 0,
     kills: 0,
     deaths: 0,
@@ -227,10 +228,11 @@ export function spawnCreep(w: World, type: string, x: number, y: number, camp: {
     level: 1,
     xp: 0,
     gold: 0,
-    abilities: { Q: { rank: 0, readyAt: 0 }, W: { rank: 0, readyAt: 0 }, E: { rank: 0, readyAt: 0 }, R: { rank: 0, readyAt: 0 } },
+    abilities: { Q: { rank: 0, readyAt: 0 }, W: { rank: 0, readyAt: 0 }, E: { rank: 0, readyAt: 0 }, R: { rank: 0, readyAt: 0 }, DASH: { rank: 0, readyAt: 0 }, JUMP: { rank: 0, readyAt: 0 } },
     items: [],
     itemReadyAt: {},
     lastAttackAt: 0,
+    swingCount: 0,
     lastCastAt: 0,
     lastCastKey: "",
     lastHitAt: 0,
@@ -240,7 +242,6 @@ export function spawnCreep(w: World, type: string, x: number, y: number, camp: {
     statuses: [],
     recentDamageFrom: {},
     queuedCast: null,
-    queuedDodge: null,
     steerVx: 0,
     steerVy: 0,
     moveX: 0,
@@ -256,9 +257,6 @@ export function spawnCreep(w: World, type: string, x: number, y: number, camp: {
     dashVy: 0,
     empowerNext: 0,
     jumpUntil: 0,
-    dodgeUntil: 0,
-    dodgeReadyAt: 0,
-    lastDodgeAt: 0,
     respawnAt: 0,
     kills: 0,
     deaths: 0,
@@ -407,7 +405,7 @@ export function step(w: World, dt: number = SIM_DT): void {
 
   tickCamps(w); // (re)populate skeleton camps
   tickBots(w); // bots + skeletons decide intent before movement resolves
-  drainInputBuffers(w); // buffered casts/dodges fire the moment they're legal
+  drainInputBuffers(w); // buffered casts fire the moment they're legal
 
   for (const u of w.units.values()) {
     if (!u.alive || u.kind === "boss" || u.kind === "dummy") continue;
@@ -432,8 +430,8 @@ function tickHeroLifecycle(w: World, u: Unit, _dt: number): void {
   }
 }
 
-/** Retry queued casts/dodges (input buffer). Runs after bot intent, before
- *  movement, so a buffered press lands the first tick it becomes legal. */
+/** Retry queued casts (input buffer). Runs after bot intent, before movement,
+ *  so a buffered press lands the first tick it becomes legal. */
 function drainInputBuffers(w: World): void {
   for (const u of w.units.values()) {
     if (u.kind !== "hero" || !u.alive) continue;
@@ -441,11 +439,6 @@ function drainInputBuffers(w: World): void {
     if (qc) {
       if (w.now > qc.until) u.queuedCast = null;
       else if (castAbility(w, u, qc.key, { point: { x: qc.px, y: qc.py }, dir: { x: qc.ax, y: qc.ay } })) u.queuedCast = null;
-    }
-    const qd = u.queuedDodge;
-    if (qd) {
-      if (w.now > qd.until) u.queuedDodge = null;
-      else if (tryDodge(w, u, qd.mx, qd.my)) u.queuedDodge = null;
     }
   }
 }
@@ -464,10 +457,7 @@ export function respawn(w: World, u: Unit): void {
   u.dashUntil = 0;
   u.kbUntil = 0;
   u.jumpUntil = 0;
-  u.dodgeUntil = 0;
-  u.dodgeReadyAt = 0;
   u.queuedCast = null;
-  u.queuedDodge = null;
   u.steerVx = 0;
   u.steerVy = 0;
   recomputeStats(u);
@@ -475,65 +465,13 @@ export function respawn(w: World, u: Unit): void {
 }
 
 // ── Jump (Space) ─────────────────────────────────────────────────────────────
-const JUMP_MS = 620; // airborne window (drives the render hop arc + Jump clip)
-const JUMP_RECOVER = 520; // landing recovery before you can hop again (no bunny-hop sprint)
-
 /** Start an evasive hop. Host-authoritative; jumpUntil rides the snapshot so
- *  guests see the same arc. Blocked while stunned/rooted or already airborne. */
+ *  guests see the same arc. Blocked while stunned/rooted or already airborne.
+ *  (JUMP_MS/JUMP_RECOVER live in data/config to avoid a world↔abilities cycle.) */
 export function tryJump(w: World, u: Unit): void {
   if (!u.alive || isDisabled(u) || isRooted(u)) return;
   if (w.now < u.jumpUntil + JUMP_RECOVER) return; // mid-hop or still recovering
   u.jumpUntil = w.now + JUMP_MS;
-}
-
-// ── Dodge-roll (Shift) ───────────────────────────────────────────────────────
-const DODGE_MS = 360; // roll duration (movement via the dash channel)
-const DODGE_IFRAME_MS = 260; // untargetable window (tail of the roll is vulnerable)
-const DODGE_CD = 1100; // cooldown — i-frame uptime ~24% (was ~38%, too passive)
-const DODGE_SPEED = 16; // units/sec during the roll
-
-/** Roll in the given direction (movement input; backpedal if idle), keeping
- *  aim-facing, with brief i-frames so you dodge attacks. Host-authoritative.
- *  Returns true when the roll started. */
-export function tryDodge(w: World, u: Unit, mx: number, my: number): boolean {
-  if (!u.alive || u.kind !== "hero") return false;
-  if (isDisabled(u) || isRooted(u)) return false;
-  if (w.now < u.dodgeReadyAt) return false;
-  let dx = mx;
-  let dy = my;
-  if (Math.hypot(dx, dy) < 0.01) {
-    // idle → dodge straight back (away from the crosshair)
-    dx = -Math.cos(u.facing);
-    dy = -Math.sin(u.facing);
-  }
-  const len = Math.hypot(dx, dy) || 1;
-  u.dashVx = (dx / len) * DODGE_SPEED;
-  u.dashVy = (dy / len) * DODGE_SPEED;
-  u.dashUntil = w.now + DODGE_MS;
-  u.dodgeUntil = w.now + DODGE_MS;
-  u.dodgeReadyAt = w.now + DODGE_CD;
-  u.lastDodgeAt = w.now;
-  addStatus(u, { kind: "untargetable", until: w.now + DODGE_IFRAME_MS, id: "dodge" });
-  return true;
-}
-
-const DODGE_BUFFER_LEAD = 250; // press this early into the cooldown tail → queue
-const DODGE_BUFFER_MS = 250; // how long a queued dodge lives
-
-/** Dodge now, or buffer the press if it's almost legal (cooldown tail, mid-
- *  dash, stunned). Drains in step(). Returns true when the roll started now. */
-export function requestDodge(w: World, u: Unit, mx: number, my: number): boolean {
-  if (tryDodge(w, u, mx, my)) {
-    u.queuedDodge = null;
-    return true;
-  }
-  if (!u.alive || u.kind !== "hero") return false;
-  const soon =
-    u.dodgeReadyAt - w.now <= DODGE_BUFFER_LEAD ||
-    w.now < u.dashUntil ||
-    u.statuses.some((s) => s.kind === "stun");
-  if (soon) u.queuedDodge = { mx, my, until: w.now + DODGE_BUFFER_MS };
-  return false;
 }
 
 function regen(u: Unit, dt: number): void {
@@ -556,8 +494,8 @@ function moveUnit(w: World, u: Unit, dt: number): void {
     // dash overrides steering (writes it directly — dashes stay instant)
     u.steerVx = u.dashVx;
     u.steerVy = u.dashVy;
-    // ability dashes face their travel; a dodge-roll keeps facing the crosshair
-    if (w.now >= u.dodgeUntil) u.facing = Math.atan2(u.dashVy, u.dashVx);
+    // a dash faces its travel direction
+    u.facing = Math.atan2(u.dashVy, u.dashVx);
   } else {
     // target velocity from intent, then smooth steer toward it
     let tx = 0;
@@ -609,8 +547,8 @@ function moveUnit(w: World, u: Unit, dt: number): void {
   u.x = e.x;
   u.y = e.y;
 
-  // facing follows aim when not in an ability-dash (a dodge always faces aim)
-  if ((w.now >= u.dashUntil || w.now < u.dodgeUntil) && (u.aimX !== 0 || u.aimY !== 0)) {
+  // facing follows aim when not in an ability-dash (a dash faces its travel)
+  if (w.now >= u.dashUntil && (u.aimX !== 0 || u.aimY !== 0)) {
     u.facing = Math.atan2(u.aimY, u.aimX);
   }
 }

@@ -11,12 +11,18 @@ import {
   isUntargetable,
 } from "./stats";
 import { applyKnockback, dealDamage, isEnemy, spawnProjectile } from "./combat";
+import { abilityShapes, type HitShape } from "./hit-shapes";
 import type { AbilityKey, GroundEffect, Unit, World } from "./types";
 import { nextId } from "./types";
 
 export type CastCtx = { point?: { x: number; y: number }; dir?: { x: number; y: number } };
 
 const deg2rad = (d: number) => (d * Math.PI) / 180;
+
+// JUMP attack = a dive: clicking in the air brings you DOWN fast to slam. This
+// caps the remaining airtime (or gives a grounded caster a quick hop) so the
+// strike lands right away, centred on where you come down.
+const JUMP_DIVE_MS = 200;
 
 // Input buffer windows: a press up to CAST_BUFFER_LEAD ms before the cooldown
 // ends (or while dashing/stunned) queues and fires the moment it's legal.
@@ -93,6 +99,16 @@ function startDash(u: Unit, dir: { x: number; y: number }, speed: number, distan
   u.facing = angleOf(dir.x, dir.y);
 }
 
+const JUMP_LEAP_SPEED = 20; // horizontal dash speed of a jump-attack leap
+/** A jump-attack: leap toward the aim over `range` (the dash animates the move)
+ *  and come down as it lands; returns the landing point for the AoE. */
+function jumpLeap(c: Unit, dir: { x: number; y: number }, range: number, w: World): { lx: number; ly: number } {
+  startDash(c, dir, JUMP_LEAP_SPEED, range, w);
+  const dive = (range / JUMP_LEAP_SPEED) * 1000; // descend as the leap lands
+  c.jumpUntil = w.now + Math.max(JUMP_DIVE_MS, dive);
+  return { lx: c.x + dir.x * range, ly: c.y + dir.y * range };
+}
+
 /** Abilities hit anything fightable — heroes AND camp creeps (the boss is
  *  handled separately and stays out of reach). */
 function targetable(u: Unit): boolean {
@@ -127,6 +143,40 @@ function pushGround(w: World, g: Omit<GroundEffect, "id">): void {
   w.grounds.push({ ...g, id: nextId(w, "g") });
 }
 
+/** Enemies covered by an INSTANT shape (cone/corridor/self/at) — the shared hit
+ *  test for abilities whose geometry is defined in abilityShapes(). Projectiles
+ *  and ground zones spawn their own entities and aren't queried here. */
+function targetsInShape(w: World, c: Unit, shape: HitShape, dir: { x: number; y: number }, point: { x: number; y: number }): Unit[] {
+  switch (shape.kind) {
+    case "cone": {
+      const ang = angleOf(dir.x, dir.y);
+      const out: Unit[] = [];
+      for (const t of w.units.values()) {
+        if (t === c || !t.alive || !targetable(t) || !isEnemy(c, t)) continue;
+        if (dist(c, t) > shape.radius + t.radius) continue;
+        if (Math.abs(angleDelta(ang, angleOf(t.x - c.x, t.y - c.y))) > shape.half) continue;
+        out.push(t);
+      }
+      return out;
+    }
+    case "corridor":
+      return corridorHits(w, c, dir, shape.length, shape.halfWidth);
+    case "circleSelf":
+      return aoeEnemies(w, c.team, c.x, c.y, shape.radius);
+    case "circleAt":
+      return aoeEnemies(w, c.team, point.x, point.y, shape.radius);
+    default:
+      return []; // projectile — the sim spawns a projectile instead
+  }
+}
+
+/** Enemies hit by an ability's (first) instant shape — geometry sourced from
+ *  abilityShapes() so the sim and the viewer never disagree on the hit area. */
+function abilityTargets(w: World, c: Unit, def: AbilityDef, rank: number, dir: { x: number; y: number }, point: { x: number; y: number }): Unit[] {
+  const [shape] = abilityShapes(def, rank);
+  return shape ? targetsInShape(w, c, shape, dir, point) : [];
+}
+
 /** A big weapon-slash arc VFX in front of the caster (for melee abilities). */
 function meleeSwing(w: World, c: Unit, dir: { x: number; y: number }, r = 3.6): void {
   w.fx.push({ t: "swing", x: c.x + dir.x * r * 0.45, y: c.y + dir.y * r * 0.45, ang: angleOf(dir.x, dir.y), r, melee: true, dtype: "physical" });
@@ -148,26 +198,19 @@ function dispatch(
   switch (def.effect) {
     // ── Knight ──
     case "knight:Q": {
+      // Cleaving Blow: a frontal cone — damage + stun (geometry: abilityShapes).
       meleeSwing(w, c, dir);
-      const ang = angleOf(dir.x, dir.y);
-      const half = deg2rad(v("cone")) / 2;
-      const range = def.castRange;
-      for (const t of w.units.values()) {
-        if (t === c || !t.alive || !targetable(t) || !isEnemy(c, t)) continue;
-        if (dist(c, t) > range + t.radius) continue;
-        if (Math.abs(angleDelta(ang, angleOf(t.x - c.x, t.y - c.y))) > half) continue;
+      for (const t of abilityTargets(w, c, def, r, dir, point)) {
         dealDamage(w, c, t, v("damage"), "physical", { ap });
         addStatus(t, { kind: "stun", until: w.now + v("stun") * 1000, id: "knight:Q" });
       }
       return true;
     }
     case "knight:W": {
-      const dist0 = def.castRange;
-      startDash(c, dir, v("speed"), dist0, w);
-      for (const t of corridorHits(w, c, dir, dist0, 1.6)) {
+      // Seismic Slam: a fissure line — damage + slow everyone in a corridor.
+      for (const t of abilityTargets(w, c, def, r, dir, point)) {
         dealDamage(w, c, t, v("damage"), "physical", { ap });
-        applyKnockback(t, c.x, c.y, v("knockback"), w);
-        addStatus(t, { kind: "stun", until: w.now + 350, id: "knight:W" });
+        addStatus(t, { kind: "slow", until: w.now + v("slowDur") * 1000, pct: v("slow"), id: "knight:W" });
       }
       return true;
     }
@@ -188,10 +231,26 @@ function dispatch(
         until: w.now + v("duration") * 1000,
         nextTick: w.now + 250,
         tickInterval: 250,
-        enemyDps: v("dps") * (1 + ap),
+        enemyDps: v("dps"), // AP applies once, in computeDamage (no double-dip)
         dtype: "physical",
         slowPct: v("slow"),
       });
+      return true;
+    }
+    case "knight:DASH": {
+      startDash(c, dir, v("speed"), def.castRange, w);
+      addStatus(c, { kind: "untargetable", until: w.now + v("iframe") * 1000, id: "dash" });
+      return true;
+    }
+    case "knight:JUMP": {
+      // Skyfall Cleave: self-leap if grounded, slam AoE on the landing point.
+      const { lx, ly } = jumpLeap(c, dir, def.castRange, w); // leap to the aim point, AoE there
+      const dmg = v("base") + v("perLevel") * (c.level - 1);
+      for (const t of abilityTargets(w, c, def, r, dir, point)) { // hit the whole leap path, not just the endpoint
+        dealDamage(w, c, t, dmg, "physical", { ap });
+        addStatus(t, { kind: "slow", until: w.now + v("slowDur") * 1000, pct: v("slow"), id: "knight:JUMP" });
+      }
+      w.fx.push({ t: "explosion", x: lx, y: ly, radius: v("radius"), kind: "execute" });
       return true;
     }
 
@@ -216,8 +275,10 @@ function dispatch(
       return true;
     }
     case "ranger:W": {
-      startDash(c, dir, v("speed"), def.castRange, w);
-      addStatus(c, { kind: "untargetable", until: w.now + v("invuln") * 1000, id: "ranger:W" });
+      // Hunter's Focus: self buff — attack + move speed for a few seconds.
+      const dur = v("duration") * 1000;
+      addStatus(c, { kind: "attackSpeed", until: w.now + dur, amount: v("atkSpeed"), id: "ranger:W" });
+      addStatus(c, { kind: "speed", until: w.now + dur, pct: v("moveSpeed"), id: "ranger:W" });
       return true;
     }
     case "ranger:E": {
@@ -249,11 +310,26 @@ function dispatch(
         until: w.now + v("duration") * 1000,
         nextTick: w.now + 300,
         tickInterval: 300,
-        enemyDps: v("dps") * (1 + ap),
+        enemyDps: v("dps"), // AP applies once, in computeDamage (no double-dip)
         dtype: "physical",
         slowPct: v("slow"),
         telegraph: true,
       });
+      return true;
+    }
+    case "ranger:DASH": {
+      startDash(c, dir, v("speed"), def.castRange, w);
+      addStatus(c, { kind: "untargetable", until: w.now + v("iframe") * 1000, id: "dash" });
+      return true;
+    }
+    case "ranger:JUMP": {
+      // Falcon Dive: self-leap, physical arrow-slam AoE (no CC).
+      const { lx, ly } = jumpLeap(c, dir, def.castRange, w); // leap to the aim point, AoE there
+      const dmg = v("base") + v("perLevel") * (c.level - 1);
+      for (const t of abilityTargets(w, c, def, r, dir, point)) { // hit the whole leap path, not just the endpoint
+        dealDamage(w, c, t, dmg, "physical", { ap });
+      }
+      w.fx.push({ t: "explosion", x: lx, y: ly, radius: v("radius"), kind: "execute" });
       return true;
     }
 
@@ -272,7 +348,7 @@ function dispatch(
       return true;
     }
     case "mage:W": {
-      for (const t of aoeEnemies(w, c.team, point.x, point.y, v("radius"))) {
+      for (const t of abilityTargets(w, c, def, r, dir, point)) {
         dealDamage(w, c, t, v("damage"), "magic", { ap });
         addStatus(t, { kind: "slow", until: w.now + v("slowDur") * 1000, pct: v("slow"), id: "mage:W" });
       }
@@ -280,12 +356,22 @@ function dispatch(
       return true;
     }
     case "mage:E": {
-      const range = v("range");
-      const dest = clampToArena(c.x + dir.x * range, c.y + dir.y * range, c.radius);
-      const safe = resolveObstacles(dest.x, dest.y, c.radius);
-      w.fx.push({ t: "blink", x: c.x, y: c.y, tx: safe.x, ty: safe.y });
-      c.x = safe.x;
-      c.y = safe.y;
+      // Cinderfall: a persistent ember zone — burns + slows enemies who stand in it.
+      pushGround(w, {
+        ownerId: c.id,
+        team: c.team,
+        effect: "cinderfall",
+        x: point.x,
+        y: point.y,
+        radius: v("radius"),
+        until: w.now + v("duration") * 1000,
+        nextTick: w.now + 500,
+        tickInterval: 500,
+        enemyDps: v("dps"), // AP applies once, in computeDamage (no double-dip)
+        dtype: "magic",
+        slowPct: v("slow"),
+        telegraph: false,
+      });
       return true;
     }
     case "mage:R": {
@@ -301,11 +387,35 @@ function dispatch(
         nextTick: w.now + delay,
         tickInterval: 9999,
         detonateAt: w.now + delay,
-        detonateDmg: v("damage") * (1 + ap),
+        detonateDmg: v("damage"), // AP applies once, in computeDamage
         detonateDtype: "magic",
         slowPct: v("slow"),
         telegraph: true,
       });
+      return true;
+    }
+    case "mage:DASH": {
+      // Blink: instant teleport along the aim, clamped to arena + obstacles.
+      const range = v("range");
+      const oldX = c.x;
+      const oldY = c.y;
+      const dest = clampToArena(c.x + dir.x * range, c.y + dir.y * range, c.radius);
+      const safe = resolveObstacles(dest.x, dest.y, c.radius);
+      w.fx.push({ t: "blink", x: oldX, y: oldY, tx: safe.x, ty: safe.y });
+      c.x = safe.x;
+      c.y = safe.y;
+      addStatus(c, { kind: "untargetable", until: w.now + v("iframe") * 1000, id: "dash" });
+      return true;
+    }
+    case "mage:JUMP": {
+      // Emberdrop: comet slam — magic AoE + a lingering burn.
+      const { lx, ly } = jumpLeap(c, dir, def.castRange, w); // leap to the aim point, AoE there
+      const dmg = v("base") + v("perLevel") * (c.level - 1);
+      for (const t of abilityTargets(w, c, def, r, dir, point)) { // hit the whole leap path, not just the endpoint
+        dealDamage(w, c, t, dmg, "magic", { ap });
+        addStatus(t, { kind: "dot", until: w.now + v("burnDur") * 1000, nextTick: w.now + 500, dps: v("burnDps"), dtype: "magic", sourceId: c.id, id: "mage:JUMP" });
+      }
+      w.fx.push({ t: "explosion", x: lx, y: ly, radius: v("radius"), kind: "meteor" });
       return true;
     }
 
@@ -314,16 +424,20 @@ function dispatch(
       meleeSwing(w, c, dir);
       startDash(c, dir, v("speed"), def.castRange, w);
       // poison lunge cuts everyone along the dash line — forgiving to aim
-      for (const hit of corridorHits(w, c, dir, def.castRange, 1.4)) {
+      for (const hit of abilityTargets(w, c, def, r, dir, point)) {
         dealDamage(w, c, hit, v("damage"), "physical", { ap });
         addStatus(hit, { kind: "dot", until: w.now + v("dur") * 1000, nextTick: w.now + 500, dps: v("dps"), dtype: "magic", sourceId: c.id, id: "rogue:Q" });
       }
       return true;
     }
     case "rogue:W": {
-      startDash(c, dir, v("speed"), def.castRange, w);
-      addStatus(c, { kind: "stealth", until: w.now + v("stealth") * 1000, id: "rogue:W" });
-      c.empowerNext = v("bonus");
+      // Rupture: a bleeding gash down a corridor — damage + bleed DoT + a damage-amp
+      // mark that sets up Execute.
+      for (const t of abilityTargets(w, c, def, r, dir, point)) {
+        dealDamage(w, c, t, v("damage"), "physical", { ap });
+        addStatus(t, { kind: "dot", until: w.now + v("bleedDur") * 1000, nextTick: w.now + 500, dps: v("bleedDps"), dtype: "physical", sourceId: c.id, id: "rogue:W" });
+        addStatus(t, { kind: "damageAmp", until: w.now + v("ampDur") * 1000, pct: v("dmgAmp"), id: "rogue:W" });
+      }
       return true;
     }
     case "rogue:E": {
@@ -332,15 +446,13 @@ function dispatch(
       return true;
     }
     case "rogue:R": {
-      // dash to nearest enemy in front, strike harder the lower their HP
+      // dash to nearest enemy in the front arc (abilityShapes cone), strike
+      // harder the lower their HP
       let target: Unit | null = null;
       let bestD = Infinity;
-      const base = angleOf(dir.x, dir.y);
-      for (const t of w.units.values()) {
-        if (t === c || !t.alive || !targetable(t) || !isEnemy(c, t) || isUntargetable(t)) continue;
+      for (const t of abilityTargets(w, c, def, r, dir, point)) {
+        if (isUntargetable(t)) continue;
         const d = dist(c, t);
-        if (d > def.castRange + t.radius) continue;
-        if (Math.abs(angleDelta(base, angleOf(t.x - c.x, t.y - c.y))) > deg2rad(70)) continue;
         if (d < bestD) {
           bestD = d;
           target = t;
@@ -357,29 +469,40 @@ function dispatch(
       w.fx.push({ t: "explosion", x: target.x, y: target.y, radius: 1.6, kind: "execute" });
       return true;
     }
+    case "rogue:DASH": {
+      startDash(c, dir, v("speed"), def.castRange, w);
+      addStatus(c, { kind: "untargetable", until: w.now + v("iframe") * 1000, id: "dash" });
+      return true;
+    }
+    case "rogue:JUMP": {
+      // Deathfall: tight, high-burst self-leap slam — physical AoE + brief slow.
+      const { lx, ly } = jumpLeap(c, dir, def.castRange, w); // leap to the aim point, AoE there
+      const dmg = v("base") + v("perLevel") * (c.level - 1);
+      for (const t of abilityTargets(w, c, def, r, dir, point)) { // hit the whole leap path, not just the endpoint
+        dealDamage(w, c, t, dmg, "physical", { ap });
+        addStatus(t, { kind: "slow", until: w.now + v("slowDur") * 1000, pct: v("slow"), id: "rogue:JUMP" });
+      }
+      w.fx.push({ t: "explosion", x: lx, y: ly, radius: v("radius"), kind: "execute" });
+      return true;
+    }
 
     // ── Black Knight ──
     case "blackknight:Q": {
+      // Executioner's Arc: a frontal cone — damage + slow (geometry: abilityShapes).
       meleeSwing(w, c, dir);
-      const ang = angleOf(dir.x, dir.y);
-      const half = deg2rad(v("cone")) / 2;
-      for (const t of w.units.values()) {
-        if (t === c || !t.alive || !targetable(t) || !isEnemy(c, t)) continue;
-        if (dist(c, t) > def.castRange + t.radius) continue;
-        if (Math.abs(angleDelta(ang, angleOf(t.x - c.x, t.y - c.y))) > half) continue;
+      for (const t of abilityTargets(w, c, def, r, dir, point)) {
         dealDamage(w, c, t, v("damage"), "physical", { ap });
         addStatus(t, { kind: "slow", until: w.now + v("slowDur") * 1000, pct: v("slow"), id: "blackknight:Q" });
       }
       return true;
     }
     case "blackknight:W": {
-      const dist0 = def.castRange;
-      startDash(c, dir, v("speed"), dist0, w);
-      for (const t of corridorHits(w, c, dir, dist0, 1.8)) {
+      // Consecrating Smite: a pillar of holy light at the target point — damage + stun.
+      for (const t of abilityTargets(w, c, def, r, dir, point)) {
         dealDamage(w, c, t, v("damage"), "physical", { ap });
-        applyKnockback(t, c.x, c.y, v("knockback"), w);
-        addStatus(t, { kind: "slow", until: w.now + v("slowDur") * 1000, pct: v("slow"), id: "blackknight:W" });
+        addStatus(t, { kind: "stun", until: w.now + v("stun") * 1000, id: "blackknight:W" });
       }
+      w.fx.push({ t: "explosion", x: point.x, y: point.y, radius: v("radius"), kind: "execute" });
       return true;
     }
     case "blackknight:E": {
@@ -390,12 +513,28 @@ function dispatch(
       return true;
     }
     case "blackknight:R": {
-      for (const t of aoeEnemies(w, c.team, c.x, c.y, v("radius"))) {
+      for (const t of abilityTargets(w, c, def, r, dir, point)) {
         dealDamage(w, c, t, v("damage"), "physical", { ap });
         applyKnockback(t, c.x, c.y, v("knockback"), w);
         addStatus(t, { kind: "stun", until: w.now + v("stun") * 1000, id: "blackknight:R" });
       }
       w.fx.push({ t: "explosion", x: c.x, y: c.y, radius: v("radius"), kind: "execute" });
+      return true;
+    }
+    case "blackknight:DASH": {
+      startDash(c, dir, v("speed"), def.castRange, w);
+      addStatus(c, { kind: "untargetable", until: w.now + v("iframe") * 1000, id: "dash" });
+      return true;
+    }
+    case "blackknight:JUMP": {
+      // Dawnbreaker: the biggest slam — wide physical AoE + a stun on landing.
+      const { lx, ly } = jumpLeap(c, dir, def.castRange, w); // leap to the aim point, AoE there
+      const dmg = v("base") + v("perLevel") * (c.level - 1);
+      for (const t of abilityTargets(w, c, def, r, dir, point)) { // hit the whole leap path, not just the endpoint
+        dealDamage(w, c, t, dmg, "physical", { ap });
+        addStatus(t, { kind: "stun", until: w.now + v("stun") * 1000, id: "blackknight:JUMP" });
+      }
+      w.fx.push({ t: "explosion", x: lx, y: ly, radius: v("radius"), kind: "execute" });
       return true;
     }
 
@@ -425,7 +564,7 @@ function dispatch(
         until: w.now + v("duration") * 1000,
         nextTick: w.now + 300,
         tickInterval: 300,
-        enemyDps: v("dps") * (1 + ap),
+        enemyDps: v("dps"), // AP applies once, in computeDamage (no double-dip)
         dtype: "magic",
         slowPct: v("slow"), // refreshed per tick with id "brew" (= effect tag)
         telegraph: true,
@@ -433,15 +572,35 @@ function dispatch(
       return true;
     }
     case "witch:E": {
-      startDash(c, dir, v("speed"), def.castRange, w);
-      addStatus(c, { kind: "speed", until: w.now + v("hasteDur") * 1000, pct: v("haste"), id: "witch:E" });
+      // Bog Grasp: vines erupt at the point — magic damage + root.
+      for (const t of abilityTargets(w, c, def, r, dir, point)) {
+        dealDamage(w, c, t, v("damage"), "magic", { ap });
+        addStatus(t, { kind: "root", until: w.now + v("root") * 1000, id: "witch:E" });
+      }
+      w.fx.push({ t: "explosion", x: point.x, y: point.y, radius: v("radius"), kind: "trap" });
       return true;
     }
     case "witch:R": {
-      for (const t of aoeEnemies(w, c.team, point.x, point.y, v("radius"))) {
+      for (const t of abilityTargets(w, c, def, r, dir, point)) {
         addStatus(t, { kind: "hex", until: w.now + v("duration") * 1000, pct: v("slow"), id: "witch:R" });
       }
       w.fx.push({ t: "explosion", x: point.x, y: point.y, radius: v("radius"), kind: "hex" });
+      return true;
+    }
+    case "witch:DASH": {
+      startDash(c, dir, v("speed"), def.castRange, w);
+      addStatus(c, { kind: "untargetable", until: w.now + v("iframe") * 1000, id: "dash" });
+      return true;
+    }
+    case "witch:JUMP": {
+      // Hexfall: broom-dive slam — magic AoE + a cursed slow on landing.
+      const { lx, ly } = jumpLeap(c, dir, def.castRange, w); // leap to the aim point, AoE there
+      const dmg = v("base") + v("perLevel") * (c.level - 1);
+      for (const t of abilityTargets(w, c, def, r, dir, point)) { // hit the whole leap path, not just the endpoint
+        dealDamage(w, c, t, dmg, "magic", { ap });
+        addStatus(t, { kind: "slow", until: w.now + v("slowDur") * 1000, pct: v("slow"), id: "witch:JUMP" });
+      }
+      w.fx.push({ t: "explosion", x: lx, y: ly, radius: v("radius"), kind: "hex" });
       return true;
     }
   }

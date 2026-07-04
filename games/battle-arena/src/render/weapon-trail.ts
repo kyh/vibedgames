@@ -9,6 +9,13 @@ const MAX_SEG = 20; // ring-buffer length (segments retained)
 const FADE_MS = 200; // how long a segment lingers after it's laid down
 const TIP_EXT = 0.85; // extend the blade tip past the model so the arc reads bigger
 const BASE_EXT = 0.25; // and drop the inner edge a touch below the grip for width
+const BASE_OPACITY = 0.38; // peak alpha — a whoosh, not a ribbon of paper
+
+/** Per-weapon override for blades whose bbox longest-axis heuristic degenerates
+ *  (2H/hammer heads are wider than the shaft). `axis` = the swing axis of the
+ *  blade in the weapon's local space; `base`/`tip` = extents past the grip/tip
+ *  (same units as BASE_EXT/TIP_EXT); optional `opacity` bumps the peak alpha. */
+export type TrailOverride = { axis: "x" | "y" | "z"; base: number; tip: number; opacity?: number };
 
 export class WeaponTrail {
   readonly mesh: THREE.Mesh;
@@ -22,7 +29,7 @@ export class WeaponTrail {
   private readonly color: THREE.Color;
   private readonly v = new THREE.Vector3();
 
-  constructor(weapon: THREE.Object3D, color: number) {
+  constructor(weapon: THREE.Object3D, color: number, override?: TrailOverride) {
     // mild HDR head — the streak should read as displaced air, not a light saber
     this.color = new THREE.Color(color).multiplyScalar(1.35);
     // blade segment in the weapon's LOCAL space — compute before it's parented to
@@ -32,14 +39,18 @@ export class WeaponTrail {
     box.getSize(size);
     const ctr = new THREE.Vector3();
     box.getCenter(ctr);
-    const axis: "x" | "y" | "z" = size.x >= size.y && size.x >= size.z ? "x" : size.y >= size.z ? "y" : "z";
+    // an override forces the swing axis (the bbox heuristic picks the widest axis,
+    // which is wrong for hammer heads); otherwise pick the longest bbox axis.
+    const axis: "x" | "y" | "z" = override ? override.axis : size.x >= size.y && size.x >= size.z ? "x" : size.y >= size.z ? "y" : "z";
+    const baseExt = override ? override.base : BASE_EXT;
+    const tipExt = override ? override.tip : TIP_EXT;
     this.baseLocal = ctr.clone();
     this.tipLocal = ctr.clone();
     // extend the segment past the actual blade so the swept ribbon reads as a
     // big arc, not just the blade's thin edge
     const half = (box.max[axis] - box.min[axis]) / 2;
-    this.baseLocal[axis] = ctr[axis] - half * (1 + BASE_EXT);
-    this.tipLocal[axis] = ctr[axis] + half * (1 + TIP_EXT);
+    this.baseLocal[axis] = ctr[axis] - half * (1 + baseExt);
+    this.tipLocal[axis] = ctr[axis] + half * (1 + tipExt);
 
     this.geom = new THREE.BufferGeometry();
     this.posAttr = new THREE.BufferAttribute(new Float32Array(MAX_SEG * 2 * 3), 3).setUsage(THREE.DynamicDrawUsage);
@@ -59,7 +70,7 @@ export class WeaponTrail {
     const mat = new THREE.MeshBasicMaterial({
       vertexColors: true,
       transparent: true,
-      opacity: 0.38, // low peak alpha — a whoosh, not a ribbon of paper
+      opacity: override?.opacity ?? BASE_OPACITY, // hammer bumps a touch (thin head)
       blending: THREE.AdditiveBlending,
       side: THREE.DoubleSide,
       depthWrite: false,

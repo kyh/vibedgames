@@ -1,8 +1,8 @@
 // Desktop FPS-style input: the pointer is LOCKED and the crosshair sits dead
 // center. Moving the mouse turns the heading (yaw) and tilts the view (pitch);
 // the character faces the crosshair, camera stays behind. W=forward, S=back,
-// A/D=strafe relative to facing; LMB=attack, Space=jump, Shift=dodge-roll;
-// 1/2/3/4 cast the kit, 5-0 the item belt.
+// A/D=strafe relative to facing; LMB=attack (airborne LMB casts JUMP), Space=hop,
+// Shift=cast DASH; 1/2/3/4 cast the kit, 5-0 the item belt.
 import type { AbilityKey } from "../sim/types";
 
 const MOUSE_SENS = 0.0028; // radians of look per pixel of mouse movement
@@ -15,11 +15,12 @@ export class Controls {
   private itemQueue: number[] = []; // item-belt slot indices
   private buyPressed = false;
   private scorePressed = false;
-  private jumpPressed = false; // Space edge
-  private dodgePressed = false; // Shift edge
+  private jumpPressed = false; // Space edge (hop)
+  private dashPressed = false; // Shift edge (cast DASH)
   private yaw = 0; // heading; aim = (sin yaw, cos yaw) on the ground plane
   private pitch = 0; // view tilt (camera only; >0 looks up)
   private lmb = false;
+  private lmbEdge = false; // LMB press edge — an airborne click casts JUMP
   private hadInput = false;
   // MOUSE MODE: menus need a free cursor (shop, end screen). While on, the
   // pointer stays unlocked, mouse motion doesn't steer, and clicks are UI —
@@ -64,6 +65,7 @@ export class Controls {
     document.body.classList.toggle("ba-mouse-mode", on);
     if (on) {
       this.lmb = false; // an in-flight attack hold must not survive into a menu
+      this.lmbEdge = false;
       if (this.locked) document.exitPointerLock();
     } else {
       this.lockPointer();
@@ -93,7 +95,7 @@ export class Controls {
     else if (code === "Space") {
       this.jumpPressed = true;
       e.preventDefault(); // don't scroll the page
-    } else if (code === "ShiftLeft" || code === "ShiftRight") this.dodgePressed = true;
+    } else if (code === "ShiftLeft" || code === "ShiftRight") this.dashPressed = true;
     else if (code === "Tab") {
       this.scorePressed = true;
       e.preventDefault();
@@ -119,6 +121,7 @@ export class Controls {
     this.lockPointer(); // first click grabs the pointer; later clicks just act
     if (e.button === 0) {
       this.lmb = true;
+      this.lmbEdge = true;
       this.hadInput = true;
     }
   };
@@ -130,6 +133,7 @@ export class Controls {
   private onBlur = (): void => {
     this.keys.clear();
     this.lmb = false;
+    this.lmbEdge = false;
   };
 
   private onContext = (e: Event): void => e.preventDefault();
@@ -166,10 +170,19 @@ export class Controls {
     return this.lmb;
   }
 
-  /** Edge-triggered Shift (dodge-roll). */
-  consumeDodge(): boolean {
-    const d = this.dodgePressed;
-    this.dodgePressed = false;
+  /** Edge-triggered LMB press. Distinguishes an airborne click (→ JUMP ability)
+   *  from the held basic attack; drained every frame so a grounded click never
+   *  lingers to fire a jump-strike on the next hop. */
+  consumeAttackEdge(): boolean {
+    const e = this.lmbEdge;
+    this.lmbEdge = false;
+    return e;
+  }
+
+  /** Edge-triggered Shift (cast the hero's DASH ability). */
+  consumeDash(): boolean {
+    const d = this.dashPressed;
+    this.dashPressed = false;
     return d;
   }
 
