@@ -56,8 +56,13 @@ export type ChampDef = {
   cleaveTargets?: number; // max enemies a basic attack damages (default 3; rogue 1)
   // Per-swing basic-attack rhythm, cycled by swingCount (parallel to the render
   // ATTACK_SETS clips). A slow swing (bigger timeMult) also hits harder
-  // (dmgMult) — heavy commitments pay off. Omit → every swing is uniform 1×.
-  basicRhythm?: { timeMult: number; dmgMult: number }[];
+  // (dmgMult) — heavy commitments pay off. `windupMs` is when the blade visually
+  // connects (so the hit + victim flash land ON contact, not at swing-start);
+  // it must track the render clip's play duration. Omit → uniform 1× swing.
+  basicRhythm?: { timeMult: number; dmgMult: number; windupMs?: number }[];
+  // Melee strike time (ms from swing-start to blade contact) for champs without
+  // a per-swing rhythm — calibrated to the render swing clips' play duration.
+  meleeWindupMs?: number;
   rig?: "large"; // needs the Rig_Large clip library ("Large/" prefix)
   twoHanded?: boolean; // wields a 2H weapon: rests/idles two-handed (Melee_2H_Idle)
   scale?: number; // render scale multiplier (default 1)
@@ -107,11 +112,12 @@ export const CHAMPIONS: ChampDef[] = [
     twoHanded: true,
     // chop, slice, then a big 2H spin. The spin's 2.4s clip plays at 1.5× (the
     // 2H speed-up) ≈ 1.6s, so its swing holds ~1.9× the base interval (clip
-    // plays in full, no idle gap) and lands ~2.5× the damage.
+    // plays in full, no idle gap) and lands ~2.5× the damage. windupMs ≈ when
+    // each clip's blade connects (≈0.45 × its 1.5× play duration).
     basicRhythm: [
-      { timeMult: 1, dmgMult: 1 },
-      { timeMult: 1, dmgMult: 1 },
-      { timeMult: 1.92, dmgMult: 2.5 },
+      { timeMult: 1, dmgMult: 1, windupMs: 480 }, // chop (1.09s at 1.5×)
+      { timeMult: 1, dmgMult: 1, windupMs: 330 }, // slice (0.73s)
+      { timeMult: 1.92, dmgMult: 2.5, windupMs: 720 }, // spin (1.6s)
     ],
     tint: 0x4f86ff,
     blurb: "A walking wall. Stun, charge in, and spin the throne to bloody mulch.",
@@ -192,6 +198,7 @@ export const CHAMPIONS: ChampDef[] = [
     model: "Rogue_Hooded",
     weaponR: "dagger",
     weaponL: "dagger",
+    meleeWindupMs: 380, // daggers snap in fast
     cleaveTargets: 1, // single-target assassin — daggers don't cleave the cone
     tint: 0xff5a78,
     blurb: "In, out, gone. Poison, vanish, and execute anyone clinging to life.",
@@ -220,6 +227,7 @@ export const CHAMPIONS: ChampDef[] = [
     model: "Paladin_with_Helmet",
     weaponR: "paladin_hammer",
     weaponL: "paladin_shield",
+    meleeWindupMs: 500, // heavy 1H hammer connects mid-swing
     scale: 1.06,
     radius: 0.75,
     tint: 0xffd76a,

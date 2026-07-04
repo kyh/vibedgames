@@ -17,10 +17,9 @@ import { awardCreepKill, awardKill } from "./economy";
 
 export const isEnemy = (a: Unit, b: Unit): boolean => a.team !== b.team;
 
-// Melee damage lands this fraction into the swing (its interval) — ~halfway, so
-// the hit + victim flash coincide with the blade sweeping through, not the
-// wind-up. Scales with attack speed and the per-swing rhythm automatically.
-const MELEE_STRIKE_FRAC = 0.5;
+// Fallback melee windup (for creeps / champs with no calibrated windupMs): this
+// fraction of the swing interval. Heroes use their per-swing/per-champ windupMs.
+const MELEE_STRIKE_FRAC = 0.45;
 const RANGED_WINDUP = 160; // arrow/bolt leaves as the bow/staff visually releases
 const MELEE_HALF_ANGLE = (5 * Math.PI) / 18; // 100° cleave cone
 const MELEE_OVERREACH = 1.4; // melee hits a bit past attackRange (cleave feel)
@@ -34,12 +33,19 @@ function meleeReach(u: Unit): number {
 
 const UNIFORM_SWING = { timeMult: 1, dmgMult: 1 };
 /** The rhythm step of the swing this unit most recently STARTED — paces the next
- *  swing (timeMult) and weights this swing's damage (dmgMult). Uniform for
- *  creeps and any champ without a basicRhythm. */
-function lastSwingStep(u: Unit): { timeMult: number; dmgMult: number } {
+ *  swing (timeMult), weights this swing's damage (dmgMult), and (windupMs) times
+ *  its blade contact. Uniform for creeps and any champ without a basicRhythm. */
+function lastSwingStep(u: Unit): { timeMult: number; dmgMult: number; windupMs?: number } {
   const rhythm = CHAMP_BY_ID[u.champId]?.basicRhythm;
   if (!rhythm || rhythm.length === 0 || u.swingCount < 1) return UNIFORM_SWING;
   return rhythm[(u.swingCount - 1) % rhythm.length] ?? UNIFORM_SWING;
+}
+
+/** When this melee swing's blade visually connects (ms from swing-start), so
+ *  damage + the victim's flash land on contact. Prefers a per-swing windupMs,
+ *  then the champ's meleeWindupMs, then a fraction of the swing interval. */
+function meleeWindup(u: Unit, step: { timeMult: number; windupMs?: number }, baseInterval: number): number {
+  return step.windupMs ?? CHAMP_BY_ID[u.champId]?.meleeWindupMs ?? baseInterval * step.timeMult * MELEE_STRIKE_FRAC;
 }
 
 // Action combat (Dragon-Nest style): a click always swings/shoots in the AIM
@@ -75,13 +81,9 @@ export function resolveAttacks(w: World): void {
     u.swingCount++;
     u.facing = angleOf(u.aimX, u.aimY);
     breakStealth(u);
-    // Melee damage lands MID-SWING so the victim's flash matches the blade
-    // (not at the very start). Scale by THIS swing's length: a heavy 2H spin
-    // connects later than a quick chop. Ranged fires the projectile on release.
-    const windup =
-      u.attackType === "ranged"
-        ? RANGED_WINDUP
-        : baseInterval * lastSwingStep(u).timeMult * MELEE_STRIKE_FRAC;
+    // Damage lands when the blade visually CONNECTS (per-swing windupMs), so
+    // the hit + victim flash line up with the animation, not the wind-up.
+    const windup = u.attackType === "ranged" ? RANGED_WINDUP : meleeWindup(u, lastSwingStep(u), baseInterval);
     u.pendingAttack = { resolveAt: w.now + windup };
 
     // attacker lunge / kickback (never fight a real knockback): melee pounces
