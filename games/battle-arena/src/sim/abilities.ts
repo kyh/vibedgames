@@ -201,7 +201,7 @@ function dispatch(
         until: w.now + v("duration") * 1000,
         nextTick: w.now + 250,
         tickInterval: 250,
-        enemyDps: v("dps") * (1 + ap),
+        enemyDps: v("dps"), // AP applies once, in computeDamage (no double-dip)
         dtype: "physical",
         slowPct: v("slow"),
       });
@@ -280,7 +280,7 @@ function dispatch(
         until: w.now + v("duration") * 1000,
         nextTick: w.now + 300,
         tickInterval: 300,
-        enemyDps: v("dps") * (1 + ap),
+        enemyDps: v("dps"), // AP applies once, in computeDamage (no double-dip)
         dtype: "physical",
         slowPct: v("slow"),
         telegraph: true,
@@ -337,7 +337,7 @@ function dispatch(
         until: w.now + v("duration") * 1000,
         nextTick: w.now + 500,
         tickInterval: 500,
-        enemyDps: v("dps") * (1 + ap),
+        enemyDps: v("dps"), // AP applies once, in computeDamage (no double-dip)
         dtype: "magic",
         slowPct: v("slow"),
         telegraph: false,
@@ -357,7 +357,7 @@ function dispatch(
         nextTick: w.now + delay,
         tickInterval: 9999,
         detonateAt: w.now + delay,
-        detonateDmg: v("damage") * (1 + ap),
+        detonateDmg: v("damage"), // AP applies once, in computeDamage
         detonateDtype: "magic",
         slowPct: v("slow"),
         telegraph: true,
@@ -540,7 +540,7 @@ function dispatch(
         until: w.now + v("duration") * 1000,
         nextTick: w.now + 300,
         tickInterval: 300,
-        enemyDps: v("dps") * (1 + ap),
+        enemyDps: v("dps"), // AP applies once, in computeDamage (no double-dip)
         dtype: "magic",
         slowPct: v("slow"), // refreshed per tick with id "brew" (= effect tag)
         telegraph: true,
