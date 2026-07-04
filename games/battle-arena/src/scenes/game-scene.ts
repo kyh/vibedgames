@@ -525,18 +525,21 @@ export class GameScene {
     }
 
     // Shift / touch DASH: cast the hero's DASH ability (mobility + i-frames).
+    // It goes in the MOVEMENT (arrow) direction — where you're steering — and
+    // only falls back to the aim direction when standing still.
     const dash = this.controls.consumeDash() || (this.touch?.consumeDash() ?? false);
     if (dash) {
+      const dashDir = mv.x !== 0 || mv.y !== 0 ? mv : { x: this.aimX, y: this.aimY };
       if (host) {
-        requestCast(this.world, me, "DASH", { point: castPoint, dir: { x: this.aimX, y: this.aimY } });
+        requestCast(this.world, me, "DASH", { point: castPoint, dir: dashDir });
       } else {
         this.net?.sendEvent(INTENT_EVENT, {
           kind: "cast",
           key: "DASH",
           px: castPoint.x,
           py: castPoint.y,
-          ax: this.aimX,
-          ay: this.aimY,
+          ax: dashDir.x,
+          ay: dashDir.y,
         } satisfies Intent);
       }
     }
