@@ -456,9 +456,18 @@ class UnitView {
         const set = ATTACK_SETS[this.def.id] ?? [attackClip(this.def)];
         // pick by the SYNCED swing counter so the clip matches the sim rhythm
         // (the slow swing that hits harder plays its heavy clip)
-        const clip = set[Math.max(0, u.swingCount - 1) % set.length]!;
-        const ts = clipSpeed(clip);
-        const winMs = clipWindowMs(ch.clipDuration(clip), ts); // natural (2H sped 1.5×)
+        const swing = Math.max(0, u.swingCount - 1);
+        const clip = set[swing % set.length]!;
+        const clipDur = ch.clipDuration(clip);
+        // NO SWING EVER CLIPS: speed each swing just enough that the WHOLE clip
+        // plays within its actual interval (base rate × this swing's rhythm
+        // timeMult — so a slowed swing like Vesper's plays at natural speed, and
+        // a fast one is sped to fit). 2H clips keep their 1.5× floor.
+        const rhythm = CHAMP_BY_ID[this.def.id]?.basicRhythm;
+        const timeMult = rhythm && rhythm.length ? (rhythm[swing % rhythm.length]?.timeMult ?? 1) : 1;
+        const intervalMs = (timeMult * 1000) / Math.max(0.1, u.attackSpeed);
+        const ts = clipDur > 0 ? Math.max(clipSpeed(clip), (clipDur * 1000) / intervalMs) : clipSpeed(clip);
+        const winMs = clipWindowMs(clipDur, ts);
         ch.play(clip, { loop: false, fade: 0.04, timeScale: ts });
         this.oneShotUntil = now + winMs;
         this.emitTrails(now, winMs); // weapon-trail ribbon traces the blade
