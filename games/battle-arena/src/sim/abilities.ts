@@ -216,7 +216,7 @@ function dispatch(
       // Skyfall Cleave: self-leap if grounded, slam AoE on the landing point.
       const { lx, ly } = jumpLeap(c, dir, def.castRange, w); // leap to the aim point, AoE there
       const dmg = v("base") + v("perLevel") * (c.level - 1);
-      for (const t of aoeEnemies(w, c.team, lx, ly, v("radius"))) {
+      for (const t of corridorHits(w, c, dir, def.castRange, v("radius"))) { // hit the whole leap path, not just the endpoint
         dealDamage(w, c, t, dmg, "physical", { ap });
         addStatus(t, { kind: "slow", until: w.now + v("slowDur") * 1000, pct: v("slow"), id: "knight:JUMP" });
       }
@@ -296,7 +296,7 @@ function dispatch(
       // Falcon Dive: self-leap, physical arrow-slam AoE (no CC).
       const { lx, ly } = jumpLeap(c, dir, def.castRange, w); // leap to the aim point, AoE there
       const dmg = v("base") + v("perLevel") * (c.level - 1);
-      for (const t of aoeEnemies(w, c.team, lx, ly, v("radius"))) {
+      for (const t of corridorHits(w, c, dir, def.castRange, v("radius"))) { // hit the whole leap path, not just the endpoint
         dealDamage(w, c, t, dmg, "physical", { ap });
       }
       w.fx.push({ t: "explosion", x: lx, y: ly, radius: v("radius"), kind: "execute" });
@@ -381,7 +381,7 @@ function dispatch(
       // Emberdrop: comet slam — magic AoE + a lingering burn.
       const { lx, ly } = jumpLeap(c, dir, def.castRange, w); // leap to the aim point, AoE there
       const dmg = v("base") + v("perLevel") * (c.level - 1);
-      for (const t of aoeEnemies(w, c.team, lx, ly, v("radius"))) {
+      for (const t of corridorHits(w, c, dir, def.castRange, v("radius"))) { // hit the whole leap path, not just the endpoint
         dealDamage(w, c, t, dmg, "magic", { ap });
         addStatus(t, { kind: "dot", until: w.now + v("burnDur") * 1000, nextTick: w.now + 500, dps: v("burnDps"), dtype: "magic", sourceId: c.id, id: "mage:JUMP" });
       }
@@ -450,7 +450,7 @@ function dispatch(
       // Deathfall: tight, high-burst self-leap slam — physical AoE + brief slow.
       const { lx, ly } = jumpLeap(c, dir, def.castRange, w); // leap to the aim point, AoE there
       const dmg = v("base") + v("perLevel") * (c.level - 1);
-      for (const t of aoeEnemies(w, c.team, lx, ly, v("radius"))) {
+      for (const t of corridorHits(w, c, dir, def.castRange, v("radius"))) { // hit the whole leap path, not just the endpoint
         dealDamage(w, c, t, dmg, "physical", { ap });
         addStatus(t, { kind: "slow", until: w.now + v("slowDur") * 1000, pct: v("slow"), id: "rogue:JUMP" });
       }
@@ -506,7 +506,7 @@ function dispatch(
       // Dawnbreaker: the biggest slam — wide physical AoE + a stun on landing.
       const { lx, ly } = jumpLeap(c, dir, def.castRange, w); // leap to the aim point, AoE there
       const dmg = v("base") + v("perLevel") * (c.level - 1);
-      for (const t of aoeEnemies(w, c.team, lx, ly, v("radius"))) {
+      for (const t of corridorHits(w, c, dir, def.castRange, v("radius"))) { // hit the whole leap path, not just the endpoint
         dealDamage(w, c, t, dmg, "physical", { ap });
         addStatus(t, { kind: "stun", until: w.now + v("stun") * 1000, id: "blackknight:JUMP" });
       }
@@ -572,7 +572,7 @@ function dispatch(
       // Hexfall: broom-dive slam — magic AoE + a cursed slow on landing.
       const { lx, ly } = jumpLeap(c, dir, def.castRange, w); // leap to the aim point, AoE there
       const dmg = v("base") + v("perLevel") * (c.level - 1);
-      for (const t of aoeEnemies(w, c.team, lx, ly, v("radius"))) {
+      for (const t of corridorHits(w, c, dir, def.castRange, v("radius"))) { // hit the whole leap path, not just the endpoint
         dealDamage(w, c, t, dmg, "magic", { ap });
         addStatus(t, { kind: "slow", until: w.now + v("slowDur") * 1000, pct: v("slow"), id: "witch:JUMP" });
       }
