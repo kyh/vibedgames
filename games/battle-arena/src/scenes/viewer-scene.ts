@@ -17,7 +17,7 @@
 // Loaded via dynamic import (own vite chunk) like the editor; owns its input
 // (orbit/zoom/pan camera written directly every frame — View.follow unused).
 import * as THREE from "three";
-import { CHAMPIONS, type ChampDef } from "../data/champions";
+import { CHAMPIONS, valAt, type ChampDef } from "../data/champions";
 import { SIM_DT, LEVEL_CAP, XP_CURVE } from "../data/config";
 import { abilityIcon, attackIcon, champSigil } from "../data/icons";
 import { CAMPS } from "../data/map";
@@ -179,6 +179,11 @@ export class ViewerScene {
   private panelEl: HTMLElement | null = null;
   private nameEl: HTMLElement | null = null;
   private dummyHudEl: HTMLElement | null = null;
+  // hit-surface overlay: the damage geometry (cone/corridor/circle) of the
+  // selected action, drawn flat on the ground and oriented to the hero's aim.
+  private showHitViz = false;
+  private hitVizMesh: THREE.Mesh | null = null;
+  private hitVizKey = "";
   private rosterEl: HTMLElement | null = null;
 
   constructor(
@@ -497,6 +502,7 @@ export class ViewerScene {
       n++;
     }
     this.neutralizeDummy(dt);
+    this.updateHitViz();
 
     // standalone subject: advance + chain one-shots back into idle
     const solo = this.solo;
@@ -625,6 +631,81 @@ export class ViewerScene {
     this.updateDummyHud(d);
   }
 
+  /** The damage geometry of the currently-selected action (basic or ability),
+   *  in the hero's local frame (forward = +Z). null = no damage shape. */
+  private hitShapeFor(): { kind: "cone"; radius: number; half: number } | { kind: "corridor"; length: number; halfWidth: number } | { kind: "circle"; radius: number; forward: number } | null {
+    const champ = this.selected.champ;
+    const me = this.hero();
+    if (!champ || !me) return null;
+    const act = this.action;
+    if (act === "attack") {
+      if (champ.attackType === "melee") return { kind: "cone", radius: me.attackRange + 1.4, half: (50 * Math.PI) / 180 }; // MELEE_OVERREACH + 100° cleave
+      return { kind: "corridor", length: me.attackRange, halfWidth: 0.4 }; // ranged shot line
+    }
+    if (!act) return null;
+    const def = champ.abilities[act];
+    if (!def) return null;
+    const v = (f: string): number => valAt(def.values[f], def.maxRank);
+    if (def.values["cone"]) return { kind: "cone", radius: def.castRange, half: ((v("cone") / 2) * Math.PI) / 180 };
+    if (def.values["width"]) return { kind: "corridor", length: def.castRange, halfWidth: v("width") / 2 };
+    if (act === "JUMP") return { kind: "corridor", length: def.castRange, halfWidth: Math.max(0.5, v("radius")) };
+    if (def.targeting === "self" && def.values["radius"]) return { kind: "circle", radius: v("radius"), forward: 0 };
+    if (def.targeting === "ground" && def.values["radius"]) {
+      const d = this.dummy();
+      const fwd = d ? Math.min(def.castRange, Math.hypot(d.x - me.x, d.y - me.y)) : def.castRange;
+      return { kind: "circle", radius: v("radius"), forward: fwd };
+    }
+    if (def.targeting === "direction" && def.values["radius"]) return { kind: "corridor", length: def.castRange, halfWidth: v("radius") };
+    if (def.targeting === "direction") return { kind: "corridor", length: def.castRange, halfWidth: 0.5 };
+    return null; // pure utility (dash/shield/buff/stealth)
+  }
+
+  /** Draw/position the hit-surface overlay flat under the hero, oriented to aim. */
+  private updateHitViz(): void {
+    if (!this.showHitViz) {
+      if (this.hitVizMesh) this.hitVizMesh.visible = false;
+      return;
+    }
+    const me = this.hero();
+    const shape = me ? this.hitShapeFor() : null;
+    if (!me || !shape) {
+      if (this.hitVizMesh) this.hitVizMesh.visible = false;
+      return;
+    }
+    const key =
+      shape.kind === "cone" ? `cone:${shape.radius.toFixed(2)}:${shape.half.toFixed(3)}` :
+      shape.kind === "corridor" ? `corr:${shape.length.toFixed(2)}:${shape.halfWidth.toFixed(2)}` :
+      `circ:${shape.radius.toFixed(2)}:${shape.forward.toFixed(2)}`;
+    if (key !== this.hitVizKey || !this.hitVizMesh) {
+      this.hitVizKey = key;
+      this.hitVizMesh?.geometry.dispose();
+      let geo: THREE.BufferGeometry;
+      if (shape.kind === "cone") {
+        geo = new THREE.CircleGeometry(shape.radius, 40, Math.PI / 2 - shape.half, 2 * shape.half); // sector centered on +Y
+      } else if (shape.kind === "corridor") {
+        geo = new THREE.PlaneGeometry(2 * shape.halfWidth, shape.length);
+        geo.translate(0, shape.length / 2, 0); // start at the hero, extend forward
+      } else {
+        geo = new THREE.CircleGeometry(shape.radius, 40);
+        geo.translate(0, shape.forward, 0); // circle placed `forward` ahead
+      }
+      geo.rotateX(Math.PI / 2); // lay the XY shape flat on the ground: +Y (forward) → +Z
+      if (!this.hitVizMesh) {
+        const mat = new THREE.MeshBasicMaterial({ color: 0xff5a3c, transparent: true, opacity: 0.24, side: THREE.DoubleSide, depthWrite: false });
+        this.hitVizMesh = new THREE.Mesh(geo, mat);
+        this.hitVizMesh.renderOrder = 3;
+        this.scene.add(this.hitVizMesh);
+      } else {
+        this.hitVizMesh.geometry = geo;
+      }
+    }
+    const m = this.hitVizMesh;
+    if (!m) return;
+    m.visible = true;
+    m.position.set(me.x, terrainHeight(me.x, me.y) + 0.06, me.y);
+    m.rotation.y = Math.atan2(me.aimX, me.aimY); // orient +Z to the hero's aim
+  }
+
   /** Live HP bar + last-hit + DPS readout for the dummy (balance tuning). */
   private updateDummyHud(d: Unit): void {
     const el = this.dummyHudEl;
@@ -734,6 +815,7 @@ export class ViewerScene {
       <div class="vw-top">
         <span class="vw-logo">CHARACTER VIEWER</span>
         <span class="vw-name" id="vw-name"></span>
+        <button id="vw-hitviz">HIT SURFACE</button>
         <button id="vw-reset">RESET</button>
         <button id="vw-editor">MAP EDITOR</button>
         <button id="vw-lobby">LOBBY</button>
@@ -777,6 +859,12 @@ export class ViewerScene {
         const tab = btn.dataset["tab"];
         if (tab === "abilities" || tab === "animations") this.setTab(tab);
       });
+    });
+    const hv = document.getElementById("vw-hitviz");
+    hv?.addEventListener("click", () => {
+      this.showHitViz = !this.showHitViz;
+      hv.classList.toggle("on", this.showHitViz);
+      if (!this.showHitViz && this.hitVizMesh) this.hitVizMesh.visible = false;
     });
     document.getElementById("vw-reset")?.addEventListener("click", () => this.reset());
     document.getElementById("vw-editor")?.addEventListener("click", () => {
@@ -927,11 +1015,11 @@ function injectStyle(): void {
 .vwr-txt{display:flex;flex-direction:column;min-width:0}
 .vwr-txt b{font-size:11px}
 .vwr-txt i{font-style:normal;font-size:9px;opacity:.6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.vwr.on{border-color:#ffd24a;background:rgba(64,54,20,.9)}
+#ba-viewer .vwr.on{border-color:#ffd24a;background:rgba(64,54,20,.9)}
 .vw-panel{position:absolute;top:46px;right:10px;bottom:44px;width:280px;display:flex;flex-direction:column;gap:6px;background:rgba(8,10,18,.85);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:8px;pointer-events:auto}
 .vw-tabs{display:flex;gap:4px}
 .vwt{flex:1}
-.vwt.on{border-color:#ffd24a;color:#ffd24a;background:rgba(64,54,20,.9)}
+#ba-viewer .vwt.on{border-color:#ffd24a;color:#ffd24a;background:rgba(64,54,20,.9)}
 .vw-body{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:4px;min-height:0}
 .vw-sect{font:800 10px ui-monospace,monospace;letter-spacing:1px;opacity:.55;padding:7px 2px 2px}
 .vw-dim{opacity:.6;font-weight:600;letter-spacing:0}
@@ -941,7 +1029,7 @@ function injectStyle(): void {
 .vwa-txt{display:flex;flex-direction:column;min-width:0}
 .vwa-txt b{font-size:11px}
 .vwa-txt i{font-style:normal;font-size:9px;opacity:.65;line-height:1.25;white-space:normal}
-.vwa.on{border-color:#7dffb0;background:rgba(20,52,34,.9)}
+#ba-viewer .vwa.on{border-color:#7dffb0;background:rgba(20,52,34,.9)}
 .vw-note{font:600 9px ui-monospace,monospace;opacity:.45;padding:8px 2px;line-height:1.4}
 .vw-ctl{display:flex;align-items:center;gap:8px;padding:2px 0}
 .vw-chk{display:flex;align-items:center;gap:4px;font:600 11px ui-monospace,monospace}
@@ -950,7 +1038,7 @@ function injectStyle(): void {
 .vw-clips{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:3px;min-height:0}
 .vwc{display:flex;justify-content:space-between;gap:6px;text-align:left;background:rgba(20,26,42,.85);border-radius:5px;padding:4px 8px;font-weight:600}
 .vwc span{opacity:.5;font-weight:600}
-.vwc.on{border-color:#7dffb0;color:#7dffb0;background:rgba(20,52,34,.9)}
+#ba-viewer .vwc.on{border-color:#7dffb0;color:#7dffb0;background:rgba(20,52,34,.9)}
 .vw-help{position:absolute;left:0;right:0;bottom:0;text-align:center;padding:8px;font:600 11px ui-monospace,monospace;opacity:.55;background:linear-gradient(#080a1200,#080a12dd)}
 .vw-dummyhp{position:absolute;top:52px;left:50%;transform:translateX(-50%);width:340px;max-width:60vw;display:flex;flex-direction:column;gap:3px;align-items:center;pointer-events:none}
 .vw-dh-bar{width:100%;height:9px;border-radius:5px;background:rgba(10,14,22,.85);border:1px solid rgba(255,80,90,.35);overflow:hidden}
