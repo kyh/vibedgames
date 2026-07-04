@@ -136,3 +136,14 @@ export const TRAFFIC = {
   minSpeed: 8,
   maxSpeed: 18,
 } as const;
+
+// --- Multiplayer (free-roam presence; no shared scoring) ---
+// The city is generated from a fixed CITY_SEED, so every client builds an
+// identical map and remote taxis line up on the same roads. We only broadcast
+// each player's car transform and render the others; fares/score stay private
+// and local. 64 is the party server's hard per-room ceiling.
+export const MP_ROOM = "crazy-waymo-default";
+export const MP_MAX_PLAYERS = 64;
+export const OFFLINE_FALLBACK_MS = 8000;
+/** Car-transform broadcast rate; remote cars interpolate between updates. */
+export const NET_TICK_HZ = 15;

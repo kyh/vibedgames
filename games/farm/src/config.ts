@@ -57,3 +57,19 @@ export const DEPTH = {
   particles: 900_000,
   night: 1_000_000,
 } as const;
+
+// ---- multiplayer (co-op shared farm) ----------------------------------------
+// New farms use a FIXED seed so every client generates the identical map (like
+// crazy-waymo's fixed city) — no seed exchange needed. The host owns the world
+// (tilled/watered/crops) and the clock; players see each other and tend the
+// same land. Inventory/energy/money stay per-player. Solo/offline is unchanged
+// except the (now deterministic) starting farm.
+export const MP_ROOM = "farm-default";
+export const MP_MAX_PLAYERS = 4;
+export const OFFLINE_FALLBACK_MS = 6000;
+/** Player position/facing broadcast rate. */
+export const NET_TICK_HZ = 12;
+/** Host clock (day/time/weather) broadcast rate. */
+export const CLOCK_TICK_HZ = 2;
+/** Fixed seed for a co-op / new farm so all clients build the same map. */
+export const FARM_SEED = 20240719;

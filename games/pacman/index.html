@@ -204,11 +204,57 @@
           height: 288px;
         }
       }
+      #netinfo {
+        position: fixed;
+        top: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        pointer-events: none;
+        font: 11px/1.2 ui-monospace, Menlo, monospace;
+        letter-spacing: 2px;
+        color: #fff;
+        opacity: 0.7;
+        text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+      }
+      #netinfo:empty {
+        display: none;
+      }
+      #board {
+        position: fixed;
+        top: 12px;
+        left: 12px;
+        pointer-events: none;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font: 12px/1.25 ui-monospace, Menlo, monospace;
+        color: #fff;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+        letter-spacing: 1px;
+      }
+      #board .row {
+        display: flex;
+        gap: 10px;
+        align-items: baseline;
+        background: rgba(20, 12, 30, 0.5);
+        border-radius: 8px;
+        padding: 3px 9px;
+      }
+      #board .row.me {
+        outline: 1px solid rgba(255, 255, 255, 0.5);
+      }
+      #board .sc {
+        margin-left: auto;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+      }
     </style>
   </head>
   <body>
     <div id="game"></div>
     <div id="flash"></div>
+    <div id="netinfo"></div>
+    <div id="board"></div>
     <div id="hud">
       <div class="row">
         <div class="pill" id="score">SCORE 0</div>

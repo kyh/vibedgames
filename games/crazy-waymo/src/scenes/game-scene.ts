@@ -15,8 +15,23 @@ import { GameState } from "../game/state";
 import { ParkedCars } from "../game/parked-cars";
 import { Traffic } from "../game/traffic";
 import { InputState } from "../input/keyboard";
+import { NetSession } from "../net/session";
+import { RemoteCars } from "../net/remote-cars";
 import { PhysicsWorld } from "../physics/physics-world";
-import { CAMERA, CAR, FARE, GRID_X, GRID_Z, MPH_FACTOR, WORLD_H, WORLD_W } from "../shared/constants";
+import {
+  CAMERA,
+  CAR,
+  FARE,
+  GRID_X,
+  GRID_Z,
+  MP_MAX_PLAYERS,
+  MP_ROOM,
+  MPH_FACTOR,
+  NET_TICK_HZ,
+  OFFLINE_FALLBACK_MS,
+  WORLD_H,
+  WORLD_W,
+} from "../shared/constants";
 import { Rng } from "../shared/rng";
 import type { GameMode } from "../shared/types";
 import { Hud } from "../ui/hud";
@@ -97,6 +112,18 @@ export class GameScene {
   private fx = new Fx();
   private sfx = new Sfx();
   private state = new GameState();
+
+  // Multiplayer: free-roam presence over the shared (fixed-seed) city. Connects
+  // as soon as the scene exists; falls back to solo if the party server is
+  // unreachable. Only the local car transform is broadcast — no shared scoring.
+  private net = new NetSession({
+    room: MP_ROOM,
+    maxPlayers: MP_MAX_PLAYERS,
+    fallbackMs: OFFLINE_FALLBACK_MS,
+  });
+  private remoteCars: RemoteCars | null = null;
+  private netAcc = 0;
+  private netInfoEl = document.getElementById("netinfo");
 
   private city: CityModel | null = null;
   private car: Car | null = null;
@@ -243,6 +270,10 @@ export class GameScene {
     this.scene.add(car.object3D);
     car.reset(this.spawn.x, this.spawn.z, this.spawn.yaw);
     this.car = car;
+
+    // Other players' taxis, placed on the same deterministic city.
+    this.remoteCars = new RemoteCars(this.cache, city);
+    this.scene.add(this.remoteCars.group);
 
     // Physics: the world is rigid bodies (terrain, buildings, traffic); the
     // taxi stays on the arcade controller and pushes things through impulses.
@@ -536,6 +567,53 @@ export class GameScene {
     // Stream city chunks around wherever the camera ended up this frame (works
     // in gameplay and freecam alike) so distant tiles stop drawing.
     this.city?.updateStreaming(this.rig.camera);
+
+    // Don't start the net session (or its offline-fallback grace clock) until
+    // the scene has loaded — asset + physics load can otherwise outlast the
+    // grace window and drop us to solo before the socket ever connects.
+    if (this.mode.kind !== "loading") this.updateNet(dt);
+  }
+
+  /** Broadcast the local taxi and render the other players' taxis. Runs in
+   *  every mode so you see the city populated even on the title screen. */
+  private updateNet(dt: number): void {
+    const car = this.car;
+    const remote = this.remoteCars;
+    // Don't tick the net before assets are in: the offline-fallback grace
+    // window starts on the first tick, and this game's GLB + wasm load can
+    // eat the whole window on a slow link — wrongly dropping us to solo
+    // while the socket never got a chance.
+    if (!car || !remote) return;
+    this.net.tick();
+
+    // Only an active driver broadcasts: title idlers all park at the same
+    // deterministic spawn, and streaming that pose 15×/s just piles identical
+    // frozen taxis onto everyone's spawn plaza.
+    const driving =
+      this.mode.kind === "countdown" || this.mode.kind === "playing" || this.mode.kind === "gameover";
+    if (!this.net.offline && driving) {
+      this.netAcc += dt;
+      if (this.netAcc >= 1 / NET_TICK_HZ) {
+        this.netAcc = 0;
+        this.net.updateMyState({
+          x: roundNet(car.position.x),
+          y: roundNet(car.position.y),
+          z: roundNet(car.position.z),
+          h: roundNet(car.heading),
+        });
+      }
+    }
+
+    remote.sync(this.net.players, this.net.playerId, car.position);
+    remote.update(dt);
+
+    if (this.netInfoEl) {
+      const others = Math.max(0, Object.keys(this.net.players).length - 1);
+      this.netInfoEl.textContent =
+        !this.net.live || this.net.offline || others === 0
+          ? ""
+          : `${others} OTHER ${others === 1 ? "DRIVER" : "DRIVERS"} ONLINE`;
+    }
   }
 
   private silenceLoops(): void {
@@ -1107,4 +1185,10 @@ export class GameScene {
       cta: "PRESS ENTER TO RETRY",
     });
   }
+}
+
+/** Centimeter precision is plenty for remote taxis and trims the 15 Hz
+ *  payload (~64 players of full-precision float64 JSON adds up). */
+function roundNet(v: number): number {
+  return Math.round(v * 100) / 100;
 }

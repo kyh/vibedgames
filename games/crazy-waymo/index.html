@@ -692,11 +692,28 @@
           animation: none;
         }
       }
+      #netinfo {
+        position: fixed;
+        top: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 5;
+        pointer-events: none;
+        font: 12px/1.2 ui-monospace, "SF Mono", Menlo, monospace;
+        letter-spacing: 2px;
+        color: #fff;
+        opacity: 0.7;
+        text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
+      }
+      #netinfo:empty {
+        display: none;
+      }
     </style>
   </head>
   <body>
     <div id="game"></div>
 
+    <div id="netinfo"></div>
     <div id="hud">
       <div class="pill" id="timer"><span class="label">TIME</span><span class="value">60</span></div>
       <div id="combo-meter">
