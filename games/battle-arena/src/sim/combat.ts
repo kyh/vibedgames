@@ -1,5 +1,6 @@
 // Damage pipeline, basic attacks, knockback, death/respawn, projectiles.
 import { CHAMP_BY_ID } from "../data/champions";
+import { MELEE_HALF_ANGLE, MELEE_OVERREACH } from "./combat-geometry";
 import { ATTACK_VARIANCE, attackIntervalMs, respawnTime, type DamageType } from "../data/config";
 import { angleDelta, angleOf, norm, rand } from "./math";
 import {
@@ -21,8 +22,6 @@ export const isEnemy = (a: Unit, b: Unit): boolean => a.team !== b.team;
 // point of a full (never-clipped) swing clip. One dial for hit-flash timing.
 const MELEE_STRIKE_FRAC = 0.45;
 const RANGED_WINDUP = 160; // arrow/bolt leaves as the bow/staff visually releases
-const MELEE_HALF_ANGLE = (5 * Math.PI) / 18; // 100° cleave cone
-const MELEE_OVERREACH = 1.4; // melee hits a bit past attackRange (cleave feel)
 const MELEE_CLEAVE_CAP = 3; // max enemies a swing damages
 const MELEE_CLEAVE_FALLOFF = 0.5; // secondary targets take half — caps AoE DPS at ~2× single
 

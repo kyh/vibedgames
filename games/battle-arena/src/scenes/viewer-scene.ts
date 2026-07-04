@@ -23,6 +23,7 @@ import { abilityIcon, attackIcon, champSigil } from "../data/icons";
 import { CAMPS } from "../data/map";
 import { terrainHeight } from "../data/terrain";
 import { castAbility } from "../sim/abilities";
+import { MELEE_HALF_ANGLE, MELEE_OVERREACH, ROGUE_EXECUTE_ARC, ROGUE_GASH_WIDTH, ROGUE_LUNGE_WIDTH } from "../sim/combat-geometry";
 import { dist, norm } from "../sim/math";
 import { recomputeStats } from "../sim/stats";
 import { ABILITY_KEYS, ALL_ABILITY_KEYS, type AbilityKey, type Unit, type World } from "../sim/types";
@@ -645,15 +646,17 @@ export class ViewerScene {
     const champ = this.selected.champ;
     const me = this.hero();
     if (!champ || !me) return [];
-    const TR = 0.6; // sim adds the target's radius to cone/corridor reach — a representative one
+    const TR = 0.6; // representative target radius (the sim adds t.radius to cone/corridor reach)
     const act = this.action;
 
     if (act === "attack") {
-      const out: HitShape[] = [];
-      if (champ.attackType === "melee") out.push({ kind: "cone", radius: me.attackRange + 1.4 + TR, half: (50 * Math.PI) / 180 }); // meleeReach + 100° cleave
-      else out.push({ kind: "corridor", length: me.attackRange + 5, halfWidth: 0.5 }); // ranged projectile line (range+5)
-      for (const step of champ.basicRhythm ?? []) if (step.aoe) out.push({ kind: "circle", radius: step.aoe, forward: 0 }); // spin whirl
-      return out;
+      // show only the swing the character is CURRENTLY doing — the rhythm cycles
+      // chop/slice → spin, so the shape switches live with the sim's swingCount.
+      const rhythm = champ.basicRhythm;
+      const step = rhythm && rhythm.length ? rhythm[Math.max(0, me.swingCount - 1) % rhythm.length] : undefined;
+      if (step?.aoe) return [{ kind: "circle", radius: step.aoe, forward: 0 }]; // the spin whirl swing
+      if (champ.attackType === "melee") return [{ kind: "cone", radius: me.attackRange + MELEE_OVERREACH + TR, half: MELEE_HALF_ANGLE }];
+      return [{ kind: "corridor", length: me.attackRange + 5, halfWidth: 0.5 }]; // ranged projectile line
     }
     if (!act) return [];
     const def = champ.abilities[act];
@@ -673,15 +676,15 @@ export class ViewerScene {
         return [cone(v("cone"), def.castRange + TR)];
       case "ranger:Q": // arrows fan over `spread`° out to castRange
         return [cone(v("spread"), def.castRange)];
-      case "rogue:R": // dash to nearest enemy in a 140° arc (±70°), then single strike
-        return [cone(140, def.castRange + TR)];
+      case "rogue:R": // dash to nearest enemy in front, then single strike
+        return [{ kind: "cone", radius: def.castRange + TR, half: ROGUE_EXECUTE_ARC }];
       // ── corridors (line from the hero out to castRange, half-width perp)
       case "knight:W":
         return [corr(v("width") / 2 + TR)];
       case "rogue:Q":
-        return [corr(1.4 + TR)]; // hardcoded lunge width
+        return [corr(ROGUE_LUNGE_WIDTH + TR)];
       case "rogue:W":
-        return [corr(1.2 + TR)]; // hardcoded gash width
+        return [corr(ROGUE_GASH_WIDTH + TR)];
       case "knight:JUMP":
       case "ranger:JUMP":
       case "mage:JUMP":

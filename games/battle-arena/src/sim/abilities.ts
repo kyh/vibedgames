@@ -11,6 +11,7 @@ import {
   isUntargetable,
 } from "./stats";
 import { applyKnockback, dealDamage, isEnemy, spawnProjectile } from "./combat";
+import { ROGUE_EXECUTE_ARC, ROGUE_GASH_WIDTH, ROGUE_LUNGE_WIDTH } from "./combat-geometry";
 import type { AbilityKey, GroundEffect, Unit, World } from "./types";
 import { nextId } from "./types";
 
@@ -394,7 +395,7 @@ function dispatch(
       meleeSwing(w, c, dir);
       startDash(c, dir, v("speed"), def.castRange, w);
       // poison lunge cuts everyone along the dash line — forgiving to aim
-      for (const hit of corridorHits(w, c, dir, def.castRange, 1.4)) {
+      for (const hit of corridorHits(w, c, dir, def.castRange, ROGUE_LUNGE_WIDTH)) {
         dealDamage(w, c, hit, v("damage"), "physical", { ap });
         addStatus(hit, { kind: "dot", until: w.now + v("dur") * 1000, nextTick: w.now + 500, dps: v("dps"), dtype: "magic", sourceId: c.id, id: "rogue:Q" });
       }
@@ -403,7 +404,7 @@ function dispatch(
     case "rogue:W": {
       // Rupture: a bleeding gash down a corridor — damage + bleed DoT + a damage-amp
       // mark that sets up Execute.
-      for (const t of corridorHits(w, c, dir, def.castRange, 1.2)) {
+      for (const t of corridorHits(w, c, dir, def.castRange, ROGUE_GASH_WIDTH)) {
         dealDamage(w, c, t, v("damage"), "physical", { ap });
         addStatus(t, { kind: "dot", until: w.now + v("bleedDur") * 1000, nextTick: w.now + 500, dps: v("bleedDps"), dtype: "physical", sourceId: c.id, id: "rogue:W" });
         addStatus(t, { kind: "damageAmp", until: w.now + v("ampDur") * 1000, pct: v("dmgAmp"), id: "rogue:W" });
@@ -424,7 +425,7 @@ function dispatch(
         if (t === c || !t.alive || !targetable(t) || !isEnemy(c, t) || isUntargetable(t)) continue;
         const d = dist(c, t);
         if (d > def.castRange + t.radius) continue;
-        if (Math.abs(angleDelta(base, angleOf(t.x - c.x, t.y - c.y))) > deg2rad(70)) continue;
+        if (Math.abs(angleDelta(base, angleOf(t.x - c.x, t.y - c.y))) > ROGUE_EXECUTE_ARC) continue;
         if (d < bestD) {
           bestD = d;
           target = t;
