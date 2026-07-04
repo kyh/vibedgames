@@ -94,6 +94,11 @@ export class NetSession {
     return this.solo || this.client.isHost;
   }
 
+  /** The current room host's id (for authenticating host-only events). */
+  get hostId(): string | null {
+    return this.solo ? SOLO_ID : this.client.hostId;
+  }
+
   get playerId(): string | null {
     return this.solo ? SOLO_ID : this.client.playerId;
   }
