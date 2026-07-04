@@ -69,9 +69,14 @@ const MAX_DT_MS = 50;
 /**
  * Everyone shares the same course position (one global scroll), so all dragons
  * would stack at BIRD_X. Your own dragon stays at BIRD_X — the back of the view
- * — and rivals fan out to the right by their stable lane so the flock reads.
+ * — and rivals fan out to the right so the flock reads. Gaps and depth vary per
+ * rival (seeded from their id, so they stay put) so it looks like a loose flock
+ * rather than a fixed grid.
  */
-const GHOST_LANE_GAP = 46;
+const GHOST_GAP_MIN = 30;
+const GHOST_GAP_MAX = 68;
+const GHOST_SCALE_MIN = 0.82;
+const GHOST_SCALE_MAX = 1.06;
 
 const HINT_FLAP = "CLICK · TAP · SPACE — FLAP";
 const HINT_RESTART = "TAP ANYWHERE TO RESTART";
@@ -547,33 +552,32 @@ export class GameScene extends Phaser.Scene {
     // Stable left-to-right ordering shared by every client (same players map),
     // so each rival keeps a consistent lane instead of jittering frame to frame.
     // `.filter()` already returns a fresh array, so sorting it in place is safe.
+    // Sorting keeps the left-to-right order stable across clients and frames.
     const others = Object.keys(this.net.players)
       .filter((id) => id !== me)
       .sort();
     const seen = new Set<string>();
 
-    others.forEach((id, rank) => {
+    // Fan rivals out to the right of your own dragon (which stays at BIRD_X).
+    // Each keeps a per-id gap + depth so the flock is loose, not a fixed grid;
+    // gaps accumulate so rivals never overlap however uneven the spacing.
+    let laneX = BIRD_X + DRAGON_SPRITE_OFFSET_X;
+    for (const id of others) {
       const ps = readPeer(this.net.players[id]?.state);
-      if (!ps) return;
+      if (!ps) continue;
       seen.add(id);
+      const scale = ART_SCALE * (GHOST_SCALE_MIN + hashId(id, 3) * (GHOST_SCALE_MAX - GHOST_SCALE_MIN));
       let ghost = this.ghosts.get(id);
       if (!ghost || ghost.skin !== ps.skin) {
         ghost?.sprite.destroy();
-        const sprite = this.add
-          .sprite(0, 0, `dragon-${ps.skin}-1`)
-          .setScale(ART_SCALE)
-          .setDepth(8)
-          .setAlpha(0.55);
+        const sprite = this.add.sprite(0, 0, `dragon-${ps.skin}-1`).setDepth(8).setAlpha(0.55);
         sprite.play(`fly-${ps.skin}`);
         ghost = { sprite, skin: ps.skin };
         this.ghosts.set(id, ghost);
       }
-      // Fan rivals out to the right of your own dragon (which stays at BIRD_X)
-      // so the whole flock is visible without occluding you.
-      ghost.sprite.setPosition(
-        BIRD_X + DRAGON_SPRITE_OFFSET_X + (rank + 1) * GHOST_LANE_GAP,
-        ps.yf * viewH + DRAGON_SPRITE_OFFSET_Y,
-      );
+      laneX += GHOST_GAP_MIN + hashId(id, 1) * (GHOST_GAP_MAX - GHOST_GAP_MIN);
+      ghost.sprite.setScale(scale);
+      ghost.sprite.setPosition(laneX, ps.yf * viewH + DRAGON_SPRITE_OFFSET_Y);
       ghost.sprite.setRotation(Phaser.Math.Clamp(ps.rot, -MAX_TILT, MAX_TILT));
       if (ps.live) {
         ghost.sprite.setAlpha(0.55).clearTint();
@@ -581,7 +585,7 @@ export class GameScene extends Phaser.Scene {
         // Crashed players fade to a grey silhouette until they respawn.
         ghost.sprite.setAlpha(0.28).setTint(0x9099b0);
       }
-    });
+    }
 
     for (const [id, ghost] of this.ghosts) {
       if (!seen.has(id)) {
@@ -750,6 +754,16 @@ function destroyPipe(pipe: Pipe): void {
 function randomSeed(): number {
   // 1..2^31 (never 0 — 0 marks "unseeded").
   return 1 + Math.floor(Math.random() * 0x7fffffff);
+}
+
+/** Stable 0..1 hash of a player id (+salt) for per-rival flock variation. */
+function hashId(id: string, salt: number): number {
+  let h = (2166136261 ^ salt) >>> 0;
+  for (let i = 0; i < id.length; i++) {
+    h ^= id.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return ((h >>> 0) % 100000) / 100000;
 }
 
 function numField(s: Record<string, unknown>, key: string): number | null {
