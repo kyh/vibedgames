@@ -65,6 +65,10 @@ type Ghost = {
 const COIN_PICKUP_X = 54;
 const COIN_PICKUP_Y = 44;
 const RESTART_LOCKOUT_MS = 280;
+/** Guest scroll-clock: adopt host drift beyond this gap in one snap… */
+const WORLD_SNAP_PX = 60;
+/** …and fold smaller drift in gradually per snapshot. */
+const WORLD_DRIFT_BLEND = 0.2;
 const MAX_DT_MS = 50;
 /**
  * Everyone shares the same course position (one global scroll), so all dragons
@@ -119,6 +123,7 @@ export class GameScene extends Phaser.Scene {
   private worldAcc = 0;
   private hostSeq = 0;
   private lastSeq = -1;
+  private boardSig = "";
 
   private hintEl: HTMLElement | null = null;
   private bestEl: HTMLElement | null = null;
@@ -263,11 +268,15 @@ export class GameScene extends Phaser.Scene {
     if (!s) return;
     const seq = numField(s, "wseq");
     const wx = numField(s, "wx");
+    this.worldX += PIPE_SPEED * dt;
     if (seq !== null && seq !== this.lastSeq && wx !== null) {
       this.lastSeq = seq;
-      this.worldX = wx;
-    } else {
-      this.worldX += PIPE_SPEED * dt;
+      const drift = wx - this.worldX;
+      // Snapshots arrive ~half-RTT stale, so hard-adopting each one snaps the
+      // whole pipe field backward every tick. Fold small drift in smoothly;
+      // snap only on real discontinuities (join, host migration).
+      if (Math.abs(drift) > WORLD_SNAP_PX) this.worldX = wx;
+      else this.worldX += drift * WORLD_DRIFT_BLEND;
     }
   }
 
@@ -291,6 +300,10 @@ export class GameScene extends Phaser.Scene {
       this.flap(strength, refire);
       return;
     }
+    // In a race the respawn timer owns the comeback — a tap on the gameover
+    // screen must not restart() (which rewinds the SHARED course to zero for
+    // everyone when the host does it).
+    if (this.racing) return;
     if (this.time.now - this.diedAt < RESTART_LOCKOUT_MS) return;
     this.restart();
   }
@@ -324,7 +337,13 @@ export class GameScene extends Phaser.Scene {
     this.worldX = 0; // solo: start the course over
     this.lastScoredIndex = -1;
     this.collectedCoins.clear();
-    if (!this.racing) this.seed = randomSeed(); // fresh course when truly alone
+    if (!this.racing) {
+      this.seed = randomSeed(); // fresh course when truly alone
+      // Publish the reroll, or ensureSeed() re-adopts the stale shared seed
+      // next frame and every solo run replays the identical course. (Offline
+      // this writes the local loopback state; a non-host can't be alone.)
+      this.net.patchShared({ seed: this.seed });
+    }
     this.clearPipes();
 
     this.skin = rollSkin();
@@ -400,8 +419,15 @@ export class GameScene extends Phaser.Scene {
     return Math.floor((this.worldX + BIRD_X - PIPE_WIDTH - RUNWAY) / PIPE_SPAWN_DISTANCE);
   }
 
+  /** Where a comeback drops the bird. The shared course kept scrolling while
+   *  we were dead, so a fixed height regularly lands inside a pipe trunk —
+   *  aim for the gap of the pipe the bird will meet first instead. */
   private spawnY(): number {
-    return BIRD_SPAWN_Y;
+    if (this.seed === 0) return BIRD_SPAWN_Y;
+    const i = this.frontIndex() + 1;
+    if (i < 0) return BIRD_SPAWN_Y; // still on the runway, nothing ahead
+    const top = topHeightFor(this.seed, i, this.scale.height);
+    return top + PIPE_GAP / 2;
   }
 
   private syncPipes(): void {
@@ -599,6 +625,9 @@ export class GameScene extends Phaser.Scene {
 
   private broadcast(dt: number): void {
     if (this.net.offline) return;
+    // A lone player parked on the title screen has nothing to say — don't
+    // stream state at the Durable Object for nobody.
+    if (!this.racing && !this.alive) return;
     this.stateAcc += dt;
     if (this.stateAcc >= 1 / NET_TICK_HZ) {
       this.stateAcc = 0;
@@ -615,7 +644,10 @@ export class GameScene extends Phaser.Scene {
       if (this.worldAcc >= 1 / WORLD_TICK_HZ) {
         this.worldAcc = 0;
         this.hostSeq++;
-        this.net.patchShared({ wx: this.worldX, wseq: this.hostSeq });
+        // Re-assert the seed with the clock: if the room's Durable Object was
+        // evicted mid-session (in-memory state wiped, sockets reconnect), the
+        // course would otherwise stay unseeded for every future joiner.
+        this.net.patchShared({ wx: this.worldX, wseq: this.hostSeq, seed: this.seed });
       }
     }
   }
@@ -684,6 +716,7 @@ export class GameScene extends Phaser.Scene {
     if (!this.boardEl) return;
     if (!this.racing) {
       if (this.boardEl.childElementCount > 0) this.boardEl.replaceChildren();
+      this.boardSig = "";
       if (this.phase === "ready" && this.net.live && !this.net.offline) this.setHint(HINT_FLAP);
       return;
     }
@@ -700,6 +733,12 @@ export class GameScene extends Phaser.Scene {
       }
     }
     rows.sort((a, b) => b.score - a.score);
+
+    // Standings change a few times a second at most — skip the 60 Hz DOM
+    // rebuild while nothing moved.
+    const sig = rows.map((r) => `${r.id}:${r.score}:${r.live ? 1 : 0}`).join("|");
+    if (sig === this.boardSig) return;
+    this.boardSig = sig;
 
     const frag = document.createDocumentFragment();
     for (const r of rows.slice(0, 8)) {
@@ -773,14 +812,18 @@ function numField(s: Record<string, unknown>, key: string): number | null {
 
 function readPeer(state: unknown): PeerState | null {
   if (!state || typeof state !== "object") return null;
-  const s = state as Record<string, unknown>;
-  if (typeof s["yf"] !== "number" || typeof s["skin"] !== "number") return null;
+  const yf = "yf" in state ? state.yf : null;
+  const skin = "skin" in state ? state.skin : null;
+  if (typeof yf !== "number" || typeof skin !== "number") return null;
+  const live = "live" in state ? state.live : null;
+  const score = "score" in state ? state.score : null;
+  const rot = "rot" in state ? state.rot : null;
   return {
-    yf: s["yf"] as number,
-    live: s["live"] === true,
-    score: typeof s["score"] === "number" ? (s["score"] as number) : 0,
-    skin: s["skin"] as number,
-    rot: typeof s["rot"] === "number" ? (s["rot"] as number) : 0,
+    yf,
+    live: live === true,
+    score: typeof score === "number" ? score : 0,
+    skin,
+    rot: typeof rot === "number" ? rot : 0,
   };
 }
 
