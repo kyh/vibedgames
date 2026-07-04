@@ -10,9 +10,10 @@ export type RemotePacState = { x: number; z: number };
 
 export function readPacState(state: unknown): RemotePacState | null {
   if (!state || typeof state !== "object") return null;
-  const s = state as Record<string, unknown>;
-  if (typeof s["x"] !== "number" || typeof s["z"] !== "number") return null;
-  return { x: s["x"] as number, z: s["z"] as number };
+  const x = "x" in state ? state.x : null;
+  const z = "z" in state ? state.z : null;
+  if (typeof x !== "number" || typeof z !== "number") return null;
+  return { x, z };
 }
 
 type RemotePac = {

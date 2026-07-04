@@ -178,9 +178,10 @@ export class GameScene {
     fallbackMs: OFFLINE_FALLBACK_MS,
     onEvent: (event, payload, from) => this.handleNetEvent(event, payload, from),
   });
-  private remotePacs!: RemotePacs;
+  private remotePacs: RemotePacs;
   private netAcc = 0;
   private boardRound = 0;
+  private boardSig = "";
   private hostEaten = new Set<string>(); // host: authoritative eaten cells
   private appliedEaten = new Set<string>(); // cells already removed locally
   private boardEl = document.getElementById("board");
@@ -305,9 +306,13 @@ export class GameScene {
   }
 
   private handleNetEvent(event: string, payload: unknown, from: string): void {
-    const p = (payload ?? {}) as Record<string, unknown>;
-    // Host arbitrates pellet eats: first claim on a cell wins.
+    const p: Record<string, unknown> = {};
+    if (payload && typeof payload === "object") Object.assign(p, payload);
+    // Host arbitrates pellet eats: the first valid claim on a cell wins.
     if (event === "eat" && this.net.isHost) {
+      // Stale claims (buffered during connect, or from a previous round) must
+      // not chew pellets out of the current board.
+      if (p["round"] !== this.boardRound) return;
       const key = p["key"];
       if (typeof key === "string") this.hostArbitrate(key, from);
       return;
@@ -380,7 +385,7 @@ export class GameScene {
       // guest claimed the same cell first this tick.
       this.hostArbitrate(key, this.net.playerId ?? "solo");
     } else {
-      this.net.sendEvent("eat", { key });
+      this.net.sendEvent("eat", { key, round: this.boardRound });
     }
   }
 
@@ -398,7 +403,11 @@ export class GameScene {
       this.applyNewRound(board.round);
       return;
     }
-    for (const key of Object.keys(board.eaten)) {
+    for (const key of board.eaten) {
+      // A promoted host must adopt the accumulated set, or its next broadcast
+      // (rebuilt from hostEaten alone) would resurrect every earlier pellet
+      // for late joiners.
+      if (this.net.isHost) this.hostEaten.add(key);
       if (this.appliedEaten.has(key)) continue;
       this.appliedEaten.add(key);
       this.removeCellVisual(key);
@@ -408,14 +417,15 @@ export class GameScene {
     }
   }
 
-  private sharedBoard(): { round: number; eaten: Record<string, number> } | null {
+  private sharedBoard(): { round: number; eaten: ReadonlySet<string> } | null {
     const s = this.net.sharedState;
     const b = s?.["board"];
     if (!b || typeof b !== "object") return null;
-    const rec = b as { round?: unknown; eaten?: unknown };
-    const round = typeof rec.round === "number" ? rec.round : 0;
+    const roundRaw = "round" in b ? b.round : null;
+    const eatenRaw = "eaten" in b ? b.eaten : null;
+    const round = typeof roundRaw === "number" ? roundRaw : 0;
     const eaten =
-      rec.eaten && typeof rec.eaten === "object" ? (rec.eaten as Record<string, number>) : {};
+      eatenRaw && typeof eatenRaw === "object" ? new Set(Object.keys(eatenRaw)) : new Set<string>();
     return { round, eaten };
   }
 
@@ -447,7 +457,12 @@ export class GameScene {
     this.resetPacman();
     this.graceMs = SPAWN_GRACE_MS;
     this.updateHud();
-    this.setPhase("playing");
+    // Only players already in the race get pulled into the fresh maze — a
+    // round bump must not yank someone off the title/gameover screen into
+    // live ghosts they never asked for.
+    if (this.phase === "playing" || this.phase === "ready" || this.phase === "win") {
+      this.setPhase("playing");
+    }
   }
 
   /** Tap/gesture to start or restart — solo resets the board; in a race it just
@@ -463,13 +478,6 @@ export class GameScene {
       this.setPhase("playing");
       return;
     }
-    // Leaving a race for a solo restart: clear the shared-board authority so a
-    // future joiner reconciles against a clean slate, not last round's eaten
-    // set (which would also make markEaten silently drop re-eaten pellets).
-    this.hostEaten.clear();
-    this.appliedEaten.clear();
-    this.boardRound = 0;
-    if (!this.net.offline && this.net.isHost) this.broadcastBoard();
     this.resetGame();
   }
 
@@ -498,6 +506,7 @@ export class GameScene {
     if (!this.boardEl) return;
     if (!this.racing) {
       if (this.boardEl.childElementCount > 0) this.boardEl.replaceChildren();
+      this.boardSig = "";
       return;
     }
     const me = this.net.playerId;
@@ -505,11 +514,17 @@ export class GameScene {
     for (const [id, player] of Object.entries(this.net.players)) {
       if (id === me) rows.push({ id, score: this.score, me: true });
       else {
-        const st = player.state as { score?: unknown } | undefined;
-        rows.push({ id, score: typeof st?.score === "number" ? st.score : 0, me: false });
+        const st: unknown = player.state;
+        const sc = st && typeof st === "object" && "score" in st ? st.score : null;
+        rows.push({ id, score: typeof sc === "number" ? sc : 0, me: false });
       }
     }
     rows.sort((a, b) => b.score - a.score);
+    // The board only changes when someone scores or joins/leaves — skip the
+    // DOM rebuild (60 Hz otherwise) while the standings are unchanged.
+    const sig = rows.map((r) => `${r.id}:${r.score}`).join("|");
+    if (sig === this.boardSig) return;
+    this.boardSig = sig;
     const frag = document.createDocumentFragment();
     for (const r of rows.slice(0, 4)) {
       const row = document.createElement("div");
@@ -1013,6 +1028,15 @@ export class GameScene {
     this.graceMs = 0;
     this.comboIdx = 0;
     this.lastPelletAt = -Infinity;
+    // Online-but-alone: restarting restores every pellet locally, so the
+    // shared board must start a fresh round too — otherwise the stale eaten
+    // set desyncs the maze for the next rival who joins.
+    if (!this.net.offline && this.net.isHost) {
+      this.boardRound += 1;
+      this.hostEaten.clear();
+      this.appliedEaten.clear();
+      this.broadcastBoard();
+    }
     this.resetBoard();
     this.resetPacman();
     this.squashKick = 0;

@@ -66,10 +66,13 @@ export class NetSession {
     // reconnect instead of stranding the player in solo. (A reset under heavy
     // load must not permanently drop a real player out of the game.)
     if (this.everConnected) return;
-    const failed = status === "disconnected" || status === "error";
-    if (!failed && performance.now() - this.bootedAt < this.fallbackMs) return;
-    // Never reached a room within the grace window (or errored first): the
-    // party server is unreachable — fall back to a local solo game.
+    // Pre-connect errors/closes are NOT instant failures: partysocket retries
+    // by itself, and a single refused handshake (cold server, wifi blip) must
+    // not strand the player in solo for the whole session. The deadline is the
+    // only fallback trigger.
+    if (performance.now() - this.bootedAt < this.fallbackMs) return;
+    // Never reached a room within the grace window: the party server is
+    // unreachable — fall back to a local solo game.
     this.solo = true;
     this.client.destroy(); // stop reconnect attempts; refresh the page to retry
   }
