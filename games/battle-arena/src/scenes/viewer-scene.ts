@@ -637,38 +637,81 @@ export class ViewerScene {
     this.updateDummyHud(d);
   }
 
-  /** ALL damage shapes of the currently-selected action, in the hero's local
-   *  frame (forward = +Z). A basic attack can yield several (e.g. Garran's
-   *  chop/slice cone PLUS the spin's 360° whirl). [] = no damage shape. */
+  /** ALL damage shapes of the currently-selected action, matching the sim's
+   *  actual hit test in abilities.ts/combat.ts (KEEP IN SYNC). Hero-local,
+   *  forward = +Z. A basic can yield several (Garran's cone PLUS spin whirl);
+   *  a projectile yields a travel line + a splash circle. [] = no damage. */
   private hitShapesFor(): HitShape[] {
     const champ = this.selected.champ;
     const me = this.hero();
     if (!champ || !me) return [];
+    const TR = 0.6; // sim adds the target's radius to cone/corridor reach — a representative one
     const act = this.action;
+
     if (act === "attack") {
       const out: HitShape[] = [];
-      if (champ.attackType === "melee") out.push({ kind: "cone", radius: me.attackRange + 1.4, half: (50 * Math.PI) / 180 }); // MELEE_OVERREACH + 100° cleave
-      else out.push({ kind: "corridor", length: me.attackRange, halfWidth: 0.4 }); // ranged shot line
-      // rhythm swings that whirl (Garran's spin) hit a full 360° circle around
-      for (const step of champ.basicRhythm ?? []) if (step.aoe) out.push({ kind: "circle", radius: step.aoe, forward: 0 });
+      if (champ.attackType === "melee") out.push({ kind: "cone", radius: me.attackRange + 1.4 + TR, half: (50 * Math.PI) / 180 }); // meleeReach + 100° cleave
+      else out.push({ kind: "corridor", length: me.attackRange + 5, halfWidth: 0.5 }); // ranged projectile line (range+5)
+      for (const step of champ.basicRhythm ?? []) if (step.aoe) out.push({ kind: "circle", radius: step.aoe, forward: 0 }); // spin whirl
       return out;
     }
     if (!act) return [];
     const def = champ.abilities[act];
     if (!def) return [];
     const v = (f: string): number => valAt(def.values[f], def.maxRank);
-    if (def.values["cone"]) return [{ kind: "cone", radius: def.castRange, half: ((v("cone") / 2) * Math.PI) / 180 }];
-    if (def.values["width"]) return [{ kind: "corridor", length: def.castRange, halfWidth: v("width") / 2 }];
-    if (act === "JUMP") return [{ kind: "corridor", length: def.castRange, halfWidth: Math.max(0.5, v("radius")) }];
-    if (def.targeting === "self" && def.values["radius"]) return [{ kind: "circle", radius: v("radius"), forward: 0 }];
-    if (def.targeting === "ground" && def.values["radius"]) {
-      const d = this.dummy();
-      const fwd = d ? Math.min(def.castRange, Math.hypot(d.x - me.x, d.y - me.y)) : def.castRange;
-      return [{ kind: "circle", radius: v("radius"), forward: fwd }];
+    const cone = (deg: number, r: number): HitShape => ({ kind: "cone", radius: r, half: (deg / 2) * (Math.PI / 180) });
+    const corr = (hw: number): HitShape => ({ kind: "corridor", length: def.castRange, halfWidth: hw });
+    // ground-target abilities land at the cast point (aim clamped to castRange)
+    const groundFwd = (): number => { const d = this.dummy(); return d ? Math.min(def.castRange, Math.hypot(d.x - me.x, d.y - me.y)) : def.castRange; };
+    const atPoint = (): HitShape => ({ kind: "circle", radius: v("radius"), forward: groundFwd() });
+    const atSelf = (): HitShape => ({ kind: "circle", radius: v("radius"), forward: 0 });
+
+    switch (def.effect) {
+      // ── frontal cones (center within castRange + t.radius, |angle| ≤ cone/2)
+      case "knight:Q":
+      case "blackknight:Q":
+        return [cone(v("cone"), def.castRange + TR)];
+      case "ranger:Q": // arrows fan over `spread`° out to castRange
+        return [cone(v("spread"), def.castRange)];
+      case "rogue:R": // dash to nearest enemy in a 140° arc (±70°), then single strike
+        return [cone(140, def.castRange + TR)];
+      // ── corridors (line from the hero out to castRange, half-width perp)
+      case "knight:W":
+        return [corr(v("width") / 2 + TR)];
+      case "rogue:Q":
+        return [corr(1.4 + TR)]; // hardcoded lunge width
+      case "rogue:W":
+        return [corr(1.2 + TR)]; // hardcoded gash width
+      case "knight:JUMP":
+      case "ranger:JUMP":
+      case "mage:JUMP":
+      case "rogue:JUMP":
+      case "blackknight:JUMP":
+      case "witch:JUMP":
+        return [corr(v("radius") + TR)]; // leap corridor
+      // ── projectiles: travel line + splash circle at impact
+      case "mage:Q":
+        return [corr(0.5), { kind: "circle", radius: v("radius"), forward: groundFwd() }];
+      case "witch:Q":
+        return [corr(0.5), { kind: "circle", radius: 1.8, forward: groundFwd() }];
+      // ── ground-target AoE circles (at the cast point)
+      case "mage:W":
+      case "mage:E":
+      case "mage:R":
+      case "ranger:E":
+      case "ranger:R":
+      case "blackknight:W":
+      case "witch:W":
+      case "witch:E":
+      case "witch:R":
+        return [atPoint()];
+      // ── self-centred AoE circles
+      case "knight:R":
+      case "blackknight:R":
+        return [atSelf()];
+      default:
+        return []; // dashes / shields / buffs / stealth — no damage surface
     }
-    if (def.targeting === "direction" && def.values["radius"]) return [{ kind: "corridor", length: def.castRange, halfWidth: v("radius") }];
-    if (def.targeting === "direction") return [{ kind: "corridor", length: def.castRange, halfWidth: 0.5 }];
-    return []; // pure utility (dash/shield/buff/stealth)
   }
 
   /** Draw/position the hit-surface overlay flat under the hero, oriented to aim. */
@@ -704,7 +747,10 @@ export class ViewerScene {
           geo.translate(0, s.forward, 0); // circle placed `forward` ahead
         }
         geo.rotateX(Math.PI / 2); // lay the XY shape flat: +Y (forward) → +Z
-        const mat = new THREE.MeshBasicMaterial({ color: s.kind === "circle" && s.forward === 0 ? 0xffb03c : 0xff5a3c, transparent: true, opacity: 0.22, side: THREE.DoubleSide, depthWrite: false });
+        // colour by kind so different attacks read distinctly: cone=red,
+        // corridor=orange, self-whirl=gold, ground/splash circle=cyan
+        const color = s.kind === "cone" ? 0xff5a3c : s.kind === "corridor" ? 0xff9a3c : s.forward === 0 ? 0xffc83c : 0x3cc8ff;
+        const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.24, side: THREE.DoubleSide, depthWrite: false });
         g.add(new THREE.Mesh(geo, mat));
       }
     }
