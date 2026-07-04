@@ -14,3 +14,5 @@ export const ROGUE_LUNGE_WIDTH = 1.4;
 export const ROGUE_GASH_WIDTH = 1.2;
 /** rogue:R Execute — half-arc (radians) it scans for a target in front. */
 export const ROGUE_EXECUTE_ARC = (70 * Math.PI) / 180;
+/** witch:Q Hex Bolt — projectile splash radius. */
+export const WITCH_HEXBOLT_SPLASH = 1.8;

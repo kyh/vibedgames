@@ -23,7 +23,7 @@ import { abilityIcon, attackIcon, champSigil } from "../data/icons";
 import { CAMPS } from "../data/map";
 import { terrainHeight } from "../data/terrain";
 import { castAbility } from "../sim/abilities";
-import { MELEE_HALF_ANGLE, MELEE_OVERREACH, ROGUE_EXECUTE_ARC, ROGUE_GASH_WIDTH, ROGUE_LUNGE_WIDTH } from "../sim/combat-geometry";
+import { abilityShapes, basicAttackShape, type HitShape } from "../sim/hit-shapes";
 import { dist, norm } from "../sim/math";
 import { recomputeStats } from "../sim/stats";
 import { ABILITY_KEYS, ALL_ABILITY_KEYS, type AbilityKey, type Unit, type World } from "../sim/types";
@@ -56,8 +56,9 @@ const LOOK_H = 1.2;
 
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 
-// hit-surface overlay geometry (hero-local, forward = +Z)
-type HitShape =
+// hit-surface overlay geometry, positioned in the hero's local frame (forward =
+// +Z) ready to draw — derived from the sim's abilityShapes() by placeShape().
+type DrawShape =
   | { kind: "cone"; radius: number; half: number }
   | { kind: "corridor"; length: number; halfWidth: number }
   | { kind: "circle"; radius: number; forward: number };
@@ -638,83 +639,60 @@ export class ViewerScene {
     this.updateDummyHud(d);
   }
 
-  /** ALL damage shapes of the currently-selected action, matching the sim's
-   *  actual hit test in abilities.ts/combat.ts (KEEP IN SYNC). Hero-local,
-   *  forward = +Z. A basic can yield several (Garran's cone PLUS spin whirl);
-   *  a projectile yields a travel line + a splash circle. [] = no damage. */
-  private hitShapesFor(): HitShape[] {
+  // representative target radius: the sim's cone/corridor tests add each target's
+  // own radius, so the drawn hit area widens the raw geometry by this to match.
+  private static readonly HIT_TARGET_R = 0.6;
+
+  /** Damage shapes of the action the character is CURRENTLY doing, ready to draw.
+   *  Geometry comes straight from the sim's abilityShapes()/basicAttackShape() —
+   *  the same definition the hit test uses — so the overlay can't drift. */
+  private hitShapesFor(): DrawShape[] {
     const champ = this.selected.champ;
     const me = this.hero();
     if (!champ || !me) return [];
-    const TR = 0.6; // representative target radius (the sim adds t.radius to cone/corridor reach)
     const act = this.action;
-
     if (act === "attack") {
-      // show only the swing the character is CURRENTLY doing — the rhythm cycles
-      // chop/slice → spin, so the shape switches live with the sim's swingCount.
+      // the rhythm cycles chop/slice → spin, so the shape switches live with the
+      // sim's swingCount — show only the swing happening right now.
       const rhythm = champ.basicRhythm;
       const step = rhythm && rhythm.length ? rhythm[Math.max(0, me.swingCount - 1) % rhythm.length] : undefined;
-      if (step?.aoe) return [{ kind: "circle", radius: step.aoe, forward: 0 }]; // the spin whirl swing
-      if (champ.attackType === "melee") return [{ kind: "cone", radius: me.attackRange + MELEE_OVERREACH + TR, half: MELEE_HALF_ANGLE }];
-      return [{ kind: "corridor", length: me.attackRange + 5, halfWidth: 0.5 }]; // ranged projectile line
+      if (step?.aoe) return [{ kind: "circle", radius: step.aoe, forward: 0 }]; // spin whirl
+      return this.placeShape(basicAttackShape(champ.attackType, me.attackRange), me.attackRange + 5);
     }
     if (!act) return [];
     const def = champ.abilities[act];
     if (!def) return [];
-    const v = (f: string): number => valAt(def.values[f], def.maxRank);
-    const cone = (deg: number, r: number): HitShape => ({ kind: "cone", radius: r, half: (deg / 2) * (Math.PI / 180) });
-    const corr = (hw: number): HitShape => ({ kind: "corridor", length: def.castRange, halfWidth: hw });
-    // ground-target abilities land at the cast point (aim clamped to castRange)
-    const groundFwd = (): number => { const d = this.dummy(); return d ? Math.min(def.castRange, Math.hypot(d.x - me.x, d.y - me.y)) : def.castRange; };
-    const atPoint = (): HitShape => ({ kind: "circle", radius: v("radius"), forward: groundFwd() });
-    const atSelf = (): HitShape => ({ kind: "circle", radius: v("radius"), forward: 0 });
+    const rank = Math.max(1, me.abilities[act]?.rank ?? def.maxRank);
+    return abilityShapes(def, rank).flatMap((s) => this.placeShape(s, def.castRange));
+  }
 
-    switch (def.effect) {
-      // ── frontal cones (center within castRange + t.radius, |angle| ≤ cone/2)
-      case "knight:Q":
-      case "blackknight:Q":
-        return [cone(v("cone"), def.castRange + TR)];
-      case "ranger:Q": // arrows fan over `spread`° out to castRange
-        return [cone(v("spread"), def.castRange)];
-      case "rogue:R": // dash to nearest enemy in front, then single strike
-        return [{ kind: "cone", radius: def.castRange + TR, half: ROGUE_EXECUTE_ARC }];
-      // ── corridors (line from the hero out to castRange, half-width perp)
-      case "knight:W":
-        return [corr(v("width") / 2 + TR)];
-      case "rogue:Q":
-        return [corr(ROGUE_LUNGE_WIDTH + TR)];
-      case "rogue:W":
-        return [corr(ROGUE_GASH_WIDTH + TR)];
-      case "knight:JUMP":
-      case "ranger:JUMP":
-      case "mage:JUMP":
-      case "rogue:JUMP":
-      case "blackknight:JUMP":
-      case "witch:JUMP":
-        return [corr(v("radius") + TR)]; // leap corridor
-      // ── projectiles: travel line + splash circle at impact
-      case "mage:Q":
-        return [corr(0.5), { kind: "circle", radius: v("radius"), forward: groundFwd() }];
-      case "witch:Q":
-        return [corr(0.5), { kind: "circle", radius: 1.8, forward: groundFwd() }];
-      // ── ground-target AoE circles (at the cast point)
-      case "mage:W":
-      case "mage:E":
-      case "mage:R":
-      case "ranger:E":
-      case "ranger:R":
-      case "blackknight:W":
-      case "witch:W":
-      case "witch:E":
-      case "witch:R":
-        return [atPoint()];
-      // ── self-centred AoE circles
-      case "knight:R":
-      case "blackknight:R":
-        return [atSelf()];
-      default:
-        return []; // dashes / shields / buffs / stealth — no damage surface
+  /** Position a sim HitShape in the hero's local frame for drawing: cone/corridor
+   *  widen by the target-radius margin; circleAt/projectile land ahead at the
+   *  cast point (toward the dummy); a projectile also draws its splash. */
+  private placeShape(s: HitShape, range: number): DrawShape[] {
+    const TR = ViewerScene.HIT_TARGET_R;
+    switch (s.kind) {
+      case "cone":
+        return [{ kind: "cone", radius: s.radius + TR, half: s.half }];
+      case "corridor":
+        return [{ kind: "corridor", length: s.length, halfWidth: s.halfWidth + TR }];
+      case "circleSelf":
+        return [{ kind: "circle", radius: s.radius, forward: 0 }];
+      case "circleAt":
+        return [{ kind: "circle", radius: s.radius, forward: this.castForward(range) }];
+      case "projectile": {
+        const out: DrawShape[] = [{ kind: "corridor", length: s.length, halfWidth: 0.5 }];
+        if (s.splash > 0) out.push({ kind: "circle", radius: s.splash, forward: this.castForward(range) });
+        return out;
+      }
     }
+  }
+
+  /** How far ahead a ground/projectile hit lands — at the dummy if in range. */
+  private castForward(range: number): number {
+    const me = this.hero();
+    const d = this.dummy();
+    return me && d ? Math.min(range, Math.hypot(d.x - me.x, d.y - me.y)) : range;
   }
 
   /** Draw/position the hit-surface overlay flat under the hero, oriented to aim. */
