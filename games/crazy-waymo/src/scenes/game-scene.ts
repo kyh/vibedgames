@@ -4,12 +4,15 @@ import { Sky } from "three/addons/objects/Sky.js";
 import { ModelCache } from "../assets/loader";
 import { allModelUrls } from "../assets/manifest";
 import { ChaseCamera } from "../fx/camera-rig";
+import { SkyClouds } from "../fx/clouds";
 import { SmashCones } from "../fx/cones";
 import { Debris } from "../fx/debris";
+import { LampGlow } from "../fx/lamp-glow";
 import { Fx } from "../fx/particles";
 import { Sfx } from "../fx/sfx";
 import { SkidMarks } from "../fx/skids";
 import { SpeedLines } from "../fx/speedlines";
+import { DriftTrails, Shockwaves } from "../fx/trails";
 import { FareManager, type FareEvent, tierColor, tierPayMult } from "../game/fares";
 import { GameState } from "../game/state";
 import { ParkedCars } from "../game/parked-cars";
@@ -18,6 +21,7 @@ import { InputState } from "../input/keyboard";
 import { NetSession } from "../net/session";
 import { RemoteCars } from "../net/remote-cars";
 import { PhysicsWorld } from "../physics/physics-world";
+import { DayNight } from "../render/day-night";
 import {
   CAMERA,
   CAR,
@@ -38,17 +42,17 @@ import { Hud } from "../ui/hud";
 import { Minimap, type MinimapMarker } from "../ui/minimap";
 import { setupTouch } from "../ui/touch";
 import { Car } from "../vehicle/car";
-import { CityModel, type Solid } from "../world/city";
+import { CityModel } from "../world/city";
 import { districtAt } from "../world/sf-map";
+import { SolidIndex } from "../world/solid-index";
 
 const HALF_PI = Math.PI / 2;
-// Afternoon sun direction (matches the Sky shader); the shadow light sits along it.
+// Initial sun direction — the DayNight cycle takes over from the first frame.
 const SUN_DIR = new THREE.Vector3().setFromSphericalCoords(
   1,
   THREE.MathUtils.degToRad(90 - 32),
   THREE.MathUtils.degToRad(150),
 );
-const SUN_OFFSET = SUN_DIR.clone().multiplyScalar(90);
 const NEAR_MISS_MIN = 2.8; // above the contact zone so a hit isn't also a "near miss"
 const NEAR_MISS_MAX = 4.6;
 const NEAR_MISS_SPEED = 22;
@@ -132,6 +136,12 @@ export class GameScene {
   private skids: SkidMarks | null = null;
   private debris: Debris | null = null;
   private speedLines = new SpeedLines();
+  private clouds = new SkyClouds();
+  private trails: DriftTrails | null = null;
+  private shocks = new Shockwaves();
+  private oceanTime = { value: 0 };
+  private dayNight: DayNight;
+  private lampGlow: LampGlow | null = null;
   private cones: SmashCones | null = null;
   private parked: ParkedCars | null = null;
   private minimap: Minimap | null = null;
@@ -154,9 +164,9 @@ export class GameScene {
   private hintDriftShown = storageGet(HINT_DRIFT_KEY) !== null;
   private hintBoostShown = storageGet(HINT_BOOST_KEY) !== null;
   private turnHold = 0;
-  // Static city solids only — traffic contact is handled by the physics punt
-  // path (the taxi shoves cars instead of bouncing off them like walls).
-  private allSolids: Solid[] = [];
+  // Static city solids only (grid-indexed) — traffic contact is handled by the
+  // physics punt path (the taxi shoves cars instead of bouncing off them).
+  private solidIndex: SolidIndex | null = null;
   private physics: PhysicsWorld | null = null;
   private hitStop = 0; // brief sim freeze for crash impact
   private spawn = { x: 0, z: 0, yaw: 0, gx: 0, gz: 0 };
@@ -189,13 +199,15 @@ export class GameScene {
     // Draw-distance fog: the map is far larger than the view, so haze the
     // horizon well inside the camera far plane (2000). Doubles as the visual cue
     // for the chunk draw-distance cull.
-    this.scene.fog = new THREE.Fog(0xbcd7ea, 420, 960);
+    const fog = new THREE.Fog(0xbcd7ea, 420, 960);
+    this.scene.fog = fog;
 
     const hemi = new THREE.HemisphereLight(0xbfe0ff, 0x4a4a3e, 0.35);
     this.scene.add(hemi);
-    this.scene.add(new THREE.AmbientLight(0xffffff, 0.08));
+    const ambient = new THREE.AmbientLight(0xffffff, 0.08);
+    this.scene.add(ambient);
 
-    this.sun.position.copy(SUN_OFFSET);
+    this.sun.position.copy(SUN_DIR).multiplyScalar(90);
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(2048, 2048);
     this.sun.shadow.camera.near = 1;
@@ -212,16 +224,60 @@ export class GameScene {
     this.scene.add(this.sun.target);
 
     // Ocean surrounding the island (reflects the sky via scene.environment).
-    const ocean = new THREE.Mesh(
-      new THREE.PlaneGeometry(9000, 9000),
-      new THREE.MeshStandardMaterial({ color: 0x3573a4, roughness: 0.32, metalness: 0.3 }),
-    );
+    // Two scrolling sine fields perturb the normal so the sky reflection
+    // shimmers — reads as swell without any extra geometry or texture.
+    const oceanMat = new THREE.MeshStandardMaterial({
+      color: 0x3573a4,
+      roughness: 0.32,
+      metalness: 0.3,
+    });
+    const oceanTime = this.oceanTime;
+    oceanMat.onBeforeCompile = (shader) => {
+      shader.uniforms.uOceanTime = oceanTime;
+      shader.vertexShader = shader.vertexShader
+        .replace("#include <common>", "#include <common>\nvarying vec3 vOceanPos;")
+        .replace(
+          "#include <begin_vertex>",
+          "#include <begin_vertex>\nvOceanPos = (modelMatrix * vec4(transformed, 1.0)).xyz;",
+        );
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          "#include <common>",
+          "#include <common>\nuniform float uOceanTime;\nvarying vec3 vOceanPos;",
+        )
+        .replace(
+          "#include <normal_fragment_begin>",
+          `#include <normal_fragment_begin>
+          {
+            vec2 wp = vOceanPos.xz;
+            float t = uOceanTime;
+            float nx = sin(wp.x * 0.115 + t * 1.3) * 0.5
+                     + sin(wp.x * 0.041 + wp.y * 0.053 - t * 0.62) * 0.5;
+            float nz = sin(wp.y * 0.093 - t * 1.05) * 0.5
+                     + sin((wp.x + wp.y) * 0.035 + t * 0.84) * 0.5;
+            normal = normalize(normal + vec3(nx, 0.0, nz) * 0.2);
+          }`,
+        );
+    };
+    const ocean = new THREE.Mesh(new THREE.PlaneGeometry(9000, 9000), oceanMat);
     ocean.rotation.x = -HALF_PI;
     ocean.position.y = -0.5;
     this.scene.add(ocean);
 
     this.fx.addTo(this.scene);
     this.scene.add(this.speedLines.object3D);
+    this.scene.add(this.clouds.group);
+    this.scene.add(this.shocks.group);
+
+    // Day-night cycle owns every light-related knob from the first frame.
+    this.dayNight = new DayNight({
+      sky: this.sky,
+      sun: this.sun,
+      hemi,
+      ambient,
+      fog,
+      scene: this.scene,
+    });
     setupTouch(this.input);
     this.hud.onCta(() => this.handleStartPress());
     this.hud.onMute(() => this.toggleMute());
@@ -232,6 +288,16 @@ export class GameScene {
 
   get camera(): THREE.PerspectiveCamera {
     return this.rig.camera;
+  }
+
+  // The shadow light — the perf governor steps its map size with quality tier.
+  get sunLight(): THREE.DirectionalLight {
+    return this.sun;
+  }
+
+  // False at night (shadows fully faded) — the render loop skips the pass.
+  get shadowsActive(): boolean {
+    return this.dayNight.shadowsActive;
   }
 
   // Used by the map editor (?editor=1) and DEV hooks.
@@ -253,6 +319,9 @@ export class GameScene {
     this.scene.environmentIntensity = 0.32; // the HDR sky is bright; keep fill subtle
     this.scene.add(this.sky); // move the sky back into the live scene
     pmrem.dispose();
+    // The env map is baked at daylight once; the cycle only modulates its
+    // intensity (a per-phase re-bake would hitch every few seconds).
+    this.dayNight.attachRenderer(renderer);
   }
 
   async load(): Promise<void> {
@@ -289,7 +358,7 @@ export class GameScene {
       physics,
     );
     this.scene.add(this.traffic.group);
-    this.allSolids = city.solids;
+    this.solidIndex = new SolidIndex(city.solids);
 
     // Parked cars: punt-able bodies (bounce when rammed), not static solids.
     this.parked = new ParkedCars(this.cache, city.parkedCarSpecs, physics, (x, z) =>
@@ -302,6 +371,10 @@ export class GameScene {
 
     this.skids = new SkidMarks((x, z) => city.heightAt(x, z));
     this.scene.add(this.skids.mesh);
+    this.trails = new DriftTrails((x, z) => city.heightAt(x, z));
+    this.scene.add(this.trails.mesh);
+    this.lampGlow = new LampGlow(city.lampHeads);
+    this.scene.add(this.lampGlow.group);
     this.debris = new Debris(this.cache, (x, z) => city.heightAt(x, z));
     this.scene.add(this.debris.group);
     this.cones = new SmashCones(this.cache, city, new Rng(777), physics);
@@ -353,6 +426,9 @@ export class GameScene {
     this.sfx.startMusic();
     this.state.reset();
     this.hud.resetScore(0);
+    // Re-roll the spawn each run — start somewhere new in the city.
+    const city = this.city;
+    if (city) this.spawn = this.computeSpawn(city);
     car.reset(this.spawn.x, this.spawn.z, this.spawn.yaw);
     this.traffic?.reset({ gx: this.spawn.gx, gz: this.spawn.gz }, 4);
     fares.reset(car.position.x, car.position.z);
@@ -377,7 +453,8 @@ export class GameScene {
     this.mode = { kind: "countdown", t: 0 };
   }
 
-  // Nearest road cell to the centre, facing an open road direction.
+  // A random road cell anywhere in the city (off the map rim) — every run
+  // starts in a fresh neighborhood.
   private computeSpawn(city: CityModel): {
     x: number;
     z: number;
@@ -385,16 +462,15 @@ export class GameScene {
     gx: number;
     gz: number;
   } {
-    const cx = (GRID_X - 1) / 2;
-    const cz = (GRID_Z - 1) / 2;
-    let bg = { gx: Math.round(cx), gz: Math.round(cz) };
-    let bd = Infinity;
-    for (const rc of city.roadCells) {
-      const d = Math.abs(rc.gx - cx) + Math.abs(rc.gz - cz);
-      if (d < bd) {
-        bd = d;
-        bg = { gx: rc.gx, gz: rc.gz };
-      }
+    let bg = { gx: Math.round((GRID_X - 1) / 2), gz: Math.round((GRID_Z - 1) / 2) };
+    for (let attempt = 0; attempt < 24; attempt++) {
+      const rc = city.roadCells[Math.floor(Math.random() * city.roadCells.length)];
+      if (!rc) continue;
+      const u = rc.gx / GRID_X;
+      const v = rc.gz / GRID_Z;
+      if (u < 0.06 || u > 0.94 || v < 0.06 || v > 0.94) continue;
+      bg = { gx: rc.gx, gz: rc.gz };
+      break;
     }
     const isRoad = (gx: number, gz: number): boolean => city.plan.cells[gx]?.[gz] === "road";
     let yaw = 0;
@@ -544,6 +620,16 @@ export class GameScene {
     this.hud.update(dt);
     this.fx.update(dt);
     this.skids?.update(dt);
+    this.trails?.update(dt);
+    this.shocks.update(dt);
+    this.clouds.update(dt);
+    this.oceanTime.value += dt;
+    // Day rolls on in every mode (title orbit included — sunsets sell there).
+    this.dayNight.update(dt);
+    const night = this.dayNight.lamp;
+    this.lampGlow?.setIntensity(night);
+    this.clouds.setNight(night);
+    this.car?.setHeadlights(night);
     this.debris?.update(dt);
     this.cones?.update(dt);
 
@@ -700,9 +786,12 @@ export class GameScene {
 
     // Hit-stop: freeze the sim for a beat after a hard crash so the blow lands.
     // Camera/HUD keep running on real time so it reads as impact, not a stutter.
+    const solids = this.solidIndex;
+    if (!solids) return;
+
     if (this.hitStop > 0) {
       this.hitStop = Math.max(0, this.hitStop - dt);
-      this.rig.update(dt, car, city.solids);
+      this.rig.update(dt, car, solids);
       this.updateSun();
       this.updateHud(car, fares);
       return;
@@ -710,7 +799,7 @@ export class GameScene {
 
     const input = this.input.carInput();
 
-    car.update(dt, input, this.allSolids);
+    car.update(dt, input, solids);
     this.handleTrafficImpacts(car, traffic);
     this.handleParkedImpacts(car);
     traffic.update(dt, city, car.position.x, car.position.z, car.heading);
@@ -742,6 +831,7 @@ export class GameScene {
     }
     if (drifting || car.isBoosting) this.emitDriftSmoke(dt, car);
     if (drifting && !car.airborne) this.stampSkids(car, dt);
+    this.emitTrails(car, drifting);
 
     // Drift charge tell: sparks turn cyan + a blip the moment the boost arms.
     const charged = car.driftCharge >= 1 && drifting;
@@ -754,6 +844,7 @@ export class GameScene {
       this.rig.addTrauma(0.18);
       this.hud.flash("#ffd147", 0.16);
       this.fx.burst(car.position.x, 0.6, car.position.z, 0.08, 8, 7);
+      this.shocks.fire(car.position.x, car.position.y, car.position.z, 0x8fe8ff);
       this.hud.showCombo("DRIFT BOOST!");
     }
 
@@ -761,6 +852,7 @@ export class GameScene {
     if (car.isBoosting && !this.wasBoosting) {
       this.sfx.boost();
       this.rig.addTrauma(0.12);
+      this.shocks.fire(car.position.x, car.position.y, car.position.z, 0xffb066);
     }
     this.wasBoosting = car.isBoosting;
     this.sfx.setBoostLoop(car.isBoosting);
@@ -875,7 +967,7 @@ export class GameScene {
     }
 
     if (!this.freecam) {
-      this.rig.update(dt, car, city.solids);
+      this.rig.update(dt, car, solids);
       // Keep the camera above the terrain (hills can rise behind the car).
       const cam = this.rig.camera;
       const minY = city.heightAt(cam.position.x, cam.position.z) + 2.5;
@@ -900,6 +992,25 @@ export class GameScene {
       this.silenceLoops();
       this.sfx.setScreech(1, 1); // one long farewell skid
     }
+  }
+
+  // Rear-wheel light ribbons: drift slides, charged drifts and boost runs each
+  // get their own color; fast grip-cornering leaves a faint streak too.
+  private emitTrails(car: Car, drifting: boolean): void {
+    const trails = this.trails;
+    if (!trails || car.airborne) return;
+    const cornering = Math.abs(car.slip) > 0.12 && car.speed > 20;
+    if (!drifting && !car.isBoosting && !cornering) return;
+    const kind = car.isBoosting ? 2 : car.driftCharge >= 1 && drifting ? 1 : 0;
+    const strength = Math.min(1, car.speed / CAR.maxSpeed);
+    const fx = Math.sin(car.heading);
+    const fz = Math.cos(car.heading);
+    const rx = car.position.x - fx * 1.6;
+    const rz = car.position.z - fz * 1.6;
+    const px = -fz;
+    const pz = fx;
+    trails.emit(0, rx + px * 0.7, rz + pz * 0.7, car.heading, kind, strength);
+    trails.emit(1, rx - px * 0.7, rz - pz * 0.7, car.heading, kind, strength);
   }
 
   private emitDriftSmoke(dt: number, car: Car): void {
@@ -1092,9 +1203,14 @@ export class GameScene {
     // Shadows follow the camera in freecam so any inspected spot is lit.
     const anchor = this.freecam ? this.rig.camera.position : this.car?.position;
     if (!anchor) return;
-    this.sun.position.copy(anchor).add(SUN_OFFSET);
+    this.sun.position.copy(anchor).add(this.dayNight.sunOffset);
     this.sun.target.position.copy(anchor);
     this.sun.target.updateMatrixWorld();
+  }
+
+  // DEV-only: jump the day-night cycle (night-look verification).
+  debugSetDayPhase(p: number): void {
+    this.dayNight.setPhase(p);
   }
 
   private updateHud(car: Car, fares: FareManager): void {

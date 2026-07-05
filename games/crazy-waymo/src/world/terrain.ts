@@ -136,8 +136,14 @@ export class Terrain {
 
   // A displaced ground mesh covering the island (the ocean plane sits below
   // it). `colorAt` grades the surface per vertex (sand, park green, concrete) —
-  // pair it with a vertexColors material.
-  buildMesh(material: THREE.Material, colorAt?: (x: number, z: number, into: THREE.Color) => void): THREE.Mesh {
+  // pair it with a vertexColors material. `offsetAt` shifts vertex height
+  // (city.ts depresses the ground under road cells so this mesh's coarse
+  // tessellation can never bow up through the finer draped asphalt).
+  buildMesh(
+    material: THREE.Material,
+    colorAt?: (x: number, z: number, into: THREE.Color) => void,
+    offsetAt?: (x: number, z: number) => number,
+  ): THREE.Mesh {
     const spanX = WORLD_W * 1.08;
     const spanZ = WORLD_H * 1.08;
     // The ground is one uncullable mesh spanning the whole map, so cap the
@@ -153,7 +159,7 @@ export class Terrain {
       for (let i = 0; i < pos.count; i++) {
         const px = pos.getX(i);
         const py = pos.getY(i); // after the -90° X rotation, local +Y → world -Z
-        pos.setZ(i, this.heightAt(px, -py));
+        pos.setZ(i, this.heightAt(px, -py) + (offsetAt ? offsetAt(px, -py) : 0));
         if (colors && colorAt) {
           colorAt(px, -py, c);
           colors[i * 3] = c.r;

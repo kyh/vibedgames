@@ -30,6 +30,8 @@ export type TaxiDebugApi = {
   } | null;
   // Force the run clock (endgame testing).
   setTime(seconds: number): void;
+  // Jump the day-night cycle to a phase (0..1; ~0.25 day, 0.47 sunset, 0.7 night).
+  setPhase(p: number): void;
   // Nearest resting cone (verification).
   nearestCone(): { u: number; v: number } | null;
   // Launch the nearest resting cone through the physics path (verification).
@@ -64,6 +66,9 @@ export function installDevHooks(game: GameScene): void {
     },
     setTime(seconds: number): void {
       game.debugSetTime(seconds);
+    },
+    setPhase(p: number): void {
+      game.debugSetDayPhase(p);
     },
     nearestCone() {
       return game.debugNearestCone();

@@ -2,7 +2,7 @@ import * as THREE from "three";
 
 import { CAMERA, CAR } from "../shared/constants";
 import type { Car } from "../vehicle/car";
-import type { Solid } from "../world/city";
+import type { SolidIndex } from "../world/solid-index";
 
 function lerpAngle(a: number, b: number, t: number): number {
   let d = ((b - a + Math.PI) % (Math.PI * 2)) - Math.PI;
@@ -48,7 +48,7 @@ export class ChaseCamera {
     this.camera.lookAt(this.look);
   }
 
-  update(dt: number, car: Car, solids: readonly Solid[]): void {
+  update(dt: number, car: Car, solids: SolidIndex): void {
     // Drift swing: bias the follow yaw toward the velocity direction during a
     // slide so the camera lags to the outside and you see the taxi's flank.
     let targetYaw = car.heading;
@@ -114,7 +114,7 @@ export class ChaseCamera {
 
   // March from the car to the desired camera spot; if the line crosses a
   // building footprint, pull the camera in so it never buries into a facade.
-  private avoidClip(carPos: THREE.Vector3, desired: THREE.Vector3, solids: readonly Solid[]): void {
+  private avoidClip(carPos: THREE.Vector3, desired: THREE.Vector3, solids: SolidIndex): void {
     const dx = desired.x - carPos.x;
     const dy = desired.y - carPos.y;
     const dz = desired.z - carPos.z;
@@ -124,14 +124,7 @@ export class ChaseCamera {
       const f = i / steps;
       const px = carPos.x + dx * f;
       const pz = carPos.z + dz * f;
-      let hit = false;
-      for (const s of solids) {
-        if (px > s.minX && px < s.maxX && pz > s.minZ && pz < s.maxZ) {
-          hit = true;
-          break;
-        }
-      }
-      if (hit) {
+      if (solids.hitAt(px, pz)) {
         t = Math.max(0.28, (i - 1) / steps);
         break;
       }

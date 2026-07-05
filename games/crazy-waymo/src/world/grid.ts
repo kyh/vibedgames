@@ -6,8 +6,10 @@ import {
   ROAD_STRAIGHT,
 } from "../assets/manifest";
 import { GRID_X, GRID_Z } from "../shared/constants";
+import { type DiagonalRun, findDiagonals } from "./diagonals";
 import { SF_STREET_MASK, streetMaskAt } from "./sf-streets";
 import { isLandCell } from "./sf-map";
+import { thinStreets } from "./thin-streets";
 import {
   type Dir,
   DIR_DELTA,
@@ -34,6 +36,10 @@ export type CityPlan = {
   readonly roads: readonly (readonly (RoadResolved | null)[])[];
   readonly buildingCells: readonly BuildingCell[];
   readonly greenCells: readonly GreenCell[];
+  // Staircase corridors (Market-style diagonals): these cells render as
+  // diagonal avenues; furniture/fares stay off them. Logical network unchanged.
+  readonly diagonalCells: ReadonlySet<string>;
+  readonly diagonalRuns: readonly DiagonalRun[];
 };
 
 // Native connection masks (N=-Z,E=+X,S=+Z,W=-X) for the KayKit street tiles,
@@ -84,10 +90,19 @@ export function generateCity(): CityPlan {
     );
   }
 
+  // Land-clipped raster, then thinned to 1-cell-wide streets: the supercover
+  // rasterizer leaves wide boulevards and close parallel ways 2 cells thick,
+  // which the autotiler renders as stacked streets / junction plazas.
+  const rawGrid = new Uint8Array(GRID_X * GRID_Z);
+  for (let gx = 0; gx < GRID_X; gx++) {
+    for (let gz = 0; gz < GRID_Z; gz++) {
+      if (isLandCell(gx, gz) && streetMaskAt(gx, gz)) rawGrid[gx * GRID_Z + gz] = 1;
+    }
+  }
+  thinStreets(rawGrid, GRID_X, GRID_Z);
   const isRoadRaw = (gx: number, gz: number): boolean => {
     if (gx < 0 || gz < 0 || gx >= GRID_X || gz >= GRID_Z) return false;
-    if (!isLandCell(gx, gz)) return false; // roads stop at the shoreline
-    return streetMaskAt(gx, gz);
+    return rawGrid[gx * GRID_Z + gz] === 1;
   };
 
   // The real street grid is one connected network, but the shoreline cut above
@@ -175,5 +190,16 @@ export function generateCity(): CityPlan {
     roads[gx] = roadCol;
   }
 
-  return { sizeX: GRID_X, sizeZ: GRID_Z, cells, roads, buildingCells, greenCells };
+  const diagonals = findDiagonals(isRoad, GRID_X, GRID_Z);
+
+  return {
+    sizeX: GRID_X,
+    sizeZ: GRID_Z,
+    cells,
+    roads,
+    buildingCells,
+    greenCells,
+    diagonalCells: diagonals.cells,
+    diagonalRuns: diagonals.runs,
+  };
 }

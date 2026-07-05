@@ -250,7 +250,11 @@ export class FareManager {
 
   private pickCell(from: RoadCell, min: number, max: number): RoadCell {
     const cells = this.city.roadCells;
+    const diag = this.city.plan.diagonalCells;
     const inRange = cells.filter((c) => {
+      // Diagonal avenues render as open asphalt with no sidewalk — a customer
+      // standing there reads as loitering mid-road.
+      if (diag.has(`${c.gx},${c.gz}`)) return false;
       const d = this.cellDistance(from, c);
       return d >= min && d <= max;
     });
@@ -296,9 +300,11 @@ export class FareManager {
 
   private spawnWaiting(near: RoadCell): void {
     // The very first customer of a run stands close — the first full loop
-    // (pickup → dropoff → $$$ → +time) must land inside ~30 seconds.
-    const min = this.firstSpawn ? 3 : 5;
-    const max = this.firstSpawn ? FARE.firstSeekMax : 12;
+    // (pickup → dropoff → $$$ → +time) must land inside ~30 seconds. After
+    // that, customers scatter across a wide ring so pickups pull the taxi
+    // all over the city instead of orbiting one block.
+    const min = this.firstSpawn ? 3 : FARE.seekMin;
+    const max = this.firstSpawn ? FARE.firstSeekMax : FARE.seekMax;
     this.firstSpawn = false;
     const cell = this.pickCell(near, min, max);
     // Don't stack two customers on the same cell.

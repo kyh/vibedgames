@@ -17,9 +17,7 @@ import {
   DRAW_DISTANCE,
   GRID_X,
   GRID_Z,
-  ROAD_ROT_SIGN,
   ROAD_TILE,
-  ROAD_Y,
   WORLD_H,
   WORLD_HALF_X,
   WORLD_HALF_Z,
@@ -29,7 +27,7 @@ import { Rng } from "../shared/rng";
 import { type Dir, DIR_DELTA, E, N, S, W } from "../shared/types";
 import { conformToTerrain, toFloat32Attributes } from "./conform";
 import { CUSTOM_PROPS } from "./custom-props";
-import { buildFurniture, type ParkedSpec } from "./furniture";
+import { buildFurniture, type LampHead, type ParkedSpec } from "./furniture";
 import { buildGoldenGate } from "./golden-gate";
 import { type CityPlan, generateCity } from "./grid";
 import { buildRoads } from "./roads";
@@ -45,6 +43,14 @@ export type Solid = {
   // World-space top of the obstacle, when it CAN be jumped over (traffic).
   // Absent = infinitely tall (buildings, walls).
   readonly maxY?: number;
+  // Rotation about the box CENTRE (three.js rotation.y convention). min/max
+  // describe the UNROTATED box; consumers (car collision, camera clip,
+  // physics) transform into the box's local frame. Absent = axis-aligned.
+  readonly yaw?: number;
+  // Skip the Rapier static collider (car/camera still collide). Used for the
+  // thousands of tree trunks — punted debris passing through a tree is
+  // invisible; ten thousand extra broadphase boxes is not.
+  readonly noBody?: boolean;
 };
 
 export type RoadCell = { readonly gx: number; readonly gz: number };
@@ -94,6 +100,7 @@ export class CityModel {
   readonly plan: CityPlan;
   readonly terrain: Terrain;
   parkedCarSpecs: readonly ParkedSpec[] = []; // punt-able parked cars (built by furniture)
+  lampHeads: readonly LampHead[] = []; // streetlight glow anchors (night pass)
   private chunks: Chunk[] = [];
   // Global model batches; instances flip visibility by chunk on transitions.
   private batches: { mesh: THREE.BatchedMesh; chunkIds: Uint16Array }[] = [];
@@ -189,23 +196,12 @@ export class CityModel {
         if (c instanceof THREE.Mesh) staticMeshes.push(c);
       });
     };
-    // Bake an object's meshes to world space, drape them over the terrain
-    // (subdivide + displace through the shared height field), and collect the
-    // result. Used for anything that must hug the hills: roads, grass.
-    const collectConformed = (obj: THREE.Object3D, lift: number): void => {
-      obj.updateMatrixWorld(true);
-      obj.traverse((c) => {
-        if (!(c instanceof THREE.Mesh) || !(c.geometry instanceof THREE.BufferGeometry)) return;
-        const mat = c.material;
-        if (Array.isArray(mat)) return;
-        const baked = c.geometry.clone();
-        toFloat32Attributes(baked); // dequantize BEFORE baking world coords
-        baked.applyMatrix4(c.matrixWorld);
-        const draped = conformToTerrain(baked, this.terrain, lift);
-        const conformed = new THREE.Mesh(draped, mat);
-        conformed.userData.merge = true; // unique buffers — merge, don't batch
-        staticMeshes.push(conformed);
-      });
+
+    // Large tree trunks are REAL (arcade collision, no physics body) — the
+    // taxi bounces off a tree instead of ghosting through the canopy.
+    const treeSolid = (tx: number, tz: number): void => {
+      const h = 0.55;
+      this.solids.push({ minX: tx - h, maxX: tx + h, minZ: tz - h, maxZ: tz + h, noBody: true });
     };
 
     // Grass patch + scattered trees on a cell (parks + block interiors).
@@ -218,7 +214,8 @@ export class CityModel {
       if (this.rng.chance(0.55)) {
         const count = 1 + this.rng.int(2);
         for (let i = 0; i < count; i++) {
-          const treeUrl = modelUrl("props", this.rng.chance(0.6) ? TREE_LARGE : TREE_SMALL);
+          const large = this.rng.chance(0.6);
+          const treeUrl = modelUrl("props", large ? TREE_LARGE : TREE_SMALL);
           const tb = this.cache.bounds(treeUrl);
           const tsc = (ROAD_TILE * 0.42) / Math.max(tb.size.y, 0.001);
           const tree = this.cache.instance(treeUrl);
@@ -228,6 +225,7 @@ export class CityModel {
           tree.position.set(tx, this.terrain.heightAt(tx, tz), tz);
           tree.rotation.y = this.rng.range(0, Math.PI * 2);
           collect(tree);
+          if (large) treeSolid(tx, tz);
         }
       }
     };
@@ -249,22 +247,103 @@ export class CityModel {
     const lm = landmarkProtection(this.plan);
     for (const s of lm.solids) this.solids.push(s);
 
-    // --- Buildings (district-driven pool, palette tint, height) ---
-    for (const b of this.plan.buildingCells) {
-      const cellId = `${b.gx},${b.gz}`;
-      if (lm.reserved.has(cellId)) continue; // a landmark stands here
-      const district = districtAt(b.gx, b.gz);
-      const wx = this.worldX(b.gx);
-      const wz = this.worldZ(b.gz);
-      if (district.character === "park" || lm.parkGreen.has(cellId)) {
-        placeGreen(b.gx, b.gz); // park frontage → green, drivable (no solid)
-        continue;
+    // --- Avenue frontage: lots that face a diagonal-run road cell align to
+    // the run's SPINE like real SF — facade parallel to the street, pulled to
+    // a consistent setback — instead of sitting axis-aligned with a corner
+    // jutting at the avenue. ---
+    const spineWorld = this.plan.diagonalRuns.map((run) =>
+      run.spine.map((p) => ({ x: this.worldX(p.gx), z: this.worldZ(p.gz) })),
+    );
+    const cellToRun = new Map<string, number>();
+    this.plan.diagonalRuns.forEach((run, i) => {
+      for (const c of run.cells) {
+        const k = `${c.gx},${c.gz}`;
+        if (!cellToRun.has(k)) cellToRun.set(k, i);
       }
+    });
+    // Facade centre sits AVENUE_SETBACK from the spine; the lot can be pulled
+    // at most NUDGE_MAX from its own centre so neighbours never collide.
+    const AVENUE_SETBACK = ROAD_TILE * 0.88;
+    const NUDGE_MAX = 3.0;
+    type AvenuePose = { x: number; z: number; yaw: number };
+    const avenuePose = (gx: number, gz: number, faceDir: Dir): AvenuePose | null => {
+      const [fdx, fdz] = DIR_DELTA[faceDir];
+      const runIdx = cellToRun.get(`${gx + fdx},${gz + fdz}`);
+      if (runIdx === undefined) return null;
+      const line = spineWorld[runIdx];
+      if (!line || line.length < 2) return null;
+      const cx = this.worldX(gx);
+      const cz = this.worldZ(gz);
+      // Closest point + tangent on the spine polyline.
+      let px = 0;
+      let pz = 0;
+      let tx = 1;
+      let tz = 0;
+      let bd = Infinity;
+      for (let i = 0; i + 1 < line.length; i++) {
+        const a = line[i];
+        const b = line[i + 1];
+        if (!a || !b) continue;
+        const dx = b.x - a.x;
+        const dz = b.z - a.z;
+        const l2 = dx * dx + dz * dz;
+        const t =
+          l2 > 1e-8 ? THREE.MathUtils.clamp(((cx - a.x) * dx + (cz - a.z) * dz) / l2, 0, 1) : 0;
+        const qx = a.x + dx * t;
+        const qz = a.z + dz * t;
+        const d = (qx - cx) * (qx - cx) + (qz - cz) * (qz - cz);
+        if (d < bd) {
+          bd = d;
+          px = qx;
+          pz = qz;
+          const dl = Math.sqrt(l2) || 1;
+          tx = dx / dl;
+          tz = dz / dl;
+        }
+      }
+      // Facade normal: spine perpendicular pointing at the lot.
+      let nx = -tz;
+      let nz = tx;
+      if (nx * (cx - px) + nz * (cz - pz) < 0) {
+        nx = -nx;
+        nz = -nz;
+      }
+      // Front of the building looks back at the spine (−n).
+      const yaw = Math.atan2(-nx, -nz);
+      let ax = px + nx * AVENUE_SETBACK;
+      let az = pz + nz * AVENUE_SETBACK;
+      const mx = ax - cx;
+      const mz = az - cz;
+      const ml = Math.hypot(mx, mz);
+      if (ml > NUDGE_MAX) {
+        ax = cx + (mx / ml) * NUDGE_MAX;
+        az = cz + (mz / ml) * NUDGE_MAX;
+      }
+      return { x: ax, z: az, yaw };
+    };
+
+    // One building on a lot cell: pool/palette by district, seated on the
+    // hill's high corner with a plinth, solid footprint. `footprint` is the
+    // target size as a fraction of the tile; frontage rows run larger than
+    // block-interior infill. Avenue-frontage lots pass a pose (rotated to the
+    // spine + setback). Returns false when the grade is too steep (the lot
+    // goes green instead).
+    const placeBuilding = (
+      gx: number,
+      gz: number,
+      faceDir: Dir,
+      footprintFrac: number,
+      dressing: boolean, // rooftop towers + curbside trees (frontage only)
+      pose: AvenuePose | null = null,
+    ): boolean => {
+      const district = districtAt(gx, gz);
+      const wx = pose ? pose.x : this.worldX(gx);
+      const wz = pose ? pose.z : this.worldZ(gz);
       const key = this.rng.pick(this.poolFor(district.character));
       const url = modelUrl("buildings", key);
       const bounds = this.cache.bounds(url);
       const footprint = Math.max(bounds.size.x, bounds.size.z, 0.001);
-      const targetFootprint = ROAD_TILE * this.rng.range(0.74, 0.86); // fill lots, less bare ground
+      const targetFootprint = ROAD_TILE * footprintFrac;
       const scale = targetFootprint / footprint;
       const node = this.cache.instance(url);
       // Victorians go narrow and tall — the SF row-house silhouette.
@@ -272,7 +351,7 @@ export class CityModel {
       const sxz = scale * (vict ? 0.75 : 1);
       const sy = scale * this.heightScaleFor(district.character) * (vict ? 1.4 : 1);
       node.scale.set(sxz, sy, sxz);
-      node.rotation.y = dirToYaw(b.faceDir) + BUILDING_FRONT_OFFSET;
+      node.rotation.y = (pose ? pose.yaw : dirToYaw(faceDir)) + BUILDING_FRONT_OFFSET;
       // Buildings stay vertical. Seat at the HIGHEST corner so the hill never
       // cuts through walls; a concrete plinth fills the downhill gap (stilted
       // SF hillside foundations). Extreme grades get greenery instead.
@@ -301,12 +380,13 @@ export class CityModel {
           steepTree.rotation.y = this.rng.range(0, Math.PI * 2);
           collect(steepTree);
         }
-        continue;
+        return false;
       }
       if (drop > 0.7) {
         const plinth = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
         const ph = drop + 0.8;
         plinth.scale.set(targetFootprint * 0.98, ph, targetFootprint * 0.98);
+        if (pose) plinth.rotation.y = pose.yaw; // follow the rotated building
         plinth.position.set(wx, seatY - 0.1 - ph / 2, wz);
         plinth.updateMatrixWorld(true);
         collect(plinth);
@@ -315,9 +395,18 @@ export class CityModel {
       this.tintNode(node, this.rng.pick(paletteFor(district)), tintAmountFor(district));
       collect(node);
 
-      // Solid footprint (a touch smaller than the visual so curbs are forgiving).
+      // Solid footprint (a touch smaller than the visual so curbs are
+      // forgiving); avenue buildings carry their rotation as an OBB.
       const half = (targetFootprint / 2) * 0.96;
-      this.solids.push({ minX: wx - half, maxX: wx + half, minZ: wz - half, maxZ: wz + half });
+      this.solids.push({
+        minX: wx - half,
+        maxX: wx + half,
+        minZ: wz - half,
+        maxZ: wz + half,
+        ...(pose ? { yaw: pose.yaw } : {}),
+      });
+
+      if (!dressing) return true;
 
       // Rooftop watertower — the classic city-builder silhouette — on some
       // mid-rise commercial roofs.
@@ -343,8 +432,9 @@ export class CityModel {
 
       // Occasional curbside tree, nudged toward the street.
       if (this.rng.chance(0.3)) {
-        const [dx, dz] = DIR_DELTA[b.faceDir];
-        const treeUrl = modelUrl("props", this.rng.chance(0.5) ? TREE_LARGE : TREE_SMALL);
+        const [dx, dz] = DIR_DELTA[faceDir];
+        const large = this.rng.chance(0.5);
+        const treeUrl = modelUrl("props", large ? TREE_LARGE : TREE_SMALL);
         const tb = this.cache.bounds(treeUrl);
         const ts = (ROAD_TILE * 0.32) / Math.max(tb.size.y, 0.001);
         const tree = this.cache.instance(treeUrl);
@@ -354,11 +444,58 @@ export class CityModel {
         tree.position.set(tx, this.terrain.heightAt(tx, tz), tz);
         tree.rotation.y = this.rng.range(0, Math.PI * 2);
         collect(tree);
+        if (large) treeSolid(tx, tz);
       }
+      return true;
+    };
+
+    // --- Buildings (district-driven pool, palette tint, height) ---
+    for (const b of this.plan.buildingCells) {
+      const cellId = `${b.gx},${b.gz}`;
+      if (lm.reserved.has(cellId)) continue; // a landmark stands here
+      if (districtAt(b.gx, b.gz).character === "park" || lm.parkGreen.has(cellId)) {
+        placeGreen(b.gx, b.gz); // park frontage → green, drivable (no solid)
+        continue;
+      }
+      const pose = avenuePose(b.gx, b.gz, b.faceDir);
+      // Rotated lots go slightly smaller so the turned square + setback nudge
+      // stays inside the 13u lot.
+      placeBuilding(
+        b.gx,
+        b.gz,
+        b.faceDir,
+        pose ? this.rng.range(0.6, 0.7) : this.rng.range(0.74, 0.86),
+        !pose,
+        pose,
+      );
     }
 
-    // --- Green block interiors ---
-    for (const g of this.plan.greenCells) placeGreen(g.gx, g.gz);
+    // --- Green block interiors: real SF blocks are packed back-to-back, so
+    // the row directly behind a frontage gets infill houses (slightly smaller,
+    // facing the same street). Deeper cells and parks stay green. ---
+    const frontageDirs = new Map<string, Dir>();
+    for (const b of this.plan.buildingCells) frontageDirs.set(`${b.gx},${b.gz}`, b.faceDir);
+    for (const g of this.plan.greenCells) {
+      const cellId = `${g.gx},${g.gz}`;
+      if (!lm.reserved.has(cellId) && !lm.parkGreen.has(cellId)) {
+        const district = districtAt(g.gx, g.gz);
+        if (district.character !== "park") {
+          let face: Dir | null = null;
+          for (const d of [N, E, S, W] as const) {
+            const [dx, dz] = DIR_DELTA[d];
+            const f = frontageDirs.get(`${g.gx + dx},${g.gz + dz}`);
+            if (f !== undefined) {
+              face = f;
+              break;
+            }
+          }
+          if (face !== null && this.rng.chance(0.6)) {
+            if (placeBuilding(g.gx, g.gz, face, this.rng.range(0.6, 0.74), false)) continue;
+          }
+        }
+      }
+      placeGreen(g.gx, g.gz);
+    }
 
     // --- Street furniture: lights, parked cars, yards, awnings, smokestacks,
     // construction chicanes, park allées, wharf piers + seawall. ---
@@ -375,6 +512,7 @@ export class CityModel {
     for (const s of fr.solids) this.solids.push(s);
     this.addDecks(fr.pierDecks);
     this.parkedCarSpecs = fr.parkedCars;
+    this.lampHeads = fr.lampHeads;
 
     // --- The drivable Golden Gate: ramp off the Presidio coast road onto an
     // orange deck over the strait, out to a railed vista turnaround. ---
@@ -432,20 +570,35 @@ export class CityModel {
     const SAND = new THREE.Color(0xd9c9a1);
     const PARK = new THREE.Color(0x74975c);
     const greenSet = new Set(this.plan.greenCells.map((g) => `${g.gx},${g.gz}`));
-    const ground = this.terrain.buildMesh(groundMat, (x, z, into) => {
-      into.copy(CONCRETE);
-      const gx = Math.min(GRID_X - 1, Math.max(0, this.gridX(x)));
-      const gz = Math.min(GRID_Z - 1, Math.max(0, this.gridZ(z)));
-      if (districtAt(gx, gz).character === "park" || greenSet.has(`${gx},${gz}`)) {
-        into.lerp(PARK, 0.8);
-      }
-      const land = this.terrain.landAt(x, z);
-      const shore = 1 - THREE.MathUtils.smoothstep(land, 0.3, 0.55);
-      if (shore > 0) {
-        const u = x / WORLD_W + 0.5;
-        into.lerp(SAND, u < 0.12 ? shore : shore * 0.5); // Ocean Beach reads strongest
-      }
-    });
+    const ground = this.terrain.buildMesh(
+      groundMat,
+      (x, z, into) => {
+        into.copy(CONCRETE);
+        const gx = Math.min(GRID_X - 1, Math.max(0, this.gridX(x)));
+        const gz = Math.min(GRID_Z - 1, Math.max(0, this.gridZ(z)));
+        if (districtAt(gx, gz).character === "park" || greenSet.has(`${gx},${gz}`)) {
+          into.lerp(PARK, 0.8);
+        }
+        const land = this.terrain.landAt(x, z);
+        const shore = 1 - THREE.MathUtils.smoothstep(land, 0.3, 0.55);
+        if (shore > 0) {
+          const u = x / WORLD_W + 0.5;
+          into.lerp(SAND, u < 0.12 ? shore : shore * 0.5); // Ocean Beach reads strongest
+        }
+      },
+      // Depress the ground under road cells: this mesh tessellates the height
+      // field ~4× coarser than the draped roads, and on tight hills (Corona
+      // Heights, Buena Vista) its linear interpolation bows up to ~0.25u ABOVE
+      // the true field — up through the asphalt ("the road clips under the
+      // hill"). Sinking road-cell vertices keeps the bow permanently below the
+      // road surface; sidewalks span to the tile edge so the dip never shows.
+      (x, z) => {
+        const gx = this.gridX(x);
+        const gz = this.gridZ(z);
+        if (gx < 0 || gz < 0 || gx >= GRID_X || gz >= GRID_Z) return 0;
+        return this.plan.cells[gx]?.[gz] === "road" ? -0.35 : 0;
+      },
+    );
     ground.name = "terrain-ground"; // the map editor raycasts against this
     this.group.add(ground);
 

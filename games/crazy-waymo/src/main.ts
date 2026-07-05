@@ -1,5 +1,6 @@
 import * as THREE from "three";
 
+import { PerfGovernor } from "./render/perf-governor";
 import { GameScene } from "./scenes/game-scene";
 import { MAX_DT } from "./shared/constants";
 
@@ -47,11 +48,31 @@ window.addEventListener("resize", () => {
   game.resize(window.innerWidth / window.innerHeight, renderHeightPx());
 });
 
+// Adaptive quality: steps pixel ratio (and shadow size at the floor) to hold
+// frame rate on slower GPUs. Feeds on RAW deltas — the clamped game dt hides
+// exactly the slowness it needs to see.
+const governor = new PerfGovernor(renderer, game.sunLight, () => {
+  game.resize(window.innerWidth / window.innerHeight, renderHeightPx());
+});
+
+// Shadow scoping: at the governor's lower tiers the shadow map re-renders
+// every OTHER frame — the light follows the car smoothly enough that a
+// half-rate shadow is invisible, and it returns a full shadow pass of GPU
+// time exactly when the machine needs it.
+renderer.shadowMap.autoUpdate = false;
+let frameParity = false;
+
 const timer = new THREE.Timer();
 renderer.setAnimationLoop((t) => {
   timer.update(t);
-  const dt = Math.min(timer.getDelta(), MAX_DT);
+  const raw = timer.getDelta();
+  governor.update(raw);
+  const dt = Math.min(raw, MAX_DT);
   game.update(dt);
+  frameParity = !frameParity;
+  renderer.shadowMap.needsUpdate =
+    governor.consumeShadowInvalidate() ||
+    (game.shadowsActive && (governor.currentTier < 2 || frameParity));
   renderer.render(game.scene, game.camera);
 });
 

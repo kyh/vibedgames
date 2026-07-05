@@ -70,18 +70,27 @@ export class PhysicsWorld {
     this.world.createCollider(RAPIER.ColliderDesc.trimesh(verts, indices).setFriction(0.9), body);
   }
 
-  // City solids (buildings, walls, railings) as tall static boxes.
+  // City solids (buildings, walls, railings) as tall static boxes; rotated
+  // solids (avenue-aligned buildings) carry their yaw onto the body.
   addStaticSolids(solids: readonly Solid[], terrain: Terrain): void {
     for (const s of solids) {
+      if (s.noBody) continue; // tree trunks etc — arcade-collision only
       const cx = (s.minX + s.maxX) / 2;
       const cz = (s.minZ + s.maxZ) / 2;
       if (Math.abs(cx) > WORLD_HALF_X + 30 || Math.abs(cz) > WORLD_HALF_Z + 30) continue;
       const hx = Math.max(0.1, (s.maxX - s.minX) / 2);
       const hz = Math.max(0.1, (s.maxZ - s.minZ) / 2);
       const base = terrain.heightAt(cx, cz);
-      const body = this.world.createRigidBody(
-        RAPIER.RigidBodyDesc.fixed().setTranslation(cx, base + STATIC_HALF_HEIGHT - 1, cz),
+      const desc = RAPIER.RigidBodyDesc.fixed().setTranslation(
+        cx,
+        base + STATIC_HALF_HEIGHT - 1,
+        cz,
       );
+      const yaw = s.yaw ?? 0;
+      if (yaw !== 0) {
+        desc.setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) });
+      }
+      const body = this.world.createRigidBody(desc);
       this.world.createCollider(
         RAPIER.ColliderDesc.cuboid(hx, STATIC_HALF_HEIGHT, hz).setFriction(0.6),
         body,

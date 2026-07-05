@@ -52,6 +52,64 @@ function quad(x0: number, z0: number, x1: number, z1: number): THREE.BufferGeome
   return geo;
 }
 
+// A flat +Y triangle in world space (winding fixed up to face +Y).
+function tri(
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+  cx: number,
+  cz: number,
+): THREE.BufferGeometry {
+  // Upward normal needs (b-a)×(c-a) with positive y.
+  const crossY = (bz - az) * (cx - ax) - (bx - ax) * (cz - az);
+  const p =
+    crossY >= 0
+      ? [ax, 0, az, bx, 0, bz, cx, 0, cz]
+      : [ax, 0, az, cx, 0, cz, bx, 0, bz];
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(p), 3));
+  const nor = new Float32Array(9);
+  for (let i = 0; i < 3; i++) nor[i * 3 + 1] = 1;
+  geo.setAttribute("normal", new THREE.BufferAttribute(nor, 3));
+  geo.setAttribute("uv", new THREE.BufferAttribute(new Float32Array([0, 0, 0, 1, 1, 1]), 2));
+  return geo;
+}
+
+// A flat +Y strip quad between two world points with a half-width — the
+// diagonal counterpart of quad(). Same winding/attribute layout.
+function stripQuad(
+  x0: number,
+  z0: number,
+  x1: number,
+  z1: number,
+  halfW: number,
+): THREE.BufferGeometry {
+  const dx = x1 - x0;
+  const dz = z1 - z0;
+  const len = Math.hypot(dx, dz) || 1;
+  const px = (-dz / len) * halfW;
+  const pz = (dx / len) * halfW;
+  // Corners mapped like quad()'s (x0,z0)/(x0,z1)/(x1,z1)/(x1,z0) pattern.
+  const ax = x0 - px;
+  const az = z0 - pz;
+  const bx = x0 + px;
+  const bz = z0 + pz;
+  const cx = x1 + px;
+  const cz = z1 + pz;
+  const dx2 = x1 - px;
+  const dz2 = z1 - pz;
+  const geo = new THREE.BufferGeometry();
+  const pos = new Float32Array([ax, 0, az, bx, 0, bz, cx, 0, cz, ax, 0, az, cx, 0, cz, dx2, 0, dz2]);
+  const nor = new Float32Array(18);
+  for (let i = 0; i < 6; i++) nor[i * 3 + 1] = 1;
+  const uv = new Float32Array([0, 0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 0]);
+  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute("normal", new THREE.BufferAttribute(nor, 3));
+  geo.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+  return geo;
+}
+
 // A curb: a thin raised box strip (axis-aligned).
 function curb(x0: number, z0: number, x1: number, z1: number): THREE.BufferGeometry {
   const geo = new THREE.BoxGeometry(x1 - x0, CURB_H, z1 - z0);
@@ -71,6 +129,17 @@ export function buildRoads(plan: CityPlan, terrain: Terrain): THREE.Mesh[] {
   for (let gx = 0; gx < GRID_X; gx++) {
     for (let gz = 0; gz < GRID_Z; gz++) {
       if (!isRoad(gx, gz)) continue;
+      // Diagonal-run cells: one full-tile asphalt slab — the sawtooth of
+      // per-arm asphalt/sidewalk/curbs is exactly what reads jagged on a
+      // staircase. The run's chord markings are emitted after this loop.
+      if (plan.diagonalCells.has(`${gx},${gz}`)) {
+        parts.push({
+          geo: quad(wx(gx) - half, wz(gz) - half, wx(gx) + half, wz(gz) + half),
+          mat: MAT_ASPHALT,
+          lift: ASPHALT_LIFT,
+        });
+        continue;
+      }
       let mask: Mask = 0;
       for (const d of [N, E, S, W] as const) {
         const [dx, dz] = DIR_DELTA[d];
@@ -223,6 +292,106 @@ export function buildRoads(plan: CityPlan, terrain: Terrain): THREE.Mesh[] {
           parts.push({ geo: quad(cx - half, cz - lw, cx - aHalf, cz + lw), mat: MAT_YELLOW, lift: LINE_LIFT });
         if (conn.e)
           parts.push({ geo: quad(cx + aHalf, cz - lw, cx + half, cz + lw), mat: MAT_YELLOW, lift: LINE_LIFT });
+      }
+    }
+  }
+
+  // --- Diagonal avenue markings: yellow dashes + white edge lines along each
+  // run's RDP spine — the same straightened centreline traffic drives, so the
+  // painted lane IS the driving line. ---
+  const EDGE_DIAG = ROAD_TILE * 0.3; // inside the tile-union pinch points
+  const lw = LINE_W / 2;
+  const CHAMFER = ROAD_TILE * 0.48; // leg length of the elbow-notch fill
+  for (const run of plan.diagonalRuns) {
+    const cells = run.cells;
+    const first = cells[0];
+    const last = cells[cells.length - 1];
+    if (!first || !last) continue;
+
+    // Chamfer the inner elbow of every staircase step: where the path turns
+    // around a tile corner, a square lawn notch pokes into the avenue — a 45°
+    // asphalt triangle across the notch smooths the sawtooth silhouette.
+    for (let i = 2; i < cells.length; i++) {
+      const a = cells[i - 2];
+      const b = cells[i - 1];
+      const c = cells[i];
+      if (!a || !b || !c) continue;
+      const s1x = b.gx - a.gx;
+      const s1z = b.gz - a.gz;
+      const s2x = c.gx - b.gx;
+      const s2z = c.gz - b.gz;
+      if ((s1x !== 0) === (s2x !== 0)) continue; // straight-through, no elbow
+      // Corner of tile b where tiles a and c touch; the notch opens from it
+      // along (-step1, +step2).
+      const px = wx(b.gx) + ((-s1x + s2x) * ROAD_TILE) / 2;
+      const pz = wz(b.gz) + ((-s1z + s2z) * ROAD_TILE) / 2;
+      parts.push({
+        geo: tri(
+          px,
+          pz,
+          px - s1x * CHAMFER,
+          pz - s1z * CHAMFER,
+          px + s2x * CHAMFER,
+          pz + s2z * CHAMFER,
+        ),
+        mat: MAT_ASPHALT,
+        lift: ASPHALT_LIFT,
+      });
+    }
+    // worldX/worldZ arithmetic works for the spine's fractional grid coords.
+    const pts: [number, number][] = run.spine.map((p) => [wx(p.gx), wz(p.gz)]);
+
+    // Dashes by global arclength; a dash spanning a polyline joint renders as
+    // a straight chord across it (2.2u dashes — the cut is invisible).
+    const cum: number[] = [0];
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const a = pts[i];
+      const b = pts[i + 1];
+      const prev = cum[i] ?? 0;
+      cum.push(prev + (a && b ? Math.hypot(b[0] - a[0], b[1] - a[1]) : 0));
+    }
+    const total = cum[cum.length - 1] ?? 0;
+    const pointAt = (s: number): readonly [number, number] => {
+      for (let i = 0; i + 1 < pts.length; i++) {
+        const s0 = cum[i] ?? 0;
+        const s1 = cum[i + 1] ?? 0;
+        if (s > s1 && i + 2 < pts.length) continue;
+        const a = pts[i];
+        const b = pts[i + 1];
+        if (!a || !b) break;
+        const t = s1 > s0 ? THREE.MathUtils.clamp((s - s0) / (s1 - s0), 0, 1) : 0;
+        return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+      }
+      const lastPt = pts[pts.length - 1];
+      return lastPt ?? [0, 0];
+    };
+    for (let s = 0; s < total; s += DASH_LEN + DASH_GAP) {
+      const e = Math.min(s + DASH_LEN, total);
+      if (e - s < 0.5) continue;
+      const p0 = pointAt(s);
+      const p1 = pointAt(e);
+      parts.push({
+        geo: stripQuad(p0[0], p0[1], p1[0], p1[1], lw),
+        mat: MAT_YELLOW,
+        lift: LINE_LIFT,
+      });
+    }
+
+    // White edge lines along each long-enough spine segment.
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const a = pts[i];
+      const b = pts[i + 1];
+      if (!a || !b) continue;
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+      if (len < ROAD_TILE * 3.2) continue; // short bend segments: dashes only
+      const px = (-(b[1] - a[1]) / len) * EDGE_DIAG;
+      const pz = ((b[0] - a[0]) / len) * EDGE_DIAG;
+      for (const s of [1, -1] as const) {
+        parts.push({
+          geo: stripQuad(a[0] + px * s, a[1] + pz * s, b[0] + px * s, b[1] + pz * s, lw),
+          mat: MAT_WHITE,
+          lift: LINE_LIFT,
+        });
       }
     }
   }

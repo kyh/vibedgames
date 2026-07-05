@@ -40,6 +40,128 @@ const BODY_OFFSET = new THREE.Vector3();
 
 export type VehicleKind = "civilian" | "service" | "police";
 
+// --- Diagonal-avenue spines ---
+// A diagonal run is a degree-2 chain (no junctions inside), so a car entering
+// one end MUST come out the other — no routing decisions exist inside. Cars
+// therefore drive the run's straightened spine (the same line the markings
+// are painted on) instead of per-cell beziers, which zigzagged.
+type Spine = {
+  readonly pts: readonly { x: number; z: number }[]; // edge-mid A … centres … edge-mid B
+  readonly cum: readonly number[]; // cumulative arclength per point
+  readonly total: number;
+  readonly exitA: { gx: number; gz: number; dir: Dir } | null; // cell beyond end A
+  readonly exitB: { gx: number; gz: number; dir: Dir } | null;
+};
+
+export type TrafficRoutes = {
+  readonly spines: readonly Spine[];
+  readonly cellSpine: ReadonlyMap<string, number>; // "gx,gz" → spine index
+};
+
+// Point + unit tangent at arclength s (measured from pts[0]).
+function spineAt(sp: Spine, s: number): { x: number; z: number; tx: number; tz: number } {
+  const pts = sp.pts;
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const s0 = sp.cum[i] ?? 0;
+    const s1 = sp.cum[i + 1] ?? 0;
+    if (s > s1 && i + 2 < pts.length) continue;
+    const a = pts[i];
+    const b = pts[i + 1];
+    if (!a || !b) break;
+    const segLen = s1 - s0;
+    const t = segLen > 1e-6 ? THREE.MathUtils.clamp((s - s0) / segLen, 0, 1) : 0;
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const dl = Math.hypot(dx, dz) || 1;
+    return { x: a.x + dx * t, z: a.z + dz * t, tx: dx / dl, tz: dz / dl };
+  }
+  const last = pts[pts.length - 1];
+  return { x: last?.x ?? 0, z: last?.z ?? 0, tx: 1, tz: 0 };
+}
+
+// Closest point on the spine to (x, z): arclength + local tangent.
+function projectSpine(sp: Spine, x: number, z: number): { s: number; tx: number; tz: number } {
+  let best = { s: 0, tx: 1, tz: 0 };
+  let bd = Infinity;
+  const pts = sp.pts;
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const a = pts[i];
+    const b = pts[i + 1];
+    if (!a || !b) continue;
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const l2 = dx * dx + dz * dz;
+    const t = l2 > 1e-8 ? THREE.MathUtils.clamp(((x - a.x) * dx + (z - a.z) * dz) / l2, 0, 1) : 0;
+    const px = a.x + dx * t;
+    const pz = a.z + dz * t;
+    const d = (px - x) * (px - x) + (pz - z) * (pz - z);
+    if (d < bd) {
+      bd = d;
+      const dl = Math.sqrt(l2) || 1;
+      best = { s: (sp.cum[i] ?? 0) + dl * t, tx: dx / dl, tz: dz / dl };
+    }
+  }
+  return best;
+}
+
+// Build the spine table from the city plan (called once by Traffic).
+function buildRoutes(city: CityModel): TrafficRoutes {
+  const spines: Spine[] = [];
+  const cellSpine = new Map<string, number>();
+  const isRoad = (gx: number, gz: number): boolean => city.plan.cells[gx]?.[gz] === "road";
+  const outNeighbor = (
+    end: { gx: number; gz: number },
+    inRun: { gx: number; gz: number },
+  ): { gx: number; gz: number; dir: Dir } | null => {
+    for (const d of [0, 1, 2, 3] as const) {
+      const [dx, dz] = DIR_DELTA[d];
+      const nx = end.gx + dx;
+      const nz = end.gz + dz;
+      if (!isRoad(nx, nz)) continue;
+      if (nx === inRun.gx && nz === inRun.gz) continue;
+      return { gx: nx, gz: nz, dir: d };
+    }
+    return null;
+  };
+  for (const run of city.plan.diagonalRuns) {
+    const cells = run.cells;
+    const first = cells[0];
+    const second = cells[1];
+    const last = cells[cells.length - 1];
+    const beforeLast = cells[cells.length - 2];
+    if (!first || !second || !last || !beforeLast) continue;
+    const exitA = outNeighbor(first, second);
+    const exitB = outNeighbor(last, beforeLast);
+    const pts: { x: number; z: number }[] = [];
+    if (exitA) {
+      pts.push({
+        x: (city.worldX(first.gx) + city.worldX(exitA.gx)) / 2,
+        z: (city.worldZ(first.gz) + city.worldZ(exitA.gz)) / 2,
+      });
+    }
+    for (const p of run.spine) pts.push({ x: city.worldX(p.gx), z: city.worldZ(p.gz) });
+    if (exitB) {
+      pts.push({
+        x: (city.worldX(last.gx) + city.worldX(exitB.gx)) / 2,
+        z: (city.worldZ(last.gz) + city.worldZ(exitB.gz)) / 2,
+      });
+    }
+    const cum: number[] = [0];
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const a = pts[i];
+      const b = pts[i + 1];
+      cum.push((cum[i] ?? 0) + (a && b ? Math.hypot(b.x - a.x, b.z - a.z) : 0));
+    }
+    const idx = spines.length;
+    spines.push({ pts, cum, total: cum[cum.length - 1] ?? 0, exitA, exitB });
+    for (const c of cells) {
+      const k = `${c.gx},${c.gz}`;
+      if (!cellSpine.has(k)) cellSpine.set(k, idx); // split runs share a boundary cell
+    }
+  }
+  return { spines, cellSpine };
+}
+
 // District spawn weight ×2 so "park ×0.5" stays an integer repeat count:
 // downtown/highrise/commercial ×3, wharf ×2, res/victorian/industrial ×1, park ×0.5.
 function districtSpawnWeight(c: DistrictChar): number {
@@ -76,8 +198,23 @@ export class TrafficCar {
   puntCooldown = 0;
   private gx: number;
   private gz: number;
+  // Cars route cell-to-cell on a quadratic bezier: entry-edge midpoint →
+  // cell centre → exit-edge midpoint. `dir` is the direction of travel when
+  // ENTERING the cell; `nextDir` (picked on entry, not on exit like the old
+  // straight-line router) is where it leaves. Staircase diagonals become
+  // smooth S-curves and junction turns read as real cornering, not pivots.
   private dir: Dir;
-  private t = 0;
+  private nextDir: Dir;
+  private routeInited = false; // nextDir needs city+rng — resolved on first update
+  private t = 0; // 0 entry edge .. 1 exit edge
+  tanX = 0; // current path tangent (unit) — yaw, lane offset, react, following
+  tanZ = 1;
+  // Spine mode (diagonal avenues): index into routes.spines, arclength, and
+  // travel sign (+1 = toward exitB). -1 index = normal cell routing.
+  private spineIdx = -1;
+  private spineS = 0;
+  private spineSign: 1 | -1 = 1;
+  followFactor = 1; // 0..1 speed clamp from the car ahead (set by Traffic)
   private readonly baseSpeed: number;
   private brakeTimer = 0;
   private honkCooldown = 0;
@@ -90,12 +227,14 @@ export class TrafficCar {
     start: RoadCell,
     dir: Dir,
     speed: number,
+    private routes: TrafficRoutes,
   ) {
     this.object3D = object3D;
     this.kind = kind;
     this.gx = start.gx;
     this.gz = start.gz;
     this.dir = dir;
+    this.nextDir = dir;
     this.baseSpeed = speed;
   }
 
@@ -103,6 +242,9 @@ export class TrafficCar {
     this.gx = cell.gx;
     this.gz = cell.gz;
     this.dir = dir;
+    this.nextDir = dir;
+    this.routeInited = false;
+    this.spineIdx = -1;
     this.t = 0;
     this.hitCooldown = 0;
     this.missCooldown = 0;
@@ -112,6 +254,52 @@ export class TrafficCar {
     this.wrecked = false;
     this.wreckTime = 0;
     this.puntCooldown = 0;
+  }
+
+  // Engage spine mode: project the entry point onto the spine, travel in the
+  // direction that agrees with the current motion.
+  private enterSpine(idx: number, x: number, z: number, mx: number, mz: number): void {
+    const sp = this.routes.spines[idx];
+    if (!sp || sp.total < 1e-3) return;
+    const proj = projectSpine(sp, x, z);
+    const dot = proj.tx * mx + proj.tz * mz;
+    // Perpendicular arrivals are side-street cars CROSSING the avenue at a
+    // junction — they stay in cell mode and drive straight over.
+    if (Math.abs(dot) < 0.5) return;
+    this.spineIdx = idx;
+    this.spineSign = dot >= 0 ? 1 : -1;
+    this.spineS = dot >= 0 ? proj.s : sp.total - proj.s;
+  }
+
+  // Quadratic bezier through the cell: entry-edge mid → centre → exit-edge
+  // mid. Position AND tangent are C¹-continuous across cells, so lane offset
+  // and yaw rotate smoothly through every turn.
+  private bezierPose(city: CityModel): { tx: number; tz: number; bx: number; bz: number } {
+    const cx = city.worldX(this.gx);
+    const cz = city.worldZ(this.gz);
+    const [inx, inz] = DIR_DELTA[this.dir];
+    const [outx, outz] = DIR_DELTA[this.nextDir];
+    const h = ROAD_TILE / 2;
+    const e0x = cx - inx * h;
+    const e0z = cz - inz * h;
+    const e1x = cx + outx * h;
+    const e1z = cz + outz * h;
+    const t = this.t;
+    const s = 1 - t;
+    const bx = s * s * e0x + 2 * s * t * cx + t * t * e1x;
+    const bz = s * s * e0z + 2 * s * t * cz + t * t * e1z;
+    let tx = s * (cx - e0x) + t * (e1x - cx);
+    let tz = s * (cz - e0z) + t * (e1z - cz);
+    const tl = Math.hypot(tx, tz);
+    if (tl > 1e-4) {
+      tx /= tl;
+      tz /= tl;
+    } else {
+      // Degenerate U-turn midpoint (dead end): hold the exit direction.
+      tx = outx;
+      tz = outz;
+    }
+    return { tx, tz, bx, bz };
   }
 
   // The taxi hit this car: hand it to the physics world and SET its velocity.
@@ -133,20 +321,19 @@ export class TrafficCar {
     return city.plan.cells[gx]?.[gz] === "road";
   }
 
-  private chooseDir(city: CityModel, rng: Rng): void {
+  // Exit direction from the CURRENT cell, given the arrival direction. Never
+  // leaves the road network; reverses only at dead ends.
+  private pickExit(city: CityModel, rng: Rng): Dir {
     const reverse = OPPOSITE[this.dir];
-    const opts: Dir[] = [];
+    const forward: Dir[] = [];
     for (const d of [0, 1, 2, 3] as const) {
+      if (d === reverse) continue;
       const [dx, dz] = DIR_DELTA[d];
-      if (this.isRoad(city, this.gx + dx, this.gz + dz)) opts.push(d);
+      if (this.isRoad(city, this.gx + dx, this.gz + dz)) forward.push(d);
     }
-    const forward = opts.filter((d) => d !== reverse);
-    if (forward.length === 0) {
-      this.dir = reverse;
-      return;
-    }
-    if (forward.includes(this.dir) && rng.chance(0.62)) return; // keep going straight
-    this.dir = rng.pick(forward);
+    if (forward.length === 0) return reverse;
+    if (forward.includes(this.dir) && rng.chance(0.62)) return this.dir; // keep straight
+    return rng.pick(forward);
   }
 
   update(dt: number, city: CityModel, rng: Rng, playerX: number, playerZ: number): void {
@@ -162,14 +349,27 @@ export class TrafficCar {
       return;
     }
 
+    // Resolve the first route choice lazily (needs city+rng, which the
+    // constructor/respawn don't have). Spawns on a diagonal avenue go
+    // straight into spine mode.
+    if (!this.routeInited) {
+      this.routeInited = true;
+      const spIdx = this.routes.cellSpine.get(`${this.gx},${this.gz}`);
+      if (spIdx !== undefined) {
+        const [mx, mz] = DIR_DELTA[this.dir];
+        this.enterSpine(spIdx, city.worldX(this.gx), city.worldZ(this.gz), mx, mz);
+      } else {
+        this.nextDir = this.pickExit(city, rng);
+      }
+    }
+
     // --- Player reaction: taxi close AND roughly ahead → brake, honk once ---
     if (dt > 0) {
       const dx = playerX - this.position.x;
       const dz = playerZ - this.position.z;
       const distSq = dx * dx + dz * dz;
       if (distSq > 1e-6 && distSq < REACT_RADIUS * REACT_RADIUS) {
-        const [fdx, fdz] = DIR_DELTA[this.dir];
-        if (fdx * dx + fdz * dz > REACT_DOT * Math.sqrt(distSq)) {
+        if (this.tanX * dx + this.tanZ * dz > REACT_DOT * Math.sqrt(distSq)) {
           if (this.brakeTimer <= 0 && this.honkCooldown <= 0) {
             this.wantsHonk = true; // rising edge only, cooldown-gated
             this.honkCooldown = HONK_COOLDOWN;
@@ -180,36 +380,119 @@ export class TrafficCar {
       if (this.brakeTimer > 0) this.brakeTimer -= dt;
     }
 
-    const speed = this.brakeTimer > 0 ? this.baseSpeed * BRAKE_FACTOR : this.baseSpeed;
-    this.t += (speed * dt) / ROAD_TILE;
-    while (this.t >= 1) {
-      this.t -= 1;
-      const [dx, dz] = DIR_DELTA[this.dir];
-      this.gx += dx;
-      this.gz += dz;
-      this.chooseDir(city, rng);
-    }
+    // Car-following: hold behind a same-direction car ahead (Traffic sets
+    // followFactor each frame) so traffic never stacks into one spot.
+    const brakeMul = this.brakeTimer > 0 ? BRAKE_FACTOR : 1;
+    const speed = this.baseSpeed * Math.min(brakeMul, this.followFactor);
 
-    const [ndx, ndz] = DIR_DELTA[this.dir];
-    const cx = city.worldX(this.gx);
-    const cz = city.worldZ(this.gz);
+    let tx: number;
+    let tz: number;
+    let bx: number;
+    let bz: number;
+    if (this.spineIdx >= 0) {
+      // --- Spine mode: straight down the avenue centreline. ---
+      this.spineS += speed * dt;
+      const sp = this.routes.spines[this.spineIdx];
+      if (!sp) {
+        this.spineIdx = -1;
+        return;
+      }
+      if (this.spineS >= sp.total) {
+        // Off the far end: hand back to cell routing at the exit cell.
+        const leftover = this.spineS - sp.total;
+        const exit = this.spineSign > 0 ? sp.exitB : sp.exitA;
+        const endPt = this.spineSign > 0 ? sp.pts[sp.pts.length - 1] : sp.pts[0];
+        this.spineIdx = -1;
+        if (exit && endPt) {
+          this.gx = exit.gx;
+          this.gz = exit.gz;
+          this.dir = exit.dir;
+          const nIdx = this.routes.cellSpine.get(`${this.gx},${this.gz}`);
+          if (nIdx !== undefined) {
+            // Split runs share boundary cells — flow straight into the next.
+            const [mx, mz] = DIR_DELTA[exit.dir];
+            this.enterSpine(nIdx, endPt.x, endPt.z, mx, mz);
+            this.spineS += leftover;
+          } else {
+            this.nextDir = this.pickExit(city, rng);
+            this.t = leftover / ROAD_TILE;
+          }
+        } else {
+          // Dead-ended spine (shouldn't happen): bounce back the way we came.
+          this.spineSign = this.spineSign > 0 ? -1 : 1;
+          this.spineS = leftover;
+          this.spineIdx = this.routes.spines.indexOf(sp);
+        }
+      }
+      if (this.spineIdx >= 0) {
+        const cur = this.routes.spines[this.spineIdx];
+        if (!cur) return;
+        const sAct = this.spineSign > 0 ? this.spineS : cur.total - this.spineS;
+        const at = spineAt(cur, sAct);
+        tx = at.tx * this.spineSign;
+        tz = at.tz * this.spineSign;
+        bx = at.x;
+        bz = at.z;
+        // Track the grid cell for the recycler's distance bookkeeping.
+        this.gx = city.gridX(bx);
+        this.gz = city.gridZ(bz);
+      } else {
+        // Just exited — fall through to a bezier pose in the exit cell.
+        ({ tx, tz, bx, bz } = this.bezierPose(city));
+      }
+    } else {
+      this.t += (speed * dt) / ROAD_TILE;
+      while (this.t >= 1) {
+        this.t -= 1;
+        const step = this.nextDir;
+        const [dx, dz] = DIR_DELTA[step];
+        const pgx = this.gx;
+        const pgz = this.gz;
+        this.gx += dx;
+        this.gz += dz;
+        this.dir = step;
+        const spIdx = this.routes.cellSpine.get(`${this.gx},${this.gz}`);
+        if (spIdx !== undefined) {
+          // Entered a diagonal avenue: engage at the shared edge midpoint.
+          const ex = (city.worldX(pgx) + city.worldX(this.gx)) / 2;
+          const ez = (city.worldZ(pgz) + city.worldZ(this.gz)) / 2;
+          this.enterSpine(spIdx, ex, ez, dx, dz);
+          this.spineS += this.t * ROAD_TILE;
+          this.t = 0;
+          break;
+        }
+        this.nextDir = this.pickExit(city, rng);
+      }
+      if (this.spineIdx >= 0) {
+        const cur = this.routes.spines[this.spineIdx];
+        if (!cur) return;
+        const sAct = this.spineSign > 0 ? this.spineS : cur.total - this.spineS;
+        const at = spineAt(cur, sAct);
+        tx = at.tx * this.spineSign;
+        tz = at.tz * this.spineSign;
+        bx = at.x;
+        bz = at.z;
+      } else {
+        ({ tx, tz, bx, bz } = this.bezierPose(city));
+      }
+    }
+    this.tanX = tx;
+    this.tanZ = tz;
     // Keep right of the yellow line (lane centre from the street profile).
-    const laneX = -ndz * LANE_CENTER;
-    const laneZ = ndx * LANE_CENTER;
-    const px = cx + ndx * ROAD_TILE * this.t + laneX;
-    const pz = cz + ndz * ROAD_TILE * this.t + laneZ;
+    const px = bx - tz * LANE_CENTER;
+    const pz = bz + tx * LANE_CENTER;
     // Axle-composite ground height — centre-only sampling buries the
     // nose/tail on convex hill crests.
     const gy = Math.max(
       city.terrain.heightAt(px, pz),
-      (city.terrain.heightAt(px + ndx * 1.2, pz + ndz * 1.2) +
-        city.terrain.heightAt(px - ndx * 1.2, pz - ndz * 1.2)) /
+      (city.terrain.heightAt(px + tx * 1.2, pz + tz * 1.2) +
+        city.terrain.heightAt(px - tx * 1.2, pz - tz * 1.2)) /
         2,
     );
     this.position.set(px, gy + ROAD_Y, pz);
     this.object3D.position.copy(this.position);
 
-    const targetYaw = Math.atan2(ndx, ndz) + MODEL_YAW_OFFSET;
+    const targetYaw = Math.atan2(tx, tz) + MODEL_YAW_OFFSET;
     let d = ((targetYaw - this.yaw + Math.PI) % (Math.PI * 2)) - Math.PI;
     if (d < -Math.PI) d += Math.PI * 2;
     this.yaw += d * Math.min(1, dt * 8);
@@ -252,6 +535,7 @@ export class Traffic {
   private rng: Rng;
 
   private city: CityModel;
+  private readonly routes: TrafficRoutes;
   // Road cells repeated by district weight — built once, sampled by index so
   // spawn/respawn picks are district-weighted with zero per-pick allocation.
   private readonly weightedCells: RoadCell[] = [];
@@ -264,6 +548,7 @@ export class Traffic {
     private physics: PhysicsWorld | null = null,
   ) {
     this.city = city;
+    this.routes = buildRoutes(city);
     this.rng = new Rng(opts.seed ?? 99);
 
     for (const cell of city.roadCells) {
@@ -295,27 +580,32 @@ export class Traffic {
         model === "garbage-truck" && this.industrialCells.length > 0
           ? this.industrialCells
           : this.weightedCells;
-      const cell =
-        this.pickCell(
-          pool,
-          avoid?.gx ?? 0,
-          avoid?.gz ?? 0,
-          avoid ? avoidR : -1,
-          Infinity,
-          0,
-          0,
-          false,
-        ) ??
-        this.pickCell(
-          this.weightedCells,
-          avoid?.gx ?? 0,
-          avoid?.gz ?? 0,
-          avoid ? avoidR : -1,
-          Infinity,
-          0,
-          0,
-          false,
-        );
+      let cell: RoadCell | undefined;
+      // A few attempts for a spawn cell clear of already-placed cars.
+      for (let attempt = 0; attempt < 4; attempt++) {
+        cell =
+          this.pickCell(
+            pool,
+            avoid?.gx ?? 0,
+            avoid?.gz ?? 0,
+            avoid ? avoidR : -1,
+            Infinity,
+            0,
+            0,
+            false,
+          ) ??
+          this.pickCell(
+            this.weightedCells,
+            avoid?.gx ?? 0,
+            avoid?.gz ?? 0,
+            avoid ? avoidR : -1,
+            Infinity,
+            0,
+            0,
+            false,
+          );
+        if (!cell || this.cellClearOfCars(cell, null)) break;
+      }
       if (!cell) break;
       const obj = cache.instance(modelUrl("cars", model));
       this.group.add(obj);
@@ -323,7 +613,7 @@ export class Traffic {
       const speed =
         this.rng.range(TRAFFIC.minSpeed, TRAFFIC.maxSpeed) *
         (kind === "police" ? POLICE_SPEED_MULT : 1);
-      const car = new TrafficCar(obj, kind, cell, dir, speed);
+      const car = new TrafficCar(obj, kind, cell, dir, speed, this.routes);
       car.update(0, city, this.rng, 0, 0); // place it (dt=0 skips reaction)
       if (this.physics) {
         car.body = this.physics.createCarBody(
@@ -450,12 +740,46 @@ export class Traffic {
     const pgz = city.gridZ(playerZ);
     const hx = Math.sin(playerHeading);
     const hz = Math.cos(playerHeading);
+
+    // Car-following separation: hold behind a same-direction car (or a wreck)
+    // ahead in the same lane, so cars can never stack on top of each other.
+    // Oncoming traffic (opposite lane, ~4u lateral) is excluded by the lane
+    // width check and the direction dot.
+    for (const c of this.cars) c.followFactor = 1;
+    for (let i = 0; i < this.cars.length; i++) {
+      const a = this.cars[i];
+      if (!a || a.wrecked) continue;
+      for (let j = 0; j < this.cars.length; j++) {
+        const b = this.cars[j];
+        if (!b || a === b) continue;
+        const dx = b.position.x - a.position.x;
+        const dz = b.position.z - a.position.z;
+        const ahead = dx * a.tanX + dz * a.tanZ;
+        if (ahead > 7) continue;
+        if (ahead < 0.5) {
+          // Coincident/stacked pair (bad spawn): brake exactly ONE of the two
+          // (index tiebreak) so the other drives clear instead of deadlocking.
+          if (Math.hypot(dx, dz) < 2 && i > j) a.followFactor = 0;
+          continue;
+        }
+        const lat = Math.abs(-dx * a.tanZ + dz * a.tanX);
+        if (lat > 2.2) continue;
+        if (!b.wrecked && b.tanX * a.tanX + b.tanZ * a.tanZ < 0.3) continue;
+        a.followFactor = Math.min(a.followFactor, ahead < 3.5 ? 0 : 0.45);
+      }
+    }
+
     for (const c of this.cars) {
       const d = Math.abs(city.gridX(c.position.x) - pgx) + Math.abs(city.gridZ(c.position.z) - pgz);
       // Wrecks rejoin the flow once they've had their moment (or drift far).
       const recycleWreck = c.wrecked && c.wreckTime > WRECK_RESPAWN_S;
       if (d > RECYCLE_TILES || recycleWreck) {
-        const cell = this.respawnCell(pgx, pgz, hx, hz);
+        // Retry a few times for a cell clear of other cars — respawning onto
+        // an occupied cell is how overlapping cars were born.
+        let cell = this.respawnCell(pgx, pgz, hx, hz);
+        for (let attempt = 0; attempt < 4 && cell && !this.cellClearOfCars(cell, c); attempt++) {
+          cell = this.respawnCell(pgx, pgz, hx, hz);
+        }
         if (cell) {
           c.respawn(cell, this.rng.pick(ALL_DIRS));
           c.update(0, city, this.rng, 0, 0);
@@ -464,6 +788,17 @@ export class Traffic {
       }
       c.update(dt, city, this.rng, playerX, playerZ);
     }
+  }
+
+  // No other car within ~1.5 tiles of the cell centre.
+  private cellClearOfCars(cell: RoadCell, self: TrafficCar | null): boolean {
+    const x = this.city.worldX(cell.gx);
+    const z = this.city.worldZ(cell.gz);
+    for (const c of this.cars) {
+      if (c === self) continue;
+      if (Math.hypot(c.position.x - x, c.position.z - z) < ROAD_TILE * 1.5) return false;
+    }
+    return true;
   }
 
   // Called after the physics step: wrecked meshes follow their bodies.

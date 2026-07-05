@@ -2,8 +2,10 @@ import * as THREE from "three";
 
 import type { ModelCache } from "../assets/loader";
 import { modelUrl, PLAYER_CAR } from "../assets/manifest";
+import { radialGlowTexture } from "../fx/lamp-glow";
 import { CAR, ROAD_Y } from "../shared/constants";
 import type { Solid } from "../world/city";
+import type { SolidIndex } from "../world/solid-index";
 import { slopeQuaternion } from "../world/terrain";
 
 export type CarInput = {
@@ -89,6 +91,61 @@ export function buildWaymoSensors(): THREE.Group {
   return g;
 }
 
+// Night lighting rig: one forward spotlight (the actual light on the road),
+// plus head/tail glow sprites so the car reads lit from every angle. All off
+// by day; setHeadlights(f) ramps the whole rig with the day-night factor.
+type NightRig = {
+  readonly group: THREE.Group;
+  readonly spot: THREE.SpotLight;
+  readonly headMats: THREE.SpriteMaterial[];
+  readonly tailMats: THREE.SpriteMaterial[];
+};
+
+function buildNightRig(): NightRig {
+  const group = new THREE.Group();
+  const tex = radialGlowTexture();
+  const headMats: THREE.SpriteMaterial[] = [];
+  const tailMats: THREE.SpriteMaterial[] = [];
+
+  const spot = new THREE.SpotLight(0xffedc9, 0, 55, 0.46, 0.65, 1.1);
+  spot.position.set(0, 1.0, 0.9);
+  spot.castShadow = false;
+  spot.target.position.set(0, -0.6, 16);
+  group.add(spot);
+  group.add(spot.target);
+
+  for (const sx of [-1, 1] as const) {
+    const head = new THREE.SpriteMaterial({
+      map: tex,
+      color: 0xfff3d0,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const hs = new THREE.Sprite(head);
+    hs.scale.setScalar(0.85);
+    hs.position.set(sx * 0.5, 0.58, 1.34);
+    group.add(hs);
+    headMats.push(head);
+
+    const tail = new THREE.SpriteMaterial({
+      map: tex,
+      color: 0xff3b30,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const ts = new THREE.Sprite(tail);
+    ts.scale.setScalar(0.5);
+    ts.position.set(sx * 0.52, 0.6, -1.38);
+    group.add(ts);
+    tailMats.push(tail);
+  }
+  return { group, spot, headMats, tailMats };
+}
+
 export class Car {
   readonly object3D: THREE.Group;
   private body: THREE.Object3D;
@@ -127,6 +184,9 @@ export class Car {
   private targetQuat = new THREE.Quaternion();
   private pitchQuat = new THREE.Quaternion();
 
+  private nightRig: NightRig;
+  private nightFactor = -1; // last applied value; skip redundant writes
+
   constructor(cache: ModelCache) {
     this.object3D = new THREE.Group();
     // Hero scale: the player car reads slightly larger than traffic so it owns
@@ -139,7 +199,21 @@ export class Car {
       }
     });
     this.body.add(buildWaymoSensors());
+    this.nightRig = buildNightRig();
+    this.body.add(this.nightRig.group);
+    this.setHeadlights(0);
     this.object3D.add(this.body);
+  }
+
+  // Ramp the night rig with the day-night lamp factor (0 day .. 1 night).
+  setHeadlights(f: number): void {
+    if (Math.abs(f - this.nightFactor) < 0.005) return;
+    this.nightFactor = f;
+    const rig = this.nightRig;
+    rig.group.visible = f > 0.01;
+    rig.spot.intensity = 160 * f;
+    for (const m of rig.headMats) m.opacity = 0.75 * f;
+    for (const m of rig.tailMats) m.opacity = 0.55 * f;
   }
 
   setSurface(s: Surface): void {
@@ -189,7 +263,7 @@ export class Car {
     this.boostMeter = Math.min(CAR.boostMax, this.boostMeter + amount);
   }
 
-  update(dt: number, input: CarInput, solids: readonly Solid[]): void {
+  update(dt: number, input: CarInput, solids: SolidIndex): void {
     this.lastWallHit = 0;
     this.wallContact = false;
     this.miniBoostFired = false;
@@ -373,60 +447,87 @@ export class Car {
     return Math.max(0, vn);
   }
 
-  private resolveCollisions(solids: readonly Solid[]): void {
-    for (const s of solids) {
-      // Airborne taxis fly clean over height-capped obstacles (traffic).
-      if (s.maxY !== undefined && this.position.y > s.maxY) continue;
-      const cx = THREE.MathUtils.clamp(this.position.x, s.minX, s.maxX);
-      const cz = THREE.MathUtils.clamp(this.position.z, s.minZ, s.maxZ);
-      const dx = this.position.x - cx;
-      const dz = this.position.z - cz;
-      const d2 = dx * dx + dz * dz;
-      if (d2 >= COLLIDE_RADIUS * COLLIDE_RADIUS) continue;
+  // One bound callback (no per-substep closure) — hot path via SolidIndex.
+  // Resolves in the box's LOCAL frame so rotated solids (avenue-aligned
+  // buildings) collide exactly; yaw 0 reduces to the plain AABB test.
+  private readonly collideOne = (s: Solid): void => {
+    // Airborne taxis fly clean over height-capped obstacles (traffic).
+    if (s.maxY !== undefined && this.position.y > s.maxY) return;
+    const bx = (s.minX + s.maxX) / 2;
+    const bz = (s.minZ + s.maxZ) / 2;
+    const hx = (s.maxX - s.minX) / 2;
+    const hz = (s.maxZ - s.minZ) / 2;
+    const yaw = s.yaw ?? 0;
+    const cos = Math.cos(yaw);
+    const sin = Math.sin(yaw);
+    // world → local (inverse of three's rotateY(yaw))
+    const wdx = this.position.x - bx;
+    const wdz = this.position.z - bz;
+    const lx = wdx * cos - wdz * sin;
+    const lz = wdx * sin + wdz * cos;
+    const qx = THREE.MathUtils.clamp(lx, -hx, hx);
+    const qz = THREE.MathUtils.clamp(lz, -hz, hz);
+    const dx = lx - qx;
+    const dz = lz - qz;
+    const d2 = dx * dx + dz * dz;
+    if (d2 >= COLLIDE_RADIUS * COLLIDE_RADIUS) return;
 
-      let nx: number;
-      let nz: number;
-      let pen: number;
-      if (d2 > 1e-6) {
-        const d = Math.sqrt(d2);
-        nx = dx / d;
-        nz = dz / d;
-        pen = COLLIDE_RADIUS - d;
+    let nlx: number;
+    let nlz: number;
+    let pen: number;
+    if (d2 > 1e-6) {
+      const d = Math.sqrt(d2);
+      nlx = dx / d;
+      nlz = dz / d;
+      pen = COLLIDE_RADIUS - d;
+    } else {
+      // Center inside the box — push out along the nearest face.
+      const toLeft = lx + hx;
+      const toRight = hx - lx;
+      const toTop = lz + hz;
+      const toBot = hz - lz;
+      const m = Math.min(toLeft, toRight, toTop, toBot);
+      if (m === toLeft) {
+        nlx = -1;
+        nlz = 0;
+      } else if (m === toRight) {
+        nlx = 1;
+        nlz = 0;
+      } else if (m === toTop) {
+        nlx = 0;
+        nlz = -1;
       } else {
-        // Center inside the box — push out along the nearest face.
-        const toLeft = this.position.x - s.minX;
-        const toRight = s.maxX - this.position.x;
-        const toTop = this.position.z - s.minZ;
-        const toBot = s.maxZ - this.position.z;
-        const m = Math.min(toLeft, toRight, toTop, toBot);
-        if (m === toLeft) {
-          nx = -1;
-          nz = 0;
-        } else if (m === toRight) {
-          nx = 1;
-          nz = 0;
-        } else if (m === toTop) {
-          nx = 0;
-          nz = -1;
-        } else {
-          nx = 0;
-          nz = 1;
-        }
-        pen = COLLIDE_RADIUS + m;
+        nlx = 0;
+        nlz = 1;
       }
-
-      this.position.x += nx * pen;
-      this.position.z += nz * pen;
-      this.wallContact = true;
-      this.lastWallNormal.set(nx, nz);
-      const vn = this.velocity.x * nx + this.velocity.y * nz;
-      if (vn < 0) {
-        const impact = -vn;
-        if (impact > this.lastWallHit) this.lastWallHit = impact;
-        this.velocity.x -= (1 + CAR.bounce) * vn * nx;
-        this.velocity.y -= (1 + CAR.bounce) * vn * nz;
-      }
+      pen = COLLIDE_RADIUS + m;
     }
+
+    // local → world normal
+    const nx = nlx * cos + nlz * sin;
+    const nz = -nlx * sin + nlz * cos;
+    this.position.x += nx * pen;
+    this.position.z += nz * pen;
+    this.wallContact = true;
+    this.lastWallNormal.set(nx, nz);
+    const vn = this.velocity.x * nx + this.velocity.y * nz;
+    if (vn < 0) {
+      const impact = -vn;
+      if (impact > this.lastWallHit) this.lastWallHit = impact;
+      this.velocity.x -= (1 + CAR.bounce) * vn * nx;
+      this.velocity.y -= (1 + CAR.bounce) * vn * nz;
+    }
+  };
+
+  private resolveCollisions(solids: SolidIndex): void {
+    const r = COLLIDE_RADIUS + 0.1;
+    solids.forEachIn(
+      this.position.x - r,
+      this.position.x + r,
+      this.position.z - r,
+      this.position.z + r,
+      this.collideOne,
+    );
   }
 
   // `snap = true` (resets) copies the target attitude instead of blending.

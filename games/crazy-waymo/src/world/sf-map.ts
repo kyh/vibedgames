@@ -380,24 +380,55 @@ const NEIGHBORHOODS: readonly Box[] = [
     color: 0x9db07c,
     uMin: 0.575,
     uMax: 0.675,
-    vMin: 0.63,
+    vMin: 0.6,
     vMax: 0.77,
   },
+  // --- Gap fill: every drivable cell should announce a real neighborhood ---
+  { name: "Union Square", character: "commercial", color: 0xc98a3c, uMin: 0.66, uMax: 0.7, vMin: 0.15, vMax: 0.225 },
+  { name: "Mission Bay", character: "highrise", color: 0x7c98ac, uMin: 0.7, uMax: 0.79, vMin: 0.42, vMax: 0.47 },
+  { name: "Potrero Hill", character: "residential", color: 0xc2a878, uMin: 0.69, uMax: 0.77, vMin: 0.45, vMax: 0.6 },
+  { name: "Noe Valley", character: "victorian", color: 0x7ca8c2, uMin: 0.49, uMax: 0.575, vMin: 0.55, vMax: 0.65 },
+  { name: "Twin Peaks", character: "park", color: 0x2e6f4e, uMin: 0.39, uMax: 0.46, vMin: 0.52, vMax: 0.6 },
+  { name: "Glen Park", character: "residential", color: 0x94ab88, uMin: 0.47, uMax: 0.575, vMin: 0.65, vMax: 0.73 },
+  { name: "West Portal", character: "commercial", color: 0xd0a06a, uMin: 0.3, uMax: 0.42, vMin: 0.6, vMax: 0.68 },
+  { name: "Miraloma Park", character: "residential", color: 0xb3bda0, uMin: 0.36, uMax: 0.47, vMin: 0.6, vMax: 0.67 },
+  { name: "Ingleside", character: "residential", color: 0xc0b394, uMin: 0.3, uMax: 0.5, vMin: 0.79, vMax: 0.94 },
+  { name: "Lakeshore", character: "residential", color: 0xa8bcae, uMin: 0.05, uMax: 0.3, vMin: 0.79, vMax: 0.97 },
+  { name: "the Outer Mission", character: "residential", color: 0xc7a98c, uMin: 0.5, uMax: 0.575, vMin: 0.73, vMax: 0.89 },
+  { name: "the Excelsior", character: "residential", color: 0xd0b184, uMin: 0.575, uMax: 0.66, vMin: 0.77, vMax: 0.9 },
+  { name: "the Portola", character: "residential", color: 0xb8ab7c, uMin: 0.66, uMax: 0.76, vMin: 0.72, vMax: 0.82 },
+  { name: "Bayview", character: "industrial", color: 0xa87850, uMin: 0.72, uMax: 0.84, vMin: 0.6, vMax: 0.76 },
+  { name: "Hunters Point", character: "industrial", color: 0x97694a, uMin: 0.8, uMax: 0.99, vMin: 0.66, vMax: 0.86 },
+  { name: "Visitacion Valley", character: "residential", color: 0xbfae88, uMin: 0.64, uMax: 0.8, vMin: 0.82, vMax: 1.0 },
+  { name: "Crocker-Amazon", character: "residential", color: 0xb2a487, uMin: 0.5, uMax: 0.64, vMin: 0.89, vMax: 1.0 },
+  { name: "Mission Dolores", character: "victorian", color: 0xd88a6a, uMin: 0.48, uMax: 0.66, vMin: 0.37, vMax: 0.44 },
+  { name: "Cole Valley", character: "residential", color: 0xa9bfa2, uMin: 0.4, uMax: 0.47, vMin: 0.44, vMax: 0.55 },
+  { name: "Sunnyside", character: "residential", color: 0xb9b78e, uMin: 0.42, uMax: 0.5, vMin: 0.67, vMax: 0.8 },
+  { name: "Silver Terrace", character: "residential", color: 0xbc9a72, uMin: 0.675, uMax: 0.73, vMin: 0.6, vMax: 0.73 },
+  { name: "Jackson Square", character: "commercial", color: 0xc09060, uMin: 0.685, uMax: 0.78, vMin: 0.06, vMax: 0.12 },
+  { name: "China Basin", character: "wharf", color: 0x5b86a0, uMin: 0.775, uMax: 0.86, vMin: 0.33, vMax: 0.47 },
+  { name: "Daly City", character: "residential", color: 0xc4bda6, uMin: 0.18, uMax: 0.5, vMin: 0.92, vMax: 1.0 },
 ];
-
-const DEFAULT_DISTRICT: District = {
-  name: "San Francisco",
-  character: "residential",
-  color: 0xbfc6c2,
-};
 
 export function districtAt(gx: number, gz: number): District {
   const u = (gx + 0.5) / GRID_X;
   const v = (gz + 0.5) / GRID_Z;
+  let best: Box | null = null;
+  let bd = Infinity;
   for (const n of NEIGHBORHOODS) {
     if (u >= n.uMin && u <= n.uMax && v >= n.vMin && v <= n.vMax) {
       return { name: n.name, character: n.character, color: n.color };
     }
+    // Distance to the box (0 inside) — slivers between traced boxes adopt
+    // their nearest real neighborhood instead of a generic fallback label.
+    const du = Math.max(n.uMin - u, 0, u - n.uMax);
+    const dv = Math.max(n.vMin - v, 0, v - n.vMax);
+    const d = du * du + dv * dv;
+    if (d < bd) {
+      bd = d;
+      best = n;
+    }
   }
-  return DEFAULT_DISTRICT;
+  if (best) return { name: best.name, character: best.character, color: best.color };
+  return { name: "San Francisco", character: "residential", color: 0xbfc6c2 };
 }
