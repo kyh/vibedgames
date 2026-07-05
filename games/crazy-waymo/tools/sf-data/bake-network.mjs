@@ -55,11 +55,14 @@ const onLandXZ = (x, z) => onLandUV(x / WORLD_W + 0.5, z / WORLD_H + 0.5);
 // render flat — pure spaghetti. Everything else is in: SF's identity IS the
 // fine residential grid (Sunset/Richmond/Mission blocks).
 const CLASS_HALF = {
-  primary: 6.0, primary_link: 5.2,
-  secondary: 5.6, secondary_link: 5.2,
-  tertiary: 5.2, tertiary_link: 5.2,
-  residential: 4.0, unclassified: 4.0, living_street: 3.6,
+  primary: 7.2, primary_link: 5.8,
+  secondary: 6.4, secondary_link: 5.8,
+  tertiary: 5.8, tertiary_link: 5.8,
+  residential: 4.6, unclassified: 4.6, living_street: 4.2,
 };
+// Arcade compression (Driver:SF-style): minors only survive when they are
+// long connective streets — short block-fillers go, majors read as the map.
+const MINOR_MIN_LEN = 100; // world units (~450m real)
 // Only divided arterials get twin-merged — the residential grid has genuine
 // close parallels that must never be eaten.
 const MERGE_MIN_HALF = 5.6;
@@ -88,6 +91,23 @@ for (const w of ways) {
     }
   }
   if (cur.length >= 2) polylines.push({ pts: cur, half });
+}
+
+// Arcade compression: drop short minor streets entirely.
+{
+  const plLen = (pts) => {
+    let L = 0;
+    for (let i = 1; i < pts.length; i++) L += Math.hypot(pts[i][0] - pts[i-1][0], pts[i][1] - pts[i-1][1]);
+    return L;
+  };
+  const before = polylines.length;
+  const isMinor = (half) => half <= 4.6;
+  // Group way fragments back by rough identity: filter per-polyline is enough
+  // (fragments of one long street are individually long).
+  const kept = polylines.filter((pl) => !isMinor(pl.half) || plLen(pl.pts) >= MINOR_MIN_LEN);
+  polylines.length = 0;
+  polylines.push(...kept);
+  console.log(`minor-street compression: ${before} -> ${polylines.length} polylines`);
 }
 
 // --- Junction detection by shared vertex (OSM ways reference shared nodes,
@@ -426,6 +446,8 @@ if (nodes.length < 400 || edges.length < 600) throw new Error("suspiciously smal
 
 // --- Raster mask derived from the SAME edges (supercover + thinning) ---
 const grid = new Uint8Array(GRID_X * GRID_Z);
+const gridMajor = new Uint8Array(GRID_X * GRID_Z);
+let markMajor = false;
 const toG = (x, z) => [
   Math.floor((x / WORLD_W + 0.5) * GRID_X),
   Math.floor((z / WORLD_H + 0.5) * GRID_Z),
@@ -436,7 +458,10 @@ function rasterizeSeg(gx0, gz0, gx1, gz1) {
   const sx = gx0 < gx1 ? 1 : -1, sz = gz0 < gz1 ? 1 : -1;
   let err = dx - dz;
   const mark = (cx, cz) => {
-    if (cx >= 0 && cz >= 0 && cx < GRID_X && cz < GRID_Z) grid[cx * GRID_Z + cz] = 1;
+    if (cx >= 0 && cz >= 0 && cx < GRID_X && cz < GRID_Z) {
+      grid[cx * GRID_Z + cz] = 1;
+      if (markMajor) gridMajor[cx * GRID_Z + cz] = 1;
+    }
   };
   let steps = 0;
   const maxSteps = dx + dz + 4;
@@ -451,6 +476,7 @@ function rasterizeSeg(gx0, gz0, gx1, gz1) {
   }
 }
 for (const e of edges) {
+  markMajor = e.half >= 6.4; // primary/secondary carry the "major" class
   for (let i = 1; i < e.pts.length; i++) {
     const [ax, az] = e.pts[i - 1];
     const [bx, bz] = e.pts[i];
@@ -459,6 +485,7 @@ for (const e of edges) {
     rasterizeSeg(g0x, g0z, g1x, g1z);
   }
 }
+markMajor = false;
 // Bake-time thinning (ported from src/world/thin-streets.ts).
 function thin(road, sizeX, sizeZ) {
   const at = (x, z) => x >= 0 && z >= 0 && x < sizeX && z < sizeZ && road[x * sizeZ + z] === 1;
@@ -535,12 +562,18 @@ if (roadCells < 3000 || roadCells > 26000) throw new Error("mask cell count out 
 
 // --- Emit sf-streets.ts (same format as before — drop-in) ---
 const cols = [];
+const colsMajor = [];
 for (let gx = 0; gx < GRID_X; gx++) {
   let bits = "";
   for (let gz = 0; gz < GRID_Z; gz++) bits += grid[gx * GRID_Z + gz] ? "1" : "0";
   let hex = "";
   for (let i = 0; i < bits.length; i += 4) hex += parseInt(bits.slice(i, i + 4).padEnd(4, "0"), 2).toString(16);
   cols.push(hex);
+  let mbits = "";
+  for (let gz = 0; gz < GRID_Z; gz++) mbits += gridMajor[gx * GRID_Z + gz] ? "1" : "0";
+  let mhex = "";
+  for (let i = 0; i < mbits.length; i += 4) mhex += parseInt(mbits.slice(i, i + 4).padEnd(4, "0"), 2).toString(16);
+  colsMajor.push(mhex);
 }
 writeFileSync(
   new URL("../../src/world/sf-streets.ts", import.meta.url),
@@ -559,6 +592,19 @@ export function streetMaskAt(gx: number, gz: number): boolean {
   if (col === undefined) return false;
   const nibble = col.charCodeAt(gz >> 2);
   const val = nibble <= 57 ? nibble - 48 : nibble - 87; // '0'-'9','a'-'f'
+  return (val & (8 >> (gz & 3))) !== 0;
+}
+
+// Major-street class (primary/secondary) for width styling downstream.
+export const SF_MAJOR_MASK = {
+  cols: ${JSON.stringify(colsMajor)},
+} as const;
+
+export function majorMaskAt(gx: number, gz: number): boolean {
+  const col = SF_MAJOR_MASK.cols[gx];
+  if (col === undefined) return false;
+  const nibble = col.charCodeAt(gz >> 2);
+  const val = nibble <= 57 ? nibble - 48 : nibble - 87;
   return (val & (8 >> (gz & 3))) !== 0;
 }
 `,

@@ -3,15 +3,16 @@ import { DIR_DELTA, E, N, S, W, type Dir } from "../shared/types";
 import type { CityPlan } from "./grid";
 import { ROAD_STRAIGHT } from "../assets/manifest";
 import type { RawEdge } from "./sf-network";
+import { majorMaskAt } from "./sf-streets";
 
 // Derive the sim road graph FROM THE TILE GRID, so traffic, fares, spawns and
 // building alignment agree exactly with the Kenney street tiles on screen.
 // Nodes are the non-straight cells (junctions, bends, dead ends); edges are
 // the straight runs of cells between them.
 
-// Asphalt half-width of the Kenney road tiles at ROAD_TILE scale (the road
-// surface spans ~2/3 of the tile; the rest is kerb + sidewalk).
-export const TILE_ROAD_HALF = ROAD_TILE * 0.31;
+// Street half-widths (arcade-wide, Driver:SF energy): majors are boulevards.
+export const TILE_ROAD_HALF = ROAD_TILE * 0.36;
+export const MAJOR_ROAD_HALF = ROAD_TILE * 0.5;
 
 export function buildGridNetwork(
   plan: CityPlan,
@@ -62,10 +63,18 @@ export function buildGridNetwork(
     walked.add(`${cx},${cz},${back}`);
     const b = nodeId(cx, cz);
     if (a === b && steps < 2) return;
+    // Class by majority of run cells: primary/secondary sweeps get boulevard
+    // width, everything else stays street-scale.
+    let majors = 0;
+    let total = 0;
+    for (let k = 0; k <= steps; k++) {
+      if (majorMaskAt(gx + dx * k, gz + dz * k)) majors++;
+      total++;
+    }
     edges.push({
       a,
       b,
-      w: TILE_ROAD_HALF,
+      w: majors > total * 0.5 ? MAJOR_ROAD_HALF : TILE_ROAD_HALF,
       p: [worldX(gx), worldZ(gz), worldX(cx), worldZ(cz)],
     });
   };

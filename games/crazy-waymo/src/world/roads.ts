@@ -14,9 +14,9 @@ import type { Terrain } from "./terrain";
 // Street profile shared with furniture/traffic (offsets measured from the
 // edge centreline; per-edge asphalt half-width comes from the road class).
 export const ASPHALT_W = ROAD_TILE * 0.8; // legacy uniform width (tertiary)
-export const SIDEWALK_W = 1.3;
+export const SIDEWALK_W = 1.7;
 export const LANE_CENTER = ASPHALT_W * 0.19; // default lane offset for traffic
-const CURB_W = 0.28;
+const CURB_W = 0.38;
 const ASPHALT_LIFT = ROAD_Y + 0.05;
 const SIDEWALK_LIFT = ROAD_Y + 0.13;
 const LINE_LIFT = ASPHALT_LIFT + 0.07;
