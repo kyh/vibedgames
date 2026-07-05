@@ -25,7 +25,16 @@ export type MapProp = {
  *  hand-authored maps may name any loaded prop to render at the collider. */
 export type MapCollider = { x: number; y: number; radius: number; height: number; model?: string };
 
-export type MapData = { version: 1; props: MapProp[]; colliders: MapCollider[] };
+/** The four floor-tile bands the arena floor is built from. */
+export const FLOOR_TYPES = ["flag", "worn", "dirt", "grate"] as const;
+export type FloorType = (typeof FLOOR_TYPES)[number];
+
+/** One painted floor cell: (x, y) is the cell center on the 4u tile grid
+ *  (multiples of 4, sim plane), `t` the tile band. Cells not listed keep the
+ *  procedural floor. */
+export type MapFloorCell = { x: number; y: number; t: FloorType };
+
+export type MapData = { version: 1; props: MapProp[]; colliders: MapCollider[]; floor?: MapFloorCell[] };
 
 /** The editor's offline-draft slot (read at boot for ?auto quick-starts). */
 export const MAP_STORAGE_KEY = "ba-map";
@@ -86,6 +95,7 @@ export const PLACEABLE_MODELS: string[] = [...DUNGEON_MODELS, "vampire_throne", 
 
 const MAX_PROPS = 2000;
 const MAX_COLLIDERS = 512;
+const MAX_FLOOR_CELLS = 4096;
 // clamp positions to the hex + a 3u apron — wall-mounted dressing (the gate
 // trophies) legitimately sits a little proud of the playable boundary
 const POS_MARGIN = -3;
@@ -134,6 +144,19 @@ function parseCollider(v: unknown): MapCollider | null {
   return out;
 }
 
+function isFloorType(v: unknown): v is FloorType {
+  return typeof v === "string" && (FLOOR_TYPES as readonly string[]).includes(v);
+}
+
+/** Snap to the 4u tile grid the floor builder walks. */
+const snapCell = (v: number): number => Math.round(v / 4) * 4;
+
+function parseFloorCell(v: unknown): MapFloorCell | null {
+  if (!isRecord(v)) return null;
+  if (!isFiniteNumber(v["x"]) || !isFiniteNumber(v["y"]) || !isFloorType(v["t"])) return null;
+  return { x: snapCell(clampNum(v["x"], -200, 200)), y: snapCell(clampNum(v["y"], -200, 200)), t: v["t"] };
+}
+
 /** Boundary parser: unknown JSON → MapData or null (never throws). Validates
  *  types, clamps numeric ranges, and clamps positions into the hex (+apron).
  *  Strict per-entry — one malformed prop rejects the whole map, so a bad file
@@ -159,7 +182,21 @@ export function parseMapData(raw: unknown): MapData | null {
     if (!parsed) return null;
     colliders.push(parsed);
   }
-  return { version: 1, props, colliders };
+  const out: MapData = { version: 1, props, colliders };
+  // optional painted floor (absent in older files — procedural everywhere)
+  const rawFloor = raw["floor"];
+  if (rawFloor !== undefined) {
+    if (!Array.isArray(rawFloor) || rawFloor.length > MAX_FLOOR_CELLS) return null;
+    const floorList: unknown[] = rawFloor;
+    const floor: MapFloorCell[] = [];
+    for (const f of floorList) {
+      const parsed = parseFloorCell(f);
+      if (!parsed) return null;
+      floor.push(parsed);
+    }
+    if (floor.length > 0) out.floor = floor;
+  }
+  return out;
 }
 
 /** Pretty JSON for download / localStorage (the editor's output). */

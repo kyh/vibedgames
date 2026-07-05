@@ -8,27 +8,42 @@
 // the camera directly: fixed-pitch top-down orbit, RMB/MMB-or-WASD pan, wheel
 // zoom.
 import * as THREE from "three";
-import { buildDefaultObstacles, clampToArena, HEX_R } from "../data/map";
+import { buildDefaultObstacles, clampToArena, FLOOR_OVERRIDES, floorKey, HEX_R } from "../data/map";
 import { buildProceduralDecor } from "../data/decor";
 import { terrainHeight } from "../data/terrain";
 import { Environment, TALL_TARGET } from "../render/environment";
 import type { ModelLibrary } from "../render/models";
 import type { View } from "../render/view";
 import {
+  FLOOR_TYPES,
   MAP_STORAGE_KEY,
   parseMapData,
   PLACEABLE_MODELS,
   serializeMapData,
+  type FloorType,
   type MapCollider,
   type MapData,
+  type MapFloorCell,
   type MapProp,
 } from "../data/map-format";
 
 const WALL_RUN = "wall_run"; // collider-only wall stub (no prop model)
-const PITCH = (55 * Math.PI) / 180; // camera elevation above horizontal
+const PITCH = (55 * Math.PI) / 180; // default camera elevation above horizontal
+const MIN_PITCH = (28 * Math.PI) / 180;
+const MAX_PITCH = (82 * Math.PI) / 180;
 const MIN_H = 15;
-const MAX_H = 90; // camera height clamp (wheel zoom)
+const MAX_H = 110; // camera height clamp (wheel zoom)
 const POS_MARGIN = -3; // hex clamp apron (matches map-format's parser)
+const FLOOR_TILE = 4; // the floor builder's cell size
+
+/** Floor-palette swatch colors (hover highlight + UI chips). */
+const FLOOR_COLORS: Record<FloorType | "auto", number> = {
+  flag: 0x9aa3b8,
+  worn: 0x7d8894,
+  dirt: 0x8a6a4a,
+  grate: 0xb0703a,
+  auto: 0xffffff,
+};
 
 /** One editable placement: a prop (model name), a wall stub (WALL_RUN), or a
  *  pure collider (model ""). Collidable items carry the MapCollider fields. */
@@ -62,9 +77,11 @@ export class EditorScene {
   private env: Environment | null = null;
   private scene: THREE.Scene;
 
-  // camera
+  // camera — yaw/pitch orbit around a ground target
   private target = new THREE.Vector3(0, 0, 0);
   private camH = 55;
+  private yaw = 0;
+  private pitch = PITCH;
   private keys = new Set<string>();
 
   // picking / dragging
@@ -76,8 +93,24 @@ export class EditorScene {
   private dragOffX = 0;
   private dragOffZ = 0;
   private panning = false;
+  private rotating = false;
   private panX = 0;
   private panY = 0;
+
+  // place mode: a palette pick follows the cursor as an opaque preview; click
+  // stamps it, click-drag stamps a trail
+  private placing: { model: string; ghost: THREE.Object3D; ringR: number } | null = null;
+  private stamping = false;
+  private stampX = 0;
+  private stampY = 0;
+
+  // floor mode: paint tile bands onto the 4u grid
+  private mode: "props" | "floor" = "props";
+  private floorType: FloorType | "auto" = "dirt";
+  private paintingFloor = false;
+  private floorCursor: THREE.Mesh;
+  private floorCursorMat: THREE.MeshBasicMaterial;
+  private floorRebuildTimer: number | undefined;
 
   // shared editor-only resources
   private cylGeo = new THREE.CylinderGeometry(1, 1, 1, 20);
@@ -114,6 +147,12 @@ export class EditorScene {
     );
     this.selRing.visible = false;
     this.scene.add(this.selRing);
+    this.floorCursorMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.32, depthWrite: false, side: THREE.DoubleSide });
+    const cursGeo = new THREE.PlaneGeometry(FLOOR_TILE, FLOOR_TILE);
+    cursGeo.rotateX(-Math.PI / 2);
+    this.floorCursor = new THREE.Mesh(cursGeo, this.floorCursorMat);
+    this.floorCursor.visible = false;
+    this.scene.add(this.floorCursor);
   }
 
   /** Build the shell, resolve the working set (draft → bundled → procedural),
@@ -253,6 +292,9 @@ export class EditorScene {
         }
       }
     }
+    FLOOR_OVERRIDES.clear();
+    for (const f of data.floor ?? []) FLOOR_OVERRIDES.set(floorKey(f.x, f.y), f.t);
+    this.env?.rebuildFloor();
     this.refreshStatus();
   }
 
@@ -275,7 +317,14 @@ export class EditorScene {
         colliders.push(c);
       }
     }
-    return { version: 1, props, colliders };
+    const floor: MapFloorCell[] = [];
+    for (const [key, t] of FLOOR_OVERRIDES) {
+      const [gx, gz] = key.split(",").map(Number);
+      if (gx !== undefined && gz !== undefined && Number.isFinite(gx) && Number.isFinite(gz)) floor.push({ x: gx, y: gz, t });
+    }
+    const out: MapData = { version: 1, props, colliders };
+    if (floor.length > 0) out.floor = floor;
+    return out;
   }
 
   // ── item lifecycle ─────────────────────────────────────────────────────────
@@ -313,28 +362,30 @@ export class EditorScene {
     return h;
   }
 
-  private unitScale(it: EdItem): number {
-    const tall = it.lie ? undefined : TALL_TARGET[it.model];
-    if (tall === undefined) return it.scale;
-    return (tall * it.scale) / this.nativeHeight(it.model);
-  }
-
-  /** Re-plant an item: replicate Environment.decorMatrix's math (tall models
-   *  scale-to-height, lie topples 90° on Z, base at terrain − rotated-box
-   *  min.y, plus the `h` lift) so the editor preview matches the game. */
-  private plant(it: EdItem): void {
-    const obj = it.obj;
+  /** Shared placement math (also used by the place-mode ghost): replicate
+   *  Environment.decorMatrix (tall models scale-to-height, lie topples 90° on
+   *  Z, base at terrain − rotated-box min.y, plus the `h` lift) so the editor
+   *  preview matches the game. Returns the footprint ring radius. */
+  private plantTransform(obj: THREE.Object3D, spec: Omit<ItemSpec, "collidable">): number {
     obj.rotation.order = "YXZ";
-    obj.rotation.set(0, it.rot, it.lie ? Math.PI / 2 : 0);
-    if (it.model === WALL_RUN) obj.scale.set(Math.max(0.2, it.radius * 2), Math.max(0.2, it.height), 0.9);
-    else if (it.model === "") obj.scale.set(Math.max(0.1, it.radius), Math.max(0.1, it.height), Math.max(0.1, it.radius));
-    else obj.scale.setScalar(this.unitScale(it));
+    obj.rotation.set(0, spec.rot, spec.lie ? Math.PI / 2 : 0);
+    if (spec.model === WALL_RUN) obj.scale.set(Math.max(0.2, spec.radius * 2), Math.max(0.2, spec.height), 0.9);
+    else if (spec.model === "") obj.scale.set(Math.max(0.1, spec.radius), Math.max(0.1, spec.height), Math.max(0.1, spec.radius));
+    else {
+      const tall = spec.lie ? undefined : TALL_TARGET[spec.model];
+      obj.scale.setScalar(tall === undefined ? spec.scale : (tall * spec.scale) / this.nativeHeight(spec.model));
+    }
     obj.position.set(0, 0, 0);
     obj.updateMatrixWorld(true);
     BOX.setFromObject(obj);
-    it.ringR = Math.max(0.6, Math.max(BOX.max.x - BOX.min.x, BOX.max.z - BOX.min.z) / 2 + 0.35);
-    obj.position.set(it.x, terrainHeight(it.x, it.y) - BOX.min.y + it.h, it.y);
+    const ringR = Math.max(0.6, Math.max(BOX.max.x - BOX.min.x, BOX.max.z - BOX.min.z) / 2 + 0.35);
+    obj.position.set(spec.x, terrainHeight(spec.x, spec.y) - BOX.min.y + spec.h, spec.y);
     obj.updateMatrixWorld(true);
+    return ringR;
+  }
+
+  private plant(it: EdItem): void {
+    it.ringR = this.plantTransform(it.obj, it);
     if (it.colliderMesh) {
       it.colliderMesh.scale.set(it.radius, it.height, it.radius);
       it.colliderMesh.position.set(it.x, terrainHeight(it.x, it.y) + it.height / 2, it.y);
@@ -472,6 +523,158 @@ export class EditorScene {
     return copy;
   }
 
+  // ── place mode (ghost-under-cursor stamping) ───────────────────────────────
+
+  /** Enter place mode: `model` follows the cursor as a translucent ghost;
+   *  LMB stamps it (drag = stamp a trail). RMB/Esc exits. */
+  startPlacing(model: string): void {
+    this.stopPlacing();
+    this.select(null);
+    // OPAQUE preview — the real model under the cursor, exactly what a stamp
+    // will drop (translucency read as "not really there")
+    const ghost = model === WALL_RUN ? new THREE.Mesh(this.boxGeo, this.stubMat) : this.lib.instance(model);
+    this.scene.add(ghost);
+    const ringR = this.plantTransform(ghost, { model, x: this.target.x, y: this.target.z, rot: 0, scale: 1, lie: false, h: 0, radius: 1.1, height: 2.4 });
+    this.placing = { model, ghost, ringR };
+    this.highlightPalette(model);
+  }
+
+  stopPlacing(): void {
+    const p = this.placing;
+    if (!p) return;
+    this.scene.remove(p.ghost);
+    this.placing = null;
+    this.stamping = false;
+    this.highlightPalette(null);
+  }
+
+  private moveGhost(x: number, y: number, snap: boolean): void {
+    const p = this.placing;
+    if (!p) return;
+    const pos = clampToArena(snap ? snapHalf(x) : x, snap ? snapHalf(y) : y, POS_MARGIN);
+    p.ringR = this.plantTransform(p.ghost, { model: p.model, x: pos.x, y: pos.y, rot: 0, scale: 1, lie: false, h: 0, radius: 1.1, height: 2.4 });
+  }
+
+  /** Render each palette model to a small 3/4-view thumbnail (offscreen GL
+   *  context, batched across frames) and feed the palette row images. */
+  private async genThumbs(models: string[]): Promise<void> {
+    const size = 96;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const r = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+    r.setSize(size, size, false);
+    r.setClearColor(0x000000, 0);
+    const scene = new THREE.Scene();
+    const cam = new THREE.PerspectiveCamera(30, 1, 0.05, 200);
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x39415a, 1.35));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.7);
+    sun.position.set(3, 5, 2.2);
+    scene.add(sun);
+    const frame = (): Promise<void> => new Promise((res) => requestAnimationFrame(() => res()));
+    let n = 0;
+    for (const model of models) {
+      const obj = model === WALL_RUN ? new THREE.Mesh(this.boxGeo, this.stubMat) : this.lib.instance(model);
+      if (model === WALL_RUN) obj.scale.set(2.2, 2.4, 0.9);
+      scene.add(obj);
+      obj.updateMatrixWorld(true);
+      BOX.setFromObject(obj);
+      const c = BOX.getCenter(new THREE.Vector3());
+      const s = BOX.getSize(new THREE.Vector3());
+      const dist = (Math.max(s.x, s.y, s.z) / Math.tan((cam.fov * Math.PI) / 360)) * 0.62 + 0.4;
+      cam.position.set(c.x + dist * 0.74, c.y + dist * 0.6, c.z + dist * 0.74);
+      cam.lookAt(c);
+      r.render(scene, cam);
+      const url = canvas.toDataURL();
+      scene.remove(obj);
+      this.ui?.querySelectorAll<HTMLImageElement>(`img[data-thumb="${model}"]`).forEach((img) => {
+        img.src = url;
+      });
+      if (++n % 6 === 0) await frame(); // keep init responsive
+    }
+    r.dispose();
+  }
+
+  /** Stamp one copy at the ghost's spot (place mode LMB / drag trail). */
+  private stampAt(x: number, y: number): void {
+    const p = this.placing;
+    if (!p) return;
+    const pos = clampToArena(x, y, POS_MARGIN);
+    const isWall = p.model === WALL_RUN;
+    this.makeItem({
+      model: p.model,
+      x: pos.x,
+      y: pos.y,
+      rot: 0,
+      scale: 1,
+      lie: false,
+      h: 0,
+      collidable: isWall,
+      radius: isWall ? 1.1 : 1,
+      height: isWall ? 2.4 : 2,
+    });
+    this.stampX = pos.x;
+    this.stampY = pos.y;
+    this.markDirty();
+  }
+
+  private highlightPalette(model: string | null): void {
+    this.ui?.querySelectorAll<HTMLButtonElement>(".edp").forEach((btn) => {
+      btn.classList.toggle("edp-on", model !== null && btn.dataset["model"] === model);
+    });
+  }
+
+  // ── floor mode (paint tile bands on the 4u grid) ───────────────────────────
+
+  setMode(mode: "props" | "floor"): void {
+    this.mode = mode;
+    if (mode === "floor") {
+      this.stopPlacing();
+      this.select(null);
+      this.dragging = false;
+    }
+    this.paintingFloor = false;
+    this.floorCursor.visible = false;
+    document.getElementById("ed-tab-props")?.classList.toggle("on", mode === "props");
+    document.getElementById("ed-tab-floor")?.classList.toggle("on", mode === "floor");
+    const fp = document.getElementById("ed-floorpal");
+    if (fp) fp.style.display = mode === "floor" ? "flex" : "none";
+    const pp = document.getElementById("ed-proppal");
+    if (pp) pp.style.display = mode === "floor" ? "none" : "flex";
+    const roster = document.getElementById("ed-roster");
+    if (roster) roster.style.display = mode === "floor" ? "none" : "flex";
+    this.syncInspector(true);
+  }
+
+  setFloorType(t: FloorType | "auto"): void {
+    this.floorType = t;
+    this.floorCursorMat.color.setHex(FLOOR_COLORS[t]);
+    this.ui?.querySelectorAll<HTMLButtonElement>(".edf").forEach((btn) => {
+      btn.classList.toggle("edp-on", btn.dataset["floor"] === t);
+    });
+  }
+
+  private paintFloorAt(x: number, y: number): void {
+    const gx = Math.round(x / FLOOR_TILE) * FLOOR_TILE;
+    const gz = Math.round(y / FLOOR_TILE) * FLOOR_TILE;
+    const key = floorKey(gx, gz);
+    if (this.floorType === "auto") {
+      if (!FLOOR_OVERRIDES.has(key)) return;
+      FLOOR_OVERRIDES.delete(key);
+    } else {
+      if (FLOOR_OVERRIDES.get(key) === this.floorType) return;
+      FLOOR_OVERRIDES.set(key, this.floorType);
+    }
+    this.markDirty();
+    // rebuilding ~1k instanced tiles is cheap but not per-mousemove-event cheap
+    if (this.floorRebuildTimer === undefined) {
+      this.floorRebuildTimer = window.setTimeout(() => {
+        this.floorRebuildTimer = undefined;
+        this.env?.rebuildFloor();
+      }, 90);
+    }
+  }
+
   /** Write the draft to localStorage NOW (edits debounce through markDirty). */
   flush(): void {
     if (this.saveTimer !== undefined) {
@@ -540,31 +743,98 @@ export class EditorScene {
   }
 
   private onPointerDown(e: PointerEvent): void {
-    if (e.button === 1 || e.button === 2) {
+    const el = this.view.renderer.domElement;
+    // RMB: orbit (Shift+RMB pans, for mice without a wheel button). Also
+    // cancels place mode. MMB: pan.
+    if (e.button === 2) {
+      if (this.placing) {
+        this.stopPlacing();
+        return;
+      }
+      if (e.shiftKey) this.panning = true;
+      else this.rotating = true;
+      this.panX = e.clientX;
+      this.panY = e.clientY;
+      el.setPointerCapture(e.pointerId);
+      return;
+    }
+    if (e.button === 1) {
       this.panning = true;
       this.panX = e.clientX;
       this.panY = e.clientY;
-      this.view.renderer.domElement.setPointerCapture(e.pointerId);
+      el.setPointerCapture(e.pointerId);
       return;
     }
     if (e.button !== 0) return;
+    // floor mode: LMB paints (click or drag)
+    if (this.mode === "floor") {
+      if (this.groundPoint(e)) {
+        this.paintingFloor = true;
+        this.paintFloorAt(this.groundHit.x, this.groundHit.z);
+        el.setPointerCapture(e.pointerId);
+      }
+      return;
+    }
+    // place mode: LMB stamps; holding stamps a trail as the pointer moves
+    if (this.placing) {
+      if (this.groundPoint(e)) {
+        this.stamping = true;
+        this.moveGhost(this.groundHit.x, this.groundHit.z, e.shiftKey);
+        this.stampAt(this.placing.ghost.position.x, this.placing.ghost.position.z);
+        el.setPointerCapture(e.pointerId);
+      }
+      return;
+    }
     const hit = this.pick(e);
     this.select(hit);
     if (hit && this.groundPoint(e)) {
       this.dragging = true;
       this.dragOffX = this.groundHit.x - hit.x;
       this.dragOffZ = this.groundHit.z - hit.y;
-      this.view.renderer.domElement.setPointerCapture(e.pointerId);
+      el.setPointerCapture(e.pointerId);
     }
   }
 
   private onPointerMove(e: PointerEvent): void {
-    if (this.panning) {
-      const k = (this.camH / window.innerHeight) * 1.35;
-      this.target.x = clamp(this.target.x - (e.clientX - this.panX) * k, -HEX_R, HEX_R);
-      this.target.z = clamp(this.target.z - (e.clientY - this.panY) * k, -HEX_R, HEX_R);
+    if (this.rotating) {
+      this.yaw -= (e.clientX - this.panX) * 0.005;
+      this.pitch = clamp(this.pitch + (e.clientY - this.panY) * 0.004, MIN_PITCH, MAX_PITCH);
       this.panX = e.clientX;
       this.panY = e.clientY;
+      return;
+    }
+    if (this.panning) {
+      const k = (this.camH / window.innerHeight) * 1.35;
+      const dx = (e.clientX - this.panX) * k;
+      const dy = (e.clientY - this.panY) * k;
+      // yaw-aware: screen-right / screen-up in ground coordinates
+      const rx = Math.cos(this.yaw);
+      const rz = -Math.sin(this.yaw);
+      const fx = -Math.sin(this.yaw);
+      const fz = -Math.cos(this.yaw);
+      this.target.x = clamp(this.target.x - rx * dx + fx * dy, -HEX_R, HEX_R);
+      this.target.z = clamp(this.target.z - rz * dx + fz * dy, -HEX_R, HEX_R);
+      this.panX = e.clientX;
+      this.panY = e.clientY;
+      return;
+    }
+    if (this.mode === "floor") {
+      if (!this.groundPoint(e)) return;
+      const gx = Math.round(this.groundHit.x / FLOOR_TILE) * FLOOR_TILE;
+      const gz = Math.round(this.groundHit.z / FLOOR_TILE) * FLOOR_TILE;
+      this.floorCursor.visible = true;
+      this.floorCursor.position.set(gx, terrainHeight(gx, gz) + 0.14, gz);
+      if (this.paintingFloor) this.paintFloorAt(this.groundHit.x, this.groundHit.z);
+      return;
+    }
+    if (this.placing) {
+      if (!this.groundPoint(e)) return;
+      this.moveGhost(this.groundHit.x, this.groundHit.z, e.shiftKey);
+      if (this.stamping) {
+        const g = this.placing.ghost.position;
+        const spacing = Math.max(1.6, this.placing.ringR * 1.15);
+        if (Math.hypot(g.x - this.stampX, g.z - this.stampY) >= spacing) this.stampAt(g.x, g.z);
+      }
       return;
     }
     if (!this.dragging || !this.selected) return;
@@ -580,7 +850,18 @@ export class EditorScene {
 
   private onPointerUp(e: PointerEvent): void {
     this.panning = false;
+    this.rotating = false;
     this.dragging = false;
+    this.stamping = false;
+    if (this.paintingFloor) {
+      this.paintingFloor = false;
+      // flush the throttled rebuild so the stroke commits immediately
+      if (this.floorRebuildTimer !== undefined) {
+        window.clearTimeout(this.floorRebuildTimer);
+        this.floorRebuildTimer = undefined;
+      }
+      this.env?.rebuildFloor();
+    }
     const el = this.view.renderer.domElement;
     if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
   }
@@ -592,7 +873,12 @@ export class EditorScene {
     if (lower === "w" || lower === "a" || lower === "s" || lower === "d") this.keys.add(lower);
     switch (k) {
       case "Escape":
-        this.select(null);
+        if (this.placing) this.stopPlacing();
+        else this.select(null);
+        return;
+      case "f":
+      case "F":
+        this.setMode(this.mode === "floor" ? "props" : "floor");
         return;
       case "q":
       case "Q":
@@ -636,17 +922,34 @@ export class EditorScene {
 
   update(dt: number): void {
     this.t += dt;
-    // WASD pan ('d' is duplicate while something is selected)
+    // WASD pan, yaw-relative ('d' is duplicate while something is selected)
     const pan = this.camH * 0.9 * dt;
-    if (this.keys.has("w")) this.target.z -= pan;
-    if (this.keys.has("s")) this.target.z += pan;
-    if (this.keys.has("a")) this.target.x -= pan;
-    if (this.keys.has("d") && !this.selected) this.target.x += pan;
+    const fx = -Math.sin(this.yaw);
+    const fz = -Math.cos(this.yaw);
+    const rx = Math.cos(this.yaw);
+    const rz = -Math.sin(this.yaw);
+    if (this.keys.has("w")) {
+      this.target.x += fx * pan;
+      this.target.z += fz * pan;
+    }
+    if (this.keys.has("s")) {
+      this.target.x -= fx * pan;
+      this.target.z -= fz * pan;
+    }
+    if (this.keys.has("a")) {
+      this.target.x -= rx * pan;
+      this.target.z -= rz * pan;
+    }
+    if (this.keys.has("d") && !this.selected) {
+      this.target.x += rx * pan;
+      this.target.z += rz * pan;
+    }
     this.target.x = clamp(this.target.x, -HEX_R, HEX_R);
     this.target.z = clamp(this.target.z, -HEX_R, HEX_R);
 
     const cam = this.view.camera;
-    cam.position.set(this.target.x, this.camH, this.target.z + this.camH / Math.tan(PITCH));
+    const ground = this.camH / Math.tan(this.pitch);
+    cam.position.set(this.target.x + Math.sin(this.yaw) * ground, this.camH, this.target.z + Math.cos(this.yaw) * ground);
     cam.lookAt(this.target.x, 0, this.target.z);
 
     const sel = this.selected;
@@ -687,9 +990,13 @@ export class EditorScene {
     const it = this.selected;
     if (!it) {
       box.style.display = "none";
+      const emptyNote = document.getElementById("ed-note");
+      if (emptyNote) emptyNote.style.display = "block";
       return;
     }
     box.style.display = "flex";
+    const note = document.getElementById("ed-note");
+    if (note) note.style.display = "none";
     if (full) {
       const label = document.getElementById("ed-i-model");
       if (label) label.textContent = it.model === "" ? "(pure collider)" : it.model;
@@ -723,7 +1030,14 @@ export class EditorScene {
     const ui = document.createElement("div");
     ui.id = "ba-editor";
     const paletteButtons = [WALL_RUN, ...PLACEABLE_MODELS]
-      .map((m) => `<button class="edp" data-model="${m}">${m}</button>`)
+      .map((m) => `<button class="edp" data-model="${m}"><img data-thumb="${m}" alt=""><span>${m}</span></button>`)
+      .join("");
+    const floorButtons = [...FLOOR_TYPES, "auto" as const]
+      .map((t) => {
+        const hex = `#${FLOOR_COLORS[t].toString(16).padStart(6, "0")}`;
+        const label = t === "auto" ? "auto (erase)" : t === "flag" ? "flagstone" : t === "worn" ? "worn rock" : t === "grate" ? "grate" : "dirt";
+        return `<button class="edf" data-floor="${t}"><i style="background:${hex}"></i>${label}</button>`;
+      })
       .join("");
     ui.innerHTML = `
       <div class="ed-top">
@@ -736,38 +1050,69 @@ export class EditorScene {
         <span class="ed-status" id="ed-status"></span>
         <input type="file" id="ed-file" accept=".json,application/json" style="display:none">
       </div>
-      <div class="ed-palette">
+      <div class="ed-roster" id="ed-roster">
+        <div class="ed-roster-h">PROPS</div>
         <input id="ed-search" placeholder="search props…">
         <div class="ed-list" id="ed-list">${paletteButtons}</div>
       </div>
-      <div class="ed-inspector" id="ed-inspector" style="display:none">
-        <div class="ed-i-model" id="ed-i-model"></div>
-        <label>x<input id="ed-ix" type="number" step="0.5"></label>
-        <label>y<input id="ed-iy" type="number" step="0.5"></label>
-        <label>rot°<input id="ed-irot" type="number" step="15"></label>
-        <label>scale<input id="ed-iscale" type="number" step="0.1" min="0.2" max="4"></label>
-        <label>lift<input id="ed-ih" type="number" step="0.1"></label>
-        <label class="edchk"><input id="ed-ilie" type="checkbox">lie (toppled)</label>
-        <label class="edchk"><input id="ed-icol" type="checkbox">collidable</label>
-        <div id="ed-colrow" style="display:none">
-          <label>radius<input id="ed-irad" type="number" step="0.1" min="0.1"></label>
-          <label>height<input id="ed-iht" type="number" step="0.1" min="0.1"></label>
+      <div class="ed-panel">
+        <div class="ed-tabs">
+          <button class="edt" id="ed-tab-props" data-tab="props">PROPS</button>
+          <button class="edt" id="ed-tab-floor" data-tab="floor">FLOOR</button>
         </div>
-        <button id="ed-idel">DELETE</button>
+        <div class="ed-body" id="ed-proppal">
+          <div class="ed-inspector" id="ed-inspector" style="display:none">
+            <div class="ed-i-model" id="ed-i-model"></div>
+            <label>x<input id="ed-ix" type="number" step="0.5"></label>
+            <label>y<input id="ed-iy" type="number" step="0.5"></label>
+            <label>rot°<input id="ed-irot" type="number" step="15"></label>
+            <label>scale<input id="ed-iscale" type="number" step="0.1" min="0.2" max="4"></label>
+            <label>lift<input id="ed-ih" type="number" step="0.1"></label>
+            <label class="edchk"><input id="ed-ilie" type="checkbox">lie (toppled)</label>
+            <label class="edchk"><input id="ed-icol" type="checkbox">collidable</label>
+            <div id="ed-colrow" style="display:none">
+              <label>radius<input id="ed-irad" type="number" step="0.1" min="0.1"></label>
+              <label>height<input id="ed-iht" type="number" step="0.1" min="0.1"></label>
+            </div>
+            <button id="ed-idel">DELETE</button>
+          </div>
+          <div class="ed-note" id="ed-note">Pick a prop on the left — it follows your cursor; click to stamp it, click-drag to stamp a trail. RMB or Esc exits place mode. Click a placed prop to select and edit it here.</div>
+        </div>
+        <div class="ed-body" id="ed-floorpal" style="display:none">
+          <div class="ed-roster-h">FLOOR PAINT</div>
+          ${floorButtons}
+          <div class="ed-note">Click or drag on the ground to paint 4u tiles. AUTO restores the procedural floor.</div>
+        </div>
       </div>
-      <div class="ed-help">LMB select/drag (Shift snap) · Q/E rotate (Shift fine) · +/- scale · L lie · C collide · D duplicate · Del delete · Esc deselect · RMB/WASD pan · wheel zoom</div>`;
+      <div class="ed-help">LMB select/drag (Shift snap) · Q/E rotate · +/- scale · L lie · C collide · D duplicate · Del delete · F floor tab · RMB orbit · MMB or Shift+RMB pan · WASD pan · wheel zoom</div>`;
     document.body.appendChild(ui);
     this.ui = ui;
     this.statusEl = document.getElementById("ed-status");
     this.inspector = document.getElementById("ed-inspector");
 
-    // palette
+    // palette → place mode (opaque preview under the cursor; clicking the
+    // active model again exits)
     ui.querySelectorAll<HTMLButtonElement>(".edp").forEach((btn) => {
       btn.addEventListener("click", () => {
         const model = btn.dataset["model"];
-        if (model) this.addProp(model);
+        if (!model) return;
+        if (this.placing?.model === model) this.stopPlacing();
+        else this.startPlacing(model);
       });
     });
+    // floor palette
+    ui.querySelectorAll<HTMLButtonElement>(".edf").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const t = btn.dataset["floor"];
+        if (t === "auto" || (FLOOR_TYPES as readonly string[]).includes(t ?? "")) this.setFloorType(t as FloorType | "auto");
+      });
+    });
+    this.setFloorType(this.floorType);
+    ui.querySelectorAll<HTMLButtonElement>(".edt").forEach((btn) => {
+      btn.addEventListener("click", () => this.setMode(btn.dataset["tab"] === "floor" ? "floor" : "props"));
+    });
+    this.setMode(this.mode);
+    void this.genThumbs([WALL_RUN, ...PLACEABLE_MODELS]);
     const search = this.input("ed-search");
     search.addEventListener("input", () => {
       const q = search.value.trim().toLowerCase();
@@ -893,11 +1238,24 @@ function injectStyle(): void {
 .ed-top{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;gap:8px;padding:8px 12px;background:linear-gradient(#080a12ee,#080a1200)}
 .ed-logo{font:900 italic 16px system-ui,sans-serif;letter-spacing:-1px;color:#ffd24a;margin-right:6px}
 .ed-status{font:600 11px ui-monospace,monospace;opacity:.75;margin-left:auto}
-.ed-palette{position:absolute;top:46px;left:10px;bottom:44px;width:200px;display:flex;flex-direction:column;gap:6px;background:rgba(8,10,18,.82);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:8px}
-.ed-palette input{width:100%;box-sizing:border-box}
-.ed-list{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:3px;pointer-events:auto}
-.ed-list button{text-align:left;background:rgba(20,26,42,.85);border-radius:5px;padding:4px 8px;font-weight:600}
-.ed-inspector{position:absolute;top:46px;right:10px;width:220px;display:flex;flex-direction:column;gap:6px;background:rgba(8,10,18,.85);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:10px}
+.ed-roster{position:absolute;top:46px;left:10px;bottom:44px;width:206px;display:flex;flex-direction:column;gap:4px;background:rgba(8,10,18,.82);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:8px;pointer-events:auto}
+.ed-roster-h{font:800 10px ui-monospace,monospace;letter-spacing:1px;opacity:.55;padding:6px 2px 2px}
+.ed-roster input{width:100%;box-sizing:border-box}
+.ed-list{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:4px;pointer-events:auto;min-height:0}
+#ba-editor .edp{display:flex;align-items:center;gap:8px;text-align:left;background:rgba(20,26,42,.85);border-radius:6px;padding:5px 8px;font-weight:600}
+#ba-editor .edp img{width:30px;height:30px;border-radius:5px;flex:none;background:#0a0e18}
+#ba-editor .edp span{font-size:10px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#ba-editor .edp-on{border-color:#ffd24a;color:#ffd24a;background:rgba(64,54,20,.9)}
+.ed-panel{position:absolute;top:46px;right:10px;width:250px;max-height:calc(100vh - 100px);display:flex;flex-direction:column;gap:6px;background:rgba(8,10,18,.85);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:8px;pointer-events:auto}
+.ed-tabs{display:flex;gap:4px}
+.edt{flex:1}
+#ba-editor .edt.on{border-color:#ffd24a;color:#ffd24a;background:rgba(64,54,20,.9)}
+.ed-body{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:5px;min-height:0}
+#ba-editor .edf{display:flex;align-items:center;gap:8px;text-align:left;background:rgba(20,26,42,.85);border-radius:6px;padding:6px 8px}
+#ba-editor .edf i{display:inline-block;width:16px;height:16px;border-radius:4px;border:1px solid rgba(255,255,255,.35);flex:none}
+#ba-editor .edf.edp-on{border-color:#ffd24a;color:#ffd24a;background:rgba(64,54,20,.9)}
+.ed-note{font:600 9px ui-monospace,monospace;opacity:.45;padding:8px 2px;line-height:1.4}
+.ed-inspector{display:flex;flex-direction:column;gap:6px}
 .ed-i-model{font:800 13px ui-monospace,monospace;color:#ffd24a;word-break:break-all}
 .ed-inspector label{display:flex;align-items:center;justify-content:space-between;gap:8px;font:600 11px ui-monospace,monospace;opacity:.9}
 .ed-inspector label input[type=number]{width:110px}

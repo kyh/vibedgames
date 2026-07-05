@@ -161,24 +161,78 @@ export function buildProceduralDecor(): Decor[] {
   });
 
   // ── PERIMETER DEBRIS: toppled pillars/columns + rubble half-sunk along the
-  //    walls, in the gaps between bases, camps, and the golem lair ──
-  for (let i = 0; i < 12; i++) {
-    const a = (i / 12) * TAU + 0.22;
-    const r = APOTHEM - 2.4 - (i % 3);
+  //    walls, in the gaps between bases, camps, and the golem lair. Count
+  //    scales with the wall length (the hall doubled — 12 pieces read empty). ──
+  const perimN = Math.round(APOTHEM / 2.7); // ≈ 20 at the 62-hall
+  for (let i = 0; i < perimN; i++) {
+    const a = (i / perimN) * TAU + 0.22;
+    const r = APOTHEM - 2.4 - (i % 3) * 1.3;
     const x = Math.cos(a) * r;
     const y = Math.sin(a) * r;
-    // keep clear of every base gate (edge midpoints) and the golem vertex
+    // keep clear of every base gate (edge midpoints) and the camp vertices
     let clear = true;
     for (const s of SPAWNS) {
-      if ((x - s.x) ** 2 + (y - s.y) ** 2 < 8 * 8) clear = false;
+      if ((x - s.x) ** 2 + (y - s.y) ** 2 < 9 * 9) clear = false;
     }
     for (const c of CAMPS) {
-      if ((x - c.x) ** 2 + (y - c.y) ** 2 < 7 * 7) clear = false;
+      if ((x - c.x) ** 2 + (y - c.y) ** 2 < 8 * 8) clear = false;
     }
     if (!clear) continue;
     add(i % 2 === 0 ? "pillar" : "column", x, y, a * 1.7, 0.85, i % 3 !== 0);
     if (i % 4 === 1) add("rubble_half", x + Math.cos(a + 1.3) * 2.0, y + Math.sin(a + 1.3) * 2.0, hash2(i, 87) * TAU, 0.35);
+    if (i % 4 === 3) add("rocks", x + Math.cos(a - 1.1) * 2.3, y + Math.sin(a - 1.1) * 2.3, hash2(i, 88) * TAU, 0.85);
   }
+
+  // ── MID-BAND SCATTER: the resize opened a wide ring between the partition
+  //    cover (r≈31) and the wall features (r≈45+). Fill it with LOW walk-
+  //    through debris vignettes — texture, not cover. All hash-placed with
+  //    keep-clear rules: base lanes, camps, pads, rune shrines, partitions. ──
+  const laneClear = (x: number, y: number): boolean => {
+    // perpendicular distance to each base→center lane ray (edge angles)
+    for (const a of EDGE_ANGLES) {
+      const ux = Math.cos(a);
+      const uy = Math.sin(a);
+      const t = x * ux + y * uy; // along-lane coordinate
+      if (t > 6) {
+        const d = Math.abs(-x * uy + y * ux);
+        if (d < 4.5) return false;
+      }
+    }
+    return true;
+  };
+  const scatterN = Math.round(APOTHEM * 0.5); // ≈ 27 attempts
+  for (let i = 0; i < scatterN; i++) {
+    const a = hash2(i, 301) * TAU;
+    const r = APOTHEM * (0.55 + hash2(i, 302) * 0.32); // ≈ 29..47
+    const x = Math.cos(a) * r;
+    const y = Math.sin(a) * r;
+    let clear = laneClear(x, y);
+    for (const s of SPAWNS) if ((x - s.x) ** 2 + (y - s.y) ** 2 < 9 * 9) clear = false;
+    for (const c of CAMPS) if ((x - c.x) ** 2 + (y - c.y) ** 2 < 8 * 8) clear = false;
+    for (const p of DELIVERY_PADS) if ((x - p.x) ** 2 + (y - p.y) ** 2 < 7 * 7) clear = false;
+    for (const p of RUNE_SPOTS) if ((x - p.x) ** 2 + (y - p.y) ** 2 < 7 * 7) clear = false;
+    for (const run of PARTITION_RUNS) if ((x - run.x) ** 2 + (y - run.y) ** 2 < 6.5 * 6.5) clear = false;
+    if (!clear) continue;
+    const pick = hash2(i, 303);
+    if (pick < 0.4) add("rocks_small", x, y, hash2(i, 304) * TAU, 0.9 + hash2(i, 305) * 0.4);
+    else if (pick < 0.65) add("rubble_half", x, y, hash2(i, 304) * TAU, 0.3 + hash2(i, 305) * 0.1);
+    else if (pick < 0.85) add("rocks", x, y, hash2(i, 304) * TAU, 0.7 + hash2(i, 305) * 0.3);
+    else {
+      // rare vignette: a sunken foundation slab with a candle
+      add("floor_foundation_corner", x, y, hash2(i, 306) * TAU, 0.8);
+      add("candle_triple", x + 1.3, y + 0.6, hash2(i, 307) * TAU, 1.0);
+    }
+  }
+
+  // ── WALL BANNERS: cloth between the gates — the taller hall walls read
+  //    bare at 62. Two per edge segment, alternating war colors. ──
+  EDGE_ANGLES.forEach((a, k) => {
+    for (const off of [-0.13, 0.13]) {
+      const ba = a + off;
+      const wr = APOTHEM - 0.5;
+      add(k % 2 === 0 ? "banner_red" : "banner_blue", Math.cos(ba) * wr, Math.sin(ba) * wr, Math.PI / 2 - ba, 1.15, false, 2.6);
+    }
+  });
 
   // ── THRONE COURT: the weenie. An empty throne over a gold hoard on the dais
   //    top (h = BOSS_TOP plants everything at dais height, y ≈ 3.6) ──

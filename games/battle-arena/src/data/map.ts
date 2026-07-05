@@ -8,7 +8,7 @@
 // = HEX_R·cos(30°). The 6 spawn bases sit at the 6 edge midpoints.
 import { THRONE_RADIUS } from "./config";
 import type { Vec2 } from "../sim/math";
-import type { MapData } from "./map-format";
+import type { FloorType, MapData } from "./map-format";
 
 export const HEX_R = 62; // center → vertex (units) — 62 ≈ 2× the old 44's AREA
 export const APOTHEM = HEX_R * Math.cos(Math.PI / 6); // center → edge ≈ 53.7
@@ -127,6 +127,11 @@ export function hasCustomMap(): boolean {
   return customMap;
 }
 
+/** Painted floor cells (render-only): "gx,gz" on the 4u tile grid → tile band.
+ *  Filled by applyMapData / the editor; Environment.buildFloor consults it. */
+export const FLOOR_OVERRIDES = new Map<string, FloorType>();
+export const floorKey = (gx: number, gz: number): string => `${gx},${gz}`;
+
 /** Replace the arena colliders with a custom map's — IN PLACE, because the sim
  *  (resolveObstacles) and the renderer both hold references to OBSTACLES. Must
  *  run before world creation and before Environment.setup. */
@@ -136,6 +141,8 @@ export function applyMapData(data: MapData): void {
   for (const c of data.colliders) {
     OBSTACLES.push({ x: c.x, y: c.y, radius: c.radius, height: c.height, model: c.model });
   }
+  FLOOR_OVERRIDES.clear();
+  for (const f of data.floor ?? []) FLOOR_OVERRIDES.set(floorKey(f.x, f.y), f.t);
 }
 
 /** Partition runs the renderer dresses as continuous walls. The default arena

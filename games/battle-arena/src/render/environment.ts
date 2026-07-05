@@ -24,6 +24,8 @@ import {
   BOSS_PLATFORM_RADIUS,
   BOSS_POS,
   CAMPS,
+  FLOOR_OVERRIDES,
+  floorKey,
   hasCustomMap,
   OBSTACLES,
   RUNE_SPOTS,
@@ -622,22 +624,47 @@ export class Environment {
    *  blobs (camps + hash-seeded patches, like the sample render), worn-rock
    *  sprinkle mid-field, hash-seeded 0/90/180/270 tile rotations. Three
    *  InstancedMeshes, three draw calls. */
+  /** Tear down + rebuild just the floor instancing — the editor calls this
+   *  live while painting FLOOR_OVERRIDES. */
+  rebuildFloor(): void {
+    for (const m of this.floorMeshes) {
+      this.scene.remove(m);
+      m.dispose(); // InstancedMesh.dispose frees its instance buffers only
+    }
+    this.floorMeshes.length = 0;
+    this.buildFloor();
+  }
+
+  private floorMeshes: THREE.InstancedMesh[] = [];
+
   private buildFloor(): void {
     const flag = this.geoOf("floor_tile_large");
     const worn = this.geoOf("floor_tile_large_rocks");
     const dirt = this.geoOf("floor_dirt_large");
     const grate = this.geoOf("floor_tile_big_grate");
     if (!flag) return;
+    // DUNGEON GRADE: the tile albedo is warm greige (~#8f867e) which reads as
+    // sand under the arena's warm light — multiply toward the cool stone gray
+    // of the walls so the hall reads dungeon, not desert (KayKit's own sample
+    // renders are this cool). Dirt keeps most of its warmth (camp blobs).
+    const coolTint = (info: GeoInfo | null, r: number, g: number, b: number): void => {
+      if (info && info.mat instanceof THREE.MeshStandardMaterial) info.mat.color.setRGB(r, g, b);
+    };
+    coolTint(flag, 0.72, 0.82, 0.97);
+    coolTint(worn, 0.72, 0.82, 0.97);
+    coolTint(grate, 0.76, 0.84, 0.97);
+    coolTint(dirt, 0.75, 0.72, 0.67);
     for (const info of [flag, worn, dirt, grate]) {
       if (!info) continue;
       const c = info.box.getCenter(V_POS);
       info.geo.translate(-c.x, 0, -c.z); // center each tile on its origin
     }
     // organic dirt blobs: one under each camp/lair + hash-scattered patches
+    // (scatter radii as APOTHEM fractions so the pattern survives resizes)
     const blobs: { x: number; y: number; r: number }[] = CAMPS.map((c) => ({ x: c.x, y: c.y, r: c.id === "golem" ? 5.5 : 5 }));
-    for (let k = 0; k < 8; k++) {
+    for (let k = 0; k < 12; k++) {
       const a = hash2(k, 91) * TAU;
-      const r = 13 + hash2(k, 92) * 22;
+      const r = WALL_APOTHEM * (0.34 + hash2(k, 92) * 0.55);
       blobs.push({ x: Math.cos(a) * r, y: Math.sin(a) * r, r: 3.5 + hash2(k, 93) * 3 });
     }
     const tile = 4;
@@ -651,9 +678,16 @@ export class Environment {
         const r = Math.sqrt(r2);
         const h = hash2(gx / 4, gz / 4);
         const rot = Math.floor(hash2(gz / 4, gx / 4) * 4) * (Math.PI / 2);
+        const y = r2 < PLATEAU_R * PLATEAU_R ? PLATEAU_H : 0;
+        // painted floor (editor / custom map) wins over the procedural bands
+        const painted = FLOOR_OVERRIDES.get(floorKey(gx, gz));
+        if (painted) {
+          cells[painted].push([gx, gz, y, rot]);
+          continue;
+        }
         // platform top stays pristine flagstone (the vertical wall hides the step)
-        if (r2 < PLATEAU_R * PLATEAU_R) {
-          cells.flag.push([gx, gz, PLATEAU_H, rot]);
+        if (y > 0) {
+          cells.flag.push([gx, gz, y, rot]);
           continue;
         }
         let inBlob = false;
@@ -666,9 +700,9 @@ export class Environment {
           }
         }
         if (inBlob && dirt) cells.dirt.push([gx, gz, 0, rot]);
-        else if (r > 13 && h < 0.16 && worn) cells.worn.push([gx, gz, 0, rot]);
+        else if (r > WALL_APOTHEM * 0.34 && h < 0.16 && worn) cells.worn.push([gx, gz, 0, rot]);
         // rusted drainage grates mid-field — the sample-render density layer
-        else if (r > 15 && r < 32 && h >= 0.16 && h < 0.205 && grate) cells.grate.push([gx, gz, 0, rot]);
+        else if (r > WALL_APOTHEM * 0.39 && r < WALL_APOTHEM * 0.84 && h >= 0.16 && h < 0.205 && grate) cells.grate.push([gx, gz, 0, rot]);
         else cells.flag.push([gx, gz, 0, rot]);
       }
     }
@@ -691,6 +725,7 @@ export class Environment {
       });
       inst.instanceMatrix.needsUpdate = true;
       this.add(inst);
+      this.floorMeshes.push(inst);
     }
   }
 
