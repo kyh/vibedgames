@@ -312,6 +312,55 @@ for (const e of edges) e.pts = rdp(e.pts, 2.5);
   });
 }
 
+// --- Junction clustering: contract edges too short to render (twin-merge
+// leaves 3-15u connector stubs between a kept carriageway and its deleted
+// twin's nodes — they draw as floating road slivers). Contracting fuses the
+// node cluster into one junction. ---
+{
+  const CONTRACT_LEN = 18;
+  const eLen = (e) => {
+    let L = 0;
+    for (let i = 1; i < e.pts.length; i++) L += Math.hypot(e.pts[i][0] - e.pts[i-1][0], e.pts[i][1] - e.pts[i-1][1]);
+    return L;
+  };
+  let changed = true;
+  let contracted = 0;
+  while (changed) {
+    changed = false;
+    for (let i = 0; i < edges.length; i++) {
+      const e = edges[i];
+      if (!e || e.a === e.b || eLen(e) >= CONTRACT_LEN) continue;
+      const keep = e.a, drop = e.b;
+      nodes[keep] = [(nodes[keep][0] + nodes[drop][0]) / 2, (nodes[keep][1] + nodes[drop][1]) / 2];
+      for (const f of edges) {
+        if (!f) continue;
+        if (f.a === drop) f.a = keep;
+        if (f.b === drop) f.b = keep;
+      }
+      edges[i] = null;
+      contracted++;
+      changed = true;
+    }
+    edges = edges.filter(Boolean);
+    // Self-loops from contraction + duplicate parallels between one node pair.
+    const seen = new Set();
+    edges = edges.filter((f) => {
+      if (f.a === f.b && eLen(f) < 40) return false;
+      const k = Math.min(f.a, f.b) + "_" + Math.max(f.a, f.b);
+      if (f.a !== f.b && seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  }
+  // Snap polylines to the (possibly moved) node positions.
+  for (const e of edges) {
+    e.pts[0] = [nodes[e.a][0], nodes[e.a][1]];
+    e.pts[e.pts.length - 1] = [nodes[e.b][0], nodes[e.b][1]];
+    e.pts = rdp(e.pts, 2.5);
+  }
+  console.log(`junction clustering contracted ${contracted} sliver edges`);
+}
+
 // --- Largest connected component ---
 {
   const adj = new Map();

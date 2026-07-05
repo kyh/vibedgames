@@ -150,15 +150,20 @@ export function buildRoads(network: RoadNetwork, terrain: Terrain): THREE.Mesh[]
 
     // Asphalt ribbon.
     parts.push({ geo: stripGeo(rail, -h, h), mat: MAT_ASPHALT, lift: ASPHALT_LIFT });
-    // Sidewalks + curb tops both sides.
-    parts.push({ geo: stripGeo(rail, h, h + SIDEWALK_W), mat: MAT_SIDEWALK, lift: SIDEWALK_LIFT });
-    parts.push({ geo: stripGeo(rail, -h - SIDEWALK_W, -h), mat: MAT_SIDEWALK, lift: SIDEWALK_LIFT });
-    parts.push({ geo: stripGeo(rail, h - CURB_W, h), mat: MAT_CURB, lift: SIDEWALK_LIFT - 0.02 });
-    parts.push({ geo: stripGeo(rail, -h, -h + CURB_W), mat: MAT_CURB, lift: SIDEWALK_LIFT - 0.02 });
-    // White edge lines.
-    const eo = h - EDGE_INSET;
-    parts.push({ geo: stripGeo(rail, eo - LINE_W / 2, eo + LINE_W / 2), mat: MAT_WHITE, lift: LINE_LIFT });
-    parts.push({ geo: stripGeo(rail, -eo - LINE_W / 2, -eo + LINE_W / 2), mat: MAT_WHITE, lift: LINE_LIFT });
+    // Sidewalks, curbs and edge lines pull further back from junctions —
+    // at shallow-angle crossings their strips would otherwise slice across
+    // the neighbour edge's asphalt. Overlapping asphalt is invisible;
+    // overlapping kerbs are not.
+    const walk = railFor(edge, trimA + 3, edge.len - trimB - 3);
+    if (walk) {
+      parts.push({ geo: stripGeo(walk, h, h + SIDEWALK_W), mat: MAT_SIDEWALK, lift: SIDEWALK_LIFT });
+      parts.push({ geo: stripGeo(walk, -h - SIDEWALK_W, -h), mat: MAT_SIDEWALK, lift: SIDEWALK_LIFT });
+      parts.push({ geo: stripGeo(walk, h - CURB_W, h), mat: MAT_CURB, lift: SIDEWALK_LIFT - 0.02 });
+      parts.push({ geo: stripGeo(walk, -h, -h + CURB_W), mat: MAT_CURB, lift: SIDEWALK_LIFT - 0.02 });
+      const eo = h - EDGE_INSET;
+      parts.push({ geo: stripGeo(walk, eo - LINE_W / 2, eo + LINE_W / 2), mat: MAT_WHITE, lift: LINE_LIFT });
+      parts.push({ geo: stripGeo(walk, -eo - LINE_W / 2, -eo + LINE_W / 2), mat: MAT_WHITE, lift: LINE_LIFT });
+    }
 
     // Yellow centre dashes by arclength along the trimmed section.
     const secLen = edge.len - trimA - trimB;

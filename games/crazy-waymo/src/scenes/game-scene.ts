@@ -962,6 +962,7 @@ export class GameScene {
     const dist = districtAt(city.gridX(car.position.x), city.gridZ(car.position.z));
     if (dist.name !== this.lastDistrict) {
       this.lastDistrict = dist.name;
+      this.hud.setArea(dist.name);
       this.hud.showDistrict(dist.name);
     }
 

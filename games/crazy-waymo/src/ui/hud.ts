@@ -18,6 +18,7 @@ export class Hud {
   private timerVal = el("timer").querySelector<HTMLElement>(".value");
   private timeBonus = el("time-bonus");
   private district = el("district");
+  private area = el("area");
   private scoreVal = el("score").querySelector<HTMLElement>(".value");
   private scorePill = el("score");
   private faresVal = el("fares").querySelector<HTMLElement>(".value");
@@ -104,6 +105,16 @@ export class Hud {
     this.scoreShown = n;
     if (this.scoreVal) this.scoreVal.textContent = `$${n.toLocaleString("en-US")}`;
   }
+  // Persistent top-centre area label (always current while driving).
+  setArea(name: string): void {
+    if (name === "") {
+      this.area.classList.remove("show");
+      return;
+    }
+    this.area.classList.add("show");
+    this.area.textContent = name.toUpperCase();
+  }
+
   showDistrict(name: string): void {
     this.district.textContent = `◢ ${name.toUpperCase()}`;
     this.district.animate(

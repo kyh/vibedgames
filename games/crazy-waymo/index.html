@@ -64,6 +64,23 @@
         font-variant-numeric: tabular-nums;
       }
 
+      /* Current area — persistent, top-center */
+      #area {
+        top: calc(14px + env(safe-area-inset-top));
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 6px 16px;
+        font-size: 12px;
+        letter-spacing: 2px;
+        color: #ffd147;
+        white-space: nowrap;
+        opacity: 0;
+        transition: opacity 0.3s;
+      }
+      #area.show {
+        opacity: 1;
+      }
+
       /* Timer — big, top-center */
       #timer {
         top: calc(14px + env(safe-area-inset-top));
@@ -135,7 +152,7 @@
       }
       #district {
         position: fixed;
-        top: calc(96px + env(safe-area-inset-top));
+        top: calc(120px + env(safe-area-inset-top));
         left: 50%;
         transform: translateX(-50%);
         font:
@@ -172,7 +189,7 @@
         color: #fff;
       }
       #fares {
-        top: 70px;
+        top: 78px;
         left: calc(14px + env(safe-area-inset-left));
         padding: 5px 12px;
       }
@@ -181,7 +198,7 @@
       }
 
       #boost {
-        top: 112px;
+        top: 132px;
         left: calc(14px + env(safe-area-inset-left));
         padding: 6px 12px;
       }
@@ -721,6 +738,7 @@
         <div id="combo-track"><div id="combo-fill"></div></div>
       </div>
       <div id="time-bonus"></div>
+      <div class="pill" id="area"></div>
       <div id="district"></div>
       <div class="pill" id="score"><span class="label">EARNED</span><span class="value">0</span></div>
       <div class="pill" id="fares"><span class="label">FARES</span><span class="value">0</span></div>
