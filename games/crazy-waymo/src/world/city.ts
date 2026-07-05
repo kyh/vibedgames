@@ -144,7 +144,7 @@ export class CityModel {
     } else {
       this.network = new RoadNetwork();
     }
-    this.build();
+    // build happens in init() so the loading bar can breathe between phases
   }
 
   worldX(gx: number): number {
@@ -211,7 +211,31 @@ export class CityModel {
     });
   }
 
-  private build(): void {
+  // Build in yielded phases so the loading bar paints during city gen.
+  async init(onProgress?: (f: number) => void): Promise<void> {
+    const tick = async (f: number): Promise<void> => {
+      onProgress?.(f);
+      await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+    };
+    await tick(0.72);
+    this.buildPhase1();
+    await tick(0.82);
+    this.buildPhase2();
+    await tick(0.92);
+    this.buildPhase3();
+    await tick(0.97);
+  }
+
+  private phase2!: () => void;
+  private phase3!: () => void;
+  private buildPhase2(): void {
+    this.phase2();
+  }
+  private buildPhase3(): void {
+    this.phase3();
+  }
+
+  private buildPhase1(): void {
     const staticMeshes: THREE.Mesh[] = [];
     const collect = (obj: THREE.Object3D): void => {
       obj.updateMatrixWorld(true);
@@ -472,6 +496,7 @@ export class CityModel {
       }
     }
 
+    this.phase2 = () => {
     // --- REAL downtown buildings: positions, footprints and heights from the
     // licensed SF model (calibrated in tools/sf-data/calibrate-downtown.mjs).
     // Kit models are chosen by height class and stretched to the real
@@ -625,6 +650,8 @@ export class CityModel {
       placeGreen(g.gx, g.gz);
     }
 
+    };
+    this.phase3 = () => {
     // --- Street furniture: lights, parked cars, yards, awnings, smokestacks,
     // construction chicanes, park allées, wharf piers + seawall. ---
     const fr = buildFurniture({
@@ -903,6 +930,7 @@ export class CityModel {
 
     // --- Iconic landmarks (procedural; kept separate — always visible) ---
     this.group.add(buildLandmarks(this.terrain, this.cache));
+    };
   }
 
   // Chunked visibility: merged road/drape tiles show/hide as whole groups

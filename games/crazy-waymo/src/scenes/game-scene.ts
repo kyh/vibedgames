@@ -321,10 +321,14 @@ export class GameScene {
 
   async load(): Promise<void> {
     await this.cache.preload(allModelUrls(), (frac) => {
+      this.mode = { kind: "loading", progress: frac * 0.7 };
+      this.hud.setLoading(frac * 0.7);
+    });
+    const city = new CityModel(this.cache);
+    await city.init((frac) => {
       this.mode = { kind: "loading", progress: frac };
       this.hud.setLoading(frac);
     });
-    const city = new CityModel(this.cache);
     this.scene.add(city.group);
     this.city = city;
 
