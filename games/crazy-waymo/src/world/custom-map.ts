@@ -25,7 +25,20 @@ export type MapOverrides = {
   floor: [number, number, FloorKind][];
 };
 
+// Local (per-browser) edits ONLY apply inside the editor. Normal play must
+// run the canonical baked map — multiplayer shares one deterministic city,
+// and a locally forked map would desync it. Ship edits to everyone by
+// pasting Copy-map-JSON into CUSTOM_MAP above.
+export function editorMode(): boolean {
+  try {
+    return new URLSearchParams(window.location.search).has("editor");
+  } catch {
+    return false;
+  }
+}
+
 export function loadLocalOverrides(): MapOverrides {
+  if (!editorMode()) return { add: [], remove: [], floor: [] };
   try {
     const raw = window.localStorage.getItem(MAP_OVERRIDES_KEY);
     if (!raw) return { add: [], remove: [], floor: [] };
