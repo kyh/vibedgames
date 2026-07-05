@@ -214,7 +214,16 @@ export const PROPS = [
   ...PARK_TREES,
 ] as const;
 
-const ROADS = [ROAD_BRIDGE, BRIDGE_PILLAR, BRIDGE_PILLAR_WIDE] as const;
+const ROADS = [
+  ROAD_BRIDGE,
+  BRIDGE_PILLAR,
+  BRIDGE_PILLAR_WIDE,
+  ROAD_STRAIGHT,
+  ROAD_BEND,
+  ROAD_CROSSROAD,
+  ROAD_INTERSECTION,
+  ROAD_END,
+] as const;
 
 // Everything that must be preloaded before the game starts.
 export function allModelUrls(): string[] {

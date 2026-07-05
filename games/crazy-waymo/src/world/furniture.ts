@@ -4,6 +4,7 @@ import type { ModelCache } from "../assets/loader";
 import {
   BRIDGE_PILLAR,
   BUSHES,
+  ROAD_END,
   LIGHT_CURVED,
   LIGHT_CURVED_CROSS,
   LIGHT_OLD,
@@ -49,7 +50,7 @@ import type { Rng } from "../shared/rng";
 import { type Dir, DIR_DELTA, E, N, S, W } from "../shared/types";
 import type { Solid } from "./city";
 import { conformToTerrain } from "./conform";
-import { SIDEWALK_W } from "./roads";
+
 import type { RoadNetwork } from "./network";
 import type { CityPlan, RoadResolved } from "./grid";
 import { type DistrictChar, districtAt } from "./sf-map";
@@ -287,6 +288,59 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
     cellAt(gx + sx, gz + sz) !== "road";
 
   // ------------------------------------------------------------------
+  // 0. STREET TILES — Kenney road pieces on every road cell. The classifier
+  // (grid.ts) picked the piece + quarter turns; here we place, scale to the
+  // cell, and tilt each tile to the local terrain gradient so streets climb
+  // hills like ramps instead of floating.
+  // ------------------------------------------------------------------
+  {
+    const UP = new THREE.Vector3(0, 1, 0);
+    const qTilt = new THREE.Quaternion();
+    const qYaw = new THREE.Quaternion();
+    const nrm = new THREE.Vector3();
+    const seatRoadTile = (url: string, x: number, z: number, yaw: number): void => {
+      const node = cache.instance(url);
+      tintNode(node, KK_TINT, KK_TINT_AMT);
+      const scl = (ROAD_TILE * 1.04) / Math.max(cache.bounds(url).size.x, 0.001);
+      node.scale.setScalar(scl);
+      const e = ROAD_TILE * 0.5;
+      nrm
+        .set(
+          -(terrain.heightAt(x + e, z) - terrain.heightAt(x - e, z)) / (2 * e),
+          1,
+          -(terrain.heightAt(x, z + e) - terrain.heightAt(x, z - e)) / (2 * e),
+        )
+        .normalize();
+      qTilt.setFromUnitVectors(UP, nrm);
+      qYaw.setFromAxisAngle(UP, yaw);
+      node.quaternion.copy(qTilt).multiply(qYaw);
+      node.position.set(x, terrain.heightAt(x, z) - 0.14, z);
+      node.updateMatrixWorld(true);
+      objects.push(node);
+    };
+    for (let gx = 0; gx < plan.sizeX; gx++) {
+      for (let gz = 0; gz < plan.sizeZ; gz++) {
+        const road = roadAt(gx, gz);
+        if (!road) continue;
+        const url = modelUrl("roads", road.tile);
+        let yaw = -road.quarterTurns * HALF_PI + HALF_PI;
+        if (road.tile === ROAD_END) {
+          // The resolver aligns ends like straights; recover the open side so
+          // the end cap faces away from the street.
+          for (const d of DIRS) {
+            const [dx, dz] = DIR_DELTA[d];
+            if (roadAt(gx + dx, gz + dz)) {
+              yaw = -d * HALF_PI + HALF_PI;
+              break;
+            }
+          }
+        }
+        seatRoadTile(url, worldX(gx), worldZ(gz), yaw);
+      }
+    }
+  }
+
+  // ------------------------------------------------------------------
   // 1. STREETLIGHTS — walked along network EDGES every ~2 tiles, alternating
   // sides, clear of junction trims. Works identically on axis streets,
   // diagonals and curves.
@@ -294,17 +348,16 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
   const lightSide = new Map<string, 1 | -1>(); // cell -> lamp side (bench clash check)
   const toGx = (x: number): number => Math.floor((x + WORLD_W / 2) / ROAD_TILE);
   const toGz = (z: number): number => Math.floor((z + WORLD_H / 2) / ROAD_TILE);
-  const LAMP_SPACING = ROAD_TILE * 3.5;
+  const LAMP_SPACING = ROAD_TILE * 4.5;
   let lampFlip = false;
   for (const edge of network.edges) {
-    if (edge.half < 5.2) continue; // arterials only — residential stays dark-sky
     const trimA = network.nodeTrim(edge.a) + 2;
     const trimB = network.nodeTrim(edge.b) + 2;
     for (let s = trimA + LAMP_SPACING * 0.5; s < edge.len - trimB; s += LAMP_SPACING) {
       lampFlip = !lampFlip;
       const side: 1 | -1 = lampFlip ? 1 : -1;
       const smp = network.sample(edge, s);
-      const off = (edge.half + SIDEWALK_W * 0.45) * side;
+      const off = (edge.half + 0.6) * side;
       const px = smp.x - smp.tz * off;
       const pz = smp.z + smp.tx * off;
       const gx = toGx(px);

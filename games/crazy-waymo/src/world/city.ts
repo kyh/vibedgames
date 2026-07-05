@@ -31,7 +31,7 @@ import { buildFurniture, type LampHead, type ParkedSpec } from "./furniture";
 import { buildGoldenGate } from "./golden-gate";
 import { RoadNetwork } from "./network";
 import { type CityPlan, generateCity } from "./grid";
-import { buildRoads } from "./roads";
+import { buildGridNetwork } from "./grid-network";
 import { buildLandmarks, landmarkProtection } from "./landmarks";
 import { type DistrictChar, districtAt, makeTerrain, paletteFor, tintAmountFor } from "./sf-map";
 import type { Terrain } from "./terrain";
@@ -122,8 +122,9 @@ export class CityModel {
     private rng = new Rng(CITY_SEED),
   ) {
     this.terrain = makeTerrain();
-    this.network = new RoadNetwork();
     this.plan = generateCity();
+    const gridNet = buildGridNetwork(this.plan, (gx) => this.worldX(gx), (gz) => this.worldZ(gz));
+    this.network = new RoadNetwork(gridNet.nodes, gridNet.edges);
     this.build();
   }
 
@@ -240,10 +241,6 @@ export class CityModel {
       for (let gz = 0; gz < GRID_Z; gz++) {
         if (this.plan.roads[gx]?.[gz]) this.roadCells.push({ gx, gz });
       }
-    }
-    for (const mesh of buildRoads(this.network, this.terrain)) {
-      mesh.userData.merge = true; // road ribbons are unique conformed buffers
-      staticMeshes.push(mesh);
     }
 
     // --- Landmark footprints: cells the procedural city leaves alone ---

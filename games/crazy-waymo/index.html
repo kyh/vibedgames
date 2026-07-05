@@ -397,17 +397,7 @@
         }
       }
 
-      /* Mute + pause */
-      #mute {
-        position: fixed;
-        right: calc(14px + env(safe-area-inset-right));
-        bottom: calc(14px + env(safe-area-inset-bottom));
-        font-size: 14px;
-        padding: 6px 10px;
-        pointer-events: auto;
-        cursor: pointer;
-        opacity: 0.75;
-      }
+      /* Pause */
       #paused {
         position: fixed;
         inset: 0;
@@ -758,7 +748,6 @@
       <div id="receipt"></div>
       <div id="countdown"></div>
       <canvas id="minimap" aria-hidden="true"></canvas>
-      <div class="pill" id="mute" role="button" aria-label="Toggle sound">🔊</div>
       <div id="dest-arrow">
         <svg viewBox="0 0 64 64">
           <polygon points="32,4 56,40 32,30 8,40" fill="#6bff8e" stroke="#0c2414" stroke-width="3"

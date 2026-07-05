@@ -1,4 +1,4 @@
-import { SF_EDGES, SF_NODES } from "./sf-network";
+import { SF_EDGES, SF_NODES, type RawEdge } from "./sf-network";
 
 // Runtime view of the baked vector road network — THE source of truth for
 // road rendering, traffic routing and building alignment. Edges are world-
@@ -35,15 +35,19 @@ export type NearestHit = {
 const HASH_CELL = 40; // world units per bucket
 
 export class RoadNetwork {
-  readonly nodes: readonly (readonly [number, number])[] = SF_NODES;
+  readonly nodes: readonly (readonly [number, number])[];
   readonly edges: readonly NetEdge[];
   readonly nodeEdges: readonly (readonly number[])[]; // node → incident edge ids
   private buckets = new Map<string, number[]>(); // "bx,bz" → edge ids (deduped)
 
-  constructor() {
+  constructor(
+    nodes: readonly (readonly [number, number])[] = SF_NODES,
+    rawEdges: readonly (RawEdge | undefined)[] = SF_EDGES,
+  ) {
+    this.nodes = nodes;
     const edges: NetEdge[] = [];
-    for (let i = 0; i < SF_EDGES.length; i++) {
-      const raw = SF_EDGES[i];
+    for (let i = 0; i < rawEdges.length; i++) {
+      const raw = rawEdges[i];
       if (!raw) continue;
       const pts = new Float32Array(raw.p);
       const n = pts.length / 2;
@@ -57,7 +61,7 @@ export class RoadNetwork {
     }
     this.edges = edges;
 
-    const nodeEdges: number[][] = SF_NODES.map(() => []);
+    const nodeEdges: number[][] = nodes.map(() => []);
     for (const e of edges) {
       nodeEdges[e.a]?.push(e.id);
       nodeEdges[e.b]?.push(e.id);

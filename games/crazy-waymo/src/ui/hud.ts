@@ -38,7 +38,6 @@ export class Hud {
   private comboFill = el("combo-fill");
   private countdown = el("countdown");
   private vignette = el("vignette");
-  private muteBtn = el("mute");
   private pausedEl = el("paused");
   private arrow = el("dest-arrow");
   private arrowPoly = el("dest-arrow").querySelector<SVGPolygonElement>("polygon");
@@ -242,12 +241,6 @@ export class Hud {
     this.vignette.style.opacity = v.toFixed(2);
   }
 
-  setMuted(muted: boolean): void {
-    this.muteBtn.textContent = muted ? "🔇" : "🔊";
-  }
-  onMute(fn: () => void): void {
-    this.muteBtn.addEventListener("click", fn);
-  }
   setPaused(paused: boolean): void {
     this.pausedEl.classList.toggle("show", paused);
   }
