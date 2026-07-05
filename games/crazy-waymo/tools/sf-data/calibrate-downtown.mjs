@@ -100,10 +100,6 @@ if (best.rate < 0.2) {
 // --- Emit sf-buildings.ts ---
 const { s, fz, ox, oz } = best;
 const out = [];
-let minX = Infinity;
-let minZ = Infinity;
-let maxX = -Infinity;
-let maxZ = -Infinity;
 for (const b of raw.buildings) {
   if (b.w > 260 || b.d > 260) continue; // merged block-complex noise
   const h = b.h * s;
@@ -118,11 +114,17 @@ for (const b of raw.buildings) {
     Math.round(b.d * s * 10) / 10,
     Math.round(h * 10) / 10,
   ]);
-  minX = Math.min(minX, x);
-  maxX = Math.max(maxX, x);
-  minZ = Math.min(minZ, z);
-  maxZ = Math.max(maxZ, z);
 }
+// Coverage = the DENSE core of the dataset (8th..92nd percentile), not the
+// stray-outlier bbox — procedural buildings only yield where real data is
+// actually thick on the ground.
+const q = (arr, t) => arr.slice().sort((a, b) => a - b)[Math.floor(arr.length * t)];
+const xs = out.map((b) => b[0]);
+const zs = out.map((b) => b[1]);
+const minX = q(xs, 0.08);
+const maxX = q(xs, 0.92);
+const minZ = q(zs, 0.08);
+const maxZ = q(zs, 0.92);
 out.sort((a, b) => b[4] - a[4]);
 console.log(`emitting ${out.length} buildings, coverage x ${Math.round(minX)}..${Math.round(maxX)} z ${Math.round(minZ)}..${Math.round(maxZ)}`);
 console.log("tallest world:", JSON.stringify(out.slice(0, 5)));

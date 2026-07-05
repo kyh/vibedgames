@@ -63,6 +63,7 @@ const HALF_PI = Math.PI / 2;
 
 // Building front faces +Z in the native model; this offset rotates it to face
 // the street. Tune if entrances point the wrong way.
+const HALF_PI_CITY = Math.PI / 2;
 const BUILDING_FRONT_OFFSET = Math.PI;
 // Hillside foundations: concrete plinth under buildings on a grade.
 const PLINTH_GEO = new THREE.BoxGeometry(1, 1, 1);
@@ -310,6 +311,29 @@ export class CityModel {
     // block-interior infill. Avenue-frontage lots pass a pose (rotated to the
     // spine + setback). Returns false when the grade is too steep (the lot
     // goes green instead).
+    // Coarse occupancy hash: one entry per placed building (circle approx).
+    const placedHash = new Map<string, { x: number; z: number; r: number }[]>();
+    const OCC = 26;
+    const occKey = (x: number, z: number): string => `${Math.floor(x / OCC)},${Math.floor(z / OCC)}`;
+    const occupied = (x: number, z: number, r: number): boolean => {
+      const bx = Math.floor(x / OCC);
+      const bz = Math.floor(z / OCC);
+      for (let ix = bx - 1; ix <= bx + 1; ix++) {
+        for (let iz = bz - 1; iz <= bz + 1; iz++) {
+          for (const o of placedHash.get(`${ix},${iz}`) ?? []) {
+            if (Math.hypot(o.x - x, o.z - z) < o.r + r) return true;
+          }
+        }
+      }
+      return false;
+    };
+    const occupy = (x: number, z: number, r: number): void => {
+      const k = occKey(x, z);
+      const arr = placedHash.get(k) ?? [];
+      arr.push({ x, z, r });
+      placedHash.set(k, arr);
+    };
+
     const placeBuilding = (
       gx: number,
       gz: number,
@@ -321,6 +345,7 @@ export class CityModel {
       const district = districtAt(gx, gz);
       const wx = pose ? pose.x : this.worldX(gx);
       const wz = pose ? pose.z : this.worldZ(gz);
+      if (occupied(wx, wz, ROAD_TILE * footprintFrac * 0.45)) return false;
       const key = this.rng.pick(this.poolFor(district.character));
       const url = modelUrl("buildings", key);
       const bounds = this.cache.bounds(url);
@@ -387,6 +412,7 @@ export class CityModel {
         maxZ: wz + half,
         ...(pose ? { yaw: pose.yaw } : {}),
       });
+      occupy(wx, wz, targetFootprint * 0.5);
 
       if (!dressing) return true;
 
@@ -440,27 +466,51 @@ export class CityModel {
     for (const b of this.plan.buildingCells) {
       const cellId = `${b.gx},${b.gz}`;
       if (lm.reserved.has(cellId)) continue; // a landmark stands here
-      if (inRealData(this.worldX(b.gx), this.worldZ(b.gz))) continue; // real data owns downtown
       if (districtAt(b.gx, b.gz).character === "park" || lm.parkGreen.has(cellId)) {
         placeGreen(b.gx, b.gz); // park frontage → green, drivable (no solid)
-        continue;
       }
-      const pose = avenuePose(b.gx, b.gz);
-      const frac = pose ? this.rng.range(0.62, 0.72) : this.rng.range(0.74, 0.86);
-      // Clearance check: if the clamped setback still leaves the footprint on
-      // the asphalt (lot centre nearly on a road — merged carriageways, wide
-      // junctions), leave the lot green instead of parking a house mid-street.
-      const px = pose ? pose.x : this.worldX(b.gx);
-      const pz = pose ? pose.z : this.worldZ(b.gz);
-      const near = this.network.nearest(px, pz, ROAD_TILE * 1.6);
-      if (near && near.dist < near.edge.half + (ROAD_TILE * frac) / 2 - 1.2) {
-        placeGreen(b.gx, b.gz);
-        continue;
+    }
+
+    // --- FRONTAGE ROWS along the network edges: buildings walk each street
+    // with a consistent setback, facing the kerb — rows follow diagonals and
+    // curves exactly, which cell-based lots never could. ---
+    for (const edge of this.network.edges) {
+      // Corner buildings are real — the cross-street clearance check below
+      // is the guard, so row trims stay small even at wide junctions.
+      const trimA = Math.min(this.network.nodeTrim(edge.a) * 0.6 + 1.5, edge.len * 0.4);
+      const trimB = Math.min(this.network.nodeTrim(edge.b) * 0.6 + 1.5, edge.len * 0.4);
+      if (edge.len - trimA - trimB < 5) continue;
+      for (const side of [1, -1] as const) {
+        let s = trimA + this.rng.range(0, 4);
+        while (s < edge.len - trimB) {
+          const smp = this.network.sample(edge, s);
+          const gx = this.gridX(smp.x);
+          const gz = this.gridZ(smp.z);
+          const district = districtAt(gx, gz);
+          const frac =
+            district.character === "downtown" || district.character === "highrise"
+              ? this.rng.range(0.7, 0.82)
+              : this.rng.range(0.6, 0.74);
+          const footprint = ROAD_TILE * frac;
+          const step = footprint + this.rng.range(1.2, 3.4);
+          const off = edge.half + 1.7 + footprint / 2 + 0.7;
+          const px = smp.x - smp.tz * off * side;
+          const pz = smp.z + smp.tx * off * side;
+          s += step;
+          if (district.character === "park") continue;
+          if (inRealData(px, pz)) continue;
+          if (!isLandCell(this.gridX(px), this.gridZ(pz))) continue;
+          if (lm.reserved.has(`${this.gridX(px)},${this.gridZ(pz)}`)) continue;
+          if (occupied(px, pz, footprint * 0.52)) continue;
+          // Clearance vs OTHER streets (corners, parallel edges).
+          const near = this.network.nearest(px, pz, ROAD_TILE * 1.6);
+          if (near && near.dist < near.edge.half + footprint / 2 - 0.4) continue;
+          if (this.rng.chance(0.12)) continue; // vacancy — breathing room
+          const yaw = Math.atan2(smp.tx * side, smp.tz * side) + HALF_PI_CITY;
+          const cardinal = Math.abs(Math.sin(2 * yaw)) < 0.18;
+          placeBuilding(gx, gz, 0, frac, cardinal, { x: px, z: pz, yaw });
+        }
       }
-      // Dressing stays on near-cardinal poses (its offsets are faceDir-relative).
-      const cardinal =
-        pose !== null && Math.abs(Math.sin(2 * pose.yaw)) < 0.18 ? true : pose === null;
-      placeBuilding(b.gx, b.gz, b.faceDir, frac, cardinal, pose);
     }
 
     // --- REAL downtown buildings: positions, footprints and heights from the
@@ -506,6 +556,7 @@ export class CityModel {
           minZ: bz - hd,
           maxZ: bz + hd,
         });
+        occupy(bx, bz, Math.max(bw, bd) * 0.5);
         placed++;
       }
       console.log(`[city] real downtown buildings placed: ${placed}`);
