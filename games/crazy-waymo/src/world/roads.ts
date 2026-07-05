@@ -165,8 +165,11 @@ export function buildRoads(network: RoadNetwork, terrain: Terrain): THREE.Mesh[]
       parts.push({ geo: stripGeo(walk, -eo - LINE_W / 2, -eo + LINE_W / 2), mat: MAT_WHITE, lift: LINE_LIFT });
     }
 
-    // Yellow centre dashes by arclength along the trimmed section.
+    // Yellow centre dashes by arclength along the trimmed section. Sliver
+    // sections between near-coincident junctions get no markings at all —
+    // stray dashes inside overlapping discs read as debris.
     const secLen = edge.len - trimA - trimB;
+    if (secLen < 12) continue;
     for (let s = 0; s < secLen; s += DASH_LEN + DASH_GAP) {
       const e = Math.min(s + DASH_LEN, secLen);
       if (e - s < 0.6) continue;

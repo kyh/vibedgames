@@ -199,12 +199,11 @@ for (const e of edges) e.pts = rdp(e.pts, 2.5);
   });
 }
 
-// --- Merge dual carriageways: OSM maps divided arterials (Geary, 19th Ave,
-// Sunset) as TWO parallel one-way ways ~3-6u apart, which sweep into two
-// overlapping roads. An edge is redundant when nearly all of it hugs a
-// LONGER near-parallel edge — drop it and keep the longer centreline. ---
-{
-  const MERGE_DIST = 7; // carriageway separation << street-grid spacing (~22u)
+// --- Merge dual carriageways: OSM maps divided arterials as TWO parallel
+// one-way ways which sweep into overlapping roads; junction clustering
+// (below) then aligns more twins, so both passes run twice. ---
+function mergeParallelPass() {
+  const MERGE_DIST = 11; // < combined road widths; still << grid spacing (~22u)
   const samplesOf = (e, step) => {
     const out = [];
     let acc = 0;
@@ -312,11 +311,9 @@ for (const e of edges) e.pts = rdp(e.pts, 2.5);
   });
 }
 
-// --- Junction clustering: contract edges too short to render (twin-merge
-// leaves 3-15u connector stubs between a kept carriageway and its deleted
-// twin's nodes — they draw as floating road slivers). Contracting fuses the
-// node cluster into one junction. ---
-{
+// Junction clustering: contract edges too short to render — they draw as
+// floating road slivers; fusing the node cluster makes one junction.
+function clusterJunctionsPass() {
   const CONTRACT_LEN = 18;
   const eLen = (e) => {
     let L = 0;
@@ -360,6 +357,11 @@ for (const e of edges) e.pts = rdp(e.pts, 2.5);
   }
   console.log(`junction clustering contracted ${contracted} sliver edges`);
 }
+
+mergeParallelPass();
+clusterJunctionsPass();
+mergeParallelPass();
+clusterJunctionsPass();
 
 // --- Largest connected component ---
 {
