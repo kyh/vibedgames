@@ -538,6 +538,7 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
         const tz = wz + edge * (ROAD_TILE * 0.5 - 0.9);
         for (const off of [-0.25, 0.25] as const) {
           const tx = wx + off * ROAD_TILE;
+          if (onAsphalt(tx, tz, 1.6)) continue; // smoothed diagonals cut raster lots
           seat(treeUrl, tx, tz, rng.range(0, Math.PI * 2), scaleToHeight(treeUrl, rng.range(5, 6.5)));
           solids.push({ minX: tx - 0.55, maxX: tx + 0.55, minZ: tz - 0.55, maxZ: tz + 0.55, noBody: true });
         }
@@ -548,6 +549,7 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
         for (let i = 0; i < count; i++) {
           const px = wx + rng.range(-2.6, 2.6);
           const pz = wz + rng.range(-2.6, 2.6);
+          if (onAsphalt(px, pz, 1.2)) continue;
           seat(planterUrl, px, pz, rng.range(0, Math.PI * 2), planterScale);
         }
       }
@@ -583,6 +585,8 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
       if (reserved.has(cellKey(gx, gz))) continue;
       const wx = worldX(gx);
       const wz = worldZ(gz);
+      // Smoothed diagonals cut through raster park lots — leave those as lawn.
+      if (onAsphalt(wx, wz, ROAD_TILE * 0.55)) continue;
 
       // Walls + a centre entry on every edge that faces a road.
       for (const d of DIRS) {
@@ -598,6 +602,7 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
           const mid = side * (2.2 + runLen / 2);
           const px = along === "x" ? wx + mid : wx + dx * edgeOff;
           const pz = along === "x" ? wz + dz * edgeOff : wz + mid;
+          if (onAsphalt(px, pz, 1)) continue;
           const wall = cache.instance(wallUrl);
           wall.scale.set(wallH, wallH, wallRun);
           wall.rotation.y = along === "x" ? HALF_PI : 0;
@@ -634,6 +639,7 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
         for (const side of [-2.2, 2.2] as const) {
           const px = along === "x" ? wx + side : wx + dx * edgeOff;
           const pz = along === "x" ? wz + dz * edgeOff : wz + side;
+          if (onAsphalt(px, pz, 1)) continue;
           const post = new THREE.Mesh(UNIT_BOX, SEAWALL_MAT);
           post.scale.set(0.9, 2.4, 0.9);
           post.position.set(px, gy + 1.2, pz);

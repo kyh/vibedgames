@@ -174,9 +174,28 @@ export function buildGridNetwork(
     p[1] = na[1];
     p[p.length - 2] = nb[0];
     p[p.length - 1] = nb[1];
-    out.push({ ...e, p: rdp(p, ROAD_TILE * 0.36) });
+    out.push({ ...e, p: chaikin(chaikin(rdp(p, ROAD_TILE * 0.36))) });
   }
   return { nodes, edges: out };
+}
+
+// One Chaikin corner-cutting pass (endpoints pinned). RDP leaves shallow
+// streets with 1-cell jogs (their chord deviation beats the epsilon); cutting
+// corners turns jogs into gentle curves and L-bends into real turn radii.
+function chaikin(p: readonly number[]): number[] {
+  const n = p.length / 2;
+  if (n <= 2) return [...p];
+  const out: number[] = [p[0] ?? 0, p[1] ?? 0];
+  for (let i = 0; i + 1 < n; i++) {
+    const ax = p[i * 2] ?? 0;
+    const az = p[i * 2 + 1] ?? 0;
+    const bx = p[i * 2 + 2] ?? 0;
+    const bz = p[i * 2 + 3] ?? 0;
+    out.push(ax * 0.75 + bx * 0.25, az * 0.75 + bz * 0.25);
+    out.push(ax * 0.25 + bx * 0.75, az * 0.25 + bz * 0.75);
+  }
+  out.push(p[(n - 1) * 2] ?? 0, p[(n - 1) * 2 + 1] ?? 0);
+  return out;
 }
 
 function reversePts(p: readonly number[]): number[] {

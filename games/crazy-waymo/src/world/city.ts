@@ -558,17 +558,20 @@ export class CityModel {
           into.lerp(SAND, u < 0.12 ? shore : shore * 0.5); // Ocean Beach reads strongest
         }
       },
-      // Depress the ground under road cells: this mesh tessellates the height
-      // field ~4× coarser than the draped roads, and on tight hills (Corona
-      // Heights, Buena Vista) its linear interpolation bows up to ~0.25u ABOVE
-      // the true field — up through the asphalt ("the road clips under the
-      // hill"). Sinking road-cell vertices keeps the bow permanently below the
-      // road surface; sidewalks span to the tile edge so the dip never shows.
+      // Depress the ground under streets: this mesh tessellates the height
+      // field ~4× coarser than the draped roads, and on tight hills its
+      // linear interpolation bows up to ~0.25u ABOVE the true field — up
+      // through the asphalt. Depression follows the NETWORK (distance to the
+      // nearest edge), not raster cells: the smoothed diagonals no longer
+      // match the cell staircase, and a cell-based dip pokes out as dark
+      // jagged zigzags beside every diagonal street.
       (x, z) => {
-        const gx = this.gridX(x);
-        const gz = this.gridZ(z);
-        if (gx < 0 || gz < 0 || gx >= GRID_X || gz >= GRID_Z) return 0;
-        return this.plan.cells[gx]?.[gz] === "road" ? -0.35 : 0;
+        const hit = this.network.nearest(x, z, ROAD_TILE * 1.05);
+        if (!hit) return 0;
+        const pave = hit.edge.half + 1.6; // asphalt + sidewalk apron
+        if (hit.dist < pave) return -0.35;
+        // Feather back to grade so the lip never shows as a step.
+        return -0.35 * Math.max(0, 1 - (hit.dist - pave) / 3);
       },
     );
     ground.name = "terrain-ground"; // the map editor raycasts against this
