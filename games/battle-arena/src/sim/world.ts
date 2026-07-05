@@ -160,6 +160,7 @@ function blankCombatant(id: string, kind: Unit["kind"], team: string, ownerId: s
     dashVx: 0,
     dashVy: 0,
     empowerNext: 0,
+    ambush: false,
     jumpUntil: 0,
     respawnAt: 0,
     kills: 0,
@@ -463,6 +464,7 @@ export function respawn(w: World, u: Unit): void {
   u.kbUntil = 0;
   u.jumpUntil = 0;
   u.queuedCast = null;
+  u.ambush = false;
   u.steerVx = 0;
   u.steerVy = 0;
   recomputeStats(u);

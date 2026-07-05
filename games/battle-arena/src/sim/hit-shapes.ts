@@ -21,11 +21,11 @@ const deg2rad = (d: number): number => (d * Math.PI) / 180;
 
 /** Basic-attack hit shape(s) for a champ — the current swing decides which the
  *  caller shows (melee cleave cone; the spin's `aoe` whirl is a circleSelf).
- *  Ranged basics are a straight fat-line projectile. */
-export function basicAttackShape(attackType: "melee" | "ranged", attackRange: number): HitShape {
+ *  Ranged basics are a straight fat-line projectile; caster bolts splash. */
+export function basicAttackShape(attackType: "melee" | "ranged", attackRange: number, basic?: { pierce?: boolean; splash?: number }): HitShape {
   return attackType === "melee"
     ? { kind: "cone", radius: attackRange + MELEE_OVERREACH, half: MELEE_HALF_ANGLE }
-    : { kind: "projectile", length: attackRange + 5, splash: 0, width: RANGED_BASIC_HIT_RADIUS };
+    : { kind: "projectile", length: attackRange + 5, splash: basic?.splash ?? 0, width: RANGED_BASIC_HIT_RADIUS };
 }
 
 /** The hit geometry of an ability at `rank`. [] for pure-utility abilities

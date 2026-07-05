@@ -12,6 +12,7 @@ import {
   computeDamage,
   effectiveAttackSpeed,
   isDisabled,
+  isStealthed,
   isUntargetable,
 } from "./stats";
 import type { Projectile, Unit, World } from "./types";
@@ -74,6 +75,8 @@ export function resolveAttacks(w: World): void {
     u.lastAttackAt = w.now;
     u.swingCount++;
     u.facing = angleOf(u.aimX, u.aimY);
+    // a swing STARTED from stealth is an ambush — it lands as a 2× crit
+    if (isStealthed(u)) u.ambush = true;
     breakStealth(u);
     // Damage lands when the blade/shot visually CONNECTS: the render fits every
     // swing clip inside its interval (never clipped), so the strike moment is
@@ -102,6 +105,12 @@ function doAttackHit(w: World, u: Unit): void {
     raw += u.empowerNext;
     u.empowerNext = 0;
   }
+  // ambush (swing began in stealth): double damage, guaranteed crit read
+  const ambush = u.ambush;
+  if (ambush) {
+    raw *= 2;
+    u.ambush = false;
+  }
   const fx = Math.cos(u.facing);
   const fy = Math.sin(u.facing);
 
@@ -114,7 +123,7 @@ function doAttackHit(w: World, u: Unit): void {
         if (!isEnemy(u, t) || isUntargetable(t)) continue;
       } else if (!isBreakable(t)) continue;
       if (Math.hypot(t.x - u.x, t.y - u.y) > step.aoe + t.radius) continue;
-      dealDamage(w, u, t, raw, u.attackDamageType, { isAttack: true });
+      dealDamage(w, u, t, raw, u.attackDamageType, { isAttack: true, forceCrit: ambush });
     }
     w.fx.push({ t: "strike", tag: "spin", x: u.x, y: u.y, dx: fx, dy: fy, r: step.aoe });
     return;
@@ -129,6 +138,9 @@ function doAttackHit(w: World, u: Unit): void {
       u.kby = fy * -1.4;
       u.kbUntil = w.now + 120;
     }
+    // per-champ basic behavior: ranger arrows PIERCE the line; caster bolts
+    // burst in a small splash (data/champions `basic`)
+    const basic = CHAMP_BY_ID[u.champId]?.basic;
     spawnProjectile(w, u, {
       dirX: fx,
       dirY: fy,
@@ -136,7 +148,8 @@ function doAttackHit(w: World, u: Unit): void {
       dtype: u.attackDamageType,
       kind: u.attackKind,
       speed: u.projectileSpeed,
-      radius: 0,
+      radius: basic?.splash ?? 0,
+      pierce: basic?.pierce ?? false,
       // fatter collision on basics — ranged champs should land shots without
       // pixel-perfect aim (abilities keep the tight default)
       hitRadius: RANGED_BASIC_HIT_RADIUS,
@@ -174,7 +187,7 @@ function doAttackHit(w: World, u: Unit): void {
   for (let i = 0; i < hits.length && i < cap; i++) {
     const t = hits[i]!.t;
     const mult = i === 0 ? 1 : MELEE_CLEAVE_FALLOFF;
-    const heavy = dealDamage(w, u, t, raw * mult, u.attackDamageType, { isAttack: true });
+    const heavy = dealDamage(w, u, t, raw * mult, u.attackDamageType, { isAttack: true, forceCrit: ambush });
     // micro-shove on the primary target — basics finally *move* people
     if (i === 0 && t.alive) applyKnockback(t, u.x, u.y, heavy ? 2.6 : 1.4, w);
     // FrostGolem on-hit chill (fixed id → refreshes, never stacks)
@@ -185,7 +198,7 @@ function doAttackHit(w: World, u: Unit): void {
 }
 
 // ── Central damage ───────────────────────────────────────────────────────────
-export type DamageOpts = { isAttack?: boolean; ap?: number; silentFx?: boolean };
+export type DamageOpts = { isAttack?: boolean; ap?: number; silentFx?: boolean; forceCrit?: boolean };
 
 /** Returns true when the hit was HEAVY (≥18% of the victim's max HP) — the
  *  render heavy/crit tier and the primary-target shove key off it. */
@@ -205,7 +218,7 @@ export function dealDamage(
     final *= 1 - 0.07 * victim.mercy;
   }
   // props never crit (every hit would clear their 18% bar → gold-ring spam)
-  const heavy = victim.kind !== "prop" && final >= victim.maxHp * 0.18;
+  const heavy = victim.kind !== "prop" && (opts.forceCrit === true || final >= victim.maxHp * 0.18);
   const leftover = absorbShield(victim, final);
   victim.hp -= leftover;
   victim.lastHitAt = w.now;
@@ -251,6 +264,7 @@ export function handleDeath(w: World, victim: Unit, killerId: string | null): vo
   victim.moveX = 0;
   victim.moveY = 0;
   victim.empowerNext = 0;
+  victim.ambush = false;
   victim.queuedCast = null;
 
   if (victim.kind === "prop") {
@@ -332,6 +346,7 @@ export type SpawnProjArgs = {
   range: number;
   pierce?: boolean;
   isAttack?: boolean;
+  burstAtEnd?: boolean; // detonate the splash at max range (aim-point casts)
   onHit?: Projectile["onHit"];
 };
 
@@ -365,6 +380,7 @@ export function spawnProjectile(w: World, owner: Unit, a: SpawnProjArgs): void {
     isAttack: a.isAttack ?? false,
     hitIds: [],
     range: a.range,
+    burstAtEnd: a.burstAtEnd ?? false,
     traveled: 0,
     kind: a.kind,
     onHit: a.onHit ?? { tag: "none" },
@@ -406,22 +422,44 @@ export function stepProjectiles(w: World, dt: number): void {
       }
     }
 
-    if (consumed || p.traveled >= p.range) w.projectiles.delete(p.id);
+    if (consumed || p.traveled >= p.range) {
+      if (!consumed) {
+        // aim-point casts: an unspent splash detonates where the player aimed
+        // (snapped back to the exact range point — a 30Hz tick can overshoot);
+        // everything else visibly FIZZLES instead of vanishing mid-air
+        const over = p.traveled - p.range;
+        if (over > 0 && p.speed > 0) {
+          p.x -= (p.vx / p.speed) * over;
+          p.y -= (p.vy / p.speed) * over;
+        }
+        if (p.burstAtEnd && p.radius > 0) burstProjectile(w, p);
+        else w.fx.push({ t: "fizzle", x: p.x, y: p.y, kind: p.kind });
+      }
+      w.projectiles.delete(p.id);
+    }
   }
+}
+
+/** Detonate a splash projectile at its current position. The blast reaches a
+ *  unit's EDGE (radius + u.radius) — a fat-hitbox bolt bursts short of its
+ *  victim's center, so a center-only test would cheat the splash. */
+function burstProjectile(w: World, p: Projectile): void {
+  const owner = w.units.get(p.ownerId) ?? null;
+  for (const u of w.units.values()) {
+    if (!u.alive || u.kind === "boss" || u.team === p.team) continue;
+    const reach = p.radius + u.radius;
+    if ((u.x - p.x) ** 2 + (u.y - p.y) ** 2 <= reach * reach) {
+      dealDamage(w, owner, u, p.damage, p.dtype, { ap: owner?.abilityPower, isAttack: p.isAttack });
+      applyOnHit(w, p, u);
+    }
+  }
+  w.fx.push({ t: "explosion", x: p.x, y: p.y, radius: p.radius, kind: p.kind });
 }
 
 function onProjectileHit(w: World, p: Projectile, primary: Unit): void {
   const owner = w.units.get(p.ownerId) ?? null;
   if (p.radius > 0) {
-    // splash: everyone (incl primary) within radius of impact
-    for (const u of w.units.values()) {
-      if (!u.alive || u.kind === "boss" || u.team === p.team) continue;
-      if ((u.x - p.x) ** 2 + (u.y - p.y) ** 2 <= p.radius * p.radius) {
-        dealDamage(w, owner, u, p.damage, p.dtype, { ap: owner?.abilityPower, isAttack: p.isAttack });
-        applyOnHit(w, p, u);
-      }
-    }
-    w.fx.push({ t: "explosion", x: p.x, y: p.y, radius: p.radius, kind: p.kind });
+    burstProjectile(w, p); // splash: everyone (incl primary) within radius
   } else {
     dealDamage(w, owner, primary, p.damage, p.dtype, { ap: owner?.abilityPower, isAttack: p.isAttack });
     applyOnHit(w, p, primary);

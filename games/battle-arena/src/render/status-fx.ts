@@ -13,6 +13,7 @@
 import * as THREE from "three";
 import type { DamageType } from "../data/config";
 import type { Status } from "../sim/types";
+import { makeRuneMaterial } from "./fx-shaders";
 import type { ParticlePools, SpawnOptions } from "./fx-particles";
 
 /** Narrow view of a UnitView that StatusFx needs (constructor param). */
@@ -126,6 +127,11 @@ function icons(): IconMats {
 let rootRingGeo: THREE.RingGeometry | null = null;
 let domeGeo: THREE.SphereGeometry | null = null;
 let domeRimGeo: THREE.RingGeometry | null = null;
+let runeGeo: THREE.PlaneGeometry | null = null;
+function sharedRuneGeo(): THREE.PlaneGeometry {
+  runeGeo ??= new THREE.PlaneGeometry(2, 2);
+  return runeGeo;
+}
 function sharedRootRingGeo(): THREE.RingGeometry {
   rootRingGeo ??= new THREE.RingGeometry(0.7, 0.9, 28);
   return rootRingGeo;
@@ -154,6 +160,11 @@ export class StatusFx {
   private domeMat: THREE.MeshBasicMaterial | null = null;
   private domeRim: THREE.Mesh | null = null;
   private domeRimMat: THREE.MeshBasicMaterial | null = null;
+  // buff rune circle (Iron Stance / Bastion / Hunter's Focus) — rotating
+  // underfoot arcane ring for the buff's whole duration
+  private rune: THREE.Mesh | null = null;
+  private runeMat: THREE.ShaderMaterial | null = null;
+  private runeAlpha = 0;
   // material-write bookkeeping (apply/restore on transitions only)
   private readonly baseColors: THREE.Color[] = [];
   private readonly accentColor: THREE.Color;
@@ -181,6 +192,7 @@ export class StatusFx {
   private fHaste = false;
   private fAmp = false;
   private fAtkSpd = false;
+  private fArmor = false;
   private fDot: DamageType | "" = "";
 
   constructor(
@@ -203,6 +215,8 @@ export class StatusFx {
       this.shieldEndAt = 0;
       if (this.dome) this.dome.visible = false;
       if (this.domeRim) this.domeRim.visible = false;
+      if (this.rune) this.rune.visible = false;
+      this.runeAlpha = 0;
       return;
     }
 
@@ -301,6 +315,21 @@ export class StatusFx {
     // ── shield: translucent half-dome + additive rim, scale-in then fade-out ──
     this.tickShield(now);
 
+    // ── buff rune: rotating arcane circle underfoot for stance/bastion/focus ──
+    const runeColor = this.fArmor ? 0xffd76a : this.fShield ? 0x9fd0ff : this.fAtkSpd ? 0xffe6a0 : 0;
+    const wantAlpha = runeColor !== 0 ? 0.75 : 0;
+    this.runeAlpha += (wantAlpha - this.runeAlpha) * Math.min(1, dt * 10);
+    if (runeColor !== 0 || this.runeAlpha > 0.02) {
+      const rune = this.ensureRune();
+      rune.visible = this.runeAlpha > 0.02;
+      if (this.runeMat) {
+        this.runeMat.uniforms["uAlpha"]!.value = this.runeAlpha;
+        if (runeColor !== 0) (this.runeMat.uniforms["uColor"]!.value as THREE.Color).setHex(runeColor);
+      }
+    } else if (this.rune) {
+      this.rune.visible = false;
+    }
+
     // ── haste: cyan footdust while actually moving ──
     if (this.fHaste && now >= this.nextHasteEmit && Math.hypot(u.vx, u.vy) > u.moveSpeed * 0.4) {
       this.nextHasteEmit = now + 150;
@@ -395,10 +424,15 @@ export class StatusFx {
       g.remove(this.domeRim);
       this.domeRimMat?.dispose();
     }
+    if (this.rune) {
+      g.remove(this.rune);
+      this.runeMat?.dispose();
+    }
     this.overhead = null;
     this.rootRing = null;
     this.dome = null;
     this.domeRim = null;
+    this.rune = null;
   }
 
   // ── internals ──────────────────────────────────────────────────────────────
@@ -406,6 +440,7 @@ export class StatusFx {
   private scan(statuses: Status[]): void {
     this.fStun = this.fSilence = this.fRoot = this.fSlow = this.fHeal = false;
     this.fShield = this.fStealth = this.fHaste = this.fAmp = this.fAtkSpd = false;
+    this.fArmor = false;
     this.fDot = "";
     for (const s of statuses) {
       switch (s.kind) {
@@ -442,6 +477,9 @@ export class StatusFx {
         case "attackSpeed":
           this.fAtkSpd = true;
           break;
+        case "armor":
+          this.fArmor = true;
+          break;
         default:
           break;
       }
@@ -474,6 +512,18 @@ export class StatusFx {
     this.target.group.add(ring);
     this.rootRing = ring;
     return ring;
+  }
+
+  private ensureRune(): THREE.Mesh {
+    if (this.rune) return this.rune;
+    this.runeMat = makeRuneMaterial(0xffd76a);
+    const rune = new THREE.Mesh(sharedRuneGeo(), this.runeMat);
+    rune.rotation.x = -Math.PI / 2;
+    rune.position.y = 0.09;
+    rune.scale.setScalar(1.35);
+    this.target.group.add(rune);
+    this.rune = rune;
+    return rune;
   }
 
   private ensureDome(): void {

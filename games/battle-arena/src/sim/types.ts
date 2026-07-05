@@ -132,6 +132,7 @@ export type Unit = {
   dashVx: number;
   dashVy: number;
   empowerNext: number; // flat bonus damage on the next basic attack (Rogue W)
+  ambush: boolean; // swing started FROM STEALTH → it crits for double (Rogue E)
 
   // jump/hop (Space) — a brief evasive bound; mostly visual, slight speed boost
   jumpUntil: number;
@@ -171,10 +172,11 @@ export type Projectile = {
   dtype: DamageType;
   radius: number; // splash radius (0 = single target)
   hitRadius: number; // collision radius
-  pierce: boolean; // pass through enemies (multishot)
+  pierce: boolean; // pass through enemies (multishot, ranger basics)
   isAttack: boolean; // basic attack → carries lifesteal/on-hit
   hitIds: string[]; // already-hit unit ids (for pierce)
   range: number;
+  burstAtEnd?: boolean; // splash projectile detonates at max range (aim-point casts)
   traveled: number;
   kind: string; // visual: "arrow" | "bolt" | "fireball" | ...
   onHit: ProjectileHit;
@@ -270,6 +272,7 @@ export type FxEvent =
   | { t: "delivery"; x: number; y: number; tier: string; playerName: string }
   | { t: "levelup"; x: number; y: number }
   | { t: "explosion"; x: number; y: number; radius: number; kind: string }
+  | { t: "fizzle"; x: number; y: number; kind: string } // projectile died at max range, hit nothing
   | { t: "blink"; x: number; y: number; tx: number; ty: number }
   | { t: "heal"; x: number; y: number; amount: number }
   | { t: "perfectDodge"; x: number; y: number; unit: string }

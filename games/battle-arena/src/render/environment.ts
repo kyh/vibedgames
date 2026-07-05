@@ -1002,10 +1002,9 @@ export class Environment {
     inst.receiveShadow = true;
     STAIR_ANGLES.forEach((a, i) => {
       const rc = PLATEAU_R + 0.5;
-      // face the throne: rotY = atan2(dirX, dirY) toward the center. (The old
-      // per-stair `a + π` only matched this at a = π/4 — two of the four
-      // stairs were rotated 180°.)
-      E_ROT.set(0, Math.atan2(-Math.cos(a), -Math.sin(a)), 0);
+      // steps ASCEND toward the throne: the model's climb axis points outward
+      // from the center, so its yaw faces away from the throne
+      E_ROT.set(0, Math.atan2(Math.cos(a), Math.sin(a)), 0);
       Q_ROT.setFromEuler(E_ROT);
       V_POS.set(Math.cos(a) * rc, 0, Math.sin(a) * rc);
       inst.setMatrixAt(i, M_OUT.compose(V_POS, Q_ROT, V_SCL));

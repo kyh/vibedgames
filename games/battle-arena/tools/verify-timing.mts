@@ -222,5 +222,73 @@ function runUntil(w: World, fxLog: FxEvent[], pred: () => boolean, maxMs = 4000)
   check("crate blocks the walk", gap >= (a.radius + crate.radius) * 0.9, `gap=${gap.toFixed(2)}`);
 }
 
+// ── 13. ranger basics pierce the line ──
+{
+  const { w, a, b } = setup("ranger", "knight", 5);
+  const c2 = spawnHero(w, { id: "C", ownerId: "C", team: "C", champId: "blackknight", name: "C", isBot: false, slot: 2 });
+  c2.x = 7.5;
+  c2.y = 16; // directly behind b on the same line
+  a.attackHeld = true;
+  const hpB = b.hp;
+  const hpC = c2.hp;
+  const fx: FxEvent[] = [];
+  runUntil(w, fx, () => b.hp < hpB && c2.hp < hpC, 4000);
+  check("ranger arrow pierces both targets", b.hp < hpB && c2.hp < hpC, `b ${hpB.toFixed(0)}→${b.hp.toFixed(0)} c ${hpC.toFixed(0)}→${c2.hp.toFixed(0)}`);
+}
+
+// ── 14. mage basics splash ──
+{
+  const { w, a, b } = setup("mage", "knight", 7);
+  const c2 = spawnHero(w, { id: "C", ownerId: "C", team: "C", champId: "blackknight", name: "C", isBot: false, slot: 2 });
+  c2.x = 7;
+  c2.y = 17.2; // adjacent to b, inside the 1.6 splash
+  a.attackHeld = true;
+  const hpB = b.hp;
+  const hpC = c2.hp;
+  const fx: FxEvent[] = [];
+  runUntil(w, fx, () => b.hp < hpB, 4000);
+  check("mage bolt splashes the neighbor", c2.hp < hpC, `c ${hpC.toFixed(0)}→${c2.hp.toFixed(0)}`);
+  check("bolt splash explosion fx", fx.some((e) => e.t === "explosion" && e.kind === "bolt"));
+}
+
+// ── 15. fireball detonates at the aim point (not max range) ──
+{
+  const { w, a } = setup("mage", "knight", 25); // enemy far away — nothing to hit
+  const fx: FxEvent[] = [];
+  check("fireball cast ok", castAbility(w, a, "Q", { point: { x: 6, y: 16 }, dir: { x: 1, y: 0 } }));
+  runUntil(w, fx, () => fx.some((e) => e.t === "explosion" && e.kind === "fireball"), 2500);
+  const boom = fx.find((e) => e.t === "explosion" && e.kind === "fireball");
+  check("fireball airbursts AT the aim point", boom !== undefined && boom.t === "explosion" && Math.abs(boom.x - 6) < 1.2 && Math.abs(boom.y - 16) < 0.5, boom && boom.t === "explosion" ? `at (${boom.x.toFixed(1)},${boom.y.toFixed(1)})` : "no burst");
+}
+
+// ── 16. spent projectiles fizzle visibly ──
+{
+  const { w, a } = setup("ranger", "knight", 40); // nothing in arrow range
+  a.attackHeld = true;
+  const fx: FxEvent[] = [];
+  runUntil(w, fx, () => fx.some((e) => e.t === "fizzle" && e.kind === "arrow"), 4000);
+  check("arrow fizzles at max range", fx.some((e) => e.t === "fizzle" && e.kind === "arrow"));
+}
+
+// ── 17. ambush: the strike out of stealth crits for double ──
+{
+  const { w, a, b } = setup("rogue", "blackknight", 1.8);
+  castAbility(w, a, "E", {}); // Smoke — stealth up
+  a.attackHeld = true;
+  const hp0 = b.hp;
+  const fx: FxEvent[] = [];
+  runUntil(w, fx, () => b.hp < hp0);
+  const hit = fx.find((e) => e.t === "hit" && e.by === "A");
+  // base 44 ±12% → ambush 2× ≈ 77-99 after armor; non-ambush would be ~35-45
+  const dealt = hp0 - b.hp;
+  check("ambush strike doubles damage", dealt > 55, `dealt=${dealt.toFixed(0)}`);
+  check("ambush strike reads as a CRIT", hit !== undefined && hit.t === "hit" && hit.crit === true);
+  // second swing back to normal
+  const hp1 = b.hp;
+  const fx2: FxEvent[] = [];
+  runUntil(w, fx2, () => b.hp < hp1);
+  check("second swing is normal damage", hp1 - b.hp < 55, `dealt=${(hp1 - b.hp).toFixed(0)}`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

@@ -659,7 +659,7 @@ export class ViewerScene {
       const rhythm = champ.basicRhythm;
       const step = rhythm && rhythm.length ? rhythm[Math.max(0, me.swingCount - 1) % rhythm.length] : undefined;
       if (step?.aoe) return [{ kind: "circle", radius: step.aoe, forward: 0 }]; // spin whirl
-      return this.placeShape(basicAttackShape(champ.attackType, me.attackRange), me.attackRange + 5);
+      return this.placeShape(basicAttackShape(champ.attackType, me.attackRange, champ.basic), me.attackRange + 5);
     }
     if (!act) return [];
     const def = champ.abilities[act];

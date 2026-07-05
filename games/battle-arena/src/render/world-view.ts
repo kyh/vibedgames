@@ -41,6 +41,7 @@ const MODEL_YAW = 0;
 // in the hand as-is; the bow ships pointing backwards.
 const WEAPON_MOUNT: Record<string, { rx?: number; ry?: number; rz?: number }> = {
   bow: { ry: Math.PI },
+  paladin_hammer: { ry: Math.PI / 2 }, // ships head-sideways; face the head forward
 };
 
 /** Apply a weapon's mount correction (no-op for unlisted weapons). */
@@ -211,6 +212,7 @@ class UnitView {
   private wasDashing = false;
   private lastDashTrailAt = 0;
   private lastDashDustAt = 0;
+  private lastGhostAt = 0;
   private lastUltMoteAt = 0;
   private spawnClipPending = false;
   // witch hex: character swaps to a hopping mushroom while the status lives
@@ -508,6 +510,7 @@ class UnitView {
       }
     } else if (spinning) {
       ch.play(SPIN_LOOP_CLIP, { loop: true, fade: 0.1, timeScale: TWO_H_SPEED });
+      this.emitTrails(150); // the ult ribbons for its WHOLE duration, not just the cast
     } else if (now < u.dashUntil) {
       ch.play("Running_B", { fade: 0.1 });
     } else {
@@ -526,13 +529,18 @@ class UnitView {
     const bs = this.baseScale;
     ch.root.scale.set(bs * (1 + 0.12 * this.squash), bs * (1 - 0.18 * this.squash), bs * (1 + 0.12 * this.squash));
 
-    // ── dash trail: streaks + dust shed behind any ability dash ──
+    // ── dash trail: afterimages + streaks + dust shed behind any ability dash ──
     const dashing = now < u.dashUntil;
     if (dashing && fx) {
       const primary = CHAMP_FX[this.def.id]?.primary ?? 0x9fd0ff;
       if (now - this.lastDashTrailAt > 40) {
         this.lastDashTrailAt = now;
         fx.castStreak(u.x, u.y, -u.dashVx, -u.dashVy, primary, 6, 2, 0.35);
+      }
+      if (now - this.lastGhostAt > 70) {
+        this.lastGhostAt = now;
+        fx.ghost(this.group.position.x, this.group.position.z, primary); // Hades-dash afterimage
+        if (this.def.id === "witch") fx.crossGlint(u.x, 1.0, u.y, -u.dashVy, u.dashVx, 0xb98ae0, 0.6); // broom sparkle
       }
       if (now - this.lastDashDustAt > 80) {
         this.lastDashDustAt = now;
@@ -808,8 +816,17 @@ export class WorldView {
       }
       mesh.position.set(p.x, 1.1, p.y);
       mesh.rotation.y = Math.atan2(p.vx, p.vy);
+      // hexbolt wobbles drunkenly across its travel line (render-only — the
+      // sim path stays straight); everything else flies true
+      if (p.kind === "hexbolt") {
+        const spd = Math.hypot(p.vx, p.vy) || 1;
+        const wob = Math.sin(w.now * 0.02 + hashId(p.id) * 0.7) * 0.22;
+        mesh.position.x += (-p.vy / spd) * wob;
+        mesh.position.z += (p.vx / spd) * wob;
+        mesh.position.y += Math.sin(w.now * 0.013 + hashId(p.id)) * 0.12;
+      }
       // additive trail behind the projectile
-      this.fx?.trail(p.x, p.y, projectileColor(p.kind));
+      this.fx?.trail(mesh.position.x, mesh.position.z, projectileColor(p.kind));
       // fireballs drag a smoke tracer — matter under the energy
       if (p.kind === "fireball") {
         this.fireballFlip = !this.fireballFlip;

@@ -7,7 +7,9 @@
 // 'data/terrain' src/sim` must be empty.)
 import { PLATEAU_H, PLATEAU_R } from "../sim/elevation";
 
-export const PLATEAU_SKIRT = 2.0; // width of the platform ramp (matches the stairs' depth)
+// Near-vertical edge: the plateau is a clean raised PLATFORM (stone wall arcs
+// + stairways carry the visual) — no sloped skirt half-burying the stairs.
+export const PLATEAU_SKIRT = 0.05;
 
 export function smoothstep(a: number, b: number, x: number): number {
   const t = Math.min(1, Math.max(0, (x - a) / (b - a)));

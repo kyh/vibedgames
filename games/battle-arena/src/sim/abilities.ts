@@ -327,37 +327,57 @@ function applyStrike(w: World, c: Unit, s: PendingStrike): void {
       break;
     }
     case "mage:Q": {
+      // flies TO THE AIM POINT and airbursts there (never fizzles mid-air) —
+      // point-blank casts and max-range casts both explode where you aimed.
+      // Re-aimed from the caster's RELEASE position so the burst stays on the
+      // point even if they moved during the windup.
+      const fb = aimAtPoint(c, s, def.castRange);
       spawnProjectile(w, c, {
-        dirX: dir.x,
-        dirY: dir.y,
+        dirX: fb.x,
+        dirY: fb.y,
         damage: v("damage"),
         dtype: "magic",
         kind: "fireball",
         speed: 18,
         radius: v("radius"),
-        range: def.castRange,
+        range: fb.range,
+        burstAtEnd: true,
       });
-      w.fx.push({ t: "strike", tag: def.effect, x: c.x, y: c.y, dx: dir.x, dy: dir.y, r: 1 });
+      w.fx.push({ t: "strike", tag: def.effect, x: c.x, y: c.y, dx: fb.x, dy: fb.y, r: 1 });
       break;
     }
     case "witch:Q": {
+      const hb = aimAtPoint(c, s, def.castRange);
       spawnProjectile(w, c, {
-        dirX: dir.x,
-        dirY: dir.y,
+        dirX: hb.x,
+        dirY: hb.y,
         damage: v("damage"),
         dtype: "magic",
         kind: "hexbolt",
         speed: v("speed"),
         radius: 1.8, // curdled burst — the slow spreads to everyone splashed
-        range: def.castRange,
+        range: hb.range,
+        burstAtEnd: true,
         onHit: { tag: "slow", pct: v("slow"), duration: v("slowDur") },
       });
-      w.fx.push({ t: "strike", tag: def.effect, x: c.x, y: c.y, dx: dir.x, dy: dir.y, r: 1 });
+      w.fx.push({ t: "strike", tag: def.effect, x: c.x, y: c.y, dx: hb.x, dy: hb.y, r: 1 });
       break;
     }
     default:
       break;
   }
+}
+
+/** Direction + travel distance from the caster's CURRENT position to the
+ *  strike's captured aim point — aim-point projectiles (fireball/hexbolt)
+ *  detonate where the player aimed, not at a fixed max range. */
+function aimAtPoint(c: Unit, s: PendingStrike, castRange: number): { x: number; y: number; range: number } {
+  const dx = s.px - c.x;
+  const dy = s.py - c.y;
+  const d = Math.hypot(dx, dy) - (c.radius + 0.3); // spawnProjectile offsets the muzzle
+  if (d < 0.5) return { x: s.dx, y: s.dy, range: 1 }; // point-blank — keep the cast aim
+  const n = Math.hypot(dx, dy);
+  return { x: dx / n, y: dy / n, range: Math.max(1, Math.min(castRange, d)) };
 }
 
 /** Data-driven strike riders from a def's values: stun / slow / burn. Used by

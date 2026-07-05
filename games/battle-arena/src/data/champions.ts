@@ -54,6 +54,9 @@ export type ChampDef = {
   weaponR?: string; // weapon model attached to handslot.r
   weaponL?: string; // weapon/shield attached to handslot.l
   cleaveTargets?: number; // max enemies a basic attack damages (default 3; rogue 1)
+  // ranged basic-attack projectile behavior: `pierce` flies through everyone
+  // it hits (ranger); `splash` bursts on impact damaging a small area (casters)
+  basic?: { pierce?: boolean; splash?: number };
   // Per-swing basic-attack rhythm, cycled by swingCount (parallel to the
   // clip-timing ATTACK_SETS clips). A bigger `timeMult` slows that swing (its
   // interval grows, so the clip plays more/at natural speed) and `dmgMult`
@@ -143,6 +146,7 @@ export const CHAMPIONS: ChampDef[] = [
     attackKind: "arrow",
     model: "Ranger",
     weaponL: "bow",
+    basic: { pierce: true }, // arrows punch through the whole line
     tint: 0x49d67a,
     blurb: "Death at range. Spread shots, dodge rolls, and a sky full of arrows.",
     difficulty: 2,
@@ -169,6 +173,7 @@ export const CHAMPIONS: ChampDef[] = [
     attackKind: "bolt",
     model: "Mage",
     weaponR: "staff",
+    basic: { splash: 1.6 }, // bolts pop in a small arcane burst
     tint: 0xc060ff,
     blurb: "Glass and fire. Nuke from afar, freeze the brave, and drop a meteor on the throne.",
     difficulty: 2,
@@ -196,24 +201,19 @@ export const CHAMPIONS: ChampDef[] = [
     model: "Rogue_Hooded",
     weaponR: "dagger",
     weaponL: "dagger",
-    // slower daggers that play their FULL clip at natural speed: each swing
-    // holds ~1.85× the base interval (so the ~1.2s clip fits without speeding)
-    // and hits ~1.85× harder → same DPS, snappy natural animation.
-    basicRhythm: [
-      { timeMult: 1.85, dmgMult: 1.85 },
-      { timeMult: 1.85, dmgMult: 1.85 },
-    ],
+    // NO rhythm: a fast dagger FLURRY at the raw attack interval — the swing
+    // clips speed-fit (~2.5×), which reads as assassin, not fencer
     cleaveTargets: 1, // single-target assassin — daggers don't cleave the cone
     tint: 0xff5a78,
     blurb: "In, out, gone. Poison, vanish, and execute anyone clinging to life.",
     difficulty: 3,
-    base: { hp: 480, mp: 260, hpRegen: 3.0, mpRegen: 1.8, damage: 44, armor: 2, attackRange: 2.2, attackSpeed: 1.4, moveSpeed: 6.5, projectileSpeed: 0 },
+    base: { hp: 480, mp: 260, hpRegen: 3.0, mpRegen: 1.8, damage: 44, armor: 2, attackRange: 2.2, attackSpeed: 2.0, moveSpeed: 6.5, projectileSpeed: 0 },
     growth: { hp: 70, mp: 22, hpRegen: 0.3, mpRegen: 0.14, damage: 6, armor: 0.6, attackSpeed: 0.035 },
     attr: { str: 15, agi: 28, int: 13 },
     abilities: {
       Q: ab({ key: "Q", name: "Poison Lunge", effect: "rogue:Q", targeting: "direction", castRange: 4.5, manaCost: [0, 0, 0, 0], cooldown: [7, 6.5, 6, 5.5], values: { damage: [95, 135, 180, 225], dps: [40, 55, 70, 85], dur: [4, 4, 4, 4], speed: [22, 22, 22, 22] }, desc: "Lunge and coat the target in poison." }),
       W: ab({ key: "W", name: "Rupture", effect: "rogue:W", targeting: "direction", castRange: 7, manaCost: [0, 0, 0, 0], cooldown: [9, 8.5, 8, 7.5], values: { damage: [95, 135, 180, 225], dmgAmp: [12, 15, 18, 21], ampDur: [3, 3, 3.5, 3.5], bleedDps: [35, 50, 62, 75], bleedDur: [3, 3, 3, 3] }, desc: "Open a bleeding wound — the target bleeds and takes more damage." }),
-      E: ab({ key: "E", name: "Smoke", effect: "rogue:E", targeting: "self", castRange: 0, manaCost: [0, 0, 0, 0], cooldown: [18, 16, 14, 12], values: { duration: [3, 3.5, 4, 4.5], speed: [22, 24, 26, 28] }, desc: "Vanish in smoke and slip away (breaks on attack)." }),
+      E: ab({ key: "E", name: "Smoke", effect: "rogue:E", targeting: "self", castRange: 0, manaCost: [0, 0, 0, 0], cooldown: [18, 16, 14, 12], values: { duration: [3, 3.5, 4, 4.5], speed: [22, 24, 26, 28] }, desc: "Vanish in smoke — your first strike from the shadows CRITS for double damage." }),
       R: ab({ key: "R", name: "Execute", effect: "rogue:R", targeting: "direction", castRange: 6, manaCost: [0, 0, 0], cooldown: [70, 62, 54], values: { damage: [220, 310, 400], execMult: [3, 3.25, 3.5], speed: [40, 40, 40] }, desc: "Blink-strike the enemy ahead — lethal to the wounded." }),
       DASH: ab({ key: "DASH", name: "Shadowstep", effect: "rogue:DASH", targeting: "dash", castRange: 8, manaCost: [0], cooldown: [5], maxRank: 1, values: { speed: [34], iframe: [0.26] }, desc: "Slip through shadow — briefly untargetable." }),
       JUMP: ab({ key: "JUMP", name: "Deathfall", effect: "rogue:JUMP", targeting: "self", castRange: 5, manaCost: [0], cooldown: [7], maxRank: 1, values: { base: [110], perLevel: [10], radius: [1.8], slow: [20], slowDur: [0.75] }, desc: "Plunge from above with both blades — a tight burst on landing." }),
@@ -259,6 +259,7 @@ export const CHAMPIONS: ChampDef[] = [
     attackKind: "bolt",
     model: "Witch",
     weaponR: "wand_A",
+    basic: { splash: 1.6 }, // curdled bolts burst on impact
     tint: 0x7fe08a,
     blurb: "Curses bubble, brooms fly, and her enemies make lovely mushrooms.",
     difficulty: 3,

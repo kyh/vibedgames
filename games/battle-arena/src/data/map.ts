@@ -10,9 +10,12 @@ import { THRONE_RADIUS } from "./config";
 import type { Vec2 } from "../sim/math";
 import type { MapData } from "./map-format";
 
-export const HEX_R = 44; // center → vertex (units)
-export const APOTHEM = HEX_R * Math.cos(Math.PI / 6); // center → edge ≈ 38.105
-export const HALF = 44; // compat half-extent (== HEX_R) — coarse consumers only
+export const HEX_R = 62; // center → vertex (units) — 62 ≈ 2× the old 44's AREA
+export const APOTHEM = HEX_R * Math.cos(Math.PI / 6); // center → edge ≈ 53.7
+export const HALF = HEX_R; // compat half-extent (== HEX_R) — coarse consumers only
+/** Interior layout scale vs the original 44-radius hall — every hand-tuned
+ *  mid-field radius below multiplies by this so the layout grows with HEX_R. */
+const S = HEX_R / 44;
 export const ARENA = {
   half: HALF,
   hexR: HEX_R,
@@ -40,13 +43,13 @@ export const SPAWNS: SpawnPoint[] = EDGE_ANGLES.map((a, i) => {
 /** Catch-up delivery drop zones — on four of the six vertex axes, mid-field
  *  (between the dais ring and the vertex camps; point-symmetric pairs). */
 const PAD_ANGLES = [0, 2, 3, 5].map((k) => (k * Math.PI) / 3);
-export const DELIVERY_PADS: Vec2[] = PAD_ANGLES.map((a) => ({ x: Math.cos(a) * 18, y: Math.sin(a) * 18 }));
+export const DELIVERY_PADS: Vec2[] = PAD_ANGLES.map((a) => ({ x: Math.cos(a) * 18 * S, y: Math.sin(a) * 18 * S }));
 
 /** Timed rune pickups (Phase 2 — positions reserved): on the 45°+k·90°
  *  diagonals, off every base lane and vertex axis. */
 export const RUNE_SPOTS: Vec2[] = Array.from({ length: 4 }, (_, i) => {
   const a = Math.PI / 4 + (i * Math.PI) / 2;
-  return { x: Math.cos(a) * 25, y: Math.sin(a) * 25 };
+  return { x: Math.cos(a) * 25 * S, y: Math.sin(a) * 25 * S };
 });
 
 /** Neutral skeleton camps — PvE pockets at the six hex vertices, between the
@@ -55,11 +58,11 @@ export const RUNE_SPOTS: Vec2[] = Array.from({ length: 4 }, (_, i) => {
 export type CampSpec = { id: string; x: number; y: number; pack?: string[]; respawnSec?: number };
 export const CAMPS: CampSpec[] = Array.from({ length: 6 }, (_, i) => {
   const a = (i * Math.PI) / 3; // the vertex axes (0° = +x)
-  return { id: `camp${i}`, x: Math.cos(a) * 27, y: Math.sin(a) * 27 };
+  return { id: `camp${i}`, x: Math.cos(a) * 27 * S, y: Math.sin(a) * 27 * S };
 });
 // Elite lair: the Frost Golem miniboss holds the NE vertex corner, deeper in
-// behind camp1 — 9u behind the camp, clear of pads, bases, and rune spots.
-CAMPS.push({ id: "golem", x: Math.cos(Math.PI / 3) * 35.5, y: Math.sin(Math.PI / 3) * 35.5, pack: ["frostgolem"], respawnSec: 90 });
+// behind camp1 — clear of pads, bases, and rune spots.
+CAMPS.push({ id: "golem", x: Math.cos(Math.PI / 3) * 35.5 * S, y: Math.sin(Math.PI / 3) * 35.5 * S, pack: ["frostgolem"], respawnSec: 90 });
 
 /** `model` is a render hint only — the sim reads just x/y/radius. */
 export type Obstacle = { x: number; y: number; radius: number; height: number; model?: string };
@@ -74,10 +77,10 @@ export const PARTITION_RUNS: PartitionRun[] = Array.from({ length: 6 }, (_, k) =
   // (edge angles 30°+k·60°) ≥ 4u clear on both sides.
   const a = (k * Math.PI) / 3 + (12 * Math.PI) / 180;
   return {
-    x: Math.cos(a) * 22,
-    y: Math.sin(a) * 22,
+    x: Math.cos(a) * 22 * S,
+    y: Math.sin(a) * 22 * S,
     dir: a + Math.PI / 2,
-    offsets: [-3, -1, 1, 3],
+    offsets: [-4.5, -2.7, -0.9, 0.9, 2.7, 4.5], // longer runs — cover scaled with the hall
   };
 });
 
@@ -103,8 +106,8 @@ export function buildDefaultObstacles(): Obstacle[] {
   // r18) — outside the coin ring and ≥11u off the nearest base lane
   for (const a of PAD_ANGLES) {
     out.push({
-      x: Math.cos(a) * 21.5,
-      y: Math.sin(a) * 21.5,
+      x: Math.cos(a) * 21.5 * S,
+      y: Math.sin(a) * 21.5 * S,
       radius: 0.55,
       height: 2.6,
       model: "paladin_statue",

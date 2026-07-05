@@ -96,6 +96,24 @@ void main() {
   gl_FragColor = vec4(0.0);
 }`;
 
+// CENTRIPETAL Catmull-Rom (Barry-Goldman) for one scalar channel. Uniform CR
+// overshoots badly when samples are irregularly spaced (frame-time jitter at
+// low fps) — the tip edge loops back on itself in-plane and the doubled
+// translucency reads as comb teeth. Centripetal parameterization provably
+// never loops or cusps inside a segment.
+function crCentripetal(p0: number, p1: number, p2: number, p3: number, t: number, k0: number, k1: number, k2: number): number {
+  const t1 = k0;
+  const t2 = k0 + k1;
+  const t3 = k0 + k1 + k2;
+  const tt = t1 + t * k1;
+  const a1 = p0 + ((p1 - p0) * (tt - 0)) / t1;
+  const a2 = p1 + ((p2 - p1) * (tt - t1)) / k1;
+  const a3 = p2 + ((p3 - p2) * (tt - t2)) / k2;
+  const b1 = a1 + ((a2 - a1) * (tt - 0)) / t2;
+  const b2 = a2 + ((a3 - a2) * (tt - t1)) / (t3 - t1);
+  return b1 + ((b2 - b1) * (tt - t1)) / k1;
+}
+
 export class WeaponTrail {
   /** Add/remove THIS from the scene — holds the depth prepass + color pass. */
   readonly mesh: THREE.Group;
@@ -260,23 +278,7 @@ export class WeaponTrail {
       along[o2 + 1] = s;
       row++;
     };
-    // CENTRIPETAL Catmull-Rom (Barry-Goldman) for one scalar channel. Uniform
-    // CR overshoots badly when samples are irregularly spaced (frame-time
-    // jitter at low fps) — the tip edge loops back on itself in-plane and the
-    // doubled translucency reads as comb teeth. Centripetal parameterization
-    // provably never loops or cusps inside a segment.
-    const cr = (p0: number, p1: number, p2: number, p3: number, t: number, k0: number, k1: number, k2: number): number => {
-      const t1 = k0;
-      const t2 = k0 + k1;
-      const t3 = k0 + k1 + k2;
-      const tt = t1 + t * k1;
-      const a1 = p0 + ((p1 - p0) * (tt - 0)) / t1;
-      const a2 = p1 + ((p2 - p1) * (tt - t1)) / k1;
-      const a3 = p2 + ((p3 - p2) * (tt - t2)) / k2;
-      const b1 = a1 + ((a2 - a1) * (tt - 0)) / t2;
-      const b2 = a2 + ((a3 - a2) * (tt - t1)) / (t3 - t1);
-      return b1 + ((b2 - b1) * (tt - t1)) / k1;
-    };
+    const cr = crCentripetal;
     const aOldest = Math.max(0.25, Math.min(1, (now - segs[0]!.t) / FADE_MS));
     // 3-tap smoothing of the control points before splining — swing clips pump
     // the blade radius slightly every pose sample, and Catmull-Rom faithfully

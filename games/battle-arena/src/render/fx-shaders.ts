@@ -161,6 +161,103 @@ export function makeSlashMaterial(): THREE.ShaderMaterial {
   });
 }
 
+// ── Ground cracks ────────────────────────────────────────────────────────────
+// Cellular-noise fissures: dark charcoal fractures with a hot glowing seam
+// that cools over the decal's life (the Diablo "the earth remembers the hit"
+// language). Unit quad, scale the pivot (uniform = radial star; stretched =
+// directional gash). uPulse > 0 re-heats the seam at ~2Hz (Vesper's bleed).
+export function makeCrackMaterial(): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.NormalBlending,
+    side: THREE.DoubleSide,
+    uniforms: {
+      uTime: CLOCK as { value: number },
+      uColor: { value: new THREE.Color(0xff8040) }, // hot seam
+      uT: { value: 0 }, // life progress 0→1
+      uSeed: { value: 0 },
+      uPulse: { value: 0 },
+    },
+    vertexShader: /* glsl */ `
+      varying vec2 vUv;
+      void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    fragmentShader: /* glsl */ `
+      uniform float uTime; uniform vec3 uColor; uniform float uT; uniform float uSeed; uniform float uPulse;
+      varying vec2 vUv;
+      vec2 hash22(vec2 p){
+        p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
+        return fract(sin(p) * 43758.5453);
+      }
+      void main(){
+        vec2 p = (vUv - 0.5) * 2.0;
+        float r = length(p);
+        if (r > 1.0) discard;
+        // cellular F2-F1: thin ridges along cell borders = the fissures
+        vec2 q = p * 3.2 + uSeed;
+        vec2 iq = floor(q); vec2 fq = fract(q);
+        float f1 = 8.0; float f2 = 8.0;
+        for (int yy = -1; yy <= 1; yy++)
+        for (int xx = -1; xx <= 1; xx++){
+          vec2 g = vec2(float(xx), float(yy));
+          vec2 o = hash22(iq + g);
+          float d = length(g + o - fq);
+          if (d < f1) { f2 = f1; f1 = d; } else if (d < f2) { f2 = d; }
+        }
+        float ridge = 1.0 - smoothstep(0.0, 0.16, f2 - f1); // 1 on the fissure lines
+        float fall = 1.0 - smoothstep(0.45, 1.0, r);        // fade toward the rim
+        float lifeFade = 1.0 - smoothstep(0.55, 1.0, uT);
+        // seam heat cools over life; optional re-heat pulse
+        float heat = (1.0 - smoothstep(0.0, 0.6, uT)) + uPulse * (0.5 + 0.5 * sin(uTime * 12.6)) * 0.6;
+        heat = clamp(heat, 0.0, 1.0);
+        vec3 charcoal = vec3(0.05, 0.045, 0.05);
+        vec3 c = mix(charcoal, uColor * 1.4, heat * ridge);
+        float a = ridge * fall * lifeFade * 0.85;
+        if (a < 0.01) discard;
+        gl_FragColor = vec4(c, a);
+      }`,
+  });
+}
+
+// ── Rune circle ──────────────────────────────────────────────────────────────
+// A rotating arcane ring: outer band, dashed inner band, tick glyphs. Used as
+// an arming telegraph (smite / grand hex / trap) and as the persistent
+// underfoot ring for buffs (Iron Stance / Bastion / Hunter's Focus).
+export function makeRuneMaterial(color: number): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide,
+    uniforms: {
+      uTime: CLOCK as { value: number },
+      uColor: { value: new THREE.Color(color) },
+      uAlpha: { value: 1 },
+    },
+    vertexShader: /* glsl */ `
+      varying vec2 vUv;
+      void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    fragmentShader: /* glsl */ `
+      uniform float uTime; uniform vec3 uColor; uniform float uAlpha;
+      varying vec2 vUv;
+      void main(){
+        vec2 p = (vUv - 0.5) * 2.0;
+        float r = length(p);
+        if (r > 1.0) discard;
+        float th = atan(p.y, p.x);
+        // outer band (solid) + mid band (dashed, counter-rotating) + 4 ticks
+        float outer = smoothstep(0.045, 0.02, abs(r - 0.93));
+        float dash = step(0.5, fract((th + uTime * 0.9) * 2.5464)); // 16 dashes
+        float mid = smoothstep(0.05, 0.02, abs(r - 0.74)) * dash;
+        float tickA = cos((th - uTime * 0.45) * 4.0);
+        float ticks = smoothstep(0.965, 0.995, tickA) * smoothstep(0.62, 0.5, abs(r - 0.45) / 0.45);
+        float a = (outer * 0.85 + mid * 0.6 + ticks * 0.7) * uAlpha;
+        if (a < 0.01) discard;
+        gl_FragColor = vec4(uColor * 1.3, a);
+      }`,
+  });
+}
+
 // ── Vortex drum (whirlwind ult) / light pillar shell ─────────────────────────
 // Open-ended cylinder with diagonal energy stripes racing around it, fading
 // toward the top (uUp 0) or blooming upward from the ground (uUp 1).

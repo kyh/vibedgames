@@ -21,7 +21,8 @@ import {
   OBSTACLES,
   SPAWNS,
 } from "../data/map";
-import { terrainHeight } from "../data/terrain";
+import { PLATEAU_SKIRT, terrainHeight } from "../data/terrain";
+import { PLATEAU_R } from "../sim/elevation";
 import { teamColor } from "./palette";
 
 const INTRO_S = 2.4; // establishing fly-in duration (solo intro)
@@ -48,12 +49,13 @@ const GradeShader = {
     // radial vignette reads as a bright vertical band down the screen center
     uVignette: { value: 0.18 },
     uVigStart: { value: 0.7 },
+    uFlash: { value: 0 }, // screen-whiten pulse (big ults) — decays in follow()
     uLift: { value: new THREE.Vector3(-0.006, -0.003, 0.012) },
     uGain: { value: new THREE.Vector3(1.03, 1.01, 0.97) },
   },
   vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
   fragmentShader: `
-    uniform sampler2D tDiffuse; uniform float uContrast,uSaturation,uVignette,uVigStart; uniform vec3 uLift,uGain;
+    uniform sampler2D tDiffuse; uniform float uContrast,uSaturation,uVignette,uVigStart,uFlash; uniform vec3 uLift,uGain;
     varying vec2 vUv;
     void main(){
       vec3 c = texture2D(tDiffuse, vUv).rgb;
@@ -63,6 +65,7 @@ const GradeShader = {
       c = mix(vec3(l), c, uSaturation);
       float r = length(vUv-0.5)*1.4142;
       c *= 1.0 - uVignette*smoothstep(uVigStart,1.0,r);
+      c += (vec3(1.0)-c) * uFlash;
       gl_FragColor = vec4(clamp(c,0.0,1.0),1.0);
     }`,
 };
@@ -105,14 +108,21 @@ function groundZoneColor(x: number, z: number, out: THREE.Color): THREE.Color {
  *  reach past the hex walls; the corners tuck under the second story. One mesh. */
 function buildGroundDisc(): THREE.Mesh {
   const R = HEX_R + 6;
-  const rings = 40;
   const seg = 96;
+  // uniform radii + two rings snapped EXACTLY to the plateau cliff — without
+  // them the hard terrain step smears across one ring gap as a slanted band
+  const uniform = 40;
+  const radii: number[] = [];
+  for (let ring = 1; ring <= uniform; ring++) radii.push((ring / uniform) * R);
+  radii.push(PLATEAU_R, PLATEAU_R + PLATEAU_SKIRT);
+  radii.sort((a, b) => a - b);
+  const rings = radii.length;
   const zc = new THREE.Color();
   groundZoneColor(0, 0, zc);
   const pos: number[] = [0, terrainHeight(0, 0), 0];
   const col: number[] = [zc.r, zc.g, zc.b];
   for (let ring = 1; ring <= rings; ring++) {
-    const rr = (ring / rings) * R;
+    const rr = radii[ring - 1]!;
     for (let s = 0; s < seg; s++) {
       const a = (s / seg) * Math.PI * 2;
       const x = Math.cos(a) * rr;
@@ -162,6 +172,8 @@ export class View {
   private shakeOff = new THREE.Vector3();
   private kickVec = new THREE.Vector3(); // directional camera punch (impact weight), decays to 0
   private fovPunch = 0; // degrees of punch-in (narrower FOV on big beats), decays 7/s
+  private flashAmt = 0; // screen-whiten pulse, decays ×(1−9dt)
+  private vigPunch = 0; // extra vignette squeeze, decays ×(1−5dt)
   // intro fly-in: startIntro() → 2.4s easeInOutCubic blend from a high establishing
   // pose down into the chase camera. -1 = inactive.
   private introT = -1;
@@ -309,16 +321,18 @@ export class View {
 
     // (cover pillars are real KayKit models — see render/environment.ts)
 
-    // base pads (team-colored discs at the spawns)
+    // base marker: ONE bold team-colored ring floating above the tile tops
+    // (a filled disc + beacon proved to be visual noise — the ring is enough)
     for (const sp of SPAWNS) {
-      const pad = new THREE.Mesh(
-        new THREE.CircleGeometry(3.2, 28),
-        new THREE.MeshStandardMaterial({ color: teamColor(`bot:${sp.slot}`), roughness: 0.7, emissive: teamColor(`bot:${sp.slot}`), emissiveIntensity: 0.12 }),
+      const col = teamColor(`bot:${sp.slot}`);
+      const padY = terrainHeight(sp.x, sp.y);
+      const rim = new THREE.Mesh(
+        new THREE.RingGeometry(4.2, 5.0, 40),
+        new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false }),
       );
-      pad.rotation.x = -Math.PI / 2;
-      pad.position.set(sp.x, terrainHeight(sp.x, sp.y) + 0.03, sp.y);
-      pad.receiveShadow = true;
-      arenaGroup.add(pad);
+      rim.rotation.x = -Math.PI / 2;
+      rim.position.set(sp.x, padY + 0.18, sp.y);
+      arenaGroup.add(rim);
     }
 
     // delivery pads + beacon cones (all pads merged into ONE draw call so the
@@ -406,8 +420,12 @@ export class View {
     this.shake = Math.max(0, this.shake - dt * 1.6);
     this.shakeT += dt * 31; // rotational-shake phase
     if (this.bloom) this.bloom.strength = 0.6 + this.shake * 0.5;
+    this.flashAmt *= Math.max(0, 1 - 9 * dt);
+    this.vigPunch *= Math.max(0, 1 - 5 * dt);
     const vig = this.grade?.uniforms["uVignette"];
-    if (vig) vig.value = 0.18 + this.shake * 0.25; // base must match the GradeShader default
+    if (vig) vig.value = 0.18 + this.shake * 0.25 + this.vigPunch; // base must match the GradeShader default
+    const fl = this.grade?.uniforms["uFlash"];
+    if (fl) fl.value = this.flashAmt;
     const s = this.shake * this.shake;
     this.shakeOff.set((Math.random() - 0.5) * s * 1.4, (Math.random() - 0.5) * s * 0.8, (Math.random() - 0.5) * s * 1.4);
 
@@ -457,6 +475,13 @@ export class View {
    *  Decays ×(1−7dt) — a distinct "impact zoom" channel on top of the shake. */
   punchFov(deg: number): void {
     this.fovPunch = Math.max(this.fovPunch, deg);
+  }
+
+  /** Full-screen beat: whiten `flash` (0..~0.25) and/or squeeze the vignette
+   *  by `vignette` — the big-ult "the screen itself reacts" channel. */
+  screenPulse(flash: number, vignette = 0): void {
+    this.flashAmt = Math.max(this.flashAmt, flash);
+    this.vigPunch = Math.max(this.vigPunch, vignette);
   }
 
   /** Re-render the (static) shadow map once — call after scenery changes. */

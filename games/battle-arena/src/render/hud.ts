@@ -208,7 +208,6 @@ export class Hud {
       <div id="ba-board"></div>
       <div id="ba-feed"></div>
       <button id="ba-menu-btn">HEROES ▸</button>
-      <button id="ba-mute-btn" title="toggle sound (M)"></button>
       <div id="ba-toasts"></div>
       <div id="ba-bottom">
         <div id="ba-buffs"></div>
@@ -280,23 +279,12 @@ export class Hud {
     this.arrowCoin = { el: arrowEl("ba-arrow-coin"), lastTf: "", on: false };
     this.arrowDelivery = { el: arrowEl("ba-arrow-delivery"), lastTf: "", on: false };
 
-    // sound is muted by default (opt-in) — speaker button + M key toggle
-    const muteBtn = byId("ba-mute-btn");
-    const paintMute = (): void => {
-      muteBtn.textContent = this.sfx.isMuted ? "🔇" : "🔊";
-      muteBtn.classList.toggle("muted", this.sfx.isMuted);
-    };
-    const toggleMute = (): void => {
-      this.sfx.setMuted(!this.sfx.isMuted);
-      paintMute();
-    };
-    paintMute();
-    muteBtn.addEventListener("click", toggleMute);
+    // sound is muted by default (opt-in) — M key toggles it
     window.addEventListener("keydown", (e) => {
       if (e.code !== "KeyM" || e.repeat) return;
       const t = e.target;
       if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) return;
-      toggleMute();
+      this.sfx.setMuted(!this.sfx.isMuted);
     });
 
     const abilEl = byId("ba-abilities");
@@ -1278,8 +1266,6 @@ const STYLE = `
 .ba-kw{width:13px;height:13px;opacity:.8}
 #ba-menu-btn{position:fixed;top:calc(148px + env(safe-area-inset-top));right:calc(12px + env(safe-area-inset-right));height:28px;padding:0 12px;pointer-events:auto;background:rgba(12,16,26,.75);border:1px solid rgba(255,210,74,.4);border-radius:8px;color:#ffd24a;font:800 12px ui-monospace,monospace;letter-spacing:1px;cursor:pointer;z-index:6}
 #ba-menu-btn:hover{background:rgba(255,210,74,.15)}
-#ba-mute-btn{position:fixed;top:calc(184px + env(safe-area-inset-top));right:calc(12px + env(safe-area-inset-right));width:34px;height:28px;pointer-events:auto;background:rgba(12,16,26,.75);border:1px solid rgba(255,255,255,.25);border-radius:8px;font-size:14px;line-height:1;cursor:pointer;z-index:6}
-#ba-mute-btn:hover{background:rgba(255,255,255,.12)}
 #ba-toasts{position:fixed;top:24%;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;gap:6px;align-items:center;pointer-events:none}
 .ba-toast{font:800 italic 24px system-ui,sans-serif;letter-spacing:1px;text-shadow:0 2px 8px #000;animation:ba-pop .3s}
 .ba-toast.leader{color:#ff5a52}
