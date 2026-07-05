@@ -207,64 +207,88 @@ function capRing(arm: Arm, extra: number): Ring {
   return ring;
 }
 
-// Union a large set of polygons in chunks (single mega-call risks precision
-// blowups in the sweep; chunked tree-union isolates any failure).
-function treeUnion(polys: Poly[]): MultiPoly {
-  const CHUNK = 256;
-  let acc: MultiPoly = [];
-  for (let i = 0; i < polys.length; i += CHUNK) {
-    const chunk = polys.slice(i, i + CHUNK);
-    try {
-      const merged = polygonClipping.union(
-        acc.length > 0 ? acc : [],
-        ...chunk,
-      );
-      acc = merged;
-    } catch {
-      // A degenerate ring in this chunk: fall back to one-by-one, skipping
-      // only the offender(s).
-      for (const p of chunk) {
-        try {
-          acc = polygonClipping.union(acc.length > 0 ? acc : [], p);
-        } catch {
-          // skip the degenerate polygon
-        }
-      }
-    }
+// The whole boolean pipeline runs PER SPATIAL TILE with bbox-filtered local
+// inputs. City-scale sweeps are both slow (the accumulator grows with every
+// chunk) and fragile (martinez corrupts on huge inputs); per-tile the inputs
+// are dozens of polygons, the work is linear in the city, and any failure
+// costs one tile. Adjacent tiles share exact snapped cut lines, so the seams
+// are invisible.
+type PlanarMap = { asphalt: MultiPoly; curb: MultiPoly; walk: MultiPoly };
+
+function bboxOf(poly: Poly): [number, number, number, number] {
+  let x0 = Infinity;
+  let z0 = Infinity;
+  let x1 = -Infinity;
+  let z1 = -Infinity;
+  for (const [x, z] of poly[0] ?? []) {
+    x0 = Math.min(x0, x);
+    x1 = Math.max(x1, x);
+    z0 = Math.min(z0, z);
+    z1 = Math.max(z1, z);
   }
-  return acc;
+  return [x0, z0, x1, z1];
 }
 
-// Difference computed per spatial tile: the sweepline occasionally corrupts
-// on city-sized inputs; tiling keeps every operation small and isolates any
-// failure to one tile (where we drop the walk rather than cover the road).
-function tiledDifference(a: MultiPoly, b: MultiPoly, minX: number, minZ: number, maxX: number, maxZ: number): MultiPoly {
-  const TILES = 10;
-  const out: MultiPoly = [];
+function tiledPlanarMap(asphaltPolys: Poly[], curbPolys: Poly[], pavePolys: Poly[]): PlanarMap {
+  const boxes = {
+    a: asphaltPolys.map(bboxOf),
+    c: curbPolys.map(bboxOf),
+    p: pavePolys.map(bboxOf),
+  };
+  let minX = Infinity;
+  let minZ = Infinity;
+  let maxX = -Infinity;
+  let maxZ = -Infinity;
+  for (const [x0, z0, x1, z1] of boxes.p) {
+    minX = Math.min(minX, x0);
+    maxX = Math.max(maxX, x1);
+    minZ = Math.min(minZ, z0);
+    maxZ = Math.max(maxZ, z1);
+  }
+  const TILES = 12;
   const dx = (maxX - minX) / TILES;
   const dz = (maxZ - minZ) / TILES;
+  const out: PlanarMap = { asphalt: [], curb: [], walk: [] };
   let failed = 0;
   for (let ix = 0; ix < TILES; ix++) {
     for (let iz = 0; iz < TILES; iz++) {
       const x0 = minX + ix * dx;
       const z0 = minZ + iz * dz;
+      const x1 = x0 + dx;
+      const z1 = z0 + dz;
       const rect: Poly = [[
         [snap(x0), snap(z0)],
-        [snap(x0 + dx), snap(z0)],
-        [snap(x0 + dx), snap(z0 + dz)],
-        [snap(x0), snap(z0 + dz)],
+        [snap(x1), snap(z0)],
+        [snap(x1), snap(z1)],
+        [snap(x0), snap(z1)],
       ]];
+      const local = (polys: Poly[], bx: [number, number, number, number][]): Poly[] =>
+        polys.filter((_, i) => {
+          const b = bx[i];
+          return b !== undefined && b[0] <= x1 && b[2] >= x0 && b[1] <= z1 && b[3] >= z0;
+        });
+      const aLoc = local(asphaltPolys, boxes.a);
+      if (aLoc.length === 0) continue;
       try {
-        const at = polygonClipping.intersection(a, [rect]);
-        if (at.length === 0) continue;
-        const bt = polygonClipping.intersection(b, [rect]);
-        out.push(...polygonClipping.difference(at, bt));
+        const A = polygonClipping.intersection(polygonClipping.union([], ...aLoc), [rect]);
+        if (A.length === 0) continue;
+        out.asphalt.push(...A);
+        const C = polygonClipping.intersection(
+          polygonClipping.union([], ...local(curbPolys, boxes.c)),
+          [rect],
+        );
+        out.curb.push(...polygonClipping.difference(C, A));
+        const P = polygonClipping.intersection(
+          polygonClipping.union([], ...local(pavePolys, boxes.p)),
+          [rect],
+        );
+        out.walk.push(...polygonClipping.difference(P, A));
       } catch {
         failed++;
       }
     }
   }
-  if (failed > 0) console.warn(`[roads] tiled difference: ${failed} tiles dropped`);
+  if (failed > 0) console.warn(`[roads] planar map: ${failed} tiles degraded`);
   return out;
 }
 
@@ -457,21 +481,9 @@ export function buildRoads(network: RoadNetwork, terrain: Terrain): THREE.Mesh[]
   }
 
   // --- The planar map: overlap dissolves in the union ---
-  const asphalt = treeUnion(asphaltPolys);
-  let minX = Infinity;
-  let minZ = Infinity;
-  let maxX = -Infinity;
-  let maxZ = -Infinity;
-  for (const poly of asphalt) {
-    for (const [x, z] of poly[0] ?? []) {
-      minX = Math.min(minX, x);
-      maxX = Math.max(maxX, x);
-      minZ = Math.min(minZ, z);
-      maxZ = Math.max(maxZ, z);
-    }
-  }
-  const curb = tiledDifference(treeUnion(curbPolys), asphalt, minX, minZ, maxX, maxZ);
-  const walk = tiledDifference(treeUnion(pavePolys), asphalt, minX, minZ, maxX, maxZ);
+  const t0 = performance.now();
+  const { asphalt, curb, walk } = tiledPlanarMap(asphaltPolys, curbPolys, pavePolys);
+  console.log(`[roads] planar map in ${Math.round(performance.now() - t0)}ms`);
 
   const parts: Part[] = [
     { geo: multiPolyGeo(asphalt), mat: MAT_ASPHALT, lift: ASPHALT_LIFT },
