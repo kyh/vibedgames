@@ -183,7 +183,7 @@ export function buildGridNetwork(
     p[1] = na[1];
     p[p.length - 2] = nb[0];
     p[p.length - 1] = nb[1];
-    out.push({ ...e, p: chaikin(chaikin(rdp(p, ROAD_TILE * 0.36))) });
+    out.push({ ...e, p: chaikin(rdp(p, ROAD_TILE * 0.42)) });
   }
   return { nodes, edges: out };
 }

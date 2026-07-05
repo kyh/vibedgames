@@ -176,7 +176,7 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     <div id="ed-floor-row" style="display:none"></div>
     <div id="ed-place-ui" style="display:none">
       <div id="ed-tabs"></div>
-      <div id="ed-models" style="max-height:170px;overflow-y:auto;border:1px solid #333;border-radius:6px;padding:4px;margin-top:4px"></div>
+      <div id="ed-models" style="max-height:300px;overflow-y:auto;border:1px solid #333;border-radius:6px;padding:4px;margin-top:4px"></div>
     </div>
     <div style="font-weight:700;margin-top:2px">Map edits</div>
     <div id="ed-map-status" style="opacity:.75"></div>
@@ -322,7 +322,34 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     }
   }
 
-  // --- Palette (Place mode) ---
+  // --- Palette (Place mode): thumbnail cards rendered from the models ---
+  const thumbCache = new Map<string, string>();
+  const thumbRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+  thumbRenderer.setSize(96, 96);
+  const thumbScene = new THREE.Scene();
+  thumbScene.add(new THREE.AmbientLight(0xffffff, 1.1));
+  const thumbSun = new THREE.DirectionalLight(0xffffff, 2.2);
+  thumbSun.position.set(3, 6, 4);
+  thumbScene.add(thumbSun);
+  const thumbCam = new THREE.PerspectiveCamera(30, 1, 0.05, 2000);
+  const thumbnail = (cat: string, name: string): string => {
+    const url = modelUrl(cat, name);
+    const hit = thumbCache.get(url);
+    if (hit) return hit;
+    const node = cache.instance(url);
+    thumbScene.add(node);
+    const box = new THREE.Box3().setFromObject(node);
+    const centre = box.getCenter(new THREE.Vector3());
+    const span = Math.max(box.getSize(new THREE.Vector3()).length(), 0.001);
+    thumbCam.position.set(centre.x + span * 0.75, centre.y + span * 0.6, centre.z + span * 0.75);
+    thumbCam.lookAt(centre);
+    thumbRenderer.render(thumbScene, thumbCam);
+    const data = thumbRenderer.domElement.toDataURL();
+    thumbScene.remove(node);
+    thumbCache.set(url, data);
+    return data;
+  };
+
   const tabs = $("ed-tabs");
   const models = $("ed-models");
   let activeTab = 0;
@@ -331,14 +358,23 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     const c = CATEGORIES[activeTab];
     if (!c) return;
     for (const name of c.names) {
-      const b = document.createElement("button");
-      b.textContent = name;
-      b.setAttribute("style", palette?.name === name ? BTN_ON : BTN);
-      b.addEventListener("click", () => {
+      const card = document.createElement("button");
+      card.setAttribute(
+        "style",
+        `${palette?.name === name ? BTN_ON : BTN}width:31%;padding:3px;display:inline-flex;flex-direction:column;align-items:center;gap:2px;vertical-align:top`,
+      );
+      const img = document.createElement("img");
+      img.src = thumbnail(c.cat, name);
+      img.setAttribute("style", "width:100%;aspect-ratio:1;border-radius:4px;background:#211f2b");
+      const label = document.createElement("span");
+      label.textContent = name;
+      label.setAttribute("style", "font-size:9px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap");
+      card.append(img, label);
+      card.addEventListener("click", () => {
         setGhost(c.cat, name);
         renderModels();
       });
-      models.appendChild(b);
+      models.appendChild(card);
     }
   };
   CATEGORIES.forEach((c, i) => {
