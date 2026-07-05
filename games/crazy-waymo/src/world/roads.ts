@@ -378,15 +378,24 @@ export function buildRoads(network: RoadNetwork, terrain: Terrain): THREE.Mesh[]
     curbPolys.push([railRing(rail, -h - CURB_W, h + CURB_W)]);
     pavePolys.push([railRing(rail, -h - SIDEWALK_W, h + SIDEWALK_W)]);
 
-    // White edge lines (inside the asphalt — safe by construction).
+    // KayKit-style paint: boulevards get YELLOW edge lines + white dashed
+    // lane lines; streets get white edges + a yellow centre dash.
+    const major = h > 5.5;
     const eo = h - EDGE_INSET;
-    markingParts.push({ geo: stripGeo(rail, eo - LINE_W / 2, eo + LINE_W / 2), mat: MAT_WHITE, lift: LINE_LIFT });
-    markingParts.push({ geo: stripGeo(rail, -eo - LINE_W / 2, -eo + LINE_W / 2), mat: MAT_WHITE, lift: LINE_LIFT });
+    const edgeMat = major ? MAT_YELLOW : MAT_WHITE;
+    markingParts.push({ geo: stripGeo(rail, eo - LINE_W / 2, eo + LINE_W / 2), mat: edgeMat, lift: LINE_LIFT });
+    markingParts.push({ geo: stripGeo(rail, -eo - LINE_W / 2, -eo + LINE_W / 2), mat: edgeMat, lift: LINE_LIFT });
 
-    // Centre dashes, skipped near ANY junction so they never float through
-    // a merged junction blob.
+    // Dashes (junction-clipped so they never float through a merged blob):
+    // boulevards carry two white lane lines, streets one yellow centre line.
     const secLen = edge.len - trimA - trimB;
     if (secLen < 12) continue;
+    const dashOffsets: { off: number; mat: THREE.Material }[] = major
+      ? [
+          { off: -h * 0.33, mat: MAT_WHITE },
+          { off: h * 0.33, mat: MAT_WHITE },
+        ]
+      : [{ off: 0, mat: MAT_YELLOW }];
     for (let s = 0; s < secLen; s += DASH_LEN + DASH_GAP) {
       const e = Math.min(s + DASH_LEN, secLen);
       if (e - s < 0.6) continue;
@@ -395,7 +404,13 @@ export function buildRoads(network: RoadNetwork, terrain: Terrain): THREE.Mesh[]
       if (nearJunction(mid.x, mid.z, 2.5)) continue;
       const dashRail = railFor(edge, trimA + s, trimA + e);
       if (dashRail) {
-        markingParts.push({ geo: stripGeo(dashRail, -LINE_W / 2, LINE_W / 2), mat: MAT_YELLOW, lift: LINE_LIFT });
+        for (const d of dashOffsets) {
+          markingParts.push({
+            geo: stripGeo(dashRail, d.off - LINE_W / 2, d.off + LINE_W / 2),
+            mat: d.mat,
+            lift: LINE_LIFT,
+          });
+        }
       }
     }
   }
@@ -449,33 +464,54 @@ export function buildRoads(network: RoadNetwork, terrain: Terrain): THREE.Mesh[]
     curbPolys.push([patchRing(nx, nz, arms, CURB_W, trimCap)]);
     pavePolys.push([patchRing(nx, nz, arms, SIDEWALK_W, trimCap)]);
 
-    // Crosswalk stripes across each arm of a real junction (3+ streets).
+    // Zebra crosswalks + stop bars on every arm of a real junction.
     if (arms.length >= 3) {
       for (const a of arms) {
+        const ox = -a.tz;
+        const oz = a.tx;
+        const quad = (
+          out: number[],
+          d0: number,
+          d1: number,
+          l0: number,
+          l1: number,
+        ): void => {
+          const x00 = a.px + a.tx * d0 + ox * l0;
+          const z00 = a.pz + a.tz * d0 + oz * l0;
+          const x01 = a.px + a.tx * d0 + ox * l1;
+          const z01 = a.pz + a.tz * d0 + oz * l1;
+          const x10 = a.px + a.tx * d1 + ox * l0;
+          const z10 = a.pz + a.tz * d1 + oz * l0;
+          const x11 = a.px + a.tx * d1 + ox * l1;
+          const z11 = a.pz + a.tz * d1 + oz * l1;
+          out.push(x00, 0, z00, x10, 0, z10, x11, 0, z11, x00, 0, z00, x11, 0, z11, x01, 0, z01);
+        };
+        // Chunky zebra (stripes run with the road, laid across the width).
         const stripes: number[] = [];
-        const inner = 0.7;
-        const outer = 2.5;
-        const usable = a.half - 0.9;
-        const count = Math.max(3, Math.floor(usable / 0.85));
+        const inner = 0.9;
+        const outer = inner + 2.6;
+        const usable = a.half - 0.8;
+        const count = Math.max(4, Math.floor(usable / 0.95));
         for (let k = 0; k < count; k++) {
           const lat = -usable + (k / (count - 1)) * 2 * usable;
-          const w = 0.42;
-          const cx0 = a.px + a.tx * inner;
-          const cz0 = a.pz + a.tz * inner;
-          const cx1 = a.px + a.tx * outer;
-          const cz1 = a.pz + a.tz * outer;
-          const ox = -a.tz;
-          const oz = a.tx;
-          stripes.push(
-            cx0 + ox * (lat - w), 0, cz0 + oz * (lat - w),
-            cx1 + ox * (lat - w), 0, cz1 + oz * (lat - w),
-            cx1 + ox * (lat + w), 0, cz1 + oz * (lat + w),
-            cx0 + ox * (lat - w), 0, cz0 + oz * (lat - w),
-            cx1 + ox * (lat + w), 0, cz1 + oz * (lat + w),
-            cx0 + ox * (lat + w), 0, cz0 + oz * (lat + w),
-          );
+          quad(stripes, inner, outer, lat - 0.34, lat + 0.34);
         }
         markingParts.push({ geo: flatGeo(stripes), mat: MAT_WHITE, lift: LINE_LIFT });
+        // Stop bar just past the crosswalk: solid on boulevards, dashed on
+        // streets (the KayKit look).
+        const bar: number[] = [];
+        const b0 = outer + 0.5;
+        const b1 = b0 + 0.5;
+        if (a.half > 5.5) {
+          quad(bar, b0, b1, -usable, usable);
+        } else {
+          const segs = 4;
+          for (let k = 0; k < segs; k++) {
+            const l0 = -usable + (k / segs) * 2 * usable;
+            quad(bar, b0, b1, l0, l0 + (usable * 2) / segs - 0.5);
+          }
+        }
+        markingParts.push({ geo: flatGeo(bar), mat: MAT_WHITE, lift: LINE_LIFT });
       }
     }
   }

@@ -183,7 +183,7 @@ export function buildGridNetwork(
     p[1] = na[1];
     p[p.length - 2] = nb[0];
     p[p.length - 1] = nb[1];
-    const smoothed = chaikin(chaikin(rdp(p, ROAD_TILE * 0.52)));
+    const smoothed = chaikin(chaikin(chaikin(rdp(p, ROAD_TILE * 0.52))));
     // Node fusion or RDP can collapse tight loops to a point — drop them.
     if (pLen(smoothed) < 2) continue;
     out.push({ ...e, p: smoothed });

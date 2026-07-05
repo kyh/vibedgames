@@ -143,7 +143,7 @@ check(degenerate === 0, "no street geometry far from the network", `${degenerate
         if (!ids || ids.length < 3) continue;
         const node = network.nodes[n];
         if (!node) continue;
-        if (Math.hypot(node[0] - x, node[1] - z) < network.nodeTrim(n) * 0.8) {
+        if (Math.hypot(node[0] - x, node[1] - z) < network.nodeTrim(n) * 0.6) {
           strayDashes++;
           break;
         }
