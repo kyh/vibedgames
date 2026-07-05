@@ -346,7 +346,7 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
     const trimA = network.nodeTrim(edge.a) + 3;
     const trimB = network.nodeTrim(edge.b) + 3;
     for (let s = trimA; s < edge.len - trimB; s += ROAD_TILE) {
-      if (!rng.chance(0.12)) continue;
+      if (!rng.chance(0.3)) continue;
       const smp = network.sample(edge, s);
       const gx = toGx(smp.x);
       const gz = toGz(smp.z);

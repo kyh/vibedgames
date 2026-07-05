@@ -34,6 +34,7 @@ import { type CityPlan, generateCity } from "./grid";
 import { CUSTOM_MAP, type FloorKind, loadLocalOverrides } from "./custom-map";
 import { buildGridNetwork } from "./grid-network";
 import { SF_BUILDINGS, SF_BUILDINGS_BOUNDS } from "./sf-buildings";
+import { landuseGreenAt, landuseSandAt } from "./sf-landuse";
 import { buildRoads } from "./roads";
 import { buildLandmarks, landmarkProtection } from "./landmarks";
 import { type DistrictChar, districtAt, isLandCell, makeTerrain, paletteFor, tintAmountFor } from "./sf-map";
@@ -487,12 +488,16 @@ export class CityModel {
           const gx = this.gridX(smp.x);
           const gz = this.gridZ(smp.z);
           const district = districtAt(gx, gz);
+          const dense =
+            district.character === "residential" || district.character === "victorian";
           const frac =
             district.character === "downtown" || district.character === "highrise"
               ? this.rng.range(0.7, 0.82)
-              : this.rng.range(0.6, 0.74);
+              : dense
+                ? this.rng.range(0.46, 0.56) // row-houses, shoulder to shoulder
+                : this.rng.range(0.58, 0.7);
           const footprint = ROAD_TILE * frac;
-          const step = footprint + this.rng.range(1.2, 3.4);
+          const step = footprint + (dense ? this.rng.range(0.2, 0.9) : this.rng.range(0.6, 1.8));
           const off = edge.half + 1.7 + footprint / 2 + 0.7;
           const px = smp.x - smp.tz * off * side;
           const pz = smp.z + smp.tx * off * side;
@@ -505,10 +510,27 @@ export class CityModel {
           // Clearance vs OTHER streets (corners, parallel edges).
           const near = this.network.nearest(px, pz, ROAD_TILE * 1.6);
           if (near && near.dist < near.edge.half + footprint / 2 - 0.4) continue;
-          if (this.rng.chance(0.12)) continue; // vacancy — breathing room
+          if (this.rng.chance(0.04)) continue; // rare vacancy
           const yaw = Math.atan2(smp.tx * side, smp.tz * side) + HALF_PI_CITY;
           const cardinal = Math.abs(Math.sin(2 * yaw)) < 0.18;
           placeBuilding(gx, gz, 0, frac, cardinal, { x: px, z: pz, yaw });
+          // Back row: real SF blocks are packed two-deep, no green gap.
+          if (this.rng.chance(0.8)) {
+            const off2 = off + footprint + this.rng.range(0.8, 1.8);
+            const bx2 = smp.x - smp.tz * off2 * side;
+            const bz2 = smp.z + smp.tx * off2 * side;
+            if (
+              !inRealData(bx2, bz2) &&
+              isLandCell(this.gridX(bx2), this.gridZ(bz2)) &&
+              districtAt(this.gridX(bx2), this.gridZ(bz2)).character !== "park" &&
+              !occupied(bx2, bz2, footprint * 0.52)
+            ) {
+              const near2 = this.network.nearest(bx2, bz2, ROAD_TILE * 1.6);
+              if (!near2 || near2.dist >= near2.edge.half + footprint / 2 - 0.4) {
+                placeBuilding(gx, gz, 0, frac * 0.94, false, { x: bx2, z: bz2, yaw });
+              }
+            }
+          }
         }
       }
     }
@@ -677,9 +699,12 @@ export class CityModel {
         into.copy(CONCRETE);
         const gx = Math.min(GRID_X - 1, Math.max(0, this.gridX(x)));
         const gz = Math.min(GRID_Z - 1, Math.max(0, this.gridZ(z)));
-        if (districtAt(gx, gz).character === "park" || greenSet.has(`${gx},${gz}`)) {
-          into.lerp(PARK, 0.8);
+        if (landuseGreenAt(gx, gz) || districtAt(gx, gz).character === "park") {
+          into.lerp(PARK, 0.8); // real OSM green space
+        } else if (greenSet.has(`${gx},${gz}`)) {
+          into.lerp(PARK, 0.3); // interior lots: subtle, not lawn-prairie
         }
+        if (landuseSandAt(gx, gz)) into.lerp(SAND, 0.85);
         const painted = floorAt.get(`${gx},${gz}`);
         if (painted === "plaza") into.copy(CONCRETE).lerp(new THREE.Color(0xffffff), 0.12);
         else if (painted === "grass") into.copy(PARK);
