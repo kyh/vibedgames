@@ -442,7 +442,18 @@ export class GameScene {
     this.lowBeepAt = -1;
     this.lastDistrict = "";
     this.countdownShown = -1;
-    this.camFrom.copy(this.rig.camera.position);
+    // Swoop-in start pose: high above and behind the fresh spawn. Never the
+    // camera's previous position — the spawn re-rolls every run, so that
+    // could be a cross-map flight at warp speed.
+    {
+      const fwd = new THREE.Vector2(Math.sin(this.spawn.yaw), Math.cos(this.spawn.yaw));
+      this.camFrom.set(
+        car.position.x - fwd.x * CAMERA.distance * 3.4,
+        car.position.y + CAMERA.height + 44,
+        car.position.z - fwd.y * CAMERA.distance * 3.4,
+      );
+      this.rig.camera.position.copy(this.camFrom);
+    }
     this.minimap?.setVisible(true);
     this.mode = { kind: "countdown", t: 0 };
   }
