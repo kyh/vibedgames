@@ -508,6 +508,7 @@ export class CityModel {
         if (bh < 1.2 || bw < 2.2 || bd < 2.2) continue;
         let bx = bx0;
         let bz = bz0;
+        let fitScale = 1;
         if (!isLandCell(this.gridX(bx), this.gridZ(bz))) continue;
         // Real parcels abut real streets; ours are ~2x wide, so NUDGE the
         // building outward instead of rejecting it.
@@ -522,7 +523,14 @@ export class CityModel {
             bx += (dx / dl) * push;
             bz += (dz / dl) * push;
             const re = this.network.nearest(bx, bz, ROAD_TILE * 1.6);
-            if (re && re.dist < re.edge.half + Math.min(bw, bd) / 2 - 0.6) continue;
+            if (re && re.dist < re.edge.half + Math.min(bw, bd) / 2 - 0.6) {
+              const maxFit = (re.dist - re.edge.half + 0.6) * 2;
+              if (maxFit < Math.max(bw, bd) * 0.45 || maxFit < 3) continue;
+              const shrink = maxFit / Math.max(bw, bd);
+              // shrink footprint to the block, keep the real height
+              // (bw/bd are consts from destructuring — scale via locals)
+              fitScale = Math.min(1, shrink);
+            }
           }
         }
         if (occupied(bx, bz, Math.max(bw, bd) * 0.45)) continue;
@@ -530,9 +538,11 @@ export class CityModel {
         const key = this.rng.pick(pool);
         const url = modelUrl("buildings", key);
         const bounds = this.cache.bounds(url);
-        const sxz = Math.max(bw, bd) / Math.max(bounds.size.x, bounds.size.z, 0.001);
+        const fw = bw * fitScale;
+        const fd = bd * fitScale;
+        const sxz = Math.max(fw, fd) / Math.max(bounds.size.x, bounds.size.z, 0.001);
         const sy = bh / Math.max(bounds.size.y, 0.001);
-        const fh = Math.max(bw, bd) / 2;
+        const fh = Math.max(fw, fd) / 2;
         const corners = [
           this.terrain.heightAt(bx, bz),
           this.terrain.heightAt(bx - fh, bz - fh),
@@ -548,15 +558,15 @@ export class CityModel {
         const district = districtAt(this.gridX(bx), this.gridZ(bz));
         this.tintNode(node, this.rng.pick(paletteFor(district)), tintAmountFor(district));
         collect(node);
-        const hw = (bw / 2) * 0.94;
-        const hd = (bd / 2) * 0.94;
+        const hw = (fw / 2) * 0.94;
+        const hd = (fd / 2) * 0.94;
         this.solids.push({
           minX: bx - hw,
           maxX: bx + hw,
           minZ: bz - hd,
           maxZ: bz + hd,
         });
-        occupy(bx, bz, Math.max(bw, bd) * 0.5);
+        occupy(bx, bz, Math.max(fw, fd) * 0.5);
         placed++;
       }
       console.log(`[city] real downtown buildings placed: ${placed}`);
@@ -596,13 +606,19 @@ export class CityModel {
           if (!isLandCell(this.gridX(px), this.gridZ(pz))) continue;
           if (lm.reserved.has(`${this.gridX(px)},${this.gridZ(pz)}`)) continue;
           if (occupied(px, pz, footprint * 0.52)) continue;
-          // Clearance vs OTHER streets (corners, parallel edges).
+          // Clearance vs OTHER streets (corners, parallel edges): tight
+          // downtown blocks fit a SMALLER building rather than none.
+          let useFrac = frac;
           const near = this.network.nearest(px, pz, ROAD_TILE * 1.6);
-          if (near && near.dist < near.edge.half + footprint / 2 - 0.4) continue;
+          if (near && near.dist < near.edge.half + footprint / 2 - 0.4) {
+            const maxFoot = (near.dist - near.edge.half + 0.4) * 2;
+            if (maxFoot < 3.2) continue;
+            useFrac = Math.min(frac, maxFoot / ROAD_TILE);
+          }
           if (this.rng.chance(0.04)) continue; // rare vacancy
           const yaw = Math.atan2(smp.tx * side, smp.tz * side) + HALF_PI_CITY;
           const cardinal = Math.abs(Math.sin(2 * yaw)) < 0.18;
-          placeBuilding(gx, gz, 0, frac, cardinal, { x: px, z: pz, yaw });
+          placeBuilding(gx, gz, 0, useFrac, cardinal, { x: px, z: pz, yaw });
           // Back row: real SF blocks are packed two-deep, no green gap.
           if (this.rng.chance(0.8)) {
             const off2 = off + footprint + this.rng.range(0.8, 1.8);
