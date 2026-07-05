@@ -79,5 +79,134 @@ export function buildGridNetwork(
       walk(gx, gz, W);
     }
   }
-  return { nodes, edges };
+
+  // --- Smooth the graph: a 45-degree street rasterizes to a staircase of
+  // bend "nodes"; contract every degree-2 node into its neighbours' polyline,
+  // then RDP-simplify. Staircases collapse to true diagonals (deviation is
+  // under a half-cell), real 90-degree corners survive (their corner vertex
+  // deviates by half the block length). Hills' switchback chains become
+  // smooth curves. ---
+  const degree = new Map<number, number>();
+  for (const e of edges) {
+    degree.set(e.a, (degree.get(e.a) ?? 0) + 1);
+    degree.set(e.b, (degree.get(e.b) ?? 0) + 1);
+  }
+  let merged = true;
+  let live: (RawEdge | null)[] = [...edges];
+  while (merged) {
+    merged = false;
+    const byNode = new Map<number, number[]>();
+    live.forEach((e, i) => {
+      if (!e) return;
+      for (const n of [e.a, e.b]) {
+        const arr = byNode.get(n) ?? [];
+        arr.push(i);
+        byNode.set(n, arr);
+      }
+    });
+    for (const [n, idxs] of byNode) {
+      if (degree.get(n) !== 2 || idxs.length !== 2) continue;
+      const i1 = idxs[0];
+      const i2 = idxs[1];
+      if (i1 === undefined || i2 === undefined || i1 === i2) continue;
+      const e1 = live[i1];
+      const e2 = live[i2];
+      if (!e1 || !e2 || e1.a === e1.b || e2.a === e2.b) continue;
+      // Orient e1 to END at n and e2 to START at n, then splice.
+      const p1 = e1.b === n ? e1.p : reversePts(e1.p);
+      const a = e1.b === n ? e1.a : e1.b;
+      const p2 = e2.a === n ? e2.p : reversePts(e2.p);
+      const b = e2.a === n ? e2.b : e2.a;
+      if (a === b) continue; // keep loops as two edges
+      live[i1] = { a, b, w: Math.max(e1.w, e2.w), p: [...p1, ...p2.slice(2)] };
+      live[i2] = null;
+      merged = true;
+    }
+    if (merged) live = live.filter((e) => e !== null);
+  }
+  // Fuse junction clusters: two junction cells side by side leave a 1-cell
+  // edge whose sweep is fully consumed by trims — both patches then flood the
+  // area into an asphalt lake with stranded kerb islands. Contract the short
+  // edge and merge the nodes at its midpoint.
+  const pLen = (p: readonly number[]): number => {
+    let L = 0;
+    for (let i = 2; i < p.length; i += 2) {
+      L += Math.hypot((p[i] ?? 0) - (p[i - 2] ?? 0), (p[i + 1] ?? 0) - (p[i - 1] ?? 0));
+    }
+    return L;
+  };
+  let contracted = true;
+  while (contracted) {
+    contracted = false;
+    for (let i = 0; i < live.length; i++) {
+      const e = live[i];
+      if (!e || e.a === e.b) continue;
+      if (pLen(e.p) >= ROAD_TILE * 1.45) continue;
+      const keep = e.a;
+      const drop = e.b;
+      const ka = nodes[keep];
+      const kb = nodes[drop];
+      if (!ka || !kb) continue;
+      nodes[keep] = [(ka[0] + kb[0]) / 2, (ka[1] + kb[1]) / 2];
+      for (let j = 0; j < live.length; j++) {
+        const f = live[j];
+        if (!f) continue;
+        if (f.a === drop || f.b === drop) {
+          live[j] = { ...f, a: f.a === drop ? keep : f.a, b: f.b === drop ? keep : f.b };
+        }
+      }
+      live[i] = null;
+      contracted = true;
+    }
+    if (contracted) live = live.filter((e) => e !== null);
+  }
+  // Snap every polyline end to its (possibly moved) node, drop self-loops
+  // shorter than a block, then simplify.
+  const out: RawEdge[] = [];
+  for (const e of live) {
+    if (!e) continue;
+    if (e.a === e.b && pLen(e.p) < 45) continue;
+    const na = nodes[e.a];
+    const nb = nodes[e.b];
+    if (!na || !nb) continue;
+    const p = [...e.p];
+    p[0] = na[0];
+    p[1] = na[1];
+    p[p.length - 2] = nb[0];
+    p[p.length - 1] = nb[1];
+    out.push({ ...e, p: rdp(p, ROAD_TILE * 0.36) });
+  }
+  return { nodes, edges: out };
+}
+
+function reversePts(p: readonly number[]): number[] {
+  const out: number[] = [];
+  for (let i = p.length - 2; i >= 0; i -= 2) out.push(p[i] ?? 0, p[i + 1] ?? 0);
+  return out;
+}
+
+// Ramer–Douglas–Peucker over a flat [x,z,...] polyline.
+function rdp(p: readonly number[], eps: number): number[] {
+  const n = p.length / 2;
+  if (n <= 2) return [...p];
+  const x0 = p[0] ?? 0;
+  const z0 = p[1] ?? 0;
+  const x1 = p[(n - 1) * 2] ?? 0;
+  const z1 = p[(n - 1) * 2 + 1] ?? 0;
+  const dx = x1 - x0;
+  const dz = z1 - z0;
+  const len = Math.hypot(dx, dz) || 1;
+  let maxD = -1;
+  let maxI = 1;
+  for (let i = 1; i + 1 < n; i++) {
+    const d = Math.abs(((p[i * 2] ?? 0) - x0) * dz - ((p[i * 2 + 1] ?? 0) - z0) * dx) / len;
+    if (d > maxD) {
+      maxD = d;
+      maxI = i;
+    }
+  }
+  if (maxD <= eps) return [x0, z0, x1, z1];
+  const l = rdp(p.slice(0, maxI * 2 + 2), eps);
+  const r = rdp(p.slice(maxI * 2), eps);
+  return [...l.slice(0, -2), ...r];
 }

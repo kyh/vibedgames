@@ -32,6 +32,7 @@ import { buildGoldenGate } from "./golden-gate";
 import { RoadNetwork } from "./network";
 import { type CityPlan, generateCity } from "./grid";
 import { buildGridNetwork } from "./grid-network";
+import { buildRoads } from "./roads";
 import { buildLandmarks, landmarkProtection } from "./landmarks";
 import { type DistrictChar, districtAt, makeTerrain, paletteFor, tintAmountFor } from "./sf-map";
 import type { Terrain } from "./terrain";
@@ -241,6 +242,11 @@ export class CityModel {
       for (let gz = 0; gz < GRID_Z; gz++) {
         if (this.plan.roads[gx]?.[gz]) this.roadCells.push({ gx, gz });
       }
+    }
+
+    for (const mesh of buildRoads(this.network, this.terrain)) {
+      mesh.userData.merge = true; // road ribbons are unique conformed buffers
+      staticMeshes.push(mesh);
     }
 
     // --- Landmark footprints: cells the procedural city leaves alone ---

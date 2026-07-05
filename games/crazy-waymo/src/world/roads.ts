@@ -118,24 +118,81 @@ function stripGeo(rail: Rail, off0: number, off1: number): THREE.BufferGeometry 
   return geo;
 }
 
-// Junction disc (flat n-gon fan).
-function discGeo(x: number, z: number, r: number, segs = 14): THREE.BufferGeometry {
-  const pos: number[] = [];
-  const uv: number[] = [];
-  for (let i = 0; i < segs; i++) {
-    const a0 = (i / segs) * Math.PI * 2;
-    const a1 = ((i + 1) / segs) * Math.PI * 2;
-    // CCW from above (+Y): centre, then a1 before a0.
-    pos.push(x, 0, z, x + Math.cos(a1) * r, 0, z + Math.sin(a1) * r, x + Math.cos(a0) * r, 0, z + Math.sin(a0) * r);
-    uv.push(0.5, 0.5, 0, 0, 1, 1);
-  }
+function flatGeo(pos: number[]): THREE.BufferGeometry {
   const geo = new THREE.BufferGeometry();
   const nor = new Float32Array(pos.length);
   for (let i = 1; i < nor.length; i += 3) nor[i] = 1;
+  const uv = new Float32Array((pos.length / 3) * 2);
   geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pos), 3));
   geo.setAttribute("normal", new THREE.BufferAttribute(nor, 3));
-  geo.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(uv), 2));
+  geo.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
   return geo;
+}
+
+// Fan triangulation of a boundary polyline around a centre (CCW from above).
+function fanGeo(cx: number, cz: number, boundary: number[]): THREE.BufferGeometry {
+  const pos: number[] = [];
+  const m = boundary.length / 2;
+  for (let i = 0; i < m; i++) {
+    const j = (i + 1) % m;
+    const ax = boundary[i * 2] ?? 0;
+    const az = boundary[i * 2 + 1] ?? 0;
+    const bx = boundary[j * 2] ?? 0;
+    const bz = boundary[j * 2 + 1] ?? 0;
+    // Winding for +Y: centre, b, a (boundary runs CCW).
+    pos.push(cx, 0, cz, bx, 0, bz, ax, 0, az);
+  }
+  return flatGeo(pos);
+}
+
+// Strip along a polyline, extruded AWAY from an anchor point by `w`.
+function bandGeo(ax0: number, az0: number, line: [number, number][], w: number): THREE.BufferGeometry {
+  const pos: number[] = [];
+  const outer: [number, number][] = line.map(([x, z]) => {
+    const dx = x - ax0;
+    const dz = z - az0;
+    const d = Math.hypot(dx, dz) || 1;
+    return [x + (dx / d) * w, z + (dz / d) * w];
+  });
+  for (let i = 0; i + 1 < line.length; i++) {
+    const a = line[i];
+    const b = line[i + 1];
+    const oa = outer[i];
+    const ob = outer[i + 1];
+    if (!a || !b || !oa || !ob) continue;
+    pos.push(a[0], 0, a[1], b[0], 0, b[1], ob[0], 0, ob[1]);
+    pos.push(a[0], 0, a[1], ob[0], 0, ob[1], oa[0], 0, oa[1]);
+  }
+  return flatGeo(pos);
+}
+
+// Dead-end cap: half-disc past the trim point (optionally grown by `extra`).
+function capGeo(arm: { tx: number; tz: number; half: number; px: number; pz: number }, extra: number): THREE.BufferGeometry {
+  const r = arm.half + extra;
+  const base = Math.atan2(arm.tx, -arm.tz); // start on the "-" kerb side
+  const pos: number[] = [];
+  const SEGS = 10;
+  for (let i = 0; i < SEGS; i++) {
+    const a0 = base + (i / SEGS) * Math.PI;
+    const a1 = base + ((i + 1) / SEGS) * Math.PI;
+    pos.push(
+      arm.px, 0, arm.pz,
+      arm.px + Math.cos(a1) * r, 0, arm.pz + Math.sin(a1) * r,
+      arm.px + Math.cos(a0) * r, 0, arm.pz + Math.sin(a0) * r,
+    );
+  }
+  return flatGeo(pos);
+}
+
+// Intersection of two rays (p + t*d); null when near-parallel.
+function lineIntersect(
+  ax: number, az: number, adx: number, adz: number,
+  bx: number, bz: number, bdx: number, bdz: number,
+): [number, number] | null {
+  const den = adx * bdz - adz * bdx;
+  if (Math.abs(den) < 1e-4) return null;
+  const t = ((bx - ax) * bdz - (bz - az) * bdx) / den;
+  return [ax + adx * t, az + adz * t];
 }
 
 export function buildRoads(network: RoadNetwork, terrain: Terrain): THREE.Mesh[] {
@@ -150,29 +207,20 @@ export function buildRoads(network: RoadNetwork, terrain: Terrain): THREE.Mesh[]
 
     // Asphalt ribbon.
     parts.push({ geo: stripGeo(rail, -h, h), mat: MAT_ASPHALT, lift: ASPHALT_LIFT });
-    // Sidewalks, curbs and edge lines pull further back from junctions —
-    // at shallow-angle crossings their strips would otherwise slice across
-    // the neighbour edge's asphalt. Overlapping asphalt is invisible;
-    // overlapping kerbs are not.
-    const walk = railFor(edge, trimA + 3, edge.len - trimB - 3);
-    const arterial = h >= 5; // residential streets: kerbs yes, painted lines no
-    if (walk) {
-      parts.push({ geo: stripGeo(walk, h, h + SIDEWALK_W), mat: MAT_SIDEWALK, lift: SIDEWALK_LIFT });
-      parts.push({ geo: stripGeo(walk, -h - SIDEWALK_W, -h), mat: MAT_SIDEWALK, lift: SIDEWALK_LIFT });
-      parts.push({ geo: stripGeo(walk, h - CURB_W, h), mat: MAT_CURB, lift: SIDEWALK_LIFT - 0.02 });
-      parts.push({ geo: stripGeo(walk, -h, -h + CURB_W), mat: MAT_CURB, lift: SIDEWALK_LIFT - 0.02 });
-      if (arterial) {
-        const eo = h - EDGE_INSET;
-        parts.push({ geo: stripGeo(walk, eo - LINE_W / 2, eo + LINE_W / 2), mat: MAT_WHITE, lift: LINE_LIFT });
-        parts.push({ geo: stripGeo(walk, -eo - LINE_W / 2, -eo + LINE_W / 2), mat: MAT_WHITE, lift: LINE_LIFT });
-      }
-    }
+    // Sidewalks + kerb tops both sides; junction patches close the corners.
+    parts.push({ geo: stripGeo(rail, h, h + SIDEWALK_W), mat: MAT_SIDEWALK, lift: SIDEWALK_LIFT });
+    parts.push({ geo: stripGeo(rail, -h - SIDEWALK_W, -h), mat: MAT_SIDEWALK, lift: SIDEWALK_LIFT });
+    parts.push({ geo: stripGeo(rail, h - CURB_W, h), mat: MAT_CURB, lift: SIDEWALK_LIFT - 0.02 });
+    parts.push({ geo: stripGeo(rail, -h, -h + CURB_W), mat: MAT_CURB, lift: SIDEWALK_LIFT - 0.02 });
+    const eo = h - EDGE_INSET;
+    parts.push({ geo: stripGeo(rail, eo - LINE_W / 2, eo + LINE_W / 2), mat: MAT_WHITE, lift: LINE_LIFT });
+    parts.push({ geo: stripGeo(rail, -eo - LINE_W / 2, -eo + LINE_W / 2), mat: MAT_WHITE, lift: LINE_LIFT });
 
     // Yellow centre dashes by arclength along the trimmed section. Sliver
     // sections between near-coincident junctions get no markings at all —
     // stray dashes inside overlapping discs read as debris.
     const secLen = edge.len - trimA - trimB;
-    if (secLen < 12 || !arterial) continue;
+    if (secLen < 12) continue;
     for (let s = 0; s < secLen; s += DASH_LEN + DASH_GAP) {
       const e = Math.min(s + DASH_LEN, secLen);
       if (e - s < 0.6) continue;
@@ -184,13 +232,125 @@ export function buildRoads(network: RoadNetwork, terrain: Terrain): THREE.Mesh[]
   }
 
   // Junction discs — sized to the widest incident edge; strips butt into them.
+  // Junction patches — real intersection geometry. For every node, take each
+  // incident edge at its trim point ("arm"), sort arms by angle, and close the
+  // asphalt polygon with kerb-corner points where adjacent arms' kerb lines
+  // intersect. Sidewalk bands wrap the corners so the kerb line is continuous
+  // from street to street — corners belong to the streets that meet there.
   for (let n = 0; n < network.nodes.length; n++) {
     const ids = network.nodeEdges[n];
     if (!ids || ids.length === 0) continue;
     const node = network.nodes[n];
     if (!node) continue;
-    const r = network.nodeTrim(n) + 0.2;
-    parts.push({ geo: discGeo(node[0], node[1], r), mat: MAT_ASPHALT, lift: ASPHALT_LIFT });
+    const nx = node[0];
+    const nz = node[1];
+
+    type Arm = {
+      angle: number;
+      tx: number; // outward tangent (away from the node)
+      tz: number;
+      half: number;
+      px: number; // centreline trim point
+      pz: number;
+    };
+    const arms: Arm[] = [];
+    for (const id of ids) {
+      const edge = network.edges[id];
+      if (!edge) continue;
+      const ends: ("a" | "b")[] = [];
+      if (edge.a === n) ends.push("a");
+      if (edge.b === n) ends.push("b");
+      for (const end of ends) {
+        const trim = Math.min(network.nodeTrim(n), edge.len * 0.45);
+        const s0 = end === "a" ? trim : edge.len - trim;
+        const smp = network.sample(edge, s0);
+        const sign = end === "a" ? 1 : -1;
+        const tx = smp.tx * sign;
+        const tz = smp.tz * sign;
+        arms.push({ angle: Math.atan2(tz, tx), tx, tz, half: edge.half, px: smp.x, pz: smp.z });
+      }
+    }
+    if (arms.length === 0) continue;
+    arms.sort((u, v) => u.angle - v.angle);
+
+    if (arms.length === 1) {
+      // Dead end: half-disc cap beyond the trim point.
+      const a = arms[0];
+      if (a) {
+        parts.push({ geo: capGeo(a, SIDEWALK_W), mat: MAT_SIDEWALK, lift: SIDEWALK_LIFT });
+        parts.push({ geo: capGeo(a, 0), mat: MAT_ASPHALT, lift: ASPHALT_LIFT });
+      }
+      continue;
+    }
+
+    // Kerb endpoints per arm: "+" is the counter-clockwise side.
+    const plus = (a: Arm): readonly [number, number] => [a.px - a.tz * a.half, a.pz + a.tx * a.half];
+    const minus = (a: Arm): readonly [number, number] => [a.px + a.tz * a.half, a.pz - a.tx * a.half];
+
+    const poly: number[] = [];
+    const walkBands: [number, number][][] = [];
+    for (let i = 0; i < arms.length; i++) {
+      const a = arms[i];
+      const b = arms[(i + 1) % arms.length];
+      if (!a || !b) continue;
+      const [amx, amz] = minus(a);
+      const [apx, apz] = plus(a);
+      poly.push(amx, amz, apx, apz);
+      // Corner between arm a (its + kerb) and arm b (its - kerb): intersect
+      // the two kerb lines running INWARD (toward the node).
+      const [bmx, bmz] = minus(b);
+      const corner = lineIntersect(apx, apz, -a.tx, -a.tz, bmx, bmz, -b.tx, -b.tz);
+      const band: [number, number][] = [[apx, apz]];
+      if (corner) {
+        const cd = Math.hypot(corner[0] - nx, corner[1] - nz);
+        const lim = network.nodeTrim(n) * 1.8;
+        if (cd < lim) {
+          poly.push(corner[0], corner[1]);
+          band.push([corner[0], corner[1]]);
+        }
+      }
+      band.push([bmx, bmz]);
+      walkBands.push(band);
+    }
+    // Asphalt polygon as a fan from the node centre.
+    parts.push({ geo: fanGeo(nx, nz, poly), mat: MAT_ASPHALT, lift: ASPHALT_LIFT });
+    // Crosswalk stripes across each arm of a real junction (3+ streets).
+    if (arms.length >= 3) {
+      for (const a of arms) {
+        const stripes: number[] = [];
+        const inner = 0.7; // start just outside the junction polygon
+        const outer = 2.5;
+        const usable = a.half - 0.9;
+        const count = Math.max(3, Math.floor(usable / 0.85));
+        for (let k = 0; k < count; k++) {
+          const lat = -usable + (k / (count - 1)) * 2 * usable;
+          const w = 0.42;
+          for (const [d0, d1] of [[inner, outer]] as const) {
+            const cx0 = a.px + a.tx * d0;
+            const cz0 = a.pz + a.tz * d0;
+            const cx1 = a.px + a.tx * d1;
+            const cz1 = a.pz + a.tz * d1;
+            const ox = -a.tz;
+            const oz = a.tx;
+            stripes.push(
+              cx0 + ox * (lat - w), 0, cz0 + oz * (lat - w),
+              cx1 + ox * (lat - w), 0, cz1 + oz * (lat - w),
+              cx1 + ox * (lat + w), 0, cz1 + oz * (lat + w),
+              cx0 + ox * (lat - w), 0, cz0 + oz * (lat - w),
+              cx1 + ox * (lat + w), 0, cz1 + oz * (lat + w),
+              cx0 + ox * (lat + w), 0, cz0 + oz * (lat + w),
+            );
+          }
+        }
+        parts.push({ geo: flatGeo(stripes), mat: MAT_WHITE, lift: LINE_LIFT });
+      }
+    }
+    // Sidewalk corner bands: each band polyline pushed outward from the node.
+    for (const band of walkBands) {
+      if (band.length < 2) continue;
+      parts.push({ geo: bandGeo(nx, nz, band, SIDEWALK_W), mat: MAT_SIDEWALK, lift: SIDEWALK_LIFT });
+      parts.push({ geo: bandGeo(nx, nz, band, CURB_W), mat: MAT_CURB, lift: SIDEWALK_LIFT - 0.02 });
+    }
   }
 
   // Conform every part to the terrain; caller merges by material into chunks.
