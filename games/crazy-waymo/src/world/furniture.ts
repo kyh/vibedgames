@@ -297,7 +297,7 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
   const LAMP_SPACING = ROAD_TILE * 3.5;
   let lampFlip = false;
   for (const edge of network.edges) {
-    if (edge.half >= 6.4) continue; // freeways: no kerbside lamps
+    if (edge.half < 5.2) continue; // arterials only — residential stays dark-sky
     const trimA = network.nodeTrim(edge.a) + 2;
     const trimB = network.nodeTrim(edge.b) + 2;
     for (let s = trimA + LAMP_SPACING * 0.5; s < edge.len - trimB; s += LAMP_SPACING) {

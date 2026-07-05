@@ -52,12 +52,17 @@ const onLandXZ = (x, z) => onLandUV(x / WORLD_W + 0.5, z / WORLD_H + 0.5);
 // Road classes → asphalt HALF width (world units). Wider majors read as real
 // boulevards; tertiary matches the old uniform profile (ASPHALT_W/2 = 5.2).
 // Freeways (motorway/trunk + ramps) are multi-level structures we would
-// render flat — pure spaghetti. The street game lives on primary→tertiary.
+// render flat — pure spaghetti. Everything else is in: SF's identity IS the
+// fine residential grid (Sunset/Richmond/Mission blocks).
 const CLASS_HALF = {
   primary: 6.0, primary_link: 5.2,
   secondary: 5.6, secondary_link: 5.2,
   tertiary: 5.2, tertiary_link: 5.2,
+  residential: 4.0, unclassified: 4.0, living_street: 3.6,
 };
+// Only divided arterials get twin-merged — the residential grid has genuine
+// close parallels that must never be eaten.
+const MERGE_MIN_HALF = 5.6;
 
 // --- Load + project (majors only: the arterial network IS the game map) ---
 const raw = JSON.parse(readFileSync(new URL("./sf-streets.raw.json", import.meta.url)));
@@ -263,6 +268,7 @@ function mergeParallelPass() {
   const order = edges.map((_, i) => i).sort((a, b) => lens[a] - lens[b]); // shortest first
   for (const bi of order) {
     const B = edges[bi];
+    if (B.half < MERGE_MIN_HALF) continue; // arterial carriageways only
     if (lens[bi] < 20) continue; // junction connectors are never "twins"
     const samples = samplesOf(B, 8);
     // Local tangent per sample (for the parallel check).
@@ -277,7 +283,7 @@ function mergeParallelPass() {
     const cand = new Set();
     for (const [x, z] of samples) {
       for (const id of buckets.get(Math.floor(x / CELL) + "," + Math.floor(z / CELL)) ?? []) {
-        if (id !== bi && !removed.has(id) && lens[id] >= lens[bi]) cand.add(id);
+        if (id !== bi && !removed.has(id) && lens[id] >= lens[bi] && edges[id].half >= MERGE_MIN_HALF) cand.add(id);
       }
     }
     for (const ai of cand) {
@@ -314,7 +320,7 @@ function mergeParallelPass() {
 // Junction clustering: contract edges too short to render — they draw as
 // floating road slivers; fusing the node cluster makes one junction.
 function clusterJunctionsPass() {
-  const CONTRACT_LEN = 18;
+  const CONTRACT_LEN = 12; // < shortest real block; twin connectors are 3-11u
   const eLen = (e) => {
     let L = 0;
     for (let i = 1; i < e.pts.length; i++) L += Math.hypot(e.pts[i][0] - e.pts[i-1][0], e.pts[i][1] - e.pts[i-1][1]);
@@ -525,7 +531,7 @@ console.log(`post-thin components: ${post.length}, top: ${post.slice(0, 5).join(
 let roadCells = 0;
 for (const v of grid) roadCells += v;
 console.log(`mask road cells: ${roadCells}`);
-if (roadCells < 3000 || roadCells > 12000) throw new Error("mask cell count out of range");
+if (roadCells < 3000 || roadCells > 26000) throw new Error("mask cell count out of range");
 
 // --- Emit sf-streets.ts (same format as before — drop-in) ---
 const cols = [];

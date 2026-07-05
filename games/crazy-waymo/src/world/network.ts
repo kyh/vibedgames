@@ -116,7 +116,7 @@ export class RoadNetwork {
       const e = this.edges[id];
       if (e) m = Math.max(m, e.half);
     }
-    return m * 1.35;
+    return m * 1.15;
   }
 
   // Nearest point on the network within maxDist (via the segment hash).

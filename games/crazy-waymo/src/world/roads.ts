@@ -155,21 +155,24 @@ export function buildRoads(network: RoadNetwork, terrain: Terrain): THREE.Mesh[]
     // the neighbour edge's asphalt. Overlapping asphalt is invisible;
     // overlapping kerbs are not.
     const walk = railFor(edge, trimA + 3, edge.len - trimB - 3);
+    const arterial = h >= 5; // residential streets: kerbs yes, painted lines no
     if (walk) {
       parts.push({ geo: stripGeo(walk, h, h + SIDEWALK_W), mat: MAT_SIDEWALK, lift: SIDEWALK_LIFT });
       parts.push({ geo: stripGeo(walk, -h - SIDEWALK_W, -h), mat: MAT_SIDEWALK, lift: SIDEWALK_LIFT });
       parts.push({ geo: stripGeo(walk, h - CURB_W, h), mat: MAT_CURB, lift: SIDEWALK_LIFT - 0.02 });
       parts.push({ geo: stripGeo(walk, -h, -h + CURB_W), mat: MAT_CURB, lift: SIDEWALK_LIFT - 0.02 });
-      const eo = h - EDGE_INSET;
-      parts.push({ geo: stripGeo(walk, eo - LINE_W / 2, eo + LINE_W / 2), mat: MAT_WHITE, lift: LINE_LIFT });
-      parts.push({ geo: stripGeo(walk, -eo - LINE_W / 2, -eo + LINE_W / 2), mat: MAT_WHITE, lift: LINE_LIFT });
+      if (arterial) {
+        const eo = h - EDGE_INSET;
+        parts.push({ geo: stripGeo(walk, eo - LINE_W / 2, eo + LINE_W / 2), mat: MAT_WHITE, lift: LINE_LIFT });
+        parts.push({ geo: stripGeo(walk, -eo - LINE_W / 2, -eo + LINE_W / 2), mat: MAT_WHITE, lift: LINE_LIFT });
+      }
     }
 
     // Yellow centre dashes by arclength along the trimmed section. Sliver
     // sections between near-coincident junctions get no markings at all —
     // stray dashes inside overlapping discs read as debris.
     const secLen = edge.len - trimA - trimB;
-    if (secLen < 12) continue;
+    if (secLen < 12 || !arterial) continue;
     for (let s = 0; s < secLen; s += DASH_LEN + DASH_GAP) {
       const e = Math.min(s + DASH_LEN, secLen);
       if (e - s < 0.6) continue;
@@ -186,7 +189,7 @@ export function buildRoads(network: RoadNetwork, terrain: Terrain): THREE.Mesh[]
     if (!ids || ids.length === 0) continue;
     const node = network.nodes[n];
     if (!node) continue;
-    const r = network.nodeTrim(n) + 0.4;
+    const r = network.nodeTrim(n) + 0.2;
     parts.push({ geo: discGeo(node[0], node[1], r), mat: MAT_ASPHALT, lift: ASPHALT_LIFT });
   }
 
