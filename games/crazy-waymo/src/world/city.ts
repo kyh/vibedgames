@@ -472,82 +472,35 @@ export class CityModel {
       }
     }
 
-    // --- FRONTAGE ROWS along the network edges: buildings walk each street
-    // with a consistent setback, facing the kerb — rows follow diagonals and
-    // curves exactly, which cell-based lots never could. ---
-    for (const edge of this.network.edges) {
-      // Corner buildings are real — the cross-street clearance check below
-      // is the guard, so row trims stay small even at wide junctions.
-      const trimA = Math.min(this.network.nodeTrim(edge.a) * 0.6 + 1.5, edge.len * 0.4);
-      const trimB = Math.min(this.network.nodeTrim(edge.b) * 0.6 + 1.5, edge.len * 0.4);
-      if (edge.len - trimA - trimB < 5) continue;
-      for (const side of [1, -1] as const) {
-        let s = trimA + this.rng.range(0, 4);
-        while (s < edge.len - trimB) {
-          const smp = this.network.sample(edge, s);
-          const gx = this.gridX(smp.x);
-          const gz = this.gridZ(smp.z);
-          const district = districtAt(gx, gz);
-          const dense =
-            district.character === "residential" || district.character === "victorian";
-          const frac =
-            district.character === "downtown" || district.character === "highrise"
-              ? this.rng.range(0.7, 0.82)
-              : dense
-                ? this.rng.range(0.46, 0.56) // row-houses, shoulder to shoulder
-                : this.rng.range(0.58, 0.7);
-          const footprint = ROAD_TILE * frac;
-          const step = footprint + (dense ? this.rng.range(0.2, 0.9) : this.rng.range(0.6, 1.8));
-          const off = edge.half + 1.7 + footprint / 2 + 0.7;
-          const px = smp.x - smp.tz * off * side;
-          const pz = smp.z + smp.tx * off * side;
-          s += step;
-          if (district.character === "park") continue;
-          if (inRealData(px, pz)) continue;
-          if (!isLandCell(this.gridX(px), this.gridZ(pz))) continue;
-          if (lm.reserved.has(`${this.gridX(px)},${this.gridZ(pz)}`)) continue;
-          if (occupied(px, pz, footprint * 0.52)) continue;
-          // Clearance vs OTHER streets (corners, parallel edges).
-          const near = this.network.nearest(px, pz, ROAD_TILE * 1.6);
-          if (near && near.dist < near.edge.half + footprint / 2 - 0.4) continue;
-          if (this.rng.chance(0.04)) continue; // rare vacancy
-          const yaw = Math.atan2(smp.tx * side, smp.tz * side) + HALF_PI_CITY;
-          const cardinal = Math.abs(Math.sin(2 * yaw)) < 0.18;
-          placeBuilding(gx, gz, 0, frac, cardinal, { x: px, z: pz, yaw });
-          // Back row: real SF blocks are packed two-deep, no green gap.
-          if (this.rng.chance(0.8)) {
-            const off2 = off + footprint + this.rng.range(0.8, 1.8);
-            const bx2 = smp.x - smp.tz * off2 * side;
-            const bz2 = smp.z + smp.tx * off2 * side;
-            if (
-              !inRealData(bx2, bz2) &&
-              isLandCell(this.gridX(bx2), this.gridZ(bz2)) &&
-              districtAt(this.gridX(bx2), this.gridZ(bz2)).character !== "park" &&
-              !occupied(bx2, bz2, footprint * 0.52)
-            ) {
-              const near2 = this.network.nearest(bx2, bz2, ROAD_TILE * 1.6);
-              if (!near2 || near2.dist >= near2.edge.half + footprint / 2 - 0.4) {
-                placeBuilding(gx, gz, 0, frac * 0.94, false, { x: bx2, z: bz2, yaw });
-              }
-            }
-          }
-        }
-      }
-    }
-
     // --- REAL downtown buildings: positions, footprints and heights from the
     // licensed SF model (calibrated in tools/sf-data/calibrate-downtown.mjs).
     // Kit models are chosen by height class and stretched to the real
     // footprint — the actual skyline at the actual addresses. ---
     {
       let placed = 0;
-      for (const [bx, bz, bw, bd, bh] of SF_BUILDINGS) {
-        if (placed >= 1500) break;
-        if (bh < 3.5 || bw < 2.2 || bd < 2.2) continue;
+      for (const [bx0, bz0, bw, bd, bh] of SF_BUILDINGS) {
+        if (placed >= 2600) break;
+        if (bh < 1.2 || bw < 2.2 || bd < 2.2) continue;
+        let bx = bx0;
+        let bz = bz0;
         if (!isLandCell(this.gridX(bx), this.gridZ(bz))) continue;
-        // Clearance vs the street network (same rule as procedural lots).
+        // Real parcels abut real streets; ours are ~2x wide, so NUDGE the
+        // building outward instead of rejecting it.
         const nearHit = this.network.nearest(bx, bz, ROAD_TILE * 1.6);
-        if (nearHit && nearHit.dist < nearHit.edge.half + Math.min(bw, bd) / 2 - 0.6) continue;
+        if (nearHit) {
+          const want = nearHit.edge.half + Math.min(bw, bd) / 2 + 0.4;
+          if (nearHit.dist < want) {
+            const push = Math.min(want - nearHit.dist, 7);
+            const dx = bx - nearHit.x;
+            const dz = bz - nearHit.z;
+            const dl = Math.hypot(dx, dz) || 1;
+            bx += (dx / dl) * push;
+            bz += (dz / dl) * push;
+            const re = this.network.nearest(bx, bz, ROAD_TILE * 1.6);
+            if (re && re.dist < re.edge.half + Math.min(bw, bd) / 2 - 0.6) continue;
+          }
+        }
+        if (occupied(bx, bz, Math.max(bw, bd) * 0.45)) continue;
         const pool = bh > 28 ? BUILDINGS_SKYSCRAPER : bh > 9 ? BUILDINGS_COMMERCIAL : BUILDINGS_SUBURBAN;
         const key = this.rng.pick(pool);
         const url = modelUrl("buildings", key);
@@ -582,6 +535,67 @@ export class CityModel {
         placed++;
       }
       console.log(`[city] real downtown buildings placed: ${placed}`);
+    }
+
+    // --- FRONTAGE ROWS along the network edges: buildings walk each street
+    // with a consistent setback, facing the kerb — rows follow diagonals and
+    // curves exactly, which cell-based lots never could. ---
+    for (const edge of this.network.edges) {
+      // Corner buildings are real — the cross-street clearance check below
+      // is the guard, so row trims stay small even at wide junctions.
+      const trimA = Math.min(this.network.nodeTrim(edge.a) * 0.6 + 1.5, edge.len * 0.4);
+      const trimB = Math.min(this.network.nodeTrim(edge.b) * 0.6 + 1.5, edge.len * 0.4);
+      if (edge.len - trimA - trimB < 5) continue;
+      for (const side of [1, -1] as const) {
+        let s = trimA + this.rng.range(0, 4);
+        while (s < edge.len - trimB) {
+          const smp = this.network.sample(edge, s);
+          const gx = this.gridX(smp.x);
+          const gz = this.gridZ(smp.z);
+          const district = districtAt(gx, gz);
+          const dense =
+            district.character === "residential" || district.character === "victorian";
+          const frac =
+            district.character === "downtown" || district.character === "highrise"
+              ? this.rng.range(0.7, 0.82)
+              : dense
+                ? this.rng.range(0.46, 0.56) // row-houses, shoulder to shoulder
+                : this.rng.range(0.58, 0.7);
+          const footprint = ROAD_TILE * frac;
+          const step = footprint + (dense ? this.rng.range(0.2, 0.9) : this.rng.range(0.6, 1.8));
+          const off = edge.half + 1.7 + footprint / 2 + 0.7;
+          const px = smp.x - smp.tz * off * side;
+          const pz = smp.z + smp.tx * off * side;
+          s += step;
+          if (district.character === "park") continue;
+          if (!isLandCell(this.gridX(px), this.gridZ(pz))) continue;
+          if (lm.reserved.has(`${this.gridX(px)},${this.gridZ(pz)}`)) continue;
+          if (occupied(px, pz, footprint * 0.52)) continue;
+          // Clearance vs OTHER streets (corners, parallel edges).
+          const near = this.network.nearest(px, pz, ROAD_TILE * 1.6);
+          if (near && near.dist < near.edge.half + footprint / 2 - 0.4) continue;
+          if (this.rng.chance(0.04)) continue; // rare vacancy
+          const yaw = Math.atan2(smp.tx * side, smp.tz * side) + HALF_PI_CITY;
+          const cardinal = Math.abs(Math.sin(2 * yaw)) < 0.18;
+          placeBuilding(gx, gz, 0, frac, cardinal, { x: px, z: pz, yaw });
+          // Back row: real SF blocks are packed two-deep, no green gap.
+          if (this.rng.chance(0.8)) {
+            const off2 = off + footprint + this.rng.range(0.8, 1.8);
+            const bx2 = smp.x - smp.tz * off2 * side;
+            const bz2 = smp.z + smp.tx * off2 * side;
+            if (
+              isLandCell(this.gridX(bx2), this.gridZ(bz2)) &&
+              districtAt(this.gridX(bx2), this.gridZ(bz2)).character !== "park" &&
+              !occupied(bx2, bz2, footprint * 0.52)
+            ) {
+              const near2 = this.network.nearest(bx2, bz2, ROAD_TILE * 1.6);
+              if (!near2 || near2.dist >= near2.edge.half + footprint / 2 - 0.4) {
+                placeBuilding(gx, gz, 0, frac * 0.94, false, { x: bx2, z: bz2, yaw });
+              }
+            }
+          }
+        }
+      }
     }
 
     // --- Green block interiors: real SF blocks are packed back-to-back, so
