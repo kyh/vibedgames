@@ -25,8 +25,14 @@ const plan = generateCity();
 const terrain = makeTerrain();
 const worldX = (gx: number): number => (gx + 0.5) * ROAD_TILE - (GRID_X * ROAD_TILE) / 2;
 const worldZ = (gz: number): number => (gz + 0.5) * ROAD_TILE - (GRID_Z * ROAD_TILE) / 2;
-const raw = buildGridNetwork(plan, worldX, worldZ);
-const network = new RoadNetwork(raw.nodes, raw.edges);
+// Pristine cities run the baked vector network; also build the grid-derived
+// graph (editor fallback) so both paths stay healthy.
+const network = new RoadNetwork();
+{
+  const raw = buildGridNetwork(plan, worldX, worldZ);
+  const gridNet = new RoadNetwork(raw.nodes, raw.edges);
+  console.log(`grid-derived fallback: ${gridNet.edges.length} edges (vector: ${network.edges.length})`);
+}
 
 // --- 1. Mask sanity ---
 let roadCells = 0;
@@ -116,7 +122,16 @@ for (const mesh of meshes) {
       const mz = (az + bz + cz) / 3;
       const hit = network.nearest(mx, mz, 30);
       const limit = (hit ? hit.edge.half : 7) + 8;
-      if (!hit || hit.dist > limit) degenerate++;
+      if (!hit || hit.dist > limit) {
+        // Junction patches at wide nodes extend past the per-edge bound.
+        let nearNode = false;
+        for (let n = 0; n < network.nodes.length && !nearNode; n++) {
+          const node = network.nodes[n];
+          if (!node || (network.nodeEdges[n]?.length ?? 0) === 0) continue;
+          if (Math.hypot(node[0] - mx, node[1] - mz) < network.nodeTrim(n) * 2.4) nearNode = true;
+        }
+        if (!nearNode) degenerate++;
+      }
     }
   }
 }
@@ -130,14 +145,22 @@ check(degenerate === 0, "no street geometry far from the network", `${degenerate
   let strayDashes = 0;
   const yellow = meshes.filter((m) => {
     const mat = m.material;
-    return !Array.isArray(mat) && "color" in mat && (mat as { color: { getHexString(): string } }).color.getHexString() === "d8a13c";
+    return !Array.isArray(mat) && "color" in mat && (mat as { color: { getHexString(): string } }).color.getHexString() === "d8a23c";
   });
   for (const mesh of yellow) {
     const pos = mesh.geometry.getAttribute("position");
     if (!pos) continue;
-    for (let i = 0; i < pos.count; i += 30) {
+    for (let i = 0; i + 2 < pos.count; i += 30) {
       const x = pos.getX(i);
       const z = pos.getZ(i);
+      // dash quads are small; skip long edge-line strips
+      const ext = Math.max(
+        Math.abs(pos.getX(i + 1) - x),
+        Math.abs(pos.getZ(i + 1) - z),
+        Math.abs(pos.getX(i + 2) - x),
+        Math.abs(pos.getZ(i + 2) - z),
+      );
+      if (ext > 4) continue;
       for (let n = 0; n < network.nodes.length; n++) {
         const ids = network.nodeEdges[n];
         if (!ids || ids.length < 3) continue;

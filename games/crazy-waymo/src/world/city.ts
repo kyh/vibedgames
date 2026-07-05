@@ -126,8 +126,22 @@ export class CityModel {
   ) {
     this.terrain = makeTerrain();
     this.plan = generateCity();
-    const gridNet = buildGridNetwork(this.plan, (gx) => this.worldX(gx), (gz) => this.worldZ(gz));
-    this.network = new RoadNetwork(gridNet.nodes, gridNet.edges);
+    // Pristine cities drive the BAKED VECTOR network — exact OSM centrelines,
+    // no raster quantisation, per-class widths, true diagonals and curves.
+    // Cities with painted street edits fall back to the grid-derived graph so
+    // the editor's changes stay real everywhere (sim + render).
+    const local = loadLocalOverrides();
+    const streetEdits =
+      CUSTOM_MAP.add.length > 0 ||
+      CUSTOM_MAP.remove.length > 0 ||
+      local.add.length > 0 ||
+      local.remove.length > 0;
+    if (streetEdits) {
+      const gridNet = buildGridNetwork(this.plan, (gx) => this.worldX(gx), (gz) => this.worldZ(gz));
+      this.network = new RoadNetwork(gridNet.nodes, gridNet.edges);
+    } else {
+      this.network = new RoadNetwork();
+    }
     this.build();
   }
 

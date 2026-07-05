@@ -39,6 +39,13 @@ const MAT_CURB = new THREE.MeshStandardMaterial({ color: 0x8f938c, roughness: 1 
 // Markings are decals: polygon-offset wins the depth test against the
 // asphalt even where the two drapes sample the terrain differently — no
 // physical lift can guarantee that on curved ground.
+const MAT_DASH = new THREE.MeshStandardMaterial({
+  color: 0xd8a23c,
+  roughness: 0.9,
+  polygonOffset: true,
+  polygonOffsetFactor: -2,
+  polygonOffsetUnits: -4,
+});
 const MAT_YELLOW = new THREE.MeshStandardMaterial({
   color: 0xd8a13c,
   roughness: 0.9,
@@ -118,20 +125,33 @@ function railFor(edge: NetEdge, s0: number, s1: number): Rail | null {
   return { pts, normals };
 }
 
+// Miter length cap as a function of the lateral offset: hairpin vertices
+// carry miter scales up to MITER_LIMIT; at pave offsets (~9u) that is a 22u
+// lateral spike. Allow at most 4u of extra lateral reach.
+function miterCap(rail: Rail, i: number, off: number): number {
+  const nx = rail.normals[i * 2] ?? 0;
+  const nz = rail.normals[i * 2 + 1] ?? 0;
+  const nLen = Math.hypot(nx, nz) || 1;
+  const allowed = 1 + 4 / Math.max(Math.abs(off), 0.5);
+  return nLen > allowed ? allowed / nLen : 1;
+}
+
 // Closed ring covering the strip between two lateral offsets of a rail.
 function railRing(rail: Rail, off0: number, off1: number): Ring {
   const m = rail.pts.length / 2;
   const ring: Ring = [];
   for (let i = 0; i < m; i++) {
+    const k = miterCap(rail, i, off1);
     ring.push([
-      snap((rail.pts[i * 2] ?? 0) + (rail.normals[i * 2] ?? 0) * off1),
-      snap((rail.pts[i * 2 + 1] ?? 0) + (rail.normals[i * 2 + 1] ?? 0) * off1),
+      snap((rail.pts[i * 2] ?? 0) + (rail.normals[i * 2] ?? 0) * off1 * k),
+      snap((rail.pts[i * 2 + 1] ?? 0) + (rail.normals[i * 2 + 1] ?? 0) * off1 * k),
     ]);
   }
   for (let i = m - 1; i >= 0; i--) {
+    const k = miterCap(rail, i, off0);
     ring.push([
-      snap((rail.pts[i * 2] ?? 0) + (rail.normals[i * 2] ?? 0) * off0),
-      snap((rail.pts[i * 2 + 1] ?? 0) + (rail.normals[i * 2 + 1] ?? 0) * off0),
+      snap((rail.pts[i * 2] ?? 0) + (rail.normals[i * 2] ?? 0) * off0 * k),
+      snap((rail.pts[i * 2 + 1] ?? 0) + (rail.normals[i * 2 + 1] ?? 0) * off0 * k),
     ]);
   }
   return ring;
@@ -142,10 +162,13 @@ function stripGeo(rail: Rail, off0: number, off1: number): THREE.BufferGeometry 
   const m = rail.pts.length / 2;
   const pos: number[] = [];
   for (let i = 0; i + 1 < m; i++) {
-    const corner = (j: number, off: number): readonly [number, number] => [
-      (rail.pts[j * 2] ?? 0) + (rail.normals[j * 2] ?? 0) * off,
-      (rail.pts[j * 2 + 1] ?? 0) + (rail.normals[j * 2 + 1] ?? 0) * off,
-    ];
+    const corner = (j: number, off: number): readonly [number, number] => {
+      const k = miterCap(rail, j, off);
+      return [
+        (rail.pts[j * 2] ?? 0) + (rail.normals[j * 2] ?? 0) * off * k,
+        (rail.pts[j * 2 + 1] ?? 0) + (rail.normals[j * 2 + 1] ?? 0) * off * k,
+      ];
+    };
     const [ax, az] = corner(i, off0);
     const [bx, bz] = corner(i, off1);
     const [cx, cz] = corner(i + 1, off1);
@@ -422,7 +445,7 @@ export function buildRoads(network: RoadNetwork, terrain: Terrain): THREE.Mesh[]
         for (const d of dashOffsets) {
           markingParts.push({
             geo: stripGeo(dashRail, d.off - LINE_W / 2, d.off + LINE_W / 2),
-            mat: d.mat,
+            mat: d.mat === MAT_YELLOW ? MAT_DASH : d.mat,
             lift: LINE_LIFT,
           });
         }
