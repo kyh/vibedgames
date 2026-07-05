@@ -33,9 +33,10 @@ import { RoadNetwork } from "./network";
 import { type CityPlan, generateCity } from "./grid";
 import { CUSTOM_MAP, type FloorKind, loadLocalOverrides } from "./custom-map";
 import { buildGridNetwork } from "./grid-network";
+import { SF_BUILDINGS, SF_BUILDINGS_BOUNDS } from "./sf-buildings";
 import { buildRoads } from "./roads";
 import { buildLandmarks, landmarkProtection } from "./landmarks";
-import { type DistrictChar, districtAt, makeTerrain, paletteFor, tintAmountFor } from "./sf-map";
+import { type DistrictChar, districtAt, isLandCell, makeTerrain, paletteFor, tintAmountFor } from "./sf-map";
 import type { Terrain } from "./terrain";
 
 export type Solid = {
@@ -417,9 +418,15 @@ export class CityModel {
     };
 
     // --- Buildings (district-driven pool, palette tint, height) ---
+    const inRealData = (x: number, z: number): boolean =>
+      x >= SF_BUILDINGS_BOUNDS.minX &&
+      x <= SF_BUILDINGS_BOUNDS.maxX &&
+      z >= SF_BUILDINGS_BOUNDS.minZ &&
+      z <= SF_BUILDINGS_BOUNDS.maxZ;
     for (const b of this.plan.buildingCells) {
       const cellId = `${b.gx},${b.gz}`;
       if (lm.reserved.has(cellId)) continue; // a landmark stands here
+      if (inRealData(this.worldX(b.gx), this.worldZ(b.gz))) continue; // real data owns downtown
       if (districtAt(b.gx, b.gz).character === "park" || lm.parkGreen.has(cellId)) {
         placeGreen(b.gx, b.gz); // park frontage → green, drivable (no solid)
         continue;
@@ -440,6 +447,54 @@ export class CityModel {
       const cardinal =
         pose !== null && Math.abs(Math.sin(2 * pose.yaw)) < 0.18 ? true : pose === null;
       placeBuilding(b.gx, b.gz, b.faceDir, frac, cardinal, pose);
+    }
+
+    // --- REAL downtown buildings: positions, footprints and heights from the
+    // licensed SF model (calibrated in tools/sf-data/calibrate-downtown.mjs).
+    // Kit models are chosen by height class and stretched to the real
+    // footprint — the actual skyline at the actual addresses. ---
+    {
+      let placed = 0;
+      for (const [bx, bz, bw, bd, bh] of SF_BUILDINGS) {
+        if (placed >= 1500) break;
+        if (bh < 3.5 || bw < 2.2 || bd < 2.2) continue;
+        if (!isLandCell(this.gridX(bx), this.gridZ(bz))) continue;
+        // Clearance vs the street network (same rule as procedural lots).
+        const nearHit = this.network.nearest(bx, bz, ROAD_TILE * 1.6);
+        if (nearHit && nearHit.dist < nearHit.edge.half + Math.min(bw, bd) / 2 - 0.6) continue;
+        const pool = bh > 28 ? BUILDINGS_SKYSCRAPER : bh > 9 ? BUILDINGS_COMMERCIAL : BUILDINGS_SUBURBAN;
+        const key = this.rng.pick(pool);
+        const url = modelUrl("buildings", key);
+        const bounds = this.cache.bounds(url);
+        const sxz = Math.max(bw, bd) / Math.max(bounds.size.x, bounds.size.z, 0.001);
+        const sy = bh / Math.max(bounds.size.y, 0.001);
+        const fh = Math.max(bw, bd) / 2;
+        const corners = [
+          this.terrain.heightAt(bx, bz),
+          this.terrain.heightAt(bx - fh, bz - fh),
+          this.terrain.heightAt(bx + fh, bz - fh),
+          this.terrain.heightAt(bx - fh, bz + fh),
+          this.terrain.heightAt(bx + fh, bz + fh),
+        ];
+        const seatY = Math.max(...corners);
+        if (seatY - Math.min(...corners) > 5) continue;
+        const node = this.cache.instance(url);
+        node.scale.set(sxz, sy, sxz);
+        node.position.set(bx, seatY - 0.15, bz);
+        const district = districtAt(this.gridX(bx), this.gridZ(bz));
+        this.tintNode(node, this.rng.pick(paletteFor(district)), tintAmountFor(district));
+        collect(node);
+        const hw = (bw / 2) * 0.94;
+        const hd = (bd / 2) * 0.94;
+        this.solids.push({
+          minX: bx - hw,
+          maxX: bx + hw,
+          minZ: bz - hd,
+          maxZ: bz + hd,
+        });
+        placed++;
+      }
+      console.log(`[city] real downtown buildings placed: ${placed}`);
     }
 
     // --- Green block interiors: real SF blocks are packed back-to-back, so
