@@ -293,14 +293,18 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
   // cell, and tilt each tile to the local terrain gradient so streets climb
   // hills like ramps instead of floating.
   // ------------------------------------------------------------------
+  const inPark = (x: number, z: number): boolean =>
+    districtAt(x / WORLD_W + 0.5, z / WORLD_H + 0.5).character === "park";
   {
     const UP = new THREE.Vector3(0, 1, 0);
     const qTilt = new THREE.Quaternion();
     const qYaw = new THREE.Quaternion();
     const nrm = new THREE.Vector3();
-    const seatRoadTile = (url: string, x: number, z: number, yaw: number): void => {
+    const PARK_PATH_TINT = 0xcfb98d; // packed-dirt promenade
+    const seatRoadTile = (url: string, x: number, z: number, yaw: number, park: boolean): void => {
       const node = cache.instance(url);
-      tintNode(node, KK_TINT, KK_TINT_AMT);
+      if (park) tintNode(node, PARK_PATH_TINT, 0.55);
+      else tintNode(node, KK_TINT, KK_TINT_AMT);
       const scl = (ROAD_TILE * 1.04) / Math.max(cache.bounds(url).size.x, 0.001);
       node.scale.setScalar(scl);
       const e = ROAD_TILE * 0.5;
@@ -335,7 +339,7 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
             }
           }
         }
-        seatRoadTile(url, worldX(gx), worldZ(gz), yaw);
+        seatRoadTile(url, worldX(gx), worldZ(gz), yaw, inPark(worldX(gx), worldZ(gz)));
       }
     }
   }
@@ -351,6 +355,8 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
   const LAMP_SPACING = ROAD_TILE * 4.5;
   let lampFlip = false;
   for (const edge of network.edges) {
+    const mid = network.sample(edge, edge.len / 2);
+    if (inPark(mid.x, mid.z)) continue; // park promenades stay unlit + unparked
     const trimA = network.nodeTrim(edge.a) + 2;
     const trimB = network.nodeTrim(edge.b) + 2;
     for (let s = trimA + LAMP_SPACING * 0.5; s < edge.len - trimB; s += LAMP_SPACING) {

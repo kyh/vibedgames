@@ -7,6 +7,7 @@ import {
 } from "../assets/manifest";
 import { GRID_X, GRID_Z } from "../shared/constants";
 import { SF_STREET_MASK, streetMaskAt } from "./sf-streets";
+import { CUSTOM_MAP, loadLocalOverrides } from "./custom-map";
 import { isLandCell } from "./sf-map";
 import {
   type Dir,
@@ -84,12 +85,19 @@ export function generateCity(): CityPlan {
     );
   }
 
-  // The mask is baked pre-thinned from the vector network (bake-network.mjs)
-  // — raster consumers can never disagree with the vectors.
+  // The mask is baked pre-thinned from the vector network (bake-network.mjs),
+  // then hand edits apply on top: baked CUSTOM_MAP (shipped) + local editor
+  // overrides (this browser only, via ?editor=1 Apply & reload).
+  const local = loadLocalOverrides();
+  const addSet = new Set<string>();
+  const removeSet = new Set<string>();
+  for (const [gx, gz] of [...CUSTOM_MAP.add, ...local.add]) addSet.add(key(gx, gz));
+  for (const [gx, gz] of [...CUSTOM_MAP.remove, ...local.remove]) removeSet.add(key(gx, gz));
   const isRoadRaw = (gx: number, gz: number): boolean => {
     if (gx < 0 || gz < 0 || gx >= GRID_X || gz >= GRID_Z) return false;
     if (!isLandCell(gx, gz)) return false;
-    return streetMaskAt(gx, gz);
+    if (removeSet.has(key(gx, gz))) return false;
+    return streetMaskAt(gx, gz) || addSet.has(key(gx, gz));
   };
 
   // The land clip can fragment the raster mask where a street grazes water —

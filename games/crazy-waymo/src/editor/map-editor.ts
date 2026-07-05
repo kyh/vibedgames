@@ -13,7 +13,8 @@ import {
   TRAFFIC_CARS,
 } from "../assets/manifest";
 import type { GameScene } from "../scenes/game-scene";
-import { WORLD_H, WORLD_W } from "../shared/constants";
+import { loadLocalOverrides, saveLocalOverrides } from "../world/custom-map";
+import { ROAD_TILE, WORLD_H, WORLD_W } from "../shared/constants";
 import { CUSTOM_PROPS, type CustomProp } from "../world/custom-props";
 
 // The map editor (?editor=1): fly around the built city, place assets on the
@@ -127,8 +128,17 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
   panel.innerHTML = `
     <div style="font-weight:700;color:#ffd147">MAP EDITOR</div>
     <div style="opacity:.75;line-height:1.5">drag = pan · right-drag = orbit · wheel = zoom<br>
-    click = place · <b>Q/E</b> rotate · <b>[ ]</b> scale · <b>Esc</b> deselect · <b>Backspace</b> undo</div>
+    click = place · <b>Q/E</b> rotate · <b>[ ]</b> scale · <b>Esc</b> deselect · <b>Backspace</b> undo<br>
+    street tools: left-click/drag paints cells; green = new street, red = removed.
+    Isolated strokes that don't touch the network get pruned on reload.</div>
     <div id="ed-status" style="color:#8fd9ff"></div>
+    <div style="font-weight:700;margin-top:2px">Streets</div>
+    <div id="ed-road-tools"></div>
+    <div id="ed-road-status" style="opacity:.75"></div>
+    <button id="ed-apply" style="${BTN}background:#1f4a6a">Apply street edits &amp; reload</button>
+    <button id="ed-map-copy" style="${BTN}">Copy map JSON for custom-map.ts</button>
+    <button id="ed-map-clear" style="${BTN}background:#5a1f1f">Clear street edits</button>
+    <div style="font-weight:700;margin-top:2px">Models</div>
     <div id="ed-tabs"></div>
     <div id="ed-models" style="max-height:200px;overflow-y:auto;border:1px solid #333;border-radius:6px;padding:4px"></div>
     <div style="font-weight:700">Placed (<span id="ed-count">0</span>)</div>
@@ -211,6 +221,134 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
   refreshList();
   refreshStatus();
 
+  // --- Street painting (SimCity mode): edits accumulate as cell overrides,
+  // preview as colored quads, and regenerate the whole city on Apply (the
+  // grid is the source of truth — tiles, sim graph, traffic, lots all follow).
+  type RoadTool = "off" | "paint" | "erase";
+  let roadTool: RoadTool = "off";
+  const overrides = loadLocalOverrides();
+  const addSet = new Set(overrides.add.map(([a, b]) => `${a},${b}`));
+  const removeSet = new Set(overrides.remove.map(([a, b]) => `${a},${b}`));
+  const quads = new Map<string, THREE.Mesh>();
+  const quadGeo = new THREE.PlaneGeometry(ROAD_TILE * 0.94, ROAD_TILE * 0.94).rotateX(-Math.PI / 2);
+  const MAT_ADD = new THREE.MeshBasicMaterial({ color: 0x2fbf4f, transparent: true, opacity: 0.5, depthWrite: false });
+  const MAT_REMOVE = new THREE.MeshBasicMaterial({ color: 0xd23f34, transparent: true, opacity: 0.55, depthWrite: false });
+  const cellCentre = (g: number, half: number): number => (g + 0.5) * ROAD_TILE - half;
+  const setQuad = (gx: number, gz: number, kind: "add" | "remove" | null): void => {
+    const k = `${gx},${gz}`;
+    const prev = quads.get(k);
+    if (prev) {
+      game.scene.remove(prev);
+      quads.delete(k);
+    }
+    if (kind === null) return;
+    const m = new THREE.Mesh(quadGeo, kind === "add" ? MAT_ADD : MAT_REMOVE);
+    const x = cellCentre(gx, WORLD_W / 2);
+    const z = cellCentre(gz, WORLD_H / 2);
+    m.position.set(x, city.heightAt(x, z) + 0.55, z);
+    game.scene.add(m);
+    quads.set(k, m);
+  };
+  // Show any edits carried over from a previous session.
+  for (const k of addSet) {
+    const [gx, gz] = k.split(",").map(Number);
+    if (gx !== undefined && gz !== undefined) setQuad(gx, gz, "add");
+  }
+  for (const k of removeSet) {
+    const [gx, gz] = k.split(",").map(Number);
+    if (gx !== undefined && gz !== undefined) setQuad(gx, gz, "remove");
+  }
+
+  const refreshRoadStatus = (): void => {
+    $("ed-road-status").textContent =
+      `tool: ${roadTool} · +${addSet.size} painted · −${removeSet.size} removed (unapplied edits preview only)`;
+  };
+  const isRoadCell = (gx: number, gz: number): boolean => {
+    const col = city.plan.cells[gx];
+    return col !== undefined && col[gz] === "road";
+  };
+  const paintCell = (gx: number, gz: number): void => {
+    const k = `${gx},${gz}`;
+    if (roadTool === "paint") {
+      if (removeSet.has(k)) {
+        removeSet.delete(k);
+        setQuad(gx, gz, null);
+      } else if (!isRoadCell(gx, gz) && !addSet.has(k)) {
+        addSet.add(k);
+        setQuad(gx, gz, "add");
+      }
+    } else if (roadTool === "erase") {
+      if (addSet.has(k)) {
+        addSet.delete(k);
+        setQuad(gx, gz, null);
+      } else if (isRoadCell(gx, gz) && !removeSet.has(k)) {
+        removeSet.add(k);
+        setQuad(gx, gz, "remove");
+      }
+    }
+    refreshRoadStatus();
+  };
+  const saveOverrides = (): void => {
+    const toPairs = (set: Set<string>): [number, number][] =>
+      [...set].map((k) => {
+        const [a, b] = k.split(",").map(Number);
+        return [a ?? 0, b ?? 0];
+      });
+    saveLocalOverrides({ add: toPairs(addSet), remove: toPairs(removeSet) });
+  };
+  const roadToolsRow = $("ed-road-tools");
+  const toolButtons = new Map<RoadTool, HTMLButtonElement>();
+  for (const [tool, label] of [
+    ["paint", "🖌 Paint street"],
+    ["erase", "⌫ Erase street"],
+    ["off", "✋ Off"],
+  ] as const) {
+    const b = document.createElement("button");
+    b.textContent = label;
+    b.setAttribute("style", tool === roadTool ? BTN_ON : BTN);
+    b.addEventListener("click", () => {
+      roadTool = roadTool === tool ? "off" : tool;
+      for (const [t, btn] of toolButtons) btn.setAttribute("style", t === roadTool ? BTN_ON : BTN);
+      // Painting owns the left button; keep orbit/zoom for navigation.
+      controls.enablePan = roadTool === "off";
+      if (roadTool !== "off") clearGhost();
+      refreshRoadStatus();
+    });
+    toolButtons.set(tool, b);
+    roadToolsRow.appendChild(b);
+  }
+  refreshRoadStatus();
+  $("ed-apply").addEventListener("click", () => {
+    saveOverrides();
+    window.location.reload();
+  });
+  $("ed-map-clear").addEventListener("click", () => {
+    addSet.clear();
+    removeSet.clear();
+    for (const [, m] of quads) game.scene.remove(m);
+    quads.clear();
+    saveOverrides();
+    refreshRoadStatus();
+  });
+  $("ed-map-copy").addEventListener("click", () => {
+    const toPairs = (set: Set<string>): number[][] =>
+      [...set].map((k) => k.split(",").map(Number));
+    const json = JSON.stringify({ add: toPairs(addSet), remove: toPairs(removeSet) });
+    const io = $("ed-io");
+    if (io instanceof HTMLTextAreaElement) io.value = json;
+    void navigator.clipboard?.writeText(json).catch(() => undefined);
+  });
+  const groundCell = (e: PointerEvent): [number, number] | null => {
+    if (!ground) return null;
+    pointer.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
+    raycaster.setFromCamera(pointer, camera);
+    const hit = raycaster.intersectObject(ground, false)[0];
+    if (!hit) return null;
+    const gx = Math.floor((hit.point.x + WORLD_W / 2) / ROAD_TILE);
+    const gz = Math.floor((hit.point.z + WORLD_H / 2) / ROAD_TILE);
+    return [gx, gz];
+  };
+
   // --- Export / import ---
   $("ed-copy").addEventListener("click", () => {
     const json = JSON.stringify(
@@ -269,6 +407,11 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
   const dom = renderer.domElement;
   let downAt: { x: number; y: number } | null = null;
   dom.addEventListener("pointermove", (e) => {
+    if (roadTool !== "off" && (e.buttons & 1) === 1) {
+      const cell = groundCell(e);
+      if (cell) paintCell(cell[0], cell[1]);
+      return;
+    }
     if (!ghost || !ground) return;
     pointer.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
     raycaster.setFromCamera(pointer, camera);
@@ -281,6 +424,11 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     }
   });
   dom.addEventListener("pointerdown", (e) => {
+    if (roadTool !== "off" && e.button === 0) {
+      const cell = groundCell(e);
+      if (cell) paintCell(cell[0], cell[1]);
+      return;
+    }
     if (e.button === 0) downAt = { x: e.clientX, y: e.clientY };
   });
   dom.addEventListener("pointerup", (e) => {
