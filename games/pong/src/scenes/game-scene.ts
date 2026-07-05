@@ -1,7 +1,7 @@
 import * as THREE from "three";
 
 import { ParticlePool } from "../fx/particles";
-import { sfx } from "../fx/sfx";
+import { isMuted, sfx, toggleMute } from "../fx/sfx";
 import { RingPool } from "../fx/shock-rings";
 import { NetSession } from "../net/session";
 import {
@@ -191,6 +191,7 @@ export class GameScene {
   private serveMeterEl = el("serve-meter");
   private oppLabelEl = el("opp-label");
   private netInfoEl = el("netinfo");
+  private soundEl = el("sound");
   private serveMeterShown = false; // cached so we only touch classList on transitions
 
   constructor() {
@@ -318,6 +319,7 @@ export class GameScene {
     window.addEventListener("pointercancel", this.onPointerUp);
 
     this.syncHud();
+    this.syncSound();
   }
 
   resize(aspect: number): void {
@@ -403,6 +405,9 @@ export class GameScene {
     } else if (e.code === "ArrowRight" || e.code === "KeyD") {
       e.preventDefault();
       this.held.right = true;
+    } else if (e.code === "KeyM") {
+      toggleMute();
+      this.syncSound();
     }
   };
 
@@ -1099,6 +1104,11 @@ export class GameScene {
       this.bannerEl.style.opacity = "0";
     }
     this.netInfoEl.textContent = this.netInfoText();
+  }
+
+  /** Mute indicator — reflects the persisted opt-in on load and each M toggle. */
+  private syncSound(): void {
+    this.soundEl.textContent = isMuted() ? "🔇 m for sound" : "🔊 m to mute";
   }
 
   private netInfoText(): string {

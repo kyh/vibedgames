@@ -2,9 +2,29 @@
 // synthesised. Lazily created and resumed on first user gesture (autoplay
 // policy). Globally throttled so a busy teamfight doesn't turn into noise.
 
+const SOUND_KEY = "moba:sound";
+
+// localStorage throws in some embeds (sandboxed iframes, blocked cookies,
+// private modes). The game must boot and run without persistence.
+function storageGet(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function storageSet(key: string, value: string): void {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Blocked store just loses persistence — never the run.
+  }
+}
+
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
-let muted = false;
+// Muted by default; sound is opt-in ("1") and the choice persists.
+let muted = storageGet(SOUND_KEY) !== "1";
 
 function ac(): AudioContext | null {
   if (typeof window === "undefined") return null;
@@ -13,7 +33,7 @@ function ac(): AudioContext | null {
     if (!Ctor) return null;
     ctx = new Ctor();
     master = ctx.createGain();
-    master.gain.value = 0.32;
+    master.gain.value = muted ? 0 : 0.32;
     master.connect(ctx.destination);
   }
   return ctx;
@@ -27,6 +47,7 @@ export function resumeAudio(): void {
 export function toggleMute(): boolean {
   muted = !muted;
   if (master) master.gain.value = muted ? 0 : 0.32;
+  storageSet(SOUND_KEY, muted ? "0" : "1");
   return muted;
 }
 

@@ -51,12 +51,16 @@
       #score span.pop {
         animation: pop 280ms cubic-bezier(0.22, 1.4, 0.4, 1);
       }
-      #netinfo {
+      #netinfo,
+      #sound {
         margin-top: 6px;
         font-size: 11px;
         letter-spacing: 2px;
         text-transform: uppercase;
         opacity: 0.55;
+      }
+      #sound {
+        margin-top: 2px;
       }
       @keyframes pop {
         0% {
@@ -223,6 +227,7 @@
     <div id="hud">
       <div id="score">You <span id="score-you">0</span> — <span id="score-ai">0</span> <span id="opp-label">AI</span></div>
       <div id="netinfo"></div>
+      <div id="sound"></div>
     </div>
     <div id="combo"></div>
     <div id="serve-meter"></div>

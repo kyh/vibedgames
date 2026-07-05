@@ -112,12 +112,30 @@
         opacity: 0.6;
         text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
       }
+      /* Mute state — press M to toggle. Sits under netinfo. */
+      #sound {
+        position: fixed;
+        top: 32px;
+        right: 12px;
+        user-select: none;
+        -webkit-user-select: none;
+        font:
+          11px/1.2 ui-monospace,
+          Menlo,
+          monospace;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        color: #eef2ff;
+        opacity: 0.6;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+      }
     </style>
   </head>
   <body>
     <div id="game"></div>
     <div id="board"></div>
     <div id="netinfo"></div>
+    <div id="sound"></div>
     <div id="hud">
       <div class="pill" id="best"></div>
       <div class="pill" id="hint"></div>

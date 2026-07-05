@@ -683,6 +683,7 @@ export class GameScene extends Phaser.Scene {
   private hintEl: HTMLElement | null = null;
   private countdownEl: HTMLElement | null = null;
   private attractEl: HTMLElement | null = null;
+  private muteEl: HTMLElement | null = null;
 
   constructor() {
     super("Game");
@@ -708,6 +709,7 @@ export class GameScene extends Phaser.Scene {
     this.hintEl = document.getElementById("hint");
     this.countdownEl = document.getElementById("countdown");
     this.attractEl = document.getElementById("attract");
+    this.muteEl = document.getElementById("mute");
 
     this.starfield = new Starfield(this);
     this.fx = new FxPool(this);
@@ -772,6 +774,14 @@ export class GameScene extends Phaser.Scene {
       this.pointerSeen = true;
       sfx.unlock(); // WebAudio needs a user gesture
     });
+
+    // Sound is opt-in: muted by default, M toggles, choice persists (see sfx).
+    // The keydown itself is the user gesture that unlocks audio when enabling.
+    this.input.keyboard?.on("keydown-M", () => {
+      sfx.toggleMute();
+      this.updateMuteHud();
+    });
+    this.updateMuteHud();
 
     // Mobile controller: a floating move-joystick (first finger) plus a "rest"
     // fire button — any finger that isn't the stick fires. Screen-fixed,
@@ -5204,6 +5214,10 @@ export class GameScene extends Phaser.Scene {
       }
       g.fillStyle(tint, 1).fillCircle(x0 + px * sx, y0 + py * sy, isMe ? 3 : 2);
     }
+  }
+
+  private updateMuteHud(): void {
+    setText(this.muteEl, sfx.muted ? "🔇 M for sound" : "🔊 M to mute");
   }
 
   private updateHud(now: number): void {

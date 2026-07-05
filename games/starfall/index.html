@@ -239,6 +239,16 @@
         opacity: 0.7;
         font-variant-numeric: tabular-nums;
       }
+      #mute {
+        position: fixed;
+        right: 20px;
+        bottom: 16px;
+        pointer-events: none;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        opacity: 0.6;
+      }
     </style>
   </head>
   <body>
@@ -267,6 +277,7 @@
       <div id="combobar"></div>
     </div>
     <div id="attract">Mouse to move. Click to shoot</div>
+    <div id="mute"></div>
     <div id="overlay">
       <div id="destroyed">DESTROYED</div>
       <div id="cause"></div>

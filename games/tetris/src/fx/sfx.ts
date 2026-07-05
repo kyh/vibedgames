@@ -1,6 +1,42 @@
-// Procedural WebAudio blips — no assets. Lazy AudioContext, unlocked by the
-// first user-gesture sound (the start press). Pitch jittered ±8% per play.
+// Procedural WebAudio blips — no assets. Muted by default; sound is opt-in
+// via toggleMute() (the M key), which persists the choice and unlocks the
+// lazy AudioContext from that user gesture. Pitch jittered ±8% per play.
 // Adapted from pong's blip factory; the sound set is Tetris verbs.
+
+const SOUND_KEY = "tetris:sound";
+
+// localStorage throws in some embeds (sandboxed iframes, blocked cookies,
+// private modes). Sound prefs just fall back to the muted default.
+function storageGet(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function storageSet(key: string, value: string): void {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Blocked store just loses persistence — never the session.
+  }
+}
+
+// Muted by default; returning players who opted into sound stay unmuted.
+let muted = storageGet(SOUND_KEY) !== "1";
+
+export function isMuted(): boolean {
+  return muted;
+}
+
+/** Flip mute, persist the choice, and return the new muted state. Runs from a
+ *  user gesture (the M key), so turning sound on can create/resume the ctx. */
+export function toggleMute(): boolean {
+  muted = !muted;
+  storageSet(SOUND_KEY, muted ? "0" : "1");
+  if (!muted) audio();
+  return muted;
+}
 
 let ctx: AudioContext | null = null;
 
@@ -20,6 +56,7 @@ type Blip = {
 };
 
 function blip({ freq, end, dur, type, gain, at = 0 }: Blip): void {
+  if (muted) return;
   const ac = audio();
   if (!ac) return;
   const t0 = ac.currentTime + at;

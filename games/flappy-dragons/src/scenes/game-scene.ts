@@ -33,6 +33,7 @@ import {
   rollSkin,
   RUNWAY,
   SCORE_Y,
+  SOUND_KEY,
   TILT_FACTOR,
   topHeightFor,
   TUBE_CAP_H,
@@ -129,6 +130,7 @@ export class GameScene extends Phaser.Scene {
   private bestEl: HTMLElement | null = null;
   private boardEl: HTMLElement | null = null;
   private netInfoEl: HTMLElement | null = null;
+  private soundEl: HTMLElement | null = null;
 
   constructor() {
     super("Game");
@@ -139,8 +141,13 @@ export class GameScene extends Phaser.Scene {
     this.bestEl = document.getElementById("best");
     this.boardEl = document.getElementById("board");
     this.netInfoEl = document.getElementById("netinfo");
+    this.soundEl = document.getElementById("sound");
     this.best = readBest();
     this.skin = rollSkin();
+
+    // Muted by default; returning players who opted into sound stay unmuted.
+    this.sound.mute = storageGet(SOUND_KEY) !== "1";
+    this.refreshSoundHud();
 
     this.net = new NetSession({
       room: MP_ROOM,
@@ -179,6 +186,11 @@ export class GameScene extends Phaser.Scene {
     });
     this.input.keyboard?.on("keydown-UP", (e: KeyboardEvent) => {
       if (!e.repeat) this.handleInput();
+    });
+    // M is a user gesture, so unmuting here can safely resume a suspended
+    // audio context.
+    this.input.keyboard?.on("keydown-M", (e: KeyboardEvent) => {
+      if (!e.repeat) this.toggleMute();
     });
 
     this.scale.on(Phaser.Scale.Events.RESIZE, this.layout, this);
@@ -702,6 +714,26 @@ export class GameScene extends Phaser.Scene {
     if (this.bestEl) this.bestEl.textContent = text;
   }
 
+  private toggleMute(): void {
+    const muted = !this.sound.mute;
+    this.sound.mute = muted;
+    storageSet(SOUND_KEY, muted ? "0" : "1");
+    // Autoplay policy may have left the context suspended (we boot muted, so
+    // nothing forced it awake). We're inside a user gesture — resume is safe.
+    if (
+      !muted &&
+      this.sound instanceof Phaser.Sound.WebAudioSoundManager &&
+      this.sound.context.state === "suspended"
+    ) {
+      void this.sound.context.resume();
+    }
+    this.refreshSoundHud();
+  }
+
+  private refreshSoundHud(): void {
+    if (this.soundEl) this.soundEl.textContent = this.sound.mute ? "🔇 sound · m" : "🔊 sound · m";
+  }
+
   /** Live race leaderboard + connection info (multiplayer only). */
   private updateBoard(): void {
     if (this.netInfoEl) {
@@ -825,6 +857,24 @@ function readPeer(state: unknown): PeerState | null {
     skin,
     rot: typeof rot === "number" ? rot : 0,
   };
+}
+
+// localStorage throws in some embeds (sandboxed iframes, blocked cookies,
+// private modes). The game must boot and run without persistence.
+function storageGet(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function storageSet(key: string, value: string): void {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Blocked store just loses persistence — never the run.
+  }
 }
 
 function readBest(): number {

@@ -76,6 +76,8 @@ export const MAX_TILT = Math.PI / 4;
 // ---- persistence ----------------------------------------------------------------
 
 export const BEST_KEY = "flappy-best";
+/** "1" = sound ON; anything else (or absent) = muted. Muted is the default. */
+export const SOUND_KEY = "flappy-dragons:sound";
 
 // ---- multiplayer -------------------------------------------------------------
 // Survival race: everyone flies through the SAME endless course (one shared

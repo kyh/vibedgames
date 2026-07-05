@@ -18,6 +18,7 @@ export type KeyboardHandlers = {
   pauseToggle(): void;
   start(): void;
   recenter(): void;
+  muteToggle(): void;
 };
 
 export class Keyboard {
@@ -86,6 +87,8 @@ export class Keyboard {
       if (!e.repeat) this.handlers.start();
     } else if (k === "v" || k === "V") {
       if (!e.repeat) this.handlers.recenter();
+    } else if (k === "m" || k === "M") {
+      if (!e.repeat) this.handlers.muteToggle();
     }
   };
 

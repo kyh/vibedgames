@@ -597,9 +597,9 @@ export class GameScene {
       sfx.play("warn");
     }
 
-    // Face-only players never trigger the gesture that unlocks WebAudio —
-    // surface it instead of playing a silent game.
-    const wantHint = sfx.locked && this.phase === "playing";
+    // Sound is opt-in (muted by default) and WebAudio needs a gesture — an M
+    // keypress does both, so surface it instead of playing a silent game.
+    const wantHint = (sfx.locked || !sfx.soundOn) && this.phase === "playing";
     if (wantHint !== this.hintShown) {
       this.hintShown = wantHint;
       this.soundHintEl.style.display = wantHint ? "" : "none";
@@ -728,7 +728,9 @@ export class GameScene {
       return;
     }
     if (e.code === "KeyM") {
-      this.showNotice(music.toggle() ? "♪ music on" : "♪ music off");
+      const on = music.toggle(); // persists the choice (localStorage)
+      sfx.setEnabled(on);
+      this.showNotice(on ? "♪ sound on" : "♪ sound off");
       return;
     }
     if (this.phase === "title") {

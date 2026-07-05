@@ -4,6 +4,44 @@
 // The context is created lazily on the first call: the first sound is
 // always the serve, which fires from a user gesture, so autoplay rules
 // are satisfied without extra unlock plumbing.
+//
+// Muted by default: sound is opt-in (M key) and the choice persists in
+// localStorage, so returning players who opted in stay unmuted.
+
+const SOUND_KEY = "pong:sound";
+
+// localStorage throws in some embeds (sandboxed iframes, blocked cookies,
+// private modes). Sound then just stays muted-by-default, no persistence.
+function storageGet(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function storageSet(key: string, value: string): void {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Blocked store just loses persistence — never the game.
+  }
+}
+
+let muted = storageGet(SOUND_KEY) !== "1";
+
+export function isMuted(): boolean {
+  return muted;
+}
+
+/** Flip mute, persist the choice, return the new muted state. Runs from the
+ *  M-key gesture, so creating/resuming the context on unmute satisfies
+ *  autoplay rules even when no sound has played yet. */
+export function toggleMute(): boolean {
+  muted = !muted;
+  storageSet(SOUND_KEY, muted ? "0" : "1");
+  if (!muted) audio();
+  return muted;
+}
 
 let ctx: AudioContext | null = null;
 
@@ -25,6 +63,7 @@ type Blip = {
 };
 
 function blip({ freq, end, dur, type, gain, at = 0 }: Blip): void {
+  if (muted) return;
   const ac = audio();
   if (!ac) return;
   const t0 = ac.currentTime + at;

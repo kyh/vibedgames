@@ -13,6 +13,31 @@ const DUCK_GAIN = 0.25;
 const DUCK_MS = 450;
 const MASTER_GAIN = 0.5;
 
+/** "1" = sound ON; anything else/absent = muted (sound is opt-in). */
+const SOUND_KEY = "pacman:sound";
+
+// localStorage throws in some embeds (sandboxed iframes, blocked cookies,
+// private modes). Audio prefs fall back to muted — never crash the game.
+function storageGet(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function storageSet(key: string, value: string): void {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Blocked store just loses persistence — never the game.
+  }
+}
+
+/** Muted by default; enabled only when the user previously opted in via M. */
+function initialSoundOn(): boolean {
+  return storageGet(SOUND_KEY) === "1";
+}
+
 const SFX_NAMES = [
   "chomp",
   "pellet",
@@ -41,10 +66,17 @@ export class Sfx {
   /** Routine sfx route through this (duckable); `caught` bypasses it. */
   private duckBus: GainNode | null = null;
   private buffers = new Map<SfxName, AudioBuffer>();
+  /** Muted just zeroes the master gain — unlock/playback plumbing still runs. */
+  private enabled = initialSoundOn();
 
   /** True until the first user gesture creates + resumes the context. */
   get locked(): boolean {
     return this.ctx === null || this.ctx.state !== "running";
+  }
+
+  /** Current opt-in state (shared with Music via SOUND_KEY). */
+  get soundOn(): boolean {
+    return this.enabled;
   }
 
   unlock(): void {
@@ -55,7 +87,7 @@ export class Sfx {
     const ctx = new AudioContext();
     this.ctx = ctx;
     this.master = ctx.createGain();
-    this.master.gain.value = MASTER_GAIN;
+    this.master.gain.value = this.enabled ? MASTER_GAIN : 0;
     this.master.connect(ctx.destination);
     this.duckBus = ctx.createGain();
     this.duckBus.connect(this.master);
@@ -87,6 +119,12 @@ export class Sfx {
     if (name === "caught") this.duck();
   }
 
+  /** Follows the M toggle (Music.toggle persists the shared preference). */
+  setEnabled(on: boolean): void {
+    this.enabled = on;
+    if (this.master) this.master.gain.value = on ? MASTER_GAIN : 0;
+  }
+
   /** Duck every routine sound while the "ohh no" sting plays. */
   private duck(): void {
     const ctx = this.ctx;
@@ -116,7 +154,7 @@ const MUSIC_POWER_RATE = 1.06;
  */
 export class Music {
   private audio: HTMLAudioElement | null = null;
-  private enabled = true;
+  private enabled = initialSoundOn();
   private duckUntil = 0;
   /** Latched on load/play failure so repeated gestures don't re-request a 404. */
   private failed = false;
@@ -139,9 +177,10 @@ export class Music {
     });
   }
 
-  /** M key. Returns the new enabled state for HUD feedback. */
+  /** M key. Persists the choice and returns the new state for HUD feedback. */
   toggle(): boolean {
     this.enabled = !this.enabled;
+    storageSet(SOUND_KEY, this.enabled ? "1" : "0");
     if (this.audio) this.audio.volume = this.enabled ? MUSIC_VOLUME : 0;
     return this.enabled;
   }

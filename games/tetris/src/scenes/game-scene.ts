@@ -9,7 +9,7 @@ import type { Cell } from "../game/board";
 import { screenToWorld } from "../game/camera-correction";
 import { Engine, type LockEvent } from "../game/engine";
 import { ParticlePool } from "../fx/particles";
-import { sfx } from "../fx/sfx";
+import { isMuted, sfx, toggleMute } from "../fx/sfx";
 import { Keyboard, type KeyboardHandlers } from "../input/keyboard";
 import type { PoseActions, PoseControls } from "../input/pose-control";
 import { Collapse } from "../physics/collapse";
@@ -78,6 +78,7 @@ export class GameScene {
     this.cubes = new CubeField(this.scene);
     this.particles = new ParticlePool(this.scene);
     this.keyboard = new Keyboard(this.keyboardHandlers());
+    this.updateSoundPill(isMuted());
     this.showBanner("TETRIS", "lean to orbit · turn to rotate · Enter / Space to start");
   }
 
@@ -143,6 +144,7 @@ export class GameScene {
       pauseToggle: () => this.togglePause(),
       start: () => this.startIfIdle(),
       recenter: () => this.poseControls?.recenter(),
+      muteToggle: () => this.updateSoundPill(toggleMute()),
     };
   }
 
@@ -415,6 +417,11 @@ export class GameScene {
       const node = el("input-owner");
       if (node) node.textContent = owner === "POSE" ? "● POSE" : "○ KEYS";
     }
+  }
+
+  private updateSoundPill(muted: boolean): void {
+    const node = el("sound");
+    if (node) node.textContent = muted ? "🔇" : "🔊";
   }
 
   /** Show the centre banner. When `withLegend`, also reveal the full control

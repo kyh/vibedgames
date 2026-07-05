@@ -1,6 +1,7 @@
 // Synthesized WebAudio SFX (zzfx-style): every sound is rendered once into an
 // AudioBuffer at init and replayed via pooled BufferSource nodes with ±8%
 // pitch jitter. No audio files. Unlocked on the first user gesture.
+// Muted by default — the player opts into sound (M) and the choice persists.
 
 const SAMPLE_RATE = 44_100;
 /** Per-play pitch jitter: rate = 0.92 + rand·0.16 (±8%). */
@@ -10,6 +11,24 @@ const PITCH_JITTER_SPAN = 0.16;
 const DUCK_GAIN = 0.25;
 const DUCK_MS = 300;
 const MASTER_GAIN = 0.5;
+const SOUND_KEY = "starfall:sound";
+
+// localStorage throws in some embeds (sandboxed iframes, blocked cookies,
+// private modes). The game must boot and run without persistence.
+function storageGet(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function storageSet(key: string, value: string): void {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Blocked store just loses persistence — never the run.
+  }
+}
 
 export type SfxName =
   | "fire_pulse"
@@ -45,6 +64,8 @@ export class Sfx {
   /** Routine sfx route through this (duckable); player_death bypasses it. */
   private duckBus: GainNode | null = null;
   private buffers = new Map<SfxName, AudioBuffer>();
+  /** Muted by default — returning players who opted into sound stay unmuted. */
+  muted = storageGet(SOUND_KEY) !== "1";
 
   unlock(): void {
     if (this.ctx) {
@@ -54,7 +75,7 @@ export class Sfx {
     const ctx = new AudioContext();
     this.ctx = ctx;
     this.master = ctx.createGain();
-    this.master.gain.value = MASTER_GAIN;
+    this.master.gain.value = this.muted ? 0 : MASTER_GAIN;
     this.master.connect(ctx.destination);
     this.duckBus = ctx.createGain();
     this.duckBus.connect(this.master);
@@ -67,7 +88,7 @@ export class Sfx {
     const ctx = this.ctx;
     const duckBus = this.duckBus;
     const master = this.master;
-    if (!ctx || !duckBus || !master || ctx.state !== "running") return;
+    if (!ctx || !duckBus || !master || this.muted || ctx.state !== "running") return;
     const buffer = this.buffers.get(name);
     if (!buffer) return;
     const src = ctx.createBufferSource();
@@ -84,6 +105,20 @@ export class Sfx {
     });
     src.start();
     if (name === "player_death") this.duck();
+  }
+
+  /**
+   * Flip mute, persist the choice, and return the new state. Call from a user
+   * gesture: turning sound ON creates/resumes the AudioContext via `unlock()`.
+   */
+  toggleMute(): boolean {
+    this.muted = !this.muted;
+    storageSet(SOUND_KEY, this.muted ? "0" : "1");
+    if (!this.muted) this.unlock();
+    if (this.ctx && this.master) {
+      this.master.gain.setTargetAtTime(this.muted ? 0 : MASTER_GAIN, this.ctx.currentTime, 0.02);
+    }
+    return this.muted;
   }
 
   /** Duck every routine sound while the death boom plays. */

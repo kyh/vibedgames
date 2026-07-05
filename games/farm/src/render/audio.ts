@@ -2,10 +2,30 @@
 // so the game ships no audio files. Context is created lazily and resumed on the
 // first user gesture (autoplay policy).
 
+const SOUND_KEY = "farm:sound";
+
+// localStorage throws in some embeds (sandboxed iframes, blocked cookies,
+// private modes). The game must boot and run without persistence.
+function storageGet(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function storageSet(key: string, value: string): void {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Blocked store just loses persistence — never the sound toggle.
+  }
+}
+
 class SoundEngine {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
-  muted = false;
+  // Muted by default; returning players who opted into sound stay unmuted.
+  muted = storageGet(SOUND_KEY) !== "1";
 
   private ensure(): AudioContext | null {
     if (this.ctx) return this.ctx;
@@ -160,6 +180,7 @@ class SoundEngine {
 
   toggleMute(): boolean {
     this.muted = !this.muted;
+    storageSet(SOUND_KEY, this.muted ? "0" : "1");
     return this.muted;
   }
 
