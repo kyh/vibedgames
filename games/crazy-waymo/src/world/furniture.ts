@@ -916,35 +916,49 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
   }
 
   // ------------------------------------------------------------------
-  // 11. TRAFFIC SIGNALS — downtown/highrise crossroads get one corner
-  // signal, arm swung out over the junction.
+  // 11. TRAFFIC SIGNALS — only junctions that would really be signalized:
+  // where two or more boulevards meet (plus a sprinkle of busy 4-ways).
+  // One light per approach, on the right side just past the crosswalk,
+  // arm swung out over the incoming lane.
   // ------------------------------------------------------------------
   const signalUrl = modelUrl("props", PROP_TRAFFICLIGHT);
   const signalScale = scaleToHeight(signalUrl, 5);
   let signals = 0;
-  for (let gx = 0; gx < GRID_X && signals < SIGNAL_CAP; gx++) {
-    for (let gz = 0; gz < GRID_Z && signals < SIGNAL_CAP; gz++) {
-      const road = roadAt(gx, gz);
-      if (!road || road.tile !== ROAD_CROSSROAD) continue;
-      if (reserved.has(cellKey(gx, gz))) continue;
-      const char = districtAt(gx, gz).character;
-      if (char !== "downtown" && char !== "highrise") continue;
-      let sx: 1 | -1 = rng.chance(0.5) ? 1 : -1;
-      let sz: 1 | -1 = rng.chance(0.5) ? 1 : -1;
-      // Signals stand on a real corner pad, never a mid-plaza sliver.
-      let ok = false;
-      for (let c = 0; c < 4 && !ok; c++) {
-        if (cornerClean(gx, gz, sx, sz)) ok = true;
-        else if (c % 2 === 0) sx = sx > 0 ? -1 : 1;
-        else sz = sz > 0 ? -1 : 1;
+  for (let n = 0; n < network.nodes.length && signals < SIGNAL_CAP; n++) {
+    const ids = network.nodeEdges[n];
+    if (!ids || ids.length < 3) continue;
+    const node = network.nodes[n];
+    if (!node) continue;
+    // Arms (edge ends meeting here) + the signal warrant.
+    type SigArm = { tx: number; tz: number; half: number; px: number; pz: number };
+    const arms: SigArm[] = [];
+    let boulevards = 0;
+    for (const id of ids) {
+      const edge = network.edges[id];
+      if (!edge) continue;
+      const ends: ("a" | "b")[] = [];
+      if (edge.a === n) ends.push("a");
+      if (edge.b === n) ends.push("b");
+      for (const end of ends) {
+        const trim = Math.min(network.nodeTrim(n), edge.len * 0.45);
+        const s0 = end === "a" ? trim : edge.len - trim;
+        const smp = network.sample(edge, s0);
+        const sign = end === "a" ? 1 : -1;
+        arms.push({ tx: smp.tx * sign, tz: smp.tz * sign, half: edge.half, px: smp.x, pz: smp.z });
+        if (edge.half > 5.5) boulevards++;
       }
-      if (!ok) continue;
-      const px = worldX(gx) + sx * ROAD_TILE * 0.44;
-      const pz = worldZ(gz) + sz * ROAD_TILE * 0.44;
+    }
+    const signalized = boulevards >= 2 || (arms.length >= 4 && rng.chance(0.08));
+    if (!signalized) continue;
+    for (const a of arms) {
+      // Right side of INCOMING traffic, past the crosswalk + stop bar.
+      const px = a.px + a.tx * 4.6 + a.tz * (a.half + 1.2);
+      const pz = a.pz + a.tz * 4.6 - a.tx * (a.half + 1.2);
       if (onAsphalt(px, pz)) continue;
-      // The signal arm hangs along local -X: yaw so -X points back across the
-      // corner toward the junction centre.
-      seatKK(signalUrl, px, pz, Math.atan2(-sz, sx), signalScale);
+      // The arm hangs along local -X; point it back toward the junction.
+      const dl = Math.hypot(node[0] - px, node[1] - pz) || 1;
+      const yaw = Math.atan2((node[1] - pz) / dl, -(node[0] - px) / dl);
+      seatKK(signalUrl, px, pz, yaw, signalScale);
       signals++;
     }
   }

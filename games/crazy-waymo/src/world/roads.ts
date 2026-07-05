@@ -26,7 +26,7 @@ const CURB_W = 0.38;
 const ASPHALT_LIFT = ROAD_Y + 0.05;
 const SIDEWALK_LIFT = ROAD_Y + 0.13;
 const CURB_LIFT = SIDEWALK_LIFT + 0.03; // curb lip reads above the walk
-const LINE_LIFT = ASPHALT_LIFT + 0.07;
+const LINE_LIFT = ASPHALT_LIFT + 0.1;
 const LINE_W = 0.24;
 const EDGE_INSET = 0.5;
 const DASH_LEN = 2.2;
@@ -36,8 +36,23 @@ const MITER_LIMIT = 2.5; // clamp spike joints on hairpin polylines
 const MAT_ASPHALT = new THREE.MeshStandardMaterial({ color: 0x40454c, roughness: 1 });
 const MAT_SIDEWALK = new THREE.MeshStandardMaterial({ color: 0xb6b9b0, roughness: 1 });
 const MAT_CURB = new THREE.MeshStandardMaterial({ color: 0x8f938c, roughness: 1 });
-const MAT_YELLOW = new THREE.MeshStandardMaterial({ color: 0xd8a13c, roughness: 0.9 });
-const MAT_WHITE = new THREE.MeshStandardMaterial({ color: 0xdfe3e3, roughness: 0.9 });
+// Markings are decals: polygon-offset wins the depth test against the
+// asphalt even where the two drapes sample the terrain differently — no
+// physical lift can guarantee that on curved ground.
+const MAT_YELLOW = new THREE.MeshStandardMaterial({
+  color: 0xd8a13c,
+  roughness: 0.9,
+  polygonOffset: true,
+  polygonOffsetFactor: -2,
+  polygonOffsetUnits: -4,
+});
+const MAT_WHITE = new THREE.MeshStandardMaterial({
+  color: 0xdfe3e3,
+  roughness: 0.9,
+  polygonOffset: true,
+  polygonOffsetFactor: -2,
+  polygonOffsetUnits: -4,
+});
 
 type Part = { geo: THREE.BufferGeometry; mat: THREE.Material; lift: number };
 
@@ -415,6 +430,7 @@ export function buildRoads(network: RoadNetwork, terrain: Terrain): THREE.Mesh[]
     }
   }
 
+  let crosswalkArms = 0;
   // --- Junction patches + crosswalks + dead-end caps ---
   for (let n = 0; n < network.nodes.length; n++) {
     const ids = network.nodeEdges[n];
@@ -476,15 +492,29 @@ export function buildRoads(network: RoadNetwork, terrain: Terrain): THREE.Mesh[]
           l0: number,
           l1: number,
         ): void => {
-          const x00 = a.px + a.tx * d0 + ox * l0;
-          const z00 = a.pz + a.tz * d0 + oz * l0;
-          const x01 = a.px + a.tx * d0 + ox * l1;
-          const z01 = a.pz + a.tz * d0 + oz * l1;
-          const x10 = a.px + a.tx * d1 + ox * l0;
-          const z10 = a.pz + a.tz * d1 + oz * l0;
-          const x11 = a.px + a.tx * d1 + ox * l1;
-          const z11 = a.pz + a.tz * d1 + oz * l1;
-          out.push(x00, 0, z00, x10, 0, z10, x11, 0, z11, x00, 0, z00, x11, 0, z11, x01, 0, z01);
+          // Emit in ~1.2u slices on both axes so the drape follows terrain
+          // curvature as closely as the asphalt underneath does.
+          const dSlices = Math.max(1, Math.ceil((d1 - d0) / 1.2));
+          const lSlices = Math.max(1, Math.ceil((l1 - l0) / 1.2));
+          for (let di = 0; di < dSlices; di++) {
+            for (let li = 0; li < lSlices; li++) {
+              const da = d0 + ((d1 - d0) * di) / dSlices;
+              const db = d0 + ((d1 - d0) * (di + 1)) / dSlices;
+              const la = l0 + ((l1 - l0) * li) / lSlices;
+              const lb = l0 + ((l1 - l0) * (li + 1)) / lSlices;
+              const x00 = a.px + a.tx * da + ox * la;
+              const z00 = a.pz + a.tz * da + oz * la;
+              const x01 = a.px + a.tx * da + ox * lb;
+              const z01 = a.pz + a.tz * da + oz * lb;
+              const x10 = a.px + a.tx * db + ox * la;
+              const z10 = a.pz + a.tz * db + oz * la;
+              const x11 = a.px + a.tx * db + ox * lb;
+              const z11 = a.pz + a.tz * db + oz * lb;
+              // (t, o) is a LEFT-handed basis in XZ — emit reversed so the
+              // triangles wind CCW from above (else they backface-cull).
+              out.push(x00, 0, z00, x11, 0, z11, x10, 0, z10, x00, 0, z00, x01, 0, z01, x11, 0, z11);
+            }
+          }
         };
         // Chunky zebra (stripes run with the road, laid across the width).
         const stripes: number[] = [];
@@ -496,6 +526,7 @@ export function buildRoads(network: RoadNetwork, terrain: Terrain): THREE.Mesh[]
           const lat = -usable + (k / (count - 1)) * 2 * usable;
           quad(stripes, inner, outer, lat - 0.34, lat + 0.34);
         }
+        crosswalkArms++;
         markingParts.push({ geo: flatGeo(stripes), mat: MAT_WHITE, lift: LINE_LIFT });
         // Stop bar just past the crosswalk: solid on boulevards, dashed on
         // streets (the KayKit look).
@@ -517,6 +548,7 @@ export function buildRoads(network: RoadNetwork, terrain: Terrain): THREE.Mesh[]
   }
 
   // --- The planar map: overlap dissolves in the union ---
+  console.log(`[roads] crosswalk arms painted: ${crosswalkArms}`);
   const t0 = performance.now();
   const { asphalt, curb, walk } = tiledPlanarMap(asphaltPolys, curbPolys, pavePolys);
   console.log(`[roads] planar map in ${Math.round(performance.now() - t0)}ms`);
