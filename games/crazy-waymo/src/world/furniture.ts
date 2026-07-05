@@ -4,7 +4,6 @@ import type { ModelCache } from "../assets/loader";
 import {
   BRIDGE_PILLAR,
   BUSHES,
-  ROAD_END,
   LIGHT_CURVED,
   LIGHT_CURVED_CROSS,
   LIGHT_OLD,
@@ -327,18 +326,7 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
         const road = roadAt(gx, gz);
         if (!road) continue;
         const url = modelUrl("roads", road.tile);
-        let yaw = -road.quarterTurns * HALF_PI + HALF_PI;
-        if (road.tile === ROAD_END) {
-          // The resolver aligns ends like straights; recover the open side so
-          // the end cap faces away from the street.
-          for (const d of DIRS) {
-            const [dx, dz] = DIR_DELTA[d];
-            if (roadAt(gx + dx, gz + dz)) {
-              yaw = -d * HALF_PI + HALF_PI;
-              break;
-            }
-          }
-        }
+        const yaw = -road.quarterTurns * HALF_PI;
         seatRoadTile(url, worldX(gx), worldZ(gz), yaw, inPark(worldX(gx), worldZ(gz)));
       }
     }

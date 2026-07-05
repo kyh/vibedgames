@@ -37,14 +37,16 @@ export type CityPlan = {
   readonly greenCells: readonly GreenCell[];
 };
 
-// Native connection masks (N=-Z,E=+X,S=+Z,W=-X) for the KayKit street tiles,
-// verified visually in-game. KayKit ships no dead-end piece, so a count-1 cell
-// lays the straight along its single connection instead.
+// Native connection masks (N=-Z,E=+X,S=+Z,W=-X) for the KENNEY road tiles,
+// measured from a rendered calibration row (all pieces at quarterTurns 0,
+// top-down, screen-up = North). If tiles ever look rotated again, re-render
+// that row before touching these — never eyeball from inside the city.
 const DEFAULT_MASK: Record<string, Mask> = {
-  [ROAD_STRAIGHT]: (1 << N) | (1 << S), // runs North–South
+  [ROAD_STRAIGHT]: (1 << E) | (1 << W), // Kenney straight runs East–West
   [ROAD_BEND]: (1 << S) | (1 << W), // curve connects South + West
   [ROAD_CROSSROAD]: (1 << N) | (1 << E) | (1 << S) | (1 << W),
   [ROAD_INTERSECTION]: (1 << E) | (1 << S) | (1 << W), // T closed on the North
+  [ROAD_END]: 1 << E, // dead-end cap opens East
 };
 
 function resolveRoad(mask: Mask): RoadResolved {
@@ -58,9 +60,7 @@ function resolveRoad(mask: Mask): RoadResolved {
       (maskHas(mask, N) && maskHas(mask, S)) || (maskHas(mask, E) && maskHas(mask, W));
     tile = opposite ? ROAD_STRAIGHT : ROAD_BEND;
   } else if (count === 1) {
-    // Dead end: no stub piece — align a straight along the one connection.
-    tile = ROAD_END;
-    matchMask = mask | rotateMask(mask, 2);
+    tile = ROAD_END; // Kenney has a real dead-end cap; match its single opening
   } else tile = ROAD_STRAIGHT;
 
   const base = DEFAULT_MASK[tile] ?? DEFAULT_MASK[ROAD_STRAIGHT] ?? 0;
