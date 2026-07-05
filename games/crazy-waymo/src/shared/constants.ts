@@ -13,8 +13,8 @@ export const ROAD_Y = 0.02; // lift road tiles above the ground plane
 // SF street grid (OpenStreetMap), rasterized at this resolution by
 // tools/sf-data/rasterize.mjs — keep the baked mask (src/world/sf-streets.ts) in
 // sync: `node tools/sf-data/rasterize.mjs 244 200`.
-export const GRID_X = 244; // cells east-west (u axis)
-export const GRID_Z = 200; // cells north-south (v axis)
+export const GRID_X = 488; // cells east-west (u axis)
+export const GRID_Z = 400; // cells north-south (v axis)
 export const CITY_SEED = 1337; // still seeds traffic, props and other scatter
 // Rotation sign mapping grid clockwise quarter-turns → Three.js Y rotation.
 // Verified visually; flip to +1 if road tiles point the wrong way.

@@ -11,8 +11,8 @@
 import { readFileSync, writeFileSync } from "node:fs";
 
 // --- Must match src/shared/constants.ts ---
-const GRID_X = 244;
-const GRID_Z = 200;
+const GRID_X = 488;
+const GRID_Z = 400;
 const ROAD_TILE = 13;
 const WORLD_W = GRID_X * ROAD_TILE;
 const WORLD_H = GRID_Z * ROAD_TILE;
@@ -558,7 +558,7 @@ console.log(`post-thin components: ${post.length}, top: ${post.slice(0, 5).join(
 let roadCells = 0;
 for (const v of grid) roadCells += v;
 console.log(`mask road cells: ${roadCells}`);
-if (roadCells < 3000 || roadCells > 26000) throw new Error("mask cell count out of range");
+if (roadCells < 3000 || roadCells > 60000) throw new Error("mask cell count out of range");
 
 // --- Emit sf-streets.ts (same format as before — drop-in) ---
 const cols = [];

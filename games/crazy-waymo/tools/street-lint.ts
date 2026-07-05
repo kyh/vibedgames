@@ -37,7 +37,7 @@ const network = new RoadNetwork();
 // --- 1. Mask sanity ---
 let roadCells = 0;
 for (const col of plan.cells) for (const c of col) if (c === "road") roadCells++;
-check(roadCells > 4000 && roadCells < 26000, "mask cell count in range", String(roadCells));
+check(roadCells > 4000 && roadCells < 60000, "mask cell count in range", String(roadCells));
 
 // --- 2. Graph invariants ---
 check(network.edges.length > 800, "edge count sane", String(network.edges.length));

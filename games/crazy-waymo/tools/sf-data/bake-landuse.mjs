@@ -4,8 +4,8 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 
-const GRID_X = 244;
-const GRID_Z = 200;
+const GRID_X = 488;
+const GRID_Z = 400;
 // Same calibrated projection as bake-network.mjs.
 const U_M = 6.2462, U_B = 765.2557;
 const V_M = -9.6095, V_B = 363.344;
