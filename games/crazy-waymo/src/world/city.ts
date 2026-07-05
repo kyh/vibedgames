@@ -31,6 +31,7 @@ import { buildFurniture, type LampHead, type ParkedSpec } from "./furniture";
 import { buildGoldenGate } from "./golden-gate";
 import { RoadNetwork } from "./network";
 import { type CityPlan, generateCity } from "./grid";
+import { CUSTOM_MAP, type FloorKind, loadLocalOverrides } from "./custom-map";
 import { buildGridNetwork } from "./grid-network";
 import { buildRoads } from "./roads";
 import { buildLandmarks, landmarkProtection } from "./landmarks";
@@ -542,6 +543,14 @@ export class CityModel {
     const SAND = new THREE.Color(0xd9c9a1);
     const PARK = new THREE.Color(0x74975c);
     const greenSet = new Set(this.plan.greenCells.map((g) => `${g.gx},${g.gz}`));
+    // Painted floors (editor "Floor" mode): baked + this browser's local edits.
+    const floorAt = new Map<string, FloorKind>();
+    {
+      const local = loadLocalOverrides();
+      for (const [fgx, fgz, kind] of [...CUSTOM_MAP.floor, ...local.floor]) {
+        floorAt.set(`${fgx},${fgz}`, kind);
+      }
+    }
     const ground = this.terrain.buildMesh(
       groundMat,
       (x, z, into) => {
@@ -551,6 +560,10 @@ export class CityModel {
         if (districtAt(gx, gz).character === "park" || greenSet.has(`${gx},${gz}`)) {
           into.lerp(PARK, 0.8);
         }
+        const painted = floorAt.get(`${gx},${gz}`);
+        if (painted === "plaza") into.copy(CONCRETE).lerp(new THREE.Color(0xffffff), 0.12);
+        else if (painted === "grass") into.copy(PARK);
+        else if (painted === "sand") into.copy(SAND);
         const land = this.terrain.landAt(x, z);
         const shore = 1 - THREE.MathUtils.smoothstep(land, 0.3, 0.55);
         if (shore > 0) {

@@ -13,14 +13,23 @@ import {
   TRAFFIC_CARS,
 } from "../assets/manifest";
 import type { GameScene } from "../scenes/game-scene";
-import { loadLocalOverrides, saveLocalOverrides } from "../world/custom-map";
+import {
+  type FloorKind,
+  loadLocalOverrides,
+  saveLocalOverrides,
+} from "../world/custom-map";
 import { ROAD_TILE, WORLD_H, WORLD_W } from "../shared/constants";
-import { CUSTOM_PROPS, type CustomProp } from "../world/custom-props";
+import { CUSTOM_PROPS } from "../world/custom-props";
 
-// The map editor (?editor=1): fly around the built city, place assets on the
-// terrain, and export the placements as JSON for world/custom-props.ts.
-// Existing custom props load into the list as [baked] rows — they're already
-// merged into the city, so edits to them apply on the next reload.
+// The map editor (?editor=1). SimCity-style modes:
+//   Navigate — pure camera (drag pan, right-drag orbit, wheel zoom, WASD).
+//   Place — pick a model, click to drop, HOLD + DRAG to stamp a trail of
+//           copies; click any placed prop to select it, drag it to move,
+//           Q/E rotate · [ ] scale · Delete removes.
+//   Streets — paint/erase road cells (green/red preview, Apply regenerates).
+//   Floor — paint ground surface (plaza/grass/sand) per cell.
+// Street + floor edits persist per-browser and export as JSON for
+// world/custom-map.ts; props export for world/custom-props.ts.
 
 type Entry = {
   model: string;
@@ -33,6 +42,8 @@ type Entry = {
 
 type Placed = { entry: Entry; node: THREE.Object3D | null; baked: boolean };
 
+type Mode = "nav" | "place" | "street-paint" | "street-erase" | "floor";
+
 const CATEGORIES: readonly { label: string; cat: string; names: readonly string[] }[] = [
   { label: "Props", cat: "props", names: PROPS },
   { label: "Houses", cat: "buildings", names: BUILDINGS_SUBURBAN },
@@ -42,11 +53,17 @@ const CATEGORIES: readonly { label: string; cat: string; names: readonly string[
   { label: "People", cat: "characters", names: CHARACTERS },
 ];
 
-const PANEL_CSS = `position:fixed;top:0;right:0;bottom:0;width:250px;z-index:50;
-background:rgba(14,13,20,.92);color:#eee;font:12px ui-monospace,Menlo,monospace;
+const FLOOR_COLORS: Record<FloorKind, number> = {
+  plaza: 0xcfd2cc,
+  grass: 0x63a860,
+  sand: 0xd9c489,
+};
+
+const PANEL_CSS = `position:fixed;top:0;right:0;bottom:0;width:262px;z-index:50;
+background:rgba(14,13,20,.94);color:#eee;font:12px ui-monospace,Menlo,monospace;
 padding:10px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;`;
 const BTN = `background:#2a2733;color:#eee;border:1px solid #4a4657;border-radius:6px;
-padding:3px 7px;margin:1px;cursor:pointer;font:11px ui-monospace,monospace;`;
+padding:4px 8px;margin:1px;cursor:pointer;font:11px ui-monospace,monospace;`;
 const BTN_ON = BTN.replace("#2a2733", "#8a6d1f");
 
 export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): void {
@@ -55,14 +72,11 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
   const cache = game.getCache();
   const camera = game.camera;
 
-  // Take the camera away from the game and hide the play UI.
   game.freecam = true;
   for (const id of ["hud", "banner", "legend", "touch", "loading"]) {
     const el = document.getElementById(id);
     if (el) el.style.display = "none";
   }
-  // Swallow the game's hotkeys (capture phase runs before the game's window
-  // listeners while events bubble up from the canvas).
   window.addEventListener(
     "keydown",
     (e) => {
@@ -85,22 +99,170 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
 
+  // --- State ---
+  let mode: Mode = "nav";
   const placed: Placed[] = CUSTOM_PROPS.map((p) => ({
     entry: { model: p.model, u: p.u, v: p.v, yaw: p.yaw, s: p.s, ...(p.solid ? { solid: true } : {}) },
     node: null,
     baked: true,
   }));
-
-  let selected: { cat: string; name: string } | null = null;
+  let selected: Placed | null = null;
+  let selectedBox: THREE.BoxHelper | null = null;
+  let palette: { cat: string; name: string } | null = null;
   let ghost: THREE.Object3D | null = null;
   let ghostYaw = 0;
   let ghostScale = 1;
   let ghostPos = new THREE.Vector3();
   let ghostOnGround = false;
+  let paintDrag = false;
+  let moveDrag = false;
+  let stampLast: { x: number; z: number } | null = null;
+  let floorKind: FloorKind | "erase" = "plaza";
 
+  const overrides = loadLocalOverrides();
+  const addSet = new Set(overrides.add.map(([a, b]) => `${a},${b}`));
+  const removeSet = new Set(overrides.remove.map(([a, b]) => `${a},${b}`));
+  const floorMap = new Map<string, FloorKind>(overrides.floor.map(([a, b, k]) => [`${a},${b}`, k]));
+
+  // --- Cell preview quads (streets + floors) ---
+  const quads = new Map<string, THREE.Mesh>();
+  const quadGeo = new THREE.PlaneGeometry(ROAD_TILE * 0.94, ROAD_TILE * 0.94).rotateX(-Math.PI / 2);
+  const quadMats = new Map<string, THREE.MeshBasicMaterial>();
+  const quadMat = (hex: number, opacity: number): THREE.MeshBasicMaterial => {
+    const k = `${hex},${opacity}`;
+    let m = quadMats.get(k);
+    if (!m) {
+      m = new THREE.MeshBasicMaterial({ color: hex, transparent: true, opacity, depthWrite: false });
+      quadMats.set(k, m);
+    }
+    return m;
+  };
+  const setQuad = (scope: "st" | "fl", gx: number, gz: number, hex: number | null): void => {
+    const k = `${scope}:${gx},${gz}`;
+    const prev = quads.get(k);
+    if (prev) {
+      game.scene.remove(prev);
+      quads.delete(k);
+    }
+    if (hex === null) return;
+    const m = new THREE.Mesh(quadGeo, quadMat(hex, scope === "st" ? 0.5 : 0.65));
+    const x = (gx + 0.5) * ROAD_TILE - WORLD_W / 2;
+    const z = (gz + 0.5) * ROAD_TILE - WORLD_H / 2;
+    m.position.set(x, city.heightAt(x, z) + (scope === "st" ? 0.55 : 0.4), z);
+    game.scene.add(m);
+    quads.set(k, m);
+  };
+  for (const k of addSet) {
+    const [gx, gz] = k.split(",").map(Number);
+    if (gx !== undefined && gz !== undefined) setQuad("st", gx, gz, 0x2fbf4f);
+  }
+  for (const k of removeSet) {
+    const [gx, gz] = k.split(",").map(Number);
+    if (gx !== undefined && gz !== undefined) setQuad("st", gx, gz, 0xd23f34);
+  }
+  for (const [k, kind] of floorMap) {
+    const [gx, gz] = k.split(",").map(Number);
+    if (gx !== undefined && gz !== undefined) setQuad("fl", gx, gz, FLOOR_COLORS[kind]);
+  }
+
+  // --- Panel DOM ---
+  const panel = document.createElement("div");
+  panel.setAttribute("style", PANEL_CSS);
+  panel.innerHTML = `
+    <div style="font-weight:700;color:#ffd147">MAP EDITOR</div>
+    <div id="ed-modes"></div>
+    <div id="ed-status" style="color:#8fd9ff;min-height:26px"></div>
+    <div id="ed-help" style="opacity:.7;line-height:1.45"></div>
+    <div id="ed-floor-row" style="display:none"></div>
+    <div id="ed-place-ui" style="display:none">
+      <div id="ed-tabs"></div>
+      <div id="ed-models" style="max-height:170px;overflow-y:auto;border:1px solid #333;border-radius:6px;padding:4px;margin-top:4px"></div>
+    </div>
+    <div style="font-weight:700;margin-top:2px">Map edits</div>
+    <div id="ed-map-status" style="opacity:.75"></div>
+    <button id="ed-apply" style="${BTN}background:#1f4a6a">Apply &amp; reload</button>
+    <button id="ed-map-copy" style="${BTN}">Copy map JSON (custom-map.ts)</button>
+    <button id="ed-map-clear" style="${BTN}background:#5a1f1f">Clear street + floor edits</button>
+    <div style="font-weight:700;margin-top:2px">Props (<span id="ed-count">0</span>)</div>
+    <button id="ed-copy" style="${BTN}background:#1f5a2a">Copy props JSON (custom-props.ts)</button>
+    <textarea id="ed-io" rows="3" style="background:#191722;color:#bbb;border:1px solid #333;border-radius:6px;font:10px monospace" placeholder="JSON appears here on copy; paste + Load to import"></textarea>
+    <button id="ed-load" style="${BTN}">Load props JSON from box</button>
+  `;
+  document.body.appendChild(panel);
+
+  const $ = (id: string): HTMLElement => {
+    const el = panel.querySelector(`#${id}`);
+    if (!(el instanceof HTMLElement)) throw new Error(`editor: missing #${id}`);
+    return el;
+  };
+
+  const HELP: Record<Mode, string> = {
+    nav: "drag = pan · right-drag = orbit · wheel = zoom · WASD/arrows = pan<br>click a placed prop to select it",
+    place:
+      "pick a model, click to drop · <b>hold + drag</b> stamps copies<br>click a placed prop = select · drag it = move · <b>Q/E</b> rotate · <b>[ ]</b> scale · <b>Del</b> remove · <b>Esc</b> done",
+    "street-paint": "left-click / drag paints street cells (green preview)<br>Apply &amp; reload regenerates the whole city",
+    "street-erase": "left-click / drag removes street cells (red preview)",
+    floor: "pick a surface, left-click / drag paints the ground per cell",
+  };
+
+  const refreshStatus = (): void => {
+    const sel = selected
+      ? `selected: ${selected.entry.model.split("/")[1] ?? selected.entry.model}${selected.baked ? " [baked]" : ""}`
+      : palette && mode === "place"
+        ? `placing: ${palette.name} · yaw ${Math.round((ghostYaw * 180) / Math.PI)}° · scale ${ghostScale.toFixed(2)}`
+        : "";
+    $("ed-status").innerHTML = sel;
+    $("ed-help").innerHTML = HELP[mode];
+    $("ed-map-status").textContent =
+      `streets +${addSet.size} −${removeSet.size} · floor ${floorMap.size} cells (preview until Apply)`;
+    $("ed-count").textContent = String(placed.length);
+  };
+
+  // --- Selection ---
+  const deselect = (): void => {
+    if (selectedBox) {
+      game.scene.remove(selectedBox);
+      selectedBox = null;
+    }
+    selected = null;
+    refreshStatus();
+  };
+  const select = (p: Placed): void => {
+    deselect();
+    selected = p;
+    if (p.node) {
+      selectedBox = new THREE.BoxHelper(p.node, 0xffd147);
+      game.scene.add(selectedBox);
+    }
+    refreshStatus();
+  };
+  const moveSelected = (x: number, z: number): void => {
+    if (!selected || !selected.node) return;
+    selected.node.position.set(x, city.heightAt(x, z), z);
+    selected.node.updateMatrixWorld(true);
+    selected.entry.u = Math.round((x / WORLD_W + 0.5) * 10000) / 10000;
+    selected.entry.v = Math.round((z / WORLD_H + 0.5) * 10000) / 10000;
+    selectedBox?.update();
+  };
+  const deleteSelected = (): void => {
+    if (!selected) return;
+    if (selected.node) game.scene.remove(selected.node);
+    const i = placed.indexOf(selected);
+    if (i >= 0) placed.splice(i, 1);
+    deselect();
+  };
+
+  // --- Ghost (Place mode) ---
+  const clearGhost = (): void => {
+    if (ghost) game.scene.remove(ghost);
+    ghost = null;
+    palette = null;
+    refreshStatus();
+  };
   const setGhost = (cat: string, name: string): void => {
     if (ghost) game.scene.remove(ghost);
-    selected = { cat, name };
+    deselect();
+    palette = { cat, name };
     ghost = cache.instance(modelUrl(cat, name));
     ghost.traverse((c) => {
       if (c instanceof THREE.Mesh && c.material instanceof THREE.Material) {
@@ -115,77 +277,52 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     game.scene.add(ghost);
     refreshStatus();
   };
-  const clearGhost = (): void => {
-    if (ghost) game.scene.remove(ghost);
-    ghost = null;
-    selected = null;
+
+  // --- Mode toolbar ---
+  const modeButtons = new Map<Mode, HTMLButtonElement>();
+  const setMode = (m: Mode): void => {
+    mode = m;
+    for (const [k, b] of modeButtons) b.setAttribute("style", k === m ? BTN_ON : BTN);
+    $("ed-place-ui").style.display = m === "place" ? "block" : "none";
+    $("ed-floor-row").style.display = m === "floor" ? "block" : "none";
+    // Painting owns the left button; navigation keeps orbit + wheel.
+    controls.enablePan = m === "nav" || m === "place";
+    if (m !== "place") clearGhost();
     refreshStatus();
   };
+  for (const [m, label] of [
+    ["nav", "🧭 Navigate"],
+    ["place", "🏠 Place"],
+    ["street-paint", "🛣 +Street"],
+    ["street-erase", "⌫ −Street"],
+    ["floor", "🟩 Floor"],
+  ] as const) {
+    const b = document.createElement("button");
+    b.textContent = label;
+    b.setAttribute("style", BTN);
+    b.addEventListener("click", () => setMode(m));
+    modeButtons.set(m, b);
+    $("ed-modes").appendChild(b);
+  }
 
-  // --- Panel DOM ---
-  const panel = document.createElement("div");
-  panel.setAttribute("style", PANEL_CSS);
-  panel.innerHTML = `
-    <div style="font-weight:700;color:#ffd147">MAP EDITOR</div>
-    <div style="opacity:.75;line-height:1.5">drag = pan · right-drag = orbit · wheel = zoom<br>
-    click = place · <b>Q/E</b> rotate · <b>[ ]</b> scale · <b>Esc</b> deselect · <b>Backspace</b> undo<br>
-    street tools: left-click/drag paints cells; green = new street, red = removed.
-    Isolated strokes that don't touch the network get pruned on reload.</div>
-    <div id="ed-status" style="color:#8fd9ff"></div>
-    <div style="font-weight:700;margin-top:2px">Streets</div>
-    <div id="ed-road-tools"></div>
-    <div id="ed-road-status" style="opacity:.75"></div>
-    <button id="ed-apply" style="${BTN}background:#1f4a6a">Apply street edits &amp; reload</button>
-    <button id="ed-map-copy" style="${BTN}">Copy map JSON for custom-map.ts</button>
-    <button id="ed-map-clear" style="${BTN}background:#5a1f1f">Clear street edits</button>
-    <div style="font-weight:700;margin-top:2px">Models</div>
-    <div id="ed-tabs"></div>
-    <div id="ed-models" style="max-height:200px;overflow-y:auto;border:1px solid #333;border-radius:6px;padding:4px"></div>
-    <div style="font-weight:700">Placed (<span id="ed-count">0</span>)</div>
-    <div id="ed-list" style="max-height:160px;overflow-y:auto;border:1px solid #333;border-radius:6px;padding:4px"></div>
-    <button id="ed-copy" style="${BTN}background:#1f5a2a">Copy JSON for custom-props.ts</button>
-    <textarea id="ed-io" rows="4" style="background:#191722;color:#bbb;border:1px solid #333;border-radius:6px;font:10px monospace" placeholder="JSON appears here on copy; paste + Load to import"></textarea>
-    <button id="ed-load" style="${BTN}">Load JSON from box</button>
-    <div style="opacity:.6">[baked] rows are already merged into the city — deletes/edits to them apply after you paste the JSON into custom-props.ts and reload.</div>
-  `;
-  document.body.appendChild(panel);
-
-  const $ = (id: string): HTMLElement => {
-    const el = panel.querySelector(`#${id}`);
-    if (!(el instanceof HTMLElement)) throw new Error(`editor: missing #${id}`);
-    return el;
-  };
-
-  const refreshStatus = (): void => {
-    $("ed-status").textContent = selected
-      ? `placing: ${selected.name} · yaw ${Math.round((ghostYaw * 180) / Math.PI)}° · scale ${ghostScale.toFixed(2)}`
-      : "nothing selected — pick a model";
-  };
-
-  const refreshList = (): void => {
-    $("ed-count").textContent = String(placed.length);
-    const list = $("ed-list");
-    list.replaceChildren();
-    placed.forEach((p, i) => {
-      const row = document.createElement("div");
-      row.style.cssText = "display:flex;justify-content:space-between;gap:4px;padding:1px 0";
-      const label = document.createElement("span");
-      label.textContent = `${p.baked ? "[baked] " : ""}${p.entry.model.split("/")[1] ?? p.entry.model}`;
-      label.style.cssText = "overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
-      const del = document.createElement("button");
-      del.textContent = "✕";
-      del.setAttribute("style", BTN + "padding:0 5px");
-      del.addEventListener("click", () => {
-        if (p.node) game.scene.remove(p.node);
-        placed.splice(i, 1);
-        refreshList();
+  // Floor kind row
+  {
+    const row = $("ed-floor-row");
+    for (const kind of ["plaza", "grass", "sand", "erase"] as const) {
+      const b = document.createElement("button");
+      b.textContent = kind;
+      b.setAttribute("style", kind === floorKind ? BTN_ON : BTN);
+      b.addEventListener("click", () => {
+        floorKind = kind;
+        for (const child of Array.from(row.children)) {
+          child.setAttribute("style", child === b ? BTN_ON : BTN);
+        }
       });
-      row.append(label, del);
-      list.appendChild(row);
-    });
-  };
+      row.appendChild(b);
+    }
+  }
 
-  // Category tabs + model buttons.
+  // --- Palette (Place mode) ---
   const tabs = $("ed-tabs");
   const models = $("ed-models");
   let activeTab = 0;
@@ -196,7 +333,7 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     for (const name of c.names) {
       const b = document.createElement("button");
       b.textContent = name;
-      b.setAttribute("style", selected?.name === name ? BTN_ON : BTN);
+      b.setAttribute("style", palette?.name === name ? BTN_ON : BTN);
       b.addEventListener("click", () => {
         setGhost(c.cat, name);
         renderModels();
@@ -218,75 +355,66 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     tabs.appendChild(b);
   });
   renderModels();
-  refreshList();
-  refreshStatus();
 
-  // --- Street painting (SimCity mode): edits accumulate as cell overrides,
-  // preview as colored quads, and regenerate the whole city on Apply (the
-  // grid is the source of truth — tiles, sim graph, traffic, lots all follow).
-  type RoadTool = "off" | "paint" | "erase";
-  let roadTool: RoadTool = "off";
-  const overrides = loadLocalOverrides();
-  const addSet = new Set(overrides.add.map(([a, b]) => `${a},${b}`));
-  const removeSet = new Set(overrides.remove.map(([a, b]) => `${a},${b}`));
-  const quads = new Map<string, THREE.Mesh>();
-  const quadGeo = new THREE.PlaneGeometry(ROAD_TILE * 0.94, ROAD_TILE * 0.94).rotateX(-Math.PI / 2);
-  const MAT_ADD = new THREE.MeshBasicMaterial({ color: 0x2fbf4f, transparent: true, opacity: 0.5, depthWrite: false });
-  const MAT_REMOVE = new THREE.MeshBasicMaterial({ color: 0xd23f34, transparent: true, opacity: 0.55, depthWrite: false });
-  const cellCentre = (g: number, half: number): number => (g + 0.5) * ROAD_TILE - half;
-  const setQuad = (gx: number, gz: number, kind: "add" | "remove" | null): void => {
-    const k = `${gx},${gz}`;
-    const prev = quads.get(k);
-    if (prev) {
-      game.scene.remove(prev);
-      quads.delete(k);
-    }
-    if (kind === null) return;
-    const m = new THREE.Mesh(quadGeo, kind === "add" ? MAT_ADD : MAT_REMOVE);
-    const x = cellCentre(gx, WORLD_W / 2);
-    const z = cellCentre(gz, WORLD_H / 2);
-    m.position.set(x, city.heightAt(x, z) + 0.55, z);
-    game.scene.add(m);
-    quads.set(k, m);
+  // --- Spawning ---
+  const spawn = (entry: Entry): THREE.Object3D => {
+    const parts = entry.model.split("/");
+    const node = cache.instance(modelUrl(parts[0] ?? "props", parts[1] ?? ""));
+    node.scale.setScalar(entry.s);
+    node.rotation.y = entry.yaw;
+    const x = (entry.u - 0.5) * WORLD_W;
+    const z = (entry.v - 0.5) * WORLD_H;
+    node.position.set(x, city.heightAt(x, z), z);
+    game.scene.add(node);
+    return node;
   };
-  // Show any edits carried over from a previous session.
-  for (const k of addSet) {
-    const [gx, gz] = k.split(",").map(Number);
-    if (gx !== undefined && gz !== undefined) setQuad(gx, gz, "add");
-  }
-  for (const k of removeSet) {
-    const [gx, gz] = k.split(",").map(Number);
-    if (gx !== undefined && gz !== undefined) setQuad(gx, gz, "remove");
-  }
+  const stampAt = (x: number, z: number): void => {
+    if (!palette) return;
+    const entry: Entry = {
+      model: `${palette.cat}/${palette.name}`,
+      u: Math.round((x / WORLD_W + 0.5) * 10000) / 10000,
+      v: Math.round((z / WORLD_H + 0.5) * 10000) / 10000,
+      yaw: Math.round(ghostYaw * 1000) / 1000,
+      s: Math.round(ghostScale * 100) / 100,
+    };
+    placed.push({ entry, node: spawn(entry), baked: false });
+    refreshStatus();
+  };
 
-  const refreshRoadStatus = (): void => {
-    $("ed-road-status").textContent =
-      `tool: ${roadTool} · +${addSet.size} painted · −${removeSet.size} removed (unapplied edits preview only)`;
-  };
+  // --- Street + floor painting ---
   const isRoadCell = (gx: number, gz: number): boolean => {
     const col = city.plan.cells[gx];
     return col !== undefined && col[gz] === "road";
   };
-  const paintCell = (gx: number, gz: number): void => {
+  const paintStreet = (gx: number, gz: number, erase: boolean): void => {
     const k = `${gx},${gz}`;
-    if (roadTool === "paint") {
+    if (!erase) {
       if (removeSet.has(k)) {
         removeSet.delete(k);
-        setQuad(gx, gz, null);
+        setQuad("st", gx, gz, null);
       } else if (!isRoadCell(gx, gz) && !addSet.has(k)) {
         addSet.add(k);
-        setQuad(gx, gz, "add");
+        setQuad("st", gx, gz, 0x2fbf4f);
       }
-    } else if (roadTool === "erase") {
-      if (addSet.has(k)) {
-        addSet.delete(k);
-        setQuad(gx, gz, null);
-      } else if (isRoadCell(gx, gz) && !removeSet.has(k)) {
-        removeSet.add(k);
-        setQuad(gx, gz, "remove");
-      }
+    } else if (addSet.has(k)) {
+      addSet.delete(k);
+      setQuad("st", gx, gz, null);
+    } else if (isRoadCell(gx, gz) && !removeSet.has(k)) {
+      removeSet.add(k);
+      setQuad("st", gx, gz, 0xd23f34);
     }
-    refreshRoadStatus();
+    refreshStatus();
+  };
+  const paintFloor = (gx: number, gz: number): void => {
+    const k = `${gx},${gz}`;
+    if (floorKind === "erase") {
+      floorMap.delete(k);
+      setQuad("fl", gx, gz, null);
+    } else {
+      floorMap.set(k, floorKind);
+      setQuad("fl", gx, gz, FLOOR_COLORS[floorKind]);
+    }
+    refreshStatus();
   };
   const saveOverrides = (): void => {
     const toPairs = (set: Set<string>): [number, number][] =>
@@ -294,30 +422,13 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
         const [a, b] = k.split(",").map(Number);
         return [a ?? 0, b ?? 0];
       });
-    saveLocalOverrides({ add: toPairs(addSet), remove: toPairs(removeSet) });
-  };
-  const roadToolsRow = $("ed-road-tools");
-  const toolButtons = new Map<RoadTool, HTMLButtonElement>();
-  for (const [tool, label] of [
-    ["paint", "🖌 Paint street"],
-    ["erase", "⌫ Erase street"],
-    ["off", "✋ Off"],
-  ] as const) {
-    const b = document.createElement("button");
-    b.textContent = label;
-    b.setAttribute("style", tool === roadTool ? BTN_ON : BTN);
-    b.addEventListener("click", () => {
-      roadTool = roadTool === tool ? "off" : tool;
-      for (const [t, btn] of toolButtons) btn.setAttribute("style", t === roadTool ? BTN_ON : BTN);
-      // Painting owns the left button; keep orbit/zoom for navigation.
-      controls.enablePan = roadTool === "off";
-      if (roadTool !== "off") clearGhost();
-      refreshRoadStatus();
+    const floor: [number, number, FloorKind][] = [...floorMap].map(([k, kind]) => {
+      const [a, b] = k.split(",").map(Number);
+      return [a ?? 0, b ?? 0, kind];
     });
-    toolButtons.set(tool, b);
-    roadToolsRow.appendChild(b);
-  }
-  refreshRoadStatus();
+    saveLocalOverrides({ add: toPairs(addSet), remove: toPairs(removeSet), floor });
+  };
+
   $("ed-apply").addEventListener("click", () => {
     saveOverrides();
     window.location.reload();
@@ -325,37 +436,22 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
   $("ed-map-clear").addEventListener("click", () => {
     addSet.clear();
     removeSet.clear();
+    floorMap.clear();
     for (const [, m] of quads) game.scene.remove(m);
     quads.clear();
     saveOverrides();
-    refreshRoadStatus();
+    refreshStatus();
   });
   $("ed-map-copy").addEventListener("click", () => {
-    const toPairs = (set: Set<string>): number[][] =>
-      [...set].map((k) => k.split(",").map(Number));
-    const json = JSON.stringify({ add: toPairs(addSet), remove: toPairs(removeSet) });
+    const toPairs = (set: Set<string>): number[][] => [...set].map((k) => k.split(",").map(Number));
+    const floor = [...floorMap].map(([k, kind]) => [...k.split(",").map(Number), kind]);
+    const json = JSON.stringify({ add: toPairs(addSet), remove: toPairs(removeSet), floor });
     const io = $("ed-io");
     if (io instanceof HTMLTextAreaElement) io.value = json;
     void navigator.clipboard?.writeText(json).catch(() => undefined);
   });
-  const groundCell = (e: PointerEvent): [number, number] | null => {
-    if (!ground) return null;
-    pointer.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
-    raycaster.setFromCamera(pointer, camera);
-    const hit = raycaster.intersectObject(ground, false)[0];
-    if (!hit) return null;
-    const gx = Math.floor((hit.point.x + WORLD_W / 2) / ROAD_TILE);
-    const gz = Math.floor((hit.point.z + WORLD_H / 2) / ROAD_TILE);
-    return [gx, gz];
-  };
-
-  // --- Export / import ---
   $("ed-copy").addEventListener("click", () => {
-    const json = JSON.stringify(
-      placed.map((p) => p.entry),
-      null,
-      2,
-    );
+    const json = JSON.stringify(placed.map((p) => p.entry), null, 2);
     const io = $("ed-io");
     if (io instanceof HTMLTextAreaElement) io.value = json;
     void navigator.clipboard?.writeText(json).catch(() => undefined);
@@ -368,13 +464,12 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
       if (!Array.isArray(arr)) return;
       for (const p of placed) if (p.node) game.scene.remove(p.node);
       placed.length = 0;
+      deselect();
       for (const raw of arr) {
         if (typeof raw !== "object" || raw === null) continue;
         if (!("model" in raw) || !("u" in raw) || !("v" in raw)) continue;
         const { model, u, v } = raw;
-        if (typeof model !== "string" || typeof u !== "number" || typeof v !== "number") {
-          continue;
-        }
+        if (typeof model !== "string" || typeof u !== "number" || typeof v !== "number") continue;
         const entry: Entry = {
           model,
           u,
@@ -385,92 +480,194 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
         };
         placed.push({ entry, node: spawn(entry), baked: false });
       }
-      refreshList();
+      refreshStatus();
     } catch {
       io.value = "!! invalid JSON";
     }
   });
 
-  const spawn = (entry: Entry): THREE.Object3D => {
-    const parts = entry.model.split("/");
-    const node = cache.instance(modelUrl(parts[0] ?? "props", parts[1] ?? ""));
-    node.scale.setScalar(entry.s);
-    node.rotation.y = entry.yaw;
-    const x = (entry.u - 0.5) * WORLD_W;
-    const z = (entry.v - 0.5) * WORLD_H;
-    node.position.set(x, city.heightAt(x, z), z);
-    game.scene.add(node);
-    return node;
-  };
-
-  // --- Pointer: ghost follows the terrain; a non-drag click places. ---
-  const dom = renderer.domElement;
-  let downAt: { x: number; y: number } | null = null;
-  dom.addEventListener("pointermove", (e) => {
-    if (roadTool !== "off" && (e.buttons & 1) === 1) {
-      const cell = groundCell(e);
-      if (cell) paintCell(cell[0], cell[1]);
-      return;
-    }
-    if (!ghost || !ground) return;
+  // --- Raycast helpers ---
+  const castFrom = (e: PointerEvent): void => {
     pointer.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
     raycaster.setFromCamera(pointer, camera);
-    const hits = raycaster.intersectObject(ground, false);
-    const hit = hits[0];
-    if (hit) {
-      ghostPos = hit.point;
-      ghost.position.set(ghostPos.x, city.heightAt(ghostPos.x, ghostPos.z), ghostPos.z);
-      ghostOnGround = true;
+  };
+  const groundPoint = (e: PointerEvent): THREE.Vector3 | null => {
+    if (!ground) return null;
+    castFrom(e);
+    const hit = raycaster.intersectObject(ground, false)[0];
+    return hit ? hit.point : null;
+  };
+  const groundCell = (e: PointerEvent): [number, number] | null => {
+    const p = groundPoint(e);
+    if (!p) return null;
+    return [Math.floor((p.x + WORLD_W / 2) / ROAD_TILE), Math.floor((p.z + WORLD_H / 2) / ROAD_TILE)];
+  };
+  const pickProp = (e: PointerEvent): Placed | null => {
+    castFrom(e);
+    const nodes: THREE.Object3D[] = [];
+    for (const p of placed) if (p.node) nodes.push(p.node);
+    if (nodes.length === 0) return null;
+    const hit = raycaster.intersectObjects(nodes, true)[0];
+    if (!hit) return null;
+    // Walk up to the placed root.
+    let cur: THREE.Object3D | null = hit.object;
+    while (cur) {
+      const found = placed.find((p) => p.node === cur);
+      if (found) return found;
+      cur = cur.parent;
     }
-  });
+    return null;
+  };
+
+  // --- Pointer flow ---
+  const dom = renderer.domElement;
   dom.addEventListener("pointerdown", (e) => {
-    if (roadTool !== "off" && e.button === 0) {
+    if (e.button !== 0) return;
+    if (mode === "street-paint" || mode === "street-erase") {
       const cell = groundCell(e);
-      if (cell) paintCell(cell[0], cell[1]);
+      if (cell) paintStreet(cell[0], cell[1], mode === "street-erase");
+      paintDrag = true;
       return;
     }
-    if (e.button === 0) downAt = { x: e.clientX, y: e.clientY };
+    if (mode === "floor") {
+      const cell = groundCell(e);
+      if (cell) paintFloor(cell[0], cell[1]);
+      paintDrag = true;
+      return;
+    }
+    // nav/place: picking an existing prop wins over placing a new one.
+    const hit = pickProp(e);
+    if (hit && hit.node) {
+      select(hit);
+      moveDrag = true;
+      controls.enabled = false;
+      return;
+    }
+    if (mode === "place" && ghost && ghostOnGround) {
+      stampAt(ghostPos.x, ghostPos.z);
+      stampLast = { x: ghostPos.x, z: ghostPos.z };
+      paintDrag = true;
+      controls.enabled = false;
+      return;
+    }
+    deselect();
   });
-  dom.addEventListener("pointerup", (e) => {
-    if (e.button !== 0 || !downAt) return;
-    const moved = Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y);
-    downAt = null;
-    if (moved > 5 || !ghost || !selected || !ghostOnGround) return;
-    const entry: Entry = {
-      model: `${selected.cat}/${selected.name}`,
-      u: Math.round((ghostPos.x / WORLD_W + 0.5) * 10000) / 10000,
-      v: Math.round((ghostPos.z / WORLD_H + 0.5) * 10000) / 10000,
-      yaw: Math.round(ghostYaw * 1000) / 1000,
-      s: Math.round(ghostScale * 100) / 100,
-    };
-    placed.push({ entry, node: spawn(entry), baked: false });
-    refreshList();
+  dom.addEventListener("pointermove", (e) => {
+    if (moveDrag && selected) {
+      const p = groundPoint(e);
+      if (p) moveSelected(p.x, p.z);
+      return;
+    }
+    if (paintDrag && (e.buttons & 1) === 1) {
+      if (mode === "street-paint" || mode === "street-erase") {
+        const cell = groundCell(e);
+        if (cell) paintStreet(cell[0], cell[1], mode === "street-erase");
+        return;
+      }
+      if (mode === "floor") {
+        const cell = groundCell(e);
+        if (cell) paintFloor(cell[0], cell[1]);
+        return;
+      }
+      if (mode === "place" && ghost && stampLast) {
+        const p = groundPoint(e);
+        if (p) {
+          const box = new THREE.Box3().setFromObject(ghost);
+          const spacing = Math.max(2.4, (box.max.x - box.min.x) * 1.1);
+          if (Math.hypot(p.x - stampLast.x, p.z - stampLast.z) >= spacing) {
+            stampAt(p.x, p.z);
+            stampLast = { x: p.x, z: p.z };
+          }
+        }
+      }
+    }
+    if (mode === "place" && ghost) {
+      const p = groundPoint(e);
+      if (p) {
+        ghostPos = p;
+        ghost.position.set(p.x, city.heightAt(p.x, p.z), p.z);
+        ghostOnGround = true;
+      }
+    }
+  });
+  dom.addEventListener("pointerup", () => {
+    paintDrag = false;
+    moveDrag = false;
+    stampLast = null;
+    controls.enabled = true;
   });
 
+  // --- Keyboard ---
   window.addEventListener("keydown", (e) => {
     const k = e.key.toLowerCase();
+    // WASD / arrows pan the camera on the ground plane.
+    const pan: readonly [number, number] | null =
+      k === "w" || k === "arrowup"
+        ? [0, -1]
+        : k === "s" || k === "arrowdown"
+          ? [0, 1]
+          : k === "a" || k === "arrowleft"
+            ? [-1, 0]
+            : k === "d" || k === "arrowright"
+              ? [1, 0]
+              : null;
+    if (pan) {
+      const dist = camera.position.distanceTo(controls.target);
+      const step = Math.max(6, dist * 0.05);
+      const fwd = new THREE.Vector3().subVectors(controls.target, camera.position);
+      fwd.y = 0;
+      fwd.normalize();
+      const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
+      const move = new THREE.Vector3()
+        .addScaledVector(right, pan[0] * step)
+        .addScaledVector(fwd, -pan[1] * step);
+      camera.position.add(move);
+      controls.target.add(move);
+      return;
+    }
     if (k === "q" || k === "e") {
-      ghostYaw += (k === "q" ? 1 : -1) * (Math.PI / 8);
-      if (ghost) ghost.rotation.y = ghostYaw;
+      const d = (k === "q" ? 1 : -1) * (Math.PI / 8);
+      if (selected && selected.node) {
+        selected.entry.yaw = Math.round((selected.entry.yaw + d) * 1000) / 1000;
+        selected.node.rotation.y = selected.entry.yaw;
+        selected.node.updateMatrixWorld(true);
+        selectedBox?.update();
+      } else {
+        ghostYaw += d;
+        if (ghost) ghost.rotation.y = ghostYaw;
+      }
       refreshStatus();
     } else if (k === "[" || k === "]") {
-      ghostScale = Math.max(0.1, Math.min(20, ghostScale * (k === "]" ? 1.15 : 1 / 1.15)));
-      if (ghost) ghost.scale.setScalar(ghostScale);
+      const f = k === "]" ? 1.15 : 1 / 1.15;
+      if (selected && selected.node) {
+        selected.entry.s = Math.round(Math.max(0.1, Math.min(20, selected.entry.s * f)) * 100) / 100;
+        selected.node.scale.setScalar(selected.entry.s);
+        selected.node.updateMatrixWorld(true);
+        selectedBox?.update();
+      } else {
+        ghostScale = Math.max(0.1, Math.min(20, ghostScale * f));
+        if (ghost) ghost.scale.setScalar(ghostScale);
+      }
       refreshStatus();
     } else if (k === "escape") {
-      clearGhost();
-      renderModels();
-    } else if (k === "backspace") {
-      const last = placed[placed.length - 1];
-      if (last && !last.baked) {
-        if (last.node) game.scene.remove(last.node);
-        placed.pop();
-        refreshList();
+      if (selected) deselect();
+      else if (ghost) {
+        clearGhost();
+        renderModels();
+      } else setMode("nav");
+    } else if (k === "delete" || k === "backspace") {
+      if (selected) deleteSelected();
+      else {
+        const last = placed[placed.length - 1];
+        if (last && !last.baked) {
+          if (last.node) game.scene.remove(last.node);
+          placed.pop();
+          refreshStatus();
+        }
       }
     }
   });
 
-  // MapControls with damping off needs no per-frame update; the game loop
-  // keeps rendering and our freecam flag keeps its hands off the camera.
+  setMode("nav");
   void controls;
 }
