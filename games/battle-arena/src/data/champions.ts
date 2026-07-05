@@ -54,14 +54,14 @@ export type ChampDef = {
   weaponR?: string; // weapon model attached to handslot.r
   weaponL?: string; // weapon/shield attached to handslot.l
   cleaveTargets?: number; // max enemies a basic attack damages (default 3; rogue 1)
-  // Per-swing basic-attack rhythm, cycled by swingCount (parallel to the render
-  // ATTACK_SETS clips). A bigger `timeMult` slows that swing (its interval grows,
-  // so the clip plays more/at natural speed) and `dmgMult` scales its damage.
-  // `strikeFrac` overrides when the blade connects (fraction of the swing's
-  // interval) for a swing whose contact isn't near the default ~0.45 — e.g. a
-  // spin connects later. `aoe` (radius) makes that swing hit ALL enemies around
+  // Per-swing basic-attack rhythm, cycled by swingCount (parallel to the
+  // clip-timing ATTACK_SETS clips). A bigger `timeMult` slows that swing (its
+  // interval grows, so the clip plays more/at natural speed) and `dmgMult`
+  // scales its damage. `aoe` (radius) makes that swing hit ALL enemies around
   // (full damage, no cone/cap) — a spinning whirl. Omit → uniform 1× swing.
-  basicRhythm?: { timeMult: number; dmgMult: number; strikeFrac?: number; aoe?: number }[];
+  // WHEN the blade connects is not tuned here — it's measured per clip in
+  // data/clip-timing.ts (sim strike + render swing read the same table).
+  basicRhythm?: { timeMult: number; dmgMult: number; aoe?: number }[];
   rig?: "large"; // needs the Rig_Large clip library ("Large/" prefix)
   twoHanded?: boolean; // wields a 2H weapon: rests/idles two-handed (Melee_2H_Idle)
   scale?: number; // render scale multiplier (default 1)
@@ -115,7 +115,7 @@ export const CHAMPIONS: ChampDef[] = [
     basicRhythm: [
       { timeMult: 1, dmgMult: 1 },
       { timeMult: 1, dmgMult: 1 },
-      { timeMult: 1.92, dmgMult: 2.5, strikeFrac: 0.7, aoe: 4 }, // spin: whirls, hits all around
+      { timeMult: 1.92, dmgMult: 2.5, aoe: 4 }, // spin: whirls, hits all around
     ],
     tint: 0x4f86ff,
     blurb: "A walking wall. Stun, charge in, and spin the throne to bloody mulch.",
@@ -216,7 +216,7 @@ export const CHAMPIONS: ChampDef[] = [
       E: ab({ key: "E", name: "Smoke", effect: "rogue:E", targeting: "self", castRange: 0, manaCost: [0, 0, 0, 0], cooldown: [18, 16, 14, 12], values: { duration: [3, 3.5, 4, 4.5], speed: [22, 24, 26, 28] }, desc: "Vanish in smoke and slip away (breaks on attack)." }),
       R: ab({ key: "R", name: "Execute", effect: "rogue:R", targeting: "direction", castRange: 6, manaCost: [0, 0, 0], cooldown: [70, 62, 54], values: { damage: [220, 310, 400], execMult: [3, 3.25, 3.5], speed: [40, 40, 40] }, desc: "Blink-strike the enemy ahead — lethal to the wounded." }),
       DASH: ab({ key: "DASH", name: "Shadowstep", effect: "rogue:DASH", targeting: "dash", castRange: 8, manaCost: [0], cooldown: [5], maxRank: 1, values: { speed: [34], iframe: [0.26] }, desc: "Slip through shadow — briefly untargetable." }),
-      JUMP: ab({ key: "JUMP", name: "Deathfall", effect: "rogue:JUMP", targeting: "self", castRange: 5, manaCost: [0], cooldown: [7], maxRank: 1, values: { base: [110], perLevel: [10], radius: [1.8], slow: [20], slowDur: [0.75], freeze: [35] }, desc: "Plunge from above with both blades — a tight burst on landing." }),
+      JUMP: ab({ key: "JUMP", name: "Deathfall", effect: "rogue:JUMP", targeting: "self", castRange: 5, manaCost: [0], cooldown: [7], maxRank: 1, values: { base: [110], perLevel: [10], radius: [1.8], slow: [20], slowDur: [0.75] }, desc: "Plunge from above with both blades — a tight burst on landing." }),
     },
   },
   {
@@ -245,7 +245,7 @@ export const CHAMPIONS: ChampDef[] = [
       E: ab({ key: "E", name: "Iron Bastion", effect: "blackknight:E", targeting: "self", castRange: 0, manaCost: [0, 0, 0, 0], cooldown: [16, 15, 14, 13], values: { armor: [8, 12, 16, 20], hps: [30, 45, 60, 75], duration: [4, 4, 4, 4] }, desc: "Become the wall — armor up and mend while you march." }),
       R: ab({ key: "R", name: "Oblivion Slam", effect: "blackknight:R", targeting: "self", castRange: 0, manaCost: [0, 0, 0], cooldown: [70, 62, 54], values: { damage: [360, 500, 640], radius: [4.5, 5, 5.5], stun: [0.8, 1.0, 1.2], knockback: [8, 8, 8] }, desc: "Bring the hammer down — everything nearby is thrown and stunned." }),
       DASH: ab({ key: "DASH", name: "Dread March", effect: "blackknight:DASH", targeting: "dash", castRange: 7, manaCost: [0], cooldown: [6.5], maxRank: 1, values: { speed: [20], iframe: [0.24] }, desc: "Advance like doom — briefly unstoppable." }),
-      JUMP: ab({ key: "JUMP", name: "Dawnbreaker", effect: "blackknight:JUMP", targeting: "self", castRange: 5, manaCost: [0], cooldown: [9], maxRank: 1, values: { base: [100], perLevel: [9], radius: [3.0], stun: [0.4], freeze: [60] }, desc: "Leap and shatter the earth — a wide stunning slam." }),
+      JUMP: ab({ key: "JUMP", name: "Dawnbreaker", effect: "blackknight:JUMP", targeting: "self", castRange: 5, manaCost: [0], cooldown: [9], maxRank: 1, values: { base: [100], perLevel: [9], radius: [3.0], stun: [0.4] }, desc: "Leap and shatter the earth — a wide stunning slam." }),
     },
   },
   {

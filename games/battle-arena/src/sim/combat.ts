@@ -1,6 +1,8 @@
 // Damage pipeline, basic attacks, knockback, death/respawn, projectiles.
 import { CHAMP_BY_ID } from "../data/champions";
-import { MELEE_HALF_ANGLE, MELEE_OVERREACH } from "./combat-geometry";
+import { strikeMs, swingClip } from "../data/clip-timing";
+import { KEG_BLAST, PROP_COIN_CHANCE, PROP_COIN_GOLD, PROP_RESPAWN_MS, destructibleProps } from "../data/props";
+import { MELEE_HALF_ANGLE, MELEE_OVERREACH, RANGED_BASIC_HIT_RADIUS } from "./combat-geometry";
 import { ATTACK_VARIANCE, attackIntervalMs, respawnTime, type DamageType } from "../data/config";
 import { angleDelta, angleOf, norm, rand } from "./math";
 import {
@@ -18,10 +20,9 @@ import { awardCreepKill, awardKill } from "./economy";
 
 export const isEnemy = (a: Unit, b: Unit): boolean => a.team !== b.team;
 
-// Melee damage lands this fraction into the swing's interval — the blade-contact
-// point of a full (never-clipped) swing clip. One dial for hit-flash timing.
-const MELEE_STRIKE_FRAC = 0.45;
-const RANGED_WINDUP = 160; // arrow/bolt leaves as the bow/staff visually releases
+/** Anything a swing/blast can BREAK in addition to its real targets. */
+export const isBreakable = (u: Unit): boolean => u.kind === "prop" && u.alive;
+
 const MELEE_CLEAVE_CAP = 3; // max enemies a swing damages
 const MELEE_CLEAVE_FALLOFF = 0.5; // secondary targets take half — caps AoE DPS at ~2× single
 
@@ -31,10 +32,11 @@ function meleeReach(u: Unit): number {
 }
 
 const UNIFORM_SWING = { timeMult: 1, dmgMult: 1 };
-/** The rhythm step of the swing this unit most recently STARTED — paces the next
- *  swing (timeMult), weights its damage (dmgMult), and can override when its
- *  blade connects (strikeFrac). Uniform for creeps and champs with no rhythm. */
-function lastSwingStep(u: Unit): { timeMult: number; dmgMult: number; strikeFrac?: number; aoe?: number } {
+/** The rhythm step of the swing this unit most recently STARTED — paces the
+ *  next swing (timeMult) and weights its damage (dmgMult). Uniform for creeps
+ *  and champs with no rhythm. WHEN the swing connects comes from the clip's
+ *  measured contact frame (data/clip-timing.ts), not from here. */
+function lastSwingStep(u: Unit): { timeMult: number; dmgMult: number; aoe?: number } {
   const rhythm = CHAMP_BY_ID[u.champId]?.basicRhythm;
   if (!rhythm || rhythm.length === 0 || u.swingCount < 1) return UNIFORM_SWING;
   return rhythm[(u.swingCount - 1) % rhythm.length] ?? UNIFORM_SWING;
@@ -73,36 +75,22 @@ export function resolveAttacks(w: World): void {
     u.swingCount++;
     u.facing = angleOf(u.aimX, u.aimY);
     breakStealth(u);
-    // Damage lands when the blade visually CONNECTS. Every swing clip is fit to
-    // its interval (render never clips it), so the strike is ~this fraction of
-    // the swing's interval — the hit + victim flash line up with the animation.
+    // Damage lands when the blade/shot visually CONNECTS: the render fits every
+    // swing clip inside its interval (never clipped), so the strike moment is
+    // the clip's measured contact frame — sim + render read the same table.
     const step = lastSwingStep(u);
-    const windup = u.attackType === "ranged" ? RANGED_WINDUP : baseInterval * step.timeMult * (step.strikeFrac ?? MELEE_STRIKE_FRAC);
+    const windup = strikeMs(swingClip(u.champId, u.swingCount), baseInterval * step.timeMult);
     u.pendingAttack = { resolveAt: w.now + windup };
 
-    // attacker lunge / kickback (never fight a real knockback): melee pounces
-    // into the swing; ranged shoulder-kicks against the shot
-    if (w.now >= u.kbUntil) {
-      const push = u.attackType === "ranged" ? -1.4 : 3.0;
-      u.kbx = Math.cos(u.facing) * push;
-      u.kby = Math.sin(u.facing) * push;
-      u.kbUntil = w.now + (u.attackType === "ranged" ? 120 : 140);
+    // melee pounces into the swing (ranged shoulder-kicks at the release —
+    // see doAttackHit; never fight a real knockback)
+    if (u.attackType === "melee" && w.now >= u.kbUntil) {
+      u.kbx = Math.cos(u.facing) * 3.0;
+      u.kby = Math.sin(u.facing) * 3.0;
+      u.kbUntil = w.now + 140;
     }
-
-    // Melee swing VFX is now a render-side weapon trail that traces the actual
-    // animated blade (see render/weapon-trail.ts) — so it always lines up with
-    // whichever swing clip plays. Only ranged still emits a muzzle-flash event.
-    if (u.attackType === "ranged") {
-      w.fx.push({
-        t: "swing",
-        x: u.x + Math.cos(u.facing) * 0.45,
-        y: u.y + Math.sin(u.facing) * 0.45,
-        ang: u.facing,
-        r: 0.8,
-        melee: false,
-        dtype: u.attackDamageType,
-      });
-    }
+    // (Melee swing VFX is a render-side weapon trail tracing the animated blade
+    // — see render/weapon-trail.ts. The ranged muzzle flash fires at release.)
   }
 }
 
@@ -118,19 +106,29 @@ function doAttackHit(w: World, u: Unit): void {
   const fy = Math.sin(u.facing);
 
   // a "spin" swing (rhythm aoe) whirls all the way around: every enemy inside
-  // the radius takes full damage, no cone or cleave cap.
+  // the radius takes full damage, no cone or cleave cap. Props shatter too.
   if (step.aoe && step.aoe > 0) {
     for (const t of w.units.values()) {
-      if (t === u || !t.alive || (t.kind !== "hero" && t.kind !== "creep")) continue;
-      if (!isEnemy(u, t) || isUntargetable(t)) continue;
+      if (t === u || !t.alive) continue;
+      if (t.kind === "hero" || t.kind === "creep") {
+        if (!isEnemy(u, t) || isUntargetable(t)) continue;
+      } else if (!isBreakable(t)) continue;
       if (Math.hypot(t.x - u.x, t.y - u.y) > step.aoe + t.radius) continue;
       dealDamage(w, u, t, raw, u.attackDamageType, { isAttack: true });
     }
-    w.fx.push({ t: "swing", x: u.x, y: u.y, ang: u.facing, r: step.aoe, melee: true, dtype: u.attackDamageType });
+    w.fx.push({ t: "strike", tag: "spin", x: u.x, y: u.y, dx: fx, dy: fy, r: step.aoe });
     return;
   }
 
   if (u.attackType === "ranged") {
+    // the shot leaves NOW — the release frame: muzzle flash + shoulder kick
+    // land on the same tick the arrow/bolt spawns
+    w.fx.push({ t: "swing", x: u.x + fx * 0.45, y: u.y + fy * 0.45, ang: u.facing, r: 0.8, melee: false, dtype: u.attackDamageType });
+    if (w.now >= u.kbUntil) {
+      u.kbx = fx * -1.4;
+      u.kby = fy * -1.4;
+      u.kbUntil = w.now + 120;
+    }
     spawnProjectile(w, u, {
       dirX: fx,
       dirY: fy,
@@ -139,6 +137,9 @@ function doAttackHit(w: World, u: Unit): void {
       kind: u.attackKind,
       speed: u.projectileSpeed,
       radius: 0,
+      // fatter collision on basics — ranged champs should land shots without
+      // pixel-perfect aim (abilities keep the tight default)
+      hitRadius: RANGED_BASIC_HIT_RADIUS,
       range: u.attackRange + 5,
       onHit: { tag: "none" },
       isAttack: true,
@@ -154,13 +155,19 @@ function doAttackHit(w: World, u: Unit): void {
   const cap = u.kind === "hero" ? (CHAMP_BY_ID[u.champId]?.cleaveTargets ?? MELEE_CLEAVE_CAP) : MELEE_CLEAVE_CAP;
   const hits: { t: Unit; d: number }[] = [];
   for (const t of w.units.values()) {
-    if (t === u || !t.alive || (t.kind !== "hero" && t.kind !== "creep")) continue;
-    if (!isEnemy(u, t) || isUntargetable(t)) continue;
+    if (t === u || !t.alive) continue;
     const rx = t.x - u.x;
     const ry = t.y - u.y;
     const d = Math.hypot(rx, ry);
     if (d > reach + t.radius) continue;
     if (d > 0.25 && Math.abs(angleDelta(u.facing, Math.atan2(ry, rx))) > MELEE_HALF_ANGLE) continue;
+    // props in the cone break for free — they never eat the cleave cap
+    if (isBreakable(t) && u.kind === "hero") {
+      dealDamage(w, u, t, raw, u.attackDamageType, { isAttack: true });
+      continue;
+    }
+    if (t.kind !== "hero" && t.kind !== "creep") continue;
+    if (!isEnemy(u, t) || isUntargetable(t)) continue;
     hits.push({ t, d });
   }
   hits.sort((a, b) => a.d - b.d || (a.t.id < b.t.id ? -1 : 1));
@@ -197,14 +204,16 @@ export function dealDamage(
   if (w.soloMercy && attacker?.isBot && !victim.isBot && victim.mercy > 0) {
     final *= 1 - 0.07 * victim.mercy;
   }
-  const heavy = final >= victim.maxHp * 0.18;
+  // props never crit (every hit would clear their 18% bar → gold-ring spam)
+  const heavy = victim.kind !== "prop" && final >= victim.maxHp * 0.18;
   const leftover = absorbShield(victim, final);
   victim.hp -= leftover;
   victim.lastHitAt = w.now;
 
   if (attacker) {
     victim.recentDamageFrom[attacker.ownerId] = w.now;
-    if (opts.isAttack && attacker.lifesteal > 0 && attacker.alive) {
+    // no lifesteal off the furniture
+    if (opts.isAttack && attacker.lifesteal > 0 && attacker.alive && victim.kind !== "prop") {
       attacker.hp = Math.min(attacker.maxHp, attacker.hp + leftover * attacker.lifesteal);
     }
   }
@@ -213,8 +222,7 @@ export function dealDamage(
   victim.lastHitDx = dir.x;
   victim.lastHitDy = dir.y;
   if (!opts.silentFx) {
-    w.fx.push({ t: "hit", x: victim.x, y: victim.y, dx: dir.x, dy: dir.y, dtype, by: attacker?.id ?? "", to: victim.id, crit: heavy });
-    w.fx.push({ t: "damage", x: victim.x, y: victim.y, amount: Math.round(final), dtype, by: attacker?.id ?? "", crit: heavy });
+    w.fx.push({ t: "hit", x: victim.x, y: victim.y, dx: dir.x, dy: dir.y, dtype, by: attacker?.id ?? "", to: victim.id, amount: Math.round(final), crit: heavy });
   }
 
   if (victim.hp <= 0) handleDeath(w, victim, attacker?.ownerId ?? null);
@@ -244,6 +252,11 @@ export function handleDeath(w: World, victim: Unit, killerId: string | null): vo
   victim.moveY = 0;
   victim.empowerNext = 0;
   victim.queuedCast = null;
+
+  if (victim.kind === "prop") {
+    breakProp(w, victim, killerId);
+    return;
+  }
   w.fx.push({ t: "death", x: victim.x, y: victim.y, team: victim.team, by: killerId ?? "" });
 
   if (victim.kind === "hero") {
@@ -266,6 +279,45 @@ export function handleDeath(w: World, victim: Unit, killerId: string | null): vo
   }
 }
 
+/** A destructible prop shatters: debris fx, maybe a keg blast (damages the
+ *  breaker's ENEMIES — herding foes onto kegs is the play), maybe a coin. */
+function breakProp(w: World, prop: Unit, killerId: string | null): void {
+  const spec = destructibleProps()[prop.slot];
+  prop.respawnAt = w.now + PROP_RESPAWN_MS;
+  w.fx.push({ t: "propBreak", x: prop.x, y: prop.y, model: prop.champId, explosive: spec?.explosive });
+
+  if (spec?.explosive) {
+    // the breaker owns the blast: it hurts THEIR enemies (and other props)
+    const breaker = killerId !== null ? [...w.units.values()].find((u) => u.kind === "hero" && u.ownerId === killerId) ?? null : null;
+    for (const t of w.units.values()) {
+      if (!t.alive || t === prop) continue;
+      const inRange = (t.x - prop.x) ** 2 + (t.y - prop.y) ** 2 <= (KEG_BLAST.radius + t.radius) ** 2;
+      if (!inRange) continue;
+      if (isBreakable(t)) {
+        dealDamage(w, breaker, t, KEG_BLAST.damage, "pure", {}); // chain-pop neighbors
+      } else if ((t.kind === "hero" || t.kind === "creep") && (!breaker || isEnemy(breaker, t)) && !isUntargetable(t)) {
+        dealDamage(w, breaker, t, KEG_BLAST.damage, "magic", {});
+        if (t.alive) applyKnockback(t, prop.x, prop.y, 5, w);
+      }
+    }
+    w.fx.push({ t: "explosion", x: prop.x, y: prop.y, radius: KEG_BLAST.radius, kind: "keg" });
+  }
+
+  // lucky drop: a small gold coin, claimable immediately
+  if (rand(w) < PROP_COIN_CHANCE) {
+    w.coins.push({
+      id: nextId(w, "coin"),
+      x: prop.x,
+      y: prop.y,
+      fromX: prop.x,
+      fromY: prop.y,
+      gold: PROP_COIN_GOLD,
+      landAt: w.now,
+      expireAt: w.now + 9000,
+    });
+  }
+}
+
 // ── Projectiles ──────────────────────────────────────────────────────────────
 export type SpawnProjArgs = {
   target?: Unit | null;
@@ -276,6 +328,7 @@ export type SpawnProjArgs = {
   kind: string;
   speed: number;
   radius: number; // splash
+  hitRadius?: number; // collision fatness (default 0.55)
   range: number;
   pierce?: boolean;
   isAttack?: boolean;
@@ -307,7 +360,7 @@ export function spawnProjectile(w: World, owner: Unit, a: SpawnProjArgs): void {
     damage: a.damage,
     dtype: a.dtype,
     radius: a.radius,
-    hitRadius: 0.55,
+    hitRadius: a.hitRadius ?? 0.55,
     pierce: a.pierce ?? false,
     isAttack: a.isAttack ?? false,
     hitIds: [],

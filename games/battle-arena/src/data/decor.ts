@@ -101,9 +101,8 @@ export function buildProceduralDecor(): Decor[] {
     const oy = Math.sin(ang);
     const tx = -Math.sin(ang);
     const ty = Math.cos(ang); // tangential
-    // existing stash: crates + broken altar + banner
-    add("crate_large", c.x + ox * 2.6, c.y + oy * 2.6, i, 0.85);
-    add("barrel_large", c.x + ox * 2.6 + oy * 1.0, c.y + oy * 2.6 - ox * 1.0, i * 2, 0.78);
+    // (the stash crates/barrels/kegs are DESTRUCTIBLE sim props now — see
+    //  data/props.ts; only the indestructible dressing stays decor)
     add("floor_foundation_corner", c.x - ox * 2.4, c.y - oy * 2.4, ang, 0.95); // broken altar
     add(i % 2 === 0 ? "banner_blue" : "banner_red", c.x - oy * 2.4, c.y + ox * 2.4, ang + Math.PI / 2, 0.9);
     // rubble ring (rubble_half is 3.5u tall natively — scale ~0.4 keeps the
@@ -134,15 +133,11 @@ export function buildProceduralDecor(): Decor[] {
       add("bucket_pickaxes", c.x + tx * 2.2, c.y + ty * 2.2, hash2(i, 23) * TAU, 0.95);
       add("rocks_small", c.x - tx * 2.0, c.y - ty * 2.0, hash2(i, 29) * TAU, 1.0);
     } else if (i === 3) {
-      // Cellar
-      add("keg", c.x + ox * 2.6 + tx * 0.8, c.y + oy * 2.6 + ty * 0.8, hash2(3, 31) * TAU, 0.9);
-      add("keg", c.x + ox * 2.6 - tx * 0.6, c.y + oy * 2.6 - ty * 0.6, hash2(4, 31) * TAU, 0.9);
-      add("crates_stacked", c.x - tx * 2.8, c.y - ty * 2.8, ang + 1.1, 0.85);
+      // Cellar (its keg hoard is destructible — data/props.ts)
     } else if (i === 4) {
-      // Woodstore: felled trunks + a keg by the stack
+      // Woodstore: felled trunks (its keg is destructible — data/props.ts)
       add("trunk_large_A", c.x + tx * 2.9, c.y + ty * 2.9, ang + 0.5, 1.0, true);
       add("trunk_large_A", c.x - ox * 2.7, c.y - oy * 2.7, ang - 0.9, 0.85, true);
-      add("keg_decorated", c.x + ox * 1.7 + tx * 2.4, c.y + oy * 1.7 + ty * 2.4, hash2(5, 37) * TAU, 0.9);
       add("rocks", c.x - tx * 2.2, c.y - ty * 2.2, hash2(7, 37) * TAU, 0.8);
     } else if (i === 5) {
       // Mimic den — the open-mouth silhouette faces approaching players
@@ -153,25 +148,15 @@ export function buildProceduralDecor(): Decor[] {
     }
   });
 
-  // ── BASE OUTPOSTS: just low supply crates flanking each spawn (the base
-  //    already has a torch + team banner; the spawn→wall gap is too tight for
-  //    a fort, and tall pieces would crowd the chase camera) ──
-  SPAWNS.forEach((s, i) => {
-    const ang = Math.atan2(s.y, s.x); // outward (== the edge normal)
-    const rx = -Math.sin(ang);
-    const ry = Math.cos(ang); // tangential (along the wall)
-    add("crate_large", s.x + rx * 3.4, s.y + ry * 3.4, i, 0.8);
-    add("barrel_large", s.x - rx * 3.4, s.y - ry * 3.4, i * 2, 0.78);
-  });
+  // (base-outpost supply crates are destructible sim props now — data/props.ts)
 
-  // ── PARTITION DRESSING: a barrel/rubble bit at one end of each cover run so
-  //    the free-standing stubs read as abandoned sub-room construction ──
+  // ── PARTITION DRESSING: rubble at one end of each cover run (the barrel/
+  //    crate that closed the other end is a destructible prop now) ──
   PARTITION_RUNS.forEach((run, i) => {
     const tx = Math.cos(run.dir);
     const ty = Math.sin(run.dir);
     const end = (run.offsets[run.offsets.length - 1] ?? 3) + 2.2;
     const side = i % 2 === 0 ? 1 : -1;
-    add(i % 3 === 0 ? "barrel_large" : "crate_large", run.x + tx * end * side, run.y + ty * end * side, hash2(i, 81) * TAU, 0.8);
     add("rubble_half", run.x - tx * end * side, run.y - ty * end * side, hash2(i, 82) * TAU, 0.34);
   });
 

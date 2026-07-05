@@ -8,6 +8,10 @@ export const MELEE_HALF_ANGLE = (5 * Math.PI) / 18;
 /** Basic melee reaches attackRange + this (a little cleave overreach). */
 export const MELEE_OVERREACH = 1.4;
 
+/** Ranged BASIC attack projectile collision radius — deliberately fatter than
+ *  the ability default (0.55) so autos land without pixel-perfect aim. */
+export const RANGED_BASIC_HIT_RADIUS = 0.95;
+
 /** rogue:Q Poison Lunge — corridor half-width along the lunge. */
 export const ROGUE_LUNGE_WIDTH = 1.4;
 /** rogue:W Rupture — corridor half-width of the gash. */

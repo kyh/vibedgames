@@ -3,58 +3,38 @@
 // animation clip from its unit state. Never mutates the sim.
 import * as THREE from "three";
 import { CHAMP_BY_ID } from "../data/champions";
+import { ABILITY_CLIPS, TWO_H_SPEED, clipSpeed, swingClip } from "../data/clip-timing";
 import { JUMP_MS, type DamageType } from "../data/config";
 import { BOSS_HEIGHT, BOSS_POS } from "../data/map";
-import type { AbilityKey, Projectile, Unit, World } from "../sim/types";
+import { destructibleProps, type PropSpec } from "../data/props";
+import type { Projectile, Unit, World } from "../sim/types";
+import { effectiveAttackSpeed } from "../sim/stats";
 import { AnimatedCharacter, ModelLibrary } from "./models";
 import { WeaponTrail, type TrailOverride } from "./weapon-trail";
 import { terrainHeight } from "../data/terrain";
 import { CHAMP_FX, type Fx } from "./fx";
+import { energyBallMaterial } from "./fx-shaders";
 import { applyDissolve, type DissolveHandle } from "./dissolve";
 import { StatusFx } from "./status-fx";
 import { groundFxColor } from "./telegraph";
 import { LOCAL_COLOR, teamColor } from "./palette";
 
-// Per-ability cast clips — uses the breadth of the KayKit library so each
-// ability reads distinctly (bash/spin/leap/blink/summon…), not one generic cast.
-// Garran (knight) wields a 2H greatsword — his combat clips are the Rig_Medium
-// Melee_2H_* set. The other melee champs keep their 1H / dualwield sets. DASH
-// (Shift roll) uses Dodge_Forward everywhere; JUMP (Space+click leaping strike)
-// plays each champ's attack/cast clip so the aerial hit reads as a real swing.
-const ABILITY_CLIPS: Record<string, Partial<Record<AbilityKey, string>>> = {
-  // JUMP is the airborne dive-strike → the 1H jump-chop for every champ.
-  knight: { Q: "Melee_2H_Attack_Slice", W: "Melee_2H_Attack_Chop", E: "Melee_Blocking", R: "Melee_2H_Attack_Spinning", DASH: "Dodge_Forward", JUMP: "Melee_1H_Attack_Jump_Chop" },
-  ranger: { Q: "Ranged_Bow_Release_Up", W: "Ranged_Bow_Release", E: "PickUp", R: "Ranged_Bow_Release_Up", DASH: "Dodge_Forward", JUMP: "Melee_1H_Attack_Jump_Chop" },
-  mage: { Q: "Ranged_Magic_Shoot", W: "Ranged_Magic_Raise", E: "Ranged_Magic_Shoot", R: "Ranged_Magic_Summon", DASH: "Dodge_Forward", JUMP: "Melee_1H_Attack_Jump_Chop" },
-  rogue: { Q: "Melee_Dualwield_Attack_Stab", W: "Melee_Dualwield_Attack_Slice", E: "Dodge_Backward", R: "Melee_Dualwield_Attack_Slice", DASH: "Dodge_Forward", JUMP: "Melee_1H_Attack_Jump_Chop" },
-  blackknight: { Q: "Melee_1H_Attack_Slice_Horizontal", W: "Melee_1H_Attack_Chop", E: "Melee_Blocking", R: "Melee_2H_Attack_Chop", DASH: "Dodge_Forward", JUMP: "Melee_1H_Attack_Jump_Chop" },
-  witch: { Q: "Ranged_Magic_Shoot", W: "Ranged_Magic_Summon", E: "Ranged_Magic_Raise", R: "Ranged_Magic_Raise", DASH: "Dodge_Forward", JUMP: "Melee_1H_Attack_Jump_Chop" },
-};
+// Clip choices + strike timing live in data/clip-timing.ts (ABILITY_CLIPS /
+// ATTACK_SETS / clipSpeed) — ONE table shared with the sim, so the damage tick
+// and the animation's contact frame can never drift apart.
 
 // 2H/hammer blades whose bbox longest-axis heuristic degenerates (the head is
 // wider than the shaft, so the ribbon sweeps sideways off the head instead of
 // tracing the swing). Force the swing axis + blade extents so the arc reads.
+// `base` = fraction up the weapon where the ribbon starts (skip the handle).
 const TRAIL_OVERRIDE: Record<string, TrailOverride> = {
-  paladin_hammer: { axis: "y", base: 0.15, tip: 1.15, opacity: 0.44 },
-  sword_2handed: { axis: "y", base: 0.2, tip: 1.0 },
-};
-
-// Basic-attack clip rotations — swings vary shot-to-shot instead of repeating.
-const ATTACK_SETS: Record<string, string[]> = {
-  knight: ["Melee_2H_Attack_Chop", "Melee_2H_Attack_Slice", "Melee_2H_Attack_Spin"],
-  rogue: ["Melee_Dualwield_Attack_Chop", "Melee_Dualwield_Attack_Slice"],
-  ranger: ["Ranged_Bow_Release"],
-  mage: ["Ranged_Magic_Shoot"],
-  blackknight: ["Melee_1H_Attack_Chop", "Melee_1H_Attack_Slice_Diagonal", "Melee_1H_Attack_Slice_Horizontal"],
-  witch: ["Ranged_Magic_Shoot"],
-  skwarrior: ["Melee_1H_Attack_Chop", "Melee_1H_Attack_Stab"],
-  skminion: ["Melee_Unarmed_Attack_Punch_A", "Melee_1H_Attack_Chop"],
-  skmage: ["Ranged_Magic_Shoot"],
-  frostgolem: ["Melee_2H_Attack", "Melee_2H_Slam", "Melee_Unarmed_Smash"], // native Large names
+  paladin_hammer: { axis: "y", base: 0.48, tip: 1.15, opacity: 0.62 }, // thin head — runs a touch hotter
+  sword_2handed: { axis: "y", base: 0.34, tip: 1.05 },
 };
 
 // KayKit medium characters face +Z; sim aim is (cos facing, sin facing) on (x,z).
 const MODEL_YAW = 0;
+
 
 // Per-weapon mount corrections (radians), applied to the instance before it
 // parents to the handslot bone. Most KayKit weapons are authored to sit right
@@ -70,21 +50,14 @@ function mountWeapon(obj: THREE.Object3D, name: string): void {
   obj.rotation.set(m.rx ?? 0, m.ry ?? 0, m.rz ?? 0);
 }
 
-// Animation timing (render only). Clips play at their NATURAL speed (timeScale
-// 1) — the same timings the character viewer shows — and each one-shot's window
-// is the clip's own length (clamped), so a swing/cast plays through its full
-// motion instead of being cut at the wind-up or sped up. When a faster attack
-// or a new cast arrives it interrupts naturally.
+// Animation timing (render only). Clips play at their NATURAL speed (or their
+// data/clip-timing speed override) and each one-shot's window is the clip's
+// own length (clamped), so a swing/cast plays through its full motion instead
+// of being cut at the wind-up. When a faster attack or a new cast arrives it
+// interrupts naturally.
 const ONE_SHOT_MIN_MS = 240; // floor so a very short clip still holds a beat
 const ONE_SHOT_CAP_MS = 2500; // ceiling so nothing locks the character forever
-// 2H greatsword/hammer swings play 1.5× faster than authored — snappier heavy
-// weapons. (The sim spin rhythm's timeMult is tuned to this — see champions.ts.)
-const TWO_H_SPEED = 1.5;
 const SPIN_LOOP_CLIP = "Melee_2H_Attack_Spinning"; // whirlwind ult — a looping channel
-/** Playback rate for a clip — 2H swings are sped up, everything else natural. */
-function clipSpeed(clip: string): number {
-  return clip.startsWith("Melee_2H_") ? TWO_H_SPEED : 1;
-}
 /** Natural one-shot window (ms) for a clip playing at `speed`: its own duration
  *  divided by the rate, clamped. */
 function clipWindowMs(durSec: number, speed = 1): number {
@@ -92,7 +65,7 @@ function clipWindowMs(durSec: number, speed = 1): number {
 }
 const ATTACK_RECENCY_MS = 340; // an attack event older than this is stale — skip
 const CAST_ANIM_MS = 520; // recency window for detecting a fresh cast event
-const HIT_ANIM_MS = 280;
+const HIT_ANIM_MS = 300; // flinch beat — Hit_A/B are SPED to fit (never cut)
 const HOP_HEIGHT = 2.8; // peak lift of the jump arc (world units) — a high, floaty hop
 // Jump animation is a 3-phase state machine: takeoff → airborne float → land.
 const JUMP_START_CLIP = "Jump_Start";
@@ -270,12 +243,14 @@ class UnitView {
       const wr = lib.instance(def.weaponR);
       mountWeapon(wr, def.weaponR);
       // a blade trail on the main weapon (melee only) — computed pre-attach so
-      // the blade segment is in local space. Tinted per champ (gold hammer vs
-      // steel greatsword) with a per-weapon axis override for the 2H/hammer bits.
+      // the blade segment is in local space. Tinted per champ with REAL color
+      // (a near-white tint reads as a plain white sheet once the hot edge is
+      // layered on top) + a per-weapon axis override for the 2H/hammer bits.
       const trailColor =
-        def.id === "blackknight" ? (isLocal ? 0xffe6a0 : 0xffd76a) // Aurelius — dawn gold
-        : def.id === "knight" ? (isLocal ? 0xeaf2ff : 0xdbe8ff) // Garran — steel white
-        : (isLocal ? 0xfff4d8 : 0xdbe8ff);
+        def.id === "blackknight" ? 0xffc24a // Aurelius — dawn gold
+        : def.id === "knight" ? 0x6a9aff // Garran — steel blue
+        : def.id === "rogue" ? 0xff7090 // Vesper — crimson
+        : 0x9fb8e0; // creeps — cold bone-steel
       const trail = def.attackType === "melee" ? new WeaponTrail(wr, trailColor, TRAIL_OVERRIDE[def.weaponR]) : null;
       if (this.char.attach(wr, "handslot.r")) {
         this.weapons.push(wr);
@@ -289,10 +264,16 @@ class UnitView {
     if (def.weaponL) {
       const wl = lib.instance(def.weaponL);
       mountWeapon(wl, def.weaponL);
+      // dual-wielders slash with BOTH blades — the off-hand gets its own ribbon
+      const trailL = def.attackType === "melee" && def.weaponR ? new WeaponTrail(wl, def.id === "rogue" ? 0xff7090 : 0x9fb8e0, TRAIL_OVERRIDE[def.weaponL]) : null;
       if (this.char.attach(wl, "handslot.l")) {
         this.weapons.push(wl);
         this.weaponMats.push(...cloneMats(wl, null));
-      }
+        if (trailL) {
+          this.trails.push(trailL);
+          this.scene.add(trailL.mesh);
+        }
+      } else trailL?.dispose();
     }
 
     // death dissolve — patched ONCE at construction on the per-instance mats
@@ -397,7 +378,7 @@ class UnitView {
       }
       this.statusFx?.update(u, dt, now); // clears status writes for the dissolve
       this.char.update(dt);
-      this.updateTrails(now, dt); // let any lingering trail fade out
+      this.updateTrails(dt); // let any lingering trail fade out
       return;
     }
     if (this.deadShown) {
@@ -448,35 +429,39 @@ class UnitView {
         // The whirlwind's clip is a LOOP (the `spinning` branch drives it) — don't
         // fire it as a one-shot here or it plays once and freezes.
         if (clip !== SPIN_LOOP_CLIP) {
-          const ts = clipSpeed(clip);
-          const winMs = clipWindowMs(ch.clipDuration(clip), ts); // natural (2H sped 1.5×)
+          const ts = clipSpeed(clip); // shared table — the sim's strike waits for this exact contact frame
+          const winMs = clipWindowMs(ch.clipDuration(clip), ts);
           ch.play(clip, { loop: false, fade: 0.06, timeScale: ts });
           this.oneShotUntil = now + winMs;
-          this.emitTrails(now, winMs); // weapon-trail ribbon on the ability swing
+          this.emitTrails(winMs); // weapon-trail ribbon on the ability swing
         }
       }
     } else if (u.lastAttackAt !== this.lastAttackShown) {
       this.lastAttackShown = u.lastAttackAt;
       if (now - u.lastAttackAt < ATTACK_RECENCY_MS) {
-        const set = ATTACK_SETS[this.def.id] ?? [attackClip(this.def)];
         // pick by the SYNCED swing counter so the clip matches the sim rhythm
-        // (the slow swing that hits harder plays its heavy clip)
-        const swing = Math.max(0, u.swingCount - 1);
-        const clip = set[swing % set.length]!;
+        // (the slow swing that hits harder plays its heavy clip). Same
+        // swingClip() call the sim used to schedule this swing's damage.
+        const clip = swingClip(this.def.id, u.swingCount);
         const clipDur = ch.clipDuration(clip);
         // NO SWING EVER CLIPS: speed each swing just enough that the WHOLE clip
         // plays within its actual interval (base rate × this swing's rhythm
         // timeMult — so a slowed swing like Vesper's plays at natural speed, and
-        // a fast one is sped to fit). 2H clips keep their 1.5× floor.
+        // a fast one is sped to fit). Mirrors sim/combat.ts strikeMs(): using
+        // the status-folded attack speed keeps the contact frame aligned even
+        // under Hunter's-Focus-style haste.
         const rhythm = CHAMP_BY_ID[this.def.id]?.basicRhythm;
+        const swing = Math.max(0, u.swingCount - 1);
         const timeMult = rhythm && rhythm.length ? (rhythm[swing % rhythm.length]?.timeMult ?? 1) : 1;
-        const intervalMs = (timeMult * 1000) / Math.max(0.1, u.attackSpeed);
+        const intervalMs = (timeMult * 1000) / Math.max(0.1, effectiveAttackSpeed(u));
         const ts = clipDur > 0 ? Math.max(clipSpeed(clip), (clipDur * 1000) / intervalMs) : clipSpeed(clip);
         const winMs = clipWindowMs(clipDur, ts);
         ch.play(clip, { loop: false, fade: 0.04, timeScale: ts });
         this.oneShotUntil = now + winMs;
-        this.emitTrails(now, winMs); // weapon-trail ribbon traces the blade
+        this.emitTrails(winMs); // weapon-trail ribbon traces the blade
         fx?.attackSound(this.def.id, u.x, u.y);
+        // (the slash VFX is the shader ribbon in weapon-trail.ts — it traces
+        // the real animated blade across the WHOLE swing; no billboard stamp)
       }
     }
     // get-hit flinch — when freshly damaged and not mid-swing/cast (throttled so
@@ -489,7 +474,10 @@ class UnitView {
         this.recoilZ = u.lastHitDy * 0.34;
       }
       if (!spinning && u.alive && now - u.lastHitAt < 180 && now >= this.oneShotUntil && now - this.lastFlinchAt > 420) {
-        ch.play(this.hitIdx++ % 2 ? "Hit_B" : "Hit_A", { loop: false, fade: 0.05 });
+        // fit the flinch clip INTO its short beat (sped, not cut)
+        const flinch = this.hitIdx++ % 2 ? "Hit_B" : "Hit_A";
+        const fts = Math.max(1, (ch.clipDuration(flinch) * 1000) / HIT_ANIM_MS);
+        ch.play(flinch, { loop: false, fade: 0.05, timeScale: fts });
         this.oneShotUntil = now + HIT_ANIM_MS;
         this.lastFlinchAt = now;
       }
@@ -512,9 +500,11 @@ class UnitView {
       const phase = remain <= JUMP_LAND_MS ? "land" : elapsed < JUMP_START_MS ? "start" : "idle";
       if (phase !== this.jumpPhase) {
         this.jumpPhase = phase;
-        if (phase === "start") ch.play(JUMP_START_CLIP, { loop: false, fade: 0.06 });
+        // takeoff/land clips are SPED to fit their airtime slice — the whole
+        // motion plays inside its phase instead of being chopped by the next
+        if (phase === "start") ch.play(JUMP_START_CLIP, { loop: false, fade: 0.06, timeScale: Math.max(1, (ch.clipDuration(JUMP_START_CLIP) * 1000) / JUMP_START_MS) });
         else if (phase === "idle") ch.play(JUMP_IDLE_CLIP, { loop: true, fade: 0.12 });
-        else ch.play(JUMP_LAND_CLIP, { loop: false, fade: 0.06 });
+        else ch.play(JUMP_LAND_CLIP, { loop: false, fade: 0.06, timeScale: Math.max(1, (ch.clipDuration(JUMP_LAND_CLIP) * 1000) / JUMP_LAND_MS) });
       }
     } else if (spinning) {
       ch.play(SPIN_LOOP_CLIP, { loop: true, fade: 0.1, timeScale: TWO_H_SPEED });
@@ -524,7 +514,7 @@ class UnitView {
       ch.play(locomotion(u, this.def.twoHanded ?? false), { fade: 0.16 });
     }
     ch.update(dt);
-    this.updateTrails(now, dt); // sample the blade AFTER the pose updates
+    this.updateTrails(dt); // sample the blade AFTER the pose updates
 
     // ── landing squash & stretch (volume-conserving, ~150ms recover) ──
     if (this.prevHop > 0.2 && hopY === 0) {
@@ -623,13 +613,13 @@ class UnitView {
   }
 
   /** Begin a weapon trail on every melee weapon for the next `dur` ms. */
-  private emitTrails(now: number, dur: number): void {
+  private emitTrails(dur: number): void {
     if (this.hexShown) return; // no blade arcs off a mushroom
-    for (const t of this.trails) t.emit(now, dur);
+    for (const t of this.trails) t.emit(dur);
   }
 
-  private updateTrails(now: number, dt: number): void {
-    for (const t of this.trails) t.update(now, dt);
+  private updateTrails(dt: number): void {
+    for (const t of this.trails) t.update(dt);
   }
 
   dispose(scene: THREE.Scene): void {
@@ -648,6 +638,50 @@ class UnitView {
     for (const m of this.weaponMats) m.dispose();
     this.ring.geometry.dispose();
     this.ringMat.dispose();
+  }
+}
+
+/** A destructible prop (barrel/crate/keg): the sim unit is authoritative for
+ *  alive/hp; this shows the model, a hit flash + squash bounce, and hides the
+ *  body on break (the shatter itself is the propBreak fx event). */
+class PropView {
+  readonly group = new THREE.Group();
+  private mats: THREE.MeshStandardMaterial[];
+  private baseScale: number;
+  private wasAlive = true;
+  private squash = 0;
+  private lastHitShown = -1;
+
+  constructor(scene: THREE.Scene, lib: ModelLibrary, u: Unit, spec: PropSpec | undefined) {
+    const inst = lib.instance(spec?.model ?? u.champId);
+    this.group.add(inst);
+    this.mats = cloneMats(inst, null);
+    this.baseScale = spec?.scale ?? 1;
+    this.group.position.set(u.x, terrainHeight(u.x, u.y), u.y);
+    this.group.rotation.y = spec?.rot ?? 0;
+    this.group.scale.setScalar(this.baseScale);
+    scene.add(this.group);
+  }
+
+  update(u: Unit, now: number, dt: number, fx: Fx | null): void {
+    if (!this.wasAlive && u.alive) fx?.dust(u.x, u.y, 4); // respawn pop
+    this.wasAlive = u.alive;
+    this.group.visible = u.alive;
+    if (!u.alive) return;
+    if (u.lastHitAt !== this.lastHitShown) {
+      this.lastHitShown = u.lastHitAt;
+      if (now - u.lastHitAt < 150) this.squash = 1;
+    }
+    this.squash *= Math.max(0, 1 - 8 * dt);
+    const bs = this.baseScale;
+    this.group.scale.set(bs * (1 + 0.1 * this.squash), bs * (1 - 0.16 * this.squash), bs * (1 + 0.1 * this.squash));
+    const flash = Math.max(0, 1 - (now - u.lastHitAt) / 110);
+    for (const m of this.mats) m.emissive.setRGB(flash, flash * 0.85, flash * 0.6);
+  }
+
+  dispose(scene: THREE.Scene): void {
+    scene.remove(this.group);
+    for (const m of this.mats) m.dispose();
   }
 }
 
@@ -677,6 +711,8 @@ function disposeMat(m: THREE.Material | THREE.Material[]): void {
 
 export class WorldView {
   private units = new Map<string, UnitView>();
+  private props = new Map<string, PropView>();
+  private propSpecs = destructibleProps(); // slot-indexed placement lookup
   private projectiles = new Map<string, THREE.Object3D>();
   private coins = new Map<string, THREE.Object3D>();
   private deliveries = new Map<string, THREE.Group>();
@@ -719,9 +755,20 @@ export class WorldView {
       if (g.effect === "whirlwind" && g.until > now) this.spinners.add(g.ownerId);
     }
 
-    // units (heroes + neutral creeps)
+    // units (heroes + neutral creeps + destructible props)
     const seen = new Set<string>();
+    const seenProps = new Set<string>();
     for (const u of w.units.values()) {
+      if (u.kind === "prop") {
+        seenProps.add(u.id);
+        let pv = this.props.get(u.id);
+        if (!pv) {
+          pv = new PropView(this.scene, this.lib, u, this.propSpecs[u.slot]);
+          this.props.set(u.id, pv);
+        }
+        pv.update(u, now, dt, this.fx);
+        continue;
+      }
       if (u.kind !== "hero" && u.kind !== "creep") continue;
       seen.add(u.id);
       let view = this.units.get(u.id);
@@ -740,6 +787,12 @@ export class WorldView {
         view.dispose(this.scene);
         this.units.delete(id);
         this.emberNext.delete(id);
+      }
+    }
+    for (const [id, pv] of this.props) {
+      if (!seenProps.has(id)) {
+        pv.dispose(this.scene);
+        this.props.delete(id);
       }
     }
 
@@ -783,7 +836,8 @@ export class WorldView {
         this.bossReturnAt = 0;
       } else if (!this.bossReturnAt && now >= this.bossNextTaunt) {
         this.boss.play("Skeletons_Taunt", { fade: 0.2, loop: false });
-        this.bossReturnAt = now + 2200;
+        // return to idle when the clip actually ends (don't freeze on its last frame)
+        this.bossReturnAt = now + this.boss.clipDuration("Skeletons_Taunt") * 1000;
         this.bossNextTaunt = now + 13000;
       }
     }
@@ -799,7 +853,7 @@ export class WorldView {
         this.seenCoins.add(c.id);
         if (now < c.landAt && this.boss) {
           this.boss.play("Throw", { fade: 0.08, loop: false });
-          this.bossReturnAt = now + 800;
+          this.bossReturnAt = now + this.boss.clipDuration("Throw") * 1000; // full wind-up, no cut
         } else if (c.loot) {
           this.fx?.impactRing(c.x, c.y, 0xffd24a, 1.0);
           this.fx?.sparks(c.x, 0.6, c.y, 0, 1, 5, 0xfff2b0);
@@ -950,58 +1004,51 @@ function projectileColor(kind: string): number {
     : 0xffffff;
 }
 
+// Projectile geometry/materials are SHARED per kind (projectiles churn fast —
+// per-instance allocations leaked GPU buffers since nothing disposed them).
+const PROJ_GEO = {
+  shaft: new THREE.CylinderGeometry(0.05, 0.05, 1.0, 6),
+  shard: new THREE.ConeGeometry(0.16, 1.1, 6),
+  sphere: new THREE.SphereGeometry(1, 12, 12),
+};
+const projMatCache = new Map<string, THREE.MeshBasicMaterial>();
+function projMat(key: string, make: () => THREE.MeshBasicMaterial): THREE.MeshBasicMaterial {
+  let m = projMatCache.get(key);
+  if (!m) {
+    m = make();
+    projMatCache.set(key, m);
+  }
+  return m;
+}
+function haloMat(color: number, opacity: number): THREE.MeshBasicMaterial {
+  return projMat(`halo:${color}:${opacity}`, () => new THREE.MeshBasicMaterial({ color, blending: THREE.AdditiveBlending, transparent: true, opacity, depthWrite: false }));
+}
+
 function makeProjectileMesh(p: Projectile): THREE.Object3D {
   const color = projectileColor(p.kind);
   const g = new THREE.Group();
-  const coreR = p.kind === "fireball" ? 0.34 : 0.18;
 
   if (p.kind === "arrow") {
-    const shaft = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.05, 0.05, 1.0, 6),
-      new THREE.MeshBasicMaterial({ color: 0xcfa15a }),
-    );
+    const shaft = new THREE.Mesh(PROJ_GEO.shaft, projMat("shaft", () => new THREE.MeshBasicMaterial({ color: 0xcfa15a })));
     shaft.rotation.x = Math.PI / 2;
-    g.add(shaft);
-    const tip = new THREE.Mesh(
-      new THREE.SphereGeometry(0.13, 8, 8),
-      new THREE.MeshBasicMaterial({ color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }),
-    );
+    const tip = new THREE.Mesh(PROJ_GEO.sphere, haloMat(color, 1));
+    tip.scale.setScalar(0.13);
     tip.position.z = 0.5;
-    g.add(tip);
+    g.add(shaft, tip);
   } else if (p.kind === "bolt") {
     // bone spear — an elongated glowing shard along its travel direction
-    const shard = new THREE.Mesh(
-      new THREE.ConeGeometry(0.16, 1.1, 6),
-      new THREE.MeshBasicMaterial({ color, transparent: true, blending: THREE.AdditiveBlending, opacity: 0.95, depthWrite: false }),
-    );
+    const shard = new THREE.Mesh(PROJ_GEO.shard, haloMat(color, 0.95));
     shard.rotation.x = Math.PI / 2; // point along +z (velocity)
-    g.add(shard);
-    const glow = new THREE.Mesh(
-      new THREE.SphereGeometry(0.28, 10, 10),
-      new THREE.MeshBasicMaterial({ color, transparent: true, blending: THREE.AdditiveBlending, opacity: 0.3, depthWrite: false }),
-    );
-    g.add(glow);
-  } else if (p.kind === "hexbolt") {
-    // witch's curdled wisp — a small hot core wrapped in a bog-green halo
-    const core = new THREE.Mesh(
-      new THREE.SphereGeometry(0.14, 10, 10),
-      new THREE.MeshBasicMaterial({ color: new THREE.Color(1.2, 2.2, 1.3), blending: THREE.AdditiveBlending, transparent: true, opacity: 0.95, depthWrite: false }),
-    );
-    const halo = new THREE.Mesh(
-      new THREE.SphereGeometry(0.32, 10, 10),
-      new THREE.MeshBasicMaterial({ color, blending: THREE.AdditiveBlending, transparent: true, opacity: 0.4, depthWrite: false }),
-    );
-    g.add(core, halo);
+    const glow = new THREE.Mesh(PROJ_GEO.sphere, haloMat(color, 0.3));
+    glow.scale.setScalar(0.28);
+    g.add(shard, glow);
   } else {
-    // bright core (HDR >1 so it blooms) + soft additive halo (energy/magic glow)
-    const core = new THREE.Mesh(
-      new THREE.SphereGeometry(coreR, 12, 12),
-      new THREE.MeshBasicMaterial({ color: new THREE.Color(2.0, 2.0, 2.2), blending: THREE.AdditiveBlending, transparent: true, opacity: 0.95, depthWrite: false }),
-    );
-    const halo = new THREE.Mesh(
-      new THREE.SphereGeometry(coreR * 2.1, 12, 12),
-      new THREE.MeshBasicMaterial({ color, blending: THREE.AdditiveBlending, transparent: true, opacity: 0.4, depthWrite: false }),
-    );
+    // boiling energy core (fbm shader surface, HDR — blooms) + additive halo
+    const coreR = p.kind === "fireball" ? 0.38 : 0.2;
+    const core = new THREE.Mesh(PROJ_GEO.sphere, energyBallMaterial(color));
+    core.scale.setScalar(coreR);
+    const halo = new THREE.Mesh(PROJ_GEO.sphere, haloMat(color, 0.35));
+    halo.scale.setScalar(coreR * 1.9);
     g.add(core, halo);
   }
   return g;

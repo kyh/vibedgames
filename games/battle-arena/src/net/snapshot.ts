@@ -9,6 +9,7 @@ import type {
   Coin,
   Delivery,
   GroundEffect,
+  PendingStrike,
   Projectile,
   Unit,
   World,
@@ -31,6 +32,7 @@ export type Snapshot = {
   units: Record<string, Unit>;
   projectiles: Record<string, Projectile>;
   grounds: GroundEffect[];
+  strikes: PendingStrike[];
   coins: Coin[];
   deliveries: Delivery[];
   boss: BossState;
@@ -54,6 +56,7 @@ export function encodeWorld(w: World): Snapshot {
     units: Object.fromEntries(w.units),
     projectiles: Object.fromEntries(w.projectiles),
     grounds: w.grounds,
+    strikes: w.strikes,
     coins: w.coins,
     deliveries: w.deliveries,
     boss: w.boss,
@@ -72,6 +75,7 @@ export function emptyGuestWorld(): World {
     units: new Map(),
     projectiles: new Map(),
     grounds: [],
+    strikes: [],
     coins: [],
     deliveries: [],
     boss: { x: BOSS_POS.x, y: BOSS_POS.y, hp: 4000, maxHp: 4000, alive: true },
@@ -112,6 +116,7 @@ export function applySnapshot(w: World, s: Snapshot): void {
   rebuildMap(w.units, s.units);
   rebuildMap(w.projectiles, s.projectiles);
   w.grounds = s.grounds ?? [];
+  w.strikes = s.strikes ?? [];
   w.coins = s.coins ?? [];
   w.deliveries = s.deliveries ?? [];
   w.boss = s.boss ?? w.boss;

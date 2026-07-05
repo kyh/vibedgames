@@ -18,6 +18,7 @@ import {
 } from "../data/config";
 import { ITEM_BY_ID, MAX_ITEMS } from "../data/items";
 import { BOSS_POS, CAMPS, SPAWNS, clampToArena, resolveObstacles, type CampSpec } from "../data/map";
+import { PROP_RESPAWN_MS, destructibleProps } from "../data/props";
 import { resolveElevation } from "./elevation";
 import { ABILITY_KEYS, type Unit, type World, nextId } from "./types";
 import { effectiveMoveSpeed, expireStatuses, isDisabled, isRooted, recomputeStats } from "./stats";
@@ -31,7 +32,7 @@ const BOT_CHAMPS = ["knight", "ranger", "mage", "rogue", "blackknight", "witch"]
 
 export function createWorld(seed: number, opts: { soloMercy?: boolean } = {}): World {
   const boss = { x: BOSS_POS.x, y: BOSS_POS.y, hp: 4000, maxHp: 4000, alive: true };
-  return {
+  const w: World = {
     now: 0,
     gameTime: 0,
     phase: "playing",
@@ -43,6 +44,7 @@ export function createWorld(seed: number, opts: { soloMercy?: boolean } = {}): W
     units: new Map(),
     projectiles: new Map(),
     grounds: [],
+    strikes: [],
     coins: [],
     deliveries: [],
     boss,
@@ -54,6 +56,25 @@ export function createWorld(seed: number, opts: { soloMercy?: boolean } = {}): W
     seq: 0,
     rngState: seed >>> 0 || 1,
   };
+  spawnProps(w);
+  return w;
+}
+
+/** Spawn the destructible props (host-side; guests receive them in snapshots).
+ *  unit.slot = the spec index so the renderer can look the placement back up. */
+function spawnProps(w: World): void {
+  destructibleProps().forEach((spec, i) => {
+    const u: Unit = {
+      ...blankCombatant(nextId(w, "prop"), "prop", NEUTRAL_TEAM, "neutral", spec.model, spec.model),
+      slot: i,
+      x: spec.x,
+      y: spec.y,
+      radius: spec.radius,
+      hp: spec.hp,
+      maxHp: spec.hp,
+    };
+    w.units.set(u.id, u);
+  });
 }
 
 export type SpawnArgs = {
@@ -66,25 +87,24 @@ export type SpawnArgs = {
   slot: number;
 };
 
-/** Create a hero unit at its base spawn, fully statted and alive. */
-export function spawnHero(w: World, args: SpawnArgs): Unit {
-  const def = CHAMP_BY_ID[args.champId] ?? CHAMP_BY_ID["knight"]!;
-  const sp = SPAWNS[args.slot % SPAWNS.length]!;
-  const u: Unit = {
-    id: args.id,
-    kind: "hero",
-    team: args.team,
-    ownerId: args.ownerId,
-    champId: def.id,
-    isBot: args.isBot,
-    name: args.name,
-    slot: args.slot,
-    x: sp.x,
-    y: sp.y,
+/** A fully-zeroed Unit skeleton — the ONE place the 60-field literal lives.
+ *  Spawners spread real stats over it. */
+function blankCombatant(id: string, kind: Unit["kind"], team: string, ownerId: string, champId: string, name: string): Unit {
+  return {
+    id,
+    kind,
+    team,
+    ownerId,
+    champId,
+    isBot: true,
+    name,
+    slot: 0,
+    x: 0,
+    y: 0,
     vx: 0,
     vy: 0,
-    facing: sp.facing,
-    radius: def.radius ?? 0.62,
+    facing: 0,
+    radius: 0.6,
     alive: true,
     hp: 1,
     maxHp: 1,
@@ -92,26 +112,26 @@ export function spawnHero(w: World, args: SpawnArgs): Unit {
     baseDamage: 0,
     armor: 0,
     magicResist: 0,
-    attackType: def.attackType,
-    attackKind: def.attackKind,
-    attackDamageType: def.attackDamageType,
+    attackType: "melee",
+    attackKind: "melee",
+    attackDamageType: "physical",
     attackRange: 0,
     attackSpeed: 1,
-    moveSpeed: 6,
+    moveSpeed: 0,
     projectileSpeed: 0,
     abilityPower: 0,
     lifesteal: 0,
-    attr: { ...def.attr },
+    attr: { str: 0, agi: 0, int: 0 },
     level: 1,
     xp: 0,
-    gold: STARTING_GOLD,
+    gold: 0,
     abilities: {
-      Q: { rank: 1, readyAt: 0 },
-      W: { rank: 1, readyAt: 0 },
-      E: { rank: 1, readyAt: 0 },
+      Q: { rank: 0, readyAt: 0 },
+      W: { rank: 0, readyAt: 0 },
+      E: { rank: 0, readyAt: 0 },
       R: { rank: 0, readyAt: 0 },
-      DASH: { rank: 1, readyAt: 0 },
-      JUMP: { rank: 1, readyAt: 0 },
+      DASH: { rank: 0, readyAt: 0 },
+      JUMP: { rank: 0, readyAt: 0 },
     },
     items: [],
     itemReadyAt: {},
@@ -130,8 +150,8 @@ export function spawnHero(w: World, args: SpawnArgs): Unit {
     steerVy: 0,
     moveX: 0,
     moveY: 0,
-    aimX: Math.cos(sp.facing),
-    aimY: Math.sin(sp.facing),
+    aimX: 0,
+    aimY: 1,
     attackHeld: false,
     kbx: 0,
     kby: 0,
@@ -147,6 +167,37 @@ export function spawnHero(w: World, args: SpawnArgs): Unit {
     assists: 0,
     killStreak: 0,
     mercy: 0,
+  };
+}
+
+/** Create a hero unit at its base spawn, fully statted and alive. */
+export function spawnHero(w: World, args: SpawnArgs): Unit {
+  const def = CHAMP_BY_ID[args.champId] ?? CHAMP_BY_ID["knight"]!;
+  const sp = SPAWNS[args.slot % SPAWNS.length]!;
+  const u: Unit = {
+    ...blankCombatant(args.id, "hero", args.team, args.ownerId, def.id, args.name),
+    isBot: args.isBot,
+    slot: args.slot,
+    x: sp.x,
+    y: sp.y,
+    facing: sp.facing,
+    radius: def.radius ?? 0.62,
+    attackType: def.attackType,
+    attackKind: def.attackKind,
+    attackDamageType: def.attackDamageType,
+    moveSpeed: 6,
+    attr: { ...def.attr },
+    gold: STARTING_GOLD,
+    abilities: {
+      Q: { rank: 1, readyAt: 0 },
+      W: { rank: 1, readyAt: 0 },
+      E: { rank: 1, readyAt: 0 },
+      R: { rank: 0, readyAt: 0 },
+      DASH: { rank: 1, readyAt: 0 },
+      JUMP: { rank: 1, readyAt: 0 },
+    },
+    aimX: Math.cos(sp.facing),
+    aimY: Math.sin(sp.facing),
   };
   recomputeStats(u);
   u.hp = u.maxHp;
@@ -191,24 +242,13 @@ const CREEP_STATS: Record<string, CreepStat> = {
 export function spawnCreep(w: World, type: string, x: number, y: number, camp: { id: string; x: number; y: number }): void {
   const s = CREEP_STATS[type] ?? CREEP_STATS["skwarrior"]!;
   const u: Unit = {
-    id: nextId(w, "c"),
-    kind: "creep",
-    team: NEUTRAL_TEAM,
-    ownerId: "neutral",
-    champId: type,
-    isBot: true,
-    name: s.name ?? "Skeleton",
-    slot: 0,
+    ...blankCombatant(nextId(w, "c"), "creep", NEUTRAL_TEAM, "neutral", type, s.name ?? "Skeleton"),
     campId: camp.id,
     homeX: camp.x,
     homeY: camp.y,
     x,
     y,
-    vx: 0,
-    vy: 0,
-    facing: 0,
     radius: s.radius,
-    alive: true,
     hp: s.hp,
     maxHp: s.hp,
     hpRegen: s.hpRegen ?? 6,
@@ -222,47 +262,6 @@ export function spawnCreep(w: World, type: string, x: number, y: number, camp: {
     attackSpeed: s.attackSpeed,
     moveSpeed: s.moveSpeed,
     projectileSpeed: s.projectileSpeed,
-    abilityPower: 0,
-    lifesteal: 0,
-    attr: { str: 0, agi: 0, int: 0 },
-    level: 1,
-    xp: 0,
-    gold: 0,
-    abilities: { Q: { rank: 0, readyAt: 0 }, W: { rank: 0, readyAt: 0 }, E: { rank: 0, readyAt: 0 }, R: { rank: 0, readyAt: 0 }, DASH: { rank: 0, readyAt: 0 }, JUMP: { rank: 0, readyAt: 0 } },
-    items: [],
-    itemReadyAt: {},
-    lastAttackAt: 0,
-    swingCount: 0,
-    lastCastAt: 0,
-    lastCastKey: "",
-    lastHitAt: 0,
-    lastHitDx: 0,
-    lastHitDy: 0,
-    pendingAttack: null,
-    statuses: [],
-    recentDamageFrom: {},
-    queuedCast: null,
-    steerVx: 0,
-    steerVy: 0,
-    moveX: 0,
-    moveY: 0,
-    aimX: 0,
-    aimY: 1,
-    attackHeld: false,
-    kbx: 0,
-    kby: 0,
-    kbUntil: 0,
-    dashUntil: 0,
-    dashVx: 0,
-    dashVy: 0,
-    empowerNext: 0,
-    jumpUntil: 0,
-    respawnAt: 0,
-    kills: 0,
-    deaths: 0,
-    assists: 0,
-    killStreak: 0,
-    mercy: 0,
   };
   w.units.set(u.id, u);
 }
@@ -399,6 +398,12 @@ export function step(w: World, dt: number = SIM_DT): void {
   for (const u of w.units.values()) {
     expireStatuses(u, w.now);
     if (u.kind === "hero") tickHeroLifecycle(w, u, dt);
+    if (u.kind === "prop" && !u.alive && u.respawnAt > 0 && w.now >= u.respawnAt) {
+      u.alive = true;
+      u.hp = u.maxHp;
+      u.respawnAt = 0;
+      u.statuses = [];
+    }
     if (u.alive) regen(u, dt);
     pruneAssist(u, w.now);
   }
@@ -408,7 +413,7 @@ export function step(w: World, dt: number = SIM_DT): void {
   drainInputBuffers(w); // buffered casts fire the moment they're legal
 
   for (const u of w.units.values()) {
-    if (!u.alive || u.kind === "boss" || u.kind === "dummy") continue;
+    if (!u.alive || u.kind === "boss" || u.kind === "dummy" || u.kind === "prop") continue;
     moveUnit(w, u, dt);
   }
 
@@ -553,13 +558,17 @@ function moveUnit(w: World, u: Unit, dt: number): void {
   }
 }
 
-/** Boid push-apart so heroes don't stack on the throne. */
+/** Boid push-apart so heroes don't stack on the throne. Destructible props are
+ *  immovable — they shove the other body the full distance instead of moving. */
 function separation(w: World): void {
   const units = [...w.units.values()].filter((u) => u.alive && u.kind !== "boss");
   for (let i = 0; i < units.length; i++) {
     for (let j = i + 1; j < units.length; j++) {
       const a = units[i]!;
       const b = units[j]!;
+      const aProp = a.kind === "prop";
+      const bProp = b.kind === "prop";
+      if (aProp && bProp) continue; // pre-placed, never overlap
       const dx = b.x - a.x;
       const dy = b.y - a.y;
       const min = a.radius + b.radius;
@@ -567,10 +576,18 @@ function separation(w: World): void {
       if (d2 < min * min && d2 > 1e-6) {
         const d = Math.sqrt(d2);
         const push = (min - d) / d / 2;
-        a.x -= dx * push;
-        a.y -= dy * push;
-        b.x += dx * push;
-        b.y += dy * push;
+        if (aProp) {
+          b.x += dx * push * 2;
+          b.y += dy * push * 2;
+        } else if (bProp) {
+          a.x -= dx * push * 2;
+          a.y -= dy * push * 2;
+        } else {
+          a.x -= dx * push;
+          a.y -= dy * push;
+          b.x += dx * push;
+          b.y += dy * push;
+        }
       }
     }
   }

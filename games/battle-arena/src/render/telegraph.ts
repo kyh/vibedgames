@@ -20,16 +20,18 @@ import { terrainHeight } from "../data/terrain";
 import type { GroundEffect } from "../sim/types";
 
 /** Detonate-telegraph durations by effect (ms). Anything else falls back to 1200. */
-export const TELEGRAPH_MS: Record<string, number> = { meteor: 1200 };
+export const TELEGRAPH_MS: Record<string, number> = { meteor: 1200, smite: 450, nova: 400, vines: 500, hexring: 500 };
 
 const GROUND_COLORS: Record<string, number> = {
   meteor: 0xff4422,
-  frost: 0x7fd4ff,
+  nova: 0x7fd4ff, // mage W — frost detonation
   trap: 0x9affc0,
   rain: 0xffe08a,
   whirlwind: 0xffffff,
-  consecrate: 0xffd76a, // paladin W — steady gold, non-telegraph
+  smite: 0xffd76a, // paladin W — the pillar's landing mark
   brew: 0x7fe08a, // witch W — bubbling bog-green
+  vines: 0x6ab04a, // witch E — bog eruption
+  hexring: 0xb98ae0, // witch R — the sealing hex circle
 };
 
 /** Interior color for a ground-effect tag (shared with any zone-ambient fx). */

@@ -8,24 +8,24 @@
 // at the cast point; projectile is a travel line + splash (the sim spawns an
 // actual projectile — this shape is for drawing/reasoning only).
 import { valAt, type AbilityDef } from "../data/champions";
-import { MELEE_HALF_ANGLE, MELEE_OVERREACH, ROGUE_EXECUTE_ARC, ROGUE_GASH_WIDTH, ROGUE_LUNGE_WIDTH, WITCH_HEXBOLT_SPLASH } from "./combat-geometry";
+import { MELEE_HALF_ANGLE, MELEE_OVERREACH, RANGED_BASIC_HIT_RADIUS, ROGUE_EXECUTE_ARC, ROGUE_GASH_WIDTH, ROGUE_LUNGE_WIDTH, WITCH_HEXBOLT_SPLASH } from "./combat-geometry";
 
 export type HitShape =
   | { kind: "cone"; radius: number; half: number } // sector from the caster along aim
   | { kind: "corridor"; length: number; halfWidth: number } // rectangle from the caster along aim
   | { kind: "circleSelf"; radius: number } // circle centred on the caster
   | { kind: "circleAt"; radius: number } // circle at the cast point (aim, clamped to castRange)
-  | { kind: "projectile"; length: number; splash: number }; // travel line + impact splash
+  | { kind: "projectile"; length: number; splash: number; width?: number }; // travel line (width = collision fatness) + impact splash
 
 const deg2rad = (d: number): number => (d * Math.PI) / 180;
 
 /** Basic-attack hit shape(s) for a champ — the current swing decides which the
  *  caller shows (melee cleave cone; the spin's `aoe` whirl is a circleSelf).
- *  Ranged basics are a straight projectile line. */
+ *  Ranged basics are a straight fat-line projectile. */
 export function basicAttackShape(attackType: "melee" | "ranged", attackRange: number): HitShape {
   return attackType === "melee"
     ? { kind: "cone", radius: attackRange + MELEE_OVERREACH, half: MELEE_HALF_ANGLE }
-    : { kind: "projectile", length: attackRange + 5, splash: 0 };
+    : { kind: "projectile", length: attackRange + 5, splash: 0, width: RANGED_BASIC_HIT_RADIUS };
 }
 
 /** The hit geometry of an ability at `rank`. [] for pure-utility abilities
@@ -56,7 +56,9 @@ export function abilityShapes(def: AbilityDef, rank: number): HitShape[] {
     case "rogue:JUMP":
     case "blackknight:JUMP":
     case "witch:JUMP":
-      return [{ kind: "corridor", length: def.castRange, halfWidth: v("radius") }];
+      // the slam's blast reaches its radius past the touchdown point — the
+      // leap itself shoves bodies forward, so the corridor must outreach them
+      return [{ kind: "corridor", length: def.castRange + v("radius"), halfWidth: v("radius") }];
     // projectiles (travel line + splash)
     case "mage:Q":
       return [{ kind: "projectile", length: def.castRange, splash: v("radius") }];

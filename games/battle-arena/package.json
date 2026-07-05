@@ -8,6 +8,7 @@
     "clean": "rm -rf .turbo dist node_modules",
     "dev": "vite",
     "preview": "vite preview",
+    "test": "tsx tools/verify-timing.mts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -19,6 +20,7 @@
     "@kyh/tsconfig": "catalog:",
     "@types/node": "catalog:",
     "@types/three": "^0.184.0",
+    "tsx": "^4.22.3",
     "typescript": "catalog:",
     "vite": "catalog:"
   }

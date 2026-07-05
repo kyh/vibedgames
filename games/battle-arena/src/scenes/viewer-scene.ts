@@ -17,7 +17,8 @@
 // Loaded via dynamic import (own vite chunk) like the editor; owns its input
 // (orbit/zoom/pan camera written directly every frame — View.follow unused).
 import * as THREE from "three";
-import { CHAMPIONS, valAt, type ChampDef } from "../data/champions";
+import { CHAMPIONS, type ChampDef } from "../data/champions";
+import { ATTACK_SETS } from "../data/clip-timing";
 import { SIM_DT, LEVEL_CAP, XP_CURVE } from "../data/config";
 import { abilityIcon, attackIcon, champSigil } from "../data/icons";
 import { CAMPS } from "../data/map";
@@ -26,7 +27,7 @@ import { castAbility } from "../sim/abilities";
 import { abilityShapes, basicAttackShape, type HitShape } from "../sim/hit-shapes";
 import { dist, norm } from "../sim/math";
 import { recomputeStats } from "../sim/stats";
-import { ABILITY_KEYS, ALL_ABILITY_KEYS, type AbilityKey, type Unit, type World } from "../sim/types";
+import { ALL_ABILITY_KEYS, type AbilityKey, type Unit, type World } from "../sim/types";
 
 /** Key label for the ability row (⇧ dash / ␣ jump; number keys otherwise). */
 const VIEWER_KEYCAP: Partial<Record<AbilityKey, string>> = { DASH: "⇧", JUMP: "␣" };
@@ -96,13 +97,14 @@ function champEntry(def: ChampDef): RosterEntry {
   return e;
 }
 
-// Creep/boss look + attack clips mirror world-view's CREEP_VIEW / ATTACK_SETS
-// (replicated here so the viewer stays a leaf — no new exports from render).
+// Creep/boss looks mirror world-view's CREEP_VIEW; attack clip rotations come
+// straight from the shared data/clip-timing table (the boss has no sim entry —
+// its swing list is viewer-only).
 const CREEPS: RosterEntry[] = [
-  { id: "skwarrior", label: "Skeleton Warrior", sub: "camp creep", kind: "creep", model: "Skeleton_Warrior", attackClips: ["Melee_1H_Attack_Chop", "Melee_1H_Attack_Stab"] },
-  { id: "skmage", label: "Skeleton Mage", sub: "camp creep", kind: "creep", model: "Skeleton_Mage", weaponR: "Skeleton_Staff", attackClips: ["Ranged_Magic_Shoot"] },
-  { id: "skminion", label: "Skeleton Minion", sub: "camp creep", kind: "creep", model: "Skeleton_Minion", attackClips: ["Melee_Unarmed_Attack_Punch_A", "Melee_1H_Attack_Chop"] },
-  { id: "frostgolem", label: "Frost Golem", sub: "elite (Rig_Large)", kind: "creep", model: "FrostGolem", weaponR: "FrostGolem_Axe_Large", rig: "large", scale: 1.45, attackClips: ["Melee_2H_Attack", "Melee_2H_Slam", "Melee_Unarmed_Smash"] },
+  { id: "skwarrior", label: "Skeleton Warrior", sub: "camp creep", kind: "creep", model: "Skeleton_Warrior", attackClips: ATTACK_SETS["skwarrior"] ?? [] },
+  { id: "skmage", label: "Skeleton Mage", sub: "camp creep", kind: "creep", model: "Skeleton_Mage", weaponR: "Skeleton_Staff", attackClips: ATTACK_SETS["skmage"] ?? [] },
+  { id: "skminion", label: "Skeleton Minion", sub: "camp creep", kind: "creep", model: "Skeleton_Minion", attackClips: ATTACK_SETS["skminion"] ?? [] },
+  { id: "frostgolem", label: "Frost Golem", sub: "elite (Rig_Large)", kind: "creep", model: "FrostGolem", weaponR: "FrostGolem_Axe_Large", rig: "large", scale: 1.45, attackClips: ATTACK_SETS["frostgolem"] ?? [] },
   { id: "boss", label: "Skeleton Golem", sub: "throne boss (Rig_Large)", kind: "creep", model: "Skeleton_Golem", rig: "large", scale: 1.5, attackClips: ["Melee_2H_Slam", "Melee_2H_Attack"] },
 ];
 

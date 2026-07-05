@@ -7,6 +7,8 @@
 import * as THREE from "three";
 import type { FxEvent, GroundEffect, World } from "../sim/types";
 import { Audio } from "./audio";
+import { ChunkPool } from "./fx-chunks";
+import { energyBallMaterial, makeRingMaterial, makeSlashMaterial, makeVortexMaterial, tickFxShaders } from "./fx-shaders";
 import { HDR_BRIGHT, ParticlePools, type SpawnOptions } from "./fx-particles";
 import { Telegraphs, groundFxColor } from "./telegraph";
 import type { View } from "./view";
@@ -22,17 +24,23 @@ export const CHAMP_FX: Record<string, FxPalette> = {
   witch: { primary: 0x7fe08a, secondary: 0xb98ae0, accent: 0x4a7a3a }, // bog-green / hex-violet / moss
 };
 
-// ── mesh-pool sizing (transient draw-call budget: 16+4+8+4 = 32 worst case) ──
+// ── mesh-pool sizing (transient draw-call budget: 16+4+8+4+10 = 42 worst case) ──
 const RING_POOL = 16;
 const BEAM_POOL = 4;
 const CONE_POOL = 8; // flat sector fans + sector rims share this pool
 const DOME_POOL = 4;
+const SLASH_POOL = 10; // crescent sword arcs
 const BEAM_H = 7; // unit beam height the pool geometry is built at
 
-type Ring = { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; life: number; maxLife: number; maxR: number; opacity: number };
+type Ring = { mesh: THREE.Mesh; mat: THREE.ShaderMaterial; life: number; maxLife: number; maxR: number; opacity: number };
+// zone-driven set pieces (whirlwind vortex drum, falling meteor comet) —
+// created on first sight of a zone id, culled when the zone stops appearing.
+// ownMat: material to dispose on cull; null = shared/cached, leave it alone.
+type ZonePiece = { obj: THREE.Object3D; ownMat: THREE.Material | null; seenAt: number };
 type Beam = { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; life: number; maxLife: number; h: number; r: number };
 type ConeDecal = { pivot: THREE.Group; mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; life: number; maxLife: number; opacity: number; grow: number; s0: number };
 type Dome = { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; life: number; maxLife: number; opacity: number; r: number };
+type Slash = { pivot: THREE.Group; mesh: THREE.Mesh; mat: THREE.ShaderMaterial; life: number; maxLife: number };
 type Delayed = { at: number; run: () => void };
 type ZoneAnim = { next: number; next2: number; phase: number; seenAt: number };
 
@@ -63,13 +71,18 @@ function sp(x: number, y: number, z: number): SpawnOptions {
 export class Fx {
   readonly pools: ParticlePools;
   readonly telegraphs: Telegraphs;
+  readonly chunks: ChunkPool;
   private rings: Ring[] = [];
   private beams: Beam[] = [];
   private cones: ConeDecal[] = [];
   private domes: Dome[] = [];
+  private slashes: Slash[] = [];
   private coneGeoCache = new Map<number, THREE.CircleGeometry>();
   private rimGeoCache = new Map<number, THREE.RingGeometry>();
-  private ringGeo: THREE.RingGeometry;
+  private ringPlane = new THREE.PlaneGeometry(2, 2);
+  private zonePieces = new Map<string, ZonePiece>();
+  private vortexGeo = new THREE.CylinderGeometry(1, 0.72, 1, 20, 1, true);
+  private cometGeo = new THREE.SphereGeometry(1, 12, 12);
   private delayed: Delayed[] = [];
   private clock = 0; // accumulated REAL seconds (drives the delay queue)
   private nowMs = 0; // last-seen sim clock (w.now)
@@ -103,11 +116,12 @@ export class Fx {
   ) {
     this.pools = new ParticlePools(scene);
     this.telegraphs = new Telegraphs(scene);
-    this.ringGeo = new THREE.RingGeometry(0.78, 1, 40);
+    this.chunks = new ChunkPool(scene);
 
     for (let i = 0; i < RING_POOL; i++) {
-      const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false });
-      const mesh = new THREE.Mesh(this.ringGeo, mat);
+      // shader annulus: noise-broken rim + hot edge (see fx-shaders makeRingMaterial)
+      const mat = makeRingMaterial();
+      const mesh = new THREE.Mesh(this.ringPlane, mat);
       mesh.rotation.x = -Math.PI / 2;
       mesh.visible = false;
       scene.add(mesh);
@@ -129,6 +143,15 @@ export class Fx {
       pivot.visible = false;
       scene.add(pivot);
       this.cones.push({ pivot, mesh, mat, life: 0, maxLife: 1, opacity: 1, grow: 1, s0: 1 });
+    }
+    for (let i = 0; i < SLASH_POOL; i++) {
+      const mat = makeSlashMaterial();
+      const mesh = new THREE.Mesh(this.ringPlane, mat); // shared 2×2 quad
+      const pivot = new THREE.Group();
+      pivot.add(mesh);
+      pivot.visible = false;
+      scene.add(pivot);
+      this.slashes.push({ pivot, mesh, mat, life: 0, maxLife: 1 });
     }
     const domeGeo = new THREE.SphereGeometry(1, 14, 7, 0, Math.PI * 2, 0, Math.PI / 2);
     for (let i = 0; i < DOME_POOL; i++) {
@@ -182,12 +205,24 @@ export class Fx {
 
     // visuals advance on the freeze-scaled clock so impacts genuinely hang
     const vdt = dt * this.scaleNow();
+    tickFxShaders(vdt); // the shared shader clock freezes with everything else
     this.pools.update(vdt);
+    this.chunks.update(vdt);
     this.stepRings(vdt);
     this.stepBeams(vdt);
     this.stepCones(vdt);
     this.stepDomes(vdt);
+    this.stepSlashes(vdt);
     this.telegraphs.update(w.now);
+
+    // cull zone set pieces whose zone stopped appearing (ended/detonated)
+    for (const [id, p] of this.zonePieces) {
+      if (w.now - p.seenAt > 250) {
+        this.scene.remove(p.obj);
+        p.ownMat?.dispose();
+        this.zonePieces.delete(id);
+      }
+    }
 
     // prune stale zone-ambience throttles (zone ids are monotonic)
     if (this.clock >= this.zoneSweepAt) {
@@ -229,9 +264,10 @@ export class Fx {
         const heavy = e.crit ?? false;
         const mine = e.by !== "" && e.by === this.localId;
         const onMe = e.to === this.localId;
-        // de-escalated basics so abilities outrank them; heavies keep the works
-        this.flash(e.x, 1.1, e.y, 0xffffff, heavy ? 1.5 : 0.9, 2.2);
-        this.impactRing(e.x, e.y, color, heavy ? 2.1 : 1.3);
+        // de-escalated basics so abilities outrank them (and the slash arc stays
+        // readable THROUGH the impact); heavies keep the works
+        this.flash(e.x, 1.1, e.y, 0xffffff, heavy ? 1.2 : 0.55, heavy ? 2.2 : 1.4);
+        this.impactRing(e.x, e.y, color, heavy ? 2.1 : 1.2);
         this.sparks(e.x, 1.1, e.y, e.dx, e.dy, heavy ? 20 : 8, color);
         this.burst(e.x, 1.1, e.y, heavy ? 7 : 4, color, 5, 0.16);
         if (heavy) {
@@ -252,6 +288,21 @@ export class Fx {
           this.view.addTrauma(0.06 * this.att(e.x, e.y));
         }
         this.audio.hit(e.x, e.y, e.dtype);
+        this.hitNumber(e.x, e.y, e.amount, e.dtype, heavy, e.by);
+        break;
+      }
+      case "strike":
+        this.strikeFx(e.tag, e.x, e.y, e.dx, e.dy, e.r);
+        break;
+      case "propBreak": {
+        // wood/matter palette by model; the keg's blast rides its explosion event
+        const wood = e.model.includes("keg") ? 0x6a4a2a : e.model.includes("barrel") ? 0x7a5a34 : 0x8a6a40;
+        this.chunks.burst(e.x, e.y, e.model.includes("stacked") ? 10 : 7, wood, e.explosive ? 7 : 5);
+        this.dust(e.x, e.y, 4);
+        this.sparks(e.x, 0.7, e.y, 0, 1, 5, 0xd8c090);
+        this.impactRing(e.x, e.y, 0xc0a060, 1.4);
+        this.view.addTrauma(0.06 * this.att(e.x, e.y));
+        this.audio.hit(e.x, e.y, "physical");
         break;
       }
       case "swing": {
@@ -264,37 +315,55 @@ export class Fx {
         this.sparks(e.x, 1.1, e.y, dx, dy, 7, c);
         break;
       }
-      case "damage":
-        this.hitNumber(e.x, e.y, Math.round(e.amount), e.dtype, e.crit ?? false, e.by);
-        break;
       case "explosion": {
         const color =
-          e.kind === "frost" ? 0x7fd4ff
+          e.kind === "nova" ? 0x7fd4ff
           : e.kind === "meteor" ? 0xff5a2c
           : e.kind === "trap" ? 0x9affc0
-          : e.kind === "execute" ? 0xff3060
-          : e.kind === "hex" ? 0x7fe08a
+          : e.kind === "vines" ? 0x4a7a3a
+          : e.kind === "smite" ? 0xffd76a
+          : e.kind === "hexring" ? 0x7fe08a
+          : e.kind === "keg" ? 0xffb050
           : 0xffa030;
         const big = e.kind === "meteor";
         this.flash(e.x, 0.9, e.y, 0xffffff, big ? 2.4 : 1.5, 2.4);
         this.burst(e.x, 0.8, e.y, big ? 26 : 16, color, big ? 9 : 7, 0.5);
         this.shockwave(e.x, e.y, color, e.radius);
-        if (e.kind === "frost") {
-          this.fountain(e.x, e.y, 10, 0x9fe8ff); // icy shards up
-          this.telegraphs.spawnResidue(e.x, e.y, e.radius * 0.85, 0x7fd4ff, 1.2);
-        } else if (e.kind === "hex") {
-          // hex burst + spore ring: violet implosion, green spore puffs
-          this.implode(e.x, e.y, 0xb98ae0, e.radius, 10, 0.24);
-          this.shockwave(e.x, e.y, 0x7fe08a, e.radius, 0.5, 0.7);
-          this.debris(e.x, e.y, 5, 0x4a7a3a);
-        } else if (big) {
-          // meteor: the full anatomy — flash → blast → pillar → debris → scorch
-          this.beam(e.x, e.y, 0xff8040, 9, 1.2);
-          this.debris(e.x, e.y, 6, 0x804030);
-          this.smoke(e.x, e.y, 8);
-          this.telegraphs.spawnResidue(e.x, e.y, e.radius * 0.8, 0x1a0f0a, 4);
-        } else {
-          this.smoke(e.x, e.y, 5);
+        switch (e.kind) {
+          case "nova": // frost ring detonation: icy shards + a cold stain
+            this.fountain(e.x, e.y, 10, 0x9fe8ff);
+            this.telegraphs.spawnResidue(e.x, e.y, e.radius * 0.85, 0x7fd4ff, 1.2);
+            break;
+          case "hexring": // grand hex seals: violet implosion, green spore puffs
+            this.implode(e.x, e.y, 0xb98ae0, e.radius, 10, 0.24);
+            this.shockwave(e.x, e.y, 0x7fe08a, e.radius, 0.5, 0.7);
+            this.debris(e.x, e.y, 5, 0x4a7a3a);
+            break;
+          case "vines": // bog grasp erupts: vine burst up out of the muck
+            this.fountain(e.x, e.y, 12, 0x7fe08a);
+            this.debris(e.x, e.y, 5, 0x2c4a24);
+            this.telegraphs.spawnResidue(e.x, e.y, e.radius * 0.8, 0x203018, 1.6);
+            break;
+          case "smite": // consecrating smite: the holy pillar lands HERE
+            this.beam(e.x, e.y, 0xffd76a, 8, 1.1);
+            this.sparks(e.x, 0.4, e.y, 0, 1, 10, 0xfff2c0);
+            this.crossGlint(e.x, 2.0, e.y, 1, 0, 0xfff2c0, 1.3);
+            break;
+          case "meteor": // the full anatomy — flash → blast → pillar → debris → scorch
+            this.beam(e.x, e.y, 0xff8040, 9, 1.2);
+            this.debris(e.x, e.y, 6, 0x804030);
+            this.chunks.burst(e.x, e.y, 8, 0x5a2a18, 8);
+            this.smoke(e.x, e.y, 8);
+            this.telegraphs.spawnResidue(e.x, e.y, e.radius * 0.8, 0x1a0f0a, 4);
+            break;
+          case "keg": // powder keg — fireball + scorch + a chain-pop beat
+            this.burst(e.x, 0.8, e.y, 8, 0xff8040, 7, 0.4);
+            this.smoke(e.x, e.y, 6);
+            this.telegraphs.spawnResidue(e.x, e.y, e.radius * 0.7, 0x1a0f0a, 3);
+            if (this.within(e.x, e.y, 12)) this.bumpFreeze(40);
+            break;
+          default:
+            this.smoke(e.x, e.y, 5);
         }
         this.view.addTrauma((big ? 0.5 : 0.22) * this.att(e.x, e.y));
         if (big && this.within(e.x, e.y, 14)) this.bumpFreeze(70);
@@ -429,39 +498,41 @@ export class Fx {
     }
   }
 
-  // ── per-ability signature casts (6 champs × QWER, layered A/C/S/L) ──
+  // ── per-ability signature casts — the ANTICIPATION layer (wind-up, launch,
+  //    channel). Impact fx for damaging abilities fire on the `strike` event
+  //    when the blade/slam actually connects — see strikeFx(). ──
   private signatureCast(tag: string, x: number, y: number, dx: number, dy: number): void {
     switch (tag) {
       // KNIGHT — heavy steel, white-hot edges
-      case "knight:Q": this.sectorRim(x, y, dx, dy, 0xeaf2ff, 3.6, 0.79); this.castCone(x, y, dx, dy, 0x8fd0ff, 3.6, 0.79); this.sparks(x + dx, 1.2, y + dy, dx, dy, 12, 0xeaf2ff); this.dust(x, y, 4); this.debris(x + dx, y + dy, 3, 0x8fa0b0); if (this.within(x, y, 12)) this.view.addTrauma(0.08); break; // Cleaving Blow — wide 2H cleave
-      case "knight:W": this.castStreak(x, y, dx, dy, 0x8fd0ff, 20, 12, 0.14); this.debris(x, y, 4, 0x6a7a8a); this.impactRing(x + dx * 5, y + dy * 5, 0xeaf2ff, 2.4); this.crossGlint(x + dx * 5, 1.2, y + dy * 5, dx, dy, 0x8fd0ff, 1.0); this.footDust(x, y, -dx, -dy); break; // Seismic Slam — fissure corridor
+      case "knight:Q": this.implode(x, y, 0xeaf2ff, 1.8, 7, 0.2); this.dust(x, y, 3); break; // Cleaving Blow — gather before the arc
+      case "knight:W": this.implode(x, y, 0x8fd0ff, 1.6, 6, 0.2); this.footDust(x, y, -dx, -dy); break; // Seismic Slam — plant the feet
       case "knight:E": this.implode(x, y, 0xeaf2ff, 2.2, 10, 0.26); this.castDome(x, y, 0xffd24a, 2.2); this.shockwave(x, y, 0xeaf2ff, 2.0, 0.4, 0.8); this.dust(x, y, 4); this.sparks(x, 0.4, y, 0, 1, 4, 0xfff2c0); break; // Iron Stance — brace dome
       case "knight:R": this.implode(x, y, 0xbfe0ff, 3, 12, 0.26); this.shockwave(x, y, 0xeaf2ff, 4); this.shockwave(x, y, 0xbfe0ff, 5.5, 0.5); this.burst(x, 1.2, y, 16, 0xbfe0ff, 8, 0.4); this.view.addTrauma(0.14); break;
       // RANGER — verdant precision, gold arrows
-      case "ranger:Q": this.crossGlint(x + dx * 0.6, 1.3, y + dy * 0.6, dx, dy, 0xffe6a0, 0.9); this.castStreak(x, y, dx, dy, 0xffe6a0, 20, 12, 0.45); this.flash(x + dx, 1.3, y + dy, 0xffffff, 0.9, 1.6); break;
+      case "ranger:Q": this.implode(x, y, 0xffe6a0, 1.2, 6, 0.18); this.crossGlint(x + dx * 0.6, 1.3, y + dy * 0.6, dx, dy, 0xffe6a0, 0.7); break; // draw — arrows leave on the strike
       case "ranger:W": this.implode(x, y, 0xffe6a0, 2.0, 10, 0.26); this.castDome(x, y, 0x7dffb0, 2.0); this.fountain(x, y, 12, 0xffe6a0); break; // Hunter's Focus — self buff bloom
       case "ranger:E": this.flash(x + dx, 0.5, y + dy, 0x9affc0, 0.7); this.sparks(x + dx, 0.9, y + dy, 0, -1, 6, 0x9affc0); break;
       case "ranger:R": this.beam(x, y, 0xffe6a0); this.implode(x, y, 0xffe6a0, 3, 10, 0.28); this.flash(x, 4.5, y, 0xffe6a0, 2.0, 1.6); break;
       // MAGE — fire primary, frost/arcane separated
-      case "mage:Q": this.castStreak(x, y, dx, dy, 0xffa030, 14, 12, 0.22); this.flash(x + dx, 1.3, y + dy, 0xffd060, 1.2, 2.0); break;
-      case "mage:W": this.castDome(x, y, 0x7fd4ff, 1.8, 0.34); this.iceShards(x, y, 10); this.telegraphs.spawnResidue(x, y, 3.2, 0x7fd4ff, 1.2); break;
+      case "mage:Q": this.implode(x, y, 0xffa030, 1.4, 7, 0.2); this.mote(x + dx * 0.5, 1.3, y + dy * 0.5, 0xffd060, 0.6, 0.25, 0.5); break; // fireball condenses in the palm
+      case "mage:W": this.castDome(x, y, 0x7fd4ff, 1.8, 0.34); this.iceShards(x, y, 6); break; // frost gathers — the nova detonates at the point
       case "mage:E": this.castStreak(x, y, dx, dy, 0xff8040, 12, 8, 0.3); this.flash(x + dx * 0.6, 1.3, y + dy * 0.6, 0xffb060, 1.0, 1.7); this.sparks(x + dx * 0.6, 1.2, y + dy * 0.6, dx, dy, 6, 0xff8040); break; // Cinderfall — cast ember toward the zone (zone renders at target)
       case "mage:R": this.beam(x, y, 0xff5a2c); this.flash(x, 4.0, y, 0xff8040, 2.0, 2.2); this.castStreak(x, y, 0, 1, 0xff5a2c, 3, 8, 1.2); break;
       // ROGUE — crimson violence out of violet shadow
-      case "rogue:Q": this.castStreak(x, y, dx, dy, 0x7fff8e, 14, 12, 0.2); this.smoke(x, y, 2); break;
-      case "rogue:W": this.castStreak(x, y, dx, dy, 0xff3060, 20, 12, 0.14); this.crossGlint(x + dx * 2, 1.2, y + dy * 2, dx, dy, 0xff3060, 1.2); this.impactRing(x + dx * 3, y + dy * 3, 0xff3060, 2.0); this.debris(x + dx * 3, y + dy * 3, 4, 0x801020); this.smoke(x + dx * 2, y + dy * 2, 3); break; // Rupture — bleeding gash + amp mark
+      case "rogue:Q": this.castStreak(x, y, dx, dy, 0x7fff8e, 14, 12, 0.2); this.smoke(x, y, 2); break; // lunge launch — the cut lands at dash end
+      case "rogue:W": this.implode(x, y, 0xff3060, 1.4, 6, 0.16); this.smoke(x, y, 2); break; // coil before the gash
       case "rogue:E": this.smoke(x, y, 10); this.castDome(x, y, 0x6a5a9a, 2.4, 0.5); this.telegraphs.spawnResidue(x, y, 2.4, 0x201830, 2); break;
-      case "rogue:R": this.castStreak(x, y, dx, dy, 0xff3060, 22, 14, 0.14); this.flash(x + dx * 2, 1.2, y + dy * 2, 0xff5070, 1.3, 2.0); this.crossGlint(x + dx * 2, 1.2, y + dy * 2, dx, dy, 0xff3060, 1.6); this.impactRing(x + dx * 2, y + dy * 2, 0xff3060, 2.4); this.debris(x + dx * 2, y + dy * 2, 4, 0x801020); if (this.within(x, y, 10)) this.bumpFreeze(35); break;
+      case "rogue:R": this.castStreak(x, y, dx, dy, 0xff3060, 22, 14, 0.14); this.smoke(x, y, 3); break; // shadow-dash launch — the execute lands on arrival
       // AURELIUS (id blackknight) — dawn-gold consecration, white-gold edges
-      case "blackknight:Q": this.sectorRim(x, y, dx, dy, 0xfff2c0, 3.8, 0.96); this.castCone(x, y, dx, dy, 0xffd76a, 3.8, 0.96); this.smoke(x, y, 3); break;
+      case "blackknight:Q": this.implode(x, y, 0xfff2c0, 1.8, 7, 0.2); this.smoke(x, y, 2); break; // the great sweep winds up
       case "blackknight:W": this.castDome(x, y, 0xffd76a, 1.6, 0.3); this.flash(x, 1.2, y, 0xfff2c0, 1.1, 1.8); this.sparks(x, 0.4, y, 0, 1, 8, 0xfff2c0); this.crossGlint(x + dx, 1.4, y + dy, dx, dy, 0xffe6a0, 1.0); break; // Consecrating Smite — holy channel (pillar lands at target)
       case "blackknight:E": this.castDome(x, y, 0xffe6a0, 2.4, 0.5); this.sparks(x, 0.4, y, 0, 1, 8, 0xfff2c0); break;
-      case "blackknight:R": this.implode(x, y, 0xfff2c0, 4, 12, 0.24); this.shockwave(x, y, 0xffd76a, 5.5); this.shockwave(x, y, 0xfff2c0, 4, 0.5); this.burst(x, 1.2, y, 20, 0xffd76a, 9, 0.4); this.smoke(x, y, 6); this.debris(x, y, 5, 0x8a6a2a); if (this.within(x, y, 10)) this.bumpFreeze(60); this.view.addTrauma(0.18); break;
+      case "blackknight:R": this.implode(x, y, 0xfff2c0, 4, 12, 0.24); this.beam(x, y, 0xffd76a, 6, 0.8); break; // the hammer RISES — it falls on the strike
       // WITCH — bog-green hexcraft
-      case "witch:Q": this.castStreak(x, y, dx, dy, 0x7fe08a, 16, 10, 0.12); this.crossGlint(x + dx * 0.6, 1.3, y + dy * 0.6, dx, dy, 0x7fe08a, 0.8); this.flash(x + dx, 1.3, y + dy, 0xb0ffb8, 0.9, 1.6); break;
+      case "witch:Q": this.implode(x, y, 0x7fe08a, 1.2, 6, 0.18); this.crossGlint(x + dx * 0.6, 1.3, y + dy * 0.6, dx, dy, 0x7fe08a, 0.8); break; // the bolt curdles
       case "witch:W": this.castDome(x, y, 0x7fe08a, 1.8, 0.35); this.bubbles(x, y, 6, 0x7fe08a); break;
-      case "witch:E": this.castDome(x, y, 0x4a7a3a, 1.4, 0.3); this.fountain(x, y, 8, 0x7fe08a); this.crossGlint(x + dx, 1.2, y + dy, dx, dy, 0x9fefa8, 0.9); break; // Bog Grasp — vine cast (root lands at target)
-      case "witch:R": this.implode(x, y, 0xb98ae0, 3, 12, 0.26); this.castDome(x, y, 0x7fe08a, 2.4, 0.45); this.shockwave(x, y, 0x7fe08a, 4); this.bubbles(x, y, 8, 0x9fefa8); break;
+      case "witch:E": this.castDome(x, y, 0x4a7a3a, 1.4, 0.3); this.crossGlint(x + dx, 1.2, y + dy, dx, dy, 0x9fefa8, 0.9); break; // Bog Grasp — vines gather (eruption at the point)
+      case "witch:R": this.implode(x, y, 0xb98ae0, 3, 12, 0.26); this.castDome(x, y, 0x7fe08a, 2.4, 0.45); this.bubbles(x, y, 8, 0x9fefa8); break; // hex gathers — the ring seals at the point
       // ── DASH (Shift) — light launch burst; the per-frame travel trail + expiry
       //    pop live in world-view. No damage-impact layer. mage:DASH = teleport
       //    (its src→dest visual is the separate `blink` fx event).
@@ -471,16 +542,44 @@ export class Fx {
       case "rogue:DASH": this.castStreak(x, y, dx, dy, 0x6a5a9a, 16, 10, 0.14); this.smoke(x, y, 6); this.spawnResidue(x, y, 1.6, 0x201830, 2); this.footDust(x, y, -dx, -dy); break;
       case "blackknight:DASH": this.castStreak(x, y, dx, dy, 0xffd76a, 16, 10, 0.16); this.flash(x + dx, 1.15, y + dy, 0xfff2c0, 1.0, 1.6); this.footDust(x, y, -dx, -dy); this.footDust(x, y, -dx, -dy); this.castDome(x, y, 0xffe6a0, 1.0, 0.24); this.crossGlint(x, 1.2, y, dx, dy, 0xffd76a, 0.8); break;
       case "witch:DASH": this.castStreak(x, y, dx, dy, 0xb98ae0, 20, 12, 0.14); this.footDust(x, y, -dx, -dy); this.mote(x, 0.6, y, 0x7fe08a, 2, 0.6, 0.3); this.castDome(x, y, 0x7fe08a, 1.0, 0.24); this.crossGlint(x, 1.2, y, dx, dy, 0xb98ae0, 0.7); break;
-      // ── JUMP (Space+click) — takeoff anticipation at the caster + a per-champ
-      //    landing accent ~1.6u ahead (Owner B's explosion supplies the base
-      //    blast at the same spot). within-gated trauma/freeze per the kit.
-      case "knight:JUMP": this.implode(x, y, 0xeaf2ff, 2.2, 8, 0.2); this.shockwave(x + dx * 1.6, y + dy * 1.6, 0x8fd0ff, 2.6); this.sectorRim(x + dx * 1.6, y + dy * 1.6, dx, dy, 0xeaf2ff, 2.6, 0.79); this.debris(x + dx * 1.6, y + dy * 1.6, 4, 0x6a7a8a); if (this.within(x, y, 12)) { this.view.addTrauma(0.12); this.bumpFreeze(40); } break;
-      case "ranger:JUMP": this.crossGlint(x, 1.8, y, dx, dy, 0xffe6a0, 1.0); this.castStreak(x + dx * 1.6, y + dy * 1.6, dx, dy, 0xffe6a0, 10, 8, 0.5); this.impactRing(x + dx * 1.6, y + dy * 1.6, 0x7dffb0, 3.0); this.sparks(x + dx * 1.6, 0.4, y + dy * 1.6, 0, 1, 4, 0xffe6a0); if (this.within(x, y, 12)) this.view.addTrauma(0.1); break;
-      case "mage:JUMP": this.implode(x, y, 0xff8040, 2.4, 8, 0.2); this.flash(x + dx * 1.6, 1.0, y + dy * 1.6, 0xffd060, 1.2, 1.8); if (this.within(x, y, 12)) this.view.addTrauma(0.11); break;
-      case "rogue:JUMP": this.implode(x, y, 0x6a5a9a, 1.8, 8, 0.2); this.crossGlint(x + dx * 1.6, 1.3, y + dy * 1.6, dx, dy, 0xff3060, 1.2); this.impactRing(x + dx * 1.6, y + dy * 1.6, 0xff3060, 1.8); this.debris(x + dx * 1.6, y + dy * 1.6, 4, 0x801020); this.smoke(x + dx * 1.6, y + dy * 1.6, 2); if (this.within(x, y, 10)) this.bumpFreeze(35); break;
-      case "blackknight:JUMP": this.implode(x, y, 0xfff2c0, 2.6, 10, 0.22); this.shockwave(x + dx * 1.6, y + dy * 1.6, 0xffd76a, 3.0); this.shockwave(x + dx * 1.6, y + dy * 1.6, 0xfff2c0, 2.2, 0.5); this.beam(x + dx * 1.6, y + dy * 1.6, 0xffd76a, 8, 1.1); this.burst(x + dx * 1.6, 1.0, y + dy * 1.6, 14, 0xffd76a, 8, 0.4); this.debris(x + dx * 1.6, y + dy * 1.6, 5, 0x8a6a2a); this.smoke(x + dx * 1.6, y + dy * 1.6, 4); if (this.within(x, y, 12)) { this.view.addTrauma(0.12); this.bumpFreeze(60); } break;
-      case "witch:JUMP": this.implode(x, y, 0xb98ae0, 2.4, 8, 0.2); this.castDome(x + dx * 1.6, y + dy * 1.6, 0x7fe08a, 2.4); this.impactRing(x + dx * 1.6, y + dy * 1.6, 0x9fefa8, 2.8); this.bubbles(x + dx * 1.6, y + dy * 1.6, 8, 0x9fefa8, 2.4); if (this.within(x, y, 12)) this.view.addTrauma(0.11); break;
+      // ── JUMP (Space+click) — takeoff anticipation only; the landing blast is
+      //    the strike event at the real touchdown point (see strikeFx).
+      case "knight:JUMP": this.implode(x, y, 0xeaf2ff, 2.2, 8, 0.2); this.dust(x, y, 3); break;
+      case "ranger:JUMP": this.crossGlint(x, 1.8, y, dx, dy, 0xffe6a0, 1.0); this.footDust(x, y, -dx, -dy); break;
+      case "mage:JUMP": this.implode(x, y, 0xff8040, 2.4, 8, 0.2); break;
+      case "rogue:JUMP": this.implode(x, y, 0x6a5a9a, 1.8, 8, 0.2); this.smoke(x, y, 2); break;
+      case "blackknight:JUMP": this.implode(x, y, 0xfff2c0, 2.6, 10, 0.22); this.dust(x, y, 3); break;
+      case "witch:JUMP": this.implode(x, y, 0xb98ae0, 2.4, 8, 0.2); this.bubbles(x, y, 4, 0x9fefa8); break;
       default: this.flash(x, 1.3, y, 0x9fd0ff, 0.9); this.burst(x, 1.2, y, 6, 0x9fd0ff, 3, 0.3);
+    }
+  }
+
+  // ── per-ability strike impacts — fired by the sim when the blow CONNECTS.
+  //    (x,y) is the impact anchor (caster for melee arcs, landing point for
+  //    jump slams, target for the execute); r is the shape's reach/radius. ──
+  private strikeFx(tag: string, x: number, y: number, dx: number, dy: number, r: number): void {
+    switch (tag) {
+      // Garran's 3rd-swing whirl (basic rhythm aoe) — the weapon trail IS the
+      // whirl visual; just a ground ring + sparks mark the damage tick
+      case "spin": this.shockwave(x, y, 0x8fd0ff, r, 0.3); this.burst(x, 1.1, y, 12, 0xbfe0ff, 7, 0.3); this.dust(x, y, 5); if (this.within(x, y, 12)) this.view.addTrauma(0.1); break;
+      case "knight:Q": this.slashArc(x, y, Math.atan2(dy, dx), r, 0xdbe8ff, { tilt: 0.3, span: 0.85, life: 0.3 }); this.sectorRim(x, y, dx, dy, 0xeaf2ff, r, 0.79); this.sparks(x + dx, 1.2, y + dy, dx, dy, 12, 0xeaf2ff); this.debris(x + dx, y + dy, 3, 0x8fa0b0); if (this.within(x, y, 12)) this.view.addTrauma(0.08); break;
+      case "knight:W": this.castStreak(x, y, dx, dy, 0x8fd0ff, 20, 12, 0.14); this.debris(x, y, 4, 0x6a7a8a); this.impactRing(x + dx * 5, y + dy * 5, 0xeaf2ff, 2.4); this.crossGlint(x + dx * 5, 1.2, y + dy * 5, dx, dy, 0x8fd0ff, 1.0); break;
+      case "ranger:Q": this.castStreak(x, y, dx, dy, 0xffe6a0, 20, 12, 0.45); this.flash(x + dx, 1.3, y + dy, 0xffffff, 0.9, 1.6); break; // the fan looses
+      case "mage:Q": this.castStreak(x, y, dx, dy, 0xffa030, 14, 12, 0.22); this.flash(x + dx, 1.3, y + dy, 0xffd060, 1.2, 2.0); break; // the fireball leaves
+      case "witch:Q": this.castStreak(x, y, dx, dy, 0x7fe08a, 16, 10, 0.12); this.flash(x + dx, 1.3, y + dy, 0xb0ffb8, 0.9, 1.6); break; // the bolt spits
+      case "rogue:Q": this.slashArc(x, y, Math.atan2(dy, dx), 2.2, 0x7fff8e, { tilt: 0.45, span: 0.7, life: 0.24 }); this.crossGlint(x, 1.2, y, dx, dy, 0x7fff8e, 1.2); this.sparks(x, 1.1, y, dx, dy, 8, 0x7fff8e); break; // the poisoned cut at dash end
+      case "rogue:W": this.slashArc(x + dx * 2, y + dy * 2, Math.atan2(dy, dx), 2.4, 0xff5a78, { tilt: 0.5, span: 0.6, life: 0.26 }); this.castStreak(x, y, dx, dy, 0xff3060, 20, 12, 0.14); this.debris(x + dx * 3, y + dy * 3, 4, 0x801020); this.smoke(x + dx * 2, y + dy * 2, 3); break;
+      case "rogue:R": this.flash(x, 1.2, y, 0xff5070, 1.3, 2.0); this.crossGlint(x, 1.2, y, dx, dy, 0xff3060, 1.6); this.impactRing(x, y, 0xff3060, 2.4); this.debris(x, y, 4, 0x801020); if (this.within(x, y, 10)) this.bumpFreeze(35); break;
+      case "blackknight:Q": this.slashArc(x, y, Math.atan2(dy, dx), r, 0xffd76a, { tilt: 0.25, span: 1.0, life: 0.32 }); this.sectorRim(x, y, dx, dy, 0xfff2c0, r, 0.96); this.sparks(x + dx, 1.2, y + dy, dx, dy, 10, 0xfff2c0); break;
+      case "blackknight:R": this.shockwave(x, y, 0xffd76a, 5.5); this.shockwave(x, y, 0xfff2c0, 4, 0.5); this.burst(x, 1.2, y, 20, 0xffd76a, 9, 0.4); this.smoke(x, y, 6); this.debris(x, y, 5, 0x8a6a2a); if (this.within(x, y, 10)) this.bumpFreeze(60); this.view.addTrauma(0.18); break;
+      // JUMP landings — the champ-flavored slam at the true touchdown point
+      case "knight:JUMP": this.shockwave(x, y, 0x8fd0ff, r); this.sectorRim(x, y, dx, dy, 0xeaf2ff, r, 0.79); this.debris(x, y, 4, 0x6a7a8a); this.dust(x, y, 4); if (this.within(x, y, 12)) { this.view.addTrauma(0.12); this.bumpFreeze(40); } break;
+      case "ranger:JUMP": this.castStreak(x, y, 0, 1, 0xffe6a0, 10, 8, 0.5); this.impactRing(x, y, 0x7dffb0, r); this.sparks(x, 0.4, y, 0, 1, 6, 0xffe6a0); this.dust(x, y, 3); if (this.within(x, y, 12)) this.view.addTrauma(0.1); break;
+      case "mage:JUMP": this.flash(x, 1.0, y, 0xffd060, 1.4, 2.0); this.shockwave(x, y, 0xff8040, r); this.burst(x, 0.8, y, 10, 0xff8040, 6, 0.35); this.telegraphs.spawnResidue(x, y, r * 0.8, 0x1a0f0a, 1.6); if (this.within(x, y, 12)) this.view.addTrauma(0.11); break;
+      case "rogue:JUMP": this.crossGlint(x, 1.3, y, dx, dy, 0xff3060, 1.2); this.impactRing(x, y, 0xff3060, r); this.debris(x, y, 4, 0x801020); this.smoke(x, y, 2); if (this.within(x, y, 10)) this.bumpFreeze(35); break;
+      case "blackknight:JUMP": this.shockwave(x, y, 0xffd76a, r); this.shockwave(x, y, 0xfff2c0, r * 0.75, 0.5); this.beam(x, y, 0xffd76a, 8, 1.1); this.burst(x, 1.0, y, 14, 0xffd76a, 8, 0.4); this.debris(x, y, 5, 0x8a6a2a); this.smoke(x, y, 4); if (this.within(x, y, 12)) { this.view.addTrauma(0.12); this.bumpFreeze(60); } break;
+      case "witch:JUMP": this.castDome(x, y, 0x7fe08a, r * 0.85); this.impactRing(x, y, 0x9fefa8, r); this.bubbles(x, y, 8, 0x9fefa8, r * 0.85); if (this.within(x, y, 12)) this.view.addTrauma(0.11); break;
+      default: this.impactRing(x, y, 0x9fd0ff, Math.max(1.2, r * 0.6));
     }
   }
 
@@ -495,6 +594,15 @@ export class Fx {
     const r = g.radius;
     switch (g.effect) {
       case "whirlwind": {
+        // shader vortex drum spins around the whirling knight
+        const v = this.zonePiece(g.id, () => {
+          const mat = makeVortexMaterial(0xbfe0ff); // per-piece material — disposable
+          return { obj: new THREE.Mesh(this.vortexGeo, mat), ownMat: mat };
+        });
+        v.seenAt = now;
+        v.obj.position.set(g.x, 1.3, g.y);
+        v.obj.scale.set(r * 0.55, 2.6, r * 0.55);
+        v.obj.rotation.y = now * 0.004;
         if (now < st.next) return;
         st.next = now + 120;
         for (let i = 0; i < 4; i++) {
@@ -539,6 +647,21 @@ export class Fx {
         break;
       }
       case "meteor": {
+        // the ACTUAL rock: a boiling comet dives in over the last 650ms,
+        // timed to hit zero altitude exactly at detonateAt
+        const remain = (g.detonateAt ?? now) - now;
+        if (remain > 0 && remain < 650) {
+          const c = this.zonePiece(g.id, () => {
+            const mesh = new THREE.Mesh(this.cometGeo, energyBallMaterial(0xff5a2c)); // shared mat — never disposed here
+            mesh.scale.setScalar(Math.min(1.4, r * 0.28));
+            return { obj: mesh, ownMat: null };
+          });
+          c.seenAt = now;
+          const k = remain / 650; // 1 → far, 0 → impact
+          c.obj.position.set(g.x + k * 5, k * 17, g.y - k * 2.5);
+          this.trailAt(c.obj.position.x, c.obj.position.y, c.obj.position.z, 0xff8040, 0.8);
+          this.trailAt(c.obj.position.x, c.obj.position.y + 0.6, c.obj.position.z, 0x804030, 0.5);
+        }
         if (now < st.next) return;
         st.next = now + 150;
         for (let i = 0; i < 2; i++) {
@@ -609,6 +732,18 @@ export class Fx {
         break;
       }
     }
+  }
+
+  /** Get-or-create a zone set piece (vortex/comet) keyed by zone id. */
+  private zonePiece(id: string, make: () => { obj: THREE.Object3D; ownMat: THREE.Material | null }): ZonePiece {
+    let p = this.zonePieces.get(id);
+    if (!p) {
+      const m = make();
+      p = { obj: m.obj, ownMat: m.ownMat, seenAt: 0 };
+      this.scene.add(p.obj);
+      this.zonePieces.set(id, p);
+    }
+    return p;
   }
 
   /** One ember on a unit standing in a hostile zone (silent-tick ambience). */
@@ -932,15 +1067,18 @@ export class Fx {
 
   // ── pooled transient meshes ──
 
-  /** Expanding ground shockwave ring — additive, cubic-out, pooled. */
+  /** Expanding ground shockwave ring — noise-broken shader annulus, pooled. */
   shockwave(x: number, y: number, color: number, maxR: number, life = 0.38, opacity = 0.85): void {
     const r = this.rings.find((e) => e.life <= 0);
     if (!r) return; // saturated — drop (scale-of-importance budget)
     r.life = r.maxLife = life;
     r.maxR = maxR;
     r.opacity = opacity;
-    r.mat.color.setHex(color);
-    r.mat.opacity = opacity;
+    const u = r.mat.uniforms;
+    (u["uColor"]!.value as THREE.Color).setHex(color);
+    u["uT"]!.value = 0;
+    u["uAlpha"]!.value = opacity;
+    u["uSeed"]!.value = Math.random() * 20;
     r.mesh.position.set(x, 0.12, y);
     r.mesh.scale.setScalar(0.2);
     r.mesh.visible = true;
@@ -962,7 +1100,7 @@ export class Fx {
       const t = 1 - r.life / r.maxLife;
       const cubicOut = 1 - Math.pow(1 - t, 3);
       r.mesh.scale.setScalar(0.2 + cubicOut * r.maxR);
-      r.mat.opacity = r.opacity * (1 - t);
+      r.mat.uniforms["uT"]!.value = t; // shader handles rim fade + breakup
     }
   }
 
@@ -1069,6 +1207,42 @@ export class Fx {
     }
   }
 
+  /** Anime crescent slash: a pointed arc that sweeps open along `facing` (sim
+   *  angle), holds a hot edge, and erodes. `reach` = arc radius; `tilt` lifts
+   *  the arc plane off the ground toward the camera (0 = flat ring, ~0.5 =
+   *  reads best from the chase cam); `dir` mirrors the sweep for off-hand cuts. */
+  slashArc(x: number, y: number, facing: number, reach: number, color: number, opts: { tilt?: number; span?: number; life?: number; height?: number; dir?: 1 | -1 } = {}): void {
+    const s = this.slashes.find((e) => e.life <= 0);
+    if (!s) return;
+    const { tilt = 0.5, span = 1.05, life = 0.26, height = 1.15, dir = 1 } = opts;
+    s.life = s.maxLife = life;
+    const u = s.mat.uniforms;
+    (u["uColor"]!.value as THREE.Color).setHex(color);
+    u["uT"]!.value = 0;
+    u["uSpan"]!.value = span;
+    u["uSeed"]!.value = Math.random() * 20;
+    u["uDir"]!.value = dir;
+    // pivot yaw points the quad's local +X along the sim facing; the mesh then
+    // tilts around that axis so the crescent leans toward the chase camera
+    s.pivot.position.set(x, height, y);
+    s.pivot.rotation.set(0, -facing, 0);
+    s.mesh.rotation.set(-Math.PI / 2 + tilt, 0, 0);
+    s.pivot.scale.setScalar(reach);
+    s.pivot.visible = true;
+  }
+
+  private stepSlashes(dt: number): void {
+    for (const s of this.slashes) {
+      if (s.life <= 0) continue;
+      s.life -= dt;
+      if (s.life <= 0) {
+        s.pivot.visible = false;
+        continue;
+      }
+      s.mat.uniforms["uT"]!.value = 1 - s.life / s.maxLife;
+    }
+  }
+
   /** A wireframe hemisphere shell that pops around the caster — shields/buffs. */
   castDome(x: number, y: number, color: number, r: number, life = 0.4): void {
     const d = this.domes.find((e) => e.life <= 0);
@@ -1146,6 +1320,7 @@ export class Fx {
   dispose(): void {
     this.dmgLayer.remove();
     this.pools.dispose();
+    this.chunks.dispose();
     this.telegraphs.dispose();
     for (const r of this.rings) {
       this.scene.remove(r.mesh);
@@ -1165,8 +1340,19 @@ export class Fx {
       d.mesh.geometry.dispose();
       d.mat.dispose();
     }
+    for (const s of this.slashes) {
+      this.scene.remove(s.pivot);
+      s.mat.dispose();
+    }
+    for (const [, p] of this.zonePieces) {
+      this.scene.remove(p.obj);
+      p.ownMat?.dispose();
+    }
+    this.zonePieces.clear();
     for (const g of this.coneGeoCache.values()) g.dispose();
     for (const g of this.rimGeoCache.values()) g.dispose();
-    this.ringGeo.dispose();
+    this.ringPlane.dispose();
+    this.vortexGeo.dispose();
+    this.cometGeo.dispose();
   }
 }

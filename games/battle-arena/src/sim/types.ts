@@ -14,7 +14,10 @@ export const ABILITY_KEYS: AbilityKey[] = ["Q", "W", "E", "R"];
 export const ALL_ABILITY_KEYS: AbilityKey[] = ["Q", "W", "E", "R", "DASH", "JUMP"];
 
 export type GamePhase = "lobby" | "playing" | "ended";
-export type UnitKind = "hero" | "boss" | "dummy" | "creep";
+// "prop" = a destructible fixture (barrel/crate/keg — data/props.ts): it rides
+// the unit pipeline so every damage path can break it, but never moves, acts,
+// or shows up to AI/economy/HUD (their filters are hero/creep opt-in).
+export type UnitKind = "hero" | "boss" | "dummy" | "creep" | "prop";
 
 export type AbilitySlot = { rank: number; readyAt: number }; // readyAt in ms
 
@@ -193,12 +196,33 @@ export type GroundEffect = {
   allyHps?: number; // heal/s for the owner's side inside the zone (consecrate)
   dtype?: DamageType;
   slowPct?: number;
+  slowMs?: number; // detonate rider: how long the slow lasts (default 1500)
   rootMs?: number;
-  // delayed single nuke (meteor): fires once at detonateAt
+  stunMs?: number; // detonate rider: stun everyone caught (smite)
+  hexMs?: number; // detonate rider: polymorph everyone caught (grand hex)
+  // delayed single nuke (meteor/smite/vines/nova): fires once at detonateAt
   detonateAt?: number;
   detonateDmg?: number;
   detonateDtype?: DamageType;
   telegraph?: boolean; // ground marker only until detonate
+};
+
+// ── Pending ability strikes ──────────────────────────────────────────────────
+// Caster-relative ability damage scheduled for the moment the cast animation
+// actually connects (or a jump-attack lands). Plain data — rides snapshots so
+// a host migration can't drop a mid-swing strike. The hit shape re-tests at
+// resolve time, so a scheduled strike is dodgeable.
+export type PendingStrike = {
+  at: number; // ms — when the blade/slam connects
+  casterId: string;
+  key: AbilityKey;
+  dx: number; // aim direction captured at cast (unit vector)
+  dy: number;
+  px: number; // cast/landing point
+  py: number;
+  ox: number; // caster position at cast — corridor/jump origin
+  oy: number;
+  targetId?: string; // single-target strikes (rogue R)
 };
 
 // ── Signature-mechanic entities ──────────────────────────────────────────────
@@ -231,11 +255,14 @@ export type BossState = {
 
 // ── One-shot FX pulses (host → renderer; also forwarded over the wire) ───────
 export type FxEvent =
-  | { t: "hit"; x: number; y: number; dx: number; dy: number; dtype: DamageType; by: string; to: string; crit?: boolean }
+  | { t: "hit"; x: number; y: number; dx: number; dy: number; dtype: DamageType; by: string; to: string; amount: number; crit?: boolean }
   | { t: "swing"; x: number; y: number; ang: number; r: number; melee: boolean; dtype: DamageType }
-  | { t: "damage"; x: number; y: number; amount: number; dtype: DamageType; by: string; crit?: boolean }
+  // an ability's damage moment (tag = def.effect, or "spin" for the whirl
+  // basic) — the impact layer fx, fired when the blade/slam actually connects
+  | { t: "strike"; tag: string; x: number; y: number; dx: number; dy: number; r: number }
   | { t: "cast"; x: number; y: number; dx: number; dy: number; champId: string; key: AbilityKey }
   | { t: "death"; x: number; y: number; team: Team; by: string }
+  | { t: "propBreak"; x: number; y: number; model: string; explosive?: boolean }
   | { t: "itemUse"; x: number; y: number; item: string }
   | { t: "kill"; killer: string; victim: string; killerName: string; victimName: string; leader?: boolean }
   | { t: "coinGrab"; x: number; y: number; gold: number }
@@ -261,6 +288,7 @@ export type World = {
   units: Map<string, Unit>;
   projectiles: Map<string, Projectile>;
   grounds: GroundEffect[];
+  strikes: PendingStrike[];
   coins: Coin[];
   deliveries: Delivery[];
   boss: BossState;
