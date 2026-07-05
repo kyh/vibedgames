@@ -184,6 +184,11 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
   // Lots on non-cardinal streets rotate their building to the edge tangent —
   // faceDir-relative dressing (fences, awnings, back-corner clutter) would
   // misalign there.
+  // Would a prop at (x, z) stand on the asphalt of any nearby edge?
+  const onAsphalt = (x: number, z: number, margin = 0.3): boolean => {
+    const hit = network.nearest(x, z, ROAD_TILE * 1.4);
+    return hit !== null && hit.dist < hit.edge.half + margin;
+  };
   const nonCardinalStreet = (gx: number, gz: number): boolean => {
     const hit = network.nearest(worldX(gx), worldZ(gz), ROAD_TILE * 1.6);
     if (!hit) return false;
@@ -467,63 +472,42 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
   }
 
   // ------------------------------------------------------------------
-  // 6. CONSTRUCTION POCKETS — cones + barrier + light across half a lane.
+  // 6. CONSTRUCTION POCKETS — cone chicanes on real edge shoulders.
   // ------------------------------------------------------------------
-  const pocketCandidates: { gx: number; gz: number; alongX: boolean }[] = [];
-  for (let gx = 0; gx < GRID_X; gx++) {
-    for (let gz = 0; gz < GRID_Z; gz++) {
-      const road = roadAt(gx, gz);
-      if (!road || road.tile !== ROAD_STRAIGHT) continue;
-      if (reserved.has(cellKey(gx, gz))) continue;
-      if (nearCentre(gx, gz, 3)) continue;
-      pocketCandidates.push({ gx, gz, alongX: straightAlongX(gx, gz) });
-    }
-  }
-  const pocketCount = Math.min(CONSTRUCTION_POCKETS, pocketCandidates.length);
-  for (let p = 0; p < pocketCount; p++) {
-    const idx = rng.int(pocketCandidates.length);
-    const cell = pocketCandidates[idx];
-    if (cell === undefined) continue;
-    pocketCandidates.splice(idx, 1);
-    const wx = worldX(cell.gx);
-    const wz = worldZ(cell.gz);
-    const ax = cell.alongX ? 1 : 0; // road axis
-    const az = cell.alongX ? 0 : 1;
-    const px = cell.alongX ? 0 : 1; // perpendicular (lane) axis
-    const pz = cell.alongX ? 1 : 0;
-    const laneSide: 1 | -1 = rng.chance(0.5) ? 1 : -1;
-    // Diagonal from the lane edge to the road centre — a chicane, not a wall.
-    const at = (t: number): { x: number; z: number } => {
-      const along = ROAD_TILE * (-0.3 + 0.6 * t);
-      const lateral = laneSide * ROAD_TILE * 0.32 * (1 - t);
-      return { x: wx + ax * along + px * lateral, z: wz + az * along + pz * lateral };
-    };
+  {
+    const eligible = network.edges.filter((e) => e.len > 60);
     const coneUrl = modelUrl("props", PROP_CONE);
     const coneScale = scaleToHeight(coneUrl, 0.75);
-    const cones = 3 + rng.int(2);
-    for (let i = 0; i < cones; i++) {
-      const t = cones > 1 ? i / (cones - 1) : 0.5;
-      const pos = at(t);
-      seat(
-        coneUrl,
-        pos.x + rng.range(-0.3, 0.3),
-        pos.z + rng.range(-0.3, 0.3),
-        rng.range(0, Math.PI * 2),
-        coneScale,
-      );
-    }
-    const barrierYaw = cell.alongX ? HALF_PI : 0; // long axis across the lane
-    const bPos = at(0.5);
     const barrierUrl = modelUrl("props", PROP_BARRIER);
-    seat(barrierUrl, bPos.x, bPos.z, barrierYaw, scaleToHeight(barrierUrl, 1.1));
-    solids.push(
-      cell.alongX
-        ? { minX: bPos.x - 0.4, maxX: bPos.x + 0.4, minZ: bPos.z - 1.4, maxZ: bPos.z + 1.4 }
-        : { minX: bPos.x - 1.4, maxX: bPos.x + 1.4, minZ: bPos.z - 0.4, maxZ: bPos.z + 0.4 },
-    );
-    const lPos = at(0.08);
     const lightUrl = modelUrl("props", PROP_CONSTRUCTION_LIGHT);
-    seat(lightUrl, lPos.x, lPos.z, barrierYaw, scaleToHeight(lightUrl, 2));
+    for (let p = 0; p < CONSTRUCTION_POCKETS && eligible.length > 0; p++) {
+      const edge = eligible[rng.int(eligible.length)];
+      if (!edge) continue;
+      const s0 = rng.range(edge.len * 0.25, edge.len * 0.7);
+      const smp = network.sample(edge, s0);
+      const gx = toGx(smp.x);
+      const gz = toGz(smp.z);
+      if (reserved.has(cellKey(gx, gz)) || nearCentre(gx, gz, 3)) continue;
+      const side: 1 | -1 = rng.chance(0.5) ? 1 : -1;
+      // Diagonal from the lane edge in to the centreline — a chicane.
+      const at = (t: number): { x: number; z: number } => {
+        const p2 = network.sample(edge, s0 + (t - 0.5) * 8);
+        const lat = side * (edge.half - 1) * (1 - t);
+        return { x: p2.x - p2.tz * lat, z: p2.z + p2.tx * lat };
+      };
+      const cones = 3 + rng.int(2);
+      for (let i = 0; i < cones; i++) {
+        const t = cones > 1 ? i / (cones - 1) : 0.5;
+        const pos = at(t);
+        seat(coneUrl, pos.x + rng.range(-0.3, 0.3), pos.z + rng.range(-0.3, 0.3), rng.range(0, Math.PI * 2), coneScale);
+      }
+      const bPos = at(0.5);
+      const bYaw = Math.atan2(smp.tz, -smp.tx); // long axis across the lane
+      seat(barrierUrl, bPos.x, bPos.z, bYaw, scaleToHeight(barrierUrl, 1.1));
+      solids.push({ minX: bPos.x - 1, maxX: bPos.x + 1, minZ: bPos.z - 1, maxZ: bPos.z + 1, maxY: terrain.heightAt(bPos.x, bPos.z) + 1.6 });
+      const lPos = at(0.08);
+      seat(lightUrl, lPos.x, lPos.z, bYaw, scaleToHeight(lightUrl, 2));
+    }
   }
 
   // ------------------------------------------------------------------
@@ -915,6 +899,7 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
       if (!ok) continue;
       const px = worldX(gx) + sx * ROAD_TILE * 0.42;
       const pz = worldZ(gz) + sz * ROAD_TILE * 0.42;
+      if (onAsphalt(px, pz)) continue;
       seatKK(hydrantUrl, px, pz, rng.range(0, Math.PI * 2), hydrantScale);
       hydrants++;
     }
@@ -946,6 +931,7 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
       if (!ok) continue;
       const px = worldX(gx) + sx * ROAD_TILE * 0.44;
       const pz = worldZ(gz) + sz * ROAD_TILE * 0.44;
+      if (onAsphalt(px, pz)) continue;
       // The signal arm hangs along local -X: yaw so -X points back across the
       // corner toward the junction centre.
       seatKK(signalUrl, px, pz, Math.atan2(-sz, sx), signalScale);
@@ -986,6 +972,7 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
       // perp (dz, dx) runs along the kerb; lotDir is the lateral axis.
       const bx = worldX(gx) + dx * ROAD_TILE * 0.42 + dz * slide;
       const bz = worldZ(gz) + dz * ROAD_TILE * 0.42 + dx * slide;
+      if (onAsphalt(bx, bz)) continue;
       // Back to the lot: bench long axis (local X) runs parallel to the road.
       seatKK(benchUrl, bx, bz, dirToYaw(lotDir) + Math.PI, benchScale);
       seating++;

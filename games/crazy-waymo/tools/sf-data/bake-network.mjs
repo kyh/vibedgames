@@ -51,9 +51,9 @@ const onLandXZ = (x, z) => onLandUV(x / WORLD_W + 0.5, z / WORLD_H + 0.5);
 
 // Road classes → asphalt HALF width (world units). Wider majors read as real
 // boulevards; tertiary matches the old uniform profile (ASPHALT_W/2 = 5.2).
+// Freeways (motorway/trunk + ramps) are multi-level structures we would
+// render flat — pure spaghetti. The street game lives on primary→tertiary.
 const CLASS_HALF = {
-  motorway: 6.8, motorway_link: 5.2,
-  trunk: 6.8, trunk_link: 5.2,
   primary: 6.0, primary_link: 5.2,
   secondary: 5.6, secondary_link: 5.2,
   tertiary: 5.2, tertiary_link: 5.2,
@@ -196,6 +196,119 @@ for (const e of edges) e.pts = rdp(e.pts, 2.5);
   edges = edges.filter((e) => {
     const stub = deg.get(e.a) === 1 || deg.get(e.b) === 1;
     return !(stub && len(e) < 8);
+  });
+}
+
+// --- Merge dual carriageways: OSM maps divided arterials (Geary, 19th Ave,
+// Sunset) as TWO parallel one-way ways ~3-6u apart, which sweep into two
+// overlapping roads. An edge is redundant when nearly all of it hugs a
+// LONGER near-parallel edge — drop it and keep the longer centreline. ---
+{
+  const MERGE_DIST = 7; // carriageway separation << street-grid spacing (~22u)
+  const samplesOf = (e, step) => {
+    const out = [];
+    let acc = 0;
+    for (let i = 1; i < e.pts.length; i++) {
+      const [ax, az] = e.pts[i - 1];
+      const [bx, bz] = e.pts[i];
+      const segLen = Math.hypot(bx - ax, bz - az);
+      let t = acc === 0 ? 0 : step - acc;
+      while (t <= segLen) {
+        out.push([ax + ((bx - ax) * t) / segLen, az + ((bz - az) * t) / segLen]);
+        t += step;
+      }
+      acc = (acc + segLen) % step;
+    }
+    if (out.length === 0) out.push(e.pts[0]);
+    return out;
+  };
+  const edgeLen = (e) => {
+    let L = 0;
+    for (let i = 1; i < e.pts.length; i++) L += Math.hypot(e.pts[i][0] - e.pts[i-1][0], e.pts[i][1] - e.pts[i-1][1]);
+    return L;
+  };
+  const lens = edges.map(edgeLen);
+  // Distance from a point to an edge + the tangent of the nearest segment.
+  const nearestOnEdge = (x, z, e) => {
+    let best = Infinity, tx = 1, tz = 0;
+    for (let i = 1; i < e.pts.length; i++) {
+      const [ax, az] = e.pts[i - 1];
+      const [bx, bz] = e.pts[i];
+      const dx = bx - ax, dz = bz - az;
+      const l2 = dx * dx + dz * dz;
+      const t = l2 > 1e-8 ? Math.min(Math.max(((x - ax) * dx + (z - az) * dz) / l2, 0), 1) : 0;
+      const px = ax + dx * t, pz = az + dz * t;
+      const d = Math.hypot(px - x, pz - z);
+      if (d < best) {
+        best = d;
+        const dl = Math.sqrt(l2) || 1;
+        tx = dx / dl; tz = dz / dl;
+      }
+    }
+    return { d: best, tx, tz };
+  };
+  // Coarse bucket of edge ids by their AABB (padded) for candidate lookup.
+  const CELL = 60;
+  const buckets = new Map();
+  edges.forEach((e, i) => {
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (const [x, z] of e.pts) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
+    for (let bx = Math.floor((x0 - 8) / CELL); bx <= Math.floor((x1 + 8) / CELL); bx++)
+      for (let bz = Math.floor((z0 - 8) / CELL); bz <= Math.floor((z1 + 8) / CELL); bz++) {
+        const k = bx + "," + bz;
+        if (!buckets.has(k)) buckets.set(k, []);
+        buckets.get(k).push(i);
+      }
+  });
+  const removed = new Set();
+  const order = edges.map((_, i) => i).sort((a, b) => lens[a] - lens[b]); // shortest first
+  for (const bi of order) {
+    const B = edges[bi];
+    if (lens[bi] < 20) continue; // junction connectors are never "twins"
+    const samples = samplesOf(B, 8);
+    // Local tangent per sample (for the parallel check).
+    const sampleTans = samples.map((p, i) => {
+      const q = samples[Math.min(i + 1, samples.length - 1)];
+      const r = samples[Math.max(i - 1, 0)];
+      const dx = q[0] - r[0], dz = q[1] - r[1];
+      const dl = Math.hypot(dx, dz) || 1;
+      return [dx / dl, dz / dl];
+    });
+    // Candidate longer edges from B's buckets.
+    const cand = new Set();
+    for (const [x, z] of samples) {
+      for (const id of buckets.get(Math.floor(x / CELL) + "," + Math.floor(z / CELL)) ?? []) {
+        if (id !== bi && !removed.has(id) && lens[id] >= lens[bi]) cand.add(id);
+      }
+    }
+    for (const ai of cand) {
+      const A = edges[ai];
+      let covered = 0;
+      for (let si = 0; si < samples.length; si++) {
+        const [x, z] = samples[si];
+        const hit = nearestOnEdge(x, z, A);
+        if (hit.d >= MERGE_DIST) continue;
+        // Must run PARALLEL to A there — cross streets stay.
+        const [btx, btz] = sampleTans[si];
+        if (Math.abs(hit.tx * btx + hit.tz * btz) < 0.8) continue;
+        covered++;
+      }
+      if (covered >= samples.length * 0.9) {
+        removed.add(bi);
+        edges[ai] = { ...A, half: Math.max(A.half, B.half) };
+        break;
+      }
+    }
+  }
+  edges = edges.filter((_, i) => !removed.has(i));
+  console.log(`parallel-merge removed ${removed.size} carriageway twins`);
+  // Median connectors between the twins become stubs — drop generously.
+  const deg = degreeMap();
+  edges = edges.filter((e) => {
+    const stub = deg.get(e.a) === 1 || deg.get(e.b) === 1;
+    let L = 0;
+    for (let i = 1; i < e.pts.length; i++) L += Math.hypot(e.pts[i][0] - e.pts[i-1][0], e.pts[i][1] - e.pts[i-1][1]);
+    return !(stub && L < 14);
   });
 }
 

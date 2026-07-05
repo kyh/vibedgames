@@ -89,12 +89,17 @@ export class SmashCones {
       const cell = rng.pick(cells);
       const n = Math.min(COUNT - placed, 1 + rng.int(3));
       const side = rng.chance(0.5) ? 1 : -1;
-      const alongX = rng.chance(0.5);
+      // Snap the cluster onto the real street: shoulder of the nearest EDGE
+      // (cell centres can sit a half-tile off the vector road).
+      const hit = city.network.nearest(city.worldX(cell.gx), city.worldZ(cell.gz), ROAD_TILE * 1.2);
+      if (!hit) continue;
+      const shoulder = hit.edge.half - 1.1;
       for (let i = 0; i < n; i++) {
-        const ox = alongX ? (i - 1) * 1.3 : side * ROAD_TILE * 0.33;
-        const oz = alongX ? side * ROAD_TILE * 0.33 : (i - 1) * 1.3;
-        const x = city.worldX(cell.gx) + ox + rng.range(-0.4, 0.4);
-        const z = city.worldZ(cell.gz) + oz + rng.range(-0.4, 0.4);
+        const along = (i - 1) * 1.3;
+        const x =
+          hit.x + hit.tx * along - hit.tz * shoulder * side + rng.range(-0.4, 0.4);
+        const z =
+          hit.z + hit.tz * along + hit.tx * shoulder * side + rng.range(-0.4, 0.4);
         this.cones.push({
           x,
           y: city.terrain.heightAt(x, z),

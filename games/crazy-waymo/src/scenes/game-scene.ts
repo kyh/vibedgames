@@ -449,8 +449,8 @@ export class GameScene {
     this.mode = { kind: "countdown", t: 0 };
   }
 
-  // A random road cell anywhere in the city (off the map rim) — every run
-  // starts in a fresh neighborhood.
+  // A random spot ON a network edge (off the map rim), nose along the street
+  // — every run starts in a fresh neighborhood, always on real asphalt.
   private computeSpawn(city: CityModel): {
     x: number;
     z: number;
@@ -458,23 +458,26 @@ export class GameScene {
     gx: number;
     gz: number;
   } {
-    let bg = { gx: Math.round((GRID_X - 1) / 2), gz: Math.round((GRID_Z - 1) / 2) };
-    for (let attempt = 0; attempt < 24; attempt++) {
-      const rc = city.roadCells[Math.floor(Math.random() * city.roadCells.length)];
-      if (!rc) continue;
-      const u = rc.gx / GRID_X;
-      const v = rc.gz / GRID_Z;
+    const edges = city.network.edges;
+    for (let attempt = 0; attempt < 32; attempt++) {
+      const e = edges[Math.floor(Math.random() * edges.length)];
+      if (!e || e.len < 30) continue;
+      const s = e.len * (0.25 + Math.random() * 0.5);
+      const smp = city.network.sample(e, s);
+      const u = smp.x / WORLD_W + 0.5;
+      const v = smp.z / WORLD_H + 0.5;
       if (u < 0.06 || u > 0.94 || v < 0.06 || v > 0.94) continue;
-      bg = { gx: rc.gx, gz: rc.gz };
-      break;
+      const sign = Math.random() < 0.5 ? 1 : -1;
+      return {
+        x: smp.x,
+        z: smp.z,
+        yaw: Math.atan2(smp.tx * sign, smp.tz * sign),
+        gx: city.gridX(smp.x),
+        gz: city.gridZ(smp.z),
+      };
     }
-    const isRoad = (gx: number, gz: number): boolean => city.plan.cells[gx]?.[gz] === "road";
-    let yaw = 0;
-    if (isRoad(bg.gx, bg.gz + 1)) yaw = 0;
-    else if (isRoad(bg.gx, bg.gz - 1)) yaw = Math.PI;
-    else if (isRoad(bg.gx + 1, bg.gz)) yaw = HALF_PI;
-    else if (isRoad(bg.gx - 1, bg.gz)) yaw = -HALF_PI;
-    return { x: city.worldX(bg.gx), z: city.worldZ(bg.gz), yaw, gx: bg.gx, gz: bg.gz };
+    const mid = { gx: Math.round((GRID_X - 1) / 2), gz: Math.round((GRID_Z - 1) / 2) };
+    return { x: city.worldX(mid.gx), z: city.worldZ(mid.gz), yaw: 0, gx: mid.gx, gz: mid.gz };
   }
 
   // DEV-only: drop the taxi at the road cell nearest to normalized map coords

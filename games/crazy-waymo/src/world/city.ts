@@ -421,19 +421,21 @@ export class CityModel {
         continue;
       }
       const pose = avenuePose(b.gx, b.gz);
-      // Rotated lots go slightly smaller so the turned square + setback nudge
-      // stays inside the 13u lot. Dressing stays on near-cardinal poses (its
-      // offsets are faceDir-relative).
+      const frac = pose ? this.rng.range(0.62, 0.72) : this.rng.range(0.74, 0.86);
+      // Clearance check: if the clamped setback still leaves the footprint on
+      // the asphalt (lot centre nearly on a road — merged carriageways, wide
+      // junctions), leave the lot green instead of parking a house mid-street.
+      const px = pose ? pose.x : this.worldX(b.gx);
+      const pz = pose ? pose.z : this.worldZ(b.gz);
+      const near = this.network.nearest(px, pz, ROAD_TILE * 1.6);
+      if (near && near.dist < near.edge.half + (ROAD_TILE * frac) / 2 - 1.2) {
+        placeGreen(b.gx, b.gz);
+        continue;
+      }
+      // Dressing stays on near-cardinal poses (its offsets are faceDir-relative).
       const cardinal =
         pose !== null && Math.abs(Math.sin(2 * pose.yaw)) < 0.18 ? true : pose === null;
-      placeBuilding(
-        b.gx,
-        b.gz,
-        b.faceDir,
-        pose ? this.rng.range(0.62, 0.72) : this.rng.range(0.74, 0.86),
-        cardinal,
-        pose,
-      );
+      placeBuilding(b.gx, b.gz, b.faceDir, frac, cardinal, pose);
     }
 
     // --- Green block interiors: real SF blocks are packed back-to-back, so
