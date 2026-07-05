@@ -250,11 +250,7 @@ export class FareManager {
 
   private pickCell(from: RoadCell, min: number, max: number): RoadCell {
     const cells = this.city.roadCells;
-    const diag = this.city.plan.diagonalCells;
     const inRange = cells.filter((c) => {
-      // Diagonal avenues render as open asphalt with no sidewalk — a customer
-      // standing there reads as loitering mid-road.
-      if (diag.has(`${c.gx},${c.gz}`)) return false;
       const d = this.cellDistance(from, c);
       return d >= min && d <= max;
     });
@@ -266,7 +262,9 @@ export class FareManager {
     return this.rng.pick(cells);
   }
 
-  // A point on the sidewalk of a road cell (offset toward an adjacent lot).
+  // A point on the sidewalk of a road cell: project onto the street EDGE and
+  // stand just past the asphalt on the lot side — correct on axis streets,
+  // diagonals and curves alike.
   private curbPoint(cell: RoadCell): THREE.Vector3 {
     let dir: Dir = E;
     for (const d of [S, E, N, W] as const) {
@@ -279,9 +277,23 @@ export class FareManager {
       }
     }
     const [dx, dz] = DIR_DELTA[dir];
-    const off = ROAD_TILE * 0.425; // on the sidewalk, not the parking lane
-    const x = this.city.worldX(cell.gx) + dx * off;
-    const z = this.city.worldZ(cell.gz) + dz * off;
+    const cx = this.city.worldX(cell.gx);
+    const cz = this.city.worldZ(cell.gz);
+    const hit = this.city.network.nearest(cx, cz, ROAD_TILE * 1.2);
+    if (hit) {
+      let nx = -hit.tz;
+      let nz = hit.tx;
+      if (nx * dx + nz * dz < 0) {
+        nx = -nx;
+        nz = -nz;
+      }
+      const off = hit.edge.half + 0.65; // on the sidewalk, facing the kerb
+      const x = hit.x + nx * off;
+      const z = hit.z + nz * off;
+      return new THREE.Vector3(x, this.city.terrain.heightAt(x, z), z);
+    }
+    const x = cx + dx * ROAD_TILE * 0.425;
+    const z = cz + dz * ROAD_TILE * 0.425;
     return new THREE.Vector3(x, this.city.terrain.heightAt(x, z), z);
   }
 

@@ -206,11 +206,14 @@ export class Car {
   }
 
   // Ramp the night rig with the day-night lamp factor (0 day .. 1 night).
+  // The spotlight stays IN the scene at all times (intensity fades to 0) —
+  // toggling a light's presence churns every shader program against the
+  // manually-updated shadow map and floods GL sampler-mismatch errors,
+  // leaving the clear color where the city should be.
   setHeadlights(f: number): void {
     if (Math.abs(f - this.nightFactor) < 0.005) return;
     this.nightFactor = f;
     const rig = this.nightRig;
-    rig.group.visible = f > 0.01;
     rig.spot.intensity = 160 * f;
     for (const m of rig.headMats) m.opacity = 0.75 * f;
     for (const m of rig.tailMats) m.opacity = 0.55 * f;

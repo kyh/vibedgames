@@ -1,0 +1,441 @@
+// Bake the VECTOR road network from the raw OSM dump — the source of truth
+// for the vector-first world: rendering sweeps geometry along these edges,
+// traffic drives them, buildings align to them. Also re-emits the raster mask
+// (sf-streets.ts) derived from the SAME polylines (supercover + bake-time
+// thinning), so raster consumers (lots, districts, minimap fallback) can never
+// disagree with the vectors.
+//
+// Usage: node bake-network.mjs
+// Reads sf-streets.raw.json (Overpass `out geom`; fetch-streets.sh recreates).
+
+import { readFileSync, writeFileSync } from "node:fs";
+
+// --- Must match src/shared/constants.ts ---
+const GRID_X = 244;
+const GRID_Z = 200;
+const ROAD_TILE = 13;
+const WORLD_W = GRID_X * ROAD_TILE;
+const WORLD_H = GRID_Z * ROAD_TILE;
+
+// Calibrated projection (see calibrate.mjs; R² ~0.999 vs the game's hills).
+const U_M = 6.2462, U_B = 765.2557;
+const V_M = -9.6095, V_B = 363.344;
+const projU = (lon) => U_M * lon + U_B;
+const projV = (lat) => V_M * lat + V_B;
+
+// --- landFactor, kept in sync with src/world/sf-map.ts ---
+function smooth(x, a, b) {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+}
+function box(u, v, uMin, uMax, vMin, vMax) {
+  const fu = Math.min(smooth(u, uMin - 0.02, uMin + 0.01), 1 - smooth(u, uMax - 0.01, uMax + 0.02));
+  const fv = Math.min(smooth(v, vMin - 0.02, vMin + 0.01), 1 - smooth(v, vMax - 0.01, vMax + 0.02));
+  return Math.min(fu, fv);
+}
+function lineSide(u, v, ax, ay, bx, by) {
+  return (bx - ax) * (v - ay) - (by - ay) * (u - ax);
+}
+function landFactor(u, v) {
+  let land = Math.min(smooth(u, 0.025, 0.06), 1 - smooth(u, 0.78, 0.85), smooth(v, 0.025, 0.07));
+  land = Math.min(land, smooth(lineSide(u, v, 0.03, 0.26, 0.25, 0.03), -0.015, 0.02));
+  land = Math.max(land, box(u, v, 0.82, 0.99, 0.7, 0.84));
+  land = Math.max(land, box(u, v, 0.82, 0.98, 0.87, 0.97));
+  land = Math.min(land, 1 - box(u, v, 0.71, 0.8, 0.29, 0.35));
+  land = Math.min(land, 1 - box(u, v, 0.71, 0.82, 0.57, 0.63));
+  land = Math.min(land, 1 - box(u, v, 0.08, 0.18, 0.72, 0.86));
+  return land;
+}
+const onLandUV = (u, v) => landFactor(u, v) > 0.5;
+const onLandXZ = (x, z) => onLandUV(x / WORLD_W + 0.5, z / WORLD_H + 0.5);
+
+// Road classes → asphalt HALF width (world units). Wider majors read as real
+// boulevards; tertiary matches the old uniform profile (ASPHALT_W/2 = 5.2).
+const CLASS_HALF = {
+  motorway: 6.8, motorway_link: 5.2,
+  trunk: 6.8, trunk_link: 5.2,
+  primary: 6.0, primary_link: 5.2,
+  secondary: 5.6, secondary_link: 5.2,
+  tertiary: 5.2, tertiary_link: 5.2,
+};
+
+// --- Load + project (majors only: the arterial network IS the game map) ---
+const raw = JSON.parse(readFileSync(new URL("./sf-streets.raw.json", import.meta.url)));
+const ways = raw.elements.filter(
+  (e) => e.type === "way" && e.geometry && CLASS_HALF[e.tags?.highway] !== undefined,
+);
+console.log(`ways kept (arterials): ${ways.length}`);
+
+// World-space polylines, split wherever they leave land.
+const polylines = []; // { pts: [[x,z],...], half }
+for (const w of ways) {
+  const half = CLASS_HALF[w.tags.highway];
+  let cur = [];
+  for (const g of w.geometry) {
+    const u = projU(g.lon);
+    const v = projV(g.lat);
+    const x = (u - 0.5) * WORLD_W;
+    const z = (v - 0.5) * WORLD_H;
+    if (onLandUV(u, v)) cur.push([x, z]);
+    else {
+      if (cur.length >= 2) polylines.push({ pts: cur, half });
+      cur = [];
+    }
+  }
+  if (cur.length >= 2) polylines.push({ pts: cur, half });
+}
+
+// --- Junction detection by shared vertex (OSM ways reference shared nodes,
+// so intersecting streets carry an IDENTICAL lat/lon vertex). ---
+const useCount = new Map(); // quantized "x,z" -> count
+const K = (p) => `${Math.round(p[0] * 100)},${Math.round(p[1] * 100)}`;
+for (const pl of polylines) {
+  for (let i = 0; i < pl.pts.length; i++) {
+    const k = K(pl.pts[i]);
+    // Endpoints always count as potential nodes; interiors count once per way.
+    useCount.set(k, (useCount.get(k) ?? 0) + 1);
+  }
+}
+
+// --- Split polylines at junction vertices → primitive edges ---
+const nodeIds = new Map(); // key -> node index
+const nodes = []; // [x, z]
+const nodeAt = (p) => {
+  const k = K(p);
+  let id = nodeIds.get(k);
+  if (id === undefined) {
+    id = nodes.length;
+    nodeIds.set(k, id);
+    nodes.push([p[0], p[1]]);
+  }
+  return id;
+};
+let edges = []; // { a, b, half, pts: [[x,z],...] including endpoints }
+for (const pl of polylines) {
+  let start = 0;
+  for (let i = 1; i < pl.pts.length; i++) {
+    const isEnd = i === pl.pts.length - 1;
+    const shared = (useCount.get(K(pl.pts[i])) ?? 0) >= 2;
+    if (isEnd || shared) {
+      const pts = pl.pts.slice(start, i + 1);
+      if (pts.length >= 2) {
+        edges.push({ a: nodeAt(pts[0]), b: nodeAt(pts[pts.length - 1]), half: pl.half, pts });
+      }
+      start = i;
+    }
+  }
+}
+
+// --- Merge degree-2 nodes (chain edges through cosmetic joints) ---
+function degreeMap() {
+  const deg = new Map();
+  for (const e of edges) {
+    deg.set(e.a, (deg.get(e.a) ?? 0) + 1);
+    deg.set(e.b, (deg.get(e.b) ?? 0) + 1);
+  }
+  return deg;
+}
+let merged = true;
+while (merged) {
+  merged = false;
+  const deg = degreeMap();
+  const byNode = new Map();
+  edges.forEach((e, i) => {
+    for (const n of [e.a, e.b]) {
+      if (!byNode.has(n)) byNode.set(n, []);
+      byNode.get(n).push(i);
+    }
+  });
+  const dead = new Set();
+  for (const [n, idxs] of byNode) {
+    if (deg.get(n) !== 2 || idxs.length !== 2) continue;
+    const [i1, i2] = idxs;
+    if (dead.has(i1) || dead.has(i2) || i1 === i2) continue;
+    const e1 = edges[i1], e2 = edges[i2];
+    if (e1.a === e1.b || e2.a === e2.b) continue; // loops stay
+    // Orient e1 to END at n, e2 to START at n.
+    const p1 = e1.b === n ? e1.pts : [...e1.pts].reverse();
+    const a = e1.b === n ? e1.a : e1.b;
+    const p2 = e2.a === n ? e2.pts : [...e2.pts].reverse();
+    const b = e2.a === n ? e2.b : e2.a;
+    if (a === b) continue; // would collapse to a loop
+    edges[i1] = { a, b, half: Math.max(e1.half, e2.half), pts: [...p1, ...p2.slice(1)] };
+    dead.add(i2);
+    merged = true;
+  }
+  if (dead.size > 0) edges = edges.filter((_, i) => !dead.has(i));
+}
+
+// --- Simplify edge shapes (RDP, world units) ---
+function rdp(pts, eps) {
+  if (pts.length <= 2) return pts;
+  const [x0, z0] = pts[0];
+  const [x1, z1] = pts[pts.length - 1];
+  const dx = x1 - x0, dz = z1 - z0;
+  const len = Math.hypot(dx, dz) || 1;
+  let maxD = -1, maxI = 0;
+  for (let i = 1; i + 1 < pts.length; i++) {
+    const d = Math.abs((pts[i][0] - x0) * dz - (pts[i][1] - z0) * dx) / len;
+    if (d > maxD) { maxD = d; maxI = i; }
+  }
+  if (maxD <= eps) return [pts[0], pts[pts.length - 1]];
+  const l = rdp(pts.slice(0, maxI + 1), eps);
+  const r = rdp(pts.slice(maxI), eps);
+  return [...l.slice(0, -1), ...r];
+}
+for (const e of edges) e.pts = rdp(e.pts, 2.5);
+
+// Drop degenerate stubs (sub-8u dead-end whiskers clutter junctions).
+{
+  const deg = degreeMap();
+  const len = (e) => {
+    let L = 0;
+    for (let i = 1; i < e.pts.length; i++) L += Math.hypot(e.pts[i][0] - e.pts[i-1][0], e.pts[i][1] - e.pts[i-1][1]);
+    return L;
+  };
+  edges = edges.filter((e) => {
+    const stub = deg.get(e.a) === 1 || deg.get(e.b) === 1;
+    return !(stub && len(e) < 8);
+  });
+}
+
+// --- Largest connected component ---
+{
+  const adj = new Map();
+  edges.forEach((e, i) => {
+    for (const [from, to] of [[e.a, e.b], [e.b, e.a]]) {
+      if (!adj.has(from)) adj.set(from, []);
+      adj.get(from).push(to);
+    }
+  });
+  const comp = new Map();
+  let nComp = 0;
+  for (const n of adj.keys()) {
+    if (comp.has(n)) continue;
+    const stack = [n];
+    comp.set(n, nComp);
+    while (stack.length) {
+      const c = stack.pop();
+      for (const m of adj.get(c) ?? []) {
+        if (!comp.has(m)) { comp.set(m, nComp); stack.push(m); }
+      }
+    }
+    nComp++;
+  }
+  const sizes = new Array(nComp).fill(0);
+  for (const c of comp.values()) sizes[c]++;
+  const main = sizes.indexOf(Math.max(...sizes));
+  edges = edges.filter((e) => comp.get(e.a) === main);
+  console.log(`components: ${nComp}, kept main with ${sizes[main]} nodes`);
+}
+
+// --- Compact node table (only referenced nodes) ---
+{
+  const remap = new Map();
+  const outNodes = [];
+  const idFor = (n) => {
+    let id = remap.get(n);
+    if (id === undefined) { id = outNodes.length; remap.set(n, id); outNodes.push(nodes[n]); }
+    return id;
+  };
+  for (const e of edges) { e.a = idFor(e.a); e.b = idFor(e.b); }
+  nodes.length = 0;
+  nodes.push(...outNodes);
+}
+
+// --- Stats + validation ---
+let totalLen = 0;
+for (const e of edges) {
+  for (let i = 1; i < e.pts.length; i++) {
+    totalLen += Math.hypot(e.pts[i][0] - e.pts[i - 1][0], e.pts[i][1] - e.pts[i - 1][1]);
+    if (!Number.isFinite(e.pts[i][0]) || !Number.isFinite(e.pts[i][1])) throw new Error("NaN vertex");
+  }
+}
+console.log(`nodes: ${nodes.length}, edges: ${edges.length}, total ${Math.round(totalLen / 1000)}k units`);
+if (nodes.length < 400 || edges.length < 600) throw new Error("suspiciously small network");
+
+// --- Raster mask derived from the SAME edges (supercover + thinning) ---
+const grid = new Uint8Array(GRID_X * GRID_Z);
+const toG = (x, z) => [
+  Math.floor((x / WORLD_W + 0.5) * GRID_X),
+  Math.floor((z / WORLD_H + 0.5) * GRID_Z),
+];
+function rasterizeSeg(gx0, gz0, gx1, gz1) {
+  let x = gx0, z = gz0;
+  const dx = Math.abs(gx1 - gx0), dz = Math.abs(gz1 - gz0);
+  const sx = gx0 < gx1 ? 1 : -1, sz = gz0 < gz1 ? 1 : -1;
+  let err = dx - dz;
+  const mark = (cx, cz) => {
+    if (cx >= 0 && cz >= 0 && cx < GRID_X && cz < GRID_Z) grid[cx * GRID_Z + cz] = 1;
+  };
+  let steps = 0;
+  const maxSteps = dx + dz + 4;
+  while (steps++ < maxSteps) {
+    mark(x, z);
+    if (x === gx1 && z === gz1) break;
+    const e2 = 2 * err;
+    // Mark after EACH axis move: when both fire in one iteration this fills
+    // the corner cell, keeping the line 4-connected (true supercover).
+    if (e2 > -dz) { err -= dz; x += sx; mark(x, z); }
+    if (e2 < dx) { err += dx; z += sz; mark(x, z); }
+  }
+}
+for (const e of edges) {
+  for (let i = 1; i < e.pts.length; i++) {
+    const [ax, az] = e.pts[i - 1];
+    const [bx, bz] = e.pts[i];
+    const [g0x, g0z] = toG(ax, az);
+    const [g1x, g1z] = toG(bx, bz);
+    rasterizeSeg(g0x, g0z, g1x, g1z);
+  }
+}
+// Bake-time thinning (ported from src/world/thin-streets.ts).
+function thin(road, sizeX, sizeZ) {
+  const at = (x, z) => x >= 0 && z >= 0 && x < sizeX && z < sizeZ && road[x * sizeZ + z] === 1;
+  const RING = [[0,-1],[1,-1],[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1]];
+  const inSquare = (x, z) => {
+    for (const dx of [-1, 1]) for (const dz of [-1, 1])
+      if (at(x + dx, z) && at(x, z + dz) && at(x + dx, z + dz)) return true;
+    return false;
+  };
+  const removable = (x, z) => {
+    let n4 = 0;
+    const ring = [];
+    for (let i = 0; i < 8; i++) {
+      const r = at(x + RING[i][0], z + RING[i][1]);
+      ring.push(r);
+      if (r && i % 2 === 0) n4++;
+    }
+    if (n4 < 2 || !inSquare(x, z)) return false;
+    let arcs = 0, all = true;
+    for (let i = 0; i < 8; i++) {
+      if (!ring[i]) { all = false; continue; }
+      if (ring[(i + 7) % 8]) continue;
+      for (let j = i; ring[j % 8] && j < i + 8; j++) {
+        if (j % 2 === 0) { arcs++; break; }
+      }
+    }
+    return all || arcs === 1;
+  };
+  for (let sweep = 0; sweep < 12; sweep++) {
+    let changed = false;
+    for (const peel of [[0,-1],[1,0],[0,1],[-1,0]]) {
+      for (let x = 0; x < sizeX; x++) for (let z = 0; z < sizeZ; z++) {
+        if (road[x * sizeZ + z] !== 1) continue;
+        if (at(x + peel[0], z + peel[1])) continue;
+        if (!removable(x, z)) continue;
+        road[x * sizeZ + z] = 0;
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+}
+function maskComponents(g) {
+  const at = (x, z) => x >= 0 && z >= 0 && x < GRID_X && z < GRID_Z && g[x * GRID_Z + z] === 1;
+  const seen = new Set();
+  const sizes = [];
+  for (let x = 0; x < GRID_X; x++) for (let z = 0; z < GRID_Z; z++) {
+    if (!at(x, z) || seen.has(x * GRID_Z + z)) continue;
+    let n = 0;
+    const st = [[x, z]];
+    seen.add(x * GRID_Z + z);
+    while (st.length) {
+      const c = st.pop();
+      n++;
+      for (const [dx, dz] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+        const nx = c[0] + dx, nz = c[1] + dz;
+        if (at(nx, nz) && !seen.has(nx * GRID_Z + nz)) { seen.add(nx * GRID_Z + nz); st.push([nx, nz]); }
+      }
+    }
+    sizes.push(n);
+  }
+  sizes.sort((a, b) => b - a);
+  return sizes;
+}
+const pre = maskComponents(grid);
+console.log(`pre-thin components: ${pre.length}, top: ${pre.slice(0, 5).join(",")}`);
+thin(grid, GRID_X, GRID_Z);
+const post = maskComponents(grid);
+console.log(`post-thin components: ${post.length}, top: ${post.slice(0, 5).join(",")}`);
+let roadCells = 0;
+for (const v of grid) roadCells += v;
+console.log(`mask road cells: ${roadCells}`);
+if (roadCells < 3000 || roadCells > 12000) throw new Error("mask cell count out of range");
+
+// --- Emit sf-streets.ts (same format as before — drop-in) ---
+const cols = [];
+for (let gx = 0; gx < GRID_X; gx++) {
+  let bits = "";
+  for (let gz = 0; gz < GRID_Z; gz++) bits += grid[gx * GRID_Z + gz] ? "1" : "0";
+  let hex = "";
+  for (let i = 0; i < bits.length; i += 4) hex += parseInt(bits.slice(i, i + 4).padEnd(4, "0"), 2).toString(16);
+  cols.push(hex);
+}
+writeFileSync(
+  new URL("../../src/world/sf-streets.ts", import.meta.url),
+  `// AUTO-GENERATED by tools/sf-data/bake-network.mjs — do not edit by hand.
+// Raster mask DERIVED from the vector network (sf-network.ts) — pre-thinned.
+// ${roadCells} road cells at ${GRID_X}x${GRID_Z}.
+export const SF_STREET_MASK = {
+  gx: ${GRID_X},
+  gz: ${GRID_Z},
+  // One hex string per column (gx); each nibble packs 4 rows (gz), MSB first.
+  cols: ${JSON.stringify(cols)},
+} as const;
+
+export function streetMaskAt(gx: number, gz: number): boolean {
+  const col = SF_STREET_MASK.cols[gx];
+  if (col === undefined) return false;
+  const nibble = col.charCodeAt(gz >> 2);
+  const val = nibble <= 57 ? nibble - 48 : nibble - 87; // '0'-'9','a'-'f'
+  return (val & (8 >> (gz & 3))) !== 0;
+}
+`,
+);
+
+// --- Emit sf-network.ts ---
+const r1 = (n) => Math.round(n * 10) / 10;
+const nodesOut = nodes.map(([x, z]) => `[${r1(x)},${r1(z)}]`).join(",");
+const edgesOut = edges
+  .map((e) => `{a:${e.a},b:${e.b},w:${e.half},p:[${e.pts.map(([x, z]) => `${r1(x)},${r1(z)}`).join(",")}]}`)
+  .join(",\n");
+writeFileSync(
+  new URL("../../src/world/sf-network.ts", import.meta.url),
+  `// AUTO-GENERATED by tools/sf-data/bake-network.mjs — do not edit by hand.
+// The VECTOR road network (real OSM arterials, world coords): source of truth
+// for road rendering, traffic routing and building alignment.
+// ${nodes.length} nodes, ${edges.length} edges.
+
+export type RawEdge = {
+  readonly a: number; // node index
+  readonly b: number;
+  readonly w: number; // asphalt half-width
+  readonly p: readonly number[]; // flat [x0,z0, x1,z1, ...] including endpoints
+};
+
+export const SF_NODES: readonly (readonly [number, number])[] = [${nodesOut}];
+
+export const SF_EDGES: readonly RawEdge[] = [
+${edgesOut}
+];
+`,
+);
+
+// SVG preview: network over the mask.
+{
+  const cell = 5;
+  let out = `<svg xmlns="http://www.w3.org/2000/svg" width="${GRID_X * cell}" height="${GRID_Z * cell}"><rect width="100%" height="100%" fill="#9ec7d8"/>`;
+  for (let gx = 0; gx < GRID_X; gx++) for (let gz = 0; gz < GRID_Z; gz++) {
+    if (onLandUV((gx + 0.5) / GRID_X, (gz + 0.5) / GRID_Z))
+      out += `<rect x="${gx * cell}" y="${gz * cell}" width="${cell}" height="${cell}" fill="${grid[gx * GRID_Z + gz] ? "#bbb" : "#e8e4d8"}"/>`;
+  }
+  const sx = (x) => ((x / WORLD_W) + 0.5) * GRID_X * cell;
+  const sz = (z) => ((z / WORLD_H) + 0.5) * GRID_Z * cell;
+  for (const e of edges) {
+    out += `<polyline fill="none" stroke="#c22" stroke-width="1.6" points="${e.pts.map(([x, z]) => `${sx(x).toFixed(1)},${sz(z).toFixed(1)}`).join(" ")}"/>`;
+  }
+  out += "</svg>";
+  writeFileSync(new URL("./preview-network.svg", import.meta.url), out);
+}
+console.log("Wrote src/world/sf-network.ts, src/world/sf-streets.ts, preview-network.svg");

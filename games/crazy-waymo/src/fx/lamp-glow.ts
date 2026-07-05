@@ -9,9 +9,9 @@ import * as THREE from "three";
 // fog), and depth-test so buildings occlude them.
 
 const HALO_SIZE = 2.6; // world units, quad edge
-const POOL_SIZE = 10;
-const HALO_ALPHA = 0.6;
-const POOL_ALPHA = 0.34;
+const POOL_SIZE = 8;
+const HALO_ALPHA = 0.5;
+const POOL_ALPHA = 0.2;
 const FADE_NEAR = 380; // camera distance where lamps start to fade
 const FADE_FAR = 650;
 

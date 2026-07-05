@@ -6,10 +6,8 @@ import {
   ROAD_STRAIGHT,
 } from "../assets/manifest";
 import { GRID_X, GRID_Z } from "../shared/constants";
-import { type DiagonalRun, findDiagonals } from "./diagonals";
 import { SF_STREET_MASK, streetMaskAt } from "./sf-streets";
 import { isLandCell } from "./sf-map";
-import { thinStreets } from "./thin-streets";
 import {
   type Dir,
   DIR_DELTA,
@@ -36,10 +34,6 @@ export type CityPlan = {
   readonly roads: readonly (readonly (RoadResolved | null)[])[];
   readonly buildingCells: readonly BuildingCell[];
   readonly greenCells: readonly GreenCell[];
-  // Staircase corridors (Market-style diagonals): these cells render as
-  // diagonal avenues; furniture/fares stay off them. Logical network unchanged.
-  readonly diagonalCells: ReadonlySet<string>;
-  readonly diagonalRuns: readonly DiagonalRun[];
 };
 
 // Native connection masks (N=-Z,E=+X,S=+Z,W=-X) for the KayKit street tiles,
@@ -90,58 +84,43 @@ export function generateCity(): CityPlan {
     );
   }
 
-  // Land-clipped raster, then thinned to 1-cell-wide streets: the supercover
-  // rasterizer leaves wide boulevards and close parallel ways 2 cells thick,
-  // which the autotiler renders as stacked streets / junction plazas.
-  const rawGrid = new Uint8Array(GRID_X * GRID_Z);
-  for (let gx = 0; gx < GRID_X; gx++) {
-    for (let gz = 0; gz < GRID_Z; gz++) {
-      if (isLandCell(gx, gz) && streetMaskAt(gx, gz)) rawGrid[gx * GRID_Z + gz] = 1;
-    }
-  }
-  thinStreets(rawGrid, GRID_X, GRID_Z);
+  // The mask is baked pre-thinned from the vector network (bake-network.mjs)
+  // — raster consumers can never disagree with the vectors.
   const isRoadRaw = (gx: number, gz: number): boolean => {
     if (gx < 0 || gz < 0 || gx >= GRID_X || gz >= GRID_Z) return false;
-    return rawGrid[gx * GRID_Z + gz] === 1;
+    if (!isLandCell(gx, gz)) return false;
+    return streetMaskAt(gx, gz);
   };
 
-  // The real street grid is one connected network, but the shoreline cut above
-  // can still split it (water inlets sever whole fingers, e.g. Treasure Island
-  // or the bridge approaches that rasterize onto water). Keep only the component
-  // containing the map centre — every fare, spawn and traffic cell must be
-  // mutually reachable.
-  const mainRoads = new Set<string>();
+  // The land clip can fragment the raster mask where a street grazes water —
+  // keep the LARGEST 4-connected component (fares/spawns/traffic cells must
+  // be mutually reachable, and a bad seed must never select a fragment).
+  let mainRoads = new Set<string>();
   {
-    const cx = (GRID_X - 1) / 2;
-    const cz = (GRID_Z - 1) / 2;
-    let seed: { gx: number; gz: number } | null = null;
-    let bd = Infinity;
-    for (let gx = 0; gx < GRID_X; gx++) {
-      for (let gz = 0; gz < GRID_Z; gz++) {
-        if (!isRoadRaw(gx, gz)) continue;
-        const d = Math.abs(gx - cx) + Math.abs(gz - cz);
-        if (d < bd) {
-          bd = d;
-          seed = { gx, gz };
-        }
-      }
-    }
-    if (seed) {
-      const stack = [seed];
-      mainRoads.add(key(seed.gx, seed.gz));
-      while (stack.length > 0) {
-        const cur = stack.pop();
-        if (!cur) break;
-        for (const d of [N, E, S, W] as const) {
-          const [dx, dz] = DIR_DELTA[d];
-          const nx = cur.gx + dx;
-          const nz = cur.gz + dz;
-          const k = key(nx, nz);
-          if (!mainRoads.has(k) && isRoadRaw(nx, nz)) {
-            mainRoads.add(k);
-            stack.push({ gx: nx, gz: nz });
+    const seen = new Set<string>();
+    for (let sgx = 0; sgx < GRID_X; sgx++) {
+      for (let sgz = 0; sgz < GRID_Z; sgz++) {
+        if (!isRoadRaw(sgx, sgz) || seen.has(key(sgx, sgz))) continue;
+        const comp = new Set<string>();
+        const stack = [{ gx: sgx, gz: sgz }];
+        comp.add(key(sgx, sgz));
+        seen.add(key(sgx, sgz));
+        while (stack.length > 0) {
+          const cur = stack.pop();
+          if (!cur) break;
+          for (const d of [N, E, S, W] as const) {
+            const [dx, dz] = DIR_DELTA[d];
+            const nx = cur.gx + dx;
+            const nz = cur.gz + dz;
+            const k = key(nx, nz);
+            if (!seen.has(k) && isRoadRaw(nx, nz)) {
+              comp.add(k);
+              seen.add(k);
+              stack.push({ gx: nx, gz: nz });
+            }
           }
         }
+        if (comp.size > mainRoads.size) mainRoads = comp;
       }
     }
   }
@@ -190,16 +169,5 @@ export function generateCity(): CityPlan {
     roads[gx] = roadCol;
   }
 
-  const diagonals = findDiagonals(isRoad, GRID_X, GRID_Z);
-
-  return {
-    sizeX: GRID_X,
-    sizeZ: GRID_Z,
-    cells,
-    roads,
-    buildingCells,
-    greenCells,
-    diagonalCells: diagonals.cells,
-    diagonalRuns: diagonals.runs,
-  };
+  return { sizeX: GRID_X, sizeZ: GRID_Z, cells, roads, buildingCells, greenCells };
 }

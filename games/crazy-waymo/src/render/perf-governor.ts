@@ -56,15 +56,6 @@ export class PerfGovernor {
     return this.tier;
   }
 
-  // True once after a tier change disposed the shadow map — the render loop
-  // must force one shadow pass so a freshly allocated depth texture is never
-  // sampled before it has been rendered to.
-  consumeShadowInvalidate(): boolean {
-    const v = this.shadowInvalid;
-    this.shadowInvalid = false;
-    return v;
-  }
-  private shadowInvalid = false;
 
   // Feed the RAW frame delta (seconds) every frame, before render.
   update(dt: number): void {
@@ -112,7 +103,6 @@ export class PerfGovernor {
       shadow.mapSize.set(t.shadow, t.shadow);
       shadow.map?.dispose();
       shadow.map = null; // force reallocation at the new size
-      this.shadowInvalid = true;
     }
     this.onApply();
   }

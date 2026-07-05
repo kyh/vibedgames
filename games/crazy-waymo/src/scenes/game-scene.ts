@@ -295,10 +295,6 @@ export class GameScene {
     return this.sun;
   }
 
-  // False at night (shadows fully faded) — the render loop skips the pass.
-  get shadowsActive(): boolean {
-    return this.dayNight.shadowsActive;
-  }
 
   // Used by the map editor (?editor=1) and DEV hooks.
   getCity(): CityModel | null {

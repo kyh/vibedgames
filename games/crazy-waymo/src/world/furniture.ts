@@ -7,7 +7,6 @@ import {
   LIGHT_CURVED,
   LIGHT_CURVED_CROSS,
   LIGHT_OLD,
-  LIGHT_OLD_DOUBLE,
   LIGHT_SQUARE,
   LIGHT_SQUARE_DOUBLE,
   modelUrl,
@@ -50,7 +49,8 @@ import type { Rng } from "../shared/rng";
 import { type Dir, DIR_DELTA, E, N, S, W } from "../shared/types";
 import type { Solid } from "./city";
 import { conformToTerrain } from "./conform";
-import { ASPHALT_W, SIDEWALK_W } from "./roads";
+import { SIDEWALK_W } from "./roads";
+import type { RoadNetwork } from "./network";
 import type { CityPlan, RoadResolved } from "./grid";
 import { type DistrictChar, districtAt } from "./sf-map";
 import type { Terrain } from "./terrain";
@@ -64,6 +64,7 @@ import type { Terrain } from "./terrain";
 
 export type FurnitureCtx = {
   readonly plan: CityPlan;
+  readonly network: RoadNetwork;
   readonly terrain: Terrain;
   readonly cache: ModelCache;
   readonly rng: Rng;
@@ -92,10 +93,6 @@ const DIRS: readonly Dir[] = [N, E, S, W];
 
 // --- Tunables ---
 const LIGHT_HEIGHT = 5; // streetlight world height
-// Offsets derive from the procedural street profile (world/roads.ts): lamps
-// stand on the sidewalk, parked cars sit inside the outer parking lane.
-const LIGHT_LATERAL = ASPHALT_W / 2 + SIDEWALK_W * 0.45;
-const PARK_LATERAL = ASPHALT_W / 2 - 1.05;
 const PIER_DECK_Y = 0.55; // flat pier deck height over the water
 const PIER_WIDTH = ROAD_TILE * 1.03; // decks scaled like road tiles
 const PIER_RAMP_RUN = ROAD_TILE * 0.6; // horizontal run of the shore→deck ramp
@@ -174,7 +171,7 @@ function lightFor(c: DistrictChar): string {
 }
 
 export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
-  const { plan, terrain, cache, rng, reserved, worldX, worldZ } = ctx;
+  const { plan, network, terrain, cache, rng, reserved, worldX, worldZ } = ctx;
   const objects: THREE.Object3D[] = [];
   const solids: Solid[] = [];
   const openWaterCells = new Set<string>();
@@ -184,10 +181,14 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
 
   const roadAt = (gx: number, gz: number): RoadResolved | null =>
     inBounds(gx, gz) ? (plan.roads[gx]?.[gz] ?? null) : null;
-  // Diagonal-avenue cells render as full-tile asphalt (world/diagonals.ts) —
-  // no sidewalks, so no kerb furniture belongs there.
-  const isDiagonal = (gx: number, gz: number): boolean =>
-    plan.diagonalCells.has(cellKey(gx, gz));
+  // Lots on non-cardinal streets rotate their building to the edge tangent —
+  // faceDir-relative dressing (fences, awnings, back-corner clutter) would
+  // misalign there.
+  const nonCardinalStreet = (gx: number, gz: number): boolean => {
+    const hit = network.nearest(worldX(gx), worldZ(gz), ROAD_TILE * 1.6);
+    if (!hit) return false;
+    return Math.abs(Math.sin(2 * Math.atan2(hit.tx, hit.tz))) >= 0.18;
+  };
   const cellAt = (gx: number, gz: number): "road" | "lot" | "water" | null =>
     inBounds(gx, gz) ? (plan.cells[gx]?.[gz] ?? null) : null;
   // Road axis from actual neighbours — tile quarterTurns encode the tile set's
@@ -233,15 +234,6 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
     }
     return false;
   };
-  // Mirrors city.ts's decoratedTile: straights feeding a junction in walkable
-  // districts render as zebra crossings.
-  const isCrossingCell = (gx: number, gz: number): boolean => {
-    const r = roadAt(gx, gz);
-    if (!r || r.tile !== ROAD_STRAIGHT) return false;
-    const c = districtAt(gx, gz).character;
-    if (c !== "commercial" && c !== "downtown" && c !== "wharf" && c !== "victorian") return false;
-    return nextToJunction(gx, gz);
-  };
   const scaleToHeight = (url: string, h: number): number =>
     h / Math.max(cache.bounds(url).size.y, 0.001);
   // Long-axis info for strip pieces (fences, paths): scale by the long side and
@@ -284,84 +276,48 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
     objects.push(mesh);
   };
 
-  // A curb side is only real sidewalk if no road runs alongside it: the lateral
-  // cell AND both lateral diagonals must be road-free, or the "sidewalk" is a
-  // sliver pinched between two asphalt ribbons and a pole there reads as
-  // standing mid-street.
-  const sideClean = (gx: number, gz: number, alongX: boolean, side: 1 | -1): boolean => {
-    const lx = alongX ? 0 : side;
-    const lz = alongX ? side : 0;
-    if (cellAt(gx + lx, gz + lz) === "road") return false;
-    const ax = alongX ? 1 : 0; // step along the road axis
-    const az = alongX ? 0 : 1;
-    if (cellAt(gx + lx + ax, gz + lz + az) === "road") return false;
-    if (cellAt(gx + lx - ax, gz + lz - az) === "road") return false;
-    return true;
-  };
   // A junction corner pad is real sidewalk only when the diagonal block is not
   // road (a road there merges the corner into an asphalt plaza).
   const cornerClean = (gx: number, gz: number, sx: 1 | -1, sz: 1 | -1): boolean =>
     cellAt(gx + sx, gz + sz) !== "road";
 
   // ------------------------------------------------------------------
-  // 1. STREETLIGHTS — every 2nd straight road cell, alternating curb side.
+  // 1. STREETLIGHTS — walked along network EDGES every ~2 tiles, alternating
+  // sides, clear of junction trims. Works identically on axis streets,
+  // diagonals and curves.
   // ------------------------------------------------------------------
-  const lightSide = new Map<string, 1 | -1>(); // which side a cell's lamp took
-  for (let gx = 0; gx < GRID_X; gx++) {
-    for (let gz = 0; gz < GRID_Z; gz++) {
-      const road = roadAt(gx, gz);
-      if (!road || road.tile !== ROAD_STRAIGHT) continue;
-      if ((gx + gz) % 2 !== 0) continue;
+  const lightSide = new Map<string, 1 | -1>(); // cell -> lamp side (bench clash check)
+  const toGx = (x: number): number => Math.floor((x + WORLD_W / 2) / ROAD_TILE);
+  const toGz = (z: number): number => Math.floor((z + WORLD_H / 2) / ROAD_TILE);
+  const LAMP_SPACING = ROAD_TILE * 3.5;
+  let lampFlip = false;
+  for (const edge of network.edges) {
+    if (edge.half >= 6.4) continue; // freeways: no kerbside lamps
+    const trimA = network.nodeTrim(edge.a) + 2;
+    const trimB = network.nodeTrim(edge.b) + 2;
+    for (let s = trimA + LAMP_SPACING * 0.5; s < edge.len - trimB; s += LAMP_SPACING) {
+      lampFlip = !lampFlip;
+      const side: 1 | -1 = lampFlip ? 1 : -1;
+      const smp = network.sample(edge, s);
+      const off = (edge.half + SIDEWALK_W * 0.45) * side;
+      const px = smp.x - smp.tz * off;
+      const pz = smp.z + smp.tx * off;
+      const gx = toGx(px);
+      const gz = toGz(pz);
       if (reserved.has(cellKey(gx, gz))) continue;
-      if (isDiagonal(gx, gz)) continue;
-      // Keep junction mouths clear.
-      let nearJunction = false;
-      for (const d of DIRS) {
-        const [dx, dz] = DIR_DELTA[d];
-        const nb = roadAt(gx + dx, gz + dz);
-        if (nb && (nb.tile === ROAD_CROSSROAD || nb.tile === ROAD_INTERSECTION)) {
-          nearJunction = true;
-        }
-      }
-      if (nearJunction) continue;
-      const alongX = straightAlongX(gx, gz);
-      // Alternate curb sides block to block, but never plant a pole on a
-      // pinched sliver — flip to the clean curb, or skip the cell entirely.
-      let side: 1 | -1 = Math.floor((gx + gz) / 2) % 2 === 0 ? 1 : -1;
-      if (!sideClean(gx, gz, alongX, side)) {
-        const flipped: 1 | -1 = side > 0 ? -1 : 1;
-        if (!sideClean(gx, gz, alongX, flipped)) continue;
-        side = flipped;
-      }
-      const wx = worldX(gx);
-      const wz = worldZ(gz);
-      const px = alongX ? wx : wx + side * LIGHT_LATERAL;
-      const pz = alongX ? wz + side * LIGHT_LATERAL : wz;
-      // Lamp arm (local +Z) points back toward the road centreline.
-      const yaw = alongX ? (side > 0 ? Math.PI : 0) : -side * HALF_PI;
+      // Arm (local +Z) points back at the road centreline.
+      const yaw = Math.atan2(smp.tz * side, -smp.tx * side);
       const char = districtAt(gx, gz).character;
       const groundY = terrain.heightAt(px, pz);
       if (char === "victorian") {
-        // Gas-lamp era ironwork; a two-lantern post where a crossing is next
-        // door. The double's lanterns run local ±X, so quarter-turn the arm
-        // rule to swing them curb→road.
-        let doubled = false;
-        for (const d of DIRS) {
-          const [dx, dz] = DIR_DELTA[d];
-          if (isCrossingCell(gx + dx, gz + dz)) doubled = true;
-        }
-        const url = modelUrl("props", doubled ? LIGHT_OLD_DOUBLE : LIGHT_OLD);
-        const kkYaw = doubled ? yaw + HALF_PI : yaw;
-        seatKK(url, px, pz, kkYaw, scaleToHeight(url, VICTORIAN_LAMP_HEIGHT));
-        // Lantern sits atop the post, no arm reach.
+        const url = modelUrl("props", LIGHT_OLD);
+        seatKK(url, px, pz, yaw, scaleToHeight(url, VICTORIAN_LAMP_HEIGHT));
         lampHeads.push({ x: px, y: groundY + VICTORIAN_LAMP_HEIGHT * 0.85, z: pz, ground: groundY });
       } else {
         const url = modelUrl("props", lightFor(char));
-        const s = scaleToHeight(url, LIGHT_HEIGHT);
-        seat(url, px, pz, yaw, s);
-        // Head hangs off the arm, which points along local +Z (toward the
-        // road). Approximate reach from the model's depth.
-        const reach = cache.bounds(url).size.z * s * 0.5;
+        const sc = scaleToHeight(url, LIGHT_HEIGHT);
+        seat(url, px, pz, yaw, sc);
+        const reach = cache.bounds(url).size.z * sc * 0.5;
         lampHeads.push({
           x: px + Math.sin(yaw) * reach,
           y: groundY + LIGHT_HEIGHT * 0.92,
@@ -374,33 +330,28 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
   }
 
   // ------------------------------------------------------------------
-  // 2. PARKED CARS — curbs of residential/victorian/commercial streets.
+  // 2. PARKED CARS — kerbs of residential/victorian/commercial edges,
+  // parked with the flow of their side of the street.
   // ------------------------------------------------------------------
-  for (let gx = 0; gx < GRID_X; gx++) {
-    for (let gz = 0; gz < GRID_Z; gz++) {
-      const road = roadAt(gx, gz);
-      if (!road || road.tile !== ROAD_STRAIGHT) continue;
+  for (const edge of network.edges) {
+    const trimA = network.nodeTrim(edge.a) + 3;
+    const trimB = network.nodeTrim(edge.b) + 3;
+    for (let s = trimA; s < edge.len - trimB; s += ROAD_TILE) {
+      if (!rng.chance(0.12)) continue;
+      const smp = network.sample(edge, s);
+      const gx = toGx(smp.x);
+      const gz = toGz(smp.z);
       if (reserved.has(cellKey(gx, gz))) continue;
-      if (isDiagonal(gx, gz)) continue;
-      if (nearCentre(gx, gz, 2)) continue; // keep the spawn block clear
+      if (nearCentre(gx, gz, 2)) continue;
       const char = districtAt(gx, gz).character;
       if (char !== "residential" && char !== "victorian" && char !== "commercial") continue;
-      // Each parked car is a live physics body + individual mesh — keep the
-      // fleet modest (~250) so broad-phase and draw calls stay cheap.
-      if (!rng.chance(0.12)) continue;
-      const taken = lightSide.get(cellKey(gx, gz));
-      const side: 1 | -1 = taken !== undefined ? (taken > 0 ? -1 : 1) : rng.chance(0.5) ? 1 : -1;
-      const alongX = straightAlongX(gx, gz);
-      const wx = worldX(gx);
-      const wz = worldZ(gz);
-      const px = alongX ? wx : wx + side * PARK_LATERAL;
-      const pz = alongX ? wz + side * PARK_LATERAL : wz;
-      // Length axis along the road; side flips facing so cars read as parked
-      // with the flow of their curb. Tiny yaw jitter sells hand-parking.
-      const yaw = (alongX ? HALF_PI : 0) + (side > 0 ? 0 : Math.PI) + rng.range(-0.04, 0.04);
-      // Parked cars are punt-able physics bodies (see game/parked-cars.ts), not
-      // baked static geometry — ramming one shoves it aside instead of walling
-      // the taxi off. The manager builds the mesh + kinematic-until-hit body.
+      const side: 1 | -1 = rng.chance(0.5) ? 1 : -1;
+      const off = (edge.half - 1.05) * side;
+      const px = smp.x - smp.tz * off;
+      const pz = smp.z + smp.tx * off;
+      // Nose along the travel direction of this kerb's lane.
+      const yaw =
+        Math.atan2(smp.tx, smp.tz) + (side > 0 ? 0 : Math.PI) + rng.range(-0.04, 0.04);
       parkedCars.push({ x: px, z: pz, yaw, model: rng.pick(TRAFFIC_CARS) });
     }
   }
@@ -429,9 +380,7 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
     if (steepLot(b.gx, b.gz)) continue;
     const district = districtAt(b.gx, b.gz);
     const [dx, dz] = DIR_DELTA[b.faceDir]; // toward the street
-    // Avenue-frontage lots rotate their building to the diagonal spine —
-    // faceDir-relative dressing (awnings, fences, paths) would misalign.
-    if (isDiagonal(b.gx + dx, b.gz + dz)) continue;
+    if (nonCardinalStreet(b.gx, b.gz)) continue; // rotated building, skip dressing
     const perpX = dz; // lot-side axis (perpendicular to faceDir)
     const perpZ = dx;
     const wx = worldX(b.gx);
@@ -526,7 +475,6 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
       const road = roadAt(gx, gz);
       if (!road || road.tile !== ROAD_STRAIGHT) continue;
       if (reserved.has(cellKey(gx, gz))) continue;
-      if (isDiagonal(gx, gz)) continue;
       if (nearCentre(gx, gz, 3)) continue;
       pocketCandidates.push({ gx, gz, alongX: straightAlongX(gx, gz) });
     }
@@ -951,7 +899,6 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
     for (let gz = 0; gz < GRID_Z && hydrants < HYDRANT_CAP; gz++) {
       if (!roadAt(gx, gz)) continue;
       if (reserved.has(cellKey(gx, gz))) continue;
-      if (isDiagonal(gx, gz)) continue;
       const char = districtAt(gx, gz).character;
       if (char !== "commercial" && char !== "downtown" && char !== "wharf") continue;
       if (!nextToJunction(gx, gz)) continue;
@@ -1018,7 +965,6 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
       const road = roadAt(gx, gz);
       if (!road) continue;
       if (reserved.has(cellKey(gx, gz))) continue;
-      if (isDiagonal(gx, gz)) continue;
       const char = districtAt(gx, gz).character;
       if (char !== "wharf" && char !== "park") continue;
       let lotDir: Dir | null = null;
@@ -1071,7 +1017,7 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
     if (reserved.has(cellKey(b.gx, b.gz))) continue;
     if (districtAt(b.gx, b.gz).character !== "industrial") continue;
     const [dx, dz] = DIR_DELTA[b.faceDir];
-    if (isDiagonal(b.gx + dx, b.gz + dz)) continue; // rotated avenue lot
+    if (nonCardinalStreet(b.gx, b.gz)) continue; // rotated building
     const perpX = dz;
     const perpZ = dx;
     const wx = worldX(b.gx);
@@ -1103,8 +1049,7 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
   const towerLots = plan.buildingCells.filter((b) => {
     if (reserved.has(cellKey(b.gx, b.gz))) return false;
     if (districtAt(b.gx, b.gz).character !== "industrial") return false;
-    const [dx, dz] = DIR_DELTA[b.faceDir];
-    return !isDiagonal(b.gx + dx, b.gz + dz); // rotated avenue lots opt out
+    return !nonCardinalStreet(b.gx, b.gz); // rotated buildings opt out
   });
   const towerUrl = modelUrl("props", PROP_WATERTOWER);
   const towerScale = scaleToHeight(towerUrl, 13);

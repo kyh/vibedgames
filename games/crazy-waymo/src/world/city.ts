@@ -25,10 +25,11 @@ import {
 } from "../shared/constants";
 import { Rng } from "../shared/rng";
 import { type Dir, DIR_DELTA, E, N, S, W } from "../shared/types";
-import { conformToTerrain, toFloat32Attributes } from "./conform";
+import { toFloat32Attributes } from "./conform";
 import { CUSTOM_PROPS } from "./custom-props";
 import { buildFurniture, type LampHead, type ParkedSpec } from "./furniture";
 import { buildGoldenGate } from "./golden-gate";
+import { RoadNetwork } from "./network";
 import { type CityPlan, generateCity } from "./grid";
 import { buildRoads } from "./roads";
 import { buildLandmarks, landmarkProtection } from "./landmarks";
@@ -99,6 +100,7 @@ export class CityModel {
   readonly roadCells: RoadCell[] = [];
   readonly plan: CityPlan;
   readonly terrain: Terrain;
+  readonly network: RoadNetwork; // vector road graph (rendering/traffic/alignment)
   parkedCarSpecs: readonly ParkedSpec[] = []; // punt-able parked cars (built by furniture)
   lampHeads: readonly LampHead[] = []; // streetlight glow anchors (night pass)
   private chunks: Chunk[] = [];
@@ -120,6 +122,7 @@ export class CityModel {
     private rng = new Rng(CITY_SEED),
   ) {
     this.terrain = makeTerrain();
+    this.network = new RoadNetwork();
     this.plan = generateCity();
     this.build();
   }
@@ -238,7 +241,7 @@ export class CityModel {
         if (this.plan.roads[gx]?.[gz]) this.roadCells.push({ gx, gz });
       }
     }
-    for (const mesh of buildRoads(this.plan, this.terrain)) {
+    for (const mesh of buildRoads(this.network, this.terrain)) {
       mesh.userData.merge = true; // road ribbons are unique conformed buffers
       staticMeshes.push(mesh);
     }
@@ -247,71 +250,31 @@ export class CityModel {
     const lm = landmarkProtection(this.plan);
     for (const s of lm.solids) this.solids.push(s);
 
-    // --- Avenue frontage: lots that face a diagonal-run road cell align to
-    // the run's SPINE like real SF — facade parallel to the street, pulled to
-    // a consistent setback — instead of sitting axis-aligned with a corner
-    // jutting at the avenue. ---
-    const spineWorld = this.plan.diagonalRuns.map((run) =>
-      run.spine.map((p) => ({ x: this.worldX(p.gx), z: this.worldZ(p.gz) })),
-    );
-    const cellToRun = new Map<string, number>();
-    this.plan.diagonalRuns.forEach((run, i) => {
-      for (const c of run.cells) {
-        const k = `${c.gx},${c.gz}`;
-        if (!cellToRun.has(k)) cellToRun.set(k, i);
-      }
-    });
-    // Facade centre sits AVENUE_SETBACK from the spine; the lot can be pulled
-    // at most NUDGE_MAX from its own centre so neighbours never collide.
-    const AVENUE_SETBACK = ROAD_TILE * 0.88;
+    // --- Street alignment (universal): every frontage building projects its
+    // lot onto the nearest NETWORK edge — facade parallel to the real street,
+    // pulled to a consistent setback. Axis streets come out axis-aligned;
+    // diagonals and curves align to their true bearing. ---
     const NUDGE_MAX = 3.0;
     type AvenuePose = { x: number; z: number; yaw: number };
-    const avenuePose = (gx: number, gz: number, faceDir: Dir): AvenuePose | null => {
-      const [fdx, fdz] = DIR_DELTA[faceDir];
-      const runIdx = cellToRun.get(`${gx + fdx},${gz + fdz}`);
-      if (runIdx === undefined) return null;
-      const line = spineWorld[runIdx];
-      if (!line || line.length < 2) return null;
+    const avenuePose = (gx: number, gz: number): AvenuePose | null => {
       const cx = this.worldX(gx);
       const cz = this.worldZ(gz);
-      // Closest point + tangent on the spine polyline.
-      let px = 0;
-      let pz = 0;
-      let tx = 1;
-      let tz = 0;
-      let bd = Infinity;
-      for (let i = 0; i + 1 < line.length; i++) {
-        const a = line[i];
-        const b = line[i + 1];
-        if (!a || !b) continue;
-        const dx = b.x - a.x;
-        const dz = b.z - a.z;
-        const l2 = dx * dx + dz * dz;
-        const t =
-          l2 > 1e-8 ? THREE.MathUtils.clamp(((cx - a.x) * dx + (cz - a.z) * dz) / l2, 0, 1) : 0;
-        const qx = a.x + dx * t;
-        const qz = a.z + dz * t;
-        const d = (qx - cx) * (qx - cx) + (qz - cz) * (qz - cz);
-        if (d < bd) {
-          bd = d;
-          px = qx;
-          pz = qz;
-          const dl = Math.sqrt(l2) || 1;
-          tx = dx / dl;
-          tz = dz / dl;
-        }
-      }
-      // Facade normal: spine perpendicular pointing at the lot.
-      let nx = -tz;
-      let nz = tx;
-      if (nx * (cx - px) + nz * (cz - pz) < 0) {
+      const hit = this.network.nearest(cx, cz, ROAD_TILE * 1.6);
+      if (!hit) return null;
+      // Facade normal: edge perpendicular pointing at the lot.
+      let nx = -hit.tz;
+      let nz = hit.tx;
+      if (nx * (cx - hit.x) + nz * (cz - hit.z) < 0) {
         nx = -nx;
         nz = -nz;
       }
-      // Front of the building looks back at the spine (−n).
+      // Front of the building looks back at the street (−n).
       const yaw = Math.atan2(-nx, -nz);
-      let ax = px + nx * AVENUE_SETBACK;
-      let az = pz + nz * AVENUE_SETBACK;
+      // Facade centre sits at a consistent setback from the centreline; the
+      // lot can be pulled at most NUDGE_MAX so neighbours never collide.
+      const setback = hit.edge.half + 1.3 + ROAD_TILE * 0.34;
+      let ax = hit.x + nx * setback;
+      let az = hit.z + nz * setback;
       const mx = ax - cx;
       const mz = az - cz;
       const ml = Math.hypot(mx, mz);
@@ -457,15 +420,18 @@ export class CityModel {
         placeGreen(b.gx, b.gz); // park frontage → green, drivable (no solid)
         continue;
       }
-      const pose = avenuePose(b.gx, b.gz, b.faceDir);
+      const pose = avenuePose(b.gx, b.gz);
       // Rotated lots go slightly smaller so the turned square + setback nudge
-      // stays inside the 13u lot.
+      // stays inside the 13u lot. Dressing stays on near-cardinal poses (its
+      // offsets are faceDir-relative).
+      const cardinal =
+        pose !== null && Math.abs(Math.sin(2 * pose.yaw)) < 0.18 ? true : pose === null;
       placeBuilding(
         b.gx,
         b.gz,
         b.faceDir,
-        pose ? this.rng.range(0.6, 0.7) : this.rng.range(0.74, 0.86),
-        !pose,
+        pose ? this.rng.range(0.62, 0.72) : this.rng.range(0.74, 0.86),
+        cardinal,
         pose,
       );
     }
@@ -501,6 +467,7 @@ export class CityModel {
     // construction chicanes, park allées, wharf piers + seawall. ---
     const fr = buildFurniture({
       plan: this.plan,
+      network: this.network,
       terrain: this.terrain,
       cache: this.cache,
       rng: this.rng,

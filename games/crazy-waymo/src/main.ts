@@ -55,13 +55,6 @@ const governor = new PerfGovernor(renderer, game.sunLight, () => {
   game.resize(window.innerWidth / window.innerHeight, renderHeightPx());
 });
 
-// Shadow scoping: at the governor's lower tiers the shadow map re-renders
-// every OTHER frame — the light follows the car smoothly enough that a
-// half-rate shadow is invisible, and it returns a full shadow pass of GPU
-// time exactly when the machine needs it.
-renderer.shadowMap.autoUpdate = false;
-let frameParity = false;
-
 const timer = new THREE.Timer();
 renderer.setAnimationLoop((t) => {
   timer.update(t);
@@ -69,10 +62,6 @@ renderer.setAnimationLoop((t) => {
   governor.update(raw);
   const dt = Math.min(raw, MAX_DT);
   game.update(dt);
-  frameParity = !frameParity;
-  renderer.shadowMap.needsUpdate =
-    governor.consumeShadowInvalidate() ||
-    (game.shadowsActive && (governor.currentTier < 2 || frameParity));
   renderer.render(game.scene, game.camera);
 });
 
