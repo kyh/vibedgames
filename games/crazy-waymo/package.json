@@ -8,19 +8,22 @@
     "clean": "rm -rf .turbo dist node_modules",
     "dev": "vite",
     "bake:map": "node tools/sf-data/bake-network.mjs",
+    "lint:streets": "vite-node tools/street-lint.ts",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.19.3",
-    "three": "^0.184.0",
-    "@vibedgames/multiplayer": "workspace:^"
+    "@vibedgames/multiplayer": "workspace:^",
+    "polygon-clipping": "^0.15.7",
+    "three": "^0.184.0"
   },
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
     "@types/node": "catalog:",
     "@types/three": "^0.184.0",
     "typescript": "catalog:",
-    "vite": "catalog:"
+    "vite": "catalog:",
+    "vite-node": "^6.0.0"
   }
 }

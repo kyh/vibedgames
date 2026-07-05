@@ -62,7 +62,7 @@ const CLASS_HALF = {
 };
 // Arcade compression (Driver:SF-style): minors only survive when they are
 // long connective streets — short block-fillers go, majors read as the map.
-const MINOR_MIN_LEN = 100; // world units (~450m real)
+const MINOR_MIN_LEN = 160; // world units (~700m real)
 // Only divided arterials get twin-merged — the residential grid has genuine
 // close parallels that must never be eaten.
 const MERGE_MIN_HALF = 5.6;
