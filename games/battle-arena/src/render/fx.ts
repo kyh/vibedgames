@@ -9,6 +9,7 @@ import type { FxEvent, GroundEffect, World } from "../sim/types";
 import { Audio } from "./audio";
 import { ChunkPool } from "./fx-chunks";
 import { energyBallMaterial, makeCrackMaterial, makeRingMaterial, makeRuneMaterial, makeSlashMaterial, makeVortexMaterial, tickFxShaders } from "./fx-shaders";
+import { fxTex, preloadFxTextures } from "./fx-textures";
 import { SpikePool } from "./fx-spikes";
 import { HDR_BRIGHT, ParticlePools, type SpawnOptions } from "./fx-particles";
 import { Telegraphs, groundFxColor } from "./telegraph";
@@ -31,6 +32,17 @@ const BEAM_POOL = 4;
 const CONE_POOL = 8; // flat sector fans + sector rims share this pool
 const DOME_POOL = 4;
 const SLASH_POOL = 10; // crescent sword arcs
+const FLARE_POOL = 10; // camera-facing star/burst sprites
+
+/** Authored slash-sprite registrations: sheet window + spin that puts the
+ *  crescent's opening along the quad's local +X (tuned by eye in the viewer). */
+const SLASH_SPRITES = {
+  white: { tex: "slash-white", off: [0, 0], scale: [1, 1], rot: 0 }, // single bold crescent
+  arc: { tex: "slash-arc", off: [0, 0.5], scale: [0.52, 0.5], rot: 0 }, // top-left crescent of the sheet
+  spin: { tex: "slash-spin", off: [0, 0], scale: [1, 1], rot: 0 }, // full spiral swirl (whirls)
+  wind: { tex: "slash-wind", off: [0, 0], scale: [1, 1], rot: 0 }, // magenta energy bolt (executes)
+} as const;
+export type SlashTex = keyof typeof SLASH_SPRITES;
 const CRACK_POOL = 6; // ground-fissure decals
 const BEAM_H = 7; // unit beam height the pool geometry is built at
 
@@ -81,6 +93,7 @@ export class Fx {
   private cones: ConeDecal[] = [];
   private domes: Dome[] = [];
   private slashes: Slash[] = [];
+  private flares: { sprite: THREE.Sprite; mat: THREE.SpriteMaterial; life: number; maxLife: number; s0: number; grow: number }[] = [];
   private cracks: Crack[] = [];
   private coneGeoCache = new Map<number, THREE.CircleGeometry>();
   private rimGeoCache = new Map<number, THREE.RingGeometry>();
@@ -159,6 +172,14 @@ export class Fx {
       scene.add(pivot);
       this.slashes.push({ pivot, mesh, mat, life: 0, maxLife: 1 });
     }
+    preloadFxTextures();
+    for (let i = 0; i < FLARE_POOL; i++) {
+      const mat = new THREE.SpriteMaterial({ map: fxTex("flare-star"), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+      const sprite = new THREE.Sprite(mat);
+      sprite.visible = false;
+      scene.add(sprite);
+      this.flares.push({ sprite, mat, life: 0, maxLife: 1, s0: 1, grow: 1 });
+    }
     for (let i = 0; i < CRACK_POOL; i++) {
       const mat = makeCrackMaterial();
       const mesh = new THREE.Mesh(this.ringPlane, mat); // shared 2×2 quad, laid flat
@@ -229,6 +250,7 @@ export class Fx {
     this.stepDomes(vdt);
     this.stepSlashes(vdt);
     this.stepCracks(vdt);
+    this.stepFlares(vdt);
     this.telegraphs.update(w.now);
 
     // cull zone set pieces whose zone stopped appearing (ended/detonated)
@@ -284,6 +306,7 @@ export class Fx {
         // readable THROUGH the impact); heavies keep the works
         this.flash(e.x, 1.1, e.y, 0xffffff, heavy ? 1.2 : 0.55, heavy ? 2.2 : 1.4);
         this.impactRing(e.x, e.y, color, heavy ? 2.1 : 1.2);
+        if (heavy) this.flare("impact-burst", e.x, 1.15, e.y, 0xfff2d0, 2.0, 0.14, Math.random() * Math.PI);
         this.sparks(e.x, 1.1, e.y, e.dx, e.dy, heavy ? 20 : 8, color);
         this.burst(e.x, 1.1, e.y, heavy ? 7 : 4, color, 5, 0.16);
         if (heavy) {
@@ -653,7 +676,7 @@ export class Fx {
     switch (tag) {
       // Garran's 3rd-swing whirl (basic rhythm aoe) — the weapon trail IS the
       // whirl visual; just a ground ring + sparks mark the damage tick
-      case "spin": this.shockwave(x, y, 0x8fd0ff, r, 0.3); this.burst(x, 1.1, y, 12, 0xbfe0ff, 7, 0.3); this.dust(x, y, 5); if (this.within(x, y, 12)) this.view.addTrauma(0.1); break;
+      case "spin": this.shockwave(x, y, 0x8fd0ff, r, 0.3); this.slashArc(x, y, Math.atan2(dy, dx), r * 1.2, 0xbfe0ff, { tex: "spin", tilt: 0, span: 3.1, life: 0.34, height: 1.0 }); this.burst(x, 1.1, y, 12, 0xbfe0ff, 7, 0.3); this.dust(x, y, 5); if (this.within(x, y, 12)) this.view.addTrauma(0.1); break;
       case "knight:Q": {
         this.slashArc(x, y, Math.atan2(dy, dx), r, 0xdbe8ff, { tilt: 0.3, span: 0.85, life: 0.3 });
         this.sectorRim(x, y, dx, dy, 0xeaf2ff, r, 0.79);
@@ -701,7 +724,7 @@ export class Fx {
         break;
       }
       case "blackknight:Q": {
-        this.slashArc(x, y, Math.atan2(dy, dx), r, 0xffd76a, { tilt: 0.25, span: 1.0, life: 0.32 });
+        this.slashArc(x, y, Math.atan2(dy, dx), r, 0xffd76a, { tilt: 0.25, span: 1.0, life: 0.32, tex: "arc" });
         this.sectorRim(x, y, dx, dy, 0xfff2c0, r, 0.96);
         this.sparks(x + dx, 1.2, y + dy, dx, dy, 10, 0xfff2c0);
         const gx = x + dx * 2.2;
@@ -1196,8 +1219,42 @@ export class Fx {
     }
   }
 
-  /** Two stretched glints perpendicular to the aim — a muzzle-flash star. */
+  /** Camera-facing authored sprite pop (flare star, impact burst): scale-pop
+   *  then fade — the anime "glint" beat. */
+  flare(tex: "flare-star" | "impact-burst" | "glow-soft", x: number, y: number, z: number, color: number, size = 2, life = 0.18, spin = 0): void {
+    const f = this.flares.find((e) => e.life <= 0);
+    if (!f) return;
+    f.life = f.maxLife = life;
+    f.s0 = size;
+    f.grow = tex === "impact-burst" ? 1.5 : 1.15;
+    f.mat.map = fxTex(tex);
+    f.mat.color.setHex(color);
+    f.mat.rotation = spin;
+    f.mat.opacity = 1;
+    f.sprite.position.set(x, y, z);
+    f.sprite.scale.setScalar(size * 0.6);
+    f.sprite.visible = true;
+  }
+
+  private stepFlares(dt: number): void {
+    for (const f of this.flares) {
+      if (f.life <= 0) continue;
+      f.life -= dt;
+      if (f.life <= 0) {
+        f.sprite.visible = false;
+        continue;
+      }
+      const t = 1 - f.life / f.maxLife;
+      const pop = 0.6 + 0.4 * Math.min(1, t / 0.3) + (f.grow - 1) * t;
+      f.sprite.scale.setScalar(f.s0 * pop);
+      f.mat.opacity = 1 - t * t;
+    }
+  }
+
+  /** Muzzle-flash star: an authored 4-point flare sprite over two stretched
+   *  glint particles (the sprite is the read, the particles are the motion). */
   crossGlint(x: number, y: number, z: number, dx: number, dy: number, color: number, s = 0.9): void {
+    this.flare("flare-star", x, y, z, color, s * 2.4, 0.16, Math.random() * 0.6 - 0.3);
     const l = Math.hypot(dx, dy) || 1;
     const px = -dy / l;
     const pz = dx / l;
@@ -1412,10 +1469,11 @@ export class Fx {
    *  angle), holds a hot edge, and erodes. `reach` = arc radius; `tilt` lifts
    *  the arc plane off the ground toward the camera (0 = flat ring, ~0.5 =
    *  reads best from the chase cam); `dir` mirrors the sweep for off-hand cuts. */
-  slashArc(x: number, y: number, facing: number, reach: number, color: number, opts: { tilt?: number; span?: number; life?: number; height?: number; dir?: 1 | -1 } = {}): void {
+  slashArc(x: number, y: number, facing: number, reach: number, color: number, opts: { tilt?: number; span?: number; life?: number; height?: number; dir?: 1 | -1; tex?: SlashTex } = {}): void {
     const s = this.slashes.find((e) => e.life <= 0);
     if (!s) return;
-    const { tilt = 0.5, span = 1.05, life = 0.26, height = 1.15, dir = 1 } = opts;
+    const { tilt = 0.5, span = 1.05, life = 0.26, height = 1.15, dir = 1, tex = "white" } = opts;
+    const reg = SLASH_SPRITES[tex];
     s.life = s.maxLife = life;
     const u = s.mat.uniforms;
     (u["uColor"]!.value as THREE.Color).setHex(color);
@@ -1423,6 +1481,10 @@ export class Fx {
     u["uSpan"]!.value = span;
     u["uSeed"]!.value = Math.random() * 20;
     u["uDir"]!.value = dir;
+    u["uMap"]!.value = fxTex(reg.tex, tex === "wind" ? { srgb: true } : {});
+    (u["uUVOff"]!.value as THREE.Vector2).set(reg.off[0], reg.off[1]);
+    (u["uUVScale"]!.value as THREE.Vector2).set(reg.scale[0], reg.scale[1]);
+    u["uRot"]!.value = reg.rot;
     // pivot yaw points the quad's local +X along the sim facing; the mesh then
     // tilts around that axis so the crescent leans toward the chase camera
     s.pivot.position.set(x, height, y);

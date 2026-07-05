@@ -3,6 +3,7 @@
 // hang in the freeze like everything else). Materials are shared per kind —
 // adding a projectile never compiles a new program.
 import * as THREE from "three";
+import { fxTex } from "./fx-textures";
 
 // one clock object referenced by every material — mutate, never reassign
 const CLOCK = { value: 0 };
@@ -68,8 +69,9 @@ export function energyBallMaterial(color: number): THREE.ShaderMaterial {
 }
 
 // ── Shockwave ring ───────────────────────────────────────────────────────────
-// Replaces the flat ring: a soft annulus with an angular-noise-broken rim and
-// a hot inner edge. The pool animates uT 0→1 (expand handled by mesh scale).
+// An AUTHORED ragged shock ring (fx/shockwave.png — spiky torn rim) tinted per
+// effect. The pool animates uT 0→1; expansion is mesh scale; uSeed spins the
+// sprite so back-to-back rings never read as the same stamp.
 export function makeRingMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     transparent: true,
@@ -77,6 +79,7 @@ export function makeRingMaterial(): THREE.ShaderMaterial {
     blending: THREE.AdditiveBlending,
     side: THREE.DoubleSide,
     uniforms: {
+      uMap: { value: fxTex("shockwave") },
       uColor: { value: new THREE.Color(0xffffff) },
       uT: { value: 0 }, // life progress 0→1
       uAlpha: { value: 1 },
@@ -86,31 +89,28 @@ export function makeRingMaterial(): THREE.ShaderMaterial {
       varying vec2 vUv;
       void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
     fragmentShader: /* glsl */ `
-      uniform vec3 uColor; uniform float uT; uniform float uAlpha; uniform float uSeed;
+      uniform sampler2D uMap; uniform vec3 uColor; uniform float uT; uniform float uAlpha; uniform float uSeed;
       varying vec2 vUv;
-      ${NOISE_GLSL}
       void main(){
         vec2 p = vUv - 0.5;
-        float r = length(p) * 2.0;               // 0 center → 1 plane edge
-        float ang = atan(p.y, p.x);
-        // rim sits near the plane edge; trailing energy falls off inward
-        float rim = smoothstep(0.22, 0.02, abs(r - 0.88));
-        float trail = smoothstep(0.88, 0.30, r) * smoothstep(0.20, 0.55, r) * 0.14;
-        // angular breakup so the circle reads as energy, not a vector stroke
-        float n = 0.65 + 0.35 * vnoise(vec2(ang*2.2 + uSeed, uSeed + uT*2.0));
+        float cs = cos(uSeed), sn = sin(uSeed);
+        vec2 q = vec2(p.x*cs - p.y*sn, p.x*sn + p.y*cs) + 0.5;
+        vec4 t = texture2D(uMap, q);
+        float lum = max(t.r, max(t.g, t.b)) * t.a;
         float fade = 1.0 - uT;
-        vec3 c = mix(uColor, vec3(1.0), rim*0.4) * 1.15;
-        float a = (rim*n + trail) * fade * uAlpha;
+        vec3 c = mix(uColor, vec3(1.0), lum * 0.45) * 1.2;
+        float a = lum * fade * uAlpha;
         if (a < 0.004) discard;
-        gl_FragColor = vec4(c, a);
+        gl_FragColor = vec4(c * lum, a);
       }`,
   });
 }
 
 // ── Crescent slash (anime sword arc) ─────────────────────────────────────────
-// A pointed crescent that sweeps open, holds a hot leading edge, then erodes
-// with noise — the classic "slash VFX" gradient arc, done procedurally.
-// Unit quad; the arc opens along local +X, tips tapering toward ±uSpan.
+// AUTHORED slash sprites (fx/slash-*.png) tinted per champ, with the angular
+// sweep-reveal + a caustic-texture dissolve on top — the Unity-pack crescents
+// driven by our own timing. Unit quad; set uUVOff/uUVScale to address a
+// sub-sprite on a sheet, uRot to register the art's opening toward local +X.
 // Animate uT 0→1 over the slash's life.
 export function makeSlashMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
@@ -119,44 +119,47 @@ export function makeSlashMaterial(): THREE.ShaderMaterial {
     blending: THREE.AdditiveBlending,
     side: THREE.DoubleSide,
     uniforms: {
+      uMap: { value: fxTex("slash-white") },
+      uNoise: { value: fxTex("noise-caustic", { wrap: true }) },
       uColor: { value: new THREE.Color(0xffffff) },
       uT: { value: 0 },
-      uSpan: { value: 1.1 }, // angular half-width (radians)
+      uSpan: { value: 1.1 }, // angular half-width of the sweep reveal (radians)
       uSeed: { value: 0 },
       uDir: { value: 1 }, // sweep direction: 1 = CCW, -1 = CW (mirrored dual-wield)
+      uUVOff: { value: new THREE.Vector2(0, 0) },
+      uUVScale: { value: new THREE.Vector2(1, 1) },
+      uRot: { value: 0 }, // sprite registration spin (radians)
     },
     vertexShader: /* glsl */ `
       varying vec2 vUv;
       void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
     fragmentShader: /* glsl */ `
+      uniform sampler2D uMap; uniform sampler2D uNoise;
       uniform vec3 uColor; uniform float uT; uniform float uSpan; uniform float uSeed; uniform float uDir;
+      uniform vec2 uUVOff; uniform vec2 uUVScale; uniform float uRot;
       varying vec2 vUv;
-      ${NOISE_GLSL}
       void main(){
         vec2 p = (vUv - 0.5) * 2.0;
-        float r = length(p);
-        float th = atan(p.y, p.x) * uDir;
-        float k = clamp(abs(th) / uSpan, 0.0, 1.0);   // 0 arc center → 1 tips
-        if (k >= 1.0) discard;
-        float tip = 1.0 - k * k;                      // thickness taper into points
-        // crescent: circular outer (leading) edge, inner edge bows in mid-arc
-        float outer = 0.92;
-        float inner = outer - (0.42 * tip + 0.04);
-        float band = smoothstep(outer, outer - 0.05, r) * smoothstep(inner, inner + 0.16, r);
-        if (band < 0.004) discard;
+        float th = atan(p.y * uDir, p.x);
+        // registration spin + mirror, then into the sprite's sheet window
+        float cs = cos(uRot), sn = sin(uRot);
+        vec2 q = vec2(p.x*cs - p.y*sn, p.x*sn + p.y*cs);
+        q.y *= uDir;
+        vec2 suv = uUVOff + (q * 0.5 + 0.5) * uUVScale;
+        vec4 t = texture2D(uMap, suv);
+        float shape = max(t.r, max(t.g, t.b)) * t.a;
+        if (shape < 0.01) discard;
         // sweep open across the first 35% of life (leading tip races ahead)
         float sw = clamp(uT / 0.35, 0.0, 1.0);
-        float lead = mix(-uSpan - 0.3, uSpan, sw);
-        float reveal = smoothstep(0.12, -0.08, th - lead);
-        // noise erosion from the trailing side as it dies
-        float n = vnoise(vec2(th * 2.6 + uSeed, r * 7.0 + uSeed));
-        float diss = 1.0 - smoothstep(n + 0.05, n - 0.18, 1.0 - uT * 1.25);
-        // hot white leading edge over the champ color
-        float edge = pow(smoothstep(inner, outer, r), 3.0);
-        vec3 c = mix(uColor, vec3(1.0), 0.3 + 0.5 * edge) * 1.3;
-        float a = band * reveal * diss * (1.0 - smoothstep(0.72, 1.0, uT)) * 0.55;
+        float lead = mix(-uSpan - 0.6, uSpan + 0.6, sw);
+        float reveal = smoothstep(0.25, -0.1, th - lead);
+        // authored-noise erosion: the dissolve threshold climbs as it dies
+        float n = texture2D(uNoise, suv * 1.7 + uSeed).r;
+        float diss = smoothstep(uT * 1.25 - 0.25, uT * 1.25 + 0.1, n + (1.0 - uT));
+        vec3 c = mix(uColor, vec3(1.0), shape * 0.55) * 1.35;
+        float a = shape * reveal * diss * (1.0 - smoothstep(0.7, 1.0, uT)) * 0.85;
         if (a < 0.004) discard;
-        gl_FragColor = vec4(c, a);
+        gl_FragColor = vec4(c * shape, a);
       }`,
   });
 }

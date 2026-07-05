@@ -9,6 +9,7 @@
 // the erosion dissolve, `across` shapes the crescent cross-section with a
 // white-hot edge at the blade line.
 import * as THREE from "three";
+import { fxTex } from "./fx-textures";
 
 const MAX_SEG = 28; // raw blade samples retained (one per render frame)
 const SUBDIV = 4; // spline subdivisions between samples — the strip stays a smooth
@@ -39,39 +40,43 @@ void main() {
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }`;
 
+// Shared coverage math for the color pass AND the depth prepass — they MUST
+// compute identical alpha or the prepass would cull texels the color pass
+// draws. The erosion samples an AUTHORED streak texture (fx/noise-streak.png,
+// panned along the arc) — the Gabriel Aguiar dissolve: the ribbon TEARS apart
+// along directional streaks as it ages instead of uniformly fading.
+const COVERAGE_GLSL = /* glsl */ `
+uniform sampler2D uNoise;
+float coverage(float age, float across, float along) {
+  // CRESCENT taper: near-LINEAR narrowing from the blade to the tail — the
+  // arc is full-width at the blade line and ends in a long sharp point.
+  float cut = 1.05 * pow(age, 0.85);
+  float body = smoothstep(cut, cut + 0.34, across);
+  float n = texture2D(uNoise, vec2(along * 0.18, across * 0.8)).r;
+  // tail roughing (authored noise) — the fade-out edge stays organic
+  float tail = 1.0 - smoothstep(0.74, 1.0, age + (n - 0.5) * 0.14);
+  // erosion dissolve past mid-age: threshold climbs, streaks tear open
+  float er = smoothstep(0.0, 0.35, n + 0.85 - age * 1.35);
+  return body * tail * er * (1.0 - 0.4 * age);
+}`;
+
 const FRAG = /* glsl */ `
 uniform vec3 uColor;
 uniform float uOpacity;
 varying float vAge;
 varying float vAcross;
 varying float vAlong;
-float hash21(vec2 p){ p = fract(p*vec2(234.34,435.345)); p += dot(p,p+34.23); return fract(p.x*p.y); }
-float vnoise(vec2 p){
-  vec2 i = floor(p); vec2 f = fract(p); f = f*f*(3.0-2.0*f);
-  float a = hash21(i), b = hash21(i+vec2(1,0)), c = hash21(i+vec2(0,1)), d = hash21(i+vec2(1,1));
-  return mix(mix(a,b,f.x), mix(c,d,f.x), f.y);
-}
+${""}
+COVERAGE
 void main() {
-  // CRESCENT taper: the inner edge climbs toward the tip line as the surface
-  // ages, so the arc is full-width at the blade and narrows to a POINT at the
-  // tail — one solid crescent silhouette.
-  // near-LINEAR narrowing from the blade to the tail — the crescent thins
-  // steadily and ends in a long sharp point (an eased cut keeps the band fat
-  // until the end, which reads as a round blob, not an angle)
-  float cut = 1.05 * pow(vAge, 0.85);
-  float body = smoothstep(cut, cut + 0.34, vAcross); // crisp at the blade line — no outer feather
-  // SOLID surface — any along-arc noise reads as fan-blade striping on a fast
-  // spin. Noise only roughs up the tail edge so the fade-out stays organic.
-  float n = vnoise(vec2(vAlong * 1.5, vAcross * 2.0));
-  float tail = 1.0 - smoothstep(0.78, 1.0, vAge + (n - 0.5) * 0.08); // alpha holds — the GEOMETRIC point defines the end
   // NORMAL blending keeps the champ color TRUE (additive summed toward white
   // over the bright floor); the blade line alone runs HDR so bloom catches it
   float edge = smoothstep(0.8, 0.98, vAcross);
   vec3 c = mix(uColor, vec3(1.0), edge * 0.4) * (0.9 + 0.8 * edge * (1.0 - vAge));
-  float a = body * tail * (1.0 - 0.4 * vAge) * uOpacity;
+  float a = coverage(vAge, vAcross, vAlong) * uOpacity;
   if (a < 0.004) discard;
   gl_FragColor = vec4(c, a);
-}`;
+}`.replace("COVERAGE", COVERAGE_GLSL);
 
 // depth prepass: identical coverage math, writes no color — just claims the
 // front-most surface so fold-over layers behind it are culled by depth test
@@ -80,21 +85,13 @@ uniform float uOpacity;
 varying float vAge;
 varying float vAcross;
 varying float vAlong;
-float hash21(vec2 p){ p = fract(p*vec2(234.34,435.345)); p += dot(p,p+34.23); return fract(p.x*p.y); }
-float vnoise(vec2 p){
-  vec2 i = floor(p); vec2 f = fract(p); f = f*f*(3.0-2.0*f);
-  float a = hash21(i), b = hash21(i+vec2(1,0)), c = hash21(i+vec2(0,1)), d = hash21(i+vec2(1,1));
-  return mix(mix(a,b,f.x), mix(c,d,f.x), f.y);
-}
+${""}
+COVERAGE
 void main() {
-  float cut = 1.05 * pow(vAge, 0.85);
-  float body = smoothstep(cut, cut + 0.34, vAcross);
-  float n = vnoise(vec2(vAlong * 1.5, vAcross * 2.0));
-  float tail = 1.0 - smoothstep(0.78, 1.0, vAge + (n - 0.5) * 0.08);
-  float a = body * tail * (1.0 - 0.4 * vAge) * uOpacity;
+  float a = coverage(vAge, vAcross, vAlong) * uOpacity;
   if (a < 0.05) discard; // near-invisible texels must not claim depth
   gl_FragColor = vec4(0.0);
-}`;
+}`.replace("COVERAGE", COVERAGE_GLSL);
 
 // CENTRIPETAL Catmull-Rom (Barry-Goldman) for one scalar channel. Uniform CR
 // overshoots badly when samples are irregularly spaced (frame-time jitter at
@@ -184,6 +181,7 @@ export class WeaponTrail {
     const uniforms = {
       uColor: { value: new THREE.Color(color) },
       uOpacity: { value: override?.opacity ?? 0.5 },
+      uNoise: { value: fxTex("noise-streak", { wrap: true }) },
     };
     this.matPre = new THREE.ShaderMaterial({
       vertexShader: VERT,

@@ -207,7 +207,7 @@ export const CHAMPIONS: ChampDef[] = [
     tint: 0xff5a78,
     blurb: "In, out, gone. Poison, vanish, and execute anyone clinging to life.",
     difficulty: 3,
-    base: { hp: 480, mp: 260, hpRegen: 3.0, mpRegen: 1.8, damage: 44, armor: 2, attackRange: 2.2, attackSpeed: 2.0, moveSpeed: 6.5, projectileSpeed: 0 },
+    base: { hp: 480, mp: 260, hpRegen: 3.0, mpRegen: 1.8, damage: 44, armor: 2, attackRange: 2.2, attackSpeed: 1.4, moveSpeed: 6.5, projectileSpeed: 0 },
     growth: { hp: 70, mp: 22, hpRegen: 0.3, mpRegen: 0.14, damage: 6, armor: 0.6, attackSpeed: 0.035 },
     attr: { str: 15, agi: 28, int: 13 },
     abilities: {
