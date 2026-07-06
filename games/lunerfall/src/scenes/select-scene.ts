@@ -2,6 +2,7 @@ import Phaser from "phaser";
 
 import { sfx } from "../audio/sfx";
 import { BASE_H, BASE_W, COLORS, HERO_ORIGIN_Y } from "../config";
+import { firstFrame } from "../data/animations";
 import { HERO_ORDER, HEROES } from "../data/heroes";
 import { isUnlocked, loadMeta, type MetaState, UNLOCK_COST, unlockHero } from "../data/meta";
 
@@ -25,7 +26,8 @@ export class SelectScene extends Phaser.Scene {
   create() {
     this.meta = loadMeta();
     this.add.rectangle(0, 0, BASE_W, BASE_H, COLORS.bgDeep).setOrigin(0);
-    this.add.rectangle(0, BASE_H * 0.4, BASE_W, BASE_H * 0.6, COLORS.bg).setOrigin(0);
+    this.add.image(0, 0, "env:backdrop").setOrigin(0).setDisplaySize(BASE_W, BASE_H).setTint(0x7385a8).setAlpha(0.5);
+    this.add.rectangle(0, BASE_H * 0.62, BASE_W, BASE_H * 0.38, COLORS.bgDeep, 0.55).setOrigin(0);
     this.add.text(BASE_W / 2, 34, "LUNERFALL", { fontFamily: "monospace", fontSize: "22px", color: "#34e5c8" }).setOrigin(0.5);
     this.add.text(BASE_W / 2, 58, "CHOOSE YOUR WARRIOR", { fontFamily: "monospace", fontSize: "9px", color: "#8b95a1" }).setOrigin(0.5);
     this.bank = this.add.text(BASE_W - 8, 8, "", { fontFamily: "monospace", fontSize: "8px", color: "#ffd15c" }).setOrigin(1, 0);
@@ -35,7 +37,7 @@ export class SelectScene extends Phaser.Scene {
     HERO_ORDER.forEach((name, i) => {
       const x = ((i + 1) / (n + 1)) * BASE_W;
       const ring = this.add.ellipse(x, rowY + 2, 34, 12, HEROES[name].color, 0.18).setVisible(false);
-      const spr = this.add.sprite(x, rowY, name).setOrigin(0.5, HERO_ORIGIN_Y).setScale(1.4);
+      const spr = this.add.sprite(x, rowY, name, firstFrame(this, name)).setOrigin(0.5, HERO_ORIGIN_Y).setScale(1.4);
       spr.play(`${name}:idle`);
       const lock = this.add.text(x, rowY - 26, "", { fontFamily: "monospace", fontSize: "8px", color: "#ffd15c" }).setOrigin(0.5);
       this.rings.push(ring);

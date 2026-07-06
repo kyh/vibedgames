@@ -17,7 +17,7 @@ export class BootScene extends Phaser.Scene {
     }
 
     // Environment art: static tiles/props + backdrop.
-    for (const img of ["tiles", "props", "background", "bamboo", "bushes", "rocks", "tree"]) {
+    for (const img of ["tiles", "props", "backdrop", "bamboo", "bushes", "rocks", "tree"]) {
       this.load.image(`env:${img}`, `sprites/env/${img}.png`);
     }
     for (const [key, w, h] of ANIMATED_PROPS) {

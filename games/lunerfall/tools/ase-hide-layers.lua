@@ -5,7 +5,7 @@
 -- Runs against the sprite opened by `aseprite -b <file> --script this.lua --sheet ...`.
 local s = app.activeSprite
 if not s then return end
-local drop = { bg = true, background = true, text = true, reflection = true }
+local drop = { bg = true, background = true, text = true, reflection = true, layer1 = true }
 local function walk(layers)
   for _, l in ipairs(layers) do
     local n = l.name:lower():gsub("%s", "")

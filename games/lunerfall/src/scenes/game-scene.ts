@@ -14,7 +14,7 @@ import { Enemy } from "../entities/enemy";
 import { Player } from "../entities/player";
 import { rectsOverlap } from "../entities/player-body";
 import { drawRoom } from "../room";
-import { dust, explosion, hitSpark, popText, slash } from "../sys/fx";
+import { ambientEmbers, dust, explosion, hitSpark, impactRing, popText, slash } from "../sys/fx";
 import { Grid } from "../sys/grid";
 import { type Offer, RunManager } from "../sys/run";
 import { Input, type InputState } from "../sys/input";
@@ -53,6 +53,7 @@ export class GameScene extends Phaser.Scene {
 
   private roomLayer?: Phaser.GameObjects.Container;
   private roomProp?: Phaser.GameObjects.Sprite;
+  private embers?: Phaser.GameObjects.Particles.ParticleEmitter;
   private doors: Door[] = [];
   private offers: Offer[] = [];
   private feature: Feature | null = null;
@@ -126,6 +127,8 @@ export class GameScene extends Phaser.Scene {
     this.feature = null;
 
     this.add.rectangle(0, 0, BASE_W, BASE_H, COLORS.bgDeep).setOrigin(0).setDepth(-10);
+    // Atmospheric shrine-depths backdrop, darkened so it recedes behind play.
+    this.add.image(0, 0, "env:backdrop").setOrigin(0).setDisplaySize(BASE_W, BASE_H).setTint(0x7385a8).setAlpha(0.5).setDepth(-9);
     this.add.rectangle(0, BASE_H * 0.35, BASE_W, BASE_H * 0.65, COLORS.bg).setOrigin(0).setDepth(-10);
     this.fadeRect = this.add.rectangle(0, 0, BASE_W, BASE_H, 0x05070b).setOrigin(0).setDepth(100).setAlpha(0);
 
@@ -179,6 +182,8 @@ export class GameScene extends Phaser.Scene {
     this.roomLayer?.destroy();
     this.roomProp?.destroy();
     this.roomProp = undefined;
+    this.embers?.destroy();
+    this.embers = undefined;
     this.doors.forEach((d) => d.destroy());
     this.enemies.forEach((e) => e.destroy());
     this.arrows.forEach((a) => a.spr.destroy());
@@ -206,6 +211,7 @@ export class GameScene extends Phaser.Scene {
     this.grid = def.grid;
     this.roomLayer = drawRoom(this, def.grid).setDepth(0);
     this.decorateRoom(def);
+    this.embers = ambientEmbers(this, this.run.type === "boss" ? COLORS.magenta : COLORS.teal);
     this.player.enterRoom(def.grid, def.playerSpawn.x, def.playerSpawn.y);
 
     this.mustClear = this.run.isCombat();
@@ -473,6 +479,7 @@ export class GameScene extends Phaser.Scene {
     if (!boss.body.takeHit(dmg, 0, dir)) return;
     sfx.hit();
     hitSpark(this, boss.body.x, boss.body.y - 22, color, boss.body.dead ? 12 : 6);
+    if (boss.body.dead) impactRing(this, boss.body.x, boss.body.y - 22, COLORS.magenta, 40);
     this.freeze = Math.max(this.freeze, boss.body.dead ? 0.12 : 0.04);
     this.cameras.main.shake(60, 0.003);
   }
@@ -634,6 +641,7 @@ export class GameScene extends Phaser.Scene {
 
   private onKill(e: Enemy) {
     this.gainGold(2);
+    impactRing(this, e.body.x, e.body.y - e.body.kind.h / 2, COLORS.teal, 22);
     sfx.kill();
     if (this.mods.lifesteal > 0 && Math.random() < this.mods.lifesteal) this.heal(1);
     popText(this, e.body.x, e.body.y - e.body.kind.h, "+2", "#ffd15c");

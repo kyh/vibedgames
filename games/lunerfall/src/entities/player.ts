@@ -2,6 +2,7 @@ import Phaser from "phaser";
 
 import { HERO_ORIGIN_Y, HERO_SCALE } from "../config";
 import type { HeroDef } from "../data/heroes";
+import { afterImage, landPuff } from "../sys/fx";
 import type { Grid } from "../sys/grid";
 import type { InputState } from "../sys/input";
 import { PlayerBody } from "./player-body";
@@ -73,6 +74,7 @@ export class Player {
     this.scene.tweens.killTweensOf(this.sprite);
     this.sprite.setScale(this.baseScale * sx, this.baseScale * sy);
     this.scene.tweens.add({ targets: this.sprite, scaleX: this.baseScale, scaleY: this.baseScale, duration: ms, ease: "Back.easeOut" });
+    if (sy < 1) landPuff(this.scene, this.sprite.x, this.body.y); // landing squash kicks up dust
   }
 
   render() {
@@ -101,6 +103,7 @@ export class Player {
     }
     this.sprite.setFlipX(b.facing < 0);
     this.sprite.setPosition(Math.round(b.x), Math.round(b.y));
+    if (b.dashing) afterImage(this.scene, this.sprite, this.hero.color);
     this.sprite.setAlpha(b.iframes > 0 && !b.dead ? (Math.floor(b.iframes * 20) % 2 === 0 ? 0.45 : 1) : 1);
   }
 }
