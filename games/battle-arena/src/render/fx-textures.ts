@@ -21,14 +21,31 @@ export function fxTex(name: string, opts: { wrap?: boolean; srgb?: boolean } = {
 
 /** Warm every texture the FX layer uses at runtime. */
 export function preloadFxTextures(): void {
-  fxTex("noise-streak", { wrap: true });
-  fxTex("noise-caustic", { wrap: true });
-  fxTex("shockwave");
-  fxTex("slash-white");
-  fxTex("slash-arc");
-  fxTex("slash-spin");
-  fxTex("slash-wind", { srgb: true });
-  fxTex("flare-star");
-  fxTex("impact-burst");
-  fxTex("glow-soft");
+  for (const n of ["noise-streak", "noise-caustic"]) fxTex(n, { wrap: true });
+  for (const n of [
+    "shockwave",
+    "slash-white",
+    "slash-arc",
+    "slash-spin",
+    "flare-star",
+    "impact-burst",
+    "glow-soft",
+    // spell-kit sprites (licensed pack)
+    "lightning-arc",
+    "ground-crack",
+    "electric-splat",
+    "scorch-decal",
+    "fire-sprite",
+    "shock-burst",
+    "swirl-lines",
+    "hex-shield",
+    "electro-ball",
+    "holy-wings",
+    "trail-holy",
+    "galaxy",
+    "dark-shock",
+    "rune-circle-a",
+    "rune-circle-b",
+  ])
+    fxTex(n);
 }

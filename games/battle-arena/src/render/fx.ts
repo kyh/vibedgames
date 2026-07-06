@@ -8,7 +8,7 @@ import * as THREE from "three";
 import type { FxEvent, GroundEffect, World } from "../sim/types";
 import { Audio } from "./audio";
 import { ChunkPool } from "./fx-chunks";
-import { energyBallMaterial, makeCrackMaterial, makeRingMaterial, makeRuneMaterial, makeSlashMaterial, makeVortexMaterial, tickFxShaders } from "./fx-shaders";
+import { energyBallMaterial, makeCrackMaterial, makeRingMaterial, makeSlashMaterial, makeVortexMaterial, tickFxShaders } from "./fx-shaders";
 import { fxTex, preloadFxTextures } from "./fx-textures";
 import { SpikePool } from "./fx-spikes";
 import { HDR_BRIGHT, ParticlePools, type SpawnOptions } from "./fx-particles";
@@ -251,6 +251,7 @@ export class Fx {
     this.stepSlashes(vdt);
     this.stepCracks(vdt);
     this.stepFlares(vdt);
+    this.stepTexActors(vdt);
     this.telegraphs.update(w.now);
 
     // cull zone set pieces whose zone stopped appearing (ended/detonated)
@@ -434,11 +435,12 @@ export class Fx {
           case "trap": // snare trap: green fangs bite inward — a closing jaw
             this.spikes.ring(e.x, e.y, e.radius * 0.85, 8, 0x2c5a30, { h: 1.3, w: 0.3, holdMs: 850, exitMs: 250, tiltOut: -0.5 });
             break;
-          case "smite": // consecrating smite: the holy pillar lands HERE
-            this.beam(e.x, e.y, 0xffd76a, 8, 1.1);
-            this.beam(e.x, e.y, 0xfff2c0, 5, 0.55);
+          case "smite": // consecrating smite: heaven ANSWERS — bolt + cracked earth
+            this.texBolt("lightning-arc", e.x, e.y, { h: 11, w: 3.2, color: 0xffe6a0, life: 0.3 });
+            this.texBolt("lightning-arc", e.x, e.y, { h: 11, w: 1.8, color: 0xffffff, life: 0.42 });
+            this.texDecal("ground-crack", e.x, e.y, { size: 4.4, life: 1.8, additive: false });
+            this.texSprite("electric-splat", e.x, 0.8, e.y, { size: 3.2, color: 0xfff2c0, life: 0.3, grow: 1.7 });
             this.sparks(e.x, 0.4, e.y, 0, 1, 10, 0xfff2c0);
-            this.crossGlint(e.x, 1.2, e.y, 1, 0, 0xfff2c0, 1.3);
             this.crossGlint(e.x, 3.0, e.y, 0, 1, 0xffe6a0, 1.1);
             break;
           case "meteor": {
@@ -448,6 +450,9 @@ export class Fx {
             this.debris(e.x, e.y, 6, 0x804030);
             this.chunks.burst(e.x, e.y, 8, 0x5a2a18, 8);
             this.smoke(e.x, e.y, 8);
+            this.texDecal("shock-burst", e.x, e.y, { size: 3, grow: 4.5, life: 0.5, color: 0xffb060 });
+            this.texDecal("scorch-decal", e.x, e.y, { size: e.radius * 1.7, life: 2.2, color: 0xff8040 });
+            for (let i = 0; i < 4; i++) this.texFlipbook("fire-sprite", 4, 4, e.x + (Math.random() - 0.5) * e.radius, 0.8 + Math.random(), e.y + (Math.random() - 0.5) * e.radius, { size: 1.6 + Math.random(), life: 0.55, rise: 1.4 });
             this.telegraphs.spawnResidue(e.x, e.y, e.radius * 0.8, 0x1a0f0a, 4);
             const mx = e.x;
             const my = e.y;
@@ -462,9 +467,10 @@ export class Fx {
             }
             break;
           }
-          case "fireball": // V-yx Q burst: lava teeth + a small scorch
+          case "fireball": // V-yx Q burst: lava teeth + authored scorch + flame lick
             this.spikes.ring(e.x, e.y, e.radius * 0.45, 5, 0xff7a2c, { h: 0.8, w: 0.3, holdMs: 260, exitMs: 200 });
-            this.telegraphs.spawnResidue(e.x, e.y, e.radius * 0.6, 0x1a0f0a, 1.4);
+            this.texDecal("scorch-decal", e.x, e.y, { size: 3.4, life: 1.5, color: 0xff7030 });
+            this.texFlipbook("fire-sprite", 4, 4, e.x, 1.0, e.y, { size: 2.6, life: 0.55, rise: 1 });
             this.smoke(e.x, e.y, 4);
             break;
           case "keg": // powder keg — fireball + scorch + a chain-pop beat
@@ -473,8 +479,9 @@ export class Fx {
             this.telegraphs.spawnResidue(e.x, e.y, e.radius * 0.7, 0x1a0f0a, 3);
             if (this.within(e.x, e.y, 12)) this.bumpFreeze(40);
             break;
-          case "hexbolt": // Grimelda Q splash: fat slow bog bubbles
+          case "hexbolt": // Grimelda Q splash: fat slow bog bubbles + hex swirl
             this.bubbles(e.x, e.y, 8, 0x9fefa8, e.radius * 0.7);
+            this.texSprite("swirl-lines", e.x, 1.2, e.y, { size: 2.4, color: 0x9fefa8, life: 0.4, grow: 1.6, spin: Math.PI * 2 });
             break;
           default:
             this.smoke(e.x, e.y, 5);
@@ -621,11 +628,11 @@ export class Fx {
       // KNIGHT — heavy steel, white-hot edges
       case "knight:Q": this.implode(x, y, 0xeaf2ff, 1.8, 7, 0.2); this.dust(x, y, 3); break; // Cleaving Blow — gather before the arc
       case "knight:W": this.implode(x, y, 0x8fd0ff, 1.6, 6, 0.2); this.footDust(x, y, -dx, -dy); break; // Seismic Slam — plant the feet
-      case "knight:E": this.implode(x, y, 0xeaf2ff, 2.2, 10, 0.26); this.castDome(x, y, 0xffd24a, 2.2); this.shockwave(x, y, 0xeaf2ff, 2.0, 0.4, 0.8); this.dust(x, y, 4); this.sparks(x, 0.4, y, 0, 1, 4, 0xfff2c0); break; // Iron Stance — brace dome
+      case "knight:E": this.implode(x, y, 0xeaf2ff, 2.2, 10, 0.26); this.texShell("hex-shield", x, 1.25, y, { r: 2.0, color: 0x5fa0ff, life: 1.6, repeat: [4, 2], scrollY: 0.02 }); this.shockwave(x, y, 0xeaf2ff, 2.0, 0.4, 0.8); this.dust(x, y, 4); this.sparks(x, 0.4, y, 0, 1, 4, 0xfff2c0); break; // Iron Stance — the hex bubble snaps up
       case "knight:R": this.implode(x, y, 0xbfe0ff, 3, 12, 0.26); this.shockwave(x, y, 0xeaf2ff, 4); this.shockwave(x, y, 0xbfe0ff, 5.5, 0.5); this.burst(x, 1.2, y, 16, 0xbfe0ff, 8, 0.4); this.view.addTrauma(0.14); break;
       // RANGER — verdant precision, gold arrows
       case "ranger:Q": this.implode(x, y, 0xffe6a0, 1.2, 6, 0.18); this.crossGlint(x + dx * 0.6, 1.3, y + dy * 0.6, dx, dy, 0xffe6a0, 0.7); this.sectorRim(x, y, dx, dy, 0xffe6a0, 5, 0.2); break; // draw — the fan flashes its real spread
-      case "ranger:W": this.implode(x, y, 0xffe6a0, 2.0, 10, 0.26); this.castDome(x, y, 0x7dffb0, 2.0); this.fountain(x, y, 12, 0xffe6a0); break; // Hunter's Focus — self buff bloom
+      case "ranger:W": this.implode(x, y, 0xffe6a0, 2.0, 10, 0.26); this.texShell("electro-ball", x, 2.3, y, { r: 0.9, color: 0xffe6a0, life: 1.4, repeat: [2, 1], scrollY: 0.06 }); this.fountain(x, y, 12, 0xffe6a0); break; // Hunter's Focus — self buff bloom
       case "ranger:E": this.flash(x + dx, 0.5, y + dy, 0x9affc0, 0.7); this.sparks(x + dx, 0.9, y + dy, 0, -1, 6, 0x9affc0); break;
       case "ranger:R": this.beam(x, y, 0xffe6a0); this.implode(x, y, 0xffe6a0, 3, 10, 0.28); this.flash(x, 4.5, y, 0xffe6a0, 2.0, 1.6); this.crossGlint(x, 8.0, y, dx, dy, 0xfff2c0, 1.6); this.crossGlint(x, 9.2, y, -dy, dx, 0xffe6a0, 1.2); break; // the sky glints before the volley
       // MAGE — fire primary, frost/arcane separated
@@ -637,12 +644,12 @@ export class Fx {
       case "rogue:Q": this.castStreak(x, y, dx, dy, 0x7fff8e, 14, 12, 0.2); this.smoke(x, y, 2); break; // lunge launch — the cut lands at dash end
       case "rogue:W": this.implode(x, y, 0xff3060, 1.4, 6, 0.16); this.smoke(x, y, 2); break; // coil before the gash
       case "rogue:E": this.smoke(x, y, 10); this.castDome(x, y, 0x6a5a9a, 2.4, 0.5); this.telegraphs.spawnResidue(x, y, 2.4, 0x201830, 2); break;
-      case "rogue:R": this.castStreak(x, y, dx, dy, 0xff3060, 22, 14, 0.14); this.smoke(x, y, 3); break; // shadow-dash launch — the execute lands on arrival
+      case "rogue:R": this.castStreak(x, y, dx, dy, 0xff3060, 22, 14, 0.14); this.texSprite("galaxy", x, 1.8, y, { size: 2.8, color: 0xc0a8ff, life: 0.45, spin: Math.PI * 2 }); this.texSprite("dark-shock", x, 1.8, y, { size: 3.4, color: 0x8a5fd0, life: 0.45, grow: 1.5 }); this.smoke(x, y, 3); break; // he steps THROUGH the dark door — the execute lands on arrival
       // AURELIUS (id blackknight) — dawn-gold consecration, white-gold edges
       case "blackknight:Q": this.implode(x, y, 0xfff2c0, 1.8, 7, 0.2); this.smoke(x, y, 2); break; // the great sweep winds up
       case "blackknight:W": this.castDome(x, y, 0xffd76a, 1.6, 0.3); this.flash(x, 1.2, y, 0xfff2c0, 1.1, 1.8); this.sparks(x, 0.4, y, 0, 1, 8, 0xfff2c0); this.crossGlint(x + dx, 1.4, y + dy, dx, dy, 0xffe6a0, 1.0); break; // Consecrating Smite — holy channel (pillar lands at target)
       case "blackknight:E": this.castDome(x, y, 0xffe6a0, 2.4, 0.5); this.sparks(x, 0.4, y, 0, 1, 8, 0xfff2c0); break;
-      case "blackknight:R": this.implode(x, y, 0xfff2c0, 4, 12, 0.24); this.beam(x, y, 0xffd76a, 6, 0.8); break; // the hammer RISES — it falls on the strike
+      case "blackknight:R": this.implode(x, y, 0xfff2c0, 4, 12, 0.24); this.beam(x, y, 0xffd76a, 6, 0.8); this.texSprite("holy-wings", x, 2.4, y, { size: 6.5, color: 0xffe6a0, life: 1.1, grow: 1.25 }); this.texStreak("trail-holy", x + 1.4, 0.2, y, x + 1.4, 5, y, { w: 0.9, len: 2.4, color: 0xffd76a, life: 0.8 }); this.texStreak("trail-holy", x - 1.2, 0.2, y + 0.8, x - 1.2, 5, y + 0.8, { w: 0.9, len: 2.4, color: 0xffd76a, life: 0.8 }); break; // the hammer RISES — it falls on the strike
       // WITCH — bog-green hexcraft
       case "witch:Q": this.implode(x, y, 0x7fe08a, 1.2, 6, 0.18); this.crossGlint(x + dx * 0.6, 1.3, y + dy * 0.6, dx, dy, 0x7fe08a, 0.8); break; // the bolt curdles
       case "witch:W": this.castDome(x, y, 0x7fe08a, 1.8, 0.35); this.bubbles(x, y, 6, 0x7fe08a); break;
@@ -773,15 +780,19 @@ export class Fx {
       : g.effect === "trap" && g.team === this.localTeam ? 0x9affc0
       : 0;
     if (runeColor !== 0) {
+      // AUTHORED magic circles: pentagram for the witch's grand hex, runic
+      // script ring for holy/trap telegraphs (procedural ring underneath stays)
+      const runeTex = g.effect === "hexring" ? "rune-circle-a" : "rune-circle-b";
       const piece = this.zonePiece(`rune:${g.id}`, () => {
-        const mat = makeRuneMaterial(runeColor);
+        const mat = new THREE.MeshBasicMaterial({ map: fxTex(runeTex), color: runeColor, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
         const mesh = new THREE.Mesh(this.ringPlane, mat);
         mesh.rotation.x = -Math.PI / 2;
         return { obj: mesh, ownMat: mat };
       });
       piece.seenAt = now;
       piece.obj.position.set(g.x, 0.14, g.y);
-      piece.obj.scale.setScalar(r);
+      piece.obj.scale.setScalar(r * 1.15);
+      piece.obj.rotation.z = now * 0.0008; // slow ritual spin
     }
 
     switch (g.effect) {
@@ -1249,6 +1260,138 @@ export class Fx {
       f.sprite.scale.setScalar(f.s0 * pop);
       f.mat.opacity = 1 - t * t;
     }
+  }
+
+  // ── Textured one-shots (licensed-pack spell kits) ───────────────────────────
+  // Transient composed actors: authored sprites/decals/bolts/shells from
+  // public/fx/, each a short-lived object with its own tick. Capped — a spam
+  // of casts drops the extras, never the frame rate.
+  private texActors: { obj: THREE.Object3D; mats: THREE.Material[]; life: number; maxLife: number; tick: (k: number) => void }[] = [];
+  private texQuad = new THREE.PlaneGeometry(1, 1);
+  private texSphere = new THREE.SphereGeometry(1, 20, 12);
+
+  private texActor(obj: THREE.Object3D, mats: THREE.Material[], life: number, tick: (k: number) => void): void {
+    if (this.texActors.length >= 40) {
+      for (const m of mats) m.dispose();
+      return;
+    }
+    this.scene.add(obj);
+    this.texActors.push({ obj, mats, life, maxLife: life, tick });
+  }
+
+  private stepTexActors(dt: number): void {
+    for (let i = this.texActors.length - 1; i >= 0; i--) {
+      const a = this.texActors[i]!;
+      a.life -= dt;
+      if (a.life <= 0) {
+        this.scene.remove(a.obj);
+        for (const m of a.mats) m.dispose();
+        this.texActors.splice(i, 1);
+        continue;
+      }
+      a.tick(1 - a.life / a.maxLife);
+    }
+  }
+
+  /** Authored flat ground decal (scorch, crack, rune circle). */
+  texDecal(tex: string, x: number, z: number, opts: { size?: number; color?: number; life?: number; spinRate?: number; grow?: number; additive?: boolean; fade?: "out" | "inout"; y?: number } = {}): void {
+    const { size = 3, color = 0xffffff, life = 1.2, spinRate = 0, grow = 1, additive = true, fade = "out", y = 0.07 } = opts;
+    const mat = new THREE.MeshBasicMaterial({ map: fxTex(tex), color, transparent: true, blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending, depthWrite: false, side: THREE.DoubleSide });
+    const m = new THREE.Mesh(this.texQuad, mat);
+    m.rotation.x = -Math.PI / 2;
+    m.rotation.z = Math.random() * Math.PI * 2;
+    m.position.set(x, y, z);
+    m.scale.setScalar(size);
+    this.texActor(m, [mat], life, (k) => {
+      m.rotation.z += spinRate * 0.016;
+      m.scale.setScalar(size * (1 + (grow - 1) * k));
+      mat.opacity = fade === "inout" ? Math.sin(Math.min(1, k * 1.05) * Math.PI) : 1 - k * k;
+    });
+  }
+
+  /** Vertical crossed-plane bolt (lightning columns). */
+  texBolt(tex: string, x: number, z: number, opts: { h?: number; w?: number; color?: number; life?: number } = {}): void {
+    const { h = 9, w = 2.2, color = 0xffffff, life = 0.32 } = opts;
+    const group = new THREE.Group();
+    const mats: THREE.Material[] = [];
+    for (const ry of [0, Math.PI / 2]) {
+      const mat = new THREE.MeshBasicMaterial({ map: fxTex(tex), color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+      const m = new THREE.Mesh(this.texQuad, mat);
+      m.scale.set(w, h, 1);
+      m.position.y = h / 2;
+      m.rotation.y = ry;
+      group.add(m);
+      mats.push(mat);
+    }
+    group.position.set(x, 0, z);
+    this.texActor(group, mats, life, (k) => {
+      const o = (Math.random() < 0.5 ? 1 : 0.5) * (1 - k);
+      for (const mt of mats) if (mt instanceof THREE.MeshBasicMaterial) mt.opacity = o;
+    });
+  }
+
+  /** Flipbook sprite (grid sheet) played once (flames, puffs). */
+  texFlipbook(tex: string, cols: number, rows: number, x: number, y: number, z: number, opts: { size?: number; color?: number; life?: number; rise?: number } = {}): void {
+    const { size = 2, color = 0xffffff, life = 0.6, rise = 0 } = opts;
+    const map = fxTex(tex).clone();
+    map.repeat.set(1 / cols, 1 / rows);
+    const mat = new THREE.SpriteMaterial({ map, color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+    const spr = new THREE.Sprite(mat);
+    spr.position.set(x, y, z);
+    spr.scale.setScalar(size);
+    const frames = cols * rows;
+    this.texActor(spr, [mat], life, (k) => {
+      const f = Math.min(frames - 1, Math.floor(k * frames));
+      map.offset.set((f % cols) / cols, 1 - 1 / rows - Math.floor(f / cols) / rows);
+      spr.position.y = y + rise * k;
+      mat.opacity = Math.sin(Math.min(1, k * 1.15) * Math.PI);
+    });
+  }
+
+  /** Textured shell (shield bubbles, storm orbs). */
+  texShell(tex: string, x: number, y: number, z: number, opts: { r?: number; color?: number; life?: number; repeat?: [number, number]; scrollY?: number } = {}): void {
+    const { r = 1.9, color = 0xffffff, life = 1.6, repeat = [3, 2], scrollY = 0 } = opts;
+    const map = fxTex(tex).clone();
+    map.wrapS = map.wrapT = THREE.RepeatWrapping;
+    map.repeat.set(repeat[0], repeat[1]);
+    const mat = new THREE.MeshBasicMaterial({ map, color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+    const m = new THREE.Mesh(this.texSphere, mat);
+    m.position.set(x, y, z);
+    m.scale.setScalar(r);
+    this.texActor(m, [mat], life, (k) => {
+      map.offset.y += scrollY * 0.016;
+      map.offset.x += 0.002;
+      m.scale.setScalar(r * (1 + 0.04 * Math.sin(k * Math.PI * 6)));
+      mat.opacity = Math.sin(Math.min(1, k * 1.02) * Math.PI) * 0.8;
+    });
+  }
+
+  /** Camera-facing authored sprite with inout fade (wings, portals, swirls). */
+  texSprite(tex: string, x: number, y: number, z: number, opts: { size?: number; color?: number; life?: number; grow?: number; spin?: number } = {}): void {
+    const { size = 3, color = 0xffffff, life = 0.8, grow = 1.15, spin = 0 } = opts;
+    const mat = new THREE.SpriteMaterial({ map: fxTex(tex), color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, rotation: Math.random() * spin });
+    const spr = new THREE.Sprite(mat);
+    spr.position.set(x, y, z);
+    spr.scale.setScalar(size);
+    this.texActor(spr, [mat], life, (k) => {
+      spr.scale.setScalar(size * (1 + (grow - 1) * k));
+      mat.opacity = Math.sin(Math.min(1, k * 1.05) * Math.PI);
+    });
+  }
+
+  /** Stretched streak flying A→B (comet tails, rising light). */
+  texStreak(tex: string, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, opts: { w?: number; len?: number; color?: number; life?: number } = {}): void {
+    const { w = 1.2, len = 5, color = 0xffffff, life = 0.45 } = opts;
+    const mat = new THREE.MeshBasicMaterial({ map: fxTex(tex), color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+    const m = new THREE.Mesh(this.texQuad, mat);
+    m.scale.set(len, w, 1);
+    const from = new THREE.Vector3(x0, y0, z0);
+    const dir = new THREE.Vector3(x1 - x0, y1 - y0, z1 - z0);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), dir.clone().normalize());
+    this.texActor(m, [mat], life, (k) => {
+      m.position.copy(from).addScaledVector(dir, k);
+      mat.opacity = Math.sin(Math.min(1, k * 1.1) * Math.PI);
+    });
   }
 
   /** Muzzle-flash star: an authored 4-point flare sprite over two stretched
