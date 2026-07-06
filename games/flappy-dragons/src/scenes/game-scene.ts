@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 
+import { setPoseLocked } from "../input/camera";
 import { NetSession } from "../net/session";
 import {
   ART_SCALE,
@@ -296,7 +297,7 @@ export class GameScene extends Phaser.Scene {
 
   private handleInput(strength = 1, refire = false): void {
     if (this.phase === "ready") {
-      this.phase = "playing";
+      this.setPhase("playing");
       this.birdY = this.racing ? this.spawnY() : BIRD_SPAWN_Y;
       this.vy = 0;
       this.bird.setAlpha(1).clearTint().setTintMode(Phaser.TintModes.MULTIPLY);
@@ -341,6 +342,16 @@ export class GameScene extends Phaser.Scene {
 
   // ---- state flow ----------------------------------------------------------
 
+  /**
+   * Single funnel for phase changes. Locks the webcam pose baseline for the
+   * duration of a run (it "locks in place" the instant you start) and lets it
+   * re-track while idle on the ready / game-over screens. No-op without a cam.
+   */
+  private setPhase(phase: Phase): void {
+    this.phase = phase;
+    setPoseLocked(phase === "playing");
+  }
+
   /** Solo: any input on gameover drops straight back into playing. */
   private restart(): void {
     this.score = 0;
@@ -373,7 +384,7 @@ export class GameScene extends Phaser.Scene {
     this.setBest("");
     this.setHint("");
     this.refreshScore();
-    this.phase = "playing";
+    this.setPhase("playing");
   }
 
   /** Multiplayer: respawn into the still-scrolling shared course. */
@@ -395,11 +406,11 @@ export class GameScene extends Phaser.Scene {
     this.setBest("");
     this.setHint("");
     this.refreshScore();
-    this.phase = "playing";
+    this.setPhase("playing");
   }
 
   private die(): void {
-    this.phase = "gameover";
+    this.setPhase("gameover");
     this.diedAt = this.time.now;
     this.sound.play("hit");
     this.bird.stop();
