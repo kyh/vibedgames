@@ -104,6 +104,33 @@ export class ModelCache {
       mesh.position.y = 0.5;
       return mesh;
     }
-    return tpl.clone(true);
+    const clone = tpl.clone(true);
+    // Tag every mesh with its source (url + stable child index) so the
+    // city-rest cache can serialize batch items as references instead of
+    // geometry, and resolve them back to the loaded GLB on a cache hit.
+    let idx = 0;
+    clone.traverse((c) => {
+      if (c instanceof THREE.Mesh) {
+        c.userData.src = { url, idx };
+        idx++;
+      }
+    });
+    return clone;
+  }
+
+  // Resolve a src tag back to the template's mesh (geometry lookup for the
+  // city-rest cache rebuild path).
+  srcMesh(url: string, idx: number): THREE.Mesh | null {
+    const tpl = this.templates.get(url);
+    if (!tpl) return null;
+    let i = 0;
+    let found: THREE.Mesh | null = null;
+    tpl.traverse((c) => {
+      if (c instanceof THREE.Mesh) {
+        if (i === idx && !found) found = c;
+        i++;
+      }
+    });
+    return found;
   }
 }
