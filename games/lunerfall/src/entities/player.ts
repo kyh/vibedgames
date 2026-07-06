@@ -34,7 +34,7 @@ export class Player {
     hooks: PlayerHooks = {},
   ) {
     this.name = hero.name;
-    this.sprite = scene.add.sprite(x, y, `${this.name}:idle`);
+    this.sprite = scene.add.sprite(x, y, this.name);
     this.sprite.setOrigin(0.5, HERO_ORIGIN_Y).setScale(this.baseScale);
     this.sprite.play(`${this.name}:idle`);
 

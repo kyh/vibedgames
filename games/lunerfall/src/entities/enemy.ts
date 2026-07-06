@@ -14,7 +14,7 @@ export class Enemy {
 
   constructor(scene: Phaser.Scene, grid: Grid, kind: EnemyKind, x: number, y: number) {
     this.body = new EnemyBody(kind, grid, x, y);
-    this.sprite = scene.add.sprite(x, y, `${kind.name}:spawn`);
+    this.sprite = scene.add.sprite(x, y, kind.name);
     this.sprite.setOrigin(0.5, ENEMY_ORIGIN_Y).setScale(ENEMY_SCALE);
     this.sprite.play(`${kind.name}:spawn`);
   }

@@ -35,7 +35,7 @@ export class SelectScene extends Phaser.Scene {
     HERO_ORDER.forEach((name, i) => {
       const x = ((i + 1) / (n + 1)) * BASE_W;
       const ring = this.add.ellipse(x, rowY + 2, 34, 12, HEROES[name].color, 0.18).setVisible(false);
-      const spr = this.add.sprite(x, rowY, `${name}:idle`).setOrigin(0.5, HERO_ORIGIN_Y).setScale(1.4);
+      const spr = this.add.sprite(x, rowY, name).setOrigin(0.5, HERO_ORIGIN_Y).setScale(1.4);
       spr.play(`${name}:idle`);
       const lock = this.add.text(x, rowY - 26, "", { fontFamily: "monospace", fontSize: "8px", color: "#ffd15c" }).setOrigin(0.5);
       this.rings.push(ring);

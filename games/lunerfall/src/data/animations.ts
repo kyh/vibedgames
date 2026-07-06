@@ -1,51 +1,78 @@
-// Animation manifest. Frame counts are derived from the loaded texture at boot
-// (Phaser's generateFrameNumbers reads them), so we only list clip names here
-// plus a name->fps/loop heuristic. Keys are `${who}:${clip}`.
+import type Phaser from "phaser";
 
-export const HERO_CLIPS = {
-  axion: ["idle", "run", "jump", "fall", "dash", "hurt", "death", "attack-1", "attack-2", "attack-3", "super-smash"],
-  reaper: ["idle", "idle-break", "run", "jump", "fall", "dash", "hurt", "death", "attack", "slash", "double-slash", "skill", "surprise-jump"],
-  riven: ["idle", "idle-break", "run", "jump", "fall", "dash", "hurt", "death", "slash", "double-slash", "special-skill", "smoke-in", "smoke-out"],
-  mooni: ["idle", "idle-break", "run", "jump", "fall", "hurt", "death", "heal", "smash", "special-skill", "spin", "thrust"],
-  salamander: ["idle", "run", "jump", "fall", "dash", "hit", "death", "fire-punch", "flame-slam", "flame-wave"],
-} as const;
+// Animation manifest, driven entirely by the Aseprite exports in
+// public/sprites/ase. Each atlas carries the artist's authored per-frame
+// durations + frame tags, so we build one Phaser animation per tag with EXACT
+// timings — no hand-guessed FPS (the old approach played run/dash/attacks 40-120%
+// too fast, which is what read as "not smooth"). Boss reuses the "salamander"
+// atlas. Anim keys are `${atlas}:${clip}`.
 
-export const ENEMY_CLIPS = {
-  warrior: ["idle", "run", "spawn", "hit", "strike", "slashes", "dead"],
-  bomber: ["idle", "run", "spawn", "hit", "explode", "electrocute", "death"],
-  archer: ["idle", "run", "spawn", "hit", "shoot", "super-shoot", "death"],
-  spearman: ["idle", "run", "spawn", "hit", "strike", "charge", "death"],
-} as const;
+export const HERO_NAMES = ["axion", "reaper", "riven", "mooni", "salamander"] as const;
+export const ENEMY_NAMES = ["warrior", "bomber", "archer", "spearman"] as const;
+export type HeroName = (typeof HERO_NAMES)[number];
+export type EnemyName = (typeof ENEMY_NAMES)[number];
 
-export type HeroName = keyof typeof HERO_CLIPS;
-export type EnemyName = keyof typeof ENEMY_CLIPS;
+// Every atlas we load.aseprite() at boot.
+export const ATLAS_KEYS: readonly string[] = [...HERO_NAMES, ...ENEMY_NAMES];
 
+// Clips that repeat forever; everything else plays once and holds its last frame.
 const LOOPING = new Set(["idle", "idle-break", "run", "fall"]);
 
-const FPS: Record<string, number> = {
-  idle: 7,
-  "idle-break": 8,
-  run: 14,
-  jump: 10,
-  fall: 8,
-  dash: 22,
-  hurt: 14,
-  hit: 14,
-  death: 12,
-  dead: 12,
-  spawn: 14,
-  heal: 14,
-  "smoke-in": 18,
-  "smoke-out": 18,
+// Per-atlas aliases: Aseprite tag name -> the clip slug(s) the game code plays.
+// A tag maps to several names when one drawing serves two logical clips
+// (salamander's "Hit" is both the boss hurt clip and the playable-hero hurt clip).
+const ALIASES: Record<string, Record<string, string | string[]>> = {
+  axion: { Smash: "super-smash" },
+  reaper: { "Special Skill": "skill", "Surprise Attack": "attack" },
+  riven: { "Single Slash": "slash", "Smoke Bomb In": "smoke-in", "Smoke Bomb Out": "smoke-out" },
+  salamander: { Hit: ["hit", "hurt"] },
 };
 
-// Everything else (attacks, slashes, skills) reads as an action clip.
-const ACTION_FPS = 18;
+const slug = (tag: string): string => tag.toLowerCase().replace(/\s+/g, "-");
 
-export function clipFps(name: string): number {
-  return FPS[name] ?? ACTION_FPS;
+type AseFrame = { filename: string; duration: number };
+type AseData = { frames: AseFrame[]; meta: { frameTags: { name: string; from: number; to: number }[] } };
+
+function isAseData(v: unknown): v is AseData {
+  if (typeof v !== "object" || v === null || !("frames" in v) || !("meta" in v)) return false;
+  const meta = v.meta;
+  if (!Array.isArray(v.frames) || typeof meta !== "object" || meta === null || !("frameTags" in meta)) return false;
+  return Array.isArray(meta.frameTags);
 }
 
-export function clipLoops(name: string): boolean {
-  return LOOPING.has(name);
+// Build one animation per Aseprite tag, with the tag's exact per-frame durations.
+export function buildAnimsFromAseprite(scene: Phaser.Scene, key: string): void {
+  const data: unknown = scene.cache.json.get(key);
+  if (!isAseData(data)) return;
+  const alias = ALIASES[key] ?? {};
+  for (const tag of data.meta.frameTags) {
+    if (tag.name === "Good!") continue; // pack's "select-all" meta tag
+    const mapped = alias[tag.name];
+    const clips = mapped === undefined ? [slug(tag.name)] : Array.isArray(mapped) ? mapped : [mapped];
+
+    const frames: Phaser.Types.Animations.AnimationFrame[] = [];
+    let total = 0;
+    for (let i = tag.from; i <= tag.to; i++) {
+      const f = data.frames[i];
+      if (!f) continue;
+      frames.push({ key, frame: f.filename, duration: f.duration });
+      total += f.duration;
+    }
+    if (frames.length === 0) continue;
+
+    for (const clip of clips) {
+      const animKey = `${key}:${clip}`;
+      if (scene.anims.exists(animKey)) continue;
+      // duration (not frameRate) + per-frame durations => Phaser honours each
+      // frame's authored ms exactly (mirrors createFromAseprite / nextTick logic).
+      scene.anims.create({ key: animKey, frames, duration: total, repeat: LOOPING.has(clip) ? -1 : 0 });
+    }
+  }
+}
+
+// First real frame name for an atlas (frame 0 is a blank spacer), so a sprite has
+// a sane frame before it plays.
+export function firstFrame(scene: Phaser.Scene, key: string): string | undefined {
+  const data: unknown = scene.cache.json.get(key);
+  return isAseData(data) ? data.frames[1]?.filename : undefined;
 }

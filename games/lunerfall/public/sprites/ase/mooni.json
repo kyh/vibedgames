@@ -1,0 +1,1537 @@
+{ "frames": [
+   {
+    "filename": "Aseprite - Mooni 0.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 1.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 2.aseprite",
+    "frame": { "x": 144, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 3.aseprite",
+    "frame": { "x": 288, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 4.aseprite",
+    "frame": { "x": 432, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 5.aseprite",
+    "frame": { "x": 576, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 6.aseprite",
+    "frame": { "x": 720, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 7.aseprite",
+    "frame": { "x": 864, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 8.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 9.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 10.aseprite",
+    "frame": { "x": 1008, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 11.aseprite",
+    "frame": { "x": 1152, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 12.aseprite",
+    "frame": { "x": 1296, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 13.aseprite",
+    "frame": { "x": 1152, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 14.aseprite",
+    "frame": { "x": 1152, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 15.aseprite",
+    "frame": { "x": 1152, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 16.aseprite",
+    "frame": { "x": 1152, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 17.aseprite",
+    "frame": { "x": 1152, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 18.aseprite",
+    "frame": { "x": 1152, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 19.aseprite",
+    "frame": { "x": 1152, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 20.aseprite",
+    "frame": { "x": 1440, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 21.aseprite",
+    "frame": { "x": 1440, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 22.aseprite",
+    "frame": { "x": 1152, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 23.aseprite",
+    "frame": { "x": 1152, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 24.aseprite",
+    "frame": { "x": 1152, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 25.aseprite",
+    "frame": { "x": 1152, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 26.aseprite",
+    "frame": { "x": 1152, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 27.aseprite",
+    "frame": { "x": 1008, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 28.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 29.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 30.aseprite",
+    "frame": { "x": 1584, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 31.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 32.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 33.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 34.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 35.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 36.aseprite",
+    "frame": { "x": 0, "y": 144, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 37.aseprite",
+    "frame": { "x": 144, "y": 144, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 38.aseprite",
+    "frame": { "x": 288, "y": 144, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 39.aseprite",
+    "frame": { "x": 432, "y": 144, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 40.aseprite",
+    "frame": { "x": 576, "y": 144, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 41.aseprite",
+    "frame": { "x": 720, "y": 144, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 42.aseprite",
+    "frame": { "x": 864, "y": 144, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 43.aseprite",
+    "frame": { "x": 1008, "y": 144, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 44.aseprite",
+    "frame": { "x": 1152, "y": 144, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 45.aseprite",
+    "frame": { "x": 1296, "y": 144, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 46.aseprite",
+    "frame": { "x": 1440, "y": 144, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 47.aseprite",
+    "frame": { "x": 1584, "y": 144, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 48.aseprite",
+    "frame": { "x": 0, "y": 288, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 49.aseprite",
+    "frame": { "x": 144, "y": 288, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 50.aseprite",
+    "frame": { "x": 288, "y": 288, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 51.aseprite",
+    "frame": { "x": 432, "y": 288, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 52.aseprite",
+    "frame": { "x": 576, "y": 288, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 53.aseprite",
+    "frame": { "x": 720, "y": 288, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 54.aseprite",
+    "frame": { "x": 864, "y": 288, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 55.aseprite",
+    "frame": { "x": 1008, "y": 288, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 56.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 57.aseprite",
+    "frame": { "x": 1152, "y": 288, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 58.aseprite",
+    "frame": { "x": 1296, "y": 288, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 59.aseprite",
+    "frame": { "x": 1440, "y": 288, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 60.aseprite",
+    "frame": { "x": 1584, "y": 288, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 61.aseprite",
+    "frame": { "x": 0, "y": 432, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 62.aseprite",
+    "frame": { "x": 144, "y": 432, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 63.aseprite",
+    "frame": { "x": 288, "y": 432, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 64.aseprite",
+    "frame": { "x": 432, "y": 432, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 65.aseprite",
+    "frame": { "x": 576, "y": 432, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 66.aseprite",
+    "frame": { "x": 720, "y": 432, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 67.aseprite",
+    "frame": { "x": 864, "y": 432, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 68.aseprite",
+    "frame": { "x": 1008, "y": 432, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 69.aseprite",
+    "frame": { "x": 1152, "y": 432, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 70.aseprite",
+    "frame": { "x": 1296, "y": 432, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 71.aseprite",
+    "frame": { "x": 1440, "y": 432, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 72.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 73.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 74.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 75.aseprite",
+    "frame": { "x": 144, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 76.aseprite",
+    "frame": { "x": 288, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 77.aseprite",
+    "frame": { "x": 1584, "y": 432, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 78.aseprite",
+    "frame": { "x": 0, "y": 576, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 79.aseprite",
+    "frame": { "x": 144, "y": 576, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 80.aseprite",
+    "frame": { "x": 288, "y": 576, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 81.aseprite",
+    "frame": { "x": 432, "y": 576, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 82.aseprite",
+    "frame": { "x": 576, "y": 576, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 83.aseprite",
+    "frame": { "x": 720, "y": 576, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 84.aseprite",
+    "frame": { "x": 864, "y": 576, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 85.aseprite",
+    "frame": { "x": 1008, "y": 576, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 86.aseprite",
+    "frame": { "x": 1152, "y": 576, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 87.aseprite",
+    "frame": { "x": 1296, "y": 576, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 88.aseprite",
+    "frame": { "x": 1440, "y": 576, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 89.aseprite",
+    "frame": { "x": 1584, "y": 576, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 90.aseprite",
+    "frame": { "x": 0, "y": 720, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 91.aseprite",
+    "frame": { "x": 144, "y": 720, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 92.aseprite",
+    "frame": { "x": 288, "y": 720, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 93.aseprite",
+    "frame": { "x": 432, "y": 720, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 94.aseprite",
+    "frame": { "x": 576, "y": 720, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 95.aseprite",
+    "frame": { "x": 720, "y": 720, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 96.aseprite",
+    "frame": { "x": 864, "y": 720, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 97.aseprite",
+    "frame": { "x": 1008, "y": 720, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 98.aseprite",
+    "frame": { "x": 1152, "y": 720, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 99.aseprite",
+    "frame": { "x": 1296, "y": 720, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 100.aseprite",
+    "frame": { "x": 1440, "y": 720, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 101.aseprite",
+    "frame": { "x": 1584, "y": 720, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 102.aseprite",
+    "frame": { "x": 0, "y": 864, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 103.aseprite",
+    "frame": { "x": 144, "y": 864, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 104.aseprite",
+    "frame": { "x": 288, "y": 864, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 105.aseprite",
+    "frame": { "x": 432, "y": 864, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 106.aseprite",
+    "frame": { "x": 576, "y": 864, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 107.aseprite",
+    "frame": { "x": 720, "y": 864, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 108.aseprite",
+    "frame": { "x": 864, "y": 864, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 109.aseprite",
+    "frame": { "x": 288, "y": 720, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 110.aseprite",
+    "frame": { "x": 1008, "y": 864, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 111.aseprite",
+    "frame": { "x": 1152, "y": 864, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 112.aseprite",
+    "frame": { "x": 1296, "y": 864, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 113.aseprite",
+    "frame": { "x": 1440, "y": 864, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 114.aseprite",
+    "frame": { "x": 1584, "y": 864, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 115.aseprite",
+    "frame": { "x": 0, "y": 1008, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 116.aseprite",
+    "frame": { "x": 144, "y": 1008, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 117.aseprite",
+    "frame": { "x": 288, "y": 1008, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 118.aseprite",
+    "frame": { "x": 432, "y": 1008, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 119.aseprite",
+    "frame": { "x": 576, "y": 1008, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 120.aseprite",
+    "frame": { "x": 720, "y": 1008, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 121.aseprite",
+    "frame": { "x": 864, "y": 1008, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 122.aseprite",
+    "frame": { "x": 1008, "y": 1008, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 123.aseprite",
+    "frame": { "x": 288, "y": 720, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 124.aseprite",
+    "frame": { "x": 1008, "y": 864, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 125.aseprite",
+    "frame": { "x": 1152, "y": 864, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 126.aseprite",
+    "frame": { "x": 1296, "y": 864, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 127.aseprite",
+    "frame": { "x": 1440, "y": 864, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 128.aseprite",
+    "frame": { "x": 1584, "y": 864, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 129.aseprite",
+    "frame": { "x": 1152, "y": 1008, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 130.aseprite",
+    "frame": { "x": 1296, "y": 1008, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 131.aseprite",
+    "frame": { "x": 1440, "y": 1008, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 132.aseprite",
+    "frame": { "x": 1584, "y": 1008, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 133.aseprite",
+    "frame": { "x": 0, "y": 1152, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 134.aseprite",
+    "frame": { "x": 144, "y": 1152, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 135.aseprite",
+    "frame": { "x": 288, "y": 1152, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 75
+   },
+   {
+    "filename": "Aseprite - Mooni 136.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 137.aseprite",
+    "frame": { "x": 432, "y": 1152, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 138.aseprite",
+    "frame": { "x": 576, "y": 1152, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 139.aseprite",
+    "frame": { "x": 720, "y": 1152, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 140.aseprite",
+    "frame": { "x": 864, "y": 1152, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 141.aseprite",
+    "frame": { "x": 1008, "y": 1152, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 142.aseprite",
+    "frame": { "x": 1152, "y": 1152, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 143.aseprite",
+    "frame": { "x": 1296, "y": 1152, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 144.aseprite",
+    "frame": { "x": 1440, "y": 1152, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 145.aseprite",
+    "frame": { "x": 1584, "y": 1152, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 146.aseprite",
+    "frame": { "x": 0, "y": 1296, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 147.aseprite",
+    "frame": { "x": 144, "y": 1296, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 148.aseprite",
+    "frame": { "x": 288, "y": 1296, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 149.aseprite",
+    "frame": { "x": 432, "y": 1296, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 150.aseprite",
+    "frame": { "x": 576, "y": 1296, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 151.aseprite",
+    "frame": { "x": 720, "y": 1296, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 152.aseprite",
+    "frame": { "x": 864, "y": 1296, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 153.aseprite",
+    "frame": { "x": 1008, "y": 1296, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 154.aseprite",
+    "frame": { "x": 1152, "y": 1296, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 155.aseprite",
+    "frame": { "x": 1296, "y": 1296, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 156.aseprite",
+    "frame": { "x": 1440, "y": 1296, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 157.aseprite",
+    "frame": { "x": 1584, "y": 1296, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 158.aseprite",
+    "frame": { "x": 0, "y": 1440, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 159.aseprite",
+    "frame": { "x": 144, "y": 1440, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 160.aseprite",
+    "frame": { "x": 288, "y": 1440, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 161.aseprite",
+    "frame": { "x": 432, "y": 1440, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 162.aseprite",
+    "frame": { "x": 432, "y": 1440, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 163.aseprite",
+    "frame": { "x": 432, "y": 1440, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 164.aseprite",
+    "frame": { "x": 432, "y": 1440, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 165.aseprite",
+    "frame": { "x": 432, "y": 1440, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 166.aseprite",
+    "frame": { "x": 432, "y": 1440, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   },
+   {
+    "filename": "Aseprite - Mooni 167.aseprite",
+    "frame": { "x": 432, "y": 1440, "w": 144, "h": 144 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+    "sourceSize": { "w": 144, "h": 144 },
+    "duration": 100
+   }
+ ],
+ "meta": {
+  "app": "https://www.aseprite.org/",
+  "version": "1.3.17.2-arm64",
+  "image": "mooni.png",
+  "format": "RGBA8888",
+  "size": { "w": 1728, "h": 1584 },
+  "scale": "1",
+  "frameTags": [
+   { "name": "Idle", "from": 1, "to": 8, "direction": "forward", "color": "#000000ff" },
+   { "name": "Idle Break", "from": 9, "to": 35, "direction": "forward", "color": "#000000ff" },
+   { "name": "Run", "from": 36, "to": 43, "direction": "forward", "color": "#000000ff" },
+   { "name": "Jump", "from": 44, "to": 49, "direction": "forward", "color": "#000000ff" },
+   { "name": "Fall", "from": 50, "to": 55, "direction": "forward", "color": "#000000ff" },
+   { "name": "Special Skill", "from": 56, "to": 73, "direction": "forward", "color": "#000000ff" },
+   { "name": "Heal", "from": 74, "to": 91, "direction": "forward", "color": "#000000ff" },
+   { "name": "Smash", "from": 92, "to": 108, "direction": "forward", "color": "#000000ff" },
+   { "name": "Thrust", "from": 109, "to": 122, "direction": "forward", "color": "#000000ff" },
+   { "name": "Spin", "from": 123, "to": 135, "direction": "forward", "color": "#000000ff" },
+   { "name": "Hurt", "from": 136, "to": 138, "direction": "forward", "color": "#000000ff" },
+   { "name": "Death", "from": 139, "to": 167, "direction": "forward", "color": "#000000ff" }
+  ]
+ }
+}

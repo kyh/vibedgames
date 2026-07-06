@@ -15,7 +15,7 @@ export class Boss {
 
   constructor(scene: Phaser.Scene, grid: Grid, x: number, y: number, biome: number) {
     this.body = new BossBody(grid, x, y, biome);
-    this.sprite = scene.add.sprite(x, y, "salamander:idle").setOrigin(0.5, HERO_ORIGIN_Y).setScale(SCALE).setDepth(12);
+    this.sprite = scene.add.sprite(x, y, "salamander").setOrigin(0.5, HERO_ORIGIN_Y).setScale(SCALE).setDepth(12);
     this.sprite.play("salamander:idle");
   }
 

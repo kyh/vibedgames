@@ -30,6 +30,15 @@ type Shot = { spr: Phaser.GameObjects.Sprite; x: number; y: number; vx: number; 
 type Hazard = { spr: Phaser.GameObjects.Sprite; x: number; y: number; vx: number; life: number; dmg: number; hitPlayer: boolean };
 type Feature = { x: number; y: number; used: boolean; g: Phaser.GameObjects.Container };
 type MerchantItem = { x: number; y: number; relic: Relic; bought: boolean; g: Phaser.GameObjects.Container };
+
+// Themed animated prop per non-combat room type. ox/oy = frame-fractional origin
+// aligning the art's bottom-centre to the floor; scale shrinks the 144px canvases.
+const ROOM_PROPS: Partial<Record<RoomType, { key: string; ox: number; oy: number; scale: number }>> = {
+  start: { key: "blue-flag", ox: 0.5, oy: 0.66, scale: 0.7 },
+  rest: { key: "blue-fountain", ox: 0.49, oy: 0.77, scale: 0.5 },
+  merchant: { key: "blue-campfire", ox: 0.52, oy: 0.73, scale: 1.2 },
+  treasure: { key: "blue-columnfire", ox: 0.5, oy: 0.66, scale: 0.75 },
+};
 type SceneState = "active" | "dead" | "transition";
 
 // Phase 5: run-driven scene. RunManager stitches typed rooms; the scene builds
@@ -43,6 +52,7 @@ export class GameScene extends Phaser.Scene {
   private acc = 0;
 
   private roomLayer?: Phaser.GameObjects.Container;
+  private roomProp?: Phaser.GameObjects.Sprite;
   private doors: Door[] = [];
   private offers: Offer[] = [];
   private feature: Feature | null = null;
@@ -129,9 +139,6 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(80)
       .setAlpha(0);
-    this.add
-      .text(6, BASE_H - 11, "← → move   ↑ jump   J attack   shift dash", { fontFamily: "monospace", fontSize: "8px", color: "#59636f" })
-      .setDepth(80);
 
     this.controls = new Input(this);
     const cam = this.cameras.main;
@@ -170,6 +177,8 @@ export class GameScene extends Phaser.Scene {
   // ── room building ──────────────────────────────────────────────────────────
   private buildRoom(def: RoomDef) {
     this.roomLayer?.destroy();
+    this.roomProp?.destroy();
+    this.roomProp = undefined;
     this.doors.forEach((d) => d.destroy());
     this.enemies.forEach((e) => e.destroy());
     this.arrows.forEach((a) => a.spr.destroy());
@@ -196,6 +205,7 @@ export class GameScene extends Phaser.Scene {
 
     this.grid = def.grid;
     this.roomLayer = drawRoom(this, def.grid).setDepth(0);
+    this.decorateRoom(def);
     this.player.enterRoom(def.grid, def.playerSpawn.x, def.playerSpawn.y);
 
     this.mustClear = this.run.isCombat();
@@ -258,6 +268,19 @@ export class GameScene extends Phaser.Scene {
     this.tweens.add({ targets: orb, y: -17, duration: 900, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
     this.tweens.add({ targets: glow, scale: 1.2, alpha: 0.32, duration: 900, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
     this.feature = { x, y, used: false, g };
+  }
+
+  // A themed animated prop dresses each non-combat room (fountain / campfire /
+  // column fire / flag), placed to the side on the floor, behind the entities.
+  private decorateRoom(def: RoomDef) {
+    const cfg = ROOM_PROPS[this.run.type];
+    if (!cfg) return;
+    this.roomProp = this.add
+      .sprite(BASE_W * 0.17, def.playerSpawn.y, `prop:${cfg.key}`)
+      .setOrigin(cfg.ox, cfg.oy)
+      .setScale(cfg.scale)
+      .setDepth(2);
+    this.roomProp.play(`prop:${cfg.key}`);
   }
 
   private buildMerchant() {
