@@ -14,6 +14,10 @@ import { DASH_DUR, PlayerBody } from "./player-body";
 // gameplay duration; run is nudged snappier than the authored 10fps.
 const RUN_MS = 520;
 
+// Floor on per-frame display time (~26fps) so a very short hitbox window doesn't
+// blur the swing — the leftover frames play out as a recovery tail (selectClip).
+const MIN_FRAME_MS = 38;
+
 // A clip's gameplay-matched playback duration (ms), or undefined to keep the
 // authored timing. Swings/special/dash are re-timed to their mechanic; run is
 // nudged snappier. Shared with the ?editor gallery so it previews true in-game
@@ -30,6 +34,20 @@ export function clipGameMs(hero: HeroDef, clip: string): number | undefined {
   if (clip === "run") return RUN_MS;
   return undefined;
 }
+
+// The subset of body/net fields selectClip reads — both PlayerBody and NetPlayer
+// expose these names, so one method drives local render and remote puppets.
+type ClipState = {
+  specialActive: boolean;
+  specialId: number;
+  attackStep: number;
+  swingId: number;
+  hurting: boolean;
+  dashing: boolean;
+  grounded: boolean;
+  vx: number;
+  vy: number;
+};
 
 export type PlayerHooks = {
   onJump?: () => void;
@@ -51,6 +69,7 @@ export class Player {
   private lastSwing = -1;
   private lastSpecial = -1;
   private lastRunDust = 0;
+  private swingClip: string | null = null;
 
   constructor(
     private scene: Phaser.Scene,
@@ -116,41 +135,75 @@ export class Player {
     if (sy < 1) landPuff(this.scene, this.sprite.x, this.body.y); // landing squash kicks up dust
   }
 
-  // Play a clip, re-timed to gameplay via timeScale. NOTE: passing `duration` to
-  // play() FREEZES Phaser anims that carry per-frame durations (as ours do from
+  // Play a clip, re-timed via timeScale. NOTE: passing `duration` to play()
+  // FREEZES Phaser anims that carry per-frame durations (as ours do from
   // Aseprite) — it renders frame 1 only. timeScale speeds the same frames up
-  // without that bug, so the full swing plays inside the mechanic's window.
+  // without that bug. Target the gameplay duration but floor each frame at
+  // MIN_FRAME_MS so a short hitbox window doesn't turn the swing into a blur —
+  // the recovery tail then plays out via selectClip's hold-when-idle.
   private playClip(clip: string, loop: boolean) {
     this.sprite.play(`${this.name}:${clip}`, loop);
+    const anim = this.sprite.anims.currentAnim;
     const ms = clipGameMs(this.hero, clip);
-    const authored = this.sprite.anims.currentAnim?.duration ?? 0;
-    this.sprite.anims.timeScale = ms !== undefined && ms > 0 && authored > 0 ? authored / ms : 1;
+    const authored = anim?.duration ?? 0;
+    if (ms !== undefined && ms > 0 && authored > 0 && anim) {
+      const target = Math.max(ms, anim.getTotalFrames() * MIN_FRAME_MS);
+      this.sprite.anims.timeScale = authored / target;
+    } else {
+      this.sprite.anims.timeScale = 1;
+    }
+  }
+
+  // Choose + play the clip for the current sim/net state. Shared by render (local
+  // body) and applyNet (remote puppet) — both expose the same field names.
+  private selectClip(s: ClipState) {
+    const kit = this.hero.kit;
+    if (s.specialActive) {
+      if (s.specialId !== this.lastSpecial) {
+        this.playClip(kit.special.clip, false);
+        this.lastSpecial = s.specialId;
+      }
+      this.swingClip = null;
+      return;
+    }
+    if (s.attackStep > 0) {
+      const clip = kit.swings[s.attackStep - 1]?.clip ?? "idle";
+      if (s.swingId !== this.lastSwing) {
+        this.playClip(clip, false);
+        this.lastSwing = s.swingId;
+        this.swingClip = clip;
+      }
+      return;
+    }
+    this.lastSwing = -1;
+    this.lastSpecial = -1;
+    // Hitbox window (attackStep) is shorter than the swing anim; while standing
+    // still, let the swing play its recovery frames out instead of snapping to
+    // idle mid-strike. Any movement / hit / dash cancels it (reads as responsive).
+    if (
+      this.swingClip !== null &&
+      this.sprite.anims.isPlaying &&
+      this.sprite.anims.currentAnim?.key === `${this.name}:${this.swingClip}` &&
+      !s.hurting &&
+      !s.dashing &&
+      s.grounded &&
+      Math.abs(s.vx) < 20 &&
+      s.vy > -20
+    ) {
+      return;
+    }
+    this.swingClip = null;
+    let clip: string;
+    if (s.hurting) clip = "hurt";
+    else if (s.dashing) clip = kit.dashClip;
+    else if (!s.grounded) clip = s.vy < -10 ? "jump" : "fall";
+    else clip = Math.abs(s.vx) > 12 ? "run" : "idle";
+    this.playClip(clip, true);
   }
 
   render() {
     const b = this.body;
-    const kit = this.hero.kit;
-    if (b.specialActive) {
-      if (b.specialId !== this.lastSpecial) {
-        this.playClip(kit.special.clip, false);
-        this.lastSpecial = b.specialId;
-      }
-    } else if (b.attackStep > 0) {
-      const clip = kit.swings[b.attackStep - 1]?.clip ?? "idle";
-      if (b.swingId !== this.lastSwing) {
-        this.playClip(clip, false);
-        this.lastSwing = b.swingId;
-      }
-    } else {
-      this.lastSwing = -1;
-      this.lastSpecial = -1;
-      let clip: string;
-      if (b.hurting) clip = "hurt";
-      else if (b.dashing) clip = kit.dashClip;
-      else if (!b.grounded) clip = b.vy < -10 ? "jump" : "fall";
-      else clip = Math.abs(b.vx) > 12 ? "run" : "idle";
-      this.playClip(clip, true);
-    }
+    this.selectClip(b);
     this.sprite.setFlipX(b.facing < 0);
     this.sprite.setPosition(Math.round(b.x), Math.round(b.y));
     if (b.dashing) afterImage(this.scene, this.sprite, this.hero.color);
@@ -209,28 +262,7 @@ export class Player {
     b.grounded = net.grounded;
     b.dead = net.dead;
     b.iframes = net.iframes;
-    const kit = this.hero.kit;
-    if (net.specialActive) {
-      if (net.specialId !== this.lastSpecial) {
-        this.playClip(kit.special.clip, false);
-        this.lastSpecial = net.specialId;
-      }
-    } else if (net.attackStep > 0) {
-      const clip = kit.swings[net.attackStep - 1]?.clip ?? "idle";
-      if (net.swingId !== this.lastSwing) {
-        this.playClip(clip, false);
-        this.lastSwing = net.swingId;
-      }
-    } else {
-      this.lastSwing = -1;
-      this.lastSpecial = -1;
-      let clip: string;
-      if (net.hurting) clip = "hurt";
-      else if (net.dashing) clip = kit.dashClip;
-      else if (!net.grounded) clip = net.vy < -10 ? "jump" : "fall";
-      else clip = Math.abs(net.vx) > 12 ? "run" : "idle";
-      this.playClip(clip, true);
-    }
+    this.selectClip(net);
     this.sprite.setFlipX(net.facing < 0);
     const tx = Math.round(net.x);
     const ty = Math.round(net.y);
