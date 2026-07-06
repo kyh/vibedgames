@@ -59,10 +59,18 @@ const timer = new THREE.Timer();
 renderer.setAnimationLoop((t) => {
   timer.update(t);
   const raw = timer.getDelta();
-  governor.update(raw);
+  if (game.isReady) governor.update(raw); // build-phase frames are not render cost
   const dt = Math.min(raw, MAX_DT);
+  const tU = performance.now();
   game.update(dt);
+  const tR = performance.now();
   renderer.render(game.scene, game.camera);
+  const tEnd = performance.now();
+  if (tEnd - tU > 1000) {
+    console.log(
+      `[slow-frame] update ${Math.round(tR - tU)}ms render ${Math.round(tEnd - tR)}ms`,
+    );
+  }
 });
 
 const loaded = game.load();

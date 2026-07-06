@@ -170,7 +170,16 @@ function lightFor(c: DistrictChar): string {
   }
 }
 
-export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
+export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult> {
+  // Painted yield, time-gated: only give up the thread when ~a frame's worth
+  // of work has accumulated — per-iteration yields would add seconds of pure
+  // frame-waiting across 195k-cell loops.
+  let lastYield = performance.now();
+  const breathe = async (): Promise<void> => {
+    if (performance.now() - lastYield < 12) return;
+    await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+    lastYield = performance.now();
+  };
   const { plan, network, terrain, cache, rng, reserved, worldX, worldZ } = ctx;
   const objects: THREE.Object3D[] = [];
   const solids: Solid[] = [];
@@ -300,6 +309,7 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
   const LAMP_SPACING = ROAD_TILE * 4.5;
   let lampFlip = false;
   for (const edge of network.edges) {
+    await breathe();
     const mid = network.sample(edge, edge.len / 2);
     if (inPark(mid.x, mid.z)) continue; // park promenades stay unlit + unparked
     const trimA = network.nodeTrim(edge.a) + 2;
@@ -343,6 +353,7 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
   // parked with the flow of their side of the street.
   // ------------------------------------------------------------------
   for (const edge of network.edges) {
+    await breathe();
     const trimA = network.nodeTrim(edge.a) + 3;
     const trimB = network.nodeTrim(edge.b) + 3;
     for (let s = trimA; s < edge.len - trimB; s += ROAD_TILE) {
@@ -525,6 +536,7 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
   const planterScale = 1.5 / Math.max(cache.bounds(planterUrl).size.x, 0.001);
   for (let gx = 0; gx < GRID_X; gx++) {
     for (let gz = 0; gz < GRID_Z; gz++) {
+      await breathe();
       if (!isGGPark(gx, gz)) continue;
       if (reserved.has(cellKey(gx, gz))) continue;
       if (cellAt(gx, gz) !== "lot") continue; // keep park roads + water clear
@@ -581,6 +593,7 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
   const parkLampUrl = modelUrl("props", LIGHT_OLD);
   for (let gx = 0; gx < GRID_X; gx++) {
     for (let gz = 0; gz < GRID_Z; gz++) {
+      await breathe();
       if (!isParkCell(gx, gz)) continue;
       if (reserved.has(cellKey(gx, gz))) continue;
       const wx = worldX(gx);
@@ -734,6 +747,7 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
   for (let gx = 0; gx < GRID_X; gx++) {
     let landGz = -1;
     for (let gz = 0; gz < GRID_Z; gz++) {
+      await breathe();
       if (cellAt(gx, gz) !== "water") {
         landGz = gz;
         break;
@@ -862,6 +876,7 @@ export function buildFurniture(ctx: FurnitureCtx): FurnitureResult {
   // ------------------------------------------------------------------
   for (let gx = 0; gx < GRID_X; gx++) {
     for (let gz = 0; gz < GRID_Z; gz++) {
+      await breathe();
       if (cellAt(gx, gz) !== "water") continue;
       if (openWaterCells.has(cellKey(gx, gz))) continue;
       if (reserved.has(cellKey(gx, gz))) continue;

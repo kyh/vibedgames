@@ -240,23 +240,25 @@ export class CityModel {
       await new Promise((r) => requestAnimationFrame(() => r(undefined)));
     };
     const t0 = performance.now();
-    this.buildPhase2();
+    await this.phase2();
     const t1 = performance.now();
     await tick(0.9);
-    this.buildPhase3();
+    await this.phase3();
     console.log(
       `[city] phase2 ${Math.round(t1 - t0)}ms phase3 ${Math.round(performance.now() - t1)}ms`,
     );
     await tick(0.97);
   }
 
-  private phase2!: () => void;
-  private phase3!: () => void;
-  private buildPhase2(): void {
-    this.phase2();
-  }
-  private buildPhase3(): void {
-    this.phase3();
+  private phase2!: () => Promise<void>;
+  private phase3!: () => Promise<void>;
+  // Yield to the event loop so the title screen stays interactive while the
+  // city finishes building behind it.
+  private lastBreathe = 0;
+  private async breathe(): Promise<void> {
+    if (performance.now() - this.lastBreathe < 12) return;
+    await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+    this.lastBreathe = performance.now();
   }
 
   private buildPhase1(): void {
@@ -523,7 +525,7 @@ export class CityModel {
       }
     }
 
-    this.phase2 = () => {
+    this.phase2 = async () => {
     // --- REAL downtown buildings: positions, footprints and heights from the
     // licensed SF model (calibrated in tools/sf-data/calibrate-downtown.mjs).
     // Kit models are chosen by height class and stretched to the real
@@ -602,7 +604,9 @@ export class CityModel {
     // --- FRONTAGE ROWS along the network edges: buildings walk each street
     // with a consistent setback, facing the kerb — rows follow diagonals and
     // curves exactly, which cell-based lots never could. ---
+    let walkN = 0;
     for (const edge of this.network.edges) {
+      if (++walkN % 40 === 0) await this.breathe();
       // Corner buildings are real — the cross-street clearance check below
       // is the guard, so row trims stay small even at wide junctions.
       const trimA = Math.min(this.network.nodeTrim(edge.a) * 0.6 + 1.5, edge.len * 0.4);
@@ -694,10 +698,11 @@ export class CityModel {
     }
 
     };
-    this.phase3 = () => {
+    this.phase3 = async () => {
     // --- Street furniture: lights, parked cars, yards, awnings, smokestacks,
     // construction chicanes, park allées, wharf piers + seawall. ---
-    const fr = buildFurniture({
+    const tFurn = performance.now();
+    const fr = await buildFurniture({
       plan: this.plan,
       network: this.network,
       terrain: this.terrain,
@@ -707,6 +712,8 @@ export class CityModel {
       worldX: (g) => this.worldX(g),
       worldZ: (g) => this.worldZ(g),
     });
+    console.log(`[city] furniture ${Math.round(performance.now() - tFurn)}ms`);
+    await this.breathe();
     for (const o of fr.objects) collect(o);
     for (const s of fr.solids) this.solids.push(s);
     this.addDecks(fr.pierDecks);
@@ -880,7 +887,10 @@ export class CityModel {
     // sub-pixel beyond DETAIL_DISTANCE — it culls there instead of the fog line.
     const DETAIL_HEXES = new Set(["dfe3e3", "d8a13c", "d8a23c", "8f938c"]);
     const cullRadius = CHUNK * 0.71 + ROAD_TILE * 2;
+    const tMerge = performance.now();
+    let mergeN = 0;
     for (const [key, meshes] of mergeBuckets) {
+      if (++mergeN % 2 === 0) await this.breathe();
       const cx = key % nx;
       const cz = Math.floor(key / nx);
       const isDetail = (m: THREE.Mesh): boolean => {
@@ -911,7 +921,11 @@ export class CityModel {
     // updateStreaming() flips whole chunks of instances on visibility
     // transitions, so per-frame cost is ~chunk count, not instance count.
     const pos = new THREE.Vector3();
+    console.log(`[city] merges ${Math.round(performance.now() - tMerge)}ms`);
+    const tBatch = performance.now();
+    let batchN = 0;
     for (const bucket of batchBuckets.values()) {
+      await this.breathe();
       const batched = new THREE.BatchedMesh(
         bucket.items.length,
         bucket.verts,
@@ -968,6 +982,7 @@ export class CityModel {
       // Small-prop shadows don't read at chase-cam scale; skip their pass.
       if (!anyBig) batched.castShadow = false;
     }
+    console.log(`[city] batches ${Math.round(performance.now() - tBatch)}ms`);
     // Chunk centres for the batched-instance visibility pass.
     this.batchChunkGrid = { nx, nz };
 

@@ -16,7 +16,7 @@ const MAX_STEPS = 4; // per frame; drop time beyond this (tab-back spike guard)
 // (city.heightAt), so this trimesh only serves loose bodies (cones, debris,
 // traffic punts) — a coarse sampling is plenty and keeps the collider from
 // exploding on the full-size map (finer = O(area) triangles for Rapier's BVH).
-const GROUND_SAMPLE = 8;
+const GROUND_SAMPLE = 28; // loose-prop terrain only — coarse keeps the BVH build (first step) fast
 const STATIC_HALF_HEIGHT = 6; // buildings/walls modeled as tall boxes
 
 export class PhysicsWorld {
@@ -72,8 +72,13 @@ export class PhysicsWorld {
 
   // City solids (buildings, walls, railings) as tall static boxes; rotated
   // solids (avenue-aligned buildings) carry their yaw onto the body.
-  addStaticSolids(solids: readonly Solid[], terrain: Terrain): void {
+  async addStaticSolids(solids: readonly Solid[], terrain: Terrain): Promise<void> {
+    let lastYield = performance.now();
     for (const s of solids) {
+      if (performance.now() - lastYield > 12) {
+        await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+        lastYield = performance.now();
+      }
       if (s.noBody) continue; // tree trunks etc — arcade-collision only
       const cx = (s.minX + s.maxX) / 2;
       const cz = (s.minZ + s.maxZ) / 2;
@@ -179,6 +184,13 @@ export class PhysicsWorld {
     body.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, false);
     body.setLinvel({ x: 0, y: 0, z: 0 }, false);
     body.setAngvel({ x: 0, y: 0, z: 0 }, false);
+  }
+
+  // Force ONE real step regardless of the fixed-dt accumulator: Rapier
+  // builds its broadphase BVH lazily on the first step (~seconds with 20k
+  // static colliders) — pay it during load, never on the player's Enter.
+  prewarm(): void {
+    this.world.step();
   }
 
   step(dt: number): void {

@@ -197,6 +197,9 @@ export class GameScene {
   private sky: Sky;
   private mode: GameMode = { kind: "loading", progress: 0 };
   ready: Promise<void> = Promise.resolve();
+  get isReady(): boolean {
+    return this.loadDone;
+  }
   private loadDone = false;
   private pendingStart = false;
   private titleT = 0;
@@ -408,18 +411,60 @@ export class GameScene {
   // Everything that needs the fully built city (buildings, furniture,
   // physics, traffic…) — runs behind the title screen.
   private async finishLoad(city: CityModel): Promise<void> {
+    const paint = (): Promise<void> =>
+      new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
     await city.initLate();
 
-    // Other players' taxis, placed on the same deterministic city.
+    // --- PLAYABLE GATE: driving needs city meshes + solids + fares. ---
+    this.solidIndex = new SolidIndex(city.solids);
+    this.fares = new FareManager(this.cache, city);
+    this.scene.add(this.fares.group);
+    this.skids = new SkidMarks((x, z) => city.heightAt(x, z));
+    this.scene.add(this.skids.mesh);
+    this.trails = new DriftTrails((x, z) => city.heightAt(x, z));
+    this.scene.add(this.trails.mesh);
+    this.lampGlow = new LampGlow(city.lampHeads);
+    this.scene.add(this.lampGlow.group);
+    this.minimap = new Minimap(city.plan, city.getDecks());
+
+    this.loadDone = true;
+    if (this.pendingStart) {
+      this.pendingStart = false;
+      this.start();
+    }
+    await paint();
+
+    // --- STREAMED TAIL: bounce physics, traffic, parked cars, props. The
+    // game is already playable; these appear within the first seconds. ---
+    const lap = (() => {
+      let t = performance.now();
+      return (label: string): void => {
+        const now = performance.now();
+        console.log(`[tail] ${label} ${Math.round(now - t)}ms`);
+        t = now;
+      };
+    })();
     this.remoteCars = new RemoteCars(this.cache, city);
     this.scene.add(this.remoteCars.group);
+    lap("remoteCars");
+    await paint();
 
-    // Physics: the world is rigid bodies (terrain, buildings, traffic); the
-    // taxi stays on the arcade controller and pushes things through impulses.
     const physics = await PhysicsWorld.create();
+    lap("physics wasm");
+    await paint();
     physics.addGround(city.terrain);
-    physics.addStaticSolids(city.solids, city.terrain);
+    lap("ground collider");
+    await paint();
+    await physics.addStaticSolids(city.solids, city.terrain);
+    lap("static solids");
+    await paint();
+    // Prewarm BEFORE the game loop can step: Rapier builds its broadphase
+    // BVH lazily on the first step — over ~20k static colliders that is
+    // SECONDS, and it must never land on the player's Enter.
+    physics.prewarm();
+    lap("physics prewarm");
     this.physics = physics;
+    await paint();
 
     this.traffic = new Traffic(
       this.cache,
@@ -428,34 +473,22 @@ export class GameScene {
       physics,
     );
     this.scene.add(this.traffic.group);
-    this.solidIndex = new SolidIndex(city.solids);
+    lap("traffic");
+    await paint();
 
     // Parked cars: punt-able bodies (bounce when rammed), not static solids.
     this.parked = new ParkedCars(this.cache, city.parkedCarSpecs, physics, (x, z) =>
       city.heightAt(x, z),
     );
     this.scene.add(this.parked.group);
+    lap("parked");
+    await paint();
 
-    this.fares = new FareManager(this.cache, city);
-    this.scene.add(this.fares.group);
-
-    this.skids = new SkidMarks((x, z) => city.heightAt(x, z));
-    this.scene.add(this.skids.mesh);
-    this.trails = new DriftTrails((x, z) => city.heightAt(x, z));
-    this.scene.add(this.trails.mesh);
-    this.lampGlow = new LampGlow(city.lampHeads);
-    this.scene.add(this.lampGlow.group);
     this.debris = new Debris(this.cache, (x, z) => city.heightAt(x, z));
     this.scene.add(this.debris.group);
     this.cones = new SmashCones(this.cache, city, new Rng(777), physics);
     this.scene.add(this.cones.mesh);
-    this.minimap = new Minimap(city.plan, city.getDecks());
-
-    this.loadDone = true;
-    if (this.pendingStart) {
-      this.pendingStart = false;
-      this.start();
-    }
+    lap("debris+cones");
   }
 
   resize(aspect: number, scalePx: number): void {
@@ -499,16 +532,28 @@ export class GameScene {
     const car = this.car;
     const fares = this.fares;
     if (!car || !fares) return;
+    const lapS = (() => {
+      let t = performance.now();
+      return (label: string): void => {
+        const now = performance.now();
+        if (now - t > 300) console.log(`[start] ${label} ${Math.round(now - t)}ms`);
+        t = now;
+      };
+    })();
     this.sfx.ensure();
     this.sfx.startMusic();
+    lapS("sfx");
     this.state.reset();
     this.hud.resetScore(0);
     // Re-roll the spawn each run — start somewhere new in the city.
     const city = this.city;
     if (city) this.spawn = this.computeSpawn(city);
+    lapS("spawn");
     car.reset(this.spawn.x, this.spawn.z, this.spawn.yaw);
     this.traffic?.reset({ gx: this.spawn.gx, gz: this.spawn.gz }, 4);
+    lapS("traffic reset");
     fares.reset(car.position.x, car.position.z);
+    lapS("fares reset");
     this.cones?.reset();
     this.hud.hideBanner();
     this.hud.setPaused(false);

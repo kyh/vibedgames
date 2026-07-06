@@ -175,6 +175,7 @@ export class DayNight {
   private scrSun = new THREE.Vector3();
   private scrLight = new THREE.Vector3();
   private scrColor = new THREE.Color();
+  private scrBg = new THREE.Color();
 
   constructor(private refs: DayNightRefs) {}
 
@@ -248,6 +249,19 @@ export class DayNight {
     fog.color.copy(this.scrColor.lerpColors(a.fog, b.fog, t));
     fog.near = THREE.MathUtils.lerp(a.fogNear, b.fogNear, t);
     fog.far = THREE.MathUtils.lerp(a.fogFar, b.fogFar, t);
+
+    // Night sky: the physical Sky shader is plain BLACK once the sun sets —
+    // the horizon used to read as a hole in the world. Below the horizon,
+    // swap to a flat navy derived from the fog color: the fog line then
+    // blends seamlessly into the dome instead of ending at a black wall.
+    const nightAmt = THREE.MathUtils.smoothstep(-this.scrSun.y, 0.02, 0.12);
+    if (nightAmt >= 1) {
+      sky.visible = false;
+      scene.background = this.scrBg.copy(fog.color).multiplyScalar(0.72);
+    } else {
+      sky.visible = true;
+      scene.background = null;
+    }
 
     scene.environmentIntensity = THREE.MathUtils.lerp(a.env, b.env, t);
     if (this.renderer) {
