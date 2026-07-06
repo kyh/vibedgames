@@ -45,6 +45,7 @@ import { Car } from "../vehicle/car";
 import { CityModel } from "../world/city";
 import { editorMode, loadLocalOverrides } from "../world/custom-map";
 import type { CityGenPayload } from "../world/gen-worker";
+import { readWorldCache, writeWorldCache } from "../world/world-cache";
 import { districtAt } from "../world/sf-map";
 import { SolidIndex } from "../world/solid-index";
 
@@ -119,6 +120,14 @@ function startGenWorker(): Promise<CityGenPayload | null> {
     editorMode() &&
     (local.add.length > 0 || local.remove.length > 0 || local.floor.length > 0);
   if (edited) return Promise.resolve(null);
+  // Repeat visits: the finished world is in IndexedDB — skip generation.
+  return readWorldCache().then((cached) => {
+    if (cached) return cached;
+    return runGenWorker();
+  });
+}
+
+function runGenWorker(): Promise<CityGenPayload | null> {
   return new Promise((resolve) => {
     try {
       const worker = new Worker(new URL("../world/gen-worker.ts", import.meta.url), {
@@ -131,6 +140,7 @@ function startGenWorker(): Promise<CityGenPayload | null> {
       worker.onmessage = (ev: MessageEvent<CityGenPayload>) => {
         clearTimeout(bail);
         worker.terminate();
+        writeWorldCache(ev.data);
         resolve(ev.data);
       };
       worker.onerror = () => {
