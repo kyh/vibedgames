@@ -5,6 +5,19 @@ import { COLS, Grid, ROWS } from "../sys/grid";
 // markers: a marker at tile (cx, cy) stands on top of the solid tile at cy+1.
 
 export type RoomType = "start" | "combat" | "elite" | "merchant" | "rest" | "treasure" | "boss";
+// Runtime list of every room type — lets the net layer parse a wire string back
+// into a RoomType without a cast.
+export const ROOM_TYPES: readonly RoomType[] = [
+  "start",
+  "combat",
+  "elite",
+  "merchant",
+  "rest",
+  "treasure",
+  "boss",
+];
+export const parseRoomType = (s: string): RoomType | null =>
+  ROOM_TYPES.find((t) => t === s) ?? null;
 export type Spawn = { x: number; y: number };
 
 export const STAND_ROW = ROWS - 3; // feet rest here on the 2-row floor (y = 240)
@@ -63,13 +76,7 @@ export class RoomDef {
 const S = STAND_ROW; // 14
 
 export const START = (): RoomDef =>
-  new RoomDef()
-    .arena()
-    .oneway(11, 6, 18)
-    .solid(4, 9, 8)
-    .solid(21, 9, 25)
-    .player(3, S)
-    .door(25, S);
+  new RoomDef().arena().oneway(11, 6, 18).solid(4, 9, 8).solid(21, 9, 25).player(3, S).door(25, S);
 
 export const COMBAT_TEMPLATES: (() => RoomDef)[] = [
   () =>

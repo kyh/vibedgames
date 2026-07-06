@@ -15,7 +15,11 @@ export class Boss {
 
   constructor(scene: Phaser.Scene, grid: Grid, x: number, y: number, biome: number) {
     this.body = new BossBody(grid, x, y, biome);
-    this.sprite = scene.add.sprite(x, y, "salamander").setOrigin(0.5, HERO_ORIGIN_Y).setScale(SCALE).setDepth(12);
+    this.sprite = scene.add
+      .sprite(x, y, "salamander")
+      .setOrigin(0.5, HERO_ORIGIN_Y)
+      .setScale(SCALE)
+      .setDepth(12);
     this.sprite.play("salamander:idle");
   }
 
@@ -47,6 +51,28 @@ export class Boss {
       this.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
       this.tinted = true;
     } else if (b.telegraphing) {
+      this.sprite.setTint(0xff7a3d).setTintMode(Phaser.TintModes.MULTIPLY);
+      this.tinted = true;
+    } else if (this.tinted) {
+      this.sprite.clearTint().setTintMode(Phaser.TintModes.MULTIPLY);
+      this.tinted = false;
+    }
+  }
+
+  // Guest: replay the host's clip on this puppet (no local sim/state). Position
+  // lerps toward the authoritative point so 30Hz snapshots render smoothly.
+  applyNet(clip: string, x: number, y: number, flip: boolean, flash: boolean, telegraph: boolean) {
+    if (this.sprite.anims.currentAnim?.key !== clip) this.sprite.play(clip, true);
+    this.sprite.setFlipX(flip);
+    const far = Math.hypot(x - this.sprite.x, y - this.sprite.y) > 48;
+    this.sprite.setPosition(
+      far ? x : this.sprite.x + (x - this.sprite.x) * 0.35,
+      far ? y : this.sprite.y + (y - this.sprite.y) * 0.35,
+    );
+    if (flash) {
+      this.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
+      this.tinted = true;
+    } else if (telegraph) {
       this.sprite.setTint(0xff7a3d).setTintMode(Phaser.TintModes.MULTIPLY);
       this.tinted = true;
     } else if (this.tinted) {

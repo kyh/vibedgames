@@ -1,0 +1,121 @@
+// Host → guest wire format. The host runs the authoritative sim and broadcasts a
+// compact snapshot each network tick (sharedState["snap"]); the room layout is
+// sent separately (sharedState["room"]) only when it changes, since it's larger
+// and static per-room. Guests never simulate — they mutate their view puppets
+// from these. Everything here is plain JSON.
+
+export type NetPlayer = {
+  id: string;
+  hero: string;
+  x: number;
+  y: number;
+  facing: number;
+  vy: number;
+  vx: number;
+  grounded: boolean;
+  dashing: boolean;
+  hurting: boolean;
+  dead: boolean;
+  iframes: number;
+  attackStep: number;
+  swingId: number;
+  specialActive: boolean;
+  specialId: number;
+};
+
+// Enemies/boss travel as the clip the host is already playing (read after its
+// render) so the guest just re-plays it — no state-enum re-derivation, no drift.
+export type NetEnemy = {
+  id: number;
+  name: string;
+  clip: string;
+  x: number;
+  y: number;
+  flip: boolean;
+  dead: boolean;
+  flash: boolean;
+};
+export type NetBoss = {
+  clip: string;
+  x: number;
+  y: number;
+  flip: boolean;
+  hpFrac: number;
+  flash: boolean;
+  telegraph: boolean;
+  dead: boolean;
+};
+
+// Guest → host input. Held state travels as booleans; each action carries a
+// monotonic counter so a press is never lost even if the net tick is slower than
+// the frame rate (the host derives an edge when a counter increments).
+export type NetInput = {
+  left: boolean;
+  right: boolean;
+  up: boolean;
+  down: boolean;
+  jumpHeld: boolean;
+  j: number;
+  d: number;
+  a: number;
+  s: number;
+};
+export type NetProj = { k: "arrow" | "shot" | "hazard"; x: number; y: number; vx: number };
+
+export type Snapshot = {
+  t: number; // host frame counter — interpolation + stall detection
+  room: number; // room seq; guest rebuilds its room when this changes
+  players: NetPlayer[];
+  enemies: NetEnemy[];
+  boss: NetBoss | null;
+  proj: NetProj[];
+  hearts: number;
+  maxHearts: number;
+  gold: number;
+  biome: number;
+  depth: number;
+  cleared: boolean;
+  banner: string;
+};
+
+// Full room layout — sent once per room (not per frame).
+export type NetDoor = {
+  index: number;
+  x: number;
+  y: number;
+  type: string;
+  label: string;
+  danger: boolean;
+};
+export type NetRoom = {
+  seq: number;
+  type: string;
+  cols: number;
+  rows: number;
+  cells: number[];
+  spawnX: number;
+  spawnY: number;
+  doors: NetDoor[];
+  propKey: string;
+  mustClear: boolean;
+};
+
+export function isSnapshot(v: unknown): v is Snapshot {
+  return (
+    typeof v === "object" &&
+    v !== null &&
+    "players" in v &&
+    "t" in v &&
+    Array.isArray((v as { players?: unknown }).players)
+  );
+}
+
+export function isRoom(v: unknown): v is NetRoom {
+  return (
+    typeof v === "object" &&
+    v !== null &&
+    "cells" in v &&
+    "seq" in v &&
+    Array.isArray((v as { cells?: unknown }).cells)
+  );
+}
