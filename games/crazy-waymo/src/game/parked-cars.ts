@@ -30,12 +30,17 @@ type Parked = {
 
 type TemplatePart = { geo: THREE.BufferGeometry; mat: THREE.Material; local: THREE.Matrix4 };
 
+const CULL_DIST = 340; // parked cars are street detail — cull with props
+const CULL_DIST_SQ = CULL_DIST * CULL_DIST;
+
 export class ParkedCars {
   readonly group = new THREE.Group();
   private cars: Parked[] = [];
   private tmp = new THREE.Quaternion();
   private mat4 = new THREE.Matrix4();
   private carMat4 = new THREE.Matrix4();
+  private visible: Uint8Array = new Uint8Array(0);
+  private cullCursor = 0;
 
   constructor(
     cache: ModelCache,
@@ -119,6 +124,29 @@ export class ParkedCars {
       this.cars.push({ x: s.x, y, z: s.z, yaw: s.yaw, parts, body: null, hit: false });
     }
     for (const b of buckets.values()) b.batch?.computeBoundingSphere();
+    this.visible = new Uint8Array(this.cars.length).fill(1);
+  }
+
+  // Distance-cull instances (transitions only, amortised across frames).
+  // BatchedMesh gives per-instance FRUSTUM culling for free, but without
+  // this every parked car in view direction draws from kilometres away.
+  updateCulling(camX: number, camZ: number): void {
+    const n = this.cars.length;
+    if (n === 0) return;
+    const step = Math.max(1, Math.ceil(n / 6)); // full sweep every ~6 frames
+    for (let i = 0; i < step; i++) {
+      const idx = (this.cullCursor + i) % n;
+      const c = this.cars[idx];
+      if (!c) continue;
+      const dx = c.x - camX;
+      const dz = c.z - camZ;
+      const vis: 0 | 1 = c.hit || dx * dx + dz * dz < CULL_DIST_SQ ? 1 : 0;
+      if (this.visible[idx] !== vis) {
+        this.visible[idx] = vis;
+        for (const p of c.parts) p.batch.setVisibleAt(p.instanceId, vis === 1);
+      }
+    }
+    this.cullCursor = (this.cullCursor + step) % n;
   }
 
   // The taxi rammed near (x,z): punt the closest parked car it's touching.

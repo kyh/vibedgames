@@ -818,6 +818,7 @@ export class GameScene {
     this.physics?.step(dt);
     traffic.syncWrecked();
     this.parked?.sync();
+    this.parked?.updateCulling(this.rig.camera.position.x, this.rig.camera.position.z);
     this.handleNearMiss(car, traffic);
     this.handleHonks(traffic);
     this.handleCones(car);

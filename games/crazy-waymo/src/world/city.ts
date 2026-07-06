@@ -93,7 +93,7 @@ type Chunk = { cx: number; cz: number; radius: number; group: THREE.Group };
 // Batched-instance streaming scratch (per-frame, allocation-free).
 const NEAR_ALWAYS = 170; // chunks this close are always on (off-screen shadow casters)
 const DETAIL_DISTANCE = 360; // trees/cars/props cull here; buildings at DRAW_DISTANCE
-const BIG_SILHOUETTE_R = 5; // world-space radius that counts as skyline
+const BIG_SILHOUETTE_H = 13; // world-space HEIGHT that counts as skyline
 const SCRATCH_SCALE = new THREE.Vector3();
 const STREAM_MAT = new THREE.Matrix4();
 const STREAM_FRUSTUM = new THREE.Frustum();
@@ -925,13 +925,16 @@ export class CityModel {
       for (let iid = 0; iid < chunkIds.length; iid++) {
         const key = chunkIds[iid] ?? 0;
         const item = bucket.items[iid];
-        let worldR = 3;
+        let worldH = 3;
         if (item) {
-          if (!item.geo.boundingSphere) item.geo.computeBoundingSphere();
+          if (!item.geo.boundingBox) item.geo.computeBoundingBox();
           const sc = SCRATCH_SCALE.setFromMatrixScale(item.matrix);
-          worldR = (item.geo.boundingSphere?.radius ?? 1) * Math.max(sc.x, sc.y, sc.z);
+          const bb = item.geo.boundingBox;
+          worldH = bb ? (bb.max.y - bb.min.y) * sc.y : 3;
         }
-        const big = worldR >= BIG_SILHOUETTE_R;
+        // Skyline = TALL: only buildings that read above the fog at distance
+        // keep the far tier; row-houses and low-rises cull with the detail set.
+        const big = worldH >= BIG_SILHOUETTE_H;
         if (big) anyBig = true;
         const map = big ? this.chunkInstancesFar : this.chunkInstancesNear;
         const list = map.get(key);

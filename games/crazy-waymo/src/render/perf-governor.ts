@@ -49,6 +49,7 @@ export class PerfGovernor {
       { ratio: Math.max(1, native * 0.8), shadow: SHADOW_FULL },
       { ratio: Math.max(0.9, native * 0.66), shadow: SHADOW_FULL },
       { ratio: Math.max(0.8, native * 0.55), shadow: SHADOW_LOW },
+      { ratio: Math.max(0.7, native * 0.45), shadow: SHADOW_LOW }, // floor for weak GPUs
     ];
   }
 
