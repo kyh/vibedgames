@@ -530,7 +530,7 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
   const groundPoint = (e: PointerEvent): THREE.Vector3 | null => {
     if (!ground) return null;
     castFrom(e);
-    const hit = raycaster.intersectObject(ground, false)[0];
+    const hit = raycaster.intersectObject(ground, true)[0];
     return hit ? hit.point : null;
   };
   const groundCell = (e: PointerEvent): [number, number] | null => {

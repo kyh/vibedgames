@@ -143,37 +143,52 @@ export class Terrain {
     material: THREE.Material,
     colorAt?: (x: number, z: number, into: THREE.Color) => void,
     offsetAt?: (x: number, z: number) => number,
-  ): THREE.Mesh {
+  ): THREE.Group {
+    // TILED ground: one mesh per tile so three frustum-culls the terrain —
+    // a single world-spanning mesh is always in frustum and always draws all
+    // ~260k triangles. Tiles share edge vertices by construction (identical
+    // sample positions), so there are no seams.
     const spanX = WORLD_W * 1.08;
     const spanZ = WORLD_H * 1.08;
-    // The ground is one uncullable mesh spanning the whole map, so cap the
-    // tessellation: the hills are broad and roads carry their own fine geometry,
-    // so ~9u/quad reads fine while keeping the always-on triangle count sane.
-    const segsX = Math.min(360, Math.max(120, Math.round(spanX / 9)));
-    const segsZ = Math.min(360, Math.max(120, Math.round(spanZ / 9)));
-    const geo = new THREE.PlaneGeometry(spanX, spanZ, segsX, segsZ);
-    const pos = geo.attributes.position;
-    if (pos instanceof THREE.BufferAttribute) {
-      const colors = colorAt ? new Float32Array(pos.count * 3) : null;
-      const c = new THREE.Color();
-      for (let i = 0; i < pos.count; i++) {
-        const px = pos.getX(i);
-        const py = pos.getY(i); // after the -90° X rotation, local +Y → world -Z
-        pos.setZ(i, this.heightAt(px, -py) + (offsetAt ? offsetAt(px, -py) : 0));
-        if (colors && colorAt) {
-          colorAt(px, -py, c);
-          colors[i * 3] = c.r;
-          colors[i * 3 + 1] = c.g;
-          colors[i * 3 + 2] = c.b;
+    const TILES_X = 8;
+    const TILES_Z = 6;
+    const group = new THREE.Group();
+    const c = new THREE.Color();
+    for (let tx = 0; tx < TILES_X; tx++) {
+      for (let tz = 0; tz < TILES_Z; tz++) {
+        const w = spanX / TILES_X;
+        const d = spanZ / TILES_Z;
+        const cx = -spanX / 2 + (tx + 0.5) * w;
+        const cz = -spanZ / 2 + (tz + 0.5) * d;
+        const segs = Math.max(20, Math.round(w / 9));
+        const segsZ2 = Math.max(20, Math.round(d / 9));
+        const geo = new THREE.PlaneGeometry(w, d, segs, segsZ2);
+        const pos = geo.attributes.position;
+        if (pos instanceof THREE.BufferAttribute) {
+          const colors = colorAt ? new Float32Array(pos.count * 3) : null;
+          for (let i = 0; i < pos.count; i++) {
+            const px = pos.getX(i) + cx;
+            const py = pos.getY(i) - cz; // -90° X rotation: local +Y → world -Z
+            pos.setZ(i, this.heightAt(px, -py) + (offsetAt ? offsetAt(px, -py) : 0));
+            if (colors && colorAt) {
+              colorAt(px, -py, c);
+              colors[i * 3] = c.r;
+              colors[i * 3 + 1] = c.g;
+              colors[i * 3 + 2] = c.b;
+            }
+          }
+          pos.needsUpdate = true;
+          if (colors) geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
         }
+        geo.computeVertexNormals();
+        const mesh = new THREE.Mesh(geo, material);
+        mesh.position.set(cx, 0, cz);
+        mesh.rotation.x = -Math.PI / 2;
+        mesh.receiveShadow = true;
+        mesh.name = "terrain-ground";
+        group.add(mesh);
       }
-      pos.needsUpdate = true;
-      if (colors) geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
     }
-    geo.computeVertexNormals();
-    const mesh = new THREE.Mesh(geo, material);
-    mesh.rotation.x = -Math.PI / 2;
-    mesh.receiveShadow = true;
-    return mesh;
+    return group;
   }
 }
