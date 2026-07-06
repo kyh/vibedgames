@@ -36,6 +36,7 @@ const LAND_MIN = 130;
 const ATTACK_BUFFER = 0.12;
 const ATTACK_END_CD = 0.08;
 const ATTACK_MOVE_MULT = 0.55;
+const COMBO_GRACE = 0.32; // press within this long after a swing to chain the next hit
 const SPECIAL_BUFFER = 0.12;
 
 const HURT_IFRAMES = 0.9;
@@ -105,6 +106,8 @@ export class PlayerBody {
   private attackBuf = 0;
   private attackCd = 0;
   private comboQueued = false;
+  private comboStage = 0; // last hit in the current chain (persists through comboGrace)
+  private comboGrace = 0; // window after a swing to press for the next hit
 
   private specialBuf = 0;
   private specialCd = 0;
@@ -260,7 +263,12 @@ export class PlayerBody {
       this.hurtStun <= 0
     ) {
       if (this.attackStep === 0) {
-        this.startSwing(1);
+        // Continue the chain if a press lands within the post-swing grace window,
+        // else start fresh at hit 1 — so consecutive taps reliably go 1 → 2 → 3
+        // whether you press during the swing or just after it lands.
+        const chain =
+          this.comboGrace > 0 && this.comboStage > 0 && this.comboStage < this.kit.swings.length;
+        this.startSwing(chain ? this.comboStage + 1 : 1);
         this.attackBuf = 0;
       } else if (this.comboOpen()) {
         this.comboQueued = true;
@@ -279,8 +287,12 @@ export class PlayerBody {
           this.attackTime = 0;
           this.attackCd = ATTACK_END_CD;
           this.comboQueued = false;
+          this.comboGrace = COMBO_GRACE; // hold the chain open for one more tap
         }
       }
+    } else if (this.comboGrace > 0) {
+      this.comboGrace -= dt;
+      if (this.comboGrace <= 0) this.comboStage = 0; // chain lapsed → next tap is hit 1
     }
 
     // ── special progression ──
@@ -458,6 +470,7 @@ export class PlayerBody {
     this.attackStep = n;
     this.attackTime = 0;
     this.swingId++;
+    this.comboStage = n;
     const s = this.kit.swings[n - 1];
     if (s && this.grounded) this.vx = this.facing * s.lunge;
     this.ev.onSwing?.(n);
@@ -467,6 +480,7 @@ export class PlayerBody {
     this.dashBuf = 0;
     this.attackStep = 0;
     this.comboQueued = false;
+    this.comboGrace = 0; // dashing cancels the chain → next tap is hit 1
     let dx = (this.hRight ? 1 : 0) - (this.hLeft ? 1 : 0);
     const dy = (this.hDown ? 1 : 0) - (this.hUp ? 1 : 0);
     if (dx === 0 && dy === 0) dx = this.facing;
