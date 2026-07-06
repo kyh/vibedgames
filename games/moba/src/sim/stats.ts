@@ -140,10 +140,17 @@ export function absorbShield(u: Unit, amount: number): number {
 }
 
 export function addStatus(u: Unit, s: Status): void {
-  // Replace by (kind,id) so re-applying refreshes instead of stacking.
+  // Replace by (kind,id) so re-applying refreshes instead of stacking. Splice the
+  // old one out IN PLACE rather than `filter` into a fresh array — tickPassives
+  // re-adds the Banner/Bloodthirst buffs every frame per ally, and the per-call
+  // array allocation was pure GC churn. Same end result (matches removed, s appended).
   const id = "id" in s ? s.id : undefined;
   if (id !== undefined) {
-    u.statuses = u.statuses.filter((x) => !("id" in x && x.id === id && x.kind === s.kind));
+    const list = u.statuses;
+    for (let i = list.length - 1; i >= 0; i--) {
+      const x = list[i];
+      if (x && "id" in x && x.id === id && x.kind === s.kind) list.splice(i, 1);
+    }
   }
   u.statuses.push(s);
 }

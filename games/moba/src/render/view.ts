@@ -1519,6 +1519,11 @@ export class WorldView {
   private tickProjTrail(p: Projectile): void {
     const now = this.scene.time.now;
     if (now - (this.projTrailAt.get(p.id) ?? 0) < 22) return;
+    // no point trailing a projectile the camera can't see — a fight on the far side
+    // of the map would otherwise spawn puffs nobody renders (kill invisible work).
+    const view = this.scene.cameras.main.worldView;
+    if (p.x < view.x - 80 || p.x > view.right + 80 || p.y < view.y - 80 || p.y > view.bottom + 80)
+      return;
     this.projTrailAt.set(p.id, now);
     const hot = p.kind === "fireball";
     const col =

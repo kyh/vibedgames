@@ -773,8 +773,11 @@ function structureTick(w: World, u: Unit): void {
 
 /** Boid separation so units don't stack. Structures push but don't move. */
 function separation(w: World): void {
-  const list = [...w.units.values()].filter((u) => u.alive && u.kind !== "structure");
-  for (const a of list) {
+  // iterate the units Map directly — the outer loop only mutates positions (never
+  // the Map structure), so the old `[...values()].filter(...)` snapshot was a wasted
+  // full-array allocation every tick.
+  for (const a of w.units.values()) {
+    if (!a.alive || a.kind === "structure") continue;
     if (a.statuses.some((s) => s.kind === "unstoppable")) continue;
     let sx = 0;
     let sy = 0;
