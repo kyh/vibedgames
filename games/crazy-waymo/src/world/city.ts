@@ -91,8 +91,8 @@ function dirToYaw(d: Dir): number {
 type Chunk = { cx: number; cz: number; radius: number; group: THREE.Group };
 
 // Batched-instance streaming scratch (per-frame, allocation-free).
-const NEAR_ALWAYS = 220; // chunks this close are always on (off-screen shadow casters)
-const DETAIL_DISTANCE = 520; // trees/cars/props cull here; buildings at DRAW_DISTANCE
+const NEAR_ALWAYS = 170; // chunks this close are always on (off-screen shadow casters)
+const DETAIL_DISTANCE = 360; // trees/cars/props cull here; buildings at DRAW_DISTANCE
 const BIG_SILHOUETTE_R = 5; // world-space radius that counts as skyline
 const SCRATCH_SCALE = new THREE.Vector3();
 const STREAM_MAT = new THREE.Matrix4();

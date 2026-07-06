@@ -33,7 +33,7 @@ export const WORLD_HALF_Z = WORLD_H / 2;
 export const CHUNK = 320;
 // ~12M tris/frame at 1900 (the whole city fit inside the fog) — SF haze pulls
 // in instead: full fog by ~1250, chunks released just past it.
-export const DRAW_DISTANCE = 1000;
+export const DRAW_DISTANCE = 760; // fog far ~900: beyond it is invisible anyway
 
 // --- Car (arcade handling) ---
 // Turn radius R = speed / (turnRate·authority). A road tile is ROAD_TILE (13u)
