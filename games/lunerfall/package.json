@@ -1,0 +1,26 @@
+{
+  "name": "@repo/lunerfall",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "clean": "rm -rf .turbo dist node_modules",
+    "dev": "vite",
+    "preview": "vite preview",
+    "test": "tsx tools/sim.mts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@vibedgames/gamepad": "workspace:^",
+    "@vibedgames/multiplayer": "workspace:^",
+    "phaser": "^4.1.0"
+  },
+  "devDependencies": {
+    "@kyh/tsconfig": "catalog:",
+    "@types/node": "catalog:",
+    "tsx": "^4.22.3",
+    "typescript": "catalog:",
+    "vite": "catalog:"
+  }
+}
