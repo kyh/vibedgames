@@ -121,6 +121,9 @@ export class CityModel {
   // stays a skyline instead of 36k full-detail instances.
   private chunkInstancesFar = new Map<number, [number, number][]>();
   private chunkInstancesNear = new Map<number, [number, number][]>();
+  private imposterInstances = new Map<number, number[]>();
+  private imposterMesh: THREE.BatchedMesh | null = null;
+  private imposterVisible: Uint8Array | null = null;
   private chunkVisibleNear: Uint8Array | null = null;
 
   constructor(
@@ -923,6 +926,8 @@ export class CityModel {
     const pos = new THREE.Vector3();
     console.log(`[city] merges ${Math.round(performance.now() - tMerge)}ms`);
     const tBatch = performance.now();
+    type ImposterSpec = { key: number; item: { geo: THREE.BufferGeometry; matrix: THREE.Matrix4; tint?: THREE.Color } };
+    const imposters: ImposterSpec[] = [];
     let batchN = 0;
     for (const bucket of batchBuckets.values()) {
       await this.breathe();
@@ -974,13 +979,55 @@ export class CityModel {
         // keep the far tier; row-houses and low-rises cull with the detail set.
         const big = worldH >= BIG_SILHOUETTE_H;
         if (big) anyBig = true;
-        const map = big ? this.chunkInstancesFar : this.chunkInstancesNear;
+        // LOD: tall buildings render the FULL model only within
+        // DETAIL_DISTANCE; beyond that a tinted box imposter carries the
+        // skyline to the fog line (fog hides the swap).
+        const map = this.chunkInstancesNear;
         const list = map.get(key);
         if (list) list.push([bIndex, iid]);
         else map.set(key, [[bIndex, iid]]);
+        if (big && item) {
+          imposters.push({ key, item });
+        }
       }
       // Small-prop shadows don't read at chase-cam scale; skip their pass.
       if (!anyBig) batched.castShadow = false;
+    }
+    if (imposters.length > 0) {
+      const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+      boxGeo.translate(0, 0.5, 0); // origin at the base, like buildings
+      const boxMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95 });
+      const imp = new THREE.BatchedMesh(imposters.length, 24, 36, boxMat);
+      imp.castShadow = false;
+      imp.frustumCulled = false;
+      const gid = imp.addGeometry(boxGeo);
+      const m4 = new THREE.Matrix4();
+      const box = new THREE.Box3();
+      const sizeV = new THREE.Vector3();
+      const ctrV = new THREE.Vector3();
+      const defaultTint = new THREE.Color(0x97a1ae);
+      for (const { key, item } of imposters) {
+        if (!item.geo.boundingBox) item.geo.computeBoundingBox();
+        if (!item.geo.boundingBox) continue;
+        box.copy(item.geo.boundingBox);
+        box.getSize(sizeV);
+        box.getCenter(ctrV);
+        // unit box (base-origin) -> local bbox -> world
+        m4.makeScale(Math.max(sizeV.x, 0.1), Math.max(sizeV.y, 0.1), Math.max(sizeV.z, 0.1));
+        m4.setPosition(ctrV.x, box.min.y, ctrV.z);
+        m4.premultiply(item.matrix);
+        const iid = imp.addInstance(gid);
+        imp.setMatrixAt(iid, m4);
+        imp.setColorAt(iid, item.tint ?? defaultTint);
+        imp.setVisibleAt(iid, false);
+        const list = this.imposterInstances.get(key);
+        if (list) list.push(iid);
+        else this.imposterInstances.set(key, [iid]);
+      }
+      imp.computeBoundingSphere();
+      this.group.add(imp);
+      this.imposterMesh = imp;
+      console.log(`[city] imposters ${imposters.length}`);
     }
     console.log(`[city] batches ${Math.round(performance.now() - tBatch)}ms`);
     // Chunk centres for the batched-instance visibility pass.
@@ -1033,6 +1080,16 @@ export class CityModel {
         this.chunkVisibleNear[key] = visNear;
         const list = this.chunkInstancesNear.get(key);
         if (list) for (const [b, iid] of list) this.batches[b]?.mesh.setVisibleAt(iid, visNear === 1);
+      }
+      // Imposters live in the far band only: full models take over up close.
+      if (this.imposterMesh) {
+        if (!this.imposterVisible) this.imposterVisible = new Uint8Array(total).fill(0);
+        const visImp: 0 | 1 = visFar === 1 && visNear === 0 ? 1 : 0;
+        if (this.imposterVisible[key] !== visImp) {
+          this.imposterVisible[key] = visImp;
+          const list = this.imposterInstances.get(key);
+          if (list) for (const iid of list) this.imposterMesh.setVisibleAt(iid, visImp === 1);
+        }
       }
     }
   }
