@@ -118,6 +118,28 @@ export class ModelCache {
     return clone;
   }
 
+  // Reverse lookup: which template (url, idx) owns this material instance?
+  // Merged meshes keep the shared GLB material but lose per-mesh userData —
+  // this lets the city-rest cache serialize them as a source reference.
+  private matSrc: Map<THREE.Material, { url: string; idx: number }> | null = null;
+  srcOfMaterial(mat: THREE.Material): { url: string; idx: number } | null {
+    if (!this.matSrc) {
+      this.matSrc = new Map();
+      for (const [url, tpl] of this.templates) {
+        let i = 0;
+        tpl.traverse((c) => {
+          if (c instanceof THREE.Mesh) {
+            if (!Array.isArray(c.material) && !this.matSrc?.has(c.material)) {
+              this.matSrc?.set(c.material, { url, idx: i });
+            }
+            i++;
+          }
+        });
+      }
+    }
+    return this.matSrc.get(mat) ?? null;
+  }
+
   // Resolve a src tag back to the template's mesh (geometry lookup for the
   // city-rest cache rebuild path).
   srcMesh(url: string, idx: number): THREE.Mesh | null {

@@ -270,6 +270,12 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       baked.applyMatrix4(c.matrixWorld);
       const mesh = new THREE.Mesh(conformToTerrain(baked, terrain, lift), mat);
       mesh.updateMatrixWorld(true);
+      // Unique world-baked buffers belong in the chunk MERGE path (like road
+      // ribbons) — as batch items they bloat buckets with one-off geometries.
+      mesh.userData.merge = true;
+      // Textured (colormap) material can't serialize as a descriptor — carry
+      // the source ref so the city-rest cache resolves it from the GLB.
+      if (c.userData.src) mesh.userData.srcMat = c.userData.src;
       objects.push(mesh);
     });
   };

@@ -45,7 +45,7 @@ import { Car } from "../vehicle/car";
 import { CityModel } from "../world/city";
 import { editorMode, loadLocalOverrides } from "../world/custom-map";
 import type { CityGenPayload } from "../world/gen-worker";
-import { readWorldCache, writeWorldCache } from "../world/world-cache";
+import { readRestCache, readWorldCache, writeRestCache, writeWorldCache } from "../world/world-cache";
 import { districtAt } from "../world/sf-map";
 import { SolidIndex } from "../world/solid-index";
 
@@ -113,13 +113,17 @@ function readBest(): number {
 // Kick the city-gen worker. Returns null (main-thread gen) when the city has
 // street/floor edits — local overrides live in localStorage, which the worker
 // cannot see — or when the worker fails for any reason.
-function startGenWorker(): Promise<CityGenPayload | null> {
-  // Baked CUSTOM_MAP edits are module constants — the worker sees them too.
+function cityEdited(): boolean {
+  // Baked CUSTOM_MAP edits are module constants — caches/worker see them too.
   const local = loadLocalOverrides();
-  const edited =
+  return (
     editorMode() &&
-    (local.add.length > 0 || local.remove.length > 0 || local.floor.length > 0);
-  if (edited) return Promise.resolve(null);
+    (local.add.length > 0 || local.remove.length > 0 || local.floor.length > 0)
+  );
+}
+
+function startGenWorker(): Promise<CityGenPayload | null> {
+  if (cityEdited()) return Promise.resolve(null);
   // Repeat visits: the finished world is in IndexedDB — skip generation.
   return readWorldCache().then((cached) => {
     if (cached) return cached;
@@ -378,13 +382,15 @@ export class GameScene {
     // cities (baked or local street/floor overrides) keep main-thread gen so
     // editor changes stay real; the worker never sees localStorage.
     const genPromise = startGenWorker();
+    const restPromise = cityEdited() ? Promise.resolve(null) : readRestCache();
     await this.cache.preload(allModelUrls(), (frac) => {
       this.mode = { kind: "loading", progress: frac * 0.7 };
       this.hud.setLoading(frac * 0.7);
     });
     const payload = await genPromise;
     console.log(`[city] worker payload: ${payload ? "yes" : "fallback to main-thread gen"}`);
-    const city = new CityModel(this.cache, payload);
+    const rest = await restPromise;
+    const city = new CityModel(this.cache, payload, rest);
     await city.initEarly((frac) => {
       this.mode = { kind: "loading", progress: frac };
       this.hud.setLoading(frac);
@@ -432,6 +438,7 @@ export class GameScene {
       this.pendingStart = false;
       this.start();
     }
+    if (city.restCapture) writeRestCache(city.restCapture);
     await paint();
 
     // --- STREAMED TAIL: bounce physics, traffic, parked cars, props. The

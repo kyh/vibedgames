@@ -89,6 +89,62 @@ function dirToYaw(d: Dir): number {
 
 // A streamed tile of static city geometry: its own merged meshes under one
 // group, tagged with a centre + cull radius so it can be hidden when far away.
+type MatRec = {
+  color: number;
+  roughness: number;
+  metalness: number;
+  vertexColors: boolean;
+  polygonOffset: boolean;
+  polygonOffsetFactor: number;
+  polygonOffsetUnits: number;
+  transparent: boolean;
+  opacity: number;
+};
+export type MergedChunkRec = {
+  cx: number;
+  cz: number;
+  dist: number;
+  position: Float32Array;
+  normal: Float32Array | null;
+  uv: Float32Array | null;
+  color: Float32Array | null;
+  index: Uint16Array | Uint32Array | null;
+  mat: MatRec;
+  srcMat: { url: string; idx: number } | null;
+};
+export type BatchItemRec = {
+  url: string | null; // GLB source ref…
+  idx: number;
+  raw: number | null; // …or an index into rawGeos
+  m: Float32Array; // 16 elements
+  tint: number | null;
+  big: boolean;
+};
+export type RawGeoRec = {
+  position: Float32Array;
+  normal: Float32Array | null;
+  uv: Float32Array | null;
+  index: Uint16Array | Uint32Array | null;
+  mat: MatRec;
+};
+export type CityRestPayload = {
+  mergedChunks: MergedChunkRec[];
+  rawGeos: RawGeoRec[];
+  batchItems: BatchItemRec[];
+  solids: Solid[];
+  parkedCars: ParkedSpec[];
+  lampHeads: LampHead[];
+  decks: readonly SurfaceDeck[];
+};
+
+type BatchBucket = {
+  material: THREE.Material;
+  geoVerts: Map<THREE.BufferGeometry, number>;
+  items: { geo: THREE.BufferGeometry; matrix: THREE.Matrix4; tint?: THREE.Color; src?: { url: string; idx: number } }[];
+  verts: number;
+  indices: number;
+};
+
 type Chunk = { cx: number; cz: number; radius: number; dist: number; group: THREE.Object3D };
 
 // Batched-instance streaming scratch (per-frame, allocation-free).
@@ -124,11 +180,65 @@ export class CityModel {
   private imposterInstances = new Map<number, number[]>();
   private imposterMesh: THREE.BatchedMesh | null = null;
   private imposterVisible: Uint8Array | null = null;
+  // City-rest cache: everything phases 2+3 produce, in serializable form.
+  restCapture: CityRestPayload | null = null;
+  private capturedMerged: MergedChunkRec[] = [];
+  private restItems: BatchItemRec[] = [];
+  private restComplete = true;
+  private rawGeos: RawGeoRec[] = [];
+  private rawGeoIds = new Map<string, number>();
+  private restSkipLogged = new Set<string>();
+
+  private captureMerged(mesh: THREE.Mesh, cx: number, cz: number, dist: number): void {
+    const geo = mesh.geometry;
+    const mat = mesh.material;
+    if (Array.isArray(mat) || !(mat instanceof THREE.MeshStandardMaterial)) return;
+    const srcMat =
+      (mesh.userData.srcMat as { url: string; idx: number } | undefined) ??
+      (mat.map ? this.cache.srcOfMaterial(mat) : null);
+    if (mat.map && !srcMat) {
+      // Textured material with no source ref can't survive serialization.
+      this.restComplete = false;
+      if (!this.restSkipLogged.has(mat.uuid)) {
+        this.restSkipLogged.add(mat.uuid);
+        console.log(`[city] merged mesh untagged texture: ${mat.name || mat.uuid}`);
+      }
+      return;
+    }
+    const pos = geo.getAttribute("position");
+    if (!pos) return;
+    const nor = geo.getAttribute("normal");
+    const uv = geo.getAttribute("uv");
+    const col = geo.getAttribute("color");
+    this.capturedMerged.push({
+      cx,
+      cz,
+      dist,
+      position: pos.array as Float32Array,
+      normal: nor ? (nor.array as Float32Array) : null,
+      uv: uv ? (uv.array as Float32Array) : null,
+      color: col ? (col.array as Float32Array) : null,
+      index: geo.index ? (geo.index.array as Uint16Array | Uint32Array) : null,
+      mat: {
+        color: mat.color.getHex(),
+        roughness: mat.roughness,
+        metalness: mat.metalness,
+        vertexColors: mat.vertexColors,
+        polygonOffset: mat.polygonOffset,
+        polygonOffsetFactor: mat.polygonOffsetFactor,
+        polygonOffsetUnits: mat.polygonOffsetUnits,
+        transparent: mat.transparent,
+        opacity: mat.opacity,
+      },
+      srcMat,
+    });
+  }
   private chunkVisibleNear: Uint8Array | null = null;
 
   constructor(
     private cache: ModelCache,
     private genPayload: CityGenPayload | null = null,
+    private restPayload: CityRestPayload | null = null,
     private rng = new Rng(CITY_SEED),
   ) {
     this.terrain = makeTerrain();
@@ -242,6 +352,13 @@ export class CityModel {
       onProgress?.(f);
       await new Promise((r) => requestAnimationFrame(() => r(undefined)));
     };
+    if (this.restPayload) {
+      const tR = performance.now();
+      await this.rebuildRest(this.restPayload);
+      console.log(`[city] rest rebuild ${Math.round(performance.now() - tR)}ms`);
+      await tick(0.97);
+      return;
+    }
     const t0 = performance.now();
     await this.phase2();
     const t1 = performance.now();
@@ -315,12 +432,14 @@ export class CityModel {
       }
     }
 
-    const roadMeshes = this.genPayload
-      ? roadPartsToMeshes(this.genPayload.roadParts)
-      : buildRoads(this.network, this.terrain);
-    for (const mesh of roadMeshes) {
-      mesh.userData.merge = true; // road ribbons are unique conformed buffers
-      staticMeshes.push(mesh);
+    if (!this.restPayload) {
+      const roadMeshes = this.genPayload
+        ? roadPartsToMeshes(this.genPayload.roadParts)
+        : buildRoads(this.network, this.terrain);
+      for (const mesh of roadMeshes) {
+        mesh.userData.merge = true; // road ribbons are unique conformed buffers
+        staticMeshes.push(mesh);
+      }
     }
 
     // --- Landmark footprints: cells the procedural city leaves alone ---
@@ -767,6 +886,175 @@ export class CityModel {
     this.solids.push({ minX: -LX - t, maxX: LX + t, minZ: -LZ - t, maxZ: -LZ }); // north
     this.solids.push({ minX: -LX - t, maxX: LX + t, minZ: LZ, maxZ: LZ + t }); // south
 
+    this.buildGround();
+
+
+    // --- Hand-placed decorations from the map editor (world/custom-props.ts) ---
+    for (const p of CUSTOM_PROPS) {
+      const parts = p.model.split("/");
+      const cat = parts[0];
+      const name = parts[1];
+      if (!cat || !name) continue;
+      const node = this.cache.instance(modelUrl(cat, name));
+      node.scale.setScalar(p.s);
+      node.rotation.y = p.yaw;
+      const x = (p.u - 0.5) * WORLD_W;
+      const z = (p.v - 0.5) * WORLD_H;
+      node.position.set(x, this.heightAt(x, z), z);
+      collect(node);
+      if (p.solid) {
+        const b = this.cache.bounds(modelUrl(cat, name));
+        const hx = (b.size.x * p.s) / 2;
+        const hz = (b.size.z * p.s) / 2;
+        this.solids.push({ minX: x - hx, maxX: x + hx, minZ: z - hz, maxZ: z + hz });
+      }
+    }
+
+    // --- Two render paths for the static city ---
+    // 1) Unique conformed buffers (roads, drapes; userData.merge): merged by
+    //    material into spatial CHUNK tiles the streamer shows/hides.
+    // 2) Everything else (buildings, trees, props — repeated models): ONE
+    //    global BatchedMesh per (material, attribute layout). Geometry is
+    //    uploaded once per unique mesh; placements are 64B matrices. Streaming
+    //    is per-instance (setVisibleAt on a slow cadence) — per-chunk batches
+    //    would re-copy each model's geometry into every chunk that uses it.
+    const nx = Math.ceil(WORLD_W / CHUNK);
+    const nz = Math.ceil(WORLD_H / CHUNK);
+    const mergeBuckets = new Map<number, THREE.Mesh[]>();
+    const batchBuckets = new Map<string, BatchBucket>();
+    const centroid = new THREE.Vector3();
+    for (const mesh of staticMeshes) {
+      if (!(mesh.geometry instanceof THREE.BufferGeometry)) continue;
+      const mat = mesh.material;
+      if (mesh.userData.merge === true || Array.isArray(mat)) {
+        mesh.geometry.computeBoundingBox();
+        const bb = mesh.geometry.boundingBox;
+        const spanX = bb ? bb.max.x - bb.min.x : 0;
+        const spanZ = bb ? bb.max.z - bb.min.z : 0;
+        if (!Array.isArray(mat) && Math.max(spanX, spanZ) > CHUNK * 1.5) {
+          // Whole-map surface (planar-map asphalt/walk/curb): split by chunk
+          // so culling and the rest cache both work per-tile.
+          mesh.updateMatrixWorld(true);
+          const world = mesh.geometry.clone().applyMatrix4(mesh.matrixWorld);
+          for (const [key, g] of splitGeoByChunk(world, nx, nz)) {
+            const piece = new THREE.Mesh(g, mat);
+            piece.userData.merge = true;
+            if (mesh.userData.srcMat) piece.userData.srcMat = mesh.userData.srcMat;
+            const list = mergeBuckets.get(key);
+            if (list) list.push(piece);
+            else mergeBuckets.set(key, [piece]);
+          }
+          continue;
+        }
+        bb?.getCenter(centroid);
+        centroid.applyMatrix4(mesh.matrixWorld);
+        const cx = Math.min(nx - 1, Math.max(0, Math.floor((centroid.x + WORLD_HALF_X) / CHUNK)));
+        const cz = Math.min(nz - 1, Math.max(0, Math.floor((centroid.z + WORLD_HALF_Z) / CHUNK)));
+        const key = cz * nx + cx;
+        const list = mergeBuckets.get(key);
+        if (list) list.push(mesh);
+        else mergeBuckets.set(key, [mesh]);
+        continue;
+      }
+      // Batches must share an attribute layout — key on material + attrs.
+      const geo = mesh.geometry;
+      const attrKey = Object.keys(geo.attributes).sort().join(",");
+      const bKey = `${mat.uuid}|${attrKey}|${geo.index ? "i" : "n"}`;
+      let bucket = batchBuckets.get(bKey);
+      if (!bucket) {
+        bucket = { material: mat, geoVerts: new Map(), items: [], verts: 0, indices: 0 };
+        batchBuckets.set(bKey, bucket);
+      }
+      if (!bucket.geoVerts.has(geo)) {
+        const vCount = geo.attributes.position?.count ?? 0;
+        bucket.geoVerts.set(geo, vCount);
+        bucket.verts += vCount;
+        bucket.indices += geo.index ? geo.index.count : vCount;
+      }
+      const tint = mesh.userData.tint instanceof THREE.Color ? mesh.userData.tint : undefined;
+      const src = mesh.userData.src as { url: string; idx: number } | undefined;
+      bucket.items.push({
+        geo,
+        matrix: mesh.matrixWorld.clone(),
+        ...(tint ? { tint } : {}),
+        ...(src ? { src } : {}),
+      });
+    }
+
+    // Chunked merges (roads + drapes). Thin paint (markings, curb lips) is
+    // sub-pixel beyond DETAIL_DISTANCE — it culls there instead of the fog line.
+    const DETAIL_HEXES = new Set(["dfe3e3", "d8a13c", "d8a23c", "8f938c"]);
+    const cullRadius = CHUNK * 0.71 + ROAD_TILE * 2;
+    const tMerge = performance.now();
+    let mergeN = 0;
+    for (const [key, meshes] of mergeBuckets) {
+      if (++mergeN % 2 === 0) await this.breathe();
+      const cx = key % nx;
+      const cz = Math.floor(key / nx);
+      const isDetail = (m: THREE.Mesh): boolean => {
+        const mat = m.material;
+        return !Array.isArray(mat) && "color" in mat
+          ? DETAIL_HEXES.has((mat as THREE.MeshStandardMaterial).color.getHexString())
+          : false;
+      };
+      const main = meshes.filter((m) => !isDetail(m));
+      const detail = meshes.filter(isDetail);
+      const ccx = (cx + 0.5) * CHUNK - WORLD_HALF_X;
+      const ccz = (cz + 0.5) * CHUNK - WORLD_HALF_Z;
+      if (main.length > 0) {
+        const group = new THREE.Group();
+        for (const merged of mergeByMaterial(main)) {
+          group.add(merged);
+          this.captureMerged(merged, ccx, ccz, DRAW_DISTANCE);
+        }
+        this.group.add(group);
+        this.chunks.push({ cx: ccx, cz: ccz, radius: cullRadius, dist: DRAW_DISTANCE, group });
+      }
+      if (detail.length > 0) {
+        const group = new THREE.Group();
+        for (const merged of mergeByMaterial(detail)) {
+          group.add(merged);
+          this.captureMerged(merged, ccx, ccz, DETAIL_DISTANCE);
+        }
+        this.group.add(group);
+        this.chunks.push({ cx: ccx, cz: ccz, radius: cullRadius, dist: DETAIL_DISTANCE, group });
+      }
+    }
+
+    console.log(`[city] merges ${Math.round(performance.now() - tMerge)}ms`);
+    await this.buildBatchesFrom(batchBuckets, nx, nz);
+    // Chunk centres for the batched-instance visibility pass.
+    this.batchChunkGrid = { nx, nz };
+
+    // --- Iconic landmarks (procedural; kept separate — always visible) ---
+    this.group.add(buildLandmarks(this.terrain, this.cache));
+
+    // City-rest cache capture: phases 2+3 output in serializable form. Only
+    // stored when every batch item is source-tagged (else a rebuild would
+    // drop geometry silently).
+    if (this.restComplete) {
+      this.restCapture = {
+        mergedChunks: this.capturedMerged,
+        rawGeos: this.rawGeos,
+        batchItems: [...this.restItems],
+        solids: this.solids,
+        parkedCars: [...this.parkedCarSpecs],
+        lampHeads: [...this.lampHeads],
+        decks: this.getDecks(),
+      };
+      console.log(
+        `[city] rest capture: ${this.capturedMerged.length} merged, ${this.restItems.length} items`,
+      );
+    } else {
+      console.log("[city] rest capture skipped: untagged batch items");
+    }
+    };
+  }
+
+  // Terrain ground tiles (worker buffers or live gen) — called by phase 3 on
+  // cold builds AND by the city-rest rebuild (the rest cache stores merged
+  // city geometry, not the ground).
+  private buildGround(): void {
     // --- Displaced terrain ground (hills + island; ocean plane sits below),
     // vertex-graded: concrete in the city, Ocean Beach sand along the west
     // shore (half-strength on other shores), park green under the big parks. ---
@@ -811,70 +1099,95 @@ export class CityModel {
       });
     }
 
-    // --- Hand-placed decorations from the map editor (world/custom-props.ts) ---
-    for (const p of CUSTOM_PROPS) {
-      const parts = p.model.split("/");
-      const cat = parts[0];
-      const name = parts[1];
-      if (!cat || !name) continue;
-      const node = this.cache.instance(modelUrl(cat, name));
-      node.scale.setScalar(p.s);
-      node.rotation.y = p.yaw;
-      const x = (p.u - 0.5) * WORLD_W;
-      const z = (p.v - 0.5) * WORLD_H;
-      node.position.set(x, this.heightAt(x, z), z);
-      collect(node);
-      if (p.solid) {
-        const b = this.cache.bounds(modelUrl(cat, name));
-        const hx = (b.size.x * p.s) / 2;
-        const hz = (b.size.z * p.s) / 2;
-        this.solids.push({ minX: x - hx, maxX: x + hx, minZ: z - hz, maxZ: z + hz });
-      }
-    }
+  }
 
-    // --- Two render paths for the static city ---
-    // 1) Unique conformed buffers (roads, drapes; userData.merge): merged by
-    //    material into spatial CHUNK tiles the streamer shows/hides.
-    // 2) Everything else (buildings, trees, props — repeated models): ONE
-    //    global BatchedMesh per (material, attribute layout). Geometry is
-    //    uploaded once per unique mesh; placements are 64B matrices. Streaming
-    //    is per-instance (setVisibleAt on a slow cadence) — per-chunk batches
-    //    would re-copy each model's geometry into every chunk that uses it.
+  // Rebuild phases 2+3 from the city-rest cache: merged chunk meshes from
+  // raw buffers, model batches from source-tagged records. Skips ALL
+  // placement, furniture and merge compute.
+  private async rebuildRest(rest: CityRestPayload): Promise<void> {
     const nx = Math.ceil(WORLD_W / CHUNK);
     const nz = Math.ceil(WORLD_H / CHUNK);
-    type BatchBucket = {
-      material: THREE.Material;
-      geoVerts: Map<THREE.BufferGeometry, number>;
-      items: { geo: THREE.BufferGeometry; matrix: THREE.Matrix4; tint?: THREE.Color }[];
-      verts: number;
-      indices: number;
+    const cullRadius = CHUNK * 0.71 + ROAD_TILE * 2;
+    // Merged chunks: dedupe materials by descriptor so draw batching holds.
+    const mats = new Map<string, THREE.MeshStandardMaterial>();
+    const matFor = (m: MergedChunkRec["mat"]): THREE.MeshStandardMaterial => {
+      const k = JSON.stringify(m);
+      let mat = mats.get(k);
+      if (!mat) {
+        mat = new THREE.MeshStandardMaterial({
+          color: m.color,
+          roughness: m.roughness,
+          metalness: m.metalness,
+          vertexColors: m.vertexColors,
+          polygonOffset: m.polygonOffset,
+          polygonOffsetFactor: m.polygonOffsetFactor,
+          polygonOffsetUnits: m.polygonOffsetUnits,
+          transparent: m.transparent,
+          opacity: m.opacity,
+        });
+        mats.set(k, mat);
+      }
+      return mat;
     };
-    const mergeBuckets = new Map<number, THREE.Mesh[]>();
-    const batchBuckets = new Map<string, BatchBucket>();
-    const centroid = new THREE.Vector3();
-    for (const mesh of staticMeshes) {
-      if (!(mesh.geometry instanceof THREE.BufferGeometry)) continue;
-      const mat = mesh.material;
-      if (mesh.userData.merge === true || Array.isArray(mat)) {
-        mesh.geometry.computeBoundingBox();
-        mesh.geometry.boundingBox?.getCenter(centroid);
-        centroid.applyMatrix4(mesh.matrixWorld);
-        const cx = Math.min(nx - 1, Math.max(0, Math.floor((centroid.x + WORLD_HALF_X) / CHUNK)));
-        const cz = Math.min(nz - 1, Math.max(0, Math.floor((centroid.z + WORLD_HALF_Z) / CHUNK)));
-        const key = cz * nx + cx;
-        const list = mergeBuckets.get(key);
-        if (list) list.push(mesh);
-        else mergeBuckets.set(key, [mesh]);
+    const groups = new Map<string, { group: THREE.Group; cx: number; cz: number; dist: number }>();
+    let n = 0;
+    for (const rec of rest.mergedChunks) {
+      if (++n % 24 === 0) await this.breathe();
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(rec.position, 3));
+      if (rec.normal) geo.setAttribute("normal", new THREE.BufferAttribute(rec.normal, 3));
+      if (rec.uv) geo.setAttribute("uv", new THREE.BufferAttribute(rec.uv, 2));
+      if (rec.color) geo.setAttribute("color", new THREE.BufferAttribute(rec.color, 3));
+      if (rec.index) geo.setIndex(new THREE.BufferAttribute(rec.index, 1));
+      const srcM = rec.srcMat ? this.cache.srcMesh(rec.srcMat.url, rec.srcMat.idx) : null;
+      const srcMatOk = srcM && !Array.isArray(srcM.material) ? srcM.material : null;
+      const mesh = new THREE.Mesh(geo, srcMatOk ?? matFor(rec.mat));
+      mesh.receiveShadow = true;
+      const gk = `${rec.cx},${rec.cz},${rec.dist}`;
+      let g = groups.get(gk);
+      if (!g) {
+        g = { group: new THREE.Group(), cx: rec.cx, cz: rec.cz, dist: rec.dist };
+        groups.set(gk, g);
+      }
+      g.group.add(mesh);
+    }
+    for (const g of groups.values()) {
+      this.group.add(g.group);
+      this.chunks.push({ cx: g.cx, cz: g.cz, radius: cullRadius, dist: g.dist, group: g.group });
+    }
+    // Model batches from source tags (or the raw-geo table).
+    const rawBuilt: { geo: THREE.BufferGeometry; mat: THREE.MeshStandardMaterial }[] = [];
+    for (const rg of rest.rawGeos) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.BufferAttribute(rg.position, 3));
+      if (rg.normal) geo.setAttribute("normal", new THREE.BufferAttribute(rg.normal, 3));
+      if (rg.uv) geo.setAttribute("uv", new THREE.BufferAttribute(rg.uv, 2));
+      if (rg.index) geo.setIndex(new THREE.BufferAttribute(rg.index, 1));
+      rawBuilt.push({ geo, mat: matFor(rg.mat) });
+    }
+    const buckets = new Map<string, BatchBucket>();
+    for (const rec of rest.batchItems) {
+      let geo: THREE.BufferGeometry;
+      let mat: THREE.Material;
+      if (rec.url !== null) {
+        const srcMesh = this.cache.srcMesh(rec.url, rec.idx);
+        if (!srcMesh || Array.isArray(srcMesh.material)) continue;
+        geo = srcMesh.geometry;
+        mat = srcMesh.material;
+      } else if (rec.raw !== null && rawBuilt[rec.raw]) {
+        const rb = rawBuilt[rec.raw];
+        if (!rb) continue;
+        geo = rb.geo;
+        mat = rb.mat;
+      } else {
         continue;
       }
-      // Batches must share an attribute layout — key on material + attrs.
-      const geo = mesh.geometry;
       const attrKey = Object.keys(geo.attributes).sort().join(",");
       const bKey = `${mat.uuid}|${attrKey}|${geo.index ? "i" : "n"}`;
-      let bucket = batchBuckets.get(bKey);
+      let bucket = buckets.get(bKey);
       if (!bucket) {
         bucket = { material: mat, geoVerts: new Map(), items: [], verts: 0, indices: 0 };
-        batchBuckets.set(bKey, bucket);
+        buckets.set(bKey, bucket);
       }
       if (!bucket.geoVerts.has(geo)) {
         const vCount = geo.attributes.position?.count ?? 0;
@@ -882,52 +1195,39 @@ export class CityModel {
         bucket.verts += vCount;
         bucket.indices += geo.index ? geo.index.count : vCount;
       }
-      const tint = mesh.userData.tint instanceof THREE.Color ? mesh.userData.tint : undefined;
-      bucket.items.push({ geo, matrix: mesh.matrixWorld.clone(), ...(tint ? { tint } : {}) });
+      bucket.items.push({
+        geo,
+        matrix: new THREE.Matrix4().fromArray(rec.m),
+        ...(rec.tint !== null ? { tint: new THREE.Color(rec.tint) } : {}),
+        ...(rec.url !== null ? { src: { url: rec.url, idx: rec.idx } } : {}),
+      });
     }
+    await this.buildBatchesFrom(buckets, nx, nz);
+    // Game data.
+    this.solids.length = 0;
+    for (const so of rest.solids) this.solids.push(so);
+    this.parkedCarSpecs = rest.parkedCars;
+    this.lampHeads = rest.lampHeads;
+    this.addDecks(rest.decks);
+    this.buildGround();
+    // Landmarks are procedural + cheap — always rebuilt live.
+    this.group.add(buildLandmarks(this.terrain, this.cache));
+  }
 
-    // Chunked merges (roads + drapes). Thin paint (markings, curb lips) is
-    // sub-pixel beyond DETAIL_DISTANCE — it culls there instead of the fog line.
-    const DETAIL_HEXES = new Set(["dfe3e3", "d8a13c", "d8a23c", "8f938c"]);
-    const cullRadius = CHUNK * 0.71 + ROAD_TILE * 2;
-    const tMerge = performance.now();
-    let mergeN = 0;
-    for (const [key, meshes] of mergeBuckets) {
-      if (++mergeN % 2 === 0) await this.breathe();
-      const cx = key % nx;
-      const cz = Math.floor(key / nx);
-      const isDetail = (m: THREE.Mesh): boolean => {
-        const mat = m.material;
-        return !Array.isArray(mat) && "color" in mat
-          ? DETAIL_HEXES.has((mat as THREE.MeshStandardMaterial).color.getHexString())
-          : false;
-      };
-      const main = meshes.filter((m) => !isDetail(m));
-      const detail = meshes.filter(isDetail);
-      const ccx = (cx + 0.5) * CHUNK - WORLD_HALF_X;
-      const ccz = (cz + 0.5) * CHUNK - WORLD_HALF_Z;
-      if (main.length > 0) {
-        const group = new THREE.Group();
-        for (const merged of mergeByMaterial(main)) group.add(merged);
-        this.group.add(group);
-        this.chunks.push({ cx: ccx, cz: ccz, radius: cullRadius, dist: DRAW_DISTANCE, group });
-      }
-      if (detail.length > 0) {
-        const group = new THREE.Group();
-        for (const merged of mergeByMaterial(detail)) group.add(merged);
-        this.group.add(group);
-        this.chunks.push({ cx: ccx, cz: ccz, radius: cullRadius, dist: DETAIL_DISTANCE, group });
-      }
-    }
-
+  // Build BatchedMeshes (+ box imposters + chunk instance maps) from filled
+  // buckets — called by phase 3 (from staticMeshes) AND the city-rest cache
+  // rebuild (from serialized records).
+  private async buildBatchesFrom(batchBuckets: Map<string, BatchBucket>, nx: number, nz: number): Promise<void> {
     // Global batches (models). Each instance is assigned to a spatial chunk;
     // updateStreaming() flips whole chunks of instances on visibility
     // transitions, so per-frame cost is ~chunk count, not instance count.
     const pos = new THREE.Vector3();
-    console.log(`[city] merges ${Math.round(performance.now() - tMerge)}ms`);
     const tBatch = performance.now();
     type ImposterSpec = { key: number; item: { geo: THREE.BufferGeometry; matrix: THREE.Matrix4; tint?: THREE.Color } };
     const imposters: ImposterSpec[] = [];
+    const restItems = this.restItems;
+    restItems.length = 0;
+    const untagged = new Map<string, number>();
     let batchN = 0;
     for (const bucket of batchBuckets.values()) {
       await this.breathe();
@@ -944,6 +1244,7 @@ export class CityModel {
       batched.sortObjects = false;
       const geoIds = new Map<THREE.BufferGeometry, number>();
       const chunkIds = new Uint16Array(bucket.items.length);
+      // no-op marker retained for rebuild parity
       for (let i = 0; i < bucket.items.length; i++) {
         const item = bucket.items[i];
         if (!item) continue;
@@ -954,6 +1255,64 @@ export class CityModel {
         }
         const iid = batched.addInstance(gid);
         batched.setMatrixAt(iid, item.matrix);
+        if (item.src) {
+          restItems.push({
+            url: item.src.url,
+            idx: item.src.idx,
+            raw: null,
+            m: new Float32Array(item.matrix.elements),
+            tint: item.tint ? item.tint.getHex() : null,
+            big: false,
+          });
+        } else {
+          const mat = bucket.material;
+          if (mat instanceof THREE.MeshStandardMaterial && !mat.map) {
+            // Shared generated geometry (plinths, seawall, lake…): serialize
+            // once into the raw-geo table, reference by index.
+            let rawId = this.rawGeoIds.get(item.geo.uuid);
+            if (rawId === undefined) {
+              const pos2 = item.geo.getAttribute("position");
+              const nor2 = item.geo.getAttribute("normal");
+              const uv2 = item.geo.getAttribute("uv");
+              rawId = this.rawGeos.length;
+              this.rawGeoIds.set(item.geo.uuid, rawId);
+              this.rawGeos.push({
+                position: pos2.array as Float32Array,
+                normal: nor2 ? (nor2.array as Float32Array) : null,
+                uv: uv2 ? (uv2.array as Float32Array) : null,
+                index: item.geo.index
+                  ? (item.geo.index.array as Uint16Array | Uint32Array)
+                  : null,
+                mat: {
+                  color: mat.color.getHex(),
+                  roughness: mat.roughness,
+                  metalness: mat.metalness,
+                  vertexColors: mat.vertexColors,
+                  polygonOffset: mat.polygonOffset,
+                  polygonOffsetFactor: mat.polygonOffsetFactor,
+                  polygonOffsetUnits: mat.polygonOffsetUnits,
+                  transparent: mat.transparent,
+                  opacity: mat.opacity,
+                },
+              });
+            }
+            restItems.push({
+              url: null,
+              idx: 0,
+              raw: rawId,
+              m: new Float32Array(item.matrix.elements),
+              tint: item.tint ? item.tint.getHex() : null,
+              big: false,
+            });
+          } else {
+            this.restComplete = false;
+            const tag =
+              mat instanceof THREE.MeshStandardMaterial
+                ? `${mat.name || "?"}#${mat.color.getHexString()}`
+                : mat.type;
+            untagged.set(tag, (untagged.get(tag) ?? 0) + 1);
+          }
+        }
         if (item.tint) batched.setColorAt(iid, item.tint);
         pos.setFromMatrixPosition(item.matrix);
         const ccx = Math.min(nx - 1, Math.max(0, Math.floor((pos.x + WORLD_HALF_X) / CHUNK)));
@@ -1029,13 +1388,10 @@ export class CityModel {
       this.imposterMesh = imp;
       console.log(`[city] imposters ${imposters.length}`);
     }
+    if (untagged.size > 0) {
+      console.log("[city] untagged batch items:", JSON.stringify([...untagged.entries()]));
+    }
     console.log(`[city] batches ${Math.round(performance.now() - tBatch)}ms`);
-    // Chunk centres for the batched-instance visibility pass.
-    this.batchChunkGrid = { nx, nz };
-
-    // --- Iconic landmarks (procedural; kept separate — always visible) ---
-    this.group.add(buildLandmarks(this.terrain, this.cache));
-    };
   }
 
   // Chunked visibility: merged road/drape tiles show/hide as whole groups
@@ -1157,6 +1513,61 @@ export type SurfaceDeck = {
 
 // Bake world transforms and merge geometries that share a material, producing a
 // handful of static meshes instead of hundreds of draw calls.
+// Split a world-space geometry into per-chunk geometries (triangles bucketed
+// by centroid, vertices remapped). Whole-map surfaces (the planar-map asphalt
+// is ONE geometry) would otherwise defeat chunk culling AND the rest cache.
+function splitGeoByChunk(
+  geo: THREE.BufferGeometry,
+  nx: number,
+  nz: number,
+): Map<number, THREE.BufferGeometry> {
+  const pos = geo.getAttribute("position");
+  const nor = geo.getAttribute("normal");
+  const uv = geo.getAttribute("uv");
+  const idx = geo.index;
+  const triCount = idx ? idx.count / 3 : pos.count / 3;
+  const vid = (k: number): number => (idx ? idx.getX(k) : k);
+  type Piece = { map: Map<number, number>; pos: number[]; nor: number[]; uv: number[]; index: number[] };
+  const pieces = new Map<number, Piece>();
+  for (let t = 0; t < triCount; t++) {
+    const a = vid(t * 3);
+    const b = vid(t * 3 + 1);
+    const c = vid(t * 3 + 2);
+    const mx = (pos.getX(a) + pos.getX(b) + pos.getX(c)) / 3;
+    const mz = (pos.getZ(a) + pos.getZ(b) + pos.getZ(c)) / 3;
+    const cx = Math.min(nx - 1, Math.max(0, Math.floor((mx + WORLD_HALF_X) / CHUNK)));
+    const cz = Math.min(nz - 1, Math.max(0, Math.floor((mz + WORLD_HALF_Z) / CHUNK)));
+    const key = cz * nx + cx;
+    let piece = pieces.get(key);
+    if (!piece) {
+      piece = { map: new Map(), pos: [], nor: [], uv: [], index: [] };
+      pieces.set(key, piece);
+    }
+    for (const v of [a, b, c]) {
+      let nid = piece.map.get(v);
+      if (nid === undefined) {
+        nid = piece.pos.length / 3;
+        piece.map.set(v, nid);
+        piece.pos.push(pos.getX(v), pos.getY(v), pos.getZ(v));
+        if (nor) piece.nor.push(nor.getX(v), nor.getY(v), nor.getZ(v));
+        if (uv) piece.uv.push(uv.getX(v), uv.getY(v));
+      }
+      piece.index.push(nid);
+    }
+  }
+  const out = new Map<number, THREE.BufferGeometry>();
+  for (const [key, piece] of pieces) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(piece.pos), 3));
+    if (nor) g.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(piece.nor), 3));
+    if (uv) g.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(piece.uv), 2));
+    const IndexArr = piece.pos.length / 3 > 65535 ? Uint32Array : Uint16Array;
+    g.setIndex(new THREE.BufferAttribute(new IndexArr(piece.index), 1));
+    out.set(key, g);
+  }
+  return out;
+}
+
 function mergeByMaterial(meshes: readonly THREE.Mesh[]): THREE.Mesh[] {
   type Group = { material: THREE.Material; attrs: string; geometries: THREE.BufferGeometry[] };
   const groups = new Map<string, Group>();
