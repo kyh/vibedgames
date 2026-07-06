@@ -134,6 +134,9 @@ export class MenuScene extends Phaser.Scene {
         })
         .setOrigin(0.5, 0);
       panel.on("pointerover", () => this.preview(h.id));
+      // restore the SELECTED hero's details when the cursor leaves, so the panel
+      // never describes a hero you're only hovering (and won't actually play).
+      panel.on("pointerout", () => this.preview(this.selected));
       panel.on("pointerdown", () => this.select(h.id));
       this.cards.push({ id: h.id, ring });
     });

@@ -8,7 +8,7 @@ import { ITEM_BY_ID } from "../data/items";
 import { dealDamage, spawnAbilityProjectile } from "./combat";
 import { dist, dist2, pointSegDist } from "./math";
 import type { Vec2 } from "./math";
-import { addStatus, cleanseSlows, silenced, spellAmp } from "./stats";
+import { addStatus, cleanseSlows, disabled, silenced, spellAmp } from "./stats";
 import type { GroundEffect, Unit, World } from "./types";
 import { nextId } from "./types";
 
@@ -32,7 +32,7 @@ export type CastInput = { key: AbilityKey; point?: Vec2; targetId?: string };
 /** Attempt to cast. Returns true if the cast went through (mana/cd consumed). */
 export function castAbility(w: World, caster: Unit, input: CastInput): boolean {
   if (!caster.alive || !caster.hero) return false;
-  if (caster.statuses.some((s) => s.kind === "stun")) return false;
+  if (disabled(caster)) return false; // stunned — but `unstoppable` (Haste) overrides
   const got = abilityOf(caster, input.key);
   if (!got) return false;
   const { def, rank } = got;
@@ -676,6 +676,13 @@ type GroundOpts = {
 };
 
 function createGround(w: World, c: Unit, effect: string, p: Vec2, o: GroundOpts): void {
+  // Self-following auras (e.g. Flashfire) track the caster, so recasting before the
+  // old one expires would stack two zones on the same hero → double DPS. Replace any
+  // prior aura from this caster with the same effect instead of stacking.
+  if (o.followOwner)
+    w.groundEffects = w.groundEffects.filter(
+      (g) => !(g.followOwner && g.ownerId === c.id && g.effect === effect),
+    );
   const g: GroundEffect = {
     id: nextId(w, "g"),
     ownerId: c.id,

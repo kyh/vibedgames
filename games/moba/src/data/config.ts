@@ -14,7 +14,6 @@ export const MAX_LEVEL = 16;
 export const HERO_MAGIC_RESIST = 0.25; // flat 25% magic reduction on heroes
 export const PASSIVE_GOLD_PER_SEC = 1.5;
 export const STARTING_GOLD = 600;
-export const DAY_LENGTH_SEC = 240;
 
 // Cumulative XP required to *reach* each level (index 0 = level 1).
 export const XP_CURVE = [

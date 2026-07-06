@@ -80,10 +80,10 @@ export function applyHeroLevel(u: Unit): void {
   }
 }
 
-export function applyItemPurchase(u: Unit, itemId: string): void {
+/** Recompute stats after `h.items` changed and grant the HP/MP the new maxes add. */
+export function applyItemPurchase(u: Unit): void {
   if (!u.hero) return;
   const { hpDelta, mpDelta } = recomputeHeroStats(u);
   u.hp = Math.min(u.maxHp, u.hp + Math.max(0, hpDelta));
   u.mp = Math.min(u.maxMp, u.mp + Math.max(0, mpDelta));
-  void itemId;
 }

@@ -166,10 +166,7 @@ export class BootScene extends Phaser.Scene {
     });
 
     // --- ui (ui sprites: carved panels, ribbons, buttons) ---
-    this.load.image("ui-bar-base", "assets/ui/bar_base.png");
-    this.load.image("ui-bar-fill", "assets/ui/bar_fill.png");
     this.load.image("ui-panel", "assets/ui/panel.png");
-    this.load.image("ui-banner", "assets/ui/banner.png");
     this.load.image("ui-carved9", "assets/ui/carved9.png");
     this.load.image("ui-carved3", "assets/ui/carved3.png");
     for (const c of ["blue", "red", "yellow"])
@@ -178,7 +175,6 @@ export class BootScene extends Phaser.Scene {
       this.load.image(`ui-btn-${c}`, `assets/ui/btn_${c}.png`);
       this.load.image(`ui-btn-${c}-pressed`, `assets/ui/btn_${c}_pressed.png`);
     }
-    this.load.image("ui-btn-hover", "assets/ui/btn_hover.png");
     for (let i = 1; i <= 10; i++) {
       const n = String(i).padStart(2, "0");
       this.load.image(`ui-icon-${n}`, `assets/ui/icon_${n}.png`);
@@ -259,9 +255,45 @@ export class BootScene extends Phaser.Scene {
     g.generateTexture("bomb", 48, 48);
     g.clear();
 
-    // 1×1 white pixel for tints / bars / rect fills.
-    g.fillStyle(0xffffff, 1).fillRect(0, 0, 1, 1);
-    g.generateTexture("px", 1, 1);
+    // a sharp spark streak (4–6px), stretched along velocity for shard sprays
+    g.fillStyle(0xffffff, 1).fillRect(0, 5, 24, 3);
+    g.fillStyle(0xffffff, 0.6).fillRect(0, 4, 16, 5);
+    g.generateTexture("streak", 24, 12);
+    g.clear();
+
+    // a 4-point sparkle star — stun orbits, level-up + pickup glints
+    g.fillStyle(0xffffff, 1);
+    g.fillTriangle(16, 1, 13, 16, 19, 16);
+    g.fillTriangle(16, 31, 13, 16, 19, 16);
+    g.fillTriangle(1, 16, 16, 13, 16, 19);
+    g.fillTriangle(31, 16, 16, 13, 16, 19);
+    g.fillStyle(0xffffff, 0.9).fillCircle(16, 16, 3.2);
+    g.generateTexture("fx-star", 32, 32);
+    g.clear();
+
+    // a crisp thin ring — shockwaves on big impacts (scaled up + faded)
+    g.lineStyle(4, 0xffffff, 1).strokeCircle(32, 32, 28);
+    g.lineStyle(2, 0xffffff, 0.5).strokeCircle(32, 32, 24);
+    g.generateTexture("fx-ring", 64, 64);
+    g.clear();
+
+    // a soft scorch decal stamped where AoE/explosions land (permanence — Vlambeer)
+    for (let i = 10; i >= 1; i--) g.fillStyle(0x120c08, (1 - i / 10) * 0.5).fillEllipse(48, 32, (i / 10) * 92, (i / 10) * 62);
+    g.generateTexture("fx-scorch", 96, 64);
     g.destroy();
+
+    // radial vignette (canvas gradient) to frame the field — subtle so the pixel
+    // art stays crisp; stretched over the viewport by GameScene.
+    const vig = this.textures.createCanvas("vignette", 256, 256);
+    const vctx = vig?.getContext();
+    if (vig && vctx) {
+      const grd = vctx.createRadialGradient(128, 128, 70, 128, 128, 150);
+      grd.addColorStop(0, "rgba(6,10,18,0)");
+      grd.addColorStop(0.7, "rgba(6,10,18,0)");
+      grd.addColorStop(1, "rgba(6,10,18,0.42)");
+      vctx.fillStyle = grd;
+      vctx.fillRect(0, 0, 256, 256);
+      vig.refresh();
+    }
   }
 }

@@ -1,6 +1,5 @@
 import Phaser from "phaser";
 
-import { XP_CURVE } from "../data/config";
 import type { Team } from "../data/config";
 import { HERO_BY_ID, valAt } from "../data/heroes";
 import type { AbilityKey } from "../data/heroes";
@@ -84,6 +83,8 @@ export class HudScene extends Phaser.Scene {
 
   // low-HP danger pulse
   private danger!: Phaser.GameObjects.Rectangle;
+  // subtle radial vignette framing the field (drawn behind every HUD widget)
+  private vignette?: Phaser.GameObjects.Image;
 
   // dash (F) cooldown indicator
   private dashBox!: Phaser.GameObjects.Rectangle;
@@ -113,6 +114,15 @@ export class HudScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () =>
       this.scale.off(Phaser.Scale.Events.RESIZE, this.layout, this),
     );
+    // radial vignette to frame the field — sits behind every HUD widget, above the
+    // game. In the HUD scene (camera zoom = 1) so it's true screen-space.
+    if (this.textures.exists("vignette")) {
+      this.vignette = this.add
+        .image(0, 0, "vignette")
+        .setOrigin(0, 0)
+        .setScrollFactor(0)
+        .setDepth(100);
+    }
     this.danger = this.add
       .rectangle(0, 0, this.scale.width, this.scale.height, 0xff2a2a, 0)
       .setOrigin(0, 0)
@@ -725,6 +735,7 @@ export class HudScene extends Phaser.Scene {
     this.hintText.setPosition(cx, baseY - 46);
 
     if (this.danger) this.danger.setSize(W, H).setPosition(0, 0);
+    if (this.vignette) this.vignette.setDisplaySize(W, H).setPosition(0, 0);
 
     // minimap bottom-right; team score top-center
     this.mapX = W - MINIMAP_SIZE - 22;
@@ -882,7 +893,5 @@ export class HudScene extends Phaser.Scene {
     } else {
       this.respawnText.setVisible(false);
     }
-
-    void XP_CURVE;
   }
 }

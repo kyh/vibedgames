@@ -53,10 +53,14 @@ export function effectiveMoveSpeed(u: Unit): number {
   return Math.max(80, ms);
 }
 
-/** Effective attacks/sec after attack-speed buffs (status amounts are +points/100). */
+/** Effective attacks/sec after attack-speed buffs (status amounts are +points/100).
+ *  `markAS:` statuses (Hunter's Mark) are target-conditional and supplied via
+ *  `extraVsTarget` by the caller — skip them here so the bonus applies ONLY vs the
+ *  marked hero and isn't also counted globally / double-counted vs that hero. */
 export function effectiveAttackSpeed(u: Unit, extraVsTarget = 0): number {
   let bonusPoints = extraVsTarget;
-  for (const s of u.statuses) if (s.kind === "attackSpeed") bonusPoints += s.amount;
+  for (const s of u.statuses)
+    if (s.kind === "attackSpeed" && !s.id.startsWith("markAS:")) bonusPoints += s.amount;
   const mult = 1 + bonusPoints / 100;
   return Math.min(5, u.attackSpeedBase * mult);
 }

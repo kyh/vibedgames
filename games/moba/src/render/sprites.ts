@@ -55,20 +55,6 @@ export function heroSheetTex(defId: string, team: Team = "radiant"): string {
   return `u-${sheet}-${teamColor(team)}`;
 }
 
-export function heroTint(u: Unit): number {
-  if (u.kind === "hero" && u.hero) return HERO_BY_ID[u.hero.defId]?.tint ?? 0xffffff;
-  return 0xffffff;
-}
-
-/** Structure texture by tier + team. */
-export function structureSprite(u: Unit): { tex: string; scale: number } {
-  const color = teamColor(u.team);
-  const tier = u.structure?.tier ?? "t1";
-  if (tier === "ancient") return { tex: `b-castle-${color}`, scale: 1.7 };
-  if (tier === "base") return { tex: `b-tower-${color}`, scale: 1.15 };
-  return { tex: `b-tower-${color}`, scale: 1.35 };
-}
-
 export function structureDestroyedTex(tier: string): string {
   return tier === "ancient" ? "b-castle-destroyed" : "b-tower-destroyed";
 }

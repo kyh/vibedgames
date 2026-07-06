@@ -6,14 +6,13 @@ import { enemyOf } from "../data/config";
 import type { Team } from "../data/config";
 import { HERO_BY_ID } from "../data/heroes";
 import type { AbilityKey } from "../data/heroes";
-import { ITEM_BY_ID, ITEMS, MAX_ITEMS } from "../data/items";
+import { ITEMS } from "../data/items";
 import { BASES, TOWERS, lanePath } from "../data/map";
 import type { LaneId } from "../data/map";
 import { autoLevel, castAbility } from "./abilities";
-import { applyItemPurchase } from "./herokit";
 import { dist } from "./math";
 import type { Vec2 } from "./math";
-import { issueOrder } from "./world";
+import { buyItem, issueOrder } from "./world";
 import type { Unit, World } from "./types";
 
 const DECISION_MS = 350;
@@ -52,7 +51,7 @@ function decide(w: World, u: Unit): void {
 
   // shop when near home fountain
   const home = BASES[u.team];
-  if (dist(u, home.fountain) < home.shopRadius) tryShop(u);
+  if (dist(u, home.fountain) < home.shopRadius) tryShop(w, u);
 
   // mid/late game: converge on one lane to actually close out. Bots group on the
   // enemy lane whose frontmost tower is weakest once they have an ult or it's late.
@@ -330,19 +329,12 @@ function lowestAlly(w: World, u: Unit, range: number): Unit | null {
   return best;
 }
 
-function tryShop(u: Unit): void {
-  const h = u.hero!;
-  if (h.items.length >= MAX_ITEMS) return;
-  const prio = BUY_PRIORITY[h.defId] ?? ITEMS.map((i) => i.id);
+function tryShop(w: World, u: Unit): void {
+  if (!u.hero) return;
+  const prio = BUY_PRIORITY[u.hero.defId] ?? ITEMS.map((i) => i.id);
+  // buyItem is the single source of the purchase rules (gold, dup, max-items, shop
+  // radius) — call it instead of re-implementing the economy here.
   for (const id of prio) {
-    if (h.items.includes(id)) continue;
-    const it = ITEM_BY_ID[id];
-    if (!it) continue;
-    if (h.gold >= it.cost) {
-      h.gold -= it.cost;
-      h.items.push(id);
-      applyItemPurchase(u, id);
-      return; // one buy per visit
-    }
+    if (buyItem(w, u, id)) return; // one buy per visit
   }
 }

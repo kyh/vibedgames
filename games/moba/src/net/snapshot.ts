@@ -2,7 +2,7 @@
 // rng closure, so encoding is just Map->record (+ drop rng); decoding rebuilds
 // the Maps into a guest's persistent World so the renderer can read it unchanged.
 
-import type { GroundEffect, Mine, Projectile, Unit, World } from "../sim/types";
+import type { FxEvent, GroundEffect, Mine, Projectile, Unit, World } from "../sim/types";
 
 export type Snapshot = {
   now: number;
@@ -78,9 +78,9 @@ export function applySnapshot(w: World, snap: Snapshot): void {
 
 function rebuildMap<T>(map: Map<string, T>, rec: Record<string, T>): void {
   const seen = new Set<string>();
-  for (const k of Object.keys(rec)) {
+  for (const [k, val] of Object.entries(rec)) {
     seen.add(k);
-    map.set(k, rec[k]!);
+    map.set(k, val);
   }
   for (const k of map.keys()) if (!seen.has(k)) map.delete(k);
 }
@@ -88,4 +88,29 @@ function rebuildMap<T>(map: Map<string, T>, rec: Record<string, T>): void {
 /** Strip a snapshot down for the wire (it's already plain; this validates shape). */
 export function isSnapshot(v: unknown): v is Snapshot {
   return typeof v === "object" && v !== null && "units" in v && "gameTime" in v;
+}
+
+// Known one-shot fx tags, for validating a broadcast fx batch at ingest.
+const FX_TAGS = new Set<string>([
+  "hit",
+  "death",
+  "explosion",
+  "cast",
+  "blink",
+  "levelup",
+  "gold",
+  "heal",
+  "structureDown",
+  "kill",
+  "notify",
+  "ability",
+]);
+function isFxEvent(e: unknown): e is FxEvent {
+  return (
+    typeof e === "object" && e !== null && "t" in e && typeof e.t === "string" && FX_TAGS.has(e.t)
+  );
+}
+/** Validate an unknown broadcast fx array into typed FxEvents, dropping bad shapes. */
+export function parseFxBatch(v: unknown): FxEvent[] {
+  return Array.isArray(v) ? v.filter(isFxEvent) : [];
 }

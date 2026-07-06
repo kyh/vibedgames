@@ -6,7 +6,7 @@ import Phaser from "phaser";
 // sim (one subject + one dummy, no waves/towers/camps) rendered by the real
 // WorldView, so everything looks exactly as it does in a match.
 
-import { CREEPS, SIM_DT } from "../data/config";
+import { CREEPS, SIM_DT, enemyOf } from "../data/config";
 import type { CreepKind, Team } from "../data/config";
 import { HERO_BY_ID, HEROES, heroStatAt } from "../data/heroes";
 import type { AbilityKey, HeroDef } from "../data/heroes";
@@ -482,8 +482,4 @@ export class ShowcaseScene extends Phaser.Scene {
     }
     return lines.join("\n");
   }
-}
-
-function enemyOf(t: Team): Team {
-  return t === "radiant" ? "dire" : "radiant";
 }

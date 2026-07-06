@@ -145,11 +145,13 @@ export function tryAttack(w: World, u: Unit, target: Unit): void {
 }
 
 function attackSpeedVsTarget(u: Unit, target: Unit): number {
-  // stormcaller Hunter's Mark grants bonus AS vs the marked hero (status on u)
+  // stormcaller Hunter's Mark grants bonus AS vs the marked hero (status on u).
+  // Match the exact id ("markAS:" + target.id) — an endsWith() test could collide
+  // when one unit id is a suffix of another.
+  const markId = "markAS:" + target.id;
   let bonus = 0;
   for (const s of u.statuses) {
-    if (s.kind === "attackSpeed" && s.id.startsWith("markAS:") && s.id.endsWith(target.id))
-      bonus += s.amount;
+    if (s.kind === "attackSpeed" && s.id === markId) bonus += s.amount;
   }
   return bonus;
 }
@@ -216,7 +218,7 @@ function applySplash(w: World, u: Unit, target: Unit, dmg: number): void {
   if (!sp || sp.kind !== "splashAttacks") return;
   sp.left -= 1;
   for (const o of w.units.values()) {
-    if (o === target || !isEnemy(u, o) || !o.alive) continue;
+    if (o === target || !isEnemy(u, o) || !o.alive || untargetable(o)) continue;
     if (dist(o, target) <= sp.radius) {
       dealDamage(w, u, o, dmg * sp.pct, "physical", {});
     }
@@ -463,9 +465,19 @@ function handleDeath(w: World, victim: Unit, killer: Unit | null): void {
 
   if (victim.kind === "creep") {
     awardCreepKill(w, victim, killer);
-  } else if (victim.kind === "hero") {
+  } else if (victim.kind === "hero" && victim.hero) {
     awardHeroKill(w, victim, killer);
-    const h = victim.hero!;
+    const h = victim.hero;
+    // end any active channel so its ground zone (heal/storm) stops ticking from a
+    // corpse — handleDeath is the only death path, and breakChannel isn't reachable
+    // for a dead unit. Inlined to avoid a combat->abilities import cycle.
+    if (h.channel) {
+      const eff = h.channel.effect;
+      h.channel = null;
+      w.groundEffects = w.groundEffects.filter(
+        (g) => !(g.ownerId === victim.id && g.effect === eff && g.channel),
+      );
+    }
     h.killStreak = 0;
     h.deaths += 1;
     const aeg = victim.statuses.find((s) => s.kind === "aegis");

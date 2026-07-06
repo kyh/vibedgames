@@ -42,7 +42,14 @@ import { applyItemPurchase, recomputeHeroStats } from "./herokit";
 import { dist, moveToward } from "./math";
 import type { Vec2 } from "./math";
 import { findPath } from "./nav";
-import { disabled, effectiveMoveSpeed, expireStatuses, rooted, tauntTarget } from "./stats";
+import {
+  disabled,
+  effectiveMoveSpeed,
+  expireStatuses,
+  rooted,
+  tauntTarget,
+  untargetable,
+} from "./stats";
 import { tickAbilities, breakChannel } from "./abilities";
 import { tickBots } from "./ai";
 import type { Mine, Order, Unit, World } from "./types";
@@ -803,6 +810,7 @@ function tickMines(w: World): void {
     if (w.now < m.armedAt) continue;
     for (const u of w.units.values()) {
       if ((!u.neutral && u.team === m.team) || !u.alive || u.kind === "structure") continue;
+      if (untargetable(u)) continue; // phased-out units (e.g. Death Waltz) don't trip mines
       if (dist(u, m) <= m.triggerRadius) {
         detonateMine(w, m);
         break;
@@ -817,6 +825,7 @@ function detonateMine(w: World, m: Mine): void {
   const owner = w.units.get(m.ownerId) ?? null;
   for (const u of w.units.values()) {
     if ((!u.neutral && u.team === m.team) || !u.alive || u.kind === "structure") continue;
+    if (untargetable(u)) continue;
     if (dist(u, m) <= m.triggerRadius + 30) {
       dealDamage(w, owner, u, m.damage, "magic", {});
       u.statuses.push({
@@ -864,14 +873,18 @@ function clampToWorld(w: World): void {
   }
 }
 
-/** Step toward the nearest dry ground (land or bridge), sampling outward rings. */
+/** Step toward the nearest standable ground (dry, not a blocked plateau or cliff),
+ *  sampling outward rings — so a unit shoved into water lands somewhere legalMove
+ *  will actually let it walk out of, not on a cliff/deco rise it then gets stuck on. */
 function nudgeToLand(u: Unit): void {
   for (let r = 32; r <= 256; r += 32) {
     for (let k = 0; k < 8; k++) {
       const a = (k / 8) * Math.PI * 2;
       const x = u.x + Math.cos(a) * r;
       const y = u.y + Math.sin(a) * r;
-      if (!isWater(x, y)) {
+      const cx = Math.floor(x / CELL);
+      const cy = Math.floor(y / CELL);
+      if (!isWater(x, y) && !isBlockedHighCell(cx, cy) && !isCliffCell(cx, cy)) {
         u.x += Math.cos(a) * 8;
         u.y += Math.sin(a) * 8;
         return;
@@ -917,7 +930,7 @@ export function buyItem(w: World, u: Unit, itemId: string): boolean {
   if (h.gold < it.cost) return false;
   h.gold -= it.cost;
   h.items.push(itemId);
-  applyItemPurchase(u, itemId);
+  applyItemPurchase(u);
   return true;
 }
 

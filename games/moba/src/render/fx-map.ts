@@ -66,11 +66,19 @@ export const ABILITY_CAST_FX: Record<string, SpellCastFx> = {
   "duskblade:R": { sheet: "sp-smoke", at: "target", scale: 1.5, tint: 0x9b6bff },
   "stormcaller:W": { sheet: "sp-light", at: "target", scale: 0.7, tint: 0x6ab8ff },
   "stormcaller:E": { sheet: "sp-tornado", at: "caster", scale: 1.25, tint: 0xbfe6ff },
+  "stormcaller:R": { sheet: "sp-lightning", at: "target", scale: 1.3, tint: 0x8fd0ff },
+  "emberhex:Q": { sheet: "sp-fire", at: "caster", scale: 0.9, tint: 0xffb27a }, // muzzle flare
+  "emberhex:W": { sheet: "sp-fire", at: "caster", scale: 1.0, tint: 0xff8a4a },
   "emberhex:E": { sheet: "sp-fire", at: "caster", scale: 1.7, tint: 0xffcaa0 },
+  "emberhex:R": { sheet: "sp-fire", at: "target", scale: 2.1, tint: 0xff7a2a },
+  "boomtinker:Q": { sheet: "sp-smoke", at: "caster", scale: 0.9, tint: 0xd8c0a0 }, // toss puff
+  "boomtinker:W": { sheet: "sp-smoke", at: "target", scale: 1.0, tint: 0xffd24d },
   "boomtinker:E": { sheet: "sp-light", at: "caster", scale: 1.2, tint: 0xffe08a },
+  "boomtinker:R": { sheet: "sp-fire", at: "caster", scale: 1.6, tint: 0xffd24d },
   "brewkeeper:Q": { sheet: "sp-water", at: "target", scale: 1.1, tint: 0x8bf0a8 },
   "brewkeeper:W": { sheet: "sp-gypno", at: "target", scale: 1.9, tint: 0xc78bff },
   "brewkeeper:E": { sheet: "sp-light", at: "caster", scale: 1.5, tint: 0x9bf0b0 },
+  "brewkeeper:R": { sheet: "sp-light", at: "caster", scale: 2.3, tint: 0x9bf0b0 }, // last call
 };
 
 export function abilityCastFx(effect: string): SpellCastFx | null {

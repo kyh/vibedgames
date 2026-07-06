@@ -81,6 +81,8 @@ type UnitView = {
   recoilX: number; // hit knockback offset (decays each frame)
   recoilY: number;
   flashUntil: number; // ms; sprite shows a red damage flash until then
+  stunStars: Phaser.GameObjects.Image[]; // orbiting stars while stunned/taunted
+  shieldFx: Phaser.GameObjects.Arc | null; // shimmer ring while shielded
 };
 
 /** A live ground zone's display: the coloured ring + any looping effect sprites
@@ -105,14 +107,24 @@ export class WorldView {
   private units = new Map<string, UnitView>();
   private structs = new Map<string, StructView>();
   private projs = new Map<string, Phaser.GameObjects.Image | Phaser.GameObjects.Sprite>();
+  private projTrailAt = new Map<string, number>(); // throttle per-projectile trail puffs
   private grounds = new Map<string, GroundView>();
   private mines = new Map<string, Phaser.GameObjects.Arc>();
   private shoreCells: Array<{ x: number; y: number }> = []; // water cells touching land, for ambient splashes
   private splashAcc = 0;
+  private scorches: Phaser.GameObjects.Image[] = []; // lingering blast marks (capped)
   private reticle: Phaser.GameObjects.Image | null = null; // target marker (Cursor_04)
   private reticleId = ""; // unit the player is currently targeting/hovering
   playerHeroId = "";
   playerTeam: "radiant" | "dire" = "radiant";
+
+  // Trauma-based screen shake (Eiserloh): fx add trauma, offset = maxOffset·trauma²,
+  // decaying to 0. One accumulator so many hits don't fight; GameScene reads the
+  // computed offset/rotation each frame and applies it to the camera it owns.
+  private trauma = 0;
+  shakeX = 0;
+  shakeY = 0;
+  shakeRot = 0;
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -228,6 +240,44 @@ export class WorldView {
     this.buildWaterRocks();
     this.buildClouds();
     this.buildAmbientLife();
+    // 12) drifting light motes — soft filmic dust catching the light
+    this.buildLightMotes();
+  }
+
+  /** A sparse field of slow-drifting, softly twinkling light motes over the map —
+   *  pure atmosphere. Kept few + faint so they read as bokeh, not gameplay. */
+  private buildLightMotes(): void {
+    const s = this.scene;
+    const COUNT = 18;
+    for (let i = 0; i < COUNT; i++) {
+      const x = rng2(i * 7, 3) * WORLD.width;
+      const y = rng2(2, i * 11) * WORLD.height;
+      const m = s.add
+        .image(x, y, "spark")
+        .setScale(0.12 + rng2(i, i) * 0.13)
+        .setAlpha(0.28 + rng2(i, 4) * 0.22)
+        .setTint(0xfff6d8)
+        .setDepth(8600)
+        .setBlendMode(Phaser.BlendModes.ADD);
+      s.tweens.add({
+        targets: m,
+        x: x + (rng2(i, 5) - 0.5) * 150,
+        y: y - 60 - rng2(i, 9) * 130,
+        duration: 9000 + rng2(i, 2) * 8000,
+        yoyo: true,
+        repeat: -1,
+        ease: "Sine.InOut",
+      });
+      s.tweens.add({
+        targets: m,
+        alpha: 0.08,
+        duration: 2200 + rng2(i, 6) * 2600,
+        yoyo: true,
+        repeat: -1,
+        ease: "Sine.InOut",
+        delay: rng2(i, i) * 3000,
+      });
+    }
   }
 
   /** The Roshan pit: dark trampled ground + a deterministic ring of bones/rocks. */
@@ -683,7 +733,7 @@ export class WorldView {
       this.structs.set(id, { sprite: sp, hpBg, hpFill, range: null, fires: [], dead: false });
     };
     for (const t of TOWERS) make(t.id, t.team, t.tier, t.x, t.y);
-    for (const team of ["radiant", "dire"] as Team[]) {
+    for (const team of ["radiant", "dire"] as const) {
       make(
         team === "radiant" ? "r-ancient" : "d-ancient",
         team,
@@ -710,6 +760,36 @@ export class WorldView {
     this.syncReticle(world);
     this.drainFx(world);
     this.tickAmbientSplashes(dt);
+    this.tickShake(dt);
+  }
+
+  /** Add screen-shake trauma (0..1), clamped. Bigger events add more. */
+  addTrauma(amount: number): void {
+    this.trauma = Math.min(1, this.trauma + amount);
+  }
+
+  /** Add trauma scaled by how close a world point is to the camera centre, so a
+   *  distant explosion barely nudges the view while a hit in your face rattles it. */
+  private traumaAt(x: number, y: number, base: number): void {
+    const v = this.scene.cameras.main.worldView;
+    const d = Math.hypot(x - (v.x + v.width / 2), y - (v.y + v.height / 2));
+    const falloff = Math.max(0, 1 - d / 1000);
+    if (falloff > 0) this.addTrauma(base * falloff);
+  }
+
+  /** Decay trauma and recompute the camera offset/rotation (offset ∝ trauma², from
+   *  smooth per-axis oscillation). GameScene applies shakeX/Y/Rot after its follow. */
+  private tickShake(dt: number): void {
+    if (this.trauma <= 0) {
+      this.shakeX = this.shakeY = this.shakeRot = 0;
+      return;
+    }
+    this.trauma = Math.max(0, this.trauma - dt * 1.7); // ~0.6s to fully settle
+    const s = this.trauma * this.trauma;
+    const t = this.scene.time.now;
+    this.shakeX = Math.sin(t * 0.055) * 15 * s;
+    this.shakeY = Math.cos(t * 0.063 + 1.3) * 15 * s;
+    this.shakeRot = Math.sin(t * 0.048 + 0.7) * 0.022 * s; // ≤ ~1.3°, keeps pixels calm
   }
 
   /** Position the target reticle over the currently-targeted unit (4 corner
@@ -785,6 +865,10 @@ export class WorldView {
         sv.hpFill.setVisible(false);
         for (const f of sv.fires) f.destroy();
         sv.fires = [];
+        // the attack-range warning ring lives only while alive — drop it, or a
+        // tower killed while you stand in range leaves an orphaned circle forever.
+        sv.range?.destroy();
+        sv.range = null;
         continue;
       }
       if (u.alive) {
@@ -866,6 +950,7 @@ export class WorldView {
           const dkey = animKey(u, "death");
           v.sprite.clearTint();
           this.spawnSkull(v.dx, v.dy, u.kind === "hero" ? 0.62 : 0.5);
+          if (u.kind === "hero") this.spawnHeroDeathFx(v.dx, v.dy);
           if (this.scene.anims.exists(dkey)) {
             v.sprite.play(dkey);
             v.curAnim = dkey;
@@ -949,8 +1034,7 @@ export class WorldView {
         }
         if (u.kind === "hero") this.spawnSwing(v.dx, v.dy, u.facing, u.projectileSpeed > 0);
       } else if (!attackPlaying) {
-        const moving = Math.hypot(u.vx, u.vy) > 12;
-        const key = animKey(u, moving ? "walk" : "idle");
+        const key = animKey(u, speed > 12 ? "walk" : "idle");
         if (v.curAnim !== key && this.scene.anims.exists(key)) {
           v.sprite.play(key, true);
           v.curAnim = key;
@@ -969,6 +1053,8 @@ export class WorldView {
       // status tints: stun = yellow ring flash handled via ring alpha
       const stunned = u.statuses.some((s) => s.kind === "stun" || s.kind === "taunt");
       v.ring.setAlpha(u.id === this.playerHeroId ? 1 : stunned ? 0.9 : u.kind === "hero" ? 0.5 : 0);
+      // persistent status auras (orbiting stun stars, shield shimmer)
+      this.syncStatusFx(u, v);
     }
     // remove views for units gone from the world (creeps die + get reaped) —
     // play a one-shot death anim from the sprite's last texture as it leaves.
@@ -1077,6 +1163,80 @@ export class WorldView {
         onComplete: () => sp.destroy(),
       });
     }
+    // sharp streak shards on crits/big hits — stretched along their velocity, they
+    // read as fast, energetic debris (soft dots alone read mushy).
+    const shards = crit ? 4 : 2;
+    for (let i = 0; i < shards; i++) {
+      const a = baseAng + (Math.random() - 0.5) * 1.1;
+      const spd = (crit ? 130 : 95) + Math.random() * 90;
+      const sh = s.add
+        .image(x, y, "streak")
+        .setDepth(y + 321)
+        .setRotation(a)
+        .setScale(crit ? 0.8 : 0.55, 0.6)
+        .setTint(tint)
+        .setAlpha(0.9)
+        .setBlendMode(Phaser.BlendModes.ADD);
+      s.tweens.add({
+        targets: sh,
+        x: x + Math.cos(a) * spd,
+        y: y + Math.sin(a) * spd + 12,
+        scaleX: 0,
+        alpha: 0,
+        duration: 180 + Math.random() * 110,
+        ease: "Quad.Out",
+        onComplete: () => sh.destroy(),
+      });
+    }
+  }
+
+  /** Stamp a lingering scorch mark where a blast/AoE landed (permanence — the field
+   *  remembers the fight). Capped + slowly faded so marks don't pile up forever. */
+  private stampScorch(x: number, y: number, radius: number): void {
+    const s = this.scene;
+    if (!s.textures.exists("fx-scorch")) return;
+    const mark = s.add
+      .image(x, y, "fx-scorch")
+      .setDepth(DEPTH_DECAL - 3)
+      .setAlpha(0)
+      .setAngle(Math.random() * 360)
+      .setScale(Phaser.Math.Clamp((radius / 96) * 1.4, 0.5, 2.6));
+    s.tweens.add({ targets: mark, alpha: 0.7, duration: 120 });
+    s.tweens.add({
+      targets: mark,
+      alpha: 0,
+      delay: 3500,
+      duration: 3500,
+      onComplete: () => {
+        const i = this.scorches.indexOf(mark);
+        if (i >= 0) this.scorches.splice(i, 1);
+        mark.destroy();
+      },
+    });
+    this.scorches.push(mark);
+    // hard cap: retire the oldest immediately if we're flooding (busy teamfights)
+    while (this.scorches.length > 36) this.scorches.shift()?.destroy();
+  }
+
+  /** An expanding shockwave ring — reserved for crits / big nukes (not every hit). */
+  private spawnShockwave(x: number, y: number, tint: number, strength: number): void {
+    const s = this.scene;
+    if (!s.textures.exists("fx-ring")) return;
+    const ring = s.add
+      .image(x, y, "fx-ring")
+      .setDepth(y + 260)
+      .setTint(tint)
+      .setAlpha(0.7 * strength)
+      .setScale(0.25)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    s.tweens.add({
+      targets: ring,
+      scale: 1.3 + strength * 0.7,
+      alpha: 0,
+      duration: 340,
+      ease: "Cubic.Out",
+      onComplete: () => ring.destroy(),
+    });
   }
 
   /** A little kicked-up dust puff at the feet of a running unit. */
@@ -1119,6 +1279,50 @@ export class WorldView {
       });
     } else {
       this.collapseSprite(corpse, () => corpse.destroy());
+    }
+  }
+
+  /** Hero death flourish: a scorch where they fell + a rising soul wisp and a few
+   *  drifting sparkle motes — a death reads as a moment, not just a vanish. */
+  private spawnHeroDeathFx(x: number, y: number): void {
+    const s = this.scene;
+    this.stampScorch(x, y + 8, 58);
+    const wisp = s.add
+      .image(x, y - 8, "glow")
+      .setTint(0xbfe0ff)
+      .setAlpha(0.7)
+      .setScale(0.5)
+      .setDepth(y + 400)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    s.tweens.add({
+      targets: wisp,
+      y: y - 72,
+      scaleX: 0.2,
+      scaleY: 0.95,
+      alpha: 0,
+      duration: 900,
+      ease: "Sine.Out",
+      onComplete: () => wisp.destroy(),
+    });
+    if (!s.textures.exists("fx-star")) return;
+    for (let i = 0; i < 4; i++) {
+      const st = s.add
+        .image(x + (Math.random() - 0.5) * 24, y - 4, "fx-star")
+        .setTint(0xcfe6ff)
+        .setScale(0.22)
+        .setAlpha(0.9)
+        .setDepth(y + 401)
+        .setBlendMode(Phaser.BlendModes.ADD);
+      s.tweens.add({
+        targets: st,
+        y: y - 50 - Math.random() * 30,
+        x: st.x + (Math.random() - 0.5) * 30,
+        alpha: 0,
+        angle: 140,
+        duration: 700 + Math.random() * 300,
+        ease: "Sine.Out",
+        onComplete: () => st.destroy(),
+      });
     }
   }
 
@@ -1212,9 +1416,55 @@ export class WorldView {
       recoilX: 0,
       recoilY: 0,
       flashUntil: 0,
+      stunStars: [],
+      shieldFx: null,
     };
     this.units.set(u.id, v);
     return v;
+  }
+
+  /** Persistent status auras that read the sim's statuses: orbiting stars while
+   *  disabled (stun/taunt), a cyan shimmer ring while shielded. Created/destroyed
+   *  as the status comes and goes; both ride the unit container so they follow it. */
+  private syncStatusFx(u: Unit, v: UnitView): void {
+    const s = this.scene;
+    const now = s.time.now;
+    const headY = u.kind === "hero" ? -50 : -34;
+    const stunned = u.statuses.some((st) => st.kind === "stun" || st.kind === "taunt");
+    if (stunned && v.stunStars.length === 0 && s.textures.exists("fx-star")) {
+      for (let i = 0; i < 3; i++) {
+        const star = s.add
+          .image(0, headY, "fx-star")
+          .setScale(0.3)
+          .setTint(0xffe14a)
+          .setBlendMode(Phaser.BlendModes.ADD);
+        v.container.add(star);
+        v.stunStars.push(star);
+      }
+    } else if (!stunned && v.stunStars.length > 0) {
+      for (const st of v.stunStars) st.destroy();
+      v.stunStars = [];
+    }
+    const n = v.stunStars.length;
+    for (let i = 0; i < n; i++) {
+      const a = now / 260 + (i / n) * Math.PI * 2;
+      v.stunStars[i]?.setPosition(Math.cos(a) * 15, headY + Math.sin(a) * 5);
+    }
+
+    const shielded = u.statuses.some((st) => st.kind === "shield");
+    if (shielded && !v.shieldFx) {
+      v.shieldFx = s.add
+        .circle(0, u.kind === "hero" ? -12 : -8, u.kind === "hero" ? 32 : 22, 0x6ad0ff, 0.06)
+        .setStrokeStyle(2, 0x9fe6ff, 0.8);
+      v.container.add(v.shieldFx);
+    } else if (!shielded && v.shieldFx) {
+      v.shieldFx.destroy();
+      v.shieldFx = null;
+    }
+    if (v.shieldFx) {
+      v.shieldFx.setScale(1 + 0.07 * Math.sin(now / 130));
+      v.shieldFx.setStrokeStyle(2, 0x9fe6ff, 0.55 + 0.3 * Math.sin(now / 150));
+    }
   }
 
   /** Update hero name/level labels (called less often by HUD/Game). */
@@ -1244,8 +1494,7 @@ export class WorldView {
           img = this.scene.add.image(p.x, p.y, projTex(p), 0).setScale(0.7);
           if (p.kind === "bolt") img.setTint(0xb98bff); // magic bolts read distinct from arrows
         }
-        img.setDepth(p.y + 200);
-        this.projs.set(p.id, img);
+        this.projs.set(p.id, img); // position + depth set every frame just below
       }
       img.setPosition(p.x, p.y);
       img.setDepth(p.y + 200);
@@ -1254,12 +1503,47 @@ export class WorldView {
       if (p.kind === "arrow" || p.kind === "bolt" || p.kind === "fireball" || p.kind === "tower")
         img.setRotation(ang);
       else img.setRotation(0); // dynamite stays upright so its lit fuse reads
+      this.tickProjTrail(p);
     }
     for (const [id, img] of this.projs)
       if (!seen.has(id)) {
         img.destroy();
         this.projs.delete(id);
+        this.projTrailAt.delete(id);
       }
+  }
+
+  /** A fading additive puff dropped behind a projectile as it flies — each starts
+   *  brightest and dims as the projectile pulls away, reading as speed. Throttled
+   *  per projectile so the trail is a ribbon of a few puffs, not a solid smear. */
+  private tickProjTrail(p: Projectile): void {
+    const now = this.scene.time.now;
+    if (now - (this.projTrailAt.get(p.id) ?? 0) < 22) return;
+    this.projTrailAt.set(p.id, now);
+    const hot = p.kind === "fireball";
+    const col =
+      p.kind === "fireball"
+        ? 0xff9a3a
+        : p.kind === "bolt"
+          ? 0xb98bff
+          : p.kind === "dynamite"
+            ? 0xffae4a
+            : 0xdfe8ff; // arrows/tower: a faint white streak
+    const g = this.scene.add
+      .image(p.x, p.y, "spark")
+      .setDepth(p.y + 199)
+      .setScale(hot ? 0.5 : 0.3)
+      .setTint(col)
+      .setAlpha(hot ? 0.75 : 0.5)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    this.scene.tweens.add({
+      targets: g,
+      scale: 0,
+      alpha: 0,
+      duration: hot ? 300 : 210,
+      ease: "Quad.Out",
+      onComplete: () => g.destroy(),
+    });
   }
 
   private syncGrounds(world: World, dt: number): void {
@@ -1390,6 +1674,24 @@ export class WorldView {
         // ticks (every 0.5s) just get the cheap flash so burning units don't twitch
         // or spray particles twice a second.
         const bigHit = fx.isAttack === true || fx.crit === true || fx.amount >= 30;
+        // a 1-frame near-white flash core over the puff: the bright "overload" beat
+        // before the impact cools (fast in, slow out).
+        if (bigHit) {
+          const flash = s.add
+            .image(fx.x, fx.y, "spark")
+            .setDepth(fx.y + 301)
+            .setScale(fx.crit ? 1.15 : 0.72)
+            .setAlpha(0.95)
+            .setBlendMode(Phaser.BlendModes.ADD);
+          s.tweens.add({
+            targets: flash,
+            scale: 0,
+            alpha: 0,
+            duration: fx.crit ? 150 : 95,
+            ease: "Quad.Out",
+            onComplete: () => flash.destroy(),
+          });
+        }
         const vv = this.units.get(fx.targetId);
         if (vv && !vv.dead) {
           vv.sprite.setTint(magic ? 0xd9a6ff : 0xff8a8a);
@@ -1401,27 +1703,35 @@ export class WorldView {
           }
         }
         if (bigHit) this.spawnHitSparks(fx.x, fx.y, fx.nx, fx.ny, tintCol, fx.crit);
-        // juice: a small camera kick when the player themselves takes a real hit
-        if (fx.targetId === this.playerHeroId && fx.amount >= 35) {
-          this.scene.cameras.main.shake(110, Math.min(0.006, 0.0016 + fx.amount / 40000));
-        }
-        const color = fx.dtype === "magic" ? "#c78bff" : fx.crit ? "#ffd23a" : "#ffffff";
-        const size = fx.crit ? "22px" : "15px";
+        // a shockwave ring is reserved for crits / big nukes — on every hit it's noise
+        if (fx.crit || fx.amount >= 55) this.spawnShockwave(fx.x, fx.y, tintCol, fx.crit ? 1 : 0.8);
+        // trauma shake: the player taking a real hit rattles the view; a heavy blow
+        // landing near the camera nudges it (distance-weighted).
+        if (fx.targetId === this.playerHeroId && fx.amount >= 25)
+          this.addTrauma(Math.min(0.5, 0.14 + fx.amount / 400));
+        else if (fx.crit || fx.amount >= 60) this.traumaAt(fx.x, fx.y, 0.2);
+        const color = magic ? "#c78bff" : fx.crit ? "#ffd23a" : "#ffffff";
+        const size = fx.crit ? "24px" : "15px";
         const t = s.add
           .text(fx.x + (Math.random() - 0.5) * 16, fx.y, `${fx.amount}`, {
             fontFamily: FONT,
             fontSize: size,
             color,
             stroke: "#1c1410",
-            strokeThickness: 4,
+            strokeThickness: fx.crit ? 5 : 4,
           })
           .setOrigin(0.5)
           .setDepth(90000);
+        // crits punch in with an overshoot pop; everyone rises + fades
+        if (fx.crit) {
+          t.setScale(0.4);
+          s.tweens.add({ targets: t, scale: 1.15, duration: 200, ease: "Back.Out" });
+        }
         s.tweens.add({
           targets: t,
-          y: fx.y - 38,
+          y: fx.y - (fx.crit ? 52 : 38),
           alpha: 0,
-          duration: 700,
+          duration: fx.crit ? 820 : 700,
           ease: "Cubic.Out",
           onComplete: () => t.destroy(),
         });
@@ -1429,6 +1739,24 @@ export class WorldView {
       }
       case "explosion": {
         sfx.explosion();
+        this.stampScorch(fx.x, fx.y, fx.radius);
+        this.traumaAt(fx.x, fx.y, Phaser.Math.Clamp(0.12 + fx.radius / 500, 0.12, 0.5));
+        // white flash core the instant the blast lands (before the sprite's fire cools)
+        const boom = s.add
+          .image(fx.x, fx.y - 6, "glow")
+          .setDepth(fx.y + 402)
+          .setTint(0xfff2d6)
+          .setAlpha(0.85)
+          .setScale((fx.radius / 128) * 0.6)
+          .setBlendMode(Phaser.BlendModes.ADD);
+        s.tweens.add({
+          targets: boom,
+          scale: (fx.radius / 128) * 1.5,
+          alpha: 0,
+          duration: 150,
+          ease: "Quad.Out",
+          onComplete: () => boom.destroy(),
+        });
         // the Particle FX pack's cartoon explosions, played raw (their art carries
         // its own palette — no tint, no additive blend)
         const key =
@@ -1467,9 +1795,11 @@ export class WorldView {
       }
       case "levelup": {
         const v = this.units.get(fx.unitId);
-        if (fx.unitId === this.playerHeroId) sfx.level();
+        const isMe = fx.unitId === this.playerHeroId;
+        if (isMe) sfx.level();
         const x = v ? v.dx : fx.x;
         const y = v ? v.dy : fx.y;
+        // overload: an expanding golden ring at the feet + a warm flash column
         const ring = s.add
           .circle(x, y + 10, 20, 0xffe14a, 0)
           .setStrokeStyle(4, 0xffe14a, 1)
@@ -1481,6 +1811,46 @@ export class WorldView {
           duration: 600,
           onComplete: () => ring.destroy(),
         });
+        const glow = s.add
+          .image(x, y - 14, "glow")
+          .setTint(0xffe89a)
+          .setAlpha(0.7)
+          .setScale(0.4)
+          .setDepth(y + 51)
+          .setBlendMode(Phaser.BlendModes.ADD);
+        s.tweens.add({
+          targets: glow,
+          scaleX: 0.9,
+          scaleY: 2.2,
+          alpha: 0,
+          duration: 520,
+          ease: "Quad.Out",
+          onComplete: () => glow.destroy(),
+        });
+        // processing: sparkle stars rising off the hero (the lingering payoff)
+        if (s.textures.exists("fx-star")) {
+          const count = isMe ? 8 : 5;
+          for (let i = 0; i < count; i++) {
+            const sx = x + (Math.random() - 0.5) * 44;
+            const star = s.add
+              .image(sx, y + 6, "fx-star")
+              .setTint(0xfff0a8)
+              .setDepth(y + 60)
+              .setScale(0.3 + Math.random() * 0.25)
+              .setAlpha(0.95)
+              .setBlendMode(Phaser.BlendModes.ADD);
+            s.tweens.add({
+              targets: star,
+              y: y - 40 - Math.random() * 42,
+              alpha: 0,
+              angle: 180,
+              delay: i * 32,
+              duration: 620 + Math.random() * 260,
+              ease: "Sine.Out",
+              onComplete: () => star.destroy(),
+            });
+          }
+        }
         break;
       }
       case "gold": {
@@ -1527,14 +1897,27 @@ export class WorldView {
       }
       case "structureDown": {
         sfx.structureDown();
-        s.cameras.main.shake(260, 0.006);
-        if (s.anims.exists("fx-explode2")) {
-          const e = s.add
-            .sprite(fx.x, fx.y - 50, "fx-explode2", 0)
-            .setDepth(fx.y + 500)
-            .setScale(1.7);
-          e.play("fx-explode2");
-          e.once("animationcomplete", () => e.destroy());
+        this.addTrauma(0.85); // a tower/ancient falling should be felt across the map
+        this.stampScorch(fx.x, fx.y, 150);
+        this.spawnShockwave(fx.x, fx.y, 0xffd9a0, 1.4);
+        // a barrage: the main blast plus offset secondary bursts (never one long one)
+        const bursts: Array<[number, number, number, number]> = [
+          [0, -50, 1.7, 0],
+          [-42, -20, 1.1, 120],
+          [46, -34, 1.2, 210],
+          [8, -84, 1.0, 340],
+        ];
+        for (const [ox, oy, sc, delay] of bursts) {
+          const key = s.anims.exists("fx-explode2") ? "fx-explode2" : "fx-explode1";
+          if (!s.anims.exists(key)) break;
+          s.time.delayedCall(delay, () => {
+            const e = s.add
+              .sprite(fx.x + ox, fx.y + oy, key, 0)
+              .setDepth(fx.y + 500)
+              .setScale(sc);
+            e.play(key);
+            e.once("animationcomplete", () => e.destroy());
+          });
         }
         break;
       }
@@ -1627,8 +2010,13 @@ export class WorldView {
       return;
     }
     // area abilities → a soft radial impact glow sized to the zone (the detailed
-    // art is the cast-fx sprite / explosion / ground zone; this just reads the AoE).
-    if (fx.radius >= 90) this.spawnSoftImpact(fx.x2, fx.y2, fx.radius, col);
+    // art is the cast-fx sprite / explosion / ground zone; this just reads the AoE),
+    // plus a distance-weighted rumble and, for the big ones, a shockwave ring.
+    if (fx.radius >= 90) {
+      this.spawnSoftImpact(fx.x2, fx.y2, fx.radius, col);
+      this.traumaAt(fx.x2, fx.y2, Phaser.Math.Clamp(fx.radius / 900, 0.08, 0.4));
+      if (fx.radius >= 150) this.spawnShockwave(fx.x2, fx.y2, col, 1);
+    }
   }
 
   /** A soft glowing energy beam (stretched radial glow + bright core), not a flat

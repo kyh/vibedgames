@@ -14,11 +14,12 @@ import type { Order, Unit, World } from "../sim/types";
 import { resumeAudio, sfx, toggleMute } from "../render/audio";
 import { FONT } from "../render/font";
 import { WorldView } from "../render/view";
-import { INTENT_EVENT, MULTIPLAYER_HOST, PARTY, ROOM } from "../net/protocol";
+import { INTENT_EVENT, MULTIPLAYER_HOST, PARTY, ROOM, parseIntent } from "../net/protocol";
 import type { Intent } from "../net/protocol";
-import { applySnapshot, emptyGuestWorld, encodeWorld, isSnapshot } from "../net/snapshot";
+import { applySnapshot, emptyGuestWorld, encodeWorld, isSnapshot, parseFxBatch } from "../net/snapshot";
 
 const TEAM_SIZE = 3;
+const TEAMS: readonly Team[] = ["radiant", "dire"];
 
 // Keyboard-first scheme with hands split so nothing overlaps: MOVE with the arrow
 // keys (right hand), ABILITIES on Q/W/E/R (left hand), F = dash, Space = attack.
@@ -190,7 +191,8 @@ export class GameScene extends Phaser.Scene {
   // ---- networking ----------------------------------------------------------
   private onNetEvent(event: string, payload: unknown, from: string): void {
     if (event !== INTENT_EVENT) return;
-    const intent = payload as Intent;
+    const intent = parseIntent(payload);
+    if (!intent) return; // drop malformed / version-skewed peer messages
     // record hero picks even as a guest, so if we later take over a stale host we
     // already know everyone's choice and can spawn their hero immediately.
     if (intent.kind === "join") {
@@ -257,7 +259,8 @@ export class GameScene extends Phaser.Scene {
     for (const id of Object.keys(this.assign)) if (!ids.includes(id)) delete this.assign[id];
 
     for (const id of ids) {
-      const a = this.assign[id]!;
+      const a = this.assign[id];
+      if (!a) continue; // assigned just above for every id; guards the index type
       teamUsed[a.team] = Math.max(teamUsed[a.team], a.slot + 1);
       const hid = `h-${id}`;
       const pick = this.picks[id];
@@ -278,7 +281,7 @@ export class GameScene extends Phaser.Scene {
       }
     }
     // bots fill each team to TEAM_SIZE
-    for (const team of ["radiant", "dire"] as Team[]) {
+    for (const team of TEAMS) {
       for (let s = teamUsed[team]; s < TEAM_SIZE; s++) {
         const hid = `h-bot-${team}-${s}`;
         want.add(hid);
@@ -443,9 +446,16 @@ export class GameScene extends Phaser.Scene {
         });
       else if (fx.t === "notify")
         this.feed.push({ kind: "notify", text: fx.text, tone: fx.tone, at: now });
-      else if (fx.t === "death" && fx.kind === "hero" && me && dist2(me, fx) < 900 * 900) {
-        // hit-stop: a beat of frozen sim when a hero dies near you sells the kill
-        this.hitStopUntil = now + 90;
+      else if (
+        fx.t === "death" &&
+        fx.kind === "hero" &&
+        !this.online &&
+        me &&
+        dist2(me, fx) < 900 * 900
+      ) {
+        // hit-stop: a beat of frozen sim when a hero dies near you sells the kill.
+        // Local only — online the host freezing its sim would stall every client.
+        this.hitStopUntil = now + 110;
       }
     }
     if (this.feed.length > 40) this.feed.splice(0, this.feed.length - 40);
@@ -730,9 +740,12 @@ export class GameScene extends Phaser.Scene {
       this.reconcileOnlineHeroes();
       // ensure host's own pick recorded
       if (net.playerId && !this.picks[net.playerId]) this.picks[net.playerId] = this.heroChoice;
-      // capture fx for the network before our own renderer drains them
-      if (this.world.fx.length) this.netFx.push(...this.world.fx);
       this.tickHost(dt);
+      // capture the fx this step produced BEFORE our own renderer drains them in
+      // view.sync() — the sim's hits/deaths/casts only exist in world.fx now, so
+      // capturing before tickHost (as before) always saw an empty array and guests
+      // got no damage numbers, sparks, explosions, or kill feed.
+      if (this.world.fx.length) this.netFx.push(...this.world.fx);
       // set my team for HUD coloring
       const me = this.player;
       if (me) this.view.playerTeam = me.team;
@@ -747,8 +760,7 @@ export class GameScene extends Phaser.Scene {
       const fxSeq = net.sharedState["fxSeq"];
       if (typeof fxSeq === "number" && fxSeq !== this.lastFxSeq) {
         this.lastFxSeq = fxSeq;
-        const fx = net.sharedState["fx"];
-        if (Array.isArray(fx)) this.world.fx.push(...(fx as World["fx"]));
+        this.world.fx.push(...parseFxBatch(net.sharedState["fx"]));
       }
       const me = this.player;
       if (me) this.view.playerTeam = me.team;
@@ -831,6 +843,10 @@ export class GameScene extends Phaser.Scene {
         Phaser.Math.Linear(cam.scrollY, cy - hh, k),
       );
     }
+    // trauma shake, applied on top of the settled follow (re-based each frame so it
+    // never drifts). The WorldView owns the trauma accumulator + decay.
+    cam.setScroll(cam.scrollX + this.view.shakeX, cam.scrollY + this.view.shakeY);
+    cam.setRotation(this.view.shakeRot);
   }
 
   private showResult(): void {
@@ -915,26 +931,28 @@ export class GameScene extends Phaser.Scene {
   }
 
   private installDebug(): void {
-    (window as unknown as { __moba?: unknown }).__moba = {
-      scene: this,
-      world: this.world,
-      player: () => this.player,
-      step: (n: number) => {
-        for (let i = 0; i < n; i++) step(this.world, SIM_DT);
+    Object.assign(window, {
+      __moba: {
+        scene: this,
+        world: this.world,
+        player: () => this.player,
+        step: (n: number) => {
+          for (let i = 0; i < n; i++) step(this.world, SIM_DT);
+        },
+        order: (o: Order) => {
+          const me = this.player;
+          if (me) issueOrder(this.world, me, o);
+        },
+        cast: (key: AbilityKey, point?: { x: number; y: number }, targetId?: string) => {
+          const me = this.player;
+          if (me) castAbility(this.world, me, { key, point, targetId });
+        },
+        kill: (id: string) => {
+          const u = this.world.units.get(id);
+          if (u) dealDamage(this.world, this.player ?? null, u, 1e9, "pure", {});
+        },
       },
-      order: (o: Order) => {
-        const me = this.player;
-        if (me) issueOrder(this.world, me, o);
-      },
-      cast: (key: AbilityKey, point?: { x: number; y: number }, targetId?: string) => {
-        const me = this.player;
-        if (me) castAbility(this.world, me, { key, point, targetId });
-      },
-      kill: (id: string) => {
-        const u = this.world.units.get(id);
-        if (u) dealDamage(this.world, this.player ?? null, u, 1e9, "pure", {});
-      },
-    };
+    });
   }
 }
 

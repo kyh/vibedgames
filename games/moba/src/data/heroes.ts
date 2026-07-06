@@ -57,11 +57,8 @@ export type HeroDef = {
 /** Read a per-rank value; scalars apply at every rank. rank is 1-based. */
 export function valAt(v: AbilityValue | undefined, rank: number): number {
   if (typeof v === "number") return v;
-  if (Array.isArray(v)) return (v[Math.max(0, Math.min(v.length - 1, rank - 1))] as number) ?? 0;
+  if (Array.isArray(v)) return v[Math.max(0, Math.min(v.length - 1, rank - 1))] ?? 0;
   return 0;
-}
-export function flag(v: AbilityValue | undefined): boolean {
-  return v === true;
 }
 
 function ab(d: Omit<AbilityDef, "maxRank" | "isUltimate"> & { maxRank?: number }): AbilityDef {

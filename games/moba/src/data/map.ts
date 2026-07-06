@@ -414,7 +414,3 @@ export function buildBlockers(): Blocker[] {
 
   return out;
 }
-
-export function towerSpec(id: string): TowerSpec | undefined {
-  return TOWERS.find((t) => t.id === id);
-}

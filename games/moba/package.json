@@ -8,6 +8,7 @@
     "clean": "rm -rf .turbo dist node_modules",
     "dev": "vite",
     "preview": "vite preview",
+    "test": "tsx tools/sim-smoke.mts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -17,6 +18,7 @@
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
     "@types/node": "catalog:",
+    "tsx": "^4.22.3",
     "typescript": "catalog:",
     "vite": "catalog:"
   }
