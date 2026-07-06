@@ -19,19 +19,48 @@ export function ensureGlow(scene: Phaser.Scene) {
   g.destroy();
 }
 
-function glow(scene: Phaser.Scene, x: number, y: number, color: number, scale: number, ms: number, depth = 60) {
+function glow(
+  scene: Phaser.Scene,
+  x: number,
+  y: number,
+  color: number,
+  scale: number,
+  ms: number,
+  depth = 60,
+) {
   ensureGlow(scene);
-  const s = scene.add.image(x, y, "fx-glow").setTint(color).setBlendMode(Phaser.BlendModes.ADD).setScale(scale).setDepth(depth);
-  scene.tweens.add({ targets: s, scale: scale * 1.6, alpha: 0, duration: ms, ease: "Quad.easeOut", onComplete: () => s.destroy() });
+  const s = scene.add
+    .image(x, y, "fx-glow")
+    .setTint(color)
+    .setBlendMode(Phaser.BlendModes.ADD)
+    .setScale(scale)
+    .setDepth(depth);
+  scene.tweens.add({
+    targets: s,
+    scale: scale * 1.6,
+    alpha: 0,
+    duration: ms,
+    ease: "Quad.easeOut",
+    onComplete: () => s.destroy(),
+  });
 }
 
-export function hitSpark(scene: Phaser.Scene, x: number, y: number, color: number = COLORS.teal, n = 6) {
+export function hitSpark(
+  scene: Phaser.Scene,
+  x: number,
+  y: number,
+  color: number = COLORS.teal,
+  n = 6,
+) {
   glow(scene, x, y, color, 0.5, 150, 61);
   for (let i = 0; i < n; i++) {
     const a = Math.random() * Math.PI * 2;
     const sp = 12 + Math.random() * 26;
     const len = 2 + Math.random() * 3;
-    const p = scene.add.rectangle(x, y, len, 2, color).setDepth(60).setBlendMode(Phaser.BlendModes.ADD);
+    const p = scene.add
+      .rectangle(x, y, len, 2, color)
+      .setDepth(60)
+      .setBlendMode(Phaser.BlendModes.ADD);
     p.setRotation(a);
     scene.tweens.add({
       targets: p,
@@ -44,25 +73,83 @@ export function hitSpark(scene: Phaser.Scene, x: number, y: number, color: numbe
     });
   }
   const core = scene.add.circle(x, y, 3, 0xffffff, 0.95).setDepth(62);
-  scene.tweens.add({ targets: core, scale: 2.4, alpha: 0, duration: 130, onComplete: () => core.destroy() });
+  scene.tweens.add({
+    targets: core,
+    scale: 2.4,
+    alpha: 0,
+    duration: 130,
+    onComplete: () => core.destroy(),
+  });
 }
 
 // Expanding neon ring + bloom — for kills, heavy hits, and impacts.
-export function impactRing(scene: Phaser.Scene, x: number, y: number, color: number = COLORS.teal, r = 20) {
+export function impactRing(
+  scene: Phaser.Scene,
+  x: number,
+  y: number,
+  color: number = COLORS.teal,
+  r = 20,
+) {
   glow(scene, x, y, color, 0.7, 200, 62);
-  const ring = scene.add.circle(x, y, r * 0.4, color, 0).setStrokeStyle(2, color, 0.9).setDepth(62).setBlendMode(Phaser.BlendModes.ADD);
-  scene.tweens.add({ targets: ring, scale: 2.6, alpha: 0, duration: 300, ease: "Cubic.easeOut", onComplete: () => ring.destroy() });
+  const ring = scene.add
+    .circle(x, y, r * 0.4, color, 0)
+    .setStrokeStyle(2, color, 0.9)
+    .setDepth(62)
+    .setBlendMode(Phaser.BlendModes.ADD);
+  scene.tweens.add({
+    targets: ring,
+    scale: 2.6,
+    alpha: 0,
+    duration: 300,
+    ease: "Cubic.easeOut",
+    onComplete: () => ring.destroy(),
+  });
 }
 
-export function slash(scene: Phaser.Scene, x: number, y: number, facing: number, reach: number, color: number = COLORS.white) {
-  const arc = scene.add.ellipse(x + (facing * reach) / 2, y, reach, reach * 1.4, color, 0.55).setDepth(59).setBlendMode(Phaser.BlendModes.ADD);
-  arc.setScale(0.55, 1);
-  scene.tweens.add({ targets: arc, scaleX: 1.15, alpha: 0, duration: 120, ease: "Quad.easeOut", onComplete: () => arc.destroy() });
-  glow(scene, x + facing * reach * 0.6, y, color, 0.35, 130, 59);
+// A crescent blade arc that sweeps through the strike, not a round blob. Two
+// stacked arcs (colored body + white leading edge) drawn at the origin then
+// positioned + mirrored by facing, so they read as a directional slash.
+export function slash(
+  scene: Phaser.Scene,
+  x: number,
+  y: number,
+  facing: number,
+  reach: number,
+  color: number = COLORS.white,
+) {
+  const cx = x + facing * reach * 0.5;
+  const start = Phaser.Math.DegToRad(-58);
+  const end = Phaser.Math.DegToRad(58);
+  const crescent = (r: number, w: number, col: number, alpha: number, depth: number) => {
+    const g = scene.add.graphics({ x: cx, y }).setDepth(depth).setBlendMode(Phaser.BlendModes.ADD);
+    g.lineStyle(w, col, alpha);
+    g.beginPath();
+    g.arc(0, 0, r, start, end, false);
+    g.strokePath();
+    g.setScale(facing, 1); // mirror for a left-facing swing
+    g.setRotation(-0.55);
+    scene.tweens.add({
+      targets: g,
+      rotation: 0.6,
+      alpha: 0,
+      duration: 130,
+      ease: "Quad.easeOut",
+      onComplete: () => g.destroy(),
+    });
+    return g;
+  };
+  crescent(reach, 3, color, 0.9, 59); // colored body
+  crescent(reach * 0.94, 1.5, 0xffffff, 0.85, 60); // bright leading edge
+  // a small tip spark for punch — no fat round glow (that read as "a circle")
+  hitSpark(scene, cx + facing * reach * 0.55, y - reach * 0.25, color, 3);
 }
 
 // Ghost trail copy of a sprite's current frame — for dashes / fast moves.
-export function afterImage(scene: Phaser.Scene, spr: Phaser.GameObjects.Sprite, color: number = COLORS.teal) {
+export function afterImage(
+  scene: Phaser.Scene,
+  spr: Phaser.GameObjects.Sprite,
+  color: number = COLORS.teal,
+) {
   const g = scene.add
     .image(spr.x, spr.y, spr.texture.key, spr.frame.name)
     .setOrigin(spr.originX, spr.originY)
@@ -72,13 +159,27 @@ export function afterImage(scene: Phaser.Scene, spr: Phaser.GameObjects.Sprite, 
     .setAlpha(0.4)
     .setBlendMode(Phaser.BlendModes.ADD)
     .setDepth(spr.depth - 1);
-  scene.tweens.add({ targets: g, alpha: 0, duration: 240, ease: "Quad.easeOut", onComplete: () => g.destroy() });
+  scene.tweens.add({
+    targets: g,
+    alpha: 0,
+    duration: 240,
+    ease: "Quad.easeOut",
+    onComplete: () => g.destroy(),
+  });
 }
 
 export function dust(scene: Phaser.Scene, x: number, y: number) {
   for (let i = -1; i <= 1; i += 2) {
     const p = scene.add.circle(x, y, 2, 0x9aa6b2, 0.5).setDepth(20);
-    scene.tweens.add({ targets: p, x: x + i * (6 + Math.random() * 6), y: y - 2, alpha: 0, scale: 0.4, duration: 220, onComplete: () => p.destroy() });
+    scene.tweens.add({
+      targets: p,
+      x: x + i * (6 + Math.random() * 6),
+      y: y - 2,
+      alpha: 0,
+      scale: 0.4,
+      duration: 220,
+      onComplete: () => p.destroy(),
+    });
   }
 }
 
@@ -104,15 +205,35 @@ export function landPuff(scene: Phaser.Scene, x: number, y: number) {
 export function explosion(scene: Phaser.Scene, x: number, y: number, r: number) {
   glow(scene, x, y, COLORS.magenta, r / 18, 240, 62);
   const flash = scene.add.circle(x, y, r * 0.55, 0xffffff, 0.9).setDepth(63);
-  scene.tweens.add({ targets: flash, scale: 1.9, alpha: 0, duration: 180, onComplete: () => flash.destroy() });
-  const ring = scene.add.circle(x, y, r, COLORS.magenta, 0).setStrokeStyle(2, COLORS.magenta, 0.9).setDepth(62).setBlendMode(Phaser.BlendModes.ADD);
-  scene.tweens.add({ targets: ring, scale: 1.4, alpha: 0, duration: 280, ease: "Quad.easeOut", onComplete: () => ring.destroy() });
+  scene.tweens.add({
+    targets: flash,
+    scale: 1.9,
+    alpha: 0,
+    duration: 180,
+    onComplete: () => flash.destroy(),
+  });
+  const ring = scene.add
+    .circle(x, y, r, COLORS.magenta, 0)
+    .setStrokeStyle(2, COLORS.magenta, 0.9)
+    .setDepth(62)
+    .setBlendMode(Phaser.BlendModes.ADD);
+  scene.tweens.add({
+    targets: ring,
+    scale: 1.4,
+    alpha: 0,
+    duration: 280,
+    ease: "Quad.easeOut",
+    onComplete: () => ring.destroy(),
+  });
   hitSpark(scene, x, y, COLORS.magenta, 14);
 }
 
 // Slow-drifting neon embers for room ambience. Returns the emitter to destroy on
 // room change.
-export function ambientEmbers(scene: Phaser.Scene, color: number = COLORS.teal): Phaser.GameObjects.Particles.ParticleEmitter {
+export function ambientEmbers(
+  scene: Phaser.Scene,
+  color: number = COLORS.teal,
+): Phaser.GameObjects.Particles.ParticleEmitter {
   ensureGlow(scene);
   return scene.add
     .particles(0, 0, "fx-glow", {
@@ -131,7 +252,23 @@ export function ambientEmbers(scene: Phaser.Scene, color: number = COLORS.teal):
     .setDepth(3);
 }
 
-export function popText(scene: Phaser.Scene, x: number, y: number, text: string, color = "#f4f7fb") {
-  const t = scene.add.text(x, y, text, { fontFamily: "monospace", fontSize: "9px", color }).setOrigin(0.5, 1).setDepth(70);
-  scene.tweens.add({ targets: t, y: y - 12, alpha: 0, duration: 600, ease: "Quad.easeOut", onComplete: () => t.destroy() });
+export function popText(
+  scene: Phaser.Scene,
+  x: number,
+  y: number,
+  text: string,
+  color = "#f4f7fb",
+) {
+  const t = scene.add
+    .text(x, y, text, { fontFamily: "monospace", fontSize: "9px", color })
+    .setOrigin(0.5, 1)
+    .setDepth(70);
+  scene.tweens.add({
+    targets: t,
+    y: y - 12,
+    alpha: 0,
+    duration: 600,
+    ease: "Quad.easeOut",
+    onComplete: () => t.destroy(),
+  });
 }
