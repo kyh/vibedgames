@@ -67,6 +67,10 @@ export function conformToTerrain(
   const outP: number[] = [];
   const outN: number[] = [];
   const outU: number[] = [];
+  const outI: number[] = [];
+  // Weld shared vertices (subdivision midpoints repeat across neighbours):
+  // indexed output is ~3x smaller and uploads/renders proportionally faster.
+  const vertId = new Map<string, number>();
 
   const vertAt = (i: number): Vert => [
     pos.getX(i),
@@ -81,9 +85,19 @@ export function conformToTerrain(
 
   const emit = (a: Vert, b: Vert, c: Vert): void => {
     for (const v of [a, b, c]) {
-      outP.push(v[0], v[1], v[2]);
-      outN.push(v[3], v[4], v[5]);
-      outU.push(v[6], v[7]);
+      const key =
+        `${Math.round(v[0] * 1024)},${Math.round(v[1] * 1024)},${Math.round(v[2] * 1024)},` +
+        `${Math.round(v[3] * 512)},${Math.round(v[4] * 512)},${Math.round(v[5] * 512)},` +
+        `${Math.round(v[6] * 2048)},${Math.round(v[7] * 2048)}`;
+      let id = vertId.get(key);
+      if (id === undefined) {
+        id = outP.length / 3;
+        vertId.set(key, id);
+        outP.push(v[0], v[1], v[2]);
+        outN.push(v[3], v[4], v[5]);
+        outU.push(v[6], v[7]);
+      }
+      outI.push(id);
     }
   };
 
@@ -141,5 +155,7 @@ export function conformToTerrain(
   out.setAttribute("position", new THREE.BufferAttribute(new Float32Array(outP), 3));
   out.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(outN), 3));
   out.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(outU), 2));
+  const IndexArr = outP.length / 3 > 65535 ? Uint32Array : Uint16Array;
+  out.setIndex(new THREE.BufferAttribute(new IndexArr(outI), 1));
   return out;
 }

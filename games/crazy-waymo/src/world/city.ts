@@ -1109,9 +1109,10 @@ function mergeByMaterial(meshes: readonly THREE.Mesh[]): THREE.Mesh[] {
     if (Array.isArray(mat)) continue; // multi-material meshes left un-merged (rare here)
     const geo = mesh.geometry;
     if (!(geo instanceof THREE.BufferGeometry)) continue;
-    // De-index up front: conformed geometry is non-indexed, and mergeGeometries
-    // refuses to mix indexed with non-indexed in one group.
-    const baked = geo.index ? geo.toNonIndexed() : geo.clone();
+    // Keep indices: conformed geometry is welded/indexed (~3x smaller) and
+    // mergeGeometries handles all-indexed groups fine — the group key
+    // includes indexedness so mixed sets never land in one merge call.
+    const baked = geo.clone();
     toFloat32Attributes(baked); // dequantize meshopt attrs BEFORE baking world coords
     baked.applyMatrix4(mesh.matrixWorld);
     // Normalize attributes so merge never fails on a mismatched set.
@@ -1125,7 +1126,7 @@ function mergeByMaterial(meshes: readonly THREE.Mesh[]): THREE.Mesh[] {
     }
     // Deterministic signature in a fixed order (avoids a mutating sort).
     const attrs = ["position", "normal", "uv"].filter((n) => baked.getAttribute(n)).join(",");
-    const key = `${mat.uuid}|${attrs}`;
+    const key = `${mat.uuid}|${attrs}|${baked.index ? "i" : "n"}`;
     const g = groups.get(key);
     if (g) g.geometries.push(baked);
     else groups.set(key, { material: mat, attrs, geometries: [baked] });

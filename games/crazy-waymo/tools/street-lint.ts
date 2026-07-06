@@ -105,15 +105,20 @@ let tris = 0;
 for (const mesh of meshes) {
   const pos = mesh.geometry.getAttribute("position");
   if (!pos) continue;
-  for (let i = 0; i + 2 < pos.count; i += 3) {
+  // Conformed geometry is INDEXED (welded verts): resolve triangle corners
+  // through the index — consecutive position triples are not triangles.
+  const idx = mesh.geometry.index;
+  const vertCount = idx ? idx.count : pos.count;
+  const vid = (k: number): number => (idx ? idx.getX(k) : k);
+  for (let i = 0; i + 2 < vertCount; i += 3) {
     tris++;
-    const ax = pos.getX(i);
-    const ay = pos.getY(i);
-    const az = pos.getZ(i);
-    const bx = pos.getX(i + 1);
-    const bz = pos.getZ(i + 1);
-    const cx = pos.getX(i + 2);
-    const cz = pos.getZ(i + 2);
+    const ax = pos.getX(vid(i));
+    const ay = pos.getY(vid(i));
+    const az = pos.getZ(vid(i));
+    const bx = pos.getX(vid(i + 1));
+    const bz = pos.getZ(vid(i + 1));
+    const cx = pos.getX(vid(i + 2));
+    const cz = pos.getZ(vid(i + 2));
     if (![ax, ay, az, bx, bz, cx, cz].every(Number.isFinite)) nonFinite++;
     // Spike detector: street geometry must stay NEAR the street network.
     // (this is the invariant every historical "stray sliver" bug violated)

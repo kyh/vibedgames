@@ -78,6 +78,7 @@ export type RoadPartBuffers = {
   position: Float32Array;
   normal: Float32Array;
   uv: Float32Array | null;
+  index: Uint16Array | Uint32Array | null;
 };
 
 type Pair = [number, number];
@@ -609,11 +610,13 @@ export function buildRoadParts(network: RoadNetwork, terrain: Terrain): RoadPart
     const pos = draped.getAttribute("position");
     const nor = draped.getAttribute("normal");
     const uv = draped.getAttribute("uv");
+    const idx = draped.index;
     out.push({
       matKey: keyOfMat.get(p.mat) ?? "asphalt",
       position: pos.array as Float32Array,
       normal: nor.array as Float32Array,
       uv: uv ? (uv.array as Float32Array) : null,
+      index: idx ? (idx.array as Uint16Array | Uint32Array) : null,
     });
   }
   return out;
@@ -626,6 +629,7 @@ export function roadPartsToMeshes(parts: readonly RoadPartBuffers[]): THREE.Mesh
     geo.setAttribute("position", new THREE.BufferAttribute(p.position, 3));
     geo.setAttribute("normal", new THREE.BufferAttribute(p.normal, 3));
     if (p.uv) geo.setAttribute("uv", new THREE.BufferAttribute(p.uv, 2));
+    if (p.index) geo.setIndex(new THREE.BufferAttribute(p.index, 1));
     out.push(new THREE.Mesh(geo, ROAD_MATERIALS[p.matKey] ?? ROAD_MATERIALS.asphalt));
   }
   return out;

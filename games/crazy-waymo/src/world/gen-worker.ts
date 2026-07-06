@@ -74,6 +74,7 @@ function run(): void {
   for (const p of roadParts) {
     transfer.push(p.position.buffer as ArrayBuffer, p.normal.buffer as ArrayBuffer);
     if (p.uv) transfer.push(p.uv.buffer as ArrayBuffer);
+    if (p.index) transfer.push(p.index.buffer as ArrayBuffer);
   }
   for (const t of tiles) {
     transfer.push(t.position.buffer as ArrayBuffer, t.normal.buffer as ArrayBuffer);
