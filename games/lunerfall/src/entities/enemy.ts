@@ -38,9 +38,41 @@ export class Enemy {
     }
   }
 
+  // Re-time a clip to its FSM state (authored ~10fps is choppy + longer than the
+  // action). Shared by render + applyNet so host and guest play identically.
+  private clipMs(suffix: string): number | undefined {
+    const k = this.body.kind;
+    switch (suffix) {
+      case "run":
+        return 460;
+      case "strike":
+        return ((k.windup ?? 0.3) + (k.active ?? 0.12)) * 1000;
+      case "charge":
+        return (k.chargeTime ?? 0.45) * 1000;
+      case "shoot":
+      case "electrocute":
+        return (k.windup ?? 0.45) * 1000;
+      case "hit":
+        return 200;
+      case "spawn":
+        return 400;
+      default:
+        return undefined; // idle / death keep authored timing
+    }
+  }
+
+  private playSuffix(key: string, suffix: string) {
+    if (this.sprite.anims.currentAnim?.key === key) return; // already looping this clip
+    const ms = this.clipMs(suffix);
+    const cfg: Phaser.Types.Animations.PlayAnimationConfig = { key };
+    if (ms !== undefined) cfg.duration = ms;
+    this.sprite.play(cfg, true);
+  }
+
   render() {
     const b = this.body;
-    this.sprite.play(`${b.kind.name}:${this.clip()}`, true);
+    const suffix = this.clip();
+    this.playSuffix(`${b.kind.name}:${suffix}`, suffix);
     this.sprite.setFlipX(b.facing < 0);
     this.sprite.setPosition(Math.round(b.x), Math.round(b.y));
     const flash = b.hitFlash > 0;
@@ -56,7 +88,7 @@ export class Enemy {
   // Guest: replay the host's clip on this puppet (no local sim/state). Position
   // lerps toward the authoritative point so 30Hz snapshots render smoothly.
   applyNet(clip: string, x: number, y: number, flip: boolean, flash: boolean) {
-    if (this.sprite.anims.currentAnim?.key !== clip) this.sprite.play(clip, true);
+    this.playSuffix(clip, clip.slice(clip.indexOf(":") + 1));
     this.sprite.setFlipX(flip);
     const far = Math.hypot(x - this.sprite.x, y - this.sprite.y) > 48;
     this.sprite.setPosition(

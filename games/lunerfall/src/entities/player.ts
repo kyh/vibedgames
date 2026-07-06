@@ -6,7 +6,30 @@ import type { NetPlayer } from "../net/snapshot";
 import { afterImage, landPuff } from "../sys/fx";
 import type { Grid } from "../sys/grid";
 import type { InputState } from "../sys/input";
-import { PlayerBody } from "./player-body";
+import { DASH_DUR, PlayerBody } from "./player-body";
+
+// The Aseprite sources are authored at a flat ~10fps, which is both choppy and
+// far longer than the gameplay actions (a 0.22s swing shipped a 1.0s clip, so
+// only the first frames ever showed). Action clips are re-timed to their exact
+// gameplay duration; run is nudged snappier than the authored 10fps.
+const RUN_MS = 520;
+
+// A clip's gameplay-matched playback duration (ms), or undefined to keep the
+// authored timing. Swings/special/dash are re-timed to their mechanic; run is
+// nudged snappier. Shared with the ?editor gallery so it previews true in-game
+// playback.
+export function clipGameMs(hero: HeroDef, clip: string): number | undefined {
+  const kit = hero.kit;
+  const sw = kit.swings.find((s) => s.clip === clip);
+  if (sw) return sw.dur * 1000;
+  if (clip === kit.special.clip) {
+    const sp = kit.special;
+    return ("dur" in sp ? sp.dur : 0.3) * 1000;
+  }
+  if (clip === kit.dashClip) return DASH_DUR * 1000;
+  if (clip === "run") return RUN_MS;
+  return undefined;
+}
 
 export type PlayerHooks = {
   onJump?: () => void;
@@ -90,18 +113,25 @@ export class Player {
     if (sy < 1) landPuff(this.scene, this.sprite.x, this.body.y); // landing squash kicks up dust
   }
 
+  private playClip(clip: string, loop: boolean) {
+    const ms = clipGameMs(this.hero, clip);
+    const cfg: Phaser.Types.Animations.PlayAnimationConfig = { key: `${this.name}:${clip}` };
+    if (ms !== undefined) cfg.duration = ms;
+    this.sprite.play(cfg, loop);
+  }
+
   render() {
     const b = this.body;
     const kit = this.hero.kit;
     if (b.specialActive) {
       if (b.specialId !== this.lastSpecial) {
-        this.sprite.play(`${this.name}:${kit.special.clip}`);
+        this.playClip(kit.special.clip, false);
         this.lastSpecial = b.specialId;
       }
     } else if (b.attackStep > 0) {
       const clip = kit.swings[b.attackStep - 1]?.clip ?? "idle";
       if (b.swingId !== this.lastSwing) {
-        this.sprite.play(`${this.name}:${clip}`);
+        this.playClip(clip, false);
         this.lastSwing = b.swingId;
       }
     } else {
@@ -112,7 +142,7 @@ export class Player {
       else if (b.dashing) clip = kit.dashClip;
       else if (!b.grounded) clip = b.vy < -10 ? "jump" : "fall";
       else clip = Math.abs(b.vx) > 12 ? "run" : "idle";
-      this.sprite.play(`${this.name}:${clip}`, true);
+      this.playClip(clip, true);
     }
     this.sprite.setFlipX(b.facing < 0);
     this.sprite.setPosition(Math.round(b.x), Math.round(b.y));
@@ -165,13 +195,13 @@ export class Player {
     const kit = this.hero.kit;
     if (net.specialActive) {
       if (net.specialId !== this.lastSpecial) {
-        this.sprite.play(`${this.name}:${kit.special.clip}`);
+        this.playClip(kit.special.clip, false);
         this.lastSpecial = net.specialId;
       }
     } else if (net.attackStep > 0) {
       const clip = kit.swings[net.attackStep - 1]?.clip ?? "idle";
       if (net.swingId !== this.lastSwing) {
-        this.sprite.play(`${this.name}:${clip}`);
+        this.playClip(clip, false);
         this.lastSwing = net.swingId;
       }
     } else {
@@ -182,7 +212,7 @@ export class Player {
       else if (net.dashing) clip = kit.dashClip;
       else if (!net.grounded) clip = net.vy < -10 ? "jump" : "fall";
       else clip = Math.abs(net.vx) > 12 ? "run" : "idle";
-      this.sprite.play(`${this.name}:${clip}`, true);
+      this.playClip(clip, true);
     }
     this.sprite.setFlipX(net.facing < 0);
     const tx = Math.round(net.x);

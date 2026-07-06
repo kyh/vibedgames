@@ -25,7 +25,7 @@ const WALL_JUMP_VY = 330;
 const WALL_LOCK = 0.16;
 
 const DASH_SPEED = 330;
-const DASH_DUR = 0.15;
+export const DASH_DUR = 0.15;
 const DASH_CD = 0.45;
 const DASH_IFRAMES = 0.18;
 const DASH_BUFFER = 0.1;
@@ -204,7 +204,14 @@ export class PlayerBody {
     const s = this.kit.swings[this.attackStep - 1];
     if (!s || this.attackTime < s.a0 || this.attackTime > s.a1) return null;
     const front = this.facing > 0 ? this.x : this.x - s.reach;
-    return { left: front, top: this.y - BODY_H - 2, right: front + s.reach, bottom: this.y + 2, dmg: s.dmg, kb: s.kb };
+    return {
+      left: front,
+      top: this.y - BODY_H - 2,
+      right: front + s.reach,
+      bottom: this.y + 2,
+      dmg: s.dmg,
+      kb: s.kb,
+    };
   }
 
   // AoE special hitbox (super-smash / reaping spin), else null.
@@ -212,7 +219,14 @@ export class PlayerBody {
     const sp = this.kit.special;
     if (!this.specialActive || sp.kind !== "aoe") return null;
     if (this.specialElapsed < sp.a0 || this.specialElapsed > sp.a1) return null;
-    return { left: this.x - sp.radius, top: this.y - BODY_H - sp.radius * 0.4, right: this.x + sp.radius, bottom: this.y + 4, dmg: sp.dmg, kb: sp.kb };
+    return {
+      left: this.x - sp.radius,
+      top: this.y - BODY_H - sp.radius * 0.4,
+      right: this.x + sp.radius,
+      bottom: this.y + 4,
+      dmg: sp.dmg,
+      kb: sp.kb,
+    };
   }
 
   hurtBox(): Rect {
@@ -224,13 +238,26 @@ export class PlayerBody {
     const busy = this.specialActive;
 
     // ── special trigger ──
-    if (this.specialBuf > 0 && this.specialCd <= 0 && !this.specialActive && this.attackStep === 0 && this.dashTime <= 0 && this.hurtStun <= 0) {
+    if (
+      this.specialBuf > 0 &&
+      this.specialCd <= 0 &&
+      !this.specialActive &&
+      this.attackStep === 0 &&
+      this.dashTime <= 0 &&
+      this.hurtStun <= 0
+    ) {
       this.startSpecial();
       this.specialBuf = 0;
     }
 
     // ── attack combo ──
-    if (!busy && this.attackBuf > 0 && this.attackCd <= 0 && this.dashTime <= 0 && this.hurtStun <= 0) {
+    if (
+      !busy &&
+      this.attackBuf > 0 &&
+      this.attackCd <= 0 &&
+      this.dashTime <= 0 &&
+      this.hurtStun <= 0
+    ) {
       if (this.attackStep === 0) {
         this.startSwing(1);
         this.attackBuf = 0;
@@ -260,7 +287,13 @@ export class PlayerBody {
       this.specialElapsed += dt;
       const sp = this.kit.special;
       if (sp.kind === "projectile" && !this.specialFired && this.specialElapsed >= sp.fireAt) {
-        this.pendingShot = { x: this.x + this.facing * 10, y: this.y - 12, vx: this.facing * sp.speed, vy: 0, dmg: sp.dmg };
+        this.pendingShot = {
+          x: this.x + this.facing * 10,
+          y: this.y - 12,
+          vx: this.facing * sp.speed,
+          vy: 0,
+          dmg: sp.dmg,
+        };
         this.specialFired = true;
       }
       if (this.specialElapsed >= this.specialDur) this.specialActive = false;
@@ -278,7 +311,11 @@ export class PlayerBody {
       const speedMult = swinging ? ATTACK_MOVE_MULT : 1;
       if (dir !== 0) {
         if (!swinging) this.facing = dir > 0 ? 1 : -1;
-        this.vx = approach(this.vx, dir * MAX_RUN * speedMult, (this.grounded ? RUN_ACCEL : AIR_ACCEL) * dt);
+        this.vx = approach(
+          this.vx,
+          dir * MAX_RUN * speedMult,
+          (this.grounded ? RUN_ACCEL : AIR_ACCEL) * dt,
+        );
       } else if (this.hurtStun <= 0) {
         this.vx = approach(this.vx, 0, (this.grounded ? GROUND_DECEL : AIR_DECEL) * dt);
       }
@@ -312,12 +349,21 @@ export class PlayerBody {
         let g = this.vy < 0 ? G_RISE : G_FALL;
         if (this.jumpHeld && Math.abs(this.vy) < APEX_V) g *= APEX_MULT;
         this.vy = Math.min(this.vy + g * dt, FALL_CAP);
-        const pressingWall = (this.wallDir === 1 && this.hRight) || (this.wallDir === -1 && this.hLeft);
-        if (pressingWall && this.vy > WALL_SLIDE_MAX && this.hurtStun <= 0) this.vy = WALL_SLIDE_MAX;
+        const pressingWall =
+          (this.wallDir === 1 && this.hRight) || (this.wallDir === -1 && this.hLeft);
+        if (pressingWall && this.vy > WALL_SLIDE_MAX && this.hurtStun <= 0)
+          this.vy = WALL_SLIDE_MAX;
       }
     }
 
-    if (this.dashBuf > 0 && this.dashCd <= 0 && this.dashTime <= 0 && this.hurtStun <= 0 && !rooted && (this.grounded || this.airDash)) {
+    if (
+      this.dashBuf > 0 &&
+      this.dashCd <= 0 &&
+      this.dashTime <= 0 &&
+      this.hurtStun <= 0 &&
+      !rooted &&
+      (this.grounded || this.airDash)
+    ) {
       this.startDash();
     }
     if (this.dashTime > 0) {
@@ -455,7 +501,8 @@ export class PlayerBody {
         const row = Math.floor((this.y - EPS) / TILE);
         const top = row * TILE;
         const onOneWay =
-          this.grid.isOneWayCell(Math.floor(l / TILE), row) || this.grid.isOneWayCell(Math.floor(r / TILE), row);
+          this.grid.isOneWayCell(Math.floor(l / TILE), row) ||
+          this.grid.isOneWayCell(Math.floor(r / TILE), row);
         if (onOneWay && prevFeet <= top + 1 && this.y >= top) hit = true;
       }
       if (hit) {

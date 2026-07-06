@@ -31,12 +31,21 @@ const ALIASES: Record<string, Record<string, string | string[]>> = {
 const slug = (tag: string): string => tag.toLowerCase().replace(/\s+/g, "-");
 
 type AseFrame = { filename: string; duration: number };
-type AseData = { frames: AseFrame[]; meta: { frameTags: { name: string; from: number; to: number }[] } };
+type AseData = {
+  frames: AseFrame[];
+  meta: { frameTags: { name: string; from: number; to: number }[] };
+};
 
 function isAseData(v: unknown): v is AseData {
   if (typeof v !== "object" || v === null || !("frames" in v) || !("meta" in v)) return false;
   const meta = v.meta;
-  if (!Array.isArray(v.frames) || typeof meta !== "object" || meta === null || !("frameTags" in meta)) return false;
+  if (
+    !Array.isArray(v.frames) ||
+    typeof meta !== "object" ||
+    meta === null ||
+    !("frameTags" in meta)
+  )
+    return false;
   return Array.isArray(meta.frameTags);
 }
 
@@ -48,7 +57,8 @@ export function buildAnimsFromAseprite(scene: Phaser.Scene, key: string): void {
   for (const tag of data.meta.frameTags) {
     if (tag.name === "Good!") continue; // pack's "select-all" meta tag
     const mapped = alias[tag.name];
-    const clips = mapped === undefined ? [slug(tag.name)] : Array.isArray(mapped) ? mapped : [mapped];
+    const clips =
+      mapped === undefined ? [slug(tag.name)] : Array.isArray(mapped) ? mapped : [mapped];
 
     const frames: Phaser.Types.Animations.AnimationFrame[] = [];
     let total = 0;
@@ -65,7 +75,12 @@ export function buildAnimsFromAseprite(scene: Phaser.Scene, key: string): void {
       if (scene.anims.exists(animKey)) continue;
       // duration (not frameRate) + per-frame durations => Phaser honours each
       // frame's authored ms exactly (mirrors createFromAseprite / nextTick logic).
-      scene.anims.create({ key: animKey, frames, duration: total, repeat: LOOPING.has(clip) ? -1 : 0 });
+      scene.anims.create({
+        key: animKey,
+        frames,
+        duration: total,
+        repeat: LOOPING.has(clip) ? -1 : 0,
+      });
     }
   }
 }
@@ -75,4 +90,38 @@ export function buildAnimsFromAseprite(scene: Phaser.Scene, key: string): void {
 export function firstFrame(scene: Phaser.Scene, key: string): string | undefined {
   const data: unknown = scene.cache.json.get(key);
   return isAseData(data) ? data.frames[1]?.filename : undefined;
+}
+
+export type ClipInfo = { clip: string; frames: number; ms: number; loop: boolean };
+
+// Enumerate an atlas's clips with their authored frame count + total duration —
+// the data behind the ?editor gallery (and a quick way to spot a 1-frame / wrong
+// clip). Mirrors buildAnimsFromAseprite's tag→clip mapping; dedupes shared slugs.
+export function clipsFor(scene: Phaser.Scene, key: string): ClipInfo[] {
+  const data: unknown = scene.cache.json.get(key);
+  if (!isAseData(data)) return [];
+  const alias = ALIASES[key] ?? {};
+  const out: ClipInfo[] = [];
+  const seen = new Set<string>();
+  for (const tag of data.meta.frameTags) {
+    if (tag.name === "Good!") continue;
+    const mapped = alias[tag.name];
+    const clips =
+      mapped === undefined ? [slug(tag.name)] : Array.isArray(mapped) ? mapped : [mapped];
+    let frames = 0;
+    let ms = 0;
+    for (let i = tag.from; i <= tag.to; i++) {
+      const f = data.frames[i];
+      if (!f) continue;
+      frames++;
+      ms += f.duration;
+    }
+    if (frames === 0) continue;
+    for (const clip of clips) {
+      if (seen.has(clip)) continue;
+      seen.add(clip);
+      out.push({ clip, frames, ms, loop: LOOPING.has(clip) });
+    }
+  }
+  return out;
 }

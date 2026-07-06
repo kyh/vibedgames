@@ -21,24 +21,42 @@ export class BootScene extends Phaser.Scene {
       this.load.image(`env:${img}`, `sprites/env/${img}.png`);
     }
     for (const [key, w, h] of ANIMATED_PROPS) {
-      this.load.spritesheet(`prop:${key}`, `sprites/props/${key}.png`, { frameWidth: w, frameHeight: h });
+      this.load.spritesheet(`prop:${key}`, `sprites/props/${key}.png`, {
+        frameWidth: w,
+        frameHeight: h,
+      });
     }
 
     // Projectiles.
-    this.load.spritesheet("fx:flame-wave", "sprites/fx/flame-wave.png", { frameWidth: 182, frameHeight: 16 });
+    this.load.spritesheet("fx:flame-wave", "sprites/fx/flame-wave.png", {
+      frameWidth: 182,
+      frameHeight: 16,
+    });
     this.load.image("fx:arrow", "sprites/fx/arrow.png");
   }
 
   create() {
     for (const key of ATLAS_KEYS) buildAnimsFromAseprite(this, key);
 
-    this.anims.create({ key: "fx:flame-wave", frames: this.anims.generateFrameNumbers("fx:flame-wave", {}), frameRate: 16, repeat: -1 });
+    this.anims.create({
+      key: "fx:flame-wave",
+      frames: this.anims.generateFrameNumbers("fx:flame-wave", {}),
+      frameRate: 16,
+      repeat: -1,
+    });
     for (const [key, , , frames, fps] of ANIMATED_PROPS) {
-      this.anims.create({ key: `prop:${key}`, frames: this.anims.generateFrameNumbers(`prop:${key}`, { start: 0, end: frames - 1 }), frameRate: fps, repeat: -1 });
+      this.anims.create({
+        key: `prop:${key}`,
+        frames: this.anims.generateFrameNumbers(`prop:${key}`, { start: 0, end: frames - 1 }),
+        frameRate: fps,
+        repeat: -1,
+      });
     }
 
     const params = new URLSearchParams(location.search);
-    if (params.get("demo") || params.get("room") || params.get("hero")) this.scene.start("game");
+    if (params.get("editor")) this.scene.start("editor");
+    else if (params.get("demo") || params.get("room") || params.get("hero"))
+      this.scene.start("game");
     else this.scene.start("select");
   }
 }
