@@ -27,7 +27,7 @@ import {
   type Snapshot,
 } from "../net/snapshot";
 import { drawRoom } from "../room";
-import { ambientEmbers, dust, explosion, hitSpark, impactRing, popText, slash } from "../sys/fx";
+import { ambientEmbers, dust, explosion, hitSpark, impactRing, popText, wallSmoke } from "../sys/fx";
 import { COLS, Grid, ROWS } from "../sys/grid";
 import { type Offer, RunManager } from "../sys/run";
 import { Input, type InputState } from "../sys/input";
@@ -336,7 +336,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   // Build a Player whose juice hooks are bound to itself (so local + remote each
-  // shake/slash/spark at their own position with their own hero colour).
+  // shake / kick smoke at their own position with their own hero colour).
   private spawnPlayer(hero: HeroDef, grid: Grid, x: number, y: number): Player {
     const cam = this.cameras.main;
     const pl: Player = new Player(this, grid, x, y, hero, {
@@ -348,8 +348,9 @@ export class GameScene extends Phaser.Scene {
         cam.shake(60, 0.0025);
         sfx.dash();
       },
-      onSwing: (step) => {
-        slash(this, pl.x + pl.body.facing * 8, pl.y - 11, pl.body.facing, 22 + step * 3, pl.color);
+      // No painted attack VFX — the sprite-sheet swing carries the strike. Just
+      // feel: a small camera shake + the swing sound.
+      onSwing: () => {
         cam.shake(50, 0.0015);
         sfx.slash();
       },
@@ -359,6 +360,10 @@ export class GameScene extends Phaser.Scene {
         sfx.hurt();
       },
       onJump: () => sfx.jump(),
+      onWallJump: (side) => {
+        wallSmoke(this, pl.x + side * 7, pl.y - 12, side);
+        cam.shake(40, 0.002);
+      },
     });
     return pl;
   }

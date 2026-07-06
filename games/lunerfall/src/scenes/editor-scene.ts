@@ -115,12 +115,10 @@ export class EditorScene extends Phaser.Scene {
         .sprite(cx, cy + rowH * 0.5, char.key, firstFrame(this, char.key))
         .setOrigin(0.5, originY)
         .setScale(scale);
-      const cfg: Phaser.Types.Animations.PlayAnimationConfig = {
-        key: `${char.key}:${info.clip}`,
-        repeat: -1,
-      };
-      if (gm !== undefined) cfg.duration = gm;
-      spr.play(cfg); // force-loop for the gallery
+      spr.play({ key: `${char.key}:${info.clip}`, repeat: -1 }); // force-loop for the gallery
+      // timeScale (not duration) re-times without freezing per-frame-duration anims.
+      const authored = spr.anims.currentAnim?.duration ?? 0;
+      if (gm !== undefined && gm > 0 && authored > 0) spr.anims.timeScale = authored / gm;
       g.add(spr);
       g.add(this.clipLabel(cx, cy + rowH - 8, info, gm));
     });

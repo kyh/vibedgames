@@ -63,10 +63,11 @@ export class Enemy {
 
   private playSuffix(key: string, suffix: string) {
     if (this.sprite.anims.currentAnim?.key === key) return; // already looping this clip
+    // timeScale, not duration: a play `duration` freezes per-frame-duration anims.
+    this.sprite.play(key, true);
     const ms = this.clipMs(suffix);
-    const cfg: Phaser.Types.Animations.PlayAnimationConfig = { key };
-    if (ms !== undefined) cfg.duration = ms;
-    this.sprite.play(cfg, true);
+    const authored = this.sprite.anims.currentAnim?.duration ?? 0;
+    this.sprite.anims.timeScale = ms !== undefined && ms > 0 && authored > 0 ? authored / ms : 1;
   }
 
   render() {

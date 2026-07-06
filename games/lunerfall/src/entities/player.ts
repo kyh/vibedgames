@@ -3,7 +3,7 @@ import Phaser from "phaser";
 import { HERO_ORIGIN_Y, HERO_SCALE } from "../config";
 import type { HeroDef } from "../data/heroes";
 import type { NetPlayer } from "../net/snapshot";
-import { afterImage, landPuff } from "../sys/fx";
+import { afterImage, landPuff, smoke } from "../sys/fx";
 import type { Grid } from "../sys/grid";
 import type { InputState } from "../sys/input";
 import { DASH_DUR, PlayerBody } from "./player-body";
@@ -33,6 +33,7 @@ export function clipGameMs(hero: HeroDef, clip: string): number | undefined {
 
 export type PlayerHooks = {
   onJump?: () => void;
+  onWallJump?: (side: number) => void;
   onLand?: (impact: number) => void;
   onDash?: () => void;
   onSwing?: (step: number) => void;
@@ -49,6 +50,7 @@ export class Player {
   private name: string;
   private lastSwing = -1;
   private lastSpecial = -1;
+  private lastRunDust = 0;
 
   constructor(
     private scene: Phaser.Scene,
@@ -65,6 +67,7 @@ export class Player {
 
     this.body = new PlayerBody(grid, x, y, hero.kit, {
       onJump: hooks.onJump,
+      onWallJump: hooks.onWallJump,
       onLand: hooks.onLand,
       onDash: hooks.onDash,
       onSwing: hooks.onSwing,
@@ -113,11 +116,15 @@ export class Player {
     if (sy < 1) landPuff(this.scene, this.sprite.x, this.body.y); // landing squash kicks up dust
   }
 
+  // Play a clip, re-timed to gameplay via timeScale. NOTE: passing `duration` to
+  // play() FREEZES Phaser anims that carry per-frame durations (as ours do from
+  // Aseprite) — it renders frame 1 only. timeScale speeds the same frames up
+  // without that bug, so the full swing plays inside the mechanic's window.
   private playClip(clip: string, loop: boolean) {
+    this.sprite.play(`${this.name}:${clip}`, loop);
     const ms = clipGameMs(this.hero, clip);
-    const cfg: Phaser.Types.Animations.PlayAnimationConfig = { key: `${this.name}:${clip}` };
-    if (ms !== undefined) cfg.duration = ms;
-    this.sprite.play(cfg, loop);
+    const authored = this.sprite.anims.currentAnim?.duration ?? 0;
+    this.sprite.anims.timeScale = ms !== undefined && ms > 0 && authored > 0 ? authored / ms : 1;
   }
 
   render() {
@@ -150,6 +157,16 @@ export class Player {
     this.sprite.setAlpha(
       b.iframes > 0 && !b.dead ? (Math.floor(b.iframes * 20) % 2 === 0 ? 0.45 : 1) : 1,
     );
+    this.runTrail(b);
+  }
+
+  // Kick a smoke puff off the back foot while running on the ground.
+  private runTrail(b: PlayerBody) {
+    if (!b.grounded || b.dashing || b.hurting || Math.abs(b.vx) < 70) return;
+    const now = this.scene.time.now;
+    if (now - this.lastRunDust < 80) return;
+    this.lastRunDust = now;
+    smoke(this.scene, this.sprite.x - b.facing * 5, b.y - 1, -b.facing * (10 + Math.random() * 10), -6 - Math.random() * 5, 8);
   }
 
   destroy() {

@@ -68,6 +68,7 @@ export type BodyInput = {
 
 export type BodyEvents = {
   onJump?: () => void;
+  onWallJump?: (side: number) => void;
   onLand?: (impact: number) => void;
   onDash?: () => void;
   onSwing?: (step: number) => void;
@@ -337,6 +338,7 @@ export class PlayerBody {
           this.jumpBuf = 0;
           this.jumping = true;
           this.ev.onJump?.();
+          this.ev.onWallJump?.(this.wallDir);
         }
       }
       if (this.jumping && this.vy < 0 && !this.jumpHeld) {

@@ -106,44 +106,6 @@ export function impactRing(
   });
 }
 
-// A crescent blade arc that sweeps through the strike, not a round blob. Two
-// stacked arcs (colored body + white leading edge) drawn at the origin then
-// positioned + mirrored by facing, so they read as a directional slash.
-export function slash(
-  scene: Phaser.Scene,
-  x: number,
-  y: number,
-  facing: number,
-  reach: number,
-  color: number = COLORS.white,
-) {
-  const cx = x + facing * reach * 0.5;
-  const start = Phaser.Math.DegToRad(-58);
-  const end = Phaser.Math.DegToRad(58);
-  const crescent = (r: number, w: number, col: number, alpha: number, depth: number) => {
-    const g = scene.add.graphics({ x: cx, y }).setDepth(depth).setBlendMode(Phaser.BlendModes.ADD);
-    g.lineStyle(w, col, alpha);
-    g.beginPath();
-    g.arc(0, 0, r, start, end, false);
-    g.strokePath();
-    g.setScale(facing, 1); // mirror for a left-facing swing
-    g.setRotation(-0.55);
-    scene.tweens.add({
-      targets: g,
-      rotation: 0.6,
-      alpha: 0,
-      duration: 130,
-      ease: "Quad.easeOut",
-      onComplete: () => g.destroy(),
-    });
-    return g;
-  };
-  crescent(reach, 3, color, 0.9, 59); // colored body
-  crescent(reach * 0.94, 1.5, 0xffffff, 0.85, 60); // bright leading edge
-  // a small tip spark for punch — no fat round glow (that read as "a circle")
-  hitSpark(scene, cx + facing * reach * 0.55, y - reach * 0.25, color, 3);
-}
-
 // Ghost trail copy of a sprite's current frame — for dashes / fast moves.
 export function afterImage(
   scene: Phaser.Scene,
@@ -166,6 +128,21 @@ export function afterImage(
     ease: "Quad.easeOut",
     onComplete: () => g.destroy(),
   });
+}
+
+// Soft smoke puff for movement (run trails, wall-kicks). Grey + normal blend so
+// it reads as kicked-up dust, not neon glow; drifts, grows, and fades.
+export function smoke(scene: Phaser.Scene, x: number, y: number, vx: number, vy: number, size = 10, color = 0x7c8aa0) {
+  ensureGlow(scene);
+  const s = scene.add.image(x, y, "fx-glow").setTint(color).setScale(size / 48).setAlpha(0.42).setDepth(18);
+  scene.tweens.add({ targets: s, x: x + vx, y: y + vy, scale: (size / 48) * 2.1, alpha: 0, duration: 340 + Math.random() * 160, ease: "Quad.easeOut", onComplete: () => s.destroy() });
+}
+
+// Burst kicked off a wall on a wall-jump (side = the wall's direction, ±1).
+export function wallSmoke(scene: Phaser.Scene, x: number, y: number, side: number) {
+  for (let i = 0; i < 4; i++) {
+    smoke(scene, x, y - i * 4, -side * (14 + Math.random() * 14), -8 + Math.random() * 14 - i * 2, 8 + Math.random() * 6);
+  }
 }
 
 export function dust(scene: Phaser.Scene, x: number, y: number) {
