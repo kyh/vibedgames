@@ -31,11 +31,12 @@ import { buildFurniture, type LampHead, type ParkedSpec } from "./furniture";
 import { buildGoldenGate } from "./golden-gate";
 import { RoadNetwork } from "./network";
 import { type CityPlan, generateCity } from "./grid";
-import { CUSTOM_MAP, type FloorKind, loadLocalOverrides } from "./custom-map";
+import { CUSTOM_MAP, loadLocalOverrides } from "./custom-map";
+import { makeGroundColorAt, makeGroundOffset } from "./ground";
 import { buildGridNetwork } from "./grid-network";
 import { SF_BUILDINGS, SF_BUILDINGS_BOUNDS } from "./sf-buildings";
-import { landuseGreenAt, landuseSandAt } from "./sf-landuse";
-import { buildRoads } from "./roads";
+import { buildRoads, roadPartsToMeshes } from "./roads";
+import type { CityGenPayload } from "./gen-worker";
 import { buildLandmarks, landmarkProtection } from "./landmarks";
 import { type DistrictChar, districtAt, isLandCell, makeTerrain, paletteFor, tintAmountFor } from "./sf-map";
 import type { Terrain } from "./terrain";
@@ -124,6 +125,7 @@ export class CityModel {
 
   constructor(
     private cache: ModelCache,
+    private genPayload: CityGenPayload | null = null,
     private rng = new Rng(CITY_SEED),
   ) {
     this.terrain = makeTerrain();
@@ -308,7 +310,10 @@ export class CityModel {
       }
     }
 
-    for (const mesh of buildRoads(this.network, this.terrain)) {
+    const roadMeshes = this.genPayload
+      ? roadPartsToMeshes(this.genPayload.roadParts)
+      : buildRoads(this.network, this.terrain);
+    for (const mesh of roadMeshes) {
       mesh.userData.merge = true; // road ribbons are unique conformed buffers
       staticMeshes.push(mesh);
     }
@@ -760,46 +765,29 @@ export class CityModel {
       vertexColors: true,
       roughness: 1,
     });
-    const CONCRETE = new THREE.Color(0x9a9b92);
-    const SAND = new THREE.Color(0xd9c9a1);
-    const PARK = new THREE.Color(0x74975c);
-    const greenSet = new Set(this.plan.greenCells.map((g) => `${g.gx},${g.gz}`));
-    // Painted floors (editor "Floor" mode): baked + this browser's local edits.
-    const floorAt = new Map<string, FloorKind>();
-    {
-      const local = loadLocalOverrides();
-      for (const [fgx, fgz, kind] of [...CUSTOM_MAP.floor, ...local.floor]) {
-        floorAt.set(`${fgx},${fgz}`, kind);
+    let ground: THREE.Group;
+    if (this.genPayload) {
+      ground = new THREE.Group();
+      for (const t of this.genPayload.tiles) {
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute("position", new THREE.BufferAttribute(t.position, 3));
+        geo.setAttribute("normal", new THREE.BufferAttribute(t.normal, 3));
+        if (t.color) geo.setAttribute("color", new THREE.BufferAttribute(t.color, 3));
+        if (t.index) geo.setIndex(new THREE.BufferAttribute(t.index, 1));
+        const mesh = new THREE.Mesh(geo, groundMat);
+        mesh.position.set(t.x, 0, t.z);
+        mesh.rotation.x = -Math.PI / 2;
+        mesh.receiveShadow = true;
+        mesh.name = "terrain-ground";
+        ground.add(mesh);
       }
+    } else {
+      ground = this.terrain.buildMesh(
+        groundMat,
+        makeGroundColorAt(this.plan, this.terrain),
+        makeGroundOffset(this.network),
+      );
     }
-    const ground = this.terrain.buildMesh(
-      groundMat,
-      (x, z, into) => {
-        into.copy(CONCRETE);
-        const gx = Math.min(GRID_X - 1, Math.max(0, this.gridX(x)));
-        const gz = Math.min(GRID_Z - 1, Math.max(0, this.gridZ(z)));
-        if (landuseGreenAt(gx, gz) || districtAt(gx, gz).character === "park") {
-          into.lerp(PARK, 0.8); // real OSM green space
-        } else if (greenSet.has(`${gx},${gz}`)) {
-          into.lerp(PARK, 0.3); // interior lots: subtle, not lawn-prairie
-        }
-        if (landuseSandAt(gx, gz)) into.lerp(SAND, 0.85);
-        const painted = floorAt.get(`${gx},${gz}`);
-        if (painted === "plaza") into.copy(CONCRETE).lerp(new THREE.Color(0xffffff), 0.12);
-        else if (painted === "grass") into.copy(PARK);
-        else if (painted === "sand") into.copy(SAND);
-        const land = this.terrain.landAt(x, z);
-        const shore = 1 - THREE.MathUtils.smoothstep(land, 0.3, 0.55);
-        if (shore > 0) {
-          const u = x / WORLD_W + 0.5;
-          into.lerp(SAND, u < 0.12 ? shore : shore * 0.5); // Ocean Beach reads strongest
-        }
-      },
-      // Depress the ground under streets (same feathered rule as before) —
-      // but via a PRECOMPUTED clearance field: half a million per-vertex
-      // network.nearest() calls made this the slowest part of terrain build.
-      this.makeGroundOffset(),
-    );
     ground.name = "terrain-ground"; // the map editor raycasts against this
     this.group.add(ground);
     // Ground tiles distance-cull like any chunk (half-diagonal as radius).
@@ -1059,58 +1047,6 @@ export class CityModel {
     if (d.y2 === undefined || d.maxZ <= d.minZ) return d.y;
     const t = (z - d.minZ) / (d.maxZ - d.minZ);
     return d.y + (d.y2 - d.y) * t;
-  }
-
-  // Clearance field: for every ~3.25u cell, (distance to nearest edge
-  // centreline − that edge's half width). Stamped once along each edge —
-  // O(street length), replacing per-vertex spatial-hash queries.
-  private makeGroundOffset(): (x: number, z: number) => number {
-    const RES = ROAD_TILE / 4;
-    const FW = Math.ceil(WORLD_W / RES) + 2;
-    const FH = Math.ceil(WORLD_H / RES) + 2;
-    const field = new Float32Array(FW * FH).fill(1e9);
-    const BAND = 5.2; // pave apron 1.6 + feather 3 + slack
-    for (const e of this.network.edges) {
-      const band = e.half + BAND;
-      for (let k = 0; k + 3 < e.pts.length; k += 2) {
-        const ax = e.pts[k] ?? 0;
-        const az = e.pts[k + 1] ?? 0;
-        const bx = e.pts[k + 2] ?? 0;
-        const bz = e.pts[k + 3] ?? 0;
-        const minX = Math.min(ax, bx) - band;
-        const maxX = Math.max(ax, bx) + band;
-        const minZ = Math.min(az, bz) - band;
-        const maxZ = Math.max(az, bz) + band;
-        const i0 = Math.max(0, Math.floor((minX + WORLD_HALF_X) / RES));
-        const i1 = Math.min(FW - 1, Math.ceil((maxX + WORLD_HALF_X) / RES));
-        const j0 = Math.max(0, Math.floor((minZ + WORLD_HALF_Z) / RES));
-        const j1 = Math.min(FH - 1, Math.ceil((maxZ + WORLD_HALF_Z) / RES));
-        const dx = bx - ax;
-        const dz = bz - az;
-        const l2 = dx * dx + dz * dz || 1;
-        for (let i = i0; i <= i1; i++) {
-          const px = i * RES - WORLD_HALF_X;
-          for (let j = j0; j <= j1; j++) {
-            const pz = j * RES - WORLD_HALF_Z;
-            let t = ((px - ax) * dx + (pz - az) * dz) / l2;
-            t = t < 0 ? 0 : t > 1 ? 1 : t;
-            const d = Math.hypot(px - (ax + dx * t), pz - (az + dz * t)) - e.half;
-            const idx = i * FH + j;
-            const cur = field[idx];
-            if (cur === undefined || d < cur) field[idx] = d;
-          }
-        }
-      }
-    }
-    return (x: number, z: number): number => {
-      const i = Math.round((x + WORLD_HALF_X) / RES);
-      const j = Math.round((z + WORLD_HALF_Z) / RES);
-      if (i < 0 || j < 0 || i >= FW || j >= FH) return 0;
-      const v = field[i * FH + j];
-      if (v === undefined || v > 4.6) return 0;
-      if (v < 1.6) return -0.35;
-      return -0.35 * Math.max(0, 1 - (v - 1.6) / 3);
-    };
   }
 
   heightAt(x: number, z: number): number {

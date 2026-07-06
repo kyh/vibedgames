@@ -33,9 +33,16 @@ const DASH_LEN = 2.2;
 const DASH_GAP = 2.6;
 const MITER_LIMIT = 2.5; // clamp spike joints on hairpin polylines
 
+// Materials by stable key — the worker ships buffers tagged with these keys
+// and the main thread looks the material back up.
+export const ROAD_MATERIALS: Record<string, THREE.Material> = {};
+
 const MAT_ASPHALT = new THREE.MeshStandardMaterial({ color: 0x40454c, roughness: 1 });
+ROAD_MATERIALS.asphalt = MAT_ASPHALT;
 const MAT_SIDEWALK = new THREE.MeshStandardMaterial({ color: 0xb6b9b0, roughness: 1 });
+ROAD_MATERIALS.walk = MAT_SIDEWALK;
 const MAT_CURB = new THREE.MeshStandardMaterial({ color: 0x8f938c, roughness: 1 });
+ROAD_MATERIALS.curb = MAT_CURB;
 // Markings are decals: polygon-offset wins the depth test against the
 // asphalt even where the two drapes sample the terrain differently — no
 // physical lift can guarantee that on curved ground.
@@ -46,6 +53,7 @@ const MAT_DASH = new THREE.MeshStandardMaterial({
   polygonOffsetFactor: -2,
   polygonOffsetUnits: -4,
 });
+ROAD_MATERIALS.dash = MAT_DASH;
 const MAT_YELLOW = new THREE.MeshStandardMaterial({
   color: 0xd8a13c,
   roughness: 0.9,
@@ -53,6 +61,7 @@ const MAT_YELLOW = new THREE.MeshStandardMaterial({
   polygonOffsetFactor: -2,
   polygonOffsetUnits: -4,
 });
+ROAD_MATERIALS.yellow = MAT_YELLOW;
 const MAT_WHITE = new THREE.MeshStandardMaterial({
   color: 0xdfe3e3,
   roughness: 0.9,
@@ -60,8 +69,16 @@ const MAT_WHITE = new THREE.MeshStandardMaterial({
   polygonOffsetFactor: -2,
   polygonOffsetUnits: -4,
 });
+ROAD_MATERIALS.white = MAT_WHITE;
 
 type Part = { geo: THREE.BufferGeometry; mat: THREE.Material; lift: number };
+
+export type RoadPartBuffers = {
+  matKey: string;
+  position: Float32Array;
+  normal: Float32Array;
+  uv: Float32Array | null;
+};
 
 type Pair = [number, number];
 
@@ -372,7 +389,7 @@ function multiPolyGeo(mp: MultiPoly): THREE.BufferGeometry {
   return flatGeo(pos);
 }
 
-export function buildRoads(network: RoadNetwork, terrain: Terrain): THREE.Mesh[] {
+export function buildRoadParts(network: RoadNetwork, terrain: Terrain): RoadPartBuffers[] {
   const asphaltPolys: Poly[] = [];
   const curbPolys: Poly[] = [];
   const pavePolys: Poly[] = [];
@@ -583,10 +600,37 @@ export function buildRoads(network: RoadNetwork, terrain: Terrain): THREE.Mesh[]
     ...markingParts,
   ];
 
-  const out: THREE.Mesh[] = [];
+  const keyOfMat = new Map<THREE.Material, string>(
+    Object.entries(ROAD_MATERIALS).map(([k, m]) => [m, k]),
+  );
+  const out: RoadPartBuffers[] = [];
   for (const p of parts) {
     const draped = conformToTerrain(p.geo, terrain, p.lift);
-    out.push(new THREE.Mesh(draped, p.mat));
+    const pos = draped.getAttribute("position");
+    const nor = draped.getAttribute("normal");
+    const uv = draped.getAttribute("uv");
+    out.push({
+      matKey: keyOfMat.get(p.mat) ?? "asphalt",
+      position: pos.array as Float32Array,
+      normal: nor.array as Float32Array,
+      uv: uv ? (uv.array as Float32Array) : null,
+    });
   }
   return out;
+}
+
+export function roadPartsToMeshes(parts: readonly RoadPartBuffers[]): THREE.Mesh[] {
+  const out: THREE.Mesh[] = [];
+  for (const p of parts) {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(p.position, 3));
+    geo.setAttribute("normal", new THREE.BufferAttribute(p.normal, 3));
+    if (p.uv) geo.setAttribute("uv", new THREE.BufferAttribute(p.uv, 2));
+    out.push(new THREE.Mesh(geo, ROAD_MATERIALS[p.matKey] ?? ROAD_MATERIALS.asphalt));
+  }
+  return out;
+}
+
+export function buildRoads(network: RoadNetwork, terrain: Terrain): THREE.Mesh[] {
+  return roadPartsToMeshes(buildRoadParts(network, terrain));
 }

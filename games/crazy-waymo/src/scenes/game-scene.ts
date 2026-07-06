@@ -43,6 +43,8 @@ import { Minimap, type MinimapMarker } from "../ui/minimap";
 import { setupTouch } from "../ui/touch";
 import { Car } from "../vehicle/car";
 import { CityModel } from "../world/city";
+import { editorMode, loadLocalOverrides } from "../world/custom-map";
+import type { CityGenPayload } from "../world/gen-worker";
 import { districtAt } from "../world/sf-map";
 import { SolidIndex } from "../world/solid-index";
 
@@ -105,6 +107,41 @@ function readBest(): number {
   const raw = storageGet(BEST_KEY);
   const n = raw === null ? 0 : Number(raw);
   return Number.isFinite(n) ? n : 0;
+}
+
+// Kick the city-gen worker. Returns null (main-thread gen) when the city has
+// street/floor edits — local overrides live in localStorage, which the worker
+// cannot see — or when the worker fails for any reason.
+function startGenWorker(): Promise<CityGenPayload | null> {
+  // Baked CUSTOM_MAP edits are module constants — the worker sees them too.
+  const local = loadLocalOverrides();
+  const edited =
+    editorMode() &&
+    (local.add.length > 0 || local.remove.length > 0 || local.floor.length > 0);
+  if (edited) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    try {
+      const worker = new Worker(new URL("../world/gen-worker.ts", import.meta.url), {
+        type: "module",
+      });
+      const bail = setTimeout(() => {
+        worker.terminate();
+        resolve(null);
+      }, 90000);
+      worker.onmessage = (ev: MessageEvent<CityGenPayload>) => {
+        clearTimeout(bail);
+        worker.terminate();
+        resolve(ev.data);
+      };
+      worker.onerror = () => {
+        clearTimeout(bail);
+        worker.terminate();
+        resolve(null);
+      };
+    } catch {
+      resolve(null);
+    }
+  });
 }
 
 export class GameScene {
@@ -323,11 +360,18 @@ export class GameScene {
   }
 
   async load(): Promise<void> {
+    // City geometry generates in a WORKER, in parallel with the model
+    // download — the main thread only uploads the returned buffers. Edited
+    // cities (baked or local street/floor overrides) keep main-thread gen so
+    // editor changes stay real; the worker never sees localStorage.
+    const genPromise = startGenWorker();
     await this.cache.preload(allModelUrls(), (frac) => {
       this.mode = { kind: "loading", progress: frac * 0.7 };
       this.hud.setLoading(frac * 0.7);
     });
-    const city = new CityModel(this.cache);
+    const payload = await genPromise;
+    console.log(`[city] worker payload: ${payload ? "yes" : "fallback to main-thread gen"}`);
+    const city = new CityModel(this.cache, payload);
     await city.initEarly((frac) => {
       this.mode = { kind: "loading", progress: frac };
       this.hud.setLoading(frac);
