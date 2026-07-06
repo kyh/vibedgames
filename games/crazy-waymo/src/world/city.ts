@@ -88,7 +88,7 @@ function dirToYaw(d: Dir): number {
 
 // A streamed tile of static city geometry: its own merged meshes under one
 // group, tagged with a centre + cull radius so it can be hidden when far away.
-type Chunk = { cx: number; cz: number; radius: number; group: THREE.Group };
+type Chunk = { cx: number; cz: number; radius: number; dist: number; group: THREE.Object3D };
 
 // Batched-instance streaming scratch (per-frame, allocation-free).
 const NEAR_ALWAYS = 170; // chunks this close are always on (off-screen shadow casters)
@@ -791,6 +791,16 @@ export class CityModel {
     );
     ground.name = "terrain-ground"; // the map editor raycasts against this
     this.group.add(ground);
+    // Ground tiles distance-cull like any chunk (half-diagonal as radius).
+    for (const tile of ground.children) {
+      this.chunks.push({
+        cx: tile.position.x,
+        cz: tile.position.z,
+        radius: 660,
+        dist: DRAW_DISTANCE,
+        group: tile,
+      });
+    }
 
     // --- Hand-placed decorations from the map editor (world/custom-props.ts) ---
     for (const p of CUSTOM_PROPS) {
@@ -867,20 +877,35 @@ export class CityModel {
       bucket.items.push({ geo, matrix: mesh.matrixWorld.clone(), ...(tint ? { tint } : {}) });
     }
 
-    // Chunked merges (roads + drapes).
+    // Chunked merges (roads + drapes). Thin paint (markings, curb lips) is
+    // sub-pixel beyond DETAIL_DISTANCE — it culls there instead of the fog line.
+    const DETAIL_HEXES = new Set(["dfe3e3", "d8a13c", "d8a23c", "8f938c"]);
     const cullRadius = CHUNK * 0.71 + ROAD_TILE * 2;
     for (const [key, meshes] of mergeBuckets) {
       const cx = key % nx;
       const cz = Math.floor(key / nx);
-      const group = new THREE.Group();
-      for (const merged of mergeByMaterial(meshes)) group.add(merged);
-      this.group.add(group);
-      this.chunks.push({
-        cx: (cx + 0.5) * CHUNK - WORLD_HALF_X,
-        cz: (cz + 0.5) * CHUNK - WORLD_HALF_Z,
-        radius: cullRadius,
-        group,
-      });
+      const isDetail = (m: THREE.Mesh): boolean => {
+        const mat = m.material;
+        return !Array.isArray(mat) && "color" in mat
+          ? DETAIL_HEXES.has((mat as THREE.MeshStandardMaterial).color.getHexString())
+          : false;
+      };
+      const main = meshes.filter((m) => !isDetail(m));
+      const detail = meshes.filter(isDetail);
+      const ccx = (cx + 0.5) * CHUNK - WORLD_HALF_X;
+      const ccz = (cz + 0.5) * CHUNK - WORLD_HALF_Z;
+      if (main.length > 0) {
+        const group = new THREE.Group();
+        for (const merged of mergeByMaterial(main)) group.add(merged);
+        this.group.add(group);
+        this.chunks.push({ cx: ccx, cz: ccz, radius: cullRadius, dist: DRAW_DISTANCE, group });
+      }
+      if (detail.length > 0) {
+        const group = new THREE.Group();
+        for (const merged of mergeByMaterial(detail)) group.add(merged);
+        this.group.add(group);
+        this.chunks.push({ cx: ccx, cz: ccz, radius: cullRadius, dist: DETAIL_DISTANCE, group });
+      }
     }
 
     // Global batches (models). Each instance is assigned to a spatial chunk;
@@ -962,7 +987,7 @@ export class CityModel {
     const camZ = camera.position.z;
     for (const c of this.chunks) {
       const d = Math.hypot(camX - c.cx, camZ - c.cz) - c.radius;
-      const visible = d < DRAW_DISTANCE;
+      const visible = d < c.dist;
       if (c.group.visible !== visible) c.group.visible = visible;
     }
     const { nx, nz } = this.batchChunkGrid;

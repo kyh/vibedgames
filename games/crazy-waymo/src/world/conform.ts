@@ -11,7 +11,7 @@ import type { Terrain } from "./terrain";
 // output dominates heap (non-indexed verts x 16k road cells), and a 6cm bow
 // under a 13u-wide road is invisible. Markings float on a raised lift so the
 // looser tolerance can't tuck them under the asphalt.
-const MAX_ERROR = 0.06; // split a triangle when the surface bows past this
+const MAX_ERROR = 0.09; // split a triangle when the surface bows past this
 const MIN_EDGE = 2.4; // never split edges shorter than this (runaway guard)
 const MAX_DEPTH = 4;
 const UP_DOT = 0.8; // vertices at least this upright adopt the terrain normal
