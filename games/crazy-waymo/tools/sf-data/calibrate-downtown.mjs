@@ -64,27 +64,20 @@ const score = (s, fz, ox, oz, stride = 3) => {
   return (hits / total) * Math.sqrt(cells.size / total);
 };
 
-// Deterministic anchor solve: the two tallest extracted buildings are
-// Salesforce Tower and the Transamerica Pyramid (height ratio matches).
-// Their real coordinates project exactly, so two anchors fully determine
-// scale + offsets; the score only fine-tunes afterwards.
-const U_M2 = 6.2462, U_B2 = 765.2557, V_M2 = -9.6095, V_B2 = 363.344;
-const proj = (lon, lat) => [
-  (U_M2 * lon + U_B2 - 0.5) * WORLD_W,
-  (V_M2 * lat + V_B2 - 0.5) * WORLD_H,
-];
-const [xS, zS] = proj(-122.3965, 37.7897); // Salesforce Tower
-const [xT, zT] = proj(-122.4028, 37.7952); // Transamerica Pyramid
-const MS = raw.buildings[0]; // tallest
-const MT = raw.buildings[1];
-const sAnchor =
-  Math.hypot(xS - xT, zS - zT) / Math.hypot(MS.x - MT.x, MS.z - MT.z);
-const fzAnchor = Math.sign((zS - zT) / ((MS.z - MT.z) * sAnchor));
-const oxAnchor = xS - (MS.x - mcx) * sAnchor;
-const ozAnchor = zS - (MS.z - mcz) * sAnchor * fzAnchor;
-let best = { s: sAnchor, fz: fzAnchor, ox: oxAnchor, oz: ozAnchor, rate: 0 };
-best.rate = score(best.s, best.fz, best.ox, best.oz, 1);
-console.log("anchor solve:", JSON.stringify(best));
+// Seeded wide search: fz=-1 is settled (every verified 1x lock agreed);
+// the 2x world puts the true offsets near 2x the old lock (ox 316 -> ~632,
+// oz -420 -> ~-840) and scale near 2x 0.132. Search a WIDE box around that
+// seed with the spread-penalized score at full sample density — the global
+// search's false optima (Sunset grid) live far outside this box.
+let best = { s: 0.264, fz: -1, ox: 632, oz: -840, rate: 0 };
+for (let sv = 0.22; sv <= 0.31; sv += 0.005) {
+  for (let ox = 232; ox <= 1032; ox += 40) {
+    for (let oz = -1240; oz <= -440; oz += 40) {
+      const r = score(sv, -1, ox, oz, 2);
+      if (r > best.rate) best = { s: sv, fz: -1, ox, oz, rate: r };
+    }
+  }
+}
 console.log("coarse:", JSON.stringify(best));
 // Refine around the coarse optimum.
 for (let pass = 0; pass < 3; pass++) {
