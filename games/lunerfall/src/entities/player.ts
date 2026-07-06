@@ -14,10 +14,6 @@ import { DASH_DUR, PlayerBody } from "./player-body";
 // gameplay duration; run is nudged snappier than the authored 10fps.
 const RUN_MS = 520;
 
-// Floor on per-frame display time (~26fps) so a very short hitbox window doesn't
-// blur the swing — the leftover frames play out as a recovery tail (selectClip).
-const MIN_FRAME_MS = 38;
-
 // A clip's gameplay-matched playback duration (ms), or undefined to keep the
 // authored timing. Swings/special/dash are re-timed to their mechanic; run is
 // nudged snappier. Shared with the ?editor gallery so it previews true in-game
@@ -135,23 +131,16 @@ export class Player {
     if (sy < 1) landPuff(this.scene, this.sprite.x, this.body.y); // landing squash kicks up dust
   }
 
-  // Play a clip, re-timed via timeScale. NOTE: passing `duration` to play()
-  // FREEZES Phaser anims that carry per-frame durations (as ours do from
-  // Aseprite) — it renders frame 1 only. timeScale speeds the same frames up
-  // without that bug. Target the gameplay duration but floor each frame at
-  // MIN_FRAME_MS so a short hitbox window doesn't turn the swing into a blur —
-  // the recovery tail then plays out via selectClip's hold-when-idle.
+  // Play a clip, re-timed to its gameplay duration via timeScale. NOTE: passing
+  // `duration` to play() FREEZES Phaser anims that carry per-frame durations (as
+  // ours do from Aseprite) — it renders frame 1 only. timeScale speeds the same
+  // frames up without that bug, so the whole clip plays across its mechanic
+  // window (swings are readable now that SWING_TEMPO widened that window).
   private playClip(clip: string, loop: boolean) {
     this.sprite.play(`${this.name}:${clip}`, loop);
-    const anim = this.sprite.anims.currentAnim;
     const ms = clipGameMs(this.hero, clip);
-    const authored = anim?.duration ?? 0;
-    if (ms !== undefined && ms > 0 && authored > 0 && anim) {
-      const target = Math.max(ms, anim.getTotalFrames() * MIN_FRAME_MS);
-      this.sprite.anims.timeScale = authored / target;
-    } else {
-      this.sprite.anims.timeScale = 1;
-    }
+    const authored = this.sprite.anims.currentAnim?.duration ?? 0;
+    this.sprite.anims.timeScale = ms !== undefined && ms > 0 && authored > 0 ? authored / ms : 1;
   }
 
   // Choose + play the clip for the current sim/net state. Shared by render (local

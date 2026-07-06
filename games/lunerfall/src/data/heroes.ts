@@ -35,18 +35,22 @@ export type HeroDef = {
   kit: HeroKit;
 };
 
-const swing = (clip: string, o: Partial<Swing>): Swing => ({
-  clip,
-  dur: 0.24,
-  a0: 0.05,
-  a1: 0.14,
-  combo: 0.11,
-  reach: 20,
-  dmg: 1,
-  kb: 110,
-  lunge: 50,
-  ...o,
-});
+// Global swing tempo. The Luneblade attack art is authored slow (~10fps), so a
+// snappy 0.22s hitbox window blurred the whole swing AND cut combo steps short
+// (you'd only see the first hit). Stretching every swing's timing by this factor
+// gives each strike room to actually read + finish before the next chains — so
+// all combo hits show. It scales the WINDOW (dur/a0/a1/combo) proportionally, so
+// each swing keeps its tuned shape; reach/dmg/kb/lunge are untouched. Tune here.
+const SWING_TEMPO = 2.4;
+
+const swing = (clip: string, o: Partial<Swing>): Swing => {
+  const s: Swing = { clip, dur: 0.24, a0: 0.05, a1: 0.14, combo: 0.11, reach: 20, dmg: 1, kb: 110, lunge: 50, ...o };
+  // Scale the swing WINDOW + hitbox timing so the anim reads and the hit stays
+  // aligned mid-swing. `combo` (earliest you may queue the next hit) is left
+  // early/unscaled so chaining stays forgiving — normal-cadence taps still combo
+  // through all steps; the chain only *executes* at `dur`.
+  return { ...s, dur: s.dur * SWING_TEMPO, a0: s.a0 * SWING_TEMPO, a1: s.a1 * SWING_TEMPO };
+};
 
 export const HEROES: Record<HeroName, HeroDef> = {
   axion: {
