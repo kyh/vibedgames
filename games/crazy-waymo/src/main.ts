@@ -70,7 +70,8 @@ const loaded = game.load();
 // Map editor: open with ?editor=1, place assets, export JSON for
 // world/custom-props.ts. Lazy chunk — costs nothing on normal loads.
 if (new URLSearchParams(window.location.search).has("editor")) {
-  void Promise.all([import("./editor/map-editor"), loaded]).then(([{ startEditor }]) =>
-    startEditor(game, renderer),
-  );
+  void Promise.all([import("./editor/map-editor"), loaded]).then(async ([{ startEditor }]) => {
+    await game.ready; // editor needs the fully built city
+    startEditor(game, renderer);
+  });
 }

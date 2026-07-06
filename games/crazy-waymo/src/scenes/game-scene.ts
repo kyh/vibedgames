@@ -149,6 +149,9 @@ export class GameScene {
   private sun = new THREE.DirectionalLight(0xfff2d8, 2.0);
   private sky: Sky;
   private mode: GameMode = { kind: "loading", progress: 0 };
+  ready: Promise<void> = Promise.resolve();
+  private loadDone = false;
+  private pendingStart = false;
   private titleT = 0;
   private lowBeepAt = -1;
   private puffAccum = 0;
@@ -325,7 +328,7 @@ export class GameScene {
       this.hud.setLoading(frac * 0.7);
     });
     const city = new CityModel(this.cache);
-    await city.init((frac) => {
+    await city.initEarly((frac) => {
       this.mode = { kind: "loading", progress: frac };
       this.hud.setLoading(frac);
     });
@@ -338,6 +341,20 @@ export class GameScene {
     this.scene.add(car.object3D);
     car.reset(this.spawn.x, this.spawn.z, this.spawn.yaw);
     this.car = car;
+
+    // Title NOW — the heavy city passes finish behind it while the player
+    // reads the screen. Enter is gated on `ready`.
+    this.rig.snapTo(car);
+    this.hud.hideLoading();
+    this.toTitle();
+    this.ready = this.finishLoad(city);
+    return;
+  }
+
+  // Everything that needs the fully built city (buildings, furniture,
+  // physics, traffic…) — runs behind the title screen.
+  private async finishLoad(city: CityModel): Promise<void> {
+    await city.initLate();
 
     // Other players' taxis, placed on the same deterministic city.
     this.remoteCars = new RemoteCars(this.cache, city);
@@ -380,9 +397,11 @@ export class GameScene {
     this.scene.add(this.cones.mesh);
     this.minimap = new Minimap(city.plan, city.getDecks());
 
-    this.rig.snapTo(car);
-    this.hud.hideLoading();
-    this.toTitle();
+    this.loadDone = true;
+    if (this.pendingStart) {
+      this.pendingStart = false;
+      this.start();
+    }
   }
 
   resize(aspect: number, scalePx: number): void {
@@ -417,6 +436,12 @@ export class GameScene {
   }
 
   private start(): void {
+    if (!this.loadDone) {
+      // City still building behind the title — auto-start the moment it's done.
+      this.pendingStart = true;
+      this.hud.announceMinor("FINISHING THE CITY\u2026", "#8fd9ff");
+      return;
+    }
     const car = this.car;
     const fares = this.fares;
     if (!car || !fares) return;

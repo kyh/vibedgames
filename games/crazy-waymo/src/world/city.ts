@@ -213,16 +213,38 @@ export class CityModel {
 
   // Build in yielded phases so the loading bar paints during city gen.
   async init(onProgress?: (f: number) => void): Promise<void> {
+    await this.initEarly(onProgress);
+    await this.initLate(onProgress);
+  }
+
+  // Phase 1 only: terrain + streets + network — enough world for the title
+  // screen. The heavy passes (buildings, furniture, batching) run in
+  // initLate BEHIND the title, so time-to-title is a third of full gen.
+  async initEarly(onProgress?: (f: number) => void): Promise<void> {
     const tick = async (f: number): Promise<void> => {
       onProgress?.(f);
       await new Promise((r) => requestAnimationFrame(() => r(undefined)));
     };
-    await tick(0.72);
+    const t0 = performance.now();
+    await tick(0.62);
     this.buildPhase1();
-    await tick(0.82);
+    console.log(`[city] phase1 ${Math.round(performance.now() - t0)}ms`);
+    await tick(0.8);
+  }
+
+  async initLate(onProgress?: (f: number) => void): Promise<void> {
+    const tick = async (f: number): Promise<void> => {
+      onProgress?.(f);
+      await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+    };
+    const t0 = performance.now();
     this.buildPhase2();
-    await tick(0.92);
+    const t1 = performance.now();
+    await tick(0.9);
     this.buildPhase3();
+    console.log(
+      `[city] phase2 ${Math.round(t1 - t0)}ms phase3 ${Math.round(performance.now() - t1)}ms`,
+    );
     await tick(0.97);
   }
 
@@ -773,21 +795,10 @@ export class CityModel {
           into.lerp(SAND, u < 0.12 ? shore : shore * 0.5); // Ocean Beach reads strongest
         }
       },
-      // Depress the ground under streets: this mesh tessellates the height
-      // field ~4× coarser than the draped roads, and on tight hills its
-      // linear interpolation bows up to ~0.25u ABOVE the true field — up
-      // through the asphalt. Depression follows the NETWORK (distance to the
-      // nearest edge), not raster cells: the smoothed diagonals no longer
-      // match the cell staircase, and a cell-based dip pokes out as dark
-      // jagged zigzags beside every diagonal street.
-      (x, z) => {
-        const hit = this.network.nearest(x, z, ROAD_TILE * 1.05);
-        if (!hit) return 0;
-        const pave = hit.edge.half + 1.6; // asphalt + sidewalk apron
-        if (hit.dist < pave) return -0.35;
-        // Feather back to grade so the lip never shows as a step.
-        return -0.35 * Math.max(0, 1 - (hit.dist - pave) / 3);
-      },
+      // Depress the ground under streets (same feathered rule as before) —
+      // but via a PRECOMPUTED clearance field: half a million per-vertex
+      // network.nearest() calls made this the slowest part of terrain build.
+      this.makeGroundOffset(),
     );
     ground.name = "terrain-ground"; // the map editor raycasts against this
     this.group.add(ground);
@@ -1048,6 +1059,58 @@ export class CityModel {
     if (d.y2 === undefined || d.maxZ <= d.minZ) return d.y;
     const t = (z - d.minZ) / (d.maxZ - d.minZ);
     return d.y + (d.y2 - d.y) * t;
+  }
+
+  // Clearance field: for every ~3.25u cell, (distance to nearest edge
+  // centreline − that edge's half width). Stamped once along each edge —
+  // O(street length), replacing per-vertex spatial-hash queries.
+  private makeGroundOffset(): (x: number, z: number) => number {
+    const RES = ROAD_TILE / 4;
+    const FW = Math.ceil(WORLD_W / RES) + 2;
+    const FH = Math.ceil(WORLD_H / RES) + 2;
+    const field = new Float32Array(FW * FH).fill(1e9);
+    const BAND = 5.2; // pave apron 1.6 + feather 3 + slack
+    for (const e of this.network.edges) {
+      const band = e.half + BAND;
+      for (let k = 0; k + 3 < e.pts.length; k += 2) {
+        const ax = e.pts[k] ?? 0;
+        const az = e.pts[k + 1] ?? 0;
+        const bx = e.pts[k + 2] ?? 0;
+        const bz = e.pts[k + 3] ?? 0;
+        const minX = Math.min(ax, bx) - band;
+        const maxX = Math.max(ax, bx) + band;
+        const minZ = Math.min(az, bz) - band;
+        const maxZ = Math.max(az, bz) + band;
+        const i0 = Math.max(0, Math.floor((minX + WORLD_HALF_X) / RES));
+        const i1 = Math.min(FW - 1, Math.ceil((maxX + WORLD_HALF_X) / RES));
+        const j0 = Math.max(0, Math.floor((minZ + WORLD_HALF_Z) / RES));
+        const j1 = Math.min(FH - 1, Math.ceil((maxZ + WORLD_HALF_Z) / RES));
+        const dx = bx - ax;
+        const dz = bz - az;
+        const l2 = dx * dx + dz * dz || 1;
+        for (let i = i0; i <= i1; i++) {
+          const px = i * RES - WORLD_HALF_X;
+          for (let j = j0; j <= j1; j++) {
+            const pz = j * RES - WORLD_HALF_Z;
+            let t = ((px - ax) * dx + (pz - az) * dz) / l2;
+            t = t < 0 ? 0 : t > 1 ? 1 : t;
+            const d = Math.hypot(px - (ax + dx * t), pz - (az + dz * t)) - e.half;
+            const idx = i * FH + j;
+            const cur = field[idx];
+            if (cur === undefined || d < cur) field[idx] = d;
+          }
+        }
+      }
+    }
+    return (x: number, z: number): number => {
+      const i = Math.round((x + WORLD_HALF_X) / RES);
+      const j = Math.round((z + WORLD_HALF_Z) / RES);
+      if (i < 0 || j < 0 || i >= FW || j >= FH) return 0;
+      const v = field[i * FH + j];
+      if (v === undefined || v > 4.6) return 0;
+      if (v < 1.6) return -0.35;
+      return -0.35 * Math.max(0, 1 - (v - 1.6) / 3);
+    };
   }
 
   heightAt(x: number, z: number): number {
