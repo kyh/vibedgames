@@ -33,6 +33,16 @@ export type MapOverrides = {
 // run the canonical baked map — multiplayer shares one deterministic city,
 // and a locally forked map would desync it. Ship edits to everyone by
 // pasting Copy-map-JSON into CUSTOM_MAP above.
+// Streets v3 spike flag (?streets=v3): octilinear-snapped network +
+// kit-styled roads, main-thread generation (bypasses baked artifacts).
+export function streetsV3(): boolean {
+  try {
+    return new URLSearchParams(window.location.search).get("streets") === "v3";
+  } catch {
+    return false;
+  }
+}
+
 export function editorMode(): boolean {
   try {
     return new URLSearchParams(window.location.search).has("editor");

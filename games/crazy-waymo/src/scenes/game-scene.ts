@@ -43,7 +43,7 @@ import { Minimap, type MinimapMarker } from "../ui/minimap";
 import { setupTouch } from "../ui/touch";
 import { Car } from "../vehicle/car";
 import { CityModel } from "../world/city";
-import { editorMode, loadLocalOverrides } from "../world/custom-map";
+import { editorMode, loadLocalOverrides, streetsV3 } from "../world/custom-map";
 import { getRuntimeMap, parseMapFile, setRuntimeMap } from "../world/map-file";
 import type { CityGenPayload } from "../world/gen-worker";
 import type { CityRestPayload } from "../world/city";
@@ -121,6 +121,7 @@ function cityEdited(): boolean {
   // A runtime map file replaces the world outright — never mix with baked
   // artifacts or caches. Baked CUSTOM_MAP edits are module constants.
   if (getRuntimeMap()) return true;
+  if (streetsV3()) return true; // spike flag: always live-generate
   const local = loadLocalOverrides();
   return (
     editorMode() &&

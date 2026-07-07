@@ -30,6 +30,9 @@ import { activeMapProps } from "./map-file";
 import { buildFurniture, type LampHead, type ParkedSpec } from "./furniture";
 import { buildGoldenGate } from "./golden-gate";
 import { RoadNetwork } from "./network";
+import { snapNetworkOctilinear } from "./octilinear";
+import { SF_EDGES, SF_NODES } from "./sf-network";
+import { streetsV3 } from "./custom-map";
 import { type CityPlan, generateCity } from "./grid";
 import { CUSTOM_MAP, editorMode, loadLocalOverrides } from "./custom-map";
 import { makeGroundColorAt, makeGroundOffset } from "./ground";
@@ -264,6 +267,9 @@ export class CityModel {
     if (streetEdits) {
       const gridNet = buildGridNetwork(this.plan, (gx) => this.worldX(gx), (gz) => this.worldZ(gz));
       this.network = new RoadNetwork(gridNet.nodes, gridNet.edges);
+    } else if (streetsV3()) {
+      const snapped = snapNetworkOctilinear(SF_NODES, SF_EDGES);
+      this.network = new RoadNetwork(snapped.nodes, snapped.edges);
     } else {
       this.network = new RoadNetwork();
     }
