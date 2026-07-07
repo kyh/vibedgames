@@ -117,6 +117,7 @@ export class SelectScene extends Phaser.Scene {
     kb?.on("keydown-SPACE", () => this.confirm());
     kb?.on("keydown-ENTER", () => this.confirm());
     kb?.on("keydown-J", () => this.confirm());
+    kb?.on("keydown-U", () => this.buyUnlock());
     kb?.on("keydown-C", () => this.toggleCoop());
     kb?.once("keydown", () => sfx.unlock());
     this.input.once("pointerdown", () => sfx.unlock());
@@ -154,7 +155,7 @@ export class SelectScene extends Phaser.Scene {
     this.hint.setText(
       unlocked
         ? `← →  choose      SPACE / J  ${go}      C  co-op`
-        : `← →  choose      SPACE / J  unlock (${UNLOCK_COST[name]} ✦)`,
+        : `← →  choose      U  unlock (${UNLOCK_COST[name]} ✦)      locked`,
     );
     this.coopText.setText(
       this.coop ? `CO-OP ${this.code}  ·  share this page's URL, then both press SPACE` : "",
@@ -179,24 +180,36 @@ export class SelectScene extends Phaser.Scene {
     this.refresh();
   }
 
+  // Start a run — only ever with an already-unlocked hero. A locked hero can't
+  // be picked here; it must be deliberately bought first (buyUnlock, the U key),
+  // so mashing "go" on the death screen never silently spends your shards.
   private confirm() {
     const hero = HERO_ORDER[this.index] ?? "axion";
-    sfx.unlock();
     if (!isUnlocked(this.meta, hero)) {
-      if (unlockHero(this.meta, hero)) {
-        sfx.pickup();
-        this.cameras.main.flash(200, 52, 229, 200);
-        this.refresh();
-      } else {
-        sfx.hurt();
-        this.cameras.main.shake(140, 0.006);
-      }
+      sfx.hurt();
+      this.cameras.main.shake(140, 0.006);
       return;
     }
     sfx.door();
     this.registry.set("hero", hero);
     this.registry.set("party", this.coop ? this.code : "");
     this.scene.start("game", { hero });
+  }
+
+  // Deliberate hub purchase: spend shards to unlock the highlighted hero. Never
+  // starts a run — you pick it with a second, explicit "descend" press.
+  private buyUnlock() {
+    const hero = HERO_ORDER[this.index] ?? "axion";
+    if (isUnlocked(this.meta, hero)) return;
+    sfx.unlock();
+    if (unlockHero(this.meta, hero)) {
+      sfx.pickup();
+      this.cameras.main.flash(200, 52, 229, 200);
+      this.refresh();
+    } else {
+      sfx.hurt();
+      this.cameras.main.shake(140, 0.006);
+    }
   }
 }
 
