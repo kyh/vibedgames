@@ -26,12 +26,12 @@ import {
 import { Rng } from "../shared/rng";
 import { type Dir, DIR_DELTA, E, N, S, W } from "../shared/types";
 import { toFloat32Attributes } from "./conform";
-import { CUSTOM_PROPS } from "./custom-props";
+import { activeMapProps } from "./map-file";
 import { buildFurniture, type LampHead, type ParkedSpec } from "./furniture";
 import { buildGoldenGate } from "./golden-gate";
 import { RoadNetwork } from "./network";
 import { type CityPlan, generateCity } from "./grid";
-import { CUSTOM_MAP, loadLocalOverrides } from "./custom-map";
+import { CUSTOM_MAP, editorMode, loadLocalOverrides } from "./custom-map";
 import { makeGroundColorAt, makeGroundOffset } from "./ground";
 import { buildGridNetwork } from "./grid-network";
 import { SF_BUILDINGS, SF_BUILDINGS_BOUNDS } from "./sf-buildings";
@@ -911,8 +911,9 @@ export class CityModel {
     this.buildGround();
 
 
-    // --- Hand-placed decorations from the map editor (world/custom-props.ts) ---
-    for (const p of CUSTOM_PROPS) {
+    // --- Hand-placed decorations from the map editor (world/custom-props.ts,
+    // this browser's editor props, or a runtime ?map= file) ---
+    for (const p of activeMapProps(editorMode())) {
       const parts = p.model.split("/");
       const cat = parts[0];
       const name = parts[1];

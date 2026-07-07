@@ -1,3 +1,4 @@
+import { getRuntimeMap } from "./map-file";
 // Hand-edited street-grid overrides, exported from the map editor (?editor=1).
 // Cells are [gx, gz] grid coordinates. `add` turns a cell into road; `remove`
 // deletes a road cell. Applied in grid.ts on top of the baked OSM mask —
@@ -38,6 +39,8 @@ export function editorMode(): boolean {
 }
 
 export function loadLocalOverrides(): MapOverrides {
+  const rt = getRuntimeMap();
+  if (rt) return { add: rt.streets.add, remove: rt.streets.remove, floor: rt.floor };
   if (!editorMode()) return { add: [], remove: [], floor: [] };
   try {
     const raw = window.localStorage.getItem(MAP_OVERRIDES_KEY);

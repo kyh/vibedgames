@@ -44,6 +44,7 @@ import { setupTouch } from "../ui/touch";
 import { Car } from "../vehicle/car";
 import { CityModel } from "../world/city";
 import { editorMode, loadLocalOverrides } from "../world/custom-map";
+import { getRuntimeMap, parseMapFile, setRuntimeMap } from "../world/map-file";
 import type { CityGenPayload } from "../world/gen-worker";
 import type { CityRestPayload } from "../world/city";
 import { readRestCache, readWorldCache, writeRestCache, writeWorldCache } from "../world/world-cache";
@@ -117,7 +118,9 @@ function readBest(): number {
 // street/floor edits — local overrides live in localStorage, which the worker
 // cannot see — or when the worker fails for any reason.
 function cityEdited(): boolean {
-  // Baked CUSTOM_MAP edits are module constants — caches/worker see them too.
+  // A runtime map file replaces the world outright — never mix with baked
+  // artifacts or caches. Baked CUSTOM_MAP edits are module constants.
+  if (getRuntimeMap()) return true;
   const local = loadLocalOverrides();
   return (
     editorMode() &&
@@ -383,6 +386,22 @@ export class GameScene {
   }
 
   async load(): Promise<void> {
+    // ?map=<url>: build the world from a saved map file (editor export).
+    const mapUrl = new URLSearchParams(window.location.search).get("map");
+    if (mapUrl) {
+      try {
+        const res = await fetch(mapUrl);
+        const parsed = parseMapFile(await res.json());
+        if (parsed) {
+          setRuntimeMap(parsed);
+          console.log(`[map] loaded ${mapUrl}: ${parsed.props.length} props`);
+        } else {
+          console.log(`[map] ${mapUrl} rejected (bad format/version)`);
+        }
+      } catch (e) {
+        console.log(`[map] ${mapUrl} failed: ${e instanceof Error ? e.message : e}`);
+      }
+    }
     // City geometry generates in a WORKER, in parallel with the model
     // download — the main thread only uploads the returned buffers. Edited
     // cities (baked or local street/floor overrides) keep main-thread gen so

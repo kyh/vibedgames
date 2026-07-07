@@ -20,6 +20,7 @@ import {
 } from "../world/custom-map";
 import { ROAD_TILE, WORLD_H, WORLD_W } from "../shared/constants";
 import { CUSTOM_PROPS } from "../world/custom-props";
+import { loadLocalProps, parseMapFile, saveLocalProps } from "../world/map-file";
 
 // The map editor (?editor=1). SimCity-style modes:
 //   Navigate — pure camera (drag pan, right-drag orbit, wheel zoom, WASD).
@@ -101,7 +102,7 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
 
   // --- State ---
   let mode: Mode = "nav";
-  const placed: Placed[] = CUSTOM_PROPS.map((p) => ({
+  const placed: Placed[] = [...CUSTOM_PROPS, ...loadLocalProps()].map((p) => ({
     entry: { model: p.model, u: p.u, v: p.v, yaw: p.yaw, s: p.s, ...(p.solid ? { solid: true } : {}) },
     node: null,
     baked: true,
@@ -187,6 +188,9 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     <button id="ed-copy" style="${BTN}background:#1f5a2a">Copy props JSON (custom-props.ts)</button>
     <textarea id="ed-io" rows="3" style="background:#191722;color:#bbb;border:1px solid #333;border-radius:6px;font:10px monospace" placeholder="JSON appears here on copy; paste + Load to import"></textarea>
     <button id="ed-load" style="${BTN}">Load props JSON from box</button>
+    <button id="ed-save-file" style="${BTN}background:#274a7a">Save map file (.json)</button>
+    <button id="ed-load-file" style="${BTN}">Load map file…</button>
+    <input id="ed-file" type="file" accept=".json,application/json" style="display:none" />
   `;
   document.body.appendChild(panel);
 
@@ -463,6 +467,7 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
       return [a ?? 0, b ?? 0, kind];
     });
     saveLocalOverrides({ add: toPairs(addSet), remove: toPairs(removeSet), floor });
+    saveLocalProps(placed.map((p) => p.entry));
   };
 
   $("ed-apply").addEventListener("click", () => {
@@ -491,6 +496,46 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     const io = $("ed-io");
     if (io instanceof HTMLTextAreaElement) io.value = json;
     void navigator.clipboard?.writeText(json).catch(() => undefined);
+  });
+  const buildMapFile = (): string => {
+    const toPairs = (set: Set<string>): number[][] => [...set].map((k) => k.split(",").map(Number));
+    const floor = [...floorMap].map(([k, kind]) => [...k.split(",").map(Number), kind]);
+    return JSON.stringify(
+      {
+        version: 1,
+        streets: { add: toPairs(addSet), remove: toPairs(removeSet) },
+        floor,
+        props: placed.map((p) => p.entry),
+      },
+      null,
+      1,
+    );
+  };
+  $("ed-save-file").addEventListener("click", () => {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([buildMapFile()], { type: "application/json" }));
+    a.download = "crazy-waymo-map.json";
+    a.click();
+  });
+  $("ed-load-file").addEventListener("click", () => $("ed-file").click());
+  $("ed-file").addEventListener("change", async () => {
+    const input = $("ed-file");
+    if (!(input instanceof HTMLInputElement) || !input.files?.[0]) return;
+    try {
+      const parsed = parseMapFile(JSON.parse(await input.files[0].text()));
+      if (!parsed) return;
+      addSet.clear();
+      removeSet.clear();
+      floorMap.clear();
+      for (const [a, b] of parsed.streets.add) addSet.add(`${a},${b}`);
+      for (const [a, b] of parsed.streets.remove) removeSet.add(`${a},${b}`);
+      for (const [a, b, kind] of parsed.floor) floorMap.set(`${a},${b}`, kind);
+      saveLocalOverrides({ add: parsed.streets.add, remove: parsed.streets.remove, floor: parsed.floor });
+      saveLocalProps(parsed.props);
+      window.location.reload(); // rebuild the world from the loaded file
+    } catch {
+      // bad file — leave the current session untouched
+    }
   });
   $("ed-load").addEventListener("click", () => {
     const io = $("ed-io");
