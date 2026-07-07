@@ -16,6 +16,7 @@ export type NetPlayer = {
   dashing: boolean;
   hurting: boolean;
   dead: boolean;
+  downed: boolean; // co-op last stand: frozen awaiting a revive
   iframes: number;
   attackStep: number;
   swingId: number;
@@ -62,6 +63,11 @@ export type NetInput = {
 };
 export type NetProj = { k: "arrow" | "shot" | "hazard"; x: number; y: number; vx: number };
 
+// Co-op last stand: broadcast while a player is downed. bleed = seconds left on
+// the bleed-out clock; rev = 0..1 revive-hold progress. Which player is downed
+// travels on NetPlayer.downed; both clients render the marker from these.
+export type NetLastStand = { bleed: number; rev: number };
+
 export type Snapshot = {
   t: number; // host frame counter — interpolation + stall detection
   room: number; // room seq; guest rebuilds its room when this changes
@@ -75,6 +81,7 @@ export type Snapshot = {
   biome: number;
   depth: number;
   cleared: boolean;
+  lastStand: NetLastStand | null;
   banner: string;
 };
 

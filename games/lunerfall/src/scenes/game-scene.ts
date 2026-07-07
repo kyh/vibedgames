@@ -23,6 +23,7 @@ import {
   type NetDoor,
   type NetEnemy,
   type NetInput,
+  type NetLastStand,
   type NetPlayer,
   type NetProj,
   type NetRoom,
@@ -41,6 +42,13 @@ const MAX_HEARTS = 4;
 const COMBO_WINDOW = 3; // seconds a kill-streak survives without a new kill
 const DEATH_LINGER = 0.55;
 const ARROW_GRAV = 150;
+
+// Co-op last stand: a fatal hit with both players up downs the victim instead of
+// wiping; the partner has BLEED_DUR to hold within REVIVE_RANGE for REVIVE_HOLD.
+const BLEED_DUR = 7; // s a downed player survives awaiting a revive
+const REVIVE_HOLD = 1.2; // s of sustained rescuer overlap to complete a revive
+const REVIVE_RANGE = 22; // px around the downed body that counts as reviving
+const REVIVE_HEARTS = 2; // shared hearts restored on revive
 
 type Arrow = {
   spr: Phaser.GameObjects.Sprite;
@@ -191,6 +199,13 @@ export class GameScene extends Phaser.Scene {
   private remote?: Player;
   private combat = new WeakMap<Player, CombatState>();
 
+  // Co-op last stand (host-simulated): the downed player + its bleed-out clock
+  // and revive-hold progress. Guests mirror the broadcast into netLastStand.
+  private lastStand: { pl: Player; bleedT: number; reviveT: number } | null = null;
+  private netLastStand: NetLastStand | null = null; // guest: from the snapshot
+  private lsG?: Phaser.GameObjects.Graphics; // downed marker (ring + bars)
+  private lsLabel?: Phaser.GameObjects.Text;
+
   // Networking (undefined = solo). Host runs the authoritative sim + broadcasts;
   // guest renders the broadcast and never simulates.
   private session?: NetSession;
@@ -278,6 +293,10 @@ export class GameScene extends Phaser.Scene {
     this.hazards = [];
     this.boss = null;
     this.feature = null;
+    this.lastStand = null;
+    this.netLastStand = null;
+    this.lsG = undefined;
+    this.lsLabel = undefined;
 
     // Screen-pinned sky (scrollFactor 0) — a gradient (dark up top, lighter toward
     // the horizon). The three bands are retinted per biome in applyBiome; the tree
@@ -758,6 +777,8 @@ export class GameScene extends Phaser.Scene {
         hearts: this.hearts,
         px: Math.round(this.player.x),
         conn: this.session.connectionStatus,
+        downed: this.livePlayers().filter((p) => p.body.downed).length,
+        ls: this.role === "guest" ? this.netLastStand !== null : this.lastStand !== null,
       });
     }
 
@@ -823,6 +844,7 @@ export class GameScene extends Phaser.Scene {
     this.remote?.render(alpha);
     this.enemies.forEach((e) => e.render(alpha));
     this.boss?.render(alpha);
+    this.renderLastStand();
     this.updateHud();
 
     if (this.role === "host") this.hostNet(dts);
@@ -882,6 +904,15 @@ export class GameScene extends Phaser.Scene {
       this.inSeq = { j: 0, d: 0, a: 0, s: 0 };
       this.showBanner("PLAYER 2 JOINED", 1000);
     } else if (!other && this.remote) {
+      // Partner left mid-last-stand: don't strand a frozen or 0-heart survivor —
+      // stand the local player back up with a single heart and carry on.
+      if (this.lastStand) {
+        this.lastStand = null;
+        this.destroyLastStandUi();
+        if (this.player.body.downed) this.player.body.revive();
+        this.hearts = Math.max(this.hearts, 1);
+        this.updateHud();
+      }
       this.remote.destroy();
       this.remote = undefined;
       this.showBanner("PLAYER 2 LEFT", 1000);
@@ -929,6 +960,7 @@ export class GameScene extends Phaser.Scene {
       this.applySnapshot(snap);
     }
     this.renderGuestViews();
+    this.renderLastStand();
   }
 
   private applySnapshot(s: Snapshot) {
@@ -938,12 +970,29 @@ export class GameScene extends Phaser.Scene {
     this.netBiome = s.biome;
     this.netDepth = s.depth;
     this.netPlayers = s.players;
+    this.applyNetLastStand(s);
     this.reconcileEnemies(s.enemies);
     this.reconcileBoss(s.boss, s.biome);
     this.applyNetProj(s.proj);
     this.doors.forEach((d) => d.setActive(s.cleared));
     this.updateHud();
-    if (this.hearts <= 0) this.guestDie();
+    // Hearts hit 0 while a last stand is live → downed, not dead (yet).
+    if (this.hearts <= 0 && !this.netLastStand) this.guestDie();
+  }
+
+  // Guest: mirror the host's last-stand state; edge-detect enter/exit for the
+  // banner + sting (the marker itself renders from the snapshot every frame).
+  private applyNetLastStand(s: Snapshot) {
+    const ls = s.lastStand ?? null;
+    if (ls && !this.netLastStand) {
+      const mine = s.players.find((p) => p.downed)?.id === this.session?.playerId;
+      sfx.downed();
+      this.showBanner(mine ? "YOU'RE DOWN — HOLD ON" : "ALLY DOWN — REVIVE!", 1800);
+    } else if (!ls && this.netLastStand && s.hearts > 0) {
+      sfx.revive();
+      this.showBanner("REVIVED", 1200);
+    }
+    this.netLastStand = ls;
   }
 
   private reconcileEnemies(list: NetEnemy[]) {
@@ -1046,6 +1095,7 @@ export class GameScene extends Phaser.Scene {
 
   private guestDie() {
     this.state = "dead";
+    this.destroyLastStandUi();
     this.deadT = 0;
     this.player.sprite.play(`${this.heroName}:death`);
     sfx.die();
@@ -1115,6 +1165,12 @@ export class GameScene extends Phaser.Scene {
       biome: this.run.biome,
       depth: this.run.depth,
       cleared: this.cleared,
+      lastStand: this.lastStand
+        ? {
+            bleed: Math.round(this.lastStand.bleedT * 10) / 10,
+            rev: Math.round((this.lastStand.reviveT / REVIVE_HOLD) * 100) / 100,
+          }
+        : null,
       banner: "",
     };
   }
@@ -1197,12 +1253,12 @@ export class GameScene extends Phaser.Scene {
     }
     return s;
   }
-  // Enemies chase whichever live, non-dead player is closest.
+  // Enemies chase whichever live, non-dead (and non-downed) player is closest.
   private nearestPlayer(x: number, y: number): Player {
     let best = this.player;
     let bd = Infinity;
     for (const pl of this.livePlayers()) {
-      if (pl.body.dead) continue;
+      if (pl.body.dead || pl.body.downed) continue;
       const d = Math.hypot(pl.x - x, pl.y - y);
       if (d < bd) {
         bd = d;
@@ -1228,6 +1284,7 @@ export class GameScene extends Phaser.Scene {
     this.stepHazards(dt);
     for (const pl of this.livePlayers()) this.playerOffense(pl);
     this.enemyOffense();
+    this.stepLastStand(dt);
     this.stepFeature();
     this.stepMerchant();
     this.cullEnemies(dt);
@@ -1365,6 +1422,7 @@ export class GameScene extends Phaser.Scene {
   // One player's melee / special / stomp against every enemy + the boss.
   private playerOffense(pl: Player) {
     const pb = pl.body;
+    if (pb.downed) return; // a downed player has no offense (incl. stomps)
     const cs = this.cs(pl);
     const ab = pb.attackBox();
     if (ab) {
@@ -1551,7 +1609,131 @@ export class GameScene extends Phaser.Scene {
     this.freeze = Math.max(this.freeze, 0.06);
     hitSpark(this, pl.x, pl.y - 11, COLORS.magenta, 8);
     this.updateHud();
-    if (this.hearts <= 0) this.playerDie();
+    if (this.hearts <= 0) {
+      // Co-op last stand: a fatal hit with both players up downs the victim
+      // instead of wiping; the partner gets a bleed-out window to revive them.
+      if (this.canLastStand()) this.enterLastStand(pl);
+      else this.playerDie();
+    }
+  }
+
+  // ── co-op last stand ────────────────────────────────────────────────────────
+  // Only in co-op, with both players up and no one already down. A hit taken
+  // while a last stand is active (hearts ≤ 0 again) therefore wipes.
+  private canLastStand(): boolean {
+    if (this.lastStand || !this.remote) return false;
+    return this.livePlayers().every((p) => !p.body.dead && !p.body.downed);
+  }
+
+  private enterLastStand(pl: Player) {
+    this.hearts = 0;
+    this.lastStand = { pl, bleedT: BLEED_DUR, reviveT: 0 };
+    pl.body.down();
+    this.freeze = Math.max(this.freeze, 0.1);
+    this.cameras.main.shake(220, 0.012);
+    impactRing(this, pl.x, pl.y - 11, COLORS.magenta, 30);
+    sfx.downed();
+    this.showBanner(pl === this.player ? "YOU'RE DOWN — HOLD ON" : "ALLY DOWN — REVIVE!", 1800);
+    this.updateHud();
+  }
+
+  // Host: tick the bleed-out clock and the rescuer's revive overlap.
+  private stepLastStand(dt: number) {
+    const ls = this.lastStand;
+    if (!ls) return;
+    ls.bleedT -= dt;
+    if (ls.bleedT <= 0) {
+      this.failLastStand();
+      return;
+    }
+    const rescuer = this.livePlayers().find((p) => p !== ls.pl);
+    if (!rescuer || rescuer.body.dead) {
+      this.failLastStand();
+      return;
+    }
+    const zone = {
+      left: ls.pl.x - REVIVE_RANGE,
+      top: ls.pl.y - 30,
+      right: ls.pl.x + REVIVE_RANGE,
+      bottom: ls.pl.y + 6,
+    };
+    // Overlap fills the revive meter; separating drains it (fast, not a reset).
+    if (rectsOverlap(zone, rescuer.body.hurtBox())) ls.reviveT += dt;
+    else ls.reviveT = Math.max(0, ls.reviveT - dt * 2);
+    if (ls.reviveT >= REVIVE_HOLD) this.completeRevive();
+  }
+
+  private completeRevive() {
+    const ls = this.lastStand;
+    if (!ls) return;
+    this.lastStand = null;
+    ls.pl.body.revive();
+    // On top of anything healed into the pool while down (e.g. mooni's special).
+    this.hearts = Math.min(this.maxHearts, Math.max(0, this.hearts) + REVIVE_HEARTS);
+    this.destroyLastStandUi();
+    impactRing(this, ls.pl.x, ls.pl.y - 11, COLORS.teal, 34);
+    popText(this, ls.pl.x, ls.pl.y - 30, "REVIVED", "#34e5c8");
+    sfx.revive();
+    this.showBanner("REVIVED", 1200);
+    this.updateHud();
+  }
+
+  // Bleed-out expired (or the rescuer fell): the shared run is over.
+  private failLastStand() {
+    this.lastStand = null;
+    this.destroyLastStandUi();
+    this.playerDie();
+  }
+
+  // Downed marker, drawn each frame on BOTH clients: a pulsing revive ring, a
+  // shrinking bleed-out bar, a teal revive-progress bar, and the rescuer prompt.
+  private renderLastStand() {
+    const ls: NetLastStand | null =
+      this.role === "guest"
+        ? this.netLastStand
+        : this.lastStand
+          ? { bleed: this.lastStand.bleedT, rev: this.lastStand.reviveT / REVIVE_HOLD }
+          : null;
+    const downed = this.livePlayers().find((p) => p.body.downed);
+    if (!ls || !downed) {
+      this.destroyLastStandUi();
+      return;
+    }
+    if (!this.lsG) this.lsG = this.add.graphics().setDepth(66);
+    if (!this.lsLabel)
+      this.lsLabel = this.add
+        .text(0, 0, "", { fontFamily: "monospace", fontSize: "8px", color: "#34e5c8" })
+        .setOrigin(0.5, 1)
+        .setDepth(66);
+    const x = downed.sprite.x;
+    const y = downed.sprite.y;
+    const g = this.lsG;
+    g.clear();
+    const pulse = 1 + Math.sin(this.time.now / 160) * 0.12;
+    g.lineStyle(1.5, COLORS.teal, 0.75);
+    g.strokeCircle(x, y - 10, REVIVE_RANGE * pulse);
+    const frac = Phaser.Math.Clamp(ls.bleed / BLEED_DUR, 0, 1);
+    const w = 26;
+    g.fillStyle(0x000000, 0.55);
+    g.fillRect(x - w / 2, y - 36, w, 3);
+    g.fillStyle(frac < 0.35 ? 0xff5a5a : COLORS.magenta, 0.95);
+    g.fillRect(x - w / 2, y - 36, w * frac, 3);
+    if (ls.rev > 0) {
+      g.fillStyle(COLORS.teal, 0.95);
+      g.fillRect(x - w / 2, y - 32, w * Math.min(1, ls.rev), 2);
+    }
+    const mine = downed === this.player;
+    this.lsLabel
+      .setPosition(x, y - 39)
+      .setText(mine ? `HOLD ON ${Math.ceil(ls.bleed)}` : `REVIVE ${Math.ceil(ls.bleed)}`)
+      .setAlpha(0.7 + Math.sin(this.time.now / 200) * 0.3);
+  }
+
+  private destroyLastStandUi() {
+    this.lsG?.destroy();
+    this.lsG = undefined;
+    this.lsLabel?.destroy();
+    this.lsLabel = undefined;
   }
 
   private playerDie() {
@@ -1715,7 +1897,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private checkDoors() {
-    if (!this.cleared || this.state !== "active") return;
+    // No leaving a downed teammate behind: doors lock during a last stand.
+    if (!this.cleared || this.state !== "active" || this.lastStand) return;
     for (const d of this.doors) {
       if (
         d.active &&

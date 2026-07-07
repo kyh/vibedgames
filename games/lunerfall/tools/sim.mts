@@ -216,6 +216,24 @@ console.log("lunerfall physics sim\n");
   check("stomp bounce is upward", b.vy < -100 && !b.grounded, `vy=${b.vy.toFixed(0)}`);
 }
 
+// 11b. Co-op last stand: a downed body is frozen + invulnerable until revived.
+{
+  const b = spawn();
+  const x0 = b.x;
+  b.down();
+  run(b, 30, { right: true, jumpHeld: true }, { 0: { jumpPressed: true }, 10: { attackPressed: true } });
+  check("downed body ignores input", Math.abs(b.x - x0) < 1 && b.attackStep === 0, `dx=${(b.x - x0).toFixed(1)}`);
+  check("downed body is invulnerable", b.applyHurt(1) === false);
+  const air = new PlayerBody(Grid.test(), 240, FLOOR_Y - 60, HEROES.axion.kit);
+  air.down();
+  for (let f = 0; f < 90; f++) air.step(STEP);
+  check("downed body still falls to the floor", air.grounded && Math.abs(air.y - FLOOR_Y) < 1, `y=${air.y.toFixed(1)}`);
+  b.revive();
+  check("revive grants mercy i-frames", !b.downed && b.iframes > 0);
+  run(b, 30, { right: true });
+  check("revived body moves again", b.x - x0 > 10, `dx=${(b.x - x0).toFixed(1)}`);
+}
+
 // 12. Warrior chases the target and swings when in range.
 {
   const g = Grid.test();

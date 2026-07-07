@@ -103,6 +103,7 @@ export class PlayerBody {
   wallDir: -1 | 0 | 1 = 0;
   iframes = 0;
   dead = false;
+  downed = false; // co-op last stand: frozen + invulnerable awaiting a revive
 
   attackStep = 0;
   swingId = 0;
@@ -197,11 +198,12 @@ export class PlayerBody {
     this.hurtStun = 0;
     this.iframes = 0;
     this.specialActive = false;
+    this.downed = false;
     this.grounded = false;
   }
 
   applyHurt(dirX: number): boolean {
-    if (this.iframes > 0 || this.dead) return false;
+    if (this.iframes > 0 || this.dead || this.downed) return false;
     this.iframes = HURT_IFRAMES;
     this.hurtStun = HURT_STUN;
     this.vx = Math.sign(dirX || this.facing) * HURT_KB;
@@ -212,6 +214,29 @@ export class PlayerBody {
     this.specialActive = false;
     this.ev.onHurt?.();
     return true;
+  }
+
+  // Enter co-op last stand: frozen (no move/attack/dash) and invulnerable via
+  // the applyHurt guard; gravity still applies so an airborne down hits the floor.
+  down() {
+    this.downed = true;
+    this.vx = 0;
+    this.iframes = 0; // invulnerability comes from the downed guard, not i-frames
+    this.hurtStun = 0;
+    this.attackStep = 0;
+    this.attackTime = 0;
+    this.comboQueued = false;
+    this.dashTime = 0;
+    this.specialActive = false;
+    this.jumping = false;
+    this.pendingShot = null;
+    this.pendingHeal = 0;
+  }
+
+  // Revived by a teammate: control returns with a mercy invulnerability window.
+  revive() {
+    this.downed = false;
+    this.iframes = HURT_IFRAMES;
   }
 
   attackBox(): AttackBox | null {
@@ -256,6 +281,20 @@ export class PlayerBody {
     this.prevX = this.x;
     this.prevY = this.y;
     if (this.dead) return;
+    if (this.downed) {
+      // Last stand: crumpled in place — gravity + collision only; all buffered
+      // input is dropped so nothing fires on the frame a revive lands.
+      this.jumpBuf = 0;
+      this.dashBuf = 0;
+      this.attackBuf = 0;
+      this.specialBuf = 0;
+      this.vx = approach(this.vx, 0, GROUND_DECEL * dt);
+      if (!this.grounded) this.vy = Math.min(this.vy + G_FALL * dt, FALL_CAP);
+      this.moveX(this.vx * dt);
+      this.moveY(this.vy * dt);
+      this.updateContacts();
+      return;
+    }
     const busy = this.specialActive;
 
     // ── special trigger ──

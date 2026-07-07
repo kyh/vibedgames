@@ -13,6 +13,7 @@ import { DASH_DUR, PlayerBody } from "./player-body";
 // only the first frames ever showed). Action clips are re-timed to their exact
 // gameplay duration; run is nudged snappier than the authored 10fps.
 const RUN_MS = 520;
+const DOWNED_TINT = 0x7a8494; // greyed-out crumple while in co-op last stand
 
 // A clip's gameplay-matched playback duration (ms), or undefined to keep the
 // authored timing. Swings/special/dash are re-timed to their mechanic; run is
@@ -34,6 +35,7 @@ export function clipGameMs(hero: HeroDef, clip: string): number | undefined {
 // The subset of body/net fields selectClip reads — both PlayerBody and NetPlayer
 // expose these names, so one method drives local render and remote puppets.
 type ClipState = {
+  downed: boolean;
   specialActive: boolean;
   specialId: number;
   attackStep: number;
@@ -147,6 +149,13 @@ export class Player {
   // body) and applyNet (remote puppet) — both expose the same field names.
   private selectClip(s: ClipState) {
     const kit = this.hero.kit;
+    if (s.downed) {
+      // Last stand: play the death clip once and hold its final crumpled frame.
+      if (this.sprite.anims.currentAnim?.key !== `${this.name}:death`)
+        this.playClip("death", false);
+      this.swingClip = null;
+      return;
+    }
     if (s.specialActive) {
       if (s.specialId !== this.lastSpecial) {
         this.playClip(kit.special.clip, false);
@@ -199,6 +208,8 @@ export class Player {
       Math.round(interp(b.prevY, b.y, alpha)),
     );
     if (b.dashing) afterImage(this.scene, this.sprite, this.hero.color);
+    if (b.downed) this.sprite.setTint(DOWNED_TINT);
+    else this.sprite.clearTint();
     this.sprite.setAlpha(
       b.iframes > 0 && !b.dead ? (Math.floor(b.iframes * 20) % 2 === 0 ? 0.45 : 1) : 1,
     );
@@ -234,6 +245,7 @@ export class Player {
       dashing: b.dashing,
       hurting: b.hurting,
       dead: b.dead,
+      downed: b.downed,
       iframes: b.iframes,
       attackStep: b.attackStep,
       swingId: b.swingId,
@@ -253,6 +265,7 @@ export class Player {
     b.facing = net.facing < 0 ? -1 : 1;
     b.grounded = net.grounded;
     b.dead = net.dead;
+    b.downed = net.downed;
     b.iframes = net.iframes;
     this.selectClip(net);
     this.sprite.setFlipX(net.facing < 0);
@@ -264,6 +277,8 @@ export class Player {
       far ? ty : this.sprite.y + (ty - this.sprite.y) * 0.4,
     );
     if (net.dashing) afterImage(this.scene, this.sprite, this.hero.color);
+    if (net.downed) this.sprite.setTint(DOWNED_TINT);
+    else this.sprite.clearTint();
     this.sprite.setAlpha(
       net.iframes > 0 && !net.dead ? (Math.floor(net.iframes * 20) % 2 === 0 ? 0.45 : 1) : 1,
     );

@@ -123,6 +123,15 @@ class Sfx {
     this.tone(260, 0.6, "sawtooth", 0.26, 60);
     this.noise(0.5, 0.18, 400, 100);
   }
+  downed() {
+    this.tone(220, 0.5, "sawtooth", 0.24, 55);
+    this.noise(0.4, 0.16, 500, 120);
+  }
+  revive() {
+    this.tone(440, 0.12, "triangle", 0.14, 660);
+    this.tone(660, 0.18, "triangle", 0.12, 990);
+    this.tone(990, 0.24, "sine", 0.1, 1320);
+  }
   bossRoar() {
     this.tone(70, 0.7, "sawtooth", 0.34, 44);
     this.noise(0.6, 0.22, 300, 90);
