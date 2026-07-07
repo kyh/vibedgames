@@ -217,4 +217,6 @@ export const HECKLES: readonly string[] = [
   "I've seen Roombas with better lane discipline",
   "This is why we cone them",
   "Empty?! I got yelled at by an EMPTY CAR?!",
+  "You saw what happened to the last one… 🔥",
+  "Keep it up and you'll end up like the one in LA 🔥",
 ];
