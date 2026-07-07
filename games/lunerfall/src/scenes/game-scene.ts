@@ -7,7 +7,7 @@ import { type BiomePalette, biomePalette, enemyPool } from "../data/biomes";
 import { ENEMIES } from "../data/enemies";
 import { type HeroDef, HEROES } from "../data/heroes";
 import { bankRun, loadMeta } from "../data/meta";
-import { baseMods, pickRelics, type Relic, type RunMods } from "../data/relics";
+import { baseMods, pickRelics, RARITY_COLOR, type Relic, type RunMods } from "../data/relics";
 import { parseRoomType, type RoomDef, ROOM_LABEL, type RoomType } from "../data/rooms";
 import { Boss } from "../entities/boss";
 import { Door } from "../entities/door";
@@ -594,13 +594,15 @@ export class GameScene extends Phaser.Scene {
     const offers = pickRelics(3, this.ownedRelics);
     const y = (this.grid.rows - 3 + 1) * TILE;
     offers.forEach((relic, i) => {
+      const col = RARITY_COLOR[relic.rarity];
+      const hex = `#${col.toString(16).padStart(6, "0")}`;
       const x = (0.3 + i * 0.2) * BASE_W;
       const g = this.add.container(x, y).setDepth(8);
-      const glow = this.add.ellipse(0, -12, 24, 30, COLORS.magenta, 0.18);
+      const glow = this.add.ellipse(0, -12, 24, 30, col, 0.2);
       const base = this.add.rectangle(0, 0, 16, 6, COLORS.stoneEdge).setOrigin(0.5, 1);
-      const orb = this.add.circle(0, -16, 5, COLORS.magenta, 0.95);
+      const orb = this.add.circle(0, -16, 5, col, 0.95);
       const name = this.add
-        .text(0, -40, relic.name, { fontFamily: "monospace", fontSize: "7px", color: "#f4f7fb" })
+        .text(0, -40, relic.name, { fontFamily: "monospace", fontSize: "7px", color: hex })
         .setOrigin(0.5);
       const desc = this.add
         .text(0, -32, relic.desc, { fontFamily: "monospace", fontSize: "6px", color: "#8b95a1" })
@@ -629,8 +631,10 @@ export class GameScene extends Phaser.Scene {
     this.ownedRelics.add(relic.id);
     relic.apply(this.mods);
     const before = this.maxHearts;
-    this.maxHearts = this.mods.maxHearts;
-    this.hearts += Math.max(0, this.maxHearts - before); // new max hearts come filled
+    // Floor at 1 heart so glass-cannon relics can't lock a 0-heart run; extra max
+    // hearts arrive filled, and a reduced max clamps current hearts down.
+    this.maxHearts = Math.max(1, this.mods.maxHearts);
+    this.hearts = Math.min(this.hearts + Math.max(0, this.maxHearts - before), this.maxHearts);
     sfx.pickup();
     this.updateHud();
   }
@@ -655,8 +659,13 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  // Single outgoing-damage choke point: base × (dmg + rage-per-missing-heart),
+  // then a crit roll. Called once per landed hit (host-authoritative).
   private dmgOut(base: number): number {
-    return Math.max(1, Math.round(base * this.mods.dmg));
+    const rage = this.mods.rage * Math.max(0, this.maxHearts - this.hearts);
+    let out = base * (this.mods.dmg + rage);
+    if (this.mods.crit > 0 && Math.random() < this.mods.crit) out *= this.mods.critMult;
+    return Math.max(1, Math.round(out));
   }
 
   private heal(n: number) {
@@ -1634,6 +1643,7 @@ export class GameScene extends Phaser.Scene {
     const bossDone = this.boss ? this.boss.body.dead && this.bossDeadT > 0.9 : true;
     if (enemiesDone && bossDone) {
       this.cleared = true;
+      if (this.mods.regen > 0 && this.hearts < this.maxHearts) this.heal(this.mods.regen);
       this.doors.forEach((d) => d.setActive(true));
       this.showBanner(this.boss ? "DESCEND" : "CLEAR — pick a path", 1400);
     }
