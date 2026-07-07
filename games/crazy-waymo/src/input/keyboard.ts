@@ -8,7 +8,6 @@ export class InputState {
   restartPressed = false;
   pausePressed = false;
   mutePressed = false;
-  skinPressed = false;
   blurred = false; // window lost focus (auto-pause)
   typing = false; // chat input focused — game keys suspended
 
@@ -29,7 +28,6 @@ export class InputState {
     if (k === "r") this.restartPressed = true;
     if (k === "p" || k === "escape") this.pausePressed = true;
     if (k === "m") this.mutePressed = true;
-    if (k === "v") this.skinPressed = true;
     this.keys.add(k);
   };
   private onKeyUp = (e: KeyboardEvent): void => {
@@ -76,11 +74,6 @@ export class InputState {
   consumeMute(): boolean {
     const v = this.mutePressed;
     this.mutePressed = false;
-    return v;
-  }
-  consumeSkin(): boolean {
-    const v = this.skinPressed;
-    this.skinPressed = false;
     return v;
   }
   setTyping(on: boolean): void {

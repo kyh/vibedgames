@@ -116,6 +116,10 @@ export const PARK_WALL_CORNER = "kk-park-wall-corner";
 export const PARK_ENTRY = "kk-park-entry";
 export const BUSHES = ["kk-bush-a", "kk-bush-b", "kk-bush-c"] as const;
 export const PARK_TREES = ["kk-tree-a", "kk-tree-b", "kk-tree-c"] as const;
+// The robotaxi garage (Kenney industrial building-s: orange roller doors).
+// Deliberately NOT in BUILDINGS_INDUSTRIAL — it only spawns as a garage.
+export const GARAGE_MODEL = "ind-building-s";
+
 // KayKit buildings + cars (City Builder Bits) — editor palette alongside Kenney.
 export const KK_BUILDINGS = [
   "kk-building-a",
@@ -292,6 +296,7 @@ export function allModelUrls(): string[] {
     urls.push(modelUrl("buildings", b));
   for (const p of PROPS) urls.push(modelUrl("props", p));
   for (const t of PARK_TILES) urls.push(modelUrl("parks", t));
+  urls.push(modelUrl("buildings", GARAGE_MODEL));
   for (const b of KK_BUILDINGS) urls.push(modelUrl("buildings", b));
   for (const c of KK_CARS) urls.push(modelUrl("cars", c));
   for (const x of KK_PROPS_EXTRA) urls.push(modelUrl("props", x));

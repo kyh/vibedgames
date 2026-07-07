@@ -52,13 +52,15 @@ export type RobotaxiSkin = {
   model: string;
   tint?: number;
   lidar: boolean;
+  price: number; // run earnings; 0 = always owned
+  blurb: string;
 };
 
 export const ROBOTAXI_SKINS: readonly RobotaxiSkin[] = [
-  { id: "waymo", label: "WAYMO", model: PLAYER_CAR, lidar: true },
-  { id: "zoox", label: "ZOOX", model: "van", tint: 0x2fbfae, lidar: true },
-  { id: "cybercab", label: "CYBERCAB", model: "sedan-sports", tint: 0xc9cbd1, lidar: false },
-  { id: "cruise", label: "CRUISE", model: "hatchback-sports", tint: 0xff8b3d, lidar: true },
+  { id: "waymo", label: "WAYMO", model: PLAYER_CAR, lidar: true, price: 0, blurb: "the original" },
+  { id: "cruise", label: "CRUISE", model: "hatchback-sports", tint: 0xff8b3d, lidar: true, price: 500, blurb: "pour one out" },
+  { id: "zoox", label: "ZOOX", model: "van", tint: 0x2fbfae, lidar: true, price: 600, blurb: "the toaster" },
+  { id: "cybercab", label: "CYBERCAB", model: "sedan-sports", tint: 0xc9cbd1, lidar: false, price: 900, blurb: "cameras only, good luck" },
 ];
 
 export function skinById(id: string | undefined | null): RobotaxiSkin {

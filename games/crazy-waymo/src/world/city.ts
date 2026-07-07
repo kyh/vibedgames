@@ -10,6 +10,7 @@ import {
   modelUrl,
   TREE_LARGE,
   TREE_SMALL,
+  GARAGE_MODEL,
 } from "../assets/manifest";
 import {
   CHUNK,
@@ -156,6 +157,75 @@ const STREAM_MAT = new THREE.Matrix4();
 const STREAM_FRUSTUM = new THREE.Frustum();
 const STREAM_SPHERE = new THREE.Sphere();
 
+// A robotaxi garage: the depot building plus the drive-in pad in front where
+// the skin-swap UI opens. Spots are derived deterministically from the plan,
+// so BOTH the generated and the baked-artifact boot paths agree on them.
+export type Garage = { x: number; z: number; yaw: number; padX: number; padZ: number };
+
+const GARAGE_COUNT = 7;
+const GARAGE_MIN_DIST = 350;
+
+function pickGarageSpots(plan: CityPlan, terrain: Terrain): Garage[] {
+  const cells = plan.cells;
+  const dirs: readonly (readonly [number, number])[] = [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+  ];
+  const cellAt = (gx: number, gz: number): string | undefined => cells[gx]?.[gz];
+  type Cand = { gx: number; gz: number; dx: number; dz: number };
+  const cands: Cand[] = [];
+  for (let gx = 4; gx < GRID_X - 4; gx += 2) {
+    for (let gz = 4; gz < GRID_Z - 4; gz += 2) {
+      if (cellAt(gx, gz) !== "lot") continue;
+      for (const [dx, dz] of dirs) {
+        if (cellAt(gx + dx, gz + dz) !== "road") continue;
+        // depth: the cell behind must be lot too (the depot is deep)
+        if (cellAt(gx - dx, gz - dz) !== "lot") continue;
+        const wx = (gx + 0.5) * ROAD_TILE - WORLD_HALF_X;
+        const wz = (gz + 0.5) * ROAD_TILE - WORLD_HALF_Z;
+        const r = ROAD_TILE;
+        const hs = [
+          terrain.heightAt(wx - r, wz - r),
+          terrain.heightAt(wx + r, wz - r),
+          terrain.heightAt(wx - r, wz + r),
+          terrain.heightAt(wx + r, wz + r),
+        ];
+        if (Math.max(...hs) - Math.min(...hs) > 1.4) continue; // flat pads only
+        cands.push({ gx, gz, dx, dz });
+        break;
+      }
+    }
+  }
+  // Seeded shuffle, then greedy max-spread accept.
+  const rng = new Rng(424242);
+  for (let i = cands.length - 1; i > 0; i--) {
+    const j = rng.int(i + 1);
+    const a = cands[i];
+    const b = cands[j];
+    if (a && b) {
+      cands[i] = b;
+      cands[j] = a;
+    }
+  }
+  const picked: Garage[] = [];
+  for (const c of cands) {
+    if (picked.length >= GARAGE_COUNT) break;
+    const wx = (c.gx + 0.5) * ROAD_TILE - WORLD_HALF_X;
+    const wz = (c.gz + 0.5) * ROAD_TILE - WORLD_HALF_Z;
+    if (picked.some((g) => Math.hypot(g.x - wx, g.z - wz) < GARAGE_MIN_DIST)) continue;
+    picked.push({
+      x: wx,
+      z: wz,
+      yaw: Math.atan2(c.dx, c.dz), // model faces +Z — turn it toward the road
+      padX: wx + c.dx * ROAD_TILE * 1.15,
+      padZ: wz + c.dz * ROAD_TILE * 1.15,
+    });
+  }
+  return picked;
+}
+
 export class CityModel {
   readonly group = new THREE.Group();
   readonly solids: Solid[] = [];
@@ -164,6 +234,7 @@ export class CityModel {
   readonly terrain: Terrain;
   network: RoadNetwork; // vector road graph (rendering/traffic/alignment); live rebuild replaces it
   parkedCarSpecs: readonly ParkedSpec[] = []; // punt-able parked cars (built by furniture)
+  readonly garages: readonly Garage[]; // robotaxi skin-swap depots (+ drive-in pads)
   lampHeads: readonly LampHead[] = []; // streetlight glow anchors (night pass)
   private chunks: Chunk[] = [];
   // Global model batches; instances flip visibility by chunk on transitions.
@@ -251,6 +322,7 @@ export class CityModel {
   ) {
     this.terrain = makeTerrain();
     this.plan = generateCity();
+    this.garages = pickGarageSpots(this.plan, this.terrain);
     // Pristine cities drive the BAKED VECTOR network — exact OSM centrelines,
     // no raster quantisation, per-class widths, true diagonals and curves.
     // Cities with painted street edits fall back to the grid-derived graph so
@@ -490,8 +562,37 @@ export class CityModel {
     for (const [cgx, cgz] of loadLocalOverrides().clear ?? []) {
       reservedAll.add(`${cgx},${cgz}`);
     }
+    // Garages claim their two cells before anything else builds there.
+    for (const g of this.garages) {
+      const ggx = Math.floor((g.x + WORLD_HALF_X) / ROAD_TILE);
+      const ggz = Math.floor((g.z + WORLD_HALF_Z) / ROAD_TILE);
+      for (let ox = -1; ox <= 1; ox++) {
+        for (let oz = -1; oz <= 1; oz++) {
+          reservedAll.add(`${ggx + ox},${ggz + oz}`);
+        }
+      }
+    }
     const lm = { ...lmBase, reserved: reservedAll };
     for (const s of lm.solids) this.solids.push(s);
+    // The depot buildings themselves (orange roller-door warehouse).
+    for (const g of this.garages) {
+      const url = modelUrl("buildings", GARAGE_MODEL);
+      const node = this.cache.instance(url);
+      const b = this.cache.bounds(url);
+      const sc = (ROAD_TILE * 1.7) / Math.max(b.size.x, b.size.z, 0.001);
+      node.scale.setScalar(sc);
+      node.rotation.y = g.yaw;
+      node.position.set(g.x, this.terrain.heightAt(g.x, g.z), g.z);
+      node.updateMatrixWorld(true);
+      collect(node);
+      const half = ROAD_TILE * 0.8;
+      this.solids.push({
+        minX: g.x - half,
+        maxX: g.x + half,
+        minZ: g.z - half,
+        maxZ: g.z + half,
+      });
+    }
 
     // --- Street alignment (universal): every frontage building projects its
     // lot onto the nearest NETWORK edge — facade parallel to the real street,

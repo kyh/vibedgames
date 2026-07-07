@@ -720,6 +720,21 @@
   <body>
     <div id="game"></div>
 
+    <style>
+      #garage{display:none;position:fixed;left:50%;bottom:120px;transform:translateX(-50%);z-index:28;flex-direction:column;gap:10px;align-items:center;background:rgba(10,14,24,.92);border:2px solid rgba(255,210,74,.5);border-radius:18px;padding:16px 18px;pointer-events:auto}
+      #garage .gtitle{font:800 15px ui-monospace,monospace;color:#ffd24a;letter-spacing:1px}
+      #garage .gcards{display:flex;gap:10px}
+      #garage .gcard{display:flex;flex-direction:column;align-items:center;gap:5px;width:118px;padding:10px 8px;border-radius:12px;border:2px solid rgba(255,255,255,.18);background:rgba(24,30,48,.9);color:#fff;cursor:pointer;font:600 11px ui-monospace,monospace}
+      #garage .gcard i{width:34px;height:34px;border-radius:50%;border:2px solid rgba(255,255,255,.3)}
+      #garage .gcard b{font-size:12px}
+      #garage .gcard small{opacity:.55;font-size:9px;text-align:center}
+      #garage .gcard span{font-weight:800;color:#9fe697}
+      #garage .gcard:not(.owned):not(.on) span{color:#ffd24a}
+      #garage .gcard.on{border-color:#ffd24a;background:rgba(64,54,20,.9)}
+      #garage .gcard.on span{color:#ffd24a}
+      #garage .gcard:hover{border-color:#fff}
+      #garage .ghint{font:600 10px ui-monospace,monospace;opacity:.5}
+    </style>
     <input id="chat" maxlength="90" placeholder="say something… (Enter to send, Esc to close)" autocomplete="off" style="display:none;position:fixed;left:50%;bottom:88px;transform:translateX(-50%);z-index:30;width:min(480px,80vw);padding:10px 16px;border-radius:999px;border:2px solid rgba(255,255,255,.45);background:rgba(10,14,24,.88);color:#fff;font:600 14px ui-monospace,monospace;outline:none;pointer-events:auto" />
     <div id="netinfo"></div>
     <div id="hud">
@@ -778,7 +793,7 @@
 
     <div id="legend">
       <b>↑/W</b> gas · <b>↓/S</b> brake · <b>←→/AD</b> steer · <b>SPACE</b> drift · <b>SHIFT</b> boost ·
-      <b>R</b> restart · <b>ENTER</b> chat · <b>V</b> robotaxi
+      <b>R</b> restart · <b>ENTER</b> chat · 🔧 garage swaps your robotaxi
     </div>
 
     <div id="loading">

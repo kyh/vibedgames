@@ -45,6 +45,7 @@ import { Car } from "../vehicle/car";
 import { CityModel } from "../world/city";
 import { editorMode, loadLocalOverrides } from "../world/custom-map";
 import { HECKLES, SpeechBubbles } from "../fx/speech-bubbles";
+import type { Garage } from "../world/city";
 import { ROBOTAXI_SKINS, skinById } from "../vehicle/car";
 import { getRuntimeMap, parseMapFile, setRuntimeMap } from "../world/map-file";
 import type { CityGenPayload } from "../world/gen-worker";
@@ -191,6 +192,11 @@ export class GameScene {
   private chatText = "";
   private chatAt = 0;
   private chatEl: HTMLInputElement | null = null;
+  private garagePillar: THREE.Mesh | null = null;
+  private garageRings: THREE.Group | null = null;
+  private garageOpen = false;
+  private garageEl: HTMLDivElement | null = null;
+  private ownedSkins = new Set<string>(["waymo"]);
   private netAcc = 0;
   private netInfoEl = document.getElementById("netinfo");
 
@@ -536,6 +542,7 @@ export class GameScene {
     });
     this.scene.add(this.remoteCars.group);
     this.scene.add(this.bubbles.group);
+    this.setupGarages(city);
     lap("remoteCars");
     await paint();
 
@@ -644,6 +651,139 @@ export class GameScene {
       stats: best > 0 ? `BEST $${best.toLocaleString("en-US")}` : "Every drop-off buys you more time.",
       cta: "PRESS ENTER TO DRIVE",
     });
+  }
+
+  // --- Garages: drive onto the pad to swap robotaxis ---
+  private setupGarages(city: CityModel): void {
+    try {
+      const raw = storageGet("crazy-waymo:skins-owned");
+      if (raw) for (const id of JSON.parse(raw) as string[]) this.ownedSkins.add(id);
+    } catch {
+      // corrupt storage — start with the default fleet
+    }
+    // Drive-in pads: a flat glowing ring on each garage forecourt.
+    const rings = new THREE.Group();
+    const ringGeo = new THREE.RingGeometry(4.4, 5.4, 28).rotateX(-Math.PI / 2);
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0xffa63d,
+      transparent: true,
+      opacity: 0.55,
+      depthWrite: false,
+    });
+    for (const g of city.garages) {
+      const ring = new THREE.Mesh(ringGeo, ringMat);
+      ring.position.set(g.padX, city.heightAt(g.padX, g.padZ) + 0.25, g.padZ);
+      rings.add(ring);
+    }
+    this.scene.add(rings);
+    this.garageRings = rings;
+    // Waypoint: one light pillar that hops to whichever garage is nearest.
+    const pillarMat = new THREE.MeshBasicMaterial({
+      color: 0xffa63d,
+      transparent: true,
+      opacity: 0.4,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 18, 12, 1, true), pillarMat);
+    pillar.position.y = 9;
+    this.scene.add(pillar);
+    this.garagePillar = pillar;
+  }
+
+  private nearestGarage(): Garage | null {
+    const city = this.city;
+    const car = this.car;
+    if (!city || !car) return null;
+    let best: Garage | null = null;
+    let bd = Infinity;
+    for (const g of city.garages) {
+      const d = Math.hypot(g.padX - car.position.x, g.padZ - car.position.z);
+      if (d < bd) {
+        bd = d;
+        best = g;
+      }
+    }
+    return best;
+  }
+
+  private updateGarages(dt: number): void {
+    void dt;
+    const city = this.city;
+    const car = this.car;
+    if (!city || !car || this.mode.kind !== "playing") {
+      if (this.garageOpen) this.closeGarage();
+      return;
+    }
+    const g = this.nearestGarage();
+    if (!g) return;
+    if (this.garagePillar) {
+      this.garagePillar.position.set(g.padX, city.heightAt(g.padX, g.padZ) + 9, g.padZ);
+      const pm = this.garagePillar.material;
+      if (pm instanceof THREE.MeshBasicMaterial) {
+        pm.opacity = 0.3 + 0.15 * Math.sin(performance.now() / 300);
+      }
+    }
+    const d = Math.hypot(g.padX - car.position.x, g.padZ - car.position.z);
+    if (!this.garageOpen && d < 5.5 && car.speed < 4) this.openGarage();
+    else if (this.garageOpen && d > 8) this.closeGarage();
+  }
+
+  private garageCardsHtml(): string {
+    return ROBOTAXI_SKINS.map((sk) => {
+      const owned = this.ownedSkins.has(sk.id) || sk.price === 0;
+      const equipped = sk.id === this.skinId;
+      const tag = equipped ? "EQUIPPED" : owned ? "EQUIP" : `$${sk.price}`;
+      const cls = equipped ? "gcard on" : owned ? "gcard owned" : "gcard";
+      const sw = sk.tint !== undefined ? `#${sk.tint.toString(16).padStart(6, "0")}` : "#f2f4f7";
+      return `<button class="${cls}" data-skin="${sk.id}"><i style="background:${sw}"></i><b>${sk.label}</b><small>${sk.blurb}</small><span>${tag}</span></button>`;
+    }).join("");
+  }
+
+  private openGarage(): void {
+    this.garageOpen = true;
+    let el = this.garageEl;
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "garage";
+      document.body.appendChild(el);
+      this.garageEl = el;
+      el.addEventListener("click", (e) => {
+        const btn = e.target instanceof Element ? e.target.closest("[data-skin]") : null;
+        if (!(btn instanceof HTMLElement)) return;
+        const id = btn.dataset["skin"];
+        const sk = ROBOTAXI_SKINS.find((k) => k.id === id);
+        if (!sk || !this.car) return;
+        const owned = this.ownedSkins.has(sk.id) || sk.price === 0;
+        if (!owned) {
+          if (this.state.score < sk.price) {
+            this.hud.announceMinor(`NEED $${sk.price}`, "#ff6a5e");
+            return;
+          }
+          this.state.score -= sk.price;
+          this.ownedSkins.add(sk.id);
+          storageSet("crazy-waymo:skins-owned", JSON.stringify([...this.ownedSkins]));
+          this.hud.announceMinor(`${sk.label} UNLOCKED −$${sk.price}`, "#ffd24a");
+        }
+        this.skinId = sk.id;
+        storageSet("crazy-waymo:skin", sk.id);
+        this.car.setSkin(sk.id);
+        this.renderGarage();
+      });
+    }
+    this.renderGarage();
+    el.style.display = "flex";
+  }
+
+  private renderGarage(): void {
+    const el = this.garageEl;
+    if (!el) return;
+    el.innerHTML = `<div class="gtitle">🔧 ROBOTAXI GARAGE</div><div class="gcards">${this.garageCardsHtml()}</div><div class="ghint">drive away to close</div>`;
+  }
+
+  private closeGarage(): void {
+    this.garageOpen = false;
+    if (this.garageEl) this.garageEl.style.display = "none";
   }
 
   private openChat(): void {
@@ -928,16 +1068,7 @@ export class GameScene {
       this.silenceLoops();
     }
 
-    if (this.input.consumeSkin() && this.car && this.mode.kind !== "loading") {
-      const i = ROBOTAXI_SKINS.findIndex((sk) => sk.id === this.skinId);
-      const next = ROBOTAXI_SKINS[(i + 1) % ROBOTAXI_SKINS.length];
-      if (next) {
-        this.skinId = next.id;
-        storageSet("crazy-waymo:skin", next.id);
-        this.car.setSkin(next.id);
-        this.hud.announceMinor(next.label, "#ffffff");
-      }
-    }
+    this.updateGarages(dt);
     this.heckleCooldown = Math.max(0, this.heckleCooldown - dt);
     this.bubbles.update(dt);
     this.hud.update(dt);
