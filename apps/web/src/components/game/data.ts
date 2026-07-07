@@ -88,4 +88,11 @@ export const featuredGames: FeaturedGame[] = [
     previewPortrait: "/covers/crazy-waymo-portrait.webp",
     colorScheme: "light",
   },
+  {
+    name: "Lunerfall",
+    slug: "lunerfall",
+    preview: "/covers/lunerfall.webp",
+    previewPortrait: "/covers/lunerfall-portrait.webp",
+    colorScheme: "dark",
+  },
 ];
