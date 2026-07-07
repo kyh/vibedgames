@@ -12,6 +12,7 @@ import {
 } from "../data/animations";
 import { HEROES } from "../data/heroes";
 import { clipGameMs } from "../entities/player";
+import { HIT_BACK, HIT_DOWN, HIT_UP } from "../entities/player-body";
 
 // ?editor=1 — an animation viewer / debug page, styled after the Battle Arena
 // editor: a DOM chrome (top bar + character roster + clip list) over a big stage
@@ -153,14 +154,18 @@ export class EditorScene extends Phaser.Scene {
     g.clear();
     if (!char.hero) return;
     const kit = HEROES[char.key].kit;
-    // Reach/radius are game-space px; scale them by the stage zoom so the hitbox
-    // lines up with the enlarged character.
+    // Draw the ACTUAL melee hitbox (player-body's attackBox, facing right),
+    // scaled by the stage zoom and anchored at the character's feet — so what's
+    // shown is exactly what connects in-game.
     const sw = kit.swings.find((s) => s.clip === clip);
     if (sw) {
-      const w = sw.reach * HERO_SCALE_ED;
-      const y0 = GROUND_Y - 120;
-      g.fillStyle(COLORS.teal, 0.12).fillRect(STAGE_X + 12, y0, w, 84);
-      g.lineStyle(1, COLORS.teal, 0.6).strokeRect(STAGE_X + 12, y0, w, 84);
+      const S = HERO_SCALE_ED;
+      const x0 = STAGE_X - HIT_BACK * S;
+      const w = (HIT_BACK + sw.reach) * S;
+      const y0 = GROUND_Y - HIT_UP * S;
+      const h = (HIT_UP + HIT_DOWN) * S;
+      g.fillStyle(COLORS.teal, 0.12).fillRect(x0, y0, w, h);
+      g.lineStyle(1, COLORS.teal, 0.6).strokeRect(x0, y0, w, h);
     }
     const sp = kit.special;
     if (sp.clip === clip && sp.kind === "aoe") {
