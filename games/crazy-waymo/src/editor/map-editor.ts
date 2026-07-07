@@ -13,24 +13,17 @@ import {
   TRAFFIC_CARS,
 } from "../assets/manifest";
 import type { GameScene } from "../scenes/game-scene";
-import {
-  type FloorKind,
-  loadLocalOverrides,
-  saveLocalOverrides,
-} from "../world/custom-map";
+import { type FloorKind, loadLocalOverrides, saveLocalOverrides } from "../world/custom-map";
 import { ROAD_TILE, WORLD_H, WORLD_W } from "../shared/constants";
 import { CUSTOM_PROPS } from "../world/custom-props";
 import { loadLocalProps, parseMapFile, saveLocalProps } from "../world/map-file";
 
-// The map editor (?editor=1). SimCity-style modes:
-//   Navigate — pure camera (drag pan, right-drag orbit, wheel zoom, WASD).
-//   Place — pick a model, click to drop, HOLD + DRAG to stamp a trail of
-//           copies; click any placed prop to select it, drag it to move,
-//           Q/E rotate · [ ] scale · Delete removes.
-//   Streets — paint/erase road cells (green/red preview, Apply regenerates).
-//   Floor — paint ground surface (plaza/grass/sand) per cell.
-// Street + floor edits persist per-browser and export as JSON for
-// world/custom-map.ts; props export for world/custom-props.ts.
+// The map editor (?editor=1), battle-arena style: left roster of model
+// thumbnails (click one — it follows the cursor, click to stamp), right panel
+// with PROPS / STREETS / FLOOR tabs + an inspector for the selected prop.
+// EVERY edit auto-saves to this browser; SAVE downloads the one-file map
+// (load it in-game with ?map=<url>). Streets change the generated world, so
+// the STREETS tab has the one rebuild button; everything else is live.
 
 type Entry = {
   model: string;
@@ -43,29 +36,34 @@ type Entry = {
 
 type Placed = { entry: Entry; node: THREE.Object3D | null; baked: boolean };
 
-type Mode = "nav" | "place" | "street-paint" | "street-erase" | "floor";
+type Tab = "props" | "streets" | "floor";
 
 const CATEGORIES: readonly { label: string; cat: string; names: readonly string[] }[] = [
-  { label: "Props", cat: "props", names: PROPS },
-  { label: "Houses", cat: "buildings", names: BUILDINGS_SUBURBAN },
-  { label: "Commercial", cat: "buildings", names: [...BUILDINGS_COMMERCIAL, ...BUILDINGS_SKYSCRAPER] },
-  { label: "Industrial", cat: "buildings", names: BUILDINGS_INDUSTRIAL },
-  { label: "Cars", cat: "cars", names: [...TRAFFIC_CARS, ...SERVICE_CARS, "waymo", "police"] },
-  { label: "People", cat: "characters", names: CHARACTERS },
+  { label: "props", cat: "props", names: PROPS },
+  { label: "houses", cat: "buildings", names: BUILDINGS_SUBURBAN },
+  { label: "commercial", cat: "buildings", names: [...BUILDINGS_COMMERCIAL, ...BUILDINGS_SKYSCRAPER] },
+  { label: "industrial", cat: "buildings", names: BUILDINGS_INDUSTRIAL },
+  { label: "cars", cat: "cars", names: [...TRAFFIC_CARS, ...SERVICE_CARS, "waymo", "police"] },
+  { label: "people", cat: "characters", names: CHARACTERS },
 ];
 
-const FLOOR_COLORS: Record<FloorKind, number> = {
+const FLOOR_COLORS: Record<FloorKind | "erase", number> = {
   plaza: 0xcfd2cc,
   grass: 0x63a860,
   sand: 0xd9c489,
+  erase: 0x333344,
 };
 
-const PANEL_CSS = `position:fixed;top:0;right:0;bottom:0;width:262px;z-index:50;
-background:rgba(14,13,20,.94);color:#eee;font:12px ui-monospace,Menlo,monospace;
-padding:10px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;`;
-const BTN = `background:#2a2733;color:#eee;border:1px solid #4a4657;border-radius:6px;
-padding:4px 8px;margin:1px;cursor:pointer;font:11px ui-monospace,monospace;`;
-const BTN_ON = BTN.replace("#2a2733", "#8a6d1f");
+// Kit models arrive at wildly different native sizes — normalize each pick to
+// a sensible in-world default (adjust after with [ ] or the inspector).
+function defaultScale(cat: string, size: THREE.Vector3): number {
+  const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
+  if (cat === "buildings") return clamp(8 / Math.max(size.x, size.z, 0.001), 0.5, 12);
+  if (cat === "characters") return clamp(1.7 / Math.max(size.y, 0.001), 0.5, 6);
+  if (cat === "cars") return 1;
+  // props: trees/lamps etc read right around 3-4u tall
+  return clamp(3.4 / Math.max(size.y, 0.001), 0.4, 6);
+}
 
 export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): void {
   const city = game.getCity();
@@ -101,7 +99,8 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
   const pointer = new THREE.Vector2();
 
   // --- State ---
-  let mode: Mode = "nav";
+  let tab: Tab = "props";
+  let streetErase = false;
   const placed: Placed[] = [...CUSTOM_PROPS, ...loadLocalProps()].map((p) => ({
     entry: { model: p.model, u: p.u, v: p.v, yaw: p.yaw, s: p.s, ...(p.solid ? { solid: true } : {}) },
     node: null,
@@ -119,11 +118,28 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
   let moveDrag = false;
   let stampLast: { x: number; z: number } | null = null;
   let floorKind: FloorKind | "erase" = "plaza";
+  let streetsDirty = false;
 
   const overrides = loadLocalOverrides();
   const addSet = new Set(overrides.add.map(([a, b]) => `${a},${b}`));
   const removeSet = new Set(overrides.remove.map(([a, b]) => `${a},${b}`));
   const floorMap = new Map<string, FloorKind>(overrides.floor.map(([a, b, k]) => [`${a},${b}`, k]));
+
+  // --- Auto-save: every mutation persists immediately ---
+  const saveNow = (): void => {
+    const toPairs = (set: Set<string>): [number, number][] =>
+      [...set].map((k) => {
+        const [a, b] = k.split(",").map(Number);
+        return [a ?? 0, b ?? 0];
+      });
+    const floor: [number, number, FloorKind][] = [...floorMap].map(([k, kind]) => {
+      const [a, b] = k.split(",").map(Number);
+      return [a ?? 0, b ?? 0, kind];
+    });
+    saveLocalOverrides({ add: toPairs(addSet), remove: toPairs(removeSet), floor });
+    saveLocalProps(placed.map((p) => p.entry));
+    refreshStatus();
+  };
 
   // --- Cell preview quads (streets + floors) ---
   const quads = new Map<string, THREE.Mesh>();
@@ -166,60 +182,89 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     if (gx !== undefined && gz !== undefined) setQuad("fl", gx, gz, FLOOR_COLORS[kind]);
   }
 
-  // --- Panel DOM ---
-  const panel = document.createElement("div");
-  panel.setAttribute("style", PANEL_CSS);
-  panel.innerHTML = `
-    <div style="font-weight:700;color:#ffd147">MAP EDITOR</div>
-    <div id="ed-modes"></div>
-    <div id="ed-status" style="color:#8fd9ff;min-height:26px"></div>
-    <div id="ed-help" style="opacity:.7;line-height:1.45"></div>
-    <div id="ed-floor-row" style="display:none"></div>
-    <div id="ed-place-ui" style="display:none">
-      <div id="ed-tabs"></div>
-      <div id="ed-models" style="max-height:300px;overflow-y:auto;border:1px solid #333;border-radius:6px;padding:4px;margin-top:4px"></div>
+  // --- UI ---
+  injectStyle();
+  const ui = document.createElement("div");
+  ui.id = "cw-editor";
+  const catTabs = CATEGORIES.map(
+    (c, i) => `<button class="edc${i === 0 ? " on" : ""}" data-cat="${i}">${c.label}</button>`,
+  ).join("");
+  const floorButtons = (["plaza", "grass", "sand", "erase"] as const)
+    .map((t) => {
+      const hex = `#${FLOOR_COLORS[t].toString(16).padStart(6, "0")}`;
+      return `<button class="edf${t === "plaza" ? " on" : ""}" data-floor="${t}"><i style="background:${hex}"></i>${t}</button>`;
+    })
+    .join("");
+  ui.innerHTML = `
+    <div class="ed-top">
+      <span class="ed-logo">MAP EDITOR</span>
+      <button id="ed-save">SAVE</button>
+      <button id="ed-loadbtn">LOAD</button>
+      <button id="ed-clear-props">CLEAR PROPS</button>
+      <button id="ed-clear-map">RESET STREETS+FLOOR</button>
+      <span class="ed-status" id="ed-status"></span>
+      <input type="file" id="ed-file" accept=".json,application/json" style="display:none">
     </div>
-    <div style="font-weight:700;margin-top:2px">Map edits</div>
-    <div id="ed-map-status" style="opacity:.75"></div>
-    <button id="ed-apply" style="${BTN}background:#1f4a6a">Apply &amp; reload</button>
-    <button id="ed-map-copy" style="${BTN}">Copy map JSON (custom-map.ts)</button>
-    <button id="ed-map-clear" style="${BTN}background:#5a1f1f">Clear street + floor edits</button>
-    <div style="font-weight:700;margin-top:2px">Props (<span id="ed-count">0</span>)</div>
-    <button id="ed-copy" style="${BTN}background:#1f5a2a">Copy props JSON (custom-props.ts)</button>
-    <textarea id="ed-io" rows="3" style="background:#191722;color:#bbb;border:1px solid #333;border-radius:6px;font:10px monospace" placeholder="JSON appears here on copy; paste + Load to import"></textarea>
-    <button id="ed-load" style="${BTN}">Load props JSON from box</button>
-    <button id="ed-save-file" style="${BTN}background:#274a7a">Save map file (.json)</button>
-    <button id="ed-load-file" style="${BTN}">Load map file…</button>
-    <input id="ed-file" type="file" accept=".json,application/json" style="display:none" />
-  `;
-  document.body.appendChild(panel);
+    <div class="ed-roster">
+      <div class="ed-cats">${catTabs}</div>
+      <input id="ed-search" placeholder="search models…">
+      <div class="ed-list" id="ed-list"></div>
+    </div>
+    <div class="ed-panel">
+      <div class="ed-tabs">
+        <button class="edt on" data-tab="props">PROPS</button>
+        <button class="edt" data-tab="streets">STREETS</button>
+        <button class="edt" data-tab="floor">FLOOR</button>
+      </div>
+      <div class="ed-body" id="ed-body-props">
+        <div class="ed-inspector" id="ed-inspector" style="display:none">
+          <div class="ed-i-model" id="ed-i-model"></div>
+          <label>rot°<input id="ed-irot" type="number" step="15"></label>
+          <label>scale<input id="ed-iscale" type="number" step="0.1" min="0.1" max="20"></label>
+          <label class="edchk"><input id="ed-icol" type="checkbox">collidable</label>
+          <button id="ed-idel">DELETE</button>
+        </div>
+        <div class="ed-note" id="ed-note">Pick a model on the left — it follows your cursor; click to stamp, click-drag stamps a trail. Esc exits. Click a placed prop to select and edit it here; drag it to move.</div>
+      </div>
+      <div class="ed-body" id="ed-body-streets" style="display:none">
+        <button class="eds on" id="ed-st-paint">＋ paint street</button>
+        <button class="eds" id="ed-st-erase">－ erase street</button>
+        <div class="ed-note">Click/drag cells. Green = new street, red = removed. Streets regenerate the whole world:</div>
+        <button id="ed-rebuild">REBUILD WORLD</button>
+      </div>
+      <div class="ed-body" id="ed-body-floor" style="display:none">
+        ${floorButtons}
+        <div class="ed-note">Click or drag on the ground to paint. Full ground colors bake in on the next rebuild; previews are live.</div>
+      </div>
+    </div>
+    <div class="ed-help">click prop = select · drag = move · Q/E rotate · [ ] scale · Del delete · Esc done · left-drag pan · RMB orbit · wheel zoom · WASD pan · edits auto-save</div>`;
+  document.body.appendChild(ui);
 
   const $ = (id: string): HTMLElement => {
-    const el = panel.querySelector(`#${id}`);
+    const el = ui.querySelector(`#${id}`);
     if (!(el instanceof HTMLElement)) throw new Error(`editor: missing #${id}`);
     return el;
   };
 
-  const HELP: Record<Mode, string> = {
-    nav: "drag = pan · right-drag = orbit · wheel = zoom · WASD/arrows = pan<br>click a placed prop to select it",
-    place:
-      "pick a model, click to drop · <b>hold + drag</b> stamps copies<br>click a placed prop = select · drag it = move · <b>Q/E</b> rotate · <b>[ ]</b> scale · <b>Del</b> remove · <b>Esc</b> done",
-    "street-paint": "left-click / drag paints street cells (green preview)<br>Apply &amp; reload regenerates the whole city",
-    "street-erase": "left-click / drag removes street cells (red preview)",
-    floor: "pick a surface, left-click / drag paints the ground per cell",
+  const inspector = $("ed-inspector");
+  const refreshInspector = (): void => {
+    if (!selected) {
+      inspector.style.display = "none";
+      return;
+    }
+    inspector.style.display = "flex";
+    $("ed-i-model").textContent = selected.entry.model;
+    ($("ed-irot") as HTMLInputElement).value = String(Math.round((selected.entry.yaw * 180) / Math.PI));
+    ($("ed-iscale") as HTMLInputElement).value = String(selected.entry.s);
+    ($("ed-icol") as HTMLInputElement).checked = selected.entry.solid === true;
   };
-
   const refreshStatus = (): void => {
-    const sel = selected
-      ? `selected: ${selected.entry.model.split("/")[1] ?? selected.entry.model}${selected.baked ? " [baked]" : ""}`
-      : palette && mode === "place"
-        ? `placing: ${palette.name} · yaw ${Math.round((ghostYaw * 180) / Math.PI)}° · scale ${ghostScale.toFixed(2)}`
-        : "";
-    $("ed-status").innerHTML = sel;
-    $("ed-help").innerHTML = HELP[mode];
-    $("ed-map-status").textContent =
-      `streets +${addSet.size} −${removeSet.size} · floor ${floorMap.size} cells (preview until Apply)`;
-    $("ed-count").textContent = String(placed.length);
+    const st = [];
+    st.push(`${placed.length} props`);
+    if (addSet.size || removeSet.size) st.push(`streets +${addSet.size} −${removeSet.size}`);
+    if (floorMap.size) st.push(`floor ${floorMap.size}`);
+    if (streetsDirty) st.push("● rebuild for streets");
+    $("ed-status").textContent = st.join(" · ");
   };
 
   // --- Selection ---
@@ -229,15 +274,17 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
       selectedBox = null;
     }
     selected = null;
+    refreshInspector();
     refreshStatus();
   };
   const select = (p: Placed): void => {
     deselect();
     selected = p;
     if (p.node) {
-      selectedBox = new THREE.BoxHelper(p.node, 0xffd147);
+      selectedBox = new THREE.BoxHelper(p.node, 0xffd24a);
       game.scene.add(selectedBox);
     }
+    refreshInspector();
     refreshStatus();
   };
   const moveSelected = (x: number, z: number): void => {
@@ -254,20 +301,50 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     const i = placed.indexOf(selected);
     if (i >= 0) placed.splice(i, 1);
     deselect();
+    saveNow();
   };
 
-  // --- Ghost (Place mode) ---
+  // Inspector bindings
+  $("ed-irot").addEventListener("input", () => {
+    if (!selected?.node) return;
+    const deg = Number(($("ed-irot") as HTMLInputElement).value) || 0;
+    selected.entry.yaw = Math.round(((deg * Math.PI) / 180) * 1000) / 1000;
+    selected.node.rotation.y = selected.entry.yaw;
+    selected.node.updateMatrixWorld(true);
+    selectedBox?.update();
+    saveNow();
+  });
+  $("ed-iscale").addEventListener("input", () => {
+    if (!selected?.node) return;
+    const v = Number(($("ed-iscale") as HTMLInputElement).value);
+    if (!Number.isFinite(v) || v <= 0) return;
+    selected.entry.s = Math.round(v * 100) / 100;
+    selected.node.scale.setScalar(selected.entry.s);
+    selected.node.updateMatrixWorld(true);
+    selectedBox?.update();
+    saveNow();
+  });
+  $("ed-icol").addEventListener("change", () => {
+    if (!selected) return;
+    if (($("ed-icol") as HTMLInputElement).checked) selected.entry.solid = true;
+    else delete selected.entry.solid;
+    saveNow();
+  });
+  $("ed-idel").addEventListener("click", deleteSelected);
+
+  // --- Ghost (place-on-pick) ---
   const clearGhost = (): void => {
     if (ghost) game.scene.remove(ghost);
     ghost = null;
     palette = null;
-    refreshStatus();
+    ui.querySelectorAll(".edp").forEach((b) => b.classList.remove("on"));
   };
   const setGhost = (cat: string, name: string): void => {
     if (ghost) game.scene.remove(ghost);
     deselect();
     palette = { cat, name };
-    ghost = cache.instance(modelUrl(cat, name));
+    const url = modelUrl(cat, name);
+    ghost = cache.instance(url);
     ghost.traverse((c) => {
       if (c instanceof THREE.Mesh && c.material instanceof THREE.Material) {
         const m = c.material.clone();
@@ -276,60 +353,20 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
         c.material = m;
       }
     });
+    ghostYaw = 0;
+    ghostScale = defaultScale(cat, cache.bounds(url).size);
     ghost.scale.setScalar(ghostScale);
     ghost.rotation.y = ghostYaw;
     game.scene.add(ghost);
-    refreshStatus();
+    ui.querySelectorAll(".edp").forEach((b) => {
+      b.classList.toggle("on", (b as HTMLElement).dataset["model"] === `${cat}/${name}`);
+    });
   };
 
-  // --- Mode toolbar ---
-  const modeButtons = new Map<Mode, HTMLButtonElement>();
-  const setMode = (m: Mode): void => {
-    mode = m;
-    for (const [k, b] of modeButtons) b.setAttribute("style", k === m ? BTN_ON : BTN);
-    $("ed-place-ui").style.display = m === "place" ? "block" : "none";
-    $("ed-floor-row").style.display = m === "floor" ? "block" : "none";
-    // Painting owns the left button; navigation keeps orbit + wheel.
-    controls.enablePan = m === "nav" || m === "place";
-    if (m !== "place") clearGhost();
-    refreshStatus();
-  };
-  for (const [m, label] of [
-    ["nav", "🧭 Navigate"],
-    ["place", "🏠 Place"],
-    ["street-paint", "🛣 +Street"],
-    ["street-erase", "⌫ −Street"],
-    ["floor", "🟩 Floor"],
-  ] as const) {
-    const b = document.createElement("button");
-    b.textContent = label;
-    b.setAttribute("style", BTN);
-    b.addEventListener("click", () => setMode(m));
-    modeButtons.set(m, b);
-    $("ed-modes").appendChild(b);
-  }
-
-  // Floor kind row
-  {
-    const row = $("ed-floor-row");
-    for (const kind of ["plaza", "grass", "sand", "erase"] as const) {
-      const b = document.createElement("button");
-      b.textContent = kind;
-      b.setAttribute("style", kind === floorKind ? BTN_ON : BTN);
-      b.addEventListener("click", () => {
-        floorKind = kind;
-        for (const child of Array.from(row.children)) {
-          child.setAttribute("style", child === b ? BTN_ON : BTN);
-        }
-      });
-      row.appendChild(b);
-    }
-  }
-
-  // --- Palette (Place mode): thumbnail cards rendered from the models ---
+  // --- Roster: thumbnails + search + category tabs ---
   const thumbCache = new Map<string, string>();
   const thumbRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
-  thumbRenderer.setSize(96, 96);
+  thumbRenderer.setSize(64, 64);
   const thumbScene = new THREE.Scene();
   thumbScene.add(new THREE.AmbientLight(0xffffff, 1.1));
   const thumbSun = new THREE.DirectionalLight(0xffffff, 2.2);
@@ -354,49 +391,124 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     return data;
   };
 
-  const tabs = $("ed-tabs");
-  const models = $("ed-models");
-  let activeTab = 0;
-  const renderModels = (): void => {
-    models.replaceChildren();
-    const c = CATEGORIES[activeTab];
+  let activeCat = 0;
+  const list = $("ed-list");
+  const renderList = (): void => {
+    list.replaceChildren();
+    const c = CATEGORIES[activeCat];
     if (!c) return;
+    const q = (($("ed-search") as HTMLInputElement).value ?? "").trim().toLowerCase();
     for (const name of c.names) {
-      const card = document.createElement("button");
-      card.setAttribute(
-        "style",
-        `${palette?.name === name ? BTN_ON : BTN}width:31%;padding:3px;display:inline-flex;flex-direction:column;align-items:center;gap:2px;vertical-align:top`,
-      );
+      if (q && !name.toLowerCase().includes(q)) continue;
+      const btn = document.createElement("button");
+      btn.className = `edp${palette?.name === name && palette.cat === c.cat ? " on" : ""}`;
+      btn.dataset["model"] = `${c.cat}/${name}`;
       const img = document.createElement("img");
       img.src = thumbnail(c.cat, name);
-      img.setAttribute("style", "width:100%;aspect-ratio:1;border-radius:4px;background:#211f2b");
       const label = document.createElement("span");
       label.textContent = name;
-      label.setAttribute("style", "font-size:9px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap");
-      card.append(img, label);
-      card.addEventListener("click", () => {
-        setGhost(c.cat, name);
-        renderModels();
+      btn.append(img, label);
+      btn.addEventListener("click", () => {
+        if (palette?.name === name && palette.cat === c.cat) clearGhost();
+        else setGhost(c.cat, name);
       });
-      models.appendChild(card);
+      list.appendChild(btn);
     }
   };
-  CATEGORIES.forEach((c, i) => {
-    const b = document.createElement("button");
-    b.textContent = c.label;
-    b.setAttribute("style", i === activeTab ? BTN_ON : BTN);
-    b.addEventListener("click", () => {
-      activeTab = i;
-      for (const child of Array.from(tabs.children)) {
-        child.setAttribute("style", child === b ? BTN_ON : BTN);
-      }
-      renderModels();
+  ui.querySelectorAll<HTMLButtonElement>(".edc").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      activeCat = Number(btn.dataset["cat"]) || 0;
+      ui.querySelectorAll(".edc").forEach((b) => b.classList.toggle("on", b === btn));
+      renderList();
     });
-    tabs.appendChild(b);
   });
-  renderModels();
+  $("ed-search").addEventListener("input", renderList);
+  renderList();
 
-  // --- Spawning ---
+  // --- Tabs ---
+  const setTab = (t: Tab): void => {
+    tab = t;
+    ui.querySelectorAll<HTMLButtonElement>(".edt").forEach((b) => {
+      b.classList.toggle("on", b.dataset["tab"] === t);
+    });
+    $("ed-body-props").style.display = t === "props" ? "flex" : "none";
+    $("ed-body-streets").style.display = t === "streets" ? "flex" : "none";
+    $("ed-body-floor").style.display = t === "floor" ? "flex" : "none";
+    controls.enablePan = t === "props";
+    if (t !== "props") clearGhost();
+  };
+  ui.querySelectorAll<HTMLButtonElement>(".edt").forEach((btn) => {
+    btn.addEventListener("click", () => setTab((btn.dataset["tab"] as Tab) ?? "props"));
+  });
+  $("ed-st-paint").addEventListener("click", () => {
+    streetErase = false;
+    $("ed-st-paint").classList.add("on");
+    $("ed-st-erase").classList.remove("on");
+  });
+  $("ed-st-erase").addEventListener("click", () => {
+    streetErase = true;
+    $("ed-st-erase").classList.add("on");
+    $("ed-st-paint").classList.remove("on");
+  });
+  $("ed-rebuild").addEventListener("click", () => {
+    saveNow();
+    window.location.reload();
+  });
+  ui.querySelectorAll<HTMLButtonElement>(".edf").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      floorKind = (btn.dataset["floor"] as FloorKind | "erase") ?? "plaza";
+      ui.querySelectorAll(".edf").forEach((b) => b.classList.toggle("on", b === btn));
+    });
+  });
+
+  // --- Top bar: save/load/clear ---
+  const buildMapFile = (): string => {
+    const toPairs = (set: Set<string>): number[][] => [...set].map((k) => k.split(",").map(Number));
+    const floor = [...floorMap].map(([k, kind]) => [...k.split(",").map(Number), kind]);
+    return JSON.stringify(
+      { version: 1, streets: { add: toPairs(addSet), remove: toPairs(removeSet) }, floor, props: placed.map((p) => p.entry) },
+      null,
+      1,
+    );
+  };
+  $("ed-save").addEventListener("click", () => {
+    saveNow();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([buildMapFile()], { type: "application/json" }));
+    a.download = "crazy-waymo-map.json";
+    a.click();
+  });
+  $("ed-loadbtn").addEventListener("click", () => $("ed-file").click());
+  $("ed-file").addEventListener("change", async () => {
+    const input = $("ed-file");
+    if (!(input instanceof HTMLInputElement) || !input.files?.[0]) return;
+    try {
+      const parsed = parseMapFile(JSON.parse(await input.files[0].text()));
+      if (!parsed) return;
+      saveLocalOverrides({ add: parsed.streets.add, remove: parsed.streets.remove, floor: parsed.floor });
+      saveLocalProps(parsed.props);
+      window.location.reload(); // rebuild the world from the loaded file
+    } catch {
+      // bad file — current session untouched
+    }
+  });
+  $("ed-clear-props").addEventListener("click", () => {
+    for (const p of placed) if (p.node) game.scene.remove(p.node);
+    placed.length = 0;
+    deselect();
+    saveNow();
+  });
+  $("ed-clear-map").addEventListener("click", () => {
+    addSet.clear();
+    removeSet.clear();
+    floorMap.clear();
+    for (const [, m] of quads) game.scene.remove(m);
+    quads.clear();
+    streetsDirty = true;
+    saveNow();
+  });
+
+  // --- World spawning ---
   const spawn = (entry: Entry): THREE.Object3D => {
     const parts = entry.model.split("/");
     const node = cache.instance(modelUrl(parts[0] ?? "props", parts[1] ?? ""));
@@ -418,7 +530,7 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
       s: Math.round(ghostScale * 100) / 100,
     };
     placed.push({ entry, node: spawn(entry), baked: false });
-    refreshStatus();
+    saveNow();
   };
 
   // --- Street + floor painting ---
@@ -443,7 +555,8 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
       removeSet.add(k);
       setQuad("st", gx, gz, 0xd23f34);
     }
-    refreshStatus();
+    streetsDirty = true;
+    saveNow();
   };
   const paintFloor = (gx: number, gz: number): void => {
     const k = `${gx},${gz}`;
@@ -454,118 +567,8 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
       floorMap.set(k, floorKind);
       setQuad("fl", gx, gz, FLOOR_COLORS[floorKind]);
     }
-    refreshStatus();
+    saveNow();
   };
-  const saveOverrides = (): void => {
-    const toPairs = (set: Set<string>): [number, number][] =>
-      [...set].map((k) => {
-        const [a, b] = k.split(",").map(Number);
-        return [a ?? 0, b ?? 0];
-      });
-    const floor: [number, number, FloorKind][] = [...floorMap].map(([k, kind]) => {
-      const [a, b] = k.split(",").map(Number);
-      return [a ?? 0, b ?? 0, kind];
-    });
-    saveLocalOverrides({ add: toPairs(addSet), remove: toPairs(removeSet), floor });
-    saveLocalProps(placed.map((p) => p.entry));
-  };
-
-  $("ed-apply").addEventListener("click", () => {
-    saveOverrides();
-    window.location.reload();
-  });
-  $("ed-map-clear").addEventListener("click", () => {
-    addSet.clear();
-    removeSet.clear();
-    floorMap.clear();
-    for (const [, m] of quads) game.scene.remove(m);
-    quads.clear();
-    saveOverrides();
-    refreshStatus();
-  });
-  $("ed-map-copy").addEventListener("click", () => {
-    const toPairs = (set: Set<string>): number[][] => [...set].map((k) => k.split(",").map(Number));
-    const floor = [...floorMap].map(([k, kind]) => [...k.split(",").map(Number), kind]);
-    const json = JSON.stringify({ add: toPairs(addSet), remove: toPairs(removeSet), floor });
-    const io = $("ed-io");
-    if (io instanceof HTMLTextAreaElement) io.value = json;
-    void navigator.clipboard?.writeText(json).catch(() => undefined);
-  });
-  $("ed-copy").addEventListener("click", () => {
-    const json = JSON.stringify(placed.map((p) => p.entry), null, 2);
-    const io = $("ed-io");
-    if (io instanceof HTMLTextAreaElement) io.value = json;
-    void navigator.clipboard?.writeText(json).catch(() => undefined);
-  });
-  const buildMapFile = (): string => {
-    const toPairs = (set: Set<string>): number[][] => [...set].map((k) => k.split(",").map(Number));
-    const floor = [...floorMap].map(([k, kind]) => [...k.split(",").map(Number), kind]);
-    return JSON.stringify(
-      {
-        version: 1,
-        streets: { add: toPairs(addSet), remove: toPairs(removeSet) },
-        floor,
-        props: placed.map((p) => p.entry),
-      },
-      null,
-      1,
-    );
-  };
-  $("ed-save-file").addEventListener("click", () => {
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([buildMapFile()], { type: "application/json" }));
-    a.download = "crazy-waymo-map.json";
-    a.click();
-  });
-  $("ed-load-file").addEventListener("click", () => $("ed-file").click());
-  $("ed-file").addEventListener("change", async () => {
-    const input = $("ed-file");
-    if (!(input instanceof HTMLInputElement) || !input.files?.[0]) return;
-    try {
-      const parsed = parseMapFile(JSON.parse(await input.files[0].text()));
-      if (!parsed) return;
-      addSet.clear();
-      removeSet.clear();
-      floorMap.clear();
-      for (const [a, b] of parsed.streets.add) addSet.add(`${a},${b}`);
-      for (const [a, b] of parsed.streets.remove) removeSet.add(`${a},${b}`);
-      for (const [a, b, kind] of parsed.floor) floorMap.set(`${a},${b}`, kind);
-      saveLocalOverrides({ add: parsed.streets.add, remove: parsed.streets.remove, floor: parsed.floor });
-      saveLocalProps(parsed.props);
-      window.location.reload(); // rebuild the world from the loaded file
-    } catch {
-      // bad file — leave the current session untouched
-    }
-  });
-  $("ed-load").addEventListener("click", () => {
-    const io = $("ed-io");
-    if (!(io instanceof HTMLTextAreaElement) || !io.value.trim()) return;
-    try {
-      const arr: unknown = JSON.parse(io.value);
-      if (!Array.isArray(arr)) return;
-      for (const p of placed) if (p.node) game.scene.remove(p.node);
-      placed.length = 0;
-      deselect();
-      for (const raw of arr) {
-        if (typeof raw !== "object" || raw === null) continue;
-        if (!("model" in raw) || !("u" in raw) || !("v" in raw)) continue;
-        const { model, u, v } = raw;
-        if (typeof model !== "string" || typeof u !== "number" || typeof v !== "number") continue;
-        const entry: Entry = {
-          model,
-          u,
-          v,
-          yaw: "yaw" in raw && typeof raw.yaw === "number" ? raw.yaw : 0,
-          s: "s" in raw && typeof raw.s === "number" ? raw.s : 1,
-          ...("solid" in raw && raw.solid === true ? { solid: true } : {}),
-        };
-        placed.push({ entry, node: spawn(entry), baked: false });
-      }
-      refreshStatus();
-    } catch {
-      io.value = "!! invalid JSON";
-    }
-  });
 
   // --- Raycast helpers ---
   const castFrom = (e: PointerEvent): void => {
@@ -590,7 +593,6 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     if (nodes.length === 0) return null;
     const hit = raycaster.intersectObjects(nodes, true)[0];
     if (!hit) return null;
-    // Walk up to the placed root.
     let cur: THREE.Object3D | null = hit.object;
     while (cur) {
       const found = placed.find((p) => p.node === cur);
@@ -604,19 +606,19 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
   const dom = renderer.domElement;
   dom.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
-    if (mode === "street-paint" || mode === "street-erase") {
+    if (tab === "streets") {
       const cell = groundCell(e);
-      if (cell) paintStreet(cell[0], cell[1], mode === "street-erase");
+      if (cell) paintStreet(cell[0], cell[1], streetErase);
       paintDrag = true;
       return;
     }
-    if (mode === "floor") {
+    if (tab === "floor") {
       const cell = groundCell(e);
       if (cell) paintFloor(cell[0], cell[1]);
       paintDrag = true;
       return;
     }
-    // nav/place: picking an existing prop wins over placing a new one.
+    // props tab: picking an existing prop wins over placing a new one.
     const hit = pickProp(e);
     if (hit && hit.node) {
       select(hit);
@@ -624,7 +626,7 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
       controls.enabled = false;
       return;
     }
-    if (mode === "place" && ghost && ghostOnGround) {
+    if (ghost && ghostOnGround) {
       stampAt(ghostPos.x, ghostPos.z);
       stampLast = { x: ghostPos.x, z: ghostPos.z };
       paintDrag = true;
@@ -640,17 +642,17 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
       return;
     }
     if (paintDrag && (e.buttons & 1) === 1) {
-      if (mode === "street-paint" || mode === "street-erase") {
+      if (tab === "streets") {
         const cell = groundCell(e);
-        if (cell) paintStreet(cell[0], cell[1], mode === "street-erase");
+        if (cell) paintStreet(cell[0], cell[1], streetErase);
         return;
       }
-      if (mode === "floor") {
+      if (tab === "floor") {
         const cell = groundCell(e);
         if (cell) paintFloor(cell[0], cell[1]);
         return;
       }
-      if (mode === "place" && ghost && stampLast) {
+      if (ghost && stampLast) {
         const p = groundPoint(e);
         if (p) {
           const box = new THREE.Box3().setFromObject(ghost);
@@ -662,7 +664,7 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
         }
       }
     }
-    if (mode === "place" && ghost) {
+    if (tab === "props" && ghost) {
       const p = groundPoint(e);
       if (p) {
         ghostPos = p;
@@ -672,6 +674,7 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     }
   });
   dom.addEventListener("pointerup", () => {
+    if (moveDrag && selected) saveNow();
     paintDrag = false;
     moveDrag = false;
     stampLast = null;
@@ -680,8 +683,8 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
 
   // --- Keyboard ---
   window.addEventListener("keydown", (e) => {
+    if (document.activeElement instanceof HTMLInputElement) return;
     const k = e.key.toLowerCase();
-    // WASD / arrows pan the camera on the ground plane.
     const pan: readonly [number, number] | null =
       k === "w" || k === "arrowup"
         ? [0, -1]
@@ -713,11 +716,12 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
         selected.node.rotation.y = selected.entry.yaw;
         selected.node.updateMatrixWorld(true);
         selectedBox?.update();
+        refreshInspector();
+        saveNow();
       } else {
         ghostYaw += d;
         if (ghost) ghost.rotation.y = ghostYaw;
       }
-      refreshStatus();
     } else if (k === "[" || k === "]") {
       const f = k === "]" ? 1.15 : 1 / 1.15;
       if (selected && selected.node) {
@@ -725,30 +729,68 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
         selected.node.scale.setScalar(selected.entry.s);
         selected.node.updateMatrixWorld(true);
         selectedBox?.update();
+        refreshInspector();
+        saveNow();
       } else {
         ghostScale = Math.max(0.1, Math.min(20, ghostScale * f));
         if (ghost) ghost.scale.setScalar(ghostScale);
       }
-      refreshStatus();
     } else if (k === "escape") {
       if (selected) deselect();
       else if (ghost) {
         clearGhost();
-        renderModels();
-      } else setMode("nav");
+      } else setTab("props");
     } else if (k === "delete" || k === "backspace") {
       if (selected) deleteSelected();
-      else {
-        const last = placed[placed.length - 1];
-        if (last && !last.baked) {
-          if (last.node) game.scene.remove(last.node);
-          placed.pop();
-          refreshStatus();
-        }
-      }
     }
   });
 
-  setMode("nav");
+  setTab("props");
+  refreshStatus();
   void controls;
+}
+
+let styled = false;
+function injectStyle(): void {
+  if (styled) return;
+  styled = true;
+  const s = document.createElement("style");
+  s.textContent = `
+#cw-editor{position:fixed;inset:0;z-index:40;pointer-events:none;font-family:ui-monospace,monospace;color:#fff}
+#cw-editor button{pointer-events:auto;cursor:pointer;font:700 11px ui-monospace,monospace;color:#fff;background:rgba(30,38,60,.9);border:1px solid rgba(255,255,255,.18);border-radius:7px;padding:6px 10px}
+#cw-editor button:hover{border-color:#ffd24a;color:#ffd24a}
+#cw-editor input{pointer-events:auto;background:rgba(10,14,24,.9);border:1px solid rgba(255,255,255,.2);border-radius:6px;color:#fff;font:600 11px ui-monospace,monospace;padding:5px 7px}
+#cw-editor .ed-top{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;gap:8px;padding:8px 12px;background:linear-gradient(#080a12ee,#080a1200)}
+#cw-editor .ed-logo{font:900 italic 16px system-ui,sans-serif;letter-spacing:-1px;color:#ffd24a;margin-right:6px}
+#cw-editor .ed-status{font:600 11px ui-monospace,monospace;opacity:.75;margin-left:auto}
+#cw-editor .ed-roster{position:absolute;top:46px;left:10px;bottom:44px;width:212px;display:flex;flex-direction:column;gap:4px;background:rgba(8,10,18,.82);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:8px;pointer-events:auto}
+#cw-editor .ed-cats{display:flex;flex-wrap:wrap;gap:3px}
+#cw-editor .edc{font-size:9px;padding:4px 6px}
+#cw-editor .edc.on{border-color:#ffd24a;color:#ffd24a;background:rgba(64,54,20,.9)}
+#cw-editor .ed-roster input{width:100%;box-sizing:border-box}
+#cw-editor .ed-list{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:4px;min-height:0}
+#cw-editor .edp{display:flex;align-items:center;gap:8px;text-align:left;background:rgba(20,26,42,.85);border-radius:6px;padding:5px 8px;font-weight:600}
+#cw-editor .edp img{width:30px;height:30px;border-radius:5px;flex:none;background:#0a0e18}
+#cw-editor .edp span{font-size:10px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#cw-editor .edp.on{border-color:#ffd24a;color:#ffd24a;background:rgba(64,54,20,.9)}
+#cw-editor .ed-panel{position:absolute;top:46px;right:10px;width:240px;max-height:calc(100vh - 100px);display:flex;flex-direction:column;gap:6px;background:rgba(8,10,18,.85);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:8px;pointer-events:auto}
+#cw-editor .ed-tabs{display:flex;gap:4px}
+#cw-editor .edt{flex:1}
+#cw-editor .edt.on{border-color:#ffd24a;color:#ffd24a;background:rgba(64,54,20,.9)}
+#cw-editor .ed-body{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:5px;min-height:0}
+#cw-editor .edf{display:flex;align-items:center;gap:8px;text-align:left;background:rgba(20,26,42,.85);border-radius:6px;padding:6px 8px}
+#cw-editor .edf i{display:inline-block;width:16px;height:16px;border-radius:4px;border:1px solid rgba(255,255,255,.35);flex:none}
+#cw-editor .edf.on{border-color:#ffd24a;color:#ffd24a;background:rgba(64,54,20,.9)}
+#cw-editor .eds.on{border-color:#ffd24a;color:#ffd24a;background:rgba(64,54,20,.9)}
+#cw-editor .ed-note{font:600 9px ui-monospace,monospace;opacity:.45;padding:8px 2px;line-height:1.4}
+#cw-editor .ed-inspector{display:flex;flex-direction:column;gap:6px}
+#cw-editor .ed-i-model{font:800 13px ui-monospace,monospace;color:#ffd24a;word-break:break-all}
+#cw-editor .ed-inspector label{display:flex;align-items:center;justify-content:space-between;gap:8px;font:600 11px ui-monospace,monospace;opacity:.9}
+#cw-editor .ed-inspector label input[type=number]{width:100px}
+#cw-editor .ed-inspector .edchk{justify-content:flex-start}
+#cw-editor #ed-idel{background:#5a2030;border-color:#a04050}
+#cw-editor #ed-rebuild{background:#274a7a}
+#cw-editor .ed-help{position:absolute;left:0;right:0;bottom:0;text-align:center;padding:8px;font:600 11px ui-monospace,monospace;opacity:.55;background:linear-gradient(#080a1200,#080a12dd)}
+`;
+  document.head.appendChild(s);
 }
