@@ -91,6 +91,32 @@ export class RoomDef {
     this.bossSpawn = this.feet(cx, cy);
     return this;
   }
+
+  // Flip the whole room left↔right in place. A horizontal flip can't change
+  // vertical clearance, so a reachable layout stays reachable — a free ×2 on the
+  // template pool. Mirrors the grid cells and every feet-anchored spawn.
+  mirror(): this {
+    const g = this.grid;
+    const half = Math.floor(g.cols / 2);
+    for (let y = 0; y < g.rows; y++) {
+      for (let x = 0; x < half; x++) {
+        const a = y * g.cols + x;
+        const b = y * g.cols + (g.cols - 1 - x);
+        const t = g.cells[a];
+        const u = g.cells[b];
+        if (t === undefined || u === undefined) continue;
+        g.cells[a] = u;
+        g.cells[b] = t;
+      }
+    }
+    const flip = (s: Spawn): Spawn => ({ x: g.cols * TILE - s.x, y: s.y });
+    this.playerSpawn = flip(this.playerSpawn);
+    this.enemySpawns = this.enemySpawns.map(flip);
+    this.doorSlots = this.doorSlots.map(flip);
+    this.featureSpot = this.featureSpot ? flip(this.featureSpot) : null;
+    this.bossSpawn = this.bossSpawn ? flip(this.bossSpawn) : null;
+    return this;
+  }
 }
 
 // Standard room extent (tiles). ~2.7 screens wide, taller for verticality.
@@ -158,6 +184,53 @@ export const COMBAT_TEMPLATES: (() => RoomDef)[] = [
       .enemy(48, S)
       .door(6, S - 7)
       .door(46, S - 7),
+  // Central pillar — a stacked ruin you fight up and over, doors on side ledges.
+  () =>
+    new RoomDef(RW, RH)
+      .arena()
+      .block(5, S - 3, 12) // left ledge (door)
+      .block(39, S - 3, 46) // right ledge (door)
+      .oneway(20, S - 3, 31) // pillar base ledge
+      .oneway(23, S - 7, 28) // pillar top ledge
+      .player(4, S)
+      .enemy(16, S)
+      .enemy(36, S)
+      .enemy(25, S - 4)
+      .enemy(25, S - 8)
+      .door(8, S - 4)
+      .door(43, S - 4),
+  // Rolling ledges — gentle low blocks with one-way steps between, wide open floor.
+  () =>
+    new RoomDef(RW, RH)
+      .arena()
+      .oneway(7, S - 3, 13) // left step
+      .block(17, S - 4, 24) // left hill (door)
+      .oneway(27, S - 6, 33) // mid float
+      .block(35, S - 4, 42) // right hill (door)
+      .oneway(45, S - 3, 50) // right step
+      .player(4, S)
+      .enemy(10, S - 4)
+      .enemy(20, S - 5)
+      .enemy(38, S - 5)
+      .enemy(30, S - 7)
+      .door(21, S - 5)
+      .door(38, S - 5),
+  // Sky steps — a staircase up to a high left roost, long fall back to open floor.
+  () =>
+    new RoomDef(RW, RH)
+      .arena()
+      .block(3, S - 7, 9) // high left roost (door)
+      .oneway(11, S - 5, 17) // step down-right
+      .oneway(20, S - 3, 26) // step down-right
+      .block(31, S - 4, 38) // right block (door)
+      .oneway(41, S - 6, 47) // right high float
+      .player(6, S)
+      .enemy(14, S - 6)
+      .enemy(23, S - 4)
+      .enemy(35, S - 5)
+      .enemy(44, S - 7)
+      .door(5, S - 8)
+      .door(34, S - 5),
 ];
 
 export const SAFE = (): RoomDef =>

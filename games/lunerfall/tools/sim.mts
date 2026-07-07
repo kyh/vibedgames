@@ -400,17 +400,20 @@ check("rectsOverlap basic", rectsOverlap({ left: 0, top: 0, right: 10, bottom: 1
   const HEAD = 2; // tiles of clearance a body needs above its feet cell
   let sealed = 0;
   let floating = 0;
+  // Check each template AND its left↔right mirror — mirroring is used at runtime,
+  // so a broken flip must fail the harness too.
   COMBAT_TEMPLATES.forEach((make) => {
-    const r = make();
-    const g = r.grid;
-    for (const s of r.enemySpawns) {
-      const cx = Math.floor(s.x / TILE);
-      const feet = Math.round(s.y / TILE) - 1; // stand row (body rests on cell feet+1)
-      if (!g.isSolidCell(cx, feet + 1) && !g.isOneWayCell(cx, feet + 1)) floating++;
-      for (let dy = 0; dy < HEAD; dy++) {
-        if (g.isSolidCell(cx, feet - dy)) {
-          sealed++;
-          break;
+    for (const r of [make(), make().mirror()]) {
+      const g = r.grid;
+      for (const s of r.enemySpawns) {
+        const cx = Math.floor(s.x / TILE);
+        const feet = Math.round(s.y / TILE) - 1; // stand row (body rests on cell feet+1)
+        if (!g.isSolidCell(cx, feet + 1) && !g.isOneWayCell(cx, feet + 1)) floating++;
+        for (let dy = 0; dy < HEAD; dy++) {
+          if (g.isSolidCell(cx, feet - dy)) {
+            sealed++;
+            break;
+          }
         }
       }
     }

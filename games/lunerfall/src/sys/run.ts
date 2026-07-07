@@ -9,13 +9,16 @@ export class RunManager {
   biome = 1;
   depth = 0;
   type: RoomType = "start";
-  private combatIdx = 0;
+  // Shuffle-bag of template indices: draw without replacement so every layout is
+  // seen before any repeats, and the order is fresh each cycle — no more "always
+  // template 0 first". Refilled + reshuffled when emptied.
+  private bag: number[] = [];
   readonly bossAt = 7;
 
   begin(): RoomDef {
     this.biome = 1;
     this.depth = 1;
-    this.combatIdx = 0;
+    this.bag = [];
     this.type = "start";
     return START();
   }
@@ -24,7 +27,7 @@ export class RunManager {
   debugEnter(type: RoomType): RoomDef {
     this.biome = 1;
     this.depth = 2;
-    this.combatIdx = 0;
+    this.bag = [];
     this.type = type;
     return this.templateFor(type);
   }
@@ -38,11 +41,8 @@ export class RunManager {
       case "start":
         return START();
       case "combat":
-      case "elite": {
-        const make = COMBAT_TEMPLATES[this.combatIdx % COMBAT_TEMPLATES.length] ?? COMBAT_TEMPLATES[0];
-        this.combatIdx++;
-        return (make ?? START)();
-      }
+      case "elite":
+        return this.nextCombat();
       case "merchant":
       case "rest":
       case "treasure":
@@ -50,6 +50,27 @@ export class RunManager {
       case "boss":
         return BOSS();
     }
+  }
+
+  // Draw the next combat layout: a random unseen template, flipped left↔right
+  // half the time, so consecutive fights (and the first fight of each run) vary.
+  private nextCombat(): RoomDef {
+    if (this.bag.length === 0) {
+      this.bag = COMBAT_TEMPLATES.map((_, i) => i);
+      for (let i = this.bag.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const a = this.bag[i];
+        const b = this.bag[j];
+        if (a === undefined || b === undefined) continue;
+        this.bag[i] = b;
+        this.bag[j] = a;
+      }
+    }
+    const idx = this.bag.pop() ?? 0;
+    const make = COMBAT_TEMPLATES[idx] ?? COMBAT_TEMPLATES[0];
+    const room = (make ?? START)();
+    if (Math.random() < 0.5) room.mirror();
+    return room;
   }
 
   // Door offers for the current room's exits (after clearing).
@@ -65,7 +86,7 @@ export class RunManager {
     if (this.type === "boss") {
       this.biome++;
       this.depth = 1;
-      this.combatIdx = 0;
+      this.bag = [];
       this.type = "start";
       return this.templateFor("start");
     }

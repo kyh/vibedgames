@@ -469,19 +469,32 @@ export class GameScene extends Phaser.Scene {
     );
   }
 
-  private roster(): EnemyName[] {
-    if (this.run.type === "elite")
-      return ["spearman", "warrior", "archer", "spearman", "bomber", "warrior"];
-    const early: EnemyName[] = ["warrior", "archer", "warrior", "spearman", "archer", "bomber"];
-    return early;
+  // Weighted-random enemy type, rolled per spawn so encounters vary run to run
+  // (was a fixed roster → identical fights). Warriors dominate early; ranged and
+  // heavy types get commoner in deeper biomes and elite rooms. Host-authoritative:
+  // guests replicate whatever the host rolled via the enemy name on the wire.
+  private pickEnemy(): EnemyName {
+    const elite = this.run.type === "elite";
+    const b = this.run.biome;
+    const pool: [EnemyName, number][] = [
+      ["warrior", elite ? 22 : 42],
+      ["spearman", 14 + b * 3 + (elite ? 8 : 0)],
+      ["archer", 12 + b * 3 + (elite ? 8 : 0)],
+      ["bomber", 5 + b * 2 + (elite ? 6 : 0)],
+    ];
+    const total = pool.reduce((s, p) => s + p[1], 0);
+    let r = Math.random() * total;
+    for (const [name, w] of pool) {
+      r -= w;
+      if (r <= 0) return name;
+    }
+    return "warrior";
   }
 
   private spawnEnemies(def: RoomDef) {
-    const roster = this.roster();
     const eliteHp = this.run.type === "elite" ? 1 : 0;
-    def.enemySpawns.forEach((s, i) => {
-      const name = roster[i % roster.length] ?? "warrior";
-      const e = new Enemy(this, this.grid, ENEMIES[name], s.x, s.y);
+    def.enemySpawns.forEach((s) => {
+      const e = new Enemy(this, this.grid, ENEMIES[this.pickEnemy()], s.x, s.y);
       e.body.hp += eliteHp + Math.floor((this.run.biome - 1) / 2);
       this.enemies.push(e);
     });
