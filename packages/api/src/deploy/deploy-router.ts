@@ -8,7 +8,8 @@ import { createTRPCRouter, protectedProcedure } from "../trpc";
 import { deletePrefix, presignGet, presignPut } from "./r2-presign";
 import { isSlugReserved } from "./reserved-slugs";
 
-// ---- Limits ------------------------------------------------------------------
+// ---- Limits ----------------------------------------------------------------
+// (raised 2026-07-06 for baked-world games; see crazy-waymo world artifacts)
 
 // Sized for real games: baked-world data files (crazy-waymo ships a ~62MB
 // pre-generated city) blow past web-app-scale caps. R2 storage is cheap and
