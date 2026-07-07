@@ -10,10 +10,13 @@ import { isSlugReserved } from "./reserved-slugs";
 
 // ---- Limits ------------------------------------------------------------------
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB per file
-const MAX_TOTAL_SIZE = 50 * 1024 * 1024; // 50 MB per deploy
+// Sized for real games: baked-world data files (crazy-waymo ships a ~62MB
+// pre-generated city) blow past web-app-scale caps. R2 storage is cheap and
+// single-active-deployment means old blobs are replaced, not accumulated.
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB per file (big data ships as parts)
+const MAX_TOTAL_SIZE = 200 * 1024 * 1024; // 200 MB per deploy
 const MAX_FILE_COUNT = 500;
-const MAX_SOURCE_SIZE = 25 * 1024 * 1024; // 25 MB for the forkable source archive
+const MAX_SOURCE_SIZE = 100 * 1024 * 1024; // 100 MB for the forkable source archive
 
 /** R2 key for a deployment's forkable source archive. Lives OUTSIDE the
  *  `games/` prefix so the public games worker never serves it. */
