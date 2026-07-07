@@ -30,6 +30,26 @@ const GROUND_Y = 214;
 const HERO_SCALE_ED = 3.9;
 const ENEMY_SCALE_ED = 5.8;
 
+// The in-game control that triggers each clip (heroes only — enemies are AI).
+// Swing clips fire on Attack (J), the special on K; the rest map to movement.
+function hotkeyFor(char: Char, clip: string): string {
+  if (!char.hero) return "";
+  const kit = HEROES[char.key].kit;
+  if (kit.swings.some((s) => s.clip === clip)) return "J";
+  const sp = kit.special;
+  if (sp.clip === clip || ("outClip" in sp && sp.outClip === clip)) return "K";
+  switch (clip) {
+    case "run":
+      return "← →";
+    case "jump":
+      return "↑ / Spc";
+    case "dash":
+      return "⇧ / L";
+    default:
+      return ""; // idle / fall / hurt / death / idle-break — contextual, no key
+  }
+}
+
 export class EditorScene extends Phaser.Scene {
   private ci = 0;
   private clipI = 0;
@@ -58,6 +78,11 @@ export class EditorScene extends Phaser.Scene {
     kb?.on("keydown-D", () => this.cycleChar(1));
     kb?.on("keydown-UP", () => this.selectClip(this.clipI - 1));
     kb?.on("keydown-DOWN", () => this.selectClip(this.clipI + 1));
+    // The actual game action keys jump to + play the matching clip, so you can
+    // press J / K / L and watch what they fire (movement keys stay editor-nav).
+    kb?.on("keydown-J", () => this.playHotkey("J"));
+    kb?.on("keydown-K", () => this.playHotkey("K"));
+    kb?.on("keydown-L", () => this.playHotkey("⇧ / L"));
 
     const want = new URLSearchParams(location.search).get("char");
     const at = want ? CHARS.findIndex((c) => c.key === want) : -1;
@@ -73,6 +98,14 @@ export class EditorScene extends Phaser.Scene {
 
   private cycleChar(d: number) {
     this.selectChar((this.ci + d + CHARS.length) % CHARS.length);
+  }
+
+  // Play the first clip triggered by the given in-game key (J / K / dash).
+  private playHotkey(key: string) {
+    const char = CHARS[this.ci];
+    if (!char) return;
+    const idx = this.clips.findIndex((c) => hotkeyFor(char, c.clip) === key);
+    if (idx >= 0) this.selectClip(idx);
   }
 
   // Switch character: rebuild the big sprite (new texture/origin/scale), refill
@@ -164,7 +197,7 @@ export class EditorScene extends Phaser.Scene {
         <div class="lf-h">CLIPS</div>
         <div class="lf-scroll" id="lf-cliplist"></div>
       </div>
-      <div class="lf-help">← → character&nbsp;&nbsp;·&nbsp;&nbsp;↑ ↓ clip&nbsp;&nbsp;·&nbsp;&nbsp;teal box = attack reach</div>`;
+      <div class="lf-help">← → character&nbsp;&nbsp;·&nbsp;&nbsp;↑ ↓ clip&nbsp;&nbsp;·&nbsp;&nbsp;badge = in-game key&nbsp;&nbsp;·&nbsp;&nbsp;J / K / L fire attack / special / dash</div>`;
     document.body.appendChild(ui);
     this.ui = ui;
     ui.querySelectorAll<HTMLButtonElement>(".lf-char").forEach((btn) => {
@@ -178,10 +211,13 @@ export class EditorScene extends Phaser.Scene {
   private fillClipList() {
     const list = document.getElementById("lf-cliplist");
     if (!list) return;
+    const char = CHARS[this.ci];
     list.innerHTML = this.clips
       .map((info, i) => {
         const warn = info.frames <= 1 ? ' <b class="lf-warn">⚠1f</b>' : "";
-        return `<button class="lf-clip" data-i="${i}"><span>${info.clip}</span><em>${info.frames}f · ${info.ms}ms${warn}</em></button>`;
+        const key = char ? hotkeyFor(char, info.clip) : "";
+        const badge = key ? `<kbd>${key}</kbd>` : "";
+        return `<button class="lf-clip" data-i="${i}"><div class="lf-clip-row"><span>${info.clip}</span>${badge}</div><em>${info.frames}f · ${info.ms}ms${warn}</em></button>`;
       })
       .join("");
     list.querySelectorAll<HTMLButtonElement>(".lf-clip").forEach((btn) => {
@@ -239,8 +275,10 @@ function injectStyle() {
 #lf-editor .lf-char i{width:12px;height:12px;border-radius:50%;flex:none;box-shadow:0 0 6px currentColor}
 #lf-editor .lf-char span{flex:1;text-transform:capitalize}
 #lf-editor .lf-char em{font:700 8px ui-monospace,monospace;opacity:.5;font-style:normal;letter-spacing:1px}
-#lf-editor .lf-clip{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left}
+#lf-editor .lf-clip{display:flex;flex-direction:column;align-items:stretch;gap:2px;text-align:left}
+.lf-clip-row{display:flex;align-items:center;justify-content:space-between;gap:6px;width:100%}
 #lf-editor .lf-clip span{font-weight:700}
+#lf-editor .lf-clip kbd{flex:none;font:800 9px ui-monospace,monospace;color:#ffd15c;background:rgba(255,209,92,.12);border:1px solid rgba(255,209,92,.5);border-radius:4px;padding:1px 5px;box-shadow:0 1px 0 rgba(255,209,92,.25)}
 #lf-editor .lf-clip em{font:600 9px ui-monospace,monospace;opacity:.6;font-style:normal}
 #lf-editor .lf-warn{color:#ff8a5c}
 .lf-help{position:absolute;left:0;right:0;bottom:0;text-align:center;padding:9px;font:600 10px ui-monospace,monospace;opacity:.55;background:linear-gradient(#05070b00,#05070bdd)}
