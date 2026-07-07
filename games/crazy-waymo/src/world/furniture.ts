@@ -1,4 +1,4 @@
-import { parkCellHeight } from "./ground";
+import { parkCellFloor, parkCellHeight } from "./ground";
 import * as THREE from "three";
 
 import type { ModelCache } from "../assets/loader";
@@ -701,6 +701,15 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
         node.position.set(wx, seatY + 0.02, wz);
         node.updateMatrixWorld(true);
         objects.push(node);
+        // Layered-hill plinth: a stone base fills from the tile down past the
+        // lowest corner — KayKit-style stacked plateaus instead of clipping.
+        const floorY = parkCellFloor(terrain, gx, gz);
+        const depth = Math.max(0.35, seatY - floorY + 0.9);
+        const plinth = new THREE.Mesh(UNIT_BOX, SEAWALL_MAT);
+        plinth.scale.set(ROAD_TILE, depth, ROAD_TILE);
+        plinth.position.set(wx, seatY + 0.02 - depth / 2, wz);
+        plinth.updateMatrixWorld(true);
+        objects.push(plinth);
         if (name === "park-base-decorated-trees") {
           // approximate the tile's trees for arcade collision
           solids.push({ minX: wx - 0.6, maxX: wx + 0.6, minZ: wz - 0.6, maxZ: wz + 0.6, noBody: true });

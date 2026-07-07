@@ -65,9 +65,29 @@ export function parkCellHeight(
   gx: number,
   gz: number,
 ): number {
-  const x = (gx + 0.5) * ROAD_TILE - WORLD_HALF_X;
-  const z = (gz + 0.5) * ROAD_TILE - WORLD_HALF_Z;
-  return Math.round(terrain.heightAt(x, z) * 2) / 2; // quantize to 0.5u steps
+  // Seat at the HIGHEST corner (quantized): the tile always clears the
+  // ground; the plinth below it makes up the difference — layered hills.
+  const x0 = gx * ROAD_TILE - WORLD_HALF_X;
+  const z0 = gz * ROAD_TILE - WORLD_HALF_Z;
+  const h = Math.max(
+    terrain.heightAt(x0, z0),
+    terrain.heightAt(x0 + ROAD_TILE, z0),
+    terrain.heightAt(x0, z0 + ROAD_TILE),
+    terrain.heightAt(x0 + ROAD_TILE, z0 + ROAD_TILE),
+    terrain.heightAt(x0 + ROAD_TILE / 2, z0 + ROAD_TILE / 2),
+  );
+  return Math.round(h * 2) / 2; // quantize to 0.5u steps
+}
+
+export function parkCellFloor(terrain: Terrain, gx: number, gz: number): number {
+  const x0 = gx * ROAD_TILE - WORLD_HALF_X;
+  const z0 = gz * ROAD_TILE - WORLD_HALF_Z;
+  return Math.min(
+    terrain.heightAt(x0, z0),
+    terrain.heightAt(x0 + ROAD_TILE, z0),
+    terrain.heightAt(x0, z0 + ROAD_TILE),
+    terrain.heightAt(x0 + ROAD_TILE, z0 + ROAD_TILE),
+  );
 }
 
 // Clearance field: for every ~3.25u cell, (distance to nearest edge
@@ -118,15 +138,6 @@ export function makeGroundOffset(
       const v = field[i * FH + j];
       if (v !== undefined && v <= 4.6) {
         street = v < 1.6 ? -0.35 : -0.35 * Math.max(0, 1 - (v - 1.6) / 3);
-      }
-    }
-    // Park terraces: flatten the cell to its tile seat height. Streets keep
-    // their depression through parks (roads still cross them).
-    if (terrain && street === 0) {
-      const gx = Math.floor((x + WORLD_HALF_X) / ROAD_TILE);
-      const gz = Math.floor((z + WORLD_HALF_Z) / ROAD_TILE);
-      if (gx >= 0 && gz >= 0 && gx < GRID_X && gz < GRID_Z && isParkCell(gx, gz)) {
-        return parkCellHeight(terrain, gx, gz) - terrain.heightAt(x, z);
       }
     }
     return street;
