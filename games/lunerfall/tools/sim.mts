@@ -172,7 +172,9 @@ console.log("lunerfall physics sim\n");
 {
   const b = spawn();
   let maxStep = 0;
-  for (let f = 0; f < 90; f++) {
+  // 150 frames: each swing runs for its (tempo-scaled) `dur`, and the next chains
+  // when it ends, so 3 hits span ~2.6s at SWING_TEMPO 4 — widen the window to suit.
+  for (let f = 0; f < 150; f++) {
     b.buffer(inp({ attackPressed: true }));
     b.step(STEP);
     maxStep = Math.max(maxStep, b.attackStep);

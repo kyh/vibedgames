@@ -154,8 +154,8 @@ export class SelectScene extends Phaser.Scene {
     const go = this.coop ? "join co-op" : "descend";
     this.hint.setText(
       unlocked
-        ? `← →  choose      SPACE / J  ${go}      C  co-op`
-        : `← →  choose      U  unlock (${UNLOCK_COST[name]} ✦)      locked`,
+        ? `← →  choose    SPACE / J  ${go}    C  co-op    F  fullscreen`
+        : `← →  choose    U  unlock (${UNLOCK_COST[name]} ✦)    F  fullscreen`,
     );
     this.coopText.setText(
       this.coop ? `CO-OP ${this.code}  ·  share this page's URL, then both press SPACE` : "",

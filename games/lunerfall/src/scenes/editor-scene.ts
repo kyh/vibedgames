@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 
-import { BASE_H, BASE_W, COLORS } from "../config";
+import { BASE_H, BASE_W, COLORS, ENEMY_ORIGIN_Y, HERO_ORIGIN_Y } from "../config";
 import {
   type ClipInfo,
   clipsFor,
@@ -13,135 +13,237 @@ import {
 import { HEROES } from "../data/heroes";
 import { clipGameMs } from "../entities/player";
 
-// ?editor=1 — an animation gallery / debug view. Cycles every character and lays
-// out ALL of its clips at once, each looping at the authored timing with a frame
-// count + duration readout, so a broken/mis-timed clip is obvious at a glance.
-// LEFT/RIGHT switch character; the selected character's spell is named up top.
+// ?editor=1 — an animation viewer / debug page, styled after the Battle Arena
+// editor: a DOM chrome (top bar + character roster + clip list) over a big stage
+// that plays ONE clip large enough to actually read the frames + the attack's
+// hitbox reach. LEFT/RIGHT (or click) switch character; UP/DOWN (or click) switch
+// clip. ?char=riven deep-links a character.
 
 type Char = { key: HeroName; hero: true } | { key: EnemyName; hero: false };
 const CHARS: Char[] = [
   ...HERO_NAMES.map((key): Char => ({ key, hero: true })),
   ...ENEMY_NAMES.map((key): Char => ({ key, hero: false })),
 ];
-const COLS = 4;
+
+const STAGE_X = BASE_W / 2;
+const GROUND_Y = 214;
+const HERO_SCALE_ED = 3.9;
+const ENEMY_SCALE_ED = 5.8;
 
 export class EditorScene extends Phaser.Scene {
-  private index = 0;
-  private grid?: Phaser.GameObjects.Container;
-  private name!: Phaser.GameObjects.Text;
-  private sub!: Phaser.GameObjects.Text;
+  private ci = 0;
+  private clipI = 0;
+  private clips: ClipInfo[] = [];
+  private sprite?: Phaser.GameObjects.Sprite;
+  private fxLayer?: Phaser.GameObjects.Graphics;
+  private shadow?: Phaser.GameObjects.Ellipse;
+  private ui?: HTMLDivElement;
 
   constructor() {
     super("editor");
   }
 
   create() {
-    this.add.rectangle(0, 0, BASE_W, BASE_H, COLORS.bgDeep).setOrigin(0);
-    this.add
-      .image(0, 0, "env:backdrop")
-      .setOrigin(0)
-      .setDisplaySize(BASE_W, BASE_H)
-      .setTint(0x4a5570)
-      .setAlpha(0.25);
-    this.name = this.add
-      .text(BASE_W / 2, 12, "", { fontFamily: "monospace", fontSize: "13px", color: "#34e5c8" })
-      .setOrigin(0.5)
-      .setDepth(10);
-    this.sub = this.add
-      .text(BASE_W / 2, 26, "", { fontFamily: "monospace", fontSize: "7px", color: "#8b95a1" })
-      .setOrigin(0.5)
-      .setDepth(10);
-    this.add
-      .text(BASE_W / 2, BASE_H - 8, "◀ ▶  character      teal = looping", {
-        fontFamily: "monospace",
-        fontSize: "7px",
-        color: "#59636f",
-      })
-      .setOrigin(0.5)
-      .setDepth(10);
+    // Stage: blue-grey backdrop + a ground line the character stands on.
+    this.add.rectangle(0, 0, BASE_W, BASE_H, 0x475066).setOrigin(0);
+    this.add.rectangle(0, BASE_H * 0.5, BASE_W, BASE_H * 0.5, 0x2b3242).setOrigin(0);
+    this.add.rectangle(0, GROUND_Y, BASE_W, 2, COLORS.teal, 0.35).setOrigin(0, 0.5).setDepth(1);
+    this.shadow = this.add.ellipse(STAGE_X, GROUND_Y + 2, 76, 16, COLORS.ink, 0.4).setDepth(2);
+    this.fxLayer = this.add.graphics().setDepth(4);
 
     const kb = this.input.keyboard;
-    kb?.on("keydown-LEFT", () => this.cycle(-1));
-    kb?.on("keydown-A", () => this.cycle(-1));
-    kb?.on("keydown-RIGHT", () => this.cycle(1));
-    kb?.on("keydown-D", () => this.cycle(1));
+    kb?.on("keydown-LEFT", () => this.cycleChar(-1));
+    kb?.on("keydown-A", () => this.cycleChar(-1));
+    kb?.on("keydown-RIGHT", () => this.cycleChar(1));
+    kb?.on("keydown-D", () => this.cycleChar(1));
+    kb?.on("keydown-UP", () => this.selectClip(this.clipI - 1));
+    kb?.on("keydown-DOWN", () => this.selectClip(this.clipI + 1));
 
-    // ?char=riven jumps straight to one for quick auditing.
     const want = new URLSearchParams(location.search).get("char");
     const at = want ? CHARS.findIndex((c) => c.key === want) : -1;
-    if (at >= 0) this.index = at;
+    if (at >= 0) this.ci = at;
 
-    this.render();
-  }
-
-  private cycle(d: number) {
-    this.index = (this.index + d + CHARS.length) % CHARS.length;
-    this.render();
-  }
-
-  private render() {
-    this.grid?.destroy();
-    const char = CHARS[this.index];
-    if (!char) return;
-    const clips = clipsFor(this, char.key);
-    const hero = char.hero ? HEROES[char.key] : undefined;
-
-    this.name.setText(`${char.key.toUpperCase()}   (${this.index + 1}/${CHARS.length})`);
-    const spell = hero ? `spell: ${hero.kit.special.kind} · ${hero.kit.special.clip}` : "enemy";
-    this.sub.setText(`${clips.length} clips    ${spell}`);
-
-    const g = this.add.container(0, 0);
-    const gridTop = 40;
-    const gridH = BASE_H - gridTop - 16;
-    const rows = Math.max(1, Math.ceil(clips.length / COLS));
-    const rowH = Math.min(62, gridH / rows);
-    const cellW = BASE_W / COLS;
-    const scale = char.hero ? Math.min(0.4, (rowH - 16) / 120) : Math.min(0.7, (rowH - 16) / 62);
-    const originY = firstFrame(this, char.key) ? 0.62 : 0.5;
-
-    clips.forEach((info, i) => {
-      const col = i % COLS;
-      const row = Math.floor(i / COLS);
-      const cx = col * cellW + cellW / 2;
-      const cy = gridTop + row * rowH;
-      // Preview true in-game timing: heroes re-time swings/special/dash/run.
-      const gm = hero ? clipGameMs(hero, info.clip) : undefined;
-      g.add(
-        this.add
-          .rectangle(cx, cy + rowH / 2, cellW - 4, rowH - 3, info.loop ? 0x0e2a2c : 0x14171d, 0.6)
-          .setStrokeStyle(1, info.loop ? COLORS.teal : 0x2a3340, 0.5),
-      );
-      const spr = this.add
-        .sprite(cx, cy + rowH * 0.5, char.key, firstFrame(this, char.key))
-        .setOrigin(0.5, originY)
-        .setScale(scale);
-      spr.play({ key: `${char.key}:${info.clip}`, repeat: -1 }); // force-loop for the gallery
-      // timeScale (not duration) re-times without freezing per-frame-duration anims.
-      const authored = spr.anims.currentAnim?.duration ?? 0;
-      if (gm !== undefined && gm > 0 && authored > 0) spr.anims.timeScale = authored / gm;
-      g.add(spr);
-      g.add(this.clipLabel(cx, cy + rowH - 8, info, gm));
+    this.buildUI();
+    this.selectChar(this.ci);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.ui?.remove();
+      this.ui = undefined;
     });
-    this.grid = g;
   }
 
-  private clipLabel(
-    x: number,
-    y: number,
-    info: ClipInfo,
-    gameMs: number | undefined,
-  ): Phaser.GameObjects.Text {
-    const flag = info.frames <= 1 ? " ⚠1f" : "";
-    // Show authored ms, and the re-timed in-game ms when it differs.
+  private cycleChar(d: number) {
+    this.selectChar((this.ci + d + CHARS.length) % CHARS.length);
+  }
+
+  // Switch character: rebuild the big sprite (new texture/origin/scale), refill
+  // the clip list, and play the first clip.
+  private selectChar(i: number) {
+    this.ci = i;
+    const char = CHARS[i];
+    if (!char) return;
+    this.clips = clipsFor(this, char.key);
+    this.sprite?.destroy();
+    const originY = char.hero ? HERO_ORIGIN_Y : ENEMY_ORIGIN_Y;
+    this.sprite = this.add
+      .sprite(STAGE_X, GROUND_Y, char.key, firstFrame(this, char.key))
+      .setOrigin(0.5, originY)
+      .setScale(char.hero ? HERO_SCALE_ED : ENEMY_SCALE_ED)
+      .setDepth(5);
+    this.fillClipList();
+    this.highlightRoster();
+    this.selectClip(0);
+  }
+
+  private selectClip(i: number) {
+    if (this.clips.length === 0) return;
+    this.clipI = (i + this.clips.length) % this.clips.length;
+    const info = this.clips[this.clipI];
+    const char = CHARS[this.ci];
+    if (!info || !char || !this.sprite) return;
+    const hero = char.hero ? HEROES[char.key] : undefined;
+    this.sprite.play({ key: `${char.key}:${info.clip}`, repeat: -1 });
+    // timeScale (not duration) re-times without freezing per-frame-duration anims.
+    const gm = hero ? clipGameMs(hero, info.clip) : undefined;
+    const authored = this.sprite.anims.currentAnim?.duration ?? 0;
+    this.sprite.anims.timeScale = gm !== undefined && gm > 0 && authored > 0 ? authored / gm : 1;
+    this.drawFx(char, info.clip);
+    this.updateStatus(info, gm);
+    this.highlightClip();
+  }
+
+  // Overlay the attack's live hitbox: swings draw their forward reach box, an AOE
+  // special draws its radius. This is what "the effects" refers to — where a move
+  // actually connects — now legible at stage scale.
+  private drawFx(char: Char, clip: string) {
+    const g = this.fxLayer;
+    if (!g) return;
+    g.clear();
+    if (!char.hero) return;
+    const kit = HEROES[char.key].kit;
+    // Reach/radius are game-space px; scale them by the stage zoom so the hitbox
+    // lines up with the enlarged character.
+    const sw = kit.swings.find((s) => s.clip === clip);
+    if (sw) {
+      const w = sw.reach * HERO_SCALE_ED;
+      const y0 = GROUND_Y - 120;
+      g.fillStyle(COLORS.teal, 0.12).fillRect(STAGE_X + 12, y0, w, 84);
+      g.lineStyle(1, COLORS.teal, 0.6).strokeRect(STAGE_X + 12, y0, w, 84);
+    }
+    const sp = kit.special;
+    if (sp.clip === clip && sp.kind === "aoe") {
+      const r = sp.radius * HERO_SCALE_ED;
+      g.fillStyle(COLORS.magenta, 0.1).fillCircle(STAGE_X, GROUND_Y - 60, r);
+      g.lineStyle(1, COLORS.magenta, 0.6).strokeCircle(STAGE_X, GROUND_Y - 60, r);
+    }
+  }
+
+  // ── DOM chrome ───────────────────────────────────────────────────────────────
+
+  private buildUI() {
+    injectStyle();
+    const ui = document.createElement("div");
+    ui.id = "lf-editor";
+    const roster = CHARS.map((c, i) => {
+      const dot = c.hero
+        ? `#${HEROES[c.key].color.toString(16).padStart(6, "0")}`
+        : "#8b95a1";
+      const tag = c.hero ? "" : `<em>foe</em>`;
+      return `<button class="lf-char" data-i="${i}"><i style="background:${dot}"></i><span>${c.key}</span>${tag}</button>`;
+    }).join("");
+    ui.innerHTML = `
+      <div class="lf-top">
+        <span class="lf-logo">LUNERFALL</span>
+        <span class="lf-sub">ANIMATION VIEWER</span>
+        <span class="lf-status" id="lf-status"></span>
+      </div>
+      <div class="lf-panel lf-roster">
+        <div class="lf-h">CHARACTERS</div>
+        <div class="lf-scroll">${roster}</div>
+      </div>
+      <div class="lf-panel lf-clips">
+        <div class="lf-h">CLIPS</div>
+        <div class="lf-scroll" id="lf-cliplist"></div>
+      </div>
+      <div class="lf-help">← → character&nbsp;&nbsp;·&nbsp;&nbsp;↑ ↓ clip&nbsp;&nbsp;·&nbsp;&nbsp;F fullscreen&nbsp;&nbsp;·&nbsp;&nbsp;teal box = attack reach</div>`;
+    document.body.appendChild(ui);
+    this.ui = ui;
+    ui.querySelectorAll<HTMLButtonElement>(".lf-char").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const i = Number.parseInt(btn.dataset["i"] ?? "", 10);
+        if (Number.isFinite(i)) this.selectChar(i);
+      });
+    });
+  }
+
+  private fillClipList() {
+    const list = document.getElementById("lf-cliplist");
+    if (!list) return;
+    list.innerHTML = this.clips
+      .map((info, i) => {
+        const warn = info.frames <= 1 ? ' <b class="lf-warn">⚠1f</b>' : "";
+        return `<button class="lf-clip" data-i="${i}"><span>${info.clip}</span><em>${info.frames}f · ${info.ms}ms${warn}</em></button>`;
+      })
+      .join("");
+    list.querySelectorAll<HTMLButtonElement>(".lf-clip").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const i = Number.parseInt(btn.dataset["i"] ?? "", 10);
+        if (Number.isFinite(i)) this.selectClip(i);
+      });
+    });
+  }
+
+  private highlightRoster() {
+    this.ui?.querySelectorAll<HTMLButtonElement>(".lf-char").forEach((btn) => {
+      btn.classList.toggle("on", btn.dataset["i"] === String(this.ci));
+    });
+  }
+
+  private highlightClip() {
+    const active = this.ui?.querySelector(`.lf-clip[data-i="${this.clipI}"]`);
+    this.ui?.querySelectorAll<HTMLButtonElement>(".lf-clip").forEach((btn) => {
+      btn.classList.toggle("on", btn === active);
+    });
+    if (active instanceof HTMLElement) active.scrollIntoView({ block: "nearest" });
+  }
+
+  private updateStatus(info: ClipInfo, gameMs: number | undefined) {
+    const el = document.getElementById("lf-status");
+    if (!el) return;
+    const char = CHARS[this.ci];
     const timing =
       gameMs !== undefined && gameMs !== info.ms ? `${info.ms}→${gameMs}ms` : `${info.ms}ms`;
-    const retimed = gameMs !== undefined && gameMs !== info.ms;
-    return this.add
-      .text(x, y, `${info.clip}  ${info.frames}f ${timing}${flag}`, {
-        fontFamily: "monospace",
-        fontSize: "6px",
-        color: info.frames <= 1 ? "#ff8a5c" : retimed ? "#ffd15c" : "#c7d0db",
-      })
-      .setOrigin(0.5);
+    el.textContent = `${char?.key ?? ""}  ·  ${info.clip}  ·  ${info.frames}f  ·  ${timing}`;
   }
+}
+
+let styled = false;
+function injectStyle() {
+  if (styled) return;
+  styled = true;
+  const s = document.createElement("style");
+  s.textContent = `
+#lf-editor{position:fixed;inset:0;z-index:40;pointer-events:none;font-family:ui-monospace,"Courier New",monospace;color:#f4f7fb}
+#lf-editor button{pointer-events:auto;cursor:pointer;font:600 11px ui-monospace,monospace;color:#c7d0db;background:rgba(20,26,42,.85);border:1px solid rgba(255,255,255,.14);border-radius:7px;padding:6px 9px}
+#lf-editor button:hover{border-color:#34e5c8;color:#34e5c8}
+#lf-editor .on{border-color:#34e5c8;color:#34e5c8;background:rgba(20,54,54,.9)}
+.lf-top{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;gap:10px;padding:9px 14px;background:linear-gradient(#05070bee,#05070b00)}
+.lf-logo{font:900 italic 18px system-ui,sans-serif;letter-spacing:-1px;color:#34e5c8}
+.lf-sub{font:800 10px ui-monospace,monospace;letter-spacing:2px;opacity:.55}
+.lf-status{font:600 11px ui-monospace,monospace;color:#ffd15c;margin-left:auto}
+.lf-panel{position:absolute;top:48px;bottom:42px;display:flex;flex-direction:column;gap:6px;background:rgba(8,10,18,.82);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:8px;pointer-events:auto}
+.lf-roster{left:12px;width:150px}
+.lf-clips{right:12px;width:186px}
+.lf-h{font:800 10px ui-monospace,monospace;letter-spacing:1.5px;opacity:.5;padding:2px 2px 4px}
+.lf-scroll{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:4px;min-height:0}
+#lf-editor .lf-char{display:flex;align-items:center;gap:8px;text-align:left}
+#lf-editor .lf-char i{width:12px;height:12px;border-radius:50%;flex:none;box-shadow:0 0 6px currentColor}
+#lf-editor .lf-char span{flex:1;text-transform:capitalize}
+#lf-editor .lf-char em{font:700 8px ui-monospace,monospace;opacity:.5;font-style:normal;letter-spacing:1px}
+#lf-editor .lf-clip{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left}
+#lf-editor .lf-clip span{font-weight:700}
+#lf-editor .lf-clip em{font:600 9px ui-monospace,monospace;opacity:.6;font-style:normal}
+#lf-editor .lf-warn{color:#ff8a5c}
+.lf-help{position:absolute;left:0;right:0;bottom:0;text-align:center;padding:9px;font:600 10px ui-monospace,monospace;opacity:.55;background:linear-gradient(#05070b00,#05070bdd)}
+`;
+  document.head.appendChild(s);
 }
