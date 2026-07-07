@@ -1,4 +1,5 @@
-import { BOSS, COMBAT_TEMPLATES, type RoomDef, type RoomType, SAFE, START } from "../data/rooms";
+import { BOSS, type RoomDef, type RoomType, SAFE, START } from "../data/rooms";
+import { genCombatRoom } from "./gen";
 
 export type Offer = { type: RoomType };
 
@@ -9,16 +10,11 @@ export class RunManager {
   biome = 1;
   depth = 0;
   type: RoomType = "start";
-  // Shuffle-bag of template indices: draw without replacement so every layout is
-  // seen before any repeats, and the order is fresh each cycle — no more "always
-  // template 0 first". Refilled + reshuffled when emptied.
-  private bag: number[] = [];
   readonly bossAt = 7;
 
   begin(): RoomDef {
     this.biome = 1;
     this.depth = 1;
-    this.bag = [];
     this.type = "start";
     return START();
   }
@@ -27,7 +23,6 @@ export class RunManager {
   debugEnter(type: RoomType): RoomDef {
     this.biome = 1;
     this.depth = 2;
-    this.bag = [];
     this.type = type;
     return this.templateFor(type);
   }
@@ -52,25 +47,11 @@ export class RunManager {
     }
   }
 
-  // Draw the next combat layout: a random unseen template, flipped left↔right
-  // half the time, so consecutive fights (and the first fight of each run) vary.
+  // Draw the next combat layout: a freshly generated, reachability-verified room
+  // (see gen.ts). Every fight is a new dynamic space; the generator guarantees
+  // every door + enemy is reachable from the spawn.
   private nextCombat(): RoomDef {
-    if (this.bag.length === 0) {
-      this.bag = COMBAT_TEMPLATES.map((_, i) => i);
-      for (let i = this.bag.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        const a = this.bag[i];
-        const b = this.bag[j];
-        if (a === undefined || b === undefined) continue;
-        this.bag[i] = b;
-        this.bag[j] = a;
-      }
-    }
-    const idx = this.bag.pop() ?? 0;
-    const make = COMBAT_TEMPLATES[idx] ?? COMBAT_TEMPLATES[0];
-    const room = (make ?? START)();
-    if (Math.random() < 0.5) room.mirror();
-    return room;
+    return genCombatRoom(Math.floor(Math.random() * 0x100000000));
   }
 
   // Door offers for the current room's exits (after clearing).
@@ -86,7 +67,6 @@ export class RunManager {
     if (this.type === "boss") {
       this.biome++;
       this.depth = 1;
-      this.bag = [];
       this.type = "start";
       return this.templateFor("start");
     }

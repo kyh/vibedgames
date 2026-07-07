@@ -6,6 +6,7 @@ import { HEROES } from "../src/data/heroes.ts";
 import { bankRun, isUnlocked, unlockHero } from "../src/data/meta.ts";
 import { baseMods, pickRelics, RELICS } from "../src/data/relics.ts";
 import { BOSS, COMBAT_TEMPLATES, SAFE, START } from "../src/data/rooms.ts";
+import { genAttempt, genCombatRoom, verifyRoom } from "../src/sys/gen.ts";
 import { BossBody } from "../src/entities/boss-body.ts";
 import { EnemyBody } from "../src/entities/enemy-body.ts";
 import { PlayerBody, rectsOverlap, type BodyInput } from "../src/entities/player-body.ts";
@@ -420,6 +421,27 @@ check("rectsOverlap basic", rectsOverlap({ left: 0, top: 0, right: 10, bottom: 1
   });
   check("no combat enemy sealed under a platform", sealed === 0, `${sealed} sealed`);
   check("every combat enemy stands on a surface", floating === 0, `${floating} floating`);
+}
+
+// The constrained generator must ALWAYS produce a room where every door + enemy
+// is reachable from the spawn — verifyRoom re-derives reachability from the grid
+// alone (conservative jump envelope), independent of how the room was built.
+{
+  const N = 800;
+  let broken = 0;
+  let empty = 0;
+  let doorless = 0;
+  let firstTry = 0;
+  for (let seed = 1; seed <= N; seed++) {
+    const def = genCombatRoom(seed);
+    if (!verifyRoom(def)) broken++;
+    if (def.enemySpawns.length === 0) empty++;
+    if (def.doorSlots.length === 0) doorless++;
+    if (verifyRoom(genAttempt(seed))) firstTry++; // did the raw attempt already pass?
+  }
+  check("every generated room is fully reachable", broken === 0, `${broken}/${N} broken`);
+  check("every generated room has enemies + a door", empty === 0 && doorless === 0, `${empty} empty, ${doorless} doorless`);
+  check("generator rarely needs the fallback", firstTry / N > 0.9, `${Math.round((firstTry / N) * 100)}% first-try`);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
