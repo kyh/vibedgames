@@ -210,18 +210,20 @@ export function explosion(scene: Phaser.Scene, x: number, y: number, r: number) 
 export function ambientEmbers(
   scene: Phaser.Scene,
   color: number = COLORS.teal,
+  roomW: number = BASE_W,
+  roomH: number = BASE_H,
 ): Phaser.GameObjects.Particles.ParticleEmitter {
   ensureGlow(scene);
   return scene.add
     .particles(0, 0, "fx-glow", {
-      x: { min: 0, max: BASE_W },
-      y: { min: BASE_H * 0.3, max: BASE_H },
+      x: { min: 0, max: roomW },
+      y: { min: roomH * 0.3, max: roomH },
       lifespan: 4200,
       speedY: { min: -10, max: -26 },
       speedX: { min: -8, max: 8 },
       scale: { start: 0.11, end: 0 },
       alpha: { start: 0.45, end: 0 },
-      frequency: 340,
+      frequency: Math.max(80, 340 * (BASE_W / roomW)),
       quantity: 1,
       tint: color,
       blendMode: Phaser.BlendModes.ADD,

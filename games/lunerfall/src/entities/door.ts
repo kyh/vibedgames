@@ -6,13 +6,23 @@ import type { Rect } from "./player-body";
 
 const DANGER: RoomType[] = ["combat", "elite", "boss"];
 
-// A neon torii gate exit. Locked (dim) until the room is cleared, then it lights
-// up and its trigger zone sends the player to the next room.
+// Gate sprites cropped from the Luneblade prop sheet (env:props): a teal glowing
+// doorway for safe paths, pink for danger. Registered once as named frames.
+function registerGates(scene: Phaser.Scene) {
+  const tex = scene.textures.get("env:props");
+  if (tex.has("gate-teal")) return;
+  tex.add("gate-teal", 0, 165, 23, 48, 51);
+  tex.add("gate-pink", 0, 163, 101, 48, 51);
+}
+
+// An exit gate. Locked (dim) until the room is cleared, then it lights up and its
+// trigger zone sends the player to the next room.
 export class Door {
   private root: Phaser.GameObjects.Container;
   private glow: Phaser.GameObjects.Ellipse;
-  private parts: Phaser.GameObjects.Rectangle[] = [];
+  private gate: Phaser.GameObjects.Image;
   private label: Phaser.GameObjects.Text;
+  private color: number;
   active = false;
 
   constructor(
@@ -22,39 +32,50 @@ export class Door {
     readonly type: RoomType,
     readonly index: number,
   ) {
-    const color = DANGER.includes(type) ? COLORS.magenta : COLORS.teal;
+    registerGates(scene);
+    const danger = DANGER.includes(type);
+    this.color = danger ? COLORS.magenta : COLORS.teal;
     this.root = scene.add.container(x, y).setDepth(15);
-    this.glow = scene.add.ellipse(0, -13, 30, 34, color, 0.18);
-    const beam = (lx: number, ly: number, w: number, h: number) => {
-      const r = scene.add.rectangle(lx, ly, w, h, color).setOrigin(0);
-      this.parts.push(r);
-      return r;
-    };
-    beam(-10, -26, 3, 26); // left pillar
-    beam(7, -26, 3, 26); // right pillar
-    beam(-13, -29, 26, 3); // upper beam
-    beam(-11, -23, 22, 2); // lower beam
-    this.label = scene.add
-      .text(0, -34, ROOM_LABEL[type], { fontFamily: "monospace", fontSize: "7px", color: "#f4f7fb" })
+    this.glow = scene.add
+      .ellipse(0, -24, 30, 50, this.color, 0.16)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    this.gate = scene.add
+      .image(0, 1, "env:props", danger ? "gate-pink" : "gate-teal")
       .setOrigin(0.5, 1);
-    this.root.add([this.glow, ...this.parts, this.label]);
+    this.label = scene.add
+      .text(0, -58, ROOM_LABEL[type], {
+        fontFamily: "monospace",
+        fontSize: "7px",
+        color: "#f4f7fb",
+      })
+      .setOrigin(0.5, 1);
+    this.root.add([this.glow, this.gate, this.label]);
     this.setActive(false);
   }
 
   setActive(v: boolean) {
     this.active = v;
     this.glow.setVisible(v);
-    this.label.setAlpha(v ? 1 : 0.25);
-    this.parts.forEach((p) => p.setAlpha(v ? 1 : 0.28));
+    this.label.setAlpha(v ? 1 : 0.3);
+    // Locked gates dim + desaturate toward the stone; cleared gates glow full.
+    this.gate.setAlpha(v ? 1 : 0.42).setTint(v ? 0xffffff : 0x6f7a8c);
     this.scene.tweens.killTweensOf(this.glow);
     if (v) {
       this.glow.setScale(1);
-      this.scene.tweens.add({ targets: this.glow, scale: 1.25, alpha: 0.3, duration: 700, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+      this.scene.tweens.add({
+        targets: this.glow,
+        scaleX: 1.35,
+        alpha: 0.34,
+        duration: 750,
+        yoyo: true,
+        repeat: -1,
+        ease: "Sine.easeInOut",
+      });
     }
   }
 
   triggerRect(): Rect {
-    return { left: this.x - 11, top: this.y - 28, right: this.x + 11, bottom: this.y };
+    return { left: this.x - 12, top: this.y - 42, right: this.x + 12, bottom: this.y };
   }
 
   destroy() {

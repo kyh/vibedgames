@@ -26,6 +26,7 @@ import {
   type NetRoom,
   type Snapshot,
 } from "../net/snapshot";
+import { buildParallax } from "../parallax";
 import { drawRoom } from "../room";
 import { ambientEmbers, dust, explosion, hitSpark, impactRing, popText, wallSmoke } from "../sys/fx";
 import { Grid } from "../sys/grid";
@@ -164,6 +165,7 @@ export class GameScene extends Phaser.Scene {
   private acc = 0;
 
   private roomLayer?: Phaser.GameObjects.Container;
+  private parallax: Phaser.GameObjects.GameObject[] = [];
   private roomProp?: Phaser.GameObjects.Sprite;
   private embers?: Phaser.GameObjects.Particles.ParticleEmitter;
   private doors: Door[] = [];
@@ -259,10 +261,21 @@ export class GameScene extends Phaser.Scene {
     this.boss = null;
     this.feature = null;
 
-    // Screen-pinned sky (scrollFactor 0) — the parallax scene layers are added
-    // per-room in decorateRoom over the top of this. The camera scrolls the world
-    // but these stay fixed to the viewport.
-    this.add.rectangle(0, 0, BASE_W, BASE_H, COLORS.bgDeep).setOrigin(0).setScrollFactor(0).setDepth(-40);
+    // Screen-pinned sky (scrollFactor 0) — a blue-grey gradient (dark up top,
+    // lighter toward the horizon) matching the Luneblade art. The parallax tree
+    // layers are added per-room in decorateRoom in front of this.
+    this.add.rectangle(0, 0, BASE_W, BASE_H, 0x464f66).setOrigin(0).setScrollFactor(0).setDepth(-42);
+    this.add
+      .rectangle(0, BASE_H * 0.32, BASE_W, BASE_H * 0.68, 0x59637b)
+      .setOrigin(0)
+      .setScrollFactor(0)
+      .setDepth(-41);
+    this.add
+      .rectangle(0, BASE_H * 0.58, BASE_W, BASE_H * 0.42, 0x6b768e)
+      .setOrigin(0)
+      .setScrollFactor(0)
+      .setDepth(-40)
+      .setAlpha(0.85);
 
     this.fadeRect = this.add
       .rectangle(0, 0, BASE_W, BASE_H, 0x05070b)
@@ -368,6 +381,8 @@ export class GameScene extends Phaser.Scene {
   // Tear down every per-room object (host sim entities + guest puppets alike).
   private teardownRoom() {
     this.roomLayer?.destroy();
+    this.parallax.forEach((o) => o.destroy());
+    this.parallax = [];
     this.roomProp?.destroy();
     this.roomProp = undefined;
     this.embers?.destroy();
@@ -415,9 +430,15 @@ export class GameScene extends Phaser.Scene {
   private buildRoom(def: RoomDef) {
     this.teardownRoom();
     this.grid = def.grid;
+    this.parallax = buildParallax(this, def.grid.cols * TILE, def.grid.rows * TILE);
     this.roomLayer = drawRoom(this, def.grid).setDepth(0);
     this.decorateRoom(def);
-    this.embers = ambientEmbers(this, this.run.type === "boss" ? COLORS.magenta : COLORS.teal);
+    this.embers = ambientEmbers(
+      this,
+      this.run.type === "boss" ? COLORS.magenta : COLORS.teal,
+      def.grid.cols * TILE,
+      def.grid.rows * TILE,
+    );
     this.player.enterRoom(def.grid, def.playerSpawn.x, def.playerSpawn.y);
     this.remote?.enterRoom(def.grid, def.playerSpawn.x, def.playerSpawn.y);
     this.roomSpawn = { x: def.playerSpawn.x, y: def.playerSpawn.y };
@@ -1047,6 +1068,7 @@ export class GameScene extends Phaser.Scene {
     const g = new Grid(room.cols, room.rows);
     g.cells.set(room.cells);
     this.grid = g;
+    this.parallax = buildParallax(this, g.cols * TILE, g.rows * TILE);
     this.roomLayer = drawRoom(this, g).setDepth(0);
     const type = parseRoomType(room.type) ?? "combat";
     if (room.propKey) {
@@ -1058,7 +1080,12 @@ export class GameScene extends Phaser.Scene {
         .setDepth(2);
       this.roomProp.play(`prop:${room.propKey}`);
     }
-    this.embers = ambientEmbers(this, type === "boss" ? COLORS.magenta : COLORS.teal);
+    this.embers = ambientEmbers(
+      this,
+      type === "boss" ? COLORS.magenta : COLORS.teal,
+      g.cols * TILE,
+      g.rows * TILE,
+    );
     this.roomSpawn = { x: room.spawnX, y: room.spawnY };
     this.player.enterRoom(g, room.spawnX, room.spawnY);
     this.remote?.enterRoom(g, room.spawnX, room.spawnY);
