@@ -36,7 +36,6 @@ import { makeGroundColorAt, makeGroundOffset } from "./ground";
 import { buildGridNetwork } from "./grid-network";
 import { SF_BUILDINGS, SF_BUILDINGS_BOUNDS } from "./sf-buildings";
 import { buildRoads, roadPartsToMeshes } from "./roads";
-import { buildRowStrip, STRIP_MAT, type StripSegmentSpec } from "./row-strips";
 import type { CityGenPayload } from "./gen-worker";
 import { buildLandmarks, landmarkProtection } from "./landmarks";
 import { type DistrictChar, districtAt, isLandCell, makeTerrain, paletteFor, tintAmountFor } from "./sf-map";
@@ -607,7 +606,7 @@ export class CityModel {
         maxZ: wz + half,
         ...(pose ? { yaw: pose.yaw } : {}),
       });
-      occupy(wx, wz, targetFootprint * 0.5);
+      occupy(wx, wz, targetFootprint * 0.38);
 
       if (!dressing) return true;
 
@@ -746,10 +745,6 @@ export class CityModel {
     // with a consistent setback, facing the kerb — rows follow diagonals and
     // curves exactly, which cell-based lots never could. ---
     let walkN = 0;
-    let stripRuns = 0;
-    let stripSegs = 0;
-    let denseSamples = 0;
-    let sparseSamples = 0;
     for (const edge of this.network.edges) {
       if (++walkN % 40 === 0) await this.breathe();
       // Corner buildings are real — the cross-street clearance check below
@@ -759,75 +754,6 @@ export class CityModel {
       if (edge.len - trimA - trimB < 5) continue;
       for (const side of [1, -1] as const) {
         let s = trimA + this.rng.range(0, 4);
-        // Attached row-housing run (dense districts): party-wall segments
-        // accumulate until a sample fails, then flush as one strip.
-        let run: StripSegmentSpec[] = [];
-        let runStart = 0;
-        let runEnd = 0;
-        const flushRun = (): void => {
-          if (run.length >= 2) {
-            stripRuns++;
-            stripSegs += run.length;
-            const geo = buildRowStrip(run, this.rng);
-            const mesh = new THREE.Mesh(geo, STRIP_MAT);
-            mesh.updateMatrixWorld(true);
-            mesh.userData.merge = true;
-            staticMeshes.push(mesh);
-            // Back-to-back row: real SF lots pair up back to back — the twin
-            // strip faces the block interior and fills what street thinning
-            // left bare. Slightly varied heights, same run.
-            const back: StripSegmentSpec[] = run.map((sg) => {
-              const dxs = sg.bx - sg.ax;
-              const dzs = sg.bz - sg.az;
-              const L = Math.hypot(dxs, dzs) || 1;
-              // outward normal of the FRONT strip = left of a->b; back strip
-              // sits inward (right) by depth + yard gap, faces the other way.
-              const ux = dzs / L;
-              const uz = -dxs / L;
-              const shift = sg.depth + 7.4;
-              const mbx = (sg.ax + sg.bx) / 2 + ux * shift;
-              const mbz = (sg.az + sg.bz) / 2 + uz * shift;
-              return {
-                ax: sg.bx + ux * shift,
-                az: sg.bz + uz * shift,
-                bx: sg.ax + ux * shift,
-                bz: sg.az + uz * shift,
-                depth: sg.depth,
-                // seat on the back lot's own ground (hills shift fast here)
-                baseY: Math.max(
-                  this.terrain.heightAt(mbx, mbz),
-                  this.terrain.heightAt(mbx + ux * 3, mbz + uz * 3),
-                ),
-                floors: Math.max(2, sg.floors + (this.rng.chance(0.4) ? -1 : 0)),
-              };
-            });
-            const geoB = buildRowStrip(back, this.rng);
-            const meshB = new THREE.Mesh(geoB, STRIP_MAT);
-            meshB.updateMatrixWorld(true);
-            meshB.userData.merge = true;
-            staticMeshes.push(meshB);
-            // One rotated solid for the whole run.
-            const sa = this.network.sample(edge, runStart);
-            const sb = this.network.sample(edge, runEnd);
-            const offMid = edge.half + 1.7 + 3.2;
-            const cx = (sa.x + sb.x) / 2 - ((sa.tz + sb.tz) / 2) * offMid * side;
-            const cz = (sa.z + sb.z) / 2 + ((sa.tx + sb.tx) / 2) * offMid * side;
-            const runLen = runEnd - runStart;
-            const yawS = Math.atan2(sa.tx, sa.tz);
-            this.solids.push({
-              minX: cx - runLen / 2,
-              maxX: cx + runLen / 2,
-              minZ: cz - 3.2,
-              maxZ: cz + 3.2,
-              yaw: yawS,
-            });
-            for (let t = runStart; t <= runEnd; t += 4) {
-              const sm = this.network.sample(edge, t);
-              occupy(sm.x - sm.tz * offMid * side, sm.z + sm.tx * offMid * side, 3.4);
-            }
-          }
-          run = [];
-        };
         while (s < edge.len - trimB) {
           const smp = this.network.sample(edge, s);
           const gx = this.gridX(smp.x);
@@ -842,74 +768,29 @@ export class CityModel {
                 ? this.rng.range(0.46, 0.56) // row-houses, shoulder to shoulder
                 : this.rng.range(0.58, 0.7);
           const footprint = ROAD_TILE * frac;
-          const step = footprint + (dense ? this.rng.range(0.2, 0.9) : this.rng.range(0.6, 1.8));
+          // Dense districts: models stack shoulder-to-shoulder (attached SF
+          // rows) — a hair of overlap guarantees no light gap between walls.
+          const step = dense
+            ? footprint * this.rng.range(0.97, 1.0)
+            : footprint + this.rng.range(0.6, 1.8);
           const off = edge.half + 1.7 + footprint / 2 + 0.7;
           const px = smp.x - smp.tz * off * side;
           const pz = smp.z + smp.tx * off * side;
           s += step;
-          if (district.character === "park") {
-            flushRun();
-            continue;
-          }
-          if (!isLandCell(this.gridX(px), this.gridZ(pz))) {
-            flushRun();
-            continue;
-          }
-          if (lm.reserved.has(`${this.gridX(px)},${this.gridZ(pz)}`)) {
-            flushRun();
-            continue;
-          }
-          if (occupied(px, pz, footprint * 0.52)) {
-            flushRun();
-            continue;
-          }
+          if (district.character === "park") continue;
+          if (!isLandCell(this.gridX(px), this.gridZ(pz))) continue;
+          if (lm.reserved.has(`${this.gridX(px)},${this.gridZ(pz)}`)) continue;
+          if (occupied(px, pz, footprint * 0.42)) continue;
           // Clearance vs OTHER streets (corners, parallel edges): tight
           // downtown blocks fit a SMALLER building rather than none.
           let useFrac = frac;
           const near = this.network.nearest(px, pz, ROAD_TILE * 1.6);
           if (near && near.dist < near.edge.half + footprint / 2 - 0.4) {
             const maxFoot = (near.dist - near.edge.half + 0.4) * 2;
-            if (maxFoot < 3.2) {
-              flushRun();
-              continue;
-            }
+            if (maxFoot < 3.2) continue;
             useFrac = Math.min(frac, maxFoot / ROAD_TILE);
           }
-          if (this.rng.chance(0.04)) {
-            flushRun();
-            continue; // rare vacancy — reads as a driveway gap in strips
-          }
-          if (dense) {
-            denseSamples++;
-            // Party-wall segment along the facade line (no per-house gap).
-            const segW = footprint;
-            const sA = this.network.sample(edge, Math.max(0, s - step));
-            const sB = this.network.sample(edge, Math.min(edge.len, s - step + segW));
-            const offF = edge.half + 1.7; // facade line
-            // Outward-facing: for side=1 the facade runs a->b so street is
-            // on the LEFT of a->b; flip endpoints for side=-1.
-            const a1: [number, number] = [sA.x - sA.tz * offF * side, sA.z + sA.tx * offF * side];
-            const b1: [number, number] = [sB.x - sB.tz * offF * side, sB.z + sB.tx * offF * side];
-            const [fa, fb] = side === 1 ? [a1, b1] : [b1, a1];
-            const ground = Math.max(
-              this.terrain.heightAt(fa[0], fa[1]),
-              this.terrain.heightAt(fb[0], fb[1]),
-              this.terrain.heightAt((fa[0] + fb[0]) / 2 - (smp.tz * side * 3), (fa[1] + fb[1]) / 2 + (smp.tx * side * 3)),
-            );
-            if (run.length === 0) runStart = s - step;
-            runEnd = Math.min(edge.len, s - step + segW);
-            run.push({
-              ax: fa[0],
-              az: fa[1],
-              bx: fb[0],
-              bz: fb[1],
-              depth: 6.2,
-              baseY: ground,
-              floors: 2 + (this.rng.chance(0.6) ? 1 : 0) + (this.rng.chance(0.15) ? 1 : 0),
-            });
-            continue;
-          }
-          sparseSamples++;
+          if (this.rng.chance(0.04)) continue; // rare vacancy
           const yaw = Math.atan2(smp.tx * side, smp.tz * side) + HALF_PI_CITY;
           const cardinal = Math.abs(Math.sin(2 * yaw)) < 0.18;
           placeBuilding(gx, gz, 0, useFrac, cardinal, { x: px, z: pz, yaw });
@@ -930,13 +811,9 @@ export class CityModel {
             }
           }
         }
-        flushRun();
       }
     }
 
-    console.log(
-      `[city] strips: ${stripRuns} runs / ${stripSegs} segs; dense ${denseSamples} sparse ${sparseSamples}`,
-    );
     // --- Green block interiors: real SF blocks are packed back-to-back, so
     // the row directly behind a frontage gets infill houses (slightly smaller,
     // facing the same street). Deeper cells and parks stay green. ---
