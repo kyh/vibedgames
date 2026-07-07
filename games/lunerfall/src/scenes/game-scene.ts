@@ -189,6 +189,7 @@ export class GameScene extends Phaser.Scene {
   private parallax: Phaser.GameObjects.GameObject[] = [];
   private skyBands: Phaser.GameObjects.Rectangle[] = []; // 3 gradient bands, retinted per biome
   private fogRect?: Phaser.GameObjects.Rectangle; // per-biome atmosphere wash
+  private flashedBiome = 0; // last biome we announced, so a descent flashes the new name
   private roomProp?: Phaser.GameObjects.Sprite;
   private embers?: Phaser.GameObjects.Particles.ParticleEmitter;
   private doors: Door[] = [];
@@ -258,6 +259,7 @@ export class GameScene extends Phaser.Scene {
   private combo = 0; // consecutive-kill streak within COMBO_WINDOW
   private comboT = 0; // seconds left before the streak lapses
   private comboText!: Phaser.GameObjects.Text;
+  private lastCrit = false; // set by dmgOut so the hit site can flag a crit
   private freeze = 0;
   private deadTimers = new WeakMap<Enemy, number>();
   private state: SceneState = "active";
@@ -304,6 +306,7 @@ export class GameScene extends Phaser.Scene {
     this.score = 0;
     this.combo = 0;
     this.comboT = 0;
+    this.flashedBiome = 0; // reset so a new run never flashes its starting biome
     this.state = "active";
     this.doors = [];
     this.enemies = [];
@@ -530,6 +533,8 @@ export class GameScene extends Phaser.Scene {
     this.teardownRoom();
     this.grid = def.grid;
     const pal = this.applyBiome(this.run.biome);
+    const enteredBiome = this.flashedBiome !== 0 && this.run.biome !== this.flashedBiome;
+    this.flashedBiome = this.run.biome;
     this.parallax = buildParallax(this, def.grid.cols * TILE, def.grid.rows * TILE, pal);
     this.roomLayer = drawRoom(this, def.grid, pal).setDepth(0);
     this.decorateRoom(def);
@@ -564,11 +569,15 @@ export class GameScene extends Phaser.Scene {
     this.roomSeq++;
     if (this.role === "host") this.transmitRoom();
     // Boss rooms announce the boss by name in spawnBoss; don't overwrite it here.
-    if (this.run.type !== "boss")
-      this.showBanner(
-        this.mustClear ? ROOM_LABEL[this.run.type] : `${ROOM_LABEL[this.run.type]} — pick a path`,
-        1100,
-      );
+    // Descending into a new biome announces the biome instead of the room label.
+    if (this.run.type !== "boss") {
+      if (enteredBiome) this.showBanner(`▼  ${pal.name}  ▼`, 1600);
+      else
+        this.showBanner(
+          this.mustClear ? ROOM_LABEL[this.run.type] : `${ROOM_LABEL[this.run.type]} — pick a path`,
+          1100,
+        );
+    }
   }
 
   // Versus (host): build the mirrored duel arena — no doors, enemies, features,
@@ -636,13 +645,14 @@ export class GameScene extends Phaser.Scene {
     const by = def.bossSpawn?.y ?? (this.grid.rows - 3) * TILE;
     this.boss = new Boss(this, this.grid, bx, by, this.run.biome);
     this.bossDeadT = 0;
+    const barCol = biomePalette(this.run.biome).oneway;
     this.bossHpBg = this.add
       .rectangle(BASE_W / 2, 22, 260, 6, 0x000000, 0.5)
-      .setStrokeStyle(1, COLORS.magenta, 0.6)
+      .setStrokeStyle(1, barCol, 0.6)
       .setScrollFactor(0)
       .setDepth(85);
     this.bossHp = this.add
-      .rectangle(BASE_W / 2 - 129, 22, 258, 4, COLORS.magenta)
+      .rectangle(BASE_W / 2 - 129, 22, 258, 4, barCol)
       .setOrigin(0, 0.5)
       .setScrollFactor(0)
       .setDepth(86);
@@ -772,8 +782,18 @@ export class GameScene extends Phaser.Scene {
   private dmgOut(base: number): number {
     const rage = this.mods.rage * Math.max(0, this.maxHearts - this.hearts);
     let out = base * (this.mods.dmg + rage);
-    if (this.mods.crit > 0 && Math.random() < this.mods.crit) out *= this.mods.critMult;
+    this.lastCrit = this.mods.crit > 0 && Math.random() < this.mods.crit;
+    if (this.lastCrit) out *= this.mods.critMult;
     return Math.max(1, Math.round(out));
+  }
+
+  // Gold spark + "CRIT" pop when the most recent dmgOut rolled a critical hit —
+  // otherwise crit relics land invisibly. Call right after the takeHit.
+  private critFeedback(x: number, y: number) {
+    if (!this.lastCrit) return;
+    popText(this, x, y - 6, "CRIT", "#ffd15c");
+    hitSpark(this, x, y, 0xffd15c, 10);
+    this.freeze = Math.max(this.freeze, 0.06);
   }
 
   private heal(n: number) {
@@ -1142,12 +1162,13 @@ export class GameScene extends Phaser.Scene {
   private reconcileBoss(nb: NetBoss | null, biome: number) {
     if (nb && !this.bossPuppet) {
       const view = new Boss(this, this.grid, nb.x, nb.y, biome);
+      const barCol = biomePalette(biome).oneway;
       this.bossHpBg = this.add
         .rectangle(BASE_W / 2, 22, 260, 6, 0x000000, 0.5)
-        .setStrokeStyle(1, COLORS.magenta, 0.6)
+        .setStrokeStyle(1, barCol, 0.6)
         .setDepth(85);
       this.bossHp = this.add
-        .rectangle(BASE_W / 2 - 129, 22, 258, 4, COLORS.magenta)
+        .rectangle(BASE_W / 2 - 129, 22, 258, 4, barCol)
         .setOrigin(0, 0.5)
         .setDepth(86);
       this.bossPuppet = { view, net: nb };
@@ -1568,6 +1589,7 @@ export class GameScene extends Phaser.Scene {
         if (rectsOverlap(ab, e.body.hurtBox())) {
           const dir = Math.sign(e.body.x - pb.x) || pb.facing;
           e.body.takeHit(this.dmgOut(ab.dmg), ab.kb, dir);
+          this.critFeedback(e.body.x, e.body.y - e.body.kind.h / 2);
           cs.hitSwing.add(e);
           if (!e.body.dead) sfx.hit();
           hitSpark(this, e.body.x, e.body.y - e.body.kind.h / 2, COLORS.teal, e.body.dead ? 10 : 6);
@@ -1602,6 +1624,7 @@ export class GameScene extends Phaser.Scene {
         if (e.body.dead || cs.hitSpecial.has(e)) continue;
         if (rectsOverlap(sb, e.body.hurtBox())) {
           e.body.takeHit(this.dmgOut(sb.dmg), sb.kb, Math.sign(e.body.x - pb.x) || pb.facing);
+          this.critFeedback(e.body.x, e.body.y - e.body.kind.h / 2);
           cs.hitSpecial.add(e);
           if (!e.body.dead) sfx.hit();
           hitSpark(this, e.body.x, e.body.y - e.body.kind.h / 2, pl.color, 8);
@@ -1640,6 +1663,7 @@ export class GameScene extends Phaser.Scene {
         const top = e.body.y - e.body.kind.h;
         if (pb.y <= top + 8 && pb.y >= top - 12 && Math.abs(pb.x - e.body.x) < e.body.kind.hw + 6) {
           e.body.takeHit(this.dmgOut(2), 60, Math.sign(pb.vx) || 1);
+          this.critFeedback(e.body.x, top);
           pb.bounce();
           sfx.hit();
           hitSpark(this, e.body.x, top, COLORS.white, 8);
@@ -2064,7 +2088,8 @@ export class GameScene extends Phaser.Scene {
       const [relic] = pickRelics(1, this.ownedRelics);
       if (relic) {
         this.applyRelic(relic);
-        popText(this, f.x, f.y - 22, relic.name, "#ffd15c");
+        const rc = RARITY_COLOR[relic.rarity];
+        popText(this, f.x, f.y - 22, relic.name, `#${rc.toString(16).padStart(6, "0")}`);
       } else {
         this.gainGold(20);
         popText(this, f.x, f.y - 22, "+20", "#ffd15c");
@@ -2144,6 +2169,7 @@ export class GameScene extends Phaser.Scene {
           )
         ) {
           e.body.takeHit(this.dmgOut(s.dmg), 120, Math.sign(s.vx) || 1);
+          this.critFeedback(e.body.x, e.body.y - e.body.kind.h / 2);
           s.hit.add(e);
           if (!e.body.dead) sfx.hit();
           hitSpark(this, e.body.x, e.body.y - e.body.kind.h / 2, COLORS.magenta, 6);
