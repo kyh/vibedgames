@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 
-import { COLORS, TILE } from "./config";
+import { TILE } from "./config";
+import { type BiomePalette, biomePalette } from "./data/biomes";
 import type { Grid } from "./sys/grid";
 
 // Crops into the Luneblade tile sheet (env:tiles), measured from the grass-bordered
@@ -22,9 +23,16 @@ function registerFrames(scene: Phaser.Scene) {
 // Renders a collision Grid with real Luneblade tiles: dirt-body fill, grass-tuft
 // tops on exposed surfaces, grassy side fringes on open edges, and thin neon
 // one-way platforms.
-export function drawRoom(scene: Phaser.Scene, grid: Grid): Phaser.GameObjects.Container {
+export function drawRoom(
+  scene: Phaser.Scene,
+  grid: Grid,
+  pal: BiomePalette = biomePalette(1),
+): Phaser.GameObjects.Container {
   registerFrames(scene);
   const c = scene.add.container(0, 0);
+  // Dirt body + side fringes take the biome tint; the teal grass crown does not.
+  const dirt = (x: number, y: number, frame: string, flip = false) =>
+    scene.add.image(x, y, "env:tiles", frame).setOrigin(0).setFlipX(flip).setTint(pal.tile);
   // Every tile is one `env:tiles` texture, so emitting them all first keeps the
   // whole room in a single WebGL batch. The one-way neon lines (a different
   // pipeline) go in a second pass afterwards — interleaving them per-cell forced
@@ -36,20 +44,20 @@ export function drawRoom(scene: Phaser.Scene, grid: Grid): Phaser.GameObjects.Co
       const x = cx * TILE;
       const y = cy * TILE;
       if (v === 1) {
-        c.add(scene.add.image(x, y, "env:tiles", "t-dirt").setOrigin(0));
-        if (!grid.isSolidCell(cx - 1, cy)) c.add(scene.add.image(x, y, "env:tiles", "t-edge").setOrigin(0));
-        if (!grid.isSolidCell(cx + 1, cy)) c.add(scene.add.image(x, y, "env:tiles", "t-edge").setOrigin(0).setFlipX(true));
+        c.add(dirt(x, y, "t-dirt"));
+        if (!grid.isSolidCell(cx - 1, cy)) c.add(dirt(x, y, "t-edge"));
+        if (!grid.isSolidCell(cx + 1, cy)) c.add(dirt(x, y, "t-edge", true));
         // Grass tufts crown any surface open to the sky; nudged up 3px so the
         // tufts overhang the platform lip.
         if (!grid.isSolidCell(cx, cy - 1)) c.add(scene.add.image(x, y - 3, "env:tiles", "t-grass").setOrigin(0));
       } else if (v === 2) {
-        c.add(scene.add.image(x, y, "env:tiles", "t-plat").setOrigin(0));
+        c.add(dirt(x, y, "t-plat"));
         oneWayGlow.push({ x, y });
       }
     }
   }
   for (const g of oneWayGlow) {
-    c.add(scene.add.rectangle(g.x, g.y - 1, TILE, 2, COLORS.magenta, 0.7).setOrigin(0));
+    c.add(scene.add.rectangle(g.x, g.y - 1, TILE, 2, pal.oneway, 0.7).setOrigin(0));
   }
   return c;
 }

@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 
 import { TILE } from "./config";
+import { type BiomePalette, biomePalette, mulColor } from "./data/biomes";
 
 // 4-layer parallax scenery built from the Luneblade tree set (env:tree). The
 // sheet is a 8×4 grid of 118×148 tree silhouettes, pre-tinted by depth:
@@ -42,6 +43,7 @@ export function buildParallax(
   scene: Phaser.Scene,
   roomW: number,
   roomH: number,
+  pal: BiomePalette = biomePalette(1),
 ): Phaser.GameObjects.GameObject[] {
   registerTrees(scene);
   const out: Phaser.GameObjects.GameObject[] = [];
@@ -54,7 +56,7 @@ export function buildParallax(
     const h = 90 + hash(i * 7.7) * 150;
     const w = 10 + Math.round(hash(i * 2.3) * 8);
     const p = scene.add
-      .rectangle(px, groundY, w, h, 0x7a869c, 0.5)
+      .rectangle(px, groundY, w, h, pal.horizon, 0.5)
       .setOrigin(0.5, 1)
       .setScrollFactor(0.12)
       .setDepth(-36);
@@ -76,7 +78,7 @@ export function buildParallax(
         .setDepth(L.depth)
         .setScale(s)
         .setAlpha(L.alpha)
-        .setTint(L.tint);
+        .setTint(mulColor(L.tint, pal.tree));
       if (hash(seed * 5.5) > 0.5) t.setFlipX(true);
       out.push(t);
     }
@@ -94,7 +96,8 @@ export function buildParallax(
       .setScrollFactor(FG_LAYER.sf)
       .setDepth(FG_LAYER.depth)
       .setScale(FG_LAYER.scale)
-      .setAlpha(0.96);
+      .setAlpha(0.96)
+      .setTint(mulColor(FG_LAYER.tint, pal.tree));
     if (hash(seed * 8.8) > 0.5) t.setFlipX(true);
     out.push(t);
   }

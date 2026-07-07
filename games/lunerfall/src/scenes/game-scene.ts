@@ -3,6 +3,7 @@ import Phaser from "phaser";
 import { sfx } from "../audio/sfx";
 import { BASE_H, BASE_W, COLORS, TILE } from "../config";
 import { type EnemyName, ENEMY_NAMES, HERO_NAMES, type HeroName } from "../data/animations";
+import { type BiomePalette, biomePalette, enemyPool } from "../data/biomes";
 import { ENEMIES } from "../data/enemies";
 import { type HeroDef, HEROES } from "../data/heroes";
 import { bankRun, loadMeta } from "../data/meta";
@@ -166,6 +167,8 @@ export class GameScene extends Phaser.Scene {
 
   private roomLayer?: Phaser.GameObjects.Container;
   private parallax: Phaser.GameObjects.GameObject[] = [];
+  private skyBands: Phaser.GameObjects.Rectangle[] = []; // 3 gradient bands, retinted per biome
+  private fogRect?: Phaser.GameObjects.Rectangle; // per-biome atmosphere wash
   private roomProp?: Phaser.GameObjects.Sprite;
   private embers?: Phaser.GameObjects.Particles.ParticleEmitter;
   private doors: Door[] = [];
@@ -261,21 +264,30 @@ export class GameScene extends Phaser.Scene {
     this.boss = null;
     this.feature = null;
 
-    // Screen-pinned sky (scrollFactor 0) — a blue-grey gradient (dark up top,
-    // lighter toward the horizon) matching the Luneblade art. The parallax tree
-    // layers are added per-room in decorateRoom in front of this.
-    this.add.rectangle(0, 0, BASE_W, BASE_H, 0x464f66).setOrigin(0).setScrollFactor(0).setDepth(-42);
-    this.add
-      .rectangle(0, BASE_H * 0.32, BASE_W, BASE_H * 0.68, 0x59637b)
+    // Screen-pinned sky (scrollFactor 0) — a gradient (dark up top, lighter toward
+    // the horizon). The three bands are retinted per biome in applyBiome; the tree
+    // parallax layers are added per-room in decorateRoom in front of this.
+    this.skyBands = [
+      this.add.rectangle(0, 0, BASE_W, BASE_H, 0x464f66).setOrigin(0).setScrollFactor(0).setDepth(-42),
+      this.add
+        .rectangle(0, BASE_H * 0.32, BASE_W, BASE_H * 0.68, 0x59637b)
+        .setOrigin(0)
+        .setScrollFactor(0)
+        .setDepth(-41),
+      this.add
+        .rectangle(0, BASE_H * 0.58, BASE_W, BASE_H * 0.42, 0x6b768e)
+        .setOrigin(0)
+        .setScrollFactor(0)
+        .setDepth(-40)
+        .setAlpha(0.85),
+    ];
+    // Thin full-field atmosphere wash, over the world but under the HUD — the
+    // cheapest way to make a biome's light read on every tile and silhouette.
+    this.fogRect = this.add
+      .rectangle(0, 0, BASE_W, BASE_H, 0x000000, 0)
       .setOrigin(0)
       .setScrollFactor(0)
-      .setDepth(-41);
-    this.add
-      .rectangle(0, BASE_H * 0.58, BASE_W, BASE_H * 0.42, 0x6b768e)
-      .setOrigin(0)
-      .setScrollFactor(0)
-      .setDepth(-40)
-      .setAlpha(0.85);
+      .setDepth(60);
 
     this.fadeRect = this.add
       .rectangle(0, 0, BASE_W, BASE_H, 0x05070b)
@@ -328,6 +340,9 @@ export class GameScene extends Phaser.Scene {
     } else {
       const roomParam = new URLSearchParams(location.search).get("room") as RoomType | null;
       const def = roomParam ? this.run.debugEnter(roomParam) : this.run.begin();
+      // Dev: ?biome=N previews a deeper biome's palette + roster (debug rooms only).
+      const biomeParam = Math.floor(Number(new URLSearchParams(location.search).get("biome")));
+      if (roomParam && Number.isFinite(biomeParam) && biomeParam >= 1) this.run.biome = biomeParam;
       this.player = this.spawnPlayer(
         HEROES[this.heroName],
         def.grid,
@@ -427,11 +442,24 @@ export class GameScene extends Phaser.Scene {
     cam.setDeadzone(36, 28);
   }
 
+  // Repaint the screen-pinned sky + atmosphere wash for a biome and return its
+  // palette for the room/parallax build. Called on every room build, so
+  // descending into a new biome recolours the whole world.
+  private applyBiome(biome: number): BiomePalette {
+    const pal = biomePalette(biome);
+    this.skyBands[0]?.setFillStyle(pal.sky[0]);
+    this.skyBands[1]?.setFillStyle(pal.sky[1]);
+    this.skyBands[2]?.setFillStyle(pal.sky[2], 0.85);
+    this.fogRect?.setFillStyle(pal.fog, pal.fogA);
+    return pal;
+  }
+
   private buildRoom(def: RoomDef) {
     this.teardownRoom();
     this.grid = def.grid;
-    this.parallax = buildParallax(this, def.grid.cols * TILE, def.grid.rows * TILE);
-    this.roomLayer = drawRoom(this, def.grid).setDepth(0);
+    const pal = this.applyBiome(this.run.biome);
+    this.parallax = buildParallax(this, def.grid.cols * TILE, def.grid.rows * TILE, pal);
+    this.roomLayer = drawRoom(this, def.grid, pal).setDepth(0);
     this.decorateRoom(def);
     this.embers = ambientEmbers(
       this,
@@ -474,14 +502,7 @@ export class GameScene extends Phaser.Scene {
   // heavy types get commoner in deeper biomes and elite rooms. Host-authoritative:
   // guests replicate whatever the host rolled via the enemy name on the wire.
   private pickEnemy(): EnemyName {
-    const elite = this.run.type === "elite";
-    const b = this.run.biome;
-    const pool: [EnemyName, number][] = [
-      ["warrior", elite ? 22 : 42],
-      ["spearman", 14 + b * 3 + (elite ? 8 : 0)],
-      ["archer", 12 + b * 3 + (elite ? 8 : 0)],
-      ["bomber", 5 + b * 2 + (elite ? 6 : 0)],
-    ];
+    const pool = enemyPool(this.run.biome, this.run.type === "elite");
     const total = pool.reduce((s, p) => s + p[1], 0);
     let r = Math.random() * total;
     for (const [name, w] of pool) {
@@ -1084,8 +1105,9 @@ export class GameScene extends Phaser.Scene {
     const g = new Grid(room.cols, room.rows);
     g.cells.set(room.cells);
     this.grid = g;
-    this.parallax = buildParallax(this, g.cols * TILE, g.rows * TILE);
-    this.roomLayer = drawRoom(this, g).setDepth(0);
+    const pal = this.applyBiome(this.netBiome);
+    this.parallax = buildParallax(this, g.cols * TILE, g.rows * TILE, pal);
+    this.roomLayer = drawRoom(this, g, pal).setDepth(0);
     const type = parseRoomType(room.type) ?? "combat";
     if (room.propKey) {
       const cfg = ROOM_PROPS[type];
@@ -1651,6 +1673,8 @@ export class GameScene extends Phaser.Scene {
     const relics = this.ownedRelics.size > 0 ? `   ✦ ${this.ownedRelics.size}` : "";
     const biome = this.role === "guest" ? this.netBiome : this.run.biome;
     const depth = this.role === "guest" ? this.netDepth : this.run.depth;
-    this.infoText.setText(`BIOME ${biome}   DEPTH ${depth}   ⬡ ${this.gold}${relics}`);
+    this.infoText.setText(
+      `${biomePalette(biome).name} ${biome}   DEPTH ${depth}   ⬡ ${this.gold}${relics}`,
+    );
   }
 }
