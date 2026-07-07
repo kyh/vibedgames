@@ -7,7 +7,7 @@ import { rollAffix } from "../data/affixes";
 import { type BiomePalette, biomePalette, enemyPool } from "../data/biomes";
 import { ENEMIES } from "../data/enemies";
 import { type HeroDef, HEROES } from "../data/heroes";
-import { bankRun, loadMeta } from "../data/meta";
+import { bankRun, loadMeta, runBonuses } from "../data/meta";
 import { baseMods, pickRelics, RARITY_COLOR, type Relic, type RunMods } from "../data/relics";
 import { parseRoomType, type RoomDef, ROOM_LABEL, type RoomType } from "../data/rooms";
 import { Boss } from "../entities/boss";
@@ -251,6 +251,12 @@ export class GameScene extends Phaser.Scene {
       (params.get("hero") as HeroName | null) ?? data?.hero ?? this.registry.get("hero");
     this.heroName = wanted && HEROES[wanted as HeroName] ? (wanted as HeroName) : "axion";
     this.mods = baseMods();
+    // Fold in permanent meta upgrades bought in the hub (host/solo; a guest's
+    // hearts are then overwritten by the host snapshot).
+    const bonus = runBonuses(loadMeta());
+    this.mods.dmg += bonus.dmg;
+    this.mods.armor += bonus.armor;
+    this.mods.maxHearts += bonus.hearts;
     this.ownedRelics = new Set();
     this.merchantItems = [];
     this.maxHearts = this.mods.maxHearts;

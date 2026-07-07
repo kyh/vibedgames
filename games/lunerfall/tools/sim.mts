@@ -3,7 +3,7 @@
 import { TILE } from "../src/config.ts";
 import { ENEMIES } from "../src/data/enemies.ts";
 import { HEROES } from "../src/data/heroes.ts";
-import { bankRun, isUnlocked, unlockHero } from "../src/data/meta.ts";
+import { bankRun, buyUpgrade, isUnlocked, runBonuses, unlockHero, upgradeLevel } from "../src/data/meta.ts";
 import { baseMods, pickRelics, RELICS } from "../src/data/relics.ts";
 import { BOSS, SAFE, START } from "../src/data/rooms.ts";
 import { genAttempt, genCombatRoom, verifyRoom } from "../src/sys/gen.ts";
@@ -381,13 +381,25 @@ check("rectsOverlap basic", rectsOverlap({ left: 0, top: 0, right: 10, bottom: 1
 
 // 21. Meta: runs bank shards, shards unlock warriors, gating holds.
 {
-  const m = { shards: 0, unlocked: ["axion", "reaper"], bestDepth: 0, runs: 0 };
+  const m = { shards: 0, unlocked: ["axion", "reaper"], bestDepth: 0, runs: 0, upgrades: {} };
   check("free warriors start unlocked", isUnlocked(m, "axion") && isUnlocked(m, "reaper"));
   check("paid warriors start locked", !isUnlocked(m, "riven") && !isUnlocked(m, "mooni"));
   const earned = bankRun(m, 40, 5, 2); // 10 + 10 + 6
   check("run banks shards + best depth", earned === 26 && m.shards === 26 && m.bestDepth === 5, `earned=${earned}`);
   check("affordable unlock spends shards", unlockHero(m, "riven") && isUnlocked(m, "riven") && m.shards === 6);
   check("unaffordable unlock is refused", !unlockHero(m, "mooni") && !isUnlocked(m, "mooni") && m.shards === 6);
+}
+
+// 21b. Meta upgrades: buying spends shards, caps at max, and feeds run bonuses.
+{
+  const m = { shards: 300, unlocked: ["axion"], bestDepth: 0, runs: 0, upgrades: {} };
+  check("buy upgrade spends shards", buyUpgrade(m, "vitality") && upgradeLevel(m, "vitality") === 1 && m.shards === 270);
+  check("run bonus reflects level", runBonuses(m).hearts === 1);
+  buyUpgrade(m, "vitality"); // → 2
+  buyUpgrade(m, "vitality"); // → 3 = max (vitality total 30+56+82 = 168)
+  check("upgrade caps at max", !buyUpgrade(m, "vitality") && upgradeLevel(m, "vitality") === 3);
+  const poor = { shards: 0, unlocked: ["axion"], bestDepth: 0, runs: 0, upgrades: {} };
+  check("unaffordable upgrade refused", !buyUpgrade(poor, "edge") && upgradeLevel(poor, "edge") === 0);
 }
 
 // The constrained generator must ALWAYS produce a room where every door + enemy

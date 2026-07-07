@@ -4,7 +4,16 @@ import { sfx } from "../audio/sfx";
 import { BASE_H, BASE_W, COLORS, HERO_ORIGIN_Y } from "../config";
 import { firstFrame } from "../data/animations";
 import { HERO_ORDER, HEROES } from "../data/heroes";
-import { isUnlocked, loadMeta, type MetaState, UNLOCK_COST, unlockHero } from "../data/meta";
+import {
+  buyUpgrade,
+  isUnlocked,
+  loadMeta,
+  type MetaState,
+  UNLOCK_COST,
+  unlockHero,
+  UPGRADES,
+  upgradeLevel,
+} from "../data/meta";
 
 // The hub: pick a warrior, spend shards to unlock the locked ones, then descend.
 // Best depth + shard bank persist across runs via localStorage.
@@ -21,9 +30,15 @@ export class SelectScene extends Phaser.Scene {
   private hint!: Phaser.GameObjects.Text;
   private bank!: Phaser.GameObjects.Text;
   private coopText!: Phaser.GameObjects.Text;
-  private meta: MetaState = { shards: 0, unlocked: [], bestDepth: 0, runs: 0 };
+  private meta: MetaState = { shards: 0, unlocked: [], bestDepth: 0, runs: 0, upgrades: {} };
   private coop = false;
   private code = "";
+  // Moon Forge — the permanent-upgrade shop, a modal panel over the hero picker.
+  private shopOpen = false;
+  private shopIndex = 0;
+  private shopPanel!: Phaser.GameObjects.Container;
+  private shopRows: Phaser.GameObjects.Text[] = [];
+  private shopShards!: Phaser.GameObjects.Text;
 
   constructor() {
     super("select");
@@ -150,16 +165,103 @@ export class SelectScene extends Phaser.Scene {
     kb?.on("keydown-J", () => this.confirm());
     kb?.on("keydown-U", () => this.buyUnlock());
     kb?.on("keydown-C", () => this.toggleCoop());
+    kb?.on("keydown-M", () => this.toggleShop());
+    kb?.on("keydown-ESC", () => this.shopOpen && this.toggleShop());
+    kb?.on("keydown-UP", () => this.shopOpen && this.shopMove(-1));
+    kb?.on("keydown-W", () => this.shopOpen && this.shopMove(-1));
+    kb?.on("keydown-DOWN", () => this.shopOpen && this.shopMove(1));
+    kb?.on("keydown-S", () => this.shopOpen && this.shopMove(1));
     kb?.once("keydown", () => sfx.unlock());
     this.input.once("pointerdown", () => sfx.unlock());
 
+    this.buildShop();
     this.refresh();
   }
 
   private move(d: number) {
+    if (this.shopOpen) return this.shopMove(d);
     this.index = (this.index + d + HERO_ORDER.length) % HERO_ORDER.length;
     sfx.select();
     this.refresh();
+  }
+
+  // ── Moon Forge (permanent upgrades) ──────────────────────────────────────
+  private buildShop() {
+    const panel = this.add.container(0, 0).setDepth(50).setVisible(false);
+    const dim = this.add.rectangle(0, 0, BASE_W, BASE_H, 0x05070b, 0.84).setOrigin(0);
+    const title = this.add
+      .text(BASE_W / 2, 32, "MOON FORGE", { fontFamily: "monospace", fontSize: "16px", color: "#34e5c8" })
+      .setOrigin(0.5);
+    const sub = this.add
+      .text(BASE_W / 2, 52, "permanent upgrades — carry into every run", {
+        fontFamily: "monospace",
+        fontSize: "8px",
+        color: "#8b95a1",
+      })
+      .setOrigin(0.5);
+    this.shopShards = this.add
+      .text(BASE_W / 2, 68, "", { fontFamily: "monospace", fontSize: "9px", color: "#ffd15c" })
+      .setOrigin(0.5);
+    panel.add([dim, title, sub, this.shopShards]);
+    const top = 98;
+    this.shopRows = UPGRADES.map((_, i) => {
+      const t = this.add
+        .text(BASE_W / 2, top + i * 22, "", { fontFamily: "monospace", fontSize: "10px", color: "#b8c1cc" })
+        .setOrigin(0.5);
+      panel.add(t);
+      return t;
+    });
+    const hint = this.add
+      .text(BASE_W / 2, BASE_H - 20, "↑ ↓  select      ENTER  buy      M  close", {
+        fontFamily: "monospace",
+        fontSize: "8px",
+        color: "#59636f",
+      })
+      .setOrigin(0.5);
+    panel.add(hint);
+    this.shopPanel = panel;
+  }
+
+  private toggleShop() {
+    this.shopOpen = !this.shopOpen;
+    this.shopPanel.setVisible(this.shopOpen);
+    sfx.select();
+    if (this.shopOpen) this.refreshShop();
+  }
+
+  private shopMove(d: number) {
+    this.shopIndex = (this.shopIndex + d + UPGRADES.length) % UPGRADES.length;
+    sfx.select();
+    this.refreshShop();
+  }
+
+  private buySelected() {
+    const u = UPGRADES[this.shopIndex];
+    if (!u) return;
+    if (buyUpgrade(this.meta, u.id)) {
+      sfx.pickup();
+      this.cameras.main.flash(160, 52, 229, 200);
+    } else {
+      sfx.hurt();
+      this.cameras.main.shake(120, 0.005);
+    }
+    this.refreshShop();
+    this.bank.setText(`✦ ${this.meta.shards}   BEST D${this.meta.bestDepth}`);
+  }
+
+  private refreshShop() {
+    this.shopShards.setText(`✦ ${this.meta.shards} shards`);
+    UPGRADES.forEach((u, i) => {
+      const lvl = upgradeLevel(this.meta, u.id);
+      const pips = "●".repeat(lvl) + "○".repeat(u.max - lvl);
+      const maxed = lvl >= u.max;
+      const cost = maxed ? "MAX" : `${u.cost(lvl)} ✦`;
+      const sel = i === this.shopIndex;
+      const afford = !maxed && this.meta.shards >= u.cost(lvl);
+      this.shopRows[i]
+        ?.setText(`${sel ? "▸ " : "  "}${u.name.padEnd(11)} ${pips}  ${u.desc}   ${cost}`)
+        .setColor(sel ? "#34e5c8" : maxed ? "#6b7480" : afford ? "#d8dee6" : "#8b7a5a");
+    });
   }
 
   private refresh() {
@@ -191,8 +293,8 @@ export class SelectScene extends Phaser.Scene {
     const go = this.coop ? "join co-op" : "descend";
     this.hint.setText(
       unlocked
-        ? `← →  choose      SPACE / J  ${go}      C  co-op`
-        : `← →  choose      U  unlock (${UNLOCK_COST[name]} ✦)      locked`,
+        ? `← →  choose    SPACE / J  ${go}    C  co-op    M  forge`
+        : `← →  choose    U  unlock (${UNLOCK_COST[name]} ✦)    M  forge`,
     );
     this.coopText.setText(
       this.coop ? `CO-OP ${this.code}  ·  share this page's URL, then both press SPACE` : "",
@@ -203,6 +305,7 @@ export class SelectScene extends Phaser.Scene {
   // Host a co-op room: mint a code, put it in the URL so it's shareable, and flip
   // into co-op mode. (A joiner already arrived with ?party set.)
   private toggleCoop() {
+    if (this.shopOpen) return;
     sfx.select();
     if (this.coop) {
       this.coop = false;
@@ -221,6 +324,7 @@ export class SelectScene extends Phaser.Scene {
   // be picked here; it must be deliberately bought first (buyUnlock, the U key),
   // so mashing "go" on the death screen never silently spends your shards.
   private confirm() {
+    if (this.shopOpen) return this.buySelected();
     const hero = HERO_ORDER[this.index] ?? "axion";
     if (!isUnlocked(this.meta, hero)) {
       sfx.hurt();
@@ -236,6 +340,7 @@ export class SelectScene extends Phaser.Scene {
   // Deliberate hub purchase: spend shards to unlock the highlighted hero. Never
   // starts a run — you pick it with a second, explicit "descend" press.
   private buyUnlock() {
+    if (this.shopOpen) return;
     const hero = HERO_ORDER[this.index] ?? "axion";
     if (isUnlocked(this.meta, hero)) return;
     sfx.unlock();
