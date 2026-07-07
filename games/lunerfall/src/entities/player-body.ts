@@ -3,15 +3,15 @@ import type { HeroKit } from "../data/heroes";
 import type { Grid } from "../sys/grid";
 
 // ── Feel constants (px, seconds; tuned for 60fps fixed step) ────────────────
-const MAX_RUN = 150;
-const RUN_ACCEL = 1500;
-const GROUND_DECEL = 3000;
-const AIR_ACCEL = 1100;
-const AIR_DECEL = 900;
+const MAX_RUN = 184;
+const RUN_ACCEL = 1700;
+const GROUND_DECEL = 3200;
+const AIR_ACCEL = 1250;
+const AIR_DECEL = 950;
 
-const JUMP_V = 350;
-const G_RISE = 1150;
-const G_FALL = 1650;
+const JUMP_V = 374;
+const G_RISE = 1250;
+const G_FALL = 1780;
 const FALL_CAP = 430;
 const APEX_V = 45;
 const APEX_MULT = 0.55;
