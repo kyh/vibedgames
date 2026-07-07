@@ -6,8 +6,8 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 
-const GRID_X = 488;
-const GRID_Z = 400;
+const GRID_X = 244;
+const GRID_Z = 200;
 const ROAD_TILE = 13;
 const WORLD_W = GRID_X * ROAD_TILE;
 const WORLD_H = GRID_Z * ROAD_TILE;
@@ -69,10 +69,10 @@ const score = (s, fz, ox, oz, stride = 3) => {
 // oz -420 -> ~-840) and scale near 2x 0.132. Search a WIDE box around that
 // seed with the spread-penalized score at full sample density — the global
 // search's false optima (Sunset grid) live far outside this box.
-let best = { s: 0.264, fz: -1, ox: 632, oz: -840, rate: 0 };
-for (let sv = 0.22; sv <= 0.31; sv += 0.005) {
-  for (let ox = 232; ox <= 1032; ox += 40) {
-    for (let oz = -1240; oz <= -440; oz += 40) {
+let best = { s: 0.14, fz: -1, ox: 176, oz: -300, rate: 0 };
+for (let sv = 0.11; sv <= 0.155; sv += 0.0025) {
+  for (let ox = -24; ox <= 376; ox += 20) {
+    for (let oz = -520; oz <= -120; oz += 20) {
       const r = score(sv, -1, ox, oz, 2);
       if (r > best.rate) best = { s: sv, fz: -1, ox, oz, rate: r };
     }

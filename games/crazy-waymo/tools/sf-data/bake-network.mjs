@@ -11,8 +11,8 @@
 import { readFileSync, writeFileSync } from "node:fs";
 
 // --- Must match src/shared/constants.ts ---
-const GRID_X = 488;
-const GRID_Z = 400;
+const GRID_X = 244;
+const GRID_Z = 200;
 const ROAD_TILE = 13;
 const WORLD_W = GRID_X * ROAD_TILE;
 const WORLD_H = GRID_Z * ROAD_TILE;
@@ -62,7 +62,7 @@ const CLASS_HALF = {
 };
 // Arcade compression (Driver:SF-style): minors only survive when they are
 // long connective streets — short block-fillers go, majors read as the map.
-const MINOR_MIN_LEN = 70; // world units (~310m real) — density reads as city
+const MINOR_MIN_LEN = 35; // world units (~310m real) — density reads as city
 // Only divided arterials get twin-merged — the residential grid has genuine
 // close parallels that must never be eaten.
 const MERGE_MIN_HALF = 5.6;
@@ -105,9 +105,46 @@ for (const w of ways) {
   // Group way fragments back by rough identity: filter per-polyline is enough
   // (fragments of one long street are individually long).
   const kept = polylines.filter((pl) => !isMinor(pl.half) || plLen(pl.pts) >= MINOR_MIN_LEN);
+
+  // --- Parity thinning: at 1x the full residential grid leaves no room for
+  // buildings. Streets come in parallel families (E-W rows, N-S columns);
+  // keeping every OTHER lattice line doubles block size and stays connected
+  // by construction (the kept rows/columns still cross). Diagonals and
+  // arterials are never touched.
+  const SPACING = 25; // typical minor spacing in world units at 1x (~100m)
+  const thinnedOut = [];
+  for (const pl of kept) {
+    if (!isMinor(pl.half)) {
+      thinnedOut.push(pl);
+      continue;
+    }
+    const [x0, z0] = pl.pts[0];
+    const [x1, z1] = pl.pts[pl.pts.length - 1];
+    const dx = x1 - x0;
+    const dz = z1 - z0;
+    const L = Math.hypot(dx, dz) || 1;
+    let meanX = 0;
+    let meanZ = 0;
+    for (const [x, z] of pl.pts) {
+      meanX += x;
+      meanZ += z;
+    }
+    meanX /= pl.pts.length;
+    meanZ /= pl.pts.length;
+    let lattice = null;
+    if (Math.abs(dx) / L > 0.8) lattice = meanZ; // E-W street -> row coord
+    else if (Math.abs(dz) / L > 0.8) lattice = meanX; // N-S street -> column coord
+    if (lattice === null) {
+      thinnedOut.push(pl); // diagonal / curvy — keep
+      continue;
+    }
+    if (Math.round(lattice / SPACING) % 2 === 0) thinnedOut.push(pl);
+  }
   polylines.length = 0;
-  polylines.push(...kept);
-  console.log(`minor-street compression: ${before} -> ${polylines.length} polylines`);
+  polylines.push(...thinnedOut);
+  console.log(
+    `minor-street compression: ${before} -> ${kept.length} -> ${polylines.length} polylines (parity-thinned)`,
+  );
 }
 
 // --- Junction detection by shared vertex (OSM ways reference shared nodes,
