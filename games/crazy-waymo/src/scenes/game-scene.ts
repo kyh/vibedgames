@@ -1270,7 +1270,6 @@ export class GameScene {
 
     const input = this.input.carInput();
 
-    if (this.input.consumeJump()) car.requestJump();
     car.update(dt, input, solids);
     this.handleTrafficImpacts(car, traffic);
     this.handleParkedImpacts(car);

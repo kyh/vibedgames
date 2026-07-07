@@ -361,10 +361,6 @@ export class Car {
     return this.vehicle;
   }
 
-  requestJump(): void {
-    this.vehicle?.requestJump();
-  }
-
   physicsFixedStep(fixedDt: number): void {
     this.vehicle?.fixedStep(fixedDt);
   }

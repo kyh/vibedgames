@@ -30,10 +30,6 @@ export type VehicleParams = {
   yawAssist: number;
   // brakes
   brakeForce: number;
-  // jump
-  jumpImpulse: number;
-  jumpCooldown: number;
-  jumpBufferTime: number;
   airborneGravityScale: number;
   // suspension / tires
   suspensionStiffness: number;
@@ -66,9 +62,6 @@ export const DEFAULT_VEHICLE_PARAMS: VehicleParams = {
   steerSpeed: 6,
   yawAssist: 9, // how hard angvel is driven toward the CAR-model yaw rate
   brakeForce: 5200,
-  jumpImpulse: 3200,
-  jumpCooldown: 0.5,
-  jumpBufferTime: 0.18,
   airborneGravityScale: 1.4,
   suspensionStiffness: 62,
   suspensionRestLength: 0.55,
@@ -104,8 +97,6 @@ export class RaycastVehicle {
   readonly params: VehicleParams;
 
   private currentSteer = 0;
-  private jumpBufferT = 0;
-  private jumpCooldownT = 0;
   private airborneTime = 0;
   private gripRecoveryT = 1;
   private handbrake = false;
@@ -227,10 +218,6 @@ export class RaycastVehicle {
     return this.airborneTime;
   }
 
-  requestJump(): void {
-    this.jumpBufferT = this.params.jumpBufferTime;
-  }
-
   // Per-render-frame: read input into control state (cheap, idempotent).
   setControls(input: CarInput, boosting: boolean): void {
     this.throttle = input.throttle;
@@ -256,9 +243,6 @@ export class RaycastVehicle {
   // always runs at FIXED_DT, exactly like the reference.
   fixedStep(dt: number): void {
     const p = this.params;
-    this.jumpCooldownT = Math.max(0, this.jumpCooldownT - dt);
-    this.jumpBufferT = Math.max(0, this.jumpBufferT - dt);
-
     // --- Wheel steering (visuals + low-speed physics feel; the CAR turn
     // model below owns real turn authority) ---
     const target = -this.steerInput * p.maxSteer;
@@ -351,13 +335,6 @@ export class RaycastVehicle {
       const load = Math.max(this.controller.wheelSuspensionForce(i) ?? staticLoad, staticLoad);
       const loadScale = Math.min(1, (p.gripLoadCap * staticLoad) / load);
       this.controller.setWheelFrictionSlip(i, p.frictionSlip * loadScale * landingScale);
-    }
-
-    // Jump (buffered + cooldown, only when a wheel touches ground).
-    if (this.jumpBufferT > 0 && this.jumpCooldownT <= 0 && grounded > 0) {
-      this.chassis.applyImpulse({ x: 0, y: p.jumpImpulse, z: 0 }, true);
-      this.jumpCooldownT = p.jumpCooldown;
-      this.jumpBufferT = 0;
     }
 
     // Extra gravity while airborne so arcs stay snappy (forces are cleared

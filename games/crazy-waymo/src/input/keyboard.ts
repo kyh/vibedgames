@@ -10,10 +10,8 @@ export class InputState {
   restartPressed = false;
   pausePressed = false;
   mutePressed = false;
-  jumpPressed = false; // space tapped (edge) — buffered jump
   blurred = false; // window lost focus (auto-pause)
   typing = false; // chat input focused — game keys suspended
-  private padJumpPrev = false;
 
   constructor() {
     window.addEventListener("keydown", this.onKeyDown);
@@ -32,7 +30,6 @@ export class InputState {
     if (k === "r") this.restartPressed = true;
     if (k === "p" || k === "escape") this.pausePressed = true;
     if (k === "m") this.mutePressed = true;
-    if (k === "e" && !e.repeat) this.jumpPressed = true;
     this.keys.add(k);
   };
   private onKeyUp = (e: KeyboardEvent): void => {
@@ -69,10 +66,7 @@ export class InputState {
       const dpadDown = pad.buttons[13]?.pressed ?? false;
       if (rt > 0.05 || dpadUp) throttle = Math.max(throttle, rt || 1);
       if (lt > 0.05 || dpadDown) throttle = Math.min(throttle, -(lt || 1));
-      const a = pad.buttons[0]?.pressed ?? false;
-      if (a && !this.padJumpPrev) this.jumpPressed = true;
-      this.padJumpPrev = a;
-      if (pad.buttons[2]?.pressed ?? false) drift = true; // X = handbrake
+      if ((pad.buttons[0]?.pressed ?? false) || (pad.buttons[2]?.pressed ?? false)) drift = true; // A/X = handbrake
       if ((pad.buttons[1]?.pressed ?? false) || (pad.buttons[5]?.pressed ?? false)) boost = true;
       break; // first connected pad wins
     }
@@ -93,11 +87,6 @@ export class InputState {
   consumePause(): boolean {
     const v = this.pausePressed;
     this.pausePressed = false;
-    return v;
-  }
-  consumeJump(): boolean {
-    const v = this.jumpPressed;
-    this.jumpPressed = false;
     return v;
   }
   consumeMute(): boolean {

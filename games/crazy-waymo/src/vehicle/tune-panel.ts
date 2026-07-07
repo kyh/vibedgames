@@ -15,7 +15,6 @@ const NUMS: NumSpec[] = [
   { key: "steerSpeed", min: 1, max: 16, step: 0.5 },
   { key: "yawAssist", min: 1, max: 20, step: 0.5 },
   { key: "brakeForce", min: 500, max: 12000, step: 100 },
-  { key: "jumpImpulse", min: 500, max: 9000, step: 100 },
   { key: "airborneGravityScale", min: 1, max: 3, step: 0.05 },
   { key: "suspensionStiffness", min: 10, max: 160, step: 1 },
   { key: "suspensionRestLength", min: 0.2, max: 1, step: 0.01 },
