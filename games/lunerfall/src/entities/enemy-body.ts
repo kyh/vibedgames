@@ -20,6 +20,8 @@ const approach = (c: number, t: number, d: number): number => (c < t ? Math.min(
 export class EnemyBody {
   x: number;
   y: number;
+  prevX = 0; // sim position one step ago — for render interpolation
+  prevY = 0;
   vx = 0;
   vy = 0;
   facing: 1 | -1 = -1;
@@ -46,6 +48,8 @@ export class EnemyBody {
   ) {
     this.x = x;
     this.y = y;
+    this.prevX = x;
+    this.prevY = y;
     this.hp = kind.hp;
   }
 
@@ -107,6 +111,8 @@ export class EnemyBody {
   }
 
   step(dt: number, tx: number, ty: number) {
+    this.prevX = this.x;
+    this.prevY = this.y;
     this.stateT += dt;
     this.hitFlash = Math.max(0, this.hitFlash - dt);
     this.iframes = Math.max(0, this.iframes - dt);

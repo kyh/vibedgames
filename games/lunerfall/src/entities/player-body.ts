@@ -87,6 +87,8 @@ export type PlayerShot = { x: number; y: number; vx: number; vy: number; dmg: nu
 export class PlayerBody {
   x: number;
   y: number;
+  prevX = 0; // sim position one step ago — for render interpolation
+  prevY = 0;
   vx = 0;
   vy = 0;
   facing: 1 | -1 = 1;
@@ -178,6 +180,8 @@ export class PlayerBody {
     this.grid = grid;
     this.x = x;
     this.y = y;
+    this.prevX = x;
+    this.prevY = y;
     this.vx = 0;
     this.vy = 0;
     this.attackStep = 0;
@@ -238,6 +242,8 @@ export class PlayerBody {
   }
 
   step(dt: number) {
+    this.prevX = this.x;
+    this.prevY = this.y;
     if (this.dead) return;
     const busy = this.specialActive;
 

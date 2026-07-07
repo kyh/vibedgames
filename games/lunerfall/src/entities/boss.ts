@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 
-import { HERO_ORIGIN_Y } from "../config";
+import { HERO_ORIGIN_Y, interp } from "../config";
 import type { Grid } from "../sys/grid";
 import { BossBody } from "./boss-body";
 
@@ -42,11 +42,14 @@ export class Boss {
     }
   }
 
-  render() {
+  render(alpha = 1) {
     const b = this.body;
     this.sprite.play(`salamander:${this.clip()}`, true);
     this.sprite.setFlipX(b.facing < 0);
-    this.sprite.setPosition(Math.round(b.x), Math.round(b.y));
+    this.sprite.setPosition(
+      Math.round(interp(b.prevX, b.x, alpha)),
+      Math.round(interp(b.prevY, b.y, alpha)),
+    );
     if (b.hitFlash > 0) {
       this.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
       this.tinted = true;

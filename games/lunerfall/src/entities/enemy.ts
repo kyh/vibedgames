@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 
-import { ENEMY_ORIGIN_Y, ENEMY_SCALE } from "../config";
+import { ENEMY_ORIGIN_Y, ENEMY_SCALE, interp } from "../config";
 import type { EnemyKind } from "../data/enemies";
 import type { Grid } from "../sys/grid";
 import { EnemyBody } from "./enemy-body";
@@ -70,12 +70,15 @@ export class Enemy {
     this.sprite.anims.timeScale = ms !== undefined && ms > 0 && authored > 0 ? authored / ms : 1;
   }
 
-  render() {
+  render(alpha = 1) {
     const b = this.body;
     const suffix = this.clip();
     this.playSuffix(`${b.kind.name}:${suffix}`, suffix);
     this.sprite.setFlipX(b.facing < 0);
-    this.sprite.setPosition(Math.round(b.x), Math.round(b.y));
+    this.sprite.setPosition(
+      Math.round(interp(b.prevX, b.x, alpha)),
+      Math.round(interp(b.prevY, b.y, alpha)),
+    );
     const flash = b.hitFlash > 0;
     if (flash && !this.flashing) {
       this.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);

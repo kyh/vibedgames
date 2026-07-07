@@ -736,10 +736,13 @@ export class GameScene extends Phaser.Scene {
       steps++;
     }
 
-    this.player.render();
-    this.remote?.render();
-    this.enemies.forEach((e) => e.render());
-    this.boss?.render();
+    // Interpolate the render between the last two sim steps by the leftover step
+    // fraction, so motion stays smooth when the display refreshes faster than 60Hz.
+    const alpha = Math.min(this.acc / STEP, 1);
+    this.player.render(alpha);
+    this.remote?.render(alpha);
+    this.enemies.forEach((e) => e.render(alpha));
+    this.boss?.render(alpha);
     this.updateHud();
 
     if (this.role === "host") this.hostNet(dts);

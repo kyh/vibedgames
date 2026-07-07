@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 
-import { HERO_ORIGIN_Y, HERO_SCALE } from "../config";
+import { HERO_ORIGIN_Y, HERO_SCALE, interp } from "../config";
 import type { HeroDef } from "../data/heroes";
 import type { NetPlayer } from "../net/snapshot";
 import { afterImage, landPuff, smoke } from "../sys/fx";
@@ -190,11 +190,14 @@ export class Player {
     this.playClip(clip, true);
   }
 
-  render() {
+  render(alpha = 1) {
     const b = this.body;
     this.selectClip(b);
     this.sprite.setFlipX(b.facing < 0);
-    this.sprite.setPosition(Math.round(b.x), Math.round(b.y));
+    this.sprite.setPosition(
+      Math.round(interp(b.prevX, b.x, alpha)),
+      Math.round(interp(b.prevY, b.y, alpha)),
+    );
     if (b.dashing) afterImage(this.scene, this.sprite, this.hero.color);
     this.sprite.setAlpha(
       b.iframes > 0 && !b.dead ? (Math.floor(b.iframes * 20) % 2 === 0 ? 0.45 : 1) : 1,

@@ -21,4 +21,6 @@ const config: Phaser.Types.Core.GameConfig = {
   scene: [BootScene, SelectScene, GameScene, EditorScene],
 };
 
-new Phaser.Game(config);
+const game = new Phaser.Game(config);
+// Debug handle for perf/inspection probes (see globalThis.__game).
+Reflect.set(globalThis, "__game", game);

@@ -15,6 +15,14 @@ const winAspect =
 export const BASE_W = Math.round((BASE_H * clampN(winAspect, 1.4, 2.5)) / 2) * 2;
 export const TILE = 16; // world grid unit (px)
 
+// Render interpolation: the sim runs at a fixed 60Hz but the screen may refresh
+// faster (120Hz on ProMotion), so rendering the raw sim position judders. Blend
+// the previous → current sim position by `alpha` (the leftover fraction of a
+// step) to get smooth motion at any refresh rate. Teleport-sized jumps (blinks)
+// snap instead of sliding across the screen.
+export const interp = (prev: number, curr: number, alpha: number): number =>
+  Math.abs(curr - prev) > 30 ? curr : prev + (curr - prev) * alpha;
+
 // Native frame sizes of the Luneblade sheets (square frames).
 export const HERO_FRAME = 144;
 export const ENEMY_FRAME = 80;
