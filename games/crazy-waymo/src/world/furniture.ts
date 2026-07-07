@@ -1,3 +1,4 @@
+import { parkCellHeight } from "./ground";
 import * as THREE from "three";
 
 import type { ModelCache } from "../assets/loader";
@@ -672,22 +673,32 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       // bases with occasional decorated fountain plazas. The kit's own
       // benches/lamps/planting ride along; our per-tree scatter is gone.
       {
+        // The ground flattens this cell to parkCellHeight (ground.ts) — the
+        // tile seats on it EXACTLY: grid-aligned, no clipping on hills.
+        const seatY = parkCellHeight(terrain, gx, gz);
         const roll = rng.range(0, 1);
+        // Plazas are landmarks, not confetti: rare, and only where the
+        // neighbourhood is level so paths read intentional.
+        const flatArea =
+          Math.abs(parkCellHeight(terrain, gx + 1, gz) - seatY) < 0.01 &&
+          Math.abs(parkCellHeight(terrain, gx, gz + 1) - seatY) < 0.01 &&
+          Math.abs(parkCellHeight(terrain, gx - 1, gz) - seatY) < 0.01 &&
+          Math.abs(parkCellHeight(terrain, gx, gz - 1) - seatY) < 0.01;
         const name =
-          roll < 0.08
+          flatArea && roll < 0.015
             ? rng.pick(PARK_TILE_PLAZAS)
-            : roll < 0.42
+            : roll < 0.4
               ? "park-base-decorated-trees"
-              : roll < 0.62
+              : roll < 0.6
                 ? "park-base-decorated-bushes"
                 : "park-base";
         const url = modelUrl("parks", name);
         const b = cache.bounds(url);
-        const s = (ROAD_TILE * 0.985) / Math.max(b.size.x, b.size.z, 0.001);
+        const s = ROAD_TILE / Math.max(b.size.x, b.size.z, 0.001);
         const node = cache.instance(url);
         node.scale.setScalar(s);
         node.rotation.y = HALF_PI * rng.int(4);
-        node.position.set(wx, terrain.heightAt(wx, wz) + 0.05, wz);
+        node.position.set(wx, seatY + 0.02, wz);
         node.updateMatrixWorld(true);
         objects.push(node);
         if (name === "park-base-decorated-trees") {

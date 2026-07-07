@@ -116,6 +116,32 @@ export const PARK_WALL_CORNER = "kk-park-wall-corner";
 export const PARK_ENTRY = "kk-park-entry";
 export const BUSHES = ["kk-bush-a", "kk-bush-b", "kk-bush-c"] as const;
 export const PARK_TREES = ["kk-tree-a", "kk-tree-b", "kk-tree-c"] as const;
+// KayKit buildings + cars (City Builder Bits) — editor palette alongside Kenney.
+export const KK_BUILDINGS = [
+  "kk-building-a",
+  "kk-building-b",
+  "kk-building-c",
+  "kk-building-d",
+  "kk-building-e",
+  "kk-building-f",
+  "kk-building-g",
+  "kk-building-h",
+] as const;
+export const KK_CARS = [
+  "kk-car-hatchback",
+  "kk-car-police",
+  "kk-car-sedan",
+  "kk-car-stationwagon",
+  "kk-car-taxi",
+] as const;
+export const KK_PROPS_EXTRA = [
+  "kk-streetlight",
+  "kk-trafficlight-b",
+  "kk-trafficlight-c",
+  "kk-tree-d",
+  "kk-tree-e",
+  "kk-bush-plain",
+] as const;
 // KayKit prebuilt park tiles (City Builder Bits) — public/models/parks/.
 export const PARK_TILE_PLAZAS = [
   "park-road-junction-decorated-A",
@@ -135,6 +161,10 @@ export const PARK_TILES = [
   "park-road-junction",
   "park-road-tsplit",
   "park-road-tsplit-decorated",
+  "park-wall-straight-decorated",
+  "park-wall-entry-decorated",
+  "park-wall-innercorner-decorated",
+  "park-wall-outercorner-decorated",
 ] as const;
 // KayKit street details (City Builder Bits).
 export const PROP_HYDRANT = "kk-hydrant";
@@ -262,6 +292,9 @@ export function allModelUrls(): string[] {
     urls.push(modelUrl("buildings", b));
   for (const p of PROPS) urls.push(modelUrl("props", p));
   for (const t of PARK_TILES) urls.push(modelUrl("parks", t));
+  for (const b of KK_BUILDINGS) urls.push(modelUrl("buildings", b));
+  for (const c of KK_CARS) urls.push(modelUrl("cars", c));
+  for (const x of KK_PROPS_EXTRA) urls.push(modelUrl("props", x));
   for (const d of [...DEBRIS_SMALL, ...DEBRIS_BIG]) urls.push(modelUrl("debris", d));
   for (const c of CHARACTERS) urls.push(modelUrl("characters", c));
   return urls;

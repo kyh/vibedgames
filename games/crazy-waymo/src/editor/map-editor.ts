@@ -8,6 +8,9 @@ import {
   BUILDINGS_SUBURBAN,
   CHARACTERS,
   modelUrl,
+  KK_BUILDINGS,
+  KK_CARS,
+  KK_PROPS_EXTRA,
   PARK_TILES,
   PROPS,
   SERVICE_CARS,
@@ -40,12 +43,12 @@ type Placed = { entry: Entry; node: THREE.Object3D | null; baked: boolean };
 type Tab = "props" | "streets" | "floor";
 
 const CATEGORIES: readonly { label: string; cat: string; names: readonly string[] }[] = [
-  { label: "props", cat: "props", names: PROPS },
+  { label: "props", cat: "props", names: [...PROPS, ...KK_PROPS_EXTRA] },
   { label: "parks", cat: "parks", names: PARK_TILES },
   { label: "houses", cat: "buildings", names: BUILDINGS_SUBURBAN },
-  { label: "commercial", cat: "buildings", names: [...BUILDINGS_COMMERCIAL, ...BUILDINGS_SKYSCRAPER] },
+  { label: "commercial", cat: "buildings", names: [...BUILDINGS_COMMERCIAL, ...BUILDINGS_SKYSCRAPER, ...KK_BUILDINGS] },
   { label: "industrial", cat: "buildings", names: BUILDINGS_INDUSTRIAL },
-  { label: "cars", cat: "cars", names: [...TRAFFIC_CARS, ...SERVICE_CARS, "waymo", "police"] },
+  { label: "cars", cat: "cars", names: [...TRAFFIC_CARS, ...SERVICE_CARS, "waymo", "police", ...KK_CARS] },
   { label: "people", cat: "characters", names: CHARACTERS },
 ];
 
@@ -74,6 +77,7 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
   const camera = game.camera;
 
   game.freecam = true;
+  game.enableEditorLighting();
   for (const id of ["hud", "banner", "legend", "touch", "loading"]) {
     const el = document.getElementById(id);
     if (el) el.style.display = "none";
@@ -208,17 +212,15 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
       <input type="file" id="ed-file" accept=".json,application/json" style="display:none">
     </div>
     <div class="ed-roster">
-      <div class="ed-cats">${catTabs}</div>
-      <input id="ed-search" placeholder="search models…">
-      <div class="ed-list" id="ed-list"></div>
-    </div>
-    <div class="ed-panel">
       <div class="ed-tabs">
         <button class="edt on" data-tab="props">PROPS</button>
         <button class="edt" data-tab="streets">STREETS</button>
         <button class="edt" data-tab="floor">FLOOR</button>
       </div>
-      <div class="ed-body" id="ed-body-props">
+      <div id="ed-body-props" class="ed-tabbody">
+        <div class="ed-cats">${catTabs}</div>
+        <input id="ed-search" placeholder="search models…">
+        <div class="ed-list" id="ed-list"></div>
         <div class="ed-inspector" id="ed-inspector" style="display:none">
           <div class="ed-i-model" id="ed-i-model"></div>
           <label>rot°<input id="ed-irot" type="number" step="15"></label>
@@ -226,17 +228,16 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
           <label class="edchk"><input id="ed-icol" type="checkbox">collidable</label>
           <button id="ed-idel">DELETE</button>
         </div>
-        <div class="ed-note" id="ed-note">Pick a model on the left — it follows your cursor; click to stamp, click-drag stamps a trail. Esc exits. Click a placed prop to select and edit it here; drag it to move.</div>
       </div>
-      <div class="ed-body" id="ed-body-streets" style="display:none">
-        <button class="eds on" id="ed-st-paint">＋ paint street</button>
-        <button class="eds" id="ed-st-erase">－ erase street</button>
-        <div class="ed-note">Click/drag cells. Green = new street, red = removed. Streets regenerate the whole world:</div>
+      <div id="ed-body-streets" class="ed-tabbody" style="display:none">
+        <button class="edf eds on" id="ed-st-paint"><i style="background:#2fbf4f"></i>paint street</button>
+        <button class="edf eds" id="ed-st-erase"><i style="background:#d23f34"></i>erase street</button>
+        <div class="ed-note">Hover shows the cell; click/drag paints. Streets regenerate the world:</div>
         <button id="ed-rebuild">REBUILD WORLD</button>
       </div>
-      <div class="ed-body" id="ed-body-floor" style="display:none">
+      <div id="ed-body-floor" class="ed-tabbody" style="display:none">
         ${floorButtons}
-        <div class="ed-note">Click or drag on the ground to paint. Full ground colors bake in on the next rebuild; previews are live.</div>
+        <div class="ed-note">Hover shows the cell; click/drag paints the ground.</div>
       </div>
     </div>
     <div class="ed-help">click prop = select · drag = move · Q/E rotate · [ ] scale · Del delete · Esc done · left-drag pan · RMB orbit · wheel zoom · WASD pan · edits auto-save</div>`;
@@ -438,6 +439,7 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     $("ed-body-floor").style.display = t === "floor" ? "flex" : "none";
     controls.enablePan = t === "props";
     if (t !== "props") clearGhost();
+    hoverQuad.visible = false;
   };
   ui.querySelectorAll<HTMLButtonElement>(".edt").forEach((btn) => {
     btn.addEventListener("click", () => setTab((btn.dataset["tab"] as Tab) ?? "props"));
@@ -572,6 +574,34 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     saveNow();
   };
 
+  // --- Hover preview (streets/floor): a translucent cell follows the cursor ---
+  const hoverQuad = new THREE.Mesh(quadGeo, quadMat(0x2fbf4f, 0.45));
+  hoverQuad.visible = false;
+  game.scene.add(hoverQuad);
+  const updateHover = (e: PointerEvent): void => {
+    if (tab !== "streets" && tab !== "floor") {
+      hoverQuad.visible = false;
+      return;
+    }
+    const cell = groundCell(e);
+    if (!cell) {
+      hoverQuad.visible = false;
+      return;
+    }
+    const [gx, gz] = cell;
+    const hex =
+      tab === "streets"
+        ? streetErase
+          ? 0xd23f34
+          : 0x2fbf4f
+        : FLOOR_COLORS[floorKind];
+    hoverQuad.material = quadMat(hex, 0.45);
+    const x = (gx + 0.5) * ROAD_TILE - WORLD_W / 2;
+    const z = (gz + 0.5) * ROAD_TILE - WORLD_H / 2;
+    hoverQuad.position.set(x, city.heightAt(x, z) + 0.7, z);
+    hoverQuad.visible = true;
+  };
+
   // --- Raycast helpers ---
   const castFrom = (e: PointerEvent): void => {
     pointer.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
@@ -638,6 +668,7 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     deselect();
   });
   dom.addEventListener("pointermove", (e) => {
+    updateHover(e);
     if (moveDrag && selected) {
       const p = groundPoint(e);
       if (p) moveSelected(p.x, p.z);
@@ -765,7 +796,7 @@ function injectStyle(): void {
 #cw-editor .ed-top{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;gap:8px;padding:8px 12px;background:linear-gradient(#080a12ee,#080a1200)}
 #cw-editor .ed-logo{font:900 italic 16px system-ui,sans-serif;letter-spacing:-1px;color:#ffd24a;margin-right:6px}
 #cw-editor .ed-status{font:600 11px ui-monospace,monospace;opacity:.75;margin-left:auto}
-#cw-editor .ed-roster{position:absolute;top:46px;left:10px;bottom:44px;width:212px;display:flex;flex-direction:column;gap:4px;background:rgba(8,10,18,.82);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:8px;pointer-events:auto}
+#cw-editor .ed-roster{position:absolute;top:46px;left:10px;bottom:44px;width:238px;display:flex;flex-direction:column;gap:4px;background:rgba(8,10,18,.82);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:8px;pointer-events:auto}
 #cw-editor .ed-cats{display:flex;flex-wrap:wrap;gap:3px}
 #cw-editor .edc{font-size:9px;padding:4px 6px}
 #cw-editor .edc.on{border-color:#ffd24a;color:#ffd24a;background:rgba(64,54,20,.9)}
@@ -775,7 +806,7 @@ function injectStyle(): void {
 #cw-editor .edp img{width:30px;height:30px;border-radius:5px;flex:none;background:#0a0e18}
 #cw-editor .edp span{font-size:10px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #cw-editor .edp.on{border-color:#ffd24a;color:#ffd24a;background:rgba(64,54,20,.9)}
-#cw-editor .ed-panel{position:absolute;top:46px;right:10px;width:240px;max-height:calc(100vh - 100px);display:flex;flex-direction:column;gap:6px;background:rgba(8,10,18,.85);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:8px;pointer-events:auto}
+#cw-editor .ed-tabbody{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:5px;min-height:0}
 #cw-editor .ed-tabs{display:flex;gap:4px}
 #cw-editor .edt{flex:1}
 #cw-editor .edt.on{border-color:#ffd24a;color:#ffd24a;background:rgba(64,54,20,.9)}

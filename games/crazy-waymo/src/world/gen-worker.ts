@@ -50,7 +50,7 @@ function run(): void {
   const ground = terrain.buildMesh(
     groundStub,
     makeGroundColorAt(plan, terrain),
-    makeGroundOffset(network),
+    makeGroundOffset(network, terrain),
   );
   const tiles: TilePayload[] = [];
   for (const tile of ground.children) {

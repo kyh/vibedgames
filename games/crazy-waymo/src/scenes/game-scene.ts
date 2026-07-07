@@ -213,6 +213,12 @@ export class GameScene {
   get isReady(): boolean {
     return this.loadDone;
   }
+  // Editor: freeze daylight and push the fog out so the whole map is visible.
+  editorLighting = false;
+  enableEditorLighting(): void {
+    this.editorLighting = true;
+    this.dayNight.setPhase(0.25);
+  }
   private loadDone = false;
   private pendingStart = false;
   private titleT = 0;
@@ -856,6 +862,10 @@ export class GameScene {
     this.oceanTime.value += dt;
     // Day rolls on in every mode (title orbit included — sunsets sell there).
     this.dayNight.update(dt);
+    if (this.editorLighting && this.scene.fog instanceof THREE.Fog) {
+      this.scene.fog.near = 4000;
+      this.scene.fog.far = 12000;
+    }
     const night = this.dayNight.lamp;
     this.lampGlow?.setIntensity(night);
     this.clouds.setNight(night);
@@ -882,7 +892,7 @@ export class GameScene {
 
     // Stream city chunks around wherever the camera ended up this frame (works
     // in gameplay and freecam alike) so distant tiles stop drawing.
-    this.city?.updateStreaming(this.rig.camera);
+    this.city?.updateStreaming(this.rig.camera, this.editorLighting);
 
     // Don't start the net session (or its offline-fallback grace clock) until
     // the scene has loaded — asset + physics load can otherwise outlast the

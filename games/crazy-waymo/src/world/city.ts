@@ -1107,7 +1107,7 @@ export class CityModel {
       ground = this.terrain.buildMesh(
         groundMat,
         makeGroundColorAt(this.plan, this.terrain),
-        makeGroundOffset(this.network),
+        makeGroundOffset(this.network, this.terrain),
       );
     }
     ground.name = "terrain-ground"; // the map editor raycasts against this
@@ -1434,12 +1434,12 @@ export class CityModel {
   // — distance AND view frustum, near chunks always on so shadow casters just
   // off-screen keep their shadows. Flips apply only on TRANSITIONS, so the
   // steady-state per-frame cost is one sphere test per chunk.
-  updateStreaming(camera: THREE.Camera): void {
+  updateStreaming(camera: THREE.Camera, showAll = false): void {
     const camX = camera.position.x;
     const camZ = camera.position.z;
     for (const c of this.chunks) {
       const d = Math.hypot(camX - c.cx, camZ - c.cz) - c.radius;
-      const visible = d < c.dist;
+      const visible = showAll || d < c.dist;
       if (c.group.visible !== visible) c.group.visible = visible;
     }
     const { nx, nz } = this.batchChunkGrid;
@@ -1460,8 +1460,8 @@ export class CityModel {
         inFrustum = STREAM_FRUSTUM.intersectsSphere(STREAM_SPHERE);
       }
       const near = dist < NEAR_ALWAYS;
-      const visFar: 0 | 1 = near || (inFrustum && dist - pad < DRAW_DISTANCE) ? 1 : 0;
-      const visNear: 0 | 1 = near || (inFrustum && dist - pad < DETAIL_DISTANCE) ? 1 : 0;
+      const visFar: 0 | 1 = showAll || near || (inFrustum && dist - pad < DRAW_DISTANCE) ? 1 : 0;
+      const visNear: 0 | 1 = showAll || near || (inFrustum && dist - pad < DETAIL_DISTANCE) ? 1 : 0;
       if (this.chunkVisible[key] !== visFar) {
         this.chunkVisible[key] = visFar;
         const list = this.chunkInstancesFar.get(key);

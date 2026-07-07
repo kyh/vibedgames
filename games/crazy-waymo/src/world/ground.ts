@@ -53,10 +53,30 @@ export function makeGroundColorAt(
   };
 }
 
+// Park cells are TILE territory: the ground flattens each park cell to one
+// terraced height (sampled at the cell centre) so KayKit park tiles seat on
+// it exactly — the "grid for tiles, curves for roads" rule.
+export function isParkCell(gx: number, gz: number): boolean {
+  return landuseGreenAt(gx, gz) || districtAt(gx, gz).character === "park";
+}
+
+export function parkCellHeight(
+  terrain: Terrain,
+  gx: number,
+  gz: number,
+): number {
+  const x = (gx + 0.5) * ROAD_TILE - WORLD_HALF_X;
+  const z = (gz + 0.5) * ROAD_TILE - WORLD_HALF_Z;
+  return Math.round(terrain.heightAt(x, z) * 2) / 2; // quantize to 0.5u steps
+}
+
 // Clearance field: for every ~3.25u cell, (distance to nearest edge
 // centreline − that edge's half width). Stamped once along each edge —
 // O(street length) — then the depression rule is an O(1) lookup.
-export function makeGroundOffset(network: RoadNetwork): (x: number, z: number) => number {
+export function makeGroundOffset(
+  network: RoadNetwork,
+  terrain?: Terrain,
+): (x: number, z: number) => number {
   const RES = ROAD_TILE / 4;
   const FW = Math.ceil((WORLD_HALF_X * 2) / RES) + 2;
   const FH = Math.ceil((WORLD_HALF_Z * 2) / RES) + 2;
@@ -93,10 +113,22 @@ export function makeGroundOffset(network: RoadNetwork): (x: number, z: number) =
   return (x: number, z: number): number => {
     const i = Math.round((x + WORLD_HALF_X) / RES);
     const j = Math.round((z + WORLD_HALF_Z) / RES);
-    if (i < 0 || j < 0 || i >= FW || j >= FH) return 0;
-    const v = field[i * FH + j];
-    if (v === undefined || v > 4.6) return 0;
-    if (v < 1.6) return -0.35;
-    return -0.35 * Math.max(0, 1 - (v - 1.6) / 3);
+    let street = 0;
+    if (i >= 0 && j >= 0 && i < FW && j < FH) {
+      const v = field[i * FH + j];
+      if (v !== undefined && v <= 4.6) {
+        street = v < 1.6 ? -0.35 : -0.35 * Math.max(0, 1 - (v - 1.6) / 3);
+      }
+    }
+    // Park terraces: flatten the cell to its tile seat height. Streets keep
+    // their depression through parks (roads still cross them).
+    if (terrain && street === 0) {
+      const gx = Math.floor((x + WORLD_HALF_X) / ROAD_TILE);
+      const gz = Math.floor((z + WORLD_HALF_Z) / ROAD_TILE);
+      if (gx >= 0 && gz >= 0 && gx < GRID_X && gz < GRID_Z && isParkCell(gx, gz)) {
+        return parkCellHeight(terrain, gx, gz) - terrain.heightAt(x, z);
+      }
+    }
+    return street;
   };
 }
