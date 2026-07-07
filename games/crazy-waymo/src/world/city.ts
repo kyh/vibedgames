@@ -35,7 +35,7 @@ import { CUSTOM_MAP, editorMode, loadLocalOverrides } from "./custom-map";
 import { makeGroundColorAt, makeGroundOffset } from "./ground";
 import { buildGridNetwork } from "./grid-network";
 import { SF_BUILDINGS, SF_BUILDINGS_BOUNDS } from "./sf-buildings";
-import { buildRoads, roadPartsToMeshes } from "./roads";
+import { buildRoads, ROAD_MATERIALS, roadPartsToMeshes } from "./roads";
 import type { CityGenPayload } from "./gen-worker";
 import { buildLandmarks, landmarkProtection } from "./landmarks";
 import { type DistrictChar, districtAt, isLandCell, makeTerrain, paletteFor, tintAmountFor } from "./sf-map";
@@ -160,9 +160,9 @@ export class CityModel {
   readonly group = new THREE.Group();
   readonly solids: Solid[] = [];
   readonly roadCells: RoadCell[] = [];
-  readonly plan: CityPlan;
+  plan: CityPlan; // mutable: live street rebuild replaces it
   readonly terrain: Terrain;
-  readonly network: RoadNetwork; // vector road graph (rendering/traffic/alignment)
+  network: RoadNetwork; // vector road graph (rendering/traffic/alignment); live rebuild replaces it
   parkedCarSpecs: readonly ParkedSpec[] = []; // punt-able parked cars (built by furniture)
   lampHeads: readonly LampHead[] = []; // streetlight glow anchors (night pass)
   private chunks: Chunk[] = [];
@@ -268,6 +268,28 @@ export class CityModel {
       this.network = new RoadNetwork();
     }
     // build happens in init() so the loading bar can breathe between phases
+  }
+
+  // Live street rebuild (editor): regenerate the plan + grid network from the
+  // CURRENT overrides, strip every mesh that uses a road material, and lay
+  // fresh roads. Buildings/props stay as-is (the CLEAR brush + reload handle
+  // those); terrain street-depressions stay stale, which the drape absorbs.
+  rebuildStreetsLive(root: THREE.Object3D): void {
+    this.plan = generateCity();
+    const gridNet = buildGridNetwork(this.plan, (gx) => this.worldX(gx), (gz) => this.worldZ(gz));
+    this.network = new RoadNetwork(gridNet.nodes, gridNet.edges);
+    const roadMats = new Set(Object.values(ROAD_MATERIALS));
+    const doomed: THREE.Mesh[] = [];
+    root.traverse((o) => {
+      if (o instanceof THREE.Mesh && o.material instanceof THREE.Material && roadMats.has(o.material)) {
+        doomed.push(o);
+      }
+    });
+    for (const m of doomed) {
+      m.parent?.remove(m);
+      m.geometry.dispose();
+    }
+    for (const m of buildRoads(this.network, this.terrain)) root.add(m);
   }
 
   worldX(gx: number): number {

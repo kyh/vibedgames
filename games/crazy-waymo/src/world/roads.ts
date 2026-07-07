@@ -527,7 +527,19 @@ export function buildRoadParts(network: RoadNetwork, terrain: Terrain): RoadPart
     // complex multi-arm nodes turn into a tangle of overlapping paint — the
     // real-world cue there is plain open asphalt anyway.
     if (arms.length >= 3 && arms.length <= 4) {
-      for (const a of arms) {
+      for (let ai = 0; ai < arms.length; ai++) {
+        const a = arms[ai];
+        if (!a) continue;
+        // 45° neighbours leave no room — zebra quads would overlap. Only
+        // paint arms with >= 60° of clearance on both sides.
+        const prev = arms[(ai + arms.length - 1) % arms.length];
+        const next = arms[(ai + 1) % arms.length];
+        const gapTo = (o: Arm | undefined): number => {
+          if (!o || o === a) return Math.PI * 2;
+          const g = Math.abs(a.angle - o.angle) % (Math.PI * 2);
+          return Math.min(g, Math.PI * 2 - g);
+        };
+        if (Math.min(gapTo(prev), gapTo(next)) < Math.PI / 3) continue;
         const ox = -a.tz;
         const oz = a.tx;
         const quad = (

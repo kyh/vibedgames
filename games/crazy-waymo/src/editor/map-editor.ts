@@ -216,10 +216,6 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     const [gx, gz] = k.split(",").map(Number);
     if (gx !== undefined && gz !== undefined) setQuad("st", gx, gz, 0xd23f34);
   }
-  for (const [k, kind] of floorMap) {
-    const [gx, gz] = k.split(",").map(Number);
-    if (gx !== undefined && gz !== undefined) setQuad("fl", gx, gz, FLOOR_COLORS[kind]);
-  }
   for (const k of clearSet) {
     const [gx, gz] = k.split(",").map(Number);
     if (gx !== undefined && gz !== undefined) setQuad("cl", gx, gz, 0xe08030);
@@ -272,8 +268,7 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
       <div id="ed-body-streets" class="ed-tabbody" style="display:none">
         <button class="edf eds on" id="ed-st-paint"><i style="background:#2fbf4f"></i>paint street</button>
         <button class="edf eds" id="ed-st-erase"><i style="background:#d23f34"></i>erase street</button>
-        <div class="ed-note">Hover shows the cell; click/drag paints. Streets regenerate the world:</div>
-        <button id="ed-rebuild">REBUILD WORLD</button>
+        <div class="ed-note">Hover shows the cell; click/drag paints — the road rebuilds itself a moment after you stop. Erase works the same way.</div>
       </div>
       <div id="ed-body-floor" class="ed-tabbody" style="display:none">
         ${floorButtons}
@@ -312,7 +307,7 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     st.push(`${placed.length} props`);
     if (addSet.size || removeSet.size) st.push(`streets +${addSet.size} −${removeSet.size}`);
     if (floorMap.size) st.push(`floor ${floorMap.size}`);
-    if (streetsDirty) st.push("● rebuild for streets");
+    if (streetsDirty) st.push("● street rebuild pending…");
     $("ed-status").textContent = st.join(" · ");
   };
 
@@ -501,12 +496,10 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     $("ed-st-erase").classList.add("on");
     $("ed-st-paint").classList.remove("on");
   });
-  for (const id of ["ed-rebuild", "ed-rebuild2"]) {
-    $(id).addEventListener("click", () => {
-      saveNow();
-      window.location.reload();
-    });
-  }
+  $("ed-rebuild2").addEventListener("click", () => {
+    saveNow();
+    window.location.reload();
+  });
   ui.querySelectorAll<HTMLButtonElement>(".edf").forEach((btn) => {
     btn.addEventListener("click", () => {
       floorKind = (btn.dataset["floor"] as FloorKind | "erase") ?? "plaza";
@@ -565,6 +558,10 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
   $("ed-rot-l").addEventListener("click", () => orbitBy(Math.PI / 8));
   $("ed-rot-r").addEventListener("click", () => orbitBy(-Math.PI / 8));
   $("ed-clear-map").addEventListener("click", () => {
+    for (const k of floorMap.keys()) {
+      const [gx, gz] = k.split(",").map(Number);
+      if (gx !== undefined && gz !== undefined) recolorCell(gx, gz, null);
+    }
     addSet.clear();
     removeSet.clear();
     floorMap.clear();
@@ -605,6 +602,24 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     const col = city.plan.cells[gx];
     return col !== undefined && col[gz] === "road";
   };
+  let refreshMinimapBase: () => void = () => {};
+  let streetTimer: number | undefined;
+  const scheduleStreetRebuild = (): void => {
+    window.clearTimeout(streetTimer);
+    streetTimer = window.setTimeout(() => {
+      game.rebuildStreets();
+      // the road is real now — the interim previews can go
+      for (const [k, m] of quads) {
+        if (k.startsWith("st:")) {
+          game.scene.remove(m);
+          quads.delete(k);
+        }
+      }
+      refreshMinimapBase();
+      streetsDirty = false;
+      refreshStatus();
+    }, 900);
+  };
   const paintStreet = (gx: number, gz: number, erase: boolean): void => {
     const k = `${gx},${gz}`;
     if (!erase) {
@@ -624,6 +639,7 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     }
     streetsDirty = true;
     saveNow();
+    scheduleStreetRebuild();
   };
   const paintClear = (gx: number, gz: number): void => {
     const k = `${gx},${gz}`;
@@ -640,13 +656,63 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     const k = `${gx},${gz}`;
     if (floorKind === "erase") {
       floorMap.delete(k);
-      setQuad("fl", gx, gz, null);
+      recolorCell(gx, gz, null);
     } else {
       floorMap.set(k, floorKind);
-      setQuad("fl", gx, gz, FLOOR_COLORS[floorKind]);
+      recolorCell(gx, gz, floorKind);
     }
     saveNow();
   };
+
+  // --- Live floor recolor: paint terrain vertex colors in-place ---
+  const floorPaintColors: Record<FloorKind, number> = {
+    plaza: 0xd8dad2,
+    grass: 0x67a86b,
+    sand: 0xd9c489,
+  };
+  type GroundGeo = { geo: THREE.BufferGeometry; original: Float32Array };
+  const groundGeos: GroundGeo[] = [];
+  {
+    const seen = new Set<THREE.BufferGeometry>();
+    game.scene.traverse((o) => {
+      if (o.name !== "terrain-ground") return;
+      o.traverse((c) => {
+        if (c instanceof THREE.Mesh && c.geometry instanceof THREE.BufferGeometry && !seen.has(c.geometry)) {
+          const col = c.geometry.getAttribute("color");
+          if (col instanceof THREE.BufferAttribute && col.array instanceof Float32Array) {
+            seen.add(c.geometry);
+            groundGeos.push({ geo: c.geometry, original: col.array.slice() });
+          }
+        }
+      });
+    });
+  }
+  const recolorCell = (gx: number, gz: number, kind: FloorKind | null): void => {
+    const x0 = gx * ROAD_TILE - WORLD_W / 2;
+    const z0 = gz * ROAD_TILE - WORLD_H / 2;
+    const tint = kind === null ? null : new THREE.Color(floorPaintColors[kind]);
+    for (const { geo, original } of groundGeos) {
+      const pos = geo.getAttribute("position");
+      const col = geo.getAttribute("color");
+      if (!(pos instanceof THREE.BufferAttribute) || !(col instanceof THREE.BufferAttribute)) continue;
+      let touched = false;
+      for (let i = 0; i < pos.count; i++) {
+        const vx = pos.getX(i);
+        const vz = pos.getZ(i);
+        if (vx < x0 || vx > x0 + ROAD_TILE || vz < z0 || vz > z0 + ROAD_TILE) continue;
+        touched = true;
+        if (tint) col.setXYZ(i, tint.r, tint.g, tint.b);
+        else {
+          col.setXYZ(i, original[i * 3] ?? 0, original[i * 3 + 1] ?? 0, original[i * 3 + 2] ?? 0);
+        }
+      }
+      if (touched) col.needsUpdate = true;
+    }
+  };
+  for (const [k, kind] of floorMap) {
+    const [gx, gz] = k.split(",").map(Number);
+    if (gx !== undefined && gz !== undefined) recolorCell(gx, gz, kind);
+  }
 
   // --- Hover preview (streets/floor): a translucent cell follows the cursor ---
   const hoverQuad = new THREE.Mesh(quadGeo, quadMat(0x2fbf4f, 0.45));
@@ -888,9 +954,11 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
       base.width = mm.width;
       base.height = mm.height;
       const bctx = base.getContext("2d");
-      if (bctx) {
+      const drawBase = (): void => {
+        if (!bctx) return;
+        const cur = city.plan.cells; // re-read: live rebuild replaces the plan
         for (let gx = 0; gx < nx; gx++) {
-          const col = cells[gx];
+          const col = cur[gx];
           if (!col) continue;
           for (let gz = 0; gz < nz; gz++) {
             const c = col[gz];
@@ -898,7 +966,9 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
             bctx.fillRect((gx / nx) * mm.width, (gz / nz) * mm.height, mm.width / nx + 1, mm.height / nz + 1);
           }
         }
-      }
+      };
+      drawBase();
+      refreshMinimapBase = drawBase;
       const draw = (): void => {
         mctx.drawImage(base, 0, 0);
         // camera target marker

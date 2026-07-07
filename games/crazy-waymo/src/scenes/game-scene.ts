@@ -213,6 +213,27 @@ export class GameScene {
   get isReady(): boolean {
     return this.loadDone;
   }
+  // Editor: live street rebuild — regenerate roads in-place and respawn
+  // traffic on the new network. No reload.
+  rebuildStreets(): void {
+    const city = this.city;
+    if (!city) return;
+    city.rebuildStreetsLive(this.scene);
+    if (this.traffic) {
+      this.scene.remove(this.traffic.group);
+      this.traffic = null;
+    }
+    if (this.physics) {
+      this.traffic = new Traffic(
+        this.cache,
+        city,
+        { avoid: { gx: this.spawn.gx, gz: this.spawn.gz }, avoidR: 4 },
+        this.physics,
+      );
+      this.scene.add(this.traffic.group);
+    }
+  }
+
   // Editor: freeze daylight and push the fog out so the whole map is visible.
   editorLighting = false;
   enableEditorLighting(): void {

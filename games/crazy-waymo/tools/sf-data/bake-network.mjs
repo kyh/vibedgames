@@ -596,6 +596,61 @@ clusterJunctionsPass();
     return true;
   });
   console.log(`octilinear: merged ${merged} edge endpoints onto lattice nodes, ${edges.length} edges routed`);
+  // --- Road-on-road pass: snapping can land parallel streets on the SAME
+  // lattice line. Decompose every edge into unit lattice steps; an edge whose
+  // steps are mostly covered by other (wider-or-equal) edges is redundant —
+  // drop it. Kills doubled asphalt/z-fighting. ---
+  {
+    const stepKey = (x1, z1, x2, z2) =>
+      x1 < x2 || (x1 === x2 && z1 <= z2) ? `${x1},${z1}|${x2},${z2}` : `${x2},${z2}|${x1},${z1}`;
+    const edgeSteps = (e) => {
+      const steps = [];
+      for (let i = 1; i < e.pts.length; i++) {
+        const [x1, z1] = e.pts[i - 1];
+        const [x2, z2] = e.pts[i];
+        const n = Math.max(Math.abs(x2 - x1), Math.abs(z2 - z1)) / LATTICE;
+        const k = Math.max(1, Math.round(n));
+        for (let j = 0; j < k; j++) {
+          const ax = x1 + ((x2 - x1) * j) / k;
+          const az = z1 + ((z2 - z1) * j) / k;
+          const bx = x1 + ((x2 - x1) * (j + 1)) / k;
+          const bz = z1 + ((z2 - z1) * (j + 1)) / k;
+          steps.push(stepKey(Math.round(ax), Math.round(az), Math.round(bx), Math.round(bz)));
+        }
+      }
+      return steps;
+    };
+    // widest owner per step
+    const own = new Map();
+    for (const e of edges) {
+      for (const st of edgeSteps(e)) {
+        const cur = own.get(st);
+        if (cur === undefined || e.half > cur) own.set(st, e.half);
+      }
+    }
+    // an edge is redundant when >=70% of its steps have a strictly-wider
+    // owner, or 100% have a wider-or-equal owner that isn't itself alone
+    const counts = new Map();
+    for (const e of edges) for (const st of edgeSteps(e)) counts.set(st, (counts.get(st) ?? 0) + 1);
+    let dropped = 0;
+    edges = edges.filter((e) => {
+      const steps = edgeSteps(e);
+      let covered = 0;
+      for (const st of steps) {
+        const width = own.get(st) ?? 0;
+        const n = counts.get(st) ?? 1;
+        if (n > 1 && (width > e.half || (width === e.half && n > 1))) covered++;
+      }
+      if (steps.length > 0 && covered / steps.length >= 0.7) {
+        dropped++;
+        return false;
+      }
+      return true;
+    });
+    let shared = 0;
+    for (const [, n] of counts) if (n > 1) shared++;
+    console.log(`overlap pass: dropped ${dropped} redundant edges (${shared} shared lattice steps before)`);
+  }
   // snapping can orphan sub-graphs — keep the main component once more
   const adj = new Map();
   for (const e of edges) {
