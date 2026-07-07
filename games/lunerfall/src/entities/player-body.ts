@@ -37,6 +37,7 @@ const ATTACK_BUFFER = 0.12;
 const ATTACK_END_CD = 0.08;
 const ATTACK_MOVE_MULT = 0.78;
 const COMBO_GRACE = 0.32; // press within this long after a swing to chain the next hit
+const COMBO_CANCEL_FRAC = 0.5; // a queued next hit cancels the swing's tail at this fraction of dur (after the strike lands) so J-J-J chains snappily
 const SPECIAL_BUFFER = 0.12;
 
 const HURT_IFRAMES = 0.9;
@@ -294,17 +295,24 @@ export class PlayerBody {
     if (this.attackStep > 0) {
       this.attackTime += dt;
       const cur = this.kit.swings[this.attackStep - 1];
-      if (cur && this.attackTime >= cur.dur) {
-        if (this.comboQueued && this.attackStep < this.kit.swings.length) {
-          this.startSwing(this.attackStep + 1);
-          this.comboQueued = false;
-        } else {
-          this.attackStep = 0;
-          this.attackTime = 0;
-          this.attackCd = ATTACK_END_CD;
-          this.comboQueued = false;
-          this.comboGrace = COMBO_GRACE; // hold the chain open for one more tap
-        }
+      if (
+        cur &&
+        this.comboQueued &&
+        this.attackStep < this.kit.swings.length &&
+        this.attackTime >= cur.dur * COMBO_CANCEL_FRAC
+      ) {
+        // Queued next hit + the strike has landed (dur*FRAC is well past a1):
+        // cancel this swing's recovery straight into the next slash.
+        this.startSwing(this.attackStep + 1);
+        this.comboQueued = false;
+      } else if (cur && this.attackTime >= cur.dur) {
+        // Uncanceled swing ran its full readable length → end, hold the chain
+        // open for one more tap.
+        this.attackStep = 0;
+        this.attackTime = 0;
+        this.attackCd = ATTACK_END_CD;
+        this.comboQueued = false;
+        this.comboGrace = COMBO_GRACE;
       }
     } else if (this.comboGrace > 0) {
       this.comboGrace -= dt;

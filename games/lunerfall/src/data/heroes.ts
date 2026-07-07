@@ -58,10 +58,12 @@ export const HEROES: Record<HeroName, HeroDef> = {
     color: 0x34e5c8,
     kit: {
       dashClip: "dash",
+      // Combo = the three slashes of "Attack 3", one per press (see SPLITS in
+      // animations.ts) — a clean 3-hit chain instead of separate 1-/2-/3-slash clips.
       swings: [
-        swing("attack-1", { dur: 0.22, reach: 20, dmg: 1, kb: 90, lunge: 45 }),
-        swing("attack-2", { dur: 0.24, reach: 20, dmg: 1, kb: 115, lunge: 55 }),
-        swing("attack-3", { dur: 0.36, a1: 0.2, combo: 99, reach: 27, dmg: 2, kb: 210, lunge: 90 }),
+        swing("attack-3a", { dur: 0.2, a0: 0.03, a1: 0.13, reach: 20, dmg: 1, kb: 90, lunge: 48 }),
+        swing("attack-3b", { dur: 0.2, a0: 0.03, a1: 0.13, reach: 20, dmg: 1, kb: 115, lunge: 55 }),
+        swing("attack-3c", { dur: 0.26, a0: 0.04, a1: 0.16, combo: 99, reach: 27, dmg: 2, kb: 210, lunge: 90 }),
       ],
       special: { kind: "aoe", clip: "super-smash", dur: 0.5, a0: 0.16, a1: 0.3, radius: 34, dmg: 3, kb: 240, cd: 4 },
     },

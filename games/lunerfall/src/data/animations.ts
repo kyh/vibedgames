@@ -30,6 +30,24 @@ const ALIASES: Record<string, Record<string, string | string[]>> = {
 
 const slug = (tag: string): string => tag.toLowerCase().replace(/\s+/g, "-");
 
+// Tags that are one authored multi-slash flurry we want to drive ONE hit per
+// press: split into equal contiguous frame slices, each its own clip the combo
+// plays in sequence. So axion's 3-slash "Attack 3" becomes three single slashes
+// (J → slash 1, J → slash 2, J → slash 3) instead of one long clip per press.
+const SPLITS: Record<string, Record<string, string[]>> = {
+  axion: { "Attack 3": ["attack-3a", "attack-3b", "attack-3c"] },
+};
+
+// Contiguous [from,to] atlas-frame ranges for n equal slices of a tag.
+function sliceRanges(from: number, to: number, n: number): [number, number][] {
+  const len = to - from + 1;
+  const out: [number, number][] = [];
+  for (let i = 0; i < n; i++) {
+    out.push([from + Math.floor((i * len) / n), from + Math.floor(((i + 1) * len) / n) - 1]);
+  }
+  return out;
+}
+
 type AseFrame = { filename: string; duration: number };
 type AseData = {
   frames: AseFrame[];
@@ -82,6 +100,25 @@ export function buildAnimsFromAseprite(scene: Phaser.Scene, key: string): void {
         repeat: LOOPING.has(clip) ? -1 : 0,
       });
     }
+
+    const splits = SPLITS[key]?.[tag.name];
+    if (splits) {
+      const ranges = sliceRanges(tag.from, tag.to, splits.length);
+      splits.forEach((clip, si) => {
+        const animKey = `${key}:${clip}`;
+        if (scene.anims.exists(animKey)) return;
+        const [s, e] = ranges[si] ?? [tag.from, tag.to];
+        const sf: Phaser.Types.Animations.AnimationFrame[] = [];
+        let d = 0;
+        for (let i = s; i <= e; i++) {
+          const f = data.frames[i];
+          if (!f) continue;
+          sf.push({ key, frame: f.filename, duration: f.duration });
+          d += f.duration;
+        }
+        if (sf.length > 0) scene.anims.create({ key: animKey, frames: sf, duration: d, repeat: 0 });
+      });
+    }
   }
 }
 
@@ -121,6 +158,25 @@ export function clipsFor(scene: Phaser.Scene, key: string): ClipInfo[] {
       if (seen.has(clip)) continue;
       seen.add(clip);
       out.push({ clip, frames, ms, loop: LOOPING.has(clip) });
+    }
+
+    const splits = SPLITS[key]?.[tag.name];
+    if (splits) {
+      const ranges = sliceRanges(tag.from, tag.to, splits.length);
+      splits.forEach((clip, si) => {
+        if (seen.has(clip)) return;
+        seen.add(clip);
+        const [s, e] = ranges[si] ?? [tag.from, tag.to];
+        let fr = 0;
+        let sms = 0;
+        for (let i = s; i <= e; i++) {
+          const f = data.frames[i];
+          if (!f) continue;
+          fr++;
+          sms += f.duration;
+        }
+        if (fr > 0) out.push({ clip, frames: fr, ms: sms, loop: false });
+      });
     }
   }
   return out;
