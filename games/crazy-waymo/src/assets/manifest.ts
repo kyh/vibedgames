@@ -116,6 +116,26 @@ export const PARK_WALL_CORNER = "kk-park-wall-corner";
 export const PARK_ENTRY = "kk-park-entry";
 export const BUSHES = ["kk-bush-a", "kk-bush-b", "kk-bush-c"] as const;
 export const PARK_TREES = ["kk-tree-a", "kk-tree-b", "kk-tree-c"] as const;
+// KayKit prebuilt park tiles (City Builder Bits) — public/models/parks/.
+export const PARK_TILE_PLAZAS = [
+  "park-road-junction-decorated-A",
+  "park-road-junction-decorated-B",
+  "park-road-junction-decorated-C",
+] as const;
+export const PARK_TILES = [
+  "park-base",
+  "park-base-decorated-bushes",
+  "park-base-decorated-trees",
+  ...PARK_TILE_PLAZAS,
+  "park-road-straight",
+  "park-road-straight-decorated-A",
+  "park-road-straight-decorated-B",
+  "park-road-corner",
+  "park-road-corner-decorated",
+  "park-road-junction",
+  "park-road-tsplit",
+  "park-road-tsplit-decorated",
+] as const;
 // KayKit street details (City Builder Bits).
 export const PROP_HYDRANT = "kk-hydrant";
 export const PROP_BENCH = "kk-bench";
@@ -241,6 +261,7 @@ export function allModelUrls(): string[] {
   ])
     urls.push(modelUrl("buildings", b));
   for (const p of PROPS) urls.push(modelUrl("props", p));
+  for (const t of PARK_TILES) urls.push(modelUrl("parks", t));
   for (const d of [...DEBRIS_SMALL, ...DEBRIS_BIG]) urls.push(modelUrl("debris", d));
   for (const c of CHARACTERS) urls.push(modelUrl("characters", c));
   return urls;

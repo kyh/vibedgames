@@ -10,6 +10,7 @@ import {
   LIGHT_SQUARE,
   LIGHT_SQUARE_DOUBLE,
   modelUrl,
+  PARK_TILE_PLAZAS,
   PARK_TREES,
   PARK_WALL,
   PROP_AWNING,
@@ -667,77 +668,31 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
         }
       }
 
-      // Fountain plaza: basin + water + radiating tan paths + benches/lamps.
-      if (rng.chance(0.08)) {
-        const fy = terrain.heightAt(wx, wz);
-        const basin = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.7, 0.75, 18), SEAWALL_MAT);
-        basin.position.set(wx, fy + 0.35, wz);
-        basin.updateMatrixWorld(true);
-        objects.push(basin);
-        const water = new THREE.Mesh(new THREE.CircleGeometry(2.1, 18), LAKE_MAT);
-        water.rotation.x = -HALF_PI;
-        water.position.set(wx, fy + 0.72, wz);
-        water.updateMatrixWorld(true);
-        objects.push(water);
-        const spire = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.55, 1.5, 10), SEAWALL_MAT);
-        spire.position.set(wx, fy + 1.3, wz);
-        spire.updateMatrixWorld(true);
-        objects.push(spire);
-        // Tan paths out to each edge.
-        for (const [px, pz] of [
-          [1, 0],
-          [-1, 0],
-          [0, 1],
-          [0, -1],
-        ] as const) {
-          const path = new THREE.Mesh(new THREE.PlaneGeometry(2.4, ROAD_TILE / 2 - 2.4, 1, 3), PATH_MAT);
-          path.rotation.x = -HALF_PI;
-          path.rotation.z = px !== 0 ? HALF_PI : 0;
-          const off = 2.6 + (ROAD_TILE / 2 - 2.4) / 2;
-          path.position.set(wx + px * off, 0, wz + pz * off);
-          drape(path, 0.06);
-        }
-        // Benches facing the water, victorian lamps at the diagonals.
-        for (const [bx, bz] of [
-          [3.6, 0],
-          [-3.6, 0],
-          [0, 3.6],
-          [0, -3.6],
-        ] as const) {
-          if (!rng.chance(0.75)) continue;
-          const yaw = Math.atan2(-bx, -bz);
-          seat(parkBenchUrl, wx + bx, wz + bz, yaw, scaleToHeight(parkBenchUrl, 0.85));
-        }
-        for (const [lx, lz] of [
-          [3.2, 3.2],
-          [-3.2, -3.2],
-        ] as const) {
-          seat(parkLampUrl, wx + lx, wz + lz, 0, scaleToHeight(parkLampUrl, 4.2));
-          const lgy = terrain.heightAt(wx + lx, wz + lz);
-          lampHeads.push({ x: wx + lx, y: lgy + 3.6, z: wz + lz, ground: lgy });
-        }
-      } else {
-        // Lawn cells: bushes + blobby KayKit trees (denser than street green).
-        const bushes = 2 + rng.int(3);
-        for (let i = 0; i < bushes; i++) {
-          const bUrl = modelUrl("props", rng.pick(BUSHES));
-          seat(
-            bUrl,
-            wx + rng.range(-4.6, 4.6),
-            wz + rng.range(-4.6, 4.6),
-            rng.range(0, Math.PI * 2),
-            scaleToHeight(bUrl, rng.range(0.8, 1.5)),
-          );
-        }
-        if (rng.chance(0.55)) {
-          const count = 1 + rng.int(2);
-          for (let i = 0; i < count; i++) {
-            const tUrl = modelUrl("props", rng.pick(PARK_TREES));
-            const ptx = wx + rng.range(-4, 4);
-            const ptz = wz + rng.range(-4, 4);
-            seat(tUrl, ptx, ptz, rng.range(0, Math.PI * 2), scaleToHeight(tUrl, rng.range(4.5, 6.5)));
-            solids.push({ minX: ptx - 0.55, maxX: ptx + 0.55, minZ: ptz - 0.55, maxZ: ptz + 0.55, noBody: true });
-          }
+      // KayKit prebuilt park tiles: one per cell — grass, bush and tree
+      // bases with occasional decorated fountain plazas. The kit's own
+      // benches/lamps/planting ride along; our per-tree scatter is gone.
+      {
+        const roll = rng.range(0, 1);
+        const name =
+          roll < 0.08
+            ? rng.pick(PARK_TILE_PLAZAS)
+            : roll < 0.42
+              ? "park-base-decorated-trees"
+              : roll < 0.62
+                ? "park-base-decorated-bushes"
+                : "park-base";
+        const url = modelUrl("parks", name);
+        const b = cache.bounds(url);
+        const s = (ROAD_TILE * 0.985) / Math.max(b.size.x, b.size.z, 0.001);
+        const node = cache.instance(url);
+        node.scale.setScalar(s);
+        node.rotation.y = HALF_PI * rng.int(4);
+        node.position.set(wx, terrain.heightAt(wx, wz) + 0.05, wz);
+        node.updateMatrixWorld(true);
+        objects.push(node);
+        if (name === "park-base-decorated-trees") {
+          // approximate the tile's trees for arcade collision
+          solids.push({ minX: wx - 0.6, maxX: wx + 0.6, minZ: wz - 0.6, maxZ: wz + 0.6, noBody: true });
         }
       }
     }

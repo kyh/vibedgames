@@ -8,6 +8,7 @@ import {
   BUILDINGS_SUBURBAN,
   CHARACTERS,
   modelUrl,
+  PARK_TILES,
   PROPS,
   SERVICE_CARS,
   TRAFFIC_CARS,
@@ -40,6 +41,7 @@ type Tab = "props" | "streets" | "floor";
 
 const CATEGORIES: readonly { label: string; cat: string; names: readonly string[] }[] = [
   { label: "props", cat: "props", names: PROPS },
+  { label: "parks", cat: "parks", names: PARK_TILES },
   { label: "houses", cat: "buildings", names: BUILDINGS_SUBURBAN },
   { label: "commercial", cat: "buildings", names: [...BUILDINGS_COMMERCIAL, ...BUILDINGS_SKYSCRAPER] },
   { label: "industrial", cat: "buildings", names: BUILDINGS_INDUSTRIAL },
