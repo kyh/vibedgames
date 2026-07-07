@@ -387,9 +387,18 @@ export class GameScene {
       this.mode = { kind: "loading", progress: frac * 0.7 };
       this.hud.setLoading(frac * 0.7);
     });
+    // The worker may still be generating — keep the bar honest but ALIVE
+    // (a frozen bar reads as a hang; this crawls 70 -> 84% while waiting).
+    let waitFrac = 0.7;
+    const crawl = setInterval(() => {
+      waitFrac = Math.min(0.84, waitFrac + 0.01);
+      this.mode = { kind: "loading", progress: waitFrac };
+      this.hud.setLoading(waitFrac);
+    }, 400);
     const payload = await genPromise;
     console.log(`[city] worker payload: ${payload ? "yes" : "fallback to main-thread gen"}`);
     const rest = await restPromise;
+    clearInterval(crawl);
     const city = new CityModel(this.cache, payload, rest);
     await city.initEarly((frac) => {
       this.mode = { kind: "loading", progress: frac };
@@ -433,12 +442,6 @@ export class GameScene {
     this.scene.add(this.lampGlow.group);
     this.minimap = new Minimap(city.plan, city.getDecks());
 
-    this.loadDone = true;
-    if (this.pendingStart) {
-      this.pendingStart = false;
-      this.start();
-    }
-    if (city.restCapture) writeRestCache(city.restCapture);
     await paint();
 
     // --- STREAMED TAIL: bounce physics, traffic, parked cars, props. The
@@ -471,6 +474,24 @@ export class GameScene {
     physics.prewarm();
     lap("physics prewarm");
     this.physics = physics;
+    await paint();
+
+    // PLAYABLE: everything blocking (city, solids, physics BVH) is done.
+    // The spawners below are all sub-100ms.
+    this.loadDone = true;
+    if (this.pendingStart) {
+      this.pendingStart = false;
+      this.start();
+    }
+    // The rest-cache write serializes ~100MB — idle time only, never at start.
+    if (city.restCapture) {
+      const rest = city.restCapture;
+      const idle =
+        "requestIdleCallback" in window
+          ? (cb: () => void): void => void requestIdleCallback(cb, { timeout: 30000 })
+          : (cb: () => void): void => void setTimeout(cb, 8000);
+      idle(() => writeRestCache(rest));
+    }
     await paint();
 
     this.traffic = new Traffic(

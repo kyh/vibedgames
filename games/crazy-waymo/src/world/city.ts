@@ -341,10 +341,10 @@ export class CityModel {
       await new Promise((r) => requestAnimationFrame(() => r(undefined)));
     };
     const t0 = performance.now();
-    await tick(0.62);
+    await tick(0.87);
     this.buildPhase1();
     console.log(`[city] phase1 ${Math.round(performance.now() - t0)}ms`);
-    await tick(0.8);
+    await tick(0.95);
   }
 
   async initLate(onProgress?: (f: number) => void): Promise<void> {
