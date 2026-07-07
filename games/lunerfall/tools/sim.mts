@@ -393,5 +393,31 @@ check("rectsOverlap basic", rectsOverlap({ left: 0, top: 0, right: 10, bottom: 1
   check("unaffordable unlock is refused", !unlockHero(m, "mooni") && !isUnlocked(m, "mooni") && m.shards === 6);
 }
 
+// Every combat-room enemy must be reachable: standing on a real surface with
+// player-height headroom above it — no enemy sealed in a solid pocket (the bug
+// where a warrior was trapped in the 1-tile gap under the central ruin).
+{
+  const HEAD = 2; // tiles of clearance a body needs above its feet cell
+  let sealed = 0;
+  let floating = 0;
+  COMBAT_TEMPLATES.forEach((make) => {
+    const r = make();
+    const g = r.grid;
+    for (const s of r.enemySpawns) {
+      const cx = Math.floor(s.x / TILE);
+      const feet = Math.round(s.y / TILE) - 1; // stand row (body rests on cell feet+1)
+      if (!g.isSolidCell(cx, feet + 1) && !g.isOneWayCell(cx, feet + 1)) floating++;
+      for (let dy = 0; dy < HEAD; dy++) {
+        if (g.isSolidCell(cx, feet - dy)) {
+          sealed++;
+          break;
+        }
+      }
+    }
+  });
+  check("no combat enemy sealed under a platform", sealed === 0, `${sealed} sealed`);
+  check("every combat enemy stands on a surface", floating === 0, `${floating} floating`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

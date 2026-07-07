@@ -112,14 +112,14 @@ export const COMBAT_TEMPLATES: (() => RoomDef)[] = [
   () =>
     new RoomDef(RW, RH)
       .arena()
-      .oneway(7, S - 3, 13)
       .block(3, S - 6, 12) // left tower platform (door)
-      .oneway(38, S - 3, 44)
+      .oneway(13, S - 3, 17) // step up onto the left tower (beside it, not under it)
       .block(39, S - 6, 48) // right tower platform (door)
+      .oneway(34, S - 3, 38) // step up onto the right tower
       .block(22, S - 2, 29) // central raised ruin
       .oneway(19, S - 6, 32) // ruin high ledge
       .player(6, S)
-      .enemy(26, S)
+      .enemy(16, S) // floor on the approach (was sealed in a pocket under the ruin)
       .enemy(26, S - 7)
       .enemy(7, S - 7)
       .enemy(44, S - 7)
