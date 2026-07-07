@@ -2,10 +2,6 @@
 
 const LEGACY_FPS = 60;
 
-export function clamp(v: number, lo: number, hi: number): number {
-  return v < lo ? lo : v > hi ? hi : v;
-}
-
 /**
  * Convert a "lerp this fraction every 60fps frame" constant into a dt-correct
  * smoothing factor, so motion looks the same at any frame rate.

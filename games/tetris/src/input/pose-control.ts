@@ -139,8 +139,8 @@ export class PoseControls {
       // ---- STEER (nose-x vs neutral, dead-zoned) -----------------------------
       const screenX = 1 - nose.x / W;
       const off = screenX - this.neutralX;
-      const dir = off > NOSE_DEAD_ZONE ? 1 : off < -NOSE_DEAD_ZONE ? -1 : 0;
-      this.actions.steer(dir as -1 | 0 | 1);
+      const dir: -1 | 0 | 1 = off > NOSE_DEAD_ZONE ? 1 : off < -NOSE_DEAD_ZONE ? -1 : 0;
+      this.actions.steer(dir);
 
       // ---- ORBIT (circle one raised hand) ------------------------------------
       this.detectCircleOrbit(leftWrist, rightWrist, shoulderY, W, H, now);

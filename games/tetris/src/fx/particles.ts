@@ -95,6 +95,8 @@ export class ParticlePool {
   }
 
   update(dt: number): void {
+    // Idle pool: nothing live and the final zero-count flush already happened.
+    if (this.live === 0 && this.mesh.count === 0) return;
     let i = 0;
     while (i < this.live) {
       const p = this.pool[i];

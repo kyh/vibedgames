@@ -1,9 +1,12 @@
-// Thin adapter over @vibedgames/multiplayer for the plain-loop (non-React,
-// non-Phaser) games. It owns the connection, provides an offline solo fallback
-// so the game still runs single-player when the party server is unreachable or
-// nobody else is around, and exposes the host-authoritative verbs the scene
-// uses. Poll `tick()` once per frame; read the getters each frame (the scene
-// drives rendering from its own RAF loop, so there is no subscribe()).
+// Thin adapter over @vibedgames/multiplayer for games that poll from their own
+// frame loop (a Phaser scene's update() or a plain RAF loop) instead of
+// subscribe(). It owns the connection, provides an offline solo fallback so the
+// game still runs single-player when the party server is unreachable or nobody
+// else is around, and exposes the host-authoritative verbs the scene uses.
+// Poll `tick()` once per frame; read the getters each frame.
+//
+// Keep this file byte-identical across games/*/src/net/session.ts — per-game
+// tuning (room, maxPlayers, fallbackMs) goes in the NetSession constructor.
 //
 // Semantics mirror the package exactly: shared-state and player-state patches
 // shallow-merge (last-write-wins per field), and events are fire-and-forget.
@@ -104,7 +107,9 @@ export class NetSession {
   }
 
   get players(): PlayerMap {
-    return this.solo ? { [SOLO_ID]: { id: SOLO_ID, state: this.offlineMyState } } : this.client.players;
+    return this.solo
+      ? { [SOLO_ID]: { id: SOLO_ID, state: this.offlineMyState } }
+      : this.client.players;
   }
 
   /** The other player in the room, or null when alone. */

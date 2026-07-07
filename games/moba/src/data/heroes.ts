@@ -652,6 +652,12 @@ export const HEROES: HeroDef[] = [
 
 export const HERO_BY_ID: Record<string, HeroDef> = Object.fromEntries(HEROES.map((h) => [h.id, h]));
 
+/** Fallback definition (ironvow) for lookups by an unknown hero id. */
+export const DEFAULT_HERO: HeroDef = HEROES[0] ?? failEmptyHeroes();
+function failEmptyHeroes(): never {
+  throw new Error("HEROES must not be empty");
+}
+
 export function heroStatAt(h: HeroDef, stat: keyof HeroStats, level: number): number {
   const base = h.base[stat];
   const g = h.growth[stat] ?? 0;

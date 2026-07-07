@@ -1,8 +1,18 @@
 import Phaser from "phaser";
 
 import { initPoseCamera, type PoseJumpHandler } from "./input/camera";
+import type { NetSession } from "./net/session";
 import { BootScene } from "./scenes/boot-scene";
 import { GameScene } from "./scenes/game-scene";
+
+declare global {
+  interface Window {
+    /** Dev-only hook: live scene + net session for headless inspection. */
+    __fb?: { scene: GameScene; net: NetSession };
+    /** Dev-only synthetic pose-jump driver: window.__fbPoseJump(0.8, false) */
+    __fbPoseJump?: PoseJumpHandler;
+  }
+}
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.WEBGL,
@@ -33,5 +43,5 @@ initPoseCamera(poseJump);
 
 if (import.meta.env.DEV) {
   // Synthetic driver for headless testing: window.__fbPoseJump(0.8, false)
-  (window as unknown as { __fbPoseJump?: PoseJumpHandler }).__fbPoseJump = poseJump;
+  window.__fbPoseJump = poseJump;
 }

@@ -142,7 +142,11 @@ export class GalleryScene extends Phaser.Scene {
       .setOrigin(0.5);
     UNIT_ANIMS.forEach((a, i) =>
       this.add
-        .text(colX[i]!, 80, a.toUpperCase(), { fontSize: "13px", color: "#bfe", fontStyle: "bold" })
+        .text(colX[i] ?? 0, 80, a.toUpperCase(), {
+          fontSize: "13px",
+          color: "#bfe",
+          fontStyle: "bold",
+        })
         .setOrigin(0.5),
     );
 
@@ -157,7 +161,7 @@ export class GalleryScene extends Phaser.Scene {
         .setOrigin(0.5);
       UNIT_ANIMS.forEach((a, i) => {
         const key = `${s.animBase}-${a}`;
-        const x = colX[i]!;
+        const x = colX[i] ?? 0;
         if (this.anims.exists(key)) {
           const spr = this.add.sprite(x, y, s.tex, 0).setScale(s.scale);
           this.playLoop(spr, key);
@@ -287,7 +291,7 @@ export class GalleryScene extends Phaser.Scene {
   // ---- map: showcase battlefield, built from the island footprint ----
 
   private land(cx: number, cy: number): boolean {
-    return cy >= 0 && cy < MAP_MASK.length && cx >= 0 && cx < 25 && MAP_MASK[cy]![cx] === "1";
+    return cy >= 0 && cy < MAP_MASK.length && cx >= 0 && cx < 25 && MAP_MASK[cy]?.[cx] === "1";
   }
 
   private high(cx: number, cy: number): boolean {
@@ -510,13 +514,14 @@ export class GalleryScene extends Phaser.Scene {
     building("sc-tower", 1.6, 9.8);
     building("sc-tower", 8.6, 15.8);
     const HOUSES = ["sc-house1", "sc-house2", "sc-house3"];
-    [
+    const HOUSE_SPOTS: ReadonlyArray<[number, number]> = [
       [13.6, 5.0],
       [15.4, 4.8],
       [14.5, 6.2],
       [16.5, 5.8],
       [11.6, 11.8],
-    ].forEach(([tx, ty], i) => building(HOUSES[i % HOUSES.length]!, tx!, ty!));
+    ];
+    HOUSE_SPOTS.forEach(([tx, ty], i) => building(HOUSES[i % HOUSES.length] ?? "sc-house1", tx, ty));
 
     // Knights: a Lancer (spearman) column by the castle + scattered units.
     // Lancer frames are 320px (taller, to fit the spear); warrior/pawn are 192px.

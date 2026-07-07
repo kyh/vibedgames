@@ -3,8 +3,7 @@
 // day/time clock stay owned by GameScene; only player-carried state is here.
 
 import { Inventory } from "./inventory";
-import { Skills, type SkillId } from "./skills";
-import type { Item } from "../data/items";
+import { Skills } from "./skills";
 import type { AnimalSave } from "./save";
 import { MAX_HP, MAX_ENERGY, START_GOLD } from "../config";
 
@@ -43,23 +42,11 @@ class Store {
     this.animalSeq = seq;
   }
 
-  addGold(n: number): void {
-    this.gold += n;
-  }
   spendEnergy(n: number): void {
     this.energy = Math.max(0, this.energy - n);
   }
-  addItem(item: Item, qty = 1): number {
-    return this.inv.add(item, qty);
-  }
-  addXP(skill: SkillId, n: number): number | null {
-    return this.skills.addXP(skill, n);
-  }
   damage(n: number): void {
     this.hp = Math.max(0, this.hp - n);
-  }
-  heal(n: number): void {
-    this.hp = Math.min(this.maxHp(), this.hp + n);
   }
 }
 

@@ -84,7 +84,7 @@ export const NPCS: Record<NpcId, NpcDef> = {
   },
 };
 
-export const NPC_IDS = Object.keys(NPCS) as NpcId[];
+export const NPC_IDS = ["willow", "finn", "hazel"] as const satisfies readonly NpcId[];
 
 export const REACTION_DELTA: Record<GiftReaction, number> = {
   love: 25,

@@ -40,7 +40,7 @@ export function targetable(v: Unit, opts: { allowStructure?: boolean } = {}): bo
   if (untargetable(v)) return false;
   if (v.kind === "structure") {
     if (opts.allowStructure === false) return false;
-    return v.structure!.attackable;
+    return v.structure?.attackable ?? false;
   }
   return true;
 }
@@ -171,15 +171,12 @@ export function resolvePendingAttacks(w: World): void {
     if (dist(u, target) > u.attackRange + u.radius + target.radius + 40) continue;
 
     let dmg = effectiveAttackDamage(u);
-    let crit = 1;
     // consume empower-next-attack (duskblade Q)
     const emp = u.statuses.find((s) => s.kind === "empowerNextAttack");
     if (emp && emp.kind === "empowerNextAttack") {
       dmg += emp.bonus;
       u.statuses = u.statuses.filter((s) => s !== emp);
     }
-    if (pa.crit) crit = pa.crit;
-    dmg *= crit;
     // ±12% attack variance — breaks perfect creep-lane symmetry so waves push,
     // and adds a little life to every hit.
     dmg *= 0.88 + rand(w) * 0.24;
@@ -195,7 +192,6 @@ export function resolvePendingAttacks(w: World): void {
       applySplash(w, u, target, dmg);
       dealDamage(w, u, target, dmg, "physical", {
         isAttack: true,
-        crit: crit > 1,
         attackerSpellAmp: ampSelf,
         structureBonusPct: structBonus,
       });
@@ -261,7 +257,6 @@ function spawnAttackProjectile(w: World, u: Unit, target: Unit, dmg: number): vo
     dtype: "physical",
     kind,
     radius: 0,
-    fromAbility: false,
     onHit,
   };
   w.projectiles.set(p.id, p);
@@ -407,9 +402,7 @@ export function dealDamage(
 
   // assist/last-hit bookkeeping
   if (attacker && victim.hero) {
-    victim.hero.recentDamageFrom[
-      attacker.hero ? attacker.id : (attackerHeroCredit(attacker) ?? attacker.id)
-    ] = w.now;
+    victim.hero.recentDamageFrom[attacker.id] = w.now;
   }
   if (attacker && attacker.hero && opts.isAttack) {
     // lifesteal on attacks
@@ -447,11 +440,6 @@ export function dealDamage(
   }
 
   if (victim.hp <= 0) handleDeath(w, victim, attacker);
-}
-
-/** If a non-hero attacker is owned by a hero (none currently), credit that hero. */
-function attackerHeroCredit(_u: Unit): string | null {
-  return null;
 }
 
 function handleDeath(w: World, victim: Unit, killer: Unit | null): void {
@@ -556,7 +544,8 @@ function heroName(u: Unit): string {
 }
 
 function awardHeroKill(w: World, victim: Unit, killer: Unit | null): void {
-  const vh = victim.hero!;
+  const vh = victim.hero;
+  if (!vh) return;
   const streak = vh.killStreak;
   const streakBonus =
     streak >= 1 ? Math.min(ECON.streakBonusCap, ECON.streakBonusPerKill * streak) : 0;
@@ -589,8 +578,10 @@ function awardHeroKill(w: World, victim: Unit, killer: Unit | null): void {
   if (assisters.length > 0) {
     const each = Math.round((bounty * ECON.assistFraction) / assisters.length);
     for (const a of assisters) {
-      a.hero!.gold += each;
-      a.hero!.assists += 1;
+      const ah = a.hero;
+      if (!ah) continue;
+      ah.gold += each;
+      ah.assists += 1;
     }
   }
   // xp share for the kill among nearby enemies
@@ -614,7 +605,8 @@ export function grantXp(w: World, hero: Unit, xp: number): void {
 
 // ---- structures ------------------------------------------------------------
 function onStructureDown(w: World, victim: Unit, killer: Unit | null): void {
-  const st = victim.structure!;
+  const st = victim.structure;
+  if (!st) return;
   const def = STRUCTS[st.tier];
   w.fx.push({ t: "structureDown", x: victim.x, y: victim.y, team: victim.team, tier: st.tier });
   // gold: local to killer + team gold to all living allies
@@ -623,7 +615,7 @@ function onStructureDown(w: World, victim: Unit, killer: Unit | null): void {
   }
   const winnerTeam = enemyOf(victim.team);
   for (const u of w.units.values()) {
-    if (u.kind === "hero" && u.team === winnerTeam) u.hero!.gold += def.bountyTeam;
+    if (u.kind === "hero" && u.hero && u.team === winnerTeam) u.hero.gold += def.bountyTeam;
   }
   if (st.tier === "ancient") {
     w.phase = "ended";

@@ -184,8 +184,13 @@ export class GameScene {
   private boardSig = "";
   private hostEaten = new Set<string>(); // host: authoritative eaten cells
   private appliedEaten = new Set<string>(); // cells already removed locally
-  private boardEl = document.getElementById("board");
-  private netInfoEl = document.getElementById("netinfo");
+  /** Last shared board object reconciled (patches replace it, so `===` detects change). */
+  private lastBoardRef: unknown = null;
+  /** Whether we were host when lastBoardRef was reconciled — a promotion must re-adopt. */
+  private lastBoardAsHost = false;
+  private netInfoText = "";
+  private boardEl = el("board");
+  private netInfoEl = el("netinfo");
   private lives = START_LIVES;
   private scaredMs = 0;
   private graceMs = 0;
@@ -335,17 +340,24 @@ export class GameScene {
     }
   }
 
-  /** Parse + validate a wire cell key: it must be an in-bounds eatable cell. */
-  private parseEatKey(key: string): { col: number; row: number } | null {
+  /** Parse a cell key into in-bounds integer coordinates. */
+  private parseCellKey(key: string): { col: number; row: number } | null {
     const parts = key.split(",");
     if (parts.length !== 2) return null;
     const col = Number(parts[0]);
     const row = Number(parts[1]);
     if (!Number.isInteger(col) || !Number.isInteger(row)) return null;
     if (col < 0 || row < 0 || col >= GRID_COLS || row >= GRID_ROWS) return null;
-    const cell = MAP[row]?.[col];
-    if (cell !== 2 && cell !== 3) return null; // 2 = pellet, 3 = power
     return { col, row };
+  }
+
+  /** Parse + validate a wire cell key: it must be an in-bounds eatable cell. */
+  private parseEatKey(key: string): { col: number; row: number } | null {
+    const cell = this.parseCellKey(key);
+    if (!cell) return null;
+    const type = MAP[cell.row]?.[cell.col];
+    if (type !== 2 && type !== 3) return null; // 2 = pellet, 3 = power
+    return cell;
   }
 
   /**
@@ -397,12 +409,24 @@ export class GameScene {
       this.broadcastBoard();
       return;
     }
+    // Patches REPLACE the board object, so reference equality means nothing
+    // changed — skip the re-parse + eaten loop (60 Hz otherwise). A host
+    // promotion re-runs once so the new host adopts the accumulated set.
+    const raw: unknown = this.net.sharedState?.["board"];
+    if (raw === this.lastBoardRef && this.net.isHost === this.lastBoardAsHost) {
+      // The win check still runs: it depends on local phase, which can flip
+      // between board updates (e.g. rivals emptied the maze during READY).
+      this.checkRaceWin();
+      return;
+    }
     const board = this.sharedBoard();
     if (!board) return;
     if (board.round !== this.boardRound) {
       this.applyNewRound(board.round);
       return;
     }
+    this.lastBoardRef = raw;
+    this.lastBoardAsHost = this.net.isHost;
     for (const key of board.eaten) {
       // A promoted host must adopt the accumulated set, or its next broadcast
       // (rebuilt from hostEaten alone) would resurrect every earlier pellet
@@ -412,6 +436,11 @@ export class GameScene {
       this.appliedEaten.add(key);
       this.removeCellVisual(key);
     }
+    this.checkRaceWin();
+  }
+
+  /** In a race, the shared maze emptying out ends the round for everyone. */
+  private checkRaceWin(): void {
     if (this.racing && this.phase === "playing" && this.pelletsLeft() === 0) {
       this.setPhase("win");
     }
@@ -437,8 +466,8 @@ export class GameScene {
       this.hearts.delete(key);
       return;
     }
-    const [col, row] = key.split(",").map(Number);
-    if (col !== undefined && row !== undefined) this.pelletField.collect(col, row);
+    const cell = this.parseCellKey(key);
+    if (cell) this.pelletField.collect(cell.col, cell.row);
   }
 
   /** Host starts a fresh round; everyone resets when they see the new number. */
@@ -490,23 +519,26 @@ export class GameScene {
       if (this.netAcc >= 1 / NET_TICK_HZ) {
         this.netAcc = 0;
         this.net.updateMyState({ x: this.pac.x, z: this.pac.z, score: this.score });
+        // Roster/standings work only needs to track the ~NET_TICK_HZ updates;
+        // the smoothing in remotePacs.update below still runs every frame.
+        this.remotePacs.sync(this.net.players, this.net.playerId);
+        this.updateNetHud();
       }
     }
-    this.remotePacs.sync(this.net.players, this.net.playerId);
     this.remotePacs.update(dt, this.t);
-    this.updateNetHud();
   }
 
   private updateNetHud(): void {
-    if (this.netInfoEl) {
-      this.netInfoEl.textContent =
-        !this.net.live || this.net.offline
-          ? ""
-          : this.racing
-            ? `RACE · ${Object.keys(this.net.players).length} PLAYERS`
-            : "ONLINE · WAITING";
+    const netInfo =
+      !this.net.live || this.net.offline
+        ? ""
+        : this.racing
+          ? `RACE · ${Object.keys(this.net.players).length} PLAYERS`
+          : "ONLINE · WAITING";
+    if (netInfo !== this.netInfoText) {
+      this.netInfoText = netInfo;
+      this.netInfoEl.textContent = netInfo;
     }
-    if (!this.boardEl) return;
     if (!this.racing) {
       if (this.boardEl.childElementCount > 0) this.boardEl.replaceChildren();
       this.boardSig = "";
@@ -1235,10 +1267,10 @@ export class GameScene {
     this.camera.lookAt(this.lookCur);
 
     const shake = this.shaker.update(dt, this.t);
-    if (shake.ox !== 0 || shake.oy !== 0) {
+    if (shake.ox !== 0 || shake.oy !== 0 || shake.rot !== 0) {
       this.camera.translateX(shake.ox);
       this.camera.translateY(shake.oy);
-      this.camera.rotateZ(shake.roll);
+      this.camera.rotateZ(shake.rot);
     }
 
     this.fovKick *= Math.exp(-FOV_KICK_DECAY * dt);

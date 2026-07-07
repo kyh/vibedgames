@@ -102,7 +102,6 @@ export type HeroState = {
   dashX: number;
   dashY: number;
   // marks: stormcaller hunter's mark etc handled via status on victim
-  pendingLevelStat: boolean;
   // bot AI bookkeeping
   botLane: LaneId;
   botNextDecisionAt: number;
@@ -172,8 +171,6 @@ export type Unit = {
   pendingAttack: {
     targetId: string;
     resolveAt: number;
-    crit?: number;
-    onHitFromAbility?: boolean;
   } | null;
 
   order: Order;
@@ -203,7 +200,6 @@ export type Projectile = {
   dtype: DamageType;
   kind: "arrow" | "bolt" | "fireball" | "dynamite" | "tower"; // visual
   radius: number; // splash radius (0 = single target)
-  fromAbility: boolean;
   onHit?: ProjectileHit; // extra effect tag applied on impact
 };
 
@@ -254,7 +250,6 @@ export type GamePhase = "playing" | "ended";
 
 export type World = {
   now: number; // ms host clock (accumulated)
-  startedAt: number; // wall-clock ms the match seeded (for display only)
   gameTime: number; // seconds since match start
   phase: GamePhase;
   winner: Team | null;

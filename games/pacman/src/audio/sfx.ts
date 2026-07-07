@@ -263,7 +263,7 @@ function step(t: number, dur: number, notes: ReadonlyArray<number>): { f: number
   return { f: notes[idx] ?? 440, local: t - idx * slice };
 }
 
-// ---- the 8 sounds -----------------------------------------------------------------
+// ---- the sounds -----------------------------------------------------------------
 
 const RECIPES: Record<SfxName, Recipe> = {
   // 70ms soft "boop" — fires on every step, so it stays tiny and round.

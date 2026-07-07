@@ -8,7 +8,7 @@ import Phaser from "phaser";
 
 import { CREEPS, SIM_DT, enemyOf } from "../data/config";
 import type { CreepKind, Team } from "../data/config";
-import { HERO_BY_ID, HEROES, heroStatAt } from "../data/heroes";
+import { DEFAULT_HERO, HERO_BY_ID, HEROES, heroStatAt } from "../data/heroes";
 import type { AbilityKey, HeroDef } from "../data/heroes";
 import { NEUTRAL_CAMPS } from "../data/map";
 import { castAbility } from "../sim/abilities";
@@ -42,7 +42,6 @@ const ENTRIES: Entry[] = [
 function showcaseWorld(): World {
   return {
     now: 0,
-    startedAt: 0,
     gameTime: 0,
     phase: "playing",
     winner: null,
@@ -157,7 +156,8 @@ export class ShowcaseScene extends Phaser.Scene {
     this.busyUntil = 0;
     this.deathAt = 0;
     this.clearWorld();
-    const e = ENTRIES[this.index]!;
+    const e = ENTRIES[this.index];
+    if (!e) return;
 
     // training dummy: an enemy that soaks spells/attacks (kept alive in update)
     this.dummy = spawnHero(this.world, "ironvow", enemyOf(this.faction), "dummy", false, 2);
@@ -172,8 +172,11 @@ export class ShowcaseScene extends Phaser.Scene {
       sub.facing = 1;
       sub.order = { type: "hold" };
       // max every ability so spells can be demoed immediately
-      sub.hero!.level = 16;
-      for (const k of ABILITY_KEYS) sub.hero!.abilities[k].rank = k === "R" ? 3 : 4;
+      const sh = sub.hero;
+      if (sh) {
+        sh.level = 16;
+        for (const k of ABILITY_KEYS) sh.abilities[k].rank = k === "R" ? 3 : 4;
+      }
       this.subject = sub;
     } else {
       this.subject = this.makeCreep(e, this.faction, STAGE.x);
@@ -359,7 +362,8 @@ export class ShowcaseScene extends Phaser.Scene {
     let y = 56;
     let group = "";
     for (let i = 0; i < ENTRIES.length; i++) {
-      const e = ENTRIES[i]!;
+      const e = ENTRIES[i];
+      if (!e) continue;
       const g = e.type === "hero" ? "HEROES" : e.type === "creep" ? "CREEPS" : "NEUTRALS";
       if (g !== group) {
         group = g;
@@ -398,14 +402,15 @@ export class ShowcaseScene extends Phaser.Scene {
   private buildActionBar(): void {
     for (const o of this.actionBar) o.destroy();
     this.actionBar = [];
-    const e = ENTRIES[this.index]!;
+    const e = ENTRIES[this.index];
+    if (!e) return;
     const labels: Array<{ t: string; fn: () => void; hot?: boolean }> = [
       { t: "Idle", fn: () => this.demoIdle() },
       { t: "Walk", fn: () => this.demoWalk() },
       { t: "Attack", fn: () => this.demoAttack() },
     ];
     if (e.type === "hero") {
-      const def = HERO_BY_ID[e.id]!;
+      const def = HERO_BY_ID[e.id] ?? DEFAULT_HERO;
       for (const k of ABILITY_KEYS) {
         const ab = def.abilities[k];
         if (ab.targeting === "passive") continue;
@@ -444,12 +449,13 @@ export class ShowcaseScene extends Phaser.Scene {
   }
 
   private refreshInfo(): void {
-    const e = ENTRIES[this.index]!;
+    const e = ENTRIES[this.index];
+    if (!e) return;
     this.factionLabel.setText(
       `Faction: ${this.faction === "radiant" ? "Radiant ☀" : "Dire 🌙"}  (click)`,
     );
     if (e.type === "hero") {
-      const def = HERO_BY_ID[e.id]!;
+      const def = HERO_BY_ID[e.id] ?? DEFAULT_HERO;
       this.infoName.setText(`${def.name} — ${def.title}`);
       this.info.setText(this.heroInfo(def));
     } else {

@@ -4,7 +4,7 @@ import Phaser from "phaser";
 const PLAYER_FRAME = 256;
 /** Source frame size of the explosion strip (16 frames in a 2048×128 image). */
 const EXPLO_FRAME = 128;
-export const EXPLO_FRAMES = 16;
+const EXPLO_FRAMES = 16;
 
 export class BootScene extends Phaser.Scene {
   constructor() {

@@ -13,7 +13,6 @@ export function enemyOf(t: Team): Team {
 export const MAX_LEVEL = 16;
 export const HERO_MAGIC_RESIST = 0.25; // flat 25% magic reduction on heroes
 export const PASSIVE_GOLD_PER_SEC = 1.5;
-export const STARTING_GOLD = 600;
 
 // Cumulative XP required to *reach* each level (index 0 = level 1).
 export const XP_CURVE = [
@@ -155,7 +154,6 @@ export type StructDef = {
   projectileSpeed: number;
   bountyTeam: number;
   bountyLocal: number;
-  attacks: boolean;
   regenPerSec: number; // when no enemy creeps near (backdoor protection)
   radius: number;
 };
@@ -171,7 +169,6 @@ export const STRUCTS: Record<StructTier, StructDef> = {
     projectileSpeed: 900,
     bountyTeam: 100,
     bountyLocal: 150,
-    attacks: true,
     regenPerSec: 22,
     radius: 60,
   },
@@ -185,7 +182,6 @@ export const STRUCTS: Record<StructTier, StructDef> = {
     projectileSpeed: 900,
     bountyTeam: 140,
     bountyLocal: 190,
-    attacks: true,
     regenPerSec: 22,
     radius: 60,
   },
@@ -199,7 +195,6 @@ export const STRUCTS: Record<StructTier, StructDef> = {
     projectileSpeed: 1000,
     bountyTeam: 40,
     bountyLocal: 60,
-    attacks: true,
     regenPerSec: 0,
     radius: 56,
   },
@@ -215,7 +210,6 @@ export const STRUCTS: Record<StructTier, StructDef> = {
     projectileSpeed: 0,
     bountyTeam: 0,
     bountyLocal: 0,
-    attacks: false,
     regenPerSec: 20,
     radius: 170,
   },
@@ -226,8 +220,7 @@ export const TOWER_RAMP_MAX = 4; // cap stacks
 
 // ---- economy ---------------------------------------------------------------
 export const ECON = {
-  startingGold: STARTING_GOLD,
-  passiveGoldPerSec: PASSIVE_GOLD_PER_SEC,
+  startingGold: 600,
   heroKillBaseBounty: 200,
   heroKillPerLevel: 12,
   streakBonusPerKill: 40,

@@ -29,6 +29,14 @@ export class NavGrid {
   private walkable: Uint8Array;
   private elevLvl: Int8Array;
   private rampFlag: Uint8Array;
+  // A* scratch buffers, allocated once and reset per findPath call — the grid is a
+  // lazy singleton, and re-allocating ~40KB per pathfind was pure GC churn.
+  private gScore: Float64Array;
+  private fScore: Float64Array;
+  private came: Int32Array;
+  private closed: Uint8Array;
+  private inHeap: Uint8Array;
+  private heap: number[] = [];
 
   constructor(worldW: number, worldH: number, cell: number, blockers: Blocker[], meta?: ElevMeta) {
     this.cell = cell;
@@ -37,6 +45,12 @@ export class NavGrid {
     this.walkable = new Uint8Array(this.cols * this.rows).fill(1);
     this.elevLvl = new Int8Array(this.cols * this.rows);
     this.rampFlag = new Uint8Array(this.cols * this.rows);
+    const n = this.cols * this.rows;
+    this.gScore = new Float64Array(n);
+    this.fScore = new Float64Array(n);
+    this.came = new Int32Array(n);
+    this.closed = new Uint8Array(n);
+    this.inHeap = new Uint8Array(n);
     if (meta) {
       for (let r = 0; r < this.rows; r++) {
         for (let c = 0; c < this.cols; c++) {
@@ -146,27 +160,33 @@ export class NavGrid {
     if (startIdx === goalIdx) return [this.cellCenter(g.c, g.r)];
 
     const n = this.cols * this.rows;
-    const gScore = new Float64Array(n).fill(Infinity);
-    const fScore = new Float64Array(n).fill(Infinity);
-    const came = new Int32Array(n).fill(-1);
-    const closed = new Uint8Array(n);
+    const { gScore, fScore, came, closed, inHeap, heap } = this;
+    gScore.fill(Infinity);
+    fScore.fill(Infinity);
+    came.fill(-1);
+    closed.fill(0);
+    inHeap.fill(0);
     gScore[startIdx] = 0;
     fScore[startIdx] = this.heur(s.c, s.r, g.c, g.r);
 
     // Binary min-heap keyed on fScore.
-    const heap: number[] = [startIdx];
-    const inHeap = new Uint8Array(n);
+    heap.length = 0;
+    heap.push(startIdx);
     inHeap[startIdx] = 1;
-    const less = (a: number, b: number) => fScore[a]! < fScore[b]!;
+    const less = (a: number, b: number) => (fScore[a] ?? Infinity) < (fScore[b] ?? Infinity);
     const swap = (i: number, j: number) => {
-      const t = heap[i]!;
-      heap[i] = heap[j]!;
-      heap[j] = t;
+      const a = heap[i];
+      const b = heap[j];
+      if (a === undefined || b === undefined) return;
+      heap[i] = b;
+      heap[j] = a;
     };
     const up = (i: number) => {
       while (i > 0) {
         const p = (i - 1) >> 1;
-        if (less(heap[i]!, heap[p]!)) {
+        const hi = heap[i];
+        const hp = heap[p];
+        if (hi !== undefined && hp !== undefined && less(hi, hp)) {
           swap(i, p);
           i = p;
         } else break;
@@ -178,8 +198,12 @@ export class NavGrid {
         let m = i;
         const l = 2 * i + 1;
         const r = 2 * i + 2;
-        if (l < sz && less(heap[l]!, heap[m]!)) m = l;
-        if (r < sz && less(heap[r]!, heap[m]!)) m = r;
+        const hl = heap[l];
+        const hml = heap[m];
+        if (l < sz && hl !== undefined && hml !== undefined && less(hl, hml)) m = l;
+        const hr = heap[r];
+        const hmr = heap[m];
+        if (r < sz && hr !== undefined && hmr !== undefined && less(hr, hmr)) m = r;
         if (m === i) break;
         swap(i, m);
         i = m;
@@ -190,8 +214,9 @@ export class NavGrid {
       up(heap.length - 1);
     };
     const pop = (): number => {
-      const top = heap[0]!;
-      const last = heap.pop()!;
+      const top = heap[0];
+      const last = heap.pop();
+      if (top === undefined || last === undefined) return -1;
       if (heap.length > 0) {
         heap[0] = last;
         down(0);
@@ -204,30 +229,30 @@ export class NavGrid {
     while (heap.length > 0) {
       if (++guard > maxIters) break;
       const cur = pop();
+      if (cur < 0) break;
       inHeap[cur] = 0;
-      if (cur === goalIdx) return this.reconstruct(came, cur, s);
+      if (cur === goalIdx) return this.reconstruct(came, cur);
       if (closed[cur]) continue;
       closed[cur] = 1;
       const cc = cur % this.cols;
       const cr = (cur - cc) / this.cols;
       for (let k = 0; k < 8; k++) {
-        const nc = cc + NEI[k]![0];
-        const nr = cr + NEI[k]![1];
+        const nei = NEI[k];
+        if (!nei) continue;
+        const nc = cc + nei[0];
+        const nr = cr + nei[1];
         if (!this.isWalkableCell(nc, nr)) continue;
         // can't climb a cliff edge — only ramps bridge elevations
         if (!this.canStep(cc, cr, nc, nr)) continue;
-        const diag = NEI[k]![0] !== 0 && NEI[k]![1] !== 0;
+        const diag = nei[0] !== 0 && nei[1] !== 0;
         // Disallow corner-cutting through blocked orthogonal neighbours.
-        if (
-          diag &&
-          (!this.isWalkableCell(cc + NEI[k]![0], cr) || !this.isWalkableCell(cc, cr + NEI[k]![1]))
-        )
+        if (diag && (!this.isWalkableCell(cc + nei[0], cr) || !this.isWalkableCell(cc, cr + nei[1])))
           continue;
         const nIdx = nr * this.cols + nc;
         if (closed[nIdx]) continue;
         const step = diag ? 1.41421356 : 1;
-        const tentative = gScore[cur]! + step;
-        if (tentative < gScore[nIdx]!) {
+        const tentative = (gScore[cur] ?? Infinity) + step;
+        if (tentative < (gScore[nIdx] ?? Infinity)) {
           came[nIdx] = cur;
           gScore[nIdx] = tentative;
           fScore[nIdx] = tentative + this.heur(nc, nr, g.c, g.r);
@@ -251,11 +276,13 @@ export class NavGrid {
     return dc + dr + (1.41421356 - 2) * Math.min(dc, dr);
   }
 
-  private reconstruct(came: Int32Array, end: number, _start: { c: number; r: number }): Vec2[] {
+  private reconstruct(came: Int32Array, end: number): Vec2[] {
     const cells: number[] = [end];
     let cur = end;
-    while (came[cur] !== -1) {
-      cur = came[cur]!;
+    for (;;) {
+      const prev = came[cur];
+      if (prev === undefined || prev === -1) break;
+      cur = prev;
       cells.push(cur);
     }
     cells.reverse();
@@ -263,14 +290,20 @@ export class NavGrid {
     // last kept waypoint, so units walk in straight diagonals not stairsteps.
     const pts: Vec2[] = [];
     let anchor = 0;
-    pts.push(this.cellIdxCenter(cells[0]!));
+    const first = cells[0];
+    if (first !== undefined) pts.push(this.cellIdxCenter(first));
     for (let i = 2; i < cells.length; i++) {
-      if (!this.cellLineOfSight(cells[anchor]!, cells[i]!)) {
-        pts.push(this.cellIdxCenter(cells[i - 1]!));
+      const anchorCell = cells[anchor];
+      const cell = cells[i];
+      const prevCell = cells[i - 1];
+      if (anchorCell === undefined || cell === undefined || prevCell === undefined) continue;
+      if (!this.cellLineOfSight(anchorCell, cell)) {
+        pts.push(this.cellIdxCenter(prevCell));
         anchor = i - 1;
       }
     }
-    pts.push(this.cellIdxCenter(cells[cells.length - 1]!));
+    const last = cells[cells.length - 1];
+    if (last !== undefined) pts.push(this.cellIdxCenter(last));
     return pts;
   }
 

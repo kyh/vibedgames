@@ -20,14 +20,3 @@ export function findPath(from: Vec2, to: Vec2): Vec2[] {
   const path = nav().findPath(from, to);
   return path ?? [{ x: to.x, y: to.y }];
 }
-
-export function walkable(x: number, y: number): boolean {
-  return nav().isWalkableWorld(x, y);
-}
-
-/** Snap a point to the nearest walkable world position (for click orders). */
-export function snapWalkable(x: number, y: number): Vec2 {
-  const cell = nav().nearestWalkable(x, y);
-  if (!cell) return { x, y };
-  return nav().cellCenter(cell.c, cell.r);
-}

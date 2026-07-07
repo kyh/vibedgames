@@ -30,27 +30,32 @@ function storageSet(key: string, value: string): void {
   }
 }
 
-export type SfxName =
-  | "fire_pulse"
-  | "fire_heavy"
-  | "fire_laser"
-  | "fire_scatter"
-  | "arc_zap"
-  | "hit_spark"
-  | "enemy_death"
-  | "shield_hit"
-  | "shield_break"
-  | "shield_low"
-  | "shield_regen"
-  | "rail"
-  | "pickup"
-  | "pickup_shield"
-  | "pickup_booster"
-  | "combo_up"
-  | "player_death"
-  | "telegraph_warn"
-  | "respawn"
-  | "sentry_place";
+/** Every sfx name — the single source of truth: `SfxName` derives from this
+ *  list, and RECIPES' `Record<SfxName, Recipe>` type enforces full coverage. */
+const SFX_NAMES = [
+  "fire_pulse",
+  "fire_heavy",
+  "fire_laser",
+  "fire_scatter",
+  "arc_zap",
+  "hit_spark",
+  "enemy_death",
+  "shield_hit",
+  "shield_break",
+  "shield_low",
+  "shield_regen",
+  "rail",
+  "pickup",
+  "pickup_shield",
+  "pickup_booster",
+  "combo_up",
+  "player_death",
+  "telegraph_warn",
+  "respawn",
+  "sentry_place",
+] as const;
+
+export type SfxName = (typeof SFX_NAMES)[number];
 
 export type PlayOpts = { gain?: number; rate?: number };
 
@@ -79,8 +84,8 @@ export class Sfx {
     this.master.connect(ctx.destination);
     this.duckBus = ctx.createGain();
     this.duckBus.connect(this.master);
-    for (const [name, build] of Object.entries(RECIPES) as Array<[SfxName, Recipe]>) {
-      this.buffers.set(name, renderBuffer(ctx, build));
+    for (const name of SFX_NAMES) {
+      this.buffers.set(name, renderBuffer(ctx, RECIPES[name]));
     }
   }
 

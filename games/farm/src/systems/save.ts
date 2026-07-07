@@ -36,6 +36,21 @@ export type SaveData = {
   npcFriendship?: Record<string, number>;
 };
 
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+
+// Structural check at the storage boundary: we only wrote v3 saves ourselves,
+// so verify the version tag plus the scalar/object skeleton (not every leaf).
+function isSaveData(v: unknown): v is SaveData {
+  if (!isRecord(v) || v["v"] !== 3) return false;
+  const nums = ["seed", "day", "timeMin", "gold", "energy", "hp", "canCharge"];
+  if (!nums.every((k) => typeof v[k] === "number")) return false;
+  return (
+    isRecord(v["player"]) && isRecord(v["world"]) && isRecord(v["inv"]) && isRecord(v["skills"])
+  );
+}
+
 export function hasSave(): boolean {
   try {
     return localStorage.getItem(KEY) !== null;
@@ -48,9 +63,8 @@ export function loadSave(): SaveData | null {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return null;
-    const d = JSON.parse(raw) as SaveData;
-    if (d.v !== 3) return null;
-    return d;
+    const d: unknown = JSON.parse(raw);
+    return isSaveData(d) ? d : null;
   } catch {
     return null;
   }

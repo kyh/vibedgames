@@ -119,7 +119,9 @@ export function tileKey(col: number, row: number): string {
   return `${col},${row}`;
 }
 
-export const SPAWN_POINTS: Array<{ col: number; row: number }> = [
+type Spawn = { col: number; row: number };
+
+export const SPAWN_POINTS: readonly [Spawn, Spawn, Spawn, Spawn] = [
   { col: 1, row: 1 },
   { col: GRID_COLS - 2, row: GRID_ROWS - 2 },
   { col: GRID_COLS - 2, row: 1 },
@@ -147,11 +149,11 @@ export function newGrid(): Cell[][] {
     }
     grid.push(row);
   }
-  for (let r = 1; r < GRID_ROWS - 1; r++) {
-    for (let c = 1; c < GRID_COLS - 1; c++) {
-      if (grid[r]![c]!.kind !== "empty") continue;
+  for (const [r, row] of grid.entries()) {
+    for (const [c, cell] of row.entries()) {
+      if (cell.kind !== "empty") continue;
       if (isSafeCorner(c, r)) continue;
-      if (Math.random() < 0.72) grid[r]![c] = { kind: "crate" };
+      if (Math.random() < 0.72) row[c] = { kind: "crate" };
     }
   }
   return grid;

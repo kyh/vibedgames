@@ -123,10 +123,10 @@ export class CameraRig {
 
     // 5. trauma shake AFTER lookAt so it jitters without re-aiming.
     const shake = this.trauma.update(dt, nowMs / 1000);
-    if (shake.ox !== 0 || shake.oy !== 0 || shake.roll !== 0) {
+    if (shake.ox !== 0 || shake.oy !== 0 || shake.rot !== 0) {
       this.camera.translateX(shake.ox);
       this.camera.translateY(shake.oy);
-      this.camera.rotateZ(shake.roll);
+      this.camera.rotateZ(shake.rot);
     }
   }
 

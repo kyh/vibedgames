@@ -42,7 +42,6 @@ export function encodeWorld(w: World): Snapshot {
 export function emptyGuestWorld(): World {
   return {
     now: 0,
-    startedAt: 0,
     gameTime: 0,
     phase: "playing",
     winner: null,

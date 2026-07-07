@@ -9,7 +9,8 @@ const container = document.getElementById("game");
 if (!container) throw new Error("missing #game container");
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+const applyPixelRatio = () => renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+applyPixelRatio();
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 container.appendChild(renderer.domElement);
@@ -25,6 +26,7 @@ void poseCamera.start();
 
 window.addEventListener("resize", () => {
   game.resize(window.innerWidth / window.innerHeight);
+  applyPixelRatio(); // DPR changes when the window moves between displays
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 

@@ -11,7 +11,6 @@ export type AnimalDef = {
   product: AnimalProductId;
   texture: string;
   anim: string;
-  scale: number;
   // sprite origin Y so the art's feet sit exactly on the anchor (the frames
   // have empty space below the body), and the ground-shadow width to match
   originY: number;
@@ -27,7 +26,6 @@ export const ANIMALS: Record<AnimalKind, AnimalDef> = {
     product: "egg",
     texture: "obj-chicken",
     anim: "chicken-walk",
-    scale: 1,
     originY: 0.83,
     shadowScale: 1.1,
   },
@@ -39,7 +37,6 @@ export const ANIMALS: Record<AnimalKind, AnimalDef> = {
     product: "egg",
     texture: "obj-duck",
     anim: "duck-walk",
-    scale: 1,
     originY: 1,
     shadowScale: 0.9,
   },
@@ -51,7 +48,6 @@ export const ANIMALS: Record<AnimalKind, AnimalDef> = {
     product: "milk",
     texture: "obj-cow",
     anim: "cow-idle",
-    scale: 1,
     originY: 0.92,
     shadowScale: 1.6,
   },
@@ -63,7 +59,6 @@ export const ANIMALS: Record<AnimalKind, AnimalDef> = {
     product: "wool",
     texture: "obj-sheep",
     anim: "sheep-idle",
-    scale: 1,
     originY: 0.86,
     shadowScale: 1.3,
   },
@@ -75,11 +70,14 @@ export const ANIMALS: Record<AnimalKind, AnimalDef> = {
     product: "truffle",
     texture: "obj-pig",
     anim: "pig-idle",
-    scale: 1,
     originY: 0.86,
     shadowScale: 1.3,
   },
 };
+
+export function isAnimalKind(k: string): k is AnimalKind {
+  return k in ANIMALS;
+}
 
 export const COOP_ANIMALS: AnimalKind[] = ["chicken", "duck"];
 export const BARN_ANIMALS: AnimalKind[] = ["cow", "sheep", "pig"];

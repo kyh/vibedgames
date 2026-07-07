@@ -144,9 +144,6 @@ export const CIRCLE_MIN_RADIUS = 0.04;
  *  settles on the centre of the circling motion). */
 export const CIRCLE_CENTER_LERP = 0.08;
 export const ORBIT_COOLDOWN_MS = 900;
-/** Sideways-turn rotate: shoulder pixel distance below this triggers a CW
- *  rotate (kept verbatim from the current build). */
-export const ROTATE_SHOULDER_PX = 50;
 export const ROTATE_COOLDOWN_MS = 600;
 /** Nose-x steer dead zone (fraction of width) so idle wobble can't drift. */
 export const NOSE_DEAD_ZONE = 0.08;

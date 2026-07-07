@@ -15,7 +15,7 @@ import {
 } from "../data/animals";
 import { SKILL_NAMES, type SkillId } from "../systems/skills";
 import { Sound } from "../render/audio";
-import type { GameScene } from "./game-scene";
+import { GameScene } from "./game-scene";
 
 const FONT = "ui-monospace, monospace";
 const SLOT = 42;
@@ -41,19 +41,24 @@ export class HudScene extends Phaser.Scene {
   private dialogueBox: Phaser.GameObjects.Container | null = null;
   private hotbar!: Phaser.GameObjects.Container;
   private onResize?: () => void;
+  /** Last-drawn signature of the Graphics HUD (see hudSignature). */
+  private hudSig = "";
 
   constructor() {
     super("Hud");
   }
 
   create(): void {
-    this.g = this.scene.get("Game") as GameScene;
+    const game = this.scene.get("Game");
+    if (!(game instanceof GameScene)) throw new Error("Hud requires the Game scene");
+    this.g = game;
     // scene instances are reused across stop/start — reset per-create state and
     // drop stale listeners on the (persistent) game-scene emitter to avoid dupes.
     this.slotNodes = [];
     this.modal = null;
     this.dialogueBox = null;
     this.toastY = 0;
+    this.hudSig = "";
     for (const e of [
       "toast",
       "daybanner",
@@ -188,9 +193,58 @@ export class HudScene extends Phaser.Scene {
   }
 
   override update(): void {
-    // hotbar
     const W = this.scale.width,
       H = this.scale.height;
+    // Graphics rebuilds are gated on a change signature; the texts below stay
+    // per-frame (setText early-outs on an unchanged string).
+    const sig = this.hudSignature(W, H);
+    if (sig !== this.hudSig) {
+      this.hudSig = sig;
+      this.redrawGraphics(W, H);
+    }
+
+    this.dayText.setText(`Day ${this.g.day}`);
+    const s = this.g.season();
+    this.seasonText.setText(
+      `${seasonIcon(s)} ${seasonName(s)}   ${WEATHER_ICON[this.g.weather]} ${WEATHER_NAME[this.g.weather]}`,
+    );
+    this.clockText.setText(this.formatClock(this.g.timeMin));
+    this.goldText.setText(`${store.gold}g`);
+
+    // tooltip
+    const item = store.inv.selectedItem();
+    let tip = item ? itemName(item) : "";
+    if (item && item.kind === "tool" && item.tool === "can")
+      tip += `  💧${this.g.canCharge}/${CAN_MAX}`;
+    this.toolTip.setText(tip);
+  }
+
+  /** Everything the Graphics-drawn HUD (hotbar, panels, bars) depends on. */
+  private hudSignature(W: number, H: number): string {
+    const parts: (string | number)[] = [
+      W,
+      H,
+      store.inv.selected,
+      store.gold,
+      store.hp,
+      store.maxHp(),
+      store.energy,
+      this.g.canCharge,
+    ];
+    for (let i = 0; i < HOTBAR; i++) {
+      const slot = store.inv.slots[i];
+      if (slot) {
+        const ic = itemIcon(slot.item);
+        parts.push(ic.key, ic.frame ?? -1, slot.qty);
+      } else {
+        parts.push("·");
+      }
+    }
+    return parts.join("|");
+  }
+
+  private redrawGraphics(W: number, H: number): void {
+    // hotbar
     const total = HOTBAR * (SLOT + PAD) - PAD;
     const startX = (W - total) / 2 + SLOT / 2;
     const y = H - SLOT / 2 - 14;
@@ -220,25 +274,11 @@ export class HudScene extends Phaser.Scene {
     // top-left panel
     this.topPanel.clear();
     panelRect(this.topPanel, 12, 10, 150, 64);
-    this.dayText.setText(`Day ${this.g.day}`);
-    const s = this.g.season();
-    this.seasonText.setText(
-      `${seasonIcon(s)} ${seasonName(s)}   ${WEATHER_ICON[this.g.weather]} ${WEATHER_NAME[this.g.weather]}`,
-    );
-    this.clockText.setText(this.formatClock(this.g.timeMin));
 
     // right panel: gold + HP + energy
     this.rightPanel.clear();
     panelRect(this.rightPanel, W - 172, 10, 160, 70);
-    this.goldText.setText(`${store.gold}g`);
     this.drawBars(W - 164, 44);
-
-    // tooltip
-    const item = store.inv.selectedItem();
-    let tip = item ? itemName(item) : "";
-    if (item && item.kind === "tool" && item.tool === "can")
-      tip += `  💧${this.g.canCharge}/${CAN_MAX}`;
-    this.toolTip.setText(tip);
   }
 
   private drawBars(x: number, y: number): void {

@@ -38,9 +38,6 @@ export class Inventory {
   selectedItem(): Item | null {
     return this.slots[this.selected]?.item ?? null;
   }
-  selectedSlot(): Slot {
-    return this.slots[this.selected] ?? null;
-  }
 
   select(i: number): void {
     if (i >= 0 && i < HOTBAR) this.selected = i;

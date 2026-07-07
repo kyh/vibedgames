@@ -107,14 +107,10 @@ export const CAM_FOV = 44;
 // Low and a touch back from the player baseline (paddle is at y=−8) — an
 // immersive 3/4 that the proximity dip ducks lower still as the ball nears.
 export const CAM_POS = { x: 0, y: -15, z: 9 } as const;
-// Aim point biased toward the player (−y): a close, immersive 3/4 perspective
-// that fills the screen and gives the orbit real depth. The court's near edge
-// bleeds just off the bottom — the trade for the punchier angle.
-export const CAM_LOOK = { x: 0, y: -3, z: 0 } as const;
-
 // Paddle-follow parallax: the camera ORBITS a small angle around the court's
-// vertical axis with the player's paddle, re-aiming at CAM_LOOK so the table
-// turns to reveal depth (not just a flat slide). The drive is a smoothed,
+// vertical axis with the player's paddle, re-aiming at the fixed aim point
+// (0, CAM_AIM_Y, PADDLE_Z) so the table turns to reveal depth (not just a
+// flat slide). The drive is a smoothed,
 // normalized −1..1 in its OWN field (never camDrag, which self-centers each
 // frame); critically damped so fast flicks neither lag nor strobe.
 // The camera strafes left/right along the player's baseline with the paddle and

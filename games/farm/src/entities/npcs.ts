@@ -1,6 +1,5 @@
 import Phaser from "phaser";
 import { TILE, DEPTH, CHAR_ORIGIN_Y } from "../config";
-import { World } from "../world/world";
 import { store } from "../systems/store";
 import {
   NPCS,
@@ -32,7 +31,7 @@ export class NpcManager {
   private talkedToday = new Set<NpcId>();
   private giftedToday = new Set<NpcId>();
 
-  constructor(scene: GameScene, _world: World) {
+  constructor(scene: GameScene) {
     this.scene = scene;
   }
 
@@ -105,7 +104,7 @@ export class NpcManager {
         if (item && giftable(item) && !this.giftedToday.has(l.id)) {
           this.giveGift(l, item);
         } else {
-          this.talk(l, def.greeting, def.lines, false);
+          this.talk(l, def.greeting, def.lines);
         }
         return true;
       }
@@ -130,10 +129,10 @@ export class NpcManager {
     });
     Sound.coins();
     this.emitDialogue(l.id, REACTION_LINE[reaction]);
-    this.scene.save();
+    this.scene.requestSave();
   }
 
-  private talk(l: Live, greeting: string, lines: string[], _gift: boolean): void {
+  private talk(l: Live, greeting: string, lines: string[]): void {
     const first = !this.talkedToday.has(l.id);
     if (first) {
       this.talkedToday.add(l.id);

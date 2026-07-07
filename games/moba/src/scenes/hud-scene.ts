@@ -643,7 +643,8 @@ export class HudScene extends Phaser.Scene {
         .filter((u) => u.team === team)
         .sort((a, b) => (b.hero?.gold ?? 0) - (a.hero?.gold ?? 0));
       for (const u of list) {
-        const h = u.hero!;
+        const h = u.hero;
+        if (!h) continue;
         const def = HERO_BY_ID[h.defId];
         const dead = !u.alive;
         const name = `${def?.name ?? h.defId}  Lv${h.level}${h.isBot ? " (bot)" : ""}`;

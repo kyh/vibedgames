@@ -96,6 +96,9 @@ class PoseCamera {
   private landmarker: PoseLandmarker | null = null;
   private stream: MediaStream | null = null;
   private detectionStarted = false;
+  /** Overlay 2d context + DrawingUtils, created once when the stream is sized. */
+  private overlayCtx: CanvasRenderingContext2D | null = null;
+  private drawingUtils: DrawingUtils | null = null;
 
   constructor(
     private readonly ui: Panel,
@@ -169,6 +172,14 @@ class PoseCamera {
         () => {
           this.ui.overlay.width = video.videoWidth;
           this.ui.overlay.height = video.videoHeight;
+          const ctx = this.ui.overlay.getContext("2d");
+          if (!ctx) {
+            this.setStatus("Error: overlay canvas has no 2d context");
+            this.setState("idle");
+            return;
+          }
+          this.overlayCtx = ctx;
+          this.drawingUtils = new DrawingUtils(ctx);
           void this.loadModel();
         },
         { once: true },
@@ -231,7 +242,7 @@ class PoseCamera {
           const result = landmarker.detectForVideo(video, timestamp);
           const landmarks = result.landmarks[0];
           if (landmarks) {
-            drawSkeleton(landmarks, this.ui.overlay);
+            this.drawSkeleton(landmarks);
 
             // Nose coordinates are normalized (0-1) — convert to pixel Y so the
             // calibrated baseline matches the legacy numbers.
@@ -327,6 +338,27 @@ class PoseCamera {
       this.setState("detecting");
       this.setStatus("Jump to flap!");
     }
+  }
+
+  // ---- skeleton overlay ------------------------------------------------------
+
+  /** Skeleton overlay: red landmark dots (r=3) + blue connectors (lineWidth=2). */
+  private drawSkeleton(landmarks: NormalizedLandmark[]): void {
+    const ctx = this.overlayCtx;
+    const drawingUtils = this.drawingUtils;
+    if (!ctx || !drawingUtils) return;
+
+    ctx.clearRect(0, 0, this.ui.overlay.width, this.ui.overlay.height);
+
+    drawingUtils.drawLandmarks(landmarks, {
+      radius: 3,
+      color: "red",
+      fillColor: "red",
+    });
+    drawingUtils.drawConnectors(landmarks, PoseLandmarker.POSE_CONNECTIONS, {
+      color: "blue",
+      lineWidth: 2,
+    });
   }
 }
 
@@ -458,25 +490,6 @@ function buildPanel(parent: HTMLElement): Panel {
 }
 
 // ---- pure helpers --------------------------------------------------------------------------
-
-/** Skeleton overlay: red landmark dots (r=3) + blue connectors (lineWidth=2). */
-function drawSkeleton(landmarks: NormalizedLandmark[], canvas: HTMLCanvasElement): void {
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  const drawingUtils = new DrawingUtils(ctx);
-  drawingUtils.drawLandmarks(landmarks, {
-    radius: 3,
-    color: "red",
-    fillColor: "red",
-  });
-  drawingUtils.drawConnectors(landmarks, PoseLandmarker.POSE_CONNECTIONS, {
-    color: "blue",
-    lineWidth: 2,
-  });
-}
 
 function getSmoothedY(positions: number[]): number {
   if (positions.length === 0) return 0;

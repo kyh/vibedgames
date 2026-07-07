@@ -327,10 +327,6 @@ export class GameScene {
     this.camera.updateProjectionMatrix();
   }
 
-  destroy(): void {
-    this.net.destroy();
-  }
-
   // ---- role / paddle ownership ---------------------------------------------
 
   /** A guest (second player) is connected but not the host. */
@@ -904,37 +900,36 @@ export class GameScene {
     const seq = numField(s, "seq");
     const fresh = seq !== null && seq !== this.lastSeq;
 
-    this.ballVel.set(numField(s, "bvx") ?? 0, numField(s, "bvy") ?? 0);
-    this.rallyHits = numField(s, "rally") ?? 0;
-    // Re-anchor the host's remaining serve time in OUR timeline (only on a
-    // fresh snapshot — re-anchoring stale data would freeze the meter).
-    if (fresh) {
-      const sl = numField(s, "serveLeft");
-      this.serveAt = sl === null ? null : this.elapsed + sl;
-    }
-
-    // Slots A/B map to opponent/me for a guest.
-    const prevYou = this.scoreYou;
-    const prevAi = this.scoreAi;
-    this.scoreYou = numField(s, "scoreB") ?? 0;
-    this.scoreAi = numField(s, "scoreA") ?? 0;
-    if (this.scoreYou !== prevYou) popScore(this.scoreYouEl);
-    if (this.scoreAi !== prevAi) popScore(this.scoreAiEl);
-
-    const af = numField(s, "arcFrom");
-    const at = numField(s, "arcTo");
-    this.arc = af !== null && at !== null ? { fromY: af, toY: at } : null;
-
-    const ph = s["phase"];
-    const nextPhase: Phase = ph === "serving" || ph === "rally" || ph === "won" ? ph : this.phase;
-
+    // Snapshot-derived state only changes when a new snapshot lands — adopt it
+    // once per snapshot (not every frame; this also skips re-allocating the arc).
     if (fresh && seq !== null) {
       this.lastSeq = seq;
+      this.ballVel.set(numField(s, "bvx") ?? 0, numField(s, "bvy") ?? 0);
+      this.rallyHits = numField(s, "rally") ?? 0;
+      // Re-anchor the host's remaining serve time in OUR timeline (only on a
+      // fresh snapshot — re-anchoring stale data would freeze the meter).
+      const sl = numField(s, "serveLeft");
+      this.serveAt = sl === null ? null : this.elapsed + sl;
+
+      // Slots A/B map to opponent/me for a guest.
+      const prevYou = this.scoreYou;
+      const prevAi = this.scoreAi;
+      this.scoreYou = numField(s, "scoreB") ?? 0;
+      this.scoreAi = numField(s, "scoreA") ?? 0;
+      if (this.scoreYou !== prevYou) popScore(this.scoreYouEl);
+      if (this.scoreAi !== prevAi) popScore(this.scoreAiEl);
+
+      const af = numField(s, "arcFrom");
+      const at = numField(s, "arcTo");
+      this.arc = af !== null && at !== null ? { fromY: af, toY: at } : null;
+
       this.ballPos.set(numField(s, "bx") ?? 0, numField(s, "by") ?? 0);
     } else if (this.phase === "rally") {
       this.ballPos.addScaledVector(this.ballVel, dt);
     }
 
+    const ph = s["phase"];
+    const nextPhase: Phase = ph === "serving" || ph === "rally" || ph === "won" ? ph : this.phase;
     if (nextPhase !== this.phase || fresh) {
       this.phase = nextPhase;
       this.syncHud();
@@ -1132,9 +1127,10 @@ export class GameScene {
 
   /** Deplete the serve-countdown bar over the auto-serve dead air between points. */
   private updateServeMeter(): void {
-    const active = this.phase === "serving" && this.serveAt !== null;
-    if (active && this.serveAt !== null) {
-      const left = Math.max(0, this.serveAt - this.elapsed);
+    const serveAt = this.serveAt;
+    const active = this.phase === "serving" && serveAt !== null;
+    if (active) {
+      const left = Math.max(0, serveAt - this.elapsed);
       this.serveMeterEl.style.setProperty("--fill", `${(left / AUTO_SERVE_S) * 100}%`);
     }
     if (active !== this.serveMeterShown) {
@@ -1168,8 +1164,10 @@ function frameLerp(perFrame: number, dt: number): number {
 /**
  * One step of a critically-damped spring toward `target` (Game Programming
  * Gems 4). Frame-rate independent; `omega` is the natural frequency (rad/s) —
- * higher snaps faster. Returns the new position and its carried velocity.
+ * higher snaps faster. Returns the new position and its carried velocity in a
+ * shared scratch object (no per-frame allocation) — consume before calling again.
  */
+const DAMP_OUT = { pos: 0, vel: 0 };
 function smoothDamp(
   current: number,
   target: number,
@@ -1181,7 +1179,9 @@ function smoothDamp(
   const exp = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
   const change = current - target;
   const temp = (vel + omega * change) * dt;
-  return { pos: target + (change + temp) * exp, vel: (vel - omega * temp) * exp };
+  DAMP_OUT.pos = target + (change + temp) * exp;
+  DAMP_OUT.vel = (vel - omega * temp) * exp;
+  return DAMP_OUT;
 }
 
 function el(id: string): HTMLElement {

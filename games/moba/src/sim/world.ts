@@ -7,12 +7,13 @@ import {
   PASSIVE_GOLD_PER_SEC,
   SIM_DT,
   STRUCTS,
+  TEAMS,
   TOWER_RAMP_PER_HIT,
   WAVE,
   enemyOf,
 } from "../data/config";
 import type { CreepKind, Team } from "../data/config";
-import { HERO_BY_ID } from "../data/heroes";
+import { DEFAULT_HERO, HERO_BY_ID } from "../data/heroes";
 import { ITEM_BY_ID, MAX_ITEMS } from "../data/items";
 import {
   BASES,
@@ -89,7 +90,6 @@ const CREEP_AGGRO = 480; // creeps notice enemies within this and peel off lane
 export function createWorld(seed: number): World {
   const w: World = {
     now: 0,
-    startedAt: 0,
     gameTime: 0,
     phase: "playing",
     winner: null,
@@ -131,7 +131,7 @@ function spawnStructures(w: World): void {
     };
     w.units.set(u.id, u);
   }
-  for (const team of ["radiant", "dire"] as Team[]) {
+  for (const team of TEAMS) {
     const b = BASES[team];
     const def = STRUCTS.ancient;
     const id = team === "radiant" ? "r-ancient" : "d-ancient";
@@ -204,7 +204,7 @@ export function spawnHero(
   isBot: boolean,
   slot: number,
 ): Unit {
-  const def = HERO_BY_ID[defId] ?? HERO_BY_ID["ironvow"]!;
+  const def = HERO_BY_ID[defId] ?? DEFAULT_HERO;
   const b = BASES[team];
   const spread = (slot - 2) * 70;
   const u = baseUnit(`h-${ownerId}`, "hero", team, b.heroSpawn.x + spread, b.heroSpawn.y, 30);
@@ -239,8 +239,7 @@ export function spawnHero(
     dashReadyAt: 0,
     dashX: 1,
     dashY: 0,
-    pendingLevelStat: false,
-    botLane: (["top", "bottom"] as const)[slot % 2]!,
+    botLane: slot % 2 === 0 ? "top" : "bottom",
     botNextDecisionAt: 0,
     botRetreating: false,
   };
@@ -293,7 +292,7 @@ function spawnCreep(w: World, team: Team, lane: LaneId, ckind: CreepKind, idx: n
 function spawnWave(w: World): void {
   w.waveCount += 1;
   const siege = w.waveCount % WAVE.siegeEveryNthWave === 0;
-  for (const team of ["radiant", "dire"] as Team[]) {
+  for (const team of TEAMS) {
     for (const lane of LANE_IDS) {
       let i = 0;
       for (let m = 0; m < WAVE.melee; m++) spawnCreep(w, team, lane, "melee", i++);
@@ -498,8 +497,8 @@ function regen(w: World, u: Unit, dt: number): void {
 }
 
 function tickHero(w: World, u: Unit, dt: number): void {
-  const h = u.hero!;
-  void dt;
+  const h = u.hero;
+  if (!h) return;
   if (!u.alive) {
     if (h.respawnAt > 0 && w.now >= h.respawnAt) respawnHero(w, u);
     return;
@@ -516,7 +515,8 @@ function tickHero(w: World, u: Unit, dt: number): void {
 }
 
 function respawnHero(w: World, u: Unit): void {
-  const h = u.hero!;
+  const h = u.hero;
+  if (!h) return;
   const b = BASES[u.team];
   h.respawnAt = 0;
   u.alive = true;
@@ -633,7 +633,7 @@ function acquireNearbyEnemy(w: World, u: Unit, radius: number): Unit | null {
   let bestD = radius * radius;
   for (const t of w.units.values()) {
     if (!isEnemy(u, t) || !t.alive) continue;
-    if (t.kind === "structure" && !t.structure!.attackable) continue;
+    if (t.kind === "structure" && !t.structure?.attackable) continue;
     if (t.statuses.some((s) => s.kind === "untargetable")) continue;
     const dx = t.x - u.x;
     const dy = t.y - u.y;

@@ -41,6 +41,23 @@ export function inBounds(tx: number, ty: number): boolean {
   return tx >= 0 && ty >= 0 && tx < MAP_W && ty < MAP_H;
 }
 
+// Buildings/trees occupy their footprint counting up from the anchor tile.
+function covers(o: WorldObject, tx: number, ty: number): boolean {
+  const x0 = o.tx - ((o.w - 1) >> 1);
+  return tx >= x0 && tx <= x0 + o.w - 1 && ty >= o.ty - o.h + 1 && ty <= o.ty;
+}
+
+function footprintKeys(o: WorldObject): number[] {
+  const keys: number[] = [];
+  const x0 = o.tx - ((o.w - 1) >> 1);
+  for (let ty = o.ty - o.h + 1; ty <= o.ty; ty++) {
+    for (let tx = x0; tx < x0 + o.w; tx++) {
+      if (inBounds(tx, ty)) keys.push(ty * MAP_W + tx);
+    }
+  }
+  return keys;
+}
+
 export class World {
   // static, derived from the world map — never serialized
   kind: Uint8Array = new Uint8Array(MAP_W * MAP_H);
@@ -50,6 +67,9 @@ export class World {
   crops = new Map<number, CropState>();
   objects: WorldObject[] = [];
   nextId = 1;
+  // tile idx -> first object (in array order) covering it. Objects never move,
+  // so the index only changes in addObject/removeObject/fromJSON.
+  private occupied = new Map<number, WorldObject>();
 
   constructor(worldMap?: WorldMap) {
     if (worldMap) this.kind = buildSemantics(worldMap).kind;
@@ -79,25 +99,34 @@ export class World {
   addObject(o: Omit<WorldObject, "id">): WorldObject {
     const obj = { ...o, id: this.nextId++ };
     this.objects.push(obj);
+    this.indexObject(obj);
     return obj;
   }
 
   removeObject(o: WorldObject): void {
     const i = this.objects.indexOf(o);
     if (i >= 0) this.objects.splice(i, 1);
+    for (const key of footprintKeys(o)) {
+      if (this.occupied.get(key) !== o) continue;
+      this.occupied.delete(key);
+      // an overlapping object may have been shadowed on this tile
+      const tx = key % MAP_W;
+      const ty = (key / MAP_W) | 0;
+      const other = this.objects.find((c) => covers(c, tx, ty));
+      if (other) this.occupied.set(key, other);
+    }
   }
 
-  // Object occupying a tile (for collision / targeting). Buildings/trees occupy
-  // their footprint counting up from the anchor tile.
-  objectAt(tx: number, ty: number): WorldObject | null {
-    for (const o of this.objects) {
-      const x0 = o.tx - ((o.w - 1) >> 1);
-      const x1 = x0 + o.w - 1;
-      const y0 = o.ty - o.h + 1;
-      const y1 = o.ty;
-      if (tx >= x0 && tx <= x1 && ty >= y0 && ty <= y1) return o;
+  private indexObject(o: WorldObject): void {
+    for (const key of footprintKeys(o)) {
+      if (!this.occupied.has(key)) this.occupied.set(key, o);
     }
-    return null;
+  }
+
+  // Object occupying a tile (for collision / targeting).
+  objectAt(tx: number, ty: number): WorldObject | null {
+    if (!inBounds(tx, ty)) return null;
+    return this.occupied.get(this.idx(tx, ty)) ?? null;
   }
 
   isSolidTile(tx: number, ty: number): boolean {
@@ -134,6 +163,7 @@ export class World {
     w.crops = new Map(d.crops);
     w.objects = d.objects;
     w.nextId = d.nextId;
+    for (const o of w.objects) w.indexObject(o);
     return w;
   }
 }

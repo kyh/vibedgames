@@ -8,7 +8,7 @@ import { MAX_DT, TONE_EXPOSURE } from "./shared/constants";
 const container = document.getElementById("game");
 if (!container) throw new Error("missing #game container");
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 // r3f Canvas defaults the legacy build rendered through, plus a touch of

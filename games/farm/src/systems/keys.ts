@@ -33,29 +33,9 @@ export type GameKeys = {
   ZERO: K;
 };
 
-export type MineKeys = {
-  W: K;
-  A: K;
-  S: K;
-  D: K;
-  UP: K;
-  DOWN: K;
-  LEFT: K;
-  RIGHT: K;
-  SPACE: K;
-  E: K;
-  SHIFT: K;
-  ONE: K;
-  TWO: K;
-  THREE: K;
-  FOUR: K;
-  FIVE: K;
-  SIX: K;
-  SEVEN: K;
-  EIGHT: K;
-  NINE: K;
-  ZERO: K;
-};
+// The mine has no inventory/help/mute bindings; a GameKeys is structurally a
+// MineKeys, so MineScene reuses makeGameKeys.
+export type MineKeys = Omit<GameKeys, "I" | "H" | "M">;
 
 const NUMS = [
   "ONE",
@@ -89,33 +69,6 @@ export function makeGameKeys(kb: Plugin): GameKeys {
     I: a("I"),
     H: a("H"),
     M: a("M"),
-    ONE: a("ONE"),
-    TWO: a("TWO"),
-    THREE: a("THREE"),
-    FOUR: a("FOUR"),
-    FIVE: a("FIVE"),
-    SIX: a("SIX"),
-    SEVEN: a("SEVEN"),
-    EIGHT: a("EIGHT"),
-    NINE: a("NINE"),
-    ZERO: a("ZERO"),
-  };
-}
-
-export function makeMineKeys(kb: Plugin): MineKeys {
-  const a = (n: string): K => kb.addKey(n, false);
-  return {
-    W: a("W"),
-    A: a("A"),
-    S: a("S"),
-    D: a("D"),
-    UP: a("UP"),
-    DOWN: a("DOWN"),
-    LEFT: a("LEFT"),
-    RIGHT: a("RIGHT"),
-    SPACE: a("SPACE"),
-    E: a("E"),
-    SHIFT: a("SHIFT"),
     ONE: a("ONE"),
     TWO: a("TWO"),
     THREE: a("THREE"),

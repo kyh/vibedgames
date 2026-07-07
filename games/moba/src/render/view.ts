@@ -939,7 +939,6 @@ export class WorldView {
   }
 
   private syncUnits(world: World, dt: number): void {
-    const seen = new Set<string>();
     for (const u of world.units.values()) {
       if (u.kind === "structure") continue;
       // dead heroes: play the death anim once, then hide until respawn
@@ -964,7 +963,6 @@ export class WorldView {
         }
         continue;
       }
-      seen.add(u.id);
       let v = this.units.get(u.id);
       if (!v) v = this.createUnitView(u);
       if (v.dead) {
@@ -1477,9 +1475,7 @@ export class WorldView {
   }
 
   private syncProjectiles(world: World): void {
-    const seen = new Set<string>();
     for (const p of world.projectiles.values()) {
-      seen.add(p.id);
       let img = this.projs.get(p.id);
       if (!img) {
         if (p.kind === "fireball" && this.scene.anims.exists("sp-fireball-fly")) {
@@ -1506,7 +1502,7 @@ export class WorldView {
       this.tickProjTrail(p);
     }
     for (const [id, img] of this.projs)
-      if (!seen.has(id)) {
+      if (!world.projectiles.has(id)) {
         img.destroy();
         this.projs.delete(id);
         this.projTrailAt.delete(id);
@@ -1626,9 +1622,7 @@ export class WorldView {
   }
 
   private syncMines(world: World): void {
-    const seen = new Set<string>();
     for (const m of world.mines.values()) {
-      seen.add(m.id);
       let img = this.mines.get(m.id);
       if (!img) {
         img = this.scene.add
@@ -1639,7 +1633,7 @@ export class WorldView {
       }
     }
     for (const [id, img] of this.mines)
-      if (!seen.has(id)) {
+      if (!world.mines.has(id)) {
         img.destroy();
         this.mines.delete(id);
       }

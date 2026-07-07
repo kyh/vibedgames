@@ -34,17 +34,27 @@ import { Skills, type SkillId, SKILL_NAMES } from "../systems/skills";
 import { store } from "../systems/store";
 import { CROPS, cropStage, isMature, type CropId } from "../data/crops";
 import { isSellable, sellValue, type Item, type ForageId } from "../data/items";
-import { hasSave, loadSave, writeSave, type SaveData } from "../systems/save";
+import { loadSave, writeSave, type SaveData } from "../systems/save";
 import { burst, floatText, shake, pop } from "../render/fx";
 import { Sound } from "../render/audio";
 import { seasonOfDay, type Season } from "../data/calendar";
-import { weatherForDay, type Weather } from "../systems/weather";
+import { isWet, weatherForDay, type Weather } from "../systems/weather";
 import { Fishing } from "../systems/fishing";
 import { makeGameKeys, NUM_KEY_NAMES, type GameKeys } from "../systems/keys";
 import { AnimalManager } from "../entities/animals";
 import { NpcManager } from "../entities/npcs";
 
 type CharAction = "dig" | "water" | "axe" | "mine" | "doing";
+
+declare global {
+  interface Window {
+    /** DEV-only hook for headless verification. */
+    __gs?: GameScene;
+  }
+}
+
+/** Routine saves are debounced: flushed at most this often (seconds). */
+const SAVE_FLUSH_SEC = 3;
 
 /** A single tile's synced state: tilled, watered, crop id (or null), grow-days. */
 type TileEdit = { t: number; w: number; c: CropId | null; d: number };
@@ -117,6 +127,9 @@ export class GameScene extends Phaser.Scene {
   private fainted = false;
   private onResizeHandler?: (gs: Phaser.Structs.Size) => void;
   private saveHandler = (): void => this.save();
+  /** Debounced-save state: actions mark dirty, update() flushes (see save). */
+  private saveDirty = false;
+  private saveAcc = 0;
 
   // ---- multiplayer (co-op shared farm) ---------------------------------------
   // The host owns the world (tilled/watered/crops) and the clock; guests adopt
@@ -167,14 +180,16 @@ export class GameScene extends Phaser.Scene {
     this.stepTimer = 0;
     this.clickPath = [];
     this.pathStuck = 0;
+    this.saveDirty = false;
+    this.saveAcc = 0;
 
     if (data?.fromMine) {
       // returning from the mine — world/state already initialized; just rebuild
       this.restoreFromStore();
       if (data.fainted) this.fainted = true;
     } else {
-      const cont = data?.mode === "continue" && hasSave();
-      if (cont) this.loadFrom(loadSave()!);
+      const s = data?.mode === "continue" ? loadSave() : null;
+      if (s) this.loadFrom(s);
       else this.startNew();
     }
     this.weather = weatherForDay(this.seed, this.day);
@@ -227,7 +242,7 @@ export class GameScene extends Phaser.Scene {
 
     this.fishing = new Fishing(this);
     this.animals = new AnimalManager(this, this.world);
-    this.npcs = new NpcManager(this, this.world);
+    this.npcs = new NpcManager(this);
     this.animals.spawnAll();
     this.npcs.spawnAll();
 
@@ -256,8 +271,7 @@ export class GameScene extends Phaser.Scene {
     for (const intent of this.pendingTileIntents) this.applyTileIntent(intent);
     this.pendingTileIntents = [];
 
-    if (import.meta.env.DEV)
-      (window as unknown as { __gs: GameScene }).__gs = this;
+    if (import.meta.env.DEV) window.__gs = this;
   }
 
   // ---------------------------------------------------------------- init
@@ -356,6 +370,10 @@ export class GameScene extends Phaser.Scene {
     this.keys.I.on("down", () => this.toggleInventory());
     this.keys.H.on("down", () => !this.uiOpen && this.events.emit("toggle-help"));
     kb.on("keydown-T", () => this.toggleCollisionOverlay());
+    // scroll wheel cycles the hotbar selection (documented in the help modal)
+    this.input.on("wheel", (_p: Phaser.Input.Pointer, _o: unknown, _dx: number, dy: number) => {
+      if (!this.uiOpen) store.inv.cycle(Math.sign(dy));
+    });
   }
 
   // debug aid (T): tint blocked cells — red solid, blue water/void (fishable)
@@ -513,6 +531,9 @@ export class GameScene extends Phaser.Scene {
     this.shadow.setPosition(this.player.x, this.player.y + 1);
     this.shadow.setDepth(this.player.depth - 1);
     this.updateNet(dt);
+    // flush debounced saves (transitions and tab-hide/unload still save at once)
+    this.saveAcc += dt;
+    if (this.saveDirty && this.saveAcc >= SAVE_FLUSH_SEC) this.save();
   }
 
   // ---- multiplayer: sync ----------------------------------------------------
@@ -1019,13 +1040,6 @@ export class GameScene extends Phaser.Scene {
         this.beginAction("doing", () => this.plant(idx, crop));
       } else
         this.toast(this.world.tilled[idx] ? "Already planted." : "Till the soil first.", "#ffd27a");
-    } else if (
-      item.kind === "animal_product" ||
-      item.kind === "fish" ||
-      item.kind === "forage" ||
-      item.kind === "produce"
-    ) {
-      // could be a gift to an NPC handled above; otherwise nothing
     }
   }
 
@@ -1087,7 +1101,7 @@ export class GameScene extends Phaser.Scene {
     shake(this, 0.0025, 90);
     Sound.dig();
     this.awardXP("farming", 2);
-    this.save();
+    this.requestSave();
     this.netTileAction(idx, "till");
   }
 
@@ -1136,7 +1150,7 @@ export class GameScene extends Phaser.Scene {
     });
     Sound.plant();
     this.awardXP("farming", 2);
-    this.save();
+    this.requestSave();
     this.netTileAction(idx, "plant", crop);
   }
 
@@ -1168,7 +1182,7 @@ export class GameScene extends Phaser.Scene {
     floatText(this, tx * TILE + 8, ty * TILE + 4, `+${n} ${def.name}`, "#d8ffb0");
     Sound.harvest();
     this.awardXP("farming", 12);
-    this.save();
+    this.requestSave();
     this.netTileAction(idx, "harvest");
   }
 
@@ -1205,7 +1219,7 @@ export class GameScene extends Phaser.Scene {
       floatText(this, o.tx * TILE + 8, o.ty * TILE - 8, `+${got} Wood`, "#e8c79a");
       this.awardXP("foraging", 6);
     }
-    this.save();
+    this.requestSave();
   }
 
   private mineRock(o: WorldObject): void {
@@ -1241,7 +1255,7 @@ export class GameScene extends Phaser.Scene {
       floatText(this, o.tx * TILE + 8, o.ty * TILE - 8, `+${got} Stone`, "#cdd6e0");
       this.awardXP("mining", 5);
     }
-    this.save();
+    this.requestSave();
   }
 
   private pickForage(o: WorldObject): void {
@@ -1276,7 +1290,7 @@ export class GameScene extends Phaser.Scene {
     );
     Sound.plant();
     this.awardXP("foraging", 8);
-    this.save();
+    this.requestSave();
   }
 
   // ---------------------------------------------------------------- economy / ui
@@ -1310,7 +1324,7 @@ export class GameScene extends Phaser.Scene {
       this.toast("Only some fit — inventory full.", "#ffd27a");
     }
     Sound.coins();
-    this.save();
+    this.requestSave();
     return true;
   }
 
@@ -1330,7 +1344,7 @@ export class GameScene extends Phaser.Scene {
     if (total > 0) {
       store.gold += total;
       Sound.coins();
-      this.save();
+      this.requestSave();
     }
     return total;
   }
@@ -1435,7 +1449,7 @@ export class GameScene extends Phaser.Scene {
     const nextDay = this.day + 1;
     const nextSeason = seasonOfDay(nextDay);
     const nextWeather = weatherForDay(this.seed, nextDay);
-    const rainy = nextWeather === "rain" || nextWeather === "storm";
+    const rainy = isWet(nextWeather);
 
     // grow watered crops; wither out-of-season; then reset/refresh watering
     for (const [i, cs] of [...this.world.crops]) {
@@ -1476,7 +1490,15 @@ export class GameScene extends Phaser.Scene {
     this.events.emit("toast", text, color);
   }
 
+  /** Mark the save dirty; update() flushes at most every SAVE_FLUSH_SEC.
+   *  Transitions (enterMine/endDay) and hidden/beforeunload call save() directly. */
+  requestSave(): void {
+    this.saveDirty = true;
+  }
+
   save(): void {
+    this.saveDirty = false;
+    this.saveAcc = 0;
     const d: SaveData = {
       v: 3,
       seed: this.seed,
@@ -1515,7 +1537,7 @@ function tintFor(timeMin: number, weather: Weather): { color: number; alpha: num
   const lerp = (a: number, b: number, t: number) => a + (b - a) * Phaser.Math.Clamp(t, 0, 1);
   // weather darkens the day a touch
   const wx = weather === "storm" ? 0.22 : weather === "rain" ? 0.12 : weather === "snow" ? 0.08 : 0;
-  const wcol = weather === "storm" || weather === "rain" ? 0x2a3550 : 0x9fb6d8;
+  const wcol = isWet(weather) ? 0x2a3550 : 0x9fb6d8;
   let base: { color: number; alpha: number };
   if (timeMin < 9 * 60)
     base = { color: 0xffe2a8, alpha: lerp(0.16, 0, (timeMin - DAY_START_MIN) / (3 * 60)) };

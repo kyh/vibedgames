@@ -81,11 +81,6 @@ export class Piece {
     return true;
   }
 
-  /** The layer this piece currently occupies. */
-  layer(): number {
-    return this.y;
-  }
-
   /** Cells where the slab would come to rest if hard-dropped now (the ghost). */
   landingCells(board: Board): Cell[] {
     let y = this.y;

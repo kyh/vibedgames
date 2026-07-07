@@ -92,7 +92,19 @@ export const FISH: Record<FishId, FishDef> = {
   },
 };
 
-export const FISH_IDS = Object.keys(FISH) as FishId[];
+export const FISH_IDS = [
+  "sardine",
+  "carp",
+  "bream",
+  "bass",
+  "trout",
+  "pike",
+  "salmon",
+  "catfish",
+  "tuna",
+  "pufferfish",
+  "legend",
+] as const satisfies readonly FishId[];
 
 function inSeason(def: FishDef, season: Season): boolean {
   return def.seasons === "all" || def.seasons.includes(season);

@@ -42,10 +42,10 @@ export class FaceCamera {
   private readonly opts: FaceCameraOptions;
   private landmarker: FaceLandmarker | null = null;
   private drawingUtils: DrawingUtils | null = null;
+  private overlayCtx: CanvasRenderingContext2D | null = null;
   private result: FaceLandmarkerResult | null = null;
   private lastVideoTime = -1;
   private lastHeadChange = 0;
-  private frameHandle: number | null = null;
 
   constructor(opts: FaceCameraOptions) {
     this.opts = opts;
@@ -57,6 +57,7 @@ export class FaceCamera {
     try {
       const ctx = this.opts.overlay.getContext("2d");
       if (!ctx) throw new Error("no 2d context for overlay canvas");
+      this.overlayCtx = ctx;
       this.drawingUtils = new DrawingUtils(ctx);
 
       const fileset = await FilesetResolver.forVisionTasks(WASM_CDN);
@@ -90,15 +91,6 @@ export class FaceCamera {
     }
   }
 
-  stop(): void {
-    if (this.frameHandle !== null) window.cancelAnimationFrame(this.frameHandle);
-    const stream = this.opts.video.srcObject;
-    if (stream instanceof MediaStream) {
-      for (const track of stream.getTracks()) track.stop();
-    }
-    this.landmarker?.close();
-  }
-
   private setStatus(text: string | null): void {
     this.opts.status.textContent = text ?? "";
     this.opts.status.style.display = text === null ? "none" : "";
@@ -109,7 +101,7 @@ export class FaceCamera {
   private predict = (): void => {
     const video = this.opts.video;
     const canvas = this.opts.overlay;
-    const ctx = canvas.getContext("2d");
+    const ctx = this.overlayCtx;
     if (!ctx || !this.landmarker || !this.drawingUtils) return;
 
     if (this.lastVideoTime !== video.currentTime) {
@@ -142,7 +134,7 @@ export class FaceCamera {
     }
 
     ctx.restore();
-    this.frameHandle = window.requestAnimationFrame(this.predict);
+    window.requestAnimationFrame(this.predict);
   };
 
   /** Face-mesh overlay — legacy structure/order, restyled in pastels. */

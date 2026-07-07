@@ -48,18 +48,23 @@ function isNumberArray(v: unknown): v is number[] {
   return Array.isArray(v) && v.every((n) => typeof n === "number");
 }
 
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+
 // Narrow the fetched JSON. The file is produced by our own tool, so checks are
 // structural rather than exhaustive.
 export function parseWorldMap(v: unknown): WorldMap {
-  if (typeof v !== "object" || v === null) throw new Error("map.json: not an object");
-  const o = v as Record<string, unknown>;
+  if (!isRecord(v)) throw new Error("map.json: not an object");
+  const o = v;
   const w = o["w"];
   const h = o["h"];
   if (typeof w !== "number" || typeof h !== "number") throw new Error("map.json: bad size");
   const tileLayers: WorldMapTileLayer[] = [];
   if (!Array.isArray(o["tileLayers"])) throw new Error("map.json: bad tileLayers");
   for (const l of o["tileLayers"]) {
-    const lo = l as Record<string, unknown>;
+    if (!isRecord(l)) throw new Error("map.json: bad layer");
+    const lo = l;
     if (typeof lo["name"] !== "string" || !isNumberArray(lo["grid"]))
       throw new Error("map.json: bad layer");
     tileLayers.push({ name: lo["name"], w, h, grid: lo["grid"] });
@@ -67,7 +72,8 @@ export function parseWorldMap(v: unknown): WorldMap {
   const sprites: WorldMapSprite[] = [];
   if (!Array.isArray(o["sprites"])) throw new Error("map.json: bad sprites");
   for (const s of o["sprites"]) {
-    const so = s as Record<string, unknown>;
+    if (!isRecord(s)) continue;
+    const so = s;
     if (typeof so["sprite"] !== "string" || typeof so["x"] !== "number") continue;
     sprites.push({
       layer: typeof so["layer"] === "string" ? so["layer"] : "Assets_1",
@@ -81,9 +87,10 @@ export function parseWorldMap(v: unknown): WorldMap {
   }
   const deco: Record<string, DecoDef> = {};
   const decoRaw = o["deco"];
-  if (typeof decoRaw === "object" && decoRaw !== null) {
+  if (isRecord(decoRaw)) {
     for (const [k, d] of Object.entries(decoRaw)) {
-      const dd = d as Record<string, unknown>;
+      if (!isRecord(d)) continue;
+      const dd = d;
       deco[k] = {
         frames: typeof dd["frames"] === "number" ? dd["frames"] : 1,
         fw: typeof dd["fw"] === "number" ? dd["fw"] : 16,

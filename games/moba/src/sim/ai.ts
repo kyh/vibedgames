@@ -16,6 +16,8 @@ import { buyItem, issueOrder } from "./world";
 import type { Unit, World } from "./types";
 
 const DECISION_MS = 350;
+// ability cast priority: ult first, then Q > W > E
+const CAST_ORDER: readonly AbilityKey[] = ["R", "Q", "W", "E"];
 const RETREAT_HP = 0.32;
 const SAFE_HP = 0.65;
 const ENGAGE_RANGE = 760; // notice enemy heroes within this
@@ -46,7 +48,8 @@ export function tickBots(w: World, _dt: number): void {
 }
 
 function decide(w: World, u: Unit): void {
-  const h = u.hero!;
+  const h = u.hero;
+  if (!h) return;
   const hpPct = u.hp / u.maxHp;
 
   // shop when near home fountain
@@ -118,11 +121,13 @@ function decide(w: World, u: Unit): void {
 
 /** Use the bot's abilities sensibly given an optional primary enemy target. */
 function castKit(w: World, u: Unit, target: Unit | null): void {
-  const def = HERO_BY_ID[u.hero!.defId];
+  const h = u.hero;
+  if (!h) return;
+  const def = HERO_BY_ID[h.defId];
   if (!def) return;
   const inFight = target != null && dist(u, target) < 600;
-  for (const key of ["R", "Q", "W", "E"] as AbilityKey[]) {
-    const slot = u.hero!.abilities[key];
+  for (const key of CAST_ORDER) {
+    const slot = h.abilities[key];
     if (slot.rank <= 0 || w.now < slot.readyAt) continue;
     const ad = def.abilities[key];
     if (ad.targeting === "passive") continue;
@@ -199,7 +204,7 @@ function nearestEnemyStructure(
   for (const t of TOWERS) {
     if (t.team !== enemy || (t.lane !== lane && t.lane !== "base")) continue;
     const su = w.units.get(t.id);
-    if (!su || !su.alive || !su.structure!.attackable) continue;
+    if (!su || !su.alive || !su.structure?.attackable) continue;
     const d = Math.min(
       (su.x - u.x) ** 2 + (su.y - u.y) ** 2,
       (su.x - near.x) ** 2 + (su.y - near.y) ** 2,
@@ -211,7 +216,7 @@ function nearestEnemyStructure(
   }
   // also the ancient if attackable
   const anc = w.units.get(enemy === "radiant" ? "r-ancient" : "d-ancient");
-  if (anc && anc.alive && anc.structure!.attackable && dist(u, anc) < range + 200) best = anc;
+  if (anc && anc.alive && anc.structure?.attackable && dist(u, anc) < range + 200) best = anc;
   return best;
 }
 
@@ -274,9 +279,10 @@ function laneObjective(w: World, u: Unit, lane: LaneId): Vec2 {
   let front: Unit | null = null;
   let frontProg = -1;
   for (const c of w.units.values()) {
-    if (c.kind !== "creep" || c.neutral || c.team !== u.team || !c.alive || c.creep?.lane !== lane)
+    const cs = c.creep;
+    if (c.kind !== "creep" || c.neutral || c.team !== u.team || !c.alive || !cs || cs.lane !== lane)
       continue;
-    const prog = c.creep!.wpIdx;
+    const prog = cs.wpIdx;
     if (prog > frontProg) {
       frontProg = prog;
       front = c;

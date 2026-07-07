@@ -50,10 +50,6 @@ export class Collapse {
     this.world = world;
   }
 
-  active(): boolean {
-    return this.world !== null;
-  }
-
   step(dt: number): void {
     if (!this.world) return;
     this.world.step(1 / 60, dt, 3);

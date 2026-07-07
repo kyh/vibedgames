@@ -193,9 +193,12 @@ export class FxPool {
 
   private updatePuffs(dt: number): void {
     const drag = Math.max(0, 1 - PUFF_DRAG * dt);
-    this.puffs = this.puffs.filter((p) => (p.age += dt) < p.life);
     const mesh = this.puffMesh;
-    this.puffs.forEach((p, i) => {
+    const arr = this.puffs;
+    let w = 0;
+    for (const p of arr) {
+      p.age += dt;
+      if (p.age >= p.life) continue;
       p.vx *= drag;
       p.vz *= drag;
       p.vy = p.vy * drag + PUFF_LIFT * dt;
@@ -207,16 +210,21 @@ export class FxPool {
       this.dummy.rotation.set(0, 0, 0);
       this.dummy.scale.setScalar(Math.max(s, 1e-4));
       this.dummy.updateMatrix();
-      mesh.setMatrixAt(i, this.dummy.matrix);
-      mesh.setColorAt(i, p.color);
-    });
-    commit(mesh, this.puffs.length);
+      mesh.setMatrixAt(w, this.dummy.matrix);
+      mesh.setColorAt(w, p.color);
+      arr[w++] = p;
+    }
+    arr.length = w;
+    commit(mesh, w);
   }
 
   private updateHearts(dt: number): void {
-    this.hearts = this.hearts.filter((h) => (h.age += dt) < h.life);
     const mesh = this.heartMesh;
-    this.hearts.forEach((h, i) => {
+    const arr = this.hearts;
+    let w = 0;
+    for (const h of arr) {
+      h.age += dt;
+      if (h.age >= h.life) continue;
       h.px += (h.vx + Math.sin(this.elapsed * HEART_WOBBLE_FREQ + h.phase) * HEART_WOBBLE_AMP) * dt;
       h.py += h.vy * dt;
       h.pz += h.vz * dt;
@@ -225,16 +233,21 @@ export class FxPool {
       this.dummy.rotation.set(0, h.phase + this.elapsed * HEART_SPIN, 0);
       this.dummy.scale.setScalar(Math.max(s, 1e-4));
       this.dummy.updateMatrix();
-      mesh.setMatrixAt(i, this.dummy.matrix);
-    });
-    commit(mesh, this.hearts.length);
+      mesh.setMatrixAt(w, this.dummy.matrix);
+      arr[w++] = h;
+    }
+    arr.length = w;
+    commit(mesh, w);
   }
 
   private updateConfetti(dt: number): void {
     const drag = Math.max(0, 1 - CONFETTI_DRAG * dt);
-    this.confetti = this.confetti.filter((c) => (c.age += dt) < c.life && c.py > CONFETTI_FLOOR_Y);
     const mesh = this.confettiMesh;
-    this.confetti.forEach((c, i) => {
+    const arr = this.confetti;
+    let w = 0;
+    for (const c of arr) {
+      c.age += dt;
+      if (c.age >= c.life || c.py <= CONFETTI_FLOOR_Y) continue;
       c.vy += CONFETTI_GRAVITY * dt;
       c.vx *= drag;
       c.vy *= drag;
@@ -250,10 +263,12 @@ export class FxPool {
       this.dummy.quaternion.setFromAxisAngle(c.axis, c.angle);
       this.dummy.scale.setScalar(Math.max(s, 1e-4));
       this.dummy.updateMatrix();
-      mesh.setMatrixAt(i, this.dummy.matrix);
-      mesh.setColorAt(i, c.color);
-    });
-    commit(mesh, this.confetti.length);
+      mesh.setMatrixAt(w, this.dummy.matrix);
+      mesh.setColorAt(w, c.color);
+      arr[w++] = c;
+    }
+    arr.length = w;
+    commit(mesh, w);
   }
 
   private updateRings(): void {

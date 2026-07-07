@@ -231,7 +231,7 @@ export class Fishing {
       });
       Sound.harvest();
     }
-    this.scene.save();
+    this.scene.requestSave();
     this.scene.time.delayedCall(650, () => {
       this.state = "idle";
       this.scene.playerAnim("p-idle");

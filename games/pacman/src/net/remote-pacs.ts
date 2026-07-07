@@ -8,7 +8,7 @@ import type { PlayerMap } from "@vibedgames/multiplayer";
 
 export type RemotePacState = { x: number; z: number };
 
-export function readPacState(state: unknown): RemotePacState | null {
+function readPacState(state: unknown): RemotePacState | null {
   if (!state || typeof state !== "object") return null;
   const x = "x" in state ? state.x : null;
   const z = "z" in state ? state.z : null;
@@ -32,7 +32,7 @@ export class RemotePacs {
   private pacs = new Map<string, RemotePac>();
   private geo = new THREE.SphereGeometry(0.42, 20, 16);
 
-  constructor(private readonly scene: THREE.Scene) {
+  constructor(scene: THREE.Scene) {
     scene.add(this.group);
   }
 
@@ -57,10 +57,6 @@ export class RemotePacs {
     }
   }
 
-  count(): number {
-    return this.pacs.size;
-  }
-
   update(dt: number, t: number): void {
     const k = 1 - Math.exp(-LERP_RATE * dt);
     for (const pac of this.pacs.values()) {
@@ -72,16 +68,6 @@ export class RemotePacs {
       }
       pac.group.position.set(pac.cur.x, pac.cur.y + Math.sin(t * 3 + pac.cur.x) * 0.03, pac.cur.z);
     }
-  }
-
-  dispose(): void {
-    for (const pac of this.pacs.values()) {
-      this.group.remove(pac.group);
-      pac.mat.dispose();
-    }
-    this.pacs.clear();
-    this.geo.dispose();
-    this.scene.remove(this.group);
   }
 
   private spawn(id: string, st: RemotePacState): RemotePac {

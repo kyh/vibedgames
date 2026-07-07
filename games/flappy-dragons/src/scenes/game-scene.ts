@@ -62,6 +62,9 @@ type BgLayer = {
 type Ghost = {
   sprite: Phaser.GameObjects.Sprite;
   skin: number;
+  /** Per-id flock variation (seeded from the id), computed once at creation. */
+  scale: number;
+  gap: number;
 };
 
 const COIN_PICKUP_X = 54;
@@ -119,13 +122,16 @@ export class GameScene extends Phaser.Scene {
   private readyImg!: Phaser.GameObjects.Image;
   private overImg!: Phaser.GameObjects.Image;
   private digits: Phaser.GameObjects.Image[] = [];
+  private puffEmitter!: Phaser.GameObjects.Particles.ParticleEmitter;
 
   // Net bookkeeping.
   private stateAcc = 0;
   private worldAcc = 0;
+  private boardAcc = 0;
   private hostSeq = 0;
   private lastSeq = -1;
   private boardSig = "";
+  private lastNetInfo = "";
 
   private hintEl: HTMLElement | null = null;
   private bestEl: HTMLElement | null = null;
@@ -174,6 +180,19 @@ export class GameScene extends Phaser.Scene {
       .setDepth(10);
     this.bird.play(`fly-${this.skin}`);
 
+    // One reusable score-puff emitter; puff() just explodes it at a position.
+    this.puffEmitter = this.add
+      .particles(0, 0, "spark", {
+        speed: { min: 30, max: 120 },
+        angle: { min: 0, max: 360 },
+        lifespan: { min: 240, max: 420 },
+        scale: { start: 0.9, end: 0 },
+        alpha: { start: 0.9, end: 0 },
+        blendMode: Phaser.BlendModes.ADD,
+        emitting: false,
+      })
+      .setDepth(15);
+
     this.readyImg = this.add.image(0, 0, "msg-ready").setScale(ART_SCALE).setDepth(30);
     this.overImg = this.add
       .image(0, 0, "msg-gameover")
@@ -204,7 +223,7 @@ export class GameScene extends Phaser.Scene {
     this.setHint(HINT_FLAP);
 
     if (import.meta.env.DEV) {
-      (window as unknown as { __fb?: unknown }).__fb = { scene: this, net: this.net };
+      window.__fb = { scene: this, net: this.net };
     }
   }
 
@@ -250,7 +269,7 @@ export class GameScene extends Phaser.Scene {
     this.syncPipes();
     this.syncGhosts();
     this.broadcast(dt);
-    this.updateBoard();
+    this.updateBoard(dt);
   }
 
   // ---- seed + world scroll -------------------------------------------------
@@ -370,21 +389,8 @@ export class GameScene extends Phaser.Scene {
     this.clearPipes();
 
     this.skin = rollSkin();
-    this.tweens.killTweensOf(this.bird);
-    this.bird
-      .setPosition(BIRD_X + DRAGON_SPRITE_OFFSET_X, BIRD_SPAWN_Y + DRAGON_SPRITE_OFFSET_Y)
-      .setRotation(0)
-      .setScale(ART_SCALE)
-      .setAlpha(1)
-      .clearTint()
-      .setTintMode(Phaser.TintModes.MULTIPLY);
-    this.bird.play(`fly-${this.skin}`);
-
-    this.overImg.setVisible(false);
-    this.setBest("");
-    this.setHint("");
-    this.refreshScore();
-    this.setPhase("playing");
+    this.bird.setPosition(BIRD_X + DRAGON_SPRITE_OFFSET_X, BIRD_SPAWN_Y + DRAGON_SPRITE_OFFSET_Y);
+    this.enterPlaying();
   }
 
   /** Multiplayer: respawn into the still-scrolling shared course. */
@@ -394,6 +400,11 @@ export class GameScene extends Phaser.Scene {
     this.vy = 0;
     this.lastScoredIndex = this.frontIndex();
     this.collectedCoins.clear();
+    this.enterPlaying();
+  }
+
+  /** Shared tail of restart()/respawn(): reset the bird's look + HUD, go live. */
+  private enterPlaying(): void {
     this.tweens.killTweensOf(this.bird);
     this.bird
       .setRotation(0)
@@ -615,17 +626,21 @@ export class GameScene extends Phaser.Scene {
       const ps = readPeer(this.net.players[id]?.state);
       if (!ps) continue;
       seen.add(id);
-      const scale = ART_SCALE * (GHOST_SCALE_MIN + hashId(id, 3) * (GHOST_SCALE_MAX - GHOST_SCALE_MIN));
       let ghost = this.ghosts.get(id);
       if (!ghost || ghost.skin !== ps.skin) {
         ghost?.sprite.destroy();
         const sprite = this.add.sprite(0, 0, `dragon-${ps.skin}-1`).setDepth(8).setAlpha(0.55);
         sprite.play(`fly-${ps.skin}`);
-        ghost = { sprite, skin: ps.skin };
+        ghost = {
+          sprite,
+          skin: ps.skin,
+          scale: ART_SCALE * (GHOST_SCALE_MIN + hashId(id, 3) * (GHOST_SCALE_MAX - GHOST_SCALE_MIN)),
+          gap: GHOST_GAP_MIN + hashId(id, 1) * (GHOST_GAP_MAX - GHOST_GAP_MIN),
+        };
         this.ghosts.set(id, ghost);
       }
-      laneX += GHOST_GAP_MIN + hashId(id, 1) * (GHOST_GAP_MAX - GHOST_GAP_MIN);
-      ghost.sprite.setScale(scale);
+      laneX += ghost.gap;
+      ghost.sprite.setScale(ghost.scale);
       ghost.sprite.setPosition(laneX, ps.yf * viewH + DRAGON_SPRITE_OFFSET_Y);
       ghost.sprite.setRotation(Phaser.Math.Clamp(ps.rot, -MAX_TILT, MAX_TILT));
       if (ps.live) {
@@ -678,18 +693,7 @@ export class GameScene extends Phaser.Scene {
   // ---- visual effects ------------------------------------------------------
 
   private puff(x: number, y: number): void {
-    const emitter = this.add.particles(x, y, "spark", {
-      speed: { min: 30, max: 120 },
-      angle: { min: 0, max: 360 },
-      lifespan: { min: 240, max: 420 },
-      scale: { start: 0.9, end: 0 },
-      alpha: { start: 0.9, end: 0 },
-      blendMode: Phaser.BlendModes.ADD,
-      emitting: false,
-    });
-    emitter.setDepth(15);
-    emitter.explode(10);
-    this.time.delayedCall(600, () => emitter.destroy());
+    this.puffEmitter.explode(10, x, y);
   }
 
   private scorePop(): void {
@@ -707,11 +711,15 @@ export class GameScene extends Phaser.Scene {
     while (this.digits.length < text.length) {
       this.digits.push(this.add.image(0, SCORE_Y, "digits", 0).setOrigin(0, 0).setDepth(20));
     }
-    while (this.digits.length > text.length) this.digits.pop()!.destroy();
+    while (this.digits.length > text.length) {
+      const d = this.digits.pop();
+      d?.destroy();
+    }
 
     const startX = (this.scale.width - text.length * DIGIT_W) / 2;
-    for (let i = 0; i < text.length; i++) {
-      this.digits[i]!.setFrame(Number(text[i]!))
+    for (const [i, digit] of this.digits.entries()) {
+      digit
+        .setFrame(text.charCodeAt(i) - 48)
         .setPosition(startX + i * DIGIT_W, SCORE_Y)
         .setDisplaySize(DIGIT_W, DIGIT_H);
     }
@@ -746,16 +754,24 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** Live race leaderboard + connection info (multiplayer only). */
-  private updateBoard(): void {
-    if (this.netInfoEl) {
-      this.netInfoEl.textContent = !this.net.live
-        ? "connecting…"
-        : this.net.offline
-          ? "offline · solo"
-          : this.racing
-            ? `race · ${Object.keys(this.net.players).length} players`
-            : "online · waiting";
+  private updateBoard(dt: number): void {
+    const netInfo = !this.net.live
+      ? "connecting…"
+      : this.net.offline
+        ? "offline · solo"
+        : this.racing
+          ? `race · ${Object.keys(this.net.players).length} players`
+          : "online · waiting";
+    if (this.netInfoEl && netInfo !== this.lastNetInfo) {
+      this.lastNetInfo = netInfo;
+      this.netInfoEl.textContent = netInfo;
     }
+
+    // Standings only move at snapshot rate — no need to recompute them at 60Hz.
+    this.boardAcc += dt;
+    if (this.boardAcc < 1 / NET_TICK_HZ) return;
+    this.boardAcc = 0;
+
     if (!this.boardEl) return;
     if (!this.racing) {
       if (this.boardEl.childElementCount > 0) this.boardEl.replaceChildren();

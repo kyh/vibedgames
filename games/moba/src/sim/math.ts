@@ -13,43 +13,8 @@ export function dist2(a: Vec2, b: Vec2): number {
   return dx * dx + dy * dy;
 }
 
-export function len(v: Vec2): number {
-  return Math.hypot(v.x, v.y);
-}
-
-export function sub(a: Vec2, b: Vec2): Vec2 {
-  return { x: a.x - b.x, y: a.y - b.y };
-}
-
-export function add(a: Vec2, b: Vec2): Vec2 {
-  return { x: a.x + b.x, y: a.y + b.y };
-}
-
-export function scale(v: Vec2, s: number): Vec2 {
-  return { x: v.x * s, y: v.y * s };
-}
-
-/** Unit vector from a toward b; returns {0,0} if coincident. */
-export function dir(a: Vec2, b: Vec2): Vec2 {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const d = Math.hypot(dx, dy);
-  if (d < 1e-6) return { x: 0, y: 0 };
-  return { x: dx / d, y: dy / d };
-}
-
-export function normalize(v: Vec2): Vec2 {
-  const d = Math.hypot(v.x, v.y);
-  if (d < 1e-6) return { x: 0, y: 0 };
-  return { x: v.x / d, y: v.y / d };
-}
-
-export function clamp(v: number, lo: number, hi: number): number {
+function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
-}
-
-export function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * t;
 }
 
 /** Move `from` toward `to` by at most `maxStep` px. Returns the new point. */

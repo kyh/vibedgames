@@ -74,16 +74,27 @@ function tone(
   osc.stop(t + dur + 0.02);
 }
 
-function noise(dur: number, gain: number, lp: number): void {
-  const c = ac();
-  if (!c || !master || muted) return;
-  const t = c.currentTime;
+// Synthesising a fresh AudioBuffer per SFX call was needless per-hit work — the
+// decaying white noise is indistinguishable between calls, so cache one buffer
+// per duration and replay it through a fresh (cheap) BufferSource each time.
+const noiseBufs = new Map<number, AudioBuffer>();
+function noiseBuffer(c: AudioContext, dur: number): AudioBuffer {
+  const cached = noiseBufs.get(dur);
+  if (cached) return cached;
   const n = Math.floor(c.sampleRate * dur);
   const buf = c.createBuffer(1, n, c.sampleRate);
   const data = buf.getChannelData(0);
   for (let i = 0; i < n; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / n);
+  noiseBufs.set(dur, buf);
+  return buf;
+}
+
+function noise(dur: number, gain: number, lp: number): void {
+  const c = ac();
+  if (!c || !master || muted) return;
+  const t = c.currentTime;
   const src = c.createBufferSource();
-  src.buffer = buf;
+  src.buffer = noiseBuffer(c, dur);
   const filt = c.createBiquadFilter();
   filt.type = "lowpass";
   filt.frequency.value = lp;
@@ -103,10 +114,6 @@ function gate(key: string, minMs: number): boolean {
 }
 
 export const sfx = {
-  attack(): void {
-    if (!gate("attack", 70)) return;
-    noise(0.05, 0.05, 2600);
-  },
   hit(): void {
     if (!gate("hit", 60)) return;
     noise(0.06, 0.07, 1400);

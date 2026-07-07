@@ -2,7 +2,13 @@ import Phaser from "phaser";
 import { TILE, DEPTH } from "../config";
 import { World } from "../world/world";
 import { store } from "../systems/store";
-import { ANIMALS, randomAnimalName, type AnimalKind, type BuildingKind } from "../data/animals";
+import {
+  ANIMALS,
+  isAnimalKind,
+  randomAnimalName,
+  type AnimalKind,
+  type BuildingKind,
+} from "../data/animals";
 import type { AnimalSave } from "../systems/save";
 import { floatText, burst } from "../render/fx";
 import { Sound } from "../render/audio";
@@ -40,8 +46,8 @@ export class AnimalManager {
   }
 
   private spawnOne(d: AnimalSave): void {
-    const def = ANIMALS[d.kind as AnimalKind];
-    if (!def) return;
+    if (!isAnimalKind(d.kind)) return;
+    const def = ANIMALS[d.kind];
     const home = this.homeOf(d.building);
     const x = d.x || home.x + Phaser.Math.Between(-20, 20);
     const y = d.y || home.y + Phaser.Math.Between(-12, 12);
@@ -68,10 +74,6 @@ export class AnimalManager {
     });
   }
 
-  canBuy(kind: AnimalKind): boolean {
-    return store.gold >= ANIMALS[kind].price;
-  }
-
   buy(kind: AnimalKind): boolean {
     const def = ANIMALS[kind];
     if (store.gold < def.price) {
@@ -95,7 +97,7 @@ export class AnimalManager {
     this.spawnOne(data);
     Sound.coins();
     this.scene.toast(`Welcome, ${data.name} the ${def.name.toLowerCase()}!`, "#ffe27a");
-    this.scene.save();
+    this.scene.requestSave();
     return true;
   }
 
@@ -160,8 +162,8 @@ export class AnimalManager {
     this.pettedToday.clear();
     const counts = new Map<string, number>();
     for (const l of this.live) {
-      const def = ANIMALS[l.data.kind as AnimalKind];
-      if (!def) continue;
+      if (!isAnimalKind(l.data.kind)) continue;
+      const def = ANIMALS[l.data.kind];
       let qty = 1;
       if (l.data.friendship >= 60 && Math.random() < 0.5) qty += 1;
       store.inv.add({ kind: "animal_product", product: def.product }, qty);
@@ -175,9 +177,5 @@ export class AnimalManager {
         this.scene.toast(`Your animals gave you ${parts.join(", ")}.`, "#fff0c0"),
       );
     }
-  }
-
-  count(): number {
-    return this.live.length;
   }
 }

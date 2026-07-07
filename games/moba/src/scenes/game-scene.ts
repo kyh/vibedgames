@@ -1,7 +1,7 @@
 import { MultiplayerClient } from "@vibedgames/multiplayer";
 import Phaser from "phaser";
 
-import { SIM_DT, SNAPSHOT_HZ } from "../data/config";
+import { SIM_DT, SNAPSHOT_HZ, TEAMS } from "../data/config";
 import type { Team } from "../data/config";
 import { HEROES, HERO_BY_ID } from "../data/heroes";
 import type { AbilityKey } from "../data/heroes";
@@ -19,7 +19,6 @@ import type { Intent } from "../net/protocol";
 import { applySnapshot, emptyGuestWorld, encodeWorld, isSnapshot, parseFxBatch } from "../net/snapshot";
 
 const TEAM_SIZE = 3;
-const TEAMS: readonly Team[] = ["radiant", "dire"];
 
 // Keyboard-first scheme with hands split so nothing overlaps: MOVE with the arrow
 // keys (right hand), ABILITIES on Q/W/E/R (left hand), F = dash, Space = attack.
@@ -218,7 +217,7 @@ export class GameScene extends Phaser.Scene {
         });
         break;
       case "level":
-        levelAbility(this.world, u, intent.key);
+        levelAbility(u, intent.key);
         break;
       case "buy":
         buyItem(this.world, u, intent.itemId);

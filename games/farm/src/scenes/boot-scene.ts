@@ -16,21 +16,16 @@ export const CHAR_FRAMES = {
   mine: 10,
   doing: 8,
   attack: 10,
-  carry: 8,
   casting: 15,
   reeling: 13,
   caught: 10,
-  hurt: 8,
   death: 13,
-  roll: 10,
 } as const;
 export type CharAction = keyof typeof CHAR_FRAMES;
 
 const SKEL = {
   idle: 6,
   walk: 8,
-  attack: 7,
-  hurt: 7,
   death: 10,
 } as const;
 
@@ -103,10 +98,8 @@ export class BootScene extends Phaser.Scene {
     this.load.spritesheet("obj-bird", "assets/obj/bird.png", { frameWidth: 16, frameHeight: 16 });
 
     // ui
-    for (const n of ["axe", "pickaxe", "shovel", "water", "hammer", "sword", "basket", "rod"])
+    for (const n of ["axe", "pickaxe", "shovel", "water", "sword", "rod"])
       this.load.image(`ui-${n}`, `assets/ui/${n}.png`);
-    this.load.image("ui-slot", "assets/ui/slot.png");
-    this.load.image("ui-slot-sel", "assets/ui/slot_sel.png");
   }
 
   create(): void {
@@ -135,14 +128,10 @@ export class BootScene extends Phaser.Scene {
     mk("p-casting", "p-casting", 18, 0);
     mk("p-reeling", "p-reeling", 12, -1);
     mk("p-caught", "p-caught", 12, 0);
-    mk("p-hurt", "p-hurt", 14, 0);
     mk("p-death", "p-death", 10, 0);
-    mk("p-roll", "p-roll", 18, 0);
 
     mk("e-skel-idle", "e-skel-idle", 6, -1);
     mk("e-skel-walk", "e-skel-walk", 10, -1);
-    mk("e-skel-attack", "e-skel-attack", 12, 0);
-    mk("e-skel-hurt", "e-skel-hurt", 14, 0);
     mk("e-skel-death", "e-skel-death", 12, 0);
 
     mk("chicken-walk", "obj-chicken", 6, -1);
@@ -185,29 +174,6 @@ export class BootScene extends Phaser.Scene {
       g.fillStyle(0x6b4a2c, 1);
       g.fillEllipse(7, 7, 8, 5);
     });
-    this.makeIcon("icon-hay", (g) => {
-      g.fillStyle(0xe0b94d, 1);
-      g.fillRoundedRect(2, 4, 12, 9, 2);
-      g.lineStyle(1, 0xb58a2c, 1);
-      g.strokeRect(2, 7, 12, 0);
-      g.fillStyle(0xc99a36, 1);
-      g.fillRect(7, 4, 2, 9);
-    });
-    this.makeIcon("icon-heart", (g) => {
-      g.fillStyle(0xff5d7a, 1);
-      g.fillCircle(5, 6, 3);
-      g.fillCircle(11, 6, 3);
-      g.fillTriangle(2, 7, 14, 7, 8, 14);
-    });
-    this.makeIcon(
-      "px-white",
-      (g) => {
-        g.fillStyle(0xffffff, 1);
-        g.fillRect(0, 0, 4, 4);
-      },
-      4,
-      4,
-    );
     this.makeIcon("t-cavefloor", (g) => {
       g.fillStyle(0x2c2f3a, 1);
       g.fillRect(0, 0, 16, 16);

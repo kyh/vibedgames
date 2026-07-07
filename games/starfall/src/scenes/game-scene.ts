@@ -1,7 +1,7 @@
 import { attachVirtualGamepad } from "@vibedgames/gamepad/phaser";
 import type { PhaserGamepad } from "@vibedgames/gamepad/phaser";
 import { MultiplayerClient } from "@vibedgames/multiplayer";
-import type { Player } from "@vibedgames/multiplayer";
+import type { Player, PlayerMap } from "@vibedgames/multiplayer";
 import Phaser from "phaser";
 
 import { sfx } from "../audio/sfx";
@@ -21,11 +21,11 @@ import {
   ASTEROID_CULL_MARGIN,
   ASTEROID_DROP_CHANCE,
   ASTEROID_MAX_RADIUS,
-  ASTEROID_MIN_RADIUS,
   ASTEROID_ROT_SPEED,
   ASTEROID_SEED_COUNT,
   asteroidCap,
   asteroidContactDamage,
+  asteroidDestroyedBy,
   asteroidShardCount,
   asteroidSpawnIntervalMs,
   asteroidSpeed,
@@ -462,6 +462,26 @@ function isShared(v: unknown): v is SharedState {
   );
 }
 
+/** A SharedState as a shallow-merge patch object — field by field, no cast. */
+function sharedToPatch(s: SharedState): Record<string, unknown> {
+  return {
+    asteroids: s.asteroids,
+    ufo: s.ufo,
+    items: s.items,
+    enemies: s.enemies,
+    enemyShots: s.enemyShots,
+    shards: s.shards,
+    pulls: s.pulls,
+    arenaEpoch: s.arenaEpoch,
+    playW: s.playW,
+    playH: s.playH,
+  };
+}
+
+/** Offline stand-in for `client.players`: the synthesized self entry (see the
+ *  `peers` getter). Read-only in practice, so one shared object is safe. */
+const SOLO_PEERS: PlayerMap = { solo: { id: "solo" } };
+
 export class GameScene extends Phaser.Scene {
   private client!: MultiplayerClient;
   private starfield!: Starfield;
@@ -523,7 +543,14 @@ export class GameScene extends Phaser.Scene {
   // is authoritative, network writes no-op).
   private offline = false;
   private offlineSeeded = false;
+  /** Stamped on the FIRST update() tick (not create()): heavy boots must not
+   *  eat into the grace window before the socket gets a chance to connect. */
   private bootedAt = 0;
+  /** True once we've ever reached a room — after that, drops reconnect. */
+  private everConnected = false;
+  /** Each peer's net state, parsed ONCE per frame (see update()) — identity
+   *  only changes on a ~20Hz patch, and the hot paths read it many times. */
+  private peerStates = new Map<string, PlayerNetState | null>();
 
   /** Connected to the arena, or running the solo offline fallback. */
   private get live(): boolean {
@@ -542,7 +569,7 @@ export class GameScene extends Phaser.Scene {
     // Offline: synthesize the self entry so every `id === myId` render path
     // (ship gfx, shield ring, impact arcs, twin drone, windup glow, nitro
     // trail, minimap own-dot) still runs solo. cssToInt(undefined) → white.
-    return this.offline ? { solo: { id: "solo" } } : this.client.players;
+    return this.offline ? SOLO_PEERS : this.client.players;
   }
 
   /** Events loop straight back into the local host when offline. */
@@ -551,11 +578,23 @@ export class GameScene extends Phaser.Scene {
     else this.client.sendEvent(event, payload);
   }
 
-  /** Give up on the party server after the grace window and go solo. */
-  private maybeGoOffline(now: number): void {
-    const status = this.client.connectionStatus;
-    const failed = status === "disconnected" || status === "error";
-    if (!failed && now - this.bootedAt < OFFLINE_FALLBACK_MS) return;
+  /** Give up on the party server after the grace window and go solo. Called
+   *  every update() tick until the fallback triggers (or forever, online). */
+  private maybeGoOffline(): void {
+    // Start the grace window on the first tick, not at create(): counting
+    // asset-load time would wrongly drop a slow-booting client to solo.
+    if (this.bootedAt === 0) this.bootedAt = Date.now();
+    if (this.client.connectionStatus === "connected") {
+      this.everConnected = true;
+      return;
+    }
+    // Once we've been in the arena, a drop is transient — let the socket
+    // reconnect instead of stranding a real player in a solo world.
+    if (this.everConnected) return;
+    // Pre-connect errors/closes are NOT instant failures: the socket retries
+    // by itself, and a single refused handshake (cold server, wifi blip) must
+    // not force a whole solo session. The deadline is the only trigger.
+    if (Date.now() - this.bootedAt < OFFLINE_FALLBACK_MS) return;
     this.offline = true;
     this.client.destroy(); // stop reconnect attempts; refresh to go online
     this.ensureSeeded();
@@ -762,7 +801,6 @@ export class GameScene extends Phaser.Scene {
       onEvent: (event, payload, from) => this.handleEvent(event, payload, from),
     });
     this.client.subscribe(() => this.onUpdate());
-    this.bootedAt = Date.now();
 
     // Desktop steers from the cursor (activePointer); the gamepad below owns
     // the touch path. These two listeners only track that a pointer exists and
@@ -812,11 +850,15 @@ export class GameScene extends Phaser.Scene {
     const dt = Math.min(delta, 100) / 1000; // clamp tab-switch spikes
     this.starfield.update(dt, time);
     this.barrier.update(time, this.world.playW, this.world.playH);
-    if (!this.live) {
-      this.maybeGoOffline(Date.now());
-      if (!this.live) return;
-    }
+    if (!this.offline) this.maybeGoOffline();
+    if (!this.live) return;
     const now = Date.now();
+    // Parse every peer's net state once for this frame; readers below (aim,
+    // mines, PvP, host sim, render, minimap) all pull from the map.
+    this.peerStates.clear();
+    for (const [id, player] of Object.entries(this.peers)) {
+      this.peerStates.set(id, readNetState(player));
+    }
 
     this.ensureSpawned();
     this.tickRespawn(now);
@@ -1504,9 +1546,8 @@ export class GameScene extends Phaser.Scene {
     }
     if (best) return best;
     const myId = this.myId;
-    for (const [id, player] of Object.entries(this.peers)) {
+    for (const [id, st] of this.peerStates) {
       if (id === myId) continue;
-      const st = readNetState(player);
       if (!st || !st.alive || st.invuln || st.shieldMod?.phased) continue;
       const d = inCone(st.x, st.y);
       if (d !== null && d < bestD) {
@@ -1535,7 +1576,7 @@ export class GameScene extends Phaser.Scene {
         return e ? { x: e.x, y: e.y } : null;
       }
       case "player": {
-        const st = readNetState(this.peers[ref.id]);
+        const st = this.peerStates.get(ref.id) ?? null;
         return st && st.alive ? { x: st.x, y: st.y } : null;
       }
       case "ufo": {
@@ -1626,9 +1667,8 @@ export class GameScene extends Phaser.Scene {
     for (const e of this.world.enemies)
       out.push({ ref: { kind: "enemy", id: e.id }, x: e.x, y: e.y });
     const myId = this.myId;
-    for (const [id, player] of Object.entries(this.peers)) {
+    for (const [id, st] of this.peerStates) {
       if (id === myId) continue;
-      const st = readNetState(player);
       if (st && st.alive && !st.invuln && !st.shieldMod?.phased) {
         out.push({ ref: { kind: "player", id }, x: st.x, y: st.y });
       }
@@ -1649,9 +1689,8 @@ export class GameScene extends Phaser.Scene {
         const e = this.world.enemies.find((en) => en.id === ref.id);
         if (!e) return;
         e.blinkUntil = now + 150;
-        if (e.hp - dmgHp <= 0 && !this.predictedKills.has(e.id)) {
-          this.predictedKills.set(e.id, now);
-          this.registerKill(ENEMY_SPECS[e.kind].xp, now, "enemy", e.x, e.y);
+        if (e.hp - dmgHp <= 0) {
+          this.predictKill(e.id, ENEMY_SPECS[e.kind].xp, "enemy", e.x, e.y, now);
         }
         this.netSendEvent("enemy_hit", { enemyId: e.id, damage: dmgHp });
         return;
@@ -1660,22 +1699,18 @@ export class GameScene extends Phaser.Scene {
         const a = this.world.asteroids.find((as) => as.id === ref.id);
         if (!a) return;
         const power = dmgHp / 100;
-        const destroyed = a.radius - ASTEROID_MAX_RADIUS * Math.min(power, 1) < ASTEROID_MIN_RADIUS;
-        if (destroyed && !this.predictedKills.has(a.id)) {
-          this.predictedKills.set(a.id, now);
-          this.registerKill(XP.ASTEROID_DESTROY, now, "asteroid", a.x, a.y);
-        } else {
-          this.gainXp(XP.ASTEROID_CHIP, now);
-        }
+        const predicted =
+          asteroidDestroyedBy(a.radius, power) &&
+          this.predictKill(a.id, XP.ASTEROID_DESTROY, "asteroid", a.x, a.y, now);
+        if (!predicted) this.gainXp(XP.ASTEROID_CHIP, now);
         this.netSendEvent("asteroid_hit", { asteroidId: a.id, damage: power });
         return;
       }
       case "ufo": {
         const u = this.world.ufo;
         if (!u) return;
-        if (u.hp - dmgHp <= 0 && !this.predictedKills.has(u.id)) {
-          this.predictedKills.set(u.id, now);
-          this.registerKill(XP.UFO_DESTROY, now, "ufo", u.x, u.y);
+        if (u.hp - dmgHp <= 0) {
+          this.predictKill(u.id, XP.UFO_DESTROY, "ufo", u.x, u.y, now);
         }
         this.netSendEvent("ufo_hit", { damage: dmgHp / 100 });
         return;
@@ -1830,9 +1865,8 @@ export class GameScene extends Phaser.Scene {
       if (!trigger && u && dist2(u.x, u.y, x, y) <= r2) trigger = true;
       if (!trigger) {
         const myId = this.myId;
-        for (const [id, player] of Object.entries(this.peers)) {
+        for (const [id, st] of this.peerStates) {
           if (id === myId) continue;
-          const st = readNetState(player);
           if (!st || !st.alive || st.invuln || st.shieldMod?.phased) continue;
           if (dist2(st.x, st.y, x, y) <= r2) {
             trigger = true;
@@ -2122,6 +2156,22 @@ export class GameScene extends Phaser.Scene {
     if (this.xp < 0) this.xp = 0;
   }
 
+  /** Self-award a predicted destroy bonus once per target (the host's echo
+   *  later prunes the entry). Returns false when already predicted. */
+  private predictKill(
+    id: string,
+    xp: number,
+    kind: "enemy" | "asteroid" | "ufo",
+    x: number,
+    y: number,
+    now: number,
+  ): boolean {
+    if (this.predictedKills.has(id)) return false;
+    this.predictedKills.set(id, now);
+    this.registerKill(xp, now, kind, x, y);
+    return true;
+  }
+
   /**
    * Shooter-side hit detection: I detect my own beams hitting host-owned
    * targets and report damage events; the host applies them. Score is awarded
@@ -2162,14 +2212,10 @@ export class GameScene extends Phaser.Scene {
         } else {
           this.onBeamHit(b, now);
         }
-        const destroyed =
-          a.radius - ASTEROID_MAX_RADIUS * Math.min(b.weapon.power, 1) < ASTEROID_MIN_RADIUS;
-        if (destroyed && !this.predictedKills.has(a.id)) {
-          this.predictedKills.set(a.id, now);
-          this.registerKill(XP.ASTEROID_DESTROY, now, "asteroid", a.x, a.y);
-        } else {
-          this.gainXp(XP.ASTEROID_CHIP, now); // flat, never multiplied
-        }
+        const destroyed = asteroidDestroyedBy(a.radius, b.weapon.power);
+        const predicted =
+          destroyed && this.predictKill(a.id, XP.ASTEROID_DESTROY, "asteroid", a.x, a.y, now);
+        if (!predicted) this.gainXp(XP.ASTEROID_CHIP, now); // flat, never multiplied
         if (sparksOk || destroyed) {
           this.fx.sparks(b.head.x, b.head.y, 6, b.weapon.tint, { lifeMin: 150, lifeMax: 250 });
         }
@@ -2193,10 +2239,7 @@ export class GameScene extends Phaser.Scene {
         this.onBeamHit(b, now);
         const dmg = b.weapon.power * 100;
         const killed = e.hp - dmg <= 0;
-        if (killed && !this.predictedKills.has(e.id)) {
-          this.predictedKills.set(e.id, now);
-          this.registerKill(ENEMY_SPECS[e.kind].xp, now, "enemy", e.x, e.y);
-        }
+        if (killed) this.predictKill(e.id, ENEMY_SPECS[e.kind].xp, "enemy", e.x, e.y, now);
         e.blinkUntil = now + 150; // immediate local feedback; host echoes
         if (sparksOk || killed) {
           this.fx.sparks(b.head.x, b.head.y, 6, b.weapon.tint, { lifeMin: 150, lifeMax: 250 });
@@ -2219,10 +2262,7 @@ export class GameScene extends Phaser.Scene {
           b.hitIds.add(u.id);
           this.onBeamHit(b, now);
           const killed = u.hp - b.weapon.power * 100 <= 0;
-          if (killed && !this.predictedKills.has(u.id)) {
-            this.predictedKills.set(u.id, now);
-            this.registerKill(XP.UFO_DESTROY, now, "ufo", u.x, u.y);
-          }
+          if (killed) this.predictKill(u.id, XP.UFO_DESTROY, "ufo", u.x, u.y, now);
           if (sparksOk || killed) {
             this.fx.sparks(b.head.x, b.head.y, 6, b.weapon.tint, { lifeMin: 150, lifeMax: 250 });
           }
@@ -2423,10 +2463,7 @@ export class GameScene extends Phaser.Scene {
         if (imm !== undefined && now < imm) continue;
         this.ramImmunity.set(a.id, now + RAM_IMMUNITY_MS);
         if (a.radius <= RAM_ASTEROID_DESTROY_R) {
-          if (!this.predictedKills.has(a.id)) {
-            this.predictedKills.set(a.id, now);
-            this.registerKill(XP.ASTEROID_DESTROY, now, "asteroid", a.x, a.y);
-          }
+          this.predictKill(a.id, XP.ASTEROID_DESTROY, "asteroid", a.x, a.y, now);
           this.netSendEvent("asteroid_hit", { asteroidId: a.id, damage: 1 });
           this.fx.sparks(a.x, a.y, 8, SHIELD_MOD_SPECS.ram.tint, { lifeMin: 150, lifeMax: 250 });
           sfx.play("hit_spark");
@@ -2474,9 +2511,8 @@ export class GameScene extends Phaser.Scene {
         const imm = this.ramImmunity.get(e.id);
         if (imm !== undefined && now < imm) continue;
         this.ramImmunity.set(e.id, now + RAM_IMMUNITY_MS);
-        if (e.hp - RAM_DAMAGE <= 0 && !this.predictedKills.has(e.id)) {
-          this.predictedKills.set(e.id, now);
-          this.registerKill(ENEMY_SPECS[e.kind].xp, now, "enemy", e.x, e.y);
+        if (e.hp - RAM_DAMAGE <= 0) {
+          this.predictKill(e.id, ENEMY_SPECS[e.kind].xp, "enemy", e.x, e.y, now);
         }
         this.netSendEvent("enemy_hit", {
           enemyId: e.id,
@@ -2558,9 +2594,8 @@ export class GameScene extends Phaser.Scene {
         const imm = this.ramImmunity.get(u.id);
         if (imm === undefined || now >= imm) {
           this.ramImmunity.set(u.id, now + RAM_IMMUNITY_MS);
-          if (u.hp - RAM_DAMAGE <= 0 && !this.predictedKills.has(u.id)) {
-            this.predictedKills.set(u.id, now);
-            this.registerKill(XP.UFO_DESTROY, now, "ufo", u.x, u.y);
+          if (u.hp - RAM_DAMAGE <= 0) {
+            this.predictKill(u.id, XP.UFO_DESTROY, "ufo", u.x, u.y, now);
           }
           this.netSendEvent("ufo_hit", { damage: RAM_DAMAGE / 100 });
           if (this.applyDamage(RAM_SELF_DRAIN, u.x, u.y, "UFO", null, now) !== "drained") return;
@@ -2576,9 +2611,8 @@ export class GameScene extends Phaser.Scene {
 
     // -- other players: armed-RAM hull contact + the beam volley rule (§A.2)
     const myId = this.myId;
-    for (const [id, player] of Object.entries(this.peers)) {
+    for (const [id, st] of this.peerStates) {
       if (id === myId) continue;
-      const st = readNetState(player);
       if (!st || !st.alive) continue;
 
       // Remote armed RAM: the victim adjudicates its own 35 drain.
@@ -3076,7 +3110,7 @@ export class GameScene extends Phaser.Scene {
       const seeded = emptyShared();
       seedField(seeded);
       this.world = seeded;
-      this.client.updateSharedState(seeded as unknown as Record<string, unknown>);
+      this.client.updateSharedState(sharedToPatch(seeded));
     }
   }
 
@@ -3090,10 +3124,11 @@ export class GameScene extends Phaser.Scene {
     if (typeof s.playW === "number") w.playW = Phaser.Math.Clamp(s.playW, BASE_WORLD_W, WORLD_W);
     if (typeof s.playH === "number") w.playH = Phaser.Math.Clamp(s.playH, BASE_WORLD_H, WORLD_H);
 
+    const localAsteroids = indexById(w.asteroids);
     const asteroidIds = new Set<string>();
     for (const a of s.asteroids) {
       asteroidIds.add(a.id);
-      const local = w.asteroids.find((x) => x.id === a.id);
+      const local = localAsteroids.get(a.id);
       if (!local) {
         w.asteroids.push(cloneAsteroid(a));
         continue;
@@ -3120,11 +3155,12 @@ export class GameScene extends Phaser.Scene {
       blendPos(u, s.ufo.x, s.ufo.y);
     }
 
+    const localItems = indexById(w.items);
     const itemIds = new Set<string>();
     for (const it of s.items ?? []) {
       itemIds.add(it.id);
       if (this.recentPickups.has(it.id)) continue; // picked locally, host lagging
-      const local = w.items.find((x) => x.id === it.id);
+      const local = localItems.get(it.id);
       if (!local) {
         w.items.push({ ...it });
         continue;
@@ -3136,10 +3172,11 @@ export class GameScene extends Phaser.Scene {
     }
     w.items = w.items.filter((x) => itemIds.has(x.id) && !this.recentPickups.has(x.id));
 
+    const localEnemies = indexById(w.enemies);
     const enemyIds = new Set<string>();
     for (const e of s.enemies ?? []) {
       enemyIds.add(e.id);
-      const local = w.enemies.find((x) => x.id === e.id);
+      const local = localEnemies.get(e.id);
       if (!local) {
         w.enemies.push({ ...e });
         continue;
@@ -3160,11 +3197,12 @@ export class GameScene extends Phaser.Scene {
     }
     w.enemies = w.enemies.filter((x) => enemyIds.has(x.id));
 
+    const localShards = indexById(w.shards);
     const shardIds = new Set<string>();
     for (const sd of s.shards ?? []) {
       shardIds.add(sd.id);
       if (this.recentShardPickups.has(sd.id)) continue; // collected locally, host lagging
-      const local = w.shards.find((x) => x.id === sd.id);
+      const local = localShards.get(sd.id);
       if (!local) {
         w.shards.push({ ...sd });
         continue;
@@ -3176,11 +3214,12 @@ export class GameScene extends Phaser.Scene {
     }
     w.shards = w.shards.filter((x) => shardIds.has(x.id) && !this.recentShardPickups.has(x.id));
 
+    const localShots = indexById(w.enemyShots);
     const shotIds = new Set<string>();
     for (const sh of s.enemyShots ?? []) {
       shotIds.add(sh.id);
       if (this.recentConsumedShots.has(sh.id)) continue; // consumed locally, host lagging
-      const local = w.enemyShots.find((x) => x.id === sh.id);
+      const local = localShots.get(sh.id);
       if (!local) {
         w.enemyShots.push({ ...sh });
         continue;
@@ -3309,9 +3348,11 @@ export class GameScene extends Phaser.Scene {
     }
     this.hostMagnetItems(now);
 
-    this.hostSpawnEnemies(now, tSec, intensity, pressure, wave);
-    this.hostMaybeSpawnBoss(now, intensity);
-    this.hostSimEnemies(now, dt);
+    // One living-players snapshot for the whole tick (spawn/boss/sim/breather).
+    const players = this.livingPlayers();
+    this.hostSpawnEnemies(now, tSec, intensity, pressure, wave, players);
+    this.hostMaybeSpawnBoss(now, intensity, players);
+    this.hostSimEnemies(now, dt, players);
     // After the sim: the pull overrides steering for dragged enemies.
     this.hostApplyPulls(now);
     const livePulls = w.pulls.filter((p) => p.until > now);
@@ -3319,7 +3360,7 @@ export class GameScene extends Phaser.Scene {
       w.pulls = livePulls;
       d.pulls = true;
     }
-    this.hostDespawnBreather(now, intensity, pressure, wave);
+    this.hostDespawnBreather(now, intensity, pressure, wave, players);
 
     const liveShots = w.enemyShots.filter(
       (s) => s.diesAt > now && inWorld(s.x, s.y, 60, w.playW, w.playH),
@@ -3409,9 +3450,8 @@ export class GameScene extends Phaser.Scene {
       holders.push({ x: this.shipX, y: this.shipY });
     }
     const myId = this.myId;
-    for (const [id, player] of Object.entries(this.peers)) {
+    for (const [id, st] of this.peerStates) {
       if (id === myId) continue;
-      const st = readNetState(player);
       if (!st || !st.alive) continue;
       if (st.boosts.some((b) => b.kind === "magnet" && b.until > now)) {
         holders.push({ x: st.x, y: st.y });
@@ -3460,9 +3500,8 @@ export class GameScene extends Phaser.Scene {
       out.push({ x: this.shipX, y: this.shipY });
     }
     const myId = this.myId;
-    for (const [id, player] of Object.entries(this.peers)) {
+    for (const [id, st] of this.peerStates) {
       if (id === myId) continue;
-      const st = readNetState(player);
       if (st && st.alive && !st.shieldMod?.phased) out.push({ x: st.x, y: st.y });
     }
     return out;
@@ -3474,6 +3513,7 @@ export class GameScene extends Phaser.Scene {
     intensity: number,
     pressure: number,
     wave: number,
+    players: Vec[],
   ): void {
     if (tSec * 1000 < ARENA_SAFE_MS) return; // safe opening
     if (now < this.debutSuppressUntil) return;
@@ -3487,7 +3527,6 @@ export class GameScene extends Phaser.Scene {
     const isDebut = kind !== null;
     if (!kind) kind = weightedEnemyRoll(avail, intensity);
     if (!kind) return;
-    const players = this.livingPlayers();
     let placed: { x: number; y: number; ang: number } | null = null;
     for (let i = 0; i < 5 && !placed; i++) {
       const c = edgeSpawn(30, this.world.playW, this.world.playH);
@@ -3541,8 +3580,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** Host AI: steering, telegraphs and firing for every enemy (§6.1). */
-  private hostSimEnemies(now: number, dt: number): void {
-    const players = this.livingPlayers();
+  private hostSimEnemies(now: number, dt: number, players: Vec[]): void {
     for (const e of this.world.enemies) {
       const sim = this.simFor(e.id);
       // Knockback decays independently of steering (≈ gone in a second).
@@ -3762,7 +3800,7 @@ export class GameScene extends Phaser.Scene {
           break;
         }
         case "dreadnought": {
-          this.hostSimBoss(e, sim, players, dx, dy, dist, desired, now, dt);
+          this.hostSimBoss(e, sim, players, desired, now, dt);
           break;
         }
       }
@@ -3793,11 +3831,11 @@ export class GameScene extends Phaser.Scene {
     intensity: number,
     pressure: number,
     wave: number,
+    players: Vec[],
   ): void {
     const w = this.world;
     if (w.enemies.length <= enemyCap(intensity, pressure, wave) + ENEMY_DESPAWN_SLACK) return;
     if (now - this.lastBreatherDespawnAt < ENEMY_DESPAWN_INTERVAL_MS) return;
-    const players = this.livingPlayers();
     let farIdx = -1;
     let farDist = -1;
     for (let i = 0; i < w.enemies.length; i++) {
@@ -3826,8 +3864,7 @@ export class GameScene extends Phaser.Scene {
     if (idx === -1) return;
     const a = w.asteroids[idx];
     if (!a) return;
-    const newRadius = a.radius - ASTEROID_MAX_RADIUS * Math.min(damage, 1);
-    if (newRadius < ASTEROID_MIN_RADIUS) {
+    if (asteroidDestroyedBy(a.radius, damage)) {
       w.asteroids.splice(idx, 1); // display sweep bursts it
       // v3: rocks shed shards scaled by size (~r/15, 1..5) + an 11% item roll
       // (pure chance: asteroid rolls never feed or force pity).
@@ -3835,6 +3872,7 @@ export class GameScene extends Phaser.Scene {
       this.hostRollLoot(a.x, a.y, ASTEROID_DROP_CHANCE, false);
     } else {
       // Scale the existing outline instead of re-rolling it — no shape pop.
+      const newRadius = a.radius - ASTEROID_MAX_RADIUS * Math.min(damage, 1);
       const ratio = newRadius / a.radius;
       a.verts = a.verts.map((v) => ({ x: v.x * ratio, y: v.y * ratio }));
       a.radius = newRadius;
@@ -3864,9 +3902,6 @@ export class GameScene extends Phaser.Scene {
     e: EnemyState,
     sim: EnemySim,
     players: Vec[],
-    dx: number,
-    dy: number,
-    dist: number,
     desired: number,
     now: number,
     dt: number,
@@ -3971,9 +4006,6 @@ export class GameScene extends Phaser.Scene {
         sim.fireAt = e.telegraphUntil;
       }
     }
-    void dx;
-    void dy;
-    void dist;
   }
 
   /** SPAWNER / BOSS: birth `n` mites (grace'd drones) around the parent. They
@@ -4003,14 +4035,13 @@ export class GameScene extends Phaser.Scene {
 
   /** Boss spawn trigger: near a wave peak, in a busy room (or after the cooldown
    *  in a quiet one). One boss arena-wide. Called each host tick. */
-  private hostMaybeSpawnBoss(now: number, intensity: number): void {
+  private hostMaybeSpawnBoss(now: number, intensity: number, players: Vec[]): void {
     const w = this.world;
     // Recompute from the world so a migrated host adopts the flag.
     this.bossAlive = w.enemies.some((e) => e.kind === "dreadnought");
     if (this.bossAlive) return;
     if (intensity < BOSS_SPAWN_INTENSITY) return;
     if (this.lastBossKilledAt !== 0 && now - this.lastBossKilledAt < BOSS_SPAWN_COOLDOWN_MS) return;
-    const players = this.livingPlayers();
     if (players.length === 0) return; // never spawn a boss with nobody to fight it
     const busy = Object.keys(this.peers).length >= BOSS_SPAWN_MIN_PLAYERS;
     // Quiet rooms only get one once the cooldown has fully elapsed since the last.
@@ -4286,7 +4317,7 @@ export class GameScene extends Phaser.Scene {
         }
         continue;
       }
-      const st = readNetState(player);
+      const st = this.peerStates.get(id) ?? null;
       if (!st) {
         rec.gfx.setVisible(false);
         if (rec.trail) rec.trail.emitting = false;
@@ -4914,9 +4945,8 @@ export class GameScene extends Phaser.Scene {
       }
       draw(serializeBeam(b));
     }
-    for (const [id, player] of Object.entries(this.peers)) {
+    for (const [id, st] of this.peerStates) {
       if (id === myId) continue;
-      const st = readNetState(player);
       if (!st || !st.alive) continue;
       for (const sb of st.beams) draw(sb);
     }
@@ -4985,7 +5015,7 @@ export class GameScene extends Phaser.Scene {
     this.kickY *= decay;
     const s = this.trauma.update(dt, timeMs / 1000);
     this.cameras.main.centerOn(this.shipX + this.kickX + s.ox, this.shipY + this.kickY + s.oy);
-    this.cameras.main.setAngle(s.rotDeg);
+    this.cameras.main.setAngle(s.rot);
   }
 
   // ---- display-object factories ---------------------------------------------------------
@@ -5197,7 +5227,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     const myId = this.myId;
-    for (const [id, player] of Object.entries(this.peers)) {
+    for (const [id, st] of this.peerStates) {
       const isMe = id === myId;
       const tint = this.ships.get(id)?.tint ?? 0xffffff;
       let px: number;
@@ -5207,7 +5237,6 @@ export class GameScene extends Phaser.Scene {
         px = this.shipX;
         py = this.shipY;
       } else {
-        const st = readNetState(player);
         if (!st || !st.alive) continue; // each dot filtered by ITS player's alive state
         px = st.x;
         py = st.y;
@@ -5321,7 +5350,7 @@ export class GameScene extends Phaser.Scene {
 
   private installDevHooks(): void {
     if (!import.meta.env.DEV) return;
-    (window as unknown as { __starfall?: unknown }).__starfall = {
+    window.__starfall = {
       scene: this,
       client: this.client,
       /** Host only: spawn an enemy near (or at) the given point. */
@@ -5440,6 +5469,31 @@ export class GameScene extends Phaser.Scene {
         intensity: arenaIntensity(Math.max(0, (Date.now() - this.world.arenaEpoch) / 1000)),
       }),
     };
+  }
+}
+
+/** The dev-only driving hooks installed on `window.__starfall` (DEV builds
+ *  only — headless reviewers poke the game through these). */
+type StarfallDevHooks = {
+  scene: GameScene;
+  client: MultiplayerClient;
+  spawnEnemy: (kind: EnemyKind, x?: number, y?: number) => string | null;
+  grantShield: (raw: string) => void;
+  grantBooster: (raw: string) => void;
+  setShield: (hp: number) => void;
+  damage: (amount: number) => string;
+  grantWeapon: (ref: number | string) => void;
+  spawnItem: (cls: "weapon" | "shield" | "booster", name: string, x?: number, y?: number) => void;
+  dropShards: (count: number, x?: number, y?: number) => void;
+  fire: () => void;
+  setArenaEpoch: (epochMs: number) => void;
+  intensity: () => number;
+  summary: () => Record<string, unknown>;
+};
+
+declare global {
+  interface Window {
+    __starfall?: StarfallDevHooks;
   }
 }
 
@@ -5866,8 +5920,19 @@ function readNetState(player: Player | undefined): PlayerNetState | null {
   };
 }
 
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+
 function asRecord(v: unknown): Record<string, unknown> | null {
-  return typeof v === "object" && v !== null ? (v as Record<string, unknown>) : null;
+  return isRecord(v) ? v : null;
+}
+
+/** Index an entity array by id (reconcile does many find-by-id lookups). */
+function indexById<T extends { id: string }>(list: readonly T[]): Map<string, T> {
+  const map = new Map<string, T>();
+  for (const e of list) map.set(e.id, e);
+  return map;
 }
 
 function cloneAsteroid(a: AsteroidState): AsteroidState {

@@ -31,7 +31,6 @@ export type LockEvent = {
   /** Layer it locked at. */
   layer: number;
   clear: ClearResult;
-  scoreGained: number;
   gameOver: boolean;
 };
 
@@ -45,16 +44,6 @@ function shuffledBag(): number[] {
   }
   return bag;
 }
-
-const EMPTY_CLEAR: ClearResult = { xColumns: 0, zRows: 0, lines: 0, cubes: 0 };
-const EMPTY_LOCK: LockEvent = {
-  lockedCells: [],
-  colorIndex: 0,
-  layer: 0,
-  clear: EMPTY_CLEAR,
-  scoreGained: 0,
-  gameOver: false,
-};
 
 export class Engine {
   readonly board: Board = new Board();
@@ -170,7 +159,7 @@ export class Engine {
     let fallen = 0;
     while (this.active.fall(this.board)) fallen += 1;
     this.state.addScore(fallen * HARD_DROP_POINTS);
-    return this.lockActive();
+    return this.lockActive(this.active);
   }
 
   // ---- gravity ----------------------------------------------------------------
@@ -187,15 +176,13 @@ export class Engine {
       if (moved) {
         if (this.softDropping) this.state.addScore(SOFT_DROP_POINTS);
       } else {
-        return this.lockActive();
+        return this.lockActive(this.active);
       }
     }
     return null;
   }
 
-  private lockActive(): LockEvent {
-    const piece = this.active;
-    if (!piece) return EMPTY_LOCK;
+  private lockActive(piece: Piece): LockEvent {
     const colorIndex = piece.colorIndex;
     const lockedCells = piece.cells();
     const layer = this.board.lock(lockedCells, colorIndex);
@@ -225,7 +212,7 @@ export class Engine {
       this.active = null;
       this.state.status = "collapsing"; // scene runs the cosmetic tumble
     }
-    return { lockedCells, colorIndex, layer, clear, scoreGained, gameOver };
+    return { lockedCells, colorIndex, layer, clear, gameOver };
   }
 
   /** Catch-the-collapse rescue: settle the rubble, resume from a shorter

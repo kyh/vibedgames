@@ -3,7 +3,7 @@ import { store } from "../systems/store";
 import { HOTBAR } from "../systems/inventory";
 import { itemIcon } from "../data/items";
 import { MAX_ENERGY } from "../config";
-import type { MineScene } from "./mine-scene";
+import { MineScene } from "./mine-scene";
 
 const FONT = "ui-monospace, monospace";
 const SZ = 38;
@@ -24,7 +24,9 @@ export class MineHudScene extends Phaser.Scene {
   }
 
   create(): void {
-    this.mine = this.scene.get("Mine") as MineScene;
+    const mine = this.scene.get("Mine");
+    if (!(mine instanceof MineScene)) throw new Error("MineHud requires the Mine scene");
+    this.mine = mine;
     this.icons = [];
     this.buildVignette();
     this.g = this.add.graphics().setDepth(10);

@@ -5,11 +5,6 @@ import { physicalMultiplier, magicMultiplier } from "../data/config";
 import type { DamageType } from "../data/config";
 import type { Status, Unit } from "./types";
 
-export function hasStatus(u: Unit, kind: Status["kind"]): boolean {
-  for (const s of u.statuses) if (s.kind === kind) return true;
-  return false;
-}
-
 export function disabled(u: Unit): boolean {
   // Can't issue actions while stunned (unless unstoppable).
   if (u.statuses.some((s) => s.kind === "unstoppable")) return false;
@@ -153,10 +148,6 @@ export function addStatus(u: Unit, s: Status): void {
     }
   }
   u.statuses.push(s);
-}
-
-export function removeStatusesById(u: Unit, id: string): void {
-  u.statuses = u.statuses.filter((x) => !("id" in x && x.id === id));
 }
 
 export function cleanseSlows(u: Unit): void {

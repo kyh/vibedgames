@@ -40,10 +40,7 @@ export const PIPE_GAP = 350;
 export const PIPE_SPAWN_DISTANCE = 400;
 
 /** tube-cap.png is 74×48 native — the rounded log end with side branches. */
-export const TUBE_CAP_W = 148;
 export const TUBE_CAP_H = 96;
-/** Cap is wider than the body; overhang on each side is decorative, not lethal. */
-export const TUBE_CAP_OVERHANG = (TUBE_CAP_W - PIPE_WIDTH) / 2;
 
 // ---- coins -------------------------------------------------------------------
 
@@ -118,7 +115,7 @@ export function pipeCourseX(i: number): number {
  * Top-segment height for pipe `i`, as the SAME relative placement on every
  * client: a seeded fraction of the local play area, so differently-sized
  * viewports still put the gap at the same relative height (fair enough for a
- * drop-in demo without a virtual-resolution rewrite). Mirrors rollTopHeight.
+ * drop-in demo without a virtual-resolution rewrite).
  */
 export function topHeightFor(seed: number, i: number, viewHeight: number): number {
   return Math.round(hash01(seed, i) * Math.max(0, viewHeight - PIPE_GAP - 100) + 50);
@@ -141,14 +138,6 @@ export type Phase = "ready" | "playing" | "gameover";
 // ---- pure helpers ----------------------------------------------------------------
 
 /**
- * Height of the top pipe segment (= top edge of the gap). Legacy formula:
- * random × (viewH − gap − 100) + 50 → range [50, viewH − gap − 50].
- */
-export function rollTopHeight(viewHeight: number): number {
-  return Math.random() * Math.max(0, viewHeight - PIPE_GAP - 100) + 50;
-}
-
-/**
  * Flap velocity for a given strength ∈ [0,1]. Legacy mapping (per tick):
  * JUMP_VELOCITY + (MAX_JUMP_VELOCITY − JUMP_VELOCITY) × strength = -8..-12,
  * converted to px/s: -480..-720. Key/tap inputs always pass strength 1;
@@ -162,9 +151,4 @@ export function flapVelocityFor(strength: number): number {
 /** Random skin index 1..DRAGON_SKINS. */
 export function rollSkin(): number {
   return 1 + Math.floor(Math.random() * DRAGON_SKINS);
-}
-
-/** Coin Y within a gap starting at topHeight, COIN_MARGIN clear of both edges. */
-export function rollCoinY(topHeight: number): number {
-  return topHeight + COIN_MARGIN + Math.random() * (PIPE_GAP - 2 * COIN_MARGIN);
 }

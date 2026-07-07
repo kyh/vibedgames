@@ -6,13 +6,14 @@ import {
   RUN_SPEED,
   CHAR_ORIGIN_Y,
   ENERGY_PER_SWING,
+  FAINT_GOLD_LOSS_FRAC,
   SWORD_BASE_DAMAGE,
   PLAYER_INVULN_MS,
   DEPTH,
 } from "../config";
 import { store } from "../systems/store";
 import { patchSave } from "../systems/save";
-import { makeMineKeys, NUM_KEY_NAMES, type MineKeys } from "../systems/keys";
+import { makeGameKeys, NUM_KEY_NAMES, type MineKeys } from "../systems/keys";
 import type { OreId } from "../data/items";
 import { burst, floatText, shake } from "../render/fx";
 import { Sound } from "../render/audio";
@@ -20,13 +21,22 @@ import { Sound } from "../render/audio";
 const MW = 32;
 const MH = 24;
 
-type Node = {
-  spr: Phaser.GameObjects.Sprite;
+declare global {
+  interface Window {
+    /** DEV-only hook for headless verification. */
+    __mine?: MineScene;
+  }
+}
+
+// generate() lays out plain seeds; buildTiles() turns them into full Nodes
+// (sprite included), so a Node's sprite is never observably missing.
+type NodeSeed = {
   tx: number;
   ty: number;
   hp: number;
   kind: "stone" | OreId;
 };
+type Node = NodeSeed & { spr: Phaser.GameObjects.Sprite };
 type Enemy = {
   spr: Phaser.GameObjects.Sprite;
   hp: number;
@@ -71,8 +81,7 @@ export class MineScene extends Phaser.Scene {
     this.acting = false;
     this.facing = { x: 0, y: 1 };
     this.cameras.main.setBackgroundColor("#0a0c12");
-    this.generate();
-    this.buildTiles();
+    this.buildTiles(this.generate());
 
     this.shadow = this.add
       .sprite(0, 0, "char-shadow-tex")
@@ -97,7 +106,7 @@ export class MineScene extends Phaser.Scene {
     if (!this.scene.isActive("MineHud")) this.scene.launch("MineHud");
 
     floatText(this, this.player.x, this.player.y - 24, `Mine — Floor ${this.depth}`, "#cdd6e0");
-    if (import.meta.env.DEV) (window as unknown as { __mine: MineScene }).__mine = this;
+    if (import.meta.env.DEV) window.__mine = this;
   }
 
   // ---------------------------------------------------------------- generation
@@ -110,7 +119,7 @@ export class MineScene extends Phaser.Scene {
     return this.walls[this.idx(tx, ty)] === 1;
   }
 
-  private generate(): void {
+  private generate(): NodeSeed[] {
     const rng = Phaser.Math.RND;
     this.walls.fill(0);
     for (let tx = 0; tx < MW; tx++) {
@@ -149,24 +158,19 @@ export class MineScene extends Phaser.Scene {
     }
 
     // ore nodes — deeper floors yield richer ore
+    const seeds: NodeSeed[] = [];
     const nodeCount = 10 + this.depth * 2;
     for (let n = 0; n < nodeCount; n++) {
       const tx = rng.between(2, MW - 3),
         ty = rng.between(2, MH - 3);
-      if (this.isWall(tx, ty) || this.nodeAt(tx, ty)) continue;
+      if (this.isWall(tx, ty) || seeds.some((s) => s.tx === tx && s.ty === ty)) continue;
       if (Math.abs(tx - this.ladderUp.tx) + Math.abs(ty - this.ladderUp.ty) < 3) continue;
       const roll = rng.frac() + this.depth * 0.03;
       let kind: "stone" | OreId = "stone";
       if (roll > 0.92) kind = "crystal";
       else if (roll > 0.75) kind = "copper";
       else if (roll > 0.55) kind = "coal";
-      this.nodes.push({
-        spr: null as unknown as Phaser.GameObjects.Sprite,
-        tx,
-        ty,
-        hp: kind === "stone" ? 3 : 4,
-        kind,
-      });
+      seeds.push({ tx, ty, hp: kind === "stone" ? 3 : 4, kind });
     }
 
     // enemies — more & tougher deeper
@@ -183,6 +187,7 @@ export class MineScene extends Phaser.Scene {
         .play("e-skel-idle");
       this.enemies.push({ spr, hp: maxHp, maxHp, invuln: 0, hurt: 0, dead: false, kx: 0, ky: 0 });
     }
+    return seeds;
   }
 
   private clearAround(tx: number, ty: number): void {
@@ -200,7 +205,7 @@ export class MineScene extends Phaser.Scene {
 
   // ---------------------------------------------------------------- render
 
-  private buildTiles(): void {
+  private buildTiles(seeds: NodeSeed[]): void {
     this.add
       .tileSprite(0, 0, MW * TILE, MH * TILE, "t-cavefloor")
       .setOrigin(0, 0)
@@ -238,12 +243,13 @@ export class MineScene extends Phaser.Scene {
       .setOrigin(0.5, 1)
       .setDepth(DEPTH.crop);
     // node sprites
-    for (const node of this.nodes) {
-      const key = node.kind === "stone" ? "obj-rock" : `obj-ore-${node.kind}`;
-      node.spr = this.add
-        .sprite(node.tx * TILE + 8, (node.ty + 1) * TILE + 1, key)
+    for (const seed of seeds) {
+      const key = seed.kind === "stone" ? "obj-rock" : `obj-ore-${seed.kind}`;
+      const spr = this.add
+        .sprite(seed.tx * TILE + 8, (seed.ty + 1) * TILE + 1, key)
         .setOrigin(0.5, 1);
-      node.spr.setDepth(DEPTH.entityBase + (node.ty + 1) * TILE);
+      spr.setDepth(DEPTH.entityBase + (seed.ty + 1) * TILE);
+      this.nodes.push({ ...seed, spr });
     }
     for (const e of this.enemies) e.spr.setDepth(DEPTH.entityBase + e.spr.y);
   }
@@ -253,8 +259,13 @@ export class MineScene extends Phaser.Scene {
   private setupInput(): void {
     const kb = this.input.keyboard;
     if (!kb) return;
+    // scene instances + Key objects persist across restart (descend restarts
+    // this scene every floor) — clear stale listeners or they double-fire
+    this.input.removeAllListeners();
+    kb.removeAllListeners();
     kb.on("keydown", () => Sound.resume());
-    this.keys = makeMineKeys(kb);
+    this.keys = makeGameKeys(kb);
+    for (const k of Object.values(this.keys)) k.removeAllListeners();
     NUM_KEY_NAMES.forEach((name, i) => this.keys[name].on("down", () => store.inv.select(i)));
     this.keys.SPACE.on("down", () => this.tryAction());
     this.keys.E.on("down", () => this.tryAction());
@@ -572,7 +583,7 @@ export class MineScene extends Phaser.Scene {
       f.ty === this.ladderUp.ty &&
       (this.keys.SPACE.isDown || this.keys.E.isDown)
     ) {
-      this.exitToFarm(false);
+      this.exitToFarm();
     } else if (
       f.tx === this.ladderDown.tx &&
       f.ty === this.ladderDown.ty &&
@@ -592,7 +603,7 @@ export class MineScene extends Phaser.Scene {
     });
   }
 
-  private exitToFarm(_fainted: boolean): void {
+  private exitToFarm(): void {
     if (this.transitioning) return;
     this.transitioning = true;
     this.persist();
@@ -606,7 +617,7 @@ export class MineScene extends Phaser.Scene {
   private faint(): void {
     if (this.transitioning) return;
     this.transitioning = true;
-    const lost = Math.floor(store.gold * 0.08);
+    const lost = Math.floor(store.gold * FAINT_GOLD_LOSS_FRAC);
     store.gold = Math.max(0, store.gold - lost);
     store.hp = Math.max(1, Math.floor(store.maxHp() * 0.5));
     store.energy = Math.floor(store.energy * 0.5);

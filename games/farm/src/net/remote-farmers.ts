@@ -87,15 +87,6 @@ export class RemoteFarmers {
     return this.farmers.size;
   }
 
-  dispose(): void {
-    for (const f of this.farmers.values()) {
-      f.sprite.destroy();
-      f.shadow.destroy();
-      f.label.destroy();
-    }
-    this.farmers.clear();
-  }
-
   private spawn(id: string, st: FarmerState): Farmer {
     const shadow = this.scene.add
       .sprite(st.x, st.y + 1, "char-shadow-tex")

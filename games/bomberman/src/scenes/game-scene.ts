@@ -28,7 +28,6 @@ import {
   tileKey,
   WORLD_H,
   WORLD_W,
-  type Blast,
   type Bomb,
   type Bot,
   type Cell,
@@ -37,6 +36,13 @@ import {
   type PowerupKind,
   type SharedState,
 } from "../shared/constants";
+
+declare global {
+  interface Window {
+    /** Dev-console hook (DEV builds only). */
+    __bb?: { scene: GameScene; client: MultiplayerClient };
+  }
+}
 
 type PlayerObjs = {
   container: Phaser.GameObjects.Container;
@@ -107,7 +113,7 @@ function emptyShared(): SharedState {
 }
 
 function isShared(v: unknown): v is SharedState {
-  return typeof v === "object" && v !== null && Array.isArray((v as { grid?: unknown }).grid);
+  return typeof v === "object" && v !== null && "grid" in v && Array.isArray(v.grid);
 }
 
 type PartialPS = { col?: number; row?: number; colorIdx?: number; dir?: Dir; moving?: boolean };
@@ -154,12 +160,8 @@ export class GameScene extends Phaser.Scene {
   private hostTickAcc = 0;
   private localBombSeq = 1;
   private queuedDir: Dir | null = null;
-  private heldKeys!: {
-    left: Phaser.Input.Keyboard.Key;
-    right: Phaser.Input.Keyboard.Key;
-    up: Phaser.Input.Keyboard.Key;
-    down: Phaser.Input.Keyboard.Key;
-  };
+  /** Arrow + WASD key pairs per direction — either key held keeps you moving. */
+  private heldKeys!: Record<Dir, [Phaser.Input.Keyboard.Key, Phaser.Input.Keyboard.Key]>;
   /** Touch controls: a floating move-joystick (snapped to 4 directions) plus a
    *  fixed bomb button. Inert until the first finger lands. */
   private gamepad!: PhaserGamepad;
@@ -168,11 +170,24 @@ export class GameScene extends Phaser.Scene {
   private playersEl: HTMLElement | null = null;
   private statsEl: HTMLElement | null = null;
   private bannerEl: HTMLElement | null = null;
+  // Last strings written to each HUD element, to skip redundant DOM writes.
+  private lastStatus: string | null = null;
+  private lastPlayers: string | null = null;
+  private lastStats: string | null = null;
+  private lastBanner: string | null = null;
+
+  /** Net/shared state changed since the last render sync — see update(). */
+  private netDirty = true;
+
+  /** One reusable spark emitter for every burst() (created in create()). */
+  private sparkEmitter: Phaser.GameObjects.Particles.ParticleEmitter | null = null;
 
   // Solo fallback: if the party server can't be reached, this client becomes
   // its own host over the same code paths — events loop back, shared state
   // lives locally, and the bots make it a real match (you vs 3 bots).
   private offline = false;
+  private everConnected = false;
+  /** Stamped on the first update() tick (not create()) — see maybeGoOffline. */
   private bootedAt = 0;
   private offlineShared: SharedState | null = null;
   private offlineMyState: Record<string, unknown> = {};
@@ -204,27 +219,41 @@ export class GameScene extends Phaser.Scene {
 
   /** Per-player state shallow-merges, mirroring the package's semantics. */
   private netUpdateMyState(patch: Record<string, unknown>): void {
+    this.netDirty = true;
     if (this.offline) Object.assign(this.offlineMyState, patch);
     else this.client.updateMyState(patch);
   }
 
   /** Shared-state patches shallow-merge, mirroring the package's semantics. */
-  private netPatchShared(patch: Record<string, unknown>): void {
+  private netPatchShared(patch: Partial<SharedState>): void {
+    this.netDirty = true;
     if (this.offline) {
       if (this.offlineShared) {
-        this.offlineShared = { ...this.offlineShared, ...patch } as SharedState;
+        this.offlineShared = { ...this.offlineShared, ...patch };
       }
     } else {
       this.client.updateSharedState(patch);
     }
   }
 
-  /** Give up on the party server after the grace window and go solo. */
+  /** Poll once per frame: drives the solo-fallback grace window. */
   private maybeGoOffline(): void {
-    const status = this.client.connectionStatus;
-    const failed = status === "disconnected" || status === "error";
-    if (!failed && Date.now() - this.bootedAt < OFFLINE_FALLBACK_MS) return;
+    // Start the grace window on the FIRST update() tick, not at create():
+    // counting load time against the deadline would wrongly drop a slow-booting
+    // client to solo before its socket ever got a chance to connect.
+    if (this.bootedAt === 0) this.bootedAt = Date.now();
+    if (this.client.connectionStatus === "connected") {
+      this.everConnected = true;
+      return;
+    }
+    // Once we've been in a room, a drop is transient — let the socket
+    // reconnect instead of permanently stranding the player in solo.
+    if (this.everConnected) return;
+    // Pre-connect errors/closes are NOT instant failures: the socket retries
+    // by itself, so the deadline is the only fallback trigger.
+    if (Date.now() - this.bootedAt < OFFLINE_FALLBACK_MS) return;
     this.offline = true;
+    this.netDirty = true; // no subscribe() offline — kick the first onUpdate
     this.client.destroy(); // stop reconnect attempts; refresh to go online
   }
 
@@ -251,6 +280,20 @@ export class GameScene extends Phaser.Scene {
     this.applyZoom();
     this.scale.on(Phaser.Scale.Events.RESIZE, this.applyZoom, this);
 
+    // One spark emitter shared by every burst() (crates, deaths, pickups):
+    // re-tinted and exploded in place instead of allocating one per call.
+    this.sparkEmitter = this.add
+      .particles(0, 0, "spark", {
+        speed: { min: 40, max: 190 },
+        angle: { min: 0, max: 360 },
+        lifespan: { min: 280, max: 560 },
+        scale: { start: 1.1, end: 0 },
+        alpha: { start: 1, end: 0 },
+        blendMode: Phaser.BlendModes.ADD,
+        emitting: false,
+      })
+      .setDepth(40);
+
     // No `initialState`: the package re-applies it whenever a client becomes
     // host, which would wipe a live round on host migration. Instead the first
     // host seeds the world explicitly (see `ensureSeeded`) — a promoted guest
@@ -261,8 +304,9 @@ export class GameScene extends Phaser.Scene {
       room: ROOM,
       onEvent: (event, payload, from) => this.handleEvent(event, payload, from),
     });
-    this.client.subscribe(() => this.onUpdate());
-    this.bootedAt = Date.now();
+    this.client.subscribe(() => {
+      this.netDirty = true;
+    });
 
     this.bindInput();
 
@@ -273,7 +317,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     if (import.meta.env.DEV) {
-      (window as unknown as { __bb?: unknown }).__bb = { scene: this, client: this.client };
+      Object.assign(window, { __bb: { scene: this, client: this.client } });
     }
   }
 
@@ -284,13 +328,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   override update(_time: number, delta: number): void {
-    if (!this.live) {
-      this.maybeGoOffline();
-      if (!this.live) return;
+    if (!this.offline) this.maybeGoOffline();
+    // subscribe() (online) and the net* writers (offline) mark the scene
+    // dirty; run the render sync at most once per frame, and only when
+    // something actually changed. Runs even while connecting so the HUD
+    // shows the connection status.
+    if (this.netDirty) {
+      this.netDirty = false;
+      this.onUpdate();
     }
-    // Offline has no subscribe() notifications — drive the render sync from
-    // the game loop instead (sync* methods are diff-aware, so this is cheap).
-    if (this.offline) this.onUpdate();
+    if (!this.live) return;
     this.gamepad.update(); // reconcile dropped touches + redraw the overlay
     this.handleInput(delta);
     this.settleMoving();
@@ -371,15 +418,11 @@ export class GameScene extends Phaser.Scene {
       });
     }
     this.heldKeys = {
-      left: k.addKey("LEFT"),
-      right: k.addKey("RIGHT"),
-      up: k.addKey("UP"),
-      down: k.addKey("DOWN"),
+      left: [k.addKey("LEFT"), k.addKey("A")],
+      right: [k.addKey("RIGHT"), k.addKey("D")],
+      up: [k.addKey("UP"), k.addKey("W")],
+      down: [k.addKey("DOWN"), k.addKey("S")],
     };
-    k.addKey("A");
-    k.addKey("D");
-    k.addKey("W");
-    k.addKey("S");
   }
 
   private handleInput(delta: number): void {
@@ -418,10 +461,10 @@ export class GameScene extends Phaser.Scene {
       return d;
     }
     if (this.heldKeys) {
-      if (this.heldKeys.left.isDown) return "left";
-      if (this.heldKeys.right.isDown) return "right";
-      if (this.heldKeys.up.isDown) return "up";
-      if (this.heldKeys.down.isDown) return "down";
+      if (this.heldKeys.left.some((key) => key.isDown)) return "left";
+      if (this.heldKeys.right.some((key) => key.isDown)) return "right";
+      if (this.heldKeys.up.some((key) => key.isDown)) return "up";
+      if (this.heldKeys.down.some((key) => key.isDown)) return "down";
     }
     // Held touch stick, snapped to the grid's 4 directions.
     return stickDirection4(this.gamepad.getStick());
@@ -439,13 +482,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private requestRestart(): void {
-    if (this.amHost) {
-      this.writeShared(emptyShared());
-      this.netSendEvent("round_restart", {});
-      this.respawnSelf();
-    } else {
-      this.netSendEvent("request_restart", {});
-    }
+    // Host, guest, and offline all funnel through the request_restart handler:
+    // the host (or the offline loopback) resets the world and broadcasts
+    // round_restart, which the server echoes back to the sender too.
+    this.netSendEvent("request_restart", {});
   }
 
   private respawnSelf(): void {
@@ -453,7 +493,7 @@ export class GameScene extends Phaser.Scene {
     if (!id) return;
     const idx = Object.keys(this.peers).indexOf(id);
     if (idx < 0) return;
-    const spawn = SPAWN_POINTS[idx] ?? SPAWN_POINTS[0]!;
+    const spawn = SPAWN_POINTS[idx] ?? SPAWN_POINTS[0];
     this.myCol = spawn.col;
     this.myRow = spawn.row;
     this.myDir = "down";
@@ -484,9 +524,15 @@ export class GameScene extends Phaser.Scene {
     }
     if (!this.amHost) return;
     if (event === "place_bomb") {
-      const p = payload as { col?: unknown; row?: unknown };
-      if (typeof p.col === "number" && typeof p.row === "number") {
-        this.hostPlaceBomb(from, p.col, p.row);
+      if (
+        typeof payload === "object" &&
+        payload !== null &&
+        "col" in payload &&
+        "row" in payload &&
+        typeof payload.col === "number" &&
+        typeof payload.row === "number"
+      ) {
+        this.hostPlaceBomb(from, payload.col, payload.row);
       }
     } else if (event === "request_restart") {
       this.writeShared(emptyShared());
@@ -537,7 +583,7 @@ export class GameScene extends Phaser.Scene {
     let order = 0;
     for (const [id, player] of Object.entries(this.peers)) {
       const ps = readPlayerState(player);
-      const fb = SPAWN_POINTS[order] ?? SPAWN_POINTS[0]!;
+      const fb = SPAWN_POINTS[order] ?? SPAWN_POINTS[0];
       out.push({
         id,
         col: ps.col ?? fb.col,
@@ -574,24 +620,24 @@ export class GameScene extends Phaser.Scene {
     const s = this.shared();
     if (!s) return;
     for (let r = 0; r < GRID_ROWS; r++) {
-      this.tileObjs[r] ??= [];
-      this.tileKind[r] ??= [];
+      const objRow = (this.tileObjs[r] ??= []);
+      const kindRow = (this.tileKind[r] ??= []);
       for (let c = 0; c < GRID_COLS; c++) {
         const kind = s.grid[r]?.[c]?.kind ?? "empty";
-        if (this.tileKind[r]![c] === kind) continue;
-        const prev = this.tileObjs[r]![c];
-        if (this.tileKind[r]![c] === "crate" && kind === "empty") this.crateBreak(c, r);
+        if (kindRow[c] === kind) continue;
+        const prev = objRow[c];
+        if (kindRow[c] === "crate" && kind === "empty") this.crateBreak(c, r);
         if (prev) {
           prev.destroy();
-          this.tileObjs[r]![c] = null;
+          objRow[c] = null;
         }
         if (kind === "wall" || kind === "crate") {
-          this.tileObjs[r]![c] = this.add
+          objRow[c] = this.add
             .image(colX(c), rowY(r), kind === "wall" ? "wall" : "crate")
             .setDisplaySize(TILE, TILE)
             .setDepth(1);
         }
-        this.tileKind[r]![c] = kind;
+        kindRow[c] = kind;
       }
     }
   }
@@ -749,7 +795,7 @@ export class GameScene extends Phaser.Scene {
     isMe: boolean,
     isBot: boolean,
   ): PlayerObjs {
-    const tint = COLORS[colorIdx]!;
+    const tint = COLORS[colorIdx] ?? 0xffffff;
 
     const children: Phaser.GameObjects.GameObject[] = [];
     const shadow = this.add.image(0, TILE * 0.34, "shadow").setDisplaySize(TILE * 0.7, TILE * 0.34);
@@ -866,8 +912,8 @@ export class GameScene extends Phaser.Scene {
       const queue: Bomb[] = [...expired];
       const cratesToClear = new Map<string, { col: number; row: number }>();
       const newBlastTiles = new Set<string>();
-      while (queue.length > 0) {
-        const bomb = queue.shift()!;
+      let bomb: Bomb | undefined;
+      while ((bomb = queue.shift()) !== undefined) {
         if (detonated.has(bomb.id)) continue;
         detonated.add(bomb.id);
         const { tiles, crates } = computeBlastTiles(s.grid, bomb);
@@ -885,7 +931,10 @@ export class GameScene extends Phaser.Scene {
 
       if (cratesToClear.size > 0) {
         const grid = s.grid.map((row) => row.slice());
-        for (const cr of cratesToClear.values()) grid[cr.row]![cr.col] = { kind: "empty" };
+        for (const cr of cratesToClear.values()) {
+          const row = grid[cr.row];
+          if (row) row[cr.col] = { kind: "empty" };
+        }
         next.grid = grid;
         d.grid = true;
       }
@@ -951,8 +1000,9 @@ export class GameScene extends Phaser.Scene {
     const fighterIds = [...Object.keys(this.peers), ...Object.keys(next.bots)];
     if (fighterIds.length >= 2 && !next.winner) {
       const alive = fighterIds.filter((id) => !next.deaths[id]);
-      if (alive.length === 1) {
-        next.winner = alive[0]!;
+      const [sole] = alive;
+      if (alive.length === 1 && sole) {
+        next.winner = sole;
         d.winner = true;
       } else if (alive.length === 0) {
         next.winner = "draw";
@@ -960,15 +1010,15 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    const patch: Record<string, unknown> = {};
-    if (d.grid) patch["grid"] = next.grid;
-    if (d.bombs) patch["bombs"] = next.bombs;
-    if (d.blasts) patch["blasts"] = next.blasts;
-    if (d.powerups) patch["powerups"] = next.powerups;
-    if (d.bots) patch["bots"] = next.bots;
-    if (d.stats) patch["stats"] = next.stats;
-    if (d.deaths) patch["deaths"] = next.deaths;
-    if (d.winner) patch["winner"] = next.winner;
+    const patch: Partial<SharedState> = {};
+    if (d.grid) patch.grid = next.grid;
+    if (d.bombs) patch.bombs = next.bombs;
+    if (d.blasts) patch.blasts = next.blasts;
+    if (d.powerups) patch.powerups = next.powerups;
+    if (d.bots) patch.bots = next.bots;
+    if (d.stats) patch.stats = next.stats;
+    if (d.deaths) patch.deaths = next.deaths;
+    if (d.winner) patch.winner = next.winner;
     if (Object.keys(patch).length > 0) this.netPatchShared(patch);
   }
 
@@ -1002,7 +1052,7 @@ export class GameScene extends Phaser.Scene {
     for (const corner of want) {
       const id = `bot-${corner}`;
       if (!next.bots[id]) {
-        const spawn = SPAWN_POINTS[corner] ?? SPAWN_POINTS[0]!;
+        const spawn = SPAWN_POINTS[corner] ?? SPAWN_POINTS[0];
         next.bots[id] = {
           id,
           col: spawn.col,
@@ -1107,8 +1157,7 @@ export class GameScene extends Phaser.Scene {
       const freeOpts = safeOpts.filter((o) => !occupied.has(o.key));
       const wanderOpts = freeOpts.length > 0 ? freeOpts : safeOpts;
       const target = nearestEnemy(bot, enemies) ?? nearestCrate(next.grid, bot.col, bot.row);
-      let pick =
-        wanderOpts.length > 0 ? wanderOpts[Math.floor(Math.random() * wanderOpts.length)]! : null;
+      let pick = wanderOpts[Math.floor(Math.random() * wanderOpts.length)] ?? null;
       if (target && wanderOpts.length > 0 && Math.random() > 0.25) {
         pick = wanderOpts.reduce((a, b) =>
           manhattan(b.c, b.r, target.col, target.row) < manhattan(a.c, a.r, target.col, target.row)
@@ -1158,13 +1207,12 @@ export class GameScene extends Phaser.Scene {
     const s = this.shared();
     if (!s) return;
     if (!this.isAlive(ownerId)) return;
-    if (Object.values(s.bombs).some((b) => b.col === col && b.row === row)) return;
+    if (bombOn(s.bombs, col, row)) return;
     const stats = s.stats[ownerId] ?? baseStats();
     const active = Object.values(s.bombs).filter((b) => b.ownerId === ownerId).length;
     if (active >= stats.bombs) return;
-    const id = `b-${ownerId}-${Date.now()}-${col}-${row}`;
-    const bomb: Bomb = { id, ownerId, col, row, placedAt: Date.now(), range: stats.range };
-    this.netPatchShared({ bombs: { ...s.bombs, [id]: bomb } });
+    const bomb = makeBomb(ownerId, col, row, stats.range);
+    this.netPatchShared({ bombs: { ...s.bombs, [bomb.id]: bomb } });
   }
 
   // ---- visual effects ------------------------------------------------------
@@ -1218,19 +1266,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private burst(x: number, y: number, tint: number, count: number): void {
-    const emitter = this.add.particles(x, y, "spark", {
-      speed: { min: 40, max: 190 },
-      angle: { min: 0, max: 360 },
-      lifespan: { min: 280, max: 560 },
-      scale: { start: 1.1, end: 0 },
-      alpha: { start: 1, end: 0 },
-      tint,
-      blendMode: Phaser.BlendModes.ADD,
-      emitting: false,
-    });
-    emitter.setDepth(40);
-    emitter.explode(count);
-    this.time.delayedCall(700, () => emitter.destroy());
+    if (!this.sparkEmitter) return;
+    this.sparkEmitter.setParticleTint(tint);
+    this.sparkEmitter.explode(count, x, y);
   }
 
   private shakeIfNear(tiles: Array<{ col: number; row: number }>): void {
@@ -1270,7 +1308,7 @@ export class GameScene extends Phaser.Scene {
     }
     const idx = Object.keys(this.peers).indexOf(id);
     if (idx < 0) return;
-    const spawn = SPAWN_POINTS[idx] ?? SPAWN_POINTS[0]!;
+    const spawn = SPAWN_POINTS[idx] ?? SPAWN_POINTS[0];
     this.myCol = spawn.col;
     this.myRow = spawn.row;
     this.netUpdateMyState({
@@ -1285,7 +1323,7 @@ export class GameScene extends Phaser.Scene {
   private bombAt(col: number, row: number): boolean {
     const s = this.shared();
     if (!s) return false;
-    return Object.values(s.bombs).some((b) => b.col === col && b.row === row);
+    return bombOn(s.bombs, col, row);
   }
 
   private passable(col: number, row: number): boolean {
@@ -1303,12 +1341,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private writeShared(next: SharedState): void {
+    this.netDirty = true;
     if (this.offline) {
       this.offlineShared = next;
       return;
     }
-    // The client API takes an opaque record; SharedState is our typed view of it.
-    this.client.updateSharedState(next as unknown as Record<string, unknown>);
+    this.client.updateSharedState(next);
   }
 
   // ---- HUD -----------------------------------------------------------------
@@ -1351,8 +1389,9 @@ export class GameScene extends Phaser.Scene {
     if (s?.winner === "draw") text = "Draw!";
     else if (s?.winner)
       text = s.winner === this.myId ? "🏆 You win!" : `${this.labelFor(s.winner)} wins!`;
-    else if (this.client.connectionStatus === "connected" && !this.isAlive(this.myId))
-      text = "💥 Boom!";
+    else if (this.live && !this.isAlive(this.myId)) text = "💥 Boom!";
+    if (text === this.lastBanner) return;
+    this.lastBanner = text;
     this.bannerEl.textContent = text;
     this.bannerEl.style.opacity = text ? "1" : "0";
   }
@@ -1364,15 +1403,21 @@ export class GameScene extends Phaser.Scene {
   }
 
   private setStatus(text: string): void {
-    if (this.statusEl) this.statusEl.textContent = text;
+    if (!this.statusEl || text === this.lastStatus) return;
+    this.lastStatus = text;
+    this.statusEl.textContent = text;
   }
 
   private setPlayersList(text: string): void {
-    if (this.playersEl) this.playersEl.textContent = text;
+    if (!this.playersEl || text === this.lastPlayers) return;
+    this.lastPlayers = text;
+    this.playersEl.textContent = text;
   }
 
   private setStats(text: string): void {
-    if (this.statsEl) this.statsEl.textContent = text;
+    if (!this.statsEl || text === this.lastStats) return;
+    this.lastStats = text;
+    this.statsEl.textContent = text;
   }
 }
 
@@ -1397,7 +1442,17 @@ function structuredCloneBots(bots: Record<string, Bot>): Record<string, Bot> {
 }
 
 function randomKind(): PowerupKind {
-  return POWERUP_KINDS[Math.floor(Math.random() * POWERUP_KINDS.length)]!;
+  return POWERUP_KINDS[Math.floor(Math.random() * POWERUP_KINDS.length)] ?? "bomb";
+}
+
+/** Is there a bomb on this tile? */
+function bombOn(bombs: Record<string, Bomb>, col: number, row: number): boolean {
+  return Object.values(bombs).some((b) => b.col === col && b.row === row);
+}
+
+function makeBomb(ownerId: string, col: number, row: number, range: number): Bomb {
+  const now = Date.now();
+  return { id: `b-${ownerId}-${now}-${col}-${row}`, ownerId, col, row, placedAt: now, range };
 }
 
 function grantPowerup(stats: PlayerStats, kind: PowerupKind): PlayerStats {
@@ -1571,10 +1626,9 @@ function nearestCrate(
 ): { col: number; row: number } | null {
   let best: { col: number; row: number } | null = null;
   let bestD = Infinity;
-  for (let r = 0; r < grid.length; r++) {
-    const gr = grid[r]!;
-    for (let c = 0; c < gr.length; c++) {
-      if (gr[c]!.kind !== "crate") continue;
+  for (const [r, gr] of grid.entries()) {
+    for (const [c, cell] of gr.entries()) {
+      if (cell.kind !== "crate") continue;
       const dd = manhattan(col, row, c, r);
       if (dd < bestD) {
         bestD = dd;
@@ -1605,7 +1659,7 @@ function addBomb(
   row: number,
   stats: PlayerStats,
 ): void {
-  if (Object.values(next.bombs).some((b) => b.col === col && b.row === row)) return;
-  const id = `b-${ownerId}-${Date.now()}-${col}-${row}`;
-  next.bombs[id] = { id, ownerId, col, row, placedAt: Date.now(), range: stats.range };
+  if (bombOn(next.bombs, col, row)) return;
+  const bomb = makeBomb(ownerId, col, row, stats.range);
+  next.bombs[bomb.id] = bomb;
 }

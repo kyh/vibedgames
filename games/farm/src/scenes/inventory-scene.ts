@@ -4,7 +4,7 @@ import { HOTBAR, TOTAL } from "../systems/inventory";
 import { itemIcon, itemName, sellValue, isSellable } from "../data/items";
 import { SKILL_IDS, SKILL_NAMES, SKILL_ICON, xpToNext } from "../systems/skills";
 import { Sound } from "../render/audio";
-import type { GameScene } from "./game-scene";
+import { GameScene } from "./game-scene";
 
 const FONT = "ui-monospace, monospace";
 const SZ = 44;
@@ -18,7 +18,6 @@ export class InventoryScene extends Phaser.Scene {
   private qtys: Phaser.GameObjects.Text[] = [];
   private info!: Phaser.GameObjects.Text;
   private skillG!: Phaser.GameObjects.Graphics;
-  private skillText!: Phaser.GameObjects.Text;
   private onResize?: () => void;
 
   constructor() {
@@ -40,11 +39,6 @@ export class InventoryScene extends Phaser.Scene {
       .text(0, 0, "", { fontFamily: FONT, fontSize: "14px", color: "#fff6d5" })
       .setOrigin(0.5, 0);
     this.skillG = this.add.graphics();
-    this.skillText = this.add.text(0, 0, "", {
-      fontFamily: FONT,
-      fontSize: "13px",
-      color: "#3a2a14",
-    });
 
     for (let i = 0; i < TOTAL; i++) {
       this.icons.push(this.add.image(0, 0, "obj-stone").setVisible(false));
@@ -76,7 +70,9 @@ export class InventoryScene extends Phaser.Scene {
   }
 
   private close(): void {
-    (this.scene.get("Game") as GameScene).closeUi();
+    const game = this.scene.get("Game");
+    if (!(game instanceof GameScene)) throw new Error("Inventory requires the Game scene");
+    game.closeUi();
     this.scene.stop();
   }
 
@@ -100,7 +96,6 @@ export class InventoryScene extends Phaser.Scene {
           this.cells.push({ x: startX + c * (SZ + GAP), y: py + 132 + r * (SZ + GAP), idx });
       }
     this.info.setPosition(px + panelW / 2, py + panelH - 34);
-    this.skillText.setPosition(px + panelW + 24, py + 60);
     this.panel = { px, py, panelW, panelH };
     this.skillPanel = { x: px + panelW + 12, y: py, w: 210, h: panelH };
     this.draw();
@@ -188,7 +183,6 @@ export class InventoryScene extends Phaser.Scene {
     g.strokeRoundedRect(x, y, w, h, 14);
     g.fillStyle(0x9a6a35, 1);
     g.fillRoundedRect(x, y, w, 40, { tl: 14, tr: 14, bl: 0, br: 0 });
-    let lines = `Skills\n\n`;
     let ry = y + 56;
     for (const id of SKILL_IDS) {
       const s = store.skills.get(id);
@@ -199,11 +193,7 @@ export class InventoryScene extends Phaser.Scene {
       g.fillStyle(0x5fae3a, 1);
       g.fillRoundedRect(x + 16, ry + 16, (w - 32) * frac, 8, 3);
       ry += 44;
-      lines += "";
     }
-    void lines;
-    // labels
-    this.skillText.setText("");
     this.renderSkillLabels(x, y);
   }
 

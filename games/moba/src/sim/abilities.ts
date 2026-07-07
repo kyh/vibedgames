@@ -89,7 +89,7 @@ function enemiesInRadius(
   for (const u of w.units.values()) {
     // neutrals are enemies of every team; same-team non-neutrals are not
     if (!u.alive || (!u.neutral && u.team === team)) continue;
-    if (u.kind === "structure" && (!allowStructure || !u.structure!.attackable)) continue;
+    if (u.kind === "structure" && (!allowStructure || !u.structure?.attackable)) continue;
     if (u.statuses.some((s) => s.kind === "untargetable")) continue;
     if (dist2(u, p) <= r2) out.push(u);
   }
@@ -367,7 +367,6 @@ function dispatch(
         dtype: "magic",
         kind: "fireball",
         radius: v(def, "radius", rank),
-        fromAbility: true,
         onHit: { tag: "none" },
       });
       return true;
@@ -446,7 +445,6 @@ function dispatch(
         dtype: "magic",
         kind: "dynamite",
         radius: v(def, "radius", rank),
-        fromAbility: true,
         onHit: { tag: "buildingBonus", pct: v(def, "buildingBonusPct", rank) },
       });
       return true;
@@ -858,10 +856,10 @@ function detonateConflagration(
 
 function tickChannels(w: World): void {
   for (const u of w.units.values()) {
-    const ch = u.hero?.channel;
-    if (!ch) continue;
-    if (w.now >= ch.until) {
-      u.hero!.channel = null;
+    const h = u.hero;
+    if (!h?.channel) continue;
+    if (w.now >= h.channel.until) {
+      h.channel = null;
     }
   }
 }
@@ -906,10 +904,10 @@ export function autoLevel(w: World, u: Unit): void {
   if (!u.hero) return;
   let guard = 0;
   while (u.hero.abilityPoints > 0 && guard++ < 8) {
-    if (levelAbility(w, u, "R")) continue;
+    if (levelAbility(u, "R")) continue;
     let did = false;
     for (const k of ["Q", "W", "E"] as AbilityKey[]) {
-      if (levelAbility(w, u, k)) {
+      if (levelAbility(u, k)) {
         did = true;
         break;
       }
@@ -918,7 +916,7 @@ export function autoLevel(w: World, u: Unit): void {
   }
 }
 
-export function levelAbility(w: World, u: Unit, key: AbilityKey): boolean {
+export function levelAbility(u: Unit, key: AbilityKey): boolean {
   const h = u.hero;
   if (!h || h.abilityPoints <= 0) return false;
   const def = HERO_BY_ID[h.defId]?.abilities[key];
@@ -928,6 +926,5 @@ export function levelAbility(w: World, u: Unit, key: AbilityKey): boolean {
   if (slot.rank >= cap) return false;
   slot.rank += 1;
   h.abilityPoints -= 1;
-  void w;
   return true;
 }

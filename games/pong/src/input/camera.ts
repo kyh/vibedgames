@@ -46,6 +46,10 @@ export function startHandTracking(onWristX: (x: number) => void): HandTracker {
   let stream: MediaStream | null = null;
   let recognizer: GestureRecognizer | null = null;
   let videoPlaying = false;
+  // Created once in the loadeddata handler (after the canvas is sized) and
+  // reused every frame — no per-frame getContext / DrawingUtils churn.
+  let ctx: CanvasRenderingContext2D | null = null;
+  let drawingUtils: DrawingUtils | null = null;
 
   const fail = (error: unknown): void => {
     console.error("Error starting hand tracking:", error);
@@ -58,7 +62,7 @@ export function startHandTracking(onWristX: (x: number) => void): HandTracker {
   let lastTimestamp = 0;
   const predictWebcam = (): void => {
     if (stopped) return;
-    if (!videoPlaying || !recognizer) {
+    if (!videoPlaying || !recognizer || !ctx || !drawingUtils) {
       rafId = requestAnimationFrame(predictWebcam);
       return;
     }
@@ -71,32 +75,25 @@ export function startHandTracking(onWristX: (x: number) => void): HandTracker {
       lastTimestamp = timestamp;
       const results = recognizer.recognizeForVideo(video, timestamp);
 
-      const ctx = canvas.getContext("2d");
-      if (ctx) {
-        ctx.save();
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        const drawingUtils = new DrawingUtils(ctx);
+      ctx.save();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        if (results.landmarks.length > 0) {
-          const handLandmarks = results.landmarks[0];
-          if (handLandmarks) {
-            for (const landmarks of results.landmarks) {
-              drawingUtils.drawConnectors(landmarks, GestureRecognizer.HAND_CONNECTIONS, {
-                color: "#00FF00",
-                lineWidth: 5,
-              });
-              drawingUtils.drawLandmarks(landmarks, {
-                color: "#FF0000",
-                lineWidth: 2,
-              });
-            }
+      // numHands is 1, so the first hand is the only hand.
+      const hand = results.landmarks[0];
+      if (hand) {
+        drawingUtils.drawConnectors(hand, GestureRecognizer.HAND_CONNECTIONS, {
+          color: "#00FF00",
+          lineWidth: 5,
+        });
+        drawingUtils.drawLandmarks(hand, {
+          color: "#FF0000",
+          lineWidth: 2,
+        });
 
-            const wrist = handLandmarks[0];
-            if (wrist) onWristX(wrist.x);
-          }
-        }
-        ctx.restore();
+        const wrist = hand[0];
+        if (wrist) onWristX(wrist.x);
       }
+      ctx.restore();
     }
 
     rafId = requestAnimationFrame(predictWebcam);
@@ -119,6 +116,12 @@ export function startHandTracking(onWristX: (x: number) => void): HandTracker {
       void video.play();
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
+      ctx = canvas.getContext("2d");
+      if (!ctx) {
+        fail(new Error("canvas 2d context unavailable"));
+        return;
+      }
+      drawingUtils = new DrawingUtils(ctx);
       status.textContent = "";
       panel.dataset.state = "live";
       predictWebcam();

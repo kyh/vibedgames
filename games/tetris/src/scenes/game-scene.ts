@@ -60,6 +60,8 @@ export class GameScene {
   private readonly dMove: Repeat = { dir: 0, das: 0, arr: 0 };
 
   private needSnap = false;
+  /** Locked-board changed since the last sync (lock / power sweep / catch / reset). */
+  private boardDirty = true;
   private collapseStartedAt = 0;
   private lastPoseAt = -1e9;
 
@@ -175,6 +177,7 @@ export class GameScene {
     if (!this.engine.canPower()) return;
     const removed = this.engine.power();
     if (removed <= 0) return;
+    this.boardDirty = true;
     sfx.clear(removed);
     this.rig.addTrauma(TRAUMA_CLEAR);
     this.particles.burst({
@@ -229,6 +232,7 @@ export class GameScene {
     this.well.setCorner(0);
     this.rig.resetTrauma();
     this.engine.startGame();
+    this.boardDirty = true;
     this.needSnap = true;
     this.hMove.dir = 0;
     this.dMove.dir = 0;
@@ -238,6 +242,7 @@ export class GameScene {
   // ---- lock / clear / collapse ------------------------------------------------
 
   private handleLock(ev: LockEvent): void {
+    this.boardDirty = true;
     const colorHex = PIECES[ev.colorIndex - 1]?.color ?? 0xffffff;
     const c = centroid(ev.lockedCells);
     sfx.lock();
@@ -295,6 +300,7 @@ export class GameScene {
     this.well.setCorner(this.rig.corner);
     const stillDead = this.engine.resumeAfterCatch();
     this.rig.resetTrauma();
+    this.boardDirty = true;
     this.needSnap = true;
     if (stillDead) {
       this.finalizeGameOver();
@@ -328,8 +334,12 @@ export class GameScene {
       if (now - this.collapseStartedAt > CATCH_WINDOW_MS) this.finalizeGameOver();
     }
 
-    // sync renderers from the logical state
-    this.cubes.syncLocked(this.engine.board);
+    // sync renderers from the logical state (locked layer only when it changed;
+    // syncLocked itself still no-ops while frozen, so keep the flag until thawed)
+    if (this.boardDirty && !this.cubes.frozen) {
+      this.cubes.syncLocked(this.engine.board);
+      this.boardDirty = false;
+    }
     const active = this.engine.activeCells();
     this.cubes.setActive(active, this.engine.activePieceIndex(), this.needSnap);
     this.cubes.setGhost(this.engine.ghostCells());

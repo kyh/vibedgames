@@ -3,6 +3,8 @@ import { hasSave, clearSave } from "../systems/save";
 import { Sound } from "../render/audio";
 
 export class TitleScene extends Phaser.Scene {
+  private onResize?: (gs: Phaser.Structs.Size) => void;
+
   constructor() {
     super("Title");
   }
@@ -14,10 +16,15 @@ export class TitleScene extends Phaser.Scene {
     // cozy sky->grass backdrop
     const bg = this.add.graphics();
     this.drawBackdrop(bg, width, height);
-    this.scale.on("resize", (gs: Phaser.Structs.Size) => {
+    if (this.onResize) this.scale.off("resize", this.onResize);
+    this.onResize = (gs: Phaser.Structs.Size) => {
       bg.clear();
       this.drawBackdrop(bg, gs.width, gs.height);
       layout();
+    };
+    this.scale.on("resize", this.onResize);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      if (this.onResize) this.scale.off("resize", this.onResize);
     });
 
     // decorative idle farmer

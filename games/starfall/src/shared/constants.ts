@@ -146,6 +146,12 @@ export function asteroidSpeed(radius: number): number {
   return ((1 - radius / ASTEROID_MAX_RADIUS) * 1.6 + 0.4) * 90;
 }
 
+/** Does one hit of `power` shrink the rock below the minimum (= destroys it)?
+ *  The shared damage formula — shooters predict with it, the host applies it. */
+export function asteroidDestroyedBy(radius: number, power: number): boolean {
+  return radius - ASTEROID_MAX_RADIUS * Math.min(power, 1) < ASTEROID_MIN_RADIUS;
+}
+
 // ---- UFO ----------------------------------------------------------------------
 
 export const UFO_SPEED = 120;
@@ -402,37 +408,23 @@ export function scaleWeaponForLevel(w: Weapon, level: number): Weapon {
   };
 }
 
+/** A Weapon from only its non-default fields (everything else = WEAPON_DEFAULT). */
+const defineWeapon = (
+  w: Partial<Weapon> & Pick<Weapon, "name" | "power" | "tint" | "intervalMs" | "sfx">,
+): Weapon => ({ ...WEAPON_DEFAULT, ...w });
+
 export const WEAPONS_SPECIAL: Weapon[] = [
-  {
+  defineWeapon({
     name: "TINY BEAM",
     power: 0.14,
     speed: 700,
     length: 6,
-    width: 1,
     tint: 0x83e008,
     intervalMs: 70,
-    through: false,
-    explosion: null,
-    pellets: 1,
-    spreadDeg: 0,
     jitterDeg: 3,
-    homing: null,
-    arc: null,
-    boomerang: null,
-    windupMs: 0,
-    mine: false,
-    ricochet: null,
-    flak: null,
-    cluster: null,
-    range: 0,
-    phasesRock: false,
-    mirror: false,
-    aura: false,
-    sentry: false,
-    singularity: false,
     sfx: "rapid",
-  },
-  {
+  }),
+  defineWeapon({
     name: "BLASTER",
     power: 0.9,
     speed: 380, // every projectile ≥360 px/s vs ship max 300 (design floor)
@@ -440,28 +432,10 @@ export const WEAPONS_SPECIAL: Weapon[] = [
     width: 3,
     tint: 0xf4007a,
     intervalMs: 450,
-    through: false,
-    explosion: null,
-    pellets: 1,
-    spreadDeg: 0,
     jitterDeg: 0,
-    homing: null,
-    arc: null,
-    boomerang: null,
-    windupMs: 0,
-    mine: false,
-    ricochet: null,
-    flak: null,
-    cluster: null,
-    range: 0,
-    phasesRock: false,
-    mirror: false,
-    aura: false,
-    sentry: false,
-    singularity: false,
     sfx: "heavy",
-  },
-  {
+  }),
+  defineWeapon({
     name: "LASER",
     power: 0.3,
     speed: 2400,
@@ -470,27 +444,10 @@ export const WEAPONS_SPECIAL: Weapon[] = [
     tint: 0x8ae3fc,
     intervalMs: 380,
     through: true,
-    explosion: null,
-    pellets: 1,
-    spreadDeg: 0,
     jitterDeg: 0,
-    homing: null,
-    arc: null,
-    boomerang: null,
-    windupMs: 0,
-    mine: false,
-    ricochet: null,
-    flak: null,
-    cluster: null,
-    range: 0,
-    phasesRock: false,
-    mirror: false,
-    aura: false,
-    sentry: false,
-    singularity: false,
     sfx: "zap",
-  },
-  {
+  }),
+  defineWeapon({
     name: "EXPLOSION BEAM",
     power: 0.22,
     speed: 900,
@@ -498,62 +455,28 @@ export const WEAPONS_SPECIAL: Weapon[] = [
     width: 2,
     tint: 0xff9900,
     intervalMs: 350,
-    through: false,
     explosion: { range: 110, growth: 700 },
-    pellets: 1,
-    spreadDeg: 0,
     jitterDeg: 0,
-    homing: null,
-    arc: null,
-    boomerang: null,
-    windupMs: 0,
-    mine: false,
-    ricochet: null,
-    flak: null,
-    cluster: null,
-    range: 0,
-    phasesRock: false,
-    mirror: false,
-    aura: false,
-    sentry: false,
-    singularity: false,
     sfx: "boom",
-  },
-  {
+  }),
+  defineWeapon({
     name: "SCATTER",
     power: 0.08,
     speed: 480,
     length: 7,
-    width: 1,
     tint: 0xffd23e,
     intervalMs: 300,
-    through: false,
-    explosion: null,
     pellets: 6,
     spreadDeg: 36,
     jitterDeg: 2,
-    homing: null,
-    arc: null,
-    boomerang: null,
-    windupMs: 0,
-    mine: false,
-    ricochet: null,
-    flak: null,
-    cluster: null,
-    range: 0,
-    phasesRock: false,
-    mirror: false,
-    aura: false,
-    sentry: false,
-    singularity: false,
     sfx: "scatter",
-  },
-  {
-    // v3.1 retune (power 0.45 -> 0.6): the single-target-burst niche.
-    // effDPS: 60/0.55s = 109 raw x 0.95 reliability -> ~104 sustained, but
-    // 60/hit one-shots fodder and two-cycles elites from the longest seeker
-    // acquire range (420 vs CLUSTER's 380) - burst access, not sustain, is
-    // the sell next to CLUSTER's crowd volley.
+  }),
+  // v3.1 retune (power 0.45 -> 0.6): the single-target-burst niche.
+  // effDPS: 60/0.55s = 109 raw x 0.95 reliability -> ~104 sustained, but
+  // 60/hit one-shots fodder and two-cycles elites from the longest seeker
+  // acquire range (420 vs CLUSTER's 380) - burst access, not sustain, is
+  // the sell next to CLUSTER's crowd volley.
+  defineWeapon({
     name: "HOMING",
     power: 0.6,
     speed: 380,
@@ -561,57 +484,22 @@ export const WEAPONS_SPECIAL: Weapon[] = [
     width: 2,
     tint: 0xc084fc,
     intervalMs: 550,
-    through: false,
-    explosion: null,
-    pellets: 1,
-    spreadDeg: 0,
     jitterDeg: 0,
     homing: { turnDegPerSec: 220, acquireRange: 420 },
-    arc: null,
-    boomerang: null,
-    windupMs: 0,
-    mine: false,
-    ricochet: null,
-    flak: null,
-    cluster: null,
-    range: 0,
-    phasesRock: false,
-    mirror: false,
-    aura: false,
-    sentry: false,
-    singularity: false,
     sfx: "seek",
-  },
-  {
+  }),
+  defineWeapon({
     name: "ARC",
     power: 0.28,
     speed: 0, // hitscan
     length: 0,
-    width: 1,
     tint: 0xfff066,
     intervalMs: 500,
-    through: false,
-    explosion: null,
-    pellets: 1,
-    spreadDeg: 0,
     jitterDeg: 0,
-    homing: null,
     arc: { castRange: 380, hopRange: 240, jumps: 3, falloff: 0.7 },
-    boomerang: null,
-    windupMs: 0,
-    mine: false,
-    ricochet: null,
-    flak: null,
-    cluster: null,
-    range: 0,
-    phasesRock: false,
-    mirror: false,
-    aura: false,
-    sentry: false,
-    singularity: false,
     sfx: "arc",
-  },
-  {
+  }),
+  defineWeapon({
     name: "GLAIVE",
     power: 0.35,
     speed: 540,
@@ -620,27 +508,11 @@ export const WEAPONS_SPECIAL: Weapon[] = [
     tint: 0x2dd4bf,
     intervalMs: 700,
     through: true,
-    explosion: null,
-    pellets: 1,
-    spreadDeg: 0,
     jitterDeg: 0,
-    homing: null,
-    arc: null,
     boomerang: { outRange: 320, returnSpeed: 700 },
-    windupMs: 0,
-    mine: false,
-    ricochet: null,
-    flak: null,
-    cluster: null,
-    range: 0,
-    phasesRock: false,
-    mirror: false,
-    aura: false,
-    sentry: false,
-    singularity: false,
     sfx: "glaive",
-  },
-  {
+  }),
+  defineWeapon({
     name: "RAILGUN",
     power: 1.3,
     speed: 2800,
@@ -649,91 +521,40 @@ export const WEAPONS_SPECIAL: Weapon[] = [
     tint: 0xd946ef,
     intervalMs: 1100,
     through: true,
-    explosion: null,
-    pellets: 1,
-    spreadDeg: 0,
     jitterDeg: 0,
-    homing: null,
-    arc: null,
-    boomerang: null,
     windupMs: 700,
-    mine: false,
-    ricochet: null,
-    flak: null,
-    cluster: null,
-    range: 0,
-    phasesRock: false,
-    mirror: false,
-    aura: false,
-    sentry: false,
-    singularity: false,
     sfx: "rail",
-  },
-  {
+  }),
+  defineWeapon({
     name: "MINES",
     power: 0.7,
     speed: 0,
     length: 0,
-    width: 1,
     tint: 0xf59e0b,
     intervalMs: 700,
-    through: false,
     explosion: { range: 90, growth: 700 },
-    pellets: 1,
-    spreadDeg: 0,
     jitterDeg: 0,
-    homing: null,
-    arc: null,
-    boomerang: null,
-    windupMs: 0,
     mine: true,
-    ricochet: null,
-    flak: null,
-    cluster: null,
-    range: 0,
-    phasesRock: false,
-    mirror: false,
-    aura: false,
-    sentry: false,
-    singularity: false,
     sfx: "mine",
-  },
-  {
+  }),
+  defineWeapon({
     name: "NOVA",
     power: 0.38,
     speed: 0,
     length: 0,
-    width: 1,
     tint: 0x60a5fa,
     intervalMs: 900,
-    through: false,
     explosion: { range: 140, growth: 900 },
-    pellets: 1,
-    spreadDeg: 0,
     jitterDeg: 0,
-    homing: null,
-    arc: null,
-    boomerang: null,
-    windupMs: 0,
-    mine: false,
-    ricochet: null,
-    flak: null,
-    cluster: null,
-    range: 0,
-    phasesRock: false,
-    mirror: false,
-    aura: false,
-    sentry: false,
-    singularity: false,
     sfx: "nova",
-  },
+  }),
   // ---- v3 weapons #12-15 (effDPS method per v1 4.3, target band ~135-165) ----
-  {
-    // RICOCHET: bounces off asteroids + world edges up to 3x; each bounce
-    // re-aims at the nearest enemy/asteroid within 400px.
-    // effDPS: raw 35/0.42s = 83 x avgTargets 1.8 (bounce chain) x 0.95
-    // reliability (re-aim) -> ~142. Pays via indirection: the bolt spends
-    // travel time between bounces and dies on any non-asteroid hit.
+  // RICOCHET: bounces off asteroids + world edges up to 3x; each bounce
+  // re-aims at the nearest enemy/asteroid within 400px.
+  // effDPS: raw 35/0.42s = 83 x avgTargets 1.8 (bounce chain) x 0.95
+  // reliability (re-aim) -> ~142. Pays via indirection: the bolt spends
+  // travel time between bounces and dies on any non-asteroid hit.
+  defineWeapon({
     name: "RICOCHET",
     power: 0.35,
     speed: 560,
@@ -741,34 +562,16 @@ export const WEAPONS_SPECIAL: Weapon[] = [
     width: 2,
     tint: 0x00ff7f, // spring green
     intervalMs: 420,
-    through: false,
-    explosion: null,
-    pellets: 1,
-    spreadDeg: 0,
-    jitterDeg: 1,
-    homing: null,
-    arc: null,
-    boomerang: null,
-    windupMs: 0,
-    mine: false,
     ricochet: { bounces: 3, retargetRange: 400 },
-    flak: null,
-    cluster: null,
-    range: 0,
-    phasesRock: false,
-    mirror: false,
-    aura: false,
-    sentry: false,
-    singularity: false,
     sfx: "pulse",
-  },
-  {
-    // FLAK: shell airbursts at 280px traveled (or on first hit) into 8
-    // radial fragments (FLAK_FRAG_WEAPON, 12 dmg, 160px range each).
-    // effDPS: (45 shell + ~2.5 connecting frags x 12 = 75)/0.65s = 115 raw
-    // x 1.3 avgTargets (radial frags rake crowds) -> ~150. Pays via the
-    // fixed burst range: too close and frags overshoot, too far and the
-    // shell pops early.
+  }),
+  // FLAK: shell airbursts at 280px traveled (or on first hit) into 8
+  // radial fragments (FLAK_FRAG_WEAPON, 12 dmg, 160px range each).
+  // effDPS: (45 shell + ~2.5 connecting frags x 12 = 75)/0.65s = 115 raw
+  // x 1.3 avgTargets (radial frags rake crowds) -> ~150. Pays via the
+  // fixed burst range: too close and frags overshoot, too far and the
+  // shell pops early.
+  defineWeapon({
     name: "FLAK",
     power: 0.45,
     speed: 460,
@@ -776,70 +579,35 @@ export const WEAPONS_SPECIAL: Weapon[] = [
     width: 2,
     tint: 0xff8c00, // orange (EXPLOSION's 0xff9900 reads warmer + rounder)
     intervalMs: 650,
-    through: false,
-    explosion: null,
-    pellets: 1,
-    spreadDeg: 0,
-    jitterDeg: 1,
-    homing: null,
-    arc: null,
-    boomerang: null,
-    windupMs: 0,
-    mine: false,
-    ricochet: null,
     flak: { burstDist: 280, fragments: 8, fragRange: 160 },
-    cluster: null,
-    range: 0,
-    phasesRock: false,
-    mirror: false,
-    aura: false,
-    sentry: false,
-    singularity: false,
     sfx: "boom",
-  },
-  {
-    // CLUSTER: one trigger-pull -> 3 mini homing missiles staggered 60ms
-    // (HOMING seek code with its own faster turn rate).
-    // v3.1 retune (intervalMs 700 -> 900): 3 x 35 = 105/volley / 0.9s = 117
-    // raw x 0.9 reliability (staggered locks can overkill a dying target)
-    // -> ~105 - pulled out of strict dominance over HOMING. CLUSTER fans
-    // locks across a crowd; HOMING (0.6) bursts one target harder from
-    // farther away.
+  }),
+  // CLUSTER: one trigger-pull -> 3 mini homing missiles staggered 60ms
+  // (HOMING seek code with its own faster turn rate).
+  // v3.1 retune (intervalMs 700 -> 900): 3 x 35 = 105/volley / 0.9s = 117
+  // raw x 0.9 reliability (staggered locks can overkill a dying target)
+  // -> ~105 - pulled out of strict dominance over HOMING. CLUSTER fans
+  // locks across a crowd; HOMING (0.6) bursts one target harder from
+  // farther away.
+  defineWeapon({
     name: "CLUSTER",
     power: 0.35,
     speed: 360,
     length: 8,
-    width: 1,
     tint: 0xc4b5fd, // pale violet
     intervalMs: 900,
-    through: false,
-    explosion: null,
-    pellets: 1,
-    spreadDeg: 0,
     jitterDeg: 0,
     homing: { turnDegPerSec: 300, acquireRange: 380 },
-    arc: null,
-    boomerang: null,
-    windupMs: 0,
-    mine: false,
-    ricochet: null,
-    flak: null,
     cluster: { missiles: 3, staggerMs: 60 },
-    range: 0,
-    phasesRock: false,
-    mirror: false,
-    aura: false,
-    sentry: false,
-    singularity: false,
     sfx: "seek",
-  },
-  {
-    // DRILL: very slow, wide, long-lived through-beam that grinds the line.
-    // effDPS: 100/0.9s = 111 raw x 1.6 avgTargets (pierce; slow bolt lets
-    // enemies walk into it) x 0.85 reliability (240 px/s is outrun by
-    // everything) -> ~151. power 1.0 -> heavy tier: PvP volleys auto-rate
-    // at the 300ms i-frame (the persistent slow beam would re-drain at the
-    // 120ms tier otherwise).
+  }),
+  // DRILL: very slow, wide, long-lived through-beam that grinds the line.
+  // effDPS: 100/0.9s = 111 raw x 1.6 avgTargets (pierce; slow bolt lets
+  // enemies walk into it) x 0.85 reliability (240 px/s is outrun by
+  // everything) -> ~151. power 1.0 -> heavy tier: PvP volleys auto-rate
+  // at the 300ms i-frame (the persistent slow beam would re-drain at the
+  // 120ms tier otherwise).
+  defineWeapon({
     name: "DRILL",
     power: 1.0,
     speed: 240,
@@ -848,36 +616,19 @@ export const WEAPONS_SPECIAL: Weapon[] = [
     tint: 0xb45309, // copper - heavy + warm without touching the reserved enemy red family
     intervalMs: 900,
     through: true,
-    explosion: null,
-    pellets: 1,
-    spreadDeg: 0,
     jitterDeg: 0,
-    homing: null,
-    arc: null,
-    boomerang: null,
-    windupMs: 0,
-    mine: false,
-    ricochet: null,
-    flak: null,
-    cluster: null,
-    range: 0,
-    phasesRock: false,
-    mirror: false,
-    aura: false,
-    sentry: false,
-    singularity: false,
     sfx: "drill",
-  },
+  }),
   // ---- v3.1 weapons #16-21 (same effDPS method, target band ~135-165) ----
-  {
-    // PLASMA CONE: flamethrower stream - 70ms cadence, bolts die at 150px
-    // traveled (range -> diesAt in makeBeam). Per-shot tint lerps hot pink
-    // to orange so the stream reads as a gradient.
-    // effDPS: 11/0.07s = 157 raw x 1.0 targets x 0.9 reliability (jitter
-    // spills past small hulls at the envelope edge) -> ~141. Pays via
-    // range: you fight at hull-contact distance to keep the stream on.
-    // Wire load: 150px/520px/s = ~290ms TTL x 70ms cadence = ~4-6 live
-    // beams serialized (~7 under OVERDRIVE) - no beam cap needed.
+  // PLASMA CONE: flamethrower stream - 70ms cadence, bolts die at 150px
+  // traveled (range -> diesAt in makeBeam). Per-shot tint lerps hot pink
+  // to orange so the stream reads as a gradient.
+  // effDPS: 11/0.07s = 157 raw x 1.0 targets x 0.9 reliability (jitter
+  // spills past small hulls at the envelope edge) -> ~141. Pays via
+  // range: you fight at hull-contact distance to keep the stream on.
+  // Wire load: 150px/520px/s = ~290ms TTL x 70ms cadence = ~4-6 live
+  // beams serialized (~7 under OVERDRIVE) - no beam cap needed.
+  defineWeapon({
     name: "PLASMA CONE",
     power: 0.11,
     speed: 520,
@@ -885,68 +636,34 @@ export const WEAPONS_SPECIAL: Weapon[] = [
     width: 3,
     tint: 0xff5e3a, // hot pink-orange midpoint (per-shot gradient at fire)
     intervalMs: 70,
-    through: false,
-    explosion: null,
-    pellets: 1,
-    spreadDeg: 0,
     jitterDeg: 7,
-    homing: null,
-    arc: null,
-    boomerang: null,
-    windupMs: 0,
-    mine: false,
-    ricochet: null,
-    flak: null,
-    cluster: null,
     range: 150,
-    phasesRock: false,
-    mirror: false,
-    aura: false,
-    sentry: false,
-    singularity: false,
     sfx: "plasma",
-  },
-  {
-    // PHASE LANCE: passes through asteroids harmlessly (the asteroid
-    // hit-test is skipped outright) - the ignores-cover identity. Hits
-    // enemies, players and the UFO only, and pierces them (through).
-    // effDPS: 45/0.4s = 112 raw x 1.25 avgTargets (a pierce line that rocks
-    // can't block rakes stacked enemies) x 1.0 reliability (near-hitscan)
-    // -> ~141. Pays by never farming rocks: zero chip income, zero mining.
+  }),
+  // PHASE LANCE: passes through asteroids harmlessly (the asteroid
+  // hit-test is skipped outright) - the ignores-cover identity. Hits
+  // enemies, players and the UFO only, and pierces them (through).
+  // effDPS: 45/0.4s = 112 raw x 1.25 avgTargets (a pierce line that rocks
+  // can't block rakes stacked enemies) x 1.0 reliability (near-hitscan)
+  // -> ~141. Pays by never farming rocks: zero chip income, zero mining.
+  defineWeapon({
     name: "PHASE LANCE",
     power: 0.45,
     speed: 2200,
     length: 240,
-    width: 1,
     tint: 0xdffbff, // cyan-white, thinner + paler than LASER's 0x8ae3fc
     intervalMs: 400,
     through: true,
-    explosion: null,
-    pellets: 1,
-    spreadDeg: 0,
     jitterDeg: 0,
-    homing: null,
-    arc: null,
-    boomerang: null,
-    windupMs: 0,
-    mine: false,
-    ricochet: null,
-    flak: null,
-    cluster: null,
-    range: 0,
     phasesRock: true,
-    mirror: false,
-    aura: false,
-    sentry: false,
-    singularity: false,
     sfx: "zap",
-  },
-  {
-    // MIRROR: every trigger fires the bolt forward AND a copy backward
-    // (180 deg, from the tail). ~0.7x NORMAL power each, fast cadence.
-    // effDPS: fwd 18/0.2s = 90 + rear 90 x ~0.55 connect rate (something
-    // must be chasing you) -> ~140. The fleeing weapon: full value only
-    // under pursuit; kiting IS the aim mechanic.
+  }),
+  // MIRROR: every trigger fires the bolt forward AND a copy backward
+  // (180 deg, from the tail). ~0.7x NORMAL power each, fast cadence.
+  // effDPS: fwd 18/0.2s = 90 + rear 90 x ~0.55 connect rate (something
+  // must be chasing you) -> ~140. The fleeing weapon: full value only
+  // under pursuit; kiting IS the aim mechanic.
+  defineWeapon({
     name: "MIRROR",
     power: 0.18,
     speed: 560,
@@ -954,109 +671,55 @@ export const WEAPONS_SPECIAL: Weapon[] = [
     width: 2,
     tint: 0xb8c2cc, // silver, dimmer than NORMAL's white
     intervalMs: 200,
-    through: false,
-    explosion: null,
-    pellets: 1,
-    spreadDeg: 0,
-    jitterDeg: 1,
-    homing: null,
-    arc: null,
-    boomerang: null,
-    windupMs: 0,
-    mine: false,
-    ricochet: null,
-    flak: null,
-    cluster: null,
-    range: 0,
-    phasesRock: false,
     mirror: true,
-    aura: false,
-    sentry: false,
-    singularity: false,
     sfx: "pulse",
-  },
-  {
-    // TESLA AURA: melee field - while held, zaps the nearest target within
-    // 120px every 180ms (omnidirectional auto-aim, single-hop ARC-chain
-    // render; silent tick when nothing is in range).
-    // effDPS: 27/0.18s = 150 raw x 1.0 x 0.95 reliability (you must orbit
-    // inside 120px of things that hurt) -> ~142. PvP: victims adjudicate
-    // via the serialized `tesla` flag + own proximity (RAM pattern) at the
-    // standard 120ms i-frame tier.
+  }),
+  // TESLA AURA: melee field - while held, zaps the nearest target within
+  // 120px every 180ms (omnidirectional auto-aim, single-hop ARC-chain
+  // render; silent tick when nothing is in range).
+  // effDPS: 27/0.18s = 150 raw x 1.0 x 0.95 reliability (you must orbit
+  // inside 120px of things that hurt) -> ~142. PvP: victims adjudicate
+  // via the serialized `tesla` flag + own proximity (RAM pattern) at the
+  // standard 120ms i-frame tier.
+  defineWeapon({
     name: "TESLA AURA",
     power: 0.27,
     speed: 0,
     length: 0,
-    width: 1,
     tint: 0x00aaff, // electric blue
     intervalMs: 180,
-    through: false,
-    explosion: null,
-    pellets: 1,
-    spreadDeg: 0,
     jitterDeg: 0,
-    homing: null,
     arc: { castRange: 120, hopRange: 0, jumps: 0, falloff: 1 },
-    boomerang: null,
-    windupMs: 0,
-    mine: false,
-    ricochet: null,
-    flak: null,
-    cluster: null,
-    range: 0,
-    phasesRock: false,
-    mirror: false,
     aura: true,
-    sentry: false,
-    singularity: false,
     sfx: "tesla",
-  },
-  {
-    // SENTRY: each trigger places the one turret at the ship (max 1;
-    // placing again moves it; 12s life, re-place refreshes) AND fires this
-    // bolt from the ship. The turret fires this same NORMAL-power bolt at
-    // the nearest enemy (else asteroid) within 480px every 500ms; turret +
-    // bolts ride the owner's per-player state/beams.
-    // effDPS: own 25/0.28s = 89 + turret 25/0.5s = 50 (target in range)
-    // -> ~139. Pays via the split: half your output is parked wherever you
-    // last left it.
+  }),
+  // SENTRY: each trigger places the one turret at the ship (max 1;
+  // placing again moves it; 12s life, re-place refreshes) AND fires this
+  // bolt from the ship. The turret fires this same NORMAL-power bolt at
+  // the nearest enemy (else asteroid) within 480px every 500ms; turret +
+  // bolts ride the owner's per-player state/beams.
+  // effDPS: own 25/0.28s = 89 + turret 25/0.5s = 50 (target in range)
+  // -> ~139. Pays via the split: half your output is parked wherever you
+  // last left it.
+  defineWeapon({
     name: "SENTRY",
     power: 0.25,
     speed: 520,
     length: 12,
-    width: 1,
     tint: 0xfbbf24, // amber
     intervalMs: 280,
-    through: false,
-    explosion: null,
-    pellets: 1,
-    spreadDeg: 0,
-    jitterDeg: 1,
-    homing: null,
-    arc: null,
-    boomerang: null,
-    windupMs: 0,
-    mine: false,
-    ricochet: null,
-    flak: null,
-    cluster: null,
-    range: 0,
-    phasesRock: false,
-    mirror: false,
-    aura: false,
     sentry: true,
-    singularity: false,
     sfx: "sentry",
-  },
-  {
-    // SINGULARITY: slow orb (180 px/s), collapses at 216px traveled (1.2s)
-    // or on first contact: 0.8s pull drags asteroids/enemies within 220px
-    // toward the center (the HOST applies it via sharedState.pulls so all
-    // clients see the same drag), then a 90px pop through the standard
-    // exploding-beam path (hitIds cleared at pop = per-target dedup).
-    // effDPS: 100/1.5s = 67 raw x 2.2 avgTargets (the pull packs the pop
-    // radius) x 0.95 -> ~147. power 1.0 -> heavy tier: PvP rates at the
-    // 300ms i-frame (exploding beams use it anyway).
+  }),
+  // SINGULARITY: slow orb (180 px/s), collapses at 216px traveled (1.2s)
+  // or on first contact: 0.8s pull drags asteroids/enemies within 220px
+  // toward the center (the HOST applies it via sharedState.pulls so all
+  // clients see the same drag), then a 90px pop through the standard
+  // exploding-beam path (hitIds cleared at pop = per-target dedup).
+  // effDPS: 100/1.5s = 67 raw x 2.2 avgTargets (the pull packs the pop
+  // radius) x 0.95 -> ~147. power 1.0 -> heavy tier: PvP rates at the
+  // 300ms i-frame (exploding beams use it anyway).
+  defineWeapon({
     name: "SINGULARITY",
     power: 1.0,
     speed: 180,
@@ -1064,32 +727,17 @@ export const WEAPONS_SPECIAL: Weapon[] = [
     width: 2,
     tint: 0x7c3aed, // deep purple
     intervalMs: 1500,
-    through: false,
     explosion: { range: 90, growth: 600 },
-    pellets: 1,
-    spreadDeg: 0,
     jitterDeg: 0,
-    homing: null,
-    arc: null,
-    boomerang: null,
-    windupMs: 0,
-    mine: false,
-    ricochet: null,
-    flak: null,
-    cluster: null,
     range: 216,
-    phasesRock: false,
-    mirror: false,
-    aura: false,
-    sentry: false,
     singularity: true,
     sfx: "singularity",
-  },
+  }),
   // ---- v5 additions (APPEND-ONLY — weaponIdx is positional + serialized) ----------
   // GRAVITON WELL — a long, gentle pull that herds a swarm into one cluster for a
   // follow-up AoE, with a weak pop. Reuses the singularity path; only the pull
   // duration differs (see startCollapse). A setup/utility weapon, not a nuke.
-  {
+  defineWeapon({
     name: "GRAVITON WELL",
     power: 0.6,
     speed: 200,
@@ -1097,61 +745,29 @@ export const WEAPONS_SPECIAL: Weapon[] = [
     width: 2,
     tint: 0x4338ca, // indigo, cooler than SINGULARITY
     intervalMs: 2600,
-    through: false,
     explosion: { range: 120, growth: 600 },
-    pellets: 1,
-    spreadDeg: 0,
     jitterDeg: 0,
-    homing: null,
-    arc: null,
-    boomerang: null,
-    windupMs: 0,
-    mine: false,
-    ricochet: null,
-    flak: null,
-    cluster: null,
     range: 220,
-    phasesRock: false,
-    mirror: false,
-    aura: false,
-    sentry: false,
     singularity: true,
     sfx: "singularity",
-  },
+  }),
   // SUPERNOVA — telegraphed screen-wide panic clear. Reuses the NOVA branch
   // (explosion + speed 0); windupMs is honored generically in handleShooting.
-  {
+  defineWeapon({
     name: "SUPERNOVA",
     power: 1.0,
     speed: 0,
     length: 0,
-    width: 1,
     tint: 0xfde047, // solar yellow
     intervalMs: 2000,
-    through: false,
     explosion: { range: 360, growth: 1100 }, // screen-wide (NOVA is 140)
-    pellets: 1,
-    spreadDeg: 0,
     jitterDeg: 0,
-    homing: null,
-    arc: null,
-    boomerang: null,
     windupMs: 500, // telegraphed; charging nose-glow is free
-    mine: false,
-    ricochet: null,
-    flak: null,
-    cluster: null,
-    range: 0,
-    phasesRock: false,
-    mirror: false,
-    aura: false,
-    sentry: false,
-    singularity: false,
     sfx: "nova",
-  },
+  }),
   // SEEKER SWARM — sustained lock-spam: 6 staggered homing missiles that saturate
   // a crowd. Distinct from CLUSTER (3 tight) and HOMING (1 burst).
-  {
+  defineWeapon({
     name: "SEEKER SWARM",
     power: 0.22,
     speed: 340,
@@ -1159,30 +775,14 @@ export const WEAPONS_SPECIAL: Weapon[] = [
     width: 2,
     tint: 0xf472b6, // pink
     intervalMs: 1400,
-    through: false,
-    explosion: null,
-    pellets: 1,
-    spreadDeg: 0,
     jitterDeg: 0,
     homing: { turnDegPerSec: 260, acquireRange: 440 },
-    arc: null,
-    boomerang: null,
-    windupMs: 0,
-    mine: false,
-    ricochet: null,
-    flak: null,
     cluster: { missiles: 6, staggerMs: 90 },
-    range: 0,
-    phasesRock: false,
-    mirror: false,
-    aura: false,
-    sentry: false,
-    singularity: false,
     sfx: "seek",
-  },
+  }),
   // CHAIN REACTOR — screen-wide lightning web (arc, 6 jumps). Strong against a
   // packed swarm, weak 1v1 — self-balancing for a 32p brawl.
-  {
+  defineWeapon({
     name: "CHAIN REACTOR",
     power: 0.3,
     speed: 0, // hitscan (arc)
@@ -1190,30 +790,13 @@ export const WEAPONS_SPECIAL: Weapon[] = [
     width: 2,
     tint: 0x22d3ee, // bright cyan
     intervalMs: 650,
-    through: false,
-    explosion: null,
-    pellets: 1,
-    spreadDeg: 0,
     jitterDeg: 0,
-    homing: null,
     arc: { castRange: 460, hopRange: 320, jumps: 6, falloff: 0.78 },
-    boomerang: null,
-    windupMs: 0,
-    mine: false,
-    ricochet: null,
-    flak: null,
-    cluster: null,
-    range: 0,
-    phasesRock: false,
-    mirror: false,
-    aura: false,
-    sentry: false,
-    singularity: false,
     sfx: "arc",
-  },
+  }),
   // PLASMA STORM — 360° close-range airburst cloud (flak, 14 frags, close burst).
   // Brutal point-blank, whiffs at range — the close trade is the balancer.
-  {
+  defineWeapon({
     name: "PLASMA STORM",
     power: 0.4,
     speed: 520,
@@ -1221,27 +804,9 @@ export const WEAPONS_SPECIAL: Weapon[] = [
     width: 2,
     tint: 0xa3e635, // lime
     intervalMs: 700,
-    through: false,
-    explosion: null,
-    pellets: 1,
-    spreadDeg: 0,
-    jitterDeg: 1,
-    homing: null,
-    arc: null,
-    boomerang: null,
-    windupMs: 0,
-    mine: false,
-    ricochet: null,
     flak: { burstDist: 110, fragments: 14, fragRange: 150 },
-    cluster: null,
-    range: 0,
-    phasesRock: false,
-    mirror: false,
-    aura: false,
-    sentry: false,
-    singularity: false,
     sfx: "boom",
-  },
+  }),
 ];
 
 /** FLAK fragments: ordinary beams (own hitIds, serialized, PvP-live) spawned
@@ -1525,25 +1090,26 @@ export const LOOT_CLASS_WEIGHTS: ReadonlyArray<{ cls: LootClass; weight: number 
   { cls: "weapon", weight: 12 },
 ];
 
-/** Child tables (integer weights). Weapon child roll: uniform over WEAPONS_SPECIAL. */
-export const LOOT_SHIELD_WEIGHTS: Record<ShieldModKind, number> = {
-  overshield: 4,
-  reflect: 3,
-  ram: 3,
-  phase: 3,
-  siphon: 3,
-  aegis: 2,
-  bulwark: 3,
-  leech: 2,
-};
-export const LOOT_BOOSTER_WEIGHTS: Record<BoosterKind, number> = {
-  overdrive: 4,
-  nitro: 3,
-  repair: 3,
-  twin: 3,
-  magnet: 2,
-  salvage: 3,
-};
+/** Child tables ([kind, integer weight] entries — every kind listed once).
+ *  Weapon child roll: uniform over WEAPONS_SPECIAL. */
+export const LOOT_SHIELD_WEIGHTS: ReadonlyArray<readonly [ShieldModKind, number]> = [
+  ["overshield", 4],
+  ["reflect", 3],
+  ["ram", 3],
+  ["phase", 3],
+  ["siphon", 3],
+  ["aegis", 2],
+  ["bulwark", 3],
+  ["leech", 2],
+];
+export const LOOT_BOOSTER_WEIGHTS: ReadonlyArray<readonly [BoosterKind, number]> = [
+  ["overdrive", 4],
+  ["nitro", 3],
+  ["repair", 3],
+  ["twin", 3],
+  ["magnet", 2],
+  ["salvage", 3],
+];
 
 /** Per-class pity: a kill that doesn't drop class X increments X's counter;
  *  at threshold the next roll forces it (ripe-priority shield > booster > weapon). */
@@ -1563,9 +1129,10 @@ export function rollLootClass(): LootClass {
   return "weapon";
 }
 
-/** Roll a child table of integer weights. */
-export function rollWeightedKey<K extends string>(weights: Record<K, number>): K {
-  const entries = Object.entries(weights) as Array<[K, number]>;
+/** Roll a child table of [key, integer weight] entries. */
+export function rollWeightedKey<K extends string>(
+  entries: ReadonlyArray<readonly [K, number]>,
+): K {
   const total = entries.reduce((sum, [, w]) => sum + w, 0);
   let roll = Math.random() * total;
   for (const [key, w] of entries) {
