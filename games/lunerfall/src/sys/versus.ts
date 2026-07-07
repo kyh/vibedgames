@@ -20,6 +20,11 @@ export const VS_BIOME = 5; // VOIDSANCTUM — the duel stage palette
 
 export const vsOther = (s: VsSide): VsSide => (s === "host" ? "guest" : "host");
 
+/** Inputs are dropped in these phases (round intro / match end). Shared with
+ * the guest, which mirrors the host's freeze from the broadcast phase so its
+ * predicted body doesn't fight the authority during a countdown. */
+export const vsPhaseFrozen = (p: VsPhase): boolean => p === "countdown" || p === "matchEnd";
+
 export class VersusMatch {
   phase: VsPhase = "waiting";
   round = 0;
@@ -55,7 +60,7 @@ export class VersusMatch {
 
   /** Inputs are dropped while frozen (round intro / match end). */
   get frozen(): boolean {
-    return this.phase === "countdown" || this.phase === "matchEnd";
+    return vsPhaseFrozen(this.phase);
   }
 
   /** True once the match-end hold lapsed and a rematch press is accepted. */

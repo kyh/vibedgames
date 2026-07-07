@@ -10,6 +10,7 @@ import { VersusMatch, VS_HEARTS, VS_HIT_CAP, VS_WIN_SCORE } from "../src/sys/ver
 import { genAttempt, genCombatRoom, verifyRoom } from "../src/sys/gen.ts";
 import { BossBody } from "../src/entities/boss-body.ts";
 import { EnemyBody } from "../src/entities/enemy-body.ts";
+import { BLEND_RATE, DEADZONE, Reconciler, SNAP_DIST } from "../src/net/predict.ts";
 import { PlayerBody, rectsOverlap, type BodyInput } from "../src/entities/player-body.ts";
 import { COLS, Grid, ROWS } from "../src/sys/grid.ts";
 import { RunManager } from "../src/sys/run.ts";
@@ -477,6 +478,65 @@ check("rectsOverlap basic", rectsOverlap({ left: 0, top: 0, right: 10, bottom: 1
     `spawn=(${sp.x},${sp.y})`,
   );
   check("versus arena has no doors or enemies", a.doorSlots.length === 0 && a.enemySpawns.length === 0);
+}
+
+// 24. Guest prediction: identical bodies + identical input never diverge (the
+// property that makes client-side prediction viable at all).
+{
+  const a = spawn();
+  const b = spawn();
+  const script = (f: number): Partial<BodyInput> => ({
+    right: f < 40 || f > 90,
+    left: f >= 40 && f <= 90,
+    jumpHeld: f % 50 < 10,
+    jumpPressed: f % 50 === 0,
+    dashPressed: f === 70,
+    attackPressed: f === 20,
+  });
+  for (let f = 0; f < 120; f++) {
+    a.buffer(inp(script(f)));
+    a.step(STEP);
+    b.buffer(inp(script(f)));
+    b.step(STEP);
+  }
+  check(
+    "prediction determinism: same input → same trajectory",
+    Math.abs(a.x - b.x) < 1e-9 && Math.abs(a.y - b.y) < 1e-9 && a.swingId === b.swingId,
+    `dx=${Math.abs(a.x - b.x)}`,
+  );
+}
+
+// 25. Reconciler: authority on the recent trajectory (it lags by ~RTT) needs no
+// correction; small deviations blend; big ones snap; blends converge.
+{
+  const r = new Reconciler();
+  for (let f = 0; f < 30; f++) r.record(100 + f * 4, 200); // running right @240px/s
+  const lag = r.reconcile(100 + 20 * 4, 200); // authority ≈ 10 steps behind
+  check("authority on recent trajectory → aligned", lag.kind === "aligned");
+  const off = r.reconcile(100 + 20 * 4, 212); // 12px off the whole trajectory
+  check(
+    "small deviation blends a fraction",
+    off.kind === "blend" && Math.abs(off.dy - 12 * BLEND_RATE) < 0.01,
+    off.kind === "blend" ? `dy=${off.dy.toFixed(2)}` : off.kind,
+  );
+  const far = r.reconcile(100 + 20 * 4, 200 + SNAP_DIST + 20);
+  check("large deviation snaps", far.kind === "snap");
+
+  const r2 = new Reconciler();
+  for (let f = 0; f < 30; f++) r2.record(0, 0);
+  let corrected = 0;
+  let aligned = false;
+  for (let i = 0; i < 30 && !aligned; i++) {
+    const c = r2.reconcile(10, 0); // authority holds a 10px real divergence
+    if (c.kind === "blend") corrected += c.dx;
+    else aligned = c.kind === "aligned";
+  }
+  check(
+    "repeated blends converge to authority",
+    aligned && Math.abs(10 - corrected) <= DEADZONE,
+    `corrected=${corrected.toFixed(2)}px`,
+  );
+  check("empty history stays aligned (fresh spawn)", new Reconciler().reconcile(50, 50).kind === "aligned");
 }
 
 // The constrained generator must ALWAYS produce a room where every door + enemy

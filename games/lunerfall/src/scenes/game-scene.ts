@@ -15,6 +15,7 @@ import { Door } from "../entities/door";
 import { Enemy } from "../entities/enemy";
 import { Player } from "../entities/player";
 import { rectsOverlap } from "../entities/player-body";
+import { Reconciler } from "../net/predict";
 import { NetSession } from "../net/session";
 import {
   isRoom,
@@ -41,6 +42,7 @@ import {
   VS_BIOME,
   VS_HEARTS,
   VS_WIN_SCORE,
+  vsPhaseFrozen,
   type VsSide,
 } from "../sys/versus";
 
@@ -227,7 +229,7 @@ export class GameScene extends Phaser.Scene {
   private lsLabel?: Phaser.GameObjects.Text;
 
   // Networking (undefined = solo). Host runs the authoritative sim + broadcasts;
-  // guest renders the broadcast and never simulates.
+  // guest renders the broadcast, predicting only its OWN body (bodyDrive).
   private session?: NetSession;
   private role: "solo" | "host" | "guest" = "solo";
   private roomSeq = 0; // host: bumped per room, drives guest room rebuilds
@@ -243,6 +245,11 @@ export class GameScene extends Phaser.Scene {
   private enemyPuppets = new Map<number, { view: Enemy; net: NetEnemy }>(); // guest
   private bossPuppet?: { view: Boss; net: NetBoss }; // guest
   private netPlayers: NetPlayer[] = []; // guest: latest wire players (re-lerped each frame)
+  // Guest prediction: my own body runs the real fixed-step sim on local input
+  // (instant response); each snapshot's authoritative copy folds back in here.
+  private reconciler = new Reconciler();
+  private guestIn: InputState = NEUTRAL_INPUT; // this frame's local sample (guest)
+  private netSelfHurting = false; // my player's hurting flag last snapshot (edge detect)
   private roomSpawn = { x: 0, y: 0 };
   private netBiome = 1; // guest: HUD biome/depth (host uses this.run)
   private netDepth = 1;
@@ -325,6 +332,17 @@ export class GameScene extends Phaser.Scene {
     this.vsSpawns = [];
     this.vsHitSeq = new WeakMap();
     this.vsOpponentGone = false;
+    this.reconciler.reset();
+    this.guestIn = NEUTRAL_INPUT;
+    this.netSelfHurting = false;
+    // Scene instances persist across start/stop: never leak a previous online
+    // run's role/session into this one (solo must not take the guest path).
+    this.role = "solo";
+    this.session = undefined;
+    this.guestRoomSeq = -1;
+    this.guestSnapT = -1;
+    this.netPlayers = [];
+    this.acc = 0;
 
     // Screen-pinned sky (scrollFactor 0) — a gradient (dark up top, lighter toward
     // the horizon). The three bands are retinted per biome in applyBiome; the tree
@@ -841,7 +859,12 @@ export class GameScene extends Phaser.Scene {
     if (this.session) {
       this.session.tick();
       // Everyone but the authoritative host streams their input up each frame.
-      if (this.role !== "host") this.sendInput();
+      // One sample serves both the uplink and local prediction — Phaser JustDown
+      // edges are consumed on read, so never sample twice in a frame.
+      if (this.role !== "host") {
+        this.guestIn = this.demo ? this.demoInput() : this.controls.sample();
+        this.sendInput(this.guestIn);
+      }
       // Headless co-op probe (no casts): read via globalThis.__lf in tests.
       const vsProbe = this.role === "guest" ? this.netVs : (this.vs?.encode() ?? null);
       Reflect.set(globalThis, "__lf", {
@@ -852,6 +875,13 @@ export class GameScene extends Phaser.Scene {
         entities: this.enemies.length + this.enemyPuppets.size,
         hearts: this.hearts,
         px: Math.round(this.player.x),
+        rx: this.remote ? Math.round(this.remote.x) : null,
+        ax:
+          this.role === "guest"
+            ? Math.round(
+                this.netPlayers.find((p) => p.id === this.session?.playerId)?.x ?? -1,
+              )
+            : null,
         conn: this.session.connectionStatus,
         downed: this.livePlayers().filter((p) => p.body.downed).length,
         ls: this.role === "guest" ? this.netLastStand !== null : this.lastStand !== null,
@@ -895,9 +925,10 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    // Guest: no simulation — render the host's broadcast.
+    // Guest: predict my own body locally; render everything else from the
+    // host's broadcast.
     if (this.role === "guest") {
-      this.stepGuest();
+      this.stepGuest(dts);
       return;
     }
 
@@ -944,10 +975,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ── networking ───────────────────────────────────────────────────────────────
-  // Stream my held input + monotonic press counters up to the host.
-  private sendInput() {
+  // Stream my held input + monotonic press counters up to the host. The caller
+  // passes the frame's single input sample (also fed to local prediction).
+  private sendInput(s: InputState) {
     if (!this.session) return;
-    const s = this.demo ? this.demoInput() : this.controls.sample();
     if (s.jumpPressed) this.outSeq.j++;
     if (s.dashPressed) this.outSeq.d++;
     if (s.attackPressed) this.outSeq.a++;
@@ -1060,8 +1091,12 @@ export class GameScene extends Phaser.Scene {
     this.state = "active";
   }
 
-  // Guest: apply the latest room + snapshot, then re-lerp the views every frame.
-  private stepGuest() {
+  // Guest: apply the latest room + snapshot, run my OWN body through the real
+  // fixed-step sim on local input (client-side prediction — movement responds
+  // this frame, not after a round-trip), then re-lerp the puppet views. The
+  // host still resolves ALL combat: damage/knockback/hearts arrive via the
+  // snapshot and fold into the predicted body in reconcileSelf.
+  private stepGuest(dts: number) {
     const sess = this.session;
     if (!sess) return;
     const shared = sess.sharedState;
@@ -1072,11 +1107,29 @@ export class GameScene extends Phaser.Scene {
       this.guestSnapT = snap.t;
       this.applySnapshot(snap);
     }
+    if (this.state !== "active") return; // the snapshot ended the run (co-op death)
     // Versus: the host walked away — nothing will ever update again; say so.
     if (this.mode === "versus" && !this.vsOpponentGone && this.guestSnapT > 0 && !sess.otherPlayer()) {
       this.vsOpponentGone = true;
       this.showBanner("OPPONENT LEFT — ESC FOR HUB", 60000);
     }
+    // Prediction: mirror the host's versus freeze (round intro / match end) so
+    // the local body doesn't fight the authority while inputs are dropped.
+    const frozen =
+      this.mode === "versus" && this.netVs !== null && vsPhaseFrozen(this.netVs.phase);
+    this.player.buffer(frozen ? NEUTRAL_INPUT : this.guestIn);
+    this.acc += dts;
+    let steps = 0;
+    while (this.acc >= STEP && steps < MAX_STEPS) {
+      this.player.step(STEP);
+      this.reconciler.record(this.player.body.x, this.player.body.y);
+      this.acc -= STEP;
+      steps++;
+    }
+    // Prediction is movement-only: combat intents resolve on the host.
+    this.player.body.pendingShot = null;
+    this.player.body.pendingHeal = 0;
+    this.player.render(Math.min(this.acc / STEP, 1));
     this.renderGuestViews();
     this.renderLastStand();
   }
@@ -1088,6 +1141,8 @@ export class GameScene extends Phaser.Scene {
     this.netBiome = s.biome;
     this.netDepth = s.depth;
     this.netPlayers = s.players;
+    const mine = s.players.find((p) => p.id === this.session?.playerId);
+    if (mine) this.reconcileSelf(mine);
     if (this.mode === "versus") {
       // Versus: per-duelist hearts + round state travel on s.vs; the shared
       // hearts / last-stand / shared-death rules don't apply.
@@ -1104,6 +1159,53 @@ export class GameScene extends Phaser.Scene {
     this.updateHud();
     // Hearts hit 0 while a last stand is live → downed, not dead (yet).
     if (this.hearts <= 0 && !this.netLastStand) this.guestDie();
+  }
+
+  // Exactly one driver advances each player body every frame:
+  //   sim     — this client runs the authoritative sim (solo/host, both bodies)
+  //   predict — guest's OWN body: local sim for instant input, reconciled to
+  //             the host's authoritative copy on every snapshot
+  //   puppet  — guest's view of the OTHER player: driven purely from snapshots
+  private bodyDrive(pl: Player): "sim" | "predict" | "puppet" {
+    if (this.role !== "guest") return "sim";
+    return pl === this.player ? "predict" : "puppet";
+  }
+
+  // Guest: fold the host's authoritative copy of MY player into the predicted
+  // body. Movement normally agrees (same sim, same input), so most snapshots
+  // correct nothing; host-only outcomes land here as edges — a hit's knockback
+  // or a round respawn snaps (the jerk IS the feedback), small drift blends out
+  // via the reconciler's trajectory match.
+  private reconcileSelf(net: NetPlayer) {
+    const b = this.player.body;
+    // Host-resolved combat state, mirrored on its edges.
+    if (net.downed && !b.downed) {
+      b.down();
+      b.snapTo(net.x, net.y, net.vx, net.vy);
+      this.reconciler.reset();
+    } else if (!net.downed && b.downed) b.revive();
+    if (net.dead && !b.dead) b.dead = true;
+    else if (!net.dead && b.dead) {
+      // Versus round respawn: full reset at the authoritative spawn point.
+      this.player.enterRoom(this.grid, net.x, net.y);
+      this.reconciler.reset();
+      this.netSelfHurting = net.hurting;
+      return;
+    }
+    if (net.hurting && !this.netSelfHurting) {
+      // The host landed a hit on me: reproduce it locally (stun + i-frames +
+      // hurt juice via the body hooks) and snap to the authoritative knockback.
+      b.applyHurt(Math.sign(net.vx) || net.facing);
+      b.snapTo(net.x, net.y, net.vx, net.vy);
+      this.reconciler.reset();
+    } else if (!b.dead && !b.downed) {
+      const c = this.reconciler.reconcile(net.x, net.y);
+      if (c.kind === "snap") {
+        b.snapTo(net.x, net.y, net.vx, net.vy);
+        this.reconciler.reset();
+      } else if (c.kind === "blend") b.nudge(c.dx, c.dy);
+    }
+    this.netSelfHurting = net.hurting;
   }
 
   // Guest: mirror the versus match state; edge-detect phase changes for the
@@ -1215,14 +1317,14 @@ export class GameScene extends Phaser.Scene {
 
   // Guest: re-drive the puppets every frame off the latest snapshot (they lerp
   // toward the authoritative point, so 30Hz reads render smoothly at 60fps).
+  // My own body is predicted, not a puppet — it renders from its local sim.
   private renderGuestViews() {
     const myId = this.session?.playerId;
     for (const np of this.netPlayers) {
-      if (np.id === myId) this.player.applyNet(np);
-      else {
-        this.ensureGuestRemote(np.hero);
-        this.remote?.applyNet(np);
-      }
+      if (np.id === myId) continue; // bodyDrive(player) === "predict"
+      this.ensureGuestRemote(np.hero);
+      const pup = this.remote;
+      if (pup && this.bodyDrive(pup) === "puppet") pup.applyNet(np);
     }
     for (const p of this.enemyPuppets.values())
       p.view.applyNet(p.net.clip, p.net.x, p.net.y, p.net.flip, p.net.flash);
@@ -1388,6 +1490,8 @@ export class GameScene extends Phaser.Scene {
     this.mustClear = room.mustClear;
     this.cleared = !room.mustClear;
     this.guestRoomSeq = room.seq;
+    this.reconciler.reset(); // fresh room, fresh trajectory
+    this.netSelfHurting = false;
     this.showBanner(vs ? "VERSUS" : ROOM_LABEL[type], 1000);
   }
 
@@ -2036,12 +2140,14 @@ export class GameScene extends Phaser.Scene {
     return side === "host" ? this.player : this.remote;
   }
 
-  // Banner-friendly duelist name, flagged when it's the local player.
+  // Banner-friendly duelist name, flagged when it's the local player. The
+  // P1/P2 prefix keeps mirror matches unambiguous (both picked the same hero).
   private vsName(side: VsSide | null): string {
     if (!side) return "";
+    const tag = side === "host" ? "P1" : "P2";
     const pl = this.vsPlayer(side);
-    if (!pl) return side === "host" ? "P1" : "P2";
-    return pl === this.player ? `${pl.title} (YOU)` : pl.title;
+    if (!pl) return tag;
+    return pl === this.player ? `${tag} ${pl.title} (YOU)` : `${tag} ${pl.title}`;
   }
 
   // Versus HUD, on both clients: host duelist on the left, guest on the right —

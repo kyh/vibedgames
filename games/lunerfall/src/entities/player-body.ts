@@ -239,6 +239,26 @@ export class PlayerBody {
     this.iframes = HURT_IFRAMES;
   }
 
+  // ── guest-prediction corrections (see net/predict.ts) ──────────────────────
+  /** Snap the sim to an authoritative point (hit knockback, respawn, teleport). */
+  snapTo(x: number, y: number, vx: number, vy: number) {
+    this.x = x;
+    this.y = y;
+    this.prevX = x;
+    this.prevY = y;
+    this.vx = vx;
+    this.vy = vy;
+  }
+
+  /** Shift the sim by a small reconciliation delta (prev too, so the render
+   * interpolation doesn't smear the correction across a frame). */
+  nudge(dx: number, dy: number) {
+    this.x += dx;
+    this.y += dy;
+    this.prevX += dx;
+    this.prevY += dy;
+  }
+
   attackBox(): AttackBox | null {
     if (this.attackStep === 0) return null;
     const s = this.kit.swings[this.attackStep - 1];

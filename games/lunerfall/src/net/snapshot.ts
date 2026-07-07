@@ -1,8 +1,9 @@
 // Host → guest wire format. The host runs the authoritative sim and broadcasts a
 // compact snapshot each network tick (sharedState["snap"]); the room layout is
 // sent separately (sharedState["room"]) only when it changes, since it's larger
-// and static per-room. Guests never simulate — they mutate their view puppets
-// from these. Everything here is plain JSON.
+// and static per-room. Guests drive their view puppets from these — except a
+// guest's OWN player, which is locally predicted and reconciled against its
+// snapshot copy (net/predict.ts). Everything here is plain JSON.
 
 export type NetPlayer = {
   id: string;
