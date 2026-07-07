@@ -521,8 +521,10 @@ export function buildRoadParts(network: RoadNetwork, terrain: Terrain): RoadPart
     curbPolys.push([patchRing(nx, nz, arms, CURB_W, trimCap)]);
     pavePolys.push([patchRing(nx, nz, arms, SIDEWALK_W, trimCap)]);
 
-    // Zebra crosswalks + stop bars on every arm of a real junction.
-    if (arms.length >= 3) {
+    // Zebra crosswalks + stop bars only on CLEAN intersections (3-4 arms):
+    // complex multi-arm nodes turn into a tangle of overlapping paint — the
+    // real-world cue there is plain open asphalt anyway.
+    if (arms.length >= 3 && arms.length <= 4) {
       for (const a of arms) {
         const ox = -a.tz;
         const oz = a.tx;

@@ -377,7 +377,7 @@ function mergeParallelPass() {
 // Junction clustering: contract edges too short to render — they draw as
 // floating road slivers; fusing the node cluster makes one junction.
 function clusterJunctionsPass() {
-  const CONTRACT_LEN = 12; // < shortest real block; twin connectors are 3-11u
+  const CONTRACT_LEN = 9; // 1x units: merge near-coincident junction clusters
   const eLen = (e) => {
     let L = 0;
     for (let i = 1; i < e.pts.length; i++) L += Math.hypot(e.pts[i][0] - e.pts[i-1][0], e.pts[i][1] - e.pts[i-1][1]);
@@ -454,6 +454,75 @@ clusterJunctionsPass();
   const main = sizes.indexOf(Math.max(...sizes));
   edges = edges.filter((e) => comp.get(e.a) === main);
   console.log(`components: ${nComp}, kept main with ${sizes[main]} nodes`);
+}
+
+// --- Junction sanity: >4 arms reads as street soup in-game. Drop the
+// narrowest (then shortest) MINOR arms until every node has <= 4. ---
+{
+  let dropped = 0;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const byNode = new Map();
+    edges.forEach((e, i) => {
+      if (!byNode.has(e.a)) byNode.set(e.a, []);
+      if (!byNode.has(e.b)) byNode.set(e.b, []);
+      byNode.get(e.a).push(i);
+      byNode.get(e.b).push(i);
+    });
+    const kill = new Set();
+    for (const [, list] of byNode) {
+      if (list.length <= 4) continue;
+      const edgeLen = (e) => {
+        let L = 0;
+        for (let i = 1; i < e.pts.length; i++) {
+          L += Math.hypot(e.pts[i][0] - e.pts[i - 1][0], e.pts[i][1] - e.pts[i - 1][1]);
+        }
+        return L;
+      };
+      const candidates = list
+        .filter((i) => !kill.has(i) && edges[i].half <= 4.6)
+        .sort((x, y) => edges[x].half - edges[y].half || edgeLen(edges[x]) - edgeLen(edges[y]));
+      let excess = list.filter((i) => !kill.has(i)).length - 4;
+      for (const i of candidates) {
+        if (excess <= 0) break;
+        kill.add(i);
+        excess--;
+      }
+    }
+    if (kill.size > 0) {
+      edges = edges.filter((_, i) => !kill.has(i));
+      dropped += kill.size;
+      changed = true;
+    }
+  }
+  console.log(`junction sanity: dropped ${dropped} excess minor arms`);
+  // Arm drops can orphan small sub-graphs — keep the main component again.
+  const adj = new Map();
+  for (const e of edges) {
+    if (!adj.has(e.a)) adj.set(e.a, []);
+    if (!adj.has(e.b)) adj.set(e.b, []);
+    adj.get(e.a).push(e.b);
+    adj.get(e.b).push(e.a);
+  }
+  const comp = new Map();
+  let nComp = 0;
+  for (const n of adj.keys()) {
+    if (comp.has(n)) continue;
+    const stack = [n];
+    comp.set(n, nComp);
+    while (stack.length) {
+      const c = stack.pop();
+      for (const m of adj.get(c) ?? []) {
+        if (!comp.has(m)) { comp.set(m, nComp); stack.push(m); }
+      }
+    }
+    nComp++;
+  }
+  const sizes = new Array(nComp).fill(0);
+  for (const c of comp.values()) sizes[c]++;
+  const main = sizes.indexOf(Math.max(...sizes));
+  edges = edges.filter((e) => comp.get(e.a) === main);
 }
 
 // --- Compact node table (only referenced nodes) ---
