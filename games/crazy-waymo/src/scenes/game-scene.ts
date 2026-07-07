@@ -45,7 +45,10 @@ import { Car } from "../vehicle/car";
 import { CityModel } from "../world/city";
 import { editorMode, loadLocalOverrides } from "../world/custom-map";
 import type { CityGenPayload } from "../world/gen-worker";
+import type { CityRestPayload } from "../world/city";
 import { readRestCache, readWorldCache, writeRestCache, writeWorldCache } from "../world/world-cache";
+import { fetchBakedRest, fetchBakedWorld } from "../world/world-fetch";
+import { packRest, packWorld, serializeWorldBin, WORLD_REV } from "../world/world-bin";
 import { districtAt } from "../world/sf-map";
 import { SolidIndex } from "../world/solid-index";
 
@@ -201,6 +204,9 @@ export class GameScene {
   private sky: Sky;
   private mode: GameMode = { kind: "loading", progress: 0 };
   ready: Promise<void> = Promise.resolve();
+  private restPromise: Promise<CityRestPayload | null> = Promise.resolve(null);
+  private restFromBake = false;
+  private bakePayload: CityGenPayload | null = null;
   get isReady(): boolean {
     return this.loadDone;
   }
@@ -381,8 +387,21 @@ export class GameScene {
     // download — the main thread only uploads the returned buffers. Edited
     // cities (baked or local street/floor overrides) keep main-thread gen so
     // editor changes stay real; the worker never sees localStorage.
-    const genPromise = startGenWorker();
-    const restPromise = cityEdited() ? Promise.resolve(null) : readRestCache();
+    const edited = cityEdited();
+    // ?bake=1 must GENERATE (it produces the artifacts) — never consume them.
+    const bakeMode = new URLSearchParams(window.location.search).has("bake");
+    const skipBaked = edited || bakeMode;
+    // world.bin is small (terrain) and usually beats the worker; rest.bin is
+    // big (the whole built city) and STREAMS BEHIND THE TITLE — initLate
+    // waits for it, the title doesn't. Any failure falls back to the
+    // worker + IndexedDB pipeline.
+    const bakedWorldPromise = skipBaked ? Promise.resolve(null) : fetchBakedWorld();
+    const bakedRestPromise = skipBaked ? Promise.resolve(null) : fetchBakedRest();
+    const genPromise = bakedWorldPromise.then((baked) => baked ?? startGenWorker());
+    const restPromise = bakedRestPromise.then((baked) => {
+      if (baked) this.restFromBake = true;
+      return baked ? baked : edited ? null : readRestCache();
+    });
     await this.cache.preload(allModelUrls(), (frac) => {
       this.mode = { kind: "loading", progress: frac * 0.7 };
       this.hud.setLoading(frac * 0.7);
@@ -397,9 +416,10 @@ export class GameScene {
     }, 400);
     const payload = await genPromise;
     console.log(`[city] worker payload: ${payload ? "yes" : "fallback to main-thread gen"}`);
-    const rest = await restPromise;
     clearInterval(crawl);
-    const city = new CityModel(this.cache, payload, rest);
+    this.restPromise = restPromise;
+    this.bakePayload = payload;
+    const city = new CityModel(this.cache, payload);
     await city.initEarly((frac) => {
       this.mode = { kind: "loading", progress: frac };
       this.hud.setLoading(frac);
@@ -428,6 +448,8 @@ export class GameScene {
   private async finishLoad(city: CityModel): Promise<void> {
     const paint = (): Promise<void> =>
       new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+    const rest = await this.restPromise;
+    city.setRestPayload(rest);
     await city.initLate();
 
     // --- PLAYABLE GATE: driving needs city meshes + solids + fares. ---
@@ -480,7 +502,7 @@ export class GameScene {
       this.start();
     }
     // The rest-cache write serializes ~100MB — idle time only, never at start.
-    if (city.restCapture) {
+    if (city.restCapture && !this.restFromBake) {
       const rest = city.restCapture;
       const idle =
         "requestIdleCallback" in window
@@ -517,6 +539,31 @@ export class GameScene {
     this.cones = new SmashCones(this.cache, city, new Rng(777), physics);
     this.scene.add(this.cones.mesh);
     lap("debris+cones");
+
+    // ?bake=1: download the two world artifacts (gzipped) for public/world/.
+    // Run on a COLD dev build so the capture reflects the current pipeline.
+    if (new URLSearchParams(window.location.search).has("bake")) {
+      const gzip = async (bytes: Uint8Array): Promise<Blob> => {
+        const stream = new Blob([new Uint8Array(bytes)])
+          .stream()
+          .pipeThrough(new CompressionStream("gzip"));
+        return await new Response(stream).blob();
+      };
+      const save = (blob: Blob, name: string): void => {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = name;
+        a.click();
+      };
+      const worldPayload = this.bakePayload;
+      if (worldPayload) {
+        save(await gzip(serializeWorldBin({ rev: WORLD_REV, world: packWorld(worldPayload) })), "world.bin");
+      }
+      if (city.restCapture) {
+        save(await gzip(serializeWorldBin({ rev: WORLD_REV, rest: packRest(city.restCapture) })), "rest.bin");
+      }
+      console.log("[bake] artifacts downloaded — move into public/world/ and commit");
+    }
   }
 
   resize(aspect: number, scalePx: number): void {

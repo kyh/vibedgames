@@ -141,9 +141,21 @@ export class ModelCache {
   }
 
   // Resolve a src tag back to the template's mesh (geometry lookup for the
-  // city-rest cache rebuild path).
+  // city-rest cache rebuild path). Tags may come from a build with a
+  // different vite base ("/models/x.glb" vs "models/x.glb") — normalize.
+  private canonMap: Map<string, THREE.Object3D> | null = null;
   srcMesh(url: string, idx: number): THREE.Mesh | null {
-    const tpl = this.templates.get(url);
+    let tpl = this.templates.get(url);
+    if (!tpl) {
+      // Baked artifacts may come from a build with a different vite base
+      // ("/models/x" vs "./models/x") — match on the canonical tail.
+      if (!this.canonMap) {
+        this.canonMap = new Map();
+        const canon = (u: string): string => u.replace(/^(\.\/|\/)+/, "");
+        for (const [k, v] of this.templates) this.canonMap.set(canon(k), v);
+      }
+      tpl = this.canonMap.get(url.replace(/^(\.\/|\/)+/, ""));
+    }
     if (!tpl) return null;
     let i = 0;
     let found: THREE.Mesh | null = null;

@@ -235,10 +235,18 @@ export class CityModel {
   }
   private chunkVisibleNear: Uint8Array | null = null;
 
+  private restPayload: CityRestPayload | null = null;
+  private lateRoadFallback: (() => void) | null = null;
+
+  // The rest payload can arrive AFTER construction (it streams behind the
+  // title on the baked path) — set before initLate().
+  setRestPayload(p: CityRestPayload | null): void {
+    this.restPayload = p;
+  }
+
   constructor(
     private cache: ModelCache,
     private genPayload: CityGenPayload | null = null,
-    private restPayload: CityRestPayload | null = null,
     private rng = new Rng(CITY_SEED),
   ) {
     this.terrain = makeTerrain();
@@ -359,6 +367,7 @@ export class CityModel {
       await tick(0.97);
       return;
     }
+    this.lateRoadFallback?.();
     const t0 = performance.now();
     await this.phase2();
     const t1 = performance.now();
@@ -432,15 +441,24 @@ export class CityModel {
       }
     }
 
-    if (!this.restPayload) {
-      const roadMeshes = this.genPayload
-        ? roadPartsToMeshes(this.genPayload.roadParts)
-        : buildRoads(this.network, this.terrain);
-      for (const mesh of roadMeshes) {
+    const pushRoads = (meshes: THREE.Mesh[]): void => {
+      for (const mesh of meshes) {
         mesh.userData.merge = true; // road ribbons are unique conformed buffers
         staticMeshes.push(mesh);
       }
+    };
+    if (this.genPayload && this.genPayload.roadParts.length > 0) {
+      pushRoads(roadPartsToMeshes(this.genPayload.roadParts));
+    } else if (!this.genPayload) {
+      pushRoads(buildRoads(this.network, this.terrain));
     }
+    // Baked world payloads carry no roadParts (rest.bin's merged chunks have
+    // the roads). If rest FAILS to arrive, initLate generates them here.
+    this.lateRoadFallback = () => {
+      if (this.genPayload && this.genPayload.roadParts.length === 0) {
+        pushRoads(buildRoads(this.network, this.terrain));
+      }
+    };
 
     // --- Landmark footprints: cells the procedural city leaves alone ---
     const lm = landmarkProtection(this.plan);
@@ -1069,9 +1087,10 @@ export class CityModel {
       for (const t of this.genPayload.tiles) {
         const geo = new THREE.BufferGeometry();
         geo.setAttribute("position", new THREE.BufferAttribute(t.position, 3));
-        geo.setAttribute("normal", new THREE.BufferAttribute(t.normal, 3));
         if (t.color) geo.setAttribute("color", new THREE.BufferAttribute(t.color, 3));
         if (t.index) geo.setIndex(new THREE.BufferAttribute(t.index, 1));
+        if (t.normal) geo.setAttribute("normal", new THREE.BufferAttribute(t.normal, 3));
+        else geo.computeVertexNormals(); // baked artifacts ship without normals
         const mesh = new THREE.Mesh(geo, groundMat);
         mesh.position.set(t.x, 0, t.z);
         mesh.rotation.x = -Math.PI / 2;
@@ -1135,10 +1154,11 @@ export class CityModel {
       if (++n % 24 === 0) await this.breathe();
       const geo = new THREE.BufferGeometry();
       geo.setAttribute("position", new THREE.BufferAttribute(rec.position, 3));
-      if (rec.normal) geo.setAttribute("normal", new THREE.BufferAttribute(rec.normal, 3));
       if (rec.uv) geo.setAttribute("uv", new THREE.BufferAttribute(rec.uv, 2));
       if (rec.color) geo.setAttribute("color", new THREE.BufferAttribute(rec.color, 3));
       if (rec.index) geo.setIndex(new THREE.BufferAttribute(rec.index, 1));
+      if (rec.normal) geo.setAttribute("normal", new THREE.BufferAttribute(rec.normal, 3));
+      else geo.computeVertexNormals();
       const srcM = rec.srcMat ? this.cache.srcMesh(rec.srcMat.url, rec.srcMat.idx) : null;
       const srcMatOk = srcM && !Array.isArray(srcM.material) ? srcM.material : null;
       const mesh = new THREE.Mesh(geo, srcMatOk ?? matFor(rec.mat));
@@ -1160,18 +1180,25 @@ export class CityModel {
     for (const rg of rest.rawGeos) {
       const geo = new THREE.BufferGeometry();
       geo.setAttribute("position", new THREE.BufferAttribute(rg.position, 3));
-      if (rg.normal) geo.setAttribute("normal", new THREE.BufferAttribute(rg.normal, 3));
       if (rg.uv) geo.setAttribute("uv", new THREE.BufferAttribute(rg.uv, 2));
       if (rg.index) geo.setIndex(new THREE.BufferAttribute(rg.index, 1));
+      if (rg.normal) geo.setAttribute("normal", new THREE.BufferAttribute(rg.normal, 3));
+      else geo.computeVertexNormals();
       rawBuilt.push({ geo, mat: matFor(rg.mat) });
     }
     const buckets = new Map<string, BatchBucket>();
+    let dropSrc = 0;
+    let dropRaw = 0;
+    let okN = 0;
     for (const rec of rest.batchItems) {
       let geo: THREE.BufferGeometry;
       let mat: THREE.Material;
       if (rec.url !== null) {
         const srcMesh = this.cache.srcMesh(rec.url, rec.idx);
-        if (!srcMesh || Array.isArray(srcMesh.material)) continue;
+        if (!srcMesh || Array.isArray(srcMesh.material)) {
+          if (dropSrc++ < 3) console.log(`[city] rest drop src: ${rec.url}#${rec.idx}`);
+          continue;
+        }
         geo = srcMesh.geometry;
         mat = srcMesh.material;
       } else if (rec.raw !== null && rawBuilt[rec.raw]) {
@@ -1180,8 +1207,10 @@ export class CityModel {
         geo = rb.geo;
         mat = rb.mat;
       } else {
+        dropRaw++;
         continue;
       }
+      okN++;
       const attrKey = Object.keys(geo.attributes).sort().join(",");
       const bKey = `${mat.uuid}|${attrKey}|${geo.index ? "i" : "n"}`;
       let bucket = buckets.get(bKey);
@@ -1202,6 +1231,7 @@ export class CityModel {
         ...(rec.url !== null ? { src: { url: rec.url, idx: rec.idx } } : {}),
       });
     }
+    console.log(`[city] rest items ok ${okN} dropSrc ${dropSrc} dropRaw ${dropRaw}`);
     await this.buildBatchesFrom(buckets, nx, nz);
     // Game data.
     this.solids.length = 0;

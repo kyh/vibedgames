@@ -76,6 +76,10 @@ export class PhysicsWorld {
     let lastYield = performance.now();
     for (const s of solids) {
       if (performance.now() - lastYield > 12) {
+        // Absorb this slice's inserts into the broadphase NOW: Rapier defers
+        // BVH incorporation to the next step, and letting 20k pile up hands
+        // the game loop one ~20s rebuild on its first frame.
+        this.world.step();
         await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
         lastYield = performance.now();
       }

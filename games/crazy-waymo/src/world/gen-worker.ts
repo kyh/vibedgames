@@ -17,7 +17,7 @@ import { GRID_X, GRID_Z, ROAD_TILE } from "../shared/constants";
 
 export type TilePayload = {
   position: Float32Array;
-  normal: Float32Array;
+  normal: Float32Array | null;
   color: Float32Array | null;
   index: Uint16Array | Uint32Array | null; // PlaneGeometry is indexed
   x: number;
@@ -77,7 +77,8 @@ function run(): void {
     if (p.index) transfer.push(p.index.buffer as ArrayBuffer);
   }
   for (const t of tiles) {
-    transfer.push(t.position.buffer as ArrayBuffer, t.normal.buffer as ArrayBuffer);
+    transfer.push(t.position.buffer as ArrayBuffer);
+    if (t.normal) transfer.push(t.normal.buffer as ArrayBuffer);
     if (t.color) transfer.push(t.color.buffer as ArrayBuffer);
     if (t.index) transfer.push(t.index.buffer as ArrayBuffer);
   }
