@@ -3,6 +3,7 @@ import Phaser from "phaser";
 import { sfx } from "../audio/sfx";
 import { BASE_H, BASE_W, COLORS, TILE } from "../config";
 import { type EnemyName, ENEMY_NAMES, HERO_NAMES, type HeroName } from "../data/animations";
+import { rollAffix } from "../data/affixes";
 import { type BiomePalette, biomePalette, enemyPool } from "../data/biomes";
 import { ENEMIES } from "../data/enemies";
 import { type HeroDef, HEROES } from "../data/heroes";
@@ -515,12 +516,25 @@ export class GameScene extends Phaser.Scene {
   }
 
   private spawnEnemies(def: RoomDef) {
-    const eliteHp = this.run.type === "elite" ? 1 : 0;
+    const elite = this.run.type === "elite";
     def.enemySpawns.forEach((s) => {
       const e = new Enemy(this, this.grid, ENEMIES[this.pickEnemy()], s.x, s.y);
-      e.body.hp += eliteHp + Math.floor((this.run.biome - 1) / 2);
+      e.body.hp += Math.floor((this.run.biome - 1) / 2);
+      if (elite) this.applyAffix(e);
       this.enemies.push(e);
     });
+  }
+
+  // Elite room: roll an affix onto an enemy — recolour it and bend its combat
+  // multipliers (host-authoritative; guests render the puppet without the tint).
+  private applyAffix(e: Enemy) {
+    const a = rollAffix();
+    e.body.hp = Math.round(e.body.hp * a.hpMult) + 1;
+    e.body.speedMult = a.speedMult;
+    e.body.dmgTakenMult = a.dmgTakenMult;
+    e.body.dmgOutMult = a.dmgOutMult;
+    e.baseTint = a.tint;
+    e.sprite.setTint(a.tint);
   }
 
   private spawnBoss(def: RoomDef) {

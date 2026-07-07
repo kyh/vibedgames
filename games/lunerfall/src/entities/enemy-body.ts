@@ -32,6 +32,10 @@ export class EnemyBody {
   dead = false;
   hitFlash = 0;
   iframes = 0;
+  // Elite-affix multipliers (1 = none): move speed, damage taken, damage dealt.
+  speedMult = 1;
+  dmgTakenMult = 1;
+  dmgOutMult = 1;
 
   private attackCd = 0;
   private chargeDir: 1 | -1 = 1;
@@ -60,8 +64,8 @@ export class EnemyBody {
   // Contact damage to the player when overlapping (higher mid-charge).
   contactDamage(): number {
     if (this.dead) return 0;
-    if (this.state === "charge" && this.kind.attackDmg) return this.kind.attackDmg;
-    return this.kind.contactDmg;
+    const base = this.state === "charge" && this.kind.attackDmg ? this.kind.attackDmg : this.kind.contactDmg;
+    return base === 0 ? 0 : Math.round(base * this.dmgOutMult);
   }
 
   // Live melee hitbox this frame (warrior swing), else null.
@@ -75,14 +79,14 @@ export class EnemyBody {
       top: this.y - this.kind.h,
       right: front + reach,
       bottom: this.y,
-      dmg: this.kind.attackDmg ?? 1,
+      dmg: Math.round((this.kind.attackDmg ?? 1) * this.dmgOutMult),
       kb: this.kind.attackKb ?? 120,
     };
   }
 
   takeHit(dmg: number, kb: number, dir: number): boolean {
     if (this.iframes > 0 || this.dead) return false;
-    this.hp -= dmg;
+    this.hp -= dmg * this.dmgTakenMult;
     this.vx = Math.sign(dir || -this.facing) * kb;
     this.vy = -70;
     this.grounded = false;
@@ -165,7 +169,7 @@ export class EnemyBody {
       this.vx = approach(this.vx, 0, 600 * dt);
       return;
     }
-    this.vx = approach(this.vx, dir * speed, 700 * dt);
+    this.vx = approach(this.vx, dir * speed * this.speedMult, 700 * dt);
   }
 
   private melee(dt: number, tx: number) {
@@ -209,7 +213,7 @@ export class EnemyBody {
         }
         break;
       case "charge":
-        this.vx = this.chargeDir * (k.chargeSpeed ?? 235);
+        this.vx = this.chargeDir * (k.chargeSpeed ?? 235) * this.speedMult;
         if (this.stateT >= (k.chargeTime ?? 0.45) || this.hitWall) this.setState("recover");
         break;
       case "recover":

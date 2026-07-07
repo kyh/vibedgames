@@ -10,6 +10,7 @@ import { EnemyBody } from "./enemy-body";
 export class Enemy {
   readonly body: EnemyBody;
   readonly sprite: Phaser.GameObjects.Sprite;
+  baseTint = 0xffffff; // affix recolour (elite enemies); restored after a hit-flash
   private flashing = false;
 
   constructor(scene: Phaser.Scene, grid: Grid, kind: EnemyKind, x: number, y: number) {
@@ -84,7 +85,7 @@ export class Enemy {
       this.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
       this.flashing = true;
     } else if (!flash && this.flashing) {
-      this.sprite.clearTint().setTintMode(Phaser.TintModes.MULTIPLY);
+      this.sprite.setTint(this.baseTint).setTintMode(Phaser.TintModes.MULTIPLY);
       this.flashing = false;
     }
   }
@@ -103,7 +104,7 @@ export class Enemy {
       this.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
       this.flashing = true;
     } else if (!flash && this.flashing) {
-      this.sprite.clearTint().setTintMode(Phaser.TintModes.MULTIPLY);
+      this.sprite.setTint(this.baseTint).setTintMode(Phaser.TintModes.MULTIPLY);
       this.flashing = false;
     }
   }
