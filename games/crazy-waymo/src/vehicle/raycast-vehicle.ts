@@ -3,6 +3,7 @@ import * as THREE from "three";
 
 import type { PhysicsWorld } from "../physics/physics-world";
 import type { CarInput } from "./car";
+import { CAR } from "../shared/constants";
 
 // Physics-driven car on Rapier's DynamicRayCastVehicleController — a port of
 // icurtis1/raycast-vehicle (cannon-es) onto our stack: the chassis is a rigid
@@ -22,22 +23,13 @@ export type VehicleParams = {
   cruiseSpeed: number; // top speed on throttle alone (u/s)
   maxSpeed: number; // top speed while boosting
   reverseFactor: number;
-  // steering
+  // steering (wheel visuals + low-speed physics feel; real turn authority
+  // comes from the CAR turn model — see fixedStep)
   maxSteer: number;
   steerSpeed: number;
-  steerSpeedFalloff: number;
-  turnRate: number;
-  turnSpeedFalloff: number;
-  driftTurnBoost: number;
-  steerRamp: number;
   yawAssist: number;
-  gripNormal: number;
-  gripDrift: number;
   // brakes
   brakeForce: number;
-  handbrakeForce: number;
-  // handbrake drift: rear grip multiplier while held
-  handbrakeGrip: number;
   // jump
   jumpImpulse: number;
   jumpCooldown: number;
@@ -72,20 +64,8 @@ export const DEFAULT_VEHICLE_PARAMS: VehicleParams = {
   reverseFactor: 0.6,
   maxSteer: 0.55,
   steerSpeed: 6,
-  steerSpeedFalloff: 0.6, // fraction of maxSteer left at top speed (keyboard)
-  // Arcade yaw assist — the pre-physics sim's turn model layered on the
-  // chassis: heading changes at turnRate scaled by speed authority, drift
-  // multiplies it. This is what makes turns feel tuned, not simulated.
-  turnRate: 3.0,
-  turnSpeedFalloff: 0.7,
-  driftTurnBoost: 2.0,
-  steerRamp: 0.08,
-  yawAssist: 9, // how hard angvel is driven toward the arcade yaw rate
-  gripNormal: 8, // lateral bleed rate normally — goes where it points
-  gripDrift: 2.6, // lateral bleed while drifting — slides, but carves
+  yawAssist: 9, // how hard angvel is driven toward the CAR-model yaw rate
   brakeForce: 5200,
-  handbrakeForce: 220,
-  handbrakeGrip: 0.62,
   jumpImpulse: 3200,
   jumpCooldown: 0.5,
   jumpBufferTime: 0.18,
@@ -279,11 +259,9 @@ export class RaycastVehicle {
     this.jumpCooldownT = Math.max(0, this.jumpCooldownT - dt);
     this.jumpBufferT = Math.max(0, this.jumpBufferT - dt);
 
-    // --- Steering with smoothing + speed falloff (digital keyboard input
-    // needs gentler lock at speed or every drift snaps into a spin) ---
-    const speedFrac = THREE.MathUtils.clamp(this.speed / p.maxSpeed, 0, 1);
-    const steerScale = THREE.MathUtils.lerp(1, p.steerSpeedFalloff, speedFrac);
-    const target = -this.steerInput * p.maxSteer * steerScale;
+    // --- Wheel steering (visuals + low-speed physics feel; the CAR turn
+    // model below owns real turn authority) ---
+    const target = -this.steerInput * p.maxSteer;
     const steerDelta = p.steerSpeed * dt;
     this.currentSteer = THREE.MathUtils.clamp(
       target,
@@ -322,23 +300,19 @@ export class RaycastVehicle {
     if (this.throttle < -0.05 && fwdSpeed > 0.5) brake = p.brakeForce;
     if (Math.abs(this.throttle) <= 0.05) brake = 60; // gentle engine braking
     for (let i = 0; i < 4; i++) this.controller.setWheelBrake(i, brake);
-    if (this.handbrake) {
-      this.controller.setWheelBrake(2, p.handbrakeForce);
-      this.controller.setWheelBrake(3, p.handbrakeForce);
-    }
 
     // --- Arcade turn authority (the old sim's exact model): drive yaw rate
     // directly while grounded; physics keeps suspension/collisions honest. ---
     const grounded0 = this.groundedWheels();
-    this.arcadeSteer += (this.steerInput - this.arcadeSteer) * Math.min(1, dt / p.steerRamp);
+    this.arcadeSteer += (this.steerInput - this.arcadeSteer) * Math.min(1, dt / CAR.steerRamp);
     if (grounded0 >= 2) {
       const absF = Math.abs(fwdSpeed);
       const frac = THREE.MathUtils.clamp(absF / p.cruiseSpeed, 0, 1);
-      let authority = THREE.MathUtils.lerp(1, p.turnSpeedFalloff, frac);
-      if (this.handbrake) authority *= p.driftTurnBoost;
+      let authority = THREE.MathUtils.lerp(1, CAR.turnSpeedFalloff, frac);
+      if (this.handbrake) authority *= CAR.driftTurnBoost;
       const startFade = THREE.MathUtils.clamp(absF / 3, 0, 1);
       const dir = fwdSpeed >= 0 ? 1 : -1;
-      const desiredYaw = -this.arcadeSteer * p.turnRate * authority * startFade * dir;
+      const desiredYaw = -this.arcadeSteer * CAR.turnRate * authority * startFade * dir;
       const av = this.chassis.angvel();
       const newY = av.y + (desiredYaw - av.y) * Math.min(1, dt * p.yawAssist);
       this.chassis.setAngvel({ x: av.x, y: newY, z: av.z }, true);
@@ -351,7 +325,7 @@ export class RaycastVehicle {
         right.y = 0;
         right.normalize();
         const lat = lv2.x * right.x + lv2.z * right.z;
-        const grip = this.handbrake ? p.gripDrift : p.gripNormal;
+        const grip = this.handbrake ? CAR.gripDrift : CAR.gripNormal;
         const bleed = lat * (1 - Math.exp(-grip * dt));
         this.chassis.setLinvel(
           { x: lv2.x - right.x * bleed, y: lv2.y, z: lv2.z - right.z * bleed },
@@ -376,9 +350,7 @@ export class RaycastVehicle {
     for (let i = 0; i < 4; i++) {
       const load = Math.max(this.controller.wheelSuspensionForce(i) ?? staticLoad, staticLoad);
       const loadScale = Math.min(1, (p.gripLoadCap * staticLoad) / load);
-      let slip = p.frictionSlip * loadScale * landingScale;
-      if (this.handbrake && i >= 2) slip *= p.handbrakeGrip; // rear slide = drift
-      this.controller.setWheelFrictionSlip(i, slip);
+      this.controller.setWheelFrictionSlip(i, p.frictionSlip * loadScale * landingScale);
     }
 
     // Jump (buffered + cooldown, only when a wheel touches ground).
