@@ -58,25 +58,43 @@ const gapBelowOk = (g: Grid, x0: number, x1: number, fromRow: number, need: numb
   return true;
 };
 
-// BFS the reachable surface set from any floor span (the player always starts on
-// the floor). Shared by generation-time placement and verifyRoom.
-function reachableFrom(surfs: Surf[]): Set<Surf> {
-  const seen = new Set<Surf>();
+// Path-map the room: BFS the reachable surfaces from the floor (roots = all floor
+// spans; the player always starts on the floor), tagging each with its hop-
+// distance so the generator can place objectives by how hard they are to reach.
+// Shared by generation-time placement and verifyRoom — one source of truth.
+function reachMap(surfs: Surf[]): Map<Surf, number> {
+  const dist = new Map<Surf, number>();
   const q: Surf[] = [];
-  for (const s of surfs) if (s.r === S) (seen.add(s), q.push(s)); // floor spans are the roots
-  while (q.length > 0) {
-    const a = q.shift();
+  for (const s of surfs) if (s.r === S) (dist.set(s, 0), q.push(s));
+  let head = 0;
+  while (head < q.length) {
+    const a = q[head++];
     if (!a) break;
-    for (const b of surfs) if (!seen.has(b) && canHop(a, b)) (seen.add(b), q.push(b));
+    const d = (dist.get(a) ?? 0) + 1;
+    for (const b of surfs) if (!dist.has(b) && canHop(a, b)) (dist.set(b, d), q.push(b));
   }
-  return seen;
+  return dist;
+}
+
+// Per-biome generation character: deeper biomes are taller, airier, denser, and
+// hold more enemies — descending should feel more vertical and more hostile.
+type Knobs = { platforms: number; ceil: number; oneWayPct: number; enemies: number };
+function knobs(biome: number, ri: (n: number) => number): Knobs {
+  const b = Math.max(1, biome);
+  return {
+    platforms: Math.min(12, 5 + b + ri(3)), // 6–8 (biome 1) → up to 12 deep
+    ceil: Math.max(4, 13 - b * 2), // highest platform row: low/gentle early, tall later
+    oneWayPct: Math.min(8, 5 + b), // /10 chance a platform is a jump-through — airier deeper
+    enemies: Math.min(6, 2 + b + ri(2)), // 3–4 early → up to 6 deep
+  };
 }
 
 // One generation attempt (may fail verification; genCombatRoom retries + falls
 // back). Exported so the sim harness can measure the first-try success rate.
-export function genAttempt(seed: number): RoomDef {
+export function genAttempt(seed: number, biome = 1): RoomDef {
   const rand = mulberry32(seed);
   const ri = (n: number): number => Math.floor(rand() * n);
+  const k = knobs(biome, ri);
   const def = new RoomDef(RW, RH).arena();
   const g = def.grid;
 
@@ -84,15 +102,14 @@ export function genAttempt(seed: number): RoomDef {
   // stays connected; keep a ≥MIN_VGAP vertical gap between x-overlapping surfaces
   // so a new platform never eats an old one's headroom.
   const placed: Surf[] = [{ x0: 1, x1: RW - 2, r: S }]; // floor
-  const target = 6 + ri(4); // 6–9 platforms
   let tries = 0;
-  while (placed.length < target + 1 && tries < 400) {
+  while (placed.length < k.platforms + 1 && tries < 400) {
     tries++;
     const anchor = placed[ri(placed.length)];
     if (!anchor) continue;
     const w = 4 + ri(6); // 4–9 wide
     const dr = ri(MAX_UP + 2) - MAX_UP; // -3..+1, biased upward
-    const r = Math.max(5, Math.min(S - 2, anchor.r + dr));
+    const r = Math.max(k.ceil, Math.min(S - 2, anchor.r + dr));
     if (r >= S) continue;
 
     const side = ri(3) - 1; // -1 left, 0 over, 1 right
@@ -108,7 +125,7 @@ export function genAttempt(seed: number): RoomDef {
     if (placed.some((s) => s.x1 >= cand.x0 && s.x0 <= cand.x1 && Math.abs(s.r - r) < MIN_VGAP)) continue;
     if (!rowClear(g, cand.x0, cand.x1, r) || !rowClear(g, cand.x0, cand.x1, r - 1)) continue; // headroom
 
-    if (ri(10) < 6) {
+    if (ri(10) < k.oneWayPct) {
       if (!rowClear(g, cand.x0, cand.x1, r + 1)) continue; // one-way (jump-through)
       def.oneway(cand.x0, r + 1, cand.x1);
     } else {
@@ -120,44 +137,68 @@ export function genAttempt(seed: number): RoomDef {
     placed.push(cand);
   }
 
-  // ── 2. Place spawns from the GRID's own truth (not `placed`): re-derive every
-  // standable surface and its reachability, so verifyRoom (same method) always
-  // agrees and nothing is stranded.
+  // ── 2. Place spawns from the GRID's own path map (not `placed`): re-derive
+  // every standable surface + its hop-distance, so verifyRoom (same method) always
+  // agrees and objectives can be placed by how far they are to reach.
   const surfs = surfacesFromGrid(g);
-  const reach = reachableFrom(surfs);
-  const floorSpans = [...reach].filter((s) => s.r === S).sort((a, b) => a.x0 - b.x0);
-  const ledges = [...reach].filter((s) => s.r < S).sort((a, b) => (a.x0 + a.x1) / 2 - (b.x0 + b.x1) / 2);
+  const dist = reachMap(surfs);
+  const reach = [...dist.keys()];
+  const d = (s: Surf): number => dist.get(s) ?? 0;
   const mid = (s: Surf): number => (s.x0 + s.x1) >> 1;
+  const floorSpans = reach.filter((s) => s.r === S).sort((a, b) => a.x0 - b.x0);
+  const ledges = reach.filter((s) => s.r < S);
 
-  // Player: a floor span, on the side away from the bulk of the ledges.
-  const midLedge = ledges[Math.floor(ledges.length / 2)];
-  const leftHeavy = midLedge !== undefined && mid(midLedge) < RW / 2;
-  const spawnSpan = leftHeavy ? floorSpans[floorSpans.length - 1] : floorSpans[0];
-  const spawnX = spawnSpan ? Math.min(spawnSpan.x1 - 1, Math.max(spawnSpan.x0 + 1, leftHeavy ? spawnSpan.x1 - 2 : spawnSpan.x0 + 2)) : 4;
+  // Doors are the objective: put them on the hardest-to-reach ledges, spread far
+  // apart in x, so clearing the room means actually working across/up it. (Fall
+  // back to the floor's ends if the room grew too few ledges.)
+  const doorSurfs: Surf[] = [];
+  if (ledges.length >= 2) {
+    const hardest = [...ledges].sort((a, b) => d(b) - d(a))[0];
+    if (hardest) {
+      doorSurfs.push(hardest);
+      const far = [...ledges]
+        .filter((s) => s !== hardest)
+        .sort((p, q) => Math.abs(mid(q) - mid(hardest)) - Math.abs(mid(p) - mid(hardest)))[0];
+      if (far) doorSurfs.push(far);
+    }
+  }
+  if (doorSurfs.length < 2) {
+    const a = floorSpans[0];
+    const b = floorSpans[floorSpans.length - 1];
+    doorSurfs.length = 0;
+    if (a) doorSurfs.push(a);
+    if (b && b !== a) doorSurfs.push(b);
+  }
+  const doorCols = new Set<number>();
+  for (const s of doorSurfs) (def.door(mid(s), s.r), doorCols.add(mid(s)));
+
+  // Player: the floor span furthest in x from the doors — enter one side, exit
+  // the other, fighting across the room.
+  const doorMidX = doorSurfs.reduce((sum, s) => sum + mid(s), 0) / Math.max(1, doorSurfs.length);
+  const spawnSpan = [...floorSpans].sort(
+    (a, b) => Math.abs(mid(b) - doorMidX) - Math.abs(mid(a) - doorMidX),
+  )[0];
+  const spawnX = spawnSpan
+    ? Math.max(spawnSpan.x0 + 1, Math.min(spawnSpan.x1 - 1, mid(spawnSpan)))
+    : 4;
   def.player(spawnX, S);
 
-  // Doors: two reachable surfaces spread across the room (prefer ledges).
-  const doorSurfs =
-    ledges.length >= 2
-      ? [ledges[0], ledges[ledges.length - 1]]
-      : [floorSpans[0], floorSpans[floorSpans.length - 1]];
-  const doorCols = new Set<number>();
-  for (const s of doorSurfs) if (s) (def.door(mid(s), s.r), doorCols.add(mid(s)));
-
-  // Enemies: 3–4 reachable surfaces, off the spawn + door tiles.
-  const spots = [...reach];
-  const wanted = 3 + ri(2);
-  let count = 0;
-  let guard = 0;
-  while (count < wanted && guard++ < 60 && spots.length > 0) {
-    const s = spots[ri(spots.length)];
-    if (!s) continue;
-    const cx = s.r === S ? Math.max(s.x0 + 1, Math.min(s.x1 - 1, s.x0 + 1 + ri(Math.max(1, s.x1 - s.x0 - 1)))) : mid(s);
-    if (doorCols.has(cx) || Math.abs(cx - spawnX) < 4) continue;
-    def.enemy(cx, s.r);
-    count++;
+  // Enemies: distinct columns spread across the reachable path near→far, so some
+  // guard the deep exits while the approach isn't empty. Off the spawn + doors.
+  const used = new Set<number>([spawnX, ...doorCols]);
+  const cands: { r: number; cx: number }[] = [];
+  for (const s of reach.filter((x) => !doorSurfs.includes(x)).sort((a, b) => d(a) - d(b))) {
+    const cx = s.r === S ? Math.max(s.x0 + 1, Math.min(s.x1 - 1, mid(s))) : mid(s);
+    if (used.has(cx) || Math.abs(cx - spawnX) < 3) continue;
+    used.add(cx);
+    cands.push({ r: s.r, cx });
   }
-  if (count === 0) def.enemy(Math.min(RW - 4, spawnX + 10), S); // never an empty fight
+  const n = Math.min(k.enemies, cands.length);
+  for (let i = 0; i < n; i++) {
+    const c = cands[Math.floor(((i + 0.5) / n) * cands.length)];
+    if (c) def.enemy(c.cx, c.r);
+  }
+  if (n === 0) def.enemy(Math.min(RW - 4, spawnX + 10), S); // never an empty fight
 
   return def;
 }
@@ -193,7 +234,7 @@ export function surfacesFromGrid(g: Grid): Surf[] {
 export function verifyRoom(def: RoomDef): boolean {
   const g = def.grid;
   const surfs = surfacesFromGrid(g);
-  const reach = reachableFrom(surfs);
+  const reach = reachMap(surfs);
   const toSurf = (sx: number, sy: number): Surf | undefined => {
     const cx = Math.floor(sx / TILE);
     const fr = Math.round(sy / TILE) - 1;
@@ -210,11 +251,11 @@ export function verifyRoom(def: RoomDef): boolean {
   });
 }
 
-// Public entry: a verified generated combat room. Retries on the rare failed
-// verification, then falls back to a known-good grown room (target on floor).
-export function genCombatRoom(seed: number): RoomDef {
+// Public entry: a verified generated combat room for the given biome. Retries on
+// the rare failed verification, then falls back to a trivially-reachable room.
+export function genCombatRoom(seed: number, biome = 1): RoomDef {
   for (let k = 0; k < 6; k++) {
-    const def = genAttempt((seed + k * 0x9e3779b1) >>> 0);
+    const def = genAttempt((seed + k * 0x9e3779b1) >>> 0, biome);
     if (verifyRoom(def)) return def;
   }
   // Fallback: floor-only fight — trivially reachable, never broken.

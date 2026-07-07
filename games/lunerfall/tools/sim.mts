@@ -5,7 +5,7 @@ import { ENEMIES } from "../src/data/enemies.ts";
 import { HEROES } from "../src/data/heroes.ts";
 import { bankRun, isUnlocked, unlockHero } from "../src/data/meta.ts";
 import { baseMods, pickRelics, RELICS } from "../src/data/relics.ts";
-import { BOSS, COMBAT_TEMPLATES, SAFE, START } from "../src/data/rooms.ts";
+import { BOSS, SAFE, START } from "../src/data/rooms.ts";
 import { genAttempt, genCombatRoom, verifyRoom } from "../src/sys/gen.ts";
 import { BossBody } from "../src/entities/boss-body.ts";
 import { EnemyBody } from "../src/entities/enemy-body.ts";
@@ -278,13 +278,6 @@ check("rectsOverlap basic", rectsOverlap({ left: 0, top: 0, right: 10, bottom: 1
     s.x > 0 && s.x < r.cols * TILE && s.y > 0 && s.y <= r.rows * TILE;
   const start = START();
   check("start has a door + spawn", start.doorSlots.length >= 1 && inRoom(start, start.playerSpawn));
-  let combatOk = true;
-  for (const make of COMBAT_TEMPLATES) {
-    const r = make();
-    if (r.doorSlots.length < 2 || r.enemySpawns.length < 3 || !r.enemySpawns.every((s) => inRoom(r, s)))
-      combatOk = false;
-  }
-  check("combat rooms: 2 doors + 3+ enemies", combatOk, `${COMBAT_TEMPLATES.length} templates`);
   const safe = SAFE();
   check("safe room has a feature + doors", !!safe.featureSpot && safe.doorSlots.length >= 1);
   const boss = BOSS();
@@ -394,38 +387,10 @@ check("rectsOverlap basic", rectsOverlap({ left: 0, top: 0, right: 10, bottom: 1
   check("unaffordable unlock is refused", !unlockHero(m, "mooni") && !isUnlocked(m, "mooni") && m.shards === 6);
 }
 
-// Every combat-room enemy must be reachable: standing on a real surface with
-// player-height headroom above it — no enemy sealed in a solid pocket (the bug
-// where a warrior was trapped in the 1-tile gap under the central ruin).
-{
-  const HEAD = 2; // tiles of clearance a body needs above its feet cell
-  let sealed = 0;
-  let floating = 0;
-  // Check each template AND its left↔right mirror — mirroring is used at runtime,
-  // so a broken flip must fail the harness too.
-  COMBAT_TEMPLATES.forEach((make) => {
-    for (const r of [make(), make().mirror()]) {
-      const g = r.grid;
-      for (const s of r.enemySpawns) {
-        const cx = Math.floor(s.x / TILE);
-        const feet = Math.round(s.y / TILE) - 1; // stand row (body rests on cell feet+1)
-        if (!g.isSolidCell(cx, feet + 1) && !g.isOneWayCell(cx, feet + 1)) floating++;
-        for (let dy = 0; dy < HEAD; dy++) {
-          if (g.isSolidCell(cx, feet - dy)) {
-            sealed++;
-            break;
-          }
-        }
-      }
-    }
-  });
-  check("no combat enemy sealed under a platform", sealed === 0, `${sealed} sealed`);
-  check("every combat enemy stands on a surface", floating === 0, `${floating} floating`);
-}
-
 // The constrained generator must ALWAYS produce a room where every door + enemy
-// is reachable from the spawn — verifyRoom re-derives reachability from the grid
-// alone (conservative jump envelope), independent of how the room was built.
+// is reachable from the spawn — verifyRoom independently path-maps the finished
+// grid (conservative jump envelope), whatever biome knobs were used. Sweep the
+// biome character 1–5 so the taller/denser deep-biome layouts are covered too.
 {
   const N = 800;
   let broken = 0;
@@ -433,11 +398,12 @@ check("rectsOverlap basic", rectsOverlap({ left: 0, top: 0, right: 10, bottom: 1
   let doorless = 0;
   let firstTry = 0;
   for (let seed = 1; seed <= N; seed++) {
-    const def = genCombatRoom(seed);
+    const biome = 1 + (seed % 5);
+    const def = genCombatRoom(seed, biome);
     if (!verifyRoom(def)) broken++;
     if (def.enemySpawns.length === 0) empty++;
     if (def.doorSlots.length === 0) doorless++;
-    if (verifyRoom(genAttempt(seed))) firstTry++; // did the raw attempt already pass?
+    if (verifyRoom(genAttempt(seed, biome))) firstTry++; // did the raw attempt already pass?
   }
   check("every generated room is fully reachable", broken === 0, `${broken}/${N} broken`);
   check("every generated room has enemies + a door", empty === 0 && doorless === 0, `${empty} empty, ${doorless} doorless`);

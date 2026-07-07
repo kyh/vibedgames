@@ -51,7 +51,7 @@ export class RunManager {
   // (see gen.ts). Every fight is a new dynamic space; the generator guarantees
   // every door + enemy is reachable from the spawn.
   private nextCombat(): RoomDef {
-    return genCombatRoom(Math.floor(Math.random() * 0x100000000));
+    return genCombatRoom(Math.floor(Math.random() * 0x100000000), this.biome);
   }
 
   // Door offers for the current room's exits (after clearing).
