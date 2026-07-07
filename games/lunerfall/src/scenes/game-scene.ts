@@ -423,8 +423,8 @@ export class GameScene extends Phaser.Scene {
   private setupCamera() {
     const cam = this.cameras.main;
     cam.setBounds(0, 0, this.grid.cols * TILE, this.grid.rows * TILE);
-    cam.startFollow(this.player.sprite, true, 0.14, 0.16);
-    cam.setDeadzone(70, 46);
+    cam.startFollow(this.player.sprite, true, 0.22, 0.24);
+    cam.setDeadzone(36, 28);
   }
 
   private buildRoom(def: RoomDef) {

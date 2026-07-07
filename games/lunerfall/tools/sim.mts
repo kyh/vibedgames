@@ -190,8 +190,10 @@ console.log("lunerfall physics sim\n");
   b.buffer(inp({ right: true, attackPressed: true }));
   b.step(STEP);
   for (let f = 0; f < 12; f++) {
+    // Box reaches in front (right > x); it also overlaps the body a little for
+    // point-blank hits, so the near edge sits just behind center.
     const box = b.attackBox();
-    if (box && box.right > b.x && box.left >= b.x - 2) boxSeen = true;
+    if (box && box.right > b.x && box.left >= b.x - 10) boxSeen = true;
     b.buffer(inp({ right: true }));
     b.step(STEP);
   }

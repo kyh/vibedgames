@@ -42,10 +42,12 @@ export type HeroDef = {
 // hitbox (`a0`/`a1`) or `combo`: the hit still lands EARLY (~50–140ms, snappy +
 // responsive) and chaining stays forgiving; only the visual swing is slow. Tune.
 const SWING_TEMPO = 4.0;
+// Extra forward reach on every swing so hits land more generously in front.
+const REACH_BONUS = 12;
 
 const swing = (clip: string, o: Partial<Swing>): Swing => {
   const s: Swing = { clip, dur: 0.24, a0: 0.05, a1: 0.14, combo: 0.11, reach: 20, dmg: 1, kb: 110, lunge: 50, ...o };
-  return { ...s, dur: s.dur * SWING_TEMPO };
+  return { ...s, dur: s.dur * SWING_TEMPO, reach: s.reach + REACH_BONUS };
 };
 
 export const HEROES: Record<HeroName, HeroDef> = {

@@ -25,6 +25,11 @@ function registerFrames(scene: Phaser.Scene) {
 export function drawRoom(scene: Phaser.Scene, grid: Grid): Phaser.GameObjects.Container {
   registerFrames(scene);
   const c = scene.add.container(0, 0);
+  // Every tile is one `env:tiles` texture, so emitting them all first keeps the
+  // whole room in a single WebGL batch. The one-way neon lines (a different
+  // pipeline) go in a second pass afterwards — interleaving them per-cell forced
+  // a batch flush on every platform and tanked the scroll frame rate.
+  const oneWayGlow: { x: number; y: number }[] = [];
   for (let cy = 0; cy < grid.rows; cy++) {
     for (let cx = 0; cx < grid.cols; cx++) {
       const v = grid.cells[cy * grid.cols + cx];
@@ -34,17 +39,17 @@ export function drawRoom(scene: Phaser.Scene, grid: Grid): Phaser.GameObjects.Co
         c.add(scene.add.image(x, y, "env:tiles", "t-dirt").setOrigin(0));
         if (!grid.isSolidCell(cx - 1, cy)) c.add(scene.add.image(x, y, "env:tiles", "t-edge").setOrigin(0));
         if (!grid.isSolidCell(cx + 1, cy)) c.add(scene.add.image(x, y, "env:tiles", "t-edge").setOrigin(0).setFlipX(true));
-        // Grass tufts crown any surface open to the sky; drawn last so it sits over
-        // the edges, nudged up 3px so the tufts overhang the platform lip.
-        if (!grid.isSolidCell(cx, cy - 1)) {
-          c.add(scene.add.image(x, y - 3, "env:tiles", "t-grass").setOrigin(0));
-          c.add(scene.add.rectangle(x, y - 3, TILE, 2, COLORS.teal, 0.3).setOrigin(0)); // faint bloom
-        }
+        // Grass tufts crown any surface open to the sky; nudged up 3px so the
+        // tufts overhang the platform lip.
+        if (!grid.isSolidCell(cx, cy - 1)) c.add(scene.add.image(x, y - 3, "env:tiles", "t-grass").setOrigin(0));
       } else if (v === 2) {
         c.add(scene.add.image(x, y, "env:tiles", "t-plat").setOrigin(0));
-        c.add(scene.add.rectangle(x, y - 1, TILE, 2, COLORS.magenta, 0.7).setOrigin(0));
+        oneWayGlow.push({ x, y });
       }
     }
+  }
+  for (const g of oneWayGlow) {
+    c.add(scene.add.rectangle(g.x, g.y - 1, TILE, 2, COLORS.magenta, 0.7).setOrigin(0));
   }
   return c;
 }

@@ -3,11 +3,11 @@ import type { HeroKit } from "../data/heroes";
 import type { Grid } from "../sys/grid";
 
 // ── Feel constants (px, seconds; tuned for 60fps fixed step) ────────────────
-const MAX_RUN = 184;
-const RUN_ACCEL = 1700;
-const GROUND_DECEL = 3200;
-const AIR_ACCEL = 1250;
-const AIR_DECEL = 950;
+const MAX_RUN = 236;
+const RUN_ACCEL = 2100;
+const GROUND_DECEL = 3400;
+const AIR_ACCEL = 1550;
+const AIR_DECEL = 1050;
 
 const JUMP_V = 374;
 const G_RISE = 1250;
@@ -211,12 +211,17 @@ export class PlayerBody {
     if (this.attackStep === 0) return null;
     const s = this.kit.swings[this.attackStep - 1];
     if (!s || this.attackTime < s.a0 || this.attackTime > s.a1) return null;
-    const front = this.facing > 0 ? this.x : this.x - s.reach;
+    // The box reaches `reach` px forward and overlaps the body a touch so
+    // point-blank swings still connect; a little vertical slack catches enemies
+    // stood slightly above/below.
+    const back = 7;
+    const left = this.facing > 0 ? this.x - back : this.x - s.reach;
+    const right = this.facing > 0 ? this.x + s.reach : this.x + back;
     return {
-      left: front,
-      top: this.y - BODY_H - 2,
-      right: front + s.reach,
-      bottom: this.y + 2,
+      left,
+      top: this.y - BODY_H - 8,
+      right,
+      bottom: this.y + 4,
       dmg: s.dmg,
       kb: s.kb,
     };
