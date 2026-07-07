@@ -566,11 +566,7 @@ export class CityModel {
     for (const g of this.garages) {
       const ggx = Math.floor((g.x + WORLD_HALF_X) / ROAD_TILE);
       const ggz = Math.floor((g.z + WORLD_HALF_Z) / ROAD_TILE);
-      for (let ox = -1; ox <= 1; ox++) {
-        for (let oz = -1; oz <= 1; oz++) {
-          reservedAll.add(`${ggx + ox},${ggz + oz}`);
-        }
-      }
+      reservedAll.add(`${ggx},${ggz}`);
     }
     const lm = { ...lmBase, reserved: reservedAll };
     for (const s of lm.solids) this.solids.push(s);
@@ -579,13 +575,13 @@ export class CityModel {
       const url = modelUrl("buildings", GARAGE_MODEL);
       const node = this.cache.instance(url);
       const b = this.cache.bounds(url);
-      const sc = (ROAD_TILE * 1.7) / Math.max(b.size.x, b.size.z, 0.001);
+      const sc = (ROAD_TILE * 0.78) / Math.max(b.size.x, b.size.z, 0.001); // house-sized
       node.scale.setScalar(sc);
       node.rotation.y = g.yaw;
       node.position.set(g.x, this.terrain.heightAt(g.x, g.z), g.z);
       node.updateMatrixWorld(true);
       collect(node);
-      const half = ROAD_TILE * 0.8;
+      const half = ROAD_TILE * 0.42;
       this.solids.push({
         minX: g.x - half,
         maxX: g.x + half,
