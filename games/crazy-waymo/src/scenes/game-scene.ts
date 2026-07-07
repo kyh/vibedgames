@@ -465,19 +465,15 @@ export class GameScene {
     physics.addGround(city.terrain);
     lap("ground collider");
     await paint();
-    await physics.addStaticSolids(city.solids, city.terrain);
-    lap("static solids");
-    await paint();
-    // Prewarm BEFORE the game loop can step: Rapier builds its broadphase
-    // BVH lazily on the first step — over ~20k static colliders that is
-    // SECONDS, and it must never land on the player's Enter.
+    // Prewarm with the ground only — a small BVH builds fast. The 20k
+    // building colliders STREAM IN below (incremental inserts amortize);
+    // they only matter once something bounces off them.
     physics.prewarm();
     lap("physics prewarm");
     this.physics = physics;
     await paint();
 
-    // PLAYABLE: everything blocking (city, solids, physics BVH) is done.
-    // The spawners below are all sub-100ms.
+    // PLAYABLE: city, arcade solids and stepping physics are ready.
     this.loadDone = true;
     if (this.pendingStart) {
       this.pendingStart = false;
@@ -492,6 +488,10 @@ export class GameScene {
           : (cb: () => void): void => void setTimeout(cb, 8000);
       idle(() => writeRestCache(rest));
     }
+    await paint();
+
+    await physics.addStaticSolids(city.solids, city.terrain);
+    lap("static solids (streamed)");
     await paint();
 
     this.traffic = new Traffic(
