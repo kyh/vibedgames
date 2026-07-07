@@ -20,31 +20,51 @@ export const parseRoomType = (s: string): RoomType | null =>
   ROOM_TYPES.find((t) => t === s) ?? null;
 export type Spawn = { x: number; y: number };
 
-export const STAND_ROW = ROWS - 3; // feet rest here on the 2-row floor (y = 240)
+// Legacy single-screen stand row (kept for anything still referencing it).
+export const STAND_ROW = ROWS - 3;
 
+// Rooms are now multi-screen: each RoomDef sizes its own Grid (cols × rows) and
+// the camera scrolls over it. Bottom 2 rows are the floor; feet stand on tile
+// cy+1, so the ground stand row is `rows - 3`.
 export class RoomDef {
-  grid = new Grid();
-  playerSpawn: Spawn = { x: 3 * TILE, y: (STAND_ROW + 1) * TILE };
+  readonly grid: Grid;
+  readonly cols: number;
+  readonly rows: number;
+  readonly stand: number; // ground stand row (feet marker cy)
+  playerSpawn: Spawn;
   enemySpawns: Spawn[] = [];
   doorSlots: Spawn[] = [];
   featureSpot: Spawn | null = null;
   bossSpawn: Spawn | null = null;
+
+  constructor(cols: number = COLS, rows: number = ROWS) {
+    this.grid = new Grid(cols, rows);
+    this.cols = cols;
+    this.rows = rows;
+    this.stand = rows - 3;
+    this.playerSpawn = { x: 3 * TILE, y: (this.stand + 1) * TILE };
+  }
 
   private feet(cx: number, cy: number): Spawn {
     return { x: (cx + 0.5) * TILE, y: (cy + 1) * TILE };
   }
 
   arena(): this {
-    for (let y = 0; y < ROWS; y++) {
+    for (let y = 0; y < this.rows; y++) {
       this.grid.set(0, y, 1);
-      this.grid.set(COLS - 1, y, 1);
+      this.grid.set(this.cols - 1, y, 1);
     }
-    this.grid.fill(0, 0, COLS - 1, 0, 1); // ceiling
-    this.grid.fill(0, ROWS - 2, COLS - 1, ROWS - 1, 1); // floor
+    this.grid.fill(0, 0, this.cols - 1, 0, 1); // ceiling
+    this.grid.fill(0, this.rows - 2, this.cols - 1, this.rows - 1, 1); // floor
     return this;
   }
   solid(cx0: number, cy: number, cx1: number): this {
     this.grid.fill(cx0, cy, cx1, cy, 1);
+    return this;
+  }
+  // A solid platform that's `h` tiles thick (chunky ledge, like the art).
+  block(cx0: number, cy: number, cx1: number, h = 2): this {
+    this.grid.fill(cx0, cy, cx1, cy + h - 1, 1);
     return this;
   }
   oneway(cx0: number, cy: number, cx1: number): this {
@@ -73,77 +93,93 @@ export class RoomDef {
   }
 }
 
-const S = STAND_ROW; // 14
+// Standard room extent (tiles). ~2.7 screens wide, taller for verticality.
+const RW = 52;
+const RH = 21;
+const S = RH - 3; // 18 — ground stand row
 
 export const START = (): RoomDef =>
-  new RoomDef().arena().oneway(11, 6, 18).solid(4, 9, 8).solid(21, 9, 25).player(3, S).door(25, S);
+  new RoomDef(46, RH)
+    .arena()
+    .block(9, S - 3, 15) // gentle left step
+    .oneway(20, S - 5, 27)
+    .block(31, S - 4, 38) // right ledge with the exit
+    .player(4, S)
+    .door(35, S - 5);
 
 export const COMBAT_TEMPLATES: (() => RoomDef)[] = [
+  // Symmetric twin towers + central ruin (Image #1 layout).
   () =>
-    new RoomDef()
+    new RoomDef(RW, RH)
       .arena()
-      .solid(6, 10, 10)
-      .solid(19, 10, 23)
-      .oneway(12, 6, 17)
-      .player(3, S)
-      .enemy(25, S)
-      .enemy(14, S)
-      .enemy(8, 9)
-      .enemy(21, 9)
-      .door(8, 9)
-      .door(21, 9),
-  () =>
-    new RoomDef()
-      .arena()
-      .oneway(3, 11, 9)
-      .oneway(20, 11, 26)
-      .solid(12, 8, 17)
-      .oneway(12, 12, 17)
-      .player(3, S)
+      .oneway(7, S - 3, 13)
+      .block(3, S - 6, 12) // left tower platform (door)
+      .oneway(38, S - 3, 44)
+      .block(39, S - 6, 48) // right tower platform (door)
+      .block(22, S - 2, 29) // central raised ruin
+      .oneway(19, S - 6, 32) // ruin high ledge
+      .player(6, S)
       .enemy(26, S)
-      .enemy(6, 10)
-      .enemy(23, 10)
-      .enemy(14, 7)
-      .door(4, 11)
-      .door(25, 11),
+      .enemy(26, S - 7)
+      .enemy(7, S - 7)
+      .enemy(44, S - 7)
+      .door(6, S - 7)
+      .door(45, S - 7),
+  // Staggered rising ledges across.
   () =>
-    new RoomDef()
+    new RoomDef(RW, RH)
       .arena()
-      .solid(9, 12, 13)
-      .solid(16, 12, 20)
-      .oneway(4, 8, 8)
-      .oneway(21, 8, 25)
-      .oneway(12, 5, 17)
-      .player(3, S)
-      .enemy(6, S)
-      .enemy(23, S)
-      .enemy(14, S)
-      .enemy(6, 7)
-      .enemy(23, 7)
-      .door(6, 7)
-      .door(23, 7),
+      .oneway(6, S - 3, 12)
+      .block(15, S - 4, 21)
+      .oneway(24, S - 6, 30)
+      .block(33, S - 5, 40)
+      .oneway(43, S - 3, 49)
+      .player(4, S)
+      .enemy(18, S - 5)
+      .enemy(36, S - 6)
+      .enemy(48, S)
+      .enemy(27, S - 7)
+      .door(4, S - 4)
+      .door(47, S - 4),
+  // Cavernous — hanging one-ways + low pits of ledges.
+  () =>
+    new RoomDef(RW, RH)
+      .arena()
+      .block(10, S - 2, 16)
+      .block(35, S - 2, 41)
+      .oneway(8, S - 6, 18)
+      .oneway(33, S - 6, 43)
+      .oneway(22, S - 4, 29)
+      .block(23, S - 8, 28)
+      .player(4, S)
+      .enemy(13, S - 3)
+      .enemy(38, S - 3)
+      .enemy(25, S - 9)
+      .enemy(48, S)
+      .door(6, S - 7)
+      .door(46, S - 7),
 ];
 
 export const SAFE = (): RoomDef =>
-  new RoomDef()
+  new RoomDef(44, RH)
     .arena()
-    .solid(11, 10, 18)
-    .oneway(4, 12, 8)
-    .oneway(21, 12, 25)
-    .player(3, S)
-    .feature(14, S)
-    .door(6, 12)
-    .door(23, 12);
+    .block(17, S - 3, 26) // central shrine dais
+    .oneway(6, S - 5, 13)
+    .oneway(30, S - 5, 37)
+    .player(4, S)
+    .feature(21, S - 4)
+    .door(8, S - 6)
+    .door(35, S - 6);
 
 export const BOSS = (): RoomDef =>
-  new RoomDef()
+  new RoomDef(50, RH + 1)
     .arena()
-    .solid(3, 11, 7)
-    .solid(22, 11, 26)
-    .oneway(12, 7, 17)
-    .player(3, S)
-    .boss(15, S)
-    .door(25, 11);
+    .block(4, RH - 5, 11)
+    .block(38, RH - 5, 45)
+    .oneway(18, RH - 8, 31)
+    .player(6, RH - 2)
+    .boss(25, RH - 2)
+    .door(43, RH - 6);
 
 export const ROOM_ICON: Record<RoomType, string> = {
   start: "◆",

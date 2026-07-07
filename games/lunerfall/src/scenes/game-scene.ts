@@ -28,7 +28,7 @@ import {
 } from "../net/snapshot";
 import { drawRoom } from "../room";
 import { ambientEmbers, dust, explosion, hitSpark, impactRing, popText, wallSmoke } from "../sys/fx";
-import { COLS, Grid, ROWS } from "../sys/grid";
+import { Grid } from "../sys/grid";
 import { type Offer, RunManager } from "../sys/run";
 import { Input, type InputState } from "../sys/input";
 
@@ -259,31 +259,26 @@ export class GameScene extends Phaser.Scene {
     this.boss = null;
     this.feature = null;
 
-    this.add.rectangle(0, 0, BASE_W, BASE_H, COLORS.bgDeep).setOrigin(0).setDepth(-10);
-    // Atmospheric shrine-depths backdrop, darkened so it recedes behind play.
-    this.add
-      .image(0, 0, "env:backdrop")
-      .setOrigin(0)
-      .setDisplaySize(BASE_W, BASE_H)
-      .setTint(0x7385a8)
-      .setAlpha(0.5)
-      .setDepth(-9);
-    this.add
-      .rectangle(0, BASE_H * 0.35, BASE_W, BASE_H * 0.65, COLORS.bg)
-      .setOrigin(0)
-      .setDepth(-10);
+    // Screen-pinned sky (scrollFactor 0) — the parallax scene layers are added
+    // per-room in decorateRoom over the top of this. The camera scrolls the world
+    // but these stay fixed to the viewport.
+    this.add.rectangle(0, 0, BASE_W, BASE_H, COLORS.bgDeep).setOrigin(0).setScrollFactor(0).setDepth(-40);
+
     this.fadeRect = this.add
       .rectangle(0, 0, BASE_W, BASE_H, 0x05070b)
       .setOrigin(0)
+      .setScrollFactor(0)
       .setDepth(100)
       .setAlpha(0);
 
     this.heartsText = this.add
       .text(8, 6, "", { fontFamily: "monospace", fontSize: "12px", color: "#ff4d6d" })
+      .setScrollFactor(0)
       .setDepth(80);
     this.infoText = this.add
       .text(BASE_W - 8, 7, "", { fontFamily: "monospace", fontSize: "9px", color: "#8b95a1" })
       .setOrigin(1, 0)
+      .setScrollFactor(0)
       .setDepth(80);
     this.banner = this.add
       .text(BASE_W / 2, BASE_H / 2 - 20, "", {
@@ -292,6 +287,7 @@ export class GameScene extends Phaser.Scene {
         color: "#34e5c8",
       })
       .setOrigin(0.5)
+      .setScrollFactor(0)
       .setDepth(80)
       .setAlpha(0);
 
@@ -407,6 +403,15 @@ export class GameScene extends Phaser.Scene {
     this.netProj = [];
   }
 
+  // Bind the camera to the current room's pixel extent and follow the local
+  // player, so bigger-than-screen rooms scroll. Called after every room (re)build.
+  private setupCamera() {
+    const cam = this.cameras.main;
+    cam.setBounds(0, 0, this.grid.cols * TILE, this.grid.rows * TILE);
+    cam.startFollow(this.player.sprite, true, 0.14, 0.16);
+    cam.setDeadzone(70, 46);
+  }
+
   private buildRoom(def: RoomDef) {
     this.teardownRoom();
     this.grid = def.grid;
@@ -416,6 +421,7 @@ export class GameScene extends Phaser.Scene {
     this.player.enterRoom(def.grid, def.playerSpawn.x, def.playerSpawn.y);
     this.remote?.enterRoom(def.grid, def.playerSpawn.x, def.playerSpawn.y);
     this.roomSpawn = { x: def.playerSpawn.x, y: def.playerSpawn.y };
+    this.setupCamera();
 
     this.mustClear = this.run.isCombat();
     this.cleared = !this.mustClear;
@@ -468,10 +474,12 @@ export class GameScene extends Phaser.Scene {
     this.bossHpBg = this.add
       .rectangle(BASE_W / 2, 22, 260, 6, 0x000000, 0.5)
       .setStrokeStyle(1, COLORS.magenta, 0.6)
+      .setScrollFactor(0)
       .setDepth(85);
     this.bossHp = this.add
       .rectangle(BASE_W / 2 - 129, 22, 258, 4, COLORS.magenta)
       .setOrigin(0, 0.5)
+      .setScrollFactor(0)
       .setDepth(86);
     sfx.bossRoar();
     this.showBanner("SALAMANDER", 1600);
@@ -1021,8 +1029,8 @@ export class GameScene extends Phaser.Scene {
     const room: NetRoom = {
       seq: this.roomSeq,
       type: this.run.type,
-      cols: COLS,
-      rows: ROWS,
+      cols: this.grid.cols,
+      rows: this.grid.rows,
       cells: Array.from(this.grid.cells),
       spawnX: this.roomSpawn.x,
       spawnY: this.roomSpawn.y,
@@ -1036,7 +1044,7 @@ export class GameScene extends Phaser.Scene {
   // Guest: rebuild the room view from the host's broadcast (no RunManager).
   private buildRoomFromNet(room: NetRoom) {
     this.teardownRoom();
-    const g = new Grid();
+    const g = new Grid(room.cols, room.rows);
     g.cells.set(room.cells);
     this.grid = g;
     this.roomLayer = drawRoom(this, g).setDepth(0);
@@ -1054,6 +1062,7 @@ export class GameScene extends Phaser.Scene {
     this.roomSpawn = { x: room.spawnX, y: room.spawnY };
     this.player.enterRoom(g, room.spawnX, room.spawnY);
     this.remote?.enterRoom(g, room.spawnX, room.spawnY);
+    this.setupCamera();
     for (const nd of room.doors) {
       const d = new Door(this, nd.x, nd.y, parseRoomType(nd.type) ?? "combat", nd.index);
       d.setActive(false);

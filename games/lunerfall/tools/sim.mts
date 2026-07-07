@@ -269,13 +269,15 @@ check("rectsOverlap basic", rectsOverlap({ left: 0, top: 0, right: 10, bottom: 1
 
 // 16. Room templates are well-formed.
 {
-  const inBounds = (s: { x: number; y: number }) => s.x > 0 && s.x < COLS * TILE && s.y > 0 && s.y <= ROWS * TILE;
+  const inRoom = (r: { cols: number; rows: number }, s: { x: number; y: number }) =>
+    s.x > 0 && s.x < r.cols * TILE && s.y > 0 && s.y <= r.rows * TILE;
   const start = START();
-  check("start has a door + spawn", start.doorSlots.length >= 1 && inBounds(start.playerSpawn));
+  check("start has a door + spawn", start.doorSlots.length >= 1 && inRoom(start, start.playerSpawn));
   let combatOk = true;
   for (const make of COMBAT_TEMPLATES) {
     const r = make();
-    if (r.doorSlots.length < 2 || r.enemySpawns.length < 3 || !r.enemySpawns.every(inBounds)) combatOk = false;
+    if (r.doorSlots.length < 2 || r.enemySpawns.length < 3 || !r.enemySpawns.every((s) => inRoom(r, s)))
+      combatOk = false;
   }
   check("combat rooms: 2 doors + 3+ enemies", combatOk, `${COMBAT_TEMPLATES.length} templates`);
   const safe = SAFE();
