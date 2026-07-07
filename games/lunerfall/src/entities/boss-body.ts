@@ -1,17 +1,20 @@
 import { TILE } from "../config";
 import type { EnemyName } from "../data/animations";
+import { type BossKind, bossKind } from "../data/bosses";
 import type { Grid } from "../sys/grid";
 import type { AttackBox, Rect } from "./player-body";
 
-// Salamander boss — pure sim. Telegraphed attack FSM with two phases. The scene
-// reads its intents (wave / blast / adds) and renders the HP bar.
+// Biome boss — pure sim. Telegraphed attack FSM with two phases, parameterised by
+// a per-biome BossKind (HP, rhythm, wave fan, charge, summons). The scene reads
+// its intents (waves / blast / adds) and renders the HP bar.
 const GRAVITY = 1400;
 const FALL_CAP = 460;
 const EPS = 0.0001;
 const HW = 18;
 const H = 42;
+const CHARGE_SPEED = 300;
 
-export type BossState = "intro" | "idle" | "wave" | "jump" | "slam" | "punch" | "hurt" | "phase" | "dead";
+export type BossState = "intro" | "idle" | "wave" | "jump" | "slam" | "charge" | "punch" | "hurt" | "phase" | "dead";
 export type Wave = { x: number; y: number; vx: number; dmg: number };
 export type Blast = { x: number; y: number; r: number; dmg: number };
 export type Add = { x: number; y: number; name: EnemyName };
@@ -37,10 +40,10 @@ export class BossBody {
   iframes = 0;
 
   private attackCd = 1;
-  private queued: BossState = "idle";
-  pendingWave: Wave | null = null;
+  pendingWaves: Wave[] = [];
   pendingBlast: Blast | null = null;
   pendingAdds: Add[] | null = null;
+  readonly kind: BossKind;
 
   constructor(
     private grid: Grid,
@@ -52,7 +55,8 @@ export class BossBody {
     this.y = y;
     this.prevX = x;
     this.prevY = y;
-    this.maxHp = 44 + biome * 10;
+    this.kind = bossKind(biome);
+    this.maxHp = Math.round((44 + biome * 10) * this.kind.hpMul);
     this.hp = this.maxHp;
   }
 
@@ -60,7 +64,7 @@ export class BossBody {
     return Math.max(0, this.hp / this.maxHp);
   }
   get telegraphing(): boolean {
-    return (this.state === "wave" && this.stateT < 0.5) || (this.state === "jump" && this.stateT < 0.34) || (this.state === "punch" && this.stateT < 0.26);
+    return (this.state === "wave" && this.stateT < 0.5) || (this.state === "jump" && this.stateT < 0.34) || (this.state === "charge" && this.stateT < 0.4) || (this.state === "punch" && this.stateT < 0.26);
   }
 
   hurtBox(): Rect {
@@ -73,6 +77,10 @@ export class BossBody {
       const reach = 30;
       const front = this.facing > 0 ? this.x : this.x - reach;
       return { left: front, top: this.y - H, right: front + reach, bottom: this.y, dmg: 1, kb: 200 };
+    }
+    // The whole body is dangerous mid-lunge — a heavier, knock-you-back hit.
+    if (this.state === "charge" && this.stateT >= 0.4 && this.stateT < 0.82) {
+      return { left: this.x - HW - 6, top: this.y - H, right: this.x + HW + 6, bottom: this.y, dmg: 1, kb: 260 };
     }
     return null;
   }
@@ -122,10 +130,12 @@ export class BossBody {
       case "phase":
         this.vx = approach(this.vx, 0, 500 * dt);
         if (this.stateT >= 0.8) {
-          this.pendingAdds = [
-            { x: this.x - 60, y: this.y, name: "warrior" },
-            { x: this.x + 60, y: this.y, name: "archer" },
-          ];
+          const adds = this.kind.adds;
+          this.pendingAdds = adds.map((name, i) => ({
+            x: this.x + (i - (adds.length - 1) / 2) * 58,
+            y: this.y,
+            name,
+          }));
           this.setState("idle");
         }
         break;
@@ -134,8 +144,19 @@ export class BossBody {
         break;
       case "wave":
         this.vx = approach(this.vx, 0, 500 * dt);
-        if (this.stateT >= 0.5 && !this.pendingWave && this.stateT < 0.56) {
-          this.pendingWave = { x: this.x + this.facing * 20, y: this.y - 8, vx: this.facing * 150, dmg: 1 };
+        if (this.stateT >= 0.5 && this.pendingWaves.length === 0 && this.stateT < 0.56) {
+          // Fan: `kind.fan` waves at staggered heights and speeds, spreading as
+          // they travel — a single wave for the Salamander, a spread for the rest.
+          const n = this.kind.fan;
+          for (let i = 0; i < n; i++) {
+            const s = n === 1 ? 0 : i - (n - 1) / 2;
+            this.pendingWaves.push({
+              x: this.x + this.facing * 20,
+              y: this.y - 8 - Math.abs(s) * 6,
+              vx: this.facing * (this.kind.waveSpeed + s * 22),
+              dmg: 1,
+            });
+          }
         }
         if (this.stateT >= 0.85) this.endAttack();
         break;
@@ -150,8 +171,17 @@ export class BossBody {
         break;
       case "slam":
         if (this.grounded && this.stateT > 0.05) {
-          this.pendingBlast = { x: this.x, y: this.y - 6, r: 46, dmg: 1 };
+          this.pendingBlast = { x: this.x, y: this.y - 6, r: this.kind.slamR, dmg: 1 };
           this.endAttack();
+        }
+        break;
+      case "charge":
+        // Wind up in place, lunge flat across the arena, then skid to a stop.
+        if (this.stateT < 0.4) this.vx = approach(this.vx, 0, 600 * dt);
+        else if (this.stateT < 0.82) this.vx = this.facing * CHARGE_SPEED;
+        else {
+          this.vx = approach(this.vx, 0, 900 * dt);
+          if (this.stateT >= 0.98) this.endAttack();
         }
         break;
       case "punch":
@@ -170,19 +200,25 @@ export class BossBody {
 
   private idle(dt: number, dx: number, dist: number, ty: number) {
     if (this.attackCd > 0) {
-      // drift toward the player between attacks
-      if (dist > 60) this.vx = approach(this.vx, Math.sign(dx) * 40, 300 * dt);
+      // Ranged bosses hold a mid-range pocket (kite in when far, back off when
+      // crowded); bruisers just close the gap.
+      const want = this.kind.ranged ? 130 : 60;
+      if (dist > want + 20) this.vx = approach(this.vx, Math.sign(dx) * 40, 300 * dt);
+      else if (this.kind.ranged && dist < want - 40) this.vx = approach(this.vx, -Math.sign(dx) * 46, 300 * dt);
       else this.vx = approach(this.vx, 0, 300 * dt);
       return;
     }
     this.vx = 0;
-    if (dist < 42) this.setState("punch");
-    else if (dist < 150 && Math.abs(ty - this.y) < 30) this.setState(Math.random() < 0.55 ? "wave" : "jump");
+    const r = Math.random();
+    if (this.kind.charges && dist > 70 && dist < 240 && r < 0.4) this.setState("charge");
+    else if (dist < 42 && !this.kind.ranged) this.setState("punch");
+    else if (this.kind.ranged) this.setState(r < 0.7 ? "wave" : "jump");
+    else if (dist < 150 && Math.abs(ty - this.y) < 30) this.setState(r < 0.55 ? "wave" : "jump");
     else this.setState("jump");
   }
 
   private endAttack() {
-    this.attackCd = this.phase === 2 ? 0.7 : 1.15;
+    this.attackCd = this.kind.cd[this.phase === 2 ? 1 : 0];
     this.setState("idle");
   }
 

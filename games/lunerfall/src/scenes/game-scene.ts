@@ -491,10 +491,12 @@ export class GameScene extends Phaser.Scene {
 
     this.roomSeq++;
     if (this.role === "host") this.transmitRoom();
-    this.showBanner(
-      this.mustClear ? ROOM_LABEL[this.run.type] : `${ROOM_LABEL[this.run.type]} — pick a path`,
-      1100,
-    );
+    // Boss rooms announce the boss by name in spawnBoss; don't overwrite it here.
+    if (this.run.type !== "boss")
+      this.showBanner(
+        this.mustClear ? ROOM_LABEL[this.run.type] : `${ROOM_LABEL[this.run.type]} — pick a path`,
+        1100,
+      );
   }
 
   // Weighted-random enemy type, rolled per spawn so encounters vary run to run
@@ -537,7 +539,7 @@ export class GameScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setDepth(86);
     sfx.bossRoar();
-    this.showBanner("SALAMANDER", 1600);
+    this.showBanner(this.boss.body.kind.banner, 1600);
   }
 
   private buildFeature(x: number, y: number) {
@@ -1201,16 +1203,15 @@ export class GameScene extends Phaser.Scene {
         this.freeze = Math.max(this.freeze, 0.12);
         this.gainGold(25);
         popText(this, boss.body.x, boss.body.y - 44, "+25", "#ffd15c");
-        this.showBanner("SALAMANDER SLAIN", 1800);
+        this.showBanner(`${boss.body.kind.name} SLAIN`, 1800);
       }
       this.bossDeadT += dt;
       return;
     }
 
-    if (boss.body.pendingWave) {
-      const w = boss.body.pendingWave;
-      this.spawnHazard(w.x, w.y, w.vx, w.dmg);
-      boss.body.pendingWave = null;
+    if (boss.body.pendingWaves.length > 0) {
+      for (const w of boss.body.pendingWaves) this.spawnHazard(w.x, w.y, w.vx, w.dmg);
+      boss.body.pendingWaves.length = 0;
     }
     if (boss.body.pendingBlast) {
       const b = boss.body.pendingBlast;

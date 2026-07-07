@@ -1,25 +1,28 @@
 import Phaser from "phaser";
 
 import { HERO_ORIGIN_Y, interp } from "../config";
+import { bossKind } from "../data/bosses";
 import type { Grid } from "../sys/grid";
 import { BossBody } from "./boss-body";
 
 const SCALE = 2.1;
 
-// Phaser view over BossBody: bigger salamander sprite, state-driven clips, a red
-// telegraph tint on wind-ups, and a white hit-flash.
+// Phaser view over BossBody: bigger salamander sprite recoloured per biome,
+// state-driven clips, a red telegraph tint on wind-ups, and a white hit-flash.
 export class Boss {
   readonly body: BossBody;
   readonly sprite: Phaser.GameObjects.Sprite;
-  private tinted = false;
+  private readonly baseTint: number; // per-biome recolour, applied when idle
 
   constructor(scene: Phaser.Scene, grid: Grid, x: number, y: number, biome: number) {
     this.body = new BossBody(grid, x, y, biome);
+    this.baseTint = bossKind(biome).tint;
     this.sprite = scene.add
       .sprite(x, y, "salamander")
       .setOrigin(0.5, HERO_ORIGIN_Y)
       .setScale(SCALE)
-      .setDepth(12);
+      .setDepth(12)
+      .setTint(this.baseTint);
     this.sprite.play("salamander:idle");
   }
 
@@ -33,6 +36,8 @@ export class Boss {
       case "jump":
       case "slam":
         return "flame-slam";
+      case "charge":
+        return "run";
       case "punch":
         return "fire-punch";
       case "hurt":
@@ -40,6 +45,13 @@ export class Boss {
       default:
         return Math.abs(b.vx) > 12 ? "run" : "idle";
     }
+  }
+
+  // White fill on hit, orange multiply on wind-up, else the biome recolour.
+  private applyTint(flash: boolean, telegraph: boolean) {
+    if (flash) this.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
+    else if (telegraph) this.sprite.setTint(0xff7a3d).setTintMode(Phaser.TintModes.MULTIPLY);
+    else this.sprite.setTint(this.baseTint).setTintMode(Phaser.TintModes.MULTIPLY);
   }
 
   render(alpha = 1) {
@@ -50,16 +62,7 @@ export class Boss {
       Math.round(interp(b.prevX, b.x, alpha)),
       Math.round(interp(b.prevY, b.y, alpha)),
     );
-    if (b.hitFlash > 0) {
-      this.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
-      this.tinted = true;
-    } else if (b.telegraphing) {
-      this.sprite.setTint(0xff7a3d).setTintMode(Phaser.TintModes.MULTIPLY);
-      this.tinted = true;
-    } else if (this.tinted) {
-      this.sprite.clearTint().setTintMode(Phaser.TintModes.MULTIPLY);
-      this.tinted = false;
-    }
+    this.applyTint(b.hitFlash > 0, b.telegraphing);
   }
 
   // Guest: replay the host's clip on this puppet (no local sim/state). Position
@@ -72,16 +75,7 @@ export class Boss {
       far ? x : this.sprite.x + (x - this.sprite.x) * 0.35,
       far ? y : this.sprite.y + (y - this.sprite.y) * 0.35,
     );
-    if (flash) {
-      this.sprite.setTint(0xffffff).setTintMode(Phaser.TintModes.FILL);
-      this.tinted = true;
-    } else if (telegraph) {
-      this.sprite.setTint(0xff7a3d).setTintMode(Phaser.TintModes.MULTIPLY);
-      this.tinted = true;
-    } else if (this.tinted) {
-      this.sprite.clearTint().setTintMode(Phaser.TintModes.MULTIPLY);
-      this.tinted = false;
-    }
+    this.applyTint(flash, telegraph);
   }
 
   destroy() {
