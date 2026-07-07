@@ -32,7 +32,8 @@ export class SelectScene extends Phaser.Scene {
   private bank!: Phaser.GameObjects.Text;
   private coopText!: Phaser.GameObjects.Text;
   private meta: MetaState = { shards: 0, unlocked: [], bestDepth: 0, runs: 0, upgrades: {} };
-  private coop = false;
+  // Online play: off, co-op descent (C), or versus duel (V). One code serves both.
+  private net: "off" | "coop" | "vs" = "off";
   private code = "";
   // Moon Forge — the permanent-upgrade shop, a modal panel over the hero picker.
   private shopOpen = false;
@@ -47,10 +48,14 @@ export class SelectScene extends Phaser.Scene {
 
   create() {
     this.meta = loadMeta();
-    // A shared ?party=CODE link drops the joiner straight into co-op mode.
-    const joinCode = new URLSearchParams(location.search).get("party");
+    // A shared ?party=CODE link drops the joiner straight into online mode —
+    // co-op by default, versus when the link is flagged &mode=vs.
+    this.net = "off";
+    this.code = "";
+    const search = new URLSearchParams(location.search);
+    const joinCode = search.get("party");
     if (joinCode) {
-      this.coop = true;
+      this.net = search.get("mode") === "vs" ? "vs" : "coop";
       this.code = joinCode.toUpperCase();
     }
     this.add.rectangle(0, 0, BASE_W, BASE_H, COLORS.bgDeep).setOrigin(0);
@@ -165,7 +170,8 @@ export class SelectScene extends Phaser.Scene {
     kb?.on("keydown-ENTER", () => this.confirm());
     kb?.on("keydown-J", () => this.confirm());
     kb?.on("keydown-U", () => this.buyUnlock());
-    kb?.on("keydown-C", () => this.toggleCoop());
+    kb?.on("keydown-C", () => this.toggleNet("coop"));
+    kb?.on("keydown-V", () => this.toggleNet("vs"));
     kb?.on("keydown-M", () => this.toggleShop());
     kb?.on("keydown-ESC", () => this.shopOpen && this.toggleShop());
     kb?.on("keydown-UP", () => this.shopOpen && this.shopMove(-1));
@@ -291,33 +297,44 @@ export class SelectScene extends Phaser.Scene {
     this.blurb.setText(def.blurb);
 
     const unlocked = isUnlocked(this.meta, name);
-    const go = this.coop ? "join co-op" : "descend";
+    const go = this.net === "coop" ? "join co-op" : this.net === "vs" ? "enter the duel" : "descend";
     this.hint.setText(
       unlocked
-        ? `← →  choose    SPACE / J  ${go}    C  co-op    M  forge`
+        ? `← →  choose    SPACE / J  ${go}    C  co-op    V  versus    M  forge`
         : `← →  choose    U  unlock (${UNLOCK_COST[name]} ✦)    M  forge`,
     );
-    this.coopText.setText(
-      this.coop ? `CO-OP ${this.code}  ·  share this page's URL, then both press SPACE` : "",
-    );
+    this.coopText
+      .setText(
+        this.net === "coop"
+          ? `CO-OP ${this.code}  ·  share this page's URL, then both press SPACE`
+          : this.net === "vs"
+            ? `⚔ VERSUS ${this.code}  ·  share this page's URL, then both press SPACE  ·  first to 3 rounds`
+            : "",
+      )
+      .setColor(this.net === "vs" ? "#e83fa0" : "#34e5c8");
     this.bank.setText(`✦ ${this.meta.shards}   BEST D${this.meta.bestDepth}   ★ ${loadBestScore()}`);
   }
 
-  // Host a co-op room: mint a code, put it in the URL so it's shareable, and flip
-  // into co-op mode. (A joiner already arrived with ?party set.)
-  private toggleCoop() {
+  // Host an online room: mint a code and put it (plus the mode flag) in the URL
+  // so it's shareable. Pressing the same key again turns it off; the other key
+  // switches modes and keeps the code. (A joiner already arrived with ?party.)
+  private toggleNet(mode: "coop" | "vs") {
     if (this.shopOpen) return;
     sfx.select();
-    if (this.coop) {
-      this.coop = false;
+    const url = new URL(location.href);
+    if (this.net === mode) {
+      this.net = "off";
       this.code = "";
+      url.searchParams.delete("party");
+      url.searchParams.delete("mode");
     } else {
-      this.coop = true;
-      this.code = randomCode();
-      const url = new URL(location.href);
+      if (this.net === "off") this.code = randomCode();
+      this.net = mode;
       url.searchParams.set("party", this.code);
-      history.replaceState(null, "", url.toString());
+      if (mode === "vs") url.searchParams.set("mode", "vs");
+      else url.searchParams.delete("mode");
     }
+    history.replaceState(null, "", url.toString());
     this.refresh();
   }
 
@@ -334,7 +351,8 @@ export class SelectScene extends Phaser.Scene {
     }
     sfx.door();
     this.registry.set("hero", hero);
-    this.registry.set("party", this.coop ? this.code : "");
+    this.registry.set("party", this.net !== "off" ? this.code : "");
+    this.registry.set("mode", this.net === "vs" ? "vs" : "");
     this.scene.start("game", { hero });
   }
 

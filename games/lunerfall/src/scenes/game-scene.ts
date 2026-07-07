@@ -9,7 +9,7 @@ import { ENEMIES } from "../data/enemies";
 import { type HeroDef, HEROES } from "../data/heroes";
 import { bankRun, loadMeta, recordBestScore, runBonuses } from "../data/meta";
 import { baseMods, pickRelics, RARITY_COLOR, type Relic, type RunMods } from "../data/relics";
-import { parseRoomType, type RoomDef, ROOM_LABEL, type RoomType } from "../data/rooms";
+import { parseRoomType, type RoomDef, ROOM_LABEL, type RoomType, VERSUS } from "../data/rooms";
 import { Boss } from "../entities/boss";
 import { Door } from "../entities/door";
 import { Enemy } from "../entities/enemy";
@@ -27,6 +27,7 @@ import {
   type NetPlayer,
   type NetProj,
   type NetRoom,
+  type NetVersus,
   type Snapshot,
 } from "../net/snapshot";
 import { buildParallax } from "../parallax";
@@ -35,6 +36,13 @@ import { ambientEmbers, dust, explosion, hitSpark, impactRing, popText, wallSmok
 import { Grid } from "../sys/grid";
 import { type Offer, RunManager } from "../sys/run";
 import { Input, type InputState } from "../sys/input";
+import {
+  VersusMatch,
+  VS_BIOME,
+  VS_HEARTS,
+  VS_WIN_SCORE,
+  type VsSide,
+} from "../sys/versus";
 
 const STEP = 1 / 60;
 const MAX_STEPS = 5;
@@ -67,7 +75,9 @@ type Shot = {
   vy: number;
   life: number;
   dmg: number;
+  owner: Player | null; // caster — a shot never hits its own thrower (versus)
   hit: Set<Enemy>;
+  hitP: Set<Player>; // versus: per-duelist hit dedup
   hitBoss: boolean;
 };
 type Hazard = {
@@ -199,6 +209,15 @@ export class GameScene extends Phaser.Scene {
   private remote?: Player;
   private combat = new WeakMap<Player, CombatState>();
 
+  // Online versus (mode "versus"): host runs the pure match machine; guests
+  // mirror its broadcast into netVs. Both null/idle in solo and co-op.
+  private mode: "coop" | "versus" = "coop";
+  private vs: VersusMatch | null = null; // host-authoritative match state
+  private netVs: NetVersus | null = null; // guest: from the snapshot
+  private vsSpawns: { x: number; y: number }[] = []; // [host, guest], mirrored
+  private vsHitSeq = new WeakMap<Player, { swing: number; special: number }>();
+  private vsOpponentGone = false; // guest: opponent-left banner fired
+
   // Co-op last stand (host-simulated): the downed player + its bleed-out clock
   // and revive-hold progress. Guests mirror the broadcast into netLastStand.
   private lastStand: { pl: Player; bleedT: number; reviveT: number } | null = null;
@@ -297,6 +316,12 @@ export class GameScene extends Phaser.Scene {
     this.netLastStand = null;
     this.lsG = undefined;
     this.lsLabel = undefined;
+    this.mode = "coop";
+    this.vs = null;
+    this.netVs = null;
+    this.vsSpawns = [];
+    this.vsHitSeq = new WeakMap();
+    this.vsOpponentGone = false;
 
     // Screen-pinned sky (scrollFactor 0) — a gradient (dark up top, lighter toward
     // the horizon). The three bands are retinted per biome in applyBiome; the tree
@@ -361,6 +386,9 @@ export class GameScene extends Phaser.Scene {
 
     const regParty = this.registry.get("party");
     const party = params.get("party") ?? (typeof regParty === "string" ? regParty : "");
+    const regMode = this.registry.get("mode");
+    const modeStr = params.get("mode") ?? (typeof regMode === "string" ? regMode : "");
+    if (party.length > 0 && modeStr === "vs") this.mode = "versus";
     if (party.length > 0 && !this.demo) {
       // Co-op: connect, then let update() resolve host vs guest. The player spawns
       // on an empty grid so it's always defined; the real room arrives once the
@@ -398,6 +426,9 @@ export class GameScene extends Phaser.Scene {
     this.input.keyboard?.once("keydown", () => sfx.unlock());
     this.input.once("pointerdown", () => sfx.unlock());
     this.input.keyboard?.on("keydown-M", () => sfx.toggleMute());
+    // Versus has no death→hub exit (rounds respawn), so ESC leaves the duel.
+    if (this.mode === "versus")
+      this.input.keyboard?.on("keydown-ESC", () => this.scene.start("select"));
   }
 
   // Build a Player whose juice hooks are bound to itself (so local + remote each
@@ -538,6 +569,29 @@ export class GameScene extends Phaser.Scene {
         this.mustClear ? ROOM_LABEL[this.run.type] : `${ROOM_LABEL[this.run.type]} — pick a path`,
         1100,
       );
+  }
+
+  // Versus (host): build the mirrored duel arena — no doors, enemies, features,
+  // or run progression; both spawn points are kept for the per-round resets.
+  private buildVersusRoom() {
+    this.teardownRoom();
+    const def = VERSUS();
+    this.grid = def.grid;
+    const pal = this.applyBiome(VS_BIOME);
+    this.parallax = buildParallax(this, def.grid.cols * TILE, def.grid.rows * TILE, pal);
+    this.roomLayer = drawRoom(this, def.grid, pal).setDepth(0);
+    this.embers = ambientEmbers(this, COLORS.magenta, def.grid.cols * TILE, def.grid.rows * TILE);
+    const mirror = { x: def.grid.cols * TILE - def.playerSpawn.x, y: def.playerSpawn.y };
+    this.vsSpawns = [def.playerSpawn, mirror];
+    this.roomSpawn = def.playerSpawn;
+    this.player.enterRoom(def.grid, def.playerSpawn.x, def.playerSpawn.y);
+    this.remote?.enterRoom(def.grid, mirror.x, mirror.y);
+    this.setupCamera();
+    this.mustClear = false;
+    this.cleared = true;
+    this.roomSeq++;
+    if (this.role === "host") this.transmitRoom();
+    this.showBanner("VERSUS — WAITING FOR A CHALLENGER", 2600);
   }
 
   // Weighted-random enemy type, rolled per spawn so encounters vary run to run
@@ -769,9 +823,11 @@ export class GameScene extends Phaser.Scene {
       // Everyone but the authoritative host streams their input up each frame.
       if (this.role !== "host") this.sendInput();
       // Headless co-op probe (no casts): read via globalThis.__lf in tests.
+      const vsProbe = this.role === "guest" ? this.netVs : (this.vs?.encode() ?? null);
       Reflect.set(globalThis, "__lf", {
         role: this.role,
         state: this.state,
+        mode: this.mode,
         players: this.livePlayers().length,
         entities: this.enemies.length + this.enemyPuppets.size,
         hearts: this.hearts,
@@ -779,6 +835,8 @@ export class GameScene extends Phaser.Scene {
         conn: this.session.connectionStatus,
         downed: this.livePlayers().filter((p) => p.body.downed).length,
         ls: this.role === "guest" ? this.netLastStand !== null : this.lastStand !== null,
+        vs: vsProbe,
+        dead: this.livePlayers().filter((p) => p.body.dead).length,
       });
     }
 
@@ -826,8 +884,23 @@ export class GameScene extends Phaser.Scene {
     // Host / solo: authoritative fixed-step sim.
     if (this.role === "host") this.syncRemotePresence();
     const snap = this.demo ? this.demoInput() : this.controls.sample();
-    this.player.buffer(snap);
-    if (this.remote) this.remote.buffer(this.readRemoteInput());
+    const remoteIn = this.remote ? this.readRemoteInput() : null;
+    if (this.vs) {
+      // Match over + hold lapsed: either duelist's attack press restarts it.
+      if (this.vs.canRematch && (snap.attackPressed || (remoteIn?.attackPressed ?? false))) {
+        this.vs.beginMatch();
+        this.vsRespawn();
+        this.showBanner("REMATCH — ROUND 1", 1100);
+        sfx.door();
+      }
+      // Round intro / match end: bodies hold still (gravity still applies).
+      const frozen = this.vs.frozen;
+      this.player.buffer(frozen ? NEUTRAL_INPUT : snap);
+      if (this.remote && remoteIn) this.remote.buffer(frozen ? NEUTRAL_INPUT : remoteIn);
+    } else {
+      this.player.buffer(snap);
+      if (this.remote && remoteIn) this.remote.buffer(remoteIn);
+    }
     this.acc += dts;
     let steps = 0;
     while (this.acc >= STEP && steps < MAX_STEPS) {
@@ -900,9 +973,24 @@ export class GameScene extends Phaser.Scene {
     const other = this.session?.otherPlayer();
     if (other && !this.remote) {
       const hero = parseHero(other.state?.hero) ?? "axion";
-      this.remote = this.spawnPlayer(HEROES[hero], this.grid, this.roomSpawn.x, this.roomSpawn.y);
+      const spawn = (this.vs ? this.vsSpawns[1] : undefined) ?? this.roomSpawn;
+      this.remote = this.spawnPlayer(HEROES[hero], this.grid, spawn.x, spawn.y);
       this.inSeq = { j: 0, d: 0, a: 0, s: 0 };
-      this.showBanner("PLAYER 2 JOINED", 1000);
+      if (this.vs) {
+        // The challenger arrived: the match starts now, round 1.
+        this.vs.beginMatch();
+        this.vsRespawn();
+        this.showBanner("ROUND 1", 1100);
+        sfx.door();
+      } else this.showBanner("PLAYER 2 JOINED", 1000);
+    } else if (!other && this.remote && this.vs) {
+      // Versus opponent left: back to the lobby, host stood up at their spawn.
+      this.remote.destroy();
+      this.remote = undefined;
+      this.vs.reset();
+      this.vsRespawn();
+      this.showBanner("CHALLENGER LEFT", 1600);
+      this.updateHud();
     } else if (!other && this.remote) {
       // Partner left mid-last-stand: don't strand a frozen or 0-heart survivor —
       // stand the local player back up with a single heart and carry on.
@@ -925,10 +1013,15 @@ export class GameScene extends Phaser.Scene {
     if (!sess || !sess.live) return;
     if (sess.isHost) {
       this.role = "host";
-      const roomParam = new URLSearchParams(location.search).get("room");
-      const rt = roomParam ? parseRoomType(roomParam) : null;
-      const def = rt ? this.run.debugEnter(rt) : this.run.begin();
-      this.buildRoom(def);
+      if (this.mode === "versus") {
+        this.vs = new VersusMatch();
+        this.buildVersusRoom();
+      } else {
+        const roomParam = new URLSearchParams(location.search).get("room");
+        const rt = roomParam ? parseRoomType(roomParam) : null;
+        const def = rt ? this.run.debugEnter(rt) : this.run.begin();
+        this.buildRoom(def);
+      }
       this.updateHud();
       this.finishConnecting();
     } else {
@@ -959,6 +1052,11 @@ export class GameScene extends Phaser.Scene {
       this.guestSnapT = snap.t;
       this.applySnapshot(snap);
     }
+    // Versus: the host walked away — nothing will ever update again; say so.
+    if (this.mode === "versus" && !this.vsOpponentGone && this.guestSnapT > 0 && !sess.otherPlayer()) {
+      this.vsOpponentGone = true;
+      this.showBanner("OPPONENT LEFT — ESC FOR HUB", 60000);
+    }
     this.renderGuestViews();
     this.renderLastStand();
   }
@@ -970,6 +1068,14 @@ export class GameScene extends Phaser.Scene {
     this.netBiome = s.biome;
     this.netDepth = s.depth;
     this.netPlayers = s.players;
+    if (this.mode === "versus") {
+      // Versus: per-duelist hearts + round state travel on s.vs; the shared
+      // hearts / last-stand / shared-death rules don't apply.
+      this.applyNetVersus(s.vs ?? null);
+      this.applyNetProj(s.proj);
+      this.updateHud();
+      return;
+    }
     this.applyNetLastStand(s);
     this.reconcileEnemies(s.enemies);
     this.reconcileBoss(s.boss, s.biome);
@@ -978,6 +1084,24 @@ export class GameScene extends Phaser.Scene {
     this.updateHud();
     // Hearts hit 0 while a last stand is live → downed, not dead (yet).
     if (this.hearts <= 0 && !this.netLastStand) this.guestDie();
+  }
+
+  // Guest: mirror the versus match state; edge-detect phase changes for the
+  // banners + stings (scores/hearts render from the snapshot every frame).
+  private applyNetVersus(v: NetVersus | null) {
+    const prev = this.netVs;
+    this.netVs = v;
+    if (!v || v.phase === (prev?.phase ?? "")) return;
+    if (v.phase === "countdown")
+      this.showBanner(v.round === 1 ? "ROUND 1" : `ROUND ${v.round}`, 1100);
+    else if (v.phase === "fighting") {
+      this.showBanner("FIGHT!", 700);
+      sfx.bossRoar();
+    } else if (v.phase === "roundEnd") {
+      this.showBanner(`${this.vsName(v.winner)} TAKES THE ROUND`, 1500);
+      sfx.die();
+    } else if (v.phase === "matchEnd")
+      this.showBanner(`${this.vsName(v.winner)} WINS THE MATCH  ·  J REMATCH · ESC HUB`, 60000);
   }
 
   // Guest: mirror the host's last-stand state; edge-detect enter/exit for the
@@ -1162,7 +1286,7 @@ export class GameScene extends Phaser.Scene {
       hearts: this.hearts,
       maxHearts: this.maxHearts,
       gold: this.gold,
-      biome: this.run.biome,
+      biome: this.vs ? VS_BIOME : this.run.biome,
       depth: this.run.depth,
       cleared: this.cleared,
       lastStand: this.lastStand
@@ -1171,6 +1295,7 @@ export class GameScene extends Phaser.Scene {
             rev: Math.round((this.lastStand.reviveT / REVIVE_HOLD) * 100) / 100,
           }
         : null,
+      vs: this.vs ? this.vs.encode() : null,
       banner: "",
     };
   }
@@ -1188,14 +1313,15 @@ export class GameScene extends Phaser.Scene {
     }));
     const room: NetRoom = {
       seq: this.roomSeq,
-      type: this.run.type,
+      mode: this.mode === "versus" ? "vs" : "coop",
+      type: this.mode === "versus" ? "combat" : this.run.type,
       cols: this.grid.cols,
       rows: this.grid.rows,
       cells: Array.from(this.grid.cells),
       spawnX: this.roomSpawn.x,
       spawnY: this.roomSpawn.y,
       doors,
-      propKey: ROOM_PROPS[this.run.type]?.key ?? "",
+      propKey: this.mode === "versus" ? "" : (ROOM_PROPS[this.run.type]?.key ?? ""),
       mustClear: this.mustClear,
     };
     this.session.patchShared({ room });
@@ -1207,7 +1333,9 @@ export class GameScene extends Phaser.Scene {
     const g = new Grid(room.cols, room.rows);
     g.cells.set(room.cells);
     this.grid = g;
-    const pal = this.applyBiome(this.netBiome);
+    const vs = room.mode === "vs";
+    if (vs) this.mode = "versus"; // the host's room broadcast is authoritative
+    const pal = this.applyBiome(vs ? VS_BIOME : this.netBiome);
     this.parallax = buildParallax(this, g.cols * TILE, g.rows * TILE, pal);
     this.roomLayer = drawRoom(this, g, pal).setDepth(0);
     const type = parseRoomType(room.type) ?? "combat";
@@ -1222,12 +1350,13 @@ export class GameScene extends Phaser.Scene {
     }
     this.embers = ambientEmbers(
       this,
-      type === "boss" ? COLORS.magenta : COLORS.teal,
+      vs || type === "boss" ? COLORS.magenta : COLORS.teal,
       g.cols * TILE,
       g.rows * TILE,
     );
     this.roomSpawn = { x: room.spawnX, y: room.spawnY };
-    this.player.enterRoom(g, room.spawnX, room.spawnY);
+    // Versus: the guest duels from the mirrored right-hand spawn.
+    this.player.enterRoom(g, vs ? g.cols * TILE - room.spawnX : room.spawnX, room.spawnY);
     this.remote?.enterRoom(g, room.spawnX, room.spawnY);
     this.setupCamera();
     for (const nd of room.doors) {
@@ -1238,7 +1367,7 @@ export class GameScene extends Phaser.Scene {
     this.mustClear = room.mustClear;
     this.cleared = !room.mustClear;
     this.guestRoomSeq = room.seq;
-    this.showBanner(ROOM_LABEL[type], 1000);
+    this.showBanner(vs ? "VERSUS" : ROOM_LABEL[type], 1000);
   }
 
   // ── co-op helpers ────────────────────────────────────────────────────────────
@@ -1269,6 +1398,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private simStep(dt: number) {
+    if (this.vs) {
+      this.simStepVersus(dt);
+      return;
+    }
     if (this.combo > 0) {
       this.comboT -= dt;
       if (this.comboT <= 0) this.breakCombo();
@@ -1492,7 +1625,7 @@ export class GameScene extends Phaser.Scene {
     }
     if (pb.pendingShot) {
       const s = pb.pendingShot;
-      this.spawnShot(s.x, s.y, s.vx, s.vy, s.dmg);
+      this.spawnShot(s.x, s.y, s.vx, s.vy, s.dmg, pl);
       pb.pendingShot = null;
     }
     if (pb.pendingHeal > 0) {
@@ -1751,6 +1884,164 @@ export class GameScene extends Phaser.Scene {
     this.showBanner(`YOU FELL   SCORE ${this.score}${pb}   +${earned} ✦`, 2600);
   }
 
+  // ── online versus ───────────────────────────────────────────────────────────
+  // Host: the duel sim — two players + their projectiles + PvP resolution. No
+  // enemies, doors, features, shared hearts, or last stand in this mode.
+  private simStepVersus(dt: number) {
+    const vs = this.vs;
+    if (!vs) return;
+    const trans = vs.step(dt);
+    if (trans === "fight") {
+      this.showBanner("FIGHT!", 700);
+      sfx.bossRoar();
+    } else if (trans === "respawn") {
+      this.vsRespawn();
+      this.showBanner(`ROUND ${vs.round}`, 1100);
+      sfx.door();
+    } else if (trans === "matchEnd") {
+      this.showBanner(`${this.vsName(vs.winner)} WINS THE MATCH  ·  J REMATCH · ESC HUB`, 60000);
+    }
+    for (const pl of this.livePlayers()) pl.step(dt);
+    this.stepShots(dt);
+    if (vs.phase === "fighting" && this.remote) {
+      this.versusOffense(this.player, this.remote);
+      this.versusOffense(this.remote, this.player);
+    }
+    this.updateHud();
+  }
+
+  // Reset both duelists onto their mirrored spawn points (round start / lobby).
+  private vsRespawn() {
+    this.shots.forEach((s) => s.spr.destroy());
+    this.shots = [];
+    const pls = [this.player, this.remote];
+    pls.forEach((pl, i) => {
+      if (!pl) return;
+      const s = this.vsSpawns[i] ?? this.roomSpawn;
+      pl.body.dead = false;
+      pl.enterRoom(this.grid, s.x, s.y);
+    });
+    this.updateHud();
+  }
+
+  // One duelist's melee / special / stomp / projectile intents against the other.
+  private versusOffense(att: Player, vic: Player) {
+    const seq = this.vsSeq(att);
+    const dir = Math.sign(vic.body.x - att.body.x) || att.body.facing;
+    const ab = att.body.attackBox();
+    if (ab && att.body.swingId !== seq.swing && !vic.body.dead && rectsOverlap(ab, vic.body.hurtBox())) {
+      seq.swing = att.body.swingId;
+      this.hurtVersus(vic, ab.dmg, dir);
+    }
+    const sb = att.body.specialBox();
+    if (sb && att.body.specialId !== seq.special && !vic.body.dead && rectsOverlap(sb, vic.body.hurtBox())) {
+      seq.special = att.body.specialId;
+      this.hurtVersus(vic, sb.dmg, dir);
+    }
+    if (att.body.pendingShot) {
+      const s = att.body.pendingShot;
+      this.spawnShot(s.x, s.y, s.vx, s.vy, s.dmg, att);
+      att.body.pendingShot = null;
+    }
+    if (att.body.pendingHeal > 0) {
+      this.vs?.heal(this.vsSide(att), att.body.pendingHeal);
+      popText(this, att.body.x, att.body.y - 26, "+HP", "#34e5c8");
+      sfx.heal();
+      att.body.pendingHeal = 0;
+      this.updateHud();
+    }
+    // TowerFall classic: landing on the opponent's head costs them a heart.
+    if (att.body.vy > 20 && !vic.body.dead) {
+      const top = vic.body.hurtBox().top;
+      if (att.body.y <= top + 8 && att.body.y >= top - 12 && Math.abs(att.body.x - vic.body.x) < 12) {
+        att.body.bounce();
+        sfx.jump();
+        this.hurtVersus(vic, 1, Math.sign(att.body.vx) || 1);
+      }
+    }
+  }
+
+  // Versus damage: lands on the victim's OWN hearts (no shared pool, no last
+  // stand); dash/hurt i-frames still gate it. A fatal hit ends the round.
+  private hurtVersus(vic: Player, dmg: number, dir: number) {
+    const vs = this.vs;
+    if (!vs || vs.phase !== "fighting") return;
+    if (!vic.body.applyHurt(dir)) return;
+    this.freeze = Math.max(this.freeze, 0.06);
+    hitSpark(this, vic.x, vic.y - 11, COLORS.magenta, 8);
+    sfx.hit();
+    this.cameras.main.shake(80, 0.005);
+    const ended = vs.damage(this.vsSide(vic), dmg);
+    this.updateHud();
+    if (ended) this.vsRoundOver(vic);
+  }
+
+  // The fatal hit: drop the loser where they stand and bank the round.
+  private vsRoundOver(loser: Player) {
+    const vs = this.vs;
+    if (!vs) return;
+    loser.body.dead = true;
+    this.freeze = Math.max(this.freeze, 0.12);
+    this.cameras.main.shake(260, 0.014);
+    impactRing(this, loser.x, loser.y - 11, COLORS.magenta, 36);
+    sfx.die();
+    this.showBanner(`${this.vsName(vs.winner)} TAKES THE ROUND`, 1500);
+    this.updateHud();
+  }
+
+  // Per-attacker swing/special dedup so one strike lands on the victim once.
+  private vsSeq(pl: Player): { swing: number; special: number } {
+    let s = this.vsHitSeq.get(pl);
+    if (!s) {
+      s = { swing: 0, special: 0 };
+      this.vsHitSeq.set(pl, s);
+    }
+    return s;
+  }
+
+  // Which wire side a Player object is — only meaningful on the host, where
+  // this.player IS the host duelist.
+  private vsSide(pl: Player): VsSide {
+    return pl === this.player ? "host" : "guest";
+  }
+
+  // The Player rendering a wire side on THIS client (host: player/remote;
+  // guest: remote is the host's puppet).
+  private vsPlayer(side: VsSide): Player | undefined {
+    if (this.role === "guest") return side === "guest" ? this.player : this.remote;
+    return side === "host" ? this.player : this.remote;
+  }
+
+  // Banner-friendly duelist name, flagged when it's the local player.
+  private vsName(side: VsSide | null): string {
+    if (!side) return "";
+    const pl = this.vsPlayer(side);
+    if (!pl) return side === "host" ? "P1" : "P2";
+    return pl === this.player ? `${pl.title} (YOU)` : pl.title;
+  }
+
+  // Versus HUD, on both clients: host duelist on the left, guest on the right —
+  // hero name, this round's hearts, and round-win pips. ▸ marks the local side.
+  private updateVersusHud() {
+    const v = this.role === "guest" ? this.netVs : (this.vs?.encode() ?? null);
+    if (!v) return;
+    this.infoText.setFontSize(12);
+    const line = (side: VsSide, hp: number, score: number): string => {
+      const pl = this.vsPlayer(side);
+      if (!pl) return "AWAITING CHALLENGER…";
+      const you = pl === this.player ? "▸" : " ";
+      const hearts = "♥".repeat(Math.max(0, hp)) + "♡".repeat(Math.max(0, VS_HEARTS - hp));
+      const pips = "●".repeat(score) + "○".repeat(Math.max(0, VS_WIN_SCORE - score));
+      return `${you}${pl.title}  ${hearts}  ${pips}`;
+    };
+    const hex = (side: VsSide): string => {
+      const pl = this.vsPlayer(side);
+      return pl ? `#${pl.color.toString(16).padStart(6, "0")}` : "#8b95a1";
+    };
+    this.heartsText.setText(line("host", v.hostHp, v.hostScore)).setColor(hex("host"));
+    this.infoText.setText(line("guest", v.guestHp, v.guestScore)).setColor(hex("guest"));
+  }
+
   // ── features (rest fountain / treasure cache) ───────────────────────────────
   private stepFeature() {
     const f = this.feature;
@@ -1817,11 +2108,23 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ── player shots (Salamander flame-wave) ────────────────────────────────────
-  private spawnShot(x: number, y: number, vx: number, vy: number, dmg: number) {
+  private spawnShot(x: number, y: number, vx: number, vy: number, dmg: number, owner: Player | null) {
     const spr = this.add.sprite(x, y, "fx:flame-wave").setScale(0.7).setDepth(42);
     spr.play("fx:flame-wave");
     spr.setFlipX(vx < 0);
-    this.shots.push({ spr, x, y, vx, vy, life: 1.4, dmg, hit: new Set(), hitBoss: false });
+    this.shots.push({
+      spr,
+      x,
+      y,
+      vx,
+      vy,
+      life: 1.4,
+      dmg,
+      owner,
+      hit: new Set(),
+      hitP: new Set(),
+      hitBoss: false,
+    });
   }
 
   private stepShots(dt: number) {
@@ -1858,6 +2161,17 @@ export class GameScene extends Phaser.Scene {
       ) {
         this.hitBoss(this.dmgOut(s.dmg), Math.sign(s.vx) || 1, COLORS.magenta);
         s.hitBoss = true;
+      }
+      // Versus: the wave also burns the other duelist (never its own caster).
+      if (this.vs?.phase === "fighting") {
+        const box = { left: s.x - 12, top: s.y - 8, right: s.x + 12, bottom: s.y + 8 };
+        for (const pl of this.livePlayers()) {
+          if (pl === s.owner || pl.body.dead || s.hitP.has(pl)) continue;
+          if (rectsOverlap(box, pl.body.hurtBox())) {
+            s.hitP.add(pl);
+            this.hurtVersus(pl, s.dmg, Math.sign(s.vx) || 1);
+          }
+        }
       }
       const hitWall = this.grid.solidInRect(s.x - 4, s.y - 4, s.x + 4, s.y + 4);
       if (s.life <= 0 || hitWall) {
@@ -1927,6 +2241,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateHud() {
+    if (this.mode === "versus") {
+      this.updateVersusHud();
+      return;
+    }
     const h = Math.max(0, this.hearts);
     this.heartsText.setText("♥ ".repeat(h) + "♡ ".repeat(Math.max(0, this.maxHearts - h)));
     const relics = this.ownedRelics.size > 0 ? `   ✦ ${this.ownedRelics.size}` : "";

@@ -35,6 +35,7 @@ export function clipGameMs(hero: HeroDef, clip: string): number | undefined {
 // The subset of body/net fields selectClip reads — both PlayerBody and NetPlayer
 // expose these names, so one method drives local render and remote puppets.
 type ClipState = {
+  dead: boolean;
   downed: boolean;
   specialActive: boolean;
   specialId: number;
@@ -103,6 +104,9 @@ export class Player {
   get color(): number {
     return this.hero.color;
   }
+  get title(): string {
+    return this.hero.title;
+  }
   get special(): string {
     return this.hero.kit.special.kind;
   }
@@ -149,6 +153,14 @@ export class Player {
   // body) and applyNet (remote puppet) — both expose the same field names.
   private selectClip(s: ClipState) {
     const kit = this.hero.kit;
+    if (s.dead) {
+      // Versus: a slain duelist crumples and holds the final death frame until
+      // the round reset clears the flag. (Co-op deaths never set body.dead.)
+      if (this.sprite.anims.currentAnim?.key !== `${this.name}:death`)
+        this.playClip("death", false);
+      this.swingClip = null;
+      return;
+    }
     if (s.downed) {
       // Last stand: play the death clip once and hold its final crumpled frame.
       if (this.sprite.anims.currentAnim?.key !== `${this.name}:death`)

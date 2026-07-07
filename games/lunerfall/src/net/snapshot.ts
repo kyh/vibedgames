@@ -68,6 +68,20 @@ export type NetProj = { k: "arrow" | "shot" | "hazard"; x: number; y: number; vx
 // travels on NetPlayer.downed; both clients render the marker from these.
 export type NetLastStand = { bleed: number; rev: number };
 
+// Online versus: the match state, broadcast every snapshot while in versus mode.
+// Sides are fixed (host = left duelist, guest = right) so hearts/scores never
+// need a player-id mapping on either client.
+export type NetVersus = {
+  phase: "waiting" | "countdown" | "fighting" | "roundEnd" | "matchEnd";
+  round: number; // 1-based; 0 while waiting for the challenger
+  t: number; // seconds left in the current timed phase
+  hostHp: number;
+  guestHp: number;
+  hostScore: number;
+  guestScore: number;
+  winner: "host" | "guest" | null; // round winner in roundEnd, match in matchEnd
+};
+
 export type Snapshot = {
   t: number; // host frame counter — interpolation + stall detection
   room: number; // room seq; guest rebuilds its room when this changes
@@ -82,6 +96,7 @@ export type Snapshot = {
   depth: number;
   cleared: boolean;
   lastStand: NetLastStand | null;
+  vs: NetVersus | null; // versus mode only; null in co-op
   banner: string;
 };
 
@@ -96,6 +111,7 @@ export type NetDoor = {
 };
 export type NetRoom = {
   seq: number;
+  mode: string; // "coop" | "vs" — versus arenas mirror the guest spawn, no doors
   type: string;
   cols: number;
   rows: number;

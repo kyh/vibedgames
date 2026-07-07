@@ -5,7 +5,8 @@ import { ENEMIES } from "../src/data/enemies.ts";
 import { HEROES } from "../src/data/heroes.ts";
 import { bankRun, buyUpgrade, isUnlocked, runBonuses, unlockHero, upgradeLevel } from "../src/data/meta.ts";
 import { baseMods, pickRelics, RELICS } from "../src/data/relics.ts";
-import { BOSS, SAFE, START } from "../src/data/rooms.ts";
+import { BOSS, SAFE, START, VERSUS } from "../src/data/rooms.ts";
+import { VersusMatch, VS_HEARTS, VS_HIT_CAP, VS_WIN_SCORE } from "../src/sys/versus.ts";
 import { genAttempt, genCombatRoom, verifyRoom } from "../src/sys/gen.ts";
 import { BossBody } from "../src/entities/boss-body.ts";
 import { EnemyBody } from "../src/entities/enemy-body.ts";
@@ -418,6 +419,64 @@ check("rectsOverlap basic", rectsOverlap({ left: 0, top: 0, right: 10, bottom: 1
   check("upgrade caps at max", !buyUpgrade(m, "vitality") && upgradeLevel(m, "vitality") === 3);
   const poor = { shards: 0, unlocked: ["axion"], bestDepth: 0, runs: 0, upgrades: {} };
   check("unaffordable upgrade refused", !buyUpgrade(poor, "edge") && upgradeLevel(poor, "edge") === 0);
+}
+
+// 22. Online versus: rounds, per-duelist hearts, KOs, first-to-3, rematch.
+{
+  const m = new VersusMatch();
+  check("versus starts in the lobby", m.phase === "waiting" && !m.frozen);
+  m.beginMatch();
+  check("round 1 opens as a frozen countdown", m.phase === "countdown" && m.round === 1 && m.frozen);
+  check("no damage lands during the countdown", m.damage("guest", 2) === false && m.hp.guest === VS_HEARTS);
+  let t: string | null = null;
+  for (let f = 0; f < 180 && t !== "fight"; f++) t = m.step(STEP);
+  check("countdown releases into fighting", t === "fight" && m.phase === "fighting" && !m.frozen);
+  check("a hit takes the victim's OWN hearts", m.damage("guest", 1) === false && m.hp.guest === VS_HEARTS - 1 && m.hp.host === VS_HEARTS);
+  check("per-hit damage is capped", m.damage("guest", 99) === false && m.hp.guest === VS_HEARTS - 1 - VS_HIT_CAP);
+  let ended = false;
+  for (let i = 0; i < 9 && !ended; i++) ended = m.damage("guest", 2);
+  check("a KO ends the round for the survivor", ended && m.phase === "roundEnd" && m.winner === "host" && m.score.host === 1);
+  t = null;
+  for (let f = 0; f < 300 && t === null; f++) t = m.step(STEP);
+  check("round end resets a fresh round", t === "respawn" && m.round === 2 && m.hp.guest === VS_HEARTS && m.phase === "countdown");
+  let sawEnd: string | null = null;
+  for (let r = 0; r < 8 && m.phase !== "matchEnd"; r++) {
+    while (m.phase === "countdown") m.step(STEP);
+    while (m.phase === "fighting") m.damage("guest", VS_HIT_CAP);
+    while (m.phase === "roundEnd") { const x = m.step(STEP); if (x) sawEnd = x; }
+  }
+  check("first to 3 rounds takes the match", sawEnd === "matchEnd" && m.winner === "host" && m.score.host === VS_WIN_SCORE);
+  check("rematch waits out the end hold", m.canRematch === false);
+  for (let f = 0; f < 180; f++) m.step(STEP);
+  check("rematch arms after the hold", m.canRematch);
+  m.beginMatch();
+  check("rematch wipes the score", m.round === 1 && m.score.host === 0 && m.score.guest === 0 && m.phase === "countdown");
+  m.reset();
+  check("opponent leaving resets to the lobby", m.phase === "waiting" && m.round === 0 && m.hp.host === VS_HEARTS);
+  const h = new VersusMatch();
+  h.beginMatch();
+  while (h.phase === "countdown") h.step(STEP);
+  h.damage("host", 1);
+  h.heal("host", 5);
+  check("self-heal restores own hearts, capped", h.hp.host === VS_HEARTS);
+}
+
+// 23. Versus arena: compact, left-right symmetric, spawn has footing.
+{
+  const a = VERSUS();
+  let sym = true;
+  for (let y = 0; y < a.rows; y++)
+    for (let x = 0; x < a.cols; x++)
+      if (a.grid.cells[y * a.cols + x] !== a.grid.cells[y * a.cols + (a.cols - 1 - x)]) sym = false;
+  check("versus arena is mirror-symmetric", sym);
+  const sp = a.playerSpawn;
+  const mid = (a.cols * TILE) / 2;
+  check(
+    "versus spawn is on the left half with footing",
+    sp.x < mid && a.grid.solidInRect(sp.x - 4, sp.y, sp.x + 4, sp.y + 2),
+    `spawn=(${sp.x},${sp.y})`,
+  );
+  check("versus arena has no doors or enemies", a.doorSlots.length === 0 && a.enemySpawns.length === 0);
 }
 
 // The constrained generator must ALWAYS produce a room where every door + enemy

@@ -111,6 +111,18 @@ export const SAFE = (): RoomDef =>
     .door(8, S - 6)
     .door(35, S - 6);
 
+// Online versus duel stage: compact (~one screen), left-right symmetric so
+// neither duelist has an advantage. playerSpawn is the host's (left) point; the
+// guest spawns at its mirror (cols*TILE - x). No doors/enemies/features.
+export const VERSUS = (): RoomDef =>
+  new RoomDef(32, 17)
+    .arena()
+    .block(14, 13, 17, 1) // low centre riser
+    .block(4, 12, 9, 2) // left ledge
+    .block(22, 12, 27, 2) // right ledge (mirror)
+    .oneway(12, 9, 19) // high centre platform
+    .player(4, 14);
+
 export const BOSS = (): RoomDef =>
   new RoomDef(50, RH + 1)
     .arena()
