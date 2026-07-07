@@ -11,6 +11,7 @@ export type MapFile = {
   streets: { add: [number, number][]; remove: [number, number][] };
   floor: [number, number, FloorKind][];
   props: CustomProp[];
+  clear?: [number, number][];
 };
 
 let runtimeMap: MapFile | null = null;
@@ -78,6 +79,7 @@ export function parseMapFile(raw: unknown): MapFile | null {
     streets: { add: pairList(streets.add), remove: pairList(streets.remove) },
     floor,
     props,
+    clear: pairList(o.clear),
   };
 }
 

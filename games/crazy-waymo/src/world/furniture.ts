@@ -706,7 +706,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
         const floorY = parkCellFloor(terrain, gx, gz);
         const depth = Math.max(0.35, seatY - floorY + 0.9);
         const plinth = new THREE.Mesh(UNIT_BOX, SEAWALL_MAT);
-        plinth.scale.set(ROAD_TILE, depth, ROAD_TILE);
+        plinth.scale.set(ROAD_TILE * 1.02, depth, ROAD_TILE * 1.02);
         plinth.position.set(wx, seatY + 0.02 - depth / 2, wz);
         plinth.updateMatrixWorld(true);
         objects.push(plinth);

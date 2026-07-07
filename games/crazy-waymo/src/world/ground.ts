@@ -65,8 +65,9 @@ export function parkCellHeight(
   gx: number,
   gz: number,
 ): number {
-  // Seat at the HIGHEST corner (quantized): the tile always clears the
-  // ground; the plinth below it makes up the difference — layered hills.
+  // Seat at the HIGHEST corner, then quantize COARSELY (1.5u steps): whole
+  // neighbourhoods share one level, so terraces span many cells and sit
+  // flush instead of a per-cell staircase.
   const x0 = gx * ROAD_TILE - WORLD_HALF_X;
   const z0 = gz * ROAD_TILE - WORLD_HALF_Z;
   const h = Math.max(
@@ -76,7 +77,7 @@ export function parkCellHeight(
     terrain.heightAt(x0 + ROAD_TILE, z0 + ROAD_TILE),
     terrain.heightAt(x0 + ROAD_TILE / 2, z0 + ROAD_TILE / 2),
   );
-  return Math.round(h * 2) / 2; // quantize to 0.5u steps
+  return Math.ceil(h / 1.5) * 1.5; // coarse shared terraces (always >= ground)
 }
 
 export function parkCellFloor(terrain: Terrain, gx: number, gz: number): number {

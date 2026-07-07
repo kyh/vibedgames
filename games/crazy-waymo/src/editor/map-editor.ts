@@ -40,7 +40,7 @@ type Entry = {
 
 type Placed = { entry: Entry; node: THREE.Object3D | null; baked: boolean };
 
-type Tab = "props" | "streets" | "floor";
+type Tab = "props" | "streets" | "floor" | "clear";
 
 const CATEGORIES: readonly { label: string; cat: string; names: readonly string[] }[] = [
   { label: "props", cat: "props", names: [...PROPS, ...KK_PROPS_EXTRA] },
@@ -130,6 +130,7 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
   const addSet = new Set(overrides.add.map(([a, b]) => `${a},${b}`));
   const removeSet = new Set(overrides.remove.map(([a, b]) => `${a},${b}`));
   const floorMap = new Map<string, FloorKind>(overrides.floor.map(([a, b, k]) => [`${a},${b}`, k]));
+  const clearSet = new Set((overrides.clear ?? []).map(([a, b]) => `${a},${b}`));
 
   // --- Auto-save: every mutation persists immediately ---
   const saveNow = (): void => {
@@ -142,7 +143,12 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
       const [a, b] = k.split(",").map(Number);
       return [a ?? 0, b ?? 0, kind];
     });
-    saveLocalOverrides({ add: toPairs(addSet), remove: toPairs(removeSet), floor });
+    saveLocalOverrides({
+      add: toPairs(addSet),
+      remove: toPairs(removeSet),
+      floor,
+      clear: toPairs(clearSet),
+    });
     saveLocalProps(placed.map((p) => p.entry));
     refreshStatus();
   };
@@ -160,7 +166,9 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     }
     return m;
   };
-  const setQuad = (scope: "st" | "fl", gx: number, gz: number, hex: number | null): void => {
+  const roadPadGeo = new THREE.PlaneGeometry(ROAD_TILE * 1.02, ROAD_TILE * 1.02).rotateX(-Math.PI / 2);
+  const dashGeo = new THREE.PlaneGeometry(1.1, ROAD_TILE * 0.86).rotateX(-Math.PI / 2);
+  const setQuad = (scope: "st" | "fl" | "cl", gx: number, gz: number, hex: number | null): void => {
     const k = `${scope}:${gx},${gz}`;
     const prev = quads.get(k);
     if (prev) {
@@ -168,12 +176,29 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
       quads.delete(k);
     }
     if (hex === null) return;
-    const m = new THREE.Mesh(quadGeo, quadMat(hex, scope === "st" ? 0.5 : 0.65));
     const x = (gx + 0.5) * ROAD_TILE - WORLD_W / 2;
     const z = (gz + 0.5) * ROAD_TILE - WORLD_H / 2;
-    m.position.set(x, city.heightAt(x, z) + (scope === "st" ? 0.55 : 0.4), z);
+    const y = city.heightAt(x, z);
+    let m: THREE.Object3D;
+    if (scope === "st" && hex === 0x2fbf4f) {
+      // painted street: realtime road look (sidewalk pad + asphalt + dash)
+      const grp = new THREE.Group();
+      const pad = new THREE.Mesh(roadPadGeo, quadMat(0xb6b9b0, 0.95));
+      pad.position.y = 0.5;
+      const asphalt = new THREE.Mesh(quadGeo, quadMat(0x40454c, 0.98));
+      asphalt.position.y = 0.56;
+      const dash = new THREE.Mesh(dashGeo, quadMat(0xd8a23c, 0.95));
+      dash.position.y = 0.6;
+      grp.add(pad, asphalt, dash);
+      grp.position.set(x, y, z);
+      m = grp;
+    } else {
+      const quad = new THREE.Mesh(quadGeo, quadMat(hex, scope === "st" ? 0.5 : 0.65));
+      quad.position.set(x, y + (scope === "st" ? 0.55 : 0.4), z);
+      m = quad;
+    }
     game.scene.add(m);
-    quads.set(k, m);
+    quads.set(k, m as THREE.Mesh);
   };
   for (const k of addSet) {
     const [gx, gz] = k.split(",").map(Number);
@@ -186,6 +211,10 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
   for (const [k, kind] of floorMap) {
     const [gx, gz] = k.split(",").map(Number);
     if (gx !== undefined && gz !== undefined) setQuad("fl", gx, gz, FLOOR_COLORS[kind]);
+  }
+  for (const k of clearSet) {
+    const [gx, gz] = k.split(",").map(Number);
+    if (gx !== undefined && gz !== undefined) setQuad("cl", gx, gz, 0xe08030);
   }
 
   // --- UI ---
@@ -208,6 +237,8 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
       <button id="ed-loadbtn">LOAD</button>
       <button id="ed-clear-props">CLEAR PROPS</button>
       <button id="ed-clear-map">RESET STREETS+FLOOR</button>
+      <button id="ed-rot-l" title="rotate camera (Z)">⟲</button>
+      <button id="ed-rot-r" title="rotate camera (X)">⟳</button>
       <span class="ed-status" id="ed-status"></span>
       <input type="file" id="ed-file" accept=".json,application/json" style="display:none">
     </div>
@@ -216,6 +247,7 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
         <button class="edt on" data-tab="props">PROPS</button>
         <button class="edt" data-tab="streets">STREETS</button>
         <button class="edt" data-tab="floor">FLOOR</button>
+        <button class="edt" data-tab="clear">CLEAR</button>
       </div>
       <div id="ed-body-props" class="ed-tabbody">
         <div class="ed-cats">${catTabs}</div>
@@ -239,8 +271,14 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
         ${floorButtons}
         <div class="ed-note">Hover shows the cell; click/drag paints the ground.</div>
       </div>
+      <div id="ed-body-clear" class="ed-tabbody" style="display:none">
+        <button class="edf on"><i style="background:#e08030"></i>clear cell</button>
+        <div class="ed-note">Click/drag marks cells where GENERATED content (buildings, props, park tiles) is removed. Your own placed props are unaffected — select and Del those. Applies on rebuild:</div>
+        <button id="ed-rebuild2">REBUILD WORLD</button>
+      </div>
     </div>
-    <div class="ed-help">click prop = select · drag = move · Q/E rotate · [ ] scale · Del delete · Esc done · left-drag pan · RMB orbit · wheel zoom · WASD pan · edits auto-save</div>`;
+    <canvas id="ed-minimap" width="200" height="164"></canvas>
+    <div class="ed-help">click prop = select · drag = move · Q/E rotate · [ ] scale · Del delete · Esc done · left-drag pan · RMB orbit · Z/X rotate · wheel zoom · WASD pan · edits auto-save</div>`;
   document.body.appendChild(ui);
 
   const $ = (id: string): HTMLElement => {
@@ -437,6 +475,7 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     $("ed-body-props").style.display = t === "props" ? "flex" : "none";
     $("ed-body-streets").style.display = t === "streets" ? "flex" : "none";
     $("ed-body-floor").style.display = t === "floor" ? "flex" : "none";
+    $("ed-body-clear").style.display = t === "clear" ? "flex" : "none";
     controls.enablePan = t === "props";
     if (t !== "props") clearGhost();
     hoverQuad.visible = false;
@@ -454,10 +493,12 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     $("ed-st-erase").classList.add("on");
     $("ed-st-paint").classList.remove("on");
   });
-  $("ed-rebuild").addEventListener("click", () => {
-    saveNow();
-    window.location.reload();
-  });
+  for (const id of ["ed-rebuild", "ed-rebuild2"]) {
+    $(id).addEventListener("click", () => {
+      saveNow();
+      window.location.reload();
+    });
+  }
   ui.querySelectorAll<HTMLButtonElement>(".edf").forEach((btn) => {
     btn.addEventListener("click", () => {
       floorKind = (btn.dataset["floor"] as FloorKind | "erase") ?? "plaza";
@@ -470,7 +511,13 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     const toPairs = (set: Set<string>): number[][] => [...set].map((k) => k.split(",").map(Number));
     const floor = [...floorMap].map(([k, kind]) => [...k.split(",").map(Number), kind]);
     return JSON.stringify(
-      { version: 1, streets: { add: toPairs(addSet), remove: toPairs(removeSet) }, floor, props: placed.map((p) => p.entry) },
+      {
+        version: 1,
+        streets: { add: toPairs(addSet), remove: toPairs(removeSet) },
+        floor,
+        props: placed.map((p) => p.entry),
+        clear: toPairs(clearSet),
+      },
       null,
       1,
     );
@@ -489,7 +536,12 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     try {
       const parsed = parseMapFile(JSON.parse(await input.files[0].text()));
       if (!parsed) return;
-      saveLocalOverrides({ add: parsed.streets.add, remove: parsed.streets.remove, floor: parsed.floor });
+      saveLocalOverrides({
+        add: parsed.streets.add,
+        remove: parsed.streets.remove,
+        floor: parsed.floor,
+        clear: parsed.clear ?? [],
+      });
       saveLocalProps(parsed.props);
       window.location.reload(); // rebuild the world from the loaded file
     } catch {
@@ -502,10 +554,13 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     deselect();
     saveNow();
   });
+  $("ed-rot-l").addEventListener("click", () => orbitBy(Math.PI / 8));
+  $("ed-rot-r").addEventListener("click", () => orbitBy(-Math.PI / 8));
   $("ed-clear-map").addEventListener("click", () => {
     addSet.clear();
     removeSet.clear();
     floorMap.clear();
+    clearSet.clear();
     for (const [, m] of quads) game.scene.remove(m);
     quads.clear();
     streetsDirty = true;
@@ -562,6 +617,17 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     streetsDirty = true;
     saveNow();
   };
+  const paintClear = (gx: number, gz: number): void => {
+    const k = `${gx},${gz}`;
+    if (clearSet.has(k)) {
+      clearSet.delete(k);
+      setQuad("cl", gx, gz, null);
+    } else {
+      clearSet.add(k);
+      setQuad("cl", gx, gz, 0xe08030);
+    }
+    saveNow();
+  };
   const paintFloor = (gx: number, gz: number): void => {
     const k = `${gx},${gz}`;
     if (floorKind === "erase") {
@@ -579,7 +645,7 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
   hoverQuad.visible = false;
   game.scene.add(hoverQuad);
   const updateHover = (e: PointerEvent): void => {
-    if (tab !== "streets" && tab !== "floor") {
+    if (tab !== "streets" && tab !== "floor" && tab !== "clear") {
       hoverQuad.visible = false;
       return;
     }
@@ -594,7 +660,9 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
         ? streetErase
           ? 0xd23f34
           : 0x2fbf4f
-        : FLOOR_COLORS[floorKind];
+        : tab === "clear"
+          ? 0xe08030
+          : FLOOR_COLORS[floorKind];
     hoverQuad.material = quadMat(hex, 0.45);
     const x = (gx + 0.5) * ROAD_TILE - WORLD_W / 2;
     const z = (gz + 0.5) * ROAD_TILE - WORLD_H / 2;
@@ -650,6 +718,12 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
       paintDrag = true;
       return;
     }
+    if (tab === "clear") {
+      const cell = groundCell(e);
+      if (cell) paintClear(cell[0], cell[1]);
+      paintDrag = true;
+      return;
+    }
     // props tab: picking an existing prop wins over placing a new one.
     const hit = pickProp(e);
     if (hit && hit.node) {
@@ -685,6 +759,11 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
         if (cell) paintFloor(cell[0], cell[1]);
         return;
       }
+      if (tab === "clear") {
+        const cell = groundCell(e);
+        if (cell) paintClear(cell[0], cell[1]);
+        return;
+      }
       if (ghost && stampLast) {
         const p = groundPoint(e);
         if (p) {
@@ -714,6 +793,13 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     controls.enabled = true;
   });
 
+  const orbitBy = (angle: number): void => {
+    const off = new THREE.Vector3().subVectors(camera.position, controls.target);
+    off.applyAxisAngle(new THREE.Vector3(0, 1, 0), angle);
+    camera.position.copy(controls.target).add(off);
+    camera.lookAt(controls.target);
+  };
+
   // --- Keyboard ---
   window.addEventListener("keydown", (e) => {
     if (document.activeElement instanceof HTMLInputElement) return;
@@ -740,6 +826,10 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
         .addScaledVector(fwd, -pan[1] * step);
       camera.position.add(move);
       controls.target.add(move);
+      return;
+    }
+    if (k === "z" || k === "x") {
+      orbitBy(k === "z" ? Math.PI / 12 : -Math.PI / 12);
       return;
     }
     if (k === "q" || k === "e") {
@@ -777,6 +867,53 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
       if (selected) deleteSelected();
     }
   });
+
+  // --- Minimap: plan overview, camera marker, click to jump ---
+  {
+    const mm = $("ed-minimap") as HTMLCanvasElement;
+    const mctx = mm.getContext("2d");
+    if (mctx) {
+      const cells = city.plan.cells;
+      const nx = cells.length;
+      const nz = cells[0]?.length ?? 0;
+      const base = document.createElement("canvas");
+      base.width = mm.width;
+      base.height = mm.height;
+      const bctx = base.getContext("2d");
+      if (bctx) {
+        for (let gx = 0; gx < nx; gx++) {
+          const col = cells[gx];
+          if (!col) continue;
+          for (let gz = 0; gz < nz; gz++) {
+            const c = col[gz];
+            bctx.fillStyle = c === "water" ? "#3f6f9f" : c === "road" ? "#9aa0a8" : "#39503b";
+            bctx.fillRect((gx / nx) * mm.width, (gz / nz) * mm.height, mm.width / nx + 1, mm.height / nz + 1);
+          }
+        }
+      }
+      const draw = (): void => {
+        mctx.drawImage(base, 0, 0);
+        // camera target marker
+        const u = controls.target.x / WORLD_W + 0.5;
+        const v = controls.target.z / WORLD_H + 0.5;
+        mctx.strokeStyle = "#ffd24a";
+        mctx.lineWidth = 2;
+        mctx.strokeRect(u * mm.width - 4, v * mm.height - 4, 8, 8);
+        requestAnimationFrame(draw);
+      };
+      draw();
+      mm.addEventListener("pointerdown", (e) => {
+        const r = mm.getBoundingClientRect();
+        const u = (e.clientX - r.left) / r.width;
+        const v = (e.clientY - r.top) / r.height;
+        const x = (u - 0.5) * WORLD_W;
+        const z = (v - 0.5) * WORLD_H;
+        const off = new THREE.Vector3().subVectors(camera.position, controls.target);
+        controls.target.set(x, city.heightAt(x, z), z);
+        camera.position.copy(controls.target).add(off);
+      });
+    }
+  }
 
   setTab("props");
   refreshStatus();
@@ -823,6 +960,7 @@ function injectStyle(): void {
 #cw-editor .ed-inspector .edchk{justify-content:flex-start}
 #cw-editor #ed-idel{background:#5a2030;border-color:#a04050}
 #cw-editor #ed-rebuild{background:#274a7a}
+#cw-editor #ed-minimap{position:absolute;right:10px;bottom:44px;width:200px;height:164px;border:1px solid rgba(255,255,255,.25);border-radius:8px;background:#0a0e18;pointer-events:auto;cursor:crosshair}
 #cw-editor .ed-help{position:absolute;left:0;right:0;bottom:0;text-align:center;padding:8px;font:600 11px ui-monospace,monospace;opacity:.55;background:linear-gradient(#080a1200,#080a12dd)}
 `;
   document.head.appendChild(s);

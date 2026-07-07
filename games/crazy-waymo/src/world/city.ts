@@ -460,8 +460,15 @@ export class CityModel {
       }
     };
 
-    // --- Landmark footprints: cells the procedural city leaves alone ---
-    const lm = landmarkProtection(this.plan);
+    // --- Landmark footprints: cells the procedural city leaves alone.
+    // Editor "clear" cells join the reservation, so every placement pass
+    // (buildings, furniture, park tiles) skips them. ---
+    const lmBase = landmarkProtection(this.plan);
+    const reservedAll = new Set(lmBase.reserved);
+    for (const [cgx, cgz] of loadLocalOverrides().clear ?? []) {
+      reservedAll.add(`${cgx},${cgz}`);
+    }
+    const lm = { ...lmBase, reserved: reservedAll };
     for (const s of lm.solids) this.solids.push(s);
 
     // --- Street alignment (universal): every frontage building projects its
