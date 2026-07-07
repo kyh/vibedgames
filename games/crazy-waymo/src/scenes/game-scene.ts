@@ -44,6 +44,8 @@ import { setupTouch } from "../ui/touch";
 import { Car } from "../vehicle/car";
 import { CityModel } from "../world/city";
 import { editorMode, loadLocalOverrides } from "../world/custom-map";
+import { HECKLES, SpeechBubbles } from "../fx/speech-bubbles";
+import { ROBOTAXI_SKINS, skinById } from "../vehicle/car";
 import { getRuntimeMap, parseMapFile, setRuntimeMap } from "../world/map-file";
 import type { CityGenPayload } from "../world/gen-worker";
 import type { CityRestPayload } from "../world/city";
@@ -183,6 +185,12 @@ export class GameScene {
     fallbackMs: OFFLINE_FALLBACK_MS,
   });
   private remoteCars: RemoteCars | null = null;
+  private bubbles = new SpeechBubbles();
+  private heckleCooldown = 0;
+  private skinId = "waymo";
+  private chatText = "";
+  private chatAt = 0;
+  private chatEl: HTMLInputElement | null = null;
   private netAcc = 0;
   private netInfoEl = document.getElementById("netinfo");
 
@@ -474,7 +482,8 @@ export class GameScene {
     this.city = city;
 
     this.spawn = this.computeSpawn(city);
-    const car = new Car(this.cache);
+    this.skinId = skinById(storageGet("crazy-waymo:skin")).id;
+    const car = new Car(this.cache, this.skinId);
     car.setSurface(city);
     this.scene.add(car.object3D);
     car.reset(this.spawn.x, this.spawn.z, this.spawn.yaw);
@@ -522,8 +531,11 @@ export class GameScene {
         t = now;
       };
     })();
-    this.remoteCars = new RemoteCars(this.cache, city);
+    this.remoteCars = new RemoteCars(this.cache, city, (anchor, text) => {
+      this.bubbles.say(anchor, text, { lift: 3.0 });
+    });
     this.scene.add(this.remoteCars.group);
+    this.scene.add(this.bubbles.group);
     lap("remoteCars");
     await paint();
 
@@ -632,6 +644,45 @@ export class GameScene {
       stats: best > 0 ? `BEST $${best.toLocaleString("en-US")}` : "Every drop-off buys you more time.",
       cta: "PRESS ENTER TO DRIVE",
     });
+  }
+
+  private openChat(): void {
+    let el = this.chatEl;
+    if (!el) {
+      const found = document.getElementById("chat");
+      if (!(found instanceof HTMLInputElement)) return;
+      const input = found;
+      el = input;
+      this.chatEl = input;
+      input.addEventListener("keydown", (e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") {
+          const text = input.value.trim().slice(0, 90);
+          if (text && this.car) {
+            this.chatText = text;
+            this.chatAt = Date.now();
+            this.bubbles.say(this.car.object3D, text, { lift: 3.0 });
+          }
+          this.closeChat();
+        } else if (e.key === "Escape") {
+          this.closeChat();
+        }
+      });
+      el.addEventListener("blur", () => this.closeChat());
+    }
+    el.style.display = "block";
+    el.value = "";
+    this.input.setTyping(true);
+    el.focus();
+  }
+
+  private closeChat(): void {
+    const el = this.chatEl;
+    if (el) {
+      el.style.display = "none";
+      el.blur();
+    }
+    this.input.setTyping(false);
   }
 
   private handleStartPress(): void {
@@ -858,7 +909,10 @@ export class GameScene {
   }
 
   update(dt: number): void {
-    if (this.input.consumeStart()) this.handleStartPress();
+    if (this.input.consumeStart()) {
+      if (this.mode.kind === "playing" && !this.input.typing) this.openChat();
+      else this.handleStartPress();
+    }
     // Single read — calling consumeRestart() twice would clear the one-shot flag
     // before the second branch could see it. R restarts from any state.
     if (this.input.consumeRestart()) this.start();
@@ -874,6 +928,18 @@ export class GameScene {
       this.silenceLoops();
     }
 
+    if (this.input.consumeSkin() && this.car && this.mode.kind !== "loading") {
+      const i = ROBOTAXI_SKINS.findIndex((sk) => sk.id === this.skinId);
+      const next = ROBOTAXI_SKINS[(i + 1) % ROBOTAXI_SKINS.length];
+      if (next) {
+        this.skinId = next.id;
+        storageSet("crazy-waymo:skin", next.id);
+        this.car.setSkin(next.id);
+        this.hud.announceMinor(next.label, "#ffffff");
+      }
+    }
+    this.heckleCooldown = Math.max(0, this.heckleCooldown - dt);
+    this.bubbles.update(dt);
     this.hud.update(dt);
     this.fx.update(dt);
     this.skids?.update(dt);
@@ -947,6 +1013,9 @@ export class GameScene {
           y: roundNet(car.position.y),
           z: roundNet(car.position.z),
           h: roundNet(car.heading),
+          skin: this.skinId,
+          msg: this.chatText,
+          msgAt: this.chatAt,
         });
       }
     }
@@ -1345,6 +1414,12 @@ export class GameScene {
       c.punt(physics, nx * shove, Math.min(4, impact * 0.16), nz * shove);
       // Feed the existing crash pipeline (sfx/debris/shake scale with it).
       car.lastWallHit = Math.max(car.lastWallHit, impact * 0.55);
+      // SF has opinions about robotaxis. Bumped drivers share theirs.
+      if (impact > 4 && this.heckleCooldown <= 0 && Math.random() < 0.65) {
+        this.heckleCooldown = 7;
+        const line = HECKLES[Math.floor(Math.random() * HECKLES.length)];
+        if (line) this.bubbles.say(c.object3D, line, { lift: 2.3, dur: 4.5, accent: "#e05c2e" });
+      }
       // Real hits cost money — traffic is the risk side of weaving.
       if (impact > 7) {
         const pen = this.state.trafficHit(impact);
@@ -1439,6 +1514,11 @@ export class GameScene {
           insane ? "#ff8a3c" : "#aee3ff",
         );
         this.sfx.nearMiss(this.panFor(c.position));
+        if (this.heckleCooldown <= 0 && Math.random() < 0.22) {
+          this.heckleCooldown = 9;
+          const line = HECKLES[Math.floor(Math.random() * HECKLES.length)];
+          if (line) this.bubbles.say(c.object3D, line, { lift: 2.3, dur: 4, accent: "#e05c2e" });
+        }
       }
     }
   }

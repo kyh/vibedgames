@@ -8,7 +8,9 @@ export class InputState {
   restartPressed = false;
   pausePressed = false;
   mutePressed = false;
+  skinPressed = false;
   blurred = false; // window lost focus (auto-pause)
+  typing = false; // chat input focused — game keys suspended
 
   constructor() {
     window.addEventListener("keydown", this.onKeyDown);
@@ -20,12 +22,14 @@ export class InputState {
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
+    if (this.typing) return; // the chat input owns the keyboard
     const k = e.key.toLowerCase();
     if ([" ", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(k)) e.preventDefault();
     if (k === "enter") this.startPressed = true;
     if (k === "r") this.restartPressed = true;
     if (k === "p" || k === "escape") this.pausePressed = true;
     if (k === "m") this.mutePressed = true;
+    if (k === "v") this.skinPressed = true;
     this.keys.add(k);
   };
   private onKeyUp = (e: KeyboardEvent): void => {
@@ -73,6 +77,15 @@ export class InputState {
     const v = this.mutePressed;
     this.mutePressed = false;
     return v;
+  }
+  consumeSkin(): boolean {
+    const v = this.skinPressed;
+    this.skinPressed = false;
+    return v;
+  }
+  setTyping(on: boolean): void {
+    this.typing = on;
+    if (on) this.keys.clear();
   }
   consumeBlur(): boolean {
     const v = this.blurred;

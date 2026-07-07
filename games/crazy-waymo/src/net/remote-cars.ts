@@ -9,9 +9,9 @@ import * as THREE from "three";
 import type { PlayerMap } from "@vibedgames/multiplayer";
 
 import type { ModelCache } from "../assets/loader";
-import { modelUrl, PLAYER_CAR } from "../assets/manifest";
+
 import type { Surface } from "../vehicle/car";
-import { buildWaymoSensors } from "../vehicle/car";
+import { buildSkinBody, skinById } from "../vehicle/car";
 import { slopeQuaternion } from "../world/terrain";
 
 /** Instance taxis inside this radius (matches the city's DETAIL_DISTANCE so
@@ -29,7 +29,15 @@ const SNAP_DIST_SQ = 40 * 40;
  *  their socket open with rAF paused — they'd freeze mid-street forever). */
 const IDLE_CULL_MS = 10_000;
 
-export type RemoteTransform = { x: number; y: number; z: number; h: number };
+export type RemoteTransform = {
+  x: number;
+  y: number;
+  z: number;
+  h: number;
+  skin: string;
+  msg: string;
+  msgAt: number;
+};
 
 /** A finite number, or null. `typeof NaN === "number"`, so guard finiteness. */
 function finiteNum(v: unknown): number | null {
@@ -44,7 +52,16 @@ export function readTransform(state: unknown): RemoteTransform | null {
   const z = finiteNum("z" in state ? state.z : null);
   const h = finiteNum("h" in state ? state.h : null);
   if (x === null || z === null || h === null) return null;
-  return { x, y: finiteNum("y" in state ? state.y : null) ?? 0, z, h };
+  const o = state as Record<string, unknown>;
+  return {
+    x,
+    y: finiteNum("y" in state ? state.y : null) ?? 0,
+    z,
+    h,
+    skin: typeof o.skin === "string" ? o.skin : "waymo",
+    msg: typeof o.msg === "string" ? o.msg.slice(0, 90) : "",
+    msgAt: finiteNum(o.msgAt) ?? 0,
+  };
 }
 
 type RemoteCar = {
@@ -56,6 +73,8 @@ type RemoteCar = {
   target: THREE.Vector3;
   targetHeading: number;
   seededPose: boolean;
+  skin: string;
+  lastMsgAt: number;
 };
 
 export class RemoteCars {
@@ -68,6 +87,8 @@ export class RemoteCars {
   constructor(
     private readonly cache: ModelCache,
     private readonly surface: Surface,
+    /** Called when a remote player sends a chat line (bubble goes here). */
+    private readonly onChat?: (anchor: THREE.Object3D, text: string) => void,
   ) {}
 
   /** Adopt the latest player snapshot; `origin` is the local car for culling. */
@@ -98,7 +119,16 @@ export class RemoteCars {
         if (car) this.remove(id, car);
         continue;
       }
+      if (car && car.skin !== t.skin) {
+        // player swapped robotaxi — rebuild the body with the new skin
+        this.remove(id, car);
+        car = undefined;
+      }
       if (!car) car = this.spawn(id, t);
+      if (t.msg && t.msgAt > car.lastMsgAt) {
+        car.lastMsgAt = t.msgAt;
+        this.onChat?.(car.group, t.msg);
+      }
       car.target.set(t.x, t.y, t.z);
       car.targetHeading = t.h;
       // A big jump is a respawn/reset, not motion — snap instead of streaking
@@ -142,9 +172,8 @@ export class RemoteCars {
   private spawn(id: string, t: RemoteTransform): RemoteCar {
     const group = new THREE.Group();
     group.scale.setScalar(1.12);
-    group.add(this.cache.instance(modelUrl("cars", PLAYER_CAR)));
-    // Every driver is a Waymo — remotes get the signature lidar dome too.
-    group.add(buildWaymoSensors());
+    // The sender's chosen robotaxi (Waymo/Zoox/Cybercab/Cruise), sensors and all.
+    group.add(buildSkinBody(this.cache, skinById(t.skin)));
 
     // A colored roof beacon so players are told apart in a crowd.
     const beaconGeo = new THREE.SphereGeometry(0.32, 12, 8);
@@ -163,6 +192,8 @@ export class RemoteCars {
       target: new THREE.Vector3(t.x, t.y, t.z),
       targetHeading: t.h,
       seededPose: true,
+      skin: t.skin,
+      lastMsgAt: t.msgAt, // don't replay a bubble that predates our arrival
     };
     this.cars.set(id, car);
     return car;

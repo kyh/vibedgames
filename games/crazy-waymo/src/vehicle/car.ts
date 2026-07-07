@@ -42,6 +42,49 @@ const LIDAR_BLUE = new THREE.MeshStandardMaterial({
   roughness: 0.4,
 });
 
+// --- Robotaxi skins: swap the Waymo for other robotaxis. The Waymo body is a
+// pre-baked recolor GLB; the others repaint a base car in-engine (cloned
+// materials, multiply tint — windows/tires stay dark). Cybercab is camera-only,
+// so it pointedly ships without the lidar dome.
+export type RobotaxiSkin = {
+  id: string;
+  label: string;
+  model: string;
+  tint?: number;
+  lidar: boolean;
+};
+
+export const ROBOTAXI_SKINS: readonly RobotaxiSkin[] = [
+  { id: "waymo", label: "WAYMO", model: PLAYER_CAR, lidar: true },
+  { id: "zoox", label: "ZOOX", model: "van", tint: 0x2fbfae, lidar: true },
+  { id: "cybercab", label: "CYBERCAB", model: "sedan-sports", tint: 0xc9cbd1, lidar: false },
+  { id: "cruise", label: "CRUISE", model: "hatchback-sports", tint: 0xff8b3d, lidar: true },
+];
+
+export function skinById(id: string | undefined | null): RobotaxiSkin {
+  const first = ROBOTAXI_SKINS[0];
+  if (!first) throw new Error("no skins");
+  if (!id) return first;
+  return ROBOTAXI_SKINS.find((s) => s.id === id) ?? first;
+}
+
+// Build a skinned robotaxi body (model + optional repaint + sensor suite).
+export function buildSkinBody(cache: ModelCache, skin: RobotaxiSkin): THREE.Object3D {
+  const body = cache.instance(modelUrl("cars", skin.model));
+  if (skin.tint !== undefined) {
+    const tint = new THREE.Color(skin.tint);
+    body.traverse((c) => {
+      if (c instanceof THREE.Mesh && c.material instanceof THREE.MeshStandardMaterial) {
+        const m = c.material.clone();
+        m.color.multiply(tint).lerp(tint, 0.55);
+        c.material = m;
+      }
+    });
+  }
+  if (skin.lidar) body.add(buildWaymoSensors());
+  return body;
+}
+
 export function buildWaymoSensors(): THREE.Group {
   const g = new THREE.Group();
   const add = (
@@ -187,21 +230,43 @@ export class Car {
   private nightRig: NightRig;
   private nightFactor = -1; // last applied value; skip redundant writes
 
-  constructor(cache: ModelCache) {
+  constructor(
+    private readonly cache: ModelCache,
+    skinId?: string,
+  ) {
     this.object3D = new THREE.Group();
     // Hero scale: the player car reads slightly larger than traffic so it owns
     // the frame.
     this.object3D.scale.setScalar(1.12);
-    this.body = cache.instance(modelUrl("cars", PLAYER_CAR));
+    this.body = buildSkinBody(cache, skinById(skinId));
+    this.collectWheels();
+    this.nightRig = buildNightRig();
+    this.body.add(this.nightRig.group);
+    this.setHeadlights(0);
+    this.object3D.add(this.body);
+  }
+
+  private collectWheels(): void {
+    this.wheels.length = 0;
     this.body.traverse((c) => {
       if (c.name.startsWith("wheel")) {
         this.wheels.push({ node: c, front: c.name.includes("front") });
       }
     });
-    this.body.add(buildWaymoSensors());
-    this.nightRig = buildNightRig();
+  }
+
+  // Swap the robotaxi skin in place (V key). Keeps physics/pose; rebuilds the
+  // visual body and carries the night rig over.
+  setSkin(skinId: string): void {
+    const skin = skinById(skinId);
+    this.body.remove(this.nightRig.group);
+    this.object3D.remove(this.body);
+    this.body = buildSkinBody(this.cache, skin);
+    this.collectWheels();
     this.body.add(this.nightRig.group);
-    this.setHeadlights(0);
+    const nf = this.nightFactor;
+    this.nightFactor = -1;
+    this.setHeadlights(Math.max(0, nf));
     this.object3D.add(this.body);
   }
 

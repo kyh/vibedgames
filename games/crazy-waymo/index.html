@@ -720,6 +720,7 @@
   <body>
     <div id="game"></div>
 
+    <input id="chat" maxlength="90" placeholder="say something… (Enter to send, Esc to close)" autocomplete="off" style="display:none;position:fixed;left:50%;bottom:88px;transform:translateX(-50%);z-index:30;width:min(480px,80vw);padding:10px 16px;border-radius:999px;border:2px solid rgba(255,255,255,.45);background:rgba(10,14,24,.88);color:#fff;font:600 14px ui-monospace,monospace;outline:none;pointer-events:auto" />
     <div id="netinfo"></div>
     <div id="hud">
       <div class="pill" id="timer"><span class="label">TIME</span><span class="value">60</span></div>
@@ -777,7 +778,7 @@
 
     <div id="legend">
       <b>↑/W</b> gas · <b>↓/S</b> brake · <b>←→/AD</b> steer · <b>SPACE</b> drift · <b>SHIFT</b> boost ·
-      <b>R</b> restart
+      <b>R</b> restart · <b>ENTER</b> chat · <b>V</b> robotaxi
     </div>
 
     <div id="loading">
