@@ -14,7 +14,7 @@ import { landuseGreenAt, landuseSandAt } from "./sf-landuse";
 
 const CONCRETE = new THREE.Color(0x9a9b92);
 const SAND = new THREE.Color(0xd9c9a1);
-const PARK = new THREE.Color(0x74975c);
+const PARK = new THREE.Color(0x67a86b); // matched to the KayKit tile green
 
 const gridX = (x: number): number => Math.floor((x + WORLD_HALF_X) / ROAD_TILE);
 const gridZ = (z: number): number => Math.floor((z + WORLD_HALF_Z) / ROAD_TILE);
@@ -65,9 +65,9 @@ export function parkCellHeight(
   gx: number,
   gz: number,
 ): number {
-  // Seat at the HIGHEST corner, then quantize COARSELY (1.5u steps): whole
-  // neighbourhoods share one level, so terraces span many cells and sit
-  // flush instead of a per-cell staircase.
+  // Seat at the HIGHEST corner. No quantization: tiles only go on flat
+  // cells now, where neighbours land within centimetres of each other —
+  // no visible layering.
   const x0 = gx * ROAD_TILE - WORLD_HALF_X;
   const z0 = gz * ROAD_TILE - WORLD_HALF_Z;
   const h = Math.max(
@@ -77,7 +77,7 @@ export function parkCellHeight(
     terrain.heightAt(x0 + ROAD_TILE, z0 + ROAD_TILE),
     terrain.heightAt(x0 + ROAD_TILE / 2, z0 + ROAD_TILE / 2),
   );
-  return Math.ceil(h / 1.5) * 1.5; // coarse shared terraces (always >= ground)
+  return h + 0.05;
 }
 
 export function parkCellFloor(terrain: Terrain, gx: number, gz: number): number {

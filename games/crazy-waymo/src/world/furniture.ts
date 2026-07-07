@@ -673,46 +673,59 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       // bases with occasional decorated fountain plazas. The kit's own
       // benches/lamps/planting ride along; our per-tree scatter is gone.
       {
-        // The ground flattens this cell to parkCellHeight (ground.ts) — the
-        // tile seats on it EXACTLY: grid-aligned, no clipping on hills.
+        // Slope threshold decides the treatment: FLAT cells take a kit tile
+        // seated flush (no visible layering — neighbours are near-coplanar);
+        // SLOPED cells get kit-tree clusters conforming to the hillside, so
+        // parks flow over hills with no terraces at all.
         const seatY = parkCellHeight(terrain, gx, gz);
+        const spread = seatY - 0.05 - parkCellFloor(terrain, gx, gz);
         const roll = rng.range(0, 1);
-        // Plazas are landmarks, not confetti: rare, and only where the
-        // neighbourhood is level so paths read intentional.
-        const flatArea =
-          Math.abs(parkCellHeight(terrain, gx + 1, gz) - seatY) < 0.01 &&
-          Math.abs(parkCellHeight(terrain, gx, gz + 1) - seatY) < 0.01 &&
-          Math.abs(parkCellHeight(terrain, gx - 1, gz) - seatY) < 0.01 &&
-          Math.abs(parkCellHeight(terrain, gx, gz - 1) - seatY) < 0.01;
-        const name =
-          flatArea && roll < 0.015
-            ? rng.pick(PARK_TILE_PLAZAS)
-            : roll < 0.4
-              ? "park-base-decorated-trees"
-              : roll < 0.6
-                ? "park-base-decorated-bushes"
-                : "park-base";
-        const url = modelUrl("parks", name);
-        const b = cache.bounds(url);
-        const s = ROAD_TILE / Math.max(b.size.x, b.size.z, 0.001);
-        const node = cache.instance(url);
-        node.scale.setScalar(s);
-        node.rotation.y = HALF_PI * rng.int(4);
-        node.position.set(wx, seatY + 0.02, wz);
-        node.updateMatrixWorld(true);
-        objects.push(node);
-        // Layered-hill plinth: a stone base fills from the tile down past the
-        // lowest corner — KayKit-style stacked plateaus instead of clipping.
-        const floorY = parkCellFloor(terrain, gx, gz);
-        const depth = Math.max(0.35, seatY - floorY + 0.9);
-        const plinth = new THREE.Mesh(UNIT_BOX, SEAWALL_MAT);
-        plinth.scale.set(ROAD_TILE * 1.02, depth, ROAD_TILE * 1.02);
-        plinth.position.set(wx, seatY + 0.02 - depth / 2, wz);
-        plinth.updateMatrixWorld(true);
-        objects.push(plinth);
-        if (name === "park-base-decorated-trees") {
-          // approximate the tile's trees for arcade collision
-          solids.push({ minX: wx - 0.6, maxX: wx + 0.6, minZ: wz - 0.6, maxZ: wz + 0.6, noBody: true });
+        if (spread <= 0.8) {
+          const name =
+            spread < 0.3 && roll < 0.015
+              ? rng.pick(PARK_TILE_PLAZAS)
+              : roll < 0.4
+                ? "park-base-decorated-trees"
+                : roll < 0.6
+                  ? "park-base-decorated-bushes"
+                  : "park-base";
+          const url = modelUrl("parks", name);
+          const b = cache.bounds(url);
+          const sc = ROAD_TILE / Math.max(b.size.x, b.size.z, 0.001);
+          const node = cache.instance(url);
+          node.scale.setScalar(sc);
+          node.rotation.y = HALF_PI * rng.int(4);
+          node.position.set(wx, seatY, wz);
+          node.updateMatrixWorld(true);
+          objects.push(node);
+          // slim skirt so the flush tile never shows a sliver of daylight
+          const plinth = new THREE.Mesh(UNIT_BOX, SEAWALL_MAT);
+          plinth.scale.set(ROAD_TILE * 1.02, spread + 0.5, ROAD_TILE * 1.02);
+          plinth.position.set(wx, seatY - (spread + 0.5) / 2, wz);
+          plinth.updateMatrixWorld(true);
+          objects.push(plinth);
+          if (name === "park-base-decorated-trees") {
+            solids.push({ minX: wx - 0.6, maxX: wx + 0.6, minZ: wz - 0.6, maxZ: wz + 0.6, noBody: true });
+          }
+        } else {
+          // hillside: blobby kit-tree cluster straight on the terrain
+          const clusters = 1 + rng.int(2);
+          for (let c = 0; c < clusters; c++) {
+            const cx2 = wx + rng.range(-4, 4);
+            const cz2 = wz + rng.range(-4, 4);
+            const count = 2 + rng.int(4);
+            for (let i = 0; i < count; i++) {
+              const tUrl = modelUrl("props", rng.pick(PARK_TREES));
+              const ptx = cx2 + rng.range(-2.4, 2.4);
+              const ptz = cz2 + rng.range(-2.4, 2.4);
+              seat(tUrl, ptx, ptz, rng.range(0, Math.PI * 2), scaleToHeight(tUrl, rng.range(3.6, 5.6)));
+            }
+            solids.push({ minX: cx2 - 0.6, maxX: cx2 + 0.6, minZ: cz2 - 0.6, maxZ: cz2 + 0.6, noBody: true });
+          }
+          if (rng.chance(0.5)) {
+            const bUrl = modelUrl("props", rng.pick(BUSHES));
+            seat(bUrl, wx + rng.range(-4, 4), wz + rng.range(-4, 4), rng.range(0, Math.PI * 2), scaleToHeight(bUrl, rng.range(0.9, 1.4)));
+          }
         }
       }
     }

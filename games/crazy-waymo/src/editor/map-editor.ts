@@ -180,7 +180,15 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     const z = (gz + 0.5) * ROAD_TILE - WORLD_H / 2;
     const y = city.heightAt(x, z);
     let m: THREE.Object3D;
-    if (scope === "st" && hex === 0x2fbf4f) {
+    if (scope === "st" && hex === 0xd23f34) {
+      // erased street: patch the cell with ground tones — reads as REMOVED
+      const grp = new THREE.Group();
+      const patch = new THREE.Mesh(roadPadGeo, quadMat(0x9a9b92, 1));
+      patch.position.y = 0.62;
+      grp.add(patch);
+      grp.position.set(x, y, z);
+      m = grp;
+    } else if (scope === "st" && hex === 0x2fbf4f) {
       // painted street: realtime road look (sidewalk pad + asphalt + dash)
       const grp = new THREE.Group();
       const pad = new THREE.Mesh(roadPadGeo, quadMat(0xb6b9b0, 0.95));
