@@ -35,7 +35,7 @@ const LAND_MIN = 130;
 
 const ATTACK_BUFFER = 0.12;
 const ATTACK_END_CD = 0.08;
-const ATTACK_MOVE_MULT = 0.55;
+const ATTACK_MOVE_MULT = 0.78;
 const COMBO_GRACE = 0.32; // press within this long after a swing to chain the next hit
 const SPECIAL_BUFFER = 0.12;
 
@@ -323,7 +323,9 @@ export class PlayerBody {
       const dir = locked ? 0 : (this.hRight ? 1 : 0) - (this.hLeft ? 1 : 0);
       const speedMult = swinging ? ATTACK_MOVE_MULT : 1;
       if (dir !== 0) {
-        if (!swinging) this.facing = dir > 0 ? 1 : -1;
+        // Turn freely even mid-swing — the hit lands in the first ~0.1s, so the
+        // long readable recovery shouldn't lock your facing (that read as sluggish).
+        this.facing = dir > 0 ? 1 : -1;
         this.vx = approach(
           this.vx,
           dir * MAX_RUN * speedMult,
