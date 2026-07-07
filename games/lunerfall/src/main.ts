@@ -21,12 +21,4 @@ const config: Phaser.Types.Core.GameConfig = {
   scene: [BootScene, SelectScene, GameScene, EditorScene],
 };
 
-const game = new Phaser.Game(config);
-
-// F toggles real fullscreen (must run inside a user gesture — a keydown counts).
-// Scale.FIT then scales the base resolution to the whole screen.
-addEventListener("keydown", (e) => {
-  if ((e.key === "f" || e.key === "F") && !e.repeat && !(document.activeElement instanceof HTMLInputElement)) {
-    game.scale.toggleFullscreen();
-  }
-});
+new Phaser.Game(config);

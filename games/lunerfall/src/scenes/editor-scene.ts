@@ -164,7 +164,7 @@ export class EditorScene extends Phaser.Scene {
         <div class="lf-h">CLIPS</div>
         <div class="lf-scroll" id="lf-cliplist"></div>
       </div>
-      <div class="lf-help">← → character&nbsp;&nbsp;·&nbsp;&nbsp;↑ ↓ clip&nbsp;&nbsp;·&nbsp;&nbsp;F fullscreen&nbsp;&nbsp;·&nbsp;&nbsp;teal box = attack reach</div>`;
+      <div class="lf-help">← → character&nbsp;&nbsp;·&nbsp;&nbsp;↑ ↓ clip&nbsp;&nbsp;·&nbsp;&nbsp;teal box = attack reach</div>`;
     document.body.appendChild(ui);
     this.ui = ui;
     ui.querySelectorAll<HTMLButtonElement>(".lf-char").forEach((btn) => {

@@ -1,8 +1,18 @@
-// Base render + world constants. Single-screen rooms (TowerFall-style): the
-// whole arena fits the base resolution, no in-room camera scroll.
-
-export const BASE_W = 480;
+// Base render + world constants. The camera scrolls over rooms larger than the
+// screen, so the render WIDTH is free to match the browser window: we fix the
+// height at 270 and derive the width from the window's aspect ratio, so
+// Scale.FIT scales the game edge-to-edge with no letterbox bars (a wide window
+// just sees more of the room horizontally). Clamped so the viewport never gets
+// wider than the narrowest room (which would show void past the walls) nor
+// absurdly wide on ultrawides. Node/headless (no `window`) falls back to 16:9 →
+// 480, keeping the sim harness deterministic.
 export const BASE_H = 270;
+const clampN = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
+const winAspect =
+  typeof window !== "undefined" && window.innerHeight > 0
+    ? window.innerWidth / window.innerHeight
+    : 16 / 9;
+export const BASE_W = Math.round((BASE_H * clampN(winAspect, 1.4, 2.5)) / 2) * 2;
 export const TILE = 16; // world grid unit (px)
 
 // Native frame sizes of the Luneblade sheets (square frames).
