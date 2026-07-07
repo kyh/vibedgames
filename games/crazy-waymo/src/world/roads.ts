@@ -20,14 +20,11 @@ import type { Terrain } from "./terrain";
 // over the terrain exactly like before.
 
 export const ASPHALT_W = ROAD_TILE * 0.8; // legacy uniform width (tertiary)
-// Streets v3 spike (?streets=v3): kit-matched profile — chunky light curbs,
-// brighter sidewalks, cleaner asphalt (KayKit City Builder look).
-import { streetsV3 } from "./custom-map";
-const V3 = streetsV3();
-
-export const SIDEWALK_W = V3 ? 2.0 : 1.7;
+// Kit-matched profile — chunky light curbs, brighter sidewalks, cleaner
+// asphalt (KayKit City Builder look). Streets v3, 2026-07-07.
+export const SIDEWALK_W = 2.0;
 export const LANE_CENTER = ASPHALT_W * 0.19; // default lane offset for traffic
-const CURB_W = V3 ? 0.7 : 0.38;
+const CURB_W = 0.7;
 const ASPHALT_LIFT = ROAD_Y + 0.05;
 const SIDEWALK_LIFT = ROAD_Y + 0.13;
 const CURB_LIFT = SIDEWALK_LIFT + 0.03; // curb lip reads above the walk
@@ -42,11 +39,11 @@ const MITER_LIMIT = 2.5; // clamp spike joints on hairpin polylines
 // and the main thread looks the material back up.
 export const ROAD_MATERIALS: Record<string, THREE.Material> = {};
 
-const MAT_ASPHALT = new THREE.MeshStandardMaterial({ color: V3 ? 0x3d4049 : 0x40454c, roughness: 1 });
+const MAT_ASPHALT = new THREE.MeshStandardMaterial({ color: 0x3d4049, roughness: 1 });
 ROAD_MATERIALS.asphalt = MAT_ASPHALT;
-const MAT_SIDEWALK = new THREE.MeshStandardMaterial({ color: V3 ? 0xc9cdc9 : 0xb6b9b0, roughness: 1 });
+const MAT_SIDEWALK = new THREE.MeshStandardMaterial({ color: 0xc9cdc9, roughness: 1 });
 ROAD_MATERIALS.walk = MAT_SIDEWALK;
-const MAT_CURB = new THREE.MeshStandardMaterial({ color: V3 ? 0xd4d8da : 0x8f938c, roughness: 1 });
+const MAT_CURB = new THREE.MeshStandardMaterial({ color: 0xd4d8da, roughness: 1 });
 ROAD_MATERIALS.curb = MAT_CURB;
 // Markings are decals: polygon-offset wins the depth test against the
 // asphalt even where the two drapes sample the terrain differently — no

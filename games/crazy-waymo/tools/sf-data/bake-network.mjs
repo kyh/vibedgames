@@ -539,6 +539,102 @@ clusterJunctionsPass();
   nodes.push(...outNodes);
 }
 
+// --- Streets v3: octilinear snap (grid-native network) ---
+// Nodes snap to a half-tile lattice and merge when co-located; every edge
+// re-routes as at most two runs (one 45° diagonal + one axis-aligned), the
+// bend chosen to hug the original polyline's midpoint. The emitted network
+// is octilinear — the runtime needs no snapping code at all.
+{
+  const LATTICE = ROAD_TILE / 2;
+  const snapC = (v) => Math.round(v / LATTICE) * LATTICE;
+  // snap + merge co-located nodes
+  const byPos = new Map();
+  const redirect = new Array(nodes.length);
+  for (let i = 0; i < nodes.length; i++) {
+    const sx = snapC(nodes[i][0]);
+    const sz = snapC(nodes[i][1]);
+    const key = `${sx},${sz}`;
+    const hit = byPos.get(key);
+    if (hit === undefined) {
+      byPos.set(key, i);
+      nodes[i] = [sx, sz];
+      redirect[i] = i;
+    } else {
+      redirect[i] = hit;
+    }
+  }
+  let merged = 0;
+  for (const e of edges) {
+    if (redirect[e.a] !== e.a || redirect[e.b] !== e.b) merged++;
+    e.a = redirect[e.a];
+    e.b = redirect[e.b];
+  }
+  // octilinear re-route
+  const route = (ax, az, bx, bz, midX, midZ) => {
+    const dx = bx - ax;
+    const dz = bz - az;
+    const adx = Math.abs(dx);
+    const adz = Math.abs(dz);
+    if (adx < 1e-6 || adz < 1e-6 || Math.abs(adx - adz) < 1e-6) return [[ax, az], [bx, bz]];
+    const d = Math.min(adx, adz);
+    const sx = Math.sign(dx);
+    const sz = Math.sign(dz);
+    const k1 = [ax + sx * d, az + sz * d];
+    const k2 = [bx - sx * d, bz - sz * d];
+    const d1 = Math.hypot(k1[0] - midX, k1[1] - midZ);
+    const d2 = Math.hypot(k2[0] - midX, k2[1] - midZ);
+    const k = d1 <= d2 ? k1 : k2;
+    return [[ax, az], k, [bx, bz]];
+  };
+  edges = edges.filter((e) => {
+    if (e.a === e.b) return false;
+    const a = nodes[e.a];
+    const b = nodes[e.b];
+    if (a[0] === b[0] && a[1] === b[1]) return false;
+    const mid = e.pts[Math.floor(e.pts.length / 2)] ?? [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    e.pts = route(a[0], a[1], b[0], b[1], mid[0], mid[1]);
+    return true;
+  });
+  console.log(`octilinear: merged ${merged} edge endpoints onto lattice nodes, ${edges.length} edges routed`);
+  // snapping can orphan sub-graphs — keep the main component once more
+  const adj = new Map();
+  for (const e of edges) {
+    if (!adj.has(e.a)) adj.set(e.a, []);
+    if (!adj.has(e.b)) adj.set(e.b, []);
+    adj.get(e.a).push(e.b);
+    adj.get(e.b).push(e.a);
+  }
+  const comp = new Map();
+  let nComp = 0;
+  for (const n of adj.keys()) {
+    if (comp.has(n)) continue;
+    const stack = [n];
+    comp.set(n, nComp);
+    while (stack.length) {
+      const c = stack.pop();
+      for (const m of adj.get(c) ?? []) {
+        if (!comp.has(m)) { comp.set(m, nComp); stack.push(m); }
+      }
+    }
+    nComp++;
+  }
+  const sizes = new Array(nComp).fill(0);
+  for (const c of comp.values()) sizes[c]++;
+  const main = sizes.indexOf(Math.max(...sizes));
+  edges = edges.filter((e) => comp.get(e.a) === main);
+  // recompact the node table
+  const remap = new Map();
+  const outNodes = [];
+  const idFor = (n) => {
+    let id = remap.get(n);
+    if (id === undefined) { id = outNodes.length; remap.set(n, id); outNodes.push(nodes[n]); }
+    return id;
+  };
+  for (const e of edges) { e.a = idFor(e.a); e.b = idFor(e.b); }
+  nodes.length = 0;
+  nodes.push(...outNodes);
+}
+
 // --- Stats + validation ---
 let totalLen = 0;
 for (const e of edges) {
