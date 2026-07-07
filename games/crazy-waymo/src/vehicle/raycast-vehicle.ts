@@ -26,6 +26,13 @@ export type VehicleParams = {
   maxSteer: number;
   steerSpeed: number;
   steerSpeedFalloff: number;
+  turnRate: number;
+  turnSpeedFalloff: number;
+  driftTurnBoost: number;
+  steerRamp: number;
+  yawAssist: number;
+  gripNormal: number;
+  gripDrift: number;
   // brakes
   brakeForce: number;
   handbrakeForce: number;
@@ -65,10 +72,20 @@ export const DEFAULT_VEHICLE_PARAMS: VehicleParams = {
   reverseFactor: 0.6,
   maxSteer: 0.55,
   steerSpeed: 6,
-  steerSpeedFalloff: 0.42, // fraction of maxSteer left at top speed (keyboard)
+  steerSpeedFalloff: 0.6, // fraction of maxSteer left at top speed (keyboard)
+  // Arcade yaw assist — the pre-physics sim's turn model layered on the
+  // chassis: heading changes at turnRate scaled by speed authority, drift
+  // multiplies it. This is what makes turns feel tuned, not simulated.
+  turnRate: 3.0,
+  turnSpeedFalloff: 0.7,
+  driftTurnBoost: 2.0,
+  steerRamp: 0.08,
+  yawAssist: 9, // how hard angvel is driven toward the arcade yaw rate
+  gripNormal: 8, // lateral bleed rate normally — goes where it points
+  gripDrift: 2.6, // lateral bleed while drifting — slides, but carves
   brakeForce: 5200,
-  handbrakeForce: 400,
-  handbrakeGrip: 0.42,
+  handbrakeForce: 220,
+  handbrakeGrip: 0.62,
   jumpImpulse: 3200,
   jumpCooldown: 0.5,
   jumpBufferTime: 0.18,
@@ -113,6 +130,7 @@ export class RaycastVehicle {
   private gripRecoveryT = 1;
   private handbrake = false;
   private stuckT = 0;
+  private arcadeSteer = 0;
   private boosting = false;
   private throttle = 0;
 
@@ -307,6 +325,39 @@ export class RaycastVehicle {
     if (this.handbrake) {
       this.controller.setWheelBrake(2, p.handbrakeForce);
       this.controller.setWheelBrake(3, p.handbrakeForce);
+    }
+
+    // --- Arcade turn authority (the old sim's exact model): drive yaw rate
+    // directly while grounded; physics keeps suspension/collisions honest. ---
+    const grounded0 = this.groundedWheels();
+    this.arcadeSteer += (this.steerInput - this.arcadeSteer) * Math.min(1, dt / p.steerRamp);
+    if (grounded0 >= 2) {
+      const absF = Math.abs(fwdSpeed);
+      const frac = THREE.MathUtils.clamp(absF / p.cruiseSpeed, 0, 1);
+      let authority = THREE.MathUtils.lerp(1, p.turnSpeedFalloff, frac);
+      if (this.handbrake) authority *= p.driftTurnBoost;
+      const startFade = THREE.MathUtils.clamp(absF / 3, 0, 1);
+      const dir = fwdSpeed >= 0 ? 1 : -1;
+      const desiredYaw = -this.arcadeSteer * p.turnRate * authority * startFade * dir;
+      const av = this.chassis.angvel();
+      const newY = av.y + (desiredYaw - av.y) * Math.min(1, dt * p.yawAssist);
+      this.chassis.setAngvel({ x: av.x, y: newY, z: av.z }, true);
+      // Velocity shaping (the old sim's core cheat): forward momentum follows
+      // the nose; lateral velocity decays at the grip rate — high normally
+      // (goes where it points), low while drifting (slides, but carves).
+      {
+        const lv2 = this.chassis.linvel();
+        const right = this.v2.set(1, 0, 0).applyQuaternion(this.q);
+        right.y = 0;
+        right.normalize();
+        const lat = lv2.x * right.x + lv2.z * right.z;
+        const grip = this.handbrake ? p.gripDrift : p.gripNormal;
+        const bleed = lat * (1 - Math.exp(-grip * dt));
+        this.chassis.setLinvel(
+          { x: lv2.x - right.x * bleed, y: lv2.y, z: lv2.z - right.z * bleed },
+          true,
+        );
+      }
     }
 
     // --- Assists ---
