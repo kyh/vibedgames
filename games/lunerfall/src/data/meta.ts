@@ -109,6 +109,28 @@ export function isUnlocked(m: MetaState, name: HeroName): boolean {
   return UNLOCK_COST[name] === 0 || m.unlocked.includes(name);
 }
 
+// Best run score — its own key so it stays independent of the shard economy.
+const SCORE_KEY = "lunerfall.bestscore.v1";
+export function loadBestScore(): number {
+  try {
+    const v = Number(localStorage.getItem(SCORE_KEY));
+    return Number.isFinite(v) ? v : 0;
+  } catch {
+    return 0;
+  }
+}
+// Record a finished run's score; returns the (possibly new) best.
+export function recordBestScore(score: number): number {
+  const best = loadBestScore();
+  if (score <= best) return best;
+  try {
+    localStorage.setItem(SCORE_KEY, String(score));
+  } catch {
+    /* storage unavailable — best score is best-effort */
+  }
+  return score;
+}
+
 // Try to spend shards to unlock a warrior. Returns true if now unlocked.
 export function unlockHero(m: MetaState, name: HeroName): boolean {
   if (isUnlocked(m, name)) return true;

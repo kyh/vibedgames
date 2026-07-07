@@ -7,7 +7,7 @@ import { rollAffix } from "../data/affixes";
 import { type BiomePalette, biomePalette, enemyPool } from "../data/biomes";
 import { ENEMIES } from "../data/enemies";
 import { type HeroDef, HEROES } from "../data/heroes";
-import { bankRun, loadMeta, runBonuses } from "../data/meta";
+import { bankRun, loadMeta, recordBestScore, runBonuses } from "../data/meta";
 import { baseMods, pickRelics, RARITY_COLOR, type Relic, type RunMods } from "../data/relics";
 import { parseRoomType, type RoomDef, ROOM_LABEL, type RoomType } from "../data/rooms";
 import { Boss } from "../entities/boss";
@@ -38,6 +38,7 @@ import { Input, type InputState } from "../sys/input";
 const STEP = 1 / 60;
 const MAX_STEPS = 5;
 const MAX_HEARTS = 4;
+const COMBO_WINDOW = 3; // seconds a kill-streak survives without a new kill
 const DEATH_LINGER = 0.55;
 const ARROW_GRAV = 150;
 
@@ -219,6 +220,10 @@ export class GameScene extends Phaser.Scene {
   private maxHearts = MAX_HEARTS;
   private hearts = MAX_HEARTS;
   private gold = 0;
+  private score = 0;
+  private combo = 0; // consecutive-kill streak within COMBO_WINDOW
+  private comboT = 0; // seconds left before the streak lapses
+  private comboText!: Phaser.GameObjects.Text;
   private freeze = 0;
   private deadTimers = new WeakMap<Enemy, number>();
   private state: SceneState = "active";
@@ -262,6 +267,9 @@ export class GameScene extends Phaser.Scene {
     this.maxHearts = this.mods.maxHearts;
     this.hearts = this.maxHearts;
     this.gold = 0;
+    this.score = 0;
+    this.combo = 0;
+    this.comboT = 0;
     this.state = "active";
     this.doors = [];
     this.enemies = [];
@@ -321,6 +329,13 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setScrollFactor(0)
       .setDepth(80)
+      .setAlpha(0);
+    // Kill-streak multiplier, top-centre; grows and warms as the streak climbs.
+    this.comboText = this.add
+      .text(BASE_W / 2, 30, "", { fontFamily: "monospace", fontSize: "14px", color: "#ffd15c" })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(81)
       .setAlpha(0);
 
     this.controls = new Input(this);
@@ -1198,6 +1213,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private simStep(dt: number) {
+    if (this.combo > 0) {
+      this.comboT -= dt;
+      if (this.comboT <= 0) this.breakCombo();
+    }
     for (const pl of this.livePlayers()) pl.step(dt);
     for (const e of this.enemies) {
       const t = this.nearestPlayer(e.body.x, e.body.y);
@@ -1231,6 +1250,7 @@ export class GameScene extends Phaser.Scene {
         this.cameras.main.shake(420, 0.02);
         this.freeze = Math.max(this.freeze, 0.12);
         this.gainGold(25);
+        this.score += 120 * this.run.biome;
         popText(this, boss.body.x, boss.body.y - 44, "+25", "#ffd15c");
         this.showBanner(`${boss.body.kind.name} SLAIN`, 1800);
       }
@@ -1491,10 +1511,33 @@ export class GameScene extends Phaser.Scene {
 
   private onKill(e: Enemy) {
     this.gainGold(2);
+    this.registerKill(e.body.x, e.body.y - e.body.kind.h, 5 + this.run.biome * 2);
     impactRing(this, e.body.x, e.body.y - e.body.kind.h / 2, COLORS.teal, 22);
     sfx.kill();
     if (this.mods.lifesteal > 0 && Math.random() < this.mods.lifesteal) this.heal(1);
     popText(this, e.body.x, e.body.y - e.body.kind.h, "+2", "#ffd15c");
+  }
+
+  // Score a kill and extend the combo. Score per kill scales with the streak, so
+  // chaining kills within COMBO_WINDOW is worth far more than picking them off.
+  private registerKill(x: number, y: number, base: number) {
+    this.combo += 1;
+    this.comboT = COMBO_WINDOW;
+    this.score += base * this.combo;
+    if (this.combo >= 2) {
+      popText(this, x, y - 8, `x${this.combo}`, "#ffd15c");
+      const col = this.combo >= 8 ? "#ff5a5a" : this.combo >= 5 ? "#ff9a3c" : "#ffd15c";
+      this.comboText.setText(`COMBO x${this.combo}`).setColor(col).setAlpha(1);
+      this.tweens.killTweensOf(this.comboText);
+      this.comboText.setScale(1.35);
+      this.tweens.add({ targets: this.comboText, scale: 1, duration: 200, ease: "Back.easeOut" });
+    }
+    this.updateHud();
+  }
+
+  private breakCombo() {
+    this.combo = 0;
+    this.tweens.add({ targets: this.comboText, alpha: 0, duration: 320 });
   }
 
   // Damage lands on a specific player's body; hearts are a shared co-op pool.
@@ -1521,7 +1564,9 @@ export class GameScene extends Phaser.Scene {
     if (this.role === "host" && this.session)
       this.session.patchShared({ snap: this.encodeSnapshot() });
     const earned = bankRun(loadMeta(), this.gold, this.run.depth, this.run.biome);
-    this.showBanner(`YOU FELL   +${earned} ✦`, 2200);
+    const best = recordBestScore(this.score);
+    const pb = this.score > 0 && this.score >= best ? "  ★ NEW BEST" : "";
+    this.showBanner(`YOU FELL   SCORE ${this.score}${pb}   +${earned} ✦`, 2600);
   }
 
   // ── features (rest fountain / treasure cache) ───────────────────────────────
@@ -1705,7 +1750,7 @@ export class GameScene extends Phaser.Scene {
     const biome = this.role === "guest" ? this.netBiome : this.run.biome;
     const depth = this.role === "guest" ? this.netDepth : this.run.depth;
     this.infoText.setText(
-      `${biomePalette(biome).name} ${biome}   DEPTH ${depth}   ⬡ ${this.gold}${relics}`,
+      `${biomePalette(biome).name} ${biome}   DEPTH ${depth}   ⬡ ${this.gold}${relics}   ★ ${this.score}`,
     );
   }
 }

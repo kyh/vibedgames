@@ -7,6 +7,7 @@ import { HERO_ORDER, HEROES } from "../data/heroes";
 import {
   buyUpgrade,
   isUnlocked,
+  loadBestScore,
   loadMeta,
   type MetaState,
   UNLOCK_COST,
@@ -246,7 +247,7 @@ export class SelectScene extends Phaser.Scene {
       this.cameras.main.shake(120, 0.005);
     }
     this.refreshShop();
-    this.bank.setText(`✦ ${this.meta.shards}   BEST D${this.meta.bestDepth}`);
+    this.bank.setText(`✦ ${this.meta.shards}   BEST D${this.meta.bestDepth}   ★ ${loadBestScore()}`);
   }
 
   private refreshShop() {
@@ -299,7 +300,7 @@ export class SelectScene extends Phaser.Scene {
     this.coopText.setText(
       this.coop ? `CO-OP ${this.code}  ·  share this page's URL, then both press SPACE` : "",
     );
-    this.bank.setText(`✦ ${this.meta.shards}   BEST D${this.meta.bestDepth}`);
+    this.bank.setText(`✦ ${this.meta.shards}   BEST D${this.meta.bestDepth}   ★ ${loadBestScore()}`);
   }
 
   // Host a co-op room: mint a code, put it in the URL so it's shareable, and flip
