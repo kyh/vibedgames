@@ -10,8 +10,11 @@ import { isUnlocked, loadMeta, type MetaState, UNLOCK_COST, unlockHero } from ".
 // Best depth + shard bank persist across runs via localStorage.
 export class SelectScene extends Phaser.Scene {
   private index = 0;
+  private rowY = 0;
   private sprites: Phaser.GameObjects.Sprite[] = [];
-  private rings: Phaser.GameObjects.Ellipse[] = [];
+  private selGlow!: Phaser.GameObjects.Ellipse;
+  private selRing!: Phaser.GameObjects.Ellipse;
+  private selArrow!: Phaser.GameObjects.Text;
   private locks: Phaser.GameObjects.Text[] = [];
   private title!: Phaser.GameObjects.Text;
   private blurb!: Phaser.GameObjects.Text;
@@ -61,12 +64,41 @@ export class SelectScene extends Phaser.Scene {
       .setOrigin(1, 0);
 
     const rowY = BASE_H * 0.56;
+    this.rowY = rowY;
     const n = HERO_ORDER.length;
+
+    // Selection highlight — a soft pedestal glow, a crisp pulsing ring, and a
+    // bobbing pointer above, all recoloured to the current pick in refresh() so
+    // the highlighted warrior reads clearly even when it's a dimmed locked one.
+    this.selGlow = this.add.ellipse(0, rowY + 3, 50, 18, 0xffffff, 0.22).setDepth(-1);
+    this.selRing = this.add
+      .ellipse(0, rowY + 3, 46, 16, 0xffffff, 0)
+      .setStrokeStyle(1.5, 0xffffff, 0.95)
+      .setDepth(5);
+    this.selArrow = this.add
+      .text(0, rowY - 42, "▼", { fontFamily: "monospace", fontSize: "11px", color: "#ffffff" })
+      .setOrigin(0.5)
+      .setDepth(5);
+    this.tweens.add({
+      targets: this.selRing,
+      scaleX: 1.1,
+      scaleY: 1.1,
+      duration: 720,
+      yoyo: true,
+      repeat: -1,
+      ease: "Sine.easeInOut",
+    });
+    this.tweens.add({
+      targets: this.selArrow,
+      y: rowY - 46,
+      duration: 620,
+      yoyo: true,
+      repeat: -1,
+      ease: "Sine.easeInOut",
+    });
+
     HERO_ORDER.forEach((name, i) => {
       const x = ((i + 1) / (n + 1)) * BASE_W;
-      const ring = this.add
-        .ellipse(x, rowY + 2, 34, 12, HEROES[name].color, 0.18)
-        .setVisible(false);
       const spr = this.add
         .sprite(x, rowY, name, firstFrame(this, name))
         .setOrigin(0.5, HERO_ORIGIN_Y)
@@ -75,7 +107,6 @@ export class SelectScene extends Phaser.Scene {
       const lock = this.add
         .text(x, rowY - 26, "", { fontFamily: "monospace", fontSize: "8px", color: "#ffd15c" })
         .setOrigin(0.5);
-      this.rings.push(ring);
       this.sprites.push(spr);
       this.locks.push(lock);
     });
@@ -142,7 +173,13 @@ export class SelectScene extends Phaser.Scene {
       s.setAlpha(i === this.index ? (locked ? 0.7 : 1) : locked ? 0.28 : 0.6);
       s.setTint(locked ? 0x2a3340 : 0xffffff);
     });
-    this.rings.forEach((r, i) => r.setVisible(i === this.index));
+    const sel = this.sprites[this.index];
+    if (sel) {
+      const hex = `#${def.color.toString(16).padStart(6, "0")}`;
+      this.selGlow.setPosition(sel.x, this.rowY + 3).setFillStyle(def.color, 0.22);
+      this.selRing.setPosition(sel.x, this.rowY + 3).setStrokeStyle(1.5, def.color, 0.95);
+      this.selArrow.setX(sel.x).setColor(hex); // keep the bobbing y from its tween
+    }
     this.locks.forEach((l, i) => {
       const hn = HERO_ORDER[i];
       l.setText(hn && !isUnlocked(this.meta, hn) ? `🔒 ${UNLOCK_COST[hn]}` : "");
