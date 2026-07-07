@@ -46,6 +46,8 @@ import { CityModel } from "../world/city";
 import { editorMode, loadLocalOverrides } from "../world/custom-map";
 import { HECKLES, SpeechBubbles } from "../fx/speech-bubbles";
 import type { Garage } from "../world/city";
+import { RaycastVehicle } from "../vehicle/raycast-vehicle";
+import { mountTunePanel } from "../vehicle/tune-panel";
 import { ROBOTAXI_SKINS, skinById } from "../vehicle/car";
 import { getRuntimeMap, parseMapFile, setRuntimeMap } from "../world/map-file";
 import type { CityGenPayload } from "../world/gen-worker";
@@ -558,6 +560,14 @@ export class GameScene {
     physics.prewarm();
     lap("physics prewarm");
     this.physics = physics;
+    // The player car goes physics-native: Rapier raycast suspension drives it
+    // from here on (kinematic sim stays as the pre-physics fallback).
+    if (this.car) {
+      const vehicle = new RaycastVehicle(physics, 0, 0, 0, 0);
+      this.car.attachPhysics(vehicle);
+      this.rig.snapTo(this.car);
+      if (new URLSearchParams(window.location.search).has("tune")) mountTunePanel(vehicle);
+    }
     await paint();
 
     // PLAYABLE: city, arcade solids and stepping physics are ready.
@@ -1260,11 +1270,13 @@ export class GameScene {
 
     const input = this.input.carInput();
 
+    if (this.input.consumeJump()) car.requestJump();
     car.update(dt, input, solids);
     this.handleTrafficImpacts(car, traffic);
     this.handleParkedImpacts(car);
     traffic.update(dt, city, car.position.x, car.position.z, car.heading);
-    this.physics?.step(dt);
+    this.physics?.step(dt, (fdt) => car.physicsFixedStep(fdt));
+    car.syncFromPhysics(dt);
     traffic.syncWrecked();
     this.parked?.sync();
     this.parked?.updateCulling(this.rig.camera.position.x, this.rig.camera.position.z);

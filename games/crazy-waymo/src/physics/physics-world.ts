@@ -33,6 +33,11 @@ export class PhysicsWorld {
     this.world.timestep = FIXED_DT;
   }
 
+  // The raw Rapier world — the raycast vehicle builds its controller on it.
+  raw(): RAPIER.World {
+    return this.world;
+  }
+
   // Terrain as a trimesh sampled from the same height field the game drives on.
   addGround(terrain: Terrain): void {
     const spanX = WORLD_W * 1.06;
@@ -197,10 +202,13 @@ export class PhysicsWorld {
     this.world.step();
   }
 
-  step(dt: number): void {
+  step(dt: number, onFixedStep?: (fixedDt: number) => void): void {
     this.acc += dt;
     let steps = 0;
     while (this.acc >= FIXED_DT && steps < MAX_STEPS) {
+      // Vehicle suspension/forces run INSIDE the fixed loop so the raycast
+      // controller always integrates at FIXED_DT (reference behaviour).
+      onFixedStep?.(FIXED_DT);
       this.world.step();
       this.acc -= FIXED_DT;
       steps++;

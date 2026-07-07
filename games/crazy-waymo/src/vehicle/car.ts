@@ -2,6 +2,7 @@ import * as THREE from "three";
 
 import type { ModelCache } from "../assets/loader";
 import { modelUrl, PLAYER_CAR } from "../assets/manifest";
+import type { RaycastVehicle } from "./raycast-vehicle";
 import { radialGlowTexture } from "../fx/lamp-glow";
 import { CAR, ROAD_Y } from "../shared/constants";
 import type { Solid } from "../world/city";
@@ -231,6 +232,13 @@ export class Car {
 
   private nightRig: NightRig;
   private nightFactor = -1; // last applied value; skip redundant writes
+  // Physics mode: when attached, a Rapier raycast-vehicle drives the car and
+  // the kinematic sim below is bypassed entirely.
+  private vehicle: RaycastVehicle | null = null;
+  private prevVelP = new THREE.Vector3();
+  private wasAirborne = false;
+  private v3a = new THREE.Vector3();
+  private q3a = new THREE.Quaternion();
 
   constructor(
     private readonly cache: ModelCache,
@@ -326,6 +334,11 @@ export class Car {
     this.pitch = 0;
     this.steerSmoothed = 0;
     if (this.surface) this.position.y = this.surface.heightAt(x, z) + ROAD_Y;
+    if (this.vehicle) {
+      this.vehicle.teleport(x, this.position.y + 1.4, z, yaw);
+      this.prevVelP.set(0, 0, 0);
+      return;
+    }
     this.syncTransform(1, true);
   }
 
@@ -333,7 +346,180 @@ export class Car {
     this.boostMeter = Math.min(CAR.boostMax, this.boostMeter + amount);
   }
 
+  attachPhysics(vehicle: RaycastVehicle): void {
+    this.vehicle = vehicle;
+    // The game's pacing stays authoritative: physics caps mirror CAR speeds.
+    vehicle.params.cruiseSpeed = CAR.maxSpeed;
+    vehicle.params.maxSpeed = CAR.boostSpeed;
+    const y = this.surface
+      ? this.surface.heightAt(this.position.x, this.position.z) + 1.4
+      : this.position.y + 1.4;
+    vehicle.teleport(this.position.x, y, this.position.z, this.heading);
+  }
+
+  get physicsVehicle(): RaycastVehicle | null {
+    return this.vehicle;
+  }
+
+  requestJump(): void {
+    this.vehicle?.requestJump();
+  }
+
+  physicsFixedStep(fixedDt: number): void {
+    this.vehicle?.fixedStep(fixedDt);
+  }
+
+  // Physics mode, phase 1 (before the world steps): translate game input into
+  // vehicle controls + keep the arcade meters (boost, drift charge) alive.
+  private updatePhysicsControls(dt: number, input: CarInput, solids: SolidIndex): void {
+    const veh = this.vehicle;
+    if (!veh) return;
+    this.miniBoostFired = false;
+    this.boostDenied = false;
+
+    if (this.boostMeter <= 0.5) this.boostArmed = false;
+    else if (this.boostMeter >= 15) this.boostArmed = true;
+    const boostHeld = input.boost && input.throttle > 0;
+    const wantBoost = boostHeld && this.boostArmed;
+    this.boostDenied = boostHeld && !this.boostArmed && !this.boostHeldPrev;
+    this.boostHeldPrev = boostHeld;
+    this.isBoosting = wantBoost;
+    if (wantBoost) this.boostMeter = Math.max(0, this.boostMeter - CAR.boostDrain * dt);
+    else this.boostMeter = Math.min(CAR.boostMax, this.boostMeter + CAR.boostRefill * dt);
+
+    this.steerSmoothed += (input.steer - this.steerSmoothed) * Math.min(1, dt / CAR.steerRamp);
+    veh.steerInput = input.steer;
+    veh.setControls(input, wantBoost);
+
+    // Drift bookkeeping (scoring/boost-fill) — physics does the sliding, we
+    // just recognise it: handbrake + real sideways motion.
+    const physicsDrift = input.drift && this.speed > CAR.driftMinSpeed && !this.airborne;
+    this.isDrifting = physicsDrift && Math.abs(this.slip) > CAR.driftMinSlip;
+    if (this.isDrifting) {
+      this.driftSustain += dt;
+      this.addBoost(CAR.boostPerDriftSec * dt);
+    } else if (!physicsDrift) {
+      if (this.driftSustain > CAR.driftSlingArm) {
+        // Slingshot out of the drift: a real impulse along the nose.
+        const fwd = veh.forwardDir(this.v3a);
+        veh.chassis.applyImpulse(
+          {
+            x: fwd.x * CAR.miniBoostImpulse * veh.params.mass,
+            y: 0,
+            z: fwd.z * CAR.miniBoostImpulse * veh.params.mass,
+          },
+          true,
+        );
+        this.miniBoostFired = true;
+      }
+      this.driftSustain = 0;
+    }
+
+    // Arcade-only obstacles (tree trunks etc) have no Rapier body — bounce
+    // the chassis off them by impulse so they still stop the car.
+    const r = 1.6;
+    solids.forEachIn(
+      this.position.x - r,
+      this.position.x + r,
+      this.position.z - r,
+      this.position.z + r,
+      this.noBodyBounce,
+    );
+  }
+
+  private readonly noBodyBounce = (s: Solid): void => {
+    const veh = this.vehicle;
+    if (!veh || !s.noBody) return;
+    if (s.maxY !== undefined && this.position.y > s.maxY) return;
+    const cx = THREE.MathUtils.clamp(this.position.x, s.minX, s.maxX);
+    const cz = THREE.MathUtils.clamp(this.position.z, s.minZ, s.maxZ);
+    const dx = this.position.x - cx;
+    const dz = this.position.z - cz;
+    const d2 = dx * dx + dz * dz;
+    if (d2 >= 1.2 * 1.2 || d2 < 1e-6) return;
+    const d = Math.sqrt(d2);
+    const nx = dx / d;
+    const nz = dz / d;
+    const lv = veh.chassis.linvel();
+    const vn = lv.x * nx + lv.z * nz;
+    if (vn < 0) {
+      const m = veh.params.mass;
+      veh.chassis.applyImpulse({ x: -nx * vn * 1.4 * m, y: 0, z: -nz * vn * 1.4 * m }, true);
+      this.wallContact = true;
+      this.lastWallNormal.set(nx, nz);
+      if (-vn > this.lastWallHit) this.lastWallHit = -vn;
+    }
+  };
+
+  // Physics mode, phase 2 (after the world steps): pull the chassis pose back
+  // into the game-facing state every other system reads.
+  syncFromPhysics(dt: number): void {
+    const veh = this.vehicle;
+    if (!veh) return;
+    this.lastWallHit = 0;
+    this.wallContact = false;
+    this.justLanded = 0;
+
+    const t = veh.chassis.translation();
+    veh.quaternion(this.q3a);
+    const fwd = this.v3a.set(0, 0, 1).applyQuaternion(this.q3a);
+    this.heading = Math.atan2(fwd.x, fwd.z);
+    // Visual origin (wheel bottoms) hangs below the chassis centre.
+    this.position.set(t.x, t.y - 0.62, t.z);
+    this.object3D.position.copy(this.position);
+    this.object3D.quaternion.copy(this.q3a);
+
+    const lv = veh.chassis.linvel();
+    const prevSpeed = Math.hypot(this.prevVelP.x, this.prevVelP.z);
+    const curSpeed = Math.hypot(lv.x, lv.z);
+    // A hard horizontal velocity loss in one frame = we hit something.
+    const deltaV = prevSpeed - curSpeed;
+    if (deltaV > 7 && prevSpeed > 8) {
+      this.lastWallHit = deltaV;
+      this.wallContact = true;
+      const inv = prevSpeed > 1e-3 ? 1 / prevSpeed : 0;
+      this.lastWallNormal.set(-this.prevVelP.x * inv, -this.prevVelP.z * inv);
+    }
+    this.prevVelP.set(lv.x, lv.y, lv.z);
+
+    this.velocity.set(lv.x, lv.z);
+    const va = this.velAngle;
+    this.slip = va === null ? 0 : ((va - this.heading + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+
+    const airborneNow = veh.groundedWheels() === 0 && veh.airTimeSeconds > 0.12;
+    if (airborneNow) this.airTime = veh.airTimeSeconds;
+    if (this.wasAirborne && !airborneNow) {
+      this.justLanded = Math.max(0, -lv.y * 0.5 + 4);
+      this.squash = Math.min(1, 0.45 + this.justLanded * 0.035);
+    }
+    this.airborne = airborneNow;
+    this.wasAirborne = airborneNow;
+    this.yVel = lv.y;
+
+    // Wheels: spin with speed, fronts steer with the physics steering angle.
+    const fwdSpeed = this.forwardSpeed;
+    this.wheelSpin += (fwdSpeed / WHEEL_RADIUS) * dt;
+    const steerAngle = veh.wheelVisual(0).steering;
+    for (const w of this.wheels) {
+      w.node.rotation.x = this.wheelSpin;
+      if (w.front) w.node.rotation.y = steerAngle;
+    }
+    this.squash = Math.max(0, this.squash - dt * 5.5);
+    const sq = this.squash;
+    this.body.scale.set(1 + 0.12 * sq, 1 - 0.26 * sq, 1 + 0.12 * sq);
+
+    // Fell through the world / off the map — bounce back to the last spot.
+    if (t.y < -20 && this.surface) {
+      const gy = this.surface.heightAt(t.x, t.z) + 1.4;
+      veh.teleport(t.x, gy, t.z, this.heading);
+    }
+  }
+
   update(dt: number, input: CarInput, solids: SolidIndex): void {
+    if (this.vehicle) {
+      this.updatePhysicsControls(dt, input, solids);
+      return;
+    }
     this.lastWallHit = 0;
     this.wallContact = false;
     this.miniBoostFired = false;
@@ -506,6 +692,7 @@ export class Car {
   // normal (n points taxi→object) and separate. Returns the closing speed.
   contactPunt(nx: number, nz: number, separation: number): number {
     const vn = this.velocity.x * nx + this.velocity.y * nz;
+    if (this.vehicle) return Math.max(0, vn); // Rapier resolves the contact
     if (separation > 0) {
       this.position.x -= nx * separation;
       this.position.z -= nz * separation;

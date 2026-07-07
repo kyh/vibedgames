@@ -1,5 +1,7 @@
 import type { CarInput } from "../vehicle/car";
 
+const THREE_clamp = (v: number): number => Math.max(-1, Math.min(1, v));
+
 // Keyboard + touch-button input, merged into a single CarInput each frame.
 export class InputState {
   private keys = new Set<string>();
@@ -8,8 +10,10 @@ export class InputState {
   restartPressed = false;
   pausePressed = false;
   mutePressed = false;
+  jumpPressed = false; // space tapped (edge) — buffered jump
   blurred = false; // window lost focus (auto-pause)
   typing = false; // chat input focused — game keys suspended
+  private padJumpPrev = false;
 
   constructor() {
     window.addEventListener("keydown", this.onKeyDown);
@@ -28,6 +32,7 @@ export class InputState {
     if (k === "r") this.restartPressed = true;
     if (k === "p" || k === "escape") this.pausePressed = true;
     if (k === "m") this.mutePressed = true;
+    if (k === "e" && !e.repeat) this.jumpPressed = true;
     this.keys.add(k);
   };
   private onKeyUp = (e: KeyboardEvent): void => {
@@ -47,12 +52,31 @@ export class InputState {
     const brake = this.has("arrowdown", "s") || this.touch.brake;
     const left = this.has("arrowleft", "a") || this.touch.left;
     const right = this.has("arrowright", "d") || this.touch.right;
-    return {
-      throttle: (gas ? 1 : 0) - (brake ? 1 : 0),
-      steer: (right ? 1 : 0) - (left ? 1 : 0),
-      drift: this.has(" ") || this.touch.drift,
-      boost: this.has("shift") || (gas && this.touch.drift),
-    };
+    let throttle = (gas ? 1 : 0) - (brake ? 1 : 0);
+    let steer = (right ? 1 : 0) - (left ? 1 : 0);
+    let drift = this.has(" ") || this.touch.drift;
+    let boost = this.has("shift") || (gas && this.touch.drift);
+    // Gamepad (reference parity): left stick steers, RT gas, LT brake,
+    // A jump/handbrake, B or RB boost.
+    const pads = typeof navigator.getGamepads === "function" ? navigator.getGamepads() : [];
+    for (const pad of pads) {
+      if (!pad || !pad.connected) continue;
+      const ax = pad.axes[0] ?? 0;
+      if (Math.abs(ax) > 0.12) steer = THREE_clamp(ax);
+      const rt = pad.buttons[7]?.value ?? 0;
+      const lt = pad.buttons[6]?.value ?? 0;
+      const dpadUp = pad.buttons[12]?.pressed ?? false;
+      const dpadDown = pad.buttons[13]?.pressed ?? false;
+      if (rt > 0.05 || dpadUp) throttle = Math.max(throttle, rt || 1);
+      if (lt > 0.05 || dpadDown) throttle = Math.min(throttle, -(lt || 1));
+      const a = pad.buttons[0]?.pressed ?? false;
+      if (a && !this.padJumpPrev) this.jumpPressed = true;
+      this.padJumpPrev = a;
+      if (pad.buttons[2]?.pressed ?? false) drift = true; // X = handbrake
+      if ((pad.buttons[1]?.pressed ?? false) || (pad.buttons[5]?.pressed ?? false)) boost = true;
+      break; // first connected pad wins
+    }
+    return { throttle, steer, drift, boost };
   }
 
   // Consume one-shot edges so they fire once per press.
@@ -69,6 +93,11 @@ export class InputState {
   consumePause(): boolean {
     const v = this.pausePressed;
     this.pausePressed = false;
+    return v;
+  }
+  consumeJump(): boolean {
+    const v = this.jumpPressed;
+    this.jumpPressed = false;
     return v;
   }
   consumeMute(): boolean {
