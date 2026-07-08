@@ -55,15 +55,47 @@ export type Objective = {
 
 const PASSENGER_HEIGHT = 1.5;
 
+// Floating $-tag above each pickup beam — the tier legend, in-world. One
+// shared canvas texture + sprite material per tier (never disposed).
+const TAG_TEXT: Record<FareTier, string> = { short: "$", medium: "$$", long: "$$$" };
+const tagMaterials = new Map<FareTier, THREE.SpriteMaterial>();
+function tagMaterial(tier: FareTier): THREE.SpriteMaterial {
+  const cached = tagMaterials.get(tier);
+  if (cached) return cached;
+  const canvas = document.createElement("canvas");
+  canvas.width = 192;
+  canvas.height = 96;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    ctx.font = "900 60px ui-monospace, 'SF Mono', Menlo, monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.lineWidth = 10;
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = "rgba(10, 8, 20, 0.9)";
+    ctx.strokeText(TAG_TEXT[tier], 96, 52);
+    ctx.fillStyle = `#${TIER_COLOR[tier].toString(16).padStart(6, "0")}`;
+    ctx.fillText(TAG_TEXT[tier], 96, 52);
+  }
+  const mat = new THREE.SpriteMaterial({
+    map: new THREE.CanvasTexture(canvas),
+    transparent: true,
+    depthWrite: false,
+  });
+  tagMaterials.set(tier, mat);
+  return mat;
+}
+
 class Beacon {
   readonly group = new THREE.Group();
   private pillar: THREE.Mesh;
   private ring: THREE.Mesh;
   private mat: THREE.MeshBasicMaterial;
   private ringMat: THREE.MeshBasicMaterial;
+  private tag: THREE.Sprite | null = null;
   private t = 0;
 
-  constructor(color: number) {
+  constructor(color: number, tagTier?: FareTier) {
     this.mat = new THREE.MeshBasicMaterial({
       color,
       transparent: true,
@@ -86,6 +118,13 @@ class Beacon {
     this.ring.rotation.x = -Math.PI / 2;
     this.ring.position.y = 0.06;
     this.group.add(this.ring);
+
+    if (tagTier) {
+      this.tag = new THREE.Sprite(tagMaterial(tagTier));
+      this.tag.scale.set(4.2, 2.1, 1);
+      this.tag.position.y = 6.5;
+      this.group.add(this.tag);
+    }
   }
 
   setColor(color: number): void {
@@ -112,6 +151,7 @@ class Beacon {
     this.ring.rotation.z += dt * 1.5;
     const rs = 1 + pulse * 0.12;
     this.ring.scale.set(rs, rs, rs);
+    if (this.tag) this.tag.position.y = 6.5 + Math.sin(this.t * 2) * 0.35;
   }
 }
 
@@ -331,7 +371,7 @@ export class FareManager {
     passenger.position.copy(pos);
     passenger.rotation.y = this.rng.range(0, Math.PI * 2);
     this.group.add(passenger);
-    const beacon = new Beacon(TIER_COLOR[tier]);
+    const beacon = new Beacon(TIER_COLOR[tier], tier);
     beacon.setPos(pos.x, pos.y, pos.z);
     this.group.add(beacon.group);
     this.waiting.push({ cell, pos, passenger, tier, beacon });
@@ -340,7 +380,11 @@ export class FareManager {
   update(dt: number, car: Car): FareEvent {
     this.clock += dt;
     this.carryBeacon.update(dt);
+    // Waiting beacons only matter when you can actually board — hide them
+    // while carrying so the sky isn't full of non-interactible beams.
+    const seeking = this.carrying === null;
     for (const w of this.waiting) {
+      w.beacon.setVisible(seeking);
       w.beacon.update(dt);
       w.passenger.position.y = w.pos.y + Math.sin(this.clock * 4 + w.pos.x) * 0.08; // idle bob
     }
@@ -370,10 +414,33 @@ export class FareManager {
       }
     }
 
+    // Customers the taxi left far behind relocate: retire the farthest (one
+    // per tick — no visible mass despawn) and let the top-up respawn it in
+    // the ring around wherever the taxi is NOW, so pickups never sit static
+    // on the other side of the map.
+    const carCell: RoadCell = {
+      gx: this.city.gridX(car.position.x),
+      gz: this.city.gridZ(car.position.z),
+    };
+    if (!this.carrying) {
+      let farthest = -1;
+      let fd: number = FARE.seekRetire;
+      for (let i = 0; i < this.waiting.length; i++) {
+        const w = this.waiting[i];
+        if (!w) continue;
+        const d = this.cellDistance(w.cell, carCell);
+        if (d > fd) {
+          fd = d;
+          farthest = i;
+        }
+      }
+      if (farthest >= 0) this.retireWaiting(farthest);
+    }
+
     // Top up the street to the target customer count.
     if (this.waiting.length < FARE.waitingFares && this.clock >= this.spawnAt) {
       this.spawnAt = this.clock + 0.4;
-      this.spawnWaiting({ gx: this.city.gridX(car.position.x), gz: this.city.gridZ(car.position.z) });
+      this.spawnWaiting(carCell);
     }
 
     const c = this.carrying;
@@ -438,6 +505,16 @@ export class FareManager {
       return { kind: "pickup", pos: w.pos.clone(), tier: w.tier, dest, tiles };
     }
     return { kind: "none" };
+  }
+
+  // Quietly remove a waiting customer (relocation — not a pickup or bail).
+  private retireWaiting(i: number): void {
+    const w = this.waiting[i];
+    if (!w) return;
+    this.waiting.splice(i, 1);
+    this.group.remove(w.passenger);
+    this.group.remove(w.beacon.group);
+    w.beacon.dispose();
   }
 
   private spawnLeaver(at: THREE.Vector3): void {

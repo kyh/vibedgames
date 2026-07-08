@@ -123,13 +123,15 @@ export const FARE = {
   waitingFares: 3, // simultaneous customers on the street
   // Trip tiers (trip length in grid tiles): pay + beacon color identity.
   // The map is 244×200 cells — long fares genuinely cross town (patience par
-  // scales with tiles, so distant drop-offs stay fair).
-  tierShortMax: 12, // green $
-  tierMediumMax: 26, // amber $$
-  tierLongMax: 48, // red $$$ (superlinear payout)
+  // scales with tiles, so distant drop-offs stay fair). A 90-tile haul is
+  // roughly a minute of committed driving.
+  tierShortMax: 16, // green $
+  tierMediumMax: 40, // amber $$
+  tierLongMax: 90, // red $$$ (superlinear payout)
   firstSeekMax: 5, // the very first customer spawns close (fast first loop)
   seekMin: 6, // waiting customers scatter in this ring around the taxi
   seekMax: 28,
+  seekRetire: 36, // waiting customers this far behind relocate near the taxi
   patienceParMult: 2.2, // patience budget = par seconds × this
   smashBonus: 5, // $ per smashed cone
 } as const;

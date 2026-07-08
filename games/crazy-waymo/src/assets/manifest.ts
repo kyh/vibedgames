@@ -181,16 +181,11 @@ export const PROP_WATERTOWER = "kk-watertower";
 export const PROP_BOX_A = "kk-box-a";
 export const PROP_BOX_B = "kk-box-b";
 // Commercial frontage details.
-export const PROP_AWNING = "awning";
-export const PROP_AWNING_WIDE = "awning-wide";
-export const PROP_OVERHANG = "overhang";
-export const PROP_OVERHANG_WIDE = "overhang-wide";
 export const PROP_PARASOL_A = "parasol-a";
 export const PROP_PARASOL_B = "parasol-b";
 // Suburban yards.
 export const PROP_FENCE = "fence";
 export const PROP_FENCE_LOW = "fence-low";
-export const PROP_DRIVEWAY = "driveway-short";
 export const PROP_PATH = "path-short";
 export const PROP_PATH_STONES = "path-stones-short";
 // Industrial skyline.
@@ -246,15 +241,10 @@ export const PROPS = [
   PROP_WATERTOWER,
   PROP_BOX_A,
   PROP_BOX_B,
-  PROP_AWNING,
-  PROP_AWNING_WIDE,
-  PROP_OVERHANG,
-  PROP_OVERHANG_WIDE,
   PROP_PARASOL_A,
   PROP_PARASOL_B,
   PROP_FENCE,
   PROP_FENCE_LOW,
-  PROP_DRIVEWAY,
   PROP_PATH,
   PROP_PATH_STONES,
   PROP_CHIMNEY_SMALL,

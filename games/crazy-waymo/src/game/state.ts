@@ -25,6 +25,9 @@ export class GameState {
   bestDrift = 0;
   bestAir = 0;
   private driftAccum = 0;
+  // Stunt cash (drift/air/smash/near-miss) only pays WITH a passenger aboard —
+  // empty cruising earns nothing but still bleeds on traffic hits.
+  private carrying = false;
 
   reset(): void {
     this.score = 0;
@@ -35,11 +38,13 @@ export class GameState {
     this.bestDrift = 0;
     this.bestAir = 0;
     this.driftAccum = 0;
+    this.carrying = false;
   }
 
   // The combo window only burns while CARRYING a fare — the chain judges how
   // fast you deliver, not how lucky the next spawn happens to be.
   update(dt: number, carrying: boolean): void {
+    this.carrying = carrying;
     // No global run clock — sessions are endless; pressure comes from each
     // passenger's own patience/delivery timer. timeLeft stays for time-bonus
     // math but never counts down to a game over.
@@ -88,7 +93,7 @@ export class GameState {
 
   addDrift(dt: number): void {
     this.driftAccum += dt;
-    this.score += FARE.driftScorePerSec * dt;
+    if (this.carrying) this.score += FARE.driftScorePerSec * dt;
     if (this.driftAccum > this.bestDrift) this.bestDrift = this.driftAccum;
   }
   endDrift(): void {
@@ -100,12 +105,14 @@ export class GameState {
   // multiply stunts would make a parked 8× chain farmable risk-free).
   landAir(airTime: number): number {
     if (airTime > this.bestAir) this.bestAir = airTime;
+    if (!this.carrying) return 0;
     const pts = Math.round(40 * airTime);
     this.score += pts;
     return pts;
   }
 
   smash(): number {
+    if (!this.carrying) return 0;
     this.score += FARE.smashBonus;
     return FARE.smashBonus;
   }
@@ -119,6 +126,7 @@ export class GameState {
 
   // Near-miss pays with the risk: up to 3× at boost speed (no combo — see landAir).
   nearMiss(speedFrac: number): number {
+    if (!this.carrying) return 0;
     const pts = Math.round(FARE.nearMissBonus * (1 + 2 * Math.min(1, speedFrac)));
     this.score += pts;
     return pts;

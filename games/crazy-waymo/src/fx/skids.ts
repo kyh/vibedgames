@@ -11,7 +11,9 @@ const MAX_QUADS = 600;
 const LIFE = 10; // seconds until a mark fully fades
 const HALF_W = 0.14; // 0.28u wide
 const HALF_L = 0.25; // ~0.5u long
-const LIFT = 0.035; // above terrain, under polygonOffset the road can't z-fight
+// The asphalt drape sits at terrain + 0.07 (ASPHALT_LIFT) — marks must clear
+// the road SURFACE, not the terrain, or the road overlays them at distance.
+const LIFT = 0.1;
 
 export class SkidMarks {
   readonly mesh: THREE.Mesh;
@@ -55,8 +57,8 @@ export class SkidMarks {
       transparent: true,
       depthWrite: false,
       polygonOffset: true,
-      polygonOffsetFactor: -2,
-      polygonOffsetUnits: -2,
+      polygonOffsetFactor: -3,
+      polygonOffsetUnits: -4,
       side: THREE.DoubleSide,
     });
     this.mesh = new THREE.Mesh(geo, mat);
@@ -65,24 +67,34 @@ export class SkidMarks {
 
   // Stamp one dark quad aligned to `yaw` (forward = (sin yaw, cos yaw)) at
   // terrain height + LIFT. Ring buffer: the oldest mark is overwritten.
-  stamp(x: number, z: number, yaw: number, alpha = 0.55): void {
+  stamp(x: number, z: number, yaw: number, alpha = 0.7): void {
+    const fx = Math.sin(yaw) * HALF_L;
+    const fz = Math.cos(yaw) * HALF_L;
+    this.stampSegment(x - fx, z - fz, x + fx, z + fz, alpha);
+  }
+
+  // Stamp a quad spanning (x0,z0) → (x1,z1) — consecutive segments share
+  // their endpoints, so a braking line reads continuous, never dashed.
+  stampSegment(x0: number, z0: number, x1: number, z1: number, alpha = 0.7): void {
+    const dx = x1 - x0;
+    const dz = z1 - z0;
+    if (dx * dx + dz * dz < 0.002) return;
+    const yaw = Math.atan2(dx, dz);
     const q = this.cursor;
     this.cursor = (this.cursor + 1) % MAX_QUADS;
     if ((this.age[q] ?? -1) < 0) this.activeCount++;
     this.age[q] = 0;
     this.baseAlpha[q] = alpha;
 
-    const fx = Math.sin(yaw) * HALF_L;
-    const fz = Math.cos(yaw) * HALF_L;
     const rx = Math.cos(yaw) * HALF_W;
     const rz = -Math.sin(yaw) * HALF_W;
 
     const p = q * 4 * 3;
     // Vertex order: back-left, back-right, front-left, front-right.
-    this.writeVert(p, x - fx - rx, z - fz - rz);
-    this.writeVert(p + 3, x - fx + rx, z - fz + rz);
-    this.writeVert(p + 6, x + fx - rx, z + fz - rz);
-    this.writeVert(p + 9, x + fx + rx, z + fz + rz);
+    this.writeVert(p, x0 - rx, z0 - rz);
+    this.writeVert(p + 3, x0 + rx, z0 + rz);
+    this.writeVert(p + 6, x1 - rx, z1 - rz);
+    this.writeVert(p + 9, x1 + rx, z1 + rz);
     this.posAttr.needsUpdate = true;
 
     this.writeQuadColor(q, alpha);

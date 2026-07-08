@@ -21,14 +21,13 @@ export class Hud {
   private area = el("area");
   private scoreVal = el("score").querySelector<HTMLElement>(".value");
   private scorePill = el("score");
-  private faresVal = el("fares").querySelector<HTMLElement>(".value");
-  private speedVal = el("speed").querySelector<HTMLElement>(".value");
-  private boostPill = el("boost");
+  private boostPill = el("speed"); // boost meter lives inside the MPH card
   private boostFill = el("boost-fill");
+  private dial = el("dash-dial");
+  private dialCtx: CanvasRenderingContext2D | null = null;
   private fareCard = el("fare-card");
   private fareWho = el("fare-card").querySelector<HTMLElement>(".who");
   private fareDist = el("fare-card").querySelector<HTMLElement>(".dist");
-  private fareReward = el("fare-card").querySelector<HTMLElement>(".reward");
   private patienceFill = el("patience-fill");
   private combo = el("combo");
   private announceMinorEl = el("announce-minor");
@@ -38,7 +37,6 @@ export class Hud {
   private comboFill = el("combo-fill");
   private countdown = el("countdown");
   private vignette = el("vignette");
-  private pausedEl = el("paused");
   private arrow = el("dest-arrow");
   private arrowPoly = el("dest-arrow").querySelector<SVGPolygonElement>("polygon");
   private banner = el("banner");
@@ -126,11 +124,72 @@ export class Hud {
       { duration: 2600, easing: "ease-out" },
     );
   }
-  setFares(n: number): void {
-    if (this.faresVal) this.faresVal.textContent = String(n);
-  }
   setSpeed(mph: number): void {
-    if (this.speedVal) this.speedVal.textContent = String(Math.round(mph));
+    this.drawDial(mph);
+  }
+
+  // Mini speedo, modern-cluster style: semicircle arc with a short rim
+  // needle; the digits sit in the middle where a hub needle would be.
+  private drawDial(mph: number): void {
+    const canvas = this.dial;
+    if (!(canvas instanceof HTMLCanvasElement)) return;
+    if (!this.dialCtx) {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = 88 * dpr;
+      canvas.height = 52 * dpr;
+      this.dialCtx = canvas.getContext("2d");
+      this.dialCtx?.scale(dpr, dpr);
+    }
+    const ctx = this.dialCtx;
+    if (!ctx) return;
+    const DIAL_MAX = 100;
+    const cx = 44;
+    const cy = 46;
+    const r = 38;
+    // Semicircle gauge: left horizon → right horizon over the top.
+    const a0 = Math.PI;
+    const sweep = Math.PI;
+    const frac = Math.max(0, Math.min(1, mph / DIAL_MAX));
+    ctx.clearRect(0, 0, 88, 52);
+    ctx.lineCap = "round";
+    // Track, then the speed arc over it (color shifts toward the redline).
+    ctx.strokeStyle = "rgba(255,255,255,0.18)";
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, a0, a0 + sweep);
+    ctx.stroke();
+    if (frac > 0.005) {
+      ctx.strokeStyle = frac > 0.8 ? "#ff8a3c" : frac > 0.55 ? "#ffd147" : "#8fd9ff";
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, a0, a0 + sweep * frac);
+      ctx.stroke();
+    }
+    // Ticks every 20 mph.
+    ctx.strokeStyle = "rgba(255,255,255,0.45)";
+    ctx.lineWidth = 1.5;
+    for (let m = 0; m <= DIAL_MAX; m += 20) {
+      const a = a0 + sweep * (m / DIAL_MAX);
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a) * (r - 7), cy + Math.sin(a) * (r - 7));
+      ctx.lineTo(cx + Math.cos(a) * (r - 3), cy + Math.sin(a) * (r - 3));
+      ctx.stroke();
+    }
+    // Short rim needle — keeps the centre clear for the digits.
+    const na = a0 + sweep * frac;
+    ctx.strokeStyle = "#ff5a52";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(na) * (r - 13), cy + Math.sin(na) * (r - 13));
+    ctx.lineTo(cx + Math.cos(na) * (r - 3), cy + Math.sin(na) * (r - 3));
+    ctx.stroke();
+    // Digits + unit, centred like a modern cluster.
+    ctx.fillStyle = "#8fd9ff";
+    ctx.textAlign = "center";
+    ctx.font = "800 19px ui-monospace, 'SF Mono', Menlo, monospace";
+    ctx.fillText(String(Math.round(mph)), cx, cy - 4);
+    ctx.fillStyle = "rgba(255,255,255,0.55)";
+    ctx.font = "700 8px ui-monospace, 'SF Mono', Menlo, monospace";
+    ctx.fillText("MPH", cx, cy + 5);
   }
   setBoost(frac: number): void {
     this.boostFill.style.width = `${Math.round(Math.max(0, Math.min(1, frac)) * 100)}%`;
@@ -151,26 +210,17 @@ export class Hud {
     this.comboMeter.classList.toggle("urgent", frac < 0.3);
   }
 
-  setFareCard(title: string, distance: number, reward: string, accent?: string): void {
+  // Carry-only fare card: destination, distance, passenger patience.
+  setFareCard(title: string, distance: number, patienceFrac: number): void {
     this.fareCard.classList.add("show");
-    if (this.fareWho) {
-      this.fareWho.textContent = title;
-      this.fareWho.style.color = accent ?? "#aee3ff";
-    }
+    if (this.fareWho) this.fareWho.textContent = title;
     if (this.fareDist) this.fareDist.textContent = `${Math.round(distance)} m`;
-    if (this.fareReward) this.fareReward.textContent = reward;
-    this.fareCard.style.borderColor = accent ? `${accent}99` : "rgba(120, 200, 255, 0.55)";
-  }
-  setPatience(frac: number | null): void {
-    this.fareCard.classList.toggle("carrying", frac !== null);
-    if (frac === null) return;
-    const f = Math.max(0, Math.min(1, frac));
+    const f = Math.max(0, Math.min(1, patienceFrac));
     this.patienceFill.style.width = `${Math.round(f * 100)}%`;
     this.patienceFill.style.background = f > 0.5 ? "#6bff8e" : f > 0.25 ? "#ffb64d" : "#ff5a52";
   }
   hideFareCard(): void {
     this.fareCard.classList.remove("show");
-    this.fareCard.classList.remove("carrying");
   }
 
   // Major slot: fare payoffs, combos, big moments. Gold and loud.
@@ -239,10 +289,6 @@ export class Hud {
   setVignette(intensity: number): void {
     const v = this.reduceMotion ? 0 : Math.max(0, Math.min(1, intensity));
     this.vignette.style.opacity = v.toFixed(2);
-  }
-
-  setPaused(paused: boolean): void {
-    this.pausedEl.classList.toggle("show", paused);
   }
 
   // Off-screen objective arrow. When visible it sits at (x,y) rotated to point.

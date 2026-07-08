@@ -37,7 +37,14 @@ export type TaxiDebugApi = {
   // Launch the nearest resting cone through the physics path (verification).
   smashCone(): boolean;
   // Raycast from the camera through NDC (nx, ny in -1..1); returns what's hit.
-  pick(nx: number, ny: number): { name: string; chain: string; point: number[] } | null;
+  pick(nx: number, ny: number): {
+    name: string;
+    chain: string;
+    point: number[];
+    color: string | null;
+    verts: number;
+    bbox: number[] | null;
+  } | null;
 };
 
 declare global {
@@ -87,10 +94,20 @@ export function installDevHooks(game: GameScene): void {
         chain.push(`${o.name || o.type}@${o.scale.x.toFixed(2)}`);
         o = o.parent;
       }
+      const mesh = hit.object instanceof THREE.Mesh ? hit.object : null;
+      const mat = mesh && mesh.material instanceof THREE.MeshStandardMaterial ? mesh.material : null;
+      const geo = mesh ? mesh.geometry : null;
+      if (geo && !geo.boundingBox) geo.computeBoundingBox();
+      const bb = geo?.boundingBox ?? null;
       return {
         name: hit.object.name || hit.object.type,
         chain: chain.join(" < "),
         point: [hit.point.x, hit.point.y, hit.point.z].map((v) => Math.round(v * 10) / 10),
+        color: mat ? `#${mat.color.getHexString()}` : null,
+        verts: geo ? geo.getAttribute("position").count : 0,
+        bbox: bb
+          ? [bb.min.x, bb.min.y, bb.min.z, bb.max.x, bb.max.y, bb.max.z].map((v) => Math.round(v * 10) / 10)
+          : null,
       };
     },
   };

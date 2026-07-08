@@ -188,20 +188,6 @@
       #score .value {
         color: #fff;
       }
-      #fares {
-        top: 78px;
-        left: calc(14px + env(safe-area-inset-left));
-        padding: 5px 12px;
-      }
-      #fares .value {
-        font-size: 16px;
-      }
-
-      #boost {
-        top: 132px;
-        left: calc(14px + env(safe-area-inset-left));
-        padding: 6px 12px;
-      }
       #boost-track {
         width: 84px;
         height: 8px;
@@ -216,10 +202,10 @@
         background: linear-gradient(90deg, #ffd147, #ff8a3c);
         transition: width 0.1s linear;
       }
-      #boost.denied {
+      #speed.denied {
         animation: denyshake 0.16s linear 2;
       }
-      #boost.denied #boost-fill {
+      #speed.denied #boost-fill {
         background: #ff5a52;
       }
       @keyframes denyshake {
@@ -231,24 +217,30 @@
         }
       }
 
-      /* Speed — bottom-left */
+      /* Mini dash — speedo dial (digits in the middle) + boost, bottom-left */
       #speed {
         left: calc(14px + env(safe-area-inset-left));
         bottom: calc(14px + env(safe-area-inset-bottom));
-        padding: 5px 12px;
+        padding: 7px 10px 7px;
+        text-align: center;
       }
-      #speed .value {
-        font-size: 16px;
-        color: #8fd9ff;
+      #dash-dial {
+        display: block;
+        width: 88px;
+        height: 52px;
+        margin: 0 auto;
+      }
+      #speed #boost-track {
+        margin: 4px auto 0;
       }
 
-      /* Fare card — top-right (passenger + destination) */
+      /* Fare card — top-right, only while carrying a passenger */
       #fare-card {
-        top: calc(14px + env(safe-area-inset-top));
+        top: calc(40px + env(safe-area-inset-top));
         right: calc(14px + env(safe-area-inset-right));
-        min-width: 180px;
+        min-width: 150px;
         text-align: right;
-        border-color: rgba(120, 200, 255, 0.55);
+        border-color: rgba(73, 224, 255, 0.55);
         transition:
           opacity 0.2s,
           transform 0.2s;
@@ -261,17 +253,12 @@
       }
       #fare-card .who {
         font-size: 13px;
-        color: #aee3ff;
+        color: #49e0ff;
       }
       #fare-card .dist {
         font-size: 22px;
         font-variant-numeric: tabular-nums;
         color: #fff;
-      }
-      #fare-card .reward {
-        font-size: 12px;
-        color: #6bff8e;
-        letter-spacing: 1px;
       }
       #patience-track {
         height: 5px;
@@ -279,10 +266,6 @@
         background: rgba(255, 255, 255, 0.16);
         overflow: hidden;
         margin-top: 6px;
-        display: none;
-      }
-      #fare-card.carrying #patience-track {
-        display: block;
       }
       #patience-fill {
         height: 100%;
@@ -370,11 +353,11 @@
         pointer-events: none;
       }
 
-      /* Minimap — north-up SF, bottom-right above the mute pill */
+      /* Minimap — north-up SF, flush with the bottom-right corner */
       #minimap {
         position: fixed;
         right: calc(14px + env(safe-area-inset-right));
-        bottom: calc(58px + env(safe-area-inset-bottom));
+        bottom: calc(14px + env(safe-area-inset-bottom));
         width: 148px;
         height: 148px;
         border-radius: 12px;
@@ -395,29 +378,6 @@
           left: calc(12px + env(safe-area-inset-left));
           top: 170px;
         }
-      }
-
-      /* Pause */
-      #paused {
-        position: fixed;
-        inset: 0;
-        display: none;
-        align-items: center;
-        justify-content: center;
-        background: rgba(10, 8, 14, 0.55);
-        backdrop-filter: blur(3px);
-        -webkit-backdrop-filter: blur(3px);
-        z-index: 8;
-        font:
-          900 italic clamp(34px, 8vw, 70px) / 1 system-ui,
-          sans-serif;
-        color: #ffd147;
-        letter-spacing: 2px;
-        text-shadow: 0 5px 0 rgba(0, 0, 0, 0.5);
-        pointer-events: none;
-      }
-      #paused.show {
-        display: flex;
       }
 
       /* Destination off-screen arrow */
@@ -649,40 +609,9 @@
         border-color: rgba(255, 209, 71, 0.55);
       }
 
-      #legend {
-        position: fixed;
-        bottom: calc(14px + env(safe-area-inset-bottom));
-        left: 50%;
-        transform: translateX(-50%);
-        font-size: 12px;
-        letter-spacing: 0.6px;
-        color: rgba(255, 255, 255, 0.55);
-        text-align: center;
-        pointer-events: none;
-        white-space: nowrap;
-      }
-      #legend b {
-        color: #ffd147;
-        font-weight: 700;
-      }
       @media (max-width: 720px) {
-        #legend {
-          display: none;
-        }
-        #speed {
-          display: none;
-        }
-        /* Keep the fare card clear of the centred timer on narrow screens. */
         #timer .value {
           font-size: 34px;
-        }
-        #fare-card {
-          top: calc(66px + env(safe-area-inset-top));
-          min-width: 128px;
-          padding: 6px 10px;
-        }
-        #fare-card .dist {
-          font-size: 16px;
         }
         #combo-meter {
           top: 64px;
@@ -703,11 +632,12 @@
           animation: none;
         }
       }
+      /* Online-drivers count — top-right corner. */
       #netinfo {
         position: fixed;
-        top: 12px;
-        left: 50%;
-        transform: translateX(-50%);
+        top: calc(18px + env(safe-area-inset-top));
+        right: calc(14px + env(safe-area-inset-right));
+        text-align: right;
         z-index: 5;
         pointer-events: none;
         font: 12px/1.2 ui-monospace, "SF Mono", Menlo, monospace;
@@ -751,16 +681,13 @@
       <div class="pill" id="area"></div>
       <div id="district"></div>
       <div class="pill" id="score"><span class="label">EARNED</span><span class="value">0</span></div>
-      <div class="pill" id="fares"><span class="label">FARES</span><span class="value">0</span></div>
-      <div class="pill" id="boost">
-        <span class="label">BOOST</span>
+      <div class="pill" id="speed">
+        <canvas id="dash-dial" aria-hidden="true"></canvas>
         <div id="boost-track"><div id="boost-fill"></div></div>
       </div>
-      <div class="pill" id="speed"><span class="label">MPH</span><span class="value">0</span></div>
       <div class="pill" id="fare-card">
         <span class="who"></span>
         <div class="dist"></div>
-        <div class="reward"></div>
         <div id="patience-track"><div id="patience-fill"></div></div>
       </div>
       <div id="combo"></div>
@@ -785,7 +712,6 @@
 
     <div id="flash"></div>
     <div id="vignette"></div>
-    <div id="paused">PAUSED</div>
 
     <div id="touch" aria-hidden="true">
       <div class="tbtn" id="t-left" role="button" aria-label="Steer left">◀</div>
@@ -793,11 +719,6 @@
       <div class="tbtn" id="t-gas" role="button" aria-label="Accelerate">GAS</div>
       <div class="tbtn" id="t-brake" role="button" aria-label="Brake and drift">BRAKE</div>
       <div class="tbtn" id="t-boost" role="button" aria-label="Boost">BOOST</div>
-    </div>
-
-    <div id="legend">
-      <b>↑/W</b> gas · <b>↓/S/SPACE</b> brake&hairsp;+&hairsp;drift · <b>←→/AD</b> steer · <b>SHIFT</b> boost ·
-      <b>R</b> restart · <b>ENTER</b> chat · 🔧 garage swaps your robotaxi
     </div>
 
     <div id="loading">

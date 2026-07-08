@@ -14,7 +14,7 @@ const NUMS: NumSpec[] = [
   { key: "maxSteer", min: 0.2, max: 1, step: 0.01 },
   { key: "steerSpeed", min: 1, max: 16, step: 0.5 },
   { key: "highSpeedSteer", min: 0.2, max: 1, step: 0.05 },
-  { key: "brakeForce", min: 500, max: 8000, step: 100 },
+  { key: "brakeDecel", min: 5, max: 80, step: 1 },
   { key: "brakeRamp", min: 0.05, max: 1, step: 0.05 },
   { key: "slideAngle", min: 0.15, max: 0.9, step: 0.01 },
   { key: "arcMin", min: 0.3, max: 2.5, step: 0.05 },

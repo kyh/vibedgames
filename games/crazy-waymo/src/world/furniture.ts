@@ -14,8 +14,6 @@ import {
   PARK_TILE_PLAZAS,
   PARK_TREES,
   PARK_WALL,
-  PROP_AWNING,
-  PROP_AWNING_WIDE,
   PROP_BARRIER,
   PROP_BENCH,
   PROP_BOX_A,
@@ -25,11 +23,9 @@ import {
   PROP_CHIMNEY_SMALL,
   PROP_CONE,
   PROP_CONSTRUCTION_LIGHT,
-  PROP_DRIVEWAY,
   PROP_DUMPSTER,
   PROP_FENCE_LOW,
   PROP_HYDRANT,
-  PROP_OVERHANG,
   PROP_PARASOL_A,
   PROP_PARASOL_B,
   PROP_PATH,
@@ -102,7 +98,6 @@ const PIER_DECK_MAT = new THREE.MeshStandardMaterial({ color: 0x9c8158, roughnes
 const CONSTRUCTION_POCKETS = 6;
 
 // Model catalogs used only here.
-const AWNINGS: readonly string[] = [PROP_AWNING, PROP_AWNING_WIDE, PROP_OVERHANG];
 const CHIMNEYS: readonly string[] = [PROP_CHIMNEY_SMALL, PROP_CHIMNEY_MEDIUM, PROP_CHIMNEY_LARGE];
 // Pier 39 stand-ins at the middle pier's end (commercial kit, tinted brick-red).
 const PIER_END_BUILDINGS: readonly string[] = ["com-building-a", "com-building-f"];
@@ -416,15 +411,10 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
     const faceYaw = dirToYaw(b.faceDir);
 
     if (district.character === "commercial" || district.character === "wharf") {
-      // Awning on the street-facing facade.
-      if (rng.chance(0.55)) {
-        const url = modelUrl("props", rng.pick(AWNINGS));
-        const bnd = cache.bounds(url);
-        const s = (ROAD_TILE * 0.55) / Math.max(bnd.size.x, bnd.size.z, 0.001);
-        const px = wx + dx * ROAD_TILE * 0.42;
-        const pz = wz + dz * ROAD_TILE * 0.42;
-        place(url, px, terrain.heightAt(px, pz) + 2.6, pz, faceYaw, s);
-      }
+      // NO awnings/overhangs: footprint-scaling the 0.4u-tall kit canopies
+      // to storefront width made 6u+ towers-on-posts, and lot-edge anchors
+      // float free of the actual building faces (milestone 92/94 "floating
+      // objects"). Shopfront trim needs building-face-aware placement.
       // Parasols near wharf street corners.
       if (district.character === "wharf" && rng.chance(0.2)) {
         const corner: 1 | -1 = rng.chance(0.5) ? 1 : -1;
@@ -454,26 +444,21 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
         const url = modelUrl("props", rng.chance(0.5) ? PROP_PATH : PROP_PATH_STONES);
         const axis = longAxis(url);
         const path = cache.instance(url);
-        path.scale.setScalar((ROAD_TILE * 0.5) / axis.len);
+        // Long axis spans curb→door; width stays walkway-scale. A uniform
+        // stretch of the square kit tile makes a lawn-sized mattress slab
+        // (milestone 92).
+        const along = (ROAD_TILE * 0.5) / axis.len;
+        const across = 1.6 / axis.len;
+        if (axis.yawAdj === 0) path.scale.set(across, across, along);
+        else path.scale.set(along, across, across);
         path.rotation.y = faceYaw + axis.yawAdj;
         path.position.set(wx + dx * ROAD_TILE * 0.25, 0, wz + dz * ROAD_TILE * 0.25);
         drape(path, 0.06);
       }
-      // Occasional driveway, offset beside the path.
-      if (rng.chance(0.2)) {
-        const url = modelUrl("props", PROP_DRIVEWAY);
-        const axis = longAxis(url);
-        const lat: 1 | -1 = rng.chance(0.5) ? 1 : -1;
-        const drive = cache.instance(url);
-        drive.scale.setScalar((ROAD_TILE * 0.5) / axis.len);
-        drive.rotation.y = faceYaw + axis.yawAdj;
-        drive.position.set(
-          wx + dx * ROAD_TILE * 0.25 + perpX * lat * ROAD_TILE * 0.24,
-          0,
-          wz + dz * ROAD_TILE * 0.25 + perpZ * lat * ROAD_TILE * 0.24,
-        );
-        drape(drive, 0.06);
-      }
+      // NO driveways: the kit pad (grey slab, navy strip, terracotta rim)
+      // reads as a floating mattress at street scale, and grid-plan lot
+      // facing disagrees with the vector streets often enough to strand
+      // pads on open lawns and mid-boulevard (milestone 92).
     } else if (district.character === "industrial" && rng.chance(0.5)) {
       // Dogpatch skyline: 1–2 smokestacks at the lot's back corners.
       const stacks = 1 + rng.int(2);

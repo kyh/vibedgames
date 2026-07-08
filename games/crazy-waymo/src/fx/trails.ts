@@ -13,7 +13,7 @@ const SAMPLES = 44; // per ribbon
 const RIBBONS = 2;
 const LIFE = 0.5; // seconds a sample stays lit
 const HALF_W = 0.26;
-const LIFT = 0.08; // above skid marks, below the car
+const LIFT = 0.14; // above skid marks (which clear the 0.07 asphalt drape), below the car
 const MIN_STEP = 0.45; // world units between samples
 
 type Sample = {

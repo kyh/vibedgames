@@ -26,11 +26,13 @@ export type VehicleParams = {
   maxSteer: number;
   steerSpeed: number;
   highSpeedSteer: number; // steer-lock fraction kept at cruise (agile slow, stable fast)
-  // brake — ONE pedal (↓/S/Space). Straight = a plain progressive brake
-  // (pressure ramps in over brakeRamp seconds, so a tap or a brake-then-turn-in
-  // press only feathers). Pedal + steer = DRIFT (see below) — the drift never
-  // brakes at all.
-  brakeForce: number;
+  // brake — ONE pedal (↓/S/Space). Straight = a plain progressive brake:
+  // a CAPPED deceleration applied in velocity space (Rapier wheel-brake
+  // torque is bang-bang — any bite that matters locks the wheels and tire
+  // friction dumps 60+ u/s², an anchor, not a racing brake). Pressure ramps
+  // in over brakeRamp seconds, so a tap or a brake-then-turn-in press only
+  // feathers. Pedal + steer = DRIFT (see below) — the drift never brakes.
+  brakeDecel: number; // u/s² at full pressure
   brakeRamp: number;
   // drift — Mario Kart architecture: a committed STATE, not emergent tire
   // slip. Entering (pedal + steer at speed) locks a direction; the state then
@@ -81,8 +83,8 @@ export const DEFAULT_VEHICLE_PARAMS: VehicleParams = {
   maxSteer: 0.4,
   steerSpeed: 2,
   highSpeedSteer: 0.24,
-  brakeForce: 1800,
-  brakeRamp: 0.25,
+  brakeDecel: 26,
+  brakeRamp: 0.35,
   slideAngle: 0.42,
   arcMin: 1.1,
   arcMax: 2.6,
@@ -305,14 +307,30 @@ export class RaycastVehicle {
     const fwdSpeed = vel.dot(fwd);
     const startPlanarSpeed = Math.hypot(vel.x, vel.z); // pre-tire, for the drift's speed hold
     const speedFrac = THREE.MathUtils.clamp(Math.abs(fwdSpeed) / p.cruiseSpeed, 0, 1);
-    const drifting = this.driftDir !== 0;
-    // The pedal only BRAKES outside a drift — inside one it's the drift-hold.
-    const braking = !drifting && this.brakeInput > 0.05 && fwdSpeed > 0.5;
+
+    // ONE pedal state per step, Mario Kart style, priority top-down:
+    //   drift   — the state machine owns the car; pedals sit out entirely
+    //   brake   — rolling forward with the pedal down: capped velocity decel
+    //   reverse — pedal down at (near) standstill, no gas: the parking move
+    //   drive   — gas
+    //   coast   — nothing held: a light roll-off
+    const gas = this.throttle > 0.05;
+    const pedalDown = this.brakeInput > 0.05;
+    const mode = this.driftDir !== 0
+      ? "drift"
+      : pedalDown && fwdSpeed > 0.5
+        ? "brake"
+        : pedalDown && !gas && fwdSpeed > -p.cruiseSpeed * 0.4
+          ? "reverse"
+          : gas
+            ? "drive"
+            : "coast";
+    const drifting = mode === "drift";
     // Brake pressure ramps in over brakeRamp seconds of HOLDING — a tap or a
     // brake-then-turn-in press only ever feathers, while a held straight
     // brake builds to the full stop.
-    this.brakeHeldT = this.brakeInput > 0.05 ? this.brakeHeldT + dt : 0;
-    const brakeBuild = braking ? Math.min(1, this.brakeHeldT / p.brakeRamp) : 0;
+    this.brakeHeldT = pedalDown ? this.brakeHeldT + dt : 0;
+    const brakeBuild = mode === "brake" ? Math.min(1, this.brakeHeldT / p.brakeRamp) : 0;
 
     // --- Steering: the front wheels ARE the turn now (pure tire physics). The
     // lock eases at speed so the car is agile in town and stable at cruise — a
@@ -328,28 +346,16 @@ export class RaycastVehicle {
     this.controller.setWheelSteering(0, this.currentSteer);
     this.controller.setWheelSteering(1, this.currentSteer);
 
-    // --- Engine (rear-wheel drive, cruise/boost speed caps). The brake pedal
-    // doubles as reverse once the car has (near) stopped, racing-game style. ---
+    // --- Engine (rear-wheel drive, cruise/boost speed caps). Gas stays
+    // commanded while braking — it fades with brake pressure and snaps back
+    // the moment the pedal lifts, so a brake release relaunches instantly. ---
     const speedCap = this.boosting ? p.maxSpeed : p.cruiseSpeed;
-    // Straight-line braking overrides gas (racing-game standard — otherwise
-    // engine vs brake nearly cancel and the pedal feels dead mid-drive), but
-    // the cut fades back in with drift engagement so gas+brake+steer POWERS
-    // through the corner. Gas stays commanded; releasing Space relaunches.
     let force = 0;
-    if (drifting) {
-      // The drift state owns the planar velocity — engine and brake sit out.
-      force = 0;
-    } else if (this.throttle > 0.05 && fwdSpeed < speedCap) {
-      // Engine fades out as the brake pressure builds (brake wins over gas).
-      const driveScale = braking ? 1 - brakeBuild : 1;
-      force = p.engineForce * (this.boosting ? p.boostMultiplier : 1) * this.throttle * driveScale;
-    } else if (
-      this.brakeInput > 0.05 &&
-      this.throttle <= 0.05 &&
-      fwdSpeed <= 0.5 &&
-      fwdSpeed > -p.cruiseSpeed * 0.4 // reverse is a parking move, not a gear
-    ) {
-      force = -p.engineForce * p.reverseFactor * this.brakeInput; // reverse
+    if ((mode === "drive" || mode === "brake") && gas && fwdSpeed < speedCap) {
+      force =
+        p.engineForce * (this.boosting ? p.boostMultiplier : 1) * this.throttle * (1 - brakeBuild);
+    } else if (mode === "reverse") {
+      force = -p.engineForce * p.reverseFactor * this.brakeInput;
     }
     // Anti-wheelie: forward force scales with front-axle load so the car
     // can't torque onto its rear bumper; the floor keeps ramps climbable.
@@ -363,16 +369,11 @@ export class RaycastVehicle {
     this.controller.setWheelEngineForce(2, force);
     this.controller.setWheelEngineForce(3, force);
 
-    // --- Brake: rear-biased so it still reads a little loose, fronts carry a
-    // share so it bites even when the rear axle unloads (downhill, crests —
-    // Rapier's wheel brake is friction-limited and SF is all downhills). No
-    // pedals at all = a light coast. Never fires inside a drift. ---
-    const coast = this.throttle <= 0.05 && this.brakeInput <= 0.05 ? 14 : 0;
-    const bite = braking ? p.brakeForce * this.brakeInput * brakeBuild : 0;
-    this.controller.setWheelBrake(0, coast + bite * 0.4);
-    this.controller.setWheelBrake(1, coast + bite * 0.4);
-    this.controller.setWheelBrake(2, coast + bite);
-    this.controller.setWheelBrake(3, coast + bite);
+    // --- Wheels never carry the stop (torque brakes lock and anchor-halt
+    // the car) — braking decel is applied in velocity space after
+    // updateVehicle below. Coasting rolls off gently. ---
+    const coast = mode === "coast" ? 14 : 0;
+    for (let i = 0; i < 4; i++) this.controller.setWheelBrake(i, coast);
 
     // --- Assists ---
     const grounded = this.groundedWheels();
@@ -531,6 +532,16 @@ export class RaycastVehicle {
         { x: Math.sin(heading) * speed, y: lv.y, z: Math.cos(heading) * speed },
         true,
       );
+    } else if (mode === "brake" && grounded > 0) {
+      // Straight-line brake: shave planar speed at a capped rate along the
+      // velocity's own direction (racing-game decel, never an anchor).
+      const lv = this.chassis.linvel();
+      const planar = Math.hypot(lv.x, lv.z);
+      if (planar > 0.01) {
+        const next = Math.max(0, planar - p.brakeDecel * this.brakeInput * brakeBuild * dt);
+        const k = next / planar;
+        this.chassis.setLinvel({ x: lv.x * k, y: lv.y, z: lv.z * k }, true);
+      }
     }
   }
 

@@ -19,7 +19,7 @@ import { ParkedCars } from "../game/parked-cars";
 import { Traffic } from "../game/traffic";
 import { InputState } from "../input/keyboard";
 import { NetSession } from "../net/session";
-import { RemoteCars } from "../net/remote-cars";
+import { readTransform, RemoteCars } from "../net/remote-cars";
 import { PhysicsWorld } from "../physics/physics-world";
 import { DayNight } from "../render/day-night";
 import {
@@ -267,12 +267,13 @@ export class GameScene {
   private lowBeepAt = -1;
   private puffAccum = 0;
   private flameAccum = 0;
-  private skidDist = 0;
+  // Last stamped rear-wheel points — each frame extends the streak from here,
+  // so marks stay continuous at any speed (per-frame quads read as dashes).
+  private lastSkid: { lx: number; lz: number; rx: number; rz: number } | null = null;
   private scrapeFrames = 0;
   private wasBoosting = false;
   private lastDriftTier: 0 | 1 | 2 = 0;
   private sparkAccum = 0;
-  private paused = false;
   private outro = -1; // >=0: slow-mo time-up sting is running
   private countdownShown = -1;
   private camFrom = new THREE.Vector3();
@@ -884,15 +885,11 @@ export class GameScene {
     lapS("fares reset");
     this.cones?.reset();
     this.hud.hideBanner();
-    this.hud.setPaused(false);
     // A fresh dashboard through the countdown — no stale timer/fares/combo.
     this.hud.setTimer(FARE.startTime, false);
-    this.hud.setFares(0);
     this.hud.setCombo(1, 0);
-    this.hud.hideFareCard();
     this.hud.setArrow(false, 0, 0, 0);
     this.hud.setVignette(0);
-    this.paused = false;
     this.outro = -1;
     this.hitStop = 0;
     this.lowBeepAt = -1;
@@ -1073,17 +1070,6 @@ export class GameScene {
     // before the second branch could see it. R restarts from any state.
     if (this.input.consumeRestart()) this.start();
     if (this.input.consumeMute()) this.toggleMute();
-    if (this.input.consumePause() && this.mode.kind === "playing") {
-      this.paused = !this.paused;
-      this.hud.setPaused(this.paused);
-      if (this.paused) this.silenceLoops();
-    }
-    if (this.input.consumeBlur() && this.mode.kind === "playing" && !this.paused) {
-      this.paused = true;
-      this.hud.setPaused(true);
-      this.silenceLoops();
-    }
-
     this.updateGarages(dt);
     this.heckleCooldown = Math.max(0, this.heckleCooldown - dt);
     this.bubbles.update(dt);
@@ -1117,7 +1103,7 @@ export class GameScene {
         this.updateCountdown(this.mode, dt);
         break;
       case "playing":
-        if (!this.paused) this.updatePlaying(dt);
+        this.updatePlaying(dt);
         break;
       case "gameover":
         this.updateTitle(dt);
@@ -1173,9 +1159,7 @@ export class GameScene {
     if (this.netInfoEl) {
       const others = Math.max(0, Object.keys(this.net.players).length - 1);
       this.netInfoEl.textContent =
-        !this.net.live || this.net.offline || others === 0
-          ? ""
-          : `${others} OTHER ${others === 1 ? "DRIVER" : "DRIVERS"} ONLINE`;
+        !this.net.live || this.net.offline || others === 0 ? "" : `${others} ONLINE`;
     }
   }
 
@@ -1300,16 +1284,18 @@ export class GameScene {
     const drifting = car.isDrifting && car.speed > 8;
     if (drifting) this.state.addDrift(dt);
     else this.state.endDrift();
+    // Hard straight braking reads like the drift: streaks + smoke + screech.
+    const brakingHard =
+      !drifting && !car.airborne && input.brake > 0.05 && car.forwardSpeed > 8;
     const slipAmt = Math.min(1, Math.abs(car.slip) / 0.6);
     // During the outro the farewell skid owns the screech channel.
     if (this.outro < 0) {
-      this.sfx.setScreech(
-        drifting && !car.airborne ? Math.max(0.25, slipAmt) : 0,
-        car.speed / CAR.maxSpeed,
-      );
+      const screech = drifting && !car.airborne ? Math.max(0.25, slipAmt) : brakingHard ? 0.3 : 0;
+      this.sfx.setScreech(screech, car.speed / CAR.maxSpeed);
     }
-    if (drifting || car.isBoosting) this.emitDriftSmoke(dt, car);
-    if (drifting && !car.airborne) this.stampSkids(car, dt);
+    if (drifting || car.isBoosting || brakingHard) this.emitDriftSmoke(dt, car);
+    if ((drifting && !car.airborne) || brakingHard) this.stampSkids(car);
+    else this.lastSkid = null; // next streak starts fresh, not joined to this one
     this.emitTrails(car, drifting);
     if (drifting && !car.airborne) this.emitDriftSparks(dt, car);
 
@@ -1381,7 +1367,8 @@ export class GameScene {
       this.rig.addTrauma(Math.min(0.45, 0.15 + car.justLanded * 0.015));
       if (car.airTime > 0.45) {
         const pts = this.state.landAir(car.airTime);
-        this.hud.announceMinor(`AIR ${car.airTime.toFixed(1)}s +$${pts}`, "#8fd9ff");
+        const air = `AIR ${car.airTime.toFixed(1)}s`;
+        this.hud.announceMinor(pts > 0 ? `${air} +$${pts}` : air, "#8fd9ff");
       }
     }
 
@@ -1542,21 +1529,33 @@ export class GameScene {
     this.fx.driftPuff(rx - px * 0.7, rz - pz * 0.7, car.isBoosting, charged);
   }
 
-  private stampSkids(car: Car, dt: number): void {
+  private stampSkids(car: Car): void {
     const skids = this.skids;
     if (!skids) return;
-    // Distance-based stamping: a mark every ~0.55u of travel per rear wheel.
-    this.skidDist += car.speed * dt;
-    if (this.skidDist < 0.55) return;
-    this.skidDist = 0;
     const fx = Math.sin(car.heading);
     const fz = Math.cos(car.heading);
-    const rx = car.position.x - fx * 1.6;
-    const rz = car.position.z - fz * 1.6;
+    const ax = car.position.x - fx * 1.6; // rear axle centre
+    const az = car.position.z - fz * 1.6;
     const px = -fz;
     const pz = fx;
-    skids.stamp(rx + px * 0.7, rz + pz * 0.7, car.heading);
-    skids.stamp(rx - px * 0.7, rz - pz * 0.7, car.heading);
+    const now = {
+      lx: ax + px * 0.7,
+      lz: az + pz * 0.7,
+      rx: ax - px * 0.7,
+      rz: az - pz * 0.7,
+    };
+    const last = this.lastSkid;
+    if (last) {
+      const d = Math.hypot(now.lx - last.lx, now.lz - last.lz);
+      if (d > 4) {
+        this.lastSkid = now; // teleport/lag spike — restart the streak
+        return;
+      }
+      if (d < 0.3) return; // too short to matter; wait for more travel
+      skids.stampSegment(last.lx, last.lz, now.lx, now.lz);
+      skids.stampSegment(last.rx, last.rz, now.rx, now.rz);
+    }
+    this.lastSkid = now;
   }
 
   private handleCones(car: Car): void {
@@ -1568,7 +1567,7 @@ export class GameScene {
     if (hits > 0) {
       let cash = 0;
       for (let i = 0; i < hits; i++) cash += this.state.smash();
-      this.hud.announceMinor(`SMASH +$${cash}`, "#ffb64d");
+      this.hud.announceMinor(cash > 0 ? `SMASH +$${cash}` : "SMASH", "#ffb64d");
       this.sfx.thud();
       this.fx.burst(car.position.x, 0.8, car.position.z, 0.07, 5, 4);
     }
@@ -1694,10 +1693,8 @@ export class GameScene {
         car.addBoost(CAR.boostPerNearMiss);
         this.fx.burst(c.position.x, 1, c.position.z, 0.5, 6, 4);
         const insane = speedFrac > 0.8;
-        this.hud.announceMinor(
-          insane ? `INSANE! +$${pts}` : `NEAR MISS +$${pts}`,
-          insane ? "#ff8a3c" : "#aee3ff",
-        );
+        const label = insane ? "INSANE!" : "NEAR MISS";
+        this.hud.announceMinor(pts > 0 ? `${label} +$${pts}` : label, insane ? "#ff8a3c" : "#aee3ff");
         this.sfx.nearMiss(this.panFor(c.position));
         if (this.heckleCooldown <= 0 && Math.random() < 0.22) {
           this.heckleCooldown = 9;
@@ -1712,6 +1709,12 @@ export class GameScene {
     const minimap = this.minimap;
     if (!minimap) return;
     const markers: MinimapMarker[] = [];
+    // Other online drivers first, so objective markers draw on top of them.
+    for (const [id, p] of Object.entries(this.net.players)) {
+      if (id === this.net.playerId) continue;
+      const t = readTransform(p.state);
+      if (t) markers.push({ x: t.x, z: t.z, color: "#ffffff" });
+    }
     const carrying = fares.carryingInfo();
     if (carrying) {
       markers.push({ x: carrying.pos.x, z: carrying.pos.z, color: "#49e0ff", ring: true });
@@ -1744,36 +1747,28 @@ export class GameScene {
   private updateHud(car: Car, fares: FareManager): void {
     this.hud.setTimer(this.state.timeLeft, this.state.timeLeft <= 10);
     this.hud.setScore(this.state.displayScore);
-    this.hud.setFares(this.state.fares);
     this.hud.setSpeed(car.speed * MPH_FACTOR);
     this.hud.setBoost(car.boostMeter / CAR.boostMax);
     this.hud.setCombo(this.state.combo, this.state.comboTimer / FARE.comboWindow);
 
+    // The card only shows while CARRYING (destination + patience); while
+    // seeking, the beacon, minimap dot and off-screen arrow are enough.
     const carrying = fares.carryingInfo();
     if (carrying) {
       const city = this.city;
       const name = city ? districtAt(carrying.dest.gx, carrying.dest.gz).name : "";
       const distM = Math.hypot(car.position.x - carrying.pos.x, car.position.z - carrying.pos.z);
-      const pay = Math.round(
-        (FARE.baseFare + FARE.farePerTile * carrying.tiles) * tierPayMult(carrying.tier),
-      );
-      const accent = `#${tierColor(carrying.tier).toString(16).padStart(6, "0")}`;
-      this.hud.setFareCard(`TO ${name.toUpperCase()} →`, distM, `FARE $${pay} + TIP`, accent);
-      this.hud.setPatience(fares.patienceFrac());
+      this.hud.setFareCard(`TO ${name.toUpperCase()} →`, distM, fares.patienceFrac());
       this.projectArrow(carrying.pos, "#49e0ff");
       return;
     }
+    this.hud.hideFareCard();
     const next = fares.nearestWaiting(car.position.x, car.position.z);
     if (!next) {
-      this.hud.hideFareCard();
       this.hud.setArrow(false, 0, 0, 0);
       return;
     }
-    const dist = Math.hypot(car.position.x - next.pos.x, car.position.z - next.pos.z);
-    const tag = next.tier === "short" ? "$" : next.tier === "medium" ? "$$" : "$$$";
     const accent = `#${tierColor(next.tier).toString(16).padStart(6, "0")}`;
-    this.hud.setFareCard("PICK UP FARE", dist, `${tag} RIDE →`, accent);
-    this.hud.setPatience(null);
     this.projectArrow(next.pos, accent);
   }
 
@@ -1810,7 +1805,6 @@ export class GameScene {
     this.hud.hideFareCard();
     this.hud.setArrow(false, 0, 0, 0);
     this.hud.setVignette(0);
-    this.hud.setPatience(null);
     this.outro = -1;
     const score = this.state.displayScore;
     const best = readBest();
