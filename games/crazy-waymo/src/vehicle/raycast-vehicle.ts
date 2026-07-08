@@ -343,7 +343,12 @@ export class RaycastVehicle {
       // Engine fades out as the brake pressure builds (brake wins over gas).
       const driveScale = braking ? 1 - brakeBuild : 1;
       force = p.engineForce * (this.boosting ? p.boostMultiplier : 1) * this.throttle * driveScale;
-    } else if (this.brakeInput > 0.05 && this.throttle <= 0.05 && fwdSpeed <= 0.5) {
+    } else if (
+      this.brakeInput > 0.05 &&
+      this.throttle <= 0.05 &&
+      fwdSpeed <= 0.5 &&
+      fwdSpeed > -p.cruiseSpeed * 0.4 // reverse is a parking move, not a gear
+    ) {
       force = -p.engineForce * p.reverseFactor * this.brakeInput; // reverse
     }
     // Anti-wheelie: forward force scales with front-axle load so the car

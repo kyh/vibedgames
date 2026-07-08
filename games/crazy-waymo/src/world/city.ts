@@ -33,7 +33,7 @@ import { buildGoldenGate } from "./golden-gate";
 import { RoadNetwork } from "./network";
 import { type CityPlan, generateCity } from "./grid";
 import { CUSTOM_MAP, editorMode, loadLocalOverrides } from "./custom-map";
-import { makeGroundColorAt, makeGroundOffset } from "./ground";
+import { isParkCell, makeGroundColorAt, makeGroundOffset, parkCellHeight } from "./ground";
 import { buildGridNetwork } from "./grid-network";
 import { SF_BUILDINGS, SF_BUILDINGS_BOUNDS } from "./sf-buildings";
 import { buildRoads, ROAD_MATERIALS, roadPartsToMeshes } from "./roads";
@@ -691,7 +691,15 @@ export class CityModel {
         this.terrain.heightAt(wx + fh, wz + fh),
       ];
       const loY = Math.min(...corners);
-      const seatY = Math.max(...corners);
+      let seatY = Math.max(...corners);
+      // Park/landuse-green cells carry a flat terrace TILE seated at the
+      // cell's highest corner — a house seated on the raw field there gets
+      // buried by its own lawn. Seat on the terrace instead.
+      const cgx = this.gridX(wx);
+      const cgz = this.gridZ(wz);
+      if (isParkCell(cgx, cgz)) {
+        seatY = Math.max(seatY, parkCellHeight(this.terrain, cgx, cgz));
+      }
       const drop = seatY - loY;
       if (drop > 5) {
         // Too steep to build — real SF leaves these faces green.
@@ -845,8 +853,14 @@ export class CityModel {
           this.terrain.heightAt(bx - fh, bz + fh),
           this.terrain.heightAt(bx + fh, bz + fh),
         ];
-        const seatY = Math.max(...corners);
+        let seatY = Math.max(...corners);
         if (seatY - Math.min(...corners) > 5) continue;
+        // Terrace-aware, same as placeBuilding: don't get buried by park tiles.
+        const bgx = this.gridX(bx);
+        const bgz = this.gridZ(bz);
+        if (isParkCell(bgx, bgz)) {
+          seatY = Math.max(seatY, parkCellHeight(this.terrain, bgx, bgz));
+        }
         const node = this.cache.instance(url);
         node.scale.set(sxz, sy, sxz);
         node.position.set(bx, seatY - 0.15, bz);
