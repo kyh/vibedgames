@@ -51,6 +51,17 @@ export const deployCommand = defineCommand({
       process.exit(1);
     }
 
+    // Build-tool projects (package.json present): the root index.html is the
+    // source template, the playable game lives in dist/. Deploying the root
+    // uploads the whole source tree — wrong content and usually over the
+    // file caps — so prefer the build output when it exists.
+    let deployDir = dir;
+    const distDir = join(dir, "dist");
+    if (existsSync(join(dir, "package.json")) && existsSync(join(distDir, "index.html"))) {
+      deployDir = distDir;
+      consola.info("Project root detected — deploying its build output dist/ instead.");
+    }
+
     // ---- Resolve project config ---------------------------------------------
     let config: ProjectConfig | null = null;
     try {
@@ -93,9 +104,9 @@ export const deployCommand = defineCommand({
     }
 
     // ---- Walk files ---------------------------------------------------------
-    const manifest = buildManifest(dir);
+    const manifest = buildManifest(deployDir);
     if (manifest.length === 0) {
-      consola.error(`No files found in ${dir}`);
+      consola.error(`No files found in ${deployDir}`);
       process.exit(1);
     }
 

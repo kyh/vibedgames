@@ -91,6 +91,11 @@ vg deploy ./dist --slug my-game
 - `./dist` — the directory containing `index.html` and all assets
 - `--slug my-game` — the subdomain name (lowercase, hyphens allowed). The game will be live at `https://my-game.vibedgames.com`
 
+Running `vg deploy` from a project root (a directory with `package.json`)
+automatically deploys its `dist/` build output when one exists — the root
+`index.html` of a Vite-style project is the source template, not the game.
+Plain-HTML games (no `package.json`) deploy the directory as-is.
+
 ### 4. Verify
 
 After deploy, the CLI prints the live URL. Open it to verify.
