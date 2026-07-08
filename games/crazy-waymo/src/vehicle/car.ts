@@ -210,6 +210,8 @@ export class Car {
   lastWallNormal = new THREE.Vector2(); // normal of the last wall contact
   wallContact = false; // touching a wall this frame (scrape detection)
   miniBoostFired = false; // true on the frame a charged drift is released
+  miniTurboTier: 0 | 1 | 2 = 0; // tier of that release (physics drift; 1 in fallback)
+  driftTier: 0 | 1 | 2 = 0; // current charge tier while drifting (FX color)
   boostDenied = false; // boost pressed with an empty meter (edge, one frame)
   private boostArmed = true; // hysteresis: off at 0.5, re-arms at 15
   private boostHeldPrev = false;
@@ -323,8 +325,9 @@ export class Car {
   get steer(): number {
     return this.steerSmoothed;
   }
-  // 0..1 — how close the current drift is to arming the release slingshot.
+  // 0..1 — how close the current drift is to its first mini-turbo tier.
   get driftCharge(): number {
+    if (this.vehicle) return this.vehicle.driftCharge01;
     return Math.min(1, this.driftSustain / CAR.driftSlingArm);
   }
 
@@ -383,6 +386,7 @@ export class Car {
     const veh = this.vehicle;
     if (!veh) return;
     this.miniBoostFired = false;
+    this.miniTurboTier = 0;
     this.boostDenied = false;
 
     if (this.boostMeter <= 0.5) this.boostArmed = false;
@@ -399,28 +403,15 @@ export class Car {
     veh.steerInput = input.steer;
     veh.setControls(input, wantBoost);
 
-    // Drift bookkeeping (scoring/boost-fill) — physics does the sliding, we
-    // just recognise it: brake held + real sideways motion.
-    const physicsDrift = input.brake > 0.05 && this.speed > CAR.driftMinSpeed && !this.airborne;
-    this.isDrifting = physicsDrift && Math.abs(this.slip) > CAR.driftMinSlip;
-    if (this.isDrifting) {
-      this.driftSustain += dt;
-      this.addBoost(CAR.boostPerDriftSec * dt);
-    } else if (!physicsDrift) {
-      if (this.driftSustain > CAR.driftSlingArm) {
-        // Slingshot out of the drift: a real impulse along the nose.
-        const fwd = veh.forwardDir(this.v3a);
-        veh.chassis.applyImpulse(
-          {
-            x: fwd.x * CAR.miniBoostImpulse * veh.params.mass,
-            y: 0,
-            z: fwd.z * CAR.miniBoostImpulse * veh.params.mass,
-          },
-          true,
-        );
-        this.miniBoostFired = true;
-      }
-      this.driftSustain = 0;
+    // Drift state lives in the vehicle (Mario Kart state machine) — we just
+    // mirror it for scoring/FX and bank the release mini-turbo.
+    this.isDrifting = veh.isDrifting;
+    this.driftTier = veh.driftTier;
+    if (this.isDrifting) this.addBoost(CAR.boostPerDriftSec * dt);
+    const turbo = veh.consumeMiniTurbo();
+    if (turbo > 0) {
+      this.miniBoostFired = true;
+      this.miniTurboTier = turbo;
     }
 
     // Arcade-only obstacles (tree trunks etc) have no Rapier body — bounce
@@ -531,6 +522,7 @@ export class Car {
     this.lastWallHit = 0;
     this.wallContact = false;
     this.miniBoostFired = false;
+    this.miniTurboTier = 0;
     this.justLanded = 0;
     this.boostDenied = false;
     const fwd = new THREE.Vector2(Math.sin(this.heading), Math.cos(this.heading));
@@ -606,9 +598,11 @@ export class Car {
       if (this.driftSustain > CAR.driftSlingArm) {
         vForward = Math.min(topSpeed, vForward + CAR.miniBoostImpulse); // slingshot out of a drift
         this.miniBoostFired = true;
+        this.miniTurboTier = 1;
       }
       this.driftSustain = 0;
     }
+    this.driftTier = this.isDrifting && this.driftCharge >= 1 ? 1 : 0;
 
     // --- Reassemble velocity; low grip while drifting keeps the slide ---
     const nf = new THREE.Vector2(Math.sin(this.heading), Math.cos(this.heading));

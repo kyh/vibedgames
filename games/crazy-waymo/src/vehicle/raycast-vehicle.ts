@@ -26,20 +26,28 @@ export type VehicleParams = {
   maxSteer: number;
   steerSpeed: number;
   highSpeedSteer: number; // steer-lock fraction kept at cruise (agile slow, stable fast)
-  // brake — ONE pedal (↓/S/Space), applied to the REAR wheels like a handbrake
-  // pull (Sega arcade style: the brake IS the drift tool). Braking cuts the
-  // rear tires to driftGrip so brake+steer steps the tail out, while a capped
-  // yaw assist rotates toward the steered direction — and at zero steer that
-  // same assist damps yaw, so straight-line braking stays straight. Pure tire
-  // drift alone grips-or-spins; the capped assist is the one arcade cheat.
+  // brake — ONE pedal (↓/S/Space). Straight = a plain progressive brake
+  // (pressure ramps in over brakeRamp seconds, so a tap or a brake-then-turn-in
+  // press only feathers). Pedal + steer = DRIFT (see below) — the drift never
+  // brakes at all.
   brakeForce: number;
-  driftGrip: number; // rear-tire grip while braking (< 1 breaks the tail loose)
-  driftYawRate: number; // yaw rate (rad/s) the drift rotates toward at full steer
-  driftAssist: number; // how hard yaw converges to that target (gain)
-  driftMaxSlip: number; // slip angle (rad) the drift holds — it slides, never spins
-  driftBrakeFade: number; // brake bite kept at full drift (hold Space through a corner)
-  brakeRamp: number; // seconds of holding for the bite to build to full — a tap
-  // or a drift-entry press only ever feathers; a held straight brake anchors.
+  brakeRamp: number;
+  // drift — Mario Kart architecture: a committed STATE, not emergent tire
+  // slip. Entering (pedal + steer at speed) locks a direction; the state then
+  // OWNS yaw and the planar velocity direction each step — the nose holds
+  // slideAngle INTO the corner while the velocity sweeps an arc whose rate
+  // steering only tightens (arcMax) or widens (arcMin). Speed barely decays.
+  // Holding the drift charges a mini-turbo: tier 1 at turbo1T seconds, tier 2
+  // at turbo2T; releasing fires a forward impulse (turbo1/2Boost). Rapier
+  // keeps suspension/collisions/hills the whole time.
+  slideAngle: number; // rad the nose points inside the velocity arc — the LOOK
+  arcMin: number; // arc rate (rad/s) steering fully AWAY from the drift
+  arcMax: number; // arc rate (rad/s) steering fully INTO the drift
+  driftDecay: number; // u/s speed bled while drifting (≈0 = MK speed hold)
+  turbo1T: number; // seconds of drift to arm mini-turbo tier 1
+  turbo2T: number; // seconds of drift to arm tier 2
+  turbo1Boost: number; // release impulse (u/s) at tier 1
+  turbo2Boost: number; // release impulse (u/s) at tier 2
   airborneGravityScale: number;
   // suspension / tires
   suspensionStiffness: number;
@@ -68,16 +76,21 @@ export const DEFAULT_VEHICLE_PARAMS: VehicleParams = {
   cruiseSpeed: 30,
   maxSpeed: 44,
   reverseFactor: 0.6,
-  maxSteer: 0.45,
+  // Normal steering is deliberately mild (MK rule: corners should make you
+  // WANT the drift) — lane changes and sweepers only.
+  maxSteer: 0.4,
   steerSpeed: 2,
-  highSpeedSteer: 0.3,
-  brakeForce: 3200,
-  driftGrip: 0.45,
-  driftYawRate: 2.4,
-  driftAssist: 8,
-  driftMaxSlip: 0.6,
-  driftBrakeFade: 0.06,
-  brakeRamp: 0.3,
+  highSpeedSteer: 0.24,
+  brakeForce: 1800,
+  brakeRamp: 0.25,
+  slideAngle: 0.42,
+  arcMin: 1.1,
+  arcMax: 2.6,
+  driftDecay: 2,
+  turbo1T: 0.8,
+  turbo2T: 1.7,
+  turbo1Boost: 12,
+  turbo2Boost: 20,
   airborneGravityScale: 1.4,
   suspensionStiffness: 62,
   suspensionRestLength: 0.55,
@@ -117,6 +130,10 @@ export class RaycastVehicle {
   private gripRecoveryT = 1;
   private brakeInput = 0;
   private brakeHeldT = 0; // seconds the brake has been held (drives the bite ramp)
+  // Drift state: 0 = idle, ±1 = committed direction (sign of steer at entry).
+  private driftDir: 0 | 1 | -1 = 0;
+  private driftChargeT = 0; // seconds the current drift has been held
+  private turboFired: 0 | 1 | 2 = 0; // latched on release; consumed by Car
   private stuckT = 0;
   private boosting = false;
   private throttle = 0;
@@ -231,6 +248,30 @@ export class RaycastVehicle {
     return this.airborneTime;
   }
 
+  // --- Drift state (Mario Kart): scene + Car read these for FX/scoring ---
+  get isDrifting(): boolean {
+    return this.driftDir !== 0;
+  }
+  get driftDirection(): 0 | 1 | -1 {
+    return this.driftDir;
+  }
+  // 0 charging → 1 tier-1 armed → 2 tier-2 armed
+  get driftTier(): 0 | 1 | 2 {
+    if (this.driftDir === 0) return 0;
+    if (this.driftChargeT >= this.params.turbo2T) return 2;
+    if (this.driftChargeT >= this.params.turbo1T) return 1;
+    return 0;
+  }
+  get driftCharge01(): number {
+    return this.driftDir === 0 ? 0 : Math.min(1, this.driftChargeT / this.params.turbo1T);
+  }
+  // One-shot: the tier of the mini-turbo fired on the release this frame.
+  consumeMiniTurbo(): 0 | 1 | 2 {
+    const t = this.turboFired;
+    this.turboFired = 0;
+    return t;
+  }
+
   // Per-render-frame: read input into control state (cheap, idempotent).
   setControls(input: CarInput, boosting: boolean): void {
     this.throttle = input.throttle;
@@ -244,6 +285,9 @@ export class RaycastVehicle {
     this.chassis.setLinvel({ x: 0, y: 0, z: 0 }, true);
     this.chassis.setAngvel({ x: 0, y: 0, z: 0 }, true);
     this.currentSteer = 0;
+    this.driftDir = 0;
+    this.driftChargeT = 0;
+    this.turboFired = 0;
   }
 
   forwardDir(out: THREE.Vector3): THREE.Vector3 {
@@ -259,23 +303,14 @@ export class RaycastVehicle {
     const fwd = this.forwardDir(this.v);
     const vel = this.velocity(this.v2);
     const fwdSpeed = vel.dot(fwd);
+    const startPlanarSpeed = Math.hypot(vel.x, vel.z); // pre-tire, for the drift's speed hold
     const speedFrac = THREE.MathUtils.clamp(Math.abs(fwdSpeed) / p.cruiseSpeed, 0, 1);
-    // Signed slip: angle from the nose to the velocity (about +Y). Positive
-    // yaw rotates the nose so slip shrinks when they share a sign.
-    const slipAng = Math.atan2(vel.x * fwd.z - vel.z * fwd.x, vel.x * fwd.x + vel.z * fwd.z);
-    // How engaged the drift is while braking (0 = straight-line anchor,
-    // 1 = full slide): steering intent, or a chassis that is already sideways
-    // (so centering the wheel mid-slide doesn't snap the anchor back on).
-    const braking = this.brakeInput > 0.05 && fwdSpeed > 0.5;
-    const driftEngage = braking
-      ? Math.max(
-          Math.abs(this.steerInput),
-          THREE.MathUtils.clamp(Math.abs(slipAng) / p.driftMaxSlip, 0, 1),
-        )
-      : 0;
+    const drifting = this.driftDir !== 0;
+    // The pedal only BRAKES outside a drift — inside one it's the drift-hold.
+    const braking = !drifting && this.brakeInput > 0.05 && fwdSpeed > 0.5;
     // Brake pressure ramps in over brakeRamp seconds of HOLDING — a tap or a
-    // brake-then-turn-in press only ever feathers (Mario-Kart drift entry
-    // costs nothing), while a held straight brake builds to the full anchor.
+    // brake-then-turn-in press only ever feathers, while a held straight
+    // brake builds to the full stop.
     this.brakeHeldT = this.brakeInput > 0.05 ? this.brakeHeldT + dt : 0;
     const brakeBuild = braking ? Math.min(1, this.brakeHeldT / p.brakeRamp) : 0;
 
@@ -301,10 +336,12 @@ export class RaycastVehicle {
     // the cut fades back in with drift engagement so gas+brake+steer POWERS
     // through the corner. Gas stays commanded; releasing Space relaunches.
     let force = 0;
-    if (this.throttle > 0.05 && fwdSpeed < speedCap) {
-      // Engine hands off along the same curves: full drive while drifting or
-      // before the brake pressure builds, cut once the straight anchor is on.
-      const driveScale = braking ? Math.max(driftEngage, 1 - brakeBuild) : 1;
+    if (drifting) {
+      // The drift state owns the planar velocity — engine and brake sit out.
+      force = 0;
+    } else if (this.throttle > 0.05 && fwdSpeed < speedCap) {
+      // Engine fades out as the brake pressure builds (brake wins over gas).
+      const driveScale = braking ? 1 - brakeBuild : 1;
       force = p.engineForce * (this.boosting ? p.boostMultiplier : 1) * this.throttle * driveScale;
     } else if (this.brakeInput > 0.05 && this.throttle <= 0.05 && fwdSpeed <= 0.5) {
       force = -p.engineForce * p.reverseFactor * this.brakeInput; // reverse
@@ -321,20 +358,12 @@ export class RaycastVehicle {
     this.controller.setWheelEngineForce(2, force);
     this.controller.setWheelEngineForce(3, force);
 
-    // --- Brake: rear-biased, like a handbrake yank — the rear locks and (with
-    // the grip cut below) brake+steer breaks the tail into the drift. The
-    // fronts carry a smaller share so braking still bites when the rear axle
-    // unloads (downhill, crests) — Rapier's wheel brake is friction-limited,
-    // and SF is all downhills. The bite fades toward driftBrakeFade as the
-    // drift engages: straight Space = full anchor, Space held through a
-    // corner = a feather that carries speed. No pedals at all = light coast. ---
+    // --- Brake: rear-biased so it still reads a little loose, fronts carry a
+    // share so it bites even when the rear axle unloads (downhill, crests —
+    // Rapier's wheel brake is friction-limited and SF is all downhills). No
+    // pedals at all = a light coast. Never fires inside a drift. ---
     const coast = this.throttle <= 0.05 && this.brakeInput <= 0.05 ? 14 : 0;
-    const bite = braking
-      ? p.brakeForce *
-        this.brakeInput *
-        brakeBuild *
-        THREE.MathUtils.lerp(1, p.driftBrakeFade, driftEngage)
-      : 0;
+    const bite = braking ? p.brakeForce * this.brakeInput * brakeBuild : 0;
     this.controller.setWheelBrake(0, coast + bite * 0.4);
     this.controller.setWheelBrake(1, coast + bite * 0.4);
     this.controller.setWheelBrake(2, coast + bite);
@@ -349,17 +378,19 @@ export class RaycastVehicle {
       this.gripRecoveryT += dt;
     }
 
-    // Natural grip: load cap + landing fade-in + the brake's rear slide (the
-    // drift — cutting the rear tires' grip steps the tail out).
+    // Natural grip: load cap + landing fade-in. While DRIFTING the tires drop
+    // to a token grip so the tire sim can't fight the state's velocity — the
+    // slide is scripted, the wheels just roll and hold suspension.
     const staticLoad = (p.mass * GRAVITY) / 4;
     const landingBlend = THREE.MathUtils.clamp(this.gripRecoveryT / p.landingGripTime, 0, 1);
     const landingScale = p.landingGripFactor + (1 - p.landingGripFactor) * landingBlend;
     for (let i = 0; i < 4; i++) {
       const load = Math.max(this.controller.wheelSuspensionForce(i) ?? staticLoad, staticLoad);
       const loadScale = Math.min(1, (p.gripLoadCap * staticLoad) / load);
-      let slip = p.frictionSlip * loadScale * landingScale;
-      if (this.brakeInput > 0.05 && (i === 2 || i === 3)) slip *= p.driftGrip; // rear breaks loose
-      this.controller.setWheelFrictionSlip(i, slip);
+      this.controller.setWheelFrictionSlip(
+        i,
+        drifting ? 0.4 : p.frictionSlip * loadScale * landingScale,
+      );
     }
 
     // Extra gravity while airborne so arcs stay snappy (forces are cleared
@@ -424,27 +455,78 @@ export class RaycastVehicle {
       this.stuckT = 0;
     }
 
-    // Drift assist (the brake's one thin cheat): while braking at speed, drive
-    // the yaw toward a steer-proportional, CAPPED target. The rear-grip cut
-    // above lets the velocity keep sliding, so brake+steer reads as a
-    // controlled drift, and at zero steer the same assist damps yaw, so
-    // straight-line braking tracks true. The SLIP cap is what makes it a
-    // drift and never a spin: as the nose swings away from the velocity, any
-    // yaw command that would deepen the slip fades to nothing at driftMaxSlip
-    // — the car holds that slide angle — while counter-steer (which shrinks
-    // the slip) always keeps full authority.
-    if (this.brakeInput > 0.05 && Math.abs(fwdSpeed) > 4) {
-      const av = this.chassis.angvel();
-      const dir = fwdSpeed >= 0 ? 1 : -1;
-      let targetYaw = -this.steerInput * p.driftYawRate * dir;
-      if (slipAng * targetYaw < 0) {
-        targetYaw *= THREE.MathUtils.clamp(1 - Math.abs(slipAng) / p.driftMaxSlip, 0, 1);
+    // --- Drift state machine (Mario Kart) ---
+    // ENTER: pedal + real steer at speed, on the ground. The steer sign at
+    // entry commits the drift direction for its whole life. The brake ramp
+    // resets at every boundary so the pedal re-arms as a fresh press.
+    if (this.driftDir === 0) {
+      if (
+        this.brakeInput > 0.05 &&
+        Math.abs(this.steerInput) > 0.25 &&
+        fwdSpeed > 12 &&
+        grounded >= 2
+      ) {
+        this.driftDir = this.steerInput > 0 ? 1 : -1;
+        this.driftChargeT = 0;
+        this.brakeHeldT = 0;
       }
-      const gain = Math.min(1, dt * p.driftAssist);
-      this.chassis.setAngvel({ x: av.x, y: av.y + (targetYaw - av.y) * gain, z: av.z }, true);
+    } else if (this.brakeInput <= 0.05) {
+      // RELEASE: the payoff — fire the mini-turbo for the tier reached.
+      const tier = this.driftTier;
+      if (tier > 0) {
+        const boost = tier === 2 ? p.turbo2Boost : p.turbo1Boost;
+        const f = this.forwardDir(this.v);
+        this.chassis.applyImpulse(
+          { x: f.x * boost * p.mass, y: 0, z: f.z * boost * p.mass },
+          true,
+        );
+        this.turboFired = tier;
+      }
+      this.driftDir = 0;
+      this.driftChargeT = 0;
+      this.brakeHeldT = 0;
+    } else if (fwdSpeed < 8 || this.airborneTime > 0.4) {
+      // BROKEN: crashed, stalled, or flew off a hill — the charge is lost.
+      this.driftDir = 0;
+      this.driftChargeT = 0;
+      this.brakeHeldT = 0;
     }
+    if (this.driftDir !== 0) this.driftChargeT += dt;
 
     this.controller.updateVehicle(dt);
+
+    // ACTIVE drift, written AFTER updateVehicle so it is the last word on the
+    // planar velocity — updateVehicle applies tire impulses IMMEDIATELY (not
+    // in world.step), and letting them land after our write bled ~12 u/s of
+    // drift speed per second. The state owns yaw and the velocity DIRECTION:
+    // the nose holds slideAngle inside the corner (the drift look), steering
+    // only tightens/widens the arc, speed decays only by driftDecay. Magnitude
+    // is re-read every step, so collisions (world.step) still cost real speed
+    // and gravity/suspension stay Rapier's.
+    if (this.driftDir !== 0) {
+      const dir = this.driftDir;
+      const into = (this.steerInput * dir + 1) / 2; // 0 counter .. 1 full into
+      const arcRate = THREE.MathUtils.lerp(p.arcMin, p.arcMax, into);
+      const av = this.chassis.angvel();
+      this.chassis.setAngvel({ x: av.x, y: -dir * arcRate, z: av.z }, true);
+
+      const f = this.forwardDir(this.v);
+      const noseHeading = Math.atan2(f.x, f.z);
+      const lv = this.chassis.linvel();
+      const cur = Math.atan2(lv.x, lv.z);
+      const target = noseHeading + dir * p.slideAngle; // velocity trails outside the nose
+      const delta = ((target - cur + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+      const heading = cur + delta * Math.min(1, dt * 9);
+      // Magnitude from the step's START (before updateVehicle's tire impulses
+      // shaved it — conserving the post-tire value bled ~18 u/s of drift), so
+      // only driftDecay and real collisions (world.step, read next step) cost
+      // speed.
+      const speed = Math.max(0, startPlanarSpeed - p.driftDecay * dt);
+      this.chassis.setLinvel(
+        { x: Math.sin(heading) * speed, y: lv.y, z: Math.cos(heading) * speed },
+        true,
+      );
+    }
   }
 
   steerInput = 0;

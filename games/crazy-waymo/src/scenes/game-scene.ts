@@ -270,7 +270,8 @@ export class GameScene {
   private skidDist = 0;
   private scrapeFrames = 0;
   private wasBoosting = false;
-  private wasCharged = false;
+  private lastDriftTier: 0 | 1 | 2 = 0;
+  private sparkAccum = 0;
   private paused = false;
   private outro = -1; // >=0: slow-mo time-up sting is running
   private countdownShown = -1;
@@ -1310,20 +1311,32 @@ export class GameScene {
     if (drifting || car.isBoosting) this.emitDriftSmoke(dt, car);
     if (drifting && !car.airborne) this.stampSkids(car, dt);
     this.emitTrails(car, drifting);
+    if (drifting && !car.airborne) this.emitDriftSparks(dt, car);
 
-    // Drift charge tell: sparks turn cyan + a blip the moment the boost arms.
-    const charged = car.driftCharge >= 1 && drifting;
-    if (charged && !this.wasCharged) this.sfx.driftArm();
-    this.wasCharged = charged;
+    // Mini-turbo tier tell (Mario Kart): a blip + spark flare each time the
+    // charge steps up a tier — blue at tier 1, orange at tier 2.
+    const tier = drifting ? car.driftTier : 0;
+    if (tier > this.lastDriftTier) {
+      this.sfx.driftArm();
+      const hue = tier === 2 ? 0.07 : 0.58;
+      this.fx.burst(car.position.x, 0.6, car.position.z, hue, 10, 5);
+    }
+    this.lastDriftTier = tier;
 
-    // Drift-release slingshot — the signature skill move — gets its own payoff.
+    // Drift-release mini-turbo — the signature skill move — pays by tier.
     if (car.miniBoostFired) {
+      const superTurbo = car.miniTurboTier >= 2;
       this.sfx.boost();
-      this.rig.addTrauma(0.18);
-      this.hud.flash("#ffd147", 0.16);
-      this.fx.burst(car.position.x, 0.6, car.position.z, 0.08, 8, 7);
-      this.shocks.fire(car.position.x, car.position.y, car.position.z, 0x8fe8ff);
-      this.hud.showCombo("DRIFT BOOST!");
+      this.rig.addTrauma(superTurbo ? 0.26 : 0.18);
+      this.hud.flash(superTurbo ? "#ffa726" : "#8fe8ff", 0.16);
+      this.fx.burst(car.position.x, 0.6, car.position.z, superTurbo ? 0.07 : 0.58, 12, 8);
+      this.shocks.fire(
+        car.position.x,
+        car.position.y,
+        car.position.z,
+        superTurbo ? 0xffa726 : 0x8fe8ff,
+      );
+      this.hud.showCombo(superTurbo ? "SUPER MINI-TURBO!" : "MINI-TURBO!");
     }
 
     // Boost package: ignition one-shot + loop + flames + camera kick.
@@ -1480,7 +1493,8 @@ export class GameScene {
     if (!trails || car.airborne) return;
     const cornering = Math.abs(car.slip) > 0.12 && car.speed > 20;
     if (!drifting && !car.isBoosting && !cornering) return;
-    const kind = car.isBoosting ? 2 : car.driftCharge >= 1 && drifting ? 1 : 0;
+    // Ribbon color follows the mini-turbo tier: white grind → cyan → orange.
+    const kind = car.isBoosting || car.driftTier === 2 ? 2 : car.driftTier === 1 ? 1 : 0;
     const strength = Math.min(1, car.speed / CAR.maxSpeed);
     const fx = Math.sin(car.heading);
     const fz = Math.cos(car.heading);
@@ -1490,6 +1504,27 @@ export class GameScene {
     const pz = fx;
     trails.emit(0, rx + px * 0.7, rz + pz * 0.7, car.heading, kind, strength);
     trails.emit(1, rx - px * 0.7, rz - pz * 0.7, car.heading, kind, strength);
+  }
+
+  // Mario-Kart drift sparks: a steady spray off the rear wheels while the
+  // drift holds, colored by the charge tier — yellow grind → blue (tier 1
+  // armed) → orange (tier 2 armed). The tier-up moments themselves flare in
+  // the update loop.
+  private emitDriftSparks(dt: number, car: Car): void {
+    this.sparkAccum += dt;
+    if (this.sparkAccum < 0.05) return;
+    this.sparkAccum = 0;
+    const tier = car.driftTier;
+    const hue = tier === 2 ? 0.07 : tier === 1 ? 0.58 : 0.13;
+    const fx = Math.sin(car.heading);
+    const fz = Math.cos(car.heading);
+    const rx = car.position.x - fx * 1.6;
+    const rz = car.position.z - fz * 1.6;
+    const px = -fz;
+    const pz = fx;
+    const power = 2.6 + tier * 1.2;
+    this.fx.burst(rx + px * 0.8, 0.35, rz + pz * 0.8, hue, 2 + tier, power);
+    this.fx.burst(rx - px * 0.8, 0.35, rz - pz * 0.8, hue, 2 + tier, power);
   }
 
   private emitDriftSmoke(dt: number, car: Car): void {
