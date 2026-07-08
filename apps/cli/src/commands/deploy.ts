@@ -52,14 +52,25 @@ export const deployCommand = defineCommand({
     }
 
     // Build-tool projects (package.json present): the root index.html is the
-    // source template, the playable game lives in dist/. Deploying the root
-    // uploads the whole source tree — wrong content and usually over the
-    // file caps — so prefer the build output when it exists.
+    // source template, the playable game lives in the build output. Deploying
+    // the root uploads the whole source tree — wrong content and usually over
+    // the file caps — so prefer a build directory when one exists. Checked in
+    // popularity order: Vite/Rollup/Parcel → CRA/Preact → Next export/esbuild.
     let deployDir = dir;
-    const distDir = join(dir, "dist");
-    if (existsSync(join(dir, "package.json")) && existsSync(join(distDir, "index.html"))) {
-      deployDir = distDir;
-      consola.info("Project root detected — deploying its build output dist/ instead.");
+    if (existsSync(join(dir, "package.json"))) {
+      for (const name of ["dist", "build", "out"]) {
+        if (existsSync(join(dir, name, "index.html"))) {
+          deployDir = join(dir, name);
+          consola.info(`Project root detected — deploying its build output ${name}/ instead.`);
+          break;
+        }
+      }
+      if (deployDir === dir) {
+        consola.warn(
+          "This looks like an unbuilt project (package.json, no dist/build/out) — " +
+            "run the build first, or the deployed index.html will reference missing source files.",
+        );
+      }
     }
 
     // ---- Resolve project config ---------------------------------------------
