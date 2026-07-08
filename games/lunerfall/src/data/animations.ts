@@ -24,7 +24,13 @@ const LOOPING = new Set(["idle", "idle-break", "run", "fall"]);
 const ALIASES: Record<string, Record<string, string | string[]>> = {
   axion: { Smash: "super-smash" },
   reaper: { "Special Skill": "skill", "Surprise Attack": "attack" },
-  riven: { "Single Slash": "slash", "Smoke Bomb In": "smoke-in", "Smoke Bomb Out": "smoke-out" },
+  riven: {
+    // "slash-heavy" = the same drawing as riven's opener, re-registered so the
+    // combo finisher (different swing timing) gets its own retimed @kit variant.
+    "Single Slash": ["slash", "slash-heavy"],
+    "Smoke Bomb In": "smoke-in",
+    "Smoke Bomb Out": "smoke-out",
+  },
   salamander: { Hit: ["hit", "hurt"] },
 };
 

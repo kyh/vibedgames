@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 
 import { HERO_ORIGIN_Y, HERO_SCALE, interp } from "../config";
+import { kitClipKey } from "../data/clip-timing";
 import type { HeroDef } from "../data/heroes";
 import type { NetPlayer } from "../net/snapshot";
 import { afterImage, landPuff, smoke } from "../sys/fx";
@@ -137,16 +138,23 @@ export class Player {
     if (sy < 1) landPuff(this.scene, this.sprite.x, this.body.y); // landing squash kicks up dust
   }
 
-  // Play a clip, re-timed to its gameplay duration via timeScale. NOTE: passing
-  // `duration` to play() FREEZES Phaser anims that carry per-frame durations (as
-  // ours do from Aseprite) — it renders frame 1 only. timeScale speeds the same
-  // frames up without that bug, so the whole clip plays across its mechanic
-  // window (swings are readable now that SWING_TEMPO widened that window).
+  // Play a clip — the retimed @kit variant when one exists (attack clips whose
+  // contact frame is aligned to the hitbox window; see data/clip-timing.ts),
+  // else the base authored clip scaled to its gameplay ms via timeScale. NOTE:
+  // passing `duration` to play() FREEZES Phaser anims that carry per-frame
+  // durations (as ours do from Aseprite) — it renders frame 1 only; timeScale
+  // re-times without that bug. @kit variants total their gameplay dur already,
+  // so their ratio lands at ~1.
   private playClip(clip: string, loop: boolean) {
-    this.sprite.play(`${this.name}:${clip}`, loop);
+    this.sprite.play(this.clipKey(clip), loop);
     const ms = clipGameMs(this.hero, clip);
     const authored = this.sprite.anims.currentAnim?.duration ?? 0;
     this.sprite.anims.timeScale = ms !== undefined && ms > 0 && authored > 0 ? authored / ms : 1;
+  }
+
+  // The anim key a clip resolves to for this hero (kit variant preferred).
+  private clipKey(clip: string): string {
+    return kitClipKey(this.scene, this.hero.name, clip);
   }
 
   // Choose + play the clip for the current sim/net state. Shared by render (local
@@ -193,7 +201,7 @@ export class Player {
     if (
       this.swingClip !== null &&
       this.sprite.anims.isPlaying &&
-      this.sprite.anims.currentAnim?.key === `${this.name}:${this.swingClip}` &&
+      this.sprite.anims.currentAnim?.key === this.clipKey(this.swingClip) &&
       !s.hurting &&
       !s.dashing &&
       s.grounded &&

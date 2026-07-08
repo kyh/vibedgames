@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 
 import { ATLAS_KEYS, buildAnimsFromAseprite } from "../data/animations";
+import { buildKitClips } from "../data/clip-timing";
 
 // Loads every character/enemy/boss as an Aseprite atlas (texture + tag/duration
 // JSON), builds animations with the authored per-frame timings, loads the
@@ -37,6 +38,7 @@ export class BootScene extends Phaser.Scene {
 
   create() {
     for (const key of ATLAS_KEYS) buildAnimsFromAseprite(this, key);
+    buildKitClips(this); // hero attack variants retimed so contact frames match hitboxes
 
     this.anims.create({
       key: "fx:flame-wave",

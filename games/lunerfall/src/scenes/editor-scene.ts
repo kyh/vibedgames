@@ -10,6 +10,7 @@ import {
   type HeroName,
   HERO_NAMES,
 } from "../data/animations";
+import { kitClipKey } from "../data/clip-timing";
 import { HEROES } from "../data/heroes";
 import { clipGameMs } from "../entities/player";
 import { HIT_BACK, HIT_DOWN, HIT_UP } from "../entities/player-body";
@@ -135,7 +136,10 @@ export class EditorScene extends Phaser.Scene {
     const char = CHARS[this.ci];
     if (!info || !char || !this.sprite) return;
     const hero = char.hero ? HEROES[char.key] : undefined;
-    this.sprite.play({ key: `${char.key}:${info.clip}`, repeat: -1 });
+    // Preview the retimed @kit variant when the game would play one, so the
+    // editor shows true in-game attack timing (contact frame on the hitbox).
+    const key = hero ? kitClipKey(this, hero.name, info.clip) : `${char.key}:${info.clip}`;
+    this.sprite.play({ key, repeat: -1 });
     // timeScale (not duration) re-times without freezing per-frame-duration anims.
     const gm = hero ? clipGameMs(hero, info.clip) : undefined;
     const authored = this.sprite.anims.currentAnim?.duration ?? 0;

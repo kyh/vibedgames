@@ -35,12 +35,13 @@ export type HeroDef = {
   kit: HeroKit;
 };
 
-// Global swing tempo. The Luneblade attack art is authored slow (~10fps), so a
-// snappy 0.22s hitbox window blurred the whole swing AND cut combo steps short.
-// This stretches only `dur` — the readable anim length + the combo cadence — so
-// each strike plays out and chains cleanly. Crucially it does NOT scale the
-// hitbox (`a0`/`a1`) or `combo`: the hit still lands EARLY (~50–140ms, snappy +
-// responsive) and chaining stays forgiving; only the visual swing is slow. Tune.
+// Global swing tempo. Stretches only `dur` — the swing's total commitment +
+// combo cadence — never the hitbox (`a0`/`a1`) or `combo`: the hit still lands
+// EARLY (~50–140ms, snappy + responsive). How the ART fills that window is
+// data/clip-timing.ts's job: it retimes each clip unevenly so the measured
+// contact frame displays exactly during [a0, a1] and the follow-through holds
+// through the rest of `dur` (uniform stretching left the visual hit ~300-700ms
+// after the damage). Tune tempo for pacing; tune STRIKE_FRAME for alignment.
 const SWING_TEMPO = 4.0;
 // Extra forward reach on every swing so hits land more generously in front.
 const REACH_BONUS = 12;
@@ -93,7 +94,9 @@ export const HEROES: Record<HeroName, HeroDef> = {
       swings: [
         swing("slash", { dur: 0.16, a0: 0.03, a1: 0.1, combo: 0.08, reach: 17, dmg: 1, kb: 70, lunge: 55 }),
         swing("double-slash", { dur: 0.2, a0: 0.04, a1: 0.14, combo: 0.09, reach: 18, dmg: 1, kb: 90, lunge: 60 }),
-        swing("slash", { dur: 0.24, a0: 0.04, a1: 0.16, combo: 99, reach: 19, dmg: 2, kb: 150, lunge: 80 }),
+        // Same drawing as swing 1 but its own clip name: the finisher's timing
+        // differs, and retimed @kit variants are built per (clip, swing spec).
+        swing("slash-heavy", { dur: 0.24, a0: 0.04, a1: 0.16, combo: 99, reach: 19, dmg: 2, kb: 150, lunge: 80 }),
       ],
       special: { kind: "blink", clip: "smoke-in", outClip: "smoke-out", dist: 78, cd: 2.6, iframes: 0.3 },
     },
