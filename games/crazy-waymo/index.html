@@ -600,6 +600,8 @@
         bottom: 40px;
         width: 74px;
         height: 74px;
+        font-size: 12px;
+        letter-spacing: 1px;
         background: rgba(255, 90, 82, 0.16);
         border-color: rgba(255, 90, 82, 0.5);
       }
@@ -629,20 +631,22 @@
           width: 62px;
           height: 62px;
         }
-        #t-drift {
+        #t-boost {
           right: 22px;
           bottom: 200px;
           width: 56px;
           height: 56px;
         }
       }
-      #t-drift {
+      #t-boost {
         right: 30px;
         bottom: 214px;
         width: 64px;
         height: 64px;
-        font-size: 13px;
+        font-size: 12px;
         letter-spacing: 1px;
+        background: rgba(255, 209, 71, 0.16);
+        border-color: rgba(255, 209, 71, 0.55);
       }
 
       #legend {
@@ -787,12 +791,12 @@
       <div class="tbtn" id="t-left" role="button" aria-label="Steer left">◀</div>
       <div class="tbtn" id="t-right" role="button" aria-label="Steer right">▶</div>
       <div class="tbtn" id="t-gas" role="button" aria-label="Accelerate">GAS</div>
-      <div class="tbtn" id="t-brake" role="button" aria-label="Brake">BRK</div>
-      <div class="tbtn" id="t-drift" role="button" aria-label="Drift">DRIFT</div>
+      <div class="tbtn" id="t-brake" role="button" aria-label="Brake and drift">BRAKE</div>
+      <div class="tbtn" id="t-boost" role="button" aria-label="Boost">BOOST</div>
     </div>
 
     <div id="legend">
-      <b>↑/W</b> gas · <b>↓/S</b> brake · <b>←→/AD</b> steer · <b>SPACE</b> drift · <b>SHIFT</b> boost ·
+      <b>↑/W</b> gas · <b>↓/S/SPACE</b> brake&hairsp;+&hairsp;drift · <b>←→/AD</b> steer · <b>SHIFT</b> boost ·
       <b>R</b> restart · <b>ENTER</b> chat · 🔧 garage swaps your robotaxi
     </div>
 

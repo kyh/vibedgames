@@ -65,6 +65,11 @@ const SUN_DIR = new THREE.Vector3().setFromSphericalCoords(
   THREE.MathUtils.degToRad(90 - 32),
   THREE.MathUtils.degToRad(150),
 );
+// Sum of the taxi and a car's collision half-extents — the centre distance at
+// which their bodies touch. The punt fires predictively at this range (plus the
+// ground the taxi covers this frame) so the car goes DYNAMIC before Rapier
+// resolves the overlap, instead of the taxi ramming a still-kinematic wall.
+const CONTACT_R = 2.6;
 const NEAR_MISS_MIN = 2.8; // above the contact zone so a hit isn't also a "near miss"
 const NEAR_MISS_MAX = 4.6;
 const NEAR_MISS_SPEED = 22;
@@ -1271,8 +1276,8 @@ export class GameScene {
     const input = this.input.carInput();
 
     car.update(dt, input, solids);
-    this.handleTrafficImpacts(car, traffic);
-    this.handleParkedImpacts(car);
+    this.handleTrafficImpacts(car, traffic, dt);
+    this.handleParkedImpacts(car, dt);
     traffic.update(dt, city, car.position.x, car.position.z, car.heading);
     this.physics?.step(dt, (fdt) => car.physicsFixedStep(fdt));
     car.syncFromPhysics(dt);
@@ -1351,7 +1356,7 @@ export class GameScene {
 
     this.sfx.setEngine(
       Math.min(1, car.speed / CAR.boostSpeed),
-      input.throttle,
+      input.throttle - input.brake, // the engine hum still reads the old -1..1 pedal axis
       car.isBoosting,
       car.airborne,
     );
@@ -1423,7 +1428,7 @@ export class GameScene {
       if (this.turnHold > 0.8) {
         this.hintDriftShown = true;
         storageSet(HINT_DRIFT_KEY, "1");
-        this.hud.announceMinor("HOLD SPACE TO DRIFT", "#ffd147");
+        this.hud.announceMinor("BRAKE + STEER TO DRIFT", "#ffd147");
       }
     }
     if (!this.hintBoostShown && car.boostMeter >= CAR.boostMax) {
@@ -1537,7 +1542,7 @@ export class GameScene {
   // Ram a traffic car → it gets punted into the physics world (dynamic body,
   // impulse along the contact normal); the taxi sheds some speed but keeps
   // its line. Airborne taxis clear roofs (handled by the height check).
-  private handleTrafficImpacts(car: Car, traffic: Traffic): void {
+  private handleTrafficImpacts(car: Car, traffic: Traffic, dt: number): void {
     const physics = this.physics;
     if (!physics) return;
     for (const c of traffic.cars) {
@@ -1546,16 +1551,24 @@ export class GameScene {
       const dx = c.position.x - car.position.x;
       const dz = c.position.z - car.position.z;
       const d = Math.hypot(dx, dz);
-      if (d > 2.5 || d < 1e-4) continue;
+      if (d < 1e-4) continue;
       const nx = dx / d;
       const nz = dz / d;
-      const impact = car.contactPunt(nx, nz, Math.max(0, 2.5 - d) * 0.5);
-      if (impact < 0.4) continue; // even slow nudges shove the car
+      // Closing speed of the taxi toward this car (0 in physics mode has no
+      // side effects — it just reads the velocity along the normal).
+      const impact = car.contactPunt(nx, nz, 0);
+      // Flip the car to a dynamic body the frame contact is imminent (bodies
+      // touch at CONTACT_R; the taxi covers `closing * dt` more this step), so
+      // Rapier resolves against a real (heavy) body, not a kinematic wall. Then
+      // the taxi's own momentum shoves it — pure physics, no scripted push. The
+      // heavier taxi wins the exchange; both slow like actual cars.
+      const reach = CONTACT_R + Math.max(0, impact) * dt;
+      if (d > reach) continue;
+      if (impact < 0.4 && d > CONTACT_R) continue;
       c.puntCooldown = 0.25;
-      const shove = Math.max(impact * 0.85, 3);
-      c.punt(physics, nx * shove, Math.min(4, impact * 0.16), nz * shove);
+      c.punt(physics);
       // Feed the existing crash pipeline (sfx/debris/shake scale with it).
-      car.lastWallHit = Math.max(car.lastWallHit, impact * 0.55);
+      car.lastWallHit = Math.max(car.lastWallHit, impact * 0.5);
       // SF has opinions about robotaxis. Bumped drivers share theirs.
       if (impact > 4 && this.heckleCooldown <= 0 && Math.random() < 0.65) {
         this.heckleCooldown = 7;
@@ -1570,19 +1583,14 @@ export class GameScene {
     }
   }
 
-  // Ram a parked car → it bounces (dynamic body + impulse), same as traffic
-  // but with no run/wreck bookkeeping. The taxi sheds a little speed.
-  private handleParkedImpacts(car: Car): void {
+  // Ram a parked car → it becomes a dynamic body and the taxi's momentum shoves
+  // it off (pure physics), same feel as traffic but with no run/wreck
+  // bookkeeping. tryPunt returns the closing speed for the crash pipeline.
+  private handleParkedImpacts(car: Car, dt: number): void {
     const parked = this.parked;
     if (!parked) return;
-    const sp = car.speed;
-    if (sp < 6) return; // needs real momentum to knock a parked car
-    // Shove along the taxi's heading so it reads as a plough-through.
-    const nx = Math.sin(car.heading);
-    const nz = Math.cos(car.heading);
-    if (parked.punt(car.position.x, car.position.z, nx, nz, sp)) {
-      car.lastWallHit = Math.max(car.lastWallHit, sp * 0.4);
-    }
+    const impact = parked.tryPunt(car.position.x, car.position.z, car.velX, car.velZ, dt);
+    if (impact > 0) car.lastWallHit = Math.max(car.lastWallHit, impact * 0.5);
   }
 
   private handleHonks(traffic: Traffic): void {

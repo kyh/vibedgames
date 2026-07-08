@@ -127,17 +127,14 @@ export class TrafficCar {
     this.puntCooldown = 0;
   }
 
-  // The taxi hit this car: physics takes over with the given velocity.
-  punt(physics: PhysicsWorld, vx: number, vy: number, vz: number): void {
+  // The taxi is about to hit this car: hand it to Rapier and let the taxi's
+  // real momentum do the shoving (pure physics — no scripted push). Idempotent.
+  punt(physics: PhysicsWorld): void {
     const body = this.body;
-    if (!body) return;
-    if (!this.wrecked) {
-      physics.makeDynamic(body);
-      this.wrecked = true;
-      this.wreckTime = 0;
-    }
-    const v = body.linvel();
-    body.setLinvel({ x: v.x * 0.3 + vx, y: Math.max(v.y, vy), z: v.z * 0.3 + vz }, true);
+    if (!body || this.wrecked) return;
+    physics.makeDynamic(body);
+    this.wrecked = true;
+    this.wreckTime = 0;
   }
 
   // Pick the outgoing edge at `node`, arriving along (tx, tz). Straightest

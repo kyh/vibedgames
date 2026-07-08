@@ -1172,8 +1172,6 @@ export class CityModel {
 
     console.log(`[city] merges ${Math.round(performance.now() - tMerge)}ms`);
     await this.buildBatchesFrom(batchBuckets, nx, nz);
-    // Chunk centres for the batched-instance visibility pass.
-    this.batchChunkGrid = { nx, nz };
 
     // --- Iconic landmarks (procedural; kept separate — always visible) ---
     this.group.add(buildLandmarks(this.terrain, this.cache));
@@ -1552,6 +1550,18 @@ export class CityModel {
     if (untagged.size > 0) {
       console.log("[city] untagged batch items:", JSON.stringify([...untagged.entries()]));
     }
+    // Publish the chunk grid ONLY now, after chunkInstancesNear is fully mapped.
+    // Both callers reach here (cold gen AND the baked-rest rebuild); the rebuild
+    // path used to skip this, leaving the grid at 1×1 so updateStreaming culled
+    // only chunk 0 and the whole map's props drew every frame. It must be the
+    // LAST step because buildBatchesFrom yields (await breathe) mid-loop: if the
+    // grid went live earlier, an updateStreaming during a yield would mark far
+    // chunks hidden in the array before their instances were mapped, skip the
+    // setVisibleAt, and never re-fire — stranding those props visible forever.
+    // Nulling the arrays forces a clean re-alloc + full cull on the next pass.
+    this.batchChunkGrid = { nx, nz };
+    this.chunkVisible = null;
+    this.chunkVisibleNear = null;
     console.log(`[city] batches ${Math.round(performance.now() - tBatch)}ms`);
   }
 

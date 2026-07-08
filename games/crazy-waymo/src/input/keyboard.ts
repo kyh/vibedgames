@@ -5,7 +5,7 @@ const THREE_clamp = (v: number): number => Math.max(-1, Math.min(1, v));
 // Keyboard + touch-button input, merged into a single CarInput each frame.
 export class InputState {
   private keys = new Set<string>();
-  private touch = { gas: false, brake: false, left: false, right: false, drift: false };
+  private touch = { gas: false, brake: false, left: false, right: false, boost: false };
   startPressed = false;
   restartPressed = false;
   pausePressed = false;
@@ -46,15 +46,18 @@ export class InputState {
 
   carInput(): CarInput {
     const gas = this.has("arrowup", "w") || this.touch.gas;
-    const brake = this.has("arrowdown", "s") || this.touch.brake;
+    // ONE brake pedal, racing-game style: ↓/S/Space (and the touch BRAKE
+    // button) all pull it. Brake to slow, brake+steer to drift, brake from a
+    // stop to reverse, gas+brake to power-drift.
+    const brakeHeld = this.has("arrowdown", "s", " ") || this.touch.brake;
     const left = this.has("arrowleft", "a") || this.touch.left;
     const right = this.has("arrowright", "d") || this.touch.right;
-    let throttle = (gas ? 1 : 0) - (brake ? 1 : 0);
+    let throttle = gas ? 1 : 0;
+    let brake = brakeHeld ? 1 : 0;
     let steer = (right ? 1 : 0) - (left ? 1 : 0);
-    let drift = this.has(" ") || this.touch.drift;
-    let boost = this.has("shift") || (gas && this.touch.drift);
+    let boost = this.has("shift") || this.touch.boost;
     // Gamepad (reference parity): left stick steers, RT gas, LT brake,
-    // A jump/handbrake, B or RB boost.
+    // A/X also brake (handbrake habit), B or RB boost.
     const pads = typeof navigator.getGamepads === "function" ? navigator.getGamepads() : [];
     for (const pad of pads) {
       if (!pad || !pad.connected) continue;
@@ -65,12 +68,12 @@ export class InputState {
       const dpadUp = pad.buttons[12]?.pressed ?? false;
       const dpadDown = pad.buttons[13]?.pressed ?? false;
       if (rt > 0.05 || dpadUp) throttle = Math.max(throttle, rt || 1);
-      if (lt > 0.05 || dpadDown) throttle = Math.min(throttle, -(lt || 1));
-      if ((pad.buttons[0]?.pressed ?? false) || (pad.buttons[2]?.pressed ?? false)) drift = true; // A/X = handbrake
+      if (lt > 0.05 || dpadDown) brake = Math.max(brake, lt || 1);
+      if ((pad.buttons[0]?.pressed ?? false) || (pad.buttons[2]?.pressed ?? false)) brake = 1;
       if ((pad.buttons[1]?.pressed ?? false) || (pad.buttons[5]?.pressed ?? false)) boost = true;
       break; // first connected pad wins
     }
-    return { throttle, steer, drift, boost };
+    return { throttle, brake, steer, boost };
   }
 
   // Consume one-shot edges so they fire once per press.

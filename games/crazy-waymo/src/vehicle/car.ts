@@ -10,9 +10,12 @@ import type { SolidIndex } from "../world/solid-index";
 import { slopeQuaternion } from "../world/terrain";
 
 export type CarInput = {
-  readonly throttle: number; // -1 brake/reverse, 0, +1 gas
+  readonly throttle: number; // 0..1 gas
+  // 0..1 — the ONE brake pedal (↓/S/Space, racing-game style): slows you,
+  // drifts you (brake + steer), reverses you (brake from a stop), and
+  // power-drifts with gas held.
+  readonly brake: number;
   readonly steer: number; // -1 left .. +1 right
-  readonly drift: boolean;
   readonly boost: boolean;
 };
 
@@ -301,6 +304,15 @@ export class Car {
   get speed(): number {
     return this.velocity.length();
   }
+  // World-space planar velocity components (x = world X, z = world Z) — the
+  // collision handlers read these to project the taxi's closing speed onto a
+  // contact normal.
+  get velX(): number {
+    return this.velocity.x;
+  }
+  get velZ(): number {
+    return this.velocity.y;
+  }
   get forwardSpeed(): number {
     return this.velocity.x * Math.sin(this.heading) + this.velocity.y * Math.cos(this.heading);
   }
@@ -388,8 +400,8 @@ export class Car {
     veh.setControls(input, wantBoost);
 
     // Drift bookkeeping (scoring/boost-fill) — physics does the sliding, we
-    // just recognise it: handbrake + real sideways motion.
-    const physicsDrift = input.drift && this.speed > CAR.driftMinSpeed && !this.airborne;
+    // just recognise it: brake held + real sideways motion.
+    const physicsDrift = input.brake > 0.05 && this.speed > CAR.driftMinSpeed && !this.airborne;
     this.isDrifting = physicsDrift && Math.abs(this.slip) > CAR.driftMinSlip;
     if (this.isDrifting) {
       this.driftSustain += dt;
@@ -541,7 +553,7 @@ export class Car {
     const topSpeed = wantBoost ? CAR.boostSpeed : CAR.maxSpeed;
     if (input.throttle > 0) {
       vForward += CAR.accel * dt;
-    } else if (input.throttle < 0) {
+    } else if (input.brake > 0.05) {
       if (vForward > 0.5) vForward -= CAR.brakeDecel * dt;
       else vForward = Math.max(vForward - CAR.reverseAccel * dt, -CAR.reverseMax);
     } else {
@@ -570,7 +582,7 @@ export class Car {
     const va = this.velAngle;
     this.slip =
       va === null ? 0 : ((va - this.heading + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
-    const physicsDrift = input.drift && absF > CAR.driftMinSpeed && !this.airborne;
+    const physicsDrift = input.brake > 0.05 && absF > CAR.driftMinSpeed && !this.airborne;
     this.isDrifting =
       physicsDrift && (Math.abs(this.slip) > CAR.driftMinSlip || Math.abs(this.steerSmoothed) > 0.35);
     const speedFrac = THREE.MathUtils.clamp(absF / CAR.maxSpeed, 0, 1);
@@ -670,7 +682,7 @@ export class Car {
     // --- Visual lean (roll into turns, dive under braking, squat on throttle) ---
     const targetRoll = -input.steer * speedFrac * (physicsDrift ? 0.34 : 0.18);
     this.roll += (targetRoll - this.roll) * Math.min(1, dt * 10);
-    const targetPitch = input.throttle < 0 && vForward > 1 ? 0.05 : input.throttle > 0 ? -0.025 : 0;
+    const targetPitch = input.brake > 0.05 && vForward > 1 ? 0.05 : input.throttle > 0 ? -0.025 : 0;
     this.pitch += (targetPitch - this.pitch) * Math.min(1, dt * 8);
     this.squash = Math.max(0, this.squash - dt * 5.5); // springs back ~180ms
 

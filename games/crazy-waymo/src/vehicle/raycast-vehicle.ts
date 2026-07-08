@@ -3,7 +3,6 @@ import * as THREE from "three";
 
 import type { PhysicsWorld } from "../physics/physics-world";
 import type { CarInput } from "./car";
-import { CAR } from "../shared/constants";
 
 // Physics-driven car on Rapier's DynamicRayCastVehicleController — a port of
 // icurtis1/raycast-vehicle (cannon-es) onto our stack: the chassis is a rigid
@@ -23,13 +22,24 @@ export type VehicleParams = {
   cruiseSpeed: number; // top speed on throttle alone (u/s)
   maxSpeed: number; // top speed while boosting
   reverseFactor: number;
-  // steering (wheel visuals + low-speed physics feel; real turn authority
-  // comes from the CAR turn model — see fixedStep)
+  // steering — the front wheels ARE the turn (pure tire physics)
   maxSteer: number;
   steerSpeed: number;
-  yawAssist: number;
-  // brakes
+  highSpeedSteer: number; // steer-lock fraction kept at cruise (agile slow, stable fast)
+  // brake — ONE pedal (↓/S/Space), applied to the REAR wheels like a handbrake
+  // pull (Sega arcade style: the brake IS the drift tool). Braking cuts the
+  // rear tires to driftGrip so brake+steer steps the tail out, while a capped
+  // yaw assist rotates toward the steered direction — and at zero steer that
+  // same assist damps yaw, so straight-line braking stays straight. Pure tire
+  // drift alone grips-or-spins; the capped assist is the one arcade cheat.
   brakeForce: number;
+  driftGrip: number; // rear-tire grip while braking (< 1 breaks the tail loose)
+  driftYawRate: number; // yaw rate (rad/s) the drift rotates toward at full steer
+  driftAssist: number; // how hard yaw converges to that target (gain)
+  driftMaxSlip: number; // slip angle (rad) the drift holds — it slides, never spins
+  driftBrakeFade: number; // brake bite kept at full drift (hold Space through a corner)
+  brakeRamp: number; // seconds of holding for the bite to build to full — a tap
+  // or a drift-entry press only ever feathers; a held straight brake anchors.
   airborneGravityScale: number;
   // suspension / tires
   suspensionStiffness: number;
@@ -53,15 +63,21 @@ export type VehicleParams = {
 };
 
 export const DEFAULT_VEHICLE_PARAMS: VehicleParams = {
-  engineForce: 4600,
+  engineForce: 3000,
   boostMultiplier: 1.8,
   cruiseSpeed: 30,
   maxSpeed: 44,
   reverseFactor: 0.6,
-  maxSteer: 0.55,
-  steerSpeed: 6,
-  yawAssist: 9, // how hard angvel is driven toward the CAR-model yaw rate
-  brakeForce: 5200,
+  maxSteer: 0.45,
+  steerSpeed: 2,
+  highSpeedSteer: 0.3,
+  brakeForce: 3200,
+  driftGrip: 0.45,
+  driftYawRate: 2.4,
+  driftAssist: 8,
+  driftMaxSlip: 0.6,
+  driftBrakeFade: 0.06,
+  brakeRamp: 0.3,
   airborneGravityScale: 1.4,
   suspensionStiffness: 62,
   suspensionRestLength: 0.55,
@@ -99,9 +115,9 @@ export class RaycastVehicle {
   private currentSteer = 0;
   private airborneTime = 0;
   private gripRecoveryT = 1;
-  private handbrake = false;
+  private brakeInput = 0;
+  private brakeHeldT = 0; // seconds the brake has been held (drives the bite ramp)
   private stuckT = 0;
-  private arcadeSteer = 0;
   private boosting = false;
   private throttle = 0;
 
@@ -211,9 +227,6 @@ export class RaycastVehicle {
     };
   }
 
-  get isHandbraking(): boolean {
-    return this.handbrake;
-  }
   get airTimeSeconds(): number {
     return this.airborneTime;
   }
@@ -221,7 +234,7 @@ export class RaycastVehicle {
   // Per-render-frame: read input into control state (cheap, idempotent).
   setControls(input: CarInput, boosting: boolean): void {
     this.throttle = input.throttle;
-    this.handbrake = input.drift;
+    this.brakeInput = input.brake;
     this.boosting = boosting;
   }
 
@@ -243,9 +256,34 @@ export class RaycastVehicle {
   // always runs at FIXED_DT, exactly like the reference.
   fixedStep(dt: number): void {
     const p = this.params;
-    // --- Wheel steering (visuals + low-speed physics feel; the CAR turn
-    // model below owns real turn authority) ---
-    const target = -this.steerInput * p.maxSteer;
+    const fwd = this.forwardDir(this.v);
+    const vel = this.velocity(this.v2);
+    const fwdSpeed = vel.dot(fwd);
+    const speedFrac = THREE.MathUtils.clamp(Math.abs(fwdSpeed) / p.cruiseSpeed, 0, 1);
+    // Signed slip: angle from the nose to the velocity (about +Y). Positive
+    // yaw rotates the nose so slip shrinks when they share a sign.
+    const slipAng = Math.atan2(vel.x * fwd.z - vel.z * fwd.x, vel.x * fwd.x + vel.z * fwd.z);
+    // How engaged the drift is while braking (0 = straight-line anchor,
+    // 1 = full slide): steering intent, or a chassis that is already sideways
+    // (so centering the wheel mid-slide doesn't snap the anchor back on).
+    const braking = this.brakeInput > 0.05 && fwdSpeed > 0.5;
+    const driftEngage = braking
+      ? Math.max(
+          Math.abs(this.steerInput),
+          THREE.MathUtils.clamp(Math.abs(slipAng) / p.driftMaxSlip, 0, 1),
+        )
+      : 0;
+    // Brake pressure ramps in over brakeRamp seconds of HOLDING — a tap or a
+    // brake-then-turn-in press only ever feathers (Mario-Kart drift entry
+    // costs nothing), while a held straight brake builds to the full anchor.
+    this.brakeHeldT = this.brakeInput > 0.05 ? this.brakeHeldT + dt : 0;
+    const brakeBuild = braking ? Math.min(1, this.brakeHeldT / p.brakeRamp) : 0;
+
+    // --- Steering: the front wheels ARE the turn now (pure tire physics). The
+    // lock eases at speed so the car is agile in town and stable at cruise — a
+    // right-angle corner at speed wants the handbrake to break the rear loose. ---
+    const steerLimit = p.maxSteer * THREE.MathUtils.lerp(1, p.highSpeedSteer, speedFrac);
+    const target = -this.steerInput * steerLimit;
     const steerDelta = p.steerSpeed * dt;
     this.currentSteer = THREE.MathUtils.clamp(
       target,
@@ -255,17 +293,21 @@ export class RaycastVehicle {
     this.controller.setWheelSteering(0, this.currentSteer);
     this.controller.setWheelSteering(1, this.currentSteer);
 
-    // --- Engine (rear-wheel drive, cruise/boost speed caps) ---
-    const fwd = this.forwardDir(this.v);
-    const vel = this.velocity(this.v2);
-    const fwdSpeed = vel.dot(fwd);
+    // --- Engine (rear-wheel drive, cruise/boost speed caps). The brake pedal
+    // doubles as reverse once the car has (near) stopped, racing-game style. ---
     const speedCap = this.boosting ? p.maxSpeed : p.cruiseSpeed;
+    // Straight-line braking overrides gas (racing-game standard — otherwise
+    // engine vs brake nearly cancel and the pedal feels dead mid-drive), but
+    // the cut fades back in with drift engagement so gas+brake+steer POWERS
+    // through the corner. Gas stays commanded; releasing Space relaunches.
     let force = 0;
     if (this.throttle > 0.05 && fwdSpeed < speedCap) {
-      force = p.engineForce * (this.boosting ? p.boostMultiplier : 1) * this.throttle;
-    } else if (this.throttle < -0.05) {
-      const movingForward = fwdSpeed > 0.5;
-      force = movingForward ? 0 : p.engineForce * p.reverseFactor * this.throttle;
+      // Engine hands off along the same curves: full drive while drifting or
+      // before the brake pressure builds, cut once the straight anchor is on.
+      const driveScale = braking ? Math.max(driftEngage, 1 - brakeBuild) : 1;
+      force = p.engineForce * (this.boosting ? p.boostMultiplier : 1) * this.throttle * driveScale;
+    } else if (this.brakeInput > 0.05 && this.throttle <= 0.05 && fwdSpeed <= 0.5) {
+      force = -p.engineForce * p.reverseFactor * this.brakeInput; // reverse
     }
     // Anti-wheelie: forward force scales with front-axle load so the car
     // can't torque onto its rear bumper; the floor keeps ramps climbable.
@@ -279,44 +321,24 @@ export class RaycastVehicle {
     this.controller.setWheelEngineForce(2, force);
     this.controller.setWheelEngineForce(3, force);
 
-    // --- Brakes ---
-    let brake = 0;
-    if (this.throttle < -0.05 && fwdSpeed > 0.5) brake = p.brakeForce;
-    if (Math.abs(this.throttle) <= 0.05) brake = 60; // gentle engine braking
-    for (let i = 0; i < 4; i++) this.controller.setWheelBrake(i, brake);
-
-    // --- Arcade turn authority (the old sim's exact model): drive yaw rate
-    // directly while grounded; physics keeps suspension/collisions honest. ---
-    const grounded0 = this.groundedWheels();
-    this.arcadeSteer += (this.steerInput - this.arcadeSteer) * Math.min(1, dt / CAR.steerRamp);
-    if (grounded0 >= 2) {
-      const absF = Math.abs(fwdSpeed);
-      const frac = THREE.MathUtils.clamp(absF / p.cruiseSpeed, 0, 1);
-      let authority = THREE.MathUtils.lerp(1, CAR.turnSpeedFalloff, frac);
-      if (this.handbrake) authority *= CAR.driftTurnBoost;
-      const startFade = THREE.MathUtils.clamp(absF / 3, 0, 1);
-      const dir = fwdSpeed >= 0 ? 1 : -1;
-      const desiredYaw = -this.arcadeSteer * CAR.turnRate * authority * startFade * dir;
-      const av = this.chassis.angvel();
-      const newY = av.y + (desiredYaw - av.y) * Math.min(1, dt * p.yawAssist);
-      this.chassis.setAngvel({ x: av.x, y: newY, z: av.z }, true);
-      // Velocity shaping (the old sim's core cheat): forward momentum follows
-      // the nose; lateral velocity decays at the grip rate — high normally
-      // (goes where it points), low while drifting (slides, but carves).
-      {
-        const lv2 = this.chassis.linvel();
-        const right = this.v2.set(1, 0, 0).applyQuaternion(this.q);
-        right.y = 0;
-        right.normalize();
-        const lat = lv2.x * right.x + lv2.z * right.z;
-        const grip = this.handbrake ? CAR.gripDrift : CAR.gripNormal;
-        const bleed = lat * (1 - Math.exp(-grip * dt));
-        this.chassis.setLinvel(
-          { x: lv2.x - right.x * bleed, y: lv2.y, z: lv2.z - right.z * bleed },
-          true,
-        );
-      }
-    }
+    // --- Brake: rear-biased, like a handbrake yank — the rear locks and (with
+    // the grip cut below) brake+steer breaks the tail into the drift. The
+    // fronts carry a smaller share so braking still bites when the rear axle
+    // unloads (downhill, crests) — Rapier's wheel brake is friction-limited,
+    // and SF is all downhills. The bite fades toward driftBrakeFade as the
+    // drift engages: straight Space = full anchor, Space held through a
+    // corner = a feather that carries speed. No pedals at all = light coast. ---
+    const coast = this.throttle <= 0.05 && this.brakeInput <= 0.05 ? 14 : 0;
+    const bite = braking
+      ? p.brakeForce *
+        this.brakeInput *
+        brakeBuild *
+        THREE.MathUtils.lerp(1, p.driftBrakeFade, driftEngage)
+      : 0;
+    this.controller.setWheelBrake(0, coast + bite * 0.4);
+    this.controller.setWheelBrake(1, coast + bite * 0.4);
+    this.controller.setWheelBrake(2, coast + bite);
+    this.controller.setWheelBrake(3, coast + bite);
 
     // --- Assists ---
     const grounded = this.groundedWheels();
@@ -327,14 +349,17 @@ export class RaycastVehicle {
       this.gripRecoveryT += dt;
     }
 
-    // Natural grip: load cap + landing fade-in + handbrake rear slide.
+    // Natural grip: load cap + landing fade-in + the brake's rear slide (the
+    // drift — cutting the rear tires' grip steps the tail out).
     const staticLoad = (p.mass * GRAVITY) / 4;
     const landingBlend = THREE.MathUtils.clamp(this.gripRecoveryT / p.landingGripTime, 0, 1);
     const landingScale = p.landingGripFactor + (1 - p.landingGripFactor) * landingBlend;
     for (let i = 0; i < 4; i++) {
       const load = Math.max(this.controller.wheelSuspensionForce(i) ?? staticLoad, staticLoad);
       const loadScale = Math.min(1, (p.gripLoadCap * staticLoad) / load);
-      this.controller.setWheelFrictionSlip(i, p.frictionSlip * loadScale * landingScale);
+      let slip = p.frictionSlip * loadScale * landingScale;
+      if (this.brakeInput > 0.05 && (i === 2 || i === 3)) slip *= p.driftGrip; // rear breaks loose
+      this.controller.setWheelFrictionSlip(i, slip);
     }
 
     // Extra gravity while airborne so arcs stay snappy (forces are cleared
@@ -380,14 +405,15 @@ export class RaycastVehicle {
       }
     }
 
-    // Unstick assist: throttle held but beached (barely moving, uneven wheel
-    // contact) — give a small forward+up nudge so players never sit trapped
-    // on a curb lip or a wreck.
-    if (Math.abs(this.throttle) > 0.5 && this.speed < 1.2 && grounded > 0 && grounded < 4) {
+    // Unstick assist: a pedal held but beached (barely moving, uneven wheel
+    // contact) — give a small nudge along the pedal's direction so players
+    // never sit trapped on a curb lip or a wreck.
+    const pedal = this.throttle > 0.5 || this.brakeInput > 0.5;
+    if (pedal && this.speed < 1.2 && grounded > 0 && grounded < 4) {
       this.stuckT += dt;
       if (this.stuckT > 0.9) {
         const f = this.forwardDir(this.v);
-        const sign = this.throttle > 0 ? 1 : -1;
+        const sign = this.throttle > 0.5 ? 1 : -1;
         this.chassis.applyImpulse(
           { x: f.x * sign * p.mass * 4, y: p.mass * 3, z: f.z * sign * p.mass * 4 },
           true,
@@ -396,6 +422,26 @@ export class RaycastVehicle {
       }
     } else {
       this.stuckT = 0;
+    }
+
+    // Drift assist (the brake's one thin cheat): while braking at speed, drive
+    // the yaw toward a steer-proportional, CAPPED target. The rear-grip cut
+    // above lets the velocity keep sliding, so brake+steer reads as a
+    // controlled drift, and at zero steer the same assist damps yaw, so
+    // straight-line braking tracks true. The SLIP cap is what makes it a
+    // drift and never a spin: as the nose swings away from the velocity, any
+    // yaw command that would deepen the slip fades to nothing at driftMaxSlip
+    // — the car holds that slide angle — while counter-steer (which shrinks
+    // the slip) always keeps full authority.
+    if (this.brakeInput > 0.05 && Math.abs(fwdSpeed) > 4) {
+      const av = this.chassis.angvel();
+      const dir = fwdSpeed >= 0 ? 1 : -1;
+      let targetYaw = -this.steerInput * p.driftYawRate * dir;
+      if (slipAng * targetYaw < 0) {
+        targetYaw *= THREE.MathUtils.clamp(1 - Math.abs(slipAng) / p.driftMaxSlip, 0, 1);
+      }
+      const gain = Math.min(1, dt * p.driftAssist);
+      this.chassis.setAngvel({ x: av.x, y: av.y + (targetYaw - av.y) * gain, z: av.z }, true);
     }
 
     this.controller.updateVehicle(dt);

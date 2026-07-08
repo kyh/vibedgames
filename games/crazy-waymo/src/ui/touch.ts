@@ -1,13 +1,13 @@
 import type { InputState } from "../input/keyboard";
 
-type Btn = "gas" | "brake" | "left" | "right" | "drift";
+type Btn = "gas" | "brake" | "left" | "right" | "boost";
 
 const MAP: Record<string, Btn> = {
   "t-gas": "gas",
   "t-brake": "brake",
   "t-left": "left",
   "t-right": "right",
-  "t-drift": "drift",
+  "t-boost": "boost",
 };
 
 // Wire on-screen buttons to the shared input state. Shown only on touch devices.

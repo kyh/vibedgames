@@ -113,18 +113,22 @@ export class PhysicsWorld {
   }
 
   // A traffic car: kinematic while it follows its route, dynamic once punted.
+  // Density gives the punted body real heft (~135kg vs the taxi's 250): a hit
+  // transfers real weight — the heavier taxi wins and drives through, but the
+  // car resists and shoves aside instead of flinging off like a beach ball.
+  // Restitution near zero so it thuds and settles, never pings.
   createCarBody(x: number, y: number, z: number): RAPIER.RigidBody {
     const body = this.world.createRigidBody(
       RAPIER.RigidBodyDesc.kinematicPositionBased()
         .setTranslation(x, y, z)
-        .setLinearDamping(1.1)
+        .setLinearDamping(1.8)
         .setAngularDamping(1.6),
     );
     this.world.createCollider(
       RAPIER.ColliderDesc.cuboid(1.0, 0.75, 1.25)
         .setFriction(0.7)
-        .setRestitution(0.25)
-        .setDensity(1.4),
+        .setRestitution(0.05)
+        .setDensity(18),
       body,
     );
     return body;
@@ -161,14 +165,14 @@ export class PhysicsWorld {
       RAPIER.RigidBodyDesc.kinematicPositionBased()
         .setTranslation(x, y, z)
         .setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) })
-        .setLinearDamping(1.1)
+        .setLinearDamping(1.8)
         .setAngularDamping(1.6),
     );
     this.world.createCollider(
       RAPIER.ColliderDesc.cuboid(1.0, 0.75, 1.25)
         .setFriction(0.7)
-        .setRestitution(0.3)
-        .setDensity(1.4),
+        .setRestitution(0.05)
+        .setDensity(18),
       body,
     );
     return body;

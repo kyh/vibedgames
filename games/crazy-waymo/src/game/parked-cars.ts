@@ -149,34 +149,42 @@ export class ParkedCars {
     this.cullCursor = (this.cullCursor + step) % n;
   }
 
-  // The taxi rammed near (x,z): punt the closest parked car it's touching.
-  punt(x: number, z: number, nx: number, nz: number, impact: number): boolean {
+  // The taxi rammed near (px,pz) moving at (vx,vz): hand the parked car it's
+  // about to touch to Rapier. Predictive like traffic — fire at the contact
+  // radius plus the ground covered this frame, but only when actually closing.
+  // The car's real weight then carries the exchange (the taxi shoves it via a
+  // real contact). Returns the taxi's closing speed toward the car (0 = no hit).
+  tryPunt(px: number, pz: number, vx: number, vz: number, dt: number): number {
+    const speed = Math.hypot(vx, vz);
+    const searchR = HIT_RADIUS + speed * dt; // this frame's travel widens the search
     let best: Parked | null = null;
-    let bestD = HIT_RADIUS * HIT_RADIUS;
+    let bestD = searchR * searchR;
     for (const c of this.cars) {
-      const dx = c.x - x;
-      const dz = c.z - z;
+      const dx = c.x - px;
+      const dz = c.z - pz;
       const d2 = dx * dx + dz * dz;
       if (d2 < bestD) {
         bestD = d2;
         best = c;
       }
     }
-    if (!best) return false;
+    if (!best) return 0;
+    const d = Math.sqrt(bestD);
+    if (d < 1e-4) return 0;
+    const nx = (best.x - px) / d;
+    const nz = (best.z - pz) / d;
+    const closing = vx * nx + vz * nz; // taxi speed toward the car
+    const reach = HIT_RADIUS + Math.max(0, closing) * dt;
+    if (d > reach) return 0;
+    if (closing < 0.4 && d > HIT_RADIUS) return 0;
     if (!best.hit) {
-      // Lazy body: parked cars carry no physics until this moment.
+      // Lazy body, created the frame contact is imminent; from here Rapier +
+      // the taxi's momentum do the shoving (pure physics — no scripted push).
       best.body = this.physics.createParkedBody(best.x, best.y + BODY_LIFT, best.z, best.yaw);
       this.physics.makeDynamic(best.body);
       best.hit = true;
     }
-    if (!best.body) return false;
-    const shove = Math.max(impact * 0.9, 3.5);
-    const v = best.body.linvel();
-    best.body.setLinvel(
-      { x: v.x * 0.3 + nx * shove, y: Math.max(v.y, Math.min(4, impact * 0.16)), z: v.z * 0.3 + nz * shove },
-      true,
-    );
-    return true;
+    return closing;
   }
 
   // After the physics step: punted cars' batch instances follow their bodies.
