@@ -1,4 +1,4 @@
-import { isGameStartedMessage, requestGamePause } from "@repo/embed/host";
+import { isGamePausedMessage, isGameStartedMessage, requestGamePause } from "@repo/embed/host";
 import { AnimatePresence, motion } from "motion/react";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
@@ -57,6 +57,8 @@ export const GameChrome = ({ children }: GameChromeProps) => {
         event.origin.startsWith("http://127.0.0.1:");
       if (!localDevGame && !gameOrigins.has(event.origin)) return;
       if (isGameStartedMessage(event.data)) setHidden(true);
+      // The game paused itself (Escape inside the iframe) — bring chrome back.
+      if (isGamePausedMessage(event.data)) setHidden(false);
     };
 
     window.addEventListener("message", handleMessage);
@@ -68,6 +70,16 @@ export const GameChrome = ({ children }: GameChromeProps) => {
     if (frame?.contentWindow) requestGamePause(frame.contentWindow);
     setHidden(false);
   };
+
+  // Escape with wrapper focus mirrors Escape inside the game: pause + chrome.
+  useEffect(() => {
+    if (!hidden) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") pause();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [hidden]);
 
   return (
     <GameChromeHiddenContext.Provider value={hidden}>

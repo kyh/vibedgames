@@ -1,10 +1,11 @@
 // Game-side half of the wrapper protocol. Games call notifyGameStarted() when
 // active play begins; the wrapper answers with a pause request when the player
-// asks for its chrome back. Pausing shows a built-in overlay so every game gets
-// the same "PAUSED — resume" affordance; games that can safely freeze their sim
-// plug into it via setPauseHandlers.
+// asks for its chrome back, and Escape toggles the same pause from inside the
+// game. Pausing shows a built-in overlay so every game gets the same
+// "PAUSED — resume" affordance; games that can safely freeze their sim plug
+// into it via setPauseHandlers.
 
-import { GAME_STARTED_MESSAGE, isPauseGameMessage } from "./protocol";
+import { GAME_PAUSED_MESSAGE, GAME_STARTED_MESSAGE, isPauseGameMessage } from "./protocol";
 
 export type PauseHandlers = {
   /**
@@ -15,6 +16,12 @@ export type PauseHandlers = {
   onPause?: () => void;
   /** Undo onPause. Runs right before the game is re-announced as started. */
   onResume?: () => void;
+  /**
+   * Gate the built-in Escape shortcut (default: always pause). Return false
+   * while Escape currently means something in-game — an open modal, shop,
+   * chat box — so that binding wins and the NEXT press pauses.
+   */
+  escapePauses?: () => boolean;
 };
 
 let handlers: PauseHandlers = {};
@@ -25,6 +32,14 @@ let overlay: HTMLElement | null = null;
 
 const embedded = (): boolean => typeof window !== "undefined" && window.parent !== window;
 
+/** Escape must not steal keystrokes from text entry (chat boxes, name fields). */
+function isTypingTarget(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)
+  );
+}
+
 function ensureListener(): void {
   if (listening || typeof window === "undefined") return;
   listening = true;
@@ -32,18 +47,31 @@ function ensureListener(): void {
     if (event.source !== window.parent) return;
     if (isPauseGameMessage(event.data)) pause();
   });
+  // Capture phase: runs before any in-game handler, so escapePauses() sees the
+  // game's PRE-event state (an open modal reads as open, not already closed by
+  // the game's own Escape binding firing first).
+  window.addEventListener(
+    "keydown",
+    (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.repeat || isTypingTarget(event.target)) return;
+      if (paused) resume();
+      else if (started && (handlers.escapePauses?.() ?? true)) pause();
+    },
+    true,
+  );
 }
 
 /**
  * Tell the wrapper page that active play began, so it can clear its chrome out
  * of the way. Safe to call every round/serve/respawn — deduped until the next
- * pause. No-ops when the game is not embedded.
+ * pause. Standalone (not embedded) it still arms the Escape pause shortcut,
+ * just without messaging a wrapper.
  */
 export function notifyGameStarted(): void {
   ensureListener();
-  if (started || paused || !embedded()) return;
+  if (started || paused) return;
   started = true;
-  window.parent.postMessage({ type: GAME_STARTED_MESSAGE }, "*");
+  if (embedded()) window.parent.postMessage({ type: GAME_STARTED_MESSAGE }, "*");
 }
 
 /** Wire the game's own freeze/unfreeze into the wrapper's pause request. */
@@ -58,6 +86,9 @@ function pause(): void {
   started = false;
   handlers.onPause?.();
   showOverlay();
+  // Escape-initiated pauses need to tell the wrapper to bring its chrome back;
+  // for wrapper-initiated ones this is a harmless no-op echo.
+  if (embedded()) window.parent.postMessage({ type: GAME_PAUSED_MESSAGE }, "*");
 }
 
 function resume(): void {
@@ -70,7 +101,12 @@ function resume(): void {
 
 // ---- pause overlay ----------------------------------------------------------
 
-const onResumeKeyup = (): void => resume();
+const onResumeKeyup = (event: KeyboardEvent): void => {
+  // Escape is handled symmetrically on keydown (the toggle listener above);
+  // resuming here too would double-fire on the keydown+keyup of one press.
+  if (event.key === "Escape") return;
+  resume();
+};
 
 function showOverlay(): void {
   if (overlay) return;

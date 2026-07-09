@@ -46,6 +46,20 @@ const FIGHTER_HP = 100;
 const RESPAWN_MIN_MS = 700;
 const RESPAWN_MAX_MS = 1600;
 const EDGE_MARGIN = 80; // keep the swarm inside the viewport (+turn-in band)
+const BREAK_DIST = 95; // closing inside this ends the attack run (overshoot past)
+const WEAVE_RATE = 2.1; // rad/s of the jink oscillation while on an attack run
+const WEAVE_AMP = 0.28; // rad of heading weave — kills the "perfect circle" look
+
+// Speed multipliers per maneuver: runs come in hot, extends burn away harder,
+// cruises coast — the mix keeps the swarm's motion from reading as uniform.
+const RUN_SPEED = 1.25;
+const EXTEND_SPEED = 1.45;
+
+/** What a fighter is currently flying:
+ *  - "engage": attack run straight at the target (with a weave), guns live
+ *  - "extend": burn away after the pass to open distance (guns cold)
+ *  - "cruise": transit to a random waypoint between engagements */
+type Maneuver = "engage" | "extend" | "cruise";
 
 type Fighter = {
   gfx: Phaser.GameObjects.Graphics;
@@ -60,7 +74,12 @@ type Fighter = {
   hp: number;
   targetIdx: number;
   fireAt: number;
-  orbitDir: number; // +1 / -1: circle the target this way (dogfight arcs)
+  breakDir: number; // +1 / -1: which side to break/extend toward after a pass
+  maneuver: Maneuver;
+  maneuverUntil: number; // ms; reconsider the maneuver at this deadline
+  wpX: number; // cruise waypoint
+  wpY: number;
+  weavePhase: number; // per-ship jink phase so runs don't sync up
   alive: boolean;
   respawnAt: number; // ms; 0 while alive
 };
@@ -103,8 +122,11 @@ export class AttractBattle {
   /** Lazily seed the swarm across the current viewport (needs a laid-out camera). */
   private seed(): void {
     if (this.started) return;
-    this.started = true;
     const view = this.scene.cameras.main.worldView;
+    // The first frame(s) can run before the camera has real bounds — seeding
+    // then dumps the whole fleet in a tiny box at the top-left corner.
+    if (view.width < 200 || view.height < 200) return;
+    this.started = true;
     for (let i = 0; i < COUNT; i++) {
       const cool = i % 2 === 0;
       const pool = cool ? COOL : WARM;
@@ -117,15 +139,21 @@ export class AttractBattle {
         tint,
         level,
         cool,
-        x: rand(view.x, view.right),
-        y: rand(view.y, view.bottom),
+        x: rand(view.x + EDGE_MARGIN, view.right - EDGE_MARGIN),
+        y: rand(view.y + EDGE_MARGIN, view.bottom - EDGE_MARGIN),
         vx: Math.cos(angle) * SHIP_SPEED,
         vy: Math.sin(angle) * SHIP_SPEED,
         angle,
         hp: FIGHTER_HP,
         targetIdx: -1,
         fireAt: this.scene.time.now + rand(0, FIRE_CD_MAX),
-        orbitDir: Math.random() < 0.5 ? 1 : -1,
+        breakDir: Math.random() < 0.5 ? 1 : -1,
+        // Stagger the opening moves so the fleet doesn't act in lockstep.
+        maneuver: Math.random() < 0.6 ? "engage" : "cruise",
+        maneuverUntil: this.scene.time.now + rand(400, 2600),
+        wpX: rand(view.x + EDGE_MARGIN, view.right - EDGE_MARGIN),
+        wpY: rand(view.y + EDGE_MARGIN, view.bottom - EDGE_MARGIN),
+        weavePhase: rand(0, Math.PI * 2),
         alive: true,
         respawnAt: 0,
       });
@@ -183,6 +211,10 @@ export class AttractBattle {
     f.hp = FIGHTER_HP;
     f.targetIdx = -1;
     f.fireAt = now + rand(FIRE_CD_MIN, FIRE_CD_MAX);
+    f.maneuver = "cruise"; // fly back into the fray before picking a fight
+    f.maneuverUntil = now + rand(600, 1400);
+    f.wpX = rand(view.x + EDGE_MARGIN, view.right - EDGE_MARGIN);
+    f.wpY = rand(view.y + EDGE_MARGIN, view.bottom - EDGE_MARGIN);
     f.alive = true;
     f.respawnAt = 0;
     f.gfx.setVisible(true);
@@ -208,15 +240,49 @@ export class AttractBattle {
         target = this.fighters[f.targetIdx];
       }
 
-      // Desired heading: orbit the target for dogfight arcs; if none, or if
-      // straying past the viewport, steer back toward center to stay on screen.
+      // Maneuver transitions. Real dogfights are passes, not circles: run in
+      // hot, overshoot, extend away, come back around — with transit legs in
+      // between so the furball drifts across the screen.
+      const dist = target ? Math.hypot(target.x - f.x, target.y - f.y) : Infinity;
+      if (f.maneuver === "engage") {
+        if (dist < BREAK_DIST || now >= f.maneuverUntil) {
+          f.maneuver = "extend";
+          f.maneuverUntil = now + rand(700, 1500);
+          f.breakDir = Math.random() < 0.5 ? 1 : -1;
+          // A pass often ends with a new mark — keeps pairs from re-locking.
+          if (Math.random() < 0.35) f.targetIdx = this.acquire(f);
+        }
+      } else if (now >= f.maneuverUntil) {
+        if (f.maneuver === "extend" && Math.random() < 0.3) {
+          f.maneuver = "cruise";
+          f.maneuverUntil = now + rand(1200, 2600);
+          f.wpX = rand(view.x + EDGE_MARGIN, view.right - EDGE_MARGIN);
+          f.wpY = rand(view.y + EDGE_MARGIN, view.bottom - EDGE_MARGIN);
+        } else {
+          f.maneuver = "engage";
+          f.maneuverUntil = now + rand(1400, 3000);
+        }
+      }
+      if (f.maneuver === "cruise" && Math.hypot(f.wpX - f.x, f.wpY - f.y) < 60) {
+        f.maneuver = "engage";
+        f.maneuverUntil = now + rand(1400, 3000);
+      }
+
+      // Desired heading + speed per maneuver.
       let desired = f.angle;
-      if (target) {
-        const dx = target.x - f.x;
-        const dy = target.y - f.y;
-        const toT = Math.atan2(dy, dx);
-        // Aim a bit to the side so they circle rather than collide head-on.
-        desired = toT + f.orbitDir * 0.6;
+      let speed = SHIP_SPEED;
+      if (f.maneuver === "engage" && target) {
+        const toT = Math.atan2(target.y - f.y, target.x - f.x);
+        // Straight at the mark, with a weave so the run reads as flown, not aimed.
+        desired = toT + Math.sin(now * 0.001 * WEAVE_RATE + f.weavePhase) * WEAVE_AMP;
+        speed = SHIP_SPEED * RUN_SPEED;
+      } else if (f.maneuver === "extend" && target) {
+        // Burn away past the target's far side to open distance for re-entry.
+        const away = Math.atan2(f.y - target.y, f.x - target.x);
+        desired = away + f.breakDir * 0.5;
+        speed = SHIP_SPEED * EXTEND_SPEED;
+      } else {
+        desired = Math.atan2(f.wpY - f.y, f.wpX - f.x);
       }
       const pad = EDGE_MARGIN;
       const outside =
@@ -229,19 +295,16 @@ export class AttractBattle {
       // Turn toward desired at a limited rate, then chase heading*speed.
       f.angle += Phaser.Math.Clamp(angleDelta(f.angle, desired), -TURN_RATE * dt, TURN_RATE * dt);
       const k = 1 - Math.exp(-VEL_BLEND * dt);
-      f.vx += (Math.cos(f.angle) * SHIP_SPEED - f.vx) * k;
-      f.vy += (Math.sin(f.angle) * SHIP_SPEED - f.vy) * k;
+      f.vx += (Math.cos(f.angle) * speed - f.vx) * k;
+      f.vy += (Math.sin(f.angle) * speed - f.vy) * k;
       f.x += f.vx * dt;
       f.y += f.vy * dt;
 
       f.gfx.setPosition(f.x, f.y).setRotation(f.angle);
 
-      // Fire when aimed at an in-range target.
-      if (target && now >= f.fireAt) {
-        const dx = target.x - f.x;
-        const dy = target.y - f.y;
-        const dist = Math.hypot(dx, dy);
-        const aim = Math.abs(angleDelta(f.angle, Math.atan2(dy, dx)));
+      // Guns are only live on the attack run, when aimed at an in-range mark.
+      if (f.maneuver === "engage" && target && now >= f.fireAt) {
+        const aim = Math.abs(angleDelta(f.angle, Math.atan2(target.y - f.y, target.x - f.x)));
         if (dist < FIRE_RANGE && aim < FIRE_CONE) {
           this.fire(f, target, now);
           f.fireAt = now + rand(FIRE_CD_MIN, FIRE_CD_MAX);

@@ -47,6 +47,11 @@ setPauseHandlers({
     froze = false;
     game.loop.wake();
   },
+  // Versus binds Escape to "leave the duel" — defer to it there.
+  escapePauses: () => {
+    const scene = game.scene.getScene("game");
+    return !(game.scene.isActive("game") && scene instanceof GameScene && scene.isVersus());
+  },
 });
 
 // BASE_W bakes the load-time aspect into every scene's layout, so a rotation

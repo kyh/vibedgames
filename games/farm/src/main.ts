@@ -75,4 +75,10 @@ setPauseHandlers({
     game.loop.wake();
     game.sound.resumeAll();
   },
+  // Escape closes an open inventory/modal first; only a bare Escape pauses.
+  escapePauses: () => {
+    if (game.scene.isActive("Inventory")) return false;
+    const hud = game.scene.getScene("Hud");
+    return !(hud instanceof HudScene && hud.modalOpen);
+  },
 });

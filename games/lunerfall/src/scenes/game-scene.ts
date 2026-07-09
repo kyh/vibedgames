@@ -317,6 +317,11 @@ export class GameScene extends Phaser.Scene {
     return this.session !== undefined && !this.session.offline;
   }
 
+  /** Versus binds Escape to "leave the duel" — the wrapper pause defers to it. */
+  isVersus(): boolean {
+    return this.mode === "versus";
+  }
+
   create() {
     const params = new URLSearchParams(location.search);
     this.demo = params.get("demo") === "1";

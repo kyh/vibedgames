@@ -538,6 +538,11 @@ export class HudScene extends Phaser.Scene {
 
   // ---------------------------------------------------------------- modals
 
+  /** Whether a modal owns the Escape key right now (wrapper pause defers). */
+  get modalOpen(): boolean {
+    return this.modal !== null;
+  }
+
   private closeModal(): void {
     if (!this.modal) return;
     this.modal.destroy();

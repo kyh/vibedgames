@@ -78,5 +78,10 @@ void fontReady.then(() => {
       game.loop.wake();
       game.sound.resumeAll();
     },
+    // Escape closes an open shop/scoreboard first; only a bare Escape pauses.
+    escapePauses: () => {
+      const hud = game.scene.getScene("Hud");
+      return !(hud instanceof HudScene && hud.escConsumed);
+    },
   });
 });

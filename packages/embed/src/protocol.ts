@@ -4,6 +4,7 @@
 
 export const GAME_STARTED_MESSAGE = "vibedgames:game-started";
 export const PAUSE_GAME_MESSAGE = "vibedgames:pause-game";
+export const GAME_PAUSED_MESSAGE = "vibedgames:game-paused";
 
 /** Game → wrapper: active play began (or resumed) — hide the wrapper chrome. */
 export type GameStartedMessage = {
@@ -15,6 +16,11 @@ export type PauseGameMessage = {
   readonly type: typeof PAUSE_GAME_MESSAGE;
 };
 
+/** Game → wrapper: the game paused itself (Escape) — show the wrapper chrome. */
+export type GamePausedMessage = {
+  readonly type: typeof GAME_PAUSED_MESSAGE;
+};
+
 const hasType = (value: unknown, type: string): boolean =>
   typeof value === "object" && value !== null && "type" in value && value.type === type;
 
@@ -24,4 +30,8 @@ export function isGameStartedMessage(value: unknown): value is GameStartedMessag
 
 export function isPauseGameMessage(value: unknown): value is PauseGameMessage {
   return hasType(value, PAUSE_GAME_MESSAGE);
+}
+
+export function isGamePausedMessage(value: unknown): value is GamePausedMessage {
+  return hasType(value, GAME_PAUSED_MESSAGE);
 }

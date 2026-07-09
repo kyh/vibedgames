@@ -115,6 +115,11 @@ export class HudScene extends Phaser.Scene {
     super("Hud");
   }
 
+  /** Whether shop/scoreboard own the Escape key right now (wrapper pause defers). */
+  get escConsumed(): boolean {
+    return this.shopOpen || this.boardOpen;
+  }
+
   init(data: { game: GameScene }): void {
     this.gs = data.game;
   }
