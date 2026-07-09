@@ -1,4 +1,5 @@
 import { safeAreaInset } from "@vibedgames/gamepad";
+import { notifyGameStarted } from "@vibedgames/multiplayer";
 import Phaser from "phaser";
 
 import { HEROES } from "../data/heroes";
@@ -37,6 +38,7 @@ export class MenuScene extends Phaser.Scene {
     const heroParam = params.get("hero");
     if (heroParam && HEROES.some((h) => h.id === heroParam)) this.selected = heroParam;
     if (params.get("auto") === "1") {
+      notifyGameStarted();
       this.scene.start("Game", { heroId: this.selected, online: params.get("online") === "1" });
       return;
     }
@@ -221,6 +223,7 @@ export class MenuScene extends Phaser.Scene {
       b.on("pointerdown", () => {
         b.setTexture(`ui-btn-${color}-pressed`);
         t.setText("LOADING…").setY(y);
+        notifyGameStarted();
         this.time.delayedCall(80, () =>
           this.scene.start("Game", { heroId: this.selected, online }),
         );

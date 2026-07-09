@@ -1,6 +1,6 @@
 import { attachVirtualGamepad, safeAreaInset } from "@vibedgames/gamepad/phaser";
 import type { Inset, PhaserGamepad } from "@vibedgames/gamepad/phaser";
-import { MultiplayerClient } from "@vibedgames/multiplayer";
+import { MultiplayerClient, notifyGameStarted } from "@vibedgames/multiplayer";
 import type { Player, PlayerMap } from "@vibedgames/multiplayer";
 import Phaser from "phaser";
 
@@ -994,6 +994,7 @@ export class GameScene extends Phaser.Scene {
   private beginPlay(): void {
     if (this.started) return;
     this.started = true;
+    notifyGameStarted();
     this.startEl?.classList.add("hide");
     // Drop it only after the fade, so it can't swallow taps on the way out.
     this.time.delayedCall(320, () => this.startEl?.remove());

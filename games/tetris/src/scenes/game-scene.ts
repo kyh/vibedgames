@@ -41,6 +41,15 @@ function el(id: string): HTMLElement | null {
   return document.getElementById(id);
 }
 
+let sentGameStarted = false;
+
+function notifyGameStarted(): void {
+  if (sentGameStarted) return;
+  sentGameStarted = true;
+  if (window.parent === window) return;
+  window.parent.postMessage({ type: "vibedgames:game-started" }, "*");
+}
+
 export class GameScene {
   readonly scene = new Scene();
   private readonly rig: CameraRig;
@@ -273,6 +282,7 @@ export class GameScene {
   }
 
   private startGame(): void {
+    notifyGameStarted();
     this.collapse.dispose();
     this.cubes.frozen = false;
     this.cubes.clearLocked();

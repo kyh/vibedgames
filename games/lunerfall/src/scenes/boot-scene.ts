@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { notifyGameStarted } from "@vibedgames/multiplayer";
 
 import { ATLAS_KEYS, buildAnimsFromAseprite } from "../data/animations";
 import { buildKitClips } from "../data/clip-timing";
@@ -57,9 +58,10 @@ export class BootScene extends Phaser.Scene {
 
     const params = new URLSearchParams(location.search);
     if (params.get("editor")) this.scene.start("editor");
-    else if (params.get("demo") || params.get("room") || params.get("hero"))
+    else if (params.get("demo") || params.get("room") || params.get("hero")) {
+      notifyGameStarted();
       this.scene.start("game");
-    else this.scene.start("select");
+    } else this.scene.start("select");
   }
 }
 

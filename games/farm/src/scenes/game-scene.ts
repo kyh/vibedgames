@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import type { PhaserGamepad } from "@vibedgames/gamepad/phaser";
+import { notifyGameStarted } from "@vibedgames/multiplayer";
 import {
   TILE,
   zoomForWidth,
@@ -170,6 +171,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(data: { mode: "new" | "continue"; fromMine?: boolean; fainted?: boolean }): void {
+    notifyGameStarted();
     document.getElementById("veil")?.classList.add("hidden");
     // reset reused-instance state (Phaser keeps the scene instance across start/stop)
     this.soilImgs = new Map();

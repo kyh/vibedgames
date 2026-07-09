@@ -14,6 +14,7 @@
 // and the maze is a bigger generated braided board.
 
 import * as THREE from "three";
+import { notifyGameStarted } from "@vibedgames/multiplayer";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 
 import { music, sfx } from "../audio/sfx";
@@ -1122,6 +1123,7 @@ export class GameScene {
   }
 
   private beginReady(): void {
+    notifyGameStarted();
     this.readyMs = READY_MS;
     this.setPhase("ready");
     sfx.play("ready");

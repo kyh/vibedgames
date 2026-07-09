@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { notifyGameStarted } from "@vibedgames/multiplayer";
 
 import { sfx } from "../audio/sfx";
 import { BASE_H, BASE_W, COLORS, HERO_ORIGIN_Y } from "../config";
@@ -423,7 +424,13 @@ export class SelectScene extends Phaser.Scene {
       l.setText(hn && !isUnlocked(this.meta, hn) ? `🔒 ${UNLOCK_COST[hn]}` : "");
     });
     this.title.setText(def.title).setColor(`#${def.color.toString(16).padStart(6, "0")}`);
-    this.blurb.setText(def.blurb);
+    this.blurb.setText(
+      `${def.blurb}\n${
+        this.touch
+          ? "Run: stick move · JUMP / DASH / ATK / SP buttons"
+          : "Run: WASD move · Space jump · Shift dash · J/X attack · K special"
+      }`,
+    );
 
     const unlocked = isUnlocked(this.meta, name);
     const go =
@@ -509,6 +516,7 @@ export class SelectScene extends Phaser.Scene {
     this.registry.set("hero", hero);
     this.registry.set("party", this.net !== "off" ? this.code : "");
     this.registry.set("mode", this.net === "vs" ? "vs" : "");
+    notifyGameStarted();
     this.scene.start("game", { hero });
   }
 

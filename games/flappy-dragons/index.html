@@ -143,6 +143,67 @@
         opacity: 0.6;
         text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
       }
+      #start {
+        position: fixed;
+        inset: 0;
+        z-index: 20;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        padding: 24px;
+        text-align: center;
+        background: rgba(88, 181, 224, 0.76);
+        backdrop-filter: blur(6px);
+        -webkit-backdrop-filter: blur(6px);
+        transition: opacity 0.28s ease;
+      }
+      #start.hide {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #start h1 {
+        margin: 0;
+        font:
+          900 clamp(36px, 8vw, 82px) / 0.95 system-ui,
+          sans-serif;
+        color: #fff6d6;
+        letter-spacing: 2px;
+        text-shadow:
+          0 4px 0 rgba(91, 74, 138, 0.45),
+          0 0 28px rgba(255, 255, 255, 0.45);
+      }
+      #start-controls {
+        max-width: 34ch;
+        white-space: pre-line;
+        font:
+          700 14px/1.9 ui-monospace,
+          "SF Mono",
+          Menlo,
+          monospace;
+        color: #20305c;
+      }
+      #start-go {
+        font:
+          800 13px/1 ui-monospace,
+          "SF Mono",
+          Menlo,
+          monospace;
+        color: #fff6d6;
+        letter-spacing: 1px;
+        animation: start-pulse 1.6s ease-in-out infinite;
+      }
+      @keyframes start-pulse {
+        50% {
+          opacity: 0.38;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #start-go {
+          animation: none;
+        }
+      }
     </style>
   </head>
   <body>
@@ -153,6 +214,11 @@
     <div id="hud">
       <div class="pill" id="best"></div>
       <div class="pill" id="hint"></div>
+    </div>
+    <div id="start">
+      <h1>FLAPPY DRAGONS</h1>
+      <div id="start-controls"></div>
+      <div id="start-go"></div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

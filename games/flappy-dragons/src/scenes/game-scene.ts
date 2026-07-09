@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { notifyGameStarted } from "@vibedgames/multiplayer";
 
 import { isCoarsePointer, setPoseLocked } from "../input/camera";
 import { NetSession } from "../net/session";
@@ -142,6 +143,8 @@ export class GameScene extends Phaser.Scene {
   private boardEl: HTMLElement | null = null;
   private netInfoEl: HTMLElement | null = null;
   private soundEl: HTMLElement | null = null;
+  private startEl: HTMLElement | null = null;
+  private started = false;
 
   constructor() {
     super("Game");
@@ -153,6 +156,7 @@ export class GameScene extends Phaser.Scene {
     this.boardEl = document.getElementById("board");
     this.netInfoEl = document.getElementById("netinfo");
     this.soundEl = document.getElementById("sound");
+    this.startEl = document.getElementById("start");
     this.best = readBest();
     this.skin = rollSkin();
 
@@ -204,6 +208,7 @@ export class GameScene extends Phaser.Scene {
       .setDepth(30)
       .setVisible(false);
 
+    this.buildStartScreen();
     this.input.on("pointerdown", () => this.handleInput());
     this.input.keyboard?.on("keydown-SPACE", (e: KeyboardEvent) => {
       if (!e.repeat) this.handleInput();
@@ -235,6 +240,27 @@ export class GameScene extends Phaser.Scene {
     if (import.meta.env.DEV) {
       window.__fb = { scene: this, net: this.net };
     }
+  }
+
+  private buildStartScreen(): void {
+    const controls = document.getElementById("start-controls");
+    const go = document.getElementById("start-go");
+    if (controls) {
+      controls.textContent = TOUCH
+        ? "Tap to flap\nTap sound to mute\nPose cam jumps also flap"
+        : "Click / tap / Space — flap\nUp arrow also flaps\nM — mute";
+    }
+    if (go) go.textContent = TOUCH ? "tap to start" : "press any key to start";
+    this.input.keyboard?.once("keyup", () => this.beginPlay());
+    this.startEl?.addEventListener("pointerup", () => this.beginPlay(), { once: true });
+  }
+
+  private beginPlay(strength = 1, refire = false): void {
+    if (this.started) return;
+    this.started = true;
+    this.startEl?.classList.add("hide");
+    this.time.delayedCall(320, () => this.startEl?.remove());
+    this.handleInput(strength, refire);
   }
 
   // ---- role helpers --------------------------------------------------------
@@ -325,6 +351,10 @@ export class GameScene extends Phaser.Scene {
   // ---- input ---------------------------------------------------------------
 
   private handleInput(strength = 1, refire = false): void {
+    if (!this.started) {
+      this.beginPlay(strength, refire);
+      return;
+    }
     if (this.phase === "ready") {
       this.setPhase("playing");
       this.birdY = this.racing ? this.spawnY() : BIRD_SPAWN_Y;
@@ -378,6 +408,7 @@ export class GameScene extends Phaser.Scene {
    */
   private setPhase(phase: Phase): void {
     this.phase = phase;
+    if (phase === "playing") notifyGameStarted();
     setPoseLocked(phase === "playing");
   }
 

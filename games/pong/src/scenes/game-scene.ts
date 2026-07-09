@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { notifyGameStarted } from "@vibedgames/multiplayer";
 
 import { ParticlePool } from "../fx/particles";
 import { isMuted, sfx, toggleMute } from "../fx/sfx";
@@ -534,6 +535,7 @@ export class GameScene {
   }
 
   private serve(): void {
+    notifyGameStarted();
     // Always toward slot A (the host), ±SERVE_SPREAD rad of straight down.
     const angle = -Math.PI / 2 + (Math.random() * 2 - 1) * SERVE_SPREAD;
     this.rallySpeed = RALLY_SPEED_BASE;
@@ -1102,9 +1104,13 @@ export class GameScene {
 
   // ---- HUD -----------------------------------------------------------------
 
+  private servePromptText(): string {
+    return COARSE_INPUT ? "drag to move · tap to serve" : "A/D or drag moves · Space/tap serves";
+  }
+
   /** Serve/rematch instructions, matching whichever inputs are actually live. */
   private syncPrompt(): void {
-    const base = COARSE_INPUT ? "tap to serve" : "press space or tap to serve";
+    const base = this.servePromptText();
     this.promptEl.textContent = this.handSeen ? `✊ or ${base}` : base;
   }
 
@@ -1119,6 +1125,10 @@ export class GameScene {
 
     if (!this.net.live) {
       this.bannerEl.replaceChildren("connecting", smallNote("finding a match…"));
+      this.bannerEl.style.opacity = "1";
+    } else if (this.phase === "serving" && this.serveAt === null) {
+      const note = this.handSeen ? `✊ or ${this.servePromptText()}` : this.servePromptText();
+      this.bannerEl.replaceChildren("PONG", smallNote(note));
       this.bannerEl.style.opacity = "1";
     } else if (this.phase === "won") {
       const iWon = this.scoreYou > this.scoreAi;

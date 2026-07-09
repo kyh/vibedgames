@@ -1,4 +1,5 @@
 // Boot: load assets, show the lobby, then run the chosen match.
+import { notifyGameStarted } from "@vibedgames/multiplayer";
 import * as THREE from "three";
 import { ModelLibrary } from "./render/models";
 import { View } from "./render/view";
@@ -173,6 +174,7 @@ async function main(): Promise<void> {
 
   const timer = new THREE.Timer();
   const launch = (opts: SceneOpts): void => {
+    notifyGameStarted();
     const custom = (opts.online ? null : localMapDraft) ?? bundledMap;
     if (custom) {
       applyMapData(custom);
