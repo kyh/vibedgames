@@ -276,7 +276,8 @@ export class RaycastVehicle {
 
   // Per-render-frame: read input into control state (cheap, idempotent).
   setControls(input: CarInput, boosting: boolean): void {
-    this.throttle = input.throttle;
+    // Boosting pins the throttle open, so NOS alone launches from a standstill.
+    this.throttle = boosting ? 1 : input.throttle;
     this.brakeInput = input.brake;
     this.boosting = boosting;
   }
@@ -311,8 +312,9 @@ export class RaycastVehicle {
     // ONE pedal state per step, Mario Kart style, priority top-down:
     //   drift   — the state machine owns the car; pedals sit out entirely
     //   brake   — rolling forward with the pedal down: capped velocity decel
-    //   reverse — pedal down at (near) standstill, no gas: the parking move
-    //   drive   — gas
+    //   reverse — pedal down at (near) standstill: the parking move. Beats the
+    //             gas, so a thumb parked on the touch GAS pedal can't block it.
+    //   drive   — gas (or boost, which pins the throttle open)
     //   coast   — nothing held: a light roll-off
     const gas = this.throttle > 0.05;
     const pedalDown = this.brakeInput > 0.05;
@@ -320,7 +322,7 @@ export class RaycastVehicle {
       ? "drift"
       : pedalDown && fwdSpeed > 0.5
         ? "brake"
-        : pedalDown && !gas && fwdSpeed > -p.cruiseSpeed * 0.4
+        : pedalDown && fwdSpeed > -p.cruiseSpeed * 0.4
           ? "reverse"
           : gas
             ? "drive"

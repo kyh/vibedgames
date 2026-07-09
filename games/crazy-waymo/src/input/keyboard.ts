@@ -5,7 +5,9 @@ const THREE_clamp = (v: number): number => Math.max(-1, Math.min(1, v));
 // Keyboard + touch-button input, merged into a single CarInput each frame.
 export class InputState {
   private keys = new Set<string>();
-  private touch = { gas: false, brake: false, left: false, right: false, boost: false };
+  private touch = { gas: false, brake: false, boost: false };
+  /** Analog steer from the on-screen stick, -1..1. Zero when no thumb is on it. */
+  private touchSteer = 0;
   startPressed = false;
   restartPressed = false;
   mutePressed = false;
@@ -35,6 +37,11 @@ export class InputState {
     this.touch[btn] = down;
   }
 
+  /** Called each frame from the on-screen stick; clamped, 0 when idle. */
+  setTouchSteer(v: number): void {
+    this.touchSteer = THREE_clamp(v);
+  }
+
   private has(...ks: string[]): boolean {
     return ks.some((k) => this.keys.has(k));
   }
@@ -45,11 +52,12 @@ export class InputState {
     // button) all pull it. Brake to slow, brake+steer to drift, brake from a
     // stop to reverse, gas+brake to power-drift.
     const brakeHeld = this.has("arrowdown", "s", " ") || this.touch.brake;
-    const left = this.has("arrowleft", "a") || this.touch.left;
-    const right = this.has("arrowright", "d") || this.touch.right;
+    const left = this.has("arrowleft", "a");
+    const right = this.has("arrowright", "d");
     let throttle = gas ? 1 : 0;
     let brake = brakeHeld ? 1 : 0;
-    let steer = (right ? 1 : 0) - (left ? 1 : 0);
+    // Keys are digital; the on-screen stick is analog and wins when engaged.
+    let steer = this.touchSteer !== 0 ? this.touchSteer : (right ? 1 : 0) - (left ? 1 : 0);
     let boost = this.has("shift") || this.touch.boost;
     // Gamepad (reference parity): left stick steers, RT gas, LT brake,
     // A/X also brake (handbrake habit), B or RB boost.

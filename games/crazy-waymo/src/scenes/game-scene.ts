@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { notifyGameStarted } from "@vibedgames/multiplayer";
 import { Sky } from "three/addons/objects/Sky.js";
 
 import { ModelCache } from "../assets/loader";
@@ -41,7 +42,7 @@ import { Rng } from "../shared/rng";
 import type { GameMode } from "../shared/types";
 import { Hud } from "../ui/hud";
 import { Minimap, type MinimapMarker } from "../ui/minimap";
-import { setTouchPlaying, setupTouch } from "../ui/touch";
+import { setTouchPlaying, setupTouch, type TouchControls } from "../ui/touch";
 import { Car } from "../vehicle/car";
 import { CityModel } from "../world/city";
 import { editorMode, loadLocalOverrides } from "../world/custom-map";
@@ -307,6 +308,7 @@ export class GameScene {
   private pendingStart = false;
   // Touch-capable device: on-screen buttons show and CTA copy says TAP.
   private touchUi = false;
+  private touch: TouchControls | null = null;
   private titleT = 0;
   private lowBeepAt = -1;
   private puffAccum = 0;
@@ -438,9 +440,10 @@ export class GameScene {
       fog,
       scene: this.scene,
     });
-    this.touchUi = setupTouch(this.input, () => {
+    this.touch = setupTouch(this.input, () => {
       if (this.mode.kind === "playing") this.openChat();
     });
+    this.touchUi = this.touch.isTouch;
     this.hud.onCta(() => this.handleStartPress());
     this.hud.onMute(() => this.toggleMute());
     // Muted by default; returning players who opted into sound stay unmuted.
@@ -797,12 +800,27 @@ export class GameScene {
     this.hud.setVignette(0);
     this.hud.setCombo(1, 0);
     const best = readBest();
+    this.hud.setLanding(true);
     this.hud.showBanner({
       title: "CRAZY WAYMO",
       sub: "Pick up fares, beat the clock, drive like a maniac.",
       stats:
         best > 0 ? `BEST $${best.toLocaleString("en-US")}` : "Every drop-off buys you more time.",
-      cta: this.touchUi ? "TAP TO DRIVE" : "PRESS ENTER TO DRIVE",
+      // Just the verbs. Drift, restart and chat are left to be discovered.
+      controls: this.touchUi
+        ? [
+            { keys: ["HOLD"], label: "go" },
+            { keys: ["DRAG"], label: "steer" },
+            { keys: ["BRAKE"], label: "stop · reverse" },
+            { keys: ["🔥"], label: "boost" },
+          ]
+        : [
+            { keys: ["↑", "W"], label: "go" },
+            { keys: ["↓", "S"], label: "stop" },
+            { keys: ["←", "→"], label: "steer" },
+            { keys: ["Shift"], label: "boost" },
+          ],
+      cta: this.touchUi ? "START DRIVING" : "START DRIVING ⏎",
     });
   }
 
@@ -991,13 +1009,16 @@ export class GameScene {
   private start(): void {
     if (!this.loadDone) {
       // City still building behind the title — auto-start the moment it's done.
+      // The status goes on the banner, not announceMinor: that lives inside
+      // #hud, which the landing screen hides.
       this.pendingStart = true;
-      this.hud.announceMinor("FINISHING THE CITY\u2026", "#8fd9ff");
+      this.hud.setCta("FINISHING THE CITY\u2026");
       return;
     }
     const car = this.car;
     const fares = this.fares;
     if (!car || !fares) return;
+    notifyGameStarted();
     const lapS = (() => {
       let t = performance.now();
       return (label: string): void => {
@@ -1022,6 +1043,7 @@ export class GameScene {
     lapS("fares reset");
     this.cones?.reset();
     this.hud.hideBanner();
+    this.hud.setLanding(false); // HUD back, sound button + controls gone
     // A fresh dashboard through the countdown — no stale timer/fares/combo.
     this.hud.setTimer(FARE.startTime, false);
     this.hud.setCombo(1, 0);
@@ -1202,6 +1224,8 @@ export class GameScene {
   }
 
   update(dt: number): void {
+    // Publishes the on-screen stick into `input` before carInput() reads it.
+    this.touch?.update();
     if (this.input.consumeStart()) {
       if (this.mode.kind === "playing" && !this.input.typing) this.openChat();
       else this.handleStartPress();

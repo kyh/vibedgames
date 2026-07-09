@@ -370,20 +370,30 @@
         pointer-events: none;
         opacity: 0.92;
       }
-      @media (max-width: 720px) {
+      /* Touch: the pedals own the bottom-right, so the map stacks directly on
+         top of the speedo in the bottom-left column. `bottom` clears the
+         speedo's ~84px box plus a 10px gutter. */
+      @media (pointer: coarse) {
         #minimap {
           width: 104px;
           height: 104px;
           right: auto;
-          bottom: auto;
-          left: calc(12px + env(safe-area-inset-left));
-          top: calc(170px + env(safe-area-inset-top));
+          top: auto;
+          left: calc(14px + env(safe-area-inset-left));
+          bottom: calc(108px + env(safe-area-inset-bottom));
         }
       }
-      /* Coarse-pointer tablets keep desktop widths but show the touch
-         clusters — move the minimap out of the bottom-right where GAS lives. */
-      @media (min-width: 721px) and (min-height: 501px) and (pointer: coarse) {
+      @media (pointer: coarse) and (max-height: 500px) {
         #minimap {
+          width: 96px;
+          height: 96px;
+        }
+      }
+      /* Mouse on a narrow window: no pedals, so keep it out of the HUD column. */
+      @media (max-width: 720px) and (pointer: fine) {
+        #minimap {
+          width: 104px;
+          height: 104px;
           right: auto;
           bottom: auto;
           left: calc(12px + env(safe-area-inset-left));
@@ -548,125 +558,119 @@
       .tbtn:active {
         background: rgba(255, 209, 71, 0.4);
       }
-      #t-left {
-        left: calc(18px + env(safe-area-inset-left));
-        bottom: calc(104px + env(safe-area-inset-bottom));
-        width: 76px;
-        height: 76px;
+
+      /* Pedals: tall rounded slabs with a tread face. Both sit on the same
+         bottom edge as the speedo across from them. */
+      .pedal {
+        position: fixed;
+        pointer-events: auto;
+        bottom: calc(14px + env(safe-area-inset-bottom));
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 6px;
+        padding: 10px 0 9px;
+        border-radius: 14px / 18px;
+        border: 2px solid;
+        box-shadow:
+          0 5px 0 rgba(0, 0, 0, 0.45),
+          inset 0 8px 18px rgba(255, 255, 255, 0.07);
+        backdrop-filter: blur(4px);
+        -webkit-backdrop-filter: blur(4px);
+        transition:
+          transform 0.06s ease,
+          box-shadow 0.06s ease;
       }
-      #t-right {
-        left: calc(110px + env(safe-area-inset-left));
-        bottom: calc(104px + env(safe-area-inset-bottom));
-        width: 76px;
-        height: 76px;
+      /* Press = the pedal travels down onto its shadow. */
+      .pedal:active {
+        transform: translateY(4px);
+        box-shadow:
+          0 1px 0 rgba(0, 0, 0, 0.45),
+          inset 0 8px 18px rgba(255, 255, 255, 0.12);
       }
-      #t-gas {
-        right: calc(18px + env(safe-area-inset-right));
-        bottom: calc(110px + env(safe-area-inset-bottom));
-        width: 92px;
-        height: 92px;
-        background: rgba(107, 255, 142, 0.18);
-        border-color: rgba(107, 255, 142, 0.5);
+      .pedal .tread {
+        flex: 1;
+        width: 62%;
+        border-radius: 4px;
+        /* ridged rubber face */
+        background: repeating-linear-gradient(
+          to bottom,
+          rgba(255, 255, 255, 0.4) 0 2px,
+          transparent 2px 8px
+        );
       }
+      .pedal .cap {
+        font: 700 11px/1 ui-monospace, monospace;
+        letter-spacing: 1.5px;
+        color: #fff;
+      }
+      /* The only pedal — touch drives itself while a finger is down. */
       #t-brake {
-        right: calc(124px + env(safe-area-inset-right));
-        bottom: calc(40px + env(safe-area-inset-bottom));
-        width: 74px;
-        height: 74px;
-        font-size: 12px;
-        letter-spacing: 1px;
-        background: rgba(255, 90, 82, 0.16);
-        border-color: rgba(255, 90, 82, 0.5);
+        right: calc(14px + env(safe-area-inset-right));
+        width: 96px;
+        height: 132px;
+        background: rgba(255, 90, 82, 0.15);
+        border-color: rgba(255, 90, 82, 0.55);
       }
+
+      /* NOS: a small red nitro button riding above the gas pedal. */
       #t-boost {
         right: calc(30px + env(safe-area-inset-right));
-        bottom: calc(214px + env(safe-area-inset-bottom));
+        bottom: calc(158px + env(safe-area-inset-bottom));
         width: 64px;
         height: 64px;
-        font-size: 12px;
-        letter-spacing: 1px;
-        background: rgba(255, 209, 71, 0.16);
-        border-color: rgba(255, 209, 71, 0.55);
+        flex-direction: column;
+        gap: 1px;
+        background: radial-gradient(
+          circle at 50% 34%,
+          rgba(255, 90, 82, 0.55),
+          rgba(150, 20, 16, 0.6)
+        );
+        border-color: rgba(255, 90, 82, 0.85);
+        box-shadow:
+          0 4px 0 rgba(0, 0, 0, 0.42),
+          0 0 16px rgba(255, 90, 82, 0.45);
       }
+      #t-boost .nos {
+        font-size: 26px;
+        line-height: 1;
+      }
+      #t-boost:active {
+        transform: translateY(3px);
+        background: radial-gradient(circle at 50% 34%, #ff8a80, rgba(200, 30, 24, 0.85));
+      }
+      /* Chat: left-aligned with the EARNED pill, tucked under it. */
       #t-chat {
-        left: calc(66px + env(safe-area-inset-left));
+        left: calc(14px + env(safe-area-inset-left));
         top: calc(76px + env(safe-area-inset-top));
         width: 44px;
         height: 44px;
         font-size: 18px;
       }
-      /* Narrow phones: shrink + retuck the clusters so steer and brake never overlap. */
+      /* Narrow phones: shrink the pedal, keep the shared bottom edge. */
       @media (max-width: 420px) {
-        #t-left {
-          left: calc(12px + env(safe-area-inset-left));
-          bottom: calc(102px + env(safe-area-inset-bottom));
-          width: 64px;
-          height: 64px;
-        }
-        #t-right {
-          left: calc(88px + env(safe-area-inset-left));
-          bottom: calc(102px + env(safe-area-inset-bottom));
-          width: 64px;
-          height: 64px;
-        }
-        #t-gas {
-          right: calc(12px + env(safe-area-inset-right));
-          bottom: calc(104px + env(safe-area-inset-bottom));
-          width: 78px;
-          height: 78px;
-        }
         #t-brake {
-          right: calc(100px + env(safe-area-inset-right));
-          bottom: calc(34px + env(safe-area-inset-bottom));
-          width: 62px;
-          height: 62px;
+          right: calc(12px + env(safe-area-inset-right));
+          width: 82px;
+          height: 116px;
         }
         #t-boost {
-          right: calc(22px + env(safe-area-inset-right));
-          bottom: calc(200px + env(safe-area-inset-bottom));
+          right: calc(20px + env(safe-area-inset-right));
+          bottom: calc(142px + env(safe-area-inset-bottom));
           width: 56px;
           height: 56px;
         }
       }
-      /* Landscape phones: no height for stacked columns — minimap moves to the
-         bottom-center, steer lifts above the speedo, boost tucks beside gas. */
+      /* Landscape phones: short viewport — a shorter pedal so NOS still clears
+         its top edge. Steering is the floating stick, so the left half stays
+         free for the map/speedo column. */
       @media (max-height: 500px) {
-        #minimap {
-          width: 92px;
-          height: 92px;
-          top: auto;
-          right: auto;
-          left: 50%;
-          transform: translateX(-50%);
-          bottom: calc(10px + env(safe-area-inset-bottom));
-        }
-        #t-left {
-          left: calc(16px + env(safe-area-inset-left));
-          bottom: calc(104px + env(safe-area-inset-bottom));
-          width: 68px;
-          height: 68px;
-        }
-        #t-right {
-          left: calc(96px + env(safe-area-inset-left));
-          bottom: calc(104px + env(safe-area-inset-bottom));
-          width: 68px;
-          height: 68px;
-        }
-        #t-gas {
-          right: calc(16px + env(safe-area-inset-right));
-          bottom: calc(78px + env(safe-area-inset-bottom));
-          width: 84px;
-          height: 84px;
-        }
         #t-brake {
-          right: calc(112px + env(safe-area-inset-right));
-          bottom: calc(26px + env(safe-area-inset-bottom));
-          width: 62px;
-          height: 62px;
+          height: 112px;
         }
         #t-boost {
-          right: calc(118px + env(safe-area-inset-right));
-          bottom: calc(118px + env(safe-area-inset-bottom));
+          bottom: calc(138px + env(safe-area-inset-bottom));
           width: 56px;
           height: 56px;
         }
@@ -697,10 +701,13 @@
       }
       /* Sound toggle — under the score pill. The only unmute path on touch
          (keyboard has M); >=44px target. */
+      /* Landing-screen chrome only: the play field carries no control text and
+         no sound button (M still toggles). `body.landing` gates both. */
       #mute {
+        display: none;
         position: fixed;
-        top: calc(76px + env(safe-area-inset-top));
-        left: calc(14px + env(safe-area-inset-left));
+        top: calc(18px + env(safe-area-inset-top));
+        right: calc(14px + env(safe-area-inset-right));
         width: 44px;
         height: 44px;
         padding: 0;
@@ -718,6 +725,88 @@
       }
       #mute:active {
         background: rgba(255, 209, 71, 0.4);
+      }
+      /* Hover tooltip carries the key hint, so the landing legend doesn't. */
+      #mute::after {
+        content: attr(data-tip);
+        position: absolute;
+        top: 50%;
+        right: calc(100% + 10px);
+        transform: translateY(-50%);
+        padding: 6px 10px;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 209, 71, 0.35);
+        background: rgba(18, 16, 26, 0.92);
+        color: #fff;
+        font: 600 11px/1 system-ui, sans-serif;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        white-space: nowrap;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.14s ease;
+      }
+      #mute:hover::after,
+      #mute:focus-visible::after {
+        opacity: 1;
+      }
+      /* No hover on touch — the tooltip would stick after a tap. */
+      @media (pointer: coarse) {
+        #mute::after {
+          content: none;
+        }
+      }
+      /* Landing screen: the banner is the whole screen. Hide every gameplay
+         surface behind it — HUD pills, minimap, driver count, touch pad. */
+      body.landing #mute {
+        display: block;
+      }
+      body.landing #hud,
+      body.landing #netinfo,
+      body.landing #touch {
+        display: none;
+      }
+      /* Keycap legend, below the CTA. Chips read as keys, not prose. */
+      #banner-controls {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        align-items: center;
+        gap: 12px 18px;
+        margin-top: 30px;
+        max-width: min(680px, 92vw);
+      }
+      #banner-controls:empty {
+        display: none;
+      }
+      #banner-controls .hint {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+      }
+      #banner-controls kbd {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 26px;
+        height: 26px;
+        padding: 0 7px;
+        border-radius: 6px;
+        border: 1px solid rgba(255, 255, 255, 0.28);
+        border-bottom-width: 2px;
+        background: rgba(255, 255, 255, 0.1);
+        color: #fff;
+        font:
+          700 12px/1 ui-monospace,
+          "SF Mono",
+          Menlo,
+          monospace;
+      }
+      #banner-controls .lbl {
+        font: 600 12px/1 system-ui, sans-serif;
+        letter-spacing: 1.4px;
+        text-transform: uppercase;
+        color: rgba(255, 255, 255, 0.62);
       }
 
       /* Online-drivers count — top-right corner. */
@@ -791,23 +880,26 @@
       </div>
     </div>
 
-    <div id="banner">
+    <div id="banner" data-gamepad-ignore>
       <div id="banner-title">CRAZY WAYMO</div>
       <div id="banner-sub"></div>
       <div id="banner-stats"></div>
-      <div id="banner-cta" role="button" tabindex="0" aria-label="Start driving">PRESS ENTER</div>
+      <div id="banner-cta" role="button" tabindex="0" aria-label="Start driving">START DRIVING</div>
+      <div id="banner-controls"></div>
     </div>
 
     <div id="flash"></div>
     <div id="vignette"></div>
     <button id="mute" aria-label="Unmute">🔇</button>
 
-    <div id="touch" aria-hidden="true">
-      <div class="tbtn" id="t-left" role="button" aria-label="Steer left">◀</div>
-      <div class="tbtn" id="t-right" role="button" aria-label="Steer right">▶</div>
-      <div class="tbtn" id="t-gas" role="button" aria-label="Accelerate">GAS</div>
-      <div class="tbtn" id="t-brake" role="button" aria-label="Brake and drift">BRAKE</div>
-      <div class="tbtn" id="t-boost" role="button" aria-label="Boost">BOOST</div>
+    <!-- data-gamepad-ignore: taps here must not anchor the steering stick. -->
+    <div id="touch" aria-hidden="true" data-gamepad-ignore>
+      <div class="pedal" id="t-brake" role="button" aria-label="Brake and reverse">
+        <span class="tread"></span><span class="cap">BRAKE</span>
+      </div>
+      <div class="tbtn" id="t-boost" role="button" aria-label="Nitro boost">
+        <span class="nos">🔥</span>
+      </div>
       <div class="tbtn" id="t-chat" role="button" aria-label="Chat">💬</div>
     </div>
 

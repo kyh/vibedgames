@@ -23,7 +23,10 @@ const PARK = "#6f9455";
 const ROAD = "#c9cdd2";
 const DECK = "#c0483c";
 
-const VIEW = 560; // world units across the minimap window
+// World units across the minimap window. Mobile zooms in: the canvas is ~2/3
+// the desktop size, so the same VIEW would shrink streets below legibility.
+const VIEW_DESKTOP = 560;
+const VIEW_MOBILE = 340;
 const BASE_PX = 2048; // offscreen full-map resolution (px on the long axis)
 
 export class Minimap {
@@ -34,11 +37,13 @@ export class Minimap {
   private dpr: number;
   private t = 0;
   private baseScale: number; // world units → base px
+  private view: number;
 
   constructor(plan: CityPlan, decks: readonly SurfaceDeck[]) {
     const node = document.getElementById("minimap");
     this.canvas = node instanceof HTMLCanvasElement ? node : document.createElement("canvas");
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.view = window.matchMedia("(pointer: coarse)").matches ? VIEW_MOBILE : VIEW_DESKTOP;
     this.size = this.canvas.clientWidth > 0 ? this.canvas.clientWidth : 148;
     this.canvas.width = this.size * this.dpr;
     this.canvas.height = this.size * this.dpr;
@@ -95,7 +100,7 @@ export class Minimap {
     this.t += dt;
 
     // Blit the window around the car (base px), water-blue beyond the map.
-    const winPx = VIEW * this.baseScale;
+    const winPx = this.view * this.baseScale;
     const sx = (carX + WORLD_HALF_X) * this.baseScale - winPx / 2;
     const sz = (carZ + WORLD_HALF_Z) * this.baseScale - winPx / 2;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -105,9 +110,9 @@ export class Minimap {
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
 
     // World → viewport CSS px.
-    const vScale = this.size / VIEW;
-    const px = (x: number): number => (x - carX + VIEW / 2) * vScale;
-    const pz = (z: number): number => (z - carZ + VIEW / 2) * vScale;
+    const vScale = this.size / this.view;
+    const px = (x: number): number => (x - carX + this.view / 2) * vScale;
+    const pz = (z: number): number => (z - carZ + this.view / 2) * vScale;
 
     for (const m of markers) {
       // Clamp off-window markers to the edge (direction hint).

@@ -390,6 +390,9 @@ importers:
       '@dimforge/rapier3d-compat':
         specifier: ^0.19.3
         version: 0.19.3
+      '@vibedgames/gamepad':
+        specifier: workspace:^
+        version: link:../../packages/gamepad
       '@vibedgames/multiplayer':
         specifier: workspace:^
         version: link:../../packages/multiplayer

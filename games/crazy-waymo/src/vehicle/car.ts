@@ -391,7 +391,9 @@ export class Car {
 
     if (this.boostMeter <= 0.5) this.boostArmed = false;
     else if (this.boostMeter >= 15) this.boostArmed = true;
-    const boostHeld = input.boost && input.throttle > 0;
+    // Boost stands on its own: no throttle required, so NOS from a standstill
+    // launches you (setControls pins the throttle open while boosting).
+    const boostHeld = input.boost;
     const wantBoost = boostHeld && this.boostArmed;
     this.boostDenied = boostHeld && !this.boostArmed && !this.boostHeldPrev;
     this.boostHeldPrev = boostHeld;
@@ -536,18 +538,22 @@ export class Car {
     // rebuilds — without this the trickle refill flaps boost on/off at ~15Hz.
     if (this.boostMeter <= 0.5) this.boostArmed = false;
     else if (this.boostMeter >= 15) this.boostArmed = true;
-    const boostHeld = input.boost && input.throttle > 0;
+    // Boost stands on its own — NOS from a standstill drives you forward.
+    const boostHeld = input.boost;
     const wantBoost = boostHeld && this.boostArmed;
     // Denied feedback fires once per press, not once per frame.
     this.boostDenied = boostHeld && !this.boostArmed && !this.boostHeldPrev;
     this.boostHeldPrev = boostHeld;
     this.isBoosting = wantBoost;
     const topSpeed = wantBoost ? CAR.boostSpeed : CAR.maxSpeed;
-    if (input.throttle > 0) {
+    // Brake wins at (near) standstill even with the gas held — a thumb resting
+    // on GAS must never block the reverse gear.
+    if (input.brake > 0.05 && vForward <= 0.5) {
+      vForward = Math.max(vForward - CAR.reverseAccel * dt, -CAR.reverseMax);
+    } else if (input.throttle > 0 || wantBoost) {
       vForward += CAR.accel * dt;
     } else if (input.brake > 0.05) {
-      if (vForward > 0.5) vForward -= CAR.brakeDecel * dt;
-      else vForward = Math.max(vForward - CAR.reverseAccel * dt, -CAR.reverseMax);
+      vForward -= CAR.brakeDecel * dt;
     } else {
       const drop = CAR.coastDecel * dt;
       vForward = vForward > 0 ? Math.max(0, vForward - drop) : Math.min(0, vForward + drop);

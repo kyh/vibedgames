@@ -4,10 +4,15 @@ function el(id: string): HTMLElement {
   return node;
 }
 
+/** One keycap group: the keys that do it, and what they do. */
+export type ControlHint = { readonly keys: readonly string[]; readonly label: string };
+
 export type BannerSpec = {
   readonly title: string;
   readonly sub: string;
   readonly stats?: string;
+  /** Control legend. Landing screen only — never shown over live gameplay. */
+  readonly controls?: readonly ControlHint[];
   readonly cta: string;
 };
 
@@ -43,6 +48,7 @@ export class Hud {
   private bannerTitle = el("banner-title");
   private bannerSub = el("banner-sub");
   private bannerStats = el("banner-stats");
+  private bannerControls = el("banner-controls");
   private bannerCta = el("banner-cta");
   private muteBtn = el("mute");
   private flashEl = el("flash");
@@ -316,10 +322,43 @@ export class Hud {
     this.bannerSub.textContent = spec.sub;
     this.bannerStats.textContent = spec.stats ?? "";
     this.bannerCta.textContent = spec.cta;
+    this.renderControls(spec.controls ?? []);
     this.banner.classList.add("show");
+  }
+
+  /** Build the keycap legend as nodes — the `:empty` rule hides it when there
+   *  are no hints (game-over banner), so clear it rather than leaving stale chips. */
+  private renderControls(hints: readonly ControlHint[]): void {
+    this.bannerControls.replaceChildren(
+      ...hints.map((hint) => {
+        const group = document.createElement("span");
+        group.className = "hint";
+        for (const key of hint.keys) {
+          const cap = document.createElement("kbd");
+          cap.textContent = key;
+          group.append(cap);
+        }
+        const label = document.createElement("span");
+        label.className = "lbl";
+        label.textContent = hint.label;
+        group.append(label);
+        return group;
+      }),
+    );
   }
   hideBanner(): void {
     this.banner.classList.remove("show");
+  }
+
+  /** Landing screen: banner owns the screen. Hides the gameplay HUD (pills,
+   *  minimap, driver count, touch pad) and reveals the sound button. */
+  setLanding(on: boolean): void {
+    document.body.classList.toggle("landing", on);
+  }
+  /** Retarget the banner's call-to-action without rebuilding the banner —
+   *  used while the city finishes loading behind the landing screen. */
+  setCta(text: string): void {
+    this.bannerCta.textContent = text;
   }
   onCta(fn: () => void): void {
     this.bannerCta.addEventListener("click", fn);
@@ -330,6 +369,9 @@ export class Hud {
   setMuted(muted: boolean): void {
     this.muteBtn.textContent = muted ? "🔇" : "🔊";
     this.muteBtn.setAttribute("aria-label", muted ? "Unmute" : "Mute");
+    // Drives the hover tooltip (#mute::after) — the key hint lives there rather
+    // than in the landing legend.
+    this.muteBtn.dataset.tip = muted ? "Unmute (M)" : "Mute (M)";
   }
 
   flash(rgb: string, alpha: number): void {
