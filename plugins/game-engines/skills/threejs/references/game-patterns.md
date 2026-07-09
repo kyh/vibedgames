@@ -325,7 +325,7 @@ Preserve volume: when the Y axis scales by `s`, counter-scale X/Z by `1 / sqrt(s
 let squashY = 1; // current Y scale; 1 = rest
 
 // squash < 1 on impact/landing, stretch > 1 on jump takeoff
-function squash(target, amount) {
+function squash(amount) {
   squashY = amount;
 }
 
@@ -336,9 +336,9 @@ function updateSquash(dt, target) {
   target.scale.set(xz, squashY, xz);
 }
 
-// Usage
-squash(player, 1.15); // jump takeoff stretch
-squash(player, 0.85); // landing squash (0.75 for heavy impact)
+// Usage — updateSquash(dt, playerVisual) runs in the loop
+squash(1.15); // jump takeoff stretch
+squash(0.85); // landing squash (0.75 for heavy impact)
 ```
 
 Both should return to rest over ~180ms. Apply to a visual wrapper `Group`, never the physics body.
