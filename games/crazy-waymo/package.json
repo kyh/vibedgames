@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.19.3",
+    "@vibedgames/embed": "workspace:^",
     "@vibedgames/gamepad": "workspace:^",
     "@vibedgames/multiplayer": "workspace:^",
     "polygon-clipping": "^0.15.7",

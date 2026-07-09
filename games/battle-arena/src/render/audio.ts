@@ -128,6 +128,17 @@ export class Audio {
     }
   }
 
+  /** Wrapper-requested pause: halts the AudioContext clock, so every
+   *  sample-accurate scheduled voice (SFX + Music's `start(t)`/`stop(t)`
+   *  envelopes) simply stalls in place instead of drifting or double-firing. */
+  suspend(): void {
+    if (this.ctx?.state === "running") void this.ctx.suspend();
+  }
+
+  resume(): void {
+    if (this.ctx?.state === "suspended") void this.ctx.resume();
+  }
+
   private ensure(): void {
     if (this.ctx) return;
     const scope: typeof globalThis & { webkitAudioContext?: typeof AudioContext } = globalThis;
@@ -510,13 +521,7 @@ export class Audio {
   }
 
   /** Heavy whoosh + 65Hz sub heft (the 2H weight — Black Knight's swing). */
-  private atkHeavy(
-    t: number,
-    x: number | undefined,
-    y: number | undefined,
-    p = 1,
-    d = 1,
-  ): void {
+  private atkHeavy(t: number, x: number | undefined, y: number | undefined, p = 1, d = 1): void {
     this.noise({
       at: t,
       x,

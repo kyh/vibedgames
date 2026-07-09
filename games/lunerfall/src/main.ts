@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { setPauseHandlers } from "@vibedgames/embed";
 
 import { BASE_H, BASE_W, clampAspect } from "./config";
 import { BootScene } from "./scenes/boot-scene";
@@ -24,6 +25,29 @@ const config: Phaser.Types.Core.GameConfig = {
 const game = new Phaser.Game(config);
 // Debug handle for perf/inspection probes (see globalThis.__game).
 Reflect.set(globalThis, "__game", game);
+
+// Wrapper-requested pause: never freeze a live co-op/versus session another
+// player is relying on, only the local sim. `froze` tracks whether onPause
+// actually froze anything, so onResume only wakes what it put to sleep.
+// Audio (sfx.ts, a self-contained WebAudio synth) has no pause hook and is
+// left running — it's cosmetic and out of scope for a surgical freeze fix.
+const isOnline = (): boolean => {
+  const scene = game.scene.getScene("game");
+  return game.scene.isActive("game") && scene instanceof GameScene && scene.isOnline();
+};
+let froze = false;
+setPauseHandlers({
+  onPause: () => {
+    if (isOnline()) return;
+    froze = true;
+    game.loop.sleep();
+  },
+  onResume: () => {
+    if (!froze) return;
+    froze = false;
+    game.loop.wake();
+  },
+});
 
 // BASE_W bakes the load-time aspect into every scene's layout, so a rotation
 // (or any resize that lands on a materially different clamped aspect) can only

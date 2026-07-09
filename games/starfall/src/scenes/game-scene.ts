@@ -1,6 +1,7 @@
 import { attachVirtualGamepad, safeAreaInset } from "@vibedgames/gamepad/phaser";
 import type { Inset, PhaserGamepad } from "@vibedgames/gamepad/phaser";
-import { MultiplayerClient, notifyGameStarted } from "@vibedgames/multiplayer";
+import { notifyGameStarted } from "@vibedgames/embed";
+import { MultiplayerClient } from "@vibedgames/multiplayer";
 import type { Player, PlayerMap } from "@vibedgames/multiplayer";
 import Phaser from "phaser";
 

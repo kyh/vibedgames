@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { setPauseHandlers } from "@vibedgames/embed";
 
 import { music, sfx } from "./audio/sfx";
 import { FaceCamera } from "./input/face-camera";
@@ -59,11 +60,26 @@ window.addEventListener("resize", () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
+// Wrapper-requested pause: the embed package owns the overlay, we just freeze
+// the sim. `timer.update` keeps running every frame even while paused, so the
+// delta never balloons across the gap — resuming needs no explicit reset.
+let paused = false;
+setPauseHandlers({
+  onPause: () => {
+    paused = true;
+    music.pause();
+  },
+  onResume: () => {
+    paused = false;
+    music.resume();
+  },
+});
+
 const timer = new THREE.Timer();
 renderer.setAnimationLoop((time) => {
   timer.update(time);
   const dt = Math.min(timer.getDelta(), MAX_DT);
-  game.update(dt);
+  if (!paused) game.update(dt);
   renderer.render(game.scene, game.camera);
 });
 

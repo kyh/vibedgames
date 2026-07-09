@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { setPauseHandlers } from "@vibedgames/embed";
 
 import { startHandTracking } from "./input/camera";
 import { DitherPass } from "./render/dither-pass";
@@ -27,6 +28,13 @@ container.appendChild(renderer.domElement);
 
 const game = new GameScene();
 const dither = new DitherPass(window.innerWidth, window.innerHeight);
+
+// Wrapper pause: freeze the sim unless a live human opponent is connected
+// (see GameScene.requestPause) — the wrapper's own overlay shows either way.
+setPauseHandlers({
+  onPause: () => game.requestPause(),
+  onResume: () => game.requestResume(),
+});
 
 // Webcam hand tracking auto-starts (legacy semantics — no start button);
 // on failure it shows a status in its panel and pointer/keys keep working.

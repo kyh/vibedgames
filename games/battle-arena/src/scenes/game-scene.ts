@@ -9,7 +9,15 @@ import { HALF, isInThrone, SPAWNS } from "../data/map";
 import { terrainHeight } from "../data/terrain";
 import { ALL_ABILITY_KEYS, type AbilityKey, type Unit, type World } from "../sim/types";
 import { requestCast, useItemActive } from "../sim/abilities";
-import { buyItem, createWorld, ensureBots, setHeroInput, spawnHero, step, tryJump } from "../sim/world";
+import {
+  buyItem,
+  createWorld,
+  ensureBots,
+  setHeroInput,
+  spawnHero,
+  step,
+  tryJump,
+} from "../sim/world";
 import { INTENT_EVENT, MULTIPLAYER_HOST, PARTY, type Intent } from "../net/protocol";
 import { applySnapshot, emptyGuestWorld, encodeWorld, isSnapshot } from "../net/snapshot";
 import { SNAPSHOT_HZ } from "../data/config";
@@ -63,7 +71,14 @@ export class GameScene {
   private musicLowSince = -1;
   // touch integration (change-gated per-frame feeds)
   private boundChamp = "";
-  private readonly touchCdLast: Record<AbilityKey, number> = { Q: -1, W: -1, E: -1, R: -1, DASH: -1, JUMP: -1 };
+  private readonly touchCdLast: Record<AbilityKey, number> = {
+    Q: -1,
+    W: -1,
+    E: -1,
+    R: -1,
+    DASH: -1,
+    JUMP: -1,
+  };
 
   // online state
   private picks: Record<string, { champId: string; name: string }> = {};
@@ -180,7 +195,9 @@ export class GameScene {
       this.feedTouchCooldowns(me);
     } else {
       this.statusEl.textContent =
-        this.net && this.net.connectionStatus !== "connected" ? "Connecting…" : "Joining the arena…";
+        this.net && this.net.connectionStatus !== "connected"
+          ? "Connecting…"
+          : "Joining the arena…";
     }
     this.hints.update(this.world, me);
     this.driveIntro();
@@ -366,7 +383,11 @@ export class GameScene {
 
     // announce our champ pick (and re-announce so a migrated host learns it)
     if (this.world.now - this.joinResendAt > 3000 || this.joinResendAt === 0) {
-      net.sendEvent(INTENT_EVENT, { kind: "join", champId: this.champId, name: this.name } satisfies Intent);
+      net.sendEvent(INTENT_EVENT, {
+        kind: "join",
+        champId: this.champId,
+        name: this.name,
+      } satisfies Intent);
       this.joinResendAt = this.world.now;
     }
 
@@ -381,7 +402,12 @@ export class GameScene {
       if (this.world.units.size === 0) this.world = createWorld(ONLINE_SEED);
     }
     if (this.forcedHost && net.isHost) this.forcedHost = false;
-    else if (this.forcedHost && net.hostId && net.hostId !== net.playerId && net.hostId !== this.tookOverFrom) {
+    else if (
+      this.forcedHost &&
+      net.hostId &&
+      net.hostId !== net.playerId &&
+      net.hostId !== this.tookOverFrom
+    ) {
       this.forcedHost = false;
     }
 
@@ -470,7 +496,10 @@ export class GameScene {
     if (lmbJump || touchJump) {
       if (lmbJump) attack = false; // resolve the ambiguous airborne LMB toward JUMP
       if (host) {
-        requestCast(this.world, me, "JUMP", { point: castPoint, dir: { x: this.aimX, y: this.aimY } });
+        requestCast(this.world, me, "JUMP", {
+          point: castPoint,
+          dir: { x: this.aimX, y: this.aimY },
+        });
       } else {
         this.net?.sendEvent(INTENT_EVENT, {
           kind: "cast",
@@ -547,7 +576,13 @@ export class GameScene {
     // item actives: 5–0 keys + belt-chip taps (the only touch path to items)
     for (const slot of [...this.controls.consumeItems(), ...this.hud.consumeItemTaps()]) {
       if (host) useItemActive(this.world, me, slot, castPoint);
-      else this.net?.sendEvent(INTENT_EVENT, { kind: "useItem", slot, px: castPoint.x, py: castPoint.y } satisfies Intent);
+      else
+        this.net?.sendEvent(INTENT_EVENT, {
+          kind: "useItem",
+          slot,
+          px: castPoint.x,
+          py: castPoint.y,
+        } satisfies Intent);
     }
 
     const buy = this.controls.consumeBuy() || (this.touch?.consumeBuy() ?? false);
@@ -587,13 +622,23 @@ export class GameScene {
     const fc = (n: unknown): number => clampArena(f(n));
     switch (intent.kind) {
       case "input":
-        setHeroInput(u, clamp1(f(intent.mx)), clamp1(f(intent.my)), clamp1(f(intent.ax)), clamp1(f(intent.ay)), intent.attack === true);
+        setHeroInput(
+          u,
+          clamp1(f(intent.mx)),
+          clamp1(f(intent.my)),
+          clamp1(f(intent.ax)),
+          clamp1(f(intent.ay)),
+          intent.attack === true,
+        );
         break;
       case "cast":
         // reject a bad/spoofed key before it reaches the sim; requestCast so
         // guests get the same host-side input buffer as locals
         if (!ALL_ABILITY_KEYS.includes(intent.key)) break;
-        requestCast(this.world, u, intent.key, { point: { x: fc(intent.px), y: fc(intent.py) }, dir: { x: clamp1(f(intent.ax)), y: clamp1(f(intent.ay)) } });
+        requestCast(this.world, u, intent.key, {
+          point: { x: fc(intent.px), y: fc(intent.py) },
+          dir: { x: clamp1(f(intent.ax)), y: clamp1(f(intent.ay)) },
+        });
         break;
       case "buy":
         if (typeof intent.itemId === "string") buyItem(this.world, u, intent.itemId);
@@ -710,6 +755,16 @@ export class GameScene {
     if (!me || !me.alive) return false;
     const sp = SPAWNS[me.slot % SPAWNS.length]!;
     return (me.x - sp.x) ** 2 + (me.y - sp.y) ** 2 <= SHOP_RADIUS * SHOP_RADIUS;
+  }
+
+  /** Wrapper-requested pause/resume (see main.ts's setPauseHandlers wiring) —
+   *  offline only, the sim itself is frozen by simply not calling update(). */
+  pauseAudio(): void {
+    this.fx.audio.suspend();
+  }
+
+  resumeAudio(): void {
+    this.fx.audio.resume();
   }
 
   dispose(): void {

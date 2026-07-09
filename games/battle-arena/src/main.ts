@@ -1,5 +1,5 @@
 // Boot: load assets, show the lobby, then run the chosen match.
-import { notifyGameStarted } from "@vibedgames/multiplayer";
+import { notifyGameStarted, setPauseHandlers } from "@vibedgames/embed";
 import * as THREE from "three";
 import { ModelLibrary } from "./render/models";
 import { View } from "./render/view";
@@ -17,14 +17,7 @@ const container = document.getElementById("game")!;
 const loadingEl = document.getElementById("loading");
 const barFill = document.getElementById("bar-fill");
 
-const CHAMP_MODELS = [
-  "Knight",
-  "Ranger",
-  "Mage",
-  "Rogue_Hooded",
-  "Paladin_with_Helmet",
-  "Witch",
-];
+const CHAMP_MODELS = ["Knight", "Ranger", "Mage", "Rogue_Hooded", "Paladin_with_Helmet", "Witch"];
 const BOSS_MODEL = "Skeleton_Golem";
 const ENEMY_MODELS = ["Skeleton_Warrior", "Skeleton_Mage", "Skeleton_Minion", "FrostGolem"];
 const WEAPON_MODELS = [
@@ -115,7 +108,13 @@ async function main(): Promise<void> {
     ...CLIP_LIBS_LARGE.map((c) => lib.loadClips(`./models/animations/${c}.glb`, "Large/")),
     // scenery gets a matte grade (KayKit ships glossy); the dungeon atlas also
     // takes a warm-dark tint so the pale floor mortar stops reading as neon
-    ...PROP_SPECS.map((p) => lib.loadCharacter(p.name, p.url, p.url.includes("/dungeon/") ? { matte: true, tint: 0xcabb9f } : { matte: true })),
+    ...PROP_SPECS.map((p) =>
+      lib.loadCharacter(
+        p.name,
+        p.url,
+        p.url.includes("/dungeon/") ? { matte: true, tint: 0xcabb9f } : { matte: true },
+      ),
+    ),
     ...WEAPON_MODELS.map((m) => lib.loadCharacter(m, `./models/weapons/${m}.gltf`)),
   ];
   let done = 0;
@@ -173,8 +172,19 @@ async function main(): Promise<void> {
   const localMapDraft = readLocalMapDraft();
 
   const timer = new THREE.Timer();
+  // Wrapper-pause bookkeeping (see setPauseHandlers below): which match loop is
+  // live, whether it's online, and whether onPause actually froze it.
+  let activeScene: GameScene | null = null;
+  let onlineMatch = false;
+  let froze = false;
+  const matchLoop = (t: number): void => {
+    timer.update(t);
+    const dt = Math.min(timer.getDelta(), 1 / 30);
+    activeScene?.update(dt);
+  };
   const launch = (opts: SceneOpts): void => {
     notifyGameStarted();
+    onlineMatch = opts.online;
     const custom = (opts.online ? null : localMapDraft) ?? bundledMap;
     if (custom) {
       applyMapData(custom);
@@ -185,16 +195,40 @@ async function main(): Promise<void> {
     const controls = new Controls(view.renderer.domElement);
     const touch = new TouchControls();
     const scene = new GameScene(view, lib, controls, opts, touch);
+    activeScene = scene;
     if (import.meta.env.DEV) {
       (window as unknown as { __ba: GameScene }).__ba = scene;
       (window as unknown as { __view: View }).__view = view;
     }
-    view.renderer.setAnimationLoop((t) => {
-      timer.update(t);
-      const dt = Math.min(timer.getDelta(), 1 / 30);
-      scene.update(dt);
-    });
+    view.renderer.setAnimationLoop(matchLoop);
   };
+
+  // Wrapper-requested pause (registered once at boot — the embed package
+  // no-ops pause until notifyGameStarted has fired, i.e. only during a match).
+  // HARD RULE: never freeze a live online session — it's host-authoritative
+  // and shared with another client, so stopping our loop just desyncs/stalls
+  // them; the wrapper's overlay alone is the pause UI there. Offline is safe:
+  // sim time only ever advances inside matchLoop (world.ts step() does
+  // `w.now += dt * 1000`; abilities/PendingStrike run off that sim clock, not
+  // Date.now/performance.now), so simply not scheduling the loop holds
+  // everything — cooldowns included — dead in place with nothing to unwind.
+  // timer.reset() on resume avoids a huge first delta from the real-time gap
+  // (belt-and-suspenders: matchLoop already clamps dt to 1/30 regardless).
+  setPauseHandlers({
+    onPause: () => {
+      if (onlineMatch || !activeScene) return;
+      froze = true;
+      view.renderer.setAnimationLoop(null);
+      activeScene.pauseAudio();
+    },
+    onResume: () => {
+      if (!froze) return;
+      froze = false;
+      timer.reset();
+      view.renderer.setAnimationLoop(matchLoop);
+      activeScene?.resumeAudio();
+    },
+  });
 
   // Boot flow: bare URL = champion-select lobby (the right default for a cold
   // shared link — first-time visitors choose a champion instead of being
@@ -245,5 +279,6 @@ async function main(): Promise<void> {
 
 void main().catch((e) => {
   console.error(e);
-  if (loadingEl) loadingEl.innerHTML = `<div style="color:#ff6a6a;font:14px monospace;padding:20px;text-align:center">Failed to load:<br>${e instanceof Error ? e.message : String(e)}</div>`;
+  if (loadingEl)
+    loadingEl.innerHTML = `<div style="color:#ff6a6a;font:14px monospace;padding:20px;text-align:center">Failed to load:<br>${e instanceof Error ? e.message : String(e)}</div>`;
 });

@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { setPauseHandlers } from "@vibedgames/embed";
 
 import { BootScene } from "./scenes/boot-scene";
 import { TitleScene } from "./scenes/title-scene";
@@ -38,3 +39,27 @@ declare global {
 
 const game = new Phaser.Game(config);
 if (import.meta.env.DEV) window.__game = game;
+
+// Sim is entirely delta-driven (update(_t, dms)), so the wrapper's pause can
+// freeze/resume the loop directly — except in live co-op, where freezing would
+// stall heartbeats and desync the room. `froze` ensures onResume only wakes
+// what onPause put to sleep.
+const isOnline = (): boolean => {
+  const scene = game.scene.getScene("Game");
+  return game.scene.isActive("Game") && scene instanceof GameScene && scene.isOnline();
+};
+let froze = false;
+setPauseHandlers({
+  onPause: () => {
+    if (isOnline()) return;
+    froze = true;
+    game.loop.sleep();
+    game.sound.pauseAll();
+  },
+  onResume: () => {
+    if (!froze) return;
+    froze = false;
+    game.loop.wake();
+    game.sound.resumeAll();
+  },
+});

@@ -3,6 +3,7 @@
 // pose into camera-relative moves (DAS/ARR, pose-freshness ownership). main.ts
 // just boots it and renders scene + camera each frame.
 
+import { notifyGameStarted } from "@vibedgames/embed";
 import { Color, Scene } from "three";
 
 import type { Cell } from "../game/board";
@@ -39,15 +40,6 @@ type Repeat = { dir: -1 | 0 | 1; das: number; arr: number };
 
 function el(id: string): HTMLElement | null {
   return document.getElementById(id);
-}
-
-let sentGameStarted = false;
-
-function notifyGameStarted(): void {
-  if (sentGameStarted) return;
-  sentGameStarted = true;
-  if (window.parent === window) return;
-  window.parent.postMessage({ type: "vibedgames:game-started" }, "*");
 }
 
 export class GameScene {

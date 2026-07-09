@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 import type { PhaserGamepad } from "@vibedgames/gamepad/phaser";
-import { notifyGameStarted } from "@vibedgames/multiplayer";
+import { notifyGameStarted } from "@vibedgames/embed";
 import {
   TILE,
   zoomForWidth,
@@ -548,6 +548,15 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ---- multiplayer: sync ----------------------------------------------------
+
+  /**
+   * True only when actually connected to a live co-op room (not the solo
+   * fallback) — used by the wrapper's pause handler so it never freezes a
+   * session other players are relying on.
+   */
+  isOnline(): boolean {
+    return this.net !== undefined && this.net.live && !this.net.offline;
+  }
 
   private handleNetEvent(event: string, payload: unknown, _from: string): void {
     // Host applies a guest's farming action to the authoritative world.

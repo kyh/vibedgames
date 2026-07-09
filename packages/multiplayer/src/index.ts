@@ -1,7 +1,5 @@
 export { MultiplayerClient } from "./client";
 export type { MultiplayerClientOptions, MultiplayerSnapshot } from "./client";
-export { GAME_STARTED_MESSAGE, isGameStartedMessage, notifyGameStarted } from "./embed";
-export type { GameStartedMessage } from "./embed";
 
 export type {
   MultiplayerOptions,

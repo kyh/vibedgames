@@ -2,6 +2,7 @@ import { cn } from "@repo/ui/lib/utils";
 import { Link } from "@tanstack/react-router";
 import { motion } from "motion/react";
 
+import { gameChromeMotion, useGameChromeHidden } from "@/components/game/game-chrome";
 import { useGameParam, usePathname } from "@/lib/use-game-param";
 
 const bracketClass =
@@ -30,13 +31,17 @@ const NavTab = ({ to, label, active, search }: NavTabProps) => (
 export const Nav = () => {
   const pathname = usePathname();
   const game = useGameParam();
+  const hidden = useGameChromeHidden();
   const search = game ? { game } : {};
 
   return (
-    <nav className="pointer-events-none fixed bottom-0 left-0 z-10 flex gap-2 px-4 py-6 font-mono text-xs">
+    <motion.nav
+      {...gameChromeMotion(hidden)}
+      className="pointer-events-none fixed bottom-0 left-0 z-10 flex gap-2 px-4 py-6 font-mono text-xs"
+    >
       <NavTab to="/discover" label="Discover" active={pathname === "/discover"} search={search} />
       <NavTab to="/" label="Play" active={pathname === "/"} search={search} />
       <NavTab to="/build" label="Build" active={pathname === "/build"} search={{}} />
-    </nav>
+    </motion.nav>
   );
 };

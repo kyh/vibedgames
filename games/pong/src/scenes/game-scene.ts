@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { notifyGameStarted } from "@vibedgames/multiplayer";
+import { notifyGameStarted } from "@vibedgames/embed";
 
 import { ParticlePool } from "../fx/particles";
 import { isMuted, sfx, toggleMute } from "../fx/sfx";
@@ -137,6 +137,13 @@ export class GameScene {
   private connWas = false; // tracks the connecting→live transition for the HUD
   private oppWas = false; // tracks opponent join/leave for the HUD
   private roleWasGuest: boolean | null = null; // last role while live (host migration)
+
+  // ---- wrapper pause -----------------------------------------------------
+  // Only frozen when it's safe: a live human opponent must never desync from
+  // us, so requestPause() no-ops while one is connected (`froze` stays false)
+  // and update() keeps running behind the wrapper's overlay.
+  private paused = false;
+  private froze = false;
 
   // ---- feel state ------------------------------------------------------------
   private elapsed = 0;
@@ -372,6 +379,29 @@ export class GameScene {
     return this.net.otherPlayer() !== null;
   }
 
+  /** True while actually connected (not solo) to a room with another player. */
+  private hasLiveOpponent(): boolean {
+    return this.net.live && !this.net.offline && this.hasOpponent();
+  }
+
+  // ---- wrapper pause ---------------------------------------------------------
+
+  /** Wrapper asked us to pause. No-ops while a live human opponent is
+   *  connected — freezing here would desync the shared rally state; the
+   *  wrapper's overlay still shows, the match just keeps running behind it. */
+  requestPause(): void {
+    if (this.hasLiveOpponent()) return;
+    this.froze = true;
+    this.paused = true;
+  }
+
+  /** Wrapper resume. Only unfreezes if requestPause() actually froze us. */
+  requestResume(): void {
+    if (!this.froze) return;
+    this.froze = false;
+    this.paused = false;
+  }
+
   /** The old host left mid-game and the server promoted us. Our slot flips
    *  from B to A, which silently changes what every canonical-frame field
    *  MEANS on screen (the view flip negates x) — remap so nothing teleports,
@@ -516,6 +546,10 @@ export class GameScene {
 
   /** Space / click / tap: rematch when won, serve when waiting. */
   private confirm(): void {
+    // Frozen for the wrapper's pause overlay: the webcam hand loop keeps
+    // running (per its own contract) but must not wake the sim through a
+    // fist gesture while we're paused.
+    if (this.paused) return;
     // Still handshaking: a reflexive tap must not start a phantom rally that
     // sits frozen until the connection resolves.
     if (!this.net.live) return;
@@ -552,6 +586,7 @@ export class GameScene {
   // ---- simulation ------------------------------------------------------------
 
   update(dt: number): void {
+    if (this.paused) return;
     this.elapsed += dt;
     this.invertFlash = Math.max(0, this.invertFlash - dt);
     this.net.tick();

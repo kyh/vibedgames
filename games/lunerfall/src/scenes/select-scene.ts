@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { notifyGameStarted } from "@vibedgames/multiplayer";
+import { notifyGameStarted } from "@vibedgames/embed";
 
 import { sfx } from "../audio/sfx";
 import { BASE_H, BASE_W, COLORS, HERO_ORIGIN_Y } from "../config";

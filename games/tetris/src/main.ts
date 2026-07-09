@@ -34,6 +34,14 @@ window.addEventListener("resize", () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
+// No setPauseHandlers freeze here on purpose: GameScene's collapse phase
+// gates game-over off a wall-clock deadline (collapseStartedAt vs
+// CATCH_WINDOW_MS in scenes/game-scene.ts, both performance.now()-based).
+// Skipping update() while paused wouldn't stop that clock — a pause longer
+// than the 1.3s catch window would insta-finalize game-over on resume. The
+// embed package's overlay still shows without registering handlers (per its
+// own doc comment: "the game just keeps running behind it"), which is the
+// correct fallback for a sim that can't tolerate the gap.
 const timer = new THREE.Timer();
 renderer.setAnimationLoop((time) => {
   timer.update(time);

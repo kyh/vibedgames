@@ -255,9 +255,9 @@ importers:
       '@trpc/tanstack-react-query':
         specifier: 'catalog:'
         version: 11.17.0(@tanstack/react-query@5.100.13(react@19.2.6))(@trpc/client@11.17.0(@trpc/server@11.17.0(typescript@6.0.3))(typescript@6.0.3))(@trpc/server@11.17.0(typescript@6.0.3))(react@19.2.6)(typescript@6.0.3)
-      '@vibedgames/multiplayer':
+      '@vibedgames/embed':
         specifier: workspace:^
-        version: link:../../packages/multiplayer
+        version: link:../../packages/embed
       better-auth:
         specifier: ^1.6.20
         version: 1.6.20(8639eccdd950a78fcfb6534d63f3d7bc)
@@ -331,6 +331,9 @@ importers:
 
   games/battle-arena:
     dependencies:
+      '@vibedgames/embed':
+        specifier: workspace:^
+        version: link:../../packages/embed
       '@vibedgames/gamepad':
         specifier: workspace:^
         version: link:../../packages/gamepad
@@ -362,6 +365,9 @@ importers:
 
   games/bomberman:
     dependencies:
+      '@vibedgames/embed':
+        specifier: workspace:^
+        version: link:../../packages/embed
       '@vibedgames/gamepad':
         specifier: workspace:^
         version: link:../../packages/gamepad
@@ -390,6 +396,9 @@ importers:
       '@dimforge/rapier3d-compat':
         specifier: ^0.19.3
         version: 0.19.3
+      '@vibedgames/embed':
+        specifier: workspace:^
+        version: link:../../packages/embed
       '@vibedgames/gamepad':
         specifier: workspace:^
         version: link:../../packages/gamepad
@@ -430,6 +439,9 @@ importers:
 
   games/farm:
     dependencies:
+      '@vibedgames/embed':
+        specifier: workspace:^
+        version: link:../../packages/embed
       '@vibedgames/gamepad':
         specifier: workspace:^
         version: link:../../packages/gamepad
@@ -458,6 +470,9 @@ importers:
       '@mediapipe/tasks-vision':
         specifier: 0.10.35
         version: 0.10.35
+      '@vibedgames/embed':
+        specifier: workspace:^
+        version: link:../../packages/embed
       '@vibedgames/multiplayer':
         specifier: workspace:^
         version: link:../../packages/multiplayer
@@ -480,6 +495,9 @@ importers:
 
   games/lunerfall:
     dependencies:
+      '@vibedgames/embed':
+        specifier: workspace:^
+        version: link:../../packages/embed
       '@vibedgames/gamepad':
         specifier: workspace:^
         version: link:../../packages/gamepad
@@ -508,6 +526,9 @@ importers:
 
   games/moba:
     dependencies:
+      '@vibedgames/embed':
+        specifier: workspace:^
+        version: link:../../packages/embed
       '@vibedgames/gamepad':
         specifier: workspace:^
         version: link:../../packages/gamepad
@@ -539,6 +560,9 @@ importers:
       '@mediapipe/tasks-vision':
         specifier: 0.10.35
         version: 0.10.35
+      '@vibedgames/embed':
+        specifier: workspace:^
+        version: link:../../packages/embed
       '@vibedgames/multiplayer':
         specifier: workspace:^
         version: link:../../packages/multiplayer
@@ -567,6 +591,9 @@ importers:
       '@mediapipe/tasks-vision':
         specifier: 0.10.35
         version: 0.10.35
+      '@vibedgames/embed':
+        specifier: workspace:^
+        version: link:../../packages/embed
       '@vibedgames/multiplayer':
         specifier: workspace:^
         version: link:../../packages/multiplayer
@@ -592,6 +619,9 @@ importers:
 
   games/starfall:
     dependencies:
+      '@vibedgames/embed':
+        specifier: workspace:^
+        version: link:../../packages/embed
       '@vibedgames/gamepad':
         specifier: workspace:^
         version: link:../../packages/gamepad
@@ -620,6 +650,9 @@ importers:
       '@mediapipe/tasks-vision':
         specifier: 0.10.35
         version: 0.10.35
+      '@vibedgames/embed':
+        specifier: workspace:^
+        version: link:../../packages/embed
       '@vibedgames/gamepad':
         specifier: workspace:^
         version: link:../../packages/gamepad
@@ -710,6 +743,15 @@ importers:
       drizzle-kit:
         specifier: ^0.31.10
         version: 0.31.10
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+
+  packages/embed:
+    devDependencies:
+      '@kyh/tsconfig':
+        specifier: 'catalog:'
+        version: 1.1.14
       typescript:
         specifier: 'catalog:'
         version: 6.0.3

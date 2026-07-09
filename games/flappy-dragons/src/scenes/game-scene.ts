@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { notifyGameStarted } from "@vibedgames/multiplayer";
+import { notifyGameStarted } from "@vibedgames/embed";
 
 import { isCoarsePointer, setPoseLocked } from "../input/camera";
 import { NetSession } from "../net/session";
@@ -267,6 +267,14 @@ export class GameScene extends Phaser.Scene {
 
   private get racing(): boolean {
     return this.net.otherPlayer() !== null;
+  }
+  /**
+   * True only when actually connected to a live party room (not the solo
+   * fallback) — used by the wrapper's pause handler so it never freezes a
+   * session other players are relying on.
+   */
+  isOnline(): boolean {
+    return this.net.live && !this.net.offline;
   }
   private get alive(): boolean {
     return this.phase === "playing";

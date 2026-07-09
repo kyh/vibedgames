@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { setPauseHandlers } from "@vibedgames/embed";
 
 import { BootScene } from "./scenes/boot-scene";
 import { GalleryScene } from "./scenes/gallery-scene";
@@ -31,8 +32,16 @@ const fontReady = Promise.race([
   document.fonts.load('20px "Lilita One"'),
   new Promise((resolve) => setTimeout(resolve, 1500)),
 ]);
+declare global {
+  interface Window {
+    /** DEV-only hook for headless verification. */
+    __game?: Phaser.Game;
+  }
+}
+
 void fontReady.then(() => {
   const game = new Phaser.Game(config);
+  if (import.meta.env.DEV) window.__game = game;
   // Scale.RESIZE can read stale parent bounds when the browser delivers a
   // single resize event (phone rotation): the canvas lags one size behind.
   // Re-check once the layout settles.
@@ -40,5 +49,29 @@ void fontReady.then(() => {
   window.addEventListener("resize", () => {
     clearTimeout(settle);
     settle = setTimeout(() => game.scale.refresh(), 150);
+  });
+
+  // Sim is entirely delta-driven (update(_t, deltaMs)), so the wrapper's
+  // pause can freeze/resume the loop directly — except in online mode, where
+  // freezing the host would stall every client. `froze` ensures onResume only
+  // wakes what onPause put to sleep.
+  const isOnline = (): boolean => {
+    const scene = game.scene.getScene("Game");
+    return game.scene.isActive("Game") && scene instanceof GameScene && scene.isOnline();
+  };
+  let froze = false;
+  setPauseHandlers({
+    onPause: () => {
+      if (isOnline()) return;
+      froze = true;
+      game.loop.sleep();
+      game.sound.pauseAll();
+    },
+    onResume: () => {
+      if (!froze) return;
+      froze = false;
+      game.loop.wake();
+      game.sound.resumeAll();
+    },
   });
 });

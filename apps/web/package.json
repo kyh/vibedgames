@@ -27,7 +27,7 @@
     "@trpc/client": "catalog:",
     "@trpc/server": "catalog:",
     "@trpc/tanstack-react-query": "catalog:",
-    "@vibedgames/multiplayer": "workspace:^",
+    "@vibedgames/embed": "workspace:^",
     "better-auth": "^1.6.20",
     "lucide-react": "^1.16.0",
     "motion": "^12.40.0",

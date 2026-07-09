@@ -198,6 +198,15 @@ export class GameScene extends Phaser.Scene {
     return !this.online || (this.net?.isHost ?? false) || this.forcedHost;
   }
 
+  /**
+   * True in online mode (a peer may be connected or join any moment) — used by
+   * the wrapper's pause handler so it never freezes a session other players
+   * are relying on.
+   */
+  isOnline(): boolean {
+    return this.online;
+  }
+
   // ---- networking ----------------------------------------------------------
   private onNetEvent(event: string, payload: unknown, from: string): void {
     if (event !== INTENT_EVENT) return;

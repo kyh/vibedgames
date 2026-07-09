@@ -189,6 +189,17 @@ export class Music {
     if (this.audio) this.audio.playbackRate = on ? MUSIC_POWER_RATE : 1;
   }
 
+  /** Wrapper-requested pause: stop the loop, resumable in place. */
+  pause(): void {
+    this.audio?.pause();
+  }
+
+  /** Undo pause(). Silently no-ops if autoplay is (still) blocked. */
+  resume(): void {
+    if (!this.audio) return;
+    void this.audio.play().catch(() => {});
+  }
+
   /** Dip under the `caught` sting, restored by update(). */
   duck(): void {
     if (!this.audio || !this.enabled) return;

@@ -308,6 +308,15 @@ export class GameScene extends Phaser.Scene {
     super("game");
   }
 
+  /**
+   * True only when connected to a real party room (not the solo fallback) —
+   * used by the wrapper's pause handler so it never freezes a co-op/versus
+   * session another player is relying on.
+   */
+  isOnline(): boolean {
+    return this.session !== undefined && !this.session.offline;
+  }
+
   create() {
     const params = new URLSearchParams(location.search);
     this.demo = params.get("demo") === "1";

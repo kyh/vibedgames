@@ -1,0 +1,48 @@
+{
+  "name": "@vibedgames/embed",
+  "version": "0.0.1",
+  "private": false,
+  "description": "Game ↔ wrapper messaging for embedded browser games — start notifications, pause requests, and a built-in pause overlay",
+  "keywords": [
+    "embed",
+    "gamedev",
+    "iframe",
+    "pause",
+    "postmessage"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kyh/vibedgames",
+    "directory": "packages/embed"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./host": "./src/host.ts"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./host": {
+        "types": "./dist/host.d.ts",
+        "default": "./dist/host.js"
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf .cache .turbo dist node_modules",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@kyh/tsconfig": "catalog:",
+    "typescript": "catalog:"
+  }
+}

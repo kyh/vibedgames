@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { setPauseHandlers } from "@vibedgames/embed";
 
 import { initPoseCamera, type PoseJumpHandler } from "./input/camera";
 import type { NetSession } from "./net/session";
@@ -40,6 +41,29 @@ const poseJump: PoseJumpHandler = (strength, refire) => {
 };
 
 initPoseCamera(poseJump);
+
+// Wrapper-requested pause: never freeze a live race (other players are still
+// flying), only the local sim. `froze` tracks whether onPause actually froze
+// anything, so onResume only wakes what it put to sleep.
+const isOnline = (): boolean => {
+  const scene = game.scene.getScene("Game");
+  return game.scene.isActive("Game") && scene instanceof GameScene && scene.isOnline();
+};
+let froze = false;
+setPauseHandlers({
+  onPause: () => {
+    if (isOnline()) return;
+    froze = true;
+    game.loop.sleep();
+    game.sound.pauseAll();
+  },
+  onResume: () => {
+    if (!froze) return;
+    froze = false;
+    game.loop.wake();
+    game.sound.resumeAll();
+  },
+});
 
 if (import.meta.env.DEV) {
   // Synthetic driver for headless testing: window.__fbPoseJump(0.8, false)

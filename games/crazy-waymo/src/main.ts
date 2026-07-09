@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { setPauseHandlers } from "@vibedgames/embed";
 
 import { PerfGovernor } from "./render/perf-governor";
 import { isCoarsePointer } from "./render/quality";
@@ -40,6 +41,12 @@ container.appendChild(renderer.domElement);
 
 const game = new GameScene(window.innerWidth / window.innerHeight);
 game.applyEnvironment(renderer);
+
+// Wrapper pause: solo game, safe to fully freeze (see GameScene.requestPause).
+setPauseHandlers({
+  onPause: () => game.requestPause(),
+  onResume: () => game.requestResume(),
+});
 
 function renderHeightPx(): number {
   return window.innerHeight * renderer.getPixelRatio();

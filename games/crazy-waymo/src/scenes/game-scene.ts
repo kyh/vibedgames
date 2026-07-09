@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { notifyGameStarted } from "@vibedgames/multiplayer";
+import { notifyGameStarted } from "@vibedgames/embed";
 import { Sky } from "three/addons/objects/Sky.js";
 
 import { ModelCache } from "../assets/loader";
@@ -275,6 +275,27 @@ export class GameScene {
   private bakePayload: CityGenPayload | null = null;
   get isReady(): boolean {
     return this.loadDone;
+  }
+
+  // ---- wrapper pause -----------------------------------------------------
+  // Solo game, no wall-clock gameplay timers (fares/score/patience are all
+  // dt-driven — see GameState.update/FareManager) — a full freeze is safe.
+  private paused = false;
+
+  /** Wrapper asked us to pause: skip update() entirely (sim + physics both
+   *  gate on it) and kill the continuous engine/screech/scrape/boost loops
+   *  so nothing drones on under the overlay. */
+  requestPause(): void {
+    this.paused = true;
+    this.sfx.stopEngine();
+    this.sfx.setScreech(0, 1);
+    this.sfx.setScrape(false);
+    this.sfx.setBoostLoop(false);
+  }
+
+  /** Wrapper resume: update() picks the loops back up on its own next frame. */
+  requestResume(): void {
+    this.paused = false;
   }
   // Editor: live street rebuild — regenerate roads in-place and respawn
   // traffic on the new network. No reload.
@@ -1224,6 +1245,7 @@ export class GameScene {
   }
 
   update(dt: number): void {
+    if (this.paused) return;
     // Publishes the on-screen stick into `input` before carInput() reads it.
     this.touch?.update();
     if (this.input.consumeStart()) {

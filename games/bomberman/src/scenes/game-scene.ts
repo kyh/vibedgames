@@ -1,6 +1,7 @@
+import { notifyGameStarted } from "@vibedgames/embed";
 import { attachVirtualGamepad, stickDirection4 } from "@vibedgames/gamepad/phaser";
 import type { PhaserGamepad } from "@vibedgames/gamepad/phaser";
-import { MultiplayerClient, notifyGameStarted } from "@vibedgames/multiplayer";
+import { MultiplayerClient } from "@vibedgames/multiplayer";
 import type { Player } from "@vibedgames/multiplayer";
 import Phaser from "phaser";
 

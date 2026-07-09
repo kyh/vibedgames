@@ -1,12 +1,15 @@
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@repo/ui/components/button";
 import { ChevronUpIcon, ChevronDownIcon } from "lucide-react";
+import { motion } from "motion/react";
 
+import { gameChromeMotion, useGameChromeHidden } from "@/components/game/game-chrome";
 import { Route } from "@/routes/_site/index";
 import { featuredGames } from "./data";
 
 export const GameNavArrows = () => {
   const { game } = Route.useSearch();
+  const hidden = useGameChromeHidden();
   const navigate = useNavigate({ from: "/" });
 
   const currentIndex = featuredGames.findIndex((g) => g.slug === game);
@@ -22,7 +25,10 @@ export const GameNavArrows = () => {
   if (currentIndex === -1) return null;
 
   return (
-    <div className="fixed right-4 top-1/2 z-10 hidden -translate-y-1/2 flex-col gap-1 sm:flex">
+    <motion.div
+      {...gameChromeMotion(hidden, { x: 64 })}
+      className="fixed right-4 top-1/2 z-10 hidden -translate-y-1/2 flex-col gap-1 sm:flex"
+    >
       <Button
         variant="ghost"
         size="icon"
@@ -39,6 +45,6 @@ export const GameNavArrows = () => {
       >
         <ChevronDownIcon />
       </Button>
-    </div>
+    </motion.div>
   );
 };
