@@ -44,6 +44,28 @@ All packaged into a single static HTML page with a Three.js scene. ~25–35 MB o
  transition lines + radial flash on swap
 ```
 
+## Riggable-character rules
+
+Auto-rigging quality is decided at image-generation time. For any character
+image headed into `enable_rigging=true`:
+
+- **Full-body T- or A-pose**, front-facing, arms clearly away from the body,
+  legs separated, symmetric. Whole body in frame — head to feet, no cropped
+  limbs.
+- **No props, capes, tabards, or long skirts fused into the silhouette** —
+  anything that merges limbs into the body confuses the auto-rigger. Give
+  weapons/props to the character afterward as separate meshes if needed.
+- **Verify the generated image actually shows the pose** before spending on
+  the 3D step. Models drift toward action poses; a cool contrapposto shot
+  rigs badly. Regenerate with a stronger pose instruction rather than
+  rigging a bad pose.
+- **Body plan drives animation choice**: the mesh's stance decides how
+  animation presets read. A quadruped walk on an upright dragon looks like a
+  human in a costume; an upright biped clip on a hunched creature warps.
+  Match the animation library entry to the stance you generated.
+- Hard-surface armored designs (plate knights, mechs) auto-rig worse than
+  organic silhouettes — budget a retry or prefer visible-anatomy designs.
+
 ## CREATE-YOUR-OWN flow
 
 Visitors with generation credentials can generate their own character + companion live, in-browser:
