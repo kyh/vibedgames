@@ -15,12 +15,12 @@
     "@repo/embed": "workspace:*",
     "@vibedgames/gamepad": "workspace:^",
     "cannon-es": "^0.20.0",
-    "three": "^0.184.0"
+    "three": "^0.185.1"
   },
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
     "@types/node": "catalog:",
-    "@types/three": "^0.184.0",
+    "@types/three": "^0.185.1",
     "typescript": "catalog:",
     "vite": "catalog:"
   }

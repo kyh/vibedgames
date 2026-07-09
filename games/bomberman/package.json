@@ -13,7 +13,7 @@
     "@repo/embed": "workspace:*",
     "@vibedgames/gamepad": "workspace:^",
     "@vibedgames/multiplayer": "workspace:^",
-    "phaser": "^4.1.0"
+    "phaser": "^4.2.1"
   },
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",

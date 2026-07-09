@@ -13,12 +13,12 @@
     "typecheck": "tsc --noEmit --emitDeclarationOnly false"
   },
   "dependencies": {
-    "@better-auth/api-key": "^1.6.20",
-    "@better-auth/expo": "^1.6.20",
+    "@better-auth/api-key": "^1.6.23",
+    "@better-auth/expo": "^1.6.23",
     "@repo/db": "workspace:^",
     "@trpc/server": "catalog:",
     "aws4fetch": "^1.0.20",
-    "better-auth": "^1.6.20",
+    "better-auth": "^1.6.23",
     "superjson": "catalog:",
     "zod": "catalog:"
   },

@@ -15,13 +15,13 @@
     "@repo/embed": "workspace:*",
     "@vibedgames/gamepad": "workspace:^",
     "@vibedgames/multiplayer": "workspace:^",
-    "three": "^0.184.0"
+    "three": "^0.185.1"
   },
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
     "@types/node": "catalog:",
-    "@types/three": "^0.184.0",
-    "tsx": "^4.22.3",
+    "@types/three": "^0.185.1",
+    "tsx": "^4.23.0",
     "typescript": "catalog:",
     "vite": "catalog:"
   }

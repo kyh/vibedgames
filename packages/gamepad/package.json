@@ -50,7 +50,7 @@
   },
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
-    "phaser": "^4.1.0",
+    "phaser": "^4.2.1",
     "typescript": "catalog:"
   },
   "peerDependencies": {

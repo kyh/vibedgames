@@ -43,7 +43,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "partysocket": "^1.1.19"
+    "partysocket": "^1.3.0"
   },
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",

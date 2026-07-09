@@ -15,12 +15,12 @@
     "@repo/embed": "workspace:*",
     "@vibedgames/gamepad": "workspace:^",
     "@vibedgames/multiplayer": "workspace:^",
-    "phaser": "^4.1.0"
+    "phaser": "^4.2.1"
   },
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
     "@types/node": "catalog:",
-    "tsx": "^4.22.3",
+    "tsx": "^4.23.0",
     "typescript": "catalog:",
     "vite": "catalog:"
   }
