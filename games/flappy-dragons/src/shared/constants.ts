@@ -97,6 +97,15 @@ export const RESPAWN_MS = 1300;
 
 // ---- deterministic course (seeded, identical on every client) ----------------
 
+/**
+ * Canonical course height (logical px). ALL course geometry lives in this
+ * fixed vertical space on every client; the camera zooms the world to fill
+ * the real viewport height (see GameScene.layout). Keeps the shared 8-player
+ * course identical across differently sized screens, and keeps PIPE_GAP
+ * playable on short phone-landscape viewports.
+ */
+export const COURSE_H = 720;
+
 /** A stable 0..1 hash for course slot `i` under `seed` (mulberry32-style). */
 export function hash01(seed: number, i: number): number {
   let t = (seed ^ (i * 0x9e3779b9)) >>> 0;
@@ -112,13 +121,11 @@ export function pipeCourseX(i: number): number {
 }
 
 /**
- * Top-segment height for pipe `i`, as the SAME relative placement on every
- * client: a seeded fraction of the local play area, so differently-sized
- * viewports still put the gap at the same relative height (fair enough for a
- * drop-in demo without a virtual-resolution rewrite).
+ * Top-segment height for pipe `i` in the fixed COURSE_H logical space —
+ * byte-identical on every client regardless of its viewport.
  */
-export function topHeightFor(seed: number, i: number, viewHeight: number): number {
-  return Math.round(hash01(seed, i) * Math.max(0, viewHeight - PIPE_GAP - 100) + 50);
+export function topHeightFor(seed: number, i: number): number {
+  return Math.round(hash01(seed, i) * (COURSE_H - PIPE_GAP - 100) + 50);
 }
 
 /** Whether pipe `i` carries a coin (deterministic). */

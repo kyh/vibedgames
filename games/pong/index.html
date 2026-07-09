@@ -2,21 +2,13 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
     <link rel="icon" href="data:," />
     <title>Pong</title>
     <meta name="description" content="Classic pong reborn in dithered 3D. First to 11 takes it." />
-    <link rel="canonical" href="https://pong.vibedgames.com/" />
-    <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="vibedgames" />
-    <meta property="og:title" content="Pong" />
-    <meta property="og:description" content="Classic pong reborn in dithered 3D. First to 11 takes it." />
-    <meta property="og:url" content="https://pong.vibedgames.com/" />
-    <meta property="og:image" content="https://pong.vibedgames.com/og.jpg" />
-    <meta property="og:image:width" content="1536" />
-    <meta property="og:image:height" content="864" />
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:image" content="https://pong.vibedgames.com/og.jpg" />
     <style>
       * {
         box-sizing: border-box;
@@ -47,7 +39,8 @@
         display: flex;
         flex-direction: column;
         align-items: center;
-        padding: 18px;
+        padding: calc(18px + env(safe-area-inset-top)) calc(18px + env(safe-area-inset-right))
+          calc(18px + env(safe-area-inset-bottom)) calc(18px + env(safe-area-inset-left));
       }
       #score {
         font-size: 17px;
@@ -71,8 +64,13 @@
         text-transform: uppercase;
         opacity: 0.55;
       }
+      /* Tappable mute toggle (phones have no M key). Padding + negative
+         margins grow the hit target past 44px without moving the label. */
       #sound {
-        margin-top: 2px;
+        pointer-events: auto;
+        cursor: pointer;
+        padding: 16px 18px;
+        margin: -14px -18px -16px;
       }
       @keyframes pop {
         0% {
@@ -114,7 +112,7 @@
       /* Serve countdown — drains over the auto-serve dead air (--fill 100%→0). */
       #serve-meter {
         position: fixed;
-        bottom: 3.5%;
+        bottom: calc(3.5% + env(safe-area-inset-bottom));
         left: 50%;
         transform: translateX(-50%);
         width: 140px;
@@ -137,7 +135,7 @@
 
       #prompt {
         position: fixed;
-        bottom: 3.5%;
+        bottom: calc(3.5% + env(safe-area-inset-bottom));
         left: 0;
         right: 0;
         text-align: center;
@@ -176,14 +174,43 @@
          hand skeleton on the canvas stays colored as the one live-data accent). */
       #camera-panel {
         position: fixed;
-        right: 14px;
-        bottom: 14px;
-        width: 224px;
-        height: 168px;
+        right: calc(14px + env(safe-area-inset-right));
+        bottom: calc(14px + env(safe-area-inset-bottom));
+        /* Clamped for phones: 224px would swallow 57% of a 390px screen. */
+        width: min(224px, 34vw);
+        aspect-ratio: 4 / 3;
         background: #d4d4d4;
         border: 2px solid #000;
         box-shadow: 5px 5px 0 rgba(0, 0, 0, 0.85);
         overflow: hidden;
+        cursor: pointer;
+      }
+      /* Narrow (portrait phone): sit above the #prompt / #serve-meter zone. */
+      @media (max-width: 480px) {
+        #camera-panel {
+          bottom: calc(64px + env(safe-area-inset-bottom));
+        }
+      }
+      /* Tap-minimized: the panel collapses to a "HAND CONTROL" pill (the
+         ::before label becomes the whole control); tracking keeps running. */
+      #camera-panel[data-min="1"] {
+        width: auto;
+        aspect-ratio: auto;
+        height: 44px; /* comfortable touch target */
+        display: flex;
+        align-items: center;
+        padding: 0 14px;
+        background: #000;
+      }
+      #camera-panel[data-min="1"]::before {
+        position: static;
+        padding: 0;
+        background: none;
+      }
+      #camera-panel[data-min="1"] video,
+      #camera-panel[data-min="1"] canvas,
+      #camera-panel[data-min="1"] #camera-status {
+        display: none;
       }
       #camera-panel::before {
         content: "HAND CONTROL";
@@ -237,7 +264,10 @@
   <body>
     <div id="game"></div>
     <div id="hud">
-      <div id="score">You <span id="score-you">0</span> — <span id="score-ai">0</span> <span id="opp-label">AI</span></div>
+      <div id="score">
+        You <span id="score-you">0</span> — <span id="score-ai">0</span>
+        <span id="opp-label">AI</span>
+      </div>
       <div id="netinfo"></div>
       <div id="sound"></div>
     </div>

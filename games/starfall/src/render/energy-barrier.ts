@@ -18,7 +18,9 @@ const VIGNETTE_STEPS = 8; // gradient resolution (cheap, no shader)
  */
 export class EnergyBarrier {
   private frame: Phaser.GameObjects.Graphics; // world-space neon rect + inner glow
-  private vignette: Phaser.GameObjects.Graphics; // screen-space dark frame
+  /** Screen-space dark frame. Public: the scene counter-transforms it against
+   *  camera zoom/roll along with its other screen-fixed objects. */
+  readonly vignette: Phaser.GameObjects.Graphics;
 
   constructor(scene: Phaser.Scene) {
     this.frame = scene.add.graphics().setDepth(49).setBlendMode(Phaser.BlendModes.ADD);

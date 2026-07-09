@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 
-import { setPoseLocked } from "../input/camera";
+import { isCoarsePointer, setPoseLocked } from "../input/camera";
 import { NetSession } from "../net/session";
 import {
   ART_SCALE,
@@ -13,6 +13,7 @@ import {
   BIRD_X,
   coinPresentFor,
   coinYFor,
+  COURSE_H,
   DIGIT_H,
   DIGIT_W,
   DRAGON_SPRITE_OFFSET_X,
@@ -87,7 +88,10 @@ const GHOST_GAP_MAX = 68;
 const GHOST_SCALE_MIN = 0.82;
 const GHOST_SCALE_MAX = 1.06;
 
-const HINT_FLAP = "CLICK · TAP · SPACE — FLAP";
+/** Decided once at boot so hint/HUD copy is input-aware from the first frame. */
+const TOUCH = isCoarsePointer();
+
+const HINT_FLAP = TOUCH ? "TAP TO FLAP" : "CLICK · TAP · SPACE — FLAP";
 const HINT_RESTART = "TAP ANYWHERE TO RESTART";
 const HINT_RACE = "FLAP TO JOIN THE RACE";
 
@@ -213,9 +217,15 @@ export class GameScene extends Phaser.Scene {
       if (!e.repeat) this.toggleMute();
     });
 
+    // Phones have no M key — the pill itself is the mute toggle (>=44px
+    // target). Removed on shutdown so a scene restart never double-binds.
+    const soundTap = (): void => this.toggleMute();
+    this.soundEl?.addEventListener("click", soundTap);
+
     this.scale.on(Phaser.Scale.Events.RESIZE, this.layout, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.layout, this);
+      this.soundEl?.removeEventListener("click", soundTap);
       this.net.destroy();
     });
 
@@ -460,7 +470,7 @@ export class GameScene extends Phaser.Scene {
     if (this.seed === 0) return BIRD_SPAWN_Y;
     const i = this.frontIndex() + 1;
     if (i < 0) return BIRD_SPAWN_Y; // still on the runway, nothing ahead
-    const top = topHeightFor(this.seed, i, this.scale.height);
+    const top = topHeightFor(this.seed, i);
     return top + PIPE_GAP / 2;
   }
 
@@ -469,14 +479,13 @@ export class GameScene extends Phaser.Scene {
       if (this.pipes.size > 0) this.clearPipes();
       return;
     }
-    const viewH = this.scale.height;
-    const width = this.scale.width;
+    const width = this.viewW();
     const iLow = Math.max(0, Math.floor((this.worldX - PIPE_WIDTH - RUNWAY) / PIPE_SPAWN_DISTANCE));
     const iHigh = Math.floor((this.worldX + width - RUNWAY) / PIPE_SPAWN_DISTANCE);
 
     for (let i = iLow; i <= iHigh; i++) {
       let pipe = this.pipes.get(i);
-      if (!pipe) pipe = this.spawnPipe(i, viewH);
+      if (!pipe) pipe = this.spawnPipe(i);
       this.positionPipe(pipe);
     }
     for (const [i, pipe] of this.pipes) {
@@ -487,8 +496,8 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private spawnPipe(i: number, viewH: number): Pipe {
-    const topHeight = topHeightFor(this.seed, i, viewH);
+  private spawnPipe(i: number): Pipe {
+    const topHeight = topHeightFor(this.seed, i);
     const topBody = this.add
       .tileSprite(0, 0, PIPE_WIDTH, Math.max(1, topHeight - TUBE_CAP_H + 2), "tube-body")
       .setOrigin(0, 0)
@@ -507,7 +516,7 @@ export class GameScene extends Phaser.Scene {
       .setDepth(1);
     const botBodyY = topHeight + PIPE_GAP + TUBE_CAP_H - 2;
     const botBody = this.add
-      .tileSprite(0, botBodyY, PIPE_WIDTH, Math.max(1, viewH - botBodyY), "tube-body")
+      .tileSprite(0, botBodyY, PIPE_WIDTH, Math.max(1, COURSE_H - botBodyY), "tube-body")
       .setOrigin(0, 0)
       .setTileScale(ART_SCALE)
       .setDepth(0);
@@ -560,7 +569,8 @@ export class GameScene extends Phaser.Scene {
     for (const pipe of this.pipes.values()) {
       const coin = pipe.coin;
       if (!coin) continue;
-      if (Math.abs(coin.x - cx) >= COIN_PICKUP_X || Math.abs(coin.y - cy) >= COIN_PICKUP_Y) continue;
+      if (Math.abs(coin.x - cx) >= COIN_PICKUP_X || Math.abs(coin.y - cy) >= COIN_PICKUP_Y)
+        continue;
       pipe.coin = null;
       this.collectedCoins.add(pipe.index);
       this.collectCoin(coin);
@@ -582,7 +592,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private checkDeath(): void {
-    if (this.birdY > this.scale.height) {
+    if (this.birdY > COURSE_H) {
       this.die();
       return;
     }
@@ -607,7 +617,6 @@ export class GameScene extends Phaser.Scene {
       this.ghosts.clear();
       return;
     }
-    const viewH = this.scale.height;
     const me = this.net.playerId;
     // Stable left-to-right ordering shared by every client (same players map),
     // so each rival keeps a consistent lane instead of jittering frame to frame.
@@ -634,14 +643,15 @@ export class GameScene extends Phaser.Scene {
         ghost = {
           sprite,
           skin: ps.skin,
-          scale: ART_SCALE * (GHOST_SCALE_MIN + hashId(id, 3) * (GHOST_SCALE_MAX - GHOST_SCALE_MIN)),
+          scale:
+            ART_SCALE * (GHOST_SCALE_MIN + hashId(id, 3) * (GHOST_SCALE_MAX - GHOST_SCALE_MIN)),
           gap: GHOST_GAP_MIN + hashId(id, 1) * (GHOST_GAP_MAX - GHOST_GAP_MIN),
         };
         this.ghosts.set(id, ghost);
       }
       laneX += ghost.gap;
       ghost.sprite.setScale(ghost.scale);
-      ghost.sprite.setPosition(laneX, ps.yf * viewH + DRAGON_SPRITE_OFFSET_Y);
+      ghost.sprite.setPosition(laneX, ps.yf * COURSE_H + DRAGON_SPRITE_OFFSET_Y);
       ghost.sprite.setRotation(Phaser.Math.Clamp(ps.rot, -MAX_TILT, MAX_TILT));
       if (ps.live) {
         ghost.sprite.setAlpha(0.55).clearTint();
@@ -670,7 +680,7 @@ export class GameScene extends Phaser.Scene {
     if (this.stateAcc >= 1 / NET_TICK_HZ) {
       this.stateAcc = 0;
       this.net.updateMyState({
-        yf: this.birdY / Math.max(1, this.scale.height),
+        yf: this.birdY / COURSE_H,
         live: this.alive,
         score: this.score,
         skin: this.skin,
@@ -716,7 +726,7 @@ export class GameScene extends Phaser.Scene {
       d?.destroy();
     }
 
-    const startX = (this.scale.width - text.length * DIGIT_W) / 2;
+    const startX = (this.viewW() - text.length * DIGIT_W) / 2;
     for (const [i, digit] of this.digits.entries()) {
       digit
         .setFrame(text.charCodeAt(i) - 48)
@@ -750,7 +760,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private refreshSoundHud(): void {
-    if (this.soundEl) this.soundEl.textContent = this.sound.mute ? "🔇 sound · m" : "🔊 sound · m";
+    if (!this.soundEl) return;
+    const label = this.sound.mute ? "🔇 sound" : "🔊 sound";
+    this.soundEl.textContent = TOUCH ? label : `${label} · m`;
   }
 
   /** Live race leaderboard + connection info (multiplayer only). */
@@ -816,22 +828,37 @@ export class GameScene extends Phaser.Scene {
 
   // ---- layout --------------------------------------------------------------
 
+  /** Logical view width: screen width divided by the course zoom. */
+  private viewW(): number {
+    return (this.scale.width * COURSE_H) / this.scale.height;
+  }
+
   private layout(): void {
-    const { width, height } = this.scale;
-    const tileScale = height / BG_NATIVE_H;
+    // The whole world lives in a fixed COURSE_H-tall logical space; the camera
+    // zooms it to fill the real viewport height. Every client therefore plays
+    // the exact same course geometry (the 8-player race stays fair), and short
+    // phone-landscape viewports just render it smaller instead of breaking.
+    const zoom = this.scale.height / COURSE_H;
+    const width = this.viewW();
+    this.cameras.main.setZoom(zoom).centerOn(width / 2, COURSE_H / 2);
+    const tileScale = COURSE_H / BG_NATIVE_H;
     for (const layer of this.bgLayers) {
-      layer.sprite.setSize(width, height).setTileScale(tileScale);
+      layer.sprite.setSize(width, COURSE_H).setTileScale(tileScale);
     }
     this.applyParallax();
-    this.readyImg.setPosition(width / 2, height / 2);
-    this.overImg.setPosition(width / 2, height / 2);
+    // Narrow logical viewports (phone portrait) can't fit the banners at 2×.
+    for (const img of [this.readyImg, this.overImg]) {
+      img
+        .setScale(Math.min(ART_SCALE, (width - 16) / img.width))
+        .setPosition(width / 2, COURSE_H / 2);
+    }
     this.refreshScore();
-    // Pipe heights depend on viewport height — rebuild them after a resize.
+    // The visible pipe window depends on the logical width — rebuild.
     this.clearPipes();
   }
 
   private applyParallax(): void {
-    const tileScale = this.scale.height / BG_NATIVE_H;
+    const tileScale = COURSE_H / BG_NATIVE_H;
     const px = this.worldX + this.readyDrift;
     for (const layer of this.bgLayers) {
       layer.sprite.tilePositionX = (px * layer.factor) / tileScale;

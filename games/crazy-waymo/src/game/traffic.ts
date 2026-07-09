@@ -1,7 +1,7 @@
 import type { RigidBody } from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
 
-import type { ModelCache } from "../assets/loader";
+import { geoLayoutKey, type ModelCache } from "../assets/loader";
 import { modelUrl, POLICE_CAR, SERVICE_CARS, TRAFFIC_CARS } from "../assets/manifest";
 import type { PhysicsWorld } from "../physics/physics-world";
 import { ROAD_TILE, ROAD_Y, TRAFFIC } from "../shared/constants";
@@ -18,6 +18,8 @@ import { slopeQuaternion } from "../world/terrain";
 
 const MODEL_YAW_OFFSET = 0; // Kenney cars face +Z
 const SCRATCH_N = new THREE.Vector3();
+const CAR_M4 = new THREE.Matrix4();
+const PART_M4 = new THREE.Matrix4();
 
 const RECYCLE_DIST = ROAD_TILE * 20; // beyond this, teleport ahead of the player
 const RESPAWN_MIN = ROAD_TILE * 6;
@@ -35,8 +37,17 @@ const BODY_LIFT = 0.8;
 const WRECK_RESPAWN_S = 7;
 const KEEP_STRAIGHT = 0.62; // odds of taking the straightest arm at a junction
 const BODY_OFFSET = new THREE.Vector3();
+// Beyond this the car's kinematic body can't touch anything near the taxi
+// (punts/wrecks/cones all live within ~40u of it) — stop feeding Rapier
+// kinematic targets and teleport the body back under the car on re-entry.
+const BODY_FAR = 80;
+const BODY_FAR_SQ = BODY_FAR * BODY_FAR;
 
 export type VehicleKind = "civilian" | "service" | "police";
+
+// One batched-fleet instance slot: a mesh part of a car model inside the
+// shared BatchedMesh, plus the part's local transform within the model.
+type FleetPart = { batch: THREE.BatchedMesh; instanceId: number; local: THREE.Matrix4 };
 
 function districtSpawnWeight(c: DistrictChar): number {
   switch (c) {
@@ -67,9 +78,12 @@ type NodePhase = {
   kind: "node";
   t: number; // 0..1 along the bezier
   len: number; // approximate bezier length
-  p0x: number; p0z: number;
-  p1x: number; p1z: number; // control = node position
-  p2x: number; p2z: number;
+  p0x: number;
+  p0z: number;
+  p1x: number;
+  p1z: number; // control = node position
+  p2x: number;
+  p2z: number;
   next: NetEdge;
   nextDir: 1 | -1;
 };
@@ -83,12 +97,17 @@ export class TrafficCar {
   missCooldown = 0;
   wantsHonk = false;
   body: RigidBody | null = null;
+  // True while the kinematic body is far from the taxi and left un-fed
+  // (cleared by the re-entry teleport in update, or by Traffic.restoreBody).
+  bodyParked = false;
   wrecked = false;
   wreckTime = 0;
   puntCooldown = 0;
   tanX = 0; // unit travel tangent — yaw, lane offset, react, following
   tanZ = 1;
   followFactor = 1; // 0..1 speed clamp from the car ahead (set by Traffic)
+  // Batched-fleet instance slots — the visual car (object3D is a bare anchor).
+  private parts: readonly FleetPart[] = [];
   private phase: EdgePhase | NodePhase;
   private lane = 2.0;
   private readonly baseSpeed: number;
@@ -112,6 +131,22 @@ export class TrafficCar {
     this.baseSpeed = speed;
     this.phase = { kind: "edge", edge, s, dir };
     this.lane = Math.min(edge.half * 0.42, 2.4);
+  }
+
+  // Adopt this car's slots in the shared fleet batches and stamp the current
+  // pose into them (called once by Traffic after the batches are built).
+  attachParts(parts: readonly FleetPart[]): void {
+    this.parts = parts;
+    this.writeMatrices();
+  }
+
+  // Push object3D's pose into the fleet batches (carMatrix × partLocal).
+  private writeMatrices(): void {
+    CAR_M4.makeRotationFromQuaternion(this.object3D.quaternion).setPosition(this.object3D.position);
+    for (const p of this.parts) {
+      PART_M4.multiplyMatrices(CAR_M4, p.local);
+      p.batch.setMatrixAt(p.instanceId, PART_M4);
+    }
   }
 
   respawn(edge: NetEdge, s: number, dir: 1 | -1): void {
@@ -139,7 +174,12 @@ export class TrafficCar {
 
   // Pick the outgoing edge at `node`, arriving along (tx, tz). Straightest
   // arm preferred; never the arriving edge unless it's a dead end.
-  private pickNext(node: number, fromEdge: NetEdge, tx: number, tz: number): { edge: NetEdge; dir: 1 | -1 } {
+  private pickNext(
+    node: number,
+    fromEdge: NetEdge,
+    tx: number,
+    tz: number,
+  ): { edge: NetEdge; dir: 1 | -1 } {
     const candidates: { edge: NetEdge; dir: 1 | -1; dot: number }[] = [];
     for (const id of this.network.nodeEdges[node] ?? []) {
       const e = this.network.edges[id];
@@ -167,28 +207,39 @@ export class TrafficCar {
   private enterNode(node: number, edge: NetEdge, exitS: number): void {
     const nodePos = this.network.nodes[node];
     const out = this.pickNext(node, edge, this.tanX, this.tanZ);
-    const nextTrim = Math.min(this.network.nodeTrim(out.dir > 0 ? out.edge.a : out.edge.b), out.edge.len * 0.45);
+    const nextTrim = Math.min(
+      this.network.nodeTrim(out.dir > 0 ? out.edge.a : out.edge.b),
+      out.edge.len * 0.45,
+    );
     const entryS = out.dir > 0 ? nextTrim : out.edge.len - nextTrim;
     const p0 = this.network.sample(edge, exitS);
     const p2 = this.network.sample(out.edge, entryS);
     const p1x = nodePos ? nodePos[0] : (p0.x + p2.x) / 2;
     const p1z = nodePos ? nodePos[1] : (p0.z + p2.z) / 2;
-    const len =
-      Math.hypot(p1x - p0.x, p1z - p0.z) + Math.hypot(p2.x - p1x, p2.z - p1z) || 0.5;
+    const len = Math.hypot(p1x - p0.x, p1z - p0.z) + Math.hypot(p2.x - p1x, p2.z - p1z) || 0.5;
     this.phase = {
       kind: "node",
       t: 0,
       len,
-      p0x: p0.x, p0z: p0.z,
-      p1x, p1z,
-      p2x: p2.x, p2z: p2.z,
+      p0x: p0.x,
+      p0z: p0.z,
+      p1x,
+      p1z,
+      p2x: p2.x,
+      p2z: p2.z,
       next: out.edge,
       nextDir: out.dir,
     };
     this.lane = Math.min(out.edge.half * 0.42, 2.4);
   }
 
-  update(dt: number, city: CityModel, playerX: number, playerZ: number): void {
+  update(
+    dt: number,
+    city: CityModel,
+    playerX: number,
+    playerZ: number,
+    physics: PhysicsWorld | null = null,
+  ): void {
     if (this.hitCooldown > 0) this.hitCooldown -= dt;
     if (this.missCooldown > 0) this.missCooldown -= dt;
     if (this.honkCooldown > 0) this.honkCooldown -= dt;
@@ -294,16 +345,38 @@ export class TrafficCar {
     if (dt === 0) this.object3D.quaternion.copy(this.targetQuat);
     else this.object3D.quaternion.slerp(this.targetQuat, Math.min(1, dt * 10));
 
-    // Drag the kinematic body along the route (it shoves wrecks aside).
+    // Drag the kinematic body along the route (it shoves wrecks aside) — but
+    // only near the taxi. Far cars park the body where it was (nothing out
+    // there can touch it) and teleport it back under themselves on re-entry:
+    // a swept kinematic move across the map would batter whatever it crossed.
     if (this.body) {
-      this.body.setNextKinematicTranslation({
-        x: this.position.x,
-        y: this.position.y + BODY_LIFT,
-        z: this.position.z,
-      });
-      const q = this.object3D.quaternion;
-      this.body.setNextKinematicRotation({ x: q.x, y: q.y, z: q.z, w: q.w });
+      const bdx = this.position.x - playerX;
+      const bdz = this.position.z - playerZ;
+      if (bdx * bdx + bdz * bdz > BODY_FAR_SQ) {
+        this.bodyParked = true;
+      } else {
+        if (this.bodyParked && physics) {
+          this.bodyParked = false;
+          physics.teleport(
+            this.body,
+            this.position.x,
+            this.position.y + BODY_LIFT,
+            this.position.z,
+            this.object3D.quaternion,
+          );
+        }
+        if (!this.bodyParked) {
+          this.body.setNextKinematicTranslation({
+            x: this.position.x,
+            y: this.position.y + BODY_LIFT,
+            z: this.position.z,
+          });
+          const q = this.object3D.quaternion;
+          this.body.setNextKinematicRotation({ x: q.x, y: q.y, z: q.z, w: q.w });
+        }
+      }
     }
+    this.writeMatrices();
   }
 
   // After the physics step: wrecked meshes follow their rigid bodies.
@@ -316,6 +389,7 @@ export class TrafficCar {
     BODY_OFFSET.set(0, BODY_LIFT, 0).applyQuaternion(this.object3D.quaternion);
     this.object3D.position.set(t.x - BODY_OFFSET.x, t.y - BODY_OFFSET.y, t.z - BODY_OFFSET.z);
     this.position.copy(this.object3D.position);
+    this.writeMatrices();
   }
 }
 
@@ -327,6 +401,10 @@ export class Traffic {
   private rng: Rng;
   private city: CityModel;
   private network: RoadNetwork;
+  // Fleet batches: the whole 52-car fleet renders as one BatchedMesh per
+  // (material, attribute layout) — same pattern as ParkedCars — instead of
+  // 52 GLB clone subtrees (~6 meshes each ≈ 300+ draws).
+  private readonly fleetBatches: THREE.BatchedMesh[] = [];
   // Edges repeated by district weight — random index = district-weighted pick.
   private readonly weightedEdges: NetEdge[] = [];
 
@@ -343,9 +421,7 @@ export class Traffic {
     for (const e of this.network.edges) {
       if (e.len < ROAD_TILE) continue;
       const mid = this.network.sample(e, e.len / 2);
-      const w = districtSpawnWeight(
-        districtAt(city.gridX(mid.x), city.gridZ(mid.z)).character,
-      );
+      const w = districtSpawnWeight(districtAt(city.gridX(mid.x), city.gridZ(mid.z)).character);
       for (let i = 0; i < w; i++) this.weightedEdges.push(e);
     }
 
@@ -354,6 +430,7 @@ export class Traffic {
     const ax = avoid ? city.worldX(avoid.gx) : 0;
     const az = avoid ? city.worldZ(avoid.gz) : 0;
     const count = TRAFFIC.count;
+    const fleet: { car: TrafficCar; model: string }[] = [];
     for (let i = 0; i < count && this.weightedEdges.length > 0; i++) {
       let kind: VehicleKind;
       let model: string;
@@ -372,12 +449,23 @@ export class Traffic {
         return this.clearOfCars(x, z, null);
       });
       if (!spot) break;
-      const obj = cache.instance(modelUrl("cars", model));
+      // Bare anchor: pose target for the sim, world anchor for speech bubbles.
+      // The visible car lives in the fleet batches built below.
+      const obj = new THREE.Object3D();
       this.group.add(obj);
       const speed =
         this.rng.range(TRAFFIC.minSpeed, TRAFFIC.maxSpeed) *
         (kind === "police" ? POLICE_SPEED_MULT : 1);
-      const car = new TrafficCar(obj, kind, spot.edge, spot.s, spot.dir, speed, this.network, this.rng);
+      const car = new TrafficCar(
+        obj,
+        kind,
+        spot.edge,
+        spot.s,
+        spot.dir,
+        speed,
+        this.network,
+        this.rng,
+      );
       car.update(0, city, 0, 0);
       if (this.physics) {
         car.body = this.physics.createCarBody(
@@ -387,7 +475,96 @@ export class Traffic {
         );
       }
       this.cars.push(car);
+      fleet.push({ car, model });
     }
+    this.buildFleetBatches(cache, fleet);
+  }
+
+  // Batch the fleet's meshes per (material, attribute layout), one instance
+  // slot per (car, model part); cars re-stamp their slots each update.
+  private buildFleetBatches(
+    cache: ModelCache,
+    fleet: readonly { car: TrafficCar; model: string }[],
+  ): void {
+    type TemplatePart = { geo: THREE.BufferGeometry; mat: THREE.Material; local: THREE.Matrix4 };
+    const templates = new Map<string, TemplatePart[]>();
+    const partsOf = (model: string): TemplatePart[] => {
+      let parts = templates.get(model);
+      if (parts) return parts;
+      parts = [];
+      const node = cache.instance(modelUrl("cars", model));
+      node.updateMatrixWorld(true);
+      node.traverse((c) => {
+        if (
+          c instanceof THREE.Mesh &&
+          c.geometry instanceof THREE.BufferGeometry &&
+          !Array.isArray(c.material)
+        ) {
+          parts?.push({ geo: c.geometry, mat: c.material, local: c.matrixWorld.clone() });
+        }
+      });
+      templates.set(model, parts);
+      return parts;
+    };
+
+    type Bucket = {
+      mat: THREE.Material;
+      geos: Set<THREE.BufferGeometry>;
+      verts: number;
+      indices: number;
+      count: number;
+      batch?: THREE.BatchedMesh;
+      geoIds?: Map<THREE.BufferGeometry, number>;
+    };
+    const buckets = new Map<string, Bucket>();
+    const keyOf = (p: TemplatePart): string => `${p.mat.uuid}|${geoLayoutKey(p.geo)}`;
+    for (const f of fleet) {
+      for (const p of partsOf(f.model)) {
+        const k = keyOf(p);
+        let b = buckets.get(k);
+        if (!b) {
+          b = { mat: p.mat, geos: new Set(), verts: 0, indices: 0, count: 0 };
+          buckets.set(k, b);
+        }
+        if (!b.geos.has(p.geo)) {
+          b.geos.add(p.geo);
+          const v = p.geo.attributes.position?.count ?? 0;
+          b.verts += v;
+          b.indices += p.geo.index ? p.geo.index.count : v;
+        }
+        b.count++;
+      }
+    }
+    for (const b of buckets.values()) {
+      const batch = new THREE.BatchedMesh(b.count, b.verts, Math.max(b.indices, 3), b.mat);
+      batch.castShadow = true;
+      batch.receiveShadow = true;
+      batch.frustumCulled = false; // per-instance culling stays on inside
+      b.batch = batch;
+      b.geoIds = new Map();
+      this.group.add(batch);
+      this.fleetBatches.push(batch);
+    }
+
+    for (const f of fleet) {
+      const parts: FleetPart[] = [];
+      for (const p of partsOf(f.model)) {
+        const b = buckets.get(keyOf(p));
+        if (!b || !b.batch || !b.geoIds) continue;
+        let gid = b.geoIds.get(p.geo);
+        if (gid === undefined) {
+          gid = b.batch.addGeometry(p.geo);
+          b.geoIds.set(p.geo, gid);
+        }
+        parts.push({ batch: b.batch, instanceId: b.batch.addInstance(gid), local: p.local });
+      }
+      f.car.attachParts(parts);
+    }
+  }
+
+  // Free the fleet's GPU buffers (editor street rebuilds replace Traffic).
+  dispose(): void {
+    for (const b of this.fleetBatches) b.dispose();
   }
 
   // Random district-weighted edge spot passing `ok` (bounded retries).
@@ -440,6 +617,7 @@ export class Traffic {
       c.position.z,
       c.object3D.quaternion,
     );
+    c.bodyParked = false; // the teleport just put the body back under the car
   }
 
   update(
@@ -498,7 +676,7 @@ export class Traffic {
           this.restoreBody(c);
         }
       }
-      c.update(dt, city, playerX, playerZ);
+      c.update(dt, city, playerX, playerZ, this.physics);
     }
   }
 

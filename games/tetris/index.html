@@ -2,21 +2,16 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
     <link rel="icon" href="data:," />
     <title>Tetris</title>
-    <meta name="description" content="Tetris in full 3D. Lean to orbit the well, stack in three dimensions, catch the collapse." />
-    <link rel="canonical" href="https://tetris.vibedgames.com/" />
-    <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="vibedgames" />
-    <meta property="og:title" content="Tetris" />
-    <meta property="og:description" content="Tetris in full 3D. Lean to orbit the well, stack in three dimensions, catch the collapse." />
-    <meta property="og:url" content="https://tetris.vibedgames.com/" />
-    <meta property="og:image" content="https://tetris.vibedgames.com/og.jpg" />
-    <meta property="og:image:width" content="1536" />
-    <meta property="og:image:height" content="864" />
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:image" content="https://tetris.vibedgames.com/og.jpg" />
+    <meta
+      name="description"
+      content="Tetris in full 3D. Lean to orbit the well, stack in three dimensions, catch the collapse."
+    />
     <style>
       * {
         box-sizing: border-box;
@@ -30,10 +25,14 @@
         background: #12131f;
         color: #d7dcf0;
         font-family: ui-monospace, "SF Mono", Menlo, monospace;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
       }
       #game {
         position: fixed;
         inset: 0;
+        touch-action: none;
       }
       #game canvas {
         display: block;
@@ -43,7 +42,9 @@
         position: fixed;
         inset: 0;
         pointer-events: none;
-        padding: 14px;
+        padding: calc(14px + env(safe-area-inset-top, 0px))
+          calc(14px + env(safe-area-inset-right, 0px)) calc(14px + env(safe-area-inset-bottom, 0px))
+          calc(14px + env(safe-area-inset-left, 0px));
         display: flex;
         flex-direction: column;
       }
@@ -106,7 +107,7 @@
         letter-spacing: 0.4px;
         color: rgba(215, 220, 240, 0.6);
       }
-      #legend span {
+      #legend > span {
         display: block;
       }
       #legend b {
@@ -119,6 +120,20 @@
         display: none;
         opacity: 0.66;
         letter-spacing: 0.5px;
+      }
+      /* Sound is the one tappable pill: a real <button> the touch overlay
+         ignores, with an invisible halo for a ≥44px touch target. */
+      #sound {
+        pointer-events: auto;
+        cursor: pointer;
+        font: inherit;
+        color: inherit;
+        position: relative;
+      }
+      #sound::after {
+        content: "";
+        position: absolute;
+        inset: -8px;
       }
 
       #banner {
@@ -183,6 +198,75 @@
         font-size: 11px;
         color: #d7dcf0;
       }
+
+      /* Small screens: compact pills, tiny previews, two-row wrap. */
+      @media (max-width: 640px) {
+        .row {
+          flex-wrap: wrap;
+          gap: 6px;
+        }
+        .group {
+          flex-wrap: wrap;
+          gap: 6px;
+        }
+        .pill {
+          font-size: 11px;
+          padding: 5px 9px;
+          border-radius: 8px;
+        }
+        .preview canvas {
+          width: 60px;
+          height: 40px;
+        }
+        #legend {
+          font-size: 11px;
+          line-height: 1.7;
+        }
+        #banner-sub {
+          font-size: 13px;
+          padding: 0 16px;
+        }
+        /* Touch devices: lift the idle legend above the button cluster. */
+        body.touch .bottom {
+          margin-bottom: 290px;
+        }
+      }
+      /* Short (landscape phone) screens: no room for the legend under the
+         banner + button cluster — the labeled buttons carry the reference. */
+      @media (max-height: 550px) {
+        body.touch #legend {
+          display: none !important;
+        }
+      }
+
+      /* Small or touch screens: shrink the webcam panel to a thumbnail pinned
+         top-right (bottom-right belongs to the button cluster); tap toggles an
+         expanded view. Pose stays fully live at every size. */
+      @media (max-width: 700px), (max-height: 550px), (pointer: coarse) {
+        #camera-panel {
+          top: calc(env(safe-area-inset-top, 0px) + 156px);
+          bottom: auto;
+          right: calc(env(safe-area-inset-right, 0px) + 10px);
+          width: 120px;
+          height: 90px;
+          cursor: pointer;
+        }
+        #camera-panel.expanded {
+          width: 240px;
+          height: 180px;
+        }
+        #camera-status {
+          left: 4px;
+          bottom: 4px;
+          padding: 3px 5px;
+          font-size: 9px;
+        }
+      }
+      @media (max-height: 550px) {
+        #camera-panel {
+          top: calc(env(safe-area-inset-top, 0px) + 48px);
+        }
+      }
     </style>
   </head>
   <body>
@@ -204,14 +288,17 @@
         <div class="group">
           <div class="pill" id="charge">POWER 0%</div>
           <div class="pill" id="input-owner">○ KEYS</div>
-          <div class="pill" id="sound" title="sound — M to toggle">🔇</div>
+          <button class="pill" id="sound" title="sound — tap or M to toggle">🔇</button>
         </div>
       </div>
       <div class="bottom">
         <div id="legend">
           <span
-            ><b>keys</b>move ←→↑↓ · rotate R · turn view Q/E · drop SPACE · soft SHIFT · hold C ·
-            power F · recenter V · sound M · pause P</span
+            ><b id="legend-input-label">keys</b
+            ><span id="legend-input-text"
+              >move ←→↑↓ · rotate R · turn view Q/E · drop SPACE · soft SHIFT · hold C · power F ·
+              recenter V · sound M · pause P</span
+            ></span
           >
           <span
             ><b>webcam</b>nose = move · spin = rotate · circle a hand = turn view · cross arms =

@@ -51,6 +51,7 @@ export class CameraRig {
 
   constructor(aspect: number) {
     this.camera = new PerspectiveCamera(CAMERA_FOV, aspect, 0.1, 400);
+    this.resize(aspect); // portrait boots need the FOV correction from frame 1
     this.cornerPosition(0, this.target);
     this.baseEye.copy(this.target);
     this.camera.position.copy(this.target);
@@ -132,6 +133,17 @@ export class CameraRig {
 
   resize(aspect: number): void {
     this.camera.aspect = aspect;
+    // Portrait: the vertical FOV alone narrows the horizontal frustum until
+    // the well's diagonal clips at the sides. Hold the horizontal FOV at its
+    // square-aspect value instead (solve vFov from hFov(1) = CAMERA_FOV),
+    // capped so extreme aspect ratios don't fisheye.
+    this.camera.fov =
+      aspect >= 1
+        ? CAMERA_FOV
+        : Math.min(
+            110,
+            (Math.atan(Math.tan((CAMERA_FOV * Math.PI) / 360) / aspect) * 360) / Math.PI,
+          );
     this.camera.updateProjectionMatrix();
   }
 }

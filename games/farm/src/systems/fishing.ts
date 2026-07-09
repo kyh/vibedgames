@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { safeAreaInset } from "@vibedgames/gamepad/phaser";
 import { TILE, DEPTH } from "../config";
 import { store } from "./store";
 import { rollFish, type FishDef } from "../data/fish";
@@ -163,7 +164,8 @@ export class Fishing {
   private drawReel(inZone: boolean): void {
     const W = this.scene.scale.width,
       H = this.scene.scale.height;
-    const bx = W / 2 + 200,
+    // right of the player, but clamped on-screen for narrow (portrait) phones
+    const bx = Math.min(W / 2 + 200, W - 64 - safeAreaInset().right),
       by = H / 2 - BAR_H / 2;
     if (!this.g)
       this.g = this.scene.add

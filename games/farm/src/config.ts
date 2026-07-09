@@ -3,6 +3,12 @@
 export const TILE = 16; // source art is 16px
 export const ZOOM = 3.25; // camera zoom — pixels are crisp at integer-ish zoom
 
+/** Camera zoom derived from viewport width so narrow (portrait phone) screens
+ *  still see ~9 tiles across; quarter steps keep pixels crisp-ish. */
+export function zoomForWidth(width: number): number {
+  return Math.max(2, Math.min(ZOOM, Math.round((width / (TILE * 9)) * 4) / 4));
+}
+
 // World size in tiles (the world map, public/assets/map.json).
 export const MAP_W = 86;
 export const MAP_H = 48;

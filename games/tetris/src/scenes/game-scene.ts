@@ -6,12 +6,13 @@
 import { Color, Scene } from "three";
 
 import type { Cell } from "../game/board";
-import { screenToWorld } from "../game/camera-correction";
+import { screenToWorld, type ScreenDir } from "../game/camera-correction";
 import { Engine, type LockEvent } from "../game/engine";
 import { ParticlePool } from "../fx/particles";
 import { isMuted, sfx, toggleMute } from "../fx/sfx";
 import { Keyboard, type KeyboardHandlers } from "../input/keyboard";
 import type { PoseActions, PoseControls } from "../input/pose-control";
+import { isCoarsePointer, TouchControls, type TouchHandlers } from "../input/touch";
 import { Collapse } from "../physics/collapse";
 import { CameraRig } from "../render/camera-rig";
 import { CubeField } from "../render/cube-field";
@@ -49,6 +50,8 @@ export class GameScene {
   private readonly collapse = new Collapse();
   private readonly engine = new Engine();
   private readonly keyboard: Keyboard;
+  private readonly touch: TouchControls;
+  private readonly coarse = isCoarsePointer();
   private poseControls: PoseControls | null = null;
 
   // input state (screen-relative)
@@ -80,8 +83,29 @@ export class GameScene {
     this.cubes = new CubeField(this.scene);
     this.particles = new ParticlePool(this.scene);
     this.keyboard = new Keyboard(this.keyboardHandlers());
+    this.touch = new TouchControls(this.touchHandlers());
+    el("sound")?.addEventListener("click", () => this.updateSoundPill(toggleMute()));
+    document.body.classList.toggle("touch", this.coarse);
+    if (this.coarse) this.applyTouchLegend();
     this.updateSoundPill(isMuted());
-    this.showBanner("TETRIS", "lean to orbit · turn to rotate · Enter / Space to start");
+    this.showBanner(
+      "TETRIS",
+      this.coarse
+        ? "lean to orbit · turn to rotate · tap to start"
+        : "lean to orbit · turn to rotate · Enter / Space to start",
+    );
+  }
+
+  /** Swap the keyboard legend line for the touch verbs (boot-time, not on
+   *  first touch — the copy must be right before the player ever taps). */
+  private applyTouchLegend(): void {
+    const label = el("legend-input-label");
+    const text = el("legend-input-text");
+    if (label) label.textContent = "touch";
+    if (text) {
+      text.textContent =
+        "drag stick to move · ROT rotate · ⟲ ⟳ turn view · DROP tap = hard, hold = soft · HOLD swap · PWR sweep";
+    }
   }
 
   get camera() {
@@ -150,6 +174,29 @@ export class GameScene {
     };
   }
 
+  private touchHandlers(): TouchHandlers {
+    return {
+      step: (dir, initial) => this.stepScreen(dir, initial),
+      rotate: () => {
+        this.doRotate();
+      },
+      orbit: (dir) => this.doOrbit(dir),
+      drop: () => this.onHardDrop(),
+      setSoftDrop: (on) => this.engine.setSoftDrop(on),
+      hold: () => this.doHold(),
+      power: () => this.doPower(),
+      tap: () => this.onFreeTap(),
+    };
+  }
+
+  /** A free touch (not on a button): the touch mirror of hands-up / Enter. */
+  private onFreeTap(): void {
+    const s = this.engine.state.status;
+    if (s === "title" || s === "gameOver") this.startGame();
+    else if (s === "collapsing") this.tryCatch();
+    else if (s === "paused") this.togglePause();
+  }
+
   // ---- verbs ------------------------------------------------------------------
 
   private doRotate(): boolean {
@@ -213,7 +260,7 @@ export class GameScene {
     const s = this.engine.state;
     if (s.status === "playing") {
       s.status = "paused";
-      this.showBanner("PAUSED", "P to resume");
+      this.showBanner("PAUSED", this.coarse ? "tap to resume" : "P to resume");
     } else if (s.status === "paused") {
       s.status = "playing";
       this.hideBanner();
@@ -289,7 +336,13 @@ export class GameScene {
     this.well.setAllWallsVisible(false);
     this.rig.addTrauma(TRAUMA_GAME_OVER);
     this.collapseStartedAt = performance.now();
-    this.showBanner("CATCH IT!", "throw your hands UP (or Space) to save the stack", false);
+    this.showBanner(
+      "CATCH IT!",
+      this.coarse
+        ? "throw your hands UP (or tap) to save the stack"
+        : "throw your hands UP (or Space) to save the stack",
+      false,
+    );
   }
 
   private tryCatch(): void {
@@ -314,7 +367,10 @@ export class GameScene {
     this.engine.state.status = "gameOver";
     this.well.setAllWallsVisible(true);
     sfx.gameOver();
-    this.showBanner("GAME OVER", `score ${this.engine.state.score} · Enter to retry`);
+    this.showBanner(
+      "GAME OVER",
+      `score ${this.engine.state.score} · ${this.coarse ? "tap" : "Enter"} to retry`,
+    );
   }
 
   // ---- main update ------------------------------------------------------------
@@ -322,6 +378,7 @@ export class GameScene {
   update(dt: number): void {
     const now = performance.now();
     const dtMs = dt * 1000;
+    this.touch.update(dtMs); // poll the gamepad before the sim tick
     const status = this.engine.state.status;
 
     if (status === "playing") {
@@ -381,8 +438,19 @@ export class GameScene {
   }
 
   private applyMove(dir: -1 | 1, depthAxis: boolean, initial: boolean): void {
-    const screenDir = depthAxis ? (dir < 0 ? "away" : "near") : dir < 0 ? "left" : "right";
-    const m = screenToWorld(this.rig.corner, screenDir);
+    const screenDir: ScreenDir = depthAxis
+      ? dir < 0
+        ? "away"
+        : "near"
+      : dir < 0
+        ? "left"
+        : "right";
+    this.stepScreen(screenDir, initial);
+  }
+
+  /** One camera-corrected move step (shared by keyboard DAS/ARR and touch). */
+  private stepScreen(dir: ScreenDir, initial: boolean): void {
+    const m = screenToWorld(this.rig.corner, dir);
     const moved = this.engine.move(m.dx, m.dz);
     if (moved && initial) sfx.move();
   }
@@ -419,7 +487,10 @@ export class GameScene {
     if (charge !== this.hudCharge) {
       this.hudCharge = charge;
       const node = el("charge");
-      if (node) node.textContent = charge >= 100 ? "✦ POWER (T-pose / F)" : `POWER ${charge}%`;
+      if (node) {
+        const full = this.coarse ? "✦ POWER (T-pose / PWR)" : "✦ POWER (T-pose / F)";
+        node.textContent = charge >= 100 ? full : `POWER ${charge}%`;
+      }
     }
     const owner = now - this.lastPoseAt < POSE_TIMEOUT_MS ? "POSE" : "KEYS";
     if (owner !== this.hudOwner) {
@@ -457,7 +528,9 @@ export class GameScene {
     const legend = el("legend");
     const controls = el("controls");
     if (legend) legend.style.display = mode === "legend" ? "block" : "none";
-    if (controls) controls.style.display = mode === "bar" ? "block" : "none";
+    // Touch devices skip the in-play key bar — the labeled buttons ARE the
+    // reference, and the bar would sit under the button cluster.
+    if (controls) controls.style.display = mode === "bar" && !this.coarse ? "block" : "none";
   }
 }
 

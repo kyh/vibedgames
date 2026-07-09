@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
-import type { ModelCache } from "../assets/loader";
+import { geoLayoutKey, type ModelCache } from "../assets/loader";
 import {
   BUILDINGS_COMMERCIAL,
   BUILDINGS_INDUSTRIAL,
@@ -36,10 +36,23 @@ import { CUSTOM_MAP, editorMode, loadLocalOverrides } from "./custom-map";
 import { isParkCell, makeGroundColorAt, makeGroundOffset, parkCellHeight } from "./ground";
 import { buildGridNetwork } from "./grid-network";
 import { SF_BUILDINGS, SF_BUILDINGS_BOUNDS } from "./sf-buildings";
-import { buildRoads, ROAD_MATERIALS, roadPartsToMeshes } from "./roads";
+import {
+  bakeConstantColor,
+  buildRoads,
+  ROAD_MATERIALS,
+  roadCollapseTarget,
+  roadPartsToMeshes,
+} from "./roads";
 import type { CityGenPayload } from "./gen-worker";
 import { buildLandmarks, landmarkProtection } from "./landmarks";
-import { type DistrictChar, districtAt, isLandCell, makeTerrain, paletteFor, tintAmountFor } from "./sf-map";
+import {
+  type DistrictChar,
+  districtAt,
+  isLandCell,
+  makeTerrain,
+  paletteFor,
+  tintAmountFor,
+} from "./sf-map";
 import type { Terrain } from "./terrain";
 
 export type Solid = {
@@ -141,7 +154,12 @@ export type CityRestPayload = {
 type BatchBucket = {
   material: THREE.Material;
   geoVerts: Map<THREE.BufferGeometry, number>;
-  items: { geo: THREE.BufferGeometry; matrix: THREE.Matrix4; tint?: THREE.Color; src?: { url: string; idx: number } }[];
+  items: {
+    geo: THREE.BufferGeometry;
+    matrix: THREE.Matrix4;
+    tint?: THREE.Color;
+    src?: { url: string; idx: number };
+  }[];
   verts: number;
   indices: number;
 };
@@ -334,7 +352,11 @@ export class CityModel {
       local.add.length > 0 ||
       local.remove.length > 0;
     if (streetEdits) {
-      const gridNet = buildGridNetwork(this.plan, (gx) => this.worldX(gx), (gz) => this.worldZ(gz));
+      const gridNet = buildGridNetwork(
+        this.plan,
+        (gx) => this.worldX(gx),
+        (gz) => this.worldZ(gz),
+      );
       this.network = new RoadNetwork(gridNet.nodes, gridNet.edges);
     } else {
       this.network = new RoadNetwork();
@@ -348,12 +370,20 @@ export class CityModel {
   // those); terrain street-depressions stay stale, which the drape absorbs.
   rebuildStreetsLive(root: THREE.Object3D): void {
     this.plan = generateCity();
-    const gridNet = buildGridNetwork(this.plan, (gx) => this.worldX(gx), (gz) => this.worldZ(gz));
+    const gridNet = buildGridNetwork(
+      this.plan,
+      (gx) => this.worldX(gx),
+      (gz) => this.worldZ(gz),
+    );
     this.network = new RoadNetwork(gridNet.nodes, gridNet.edges);
     const roadMats = new Set(Object.values(ROAD_MATERIALS));
     const doomed: THREE.Mesh[] = [];
     root.traverse((o) => {
-      if (o instanceof THREE.Mesh && o.material instanceof THREE.Material && roadMats.has(o.material)) {
+      if (
+        o instanceof THREE.Mesh &&
+        o.material instanceof THREE.Material &&
+        roadMats.has(o.material)
+      ) {
         doomed.push(o);
       }
     });
@@ -634,7 +664,8 @@ export class CityModel {
     // Coarse occupancy hash: one entry per placed building (circle approx).
     const placedHash = new Map<string, { x: number; z: number; r: number }[]>();
     const OCC = 26;
-    const occKey = (x: number, z: number): string => `${Math.floor(x / OCC)},${Math.floor(z / OCC)}`;
+    const occKey = (x: number, z: number): string =>
+      `${Math.floor(x / OCC)},${Math.floor(z / OCC)}`;
     const occupied = (x: number, z: number, r: number): boolean => {
       const bx = Math.floor(x / OCC);
       const bz = Math.floor(z / OCC);
@@ -800,415 +831,416 @@ export class CityModel {
     }
 
     this.phase2 = async () => {
-    // --- REAL downtown buildings: positions, footprints and heights from the
-    // licensed SF model (calibrated in tools/sf-data/calibrate-downtown.mjs).
-    // Kit models are chosen by height class and stretched to the real
-    // footprint — the actual skyline at the actual addresses. ---
-    {
-      let placed = 0;
-      for (const [bx0, bz0, bw, bd, bh] of SF_BUILDINGS) {
-        if (placed >= 2600) break;
-        if (bh < 1.2 || bw < 2.2 || bd < 2.2) continue;
-        let bx = bx0;
-        let bz = bz0;
-        let fitScale = 1;
-        if (!isLandCell(this.gridX(bx), this.gridZ(bz))) continue;
-        // Real parcels abut real streets; ours are ~2x wide, so NUDGE the
-        // building outward instead of rejecting it.
-        const nearHit = this.network.nearest(bx, bz, ROAD_TILE * 1.6);
-        if (nearHit) {
-          const want = nearHit.edge.half + Math.min(bw, bd) / 2 + 0.4;
-          if (nearHit.dist < want) {
-            const push = Math.min(want - nearHit.dist, 7);
-            const dx = bx - nearHit.x;
-            const dz = bz - nearHit.z;
-            const dl = Math.hypot(dx, dz) || 1;
-            bx += (dx / dl) * push;
-            bz += (dz / dl) * push;
-            const re = this.network.nearest(bx, bz, ROAD_TILE * 1.6);
-            if (re && re.dist < re.edge.half + Math.min(bw, bd) / 2 - 0.6) {
-              const maxFit = (re.dist - re.edge.half + 0.6) * 2;
-              if (maxFit < Math.max(bw, bd) * 0.45 || maxFit < 3) continue;
-              const shrink = maxFit / Math.max(bw, bd);
-              // shrink footprint to the block, keep the real height
-              // (bw/bd are consts from destructuring — scale via locals)
-              fitScale = Math.min(1, shrink);
+      // --- REAL downtown buildings: positions, footprints and heights from the
+      // licensed SF model (calibrated in tools/sf-data/calibrate-downtown.mjs).
+      // Kit models are chosen by height class and stretched to the real
+      // footprint — the actual skyline at the actual addresses. ---
+      {
+        let placed = 0;
+        for (const [bx0, bz0, bw, bd, bh] of SF_BUILDINGS) {
+          if (placed >= 2600) break;
+          if (bh < 1.2 || bw < 2.2 || bd < 2.2) continue;
+          let bx = bx0;
+          let bz = bz0;
+          let fitScale = 1;
+          if (!isLandCell(this.gridX(bx), this.gridZ(bz))) continue;
+          // Real parcels abut real streets; ours are ~2x wide, so NUDGE the
+          // building outward instead of rejecting it.
+          const nearHit = this.network.nearest(bx, bz, ROAD_TILE * 1.6);
+          if (nearHit) {
+            const want = nearHit.edge.half + Math.min(bw, bd) / 2 + 0.4;
+            if (nearHit.dist < want) {
+              const push = Math.min(want - nearHit.dist, 7);
+              const dx = bx - nearHit.x;
+              const dz = bz - nearHit.z;
+              const dl = Math.hypot(dx, dz) || 1;
+              bx += (dx / dl) * push;
+              bz += (dz / dl) * push;
+              const re = this.network.nearest(bx, bz, ROAD_TILE * 1.6);
+              if (re && re.dist < re.edge.half + Math.min(bw, bd) / 2 - 0.6) {
+                const maxFit = (re.dist - re.edge.half + 0.6) * 2;
+                if (maxFit < Math.max(bw, bd) * 0.45 || maxFit < 3) continue;
+                const shrink = maxFit / Math.max(bw, bd);
+                // shrink footprint to the block, keep the real height
+                // (bw/bd are consts from destructuring — scale via locals)
+                fitScale = Math.min(1, shrink);
+              }
             }
           }
-        }
-        if (occupied(bx, bz, Math.max(bw, bd) * 0.45)) continue;
-        const pool = bh > 28 ? BUILDINGS_SKYSCRAPER : bh > 9 ? BUILDINGS_COMMERCIAL : BUILDINGS_SUBURBAN;
-        const key = this.rng.pick(pool);
-        const url = modelUrl("buildings", key);
-        const bounds = this.cache.bounds(url);
-        const fw = bw * fitScale;
-        const fd = bd * fitScale;
-        const sxz = Math.max(fw, fd) / Math.max(bounds.size.x, bounds.size.z, 0.001);
-        const sy = bh / Math.max(bounds.size.y, 0.001);
-        const fh = Math.max(fw, fd) / 2;
-        const corners = [
-          this.terrain.heightAt(bx, bz),
-          this.terrain.heightAt(bx - fh, bz - fh),
-          this.terrain.heightAt(bx + fh, bz - fh),
-          this.terrain.heightAt(bx - fh, bz + fh),
-          this.terrain.heightAt(bx + fh, bz + fh),
-        ];
-        let seatY = Math.max(...corners);
-        if (seatY - Math.min(...corners) > 5) continue;
-        // Terrace-aware, same as placeBuilding: don't get buried by park tiles.
-        const bgx = this.gridX(bx);
-        const bgz = this.gridZ(bz);
-        if (isParkCell(bgx, bgz)) {
-          seatY = Math.max(seatY, parkCellHeight(this.terrain, bgx, bgz));
-        }
-        const node = this.cache.instance(url);
-        node.scale.set(sxz, sy, sxz);
-        node.position.set(bx, seatY - 0.15, bz);
-        const district = districtAt(this.gridX(bx), this.gridZ(bz));
-        this.tintNode(node, this.rng.pick(paletteFor(district)), tintAmountFor(district));
-        collect(node);
-        const hw = (fw / 2) * 0.94;
-        const hd = (fd / 2) * 0.94;
-        this.solids.push({
-          minX: bx - hw,
-          maxX: bx + hw,
-          minZ: bz - hd,
-          maxZ: bz + hd,
-        });
-        occupy(bx, bz, Math.max(fw, fd) * 0.5);
-        placed++;
-      }
-      console.log(`[city] real downtown buildings placed: ${placed}`);
-    }
-
-    // --- FRONTAGE ROWS along the network edges: buildings walk each street
-    // with a consistent setback, facing the kerb — rows follow diagonals and
-    // curves exactly, which cell-based lots never could. ---
-    let walkN = 0;
-    for (const edge of this.network.edges) {
-      if (++walkN % 40 === 0) await this.breathe();
-      // Corner buildings are real — the cross-street clearance check below
-      // is the guard, so row trims stay small even at wide junctions.
-      const trimA = Math.min(this.network.nodeTrim(edge.a) * 0.6 + 1.5, edge.len * 0.4);
-      const trimB = Math.min(this.network.nodeTrim(edge.b) * 0.6 + 1.5, edge.len * 0.4);
-      if (edge.len - trimA - trimB < 5) continue;
-      for (const side of [1, -1] as const) {
-        let s = trimA + this.rng.range(0, 4);
-        while (s < edge.len - trimB) {
-          const smp = this.network.sample(edge, s);
-          const gx = this.gridX(smp.x);
-          const gz = this.gridZ(smp.z);
-          const district = districtAt(gx, gz);
-          const dense =
-            district.character === "residential" || district.character === "victorian";
-          const frac =
-            district.character === "downtown" || district.character === "highrise"
-              ? this.rng.range(0.7, 0.82)
-              : dense
-                ? this.rng.range(0.46, 0.56) // row-houses, shoulder to shoulder
-                : this.rng.range(0.58, 0.7);
-          const footprint = ROAD_TILE * frac;
-          // Dense districts: models stack shoulder-to-shoulder (attached SF
-          // rows) — a hair of overlap guarantees no light gap between walls.
-          const step = dense
-            ? footprint * this.rng.range(0.97, 1.0)
-            : footprint + this.rng.range(0.6, 1.8);
-          const off = edge.half + 1.7 + footprint / 2 + 0.7;
-          const px = smp.x - smp.tz * off * side;
-          const pz = smp.z + smp.tx * off * side;
-          s += step;
-          if (district.character === "park") continue;
-          if (!isLandCell(this.gridX(px), this.gridZ(pz))) continue;
-          if (lm.reserved.has(`${this.gridX(px)},${this.gridZ(pz)}`)) continue;
-          if (occupied(px, pz, footprint * 0.42)) continue;
-          // Clearance vs OTHER streets (corners, parallel edges): tight
-          // downtown blocks fit a SMALLER building rather than none.
-          let useFrac = frac;
-          const near = this.network.nearest(px, pz, ROAD_TILE * 1.6);
-          if (near && near.dist < near.edge.half + footprint / 2 - 0.4) {
-            const maxFoot = (near.dist - near.edge.half + 0.4) * 2;
-            if (maxFoot < 3.2) continue;
-            useFrac = Math.min(frac, maxFoot / ROAD_TILE);
+          if (occupied(bx, bz, Math.max(bw, bd) * 0.45)) continue;
+          const pool =
+            bh > 28 ? BUILDINGS_SKYSCRAPER : bh > 9 ? BUILDINGS_COMMERCIAL : BUILDINGS_SUBURBAN;
+          const key = this.rng.pick(pool);
+          const url = modelUrl("buildings", key);
+          const bounds = this.cache.bounds(url);
+          const fw = bw * fitScale;
+          const fd = bd * fitScale;
+          const sxz = Math.max(fw, fd) / Math.max(bounds.size.x, bounds.size.z, 0.001);
+          const sy = bh / Math.max(bounds.size.y, 0.001);
+          const fh = Math.max(fw, fd) / 2;
+          const corners = [
+            this.terrain.heightAt(bx, bz),
+            this.terrain.heightAt(bx - fh, bz - fh),
+            this.terrain.heightAt(bx + fh, bz - fh),
+            this.terrain.heightAt(bx - fh, bz + fh),
+            this.terrain.heightAt(bx + fh, bz + fh),
+          ];
+          let seatY = Math.max(...corners);
+          if (seatY - Math.min(...corners) > 5) continue;
+          // Terrace-aware, same as placeBuilding: don't get buried by park tiles.
+          const bgx = this.gridX(bx);
+          const bgz = this.gridZ(bz);
+          if (isParkCell(bgx, bgz)) {
+            seatY = Math.max(seatY, parkCellHeight(this.terrain, bgx, bgz));
           }
-          if (this.rng.chance(0.04)) continue; // rare vacancy
-          const yaw = Math.atan2(smp.tx * side, smp.tz * side) + HALF_PI_CITY;
-          const cardinal = Math.abs(Math.sin(2 * yaw)) < 0.18;
-          placeBuilding(gx, gz, 0, useFrac, cardinal, { x: px, z: pz, yaw });
-          // Back row: real SF blocks are packed two-deep, no green gap.
-          if (this.rng.chance(0.8)) {
-            const off2 = off + footprint + this.rng.range(0.8, 1.8);
-            const bx2 = smp.x - smp.tz * off2 * side;
-            const bz2 = smp.z + smp.tx * off2 * side;
-            if (
-              isLandCell(this.gridX(bx2), this.gridZ(bz2)) &&
-              districtAt(this.gridX(bx2), this.gridZ(bz2)).character !== "park" &&
-              !occupied(bx2, bz2, footprint * 0.52)
-            ) {
-              const near2 = this.network.nearest(bx2, bz2, ROAD_TILE * 1.6);
-              if (!near2 || near2.dist >= near2.edge.half + footprint / 2 - 0.4) {
-                placeBuilding(gx, gz, 0, frac * 0.94, false, { x: bx2, z: bz2, yaw });
+          const node = this.cache.instance(url);
+          node.scale.set(sxz, sy, sxz);
+          node.position.set(bx, seatY - 0.15, bz);
+          const district = districtAt(this.gridX(bx), this.gridZ(bz));
+          this.tintNode(node, this.rng.pick(paletteFor(district)), tintAmountFor(district));
+          collect(node);
+          const hw = (fw / 2) * 0.94;
+          const hd = (fd / 2) * 0.94;
+          this.solids.push({
+            minX: bx - hw,
+            maxX: bx + hw,
+            minZ: bz - hd,
+            maxZ: bz + hd,
+          });
+          occupy(bx, bz, Math.max(fw, fd) * 0.5);
+          placed++;
+        }
+        console.log(`[city] real downtown buildings placed: ${placed}`);
+      }
+
+      // --- FRONTAGE ROWS along the network edges: buildings walk each street
+      // with a consistent setback, facing the kerb — rows follow diagonals and
+      // curves exactly, which cell-based lots never could. ---
+      let walkN = 0;
+      for (const edge of this.network.edges) {
+        if (++walkN % 40 === 0) await this.breathe();
+        // Corner buildings are real — the cross-street clearance check below
+        // is the guard, so row trims stay small even at wide junctions.
+        const trimA = Math.min(this.network.nodeTrim(edge.a) * 0.6 + 1.5, edge.len * 0.4);
+        const trimB = Math.min(this.network.nodeTrim(edge.b) * 0.6 + 1.5, edge.len * 0.4);
+        if (edge.len - trimA - trimB < 5) continue;
+        for (const side of [1, -1] as const) {
+          let s = trimA + this.rng.range(0, 4);
+          while (s < edge.len - trimB) {
+            const smp = this.network.sample(edge, s);
+            const gx = this.gridX(smp.x);
+            const gz = this.gridZ(smp.z);
+            const district = districtAt(gx, gz);
+            const dense =
+              district.character === "residential" || district.character === "victorian";
+            const frac =
+              district.character === "downtown" || district.character === "highrise"
+                ? this.rng.range(0.7, 0.82)
+                : dense
+                  ? this.rng.range(0.46, 0.56) // row-houses, shoulder to shoulder
+                  : this.rng.range(0.58, 0.7);
+            const footprint = ROAD_TILE * frac;
+            // Dense districts: models stack shoulder-to-shoulder (attached SF
+            // rows) — a hair of overlap guarantees no light gap between walls.
+            const step = dense
+              ? footprint * this.rng.range(0.97, 1.0)
+              : footprint + this.rng.range(0.6, 1.8);
+            const off = edge.half + 1.7 + footprint / 2 + 0.7;
+            const px = smp.x - smp.tz * off * side;
+            const pz = smp.z + smp.tx * off * side;
+            s += step;
+            if (district.character === "park") continue;
+            if (!isLandCell(this.gridX(px), this.gridZ(pz))) continue;
+            if (lm.reserved.has(`${this.gridX(px)},${this.gridZ(pz)}`)) continue;
+            if (occupied(px, pz, footprint * 0.42)) continue;
+            // Clearance vs OTHER streets (corners, parallel edges): tight
+            // downtown blocks fit a SMALLER building rather than none.
+            let useFrac = frac;
+            const near = this.network.nearest(px, pz, ROAD_TILE * 1.6);
+            if (near && near.dist < near.edge.half + footprint / 2 - 0.4) {
+              const maxFoot = (near.dist - near.edge.half + 0.4) * 2;
+              if (maxFoot < 3.2) continue;
+              useFrac = Math.min(frac, maxFoot / ROAD_TILE);
+            }
+            if (this.rng.chance(0.04)) continue; // rare vacancy
+            const yaw = Math.atan2(smp.tx * side, smp.tz * side) + HALF_PI_CITY;
+            const cardinal = Math.abs(Math.sin(2 * yaw)) < 0.18;
+            placeBuilding(gx, gz, 0, useFrac, cardinal, { x: px, z: pz, yaw });
+            // Back row: real SF blocks are packed two-deep, no green gap.
+            if (this.rng.chance(0.8)) {
+              const off2 = off + footprint + this.rng.range(0.8, 1.8);
+              const bx2 = smp.x - smp.tz * off2 * side;
+              const bz2 = smp.z + smp.tx * off2 * side;
+              if (
+                isLandCell(this.gridX(bx2), this.gridZ(bz2)) &&
+                districtAt(this.gridX(bx2), this.gridZ(bz2)).character !== "park" &&
+                !occupied(bx2, bz2, footprint * 0.52)
+              ) {
+                const near2 = this.network.nearest(bx2, bz2, ROAD_TILE * 1.6);
+                if (!near2 || near2.dist >= near2.edge.half + footprint / 2 - 0.4) {
+                  placeBuilding(gx, gz, 0, frac * 0.94, false, { x: bx2, z: bz2, yaw });
+                }
               }
             }
           }
         }
       }
-    }
 
-    // --- Green block interiors: real SF blocks are packed back-to-back, so
-    // the row directly behind a frontage gets infill houses (slightly smaller,
-    // facing the same street). Deeper cells and parks stay green. ---
-    const frontageDirs = new Map<string, Dir>();
-    for (const b of this.plan.buildingCells) frontageDirs.set(`${b.gx},${b.gz}`, b.faceDir);
-    for (const g of this.plan.greenCells) {
-      const cellId = `${g.gx},${g.gz}`;
-      if (!lm.reserved.has(cellId) && !lm.parkGreen.has(cellId)) {
-        const district = districtAt(g.gx, g.gz);
-        if (district.character !== "park") {
-          let face: Dir | null = null;
-          for (const d of [N, E, S, W] as const) {
-            const [dx, dz] = DIR_DELTA[d];
-            const f = frontageDirs.get(`${g.gx + dx},${g.gz + dz}`);
-            if (f !== undefined) {
-              face = f;
-              break;
+      // --- Green block interiors: real SF blocks are packed back-to-back, so
+      // the row directly behind a frontage gets infill houses (slightly smaller,
+      // facing the same street). Deeper cells and parks stay green. ---
+      const frontageDirs = new Map<string, Dir>();
+      for (const b of this.plan.buildingCells) frontageDirs.set(`${b.gx},${b.gz}`, b.faceDir);
+      for (const g of this.plan.greenCells) {
+        const cellId = `${g.gx},${g.gz}`;
+        if (!lm.reserved.has(cellId) && !lm.parkGreen.has(cellId)) {
+          const district = districtAt(g.gx, g.gz);
+          if (district.character !== "park") {
+            let face: Dir | null = null;
+            for (const d of [N, E, S, W] as const) {
+              const [dx, dz] = DIR_DELTA[d];
+              const f = frontageDirs.get(`${g.gx + dx},${g.gz + dz}`);
+              if (f !== undefined) {
+                face = f;
+                break;
+              }
+            }
+            if (face !== null && this.rng.chance(0.6)) {
+              if (placeBuilding(g.gx, g.gz, face, this.rng.range(0.6, 0.74), false)) continue;
             }
           }
-          if (face !== null && this.rng.chance(0.6)) {
-            if (placeBuilding(g.gx, g.gz, face, this.rng.range(0.6, 0.74), false)) continue;
-          }
         }
+        placeGreen(g.gx, g.gz);
       }
-      placeGreen(g.gx, g.gz);
-    }
-
     };
     this.phase3 = async () => {
-    // --- Street furniture: lights, parked cars, yards, awnings, smokestacks,
-    // construction chicanes, park allées, wharf piers + seawall. ---
-    const tFurn = performance.now();
-    const fr = await buildFurniture({
-      plan: this.plan,
-      network: this.network,
-      terrain: this.terrain,
-      cache: this.cache,
-      rng: this.rng,
-      reserved: lm.reserved,
-      worldX: (g) => this.worldX(g),
-      worldZ: (g) => this.worldZ(g),
-    });
-    console.log(`[city] furniture ${Math.round(performance.now() - tFurn)}ms`);
-    await this.breathe();
-    for (const o of fr.objects) collect(o);
-    for (const s of fr.solids) this.solids.push(s);
-    this.addDecks(fr.pierDecks);
-    this.parkedCarSpecs = fr.parkedCars;
-    this.lampHeads = fr.lampHeads;
+      // --- Street furniture: lights, parked cars, yards, awnings, smokestacks,
+      // construction chicanes, park allées, wharf piers + seawall. ---
+      const tFurn = performance.now();
+      const fr = await buildFurniture({
+        plan: this.plan,
+        network: this.network,
+        terrain: this.terrain,
+        cache: this.cache,
+        rng: this.rng,
+        reserved: lm.reserved,
+        worldX: (g) => this.worldX(g),
+        worldZ: (g) => this.worldZ(g),
+      });
+      console.log(`[city] furniture ${Math.round(performance.now() - tFurn)}ms`);
+      await this.breathe();
+      for (const o of fr.objects) collect(o);
+      for (const s of fr.solids) this.solids.push(s);
+      this.addDecks(fr.pierDecks);
+      this.parkedCarSpecs = fr.parkedCars;
+      this.lampHeads = fr.lampHeads;
 
-    // --- The drivable Golden Gate: ramp off the Presidio coast road onto an
-    // orange deck over the strait, out to a railed vista turnaround. ---
-    const gg = buildGoldenGate({
-      plan: this.plan,
-      terrain: this.terrain,
-      cache: this.cache,
-      worldX: (g) => this.worldX(g),
-      worldZ: (g) => this.worldZ(g),
-    });
-    for (const o of gg.objects) collect(o);
-    for (const s of gg.solids) this.solids.push(s);
-    this.addDecks(gg.decks);
+      // --- The drivable Golden Gate: ramp off the Presidio coast road onto an
+      // orange deck over the strait, out to a railed vista turnaround. ---
+      const gg = buildGoldenGate({
+        plan: this.plan,
+        terrain: this.terrain,
+        cache: this.cache,
+        worldX: (g) => this.worldX(g),
+        worldZ: (g) => this.worldZ(g),
+      });
+      for (const o of gg.objects) collect(o);
+      for (const s of gg.solids) this.solids.push(s);
+      this.addDecks(gg.decks);
 
-    // --- Shoreline collision: wall off each water cell that borders land so
-    // the taxi can reach the waterfront but not drive into the bay. ---
-    for (let gx = 0; gx < GRID_X; gx++) {
-      for (let gz = 0; gz < GRID_Z; gz++) {
-        if (this.plan.cells[gx]?.[gz] !== "water") continue;
-        const waterKey = `${gx},${gz}`;
-        if (fr.openWaterCells.has(waterKey)) continue; // pier runs out here
-        if (gg.openWaterCells.has(waterKey)) continue; // Golden Gate span
-        let coastal = false;
-        for (const d of [N, E, S, W] as const) {
-          const [dx, dz] = DIR_DELTA[d];
-          const nb = this.plan.cells[gx + dx]?.[gz + dz];
-          if (nb === "road" || nb === "lot") coastal = true;
-        }
-        if (!coastal) continue;
-        const wx = this.worldX(gx);
-        const wz = this.worldZ(gz);
-        const half = ROAD_TILE * 0.46;
-        this.solids.push({ minX: wx - half, maxX: wx + half, minZ: wz - half, maxZ: wz + half });
-      }
-    }
-
-    // --- Outer border walls (close the south/inland map edge) ---
-    const t = 3;
-    const LX = WORLD_HALF_X;
-    const LZ = WORLD_HALF_Z;
-    this.solids.push({ minX: -LX - t, maxX: -LX, minZ: -LZ - t, maxZ: LZ + t }); // west
-    this.solids.push({ minX: LX, maxX: LX + t, minZ: -LZ - t, maxZ: LZ + t }); // east
-    this.solids.push({ minX: -LX - t, maxX: LX + t, minZ: -LZ - t, maxZ: -LZ }); // north
-    this.solids.push({ minX: -LX - t, maxX: LX + t, minZ: LZ, maxZ: LZ + t }); // south
-
-    this.buildGround();
-
-
-    // --- Hand-placed decorations from the map editor (world/custom-props.ts,
-    // this browser's editor props, or a runtime ?map= file) ---
-    for (const p of activeMapProps(editorMode())) {
-      const parts = p.model.split("/");
-      const cat = parts[0];
-      const name = parts[1];
-      if (!cat || !name) continue;
-      const node = this.cache.instance(modelUrl(cat, name));
-      node.scale.setScalar(p.s);
-      node.rotation.y = p.yaw;
-      const x = (p.u - 0.5) * WORLD_W;
-      const z = (p.v - 0.5) * WORLD_H;
-      node.position.set(x, this.heightAt(x, z), z);
-      collect(node);
-      if (p.solid) {
-        const b = this.cache.bounds(modelUrl(cat, name));
-        const hx = (b.size.x * p.s) / 2;
-        const hz = (b.size.z * p.s) / 2;
-        this.solids.push({ minX: x - hx, maxX: x + hx, minZ: z - hz, maxZ: z + hz });
-      }
-    }
-
-    // --- Two render paths for the static city ---
-    // 1) Unique conformed buffers (roads, drapes; userData.merge): merged by
-    //    material into spatial CHUNK tiles the streamer shows/hides.
-    // 2) Everything else (buildings, trees, props — repeated models): ONE
-    //    global BatchedMesh per (material, attribute layout). Geometry is
-    //    uploaded once per unique mesh; placements are 64B matrices. Streaming
-    //    is per-instance (setVisibleAt on a slow cadence) — per-chunk batches
-    //    would re-copy each model's geometry into every chunk that uses it.
-    const nx = Math.ceil(WORLD_W / CHUNK);
-    const nz = Math.ceil(WORLD_H / CHUNK);
-    const mergeBuckets = new Map<number, THREE.Mesh[]>();
-    const batchBuckets = new Map<string, BatchBucket>();
-    const centroid = new THREE.Vector3();
-    for (const mesh of staticMeshes) {
-      if (!(mesh.geometry instanceof THREE.BufferGeometry)) continue;
-      const mat = mesh.material;
-      if (mesh.userData.merge === true || Array.isArray(mat)) {
-        mesh.geometry.computeBoundingBox();
-        const bb = mesh.geometry.boundingBox;
-        const spanX = bb ? bb.max.x - bb.min.x : 0;
-        const spanZ = bb ? bb.max.z - bb.min.z : 0;
-        if (!Array.isArray(mat) && Math.max(spanX, spanZ) > CHUNK * 1.5) {
-          // Whole-map surface (planar-map asphalt/walk/curb): split by chunk
-          // so culling and the rest cache both work per-tile.
-          mesh.updateMatrixWorld(true);
-          const world = mesh.geometry.clone().applyMatrix4(mesh.matrixWorld);
-          for (const [key, g] of splitGeoByChunk(world, nx, nz)) {
-            const piece = new THREE.Mesh(g, mat);
-            piece.userData.merge = true;
-            if (mesh.userData.srcMat) piece.userData.srcMat = mesh.userData.srcMat;
-            const list = mergeBuckets.get(key);
-            if (list) list.push(piece);
-            else mergeBuckets.set(key, [piece]);
+      // --- Shoreline collision: wall off each water cell that borders land so
+      // the taxi can reach the waterfront but not drive into the bay. ---
+      for (let gx = 0; gx < GRID_X; gx++) {
+        for (let gz = 0; gz < GRID_Z; gz++) {
+          if (this.plan.cells[gx]?.[gz] !== "water") continue;
+          const waterKey = `${gx},${gz}`;
+          if (fr.openWaterCells.has(waterKey)) continue; // pier runs out here
+          if (gg.openWaterCells.has(waterKey)) continue; // Golden Gate span
+          let coastal = false;
+          for (const d of [N, E, S, W] as const) {
+            const [dx, dz] = DIR_DELTA[d];
+            const nb = this.plan.cells[gx + dx]?.[gz + dz];
+            if (nb === "road" || nb === "lot") coastal = true;
           }
+          if (!coastal) continue;
+          const wx = this.worldX(gx);
+          const wz = this.worldZ(gz);
+          const half = ROAD_TILE * 0.46;
+          this.solids.push({ minX: wx - half, maxX: wx + half, minZ: wz - half, maxZ: wz + half });
+        }
+      }
+
+      // --- Outer border walls (close the south/inland map edge) ---
+      const t = 3;
+      const LX = WORLD_HALF_X;
+      const LZ = WORLD_HALF_Z;
+      this.solids.push({ minX: -LX - t, maxX: -LX, minZ: -LZ - t, maxZ: LZ + t }); // west
+      this.solids.push({ minX: LX, maxX: LX + t, minZ: -LZ - t, maxZ: LZ + t }); // east
+      this.solids.push({ minX: -LX - t, maxX: LX + t, minZ: -LZ - t, maxZ: -LZ }); // north
+      this.solids.push({ minX: -LX - t, maxX: LX + t, minZ: LZ, maxZ: LZ + t }); // south
+
+      this.buildGround();
+
+      // --- Hand-placed decorations from the map editor (world/custom-props.ts,
+      // this browser's editor props, or a runtime ?map= file) ---
+      for (const p of activeMapProps(editorMode())) {
+        const parts = p.model.split("/");
+        const cat = parts[0];
+        const name = parts[1];
+        if (!cat || !name) continue;
+        const node = this.cache.instance(modelUrl(cat, name));
+        node.scale.setScalar(p.s);
+        node.rotation.y = p.yaw;
+        const x = (p.u - 0.5) * WORLD_W;
+        const z = (p.v - 0.5) * WORLD_H;
+        node.position.set(x, this.heightAt(x, z), z);
+        collect(node);
+        if (p.solid) {
+          const b = this.cache.bounds(modelUrl(cat, name));
+          const hx = (b.size.x * p.s) / 2;
+          const hz = (b.size.z * p.s) / 2;
+          this.solids.push({ minX: x - hx, maxX: x + hx, minZ: z - hz, maxZ: z + hz });
+        }
+      }
+
+      // --- Two render paths for the static city ---
+      // 1) Unique conformed buffers (roads, drapes; userData.merge): merged by
+      //    material into spatial CHUNK tiles the streamer shows/hides.
+      // 2) Everything else (buildings, trees, props — repeated models): ONE
+      //    global BatchedMesh per (material, attribute layout). Geometry is
+      //    uploaded once per unique mesh; placements are 64B matrices. Streaming
+      //    is per-instance (setVisibleAt on a slow cadence) — per-chunk batches
+      //    would re-copy each model's geometry into every chunk that uses it.
+      const nx = Math.ceil(WORLD_W / CHUNK);
+      const nz = Math.ceil(WORLD_H / CHUNK);
+      const mergeBuckets = new Map<number, THREE.Mesh[]>();
+      const batchBuckets = new Map<string, BatchBucket>();
+      const centroid = new THREE.Vector3();
+      for (const mesh of staticMeshes) {
+        if (!(mesh.geometry instanceof THREE.BufferGeometry)) continue;
+        const mat = mesh.material;
+        if (mesh.userData.merge === true || Array.isArray(mat)) {
+          mesh.geometry.computeBoundingBox();
+          const bb = mesh.geometry.boundingBox;
+          const spanX = bb ? bb.max.x - bb.min.x : 0;
+          const spanZ = bb ? bb.max.z - bb.min.z : 0;
+          if (!Array.isArray(mat) && Math.max(spanX, spanZ) > CHUNK * 1.5) {
+            // Whole-map surface (planar-map asphalt/walk/curb): split by chunk
+            // so culling and the rest cache both work per-tile.
+            mesh.updateMatrixWorld(true);
+            const world = mesh.geometry.clone().applyMatrix4(mesh.matrixWorld);
+            for (const [key, g] of splitGeoByChunk(world, nx, nz)) {
+              const piece = new THREE.Mesh(g, mat);
+              piece.userData.merge = true;
+              if (mesh.userData.srcMat) piece.userData.srcMat = mesh.userData.srcMat;
+              const list = mergeBuckets.get(key);
+              if (list) list.push(piece);
+              else mergeBuckets.set(key, [piece]);
+            }
+            continue;
+          }
+          bb?.getCenter(centroid);
+          centroid.applyMatrix4(mesh.matrixWorld);
+          const cx = Math.min(nx - 1, Math.max(0, Math.floor((centroid.x + WORLD_HALF_X) / CHUNK)));
+          const cz = Math.min(nz - 1, Math.max(0, Math.floor((centroid.z + WORLD_HALF_Z) / CHUNK)));
+          const key = cz * nx + cx;
+          const list = mergeBuckets.get(key);
+          if (list) list.push(mesh);
+          else mergeBuckets.set(key, [mesh]);
           continue;
         }
-        bb?.getCenter(centroid);
-        centroid.applyMatrix4(mesh.matrixWorld);
-        const cx = Math.min(nx - 1, Math.max(0, Math.floor((centroid.x + WORLD_HALF_X) / CHUNK)));
-        const cz = Math.min(nz - 1, Math.max(0, Math.floor((centroid.z + WORLD_HALF_Z) / CHUNK)));
-        const key = cz * nx + cx;
-        const list = mergeBuckets.get(key);
-        if (list) list.push(mesh);
-        else mergeBuckets.set(key, [mesh]);
-        continue;
-      }
-      // Batches must share an attribute layout — key on material + attrs.
-      const geo = mesh.geometry;
-      const attrKey = Object.keys(geo.attributes).sort().join(",");
-      const bKey = `${mat.uuid}|${attrKey}|${geo.index ? "i" : "n"}`;
-      let bucket = batchBuckets.get(bKey);
-      if (!bucket) {
-        bucket = { material: mat, geoVerts: new Map(), items: [], verts: 0, indices: 0 };
-        batchBuckets.set(bKey, bucket);
-      }
-      if (!bucket.geoVerts.has(geo)) {
-        const vCount = geo.attributes.position?.count ?? 0;
-        bucket.geoVerts.set(geo, vCount);
-        bucket.verts += vCount;
-        bucket.indices += geo.index ? geo.index.count : vCount;
-      }
-      const tint = mesh.userData.tint instanceof THREE.Color ? mesh.userData.tint : undefined;
-      const src = mesh.userData.src as { url: string; idx: number } | undefined;
-      bucket.items.push({
-        geo,
-        matrix: mesh.matrixWorld.clone(),
-        ...(tint ? { tint } : {}),
-        ...(src ? { src } : {}),
-      });
-    }
-
-    // Chunked merges (roads + drapes). Thin paint (markings, curb lips) is
-    // sub-pixel beyond DETAIL_DISTANCE — it culls there instead of the fog line.
-    const DETAIL_HEXES = new Set(["dfe3e3", "d8a13c", "d8a23c", "8f938c"]);
-    const cullRadius = CHUNK * 0.71 + ROAD_TILE * 2;
-    const tMerge = performance.now();
-    let mergeN = 0;
-    for (const [key, meshes] of mergeBuckets) {
-      if (++mergeN % 2 === 0) await this.breathe();
-      const cx = key % nx;
-      const cz = Math.floor(key / nx);
-      const isDetail = (m: THREE.Mesh): boolean => {
-        const mat = m.material;
-        return !Array.isArray(mat) && "color" in mat
-          ? DETAIL_HEXES.has((mat as THREE.MeshStandardMaterial).color.getHexString())
-          : false;
-      };
-      const main = meshes.filter((m) => !isDetail(m));
-      const detail = meshes.filter(isDetail);
-      const ccx = (cx + 0.5) * CHUNK - WORLD_HALF_X;
-      const ccz = (cz + 0.5) * CHUNK - WORLD_HALF_Z;
-      if (main.length > 0) {
-        const group = new THREE.Group();
-        for (const merged of mergeByMaterial(main)) {
-          group.add(merged);
-          this.captureMerged(merged, ccx, ccz, DRAW_DISTANCE);
+        // Batches must share an attribute layout — key on material + attrs.
+        const geo = mesh.geometry;
+        const bKey = `${mat.uuid}|${geoLayoutKey(geo)}`;
+        let bucket = batchBuckets.get(bKey);
+        if (!bucket) {
+          bucket = { material: mat, geoVerts: new Map(), items: [], verts: 0, indices: 0 };
+          batchBuckets.set(bKey, bucket);
         }
-        this.group.add(group);
-        this.chunks.push({ cx: ccx, cz: ccz, radius: cullRadius, dist: DRAW_DISTANCE, group });
-      }
-      if (detail.length > 0) {
-        const group = new THREE.Group();
-        for (const merged of mergeByMaterial(detail)) {
-          group.add(merged);
-          this.captureMerged(merged, ccx, ccz, DETAIL_DISTANCE);
+        if (!bucket.geoVerts.has(geo)) {
+          const vCount = geo.attributes.position?.count ?? 0;
+          bucket.geoVerts.set(geo, vCount);
+          bucket.verts += vCount;
+          bucket.indices += geo.index ? geo.index.count : vCount;
         }
-        this.group.add(group);
-        this.chunks.push({ cx: ccx, cz: ccz, radius: cullRadius, dist: DETAIL_DISTANCE, group });
+        const tint = mesh.userData.tint instanceof THREE.Color ? mesh.userData.tint : undefined;
+        const src = mesh.userData.src as { url: string; idx: number } | undefined;
+        bucket.items.push({
+          geo,
+          matrix: mesh.matrixWorld.clone(),
+          ...(tint ? { tint } : {}),
+          ...(src ? { src } : {}),
+        });
       }
-    }
 
-    console.log(`[city] merges ${Math.round(performance.now() - tMerge)}ms`);
-    await this.buildBatchesFrom(batchBuckets, nx, nz);
+      // Chunked merges (roads + drapes). Thin paint (markings, curb lips) is
+      // sub-pixel beyond DETAIL_DISTANCE — it culls there instead of the fog line.
+      const DETAIL_HEXES = new Set(["dfe3e3", "d8a13c", "d8a23c", "8f938c"]);
+      const cullRadius = CHUNK * 0.71 + ROAD_TILE * 2;
+      const tMerge = performance.now();
+      let mergeN = 0;
+      for (const [key, meshes] of mergeBuckets) {
+        if (++mergeN % 2 === 0) await this.breathe();
+        const cx = key % nx;
+        const cz = Math.floor(key / nx);
+        const isDetail = (m: THREE.Mesh): boolean => {
+          const mat = m.material;
+          if (Array.isArray(mat)) return false;
+          // Collapsed road paint is a polygon-offset decal — always detail-tier.
+          if (mat.polygonOffset) return true;
+          return (
+            mat instanceof THREE.MeshStandardMaterial && DETAIL_HEXES.has(mat.color.getHexString())
+          );
+        };
+        const main = meshes.filter((m) => !isDetail(m));
+        const detail = meshes.filter(isDetail);
+        const ccx = (cx + 0.5) * CHUNK - WORLD_HALF_X;
+        const ccz = (cz + 0.5) * CHUNK - WORLD_HALF_Z;
+        if (main.length > 0) {
+          const group = new THREE.Group();
+          for (const merged of mergeByMaterial(main)) {
+            group.add(merged);
+            this.captureMerged(merged, ccx, ccz, DRAW_DISTANCE);
+          }
+          this.group.add(group);
+          this.chunks.push({ cx: ccx, cz: ccz, radius: cullRadius, dist: DRAW_DISTANCE, group });
+        }
+        if (detail.length > 0) {
+          const group = new THREE.Group();
+          for (const merged of mergeByMaterial(detail)) {
+            group.add(merged);
+            this.captureMerged(merged, ccx, ccz, DETAIL_DISTANCE);
+          }
+          this.group.add(group);
+          this.chunks.push({ cx: ccx, cz: ccz, radius: cullRadius, dist: DETAIL_DISTANCE, group });
+        }
+      }
 
-    // --- Iconic landmarks (procedural; kept separate — always visible) ---
-    this.group.add(buildLandmarks(this.terrain, this.cache));
+      console.log(`[city] merges ${Math.round(performance.now() - tMerge)}ms`);
+      await this.buildBatchesFrom(batchBuckets, nx, nz);
 
-    // City-rest cache capture: phases 2+3 output in serializable form. Only
-    // stored when every batch item is source-tagged (else a rebuild would
-    // drop geometry silently).
-    if (this.restComplete) {
-      this.restCapture = {
-        mergedChunks: this.capturedMerged,
-        rawGeos: this.rawGeos,
-        batchItems: [...this.restItems],
-        solids: this.solids,
-        parkedCars: [...this.parkedCarSpecs],
-        lampHeads: [...this.lampHeads],
-        decks: this.getDecks(),
-      };
-      console.log(
-        `[city] rest capture: ${this.capturedMerged.length} merged, ${this.restItems.length} items`,
-      );
-    } else {
-      console.log("[city] rest capture skipped: untagged batch items");
-    }
+      // --- Iconic landmarks (procedural; kept separate — always visible) ---
+      this.group.add(buildLandmarks(this.terrain, this.cache));
+
+      // City-rest cache capture: phases 2+3 output in serializable form. Only
+      // stored when every batch item is source-tagged (else a rebuild would
+      // drop geometry silently).
+      if (this.restComplete) {
+        this.restCapture = {
+          mergedChunks: this.capturedMerged,
+          rawGeos: this.rawGeos,
+          batchItems: [...this.restItems],
+          solids: this.solids,
+          parkedCars: [...this.parkedCarSpecs],
+          lampHeads: [...this.lampHeads],
+          decks: this.getDecks(),
+        };
+        console.log(
+          `[city] rest capture: ${this.capturedMerged.length} merged, ${this.restItems.length} items`,
+        );
+      } else {
+        console.log("[city] rest capture skipped: untagged batch items");
+      }
     };
   }
 
@@ -1260,7 +1292,6 @@ export class CityModel {
         group: tile,
       });
     }
-
   }
 
   // Rebuild phases 2+3 from the city-rest cache: merged chunk meshes from
@@ -1292,6 +1323,13 @@ export class CityModel {
       return mat;
     };
     const groups = new Map<string, { group: THREE.Group; cx: number; cz: number; dist: number }>();
+    // Legacy baked/cached rest payloads carry SIX flat road materials per
+    // chunk (captured before the vertex-color collapse in roads.ts). Rewrite
+    // those recs onto the two collapsed materials and merge per (chunk, tier,
+    // material) so old artifacts render with the same draw count as a fresh
+    // build. New captures arrive already collapsed and pass straight through.
+    type RoadMerge = { gk: string; mat: THREE.Material; geos: THREE.BufferGeometry[] };
+    const roadMerges = new Map<string, RoadMerge>();
     let n = 0;
     for (const rec of rest.mergedChunks) {
       if (++n % 24 === 0) await this.breathe();
@@ -1302,17 +1340,42 @@ export class CityModel {
       if (rec.index) geo.setIndex(new THREE.BufferAttribute(rec.index, 1));
       if (rec.normal) geo.setAttribute("normal", new THREE.BufferAttribute(rec.normal, 3));
       else geo.computeVertexNormals();
-      const srcM = rec.srcMat ? this.cache.srcMesh(rec.srcMat.url, rec.srcMat.idx) : null;
-      const srcMatOk = srcM && !Array.isArray(srcM.material) ? srcM.material : null;
-      const mesh = new THREE.Mesh(geo, srcMatOk ?? matFor(rec.mat));
-      mesh.receiveShadow = true;
       const gk = `${rec.cx},${rec.cz},${rec.dist}`;
       let g = groups.get(gk);
       if (!g) {
         g = { group: new THREE.Group(), cx: rec.cx, cz: rec.cz, dist: rec.dist };
         groups.set(gk, g);
       }
+      const road = rec.srcMat
+        ? null
+        : roadCollapseTarget(rec.mat.color, rec.mat.polygonOffset, rec.mat.vertexColors);
+      if (road) {
+        bakeConstantColor(geo, road.color);
+        const mk = `${gk}|${road.mat.uuid}|${rec.uv ? "u" : "x"}|${geo.index ? "i" : "n"}`;
+        const rm = roadMerges.get(mk);
+        if (rm) rm.geos.push(geo);
+        else roadMerges.set(mk, { gk, mat: road.mat, geos: [geo] });
+        continue;
+      }
+      const srcM = rec.srcMat ? this.cache.srcMesh(rec.srcMat.url, rec.srcMat.idx) : null;
+      const srcMatOk = srcM && !Array.isArray(srcM.material) ? srcM.material : null;
+      const mesh = new THREE.Mesh(geo, srcMatOk ?? matFor(rec.mat));
+      mesh.receiveShadow = true;
       g.group.add(mesh);
+    }
+    for (const rm of roadMerges.values()) {
+      const g = groups.get(rm.gk);
+      if (!g) continue;
+      const first = rm.geos[0];
+      const merged = rm.geos.length === 1 && first ? first : mergeGeometries(rm.geos, false);
+      // Merge failure (mismatched attrs): draw the pieces individually —
+      // exactly what the un-collapsed path did.
+      const geos = merged ? [merged] : rm.geos;
+      for (const geo of geos) {
+        const mesh = new THREE.Mesh(geo, rm.mat);
+        mesh.receiveShadow = true;
+        g.group.add(mesh);
+      }
     }
     for (const g of groups.values()) {
       this.group.add(g.group);
@@ -1354,8 +1417,7 @@ export class CityModel {
         continue;
       }
       okN++;
-      const attrKey = Object.keys(geo.attributes).sort().join(",");
-      const bKey = `${mat.uuid}|${attrKey}|${geo.index ? "i" : "n"}`;
+      const bKey = `${mat.uuid}|${geoLayoutKey(geo)}`;
       let bucket = buckets.get(bKey);
       if (!bucket) {
         bucket = { material: mat, geoVerts: new Map(), items: [], verts: 0, indices: 0 };
@@ -1390,13 +1452,20 @@ export class CityModel {
   // Build BatchedMeshes (+ box imposters + chunk instance maps) from filled
   // buckets — called by phase 3 (from staticMeshes) AND the city-rest cache
   // rebuild (from serialized records).
-  private async buildBatchesFrom(batchBuckets: Map<string, BatchBucket>, nx: number, nz: number): Promise<void> {
+  private async buildBatchesFrom(
+    batchBuckets: Map<string, BatchBucket>,
+    nx: number,
+    nz: number,
+  ): Promise<void> {
     // Global batches (models). Each instance is assigned to a spatial chunk;
     // updateStreaming() flips whole chunks of instances on visibility
     // transitions, so per-frame cost is ~chunk count, not instance count.
     const pos = new THREE.Vector3();
     const tBatch = performance.now();
-    type ImposterSpec = { key: number; item: { geo: THREE.BufferGeometry; matrix: THREE.Matrix4; tint?: THREE.Color } };
+    type ImposterSpec = {
+      key: number;
+      item: { geo: THREE.BufferGeometry; matrix: THREE.Matrix4; tint?: THREE.Color };
+    };
     const imposters: ImposterSpec[] = [];
     const restItems = this.restItems;
     restItems.length = 0;
@@ -1412,8 +1481,15 @@ export class CityModel {
       );
       batched.castShadow = true;
       batched.receiveShadow = true;
-      // Whole-batch bounds span the map — chunk visibility below is the cull.
-      batched.perObjectFrustumCulled = false;
+      // Chunk streaming (below) is the coarse cull, but per-instance frustum
+      // culling stays ON: BatchedMesh rebuilds its multidraw list per PASS
+      // against that pass's camera (onBeforeShadow feeds the shadow camera),
+      // so the ~116u sun-shadow pass draws only instances inside its frustum
+      // instead of re-submitting the whole visible city every frame. (A
+      // flip-only-during-shadow scheme breaks in r184: onBeforeRender
+      // early-returns when culling is off and nothing changed, so the main
+      // pass would reuse the shadow-culled list.)
+      batched.perObjectFrustumCulled = true;
       batched.sortObjects = false;
       const geoIds = new Map<THREE.BufferGeometry, number>();
       const chunkIds = new Uint16Array(bucket.items.length);
@@ -1453,9 +1529,7 @@ export class CityModel {
                 position: pos2.array as Float32Array,
                 normal: nor2 ? (nor2.array as Float32Array) : null,
                 uv: uv2 ? (uv2.array as Float32Array) : null,
-                index: item.geo.index
-                  ? (item.geo.index.array as Uint16Array | Uint32Array)
-                  : null,
+                index: item.geo.index ? (item.geo.index.array as Uint16Array | Uint32Array) : null,
                 mat: {
                   color: mat.color.getHex(),
                   roughness: mat.roughness,
@@ -1579,6 +1653,19 @@ export class CityModel {
     console.log(`[city] batches ${Math.round(performance.now() - tBatch)}ms`);
   }
 
+  // The city never moves after build: compose every matrix once, then stop
+  // the per-frame recompose (updateMatrixWorld still walks the subtree, but
+  // each visit is two boolean checks instead of a position/quat/scale
+  // compose). Chunk streaming only flips `visible`, and BatchedMesh instance
+  // matrices live in a texture — neither needs object matrices. Skipped in
+  // editor mode, where props get dragged around live.
+  freezeStatic(): void {
+    this.group.updateMatrixWorld(true); // compose every local+world matrix once
+    this.group.traverse((o) => {
+      o.matrixAutoUpdate = false;
+    });
+  }
+
   // Chunked visibility: merged road/drape tiles show/hide as whole groups
   // (three frustum-culls them per mesh); batched model instances flip by chunk
   // — distance AND view frustum, near chunks always on so shadow casters just
@@ -1615,12 +1702,14 @@ export class CityModel {
       if (this.chunkVisible[key] !== visFar) {
         this.chunkVisible[key] = visFar;
         const list = this.chunkInstancesFar.get(key);
-        if (list) for (const [b, iid] of list) this.batches[b]?.mesh.setVisibleAt(iid, visFar === 1);
+        if (list)
+          for (const [b, iid] of list) this.batches[b]?.mesh.setVisibleAt(iid, visFar === 1);
       }
       if (this.chunkVisibleNear[key] !== visNear) {
         this.chunkVisibleNear[key] = visNear;
         const list = this.chunkInstancesNear.get(key);
-        if (list) for (const [b, iid] of list) this.batches[b]?.mesh.setVisibleAt(iid, visNear === 1);
+        if (list)
+          for (const [b, iid] of list) this.batches[b]?.mesh.setVisibleAt(iid, visNear === 1);
       }
       // Imposters live in the far band only: full models take over up close.
       if (this.imposterMesh) {
@@ -1713,7 +1802,14 @@ function splitGeoByChunk(
   const idx = geo.index;
   const triCount = idx ? idx.count / 3 : pos.count / 3;
   const vid = (k: number): number => (idx ? idx.getX(k) : k);
-  type Piece = { map: Map<number, number>; pos: number[]; nor: number[]; uv: number[]; col: number[]; index: number[] };
+  type Piece = {
+    map: Map<number, number>;
+    pos: number[];
+    nor: number[];
+    uv: number[];
+    col: number[];
+    index: number[];
+  };
   const pieces = new Map<number, Piece>();
   for (let t = 0; t < triCount; t++) {
     const a = vid(t * 3);

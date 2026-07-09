@@ -13,6 +13,8 @@
 
 import { DrawingUtils, FilesetResolver, GestureRecognizer } from "@mediapipe/tasks-vision";
 
+import { COARSE_INPUT } from "../shared/input-mode";
+
 const WASM_BASE = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm";
 const MODEL_URL =
   "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task";
@@ -35,10 +37,20 @@ export function startHandTracking(onWristX: (x: number) => void): HandTracker {
   panel.append(video, canvas, status);
   // The legacy panel sat on top of the r3f canvas, so pointer events over it
   // never reached the game. The rebuild listens on window — stop propagation
-  // to keep the panel area inert for game input, as before.
+  // to keep the panel area inert for game input, as before. The listeners
+  // live on the panel element itself, so when it minimizes to the pill the
+  // swallowed area shrinks with it (no invisible touch dead zone).
   for (const type of ["pointerdown", "pointermove", "pointerup"] as const) {
     panel.addEventListener(type, (e) => e.stopPropagation());
   }
+  // Tap toggles between the live feed and a compact "HAND CONTROL" pill — on
+  // a phone the full panel would cover a big slice of the lower court.
+  // Tracking keeps running while minimized; only the preview is hidden.
+  panel.addEventListener("pointerup", () => {
+    panel.dataset.min = panel.dataset.min === "1" ? "0" : "1";
+  });
+  panel.setAttribute("role", "button");
+  panel.setAttribute("aria-label", "toggle hand-control camera panel");
   document.body.appendChild(panel);
 
   let stopped = false;
@@ -60,6 +72,12 @@ export function startHandTracking(onWristX: (x: number) => void): HandTracker {
   // ---- prediction loop (logic identical to the legacy predictWebcam) -------
   let lastVideoTime = -1;
   let lastTimestamp = 0;
+  // Phone-class GPUs can't hold 60fps running the recognizer on every camera
+  // frame alongside the game render — on coarse-pointer devices recognize
+  // every 2nd video frame (the skeleton overlay just holds for one frame;
+  // the paddle's adaptive lerp smooths over the halved sample rate).
+  const recognizeEvery = COARSE_INPUT ? 2 : 1;
+  let videoFrame = 0;
   const predictWebcam = (): void => {
     if (stopped) return;
     if (!videoPlaying || !recognizer || !ctx || !drawingUtils) {
@@ -69,6 +87,11 @@ export function startHandTracking(onWristX: (x: number) => void): HandTracker {
 
     if (video.currentTime !== lastVideoTime) {
       lastVideoTime = video.currentTime;
+      videoFrame += 1;
+      if (videoFrame % recognizeEvery !== 0) {
+        rafId = requestAnimationFrame(predictWebcam);
+        return;
+      }
       // MediaPipe requires strictly increasing timestamps
       const now = performance.now();
       const timestamp = now > lastTimestamp ? now : lastTimestamp + 1;

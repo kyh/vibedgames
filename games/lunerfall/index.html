@@ -2,20 +2,15 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
     <title>Lunerfall</title>
-    <meta name="description" content="TowerFall-feel roguelite. Five heroes, five biomes, online co-op and versus duels." />
-    <link rel="canonical" href="https://lunerfall.vibedgames.com/" />
-    <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="vibedgames" />
-    <meta property="og:title" content="Lunerfall" />
-    <meta property="og:description" content="TowerFall-feel roguelite. Five heroes, five biomes, online co-op and versus duels." />
-    <meta property="og:url" content="https://lunerfall.vibedgames.com/" />
-    <meta property="og:image" content="https://lunerfall.vibedgames.com/og.jpg" />
-    <meta property="og:image:width" content="1536" />
-    <meta property="og:image:height" content="864" />
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:image" content="https://lunerfall.vibedgames.com/og.jpg" />
+    <meta
+      name="description"
+      content="TowerFall-feel roguelite. Five heroes, five biomes, online co-op and versus duels."
+    />
     <style>
       * {
         box-sizing: border-box;
@@ -34,14 +29,59 @@
       #game {
         position: fixed;
         inset: 0;
+        touch-action: none;
       }
       #game canvas {
         display: block;
+      }
+      /* Landscape-native game: on portrait phones, ask for a rotation instead
+         of squeezing the arena. Pure CSS, so it tracks rotation instantly. */
+      #rotate {
+        position: fixed;
+        inset: 0;
+        z-index: 10;
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        text-align: center;
+        background: #05070b;
+        color: #34e5c8;
+        letter-spacing: 0.12em;
+      }
+      #rotate .glyph {
+        font-size: 44px;
+        animation: rotate-nudge 1.6s ease-in-out infinite;
+      }
+      #rotate .sub {
+        color: #8b95a1;
+        font-size: 12px;
+      }
+      @keyframes rotate-nudge {
+        0%,
+        55%,
+        100% {
+          transform: rotate(0deg);
+        }
+        25% {
+          transform: rotate(-90deg);
+        }
+      }
+      @media (orientation: portrait) and (pointer: coarse) {
+        #rotate {
+          display: flex;
+        }
       }
     </style>
   </head>
   <body>
     <div id="game"></div>
+    <div id="rotate">
+      <div class="glyph">📱</div>
+      <div>ROTATE YOUR PHONE</div>
+      <div class="sub">Lunerfall duels in landscape</div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

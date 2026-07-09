@@ -57,7 +57,6 @@ export class PerfGovernor {
     return this.tier;
   }
 
-
   // Feed the RAW frame delta (seconds) every frame, before render.
   update(dt: number): void {
     const ms = dt * 1000;
@@ -104,6 +103,9 @@ export class PerfGovernor {
       shadow.mapSize.set(t.shadow, t.shadow);
       shadow.map?.dispose();
       shadow.map = null; // force reallocation at the new size
+      // Re-render once even when the night path has shadowMap.autoUpdate off —
+      // materials keep sampling the (now disposed) map otherwise.
+      this.renderer.shadowMap.needsUpdate = true;
     }
     this.onApply();
   }

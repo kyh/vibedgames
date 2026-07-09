@@ -3,7 +3,9 @@
 // button grid: Q/W/E · R/DASH/JUMP · hop/B. DASH casts the hero's dash, JUMP the
 // leaping strike (self-leaps if grounded); the hop button is the plain Space hop.
 // Ability buttons take champ icon backgrounds via bindChamp() and per-button
-// conic cooldown sweeps via setCooldown(). Activates on first touch; idle on desktop.
+// conic cooldown sweeps via setCooldown(). Pre-shows on coarse-pointer devices,
+// otherwise activates on first touch; idle on desktop. The full-screen layer is
+// pointer-events:none (sticks listen on window) so interactive HUD stays tappable.
 import { abilityIcon } from "../data/icons";
 import type { AbilityKey } from "../sim/types";
 
@@ -27,7 +29,16 @@ const BTN_KEYS: { id: BtnId; label: string }[] = [
 ];
 const ABILITY_IDS = new Set<string>(["Q", "W", "E", "R", "DASH", "JUMP"]);
 
-type Btn = { el: HTMLDivElement; label: HTMLSpanElement; cd: HTMLDivElement | null; lastCd: number };
+// Touches that begin on interactive HUD (shop/end buttons, belt chips, the
+// tappable timer) belong to that UI — they must never spawn a stick.
+const INTERACTIVE_SEL = "button,input,#ba-shop,#ba-end,#ba-timer,.ba-item-chip";
+
+type Btn = {
+  el: HTMLDivElement;
+  label: HTMLSpanElement;
+  cd: HTMLDivElement | null;
+  lastCd: number;
+};
 
 export class TouchControls {
   active = false;
@@ -48,7 +59,10 @@ export class TouchControls {
     injectTouchStyle();
     this.layer = document.createElement("div");
     this.layer.id = "ba-touch";
-    this.layer.style.cssText = "position:fixed;inset:0;z-index:7;display:none;touch-action:none";
+    // pointer-events:none — the layer must never eat HUD taps (shop, end card,
+    // belt chips); sticks work off window-level listeners, the pad re-enables auto
+    this.layer.style.cssText =
+      "position:fixed;inset:0;z-index:7;display:none;touch-action:none;pointer-events:none";
     this.moveEl = stickEl();
     this.aimEl = stickEl();
     this.layer.append(this.moveEl, this.aimEl);
@@ -94,6 +108,12 @@ export class TouchControls {
     window.addEventListener("pointermove", this.onMove, { passive: false });
     window.addEventListener("pointerup", this.onUp);
     window.addEventListener("pointercancel", this.onUp);
+
+    // pre-show on touch-first devices so the pad is visible from spawn and the
+    // hint engine speaks touch from boot (not only after the first touch)
+    if (typeof window.matchMedia === "function" && window.matchMedia("(pointer:coarse)").matches) {
+      this.activate();
+    }
   }
 
   /** Paint the local champ's ability icons onto Q/W/E/R and demote the digit
@@ -131,8 +151,19 @@ export class TouchControls {
   private onDown = (e: PointerEvent): void => {
     if (e.pointerType !== "touch") return;
     this.activate();
+    // the layer is pointer-events:none, so e.target is the real element under
+    // the finger — interactive HUD wins over stick spawning
+    const t = e.target;
+    if (t instanceof Element && t.closest(INTERACTIVE_SEL)) return;
+    // menus own the pointer (shop / end screen — Controls.setMouseMode): taps
+    // there browse UI, they never steer or auto-fire
+    if (document.body.classList.contains("ba-mouse-mode")) return;
+    // cancel compat mouse events so a stick touch never mousedown's the canvas
+    // (that path requests pointer lock + fires LMB attacks on desktop)
+    e.preventDefault();
     if (e.clientX < window.innerWidth / 2) {
-      if (!this.move) this.move = { id: e.pointerId, baseX: e.clientX, baseY: e.clientY, dx: 0, dy: 0 };
+      if (!this.move)
+        this.move = { id: e.pointerId, baseX: e.clientX, baseY: e.clientY, dx: 0, dy: 0 };
     } else if (!this.aim) {
       this.aim = { id: e.pointerId, baseX: e.clientX, baseY: e.clientY, dx: 0, dy: 0 };
     }
@@ -140,7 +171,8 @@ export class TouchControls {
   };
 
   private onMove = (e: PointerEvent): void => {
-    const s = this.move?.id === e.pointerId ? this.move : this.aim?.id === e.pointerId ? this.aim : null;
+    const s =
+      this.move?.id === e.pointerId ? this.move : this.aim?.id === e.pointerId ? this.aim : null;
     if (!s) return;
     const dx = e.clientX - s.baseX;
     const dy = e.clientY - s.baseY;

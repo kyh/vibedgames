@@ -18,14 +18,20 @@
  * minimum Y re-fires with the updated strength; landing is detected once the
  * nose settles back within half the threshold of baseline.
  *
- * The module owns its DOM: a 384×288 rounded panel (bottom-right) with live
- * video, a skeleton overlay (red landmark dots r=3, blue connectors lw=2), and
- * a status line. Normal play is button-free — a Start button surfaces only if
- * camera/model startup fails, to retry. Camera + model startup begins
- * automatically on init — the legacy app mounted the component on page load,
- * which kicked off getUserMedia immediately. If permission is denied or
- * loading fails, the panel shows the error and the game stays fully playable
- * with keyboard/tap.
+ * The module owns its DOM: a rounded bottom-right panel with live video, a
+ * skeleton overlay (red landmark dots r=3, blue connectors lw=2), and a status
+ * line. Normal play is button-free — a Start button surfaces only if
+ * camera/model startup fails, to retry. On desktop the panel is full-size
+ * (384px) and camera + model startup begins automatically on init — the legacy
+ * app mounted the component on page load, which kicked off getUserMedia
+ * immediately. On touch devices (and tiny windows) the panel boots as a ~120px
+ * pill instead — the full card would blanket the prime thumb zone — and
+ * getUserMedia waits for a tap on the pill (a user gesture, as phones
+ * require); the ▾ button tucks it back down. The panel NEVER eats flap taps:
+ * the root is pointer-events:none and only the pill/buttons are interactive,
+ * so taps over the expanded video fall through to the game. If permission is
+ * denied or loading fails, the panel shows the error and the game stays fully
+ * playable with keyboard/tap.
  */
 
 import {
@@ -76,9 +82,12 @@ type PoseState = "idle" | "loading" | "warming" | "detecting" | "jumping";
 export type PoseJumpHandler = (strength: number, refire: boolean) => void;
 
 type Panel = {
+  root: HTMLDivElement;
+  screen: HTMLDivElement;
   video: HTMLVideoElement;
   overlay: HTMLCanvasElement;
   button: HTMLButtonElement;
+  toggle: HTMLButtonElement;
   status: HTMLSpanElement;
 };
 
@@ -103,6 +112,7 @@ class PoseCamera {
   constructor(
     private readonly ui: Panel,
     private onJump: PoseJumpHandler,
+    autoStart: boolean,
   ) {
     this.setStatus("Click 'Start' to begin");
     this.ui.button.addEventListener("click", () => {
@@ -110,8 +120,24 @@ class PoseCamera {
       this.ui.button.blur();
       this.handleMainAction();
     });
-    // Legacy mounted the component on page load and auto-started immediately.
-    this.start();
+    this.ui.toggle.addEventListener("click", (e) => {
+      e.stopPropagation(); // don't bubble into the screen's expand handler
+      this.ui.toggle.blur();
+      this.setCollapsed(true);
+    });
+    // Collapsed pill/thumbnail: tap to expand — and to start the camera if it
+    // never started (touch defers getUserMedia until this user gesture).
+    this.ui.screen.addEventListener("click", () => {
+      if (!this.collapsed) return;
+      this.setCollapsed(false);
+      if (this.state === "idle") this.start();
+    });
+    if (autoStart) {
+      // Legacy mounted the component on page load and auto-started immediately.
+      this.start();
+    } else {
+      this.setStatus("Tap to enable the pose cam");
+    }
   }
 
   setHandler(onJump: PoseJumpHandler): void {
@@ -130,6 +156,14 @@ class PoseCamera {
   /** Freeze the baseline for a run (true) / resume rolling between runs (false). */
   setLocked(locked: boolean): void {
     this.locked = locked;
+  }
+
+  private get collapsed(): boolean {
+    return this.ui.root.classList.contains("fd-cam--collapsed");
+  }
+
+  private setCollapsed(collapsed: boolean): void {
+    this.ui.root.classList.toggle("fd-cam--collapsed", collapsed);
   }
 
   private setStatus(text: string): void {
@@ -170,6 +204,9 @@ class PoseCamera {
       video.addEventListener(
         "loadedmetadata",
         () => {
+          // Reveal the video only once it has real dimensions — a stream-less
+          // <video> renders at its 300×150 default and bloats the pill.
+          this.ui.root.classList.add("fd-cam--live");
           this.ui.overlay.width = video.videoWidth;
           this.ui.overlay.height = video.videoHeight;
           const ctx = this.ui.overlay.getContext("2d");
@@ -186,6 +223,7 @@ class PoseCamera {
       );
     } catch (error) {
       // Graceful degradation: show why, fall back to keyboard/tap input.
+      this.ui.root.classList.remove("fd-cam--live");
       this.setStatus(`Error: ${errorMessage(error)}`);
       this.setState("idle");
     }
@@ -299,8 +337,7 @@ class PoseCamera {
     // (this.locked) and while mid-jump, so the jump can't pull its own
     // reference upward.
     if (this.state === "detecting" && !this.locked) {
-      this.baselineY =
-        this.baselineY * (1 - BASELINE_ADAPT_RATE) + currentY * BASELINE_ADAPT_RATE;
+      this.baselineY = this.baselineY * (1 - BASELINE_ADAPT_RATE) + currentY * BASELINE_ADAPT_RATE;
     }
 
     this.detectJump(currentY);
@@ -366,17 +403,26 @@ class PoseCamera {
 
 let active: PoseCamera | null = null;
 
+/** Coarse-pointer/touch detection — decide input-aware copy + layout at boot. */
+export function isCoarsePointer(): boolean {
+  return window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+}
+
 /**
  * Create the bottom-right webcam panel and begin camera + model startup
  * (idempotent — repeat calls just swap the jump handler). Failures degrade to
- * a visible status message while keyboard/tap input keeps working.
+ * a visible status message while keyboard/tap input keeps working. Touch
+ * devices boot collapsed with getUserMedia deferred behind a tap on the pill;
+ * desktop keeps the legacy auto-start.
  */
 export function initPoseCamera(onJump: PoseJumpHandler): void {
   if (active !== null) {
     active.setHandler(onJump);
     return;
   }
-  active = new PoseCamera(buildPanel(document.body), onJump);
+  const touch = isCoarsePointer();
+  const compact = touch || Math.min(window.innerWidth, window.innerHeight) < 560;
+  active = new PoseCamera(buildPanel(document.body, compact), onJump, !touch);
 }
 
 /**
@@ -399,6 +445,10 @@ const PANEL_STYLE_ID = "fd-pose-cam-style";
  * Video + overlay are flipped horizontally for a natural selfie view — both get
  * the same transform so the skeleton stays registered on the face. (Jump
  * detection is vertical-only, so the mirror is purely cosmetic.)
+ *
+ * Pointer rules: the root ignores all events; only the collapsed pill, the ▾
+ * toggle and the Start button are interactive. Taps over the expanded video
+ * fall through to the game and flap — the panel never creates a dead zone.
  */
 function injectStyles(): void {
   if (document.getElementById(PANEL_STYLE_ID)) return;
@@ -406,7 +456,9 @@ function injectStyles(): void {
   style.id = PANEL_STYLE_ID;
   style.textContent = `
     .fd-cam {
-      position: fixed; right: 12px; bottom: 12px; z-index: 20;
+      position: fixed; z-index: 20;
+      right: calc(12px + env(safe-area-inset-right));
+      bottom: calc(12px + env(safe-area-inset-bottom));
       width: 384px; max-width: calc(100vw - 24px); padding: 6px;
       border-radius: 14px;
       background: rgba(10, 12, 28, 0.62);
@@ -416,6 +468,7 @@ function injectStyles(): void {
       -webkit-backdrop-filter: blur(6px);
       font: 11px/1.3 ui-monospace, "SF Mono", Menlo, monospace;
       color: #eef2ff;
+      pointer-events: none;
     }
     .fd-cam__screen {
       position: relative; overflow: hidden; border-radius: 8px;
@@ -425,9 +478,36 @@ function injectStyles(): void {
          letterboxes the overlay once live. */
       min-height: 180px;
       background: rgba(0, 0, 0, 0.35);
+      pointer-events: none;
     }
+    .fd-cam--collapsed { width: 120px; }
+    .fd-cam--collapsed .fd-cam__screen {
+      min-height: 44px; cursor: pointer;
+      pointer-events: auto; touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .fd-cam--collapsed .fd-cam__controls { display: none; }
+    .fd-cam--collapsed .fd-cam__toggle { display: none; }
+    .fd-cam__cap { display: none; }
+    .fd-cam--collapsed .fd-cam__cap {
+      display: block; position: absolute; left: 0; right: 0; bottom: 5px;
+      text-align: center; letter-spacing: 1px; text-transform: uppercase;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.75);
+      pointer-events: none;
+    }
+    .fd-cam__toggle {
+      position: absolute; top: 4px; right: 4px; width: 40px; height: 40px;
+      border-radius: 10px; border: 0;
+      background: rgba(10, 12, 28, 0.55); color: #eef2ff;
+      font: inherit; font-size: 14px; cursor: pointer;
+      pointer-events: auto; touch-action: manipulation;
+    }
+    .fd-cam__toggle:hover { background: rgba(10, 12, 28, 0.8); }
     .fd-cam__video, .fd-cam__overlay { transform: scaleX(-1); }
-    .fd-cam__video { display: block; width: 100%; height: auto; }
+    /* Hidden until the stream reports dimensions (fd-cam--live) — a
+       stream-less <video> renders at its 300×150 replaced-element default. */
+    .fd-cam__video { display: none; width: 100%; height: auto; }
+    .fd-cam--live .fd-cam__video { display: block; }
     .fd-cam__overlay { position: absolute; inset: 0; width: 100%; height: 100%; }
     .fd-cam__controls {
       position: absolute; left: 8px; right: 8px; bottom: 8px;
@@ -439,6 +519,7 @@ function injectStyles(): void {
       border: 1px solid rgba(255, 255, 255, 0.32);
       color: #eef2ff; font: inherit; letter-spacing: 1px;
       text-transform: uppercase; cursor: pointer;
+      pointer-events: auto; touch-action: manipulation;
       backdrop-filter: blur(6px);
       -webkit-backdrop-filter: blur(6px);
       transition: background 0.15s ease, opacity 0.15s ease;
@@ -454,11 +535,11 @@ function injectStyles(): void {
   document.head.appendChild(style);
 }
 
-function buildPanel(parent: HTMLElement): Panel {
+function buildPanel(parent: HTMLElement, collapsed: boolean): Panel {
   injectStyles();
 
   const root = document.createElement("div");
-  root.className = "fd-cam";
+  root.className = collapsed ? "fd-cam fd-cam--collapsed" : "fd-cam";
 
   const screen = document.createElement("div");
   screen.className = "fd-cam__screen";
@@ -469,6 +550,16 @@ function buildPanel(parent: HTMLElement): Panel {
 
   const overlay = document.createElement("canvas");
   overlay.className = "fd-cam__overlay";
+
+  const cap = document.createElement("div");
+  cap.className = "fd-cam__cap";
+  cap.textContent = "📷 pose";
+
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "fd-cam__toggle";
+  toggle.textContent = "▾";
+  toggle.title = "Hide camera";
 
   const controls = document.createElement("div");
   controls.className = "fd-cam__controls";
@@ -482,11 +573,11 @@ function buildPanel(parent: HTMLElement): Panel {
   status.className = "fd-cam__status";
 
   controls.append(button, status);
-  screen.append(video, overlay, controls);
+  screen.append(video, overlay, cap, controls, toggle);
   root.append(screen);
   parent.appendChild(root);
 
-  return { video, overlay, button, status };
+  return { root, screen, video, overlay, button, toggle, status };
 }
 
 // ---- pure helpers --------------------------------------------------------------------------

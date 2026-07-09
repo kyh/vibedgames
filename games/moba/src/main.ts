@@ -31,4 +31,14 @@ const fontReady = Promise.race([
   document.fonts.load('20px "Lilita One"'),
   new Promise((resolve) => setTimeout(resolve, 1500)),
 ]);
-void fontReady.then(() => new Phaser.Game(config));
+void fontReady.then(() => {
+  const game = new Phaser.Game(config);
+  // Scale.RESIZE can read stale parent bounds when the browser delivers a
+  // single resize event (phone rotation): the canvas lags one size behind.
+  // Re-check once the layout settles.
+  let settle: ReturnType<typeof setTimeout> | undefined;
+  window.addEventListener("resize", () => {
+    clearTimeout(settle);
+    settle = setTimeout(() => game.scale.refresh(), 150);
+  });
+});

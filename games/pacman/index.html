@@ -2,21 +2,16 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
     <link rel="icon" href="data:," />
     <title>Pacman</title>
-    <meta name="description" content="Chomp pellets and outsmart ghosts in a soft plush-clinic maze." />
-    <link rel="canonical" href="https://pacman.vibedgames.com/" />
-    <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="vibedgames" />
-    <meta property="og:title" content="Pacman" />
-    <meta property="og:description" content="Chomp pellets and outsmart ghosts in a soft plush-clinic maze." />
-    <meta property="og:url" content="https://pacman.vibedgames.com/" />
-    <meta property="og:image" content="https://pacman.vibedgames.com/og.jpg" />
-    <meta property="og:image:width" content="1536" />
-    <meta property="og:image:height" content="864" />
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:image" content="https://pacman.vibedgames.com/og.jpg" />
+    <meta
+      name="description"
+      content="Chomp pellets and outsmart ghosts in a soft plush-clinic maze."
+    />
     <style>
       :root {
         --cream: #fdf1e6;
@@ -76,7 +71,8 @@
         position: fixed;
         inset: 0;
         pointer-events: none;
-        padding: 16px;
+        padding: calc(16px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right))
+          calc(16px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
         display: flex;
         flex-direction: column;
       }
@@ -115,15 +111,52 @@
       #stats:empty {
         display: none;
       }
+      /* Touch layouts: the bottom strip belongs to the webcam + control pills,
+         so lives/pellets dock under the score row instead. */
+      body.touch #stats {
+        margin-top: 10px;
+        margin-bottom: 0;
+      }
 
-      /* Shown while WebAudio is still locked during play (face-only players
-         never press a key or tap, so the browser keeps audio gated). */
-      #sound-hint {
+      /* Tappable HUD pills (sound for everyone; selfie cam + restart are the
+         touch stand-ins for SHIFT and R). >=44px targets. */
+      #controls {
         position: fixed;
-        left: 16px;
-        bottom: 16px;
-        color: var(--ink-soft);
-        font-size: 12px;
+        left: calc(12px + env(safe-area-inset-left));
+        bottom: calc(12px + env(safe-area-inset-bottom));
+        z-index: 11;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .ctl {
+        width: 48px;
+        height: 48px;
+        padding: 0;
+        border-radius: 999px;
+        background: var(--card);
+        border: 1.5px solid var(--card-edge);
+        box-shadow: 0 6px 20px rgba(212, 150, 167, 0.25);
+        font: 700 20px/1 var(--round-font);
+        color: var(--ink);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: transparent;
+      }
+      .ctl.on {
+        background: var(--butter);
+        border-color: rgba(245, 185, 66, 0.6);
+      }
+      #btn-selfie,
+      #btn-restart {
+        display: none;
+      }
+      body.touch #btn-selfie,
+      body.touch #btn-restart {
+        display: flex;
       }
 
       #banner {
@@ -172,11 +205,13 @@
       }
 
       /* Webcam preview — the face IS the controller, so frame it like a
-         friendly little porthole. Legacy size kept: 192x144, 384x288 on md+. */
+         friendly little porthole. Legacy size kept: 192x144, 384x288 on
+         desktop (pointer: fine — a landscape PHONE also matches min-width,
+         and 288px would swallow the screen). Tap collapses it to a pill. */
       #webcam {
         position: fixed;
-        right: 12px;
-        bottom: 12px;
+        right: calc(12px + env(safe-area-inset-right));
+        bottom: calc(12px + env(safe-area-inset-bottom));
         z-index: 10;
         width: 192px;
         height: 144px;
@@ -185,6 +220,10 @@
         border: 3px solid rgba(255, 255, 255, 0.95);
         box-shadow: 0 10px 30px rgba(212, 150, 167, 0.4);
         overflow: hidden;
+        cursor: pointer;
+        transition:
+          width 0.2s ease,
+          height 0.2s ease;
       }
       #webcam video {
         display: block;
@@ -210,19 +249,50 @@
         color: var(--ink-soft);
         pointer-events: none;
       }
-      @media (min-width: 768px) {
+      @media (min-width: 768px) and (pointer: fine) {
         #webcam {
           width: 384px;
           height: 288px;
         }
       }
+      /* Phone landscape: even the small porthole is a third of the height. */
+      @media (pointer: coarse) and (max-height: 520px) {
+        #webcam {
+          width: 144px;
+          height: 108px;
+        }
+      }
+      #webcam.collapsed {
+        width: 56px;
+        height: 44px;
+      }
+      #webcam.collapsed video,
+      #webcam.collapsed canvas,
+      #webcam.collapsed #webcam-status {
+        display: none;
+      }
+      #webcam-cue {
+        position: absolute;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        font-size: 20px;
+        pointer-events: none;
+      }
+      #webcam.collapsed #webcam-cue {
+        display: flex;
+      }
       #netinfo {
         position: fixed;
-        top: 12px;
+        top: calc(12px + env(safe-area-inset-top));
         left: 50%;
         transform: translateX(-50%);
         pointer-events: none;
-        font: 11px/1.2 ui-monospace, Menlo, monospace;
+        font:
+          11px/1.2 ui-monospace,
+          Menlo,
+          monospace;
         letter-spacing: 2px;
         color: #fff;
         opacity: 0.7;
@@ -233,13 +303,16 @@
       }
       #board {
         position: fixed;
-        top: 12px;
-        left: 12px;
+        top: calc(12px + env(safe-area-inset-top));
+        left: calc(12px + env(safe-area-inset-left));
         pointer-events: none;
         display: flex;
         flex-direction: column;
         gap: 4px;
-        font: 12px/1.25 ui-monospace, Menlo, monospace;
+        font:
+          12px/1.25 ui-monospace,
+          Menlo,
+          monospace;
         color: #fff;
         text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
         letter-spacing: 1px;
@@ -274,15 +347,36 @@
       </div>
       <div class="pill" id="stats"></div>
     </div>
-    <div class="pill" id="sound-hint" style="display: none">🔇 press M for sound</div>
+    <div id="controls">
+      <button class="ctl" id="btn-restart" type="button" aria-label="restart round">↻</button>
+      <button
+        class="ctl"
+        id="btn-selfie"
+        type="button"
+        aria-label="selfie camera"
+        aria-pressed="false"
+      >
+        🤳
+      </button>
+      <button
+        class="ctl"
+        id="btn-sound"
+        type="button"
+        aria-label="toggle sound"
+        aria-pressed="false"
+      >
+        🔇
+      </button>
+    </div>
     <div id="banner">
       <div id="banner-title"></div>
       <div id="banner-sub"></div>
     </div>
-    <div id="webcam">
+    <div id="webcam" title="show / hide camera">
       <video id="webcam-video" playsinline></video>
       <canvas id="webcam-overlay"></canvas>
       <div id="webcam-status">starting camera…</div>
+      <div id="webcam-cue">📷</div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

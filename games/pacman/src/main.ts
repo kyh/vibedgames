@@ -2,11 +2,16 @@ import * as THREE from "three";
 
 import { music, sfx } from "./audio/sfx";
 import { FaceCamera } from "./input/face-camera";
+import { IS_TOUCH } from "./input/input-mode";
 import { GameScene } from "./scenes/game-scene";
 import { MAX_DT, TONE_EXPOSURE } from "./shared/constants";
 
 const container = document.getElementById("game");
 if (!container) throw new Error("missing #game container");
+
+// Touch layouts get the selfie/restart pills and re-docked stats (CSS keys
+// off this class); detection is at boot, not after the first touch.
+if (IS_TOUCH) document.body.classList.add("touch");
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -43,6 +48,11 @@ const face = new FaceCamera({
   onHeadTurnRight: () => game.onHeadTurnRight(),
 });
 void face.start();
+
+// Tap the porthole to collapse it to a pill (it covers real estate on phones).
+// The face pipeline keeps running — a hidden <video> still decodes frames.
+const webcamPanel = elOf("webcam", HTMLElement);
+webcamPanel.addEventListener("click", () => webcamPanel.classList.toggle("collapsed"));
 
 window.addEventListener("resize", () => {
   game.resize(window.innerWidth / window.innerHeight);

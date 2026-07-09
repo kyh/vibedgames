@@ -52,7 +52,12 @@ import { ROBOTAXI_SKINS, skinById } from "../vehicle/car";
 import { getRuntimeMap, parseMapFile, setRuntimeMap } from "../world/map-file";
 import type { CityGenPayload } from "../world/gen-worker";
 import type { CityRestPayload } from "../world/city";
-import { readRestCache, readWorldCache, writeRestCache, writeWorldCache } from "../world/world-cache";
+import {
+  readRestCache,
+  readWorldCache,
+  writeRestCache,
+  writeWorldCache,
+} from "../world/world-cache";
 import { fetchBakedRest, fetchBakedWorld } from "../world/world-fetch";
 import { packRest, packWorld, serializeWorldBin, WORLD_REV } from "../world/world-bin";
 import { districtAt } from "../world/sf-map";
@@ -133,8 +138,7 @@ function cityEdited(): boolean {
   if (getRuntimeMap()) return true;
   const local = loadLocalOverrides();
   return (
-    editorMode() &&
-    (local.add.length > 0 || local.remove.length > 0 || local.floor.length > 0)
+    editorMode() && (local.add.length > 0 || local.remove.length > 0 || local.floor.length > 0)
   );
 }
 
@@ -242,6 +246,7 @@ export class GameScene {
     city.rebuildStreetsLive(this.scene);
     if (this.traffic) {
       this.scene.remove(this.traffic.group);
+      this.traffic.dispose();
       this.traffic = null;
     }
     if (this.physics) {
@@ -410,7 +415,6 @@ export class GameScene {
     return this.sun;
   }
 
-
   // Used by the map editor (?editor=1) and DEV hooks.
   getCity(): CityModel | null {
     return this.city;
@@ -521,6 +525,9 @@ export class GameScene {
     const rest = await this.restPromise;
     city.setRestPayload(rest);
     await city.initLate();
+    // Static city built: freeze its matrices (editor sessions keep them live
+    // so props/streets can be rebuilt and dragged).
+    if (!editorMode()) city.freezeStatic();
 
     // --- PLAYABLE GATE: driving needs city meshes + solids + fares. ---
     this.solidIndex = new SolidIndex(city.solids);
@@ -639,10 +646,16 @@ export class GameScene {
       };
       const worldPayload = this.bakePayload;
       if (worldPayload) {
-        save(await gzip(serializeWorldBin({ rev: WORLD_REV, world: packWorld(worldPayload) })), "world.bin");
+        save(
+          await gzip(serializeWorldBin({ rev: WORLD_REV, world: packWorld(worldPayload) })),
+          "world.bin",
+        );
       }
       if (city.restCapture) {
-        save(await gzip(serializeWorldBin({ rev: WORLD_REV, rest: packRest(city.restCapture) })), "rest.bin");
+        save(
+          await gzip(serializeWorldBin({ rev: WORLD_REV, rest: packRest(city.restCapture) })),
+          "rest.bin",
+        );
       }
       console.log("[bake] artifacts downloaded — move into public/world/ and commit");
     }
@@ -665,7 +678,8 @@ export class GameScene {
     this.hud.showBanner({
       title: "CRAZY WAYMO",
       sub: "Pick up fares, beat the clock, drive like a maniac.",
-      stats: best > 0 ? `BEST $${best.toLocaleString("en-US")}` : "Every drop-off buys you more time.",
+      stats:
+        best > 0 ? `BEST $${best.toLocaleString("en-US")}` : "Every drop-off buys you more time.",
       cta: "PRESS ENTER TO DRIVE",
     });
   }
@@ -1039,7 +1053,11 @@ export class GameScene {
       for (const c of this.traffic.cars) {
         const d = Math.hypot(c.position.x - car.position.x, c.position.z - car.position.z);
         if (!nearestTraffic || d < nearestTraffic.dist) {
-          nearestTraffic = { dist: Math.round(d * 10) / 10, wrecked: c.wrecked, y: Math.round(c.position.y * 10) / 10 };
+          nearestTraffic = {
+            dist: Math.round(d * 10) / 10,
+            wrecked: c.wrecked,
+            y: Math.round(c.position.y * 10) / 10,
+          };
         }
       }
     }
@@ -1053,9 +1071,7 @@ export class GameScene {
       drifting: car.isDrifting,
       boosting: car.isBoosting,
       carrying: this.fares?.carryingInfo() !== null && this.fares !== null,
-      objective: obj
-        ? { u: obj.pos.x / WORLD_W + 0.5, v: obj.pos.z / WORLD_H + 0.5 }
-        : null,
+      objective: obj ? { u: obj.pos.x / WORLD_W + 0.5, v: obj.pos.z / WORLD_H + 0.5 } : null,
       wreckedCount: this.traffic ? this.traffic.cars.filter((c) => c.wrecked).length : 0,
       nearestTraffic,
     };
@@ -1136,7 +1152,9 @@ export class GameScene {
     // deterministic spawn, and streaming that pose 15×/s just piles identical
     // frozen taxis onto everyone's spawn plaza.
     const driving =
-      this.mode.kind === "countdown" || this.mode.kind === "playing" || this.mode.kind === "gameover";
+      this.mode.kind === "countdown" ||
+      this.mode.kind === "playing" ||
+      this.mode.kind === "gameover";
     if (!this.net.offline && driving) {
       this.netAcc += dt;
       if (this.netAcc >= 1 / NET_TICK_HZ) {
@@ -1285,8 +1303,7 @@ export class GameScene {
     if (drifting) this.state.addDrift(dt);
     else this.state.endDrift();
     // Hard straight braking reads like the drift: streaks + smoke + screech.
-    const brakingHard =
-      !drifting && !car.airborne && input.brake > 0.05 && car.forwardSpeed > 8;
+    const brakingHard = !drifting && !car.airborne && input.brake > 0.05 && car.forwardSpeed > 8;
     const slipAmt = Math.min(1, Math.abs(car.slip) / 0.6);
     // During the outro the farewell skid owns the screech channel.
     if (this.outro < 0) {
@@ -1694,7 +1711,10 @@ export class GameScene {
         this.fx.burst(c.position.x, 1, c.position.z, 0.5, 6, 4);
         const insane = speedFrac > 0.8;
         const label = insane ? "INSANE!" : "NEAR MISS";
-        this.hud.announceMinor(pts > 0 ? `${label} +$${pts}` : label, insane ? "#ff8a3c" : "#aee3ff");
+        this.hud.announceMinor(
+          pts > 0 ? `${label} +$${pts}` : label,
+          insane ? "#ff8a3c" : "#aee3ff",
+        );
         this.sfx.nearMiss(this.panFor(c.position));
         if (this.heckleCooldown <= 0 && Math.random() < 0.22) {
           this.heckleCooldown = 9;

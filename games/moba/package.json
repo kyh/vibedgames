@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@vibedgames/gamepad": "workspace:^",
     "@vibedgames/multiplayer": "workspace:^",
     "phaser": "^4.1.0"
   },

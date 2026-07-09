@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import { hasSave, clearSave } from "../systems/save";
 import { Sound } from "../render/audio";
+import { isTouchDevice } from "../systems/touch";
 
 export class TitleScene extends Phaser.Scene {
   private onResize?: (gs: Phaser.Structs.Size) => void;
@@ -55,11 +56,20 @@ export class TitleScene extends Phaser.Scene {
     const newBtn = this.makeButton("🌱  New Farm", "#5fae3a");
     const contBtn = this.makeButton("☀  Continue", "#3a86c8");
     const hint = this.add
-      .text(0, 0, "WASD / arrows move · E or Space use tool · 1–9 select · I help", {
-        fontFamily: "ui-monospace, monospace",
-        fontSize: "14px",
-        color: "#dfeccc",
-      })
+      .text(
+        0,
+        0,
+        isTouchDevice()
+          ? "drag the stick to move · USE button to farm · tap the hotbar to switch tools"
+          : "WASD / arrows move · E or Space use tool · 1–9 select · I help",
+        {
+          fontFamily: "ui-monospace, monospace",
+          fontSize: "14px",
+          color: "#dfeccc",
+          align: "center",
+          wordWrap: { width: this.scale.width - 40 },
+        },
+      )
       .setOrigin(0.5)
       .setAlpha(0.85);
 
@@ -87,12 +97,15 @@ export class TitleScene extends Phaser.Scene {
 
     const layout = () => {
       const cx = this.scale.width / 2;
-      title.setPosition(cx, this.scale.height * 0.26);
-      tag.setPosition(cx, title.y + 92);
-      farmer.setPosition(cx, tag.y + 96);
-      newBtn.container.setPosition(cx, this.scale.height * 0.66);
-      contBtn.container.setPosition(cx, this.scale.height * 0.66 + 70);
-      hint.setPosition(cx, this.scale.height - 38);
+      const h = this.scale.height;
+      // compact stack for short (landscape phone) viewports
+      const compact = h < 520;
+      title.setPosition(cx, h * (compact ? 0.2 : 0.26));
+      tag.setPosition(cx, title.y + (compact ? 60 : 92));
+      farmer.setVisible(!compact).setPosition(cx, tag.y + 96);
+      newBtn.container.setPosition(cx, h * (compact ? 0.6 : 0.66));
+      contBtn.container.setPosition(cx, newBtn.container.y + (compact ? 62 : 70));
+      hint.setPosition(cx, h - (compact ? 14 : 38));
     };
     layout();
   }

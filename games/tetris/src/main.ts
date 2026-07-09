@@ -2,14 +2,18 @@ import * as THREE from "three";
 
 import { PoseCamera } from "./input/camera";
 import { PoseControls } from "./input/pose-control";
+import { isCoarsePointer } from "./input/touch";
 import { GameScene } from "./scenes/game-scene";
 import { MAX_DT } from "./shared/constants";
 
 const container = document.getElementById("game");
 if (!container) throw new Error("missing #game container");
+container.addEventListener("contextmenu", (e) => e.preventDefault()); // long-press menus
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-const applyPixelRatio = () => renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+// Phones cap DPR lower — the antialiased 3D well is fill-rate bound at DPR 3.
+const dprCap = isCoarsePointer() ? 1.5 : 2;
+const applyPixelRatio = () => renderer.setPixelRatio(Math.min(window.devicePixelRatio, dprCap));
 applyPixelRatio();
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;

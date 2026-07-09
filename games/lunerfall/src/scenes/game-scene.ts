@@ -1,5 +1,11 @@
 import Phaser from "phaser";
 
+import {
+  attachVirtualGamepad,
+  type ButtonOptions,
+  type PhaserGamepad,
+} from "@vibedgames/gamepad/phaser";
+
 import { sfx } from "../audio/sfx";
 import { BASE_H, BASE_W, COLORS, TILE } from "../config";
 import { type EnemyName, ENEMY_NAMES, HERO_NAMES, type HeroName } from "../data/animations";
@@ -33,10 +39,19 @@ import {
 } from "../net/snapshot";
 import { buildParallax } from "../parallax";
 import { drawRoom } from "../room";
-import { ambientEmbers, dust, explosion, hitSpark, impactRing, popText, wallSmoke } from "../sys/fx";
+import {
+  ambientEmbers,
+  dust,
+  explosion,
+  hitSpark,
+  impactRing,
+  popText,
+  wallSmoke,
+} from "../sys/fx";
 import { Grid } from "../sys/grid";
 import { type Offer, RunManager } from "../sys/run";
 import { Input, type InputState } from "../sys/input";
+import { gameInset, isCoarse } from "../sys/screen";
 import {
   VersusMatch,
   VS_BIOME,
@@ -185,6 +200,8 @@ export class GameScene extends Phaser.Scene {
   private grid!: Grid;
   private player!: Player;
   private controls!: Input;
+  private gamepad!: PhaserGamepad;
+  private touch = false;
   private acc = 0;
 
   private roomLayer?: Phaser.GameObjects.Container;
@@ -348,7 +365,11 @@ export class GameScene extends Phaser.Scene {
     // the horizon). The three bands are retinted per biome in applyBiome; the tree
     // parallax layers are added per-room in decorateRoom in front of this.
     this.skyBands = [
-      this.add.rectangle(0, 0, BASE_W, BASE_H, 0x464f66).setOrigin(0).setScrollFactor(0).setDepth(-42),
+      this.add
+        .rectangle(0, 0, BASE_W, BASE_H, 0x464f66)
+        .setOrigin(0)
+        .setScrollFactor(0)
+        .setDepth(-42),
       this.add
         .rectangle(0, BASE_H * 0.32, BASE_W, BASE_H * 0.68, 0x59637b)
         .setOrigin(0)
@@ -376,12 +397,22 @@ export class GameScene extends Phaser.Scene {
       .setDepth(100)
       .setAlpha(0);
 
+    // Edge-anchored HUD clears the notch/home indicator (safe-area insets).
+    const ins = gameInset(this);
     this.heartsText = this.add
-      .text(8, 6, "", { fontFamily: "monospace", fontSize: "12px", color: "#ff4d6d" })
+      .text(8 + ins.left, 6 + ins.top, "", {
+        fontFamily: "monospace",
+        fontSize: "12px",
+        color: "#ff4d6d",
+      })
       .setScrollFactor(0)
       .setDepth(80);
     this.infoText = this.add
-      .text(BASE_W - 8, 7, "", { fontFamily: "monospace", fontSize: "9px", color: "#8b95a1" })
+      .text(BASE_W - 8 - ins.right, 7 + ins.top, "", {
+        fontFamily: "monospace",
+        fontSize: "9px",
+        color: "#8b95a1",
+      })
       .setOrigin(1, 0)
       .setScrollFactor(0)
       .setDepth(80);
@@ -403,13 +434,71 @@ export class GameScene extends Phaser.Scene {
       .setDepth(81)
       .setAlpha(0);
 
-    this.controls = new Input(this);
-
     const regParty = this.registry.get("party");
     const party = params.get("party") ?? (typeof regParty === "string" ? regParty : "");
     const regMode = this.registry.get("mode");
     const modeStr = params.get("mode") ?? (typeof regMode === "string" ? regMode : "");
     if (party.length > 0 && modeStr === "vs") this.mode = "versus";
+
+    // Touch controls: floating stick (movement + down-to-drop) on any free
+    // touch, fixed action cluster bottom-right, mute top-left, EXIT (versus
+    // only) top-right. Mouse is ignored — desktop keeps the keyboard scheme.
+    // Positions are game-space px (the adapter's viewport is the FIT game
+    // size); insets keep the cluster clear of the home indicator.
+    this.touch = isCoarse();
+    const buttons: ButtonOptions[] = [
+      {
+        id: "jump",
+        label: "JUMP",
+        radius: 21,
+        position: (v) => ({ x: v.width - 30 - v.inset.right, y: v.height - 34 - v.inset.bottom }),
+      },
+      {
+        id: "atk",
+        label: "ATK",
+        radius: 18,
+        position: (v) => ({ x: v.width - 76 - v.inset.right, y: v.height - 26 - v.inset.bottom }),
+      },
+      {
+        id: "dash",
+        label: "DASH",
+        radius: 15,
+        position: (v) => ({ x: v.width - 34 - v.inset.right, y: v.height - 82 - v.inset.bottom }),
+      },
+      {
+        id: "sp",
+        label: "SP",
+        radius: 15,
+        position: (v) => ({ x: v.width - 82 - v.inset.right, y: v.height - 70 - v.inset.bottom }),
+      },
+      {
+        id: "mute",
+        label: "♪",
+        radius: 13,
+        position: (v) => ({ x: 20 + v.inset.left, y: 40 + v.inset.top }),
+      },
+    ];
+    if (this.mode === "versus")
+      buttons.push({
+        id: "exit",
+        label: "EXIT",
+        radius: 15,
+        position: (v) => ({ x: v.width - 24 - v.inset.right, y: 44 + v.inset.top }),
+      });
+    this.gamepad = attachVirtualGamepad(this, {
+      visible: "coarse",
+      stick: { radius: 40, deadZone: 8, knobRadius: 14 },
+      render: { depth: 90, blendMode: Phaser.BlendModes.NORMAL },
+      buttons,
+      onButtonDown: (id) => {
+        if (id === "mute") {
+          sfx.toggleMute();
+          this.showBanner(sfx.muted ? "SOUND OFF" : "SOUND ON", 700);
+        } else if (id === "exit") this.scene.start("select");
+      },
+    });
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.gamepad.destroy());
+    this.controls = new Input(this, this.gamepad);
     if (party.length > 0 && !this.demo) {
       // Co-op: connect, then let update() resolve host vs guest. The player spawns
       // on an empty grid so it's always defined; the real room arrives once the
@@ -855,6 +944,9 @@ export class GameScene extends Phaser.Scene {
   update(_t: number, delta: number) {
     const dts = Math.min(delta, 100) / 1000;
     this.demoT += dts;
+    // Once per frame, before any sample(): reconciles lost touches, publishes
+    // the justPressed edges the Input merge reads, and redraws the overlay.
+    this.gamepad.update();
 
     if (this.session) {
       this.session.tick();
@@ -878,9 +970,7 @@ export class GameScene extends Phaser.Scene {
         rx: this.remote ? Math.round(this.remote.x) : null,
         ax:
           this.role === "guest"
-            ? Math.round(
-                this.netPlayers.find((p) => p.id === this.session?.playerId)?.x ?? -1,
-              )
+            ? Math.round(this.netPlayers.find((p) => p.id === this.session?.playerId)?.x ?? -1)
             : null,
         conn: this.session.connectionStatus,
         downed: this.livePlayers().filter((p) => p.body.downed).length,
@@ -1109,14 +1199,21 @@ export class GameScene extends Phaser.Scene {
     }
     if (this.state !== "active") return; // the snapshot ended the run (co-op death)
     // Versus: the host walked away — nothing will ever update again; say so.
-    if (this.mode === "versus" && !this.vsOpponentGone && this.guestSnapT > 0 && !sess.otherPlayer()) {
+    if (
+      this.mode === "versus" &&
+      !this.vsOpponentGone &&
+      this.guestSnapT > 0 &&
+      !sess.otherPlayer()
+    ) {
       this.vsOpponentGone = true;
-      this.showBanner("OPPONENT LEFT — ESC FOR HUB", 60000);
+      this.showBanner(
+        this.touch ? "OPPONENT LEFT — EXIT FOR HUB" : "OPPONENT LEFT — ESC FOR HUB",
+        60000,
+      );
     }
     // Prediction: mirror the host's versus freeze (round intro / match end) so
     // the local body doesn't fight the authority while inputs are dropped.
-    const frozen =
-      this.mode === "versus" && this.netVs !== null && vsPhaseFrozen(this.netVs.phase);
+    const frozen = this.mode === "versus" && this.netVs !== null && vsPhaseFrozen(this.netVs.phase);
     this.player.buffer(frozen ? NEUTRAL_INPUT : this.guestIn);
     this.acc += dts;
     let steps = 0;
@@ -1223,7 +1320,7 @@ export class GameScene extends Phaser.Scene {
       this.showBanner(`${this.vsName(v.winner)} TAKES THE ROUND`, 1500);
       sfx.die();
     } else if (v.phase === "matchEnd")
-      this.showBanner(`${this.vsName(v.winner)} WINS THE MATCH  ·  J REMATCH · ESC HUB`, 60000);
+      this.showBanner(`${this.vsName(v.winner)} WINS THE MATCH  ·  ${this.rematchHint()}`, 60000);
   }
 
   // Guest: mirror the host's last-stand state; edge-detect enter/exit for the
@@ -2027,7 +2124,7 @@ export class GameScene extends Phaser.Scene {
       this.showBanner(`ROUND ${vs.round}`, 1100);
       sfx.door();
     } else if (trans === "matchEnd") {
-      this.showBanner(`${this.vsName(vs.winner)} WINS THE MATCH  ·  J REMATCH · ESC HUB`, 60000);
+      this.showBanner(`${this.vsName(vs.winner)} WINS THE MATCH  ·  ${this.rematchHint()}`, 60000);
     }
     for (const pl of this.livePlayers()) pl.step(dt);
     this.stepShots(dt);
@@ -2057,12 +2154,22 @@ export class GameScene extends Phaser.Scene {
     const seq = this.vsSeq(att);
     const dir = Math.sign(vic.body.x - att.body.x) || att.body.facing;
     const ab = att.body.attackBox();
-    if (ab && att.body.swingId !== seq.swing && !vic.body.dead && rectsOverlap(ab, vic.body.hurtBox())) {
+    if (
+      ab &&
+      att.body.swingId !== seq.swing &&
+      !vic.body.dead &&
+      rectsOverlap(ab, vic.body.hurtBox())
+    ) {
       seq.swing = att.body.swingId;
       this.hurtVersus(vic, ab.dmg, dir);
     }
     const sb = att.body.specialBox();
-    if (sb && att.body.specialId !== seq.special && !vic.body.dead && rectsOverlap(sb, vic.body.hurtBox())) {
+    if (
+      sb &&
+      att.body.specialId !== seq.special &&
+      !vic.body.dead &&
+      rectsOverlap(sb, vic.body.hurtBox())
+    ) {
       seq.special = att.body.specialId;
       this.hurtVersus(vic, sb.dmg, dir);
     }
@@ -2081,7 +2188,11 @@ export class GameScene extends Phaser.Scene {
     // TowerFall classic: landing on the opponent's head costs them a heart.
     if (att.body.vy > 20 && !vic.body.dead) {
       const top = vic.body.hurtBox().top;
-      if (att.body.y <= top + 8 && att.body.y >= top - 12 && Math.abs(att.body.x - vic.body.x) < 12) {
+      if (
+        att.body.y <= top + 8 &&
+        att.body.y >= top - 12 &&
+        Math.abs(att.body.x - vic.body.x) < 12
+      ) {
         att.body.bounce();
         sfx.jump();
         this.hurtVersus(vic, 1, Math.sign(att.body.vx) || 1);
@@ -2138,6 +2249,12 @@ export class GameScene extends Phaser.Scene {
   private vsPlayer(side: VsSide): Player | undefined {
     if (this.role === "guest") return side === "guest" ? this.player : this.remote;
     return side === "host" ? this.player : this.remote;
+  }
+
+  // Input-aware match-end hint: touch players rematch with ATK / leave via the
+  // on-screen EXIT button; keyboard keeps J / ESC.
+  private rematchHint(): string {
+    return this.touch ? "ATK REMATCH · EXIT HUB" : "J REMATCH · ESC HUB";
   }
 
   // Banner-friendly duelist name, flagged when it's the local player. The
@@ -2239,7 +2356,14 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ── player shots (Salamander flame-wave) ────────────────────────────────────
-  private spawnShot(x: number, y: number, vx: number, vy: number, dmg: number, owner: Player | null) {
+  private spawnShot(
+    x: number,
+    y: number,
+    vx: number,
+    vy: number,
+    dmg: number,
+    owner: Player | null,
+  ) {
     const spr = this.add.sprite(x, y, "fx:flame-wave").setScale(0.7).setDepth(42);
     spr.play("fx:flame-wave");
     spr.setFlipX(vx < 0);

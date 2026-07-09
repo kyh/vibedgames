@@ -106,6 +106,17 @@ After deploy, the CLI prints the live URL. Open it to verify.
 > controls (a virtual joystick + buttons) so the link works on a phone — see
 > the `gamepad` skill (`@vibedgames/gamepad`). One prompt: "add touch controls".
 
+### 5. Link previews (share card)
+
+Every game gets a share card automatically: when the served HTML has no
+`og:` tags, the platform injects them — title from the game name, description
+from the page's `<meta name="description">` (add one!), and a cover image.
+
+To ship a custom cover, drop **`og.jpg`** (1200×630+ landscape; `og.png` and
+`og.webp` also work) into the deployed directory root (`public/og.jpg` in a
+Vite project). No meta tags needed. To fully own share meta instead, add your
+own `og:` tags — the platform then serves the page untouched.
+
 ## Rules
 
 - **Always build before deploying** if the project uses a build tool

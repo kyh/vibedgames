@@ -1,3 +1,4 @@
+import { attachVirtualGamepad } from "@vibedgames/gamepad/phaser";
 import { MultiplayerClient } from "@vibedgames/multiplayer";
 import Phaser from "phaser";
 
@@ -16,7 +17,13 @@ import { FONT } from "../render/font";
 import { WorldView } from "../render/view";
 import { INTENT_EVENT, MULTIPLAYER_HOST, PARTY, ROOM, parseIntent } from "../net/protocol";
 import type { Intent } from "../net/protocol";
-import { applySnapshot, emptyGuestWorld, encodeWorld, isSnapshot, parseFxBatch } from "../net/snapshot";
+import {
+  applySnapshot,
+  emptyGuestWorld,
+  encodeWorld,
+  isSnapshot,
+  parseFxBatch,
+} from "../net/snapshot";
 
 const TEAM_SIZE = 3;
 
@@ -43,6 +50,7 @@ export class GameScene extends Phaser.Scene {
   private hitStopUntil = 0; // brief sim freeze on nearby hero kills (game feel)
   private moveKeys: Record<"up" | "down" | "left" | "right", Phaser.Input.Keyboard.Key> | null =
     null;
+  private pad: ReturnType<typeof attachVirtualGamepad> | null = null;
   private lastDir = { dx: 0, dy: 0 };
   private aimDir = { x: 1, y: 0 }; // last movement direction — drives keyboard ability aim
   uiBlocking = false; // set by the HUD while a modal (shop) is open — pauses hero input
@@ -129,6 +137,7 @@ export class GameScene extends Phaser.Scene {
     else this.startLocal();
 
     this.bindInput();
+    this.bindTouch();
     this.scene.launch("Hud", { game: this });
     if (import.meta.env.DEV) {
       this.installDebug();
@@ -147,6 +156,8 @@ export class GameScene extends Phaser.Scene {
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.applyZoom, this);
+      this.pad?.destroy();
+      this.pad = null;
       this.net?.destroy();
     });
 
@@ -345,6 +356,7 @@ export class GameScene extends Phaser.Scene {
     // an enemy clicked on. Keyboard steering/abilities remain fully usable.
     this.input.on("pointerdown", (p: Phaser.Input.Pointer) => {
       resumeAudio();
+      if (p.wasTouch) return; // touches steer the virtual stick, never click-to-move
       if (this.uiBlocking) return; // shop/modal open — ignore world clicks
       if (!(p.leftButtonDown() || p.rightButtonDown())) return;
       // don't move when the click was actually on a HUD widget (minimap, ability
@@ -384,9 +396,23 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  /** Poll held arrow keys and stream a direction order when it changes. */
+  /** Touch controls: a floating stick steers (mirroring the arrow-key order
+   *  stream); any second finger on the battlefield is a basic attack. Taps on
+   *  HUD widgets never reach the pad — the HUD scene sits above this one and
+   *  captures touches on its interactive objects. */
+  private bindTouch(): void {
+    this.pad = attachVirtualGamepad(this, {
+      buttons: [{ id: "attack" }], // rest button: any non-stick finger attacks
+      // above the y-sorted world (unit depth = y, up to WORLD.height); the HUD
+      // scene still renders over it
+      render: { depth: 50000, blendMode: Phaser.BlendModes.NORMAL },
+      onFirstTouch: () => resumeAudio(),
+    });
+  }
+
+  /** Poll held arrow keys / the virtual stick and stream a direction order when
+   *  it changes. */
   private pollMovement(): void {
-    if (!this.moveKeys) return;
     const me = this.player;
     // while dead/unspawned or a modal (shop) is open, forget the last direction so a
     // still-held key re-fires a fresh order the moment control returns.
@@ -399,10 +425,22 @@ export class GameScene extends Phaser.Scene {
     const k = this.moveKeys;
     let dx = 0;
     let dy = 0;
-    if (k.left.isDown) dx -= 1;
-    if (k.right.isDown) dx += 1;
-    if (k.up.isDown) dy -= 1;
-    if (k.down.isDown) dy += 1;
+    if (k) {
+      if (k.left.isDown) dx -= 1;
+      if (k.right.isDown) dx += 1;
+      if (k.up.isDown) dy -= 1;
+      if (k.down.isDown) dy += 1;
+    }
+    if (dx === 0 && dy === 0) {
+      const s = this.pad?.getStick();
+      if (s && s.active && !s.inDeadZone) {
+        // quantize to 16 headings so analog wobble doesn't re-send the
+        // change-detected order every frame
+        const a = (Math.round(s.angle / (Math.PI / 8)) * Math.PI) / 8;
+        dx = Math.abs(Math.cos(a)) < 1e-6 ? 0 : Math.cos(a);
+        dy = Math.abs(Math.sin(a)) < 1e-6 ? 0 : Math.sin(a);
+      }
+    }
     if (dx !== 0 || dy !== 0) {
       const len = Math.hypot(dx, dy);
       this.aimDir = { x: dx / len, y: dy / len }; // remember facing for keyboard ability aim
@@ -420,8 +458,9 @@ export class GameScene extends Phaser.Scene {
     if (target) this.cmd({ kind: "order", order: { type: "attackUnit", targetId: target.id } });
   }
 
-  /** Quick dodge in the held/facing direction (host validates the cooldown). */
-  private dash(): void {
+  /** Quick dodge in the held/facing direction (host validates the cooldown).
+   *  Public: the HUD dash box taps it too. */
+  dash(): void {
     const me = this.player;
     if (!me || !me.alive || this.uiBlocking) return;
     const moving = this.lastDir.dx !== 0 || this.lastDir.dy !== 0;
@@ -460,6 +499,11 @@ export class GameScene extends Phaser.Scene {
     if (this.feed.length > 40) this.feed.splice(0, this.feed.length - 40);
   }
 
+  /** HUD button: return to the fountain (same as the H key). */
+  recall(): void {
+    this.cmd({ kind: "order", order: { type: "fountain" } });
+  }
+
   /** HUD minimap → world: order the hero to travel to a clicked map point. */
   moveToWorldPoint(x: number, y: number): void {
     const me = this.player;
@@ -495,8 +539,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** Cast an ability, aimed at the mouse cursor (any direction, incl. diagonals).
-   *  Keyboard players who steer with the arrow keys free-aim along their facing. */
-  castSlot(key: AbilityKey): void {
+   *  Keyboard players who steer with the arrow keys free-aim along their facing.
+   *  `fromHud` marks casts tapped on a HUD slot — there the pointer sits on the
+   *  button, not the battlefield, so aim at the nearest enemy / along facing. */
+  castSlot(key: AbilityKey, fromHud = false): void {
     const me = this.player;
     if (!me || !me.alive || !me.hero || this.uiBlocking) return;
     const def = HERO_BY_ID[me.hero.defId]?.abilities[key];
@@ -505,9 +551,11 @@ export class GameScene extends Phaser.Scene {
     if (def.targeting === "unit") {
       const wantAlly = def.effect === "brewkeeper:Q";
       // prefer the unit under the cursor; fall back to the obvious auto-target
-      const hovered = this.unitAt(cursor.x, cursor.y, (u) =>
-        wantAlly ? !isEnemy(me, u) && u.kind === "hero" && u.alive : isEnemy(me, u) && u.alive,
-      );
+      const hovered = fromHud
+        ? undefined
+        : this.unitAt(cursor.x, cursor.y, (u) =>
+            wantAlly ? !isEnemy(me, u) && u.kind === "hero" && u.alive : isEnemy(me, u) && u.alive,
+          );
       const target =
         hovered ??
         (wantAlly
@@ -519,8 +567,10 @@ export class GameScene extends Phaser.Scene {
       let point: { x: number; y: number };
       if (r <= 0) {
         point = { x: me.x, y: me.y }; // self-centred (e.g. Last Call)
+      } else if (fromHud) {
+        point = this.touchAimPoint(me, r);
       } else if (this.lastDir.dx !== 0 || this.lastDir.dy !== 0) {
-        // keyboard steering: fire along the direction you're holding
+        // keyboard/stick steering: fire along the direction you're holding
         point = { x: me.x + this.aimDir.x * r, y: me.y + this.aimDir.y * r };
       } else {
         // aim at the cursor, clamped to cast range
@@ -533,6 +583,28 @@ export class GameScene extends Phaser.Scene {
     } else {
       this.cmd({ kind: "cast", key });
     }
+  }
+
+  /** Aim for HUD-tapped point casts: the nearest enemy hero in range, else any
+   *  nearest enemy, else along the movement facing at full range. */
+  private touchAimPoint(me: Unit, r: number): { x: number; y: number } {
+    const foe = this.nearestEnemyHero(me, r) ?? this.nearestEnemy(me, r);
+    if (foe) return { x: foe.x, y: foe.y };
+    return { x: me.x + this.aimDir.x * r, y: me.y + this.aimDir.y * r };
+  }
+
+  private nearestEnemyHero(me: Unit, range: number): Unit | undefined {
+    let best: Unit | undefined;
+    let bestD = range * range;
+    for (const u of this.world.units.values()) {
+      if (!isEnemy(me, u) || !u.alive || u.kind !== "hero") continue;
+      const d = dist2(me, u);
+      if (d < bestD) {
+        bestD = d;
+        best = u;
+      }
+    }
+    return best;
   }
 
   levelSlot(key: AbilityKey): void {
@@ -555,9 +627,16 @@ export class GameScene extends Phaser.Scene {
     return best;
   }
 
-  private useItemSlot(i: number): void {
+  private useItemSlot(i: number, fromHud = false): void {
     const me = this.player;
     if (!me?.hero?.items[i]) return;
+    if (fromHud) {
+      // slot tapped on the HUD: aim point actives (blink) along the movement
+      // facing instead of at the tapped button. 600 = the blink range cap.
+      const point = { x: me.x + this.aimDir.x * 600, y: me.y + this.aimDir.y * 600 };
+      this.cmd({ kind: "useItem", slot: i, point });
+      return;
+    }
     const p = this.input.activePointer;
     const wp = this.cam.getWorldPoint(p.x, p.y);
     this.cmd({ kind: "useItem", slot: i, point: { x: wp.x, y: wp.y } });
@@ -570,7 +649,7 @@ export class GameScene extends Phaser.Scene {
     return true; // optimistic; host validates
   }
   useItemForPlayer(i: number): void {
-    this.useItemSlot(i);
+    this.useItemSlot(i, true);
   }
 
   private unitAt(x: number, y: number, pred: (u: Unit) => boolean): Unit | undefined {
@@ -664,6 +743,8 @@ export class GameScene extends Phaser.Scene {
   // ---- loop ----------------------------------------------------------------
   override update(_t: number, deltaMs: number): void {
     const dt = Math.min(0.05, deltaMs / 1000);
+    this.pad?.update(); // reconcile stale touches + publish press edges
+    if (this.pad?.justPressed("attack")) this.spaceAttack();
     this.pollMovement();
     if (this.online) this.tickOnline(dt);
     else this.tickHost(dt);
@@ -828,19 +909,22 @@ export class GameScene extends Phaser.Scene {
     const target = me && me.alive ? me : fallback;
     if (!target) return;
     const cam = this.cam;
-    const hw = cam.width / (2 * cam.zoom);
+    const hw = cam.width / (2 * cam.zoom); // half the VISIBLE world width
     const hh = cam.height / (2 * cam.zoom);
     const cx = Phaser.Math.Clamp(target.x, hw, WORLD.width - hw);
     const cy = Phaser.Math.Clamp(target.y, hh, WORLD.height - hh);
+    // Phaser zooms around the viewport midpoint (= scroll + size/2, regardless
+    // of zoom), so convert the clamped centre with the UNZOOMED half-size —
+    // using hw/hh here pushes the view past the world edge whenever zoom < 1
+    // (the black-band-at-the-fountain bug on short/phone viewports).
+    const sx = cx - cam.width / 2;
+    const sy = cy - cam.height / 2;
     if (!this.followGo) {
-      cam.setScroll(cx - hw, cy - hh);
+      cam.setScroll(sx, sy);
       this.followGo = true;
     } else {
       const k = 1 - Math.pow(0.0001, dt);
-      cam.setScroll(
-        Phaser.Math.Linear(cam.scrollX, cx - hw, k),
-        Phaser.Math.Linear(cam.scrollY, cy - hh, k),
-      );
+      cam.setScroll(Phaser.Math.Linear(cam.scrollX, sx, k), Phaser.Math.Linear(cam.scrollY, sy, k));
     }
     // trauma shake, applied on top of the settled follow (re-based each frame so it
     // never drifts). The WorldView owns the trauma accumulator + decay.
@@ -852,8 +936,10 @@ export class GameScene extends Phaser.Scene {
     const myTeam = this.player?.team ?? "radiant";
     const win = this.world.winner === myTeam;
     sfx.victory(win);
-    const cx = this.scale.width / 2;
+    const W = this.scale.width;
+    const cx = W / 2;
     const cy = this.scale.height / 2;
+    const stack = W < 640; // phones: stack the buttons instead of a 530px row
 
     const veil = this.add
       .rectangle(cx, cy, this.scale.width, this.scale.height, 0x05080e, 0)
@@ -867,7 +953,7 @@ export class GameScene extends Phaser.Scene {
         cy - 70,
         win ? "ui-ribbon-yellow" : "ui-ribbon-red",
         0,
-        560,
+        Math.min(560, W - 24),
         120,
         58,
         58,
@@ -880,7 +966,7 @@ export class GameScene extends Phaser.Scene {
     const txt = this.add
       .text(cx, cy - 78, win ? "VICTORY" : "DEFEAT", {
         fontFamily: FONT,
-        fontSize: "72px",
+        fontSize: W < 480 ? "52px" : "72px",
         color: win ? "#5a3a10" : "#f4eee0",
         stroke: win ? "#fff3c4" : "#3a1410",
         strokeThickness: 6,
@@ -892,14 +978,20 @@ export class GameScene extends Phaser.Scene {
     this.tweens.add({ targets: [ribbon, txt], scale: 1, duration: 500, ease: "Back.Out" });
 
     let clicked = false;
-    const mkBtn = (dx: number, label: string, color: "blue" | "red", onClick: () => void) => {
+    const mkBtn = (
+      bx: number,
+      by: number,
+      label: string,
+      color: "blue" | "red",
+      onClick: () => void,
+    ) => {
       const b = this.add
-        .nineslice(cx + dx, cy + 60, `ui-btn-${color}`, 0, 250, 60, 28, 28, 20, 26)
+        .nineslice(bx, by, `ui-btn-${color}`, 0, 250, 60, 28, 28, 20, 26)
         .setScrollFactor(0)
         .setDepth(99999)
         .setInteractive({ useHandCursor: true });
       const t = this.add
-        .text(cx + dx, cy + 56, label, { fontFamily: FONT, fontSize: "19px", color: "#1e3a44" })
+        .text(bx, by - 4, label, { fontFamily: FONT, fontSize: "19px", color: "#1e3a44" })
         .setOrigin(0.5)
         .setScrollFactor(0)
         .setDepth(100000);
@@ -909,24 +1001,31 @@ export class GameScene extends Phaser.Scene {
         if (clicked) return; // ignore double-clicks / the other button once one fires
         clicked = true;
         b.setTexture(`ui-btn-${color}-pressed`);
-        t.setText("…").setY(cy + 60);
+        t.setText("…").setY(by);
         this.time.delayedCall(40, onClick);
       });
       b.setScale(0);
       t.setScale(0);
       this.tweens.add({ targets: [b, t], scale: 1, duration: 360, delay: 320, ease: "Back.Out" });
     };
-    if (!this.online) {
-      mkBtn(-140, "⟳  PLAY AGAIN", "blue", () => {
+    const both = !this.online;
+    if (both) {
+      mkBtn(stack ? cx : cx - 140, cy + 60, "⟳  PLAY AGAIN", "blue", () => {
         this.scene.stop("Hud");
         this.scene.start("Game", { heroId: this.heroChoice, online: false });
       });
     }
-    mkBtn(this.online ? 0 : 140, "⌂  BACK TO MENU", "red", () => {
-      this.net?.destroy();
-      this.scene.stop("Hud");
-      this.scene.start("Menu");
-    });
+    mkBtn(
+      both && !stack ? cx + 140 : cx,
+      both && stack ? cy + 132 : cy + 60,
+      "⌂  BACK TO MENU",
+      "red",
+      () => {
+        this.net?.destroy();
+        this.scene.stop("Hud");
+        this.scene.start("Menu");
+      },
+    );
   }
 
   private installDebug(): void {

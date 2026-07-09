@@ -1,14 +1,22 @@
+import { safeAreaInset } from "@vibedgames/gamepad";
 import Phaser from "phaser";
 
 import { HEROES } from "../data/heroes";
 import { FONT } from "../render/font";
 import { heroSheetTex } from "../render/sprites";
 
+/** Coarse-pointer detection at boot, so copy is input-aware before any touch. */
+function touchDevice(): boolean {
+  return window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+}
+
 export class MenuScene extends Phaser.Scene {
   private selected = "ironvow";
   private cards: { id: string; ring: Phaser.GameObjects.Rectangle }[] = [];
   private detail!: Phaser.GameObjects.Text;
   private detailName!: Phaser.GameObjects.Text;
+  private compactH = false; // short viewports (landscape phones) drop the blurb
+  private relayout: Phaser.Time.TimerEvent | null = null;
 
   constructor() {
     super("Menu");
@@ -35,7 +43,19 @@ export class MenuScene extends Phaser.Scene {
 
     const W = this.scale.width;
     const H = this.scale.height;
+    const touch = touchDevice();
+    const inset = safeAreaInset();
+    this.compactH = H < 520;
     this.cameras.main.setBackgroundColor("#47aba9");
+
+    // the menu is static, so a debounced restart is the simplest correct
+    // relayout for resizes / phone rotation (`selected` survives on the instance)
+    this.scale.on(Phaser.Scale.Events.RESIZE, this.queueRelayout, this);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.scale.off(Phaser.Scale.Events.RESIZE, this.queueRelayout, this);
+      this.relayout?.remove();
+      this.relayout = null;
+    });
 
     // backdrop: open water, slowly drifting, with rocks and clouds
     const water = this.add.tileSprite(0, 0, W, H, "t-water").setOrigin(0).setScrollFactor(0);
@@ -73,66 +93,86 @@ export class MenuScene extends Phaser.Scene {
     }
 
     // title ribbon
+    const titleY = this.compactH ? 36 : 64;
     this.add
-      .nineslice(W / 2, 64, "ui-ribbon-blue", 0, Math.min(720, W - 120), 84, 58, 58, 22, 22)
+      .nineslice(
+        W / 2,
+        titleY,
+        "ui-ribbon-blue",
+        0,
+        Math.min(720, W - 24),
+        this.compactH ? 66 : 84,
+        58,
+        58,
+        22,
+        22,
+      )
       .setOrigin(0.5);
-    this.add
-      .text(W / 2, 58, "ANCIENTS OF ELDERMOOR", {
+    const title = this.add
+      .text(W / 2, titleY - 6, "ANCIENTS OF ELDERMOOR", {
         fontFamily: FONT,
-        fontSize: "36px",
+        fontSize: this.compactH ? "28px" : "36px",
         color: "#f4eee0",
         stroke: "#1e2a3a",
         strokeThickness: 6,
       })
       .setOrigin(0.5);
-    this.add
-      .text(W / 2, 116, "Choose your champion · destroy the enemy Ancient", {
-        fontFamily: FONT,
-        fontSize: "16px",
-        color: "#eafaf8",
-        stroke: "#1e3a38",
-        strokeThickness: 4,
-      })
-      .setOrigin(0.5);
+    title.setScale(Math.min(1, (Math.min(720, W - 24) - 60) / Math.max(1, title.width)));
+    if (!this.compactH)
+      this.add
+        .text(W / 2, 116, "Choose your champion · destroy the enemy Ancient", {
+          fontFamily: FONT,
+          fontSize: "16px",
+          color: "#eafaf8",
+          stroke: "#1e3a38",
+          strokeThickness: 4,
+        })
+        .setOrigin(0.5);
 
-    // hero cards on carved parchment panels
+    // hero cards on carved parchment panels; a 3-wide grid on narrow screens
     const n = HEROES.length;
-    const cardW = Math.min(160, (W - 80) / n - 16);
-    const totalW = n * (cardW + 16) - 16;
-    const startX = (W - totalW) / 2;
-    const cardY = 170;
-    const cardH = 204;
+    const cols = W < 720 ? 3 : n;
+    const rows = Math.ceil(n / cols);
+    const cardW = Math.min(160, (W - 48) / cols - 12);
+    const f = cardW / 160;
+    const cardH = 204 * f;
+    const stepX = cardW + 12;
+    const stepY = cardH + 12;
+    const gy0 = this.compactH ? 80 : 150;
+    const x0 = (W - (cols * stepX - 12)) / 2 + cardW / 2;
 
     HEROES.forEach((h, i) => {
-      const x = startX + i * (cardW + 16) + cardW / 2;
-      const cy = cardY + cardH / 2;
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const card = this.add.container(x0 + col * stepX, gy0 + row * stepY + cardH / 2).setScale(f);
       const panel = this.add
-        .nineslice(x, cy, "ui-carved9", 0, cardW, cardH, 20, 20, 20, 20)
+        .nineslice(0, 0, "ui-carved9", 0, 160, 204, 20, 20, 20, 20)
         .setInteractive({ useHandCursor: true });
       const ring = this.add
-        .rectangle(x, cy, cardW + 6, cardH + 6, 0x000000, 0)
+        .rectangle(0, 0, 166, 210, 0x000000, 0)
         .setStrokeStyle(4, 0xffe14a, 1)
         .setVisible(false);
+      card.add([panel, ring]);
       const tex = heroSheetTex(h.id);
       if (this.textures.exists(tex)) {
-        this.add
-          .sprite(x, cardY + 72, tex, 0)
-          .setScale(0.72)
-          .setTint(h.tint);
+        card.add(this.add.sprite(0, -30, tex, 0).setScale(0.72).setTint(h.tint));
       }
       const nameText = this.add
-        .text(x, cardY + 132, h.name, { fontFamily: FONT, fontSize: "16px", color: "#4a3320" })
+        .text(0, 30, h.name, { fontFamily: FONT, fontSize: "16px", color: "#4a3320" })
         .setOrigin(0.5);
-      if (nameText.width > cardW - 16) nameText.setScale((cardW - 16) / nameText.width);
-      this.add
-        .text(x, cardY + 154, h.role, {
-          fontFamily: FONT,
-          fontSize: "11px",
-          color: "#7a6240",
-          align: "center",
-          wordWrap: { width: cardW - 18 },
-        })
-        .setOrigin(0.5, 0);
+      if (nameText.width > 144) nameText.setScale(144 / nameText.width);
+      card.add(nameText);
+      card.add(
+        this.add
+          .text(0, 52, h.role, {
+            fontFamily: FONT,
+            fontSize: "11px",
+            color: "#7a6240",
+            align: "center",
+            wordWrap: { width: 142 },
+          })
+          .setOrigin(0.5, 0),
+      );
       panel.on("pointerover", () => this.preview(h.id));
       // restore the SELECTED hero's details when the cursor leaves, so the panel
       // never describes a hero you're only hovering (and won't actually play).
@@ -140,66 +180,76 @@ export class MenuScene extends Phaser.Scene {
       panel.on("pointerdown", () => this.select(h.id));
       this.cards.push({ id: h.id, ring });
     });
+    const gridBottom = gy0 + rows * stepY;
 
     // detail panel
     this.detailName = this.add
-      .text(W / 2, cardY + cardH + 38, "", {
+      .text(W / 2, gridBottom + (this.compactH ? 16 : 30), "", {
         fontFamily: FONT,
-        fontSize: "21px",
+        fontSize: this.compactH ? "17px" : "21px",
         color: "#fff3c4",
         stroke: "#27343c",
         strokeThickness: 5,
       })
       .setOrigin(0.5);
     this.detail = this.add
-      .text(W / 2, cardY + cardH + 66, "", {
+      .text(W / 2, gridBottom + (this.compactH ? 36 : 58), "", {
         fontFamily: FONT,
-        fontSize: "14px",
+        fontSize: this.compactH ? "12px" : "14px",
         color: "#f0fffd",
         align: "center",
         stroke: "#1e3a38",
         strokeThickness: 3,
-        wordWrap: { width: Math.min(820, W - 80) },
+        wordWrap: { width: Math.min(820, W - 48) },
         lineSpacing: 6,
       })
       .setOrigin(0.5, 0);
 
-    // start buttons: vs Bots (local) and Online (multiplayer drop-in)
-    const mkBtn = (x: number, label: string, color: "blue" | "red", online: boolean) => {
+    // start buttons: vs Bots (local) and Online (multiplayer drop-in);
+    // stacked on narrow screens so they never overflow
+    const stack = W < 640;
+    const btnY = H - (this.compactH ? 52 : 72) - inset.bottom;
+    const mkBtn = (x: number, y: number, label: string, color: "blue" | "red", online: boolean) => {
       const b = this.add
-        .nineslice(x, H - 72, `ui-btn-${color}`, 0, 272, 66, 28, 28, 20, 26)
+        .nineslice(x, y, `ui-btn-${color}`, 0, 272, 66, 28, 28, 20, 26)
         .setInteractive({ useHandCursor: true });
       const t = this.add
-        .text(x, H - 76, label, { fontFamily: FONT, fontSize: "21px", color: "#1e3a44" })
+        .text(x, y - 4, label, { fontFamily: FONT, fontSize: "21px", color: "#1e3a44" })
         .setOrigin(0.5);
       b.on("pointerover", () => this.tweens.add({ targets: [b, t], scale: 1.05, duration: 110 }));
       b.on("pointerout", () => this.tweens.add({ targets: [b, t], scale: 1, duration: 110 }));
       b.on("pointerdown", () => {
         b.setTexture(`ui-btn-${color}-pressed`);
-        t.setText("LOADING…").setY(H - 72);
+        t.setText("LOADING…").setY(y);
         this.time.delayedCall(80, () =>
           this.scene.start("Game", { heroId: this.selected, online }),
         );
       });
     };
-    mkBtn(W / 2 - 150, "PLAY vs BOTS", "blue", false);
-    mkBtn(W / 2 + 150, "PLAY ONLINE", "red", true);
-    this.add
-      .text(
-        W / 2,
-        H - 26,
-        "Arrows move · Q W E R abilities (aim by facing, Shift+key levels) · Space attack · F dash · 1-6 items · B shop · Tab scores",
-        {
-          fontFamily: FONT,
-          fontSize: "12px",
-          color: "#dff5f3",
-          stroke: "#1e3a38",
-          strokeThickness: 3,
-        },
-      )
-      .setOrigin(0.5);
+    mkBtn(stack ? W / 2 : W / 2 - 150, stack ? btnY - 74 : btnY, "PLAY vs BOTS", "blue", false);
+    mkBtn(stack ? W / 2 : W / 2 + 150, btnY, "PLAY ONLINE", "red", true);
+    if (!touch && !stack)
+      this.add
+        .text(
+          W / 2,
+          btnY + 46,
+          "Arrows move · Q W E R abilities (aim by facing, Shift+key levels) · Space attack · F dash · 1-6 items · B shop · Tab scores",
+          {
+            fontFamily: FONT,
+            fontSize: "12px",
+            color: "#dff5f3",
+            stroke: "#1e3a38",
+            strokeThickness: 3,
+          },
+        )
+        .setOrigin(0.5);
 
     this.select(this.selected);
+  }
+
+  private queueRelayout(): void {
+    this.relayout?.remove();
+    this.relayout = this.time.delayedCall(150, () => this.scene.restart());
   }
 
   private preview(id: string): void {
@@ -209,7 +259,8 @@ export class MenuScene extends Phaser.Scene {
     const abilities = (["Q", "W", "E", "R"] as const)
       .map((k) => `[${k}] ${h.abilities[k].name}`)
       .join("    ");
-    this.detail.setText(`${h.blurb}\n\n${abilities}`);
+    // short viewports: the blurb won't fit between the cards and the buttons
+    this.detail.setText(this.compactH ? abilities : `${h.blurb}\n\n${abilities}`);
   }
 
   private select(id: string): void {

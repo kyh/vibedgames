@@ -93,6 +93,10 @@ const MULTIPLAYER_HOST = import.meta.env.DEV
 
 const ROOM = "bomberman-default";
 
+/** Detected at boot (not on first touch) so the first HUD paint already shows
+ *  touch-worded hints on phones. */
+const TOUCH_UI = window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+
 /** Grass extends this far past the arena so the follow camera never shows void. */
 const FLOOR_PAD = TILE * 20;
 
@@ -165,6 +169,9 @@ export class GameScene extends Phaser.Scene {
   /** Touch controls: a floating move-joystick (snapped to 4 directions) plus a
    *  fixed bomb button. Inert until the first finger lands. */
   private gamepad!: PhaserGamepad;
+  /** When we entered a restartable state (dead or round over); null while
+   *  fighting. Gates tap-to-restart — see bindInput. */
+  private restartableSince: number | null = null;
 
   private statusEl: HTMLElement | null = null;
   private playersEl: HTMLElement | null = null;
@@ -322,8 +329,15 @@ export class GameScene extends Phaser.Scene {
   }
 
   private applyZoom(): void {
-    // Keep ~9.5 board rows on screen; clamp for tiny/huge screens.
-    const zoom = Phaser.Math.Clamp(this.scale.height / (9.5 * TILE), 1.0, 2.4);
+    // Keep ~9.5 board rows AND ~7.5 columns on screen — whichever needs the
+    // wider FOV wins, so portrait phones aren't blind to bombs whose blast
+    // (up to MAX_RANGE tiles) would land from off-screen. Clamped for
+    // tiny/huge screens.
+    const zoom = Phaser.Math.Clamp(
+      Math.min(this.scale.height / (9.5 * TILE), this.scale.width / (7.5 * TILE)),
+      0.6,
+      2.4,
+    );
     this.cameras.main.setZoom(zoom);
   }
 
@@ -362,8 +376,11 @@ export class GameScene extends Phaser.Scene {
     const halfH = cam.height / (2 * cam.zoom);
     const cx = Phaser.Math.Clamp(me.container.x, -FLOOR_PAD + halfW, WORLD_W + FLOOR_PAD - halfW);
     const cy = Phaser.Math.Clamp(me.container.y, -FLOOR_PAD + halfH, WORLD_H + FLOOR_PAD - halfH);
-    const tx = cx - halfW;
-    const ty = cy - halfH;
+    // Phaser zooms around the midpoint (scroll + half the CANVAS size), so
+    // centring subtracts cam.width/2 — halfW/H above (the zoomed visible
+    // extent) are only for keeping the view inside the grass field.
+    const tx = cx - cam.width / 2;
+    const ty = cy - cam.height / 2;
     if (!this.followStarted) {
       cam.setScroll(tx, ty);
       this.followStarted = true;
@@ -386,14 +403,31 @@ export class GameScene extends Phaser.Scene {
       buttons: [
         {
           id: "bomb",
-          position: ({ width, height }) => ({ x: width - 84, y: height - 84 }),
+          label: "💣",
+          position: ({ width, height, inset }) => ({
+            x: width - 84 - inset.right,
+            y: height - 84 - inset.bottom,
+          }),
           radius: 52,
         },
       ],
+      // Pre-show the bomb button on touch devices — an invisible button is
+      // undiscoverable before the first touch.
+      visible: "coarse",
       render: { depth: 1000, blendMode: Phaser.BlendModes.NORMAL },
       onButtonDown: (id) => {
         if (id === "bomb") this.requestBomb();
       },
+    });
+
+    // Touch path to restart (R has no on-screen equivalent): while dead or
+    // after the round ends, any fresh tap restarts. The arming delay stops
+    // frantic bomb-taps that land just as you die from resetting the round.
+    this.input.on(Phaser.Input.Events.POINTER_DOWN, (p: Phaser.Input.Pointer) => {
+      if (!p.wasTouch) return;
+      if (this.restartableSince === null) return;
+      if (Date.now() - this.restartableSince < 600) return;
+      this.requestRestart();
     });
 
     const k = this.input.keyboard;
@@ -542,6 +576,7 @@ export class GameScene extends Phaser.Scene {
 
   private onUpdate(): void {
     this.ensureSeeded();
+    this.trackRestartable();
     this.setStatus(this.statusText());
     this.setPlayersList(this.playersListText());
     this.setStats(this.statsText());
@@ -552,6 +587,14 @@ export class GameScene extends Phaser.Scene {
     this.syncBlasts();
     this.syncPowerups();
     this.syncPlayers();
+  }
+
+  /** Arm/disarm tap-to-restart as the death/round-over state changes. */
+  private trackRestartable(): void {
+    const s = this.shared();
+    const restartable = this.live && s !== null && (s.winner !== null || !this.isAlive(this.myId));
+    if (!restartable) this.restartableSince = null;
+    else this.restartableSince ??= Date.now();
   }
 
   // ---- shared-state rendering ----------------------------------------------
@@ -1357,10 +1400,13 @@ export class GameScene extends Phaser.Scene {
       if (cs !== "connected") return `${cs}…`;
     }
     const s = this.shared();
-    if (s?.winner) return "Round over — press R";
-    if (!this.isAlive(this.myId)) return "💀 Out — bots fight on · R to restart";
+    const restart = TOUCH_UI ? "tap to restart" : "press R";
+    if (s?.winner) return `Round over — ${restart}`;
+    if (!this.isAlive(this.myId)) return `💀 Out — bots fight on · ${restart}`;
     const mode = this.offline ? "solo · offline" : this.amHost ? "host" : "guest";
-    return `WASD / arrows to move · SPACE to drop a bomb · R to restart · ${mode}`;
+    return TOUCH_UI
+      ? `Drag to move · 💣 to bomb · ${mode}`
+      : `WASD / arrows to move · SPACE to drop a bomb · R to restart · ${mode}`;
   }
 
   private playersListText(): string {

@@ -11,7 +11,11 @@ import type { Terrain } from "../world/terrain";
 // controller — kinematic feel is the game — it just applies impulses here.
 
 const FIXED_DT = 1 / 60;
-const MAX_STEPS = 4; // per frame; drop time beyond this (tab-back spike guard)
+// Per frame; time beyond this is dropped (tab-back spike guard). Phones and
+// tablets (coarse pointer) cap at 2: when a frame runs long, catching up with
+// extra fixed steps makes the NEXT frame longer still — the classic physics
+// spiral. Slight time dilation under load reads far better than a hitch.
+const MAX_STEPS = window.matchMedia("(pointer: coarse)").matches ? 2 : 4;
 // World units between terrain collider samples. The car's height is kinematic
 // (city.heightAt), so this trimesh only serves loose bodies (cones, debris,
 // traffic punts) — a coarse sampling is plenty and keeps the collider from

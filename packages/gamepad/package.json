@@ -2,7 +2,7 @@
   "name": "@vibedgames/gamepad",
   "version": "0.0.1",
   "private": false,
-  "description": "On-screen touch controls for browser games — framework-agnostic core + Phaser adapter",
+  "description": "On-screen touch controls for browser games — framework-agnostic core + DOM and Phaser adapters",
   "keywords": [
     "gamedev",
     "gamepad",
@@ -24,6 +24,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./dom": "./src/dom.ts",
     "./phaser": "./src/phaser.ts"
   },
   "publishConfig": {
@@ -31,6 +32,10 @@
       ".": {
         "types": "./dist/index.d.ts",
         "default": "./dist/index.js"
+      },
+      "./dom": {
+        "types": "./dist/dom.d.ts",
+        "default": "./dist/dom.js"
       },
       "./phaser": {
         "types": "./dist/phaser.d.ts",

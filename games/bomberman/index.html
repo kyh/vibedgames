@@ -2,14 +2,23 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
     <title>Bomberman</title>
-    <meta name="description" content="Drop bombs, snag power-ups, trap your rivals. Last one standing wins." />
+    <meta
+      name="description"
+      content="Drop bombs, snag power-ups, trap your rivals. Last one standing wins."
+    />
     <link rel="canonical" href="https://bomberman.vibedgames.com/" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="vibedgames" />
     <meta property="og:title" content="Bomberman" />
-    <meta property="og:description" content="Drop bombs, snag power-ups, trap your rivals. Last one standing wins." />
+    <meta
+      property="og:description"
+      content="Drop bombs, snag power-ups, trap your rivals. Last one standing wins."
+    />
     <meta property="og:url" content="https://bomberman.vibedgames.com/" />
     <meta property="og:image" content="https://bomberman.vibedgames.com/og.jpg" />
     <meta property="og:image:width" content="1536" />
@@ -48,7 +57,10 @@
         position: fixed;
         inset: 0;
         pointer-events: none;
-        padding: 14px;
+        /* Keep edge-anchored pills clear of the notch / home indicator. */
+        padding: calc(14px + env(safe-area-inset-top, 0px))
+          calc(14px + env(safe-area-inset-right, 0px)) calc(14px + env(safe-area-inset-bottom, 0px))
+          calc(14px + env(safe-area-inset-left, 0px));
         display: flex;
         flex-direction: column;
       }

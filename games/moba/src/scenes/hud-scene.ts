@@ -1,3 +1,4 @@
+import { safeAreaInset } from "@vibedgames/gamepad";
 import Phaser from "phaser";
 
 import type { Team } from "../data/config";
@@ -5,11 +6,17 @@ import { HERO_BY_ID, valAt } from "../data/heroes";
 import type { AbilityKey } from "../data/heroes";
 import { ITEMS, ITEM_BY_ID } from "../data/items";
 import { BRIDGES, GRID, WORLD, isHighCell, isLandCell } from "../data/map";
+import { isMuted, resumeAudio, toggleMute } from "../render/audio";
 import { FONT } from "../render/font";
 import { abilityIcon } from "../render/fx-map";
 import { heroSheetTex } from "../render/sprites";
 import { SLOT_LABEL } from "./game-scene";
 import type { GameScene } from "./game-scene";
+
+/** Coarse-pointer detection at boot, so copy is input-aware before any touch. */
+function touchDevice(): boolean {
+  return window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+}
 
 const KEYS: AbilityKey[] = ["Q", "W", "E", "R"];
 const MINIMAP_SIZE = 232;
@@ -24,6 +31,7 @@ type Slot = {
   cdText: Phaser.GameObjects.Text;
   pips: Phaser.GameObjects.Rectangle[];
   keyLabel: Phaser.GameObjects.Text;
+  plus: Phaser.GameObjects.Text; // tappable level-up badge (guests have no Shift+key)
 };
 
 export class HudScene extends Phaser.Scene {
@@ -62,6 +70,16 @@ export class HudScene extends Phaser.Scene {
   }[] = [];
   private shopOpen = false;
   private shopSel = 0;
+  private shopPanelH = 0;
+
+  // responsive state (set in layout)
+  private touchUi = false;
+  private compact = false;
+  private portraitSize = 74;
+
+  // touch/mouse utility buttons (shop / scores / recall / sound)
+  private uiButtons: { bg: Phaser.GameObjects.NineSlice; txt: Phaser.GameObjects.Text }[] = [];
+  private soundLabel!: Phaser.GameObjects.Text;
 
   // minimap
   private mapTerrain!: Phaser.GameObjects.Graphics; // static land/water/bridges, drawn once per layout
@@ -69,7 +87,10 @@ export class HudScene extends Phaser.Scene {
   private mapHit!: Phaser.GameObjects.Rectangle;
   private mapX = 0;
   private mapY = 0;
+  private mapW = MINIMAP_SIZE;
+  private mapH = MINIMAP_H;
   private mapScale = MINIMAP_SIZE / WORLD.width;
+  private mapNextRedrawAt = 0; // dynamic layer redraws at ~10Hz, not every frame
 
   // kill feed + announce banner
   private feedLines: { text: Phaser.GameObjects.Text; until: number }[] = [];
@@ -106,9 +127,12 @@ export class HudScene extends Phaser.Scene {
     this.itemSlots = [];
     this.shopRows = [];
     this.feedLines = [];
+    this.uiButtons = [];
     this.shopOpen = false;
     this.boardOpen = false;
     this.boardNextRenderAt = 0;
+    this.mapNextRedrawAt = 0;
+    this.touchUi = touchDevice();
 
     this.scale.on(Phaser.Scale.Events.RESIZE, this.layout, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () =>
@@ -134,6 +158,11 @@ export class HudScene extends Phaser.Scene {
     this.buildFeed();
     this.buildBoard();
     this.layout();
+    // on touch the persistent hint would sit over the battlefield — fade it out
+    if (this.touchUi)
+      this.time.delayedCall(9000, () =>
+        this.tweens.add({ targets: this.hintText, alpha: 0, duration: 600 }),
+      );
     this.input.keyboard?.on("keydown-B", () => this.toggleShop());
     // keyboard shop navigation (active only while the shop is open)
     this.input.keyboard?.on("keydown-UP", () => this.shopOpen && this.moveShopSel(-1));
@@ -265,15 +294,34 @@ export class HudScene extends Phaser.Scene {
         })
         .setOrigin(0.5);
       const pips = [0, 1, 2, 3].map(() => this.add.rectangle(0, 0, 10, 4, 0x8a7350));
-      box.on("pointerdown", () => this.gs.castSlot(key));
-      this.slots.push({ key, panel, box, icon, cd, cdText, pips, keyLabel });
+      box.on("pointerdown", () => this.gs.castSlot(key, true));
+      // tappable '+' badge: the only leveling path for touch players and online
+      // guests (no Shift+key). Shown while ability points are banked.
+      const plus = this.add
+        .text(0, 0, "+", {
+          fontFamily: FONT,
+          fontSize: "17px",
+          color: "#eaffea",
+          backgroundColor: "#2f7d3a",
+          padding: { x: 9, y: 3 },
+        })
+        .setOrigin(0.5)
+        .setDepth(6)
+        .setVisible(false)
+        .setInteractive({ useHandCursor: true });
+      plus.on("pointerdown", () => this.gs.levelSlot(key));
+      this.slots.push({ key, panel, box, icon, cd, cdText, pips, keyLabel, plus });
     }
 
-    // dash (F) cooldown indicator, sits just left of the ability bar
+    // dash (F) cooldown indicator, sits just left of the ability bar; tappable
     this.dashPanel = this.add.image(0, 0, "ui-panel").setDisplaySize(54, 62);
-    this.dashBox = this.add.rectangle(0, 0, 50, 58, 0x1c1410, 0.12).setStrokeStyle(2, 0x6ab0ff);
+    this.dashBox = this.add
+      .rectangle(0, 0, 50, 58, 0x1c1410, 0.12)
+      .setStrokeStyle(2, 0x6ab0ff)
+      .setInteractive({ useHandCursor: true });
+    this.dashBox.on("pointerdown", () => this.gs.dash());
     this.dashLabel = this.add
-      .text(0, 0, "F\ndash", {
+      .text(0, 0, this.touchUi ? "⚡\ndash" : "F\ndash", {
         fontFamily: FONT,
         fontSize: "11px",
         color: "#3a5a78",
@@ -298,6 +346,37 @@ export class HudScene extends Phaser.Scene {
       this.itemSlots.push({ panel, box, icon, key });
     }
 
+    // utility buttons — the touch-reachable path to shop/scores/recall/sound
+    // (each has a keyboard twin: B / Tab / H / M)
+    const mkBtn = (label: string, onTap: () => void): Phaser.GameObjects.Text => {
+      const bg = this.add
+        .nineslice(0, 0, "ui-btn-blue", 0, 92, 46, 28, 28, 20, 26)
+        .setDepth(40010)
+        .setInteractive({ useHandCursor: true });
+      const txt = this.add
+        .text(0, 0, label, { fontFamily: FONT, fontSize: "13px", color: "#1e3a44" })
+        .setOrigin(0.5)
+        .setDepth(40011);
+      const up = (): void => {
+        bg.setTexture("ui-btn-blue");
+      };
+      bg.on("pointerdown", () => {
+        bg.setTexture("ui-btn-blue-pressed");
+        onTap();
+      });
+      bg.on("pointerup", up);
+      bg.on("pointerout", up);
+      this.uiButtons.push({ bg, txt });
+      return txt;
+    };
+    mkBtn("SHOP", () => this.toggleShop());
+    mkBtn("SCORES", () => this.toggleBoard());
+    mkBtn("RECALL", () => this.gs.recall());
+    this.soundLabel = mkBtn(isMuted() ? "🔇 OFF" : "🔊 ON", () => {
+      resumeAudio();
+      this.soundLabel.setText(toggleMute() ? "🔇 OFF" : "🔊 ON");
+    });
+
     this.respawnText = this.add
       .text(0, 0, "", {
         fontFamily: FONT,
@@ -312,7 +391,9 @@ export class HudScene extends Phaser.Scene {
       .text(
         0,
         0,
-        "Arrows move · Space attack · Q W E R abilities · F dash · 1-6 items · B shop · Tab scores",
+        this.touchUi
+          ? "Drag to move · 2nd finger attacks · tap an ability to cast"
+          : "Arrows move · Space attack · Q W E R abilities · F dash · 1-6 items · B shop · Tab scores",
         {
           fontFamily: FONT,
           fontSize: "13px",
@@ -329,18 +410,36 @@ export class HudScene extends Phaser.Scene {
     const H = this.scale.height;
     const panelW = 430;
     const panelH = 92 + ITEMS.length * 46;
+    this.shopPanelH = panelH;
     const bg = this.add.nineslice(0, 0, "ui-carved9", 0, panelW, panelH, 20, 20, 20, 20);
     const title = this.add
       .text(0, -panelH / 2 + 26, "SHOP", { fontFamily: FONT, fontSize: "24px", color: "#4a3320" })
       .setOrigin(0.5);
     const sub = this.add
-      .text(0, -panelH / 2 + 52, "↑↓ select · Enter buy · B close (must be at base)", {
-        fontFamily: FONT,
-        fontSize: "12px",
-        color: "#7a6240",
-      })
+      .text(
+        0,
+        -panelH / 2 + 52,
+        this.touchUi
+          ? "tap an item to buy · ✕ closes (must be at base)"
+          : "↑↓ select · Enter buy · B close (must be at base)",
+        {
+          fontFamily: FONT,
+          fontSize: "12px",
+          color: "#7a6240",
+        },
+      )
       .setOrigin(0.5);
-    const children: Phaser.GameObjects.GameObject[] = [bg, title, sub];
+    const close = this.add
+      .text(panelW / 2 - 26, -panelH / 2 + 26, "✕", {
+        fontFamily: FONT,
+        fontSize: "22px",
+        color: "#8a3a2a",
+        padding: { x: 10, y: 8 },
+      })
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true });
+    close.on("pointerdown", () => this.toggleShop());
+    const children: Phaser.GameObjects.GameObject[] = [bg, title, sub, close];
     ITEMS.forEach((it, i) => {
       const y = -panelH / 2 + 84 + i * 46;
       const row = this.add
@@ -430,8 +529,8 @@ export class HudScene extends Phaser.Scene {
     const oy = this.mapY;
     const cell = (WORLD.width / GRID.cols) * this.mapScale;
     g.clear();
-    g.fillStyle(0x2e8f8a, 1).fillRect(ox, oy, MINIMAP_SIZE, MINIMAP_H);
-    g.lineStyle(2, 0x3a2c20, 0.8).strokeRect(ox, oy, MINIMAP_SIZE, MINIMAP_H);
+    g.fillStyle(0x2e8f8a, 1).fillRect(ox, oy, this.mapW, this.mapH);
+    g.lineStyle(2, 0x3a2c20, 0.8).strokeRect(ox, oy, this.mapW, this.mapH);
     for (let cy = 0; cy < GRID.rows; cy++) {
       for (let cx = 0; cx < GRID.cols; cx++) {
         if (!isLandCell(cx, cy)) continue;
@@ -453,6 +552,9 @@ export class HudScene extends Phaser.Scene {
   private updateMinimap(): void {
     const w = this.gs?.worldRef;
     if (!w) return;
+    // ~10Hz: a full Graphics rebuild every frame is wasted work for a minimap
+    if (this.time.now < this.mapNextRedrawAt) return;
+    this.mapNextRedrawAt = this.time.now + 100;
     const g = this.mapGfx;
     const ox = this.mapX;
     const oy = this.mapY;
@@ -516,19 +618,24 @@ export class HudScene extends Phaser.Scene {
 
   private showAnnounce(text: string, tone: "good" | "bad" | "neutral"): void {
     const color = tone === "good" ? "#9bf0b4" : tone === "bad" ? "#ffb0a4" : "#fff3c4";
-    const cx = this.scale.width / 2;
+    const W = this.scale.width;
+    const cx = W / 2;
     const cy = this.scale.height * 0.26;
-    this.announce.setText(text).setColor(color).setAlpha(1).setScale(0.6);
+    // clamp to the viewport on phones (the text scales down, the ribbon caps)
+    const fit = Math.min(1, (W - 56) / Math.max(1, this.announce.setText(text).width));
+    this.announce
+      .setColor(color)
+      .setAlpha(1)
+      .setScale(0.6 * fit);
     this.announce.setPosition(cx, cy - 4);
     this.announceRibbon.setPosition(cx, cy).setAlpha(1).setScale(0.6);
-    this.announceRibbon.setSize(Math.max(380, this.announce.width + 150), 76);
+    this.announceRibbon.setSize(
+      Math.min(W - 8, Math.max(380, this.announce.width * fit + 150)),
+      76,
+    );
     this.tweens.killTweensOf([this.announce, this.announceRibbon]);
-    this.tweens.add({
-      targets: [this.announce, this.announceRibbon],
-      scale: 1,
-      duration: 320,
-      ease: "Back.Out",
-    });
+    this.tweens.add({ targets: this.announce, scale: fit, duration: 320, ease: "Back.Out" });
+    this.tweens.add({ targets: this.announceRibbon, scale: 1, duration: 320, ease: "Back.Out" });
     this.tweens.add({
       targets: [this.announce, this.announceRibbon],
       alpha: 0,
@@ -565,10 +672,13 @@ export class HudScene extends Phaser.Scene {
       }
       return true;
     });
-    if (this.feedLines.length > 6)
-      this.feedLines.splice(0, this.feedLines.length - 6).forEach((f) => f.text.destroy());
+    const maxLines = this.compact ? 3 : 6;
+    if (this.feedLines.length > maxLines)
+      this.feedLines.splice(0, this.feedLines.length - maxLines).forEach((f) => f.text.destroy());
     const rightX = this.scale.width - 16;
-    const topY = this.mapY > 200 ? 88 : this.mapY + MINIMAP_H + 14; // below minimap if it's up top
+    // below the minimap when it's up top (and below the hint line on portrait phones)
+    const hintPad = this.compact && this.scale.height > this.scale.width ? 52 : 18;
+    const topY = this.mapY > 200 ? 88 : this.mapY + this.mapH + hintPad;
     this.feedLines.forEach((f, i) => {
       f.text.setPosition(rightX, topY + i * 20);
       f.text.setAlpha(Math.min(1, (f.until - now) / 1500));
@@ -592,11 +702,12 @@ export class HudScene extends Phaser.Scene {
     this.board.removeAll(true);
     const W = this.scale.width;
     const H = this.scale.height;
-    const panelW = Math.min(880, W - 80);
+    const panelW = Math.min(880, Math.max(340, W - 80));
     const panelH = 420;
-    const cx = W / 2;
-    const cy = H / 2;
-    const bg = this.add.nineslice(cx, cy, "ui-carved9", 0, panelW, panelH, 20, 20, 20, 20);
+    // children are container-relative so the whole board can scale to fit phones
+    this.board.setPosition(W / 2, H / 2);
+    this.board.setScale(Math.min(1, (H - 24) / panelH, (W - 24) / panelW));
+    const bg = this.add.nineslice(0, 0, "ui-carved9", 0, panelW, panelH, 20, 20, 20, 20);
     this.board.add(bg);
 
     const heroes = [...w.units.values()].filter((u) => u.kind === "hero" && u.hero);
@@ -607,18 +718,22 @@ export class HudScene extends Phaser.Scene {
     this.board.add(
       this.add
         .text(
-          cx,
-          cy - panelH / 2 + 26,
+          0,
+          -panelH / 2 + 26,
           `SCOREBOARD     ☀ ${teamKills.radiant}  –  ${teamKills.dire} 🌙`,
-          { fontFamily: FONT, fontSize: "22px", color: "#4a3320" },
+          {
+            fontFamily: FONT,
+            fontSize: "22px",
+            color: "#4a3320",
+          },
         )
         .setOrigin(0.5),
     );
 
     teams.forEach((team, ti) => {
-      const colX = cx - panelW / 2 + 34 + ti * (panelW / 2);
+      const colX = -panelW / 2 + 34 + ti * (panelW / 2);
       const headColor = team === "radiant" ? "#2a6f9e" : "#9e2f2a";
-      let y = cy - panelH / 2 + 62;
+      let y = -panelH / 2 + 62;
       this.board.add(
         this.add
           .text(colX, y, team === "radiant" ? "RADIANT" : "DIRE", {
@@ -674,7 +789,7 @@ export class HudScene extends Phaser.Scene {
     });
     this.board.add(
       this.add
-        .text(cx, cy + panelH / 2 - 22, "hold TAB to view", {
+        .text(0, panelH / 2 - 22, this.touchUi ? "tap SCORES to close" : "hold TAB to view", {
           fontFamily: FONT,
           fontSize: "11px",
           color: "#9a8a70",
@@ -683,69 +798,180 @@ export class HudScene extends Phaser.Scene {
     );
   }
 
+  /** Responsive relayout. Desktop keeps the classic bottom bar; phones
+   *  (`compact`) rebuild around two thumb zones: a clear bottom-left for the
+   *  floating stick and a bottom-right ability/item cluster, with the minimap
+   *  shrunk and lifted to the top-right so it never sits under a thumb. */
   private layout(): void {
     const W = this.scale.width;
     const H = this.scale.height;
+    const inset = safeAreaInset();
     const cx = W / 2;
-    const baseY = H - 50;
+    const compact = W < 760 || H < 520;
+    const portraitOrient = H > W;
+    this.compact = compact;
 
-    if (this.barPanel) this.barPanel.setPosition(cx - 104, baseY).setSize(this.barW + 130, 86);
-    this.portrait.setPosition(cx - 220, baseY);
-    this.lvlText.setPosition(cx - 220, baseY + 22);
+    // minimap: bottom-right on desktop, smaller top-right on phones
+    const mapK = compact ? 0.62 : 1;
+    this.mapW = Math.round(MINIMAP_SIZE * mapK);
+    this.mapH = Math.round(MINIMAP_H * mapK);
+    this.mapScale = this.mapW / WORLD.width;
+    if (compact) {
+      this.mapX = W - this.mapW - 14 - inset.right;
+      this.mapY = 64 + inset.top;
+    } else {
+      this.mapX = W - this.mapW - 22;
+      this.mapY = H - this.mapH - 22 - inset.bottom;
+    }
+    if (this.mapHit) this.mapHit.setPosition(this.mapX, this.mapY).setScale(mapK);
+    if (this.mapFrame)
+      this.mapFrame
+        .setPosition(this.mapX - 12, this.mapY - 12)
+        .setSize(this.mapW + 24, this.mapH + 24);
+    this.drawMapTerrain();
+    this.mapNextRedrawAt = 0;
 
-    const barX = cx - 175;
-    this.hpBar.setPosition(barX, baseY - 14);
-    this.mpBar.setPosition(barX, baseY + 6);
-    this.hpText.setPosition(barX + this.barW / 2, baseY - 14);
-    this.mpText.setPosition(barX + this.barW / 2, baseY + 6);
+    // top-left info panel
+    const left = 8 + inset.left;
+    const iy = 8 + inset.top;
+    if (this.infoPanel)
+      this.infoPanel.setPosition(left, iy).setSize(compact ? 172 : 226, compact ? 90 : 112);
+    const ix = left + 16;
+    this.goldText.setPosition(ix, iy + 12);
+    this.clockText.setPosition(ix, iy + (compact ? 36 : 38));
+    this.kdaText.setPosition(ix, iy + (compact ? 56 : 60));
+    this.apText.setPosition(ix, iy + 82).setVisible(!compact);
 
-    const startX = cx + 60;
+    // utility buttons: a column under the info panel (a row on landscape phones)
+    const btnRow = compact && !portraitOrient;
+    this.uiButtons.forEach((b, i) => {
+      const x = btnRow ? left + 46 + i * 100 : left + 46;
+      const y = btnRow ? iy + 118 : iy + (compact ? 122 : 136) + i * 54;
+      b.bg.setPosition(x, y);
+      b.txt.setPosition(x, y - 3);
+    });
+
+    // score ribbon: top-center on desktop, capping the minimap on phones
+    if (this.scoreRibbon && this.teamScore) {
+      if (compact) {
+        const rx = this.mapX + this.mapW / 2;
+        this.scoreRibbon.setPosition(rx, 2 + inset.top).setSize(176, 54);
+        this.teamScore.setPosition(rx, 14 + inset.top);
+      } else {
+        this.scoreRibbon.setPosition(cx, 4).setSize(252, 60);
+        this.teamScore.setPosition(cx, 18);
+      }
+    }
+
+    const slotPos: { x: number; y: number }[] = [];
+    const itemPos: { x: number; y: number }[] = [];
+    let dashPos = { x: 0, y: 0 };
+    if (compact) {
+      const right = W - 12 - inset.right;
+      const bottom = H - 12 - inset.bottom;
+      const cell = 66;
+      // abilities: 2x2 thumb grid in the bottom-right corner
+      for (let i = 0; i < this.slots.length; i++) {
+        const col = i % 2;
+        const row = Math.floor(i / 2);
+        slotPos.push({ x: right - 33 - (1 - col) * cell, y: bottom - 33 - (1 - row) * cell });
+      }
+      const gridLeft = right - 2 * cell;
+      const gridTop = bottom - 2 * cell;
+      // items: 2x3 stacked above the grid (portrait) or beside it (landscape)
+      for (let i = 0; i < this.itemSlots.length; i++) {
+        const col = i % 2;
+        const row = Math.floor(i / 2);
+        itemPos.push(
+          portraitOrient
+            ? { x: right - 21 - (1 - col) * 44, y: gridTop - 29 - (2 - row) * 44 }
+            : { x: gridLeft - 29 - (1 - col) * 44, y: bottom - 21 - (2 - row) * 44 },
+        );
+      }
+      dashPos = portraitOrient
+        ? { x: gridLeft - 35, y: bottom - 31 }
+        : { x: gridLeft - 131, y: bottom - 31 };
+      const clusterTop = portraitOrient ? gridTop - 140 : gridTop;
+
+      // compact bars: right-aligned just above the cluster
+      this.barW = 150;
+      const barRight = right - 6;
+      const barX = barRight - this.barW;
+      const barMidY = clusterTop - 26;
+      this.portraitSize = 46;
+      this.portrait.setPosition(barX - 32, barMidY).setDisplaySize(46, 46);
+      this.lvlText.setPosition(barX - 32, barMidY + 14).setFontSize(14);
+      if (this.barPanel)
+        this.barPanel.setPosition((barX + barRight) / 2 - 22, barMidY).setSize(this.barW + 96, 64);
+      this.hpBar.setPosition(barX, barMidY - 9);
+      this.mpBar.setPosition(barX, barMidY + 9);
+      this.hpText.setPosition(barX + this.barW / 2, barMidY - 9);
+      this.mpText.setPosition(barX + this.barW / 2, barMidY + 9);
+      // portrait: below the minimap (it would tuck under the map at top-right);
+      // landscape: below the button row
+      this.hintText
+        .setPosition(cx, btnRow ? 170 + inset.top : this.mapY + this.mapH + 32)
+        .setFontSize(11);
+    } else {
+      const baseY = H - 50;
+      this.barW = 200;
+      this.portraitSize = 74;
+      if (this.barPanel) this.barPanel.setPosition(cx - 104, baseY).setSize(this.barW + 130, 86);
+      this.portrait.setPosition(cx - 220, baseY).setDisplaySize(74, 74);
+      this.lvlText.setPosition(cx - 220, baseY + 22).setFontSize(20);
+
+      const barX = cx - 175;
+      this.hpBar.setPosition(barX, baseY - 14);
+      this.mpBar.setPosition(barX, baseY + 6);
+      this.hpText.setPosition(barX + this.barW / 2, baseY - 14);
+      this.mpText.setPosition(barX + this.barW / 2, baseY + 6);
+
+      const startX = cx + 60;
+      dashPos = { x: startX - 64, y: baseY };
+      for (let i = 0; i < this.slots.length; i++) slotPos.push({ x: startX + i * 66, y: baseY });
+      // inventory slots: a 3x2 grid to the right of the ability bar
+      const itemX0 = startX + KEYS.length * 66 + 24;
+      for (let i = 0; i < this.itemSlots.length; i++) {
+        itemPos.push({ x: itemX0 + (i % 3) * 42, y: baseY - 20 + Math.floor(i / 3) * 42 });
+      }
+      this.hintText.setPosition(cx, baseY - 46).setFontSize(13);
+    }
+
     if (this.dashBox) {
-      const dashX = startX - 64;
-      this.dashPanel.setPosition(dashX, baseY);
-      this.dashBox.setPosition(dashX, baseY);
-      this.dashLabel.setPosition(dashX, baseY);
-      this.dashCd.setPosition(dashX, baseY + 29);
+      this.dashPanel.setPosition(dashPos.x, dashPos.y);
+      this.dashBox.setPosition(dashPos.x, dashPos.y);
+      this.dashLabel.setPosition(dashPos.x, dashPos.y);
+      this.dashCd.setPosition(dashPos.x, dashPos.y + 29);
     }
     this.slots.forEach((s, i) => {
-      const x = startX + i * 66;
-      s.panel.setPosition(x, baseY);
-      s.box.setPosition(x, baseY);
-      s.icon.setPosition(x, baseY);
-      s.cd.setPosition(x, baseY + 29);
-      s.cdText.setPosition(x, baseY);
-      s.keyLabel.setPosition(x - 26, baseY - 27);
-      s.pips.forEach((p, j) => p.setPosition(x - 16 + j * 11, baseY + 22));
+      const p = slotPos[i];
+      if (!p) return;
+      s.panel.setPosition(p.x, p.y);
+      s.box.setPosition(p.x, p.y);
+      s.icon.setPosition(p.x, p.y);
+      s.cd.setPosition(p.x, p.y + 29);
+      s.cdText.setPosition(p.x, p.y);
+      s.keyLabel.setPosition(p.x - 26, p.y - 27);
+      s.plus.setPosition(p.x + 22, p.y - 28);
+      s.pips.forEach((pp, j) => pp.setPosition(p.x - 16 + j * 11, p.y + 22));
     });
-
-    // inventory slots: a 3x2 grid to the right of the ability bar
-    const itemX0 = startX + KEYS.length * 66 + 24;
     this.itemSlots.forEach((s, i) => {
-      const col = i % 3;
-      const row = Math.floor(i / 3);
-      const x = itemX0 + col * 42;
-      const y = baseY - 20 + row * 42;
-      s.panel.setPosition(x, y);
-      s.box.setPosition(x, y);
-      s.icon.setPosition(x, y);
-      s.key.setPosition(x - 13, y - 13);
+      const p = itemPos[i];
+      if (!p) return;
+      s.panel.setPosition(p.x, p.y);
+      s.box.setPosition(p.x, p.y);
+      s.icon.setPosition(p.x, p.y);
+      s.key.setPosition(p.x - 13, p.y - 13);
     });
 
-    if (this.shop) this.shop.setPosition(cx, H / 2);
+    if (this.shop) {
+      this.shop.setPosition(cx, H / 2);
+      this.shop.setScale(Math.min(1, (W - 20) / 430, (H - 20) / Math.max(1, this.shopPanelH)));
+    }
     this.respawnText.setPosition(cx, H / 2 - 120);
-    this.hintText.setPosition(cx, baseY - 46);
 
     if (this.danger) this.danger.setSize(W, H).setPosition(0, 0);
     if (this.vignette) this.vignette.setDisplaySize(W, H).setPosition(0, 0);
-
-    // minimap bottom-right; team score top-center
-    this.mapX = W - MINIMAP_SIZE - 22;
-    this.mapY = H - MINIMAP_H - 22;
-    if (this.mapHit) this.mapHit.setPosition(this.mapX, this.mapY);
-    if (this.mapFrame) this.mapFrame.setPosition(this.mapX - 14, this.mapY - 14);
-    this.drawMapTerrain();
-    if (this.scoreRibbon) this.scoreRibbon.setPosition(cx, 4);
-    if (this.teamScore) this.teamScore.setPosition(cx, 18);
   }
 
   override update(): void {
@@ -795,7 +1021,9 @@ export class HudScene extends Phaser.Scene {
     this.kdaText.setText(`K ${h.kills}  D ${h.deaths}  A ${h.assists}  ·  LH ${h.lastHits}`);
     this.apText.setText(
       h.abilityPoints > 0
-        ? `▲ ${h.abilityPoints} ability point${h.abilityPoints > 1 ? "s" : ""} (Shift+Q/W/E/R)`
+        ? `▲ ${h.abilityPoints} ability point${h.abilityPoints > 1 ? "s" : ""} ${
+            this.touchUi ? "(tap +)" : "(Shift+Q/W/E/R)"
+          }`
         : "",
     );
 
@@ -810,7 +1038,7 @@ export class HudScene extends Phaser.Scene {
     // portrait/level
     const tex = heroSheetTex(h.defId, me.team);
     if (this.portrait.texture.key !== tex && this.textures.exists(tex))
-      this.portrait.setTexture(tex, 0).setDisplaySize(74, 74);
+      this.portrait.setTexture(tex, 0).setDisplaySize(this.portraitSize, this.portraitSize);
     this.lvlText.setText(`${h.level}`);
 
     // bars
@@ -828,6 +1056,8 @@ export class HudScene extends Phaser.Scene {
       const slot = h.abilities[s.key];
       if (!ad) continue;
       const rank = slot.rank;
+      // tappable level-up badge while points are banked (touch/guest path)
+      s.plus.setVisible(me.alive && h.abilityPoints > 0 && rank < ad.maxRank);
       // ability spell icon (set once per hero)
       const iconKey = abilityIcon(ad.effect);
       if (iconKey && this.textures.exists(iconKey)) {

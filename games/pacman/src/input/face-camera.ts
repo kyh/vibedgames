@@ -11,6 +11,7 @@ import type { FaceLandmarkerResult, NormalizedLandmark } from "@mediapipe/tasks-
 import { DrawingUtils, FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
 
 import { HEAD_DEBOUNCE_MS, HEAD_TURN_THRESHOLD, MOUTH_OPEN_RATIO } from "../shared/constants";
+import { IS_TOUCH } from "./input-mode";
 
 /** Verbatim legacy CDN URL (the 0.10.35 JS lib shipped against these binaries). */
 const WASM_CDN = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm";
@@ -86,8 +87,13 @@ export class FaceCamera {
       };
       void video.play();
     } catch (err) {
-      console.error("face camera unavailable:", err);
-      this.setStatus("camera unavailable — keyboard: ←/→ turn · SPACE step");
+      // warn, not error: denial is an expected, fully-handled degradation.
+      console.warn("face camera unavailable:", err);
+      this.setStatus(
+        IS_TOUCH
+          ? "camera unavailable — swipe: ↑ step · ←/→ turn"
+          : "camera unavailable — keyboard: ←/→ turn · SPACE step",
+      );
     }
   }
 

@@ -15,6 +15,10 @@ import {
   UPGRADES,
   upgradeLevel,
 } from "../data/meta";
+import { gameInset, isCoarse } from "../sys/screen";
+
+// A tappable pill: stroke rect (the hit target) + centred label.
+type TapBtn = { rect: Phaser.GameObjects.Rectangle; txt: Phaser.GameObjects.Text };
 
 // The hub: pick a warrior, spend shards to unlock the locked ones, then descend.
 // Best depth + shard bank persist across runs via localStorage.
@@ -41,6 +45,12 @@ export class SelectScene extends Phaser.Scene {
   private shopPanel!: Phaser.GameObjects.Container;
   private shopRows: Phaser.GameObjects.Text[] = [];
   private shopShards!: Phaser.GameObjects.Text;
+  // Touch UI (created only on coarse-pointer devices; undefined on desktop).
+  private touch = false;
+  private goBtn?: TapBtn;
+  private coopBtn?: TapBtn;
+  private vsBtn?: TapBtn;
+  private soundBtn?: TapBtn;
 
   constructor() {
     super("select");
@@ -48,10 +58,15 @@ export class SelectScene extends Phaser.Scene {
 
   create() {
     this.meta = loadMeta();
+    this.touch = isCoarse();
     // A shared ?party=CODE link drops the joiner straight into online mode —
     // co-op by default, versus when the link is flagged &mode=vs.
     this.net = "off";
     this.code = "";
+    // Scene instances persist across start/stop — never let a previous visit's
+    // (destroyed) objects linger in these lists.
+    this.sprites = [];
+    this.locks = [];
     const search = new URLSearchParams(location.search);
     const joinCode = search.get("party");
     if (joinCode) {
@@ -130,6 +145,20 @@ export class SelectScene extends Phaser.Scene {
         .setOrigin(0.5);
       this.sprites.push(spr);
       this.locks.push(lock);
+      // Full-column tap target per hero (works for mouse too): tap selects,
+      // tapping the already-selected hero descends (SPACE equivalent).
+      this.add
+        .zone(x, rowY - 25, BASE_W / (n + 1), 110)
+        .setInteractive()
+        .on("pointerdown", () => {
+          if (this.shopOpen) return;
+          if (i === this.index) this.confirm();
+          else {
+            this.index = i;
+            sfx.select();
+            this.refresh();
+          }
+        });
     });
 
     this.title = this.add
@@ -160,6 +189,7 @@ export class SelectScene extends Phaser.Scene {
         color: "#34e5c8",
       })
       .setOrigin(0.5);
+    this.buildTouchUi();
 
     const kb = this.input.keyboard;
     kb?.on("keydown-LEFT", () => this.move(-1));
@@ -192,12 +222,78 @@ export class SelectScene extends Phaser.Scene {
     this.refresh();
   }
 
+  // ── touch UI (coarse-pointer devices only; desktop keeps the key hints) ──
+  private tapBtn(x: number, y: number, w: number, h: number, onTap: () => void): TapBtn {
+    const rect = this.add
+      .rectangle(x, y, w, h, 0x0b0e14, 0.72)
+      .setStrokeStyle(1, 0x59636f, 0.9)
+      .setInteractive({ useHandCursor: true });
+    rect.on("pointerdown", onTap);
+    const txt = this.add
+      .text(x, y, "", { fontFamily: "monospace", fontSize: "9px", color: "#d8dee6" })
+      .setOrigin(0.5);
+    return { rect, txt };
+  }
+
+  // Tap targets replacing the keyboard chords: GO/UNLOCK · FORGE · CO-OP ·
+  // VERSUS along the bottom edge, sound toggle top-left (phones have no M key
+  // — without this, touch players get permanent silence). Labels/colors are
+  // kept current by refresh().
+  private buildTouchUi() {
+    this.goBtn = undefined;
+    this.coopBtn = undefined;
+    this.vsBtn = undefined;
+    this.soundBtn = undefined;
+    if (!this.touch) return;
+    const ins = gameInset(this);
+    this.bank.setPosition(BASE_W - 8 - ins.right, 8 + ins.top);
+    const y = BASE_H - 20 - ins.bottom;
+    this.hint.setY(y - 25);
+    this.coopText.setY(y - 36);
+    const widths = [96, 58, 58, 66];
+    const gap = 8;
+    const total = widths.reduce((a, b) => a + b) + gap * (widths.length - 1);
+    let x = BASE_W / 2 - total / 2;
+    const centers = widths.map((w) => {
+      const c = x + w / 2;
+      x += w + gap;
+      return c;
+    });
+    this.goBtn = this.tapBtn(centers[0] ?? 0, y, widths[0] ?? 0, 26, () => {
+      if (this.shopOpen) return;
+      const hero = HERO_ORDER[this.index] ?? "axion";
+      if (isUnlocked(this.meta, hero)) this.confirm();
+      else this.buyUnlock();
+    });
+    const forge = this.tapBtn(centers[1] ?? 0, y, widths[1] ?? 0, 26, () => this.toggleShop());
+    forge.txt.setText("FORGE");
+    this.coopBtn = this.tapBtn(centers[2] ?? 0, y, widths[2] ?? 0, 26, () =>
+      this.toggleNet("coop"),
+    );
+    this.coopBtn.txt.setText("CO-OP");
+    this.vsBtn = this.tapBtn(centers[3] ?? 0, y, widths[3] ?? 0, 26, () => this.toggleNet("vs"));
+    this.vsBtn.txt.setText("VERSUS");
+    const snd = this.tapBtn(24 + ins.left, 20 + ins.top, 30, 30, () => {
+      sfx.toggleMute();
+      this.soundBtn?.txt.setText(sfx.muted ? "×" : "♪");
+    });
+    snd.txt.setText(sfx.muted ? "×" : "♪");
+    this.soundBtn = snd;
+  }
+
   // ── Moon Forge (permanent upgrades) ──────────────────────────────────────
   private buildShop() {
     const panel = this.add.container(0, 0).setDepth(50).setVisible(false);
+    // Tapping the dim backdrop (anywhere off a row) closes the panel; the rows
+    // sit above it so their taps win the hit test.
     const dim = this.add.rectangle(0, 0, BASE_W, BASE_H, 0x05070b, 0.84).setOrigin(0);
+    dim.setInteractive().on("pointerdown", () => this.shopOpen && this.toggleShop());
     const title = this.add
-      .text(BASE_W / 2, 32, "MOON FORGE", { fontFamily: "monospace", fontSize: "16px", color: "#34e5c8" })
+      .text(BASE_W / 2, 32, "MOON FORGE", {
+        fontFamily: "monospace",
+        fontSize: "16px",
+        color: "#34e5c8",
+      })
       .setOrigin(0.5);
     const sub = this.add
       .text(BASE_W / 2, 52, "permanent upgrades — carry into every run", {
@@ -213,17 +309,48 @@ export class SelectScene extends Phaser.Scene {
     const top = 98;
     this.shopRows = UPGRADES.map((_, i) => {
       const t = this.add
-        .text(BASE_W / 2, top + i * 22, "", { fontFamily: "monospace", fontSize: "10px", color: "#b8c1cc" })
+        .text(BASE_W / 2, top + i * 22, "", {
+          fontFamily: "monospace",
+          fontSize: "10px",
+          color: "#b8c1cc",
+        })
         .setOrigin(0.5);
+      // Tap a row to select it; tap the selected row to buy (two taps so a
+      // stray touch never spends shards). Padding fattens the hit target.
+      t.setPadding(30, 5, 30, 5)
+        .setInteractive({ useHandCursor: true })
+        .on("pointerdown", () => {
+          if (!this.shopOpen) return;
+          if (this.shopIndex === i) this.buySelected();
+          else {
+            this.shopIndex = i;
+            sfx.select();
+            this.refreshShop();
+          }
+        });
       panel.add(t);
       return t;
     });
+    const close = this.add
+      .text(BASE_W - 18, 16, "✕", { fontFamily: "monospace", fontSize: "13px", color: "#8b95a1" })
+      .setOrigin(0.5)
+      .setPadding(8, 8, 8, 8)
+      .setInteractive({ useHandCursor: true })
+      .on("pointerdown", () => this.shopOpen && this.toggleShop());
+    panel.add(close);
     const hint = this.add
-      .text(BASE_W / 2, BASE_H - 20, "↑ ↓  select      ENTER  buy      M  close", {
-        fontFamily: "monospace",
-        fontSize: "8px",
-        color: "#59636f",
-      })
+      .text(
+        BASE_W / 2,
+        BASE_H - 20,
+        this.touch
+          ? "tap a row to select — tap again to buy — ✕ closes"
+          : "↑ ↓  select      ENTER  buy      M  close",
+        {
+          fontFamily: "monospace",
+          fontSize: "8px",
+          color: "#59636f",
+        },
+      )
       .setOrigin(0.5);
     panel.add(hint);
     this.shopPanel = panel;
@@ -253,7 +380,9 @@ export class SelectScene extends Phaser.Scene {
       this.cameras.main.shake(120, 0.005);
     }
     this.refreshShop();
-    this.bank.setText(`✦ ${this.meta.shards}   BEST D${this.meta.bestDepth}   ★ ${loadBestScore()}`);
+    this.bank.setText(
+      `✦ ${this.meta.shards}   BEST D${this.meta.bestDepth}   ★ ${loadBestScore()}`,
+    );
   }
 
   private refreshShop() {
@@ -297,22 +426,49 @@ export class SelectScene extends Phaser.Scene {
     this.blurb.setText(def.blurb);
 
     const unlocked = isUnlocked(this.meta, name);
-    const go = this.net === "coop" ? "join co-op" : this.net === "vs" ? "enter the duel" : "descend";
+    const go =
+      this.net === "coop" ? "join co-op" : this.net === "vs" ? "enter the duel" : "descend";
+    const goLabel = !unlocked
+      ? `UNLOCK ${UNLOCK_COST[name]} ✦`
+      : this.net === "coop"
+        ? "JOIN CO-OP"
+        : this.net === "vs"
+          ? "DUEL"
+          : "DESCEND";
     this.hint.setText(
-      unlocked
-        ? `← →  choose    SPACE / J  ${go}    C  co-op    V  versus    M  forge`
-        : `← →  choose    U  unlock (${UNLOCK_COST[name]} ✦)    M  forge`,
+      this.touch
+        ? unlocked
+          ? `tap a warrior — tap again or ${goLabel} to go`
+          : "tap UNLOCK to free this warrior"
+        : unlocked
+          ? `← →  choose    SPACE / J  ${go}    C  co-op    V  versus    M  forge`
+          : `← →  choose    U  unlock (${UNLOCK_COST[name]} ✦)    M  forge`,
     );
+    if (this.goBtn) {
+      this.goBtn.txt.setText(goLabel).setColor(unlocked ? "#34e5c8" : "#ffd15c");
+      this.goBtn.rect.setStrokeStyle(1, unlocked ? 0x34e5c8 : 0xffd15c, 0.9);
+    }
+    if (this.coopBtn) {
+      this.coopBtn.rect.setStrokeStyle(1, this.net === "coop" ? 0x34e5c8 : 0x59636f, 0.9);
+      this.coopBtn.txt.setColor(this.net === "coop" ? "#34e5c8" : "#8b95a1");
+    }
+    if (this.vsBtn) {
+      this.vsBtn.rect.setStrokeStyle(1, this.net === "vs" ? 0xe83fa0 : 0x59636f, 0.9);
+      this.vsBtn.txt.setColor(this.net === "vs" ? "#e83fa0" : "#8b95a1");
+    }
+    const bothDo = this.touch ? `tap ${this.net === "vs" ? "DUEL" : "JOIN CO-OP"}` : "press SPACE";
     this.coopText
       .setText(
         this.net === "coop"
-          ? `CO-OP ${this.code}  ·  share this page's URL, then both press SPACE`
+          ? `CO-OP ${this.code}  ·  share this page's URL, then both ${bothDo}`
           : this.net === "vs"
-            ? `⚔ VERSUS ${this.code}  ·  share this page's URL, then both press SPACE  ·  first to 3 rounds`
+            ? `⚔ VERSUS ${this.code}  ·  share this page's URL, then both ${bothDo}  ·  first to 3 rounds`
             : "",
       )
       .setColor(this.net === "vs" ? "#e83fa0" : "#34e5c8");
-    this.bank.setText(`✦ ${this.meta.shards}   BEST D${this.meta.bestDepth}   ★ ${loadBestScore()}`);
+    this.bank.setText(
+      `✦ ${this.meta.shards}   BEST D${this.meta.bestDepth}   ★ ${loadBestScore()}`,
+    );
   }
 
   // Host an online room: mint a code and put it (plus the mode flag) in the URL

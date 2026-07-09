@@ -77,10 +77,19 @@ type RemoteCar = {
   lastMsgAt: number;
 };
 
+/** With an unchanged snapshot, still re-run the sweep this often: distance
+ *  culling tracks the moving LOCAL car and idle taxis must age out even when
+ *  no net message arrives. Well inside the 60u cull hysteresis band. */
+const SWEEP_MS = 500;
+
+type MovedStamp = { x: number; y: number; z: number; h: number; at: number };
+
 export class RemoteCars {
   readonly group = new THREE.Group();
   private cars = new Map<string, RemoteCar>();
-  private lastMoved = new Map<string, { sig: string; at: number }>();
+  private lastMoved = new Map<string, MovedStamp>();
+  private lastPlayers: PlayerMap | null = null;
+  private lastSweepAt = 0;
   private scratchN = new THREE.Vector3();
   private quat = new THREE.Quaternion();
 
@@ -94,6 +103,12 @@ export class RemoteCars {
   /** Adopt the latest player snapshot; `origin` is the local car for culling. */
   sync(players: PlayerMap, myId: string | null, origin: THREE.Vector3): void {
     const now = performance.now();
+    // The client replaces the player map object on every net message — the
+    // same reference means nothing changed, so skip the per-player walk
+    // (this runs every frame; messages arrive at ~15 Hz).
+    if (players === this.lastPlayers && now - this.lastSweepAt < SWEEP_MS) return;
+    this.lastPlayers = players;
+    this.lastSweepAt = now;
     const seen = new Set<string>();
     for (const [id, player] of Object.entries(players)) {
       if (id === myId) continue;
@@ -101,10 +116,18 @@ export class RemoteCars {
       if (!t) continue;
       seen.add(id);
 
-      const sig = `${t.x}:${t.y}:${t.z}:${t.h}`;
-      const moved = this.lastMoved.get(id);
-      if (!moved || moved.sig !== sig) this.lastMoved.set(id, { sig, at: now });
-      const idle = moved !== undefined && moved.sig === sig && now - moved.at > IDLE_CULL_MS;
+      let moved = this.lastMoved.get(id);
+      if (!moved) {
+        moved = { x: t.x, y: t.y, z: t.z, h: t.h, at: now };
+        this.lastMoved.set(id, moved);
+      } else if (moved.x !== t.x || moved.y !== t.y || moved.z !== t.z || moved.h !== t.h) {
+        moved.x = t.x;
+        moved.y = t.y;
+        moved.z = t.z;
+        moved.h = t.h;
+        moved.at = now;
+      }
+      const idle = now - moved.at > IDLE_CULL_MS;
 
       const dx = t.x - origin.x;
       const dz = t.z - origin.z;

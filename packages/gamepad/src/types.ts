@@ -1,8 +1,17 @@
 /** A 2D point / vector in screen-space pixels. */
 export type Vec2 = { x: number; y: number };
 
-/** Current canvas size, used to re-anchor fixed buttons on resize. */
-export type Viewport = { width: number; height: number };
+/** Device safe-area insets (notch / home indicator), screen-space px. */
+export type Inset = { top: number; right: number; bottom: number; left: number };
+
+/** Current canvas size + safe-area insets, used to re-anchor fixed buttons on
+ *  resize. Position resolvers should keep bottom/side-anchored buttons clear
+ *  of `inset` (zeros on devices without notches). */
+export type Viewport = { width: number; height: number; inset: Inset };
+
+/** When the overlay is shown: after the first touch (default), pre-shown on
+ *  coarse-pointer devices so buttons are discoverable, or always. */
+export type VisibilityPolicy = "touch" | "coarse" | "always";
 
 /** Tuning for the floating analog stick. All distances are screen-space px. */
 export type StickOptions = {

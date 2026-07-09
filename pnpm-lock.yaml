@@ -427,6 +427,9 @@ importers:
 
   games/farm:
     dependencies:
+      '@vibedgames/gamepad':
+        specifier: workspace:^
+        version: link:../../packages/gamepad
       '@vibedgames/multiplayer':
         specifier: workspace:^
         version: link:../../packages/multiplayer
@@ -502,6 +505,9 @@ importers:
 
   games/moba:
     dependencies:
+      '@vibedgames/gamepad':
+        specifier: workspace:^
+        version: link:../../packages/gamepad
       '@vibedgames/multiplayer':
         specifier: workspace:^
         version: link:../../packages/multiplayer
@@ -611,6 +617,9 @@ importers:
       '@mediapipe/tasks-vision':
         specifier: 0.10.35
         version: 0.10.35
+      '@vibedgames/gamepad':
+        specifier: workspace:^
+        version: link:../../packages/gamepad
       cannon-es:
         specifier: ^0.20.0
         version: 0.20.0

@@ -29,4 +29,12 @@ const config: Phaser.Types.Core.GameConfig = {
   ],
 };
 
-new Phaser.Game(config);
+declare global {
+  interface Window {
+    /** DEV-only hook for headless verification. */
+    __game?: Phaser.Game;
+  }
+}
+
+const game = new Phaser.Game(config);
+if (import.meta.env.DEV) window.__game = game;

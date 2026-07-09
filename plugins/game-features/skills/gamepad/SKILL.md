@@ -7,8 +7,8 @@ description: "Add on-screen touch controls (virtual joystick + buttons) to brows
 
 Add on-screen touch controls — a floating analog joystick plus action
 buttons — to any browser game with `@vibedgames/gamepad`. Framework-agnostic
-core, with a drop-in Phaser adapter that wires the input and renders the
-overlay for you.
+core, with drop-in adapters that wire the input and render the overlay for
+you: one for Phaser, one for the DOM (Three.js, canvas, anything else).
 
 ## Install
 
@@ -17,12 +17,13 @@ npm install @vibedgames/gamepad
 ```
 
 `phaser` is an **optional** peer dependency — only needed if you use the
-`/phaser` adapter. The core has no engine dependency.
+`/phaser` adapter. The core and `/dom` adapter have no engine dependency.
 
-## Two entry points
+## Three entry points
 
-- `@vibedgames/gamepad` — framework-agnostic `VirtualGamepad` class (Three.js, canvas, vanilla DOM)
-- `@vibedgames/gamepad/phaser` — `attachVirtualGamepad(scene, options)` that wires pointer events and renders the overlay
+- `@vibedgames/gamepad/phaser` — `attachVirtualGamepad(scene, options)` for Phaser games
+- `@vibedgames/gamepad/dom` — `attachDomGamepad(options)` for **everything else** (Three.js, canvas, vanilla). Prefer this over the raw core.
+- `@vibedgames/gamepad` — framework-agnostic `VirtualGamepad` class, for custom event routing / custom renderers only
 
 ## Core concepts
 
@@ -94,7 +95,65 @@ if (dir) this.step(dir);
 **Held vs. edge input:**
 
 - Held (movement, continuous fire): read `isButtonDown(id)` / `getStick()` each frame.
-- Edge (place a bomb, jump once per tap): use the `onButtonDown(id)` / `onButtonUp(id)` callbacks.
+- Edge (place a bomb, jump once per tap): use the `onButtonDown(id)` / `onButtonUp(id)` callbacks, or poll `justPressed(id)` / `justReleased(id)` after `update()` — polling fits fixed-timestep sims where input is sampled once per tick.
+
+## DOM adapter (Three.js / canvas / vanilla)
+
+`attachDomGamepad` renders the stick + buttons as DOM elements in a
+`pointer-events: none` overlay and listens on `window` for touch pointers
+(mouse is ignored, same as Phaser). Taps on interactive elements (`button`,
+`a`, inputs, `[data-gamepad-ignore]`) are left to the page, so it won't
+swallow your HUD.
+
+```ts
+import { attachDomGamepad, stickDirection4 } from "@vibedgames/gamepad/dom";
+
+const gamepad = attachDomGamepad({
+  visible: "coarse", // pre-show fixed buttons on touch devices — discoverable before first touch
+  buttons: [
+    {
+      id: "jump",
+      label: "JUMP",
+      position: (v) => ({ x: v.width - 72 - v.inset.right, y: v.height - 72 - v.inset.bottom }),
+    },
+    { id: "fire" }, // rest button: any non-stick finger
+  ],
+});
+
+// in your rAF game loop:
+gamepad.update(); // ALWAYS once per frame: reconcile + edges + redraw
+const stick = gamepad.getStick();
+if (gamepad.justPressed("jump")) jump();
+if (gamepad.isButtonDown("fire")) shoot();
+
+// on teardown:
+gamepad.destroy();
+```
+
+Requirements: your game surface needs `touch-action: none` (else the browser
+scrolls instead of delivering moves), and `setTint` takes a CSS color string
+here (`"#22d3ee"`), not a number.
+
+## Safe areas (notch / home indicator)
+
+Position resolvers receive `viewport.inset` — the device safe-area insets.
+Subtract them for bottom/side-anchored buttons (see the JUMP example above) so
+controls clear the iOS home indicator. Non-zero values require
+`viewport-fit=cover` in the page's viewport meta tag:
+
+```html
+<meta
+  name="viewport"
+  content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover"
+/>
+```
+
+## Visibility
+
+By default the overlay renders only after the first touch. Fixed buttons that
+don't exist until you touch the screen are undiscoverable — pass
+`visible: "coarse"` (either adapter) to pre-show them on touch-capable
+devices. Desktop with a mouse still never sees them.
 
 ## Keep desktop controls; touch is additive
 
@@ -130,7 +189,8 @@ attachVirtualGamepad(this, {
     knobRadius: 26, // visual puck size
   },
   // stick: false,   // disable the stick entirely (buttons-only)
-  extraPointers: 2, // simultaneous touches beyond the default (default 2 → 3 total)
+  // extraPointers defaults to buttons + 2, so simultaneous holds aren't dropped
+  visible: "coarse", // pre-show fixed buttons on touch devices (default "touch")
   render: {
     depth: 95, // above the world, below a DOM HUD
     tint: 0xffffff, // knob + button color
@@ -145,21 +205,27 @@ this.gamepad.setTint(this.myPlayerColor());
 Pass `render: false` to suppress the built-in renderer and draw it yourself
 from `gamepad.pad` (`getStickGeometry()`, `getStick()`, `getButtonLayout()`).
 
-## Framework-agnostic core (Three.js / canvas / vanilla)
+## Framework-agnostic core (custom routing / custom renderer)
+
+Reach for the raw core only when the DOM adapter doesn't fit (custom event
+sources, in-engine rendering). Coordinates are **CSS pixels** — use
+`clientX/clientY`, never `offsetX` against `canvas.width` (a HiDPI canvas
+buffer is larger than its on-screen size, which mis-anchors fixed buttons).
 
 ```ts
-import { VirtualGamepad, stickDirection8 } from "@vibedgames/gamepad";
+import { VirtualGamepad, safeAreaInset, stickDirection8 } from "@vibedgames/gamepad";
 
 const pad = new VirtualGamepad({ buttons: [{ id: "jump" }] });
-pad.setViewport(canvas.width, canvas.height); // re-call on resize
+pad.setViewport(window.innerWidth, window.innerHeight, safeAreaInset()); // re-call on resize
 
-canvas.addEventListener("pointerdown", (e) => pad.pointerDown(e.pointerId, e.offsetX, e.offsetY));
-canvas.addEventListener("pointermove", (e) => pad.pointerMove(e.pointerId, e.offsetX, e.offsetY));
-canvas.addEventListener("pointerup", (e) => pad.pointerUp(e.pointerId));
-canvas.addEventListener("pointercancel", (e) => pad.pointerUp(e.pointerId));
+window.addEventListener("pointerdown", (e) => pad.pointerDown(e.pointerId, e.clientX, e.clientY));
+window.addEventListener("pointermove", (e) => pad.pointerMove(e.pointerId, e.clientX, e.clientY));
+window.addEventListener("pointerup", (e) => pad.pointerUp(e.pointerId));
+window.addEventListener("pointercancel", (e) => pad.pointerUp(e.pointerId));
 
 // each frame:
 pad.reconcile([...activePointerIds]); // drop touches whose up was missed
+pad.nextFrame(); // publish justPressed/justReleased edges
 const stick = pad.getStick();
 const dir = stickDirection8(stick); // 8-way, or stickDirection4 for grids
 const jumping = pad.isButtonDown("jump");
@@ -173,7 +239,12 @@ Lost `up` events leave the stick/button stuck on. Call it every frame.
 
 ❌ **Reading a held button for a one-shot action.**
 `isButtonDown("bomb")` is true for the whole press — you'll drop a bomb every
-frame. Use `onButtonDown` for tap actions.
+frame. Use `onButtonDown` or `justPressed` for tap actions.
+
+❌ **Forcing a joystick onto a game with a better native gesture.**
+Tap-anywhere (flappy), swipe (pacman-style turns), or absolute drag (pong
+paddles) beat a virtual stick. The package is for games that need held
+directional movement + action buttons; keep superior gestures as they are.
 
 ❌ **Driving steering off `angle` while in the dead zone.**
 A parked thumb has a noisy angle. Gate on `stick.active && !stick.inDeadZone`

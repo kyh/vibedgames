@@ -104,6 +104,11 @@ export const COMBO_PEAK_HITS = 14;
 
 // ---- camera ------------------------------------------------------------------
 export const CAM_FOV = 44;
+// Below this aspect the camera switches from a fixed VERTICAL fov to holding
+// the HORIZONTAL fov of a CAM_MIN_LANDSCAPE_ASPECT view constant ("Hor+").
+// Portrait phones would otherwise crop the court to ±2.1 world units at
+// paddle depth (aspect ~0.46) while the paddle travels ±PADDLE_X_MAX.
+export const CAM_MIN_LANDSCAPE_ASPECT = 1.3;
 // Low and a touch back from the player baseline (paddle is at y=−8) — an
 // immersive 3/4 that the proximity dip ducks lower still as the ball nears.
 export const CAM_POS = { x: 0, y: -15, z: 9 } as const;

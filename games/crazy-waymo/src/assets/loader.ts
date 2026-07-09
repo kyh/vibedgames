@@ -8,6 +8,24 @@ export type Bounds = {
   readonly center: THREE.Vector3;
 };
 
+// Batch-layout key: BatchedMesh requires every geometry in a batch to agree
+// on attribute names AND itemSize AND normalized — and it allocates the
+// batch's storage with the FIRST geometry's typed-array class, so the array
+// type must match too or later copies land in the wrong integer range.
+// Meshopt-quantized GLBs differ per file (one model's uv may be normalized
+// Int16, another's plain Float32), and material dedup makes cross-model
+// buckets the norm — so bucket keys must carry the full layout, not just the
+// attribute names.
+export function geoLayoutKey(geo: THREE.BufferGeometry): string {
+  const parts: string[] = [];
+  for (const [name, attr] of Object.entries(geo.attributes)) {
+    const arrType = "array" in attr && attr.array ? attr.array.constructor.name : "gl";
+    parts.push(`${name}:${attr.itemSize}:${attr.normalized ? 1 : 0}:${arrType}`);
+  }
+  parts.sort();
+  return `${parts.join(",")}|${geo.index ? "i" : "n"}`;
+}
+
 // Mesh-only bounds (ignores empty groups/helpers). Models with no mesh fall
 // back to a unit box so placement math never divides by zero.
 function computeMeshBounds(obj: THREE.Object3D): Bounds {
@@ -35,10 +53,122 @@ export class ModelCache {
   private loader = new GLTFLoader();
   private templates = new Map<string, THREE.Object3D>();
   private boundsCache = new Map<string, Bounds>();
+  // Material dedup at load: every GLB in a kit embeds its own copy of the
+  // shared colormap + an identical material, which multiplies BatchedMesh /
+  // merge buckets (~one per model instead of ~one per kit). Replace each
+  // freshly loaded material with the first-seen canonical instance whose
+  // parameters AND texture pixels match.
+  private canonMats = new Map<string, THREE.Material>();
+  private texFingerprints = new Map<THREE.Texture, string>();
+  private fpCtx: CanvasRenderingContext2D | null = null;
 
   constructor() {
     // Bundled GLBs are meshopt-compressed (EXT_meshopt_compression).
     this.loader.setMeshoptDecoder(MeshoptDecoder);
+  }
+
+  // Identity of a texture's IMAGE: dimensions + a 32×32 NEAREST-sampled pixel
+  // grid (kit colormaps are palettes — identical copies match exactly; any
+  // two distinct maps disagree on sampled texels; smoothing is off so no two
+  // near-white palettes can blur to the same bytes) + every sampling
+  // parameter that affects rendering. Load order must never change what a
+  // model looks like, so a collision here would be a real rendering bug.
+  private textureFingerprint(tex: THREE.Texture): string {
+    const cached = this.texFingerprints.get(tex);
+    if (cached) return cached;
+    let fp = tex.uuid; // fallback: unique → never deduped
+    const img: unknown = tex.image;
+    const FP = 32;
+    if (
+      (typeof ImageBitmap !== "undefined" && img instanceof ImageBitmap) ||
+      (typeof HTMLImageElement !== "undefined" && img instanceof HTMLImageElement) ||
+      (typeof HTMLCanvasElement !== "undefined" && img instanceof HTMLCanvasElement)
+    ) {
+      try {
+        if (!this.fpCtx) {
+          const canvas = document.createElement("canvas");
+          canvas.width = FP;
+          canvas.height = FP;
+          this.fpCtx = canvas.getContext("2d", { willReadFrequently: true });
+        }
+        const ctx = this.fpCtx;
+        if (ctx) {
+          ctx.imageSmoothingEnabled = false;
+          ctx.clearRect(0, 0, FP, FP);
+          ctx.drawImage(img, 0, 0, FP, FP);
+          const data = ctx.getImageData(0, 0, FP, FP).data;
+          // FNV-1a over the sampled pixels — cheap and order-stable.
+          let h1 = 2166136261;
+          let h2 = 5381;
+          for (let i = 0; i < data.length; i++) {
+            const b = data[i] ?? 0;
+            h1 = Math.imul(h1 ^ b, 16777619);
+            h2 = (Math.imul(h2, 33) + b) | 0;
+          }
+          fp = [
+            img.width,
+            img.height,
+            h1 >>> 0,
+            h2 >>> 0,
+            tex.colorSpace,
+            tex.channel,
+            tex.flipY ? 1 : 0,
+            tex.wrapS,
+            tex.wrapT,
+            tex.magFilter,
+            tex.minFilter,
+            tex.rotation,
+            tex.repeat.x,
+            tex.repeat.y,
+            tex.offset.x,
+            tex.offset.y,
+          ].join("|");
+        }
+      } catch {
+        // tainted/undrawable image — keep the unique fallback
+      }
+    }
+    this.texFingerprints.set(tex, fp);
+    return fp;
+  }
+
+  // The canonical instance for a just-loaded material (first-seen wins).
+  // Only the kit shape is deduped: MeshStandardMaterial with at most a base
+  // color map — anything fancier keeps its own instance untouched.
+  private dedupMaterial(mat: THREE.Material): THREE.Material {
+    if (!(mat instanceof THREE.MeshStandardMaterial)) return mat;
+    if (
+      mat.normalMap ||
+      mat.roughnessMap ||
+      mat.metalnessMap ||
+      mat.emissiveMap ||
+      mat.aoMap ||
+      mat.alphaMap ||
+      mat.bumpMap ||
+      mat.displacementMap ||
+      mat.lightMap
+    ) {
+      return mat;
+    }
+    const key = [
+      mat.color.getHex(),
+      mat.roughness,
+      mat.metalness,
+      mat.emissive.getHex(),
+      mat.emissiveIntensity,
+      mat.transparent ? 1 : 0,
+      mat.opacity,
+      mat.alphaTest,
+      mat.side,
+      mat.depthWrite ? 1 : 0,
+      mat.flatShading ? 1 : 0,
+      mat.vertexColors ? 1 : 0,
+      mat.map ? this.textureFingerprint(mat.map) : "none",
+    ].join("|");
+    const canon = this.canonMats.get(key);
+    if (canon) return canon;
+    this.canonMats.set(key, mat);
+    return mat;
   }
 
   private loadOne(url: string): Promise<void> {
@@ -51,6 +181,9 @@ export class ModelCache {
             if (child instanceof THREE.Mesh) {
               child.castShadow = true;
               child.receiveShadow = true;
+              if (!Array.isArray(child.material)) {
+                child.material = this.dedupMaterial(child.material);
+              }
             }
           });
           this.templates.set(url, scene);

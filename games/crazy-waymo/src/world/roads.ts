@@ -73,6 +73,70 @@ const MAT_WHITE = new THREE.MeshStandardMaterial({
 });
 ROAD_MATERIALS.white = MAT_WHITE;
 
+// --- Collapsed render materials ---
+// The six flat colors above stay as the stable WIRE keys (worker payloads,
+// caches, live street rebuild), but meshes render through just TWO materials
+// with the color baked into a vertex attribute (the ground already renders
+// this way): one base surface (asphalt/sidewalk/curb) and one polygon-offset
+// paint overlay (dash/yellow/white share identical decal params). Same final
+// colors, a third of the draw calls per chunk.
+const MAT_ROAD_BASE = new THREE.MeshStandardMaterial({
+  color: 0xffffff,
+  vertexColors: true,
+  roughness: 1,
+});
+ROAD_MATERIALS.roadbase = MAT_ROAD_BASE;
+const MAT_ROAD_MARK = new THREE.MeshStandardMaterial({
+  color: 0xffffff,
+  vertexColors: true,
+  roughness: 0.9,
+  polygonOffset: true,
+  polygonOffsetFactor: -2,
+  polygonOffsetUnits: -4,
+});
+ROAD_MATERIALS.roadmark = MAT_ROAD_MARK;
+
+type CollapseTarget = { readonly mat: THREE.Material; readonly color: THREE.Color };
+const BASE_TARGET: CollapseTarget = { mat: MAT_ROAD_BASE, color: MAT_ASPHALT.color };
+// Legacy material key → collapsed material + the color it used to carry.
+const COLLAPSE_BY_KEY: Record<string, CollapseTarget> = {
+  asphalt: BASE_TARGET,
+  walk: { mat: MAT_ROAD_BASE, color: MAT_SIDEWALK.color },
+  curb: { mat: MAT_ROAD_BASE, color: MAT_CURB.color },
+  dash: { mat: MAT_ROAD_MARK, color: MAT_DASH.color },
+  yellow: { mat: MAT_ROAD_MARK, color: MAT_YELLOW.color },
+  white: { mat: MAT_ROAD_MARK, color: MAT_WHITE.color },
+};
+
+// Collapse target for a captured/baked material descriptor (legacy rest.bin
+// chunks carry the six flat road materials): matched by the exact colors the
+// capture serialized. Already-collapsed (vertex-colored) recs pass through.
+export function roadCollapseTarget(
+  colorHex: number,
+  polygonOffset: boolean,
+  vertexColors: boolean,
+): CollapseTarget | null {
+  if (vertexColors) return null;
+  for (const t of Object.values(COLLAPSE_BY_KEY)) {
+    const isMark = t.mat === MAT_ROAD_MARK;
+    if (isMark === polygonOffset && t.color.getHex() === colorHex) return t;
+  }
+  return null;
+}
+
+// Fill a constant vertex-color attribute matching `color` (linear-space, the
+// same value the collapsed flat material used as its uniform color).
+export function bakeConstantColor(geo: THREE.BufferGeometry, color: THREE.Color): void {
+  const pos = geo.getAttribute("position");
+  const col = new Float32Array(pos.count * 3);
+  for (let i = 0; i < col.length; i += 3) {
+    col[i] = color.r;
+    col[i + 1] = color.g;
+    col[i + 2] = color.b;
+  }
+  geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+}
+
 type Part = { geo: THREE.BufferGeometry; mat: THREE.Material; lift: number };
 
 export type RoadPartBuffers = {
@@ -211,8 +275,14 @@ function flatGeo(pos: number[]): THREE.BufferGeometry {
 
 // Intersection of two rays (p + t*d); null when near-parallel.
 function lineIntersect(
-  ax: number, az: number, adx: number, adz: number,
-  bx: number, bz: number, bdx: number, bdz: number,
+  ax: number,
+  az: number,
+  adx: number,
+  adz: number,
+  bx: number,
+  bz: number,
+  bdx: number,
+  bdz: number,
 ): Pair | null {
   const den = adx * bdz - adz * bdx;
   if (Math.abs(den) < 1e-4) return null;
@@ -241,8 +311,14 @@ function patchRing(nx: number, nz: number, arms: Arm[], extra: number, trimCap: 
     ring.push([snap(a.px + a.tz * ha), snap(a.pz - a.tx * ha)]); // a minus side
     ring.push([snap(a.px - a.tz * ha), snap(a.pz + a.tx * ha)]); // a plus side
     const corner = lineIntersect(
-      a.px - a.tz * ha, a.pz + a.tx * ha, -a.tx, -a.tz,
-      b.px + b.tz * hb, b.pz - b.tx * hb, -b.tx, -b.tz,
+      a.px - a.tz * ha,
+      a.pz + a.tx * ha,
+      -a.tx,
+      -a.tz,
+      b.px + b.tz * hb,
+      b.pz - b.tx * hb,
+      -b.tx,
+      -b.tz,
     );
     if (corner) {
       const cd = Math.hypot(corner[0] - nx, corner[1] - nz);
@@ -314,12 +390,14 @@ function tiledPlanarMap(asphaltPolys: Poly[], curbPolys: Poly[], pavePolys: Poly
       const z0 = minZ + iz * dz;
       const x1 = x0 + dx;
       const z1 = z0 + dz;
-      const rect: Poly = [[
-        [snap(x0), snap(z0)],
-        [snap(x1), snap(z0)],
-        [snap(x1), snap(z1)],
-        [snap(x0), snap(z1)],
-      ]];
+      const rect: Poly = [
+        [
+          [snap(x0), snap(z0)],
+          [snap(x1), snap(z0)],
+          [snap(x1), snap(z1)],
+          [snap(x0), snap(z1)],
+        ],
+      ];
       const local = (polys: Poly[], bx: [number, number, number, number][]): Poly[] =>
         polys.filter((_, i) => {
           const b = bx[i];
@@ -441,8 +519,16 @@ export function buildRoadParts(network: RoadNetwork, terrain: Terrain): RoadPart
     const major = h > 5.5;
     const eo = h - EDGE_INSET;
     const edgeMat = major ? MAT_YELLOW : MAT_WHITE;
-    markingParts.push({ geo: stripGeo(rail, eo - LINE_W / 2, eo + LINE_W / 2), mat: edgeMat, lift: LINE_LIFT });
-    markingParts.push({ geo: stripGeo(rail, -eo - LINE_W / 2, -eo + LINE_W / 2), mat: edgeMat, lift: LINE_LIFT });
+    markingParts.push({
+      geo: stripGeo(rail, eo - LINE_W / 2, eo + LINE_W / 2),
+      mat: edgeMat,
+      lift: LINE_LIFT,
+    });
+    markingParts.push({
+      geo: stripGeo(rail, -eo - LINE_W / 2, -eo + LINE_W / 2),
+      mat: edgeMat,
+      lift: LINE_LIFT,
+    });
 
     // Dashes (junction-clipped so they never float through a merged blob):
     // boulevards carry two white lane lines, streets one yellow centre line.
@@ -542,13 +628,7 @@ export function buildRoadParts(network: RoadNetwork, terrain: Terrain): RoadPart
         if (Math.min(gapTo(prev), gapTo(next)) < Math.PI / 3) continue;
         const ox = -a.tz;
         const oz = a.tx;
-        const quad = (
-          out: number[],
-          d0: number,
-          d1: number,
-          l0: number,
-          l1: number,
-        ): void => {
+        const quad = (out: number[], d0: number, d1: number, l0: number, l1: number): void => {
           // Emit in ~1.2u slices on both axes so the drape follows terrain
           // curvature as closely as the asphalt underneath does.
           const dSlices = Math.max(1, Math.ceil((d1 - d0) / 1.2));
@@ -569,7 +649,26 @@ export function buildRoadParts(network: RoadNetwork, terrain: Terrain): RoadPart
               const z11 = a.pz + a.tz * db + oz * lb;
               // (t, o) is a LEFT-handed basis in XZ — emit reversed so the
               // triangles wind CCW from above (else they backface-cull).
-              out.push(x00, 0, z00, x11, 0, z11, x10, 0, z10, x00, 0, z00, x01, 0, z01, x11, 0, z11);
+              out.push(
+                x00,
+                0,
+                z00,
+                x11,
+                0,
+                z11,
+                x10,
+                0,
+                z10,
+                x00,
+                0,
+                z00,
+                x01,
+                0,
+                z01,
+                x11,
+                0,
+                z11,
+              );
             }
           }
         };
@@ -646,7 +745,10 @@ export function roadPartsToMeshes(parts: readonly RoadPartBuffers[]): THREE.Mesh
     geo.setAttribute("normal", new THREE.BufferAttribute(p.normal, 3));
     if (p.uv) geo.setAttribute("uv", new THREE.BufferAttribute(p.uv, 2));
     if (p.index) geo.setIndex(new THREE.BufferAttribute(p.index, 1));
-    out.push(new THREE.Mesh(geo, ROAD_MATERIALS[p.matKey] ?? ROAD_MATERIALS.asphalt));
+    // Legacy wire key → one of the two collapsed vertex-colored materials.
+    const target = COLLAPSE_BY_KEY[p.matKey] ?? BASE_TARGET;
+    bakeConstantColor(geo, target.color);
+    out.push(new THREE.Mesh(geo, target.mat));
   }
   return out;
 }

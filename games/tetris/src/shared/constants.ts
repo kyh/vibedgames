@@ -164,6 +164,15 @@ export const POWER_COOLDOWN_MS = 800;
 export const DAS_MS = 170; // delay before auto-repeat
 export const ARR_MS = 60; // auto-repeat interval
 
+// ---- touch (on-screen gamepad) ------------------------------------------------
+
+/** Held-stick auto-repeat — gentler than keyboard DAS/ARR: a thumb on glass
+ *  overshoots discrete steps more easily than a key does. */
+export const TOUCH_DAS_MS = 220;
+export const TOUCH_ARR_MS = 90;
+/** DROP released within this = hard drop (tap); held longer = soft drop only. */
+export const DROP_TAP_MS = 250;
+
 // ---- look / palette ---------------------------------------------------------
 
 /** Background + enclosure: dark, slightly desaturated navy (Tokyo-Night-ish). */

@@ -32,6 +32,7 @@ import {
   CAM_DIP_MAX,
   CAM_DIP_RATE,
   CAM_FOV,
+  CAM_MIN_LANDSCAPE_ASPECT,
   CAM_PARALLAX_OMEGA,
   CAM_POS,
   CAM_RETURN_LERP,
@@ -97,6 +98,7 @@ import {
   WALL_X,
   WIN_SCORE,
 } from "../shared/constants";
+import { COARSE_INPUT } from "../shared/input-mode";
 
 type Phase = "serving" | "rally" | "won";
 
@@ -204,12 +206,8 @@ export class GameScene {
 
     this.scene.background = new THREE.Color(BG);
 
-    this.camera = new THREE.PerspectiveCamera(
-      CAM_FOV,
-      window.innerWidth / window.innerHeight,
-      0.1,
-      100,
-    );
+    const aspect = window.innerWidth / window.innerHeight;
+    this.camera = new THREE.PerspectiveCamera(fovForAspect(aspect), aspect, 0.1, 100);
     // World-up = +z so every lookAt keeps the horizon level: as the orbit walks
     // the camera sideways it YAWS around the vertical axis (the table turns as if
     // you stepped to the side) instead of banking/rolling. Default up (0,1,0)
@@ -318,12 +316,23 @@ export class GameScene {
     window.addEventListener("pointerup", this.onPointerUp);
     window.addEventListener("pointercancel", this.onPointerUp);
 
+    // Touch-reachable sound toggle (the M key doesn't exist on phones). The
+    // tap must not bubble to the window pointerdown handler, which would
+    // read it as a serve/rematch confirm.
+    this.soundEl.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      toggleMute();
+      this.syncSound();
+    });
+
+    this.promptEl.textContent = COARSE_INPUT ? "tap to serve" : "press space or tap to serve";
     this.syncHud();
     this.syncSound();
   }
 
   resize(aspect: number): void {
     this.camera.aspect = aspect;
+    this.camera.fov = fovForAspect(aspect);
     this.camera.updateProjectionMatrix();
   }
 
@@ -432,6 +441,11 @@ export class GameScene {
     return performance.now() - this.handSeenAt < HAND_TIMEOUT_MS ? this.handX : null;
   }
 
+  // Mobile controls ARE these pointer handlers: an absolute touch-drag maps
+  // 1:1 onto the paddle (raycast to the table plane) and a tap serves — a
+  // relative joystick/button overlay (@vibedgames/gamepad) would be strictly
+  // worse for pong, so it is deliberately not used here.
+  //
   // Legacy gimmick: while dragging, the pointer pans the camera and the
   // paddle ignores it; otherwise pointermove drives the paddle (unless a
   // hand currently owns it).
@@ -1093,7 +1107,8 @@ export class GameScene {
     } else if (this.phase === "won") {
       const iWon = this.scoreYou > this.scoreAi;
       const strong = iWon ? "you win" : human ? "rival wins" : "ai wins";
-      this.bannerEl.replaceChildren(strong, smallNote("press space or tap for rematch"));
+      const note = COARSE_INPUT ? "tap for rematch" : "press space or tap for rematch";
+      this.bannerEl.replaceChildren(strong, smallNote(note));
       this.bannerEl.style.opacity = "1";
     } else {
       this.bannerEl.style.opacity = "0";
@@ -1101,9 +1116,11 @@ export class GameScene {
     this.netInfoEl.textContent = this.netInfoText();
   }
 
-  /** Mute indicator — reflects the persisted opt-in on load and each M toggle. */
+  /** Mute indicator — reflects the persisted opt-in on load and each toggle
+   *  (M key or tapping the indicator itself). */
   private syncSound(): void {
-    this.soundEl.textContent = isMuted() ? "🔇 m for sound" : "🔊 m to mute";
+    const verb = COARSE_INPUT ? "tap" : "m";
+    this.soundEl.textContent = isMuted() ? `🔇 ${verb} for sound` : `🔊 ${verb} to mute`;
   }
 
   private netInfoText(): string {
@@ -1148,6 +1165,20 @@ const SCRATCH_M4 = new THREE.Matrix4();
 
 function clamp(v: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, v));
+}
+
+/**
+ * Vertical fov (deg) for the current aspect. Landscape keeps the authored
+ * CAM_FOV; below CAM_MIN_LANDSCAPE_ASPECT the HORIZONTAL fov of that
+ * narrowest-landscape framing is held constant instead ("Hor+"), so portrait
+ * phones widen vertically rather than cropping the paddle's ±PADDLE_X_MAX
+ * travel out of frame. Continuous at the threshold. The guest's 180° view
+ * flip only negates rendered x/y — framing is symmetric, so no special case.
+ */
+function fovForAspect(aspect: number): number {
+  if (aspect >= CAM_MIN_LANDSCAPE_ASPECT) return CAM_FOV;
+  const tanHalfH = Math.tan(THREE.MathUtils.degToRad(CAM_FOV / 2)) * CAM_MIN_LANDSCAPE_ASPECT;
+  return THREE.MathUtils.radToDeg(2 * Math.atan(tanHalfH / aspect));
 }
 
 /** Read a numeric field from an opaque shared-state record, or null. */

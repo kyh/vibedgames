@@ -1,5 +1,5 @@
-import { attachVirtualGamepad } from "@vibedgames/gamepad/phaser";
-import type { PhaserGamepad } from "@vibedgames/gamepad/phaser";
+import { attachVirtualGamepad, safeAreaInset } from "@vibedgames/gamepad/phaser";
+import type { Inset, PhaserGamepad } from "@vibedgames/gamepad/phaser";
 import { MultiplayerClient } from "@vibedgames/multiplayer";
 import type { Player, PlayerMap } from "@vibedgames/multiplayer";
 import Phaser from "phaser";
@@ -438,6 +438,15 @@ const SPLINTER_LIFE_MS = 7000;
 const SPLINTER_PX = 2;
 /** Host suppresses enemy spawns for the arena's first seconds (safe opening). */
 const ARENA_SAFE_MS = 6000;
+/** Coarse-pointer boot check: phones/tablets get the touch copy immediately
+ *  instead of waiting for the first tap to flip `gamepad.isTouch`. */
+const IS_COARSE_POINTER =
+  window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+/** Narrow-viewport zoom-out (PvP reaction fairness): viewports narrower than
+ *  REF render at width/REF zoom, floored at MIN — phones land at ~0.75 and see
+ *  more world. The off-world mask (MASK_PAD) covers any zoomed half-view. */
+const CAMERA_REF_WIDTH = 1100;
+const CAMERA_MIN_ZOOM = 0.75;
 
 function emptyShared(): SharedState {
   // Every resettable field MUST be present — patches shallow-merge, so an
@@ -697,6 +706,17 @@ export class GameScene extends Phaser.Scene {
   private splinterGfx!: Phaser.GameObjects.Graphics;
   private minimapGfx!: Phaser.GameObjects.Graphics;
   private flashRect!: Phaser.GameObjects.Rectangle;
+  /** Joystick overlay, scene-drawn (adapter `render: false`) so syncScreenUi
+   *  can counter the camera zoom — see drawPadOverlay. */
+  private padGfx!: Phaser.GameObjects.Graphics;
+  /** Device safe-area insets (home indicator/notch), re-read on resize; keeps
+   *  the canvas-drawn minimap off the home indicator. */
+  private safeInset: Inset = { top: 0, right: 0, bottom: 0, left: 0 };
+  /** Current trauma roll in degrees (what setAngle was last given) — Phaser 4
+   *  types expose no camera `rotation` getter, so syncScreenUi reads this. */
+  private camRollDeg = 0;
+  /** Scratch vector for screen→world cursor mapping (zero-alloc steering). */
+  private readonly pointerWorld = new Phaser.Math.Vector2();
   private splinters: Splinter[] = [];
   private muzzleFlashes: MuzzleFlash[] = [];
   private remoteTrailCount = 0;
@@ -789,6 +809,13 @@ export class GameScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setDepth(90)
       .setAlpha(0);
+    // Same overlay style as the adapter's built-in renderer (depth 95: above
+    // the world, below the DOM HUD; additive glow over the dark arena).
+    this.padGfx = this.add
+      .graphics()
+      .setScrollFactor(0)
+      .setDepth(95)
+      .setBlendMode(Phaser.BlendModes.ADD);
 
     // No `initialState`: the package re-applies it whenever a client becomes
     // host, which would wipe the live world on host migration. The first host
@@ -813,17 +840,18 @@ export class GameScene extends Phaser.Scene {
       sfx.unlock(); // WebAudio needs a user gesture
     });
 
-    // Sound is opt-in: muted by default, M toggles, choice persists (see sfx).
-    // The keydown itself is the user gesture that unlocks audio when enabling.
+    // Sound is opt-in: muted by default, M or tapping the HUD button toggles,
+    // choice persists (see sfx). The gesture itself unlocks audio.
     this.input.keyboard?.on("keydown-M", () => {
       sfx.toggleMute();
       this.updateMuteHud();
     });
-    this.updateMuteHud();
+    this.muteEl?.addEventListener("click", this.onMuteClick);
 
     // Mobile controller: a floating move-joystick (first finger) plus a "rest"
-    // fire button — any finger that isn't the stick fires. Screen-fixed,
-    // additive glow at depth 95 (above the world, below the DOM HUD).
+    // fire button — any finger that isn't the stick fires. `render: false`:
+    // the scene draws the overlay itself (drawPadOverlay) because screen-fixed
+    // objects inherit the main camera's zoom and must counter it.
     this.gamepad = attachVirtualGamepad(this, {
       stick: {
         radius: JOYSTICK_RADIUS,
@@ -831,14 +859,21 @@ export class GameScene extends Phaser.Scene {
         knobRadius: JOYSTICK_KNOB_RADIUS,
       },
       buttons: [{ id: "fire" }],
-      render: { depth: 95 },
+      render: false,
       onFirstTouch: () => this.enterTouchMode(),
     });
+    if (IS_COARSE_POINTER) this.enterTouchMode(); // touch copy from boot, not first tap
+    this.updateMuteHud();
+
+    this.scale.on(Phaser.Scale.Events.RESIZE, this.onViewportChange, this);
+    this.onViewportChange();
 
     // Single-start assumption: this scene is started once per page load and
     // never restarted, so create()-initialized fields are never stale. `once`
     // keeps the shutdown hook from stacking if that ever changes.
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.scale.off(Phaser.Scale.Events.RESIZE, this.onViewportChange, this);
+      this.muteEl?.removeEventListener("click", this.onMuteClick);
       this.gamepad.destroy();
       if (!this.offline) this.client.destroy(); // offline already destroyed it
     });
@@ -851,7 +886,10 @@ export class GameScene extends Phaser.Scene {
     this.starfield.update(dt, time);
     this.barrier.update(time, this.world.playW, this.world.playH);
     if (!this.offline) this.maybeGoOffline();
-    if (!this.live) return;
+    if (!this.live) {
+      this.syncScreenUi(); // camera is static here; keep the vignette pinned
+      return;
+    }
     const now = Date.now();
     // Parse every peer's net state once for this frame; readers below (aim,
     // mines, PvP, host sim, render, minimap) all pull from the map.
@@ -862,9 +900,8 @@ export class GameScene extends Phaser.Scene {
 
     this.ensureSpawned();
     this.tickRespawn(now);
-    // Tint the joystick + fire button to the local ship's color, then let the
-    // gamepad reconcile dropped touches and redraw its overlay.
-    this.gamepad.setTint(this.myTint());
+    // Reconcile dropped touches + publish press edges; the overlay itself is
+    // drawn by drawPadOverlay (adapter render: false).
     this.gamepad.update();
     this.steerShip(dt);
     this.handleShooting(delta, now);
@@ -904,8 +941,25 @@ export class GameScene extends Phaser.Scene {
     this.fx.update(dt, this.time.now);
     this.drawMinimap();
     this.updateCamera(dt, time);
+    this.drawPadOverlay();
+    this.syncScreenUi();
     this.updateHud(now);
   }
+
+  /** Resize/rotation: re-read the safe-area insets and re-derive camera zoom. */
+  private onViewportChange(): void {
+    this.safeInset = safeAreaInset();
+    const zoom = Phaser.Math.Clamp(this.scale.width / CAMERA_REF_WIDTH, CAMERA_MIN_ZOOM, 1);
+    this.cameras.main.setZoom(zoom);
+  }
+
+  /** Tap/click the HUD sound button — the touch-reachable M-key equivalent.
+   *  The gesture doubles as the WebAudio unlock. */
+  private readonly onMuteClick = (): void => {
+    sfx.unlock();
+    sfx.toggleMute();
+    this.updateMuteHud();
+  };
 
   // ---- input + my ship -------------------------------------------------------
 
@@ -1054,19 +1108,21 @@ export class GameScene extends Phaser.Scene {
       };
     }
     if (!this.pointerSeen) return null;
-    const cam = this.cameras.main;
     const p = this.input.activePointer;
-    const dx = p.x + cam.scrollX - this.shipX;
-    const dy = p.y + cam.scrollY - this.shipY;
+    // Screen→world through the camera: scrollX alone mis-aims under zoom < 1.
+    const cursor = this.cameras.main.getWorldPoint(p.x, p.y, this.pointerWorld);
+    const dx = cursor.x - this.shipX;
+    const dy = cursor.y - this.shipY;
     const dist = Math.hypot(dx, dy);
     const thrust = Math.min(1, Math.max(0, (dist - SHIP_DEAD_ZONE) / SHIP_THRUST_RAMP));
     return { angle: Math.atan2(dy, dx), thrust, dist, deadZone: SHIP_DEAD_ZONE, aim: dist > 0.001 };
   }
 
-  /** Rewrite the attract hint for the touch control scheme. Fired once, the
-   *  first time the gamepad sees a finger. */
+  /** Rewrite the attract hint + mute copy for the touch control scheme. Fired
+   *  at boot on coarse-pointer devices, else the first time a finger lands. */
   private enterTouchMode(): void {
     if (this.attractEl) this.attractEl.innerHTML = "Drag to move. Tap to shoot";
+    this.updateMuteHud();
   }
 
   /** Holding fire: any non-stick finger on touch, or the mouse button on desktop. */
@@ -5016,6 +5072,58 @@ export class GameScene extends Phaser.Scene {
     const s = this.trauma.update(dt, timeMs / 1000);
     this.cameras.main.centerOn(this.shipX + this.kickX + s.ox, this.shipY + this.kickY + s.oy);
     this.cameras.main.setAngle(s.rot);
+    this.camRollDeg = s.rot; // syncScreenUi counters this roll on the HUD layer
+  }
+
+  /**
+   * Screen-fixed objects (scrollFactor 0) still inherit the main camera's zoom
+   * and trauma roll — Phaser transforms them about the viewport centre. Counter
+   * both every frame so their local coordinates read as plain CSS pixels
+   * anchored at the screen's top-left (minimap corner-pinned, flash
+   * full-screen, joystick under the finger).
+   */
+  private syncScreenUi(): void {
+    const zoom = this.cameras.main.zoom;
+    const rot = Phaser.Math.DegToRad(this.camRollDeg);
+    const cx = this.scale.width / 2;
+    const cy = this.scale.height / 2;
+    const cos = Math.cos(rot);
+    const sin = Math.sin(rot);
+    // Anchor = centre + R(−rot)·(0 − centre)/zoom → local (0,0) lands on
+    // screen (0,0). Uniform zoom commutes with the rotation, so one matrix
+    // order covers Phaser's camera transform.
+    const x = cx - (cx * cos + cy * sin) / zoom;
+    const y = cy + (cx * sin - cy * cos) / zoom;
+    for (const obj of [this.minimapGfx, this.flashRect, this.padGfx, this.barrier.vignette]) {
+      obj
+        .setPosition(x, y)
+        .setRotation(-rot)
+        .setScale(1 / zoom);
+    }
+  }
+
+  /** Draw the floating joystick into padGfx in screen-space CSS px (mapped 1:1
+   *  by syncScreenUi). Replaces the adapter's renderer (`render: false`), which
+   *  can't counter the camera zoom. The fire button is a "rest" button with no
+   *  on-screen position, so the stick is all there is to draw. */
+  private drawPadOverlay(): void {
+    const g = this.padGfx;
+    g.clear();
+    const geom = this.gamepad.pad.getStickGeometry();
+    const stick = this.gamepad.getStick();
+    if (!geom || !stick.active) return;
+    const tint = this.myTint();
+    const ax = stick.anchorX;
+    const ay = stick.anchorY;
+    // Puck clamps to the ring edge so it never escapes the base.
+    const clamped = Math.min(stick.distance, geom.radius);
+    const kx = stick.distance > 0.001 ? ax + (stick.dx / stick.distance) * clamped : ax;
+    const ky = stick.distance > 0.001 ? ay + (stick.dy / stick.distance) * clamped : ay;
+    g.fillStyle(0xffffff, 0.05).fillCircle(ax, ay, geom.radius);
+    g.lineStyle(2, 0xffffff, 0.2).strokeCircle(ax, ay, geom.radius);
+    g.fillStyle(0xffffff, 0.12).fillCircle(ax, ay, geom.deadZone);
+    g.fillStyle(tint, 0.22).fillCircle(kx, ky, geom.knobRadius);
+    g.lineStyle(2, tint, 0.85).strokeCircle(kx, ky, geom.knobRadius);
   }
 
   // ---- display-object factories ---------------------------------------------------------
@@ -5187,8 +5295,9 @@ export class GameScene extends Phaser.Scene {
   private drawMinimap(): void {
     const g = this.minimapGfx;
     g.clear();
-    const x0 = this.scale.width - MINIMAP_W - MINIMAP_PAD;
-    const y0 = this.scale.height - MINIMAP_H - MINIMAP_PAD;
+    // Safe-area insets keep the corner box off the home indicator/notch.
+    const x0 = this.scale.width - MINIMAP_W - MINIMAP_PAD - this.safeInset.right;
+    const y0 = this.scale.height - MINIMAP_H - MINIMAP_PAD - this.safeInset.bottom;
     g.fillStyle(0x000000, 0.6).fillRoundedRect(x0, y0, MINIMAP_W, MINIMAP_H, 4);
     g.lineStyle(1, 0xffffff, 0.15).strokeRoundedRect(x0, y0, MINIMAP_W, MINIMAP_H, 4);
     // Map the live PLAY area (not the fixed max) onto the minimap box.
@@ -5246,7 +5355,15 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateMuteHud(): void {
-    setText(this.muteEl, sfx.muted ? "🔇 M for sound" : "🔊 M to mute");
+    const touch = IS_COARSE_POINTER || this.gamepad.isTouch;
+    const copy = sfx.muted
+      ? touch
+        ? "🔇 tap for sound"
+        : "🔇 M for sound"
+      : touch
+        ? "🔊 tap to mute"
+        : "🔊 M to mute";
+    setText(this.muteEl, copy);
   }
 
   private updateHud(now: number): void {

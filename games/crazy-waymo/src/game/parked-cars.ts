@@ -1,7 +1,7 @@
 import type { RigidBody } from "@dimforge/rapier3d-compat";
 import * as THREE from "three";
 
-import type { ModelCache } from "../assets/loader";
+import { geoLayoutKey, type ModelCache } from "../assets/loader";
 import { modelUrl } from "../assets/manifest";
 import type { PhysicsWorld } from "../physics/physics-world";
 import type { ParkedSpec } from "../world/furniture";
@@ -57,7 +57,11 @@ export class ParkedCars {
       const node = cache.instance(modelUrl("cars", model));
       node.updateMatrixWorld(true);
       node.traverse((c) => {
-        if (c instanceof THREE.Mesh && c.geometry instanceof THREE.BufferGeometry && !Array.isArray(c.material)) {
+        if (
+          c instanceof THREE.Mesh &&
+          c.geometry instanceof THREE.BufferGeometry &&
+          !Array.isArray(c.material)
+        ) {
           parts?.push({ geo: c.geometry, mat: c.material, local: c.matrixWorld.clone() });
         }
       });
@@ -76,8 +80,7 @@ export class ParkedCars {
       geoIds?: Map<THREE.BufferGeometry, number>;
     };
     const buckets = new Map<string, Bucket>();
-    const keyOf = (p: TemplatePart): string =>
-      `${p.mat.uuid}|${Object.keys(p.geo.attributes).sort().join(",")}|${p.geo.index ? "i" : "n"}`;
+    const keyOf = (p: TemplatePart): string => `${p.mat.uuid}|${geoLayoutKey(p.geo)}`;
     for (const s of specs) {
       for (const p of partsOf(s.model)) {
         const k = keyOf(p);

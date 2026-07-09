@@ -3,12 +3,15 @@ import type {
   ButtonOptions,
   Dir4,
   Dir8,
+  Inset,
   StickGeometry,
   StickOptions,
   StickState,
   VirtualGamepadOptions,
   Viewport,
 } from "./types";
+
+const ZERO_INSET: Inset = { top: 0, right: 0, bottom: 0, left: 0 };
 
 const DEFAULT_STICK: Required<StickOptions> = { radius: 64, deadZone: 8, knobRadius: 26 };
 const DEFAULT_BUTTON_RADIUS = 44;
@@ -56,7 +59,7 @@ export class VirtualGamepad {
   private readonly onButtonDown?: (id: string) => void;
   private readonly onButtonUp?: (id: string) => void;
 
-  private viewport: Viewport = { width: 0, height: 0 };
+  private viewport: Viewport = { width: 0, height: 0, inset: ZERO_INSET };
   private stick: {
     pointerId: number;
     anchorX: number;
@@ -68,6 +71,13 @@ export class VirtualGamepad {
   private readonly pressed = new Map<string, Set<number>>();
   /** pointer id -> what it's bound to. */
   private readonly binding = new Map<number, Binding>();
+  // Edge state is double-buffered: events accumulate into *Accum, and
+  // nextFrame() publishes them for justPressed/justReleased to read — so an
+  // edge is visible for exactly one frame no matter when the event landed.
+  private downAccum = new Set<string>();
+  private upAccum = new Set<string>();
+  private frameDown = new Set<string>();
+  private frameUp = new Set<string>();
 
   constructor(options: VirtualGamepadOptions = {}) {
     this.stickOpts = options.stick === false ? null : { ...DEFAULT_STICK, ...options.stick };
@@ -83,9 +93,11 @@ export class VirtualGamepad {
     this.onButtonUp = options.onButtonUp;
   }
 
-  /** Update the canvas size so fixed buttons re-anchor (call on resize). */
-  setViewport(width: number, height: number): void {
-    this.viewport = { width, height };
+  /** Update the canvas size so fixed buttons re-anchor (call on resize).
+   *  Pass safe-area insets (see `safeAreaInset()`) so position resolvers can
+   *  keep buttons clear of the notch / home indicator. */
+  setViewport(width: number, height: number, inset: Inset = ZERO_INSET): void {
+    this.viewport = { width, height, inset };
   }
 
   pointerDown(id: number, x: number, y: number): void {
@@ -128,7 +140,10 @@ export class VirtualGamepad {
     const set = this.pressed.get(b.id);
     if (set) {
       set.delete(id);
-      if (set.size === 0) this.onButtonUp?.(b.id);
+      if (set.size === 0) {
+        this.upAccum.add(b.id);
+        this.onButtonUp?.(b.id);
+      }
     }
   }
 
@@ -157,6 +172,30 @@ export class VirtualGamepad {
 
   isButtonDown(id: string): boolean {
     return (this.pressed.get(id)?.size ?? 0) > 0;
+  }
+
+  /** Button went up→down since the previous `nextFrame()` — edge-triggered
+   *  polling for fixed-timestep games (tap = one action). The callback
+   *  alternative is `onButtonDown`. */
+  justPressed(id: string): boolean {
+    return this.frameDown.has(id);
+  }
+
+  /** Last finger left the button since the previous `nextFrame()`. */
+  justReleased(id: string): boolean {
+    return this.frameUp.has(id);
+  }
+
+  /**
+   * Publish accumulated edges for `justPressed`/`justReleased` and start a new
+   * accumulation window. The adapters call this from their `update()`; call it
+   * once per frame yourself only when driving the core directly.
+   */
+  nextFrame(): void {
+    [this.frameDown, this.downAccum] = [this.downAccum, this.frameDown];
+    this.downAccum.clear();
+    [this.frameUp, this.upAccum] = [this.upAccum, this.frameUp];
+    this.upAccum.clear();
   }
 
   /** Ids of all buttons with at least one finger down. */
@@ -219,7 +258,10 @@ export class VirtualGamepad {
     const wasDown = set.size > 0;
     set.add(pointerId);
     this.binding.set(pointerId, { kind: "button", id: buttonId });
-    if (!wasDown) this.onButtonDown?.(buttonId);
+    if (!wasDown) {
+      this.downAccum.add(buttonId);
+      this.onButtonDown?.(buttonId);
+    }
   }
 }
 

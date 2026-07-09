@@ -115,6 +115,10 @@ export class PoseCamera {
     this.status.id = "camera-status";
     this.status.textContent = "starting camera…";
     this.panel.append(this.video, this.canvas, this.status);
+    // Small screens shrink the panel (CSS); tapping toggles the expanded size.
+    // The attribute keeps the virtual gamepad from claiming taps on the panel.
+    this.panel.setAttribute("data-gamepad-ignore", "");
+    this.panel.addEventListener("click", () => this.panel.classList.toggle("expanded"));
     document.body.appendChild(this.panel);
   }
 

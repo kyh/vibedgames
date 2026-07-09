@@ -99,15 +99,19 @@ const STOPS: readonly Stop[] = [
 ];
 
 // SF wall-clock hour (fractional, 0..24) right now. Intl handles DST; some
-// engines report midnight as "24", hence the modulo.
+// engines report midnight as "24", hence the modulo. The formatter is hoisted:
+// constructing Intl.DateTimeFormat is the expensive part (locale + tz data),
+// and this runs once a second for the whole session.
+const SF_CLOCK = new Intl.DateTimeFormat("en-US", {
+  timeZone: SF_TZ,
+  hour: "numeric",
+  minute: "numeric",
+  second: "numeric",
+  hour12: false,
+});
+
 function sfHourNow(): number {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: SF_TZ,
-    hour: "numeric",
-    minute: "numeric",
-    second: "numeric",
-    hour12: false,
-  }).formatToParts(new Date());
+  const parts = SF_CLOCK.formatToParts(new Date());
   let h = 0;
   let m = 0;
   let s = 0;
@@ -171,6 +175,7 @@ export class DayNight {
   private override: number | null = null; // debug freeze (setPhase)
   private sinceSync = CLOCK_RESYNC_S;
   private renderer: THREE.WebGLRenderer | null = null;
+  private prevShadowsActive = true; // renderer boots with autoUpdate on
   // Scratch (update runs every frame — no allocation).
   private scrSun = new THREE.Vector3();
   private scrLight = new THREE.Vector3();
@@ -240,6 +245,25 @@ export class DayNight {
       THREE.MathUtils.smoothstep(this.scrLight.y, SHADOW_MIN_ELEV_Y, SHADOW_MIN_ELEV_Y + 0.08);
     sun.shadow.intensity = shadowRamp;
     this.shadowsActive = shadowRamp > 0.01;
+    // Faded out (night): stop re-rendering the depth map every frame — the
+    // last daylight map stays bound (castShadow stays true, see above) but
+    // intensity 0 makes it invisible. One forced update on the dawn flip.
+    // The OFF flip is gated on a real depth map existing: pausing the pass
+    // before the FIRST shadow render (night boots) leaves receive-shadow
+    // programs bound to a texture that never materializes — the exact
+    // GL_INVALID_OPERATION sampler mismatch described above, which silently
+    // kills every draw that samples it.
+    if (this.renderer && this.shadowsActive !== this.prevShadowsActive) {
+      if (this.shadowsActive) {
+        this.prevShadowsActive = true;
+        this.renderer.shadowMap.autoUpdate = true;
+        this.renderer.shadowMap.needsUpdate = true;
+      } else if (this.refs.sun.shadow.map) {
+        this.prevShadowsActive = false;
+        this.renderer.shadowMap.autoUpdate = false;
+      }
+      // else: no map rendered yet — keep the pass running until one exists.
+    }
 
     hemi.color.lerpColors(a.hemiSky, b.hemiSky, t);
     hemi.groundColor.lerpColors(a.hemiGround, b.hemiGround, t);

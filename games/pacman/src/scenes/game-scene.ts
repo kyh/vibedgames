@@ -17,6 +17,7 @@ import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 
 import { music, sfx } from "../audio/sfx";
+import { IS_TOUCH } from "../input/input-mode";
 import { FxPool } from "../render/fx-pool";
 import { buildHeartGeometry } from "../render/heart";
 import type { PelletCell } from "../render/pellet-field";
@@ -200,6 +201,8 @@ export class GameScene {
   private stepRequested = false;
   private prevMouthOpen = false;
   private shiftHeld = false;
+  /** Touch stand-in for SHIFT: the 🤳 pill latches instead of holding. */
+  private selfieOn = false;
   private swipeOrigin: { x: number; y: number } | null = null;
   private swiped = false;
 
@@ -233,7 +236,8 @@ export class GameScene {
   private lastTurnTickAt = -Infinity;
   private prevScared = false;
   private winConfettiIn = 0;
-  private hintShown = false;
+  /** Mirrors the audible state (unlocked AND enabled) onto the 🔊/🔇 pill. */
+  private soundShown = false;
   private noticeTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ---- chase camera (legacy PacmanCamera lerp state) -------------------------------
@@ -251,7 +255,9 @@ export class GameScene {
   private bannerTitleEl = el("banner-title");
   private bannerSubEl = el("banner-sub");
   private flashEl = el("flash");
-  private soundHintEl = el("sound-hint");
+  private soundBtnEl = el("btn-sound");
+  private selfieBtnEl = el("btn-selfie");
+  private restartBtnEl = el("btn-restart");
 
   constructor() {
     this.scene.background = new THREE.Color(COLORS.bg);
@@ -629,12 +635,15 @@ export class GameScene {
       sfx.play("warn");
     }
 
-    // Sound is opt-in (muted by default) and WebAudio needs a gesture — an M
-    // keypress does both, so surface it instead of playing a silent game.
-    const wantHint = (sfx.locked || !sfx.soundOn) && this.phase === "playing";
-    if (wantHint !== this.hintShown) {
-      this.hintShown = wantHint;
-      this.soundHintEl.style.display = wantHint ? "" : "none";
+    // Sound is opt-in (muted by default) and WebAudio needs a gesture — the
+    // pill shows 🔇 until sound is genuinely audible (unlocked AND enabled),
+    // so face-only players see they're muted and can tap it.
+    const soundOn = !sfx.locked && sfx.soundOn;
+    if (soundOn !== this.soundShown) {
+      this.soundShown = soundOn;
+      this.soundBtnEl.textContent = soundOn ? "🔊" : "🔇";
+      this.soundBtnEl.setAttribute("aria-pressed", soundOn ? "true" : "false");
+      this.soundBtnEl.classList.toggle("on", soundOn);
     }
 
     this.renderActors(dt);
@@ -752,6 +761,28 @@ export class GameScene {
     window.addEventListener("pointerdown", this.onPointerDown);
     window.addEventListener("pointermove", this.onPointerMove);
     window.addEventListener("pointerup", this.onPointerUp);
+    this.soundBtnEl.addEventListener("click", () => this.toggleSound());
+    this.selfieBtnEl.addEventListener("click", () => this.toggleSelfie());
+    this.restartBtnEl.addEventListener("click", () => this.requestRestart());
+  }
+
+  /** M key / 🔊 pill — one toggle for music + sfx, persisted. */
+  private toggleSound(): void {
+    const on = music.toggle();
+    sfx.setEnabled(on);
+    this.showNotice(on ? "♪ sound on" : "♪ sound off");
+  }
+
+  /** 🤳 pill — latched selfie cam (SHIFT still works as hold on keyboards). */
+  private toggleSelfie(): void {
+    this.selfieOn = !this.selfieOn;
+    this.selfieBtnEl.classList.toggle("on", this.selfieOn);
+    this.selfieBtnEl.setAttribute("aria-pressed", this.selfieOn ? "true" : "false");
+  }
+
+  /** ↻ pill — R-equivalent (also starts from the title). */
+  private requestRestart(): void {
+    if (this.phase !== "ready") this.handleStart();
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
@@ -760,9 +791,7 @@ export class GameScene {
       return;
     }
     if (e.code === "KeyM") {
-      const on = music.toggle(); // persists the choice (localStorage)
-      sfx.setEnabled(on);
-      this.showNotice(on ? "♪ sound on" : "♪ sound off");
+      this.toggleSound();
       return;
     }
     if (this.phase === "title") {
@@ -811,6 +840,9 @@ export class GameScene {
   };
 
   private onPointerDown = (e: PointerEvent): void => {
+    // Taps on the HUD pills / webcam porthole are UI, not game input — they
+    // must not swipe-steer or tap-start underneath.
+    if (e.target instanceof Element && e.target.closest("#controls, #webcam")) return;
     this.swipeOrigin = { x: e.clientX, y: e.clientY };
     this.swiped = false;
   };
@@ -1100,12 +1132,24 @@ export class GameScene {
     const texts: Record<Phase, readonly [string, string]> = {
       title: [
         "PAC·MAN",
-        "open your mouth to chomp forward · turn your head to steer · ↓ reverse · SHIFT selfie cam · M music · any key or tap to start",
+        IS_TOUCH
+          ? "open your mouth to chomp forward · turn your head to steer · or swipe: ↑ step · ←/→ turn · ↓ reverse · tap to start"
+          : "open your mouth to chomp forward · turn your head to steer · ↓ reverse · SHIFT selfie cam · M music · any key or tap to start",
       ],
       ready: ["READY?", ""],
       playing: ["", ""],
-      win: ["MAZE CLEAR!", "every crumb tidied up ♥ chomp, press R, or tap to play again"],
-      gameover: ["OHH NO…", "you did your best ♥ chomp, press R, or tap to try again"],
+      win: [
+        "MAZE CLEAR!",
+        IS_TOUCH
+          ? "every crumb tidied up ♥ chomp or tap to play again"
+          : "every crumb tidied up ♥ chomp, press R, or tap to play again",
+      ],
+      gameover: [
+        "OHH NO…",
+        IS_TOUCH
+          ? "you did your best ♥ chomp or tap to try again"
+          : "you did your best ♥ chomp, press R, or tap to try again",
+      ],
     };
     const [title, sub] = texts[phase];
     this.bannerTitleEl.textContent = title;
@@ -1250,9 +1294,10 @@ export class GameScene {
       this.lookTarget.set(cx, 0, cz);
     } else {
       const [dx, dz] = DIR_VECT[this.pac.dir];
-      const back = this.shiftHeld ? CAM_BACK : -CAM_BACK;
+      const selfie = this.shiftHeld || this.selfieOn;
+      const back = selfie ? CAM_BACK : -CAM_BACK;
       this.camTarget.set(this.pac.x + dx * back, CAM_HEIGHT, this.pac.z + dz * back);
-      const ahead = this.shiftHeld ? -CAM_SELFIE_LOOK_BACK : CAM_LOOK_AHEAD;
+      const ahead = selfie ? -CAM_SELFIE_LOOK_BACK : CAM_LOOK_AHEAD;
       this.lookTarget.set(this.pac.x + dx * ahead, 0, this.pac.z + dz * ahead);
     }
 

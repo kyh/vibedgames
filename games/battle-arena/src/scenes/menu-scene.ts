@@ -15,7 +15,8 @@ const hex = (n: number): string => "#" + n.toString(16).padStart(6, "0");
 // escape user-supplied strings dropped into attribute values (name/room prefill)
 const esc = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-const dots = (difficulty: number): string => "●".repeat(difficulty) + "○".repeat(Math.max(0, 3 - difficulty));
+const dots = (difficulty: number): string =>
+  "●".repeat(difficulty) + "○".repeat(Math.max(0, 3 - difficulty));
 // display keycaps match the actual binds (1-4 + Shift/Space), not QWER letters
 const KEYCAP: Record<AbilityKey, string> = { Q: "1", W: "2", E: "3", R: "4", DASH: "⇧", JUMP: "␣" };
 
@@ -41,6 +42,13 @@ export class Menu {
   private build(): void {
     const params = new URLSearchParams(location.search);
     const name = params.get("name") ?? localStorage.getItem("ba-name") ?? "";
+    // input-aware at boot — touch devices must never see keyboard-only copy
+    const touchBoot =
+      "ontouchstart" in window ||
+      (typeof window.matchMedia === "function" && window.matchMedia("(pointer:coarse)").matches);
+    const help = touchBoot
+      ? "tap a champion · left thumb move · right thumb aim + attack · on-screen buttons: abilities / DASH / JUMP / B shop"
+      : "click a champion · WASD move · mouse looks · LMB attack · ␣ jump · ⇧ dash · 1/2/3/4 abilities · B shop";
     const chips = CHAMPIONS.map(
       (c) =>
         `<button class="ba-chip" data-id="${c.id}" style="--accent:${hex(c.tint)}">
@@ -67,15 +75,17 @@ export class Menu {
           <button id="ba-bots" class="ba-go bots">PLAY vs BOTS</button>
           <button id="ba-online" class="ba-go online">PLAY ONLINE</button>
         </div>
-        <div class="ba-help">click a champion · WASD move · mouse looks · LMB attack · ␣ jump · ⇧ dash · 1/2/3/4 abilities · B shop</div>
+        <div class="ba-help">${help}</div>
       </div>`;
 
     this.el.querySelectorAll<HTMLButtonElement>(".ba-chip").forEach((btn) => {
       btn.addEventListener("click", () => this.opts.onSelect(btn.dataset["id"]!));
     });
 
-    const nameOf = (): string => (document.getElementById("ba-name") as HTMLInputElement).value.trim() || "Player";
-    const codeOf = (): string => (document.getElementById("ba-room") as HTMLInputElement).value.trim();
+    const nameOf = (): string =>
+      (document.getElementById("ba-name") as HTMLInputElement).value.trim() || "Player";
+    const codeOf = (): string =>
+      (document.getElementById("ba-room") as HTMLInputElement).value.trim();
     (document.getElementById("ba-bots") as HTMLButtonElement).addEventListener("click", () =>
       this.start({ champId: this.selected, name: nameOf(), online: false, room: "" }),
     );
@@ -151,7 +161,7 @@ function injectStyle(): void {
 .ba-cr{font:600 9px ui-monospace,monospace;letter-spacing:.5px;opacity:.65;text-transform:uppercase;text-align:center}
 .ba-cd2{font-size:9px;color:var(--accent);letter-spacing:2px}
 .ba-row2{display:flex;gap:10px;justify-content:center;margin-bottom:12px}
-.ba-row2 input{pointer-events:auto;background:rgba(10,14,24,.85);border:2px solid rgba(255,255,255,.15);border-radius:10px;padding:11px 14px;color:#fff;font:600 15px ui-monospace,monospace;width:200px}
+.ba-row2 input{pointer-events:auto;background:rgba(10,14,24,.85);border:2px solid rgba(255,255,255,.15);border-radius:10px;padding:11px 14px;color:#fff;font:600 15px ui-monospace,monospace;width:min(200px,42vw)}
 .ba-actions{display:flex;gap:12px;justify-content:center}
 .ba-go{pointer-events:auto;font:800 17px ui-monospace,monospace;letter-spacing:1px;border:none;border-radius:12px;padding:15px 26px;cursor:pointer;box-shadow:0 5px 0 rgba(0,0,0,.4)}
 .ba-go.bots{background:#3a7bd5;color:#fff}
@@ -167,6 +177,23 @@ function injectStyle(): void {
   .ba-i-a img{width:32px;height:32px}
   .ba-i-a em{display:none}
   .ba-tag{margin:4px 0 8px}
+}
+/* landscape phones: everything must fit 390px tall with the PLAY buttons on
+   screen — drop the info panel, compact chips/inputs/actions */
+@media (max-height: 520px){
+  #ba-menu .ba-top{padding:8px 12px 0}
+  .ba-logo{font-size:24px;letter-spacing:-1px}
+  .ba-tag{display:none}
+  .ba-info{display:none}
+  .ba-chips{margin-bottom:8px;gap:6px}
+  .ba-chip{width:84px;padding:6px 4px;gap:2px}
+  .ba-cs{width:30px;height:30px}
+  .ba-cn{font-size:11px}
+  .ba-row2{margin-bottom:8px}
+  .ba-row2 input{padding:8px 12px;font-size:13px}
+  .ba-go{padding:10px 18px;font-size:14px}
+  .ba-help{margin-top:8px}
+  #ba-menu .ba-bottom{padding:0 12px 10px}
 }
 `;
   document.head.appendChild(s);

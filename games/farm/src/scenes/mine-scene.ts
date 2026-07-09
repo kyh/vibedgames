@@ -1,7 +1,8 @@
 import Phaser from "phaser";
+import type { PhaserGamepad } from "@vibedgames/gamepad/phaser";
 import {
   TILE,
-  ZOOM,
+  zoomForWidth,
   WALK_SPEED,
   RUN_SPEED,
   CHAR_ORIGIN_Y,
@@ -65,6 +66,9 @@ export class MineScene extends Phaser.Scene {
   private keys!: MineKeys;
   private transitioning = false;
   private stepTimer = 0;
+  private onResizeHandler?: (gs: Phaser.Structs.Size) => void;
+  /** Attached by MineHud — the pad must render there, above the vignette. */
+  gamepad?: PhaserGamepad;
 
   constructor() {
     super("Mine");
@@ -96,10 +100,16 @@ export class MineScene extends Phaser.Scene {
 
     const cam = this.cameras.main;
     cam.setBounds(0, 0, MW * TILE, MH * TILE);
-    cam.setZoom(ZOOM);
+    cam.setZoom(zoomForWidth(this.scale.width));
     cam.startFollow(this.player, true, 0.14, 0.14);
     cam.setRoundPixels(true);
     cam.fadeIn(400, 0, 0, 0);
+    if (this.onResizeHandler) this.scale.off("resize", this.onResizeHandler);
+    this.onResizeHandler = (gs: Phaser.Structs.Size) => cam.setZoom(zoomForWidth(gs.width));
+    this.scale.on("resize", this.onResizeHandler);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      if (this.onResizeHandler) this.scale.off("resize", this.onResizeHandler);
+    });
 
     this.setupInput();
     Sound.startMusic("mine");
@@ -270,7 +280,16 @@ export class MineScene extends Phaser.Scene {
     this.keys.SPACE.on("down", () => this.tryAction());
     this.keys.E.on("down", () => this.tryAction());
     this.input.on("pointerdown", (p: Phaser.Input.Pointer) => {
-      if (p.button === 0) this.tryAction();
+      if (p.button !== 0) return;
+      // touches feed the virtual pad (stick / USE) — don't also swing per tap
+      if (p.wasTouch && this.gamepad?.pad.isTouching) return;
+      if (
+        this.scene.isActive("MineHud") &&
+        this.scene.get("MineHud").input.hitTestPointer(p).length > 0
+      ) {
+        return; // hotbar tap
+      }
+      this.tryAction();
     });
   }
 
@@ -279,6 +298,7 @@ export class MineScene extends Phaser.Scene {
   override update(_t: number, dms: number): void {
     const dt = Math.min(dms, 50) / 1000;
     if (!this.transitioning) {
+      if (this.gamepad?.justPressed("use")) this.tryAction();
       this.handleMovement(dt);
       this.updateEnemies(dt);
       this.checkLadders();
@@ -302,10 +322,21 @@ export class MineScene extends Phaser.Scene {
     if (k.D.isDown || k.RIGHT.isDown) dx += 1;
     if (k.W.isDown || k.UP.isDown) dy -= 1;
     if (k.S.isDown || k.DOWN.isDown) dy += 1;
+    // virtual stick (touch) fills in when the keyboard is silent — it also
+    // sets facing below, so USE swings/mines toward the drag direction
+    let stickRun = false;
+    if (dx === 0 && dy === 0 && this.gamepad) {
+      const stick = this.gamepad.getStick();
+      if (stick.active && !stick.inDeadZone) {
+        dx = Math.cos(stick.angle);
+        dy = Math.sin(stick.angle);
+        stickRun = stick.magnitude > 0.95; // full deflection = run
+      }
+    }
     if (dx !== 0 || dy !== 0) {
-      if (dx !== 0) this.facing = { x: Math.sign(dx), y: 0 };
+      if (Math.abs(dx) >= Math.abs(dy)) this.facing = { x: Math.sign(dx), y: 0 };
       else this.facing = { x: 0, y: Math.sign(dy) };
-      const run = k.SHIFT.isDown && store.energy > 0;
+      const run = (k.SHIFT.isDown || stickRun) && store.energy > 0;
       const speed = run ? RUN_SPEED : WALK_SPEED;
       const len = Math.hypot(dx, dy) || 1;
       this.moveBy((dx / len) * speed * dt, (dy / len) * speed * dt);
@@ -392,8 +423,9 @@ export class MineScene extends Phaser.Scene {
       }
       if (hitAny) {
         shake(this, 0.006, 90);
-        this.cameras.main.zoomTo(ZOOM * 1.015, 60, "Linear", false);
-        this.time.delayedCall(70, () => this.cameras.main.setZoom(ZOOM));
+        const base = zoomForWidth(this.scale.width);
+        this.cameras.main.zoomTo(base * 1.015, 60, "Linear", false);
+        this.time.delayedCall(70, () => this.cameras.main.setZoom(zoomForWidth(this.scale.width)));
       }
     });
     this.player.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => {
@@ -578,17 +610,12 @@ export class MineScene extends Phaser.Scene {
 
   private checkLadders(): void {
     const f = this.feetTile();
-    if (
-      f.tx === this.ladderUp.tx &&
-      f.ty === this.ladderUp.ty &&
-      (this.keys.SPACE.isDown || this.keys.E.isDown)
-    ) {
+    const useDown =
+      this.keys.SPACE.isDown || this.keys.E.isDown || (this.gamepad?.isButtonDown("use") ?? false);
+    if (!useDown) return;
+    if (f.tx === this.ladderUp.tx && f.ty === this.ladderUp.ty) {
       this.exitToFarm();
-    } else if (
-      f.tx === this.ladderDown.tx &&
-      f.ty === this.ladderDown.ty &&
-      (this.keys.SPACE.isDown || this.keys.E.isDown)
-    ) {
+    } else if (f.tx === this.ladderDown.tx && f.ty === this.ladderDown.ty) {
       this.descend();
     }
   }

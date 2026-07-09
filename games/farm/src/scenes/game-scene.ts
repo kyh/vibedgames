@@ -1,7 +1,8 @@
 import Phaser from "phaser";
+import type { PhaserGamepad } from "@vibedgames/gamepad/phaser";
 import {
   TILE,
-  ZOOM,
+  zoomForWidth,
   MAP_W,
   MAP_H,
   WALK_SPEED,
@@ -117,6 +118,8 @@ export class GameScene extends Phaser.Scene {
   private nightOverlay!: Phaser.GameObjects.Rectangle;
 
   private keys!: GameKeys;
+  /** Attached by Hud — the pad must render there, outside this camera's zoom. */
+  gamepad?: PhaserGamepad;
   transitioning = false;
   private pendingSpawn = { x: 0, y: 0 };
   private stepTimer = 0;
@@ -227,8 +230,10 @@ export class GameScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setDepth(DEPTH.night);
     if (this.onResizeHandler) this.scale.off("resize", this.onResizeHandler);
-    this.onResizeHandler = (gs: Phaser.Structs.Size) =>
+    this.onResizeHandler = (gs: Phaser.Structs.Size) => {
       this.nightOverlay.setSize(gs.width, gs.height);
+      this.cameras.main.setZoom(zoomForWidth(gs.width));
+    };
     this.scale.on("resize", this.onResizeHandler);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       if (this.onResizeHandler) this.scale.off("resize", this.onResizeHandler);
@@ -236,7 +241,7 @@ export class GameScene extends Phaser.Scene {
 
     const cam = this.cameras.main;
     cam.setBounds(0, 0, MAP_W * TILE, MAP_H * TILE);
-    cam.setZoom(ZOOM);
+    cam.setZoom(zoomForWidth(this.scale.width));
     cam.startFollow(this.player, true, 0.12, 0.12);
     cam.setRoundPixels(true);
 
@@ -353,6 +358,8 @@ export class GameScene extends Phaser.Scene {
         this.tryAction();
         return;
       }
+      // touches feed the virtual pad (stick / USE) — don't also click-to-move
+      if (p.wasTouch && this.gamepad?.pad.isTouching) return;
       const wp = this.cameras.main.getWorldPoint(p.x, p.y);
       const tx = Math.floor(wp.x / TILE);
       const ty = Math.floor(wp.y / TILE);
@@ -398,7 +405,7 @@ export class GameScene extends Phaser.Scene {
     this.collisionOverlay = g;
   }
 
-  private toggleInventory(): void {
+  toggleInventory(): void {
     if (this.fishing.active) return;
     if (this.scene.isActive("Inventory")) {
       this.scene.stop("Inventory");
@@ -508,6 +515,8 @@ export class GameScene extends Phaser.Scene {
 
   override update(_t: number, dms: number): void {
     const dt = Math.min(dms, 50) / 1000;
+    this.gamepad?.update();
+    if (this.gamepad?.justPressed("use")) this.tryAction();
     this.net?.tick();
     this.reconcileClock();
     this.reconcileTiles();
@@ -759,7 +768,18 @@ export class GameScene extends Phaser.Scene {
     if (k.W.isDown || k.UP.isDown) dy -= 1;
     if (k.S.isDown || k.DOWN.isDown) dy += 1;
 
-    // keyboard input cancels click-to-move; otherwise steer along the path
+    // virtual stick (touch) fills in when the keyboard is silent
+    let stickRun = false;
+    if (dx === 0 && dy === 0 && this.gamepad) {
+      const stick = this.gamepad.getStick();
+      if (stick.active && !stick.inDeadZone) {
+        dx = Math.cos(stick.angle);
+        dy = Math.sin(stick.angle);
+        stickRun = stick.magnitude > 0.95; // full deflection = run
+      }
+    }
+
+    // keyboard/stick input cancels click-to-move; otherwise steer along the path
     if (dx !== 0 || dy !== 0) this.clickPath = [];
     else if (this.clickPath.length > 0) {
       const wpt = this.clickPath[0];
@@ -778,9 +798,9 @@ export class GameScene extends Phaser.Scene {
 
     this.moving = dx !== 0 || dy !== 0;
     if (this.moving) {
-      if (dx !== 0) this.facing = { x: Math.sign(dx), y: 0 };
+      if (Math.abs(dx) >= Math.abs(dy)) this.facing = { x: Math.sign(dx), y: 0 };
       else this.facing = { x: 0, y: Math.sign(dy) };
-      const run = k.SHIFT.isDown && store.energy > 0;
+      const run = (k.SHIFT.isDown || stickRun) && store.energy > 0;
       const speed = run ? RUN_SPEED : WALK_SPEED;
       const len = Math.hypot(dx, dy) || 1;
       const beforeX = this.player.x;
@@ -1526,7 +1546,12 @@ export class GameScene extends Phaser.Scene {
     return seasonOfDay(this.day);
   }
   actionHeld(): boolean {
-    return this.keys.SPACE.isDown || this.keys.E.isDown || this.input.activePointer.isDown;
+    return (
+      this.keys.SPACE.isDown ||
+      this.keys.E.isDown ||
+      this.input.activePointer.isDown ||
+      (this.gamepad?.isButtonDown("use") ?? false)
+    );
   }
   playerAnim(key: string): void {
     this.player.play(key, true);

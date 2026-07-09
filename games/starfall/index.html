@@ -2,20 +2,15 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
     <title>Starfall</title>
-    <meta name="description" content="Online multiplayer arena shooter. Drop in, level up, blast your friends among the stars." />
-    <link rel="canonical" href="https://starfall.vibedgames.com/" />
-    <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="vibedgames" />
-    <meta property="og:title" content="Starfall" />
-    <meta property="og:description" content="Online multiplayer arena shooter. Drop in, level up, blast your friends among the stars." />
-    <meta property="og:url" content="https://starfall.vibedgames.com/" />
-    <meta property="og:image" content="https://starfall.vibedgames.com/og.jpg" />
-    <meta property="og:image:width" content="1536" />
-    <meta property="og:image:height" content="864" />
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:image" content="https://starfall.vibedgames.com/og.jpg" />
+    <meta
+      name="description"
+      content="Online multiplayer arena shooter. Drop in, level up, blast your friends among the stars."
+    />
     <style>
       * {
         box-sizing: border-box;
@@ -48,7 +43,9 @@
         position: fixed;
         inset: 0;
         pointer-events: none;
-        padding: 16px 20px;
+        padding: calc(16px + env(safe-area-inset-top, 0px))
+          calc(20px + env(safe-area-inset-right, 0px)) 16px
+          calc(20px + env(safe-area-inset-left, 0px));
         display: flex;
         justify-content: space-between;
         align-items: flex-start;
@@ -137,7 +134,7 @@
 
       #bossbar {
         position: fixed;
-        top: 14px;
+        top: calc(14px + env(safe-area-inset-top, 0px));
         left: 50%;
         transform: translateX(-50%);
         width: 44vw;
@@ -160,7 +157,7 @@
       }
       #combo {
         position: fixed;
-        top: 48px;
+        top: calc(48px + env(safe-area-inset-top, 0px));
         left: 50%;
         transform: translateX(-50%);
         pointer-events: none;
@@ -251,15 +248,38 @@
         opacity: 0.7;
         font-variant-numeric: tabular-nums;
       }
+      /* Tappable sound toggle (touch has no M key). Sits ABOVE the canvas
+         minimap, which owns the bottom-right corner. */
       #mute {
         position: fixed;
-        right: 20px;
-        bottom: 16px;
-        pointer-events: none;
+        right: calc(12px + env(safe-area-inset-right, 0px));
+        bottom: calc(104px + env(safe-area-inset-bottom, 0px));
+        min-width: 44px;
+        min-height: 44px;
+        padding: 12px 0 12px 12px;
+        background: none;
+        border: 0;
+        color: #fff;
+        font: inherit;
         font-size: 11px;
         text-transform: uppercase;
         letter-spacing: 1px;
+        text-align: right;
         opacity: 0.6;
+        cursor: pointer;
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      /* Bigger legible HUD text on touch devices. */
+      @media (pointer: coarse) {
+        #weapon,
+        #shield,
+        #boosts,
+        #players,
+        #mute {
+          font-size: 13px;
+        }
       }
     </style>
   </head>
@@ -289,7 +309,7 @@
       <div id="combobar"></div>
     </div>
     <div id="attract">Mouse to move. Click to shoot</div>
-    <div id="mute"></div>
+    <button id="mute" type="button" aria-label="toggle sound"></button>
     <div id="overlay">
       <div id="destroyed">DESTROYED</div>
       <div id="cause"></div>

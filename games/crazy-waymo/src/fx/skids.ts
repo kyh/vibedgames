@@ -19,17 +19,18 @@ export class SkidMarks {
   readonly mesh: THREE.Mesh;
   private positions: Float32Array;
   private colors: Float32Array;
+  private births: Float32Array;
   private posAttr: THREE.BufferAttribute;
   private colAttr: THREE.BufferAttribute;
-  private age = new Float32Array(MAX_QUADS); // -1 = inactive
-  private baseAlpha = new Float32Array(MAX_QUADS);
+  private birthAttr: THREE.BufferAttribute;
   private cursor = 0;
-  private activeCount = 0;
+  private time = 0;
+  private timeU = { value: 0 };
 
   constructor(private heightAt: (x: number, z: number) => number) {
-    this.age.fill(-1);
     this.positions = new Float32Array(MAX_QUADS * 4 * 3);
     this.colors = new Float32Array(MAX_QUADS * 4 * 4); // RGBA, starts all-zero
+    this.births = new Float32Array(MAX_QUADS * 4);
 
     const index = new Uint16Array(MAX_QUADS * 6);
     for (let q = 0; q < MAX_QUADS; q++) {
@@ -46,8 +47,10 @@ export class SkidMarks {
     const geo = new THREE.BufferGeometry();
     this.posAttr = new THREE.BufferAttribute(this.positions, 3);
     this.colAttr = new THREE.BufferAttribute(this.colors, 4);
+    this.birthAttr = new THREE.BufferAttribute(this.births, 1);
     geo.setAttribute("position", this.posAttr);
     geo.setAttribute("color", this.colAttr);
+    geo.setAttribute("aBirth", this.birthAttr);
     geo.setIndex(new THREE.BufferAttribute(index, 1));
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
 
@@ -61,6 +64,29 @@ export class SkidMarks {
       polygonOffsetUnits: -4,
       side: THREE.DoubleSide,
     });
+    // Age fade runs on the GPU: each vertex carries its stamp time and the
+    // shader compares it to a clock uniform — update() advances ONE float
+    // instead of rewriting (and re-uploading) the whole color buffer every
+    // frame. Same curve as before: linear alpha over LIFE seconds.
+    const timeU = this.timeU;
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.uTime = timeU;
+      shader.vertexShader = shader.vertexShader
+        .replace(
+          "#include <common>",
+          "#include <common>\nattribute float aBirth;\nvarying float vBirth;",
+        )
+        .replace("#include <begin_vertex>", "#include <begin_vertex>\nvBirth = aBirth;");
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          "#include <common>",
+          "#include <common>\nuniform float uTime;\nvarying float vBirth;",
+        )
+        .replace(
+          "#include <color_fragment>",
+          `#include <color_fragment>\n\tdiffuseColor.a *= clamp(1.0 - (uTime - vBirth) / ${LIFE.toFixed(1)}, 0.0, 1.0);`,
+        );
+    };
     this.mesh = new THREE.Mesh(geo, mat);
     this.mesh.frustumCulled = false;
   }
@@ -82,9 +108,6 @@ export class SkidMarks {
     const yaw = Math.atan2(dx, dz);
     const q = this.cursor;
     this.cursor = (this.cursor + 1) % MAX_QUADS;
-    if ((this.age[q] ?? -1) < 0) this.activeCount++;
-    this.age[q] = 0;
-    this.baseAlpha[q] = alpha;
 
     const rx = Math.cos(yaw) * HALF_W;
     const rz = -Math.sin(yaw) * HALF_W;
@@ -97,29 +120,22 @@ export class SkidMarks {
     this.writeVert(p + 9, x1 + rx, z1 + rz);
     this.posAttr.needsUpdate = true;
 
+    const b = q * 4;
+    this.births[b] = this.time;
+    this.births[b + 1] = this.time;
+    this.births[b + 2] = this.time;
+    this.births[b + 3] = this.time;
+    this.birthAttr.needsUpdate = true;
+
     this.writeQuadColor(q, alpha);
     this.colAttr.needsUpdate = true;
   }
 
   update(dt: number): void {
-    if (this.activeCount === 0) return;
-    let dirty = false;
-    for (let q = 0; q < MAX_QUADS; q++) {
-      const a = this.age[q] ?? -1;
-      if (a < 0) continue;
-      const next = a + dt;
-      this.age[q] = next;
-      const fade = 1 - next / LIFE;
-      if (fade <= 0) {
-        this.age[q] = -1;
-        this.activeCount--;
-        this.writeQuadColor(q, 0);
-      } else {
-        this.writeQuadColor(q, (this.baseAlpha[q] ?? 0) * fade);
-      }
-      dirty = true;
-    }
-    if (dirty) this.colAttr.needsUpdate = true;
+    // The fade is computed per-fragment from (uTime - birth) — expired quads
+    // clamp to alpha 0 on the GPU and just sit in the ring until overwritten.
+    this.time += dt;
+    this.timeU.value = this.time;
   }
 
   private writeVert(offset: number, x: number, z: number): void {

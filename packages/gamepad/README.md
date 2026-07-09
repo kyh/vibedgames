@@ -1,8 +1,10 @@
 # @vibedgames/gamepad
 
 On-screen touch controls for browser games — a floating analog joystick plus
-action buttons. Framework-agnostic core, with a drop-in [Phaser](https://phaser.io)
-adapter that wires the input and renders the overlay for you.
+action buttons. Framework-agnostic core, with drop-in adapters that wire the
+input and render the overlay for you: a [Phaser](https://phaser.io) adapter
+(`@vibedgames/gamepad/phaser`) and a DOM adapter (`@vibedgames/gamepad/dom`)
+for everything else — Three.js, raw canvas, plain pages.
 
 ## Install
 
@@ -36,18 +38,55 @@ The mouse is ignored on purpose, so a desktop build keeps whatever controls it
 already had — the gamepad is purely the touch overlay. `isTouch` flips true the
 first time a finger lands.
 
+## DOM quickstart (Three.js, canvas, anything)
+
+Same controller, rendered as positioned DOM elements in a
+`pointer-events: none` overlay — it never steals taps from your HUD. Touches
+on interactive elements (`button`, `a`, inputs, `[data-gamepad-ignore]`) are
+left to the page.
+
+```ts
+import { attachDomGamepad } from "@vibedgames/gamepad/dom";
+
+const gamepad = attachDomGamepad({
+  visible: "coarse", // pre-show buttons on touch devices (default: after first touch)
+  buttons: [
+    {
+      id: "jump",
+      label: "JUMP",
+      position: (v) => ({ x: v.width - 72 - v.inset.right, y: v.height - 72 - v.inset.bottom }),
+    },
+  ],
+});
+
+// in your game loop:
+gamepad.update();
+const stick = gamepad.getStick();
+if (gamepad.justPressed("jump")) jump();
+```
+
+Give your game surface `touch-action: none` so the browser delivers moves
+instead of scrolling. `setTint` takes a CSS color here (`"#22d3ee"`).
+
 ### Fixed buttons (e.g. a bomb button)
 
 Give a button a `position` resolver to pin it on-screen; it re-anchors on
-resize. Use `onButtonDown` for edge-triggered actions (place a bomb once per
-tap) and `isButtonDown` for held input.
+resize. The resolver's viewport includes safe-area insets (`inset.top/right/
+bottom/left` — notch and home indicator, zeros elsewhere; requires
+`viewport-fit=cover` in your viewport meta tag on iOS). Use `onButtonDown` or
+`justPressed(id)` for edge-triggered actions (place a bomb once per tap) and
+`isButtonDown` for held input.
 
 ```ts
 attachVirtualGamepad(this, {
   buttons: [
     {
       id: "bomb",
-      position: ({ width, height }) => ({ x: width - 80, y: height - 80 }),
+      label: "💣",
+      position: ({ width, height, inset }) => ({
+        x: width - 80 - inset.right,
+        y: height - 80 - inset.bottom,
+      }),
       radius: 48,
     },
   ],
@@ -56,6 +95,11 @@ attachVirtualGamepad(this, {
   },
 });
 ```
+
+Buttons with a `label` render it (text in the DOM adapter, a `Text` object in
+Phaser). Pass `visible: "coarse"` to either adapter to pre-show fixed buttons
+on touch-capable devices instead of waiting for the first touch — an invisible
+button is undiscoverable.
 
 ### Grid movement
 
@@ -78,23 +122,32 @@ from `gamepad.pad` (see `getStickGeometry`, `getStick`, `getButtonLayout`).
 ## Framework-agnostic core
 
 The `VirtualGamepad` class has no engine dependency — feed it raw pointer
-events in screen-space pixels and read the state back. Use it with Three.js,
-canvas, or plain DOM.
+events in screen-space (CSS pixel) coordinates and read the state back. Most
+non-Phaser games want `attachDomGamepad` instead; drive the core directly only
+for custom event routing or a custom renderer.
 
 ```ts
-import { VirtualGamepad } from "@vibedgames/gamepad";
+import { VirtualGamepad, safeAreaInset } from "@vibedgames/gamepad";
 
 const pad = new VirtualGamepad({ buttons: [{ id: "jump" }] });
-pad.setViewport(canvas.width, canvas.height);
+pad.setViewport(window.innerWidth, window.innerHeight, safeAreaInset());
 
-canvas.addEventListener("pointerdown", (e) => pad.pointerDown(e.pointerId, e.offsetX, e.offsetY));
-canvas.addEventListener("pointermove", (e) => pad.pointerMove(e.pointerId, e.offsetX, e.offsetY));
-canvas.addEventListener("pointerup", (e) => pad.pointerUp(e.pointerId));
+// clientX/clientY, NOT offsetX or canvas.width — the pad works in CSS pixels,
+// and a HiDPI canvas's buffer size is larger than its on-screen size.
+window.addEventListener("pointerdown", (e) => pad.pointerDown(e.pointerId, e.clientX, e.clientY));
+window.addEventListener("pointermove", (e) => pad.pointerMove(e.pointerId, e.clientX, e.clientY));
+window.addEventListener("pointerup", (e) => pad.pointerUp(e.pointerId));
+window.addEventListener("pointercancel", (e) => pad.pointerUp(e.pointerId));
 
 // each frame:
+pad.nextFrame(); // publish justPressed/justReleased edges
 const stick = pad.getStick();
 const jumping = pad.isButtonDown("jump");
 ```
+
+Touch `up` events can go missing (finger slides off the canvas, tab switch) —
+call `pad.reconcile(liveIds)` each frame with the pointer ids you know are
+down, or `pad.reset()` on blur, like the adapters do.
 
 ### Touch routing
 

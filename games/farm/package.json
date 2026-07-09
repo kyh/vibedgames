@@ -11,8 +11,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "phaser": "^4.1.0",
-    "@vibedgames/multiplayer": "workspace:^"
+    "@vibedgames/gamepad": "workspace:^",
+    "@vibedgames/multiplayer": "workspace:^",
+    "phaser": "^4.1.0"
   },
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",

@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { attachVirtualGamepad, safeAreaInset, type Inset } from "@vibedgames/gamepad/phaser";
 import { HOTBAR } from "../systems/inventory";
 import { store } from "../systems/store";
 import { itemIcon, itemName } from "../data/items";
@@ -15,6 +16,7 @@ import {
 } from "../data/animals";
 import { SKILL_NAMES, type SkillId } from "../systems/skills";
 import { Sound } from "../render/audio";
+import { isTouchDevice } from "../systems/touch";
 import { GameScene } from "./game-scene";
 
 const FONT = "ui-monospace, monospace";
@@ -28,7 +30,13 @@ export class HudScene extends Phaser.Scene {
     icon: Phaser.GameObjects.Image;
     qty: Phaser.GameObjects.Text;
     key: Phaser.GameObjects.Text;
+    zone: Phaser.GameObjects.Zone;
   }[] = [];
+  /** Hotbar slot size — shrinks from SLOT on narrow (portrait phone) screens. */
+  private slot = SLOT;
+  private inset: Inset = { top: 0, right: 0, bottom: 0, left: 0 };
+  private touchUi: Phaser.GameObjects.Container[] = [];
+  private muteIcon: Phaser.GameObjects.Text | null = null;
   private topPanel!: Phaser.GameObjects.Graphics;
   private dayText!: Phaser.GameObjects.Text;
   private seasonText!: Phaser.GameObjects.Text;
@@ -59,6 +67,9 @@ export class HudScene extends Phaser.Scene {
     this.dialogueBox = null;
     this.toastY = 0;
     this.hudSig = "";
+    this.slot = SLOT;
+    this.touchUi = [];
+    this.muteIcon = null;
     for (const e of [
       "toast",
       "daybanner",
@@ -106,7 +117,30 @@ export class HudScene extends Phaser.Scene {
       })
       .setOrigin(0.5, 1);
 
+    // Touch controls live HERE (not in GameScene) so the overlay isn't
+    // transformed by the game camera's zoom. The Hud's input plugin processes
+    // pointers before GameScene's, so pad.isTouching is accurate inside the
+    // game's click-to-move handler.
+    this.g.gamepad?.destroy();
+    this.g.gamepad = attachVirtualGamepad(this, {
+      visible: "coarse",
+      buttons: [
+        {
+          id: "use",
+          label: "USE",
+          radius: 36,
+          position: ({ width, height, inset }) => ({
+            x: width - 62 - inset.right,
+            y: height - 140 - inset.bottom,
+          }),
+        },
+      ],
+      render: { depth: 90, blendMode: Phaser.BlendModes.NORMAL },
+    });
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.g.gamepad?.destroy());
+
     this.buildHotbar();
+    this.buildTouchButtons();
     this.layout();
     if (this.onResize) this.scale.off("resize", this.onResize);
     this.onResize = () => this.layout();
@@ -159,35 +193,87 @@ export class HudScene extends Phaser.Scene {
         })
         .setOrigin(0, 0)
         .setAlpha(0.7);
-      const zone = this.add.zone(0, 0, SLOT, SLOT).setInteractive({ useHandCursor: true });
-      zone.on("pointerdown", () => {
-        if (!this.g.uiOpen) store.inv.select(i);
-      });
-      this.slotNodes.push({ bg, icon, qty, key });
+      const zone = this.makeSlotZone(i, SLOT);
+      this.slotNodes.push({ bg, icon, qty, key, zone });
       this.hotbar.add([bg, icon, qty, key, zone]);
     }
+  }
+
+  private makeSlotZone(i: number, size: number): Phaser.GameObjects.Zone {
+    const zone = this.add.zone(0, 0, size + PAD, size + PAD).setInteractive({
+      useHandCursor: true,
+    });
+    zone.on("pointerdown", () => {
+      if (!this.g.uiOpen) store.inv.select(i);
+    });
+    return zone;
+  }
+
+  /** Always-visible tap targets (inventory / help / sound) for touch devices,
+   *  where the I/H/M key bindings are unreachable. */
+  private buildTouchButtons(): void {
+    if (!isTouchDevice()) return;
+    const mk = (icon: string, onTap: () => void): Phaser.GameObjects.Text => {
+      const c = this.add.container(0, 0).setDepth(60);
+      const g = this.add.graphics();
+      g.fillStyle(0x000000, 0.35);
+      g.fillCircle(0, 0, 24);
+      g.lineStyle(2, 0xf3e2bf, 0.5);
+      g.strokeCircle(0, 0, 24);
+      const t = this.add.text(0, 0, icon, { fontSize: "22px" }).setOrigin(0.5);
+      const z = this.add.zone(0, 0, 52, 52).setInteractive({ useHandCursor: true });
+      z.on("pointerdown", () => {
+        Sound.click();
+        onTap();
+      });
+      c.add([g, t, z]);
+      this.touchUi.push(c);
+      return t;
+    };
+    mk("🎒", () => this.g.toggleInventory());
+    mk("❔", () => {
+      if (this.modal || !this.g.uiOpen) this.toggleHelp();
+    });
+    this.muteIcon = mk(Sound.muted ? "🔇" : "🔊", () => {
+      const muted = Sound.toggleMute();
+      this.muteIcon?.setText(muted ? "🔇" : "🔊");
+      this.toast(muted ? "Sound off" : "Sound on", "#dfe9ff");
+    });
   }
 
   private layout(): void {
     const W = this.scale.width,
       H = this.scale.height;
-    const total = HOTBAR * (SLOT + PAD) - PAD;
-    const startX = (W - total) / 2 + SLOT / 2;
-    const y = H - SLOT / 2 - 14;
+    this.inset = safeAreaInset();
+    const { top: it, right: ir, bottom: ib, left: il } = this.inset;
+    const slot = Math.min(SLOT, Math.floor((W - 12 - il - ir) / HOTBAR) - PAD);
+    if (slot !== this.slot) {
+      this.slot = slot;
+      this.hudSig = ""; // force a graphics rebuild at the new slot size
+      this.slotNodes.forEach((n, i) => {
+        n.zone.destroy();
+        n.zone = this.makeSlotZone(i, slot);
+        this.hotbar.add(n.zone);
+      });
+    }
+    const total = HOTBAR * (slot + PAD) - PAD;
+    const startX = (W - total) / 2 + slot / 2;
+    const y = H - slot / 2 - 14 - ib;
     for (let i = 0; i < HOTBAR; i++) {
-      const x = startX + i * (SLOT + PAD);
+      const x = startX + i * (slot + PAD);
       const n = this.slotNodes[i];
       if (!n) continue;
       n.icon.setPosition(x, y);
-      n.qty.setPosition(x + SLOT / 2 - 4, y + SLOT / 2 - 3);
-      n.key.setPosition(x - SLOT / 2 + 3, y - SLOT / 2 + 2);
-      (this.hotbar.list[i * 5 + 4] as Phaser.GameObjects.Zone).setPosition(x, y);
+      n.qty.setPosition(x + slot / 2 - 4, y + slot / 2 - 3);
+      n.key.setPosition(x - slot / 2 + 3, y - slot / 2 + 2);
+      n.zone.setPosition(x, y);
     }
-    this.dayText.setPosition(24, 18);
-    this.seasonText.setPosition(24, 38);
-    this.clockText.setPosition(24, 56);
-    this.goldText.setPosition(W - 22, 28);
-    this.toolTip.setPosition(W / 2, y - SLOT / 2 - 8);
+    this.dayText.setPosition(24 + il, 18 + it);
+    this.seasonText.setPosition(24 + il, 38 + it);
+    this.clockText.setPosition(24 + il, 56 + it);
+    this.goldText.setPosition(W - 22 - ir, 28 + it);
+    this.toolTip.setPosition(W / 2, y - slot / 2 - 8);
+    this.touchUi.forEach((c, i) => c.setPosition(34 + il, 108 + it + i * 56));
     if (this.modal) this.modal.setPosition(W / 2, H / 2);
     if (this.dialogueBox) this.dialogueBox.setPosition(W / 2, H - 120);
   }
@@ -245,26 +331,32 @@ export class HudScene extends Phaser.Scene {
 
   private redrawGraphics(W: number, H: number): void {
     // hotbar
-    const total = HOTBAR * (SLOT + PAD) - PAD;
-    const startX = (W - total) / 2 + SLOT / 2;
-    const y = H - SLOT / 2 - 14;
+    const slot = this.slot;
+    const { top: it, right: ir, bottom: ib, left: il } = this.inset;
+    const total = HOTBAR * (slot + PAD) - PAD;
+    const startX = (W - total) / 2 + slot / 2;
+    const y = H - slot / 2 - 14 - ib;
     for (let i = 0; i < HOTBAR; i++) {
       const n = this.slotNodes[i];
       if (!n) continue;
-      const x = startX + i * (SLOT + PAD);
+      const x = startX + i * (slot + PAD);
       const sel = i === store.inv.selected;
       n.bg.clear();
       n.bg.fillStyle(0x000000, 0.35);
-      n.bg.fillRoundedRect(x - SLOT / 2, y - SLOT / 2, SLOT, SLOT, 7);
+      n.bg.fillRoundedRect(x - slot / 2, y - slot / 2, slot, slot, 7);
       n.bg.fillStyle(sel ? 0x6a5a2a : 0x20242f, 0.7);
-      n.bg.fillRoundedRect(x - SLOT / 2 + 2, y - SLOT / 2 + 2, SLOT - 4, SLOT - 4, 6);
+      n.bg.fillRoundedRect(x - slot / 2 + 2, y - slot / 2 + 2, slot - 4, slot - 4, 6);
       n.bg.lineStyle(2, sel ? 0xffe27a : 0x000000, sel ? 1 : 0.3);
-      n.bg.strokeRoundedRect(x - SLOT / 2, y - SLOT / 2, SLOT, SLOT, 7);
-      const slot = store.inv.slots[i];
-      if (slot) {
-        const ic = itemIcon(slot.item);
-        n.icon.setVisible(true).setTexture(ic.key, ic.frame).setScale(2);
-        n.qty.setText(slot.qty > 1 ? `${slot.qty}` : "");
+      n.bg.strokeRoundedRect(x - slot / 2, y - slot / 2, slot, slot, 7);
+      n.key.setVisible(slot >= 34); // key hints are noise on tiny touch slots
+      const invSlot = store.inv.slots[i];
+      if (invSlot) {
+        const ic = itemIcon(invSlot.item);
+        n.icon
+          .setVisible(true)
+          .setTexture(ic.key, ic.frame)
+          .setScale(slot < 38 ? 1.5 : 2);
+        n.qty.setText(invSlot.qty > 1 ? `${invSlot.qty}` : "");
       } else {
         n.icon.setVisible(false);
         n.qty.setText("");
@@ -273,12 +365,12 @@ export class HudScene extends Phaser.Scene {
 
     // top-left panel
     this.topPanel.clear();
-    panelRect(this.topPanel, 12, 10, 150, 64);
+    panelRect(this.topPanel, 12 + il, 10 + it, 150, 64);
 
     // right panel: gold + HP + energy
     this.rightPanel.clear();
-    panelRect(this.rightPanel, W - 172, 10, 160, 70);
-    this.drawBars(W - 164, 44);
+    panelRect(this.rightPanel, W - 172 - ir, 10 + it, 160, 70);
+    this.drawBars(W - 164 - ir, 44 + it);
   }
 
   private drawBars(x: number, y: number): void {
@@ -387,7 +479,7 @@ export class HudScene extends Phaser.Scene {
     this.dialogueBox?.destroy();
     const W = this.scale.width,
       H = this.scale.height;
-    const w = 460,
+    const w = Math.min(460, W - 24),
       h = 96;
     const c = this.add.container(W / 2, H - 120).setDepth(130);
     const g = this.add.graphics();
@@ -458,6 +550,9 @@ export class HudScene extends Phaser.Scene {
     const dim = this.add
       .rectangle(0, 0, this.scale.width * 3, this.scale.height * 3, 0x000000, 0.45)
       .setInteractive();
+    // universal escape: tapping the dim backdrop closes the modal (vital on
+    // phones, where ESC doesn't exist)
+    dim.on("pointerdown", () => this.closeModal());
     const panel = this.add.graphics();
     panel.fillStyle(0x000000, 0.25);
     panel.fillRoundedRect(-w / 2 + 4, -h / 2 + 6, w, h, 16);
@@ -486,47 +581,61 @@ export class HudScene extends Phaser.Scene {
   }
 
   private openShop(): void {
-    const w = 440,
-      h = 500;
+    // Clamp to the viewport; landscape phones (too short for one column of
+    // 11 crops) reflow into two columns instead of overflowing the screen.
+    const W = this.scale.width,
+      H = this.scale.height;
+    const rowH = 33;
+    const cols = 54 + CROP_ORDER.length * rowH + 78 <= H - 24 ? 1 : 2;
+    const perCol = Math.ceil(CROP_ORDER.length / cols);
+    const colW = Math.min(400, cols === 1 ? W - 64 : (W - 88) / 2);
+    const w = Math.min(W - 24, cols * colW + 40 + (cols - 1) * 8);
+    const h = Math.min(H - 24, 54 + perCol * rowH + 78);
     const c = this.modalShell(w, h, "🏪  General Store");
     const season = this.g.season();
     const startY = -h / 2 + 54;
     CROP_ORDER.forEach((id, i) => {
       const def = CROPS[id];
       const inSeason = def.seasons.includes(season);
-      const ry = startY + i * 33;
-      const row = this.add.container(0, ry);
+      const col = Math.floor(i / perCol);
+      const cx = cols === 1 ? 0 : col === 0 ? -(colW / 2 + 8) : colW / 2 + 8;
+      const ry = startY + (i % perCol) * rowH;
+      const row = this.add.container(cx, ry);
       const icon = this.add
-        .image(-w / 2 + 28, 0, `crop-${id}-icon`)
+        .image(-colW / 2 + 20, 0, `crop-${id}-icon`)
         .setScale(2)
         .setAlpha(inSeason ? 1 : 0.4);
       const name = this.add
-        .text(-w / 2 + 48, 0, def.name, {
+        .text(-colW / 2 + 40, 0, def.name, {
           fontFamily: FONT,
           fontSize: "14px",
           color: inSeason ? "#3a2a14" : "#9a8a6a",
         })
         .setOrigin(0, 0.5);
       const seasonTag = this.add
-        .text(-w / 2 + 48, 11, def.seasons.map(seasonName).join("/"), {
+        .text(-colW / 2 + 40, 11, def.seasons.map(seasonName).join("/"), {
           fontFamily: FONT,
           fontSize: "9px",
           color: "#a07b4c",
         })
         .setOrigin(0, 0.5);
       const price = this.add
-        .text(20, 0, `${def.seedPrice}g`, { fontFamily: FONT, fontSize: "13px", color: "#7a5a1a" })
+        .text(colW / 2 - 132, 0, `${def.seedPrice}g`, {
+          fontFamily: FONT,
+          fontSize: "13px",
+          color: "#7a5a1a",
+        })
         .setOrigin(1, 0.5);
-      const buy1 = this.shopBtn(72, "Buy", () => {
+      const buy1 = this.shopBtn(colW / 2 - 90, "Buy", () => {
         if (this.g.buySeed(id, 1)) this.flash(price);
       });
-      const buy5 = this.shopBtn(138, "x5", () => {
+      const buy5 = this.shopBtn(colW / 2 - 30, "x5", () => {
         if (this.g.buySeed(id, 5)) this.flash(price);
       });
       row.add([icon, name, seasonTag, price, buy1, buy5]);
       c.add(row);
     });
-    const sellRow = this.add.container(0, h / 2 - 34);
+    const sellRow = this.add.container(0, h / 2 - 32);
     const sellBtn = this.shopBtn(0, "Sell all crops, fish & goods", () => {
       const total = this.g.sellAll();
       this.toast(
@@ -540,8 +649,8 @@ export class HudScene extends Phaser.Scene {
 
   private openAnimalShop(building: BuildingKind): void {
     const list: AnimalKind[] = building === "coop" ? COOP_ANIMALS : BARN_ANIMALS;
-    const w = 380,
-      h = 110 + list.length * 56;
+    const w = Math.min(380, this.scale.width - 24),
+      h = Math.min(110 + list.length * 56, this.scale.height - 24);
     const c = this.modalShell(w, h, building === "coop" ? "🐔  Coop" : "🐄  Barn");
     list.forEach((kind, i) => {
       const def = ANIMALS[kind];
@@ -611,7 +720,7 @@ export class HudScene extends Phaser.Scene {
   }
 
   private openSleep(): void {
-    const c = this.modalShell(360, 180, "🛏  Rest for the night?");
+    const c = this.modalShell(Math.min(360, this.scale.width - 24), 180, "🛏  Rest for the night?");
     const body = this.add
       .text(0, -10, "Sleep until morning.\nWatered crops grow, animals produce.", {
         fontFamily: FONT,
@@ -662,28 +771,48 @@ export class HudScene extends Phaser.Scene {
       return;
     }
     this.g.uiOpen = true;
-    const c = this.modalShell(460, 410, "ℹ  How to Play");
-    const lines = [
-      "Move: WASD / Arrows   (Shift to run)",
-      "Use / interact: Space, E, or Click",
-      "Select item: 1–0 or scroll · I: inventory · H: help",
-      "",
-      "🪏 Hoe → till soil    🌱 Seeds → plant (in season!)",
-      "💧 Can → water (refill at pond) · rain waters for you",
-      "🪓 Axe → trees    ⛏ Pickaxe → rocks & the mine",
-      "🎣 Rod → face water to fish (hold to reel in the zone)",
-      "⚔ Sword → fight skeletons in the cave",
-      "🍄 Walk over mushrooms to forage",
-      "🐔 Pet animals; buy them at the coop & barn",
-      "🧺 Sell at the crate or store; sleep at your house",
-      "💬 Talk to villagers; gift what they like for ♥",
-    ];
+    const w = Math.min(460, this.scale.width - 24);
+    const h = Math.min(410, this.scale.height - 24);
+    const c = this.modalShell(w, h, "ℹ  How to Play");
+    const lines = isTouchDevice()
+      ? [
+          "Move: drag the on-screen stick (full tilt runs)",
+          "Use / interact: the USE button",
+          "Items: tap the hotbar · 🎒 inventory · 🔇 sound",
+          "",
+          "🪏 Hoe → till soil    🌱 Seeds → plant (in season!)",
+          "💧 Can → water (refill at pond) · rain waters for you",
+          "🪓 Axe → trees    ⛏ Pickaxe → rocks & the mine",
+          "🎣 Rod → face water; USE to cast, hold to reel",
+          "⚔ Sword → fight skeletons in the cave",
+          "🍄 Walk over mushrooms to forage",
+          "🐔 Pet animals; buy them at the coop & barn",
+          "🧺 Sell at the crate or store; sleep at your house",
+          "💬 Talk to villagers; gift what they like for ♥",
+        ]
+      : [
+          "Move: WASD / Arrows   (Shift to run)",
+          "Use / interact: Space, E, or Click",
+          "Select item: 1–0 or scroll · I: inventory · H: help",
+          "",
+          "🪏 Hoe → till soil    🌱 Seeds → plant (in season!)",
+          "💧 Can → water (refill at pond) · rain waters for you",
+          "🪓 Axe → trees    ⛏ Pickaxe → rocks & the mine",
+          "🎣 Rod → face water to fish (hold to reel in the zone)",
+          "⚔ Sword → fight skeletons in the cave",
+          "🍄 Walk over mushrooms to forage",
+          "🐔 Pet animals; buy them at the coop & barn",
+          "🧺 Sell at the crate or store; sleep at your house",
+          "💬 Talk to villagers; gift what they like for ♥",
+        ];
+    const compact = h < 400 || w < 420;
     const txt = this.add
-      .text(0, -140, lines.join("\n"), {
+      .text(0, -h / 2 + 48, lines.join("\n"), {
         fontFamily: FONT,
-        fontSize: "13px",
+        fontSize: compact ? "11px" : "13px",
         color: "#3a2a14",
-        lineSpacing: 4,
+        lineSpacing: compact ? 3 : 4,
+        wordWrap: { width: w - 36 },
       })
       .setOrigin(0.5, 0);
     c.add(txt);

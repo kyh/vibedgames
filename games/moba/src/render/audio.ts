@@ -44,6 +44,10 @@ export function resumeAudio(): void {
   if (c && c.state === "suspended") void c.resume();
 }
 
+export function isMuted(): boolean {
+  return muted;
+}
+
 export function toggleMute(): boolean {
   muted = !muted;
   if (master) master.gain.value = muted ? 0 : 0.32;

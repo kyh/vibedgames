@@ -7,12 +7,14 @@
 // absurdly wide on ultrawides. Node/headless (no `window`) falls back to 16:9 →
 // 480, keeping the sim harness deterministic.
 export const BASE_H = 270;
-const clampN = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
+// The render-width aspect band (shared with main.ts's rotation check, which
+// must apply the same clamp to know whether a resize would change BASE_W).
+export const clampAspect = (a: number): number => Math.min(2.5, Math.max(1.4, a));
 const winAspect =
   typeof window !== "undefined" && window.innerHeight > 0
     ? window.innerWidth / window.innerHeight
     : 16 / 9;
-export const BASE_W = Math.round((BASE_H * clampN(winAspect, 1.4, 2.5)) / 2) * 2;
+export const BASE_W = Math.round((BASE_H * clampAspect(winAspect)) / 2) * 2;
 export const TILE = 16; // world grid unit (px)
 
 // Render interpolation: the sim runs at a fixed 60Hz but the screen may refresh
