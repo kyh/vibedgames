@@ -84,5 +84,37 @@ code-generated levels — generators should emit the same grammar.
 - **Risk/reward in waves**: bonus points/drops for risky play early — fights
   early-game boredom in score chasers (ABA Games).
 
+## Genre contracts
+
+Per-genre checkable design contracts — what the space must provide before it
+counts as designed. Apply on top of the core rules.
+
+- **Arcade racer**: define the handling fantasy first (drift, grip, hover,
+  combat). The track owes: readable apexes, braking/drift cues before
+  corners, recovery width after mistakes, landmarks for orientation, and a
+  route rhythm. Shortcuts cost risk. Skill tests: racing line, boost timing,
+  drift angle, traffic threading.
+- **Dogfight / space shooter**: pin engagement range, turn rate, projectile
+  speed, and lock-on/lead affordance — they define the dance. Encounters
+  need target readability, off-screen threat indicators, and deliberate
+  moments to reacquire orientation. Objectives must force movement, not
+  endless circular chasing.
+- **Tower defense**: path topology and chokepoints create the placement
+  decisions — a good map has non-obvious tile choices, not one optimal spot.
+  Define build zones, tower roles, economy cadence; expose upcoming enemy
+  types (wave tells) before they punish.
+- **Pool / mini-golf / physics table**: the physics and rules ARE the design.
+  Owed affordances: readable aim, force control, spin, legal-target and foul
+  feedback, camera reset. Each hole/table: one clear read, one trick, one
+  risk/reward route — reject any hole whose first shot is unreadable from
+  the tee.
+- **Boss fight**: every attack = readable tell → avoid/defend option →
+  impact feedback → cooldown (punish window). Phases add combinations and
+  arena pressure, never just more health. Define camera-lock behavior and
+  arena hazards up front.
+- **Puzzle**: state the rule each puzzle teaches. First puzzle teaches,
+  second confirms, third twists. Failure reveals information — no hidden
+  dependency chains that force guessing.
+
 Related skills: `game-playbook` (build order), `onboarding` (the first 30
 seconds), `game-balance` (wave economy/scaling math), `phaser` (tilemaps).

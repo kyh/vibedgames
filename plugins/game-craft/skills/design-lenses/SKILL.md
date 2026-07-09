@@ -18,18 +18,37 @@ and emotionally dead. The lenses find where.
    break it (spam inputs, resize, lose on purpose, idle).
 2. **Write the MDA sentence**: "This game wants the player to feel X via
    dynamic Y produced by mechanics Z." Can't write it? That's finding #1 —
-   no essential experience.
-3. **Pick 8–12 lenses.** Always: Essential Experience, Fun, Feedback,
+   no essential experience. Then write the loop contract: "player does
+   [verb] to achieve [objective] while [pressure] creates risk; success →
+   [reward], failure → [cost/retry]". Any bracket you can't fill is a
+   finding too.
+3. **Run the rejection gates** (below). Each failed gate is an automatic
+   `blocker` — no lens needed.
+4. **Pick 8–12 lenses.** Always: Essential Experience, Fun, Feedback,
    Juiciness, Accessibility. Add by genre (Skill vs Chance for arcade,
    Curiosity for puzzle, the Toy for sandbox/physics).
-4. **Answer with evidence** — a timestamp, a code path, a missing sound —
+5. **Answer with evidence** — a timestamp, a code path, a missing sound —
    never vibes.
-5. **Severity**: `blocker` (player quits or never understands), `major`
+6. **Severity**: `blocker` (player quits or never understands), `major`
    (understood but flat), `minor` (polish), `idea` (opportunity).
-6. **Findings as lens → evidence → fix**, fixes concrete ("80ms hit-stop +
+7. **Findings as lens → evidence → fix**, fixes concrete ("80ms hit-stop +
    4px shake on collision", not "juicier"). Order: blockers, then cheapest
    major wins (audio + shake + score popups = highest fun-per-line).
-7. **Re-play after fixes**, re-asking only the failed lenses.
+8. **Re-play after fixes**, re-asking only the failed lenses and gates.
+
+## Rejection gates
+
+Binary go/no-go tests, self-applied in active play before claiming a game is
+fun. Any "true" = automatic blocker; fix or iterate before polishing:
+
+- The first 30 seconds lack a real decision.
+- The player can ignore the main mechanic and still progress.
+- The objective is unclear without reading source code or instructions.
+- Failure arrives before the player can understand why.
+- Challenge is only "more things", never better combinations.
+- Rewards change nothing — not strategy, score, progression, or feel.
+- The space is decorative and shapes no decisions.
+- The game is fun only in the designer's explanation, not in active play.
 
 ## The lens battery
 

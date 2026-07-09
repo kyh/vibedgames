@@ -77,6 +77,26 @@ Open-weight, fine-tunable models.
 - `fal-ai/z-image/base`: Alibaba · Z Image Base
 - `fal-ai/z-image/turbo`: Alibaba · Z-Image Turbo
 
+## Game textures, skyboxes & UI plates
+
+Prompt patterns for 2D assets consumed by a game engine (Phaser/Three.js):
+
+- **Tileable/seamless textures** (ground, walls, terrain albedo): prompt
+  "seamless tileable texture, orthographic top-down view, uniform diffuse
+  lighting, no shadows, no perspective, no vignette" + the material ("mossy
+  cobblestone", "cracked asphalt"). Baked-in shadows and perspective are the
+  two failure modes that break tiling — reject and regenerate. Verify by
+  tiling the result 2×2 before shipping.
+- **Trim sheets & decals** (panel lines, hazard stripes, window bands, lane
+  glyphs): prompt flat orthographic strips on a plain background; generate
+  at the aspect they'll be sliced at.
+- **Sky / background plates**: prompt "layered depth, readable horizon line,
+  no foreground subject" — a centered subject ruins a backdrop. For Three.js
+  skydomes ask for wide aspect (2:1 or wider) so the wrap doesn't stretch.
+- **HUD icons, logos, badges**: generate on plain/transparent background
+  (`fal-ai/recraft/v4/text-to-vector` for crisp scalable marks), strong
+  silhouette, no tiny text.
+
 ## Family-specific prompting
 
 For prompt-craft details, see the `model-prompting` skill:

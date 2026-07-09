@@ -33,8 +33,13 @@ Multiple view angles → 3D (front / side / three-quarter).
 
 ## Tips for best results
 
-- **Single object on plain background.** Photogrammetry-style 3D extraction works dramatically better when the subject is isolated.
+Input-image quality dominates output quality — fix the image before blaming the model.
+
+- **Single object on plain background, centered.** Photogrammetry-style 3D extraction works dramatically better when the subject is isolated.
 - **Remove the background first** if the source has clutter (use `fal-ai/bria/background/remove`).
+- **Readable silhouette + clear material zones.** The mesh comes from the silhouette; materials come from visually distinct regions (metal vs cloth vs skin). A muddy silhouette yields a blob.
+- **Avoid**: cropped limbs, hidden backs, extreme perspective, motion blur, heavy depth-of-field, crowded scenes, tiny baked-in text. When generating the source image, prompt for a neutral three-quarter or front view with even lighting.
+- **Characters/creatures bound for rigging**: full-body T- or A-pose, arms away from the body, legs separated, symmetric, complete head-to-feet, no props/cape fused into the silhouette — see `regenerate-3d` for the full rules.
 - **Multiple angles help** when the model supports multi-image input, front, side, three-quarter views give the best mesh.
 - **Generation is slow** (1-5 minutes), always run async with `vg generate status` polling.
 
