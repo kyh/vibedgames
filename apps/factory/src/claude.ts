@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 
-import consola from "consola";
+import type { Activity } from "./reporter.ts";
 
 // Every resolution path funnels through the `settle()` helper below, which is
 // guarded by a `settled` flag so it resolves exactly once. oxlint's static
@@ -41,8 +41,8 @@ export type RunOptions = {
   skipPermissions: boolean;
   /** Aborts the underlying process (second Ctrl-C). */
   signal?: AbortSignal;
-  /** Label shown in streamed output, e.g. "engineer". */
-  label: string;
+  /** Receives a compact view of what the session does, as it happens. */
+  onActivity: (activity: Activity) => void;
   /**
    * Kill the session and fail if it produces NO output (no stream-json events,
    * no stderr) for this long — a watchdog for a wedged `claude`/stuck tool.
@@ -208,7 +208,7 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
       } catch {
         return; // ignore non-JSON noise
       }
-      printEvent(opts.label, evt);
+      emitActivity(opts.onActivity, evt);
       if (evt.type === "result") {
         gotResult = true;
         // The grace timer governs from here; stand down the watchdogs so a late
@@ -283,20 +283,22 @@ type ContentBlock =
   | { type: "tool_use"; name?: string; input?: Record<string, unknown> }
   | { type: "tool_result"; [k: string]: unknown };
 
-function printEvent(label: string, evt: StreamEvent): void {
-  const tag = `  ${label} ·`;
+/** Decode a stream-json event into the Activity view the reporter renders. */
+function emitActivity(onActivity: (activity: Activity) => void, evt: StreamEvent): void {
   if (evt.type === "system" && evt.subtype === "init") {
-    consola.log(
-      `${tag} session started (${evt.model ?? "model"}, ${evt.tools?.length ?? 0} tools)`,
-    );
+    onActivity({ kind: "init", model: evt.model, tools: evt.tools?.length ?? 0 });
     return;
   }
   if (evt.type === "assistant") {
     for (const block of evt.message?.content ?? []) {
       if (block.type === "text" && block.text?.trim()) {
-        for (const ln of block.text.trim().split("\n")) consola.log(`${tag} ${ln}`);
+        onActivity({ kind: "text", text: block.text.trim() });
       } else if (block.type === "tool_use") {
-        consola.log(`${tag} ⚙ ${block.name ?? "tool"}${summarizeTool(block.input)}`);
+        onActivity({
+          kind: "tool",
+          name: block.name ?? "tool",
+          detail: summarizeTool(block.input) || undefined,
+        });
       }
     }
   }
@@ -307,5 +309,5 @@ function summarizeTool(input?: Record<string, unknown>): string {
   const cmd = input.command ?? input.file_path ?? input.path ?? input.pattern ?? input.prompt;
   if (typeof cmd !== "string") return "";
   const oneLine = cmd.replace(/\s+/g, " ").trim();
-  return oneLine ? `  (${oneLine.slice(0, 80)}${oneLine.length > 80 ? "…" : ""})` : "";
+  return oneLine.length > 80 ? `${oneLine.slice(0, 80)}…` : oneLine;
 }

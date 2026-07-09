@@ -20,7 +20,7 @@ window.__GAME_DIAGNOSTICS__ = {
 // Mutations — keep them real as the game evolves; silent no-op hooks
 // make every downstream assertion lie
 window.__GAME_TEST_HOOKS__ = {
-  seed(n) {}, // reseed RNG — all gameplay randomness must route through it
+  seed(n) {}, // reseed RNG AND restart/regenerate the run — see below
   setState(name) {}, // jump to a named state: 'active-play', 'fail', 'boss'
   setPausedForScreenshot(paused) {},
   setReducedMotion(enabled) {}, // freeze shake/particles/time-based FX
@@ -29,6 +29,8 @@ window.__GAME_TEST_HOOKS__ = {
 ```
 
 Rule: JSON-serializable primitives only, never raw engine objects. If gameplay randomness bypasses the seeded RNG, bot metrics are noise.
+
+**`seed(n)` must restart, not just reseed.** By the time the test can call it, the game has already run frames (and possibly generated the level) with unseeded RNG. The contract: `seed(n)` reseeds the RNG **and** restarts/regenerates the run from that seed, so everything the bot measures is deterministic. If a restart is expensive, the alternative is seeding before boot — `page.addInitScript(() => { window.__GAME_SEED__ = 12345; })` and the game reads `__GAME_SEED__` (or a `?seed=` query param) at init.
 
 ## Metrics and What They Mean
 
@@ -64,6 +66,8 @@ test("bot playtest: scripted input drives progress without errors", async ({ pag
   await page.goto("/");
   await page.waitForFunction(() => (window.__GAME_DIAGNOSTICS__?.frame ?? 0) > 10);
   await page.evaluate(() => {
+    // seed() restarts the run from this seed (see contract above) — frames
+    // rendered before this call were unseeded and must not be measured
     window.__GAME_TEST_HOOKS__?.seed(12345);
     window.__GAME_TEST_HOOKS__?.setState("active-play");
   });
@@ -71,7 +75,8 @@ test("bot playtest: scripted input drives progress without errors", async ({ pag
   const sample = () =>
     page.evaluate(() => {
       const d = window.__GAME_DIAGNOSTICS__;
-      return d && { frame: d.frame, score: d.score, x: d.player.x, y: d.player.y };
+      // optional chaining: diagnostics may publish before player init
+      return d ? { frame: d.frame, score: d.score, x: d.player?.x ?? 0, y: d.player?.y ?? 0 } : null;
     });
 
   const before = await sample();
