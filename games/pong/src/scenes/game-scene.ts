@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { notifyGameStarted } from "@vibedgames/embed";
+import { notifyGameStarted } from "@repo/embed";
 
 import { ParticlePool } from "../fx/particles";
 import { isMuted, sfx, toggleMute } from "../fx/sfx";

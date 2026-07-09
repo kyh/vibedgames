@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { setPauseHandlers } from "@vibedgames/embed";
+import { setPauseHandlers } from "@repo/embed";
 
 import { BootScene } from "./scenes/boot-scene";
 import { TitleScene } from "./scenes/title-scene";
@@ -39,6 +39,19 @@ declare global {
 
 const game = new Phaser.Game(config);
 if (import.meta.env.DEV) window.__game = game;
+
+// Scale.RESIZE can read stale parent bounds when a resize lands while the tab
+// is hidden or the browser throttles events (tab switch, phone rotation): the
+// canvas lags one size behind. Re-check once layout settles and on tab return.
+let settle: ReturnType<typeof setTimeout> | undefined;
+const refreshScale = (): void => {
+  clearTimeout(settle);
+  settle = setTimeout(() => game.scale.refresh(), 150);
+};
+window.addEventListener("resize", refreshScale);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) refreshScale();
+});
 
 // Sim is entirely delta-driven (update(_t, dms)), so the wrapper's pause can
 // freeze/resume the loop directly — except in live co-op, where freezing would

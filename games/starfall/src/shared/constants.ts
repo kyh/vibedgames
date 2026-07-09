@@ -1130,9 +1130,7 @@ export function rollLootClass(): LootClass {
 }
 
 /** Roll a child table of [key, integer weight] entries. */
-export function rollWeightedKey<K extends string>(
-  entries: ReadonlyArray<readonly [K, number]>,
-): K {
+export function rollWeightedKey<K extends string>(entries: ReadonlyArray<readonly [K, number]>): K {
   const total = entries.reduce((sum, [, w]) => sum + w, 0);
   let roll = Math.random() * total;
   for (const [key, w] of entries) {
@@ -1526,6 +1524,10 @@ export type PlayerNetState = {
   vx: number;
   vy: number;
   alive: boolean;
+  /** In the arena. False = cleanly docked out (paused-as-spectator): remotes
+   *  drop the ship with NO death FX, distinct from a real death (alive:false,
+   *  present:true). Absent on legacy snapshots → treated as present. */
+  present: boolean;
   invuln: boolean;
   /** Current level (1..LEVEL_CAP); the new nameplate-worthy field. */
   level: number;

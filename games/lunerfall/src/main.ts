@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { setPauseHandlers } from "@vibedgames/embed";
+import { setPauseHandlers } from "@repo/embed";
 
 import { BASE_H, BASE_W, clampAspect } from "./config";
 import { BootScene } from "./scenes/boot-scene";

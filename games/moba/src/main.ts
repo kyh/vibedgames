@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { setPauseHandlers } from "@vibedgames/embed";
+import { setPauseHandlers } from "@repo/embed";
 
 import { BootScene } from "./scenes/boot-scene";
 import { GalleryScene } from "./scenes/gallery-scene";
@@ -42,13 +42,18 @@ declare global {
 void fontReady.then(() => {
   const game = new Phaser.Game(config);
   if (import.meta.env.DEV) window.__game = game;
-  // Scale.RESIZE can read stale parent bounds when the browser delivers a
-  // single resize event (phone rotation): the canvas lags one size behind.
-  // Re-check once the layout settles.
+  // Scale.RESIZE can read stale parent bounds when a resize lands while the
+  // tab is hidden or the browser throttles events (tab switch, phone
+  // rotation): the canvas lags one size behind. Re-check once layout settles
+  // and on tab return.
   let settle: ReturnType<typeof setTimeout> | undefined;
-  window.addEventListener("resize", () => {
+  const refreshScale = (): void => {
     clearTimeout(settle);
     settle = setTimeout(() => game.scale.refresh(), 150);
+  };
+  window.addEventListener("resize", refreshScale);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) refreshScale();
   });
 
   // Sim is entirely delta-driven (update(_t, deltaMs)), so the wrapper's

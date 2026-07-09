@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { notifyGameStarted } from "@vibedgames/embed";
+import { notifyGameStarted } from "@repo/embed";
 
 import { ATLAS_KEYS, buildAnimsFromAseprite } from "../data/animations";
 import { buildKitClips } from "../data/clip-timing";

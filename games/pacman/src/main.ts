@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { setPauseHandlers } from "@vibedgames/embed";
+import { setPauseHandlers } from "@repo/embed";
 
 import { music, sfx } from "./audio/sfx";
 import { FaceCamera } from "./input/face-camera";

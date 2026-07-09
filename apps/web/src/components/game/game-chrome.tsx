@@ -1,4 +1,4 @@
-import { isGameStartedMessage, requestGamePause } from "@vibedgames/embed/host";
+import { isGameStartedMessage, requestGamePause } from "@repo/embed/host";
 import { AnimatePresence, motion } from "motion/react";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 

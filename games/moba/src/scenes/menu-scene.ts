@@ -1,5 +1,5 @@
 import { safeAreaInset } from "@vibedgames/gamepad";
-import { notifyGameStarted } from "@vibedgames/embed";
+import { notifyGameStarted } from "@repo/embed";
 import Phaser from "phaser";
 
 import { HEROES } from "../data/heroes";

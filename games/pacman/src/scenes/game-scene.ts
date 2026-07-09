@@ -14,7 +14,7 @@
 // and the maze is a bigger generated braided board.
 
 import * as THREE from "three";
-import { notifyGameStarted } from "@vibedgames/embed";
+import { notifyGameStarted } from "@repo/embed";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 
 import { music, sfx } from "../audio/sfx";

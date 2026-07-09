@@ -1,3 +1,4 @@
+import { setPauseHandlers } from "@repo/embed";
 import * as THREE from "three";
 
 import { PoseCamera } from "./input/camera";
@@ -34,19 +35,28 @@ window.addEventListener("resize", () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// No setPauseHandlers freeze here on purpose: GameScene's collapse phase
-// gates game-over off a wall-clock deadline (collapseStartedAt vs
-// CATCH_WINDOW_MS in scenes/game-scene.ts, both performance.now()-based).
-// Skipping update() while paused wouldn't stop that clock — a pause longer
-// than the 1.3s catch window would insta-finalize game-over on resume. The
-// embed package's overlay still shows without registering handlers (per its
-// own doc comment: "the game just keeps running behind it"), which is the
-// correct fallback for a sim that can't tolerate the gap.
+// Wrapper pause: skip update() (engine + collapse physics are dt-driven, so
+// they freeze cleanly) and keep rendering the frozen scene behind the overlay.
+// The one wall-clock gameplay deadline — the collapse catch window
+// (collapseStartedAt vs CATCH_WINDOW_MS) — gets shifted by the paused gap on
+// resume so a long pause can't insta-finalize game-over.
+let wrapperPausedAt: number | null = null;
+setPauseHandlers({
+  onPause: () => {
+    wrapperPausedAt = performance.now();
+  },
+  onResume: () => {
+    if (wrapperPausedAt === null) return;
+    game.shiftWallClock(performance.now() - wrapperPausedAt);
+    wrapperPausedAt = null;
+  },
+});
+
 const timer = new THREE.Timer();
 renderer.setAnimationLoop((time) => {
   timer.update(time);
   const dt = Math.min(timer.getDelta(), MAX_DT);
-  game.update(dt);
+  if (wrapperPausedAt === null) game.update(dt);
   renderer.render(game.scene, game.camera);
 });
 

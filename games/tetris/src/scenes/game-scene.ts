@@ -3,7 +3,7 @@
 // pose into camera-relative moves (DAS/ARR, pose-freshness ownership). main.ts
 // just boots it and renders scene + camera each frame.
 
-import { notifyGameStarted } from "@vibedgames/embed";
+import { notifyGameStarted } from "@repo/embed";
 import { Color, Scene } from "three";
 
 import type { Cell } from "../game/board";
@@ -119,6 +119,13 @@ export class GameScene {
 
   resize(aspect: number): void {
     this.rig.resize(aspect);
+  }
+
+  /** Wrapper pause ended: shift the collapse catch-window deadline so the
+   *  paused gap doesn't count against it. Pose-freshness stamps deliberately
+   *  stay unshifted — stale pose input reading as old is the safe direction. */
+  shiftWallClock(pausedMs: number): void {
+    this.collapseStartedAt += pausedMs;
   }
 
   // ---- input wiring -----------------------------------------------------------

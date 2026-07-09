@@ -126,6 +126,21 @@ export class Sfx {
     return this.muted;
   }
 
+  /**
+   * Pause/resume ALL audio without touching the persisted mute choice — used by
+   * the wrapper pause overlay. Suspends the AudioContext (play() no-ops while
+   * suspended); resume only wakes it when the player hasn't muted.
+   */
+  setSuspended(on: boolean): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (on) {
+      if (ctx.state === "running") void ctx.suspend();
+    } else if (ctx.state === "suspended" && !this.muted) {
+      void ctx.resume();
+    }
+  }
+
   /** Duck every routine sound while the death boom plays. */
   private duck(): void {
     const ctx = this.ctx;

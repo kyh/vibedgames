@@ -1,5 +1,5 @@
 // Boot: load assets, show the lobby, then run the chosen match.
-import { notifyGameStarted, setPauseHandlers } from "@vibedgames/embed";
+import { notifyGameStarted, setPauseHandlers } from "@repo/embed";
 import * as THREE from "three";
 import { ModelLibrary } from "./render/models";
 import { View } from "./render/view";

@@ -115,9 +115,17 @@
         gap: 18px;
         text-align: center;
         padding: 24px;
-        background: rgba(8, 10, 24, 0.82);
-        backdrop-filter: blur(7px);
-        -webkit-backdrop-filter: blur(7px);
+        overflow: hidden;
+        /* Lighter than before: a soft center vignette keeps the copy readable
+           while the real arena (generated maze + grass) reads through the edges,
+           so the field behind feels alive rather than blacked out. */
+        background: radial-gradient(
+          ellipse at center,
+          rgba(8, 10, 24, 0.5) 0%,
+          rgba(8, 10, 24, 0.74) 100%
+        );
+        backdrop-filter: blur(2.5px) saturate(1.08);
+        -webkit-backdrop-filter: blur(2.5px) saturate(1.08);
         z-index: 10;
         transition: opacity 0.28s ease;
       }
@@ -125,18 +133,139 @@
         opacity: 0;
         pointer-events: none;
       }
+
+      /* Rising embers — a few cheap CSS particles drifting up behind the copy. */
+      #start-embers {
+        position: absolute;
+        inset: 0;
+        z-index: 0;
+        pointer-events: none;
+        overflow: hidden;
+      }
+      #start-embers span {
+        position: absolute;
+        bottom: -14px;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: radial-gradient(circle, #ffd66b 0%, #ff7a2a 55%, rgba(255, 90, 30, 0) 75%);
+        animation: ember-rise linear infinite;
+      }
+      @keyframes ember-rise {
+        0% {
+          opacity: 0;
+          transform: translateY(0) scale(0.5);
+        }
+        12% {
+          opacity: 0.9;
+        }
+        100% {
+          opacity: 0;
+          transform: translateY(-46vh) scale(1);
+        }
+      }
+
+      /* Ticking CSS bomb with a burning fuse spark. */
+      #start-bomb {
+        position: relative;
+        z-index: 1;
+        width: 92px;
+        height: 96px;
+      }
+      #start-bomb .body {
+        position: absolute;
+        left: 14px;
+        bottom: 0;
+        width: 64px;
+        height: 64px;
+        border-radius: 50%;
+        background: radial-gradient(circle at 34% 30%, #565d7e 0%, #23283c 62%, #12151f 100%);
+        box-shadow:
+          inset -6px -7px 13px rgba(0, 0, 0, 0.55),
+          0 7px 20px rgba(0, 0, 0, 0.45);
+        animation: bomb-tick 1s ease-in-out infinite;
+      }
+      #start-bomb .body::after {
+        content: "";
+        position: absolute;
+        left: 15px;
+        top: 12px;
+        width: 15px;
+        height: 11px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.28);
+        filter: blur(1px);
+      }
+      #start-bomb .fuse {
+        position: absolute;
+        left: 58px;
+        top: 8px;
+        width: 4px;
+        height: 32px;
+        border-radius: 2px;
+        background: linear-gradient(#c79656, #7c5a30);
+        transform: rotate(20deg);
+        transform-origin: bottom center;
+      }
+      #start-bomb .spark {
+        position: absolute;
+        left: 62px;
+        top: 2px;
+        width: 13px;
+        height: 13px;
+        border-radius: 50%;
+        background: radial-gradient(circle, #fff 0%, #ffd24a 38%, #ff7a2a 72%, rgba(255, 122, 42, 0) 78%);
+        box-shadow: 0 0 14px 5px rgba(255, 165, 60, 0.8);
+        animation: spark-flicker 0.16s steps(2, end) infinite;
+      }
+      @keyframes bomb-tick {
+        0%,
+        100% {
+          transform: scale(1);
+        }
+        50% {
+          transform: scale(1.055);
+        }
+      }
+      @keyframes spark-flicker {
+        0% {
+          opacity: 1;
+          transform: scale(1);
+        }
+        100% {
+          opacity: 0.55;
+          transform: scale(1.32);
+        }
+      }
+
       #start h1 {
+        position: relative;
+        z-index: 1;
         margin: 0;
         font:
-          800 clamp(38px, 8vw, 84px)/1 system-ui,
+          900 clamp(40px, 8.5vw, 88px)/1 system-ui,
           sans-serif;
         color: #fff;
-        letter-spacing: 2px;
+        letter-spacing: 3px;
         text-shadow:
-          0 4px 0 rgba(0, 0, 0, 0.35),
-          0 0 28px rgba(120, 150, 255, 0.6);
+          0 4px 0 rgba(0, 0, 0, 0.4),
+          0 0 30px rgba(255, 150, 60, 0.5),
+          0 0 60px rgba(255, 110, 40, 0.28);
       }
+      #start h1 span {
+        display: inline-block;
+        animation: letter-pop 0.5s cubic-bezier(0.2, 1.5, 0.35, 1) backwards;
+      }
+      @keyframes letter-pop {
+        from {
+          opacity: 0;
+          transform: translateY(20px) scale(0.55);
+        }
+      }
+
       #start-controls {
+        position: relative;
+        z-index: 1;
         max-width: 30ch;
         color: #cbd3f0;
         line-height: 1.9;
@@ -148,7 +277,9 @@
           monospace;
       }
       #start-go {
-        color: #8ea2ff;
+        position: relative;
+        z-index: 1;
+        color: #ffbf6b;
         font:
           600 14px/1 ui-monospace,
           monospace;
@@ -161,8 +292,18 @@
         }
       }
       @media (prefers-reduced-motion: reduce) {
-        #start-go {
+        #start-embers {
+          display: none;
+        }
+        #start-go,
+        #start-bomb .body,
+        #start-bomb .spark {
           animation: none;
+        }
+        #start h1 span {
+          animation: none;
+          opacity: 1;
+          transform: none;
         }
       }
     </style>
@@ -178,7 +319,28 @@
     </div>
     <div id="banner"></div>
     <div id="start">
-      <h1>BOMBERMAN</h1>
+      <div id="start-embers" aria-hidden="true">
+        <span style="left: 12%; animation-duration: 3.4s; animation-delay: 0s"></span>
+        <span style="left: 24%; animation-duration: 4.1s; animation-delay: 1.2s"></span>
+        <span style="left: 38%; animation-duration: 3.0s; animation-delay: 0.5s"></span>
+        <span style="left: 52%; animation-duration: 4.6s; animation-delay: 2.0s"></span>
+        <span style="left: 63%; animation-duration: 3.6s; animation-delay: 0.9s"></span>
+        <span style="left: 76%; animation-duration: 4.2s; animation-delay: 1.6s"></span>
+        <span style="left: 88%; animation-duration: 3.2s; animation-delay: 0.3s"></span>
+        <span style="left: 95%; animation-duration: 4.8s; animation-delay: 2.4s"></span>
+      </div>
+      <div id="start-bomb" aria-hidden="true">
+        <div class="fuse"></div>
+        <div class="spark"></div>
+        <div class="body"></div>
+      </div>
+      <h1 aria-label="Bomberman">
+        <span style="animation-delay: 0.04s">B</span><span style="animation-delay: 0.09s">O</span
+        ><span style="animation-delay: 0.14s">M</span><span style="animation-delay: 0.19s">B</span
+        ><span style="animation-delay: 0.24s">E</span><span style="animation-delay: 0.29s">R</span
+        ><span style="animation-delay: 0.34s">M</span><span style="animation-delay: 0.39s">A</span
+        ><span style="animation-delay: 0.44s">N</span>
+      </h1>
       <div id="start-controls"></div>
       <div id="start-go"></div>
     </div>

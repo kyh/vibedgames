@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "0.10.35",
-    "@vibedgames/embed": "workspace:^",
+    "@repo/embed": "workspace:*",
     "@vibedgames/gamepad": "workspace:^",
     "cannon-es": "^0.20.0",
     "three": "^0.184.0"

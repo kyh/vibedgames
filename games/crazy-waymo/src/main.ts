@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { setPauseHandlers } from "@vibedgames/embed";
+import { setPauseHandlers } from "@repo/embed";
 
 import { PerfGovernor } from "./render/perf-governor";
 import { isCoarsePointer } from "./render/quality";

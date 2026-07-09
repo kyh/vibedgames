@@ -1,6 +1,6 @@
 import Phaser from "phaser";
 import type { PhaserGamepad } from "@vibedgames/gamepad/phaser";
-import { notifyGameStarted } from "@vibedgames/embed";
+import { notifyGameStarted } from "@repo/embed";
 import {
   TILE,
   zoomForWidth,

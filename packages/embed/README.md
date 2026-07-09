@@ -1,4 +1,4 @@
-# @vibedgames/embed
+# @repo/embed
 
 Tiny postMessage bridge between an embedded browser game (iframe) and the page
 that wraps it. Zero dependencies.
@@ -6,7 +6,7 @@ that wraps it. Zero dependencies.
 ## Game side
 
 ```ts
-import { notifyGameStarted, setPauseHandlers } from "@vibedgames/embed";
+import { notifyGameStarted, setPauseHandlers } from "@repo/embed";
 
 // When active play begins (past menus/start screens). Safe to call every
 // round/serve/respawn — deduped until the wrapper pauses the game.
@@ -30,7 +30,7 @@ Everything no-ops when the game runs standalone (not in an iframe).
 ## Wrapper side
 
 ```ts
-import { isGameStartedMessage, requestGamePause } from "@vibedgames/embed/host";
+import { isGameStartedMessage, requestGamePause } from "@repo/embed/host";
 
 window.addEventListener("message", (event) => {
   if (isGameStartedMessage(event.data)) hideChrome();

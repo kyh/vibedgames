@@ -143,37 +143,156 @@
         opacity: 0.6;
         text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
       }
+      /* Thin, translucent wash — the live sky (parallax clouds + hovering
+         dragons) keeps reading through it. Text legibility comes from the
+         cream halo on #start-card, not from hiding the world. */
       #start {
         position: fixed;
         inset: 0;
         z-index: 20;
         display: flex;
-        flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: 18px;
         padding: 24px;
         text-align: center;
-        background: rgba(88, 181, 224, 0.76);
-        backdrop-filter: blur(6px);
-        -webkit-backdrop-filter: blur(6px);
+        overflow: hidden;
+        background: linear-gradient(
+          180deg,
+          rgba(150, 214, 240, 0.32) 0%,
+          rgba(104, 186, 226, 0.4) 55%,
+          rgba(78, 158, 206, 0.5) 100%
+        );
+        backdrop-filter: blur(2px) saturate(1.1);
+        -webkit-backdrop-filter: blur(2px) saturate(1.1);
         transition: opacity 0.28s ease;
       }
       #start.hide {
         opacity: 0;
         pointer-events: none;
       }
-      #start h1 {
+
+      /* Soft foreground clouds drifting over the live world behind. */
+      #start-clouds {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        pointer-events: none;
+      }
+      .cloud {
+        position: absolute;
+        background: #ffffff;
+        border-radius: 60px;
+        filter: blur(5px);
+        will-change: transform;
+      }
+      .cloud::before,
+      .cloud::after {
+        content: "";
+        position: absolute;
+        background: inherit;
+        border-radius: 50%;
+      }
+      .cloud::before {
+        width: 62%;
+        height: 150%;
+        top: -60%;
+        left: 14%;
+      }
+      .cloud::after {
+        width: 44%;
+        height: 120%;
+        top: -42%;
+        right: 16%;
+      }
+      .cloud.c1 {
+        top: 15%;
+        width: 190px;
+        height: 52px;
+        opacity: 0.5;
+        animation: cloud-drift 30s linear infinite;
+      }
+      .cloud.c2 {
+        top: 52%;
+        width: 130px;
+        height: 38px;
+        opacity: 0.32;
+        animation: cloud-drift 44s linear infinite 7s;
+      }
+      .cloud.c3 {
+        top: 72%;
+        width: 240px;
+        height: 66px;
+        opacity: 0.22;
+        animation: cloud-drift 54s linear infinite 15s;
+      }
+      @keyframes cloud-drift {
+        from {
+          transform: translateX(-260px);
+        }
+        to {
+          transform: translateX(calc(100vw + 260px));
+        }
+      }
+
+      /* Text block on a soft cream halo so it stays crisp over the live sky. */
+      #start-card {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 20px;
+        padding: 30px 44px 34px;
+        border-radius: 32px;
+        background: radial-gradient(
+          120% 96% at 50% 34%,
+          rgba(255, 251, 234, 0.6),
+          rgba(255, 246, 214, 0.16) 64%,
+          transparent 82%
+        );
+      }
+
+      #start-title {
         margin: 0;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 0.4em;
         font:
-          900 clamp(36px, 8vw, 82px) / 0.95 system-ui,
+          900 clamp(34px, 8vw, 82px) / 0.95 system-ui,
           sans-serif;
         color: #fff6d6;
         letter-spacing: 2px;
         text-shadow:
-          0 4px 0 rgba(91, 74, 138, 0.45),
-          0 0 28px rgba(255, 255, 255, 0.45);
+          0 4px 0 rgba(91, 74, 138, 0.5),
+          0 6px 14px rgba(40, 30, 80, 0.32),
+          0 0 28px rgba(255, 255, 255, 0.4);
+        animation: title-float 3.6s ease-in-out 1.1s infinite;
       }
+      #start-title .word {
+        display: flex;
+        gap: 0.06em;
+      }
+      #start-title .ltr {
+        display: inline-block;
+        animation: ltr-in 0.55s cubic-bezier(0.18, 1.4, 0.4, 1) both;
+        animation-delay: calc(var(--i) * 45ms);
+      }
+      @keyframes ltr-in {
+        from {
+          opacity: 0;
+          transform: translateY(0.7em) scale(0.5) rotate(-10deg);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+      @keyframes title-float {
+        50% {
+          transform: translateY(-10px);
+        }
+      }
+
       #start-controls {
         max-width: 34ch;
         white-space: pre-line;
@@ -182,7 +301,7 @@
           "SF Mono",
           Menlo,
           monospace;
-        color: #20305c;
+        color: #1a2a52;
       }
       #start-go {
         font:
@@ -190,18 +309,30 @@
           "SF Mono",
           Menlo,
           monospace;
-        color: #fff6d6;
-        letter-spacing: 1px;
-        animation: start-pulse 1.6s ease-in-out infinite;
+        color: #d9642a;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        animation: start-pulse 1.5s ease-in-out infinite;
       }
       @keyframes start-pulse {
+        0%,
+        100% {
+          opacity: 1;
+          transform: scale(1);
+        }
         50% {
-          opacity: 0.38;
+          opacity: 0.5;
+          transform: scale(0.96);
         }
       }
       @media (prefers-reduced-motion: reduce) {
+        #start-title,
+        #start-title .ltr,
         #start-go {
           animation: none;
+        }
+        #start-clouds {
+          display: none;
         }
       }
     </style>
@@ -216,9 +347,34 @@
       <div class="pill" id="hint"></div>
     </div>
     <div id="start">
-      <h1>FLAPPY DRAGONS</h1>
-      <div id="start-controls"></div>
-      <div id="start-go"></div>
+      <div id="start-clouds" aria-hidden="true">
+        <span class="cloud c1"></span>
+        <span class="cloud c2"></span>
+        <span class="cloud c3"></span>
+      </div>
+      <div id="start-card">
+        <h1 id="start-title" aria-label="Flappy Dragons">
+          <span class="word">
+            <span class="ltr" style="--i: 0">F</span>
+            <span class="ltr" style="--i: 1">L</span>
+            <span class="ltr" style="--i: 2">A</span>
+            <span class="ltr" style="--i: 3">P</span>
+            <span class="ltr" style="--i: 4">P</span>
+            <span class="ltr" style="--i: 5">Y</span>
+          </span>
+          <span class="word">
+            <span class="ltr" style="--i: 6">D</span>
+            <span class="ltr" style="--i: 7">R</span>
+            <span class="ltr" style="--i: 8">A</span>
+            <span class="ltr" style="--i: 9">G</span>
+            <span class="ltr" style="--i: 10">O</span>
+            <span class="ltr" style="--i: 11">N</span>
+            <span class="ltr" style="--i: 12">S</span>
+          </span>
+        </h1>
+        <div id="start-controls"></div>
+        <div id="start-go"></div>
+      </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

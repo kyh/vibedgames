@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { notifyGameStarted } from "@vibedgames/embed";
+import { notifyGameStarted } from "@repo/embed";
 
 import { isCoarsePointer, setPoseLocked } from "../input/camera";
 import { NetSession } from "../net/session";
@@ -126,6 +126,8 @@ export class GameScene extends Phaser.Scene {
   private bird!: Phaser.GameObjects.Sprite;
   private readyImg!: Phaser.GameObjects.Image;
   private overImg!: Phaser.GameObjects.Image;
+  /** Cosmetic dragon wandering across the title screen (pre-start only). */
+  private titleDragon: Phaser.GameObjects.Sprite | null = null;
   private digits: Phaser.GameObjects.Image[] = [];
   private puffEmitter!: Phaser.GameObjects.Particles.ParticleEmitter;
 
@@ -201,7 +203,13 @@ export class GameScene extends Phaser.Scene {
       })
       .setDepth(15);
 
-    this.readyImg = this.add.image(0, 0, "msg-ready").setScale(ART_SCALE).setDepth(30);
+    // Hidden from boot: the HTML start overlay owns the pre-flap moment now,
+    // and this banner would show through its translucent wash.
+    this.readyImg = this.add
+      .image(0, 0, "msg-ready")
+      .setScale(ART_SCALE)
+      .setDepth(30)
+      .setVisible(false);
     this.overImg = this.add
       .image(0, 0, "msg-gameover")
       .setScale(ART_SCALE)
@@ -236,6 +244,7 @@ export class GameScene extends Phaser.Scene {
 
     this.layout();
     this.setHint(HINT_FLAP);
+    this.spawnTitleDragon();
 
     if (import.meta.env.DEV) {
       window.__fb = { scene: this, net: this.net };
@@ -255,9 +264,68 @@ export class GameScene extends Phaser.Scene {
     this.startEl?.addEventListener("pointerup", () => this.beginPlay(), { once: true });
   }
 
+  /**
+   * A second dragon that wanders across the title screen behind the overlay,
+   * so the pre-start world feels alive (the parallax sky already drifts). One
+   * sprite + a few tweens, torn down the instant play starts. Skipped under
+   * reduced-motion.
+   */
+  private spawnTitleDragon(): void {
+    if (prefersReducedMotion()) return;
+    this.titleDragon = this.add.sprite(-80, COURSE_H / 2, `dragon-${rollSkin()}-1`).setDepth(9);
+    this.flyTitleDragon();
+  }
+
+  /** Send the title dragon on one left-to-right pass, then loop with fresh
+   *  height + skin. Bob + tilt run for the pass; all are killed on relaunch. */
+  private flyTitleDragon(): void {
+    const d = this.titleDragon;
+    if (!d || this.started) return;
+    this.tweens.killTweensOf(d);
+    const skin = rollSkin();
+    d.play(`fly-${skin}`);
+    const y = 120 + Math.random() * Math.max(120, COURSE_H - 340);
+    d.setPosition(-80, y)
+      .setScale(ART_SCALE * 1.3)
+      .setAlpha(0.9)
+      .setRotation(0);
+    this.tweens.add({
+      targets: d,
+      x: this.viewW() + 80,
+      duration: 5200 + Math.random() * 2000,
+      ease: "Sine.easeInOut",
+      onComplete: () => this.flyTitleDragon(),
+    });
+    this.tweens.add({
+      targets: d,
+      y: y - 34,
+      duration: 1050,
+      ease: "Sine.easeInOut",
+      yoyo: true,
+      repeat: -1,
+    });
+    this.tweens.add({
+      targets: d,
+      rotation: -0.14,
+      duration: 1050,
+      ease: "Sine.easeInOut",
+      yoyo: true,
+      repeat: -1,
+    });
+  }
+
+  private removeTitleDragon(): void {
+    const d = this.titleDragon;
+    if (!d) return;
+    this.tweens.killTweensOf(d);
+    d.destroy();
+    this.titleDragon = null;
+  }
+
   private beginPlay(strength = 1, refire = false): void {
     if (this.started) return;
     this.started = true;
+    this.removeTitleDragon();
     this.startEl?.classList.add("hide");
     this.time.delayedCall(320, () => this.startEl?.remove());
     this.handleInput(strength, refire);
@@ -775,7 +843,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private setHint(text: string): void {
-    if (this.hintEl) this.hintEl.textContent = text;
+    // The HTML start overlay owns all pre-start copy — a hint pill under it
+    // would just duplicate (and fight) the overlay's controls block.
+    if (this.hintEl) this.hintEl.textContent = this.started ? text : "";
   }
 
   private setBest(text: string): void {
@@ -917,6 +987,14 @@ function destroyPipe(pipe: Pipe): void {
 function randomSeed(): number {
   // 1..2^31 (never 0 — 0 marks "unseeded").
   return 1 + Math.floor(Math.random() * 0x7fffffff);
+}
+
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
 }
 
 /** Stable 0..1 hash of a player id (+salt) for per-rival flock variation. */

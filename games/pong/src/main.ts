@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { setPauseHandlers } from "@vibedgames/embed";
+import { setPauseHandlers } from "@repo/embed";
 
 import { startHandTracking } from "./input/camera";
 import { DitherPass } from "./render/dither-pass";

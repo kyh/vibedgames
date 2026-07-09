@@ -1,12 +1,13 @@
 import { attachVirtualGamepad, safeAreaInset } from "@vibedgames/gamepad/phaser";
 import type { Inset, PhaserGamepad } from "@vibedgames/gamepad/phaser";
-import { notifyGameStarted } from "@vibedgames/embed";
+import { notifyGameStarted, setPauseHandlers } from "@repo/embed";
 import { MultiplayerClient } from "@vibedgames/multiplayer";
 import type { Player, PlayerMap } from "@vibedgames/multiplayer";
 import Phaser from "phaser";
 
 import { sfx } from "../audio/sfx";
 import type { PlayOpts, SfxName } from "../audio/sfx";
+import { AttractBattle } from "../fx/attract-battle";
 import { FxPool, HITSPARK_SKIP_BUDGET, PARTICLE_SOFT_BUDGET } from "../render/fx-pool";
 import { EnergyBarrier } from "../render/energy-barrier";
 import { Starfield } from "../render/starfield";
@@ -745,6 +746,13 @@ export class GameScene extends Phaser.Scene {
   /** False until the player dismisses the start screen. Gates spawning so the
    *  ship isn't dropped into a live arena while the controls are still up. */
   private started = false;
+  /** Paused-as-spectator: the wrapper asked for its chrome back, so my ship is
+   *  cleanly docked out of the arena (no death penalty). Gates spawn/respawn so
+   *  the ship isn't re-dropped, and my net state advertises absence (present:
+   *  false) so remotes silently drop me with no death FX. */
+  private paused = false;
+  /** Cosmetic start-screen dogfight backdrop. Non-null only until play begins. */
+  private attract: AttractBattle | null = null;
   private muteEl: HTMLElement | null = null;
 
   constructor() {
@@ -869,6 +877,22 @@ export class GameScene extends Phaser.Scene {
     // After the gamepad exists: writeStartCopy() reads its touch flag.
     this.buildStartScreen();
 
+    // Cosmetic "warping into an ongoing space war" backdrop behind the start
+    // overlay. Purely visual — never written to the net session (see module).
+    this.attract = new AttractBattle(this, {
+      fx: this.fx,
+      makeShip: (tint, level) => this.makeShipGfx(tint, level),
+      hullPoints: (level) => shipHullPoints(level),
+    });
+
+    // Pause = the wrapper wants its chrome back. Freezing this sim is forbidden
+    // (Date.now-driven + shared online world), so we pause AS A SPECTATOR: dock
+    // my ship out of the arena, then re-enter through the respawn flow.
+    setPauseHandlers({
+      onPause: () => this.pauseToSpectator(),
+      onResume: () => this.resumeFromSpectator(),
+    });
+
     this.scale.on(Phaser.Scale.Events.RESIZE, this.onViewportChange, this);
     this.onViewportChange();
 
@@ -890,7 +914,13 @@ export class GameScene extends Phaser.Scene {
     this.starfield.update(dt, time);
     this.barrier.update(time, this.world.playW, this.world.playH);
     if (!this.offline) this.maybeGoOffline();
+    // Start screen up: run the cosmetic dogfight backdrop behind the overlay.
+    // It's purely additive — the live path below still runs (so the host keeps
+    // the shared world ticking and real remote players still render/mix in).
+    if (!this.started) this.attract?.update(dt, this.time.now);
     if (!this.live) {
+      // Connecting (pre-live): no world to tick, but still flush attract's fx.
+      this.fx.update(dt, this.time.now);
       this.syncScreenUi(); // camera is static here; keep the vignette pinned
       return;
     }
@@ -996,13 +1026,54 @@ export class GameScene extends Phaser.Scene {
     if (this.started) return;
     this.started = true;
     notifyGameStarted();
+    // Tear the cosmetic battle down the instant real play begins.
+    this.attract?.destroy();
+    this.attract = null;
     this.startEl?.classList.add("hide");
     // Drop it only after the fade, so it can't swallow taps on the way out.
     this.time.delayedCall(320, () => this.startEl?.remove());
   }
 
+  /** Wrapper pause → dock my ship out of the arena as a spectator. No death
+   *  penalty, no XP loss, no death explosion: my net state simply advertises
+   *  absence (present: false) so remotes drop me the way a disconnect would.
+   *  Freezing the sim is forbidden (Date.now-driven + shared world), so the
+   *  arena keeps running behind the wrapper overlay. */
+  private pauseToSpectator(): void {
+    if (this.paused) return;
+    this.paused = true;
+    // Clean despawn. Leaving alive=false + respawnAt=0 means tickRespawn can't
+    // fire, and spawned=false hides my ship + gates every my-ship code path.
+    this.spawned = false;
+    this.alive = false;
+    this.respawnAt = 0;
+    this.beams = [];
+    this.sentry = null;
+    this.impactArcs = [];
+    this.streak = 0;
+    this.comboTier = 1;
+    // Immediate, so remotes drop my ship without a snapshot of lag.
+    if (this.started && this.myId) this.pushMyState(Date.now());
+    sfx.setSuspended(true);
+  }
+
+  /** Wrapper resume → re-enter through the normal respawn flow (invuln + full
+   *  shield + the level's base loadout via pickRespawnPoint), online or solo. */
+  private resumeFromSpectator(): void {
+    if (!this.paused) return;
+    this.paused = false;
+    sfx.setSuspended(false);
+    if (!this.started) return; // paused before play began: nothing to re-enter
+    // Route re-entry through tickRespawn: mark spawned (so ensureSpawned won't
+    // also fire) but dead with an elapsed respawn timer. Next update() re-spawns
+    // me once, with invuln — never a double ship.
+    this.spawned = true;
+    this.alive = false;
+    this.respawnAt = Date.now();
+  }
+
   private ensureSpawned(): void {
-    if (!this.started || this.spawned || !this.myId) return;
+    if (!this.started || this.paused || this.spawned || !this.myId) return;
     const pos = this.pickRespawnPoint(); // joining a live arena: same clearance as respawn
     this.shipX = pos.x;
     this.shipY = pos.y;
@@ -3066,6 +3137,9 @@ export class GameScene extends Phaser.Scene {
       vx: this.shipVX,
       vy: this.shipVY,
       alive: this.alive,
+      // present tracks "in the arena": spawned covers pre-spawn AND the paused
+      // despawn (which clears spawned) in one flag.
+      present: this.spawned,
       invuln: now < this.invulnUntil,
       level: this.level,
       xp: this.xp,
@@ -4411,6 +4485,15 @@ export class GameScene extends Phaser.Scene {
       if (!st) {
         rec.gfx.setVisible(false);
         if (rec.trail) rec.trail.emitting = false;
+        continue;
+      }
+      if (!st.present) {
+        // Cleanly docked out (paused-as-spectator): hide with NO death FX, and
+        // clear rec.alive so re-entry snaps in fresh rather than gliding from a
+        // stale spot or firing a spurious death burst.
+        rec.gfx.setVisible(false);
+        if (rec.trail) rec.trail.emitting = false;
+        rec.alive = false;
         continue;
       }
       this.ensureShipLevel(rec, st.level); // remotes grow with their level too
@@ -6048,6 +6131,7 @@ function readNetState(player: Player | undefined): PlayerNetState | null {
     vx: typeof vx === "number" ? vx : 0,
     vy: typeof vy === "number" ? vy : 0,
     alive: s["alive"] !== false,
+    present: s["present"] !== false,
     invuln: s["invuln"] === true,
     level: typeof level === "number" ? level : 1,
     xp: typeof xp === "number" ? xp : 0,

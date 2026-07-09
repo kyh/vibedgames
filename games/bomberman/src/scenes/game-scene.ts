@@ -1,4 +1,4 @@
-import { notifyGameStarted } from "@vibedgames/embed";
+import { notifyGameStarted } from "@repo/embed";
 import { attachVirtualGamepad, stickDirection4 } from "@vibedgames/gamepad/phaser";
 import type { PhaserGamepad } from "@vibedgames/gamepad/phaser";
 import { MultiplayerClient } from "@vibedgames/multiplayer";
@@ -37,6 +37,7 @@ import {
   type PowerupKind,
   type SharedState,
 } from "../shared/constants";
+import { now as simNow } from "../util/clock";
 
 declare global {
   interface Window {
@@ -113,7 +114,7 @@ function emptyShared(): SharedState {
     stats: {},
     deaths: {},
     winner: null,
-    startedAt: Date.now(),
+    startedAt: simNow(),
   };
 }
 
@@ -208,6 +209,16 @@ export class GameScene extends Phaser.Scene {
   /** Connected to the room, or running the solo offline fallback. */
   private get live(): boolean {
     return this.offline || this.client.connectionStatus === "connected";
+  }
+
+  /**
+   * True when freezing the sim is safe: solo-offline, or connected but the only
+   * human in the room. False when other humans share the arena — freezing a
+   * wall-clock sim would stall them. Mirrors the `soloArena` gate in update();
+   * read by the wrapper pause handler in main.ts.
+   */
+  get freezable(): boolean {
+    return Object.keys(this.peers).length <= 1;
   }
 
   private get amHost(): boolean {
@@ -439,7 +450,7 @@ export class GameScene extends Phaser.Scene {
     this.input.on(Phaser.Input.Events.POINTER_DOWN, (p: Phaser.Input.Pointer) => {
       if (!p.wasTouch) return;
       if (this.restartableSince === null) return;
-      if (Date.now() - this.restartableSince < 600) return;
+      if (simNow() - this.restartableSince < 600) return;
       this.requestRestart();
     });
 
@@ -612,7 +623,7 @@ export class GameScene extends Phaser.Scene {
     const s = this.shared();
     const restartable = this.live && s !== null && (s.winner !== null || !this.isAlive(this.myId));
     if (!restartable) this.restartableSince = null;
-    else this.restartableSince ??= Date.now();
+    else this.restartableSince ??= simNow();
   }
 
   // ---- shared-state rendering ----------------------------------------------
@@ -706,7 +717,7 @@ export class GameScene extends Phaser.Scene {
   private syncBombs(): void {
     const s = this.shared();
     if (!s) return;
-    const now = Date.now();
+    const now = simNow();
     const seen = new Set<string>();
     for (const bomb of Object.values(s.bombs)) {
       seen.add(bomb.id);
@@ -924,7 +935,7 @@ export class GameScene extends Phaser.Scene {
     this.hostTickAcc = 0;
     const s = this.shared();
     if (!s) return;
-    const now = Date.now();
+    const now = simNow();
 
     const next: SharedState = {
       grid: s.grid,
@@ -1542,7 +1553,7 @@ function bombOn(bombs: Record<string, Bomb>, col: number, row: number): boolean 
 }
 
 function makeBomb(ownerId: string, col: number, row: number, range: number): Bomb {
-  const now = Date.now();
+  const now = simNow();
   return { id: `b-${ownerId}-${now}-${col}-${row}`, ownerId, col, row, placedAt: now, range };
 }
 

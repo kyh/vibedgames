@@ -198,7 +198,10 @@
       }
 
       /* Initial screen. The only place controls are taught — once play starts
-         the field carries no instruction text. Removed from the DOM on start. */
+         the field carries no instruction text. Removed from the DOM on start.
+         Behind it a live cosmetic dogfight plays (see AttractBattle): the
+         backdrop only dims/vignettes lightly so the battle reads clearly, with
+         a darker radial pool pooled behind the centred text for legibility. */
       #start {
         position: fixed;
         inset: 0;
@@ -207,12 +210,19 @@
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: 18px;
+        gap: 22px;
         padding: 24px;
         text-align: center;
-        background: rgba(2, 4, 14, 0.82);
-        backdrop-filter: blur(7px);
-        -webkit-backdrop-filter: blur(7px);
+        /* Layer 1: dark pool behind the text block (readability). Layer 2: a
+           soft edge vignette. The centre-ring stays clear so ships read. */
+        background:
+          radial-gradient(
+            ellipse 62% 42% at 50% 50%,
+            rgba(2, 4, 14, 0.82),
+            rgba(2, 4, 14, 0.34) 55%,
+            rgba(2, 4, 14, 0) 74%
+          ),
+          radial-gradient(ellipse at 50% 50%, rgba(2, 4, 14, 0) 34%, rgba(2, 4, 14, 0.6) 100%);
         transition: opacity 0.28s ease;
       }
       #start.hide {
@@ -221,33 +231,66 @@
       }
       #start h1 {
         margin: 0;
-        font-size: clamp(38px, 8vw, 84px);
+        font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+        font-size: clamp(40px, 9vw, 96px);
         font-weight: 800;
-        letter-spacing: 4px;
-        color: #fff;
-        text-shadow: 0 0 30px rgba(120, 180, 255, 0.65);
+        letter-spacing: 0.16em;
+        text-indent: 0.16em;
+        color: #eaf2ff;
+        text-shadow:
+          0 0 4px rgba(180, 214, 255, 0.9),
+          0 0 22px rgba(90, 160, 255, 0.75),
+          0 0 60px rgba(60, 120, 255, 0.55);
+        animation: title-flicker 4.5s ease-in-out infinite;
+      }
+      @keyframes title-flicker {
+        0%,
+        100% {
+          text-shadow:
+            0 0 4px rgba(180, 214, 255, 0.9),
+            0 0 22px rgba(90, 160, 255, 0.75),
+            0 0 60px rgba(60, 120, 255, 0.55);
+        }
+        48% {
+          text-shadow:
+            0 0 4px rgba(180, 214, 255, 0.95),
+            0 0 30px rgba(120, 180, 255, 0.9),
+            0 0 78px rgba(80, 150, 255, 0.7);
+        }
+        52% {
+          text-shadow:
+            0 0 3px rgba(180, 214, 255, 0.7),
+            0 0 16px rgba(90, 160, 255, 0.55);
+        }
       }
       #start-controls {
         max-width: 30ch;
         white-space: pre-line;
-        line-height: 1.9;
-        font-size: 14px;
-        letter-spacing: 1px;
-        color: #b9c6ea;
+        line-height: 2;
+        font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+        font-size: 13px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: #9fb6e6;
       }
       #start-go {
+        font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
         font-size: 13px;
-        letter-spacing: 1px;
+        letter-spacing: 0.22em;
         text-transform: uppercase;
         color: #7fb2ff;
+        text-shadow: 0 0 14px rgba(90, 160, 255, 0.6);
         animation: start-pulse 1.6s ease-in-out infinite;
       }
       @keyframes start-pulse {
         50% {
-          opacity: 0.35;
+          opacity: 0.32;
         }
       }
       @media (prefers-reduced-motion: reduce) {
+        #start h1 {
+          animation: none;
+        }
         #start-go {
           animation: none;
         }
