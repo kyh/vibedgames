@@ -1,6 +1,6 @@
 ---
 name: playwright
-description: 'Plan, implement, and debug frontend tests: unit/integration/E2E/visual/a11y. Use for Playwright MCP browser automation, Vitest/Jest/RTL, flaky test triage, CI stabilization, and canvas/WebGL games (Phaser) needing deterministic input plus screenshot/state assertions. Trigger: "test", "E2E", "flaky", "visual regression", "Playwright", "game testing".'
+description: 'Plan, implement, and debug frontend tests: unit/integration/E2E/visual/a11y. Use for Playwright MCP browser automation, Vitest/Jest/RTL, flaky test triage, CI stabilization, and canvas/WebGL games (Phaser, Three.js) needing deterministic input, bot playtests, or screenshot/state assertions. Trigger: "test", "E2E", "flaky", "visual regression", "Playwright", "game testing", "playtest", "softlock".'
 ---
 
 # Frontend Testing
@@ -110,6 +110,16 @@ window.__TEST__ = {
 
 **Rule**: Expose IDs + essential fields, not raw Phaser/engine objects.
 
+For bot playtests and visual baselines, upgrade this minimal seam to the fuller diagnostics contract (`window.__GAME_DIAGNOSTICS__` + `window.__GAME_TEST_HOOKS__`) in `references/bot-playtest.md`.
+
+## Bot Playtest: Prove It Plays
+
+A smoke test proves the game loads; a bot playtest proves it *plays*. Drive scripted real input and assert progression: frames advanced (loop alive), distance travelled (input alive), score delta (objective reachable), softlock windows (frames advance but held input yields no motion and no progress — fail if > 2), zero errors. For difficulty claims, run the bot at two reaction speeds (0ms vs 300ms delay) — if the slow bot does as well as the fast one, the difficulty is decorative.
+
+Two headless-WebGL footguns: never report headless FPS as performance (SwiftShader software raster, ~2fps on scenes a GPU runs at 120), and set `workers: 1` for WebGL games or parallel contexts flake every timed phase.
+
+Full contract, metrics, and a copy-paste test template: `references/bot-playtest.md`.
+
 ## Anti-Patterns to Avoid
 
 ❌ **Testing the wrong layer**: E2E tests for pure logic
@@ -174,6 +184,8 @@ python scripts/imgdiff.py baseline.png current.png --max-rms 2.0
 
 Exit codes: 0 = identical, 1 = different, 2 = error
 
+**Freeze before every baseline**: seed RNG, pause particles, freeze camera shake / hit-stop / time-based post FX, hide debug UI, wait for fonts + textures/GLTFs + audio decode, fix viewport/DPR. Skip baselines for un-seedable prototypes or particle-dominated scenes — and say why — rather than masking the image into meaninglessness.
+
 ## UI Slicing Regressions (Nine-Slice / Ribbons / Bars)
 
 Canvas UI issues (panel seams, segmented ribbons, invisible HUD fills) are best caught with a dedicated UI harness instead of the full gameplay flow.
@@ -202,6 +214,7 @@ Read these when needed:
 - `references/playwright-mcp-cheatsheet.md`: Detailed MCP tool patterns
 - `references/phaser-canvas-testing.md`: Deterministic mode for Phaser games
 - `references/flake-reduction.md`: Flake classification and fixes
+- `references/bot-playtest.md`: Diagnostics contract + progression-measuring bot (softlock detection, fairness runs, headless WebGL footguns)
 
 ## Remember
 
