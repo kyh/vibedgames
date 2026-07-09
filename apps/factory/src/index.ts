@@ -177,6 +177,12 @@ const startCommand = defineCommand({
         "Do NOT pass --dangerously-skip-permissions. Agents will block waiting for approval — breaks unattended autonomy. For debugging only.",
       default: false,
     },
+    "no-tui": {
+      type: "boolean",
+      description:
+        "Disable the live dashboard and stream plain logs instead (automatic when stdout isn't a TTY).",
+      default: false,
+    },
   },
   run: async ({ args }) => {
     const slug = requireSlug(args.slug);
@@ -214,6 +220,7 @@ const startCommand = defineCommand({
       noShip: Boolean(args["skip-ship"]),
       autoDeploy: Boolean(args["auto-deploy"]),
       skipPermissions: !args.guarded,
+      tui: !args["no-tui"],
       context,
       contextDir,
     });

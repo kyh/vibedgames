@@ -4,7 +4,9 @@ import consola from "consola";
 
 import { claudeBin, findRepoRoot } from "./config.ts";
 import { runClaude } from "./claude.ts";
+import { ConsoleReporter, type Reporter } from "./reporter.ts";
 import { buildTask, roleForPhase, ROLES } from "./roles.ts";
+import { TuiReporter } from "./tui/tui-reporter.tsx";
 import {
   acquireLock,
   appendJournal,
@@ -16,6 +18,7 @@ import {
   hasExistingProject,
   initWorkspace,
   releaseLock,
+  requestApproval,
   saveState,
   stopRequested,
   type AgentState,
@@ -43,6 +46,8 @@ export type AgentOptions = {
   autoDeploy: boolean;
   /** Pass --dangerously-skip-permissions so tools run unattended. */
   skipPermissions: boolean;
+  /** Show the live TUI dashboard (needs a TTY; falls back to streamed logs). */
+  tui: boolean;
   /** Optional operator brief written to .agent/context.md for the subagents. */
   context?: string;
   /** Optional reference directory the subagents are granted read access to. */
@@ -132,24 +137,83 @@ export async function runAgent(opts: AgentOptions): Promise<boolean> {
   }
   saveState(bb, state);
 
-  banner(opts, state, repoRoot);
-
   let stopping = false;
   const abort = new AbortController();
-  const onSignal = () => {
+
+  // The live dashboard needs a real terminal on both ends (keyboard + screen);
+  // anything else (CI, piped logs, --no-tui) gets the plain streamed output.
+  const useTui = opts.tui && process.stdout.isTTY === true && process.stdin.isTTY === true;
+  const reporter: Reporter = useTui
+    ? new TuiReporter({
+        approve: () => {
+          requestApproval(bb);
+          reporter.info(
+            "Deploy approval granted — the current build ships at the next release point.",
+          );
+          reporter.stateChanged(state, approvalPending(bb, state.lastApproval));
+        },
+        requestStop: () => gracefulStop(),
+        interrupt: () => interrupt(),
+      })
+    : new ConsoleReporter();
+
+  const gracefulStop = (): void => {
+    if (stopping) return;
+    stopping = true;
+    reporter.warn("Stop requested — finishing the current step.");
+  };
+  const interrupt = (): void => {
     if (!stopping) {
       stopping = true;
-      consola.warn(
-        "\nStop requested — finishing the current step. Press Ctrl-C again to force quit.",
-      );
+      reporter.warn("Stop requested — finishing the current step. Press again to force quit.");
     } else {
-      consola.warn("Force quitting.");
+      reporter.warn("Force quitting.");
+      reporter.close();
       abort.abort();
       process.exit(130);
     }
   };
+  const onSignal = () => interrupt();
   process.on("SIGINT", onSignal);
   process.on("SIGTERM", onSignal);
+
+  reporter.start({
+    slug: state.slug,
+    idea: state.idea,
+    model: state.model,
+    workspace: opts.workspace,
+    repoRoot,
+    existingProject: state.existingProject,
+    hasContext: existsSync(bb.context),
+    contextDir: state.contextDir,
+    guarded: !opts.skipPermissions,
+    noShip: opts.noShip,
+    autoDeploy: opts.autoDeploy,
+    maxCycles: opts.maxCycles,
+  });
+  if (opts.skipPermissions) {
+    const deployNote = opts.noShip
+      ? "Deploys are disabled."
+      : opts.autoDeploy
+        ? "Deploys to production run AUTOMATICALLY."
+        : "Deploys are gated on `pnpm approve <slug>` — nothing goes live without you.";
+    reporter.warn(
+      `Running with --dangerously-skip-permissions: agents run shell/file tools and \`vg generate\` (which costs money) WITHOUT asking. ${deployNote} Stop with Ctrl-C.`,
+    );
+    // claude rejects --dangerously-skip-permissions under root unless the
+    // environment is marked as a sandbox; we set IS_SANDBOX=1 for the children
+    // so unattended container/CI runs (which are typically root) actually work.
+    if (
+      typeof process.getuid === "function" &&
+      process.getuid() === 0 &&
+      process.env.IS_SANDBOX !== "1"
+    ) {
+      reporter.info(
+        "Detected root: setting IS_SANDBOX=1 for agents so skip-permissions is allowed.",
+      );
+    }
+  }
+  reporter.stateChanged(state, approvalPending(bb, state.lastApproval));
 
   // A sleep that wakes early if a stop is requested (Ctrl-C or STOP sentinel),
   // so backoff/interval waits never delay shutdown.
@@ -167,7 +231,7 @@ export async function runAgent(opts: AgentOptions): Promise<boolean> {
   // oxlint-disable-next-line no-unmodified-loop-condition
   while (!stopping) {
     if (stopRequested(bb)) {
-      consola.warn("STOP sentinel found in .agent/ — halting.");
+      reporter.warn("STOP sentinel found in .agent/ — halting.");
       break;
     }
 
@@ -186,10 +250,11 @@ export async function runAgent(opts: AgentOptions): Promise<boolean> {
       !opts.noShip &&
       approvalPending(bb, state.lastApproval)
     ) {
-      consola.info("Approval received — shipping the current build before continuing.");
+      reporter.info("Approval received — shipping the current build before continuing.");
       state.phase = "ship";
       state.phaseFailures = 0; // entering a new phase: fresh retry budget
       saveState(bb, state);
+      reporter.stateChanged(state, approvalPending(bb, state.lastApproval));
     }
 
     // An operator-approved deploy is a deliberate command — let that single ship
@@ -200,25 +265,27 @@ export async function runAgent(opts: AgentOptions): Promise<boolean> {
       !opts.noShip &&
       approvalPending(bb, state.lastApproval);
     if (opts.maxCycles > 0 && state.cycle >= opts.maxCycles && !approvedShipPending) {
-      consola.info(`Reached --max-cycles=${opts.maxCycles}. Stopping.`);
+      reporter.info(`Reached --max-cycles=${opts.maxCycles}. Stopping.`);
       break;
     }
 
     // Optionally skip shipping (no prod deploy) while testing.
     if (state.phase === "ship" && opts.noShip) {
-      consola.info("--skip-ship set; skipping the ship phase.");
+      reporter.info("--skip-ship set; skipping the ship phase.");
       advance(state);
       saveState(bb, state);
+      reporter.stateChanged(state, approvalPending(bb, state.lastApproval));
       continue;
     }
 
     // Never deploy without a recorded successful build — e.g. if the build
     // phase was skipped after repeated failures. Wait until a build lands.
     if (state.phase === "ship" && !state.built) {
-      consola.warn("Reached ship with no successful build recorded — not deploying yet.");
+      reporter.warn("Reached ship with no successful build recorded — not deploying yet.");
       appendJournal(bb, "ship: skipped — no successful build recorded.");
       advance(state);
       saveState(bb, state);
+      reporter.stateChanged(state, approvalPending(bb, state.lastApproval));
       continue;
     }
 
@@ -227,12 +294,13 @@ export async function runAgent(opts: AgentOptions): Promise<boolean> {
     // ready, we just don't publish it — the loop keeps improving the game
     // locally until a human runs `pnpm approve <slug>`.
     if (state.phase === "ship" && !opts.autoDeploy && !approvalPending(bb, state.lastApproval)) {
-      consola.warn(
+      reporter.warn(
         `Build ready but NOT deployed — approval required. Run \`pnpm approve ${state.slug}\` to publish it (or start with --auto-deploy).`,
       );
       appendJournal(bb, "ship: build ready, awaiting human approval (not deployed).");
       advance(state);
       saveState(bb, state);
+      reporter.stateChanged(state, approvalPending(bb, state.lastApproval));
       continue;
     }
 
@@ -240,12 +308,13 @@ export async function runAgent(opts: AgentOptions): Promise<boolean> {
     const role = ROLES[roleForPhase(phase, bb)];
     const task = buildTask(phase, state, bb);
 
-    consola.log("");
-    consola.start(
-      `${role.emoji} ${role.name} — phase "${phase}" · cycle ${state.cycle + 1}${
-        state.shipped ? ` · iteration ${state.iteration + 1}` : ""
-      }`,
-    );
+    reporter.turnStart({
+      emoji: role.emoji,
+      role: role.name,
+      phase,
+      cycle: state.cycle + 1,
+      iteration: state.shipped ? state.iteration + 1 : null,
+    });
 
     const turnStartedAt = Date.now();
     const res = await runClaude({
@@ -260,12 +329,13 @@ export async function runAgent(opts: AgentOptions): Promise<boolean> {
       addDirs: state.contextDir ? [repoRoot, state.contextDir] : [repoRoot],
       skipPermissions: opts.skipPermissions,
       signal: abort.signal,
-      label: role.name,
+      onActivity: (activity) => reporter.activity(activity),
     });
 
     state.cycle += 1;
     if (typeof res.costUsd === "number") state.totalCostUsd += res.costUsd;
     saveState(bb, state);
+    reporter.stateChanged(state, approvalPending(bb, state.lastApproval));
 
     // One span per turn — the agent's durable observability trail.
     appendSpan(bb, {
@@ -290,9 +360,14 @@ export async function runAgent(opts: AgentOptions): Promise<boolean> {
         bb,
         `${role.name} (${phase}) FAILED: ${truncate(res.error ?? "unknown error")}`,
       );
-      consola.error(`${role.name} failed: ${res.error ?? "unknown error"}`);
+      reporter.turnEnd({
+        ok: false,
+        costUsd: res.costUsd,
+        numTurns: res.numTurns,
+        error: res.error ?? "unknown error",
+      });
       if (state.phaseFailures >= MAX_RETRIES) {
-        consola.warn(
+        reporter.warn(
           `${MAX_RETRIES} consecutive failures on "${phase}" — skipping ahead to avoid a stuck loop.`,
         );
         // A spent attempt consumes the deploy approval too, so a broken ship
@@ -304,9 +379,10 @@ export async function runAgent(opts: AgentOptions): Promise<boolean> {
         state.phaseFailures = 0;
         advance(state);
         saveState(bb, state);
+        reporter.stateChanged(state, approvalPending(bb, state.lastApproval));
       } else {
         const backoff = Math.min(2 ** state.phaseFailures, 60);
-        consola.info(
+        reporter.info(
           `Retrying "${phase}" in ${backoff}s (attempt ${state.phaseFailures + 1}/${MAX_RETRIES}).`,
         );
         await sleepUnlessStopping(backoff * 1000);
@@ -319,7 +395,7 @@ export async function runAgent(opts: AgentOptions): Promise<boolean> {
       bb,
       `${role.name} (${phase}) done${costNote(res.costUsd)}: ${truncate(res.result)}`,
     );
-    consola.success(`${role.name} done${costNote(res.costUsd)} · ${res.numTurns ?? "?"} turns`);
+    reporter.turnEnd({ ok: true, costUsd: res.costUsd, numTurns: res.numTurns });
 
     // A deployable build exists once a phase that builds the game succeeds:
     // scaffold (confirms the template/adopted project builds), build, or
@@ -338,6 +414,7 @@ export async function runAgent(opts: AgentOptions): Promise<boolean> {
     }
     advance(state);
     saveState(bb, state);
+    reporter.stateChanged(state, approvalPending(bb, state.lastApproval));
 
     if (opts.interval > 0 && !stopping) await sleepUnlessStopping(opts.interval);
   }
@@ -349,6 +426,7 @@ export async function runAgent(opts: AgentOptions): Promise<boolean> {
 
   saveState(bb, state);
   releaseLock(bb);
+  reporter.close(); // restore the terminal before the final summary prints
   consola.box(
     [
       `Agent stopped for "${state.slug}".`,
@@ -393,58 +471,6 @@ function recordShip(state: AgentState): void {
   } else {
     state.shipped = true;
     state.deployUrl = `https://${state.slug}.vibedgames.com`;
-  }
-}
-
-function banner(opts: AgentOptions, state: AgentState, repoRoot: string): void {
-  const bb = blackboard(opts.workspace);
-  consola.box(
-    [
-      `🎮 vibedgames factory — autonomous game agent`,
-      ``,
-      `Game:      ${state.slug}`,
-      `Idea:      ${state.idea || "(from existing project / context)"}`,
-      `Model:     ${state.model}`,
-      `Game dir:  ${opts.workspace}`,
-      state.existingProject ? `Source:    building on existing files in the game dir` : null,
-      existsSync(bb.context)
-        ? `Context:   provided${state.contextDir ? ` (+ reference dir: ${state.contextDir})` : ""}`
-        : null,
-      `Repo:      ${repoRoot}`,
-      `Mode:      ${opts.skipPermissions ? "unattended (tools auto-approved)" : "guarded (will block on approvals!)"}`,
-      opts.noShip
-        ? `Deploy:    disabled (--skip-ship)`
-        : opts.autoDeploy
-          ? `Deploy:    AUTOMATIC → ${state.slug}.vibedgames.com`
-          : `Deploy:    on approval only — \`pnpm approve ${state.slug}\` → ${state.slug}.vibedgames.com`,
-      opts.maxCycles > 0
-        ? `Stops at:  ${opts.maxCycles} cycles`
-        : `Runs:      until you stop it (Ctrl-C or \`pnpm stop ${state.slug}\`)`,
-    ]
-      .filter(Boolean)
-      .join("\n"),
-  );
-  if (opts.skipPermissions) {
-    const deployNote = opts.noShip
-      ? "Deploys are disabled."
-      : opts.autoDeploy
-        ? "Deploys to production run AUTOMATICALLY."
-        : "Deploys are gated on `pnpm approve <slug>` — nothing goes live without you.";
-    consola.warn(
-      `Running with --dangerously-skip-permissions: agents run shell/file tools and \`vg generate\` (which costs money) WITHOUT asking. ${deployNote} Stop with Ctrl-C.`,
-    );
-    // claude rejects --dangerously-skip-permissions under root unless the
-    // environment is marked as a sandbox; we set IS_SANDBOX=1 for the children
-    // so unattended container/CI runs (which are typically root) actually work.
-    if (
-      typeof process.getuid === "function" &&
-      process.getuid() === 0 &&
-      process.env.IS_SANDBOX !== "1"
-    ) {
-      consola.info(
-        "Detected root: setting IS_SANDBOX=1 for agents so skip-permissions is allowed.",
-      );
-    }
   }
 }
 
