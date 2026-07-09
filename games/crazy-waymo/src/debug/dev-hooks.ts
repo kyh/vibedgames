@@ -3,6 +3,7 @@
 // import.meta.env.DEV is true, so none of it reaches production builds.
 import * as THREE from "three";
 
+import type { PerfGovernor } from "../render/perf-governor";
 import type { GameScene } from "../scenes/game-scene";
 
 export type TaxiDebugApi = {
@@ -30,6 +31,8 @@ export type TaxiDebugApi = {
   } | null;
   // Force the run clock (endgame testing).
   setTime(seconds: number): void;
+  // Current perf-governor quality tier (0 = full; mobile boots lower).
+  tier(): number;
   // Jump the day-night cycle to a phase (0..1; ~0.25 day, 0.47 sunset, 0.7 night).
   setPhase(p: number): void;
   // Nearest resting cone (verification).
@@ -37,7 +40,10 @@ export type TaxiDebugApi = {
   // Launch the nearest resting cone through the physics path (verification).
   smashCone(): boolean;
   // Raycast from the camera through NDC (nx, ny in -1..1); returns what's hit.
-  pick(nx: number, ny: number): {
+  pick(
+    nx: number,
+    ny: number,
+  ): {
     name: string;
     chain: string;
     point: number[];
@@ -53,10 +59,13 @@ declare global {
   }
 }
 
-export function installDevHooks(game: GameScene): void {
+export function installDevHooks(game: GameScene, governor: PerfGovernor): void {
   window.__taxi = {
     game,
     camera: game.camera,
+    tier(): number {
+      return governor.currentTier;
+    },
     setFreecam(on: boolean): void {
       game.freecam = on;
     },
@@ -95,7 +104,8 @@ export function installDevHooks(game: GameScene): void {
         o = o.parent;
       }
       const mesh = hit.object instanceof THREE.Mesh ? hit.object : null;
-      const mat = mesh && mesh.material instanceof THREE.MeshStandardMaterial ? mesh.material : null;
+      const mat =
+        mesh && mesh.material instanceof THREE.MeshStandardMaterial ? mesh.material : null;
       const geo = mesh ? mesh.geometry : null;
       if (geo && !geo.boundingBox) geo.computeBoundingBox();
       const bb = geo?.boundingBox ?? null;
@@ -106,7 +116,9 @@ export function installDevHooks(game: GameScene): void {
         color: mat ? `#${mat.color.getHexString()}` : null,
         verts: geo ? geo.getAttribute("position").count : 0,
         bbox: bb
-          ? [bb.min.x, bb.min.y, bb.min.z, bb.max.x, bb.max.y, bb.max.z].map((v) => Math.round(v * 10) / 10)
+          ? [bb.min.x, bb.min.y, bb.min.z, bb.max.x, bb.max.y, bb.max.z].map(
+              (v) => Math.round(v * 10) / 10,
+            )
           : null,
       };
     },

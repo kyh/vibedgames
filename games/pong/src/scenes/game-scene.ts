@@ -176,6 +176,7 @@ export class GameScene {
   // HAND_TIMEOUT_MS after the last result (legacy never gave it back — bug).
   private handX: number | null = null;
   private handSeenAt = 0;
+  private handSeen = false; // any hand ever tracked — gates the ✊ prompt copy
   private lastHandX: number | null = null;
 
   // Drag-to-pan camera offset; lerps back to rest while not dragging.
@@ -325,7 +326,7 @@ export class GameScene {
       this.syncSound();
     });
 
-    this.promptEl.textContent = COARSE_INPUT ? "tap to serve" : "press space or tap to serve";
+    this.syncPrompt();
     this.syncHud();
     this.syncSound();
   }
@@ -433,6 +434,15 @@ export class GameScene {
   handleHandPosition(x: number): void {
     this.handX = x;
     this.handSeenAt = performance.now();
+    if (!this.handSeen) {
+      this.handSeen = true;
+      this.syncPrompt(); // hand control live → advertise the fist serve
+    }
+  }
+
+  /** Closed-fist edge from the hand tracker — cam-only serve/rematch confirm. */
+  handleGestureConfirm(): void {
+    this.confirm();
   }
 
   /** Latest wrist x, or null once no hand has been seen for HAND_TIMEOUT_MS. */
@@ -1091,6 +1101,12 @@ export class GameScene {
   }
 
   // ---- HUD -----------------------------------------------------------------
+
+  /** Serve/rematch instructions, matching whichever inputs are actually live. */
+  private syncPrompt(): void {
+    const base = COARSE_INPUT ? "tap to serve" : "press space or tap to serve";
+    this.promptEl.textContent = this.handSeen ? `✊ or ${base}` : base;
+  }
 
   private syncHud(): void {
     this.scoreYouEl.textContent = String(this.scoreYou);

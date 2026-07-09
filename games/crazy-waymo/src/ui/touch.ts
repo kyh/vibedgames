@@ -11,7 +11,7 @@ const MAP: Record<string, Btn> = {
 };
 
 // Wire on-screen buttons to the shared input state. Shown only on touch devices.
-export function setupTouch(input: InputState): boolean {
+export function setupTouch(input: InputState, onChat?: () => void): boolean {
   const isTouch = window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
   const container = document.getElementById("touch");
   if (!container) return false;
@@ -33,5 +33,12 @@ export function setupTouch(input: InputState): boolean {
     node.addEventListener("pointercancel", up);
     node.addEventListener("pointerleave", up);
   }
+  if (onChat) document.getElementById("t-chat")?.addEventListener("click", onChat);
   return isTouch;
+}
+
+// Buttons belong over the live run only, never floating on the title/gameover
+// banner. Display needs both `.on` (touch device) and `.play` (active run).
+export function setTouchPlaying(active: boolean): void {
+  document.getElementById("touch")?.classList.toggle("play", active);
 }

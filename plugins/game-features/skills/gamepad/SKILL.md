@@ -257,6 +257,13 @@ read the gamepad as the touch source.
 ❌ **Forgetting to `destroy()` on scene shutdown.**
 Leaves pointer listeners and the overlay Graphics dangling. Tie it to `SHUTDOWN`.
 
+❌ **Attaching the Phaser pad to a zoomed-camera scene.**
+`setScrollFactor(0)` does not exempt the overlay from camera **zoom** — the
+stick/buttons render zoom-transformed (often off-screen). Attach the pad in a
+parallel un-zoomed HUD scene instead; input still reaches it because Phaser
+processes scene input top-down, and gameplay scenes can read the same pad
+object (share it via the scene registry or a module).
+
 ## Deploy
 
 `vg deploy ./dist --slug my-game` → live at `https://my-game.vibedgames.com`.

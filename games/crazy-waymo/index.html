@@ -377,7 +377,17 @@
           right: auto;
           bottom: auto;
           left: calc(12px + env(safe-area-inset-left));
-          top: 170px;
+          top: calc(170px + env(safe-area-inset-top));
+        }
+      }
+      /* Coarse-pointer tablets keep desktop widths but show the touch
+         clusters — move the minimap out of the bottom-right where GAS lives. */
+      @media (min-width: 721px) and (min-height: 501px) and (pointer: coarse) {
+        #minimap {
+          right: auto;
+          bottom: auto;
+          left: calc(12px + env(safe-area-inset-left));
+          top: calc(170px + env(safe-area-inset-top));
         }
       }
 
@@ -516,7 +526,9 @@
         pointer-events: none;
         display: none;
       }
-      #touch.on {
+      /* Both must hold: .on = touch device, .play = active run — the buttons
+         never float over the title/gameover banner. */
+      #touch.on.play {
         display: block;
       }
       .tbtn {
@@ -537,28 +549,28 @@
         background: rgba(255, 209, 71, 0.4);
       }
       #t-left {
-        left: 18px;
-        bottom: 96px;
+        left: calc(18px + env(safe-area-inset-left));
+        bottom: calc(104px + env(safe-area-inset-bottom));
         width: 76px;
         height: 76px;
       }
       #t-right {
-        left: 110px;
-        bottom: 96px;
+        left: calc(110px + env(safe-area-inset-left));
+        bottom: calc(104px + env(safe-area-inset-bottom));
         width: 76px;
         height: 76px;
       }
       #t-gas {
-        right: 18px;
-        bottom: 110px;
+        right: calc(18px + env(safe-area-inset-right));
+        bottom: calc(110px + env(safe-area-inset-bottom));
         width: 92px;
         height: 92px;
         background: rgba(107, 255, 142, 0.18);
         border-color: rgba(107, 255, 142, 0.5);
       }
       #t-brake {
-        right: 124px;
-        bottom: 40px;
+        right: calc(124px + env(safe-area-inset-right));
+        bottom: calc(40px + env(safe-area-inset-bottom));
         width: 74px;
         height: 74px;
         font-size: 12px;
@@ -566,48 +578,98 @@
         background: rgba(255, 90, 82, 0.16);
         border-color: rgba(255, 90, 82, 0.5);
       }
-      /* Narrow phones: shrink + retuck the clusters so steer and brake never overlap. */
-      @media (max-width: 420px) {
-        #t-left {
-          left: 12px;
-          bottom: 88px;
-          width: 64px;
-          height: 64px;
-        }
-        #t-right {
-          left: 88px;
-          bottom: 88px;
-          width: 64px;
-          height: 64px;
-        }
-        #t-gas {
-          right: 12px;
-          bottom: 104px;
-          width: 78px;
-          height: 78px;
-        }
-        #t-brake {
-          right: 100px;
-          bottom: 34px;
-          width: 62px;
-          height: 62px;
-        }
-        #t-boost {
-          right: 22px;
-          bottom: 200px;
-          width: 56px;
-          height: 56px;
-        }
-      }
       #t-boost {
-        right: 30px;
-        bottom: 214px;
+        right: calc(30px + env(safe-area-inset-right));
+        bottom: calc(214px + env(safe-area-inset-bottom));
         width: 64px;
         height: 64px;
         font-size: 12px;
         letter-spacing: 1px;
         background: rgba(255, 209, 71, 0.16);
         border-color: rgba(255, 209, 71, 0.55);
+      }
+      #t-chat {
+        left: calc(66px + env(safe-area-inset-left));
+        top: calc(76px + env(safe-area-inset-top));
+        width: 44px;
+        height: 44px;
+        font-size: 18px;
+      }
+      /* Narrow phones: shrink + retuck the clusters so steer and brake never overlap. */
+      @media (max-width: 420px) {
+        #t-left {
+          left: calc(12px + env(safe-area-inset-left));
+          bottom: calc(102px + env(safe-area-inset-bottom));
+          width: 64px;
+          height: 64px;
+        }
+        #t-right {
+          left: calc(88px + env(safe-area-inset-left));
+          bottom: calc(102px + env(safe-area-inset-bottom));
+          width: 64px;
+          height: 64px;
+        }
+        #t-gas {
+          right: calc(12px + env(safe-area-inset-right));
+          bottom: calc(104px + env(safe-area-inset-bottom));
+          width: 78px;
+          height: 78px;
+        }
+        #t-brake {
+          right: calc(100px + env(safe-area-inset-right));
+          bottom: calc(34px + env(safe-area-inset-bottom));
+          width: 62px;
+          height: 62px;
+        }
+        #t-boost {
+          right: calc(22px + env(safe-area-inset-right));
+          bottom: calc(200px + env(safe-area-inset-bottom));
+          width: 56px;
+          height: 56px;
+        }
+      }
+      /* Landscape phones: no height for stacked columns — minimap moves to the
+         bottom-center, steer lifts above the speedo, boost tucks beside gas. */
+      @media (max-height: 500px) {
+        #minimap {
+          width: 92px;
+          height: 92px;
+          top: auto;
+          right: auto;
+          left: 50%;
+          transform: translateX(-50%);
+          bottom: calc(10px + env(safe-area-inset-bottom));
+        }
+        #t-left {
+          left: calc(16px + env(safe-area-inset-left));
+          bottom: calc(104px + env(safe-area-inset-bottom));
+          width: 68px;
+          height: 68px;
+        }
+        #t-right {
+          left: calc(96px + env(safe-area-inset-left));
+          bottom: calc(104px + env(safe-area-inset-bottom));
+          width: 68px;
+          height: 68px;
+        }
+        #t-gas {
+          right: calc(16px + env(safe-area-inset-right));
+          bottom: calc(78px + env(safe-area-inset-bottom));
+          width: 84px;
+          height: 84px;
+        }
+        #t-brake {
+          right: calc(112px + env(safe-area-inset-right));
+          bottom: calc(26px + env(safe-area-inset-bottom));
+          width: 62px;
+          height: 62px;
+        }
+        #t-boost {
+          right: calc(118px + env(safe-area-inset-right));
+          bottom: calc(118px + env(safe-area-inset-bottom));
+          width: 56px;
+          height: 56px;
+        }
       }
 
       @media (max-width: 720px) {
@@ -633,6 +695,31 @@
           animation: none;
         }
       }
+      /* Sound toggle — under the score pill. The only unmute path on touch
+         (keyboard has M); >=44px target. */
+      #mute {
+        position: fixed;
+        top: calc(76px + env(safe-area-inset-top));
+        left: calc(14px + env(safe-area-inset-left));
+        width: 44px;
+        height: 44px;
+        padding: 0;
+        border-radius: 50%;
+        border: 2px solid rgba(255, 209, 71, 0.5);
+        background: rgba(18, 16, 26, 0.62);
+        color: #fff;
+        font-family: inherit;
+        font-size: 19px;
+        line-height: 1;
+        z-index: 7;
+        cursor: pointer;
+        pointer-events: auto;
+        box-shadow: 0 4px 0 rgba(0, 0, 0, 0.35);
+      }
+      #mute:active {
+        background: rgba(255, 209, 71, 0.4);
+      }
+
       /* Online-drivers count — top-right corner. */
       #netinfo {
         position: fixed;
@@ -713,6 +800,7 @@
 
     <div id="flash"></div>
     <div id="vignette"></div>
+    <button id="mute" aria-label="Unmute">🔇</button>
 
     <div id="touch" aria-hidden="true">
       <div class="tbtn" id="t-left" role="button" aria-label="Steer left">◀</div>
@@ -720,6 +808,7 @@
       <div class="tbtn" id="t-gas" role="button" aria-label="Accelerate">GAS</div>
       <div class="tbtn" id="t-brake" role="button" aria-label="Brake and drift">BRAKE</div>
       <div class="tbtn" id="t-boost" role="button" aria-label="Boost">BOOST</div>
+      <div class="tbtn" id="t-chat" role="button" aria-label="Chat">💬</div>
     </div>
 
     <div id="loading">

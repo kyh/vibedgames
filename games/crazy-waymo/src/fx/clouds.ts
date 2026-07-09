@@ -1,5 +1,6 @@
 import * as THREE from "three";
 
+import type { CloudQuality } from "../render/quality";
 import { WORLD_H, WORLD_HALF_X, WORLD_W } from "../shared/constants";
 
 // SF sky: two billboard layers on one shader.
@@ -20,6 +21,9 @@ const FOG_COUNT = 26;
 const FOG_DISSOLVE_U = 0.55;
 const FOG_SPAWN_MIN_U = -0.25; // off-shore, over the open Pacific
 const FOG_SPAWN_MAX_U = 0.1;
+// Reduced quality (mobile tiers): giant near-white sheets are pure overdraw —
+// cap their width so a single sheet can't repaint the whole screen.
+const FOG_WIDTH_CAP = 380;
 
 const VERT = `
   attribute vec3 aCenter;
@@ -41,7 +45,11 @@ const VERT = `
     gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);
   }
 `;
-const FRAG = `
+// `discardLow` (mobile): most of each quad is fully transparent texels —
+// skipping the blend write for them saves real ROP bandwidth on tile GPUs.
+// Desktop keeps the exact original shader.
+function frag(discardLow: boolean): string {
+  return `
   uniform sampler2D uMap;
   uniform vec3 uColor;
   uniform float uDim;
@@ -49,9 +57,11 @@ const FRAG = `
   varying float vAlpha;
   void main() {
     float a = texture2D(uMap, vUv).a;
+    ${discardLow ? "if (a * vAlpha < 0.004) discard;" : ""}
     gl_FragColor = vec4(uColor * uDim, a * vAlpha);
   }
 `;
+}
 
 // A soft, lumpy cloud blob: overlapping radial gradients on a canvas.
 function cloudTexture(lobes: number, squash: number): THREE.CanvasTexture {
@@ -90,12 +100,15 @@ type LayerOpts = {
   color: number;
   tex: THREE.CanvasTexture;
   renderOrder: number;
+  discardLow: boolean;
 };
 
 class CloudLayer {
   readonly mesh: THREE.Mesh;
+  readonly geo: THREE.InstancedBufferGeometry;
   readonly centers: Float32Array;
   readonly alphas: Float32Array;
+  readonly sizeAttr: THREE.InstancedBufferAttribute;
   private centerAttr: THREE.InstancedBufferAttribute;
   private alphaAttr: THREE.InstancedBufferAttribute;
 
@@ -106,6 +119,7 @@ class CloudLayer {
     geo.setAttribute("position", quad.getAttribute("position"));
     geo.setAttribute("uv", quad.getAttribute("uv"));
     geo.instanceCount = opts.count;
+    this.geo = geo;
 
     this.centers = new Float32Array(opts.count * 3);
     this.alphas = new Float32Array(opts.count);
@@ -117,7 +131,8 @@ class CloudLayer {
     this.alphaAttr.setUsage(THREE.DynamicDrawUsage);
     geo.setAttribute("aCenter", this.centerAttr);
     geo.setAttribute("aAlpha", this.alphaAttr);
-    geo.setAttribute("aSize", new THREE.InstancedBufferAttribute(sizes, 2));
+    this.sizeAttr = new THREE.InstancedBufferAttribute(sizes, 2);
+    geo.setAttribute("aSize", this.sizeAttr);
     geo.setAttribute("aSeed", new THREE.InstancedBufferAttribute(seeds, 1));
     this.sizes = sizes;
     this.seeds = seeds;
@@ -129,7 +144,7 @@ class CloudLayer {
         uDim: { value: 1 },
       },
       vertexShader: VERT,
-      fragmentShader: FRAG,
+      fragmentShader: frag(opts.discardLow),
       transparent: true,
       depthWrite: false,
     });
@@ -156,20 +171,26 @@ export class SkyClouds {
   // Per-fog-sheet drift speed + target alpha (dissolve is alpha-driven).
   private fogSpeed: Float32Array;
   private fogBase: Float32Array;
+  private fogWidth: Float32Array; // full (uncapped) width per sheet
   private highSpeed: Float32Array;
+  private level: CloudQuality = 2;
+  private highActive = HIGH_COUNT;
+  private fogActive = FOG_COUNT;
 
-  constructor() {
+  constructor(discardLow = false) {
     this.high = new CloudLayer({
       count: HIGH_COUNT,
       color: 0xffffff,
       tex: cloudTexture(4, 0.9),
       renderOrder: 4,
+      discardLow,
     });
     this.fog = new CloudLayer({
       count: FOG_COUNT,
       color: 0xe8f1f7,
       tex: cloudTexture(3, 0.45),
       renderOrder: 5,
+      discardLow,
     });
     this.group.add(this.high.mesh);
     this.group.add(this.fog.mesh);
@@ -187,6 +208,7 @@ export class SkyClouds {
     }
     this.fogSpeed = new Float32Array(FOG_COUNT);
     this.fogBase = new Float32Array(FOG_COUNT);
+    this.fogWidth = new Float32Array(FOG_COUNT);
     for (let i = 0; i < FOG_COUNT; i++) this.spawnFog(i, true);
     this.high.markDirty();
     this.fog.markDirty();
@@ -203,10 +225,40 @@ export class SkyClouds {
     const y = 26 + Math.random() * 46; // hugs the hills, tops of Sutro/Twin Peaks
     this.fog.centers.set([x, y, z], i * 3);
     const w = 320 + Math.random() * 320;
-    this.fog.sizes.set([w, 42 + Math.random() * 46], i * 2);
+    this.fogWidth[i] = w;
+    this.fog.sizes.set(
+      [this.level === 2 ? w : Math.min(w, FOG_WIDTH_CAP), 42 + Math.random() * 46],
+      i * 2,
+    );
+    this.fog.sizeAttr.needsUpdate = true;
     this.fogBase[i] = 0.24 + Math.random() * 0.18;
     this.fog.alphas[i] = 0; // fades in
     this.fogSpeed[i] = 5 + Math.random() * 4;
+  }
+
+  // Mobile tiers step the sky down: 2 = full (desktop look, the default —
+  // desktop never calls this with anything else), 1 = half the billboards and
+  // width-capped fog sheets, 0 = no fog sheets at all.
+  setQuality(level: CloudQuality): void {
+    if (level === this.level) return;
+    const prevFog = this.fogActive;
+    this.level = level;
+    this.highActive = level === 2 ? HIGH_COUNT : HIGH_COUNT >> 1;
+    this.fogActive = level === 2 ? FOG_COUNT : level === 1 ? FOG_COUNT >> 1 : 0;
+    this.high.geo.instanceCount = this.highActive;
+    this.fog.geo.instanceCount = Math.max(1, this.fogActive);
+    this.fog.mesh.visible = this.fogActive > 0;
+    // Re-cap (or restore) the width of every live sheet.
+    for (let i = 0; i < FOG_COUNT; i++) {
+      const w = this.fogWidth[i] ?? FOG_WIDTH_CAP;
+      this.fog.sizes[i * 2] = level === 2 ? w : Math.min(w, FOG_WIDTH_CAP);
+    }
+    this.fog.sizeAttr.needsUpdate = true;
+    // Sheets that sat parked while inactive respawn mid-crossing (fade in
+    // from alpha 0) instead of popping back where they froze.
+    for (let i = prevFog; i < this.fogActive; i++) this.spawnFog(i, true);
+    this.high.markDirty();
+    this.fog.markDirty();
   }
 
   // Night factor (0 day .. 1 night): white clouds over a night sky must dim
@@ -218,24 +270,20 @@ export class SkyClouds {
 
   update(dt: number): void {
     // High cumulus: constant drift, wrap around the extended sky box.
-    for (let i = 0; i < HIGH_COUNT; i++) {
+    for (let i = 0; i < this.highActive; i++) {
       let x = (this.high.centers[i * 3] ?? 0) + (this.highSpeed[i] ?? 0) * dt;
       if (x > WORLD_HALF_X * 1.7) x = -WORLD_HALF_X * 1.7;
       this.high.centers[i * 3] = x;
     }
     // Karl: drift east, fade in over the ocean, dissolve crossing the ridge.
-    for (let i = 0; i < FOG_COUNT; i++) {
+    for (let i = 0; i < this.fogActive; i++) {
       const x = (this.fog.centers[i * 3] ?? 0) + (this.fogSpeed[i] ?? 0) * dt;
       this.fog.centers[i * 3] = x;
       const u = x / WORLD_W + 0.5;
       const base = this.fogBase[i] ?? 0.2;
       const fadeIn = Math.min(1, (this.fog.alphas[i] ?? 0) / base + dt * 0.6);
       // Dissolve band: full strength until the city line, then thins out.
-      const dissolve = THREE.MathUtils.clamp(
-        1 - (u - (FOG_DISSOLVE_U - 0.18)) / 0.18,
-        0,
-        1,
-      );
+      const dissolve = THREE.MathUtils.clamp(1 - (u - (FOG_DISSOLVE_U - 0.18)) / 0.18, 0, 1);
       this.fog.alphas[i] = base * Math.min(fadeIn, 1) * dissolve;
       if (u > FOG_DISSOLVE_U) this.spawnFog(i, false);
     }

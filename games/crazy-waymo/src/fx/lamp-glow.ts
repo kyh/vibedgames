@@ -83,8 +83,10 @@ const FRAG = `
   }
 `;
 
+type Layer = { mesh: THREE.Mesh; geo: THREE.InstancedBufferGeometry };
+
 function buildLayer(
-  centers: Float32Array,
+  attr: THREE.InstancedBufferAttribute,
   count: number,
   vert: string,
   tex: THREE.CanvasTexture,
@@ -92,13 +94,13 @@ function buildLayer(
   size: number,
   alpha: number,
   intensity: { value: number },
-): THREE.Mesh {
+): Layer {
   const quad = new THREE.PlaneGeometry(1, 1);
   const geo = new THREE.InstancedBufferGeometry();
   geo.index = quad.index;
   geo.setAttribute("position", quad.getAttribute("position"));
   geo.setAttribute("uv", quad.getAttribute("uv"));
-  geo.setAttribute("aCenter", new THREE.InstancedBufferAttribute(centers, 3));
+  geo.setAttribute("aCenter", attr);
   geo.instanceCount = count;
   const mat = new THREE.ShaderMaterial({
     uniforms: {
@@ -117,35 +119,130 @@ function buildLayer(
   const mesh = new THREE.Mesh(geo, mat);
   mesh.frustumCulled = false; // instances span the whole map
   mesh.renderOrder = 6;
-  return mesh;
+  return { mesh, geo };
 }
+
+// Mobile: only the `cap` lamps nearest the camera get glow quads (rewritten on
+// a slow cadence, amortized like the ParkedCars culling); the light pools also
+// shrink. Desktop passes null and keeps every lamp, statically, as before.
+export type LampGlowBudget = {
+  readonly cap: number;
+  readonly poolScale: number;
+};
+
+const NEAR_REFRESH_S = 0.5;
+
+type CappedState = {
+  readonly heads: readonly LampHead[];
+  readonly haloArr: Float32Array;
+  readonly poolArr: Float32Array;
+  readonly haloAttr: THREE.InstancedBufferAttribute;
+  readonly poolAttr: THREE.InstancedBufferAttribute;
+  readonly halo: Layer;
+  readonly pool: Layer;
+  readonly cap: number;
+  timer: number;
+};
 
 export class LampGlow {
   readonly group = new THREE.Group();
   private intensity = { value: 0 };
+  private capped: CappedState | null = null;
 
-  constructor(heads: readonly LampHead[]) {
+  constructor(heads: readonly LampHead[], budget: LampGlowBudget | null = null) {
     if (heads.length === 0) return;
     const tex = radialGlowTexture();
-    const haloCenters = new Float32Array(heads.length * 3);
-    const poolCenters = new Float32Array(heads.length * 3);
-    for (let i = 0; i < heads.length; i++) {
+    const cap = budget && heads.length > budget.cap ? budget.cap : 0;
+    const n = cap > 0 ? cap : heads.length;
+    const haloCenters = new Float32Array(n * 3);
+    const poolCenters = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
       const h = heads[i];
       if (!h) continue;
       haloCenters.set([h.x, h.y, h.z], i * 3);
       poolCenters.set([h.x, h.ground + 0.09, h.z], i * 3);
     }
-    this.group.add(
-      buildLayer(haloCenters, heads.length, HALO_VERT, tex, 0xffcf8a, HALO_SIZE, HALO_ALPHA, this.intensity),
+    const haloAttr = new THREE.InstancedBufferAttribute(haloCenters, 3);
+    const poolAttr = new THREE.InstancedBufferAttribute(poolCenters, 3);
+    if (cap > 0) {
+      haloAttr.setUsage(THREE.DynamicDrawUsage);
+      poolAttr.setUsage(THREE.DynamicDrawUsage);
+    }
+    const poolSize = POOL_SIZE * (budget ? budget.poolScale : 1);
+    const halo = buildLayer(
+      haloAttr,
+      n,
+      HALO_VERT,
+      tex,
+      0xffcf8a,
+      HALO_SIZE,
+      HALO_ALPHA,
+      this.intensity,
     );
-    this.group.add(
-      buildLayer(poolCenters, heads.length, POOL_VERT, tex, 0xffc57a, POOL_SIZE, POOL_ALPHA, this.intensity),
+    const pool = buildLayer(
+      poolAttr,
+      n,
+      POOL_VERT,
+      tex,
+      0xffc57a,
+      poolSize,
+      POOL_ALPHA,
+      this.intensity,
     );
+    this.group.add(halo.mesh);
+    this.group.add(pool.mesh);
     this.group.visible = false;
+    if (cap > 0) {
+      this.capped = {
+        heads,
+        haloArr: haloCenters,
+        poolArr: poolCenters,
+        haloAttr,
+        poolAttr,
+        halo,
+        pool,
+        cap,
+        timer: 0,
+      };
+    }
   }
 
   setIntensity(f: number): void {
     this.intensity.value = f;
     this.group.visible = f > 0.01; // skip both draws entirely in daylight
+  }
+
+  // Capped mode only: every ~0.5s pick the lamps nearest the camera and
+  // rewrite the instance centers. Beyond FADE_FAR they're invisible anyway,
+  // so only candidates inside the fade radius compete for the budget.
+  updateNear(camX: number, camZ: number, dt: number): void {
+    const c = this.capped;
+    if (!c || !this.group.visible) return;
+    c.timer -= dt;
+    if (c.timer > 0) return;
+    c.timer = NEAR_REFRESH_S;
+    const picks: { d2: number; i: number }[] = [];
+    const farSq = FADE_FAR * FADE_FAR;
+    for (let i = 0; i < c.heads.length; i++) {
+      const h = c.heads[i];
+      if (!h) continue;
+      const dx = h.x - camX;
+      const dz = h.z - camZ;
+      const d2 = dx * dx + dz * dz;
+      if (d2 < farSq) picks.push({ d2, i });
+    }
+    picks.sort((a, b) => a.d2 - b.d2);
+    const n = Math.min(c.cap, picks.length);
+    for (let k = 0; k < n; k++) {
+      const p = picks[k];
+      const h = p ? c.heads[p.i] : undefined;
+      if (!h) continue;
+      c.haloArr.set([h.x, h.y, h.z], k * 3);
+      c.poolArr.set([h.x, h.ground + 0.09, h.z], k * 3);
+    }
+    c.halo.geo.instanceCount = n;
+    c.pool.geo.instanceCount = n;
+    c.haloAttr.needsUpdate = true;
+    c.poolAttr.needsUpdate = true;
   }
 }

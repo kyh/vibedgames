@@ -22,6 +22,7 @@ import { NetSession } from "../net/session";
 import { readTransform, RemoteCars } from "../net/remote-cars";
 import { PhysicsWorld } from "../physics/physics-world";
 import { DayNight } from "../render/day-night";
+import { FULL_QUALITY, isCoarsePointer, type QualityFeatures } from "../render/quality";
 import {
   CAMERA,
   CAR,
@@ -40,7 +41,7 @@ import { Rng } from "../shared/rng";
 import type { GameMode } from "../shared/types";
 import { Hud } from "../ui/hud";
 import { Minimap, type MinimapMarker } from "../ui/minimap";
-import { setupTouch } from "../ui/touch";
+import { setTouchPlaying, setupTouch } from "../ui/touch";
 import { Car } from "../vehicle/car";
 import { CityModel } from "../world/city";
 import { editorMode, loadLocalOverrides } from "../world/custom-map";
@@ -84,6 +85,25 @@ const BEST_KEY = "crazy-waymo:best";
 const SOUND_KEY = "crazy-waymo:sound";
 const HINT_DRIFT_KEY = "crazy-waymo:hint-drift";
 const HINT_BOOST_KEY = "crazy-waymo:hint-boost";
+
+// Mobile quality knobs (tier-independent; the tiered ones live in quality.ts).
+const LAMP_GLOW_BUDGET = { cap: 150, poolScale: 0.75 } as const;
+const HUD_HZ = 30; // mobile HUD/minimap redraw rate (desktop stays per-frame)
+// Re-bake the mobile sky when the day-night phase drifts this far past the
+// baked snapshot (~40-60s of wall time; the phase moves ~1.4-2.8e-5/s).
+const SKY_REBAKE_PHASE = 8e-4;
+const SKY_BAKE_SIZE = 256;
+
+// tierColor() → CSS hex, memoized — the minimap builds these per marker per
+// frame and the strings never change.
+const TIER_HEX = new Map<string, string>();
+function tierHex(tier: Parameters<typeof tierColor>[0]): string {
+  const hit = TIER_HEX.get(tier);
+  if (hit !== undefined) return hit;
+  const s = `#${tierColor(tier).toString(16).padStart(6, "0")}`;
+  TIER_HEX.set(tier, s);
+  return s;
+}
 
 // Arcade license classes; give the score a name and a next target.
 const RANKS: readonly { min: number; rank: string }[] = [
@@ -180,10 +200,13 @@ function runGenWorker(): Promise<CityGenPayload | null> {
 
 export class GameScene {
   readonly scene = new THREE.Scene();
+  // Coarse primary pointer = phone/tablet: mobile-only budgets apply.
+  // (Declared first: later field initializers read it.)
+  private readonly mobileUi = isCoarsePointer();
   private rig: ChaseCamera;
   private cache = new ModelCache();
   private input = new InputState();
-  private hud = new Hud();
+  private hud = new Hud(this.mobileUi);
   private fx = new Fx();
   private sfx = new Sfx();
   private state = new GameState();
@@ -218,7 +241,7 @@ export class GameScene {
   private skids: SkidMarks | null = null;
   private debris: Debris | null = null;
   private speedLines = new SpeedLines();
-  private clouds = new SkyClouds();
+  private clouds = new SkyClouds(this.mobileUi);
   private trails: DriftTrails | null = null;
   private shocks = new Shockwaves();
   private oceanTime = { value: 0 };
@@ -230,6 +253,20 @@ export class GameScene {
 
   private sun = new THREE.DirectionalLight(0xfff2d8, 2.0);
   private sky: Sky;
+  // Feature tier pushed by the perf governor; desktop never leaves FULL.
+  private quality: QualityFeatures = FULL_QUALITY;
+  private renderer: THREE.WebGLRenderer | null = null;
+  // Mobile sky bake: the Sky dome rendered once into a small cube RT.
+  private skyBakeRT: THREE.WebGLCubeRenderTarget | null = null;
+  private skyBakeCam: THREE.CubeCamera | null = null;
+  private skyBakedPhase = -1; // <0 = no bake yet
+  private hudAcc = 0; // accumulated dt since the last HUD/minimap redraw
+  private readonly mmMarkers: MinimapMarker[] = [];
+  // Scratch for the shadow-texel snap (no per-frame allocation).
+  private scrSnapDir = new THREE.Vector3();
+  private scrSnapRight = new THREE.Vector3();
+  private scrSnapUp = new THREE.Vector3();
+  private scrSnapAnchor = new THREE.Vector3();
   private mode: GameMode = { kind: "loading", progress: 0 };
   ready: Promise<void> = Promise.resolve();
   private restPromise: Promise<CityRestPayload | null> = Promise.resolve(null);
@@ -268,6 +305,8 @@ export class GameScene {
   }
   private loadDone = false;
   private pendingStart = false;
+  // Touch-capable device: on-screen buttons show and CTA copy says TAP.
+  private touchUi = false;
   private titleT = 0;
   private lowBeepAt = -1;
   private puffAccum = 0;
@@ -399,11 +438,15 @@ export class GameScene {
       fog,
       scene: this.scene,
     });
-    setupTouch(this.input);
+    this.touchUi = setupTouch(this.input, () => {
+      if (this.mode.kind === "playing") this.openChat();
+    });
     this.hud.onCta(() => this.handleStartPress());
+    this.hud.onMute(() => this.toggleMute());
     // Muted by default; returning players who opted into sound stay unmuted.
-    // Press M to toggle.
+    // Press M (or the speaker button) to toggle.
     this.sfx.setMuted(storageGet(SOUND_KEY) !== "1");
+    this.hud.setMuted(this.sfx.muted);
   }
 
   get camera(): THREE.PerspectiveCamera {
@@ -413,6 +456,40 @@ export class GameScene {
   // The shadow light — the perf governor steps its map size with quality tier.
   get sunLight(): THREE.DirectionalLight {
     return this.sun;
+  }
+
+  // Day-night shadow ramp state — the governor's cadenced shadow pass reads it.
+  get shadowsOn(): boolean {
+    return this.dayNight.shadowsActive;
+  }
+
+  // Governor-pushed feature tier. Desktop always receives FULL_QUALITY, so
+  // every branch below is a no-op there; mobile tiers trade the per-fragment
+  // heavy features for frame rate.
+  applyQuality(q: QualityFeatures): void {
+    const prev = this.quality;
+    this.quality = q;
+    const r = this.renderer;
+    if (r) {
+      if (this.sun.castShadow !== q.shadowCast) {
+        this.sun.castShadow = q.shadowCast;
+        // Coming back from the shadowless floor: refresh the (stale) map.
+        if (q.shadowCast) r.shadowMap.needsUpdate = true;
+      }
+      if (q.shadowCast && q.shadowEvery <= 1 && prev.shadowEvery > 1) {
+        // Leaving cadence mode: hand the pass back to the day-night
+        // controller's model (on while shadows show, off at night — but never
+        // parked before the first depth map exists).
+        r.shadowMap.autoUpdate = this.dayNight.shadowsActive || !this.sun.shadow.map;
+        r.shadowMap.needsUpdate = true;
+      }
+    }
+    this.clouds.setQuality(q.clouds);
+    if (!q.skyBake && prev.skyBake) {
+      this.dayNight.setBakedBackground(null); // live dome returns
+      this.skyBakedPhase = -1;
+    }
+    // (The bake itself happens lazily in update() at the re-bake cadence.)
   }
 
   // Used by the map editor (?editor=1) and DEV hooks.
@@ -437,6 +514,50 @@ export class GameScene {
     // The env map is baked at daylight once; the cycle only modulates its
     // intensity (a per-phase re-bake would hitch every few seconds).
     this.dayNight.attachRenderer(renderer);
+    this.renderer = renderer;
+  }
+
+  // Mobile tiers: the Sky addon shades Rayleigh/Mie per fragment every frame
+  // for a sun that moves ~1e-5 phase/s. Bake it into a small cube texture and
+  // re-bake only when the phase actually drifts — the PMREM environment bake
+  // above proves the pattern; full night keeps its flat-color swap.
+  private maybeBakeSky(): void {
+    if (!this.quality.skyBake) return;
+    const r = this.renderer;
+    if (!r) return;
+    const p = this.dayNight.getPhase();
+    if (this.skyBakedPhase >= 0) {
+      const d = Math.abs(p - this.skyBakedPhase);
+      if (Math.min(d, 1 - d) < SKY_REBAKE_PHASE) return;
+    }
+    let rt = this.skyBakeRT;
+    let cam = this.skyBakeCam;
+    if (!rt || !cam) {
+      // HalfFloat keeps the sky HDR so the on-screen tone mapping treats the
+      // baked background exactly like it treated the live dome.
+      rt = new THREE.WebGLCubeRenderTarget(SKY_BAKE_SIZE, {
+        type: THREE.HalfFloatType,
+        generateMipmaps: false,
+        minFilter: THREE.LinearFilter,
+        magFilter: THREE.LinearFilter,
+      });
+      cam = new THREE.CubeCamera(1, 20000, rt);
+      this.skyBakeRT = rt;
+      this.skyBakeCam = cam;
+    }
+    const wasVisible = this.sky.visible;
+    const tone = r.toneMapping;
+    r.toneMapping = THREE.NoToneMapping; // bake linear; tone-map on screen
+    this.sky.visible = true;
+    const tmp = new THREE.Scene();
+    tmp.add(this.sky);
+    cam.position.set(0, 0, 0);
+    cam.update(r, tmp);
+    this.scene.add(this.sky); // move the dome back into the live scene
+    this.sky.visible = wasVisible;
+    r.toneMapping = tone;
+    this.skyBakedPhase = p;
+    this.dayNight.setBakedBackground(rt.texture);
   }
 
   async load(): Promise<void> {
@@ -537,7 +658,7 @@ export class GameScene {
     this.scene.add(this.skids.mesh);
     this.trails = new DriftTrails((x, z) => city.heightAt(x, z));
     this.scene.add(this.trails.mesh);
-    this.lampGlow = new LampGlow(city.lampHeads);
+    this.lampGlow = new LampGlow(city.lampHeads, this.mobileUi ? LAMP_GLOW_BUDGET : null);
     this.scene.add(this.lampGlow.group);
     this.minimap = new Minimap(city.plan, city.getDecks());
 
@@ -668,6 +789,7 @@ export class GameScene {
 
   private toTitle(): void {
     this.mode = { kind: "title" };
+    setTouchPlaying(false);
     this.minimap?.setVisible(false);
     this.hud.hideFareCard();
     this.hud.setArrow(false, 0, 0, 0);
@@ -680,7 +802,7 @@ export class GameScene {
       sub: "Pick up fares, beat the clock, drive like a maniac.",
       stats:
         best > 0 ? `BEST $${best.toLocaleString("en-US")}` : "Every drop-off buys you more time.",
-      cta: "PRESS ENTER TO DRIVE",
+      cta: this.touchUi ? "TAP TO DRIVE" : "PRESS ENTER TO DRIVE",
     });
   }
 
@@ -863,6 +985,7 @@ export class GameScene {
   private toggleMute(): void {
     this.sfx.setMuted(!this.sfx.muted);
     storageSet(SOUND_KEY, this.sfx.muted ? "0" : "1");
+    this.hud.setMuted(this.sfx.muted);
   }
 
   private start(): void {
@@ -922,6 +1045,7 @@ export class GameScene {
       this.rig.camera.position.copy(this.camFrom);
     }
     this.minimap?.setVisible(true);
+    setTouchPlaying(true);
     this.mode = { kind: "countdown", t: 0 };
   }
 
@@ -1098,12 +1222,14 @@ export class GameScene {
     this.oceanTime.value += dt;
     // Day rolls on in every mode (title orbit included — sunsets sell there).
     this.dayNight.update(dt);
+    this.maybeBakeSky(); // mobile tiers only; no-op at full quality
     if (this.editorLighting && this.scene.fog instanceof THREE.Fog) {
       this.scene.fog.near = 4000;
       this.scene.fog.far = 12000;
     }
     const night = this.dayNight.lamp;
     this.lampGlow?.setIntensity(night);
+    this.lampGlow?.updateNear(this.rig.camera.position.x, this.rig.camera.position.z, dt);
     this.clouds.setNight(night);
     this.car?.setHeadlights(night);
     this.debris?.update(dt);
@@ -1272,7 +1398,7 @@ export class GameScene {
       this.hitStop = Math.max(0, this.hitStop - dt);
       this.rig.update(dt, car, solids);
       this.updateSun();
-      this.updateHud(car, fares);
+      this.tickHud(dt, car, fares, false);
       return;
     }
 
@@ -1451,7 +1577,7 @@ export class GameScene {
     if (!this.hintBoostShown && car.boostMeter >= CAR.boostMax) {
       this.hintBoostShown = true;
       storageSet(HINT_BOOST_KEY, "1");
-      this.hud.announceMinor("SHIFT — BOOST!", "#ffd147");
+      this.hud.announceMinor(this.touchUi ? "TAP BOOST!" : "SHIFT — BOOST!", "#ffd147");
     }
 
     // Announce the SF neighborhood as the taxi crosses into it.
@@ -1472,8 +1598,7 @@ export class GameScene {
     this.speedLines.update(dt, this.rig.camera, car.speed / CAR.boostSpeed);
     this.hud.setVignette(THREE.MathUtils.clamp((car.speed - 45) / 40, 0, 1) * 0.6);
     this.updateSun();
-    this.updateHud(car, fares);
-    this.updateMinimap(dt, car, fares);
+    this.tickHud(dt, car, fares, true);
 
     if (this.state.timeLeft <= 10) {
       const sec = Math.ceil(this.state.timeLeft);
@@ -1725,10 +1850,23 @@ export class GameScene {
     }
   }
 
+  // HUD + minimap redraws, throttled to HUD_HZ on mobile (canvas dial blits
+  // and DOM writes at 60Hz are real main-thread cost on phones). Desktop
+  // flushes every call, exactly as before. Accumulated dt keeps the minimap
+  // pulse animation running at true speed.
+  private tickHud(dt: number, car: Car, fares: FareManager, withMinimap: boolean): void {
+    this.hudAcc += dt;
+    if (this.mobileUi && this.hudAcc < 1 / HUD_HZ) return;
+    this.updateHud(car, fares);
+    if (withMinimap) this.updateMinimap(this.hudAcc, car, fares);
+    this.hudAcc = 0;
+  }
+
   private updateMinimap(dt: number, car: Car, fares: FareManager): void {
     const minimap = this.minimap;
     if (!minimap) return;
-    const markers: MinimapMarker[] = [];
+    const markers = this.mmMarkers; // persistent — this runs every redraw
+    markers.length = 0;
     // Other online drivers first, so objective markers draw on top of them.
     for (const [id, p] of Object.entries(this.net.players)) {
       if (id === this.net.playerId) continue;
@@ -1740,11 +1878,7 @@ export class GameScene {
       markers.push({ x: carrying.pos.x, z: carrying.pos.z, color: "#49e0ff", ring: true });
     } else {
       for (const w of fares.waitingList()) {
-        markers.push({
-          x: w.x,
-          z: w.z,
-          color: `#${tierColor(w.tier).toString(16).padStart(6, "0")}`,
-        });
+        markers.push({ x: w.x, z: w.z, color: tierHex(w.tier) });
       }
     }
     minimap.update(dt, car.position.x, car.position.z, car.heading, markers);
@@ -1752,8 +1886,25 @@ export class GameScene {
 
   private updateSun(): void {
     // Shadows follow the camera in freecam so any inspected spot is lit.
-    const anchor = this.freecam ? this.rig.camera.position : this.car?.position;
-    if (!anchor) return;
+    const raw = this.freecam ? this.rig.camera.position : this.car?.position;
+    if (!raw) return;
+    const anchor = this.scrSnapAnchor.copy(raw);
+    // Cadenced shadow updates (mobile low tiers): snap the shadow camera to a
+    // shadow-texel grid in light space, or every 2nd/3rd-frame re-render
+    // lands on a sub-texel offset and the whole shadow field swims.
+    if (this.quality.shadowEvery > 1) {
+      const dir = this.scrSnapDir.copy(this.dayNight.sunOffset).normalize();
+      const up = Math.abs(dir.y) > 0.97 ? this.scrSnapUp.set(0, 0, 1) : this.scrSnapUp.set(0, 1, 0);
+      const right = this.scrSnapRight.crossVectors(up, dir).normalize();
+      const upOrtho = this.scrSnapUp.crossVectors(dir, right); // orthonormal
+      const cam = this.sun.shadow.camera;
+      const texel = (cam.right - cam.left) / Math.max(1, this.sun.shadow.mapSize.x);
+      const rx = anchor.dot(right);
+      const ry = anchor.dot(upOrtho);
+      anchor
+        .addScaledVector(right, Math.round(rx / texel) * texel - rx)
+        .addScaledVector(upOrtho, Math.round(ry / texel) * texel - ry);
+    }
     this.sun.position.copy(anchor).add(this.dayNight.sunOffset);
     this.sun.target.position.copy(anchor);
     this.sun.target.updateMatrixWorld();
@@ -1788,8 +1939,7 @@ export class GameScene {
       this.hud.setArrow(false, 0, 0, 0);
       return;
     }
-    const accent = `#${tierColor(next.tier).toString(16).padStart(6, "0")}`;
-    this.projectArrow(next.pos, accent);
+    this.projectArrow(next.pos, tierHex(next.tier));
   }
 
   private projectArrow(target: THREE.Vector3, color: string): void {
@@ -1821,6 +1971,7 @@ export class GameScene {
     this.silenceLoops();
     this.sfx.stopMusic();
     this.sfx.gameOver();
+    setTouchPlaying(false);
     this.minimap?.setVisible(false);
     this.hud.hideFareCard();
     this.hud.setArrow(false, 0, 0, 0);
@@ -1840,7 +1991,7 @@ export class GameScene {
       title: isBest ? "NEW BEST!" : "TIME'S UP!",
       sub: `$${score.toLocaleString("en-US")} — CLASS ${rank} LICENSE`,
       stats: `${this.state.fares} fares · best drift ${this.state.bestDrift.toFixed(1)}s · best air ${this.state.bestAir.toFixed(1)}s${tease}`,
-      cta: "PRESS ENTER TO RETRY",
+      cta: this.touchUi ? "TAP TO RETRY" : "PRESS ENTER TO RETRY",
     });
   }
 }

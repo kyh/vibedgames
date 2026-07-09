@@ -21,7 +21,10 @@ const MODEL_URL =
 
 export type HandTracker = { stop(): void };
 
-export function startHandTracking(onWristX: (x: number) => void): HandTracker {
+// A held fist should confirm once, not re-fire every recognition frame.
+const FIST_COOLDOWN_MS = 800;
+
+export function startHandTracking(onWristX: (x: number) => void, onFist?: () => void): HandTracker {
   // ---- panel DOM (styles in index.html; legacy: bottom-right 384×288) ------
   const panel = document.createElement("div");
   panel.id = "camera-panel";
@@ -72,6 +75,8 @@ export function startHandTracking(onWristX: (x: number) => void): HandTracker {
   // ---- prediction loop (logic identical to the legacy predictWebcam) -------
   let lastVideoTime = -1;
   let lastTimestamp = 0;
+  let fistHeld = false;
+  let lastFistAt = 0;
   // Phone-class GPUs can't hold 60fps running the recognizer on every camera
   // frame alongside the game render — on coarse-pointer devices recognize
   // every 2nd video frame (the skeleton overlay just holds for one frame;
@@ -115,6 +120,16 @@ export function startHandTracking(onWristX: (x: number) => void): HandTracker {
 
         const wrist = hand[0];
         if (wrist) onWristX(wrist.x);
+
+        // Closed-fist edge = a cam-only serve/rematch confirm ("grab the ball").
+        const isFist = results.gestures[0]?.[0]?.categoryName === "Closed_Fist";
+        if (isFist && !fistHeld && now - lastFistAt > FIST_COOLDOWN_MS) {
+          lastFistAt = now;
+          onFist?.();
+        }
+        fistHeld = isFist;
+      } else {
+        fistHeld = false;
       }
       ctx.restore();
     }

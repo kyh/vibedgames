@@ -83,7 +83,13 @@ export class Minimap {
     this.canvas.style.display = v ? "block" : "none";
   }
 
-  update(dt: number, carX: number, carZ: number, heading: number, markers: readonly MinimapMarker[]): void {
+  update(
+    dt: number,
+    carX: number,
+    carZ: number,
+    heading: number,
+    markers: readonly MinimapMarker[],
+  ): void {
     const ctx = this.ctx;
     if (!ctx) return;
     this.t += dt;
@@ -105,9 +111,11 @@ export class Minimap {
 
     for (const m of markers) {
       // Clamp off-window markers to the edge (direction hint).
-      const mx = Math.min(this.size - 5, Math.max(5, px(m.x)));
-      const mz = Math.min(this.size - 5, Math.max(5, pz(m.z)));
-      const clamped = mx !== px(m.x) || mz !== pz(m.z);
+      const rawX = px(m.x);
+      const rawZ = pz(m.z);
+      const mx = Math.min(this.size - 5, Math.max(5, rawX));
+      const mz = Math.min(this.size - 5, Math.max(5, rawZ));
+      const clamped = mx !== rawX || mz !== rawZ;
       if (m.ring && !clamped) {
         const pulse = 4 + Math.sin(this.t * 5) * 1.4;
         ctx.strokeStyle = m.color;

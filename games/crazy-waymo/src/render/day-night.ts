@@ -176,6 +176,9 @@ export class DayNight {
   private sinceSync = CLOCK_RESYNC_S;
   private renderer: THREE.WebGLRenderer | null = null;
   private prevShadowsActive = true; // renderer boots with autoUpdate on
+  // Mobile tiers: a baked cube texture stands in for the live Sky dome
+  // (owned by game-scene, which re-bakes as the phase drifts).
+  private baked: THREE.Texture | null = null;
   // Scratch (update runs every frame — no allocation).
   private scrSun = new THREE.Vector3();
   private scrLight = new THREE.Vector3();
@@ -186,6 +189,13 @@ export class DayNight {
 
   attachRenderer(renderer: THREE.WebGLRenderer): void {
     this.renderer = renderer;
+  }
+
+  // Baked-sky mode (mobile tiers): draw `tex` as the scene background and
+  // keep the live dome out of the draw list. null returns to the live dome.
+  // The full-night flat-navy swap below still wins while it lasts.
+  setBakedBackground(tex: THREE.Texture | null): void {
+    this.baked = tex;
   }
 
   // Debug: pin the cycle to a phase (breaks the SF-clock link for the session).
@@ -282,6 +292,9 @@ export class DayNight {
     if (nightAmt >= 1) {
       sky.visible = false;
       scene.background = this.scrBg.copy(fog.color).multiplyScalar(0.72);
+    } else if (this.baked) {
+      sky.visible = false;
+      scene.background = this.baked;
     } else {
       sky.visible = true;
       scene.background = null;

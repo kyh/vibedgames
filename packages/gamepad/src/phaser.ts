@@ -79,8 +79,21 @@ export function attachVirtualGamepad(
 
   scene.input.addPointer(options.extraPointers ?? Math.max(2, (options.buttons?.length ?? 0) + 2));
 
-  const syncViewport = (): void =>
-    pad.setViewport(scene.scale.width, scene.scale.height, safeAreaInset());
+  const syncViewport = (): void => {
+    const { width, height } = scene.scale;
+    // Phaser's logical size can differ from CSS pixels (FIT/zoom modes) —
+    // scale the CSS-px insets into scene units so anchored buttons don't
+    // overshoot on notched phones.
+    const raw = safeAreaInset();
+    const sx = window.innerWidth > 0 ? width / window.innerWidth : 1;
+    const sy = window.innerHeight > 0 ? height / window.innerHeight : 1;
+    pad.setViewport(width, height, {
+      top: raw.top * sy,
+      right: raw.right * sx,
+      bottom: raw.bottom * sy,
+      left: raw.left * sx,
+    });
+  };
   syncViewport();
 
   const onDown = (p: Phaser.Input.Pointer): void => {

@@ -1,9 +1,16 @@
 import type * as THREE from "three";
 
+import { FULL_QUALITY, isCoarsePointer, type QualityFeatures } from "./quality";
+
 // Adaptive quality: keeps the game at target frame rate by stepping render
 // resolution (and, at the floor tier, shadow resolution) instead of letting it
 // chug. Fill rate is the dominant cost on high-DPR screens — dropping the
 // pixel ratio a notch recovers far more than any scene tweak.
+//
+// On top of the resolution steps, MOBILE tiers bundle feature cuts (shadow
+// sampling quality/cadence, baked sky, cloud density) — see quality.ts. The
+// desktop table pins every tier to FULL_QUALITY so a desktop that steps down
+// only ever loses resolution, exactly as before.
 //
 // Decisions run on the MEDIAN frame time of ~2s windows: shader-compile and
 // GC bursts are outliers a mean/EMA would absorb into a false "slow" verdict,
@@ -27,7 +34,7 @@ const COOLDOWN_S = 2.5; // settle time after a tier change
 const SHADOW_FULL = 2048;
 const SHADOW_LOW = 1024;
 
-type Tier = { readonly ratio: number; readonly shadow: number };
+type Tier = QualityFeatures & { readonly ratio: number; readonly shadow: number };
 
 export class PerfGovernor {
   private readonly tiers: readonly Tier[];
@@ -37,24 +44,80 @@ export class PerfGovernor {
   private fastWindows = 0;
   private upgradeCost = UPGRADE_WINDOWS;
   private sinceUpgrade = Infinity; // seconds since the last tier-up
+  private shadowClock = 0; // frames since the last cadenced shadow render
 
   constructor(
     private renderer: THREE.WebGLRenderer,
     private sun: THREE.DirectionalLight,
-    private onApply: () => void,
+    private onApply: (features: QualityFeatures) => void,
   ) {
     const native = Math.min(window.devicePixelRatio || 1, 2);
-    this.tiers = [
-      { ratio: native, shadow: SHADOW_FULL },
-      { ratio: Math.max(1, native * 0.8), shadow: SHADOW_FULL },
-      { ratio: Math.max(0.9, native * 0.66), shadow: SHADOW_FULL },
-      { ratio: Math.max(0.8, native * 0.55), shadow: SHADOW_LOW },
-      { ratio: Math.max(0.7, native * 0.45), shadow: SHADOW_LOW }, // floor for weak GPUs
-    ];
+    const ratios = [
+      native,
+      Math.max(1, native * 0.8),
+      Math.max(0.9, native * 0.66),
+      Math.max(0.8, native * 0.55),
+      Math.max(0.7, native * 0.45), // floor for weak GPUs
+    ] as const;
+    if (isCoarsePointer()) {
+      // Phone ladder: tier 0 is still the full desktop look (an iPad Pro can
+      // earn it), everything below trades per-fragment work for frame rate.
+      this.tiers = [
+        { ratio: ratios[0], shadow: SHADOW_FULL, ...FULL_QUALITY },
+        {
+          ratio: ratios[1],
+          shadow: SHADOW_FULL,
+          shadowEvery: 1,
+          shadowCast: true,
+          skyBake: true,
+          clouds: 1,
+        },
+        {
+          ratio: ratios[2],
+          shadow: SHADOW_FULL,
+          shadowEvery: 2,
+          shadowCast: true,
+          skyBake: true,
+          clouds: 1,
+        },
+        {
+          ratio: ratios[3],
+          shadow: SHADOW_LOW,
+          shadowEvery: 3,
+          shadowCast: true,
+          skyBake: true,
+          clouds: 1,
+        },
+        {
+          ratio: ratios[4],
+          shadow: SHADOW_LOW,
+          shadowEvery: 3,
+          shadowCast: false, // floor: no shadow pass, no receiver sampling
+          skyBake: true,
+          clouds: 0,
+        },
+      ];
+      // Boot LOW: the median-window logic needs ~10s to converge, and a phone
+      // chugging through those first windows at desktop quality reads as a
+      // broken game. Dense screens start at the deeper tier; upgrades are
+      // cheap if the device turns out to have headroom.
+      this.apply(native >= 2 ? 3 : 2);
+      this.cooldown = 1.5;
+    } else {
+      // Desktop: resolution/shadow-size steps only — features stay at full on
+      // every tier, so nothing about the desktop look changes at any tier.
+      this.tiers = ratios.map((ratio, i) =>
+        Object.assign({ ratio, shadow: i >= 3 ? SHADOW_LOW : SHADOW_FULL }, FULL_QUALITY),
+      );
+    }
   }
 
   get currentTier(): number {
     return this.tier;
+  }
+
+  get features(): QualityFeatures {
+    return this.tiers[this.tier] ?? FULL_QUALITY;
   }
 
   // Feed the RAW frame delta (seconds) every frame, before render.
@@ -89,6 +152,32 @@ export class PerfGovernor {
     }
   }
 
+  // Cadenced shadow pass (mobile low tiers): render the depth map every Nth
+  // frame instead of every frame. Called once per frame AFTER the scene
+  // update (which may move the shadow target) and BEFORE render.
+  // `shadowsActive` is the day-night ramp — at night the pass stays parked
+  // exactly like the every-frame path. Re-asserts autoUpdate=false each frame
+  // because the day-night dawn flip sets it back to true.
+  syncShadow(shadowsActive: boolean): void {
+    const t = this.tiers[this.tier];
+    if (!t || t.shadowEvery <= 1 || !t.shadowCast) return;
+    const sm = this.renderer.shadowMap;
+    sm.autoUpdate = false;
+    // No depth map yet (night boots): keep rendering the pass until one
+    // exists, or receiver programs sample a texture that never materializes
+    // (GL_INVALID_OPERATION — see day-night.ts).
+    if (!this.sun.shadow.map) {
+      sm.needsUpdate = true;
+      return;
+    }
+    if (!shadowsActive) return;
+    this.shadowClock++;
+    if (this.shadowClock >= t.shadowEvery) {
+      this.shadowClock = 0;
+      sm.needsUpdate = true;
+    }
+  }
+
   private apply(tier: number): void {
     const t = this.tiers[tier];
     if (!t) return;
@@ -107,6 +196,6 @@ export class PerfGovernor {
       // materials keep sampling the (now disposed) map otherwise.
       this.renderer.shadowMap.needsUpdate = true;
     }
-    this.onApply();
+    this.onApply(t);
   }
 }

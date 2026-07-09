@@ -30,7 +30,11 @@ const dither = new DitherPass(window.innerWidth, window.innerHeight);
 
 // Webcam hand tracking auto-starts (legacy semantics — no start button);
 // on failure it shows a status in its panel and pointer/keys keep working.
-const handTracker = startHandTracking((x) => game.handleHandPosition(x));
+// A closed fist serves/rematches so a cam-only player never has to touch.
+const handTracker = startHandTracking(
+  (x) => game.handleHandPosition(x),
+  () => game.handleGestureConfirm(),
+);
 
 window.addEventListener("resize", () => {
   game.resize(window.innerWidth / window.innerHeight);

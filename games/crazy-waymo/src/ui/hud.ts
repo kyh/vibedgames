@@ -44,6 +44,7 @@ export class Hud {
   private bannerSub = el("banner-sub");
   private bannerStats = el("banner-stats");
   private bannerCta = el("banner-cta");
+  private muteBtn = el("mute");
   private flashEl = el("flash");
   private loading = el("loading");
   private barFill = el("bar-fill");
@@ -52,6 +53,11 @@ export class Hud {
   private scoreShown = 0;
   private scoreTarget = 0;
   private lastScorePop = 0;
+  private lastMphDrawn = -1;
+
+  // `coarseUi` (mobile): skip sub-mph dial redraws — the arc moves less than
+  // a pixel between same-rounded values. Desktop keeps the every-call redraw.
+  constructor(private coarseUi = false) {}
 
   update(dt: number): void {
     if (this.scoreShown !== this.scoreTarget) {
@@ -125,6 +131,9 @@ export class Hud {
     );
   }
   setSpeed(mph: number): void {
+    const rounded = Math.round(mph);
+    if (this.coarseUi && rounded === this.lastMphDrawn) return;
+    this.lastMphDrawn = rounded;
     this.drawDial(mph);
   }
 
@@ -314,6 +323,13 @@ export class Hud {
   }
   onCta(fn: () => void): void {
     this.bannerCta.addEventListener("click", fn);
+  }
+  onMute(fn: () => void): void {
+    this.muteBtn.addEventListener("click", fn);
+  }
+  setMuted(muted: boolean): void {
+    this.muteBtn.textContent = muted ? "🔇" : "🔊";
+    this.muteBtn.setAttribute("aria-label", muted ? "Unmute" : "Mute");
   }
 
   flash(rgb: string, alpha: number): void {

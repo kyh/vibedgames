@@ -298,8 +298,15 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
   const cornerClean = (gx: number, gz: number, sx: 1 | -1, sz: 1 | -1): boolean =>
     cellAt(gx + sx, gz + sz) !== "road";
 
+  // districtAt takes GRID coords — feeding it normalized 0..1 map fractions
+  // (the old bug here) made every lookup land on the map's NW corner (a park
+  // district), so inPark was constant-true and the streetlight walk placed
+  // ZERO lamps on every build.
   const inPark = (x: number, z: number): boolean =>
-    districtAt(x / WORLD_W + 0.5, z / WORLD_H + 0.5).character === "park";
+    districtAt(
+      Math.floor((x + WORLD_W / 2) / ROAD_TILE),
+      Math.floor((z + WORLD_H / 2) / ROAD_TILE),
+    ).character === "park";
 
   // ------------------------------------------------------------------
   // 1. STREETLIGHTS — walked along network EDGES every ~2 tiles, alternating
