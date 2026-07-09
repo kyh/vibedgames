@@ -6,6 +6,7 @@ Topics beyond simple scenes.
 
 - [`gltf-loading-guide.md`](gltf-loading-guide.md) — loading 3D models (GLTF/GLB): basic/promise/fallback/batch loading, caching, cloning, normalization, troubleshooting
 - [`game-patterns.md`](game-patterns.md) — game loops, screen effects, animation states, parallax
+- [`graphics-recipes.md`](graphics-recipes.md) — PBR material values, onBeforeCompile shader injection, cheap visual tricks, sky dome
 - [`debugging-and-profiling.md`](debugging-and-profiling.md) — black-screen triage, draw-call/FPS profiling, mobile, memory leaks
 
 ---
@@ -37,47 +38,66 @@ GLTF loaders set these correctly automatically — only set them by hand for tex
 
 ---
 
-## Post-Processing (Bloom, Depth of Field)
+## Post-Processing (Bloom, Vignette)
 
-For visual effects like bloom, use the EffectComposer:
+Use the EffectComposer, and **always end the chain with `OutputPass`** — since r152 it performs tone mapping + sRGB conversion. Without it the composer outputs linear un-tonemapped color (washed-out or blown-out); keep `renderer.toneMapping` set so `OutputPass` reads it.
 
-```html
-<script type="module">
-  import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
-  import { EffectComposer } from "https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/EffectComposer.js";
-  import { RenderPass } from "https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/RenderPass.js";
-  import { UnrealBloomPass } from "https://unpkg.com/three@0.160.0/examples/jsm/postprocessing/UnrealBloomPass.js";
+```javascript
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
-  // Basic setup...
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.toneMapping = THREE.ReinhardToneMapping;
+renderer.toneMapping = THREE.ACESFilmicToneMapping; // OutputPass applies this
 
-  // Post-processing
-  const renderScene = new RenderPass(scene, camera);
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
 
-  const bloomPass = new UnrealBloomPass(
-    new THREE.Vector2(window.innerWidth, window.innerHeight),
-    1.5, // strength
-    0.4, // radius
-    0.85, // threshold
-  );
+// UnrealBloomPass(resolution, strength, radius, threshold)
+const bloom = new UnrealBloomPass(
+  new THREE.Vector2(window.innerWidth, window.innerHeight),
+  0.45, // strength: 0.35–0.6
+  0.3, // radius: 0.2–0.4
+  0.85, // threshold: only pixels brighter than this bloom
+);
+composer.addPass(bloom);
+composer.addPass(new OutputPass()); // ALWAYS last: tone mapping + sRGB
 
-  const composer = new EffectComposer(renderer);
-  composer.addPass(renderScene);
-  composer.addPass(bloomPass);
-
-  renderer.setAnimationLoop(() => {
-    composer.render();
-  });
-</script>
+renderer.setAnimationLoop(() => {
+  composer.render(); // instead of renderer.render()
+});
+// resize: composer.setSize(w, h) alongside renderer.setSize(w, h)
 ```
+
+**Bloom discipline:** threshold `0.85` keeps mid-bright materials out, so only authored emissives (`emissiveIntensity > 1`) bloom. Bloom sells a glow you designed; it must never be the main source of detail — if a shape only reads because it glows, the geometry is missing.
+
+**Vignette** — a compact ShaderPass, added before `OutputPass`:
+
+```javascript
+const VignetteShader = {
+  uniforms: { tDiffuse: { value: null }, uStrength: { value: 0.85 }, uSize: { value: 0.72 } },
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float uStrength, uSize; varying vec2 vUv;
+    void main(){
+      vec4 c = texture2D(tDiffuse, vUv);
+      float d = distance(vUv, vec2(0.5));
+      c.rgb *= mix(1.0, smoothstep(uSize, uSize - 0.45, d), uStrength);
+      gl_FragColor = c;
+    }`,
+};
+composer.addPass(new ShaderPass(VignetteShader)); // before OutputPass
+```
+
+Keep `uStrength` subtle and never darken the play path.
+
+**Mobile:** the composer allocates full-resolution HDR render targets, so cost scales with **DPR²**. Cap DPR before adding passes (`composer.setPixelRatio(Math.min(devicePixelRatio, 1.25))`), and on low-end devices skip the composer entirely (plain `renderer.render()`). Budget ≤ 2 passes desktop, 0–1 mobile beyond render+output.
 
 ---
 
 ## Custom Shaders (ShaderMaterial)
 
-For custom visual effects, write GLSL shaders:
+For fully custom **unlit** effects, write GLSL from scratch with `ShaderMaterial`. To add effects to a **lit PBR surface** (rim glow, dissolve, wind sway) don't rewrite the lighting — inject into `MeshStandardMaterial` with `onBeforeCompile` instead; see [`graphics-recipes.md`](graphics-recipes.md).
 
 ```javascript
 const vertexShader = `
@@ -173,25 +193,37 @@ window.addEventListener("click", (event) => {
 
 ## Environment Maps (Reflections)
 
-For realistic reflections on metallic surfaces:
+**Metals and glossy surfaces render flat gray without an environment map** — there's nothing to reflect. This is the usual cause of "my metal doesn't look metallic."
+
+Default: `RoomEnvironment` — a neutral studio IBL with **zero external assets**, so it always works in a generated game:
 
 ```javascript
-import { RGBELoader } from "https://unpkg.com/three@0.160.0/examples/jsm/loaders/RGBELoader.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 
-const rgbeLoader = new RGBELoader();
-rgbeLoader.load("path/to/environment.hdr", (texture) => {
-  texture.mapping = THREE.EquirectangularReflectionMapping;
-  scene.environment = texture;
-  scene.background = texture;
-});
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+pmrem.dispose(); // one bake at startup, near-zero cost per frame
 
-// Material with reflections
+// Now this actually reads as metal:
 const material = new THREE.MeshStandardMaterial({
-  color: 0x444444,
+  color: 0xaeb4bd,
   metalness: 1,
   roughness: 0.1,
 });
 ```
+
+If you have a real HDR file (you usually don't in a generated game), load it with `RGBELoader`:
+
+```javascript
+import { RGBELoader } from "three/addons/loaders/RGBELoader.js";
+
+new RGBELoader().load("environment.hdr", (texture) => {
+  texture.mapping = THREE.EquirectangularReflectionMapping;
+  scene.environment = texture; // scene.background = texture for a visible backdrop
+});
+```
+
+Concrete per-surface material values (`metalness`/`roughness`/`envMapIntensity`) are in [`graphics-recipes.md`](graphics-recipes.md).
 
 ---
 
