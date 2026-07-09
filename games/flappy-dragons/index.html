@@ -234,21 +234,57 @@
         }
       }
 
-      /* Text block on a soft cream halo so it stays crisp over the live sky. */
       #start-card {
         position: relative;
         display: flex;
         flex-direction: column;
         align-items: center;
         gap: 20px;
-        padding: 30px 44px 34px;
-        border-radius: 32px;
-        background: radial-gradient(
-          120% 96% at 50% 34%,
-          rgba(255, 251, 234, 0.6),
-          rgba(255, 246, 214, 0.16) 64%,
-          transparent 82%
-        );
+      }
+
+      #countdown {
+        position: fixed;
+        inset: 0;
+        z-index: 15;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+        font:
+          900 clamp(72px, 16vw, 160px) / 1 system-ui,
+          sans-serif;
+        color: #fff6d6;
+        text-shadow:
+          0 6px 0 rgba(91, 74, 138, 0.55),
+          0 10px 22px rgba(40, 30, 80, 0.35),
+          0 0 34px rgba(255, 255, 255, 0.45);
+      }
+      #countdown.show {
+        display: flex;
+      }
+      #countdown.pop {
+        animation: count-pop 0.9s cubic-bezier(0.18, 1.4, 0.4, 1) both;
+      }
+      @keyframes count-pop {
+        from {
+          opacity: 0;
+          transform: scale(1.7);
+        }
+        30% {
+          opacity: 1;
+          transform: scale(1);
+        }
+        85% {
+          opacity: 1;
+        }
+        to {
+          opacity: 0.35;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #countdown.pop {
+          animation: none;
+        }
       }
 
       #start-title {
@@ -287,6 +323,9 @@
           Menlo,
           monospace;
         color: #1a2a52;
+        text-shadow:
+          0 1px 0 rgba(255, 251, 234, 0.75),
+          0 0 12px rgba(255, 251, 234, 0.55);
       }
       #start-go {
         font:
@@ -295,6 +334,7 @@
           Menlo,
           monospace;
         color: #d9642a;
+        text-shadow: 0 1px 0 rgba(255, 251, 234, 0.7);
         letter-spacing: 1.5px;
         text-transform: uppercase;
         animation: start-pulse 1.5s ease-in-out infinite;
@@ -345,6 +385,7 @@
         <div id="start-go"></div>
       </div>
     </div>
+    <div id="countdown" aria-live="polite"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

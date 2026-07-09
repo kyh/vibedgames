@@ -27,11 +27,11 @@
  * immediately. On touch devices (and tiny windows) the panel boots as a ~120px
  * pill instead — the full card would blanket the prime thumb zone — and
  * getUserMedia waits for a tap on the pill (a user gesture, as phones
- * require); the ▾ button tucks it back down. The panel NEVER eats flap taps:
- * the root is pointer-events:none and only the pill/buttons are interactive,
- * so taps over the expanded video fall through to the game. If permission is
- * denied or loading fails, the panel shows the error and the game stays fully
- * playable with keyboard/tap.
+ * require). Clicking the camera view toggles it between full size and the
+ * pill — the view itself is the only size control. Taps on the panel are
+ * consumed by it (they size-toggle rather than flap); everywhere else on
+ * screen still flaps. If permission is denied or loading fails, the panel
+ * shows the error and the game stays fully playable with keyboard/tap.
  */
 
 import {
@@ -53,6 +53,33 @@ const MAX_JUMP_HEIGHT_FACTOR = 2;
 const NOSE_INDEX = 0;
 /** Nose samples at or below this visibility are discarded. */
 const MIN_VISIBILITY = 0.3;
+
+// ---- arm-flap detection ---------------------------------------------------------
+
+/** MediaPipe landmark indices for the wing joints. */
+const LEFT_SHOULDER = 11;
+const RIGHT_SHOULDER = 12;
+const LEFT_WRIST = 15;
+const RIGHT_WRIST = 16;
+/** Downward wrist stroke that fires a flap, as a fraction of shoulder width
+ *  (normalized units) — distance-invariant: the closer you stand, the bigger
+ *  both your shoulders and the required stroke read on screen. */
+const FLAP_STROKE = 0.55;
+/** Upward wrist recovery that re-arms the next beat, as a fraction of shoulder width. */
+const FLAP_REARM = 0.3;
+/** A stroke of FLAP_STROKE × this factor maps to strength 1. */
+const MAX_FLAP_FACTOR = 2;
+/** Moving-average window over the averaged wrist Y, in frames. */
+const FLAP_SMOOTHING_WINDOW = 3;
+/** Shoulders closer than this (normalized) are a bad read — skip the frame. */
+const MIN_SHOULDER_WIDTH = 0.06;
+/**
+ * A "jump" that never lands within this window is a stuck read (the player
+ * shifted posture, so the nose never settles back near the frozen baseline).
+ * Drop back to detecting and let the rolling baseline re-track — otherwise
+ * jump detection stays dead until a recalibration.
+ */
+const JUMP_STUCK_MS = 2500;
 
 // ---- adaptive baseline (replaces manual calibration) ---------------------------
 
@@ -87,7 +114,7 @@ type Panel = {
   video: HTMLVideoElement;
   overlay: HTMLCanvasElement;
   button: HTMLButtonElement;
-  toggle: HTMLButtonElement;
+  recal: HTMLButtonElement;
   status: HTMLSpanElement;
 };
 
@@ -97,11 +124,18 @@ class PoseCamera {
   private state: PoseState = "idle";
   private baselineY = 0;
   private minY = Infinity;
+  private jumpStartedAt = 0;
   private yPositions: number[] = [];
   private warmupSamples = 0;
   private warmupTotal = 0;
   /** While true the baseline is frozen — set for the duration of a game run. */
   private locked = false;
+  // Arm-flap (wing-beat) state: armed at the top of a stroke, fires on the
+  // downstroke, re-arms once the wrists recover upward.
+  private wristYs: number[] = [];
+  private flapArmed = false;
+  private strokeTopY = Infinity;
+  private strokeBottomY = -Infinity;
   private landmarker: PoseLandmarker | null = null;
   private stream: MediaStream | null = null;
   private detectionStarted = false;
@@ -115,22 +149,24 @@ class PoseCamera {
     autoStart: boolean,
   ) {
     this.setStatus("Click 'Start' to begin");
-    this.ui.button.addEventListener("click", () => {
+    this.ui.button.addEventListener("click", (e) => {
+      e.stopPropagation(); // don't also toggle the panel size
       // Drop focus so Space (a game input) can't re-activate the button.
       this.ui.button.blur();
       this.handleMainAction();
     });
-    this.ui.toggle.addEventListener("click", (e) => {
-      e.stopPropagation(); // don't bubble into the screen's expand handler
-      this.ui.toggle.blur();
-      this.setCollapsed(true);
+    this.ui.recal.addEventListener("click", (e) => {
+      e.stopPropagation(); // don't also toggle the panel size
+      this.ui.recal.blur();
+      this.recalibrate();
     });
-    // Collapsed pill/thumbnail: tap to expand — and to start the camera if it
-    // never started (touch defers getUserMedia until this user gesture).
+    // The camera view itself is the size toggle: click to expand/collapse.
+    // Expanding also starts the camera if it never did (touch defers
+    // getUserMedia until this user gesture).
     this.ui.screen.addEventListener("click", () => {
-      if (!this.collapsed) return;
-      this.setCollapsed(false);
-      if (this.state === "idle") this.start();
+      const expanding = this.collapsed;
+      this.setCollapsed(!this.collapsed);
+      if (expanding && this.state === "idle") this.start();
     });
     if (autoStart) {
       // Legacy mounted the component on page load and auto-started immediately.
@@ -151,11 +187,29 @@ class PoseCamera {
     // The button exists only to retry after a startup failure; normal play is
     // clickless (the baseline locks itself at game-start).
     this.ui.button.style.display = state === "idle" ? "" : "none";
+    // Recalibrate only makes sense once tracking is live.
+    const tracking = state === "detecting" || state === "jumping";
+    this.ui.recal.style.display = tracking ? "" : "none";
   }
 
   /** Freeze the baseline for a run (true) / resume rolling between runs (false). */
   setLocked(locked: boolean): void {
     this.locked = locked;
+  }
+
+  /** Re-seed the resting baseline from scratch (moved chair, new player, bad
+   *  lock). Clears jump + arm-flap state and re-runs the warm-up capture. */
+  recalibrate(): void {
+    // Only meaningful once tracking is live — warm-up already self-seeds, and
+    // resetting mid-load would corrupt the startup state machine.
+    if (this.state !== "detecting" && this.state !== "jumping") return;
+    this.yPositions = [];
+    this.minY = Infinity;
+    this.wristYs = [];
+    this.flapArmed = false;
+    this.strokeTopY = Infinity;
+    this.strokeBottomY = -Infinity;
+    this.beginWarmup();
   }
 
   private get collapsed(): boolean {
@@ -292,6 +346,7 @@ class PoseCamera {
 
               this.processSample();
             }
+            this.processArmFlap(landmarks);
           }
         } catch (error) {
           this.setStatus(`Error: ${errorMessage(error)}`);
@@ -328,7 +383,7 @@ class PoseCamera {
       if (this.warmupSamples >= WARMUP_SAMPLES) {
         this.baselineY = this.warmupTotal / this.warmupSamples;
         this.setState("detecting");
-        this.setStatus("Jump to flap!");
+        this.setStatus("Jump or flap your arms!");
       }
       return;
     }
@@ -353,6 +408,7 @@ class PoseCamera {
       this.setState("jumping");
       this.setStatus("Jumping!");
       this.minY = currentY;
+      this.jumpStartedAt = performance.now();
 
       const jumpStrength = Math.min(
         heightDiff / (this.baselineY * JUMP_THRESHOLD * MAX_JUMP_HEIGHT_FACTOR),
@@ -373,7 +429,69 @@ class PoseCamera {
       Math.abs(currentY - this.baselineY) < jumpThreshold / 2
     ) {
       this.setState("detecting");
-      this.setStatus("Jump to flap!");
+      this.setStatus("Jump or flap your arms!");
+    } else if (
+      this.state === "jumping" &&
+      performance.now() - this.jumpStartedAt > JUMP_STUCK_MS
+    ) {
+      // Never landed — stuck read. Re-arm detection and let the baseline
+      // re-track from wherever the player settled.
+      this.setState("detecting");
+      this.setStatus("Jump or flap your arms!");
+    }
+  }
+
+  // ---- arm-flap (wing-beat) detection ------------------------------------------
+
+  /**
+   * Flapping both arms like wings flaps the dragon: fire on each fast downward
+   * wrist stroke, re-arm once the wrists recover upward. Runs alongside the
+   * nose-jump detector but stays quiet mid-jump so one physical motion can't
+   * double-fire.
+   */
+  private processArmFlap(landmarks: NormalizedLandmark[]): void {
+    if (this.state !== "detecting" && this.state !== "jumping") return;
+    const ls = landmarks[LEFT_SHOULDER];
+    const rs = landmarks[RIGHT_SHOULDER];
+    const lw = landmarks[LEFT_WRIST];
+    const rw = landmarks[RIGHT_WRIST];
+    if (!ls || !rs || !lw || !rw) return;
+    if (
+      ls.visibility < MIN_VISIBILITY ||
+      rs.visibility < MIN_VISIBILITY ||
+      lw.visibility < MIN_VISIBILITY ||
+      rw.visibility < MIN_VISIBILITY
+    ) {
+      return;
+    }
+    const scale = Math.abs(ls.x - rs.x);
+    if (scale < MIN_SHOULDER_WIDTH) return;
+
+    this.wristYs.unshift((lw.y + rw.y) / 2);
+    if (this.wristYs.length > FLAP_SMOOTHING_WINDOW) this.wristYs.pop();
+    const wy = getSmoothedY(this.wristYs);
+
+    if (this.flapArmed) {
+      // Track the top of the stroke (smallest y = highest wrists), fire once
+      // the downstroke travels far enough.
+      this.strokeTopY = Math.min(this.strokeTopY, wy);
+      const stroke = wy - this.strokeTopY;
+      if (stroke > FLAP_STROKE * scale) {
+        this.flapArmed = false;
+        this.strokeBottomY = wy;
+        // A body-jump already flapped this instant — don't double-fire.
+        if (this.state !== "jumping") {
+          const strength = Math.min(stroke / (FLAP_STROKE * scale * MAX_FLAP_FACTOR), 1);
+          this.setStatus("Flap!");
+          this.onJump(strength, false);
+        }
+      }
+    } else {
+      this.strokeBottomY = Math.max(this.strokeBottomY, wy);
+      if (this.strokeBottomY - wy > FLAP_REARM * scale) {
+        this.flapArmed = true;
+        this.strokeTopY = wy;
+      }
     }
   }
 
@@ -435,6 +553,16 @@ export function setPoseLocked(locked: boolean): void {
   active?.setLocked(locked);
 }
 
+/**
+ * Re-seed the resting pose baseline (the game calls this when its start
+ * countdown begins, so calibration captures the player once they're in
+ * position). No-op if the camera never initialised or isn't tracking yet —
+ * recalibrate() only has effect past warm-up, and warm-up already self-seeds.
+ */
+export function recalibratePose(): void {
+  active?.recalibrate();
+}
+
 // ---- DOM (styled to match the app's dark "glass pill" HUD) --------------------------------
 
 const PANEL_STYLE_ID = "fd-pose-cam-style";
@@ -446,9 +574,9 @@ const PANEL_STYLE_ID = "fd-pose-cam-style";
  * the same transform so the skeleton stays registered on the face. (Jump
  * detection is vertical-only, so the mirror is purely cosmetic.)
  *
- * Pointer rules: the root ignores all events; only the collapsed pill, the ▾
- * toggle and the Start button are interactive. Taps over the expanded video
- * fall through to the game and flap — the panel never creates a dead zone.
+ * Pointer rules: the root ignores all events; the camera view (any size) and
+ * the buttons are interactive — a click on the view toggles its size, so the
+ * panel consumes its own taps instead of flapping.
  */
 function injectStyles(): void {
   if (document.getElementById(PANEL_STYLE_ID)) return;
@@ -459,7 +587,7 @@ function injectStyles(): void {
       position: fixed; z-index: 20;
       right: calc(12px + env(safe-area-inset-right));
       bottom: calc(12px + env(safe-area-inset-bottom));
-      width: 384px; max-width: calc(100vw - 24px); padding: 6px;
+      width: 512px; max-width: calc(100vw - 24px); padding: 6px;
       border-radius: 14px;
       background: rgba(10, 12, 28, 0.62);
       border: 1px solid rgba(255, 255, 255, 0.22);
@@ -474,20 +602,16 @@ function injectStyles(): void {
       position: relative; overflow: hidden; border-radius: 8px;
       /* Holds the frame's shape before the stream loads / if permission is
          denied (video is height:auto → 0 until it has dimensions). Kept below
-         the loaded video height (≈216–288px at 384px wide) so it never
-         letterboxes the overlay once live. */
+         the loaded video height so it never letterboxes the overlay once live. */
       min-height: 180px;
       background: rgba(0, 0, 0, 0.35);
-      pointer-events: none;
-    }
-    .fd-cam--collapsed { width: 120px; }
-    .fd-cam--collapsed .fd-cam__screen {
-      min-height: 44px; cursor: pointer;
+      cursor: pointer;
       pointer-events: auto; touch-action: manipulation;
       -webkit-tap-highlight-color: transparent;
     }
+    .fd-cam--collapsed { width: 120px; }
+    .fd-cam--collapsed .fd-cam__screen { min-height: 44px; }
     .fd-cam--collapsed .fd-cam__controls { display: none; }
-    .fd-cam--collapsed .fd-cam__toggle { display: none; }
     .fd-cam__cap { display: none; }
     .fd-cam--collapsed .fd-cam__cap {
       display: block; position: absolute; left: 0; right: 0; bottom: 5px;
@@ -495,14 +619,6 @@ function injectStyles(): void {
       text-shadow: 0 1px 3px rgba(0, 0, 0, 0.75);
       pointer-events: none;
     }
-    .fd-cam__toggle {
-      position: absolute; top: 4px; right: 4px; width: 40px; height: 40px;
-      border-radius: 10px; border: 0;
-      background: rgba(10, 12, 28, 0.55); color: #eef2ff;
-      font: inherit; font-size: 14px; cursor: pointer;
-      pointer-events: auto; touch-action: manipulation;
-    }
-    .fd-cam__toggle:hover { background: rgba(10, 12, 28, 0.8); }
     .fd-cam__video, .fd-cam__overlay { transform: scaleX(-1); }
     /* Hidden until the stream reports dimensions (fd-cam--live) — a
        stream-less <video> renders at its 300×150 replaced-element default. */
@@ -555,12 +671,6 @@ function buildPanel(parent: HTMLElement, collapsed: boolean): Panel {
   cap.className = "fd-cam__cap";
   cap.textContent = "📷 pose";
 
-  const toggle = document.createElement("button");
-  toggle.type = "button";
-  toggle.className = "fd-cam__toggle";
-  toggle.textContent = "▾";
-  toggle.title = "Hide camera";
-
   const controls = document.createElement("div");
   controls.className = "fd-cam__controls";
 
@@ -569,15 +679,22 @@ function buildPanel(parent: HTMLElement, collapsed: boolean): Panel {
   button.className = "fd-cam__btn";
   button.textContent = "Start";
 
+  const recal = document.createElement("button");
+  recal.type = "button";
+  recal.className = "fd-cam__btn";
+  recal.textContent = "Recalibrate";
+  recal.title = "Re-capture your resting position";
+  recal.style.display = "none";
+
   const status = document.createElement("span");
   status.className = "fd-cam__status";
 
-  controls.append(button, status);
-  screen.append(video, overlay, cap, controls, toggle);
+  controls.append(button, recal, status);
+  screen.append(video, overlay, cap, controls);
   root.append(screen);
   parent.appendChild(root);
 
-  return { root, screen, video, overlay, button, toggle, status };
+  return { root, screen, video, overlay, button, recal, status };
 }
 
 // ---- pure helpers --------------------------------------------------------------------------

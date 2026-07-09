@@ -1,7 +1,7 @@
 import Phaser from "phaser";
 import { notifyGameStarted } from "@repo/embed";
 
-import { isCoarsePointer, setPoseLocked } from "../input/camera";
+import { isCoarsePointer, recalibratePose, setPoseLocked } from "../input/camera";
 import { NetSession } from "../net/session";
 import {
   ART_SCALE,
@@ -147,6 +147,10 @@ export class GameScene extends Phaser.Scene {
   private soundEl: HTMLElement | null = null;
   private startEl: HTMLElement | null = null;
   private started = false;
+  /** Input is held while the get-ready countdown runs. */
+  private countingDown = false;
+  /** Countdown go-word, alternating FLAP!/JUMP! (starts as FLAP! after flip). */
+  private goWord = "JUMP!";
 
   constructor() {
     super("Game");
@@ -256,8 +260,8 @@ export class GameScene extends Phaser.Scene {
     const go = document.getElementById("start-go");
     if (controls) {
       controls.textContent = TOUCH
-        ? "Tap to flap\nTap sound to mute\nPose cam jumps also flap"
-        : "Click / tap / Space — flap\nUp arrow also flaps\nM — mute";
+        ? "Tap to flap\nJump or flap your arms on camera"
+        : "Click / tap / Space — flap\nJump or flap your arms on camera\nM — mute";
     }
     if (go) go.textContent = TOUCH ? "tap to start" : "press any key to start";
     this.input.keyboard?.once("keyup", () => this.beginPlay());
@@ -322,13 +326,52 @@ export class GameScene extends Phaser.Scene {
     this.titleDragon = null;
   }
 
-  private beginPlay(strength = 1, refire = false): void {
+  private beginPlay(): void {
     if (this.started) return;
     this.started = true;
     this.removeTitleDragon();
     this.startEl?.classList.add("hide");
     this.time.delayedCall(320, () => this.startEl?.remove());
-    this.handleInput(strength, refire);
+    this.runCountdown();
+  }
+
+  /**
+   * 3-2-1 between the start screen and the first flap: time to step back and
+   * get framed for the pose camera, whose baseline re-captures during the
+   * count. Input is gated until it ends; the bird then hovers in the ready
+   * phase and the first flap (tap/Space/jump/arm-flap) launches the run.
+   */
+  private runCountdown(): void {
+    const el = document.getElementById("countdown");
+    if (!el) return;
+    this.countingDown = true;
+    recalibratePose();
+    let n = 3;
+    const tick = (): void => {
+      if (n > 0) {
+        el.textContent = String(n);
+        el.classList.remove("pop");
+        void el.offsetWidth; // restart the pop animation
+        el.classList.add("pop");
+        n--;
+        this.time.delayedCall(1000, tick);
+      } else {
+        // Alternate the go-word so both webcam verbs get equal billing.
+        this.goWord = this.goWord === "FLAP!" ? "JUMP!" : "FLAP!";
+        el.textContent = this.goWord;
+        el.classList.remove("pop");
+        void el.offsetWidth;
+        el.classList.add("pop");
+        this.countingDown = false;
+        this.setHint(HINT_FLAP);
+        this.time.delayedCall(800, () => {
+          el.classList.remove("show", "pop");
+          el.textContent = "";
+        });
+      }
+    };
+    el.classList.add("show");
+    tick();
   }
 
   // ---- role helpers --------------------------------------------------------
@@ -428,9 +471,10 @@ export class GameScene extends Phaser.Scene {
 
   private handleInput(strength = 1, refire = false): void {
     if (!this.started) {
-      this.beginPlay(strength, refire);
+      this.beginPlay();
       return;
     }
+    if (this.countingDown) return; // holding for the get-ready count
     if (this.phase === "ready") {
       this.setPhase("playing");
       this.birdY = this.racing ? this.spawnY() : BIRD_SPAWN_Y;
@@ -507,7 +551,12 @@ export class GameScene extends Phaser.Scene {
 
     this.skin = rollSkin();
     this.bird.setPosition(BIRD_X + DRAGON_SPRITE_OFFSET_X, BIRD_SPAWN_Y + DRAGON_SPRITE_OFFSET_Y);
-    this.enterPlaying();
+    // Solo restart gets the same get-ready count as a fresh boot: time to get
+    // back in frame, pose recalibrates, then the first flap launches.
+    this.reviveBird();
+    this.birdY = BIRD_SPAWN_Y;
+    this.setPhase("ready");
+    this.runCountdown();
   }
 
   /** Multiplayer: respawn into the still-scrolling shared course. */
@@ -520,8 +569,8 @@ export class GameScene extends Phaser.Scene {
     this.enterPlaying();
   }
 
-  /** Shared tail of restart()/respawn(): reset the bird's look + HUD, go live. */
-  private enterPlaying(): void {
+  /** Reset the bird's look + game-over HUD after a death. */
+  private reviveBird(): void {
     this.tweens.killTweensOf(this.bird);
     this.bird
       .setRotation(0)
@@ -534,6 +583,11 @@ export class GameScene extends Phaser.Scene {
     this.setBest("");
     this.setHint("");
     this.refreshScore();
+  }
+
+  /** Shared tail of racing respawns: reset the bird's look + HUD, go live. */
+  private enterPlaying(): void {
+    this.reviveBird();
     this.setPhase("playing");
   }
 
