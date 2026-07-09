@@ -54,9 +54,7 @@ export class MineHudScene extends Phaser.Scene {
       .text(
         0,
         0,
-        isTouchDevice()
-          ? "Stand on a ladder + hold USE to climb"
-          : "Stand on a ladder + Space/E to climb",
+        isTouchDevice() ? "Hold USE to climb" : "Space/E to climb",
         { fontFamily: FONT, fontSize: "11px", color: "#cdd6e0" },
       )
       .setDepth(11);
@@ -156,10 +154,14 @@ export class MineHudScene extends Phaser.Scene {
     g.fillRoundedRect(16 + il, 49 + it, 150, 8, 3);
     g.fillStyle(0x7ec0ff, 1);
     g.fillRoundedRect(16 + il, 49 + it, Math.max(2, 150 * enFrac), 8, 3);
-    // hint bottom-left
-    g.fillStyle(0x000000, 0.35);
-    g.fillRoundedRect(10 + il, H - 27 - ib, this.hint.width + 16, 18, 6);
-    this.hint.setPosition(18 + il, H - 24 - ib);
+    // hint bottom-left — contextual: only while the player is on a ladder tile
+    const onLadder = this.mine.onLadder();
+    this.hint.setVisible(onLadder);
+    if (onLadder) {
+      g.fillStyle(0x000000, 0.35);
+      g.fillRoundedRect(10 + il, H - 27 - ib, this.hint.width + 16, 18, 6);
+      this.hint.setPosition(18 + il, H - 24 - ib);
+    }
 
     // hotbar bottom-center — slot size shrinks to fit narrow (portrait) screens
     const slot = Math.min(SZ, Math.floor((W - 12) / HOTBAR) - PAD);

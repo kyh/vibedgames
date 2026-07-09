@@ -1133,10 +1133,10 @@ export class GameScene {
   }
 
   /** Mute indicator — reflects the persisted opt-in on load and each toggle
-   *  (M key or tapping the indicator itself). */
+   *  (M key or tapping the indicator itself). Icon only: control hints never
+   *  sit on the play field, and the indicator is itself the tap target. */
   private syncSound(): void {
-    const verb = COARSE_INPUT ? "tap" : "m";
-    this.soundEl.textContent = isMuted() ? `🔇 ${verb} for sound` : `🔊 ${verb} to mute`;
+    this.soundEl.textContent = isMuted() ? "🔇" : "🔊";
   }
 
   private netInfoText(): string {

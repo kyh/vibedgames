@@ -177,6 +177,11 @@ export class GameScene extends Phaser.Scene {
   private playersEl: HTMLElement | null = null;
   private statsEl: HTMLElement | null = null;
   private bannerEl: HTMLElement | null = null;
+  private startEl: HTMLElement | null = null;
+  /** False until the player dismisses the start screen. Gates spawning so the
+   *  player isn't dropped into a live arena while still reading the controls;
+   *  bots and the host seed keep running behind the overlay. */
+  private started = false;
   // Last strings written to each HUD element, to skip redundant DOM writes.
   private lastStatus: string | null = null;
   private lastPlayers: string | null = null;
@@ -273,6 +278,7 @@ export class GameScene extends Phaser.Scene {
     this.playersEl = document.getElementById("players");
     this.statsEl = document.getElementById("stats");
     this.bannerEl = document.getElementById("banner");
+    this.buildStartScreen();
 
     // Continuous grass field, larger than the arena so the follow camera shows
     // grass (not black) past the world edge when centred on a corner spawn.
@@ -356,7 +362,13 @@ export class GameScene extends Phaser.Scene {
     this.handleInput(delta);
     this.settleMoving();
     this.updateCamera();
-    if (this.amHost) this.hostTick(delta);
+    // Hold the world (bots, bombs, round end) while the start screen is up, or
+    // the round can be decided against a player who is still reading. Only safe
+    // when no other human is present: freezing a shared arena would stall them.
+    // `offline` means "no server", not "solo" — a connected solo host still
+    // needs the hold, so gate on the human count instead.
+    const soloArena = Object.keys(this.peers).length <= 1;
+    if (this.amHost && (this.started || !soloArena)) this.hostTick(delta);
   }
 
   /**
@@ -461,6 +473,7 @@ export class GameScene extends Phaser.Scene {
 
   private handleInput(delta: number): void {
     const id = this.myId;
+    if (!this.started) return;
     if (!this.isAlive(id)) return;
     this.moveCooldown = Math.max(0, this.moveCooldown - delta);
     if (this.moveCooldown > 0) return;
@@ -506,6 +519,7 @@ export class GameScene extends Phaser.Scene {
 
   private requestBomb(): void {
     const id = this.myId;
+    if (!this.started) return;
     if (!this.isAlive(id)) return;
     if (this.bombAt(this.myCol, this.myRow)) return;
     this.netSendEvent("place_bomb", {
@@ -516,6 +530,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private requestRestart(): void {
+    if (!this.started) return;
     // Host, guest, and offline all funnel through the request_restart handler:
     // the host (or the offline loopback) resets the world and broadcasts
     // round_restart, which the server echoes back to the sender too.
@@ -581,7 +596,9 @@ export class GameScene extends Phaser.Scene {
     this.setPlayersList(this.playersListText());
     this.setStats(this.statsText());
     this.setBanner();
-    this.ensureMySpawn();
+    // No body until the start screen is dismissed — bots and the host seed run
+    // on behind the overlay, but the player isn't dropped in mid-read.
+    if (this.started) this.ensureMySpawn();
     this.syncGrid();
     this.syncBombs();
     this.syncBlasts();
@@ -1392,6 +1409,34 @@ export class GameScene extends Phaser.Scene {
     this.client.updateSharedState(next);
   }
 
+  // ---- start screen --------------------------------------------------------
+
+  /** The one place controls are taught. Dismissed on the first key/pointer
+   *  RELEASE, not press: the keydown handlers below stay live behind the
+   *  overlay, so starting on keydown would let the same SPACE also drop a bomb. */
+  private buildStartScreen(): void {
+    this.startEl = document.getElementById("start");
+    const controls = document.getElementById("start-controls");
+    const go = document.getElementById("start-go");
+    if (controls)
+      controls.textContent = TOUCH_UI
+        ? "Drag to move\n💣 button drops a bomb\nTap to restart"
+        : "WASD / arrows — move\nSPACE — drop a bomb\nR — restart";
+    if (go) go.textContent = TOUCH_UI ? "tap to start" : "press any key to start";
+    this.input.keyboard?.once("keyup", () => this.beginPlay());
+    // The overlay covers the canvas, so Phaser's pointer input never sees the
+    // tap — listen on the overlay element itself.
+    this.startEl?.addEventListener("pointerup", () => this.beginPlay(), { once: true });
+  }
+
+  private beginPlay(): void {
+    if (this.started) return;
+    this.started = true;
+    this.startEl?.classList.add("hide");
+    // Drop it only after the fade, so it can't swallow taps on the way out.
+    this.time.delayedCall(320, () => this.startEl?.remove());
+  }
+
   // ---- HUD -----------------------------------------------------------------
 
   private statusText(): string {
@@ -1403,10 +1448,8 @@ export class GameScene extends Phaser.Scene {
     const restart = TOUCH_UI ? "tap to restart" : "press R";
     if (s?.winner) return `Round over — ${restart}`;
     if (!this.isAlive(this.myId)) return `💀 Out — bots fight on · ${restart}`;
-    const mode = this.offline ? "solo · offline" : this.amHost ? "host" : "guest";
-    return TOUCH_UI
-      ? `Drag to move · 💣 to bomb · ${mode}`
-      : `WASD / arrows to move · SPACE to drop a bomb · R to restart · ${mode}`;
+    // Live play: connection state only. Controls belong on the start screen.
+    return this.offline ? "solo · offline" : this.amHost ? "host" : "guest";
   }
 
   private playersListText(): string {

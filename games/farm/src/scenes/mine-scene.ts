@@ -608,6 +608,16 @@ export class MineScene extends Phaser.Scene {
 
   // ---------------------------------------------------------------- ladders / exit
 
+  /** Feet on either ladder tile. Drives MineHud's contextual climb prompt, so
+   *  the key hint appears only where it can actually be used. */
+  onLadder(): boolean {
+    const f = this.feetTile();
+    return (
+      (f.tx === this.ladderUp.tx && f.ty === this.ladderUp.ty) ||
+      (f.tx === this.ladderDown.tx && f.ty === this.ladderDown.ty)
+    );
+  }
+
   private checkLadders(): void {
     const f = this.feetTile();
     const useDown =

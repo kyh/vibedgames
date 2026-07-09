@@ -228,21 +228,25 @@ export class MenuScene extends Phaser.Scene {
     };
     mkBtn(stack ? W / 2 : W / 2 - 150, stack ? btnY - 74 : btnY, "PLAY vs BOTS", "blue", false);
     mkBtn(stack ? W / 2 : W / 2 + 150, btnY, "PLAY ONLINE", "red", true);
-    if (!touch && !stack)
-      this.add
-        .text(
-          W / 2,
-          btnY + 46,
-          "Arrows move · Q W E R abilities (aim by facing, Shift+key levels) · Space attack · F dash · 1-6 items · B shop · Tab scores",
-          {
-            fontFamily: FONT,
-            fontSize: "12px",
-            color: "#dff5f3",
-            stroke: "#1e3a38",
-            strokeThickness: 3,
-          },
-        )
-        .setOrigin(0.5);
+    // The only place controls are taught — the match HUD carries no hint bar.
+    this.add
+      .text(
+        W / 2,
+        btnY + 46,
+        touch
+          ? "Drag to move · 2nd finger attacks · tap an ability to cast · SHOP and SCORES buttons"
+          : "Arrows move · Q W E R abilities (aim by facing, Shift+key levels) · Space attack · F dash · 1-6 items · B shop · Tab scores · M mute",
+        {
+          fontFamily: FONT,
+          fontSize: stack ? "10px" : "12px",
+          color: "#dff5f3",
+          stroke: "#1e3a38",
+          strokeThickness: 3,
+          align: "center",
+          wordWrap: { width: W - 40 },
+        },
+      )
+      .setOrigin(0.5);
 
     this.select(this.selected);
   }

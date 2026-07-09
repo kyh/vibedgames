@@ -197,21 +197,60 @@
         }
       }
 
-      #attract {
+      /* Initial screen. The only place controls are taught — once play starts
+         the field carries no instruction text. Removed from the DOM on start. */
+      #start {
         position: fixed;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
+        inset: 0;
+        z-index: 10;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        padding: 24px;
+        text-align: center;
+        background: rgba(2, 4, 14, 0.82);
+        backdrop-filter: blur(7px);
+        -webkit-backdrop-filter: blur(7px);
+        transition: opacity 0.28s ease;
+      }
+      #start.hide {
+        opacity: 0;
         pointer-events: none;
-        padding: 6px 18px;
-        background: rgba(0, 0, 0, 0.35);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        border-radius: 999px;
-        font-size: 13px;
-        text-transform: uppercase;
+      }
+      #start h1 {
+        margin: 0;
+        font-size: clamp(38px, 8vw, 84px);
+        font-weight: 800;
+        letter-spacing: 4px;
+        color: #fff;
+        text-shadow: 0 0 30px rgba(120, 180, 255, 0.65);
+      }
+      #start-controls {
+        max-width: 30ch;
+        white-space: pre-line;
+        line-height: 1.9;
+        font-size: 14px;
         letter-spacing: 1px;
-        opacity: 0.7;
-        transition: opacity 0.4s ease;
+        color: #b9c6ea;
+      }
+      #start-go {
+        font-size: 13px;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+        color: #7fb2ff;
+        animation: start-pulse 1.6s ease-in-out infinite;
+      }
+      @keyframes start-pulse {
+        50% {
+          opacity: 0.35;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #start-go {
+          animation: none;
+        }
       }
 
       #overlay {
@@ -308,8 +347,12 @@
       <div id="comboval">&times;2 &middot; 3</div>
       <div id="combobar"></div>
     </div>
-    <div id="attract">Mouse to move. Click to shoot</div>
     <button id="mute" type="button" aria-label="toggle sound"></button>
+    <div id="start">
+      <h1>STARFALL</h1>
+      <div id="start-controls"></div>
+      <div id="start-go"></div>
+    </div>
     <div id="overlay">
       <div id="destroyed">DESTROYED</div>
       <div id="cause"></div>

@@ -48,7 +48,7 @@ export class Menu {
       (typeof window.matchMedia === "function" && window.matchMedia("(pointer:coarse)").matches);
     const help = touchBoot
       ? "tap a champion · left thumb move · right thumb aim + attack · on-screen buttons: abilities / DASH / JUMP / B shop"
-      : "click a champion · WASD move · mouse looks · LMB attack · ␣ jump · ⇧ dash · 1/2/3/4 abilities · B shop";
+      : "click a champion · WASD move · mouse looks · LMB attack · ␣ jump · ⇧ dash · 1/2/3/4 abilities · B shop · M mute";
     const chips = CHAMPIONS.map(
       (c) =>
         `<button class="ba-chip" data-id="${c.id}" style="--accent:${hex(c.tint)}">

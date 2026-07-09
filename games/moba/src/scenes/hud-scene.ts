@@ -48,7 +48,6 @@ export class HudScene extends Phaser.Scene {
   private kdaText!: Phaser.GameObjects.Text;
   private respawnText!: Phaser.GameObjects.Text;
   private apText!: Phaser.GameObjects.Text;
-  private hintText!: Phaser.GameObjects.Text;
   private barW = 200;
   private infoPanel!: Phaser.GameObjects.NineSlice;
   private barPanel!: Phaser.GameObjects.NineSlice;
@@ -158,11 +157,6 @@ export class HudScene extends Phaser.Scene {
     this.buildFeed();
     this.buildBoard();
     this.layout();
-    // on touch the persistent hint would sit over the battlefield — fade it out
-    if (this.touchUi)
-      this.time.delayedCall(9000, () =>
-        this.tweens.add({ targets: this.hintText, alpha: 0, duration: 600 }),
-      );
     this.input.keyboard?.on("keydown-B", () => this.toggleShop());
     // keyboard shop navigation (active only while the shop is open)
     this.input.keyboard?.on("keydown-UP", () => this.shopOpen && this.moveShopSel(-1));
@@ -387,22 +381,6 @@ export class HudScene extends Phaser.Scene {
       })
       .setOrigin(0.5)
       .setVisible(false);
-    this.hintText = this.add
-      .text(
-        0,
-        0,
-        this.touchUi
-          ? "Drag to move · 2nd finger attacks · tap an ability to cast"
-          : "Arrows move · Space attack · Q W E R abilities · F dash · 1-6 items · B shop · Tab scores",
-        {
-          fontFamily: FONT,
-          fontSize: "13px",
-          color: "#f4eee0",
-          stroke: "#27343c",
-          strokeThickness: 3,
-        },
-      )
-      .setOrigin(0.5);
   }
 
   private buildShop(): void {
@@ -907,11 +885,6 @@ export class HudScene extends Phaser.Scene {
       this.mpBar.setPosition(barX, barMidY + 9);
       this.hpText.setPosition(barX + this.barW / 2, barMidY - 9);
       this.mpText.setPosition(barX + this.barW / 2, barMidY + 9);
-      // portrait: below the minimap (it would tuck under the map at top-right);
-      // landscape: below the button row
-      this.hintText
-        .setPosition(cx, btnRow ? 170 + inset.top : this.mapY + this.mapH + 32)
-        .setFontSize(11);
     } else {
       const baseY = H - 50;
       this.barW = 200;
@@ -934,7 +907,6 @@ export class HudScene extends Phaser.Scene {
       for (let i = 0; i < this.itemSlots.length; i++) {
         itemPos.push({ x: itemX0 + (i % 3) * 42, y: baseY - 20 + Math.floor(i / 3) * 42 });
       }
-      this.hintText.setPosition(cx, baseY - 46).setFontSize(13);
     }
 
     if (this.dashBox) {

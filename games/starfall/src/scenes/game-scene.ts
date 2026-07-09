@@ -530,7 +530,6 @@ export class GameScene extends Phaser.Scene {
   /** Shield-regen speed multiplier from the current level (baseRegenMult). */
   private regenMult = 1;
   private beams: Beam[] = [];
-  private firedOnce = false;
   /** Phaser's activePointer sits at (0,0) until the first real pointer event —
    *  steering before then would yank the ship to the screen corner. */
   private pointerSeen = false;
@@ -741,7 +740,10 @@ export class GameScene extends Phaser.Scene {
   private causeEl: HTMLElement | null = null;
   private hintEl: HTMLElement | null = null;
   private countdownEl: HTMLElement | null = null;
-  private attractEl: HTMLElement | null = null;
+  private startEl: HTMLElement | null = null;
+  /** False until the player dismisses the start screen. Gates spawning so the
+   *  ship isn't dropped into a live arena while the controls are still up. */
+  private started = false;
   private muteEl: HTMLElement | null = null;
 
   constructor() {
@@ -767,7 +769,6 @@ export class GameScene extends Phaser.Scene {
     this.causeEl = document.getElementById("cause");
     this.hintEl = document.getElementById("hint");
     this.countdownEl = document.getElementById("countdown");
-    this.attractEl = document.getElementById("attract");
     this.muteEl = document.getElementById("mute");
 
     this.starfield = new Starfield(this);
@@ -864,6 +865,8 @@ export class GameScene extends Phaser.Scene {
     });
     if (IS_COARSE_POINTER) this.enterTouchMode(); // touch copy from boot, not first tap
     this.updateMuteHud();
+    // After the gamepad exists: writeStartCopy() reads its touch flag.
+    this.buildStartScreen();
 
     this.scale.on(Phaser.Scale.Events.RESIZE, this.onViewportChange, this);
     this.onViewportChange();
@@ -964,8 +967,40 @@ export class GameScene extends Phaser.Scene {
   // ---- input + my ship -------------------------------------------------------
 
   /** First connect: drop the ship at a clear spot and snap the camera. */
+  /** The one place controls are taught. Dismissed on the first key/pointer
+   *  RELEASE, not press: the fire handlers stay live behind the overlay, so
+   *  starting on a press would let the same click also shoot. */
+  private buildStartScreen(): void {
+    this.startEl = document.getElementById("start");
+    this.writeStartCopy();
+    this.input.keyboard?.once("keyup", () => this.beginPlay());
+    // The overlay covers the canvas, so Phaser's pointer input never sees the
+    // tap — listen on the overlay element itself.
+    this.startEl?.addEventListener("pointerup", () => this.beginPlay(), { once: true });
+  }
+
+  /** Start-screen copy, re-run when the touch scheme is detected. */
+  private writeStartCopy(): void {
+    const touch = IS_COARSE_POINTER || this.gamepad.isTouch;
+    const controls = document.getElementById("start-controls");
+    const go = document.getElementById("start-go");
+    if (controls)
+      controls.textContent = touch
+        ? "Drag to move\nTap to shoot"
+        : "Mouse — move\nClick — shoot\nM — mute";
+    if (go) go.textContent = touch ? "tap to start" : "press any key to start";
+  }
+
+  private beginPlay(): void {
+    if (this.started) return;
+    this.started = true;
+    this.startEl?.classList.add("hide");
+    // Drop it only after the fade, so it can't swallow taps on the way out.
+    this.time.delayedCall(320, () => this.startEl?.remove());
+  }
+
   private ensureSpawned(): void {
-    if (this.spawned || !this.myId) return;
+    if (!this.started || this.spawned || !this.myId) return;
     const pos = this.pickRespawnPoint(); // joining a live arena: same clearance as respawn
     this.shipX = pos.x;
     this.shipY = pos.y;
@@ -1118,10 +1153,10 @@ export class GameScene extends Phaser.Scene {
     return { angle: Math.atan2(dy, dx), thrust, dist, deadZone: SHIP_DEAD_ZONE, aim: dist > 0.001 };
   }
 
-  /** Rewrite the attract hint + mute copy for the touch control scheme. Fired
-   *  at boot on coarse-pointer devices, else the first time a finger lands. */
+  /** Rewrite the start-screen copy for the touch control scheme. Fired at boot
+   *  on coarse-pointer devices, else the first time a finger lands. */
   private enterTouchMode(): void {
-    if (this.attractEl) this.attractEl.innerHTML = "Drag to move. Tap to shoot";
+    this.writeStartCopy();
     this.updateMuteHud();
   }
 
@@ -1133,6 +1168,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handleShooting(delta: number, now: number): void {
+    if (!this.alive || !this.spawned) return;
     // The cooldown runs into (bounded) deficit and each shot pays intervalMs
     // back, so the leftover carries between shots — true average cadence on
     // any refresh rate instead of rounding up to whole frames. OVERDRIVE
@@ -1160,10 +1196,6 @@ export class GameScene extends Phaser.Scene {
       if (this.shootCooldown > 0) return;
     }
     this.shootCooldown += interval;
-    if (!this.firedOnce) {
-      this.firedOnce = true;
-      if (this.attractEl) this.attractEl.style.opacity = "0";
-    }
     this.fireWeapon(now);
   }
 
@@ -5354,16 +5386,9 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /** Icon only — the M key hint lives on the start screen, never on the field. */
   private updateMuteHud(): void {
-    const touch = IS_COARSE_POINTER || this.gamepad.isTouch;
-    const copy = sfx.muted
-      ? touch
-        ? "🔇 tap for sound"
-        : "🔇 M for sound"
-      : touch
-        ? "🔊 tap to mute"
-        : "🔊 M to mute";
-    setText(this.muteEl, copy);
+    setText(this.muteEl, sfx.muted ? "🔇" : "🔊");
   }
 
   private updateHud(now: number): void {

@@ -212,7 +212,7 @@ export class Hud {
       <div id="ba-board"></div>
       <div id="ba-feed"></div>
       <button id="ba-menu-btn">HEROES ▸</button>
-      <button id="ba-sound-btn" title="Sound (M)">🔇</button>
+      <button id="ba-sound-btn" title="Sound">🔇</button>
       <div id="ba-toasts"></div>
       <div id="ba-bottom">
         <div id="ba-buffs"></div>

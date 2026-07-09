@@ -517,20 +517,17 @@ export class GameScene {
     this.setHudMode(withLegend ? "legend" : "none");
   }
 
-  /** Hide the banner and show the short in-play control bar. */
+  /** Hide the banner. The play field carries no control text — the legend is
+   *  reachable from the title, pause and game-over banners. */
   private hideBanner(): void {
     const b = el("banner");
     if (b) b.style.opacity = "0";
-    this.setHudMode("bar");
+    this.setHudMode("none");
   }
 
-  private setHudMode(mode: "legend" | "bar" | "none"): void {
+  private setHudMode(mode: "legend" | "none"): void {
     const legend = el("legend");
-    const controls = el("controls");
     if (legend) legend.style.display = mode === "legend" ? "block" : "none";
-    // Touch devices skip the in-play key bar — the labeled buttons ARE the
-    // reference, and the bar would sit under the button cluster.
-    if (controls) controls.style.display = mode === "bar" && !this.coarse ? "block" : "none";
   }
 }
 

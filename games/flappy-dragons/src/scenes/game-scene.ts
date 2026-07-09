@@ -761,8 +761,7 @@ export class GameScene extends Phaser.Scene {
 
   private refreshSoundHud(): void {
     if (!this.soundEl) return;
-    const label = this.sound.mute ? "🔇 sound" : "🔊 sound";
-    this.soundEl.textContent = TOUCH ? label : `${label} · m`;
+    this.soundEl.textContent = this.sound.mute ? "🔇" : "🔊";
   }
 
   /** Live race leaderboard + connection info (multiplayer only). */
