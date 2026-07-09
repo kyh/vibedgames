@@ -253,34 +253,19 @@
 
       #start-title {
         margin: 0;
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: center;
-        gap: 0.4em;
-        font:
-          900 clamp(34px, 8vw, 82px) / 0.95 system-ui,
-          sans-serif;
-        color: #fff6d6;
-        letter-spacing: 2px;
-        text-shadow:
-          0 4px 0 rgba(91, 74, 138, 0.5),
-          0 6px 14px rgba(40, 30, 80, 0.32),
-          0 0 28px rgba(255, 255, 255, 0.4);
         animation: title-float 3.6s ease-in-out 1.1s infinite;
       }
-      #start-title .word {
-        display: flex;
-        gap: 0.06em;
+      #start-title img {
+        display: block;
+        width: clamp(280px, 56vw, 620px);
+        max-width: 86vw;
+        filter: drop-shadow(0 6px 14px rgba(40, 30, 80, 0.35));
+        animation: title-in 0.7s cubic-bezier(0.18, 1.4, 0.4, 1) both;
       }
-      #start-title .ltr {
-        display: inline-block;
-        animation: ltr-in 0.55s cubic-bezier(0.18, 1.4, 0.4, 1) both;
-        animation-delay: calc(var(--i) * 45ms);
-      }
-      @keyframes ltr-in {
+      @keyframes title-in {
         from {
           opacity: 0;
-          transform: translateY(0.7em) scale(0.5) rotate(-10deg);
+          transform: translateY(46px) scale(0.6) rotate(-4deg);
         }
         to {
           opacity: 1;
@@ -327,7 +312,7 @@
       }
       @media (prefers-reduced-motion: reduce) {
         #start-title,
-        #start-title .ltr,
+        #start-title img,
         #start-go {
           animation: none;
         }
@@ -353,24 +338,8 @@
         <span class="cloud c3"></span>
       </div>
       <div id="start-card">
-        <h1 id="start-title" aria-label="Flappy Dragons">
-          <span class="word">
-            <span class="ltr" style="--i: 0">F</span>
-            <span class="ltr" style="--i: 1">L</span>
-            <span class="ltr" style="--i: 2">A</span>
-            <span class="ltr" style="--i: 3">P</span>
-            <span class="ltr" style="--i: 4">P</span>
-            <span class="ltr" style="--i: 5">Y</span>
-          </span>
-          <span class="word">
-            <span class="ltr" style="--i: 6">D</span>
-            <span class="ltr" style="--i: 7">R</span>
-            <span class="ltr" style="--i: 8">A</span>
-            <span class="ltr" style="--i: 9">G</span>
-            <span class="ltr" style="--i: 10">O</span>
-            <span class="ltr" style="--i: 11">N</span>
-            <span class="ltr" style="--i: 12">S</span>
-          </span>
+        <h1 id="start-title">
+          <img src="/title.webp" alt="Flappy Dragons" />
         </h1>
         <div id="start-controls"></div>
         <div id="start-go"></div>

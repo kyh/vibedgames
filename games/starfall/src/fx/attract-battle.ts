@@ -1,85 +1,90 @@
 import Phaser from "phaser";
 
 import type { FxPool } from "../render/fx-pool";
-import type { Vec } from "../shared/constants";
+import { ENEMY_SPECS, type EnemyKind, type Vec } from "../shared/constants";
 
-// Cosmetic "warp into a massive space war" backdrop for the start screen. A
-// squadron of fake AI fighters dogfights, fires beams and explodes using the
-// game's real fx pool + ship rendering. It is PURELY visual: nothing here
-// touches the net session, XP, collisions with real players or the shared
-// world. Driven from GameScene.update() only while play hasn't begun; torn
-// down the instant real play starts. If real remote players are on screen they
-// simply render on top — these fakes never interact with them.
+// Cosmetic backdrop for the start screen that mimics ACTUAL play: one hero
+// ship kiting and gunning down an endless swarm of the game's real enemies.
+// Enemies fly in from beyond the screen edges (never pop in), press toward the
+// hero, and die to beam fire or burst against the hero's shield. It is PURELY
+// visual: nothing here touches the net session, XP, collisions with real
+// players or the shared world. Driven from GameScene.update() only while play
+// hasn't begun; torn down the instant real play starts.
 
 /** Builds a ship Graphics (delegates to the scene's real makeShipGfx). */
 type ShipFactory = (tint: number, level: number) => Phaser.GameObjects.Graphics;
 /** The ship hull polygon for a level (delegates to the scene's shipHullPoints). */
 type HullPoints = (level: number) => Vec[];
+/** Builds an enemy Graphics / hull (delegates to the scene's real enemy art). */
+type EnemyFactory = (kind: EnemyKind) => Phaser.GameObjects.Graphics;
+type EnemyHull = (kind: EnemyKind) => ReadonlyArray<Vec>;
 
 export type AttractDeps = {
   fx: FxPool;
   makeShip: ShipFactory;
   hullPoints: HullPoints;
+  makeEnemy: EnemyFactory;
+  enemyHull: EnemyHull;
 };
 
-/** Squadron size. Two dozen fighters sells a full-scale war without denting
- *  the frame budget: each ship is one static Graphics (drawn once, only
- *  transformed per frame); beams are batched into a single pooled Graphics;
- *  explosions route through the shared FxPool (its own hard particle cap
- *  applies). */
-const COUNT = 24;
+/** Live swarm size the spawner maintains. A dozen chasers reads as "one
+ *  against the horde" without denting the frame budget: every entity is one
+ *  static Graphics (drawn once, only transformed per frame); beams batch into
+ *  a single pooled Graphics; explosions ride the shared FxPool cap. */
+const SWARM_SIZE = 16;
 
-// Neon squadron palette — two "teams" of warm vs cool so dogfights read.
-const COOL = [0x7fb2ff, 0x5ce1e6, 0x9d7dff, 0x4ade80] as const;
-const WARM = [0xff5d73, 0xffa64d, 0xff5cf0, 0xffe066] as const;
+/** The light enemy kinds that swarm in real play (heavies would dwarf the
+ *  title). Weighted toward drones, like an actual early arena. */
+const SWARM_KINDS: ReadonlyArray<{ kind: EnemyKind; weight: number; hp: number; speed: number }> = [
+  { kind: "drone", weight: 0.5, hp: 2, speed: 118 },
+  { kind: "wasp", weight: 0.3, hp: 3, speed: 150 },
+  { kind: "lancer", weight: 0.2, hp: 4, speed: 92 },
+];
 
-const SHIP_SPEED = 92; // cruise px/s
-const TURN_RATE = 3.4; // rad/s toward desired heading
+const HERO_TINT = 0x7fb2ff;
+const HERO_LEVEL = 3;
+const HERO_SPEED = 125;
+const HERO_TURN = 3.6; // rad/s toward desired heading
 const VEL_BLEND = 3.2; // how fast velocity chases heading*speed (per s)
-const FIRE_RANGE = 300;
-const FIRE_CONE = 0.32; // rad half-angle to open fire
-const FIRE_CD_MIN = 480;
-const FIRE_CD_MAX = 1150;
-const BEAM_LIFE_MS = 120;
-const SHOT_DAMAGE = 34;
-const FIGHTER_HP = 100;
-const RESPAWN_MIN_MS = 700;
-const RESPAWN_MAX_MS = 1600;
-const EDGE_MARGIN = 80; // keep the swarm inside the viewport (+turn-in band)
-const BREAK_DIST = 95; // closing inside this ends the attack run (overshoot past)
-const WEAVE_RATE = 2.1; // rad/s of the jink oscillation while on an attack run
-const WEAVE_AMP = 0.28; // rad of heading weave — kills the "perfect circle" look
+const HERO_FIRE_RANGE = 360;
+const HERO_FIRE_CD_MIN = 330;
+const HERO_FIRE_CD_MAX = 560;
+const KITE_DIST = 150; // closer than this, the hero breaks away from the pack
+const BEAM_LIFE_MS = 110;
+const ENEMY_TURN = 2.6; // rad/s — chasers arc in rather than rail-turn
+const CONTACT_DIST = 30; // swarm reaching the hero bursts on its shield
+const ENTRY_MARGIN_MIN = 60; // spawn this far beyond the screen edge...
+const ENTRY_MARGIN_MAX = 140; // ...so every enemy visibly FLIES IN
+const RESPAWN_MIN_MS = 150;
+const RESPAWN_MAX_MS = 600;
+const WEAVE_RATE = 2.3; // rad/s of heading weave
+const EDGE_PAD = 90; // hero stays inside this viewport band
 
-// Speed multipliers per maneuver: runs come in hot, extends burn away harder,
-// cruises coast — the mix keeps the swarm's motion from reading as uniform.
-const RUN_SPEED = 1.25;
-const EXTEND_SPEED = 1.45;
-
-/** What a fighter is currently flying:
- *  - "engage": attack run straight at the target (with a weave), guns live
- *  - "extend": burn away after the pass to open distance (guns cold)
- *  - "cruise": transit to a random waypoint between engagements */
-type Maneuver = "engage" | "extend" | "cruise";
-
-type Fighter = {
+type Hero = {
   gfx: Phaser.GameObjects.Graphics;
-  tint: number;
-  level: number;
-  cool: boolean;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  angle: number;
+  fireAt: number;
+  wpX: number;
+  wpY: number;
+  wpUntil: number;
+};
+
+type Swarmer = {
+  gfx: Phaser.GameObjects.Graphics;
+  kind: EnemyKind;
   x: number;
   y: number;
   vx: number;
   vy: number;
   angle: number;
   hp: number;
-  targetIdx: number;
-  fireAt: number;
-  breakDir: number; // +1 / -1: which side to break/extend toward after a pass
-  maneuver: Maneuver;
-  maneuverUntil: number; // ms; reconsider the maneuver at this deadline
-  wpX: number; // cruise waypoint
-  wpY: number;
-  weavePhase: number; // per-ship jink phase so runs don't sync up
+  speed: number;
+  weavePhase: number;
+  weaveAmp: number;
   alive: boolean;
   respawnAt: number; // ms; 0 while alive
 };
@@ -104,8 +109,20 @@ function angleDelta(a: number, b: number): number {
   return d;
 }
 
+function rollKind(): { kind: EnemyKind; hp: number; speed: number } {
+  const r = Math.random();
+  let acc = 0;
+  for (const s of SWARM_KINDS) {
+    acc += s.weight;
+    if (r < acc) return s;
+  }
+  const last = SWARM_KINDS[SWARM_KINDS.length - 1];
+  return last ?? { kind: "drone", hp: 2, speed: 118 };
+}
+
 export class AttractBattle {
-  private readonly fighters: Fighter[] = [];
+  private hero: Hero | null = null;
+  private readonly swarm: Swarmer[] = [];
   private readonly shots: Shot[] = [];
   private readonly beamGfx: Phaser.GameObjects.Graphics;
   private started = false;
@@ -119,223 +136,213 @@ export class AttractBattle {
     this.beamGfx = scene.add.graphics().setDepth(8).setBlendMode(Phaser.BlendModes.ADD);
   }
 
-  /** Lazily seed the swarm across the current viewport (needs a laid-out camera). */
+  /** Lazily seed hero + swarm (needs a laid-out camera). */
   private seed(): void {
     if (this.started) return;
     const view = this.scene.cameras.main.worldView;
     // The first frame(s) can run before the camera has real bounds — seeding
-    // then dumps the whole fleet in a tiny box at the top-left corner.
+    // then dumps everything in a tiny box at the top-left corner.
     if (view.width < 200 || view.height < 200) return;
     this.started = true;
-    for (let i = 0; i < COUNT; i++) {
-      const cool = i % 2 === 0;
-      const pool = cool ? COOL : WARM;
-      const tint = pool[i % pool.length] ?? 0xffffff;
-      const level = 1 + (Math.random() < 0.5 ? 0 : Math.random() < 0.6 ? 1 : 2);
-      const gfx = this.deps.makeShip(tint, level).setDepth(9);
-      const angle = rand(-Math.PI, Math.PI);
-      this.fighters.push({
-        gfx,
-        tint,
-        level,
-        cool,
-        x: rand(view.x + EDGE_MARGIN, view.right - EDGE_MARGIN),
-        y: rand(view.y + EDGE_MARGIN, view.bottom - EDGE_MARGIN),
-        vx: Math.cos(angle) * SHIP_SPEED,
-        vy: Math.sin(angle) * SHIP_SPEED,
-        angle,
-        hp: FIGHTER_HP,
-        targetIdx: -1,
-        fireAt: this.scene.time.now + rand(0, FIRE_CD_MAX),
-        breakDir: Math.random() < 0.5 ? 1 : -1,
-        // Stagger the opening moves so the fleet doesn't act in lockstep.
-        maneuver: Math.random() < 0.6 ? "engage" : "cruise",
-        maneuverUntil: this.scene.time.now + rand(400, 2600),
-        wpX: rand(view.x + EDGE_MARGIN, view.right - EDGE_MARGIN),
-        wpY: rand(view.y + EDGE_MARGIN, view.bottom - EDGE_MARGIN),
-        weavePhase: rand(0, Math.PI * 2),
-        alive: true,
-        respawnAt: 0,
-      });
+
+    const now = this.scene.time.now;
+    this.hero = {
+      gfx: this.deps.makeShip(HERO_TINT, HERO_LEVEL).setDepth(9),
+      x: view.centerX + rand(-80, 80),
+      y: view.centerY + rand(60, 140), // below the title text block
+      vx: 0,
+      vy: 0,
+      angle: rand(-Math.PI, Math.PI),
+      fireAt: now + rand(200, 600),
+      wpX: view.centerX,
+      wpY: view.centerY + 100,
+      wpUntil: 0,
+    };
+
+    for (let i = 0; i < SWARM_SIZE; i++) {
+      const s = this.makeSwarmer();
+      // Stagger the opening entries so the swarm streams in, not a wall.
+      s.alive = false;
+      s.gfx.setVisible(false);
+      s.respawnAt = now + i * rand(120, 320);
+      this.swarm.push(s);
     }
   }
 
-  /** Nearest live enemy-team fighter to `f`; -1 if none. */
-  private acquire(f: Fighter): number {
-    let best = -1;
-    let bestD = Infinity;
-    for (let i = 0; i < this.fighters.length; i++) {
-      const o = this.fighters[i];
-      if (!o || o === f || !o.alive || o.cool === f.cool) continue;
-      const d = (o.x - f.x) ** 2 + (o.y - f.y) ** 2;
-      if (d < bestD) {
-        bestD = d;
-        best = i;
-      }
-    }
-    return best;
+  private makeSwarmer(): Swarmer {
+    const roll = rollKind();
+    return {
+      gfx: this.deps.makeEnemy(roll.kind),
+      kind: roll.kind,
+      x: 0,
+      y: 0,
+      vx: 0,
+      vy: 0,
+      angle: 0,
+      hp: roll.hp,
+      speed: roll.speed,
+      weavePhase: rand(0, Math.PI * 2),
+      weaveAmp: roll.kind === "wasp" ? 0.55 : 0.22,
+      alive: true,
+      respawnAt: 0,
+    };
   }
 
-  private explode(f: Fighter, now: number): void {
-    const pts = this.deps.hullPoints(f.level);
-    this.deps.fx.shatter(f.x, f.y, pts, f.angle, f.tint);
-    this.deps.fx.ring(f.x, f.y, 8, 70, 360, 0xffffff, 0.7);
-    this.deps.fx.sparks(f.x, f.y, 10, f.tint, { lifeMin: 150, lifeMax: 300 });
-    f.alive = false;
-    f.hp = 0;
-    f.gfx.setVisible(false);
-    f.respawnAt = now + rand(RESPAWN_MIN_MS, RESPAWN_MAX_MS);
-  }
-
-  private respawn(f: Fighter, now: number): void {
+  /** Send a swarmer in from beyond a random screen edge, aimed at the hero. */
+  private enter(s: Swarmer): void {
     const view = this.scene.cameras.main.worldView;
-    // Fly back in from a random screen edge with a converge tell.
+    const roll = rollKind();
+    s.kind = roll.kind;
+    s.hp = roll.hp;
+    s.speed = roll.speed;
+    s.gfx.destroy();
+    s.gfx = this.deps.makeEnemy(s.kind);
+
+    const m = rand(ENTRY_MARGIN_MIN, ENTRY_MARGIN_MAX);
     const edge = Math.floor(Math.random() * 4);
     if (edge === 0) {
-      f.x = view.x + EDGE_MARGIN;
-      f.y = rand(view.y, view.bottom);
+      s.x = view.x - m;
+      s.y = rand(view.y, view.bottom);
     } else if (edge === 1) {
-      f.x = view.right - EDGE_MARGIN;
-      f.y = rand(view.y, view.bottom);
+      s.x = view.right + m;
+      s.y = rand(view.y, view.bottom);
     } else if (edge === 2) {
-      f.x = rand(view.x, view.right);
-      f.y = view.y + EDGE_MARGIN;
+      s.x = rand(view.x, view.right);
+      s.y = view.y - m;
     } else {
-      f.x = rand(view.x, view.right);
-      f.y = view.bottom - EDGE_MARGIN;
+      s.x = rand(view.x, view.right);
+      s.y = view.bottom + m;
     }
-    const toCenter = Math.atan2(view.centerY - f.y, view.centerX - f.x);
-    f.angle = toCenter;
-    f.vx = Math.cos(toCenter) * SHIP_SPEED;
-    f.vy = Math.sin(toCenter) * SHIP_SPEED;
-    f.hp = FIGHTER_HP;
-    f.targetIdx = -1;
-    f.fireAt = now + rand(FIRE_CD_MIN, FIRE_CD_MAX);
-    f.maneuver = "cruise"; // fly back into the fray before picking a fight
-    f.maneuverUntil = now + rand(600, 1400);
-    f.wpX = rand(view.x + EDGE_MARGIN, view.right - EDGE_MARGIN);
-    f.wpY = rand(view.y + EDGE_MARGIN, view.bottom - EDGE_MARGIN);
-    f.alive = true;
-    f.respawnAt = 0;
-    f.gfx.setVisible(true);
-    this.deps.fx.converge(f.x, f.y, 10, 46, 280, f.tint);
+    const at = this.hero
+      ? Math.atan2(this.hero.y - s.y, this.hero.x - s.x)
+      : Math.atan2(view.centerY - s.y, view.centerX - s.x);
+    s.angle = at;
+    s.vx = Math.cos(at) * s.speed;
+    s.vy = Math.sin(at) * s.speed;
+    s.alive = true;
+    s.respawnAt = 0;
+    s.gfx.setVisible(true).setPosition(s.x, s.y).setRotation(s.angle);
+  }
+
+  private killSwarmer(s: Swarmer, now: number): void {
+    const spec = ENEMY_SPECS[s.kind];
+    this.deps.fx.shatter(s.x, s.y, this.deps.enemyHull(s.kind), s.angle, spec.tint);
+    this.deps.fx.sparks(s.x, s.y, 8, spec.tint, { lifeMin: 140, lifeMax: 280 });
+    s.alive = false;
+    s.gfx.setVisible(false);
+    s.respawnAt = now + rand(RESPAWN_MIN_MS, RESPAWN_MAX_MS);
   }
 
   /** Advance the cosmetic battle one frame. Safe to call every frame while the
    *  start screen is up; no-ops once destroyed. */
   update(dt: number, now: number): void {
     this.seed();
+    const hero = this.hero;
+    if (!hero) return;
     const view = this.scene.cameras.main.worldView;
 
-    for (const f of this.fighters) {
-      if (!f.alive) {
-        if (now >= f.respawnAt) this.respawn(f, now);
+    // ---- hero: kite the pack, gun the nearest chaser -------------------------
+    let nearest: Swarmer | null = null;
+    let nearestD = Infinity;
+    let packX = 0;
+    let packY = 0;
+    let packN = 0;
+    for (const s of this.swarm) {
+      if (!s.alive) continue;
+      packX += s.x;
+      packY += s.y;
+      packN++;
+      const d = Math.hypot(s.x - hero.x, s.y - hero.y);
+      if (d < nearestD) {
+        nearestD = d;
+        nearest = s;
+      }
+    }
+
+    let desired: number;
+    if (nearest && nearestD < KITE_DIST && packN > 0) {
+      // Too much company: burn away from the pack's center of mass.
+      desired = Math.atan2(hero.y - packY / packN, hero.x - packX / packN);
+    } else {
+      // Drift between waypoints so the fight wanders the screen.
+      if (now >= hero.wpUntil || Math.hypot(hero.wpX - hero.x, hero.wpY - hero.y) < 50) {
+        hero.wpX = rand(view.x + view.width * 0.2, view.right - view.width * 0.2);
+        hero.wpY = rand(view.y + view.height * 0.25, view.bottom - view.height * 0.15);
+        hero.wpUntil = now + rand(1800, 3600);
+      }
+      desired = Math.atan2(hero.wpY - hero.y, hero.wpX - hero.x);
+    }
+    desired += Math.sin(now * 0.001 * WEAVE_RATE) * 0.2;
+    const outside =
+      hero.x < view.x + EDGE_PAD ||
+      hero.x > view.right - EDGE_PAD ||
+      hero.y < view.y + EDGE_PAD ||
+      hero.y > view.bottom - EDGE_PAD;
+    if (outside) desired = Math.atan2(view.centerY - hero.y, view.centerX - hero.x);
+
+    hero.angle += Phaser.Math.Clamp(angleDelta(hero.angle, desired), -HERO_TURN * dt, HERO_TURN * dt);
+    const k = 1 - Math.exp(-VEL_BLEND * dt);
+    hero.vx += (Math.cos(hero.angle) * HERO_SPEED - hero.vx) * k;
+    hero.vy += (Math.sin(hero.angle) * HERO_SPEED - hero.vy) * k;
+    hero.x += hero.vx * dt;
+    hero.y += hero.vy * dt;
+    hero.gfx.setPosition(hero.x, hero.y).setRotation(hero.angle);
+
+    // In real play aim is mouse-driven, decoupled from travel — so the hero
+    // fires at the nearest threat regardless of heading.
+    if (nearest && nearestD < HERO_FIRE_RANGE && now >= hero.fireAt) {
+      this.fireHero(hero, nearest, now);
+      hero.fireAt = now + rand(HERO_FIRE_CD_MIN, HERO_FIRE_CD_MAX);
+    }
+
+    // ---- swarm: press the hero, burst on shield contact -----------------------
+    for (const s of this.swarm) {
+      if (!s.alive) {
+        if (now >= s.respawnAt) this.enter(s);
         continue;
       }
+      const toHero = Math.atan2(hero.y - s.y, hero.x - s.x);
+      const chase = toHero + Math.sin(now * 0.001 * WEAVE_RATE + s.weavePhase) * s.weaveAmp;
+      s.angle += Phaser.Math.Clamp(angleDelta(s.angle, chase), -ENEMY_TURN * dt, ENEMY_TURN * dt);
+      s.vx += (Math.cos(s.angle) * s.speed - s.vx) * k;
+      s.vy += (Math.sin(s.angle) * s.speed - s.vy) * k;
+      s.x += s.vx * dt;
+      s.y += s.vy * dt;
+      s.gfx.setPosition(s.x, s.y).setRotation(s.angle);
 
-      // Reacquire when target is gone/dead.
-      let target = this.fighters[f.targetIdx];
-      if (!target || !target.alive) {
-        f.targetIdx = this.acquire(f);
-        target = this.fighters[f.targetIdx];
-      }
-
-      // Maneuver transitions. Real dogfights are passes, not circles: run in
-      // hot, overshoot, extend away, come back around — with transit legs in
-      // between so the furball drifts across the screen.
-      const dist = target ? Math.hypot(target.x - f.x, target.y - f.y) : Infinity;
-      if (f.maneuver === "engage") {
-        if (dist < BREAK_DIST || now >= f.maneuverUntil) {
-          f.maneuver = "extend";
-          f.maneuverUntil = now + rand(700, 1500);
-          f.breakDir = Math.random() < 0.5 ? 1 : -1;
-          // A pass often ends with a new mark — keeps pairs from re-locking.
-          if (Math.random() < 0.35) f.targetIdx = this.acquire(f);
-        }
-      } else if (now >= f.maneuverUntil) {
-        if (f.maneuver === "extend" && Math.random() < 0.3) {
-          f.maneuver = "cruise";
-          f.maneuverUntil = now + rand(1200, 2600);
-          f.wpX = rand(view.x + EDGE_MARGIN, view.right - EDGE_MARGIN);
-          f.wpY = rand(view.y + EDGE_MARGIN, view.bottom - EDGE_MARGIN);
-        } else {
-          f.maneuver = "engage";
-          f.maneuverUntil = now + rand(1400, 3000);
-        }
-      }
-      if (f.maneuver === "cruise" && Math.hypot(f.wpX - f.x, f.wpY - f.y) < 60) {
-        f.maneuver = "engage";
-        f.maneuverUntil = now + rand(1400, 3000);
-      }
-
-      // Desired heading + speed per maneuver.
-      let desired = f.angle;
-      let speed = SHIP_SPEED;
-      if (f.maneuver === "engage" && target) {
-        const toT = Math.atan2(target.y - f.y, target.x - f.x);
-        // Straight at the mark, with a weave so the run reads as flown, not aimed.
-        desired = toT + Math.sin(now * 0.001 * WEAVE_RATE + f.weavePhase) * WEAVE_AMP;
-        speed = SHIP_SPEED * RUN_SPEED;
-      } else if (f.maneuver === "extend" && target) {
-        // Burn away past the target's far side to open distance for re-entry.
-        const away = Math.atan2(f.y - target.y, f.x - target.x);
-        desired = away + f.breakDir * 0.5;
-        speed = SHIP_SPEED * EXTEND_SPEED;
-      } else {
-        desired = Math.atan2(f.wpY - f.y, f.wpX - f.x);
-      }
-      const pad = EDGE_MARGIN;
-      const outside =
-        f.x < view.x + pad ||
-        f.x > view.right - pad ||
-        f.y < view.y + pad ||
-        f.y > view.bottom - pad;
-      if (outside) desired = Math.atan2(view.centerY - f.y, view.centerX - f.x);
-
-      // Turn toward desired at a limited rate, then chase heading*speed.
-      f.angle += Phaser.Math.Clamp(angleDelta(f.angle, desired), -TURN_RATE * dt, TURN_RATE * dt);
-      const k = 1 - Math.exp(-VEL_BLEND * dt);
-      f.vx += (Math.cos(f.angle) * speed - f.vx) * k;
-      f.vy += (Math.sin(f.angle) * speed - f.vy) * k;
-      f.x += f.vx * dt;
-      f.y += f.vy * dt;
-
-      f.gfx.setPosition(f.x, f.y).setRotation(f.angle);
-
-      // Guns are only live on the attack run, when aimed at an in-range mark.
-      if (f.maneuver === "engage" && target && now >= f.fireAt) {
-        const aim = Math.abs(angleDelta(f.angle, Math.atan2(target.y - f.y, target.x - f.x)));
-        if (dist < FIRE_RANGE && aim < FIRE_CONE) {
-          this.fire(f, target, now);
-          f.fireAt = now + rand(FIRE_CD_MIN, FIRE_CD_MAX);
-        }
+      // Reached the hero: burst against the shield (white flash, no harm —
+      // the demo pilot is having a better run than you will).
+      if (Math.hypot(s.x - hero.x, s.y - hero.y) < CONTACT_DIST) {
+        this.deps.fx.ring(hero.x, hero.y, 10, 44, 260, 0xffffff, 0.75);
+        this.killSwarmer(s, now);
       }
     }
 
     this.drawBeams(now);
   }
 
-  private fire(f: Fighter, target: Fighter, now: number): void {
-    const nx = f.x + Math.cos(f.angle) * 10;
-    const ny = f.y + Math.sin(f.angle) * 10;
+  private fireHero(hero: Hero, target: Swarmer, now: number): void {
     this.shots.push({
-      x1: nx,
-      y1: ny,
+      x1: hero.x,
+      y1: hero.y,
       x2: target.x,
       y2: target.y,
-      tint: f.tint,
-      width: 1 + f.level * 0.4,
+      tint: HERO_TINT,
+      width: 1.6,
       bornAt: now,
     });
-    this.deps.fx.sparks(nx, ny, 3, f.tint, {
+    this.deps.fx.sparks(hero.x, hero.y, 3, HERO_TINT, {
       lifeMin: 60,
       lifeMax: 130,
       speedMin: 40,
       speedMax: 120,
     });
-    target.hp -= SHOT_DAMAGE;
-    if (target.hp <= 0) this.explode(target, now);
-    else this.deps.fx.sparks(target.x, target.y, 4, target.tint, { lifeMin: 90, lifeMax: 180 });
+    target.hp -= 1;
+    if (target.hp <= 0) this.killSwarmer(target, now);
+    else {
+      const spec = ENEMY_SPECS[target.kind];
+      this.deps.fx.sparks(target.x, target.y, 4, spec.tint, { lifeMin: 90, lifeMax: 180 });
+    }
   }
 
   private drawBeams(now: number): void {
@@ -360,8 +367,10 @@ export class AttractBattle {
 
   /** Despawn everything. Called the moment real play begins. */
   destroy(): void {
-    for (const f of this.fighters) f.gfx.destroy();
-    this.fighters.length = 0;
+    this.hero?.gfx.destroy();
+    this.hero = null;
+    for (const s of this.swarm) s.gfx.destroy();
+    this.swarm.length = 0;
     this.shots.length = 0;
     this.beamGfx.destroy();
   }

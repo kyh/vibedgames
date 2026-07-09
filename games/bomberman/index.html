@@ -165,101 +165,22 @@
         }
       }
 
-      /* Ticking CSS bomb with a burning fuse spark. */
-      #start-bomb {
-        position: relative;
-        z-index: 1;
-        width: 92px;
-        height: 96px;
-      }
-      #start-bomb .body {
-        position: absolute;
-        left: 14px;
-        bottom: 0;
-        width: 64px;
-        height: 64px;
-        border-radius: 50%;
-        background: radial-gradient(circle at 34% 30%, #565d7e 0%, #23283c 62%, #12151f 100%);
-        box-shadow:
-          inset -6px -7px 13px rgba(0, 0, 0, 0.55),
-          0 7px 20px rgba(0, 0, 0, 0.45);
-        animation: bomb-tick 1s ease-in-out infinite;
-      }
-      #start-bomb .body::after {
-        content: "";
-        position: absolute;
-        left: 15px;
-        top: 12px;
-        width: 15px;
-        height: 11px;
-        border-radius: 50%;
-        background: rgba(255, 255, 255, 0.28);
-        filter: blur(1px);
-      }
-      #start-bomb .fuse {
-        position: absolute;
-        left: 58px;
-        top: 8px;
-        width: 4px;
-        height: 32px;
-        border-radius: 2px;
-        background: linear-gradient(#c79656, #7c5a30);
-        transform: rotate(20deg);
-        transform-origin: bottom center;
-      }
-      #start-bomb .spark {
-        position: absolute;
-        left: 62px;
-        top: 2px;
-        width: 13px;
-        height: 13px;
-        border-radius: 50%;
-        background: radial-gradient(circle, #fff 0%, #ffd24a 38%, #ff7a2a 72%, rgba(255, 122, 42, 0) 78%);
-        box-shadow: 0 0 14px 5px rgba(255, 165, 60, 0.8);
-        animation: spark-flicker 0.16s steps(2, end) infinite;
-      }
-      @keyframes bomb-tick {
-        0%,
-        100% {
-          transform: scale(1);
-        }
-        50% {
-          transform: scale(1.055);
-        }
-      }
-      @keyframes spark-flicker {
-        0% {
-          opacity: 1;
-          transform: scale(1);
-        }
-        100% {
-          opacity: 0.55;
-          transform: scale(1.32);
-        }
-      }
-
       #start h1 {
         position: relative;
         z-index: 1;
         margin: 0;
-        font:
-          900 clamp(40px, 8.5vw, 88px)/1 system-ui,
-          sans-serif;
-        color: #fff;
-        letter-spacing: 3px;
-        text-shadow:
-          0 4px 0 rgba(0, 0, 0, 0.4),
-          0 0 30px rgba(255, 150, 60, 0.5),
-          0 0 60px rgba(255, 110, 40, 0.28);
       }
-      #start h1 span {
-        display: inline-block;
-        animation: letter-pop 0.5s cubic-bezier(0.2, 1.5, 0.35, 1) backwards;
+      #start h1 img {
+        display: block;
+        width: clamp(320px, 60vw, 700px);
+        max-width: 88vw;
+        filter: drop-shadow(0 0 30px rgba(255, 130, 50, 0.35));
+        animation: title-pop 0.6s cubic-bezier(0.2, 1.5, 0.35, 1) backwards;
       }
-      @keyframes letter-pop {
+      @keyframes title-pop {
         from {
           opacity: 0;
-          transform: translateY(20px) scale(0.55);
+          transform: translateY(26px) scale(0.6);
         }
       }
 
@@ -296,11 +217,7 @@
           display: none;
         }
         #start-go,
-        #start-bomb .body,
-        #start-bomb .spark {
-          animation: none;
-        }
-        #start h1 span {
+        #start h1 img {
           animation: none;
           opacity: 1;
           transform: none;
@@ -329,17 +246,8 @@
         <span style="left: 88%; animation-duration: 3.2s; animation-delay: 0.3s"></span>
         <span style="left: 95%; animation-duration: 4.8s; animation-delay: 2.4s"></span>
       </div>
-      <div id="start-bomb" aria-hidden="true">
-        <div class="fuse"></div>
-        <div class="spark"></div>
-        <div class="body"></div>
-      </div>
-      <h1 aria-label="Bomberman">
-        <span style="animation-delay: 0.04s">B</span><span style="animation-delay: 0.09s">O</span
-        ><span style="animation-delay: 0.14s">M</span><span style="animation-delay: 0.19s">B</span
-        ><span style="animation-delay: 0.24s">E</span><span style="animation-delay: 0.29s">R</span
-        ><span style="animation-delay: 0.34s">M</span><span style="animation-delay: 0.39s">A</span
-        ><span style="animation-delay: 0.44s">N</span>
+      <h1>
+        <img src="/title.webp" alt="Bomberman" />
       </h1>
       <div id="start-controls"></div>
       <div id="start-go"></div>

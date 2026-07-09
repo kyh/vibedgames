@@ -753,7 +753,6 @@ export class GameScene extends Phaser.Scene {
   private paused = false;
   /** Cosmetic start-screen dogfight backdrop. Non-null only until play begins. */
   private attract: AttractBattle | null = null;
-  private muteEl: HTMLElement | null = null;
 
   constructor() {
     super("Game");
@@ -778,7 +777,6 @@ export class GameScene extends Phaser.Scene {
     this.causeEl = document.getElementById("cause");
     this.hintEl = document.getElementById("hint");
     this.countdownEl = document.getElementById("countdown");
-    this.muteEl = document.getElementById("mute");
 
     this.starfield = new Starfield(this);
     this.fx = new FxPool(this);
@@ -850,13 +848,9 @@ export class GameScene extends Phaser.Scene {
       sfx.unlock(); // WebAudio needs a user gesture
     });
 
-    // Sound is opt-in: muted by default, M or tapping the HUD button toggles,
-    // choice persists (see sfx). The gesture itself unlocks audio.
-    this.input.keyboard?.on("keydown-M", () => {
-      sfx.toggleMute();
-      this.updateMuteHud();
-    });
-    this.muteEl?.addEventListener("click", this.onMuteClick);
+    // Sound is opt-in: muted by default, M toggles, choice persists (see
+    // sfx). The gesture itself unlocks audio.
+    this.input.keyboard?.on("keydown-M", () => sfx.toggleMute());
 
     // Mobile controller: a floating move-joystick (first finger) plus a "rest"
     // fire button — any finger that isn't the stick fires. `render: false`:
@@ -873,16 +867,17 @@ export class GameScene extends Phaser.Scene {
       onFirstTouch: () => this.enterTouchMode(),
     });
     if (IS_COARSE_POINTER) this.enterTouchMode(); // touch copy from boot, not first tap
-    this.updateMuteHud();
     // After the gamepad exists: writeStartCopy() reads its touch flag.
     this.buildStartScreen();
 
-    // Cosmetic "warping into an ongoing space war" backdrop behind the start
-    // overlay. Purely visual — never written to the net session (see module).
+    // Cosmetic hero-vs-swarm backdrop behind the start overlay, mimicking real
+    // play. Purely visual — never written to the net session (see module).
     this.attract = new AttractBattle(this, {
       fx: this.fx,
       makeShip: (tint, level) => this.makeShipGfx(tint, level),
       hullPoints: (level) => shipHullPoints(level),
+      makeEnemy: (kind) => this.makeEnemyGfx(kind).setDepth(9),
+      enemyHull: (kind) => enemyHullPoints(kind),
     });
 
     // Pause = the wrapper wants its chrome back. Freezing this sim is forbidden
@@ -901,7 +896,6 @@ export class GameScene extends Phaser.Scene {
     // keeps the shutdown hook from stacking if that ever changes.
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.onViewportChange, this);
-      this.muteEl?.removeEventListener("click", this.onMuteClick);
       this.gamepad.destroy();
       if (!this.offline) this.client.destroy(); // offline already destroyed it
     });
@@ -986,14 +980,6 @@ export class GameScene extends Phaser.Scene {
     const zoom = Phaser.Math.Clamp(this.scale.width / CAMERA_REF_WIDTH, CAMERA_MIN_ZOOM, 1);
     this.cameras.main.setZoom(zoom);
   }
-
-  /** Tap/click the HUD sound button — the touch-reachable M-key equivalent.
-   *  The gesture doubles as the WebAudio unlock. */
-  private readonly onMuteClick = (): void => {
-    sfx.unlock();
-    sfx.toggleMute();
-    this.updateMuteHud();
-  };
 
   // ---- input + my ship -------------------------------------------------------
 
@@ -1230,7 +1216,6 @@ export class GameScene extends Phaser.Scene {
    *  on coarse-pointer devices, else the first time a finger lands. */
   private enterTouchMode(): void {
     this.writeStartCopy();
-    this.updateMuteHud();
   }
 
   /** Holding fire: any non-stick finger on touch, or the mouse button on desktop. */
@@ -5469,11 +5454,6 @@ export class GameScene extends Phaser.Scene {
       }
       g.fillStyle(tint, 1).fillCircle(x0 + px * sx, y0 + py * sy, isMe ? 3 : 2);
     }
-  }
-
-  /** Icon only — the M key hint lives on the start screen, never on the field. */
-  private updateMuteHud(): void {
-    setText(this.muteEl, sfx.muted ? "🔇" : "🔊");
   }
 
   private updateHud(now: number): void {

@@ -231,36 +231,24 @@
       }
       #start h1 {
         margin: 0;
-        font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
-        font-size: clamp(40px, 9vw, 96px);
-        font-weight: 800;
-        letter-spacing: 0.16em;
-        text-indent: 0.16em;
-        color: #eaf2ff;
-        text-shadow:
-          0 0 4px rgba(180, 214, 255, 0.9),
-          0 0 22px rgba(90, 160, 255, 0.75),
-          0 0 60px rgba(60, 120, 255, 0.55);
+      }
+      #start h1 img {
+        display: block;
+        width: clamp(300px, 58vw, 700px);
+        max-width: 88vw;
+        filter: drop-shadow(0 0 26px rgba(90, 160, 255, 0.5));
         animation: title-flicker 4.5s ease-in-out infinite;
       }
       @keyframes title-flicker {
         0%,
         100% {
-          text-shadow:
-            0 0 4px rgba(180, 214, 255, 0.9),
-            0 0 22px rgba(90, 160, 255, 0.75),
-            0 0 60px rgba(60, 120, 255, 0.55);
+          filter: drop-shadow(0 0 26px rgba(90, 160, 255, 0.5));
         }
         48% {
-          text-shadow:
-            0 0 4px rgba(180, 214, 255, 0.95),
-            0 0 30px rgba(120, 180, 255, 0.9),
-            0 0 78px rgba(80, 150, 255, 0.7);
+          filter: drop-shadow(0 0 40px rgba(120, 180, 255, 0.75));
         }
         52% {
-          text-shadow:
-            0 0 3px rgba(180, 214, 255, 0.7),
-            0 0 16px rgba(90, 160, 255, 0.55);
+          filter: drop-shadow(0 0 14px rgba(90, 160, 255, 0.35));
         }
       }
       #start-controls {
@@ -288,7 +276,7 @@
         }
       }
       @media (prefers-reduced-motion: reduce) {
-        #start h1 {
+        #start h1 img {
           animation: none;
         }
         #start-go {
@@ -330,36 +318,12 @@
         opacity: 0.7;
         font-variant-numeric: tabular-nums;
       }
-      /* Tappable sound toggle (touch has no M key). Sits ABOVE the canvas
-         minimap, which owns the bottom-right corner. */
-      #mute {
-        position: fixed;
-        right: calc(12px + env(safe-area-inset-right, 0px));
-        bottom: calc(104px + env(safe-area-inset-bottom, 0px));
-        min-width: 44px;
-        min-height: 44px;
-        padding: 12px 0 12px 12px;
-        background: none;
-        border: 0;
-        color: #fff;
-        font: inherit;
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        text-align: right;
-        opacity: 0.6;
-        cursor: pointer;
-        touch-action: manipulation;
-        -webkit-tap-highlight-color: transparent;
-      }
-
       /* Bigger legible HUD text on touch devices. */
       @media (pointer: coarse) {
         #weapon,
         #shield,
         #boosts,
-        #players,
-        #mute {
+        #players {
           font-size: 13px;
         }
       }
@@ -390,9 +354,8 @@
       <div id="comboval">&times;2 &middot; 3</div>
       <div id="combobar"></div>
     </div>
-    <button id="mute" type="button" aria-label="toggle sound"></button>
     <div id="start">
-      <h1>STARFALL</h1>
+      <h1><img src="/title.webp" alt="STARFALL" /></h1>
       <div id="start-controls"></div>
       <div id="start-go"></div>
     </div>
