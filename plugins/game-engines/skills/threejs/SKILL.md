@@ -37,7 +37,8 @@ Scene setup is inline below. Read the relevant reference before working on that 
 | Game loop, state machine, object pooling, screen effects               | `references/game-patterns.md`           |
 | Dropping generated GLB models / SFX into a running scene               | `references/generated-assets.md`        |
 | Post-processing, shaders, instancing, env maps, color management       | `references/advanced-topics.md`         |
-| Black screen, low FPS, mobile issues, memory leaks                     | `references/debugging-and-profiling.md` |
+| Material values, shader injection (onBeforeCompile), sky, cheap tricks | `references/graphics-recipes.md`        |
+| Black screen, low FPS, mobile issues, memory leaks, physics debugging  | `references/debugging-and-profiling.md` |
 
 **Verify it actually renders.** `scripts/check-canvas.mjs` loads a build in headless Chromium and fails on a blank canvas or uncaught page error — run it in CI / before `vg deploy` (details in `references/debugging-and-profiling.md`).
 
@@ -173,6 +174,8 @@ Choose material based on lighting needs and visual style.
 }
 ```
 
+Concrete per-surface values (painted metal, rubber, ceramic, glass, cloth, emissive) are in `references/graphics-recipes.md`. Two rules that matter more than the numbers: metals/glossy surfaces need an environment map or they render flat gray (see `references/advanced-topics.md`), and objects should differ by roughness/metalness contrast, not hue alone.
+
 ---
 
 ## Lighting
@@ -200,6 +203,8 @@ const fillLight = new THREE.DirectionalLight(0x88ccff, 0.5);
 fillLight.position.set(-5, 0, -5);
 scene.add(fillLight);
 ```
+
+In a game, add a rim/back light behind the player (opposite the camera) — it separates the character's silhouette from a busy background, which matters more than a prettier key light.
 
 **Shadows** (advanced, use when needed):
 

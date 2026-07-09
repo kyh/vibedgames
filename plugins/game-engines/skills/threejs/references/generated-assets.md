@@ -95,11 +95,50 @@ world.createCollider(
 
 For animated characters, **don't normalize with `loadNormalized`** (its `setFromObject` bounds include the skeleton — see the note above); use the mesh-only normalization in `gltf-loading-guide.md` (Pattern 6), then keep `gltf.animations` and drive them with the mixer/crossfade patterns in `game-patterns.md`. For a full rigged-character generation pipeline, use the `regenerate-3d` skill.
 
+### 4. Validate rigged GLBs before wiring them in
+
+Auto-rigged models come back **silently degenerate** more often than broken: the file loads, the mesh renders, but the rig has one arm and no legs, or a clip has 3 tracks and holds the bind pose forever. Check before spending an hour debugging "the animation doesn't play":
+
+```javascript
+// Log clip names + track counts — a walk cycle on a humanoid has dozens of
+// tracks; a clip with a handful of tracks is frozen at bind pose. Reject it.
+console.log(gltf.animations.map((c) => `${c.name}: ${c.tracks.length} tracks, ${c.duration.toFixed(2)}s`));
+
+// Log the skeleton — a humanoid rig missing leg/arm bones animates as a lump.
+gltf.scene.traverse((o) => {
+  if (o.isSkinnedMesh) console.log(o.name, o.skeleton.bones.map((b) => b.name));
+});
+```
+
+If a clip is degenerate, regenerate the asset — don't try to fix the rig in code. And don't trust vendor "in-place" flags: if a walk clip slides the root across the world, strip/ignore the root bone's translation track in-engine rather than re-generating with a different flag.
+
+### Hero vs procedural: don't generate 40 GLBs
+
+Generate **one hero-fidelity asset per key entity** (player, boss, signature prop) and build high-volume repeated detail — crates, rocks, debris, background silhouettes — from primitives and `InstancedMesh` (see `advanced-topics.md`). Forty unique generated GLBs blow the download size, the texture budget, and the draw-call budget at once, and background props read fine as instanced primitives with good materials.
+
 ---
 
 ## Generated SFX → Web Audio triggers
 
 Three.js's `PositionalAudio` is fine for spatial ambience, but for gameplay SFX (jump, hit, pickup) a small Web Audio pool gives lower latency and lets you overlap the same sound.
+
+### 0. Plan the audio pass as a matrix, not a wishlist
+
+Before generating anything, list events by category — it surfaces what's missing (a game with hit sounds but no pickup sound feels broken) and tells you what loops:
+
+| Category    | Events                        | Count | Loops? | Mix note                          |
+| ----------- | ----------------------------- | ----- | ------ | --------------------------------- |
+| UI          | click, confirm, back          | 1 ea  | no     | quieter + shorter than gameplay SFX |
+| Movement    | jump, land, dash, footstep    | 1–2 ea| no     | footsteps need a cooldown         |
+| Interaction | pickup, door, switch          | 1 ea  | no     | —                                 |
+| Threat      | enemy hit, player hit, explosion | 2–3 variants ea | no | the sounds that must land hardest |
+| Ambience    | wind/room tone, music         | 1 ea  | YES    | low volume, ducks under SFX       |
+
+Rules that keep it from sounding cheap:
+
+- **High-frequency events get a variant pool + cooldown.** For footsteps/rapid fire, generate 2–3 variants and round-robin them, and rate-limit (~80ms) so overlaps don't comb-filter. ±5% rate variation (below) is the floor, not the fix.
+- **Test loops looping.** A generated "loop" usually has a click at the seam. Play it twice back-to-back in-engine before accepting it.
+- **Don't stack loops on restart.** Ambience/music started in `init()` plays twice after a restart. Keep a handle to the looping source and stop it (or guard with an `isPlaying` flag) before starting again.
 
 ### 1. Generate
 
@@ -158,7 +197,10 @@ Randomizing `playbackRate` ±5% per trigger is the cheapest way to stop repeated
 
 - [ ] Models generated `--async`, polled, downloaded to `public/` (not generated at runtime).
 - [ ] Every loaded model normalized to a target height and recentered onto y=0.
+- [ ] Rigged GLBs validated before wiring: clip track counts logged, degenerate clips rejected.
+- [ ] One hero GLB per key entity; repeated props are primitives/instances, not more GLBs.
 - [ ] Colliders are primitives sized to bounds, not the GLB triangle mesh.
 - [ ] SFX decoded once, played via fresh `BufferSource` per trigger.
 - [ ] `AudioContext` resumed on first gesture (mobile silence guard).
-- [ ] Repeated SFX get ±5% rate variation.
+- [ ] Repeated SFX get ±5% rate variation; high-frequency SFX get variant pools + cooldowns.
+- [ ] Loops tested at the seam; no duplicate ambience loops after restart.

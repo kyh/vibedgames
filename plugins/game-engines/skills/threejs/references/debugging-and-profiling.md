@@ -41,7 +41,37 @@ console.log(renderer.info.render); // { calls, triangles, ... }
 console.log(renderer.info.memory); // { geometries, textures }
 ```
 
-**Draw calls (`render.calls`) are usually the bottleneck, not triangles.** A modern GPU eats millions of triangles but chokes on thousands of draw calls. Budget rough targets: **< 100–200 draw calls** for mobile, triangles in the low millions.
+**Draw calls (`render.calls`) are usually the bottleneck, not triangles.** A modern GPU eats millions of triangles but chokes on thousands of draw calls.
+
+### Render budget starting points
+
+Measure the **worst active-play view**, not the menu. These are starting contracts, not hard limits — overrun deliberately, but know you did. `check-canvas.mjs` compares these numbers automatically when the page exposes diagnostics (see below).
+
+| Metric (worst active-play view)    | Desktop  | Mobile   |
+| ---------------------------------- | -------- | -------- |
+| Draw calls (`info.render.calls`)   | ≤ 300    | ≤ 150    |
+| Triangles (`info.render.triangles`)| ≤ 750k   | ≤ 300k   |
+| Geometries (`info.memory.geometries`) | ≤ 300 | ≤ 200    |
+| Textures (`info.memory.textures`)  | ≤ 60     | ≤ 40     |
+| Shadow-casting lights              | ≤ 2      | 1        |
+| Shadow map size                    | ≤ 2048   | ≤ 1024   |
+| DPR cap                            | 2        | 1.5–2    |
+| Post passes (beyond render+output) | ≤ 2      | 0–1      |
+
+To let headless checks read these numbers, expose a diagnostics snapshot and refresh it once a second:
+
+```javascript
+window.__GAME_DIAGNOSTICS__ = { renderer: {} };
+setInterval(() => {
+  const { render, memory } = renderer.info;
+  window.__GAME_DIAGNOSTICS__.renderer = {
+    calls: render.calls,
+    triangles: render.triangles,
+    geometries: memory.geometries,
+    textures: memory.textures,
+  };
+}, 1000);
+```
 
 ### Fixes, highest-leverage first
 
@@ -95,6 +125,29 @@ Also unregister the entity's **animation mixer and physics body** when removing 
 
 ---
 
+## Physics & collision
+
+When "the physics is broken," check these in order — each is a distinct bug with a distinct signature:
+
+1. **Collider doesn't match the visual mesh** — the player clips walls or bounces off air. Render debug shapes at collider positions (a wireframe `BoxHelper`/capsule mesh synced to each body) and compare. Colliders are primitives sized from measured bounds (`generated-assets.md`), and they drift if you scale the mesh after creating the collider.
+2. **Fast objects tunnel through walls** — a bullet/dasher skips past a thin collider between steps. Enable CCD **only on the fast bodies** (`RigidBodyDesc.setCcdEnabled(true)` in Rapier) — CCD everywhere wastes CPU. Or thicken the wall collider.
+3. **Kinematic platforms move the mesh but not the body** — the player falls through a "moving" platform. You must call `setNextKinematicTranslation()` on the body each step; setting `mesh.position` animates only the visual.
+4. **Sensors never fire** — Rapier sensor colliders need active events: `.setSensor(true).setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS)`, and you must drain the event queue each step.
+5. **Fixed-step accumulator wired to the render delta** — physics stepped with a variable `dt` explodes under frame drops (jitter, launches). Step at a fixed `1/60` inside an accumulator loop (`gameplay-systems.md`); never `world.step(renderDelta)`.
+6. **Restart leaks bodies** — after a restart the world gets slower and collisions double-fire: old bodies were never removed. The physics world owns body lifecycle; on restart remove every body/collider (or rebuild the world), don't just clear the scene graph.
+
+Diagnostics snippet — log once a second alongside `renderer.info`:
+
+```javascript
+console.log({
+  bodies: world.bodies.len(),      // Rapier
+  colliders: world.colliders.len(),
+});
+// If these climb across restarts, you're leaking bodies (see #6).
+```
+
+---
+
 ## Quick reference: what to check first
 
 | Problem | First thing to check |
@@ -104,3 +157,4 @@ Also unregister the entity's **animation mixer and physics body** when removing 
 | FPS drops over time | allocation in the loop, then undisposed resources |
 | Bad on mobile only | DPR cap, then resize handling |
 | Stretched after rotate | resize handler updating aspect + setSize |
+| Clipping through walls / falling through platforms | collider-vs-mesh match, then CCD / kinematic body updates |

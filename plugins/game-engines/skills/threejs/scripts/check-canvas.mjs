@@ -8,11 +8,20 @@
  *
  * Usage:
  *   node check-canvas.mjs <url> [--selector <css>] [--out <png>] [--wait <ms>]
- *                               [--min-std <n>] [--json]
+ *                               [--min-std <n>] [--mobile] [--json]
  *
  * Examples:
  *   node check-canvas.mjs http://localhost:5173
  *   node check-canvas.mjs ./dist/index.html --out /tmp/frame.png --json
+ *   node check-canvas.mjs http://localhost:5173 --mobile
+ *
+ * --mobile emulates a phone-class device (390×844 viewport, DPR 3, touch) and
+ * applies the mobile render budget tier.
+ *
+ * Render budget (advisory, never fails the check): if the page exposes
+ * `window.__GAME_DIAGNOSTICS__.renderer` — a snapshot of renderer.info like
+ * { calls, triangles, geometries, textures } (see
+ * references/debugging-and-profiling.md) — over-budget metrics are reported.
  *
  * Exit codes:
  *   0 = canvas rendered non-blank content
@@ -27,8 +36,15 @@ import { pathToFileURL } from "node:url";
 import { writeFileSync } from "node:fs";
 import { inflateSync } from "node:zlib";
 
+// Starting-point render budgets (references/debugging-and-profiling.md).
+// Over-budget rows are reported, never fatal.
+const RENDER_BUDGETS = {
+  desktop: { calls: 300, triangles: 750_000, geometries: 300, textures: 60 },
+  mobile: { calls: 150, triangles: 300_000, geometries: 200, textures: 40 },
+};
+
 function parseArgs(argv) {
-  const opts = { selector: "canvas", out: null, wait: 1500, minStd: 4, json: false };
+  const opts = { selector: "canvas", out: null, wait: 1500, minStd: 4, json: false, mobile: false };
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -37,6 +53,7 @@ function parseArgs(argv) {
     else if (a === "--wait") opts.wait = Number(argv[++i]);
     else if (a === "--min-std") opts.minStd = Number(argv[++i]);
     else if (a === "--json") opts.json = true;
+    else if (a === "--mobile") opts.mobile = true;
     else rest.push(a);
   }
   opts.target = rest[0];
@@ -163,7 +180,7 @@ async function main() {
     return 2;
   }
   if (!opts.target) {
-    console.error("usage: node check-canvas.mjs <url|file> [--selector css] [--out png] [--wait ms] [--min-std n] [--json]");
+    console.error("usage: node check-canvas.mjs <url|file> [--selector css] [--out png] [--wait ms] [--min-std n] [--mobile] [--json]");
     return 2;
   }
 
@@ -182,7 +199,11 @@ async function main() {
   const pageErrors = []; // uncaught exceptions — fail the check
   try {
     browser = await chromium.launch();
-    const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+    const page = await browser.newPage(
+      opts.mobile
+        ? { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true }
+        : { viewport: { width: 1280, height: 720 } },
+    );
     page.on("console", (m) => m.type() === "error" && consoleErrors.push(m.text()));
     page.on("pageerror", (e) => pageErrors.push(String(e)));
 
@@ -197,6 +218,21 @@ async function main() {
     const png = await canvas.screenshot();
     if (opts.out) writeFileSync(opts.out, png);
 
+    // Advisory render-budget check: only when the page exposes a diagnostics
+    // snapshot (window.__GAME_DIAGNOSTICS__.renderer = renderer.info numbers).
+    const tier = opts.mobile ? "mobile" : "desktop";
+    const rendererInfo = await page
+      .evaluate(() => globalThis.__GAME_DIAGNOSTICS__?.renderer ?? null)
+      .catch(() => null);
+    const budget = rendererInfo
+      ? Object.entries(RENDER_BUDGETS[tier]).map(([metric, limit]) => ({
+          metric,
+          actual: typeof rendererInfo[metric] === "number" ? rendererInfo[metric] : null,
+          limit,
+          ok: typeof rendererInfo[metric] === "number" ? rendererInfo[metric] <= limit : null,
+        }))
+      : null;
+
     const stats = analyze(decodePng(png));
     // positive comparisons negated, so a non-finite metric fails (never a false pass)
     const blankLum = !(stats.stdLum >= opts.minStd);
@@ -210,7 +246,7 @@ async function main() {
         : nearEmpty
           ? `near-empty canvas (opaque ${(stats.opaqueFraction * 100).toFixed(1)}% ≤ 1%)`
           : `blank/solid (stdLum ${stats.stdLum.toFixed(2)} < ${opts.minStd})`;
-    report(opts, { ok, reason, ...stats, out: opts.out, consoleErrors, pageErrors });
+    report(opts, { ok, reason, ...stats, tier, budget, out: opts.out, consoleErrors, pageErrors });
     return ok ? 0 : 1;
   } catch (err) {
     report(opts, { ok: false, reason: String(err?.message || err), consoleErrors, pageErrors });
@@ -230,6 +266,21 @@ function report(opts, result) {
     console.log(`  luminance stddev: ${result.stdLum.toFixed(2)}  mean: ${result.meanLum.toFixed(1)}  opaque: ${(result.opaqueFraction * 100).toFixed(1)}%`);
   }
   if (result.out) console.log(`  screenshot: ${result.out}`);
+  if (result.budget) {
+    const over = result.budget.filter((row) => row.ok === false);
+    const missing = result.budget.filter((row) => row.ok === null);
+    if (over.length) {
+      console.log(`  render budget (${result.tier} tier, advisory) — OVER:`);
+      for (const row of over) console.log(`    - ${row.metric}: ${row.actual} > ${row.limit}`);
+    } else if (missing.length === result.budget.length) {
+      console.log(`  render budget (${result.tier} tier): diagnostics present but no numeric metrics — not validated`);
+    } else {
+      console.log(`  render budget (${result.tier} tier): within limits`);
+    }
+    if (missing.length && missing.length < result.budget.length) {
+      console.log(`    (not reported by diagnostics: ${missing.map((row) => row.metric).join(", ")})`);
+    }
+  }
   if (result.pageErrors?.length) {
     console.log(`  uncaught page errors (${result.pageErrors.length}):`);
     for (const e of result.pageErrors.slice(0, 5)) console.log(`    - ${e}`);

@@ -161,170 +161,204 @@ renderer.setAnimationLoop(gameLoop);
 
 ---
 
-## Time Scaling (Slow Motion)
+## Hitstop & Slow Motion (Time Scaling)
+
+**Never drive time-scale effects with `setTimeout` or wall clock** — they desync from the simulation on frame drops, keep running while the game is paused or the tab is hidden, and stack incorrectly. Decay them in the game loop with the frame delta.
+
+The rule for all feel effects: **gameplay reads the scaled delta; camera, shake, tweens, and HUD read the real delta.** If feedback is scaled too, the frozen moment is invisible.
 
 ```javascript
-// Trigger slow-mo
-function triggerSlowMo(factor, duration) {
-  state.timeScale = factor;
+// Fields on state:
+state.timeScale = 1;
+state.hitstopRemaining = 0; // seconds, decays in REAL time
 
-  setTimeout(() => {
-    state.timeScale = 1.0;
-  }, duration * 1000);
+function hitstop(durationMs, scale = 0.05) {
+  state.hitstopRemaining = Math.max(state.hitstopRemaining, durationMs / 1000);
+  state.timeScale = scale;
 }
 
-// Usage
-triggerSlowMo(0.3, 0.2); // 30% speed for 0.2 seconds
+function gameLoop() {
+  const dt = Math.min(clock.getDelta(), 0.1);
 
-// Gradual return to normal
-function triggerSlowMoSmooth(factor, holdTime, rampTime) {
-  state.timeScale = factor;
+  if (state.hitstopRemaining > 0) {
+    state.hitstopRemaining -= dt; // decay in REAL time
+    if (state.hitstopRemaining <= 0) state.timeScale = 1;
+  }
+  const gameplayDt = dt * state.timeScale;
 
-  setTimeout(() => {
-    const startTime = performance.now();
-    const rampMs = rampTime * 1000;
+  // Gameplay reads the scaled delta so the world crawls...
+  updatePlayer(gameplayDt);
+  updateObstacles(gameplayDt);
+  for (const mixer of mixers) mixer.update(gameplayDt);
 
-    function ramp() {
-      const elapsed = performance.now() - startTime;
-      const t = Math.min(elapsed / rampMs, 1);
-      state.timeScale = factor + (1 - factor) * t;
+  // ...but feedback reads the REAL delta so it stays live during the freeze.
+  updateShake(dt);
+  updateFov(dt);
+  updateScore(dt); // score in real time — never affected by slow-mo
 
-      if (t < 1) requestAnimationFrame(ramp);
-    }
-    ramp();
-  }, holdTime * 1000);
+  renderer.render(scene, camera);
 }
-
-// Usage: 0.15x for 0.2s, then ramp to 1x over 0.12s
-triggerSlowMoSmooth(0.15, 0.2, 0.12);
 ```
+
+Recommended: **60–90ms at scale `0.05`** on heavy hits only. Hitstop on every minor event makes the game feel laggy instead of weighty. Never stop the render loop to freeze — the frame must keep drawing or the frozen moment can't be seen.
+
+For longer slow-mo (bullet-time), set `state.timeScale = 0.3` and ease it back toward 1 in the loop: `state.timeScale += (1 - state.timeScale) * Math.min(1, dt * 5)`.
 
 ---
 
 ## Screen Effects
 
-### Camera Shake
+### Camera Shake (trauma-based)
+
+Add **trauma** on events; shake magnitude is `trauma²`, so small events barely move the camera and big ones snap hard. Deterministic value noise instead of `Math.random()` — smooth, seedable, reproducible under test.
 
 ```javascript
-const cameraBasePos = { x: 2, y: 5, z: 16 };
-let shakeIntensity = 0;
-let shakeDuration = 0;
+const TRAUMA_DECAY = 1.4; // trauma units per second
+const MAX_OFFSET = 0.55; // world units at full shake
+const MAX_ROLL = 0.1; // radians at full shake
 
-function shakeScreen(intensity, duration) {
-  shakeIntensity = intensity;
-  shakeDuration = duration;
+let trauma = 0;
+let shakeTime = 0;
+
+function addTrauma(amount) {
+  trauma = Math.min(1, trauma + amount); // hard cap: stacked events can't fling the camera
 }
 
-function updateShake(dt) {
-  if (shakeDuration > 0) {
-    shakeDuration -= dt;
-    const decay = shakeDuration / 0.3; // Assume 0.3s base duration
-    const offset = shakeIntensity * decay;
+// Deterministic value noise in [-1, 1]; per-axis seed keeps axes independent.
+function pseudoNoise(t, seed) {
+  const x = Math.sin(t * 12.9898 + seed * 78.233) * 43758.5453;
+  return (x - Math.floor(x)) * 2 - 1;
+}
 
-    camera.position.x = cameraBasePos.x + (Math.random() - 0.5) * offset;
-    camera.position.y = cameraBasePos.y + (Math.random() - 0.5) * offset;
-  } else {
-    camera.position.x = cameraBasePos.x;
-    camera.position.y = cameraBasePos.y;
-  }
+// Call every frame AFTER the camera's base transform is written (follow cam, lookAt).
+// The offset never accumulates because the base transform is re-derived each frame.
+function updateShake(dt) {
+  shakeTime += dt;
+  trauma = Math.max(0, trauma - TRAUMA_DECAY * dt);
+  if (trauma <= 0) return;
+  const shake = trauma * trauma;
+  const freq = shakeTime * 32;
+  camera.position.x += MAX_OFFSET * shake * pseudoNoise(freq, 1);
+  camera.position.y += MAX_OFFSET * shake * pseudoNoise(freq, 2);
+  camera.rotation.z += MAX_ROLL * shake * pseudoNoise(freq, 3);
+}
+
+// Usage — trauma per event:
+addTrauma(0.15); // pickup
+addTrauma(0.4); // player hit
+addTrauma(0.7); // explosion
+```
+
+Skipping the `trauma²` curve or the cap is the classic mistake: small events feel violent and stacked events launch the camera.
+
+### FOV Punch
+
+An additive FOV bump reads as acceleration or shock. Decay toward 0 with a ~200ms time constant. Applies to `camera.fov` (perspective), not `camera.zoom`.
+
+```javascript
+const BASE_FOV = 50;
+let fovPunch = 0; // additive degrees
+
+function punchFov(degrees) {
+  fovPunch = Math.min(10, fovPunch + degrees); // additive, clamped
+}
+
+function updateFov(dt) {
+  if (fovPunch <= 0.001) return;
+  fovPunch *= Math.exp(-dt / 0.2); // ~200ms decay
+  if (fovPunch < 0.001) fovPunch = 0;
+  camera.fov = BASE_FOV + fovPunch;
+  camera.updateProjectionMatrix(); // REQUIRED — without it the FOV never visibly changes
 }
 
 // Usage
-shakeScreen(0.5, 0.35); // Intensity 0.5 units, 0.35 seconds
+punchFov(6); // boost / dash
+punchFov(8); // explosion
 ```
 
 ### Screen Flash
 
+A DOM overlay is cheaper than a render-target flash and never touches the 3D pipeline. Use `element.animate()` (WAAPI) — self-cleaning, no `setTimeout` bookkeeping:
+
 ```html
-<div
-  id="flash-overlay"
-  style="
-    position: absolute;
-    top: 0; left: 0;
-    width: 100%; height: 100%;
-    pointer-events: none;
-    opacity: 0;
-    transition: opacity 0.08s;
-"
-></div>
+<div id="flash-overlay" style="position: fixed; inset: 0; pointer-events: none; opacity: 0;"></div>
 ```
 
 ```javascript
-function flashScreen(color, duration) {
+function flashScreen(color, durationMs = 100, peak = 0.5) {
   const overlay = document.getElementById("flash-overlay");
   overlay.style.backgroundColor = color;
-  overlay.style.opacity = 0.3;
-
-  setTimeout(() => {
-    overlay.style.opacity = 0;
-  }, duration * 1000);
+  overlay.animate([{ opacity: peak }, { opacity: 0 }], { duration: durationMs, easing: "ease-out" });
 }
 
 // Usage
-flashScreen("#4DEBFF", 0.15); // Cyan flash for near-miss
-flashScreen("#ffffff", 0.08); // White flash for impact
+flashScreen("#4DEBFF", 150, 0.3); // cyan flash for near-miss
+flashScreen("#ffffff", 100, 0.8); // white flash for explosion/death
 ```
 
-### Zoom Pulse
+### Impact Flash (material)
+
+Pulse `emissiveIntensity` on the hit object and decay it in the loop. The material's `emissive` **color must be non-black** or nothing shows.
 
 ```javascript
-let zoomTarget = 1.0;
-let zoomCurrent = 1.0;
-
-function zoomPulse(scale, duration) {
-  zoomTarget = scale;
-
-  setTimeout(() => {
-    zoomTarget = 1.0;
-  }, duration * 500); // Half duration for in, half for out
+function flashHit(material, peak = 2.4) {
+  material.userData.baseEmissive ??= material.emissiveIntensity;
+  material.emissiveIntensity = peak;
 }
 
-function updateZoom(dt) {
-  // Smooth interpolation
-  zoomCurrent += (zoomTarget - zoomCurrent) * dt * 10;
-
-  // Apply to camera FOV (for perspective) or frustum (for ortho)
-  camera.zoom = zoomCurrent;
-  camera.updateProjectionMatrix();
+function updateFlashes(dt, materials) {
+  for (const m of materials) {
+    const base = m.userData.baseEmissive;
+    if (base === undefined || m.emissiveIntensity <= base) continue;
+    m.emissiveIntensity = Math.max(base, m.emissiveIntensity - dt * 10);
+  }
 }
-
-// Usage
-zoomPulse(1.02, 0.2); // 2% zoom in, 0.2s total
 ```
 
 ---
 
 ## Squash & Stretch
 
-For jump anticipation and landing impact:
+Preserve volume: when the Y axis scales by `s`, counter-scale X/Z by `1 / sqrt(s)` — otherwise the model visibly grows/shrinks instead of deforming. Decay in the loop, not with `setTimeout` chains.
 
 ```javascript
-function setModelScale(model, sx, sy, sz) {
-  model.scale.set(sx, sy, sz);
+let squashY = 1; // current Y scale; 1 = rest
+
+// squash < 1 on impact/landing, stretch > 1 on jump takeoff
+function squash(amount) {
+  squashY = amount;
 }
 
-// Jump anticipation
-function jumpAnticipation(model) {
-  setModelScale(model, 1.15, 0.8, 1.15); // Squash
-
-  setTimeout(() => {
-    setModelScale(model, 1, 1, 1); // Restore
-  }, 80);
+function updateSquash(dt, target) {
+  // spring back toward 1 with overshoot (the bounce is the feel)
+  squashY += (1 - squashY) * Math.min(1, dt * 14);
+  const xz = 1 / Math.sqrt(squashY); // volume-preserving counter-scale
+  target.scale.set(xz, squashY, xz);
 }
 
-// Landing impact
-function landingSquash(model) {
-  setModelScale(model, 1.2, 0.75, 1.2); // Heavy squash
-
-  setTimeout(() => {
-    setModelScale(model, 0.95, 1.1, 0.95); // Overshoot
-  }, 60);
-
-  setTimeout(() => {
-    setModelScale(model, 1, 1, 1); // Settle
-  }, 150);
-}
+// Usage — updateSquash(dt, playerVisual) runs in the loop
+squash(1.15); // jump takeoff stretch
+squash(0.85); // landing squash (0.75 for heavy impact)
 ```
+
+Both should return to rest over ~180ms. Apply to a visual wrapper `Group`, never the physics body.
+
+---
+
+## Per-Event Tuning Table
+
+Map each event to a full feedback stack — stronger events get more layers, not just bigger numbers:
+
+| Event        | Feedback stack                                                              |
+| ------------ | --------------------------------------------------------------------------- |
+| Pickup       | scale pop + HUD counter punch + pitch-varied chime + `0.15` trauma          |
+| Player hit   | hitstop 70ms + `0.4` trauma + impact flash + rumble 180ms                   |
+| Enemy killed | hitstop 40ms + `0.3` trauma + impact flash + pitch-varied boom              |
+| Boost / dash | FOV punch +6° + stretch 1.15 + whoosh                                       |
+| Jump / land  | stretch 1.15 on takeoff, squash 0.85 on landing + `0.2` trauma on land      |
+| Explosion    | hitstop 90ms + `0.7` trauma + white screen flash + FOV punch +8° + rumble   |
+
+(SFX pitch variation and audio wiring: [`generated-assets.md`](generated-assets.md). Deeper engine-agnostic feel theory and 2D numbers: the `game-feel` skill.)
 
 ---
 
@@ -565,10 +599,11 @@ function showFloatingText(text, color, x = "50%", y = "35%") {
 | Animation state management | Characters with multiple animations          |
 | Facing direction rotation  | Side-scrollers with GLTF models              |
 | Game state machine         | Any game with menu/play/pause/gameover       |
-| Time scaling               | Slow-mo for impact moments                   |
-| Screen shake               | Death, heavy impacts                         |
+| Hitstop / time scaling     | Weight on heavy contact, slow-mo moments     |
+| Trauma camera shake        | Death, heavy impacts (trauma², capped)       |
+| FOV punch                  | Boost, dash, explosion shock                 |
 | Screen flash               | Near-miss, milestones, damage                |
-| Squash & stretch           | Jump, land, any snappy motion                |
+| Squash & stretch           | Jump, land, any snappy motion (volume-preserving) |
 | Parallax layers            | Scrolling games with depth                   |
 | Object pooling             | Spawning many objects (obstacles, particles) |
 | Fixed camera               | Games (not model viewers)                    |
@@ -595,6 +630,17 @@ state.score += dt * state.timeScale;
 
 // GOOD - score uses real time
 state.score += dt;
+```
+
+❌ **Driving effects with `setTimeout` / wall clock**
+
+```javascript
+// BAD - keeps running while paused/tab-hidden, desyncs on frame drops,
+// stacks incorrectly when two hits land close together
+setTimeout(() => (state.timeScale = 1), 200);
+
+// GOOD - decay in the game loop with the frame delta
+state.hitstopRemaining -= dt;
 ```
 
 ❌ **Forgetting to clean up animation mixers**
