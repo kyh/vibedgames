@@ -268,11 +268,17 @@ function report(opts, result) {
   if (result.out) console.log(`  screenshot: ${result.out}`);
   if (result.budget) {
     const over = result.budget.filter((row) => row.ok === false);
+    const missing = result.budget.filter((row) => row.ok === null);
     if (over.length) {
       console.log(`  render budget (${result.tier} tier, advisory) — OVER:`);
       for (const row of over) console.log(`    - ${row.metric}: ${row.actual} > ${row.limit}`);
+    } else if (missing.length === result.budget.length) {
+      console.log(`  render budget (${result.tier} tier): diagnostics present but no numeric metrics — not validated`);
     } else {
       console.log(`  render budget (${result.tier} tier): within limits`);
+    }
+    if (missing.length && missing.length < result.budget.length) {
+      console.log(`    (not reported by diagnostics: ${missing.map((row) => row.metric).join(", ")})`);
     }
   }
   if (result.pageErrors?.length) {
