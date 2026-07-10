@@ -1569,7 +1569,9 @@ export function randomWorldPoint(
 export function makeAsteroidVerts(radius: number): Vec[] {
   const verts: Vec[] = [];
   for (let i = 0; i < ASTEROID_VERTEX_COUNT; i++) {
-    const r = radius * (0.5 + rand() * 0.5);
+    // Outline jitter is draw-only (collision is radius-based) — keep it on
+    // Math.random so art tweaks can't shift seeded gameplay streams.
+    const r = radius * (0.5 + Math.random() * 0.5);
     const a = (Math.PI * 2 * i) / ASTEROID_VERTEX_COUNT;
     verts.push({ x: Math.cos(a) * r, y: Math.sin(a) * r });
   }

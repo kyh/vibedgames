@@ -910,7 +910,6 @@ export class GameScene extends Phaser.Scene {
 
   override update(time: number, delta: number): void {
     const dt = Math.min(delta, 100) / 1000; // clamp tab-switch spikes
-    this.publishDiag();
     this.starfield.update(dt, time);
     this.barrier.update(time, this.world.playW, this.world.playH);
     if (!this.offline) this.maybeGoOffline();
@@ -922,6 +921,7 @@ export class GameScene extends Phaser.Scene {
       // Connecting (pre-live): no world to tick, but still flush attract's fx.
       this.fx.update(dt, this.time.now);
       this.syncScreenUi(); // camera is static here; keep the vignette pinned
+      this.publishDiag(); // after this frame's work, so bots never read stale state
       return;
     }
     const now = Date.now();
@@ -978,6 +978,7 @@ export class GameScene extends Phaser.Scene {
     this.drawPadOverlay();
     this.syncScreenUi();
     this.updateHud(now);
+    this.publishDiag(); // after this frame's work, so bots never read stale state
   }
 
   /** Resize/rotation: re-read the safe-area insets and re-derive camera zoom. */
