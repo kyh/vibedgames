@@ -9,7 +9,8 @@
     "dev": "vite",
     "preview": "vite preview",
     "test": "tsx tools/sim.mts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@repo/embed": "workspace:*",
@@ -19,6 +20,7 @@
   },
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
+    "@playwright/test": "^1.61.1",
     "@types/node": "catalog:",
     "tsx": "^4.23.0",
     "typescript": "catalog:",

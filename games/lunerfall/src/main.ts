@@ -3,6 +3,7 @@ import { setPauseHandlers } from "@repo/embed";
 
 import { BASE_H, BASE_W, clampAspect } from "./config";
 import { BootScene } from "./scenes/boot-scene";
+import { installTestHooks } from "./sys/diag";
 import { EditorScene } from "./scenes/editor-scene";
 import { GameScene } from "./scenes/game-scene";
 import { SelectScene } from "./scenes/select-scene";
@@ -25,6 +26,8 @@ const config: Phaser.Types.Core.GameConfig = {
 const game = new Phaser.Game(config);
 // Debug handle for perf/inspection probes (see globalThis.__game).
 Reflect.set(globalThis, "__game", game);
+// __GAME_DIAGNOSTICS__ / __GAME_TEST_HOOKS__ for bot playtests (sys/diag.ts).
+installTestHooks(game);
 
 // Wrapper-requested pause: never freeze a live co-op/versus session another
 // player is relying on, only the local sim. `froze` tracks whether onPause

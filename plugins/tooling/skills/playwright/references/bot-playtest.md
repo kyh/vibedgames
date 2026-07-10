@@ -133,3 +133,7 @@ Report both runs whenever difficulty tuning is in scope.
 
 - **Never report headless FPS as performance.** Headless Chromium renders WebGL on SwiftShader (software rasterizer) — ~2 fps on scenes a real GPU runs at 120. Headless runs are for correctness only; capture FPS on a real GPU (headed browser) and label headless numbers functional-only.
 - **Run Playwright with `workers: 1` for WebGL games.** Parallel headless contexts share the software rasterizer; the frame-time collapse drifts game time from wall time, flaking timed phases and screenshot baselines.
+
+## Reference Implementation
+
+`games/lunerfall` — `src/sys/{diag,rng}.ts` (diagnostics + seedable gameplay RNG, `seed()` restarts the run) and `e2e/bot-playtest.spec.ts` (seeded combat-room sweep: progression, softlock windows, `workers: 1`).

@@ -1,3 +1,5 @@
+import { rand } from "../sys/rng";
+
 // In-run relics: passive run modifiers bought at shrines or found in caches.
 // Effects fold into RunMods, consumed at a few choke points: dmgOut (dmg, rage,
 // crit), the kill handler (lifesteal), the hit handler (armor), room-clear
@@ -77,15 +79,14 @@ export const RELICS: Relic[] = [
   { id: "deathbloom", name: "Deathbloom", desc: "+22% crit, 25% lifesteal", price: 60, rarity: "legendary", apply: (m) => ((m.crit += 0.22), (m.lifesteal += 0.25)) },
 ];
 
-// Pick n distinct relics, weighted by rarity so legendaries stay rare (runtime —
-// Math.random ok outside the sim).
+// Pick n distinct relics, weighted by rarity so legendaries stay rare.
 export function pickRelics(n: number, exclude: Set<string>): Relic[] {
   const pool = RELICS.filter((r) => !exclude.has(r.id));
   const out: Relic[] = [];
   while (out.length < n && pool.length > 0) {
     let total = 0;
     for (const r of pool) total += RARITY_WEIGHT[r.rarity];
-    let roll = Math.random() * total;
+    let roll = rand() * total;
     let idx = 0;
     for (let i = 0; i < pool.length; i++) {
       const r = pool[i];
