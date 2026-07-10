@@ -20,13 +20,18 @@ export type TouchControls = {
   update(): void;
 };
 
+/** Boot-time input mode for controls and instruction copy. */
+export function isTouchDevice(): boolean {
+  return window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+}
+
 // Wire the on-screen pedals + the shared virtual stick to the input state.
 // Pedals are plain DOM (they need pedal shapes, not the pad's round buttons);
 // steering is the gamepad package's floating stick, so a thumb anywhere on the
 // open canvas anchors it. `[data-gamepad-ignore]` on #touch/#banner keeps taps
 // on the pedals and the landing CTA from anchoring a stick underneath them.
 export function setupTouch(input: InputState, onChat?: () => void): TouchControls {
-  const isTouch = window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+  const isTouch = isTouchDevice();
   const container = document.getElementById("touch");
   if (!container) return { isTouch: false, update: () => {} };
   if (isTouch) container.classList.add("on");

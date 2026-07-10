@@ -92,8 +92,8 @@ const GHOST_SCALE_MAX = 1.06;
 /** Decided once at boot so hint/HUD copy is input-aware from the first frame. */
 const TOUCH = isCoarsePointer();
 
-const HINT_FLAP = TOUCH ? "TAP TO FLAP" : "CLICK · TAP · SPACE — FLAP";
-const HINT_RESTART = "TAP ANYWHERE TO RESTART";
+const HINT_FLAP = TOUCH ? "TAP TO FLAP" : "CLICK · SPACE — FLAP";
+const HINT_RESTART = TOUCH ? "TAP ANYWHERE TO RESTART" : "CLICK OR PRESS SPACE TO RESTART";
 const HINT_RACE = "FLAP TO JOIN THE RACE";
 
 type PeerState = { yf: number; live: boolean; score: number; skin: number; rot: number };
@@ -254,7 +254,7 @@ export class GameScene extends Phaser.Scene {
     if (controls) {
       controls.textContent = TOUCH
         ? "Tap to flap\nJump or flap your arms on camera"
-        : "Click / tap / Space — flap\nJump or flap your arms on camera\nM — mute";
+        : "Click / Space — flap\nJump or flap your arms on camera\nM — mute";
     }
     if (go) go.textContent = TOUCH ? "tap to start" : "press any key to start";
     this.input.keyboard?.once("keyup", () => this.beginPlay());

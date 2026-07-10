@@ -899,12 +899,18 @@ export class GameScene extends Phaser.Scene {
     // (solo world, no one else to stall) we truly FREEZE: the pausable sim
     // clock (shared/clock.ts) holds every stored deadline, so a boost with 3s
     // left before the pause still has 3s after resume.
+    const touchControls = IS_COARSE_POINTER || this.gamepad.isTouch;
     const pauseOverlay = createPauseOverlay({
-      controls: [
-        ["MOUSE", "move"],
-        ["CLICK", "shoot"],
-        ["M", "mute"],
-      ],
+      controls: touchControls
+        ? [
+            ["DRAG", "move"],
+            ["TAP", "shoot"],
+          ]
+        : [
+            ["MOUSE", "move"],
+            ["CLICK", "shoot"],
+            ["M", "mute"],
+          ],
     });
     setPauseHandlers({
       onPause: () => {

@@ -148,7 +148,7 @@ class PoseCamera {
     private onJump: PoseJumpHandler,
     autoStart: boolean,
   ) {
-    this.setStatus("Click 'Start' to begin");
+    this.setStatus(autoStart ? "Click 'Start' to begin" : "Tap to enable the pose cam");
     this.ui.button.addEventListener("click", (e) => {
       e.stopPropagation(); // don't also toggle the panel size
       // Drop focus so Space (a game input) can't re-activate the button.
@@ -171,8 +171,6 @@ class PoseCamera {
     if (autoStart) {
       // Legacy mounted the component on page load and auto-started immediately.
       this.start();
-    } else {
-      this.setStatus("Tap to enable the pose cam");
     }
   }
 

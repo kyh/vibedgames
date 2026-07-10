@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { ModelLibrary } from "./render/models";
 import { View } from "./render/view";
 import { Controls } from "./input/controls";
-import { TouchControls } from "./input/touch";
+import { isTouchInput, TouchControls } from "./input/touch";
 import { GameScene, chosenChamp, chosenName, type SceneOpts } from "./scenes/game-scene";
 import { Menu } from "./scenes/menu-scene";
 import { MenuStage } from "./render/menu-stage";
@@ -215,15 +215,23 @@ async function main(): Promise<void> {
   // timer.reset() on resume avoids a huge first delta from the real-time gap
   // (belt-and-suspenders: matchLoop already clamps dt to 1/30 regardless).
   const pauseOverlay = createPauseOverlay({
-    controls: [
-      ["WASD", "move"],
-      ["MOUSE", "look · LMB attack"],
-      ["SPACE", "jump"],
-      ["SHIFT", "dash"],
-      ["1-4", "abilities"],
-      ["B", "shop"],
-      ["M", "mute"],
-    ],
+    controls: isTouchInput()
+      ? [
+          ["LEFT STICK", "move"],
+          ["RIGHT STICK", "aim · attack"],
+          ["1-4", "abilities"],
+          ["DASH · HOP · JUMP", "mobility"],
+          ["B", "shop"],
+        ]
+      : [
+          ["WASD", "move"],
+          ["MOUSE", "look · LMB attack"],
+          ["SPACE", "jump"],
+          ["SHIFT", "dash"],
+          ["1-4", "abilities"],
+          ["B", "shop"],
+          ["M", "mute"],
+        ],
   });
   setPauseHandlers({
     onPause: () => {

@@ -7,7 +7,7 @@ import { FONT } from "../render/font";
 import { heroSheetTex } from "../render/sprites";
 
 /** Coarse-pointer detection at boot, so copy is input-aware before any touch. */
-function touchDevice(): boolean {
+export function touchDevice(): boolean {
   return window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
 }
 

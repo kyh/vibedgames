@@ -7,6 +7,7 @@ import { installTestHooks } from "./sys/diag";
 import { EditorScene } from "./scenes/editor-scene";
 import { GameScene } from "./scenes/game-scene";
 import { SelectScene } from "./scenes/select-scene";
+import { isCoarse } from "./sys/screen";
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.WEBGL,
@@ -40,14 +41,21 @@ const isOnline = (): boolean => {
 };
 let froze = false;
 const pauseOverlay = createPauseOverlay({
-  controls: [
-    ["WASD", "move"],
-    ["SPACE", "jump"],
-    ["SHIFT", "dash"],
-    ["J / X", "attack"],
-    ["K", "special"],
-    ["M", "mute"],
-  ],
+  controls: isCoarse()
+    ? [
+        ["DRAG STICK", "move"],
+        ["JUMP", "jump"],
+        ["DASH", "dash"],
+        ["ATK / SP", "attack · special"],
+      ]
+    : [
+        ["WASD", "move"],
+        ["SPACE", "jump"],
+        ["SHIFT", "dash"],
+        ["J / X", "attack"],
+        ["K", "special"],
+        ["M", "mute"],
+      ],
 });
 setPauseHandlers({
   onPause: () => {

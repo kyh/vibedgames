@@ -97,7 +97,7 @@ const ROOM = "bomberman-default";
 
 /** Detected at boot (not on first touch) so the first HUD paint already shows
  *  touch-worded hints on phones. */
-const TOUCH_UI = window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+export const TOUCH_UI = window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
 
 /** Grass extends this far past the arena so the follow camera never shows void. */
 const FLOOR_PAD = TILE * 20;

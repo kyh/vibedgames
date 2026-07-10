@@ -68,7 +68,9 @@ export function startHandTracking(onWristX: (x: number) => void, onFist?: () => 
 
   const fail = (error: unknown): void => {
     console.error("Error starting hand tracking:", error);
-    status.textContent = "no signal — the mouse controls the paddle";
+    status.textContent = COARSE_INPUT
+      ? "no signal — drag a finger to steer"
+      : "no signal — the mouse controls the paddle";
     panel.dataset.state = "error";
   };
 

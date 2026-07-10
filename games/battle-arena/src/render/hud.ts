@@ -27,14 +27,14 @@ const DEBUFF_KINDS = new Set(["stun", "root", "slow", "dot", "damageAmp", "hex"]
 
 /** Death-screen tips, rotated by death count (result-05 B5, verbatim). */
 const TIPS: string[] = [
-  "Shift dash has invulnerability frames",
-  "Buy items at base — press B",
+  "Dashing grants brief invulnerability",
+  "Buy items while standing at base",
   "The throne pays bonus gold",
   "The leader carries a 650g bounty",
   "Grab coins where the golem throws",
   "Green pads drop free items",
   "Skeleton camps are safe gold",
-  "Space hop dodges skillshots",
+  "Hopping dodges skillshots",
   "Heal fast inside your base",
   "Kill streaks pay extra gold",
 ];

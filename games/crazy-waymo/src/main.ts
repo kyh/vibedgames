@@ -5,6 +5,7 @@ import { PerfGovernor } from "./render/perf-governor";
 import { isCoarsePointer } from "./render/quality";
 import { GameScene } from "./scenes/game-scene";
 import { MAX_DT } from "./shared/constants";
+import { isTouchDevice } from "./ui/touch";
 
 const container = document.getElementById("game");
 if (!container) throw new Error("missing #game container");
@@ -44,13 +45,20 @@ game.applyEnvironment(renderer);
 
 // Wrapper pause: solo game, safe to fully freeze (see GameScene.requestPause).
 const pauseOverlay = createPauseOverlay({
-  controls: [
-    ["↑ / W", "go"],
-    ["↓ / S", "stop"],
-    ["← →", "steer"],
-    ["SHIFT", "boost"],
-    ["M", "mute"],
-  ],
+  controls: isTouchDevice()
+    ? [
+        ["HOLD", "go"],
+        ["DRAG", "steer"],
+        ["BRAKE", "stop · reverse"],
+        ["🔥", "boost"],
+      ]
+    : [
+        ["↑ / W", "go"],
+        ["↓ / S", "stop"],
+        ["← →", "steer"],
+        ["SHIFT", "boost"],
+        ["M", "mute"],
+      ],
 });
 setPauseHandlers({
   onPause: () => {

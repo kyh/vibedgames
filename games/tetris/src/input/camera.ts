@@ -5,6 +5,8 @@ import {
   type NormalizedLandmark,
 } from "@mediapipe/tasks-vision";
 
+import { isCoarsePointer } from "./touch";
+
 /**
  * Webcam pose camera (plain TS port of the legacy React `camera.tsx`).
  *
@@ -153,7 +155,11 @@ export class PoseCamera {
         this.video.srcObject = null;
       }
       console.error("Error starting camera or loading model:", error);
-      this.setStatus("camera unavailable — keyboard controls active");
+      this.setStatus(
+        isCoarsePointer()
+          ? "camera unavailable — touch controls active"
+          : "camera unavailable — keyboard controls active",
+      );
     }
   }
 

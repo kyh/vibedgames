@@ -14,6 +14,14 @@ type Stick = { id: number; baseX: number; baseY: number; dx: number; dy: number 
 const STICK_R = 60;
 const KNOB_R = 28;
 
+/** Boot-time input mode for instruction copy. */
+export function isTouchInput(): boolean {
+  return (
+    "ontouchstart" in window ||
+    (typeof window.matchMedia === "function" && window.matchMedia("(pointer:coarse)").matches)
+  );
+}
+
 // "DASH"/"JUMP" are AbilityKeys → their buttons carry cooldown sweeps and icons
 // like Q/W/E/R. "J" is the plain hop (Space), "B" the shop toggle.
 type BtnId = AbilityKey | "B" | "J";

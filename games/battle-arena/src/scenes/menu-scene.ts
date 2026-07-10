@@ -7,6 +7,7 @@
 // localStorage["ba-champ"] / ["ba-name"] for future quick-start boots.
 import { CHAMPIONS } from "../data/champions";
 import { abilityIcon, champSigil } from "../data/icons";
+import { isTouchInput } from "../input/touch";
 import { ALL_ABILITY_KEYS, type AbilityKey } from "../sim/types";
 import { roomId } from "../net/protocol";
 import type { SceneOpts } from "./game-scene";
@@ -43,9 +44,7 @@ export class Menu {
     const params = new URLSearchParams(location.search);
     const name = params.get("name") ?? localStorage.getItem("ba-name") ?? "";
     // input-aware at boot — touch devices must never see keyboard-only copy
-    const touchBoot =
-      "ontouchstart" in window ||
-      (typeof window.matchMedia === "function" && window.matchMedia("(pointer:coarse)").matches);
+    const touchBoot = isTouchInput();
     const help = touchBoot
       ? "tap a champion · left thumb move · right thumb aim + attack · on-screen buttons: abilities / DASH / JUMP / B shop"
       : "click a champion · WASD move · mouse looks · LMB attack · ␣ jump · ⇧ dash · 1/2/3/4 abilities · B shop · M mute";

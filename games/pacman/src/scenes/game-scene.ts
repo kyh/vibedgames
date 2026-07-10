@@ -1119,8 +1119,9 @@ export class GameScene {
     const texts: Record<Phase, readonly [string, string]> = {
       title: [
         "PAC·MAN",
-        // Face controls only — the full bindings live on the pause overlay.
-        "chomp with your mouth to move forward · turn your head to turn",
+        IS_TOUCH
+          ? "open your mouth or swipe up to chomp · turn your head or swipe to steer"
+          : "open your mouth or press Space to chomp · turn your head or use arrows to steer",
       ],
       ready: ["READY?", ""],
       playing: ["", ""],
@@ -1128,13 +1129,13 @@ export class GameScene {
         "MAZE CLEAR!",
         IS_TOUCH
           ? "every crumb tidied up ♥ chomp or tap to play again"
-          : "every crumb tidied up ♥ chomp, press R, or tap to play again",
+          : "every crumb tidied up ♥ chomp, press R, or click to play again",
       ],
       gameover: [
         "OHH NO…",
         IS_TOUCH
           ? "you did your best ♥ chomp or tap to try again"
-          : "you did your best ♥ chomp, press R, or tap to try again",
+          : "you did your best ♥ chomp, press R, or click to try again",
       ],
     };
     const [title, sub] = texts[phase];

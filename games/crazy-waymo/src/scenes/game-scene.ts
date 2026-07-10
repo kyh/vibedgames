@@ -1065,6 +1065,9 @@ export class GameScene {
       const input = found;
       el = input;
       this.chatEl = input;
+      input.placeholder = this.touchUi
+        ? "say something… (Return to send)"
+        : "say something… (Enter to send, Esc to close)";
       input.addEventListener("keydown", (e) => {
         e.stopPropagation();
         if (e.key === "Enter") {

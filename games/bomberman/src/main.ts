@@ -2,7 +2,7 @@ import { createPauseOverlay, setPauseHandlers } from "@repo/embed";
 import Phaser from "phaser";
 
 import { BootScene } from "./scenes/boot-scene";
-import { GameScene } from "./scenes/game-scene";
+import { GameScene, TOUCH_UI } from "./scenes/game-scene";
 import { pauseClock, resumeClock } from "./util/clock";
 
 const config: Phaser.Types.Core.GameConfig = {
@@ -43,11 +43,17 @@ document.addEventListener("visibilitychange", () => {
 // re-announces the game as started after onResume.
 let froze = false;
 const pauseOverlay = createPauseOverlay({
-  controls: [
-    ["WASD / ←→↑↓", "move"],
-    ["SPACE", "drop a bomb"],
-    ["R", "restart"],
-  ],
+  controls: TOUCH_UI
+    ? [
+        ["DRAG", "move"],
+        ["💣", "drop a bomb"],
+        ["TAP", "restart"],
+      ]
+    : [
+        ["WASD / ←→↑↓", "move"],
+        ["SPACE", "drop a bomb"],
+        ["R", "restart"],
+      ],
 });
 setPauseHandlers({
   onPause: () => {
