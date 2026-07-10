@@ -33,7 +33,13 @@ import { buildGoldenGate } from "./golden-gate";
 import { RoadNetwork } from "./network";
 import { type CityPlan, generateCity } from "./grid";
 import { CUSTOM_MAP, editorMode, loadLocalOverrides } from "./custom-map";
-import { isParkCell, makeGroundColorAt, makeGroundOffset, parkCellHeight } from "./ground";
+import {
+  isParkCell,
+  makeDriveSurfaceOffset,
+  makeGroundColorAt,
+  makeGroundOffset,
+  parkCellHeight,
+} from "./ground";
 import { buildGridNetwork } from "./grid-network";
 import { SF_BUILDINGS, SF_BUILDINGS_BOUNDS } from "./sf-buildings";
 import {
@@ -892,6 +898,18 @@ export class CityModel {
           const bgz = this.gridZ(bz);
           if (isParkCell(bgx, bgz)) {
             seatY = Math.max(seatY, parkCellHeight(this.terrain, bgx, bgz));
+          }
+          // Same hillside foundation as placeBuilding: seated at the highest
+          // corner, a concrete plinth must fill the downhill gap or houses on
+          // a grade hover with open air under the low side.
+          const drop = seatY - Math.min(...corners);
+          if (drop > 0.7) {
+            const plinth = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
+            const ph = drop + 0.8;
+            plinth.scale.set(fw * 0.98, ph, fd * 0.98);
+            plinth.position.set(bx, seatY - 0.1 - ph / 2, bz);
+            plinth.updateMatrixWorld(true);
+            collect(plinth);
           }
           const node = this.cache.instance(url);
           node.scale.set(sxz, sy, sxz);
@@ -1765,13 +1783,31 @@ export class CityModel {
     return d.y + (d.y2 - d.y) * t;
   }
 
+  // Drive-surface offset (street depression past the sidewalk's outer edge),
+  // built lazily from the CURRENT network and rebuilt if the network is
+  // swapped (live street edits). Without it, height queries return the raw
+  // field and the car/props hover over the depressed ground beside kerbs.
+  private driveOffset: ((x: number, z: number) => number) | null = null;
+  private driveOffsetNet: RoadNetwork | null = null;
+  private driveOffsetAt(x: number, z: number): number {
+    if (this.driveOffset === null || this.driveOffsetNet !== this.network) {
+      this.driveOffset = makeDriveSurfaceOffset(this.network);
+      this.driveOffsetNet = this.network;
+    }
+    return this.driveOffset(x, z);
+  }
+
+  // Height of the RENDERED drivable surface: raw field on and beside streets
+  // (asphalt/curb/sidewalk band), street-depressed ground past the kerb,
+  // deck height on piers and bridge spans.
   heightAt(x: number, z: number): number {
+    const ground = this.terrain.heightAt(x, z) + this.driveOffsetAt(x, z);
     for (const d of this.decks) {
       if (x >= d.minX && x <= d.maxX && z >= d.minZ && z <= d.maxZ) {
-        return Math.max(this.deckHeight(d, z), this.terrain.heightAt(x, z));
+        return Math.max(this.deckHeight(d, z), ground);
       }
     }
-    return this.terrain.heightAt(x, z);
+    return ground;
   }
 
   normalInto(out: THREE.Vector3, x: number, z: number): THREE.Vector3 {

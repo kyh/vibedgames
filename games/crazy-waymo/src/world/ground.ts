@@ -4,6 +4,7 @@ import { GRID_X, GRID_Z, ROAD_TILE, WORLD_HALF_X, WORLD_HALF_Z, WORLD_W } from "
 import { CUSTOM_MAP, type FloorKind, loadLocalOverrides } from "./custom-map";
 import type { CityPlan } from "./grid";
 import type { RoadNetwork } from "./network";
+import { SIDEWALK_W } from "./roads";
 import { districtAt } from "./sf-map";
 import type { Terrain } from "./terrain";
 import { landuseGreenAt, landuseSandAt } from "./sf-landuse";
