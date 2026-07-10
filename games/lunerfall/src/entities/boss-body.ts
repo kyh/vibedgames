@@ -2,6 +2,7 @@ import { TILE } from "../config";
 import type { EnemyName } from "../data/animations";
 import { type BossKind, bossKind } from "../data/bosses";
 import type { Grid } from "../sys/grid";
+import { rand } from "../sys/rng";
 import type { AttackBox, Rect } from "./player-body";
 
 // Biome boss — pure sim. Telegraphed attack FSM with two phases, parameterised by
@@ -209,7 +210,7 @@ export class BossBody {
       return;
     }
     this.vx = 0;
-    const r = Math.random();
+    const r = rand();
     if (this.kind.charges && dist > 70 && dist < 240 && r < 0.4) this.setState("charge");
     else if (dist < 42 && !this.kind.ranged) this.setState("punch");
     else if (this.kind.ranged) this.setState(r < 0.7 ? "wave" : "jump");

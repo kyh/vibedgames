@@ -1,3 +1,5 @@
+import { rand } from "../sys/rng";
+
 // Elite-room affixes. Every enemy in an elite room rolls one, recolouring it and
 // bending its EnemyBody multipliers so the pack fights differently: a wall you
 // grind down, a swarm you outrun, or hits you can't facetank. Applied host-side
@@ -29,4 +31,4 @@ export const AFFIXES: readonly Affix[] = [
 ];
 
 export const rollAffix = (): Affix =>
-  AFFIXES[Math.floor(Math.random() * AFFIXES.length)] ?? ARMORED;
+  AFFIXES[Math.floor(rand() * AFFIXES.length)] ?? ARMORED;

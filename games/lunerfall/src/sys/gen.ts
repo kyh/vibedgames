@@ -1,6 +1,7 @@
 import { TILE } from "../config";
 import { RoomDef } from "../data/rooms";
 import type { Grid } from "./grid";
+import { mulberry32 } from "./rng";
 
 // ── Constrained combat-room generator ───────────────────────────────────────
 // Rooms are grown, not sprinkled: a platform is only placed if it is reachable
@@ -25,17 +26,8 @@ const MIN_VGAP = 3; // min empty rows under a solid platform — no cramped pock
 // r and r-1; the platform cell sits at r+1.
 type Surf = { x0: number; x1: number; r: number };
 
-// mulberry32 — small deterministic PRNG so rooms are reproducible from a seed
-// (lets the sim harness sweep thousands and lets us log the seed of a bad room).
-function mulberry32(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
+// mulberry32 (sys/rng.ts) — rooms are reproducible from a seed: lets the sim
+// harness sweep thousands and lets us log the seed of a bad room.
 
 const hgap = (a: Surf, b: Surf): number => Math.max(0, b.x0 - a.x1, a.x0 - b.x1);
 // Can the player get from surface a to surface b in one hop? Up is capped at

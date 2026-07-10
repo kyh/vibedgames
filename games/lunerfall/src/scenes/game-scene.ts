@@ -48,7 +48,9 @@ import {
   popText,
   wallSmoke,
 } from "../sys/fx";
+import { diag } from "../sys/diag";
 import { Grid } from "../sys/grid";
+import { rand } from "../sys/rng";
 import { type Offer, RunManager } from "../sys/run";
 import { Input, type InputState } from "../sys/input";
 import { gameInset, isCoarse } from "../sys/screen";
@@ -731,7 +733,7 @@ export class GameScene extends Phaser.Scene {
   private pickEnemy(): EnemyName {
     const pool = enemyPool(this.run.biome, this.run.type === "elite");
     const total = pool.reduce((s, p) => s + p[1], 0);
-    let r = Math.random() * total;
+    let r = rand() * total;
     for (const [name, w] of pool) {
       r -= w;
       if (r <= 0) return name;
@@ -903,7 +905,7 @@ export class GameScene extends Phaser.Scene {
   private dmgOut(base: number): number {
     const rage = this.mods.rage * Math.max(0, this.maxHearts - this.hearts);
     let out = base * (this.mods.dmg + rage);
-    this.lastCrit = this.mods.crit > 0 && Math.random() < this.mods.crit;
+    this.lastCrit = this.mods.crit > 0 && rand() < this.mods.crit;
     if (this.lastCrit) out *= this.mods.critMult;
     return Math.max(1, Math.round(out));
   }
@@ -958,6 +960,14 @@ export class GameScene extends Phaser.Scene {
   update(_t: number, delta: number) {
     const dts = Math.min(delta, 100) / 1000;
     this.demoT += dts;
+    // Bot-playtest telemetry (sys/diag.ts): mutate the shared object in place.
+    diag.frame++;
+    diag.score = this.score;
+    diag.complete = this.state === "dead";
+    diag.player.x = this.player.x;
+    diag.player.y = this.player.y;
+    diag.player.speed = Math.hypot(this.player.body.vx, this.player.body.vy);
+    diag.entities = this.enemies.length + this.enemyPuppets.size;
     // Once per frame, before any sample(): reconciles lost touches, publishes
     // the justPressed edges the Input merge reads, and redraws the overlay.
     this.gamepad.update();
@@ -1944,7 +1954,7 @@ export class GameScene extends Phaser.Scene {
     this.registerKill(e.body.x, e.body.y - e.body.kind.h, 5 + this.run.biome * 2);
     impactRing(this, e.body.x, e.body.y - e.body.kind.h / 2, COLORS.teal, 22);
     sfx.kill();
-    if (this.mods.lifesteal > 0 && Math.random() < this.mods.lifesteal) this.heal(1);
+    if (this.mods.lifesteal > 0 && rand() < this.mods.lifesteal) this.heal(1);
     popText(this, e.body.x, e.body.y - e.body.kind.h, "+2", "#ffd15c");
   }
 
@@ -1973,7 +1983,7 @@ export class GameScene extends Phaser.Scene {
   // Damage lands on a specific player's body; hearts are a shared co-op pool.
   private hurtPlayer(dmg: number, dir: number, pl: Player = this.player) {
     if (!pl.body.applyHurt(dir)) return;
-    if (this.mods.armor > 0 && Math.random() < this.mods.armor) {
+    if (this.mods.armor > 0 && rand() < this.mods.armor) {
       popText(this, pl.x, pl.y - 24, "WARD", "#9b8cff");
       return; // fully blocked (i-frames already granted by applyHurt)
     }

@@ -1,5 +1,6 @@
 import { BOSS, type RoomDef, type RoomType, SAFE, START } from "../data/rooms";
 import { genCombatRoom } from "./gen";
+import { rand } from "./rng";
 
 export type Offer = { type: RoomType };
 
@@ -51,7 +52,7 @@ export class RunManager {
   // (see gen.ts). Every fight is a new dynamic space; the generator guarantees
   // every door + enemy is reachable from the spawn.
   private nextCombat(): RoomDef {
-    return genCombatRoom(Math.floor(Math.random() * 0x100000000), this.biome);
+    return genCombatRoom(Math.floor(rand() * 0x100000000), this.biome);
   }
 
   // Door offers for the current room's exits (after clearing).
@@ -84,7 +85,7 @@ export class RunManager {
       ["treasure", 12],
     ];
     const total = pool.reduce((s, p) => s + p[1], 0);
-    let r = Math.random() * total;
+    let r = rand() * total;
     for (const [type, w] of pool) {
       r -= w;
       if (r <= 0) return type;
