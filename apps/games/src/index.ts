@@ -3,6 +3,7 @@ import { deploymentFile, game } from "@repo/db/drizzle-schema";
 import { and, eq, inArray } from "drizzle-orm";
 
 import { contentTypeForPath } from "./content-type";
+import { injectFreshness, VERSION_PATH, versionResponse } from "./freshness";
 import {
   extractDescription,
   extractTitle,
@@ -49,6 +50,12 @@ export default {
       return notFound("Game not found");
     }
 
+    // Stale-tab probe: restored tabs poll this on resume and reload when a
+    // new deployment shipped (see freshness.ts).
+    if (url.pathname === VERSION_PATH) {
+      return versionResponse(g.currentDeploymentId);
+    }
+
     const requestedPath = normalizePath(url.pathname);
     const r2Key = `games/${g.id}/${g.currentDeploymentId}/${requestedPath}`;
 
@@ -83,7 +90,9 @@ export default {
     // bare URL. HTML is buffered for inspection — game pages are small and
     // index.html already runs on a 60s cache.
     if (contentType.startsWith("text/html")) {
-      const html = await obj.text();
+      // Every served page gets the stale-tab freshness probe; share meta is
+      // still only injected when the game doesn't manage its own.
+      const html = injectFreshness(await obj.text(), g.currentDeploymentId);
       if (!hasOwnShareMeta(html)) {
         const title = g.name ?? extractTitle(html) ?? slug;
         const imageRows = await db.query.deploymentFile.findMany({
