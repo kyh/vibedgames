@@ -9,6 +9,7 @@ import { SkyClouds } from "../fx/clouds";
 import { SmashCones } from "../fx/cones";
 import { Debris } from "../fx/debris";
 import { LampGlow } from "../fx/lamp-glow";
+import { NightWindows } from "../fx/night-windows";
 import { Fx } from "../fx/particles";
 import { Sfx } from "../fx/sfx";
 import { SkidMarks } from "../fx/skids";
@@ -248,6 +249,7 @@ export class GameScene {
   private oceanTime = { value: 0 };
   private dayNight: DayNight;
   private lampGlow: LampGlow | null = null;
+  private nightWindows: NightWindows | null = null;
   private cones: SmashCones | null = null;
   private parked: ParkedCars | null = null;
   private minimap: Minimap | null = null;
@@ -713,6 +715,13 @@ export class GameScene {
     this.scene.add(this.trails.mesh);
     this.lampGlow = new LampGlow(city.lampHeads, this.mobileUi ? LAMP_GLOW_BUDGET : null);
     this.scene.add(this.lampGlow.group);
+    // Lit windows come from the batch records: the baked payload on the
+    // deployed path, the live capture on the generated/editor path.
+    const windowItems = rest?.batchItems ?? city.restCapture?.batchItems;
+    if (windowItems) {
+      this.nightWindows = new NightWindows(windowItems, this.cache, this.mobileUi ? 12000 : 32000);
+      this.scene.add(this.nightWindows.mesh);
+    }
     this.minimap = new Minimap(city.plan, city.getDecks());
 
     await paint();
@@ -1320,6 +1329,7 @@ export class GameScene {
     }
     const night = this.dayNight.lamp;
     this.lampGlow?.setIntensity(night);
+    this.nightWindows?.setIntensity(night);
     this.lampGlow?.updateNear(this.rig.camera.position.x, this.rig.camera.position.z, dt);
     this.clouds.setNight(night);
     this.car?.setHeadlights(night);
