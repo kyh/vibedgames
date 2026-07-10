@@ -2,6 +2,15 @@ import Phaser from "phaser";
 
 import { BootScene } from "./scenes/boot-scene";
 import { GameScene } from "./scenes/game-scene";
+import { reseed } from "./shared/rng";
+
+// Bot-playtest seeding (boot-time variant of the diagnostics contract — see
+// shared/diag.ts): the scene is single-start, so the seed must land before
+// any gameplay roll rather than via a mid-run hook.
+const seedParam = new URLSearchParams(location.search).get("seed");
+if (seedParam !== null && seedParam !== "" && Number.isFinite(Number(seedParam))) {
+  reseed(Number(seedParam));
+}
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.WEBGL,

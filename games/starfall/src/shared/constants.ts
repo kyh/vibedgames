@@ -1,3 +1,5 @@
+import { rand } from "./rng";
+
 // ---- world -------------------------------------------------------------------
 
 // WORLD_W/H is the fixed VISUAL/MAX extent — the starfield + off-world mask are
@@ -1121,7 +1123,7 @@ export const ITEMS_MAX_LIVE = 6;
 /** Roll the class split (always lands on a class; the chance gate is upstream). */
 export function rollLootClass(): LootClass {
   const total = LOOT_CLASS_WEIGHTS.reduce((sum, e) => sum + e.weight, 0);
-  let roll = Math.random() * total;
+  let roll = rand() * total;
   for (const e of LOOT_CLASS_WEIGHTS) {
     roll -= e.weight;
     if (roll <= 0) return e.cls;
@@ -1132,7 +1134,7 @@ export function rollLootClass(): LootClass {
 /** Roll a child table of [key, integer weight] entries. */
 export function rollWeightedKey<K extends string>(entries: ReadonlyArray<readonly [K, number]>): K {
   const total = entries.reduce((sum, [, w]) => sum + w, 0);
-  let roll = Math.random() * total;
+  let roll = rand() * total;
   for (const [key, w] of entries) {
     roll -= w;
     if (roll <= 0) return key;
@@ -1559,15 +1561,15 @@ export function randomWorldPoint(
   h = BASE_WORLD_H,
 ): Vec {
   return {
-    x: margin + Math.random() * (w - margin * 2),
-    y: margin + Math.random() * (h - margin * 2),
+    x: margin + rand() * (w - margin * 2),
+    y: margin + rand() * (h - margin * 2),
   };
 }
 
 export function makeAsteroidVerts(radius: number): Vec[] {
   const verts: Vec[] = [];
   for (let i = 0; i < ASTEROID_VERTEX_COUNT; i++) {
-    const r = radius * (0.5 + Math.random() * 0.5);
+    const r = radius * (0.5 + rand() * 0.5);
     const a = (Math.PI * 2 * i) / ASTEROID_VERTEX_COUNT;
     verts.push({ x: Math.cos(a) * r, y: Math.sin(a) * r });
   }
@@ -1580,15 +1582,15 @@ export function edgeSpawn(
   w = BASE_WORLD_W,
   h = BASE_WORLD_H,
 ): { x: number; y: number; ang: number } {
-  const side = Math.floor(Math.random() * 4);
-  const spread = Math.random() * (Math.PI / 2); // 90° fan, aimed inward below
+  const side = Math.floor(rand() * 4);
+  const spread = rand() * (Math.PI / 2); // 90° fan, aimed inward below
   if (side <= 1) {
-    const y = -margin + Math.random() * (h + margin * 2);
+    const y = -margin + rand() * (h + margin * 2);
     const x = side === 0 ? -margin : w + margin;
     const ang = side === 0 ? spread - Math.PI * 0.25 : spread + Math.PI * 0.75;
     return { x, y, ang };
   }
-  const x = -margin + Math.random() * (w + margin * 2);
+  const x = -margin + rand() * (w + margin * 2);
   const y = side === 2 ? -margin : h + margin;
   const ang = side === 2 ? spread + Math.PI * 0.25 : spread - Math.PI * 0.75;
   return { x, y, ang };
@@ -1596,7 +1598,7 @@ export function edgeSpawn(
 
 export function spawnAsteroidState(w = BASE_WORLD_W, h = BASE_WORLD_H): AsteroidState {
   const { x, y, ang } = edgeSpawn(ASTEROID_MAX_RADIUS, w, h);
-  const radius = ASTEROID_MIN_RADIUS + Math.random() * (ASTEROID_MAX_RADIUS - ASTEROID_MIN_RADIUS);
+  const radius = ASTEROID_MIN_RADIUS + rand() * (ASTEROID_MAX_RADIUS - ASTEROID_MIN_RADIUS);
   const speed = asteroidSpeed(radius);
   return {
     id: crypto.randomUUID(),
@@ -1616,8 +1618,8 @@ export function spawnUfoState(w = BASE_WORLD_W, h = BASE_WORLD_H): UfoState {
     id: crypto.randomUUID(),
     x,
     y,
-    destX: Math.random() * w,
-    destY: Math.random() * h,
+    destX: rand() * w,
+    destY: rand() * h,
     hp: UFO_HP,
     blinkUntil: 0,
   };
@@ -1625,7 +1627,7 @@ export function spawnUfoState(w = BASE_WORLD_W, h = BASE_WORLD_H): UfoState {
 
 /** Generic item factory — every drop class ships through here. */
 export function spawnItemState(x: number, y: number, drop: ItemDrop): ItemState {
-  const ang = Math.random() * Math.PI * 2;
+  const ang = rand() * Math.PI * 2;
   return {
     id: crypto.randomUUID(),
     x,
@@ -1640,8 +1642,8 @@ export function spawnItemState(x: number, y: number, drop: ItemDrop): ItemState 
 /** Score shard at (x,y) with a small position scatter + slow random drift,
  *  so a multi-shard drop fans out instead of stacking into one sprite. */
 export function spawnShardState(x: number, y: number): ShardState {
-  const ang = Math.random() * Math.PI * 2;
-  const scatter = Math.random() * 10;
+  const ang = rand() * Math.PI * 2;
+  const scatter = rand() * 10;
   return {
     id: crypto.randomUUID(),
     x: x + Math.cos(ang) * scatter,
@@ -1655,7 +1657,7 @@ export function spawnShardState(x: number, y: number): ShardState {
 export function spawnWeaponItemState(x: number, y: number): ItemState {
   return spawnItemState(x, y, {
     kind: "weapon",
-    weaponIdx: Math.floor(Math.random() * WEAPONS_SPECIAL.length),
+    weaponIdx: Math.floor(rand() * WEAPONS_SPECIAL.length),
   });
 }
 
