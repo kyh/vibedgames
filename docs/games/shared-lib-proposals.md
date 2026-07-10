@@ -76,6 +76,18 @@ Renderer + resize + loop + fatal-panel + dev-hook. Two engine shapes (subpath
 exports), loop injects `render(dt,rawDt)` so dither passes / perf governors / composers
 still fit. Lowest priority (most coupling). Constants stay per-game.
 
+### 8. `@vibedgames/game-clock` — pausable sim clock  ·  effort S · risk low
+Offset-based `now()/pauseClock()/resumeClock()`: wall time minus every ms spent
+paused, frozen while paused, seamless on resume (stored deadlines hold — no
+mass-detonation/teleport on wake). 2 byte-identical field-tested copies:
+bomberman `src/util/clock.ts` (pattern donor, "real pause" work) and starfall
+`src/shared/clock.ts` (2026-07-09, enables offline freeze + the
+`setPausedForScreenshot` test hook). **Contract:** only SIM timestamps read
+`now()`; net heartbeats/connection deadlines stay on raw `Date.now()`
+(pausing must not break reconnect), and pause is only honored offline/solo —
+freezing a shared online world stalls the other players. Engine-free, DOM-safe,
+zero-alloc. Extraction is a mechanical de-dupe.
+
 ---
 
 ## B. In-repo consistency alignment still to do (no package; do before extraction)

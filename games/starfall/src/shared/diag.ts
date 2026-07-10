@@ -10,8 +10,10 @@
 //   assume one boot per page load), so an honest mid-run reseed+restart isn't
 //   possible. Seeding uses the contract's boot-time alternative instead — a
 //   `?seed=N` query param read in main.ts before the game constructs.
-// - No `setPausedForScreenshot`: the sim is Date.now-driven and shared, so
-//   freezing the loop is forbidden (a wake would teleport every entity).
+// - `setPausedForScreenshot` is OFFLINE-ONLY: it rides the same real freeze as
+//   the wrapper pause (pausable sim clock in shared/clock.ts + loop sleep), so
+//   every stored deadline holds and nothing teleports on resume. Online it's a
+//   no-op — freezing the shared world would stall the other players.
 // - `setState('active-play')` forces the offline solo fallback immediately
 //   (instead of waiting out the 4s connect grace) and dismisses the start
 //   overlay. Online play is untouched: the hook only ever runs when a test
@@ -38,13 +40,21 @@ export const diag: Diagnostics = {
 
 export type TestHooks = {
   setState(name: string): void;
+  setPausedForScreenshot(paused: boolean): void;
 };
 
-export function installTestHooks(hooks: { activePlay(): void }): void {
+export function installTestHooks(hooks: {
+  activePlay(): void;
+  /** Offline-only real freeze (see header). No-op while online. */
+  setPaused(paused: boolean): void;
+}): void {
   Reflect.set(globalThis, "__GAME_DIAGNOSTICS__", diag);
   const testHooks: TestHooks = {
     setState(name: string): void {
       if (name === "active-play") hooks.activePlay();
+    },
+    setPausedForScreenshot(paused: boolean): void {
+      hooks.setPaused(paused);
     },
   };
   Reflect.set(globalThis, "__GAME_TEST_HOOKS__", testHooks);
