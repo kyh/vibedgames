@@ -2,6 +2,7 @@ import { createDb } from "@repo/db/drizzle-client";
 import { deploymentFile, game } from "@repo/db/drizzle-schema";
 import { and, eq, inArray } from "drizzle-orm";
 
+import { contentTypeForPath } from "./content-type";
 import {
   extractDescription,
   extractTitle,
@@ -51,22 +52,15 @@ export default {
     const requestedPath = normalizePath(url.pathname);
     const r2Key = `games/${g.id}/${g.currentDeploymentId}/${requestedPath}`;
 
-    const [obj, fileRow] = await Promise.all([
-      env.GAMES_BUCKET.get(r2Key),
-      db.query.deploymentFile.findFirst({
-        where: and(
-          eq(deploymentFile.deploymentId, g.currentDeploymentId),
-          eq(deploymentFile.path, requestedPath),
-        ),
-        columns: { contentType: true },
-      }),
-    ]);
+    const obj = await env.GAMES_BUCKET.get(r2Key);
 
     if (!obj) {
       return notFound("File not found");
     }
 
-    const contentType = fileRow?.contentType ?? "application/octet-stream";
+    // Derived from the extension with the same map the CLI used to stamp
+    // deploymentFile.contentType at upload — no per-asset D1 query.
+    const contentType = contentTypeForPath(requestedPath);
 
     const headers = new Headers();
     headers.set("content-type", contentType);
