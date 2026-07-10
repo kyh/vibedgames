@@ -529,27 +529,48 @@ export class GameScene {
     return this.cache;
   }
 
-  // Bake a sky environment map so PBR materials (ocean, glass, paint) pick up
-  // subtle sky reflections. Called once from main after the renderer exists.
+  // Environment map for PBR fill + ocean/glass/paint sheen: a tiny BOUNDED
+  // LDR gradient cubemap, deliberately NOT a PMREM bake of the physical Sky.
+  // The Sky's sun disc emits radiance beyond float16 range, and on
+  // GLES-class drivers (Android phones, SwiftShader) the PMREM mip chain
+  // overflows to Inf/NaN — and a NaN environment poisons EVERY lit material
+  // to pure black (found by bisect: env present = black city, env removed =
+  // lit city; Metal-backed desktop GL tolerates it, which is why desktop
+  // looked fine). 8-bit source texels cannot overflow anywhere. The
+  // day-night cycle keeps modulating intensity via environmentIntensity.
   applyEnvironment(renderer: THREE.WebGLRenderer): void {
-    const pmrem = new THREE.PMREMGenerator(renderer);
-    const tmp = new THREE.Scene();
-    tmp.add(this.sky);
-    // Always bake the env from the DAYLIGHT sky: booting at real-SF night used
-    // to bake a black dome, killing even the PBR fill after dark (one reason
-    // phones opened at night read pitch-black). The cycle dims the fill via
-    // environmentIntensity; the bake itself must stay daylit.
-    const sunU = this.sky.material.uniforms.sunPosition;
-    const bootSun = sunU && sunU.value instanceof THREE.Vector3 ? sunU.value.clone() : null;
-    if (sunU && sunU.value instanceof THREE.Vector3) sunU.value.copy(SUN_DIR);
-    const rt = pmrem.fromScene(tmp);
-    if (sunU && sunU.value instanceof THREE.Vector3 && bootSun) sunU.value.copy(bootSun);
-    this.scene.environment = rt.texture;
-    this.scene.environmentIntensity = 0.32; // the HDR sky is bright; keep fill subtle
-    this.scene.add(this.sky); // move the sky back into the live scene
-    pmrem.dispose();
-    // The env map is baked at daylight once; the cycle only modulates its
-    // intensity (a per-phase re-bake would hitch every few seconds).
+    const face = (top: string, mid: string, bottom: string): HTMLCanvasElement => {
+      const c = document.createElement("canvas");
+      c.width = 16;
+      c.height = 16;
+      const g = c.getContext("2d");
+      if (g) {
+        const grad = g.createLinearGradient(0, 0, 0, 16);
+        grad.addColorStop(0, top);
+        grad.addColorStop(0.55, mid);
+        grad.addColorStop(1, bottom);
+        g.fillStyle = grad;
+        g.fillRect(0, 0, 16, 16);
+      }
+      return c;
+    };
+    const SKY_TOP = "#7fb2e0";
+    const HORIZON = "#dde6ea";
+    const GROUND = "#55534a";
+    const side = (): HTMLCanvasElement => face(SKY_TOP, HORIZON, GROUND);
+    // Face order: +x, -x, +y, -y, +z, -z — sides run zenith→ground.
+    const cube = new THREE.CubeTexture([
+      side(),
+      side(),
+      face(SKY_TOP, SKY_TOP, SKY_TOP),
+      face(GROUND, GROUND, GROUND),
+      side(),
+      side(),
+    ]);
+    cube.colorSpace = THREE.SRGBColorSpace;
+    cube.needsUpdate = true;
+    this.scene.environment = cube;
+    this.scene.environmentIntensity = 0.32; // keep the fill subtle
     this.dayNight.attachRenderer(renderer);
     this.renderer = renderer;
   }
