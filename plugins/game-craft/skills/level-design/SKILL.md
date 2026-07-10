@@ -111,7 +111,9 @@ counts as designed. Apply on top of the core rules.
 - **Boss fight**: every attack = readable tell → avoid/defend option →
   impact feedback → cooldown (punish window). Phases add combinations and
   arena pressure, never just more health. Define camera-lock behavior and
-  arena hazards up front.
+  arena hazards up front. Pick the next attack by player distance (close →
+  swipe, far → lunge/projectile) and forbid immediate repeats — a fixed
+  rotation is memorized in two loops and reads arcade-y.
 - **Puzzle**: state the rule each puzzle teaches. First puzzle teaches,
   second confirms, third twists. Failure reveals information — no hidden
   dependency chains that force guessing.

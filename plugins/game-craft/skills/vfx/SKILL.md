@@ -82,6 +82,25 @@ Phaser: create emitters once, fire with `explode(n, x, y)`.
 - **UI flourish**: same grammar smaller — scale 1→1.15→1 (`Back.Out`,
   200ms), 4–6 corner sparkles, brief tint-up.
 
+## Ambience — does it feel like a place?
+
+Combat FX make actions land; ambience makes the world exist. Audit any
+static-feeling scene against these, all cheap:
+
+- **Air has substance**: a handful of drifting motes/leaves/embers at low
+  alpha (0.1–0.25), slow drift, long lives (4–10s), NORMAL blend, mid
+  values — like weather, ambience must never out-contrast gameplay FX.
+- **Reactive foliage**: grass/plants as bottom-anchored sprites with a small
+  rotation sway tween; give each blade a phase offset plus a little
+  randomness so they never sync. On player proximity, rotate away from the
+  player and spring back — walking through a field suddenly reads as
+  touching it. Trivial in Phaser (per-sprite `rotation` tweens, origin at
+  the base).
+- **Re-theme with a grade, not a tileset**: one tileset × a different
+  tint/fog/vignette/light pass = a new biome for free. Adjust value +
+  saturation, add fog or darkness, then place light sources; vary the grade
+  per zone before authoring new art.
+
 ## Color & readability
 
 - **Hot core, cool edge**: map particle life to white→yellow→orange→red→grey.

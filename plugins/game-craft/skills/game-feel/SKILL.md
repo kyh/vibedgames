@@ -1,6 +1,6 @@
 ---
 name: game-feel
-description: "Deep game-feel and juice reference — input forgiveness windows, movement curves, hit stop, trauma-based screen shake, squash & stretch, camera kick, audio feel — with concrete numbers from the canonical sources (Swink, Vlambeer, Celeste, Smash). Use when tuning how a game FEELS: 'the controls feel floaty/sluggish/slippery', 'jumping feels bad', 'hits don't land', 'make combat feel weighty', 'add juice', 'coyote time', 'input buffering', 'screen shake feels wrong', or any movement/impact tuning pass. The game-playbook craft checklist covers the basics; this is the deep module with the tuning values."
+description: "Deep game-feel and juice reference — input forgiveness windows, movement curves, movement depth & player expression, hit stop, trauma-based screen shake, squash & stretch, camera kick, audio feel — with concrete numbers from the canonical sources (Swink, Vlambeer, Celeste, Smash). Use when tuning how a game FEELS: 'the controls feel floaty/sluggish/slippery', 'jumping feels bad', 'hits don't land', 'make combat feel weighty', 'add juice', 'coyote time', 'input buffering', 'screen shake feels wrong', or any movement/impact tuning pass. The game-playbook craft checklist covers the basics; this is the deep module with the tuning values."
 ---
 
 # Game feel: the numbers
@@ -32,6 +32,9 @@ their own skill (Celeste).
   nudged sideways; a dash that clips a ledge pops up onto it. Celeste's
   wall-jump reaches ~2px off the wall at 320×180 — scale to your resolution.
 - **Never demand frame-perfection.** Any 1-frame window gets widened.
+- **Player hurtbox smaller than the sprite** (Silksong, bullet hells): damage
+  collision ~70–85% of the visual body. Near-misses that look like grazes
+  should be grazes. Attack/interaction hitboxes go the other way — generous.
 - **Touch: enlarge hitboxes, not visuals** — tappable region > sprite.
 - Respond to core verbs within ~100ms total (Swink's correction cycle);
   never add startup delay to movement inputs.
@@ -53,6 +56,39 @@ their own skill (Celeste).
 - **Keep platform momentum** for a few frames after leaving a moving platform.
 - Phaser: implement as manual velocity writes in `update()` — Arcade `drag`
   alone can't express asymmetric accel or apex gravity.
+- **Personality is a palette, not one recipe**: the numbers above tune
+  "responsive", but a kit reads best through contrast — a tight, heavy base
+  moveset plus ONE deliberately loose, momentum-carrying ability (a fling, a
+  grapple, a slide) produces more joy than uniform tightness. Tune the outlier
+  for arc and carry, not control.
+
+## Movement depth & expression
+
+More depth never means more buttons. Three ways a move can be triggered:
+
+- **Button moves** — few, foundational (jump, dash, attack).
+- **Context moves** — the same button does something new given environment
+  state: wall touch → wall jump, airborne over a bounce surface → bounce,
+  moving on landing → slide. This is where depth is cheapest.
+- **Sequence moves** — input chains: jump at the end of a grapple → fling,
+  dash into a roll → extended roll. Reward timing, don't require it.
+
+Working method:
+
+- **Audit dead moments**: anywhere the player is locked out of decisions
+  (mid-grapple, mid-dash, mid-knockback), ask "what context or sequence could
+  give them an option here?" Each option multiplies expression.
+- **Directional choices follow facing** — fling/bounce direction = the way
+  you face. Doubles as leniency: no separate aim input to fumble.
+- **Consistency beats physics**: the same fling should work off floor,
+  wall, and ceiling. Cross-move consistency is what lets players compose
+  moves you never planned.
+- **Emergent chains appearing uninvited** (roll → corner-fling → wall-bounce
+  you never designed) are the success signal — keep them, build levels
+  around them.
+- **Playtest-kill confusing moves** even if you love them; keep a powerful
+  move balanced by shrinking its effective range/window, not by weakening
+  its feel.
 
 ## Impact
 
@@ -113,7 +149,10 @@ their own skill (Celeste).
 Numbers above are starting points, not answers. Wire the 5–6 feel constants
 (accel frames, buffer, coyote, hit-stop, shake trauma) to a debug panel or
 query params, play 2 minutes, adjust, repeat. If you can't decide between two
-values, the larger forgiveness / smaller effect is usually right.
+values, the larger forgiveness / smaller effect is usually right. When a
+target feel exists (e.g. "like Celeste", "like Downwell"), run the reference
+game side-by-side and A/B the same maneuver — match cadence and stop
+distances by eye and SFX timing by ear; memory of feel is unreliable.
 
 Related skills: `game-playbook` (build order + basic craft pass), `phaser`
 (engine APIs), `onboarding` (difficulty feel), `design-lenses` (is it fun at

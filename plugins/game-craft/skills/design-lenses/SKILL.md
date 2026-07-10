@@ -1,6 +1,6 @@
 ---
 name: design-lenses
-description: "Structured game-design critique: review a game through Schell's design lenses and the MDA framework, producing severity-ranked findings with concrete fixes. Use when the user asks 'is my game fun?', 'review my game design', 'why is it boring?', 'critique this game', 'what's missing?', 'how do I make it better?' (design-level, not bug-level), or before shipping as a design QA pass. For feel/juice tuning go to game-feel; for bugs use code review."
+description: "Structured game-design critique: review a game through Schell's design lenses, Wright's systems-and-emergence lenses, and the MDA framework, producing severity-ranked findings with concrete fixes. Use when the user asks 'is my game fun?', 'review my game design', 'why is it boring?', 'critique this game', 'what's missing?', 'how do I make it better?' (design-level, not bug-level), or before shipping as a design QA pass. For feel/juice tuning go to game-feel; for bugs use code review."
 ---
 
 # Design lens review
@@ -73,6 +73,24 @@ browser-game failure mode.)
   (sensation, anticipation, triumph, destruction); which genre-expected ones
   are missing? _Smell: mono-pleasure; no audio at all is the #1 gap._
 
+**Systems & emergence** (Wright — SimCity/Sims/Spore school)
+
+- **Possibility Space** — would ten players produce ten different outcomes,
+  or is this a corridor wearing a game's clothes? _Smell: every run identical
+  by design, not just by lack of content._
+- **Story Generator** — can a player recount a session story the designer
+  never wrote? Systems should manufacture anecdotes. _Smell: only authored
+  moments are memorable._
+- **Indirect Control** — is the player a gardener (shaping conditions, the
+  system answers back) or a typist (commanding outcomes directly)? _Smell:
+  total control, zero surprise — data entry with a skin._
+- **Compression** — does every simulated variable change a decision the
+  player actually makes? A sim is a caricature: model what generates choices,
+  fake or cut the rest. _Smell: simulation detail nobody's choices touch._
+- **Investment** — has the player made/named/shaped something they'd be sad
+  to lose, and is it then put at risk? Creative investment manufactures
+  stakes for free. _Smell: nothing on screen is "theirs"._
+
 **Mechanics & structure**
 
 - **Elemental Tetrad** — mechanics, story/theme, aesthetics, tech: each
@@ -126,6 +144,16 @@ browser-game failure mode.)
   audio never recovers post-gesture, breaks at non-16:9._
 - **Time** — is session length right; natural stop/re-entry points? _Smell:
   runs that mathematically never end, or 8-second runs with no arc._
+
+## When a human tester is available
+
+Self-play finds structure problems; only a human finds comprehension ones.
+Protocol: watch live and **silently** — face and body language outweigh
+verbal feedback. Never coach, hint, or rescue: 99% of players play
+unsupervised, so every stumble is a design fault, not a player fault. ~5
+testers per build is enough to surface the pattern; fix, then re-test with
+fresh eyes. Good signs are behavioral: unprompted "one more run", retelling
+what happened, asking "wait, what if I…".
 
 ## MDA quick reference
 

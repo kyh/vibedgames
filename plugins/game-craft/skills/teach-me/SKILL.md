@@ -30,10 +30,11 @@ real game projects. Learning state lives in these files:
 - `./learning-records/*.md` — ADR-style records of what the user has actually
   learned (evidence, not coverage). Used to calculate the zone of proximal
   development. Format in [LEARNING-RECORD-FORMAT.md](./LEARNING-RECORD-FORMAT.md).
-- `./lessons/*.html` — one self-contained, beautiful HTML file per lesson,
-  numbered `0001-<dash-case-name>.html`. The knowledge half of a lesson.
+- `./lessons/*.html` — one beautiful HTML file per lesson, numbered
+  `0001-<dash-case-name>.html`. The knowledge half of a lesson.
 - `./reference/*.html` — compressed cheat sheets that outlive lessons: engine
   snippets, the juice checklist, a gamedev glossary, asset-pipeline recipes.
+- `./assets/*` — reusable components shared across lessons (see Assets).
 - `NOTES.md` — scratchpad for the user's preferences and your working notes.
 
 ## Philosophy
@@ -66,7 +67,21 @@ A lesson is one tightly-scoped thing tied to the mission, in two halves:
 
 Each lesson should be completable quickly — working memory is small — and end
 with a single tangible win the user can _play_. Every lesson reminds the user
-they can ask follow-up questions; you are their teacher.
+they can ask follow-up questions; you are their teacher. Link lessons to each
+other and to reference docs via HTML anchors so the course cross-references
+itself.
+
+## Assets
+
+Lessons are built from reusable **components** in `./assets/`: stylesheets,
+quiz widgets, tiny canvas demos (a delta-time visualizer, a hitbox overlay,
+an easing-curve playground), diagram helpers — anything a second lesson could
+reuse. Reuse is the default: before authoring a lesson, read `./assets/` and
+build from what's there; when a lesson needs something new and reusable,
+write it as a component and link it — never inline code a future lesson
+would duplicate. A shared stylesheet is the first component every workspace
+earns, so the lessons read as one consistent course rather than a pile of
+one-offs.
 
 ## The curriculum spine
 
@@ -135,8 +150,9 @@ what moves the floor up.
 ## Reference documents
 
 While teaching, build up `./reference/`: engine syntax sheets, a juice
-checklist, asset-generation recipes, and a **glossary** (hitbox, coyote time,
-game feel, tick, authoritative host...). Lessons are rarely revisited;
+checklist, asset-generation recipes, and a **glossary** (`GLOSSARY.md` at the
+workspace root — format in [GLOSSARY-FORMAT.md](./GLOSSARY-FORMAT.md); add a
+term only once the user can use it correctly). Lessons are rarely revisited;
 reference docs are. Once a glossary exists, every lesson adheres to it.
 
 ---

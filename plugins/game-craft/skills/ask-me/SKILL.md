@@ -10,10 +10,31 @@ make until you reach a shared, build-ready understanding. Walk down each
 branch of the design tree, resolving dependencies between decisions
 one-by-one.
 
-**Ask the questions one at a time.** For each question, provide your
-recommended answer and why — the user should be able to say "yes, that" and
-move on. If a question can be answered by exploring an existing project or
-codebase, explore it instead of asking.
+**Ask the questions one at a time, waiting for the answer before
+continuing** — multiple questions at once is bewildering. For each question,
+provide your recommended answer and why — the user should be able to say
+"yes, that" and move on.
+
+**Facts vs decisions**: if a *fact* can be found by exploring an existing
+project or codebase, look it up instead of asking. The *decisions* are the
+user's — put each one to them and wait; never answer your own question and
+move on.
+
+**Sharpen fuzzy terms as they appear.** When the user says "roguelike",
+"combo", "level", "energy" — overloaded words — propose a precise meaning
+and get agreement ("by 'roguelike' do you mean permadeath + procedural
+runs, or just 'hard'?"). Pick one canonical name per concept and use it
+consistently in the SPEC; later build sessions will mishandle synonyms.
+
+**Stress-test answers with degenerate play.** When a loop or mechanic is
+described, probe it with concrete hostile scenarios before accepting it:
+what happens if the player stands still? Spams the one button? Hoards
+instead of spends? Never takes the risky route? If the answer is "nothing
+breaks, it's just boring," that's a finding — challenge the branch.
+
+**Capture as you go.** Write each resolved branch into `design/SPEC.md`
+the moment it settles, not in one batch at the end — a long interview that
+dies mid-session should leave the decisions made so far on disk.
 
 ## The design tree
 
@@ -50,13 +71,26 @@ anything already answered; drill deeper wherever an answer is vague.
     twitch PvP. Say so if the idea fights the model.
 12. **Title and slug.** It deploys to `{slug}.vibedgames.com` — pick both.
 
+13. **The riskiest assumption.** Which single belief, if false, kills this
+    game? Usually "the core verb is fun with zero goals attached." Agree on
+    the cheapest test that answers it — for a browser game, a grayblock
+    scene: core verb only, no art, no menus, no progression. Define the
+    fun-confirmed signal behaviorally, in advance (unprompted "one more
+    run", the player narrating what happened, "wait, what if I…") and a
+    kill/pivot criterion — deciding now is what stops a dead core from
+    getting decorated with features later.
+
 ## Exit
 
-When no unresolved branches remain, write the agreed design to
-`design/SPEC.md` in the project (create the dir if needed): hook, references,
-loop, controls, win/lose, progression, MVP cut list, art/audio direction,
-multiplayer decision, title/slug. Keep it to one page — it's a compass, not a
-plan.
+When no unresolved branches remain, finalize `design/SPEC.md` (create the
+dir if needed; most of it should already exist from capture-as-you-go):
+hook, references, loop, controls, win/lose, progression, MVP cut list,
+art/audio direction, multiplayer decision, title/slug — plus the riskiest
+assumption and its kill criterion, and the canonical term for each game
+concept. Keep it to one page — it's a compass, not a plan.
+
+**Do not start building until the user confirms the SPEC reflects a shared
+understanding.**
 
 The SPEC is now the foundation, not the finish line. Point the user at the
 craft skills that turn a sound design into a game worth replaying, and pull

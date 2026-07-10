@@ -98,6 +98,10 @@ follow-through and recovery, which don't delay input.
 - **Transitions last**: idle↔walk snaps fine at 8–12fps; spend frames only
   on land-squash and attack-recovery-pop. Add dedicated transitions only
   where the snap visibly jars.
+- **The one transition always worth it: the pivot.** A single 1-frame
+  turn pose shown on direction change (and a lean/head-turn on wall-slide)
+  is the highest life-per-frame purchase in the sheet — direction flips
+  without it are where "stiff" reads come from.
 
 ## Review checklist
 

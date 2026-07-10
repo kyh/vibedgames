@@ -29,6 +29,8 @@ Always use `--json` so output is machine-readable. Use `--download` to save file
 
 **Craft rule (all paths): no baked shadows in the sprite.** Prompt against cast/contact/ground shadows, base ellipses, and floor lines — the engine adds shadows at render time, and a baked-in shadow fights the engine's.
 
+**Craft rule: the uniform-pixel-grid rule applies to sprites and tiles only.** FX, weather particles, and swung weapons may scale, rotate, and move sub-pixel — mixed pixel sizes on those layers read smoother, not wrong (every good pixel-art game cheats here). Don't pixel-snap particle/FX layers or force effects onto the sprite grid.
+
 ---
 
 ## Execution rules, follow these strictly
