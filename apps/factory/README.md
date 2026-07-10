@@ -40,19 +40,6 @@ pnpm approve neon-slasher    # publish the current build to neon-slasher.vibedga
 pnpm stop    neon-slasher    # graceful stop (or just Ctrl-C the running process)
 ```
 
-### Live dashboard (TUI)
-
-In a terminal, `pnpm start` runs a live dashboard ([opentui](https://github.com/anomalyco/opentui)):
-header with phase / cycle / spend / deploy status, a streaming activity feed of
-what the current subagent is doing, and hotkeys —
-
-- **`a`** — approve one deployment (same as `pnpm approve <slug>`)
-- **`s`** — graceful stop after the current step (same as `pnpm stop <slug>`)
-- **`q` / Ctrl-C** — stop; press again to force quit
-
-When stdout isn't a TTY (CI, piped logs) — or with `--no-tui` — the factory
-streams the same events as plain log lines instead.
-
 ### Deploys need your approval
 
 By default **nothing goes live without you.** The agent builds, playtests, and
@@ -177,21 +164,19 @@ cat .agent/trace.jsonl | jq -s 'group_by(.role) | map({role: .[0].role, cost: (m
 
 ## Prerequisites
 
-1. **Bun ≥ 1.2** on `PATH` — the scripts run the TypeScript/TSX sources
-   directly with Bun (the TUI's renderer requires the Bun runtime).
-2. **Claude Code CLI** logged in on your machine (`claude` on `PATH`, or set
+1. **Claude Code CLI** logged in on your machine (`claude` on `PATH`, or set
    `CLAUDE_BIN`). The agent uses your existing Claude subscription/login — it
    shells out to `claude -p`.
-3. **`vg` CLI + skills linked locally:** run `pnpm dogfood` once at the repo
+2. **`vg` CLI + skills linked locally:** run `pnpm dogfood` once at the repo
    root. The orchestrator runs each subagent with its cwd inside this repo so
    Claude Code resolves the skills from `<repo>/.claude/skills`.
-4. Anything `vg generate` / `vg deploy` need (a logged-in `vg`, env from
+3. Anything `vg generate` / `vg deploy` need (a logged-in `vg`, env from
    `.env`). The subagents call `vg login`-gated commands.
 
 ## Run
 
-There's no build step — the scripts run the TypeScript/TSX sources directly
-with Bun. From `apps/factory/`:
+There's no build step — the scripts run the TypeScript sources directly with
+Node's built-in type stripping (Node ≥ 22.18). From `apps/factory/`:
 
 ```bash
 pnpm start <slug> --idea "<one-line idea>"
@@ -203,7 +188,7 @@ From the repo root, target the package with `-F`:
 pnpm -F @repo/factory start <slug> --idea "<one-line idea>"
 ```
 
-The `start`, `stop`, `status`, and `approve` scripts each run `bun
+The `start`, `stop`, `status`, and `approve` scripts each run `node
 src/index.ts <cmd>`; everything after the script name (the slug and any flags)
 is passed straight through. `pnpm typecheck` runs `tsc --noEmit` (the only
 TypeScript step — nothing is emitted).
@@ -224,7 +209,6 @@ TypeScript step — nothing is emitted).
 | `--skip-ship`       | off                               | Never prepare a release at all (use while testing).                             |
 | `--dir`             | `apps/factory/.workspaces/<slug>` | Where the game lives — its project directory.                                    |
 | `--guarded`         | off                               | Do **not** auto-approve tools — for debugging only; breaks autonomy.             |
-| `--no-tui`          | off                               | Plain streamed logs instead of the live dashboard (automatic when not a TTY).    |
 
 Re-running `pnpm start <slug>` **resumes** from the saved phase.
 

@@ -3,8 +3,6 @@
   "compilerOptions": {
     "lib": ["ES2023"],
     "types": ["node"],
-    "jsx": "react-jsx",
-    "jsxImportSource": "@opentui/react",
     "allowImportingTsExtensions": true
   },
   "include": ["src"]
