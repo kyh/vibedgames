@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0 — 2026-07-09
+
+- `vg factory` — the autonomous game factory as an optional plugin: installs the `@vibedgames/factory-<platform>` binary on first use and passes all args through (full TUI dashboard, claude/codex runners)
+- `vg deploy` prefers `dist/` from a project root and warns on unbuilt roots (checks dist/build/out)
+- `vg generate --provider codex` — delegate image generation to the Codex CLI; hardened codex output matching/failure handling
+- dropped `vg keys` commands — API keys are provisioned via the web UI
+- tightened error handling for revoke, whoami, and apikey index
+
 ## 0.2.0 — 2026-06-12
 
 - `vg` auto-update — CLI checks for and applies newer published versions
