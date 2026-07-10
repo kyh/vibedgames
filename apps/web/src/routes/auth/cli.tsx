@@ -11,7 +11,7 @@ const cliSearchSchema = z.object({
 });
 
 const fetchCliAuth = createServerFn({ method: "GET" })
-  .inputValidator(cliSearchSchema)
+  .validator(cliSearchSchema)
   .handler(async ({ data: { code } }) => {
     if (!code) {
       return { error: "missing-code" as const };
