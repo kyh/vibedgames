@@ -12,7 +12,12 @@ import type { Terrain } from "./terrain";
 // under a 13u-wide road is invisible. Markings float on a raised lift so the
 // looser tolerance can't tuck them under the asphalt.
 const MAX_ERROR = 0.09; // split a triangle when the surface bows past this
-const MIN_EDGE = 2.4; // never split edges shorter than this (runaway guard)
+// Never split edges shorter than this. The terrain field itself is 2u
+// resolution (terrain.ts FIELD_STEP) — subdividing much below ~2x that
+// re-samples the same bilinear patch and buys no accuracy, it just multiplies
+// verts. The deepest split level dominates the drape's vertex count, so this
+// floor is the main size knob for the baked world.
+const MIN_EDGE = 3.6;
 const MAX_DEPTH = 4;
 const UP_DOT = 0.8; // vertices at least this upright adopt the terrain normal
 
@@ -54,10 +59,13 @@ function mid(a: Vert, b: Vert): Vert {
 }
 
 // The geometry must already be in world space (matrixWorld baked in).
+// `maxError` loosens the sag tolerance per call: thin decals on a raised lift
+// (road markings) tolerate a far bigger bow than the surfaces they sit on.
 export function conformToTerrain(
   geo: THREE.BufferGeometry,
   terrain: Terrain,
   lift: number,
+  maxError: number = MAX_ERROR,
 ): THREE.BufferGeometry {
   const src = geo.index ? geo.toNonIndexed() : geo;
   const pos = src.getAttribute("position");
@@ -114,7 +122,7 @@ export function conformToTerrain(
       if (Math.hypot(dx, dz) < MIN_EDGE) continue;
       const hMid = terrain.heightAt((p[0] + q[0]) / 2, (p[2] + q[2]) / 2);
       const hAvg = (terrain.heightAt(p[0], p[2]) + terrain.heightAt(q[0], q[2])) / 2;
-      if (Math.abs(hMid - hAvg) > MAX_ERROR) return true;
+      if (Math.abs(hMid - hAvg) > maxError) return true;
     }
     return false;
   };

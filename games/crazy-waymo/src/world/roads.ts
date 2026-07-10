@@ -28,7 +28,12 @@ const CURB_W = 0.7;
 const ASPHALT_LIFT = ROAD_Y + 0.05;
 const SIDEWALK_LIFT = ROAD_Y + 0.13;
 const CURB_LIFT = SIDEWALK_LIFT + 0.03; // curb lip reads above the walk
-const LINE_LIFT = ASPHALT_LIFT + 0.1;
+// Markings drape at a looser sag tolerance than the asphalt (thin decals;
+// the vert savings across all of SF's paint is large), so the lift must
+// cover the worst RELATIVE bow between the two drapes: marking error +
+// asphalt error (~0.09), with margin.
+const MARKING_MAX_ERROR = 0.18;
+const LINE_LIFT = ASPHALT_LIFT + 0.3;
 const LINE_W = 0.24;
 const EDGE_INSET = 0.5;
 const DASH_LEN = 2.2;
@@ -137,7 +142,7 @@ export function bakeConstantColor(geo: THREE.BufferGeometry, color: THREE.Color)
   geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
 }
 
-type Part = { geo: THREE.BufferGeometry; mat: THREE.Material; lift: number };
+type Part = { geo: THREE.BufferGeometry; mat: THREE.Material; lift: number; maxError?: number };
 
 export type RoadPartBuffers = {
   matKey: string;
@@ -629,10 +634,11 @@ export function buildRoadParts(network: RoadNetwork, terrain: Terrain): RoadPart
         const ox = -a.tz;
         const oz = a.tx;
         const quad = (out: number[], d0: number, d1: number, l0: number, l1: number): void => {
-          // Emit in ~1.2u slices on both axes so the drape follows terrain
-          // curvature as closely as the asphalt underneath does.
-          const dSlices = Math.max(1, Math.ceil((d1 - d0) / 1.2));
-          const lSlices = Math.max(1, Math.ceil((l1 - l0) / 1.2));
+          // Coarse ~3u pre-slices only — conformToTerrain's adaptive split
+          // adds density exactly where the terrain curves; a fixed fine grid
+          // here just multiplied verts on dead-flat intersections.
+          const dSlices = Math.max(1, Math.ceil((d1 - d0) / 3.0));
+          const lSlices = Math.max(1, Math.ceil((l1 - l0) / 3.0));
           for (let di = 0; di < dSlices; di++) {
             for (let li = 0; li < lSlices; li++) {
               const da = d0 + ((d1 - d0) * di) / dSlices;
@@ -713,7 +719,7 @@ export function buildRoadParts(network: RoadNetwork, terrain: Terrain): RoadPart
     { geo: multiPolyGeo(asphalt), mat: MAT_ASPHALT, lift: ASPHALT_LIFT },
     { geo: multiPolyGeo(walk), mat: MAT_SIDEWALK, lift: SIDEWALK_LIFT },
     { geo: multiPolyGeo(curb), mat: MAT_CURB, lift: CURB_LIFT },
-    ...markingParts,
+    ...markingParts.map((p) => ({ ...p, maxError: MARKING_MAX_ERROR })),
   ];
 
   const keyOfMat = new Map<THREE.Material, string>(
@@ -721,7 +727,7 @@ export function buildRoadParts(network: RoadNetwork, terrain: Terrain): RoadPart
   );
   const out: RoadPartBuffers[] = [];
   for (const p of parts) {
-    const draped = conformToTerrain(p.geo, terrain, p.lift);
+    const draped = conformToTerrain(p.geo, terrain, p.lift, p.maxError);
     const pos = draped.getAttribute("position");
     const nor = draped.getAttribute("normal");
     const uv = draped.getAttribute("uv");
