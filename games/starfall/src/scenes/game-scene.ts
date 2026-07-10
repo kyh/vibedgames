@@ -276,6 +276,8 @@ import {
   type Weapon,
   type WeaponSfx,
 } from "../shared/constants";
+import { diag, installTestHooks } from "../shared/diag";
+import { rand } from "../shared/rng";
 
 /** What a HOMING beam (or ARC hop) is steering toward / hit. */
 type TargetRef =
@@ -759,6 +761,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(): void {
+    // Bot-playtest diagnostics contract (shared/diag.ts): telemetry + the
+    // active-play hook. Single-start scene, so once per page load by design.
+    installTestHooks({ activePlay: () => this.forceOfflineSolo() });
     this.bossBarEl = document.getElementById("bossbar");
     this.bossHpEl = document.getElementById("bosshp");
     this.weaponEl = document.getElementById("weapon");
@@ -916,6 +921,7 @@ export class GameScene extends Phaser.Scene {
       // Connecting (pre-live): no world to tick, but still flush attract's fx.
       this.fx.update(dt, this.time.now);
       this.syncScreenUi(); // camera is static here; keep the vignette pinned
+      this.publishDiag(); // after this frame's work, so bots never read stale state
       return;
     }
     const now = Date.now();
@@ -972,6 +978,7 @@ export class GameScene extends Phaser.Scene {
     this.drawPadOverlay();
     this.syncScreenUi();
     this.updateHud(now);
+    this.publishDiag(); // after this frame's work, so bots never read stale state
   }
 
   /** Resize/rotation: re-read the safe-area insets and re-derive camera zoom. */
@@ -1018,6 +1025,29 @@ export class GameScene extends Phaser.Scene {
     this.startEl?.classList.add("hide");
     // Drop it only after the fade, so it can't swallow taps on the way out.
     this.time.delayedCall(320, () => this.startEl?.remove());
+  }
+
+  /** Test hook (shared/diag.ts): jump straight into an offline solo run —
+   *  force the fallback that maybeGoOffline would reach after the 4s grace,
+   *  then dismiss the start overlay. Never called during real play. */
+  private forceOfflineSolo(): void {
+    if (!this.offline) {
+      this.offline = true;
+      this.client.destroy();
+      this.ensureSeeded();
+    }
+    this.beginPlay();
+  }
+
+  /** Per-frame diagnostics for bot playtests (shared/diag.ts). One object
+   *  mutated in place; primitives only. */
+  private publishDiag(): void {
+    diag.frame += 1;
+    diag.score = this.xp;
+    diag.player.x = this.shipX;
+    diag.player.y = this.shipY;
+    diag.player.speed = Math.hypot(this.shipVX, this.shipVY);
+    diag.entities = this.world.enemies.length + this.world.asteroids.length;
   }
 
   /** Wrapper pause → dock my ship out of the arena as a spectator. No death
@@ -1430,7 +1460,7 @@ export class GameScene extends Phaser.Scene {
     const n = weapon.pellets;
     for (let i = 0; i < n; i++) {
       const spread = n > 1 ? -weapon.spreadDeg / 2 + (weapon.spreadDeg * i) / (n - 1) : 0;
-      const jitter = (Math.random() * 2 - 1) * weapon.jitterDeg;
+      const jitter = (rand() * 2 - 1) * weapon.jitterDeg;
       const angle = aimAngle + (spread + jitter) * DEG;
       this.beams.push(this.makeBeam(origin, angle, weapon, now));
     }
@@ -3475,13 +3505,13 @@ export class GameScene extends Phaser.Scene {
 
     // UFO is the weapon piñata; the v2 gate relaxes to < 2 weapon items live.
     const weaponItemsInFlight = w.items.filter((it) => it.kind === "weapon").length;
-    if (!w.ufo && weaponItemsInFlight < 2 && Math.random() < UFO_SPAWN_RATE * dt) {
+    if (!w.ufo && weaponItemsInFlight < 2 && rand() < UFO_SPAWN_RATE * dt) {
       w.ufo = spawnUfoState(w.playW, w.playH);
       d.ufo = true;
     }
     if (w.ufo && w.ufo.x === w.ufo.destX && w.ufo.y === w.ufo.destY) {
-      w.ufo.destX = Math.random() * w.playW;
-      w.ufo.destY = Math.random() * w.playH;
+      w.ufo.destX = rand() * w.playW;
+      w.ufo.destY = rand() * w.playH;
       d.ufo = true;
     }
 
@@ -3704,8 +3734,8 @@ export class GameScene extends Phaser.Scene {
         nextBurstShotAt: 0,
         lancerPhase: "cruise",
         phaseUntil: 0,
-        orbitDir: Math.random() < 0.5 ? 1 : -1,
-        wobblePhase: Math.random() * Math.PI * 2,
+        orbitDir: rand() < 0.5 ? 1 : -1,
+        wobblePhase: rand() * Math.PI * 2,
         kbVx: 0,
         kbVy: 0,
         broodCount: 0,
@@ -4025,7 +4055,7 @@ export class GameScene extends Phaser.Scene {
       const ratio = newRadius / a.radius;
       a.verts = a.verts.map((v) => ({ x: v.x * ratio, y: v.y * ratio }));
       a.radius = newRadius;
-      const ang = Math.atan2(a.vy, a.vx) + (Math.random() * 60 - 30) * DEG;
+      const ang = Math.atan2(a.vy, a.vx) + (rand() * 60 - 30) * DEG;
       const speed = asteroidSpeed(newRadius);
       a.vx = Math.cos(ang) * speed;
       a.vy = Math.sin(ang) * speed;
@@ -4163,7 +4193,7 @@ export class GameScene extends Phaser.Scene {
     const w = this.world;
     const psim = this.simFor(parent.id);
     for (let i = 0; i < n; i++) {
-      const ang = parent.angle + (Math.PI * 2 * i) / Math.max(1, n) + Math.random() * 0.4;
+      const ang = parent.angle + (Math.PI * 2 * i) / Math.max(1, n) + rand() * 0.4;
       const m = spawnEnemyState(
         "drone",
         parent.x + Math.cos(ang) * 18,
@@ -4286,7 +4316,7 @@ export class GameScene extends Phaser.Scene {
       this.hostSpawnShards(
         e.x,
         e.y,
-        FODDER_SHARD_MIN + Math.floor(Math.random() * (FODDER_SHARD_MAX - FODDER_SHARD_MIN + 1)),
+        FODDER_SHARD_MIN + Math.floor(rand() * (FODDER_SHARD_MAX - FODDER_SHARD_MIN + 1)),
       );
       this.hostRollLoot(e.x, e.y, FODDER_DROP_CHANCE, true);
     } else {
@@ -4331,7 +4361,7 @@ export class GameScene extends Phaser.Scene {
       else if (this.lootPity.booster >= LOOT_PITY.booster) cls = "booster";
       else if (this.lootPity.weapon >= LOOT_PITY.weapon) cls = "weapon";
     }
-    if (!cls && Math.random() >= chance) {
+    if (!cls && rand() >= chance) {
       bumpAll();
       return;
     }
@@ -4354,7 +4384,7 @@ export class GameScene extends Phaser.Scene {
         boosterIdx: BOOSTER_KINDS.indexOf(rollWeightedKey(LOOT_BOOSTER_WEIGHTS)),
       };
     } else {
-      drop = { kind: "weapon", weaponIdx: Math.floor(Math.random() * WEAPONS_SPECIAL.length) };
+      drop = { kind: "weapon", weaponIdx: Math.floor(rand() * WEAPONS_SPECIAL.length) };
     }
     w.items.push(spawnItemState(x, y, drop));
     this.dirty.items = true;
@@ -6219,7 +6249,7 @@ function weightedEnemyRoll(kinds: ReadonlyArray<EnemyKind>, intensity: number): 
   let total = 0;
   for (const k of kinds) total += enemySpawnWeight(k, intensity);
   if (total <= 0) return null;
-  let roll = Math.random() * total;
+  let roll = rand() * total;
   for (const k of kinds) {
     roll -= enemySpawnWeight(k, intensity);
     if (roll <= 0) return k;

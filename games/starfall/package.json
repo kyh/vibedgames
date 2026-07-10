@@ -8,6 +8,7 @@
     "clean": "rm -rf .turbo dist node_modules",
     "dev": "vite",
     "preview": "vite preview",
+    "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -18,6 +19,7 @@
   },
   "devDependencies": {
     "@kyh/tsconfig": "catalog:",
+    "@playwright/test": "^1.61.1",
     "@types/node": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:"
