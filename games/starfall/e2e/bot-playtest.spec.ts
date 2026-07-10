@@ -26,6 +26,7 @@ type Diagnostics = {
 
 type TestHooks = {
   setState(name: string): void;
+  setPausedForScreenshot(paused: boolean): void;
 };
 
 declare global {
@@ -131,4 +132,55 @@ test("bot playtest: mouse sweep progresses a seeded offline solo arena", async (
   expect(report.softlockWindows, "held input repeatedly produced nothing").toBeLessThanOrEqual(2);
   // XP is the run objective: autofiring through a converging wave must score.
   expect(report.scoreAfter, "sweep should earn XP").toBeGreaterThan(report.scoreBefore);
+});
+
+// Offline-only real freeze (shared/clock.ts): the sim clock and the render loop
+// both stop, so the frame counter halts, positions hold, and — because every
+// stored deadline (boosts, fuses, respawns) is measured against the paused
+// clock — nothing detonates or teleports when the loop wakes.
+test("pause hook freezes the sim and resumes without a jump", async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (e) => pageErrors.push(e.message));
+
+  await page.goto("/?seed=12345");
+  await page.waitForFunction(() => (window.__GAME_DIAGNOSTICS__?.frame ?? 0) > 10);
+  await page.evaluate(() => window.__GAME_TEST_HOOKS__?.setState("active-play"));
+  await page.waitForFunction(() => (window.__GAME_DIAGNOSTICS__?.entities ?? 0) > 0);
+  // Let the ship pick up some velocity toward the cursor before freezing.
+  await page.mouse.move(1150, 360);
+  await page.mouse.down();
+  await page.waitForTimeout(1200);
+
+  const grab = () =>
+    page.evaluate(() => {
+      const d = window.__GAME_DIAGNOSTICS__;
+      if (!d) return null;
+      return { frame: d.frame, x: d.player?.x ?? 0, y: d.player?.y ?? 0 };
+    });
+
+  await page.evaluate(() => window.__GAME_TEST_HOOKS__?.setPausedForScreenshot(true));
+  const atPause = await grab();
+  expect(atPause, "diagnostics must be published").not.toBeNull();
+  if (!atPause) return;
+  await page.waitForTimeout(1500); // a real pause span, so drift would show
+  const stillPaused = await grab();
+  expect(stillPaused, "diagnostics must survive the pause").not.toBeNull();
+  if (!stillPaused) return;
+  expect(stillPaused.frame, "frame counter must halt while paused").toBe(atPause.frame);
+  expect(stillPaused.x, "position must hold while paused").toBe(atPause.x);
+  expect(stillPaused.y, "position must hold while paused").toBe(atPause.y);
+
+  await page.evaluate(() => window.__GAME_TEST_HOOKS__?.setPausedForScreenshot(false));
+  // First frames after wake: motion continues from where it stopped. The ship's
+  // top speed is a few hundred px/s, so a short window bounds the legal delta —
+  // a stored-deadline blowup or dt spike would fling it much farther.
+  await page.waitForTimeout(250);
+  const afterResume = await grab();
+  expect(afterResume, "diagnostics must resume").not.toBeNull();
+  if (!afterResume) return;
+  await page.mouse.up();
+  expect(afterResume.frame, "loop must advance after resume").toBeGreaterThan(stillPaused.frame);
+  const jump = Math.hypot(afterResume.x - stillPaused.x, afterResume.y - stillPaused.y);
+  expect(jump, "resume must continue smoothly, not teleport").toBeLessThan(300);
+  expect(pageErrors).toEqual([]);
 });

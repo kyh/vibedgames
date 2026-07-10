@@ -276,6 +276,7 @@ import {
   type Weapon,
   type WeaponSfx,
 } from "../shared/constants";
+import { now as simNow, pauseClock, resumeClock } from "../shared/clock";
 import { diag, installTestHooks } from "../shared/diag";
 import { rand } from "../shared/rng";
 
@@ -463,7 +464,7 @@ function emptyShared(): SharedState {
     enemyShots: [],
     shards: [],
     pulls: [],
-    arenaEpoch: Date.now(),
+    arenaEpoch: simNow(),
     playW: BASE_WORLD_W,
     playH: BASE_WORLD_H,
   };
@@ -595,6 +596,8 @@ export class GameScene extends Phaser.Scene {
   private maybeGoOffline(): void {
     // Start the grace window on the first tick, not at create(): counting
     // asset-load time would wrongly drop a slow-booting client to solo.
+    // Real wall clock, NOT the pausable sim clock — connection deadlines must
+    // keep counting through a pause (same contract as the clock module doc).
     if (this.bootedAt === 0) this.bootedAt = Date.now();
     if (this.client.connectionStatus === "connected") {
       this.everConnected = true;
@@ -763,7 +766,11 @@ export class GameScene extends Phaser.Scene {
   create(): void {
     // Bot-playtest diagnostics contract (shared/diag.ts): telemetry + the
     // active-play hook. Single-start scene, so once per page load by design.
-    installTestHooks({ activePlay: () => this.forceOfflineSolo() });
+    // setPaused rides the same offline-only freeze as the wrapper pause.
+    installTestHooks({
+      activePlay: () => this.forceOfflineSolo(),
+      setPaused: (paused) => (paused ? this.freezeSim() : this.unfreezeSim()),
+    });
     this.bossBarEl = document.getElementById("bossbar");
     this.bossHpEl = document.getElementById("bosshp");
     this.weaponEl = document.getElementById("weapon");
@@ -885,12 +892,15 @@ export class GameScene extends Phaser.Scene {
       enemyHull: (kind) => enemyHullPoints(kind),
     });
 
-    // Pause = the wrapper wants its chrome back. Freezing this sim is forbidden
-    // (Date.now-driven + shared online world), so we pause AS A SPECTATOR: dock
-    // my ship out of the arena, then re-enter through the respawn flow.
+    // Pause = the wrapper wants its chrome back. Online, freezing the shared
+    // world would stall the other players, so we pause AS A SPECTATOR: dock my
+    // ship out of the arena, then re-enter through the respawn flow. Offline
+    // (solo world, no one else to stall) we truly FREEZE: the pausable sim
+    // clock (shared/clock.ts) holds every stored deadline, so a boost with 3s
+    // left before the pause still has 3s after resume.
     setPauseHandlers({
-      onPause: () => this.pauseToSpectator(),
-      onResume: () => this.resumeFromSpectator(),
+      onPause: () => (this.offline ? this.freezeSim() : this.pauseToSpectator()),
+      onResume: () => (this.frozen ? this.unfreezeSim() : this.resumeFromSpectator()),
     });
 
     this.scale.on(Phaser.Scale.Events.RESIZE, this.onViewportChange, this);
@@ -924,7 +934,7 @@ export class GameScene extends Phaser.Scene {
       this.publishDiag(); // after this frame's work, so bots never read stale state
       return;
     }
-    const now = Date.now();
+    const now = simNow();
     // Parse every peer's net state once for this frame; readers below (aim,
     // mines, PvP, host sim, render, minimap) all pull from the map.
     this.peerStates.clear();
@@ -1050,10 +1060,31 @@ export class GameScene extends Phaser.Scene {
     diag.entities = this.world.enemies.length + this.world.asteroids.length;
   }
 
-  /** Wrapper pause → dock my ship out of the arena as a spectator. No death
-   *  penalty, no XP loss, no death explosion: my net state simply advertises
-   *  absence (present: false) so remotes drop me the way a disconnect would.
-   *  Freezing the sim is forbidden (Date.now-driven + shared world), so the
+  /** Offline-only REAL freeze: stop the sim clock (every stored deadline
+   *  holds), sleep the render loop, suspend audio. Never online — the shared
+   *  world would stall for the other players (they get the spectator path). */
+  private frozen = false;
+
+  private freezeSim(): void {
+    if (this.frozen || !this.offline) return;
+    this.frozen = true;
+    pauseClock();
+    sfx.setSuspended(true);
+    this.game.loop.sleep(); // stops update() until wake()
+  }
+
+  private unfreezeSim(): void {
+    if (!this.frozen) return;
+    this.frozen = false;
+    resumeClock();
+    sfx.setSuspended(false);
+    this.game.loop.wake();
+  }
+
+  /** Wrapper pause (online) → dock my ship out of the arena as a spectator. No
+   *  death penalty, no XP loss, no death explosion: my net state simply
+   *  advertises absence (present: false) so remotes drop me the way a
+   *  disconnect would. Freezing the shared online world is forbidden, so the
    *  arena keeps running behind the wrapper overlay. */
   private pauseToSpectator(): void {
     if (this.paused) return;
@@ -1069,7 +1100,7 @@ export class GameScene extends Phaser.Scene {
     this.streak = 0;
     this.comboTier = 1;
     // Immediate, so remotes drop my ship without a snapshot of lag.
-    if (this.started && this.myId) this.pushMyState(Date.now());
+    if (this.started && this.myId) this.pushMyState(simNow());
     sfx.setSuspended(true);
   }
 
@@ -1085,7 +1116,7 @@ export class GameScene extends Phaser.Scene {
     // me once, with invuln — never a double ship.
     this.spawned = true;
     this.alive = false;
-    this.respawnAt = Date.now();
+    this.respawnAt = simNow();
   }
 
   private ensureSpawned(): void {
@@ -1096,7 +1127,7 @@ export class GameScene extends Phaser.Scene {
     this.spawned = true;
     this.cameras.main.centerOn(pos.x, pos.y);
     this.spawnInFx(pos.x, pos.y);
-    this.pushMyState(Date.now());
+    this.pushMyState(simNow());
   }
 
   private tickRespawn(now: number): void {
@@ -1469,7 +1500,7 @@ export class GameScene extends Phaser.Scene {
   /** TWIN orbit phase — derived from the wall clock with the exact formula
    *  remotes use, so the owner's drone and every remote render agree. */
   private twinAngle(): number {
-    return (Date.now() / 1000) * TWIN_ORBIT_DEG_PER_S * DEG;
+    return (simNow() / 1000) * TWIN_ORBIT_DEG_PER_S * DEG;
   }
 
   /** TWIN drone position while the booster is live, else null. */
@@ -1491,7 +1522,7 @@ export class GameScene extends Phaser.Scene {
     if (!spec) return;
     const launch = (): void => {
       if (!this.alive || !this.spawned) return;
-      const t = Date.now();
+      const t = simNow();
       const nose = {
         x: this.shipX + Math.cos(this.shipAngle) * SHIP_RADIUS,
         y: this.shipY + Math.sin(this.shipAngle) * SHIP_RADIUS,
@@ -2608,7 +2639,7 @@ export class GameScene extends Phaser.Scene {
   private consumeShot(shot: EnemyShotState): void {
     const idx = this.world.enemyShots.findIndex((s) => s.id === shot.id);
     if (idx !== -1) this.world.enemyShots.splice(idx, 1);
-    this.recentConsumedShots.set(shot.id, Date.now());
+    this.recentConsumedShots.set(shot.id, simNow());
     if (this.amHost) this.dirty.enemyShots = true;
     this.netSendEvent("proj_consumed", { shotId: shot.id });
   }
@@ -3182,7 +3213,7 @@ export class GameScene extends Phaser.Scene {
     if (event === "player_killed") {
       // The killer awards itself: every client hears the victim's report.
       if (p && p["killerId"] === this.myId) {
-        this.registerKill(XP.PLAYER_KILL, Date.now(), "player");
+        this.registerKill(XP.PLAYER_KILL, simNow(), "player");
       }
       return;
     }
@@ -3675,7 +3706,7 @@ export class GameScene extends Phaser.Scene {
   /** Living player positions (mine locally + remotes from net state). */
   private livingPlayers(): Vec[] {
     const out: Vec[] = [];
-    if (this.alive && this.spawned && Date.now() >= this.phasedUntil) {
+    if (this.alive && this.spawned && simNow() >= this.phasedUntil) {
       out.push({ x: this.shipX, y: this.shipY });
     }
     const myId = this.myId;
@@ -4067,7 +4098,7 @@ export class GameScene extends Phaser.Scene {
     const u = this.world.ufo;
     if (!u) return;
     u.hp -= damage * 100;
-    u.blinkUntil = Date.now() + UFO_BLINK_MS;
+    u.blinkUntil = simNow() + UFO_BLINK_MS;
     if (u.hp <= 0) {
       this.world.items.push(spawnWeaponItemState(u.x, u.y));
       this.world.ufo = null;
@@ -4265,7 +4296,7 @@ export class GameScene extends Phaser.Scene {
       sim.kbVx += kx;
       sim.kbVy += ky;
     }
-    e.blinkUntil = Date.now() + UFO_BLINK_MS;
+    e.blinkUntil = simNow() + UFO_BLINK_MS;
     if (e.hp <= 0) this.hostKillEnemy(idx);
     this.dirty.enemies = true;
   }
@@ -4282,7 +4313,7 @@ export class GameScene extends Phaser.Scene {
     }
     w.enemies.splice(idx, 1);
     this.enemySim.delete(e.id);
-    const now = Date.now();
+    const now = simNow();
     if (e.kind === "dreadnought") {
       // Marquee reward: an XP fountain (2 bursts to dodge the live-shard cap) +
       // two guaranteed drops. Free the arena-wide slot + arm the cooldown.
@@ -5603,7 +5634,7 @@ export class GameScene extends Phaser.Scene {
         const lowered = raw.toLowerCase();
         const kind = SHIELD_MOD_KINDS.find((k) => k === lowered);
         if (!kind) return;
-        const now = Date.now();
+        const now = simNow();
         this.shieldMod = kind;
         this.shieldModUntil = now + SHIELD_MOD_DURATION_MS;
         this.overHp = kind === "overshield" ? OVERSHIELD_BONUS : 0;
@@ -5617,13 +5648,13 @@ export class GameScene extends Phaser.Scene {
           this.shieldHp = Math.max(this.shieldHp, SHIELD_MAX);
           this.lastDamageAt = 0;
         } else {
-          this.boosts.set(kind, Date.now() + BOOSTER_SPECS[kind].durationMs);
+          this.boosts.set(kind, simNow() + BOOSTER_SPECS[kind].durationMs);
         }
       },
       /** Set the base shield directly; stamps the damage clock so regen
        *  behaves as after a real drain. 0 = death (via the real pipeline). */
       setShield: (hp: number): void => {
-        const now = Date.now();
+        const now = simNow();
         this.shieldHp = Math.min(SIPHON_OVERHEAL_MAX, hp);
         this.lastDamageAt = now;
         this.regenActive = false;
@@ -5631,7 +5662,7 @@ export class GameScene extends Phaser.Scene {
       },
       /** Run a drain through the real applyDamage pipeline. */
       damage: (amount: number): string =>
-        this.applyDamage(amount, this.shipX + 12, this.shipY, "DEV", null, Date.now()),
+        this.applyDamage(amount, this.shipX + 12, this.shipY, "DEV", null, simNow()),
       grantWeapon: (ref: number | string): void => {
         const weapon =
           typeof ref === "number"
@@ -5640,7 +5671,7 @@ export class GameScene extends Phaser.Scene {
         if (!weapon) return;
         this.specialBase = weapon;
         this.weapon = scaleWeaponForLevel(weapon, this.level);
-        this.weaponUntil = Date.now() + SPECIAL_WEAPON_DURATION_MS;
+        this.weaponUntil = simNow() + SPECIAL_WEAPON_DURATION_MS;
         this.windupAcc = 0;
       },
       /** Host only: drop a live item at (x,y) (defaults to the ship, so it gets
@@ -5669,7 +5700,7 @@ export class GameScene extends Phaser.Scene {
       },
       /** Fire one volley of the current weapon, no pointer needed. */
       fire: (): void => {
-        this.fireWeapon(Date.now());
+        this.fireWeapon(simNow());
       },
       /** Host only: rewind/forward the intensity director. */
       setArenaEpoch: (epochMs: number): void => {
@@ -5678,7 +5709,7 @@ export class GameScene extends Phaser.Scene {
         if (!this.offline) this.client.updateSharedState({ arenaEpoch: epochMs });
       },
       intensity: (): number =>
-        arenaIntensity(Math.max(0, (Date.now() - this.world.arenaEpoch) / 1000)),
+        arenaIntensity(Math.max(0, (simNow() - this.world.arenaEpoch) / 1000)),
       summary: (): Record<string, unknown> => ({
         alive: this.alive,
         level: this.level,
@@ -5703,7 +5734,7 @@ export class GameScene extends Phaser.Scene {
         shards: this.world.shards.length,
         beams: this.beams.length,
         isHost: this.amHost,
-        intensity: arenaIntensity(Math.max(0, (Date.now() - this.world.arenaEpoch) / 1000)),
+        intensity: arenaIntensity(Math.max(0, (simNow() - this.world.arenaEpoch) / 1000)),
       }),
     };
   }

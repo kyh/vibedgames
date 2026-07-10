@@ -1,3 +1,4 @@
+import { now as simNow } from "./clock";
 import { rand } from "./rng";
 
 // ---- world -------------------------------------------------------------------
@@ -1636,7 +1637,7 @@ export function spawnItemState(x: number, y: number, drop: ItemDrop): ItemState 
     y,
     vx: Math.cos(ang) * ITEM_SPEED,
     vy: Math.sin(ang) * ITEM_SPEED,
-    diesAt: Date.now() + ITEM_LIFETIME_MS,
+    diesAt: simNow() + ITEM_LIFETIME_MS,
     ...drop,
   };
 }
@@ -1652,7 +1653,7 @@ export function spawnShardState(x: number, y: number): ShardState {
     y: y + Math.sin(ang) * scatter,
     vx: Math.cos(ang) * SHARD_DRIFT_SPEED,
     vy: Math.sin(ang) * SHARD_DRIFT_SPEED,
-    diesAt: Date.now() + SHARD_LIFETIME_MS,
+    diesAt: simNow() + SHARD_LIFETIME_MS,
   };
 }
 
