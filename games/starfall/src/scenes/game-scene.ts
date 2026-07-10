@@ -121,6 +121,7 @@ import {
   FODDER_SHARD_MIN,
   GLAIVE_DECEL_PX,
   HOMING_LOCK_CONE_DEG,
+  INITIAL_SPAWN_CENTER_FRAC,
   INVULN_BLINK_MS,
   INVULNERABLE_MS,
   JOYSTICK_DEAD_ZONE,
@@ -1121,7 +1122,21 @@ export class GameScene extends Phaser.Scene {
 
   private ensureSpawned(): void {
     if (!this.started || this.paused || this.spawned || !this.myId) return;
-    const pos = this.pickRespawnPoint(); // joining a live arena: same clearance as respawn
+    // Same clearance as respawn, but confined to the map's central region —
+    // an edge start opens with the void past the world border on screen. At
+    // least the central third per axis, inset further when a big/zoomed-out
+    // viewport would still reach the border from there.
+    const cam = this.cameras.main;
+    const { playW, playH } = this.world;
+    const inset = (dim: number, halfView: number): number =>
+      Math.min(
+        Math.max(dim * INITIAL_SPAWN_CENTER_FRAC, halfView + RESPAWN_EDGE_MARGIN),
+        dim / 2,
+      );
+    const pos = this.pickRespawnPoint(
+      inset(playW, cam.width / 2 / cam.zoom),
+      inset(playH, cam.height / 2 / cam.zoom),
+    );
     this.shipX = pos.x;
     this.shipY = pos.y;
     this.spawned = true;
@@ -1155,12 +1170,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** Re-roll until clear of enemies + big asteroids; ≤8 attempts, take best. */
-  private pickRespawnPoint(): Vec {
+  private pickRespawnPoint(marginX = RESPAWN_EDGE_MARGIN, marginY = marginX): Vec {
     const { playW, playH } = this.world; // respawn within the LIVE (scaled) play area
-    let best = randomWorldPoint(RESPAWN_EDGE_MARGIN, playW, playH);
+    let best = randomWorldPoint(marginX, marginY, playW, playH);
     let bestClearance = -1;
     for (let i = 0; i < RESPAWN_ATTEMPTS; i++) {
-      const p = randomWorldPoint(RESPAWN_EDGE_MARGIN, playW, playH);
+      const p = randomWorldPoint(marginX, marginY, playW, playH);
       let minD = Infinity;
       for (const e of this.world.enemies) {
         minD = Math.min(minD, Math.hypot(e.x - p.x, e.y - p.y));

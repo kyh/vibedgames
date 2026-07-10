@@ -71,6 +71,9 @@ export const INVULNERABLE_MS = 2_000;
 export const INVULN_BLINK_MS = 200;
 /** Respawn keeps this far from the world edges. */
 export const RESPAWN_EDGE_MARGIN = 300;
+/** First spawn lands in the central region (this fraction inset per side) so
+ *  the opening camera never shows past the world border. */
+export const INITIAL_SPAWN_CENTER_FRAC = 1 / 3;
 /** Respawn re-rolls until this far from every enemy + big asteroid. */
 export const RESPAWN_CLEARANCE = 700;
 export const RESPAWN_ATTEMPTS = 8;
@@ -1557,13 +1560,14 @@ export type PlayerNetState = {
 // ---- pure world-gen helpers -----------------------------------------------------
 
 export function randomWorldPoint(
-  margin = RESPAWN_EDGE_MARGIN,
+  marginX = RESPAWN_EDGE_MARGIN,
+  marginY = marginX,
   w = BASE_WORLD_W,
   h = BASE_WORLD_H,
 ): Vec {
   return {
-    x: margin + rand() * (w - margin * 2),
-    y: margin + rand() * (h - margin * 2),
+    x: marginX + rand() * (w - marginX * 2),
+    y: marginY + rand() * (h - marginY * 2),
   };
 }
 
