@@ -711,68 +711,8 @@
           animation: none;
         }
       }
-      /* Sound toggle — under the score pill. The only unmute path on touch
-         (keyboard has M); >=44px target. */
-      /* Landing-screen chrome only: the play field carries no control text and
-         no sound button (M still toggles). `body.landing` gates both. */
-      #mute {
-        display: none;
-        position: fixed;
-        top: calc(18px + env(safe-area-inset-top));
-        right: calc(14px + env(safe-area-inset-right));
-        width: 44px;
-        height: 44px;
-        padding: 0;
-        border-radius: 50%;
-        border: 2px solid rgba(255, 209, 71, 0.5);
-        background: rgba(18, 16, 26, 0.62);
-        color: #fff;
-        font-family: inherit;
-        font-size: 19px;
-        line-height: 1;
-        z-index: 7;
-        cursor: pointer;
-        pointer-events: auto;
-        box-shadow: 0 4px 0 rgba(0, 0, 0, 0.35);
-      }
-      #mute:active {
-        background: rgba(255, 209, 71, 0.4);
-      }
-      /* Hover tooltip carries the key hint, so the landing legend doesn't. */
-      #mute::after {
-        content: attr(data-tip);
-        position: absolute;
-        top: 50%;
-        right: calc(100% + 10px);
-        transform: translateY(-50%);
-        padding: 6px 10px;
-        border-radius: 8px;
-        border: 1px solid rgba(255, 209, 71, 0.35);
-        background: rgba(18, 16, 26, 0.92);
-        color: #fff;
-        font: 600 11px/1 system-ui, sans-serif;
-        letter-spacing: 1px;
-        text-transform: uppercase;
-        white-space: nowrap;
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity 0.14s ease;
-      }
-      #mute:hover::after,
-      #mute:focus-visible::after {
-        opacity: 1;
-      }
-      /* No hover on touch — the tooltip would stick after a tap. */
-      @media (pointer: coarse) {
-        #mute::after {
-          content: none;
-        }
-      }
       /* Landing screen: the banner is the whole screen. Hide every gameplay
          surface behind it — HUD pills, minimap, driver count, touch pad. */
-      body.landing #mute {
-        display: block;
-      }
       body.landing #hud,
       body.landing #netinfo,
       body.landing #touch {
@@ -902,7 +842,6 @@
 
     <div id="flash"></div>
     <div id="vignette"></div>
-    <button id="mute" aria-label="Unmute">🔇</button>
 
     <!-- data-gamepad-ignore: taps here must not anchor the steering stick. -->
     <div id="touch" aria-hidden="true" data-gamepad-ignore>

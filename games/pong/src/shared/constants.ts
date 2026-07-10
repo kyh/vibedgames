@@ -47,11 +47,6 @@ export const ARC_LAND_MAX = 7;
 // edge-angled returns still beat it at every speed.
 export const AI_SPEED_FRAC = 0.8;
 
-// ---- input -------------------------------------------------------------------
-// Must stay above RALLY_SPEED_MAX·sqrt(1 − MIN_VY_FRAC²) ≈ 12.6 — the ball's
-// max lateral speed — or keyboard players can't track an edge return at cap.
-export const KEY_SPEED = 14; // ArrowLeft/Right or A/D paddle speed (units/s)
-
 // ---- hand tracking (webcam) ----------------------------------------------------
 // Legacy mapping: targetX = (1 - wristX) * 9 - 4.5, clamped ±4.5 (mirrored).
 export const HAND_RANGE = 9;

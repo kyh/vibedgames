@@ -50,7 +50,6 @@ export class Hud {
   private bannerStats = el("banner-stats");
   private bannerControls = el("banner-controls");
   private bannerCta = el("banner-cta");
-  private muteBtn = el("mute");
   private flashEl = el("flash");
   private loading = el("loading");
   private barFill = el("bar-fill");
@@ -363,17 +362,6 @@ export class Hud {
   onCta(fn: () => void): void {
     this.bannerCta.addEventListener("click", fn);
   }
-  onMute(fn: () => void): void {
-    this.muteBtn.addEventListener("click", fn);
-  }
-  setMuted(muted: boolean): void {
-    this.muteBtn.textContent = muted ? "🔇" : "🔊";
-    this.muteBtn.setAttribute("aria-label", muted ? "Unmute" : "Mute");
-    // Drives the hover tooltip (#mute::after) — the key hint lives there rather
-    // than in the landing legend.
-    this.muteBtn.dataset.tip = muted ? "Unmute (M)" : "Mute (M)";
-  }
-
   flash(rgb: string, alpha: number): void {
     const a = this.reduceMotion ? Math.min(alpha, 0.1) : alpha;
     this.flashEl.style.background = rgb;

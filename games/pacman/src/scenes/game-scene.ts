@@ -237,8 +237,6 @@ export class GameScene {
   private lastTurnTickAt = -Infinity;
   private prevScared = false;
   private winConfettiIn = 0;
-  /** Mirrors the audible state (unlocked AND enabled) onto the 🔊/🔇 pill. */
-  private soundShown = false;
   private noticeTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ---- chase camera (legacy PacmanCamera lerp state) -------------------------------
@@ -256,7 +254,6 @@ export class GameScene {
   private bannerTitleEl = el("banner-title");
   private bannerSubEl = el("banner-sub");
   private flashEl = el("flash");
-  private soundBtnEl = el("btn-sound");
   private selfieBtnEl = el("btn-selfie");
   private restartBtnEl = el("btn-restart");
 
@@ -636,17 +633,6 @@ export class GameScene {
       sfx.play("warn");
     }
 
-    // Sound is opt-in (muted by default) and WebAudio needs a gesture — the
-    // pill shows 🔇 until sound is genuinely audible (unlocked AND enabled),
-    // so face-only players see they're muted and can tap it.
-    const soundOn = !sfx.locked && sfx.soundOn;
-    if (soundOn !== this.soundShown) {
-      this.soundShown = soundOn;
-      this.soundBtnEl.textContent = soundOn ? "🔊" : "🔇";
-      this.soundBtnEl.setAttribute("aria-pressed", soundOn ? "true" : "false");
-      this.soundBtnEl.classList.toggle("on", soundOn);
-    }
-
     this.renderActors(dt);
     this.fx.update(dt);
     this.updateCamera(dt);
@@ -762,12 +748,11 @@ export class GameScene {
     window.addEventListener("pointerdown", this.onPointerDown);
     window.addEventListener("pointermove", this.onPointerMove);
     window.addEventListener("pointerup", this.onPointerUp);
-    this.soundBtnEl.addEventListener("click", () => this.toggleSound());
     this.selfieBtnEl.addEventListener("click", () => this.toggleSelfie());
     this.restartBtnEl.addEventListener("click", () => this.requestRestart());
   }
 
-  /** M key / 🔊 pill — one toggle for music + sfx, persisted. */
+  /** M key — one toggle for music + sfx, persisted. */
   private toggleSound(): void {
     const on = music.toggle();
     sfx.setEnabled(on);
@@ -1134,9 +1119,8 @@ export class GameScene {
     const texts: Record<Phase, readonly [string, string]> = {
       title: [
         "PAC·MAN",
-        IS_TOUCH
-          ? "open your mouth to chomp forward · turn your head to steer · or swipe: ↑ step · ←/→ turn · ↓ reverse · tap to start"
-          : "open your mouth to chomp forward · turn your head to steer · ↓ reverse · SHIFT selfie cam · M music · any key or tap to start",
+        // Face controls only — the full bindings live on the pause overlay.
+        "chomp with your mouth to move forward · turn your head to turn",
       ],
       ready: ["READY?", ""],
       playing: ["", ""],

@@ -6,7 +6,6 @@ import { HERO_BY_ID, valAt } from "../data/heroes";
 import type { AbilityKey } from "../data/heroes";
 import { ITEMS, ITEM_BY_ID } from "../data/items";
 import { BRIDGES, GRID, WORLD, isHighCell, isLandCell } from "../data/map";
-import { isMuted, resumeAudio, toggleMute } from "../render/audio";
 import { FONT } from "../render/font";
 import { abilityIcon } from "../render/fx-map";
 import { heroSheetTex } from "../render/sprites";
@@ -78,7 +77,6 @@ export class HudScene extends Phaser.Scene {
 
   // touch/mouse utility buttons (shop / scores / recall / sound)
   private uiButtons: { bg: Phaser.GameObjects.NineSlice; txt: Phaser.GameObjects.Text }[] = [];
-  private soundLabel!: Phaser.GameObjects.Text;
 
   // minimap
   private mapTerrain!: Phaser.GameObjects.Graphics; // static land/water/bridges, drawn once per layout
@@ -345,8 +343,8 @@ export class HudScene extends Phaser.Scene {
       this.itemSlots.push({ panel, box, icon, key });
     }
 
-    // utility buttons — the touch-reachable path to shop/scores/recall/sound
-    // (each has a keyboard twin: B / Tab / H / M)
+    // utility buttons — the touch-reachable path to shop/scores/recall
+    // (each has a keyboard twin: B / Tab / H)
     const mkBtn = (label: string, onTap: () => void): Phaser.GameObjects.Text => {
       const bg = this.add
         .nineslice(0, 0, "ui-btn-blue", 0, 92, 46, 28, 28, 20, 26)
@@ -371,10 +369,6 @@ export class HudScene extends Phaser.Scene {
     mkBtn("SHOP", () => this.toggleShop());
     mkBtn("SCORES", () => this.toggleBoard());
     mkBtn("RECALL", () => this.gs.recall());
-    this.soundLabel = mkBtn(isMuted() ? "🔇 OFF" : "🔊 ON", () => {
-      resumeAudio();
-      this.soundLabel.setText(toggleMute() ? "🔇 OFF" : "🔊 ON");
-    });
 
     this.respawnText = this.add
       .text(0, 0, "", {

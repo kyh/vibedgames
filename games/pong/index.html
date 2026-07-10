@@ -56,21 +56,12 @@
       #score span.pop {
         animation: pop 280ms cubic-bezier(0.22, 1.4, 0.4, 1);
       }
-      #netinfo,
-      #sound {
+      #netinfo {
         margin-top: 6px;
         font-size: 11px;
         letter-spacing: 2px;
         text-transform: uppercase;
         opacity: 0.55;
-      }
-      /* Tappable mute toggle (phones have no M key). Padding + negative
-         margins grow the hit target past 44px without moving the label. */
-      #sound {
-        pointer-events: auto;
-        cursor: pointer;
-        padding: 16px 18px;
-        margin: -14px -18px -16px;
       }
       @keyframes pop {
         0% {
@@ -133,19 +124,6 @@
         background: #000;
       }
 
-      #prompt {
-        position: fixed;
-        bottom: calc(3.5% + env(safe-area-inset-bottom));
-        left: 0;
-        right: 0;
-        text-align: center;
-        font-size: 14px;
-        letter-spacing: 3px;
-        opacity: 0;
-        transition: opacity 0.25s ease;
-        pointer-events: none;
-      }
-
       #banner {
         position: fixed;
         top: 36%;
@@ -185,7 +163,7 @@
         overflow: hidden;
         cursor: pointer;
       }
-      /* Narrow (portrait phone): sit above the #prompt / #serve-meter zone. */
+      /* Narrow (portrait phone): sit above the #serve-meter zone. */
       @media (max-width: 480px) {
         #camera-panel {
           bottom: calc(64px + env(safe-area-inset-bottom));
@@ -269,11 +247,9 @@
         <span id="opp-label">AI</span>
       </div>
       <div id="netinfo"></div>
-      <div id="sound" aria-label="toggle sound"></div>
     </div>
     <div id="combo"></div>
     <div id="serve-meter"></div>
-    <div id="prompt">press space or tap to serve</div>
     <div id="banner"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

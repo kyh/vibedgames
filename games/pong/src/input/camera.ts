@@ -9,7 +9,7 @@
 // the caller decides when the hand is "lost" (see HAND_TIMEOUT_MS).
 //
 // Failure (no camera, permission denied, wasm/model fetch error) shows a
-// status line in the panel and leaves pointer/keyboard control untouched.
+// status line in the panel and leaves pointer control untouched.
 
 import { DrawingUtils, FilesetResolver, GestureRecognizer } from "@mediapipe/tasks-vision";
 
@@ -68,7 +68,7 @@ export function startHandTracking(onWristX: (x: number) => void, onFist?: () => 
 
   const fail = (error: unknown): void => {
     console.error("Error starting hand tracking:", error);
-    status.textContent = "no signal — mouse + keys control the paddle";
+    status.textContent = "no signal — the mouse controls the paddle";
     panel.dataset.state = "error";
   };
 

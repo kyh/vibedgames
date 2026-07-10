@@ -69,16 +69,6 @@ export class Sfx {
   /** Muted just zeroes the master gain — unlock/playback plumbing still runs. */
   private enabled = initialSoundOn();
 
-  /** True until the first user gesture creates + resumes the context. */
-  get locked(): boolean {
-    return this.ctx === null || this.ctx.state !== "running";
-  }
-
-  /** Current opt-in state (shared with Music via SOUND_KEY). */
-  get soundOn(): boolean {
-    return this.enabled;
-  }
-
   unlock(): void {
     if (this.ctx) {
       if (this.ctx.state === "suspended") void this.ctx.resume();

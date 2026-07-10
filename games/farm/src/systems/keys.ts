@@ -19,7 +19,6 @@ export type GameKeys = {
   E: K;
   SHIFT: K;
   I: K;
-  H: K;
   M: K;
   ONE: K;
   TWO: K;
@@ -33,9 +32,9 @@ export type GameKeys = {
   ZERO: K;
 };
 
-// The mine has no inventory/help/mute bindings; a GameKeys is structurally a
+// The mine has no inventory/mute bindings; a GameKeys is structurally a
 // MineKeys, so MineScene reuses makeGameKeys.
-export type MineKeys = Omit<GameKeys, "I" | "H" | "M">;
+export type MineKeys = Omit<GameKeys, "I" | "M">;
 
 const NUMS = [
   "ONE",
@@ -67,7 +66,6 @@ export function makeGameKeys(kb: Plugin): GameKeys {
     E: a("E"),
     SHIFT: a("SHIFT"),
     I: a("I"),
-    H: a("H"),
     M: a("M"),
     ONE: a("ONE"),
     TWO: a("TWO"),

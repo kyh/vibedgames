@@ -477,11 +477,9 @@ export class GameScene {
     });
     this.touchUi = this.touch.isTouch;
     this.hud.onCta(() => this.handleStartPress());
-    this.hud.onMute(() => this.toggleMute());
     // Muted by default; returning players who opted into sound stay unmuted.
-    // Press M (or the speaker button) to toggle.
+    // M is the one toggle.
     this.sfx.setMuted(storageGet(SOUND_KEY) !== "1");
-    this.hud.setMuted(this.sfx.muted);
   }
 
   get camera(): THREE.PerspectiveCamera {
@@ -1105,7 +1103,6 @@ export class GameScene {
   private toggleMute(): void {
     this.sfx.setMuted(!this.sfx.muted);
     storageSet(SOUND_KEY, this.sfx.muted ? "0" : "1");
-    this.hud.setMuted(this.sfx.muted);
   }
 
   private start(): void {

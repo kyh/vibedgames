@@ -457,8 +457,8 @@ export class GameScene extends Phaser.Scene {
     if (party.length > 0 && modeStr === "vs") this.mode = "versus";
 
     // Touch controls: floating stick (movement + down-to-drop) on any free
-    // touch, fixed action cluster bottom-right, mute top-left, EXIT (versus
-    // only) top-right. Mouse is ignored — desktop keeps the keyboard scheme.
+    // touch, fixed action cluster bottom-right, EXIT (versus only) top-right.
+    // Mouse is ignored — desktop keeps the keyboard scheme.
     // Positions are game-space px (the adapter's viewport is the FIT game
     // size); insets keep the cluster clear of the home indicator.
     this.touch = isCoarse();
@@ -487,12 +487,6 @@ export class GameScene extends Phaser.Scene {
         radius: 15,
         position: (v) => ({ x: v.width - 82 - v.inset.right, y: v.height - 70 - v.inset.bottom }),
       },
-      {
-        id: "mute",
-        label: "♪",
-        radius: 13,
-        position: (v) => ({ x: 20 + v.inset.left, y: 40 + v.inset.top }),
-      },
     ];
     if (this.mode === "versus")
       buttons.push({
@@ -507,11 +501,13 @@ export class GameScene extends Phaser.Scene {
       render: { depth: 90, blendMode: Phaser.BlendModes.NORMAL },
       buttons,
       onButtonDown: (id) => {
-        if (id === "mute") {
-          sfx.toggleMute();
-          this.showBanner(sfx.muted ? "SOUND OFF" : "SOUND ON", 700);
-        } else if (id === "exit") this.scene.start("select");
+        if (id === "exit") this.scene.start("select");
       },
+    });
+    // M is the one mute toggle (keyboard-only, matching every other game).
+    this.input.keyboard?.on("keydown-M", () => {
+      sfx.toggleMute();
+      this.showBanner(sfx.muted ? "SOUND OFF" : "SOUND ON", 700);
     });
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.gamepad.destroy());
     this.controls = new Input(this, this.gamepad);

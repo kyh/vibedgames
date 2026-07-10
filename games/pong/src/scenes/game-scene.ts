@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { notifyGameStarted } from "@repo/embed";
 
 import { ParticlePool } from "../fx/particles";
-import { isMuted, sfx, toggleMute } from "../fx/sfx";
+import { sfx, toggleMute } from "../fx/sfx";
 import { RingPool } from "../fx/shock-rings";
 import { NetSession } from "../net/session";
 import {
@@ -59,7 +59,6 @@ import {
   HIT_STOP_WIN,
   INK,
   INVERT_FLASH_S,
-  KEY_SPEED,
   LEGACY_FPS,
   MIN_VY_FRAC,
   NET_DASH,
@@ -173,7 +172,6 @@ export class GameScene {
   private flashFarMat: THREE.MeshBasicMaterial;
 
   // ---- input -------------------------------------------------------------------
-  private held = { left: false, right: false };
   private raycaster = new THREE.Raycaster();
   private ndc = new THREE.Vector2();
   private tablePlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
@@ -184,7 +182,6 @@ export class GameScene {
   // HAND_TIMEOUT_MS after the last result (legacy never gave it back — bug).
   private handX: number | null = null;
   private handSeenAt = 0;
-  private handSeen = false; // any hand ever tracked — gates the ✊ prompt copy
   private lastHandX: number | null = null;
 
   // Drag-to-pan camera offset; lerps back to rest while not dragging.
@@ -196,13 +193,11 @@ export class GameScene {
   // ---- HUD ----------------------------------------------------------------------
   private scoreYouEl = el("score-you");
   private scoreAiEl = el("score-ai");
-  private promptEl = el("prompt");
   private bannerEl = el("banner");
   private comboEl = el("combo");
   private serveMeterEl = el("serve-meter");
   private oppLabelEl = el("opp-label");
   private netInfoEl = el("netinfo");
-  private soundEl = el("sound");
   private serveMeterShown = false; // cached so we only touch classList on transitions
 
   constructor() {
@@ -318,25 +313,13 @@ export class GameScene {
     this.rings = new RingPool(this.scene);
 
     window.addEventListener("keydown", this.onKeyDown);
-    window.addEventListener("keyup", this.onKeyUp);
     window.addEventListener("blur", this.onBlur);
     window.addEventListener("pointermove", this.onPointerMove);
     window.addEventListener("pointerdown", this.onPointerDown);
     window.addEventListener("pointerup", this.onPointerUp);
     window.addEventListener("pointercancel", this.onPointerUp);
 
-    // Touch-reachable sound toggle (the M key doesn't exist on phones). The
-    // tap must not bubble to the window pointerdown handler, which would
-    // read it as a serve/rematch confirm.
-    this.soundEl.addEventListener("pointerdown", (e) => {
-      e.stopPropagation();
-      toggleMute();
-      this.syncSound();
-    });
-
-    this.syncPrompt();
     this.syncHud();
-    this.syncSound();
   }
 
   resize(aspect: number): void {
@@ -432,32 +415,15 @@ export class GameScene {
 
   // ---- input ---------------------------------------------------------------
 
+  // The paddle is gesture/pointer-driven; the keyboard's only job is the
+  // unadvertised mute toggle (Escape-pause lives in @repo/embed).
   private onKeyDown = (e: KeyboardEvent): void => {
-    if (e.code === "Space") {
-      e.preventDefault();
-      this.confirm();
-    } else if (e.code === "ArrowLeft" || e.code === "KeyA") {
-      e.preventDefault();
-      this.held.left = true;
-    } else if (e.code === "ArrowRight" || e.code === "KeyD") {
-      e.preventDefault();
-      this.held.right = true;
-    } else if (e.code === "KeyM") {
-      toggleMute();
-      this.syncSound();
-    }
+    if (e.code === "KeyM") toggleMute();
   };
 
-  private onKeyUp = (e: KeyboardEvent): void => {
-    if (e.code === "ArrowLeft" || e.code === "KeyA") this.held.left = false;
-    else if (e.code === "ArrowRight" || e.code === "KeyD") this.held.right = false;
-  };
-
-  // Alt-tab swallows keyups — clear held movement so the paddle doesn't
-  // autonomously slide to the clamp when focus returns.
+  // Alt-tab can strand a mid-flight camera drag — clear it so the pan doesn't
+  // resume by itself when focus returns.
   private onBlur = (): void => {
-    this.held.left = false;
-    this.held.right = false;
     this.dragging = false;
   };
 
@@ -465,10 +431,6 @@ export class GameScene {
   handleHandPosition(x: number): void {
     this.handX = x;
     this.handSeenAt = performance.now();
-    if (!this.handSeen) {
-      this.handSeen = true;
-      this.syncPrompt(); // hand control live → advertise the fist serve
-    }
   }
 
   /** Closed-fist edge from the hand tracker — cam-only serve/rematch confirm. */
@@ -508,8 +470,8 @@ export class GameScene {
   };
 
   private onPointerDown = (e: PointerEvent): void => {
-    // Drag-pan is mouse-only: on touch there is no keyboard fallback, so
-    // pointermove must keep driving the paddle (camera-less playability).
+    // Drag-pan is mouse-only: on touch, pointermove must keep driving the
+    // paddle (it's the only non-camera control there).
     if (e.pointerType === "mouse") {
       this.dragging = true;
       this.lastPointer.x = e.clientX;
@@ -544,7 +506,7 @@ export class GameScene {
     return hit ? clamp(this.flip * hit.x, -PADDLE_X_MAX, PADDLE_X_MAX) : null;
   }
 
-  /** Space / click / tap: rematch when won, serve when waiting. */
+  /** Fist / click / tap: rematch when won, serve when waiting. */
   private confirm(): void {
     // Frozen for the wrapper's pause overlay: the webcam hand loop keeps
     // running (per its own contract) but must not wake the sim through a
@@ -651,19 +613,10 @@ export class GameScene {
     this.updateVisuals(dt);
   }
 
-  /** Keyboard + webcam-hand paddle control, routed to the owned slot. The view
-   *  flip keeps "screen right = paddle right" for the guest too. */
+  /** Webcam-hand paddle control, routed to the owned slot. The view flip
+   *  keeps "screen right = paddle right" for the guest too. */
   private applyPaddleInput(dt: number): void {
     const flip = this.flip;
-
-    const keyDir = (this.held.right ? 1 : 0) - (this.held.left ? 1 : 0);
-    if (keyDir !== 0) {
-      this.myPaddle = clamp(
-        this.myPaddle + flip * keyDir * KEY_SPEED * dt,
-        -PADDLE_X_MAX,
-        PADDLE_X_MAX,
-      );
-    }
 
     // Hand tracking owns the paddle while a hand is in frame. Legacy mapping:
     // targetX = (1 - wristX)·9 − 4.5 clamped ±4.5, smoothed by an adaptive
@@ -1139,14 +1092,11 @@ export class GameScene {
 
   // ---- HUD -----------------------------------------------------------------
 
+  /** Start/serve instructions — the game is hand-gesture first, pointer second. */
   private servePromptText(): string {
-    return COARSE_INPUT ? "drag to move · tap to serve" : "A/D or drag moves · Space/tap serves";
-  }
-
-  /** Serve/rematch instructions, matching whichever inputs are actually live. */
-  private syncPrompt(): void {
-    const base = this.servePromptText();
-    this.promptEl.textContent = this.handSeen ? `✊ or ${base}` : base;
+    return COARSE_INPUT
+      ? "✋ hand or finger steers · ✊ fist or tap serves"
+      : "✋ hand or mouse steers · ✊ fist or click serves";
   }
 
   private syncHud(): void {
@@ -1154,34 +1104,23 @@ export class GameScene {
     this.scoreAiEl.textContent = String(this.scoreAi);
     const human = this.net.live && this.hasOpponent();
     this.oppLabelEl.textContent = human ? "RIVAL" : "AI";
-    // Prompt only when input is actually needed — auto-serve gaps stay quiet.
-    this.promptEl.style.opacity =
-      this.net.live && this.phase === "serving" && this.serveAt === null ? "1" : "0";
 
     if (!this.net.live) {
       this.bannerEl.replaceChildren("connecting", smallNote("finding a match…"));
       this.bannerEl.style.opacity = "1";
     } else if (this.phase === "serving" && this.serveAt === null) {
-      const note = this.handSeen ? `✊ or ${this.servePromptText()}` : this.servePromptText();
-      this.bannerEl.replaceChildren("PONG", smallNote(note));
+      this.bannerEl.replaceChildren("PONG", smallNote(this.servePromptText()));
       this.bannerEl.style.opacity = "1";
     } else if (this.phase === "won") {
       const iWon = this.scoreYou > this.scoreAi;
       const strong = iWon ? "you win" : human ? "rival wins" : "ai wins";
-      const note = COARSE_INPUT ? "tap for rematch" : "press space or tap for rematch";
+      const note = COARSE_INPUT ? "✊ or tap for rematch" : "✊ or click for rematch";
       this.bannerEl.replaceChildren(strong, smallNote(note));
       this.bannerEl.style.opacity = "1";
     } else {
       this.bannerEl.style.opacity = "0";
     }
     this.netInfoEl.textContent = this.netInfoText();
-  }
-
-  /** Mute indicator — reflects the persisted opt-in on load and each toggle
-   *  (M key or tapping the indicator itself). Icon only: control hints never
-   *  sit on the play field, and the indicator is itself the tap target. */
-  private syncSound(): void {
-    this.soundEl.textContent = isMuted() ? "🔇" : "🔊";
   }
 
   private netInfoText(): string {

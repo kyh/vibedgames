@@ -90,8 +90,8 @@
         width: 100px;
         height: 66px;
       }
-      /* Bottom area: full legend when idle, a short bar while playing. The
-         scene shows exactly one (legend on title/pause/over, bar during play). */
+      /* Bottom strip: a quiet hotkey bar while playing. The full legend lives
+         centred in the banner (title/pause/over); the scene shows exactly one. */
       .bottom {
         margin-top: auto;
         margin-bottom: 6px;
@@ -100,12 +100,35 @@
         align-items: center;
         gap: 8px;
       }
+      #hotkeys {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 6px 12px;
+        font-size: 11px;
+        letter-spacing: 0.4px;
+        color: rgba(215, 220, 240, 0.45);
+      }
+      #hotkeys kbd {
+        font: inherit;
+        color: #8ea2ff;
+        background: rgba(20, 22, 36, 0.66);
+        border: 1px solid rgba(120, 134, 200, 0.28);
+        border-radius: 5px;
+        padding: 1px 5px;
+        margin-right: 5px;
+      }
+      /* Touch devices: the labeled buttons ARE the reference — no keyboard bar. */
+      body.touch #hotkeys {
+        display: none;
+      }
       #legend {
+        margin-top: 18px;
         text-align: center;
         font-size: 12px;
         line-height: 1.8;
         letter-spacing: 0.4px;
-        color: rgba(215, 220, 240, 0.6);
+        color: rgba(215, 220, 240, 0.75);
       }
       #legend > span {
         display: block;
@@ -116,21 +139,6 @@
         letter-spacing: 1px;
         margin-right: 6px;
       }
-      /* Sound is the one tappable pill: a real <button> the touch overlay
-         ignores, with an invisible halo for a ≥44px touch target. */
-      #sound {
-        pointer-events: auto;
-        cursor: pointer;
-        font: inherit;
-        color: inherit;
-        position: relative;
-      }
-      #sound::after {
-        content: "";
-        position: absolute;
-        inset: -8px;
-      }
-
       #banner {
         position: fixed;
         top: 32%;
@@ -221,10 +229,6 @@
           font-size: 13px;
           padding: 0 16px;
         }
-        /* Touch devices: lift the idle legend above the button cluster. */
-        body.touch .bottom {
-          margin-bottom: 290px;
-        }
       }
       /* Short (landscape phone) screens: no room for the legend under the
          banner + button cluster — the labeled buttons carry the reference. */
@@ -283,28 +287,36 @@
         <div class="group">
           <div class="pill" id="charge">POWER 0%</div>
           <div class="pill" id="input-owner">○ KEYS</div>
-          <button class="pill" id="sound" title="sound">🔇</button>
         </div>
       </div>
       <div class="bottom">
-        <div id="legend">
-          <span
-            ><b id="legend-input-label">keys</b
-            ><span id="legend-input-text"
-              >move ←→↑↓ · rotate R · turn view Q/E · drop SPACE · soft SHIFT · hold C · power F ·
-              recenter V · sound M · pause P</span
-            ></span
-          >
-          <span
-            ><b>webcam</b>nose = move · spin = rotate · circle a hand = turn view · cross arms =
-            hold · T-pose = power · hands up = start/catch</span
-          >
+        <div id="hotkeys">
+          <span><kbd>←→↑↓</kbd>move</span>
+          <span><kbd>R</kbd>rotate</span>
+          <span><kbd>Q/E</kbd>view</span>
+          <span><kbd>SPACE</kbd>drop</span>
+          <span><kbd>SHIFT</kbd>soft</span>
+          <span><kbd>C</kbd>hold</span>
+          <span><kbd>F</kbd>power</span>
         </div>
       </div>
     </div>
     <div id="banner">
       <div id="banner-title"></div>
       <div id="banner-sub"></div>
+      <div id="legend">
+        <span
+          ><b id="legend-input-label">keys</b
+          ><span id="legend-input-text"
+            >move ←→↑↓ · rotate R · turn view Q/E · drop SPACE · soft SHIFT · hold C · power F ·
+            recenter V · sound M · pause P</span
+          ></span
+        >
+        <span
+          ><b>webcam</b>nose = move · spin = rotate · circle a hand = turn view · cross arms =
+          hold · T-pose = power · hands up = start/catch</span
+        >
+      </div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

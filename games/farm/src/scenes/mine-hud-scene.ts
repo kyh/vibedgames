@@ -18,7 +18,7 @@ const PAD = 3;
 
 // Unzoomed overlay scene for the mine: dark vignette + HP/energy/gold/floor +
 // hotbar. Separate scene so it isn't transformed by the mine camera's zoom.
-// Also hosts the touch gamepad (stick + USE) so it renders above the vignette;
+// Also hosts the touch gamepad (stick) so it renders above the vignette;
 // MineScene reads it via its `gamepad` field.
 export class MineHudScene extends Phaser.Scene {
   private mine!: MineScene;
@@ -54,7 +54,7 @@ export class MineHudScene extends Phaser.Scene {
       .text(
         0,
         0,
-        isTouchDevice() ? "Hold USE to climb" : "Space/E to climb",
+        isTouchDevice() ? "Tap the ladder to climb" : "Space/E to climb",
         { fontFamily: FONT, fontSize: "11px", color: "#cdd6e0" },
       )
       .setDepth(11);
@@ -62,17 +62,6 @@ export class MineHudScene extends Phaser.Scene {
       this.icons.push(this.add.image(0, 0, "obj-stone").setVisible(false).setDepth(12));
     this.gamepad = attachVirtualGamepad(this, {
       visible: "coarse",
-      buttons: [
-        {
-          id: "use",
-          label: "USE",
-          radius: 36,
-          position: ({ width, height, inset }) => ({
-            x: width - 62 - inset.right,
-            y: height - 140 - inset.bottom,
-          }),
-        },
-      ],
       render: { depth: 40, blendMode: Phaser.BlendModes.NORMAL },
     });
     this.mine.gamepad = this.gamepad;

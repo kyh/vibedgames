@@ -43,6 +43,7 @@ import { seasonOfDay, type Season } from "../data/calendar";
 import { isWet, weatherForDay, type Weather } from "../systems/weather";
 import { Fishing } from "../systems/fishing";
 import { makeGameKeys, NUM_KEY_NAMES, type GameKeys } from "../systems/keys";
+import { isTap } from "../systems/touch";
 import { AnimalManager } from "../entities/animals";
 import { NpcManager } from "../entities/npcs";
 
@@ -351,17 +352,8 @@ export class GameScene extends Phaser.Scene {
 
     this.keys.SPACE.on("down", () => this.tryAction());
     this.keys.E.on("down", () => this.tryAction());
-    // click: act on the clicked cell when it's within reach, else walk to it
-    this.input.on("pointerdown", (p: Phaser.Input.Pointer) => {
-      if (this.uiOpen || p.button !== 0) return;
-      const hud = this.scene.get("Hud");
-      if (hud.input.hitTestPointer(p).length > 0) return; // hotbar click
-      if (this.fishing.active) {
-        this.tryAction();
-        return;
-      }
-      // touches feed the virtual pad (stick / USE) — don't also click-to-move
-      if (p.wasTouch && this.gamepad?.pad.isTouching) return;
+    // click / tap: act on the cell when it's within reach, else walk to it
+    const actOrWalk = (p: Phaser.Input.Pointer): void => {
       const wp = this.cameras.main.getWorldPoint(p.x, p.y);
       const tx = Math.floor(wp.x / TILE);
       const ty = Math.floor(wp.y / TILE);
@@ -375,9 +367,28 @@ export class GameScene extends Phaser.Scene {
       } else {
         this.startClickMove(tx, ty, wp.x, wp.y);
       }
+    };
+    this.input.on("pointerdown", (p: Phaser.Input.Pointer) => {
+      if (this.uiOpen || p.button !== 0) return;
+      const hud = this.scene.get("Hud");
+      if (hud.input.hitTestPointer(p).length > 0) return; // hotbar click
+      if (this.fishing.active) {
+        this.tryAction();
+        return;
+      }
+      // touches feed the virtual stick on the way down — a tile tap is only
+      // recognisable at pointerup (see below), so mouse-only here
+      if (p.wasTouch) return;
+      actOrWalk(p);
+    });
+    this.input.on("pointerup", (p: Phaser.Input.Pointer) => {
+      if (!p.wasTouch || this.uiOpen || this.fishing.active) return;
+      const hud = this.scene.get("Hud");
+      if (hud.input.hitTestPointer(p).length > 0) return; // hotbar tap
+      if (!isTap(p)) return; // a drag was the stick, not a tap
+      actOrWalk(p);
     });
     this.keys.I.on("down", () => this.toggleInventory());
-    this.keys.H.on("down", () => !this.uiOpen && this.events.emit("toggle-help"));
     kb.on("keydown-T", () => this.toggleCollisionOverlay());
     // scroll wheel cycles the hotbar selection (documented in the help modal)
     this.input.on("wheel", (_p: Phaser.Input.Pointer, _o: unknown, _dx: number, dy: number) => {
@@ -518,7 +529,6 @@ export class GameScene extends Phaser.Scene {
   override update(_t: number, dms: number): void {
     const dt = Math.min(dms, 50) / 1000;
     this.gamepad?.update();
-    if (this.gamepad?.justPressed("use")) this.tryAction();
     this.net?.tick();
     this.reconcileClock();
     this.reconcileTiles();
@@ -1557,12 +1567,7 @@ export class GameScene extends Phaser.Scene {
     return seasonOfDay(this.day);
   }
   actionHeld(): boolean {
-    return (
-      this.keys.SPACE.isDown ||
-      this.keys.E.isDown ||
-      this.input.activePointer.isDown ||
-      (this.gamepad?.isButtonDown("use") ?? false)
-    );
+    return this.keys.SPACE.isDown || this.keys.E.isDown || this.input.activePointer.isDown;
   }
   playerAnim(key: string): void {
     this.player.play(key, true);

@@ -15,6 +15,7 @@ import {
 import { store } from "../systems/store";
 import { patchSave } from "../systems/save";
 import { makeGameKeys, NUM_KEY_NAMES, type MineKeys } from "../systems/keys";
+import { isTap } from "../systems/touch";
 import type { OreId } from "../data/items";
 import { burst, floatText, shake } from "../render/fx";
 import { Sound } from "../render/audio";
@@ -281,16 +282,41 @@ export class MineScene extends Phaser.Scene {
     this.keys.E.on("down", () => this.tryAction());
     this.input.on("pointerdown", (p: Phaser.Input.Pointer) => {
       if (p.button !== 0) return;
-      // touches feed the virtual pad (stick / USE) — don't also swing per tap
-      if (p.wasTouch && this.gamepad?.pad.isTouching) return;
-      if (
-        this.scene.isActive("MineHud") &&
-        this.scene.get("MineHud").input.hitTestPointer(p).length > 0
-      ) {
-        return; // hotbar tap
+      // touches feed the virtual stick on the way down — taps land at pointerup
+      if (p.wasTouch) return;
+      if (this.hudHit(p)) return; // hotbar tap
+      this.tryAction();
+    });
+    // tap a cell: face it and swing; tapping the ladder underfoot climbs
+    this.input.on("pointerup", (p: Phaser.Input.Pointer) => {
+      if (!p.wasTouch || this.transitioning) return;
+      if (this.hudHit(p)) return; // hotbar tap
+      if (!isTap(p)) return; // a drag was the stick, not a tap
+      const wp = this.cameras.main.getWorldPoint(p.x, p.y);
+      const tx = Math.floor(wp.x / TILE);
+      const ty = Math.floor(wp.y / TILE);
+      const f = this.feetTile();
+      const onUp = f.tx === this.ladderUp.tx && f.ty === this.ladderUp.ty;
+      const onDown = f.tx === this.ladderDown.tx && f.ty === this.ladderDown.ty;
+      if (tx === f.tx && ty === f.ty && (onUp || onDown)) {
+        if (onUp) this.exitToFarm();
+        else this.descend();
+        return;
+      }
+      const dx = tx - f.tx;
+      const dy = ty - f.ty;
+      if (dx !== 0 || dy !== 0) {
+        if (Math.abs(dx) >= Math.abs(dy)) this.facing = { x: Math.sign(dx), y: 0 };
+        else this.facing = { x: 0, y: Math.sign(dy) };
       }
       this.tryAction();
     });
+  }
+
+  private hudHit(p: Phaser.Input.Pointer): boolean {
+    return (
+      this.scene.isActive("MineHud") && this.scene.get("MineHud").input.hitTestPointer(p).length > 0
+    );
   }
 
   // ---------------------------------------------------------------- update
@@ -298,7 +324,6 @@ export class MineScene extends Phaser.Scene {
   override update(_t: number, dms: number): void {
     const dt = Math.min(dms, 50) / 1000;
     if (!this.transitioning) {
-      if (this.gamepad?.justPressed("use")) this.tryAction();
       this.handleMovement(dt);
       this.updateEnemies(dt);
       this.checkLadders();
@@ -323,7 +348,7 @@ export class MineScene extends Phaser.Scene {
     if (k.W.isDown || k.UP.isDown) dy -= 1;
     if (k.S.isDown || k.DOWN.isDown) dy += 1;
     // virtual stick (touch) fills in when the keyboard is silent — it also
-    // sets facing below, so USE swings/mines toward the drag direction
+    // sets facing below, so a tap swings/mines toward the drag direction
     let stickRun = false;
     if (dx === 0 && dy === 0 && this.gamepad) {
       const stick = this.gamepad.getStick();
@@ -620,8 +645,7 @@ export class MineScene extends Phaser.Scene {
 
   private checkLadders(): void {
     const f = this.feetTile();
-    const useDown =
-      this.keys.SPACE.isDown || this.keys.E.isDown || (this.gamepad?.isButtonDown("use") ?? false);
+    const useDown = this.keys.SPACE.isDown || this.keys.E.isDown;
     if (!useDown) return;
     if (f.tx === this.ladderUp.tx && f.ty === this.ladderUp.ty) {
       this.exitToFarm();

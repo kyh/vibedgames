@@ -60,8 +60,8 @@ export class TitleScene extends Phaser.Scene {
         0,
         0,
         isTouchDevice()
-          ? "drag the stick to move · USE button to farm · tap the hotbar to switch tools"
-          : "WASD / arrows move · E or Space use tool · 1–9 select · I help",
+          ? "drag the stick to move · tap a square to use your tool · tap the hotbar to switch tools"
+          : "WASD / arrows move · E / Space / click use tool · 1–9 select · I inventory · M sound",
         {
           fontFamily: "ui-monospace, monospace",
           fontSize: "14px",

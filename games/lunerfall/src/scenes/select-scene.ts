@@ -51,7 +51,6 @@ export class SelectScene extends Phaser.Scene {
   private goBtn?: TapBtn;
   private coopBtn?: TapBtn;
   private vsBtn?: TapBtn;
-  private soundBtn?: TapBtn;
 
   constructor() {
     super("select");
@@ -244,7 +243,6 @@ export class SelectScene extends Phaser.Scene {
     this.goBtn = undefined;
     this.coopBtn = undefined;
     this.vsBtn = undefined;
-    this.soundBtn = undefined;
     if (!this.touch) return;
     const ins = gameInset(this);
     this.bank.setPosition(BASE_W - 8 - ins.right, 8 + ins.top);
@@ -274,12 +272,6 @@ export class SelectScene extends Phaser.Scene {
     this.coopBtn.txt.setText("CO-OP");
     this.vsBtn = this.tapBtn(centers[3] ?? 0, y, widths[3] ?? 0, 26, () => this.toggleNet("vs"));
     this.vsBtn.txt.setText("VERSUS");
-    const snd = this.tapBtn(24 + ins.left, 20 + ins.top, 30, 30, () => {
-      sfx.toggleMute();
-      this.soundBtn?.txt.setText(sfx.muted ? "×" : "♪");
-    });
-    snd.txt.setText(sfx.muted ? "×" : "♪");
-    this.soundBtn = snd;
   }
 
   // ── Moon Forge (permanent upgrades) ──────────────────────────────────────

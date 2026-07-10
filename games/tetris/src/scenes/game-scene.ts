@@ -10,7 +10,7 @@ import type { Cell } from "../game/board";
 import { screenToWorld, type ScreenDir } from "../game/camera-correction";
 import { Engine, type LockEvent } from "../game/engine";
 import { ParticlePool } from "../fx/particles";
-import { isMuted, sfx, toggleMute } from "../fx/sfx";
+import { sfx, toggleMute } from "../fx/sfx";
 import { Keyboard, type KeyboardHandlers } from "../input/keyboard";
 import type { PoseActions, PoseControls } from "../input/pose-control";
 import { isCoarsePointer, TouchControls, type TouchHandlers } from "../input/touch";
@@ -85,10 +85,8 @@ export class GameScene {
     this.particles = new ParticlePool(this.scene);
     this.keyboard = new Keyboard(this.keyboardHandlers());
     this.touch = new TouchControls(this.touchHandlers());
-    el("sound")?.addEventListener("click", () => this.updateSoundPill(toggleMute()));
     document.body.classList.toggle("touch", this.coarse);
     if (this.coarse) this.applyTouchLegend();
-    this.updateSoundPill(isMuted());
     this.showBanner(
       "TETRIS",
       this.coarse
@@ -178,7 +176,7 @@ export class GameScene {
       pauseToggle: () => this.togglePause(),
       start: () => this.startIfIdle(),
       recenter: () => this.poseControls?.recenter(),
-      muteToggle: () => this.updateSoundPill(toggleMute()),
+      muteToggle: () => toggleMute(),
     };
   }
 
@@ -509,13 +507,8 @@ export class GameScene {
     }
   }
 
-  private updateSoundPill(muted: boolean): void {
-    const node = el("sound");
-    if (node) node.textContent = muted ? "🔇" : "🔊";
-  }
-
   /** Show the centre banner. When `withLegend`, also reveal the full control
-   *  reference and hide the in-play bar (the screen is idle — title/pause/over). */
+   *  reference centred under it and hide the in-play hotkey bar. */
   private showBanner(title: string, sub: string, withLegend = true): void {
     const t = el("banner-title");
     const s = el("banner-sub");
@@ -526,17 +519,19 @@ export class GameScene {
     this.setHudMode(withLegend ? "legend" : "none");
   }
 
-  /** Hide the banner. The play field carries no control text — the legend is
-   *  reachable from the title, pause and game-over banners. */
+  /** Hide the banner. In play the quiet hotkey bar carries the reference; the
+   *  full legend lives on the title, pause and game-over banners. */
   private hideBanner(): void {
     const b = el("banner");
     if (b) b.style.opacity = "0";
-    this.setHudMode("none");
+    this.setHudMode("hotkeys");
   }
 
-  private setHudMode(mode: "legend" | "none"): void {
+  private setHudMode(mode: "legend" | "hotkeys" | "none"): void {
     const legend = el("legend");
     if (legend) legend.style.display = mode === "legend" ? "block" : "none";
+    const hotkeys = el("hotkeys");
+    if (hotkeys) hotkeys.style.display = mode === "hotkeys" ? "flex" : "none";
   }
 }
 

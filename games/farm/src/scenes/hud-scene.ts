@@ -36,7 +36,6 @@ export class HudScene extends Phaser.Scene {
   private slot = SLOT;
   private inset: Inset = { top: 0, right: 0, bottom: 0, left: 0 };
   private touchUi: Phaser.GameObjects.Container[] = [];
-  private muteIcon: Phaser.GameObjects.Text | null = null;
   private topPanel!: Phaser.GameObjects.Graphics;
   private dayText!: Phaser.GameObjects.Text;
   private seasonText!: Phaser.GameObjects.Text;
@@ -69,14 +68,12 @@ export class HudScene extends Phaser.Scene {
     this.hudSig = "";
     this.slot = SLOT;
     this.touchUi = [];
-    this.muteIcon = null;
     for (const e of [
       "toast",
       "daybanner",
       "open-shop",
       "open-animal-shop",
       "confirm-sleep",
-      "toggle-help",
       "levelup",
       "dialogue",
     ]) {
@@ -119,22 +116,11 @@ export class HudScene extends Phaser.Scene {
 
     // Touch controls live HERE (not in GameScene) so the overlay isn't
     // transformed by the game camera's zoom. The Hud's input plugin processes
-    // pointers before GameScene's, so pad.isTouching is accurate inside the
-    // game's click-to-move handler.
+    // pointers before GameScene's, so hotbar taps never reach the game. No
+    // action buttons: tapping a tile IS the use action (see GameScene input).
     this.g.gamepad?.destroy();
     this.g.gamepad = attachVirtualGamepad(this, {
       visible: "coarse",
-      buttons: [
-        {
-          id: "use",
-          label: "USE",
-          radius: 36,
-          position: ({ width, height, inset }) => ({
-            x: width - 62 - inset.right,
-            y: height - 140 - inset.bottom,
-          }),
-        },
-      ],
       render: { depth: 90, blendMode: Phaser.BlendModes.NORMAL },
     });
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.g.gamepad?.destroy());
@@ -156,7 +142,6 @@ export class HudScene extends Phaser.Scene {
     this.g.events.on("open-shop", () => this.openShop());
     this.g.events.on("open-animal-shop", (b: BuildingKind) => this.openAnimalShop(b));
     this.g.events.on("confirm-sleep", () => this.openSleep());
-    this.g.events.on("toggle-help", () => this.toggleHelp());
     this.g.events.on("levelup", (skill: SkillId, level: number) =>
       this.toast(`${SKILL_NAMES[skill]} reached Level ${level}!`, "#ffe27a"),
     );
@@ -209,8 +194,8 @@ export class HudScene extends Phaser.Scene {
     return zone;
   }
 
-  /** Always-visible tap targets (inventory / help / sound) for touch devices,
-   *  where the I/H/M key bindings are unreachable. */
+  /** Always-visible tap target (inventory) for touch devices, where the I key
+   *  binding is unreachable. */
   private buildTouchButtons(): void {
     if (!isTouchDevice()) return;
     const mk = (icon: string, onTap: () => void): Phaser.GameObjects.Text => {
@@ -231,14 +216,6 @@ export class HudScene extends Phaser.Scene {
       return t;
     };
     mk("🎒", () => this.g.toggleInventory());
-    mk("❔", () => {
-      if (this.modal || !this.g.uiOpen) this.toggleHelp();
-    });
-    this.muteIcon = mk(Sound.muted ? "🔇" : "🔊", () => {
-      const muted = Sound.toggleMute();
-      this.muteIcon?.setText(muted ? "🔇" : "🔊");
-      this.toast(muted ? "Sound off" : "Sound on", "#dfe9ff");
-    });
   }
 
   private layout(): void {
@@ -770,58 +747,6 @@ export class HudScene extends Phaser.Scene {
     return c;
   }
 
-  private toggleHelp(): void {
-    if (this.modal) {
-      this.closeModal();
-      return;
-    }
-    this.g.uiOpen = true;
-    const w = Math.min(460, this.scale.width - 24);
-    const h = Math.min(410, this.scale.height - 24);
-    const c = this.modalShell(w, h, "ℹ  How to Play");
-    const lines = isTouchDevice()
-      ? [
-          "Move: drag the on-screen stick (full tilt runs)",
-          "Use / interact: the USE button",
-          "Items: tap the hotbar · 🎒 inventory · 🔇 sound",
-          "",
-          "🪏 Hoe → till soil    🌱 Seeds → plant (in season!)",
-          "💧 Can → water (refill at pond) · rain waters for you",
-          "🪓 Axe → trees    ⛏ Pickaxe → rocks & the mine",
-          "🎣 Rod → face water; USE to cast, hold to reel",
-          "⚔ Sword → fight skeletons in the cave",
-          "🍄 Walk over mushrooms to forage",
-          "🐔 Pet animals; buy them at the coop & barn",
-          "🧺 Sell at the crate or store; sleep at your house",
-          "💬 Talk to villagers; gift what they like for ♥",
-        ]
-      : [
-          "Move: WASD / Arrows   (Shift to run)",
-          "Use / interact: Space, E, or Click",
-          "Select item: 1–0 or scroll · I: inventory · H: help",
-          "",
-          "🪏 Hoe → till soil    🌱 Seeds → plant (in season!)",
-          "💧 Can → water (refill at pond) · rain waters for you",
-          "🪓 Axe → trees    ⛏ Pickaxe → rocks & the mine",
-          "🎣 Rod → face water to fish (hold to reel in the zone)",
-          "⚔ Sword → fight skeletons in the cave",
-          "🍄 Walk over mushrooms to forage",
-          "🐔 Pet animals; buy them at the coop & barn",
-          "🧺 Sell at the crate or store; sleep at your house",
-          "💬 Talk to villagers; gift what they like for ♥",
-        ];
-    const compact = h < 400 || w < 420;
-    const txt = this.add
-      .text(0, -h / 2 + 48, lines.join("\n"), {
-        fontFamily: FONT,
-        fontSize: compact ? "11px" : "13px",
-        color: "#3a2a14",
-        lineSpacing: compact ? 3 : 4,
-        wordWrap: { width: w - 36 },
-      })
-      .setOrigin(0.5, 0);
-    c.add(txt);
-  }
 }
 
 function panelRect(
