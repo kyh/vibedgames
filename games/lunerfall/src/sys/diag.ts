@@ -50,6 +50,11 @@ function restartSolo(game: Phaser.Game): void {
     if (game.scene.isActive(key)) game.scene.stop(key);
   }
   diag.frame = 0;
+  diag.score = 0;
   diag.complete = false;
+  diag.player.x = 0;
+  diag.player.y = 0;
+  diag.player.speed = 0;
+  diag.entities = 0;
   game.scene.start("game", { hero: "axion" });
 }

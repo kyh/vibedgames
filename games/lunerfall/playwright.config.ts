@@ -11,6 +11,6 @@ export default defineConfig({
   webServer: {
     command: "pnpm dev --port 5199 --strictPort",
     url: "http://localhost:5199",
-    reuseExistingServer: true,
+    reuseExistingServer: !process.env.CI,
   },
 });
