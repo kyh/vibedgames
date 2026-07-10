@@ -46,7 +46,7 @@ import { GRID_X, GRID_Z, ROAD_TILE, ROAD_Y, WORLD_H, WORLD_W } from "../shared/c
 import type { Rng } from "../shared/rng";
 import { type Dir, DIR_DELTA, E, N, S, W } from "../shared/types";
 import type { Solid } from "./city";
-import { conformToTerrain } from "./conform";
+import { conformToTerrain, DRAPE_MAX_ERROR } from "./conform";
 
 import type { RoadNetwork } from "./network";
 import type { CityPlan, RoadResolved } from "./grid";
@@ -59,6 +59,19 @@ import type { Terrain } from "./terrain";
 // as world-baked objects for the caller to collect + merge by material; only a
 // handful of collision Solids (parked cars, barriers, pier railings/buildings)
 // are appended.
+
+// Lifts for lot-draped pieces (BAKED into public/world — changes here only
+// land via a rebake). Flat decals (kit paths, the lake) conform finely to the
+// height field, but the ground mesh underneath is a coarse ~9u linear
+// interpolation of the same field with no street depression on lots — on
+// curved ground it can chord-bow above the field by roughly the drape
+// tolerance again, so decals must clear both errors.
+const LOT_DECAL_LIFT = DRAPE_MAX_ERROR * 2 + 0.02; // 0.2
+// Fences are 3D (posts + rails), not coplanar decals: grass overlapping the
+// bottom rail is occlusion, not z-fighting, and a full decal lift would
+// visibly float the posts — one bow of clearance kills the shimmer of their
+// flat base pieces.
+const LOT_FENCE_LIFT = DRAPE_MAX_ERROR + 0.03; // 0.12
 
 export type FurnitureCtx = {
   readonly plan: CityPlan;
@@ -444,7 +457,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
           0,
           wz + perpZ * sideSign * ROAD_TILE * 0.47 - dz * ROAD_TILE * 0.04,
         );
-        drape(fence, 0.06);
+        drape(fence, LOT_FENCE_LIFT);
       }
       // Front path from the curb to the lot centre.
       if (rng.chance(0.6)) {
@@ -460,7 +473,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
         else path.scale.set(along, across, across);
         path.rotation.y = faceYaw + axis.yawAdj;
         path.position.set(wx + dx * ROAD_TILE * 0.25, 0, wz + dz * ROAD_TILE * 0.25);
-        drape(path, 0.06);
+        drape(path, LOT_DECAL_LIFT);
       }
       // NO driveways: the kit pad (grey slab, navy strip, terracotta rim)
       // reads as a floating mattress at street scale, and grid-plan lot
@@ -575,7 +588,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
     lake.scale.set(ROAD_TILE * 1.15, ROAD_TILE * 0.75, 1);
     lake.rotation.x = -HALF_PI;
     lake.position.set((0.22 - 0.5) * WORLD_W, 0, (0.4 - 0.5) * WORLD_H);
-    drape(lake, 0.07);
+    drape(lake, LOT_DECAL_LIFT);
   }
 
   // ------------------------------------------------------------------

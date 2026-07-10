@@ -2,11 +2,12 @@
 // One InstancedMesh (one draw call), free-list pooled like fx-particles.
 // Chunks arc under gravity, bounce once on the floor, then shrink out.
 import * as THREE from "three";
+import { terrainHeight } from "../data/terrain";
 
 const MAX_CHUNKS = 64;
 const GRAVITY = -26;
 const BOUNCE = 0.35; // velocity kept on the floor bounce
-const FLOOR_Y = 0.09;
+const FLOOR_Y = 0.09; // rest height above the LOCAL ground (see terrainHeight)
 
 type Chunk = {
   idx: number;
@@ -63,7 +64,7 @@ export class ChunkPool {
       const c: Chunk = {
         idx,
         x: x + (Math.random() - 0.5) * 0.4,
-        y: 0.5 + Math.random() * 0.5,
+        y: terrainHeight(x, z) + 0.5 + Math.random() * 0.5,
         z: z + (Math.random() - 0.5) * 0.4,
         vx: Math.cos(a) * spd,
         vy: 4 + Math.random() * 5,
@@ -105,8 +106,10 @@ export class ChunkPool {
       c.x += c.vx * dt;
       c.y += c.vy * dt;
       c.z += c.vz * dt;
-      if (c.y < FLOOR_Y && c.vy < 0) {
-        c.y = FLOOR_Y;
+      // per-frame local floor: chunks knocked off the plateau fall to the plaza
+      const floorY = terrainHeight(c.x, c.z) + FLOOR_Y;
+      if (c.y < floorY && c.vy < 0) {
+        c.y = floorY;
         if (c.bounced) {
           c.vy = 0;
           c.vx *= 0.8;

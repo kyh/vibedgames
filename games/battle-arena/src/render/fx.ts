@@ -5,6 +5,7 @@
 // the floating damage numbers. HUD-bound events (kill feed, toasts) are queued
 // for the HUD to read.
 import * as THREE from "three";
+import { terrainHeight } from "../data/terrain";
 import type { FxEvent, GroundEffect, World } from "../sim/types";
 import { Audio } from "./audio";
 import { ChunkPool } from "./fx-chunks";
@@ -790,7 +791,7 @@ export class Fx {
         return { obj: mesh, ownMat: mat };
       });
       piece.seenAt = now;
-      piece.obj.position.set(g.x, 0.14, g.y);
+      piece.obj.position.set(g.x, terrainHeight(g.x, g.y) + 0.14, g.y); // ground-hug even on the plateau
       piece.obj.scale.setScalar(r * 1.15);
       piece.obj.rotation.z = now * 0.0008; // slow ritual spin
     }
@@ -803,7 +804,7 @@ export class Fx {
           return { obj: new THREE.Mesh(this.vortexGeo, mat), ownMat: mat };
         });
         v.seenAt = now;
-        v.obj.position.set(g.x, 1.3, g.y);
+        v.obj.position.set(g.x, terrainHeight(g.x, g.y) + 1.3, g.y);
         v.obj.scale.set(r * 0.55, 2.6, r * 0.55);
         v.obj.rotation.y = now * 0.004;
         // dragged dust skirt + a tick-cadence ring pulse ground the cyclone
@@ -868,7 +869,7 @@ export class Fx {
           });
           c.seenAt = now;
           const k = remain / 650; // 1 → far, 0 → impact
-          c.obj.position.set(g.x + k * 5, k * 17, g.y - k * 2.5);
+          c.obj.position.set(g.x + k * 5, terrainHeight(g.x, g.y) + k * 17, g.y - k * 2.5); // altitude above the impact ground
           this.trailAt(c.obj.position.x, c.obj.position.y, c.obj.position.z, 0xff8040, 0.8);
           this.trailAt(c.obj.position.x, c.obj.position.y + 0.6, c.obj.position.z, 0x804030, 0.5);
         }
@@ -1300,7 +1301,7 @@ export class Fx {
     const m = new THREE.Mesh(this.texQuad, mat);
     m.rotation.x = -Math.PI / 2;
     m.rotation.z = Math.random() * Math.PI * 2;
-    m.position.set(x, y, z);
+    m.position.set(x, terrainHeight(x, z) + y, z); // `y` is a lift above local ground
     m.scale.setScalar(size);
     this.texActor(m, [mat], life, (k) => {
       m.rotation.z += spinRate * 0.016;
@@ -1323,7 +1324,7 @@ export class Fx {
       group.add(m);
       mats.push(mat);
     }
-    group.position.set(x, 0, z);
+    group.position.set(x, terrainHeight(x, z), z);
     this.texActor(group, mats, life, (k) => {
       const o = (Math.random() < 0.5 ? 1 : 0.5) * (1 - k);
       for (const mt of mats) if (mt instanceof THREE.MeshBasicMaterial) mt.opacity = o;
@@ -1480,7 +1481,7 @@ export class Fx {
     u["uT"]!.value = 0;
     u["uAlpha"]!.value = opacity;
     u["uSeed"]!.value = Math.random() * 20;
-    r.mesh.position.set(x, 0.12, y);
+    r.mesh.position.set(x, terrainHeight(x, y) + 0.12, y);
     r.mesh.scale.setScalar(0.2);
     r.mesh.visible = true;
   }
@@ -1514,7 +1515,7 @@ export class Fx {
     b.r = r;
     b.mat.color.setHex(color).multiplyScalar(1.5);
     b.mat.opacity = 0.8;
-    b.mesh.position.set(x, (h / BEAM_H) * 3.2, y);
+    b.mesh.position.set(x, terrainHeight(x, y) + (h / BEAM_H) * 3.2, y);
     b.mesh.scale.set(r, h / BEAM_H, r);
     b.mesh.visible = true;
   }
@@ -1569,7 +1570,7 @@ export class Fx {
     c.opacity = 0.85;
     c.grow = reach * 1.12;
     c.s0 = reach * 0.5;
-    c.pivot.position.set(x, 0.14, y);
+    c.pivot.position.set(x, terrainHeight(x, y) + 0.14, y);
     c.pivot.rotation.set(0, Math.atan2(-dy, dx), 0);
     c.pivot.rotateX(-Math.PI / 2);
     c.pivot.scale.setScalar(c.s0);
@@ -1587,7 +1588,7 @@ export class Fx {
     c.opacity = 0.9;
     c.grow = reach;
     c.s0 = reach;
-    c.pivot.position.set(x, 0.15, y);
+    c.pivot.position.set(x, terrainHeight(x, y) + 0.15, y);
     c.pivot.rotation.set(0, Math.atan2(-dy, dx), 0);
     c.pivot.rotateX(-Math.PI / 2);
     c.pivot.scale.setScalar(reach);
@@ -1630,7 +1631,7 @@ export class Fx {
     u["uRot"]!.value = reg.rot;
     // pivot yaw points the quad's local +X along the sim facing; the mesh then
     // tilts around that axis so the crescent leans toward the chase camera
-    s.pivot.position.set(x, height, y);
+    s.pivot.position.set(x, terrainHeight(x, y) + height, y); // `height` is above local ground
     s.pivot.rotation.set(0, -facing, 0);
     s.mesh.rotation.set(-Math.PI / 2 + tilt, 0, 0);
     s.pivot.scale.setScalar(reach);
@@ -1661,7 +1662,7 @@ export class Fx {
     u["uT"]!.value = 0;
     u["uSeed"]!.value = Math.random() * 40;
     u["uPulse"]!.value = pulse;
-    c.mesh.position.set(x, 0.09, y);
+    c.mesh.position.set(x, terrainHeight(x, y) + 0.09, y);
     c.mesh.rotation.z = -ang; // plane lies flat (X −90°); −ang maps local +x onto the sim aim
     c.mesh.scale.set(len, wid, 1);
     c.mesh.visible = true;
@@ -1723,7 +1724,7 @@ export class Fx {
       d.r = r;
       d.mat.color.setHex(color);
       d.mat.opacity = 0.8;
-      d.mesh.position.set(x, 0.1, y);
+      d.mesh.position.set(x, terrainHeight(x, y) + 0.1, y);
       d.mesh.scale.setScalar(r);
       d.mesh.visible = true;
     }

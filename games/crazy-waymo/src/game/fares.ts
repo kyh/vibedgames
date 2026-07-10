@@ -6,8 +6,14 @@ import { FARE, ROAD_TILE } from "../shared/constants";
 import { Rng } from "../shared/rng";
 import { type Dir, DIR_DELTA, E, N, S, W } from "../shared/types";
 import type { CityModel, RoadCell } from "../world/city";
+import { STREET_SURFACE_MAX } from "../world/roads";
 import type { Car } from "../vehicle/car";
 import { parSeconds } from "./state";
+
+// Flat ground rings (fare beacons, garage pads) sit on terrain height but
+// span street layers: they must clear the worst draped street surface, plus
+// slack for terrain slope across the ring's radius.
+export const GROUND_RING_LIFT = STREET_SURFACE_MAX + 0.13; // 0.4
 
 // Trip tiers: how far the customer wants to go — pay and beacon color follow.
 export type FareTier = "short" | "medium" | "long";
@@ -116,10 +122,7 @@ class Beacon {
     });
     this.ring = new THREE.Mesh(new THREE.RingGeometry(2.0, 2.5, 28), this.ringMat);
     this.ring.rotation.x = -Math.PI / 2;
-    // Beacons stand on the kerb: the ring must clear the draped curb lip
-    // (terrain + 0.18) plus the drape's conform bow (0.09), or the sidewalk
-    // depth-tests it away / z-fights it at distance. Matches LINE_LIFT scale.
-    this.ring.position.y = 0.4;
+    this.ring.position.y = GROUND_RING_LIFT;
     this.group.add(this.ring);
 
     if (tagTier) {

@@ -25,15 +25,22 @@ export const ASPHALT_W = ROAD_TILE * 0.8; // legacy uniform width (tertiary)
 export const SIDEWALK_W = 2.0;
 export const LANE_CENTER = ASPHALT_W * 0.19; // default lane offset for traffic
 const CURB_W = 0.7;
-const ASPHALT_LIFT = ROAD_Y + 0.05;
+export const ASPHALT_LIFT = ROAD_Y + 0.05;
 const SIDEWALK_LIFT = ROAD_Y + 0.13;
 const CURB_LIFT = SIDEWALK_LIFT + 0.03; // curb lip reads above the walk
+// The highest a draped street layer can sit above the height field: the curb
+// lip's lift plus the drape's worst-case bow. Runtime ground overlays (fare
+// beacon rings, garage pad rings) must clear this or the street depth-tests
+// them away / z-fights them at distance.
+export const STREET_SURFACE_MAX = CURB_LIFT + DRAPE_MAX_ERROR;
 // Markings drape at a looser sag tolerance than the asphalt (thin decals;
 // the vert savings across all of SF's paint is large), so the lift must
 // cover the worst RELATIVE bow between the two drapes: marking error +
-// asphalt error (~0.09), with margin.
+// asphalt error (DRAPE_MAX_ERROR), with margin. NOTE: feeds BAKED geometry —
+// the derivation keeps today's shipped value (terrain + 0.37); a change here
+// only lands via rebake (or the editor's live street rebuild).
 const MARKING_MAX_ERROR = 0.18;
-const LINE_LIFT = ASPHALT_LIFT + 0.3;
+const LINE_LIFT = ASPHALT_LIFT + MARKING_MAX_ERROR + DRAPE_MAX_ERROR + 0.03;
 const LINE_W = 0.24;
 const EDGE_INSET = 0.5;
 const DASH_LEN = 2.2;

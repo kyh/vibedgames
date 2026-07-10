@@ -1,5 +1,8 @@
 import * as THREE from "three";
 
+import { DRAPE_MAX_ERROR } from "../world/conform";
+import { ASPHALT_LIFT } from "../world/roads";
+
 // Tire skid marks: a single mesh holding a ring buffer of dark quads stamped
 // onto the road. One draw call, zero allocation per stamp, per-quad age fade.
 //
@@ -11,11 +14,11 @@ const MAX_QUADS = 600;
 const LIFE = 10; // seconds until a mark fully fades
 const HALF_W = 0.14; // 0.28u wide
 const HALF_L = 0.25; // ~0.5u long
-// The asphalt drape sits at terrain + 0.07 (ASPHALT_LIFT) and its coarse
-// tessellation can bow up to 0.09 above the height field between verts
-// (conform.ts MAX_ERROR) — marks must clear the worst-case road SURFACE
-// (0.07 + 0.09), not the terrain, or the road swallows them.
-const LIFT = 0.18;
+// The asphalt drape sits at terrain + ASPHALT_LIFT and its coarse
+// tessellation can bow up to DRAPE_MAX_ERROR above the height field between
+// verts — marks must clear the worst-case road SURFACE, not the terrain, or
+// the road swallows them. Exported so trails layer above skids by contract.
+export const SKID_LIFT = ASPHALT_LIFT + DRAPE_MAX_ERROR + 0.02; // 0.18
 
 export class SkidMarks {
   readonly mesh: THREE.Mesh;
@@ -94,7 +97,7 @@ export class SkidMarks {
   }
 
   // Stamp one dark quad aligned to `yaw` (forward = (sin yaw, cos yaw)) at
-  // terrain height + LIFT. Ring buffer: the oldest mark is overwritten.
+  // terrain height + SKID_LIFT. Ring buffer: the oldest mark is overwritten.
   stamp(x: number, z: number, yaw: number, alpha = 0.7): void {
     const fx = Math.sin(yaw) * HALF_L;
     const fz = Math.cos(yaw) * HALF_L;
@@ -142,7 +145,7 @@ export class SkidMarks {
 
   private writeVert(offset: number, x: number, z: number): void {
     this.positions[offset] = x;
-    this.positions[offset + 1] = this.heightAt(x, z) + LIFT;
+    this.positions[offset + 1] = this.heightAt(x, z) + SKID_LIFT;
     this.positions[offset + 2] = z;
   }
 

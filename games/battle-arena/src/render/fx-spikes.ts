@@ -3,6 +3,7 @@
 // pooled. The ARPG "matter erupts" primitive: frost-nova ice ring, bog vines,
 // stone teeth, sprouting mushrooms — same pool, different tint/shape params.
 import * as THREE from "three";
+import { terrainHeight } from "../data/terrain";
 
 const MAX_SPIKES = 96;
 
@@ -20,6 +21,7 @@ type Spike = {
   idx: number;
   x: number;
   z: number;
+  gy: number; // ground height at (x,z) — spikes erupt from the plateau too
   yaw: number;
   tilt: number; // lean, applied about the outward axis
   h: number;
@@ -82,6 +84,7 @@ export class SpikePool {
       idx,
       x,
       z,
+      gy: terrainHeight(x, z),
       yaw: Math.random() * Math.PI * 2,
       tilt: tiltOut * (0.5 + Math.random()),
       h: h * j,
@@ -130,7 +133,7 @@ export class SpikePool {
         const u = (s.t - s.rise - s.hold) / s.exit;
         k = 1 - u * u; // sink accelerating
       }
-      this.dummy.position.set(s.x, 0, s.z);
+      this.dummy.position.set(s.x, s.gy, s.z);
       this.dummy.rotation.set(Math.sin(s.yaw) * s.tilt, s.yaw, -Math.cos(s.yaw) * s.tilt);
       this.dummy.scale.set(s.w, Math.max(0.001, s.h * k), s.w);
       this.dummy.updateMatrix();

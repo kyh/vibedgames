@@ -15,7 +15,13 @@ import { Sfx } from "../fx/sfx";
 import { SkidMarks } from "../fx/skids";
 import { SpeedLines } from "../fx/speedlines";
 import { DriftTrails, Shockwaves } from "../fx/trails";
-import { FareManager, type FareEvent, tierColor, tierPayMult } from "../game/fares";
+import {
+  FareManager,
+  type FareEvent,
+  GROUND_RING_LIFT,
+  tierColor,
+  tierPayMult,
+} from "../game/fares";
 import { GameState } from "../game/state";
 import { ParkedCars } from "../game/parked-cars";
 import { Traffic } from "../game/traffic";
@@ -939,9 +945,7 @@ export class GameScene {
     });
     for (const g of city.garages) {
       const ring = new THREE.Mesh(ringGeo, ringMat);
-      // 0.4: clears the draped curb lip (0.18) + conform bow (0.09) so the
-      // pad ring can't be depth-tested under sidewalk/asphalt on its span.
-      ring.position.set(g.padX, city.heightAt(g.padX, g.padZ) + 0.4, g.padZ);
+      ring.position.set(g.padX, city.heightAt(g.padX, g.padZ) + GROUND_RING_LIFT, g.padZ);
       rings.add(ring);
     }
     this.scene.add(rings);

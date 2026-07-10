@@ -1,5 +1,7 @@
 import * as THREE from "three";
 
+import { SKID_LIFT } from "./skids";
+
 // Drift light-trails: two glowing ribbons laid onto the road behind the rear
 // wheels while sliding or boosting — the arcade "light streak" that makes a
 // drift read from across the screen. One mesh, one draw call, ring-buffered
@@ -13,9 +15,9 @@ const SAMPLES = 44; // per ribbon
 const RIBBONS = 2;
 const LIFE = 0.5; // seconds a sample stays lit
 const HALF_W = 0.26;
-// Above skid marks (0.18), which themselves clear the asphalt drape's worst
-// case (0.07 lift + 0.09 conform bow); still well below the car body.
-const LIFT = 0.22;
+// Above skid marks (which clear the asphalt drape's worst case: lift + bow);
+// still well below the car body.
+const LIFT = SKID_LIFT + 0.04; // 0.22
 const MIN_STEP = 0.45; // world units between samples
 
 type Sample = {
