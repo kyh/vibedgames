@@ -19,7 +19,7 @@ function badRequest(message: string): Response {
  * Miniflare-simulated bucket instead of prod R2).
  *
  * Authentication is via HMAC-signed query string — the deploy router signs
- * the URL with `AUTH_SECRET`, the CLI PUTs the body, and we verify the
+ * the URL with `BETTER_AUTH_SECRET`, the CLI PUTs the body, and we verify the
  * signature here before writing to the binding. No session cookie required
  * because the CLI's `uploadAll` fetches without auth headers.
  */

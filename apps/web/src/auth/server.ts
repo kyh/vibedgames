@@ -33,7 +33,7 @@ export function getServerContext() {
     db,
     baseURL: baseUrl,
     productionURL: productionUrl,
-    secret: env.AUTH_SECRET,
+    secret: env.BETTER_AUTH_SECRET,
   });
 
   // R2 config is optional at build time — a missing value here means the
@@ -42,7 +42,7 @@ export function getServerContext() {
   //
   // In local dev we route uploads through `/api/r2-upload` so they land in
   // the Miniflare-simulated bucket instead of leaking into prod R2. The
-  // proxy URL is HMAC-signed with AUTH_SECRET; the S3 keys are still kept
+  // proxy URL is HMAC-signed with BETTER_AUTH_SECRET; the S3 keys are still kept
   // for the `deletePrefix` and read paths (those go through the binding,
   // which is local-safe).
   const r2: R2Config | undefined =
@@ -56,7 +56,7 @@ export function getServerContext() {
           ...(isLocalhost
             ? {
                 proxyUploadBaseUrl: baseUrl,
-                proxyUploadSecret: env.AUTH_SECRET,
+                proxyUploadSecret: env.BETTER_AUTH_SECRET,
               }
             : {}),
         }

@@ -33,7 +33,7 @@
     }
   },
   "globalEnv": [
-    "AUTH_SECRET",
+    "BETTER_AUTH_SECRET",
     "PORT",
     "PRODUCTION_URL",
     "CLOUDFLARE_ACCOUNT_ID",

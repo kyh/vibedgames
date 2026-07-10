@@ -5,7 +5,7 @@ interface CloudflareEnv {
   DB: D1Database;
   ASSETS: Fetcher;
   GAMES_BUCKET: R2Bucket;
-  AUTH_SECRET: string;
+  BETTER_AUTH_SECRET: string;
   PRODUCTION_URL: string;
   R2_BUCKET_NAME: string;
   R2_ACCOUNT_ID: string;
