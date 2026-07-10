@@ -91,10 +91,13 @@ const STOPS: readonly Stop[] = [
   stop(0.25,  50,   150,   dir(50, 150),  0xfff2d8, 2.0,  0xbfe0ff, 0x4a4a3e, 0.35, 0.08, 0xbcd7ea, 360, 800, 0.32, 0,    0.62),
   stop(0.40,  12,   235,   dir(12, 235),  0xffc27a, 1.8,  0xffd9b0, 0x57503e, 0.30, 0.09, 0xe3c19b, 330, 760, 0.26, 0.25, 0.68),
   stop(0.47,   2,   248,   dir(4, 248),   0xff9350, 1.25, 0xff9d70, 0x3e3a44, 0.28, 0.10, 0xcf9077, 300, 700, 0.18, 0.7,  0.70),
-  stop(0.53,  -3,   255,   MOON,          0x7d8fc0, 0.18, 0x5a6f9e, 0x232630, 0.24, 0.13, 0x55688c, 300, 740, 0.10, 1,    0.64),
-  stop(0.62, -30,   270,   MOON,          0x8aa0d0, 0.32, 0x35486b, 0x191d26, 0.22, 0.15, 0x2c3a57, 280, 700, 0.06, 1,    0.56),
-  stop(0.80, -30,    60,   MOON,          0x8aa0d0, 0.32, 0x35486b, 0x191d26, 0.22, 0.15, 0x2c3a57, 280, 700, 0.06, 1,    0.56),
-  stop(0.88,  -3,    95,   MOON,          0xc087a0, 0.20, 0x7a6f95, 0x232630, 0.24, 0.13, 0x6d6787, 300, 760, 0.10, 1,    0.62),
+  // Night floors are tuned for PHONES: a desktop panel at full brightness can
+  // read a 0.3-fill scene, a dim phone outdoors cannot. Moonlight carries the
+  // shape of the city; streetlight glow carries the color.
+  stop(0.53,  -3,   255,   MOON,          0x7d8fc0, 0.35, 0x5a6f9e, 0x2a2d38, 0.30, 0.18, 0x55688c, 300, 740, 0.14, 1,    0.66),
+  stop(0.62, -30,   270,   MOON,          0x8aa0d0, 0.55, 0x3d5178, 0x20242e, 0.32, 0.22, 0x2c3a57, 280, 700, 0.14, 1,    0.66),
+  stop(0.80, -30,    60,   MOON,          0x8aa0d0, 0.55, 0x3d5178, 0x20242e, 0.32, 0.22, 0x2c3a57, 280, 700, 0.14, 1,    0.66),
+  stop(0.88,  -3,    95,   MOON,          0xc087a0, 0.38, 0x7a6f95, 0x2a2d38, 0.30, 0.18, 0x6d6787, 300, 760, 0.14, 1,    0.66),
   stop(0.94,   4,   105,   dir(6, 105),   0xffb27a, 1.3,  0xffc9a0, 0x4a443c, 0.28, 0.10, 0xdbb090, 360, 860, 0.20, 0.5,  0.66),
 ];
 

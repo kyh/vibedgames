@@ -11,13 +11,17 @@ async function gunzip(gz: ArrayBuffer): Promise<ArrayBuffer> {
   return await new Response(new Blob([gz]).stream().pipeThrough(ds)).arrayBuffer();
 }
 
+// The artifacts are served immutable (1yr browser cache) from unversioned
+// paths — the rev query is what lets a rebake reach returning players.
+const bust = (path: string): string => `${path}?v=${WORLD_REV}`;
+
 // The platform caps files at 10MB — big artifacts ship as .0..N parts with a
 // .parts count file. Parts download in parallel.
 async function fetchMaybeParts(path: string): Promise<ArrayBuffer | null> {
   // The single-file probe must never kill the parts fallback (some servers
   // abort rather than 404 on the missing unsplit file).
   try {
-    const single = await fetch(path);
+    const single = await fetch(bust(path));
     if (single.ok) {
       const buf = await single.arrayBuffer();
       // SPA fallbacks answer 200 with index.html — a real artifact is binary
@@ -28,12 +32,14 @@ async function fetchMaybeParts(path: string): Promise<ArrayBuffer | null> {
   } catch {
     // fall through to parts
   }
-  const partsRes = await fetch(`${path.replace(".bin", ".parts")}`);
+  const partsRes = await fetch(bust(path.replace(".bin", ".parts")));
   if (!partsRes.ok) return null;
   const n = parseInt((await partsRes.text()).trim(), 10);
   if (!Number.isFinite(n) || n < 1 || n > 64) return null;
   const parts = await Promise.all(
-    Array.from({ length: n }, (_, i) => fetch(`${path}.${i}`).then((r) => (r.ok ? r.arrayBuffer() : null))),
+    Array.from({ length: n }, (_, i) =>
+      fetch(bust(`${path}.${i}`)).then((r) => (r.ok ? r.arrayBuffer() : null)),
+    ),
   );
   if (parts.some((p) => p === null)) return null;
   const total = parts.reduce((a, p) => a + (p?.byteLength ?? 0), 0);

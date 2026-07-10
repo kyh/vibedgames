@@ -486,7 +486,7 @@ export class CityModel {
     };
     if (this.restPayload) {
       const tR = performance.now();
-      await this.rebuildRest(this.restPayload);
+      await this.rebuildRest(this.restPayload, onProgress);
       console.log(`[city] rest rebuild ${Math.round(performance.now() - tR)}ms`);
       await tick(0.97);
       return;
@@ -1297,7 +1297,10 @@ export class CityModel {
   // Rebuild phases 2+3 from the city-rest cache: merged chunk meshes from
   // raw buffers, model batches from source-tagged records. Skips ALL
   // placement, furniture and merge compute.
-  private async rebuildRest(rest: CityRestPayload): Promise<void> {
+  private async rebuildRest(
+    rest: CityRestPayload,
+    onProgress?: (f: number) => void,
+  ): Promise<void> {
     const nx = Math.ceil(WORLD_W / CHUNK);
     const nz = Math.ceil(WORLD_H / CHUNK);
     const cullRadius = CHUNK * 0.71 + ROAD_TILE * 2;
@@ -1332,7 +1335,10 @@ export class CityModel {
     const roadMerges = new Map<string, RoadMerge>();
     let n = 0;
     for (const rec of rest.mergedChunks) {
-      if (++n % 24 === 0) await this.breathe();
+      // breathe() self-throttles to ~12ms slices — check every chunk, because
+      // one computeVertexNormals over a big legacy chunk can eat a frame.
+      await this.breathe();
+      if (++n % 16 === 0) onProgress?.((n / rest.mergedChunks.length) * 0.55);
       const geo = new THREE.BufferGeometry();
       geo.setAttribute("position", new THREE.BufferAttribute(rec.position, 3));
       if (rec.uv) geo.setAttribute("uv", new THREE.BufferAttribute(rec.uv, 2));
@@ -1437,7 +1443,7 @@ export class CityModel {
       });
     }
     console.log(`[city] rest items ok ${okN} dropSrc ${dropSrc} dropRaw ${dropRaw}`);
-    await this.buildBatchesFrom(buckets, nx, nz);
+    await this.buildBatchesFrom(buckets, nx, nz, (f) => onProgress?.(0.55 + f * 0.4));
     // Game data.
     this.solids.length = 0;
     for (const so of rest.solids) this.solids.push(so);
@@ -1456,6 +1462,7 @@ export class CityModel {
     batchBuckets: Map<string, BatchBucket>,
     nx: number,
     nz: number,
+    onProgress?: (f: number) => void,
   ): Promise<void> {
     // Global batches (models). Each instance is assigned to a spatial chunk;
     // updateStreaming() flips whole chunks of instances on visibility
@@ -1473,6 +1480,8 @@ export class CityModel {
     let batchN = 0;
     for (const bucket of batchBuckets.values()) {
       await this.breathe();
+      onProgress?.(batchN / batchBuckets.size);
+      batchN++;
       const batched = new THREE.BatchedMesh(
         bucket.items.length,
         bucket.verts,
@@ -1495,6 +1504,9 @@ export class CityModel {
       const chunkIds = new Uint16Array(bucket.items.length);
       // no-op marker retained for rebuild parity
       for (let i = 0; i < bucket.items.length; i++) {
+        // Buckets can hold thousands of instances — yield inside the loop too
+        // (safe: the chunk grid publishes only at the very end, see below).
+        if (i % 512 === 0) await this.breathe();
         const item = bucket.items[i];
         if (!item) continue;
         let gid = geoIds.get(item.geo);
@@ -1612,7 +1624,9 @@ export class CityModel {
       const sizeV = new THREE.Vector3();
       const ctrV = new THREE.Vector3();
       const defaultTint = new THREE.Color(0x97a1ae);
+      let impN = 0;
       for (const { key, item } of imposters) {
+        if (impN++ % 1024 === 0) await this.breathe();
         if (!item.geo.boundingBox) item.geo.computeBoundingBox();
         if (!item.geo.boundingBox) continue;
         box.copy(item.geo.boundingBox);

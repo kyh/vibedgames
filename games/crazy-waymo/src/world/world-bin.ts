@@ -9,7 +9,7 @@ import type { CityGenPayload } from "./gen-worker";
 // The header mirrors the payload structure with typed arrays replaced by
 // { $buf: n, $type: "f32"|"u16"|"u32"|"i8" } refs into the buffer table.
 
-export const WORLD_REV = 18; // bump when generation code changes → rebake (18 = awning props removed)
+export const WORLD_REV = 19; // bump when generation code changes → rebake (19 = streetlights actually place)
 
 type Typed = Float32Array | Uint16Array | Uint32Array | Int8Array | Uint8Array | Int32Array;
 type BufRef = { $buf: number; $type: "f32" | "u16" | "u32" | "i8" | "u8" | "i32" };
@@ -230,11 +230,14 @@ function dqCol(q: Uint8Array): Float32Array {
   return out;
 }
 
-// Terrain-only world payload.
+// Terrain-only world payload. Normals ship as Int8 (rev 19+): they gzip to
+// almost nothing and their absence forced a computeVertexNormals pass over
+// the whole map on EVERY visit — a main-thread freeze on phones.
 export function packWorld(world: CityGenPayload): unknown {
   return {
     tiles: world.tiles.map((t) => ({
       pos: qPos(t.position),
+      nor: t.normal ? qNor(t.normal) : null,
       col: t.color ? qCol(t.color) : null,
       index: t.index,
       x: t.x,
@@ -244,12 +247,12 @@ export function packWorld(world: CityGenPayload): unknown {
 }
 
 export function unpackWorld(packed: unknown): CityGenPayload {
-  const p = packed as { tiles: { pos: QPos; col: Uint8Array | null; index: Uint16Array | Uint32Array | null; x: number; z: number }[] };
+  const p = packed as { tiles: { pos: QPos; nor: Int8Array | null; col: Uint8Array | null; index: Uint16Array | Uint32Array | null; x: number; z: number }[] };
   return {
     roadParts: [], // rest.bin's merged chunks carry the roads
     tiles: p.tiles.map((t) => ({
       position: dqPos(t.pos),
-      normal: null, // recomputed at mesh build (welded/indexed geometry)
+      normal: t.nor ? dqNor(t.nor) : null,
       color: t.col ? dqCol(t.col) : null,
       index: t.index,
       x: t.x,
@@ -324,6 +327,7 @@ export function packRest(rest: CityRestPayload): unknown {
       cz: r.cz,
       dist: r.dist,
       pos: qPos(r.position),
+      nor: r.normal ? qNor(r.normal) : null,
       // uv only matters on textured (srcMat) records — dead weight elsewhere
       uv: r.srcMat && r.uv ? qUv(r.uv) : null,
       col: r.color ? qCol(r.color) : null,
@@ -333,6 +337,7 @@ export function packRest(rest: CityRestPayload): unknown {
     })),
     rawGeos: rest.rawGeos.map((g) => ({
       pos: qPos(g.position),
+      nor: g.normal ? qNor(g.normal) : null,
       uv: null, // raw geos are untextured by construction
       index: packIndex(g.index, g.position.length / 3),
       mat: g.mat,
@@ -345,10 +350,19 @@ export function packRest(rest: CityRestPayload): unknown {
   };
 }
 
-export function unpackRest(packed: unknown): CityRestPayload {
+// Time-sliced yield: the unpack runs behind the title screen, and its dq
+// loops over the whole city would otherwise starve the render loop.
+let lastUnpackYield = 0;
+async function unpackYield(): Promise<void> {
+  if (performance.now() - lastUnpackYield < 12) return;
+  await new Promise((r) => setTimeout(r, 0));
+  lastUnpackYield = performance.now();
+}
+
+export async function unpackRest(packed: unknown): Promise<CityRestPayload> {
   const p = packed as {
-    mergedChunks: { cx: number; cz: number; dist: number; pos: QPos; uv: QUv | null; col: Uint8Array | null; index: Uint16Array | Uint32Array | null; mat: CityRestPayload["mergedChunks"][number]["mat"]; srcMat: { url: string; idx: number } | null }[];
-    rawGeos: { pos: QPos; uv: null; index: Uint16Array | Uint32Array | null; mat: CityRestPayload["rawGeos"][number]["mat"] }[];
+    mergedChunks: { cx: number; cz: number; dist: number; pos: QPos; nor: Int8Array | null; uv: QUv | null; col: Uint8Array | null; index: Uint16Array | Uint32Array | null; mat: CityRestPayload["mergedChunks"][number]["mat"]; srcMat: { url: string; idx: number } | null }[];
+    rawGeos: { pos: QPos; nor: Int8Array | null; uv: null; index: Uint16Array | Uint32Array | null; mat: CityRestPayload["rawGeos"][number]["mat"] }[];
     items: { urls: string[]; urlIdx: Int32Array; rawIdx: Int32Array; trs: Float32Array; scales: Uint16Array; exactIdx: Int32Array; exactMats: Float32Array; tints: Int32Array; count: number };
     solids: PackedSolids;
     parkedCars: CityRestPayload["parkedCars"];
@@ -364,6 +378,7 @@ export function unpackRest(packed: unknown): CityRestPayload {
   const q = new THREE.Quaternion();
   const batchItems: CityRestPayload["batchItems"] = [];
   for (let i = 0; i < p.items.count; i++) {
+    if (i % 4096 === 0) await unpackYield();
     const u = p.items.urlIdx[i] ?? -1;
     const tintV = p.items.tints[i] ?? -1;
     let m: Float32Array;
@@ -393,22 +408,28 @@ export function unpackRest(packed: unknown): CityRestPayload {
       big: false,
     });
   }
-  return {
-    mergedChunks: p.mergedChunks.map((r) => ({
+  const mergedChunks: CityRestPayload["mergedChunks"] = [];
+  for (const r of p.mergedChunks) {
+    await unpackYield();
+    mergedChunks.push({
       cx: r.cx,
       cz: r.cz,
       dist: r.dist,
       position: dqPos(r.pos),
-      normal: null, // recomputed at mesh build
+      // Legacy (rev ≤18) artifacts ship without normals — mesh build recomputes.
+      normal: r.nor ? dqNor(r.nor) : null,
       uv: r.uv ? dqUv(r.uv) : null,
       color: r.col ? dqCol(r.col) : null,
       index: r.index,
       mat: r.mat,
       srcMat: r.srcMat,
-    })),
+    });
+  }
+  return {
+    mergedChunks,
     rawGeos: p.rawGeos.map((g) => ({
       position: dqPos(g.pos),
-      normal: null, // recomputed at mesh build
+      normal: g.nor ? dqNor(g.nor) : null,
       uv: null,
       index: g.index,
       mat: g.mat,

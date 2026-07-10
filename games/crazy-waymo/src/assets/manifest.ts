@@ -269,7 +269,28 @@ const ROADS = [
   ROAD_END,
 ] as const;
 
-// Everything that must be preloaded before the game starts.
+// TITLE-CRITICAL set (~200KB): exactly what the player car and city phase 1
+// (terrain/streets/green cells/garage depots — city.ts buildPhase1) touch.
+// The title screen goes up after these; everything else streams behind it.
+// If buildPhase1 gains a new model, it MUST move into this list.
+export function earlyModelUrls(): string[] {
+  return [
+    modelUrl("cars", PLAYER_CAR),
+    modelUrl("props", TREE_LARGE),
+    modelUrl("props", TREE_SMALL),
+    modelUrl("props", PROP_WATERTOWER),
+    modelUrl("buildings", GARAGE_MODEL),
+  ];
+}
+
+// Everything else — needed by the late city build (rebuildRest resolves
+// building/prop GLB refs), traffic, fares, debris. Preloaded behind the title.
+export function lateModelUrls(): string[] {
+  const early = new Set(earlyModelUrls());
+  return allModelUrls().filter((u) => !early.has(u));
+}
+
+// Everything the game ever preloads (early + late).
 export function allModelUrls(): string[] {
   const urls: string[] = [];
   urls.push(modelUrl("cars", PLAYER_CAR));

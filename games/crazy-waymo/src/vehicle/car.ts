@@ -156,7 +156,9 @@ function buildNightRig(): NightRig {
   const headMats: THREE.SpriteMaterial[] = [];
   const tailMats: THREE.SpriteMaterial[] = [];
 
-  const spot = new THREE.SpotLight(0xffedc9, 0, 55, 0.46, 0.65, 1.1);
+  // Wide-ish beam: at night the headlights are most of what lights the road,
+  // so the cone covers the near street, not just a strip ahead of the hood.
+  const spot = new THREE.SpotLight(0xffedc9, 0, 70, 0.58, 0.7, 1.1);
   spot.position.set(0, 1.0, 0.9);
   spot.castShadow = false;
   spot.target.position.set(0, -0.6, 16);

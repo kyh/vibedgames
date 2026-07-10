@@ -3,7 +3,7 @@ import { notifyGameStarted } from "@repo/embed";
 import { Sky } from "three/addons/objects/Sky.js";
 
 import { ModelCache } from "../assets/loader";
-import { allModelUrls } from "../assets/manifest";
+import { earlyModelUrls, lateModelUrls } from "../assets/manifest";
 import { ChaseCamera } from "../fx/camera-rig";
 import { SkyClouds } from "../fx/clouds";
 import { SmashCones } from "../fx/cones";
@@ -270,6 +270,9 @@ export class GameScene {
   private scrSnapAnchor = new THREE.Vector3();
   private mode: GameMode = { kind: "loading", progress: 0 };
   ready: Promise<void> = Promise.resolve();
+  private latePreload: Promise<void> = Promise.resolve();
+  // What the start CTA shows while the city finishes behind the title.
+  private finishStage = "DOWNLOADING THE CITY…";
   private restPromise: Promise<CityRestPayload | null> = Promise.resolve(null);
   private restFromBake = false;
   private bakePayload: CityGenPayload | null = null;
@@ -530,7 +533,15 @@ export class GameScene {
     const pmrem = new THREE.PMREMGenerator(renderer);
     const tmp = new THREE.Scene();
     tmp.add(this.sky);
+    // Always bake the env from the DAYLIGHT sky: booting at real-SF night used
+    // to bake a black dome, killing even the PBR fill after dark (one reason
+    // phones opened at night read pitch-black). The cycle dims the fill via
+    // environmentIntensity; the bake itself must stay daylit.
+    const sunU = this.sky.material.uniforms.sunPosition;
+    const bootSun = sunU && sunU.value instanceof THREE.Vector3 ? sunU.value.clone() : null;
+    if (sunU && sunU.value instanceof THREE.Vector3) sunU.value.copy(SUN_DIR);
     const rt = pmrem.fromScene(tmp);
+    if (sunU && sunU.value instanceof THREE.Vector3 && bootSun) sunU.value.copy(bootSun);
     this.scene.environment = rt.texture;
     this.scene.environmentIntensity = 0.32; // the HDR sky is bright; keep fill subtle
     this.scene.add(this.sky); // move the sky back into the live scene
@@ -620,10 +631,15 @@ export class GameScene {
       if (baked) this.restFromBake = true;
       return baked ? baked : edited ? null : readRestCache();
     });
-    await this.cache.preload(allModelUrls(), (frac) => {
+    // Two-stage model preload: the title needs only the ~200KB early set
+    // (player car + everything buildPhase1 touches); the other ~7MB of GLBs
+    // stream behind the title, and finishLoad waits for them before the late
+    // city build (rebuildRest resolves building/prop refs from the cache).
+    await this.cache.preload(earlyModelUrls(), (frac) => {
       this.mode = { kind: "loading", progress: frac * 0.7 };
       this.hud.setLoading(frac * 0.7);
     });
+    this.latePreload = this.cache.preload(lateModelUrls(), () => {});
     // The worker may still be generating — keep the bar honest but ALIVE
     // (a frozen bar reads as a hang; this crawls 70 -> 84% while waiting).
     let waitFrac = 0.7;
@@ -667,9 +683,22 @@ export class GameScene {
   private async finishLoad(city: CityModel): Promise<void> {
     const paint = (): Promise<void> =>
       new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
-    const rest = await this.restPromise;
+    // Impatient players see live status on the CTA they already tapped.
+    const stage = (label: string): void => {
+      this.finishStage = label;
+      if (this.pendingStart && !this.loadDone) this.hud.setCta(label);
+    };
+    stage("DOWNLOADING THE CITY…");
+    const [rest] = await Promise.all([this.restPromise, this.latePreload]);
     city.setRestPayload(rest);
-    await city.initLate();
+    let lastPct = -1;
+    await city.initLate((f) => {
+      const pct = Math.min(99, Math.round(f * 100));
+      if (pct !== lastPct) {
+        lastPct = pct;
+        stage(`FINISHING THE CITY… ${pct}%`);
+      }
+    });
     // Static city built: freeze its matrices (editor sessions keep them live
     // so props/streets can be rebuilt and dragged).
     if (!editorMode()) city.freezeStatic();
@@ -728,6 +757,19 @@ export class GameScene {
       if (new URLSearchParams(window.location.search).has("tune")) mountTunePanel(vehicle);
     }
     await paint();
+
+    // Prewarm shaders BEFORE declaring playable: the countdown swoop reveals
+    // the whole city at once, and first-render program compiles on a phone
+    // GPU are a multi-hundred-ms stall landing on a live frame otherwise.
+    // compileAsync uses KHR_parallel_shader_compile where available.
+    stage("WARMING UP…");
+    if (this.renderer) {
+      try {
+        await this.renderer.compileAsync(this.scene, this.rig.camera);
+      } catch {
+        // A failed prewarm just means compiles happen on first render.
+      }
+    }
 
     // PLAYABLE: city, arcade solids and stepping physics are ready.
     this.loadDone = true;
@@ -791,16 +833,19 @@ export class GameScene {
       };
       const worldPayload = this.bakePayload;
       if (worldPayload) {
+        console.log("[bake] packing world…");
         save(
           await gzip(serializeWorldBin({ rev: WORLD_REV, world: packWorld(worldPayload) })),
           "world.bin",
         );
       }
       if (city.restCapture) {
-        save(
-          await gzip(serializeWorldBin({ rev: WORLD_REV, rest: packRest(city.restCapture) })),
-          "rest.bin",
-        );
+        console.log("[bake] packing rest…");
+        const packed = packRest(city.restCapture);
+        console.log("[bake] serializing rest…");
+        const bin = serializeWorldBin({ rev: WORLD_REV, rest: packed });
+        console.log(`[bake] gzipping rest (${bin.byteLength} bytes)…`);
+        save(await gzip(bin), "rest.bin");
       }
       console.log("[bake] artifacts downloaded — move into public/world/ and commit");
     }
@@ -1033,7 +1078,7 @@ export class GameScene {
       // The status goes on the banner, not announceMinor: that lives inside
       // #hud, which the landing screen hides.
       this.pendingStart = true;
-      this.hud.setCta("FINISHING THE CITY\u2026");
+      this.hud.setCta(this.finishStage);
       return;
     }
     const car = this.car;
