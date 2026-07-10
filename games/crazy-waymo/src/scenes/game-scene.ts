@@ -939,7 +939,9 @@ export class GameScene {
     });
     for (const g of city.garages) {
       const ring = new THREE.Mesh(ringGeo, ringMat);
-      ring.position.set(g.padX, city.heightAt(g.padX, g.padZ) + 0.25, g.padZ);
+      // 0.4: clears the draped curb lip (0.18) + conform bow (0.09) so the
+      // pad ring can't be depth-tested under sidewalk/asphalt on its span.
+      ring.position.set(g.padX, city.heightAt(g.padX, g.padZ) + 0.4, g.padZ);
       rings.add(ring);
     }
     this.scene.add(rings);

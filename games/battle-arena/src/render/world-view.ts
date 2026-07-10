@@ -292,7 +292,9 @@ class UnitView {
     this.ringMat = new THREE.MeshBasicMaterial({ color: ringColor, transparent: true, opacity: isLocal ? 0.55 : 0.6, side: THREE.DoubleSide, depthWrite: false });
     this.ring = new THREE.Mesh(new THREE.RingGeometry(innerR, outerR, 48), this.ringMat);
     this.ring.rotation.x = -Math.PI / 2;
-    this.ring.position.y = 0.04;
+    // 0.10: the flagstone tile tops are authored at +0.05 — anything ≤0.05
+    // clips into (or z-fights) the stones
+    this.ring.position.y = 0.1;
     this.group.add(this.ring);
 
     // soft blob contact-shadow on the ground (its own scene mesh so it stays on
@@ -338,7 +340,7 @@ class UnitView {
     this.group.position.z += this.recoilZ;
     // blob contact-shadow rides the terrain (never the hop), shrinking as the
     // unit rises so it reads as a cast shadow
-    this.blob.position.set(u.x, groundY + 0.02, u.y);
+    this.blob.position.set(u.x, groundY + 0.08, u.y); // clear the 0.05 tile tops
     this.blob.visible = u.alive;
     this.blob.scale.setScalar(this.baseScale * Math.max(0.45, 1 - hopY * 0.28));
 

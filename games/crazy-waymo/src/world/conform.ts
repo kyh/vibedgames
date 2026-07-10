@@ -11,7 +11,12 @@ import type { Terrain } from "./terrain";
 // output dominates heap (non-indexed verts x 16k road cells), and a 6cm bow
 // under a 13u-wide road is invisible. Markings float on a raised lift so the
 // looser tolerance can't tuck them under the asphalt.
-const MAX_ERROR = 0.09; // split a triangle when the surface bows past this
+// Split a triangle when the surface bows past this. Exported as THE contract
+// for anything layered above a draped surface: an overlay's lift must exceed
+// the surface's own lift plus this bow, or the surface swallows it. Runtime
+// consumers (skid marks, trails, beacon rings, lot decals) derive their lifts
+// from this so a retune here can't silently under-lift them.
+export const DRAPE_MAX_ERROR = 0.09;
 // Never split edges shorter than this. The terrain field itself is 2u
 // resolution (terrain.ts FIELD_STEP) — subdividing much below ~2x that
 // re-samples the same bilinear patch and buys no accuracy, it just multiplies
@@ -65,7 +70,7 @@ export function conformToTerrain(
   geo: THREE.BufferGeometry,
   terrain: Terrain,
   lift: number,
-  maxError: number = MAX_ERROR,
+  maxError: number = DRAPE_MAX_ERROR,
 ): THREE.BufferGeometry {
   const src = geo.index ? geo.toNonIndexed() : geo;
   const pos = src.getAttribute("position");

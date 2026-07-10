@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 
-import consola from "consola";
+import type { Activity } from "./reporter.ts";
+import type { RunOptions, RunResult } from "./runner.ts";
 
 // Every resolution path funnels through the `settle()` helper below, which is
 // guarded by a `settled` flag so it resolves exactly once. oxlint's static
@@ -24,48 +25,6 @@ const STDERR_TAIL_MAX = 16_000;
 /** Human-friendly duration for watchdog messages ("45m", "3s"). */
 const fmtMs = (ms: number): string =>
   ms >= 60_000 ? `${Math.round(ms / 60_000)}m` : `${Math.round(ms / 1000)}s`;
-
-export type RunOptions = {
-  /** The task prompt (the "user" turn). */
-  prompt: string;
-  /** Role definition, appended to Claude Code's system prompt. */
-  systemPrompt: string;
-  /** Working directory — the game workspace. */
-  cwd: string;
-  model: string;
-  maxTurns: number;
-  claudeBin: string;
-  /** Extra dirs the agent may read (e.g. the repo root for skills). */
-  addDirs?: string[];
-  /** Run tools without per-call approval. Required for unattended autonomy. */
-  skipPermissions: boolean;
-  /** Aborts the underlying process (second Ctrl-C). */
-  signal?: AbortSignal;
-  /** Label shown in streamed output, e.g. "engineer". */
-  label: string;
-  /**
-   * Kill the session and fail if it produces NO output (no stream-json events,
-   * no stderr) for this long — a watchdog for a wedged `claude`/stuck tool.
-   * Reset on every event, so it never fires during active work. 0 disables it.
-   */
-  idleTimeoutMs: number;
-  /**
-   * Absolute ceiling on a single session, regardless of activity (ms; 0
-   * disables). Catches a session that keeps streaming events but never emits a
-   * terminal `result` — which the idle watchdog can't, since output keeps
-   * resetting it.
-   */
-  maxSessionMs: number;
-};
-
-export type RunResult = {
-  ok: boolean;
-  result: string;
-  sessionId?: string;
-  costUsd?: number;
-  numTurns?: number;
-  error?: string;
-};
 
 /**
  * Invoke a headless Claude Code session and stream a compact view of what it
@@ -162,7 +121,7 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
     }
 
     try {
-      child = spawn(opts.claudeBin, args, {
+      child = spawn(opts.bin, args, {
         cwd: opts.cwd,
         env,
         stdio: ["ignore", "pipe", "pipe"],
@@ -172,7 +131,7 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
       settle({
         ok: false,
         result: "",
-        error: `failed to spawn ${opts.claudeBin}: ${err instanceof Error ? err.message : String(err)}`,
+        error: `failed to spawn ${opts.bin}: ${err instanceof Error ? err.message : String(err)}`,
       });
       return;
     }
@@ -208,7 +167,7 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
       } catch {
         return; // ignore non-JSON noise
       }
-      printEvent(opts.label, evt);
+      emitActivity(opts.onActivity, evt);
       if (evt.type === "result") {
         gotResult = true;
         // The grace timer governs from here; stand down the watchdogs so a late
@@ -244,7 +203,7 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
     });
 
     child.on("error", (err: Error) => {
-      settle({ ok: false, result: "", error: `${opts.claudeBin}: ${err.message}` });
+      settle({ ok: false, result: "", error: `${opts.bin}: ${err.message}` });
     });
 
     child.on("close", (code) => {
@@ -283,20 +242,22 @@ type ContentBlock =
   | { type: "tool_use"; name?: string; input?: Record<string, unknown> }
   | { type: "tool_result"; [k: string]: unknown };
 
-function printEvent(label: string, evt: StreamEvent): void {
-  const tag = `  ${label} ·`;
+/** Decode a stream-json event into the Activity view the reporter renders. */
+function emitActivity(onActivity: (activity: Activity) => void, evt: StreamEvent): void {
   if (evt.type === "system" && evt.subtype === "init") {
-    consola.log(
-      `${tag} session started (${evt.model ?? "model"}, ${evt.tools?.length ?? 0} tools)`,
-    );
+    onActivity({ kind: "init", model: evt.model, tools: evt.tools?.length ?? 0 });
     return;
   }
   if (evt.type === "assistant") {
     for (const block of evt.message?.content ?? []) {
       if (block.type === "text" && block.text?.trim()) {
-        for (const ln of block.text.trim().split("\n")) consola.log(`${tag} ${ln}`);
+        onActivity({ kind: "text", text: block.text.trim() });
       } else if (block.type === "tool_use") {
-        consola.log(`${tag} ⚙ ${block.name ?? "tool"}${summarizeTool(block.input)}`);
+        onActivity({
+          kind: "tool",
+          name: block.name ?? "tool",
+          detail: summarizeTool(block.input) || undefined,
+        });
       }
     }
   }
@@ -307,5 +268,5 @@ function summarizeTool(input?: Record<string, unknown>): string {
   const cmd = input.command ?? input.file_path ?? input.path ?? input.pattern ?? input.prompt;
   if (typeof cmd !== "string") return "";
   const oneLine = cmd.replace(/\s+/g, " ").trim();
-  return oneLine ? `  (${oneLine.slice(0, 80)}${oneLine.length > 80 ? "…" : ""})` : "";
+  return oneLine.length > 80 ? `${oneLine.slice(0, 80)}…` : oneLine;
 }

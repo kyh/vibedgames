@@ -63,3 +63,4 @@ local.*
 .playwright-mcp
 
 # local-only showcase terrain/unit sheets
+.vercel

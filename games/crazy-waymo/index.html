@@ -640,13 +640,25 @@
         transform: translateY(3px);
         background: radial-gradient(circle at 50% 34%, #ff8a80, rgba(200, 30, 24, 0.85));
       }
-      /* Chat: left-aligned with the EARNED pill, tucked under it. */
+      /* Chat: a frameless glyph tucked under the EARNED pill, its left edge
+         aligned with the pill's. The 44px box stays as the touch target. */
       #t-chat {
         left: calc(14px + env(safe-area-inset-left));
         top: calc(76px + env(safe-area-inset-top));
         width: 44px;
         height: 44px;
-        font-size: 18px;
+        font-size: 22px;
+        background: none;
+        border: none;
+        justify-content: flex-start;
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.5));
+      }
+      #t-chat:active {
+        background: none;
+        transform: scale(0.92);
+        opacity: 0.85;
       }
       /* Narrow phones: shrink the pedal, keep the shared bottom edge. */
       @media (max-width: 420px) {

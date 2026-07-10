@@ -435,7 +435,8 @@ export class Environment {
     for (const p of RUNE_SPOTS) {
       const g = new THREE.RingGeometry(0.9, 1.2, 24);
       g.rotateX(-Math.PI / 2);
-      g.translate(p.x, terrainHeight(p.x, p.y) + 0.05, p.y);
+      // +0.10: tile tops are authored at +0.05 — 0.05 is coplanar (z-fighting)
+      g.translate(p.x, terrainHeight(p.x, p.y) + 0.1, p.y);
       rings.push(g);
     }
     const merged = mergeGeometries(rings);
@@ -510,7 +511,8 @@ export class Environment {
     const inst = new THREE.InstancedMesh(geo, mat, SPAWNS.length);
     this.warnLevels = new Float32Array(SPAWNS.length);
     SPAWNS.forEach((sp, i) => {
-      M_OUT.makeTranslation(sp.x, 0.05, sp.y);
+      // 0.10: tile tops are authored at +0.05 — 0.05 is coplanar (z-fighting)
+      M_OUT.makeTranslation(sp.x, 0.1, sp.y);
       inst.setMatrixAt(i, M_OUT);
       inst.setColorAt(i, C_SCRATCH.setRGB(0, 0, 0));
     });

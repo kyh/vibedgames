@@ -2,7 +2,7 @@ import * as THREE from "three";
 import polygonClipping from "polygon-clipping";
 
 import { ROAD_TILE, ROAD_Y } from "../shared/constants";
-import { conformToTerrain } from "./conform";
+import { conformToTerrain, DRAPE_MAX_ERROR } from "./conform";
 import type { NetEdge, RoadNetwork } from "./network";
 import type { Terrain } from "./terrain";
 

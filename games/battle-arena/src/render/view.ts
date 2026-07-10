@@ -109,6 +109,9 @@ function groundZoneColor(x: number, z: number, out: THREE.Color): THREE.Color {
 function buildGroundDisc(): THREE.Mesh {
   const R = HEX_R + 6;
   const seg = 96;
+  // sit 2cm below the tile layer: the dirt tiles' valley faces are authored at
+  // exactly y=0 — coplanar with a disc at terrainHeight → z-fighting in the gaps
+  const DROP = 0.02;
   // uniform radii + two rings snapped EXACTLY to the plateau cliff — without
   // them the hard terrain step smears across one ring gap as a slanted band
   const uniform = 40;
@@ -119,7 +122,7 @@ function buildGroundDisc(): THREE.Mesh {
   const rings = radii.length;
   const zc = new THREE.Color();
   groundZoneColor(0, 0, zc);
-  const pos: number[] = [0, terrainHeight(0, 0), 0];
+  const pos: number[] = [0, terrainHeight(0, 0) - DROP, 0];
   const col: number[] = [zc.r, zc.g, zc.b];
   for (let ring = 1; ring <= rings; ring++) {
     const rr = radii[ring - 1]!;
@@ -127,7 +130,7 @@ function buildGroundDisc(): THREE.Mesh {
       const a = (s / seg) * Math.PI * 2;
       const x = Math.cos(a) * rr;
       const z = Math.sin(a) * rr;
-      pos.push(x, terrainHeight(x, z), z);
+      pos.push(x, terrainHeight(x, z) - DROP, z);
       groundZoneColor(x, z, zc);
       col.push(zc.r, zc.g, zc.b);
     }
@@ -302,10 +305,12 @@ export class View {
     // at the ramp height for its radius so it hugs the plateau slope.
     const aura = new THREE.Mesh(
       new THREE.RingGeometry(ARENA.throne.radius - 0.5, ARENA.throne.radius, 64),
-      new THREE.MeshBasicMaterial({ color: 0xffcc44, transparent: true, opacity: 0.5, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ color: 0xffcc44, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false }),
     );
     aura.rotation.x = -Math.PI / 2;
-    aura.position.y = terrainHeight(ARENA.throne.radius, 0) + 0.05;
+    // +0.10: the flagstone tile tops are authored at +0.05 — an 0.05 offset is
+    // exactly coplanar with them (z-fighting)
+    aura.position.y = terrainHeight(ARENA.throne.radius, 0) + 0.1;
     arenaGroup.add(aura);
 
     // glowing column rising from the throne — makes the "magnet" readable from
@@ -341,10 +346,10 @@ export class View {
     for (const d of DELIVERY_PADS) {
       const pad = new THREE.Mesh(
         new THREE.RingGeometry(1.4, 1.7, 4),
-        new THREE.MeshBasicMaterial({ color: 0x66ffcc, transparent: true, opacity: 0.55 }),
+        new THREE.MeshBasicMaterial({ color: 0x66ffcc, transparent: true, opacity: 0.55, depthWrite: false }),
       );
       pad.rotation.x = -Math.PI / 2;
-      pad.position.set(d.x, terrainHeight(d.x, d.y) + 0.04, d.y);
+      pad.position.set(d.x, terrainHeight(d.x, d.y) + 0.1, d.y); // above the 0.05 tile tops
       arenaGroup.add(pad);
       const cone = new THREE.ConeGeometry(0.55, 3.5, 8, 1, true);
       cone.translate(d.x, terrainHeight(d.x, d.y) + 1.75, d.y);

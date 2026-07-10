@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 
 import type { RoleName } from "./agents.ts";
-import type { AgentState, Blackboard, Phase } from "./state.ts";
+import { readDirective, type AgentState, type Blackboard, type Phase } from "./state.ts";
 
 export { ROLES } from "./agents.ts";
 export type { Role, RoleName } from "./agents.ts";
@@ -47,6 +47,16 @@ function readNext(bb: Blackboard): NextAssignment {
 
 /** The task ("user" turn) for a phase, grounded in current state. */
 export function buildTask(phase: Phase, state: AgentState, bb: Blackboard): string {
+  // A standing operator directive outranks everything else — the human is
+  // steering; every subagent sees it until it changes.
+  const directive = readDirective(bb);
+  const steer = directive
+    ? `OPERATOR DIRECTIVE — the human steering this game said: "${directive}". Honor it above other priorities until it changes.\n\n`
+    : "";
+  return `${steer}${phaseTask(phase, state, bb)}`;
+}
+
+function phaseTask(phase: Phase, state: AgentState, bb: Blackboard): string {
   const slug = state.slug;
   // Tell subagents to read the operator's brief/reference when one was given.
   const ctx = existsSync(bb.context)

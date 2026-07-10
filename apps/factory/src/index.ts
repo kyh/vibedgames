@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import { closeSync, existsSync, openSync, readSync, statSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -6,22 +6,27 @@ import { defineCommand, runMain } from "citty";
 import consola from "consola";
 
 import {
+  availableSlug,
   DEFAULT_IDLE_MINUTES,
   DEFAULT_MAX_TURNS,
-  DEFAULT_MODEL,
+  DEFAULT_RUNNER,
   DEFAULT_SESSION_MINUTES,
-  defaultWorkspace,
-  findRepoRoot,
+  defaultModelFor,
+  deriveSlug,
+  normalizeSlug,
+  resolveWorkspace,
 } from "./config.ts";
+import { isRunner, RUNNERS } from "./runner.ts";
 import { runAgent } from "./orchestrator.ts";
+import { ConsoleReporter } from "./reporter.ts";
 import {
   approvalPending,
   blackboard,
   hasExistingProject,
   loadState,
-  migrateLegacyLayout,
   requestApproval,
 } from "./state.ts";
+import { runTui } from "./tui/main.tsx";
 
 /** Cap how much of a context file we inline into the brief. */
 const MAX_CONTEXT_BYTES = 20_000;
@@ -78,16 +83,10 @@ function resolveContext(raw: string | undefined): { context?: string; contextDir
   return { context: value };
 }
 
-const SLUG_RE = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/;
-
-/**
- * Validate + normalize a slug before it's ever used to build a filesystem
- * path. Rejecting anything outside [a-z0-9-] keeps `..`/path segments from
- * resolving `.agent` outside the workspaces dir.
- */
+/** Validate a slug or exit with a helpful message (CLI edge only). */
 function requireSlug(raw: string): string {
-  const slug = raw.trim().toLowerCase();
-  if (!SLUG_RE.test(slug)) {
+  const slug = normalizeSlug(raw);
+  if (!slug) {
     consola.error(
       `Invalid slug: ${raw}\n  Use lowercase letters, digits, and hyphens (e.g. "asteroid-belt").`,
     );
@@ -96,28 +95,18 @@ function requireSlug(raw: string): string {
   return slug;
 }
 
-function resolveWorkspace(slug: string, override?: string): string {
-  const workspace = override
-    ? resolve(process.cwd(), override)
-    : defaultWorkspace(findRepoRoot(), slug);
-  // Every command resolves the workspace here, so this is the one place to move
-  // a pre-rename `.studio/` layout to `.agent/` before anything inspects it —
-  // keeping resume, status, stop, and approve working on old workspaces.
-  migrateLegacyLayout(workspace);
-  return workspace;
-}
-
 const startCommand = defineCommand({
   meta: {
     name: "start",
     description:
-      "Start (or resume) the autonomous agent for a game. Builds the game end-to-end and evolves it like a studio until you stop it. Deploys are gated on `pnpm approve <slug>` unless --auto-deploy is set.",
+      "Start (or resume) the autonomous agent for a game. In a terminal this opens the interactive dashboard — run it with no slug to configure a new game on the setup screen. Deploys are gated on approval unless --auto-deploy is set.",
   },
   args: {
     slug: {
       type: "positional",
-      description: "Lowercase, hyphenated game slug — also the deploy subdomain.",
-      required: true,
+      description:
+        "Lowercase, hyphenated game slug — the deploy subdomain. Optional: derived from --dir's folder name or the --idea when omitted; with neither, the dashboard opens on the setup screen.",
+      required: false,
     },
     idea: {
       type: "string",
@@ -130,15 +119,20 @@ const startCommand = defineCommand({
       description:
         "Extra context for the build: literal text, a path to a file (read inline), or a path to a directory (the agents get read access and build upon it).",
     },
+    runner: {
+      type: "string",
+      description: `Which coding-agent CLI runs the subagents: ${RUNNERS.join(" | ")} (default ${DEFAULT_RUNNER}).`,
+      default: DEFAULT_RUNNER,
+    },
     model: {
       type: "string",
-      description: `Model passed to claude --model (default ${DEFAULT_MODEL}, the latest model; pass "sonnet" for a cheaper run).`,
-      default: DEFAULT_MODEL,
+      description: `Model for the runner (default ${defaultModelFor("claude")} for claude, ${defaultModelFor("codex")} for codex; pass a cheaper tier for a budget run).`,
+      default: "",
     },
     dir: {
       type: "string",
       description:
-        "Where the game lives — its project directory (default apps/agents/.workspaces/<slug>). Outside this repo, run `vg init` first so the skills resolve.",
+        "Where the game lives — its project directory (default apps/factory/.workspaces/<slug>). Points at an existing project? The agent builds upon it. Outside this repo, run `vg init` first so the skills resolve.",
     },
     "max-turns": {
       type: "string",
@@ -156,6 +150,11 @@ const startCommand = defineCommand({
       type: "string",
       description: "Stop after N specialist runs (default 0 = run forever).",
     },
+    "checkpoint-wait": {
+      type: "string",
+      description:
+        "Seconds an agent checkpoint waits for your feedback before auto-continuing (default 120; 0 = never wait).",
+    },
     interval: {
       type: "string",
       description: "Milliseconds to pause between specialist runs (default 0).",
@@ -168,7 +167,7 @@ const startCommand = defineCommand({
     "auto-deploy": {
       type: "boolean",
       description:
-        "Deploy automatically without per-release approval. Default is OFF: nothing goes live until you run `pnpm approve <slug>`.",
+        "Deploy automatically without per-release approval. Default is OFF: nothing goes live until you approve (pnpm approve <slug> or the A key).",
       default: false,
     },
     guarded: {
@@ -177,17 +176,67 @@ const startCommand = defineCommand({
         "Do NOT pass --dangerously-skip-permissions. Agents will block waiting for approval — breaks unattended autonomy. For debugging only.",
       default: false,
     },
+    "no-tui": {
+      type: "boolean",
+      description:
+        "Disable the interactive dashboard and stream plain logs instead (automatic when stdout isn't a TTY).",
+      default: false,
+    },
   },
   run: async ({ args }) => {
-    const slug = requireSlug(args.slug);
+    const { context, contextDir } = resolveContext(args.context);
+    if (!isRunner(args.runner)) {
+      consola.error(`Unknown --runner "${args.runner}". Use ${RUNNERS.join(" or ")}.`);
+      process.exit(1);
+    }
+    const runner = args.runner;
+    const knobs = {
+      idea: args.idea.trim(),
+      runner,
+      model: args.model.trim() || defaultModelFor(runner),
+      maxTurns: toInt(args["max-turns"], DEFAULT_MAX_TURNS, 1),
+      idleTimeoutMs: toInt(args["idle-timeout"], DEFAULT_IDLE_MINUTES) * 60_000,
+      maxSessionMs: toInt(args["session-timeout"], DEFAULT_SESSION_MINUTES) * 60_000,
+      maxCycles: toInt(args["max-cycles"], 0),
+      checkpointWaitMs: toInt(args["checkpoint-wait"], 120) * 1000,
+      interval: toInt(args.interval, 0),
+      noShip: Boolean(args["skip-ship"]),
+      autoDeploy: Boolean(args["auto-deploy"]),
+      skipPermissions: !args.guarded,
+      context,
+      contextDir,
+    };
 
+    // The interactive dashboard needs a real terminal on both ends (keyboard +
+    // screen); anything else (CI, piped logs, --no-tui) streams plain logs.
+    const interactive =
+      !args["no-tui"] && process.stdout.isTTY === true && process.stdin.isTTY === true;
+
+    if (interactive) {
+      // Validate an explicit slug here so a typo fails fast with the usual CLI
+      // error; the setup screen re-validates whatever the user types in.
+      const slug = args.slug ? requireSlug(args.slug) : undefined;
+      await runTui({ ...knobs, slug, dir: args.dir });
+      return;
+    }
+
+    // The slug is only the deploy identity — derive it when omitted (folder
+    // name, else the idea's first words), exactly like the setup screen does.
+    const explicit = args.slug ? requireSlug(args.slug) : undefined;
+    let slug = deriveSlug({ slug: explicit, dir: args.dir, idea: knobs.idea || undefined });
+    if (!slug) {
+      consola.error(
+        'Nothing identifies the game: pass a slug, --dir <folder>, or --idea "your one-line idea".',
+      );
+      process.exit(1);
+    }
+    if (!explicit && !args.dir) slug = availableSlug(slug);
     const workspace = resolveWorkspace(slug, args.dir);
     const bb = blackboard(workspace);
     const fresh = !existsSync(bb.state);
-    const { context, contextDir } = resolveContext(args.context);
     // A new game needs *something* to go on: a seed idea, an operator brief, or
     // an existing project in the game dir to build upon.
-    if (fresh && !args.idea.trim() && !context && !hasExistingProject(workspace)) {
+    if (fresh && !knobs.idea && !context && !hasExistingProject(workspace)) {
       // Distinguish "no --context given" from "--context given but empty", so an
       // operator who pointed at an empty file isn't told to "add --context".
       const contextAttempted = Boolean((args.context ?? "").trim());
@@ -201,22 +250,7 @@ const startCommand = defineCommand({
     // A stale STOP sentinel is cleared inside runAgent once the workspace lock
     // is held, so a restart can never wipe a still-running process's stop.
 
-    const started = await runAgent({
-      slug,
-      idea: args.idea.trim(),
-      workspace,
-      model: args.model,
-      maxTurns: toInt(args["max-turns"], DEFAULT_MAX_TURNS, 1),
-      idleTimeoutMs: toInt(args["idle-timeout"], DEFAULT_IDLE_MINUTES) * 60_000,
-      maxSessionMs: toInt(args["session-timeout"], DEFAULT_SESSION_MINUTES) * 60_000,
-      maxCycles: toInt(args["max-cycles"], 0),
-      interval: toInt(args.interval, 0),
-      noShip: Boolean(args["skip-ship"]),
-      autoDeploy: Boolean(args["auto-deploy"]),
-      skipPermissions: !args.guarded,
-      context,
-      contextDir,
-    });
+    const started = await runAgent({ ...knobs, slug, workspace }, new ConsoleReporter());
     if (!started) process.exit(1);
   },
 });
@@ -312,7 +346,7 @@ const main = defineCommand({
   meta: {
     name: "factory",
     description:
-      "vibedgames factory — runs one autonomous agent per game that builds a browser game and evolves it like a studio (a durable, checkpointed loop of clean-context subagents). Run via pnpm scripts (start/stop/status/approve). Deploys require approval (`pnpm approve <slug>`).",
+      "vibedgames factory — runs one autonomous agent per game that builds a browser game and evolves it like a studio (a durable, checkpointed loop of clean-context subagents). Run via pnpm scripts (start/stop/status/approve). Deploys require approval.",
   },
   subCommands: {
     start: startCommand,

@@ -11,9 +11,11 @@ const MAX_QUADS = 600;
 const LIFE = 10; // seconds until a mark fully fades
 const HALF_W = 0.14; // 0.28u wide
 const HALF_L = 0.25; // ~0.5u long
-// The asphalt drape sits at terrain + 0.07 (ASPHALT_LIFT) — marks must clear
-// the road SURFACE, not the terrain, or the road overlays them at distance.
-const LIFT = 0.1;
+// The asphalt drape sits at terrain + 0.07 (ASPHALT_LIFT) and its coarse
+// tessellation can bow up to 0.09 above the height field between verts
+// (conform.ts MAX_ERROR) — marks must clear the worst-case road SURFACE
+// (0.07 + 0.09), not the terrain, or the road swallows them.
+const LIFT = 0.18;
 
 export class SkidMarks {
   readonly mesh: THREE.Mesh;

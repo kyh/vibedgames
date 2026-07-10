@@ -508,7 +508,9 @@ export class StatusFx {
     });
     const ring = new THREE.Mesh(sharedRootRingGeo(), this.rootMat);
     ring.rotation.x = -Math.PI / 2;
-    ring.position.y = 0.06;
+    // 0.12: clears the flagstone tops (+0.05) and camp dirt bumps (up to +0.109)
+    // — roots land on camp creeps, which stand on dirt tiles
+    ring.position.y = 0.12;
     this.target.group.add(ring);
     this.rootRing = ring;
     return ring;
@@ -519,7 +521,7 @@ export class StatusFx {
     this.runeMat = makeRuneMaterial(0xffd76a);
     const rune = new THREE.Mesh(sharedRuneGeo(), this.runeMat);
     rune.rotation.x = -Math.PI / 2;
-    rune.position.y = 0.09;
+    rune.position.y = 0.15; // above the root ring (0.12), clear of tile tops/dirt
     rune.scale.setScalar(1.35);
     this.target.group.add(rune);
     this.rune = rune;
@@ -548,7 +550,7 @@ export class StatusFx {
     });
     this.domeRim = new THREE.Mesh(sharedDomeRimGeo(), this.domeRimMat);
     this.domeRim.rotation.x = -Math.PI / 2;
-    this.domeRim.position.y = 0.07;
+    this.domeRim.position.y = 0.12; // clear of tile tops (0.05) and dirt bumps
     this.target.group.add(this.domeRim);
   }
 

@@ -33,6 +33,8 @@ export type AgentState = {
   slug: string;
   idea: string;
   model: string;
+  /** Which coding-agent CLI runs the subagents ("claude" | "codex"). */
+  runner: string;
   phase: Phase;
   /** Total specialist invocations so far. */
   cycle: number;
@@ -75,6 +77,10 @@ export type Blackboard = {
   playtest: string;
   journal: string;
   context: string;
+  /** Standing operator directive, injected into every subagent task. */
+  directive: string;
+  /** Agent-authored "good stopping point" note; consumed by the orchestrator. */
+  checkpoint: string;
   /** Per-turn observability: one span (JSON line) per subagent turn. */
   trace: string;
   stop: string;
@@ -94,6 +100,8 @@ export function blackboard(workspace: string): Blackboard {
     playtest: resolve(dir, "playtest.md"),
     journal: resolve(dir, "journal.md"),
     context: resolve(dir, "context.md"),
+    directive: resolve(dir, "directive.md"),
+    checkpoint: resolve(dir, "checkpoint.md"),
     trace: resolve(dir, "trace.jsonl"),
     stop: resolve(dir, "STOP"),
     approve: resolve(dir, "APPROVE"),
@@ -160,10 +168,67 @@ export function saveState(bb: Blackboard, state: AgentState): void {
   writeFileSync(bb.state, `${JSON.stringify(state, null, 2)}\n`);
 }
 
+/** Past this size the journal gets compacted — every subagent reads it, so it
+ * must never grow to context-blowing size over a long-running loop. */
+const MAX_JOURNAL_BYTES = 32_000;
+const JOURNAL_KEEP_ENTRIES = 40;
+
 export function appendJournal(bb: Blackboard, line: string): void {
   const stamp = new Date().toISOString();
   const body = existsSync(bb.journal) ? readFileSync(bb.journal, "utf8") : "";
-  writeFileSync(bb.journal, `${body.replace(/\s*$/, "")}\n\n- [${stamp}] ${line}\n`);
+  const next = `${body.replace(/\s*$/, "")}\n\n- [${stamp}] ${line}\n`;
+  writeFileSync(bb.journal, next.length > MAX_JOURNAL_BYTES ? compactJournal(next) : next);
+}
+
+/** Keep the header + the newest entries; older history lives in git. */
+function compactJournal(body: string): string {
+  const parts = body.split(/\n- \[/);
+  const header = parts[0] ?? "";
+  const entries = parts.slice(1);
+  if (entries.length <= JOURNAL_KEEP_ENTRIES) return body;
+  const kept = entries.slice(-JOURNAL_KEEP_ENTRIES).map((e) => `- [${e.trimEnd()}`);
+  return `${header.trimEnd()}\n\n> (older entries compacted — full history in the workspace git log)\n\n${kept.join("\n\n")}\n`;
+}
+
+/** The standing operator directive, or null when none is set. */
+export function readDirective(bb: Blackboard): string | null {
+  try {
+    const text = readFileSync(bb.directive, "utf8").trim();
+    return text || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Set (or with empty text, clear) the standing operator directive. */
+export function setDirective(bb: Blackboard, text: string): void {
+  mkdirSync(bb.dir, { recursive: true });
+  const trimmed = text.trim();
+  if (!trimmed) {
+    try {
+      rmSync(bb.directive);
+    } catch {
+      /* already gone */
+    }
+    return;
+  }
+  writeFileSync(bb.directive, `${trimmed}\n`);
+}
+
+/** Read AND consume an agent-authored checkpoint note, if one is waiting. */
+export function takeCheckpoint(bb: Blackboard): string | null {
+  let text: string;
+  try {
+    text = readFileSync(bb.checkpoint, "utf8").trim();
+  } catch {
+    return null;
+  }
+  try {
+    rmSync(bb.checkpoint);
+  } catch {
+    /* best-effort */
+  }
+  return text || null;
 }
 
 export function stopRequested(bb: Blackboard): boolean {

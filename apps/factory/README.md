@@ -33,12 +33,77 @@ You run it with **pnpm scripts** from `apps/factory/` (or with `-F @repo/factory
 from the repo root):
 
 ```
+pnpm start                   # open the dashboard — set up a new game on the setup screen
+pnpm start --dir ~/games/my-proto    # adopt & evolve whatever project lives in that folder
 pnpm start   neon-slasher --idea "a top-down neon slasher where every hit shakes the screen"
 # …builds, generates art, iterates forever — but does NOT publish until you approve…
 pnpm status  neon-slasher    # peek at progress
 pnpm approve neon-slasher    # publish the current build to neon-slasher.vibedgames.com
-pnpm stop    neon-slasher    # graceful stop (or just Ctrl-C the running process)
+pnpm stop    neon-slasher    # graceful stop (or just Ctrl-C / the S key)
 ```
+
+### Interactive dashboard (TUI)
+
+In a terminal, `pnpm start` opens the interactive dashboard
+([opentui](https://github.com/anomalyco/opentui)). Run it **with no arguments**
+and it lands on the **setup screen**:
+
+- **FOLDER** — optional: where the game lives. Point it at a directory that
+  already contains a project and the agent **builds upon what's there** (the
+  hint under the field confirms detection). Empty or omitted → a game from
+  scratch.
+- **INSTRUCTIONS** — what should it build? Required when starting from
+  scratch; optional extra direction when the folder already has a project.
+- **SLUG** — optional. The slug is just the game's deploy identity
+  (`{slug}.vibedgames.com` + the default workspace name); leave it blank and
+  it's derived from the folder name, else the instructions — the hint shows
+  the resolved subdomain live.
+
+`TAB`/`↑↓` move between fields, `ENTER` starts, `ESC` quits. From the command
+line, `pnpm start <slug>` resumes a game and `pnpm start --dir <folder>`
+adopts one directly — both skip the setup screen.
+
+The dashboard shows run status + spend, a phase/cycle/deploy strip, the
+scrollable **ACTIVITY** feed of what the current subagent is doing, the
+director's **BACKLOG** (on terminals ≥ 96 cols), and the current turn with
+elapsed time. Left alone, the loop just keeps going — the hotkeys steer it at
+runtime without stopping it:
+
+- **`i`** — **steer**: type a directive ("focus on mobile controls") — it's
+  injected into every subagent task until you change it (empty clears it)
+- **`p`** — pause after the current step / resume
+- **`s`** — stop after the current step · **`⇧S`** — stop at the next release
+  point (a ship, or a ship-ready build)
+- **`a`** — approve one deployment (same as `pnpm approve <slug>`)
+- **`enter`** — resume a stopped agent from its saved phase
+- **`↑↓` / `PgUp`** — scroll the activity feed
+- **`q` / Ctrl-C** — stop, then exit; press again while stopping to force quit
+
+### Checkpoints (the agent asks for feedback)
+
+At real milestones — first playable, a big feature, a release — the director
+writes `.agent/checkpoint.md`, and the loop **holds with a countdown**
+(`--checkpoint-wait`, default 120s): the dashboard shows what it wants you to
+test and what it's asking. Press `ENTER` to continue now, `i` to respond (your
+directive answers it and continues), `s` to stop — or say nothing and it keeps
+going on its own.
+
+### Built-in quality ratchet
+
+The loop can't run forever on the agents' word alone, so the harness enforces:
+
+- **Quality gate** — after engineering phases the orchestrator itself runs the
+  workspace's `typecheck` + `build` scripts and refuses to advance on red (the
+  phase retries with the failure in the journal).
+- **Git ratchet** — every successful phase is a commit in the game workspace
+  (`.agent/` stays out of history), so a phase that made things worse is a
+  `git revert`, not a hope the next agent notices.
+- **Journal compaction** — `journal.md` is kept bounded (newest 40 entries);
+  older history lives in the git log.
+
+When stdout isn't a TTY (CI, piped logs) — or with `--no-tui` — the factory
+streams the same events as plain log lines instead (there the game must be
+identifiable up front: a slug, `--dir`, or `--idea`).
 
 ### Deploys need your approval
 
@@ -164,19 +229,45 @@ cat .agent/trace.jsonl | jq -s 'group_by(.role) | map({role: .[0].role, cost: (m
 
 ## Prerequisites
 
-1. **Claude Code CLI** logged in on your machine (`claude` on `PATH`, or set
-   `CLAUDE_BIN`). The agent uses your existing Claude subscription/login — it
-   shells out to `claude -p`.
-2. **`vg` CLI + skills linked locally:** run `pnpm dogfood` once at the repo
+1. **Bun ≥ 1.2** on `PATH` — the scripts run the TypeScript/TSX sources
+   directly with Bun (the TUI's renderer requires the Bun runtime).
+2. **A coding-agent CLI** logged in on your machine. The default runner is
+   **Claude Code** (`claude` on `PATH`, or `CLAUDE_BIN`; shells out to
+   `claude -p` per phase). Pass `--runner codex` to drive the **Codex CLI**
+   instead (`codex exec --json`; `CODEX_BIN` to override). Same contract
+   either way: one fresh clean-context session per phase, streamed into the
+   dashboard. Checked at start; a missing binary fails fast. Codex reports
+   token usage but not dollars, so the spend counter only tracks claude runs.
+3. **`vg` CLI + skills linked locally:** run `pnpm dogfood` once at the repo
    root. The orchestrator runs each subagent with its cwd inside this repo so
    Claude Code resolves the skills from `<repo>/.claude/skills`.
-3. Anything `vg generate` / `vg deploy` need (a logged-in `vg`, env from
+4. Anything `vg generate` / `vg deploy` need (a logged-in `vg`, env from
    `.env`). The subagents call `vg login`-gated commands.
+
+## Running installed (outside this repo)
+
+The factory detects whether it's running inside the vibedgames monorepo:
+
+- **In the repo (dev mode):** games default to `apps/factory/.workspaces/<slug>`
+  (gitignored) and subagents resolve the dogfooded skills from
+  `<repo>/.claude/skills`.
+- **Installed (npm / a copied package):** games default to
+  **`~/vibedgames/<slug>`** — a visible folder, stable regardless of cwd so
+  `start`/`stop`/`status`/`approve` always agree. On first start the factory
+  runs **`vg init`** in the game workspace (bootstrapped via
+  `npx -y vibedgames init` when `vg` isn't installed yet), which installs the
+  vibedgames skills into the workspace **and** the `vg` CLI globally — the two
+  things every subagent drives.
+
+Publishing checklist (not yet done): rename from `@repo/factory` +
+`private: false`, and pick a distribution — require Bun (`bin` points at the
+TS sources) or ship bun-compiled per-platform binaries with a Node launcher
+shim (the kyh.io CLI pattern) so end users need neither Bun nor a TS runtime.
 
 ## Run
 
-There's no build step — the scripts run the TypeScript sources directly with
-Node's built-in type stripping (Node ≥ 22.18). From `apps/factory/`:
+There's no build step — the scripts run the TypeScript/TSX sources directly
+with Bun. From `apps/factory/`:
 
 ```bash
 pnpm start <slug> --idea "<one-line idea>"
@@ -188,7 +279,7 @@ From the repo root, target the package with `-F`:
 pnpm -F @repo/factory start <slug> --idea "<one-line idea>"
 ```
 
-The `start`, `stop`, `status`, and `approve` scripts each run `node
+The `start`, `stop`, `status`, and `approve` scripts each run `bun
 src/index.ts <cmd>`; everything after the script name (the slug and any flags)
 is passed straight through. `pnpm typecheck` runs `tsc --noEmit` (the only
 TypeScript step — nothing is emitted).
@@ -199,8 +290,10 @@ TypeScript step — nothing is emitted).
 | ------------------- | --------------------------------- | -------------------------------------------------------------------------------- |
 | `--idea`            | — (one of idea/context/existing)  | Seed idea. Optional with `--context` or when `--dir` has a project.              |
 | `--context`         | —                                 | Extra brief: literal text, a file (read inline), or a directory (referenced).    |
-| `--model`           | `claude-opus-4-8`                 | `claude --model`. Defaults to the latest model; pass `sonnet` for a cheaper run. |
-| `--max-cycles`      | `0` (forever)                     | Stop after N subagent runs.                                                      |
+| `--runner`          | `claude`                          | Which coding-agent CLI runs the subagents: `claude` or `codex`.                  |
+| `--model`           | per runner                        | `claude-fable-5` (claude) / `gpt-5.6-sol` (codex); pass a cheaper tier to save.  |
+| `--max-cycles`      | `0` (forever)                     | Stop after N subagent runs (lifetime count, persisted).                          |
+| `--checkpoint-wait` | `120`                             | Seconds an agent checkpoint waits for feedback before auto-continuing (0 = skip). |
 | `--max-turns`       | `40`                              | Per-subagent agentic turn ceiling.                                              |
 | `--idle-timeout`    | `45`                              | Kill a subagent that emits no output for this many minutes (0 disables).         |
 | `--session-timeout` | `120`                             | Absolute cap on a single subagent session, in minutes (0 disables).              |
@@ -209,6 +302,7 @@ TypeScript step — nothing is emitted).
 | `--skip-ship`       | off                               | Never prepare a release at all (use while testing).                             |
 | `--dir`             | `apps/factory/.workspaces/<slug>` | Where the game lives — its project directory.                                    |
 | `--guarded`         | off                               | Do **not** auto-approve tools — for debugging only; breaks autonomy.             |
+| `--no-tui`          | off                               | Plain streamed logs instead of the interactive dashboard (automatic when not a TTY). |
 
 Re-running `pnpm start <slug>` **resumes** from the saved phase.
 

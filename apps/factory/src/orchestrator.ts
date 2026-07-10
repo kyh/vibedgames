@@ -1,9 +1,13 @@
 import { existsSync, writeFileSync } from "node:fs";
 
-import consola from "consola";
-
-import { claudeBin, findRepoRoot } from "./config.ts";
+import { claudeBin, codexBin, findRepoRoot } from "./config.ts";
 import { runClaude } from "./claude.ts";
+import { runCodex } from "./codex.ts";
+import { runGate } from "./gate.ts";
+import { commitPhase } from "./git.ts";
+import { preflight } from "./preflight.ts";
+import type { Reporter } from "./reporter.ts";
+import type { Runner } from "./runner.ts";
 import { buildTask, roleForPhase, ROLES } from "./roles.ts";
 import {
   acquireLock,
@@ -18,15 +22,33 @@ import {
   releaseLock,
   saveState,
   stopRequested,
+  takeCheckpoint,
   type AgentState,
   type Phase,
 } from "./state.ts";
 import { appendSpan } from "./trace.ts";
 
+/** Handles the caller (TUI keys, signal handlers) uses to steer a running loop. */
+export type RunControls = {
+  /** Finish the current step, then halt. Idempotent. */
+  gracefulStop: () => void;
+  /** Abort the in-flight subagent and exit the process (code 130). */
+  forceQuit: () => void;
+  /** Finish the current step, then hold until resume(). */
+  pause: () => void;
+  resume: () => void;
+  /** Skip the current checkpoint countdown and continue immediately. */
+  continueNow: () => void;
+  /** Stop at the next release point (a ship, or a build ready to ship). */
+  stopAtRelease: () => void;
+};
+
 export type AgentOptions = {
   slug: string;
   idea: string;
   workspace: string;
+  /** Which coding-agent CLI runs the subagents. */
+  runner: Runner;
   model: string;
   maxTurns: number;
   /** Kill a subagent that emits no output for this long (ms; 0 disables). */
@@ -41,18 +63,30 @@ export type AgentOptions = {
   noShip: boolean;
   /** Deploy automatically without per-release human approval. */
   autoDeploy: boolean;
+  /** How long an agent checkpoint waits for the operator before continuing
+   * (ms; 0 = consume checkpoints without waiting). */
+  checkpointWaitMs: number;
   /** Pass --dangerously-skip-permissions so tools run unattended. */
   skipPermissions: boolean;
   /** Optional operator brief written to .agent/context.md for the subagents. */
   context?: string;
   /** Optional reference directory the subagents are granted read access to. */
   contextDir?: string;
+  /** Receives stop handles once the loop owns the workspace lock. */
+  registerControls?: (controls: RunControls) => void;
+  /** Runs right before a force-quit exits, e.g. to restore the terminal. */
+  beforeForceExit?: () => void;
 };
 
 const MAX_RETRIES = 5;
 
-/** Resolves true if the agent ran, false if it couldn't start (lock held). */
-export async function runAgent(opts: AgentOptions): Promise<boolean> {
+/**
+ * The agent's durable phase loop. Narrates through `reporter` and returns when
+ * stopped (Ctrl-C, STOP sentinel, cycle budget) — true if it ran, false if it
+ * couldn't start (lock held). Owns no terminal state: the caller decides what
+ * start/stop look like on screen.
+ */
+export async function runAgent(opts: AgentOptions, reporter: Reporter): Promise<boolean> {
   const repoRoot = findRepoRoot();
   const bb = blackboard(opts.workspace);
   const now = new Date().toISOString();
@@ -66,6 +100,7 @@ export async function runAgent(opts: AgentOptions): Promise<boolean> {
     slug: opts.slug,
     idea: opts.idea,
     model: opts.model,
+    runner: opts.runner,
     phase: "spec",
     cycle: 0,
     iteration: 0,
@@ -86,7 +121,7 @@ export async function runAgent(opts: AgentOptions): Promise<boolean> {
   const owner = acquireLock(bb);
   if (owner !== null) {
     const who = owner > 0 ? `pid ${owner}` : "another process";
-    consola.error(
+    reporter.error(
       `An agent is already running for "${opts.slug}" (${who}). Stop it first with \`pnpm stop ${opts.slug}\`, or wait for it to finish.`,
     );
     return false;
@@ -103,13 +138,14 @@ export async function runAgent(opts: AgentOptions): Promise<boolean> {
   // the deploy URL are tied to it). Warn rather than silently honor a different
   // CLI slug aimed at the same blackboard (only possible via --workspace).
   if (state.slug !== opts.slug) {
-    consola.warn(
+    reporter.warn(
       `Workspace already belongs to "${state.slug}"; ignoring the "${opts.slug}" slug for this run.`,
     );
   }
   // Re-seed mutable knobs on restart so flags take effect.
   state.idea = opts.idea || state.idea;
   state.model = opts.model;
+  state.runner = opts.runner;
   state.phaseFailures = state.phaseFailures ?? 0; // backfill pre-field workspaces
   // Keep the adopt flag reflecting whether a project is actually present to
   // build upon: it starts true only when the workspace was created on existing
@@ -132,24 +168,100 @@ export async function runAgent(opts: AgentOptions): Promise<boolean> {
   }
   saveState(bb, state);
 
-  banner(opts, state, repoRoot);
+  // External tools (claude, and outside the repo: workspace skills + vg via
+  // `vg init`) must be in place before any subagent runs.
+  if (!(await preflight(opts.workspace, opts.runner, reporter))) {
+    process.off("exit", onExit);
+    releaseLock(bb);
+    return false;
+  }
 
   let stopping = false;
+  let paused = false;
+  let checkpointSkip = false;
+  let stopAtReleaseFlag = false;
   const abort = new AbortController();
-  const onSignal = () => {
-    if (!stopping) {
-      stopping = true;
-      consola.warn(
-        "\nStop requested — finishing the current step. Press Ctrl-C again to force quit.",
-      );
-    } else {
-      consola.warn("Force quitting.");
-      abort.abort();
-      process.exit(130);
-    }
+
+  const gracefulStop = (): void => {
+    if (stopping) return;
+    stopping = true;
+    paused = false; // a held loop must still be able to exit
+    reporter.warn("Stop requested — finishing the current step.");
+  };
+  const forceQuit = (): void => {
+    reporter.warn("Force quitting.");
+    abort.abort();
+    opts.beforeForceExit?.();
+    process.exit(130);
+  };
+  // External signals keep the old escalation: first graceful, second force.
+  const onSignal = (): void => {
+    if (stopping) forceQuit();
+    else gracefulStop();
   };
   process.on("SIGINT", onSignal);
   process.on("SIGTERM", onSignal);
+  opts.registerControls?.({
+    gracefulStop,
+    forceQuit,
+    pause: () => {
+      if (paused || stopping) return;
+      paused = true;
+      reporter.warn("Paused — the current step finishes, then the loop holds.");
+    },
+    resume: () => {
+      if (!paused) return;
+      paused = false;
+      reporter.info("Resumed.");
+    },
+    continueNow: () => {
+      checkpointSkip = true;
+    },
+    stopAtRelease: () => {
+      if (stopAtReleaseFlag) return;
+      stopAtReleaseFlag = true;
+      reporter.info("Will stop at the next release point (a ship, or a ship-ready build).");
+    },
+  });
+
+  reporter.start({
+    slug: state.slug,
+    idea: state.idea,
+    model: state.model,
+    runner: opts.runner,
+    workspace: opts.workspace,
+    repoRoot,
+    existingProject: state.existingProject,
+    hasContext: existsSync(bb.context),
+    contextDir: state.contextDir,
+    guarded: !opts.skipPermissions,
+    noShip: opts.noShip,
+    autoDeploy: opts.autoDeploy,
+    maxCycles: opts.maxCycles,
+  });
+  if (opts.skipPermissions) {
+    const deployNote = opts.noShip
+      ? "Deploys are disabled."
+      : opts.autoDeploy
+        ? "Deploys to production run AUTOMATICALLY."
+        : "Deploys are gated on approval — nothing goes live without you.";
+    reporter.warn(
+      `Running with --dangerously-skip-permissions: agents run shell/file tools and \`vg generate\` (which costs money) WITHOUT asking. ${deployNote}`,
+    );
+    // claude rejects --dangerously-skip-permissions under root unless the
+    // environment is marked as a sandbox; we set IS_SANDBOX=1 for the children
+    // so unattended container/CI runs (which are typically root) actually work.
+    if (
+      typeof process.getuid === "function" &&
+      process.getuid() === 0 &&
+      process.env.IS_SANDBOX !== "1"
+    ) {
+      reporter.info(
+        "Detected root: setting IS_SANDBOX=1 for agents so skip-permissions is allowed.",
+      );
+    }
+  }
+  reporter.stateChanged(state, approvalPending(bb, state.lastApproval));
 
   // A sleep that wakes early if a stop is requested (Ctrl-C or STOP sentinel),
   // so backoff/interval waits never delay shutdown.
@@ -161,13 +273,36 @@ export async function runAgent(opts: AgentOptions): Promise<boolean> {
     }
   };
 
-  // `stopping` is flipped by the SIGINT/SIGTERM handler above (and we also
+  // When the director flags a good stopping point, surface it and hold for
+  // the operator; no response within the window means the loop keeps going.
+  const maybeCheckpoint = async (): Promise<void> => {
+    const note = takeCheckpoint(bb);
+    if (!note || stopping) return;
+    appendJournal(bb, `checkpoint: ${truncate(note)}`);
+    if (opts.checkpointWaitMs <= 0) return;
+    checkpointSkip = false;
+    reporter.checkpointStarted(note, opts.checkpointWaitMs);
+    for (let waited = 0; waited < opts.checkpointWaitMs;) {
+      if (stopping || stopRequested(bb) || checkpointSkip) break;
+      await sleep(250);
+      if (!paused) waited += 250; // a pause holds the countdown open
+    }
+    reporter.checkpointEnded();
+  };
+
+  // `stopping` is flipped by the signal/controls handlers above (and we also
   // honor the STOP sentinel inside the loop) — oxlint can't see the async
   // mutation, so silence its unmodified-condition heuristic.
   // oxlint-disable-next-line no-unmodified-loop-condition
   while (!stopping) {
+    // Hold here while paused — between steps, so the checkpointed state on
+    // disk is always consistent while the operator pokes around. Flags flip
+    // in the controls/signal handlers, which oxlint's static check can't see.
+    // oxlint-disable-next-line no-unmodified-loop-condition
+    while (paused && !stopping && !stopRequested(bb)) await sleep(250);
+
     if (stopRequested(bb)) {
-      consola.warn("STOP sentinel found in .agent/ — halting.");
+      reporter.warn("STOP sentinel found in .agent/ — halting.");
       break;
     }
 
@@ -186,10 +321,11 @@ export async function runAgent(opts: AgentOptions): Promise<boolean> {
       !opts.noShip &&
       approvalPending(bb, state.lastApproval)
     ) {
-      consola.info("Approval received — shipping the current build before continuing.");
+      reporter.info("Approval received — shipping the current build before continuing.");
       state.phase = "ship";
       state.phaseFailures = 0; // entering a new phase: fresh retry budget
       saveState(bb, state);
+      reporter.stateChanged(state, approvalPending(bb, state.lastApproval));
     }
 
     // An operator-approved deploy is a deliberate command — let that single ship
@@ -200,39 +336,47 @@ export async function runAgent(opts: AgentOptions): Promise<boolean> {
       !opts.noShip &&
       approvalPending(bb, state.lastApproval);
     if (opts.maxCycles > 0 && state.cycle >= opts.maxCycles && !approvedShipPending) {
-      consola.info(`Reached --max-cycles=${opts.maxCycles}. Stopping.`);
+      reporter.info(`Reached --max-cycles=${opts.maxCycles}. Stopping.`);
       break;
     }
 
     // Optionally skip shipping (no prod deploy) while testing.
     if (state.phase === "ship" && opts.noShip) {
-      consola.info("--skip-ship set; skipping the ship phase.");
+      reporter.info("--skip-ship set; skipping the ship phase.");
       advance(state);
       saveState(bb, state);
+      reporter.stateChanged(state, approvalPending(bb, state.lastApproval));
       continue;
     }
 
     // Never deploy without a recorded successful build — e.g. if the build
     // phase was skipped after repeated failures. Wait until a build lands.
     if (state.phase === "ship" && !state.built) {
-      consola.warn("Reached ship with no successful build recorded — not deploying yet.");
+      reporter.warn("Reached ship with no successful build recorded — not deploying yet.");
       appendJournal(bb, "ship: skipped — no successful build recorded.");
       advance(state);
       saveState(bb, state);
+      reporter.stateChanged(state, approvalPending(bb, state.lastApproval));
       continue;
     }
 
     // Deploys require explicit human approval unless --auto-deploy is set. When
     // there's no standing approval we don't even run the shipper: the build is
     // ready, we just don't publish it — the loop keeps improving the game
-    // locally until a human runs `pnpm approve <slug>`.
+    // locally until a human approves.
     if (state.phase === "ship" && !opts.autoDeploy && !approvalPending(bb, state.lastApproval)) {
-      consola.warn(
-        `Build ready but NOT deployed — approval required. Run \`pnpm approve ${state.slug}\` to publish it (or start with --auto-deploy).`,
+      reporter.warn(
+        `Build ready but NOT deployed — approval required. Run \`pnpm approve ${state.slug}\` (or press A in the dashboard) to publish it.`,
       );
       appendJournal(bb, "ship: build ready, awaiting human approval (not deployed).");
       advance(state);
       saveState(bb, state);
+      reporter.stateChanged(state, approvalPending(bb, state.lastApproval));
+      if (stopAtReleaseFlag) {
+        reporter.info("Release point reached (build ready) — stopping as requested.");
+        break;
+      }
+      await maybeCheckpoint();
       continue;
     }
 
@@ -240,15 +384,17 @@ export async function runAgent(opts: AgentOptions): Promise<boolean> {
     const role = ROLES[roleForPhase(phase, bb)];
     const task = buildTask(phase, state, bb);
 
-    consola.log("");
-    consola.start(
-      `${role.emoji} ${role.name} — phase "${phase}" · cycle ${state.cycle + 1}${
-        state.shipped ? ` · iteration ${state.iteration + 1}` : ""
-      }`,
-    );
+    reporter.turnStart({
+      emoji: role.emoji,
+      role: role.name,
+      phase,
+      cycle: state.cycle + 1,
+      iteration: state.shipped ? state.iteration + 1 : null,
+    });
 
     const turnStartedAt = Date.now();
-    const res = await runClaude({
+    const exec = opts.runner === "codex" ? runCodex : runClaude;
+    const res = await exec({
       prompt: task,
       systemPrompt: role.system,
       cwd: opts.workspace,
@@ -256,16 +402,17 @@ export async function runAgent(opts: AgentOptions): Promise<boolean> {
       maxTurns: opts.maxTurns,
       idleTimeoutMs: opts.idleTimeoutMs,
       maxSessionMs: opts.maxSessionMs,
-      claudeBin: claudeBin(),
-      addDirs: state.contextDir ? [repoRoot, state.contextDir] : [repoRoot],
+      bin: opts.runner === "codex" ? codexBin() : claudeBin(),
+      addDirs: [repoRoot, state.contextDir].filter((d): d is string => Boolean(d)),
       skipPermissions: opts.skipPermissions,
       signal: abort.signal,
-      label: role.name,
+      onActivity: (activity) => reporter.activity(activity),
     });
 
     state.cycle += 1;
     if (typeof res.costUsd === "number") state.totalCostUsd += res.costUsd;
     saveState(bb, state);
+    reporter.stateChanged(state, approvalPending(bb, state.lastApproval));
 
     // One span per turn — the agent's durable observability trail.
     appendSpan(bb, {
@@ -283,16 +430,36 @@ export async function runAgent(opts: AgentOptions): Promise<boolean> {
       detail: truncate(res.ok ? res.result : (res.error ?? "unknown error"), 200),
     });
 
-    if (!res.ok) {
+    // The harness-enforced quality gate: after engineering phases, run the
+    // workspace's own typecheck + build and refuse to advance on red — a
+    // forever-loop can't run on the agent's claim that things work.
+    const gated =
+      res.ok &&
+      (phase === "scaffold" || phase === "build" || (phase === "work" && role.name === "engineer"));
+    let gateError: string | undefined;
+    if (gated) {
+      const gate = await runGate(opts.workspace);
+      if (gate.ok) {
+        if (!gate.skipped) reporter.info(`Quality gate passed (${gate.detail}).`);
+      } else {
+        gateError = `quality gate failed — the session claimed success but the workspace doesn't verify. ${gate.detail}`;
+        reporter.warn("Quality gate FAILED — retrying the phase.");
+      }
+    }
+
+    const failure = !res.ok ? (res.error ?? "unknown error") : gateError;
+    if (failure) {
       state.phaseFailures += 1;
       saveState(bb, state); // persist so a restart can't reset the retry budget
-      appendJournal(
-        bb,
-        `${role.name} (${phase}) FAILED: ${truncate(res.error ?? "unknown error")}`,
-      );
-      consola.error(`${role.name} failed: ${res.error ?? "unknown error"}`);
+      appendJournal(bb, `${role.name} (${phase}) FAILED: ${truncate(failure, 600)}`);
+      reporter.turnEnd({
+        ok: false,
+        costUsd: res.costUsd,
+        numTurns: res.numTurns,
+        error: truncate(failure, 400),
+      });
       if (state.phaseFailures >= MAX_RETRIES) {
-        consola.warn(
+        reporter.warn(
           `${MAX_RETRIES} consecutive failures on "${phase}" — skipping ahead to avoid a stuck loop.`,
         );
         // A spent attempt consumes the deploy approval too, so a broken ship
@@ -304,9 +471,10 @@ export async function runAgent(opts: AgentOptions): Promise<boolean> {
         state.phaseFailures = 0;
         advance(state);
         saveState(bb, state);
+        reporter.stateChanged(state, approvalPending(bb, state.lastApproval));
       } else {
         const backoff = Math.min(2 ** state.phaseFailures, 60);
-        consola.info(
+        reporter.info(
           `Retrying "${phase}" in ${backoff}s (attempt ${state.phaseFailures + 1}/${MAX_RETRIES}).`,
         );
         await sleepUnlessStopping(backoff * 1000);
@@ -319,7 +487,7 @@ export async function runAgent(opts: AgentOptions): Promise<boolean> {
       bb,
       `${role.name} (${phase}) done${costNote(res.costUsd)}: ${truncate(res.result)}`,
     );
-    consola.success(`${role.name} done${costNote(res.costUsd)} · ${res.numTurns ?? "?"} turns`);
+    reporter.turnEnd({ ok: true, costUsd: res.costUsd, numTurns: res.numTurns });
 
     // A deployable build exists once a phase that builds the game succeeds:
     // scaffold (confirms the template/adopted project builds), build, or
@@ -338,6 +506,17 @@ export async function runAgent(opts: AgentOptions): Promise<boolean> {
     }
     advance(state);
     saveState(bb, state);
+    reporter.stateChanged(state, approvalPending(bb, state.lastApproval));
+
+    // The git ratchet: every successful phase is a commit, so a phase that
+    // makes things worse is a revert, not a hope the next agent notices.
+    commitPhase(opts.workspace, `factory: ${role.name} ${phase} (cycle ${state.cycle})`);
+
+    if (phase === "ship" && stopAtReleaseFlag) {
+      reporter.info("Release point reached (shipped) — stopping as requested.");
+      break;
+    }
+    await maybeCheckpoint();
 
     if (opts.interval > 0 && !stopping) await sleepUnlessStopping(opts.interval);
   }
@@ -349,15 +528,13 @@ export async function runAgent(opts: AgentOptions): Promise<boolean> {
 
   saveState(bb, state);
   releaseLock(bb);
-  consola.box(
-    [
-      `Agent stopped for "${state.slug}".`,
-      `Cycles run: ${state.cycle} · iterations: ${state.iteration}`,
-      state.deployUrl ? `Live: ${state.deployUrl}` : "Not yet shipped.",
-      `Approx spend: $${state.totalCostUsd.toFixed(2)}`,
-      `Resume anytime: pnpm start ${state.slug}`,
-    ].join("\n"),
-  );
+  reporter.runEnded({
+    slug: state.slug,
+    cycles: state.cycle,
+    iterations: state.iteration,
+    deployUrl: state.deployUrl,
+    totalCostUsd: state.totalCostUsd,
+  });
   return true;
 }
 
@@ -393,58 +570,6 @@ function recordShip(state: AgentState): void {
   } else {
     state.shipped = true;
     state.deployUrl = `https://${state.slug}.vibedgames.com`;
-  }
-}
-
-function banner(opts: AgentOptions, state: AgentState, repoRoot: string): void {
-  const bb = blackboard(opts.workspace);
-  consola.box(
-    [
-      `🎮 vibedgames factory — autonomous game agent`,
-      ``,
-      `Game:      ${state.slug}`,
-      `Idea:      ${state.idea || "(from existing project / context)"}`,
-      `Model:     ${state.model}`,
-      `Game dir:  ${opts.workspace}`,
-      state.existingProject ? `Source:    building on existing files in the game dir` : null,
-      existsSync(bb.context)
-        ? `Context:   provided${state.contextDir ? ` (+ reference dir: ${state.contextDir})` : ""}`
-        : null,
-      `Repo:      ${repoRoot}`,
-      `Mode:      ${opts.skipPermissions ? "unattended (tools auto-approved)" : "guarded (will block on approvals!)"}`,
-      opts.noShip
-        ? `Deploy:    disabled (--skip-ship)`
-        : opts.autoDeploy
-          ? `Deploy:    AUTOMATIC → ${state.slug}.vibedgames.com`
-          : `Deploy:    on approval only — \`pnpm approve ${state.slug}\` → ${state.slug}.vibedgames.com`,
-      opts.maxCycles > 0
-        ? `Stops at:  ${opts.maxCycles} cycles`
-        : `Runs:      until you stop it (Ctrl-C or \`pnpm stop ${state.slug}\`)`,
-    ]
-      .filter(Boolean)
-      .join("\n"),
-  );
-  if (opts.skipPermissions) {
-    const deployNote = opts.noShip
-      ? "Deploys are disabled."
-      : opts.autoDeploy
-        ? "Deploys to production run AUTOMATICALLY."
-        : "Deploys are gated on `pnpm approve <slug>` — nothing goes live without you.";
-    consola.warn(
-      `Running with --dangerously-skip-permissions: agents run shell/file tools and \`vg generate\` (which costs money) WITHOUT asking. ${deployNote} Stop with Ctrl-C.`,
-    );
-    // claude rejects --dangerously-skip-permissions under root unless the
-    // environment is marked as a sandbox; we set IS_SANDBOX=1 for the children
-    // so unattended container/CI runs (which are typically root) actually work.
-    if (
-      typeof process.getuid === "function" &&
-      process.getuid() === 0 &&
-      process.env.IS_SANDBOX !== "1"
-    ) {
-      consola.info(
-        "Detected root: setting IS_SANDBOX=1 for agents so skip-permissions is allowed.",
-      );
-    }
   }
 }
 

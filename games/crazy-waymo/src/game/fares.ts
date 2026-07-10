@@ -116,7 +116,10 @@ class Beacon {
     });
     this.ring = new THREE.Mesh(new THREE.RingGeometry(2.0, 2.5, 28), this.ringMat);
     this.ring.rotation.x = -Math.PI / 2;
-    this.ring.position.y = 0.06;
+    // Beacons stand on the kerb: the ring must clear the draped curb lip
+    // (terrain + 0.18) plus the drape's conform bow (0.09), or the sidewalk
+    // depth-tests it away / z-fights it at distance. Matches LINE_LIFT scale.
+    this.ring.position.y = 0.4;
     this.group.add(this.ring);
 
     if (tagTier) {

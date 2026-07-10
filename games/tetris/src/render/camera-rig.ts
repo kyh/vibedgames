@@ -50,7 +50,11 @@ export class CameraRig {
   private readonly right = new Vector3();
 
   constructor(aspect: number) {
-    this.camera = new PerspectiveCamera(CAMERA_FOV, aspect, 0.1, 400);
+    // near=1: the eye orbits ~10+ units from everything (well, particles,
+    // collapse debris), and near dominates depth precision — 0.1 would spend
+    // most of the depth buffer inside the first metre and let the floor grid
+    // shimmer at grazing orbit angles.
+    this.camera = new PerspectiveCamera(CAMERA_FOV, aspect, 1, 400);
     this.resize(aspect); // portrait boots need the FOV correction from frame 1
     this.cornerPosition(0, this.target);
     this.baseEye.copy(this.target);

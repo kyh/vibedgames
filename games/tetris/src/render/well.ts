@@ -53,10 +53,19 @@ export class Well {
   private readonly zHi: LineSegments;
 
   constructor(scene: Scene) {
-    // Solid floor.
+    // Solid floor. polygonOffset pushes its depth back a step so the grid
+    // lines 0.001 above never z-fight it — the orbiting camera hits grazing
+    // angles where a fixed world-space lift alone can dip under depth-buffer
+    // precision (slope-scaled offset tracks the grazing angle; lines don't
+    // polygon-offset, so the plane is the one that must yield).
     const floor = new Mesh(
       new PlaneGeometry(WELL_WIDTH, WELL_DEPTH),
-      new MeshBasicMaterial({ color: ENCLOSURE }),
+      new MeshBasicMaterial({
+        color: ENCLOSURE,
+        polygonOffset: true,
+        polygonOffsetFactor: 1,
+        polygonOffsetUnits: 1,
+      }),
     );
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(WELL_WIDTH / 2 - 0.5, LO, WELL_DEPTH / 2 - 0.5);

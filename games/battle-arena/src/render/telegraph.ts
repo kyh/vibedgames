@@ -1,7 +1,7 @@
 // Ground danger decals — replaces the flat CircleGeometry zones in
 // WorldView.syncGrounds. 8 pooled PlaneGeometry(2,2) shader decals (one shader
 // program; per-decal uniform groups), NORMAL blend so they read on the bright
-// floor, y = terrain + 0.07.
+// floor, y = terrain + 0.12.
 //
 // Modes (all data-driven off synced GroundEffect fields):
 //  - fill-sweep  g.detonateAt set (meteor): interior disc sweeps 0→1 as the
@@ -232,7 +232,9 @@ export class Telegraphs {
   // ── internals ──────────────────────────────────────────────────────────────
 
   private place(d: Decal, x: number, y: number, radius: number): void {
-    d.mesh.position.set(x, terrainHeight(x, y) + 0.07, y);
+    // +0.12: clears the flagstone tops (+0.05) AND the camp dirt-tile bumps
+    // (up to +0.109) — a lower offset clips the rim on dirt
+    d.mesh.position.set(x, terrainHeight(x, y) + 0.12, y);
     d.mesh.scale.setScalar(Math.max(0.01, radius));
     d.mesh.visible = true;
   }

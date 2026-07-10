@@ -955,7 +955,7 @@ export class EditorScene {
     const sel = this.selected;
     if (sel) {
       this.selRing.visible = true;
-      this.selRing.position.set(sel.x, terrainHeight(sel.x, sel.y) + 0.06, sel.y);
+      this.selRing.position.set(sel.x, terrainHeight(sel.x, sel.y) + 0.12, sel.y); // above tile tops (0.05) + dirt bumps
       this.selRing.scale.setScalar(sel.ringR);
     } else {
       this.selRing.visible = false;

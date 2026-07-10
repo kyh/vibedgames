@@ -1295,7 +1295,17 @@ function popScore(node: HTMLElement): void {
 }
 
 function flashMaterial(): THREE.MeshBasicMaterial {
-  return new THREE.MeshBasicMaterial({ color: INK, transparent: true, opacity: 0 });
+  // depthWrite off, like the shadow/ring overlays: the bars sit 0.004 above the
+  // table and are usually invisible (opacity 0) — letting them write depth would
+  // let the distance sort against the goal shockwave ring (spawned at the same
+  // goal line, z 0.015) flip under camera breath/shake and flicker through the
+  // dither pass.
+  return new THREE.MeshBasicMaterial({
+    color: INK,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+  });
 }
 
 function hitsPaddle(ball: THREE.Vector2, paddleX: number, paddleY: number): boolean {

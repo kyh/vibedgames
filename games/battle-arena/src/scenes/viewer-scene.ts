@@ -315,7 +315,7 @@ export class ViewerScene {
     );
     blob.rotation.x = -Math.PI / 2;
     blob.scale.setScalar(s);
-    blob.position.set(SUBJECT.x, terrainHeight(SUBJECT.x, SUBJECT.y) + 0.02, SUBJECT.y);
+    blob.position.set(SUBJECT.x, terrainHeight(SUBJECT.x, SUBJECT.y) + 0.08, SUBJECT.y); // clear the 0.05 tile tops
     this.scene.add(blob);
     this.solo = char;
     this.soloEntry = entry;
@@ -740,7 +740,7 @@ export class ViewerScene {
     const grp = this.hitVizGroup;
     if (!grp || !me) return;
     grp.visible = true;
-    grp.position.set(me.x, terrainHeight(me.x, me.y) + 0.06, me.y);
+    grp.position.set(me.x, terrainHeight(me.x, me.y) + 0.12, me.y); // above the 0.05 tile tops + dirt bumps
     grp.rotation.y = Math.atan2(me.aimX, me.aimY); // orient +Z to the hero's aim
   }
 

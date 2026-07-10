@@ -24,7 +24,11 @@ export class ChaseCamera {
   private scrLook = new THREE.Vector3();
 
   constructor(aspect: number) {
-    this.camera = new THREE.PerspectiveCamera(CAMERA.fov, aspect, 0.1, 2000);
+    // near 0.3 (not 0.1): the chase cam never gets closer than ~2u to any
+    // surface (avoidClip + minHeight), and tripling near triples depth-buffer
+    // precision everywhere — the draped road layers stop shimmering at the
+    // far end of long straights.
+    this.camera = new THREE.PerspectiveCamera(CAMERA.fov, aspect, 0.3, 2000);
   }
 
   resize(aspect: number): void {
