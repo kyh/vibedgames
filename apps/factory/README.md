@@ -58,6 +58,9 @@ and it lands on the **setup screen**:
   (`{slug}.vibedgames.com` + the default workspace name); leave it blank and
   it's derived from the folder name, else the instructions — the hint shows
   the resolved subdomain live.
+- **MODEL** — optional. A stepper (`⇅`): `↑`/`↓` cycles fable / opus /
+  sonnet (claude) and gpt-5.6-sol / gpt-5.5 (codex). Defaults to the launch
+  flags; `--model` covers anything not in the menu.
 
 `TAB`/`↑↓` move between fields, `ENTER` starts, `ESC` quits. From the command
 line, `pnpm start <slug>` resumes a game and `pnpm start --dir <folder>`
@@ -259,10 +262,21 @@ The factory detects whether it's running inside the vibedgames monorepo:
   vibedgames skills into the workspace **and** the `vg` CLI globally — the two
   things every subagent drives.
 
-Publishing checklist (not yet done): rename from `@repo/factory` +
-`private: false`, and pick a distribution — require Bun (`bin` points at the
-TS sources) or ship bun-compiled per-platform binaries with a Node launcher
-shim (the kyh.io CLI pattern) so end users need neither Bun nor a TS runtime.
+### Building the publishable CLI
+
+`pnpm build:npm` (or `bun scripts/build.ts --host` for the current platform
+only) stages publish-ready packages under `dist/npm/`:
+
+- `@vibedgames/factory-<os>-<cpu>` — a bun-compiled standalone binary per
+  platform (agent markdown + opentui's native lib embedded; users need
+  neither Bun nor a TS runtime)
+
+The factory ships as an **optional plugin of the vg CLI**: `vg factory …`
+installs the right platform package globally on first use, then execs its
+binary with the args passed through — vg itself carries none of the factory.
+(`VG_FACTORY_BIN` overrides resolution for development.) Still to do before a
+real publish: bump the version and wire the platform packages into the
+release flow.
 
 ## Run
 

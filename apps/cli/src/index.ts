@@ -5,6 +5,7 @@ import { defineCommand, runMain } from "citty";
 
 import { completionsCommand } from "./commands/completions.js";
 import { deployCommand } from "./commands/deploy.js";
+import { factoryCommand, runFactory } from "./commands/factory.js";
 import { forkCommand } from "./commands/fork.js";
 import { generateCommand } from "./commands/generate.js";
 import { initCommand } from "./commands/init.js";
@@ -32,6 +33,7 @@ const main = defineCommand({
     login: loginCommand,
     logout: logoutCommand,
     deploy: deployCommand,
+    factory: factoryCommand,
     fork: forkCommand,
     generate: generateCommand,
     update: updateCommand,
@@ -45,6 +47,13 @@ const main = defineCommand({
 const subcommand = process.argv[2];
 if (subcommand && !["update", "init", "completions"].includes(subcommand)) {
   maybeScheduleAutoUpdate();
+}
+
+// `vg factory` is a pure passthrough to the factory plugin binary — route it
+// before citty runs so flags like --help/--version reach the binary instead
+// of being intercepted here. (The registered command keeps it in `vg --help`.)
+if (subcommand === "factory") {
+  runFactory(process.argv.slice(3));
 }
 
 runMain(main);

@@ -1,13 +1,18 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import artistMd from "../agents/artist/AGENT.md" with { type: "text" };
+import charterMd from "../agents/charter.md" with { type: "text" };
+import designerMd from "../agents/designer/AGENT.md" with { type: "text" };
+import directorMd from "../agents/director/AGENT.md" with { type: "text" };
+import engineerMd from "../agents/engineer/AGENT.md" with { type: "text" };
+import qaMd from "../agents/qa/AGENT.md" with { type: "text" };
+import shipperMd from "../agents/shipper/AGENT.md" with { type: "text" };
 
 /**
  * Filesystem-first agent definitions. Each subagent is a directory under
  * `apps/factory/agents/<role>/` holding an `AGENT.md` — a file's name and place
  * in the tree IS its definition. `charter.md` is the shared system prompt
  * prepended to every subagent. Editing the markdown (prompt or emoji)
- * re-defines a subagent with no code change.
+ * re-defines a subagent with no code change (restart to pick it up). The files
+ * are bundled as Bun text imports so compiled binaries carry them too.
  */
 
 export type RoleName = "director" | "designer" | "engineer" | "artist" | "qa" | "shipper";
@@ -19,19 +24,14 @@ export type Role = {
   system: string;
 };
 
-const ROLE_NAMES: readonly RoleName[] = [
-  "director",
-  "designer",
-  "engineer",
-  "artist",
-  "qa",
-  "shipper",
-];
-
-/** Absolute path to `apps/factory/agents/` (this file lives at src/agents.ts). */
-function agentsDir(): string {
-  return resolve(dirname(fileURLToPath(import.meta.url)), "../agents");
-}
+const ROLE_SOURCES: Record<RoleName, string> = {
+  director: directorMd,
+  designer: designerMd,
+  engineer: engineerMd,
+  artist: artistMd,
+  qa: qaMd,
+  shipper: shipperMd,
+};
 
 type FrontMatter = { emoji?: string };
 
@@ -55,20 +55,14 @@ function parseAgentFile(raw: string): { meta: FrontMatter; body: string } {
 }
 
 /**
- * Load every subagent definition from disk and compose each system prompt as
- * `charter + role body`. Read once at startup; the tree is the source of truth.
+ * Compose each subagent's system prompt as `charter + role body`, built once
+ * at startup from the bundled definitions.
  */
 export function loadRoles(): Record<RoleName, Role> {
-  const dir = agentsDir();
-  const charter = readFileSync(resolve(dir, "charter.md"), "utf8").trim();
-
-  const present = new Set(readdirSync(dir, { withFileTypes: true }).map((d) => d.name));
+  const charter = charterMd.trim();
   const roles = {} as Record<RoleName, Role>;
-  for (const name of ROLE_NAMES) {
-    if (!present.has(name)) {
-      throw new Error(`Missing agent definition: apps/factory/agents/${name}/AGENT.md`);
-    }
-    const { meta, body } = parseAgentFile(readFileSync(resolve(dir, name, "AGENT.md"), "utf8"));
+  for (const name of Object.keys(ROLE_SOURCES) as RoleName[]) {
+    const { meta, body } = parseAgentFile(ROLE_SOURCES[name]);
     roles[name] = {
       name,
       emoji: meta.emoji ?? "🤖",

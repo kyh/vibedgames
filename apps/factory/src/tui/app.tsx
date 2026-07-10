@@ -30,7 +30,42 @@ export type AppController = {
   defaultDirLabel(): string;
 };
 
-export type SetupForm = { slug: string; idea: string; dir: string };
+export type SetupForm = {
+  slug: string;
+  idea: string;
+  dir: string;
+  runner: "claude" | "codex";
+  model: string;
+};
+
+/** Curated model menu for the setup screen; --model covers anything else. */
+const MODEL_CHOICES: {
+  name: string;
+  description: string;
+  runner: "claude" | "codex";
+  model: string;
+}[] = [
+  {
+    name: "fable",
+    description: "claude-fable-5 — highest craft",
+    runner: "claude",
+    model: "claude-fable-5",
+  },
+  { name: "opus", description: "claude-opus-4-8", runner: "claude", model: "claude-opus-4-8" },
+  {
+    name: "sonnet",
+    description: "claude sonnet — cheaper loop",
+    runner: "claude",
+    model: "sonnet",
+  },
+  {
+    name: "gpt-5.6-sol",
+    description: "codex — gpt-5.6-sol",
+    runner: "codex",
+    model: "gpt-5.6-sol",
+  },
+  { name: "gpt-5.5", description: "codex — cheaper loop", runner: "codex", model: "gpt-5.5" },
+];
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
 
@@ -471,6 +506,7 @@ function TextareaField({
 }
 
 const IDEA_FIELD = 1; // focus index of the multiline INSTRUCTIONS field
+const MODEL_FIELD = 3; // focus index of the model stepper
 
 // One of these seeds the INSTRUCTIONS placeholder each launch — game-level
 // one-liners (genre + subject + twist), the altitude we want ideas pitched at.
@@ -517,19 +553,39 @@ function SetupScreen({
   const [idea, setIdea] = useState(prefill.idea);
   const [dir, setDir] = useState(prefill.dir);
   const [focus, setFocus] = useState(0);
+  // The launch flags are always choice 0, so "don't touch it" keeps them; the
+  // curated list follows (minus any duplicate of the launch combo).
+  const [modelChoices] = useState(() => [
+    {
+      name: prefill.model.replace(/^claude-/, ""),
+      description: `${prefill.model} via ${prefill.runner}`,
+      runner: prefill.runner,
+      model: prefill.model,
+    },
+    ...MODEL_CHOICES.filter((c) => c.model !== prefill.model || c.runner !== prefill.runner),
+  ]);
+  const [modelIdx, setModelIdx] = useState(0);
   const [ideaExample] = useState(randomIdeaExample);
   const titleRef = useRef<BoxRenderable | null>(null);
   const cardRef = useRef<BoxRenderable | null>(null);
   const [solids] = useState<RefObject<BoxRenderable | null>[]>(() => [titleRef, cardRef]);
 
-  const submit = () => controller.submitSetup({ slug, idea, dir });
+  const submit = () => {
+    const choice = modelChoices[modelIdx] ?? modelChoices[0]!;
+    controller.submitSetup({ slug, idea, dir, runner: choice.runner, model: choice.model });
+  };
 
   useKeyboard((key) => {
     if (key.name === "escape" || (key.ctrl && key.name === "c")) controller.quit();
-    else if (key.name === "tab" && key.shift) setFocus((f) => (f + 2) % 3);
-    else if (key.name === "tab") setFocus((f) => (f + 1) % 3);
-    else if (key.name === "down" && focus !== IDEA_FIELD) setFocus((f) => (f + 1) % 3);
-    else if (key.name === "up" && focus !== IDEA_FIELD) setFocus((f) => (f + 2) % 3);
+    else if (key.name === "tab" && key.shift) setFocus((f) => (f + 3) % 4);
+    else if (key.name === "tab") setFocus((f) => (f + 1) % 4);
+    // On the MODEL stepper, up/down cycle the choice instead of moving fields.
+    else if (key.name === "down" && focus === MODEL_FIELD)
+      setModelIdx((i) => (i + 1) % modelChoices.length);
+    else if (key.name === "up" && focus === MODEL_FIELD)
+      setModelIdx((i) => (i + modelChoices.length - 1) % modelChoices.length);
+    else if (key.name === "down" && focus !== IDEA_FIELD) setFocus((f) => (f + 1) % 4);
+    else if (key.name === "up" && focus !== IDEA_FIELD) setFocus((f) => (f + 3) % 4);
     // In the textarea, ENTER makes a new line — TAB out to start.
     else if (key.name === "return" && focus !== IDEA_FIELD) submit();
   });
@@ -552,7 +608,13 @@ function SetupScreen({
     : "what should it build? needed when starting from scratch";
 
   // Live hint under SLUG: the derived deploy identity when left blank.
-  const preview = controller.previewSlug({ slug, idea, dir });
+  const preview = controller.previewSlug({
+    slug,
+    idea,
+    dir,
+    runner: prefill.runner,
+    model: prefill.model,
+  });
   const slugHint = slug.trim()
     ? preview
       ? `deploys to ${preview}.vibedgames.com`
@@ -639,6 +701,29 @@ function SetupScreen({
             onInput={setSlug}
             onSubmit={submit}
           />
+          <box flexDirection="column" paddingBottom={1}>
+            <FieldLabel label="MODEL" focused={focus === MODEL_FIELD} />
+            <box paddingLeft={2}>
+              <box
+                flexDirection="row"
+                flexGrow={1}
+                backgroundColor={focus === MODEL_FIELD ? "#232333" : color.ghost}
+                paddingLeft={1}
+                paddingRight={1}
+              >
+                <text fg={focus === MODEL_FIELD ? color.text : color.dim}>
+                  {(modelChoices[modelIdx] ?? modelChoices[0]!).name}
+                </text>
+                <box flexGrow={1} />
+                <text fg={focus === MODEL_FIELD ? color.accent : color.faint}>⇅</text>
+              </box>
+            </box>
+            <box paddingLeft={2}>
+              <text fg={color.faint}>
+                {(modelChoices[modelIdx] ?? modelChoices[0]!).description}
+              </text>
+            </box>
+          </box>
           {error ? <text fg={color.err}>{`✘ ${error}`}</text> : null}
         </box>
       </box>

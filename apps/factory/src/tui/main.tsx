@@ -48,7 +48,7 @@ export type TuiLaunch = {
   contextDir?: string;
 };
 
-type RunConfig = { slug: string; idea: string; workspace: string };
+type RunConfig = { slug: string; idea: string; workspace: string; runner: Runner; model: string };
 
 const expandPath = (raw: string): string => {
   const p = raw.trim();
@@ -113,8 +113,8 @@ export async function runTui(launch: TuiLaunch): Promise<void> {
       slug: config.slug,
       idea: config.idea,
       workspace: config.workspace,
-      runner: launch.runner,
-      model: launch.model,
+      runner: config.runner,
+      model: config.model,
       maxTurns: launch.maxTurns,
       idleTimeoutMs: launch.idleTimeoutMs,
       maxSessionMs: launch.maxSessionMs,
@@ -187,7 +187,7 @@ export async function runTui(launch: TuiLaunch): Promise<void> {
         });
         return;
       }
-      startRun({ slug, idea, workspace });
+      startRun({ slug, idea, workspace, runner: form.runner, model: form.model });
     },
 
     approve: (): void => {
@@ -280,7 +280,13 @@ export async function runTui(launch: TuiLaunch): Promise<void> {
     <App
       store={store}
       controller={controller}
-      prefill={{ slug: launch.slug ?? "", idea: launch.idea, dir: launch.dir ?? "" }}
+      prefill={{
+        slug: launch.slug ?? "",
+        idea: launch.idea,
+        dir: launch.dir ?? "",
+        runner: launch.runner,
+        model: launch.model,
+      }}
     />,
   );
   poller = setInterval(pollBacklog, 2000);
@@ -290,6 +296,12 @@ export async function runTui(launch: TuiLaunch): Promise<void> {
   // anything invalid or incomplete lands on the setup screen with the values
   // prefilled and the reason shown.
   if (launch.slug || launch.dir) {
-    controller.submitSetup({ slug: launch.slug ?? "", idea: launch.idea, dir: launch.dir ?? "" });
+    controller.submitSetup({
+      slug: launch.slug ?? "",
+      idea: launch.idea,
+      dir: launch.dir ?? "",
+      runner: launch.runner,
+      model: launch.model,
+    });
   }
 }

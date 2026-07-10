@@ -20,8 +20,9 @@
     "stop": "bun src/index.ts stop",
     "status": "bun src/index.ts status",
     "approve": "bun src/index.ts approve",
-    "clean": "rm -rf .turbo .cache node_modules .workspaces",
-    "typecheck": "tsc --noEmit"
+    "clean": "rm -rf .turbo .cache node_modules .workspaces dist",
+    "typecheck": "tsc --noEmit",
+    "build:npm": "bun scripts/build.ts"
   },
   "dependencies": {
     "@opentui/core": "^0.4.3",

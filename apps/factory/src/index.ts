@@ -346,7 +346,7 @@ const main = defineCommand({
   meta: {
     name: "factory",
     description:
-      "vibedgames factory — runs one autonomous agent per game that builds a browser game and evolves it like a studio (a durable, checkpointed loop of clean-context subagents). Run via pnpm scripts (start/stop/status/approve). Deploys require approval.",
+      "vibedgames factory — one autonomous agent per game: it builds a browser game end-to-end and evolves it like a studio (a durable, checkpointed loop of clean-context subagents). Deploys require approval.",
   },
   subCommands: {
     start: startCommand,

@@ -91,13 +91,18 @@ export function parkCellFloor(terrain: Terrain, gx: number, gz: number): number 
   );
 }
 
+// Street depression profile: the ground drops −0.35 under the pavement
+// (clearance v < 1.6 beyond the asphalt edge) and feathers back to the
+// natural field by v = 4.6.
+function streetDepression(v: number): number {
+  if (v > 4.6) return 0;
+  return v < 1.6 ? -0.35 : -0.35 * Math.max(0, 1 - (v - 1.6) / 3);
+}
+
 // Clearance field: for every ~3.25u cell, (distance to nearest edge
-// centreline − that edge's half width). Stamped once along each edge —
-// O(street length) — then the depression rule is an O(1) lookup.
-export function makeGroundOffset(
-  network: RoadNetwork,
-  terrain?: Terrain,
-): (x: number, z: number) => number {
+// centreline − that edge's half width; 1e9 far from any street). Stamped once
+// along each edge — O(street length) — then lookups are O(1).
+function makeClearanceAt(network: RoadNetwork): (x: number, z: number) => number {
   const RES = ROAD_TILE / 4;
   const FW = Math.ceil((WORLD_HALF_X * 2) / RES) + 2;
   const FH = Math.ceil((WORLD_HALF_Z * 2) / RES) + 2;
@@ -134,13 +139,36 @@ export function makeGroundOffset(
   return (x: number, z: number): number => {
     const i = Math.round((x + WORLD_HALF_X) / RES);
     const j = Math.round((z + WORLD_HALF_Z) / RES);
-    let street = 0;
     if (i >= 0 && j >= 0 && i < FW && j < FH) {
       const v = field[i * FH + j];
-      if (v !== undefined && v <= 4.6) {
-        street = v < 1.6 ? -0.35 : -0.35 * Math.max(0, 1 - (v - 1.6) / 3);
-      }
+      if (v !== undefined) return v;
     }
-    return street;
+    return 1e9;
+  };
+}
+
+// Ground-mesh vertex offset: the street depression, everywhere.
+export function makeGroundOffset(
+  network: RoadNetwork,
+  terrain?: Terrain,
+): (x: number, z: number) => number {
+  void terrain;
+  const clearanceAt = makeClearanceAt(network);
+  return (x, z) => streetDepression(clearanceAt(x, z));
+}
+
+// Offset of the RENDERED top surface relative to the raw height field, for
+// the driving/height queries (city.heightAt). The paved band — curb +
+// sidewalk, SIDEWALK_W beyond the asphalt edge — rides at field level like
+// the asphalt does; past its outer edge the exposed ground is the
+// street-depressed mesh. Without this the car hovers on the invisible raw
+// field next to downhill kerbs (the visible ground there sits up to 0.35
+// lower).
+export function makeDriveSurfaceOffset(network: RoadNetwork): (x: number, z: number) => number {
+  const clearanceAt = makeClearanceAt(network);
+  return (x, z) => {
+    const v = clearanceAt(x, z);
+    if (v <= SIDEWALK_W) return 0; // asphalt / curb / sidewalk
+    return streetDepression(v);
   };
 }
