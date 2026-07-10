@@ -1,7 +1,7 @@
 import Phaser from "phaser";
-import { setPauseHandlers } from "@repo/embed";
+import { createPauseOverlay, setPauseHandlers } from "@repo/embed";
 
-import { initPoseCamera, type PoseJumpHandler } from "./input/camera";
+import { initPoseCamera, isCoarsePointer, type PoseJumpHandler } from "./input/camera";
 import type { NetSession } from "./net/session";
 import { BootScene } from "./scenes/boot-scene";
 import { GameScene } from "./scenes/game-scene";
@@ -57,20 +57,39 @@ initPoseCamera(poseJump);
 
 // Wrapper-requested pause: never freeze a live race (other players are still
 // flying), only the local sim. `froze` tracks whether onPause actually froze
-// anything, so onResume only wakes what it put to sleep.
-const isOnline = (): boolean => {
+// anything, so onResume only wakes what it put to sleep. The get-ready 3-2-1
+// is local-only, so it pauses in BOTH paths (online it would otherwise keep
+// ticking behind the overlay).
+const gameScene = (): GameScene | null => {
   const scene = game.scene.getScene("Game");
-  return game.scene.isActive("Game") && scene instanceof GameScene && scene.isOnline();
+  return game.scene.isActive("Game") && scene instanceof GameScene ? scene : null;
 };
 let froze = false;
+// Mirrors the start screen's controls card.
+const pauseOverlay = createPauseOverlay({
+  controls: isCoarsePointer()
+    ? [
+        ["Tap", "flap"],
+        ["📷 Camera", "jump or flap your arms"],
+      ]
+    : [
+        ["Click / Tap / Space", "flap"],
+        ["📷 Camera", "jump or flap your arms"],
+        ["M", "mute"],
+      ],
+});
 setPauseHandlers({
   onPause: () => {
-    if (isOnline()) return;
+    pauseOverlay.show();
+    gameScene()?.setCountdownPaused(true);
+    if (gameScene()?.isOnline() ?? false) return;
     froze = true;
     game.loop.sleep();
     game.sound.pauseAll();
   },
   onResume: () => {
+    pauseOverlay.hide();
+    gameScene()?.setCountdownPaused(false);
     if (!froze) return;
     froze = false;
     game.loop.wake();

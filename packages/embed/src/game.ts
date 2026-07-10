@@ -1,17 +1,17 @@
-// Game-side half of the wrapper protocol. Games call notifyGameStarted() when
-// active play begins; the wrapper answers with a pause request when the player
-// asks for its chrome back, and Escape toggles the same pause from inside the
-// game. Pausing shows a built-in overlay so every game gets the same
-// "PAUSED — resume" affordance; games that can safely freeze their sim plug
-// into it via setPauseHandlers.
+// Game-side half of the wrapper protocol — a pure pause state machine, no DOM.
+// Games call notifyGameStarted() when active play begins; the wrapper answers
+// with a pause request when the player asks for its chrome back, and Escape
+// toggles the same pause from inside the game. What a pause LOOKS like is the
+// game's business: wire onPause/onResume via setPauseHandlers and render your
+// own UI there (or compose the stock overlay from ./overlay).
 
 import { GAME_PAUSED_MESSAGE, GAME_STARTED_MESSAGE, isPauseGameMessage } from "./protocol";
 
 export type PauseHandlers = {
   /**
-   * Freeze the sim/render loop. Only wire this when freezing is safe: never
-   * freeze a wall-clock (Date.now) driven sim or a live online session — the
-   * overlay still shows without handlers, the game just keeps running behind it.
+   * The game is now paused: show your pause UI, and freeze the sim/render
+   * loop if that's safe (never freeze a wall-clock driven sim or a live
+   * online session — show the UI and let the world run behind it).
    */
   onPause?: () => void;
   /** Undo onPause. Runs right before the game is re-announced as started. */
@@ -28,7 +28,6 @@ let handlers: PauseHandlers = {};
 let started = false;
 let paused = false;
 let listening = false;
-let overlay: HTMLElement | null = null;
 
 const embedded = (): boolean => typeof window !== "undefined" && window.parent !== window;
 
@@ -45,7 +44,7 @@ function ensureListener(): void {
   listening = true;
   window.addEventListener("message", (event: MessageEvent<unknown>) => {
     if (event.source !== window.parent) return;
-    if (isPauseGameMessage(event.data)) pause();
+    if (isPauseGameMessage(event.data)) pauseGame();
   });
   // Capture phase: runs before any in-game handler, so escapePauses() sees the
   // game's PRE-event state (an open modal reads as open, not already closed by
@@ -54,8 +53,8 @@ function ensureListener(): void {
     "keydown",
     (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.repeat || isTypingTarget(event.target)) return;
-      if (paused) resume();
-      else if (started && (handlers.escapePauses?.() ?? true)) pause();
+      if (paused) resumeGame();
+      else if (started && (handlers.escapePauses?.() ?? true)) pauseGame();
     },
     true,
   );
@@ -74,78 +73,27 @@ export function notifyGameStarted(): void {
   if (embedded()) window.parent.postMessage({ type: GAME_STARTED_MESSAGE }, "*");
 }
 
-/** Wire the game's own freeze/unfreeze into the wrapper's pause request. */
+/** Wire the game's pause UI + freeze/unfreeze into the wrapper's pause request. */
 export function setPauseHandlers(next: PauseHandlers): void {
   ensureListener();
   handlers = next;
 }
 
-function pause(): void {
+/** Pause now (same path Escape and the wrapper take). No-op unless started. */
+export function pauseGame(): void {
   if (paused || !started) return;
   paused = true;
   started = false;
   handlers.onPause?.();
-  showOverlay();
   // Escape-initiated pauses need to tell the wrapper to bring its chrome back;
   // for wrapper-initiated ones this is a harmless no-op echo.
   if (embedded()) window.parent.postMessage({ type: GAME_PAUSED_MESSAGE }, "*");
 }
 
-function resume(): void {
+/** Resume from a pause — the call a pause UI's "resume" affordance makes. */
+export function resumeGame(): void {
   if (!paused) return;
   paused = false;
-  hideOverlay();
   handlers.onResume?.();
   notifyGameStarted();
-}
-
-// ---- pause overlay ----------------------------------------------------------
-
-const onResumeKeyup = (event: KeyboardEvent): void => {
-  // Escape is handled symmetrically on keydown (the toggle listener above);
-  // resuming here too would double-fire on the keydown+keyup of one press.
-  if (event.key === "Escape") return;
-  resume();
-};
-
-function showOverlay(): void {
-  if (overlay) return;
-  const coarse = window.matchMedia("(pointer: coarse)").matches;
-
-  overlay = document.createElement("div");
-  overlay.setAttribute("role", "button");
-  overlay.setAttribute("aria-label", "Resume game");
-  overlay.style.cssText =
-    "position:fixed;inset:0;z-index:2147483000;display:flex;flex-direction:column;" +
-    "align-items:center;justify-content:center;gap:12px;cursor:pointer;" +
-    "background:rgba(9,11,18,0.62);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);" +
-    "color:#fff;font-family:ui-monospace,'SF Mono',Menlo,monospace;text-align:center;" +
-    "user-select:none;-webkit-user-select:none;opacity:0;transition:opacity 0.24s ease";
-
-  const title = document.createElement("div");
-  title.textContent = "PAUSED";
-  title.style.cssText = "font-size:26px;font-weight:800;letter-spacing:0.3em;text-indent:0.3em";
-
-  const hint = document.createElement("div");
-  hint.textContent = coarse ? "tap to resume" : "click or press any key to resume";
-  hint.style.cssText = "font-size:12px;font-weight:600;opacity:0.72";
-
-  overlay.append(title, hint);
-  document.body.append(overlay);
-  requestAnimationFrame(() => overlay?.style.setProperty("opacity", "1"));
-
-  overlay.addEventListener("pointerup", () => resume());
-  // keyup, not keydown — a keydown dismissal leaks the paired keyup into the
-  // game as a phantom release.
-  window.addEventListener("keyup", onResumeKeyup);
-}
-
-function hideOverlay(): void {
-  window.removeEventListener("keyup", onResumeKeyup);
-  const el = overlay;
-  overlay = null;
-  if (!el) return;
-  el.style.pointerEvents = "none";
-  el.style.opacity = "0";
-  window.setTimeout(() => el.remove(), 260);
 }

@@ -1,5 +1,5 @@
 // Boot: load assets, show the lobby, then run the chosen match.
-import { notifyGameStarted, setPauseHandlers } from "@repo/embed";
+import { createPauseOverlay, notifyGameStarted, setPauseHandlers } from "@repo/embed";
 import * as THREE from "three";
 import { ModelLibrary } from "./render/models";
 import { View } from "./render/view";
@@ -214,14 +214,27 @@ async function main(): Promise<void> {
   // everything — cooldowns included — dead in place with nothing to unwind.
   // timer.reset() on resume avoids a huge first delta from the real-time gap
   // (belt-and-suspenders: matchLoop already clamps dt to 1/30 regardless).
+  const pauseOverlay = createPauseOverlay({
+    controls: [
+      ["WASD", "move"],
+      ["MOUSE", "look · LMB attack"],
+      ["SPACE", "jump"],
+      ["SHIFT", "dash"],
+      ["1-4", "abilities"],
+      ["B", "shop"],
+      ["M", "mute"],
+    ],
+  });
   setPauseHandlers({
     onPause: () => {
+      pauseOverlay.show();
       if (onlineMatch || !activeScene) return;
       froze = true;
       view.renderer.setAnimationLoop(null);
       activeScene.pauseAudio();
     },
     onResume: () => {
+      pauseOverlay.hide();
       if (!froze) return;
       froze = false;
       timer.reset();

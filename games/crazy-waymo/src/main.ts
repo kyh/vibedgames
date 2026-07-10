@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { setPauseHandlers } from "@repo/embed";
+import { createPauseOverlay, setPauseHandlers } from "@repo/embed";
 
 import { PerfGovernor } from "./render/perf-governor";
 import { isCoarsePointer } from "./render/quality";
@@ -43,9 +43,24 @@ const game = new GameScene(window.innerWidth / window.innerHeight);
 game.applyEnvironment(renderer);
 
 // Wrapper pause: solo game, safe to fully freeze (see GameScene.requestPause).
+const pauseOverlay = createPauseOverlay({
+  controls: [
+    ["↑ / W", "go"],
+    ["↓ / S", "stop"],
+    ["← →", "steer"],
+    ["SHIFT", "boost"],
+    ["M", "mute"],
+  ],
+});
 setPauseHandlers({
-  onPause: () => game.requestPause(),
-  onResume: () => game.requestResume(),
+  onPause: () => {
+    pauseOverlay.show();
+    game.requestPause();
+  },
+  onResume: () => {
+    pauseOverlay.hide();
+    game.requestResume();
+  },
 });
 
 function renderHeightPx(): number {

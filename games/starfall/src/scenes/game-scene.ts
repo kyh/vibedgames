@@ -1,6 +1,6 @@
 import { attachVirtualGamepad, safeAreaInset } from "@vibedgames/gamepad/phaser";
 import type { Inset, PhaserGamepad } from "@vibedgames/gamepad/phaser";
-import { notifyGameStarted, setPauseHandlers } from "@repo/embed";
+import { createPauseOverlay, notifyGameStarted, setPauseHandlers } from "@repo/embed";
 import { MultiplayerClient } from "@vibedgames/multiplayer";
 import type { Player, PlayerMap } from "@vibedgames/multiplayer";
 import Phaser from "phaser";
@@ -899,9 +899,24 @@ export class GameScene extends Phaser.Scene {
     // (solo world, no one else to stall) we truly FREEZE: the pausable sim
     // clock (shared/clock.ts) holds every stored deadline, so a boost with 3s
     // left before the pause still has 3s after resume.
+    const pauseOverlay = createPauseOverlay({
+      controls: [
+        ["MOUSE", "move"],
+        ["CLICK", "shoot"],
+        ["M", "mute"],
+      ],
+    });
     setPauseHandlers({
-      onPause: () => (this.offline ? this.freezeSim() : this.pauseToSpectator()),
-      onResume: () => (this.frozen ? this.unfreezeSim() : this.resumeFromSpectator()),
+      onPause: () => {
+        pauseOverlay.show();
+        if (this.offline) this.freezeSim();
+        else this.pauseToSpectator();
+      },
+      onResume: () => {
+        pauseOverlay.hide();
+        if (this.frozen) this.unfreezeSim();
+        else this.resumeFromSpectator();
+      },
     });
 
     this.scale.on(Phaser.Scale.Events.RESIZE, this.onViewportChange, this);

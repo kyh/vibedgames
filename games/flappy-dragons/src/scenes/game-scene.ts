@@ -144,11 +144,12 @@ export class GameScene extends Phaser.Scene {
   private bestEl: HTMLElement | null = null;
   private boardEl: HTMLElement | null = null;
   private netInfoEl: HTMLElement | null = null;
-  private soundEl: HTMLElement | null = null;
   private startEl: HTMLElement | null = null;
   private started = false;
   /** Input is held while the get-ready countdown runs. */
   private countingDown = false;
+  /** Pending countdown step, so the wrapper pause can freeze the 3-2-1. */
+  private countdownTimer: Phaser.Time.TimerEvent | null = null;
   /** Countdown go-word, alternating FLAP!/JUMP! (starts as FLAP! after flip). */
   private goWord = "JUMP!";
 
@@ -161,14 +162,12 @@ export class GameScene extends Phaser.Scene {
     this.bestEl = document.getElementById("best");
     this.boardEl = document.getElementById("board");
     this.netInfoEl = document.getElementById("netinfo");
-    this.soundEl = document.getElementById("sound");
     this.startEl = document.getElementById("start");
     this.best = readBest();
     this.skin = rollSkin();
 
     // Muted by default; returning players who opted into sound stay unmuted.
     this.sound.mute = storageGet(SOUND_KEY) !== "1";
-    this.refreshSoundHud();
 
     this.net = new NetSession({
       room: MP_ROOM,
@@ -234,15 +233,9 @@ export class GameScene extends Phaser.Scene {
       if (!e.repeat) this.toggleMute();
     });
 
-    // Phones have no M key — the pill itself is the mute toggle (>=44px
-    // target). Removed on shutdown so a scene restart never double-binds.
-    const soundTap = (): void => this.toggleMute();
-    this.soundEl?.addEventListener("click", soundTap);
-
     this.scale.on(Phaser.Scale.Events.RESIZE, this.layout, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.layout, this);
-      this.soundEl?.removeEventListener("click", soundTap);
       this.net.destroy();
     });
 
@@ -354,7 +347,7 @@ export class GameScene extends Phaser.Scene {
         void el.offsetWidth; // restart the pop animation
         el.classList.add("pop");
         n--;
-        this.time.delayedCall(1000, tick);
+        this.countdownTimer = this.time.delayedCall(1000, tick);
       } else {
         // Alternate the go-word so both webcam verbs get equal billing.
         this.goWord = this.goWord === "FLAP!" ? "JUMP!" : "FLAP!";
@@ -364,7 +357,8 @@ export class GameScene extends Phaser.Scene {
         el.classList.add("pop");
         this.countingDown = false;
         this.setHint(HINT_FLAP);
-        this.time.delayedCall(800, () => {
+        this.countdownTimer = this.time.delayedCall(800, () => {
+          this.countdownTimer = null;
           el.classList.remove("show", "pop");
           el.textContent = "";
         });
@@ -386,6 +380,14 @@ export class GameScene extends Phaser.Scene {
    */
   isOnline(): boolean {
     return this.net.live && !this.net.offline;
+  }
+  /**
+   * The get-ready 3-2-1 is a purely local input gate (plus pose re-baseline) —
+   * nothing about it is shared with the race — so the wrapper pause freezes it
+   * even when the online sim has to keep running for the other players.
+   */
+  setCountdownPaused(paused: boolean): void {
+    if (this.countdownTimer) this.countdownTimer.paused = paused;
   }
   private get alive(): boolean {
     return this.phase === "playing";
@@ -919,12 +921,6 @@ export class GameScene extends Phaser.Scene {
     ) {
       void this.sound.context.resume();
     }
-    this.refreshSoundHud();
-  }
-
-  private refreshSoundHud(): void {
-    if (!this.soundEl) return;
-    this.soundEl.textContent = this.sound.mute ? "🔇" : "🔊";
   }
 
   /** Live race leaderboard + connection info (multiplayer only). */

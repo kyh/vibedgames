@@ -1,6 +1,7 @@
 import Phaser from "phaser";
-import { setPauseHandlers } from "@repo/embed";
+import { createPauseOverlay, setPauseHandlers } from "@repo/embed";
 
+import { isTouchDevice } from "./systems/touch";
 import { BootScene } from "./scenes/boot-scene";
 import { TitleScene } from "./scenes/title-scene";
 import { GameScene } from "./scenes/game-scene";
@@ -62,14 +63,64 @@ const isOnline = (): boolean => {
   return game.scene.isActive("Game") && scene instanceof GameScene && scene.isOnline();
 };
 let froze = false;
+const pauseOverlay = createPauseOverlay({
+  controls: isTouchDevice()
+    ? [
+        ["drag stick", "move (full tilt runs)"],
+        ["tap a square", "use tool / interact"],
+        ["tap hotbar", "switch tools"],
+        ["🎒", "inventory"],
+      ]
+    : [
+        ["WASD / arrows", "move (SHIFT runs)"],
+        ["E / SPACE / click", "use tool / interact"],
+        ["1–9 / scroll", "switch tools"],
+        ["I", "inventory"],
+        ["M", "sound on / off"],
+      ],
+  // The gameplay depth that used to live in the in-game How-to-Play modal —
+  // controls stay in `controls`, this is the systems knowledge.
+  help: [
+    {
+      title: "Farming",
+      body: "Till soil with the 🪏 hoe, plant 🌱 seeds in their season, water with the 💧 can (refill at the pond — rain waters for you).",
+    },
+    {
+      title: "Gathering",
+      body: "🪓 Axe fells trees. ⛏ Pickaxe breaks rocks and works the mine. Walk over 🍄 mushrooms to forage them.",
+    },
+    {
+      title: "Fishing",
+      body: "Face water with the 🎣 rod to cast, then hold to reel while the fish sits in the zone.",
+    },
+    {
+      title: "The mine",
+      body: "Bring the ⚔ sword — skeletons haunt the cave.",
+    },
+    {
+      title: "Animals",
+      body: "🐔 Pet your animals; buy more at the coop and barn.",
+    },
+    {
+      title: "Selling & rest",
+      body: "🧺 Sell at the crate or the store. Sleep at your house to end the day.",
+    },
+    {
+      title: "Villagers",
+      body: "💬 Talk to villagers and gift what they like to earn ♥.",
+    },
+  ],
+});
 setPauseHandlers({
   onPause: () => {
+    pauseOverlay.show();
     if (isOnline()) return;
     froze = true;
     game.loop.sleep();
     game.sound.pauseAll();
   },
   onResume: () => {
+    pauseOverlay.hide();
     if (!froze) return;
     froze = false;
     game.loop.wake();

@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import { setPauseHandlers } from "@repo/embed";
+import { createPauseOverlay, setPauseHandlers } from "@repo/embed";
 
 import { BASE_H, BASE_W, clampAspect } from "./config";
 import { BootScene } from "./scenes/boot-scene";
@@ -39,13 +39,25 @@ const isOnline = (): boolean => {
   return game.scene.isActive("game") && scene instanceof GameScene && scene.isOnline();
 };
 let froze = false;
+const pauseOverlay = createPauseOverlay({
+  controls: [
+    ["WASD", "move"],
+    ["SPACE", "jump"],
+    ["SHIFT", "dash"],
+    ["J / X", "attack"],
+    ["K", "special"],
+    ["M", "mute"],
+  ],
+});
 setPauseHandlers({
   onPause: () => {
+    pauseOverlay.show();
     if (isOnline()) return;
     froze = true;
     game.loop.sleep();
   },
   onResume: () => {
+    pauseOverlay.hide();
     if (!froze) return;
     froze = false;
     game.loop.wake();

@@ -1,4 +1,4 @@
-import { setPauseHandlers } from "@repo/embed";
+import { createPauseOverlay, setPauseHandlers } from "@repo/embed";
 import Phaser from "phaser";
 
 import { BootScene } from "./scenes/boot-scene";
@@ -42,8 +42,16 @@ document.addEventListener("visibilitychange", () => {
 // every stored deadline firing at once when the loop wakes. The embed package
 // re-announces the game as started after onResume.
 let froze = false;
+const pauseOverlay = createPauseOverlay({
+  controls: [
+    ["WASD / ←→↑↓", "move"],
+    ["SPACE", "drop a bomb"],
+    ["R", "restart"],
+  ],
+});
 setPauseHandlers({
   onPause: () => {
+    pauseOverlay.show();
     const scene = game.scene.getScene<GameScene>("Game");
     // Other humans present (live online round) — leave the sim running.
     if (!scene || !scene.freezable) return;
@@ -53,6 +61,7 @@ setPauseHandlers({
     game.sound.pauseAll();
   },
   onResume: () => {
+    pauseOverlay.hide();
     if (!froze) return;
     froze = false;
     resumeClock();

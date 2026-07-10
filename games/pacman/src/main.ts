@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { setPauseHandlers } from "@repo/embed";
+import { createPauseOverlay, setPauseHandlers } from "@repo/embed";
 
 import { music, sfx } from "./audio/sfx";
 import { FaceCamera } from "./input/face-camera";
@@ -60,16 +60,37 @@ window.addEventListener("resize", () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// Wrapper-requested pause: the embed package owns the overlay, we just freeze
-// the sim. `timer.update` keeps running every frame even while paused, so the
+// Wrapper-requested pause: show the stock overlay and freeze the sim.
+// `timer.update` keeps running every frame even while paused, so the
 // delta never balloons across the gap — resuming needs no explicit reset.
 let paused = false;
+const pauseOverlay = createPauseOverlay({
+  controls: IS_TOUCH
+    ? [
+        ["open mouth", "chomp forward"],
+        ["turn head", "turn"],
+        ["swipe ↑", "chomp forward"],
+        ["swipe ←/→", "turn"],
+        ["swipe ↓", "reverse"],
+      ]
+    : [
+        ["open mouth", "chomp forward"],
+        ["turn head", "turn"],
+        ["SPACE", "chomp forward"],
+        ["←/→", "turn"],
+        ["↓", "reverse"],
+        ["SHIFT", "selfie cam"],
+        ["M", "mute"],
+      ],
+});
 setPauseHandlers({
   onPause: () => {
+    pauseOverlay.show();
     paused = true;
     music.pause();
   },
   onResume: () => {
+    pauseOverlay.hide();
     paused = false;
     music.resume();
   },

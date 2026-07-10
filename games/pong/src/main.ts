@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { setPauseHandlers } from "@repo/embed";
+import { createPauseOverlay, setPauseHandlers } from "@repo/embed";
 
 import { startHandTracking } from "./input/camera";
 import { DitherPass } from "./render/dither-pass";
@@ -31,13 +31,28 @@ const dither = new DitherPass(window.innerWidth, window.innerHeight);
 
 // Wrapper pause: freeze the sim unless a live human opponent is connected
 // (see GameScene.requestPause) — the wrapper's own overlay shows either way.
+const pauseOverlay = createPauseOverlay({
+  controls: [
+    ["✋ hand", "steer the paddle"],
+    ["✊ fist", "serve · rematch"],
+    ["🖱 move", "steer the paddle"],
+    ["click / tap", "serve · rematch"],
+    ["M", "mute"],
+  ],
+});
 setPauseHandlers({
-  onPause: () => game.requestPause(),
-  onResume: () => game.requestResume(),
+  onPause: () => {
+    pauseOverlay.show();
+    game.requestPause();
+  },
+  onResume: () => {
+    pauseOverlay.hide();
+    game.requestResume();
+  },
 });
 
 // Webcam hand tracking auto-starts (legacy semantics — no start button);
-// on failure it shows a status in its panel and pointer/keys keep working.
+// on failure it shows a status in its panel and the pointer keeps working.
 // A closed fist serves/rematches so a cam-only player never has to touch.
 const handTracker = startHandTracking(
   (x) => game.handleHandPosition(x),
