@@ -568,6 +568,14 @@ export class CityModel {
     return Math.floor((z + WORLD_HALF_Z) / ROAD_TILE);
   }
 
+  // Grid-cell placement vs the vector asphalt disagree along diagonal spines
+  // and junction aprons — ground-seated placements must check the real
+  // asphalt or they stand in the roadway (trees/buildings on avenues).
+  private onAsphalt(x: number, z: number, margin = 0.2): boolean {
+    const hit = this.network.nearest(x, z, ROAD_TILE * 1.4);
+    return hit !== null && hit.dist < hit.edge.half + margin;
+  }
+
   private poolFor(c: DistrictChar): readonly string[] {
     switch (c) {
       case "downtown":
@@ -712,6 +720,7 @@ export class CityModel {
           tree.scale.setScalar(tsc);
           const tx = wx + this.rng.range(-2.6, 2.6);
           const tz = wz + this.rng.range(-2.6, 2.6);
+          if (this.onAsphalt(tx, tz, 0.6)) continue;
           tree.position.set(tx, this.terrain.heightAt(tx, tz), tz);
           tree.rotation.y = this.rng.range(0, Math.PI * 2);
           collect(tree);
@@ -861,6 +870,9 @@ export class CityModel {
       const wx = pose ? pose.x : this.worldX(gx);
       const wz = pose ? pose.z : this.worldZ(gz);
       if (occupied(wx, wz, ROAD_TILE * footprintFrac * 0.45)) return false;
+      // A building whose CENTER sits on vector asphalt walls off the street
+      // (diagonal spines cross grid lots) — the lot goes green instead.
+      if (this.onAsphalt(wx, wz, 1)) return false;
       const key = this.rng.pick(this.poolFor(district.character));
       const url = modelUrl("buildings", key);
       const bounds = this.cache.bounds(url);
@@ -913,6 +925,7 @@ export class CityModel {
           steepTree.scale.setScalar(sts);
           const stx = wx + this.rng.range(-3.5, 3.5);
           const stz = wz + this.rng.range(-3.5, 3.5);
+          if (this.onAsphalt(stx, stz, 0.6)) continue;
           steepTree.position.set(stx, this.terrain.heightAt(stx, stz), stz);
           steepTree.rotation.y = this.rng.range(0, Math.PI * 2);
           collect(steepTree);
@@ -984,10 +997,12 @@ export class CityModel {
         tree.scale.setScalar(ts);
         const tx = wx + dx * ROAD_TILE * 0.46 + this.rng.range(-1, 1);
         const tz = wz + dz * ROAD_TILE * 0.46 + this.rng.range(-1, 1);
-        tree.position.set(tx, this.terrain.heightAt(tx, tz), tz);
-        tree.rotation.y = this.rng.range(0, Math.PI * 2);
-        collect(tree);
-        if (large) treeSolid(tx, tz);
+        if (!this.onAsphalt(tx, tz, 0.6)) {
+          tree.position.set(tx, this.terrain.heightAt(tx, tz), tz);
+          tree.rotation.y = this.rng.range(0, Math.PI * 2);
+          collect(tree);
+          if (large) treeSolid(tx, tz);
+        }
       }
       return true;
     };

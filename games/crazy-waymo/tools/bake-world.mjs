@@ -54,7 +54,12 @@ if (shipped === codeRev) {
 console.log(`[bake] code rev ${codeRev}, shipped rev ${shipped ?? "none"} — proceeding`);
 
 // --- Dev server: attach to a given port or start our own.
-const argPort = process.argv[2] ? Number(process.argv[2]) : null;
+// pnpm forwards a literal "--" before user args — take the first numeric arg.
+const argPort =
+  process.argv
+    .slice(2)
+    .map(Number)
+    .find((n) => Number.isFinite(n) && n > 0) ?? null;
 let server = null;
 let port = argPort;
 if (!port) {
@@ -111,7 +116,7 @@ try {
   await Promise.race([
     gotBoth,
     new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("bake downloads did not arrive in 5 minutes")), 300000),
+      setTimeout(() => reject(new Error("bake downloads did not arrive in 12 minutes")), 720000),
     ),
   ]);
   const saved = await Promise.all(downloads.values());

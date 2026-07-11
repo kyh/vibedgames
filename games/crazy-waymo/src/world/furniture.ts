@@ -47,7 +47,7 @@ import { conformToTerrain, DRAPE_MAX_ERROR } from "./conform";
 
 import type { RoadNetwork } from "./network";
 import type { CityPlan, RoadResolved } from "./grid";
-import { landuseGreenAt } from "./sf-landuse";
+import { landuseGreenAt, landuseSandAt } from "./sf-landuse";
 import { type DistrictChar, districtAt } from "./sf-map";
 import { streetMaskAt } from "./sf-streets";
 import type { Terrain } from "./terrain";
@@ -233,8 +233,22 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
     node.updateMatrixWorld(true);
     objects.push(node);
   };
-  const seat = (url: string, x: number, z: number, yaw: number, s: number): void => {
+  // Grid-cell placement math and the vector asphalt disagree along diagonal
+  // spines and wide junction aprons (~21% of edge length by design) — every
+  // ground-seated prop must check the ACTUAL asphalt or it ends up standing
+  // in the roadway (the "cardboard boxes on the street" report). Passes that
+  // belong on asphalt (construction chicanes) opt in via allowAsphalt.
+  const seat = (
+    url: string,
+    x: number,
+    z: number,
+    yaw: number,
+    s: number,
+    allowAsphalt = false,
+  ): boolean => {
+    if (!allowAsphalt && onAsphalt(x, z, 0.2)) return false;
     place(url, x, terrain.heightAt(x, z), z, yaw, s);
+    return true;
   };
   // KayKit variants: same as place/seat but tinted toward the Kenney palette.
   const placeKK = (url: string, x: number, y: number, z: number, yaw: number, s: number): void => {
@@ -246,8 +260,10 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
     node.updateMatrixWorld(true);
     objects.push(node);
   };
-  const seatKK = (url: string, x: number, z: number, yaw: number, s: number): void => {
+  const seatKK = (url: string, x: number, z: number, yaw: number, s: number): boolean => {
+    if (onAsphalt(x, z, 0.2)) return false;
     placeKK(url, x, terrain.heightAt(x, z), z, yaw, s);
+    return true;
   };
   // True when a 4-neighbor is a junction tile (crossroad or T).
   const nextToJunction = (gx: number, gz: number): boolean => {
@@ -349,9 +365,12 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       const yaw = Math.atan2(smp.tz * side, -smp.tx * side);
       const char = districtAt(gx, gz).character;
       const groundY = terrain.heightAt(px, pz);
+      // A lamp 0.6 off ITS edge can still stand on a NEIGHBOUring edge's
+      // asphalt (junction aprons, parallel diagonal spines) — seat() skips
+      // there, and the glow head must skip with it or it floats unpoled.
       if (char === "victorian") {
         const url = modelUrl("props", LIGHT_OLD);
-        seatKK(url, px, pz, yaw, scaleToHeight(url, VICTORIAN_LAMP_HEIGHT));
+        if (!seatKK(url, px, pz, yaw, scaleToHeight(url, VICTORIAN_LAMP_HEIGHT))) continue;
         lampHeads.push({
           x: px,
           y: groundY + VICTORIAN_LAMP_HEIGHT * 0.85,
@@ -361,7 +380,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       } else {
         const url = modelUrl("props", lightFor(char));
         const sc = scaleToHeight(url, LIGHT_HEIGHT);
-        seat(url, px, pz, yaw, sc);
+        if (!seat(url, px, pz, yaw, sc)) continue;
         const reach = cache.bounds(url).size.z * sc * 0.5;
         lampHeads.push({
           x: px + Math.sin(yaw) * reach,
@@ -535,11 +554,12 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
           pos.z + rng.range(-0.3, 0.3),
           rng.range(0, Math.PI * 2),
           coneScale,
+          true, // chicanes live on the asphalt by design
         );
       }
       const bPos = at(0.5);
       const bYaw = Math.atan2(smp.tz, -smp.tx); // long axis across the lane
-      seat(barrierUrl, bPos.x, bPos.z, bYaw, scaleToHeight(barrierUrl, 1.1));
+      seat(barrierUrl, bPos.x, bPos.z, bYaw, scaleToHeight(barrierUrl, 1.1), true);
       solids.push({
         minX: bPos.x - 1,
         maxX: bPos.x + 1,
@@ -548,7 +568,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
         maxY: terrain.heightAt(bPos.x, bPos.z) + 1.6,
       });
       const lPos = at(0.08);
-      seat(lightUrl, lPos.x, lPos.z, bYaw, scaleToHeight(lightUrl, 2));
+      seat(lightUrl, lPos.x, lPos.z, bYaw, scaleToHeight(lightUrl, 2), true);
     }
   }
 
@@ -578,20 +598,22 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
         for (const off of [-0.25, 0.25] as const) {
           const tx = wx + off * ROAD_TILE;
           if (onAsphalt(tx, tz, 1.6)) continue; // smoothed diagonals cut raster lots
-          seat(
+          const planted = seat(
             treeUrl,
             tx,
             tz,
             rng.range(0, Math.PI * 2),
             scaleToHeight(treeUrl, rng.range(5, 6.5)),
           );
-          solids.push({
-            minX: tx - 0.55,
-            maxX: tx + 0.55,
-            minZ: tz - 0.55,
-            maxZ: tz + 0.55,
-            noBody: true,
-          });
+          if (planted) {
+            solids.push({
+              minX: tx - 0.55,
+              maxX: tx + 0.55,
+              minZ: tz - 0.55,
+              maxZ: tz + 0.55,
+              noBody: true,
+            });
+          }
         }
       }
       // Planter clusters as flower beds.
@@ -977,9 +999,12 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
   }
 
   // ------------------------------------------------------------------
-  // 9. SEAWALL — concrete lip where wharf/Embarcadero land meets the bay
-  // (purely visual; the shoreline solids already exist). Pier cells skipped.
+  // 9. SEAWALL — the visual for the shoreline collision (city.ts walls off
+  // EVERY coastal water cell; a wall the player can hit must be a wall the
+  // player can SEE). Concrete lip on urban shores, sand berm on beaches.
+  // Pier cells skipped.
   // ------------------------------------------------------------------
+  const BERM_MAT = new THREE.MeshStandardMaterial({ color: 0xcbb98d, roughness: 1 }); // dune sand
   for (let gx = 0; gx < GRID_X; gx++) {
     for (let gz = 0; gz < GRID_Z; gz++) {
       await breathe();
@@ -992,13 +1017,18 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
         const [dx, dz] = DIR_DELTA[d];
         const nb = cellAt(gx + dx, gz + dz);
         if (nb !== "road" && nb !== "lot") continue;
-        if (districtAt(gx + dx, gz + dz).character !== "wharf") continue;
+        // Beach shores read wrong with a concrete lip — use a low, wider
+        // sand berm there; the collision face is identical either way.
+        const beach = landuseSandAt(gx + dx, gz + dz);
+        const mat = beach ? BERM_MAT : SEAWALL_MAT;
+        const h = beach ? 0.8 : 1.0;
+        const th = beach ? 1.6 : 0.6;
         // Lip along the shared edge, seated on the land-side ground height.
         const ex = wx + dx * (ROAD_TILE / 2);
         const ez = wz + dz * (ROAD_TILE / 2);
         const groundY = terrain.heightAt(wx + dx * ROAD_TILE * 0.62, wz + dz * ROAD_TILE * 0.62);
-        if (dx !== 0) box(SEAWALL_MAT, 0.6, 1.0, ROAD_TILE, ex, groundY + 0.15, ez);
-        else box(SEAWALL_MAT, ROAD_TILE, 1.0, 0.6, ex, groundY + 0.15, ez);
+        if (dx !== 0) box(mat, th, h, ROAD_TILE, ex, groundY + 0.15, ez);
+        else box(mat, ROAD_TILE, h, th, ex, groundY + 0.15, ez);
       }
     }
   }
