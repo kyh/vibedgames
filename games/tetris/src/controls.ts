@@ -36,7 +36,9 @@ export const CONTROLS: ControlsManifest = [
   { method: "controller", input: "START", action: "pause" },
 ];
 
-const METHOD_LABEL: Record<ControlMethod, string> = {
+/** Display name per input method — shared by the title legend and the pause
+ *  overlay so every instruction surface speaks the same words. */
+export const METHOD_LABEL: Record<ControlMethod, string> = {
   keys: "keys",
   mouse: "mouse",
   touch: "touch",

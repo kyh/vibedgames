@@ -39,6 +39,33 @@ function isTypingTarget(target: EventTarget | null): boolean {
   );
 }
 
+/**
+ * While paused, key events must not reach the game's own listeners — games
+ * keep theirs live (Phaser's keyboard manager, raw window handlers), so a key
+ * pressed on the pause UI would otherwise act on the frozen world (rotate a
+ * piece, drop a bomb) the instant it resumes, or worse, act on a live online
+ * arena behind the overlay. stopPropagation() at window CAPTURE kills the
+ * event before any element/document/window-bubble listener sees it, while
+ * listeners registered on window WITH capture (this module's Escape toggle,
+ * the pause shell's keyup-resume) still run — same-node listeners are immune
+ * to stopPropagation. Installed on pause, removed on resume.
+ */
+const blockGameKeys = (event: KeyboardEvent): void => {
+  if (isTypingTarget(event.target)) return; // a pause UI's own text inputs keep working
+  event.stopPropagation();
+};
+
+function setKeyGate(on: boolean): void {
+  if (typeof window === "undefined") return;
+  if (on) {
+    window.addEventListener("keydown", blockGameKeys, true);
+    window.addEventListener("keyup", blockGameKeys, true);
+  } else {
+    window.removeEventListener("keydown", blockGameKeys, true);
+    window.removeEventListener("keyup", blockGameKeys, true);
+  }
+}
+
 function ensureListener(): void {
   if (listening || typeof window === "undefined") return;
   listening = true;
@@ -84,6 +111,7 @@ export function pauseGame(): void {
   if (paused || !started) return;
   paused = true;
   started = false;
+  setKeyGate(true);
   handlers.onPause?.();
   // Escape-initiated pauses need to tell the wrapper to bring its chrome back;
   // for wrapper-initiated ones this is a harmless no-op echo.
@@ -94,6 +122,10 @@ export function pauseGame(): void {
 export function resumeGame(): void {
   if (!paused) return;
   paused = false;
+  // Removing the gate here means the resuming key's own keyup was already
+  // swallowed (it fired while the gate was up) — the game never sees a
+  // phantom release for a press it never saw.
+  setKeyGate(false);
   handlers.onResume?.();
   notifyGameStarted();
 }

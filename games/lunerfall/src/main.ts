@@ -1,8 +1,8 @@
 import Phaser from "phaser";
-import { createPauseOverlay, setPauseHandlers } from "@repo/embed";
+import { setPauseHandlers } from "@repo/embed";
 
 import { BASE_H, BASE_W, clampAspect } from "./config";
-import { CONTROLS } from "./controls";
+import { createLunerfallPauseOverlay } from "./pause-overlay";
 import { BootScene } from "./scenes/boot-scene";
 import { installTestHooks } from "./sys/diag";
 import { EditorScene } from "./scenes/editor-scene";
@@ -40,7 +40,7 @@ const isOnline = (): boolean => {
   return game.scene.isActive("game") && scene instanceof GameScene && scene.isOnline();
 };
 let froze = false;
-const pauseOverlay = createPauseOverlay({ controls: CONTROLS });
+const pauseOverlay = createLunerfallPauseOverlay();
 setPauseHandlers({
   onPause: () => {
     pauseOverlay.show();

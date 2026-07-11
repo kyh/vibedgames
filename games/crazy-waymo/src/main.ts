@@ -1,11 +1,11 @@
 import * as THREE from "three";
-import { createPauseOverlay, setPauseHandlers } from "@repo/embed";
+import { setPauseHandlers } from "@repo/embed";
 
-import { CONTROLS } from "./controls";
 import { PerfGovernor } from "./render/perf-governor";
 import { isCoarsePointer } from "./render/quality";
 import { GameScene } from "./scenes/game-scene";
 import { MAX_DT } from "./shared/constants";
+import { createPauseOverlay } from "./ui/pause-overlay";
 
 const container = document.getElementById("game");
 if (!container) throw new Error("missing #game container");
@@ -44,7 +44,7 @@ const game = new GameScene(window.innerWidth / window.innerHeight);
 game.applyEnvironment(renderer);
 
 // Wrapper pause: solo game, safe to fully freeze (see GameScene.requestPause).
-const pauseOverlay = createPauseOverlay({ controls: CONTROLS });
+const pauseOverlay = createPauseOverlay();
 setPauseHandlers({
   onPause: () => {
     pauseOverlay.show();

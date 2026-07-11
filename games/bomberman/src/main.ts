@@ -1,7 +1,7 @@
-import { createPauseOverlay, setPauseHandlers } from "@repo/embed";
+import { setPauseHandlers } from "@repo/embed";
 import Phaser from "phaser";
 
-import { CONTROLS } from "./controls";
+import { createBombermanPauseOverlay } from "./pause-overlay";
 import { BootScene } from "./scenes/boot-scene";
 import { GameScene } from "./scenes/game-scene";
 import { pauseClock, resumeClock } from "./util/clock";
@@ -43,7 +43,7 @@ document.addEventListener("visibilitychange", () => {
 // every stored deadline firing at once when the loop wakes. The embed package
 // re-announces the game as started after onResume.
 let froze = false;
-const pauseOverlay = createPauseOverlay({ controls: CONTROLS });
+const pauseOverlay = createBombermanPauseOverlay();
 setPauseHandlers({
   onPause: () => {
     pauseOverlay.show();

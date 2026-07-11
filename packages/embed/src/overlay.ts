@@ -2,11 +2,12 @@
 // handlers. The core state machine (./game) never renders anything; a game
 // that wants the standard "PAUSED — resume" look calls createPauseOverlay()
 // once and show()/hide()s it from onPause/onResume. Games with their own art
-// direction skip this entirely and render whatever fits.
+// direction build theirs on createPauseShell (./pause-shell) instead — the
+// shell owns the shared resume behavior; this file is just the stock skin.
 
 import { controlHints } from "./controls";
 import type { ControlsManifest } from "./controls";
-import { resumeGame } from "./game";
+import { createPauseShell } from "./pause-shell";
 
 /** One control hint row: input ("SPACE", "🤳 face cam") + what it does. */
 export type ControlHint = readonly [input: string, action: string];
@@ -43,30 +44,21 @@ const BUTTON_CSS =
   "color:#fff;font:600 12px ui-monospace,'SF Mono',Menlo,monospace";
 
 /**
- * Build the standard overlay. Any click/key while it is up resumes via
- * resumeGame() — except inside the help modal, which owns its pointer events
- * (backdrop or "back" returns to the pause screen). Escape resumes from
- * anywhere: the core keydown listener wins it, and hide() sweeps the modal.
+ * Build the standard overlay on the shared pause shell: any click/key/pad
+ * press while it is up resumes — except inside the help modal, which owns its
+ * pointer events (backdrop or "back" returns to the pause screen), and except
+ * Escape, which the core keydown listener already toggles.
  */
 export function createPauseOverlay(options: PauseOverlayOptions = {}): PauseOverlay {
-  let overlay: HTMLElement | null = null;
   let helpModal: HTMLElement | null = null;
-
-  const onResumeKeyup = (event: KeyboardEvent): void => {
-    // Escape is handled on keydown by the core toggle listener; resuming here
-    // too would double-fire on the keydown+keyup of one press. While the help
-    // modal is up, keys belong to it (scrolling, Escape-to-close).
-    if (event.key === "Escape" || helpModal) return;
-    resumeGame();
-  };
 
   function closeHelp(): void {
     helpModal?.remove();
     helpModal = null;
   }
 
-  function openHelp(sections: readonly HelpSection[]): void {
-    if (helpModal || !overlay) return;
+  function openHelp(host: HTMLElement, sections: readonly HelpSection[]): void {
+    if (helpModal) return;
 
     helpModal = document.createElement("div");
     helpModal.setAttribute("role", "dialog");
@@ -114,89 +106,64 @@ export function createPauseOverlay(options: PauseOverlayOptions = {}): PauseOver
     panel.append(back);
 
     helpModal.append(panel);
-    overlay.append(helpModal);
+    host.append(helpModal);
   }
 
-  function show(): void {
-    if (overlay) return;
-    const coarse = window.matchMedia("(pointer: coarse)").matches;
+  return createPauseShell({
+    modalOpen: () => helpModal !== null,
+    onHide: closeHelp,
+    render(root) {
+      const coarse = window.matchMedia("(pointer: coarse)").matches;
+      root.style.cssText +=
+        "display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;" +
+        "background:rgba(9,11,18,0.62);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);" +
+        "color:#fff;font-family:ui-monospace,'SF Mono',Menlo,monospace;text-align:center";
 
-    overlay = document.createElement("div");
-    overlay.setAttribute("role", "button");
-    overlay.setAttribute("aria-label", "Resume game");
-    overlay.style.cssText =
-      "position:fixed;inset:0;z-index:2147483000;display:flex;flex-direction:column;" +
-      "align-items:center;justify-content:center;gap:12px;cursor:pointer;" +
-      "background:rgba(9,11,18,0.62);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);" +
-      "color:#fff;font-family:ui-monospace,'SF Mono',Menlo,monospace;text-align:center;" +
-      "user-select:none;-webkit-user-select:none;opacity:0;transition:opacity 0.24s ease";
+      const title = document.createElement("div");
+      title.textContent = "PAUSED";
+      title.style.cssText =
+        "font-size:26px;font-weight:800;letter-spacing:0.3em;text-indent:0.3em";
 
-    const title = document.createElement("div");
-    title.textContent = "PAUSED";
-    title.style.cssText = "font-size:26px;font-weight:800;letter-spacing:0.3em;text-indent:0.3em";
+      const hint = document.createElement("div");
+      hint.textContent = coarse ? "tap to resume" : "click or press any key to resume";
+      hint.style.cssText = "font-size:12px;font-weight:600;opacity:0.72";
 
-    const hint = document.createElement("div");
-    hint.textContent = coarse ? "tap to resume" : "click or press any key to resume";
-    hint.style.cssText = "font-size:12px;font-weight:600;opacity:0.72";
+      root.append(title, hint);
 
-    overlay.append(title, hint);
-
-    const controls = controlHints(options.controls ?? [], { coarse });
-    if (controls.length > 0) {
-      const list = document.createElement("div");
-      list.style.cssText =
-        "margin-top:14px;display:grid;grid-template-columns:auto auto;gap:7px 14px;" +
-        "align-items:center;font-size:12px;max-width:min(86vw,360px)";
-      for (const [input, action] of controls) {
-        const key = document.createElement("span");
-        key.textContent = input;
-        key.style.cssText =
-          "justify-self:end;padding:3px 8px;border-radius:6px;font-weight:700;" +
-          "background:rgba(255,255,255,0.14);border:1px solid rgba(255,255,255,0.22);white-space:nowrap";
-        const label = document.createElement("span");
-        label.textContent = action;
-        label.style.cssText = "justify-self:start;opacity:0.8;text-align:left";
-        list.append(key, label);
+      const controls = controlHints(options.controls ?? [], { coarse });
+      if (controls.length > 0) {
+        const list = document.createElement("div");
+        list.style.cssText =
+          "margin-top:14px;display:grid;grid-template-columns:auto auto;gap:7px 14px;" +
+          "align-items:center;font-size:12px;max-width:min(86vw,360px)";
+        for (const [input, action] of controls) {
+          const key = document.createElement("span");
+          key.textContent = input;
+          key.style.cssText =
+            "justify-self:end;padding:3px 8px;border-radius:6px;font-weight:700;" +
+            "background:rgba(255,255,255,0.14);border:1px solid rgba(255,255,255,0.22);white-space:nowrap";
+          const label = document.createElement("span");
+          label.textContent = action;
+          label.style.cssText = "justify-self:start;opacity:0.8;text-align:left";
+          list.append(key, label);
+        }
+        root.append(list);
       }
-      overlay.append(list);
-    }
 
-    const help = options.help;
-    if (help && help.length > 0) {
-      const helpBtn = document.createElement("button");
-      helpBtn.type = "button";
-      helpBtn.textContent = "how to play";
-      helpBtn.style.cssText = "margin-top:16px;" + BUTTON_CSS;
-      // pointerup would bubble to the overlay's resume handler — this button
-      // is the one thing on the overlay that must NOT resume.
-      helpBtn.addEventListener("pointerup", (event) => {
-        event.stopPropagation();
-        openHelp(help);
-      });
-      overlay.append(helpBtn);
-    }
-
-    document.body.append(overlay);
-    requestAnimationFrame(() => overlay?.style.setProperty("opacity", "1"));
-
-    overlay.addEventListener("pointerup", () => {
-      if (!helpModal) resumeGame();
-    });
-    // keyup, not keydown — a keydown dismissal leaks the paired keyup into the
-    // game as a phantom release.
-    window.addEventListener("keyup", onResumeKeyup);
-  }
-
-  function hide(): void {
-    window.removeEventListener("keyup", onResumeKeyup);
-    closeHelp();
-    const el = overlay;
-    overlay = null;
-    if (!el) return;
-    el.style.pointerEvents = "none";
-    el.style.opacity = "0";
-    window.setTimeout(() => el.remove(), 260);
-  }
-
-  return { show, hide };
+      const help = options.help;
+      if (help && help.length > 0) {
+        const helpBtn = document.createElement("button");
+        helpBtn.type = "button";
+        helpBtn.textContent = "how to play";
+        helpBtn.style.cssText = "margin-top:16px;" + BUTTON_CSS;
+        // The shell's interactive-child check already keeps this from
+        // resuming; stopPropagation is belt-and-braces.
+        helpBtn.addEventListener("pointerup", (event) => {
+          event.stopPropagation();
+          openHelp(root, help);
+        });
+        root.append(helpBtn);
+      }
+    },
+  });
 }

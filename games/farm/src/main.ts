@@ -1,7 +1,7 @@
 import Phaser from "phaser";
-import { createPauseOverlay, setPauseHandlers } from "@repo/embed";
+import { setPauseHandlers } from "@repo/embed";
 
-import { CONTROLS } from "./controls";
+import { pauseOverlay } from "./pause-overlay";
 import { BootScene } from "./scenes/boot-scene";
 import { TitleScene } from "./scenes/title-scene";
 import { GameScene } from "./scenes/game-scene";
@@ -63,41 +63,8 @@ const isOnline = (): boolean => {
   return game.scene.isActive("Game") && scene instanceof GameScene && scene.isOnline();
 };
 let froze = false;
-const pauseOverlay = createPauseOverlay({
-  controls: CONTROLS,
-  // The gameplay depth that used to live in the in-game How-to-Play modal —
-  // controls stay in `controls`, this is the systems knowledge.
-  help: [
-    {
-      title: "Farming",
-      body: "Till soil with the 🪏 hoe, plant 🌱 seeds in their season, water with the 💧 can (refill at the pond — rain waters for you).",
-    },
-    {
-      title: "Gathering",
-      body: "🪓 Axe fells trees. ⛏ Pickaxe breaks rocks and works the mine. Walk over 🍄 mushrooms to forage them.",
-    },
-    {
-      title: "Fishing",
-      body: "Face water with the 🎣 rod to cast, then hold to reel while the fish sits in the zone.",
-    },
-    {
-      title: "The mine",
-      body: "Bring the ⚔ sword — skeletons haunt the cave.",
-    },
-    {
-      title: "Animals",
-      body: "🐔 Pet your animals; buy more at the coop and barn.",
-    },
-    {
-      title: "Selling & rest",
-      body: "🧺 Sell at the crate or the store. Sleep at your house to end the day.",
-    },
-    {
-      title: "Villagers",
-      body: "💬 Talk to villagers and gift what they like to earn ♥.",
-    },
-  ],
-});
+// Bespoke wooden-sign pause overlay (./pause-overlay) — renders CONTROLS and
+// the How-to-Play systems knowledge in the game's own cozy pixel-farm look.
 setPauseHandlers({
   onPause: () => {
     pauseOverlay.show();

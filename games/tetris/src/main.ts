@@ -1,10 +1,10 @@
-import { createPauseOverlay, setPauseHandlers } from "@repo/embed";
+import { setPauseHandlers } from "@repo/embed";
 import * as THREE from "three";
 
-import { CONTROLS } from "./controls";
 import { PoseCamera } from "./input/camera";
 import { PoseControls } from "./input/pose-control";
 import { isCoarsePointer } from "./input/touch";
+import * as pauseOverlay from "./pause-overlay";
 import { GameScene } from "./scenes/game-scene";
 import { MAX_DT } from "./shared/constants";
 
@@ -42,8 +42,9 @@ window.addEventListener("resize", () => {
 // (collapseStartedAt vs CATCH_WINDOW_MS) — gets shifted by the paused gap on
 // resume so a long pause can't insta-finalize game-over.
 let wrapperPausedAt: number | null = null;
-// Same manifest the title legend teaches — filtered per device / pad at show().
-const pauseOverlay = createPauseOverlay({ controls: CONTROLS });
+// Bespoke overlay (src/pause-overlay.ts) renders the same manifest the title
+// legend teaches — filtered per device / pad at show(). Escape, P and pad
+// START all funnel into this one pause state machine (@repo/embed).
 setPauseHandlers({
   onPause: () => {
     pauseOverlay.show();

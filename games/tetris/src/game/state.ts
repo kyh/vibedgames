@@ -2,7 +2,9 @@
 // persistence coupling — game-over is a state event here, the collapse is
 // purely cosmetic on top of it.
 
-export type Status = "title" | "playing" | "paused" | "collapsing" | "gameOver";
+// No "paused" here: pausing is the wrapper's (@repo/embed) state — main.ts
+// freezes by skipping update(), the engine status stays "playing" beneath it.
+export type Status = "title" | "playing" | "collapsing" | "gameOver";
 
 export class GameState {
   status: Status = "title";

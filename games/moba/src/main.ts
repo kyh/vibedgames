@@ -1,7 +1,7 @@
 import Phaser from "phaser";
-import { createPauseOverlay, setPauseHandlers } from "@repo/embed";
+import { setPauseHandlers } from "@repo/embed";
 
-import { CONTROLS } from "./controls";
+import { hide as hidePauseOverlay, show as showPauseOverlay } from "./pause-overlay";
 import { BootScene } from "./scenes/boot-scene";
 import { GalleryScene } from "./scenes/gallery-scene";
 import { GameScene } from "./scenes/game-scene";
@@ -66,17 +66,16 @@ void fontReady.then(() => {
     return game.scene.isActive("Game") && scene instanceof GameScene && scene.isOnline();
   };
   let froze = false;
-  const pauseOverlay = createPauseOverlay({ controls: CONTROLS });
   setPauseHandlers({
     onPause: () => {
-      pauseOverlay.show();
+      showPauseOverlay();
       if (isOnline()) return;
       froze = true;
       game.loop.sleep();
       game.sound.pauseAll();
     },
     onResume: () => {
-      pauseOverlay.hide();
+      hidePauseOverlay();
       if (!froze) return;
       froze = false;
       game.loop.wake();

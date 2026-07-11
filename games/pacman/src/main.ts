@@ -1,10 +1,10 @@
 import * as THREE from "three";
-import { createPauseOverlay, setPauseHandlers } from "@repo/embed";
+import { setPauseHandlers } from "@repo/embed";
 
 import { music, sfx } from "./audio/sfx";
-import { CONTROLS } from "./controls";
 import { FaceCamera } from "./input/face-camera";
 import { IS_TOUCH } from "./input/input-mode";
+import { pauseOverlay } from "./pause-overlay";
 import { GameScene } from "./scenes/game-scene";
 import { MAX_DT, TONE_EXPOSURE } from "./shared/constants";
 
@@ -61,11 +61,11 @@ window.addEventListener("resize", () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// Wrapper-requested pause: show the stock overlay and freeze the sim.
-// `timer.update` keeps running every frame even while paused, so the
-// delta never balloons across the gap — resuming needs no explicit reset.
+// Wrapper-requested pause: show the game's plush clinic-sign overlay
+// (./pause-overlay) and freeze the sim. `timer.update` keeps running every
+// frame even while paused, so the delta never balloons across the gap —
+// resuming needs no explicit reset.
 let paused = false;
-const pauseOverlay = createPauseOverlay({ controls: CONTROLS });
 setPauseHandlers({
   onPause: () => {
     pauseOverlay.show();

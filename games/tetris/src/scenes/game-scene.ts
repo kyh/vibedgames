@@ -3,7 +3,7 @@
 // pose into camera-relative moves (DAS/ARR, pose-freshness ownership). main.ts
 // just boots it and renders scene + camera each frame.
 
-import { notifyGameStarted, watchControlContext } from "@repo/embed";
+import { notifyGameStarted, pauseGame, watchControlContext } from "@repo/embed";
 import { PhysicalGamepad, stickDirection4 } from "@vibedgames/gamepad";
 import { Color, Scene } from "three";
 
@@ -187,7 +187,7 @@ export class GameScene {
       orbit: (dir) => this.doOrbit(dir),
       hold: () => this.doHold(),
       power: () => this.doPower(),
-      pauseToggle: () => this.togglePause(),
+      pause: () => this.requestPause(),
       start: () => this.startIfIdle(),
       recenter: () => this.poseControls?.recenter(),
       muteToggle: () => toggleMute(),
@@ -209,12 +209,12 @@ export class GameScene {
     };
   }
 
-  /** A free touch (not on a button): the touch mirror of hands-up / Enter. */
+  /** A free touch (not on a button): the touch mirror of hands-up / Enter.
+   *  While paused the wrapper overlay covers the screen and owns the tap. */
   private onFreeTap(): void {
     const s = this.engine.state.status;
     if (s === "title" || s === "gameOver") this.startGame();
     else if (s === "collapsing") this.tryCatch();
-    else if (s === "paused") this.togglePause();
   }
 
   // ---- verbs ------------------------------------------------------------------
@@ -276,15 +276,13 @@ export class GameScene {
     }
   }
 
-  private togglePause(): void {
-    const s = this.engine.state;
-    if (s.status === "playing") {
-      s.status = "paused";
-      this.showBanner("PAUSED", this.coarse ? "tap to resume" : "P to resume");
-    } else if (s.status === "paused") {
-      s.status = "playing";
-      this.hideBanner();
-    }
+  /** P / pad START: route into the wrapper pause (@repo/embed) — the bespoke
+   *  overlay is the game's ONLY pause surface, and main.ts's onPause/onResume
+   *  handlers own the freeze (update-skip + shiftWallClock). While paused the
+   *  overlay's own resume paths (pointerup / keyup / fresh pad press) apply. */
+  private requestPause(): void {
+    if (this.engine.state.status !== "playing") return;
+    pauseGame();
   }
 
   private startIfIdle(): void {
@@ -489,7 +487,7 @@ export class GameScene {
     }
     let acted = false;
     if (this.pad.justPressed("start")) {
-      this.togglePause();
+      this.requestPause();
       acted = true;
     }
     if (this.pad.justPressed("a")) {
@@ -628,7 +626,8 @@ export class GameScene {
   }
 
   /** Hide the banner. In play the quiet hotkey bar carries the reference; the
-   *  full legend lives on the title, pause and game-over banners. */
+   *  full legend lives on the title and game-over banners (and the wrapper
+   *  pause overlay renders its own copy from the same manifest). */
   private hideBanner(): void {
     const b = el("banner");
     if (b) b.style.opacity = "0";

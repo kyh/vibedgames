@@ -1,18 +1,14 @@
 import { PhysicalGamepad, attachVirtualGamepad, safeAreaInset } from "@vibedgames/gamepad/phaser";
 import type { Inset, PhaserGamepad } from "@vibedgames/gamepad/phaser";
-import {
-  createPauseOverlay,
-  notifyGameStarted,
-  setPauseHandlers,
-  watchControlContext,
-} from "@repo/embed";
+import { notifyGameStarted, setPauseHandlers, watchControlContext } from "@repo/embed";
 import { MultiplayerClient } from "@vibedgames/multiplayer";
 import type { Player, PlayerMap } from "@vibedgames/multiplayer";
 import Phaser from "phaser";
 
 import { sfx } from "../audio/sfx";
 import type { PlayOpts, SfxName } from "../audio/sfx";
-import { CONTROLS, startScreenText } from "../controls";
+import { startScreenText } from "../controls";
+import { createStarfallPauseOverlay } from "../pause-overlay";
 import { AttractBattle } from "../fx/attract-battle";
 import { FxPool, HITSPARK_SKIP_BUDGET, PARTICLE_SOFT_BUDGET } from "../render/fx-pool";
 import { EnergyBarrier } from "../render/energy-barrier";
@@ -914,7 +910,7 @@ export class GameScene extends Phaser.Scene {
     // (solo world, no one else to stall) we truly FREEZE: the pausable sim
     // clock (shared/clock.ts) holds every stored deadline, so a boost with 3s
     // left before the pause still has 3s after resume.
-    const pauseOverlay = createPauseOverlay({ controls: CONTROLS });
+    const pauseOverlay = createStarfallPauseOverlay();
     setPauseHandlers({
       onPause: () => {
         pauseOverlay.show();

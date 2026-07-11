@@ -1,9 +1,10 @@
 import Phaser from "phaser";
-import { createPauseOverlay, setPauseHandlers } from "@repo/embed";
+import { setPauseHandlers } from "@repo/embed";
 
 import { CONTROLS } from "./controls";
 import { initPoseCamera, type PoseJumpHandler } from "./input/camera";
 import type { NetSession } from "./net/session";
+import { createFlappyPauseOverlay } from "./pause-overlay";
 import { BootScene } from "./scenes/boot-scene";
 import { GameScene } from "./scenes/game-scene";
 
@@ -67,7 +68,7 @@ const gameScene = (): GameScene | null => {
 };
 let froze = false;
 // Mirrors the start screen's controls card (same manifest).
-const pauseOverlay = createPauseOverlay({ controls: CONTROLS });
+const pauseOverlay = createFlappyPauseOverlay(CONTROLS);
 setPauseHandlers({
   onPause: () => {
     pauseOverlay.show();

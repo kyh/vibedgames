@@ -15,7 +15,7 @@ export type KeyboardHandlers = {
   orbit(dir: -1 | 1): void;
   hold(): void;
   power(): void;
-  pauseToggle(): void;
+  pause(): void;
   start(): void;
   recenter(): void;
   muteToggle(): void;
@@ -81,8 +81,6 @@ export class Keyboard {
       if (!e.repeat) this.handlers.hold();
     } else if (k === "f" || k === "F") {
       if (!e.repeat) this.handlers.power();
-    } else if (k === "p" || k === "P") {
-      if (!e.repeat) this.handlers.pauseToggle();
     } else if (k === "Enter") {
       if (!e.repeat) this.handlers.start();
     } else if (k === "v" || k === "V") {
@@ -109,6 +107,12 @@ export class Keyboard {
     } else if (k === "Shift") {
       this.softDrop = false;
       this.handlers.setSoftDrop(false);
+    } else if (k === "p" || k === "P") {
+      // On keyup, not keydown: pause routes into the wrapper pause overlay,
+      // which resumes on any keyup — pausing on keydown would let this same
+      // press's own keyup instantly resume. (A listener added mid-dispatch
+      // never sees the current event, so THIS keyup can't resume.)
+      this.handlers.pause();
     }
   };
 
