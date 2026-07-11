@@ -301,7 +301,7 @@ async function finishLoad(
   const physics = await PhysicsWorld.create();
   lap("physics wasm");
   await paint();
-  physics.addGround(city.terrain);
+  physics.addGround((x, z) => city.heightAt(x, z));
   lap("ground collider");
   await paint();
   // Prewarm with the ground only — a small BVH builds fast. The 20k

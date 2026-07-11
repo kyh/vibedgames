@@ -102,7 +102,9 @@ export function isParkCell(gx: number, gz: number): boolean {
 export function parkCellHeight(terrain: Terrain, gx: number, gz: number): number {
   // Seat at the HIGHEST corner. No quantization: tiles only go on flat
   // cells now, where neighbours land within centimetres of each other —
-  // no visible layering.
+  // no visible layering. Sunk 0.3 below the high corner: seated fully proud,
+  // every park edge read as a cliff off the sidewalk; the tile's thick base
+  // absorbs the embed on the high side.
   const x0 = gx * ROAD_TILE - WORLD_HALF_X;
   const z0 = gz * ROAD_TILE - WORLD_HALF_Z;
   const h = Math.max(
@@ -112,7 +114,7 @@ export function parkCellHeight(terrain: Terrain, gx: number, gz: number): number
     terrain.heightAt(x0 + ROAD_TILE, z0 + ROAD_TILE),
     terrain.heightAt(x0 + ROAD_TILE / 2, z0 + ROAD_TILE / 2),
   );
-  return h + 0.05;
+  return h - 0.25;
 }
 
 export function parkCellFloor(terrain: Terrain, gx: number, gz: number): number {

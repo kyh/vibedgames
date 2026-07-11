@@ -35,6 +35,7 @@ import { RoadNetwork } from "./network";
 import { type CityPlan, generateCity } from "./grid";
 import { CUSTOM_MAP, editorMode, loadLocalOverrides } from "./custom-map";
 import { isParkCell, makeGroundColorAt, makeGroundOffset, parkCellHeight } from "./ground";
+import { landuseGreenAt, landuseSandAt } from "./sf-landuse";
 import { buildGridNetwork } from "./grid-network";
 import { SF_BUILDINGS, SF_BUILDINGS_BOUNDS } from "./sf-buildings";
 import {
@@ -49,6 +50,7 @@ import { buildLandmarks, landmarkProtection } from "./landmarks";
 import {
   type DistrictChar,
   districtAt,
+  greenHillWeightAt,
   isLandCell,
   makeTerrain,
   paletteFor,
@@ -1870,6 +1872,20 @@ export class CityModel {
     const gz = this.gridZ(z);
     if (gx < 0 || gz < 0 || gx >= GRID_X || gz >= GRID_Z) return false;
     return this.plan.cells[gx]?.[gz] === "road";
+  }
+
+  // What the wheels are running on — drives the off-road kick-up FX. Cheap
+  // cell lookups only; called once per frame from the playing update.
+  surfaceKindAt(x: number, z: number): "road" | "grass" | "sand" | "concrete" {
+    const gx = this.gridX(x);
+    const gz = this.gridZ(z);
+    if (gx < 0 || gz < 0 || gx >= GRID_X || gz >= GRID_Z) return "concrete";
+    if (this.plan.cells[gx]?.[gz] === "road") return "road";
+    // Mirror the ground-color grading (ground.ts): sand wins over green.
+    if (landuseSandAt(gx, gz)) return "sand";
+    if (landuseGreenAt(gx, gz) || districtAt(gx, gz).character === "park") return "grass";
+    if (greenHillWeightAt(x / WORLD_W + 0.5, z / WORLD_H + 0.5) > 0.4) return "grass";
+    return "concrete";
   }
 
   // --- Drive surface (world/surface.ts): decks + park terraces + depressed

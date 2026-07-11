@@ -1320,7 +1320,13 @@ export class GameScene {
       const screech = drifting && !car.airborne ? Math.max(0.25, slipAmt) : brakingHard ? 0.3 : 0;
       this.sfx.setScreech(screech, car.speed / CAR.maxSpeed);
     }
-    this.vehicleFx.update(dt, car, drifting, brakingHard);
+    this.vehicleFx.update(
+      dt,
+      car,
+      drifting,
+      brakingHard,
+      city.surfaceKindAt(car.position.x, car.position.z),
+    );
 
     // Mini-turbo tier tell (Mario Kart): a blip + spark flare each time the
     // charge steps up a tier — blue at tier 1, orange at tier 2.

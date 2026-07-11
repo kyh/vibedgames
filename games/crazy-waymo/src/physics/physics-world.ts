@@ -16,11 +16,13 @@ const FIXED_DT = 1 / 60;
 // extra fixed steps makes the NEXT frame longer still — the classic physics
 // spiral. Slight time dilation under load reads far better than a hitch.
 const MAX_STEPS = window.matchMedia("(pointer: coarse)").matches ? 2 : 4;
-// World units between terrain collider samples. The car's height is kinematic
-// (city.heightAt), so this trimesh only serves loose bodies (cones, debris,
-// traffic punts) — a coarse sampling is plenty and keeps the collider from
-// exploding on the full-size map (finer = O(area) triangles for Rapier's BVH).
-const GROUND_SAMPLE = 28; // loose-prop terrain only — coarse keeps the BVH build (first step) fast
+// World units between ground collider samples. The PLAYER rides this surface
+// (the raycast vehicle's wheels ray against it), so it must track the
+// rendered road: the old 28u trimesh chords deviated up to ~1.5u from the
+// draped asphalt on the steep hills — the car floated on slopes and jolted
+// on invisible chord ridges mid-street. A heightfield collider (no BVH,
+// O(1) queries) makes fine sampling affordable where a trimesh was not.
+const GROUND_SAMPLE = 4;
 const STATIC_HALF_HEIGHT = 6; // buildings/walls modeled as tall boxes
 
 export class PhysicsWorld {
@@ -42,41 +44,31 @@ export class PhysicsWorld {
     return this.world;
   }
 
-  // Terrain as a trimesh sampled from the same height field the game drives on.
-  addGround(terrain: Terrain): void {
+  // Ground as a heightfield sampled from the DRIVE surface (city.heightAt:
+  // terrain + street depression + pier/bridge decks + park terraces), so the
+  // wheels ride exactly what the player sees.
+  addGround(heightAt: (x: number, z: number) => number): void {
     const spanX = WORLD_W * 1.06;
     const spanZ = WORLD_H * 1.06;
-    const nx = Math.ceil(spanX / GROUND_SAMPLE);
-    const nz = Math.ceil(spanZ / GROUND_SAMPLE);
-    const verts = new Float32Array((nx + 1) * (nz + 1) * 3);
-    for (let i = 0; i <= nx; i++) {
-      for (let j = 0; j <= nz; j++) {
-        const x = -spanX / 2 + (i / nx) * spanX;
-        const z = -spanZ / 2 + (j / nz) * spanZ;
-        const k = (i * (nz + 1) + j) * 3;
-        verts[k] = x;
-        verts[k + 1] = terrain.heightAt(x, z);
-        verts[k + 2] = z;
-      }
-    }
-    const indices = new Uint32Array(nx * nz * 6);
-    let w = 0;
-    for (let i = 0; i < nx; i++) {
-      for (let j = 0; j < nz; j++) {
-        const a = i * (nz + 1) + j;
-        const b = a + 1;
-        const c = a + (nz + 1);
-        const d = c + 1;
-        indices[w++] = a;
-        indices[w++] = b;
-        indices[w++] = c;
-        indices[w++] = b;
-        indices[w++] = d;
-        indices[w++] = c;
+    const ncols = Math.ceil(spanX / GROUND_SAMPLE); // columns run along X
+    const nrows = Math.ceil(spanZ / GROUND_SAMPLE); // rows run along Z
+    const heights = new Float32Array((nrows + 1) * (ncols + 1));
+    for (let col = 0; col <= ncols; col++) {
+      const x = -spanX / 2 + (col / ncols) * spanX;
+      for (let row = 0; row <= nrows; row++) {
+        const z = -spanZ / 2 + (row / nrows) * spanZ;
+        heights[col * (nrows + 1) + row] = heightAt(x, z);
       }
     }
     const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
-    this.world.createCollider(RAPIER.ColliderDesc.trimesh(verts, indices).setFriction(0.9), body);
+    this.world.createCollider(
+      RAPIER.ColliderDesc.heightfield(nrows, ncols, heights, {
+        x: spanX,
+        y: 1,
+        z: spanZ,
+      }).setFriction(0.9),
+      body,
+    );
   }
 
   // City solids (buildings, walls, railings) as tall static boxes; rotated

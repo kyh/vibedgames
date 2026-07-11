@@ -107,9 +107,24 @@ export class ParkedCars {
       this.group.add(batch);
     }
 
+    const euler = new THREE.Euler();
+    const quat = new THREE.Quaternion();
     for (const s of specs) {
-      const y = heightAt(s.x, s.z);
-      this.carMat4.makeRotationY(s.yaw).setPosition(s.x, y, s.z);
+      // Seat on the SLOPE, not a single centre sample: SF grades run to 30%,
+      // and a flat car there hangs its downhill wheels ~0.5u in the air.
+      // Sample both axles + both sides, pitch/roll to match.
+      const fx = Math.sin(s.yaw);
+      const fz = Math.cos(s.yaw);
+      const rx = Math.cos(s.yaw); // local +X after yaw
+      const rz = -Math.sin(s.yaw);
+      const hF = heightAt(s.x + fx * 1.4, s.z + fz * 1.4);
+      const hB = heightAt(s.x - fx * 1.4, s.z - fz * 1.4);
+      const hR = heightAt(s.x + rx * 0.75, s.z + rz * 0.75);
+      const hL = heightAt(s.x - rx * 0.75, s.z - rz * 0.75);
+      const y = (hF + hB + hR + hL) / 4;
+      // +X pitch dips the local forward (+Z); +Z roll lifts local +X.
+      euler.set(Math.atan2(hB - hF, 2.8), s.yaw, Math.atan2(hR - hL, 1.5), "YXZ");
+      this.carMat4.makeRotationFromQuaternion(quat.setFromEuler(euler)).setPosition(s.x, y, s.z);
       const parts: PartRef[] = [];
       for (const p of partsOf(s.model)) {
         const b = buckets.get(keyOf(p));

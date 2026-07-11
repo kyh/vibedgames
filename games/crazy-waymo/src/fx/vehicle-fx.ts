@@ -9,9 +9,13 @@ import type { DriftTrails } from "./trails";
 // segments. Extracted from the game-scene god object: everything here derives
 // from (car, dt) plus the three FX systems, and the four emitters previously
 // quadruplicated the same axle math inline.
+// Off-road kick-up hues (HSL hue for Fx.burst): torn grass vs beach sand.
+const KICK_HUE: Record<"grass" | "sand", number> = { grass: 0.29, sand: 0.11 };
+
 export class VehicleFxRig {
   private sparkAccum = 0;
   private puffAccum = 0;
+  private kickAccum = 0;
   // Last stamped rear-wheel points — each frame extends the streak from here,
   // so marks stay continuous at any speed (per-frame quads read as dashes).
   private lastSkid: { lx: number; lz: number; rx: number; rz: number } | null = null;
@@ -29,8 +33,15 @@ export class VehicleFxRig {
   ) {}
 
   /** All ground FX for one frame. `drifting` is the scene's slip-gated flag;
-   *  `brakingHard` mirrors the drift look for straight-line hard braking. */
-  update(dt: number, car: Car, drifting: boolean, brakingHard: boolean): void {
+   *  `brakingHard` mirrors the drift look for straight-line hard braking;
+   *  `surface` switches the off-road kick-up (grass clumps, sand spray). */
+  update(
+    dt: number,
+    car: Car,
+    drifting: boolean,
+    brakingHard: boolean,
+    surface: "road" | "grass" | "sand" | "concrete" = "road",
+  ): void {
     const fwdX = Math.sin(car.heading);
     const fwdZ = Math.cos(car.heading);
     this.ax = car.position.x - fwdX * 1.6; // rear axle centre
@@ -43,6 +54,22 @@ export class VehicleFxRig {
     else this.lastSkid = null; // next streak starts fresh, not joined to this one
     this.emitTrails(car, drifting);
     if (drifting && !car.airborne) this.emitSparks(dt, car);
+    if ((surface === "grass" || surface === "sand") && !car.airborne && car.speed > 9) {
+      this.emitKickup(dt, car, surface);
+    }
+  }
+
+  // Off-road wheels tear up the ground: steady debris spray off the rear
+  // axle, denser with speed — the terrain-change tell the asphalt never has.
+  private emitKickup(dt: number, car: Car, surface: "grass" | "sand"): void {
+    this.kickAccum += dt;
+    const cadence = car.speed > 25 ? 0.05 : 0.09;
+    if (this.kickAccum < cadence) return;
+    this.kickAccum = 0;
+    const hue = KICK_HUE[surface];
+    const power = 1.6 + Math.min(2.2, car.speed * 0.05);
+    this.fx.burst(this.ax + this.px * 0.7, 0.3, this.az + this.pz * 0.7, hue, 2, power);
+    this.fx.burst(this.ax - this.px * 0.7, 0.3, this.az - this.pz * 0.7, hue, 2, power);
   }
 
   // Rear-wheel light ribbons: drift slides, charged drifts and boost runs each
