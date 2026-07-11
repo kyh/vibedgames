@@ -158,3 +158,4 @@ console.log({
 | Bad on mobile only                                 | DPR cap, then resize handling                                                   |
 | Stretched after rotate                             | resize handler updating aspect + setSize                                        |
 | Clipping through walls / falling through platforms | collider-vs-mesh match, then CCD / kinematic body updates                       |
+| Surfaces flash/flicker as the camera moves         | z-fighting — coplanar meshes or `near` too small; fixes in `graphics-recipes.md` § Z-Fighting |

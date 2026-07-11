@@ -303,7 +303,48 @@ Each is one draw call or less, mobile-safe, and solves a constant real need.
   }
   ```
 
-- **Polygon-offset decals** — a coplanar decal mesh z-fights with the surface under it. Fix: `{ polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1, transparent: true }` on the decal material. Panel lines, numbers, faction glyphs, scorch marks. +1 draw call each — instance repeats.
+- **Polygon-offset decals** — a coplanar decal mesh z-fights with the surface under it. Fix: `{ polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1, transparent: true }` on the decal material. Panel lines, numbers, faction glyphs, scorch marks. +1 draw call each — instance repeats. (Full toolbox: **Z-Fighting** below.)
 - **Vertex-color AO** — bake occlusion into the mesh: darken a `color` attribute in cavities/creases, material `{ vertexColors: true }`. Static props and terrain get contact darkness for one attribute, zero extra draw calls.
 - **Matcap background props** — `new THREE.MeshMatcapMaterial({ matcap })` bakes lighting into one texture; needs no lights or env map. The cheapest lit-looking material for background/stylized props. It **ignores scene lights**, so never use it where a dynamic light or state glow must show.
 - **Emissive LOD signals** — far pickups/beacons keep reading by swapping `emissiveIntensity` by distance instead of adding geometry. Keep the signal color constant across the swap so identity survives.
+
+---
+
+## Z-Fighting: Coplanar Surfaces That Flicker
+
+Two surfaces at the same depth (road markings on a road, a rug on a floor, posters on a wall) flash and shimmer as the camera moves — the depth buffer can't decide which is in front, and the winner changes per pixel per frame. This is the classic "my ground textures flicker" bug. Fixes, in the order to try them:
+
+1. **Separate the geometry** — the robust fix. Lift the overlay along the surface normal by a small epsilon:
+
+   ```javascript
+   marking.position.y = road.position.y + 0.01;
+   ```
+
+   Size the epsilon to the scene: `0.001` works for a tabletop-scale scene, a city-scale scene viewed from far away needs `0.02–0.05`. If the gap becomes visible at grazing angles, it's too big — drop to polygon offset instead. Stack multiple layers (ground → shadow blob → decal → highlight ring) at increasing offsets, not all at one height.
+
+2. **`polygonOffset`** — when the overlay must hug the surface exactly (decals, selection highlights on walls). Biases the depth test in screen space without moving geometry:
+
+   ```javascript
+   new THREE.MeshBasicMaterial({
+     map: decalTex,
+     transparent: true,
+     polygonOffset: true,
+     polygonOffsetFactor: -1, // more negative = drawn "closer"
+     polygonOffsetUnits: -1,
+   });
+   ```
+
+   Stacked decals: give each layer a more negative factor (`-1`, `-2`, `-3`).
+
+3. **`depthWrite: false` + `renderOrder`** — for transparent overlays, opt out of the depth contest entirely and dictate draw order yourself:
+
+   ```javascript
+   overlay.material.depthWrite = false;
+   overlay.renderOrder = 1; // after the surface beneath it
+   ```
+
+   Right for blob shadows, glow quads, ground-target rings. Wrong for opaque geometry — without depth writes, anything drawn later paints over it regardless of actual depth.
+
+4. **Fix depth precision itself** — if surfaces that aren't even coplanar shimmer at distance, the near/far ratio is the problem. Depth precision is spent overwhelmingly near the `near` plane: raising `near` from `0.01` to `0.5` buys far more precision than shrinking `far` ever will. Never set `near: 0` (breaks the depth buffer entirely). `logarithmicDepthBuffer: true` on the renderer is the last resort for huge view distances — it costs performance and breaks materials that read the depth buffer (soft particles, some post-processing).
+
+Debugging tip: if the flicker only happens while the camera is moving and far from the surfaces, it's precision (#4). If it's stable-distance and always the same pair of surfaces, they're coplanar (#1–#3).
