@@ -27,6 +27,20 @@ rasterize.mjs      →  src/world/sf-streets.ts   (baked road mask the game load
    are always kept; a connectivity-preserving pass opens building blocks so the
    city isn't wall-to-wall asphalt). Emits `src/world/sf-streets.ts`.
 
+## Production bake (`bake-network.mts`)
+
+`rasterize.mjs` above is the exploratory raster-only path. The shipped world is
+baked by **`bake-network.mts`** (`pnpm bake:map`, runs under vite-node), which
+builds the VECTOR network (`sf-network.ts`) and derives the raster mask
+(`sf-streets.ts`) from the SAME polylines. Car-free-park clipping lives here —
+park-interior street sections are cut from the vectors and the mask is
+rasterized from the result, so the two can't disagree (the runtime carries no
+park filter). Both files get a shared `*_GEN_ID` stamp proving they came from one
+run; `pnpm test` asserts it. It also emits `PARK_PATH_MASK` (the removed
+park-interior cells) so furniture keeps laying pedestrian paths on the old street
+lines. It runs under vite-node so it can import the TS park data
+(`landuseGreenAt` / `districtAt`) instead of duplicating the OSM masks.
+
 ## Regenerate
 
 ```bash

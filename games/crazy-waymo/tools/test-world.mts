@@ -7,8 +7,9 @@
 import { GRID_X, GRID_Z, ROAD_TILE, WORLD_HALF_X, WORLD_HALF_Z } from "../src/shared/constants.ts";
 import { generateCity } from "../src/world/grid.ts";
 import { RoadNetwork } from "../src/world/network.ts";
-import { parkCell, parkRoadCellKept, SF_EDGES_PARK_CLEARED } from "../src/world/park-clear.ts";
-import { SF_NODES } from "../src/world/sf-network.ts";
+import { parkCell } from "../src/world/park-clear.ts";
+import { NETWORK_GEN_ID, SF_BASE_NODES } from "../src/world/sf-network.ts";
+import { STREETS_GEN_ID } from "../src/world/sf-streets.ts";
 import {
   deserializeWorldBin,
   packWorld,
@@ -149,22 +150,30 @@ console.log(`  (plan + network in ${Math.round(performance.now() - t0)}ms)`);
   );
 }
 
-// --- 4. Park policy: no road cells inside car-free park land (minus the
-// kept-corridor cells), and the clipped edge list actually shrank.
+// --- 4. Park policy is now single-sourced in the bake: the shipped mask is
+// rasterized from the park-CLEARED vector network, so mask and edges agree by
+// construction. The generation stamp proves both files came from one bake run
+// (a mismatch means someone regenerated one file without the other).
 {
-  let violations = 0;
+  check(
+    "street mask + network share a generation stamp",
+    STREETS_GEN_ID === NETWORK_GEN_ID,
+    STREETS_GEN_ID,
+  );
+  // Any surviving road cell inside car-free park land must sit on a kept edge
+  // (the crossing highway) — band-test against the shipped network. Edge-
+  // derived masks make this hold unless the bake drifted.
   let parkRoad = 0;
+  let stranded = 0;
   for (let gx = 0; gx < GRID_X; gx++) {
     for (let gz = 0; gz < GRID_Z; gz++) {
       if (plan.cells[gx]?.[gz] !== "road") continue;
       if (!parkCell(gx, gz)) continue;
       parkRoad++;
-      if (!parkRoadCellKept(gx, gz)) violations++;
+      if (!network.nearest(worldX(gx), worldZ(gz), ROAD_TILE * 1.6)) stranded++;
     }
   }
-  check("park road cells are all corridor-kept", violations === 0, `${parkRoad} park road cells`);
-  const clipped = SF_EDGES_PARK_CLEARED.filter(Boolean).length;
-  check("park clipping produced a fragment set", clipped > 0, `${clipped} edges`);
+  check("park road cells sit on a kept edge", stranded === 0, `${parkRoad} park road cells`);
 }
 
 // --- 5. Fragment endpoints got FRESH degree-1 nodes: a reused junction node
@@ -175,12 +184,12 @@ console.log(`  (plan + network in ${Math.round(performance.now() - t0)}ms)`);
   for (const e of network.edges) {
     const aEdges = network.nodeEdges[e.a]?.length ?? 0;
     const bEdges = network.nodeEdges[e.b]?.length ?? 0;
-    // Cut nodes are appended past the baked node list; they must stay deg-1.
-    if (e.a >= SF_NODES.length) {
+    // Cut nodes are appended past SF_BASE_NODES in the baked table; deg-1.
+    if (e.a >= SF_BASE_NODES) {
       cutNodes++;
       if (aEdges > 1) sharedCutEnds++;
     }
-    if (e.b >= SF_NODES.length) {
+    if (e.b >= SF_BASE_NODES) {
       cutNodes++;
       if (bEdges > 1) sharedCutEnds++;
     }

@@ -2,7 +2,6 @@ import { GRID_X, GRID_Z } from "../shared/constants";
 import { SF_STREET_MASK, streetMaskAt } from "./sf-streets";
 import { CUSTOM_MAP, loadLocalOverrides } from "./custom-map";
 import { isLandCell } from "./sf-map";
-import { parkCell, parkRoadCellKept } from "./park-clear";
 import { type Dir, DIR_DELTA, E, type Mask, maskCount, maskHas, N, S, W } from "../shared/types";
 
 export type CellKind = "road" | "lot" | "water";
@@ -66,10 +65,9 @@ export function generateCity(): CityPlan {
     if (!isLandCell(gx, gz)) return false;
     if (removeSet.has(key(gx, gz))) return false;
     if (addSet.has(key(gx, gz))) return true; // hand edits always win
+    // The baked mask is already park-cleared (rasterized from the park-clipped
+    // vector network in bake-network.mts), so no runtime park filter is needed.
     if (!streetMaskAt(gx, gz)) return false;
-    // Parks are car-free: interior streets are dropped (mirrors the vector
-    // network's park-clear), only the crossing highway keeps its cells.
-    if (parkCell(gx, gz) && !parkRoadCellKept(gx, gz)) return false;
     return true;
   };
 

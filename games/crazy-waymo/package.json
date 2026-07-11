@@ -7,7 +7,7 @@
     "build": "vite build",
     "clean": "rm -rf .turbo dist node_modules",
     "dev": "vite",
-    "bake:map": "node tools/sf-data/bake-network.mjs",
+    "bake:map": "vite-node tools/sf-data/bake-network.mts",
     "bake:world": "node tools/bake-world.mjs",
     "lint:streets": "vite-node tools/street-lint.ts",
     "test": "vite-node tools/test-world.mts",

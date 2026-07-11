@@ -47,9 +47,8 @@ import { conformToTerrain, DRAPE_MAX_ERROR } from "./conform";
 
 import type { RoadNetwork } from "./network";
 import type { CityPlan, RoadResolved } from "./grid";
-import { landuseGreenAt } from "./sf-landuse";
 import { type DistrictChar, districtAt } from "./sf-map";
-import { streetMaskAt } from "./sf-streets";
+import { parkPathMaskAt } from "./sf-streets";
 import type { Terrain } from "./terrain";
 
 // Street-furniture pass: streetlights, parked cars, awnings, suburban yards,
@@ -647,15 +646,13 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
   // ------------------------------------------------------------------
   const isParkCell = (gx: number, gz: number): boolean =>
     inBounds(gx, gz) && cellAt(gx, gz) === "lot" && districtAt(gx, gz).character === "park";
-  // Park-cleared street corridors (grid.ts drops park-interior streets): the
-  // old OSM street lines become KayKit pedestrian PATHS — JFK Drive as a
-  // promenade. A path cell connects to sibling path cells and to the street
-  // at the park edge (the old entrances).
+  // Park-cleared street corridors: the OLD OSM street lines through parks
+  // (removed from the shipped mask by bake-time park clipping) become KayKit
+  // pedestrian PATHS — JFK Drive as a promenade. PARK_PATH_MASK is exactly those
+  // removed park-interior street cells. A path cell connects to sibling path
+  // cells and to the street at the park edge (the old entrances).
   const isPathCell = (gx: number, gz: number): boolean =>
-    inBounds(gx, gz) &&
-    cellAt(gx, gz) === "lot" &&
-    (landuseGreenAt(gx, gz) || districtAt(gx, gz).character === "park") &&
-    streetMaskAt(gx, gz);
+    inBounds(gx, gz) && cellAt(gx, gz) === "lot" && parkPathMaskAt(gx, gz);
   const pathMask = (gx: number, gz: number): number => {
     let mask = 0;
     for (const d of DIRS) {

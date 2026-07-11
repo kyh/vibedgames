@@ -1,10 +1,10 @@
-import type { RawEdge } from "./sf-network";
-import { SF_EDGES_PARK_CLEARED, SF_NODES_PARK_CLEARED } from "./park-clear";
+import { type RawEdge, SF_EDGES, SF_NODES } from "./sf-network";
 
 // Runtime view of the baked vector road network — THE source of truth for
 // road rendering, traffic routing and building alignment. Edges are world-
 // space polylines with arclength tables; a segment spatial hash answers
 // nearest-edge queries (building setback, spawn snapping) in O(bucket).
+// Park-interior streets are already clipped at bake time — no runtime filter.
 
 export type EdgeSample = {
   readonly x: number;
@@ -42,8 +42,8 @@ export class RoadNetwork {
   private buckets = new Map<string, number[]>(); // "bx,bz" → edge ids (deduped)
 
   constructor(
-    nodes: readonly (readonly [number, number])[] = SF_NODES_PARK_CLEARED,
-    rawEdges: readonly (RawEdge | undefined)[] = SF_EDGES_PARK_CLEARED,
+    nodes: readonly (readonly [number, number])[] = SF_NODES,
+    rawEdges: readonly (RawEdge | undefined)[] = SF_EDGES,
   ) {
     this.nodes = nodes;
     const edges: NetEdge[] = [];

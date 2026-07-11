@@ -1,14 +1,24 @@
 // Bake the VECTOR road network from the raw OSM dump — the source of truth
 // for the vector-first world: rendering sweeps geometry along these edges,
 // traffic drives them, buildings align to them. Also re-emits the raster mask
-// (sf-streets.ts) derived from the SAME polylines (supercover + bake-time
-// thinning), so raster consumers (lots, districts, minimap fallback) can never
-// disagree with the vectors.
+// (sf-streets.ts) derived from the SAME park-cleared polylines (supercover +
+// bake-time thinning), so raster consumers (lots, districts, minimap fallback)
+// can never disagree with the vectors. Park clipping (car-free parks) lives
+// HERE, at bake time where the pre-simplification polylines exist — the single
+// source both representations flow from; the runtime carries no park filter.
 //
-// Usage: node bake-network.mjs
+// Usage: vite-node bake-network.mts  (runs under vite-node to import the TS park
+// data — landuseGreenAt / districtAt — instead of duplicating the OSM masks).
 // Reads sf-streets.raw.json (Overpass `out geom`; fetch-streets.sh recreates).
 
 import { readFileSync, writeFileSync } from "node:fs";
+import { parkCell } from "../../src/world/park-clear.ts";
+import { landuseGreenAt } from "../../src/world/sf-landuse.ts";
+import { districtAt } from "../../src/world/sf-map.ts";
+
+// One generation stamp, written into BOTH emitted files: proves the shipped
+// mask and the shipped network came from the same bake run (test asserts it).
+const GEN_ID = new Date().toISOString();
 
 // --- Must match src/shared/constants.ts ---
 const GRID_X = 244;
@@ -764,7 +774,187 @@ clusterJunctionsPass();
   nodes.push(...outNodes);
 }
 
-// --- Stats + validation ---
+// --- Reusable supercover rasterizer (fills a cell grid from an edge list) ---
+// Mark after EACH axis move so corner cells fill: diagonal avenues stay
+// 4-connected (true supercover) — exactly the staircase cells a band-distance
+// test silently drops. Runs for both the pre-clear and shipped masks.
+const toG = (x, z) => [
+  Math.floor((x / WORLD_W + 0.5) * GRID_X),
+  Math.floor((z / WORLD_H + 0.5) * GRID_Z),
+];
+function rasterizeEdges(road, major, edgeList) {
+  const mark = (cx, cz, isMajor) => {
+    if (cx < 0 || cz < 0 || cx >= GRID_X || cz >= GRID_Z) return;
+    road[cx * GRID_Z + cz] = 1;
+    if (major && isMajor) major[cx * GRID_Z + cz] = 1;
+  };
+  const seg = (gx0, gz0, gx1, gz1, isMajor) => {
+    let x = gx0,
+      z = gz0;
+    const dx = Math.abs(gx1 - gx0),
+      dz = Math.abs(gz1 - gz0);
+    const sx = gx0 < gx1 ? 1 : -1,
+      sz = gz0 < gz1 ? 1 : -1;
+    let err = dx - dz,
+      steps = 0;
+    const maxSteps = dx + dz + 4;
+    while (steps++ < maxSteps) {
+      mark(x, z, isMajor);
+      if (x === gx1 && z === gz1) break;
+      const e2 = 2 * err;
+      if (e2 > -dz) {
+        err -= dz;
+        x += sx;
+        mark(x, z, isMajor);
+      }
+      if (e2 < dx) {
+        err += dx;
+        z += sz;
+        mark(x, z, isMajor);
+      }
+    }
+  };
+  for (const e of edgeList) {
+    const isMajor = e.half >= 6.4; // primary/secondary carry the "major" class
+    for (let i = 1; i < e.pts.length; i++) {
+      const [ax, az] = e.pts[i - 1];
+      const [bx, bz] = e.pts[i];
+      const [g0x, g0z] = toG(ax, az);
+      const [g1x, g1z] = toG(bx, bz);
+      seg(g0x, g0z, g1x, g1z, isMajor);
+    }
+  }
+}
+
+// --- Pre-clear mask: the OLD street lines, kept only so furniture.ts can seat
+// KayKit pedestrian paths where OSM streets once threaded the parks. Capture
+// the FULL network before park clipping severs those interior sections. ---
+const gridFull = new Uint8Array(GRID_X * GRID_Z);
+rasterizeEdges(gridFull, null, edges);
+thin(gridFull, GRID_X, GRID_Z);
+
+// --- Park clipping — ported from src/world/park-clear.ts; this is now the
+// SINGLE source of the car-free-park policy. Parks thread real OSM streets (JFK
+// through GGP, paths through Dolores/Alamo/the Panhandle) that read wrong as
+// city streets. Clip each park-interior section at the boundary, keeping only
+// the crossing highway. The shipped mask below rasterizes the RESULT, so the
+// grid can never claim a road the vector network dropped (the old drift bug).
+// Exemptions mirror the runtime: wide arterials (>= PARK_KEEP_HALF) and the
+// Crossover/Hwy-1 corridor survive whole; the Presidio is real streets, so
+// parkCell() already excludes it (its cells never read as green). ---
+const PARK_KEEP_HALF = 7.0; // >= this half-width survives inside parks
+const CROSSOVER_X0 = -430; // Hwy-1 corridor band (Park Presidio → 19th Ave)
+const CROSSOVER_X1 = -320;
+const CROSSOVER_KEEP_HALF = 6.0; // its chain mixes 7.2 and 6.4 links — keep both
+const MIN_FRAGMENT_LEN = 14; // shorter outside stubs aren't worth a street
+const greenAtWorld = (x, z) =>
+  parkCell(Math.floor((x + WORLD_W / 2) / ROAD_TILE), Math.floor((z + WORLD_H / 2) / ROAD_TILE));
+// Fraction of a polyline inside park land, sampled every ~6u of arclength.
+const parkFrac = (pts) => {
+  let inside = 0,
+    total = 0;
+  for (let k = 0; k + 1 < pts.length; k++) {
+    const [ax, az] = pts[k];
+    const [bx, bz] = pts[k + 1];
+    const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 6));
+    for (let s = 0; s <= steps; s++) {
+      total++;
+      const t = s / steps;
+      if (greenAtWorld(ax + (bx - ax) * t, az + (bz - az) * t)) inside++;
+    }
+  }
+  return total > 0 ? inside / total : 0;
+};
+const inCrossover = (pts) => pts.every(([x]) => x >= CROSSOVER_X0 && x <= CROSSOVER_X1);
+// Fragment cut ends get FRESH degree-1 nodes appended past the base table:
+// reusing a junction id would make roads.ts span the park gap with one giant
+// junction patch. baseNodeCount marks the boundary (emitted as SF_BASE_NODES).
+const baseNodeCount = nodes.length;
+const cutNode = (x, z) => {
+  nodes.push([x, z]);
+  return nodes.length - 1;
+};
+function clipEdge(e) {
+  // Densify to ~4u samples (keeping shape), classify each point, then cut.
+  const pts = [];
+  for (let k = 0; k < e.pts.length; k++) {
+    const [ax, az] = e.pts[k];
+    if (k + 1 < e.pts.length) {
+      const [bx, bz] = e.pts[k + 1];
+      const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 4));
+      for (let s = 0; s < steps; s++) {
+        const t = s / steps;
+        pts.push([ax + (bx - ax) * t, az + (bz - az) * t]);
+      }
+    } else pts.push([ax, az]);
+  }
+  const green = pts.map(([x, z]) => greenAtWorld(x, z));
+  // Bridge SHORT green runs (a grazed corner / median nick): only a real park
+  // crossing (>= ~1 cell of green) severs the edge.
+  for (let i = 0; i < green.length;) {
+    if (!green[i]) {
+      i++;
+      continue;
+    }
+    let j = i,
+      len = 0;
+    while (j < green.length && green[j]) {
+      const a = pts[j - 1],
+        b = pts[j];
+      if (j > i && a && b) len += Math.hypot(b[0] - a[0], b[1] - a[1]);
+      j++;
+    }
+    if (len < 12) for (let k = i; k < j; k++) green[k] = false;
+    i = j;
+  }
+  const out = [];
+  let run = [],
+    runStartsAtA = false;
+  const flush = (endsAtB) => {
+    if (run.length >= 2) {
+      let len = 0;
+      for (let i = 1; i < run.length; i++)
+        len += Math.hypot(run[i][0] - run[i - 1][0], run[i][1] - run[i - 1][1]);
+      const first = run[0],
+        last = run[run.length - 1];
+      if (len >= MIN_FRAGMENT_LEN) {
+        out.push({
+          a: runStartsAtA ? e.a : cutNode(first[0], first[1]),
+          b: endsAtB ? e.b : cutNode(last[0], last[1]),
+          half: e.half,
+          pts: run.slice(),
+        });
+      }
+    }
+    run = [];
+  };
+  for (let i = 0; i < pts.length; i++) {
+    if (green[i]) flush(false);
+    else {
+      if (run.length === 0) runStartsAtA = i === 0;
+      run.push(pts[i]);
+    }
+  }
+  flush(true);
+  // Whole edge survived — return it untouched (exact original polyline).
+  if (out.length === 1 && out[0].a === e.a && out[0].b === e.b) return [e];
+  return out;
+}
+{
+  const before = edges.length;
+  const cleared = [];
+  for (const e of edges) {
+    if (e.half >= PARK_KEEP_HALF || parkFrac(e.pts) <= 0.02) cleared.push(e);
+    else if (e.half >= CROSSOVER_KEEP_HALF && inCrossover(e.pts)) cleared.push(e);
+    else cleared.push(...clipEdge(e));
+  }
+  edges = cleared;
+  console.log(
+    `park-clear: ${before} -> ${edges.length} edges, +${nodes.length - baseNodeCount} cut nodes`,
+  );
+}
+
+// --- Stats + validation (on the shipped, park-cleared network) ---
 let totalLen = 0;
 for (const e of edges) {
   for (let i = 1; i < e.pts.length; i++) {
@@ -778,59 +968,11 @@ console.log(
 );
 if (nodes.length < 400 || edges.length < 600) throw new Error("suspiciously small network");
 
-// --- Raster mask derived from the SAME edges (supercover + thinning) ---
+// --- Shipped raster mask, rasterized from the PARK-CLEARED edges (supercover
+// + thinning): mask and vector network now agree by construction. ---
 const grid = new Uint8Array(GRID_X * GRID_Z);
 const gridMajor = new Uint8Array(GRID_X * GRID_Z);
-let markMajor = false;
-const toG = (x, z) => [
-  Math.floor((x / WORLD_W + 0.5) * GRID_X),
-  Math.floor((z / WORLD_H + 0.5) * GRID_Z),
-];
-function rasterizeSeg(gx0, gz0, gx1, gz1) {
-  let x = gx0,
-    z = gz0;
-  const dx = Math.abs(gx1 - gx0),
-    dz = Math.abs(gz1 - gz0);
-  const sx = gx0 < gx1 ? 1 : -1,
-    sz = gz0 < gz1 ? 1 : -1;
-  let err = dx - dz;
-  const mark = (cx, cz) => {
-    if (cx >= 0 && cz >= 0 && cx < GRID_X && cz < GRID_Z) {
-      grid[cx * GRID_Z + cz] = 1;
-      if (markMajor) gridMajor[cx * GRID_Z + cz] = 1;
-    }
-  };
-  let steps = 0;
-  const maxSteps = dx + dz + 4;
-  while (steps++ < maxSteps) {
-    mark(x, z);
-    if (x === gx1 && z === gz1) break;
-    const e2 = 2 * err;
-    // Mark after EACH axis move: when both fire in one iteration this fills
-    // the corner cell, keeping the line 4-connected (true supercover).
-    if (e2 > -dz) {
-      err -= dz;
-      x += sx;
-      mark(x, z);
-    }
-    if (e2 < dx) {
-      err += dx;
-      z += sz;
-      mark(x, z);
-    }
-  }
-}
-for (const e of edges) {
-  markMajor = e.half >= 6.4; // primary/secondary carry the "major" class
-  for (let i = 1; i < e.pts.length; i++) {
-    const [ax, az] = e.pts[i - 1];
-    const [bx, bz] = e.pts[i];
-    const [g0x, g0z] = toG(ax, az);
-    const [g1x, g1z] = toG(bx, bz);
-    rasterizeSeg(g0x, g0z, g1x, g1z);
-  }
-}
-markMajor = false;
+rasterizeEdges(grid, gridMajor, edges);
 // Bake-time thinning (ported from src/world/thin-streets.ts).
 function thin(road, sizeX, sizeZ) {
   const at = (x, z) => x >= 0 && z >= 0 && x < sizeX && z < sizeZ && road[x * sizeZ + z] === 1;
@@ -938,28 +1080,49 @@ for (const v of grid) roadCells += v;
 console.log(`mask road cells: ${roadCells}`);
 if (roadCells < 3000 || roadCells > 60000) throw new Error("mask cell count out of range");
 
+// --- Park pedestrian-path mask: the PRE-CLEAR street cells inside park land.
+// The shipped mask no longer carries park-interior streets, so furniture.ts
+// seats KayKit paths on THESE cells instead (JFK Drive as a promenade). Same
+// predicate as the old furniture.ts isPathCell: green landuse OR a park-
+// character district (Presidio included, exactly as before). ---
+const parkPath = new Uint8Array(GRID_X * GRID_Z);
+for (let gx = 0; gx < GRID_X; gx++)
+  for (let gz = 0; gz < GRID_Z; gz++) {
+    if (gridFull[gx * GRID_Z + gz] !== 1) continue;
+    if (landuseGreenAt(gx, gz) || districtAt(gx, gz).character === "park")
+      parkPath[gx * GRID_Z + gz] = 1;
+  }
+let parkPathCells = 0;
+for (const v of parkPath) parkPathCells += v;
+console.log(`park-path cells: ${parkPathCells}`);
+
 // --- Emit sf-streets.ts (same format as before — drop-in) ---
-const cols = [];
-const colsMajor = [];
-for (let gx = 0; gx < GRID_X; gx++) {
-  let bits = "";
-  for (let gz = 0; gz < GRID_Z; gz++) bits += grid[gx * GRID_Z + gz] ? "1" : "0";
-  let hex = "";
-  for (let i = 0; i < bits.length; i += 4)
-    hex += parseInt(bits.slice(i, i + 4).padEnd(4, "0"), 2).toString(16);
-  cols.push(hex);
-  let mbits = "";
-  for (let gz = 0; gz < GRID_Z; gz++) mbits += gridMajor[gx * GRID_Z + gz] ? "1" : "0";
-  let mhex = "";
-  for (let i = 0; i < mbits.length; i += 4)
-    mhex += parseInt(mbits.slice(i, i + 4).padEnd(4, "0"), 2).toString(16);
-  colsMajor.push(mhex);
-}
+const packCols = (bytes) => {
+  const out = [];
+  for (let gx = 0; gx < GRID_X; gx++) {
+    let bits = "";
+    for (let gz = 0; gz < GRID_Z; gz++) bits += bytes[gx * GRID_Z + gz] ? "1" : "0";
+    let hex = "";
+    for (let i = 0; i < bits.length; i += 4)
+      hex += parseInt(bits.slice(i, i + 4).padEnd(4, "0"), 2).toString(16);
+    out.push(hex);
+  }
+  return out;
+};
+const cols = packCols(grid);
+const colsMajor = packCols(gridMajor);
+const colsPath = packCols(parkPath);
 writeFileSync(
   new URL("../../src/world/sf-streets.ts", import.meta.url),
-  `// AUTO-GENERATED by tools/sf-data/bake-network.mjs — do not edit by hand.
-// Raster mask DERIVED from the vector network (sf-network.ts) — pre-thinned.
+  `// AUTO-GENERATED by tools/sf-data/bake-network.mts — do not edit by hand.
+// Raster mask DERIVED from the park-cleared vector network (sf-network.ts) —
+// supercover-rasterized then pre-thinned; mask + edges agree by construction.
 // ${roadCells} road cells at ${GRID_X}x${GRID_Z}.
+
+// Generation stamp shared with sf-network.ts (NETWORK_GEN_ID) — proves both
+// files came from one bake run (the test asserts equality).
+export const STREETS_GEN_ID = ${JSON.stringify(GEN_ID)};
+
 export const SF_STREET_MASK = {
   gx: ${GRID_X},
   gz: ${GRID_Z},
@@ -987,6 +1150,20 @@ export function majorMaskAt(gx: number, gz: number): boolean {
   const val = nibble <= 57 ? nibble - 48 : nibble - 87;
   return (val & (8 >> (gz & 3))) !== 0;
 }
+
+// Park-interior street cells REMOVED from the shipped mask (park clipping) —
+// furniture.ts lays KayKit pedestrian paths along these old street lines.
+export const PARK_PATH_MASK = {
+  cols: ${JSON.stringify(colsPath)},
+} as const;
+
+export function parkPathMaskAt(gx: number, gz: number): boolean {
+  const col = PARK_PATH_MASK.cols[gx];
+  if (col === undefined) return false;
+  const nibble = col.charCodeAt(gz >> 2);
+  const val = nibble <= 57 ? nibble - 48 : nibble - 87;
+  return (val & (8 >> (gz & 3))) !== 0;
+}
 `,
 );
 
@@ -1001,10 +1178,20 @@ const edgesOut = edges
   .join(",\n");
 writeFileSync(
   new URL("../../src/world/sf-network.ts", import.meta.url),
-  `// AUTO-GENERATED by tools/sf-data/bake-network.mjs — do not edit by hand.
+  `// AUTO-GENERATED by tools/sf-data/bake-network.mts — do not edit by hand.
 // The VECTOR road network (real OSM arterials, world coords): source of truth
-// for road rendering, traffic routing and building alignment.
-// ${nodes.length} nodes, ${edges.length} edges.
+// for road rendering, traffic routing and building alignment. Park-interior
+// streets are already CLIPPED here (car-free parks) — the runtime carries no
+// park filter; the shipped raster mask (sf-streets.ts) agrees by construction.
+// ${nodes.length} nodes (first ${baseNodeCount} are junctions; the rest are
+// fresh degree-1 endpoints minted at park cut points), ${edges.length} edges.
+
+// Generation stamp shared with sf-streets.ts (STREETS_GEN_ID) — equal only when
+// both files came from the same bake run (the test asserts equality).
+export const NETWORK_GEN_ID = ${JSON.stringify(GEN_ID)};
+
+// Nodes at index >= this are park-clip cut ends (kept degree-1 by construction).
+export const SF_BASE_NODES = ${baseNodeCount};
 
 export type RawEdge = {
   readonly a: number; // node index
