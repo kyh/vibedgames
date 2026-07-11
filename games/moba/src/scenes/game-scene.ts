@@ -1,4 +1,5 @@
-import { attachVirtualGamepad } from "@vibedgames/gamepad/phaser";
+import { PhysicalGamepad, attachVirtualGamepad } from "@vibedgames/gamepad/phaser";
+import type { PadButton, StickState } from "@vibedgames/gamepad/phaser";
 import { MultiplayerClient } from "@vibedgames/multiplayer";
 import Phaser from "phaser";
 
@@ -33,6 +34,25 @@ const ABILITY_KEYS: AbilityKey[] = ["Q", "W", "E", "R"];
 const DASH_KEY = "F";
 export const SLOT_LABEL: Record<AbilityKey, string> = { Q: "Q", W: "W", E: "E", R: "R" };
 
+// Physical pad: face buttons cast (A is the attack button, so R lands on RB).
+const PAD_CAST: readonly (readonly [PadButton, AbilityKey])[] = [
+  ["x", "Q"],
+  ["y", "W"],
+  ["b", "E"],
+  ["rb", "R"],
+];
+
+/** Quantize a stick to 16 headings so analog wobble doesn't re-send the
+ *  change-detected order every frame. Null while idle / in the dead zone. */
+function stickDir16(s: StickState): { dx: number; dy: number } | null {
+  if (!s.active || s.inDeadZone) return null;
+  const a = (Math.round(s.angle / (Math.PI / 8)) * Math.PI) / 8;
+  return {
+    dx: Math.abs(Math.cos(a)) < 1e-6 ? 0 : Math.cos(a),
+    dy: Math.abs(Math.sin(a)) < 1e-6 ? 0 : Math.sin(a),
+  };
+}
+
 export type FeedEntry =
   | { kind: "kill"; killer: string; victim: string; team: Team; at: number }
   | { kind: "notify"; text: string; tone: "good" | "bad" | "neutral"; at: number };
@@ -51,6 +71,9 @@ export class GameScene extends Phaser.Scene {
   private moveKeys: Record<"up" | "down" | "left" | "right", Phaser.Input.Keyboard.Key> | null =
     null;
   private pad: ReturnType<typeof attachVirtualGamepad> | null = null;
+  // Physical controller — polled once per frame here (before the HUD's update,
+  // which reads it for shop/scoreboard buttons; the Hud scene updates after us).
+  readonly physPad = new PhysicalGamepad();
   private lastDir = { dx: 0, dy: 0 };
   private aimDir = { x: 1, y: 0 }; // last movement direction — drives keyboard ability aim
   uiBlocking = false; // set by the HUD while a modal (shop) is open — pauses hero input
@@ -158,6 +181,7 @@ export class GameScene extends Phaser.Scene {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.applyZoom, this);
       this.pad?.destroy();
       this.pad = null;
+      this.physPad.destroy();
       this.net?.destroy();
     });
 
@@ -440,14 +464,21 @@ export class GameScene extends Phaser.Scene {
       if (k.up.isDown) dy -= 1;
       if (k.down.isDown) dy += 1;
     }
+    // physical dpad: 4-way (diagonals via two buttons), same as the arrows
+    if (dx === 0 && dy === 0 && this.physPad.connected) {
+      if (this.physPad.isButtonDown("left")) dx -= 1;
+      if (this.physPad.isButtonDown("right")) dx += 1;
+      if (this.physPad.isButtonDown("up")) dy -= 1;
+      if (this.physPad.isButtonDown("down")) dy += 1;
+    }
     if (dx === 0 && dy === 0) {
-      const s = this.pad?.getStick();
-      if (s && s.active && !s.inDeadZone) {
-        // quantize to 16 headings so analog wobble doesn't re-send the
-        // change-detected order every frame
-        const a = (Math.round(s.angle / (Math.PI / 8)) * Math.PI) / 8;
-        dx = Math.abs(Math.cos(a)) < 1e-6 ? 0 : Math.cos(a);
-        dy = Math.abs(Math.sin(a)) < 1e-6 ? 0 : Math.sin(a);
+      // touch stick, then the physical left stick — both stream the same
+      // 16-heading quantized order the arrows do
+      const d =
+        (this.pad ? stickDir16(this.pad.getStick()) : null) ?? stickDir16(this.physPad.getStick());
+      if (d) {
+        dx = d.dx;
+        dy = d.dy;
       }
     }
     if (dx !== 0 || dy !== 0) {
@@ -458,6 +489,19 @@ export class GameScene extends Phaser.Scene {
     this.lastDir = { dx, dy };
     if (dx === 0 && dy === 0) this.cmd({ kind: "order", order: { type: "hold" } });
     else this.cmd({ kind: "order", order: { type: "moveDir", dx, dy } });
+  }
+
+  /** Controller buttons: A attacks (Space), X/Y/B/RB cast (HUD-style auto-aim —
+   *  a pad has no cursor), RT dashes (F). SELECT/START live in the HUD, which
+   *  reads this pad after our update. The command handlers guard uiBlocking, so
+   *  while the shop is open A falls through to the HUD's buy instead. */
+  private pollPadButtons(): void {
+    if (!this.physPad.connected) return;
+    if (this.physPad.justPressed("a")) this.spaceAttack();
+    for (const [btn, key] of PAD_CAST) {
+      if (this.physPad.justPressed(btn)) this.castSlot(key, true);
+    }
+    if (this.physPad.justPressed("rt")) this.dash();
   }
 
   private spaceAttack(): void {
@@ -754,6 +798,8 @@ export class GameScene extends Phaser.Scene {
     const dt = Math.min(0.05, deltaMs / 1000);
     this.pad?.update(); // reconcile stale touches + publish press edges
     if (this.pad?.justPressed("attack")) this.spaceAttack();
+    this.physPad.update(); // poll the controller + publish press edges
+    this.pollPadButtons();
     this.pollMovement();
     if (this.online) this.tickOnline(dt);
     else this.tickHost(dt);

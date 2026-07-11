@@ -1,11 +1,11 @@
 import * as THREE from "three";
 import { createPauseOverlay, setPauseHandlers } from "@repo/embed";
 
+import { CONTROLS } from "./controls";
 import { startHandTracking } from "./input/camera";
 import { DitherPass } from "./render/dither-pass";
 import { GameScene } from "./scenes/game-scene";
 import { DITHER_PIXEL, MAX_DT } from "./shared/constants";
-import { COARSE_INPUT } from "./shared/input-mode";
 
 const container = document.getElementById("game");
 if (!container) throw new Error("missing #game container");
@@ -32,18 +32,7 @@ const dither = new DitherPass(window.innerWidth, window.innerHeight);
 
 // Wrapper pause: freeze the sim unless a live human opponent is connected
 // (see GameScene.requestPause) — the wrapper's own overlay shows either way.
-const pauseOverlay = createPauseOverlay({
-  controls: COARSE_INPUT
-    ? [
-        ["✋ HAND / FINGER", "steer the paddle"],
-        ["✊ FIST / TAP", "serve · rematch"],
-      ]
-    : [
-        ["✋ HAND / MOUSE", "steer the paddle"],
-        ["✊ FIST / CLICK", "serve · rematch"],
-        ["M", "mute"],
-      ],
-});
+const pauseOverlay = createPauseOverlay({ controls: CONTROLS });
 setPauseHandlers({
   onPause: () => {
     pauseOverlay.show();

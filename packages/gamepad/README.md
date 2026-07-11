@@ -161,6 +161,34 @@ This covers both the twin-stick model (stick + a rest "fire" button: any
 second finger shoots) and the d-pad-style model (stick + a fixed action
 button).
 
+## Physical controllers
+
+`PhysicalGamepad` reads real controllers (the
+[Gamepad API](https://developer.mozilla.org/en-US/docs/Web/API/Gamepad_API),
+standard mapping, first connected pad wins) with the same read API as the
+virtual pad, so one code path serves both. Bind your game's action ids to
+physical buttons and poll once per frame:
+
+```ts
+import { PhysicalGamepad, stickDirection4 } from "@vibedgames/gamepad";
+
+const pad = new PhysicalGamepad({
+  bindings: { jump: ["a"], dash: ["b", "rb"] },
+  onConnect: () => showToast("🎮 controller connected"),
+});
+
+// in your game loop:
+pad.update();
+const dir = stickDirection4(pad.getStick()); // left stick; getStick("right") too
+const jumped = vpad.justPressed("jump") || pad.justPressed("jump");
+```
+
+Raw button names (`"a"`, `"rt"`, `"up"`, …) work without a binding, and
+`buttonValue("rt")` exposes analog trigger values for driving games.
+`isPadConnected()` is a standalone check for UI ("show controller hints only
+when a pad is plugged in"). Everything is poll-based — no listeners, no DOM —
+and the pad source is injectable (`poll`) for headless tests.
+
 ## Related
 
 - [`@vibedgames/multiplayer`](https://www.npmjs.com/package/@vibedgames/multiplayer) — real-time multiplayer for browser games (framework-agnostic core + React hooks). Pairs naturally: recolor the joystick/buttons per player with `setTint`.

@@ -173,6 +173,7 @@ export class GameScene {
 
   // ── per-frame ──
   update(frameDt: number): void {
+    this.controls.update(frameDt); // poll the physical pad before any reads
     this.introTime += frameDt; // real-time clock for the fly-in/countdown
     if (this.net) this.tickOnline(frameDt);
     else this.tickLocal(frameDt);

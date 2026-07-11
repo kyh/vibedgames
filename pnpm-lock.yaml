@@ -485,6 +485,9 @@ importers:
       '@repo/embed':
         specifier: workspace:*
         version: link:../../packages/embed
+      '@vibedgames/gamepad':
+        specifier: workspace:^
+        version: link:../../packages/gamepad
       '@vibedgames/multiplayer':
         specifier: workspace:^
         version: link:../../packages/multiplayer
@@ -578,6 +581,9 @@ importers:
       '@repo/embed':
         specifier: workspace:*
         version: link:../../packages/embed
+      '@vibedgames/gamepad':
+        specifier: workspace:^
+        version: link:../../packages/gamepad
       '@vibedgames/multiplayer':
         specifier: workspace:^
         version: link:../../packages/multiplayer
@@ -609,6 +615,9 @@ importers:
       '@repo/embed':
         specifier: workspace:*
         version: link:../../packages/embed
+      '@vibedgames/gamepad':
+        specifier: workspace:^
+        version: link:../../packages/gamepad
       '@vibedgames/multiplayer':
         specifier: workspace:^
         version: link:../../packages/multiplayer

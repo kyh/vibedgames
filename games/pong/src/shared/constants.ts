@@ -59,6 +59,16 @@ export const HAND_LERP_ACCEL = 10;
 // control for the whole session — handPosition never returned to null.)
 export const HAND_TIMEOUT_MS = 500;
 
+// ---- physical controller ---------------------------------------------------------
+// Left-stick x below this is noise; past it the pad owns the paddle target
+// (hand > pad > pointer), with the remaining travel renormalized to ±1 so the
+// paddle can still reach dead center and the walls.
+export const PAD_DEAD_ZONE = 0.15;
+// Paddle chase toward the stick target, per 60fps frame (converted via
+// frameLerp) — snappier than the hand's base lerp, softer than the pointer's
+// direct set, so stick steering stays smooth without feeling laggy.
+export const PAD_LERP = 0.5;
+
 // ---- drag-pan camera ------------------------------------------------------------
 // Legacy gimmick: dragging pans the camera (camX -= dx·scale, camY += dy·scale);
 // on release it lerps back to rest at 0.1 per 60fps frame. The camera also

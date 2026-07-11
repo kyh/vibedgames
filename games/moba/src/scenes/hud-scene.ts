@@ -179,6 +179,23 @@ export class HudScene extends Phaser.Scene {
     });
   }
 
+  /** Controller twins for the HUD keys: SELECT = shop (B), START held = scores
+   *  (Tab, hold-to-view), dpad + A drive the open shop. GameScene polls the pad
+   *  each frame before this update runs (it sits earlier in the scene list), so
+   *  the press edges here are fresh. */
+  private pollPad(): void {
+    const pad = this.gs?.physPad;
+    if (!pad?.connected) return;
+    if (pad.justPressed("select")) this.toggleShop();
+    if (pad.justPressed("start") && !this.boardOpen) this.toggleBoard();
+    if (pad.justReleased("start") && this.boardOpen) this.toggleBoard();
+    if (this.shopOpen) {
+      if (pad.justPressed("up")) this.moveShopSel(-1);
+      if (pad.justPressed("down")) this.moveShopSel(1);
+      if (pad.justPressed("a")) this.buySelected();
+    }
+  }
+
   private moveShopSel(d: number): void {
     const n = this.shopRows.length;
     if (n === 0) return;
@@ -949,6 +966,7 @@ export class HudScene extends Phaser.Scene {
     // auto-close the shop if the player dies while it's open, so uiBlocking can't
     // strand a freshly-respawned hero frozen.
     if (this.shopOpen && !this.gs?.player?.alive) this.toggleShop();
+    this.pollPad();
     // minimap / feed / scoreboard run even while the player is dead or unspawned
     this.updateMinimap();
     this.updateFeed();

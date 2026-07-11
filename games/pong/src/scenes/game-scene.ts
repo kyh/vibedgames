@@ -1,6 +1,8 @@
 import * as THREE from "three";
-import { notifyGameStarted } from "@repo/embed";
+import { notifyGameStarted, watchControlContext } from "@repo/embed";
+import { PhysicalGamepad } from "@vibedgames/gamepad";
 
+import { rematchNoteText, servePromptText } from "../controls";
 import { ParticlePool } from "../fx/particles";
 import { sfx, toggleMute } from "../fx/sfx";
 import { RingPool } from "../fx/shock-rings";
@@ -64,6 +66,8 @@ import {
   NET_DASH,
   NUDGE_DECAY,
   NUDGE_SCALE,
+  PAD_DEAD_ZONE,
+  PAD_LERP,
   PADDLE_RING_R,
   PADDLE_TUBE_R,
   PADDLE_X_MAX,
@@ -98,7 +102,6 @@ import {
   WALL_X,
   WIN_SCORE,
 } from "../shared/constants";
-import { COARSE_INPUT } from "../shared/input-mode";
 
 type Phase = "serving" | "rally" | "won";
 
@@ -183,6 +186,12 @@ export class GameScene {
   private handX: number | null = null;
   private handSeenAt = 0;
   private lastHandX: number | null = null;
+
+  // Physical controller: left-stick x steers (hand > pad > pointer), A serves.
+  private readonly pad = new PhysicalGamepad();
+  // Live while the banner shows manifest-derived copy, so plugging a pad in
+  // (or out) re-renders the serve prompt / win note with its input words.
+  private unwatchControls: (() => void) | null = null;
 
   // Drag-to-pan camera offset; lerps back to rest while not dragging.
   private dragging = false;
@@ -446,8 +455,9 @@ export class GameScene {
 
   // Mobile controls ARE these pointer handlers: an absolute touch-drag maps
   // 1:1 onto the paddle (raycast to the table plane) and a tap serves — a
-  // relative joystick/button overlay (@vibedgames/gamepad) would be strictly
-  // worse for pong, so it is deliberately not used here.
+  // relative joystick/button overlay (@vibedgames/gamepad's VirtualGamepad)
+  // would be strictly worse for pong, so only its PhysicalGamepad (real pads)
+  // is used here.
   //
   // Legacy gimmick: while dragging, the pointer pans the camera and the
   // paddle ignores it; otherwise pointermove drives the paddle (unless a
@@ -465,6 +475,7 @@ export class GameScene {
       }
     }
     if (this.currentHandX() !== null) return; // hand owns the paddle
+    if (this.padSteerX() !== null) return; // deflected stick owns the paddle
     const x = this.pointerToTableX(e);
     if (x !== null) this.myPaddle = x;
   };
@@ -553,6 +564,12 @@ export class GameScene {
     this.invertFlash = Math.max(0, this.invertFlash - dt);
     this.net.tick();
 
+    // Poll the pad every non-paused frame — before the handshake/hit-stop
+    // early returns, so A stays as responsive as a click (confirm() carries
+    // the same guards either way).
+    this.pad.update();
+    if (this.pad.justPressed("a")) this.confirm();
+
     // Reflect connecting→live and opponent join/leave in the HUD once each.
     if (this.net.live !== this.connWas) {
       this.connWas = this.net.live;
@@ -613,8 +630,8 @@ export class GameScene {
     this.updateVisuals(dt);
   }
 
-  /** Webcam-hand paddle control, routed to the owned slot. The view flip
-   *  keeps "screen right = paddle right" for the guest too. */
+  /** Webcam-hand / controller paddle control, routed to the owned slot. The
+   *  view flip keeps "screen right = paddle right" for the guest too. */
   private applyPaddleInput(dt: number): void {
     const flip = this.flip;
 
@@ -629,9 +646,28 @@ export class GameScene {
       this.lastHandX = hand;
       const perFrame = clamp(HAND_LERP_BASE + wristSpeed * HAND_LERP_ACCEL, 0, 1);
       this.myPaddle += (targetX - this.myPaddle) * frameLerp(perFrame, dt);
-    } else {
-      this.lastHandX = null;
+      return;
     }
+    this.lastHandX = null;
+
+    // No hand: a deflected left stick owns the paddle target next (pointer
+    // moves are ignored while it holds — see onPointerMove), mapped onto the
+    // same clamped ±PADDLE_X_MAX travel the pointer raycast lands in.
+    const padX = this.padSteerX();
+    if (padX !== null) {
+      const targetX = flip * padX * PADDLE_X_MAX;
+      this.myPaddle += (targetX - this.myPaddle) * frameLerp(PAD_LERP, dt);
+    }
+  }
+
+  /** Left-stick x with the dead zone removed and the rest renormalized to
+   *  ±1 (so dead center and the walls stay reachable), or null while the
+   *  stick is centered — null means the pad is NOT steering this frame. */
+  private padSteerX(): number | null {
+    const dx = this.pad.getStick().dx;
+    if (Math.abs(dx) <= PAD_DEAD_ZONE) return null;
+    const norm = (Math.abs(dx) - PAD_DEAD_ZONE) / (1 - PAD_DEAD_ZONE);
+    return Math.sign(dx) * Math.min(1, norm);
   }
 
   /** Ease the opponent's paddle toward its last networked position (no-op when
@@ -1092,35 +1128,45 @@ export class GameScene {
 
   // ---- HUD -----------------------------------------------------------------
 
-  /** Start/serve instructions — the game is hand-gesture first, pointer second. */
-  private servePromptText(): string {
-    return COARSE_INPUT
-      ? "✋ hand or finger steers · ✊ fist or tap serves"
-      : "✋ hand or mouse steers · ✊ fist or click serves";
-  }
-
   private syncHud(): void {
     this.scoreYouEl.textContent = String(this.scoreYou);
     this.scoreAiEl.textContent = String(this.scoreAi);
     const human = this.net.live && this.hasOpponent();
     this.oppLabelEl.textContent = human ? "RIVAL" : "AI";
 
+    // The serve prompt / win note words come from the controls manifest,
+    // filtered per device and connected pad (controls.ts).
+    let controlsCopy = false;
     if (!this.net.live) {
       this.bannerEl.replaceChildren("connecting", smallNote("finding a match…"));
       this.bannerEl.style.opacity = "1";
     } else if (this.phase === "serving" && this.serveAt === null) {
-      this.bannerEl.replaceChildren("PONG", smallNote(this.servePromptText()));
+      this.bannerEl.replaceChildren("PONG", smallNote(servePromptText()));
       this.bannerEl.style.opacity = "1";
+      controlsCopy = true;
     } else if (this.phase === "won") {
       const iWon = this.scoreYou > this.scoreAi;
       const strong = iWon ? "you win" : human ? "rival wins" : "ai wins";
-      const note = COARSE_INPUT ? "✊ or tap for rematch" : "✊ or click for rematch";
-      this.bannerEl.replaceChildren(strong, smallNote(note));
+      this.bannerEl.replaceChildren(strong, smallNote(rematchNoteText()));
       this.bannerEl.style.opacity = "1";
+      controlsCopy = true;
     } else {
       this.bannerEl.style.opacity = "0";
     }
+    this.watchBannerControls(controlsCopy);
     this.netInfoEl.textContent = this.netInfoText();
+  }
+
+  /** While the banner shows manifest-derived copy, watch for pad hot-plugs and
+   *  re-render it (a freshly connected pad adds "or A serves" live); the
+   *  subscription is dropped as soon as the banner stops showing that copy. */
+  private watchBannerControls(showing: boolean): void {
+    if (showing && this.unwatchControls === null) {
+      this.unwatchControls = watchControlContext(() => this.syncHud());
+    } else if (!showing && this.unwatchControls !== null) {
+      this.unwatchControls();
+      this.unwatchControls = null;
+    }
   }
 
   private netInfoText(): string {

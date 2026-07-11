@@ -967,6 +967,8 @@ export class GameScene extends Phaser.Scene {
     // Once per frame, before any sample(): reconciles lost touches, publishes
     // the justPressed edges the Input merge reads, and redraws the overlay.
     this.gamepad.update();
+    // Same contract for the physical controller poll inside Input.
+    this.controls.update();
 
     if (this.session) {
       this.session.tick();

@@ -1,8 +1,9 @@
 import * as THREE from "three";
-import { notifyGameStarted } from "@repo/embed";
+import { notifyGameStarted, watchControlContext } from "@repo/embed";
 import { Sky } from "three/addons/objects/Sky.js";
 
 import { ModelCache } from "../assets/loader";
+import { bannerControls } from "../controls";
 import { earlyModelUrls, lateModelUrls } from "../assets/manifest";
 import { ChaseCamera } from "../fx/camera-rig";
 import { SkyClouds } from "../fx/clouds";
@@ -372,6 +373,12 @@ export class GameScene {
 
   constructor(aspect: number) {
     this.rig = new ChaseCamera(aspect);
+
+    // Plugging in / unplugging a pad changes which control hints apply — the
+    // title banner is the only live instruction surface, so redraw it.
+    watchControlContext(() => {
+      if (this.mode.kind === "title") this.toTitle();
+    });
 
     // Atmospheric sky + sun.
     const sky = new Sky();
@@ -906,20 +913,9 @@ export class GameScene {
       sub: "Pick up fares, beat the clock, drive like a maniac.",
       stats:
         best > 0 ? `BEST $${best.toLocaleString("en-US")}` : "Every drop-off buys you more time.",
-      // Just the verbs. Drift, restart and chat are left to be discovered.
-      controls: this.touchUi
-        ? [
-            { keys: ["HOLD"], label: "go" },
-            { keys: ["DRAG"], label: "steer" },
-            { keys: ["BRAKE"], label: "stop · reverse" },
-            { keys: ["🔥"], label: "boost" },
-          ]
-        : [
-            { keys: ["↑", "W"], label: "go" },
-            { keys: ["↓", "S"], label: "stop" },
-            { keys: ["←", "→"], label: "steer" },
-            { keys: ["Shift"], label: "boost" },
-          ],
+      // Just the verbs (the manifest drops "mute" here). Drift, restart and
+      // chat are left to be discovered.
+      controls: bannerControls(),
       cta: this.touchUi ? "START DRIVING" : "START DRIVING ⏎",
     });
   }

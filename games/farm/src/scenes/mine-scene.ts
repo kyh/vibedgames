@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { PhysicalGamepad } from "@vibedgames/gamepad";
 import type { PhaserGamepad } from "@vibedgames/gamepad/phaser";
 import {
   TILE,
@@ -15,6 +16,7 @@ import {
 import { store } from "../systems/store";
 import { patchSave } from "../systems/save";
 import { makeGameKeys, NUM_KEY_NAMES, type MineKeys } from "../systems/keys";
+import { stickMove } from "../systems/stick";
 import { isTap } from "../systems/touch";
 import type { OreId } from "../data/items";
 import { burst, floatText, shake } from "../render/fx";
@@ -70,6 +72,8 @@ export class MineScene extends Phaser.Scene {
   private onResizeHandler?: (gs: Phaser.Structs.Size) => void;
   /** Attached by MineHud — the pad must render there, above the vignette. */
   gamepad?: PhaserGamepad;
+  /** Physical controller — polled here (this scene owns the frame while active). */
+  private readonly pad = new PhysicalGamepad();
 
   constructor() {
     super("Mine");
@@ -113,6 +117,9 @@ export class MineScene extends Phaser.Scene {
     });
 
     this.setupInput();
+    // Prime the pad so an A still held from entering the mine doesn't read as
+    // a fresh press (and swing) on this scene's first frame.
+    this.pad.update();
     Sound.startMusic("mine");
     if (!this.scene.isActive("MineHud")) this.scene.launch("MineHud");
 
@@ -323,6 +330,12 @@ export class MineScene extends Phaser.Scene {
 
   override update(_t: number, dms: number): void {
     const dt = Math.min(dms, 50) / 1000;
+    // Physical pad: A mirrors E/SPACE (swing/mine; checkLadders reads the held
+    // button for climbing), LB/RB cycle the hotbar like number keys.
+    this.pad.update();
+    if (this.pad.justPressed("a")) this.tryAction();
+    if (this.pad.justPressed("lb")) store.inv.cycle(-1);
+    if (this.pad.justPressed("rb")) store.inv.cycle(1);
     if (!this.transitioning) {
       this.handleMovement(dt);
       this.updateEnemies(dt);
@@ -347,15 +360,17 @@ export class MineScene extends Phaser.Scene {
     if (k.D.isDown || k.RIGHT.isDown) dx += 1;
     if (k.W.isDown || k.UP.isDown) dy -= 1;
     if (k.S.isDown || k.DOWN.isDown) dy += 1;
-    // virtual stick (touch) fills in when the keyboard is silent — it also
-    // sets facing below, so a tap swings/mines toward the drag direction
+    // sticks (virtual touch, then physical pad) fill in when the keyboard is
+    // silent — they also set facing below, so an action lands toward the stick
     let stickRun = false;
-    if (dx === 0 && dy === 0 && this.gamepad) {
-      const stick = this.gamepad.getStick();
-      if (stick.active && !stick.inDeadZone) {
-        dx = Math.cos(stick.angle);
-        dy = Math.sin(stick.angle);
-        stickRun = stick.magnitude > 0.95; // full deflection = run
+    if (dx === 0 && dy === 0) {
+      const move =
+        (this.gamepad ? stickMove(this.gamepad.getStick()) : null) ??
+        stickMove(this.pad.getStick());
+      if (move) {
+        dx = move.dx;
+        dy = move.dy;
+        stickRun = move.run;
       }
     }
     if (dx !== 0 || dy !== 0) {
@@ -645,7 +660,7 @@ export class MineScene extends Phaser.Scene {
 
   private checkLadders(): void {
     const f = this.feetTile();
-    const useDown = this.keys.SPACE.isDown || this.keys.E.isDown;
+    const useDown = this.keys.SPACE.isDown || this.keys.E.isDown || this.pad.isButtonDown("a");
     if (!useDown) return;
     if (f.tx === this.ladderUp.tx && f.ty === this.ladderUp.ty) {
       this.exitToFarm();

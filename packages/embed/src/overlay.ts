@@ -4,6 +4,8 @@
 // once and show()/hide()s it from onPause/onResume. Games with their own art
 // direction skip this entirely and render whatever fits.
 
+import { controlHints } from "./controls";
+import type { ControlsManifest } from "./controls";
 import { resumeGame } from "./game";
 
 /** One control hint row: input ("SPACE", "🤳 face cam") + what it does. */
@@ -14,11 +16,12 @@ export type HelpSection = { readonly title: string; readonly body: string };
 
 export type PauseOverlayOptions = {
   /**
-   * Control hints rendered on the overlay — the same controls the start
-   * screen teaches, so a returning player never has to leave the pause screen
-   * to re-learn the game. Keep it to the start-screen set (≤7 rows).
+   * The game's controls manifest — the same single source the start screen
+   * renders from, so a returning player never has to leave the pause screen
+   * to re-learn the game. Filtered to the current input context (touch vs
+   * keys/mouse, controller only while connected) fresh on every show().
    */
-  controls?: readonly ControlHint[];
+  controls?: ControlsManifest;
   /**
    * Gameplay depth (mechanics, systems, tips — NOT controls) behind a
    * "how to play" button. Controls go in `controls`; this is the long-form
@@ -138,8 +141,8 @@ export function createPauseOverlay(options: PauseOverlayOptions = {}): PauseOver
 
     overlay.append(title, hint);
 
-    const controls = options.controls;
-    if (controls && controls.length > 0) {
+    const controls = controlHints(options.controls ?? [], { coarse });
+    if (controls.length > 0) {
       const list = document.createElement("div");
       list.style.cssText =
         "margin-top:14px;display:grid;grid-template-columns:auto auto;gap:7px 14px;" +

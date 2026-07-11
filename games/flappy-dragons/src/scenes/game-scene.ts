@@ -1,6 +1,8 @@
 import Phaser from "phaser";
-import { notifyGameStarted } from "@repo/embed";
+import { notifyGameStarted, watchControlContext } from "@repo/embed";
+import { PhysicalGamepad } from "@vibedgames/gamepad";
 
+import { startScreenText } from "../controls";
 import { isCoarsePointer, recalibratePose, setPoseLocked } from "../input/camera";
 import { NetSession } from "../net/session";
 import {
@@ -146,6 +148,9 @@ export class GameScene extends Phaser.Scene {
   private netInfoEl: HTMLElement | null = null;
   private startEl: HTMLElement | null = null;
   private started = false;
+  /** Physical controller: any face button flaps (and starts/restarts). */
+  private readonly pad = new PhysicalGamepad();
+  private unwatchControls: (() => void) | null = null;
   /** Input is held while the get-ready countdown runs. */
   private countingDown = false;
   /** Pending countdown step, so the wrapper pause can freeze the 3-2-1. */
@@ -251,11 +256,12 @@ export class GameScene extends Phaser.Scene {
   private buildStartScreen(): void {
     const controls = document.getElementById("start-controls");
     const go = document.getElementById("start-go");
-    if (controls) {
-      controls.textContent = TOUCH
-        ? "Tap to flap\nJump or flap your arms on camera"
-        : "Click / Space — flap\nJump or flap your arms on camera\nM — mute";
-    }
+    if (controls) controls.textContent = startScreenText();
+    // Plugging in a pad while the start screen is up adds its rows.
+    this.unwatchControls?.();
+    this.unwatchControls = watchControlContext(() => {
+      if (controls && !this.started) controls.textContent = startScreenText();
+    });
     if (go) go.textContent = TOUCH ? "tap to start" : "press any key to start";
     this.input.keyboard?.once("keyup", () => this.beginPlay());
     this.startEl?.addEventListener("pointerup", () => this.beginPlay(), { once: true });
@@ -322,6 +328,8 @@ export class GameScene extends Phaser.Scene {
   private beginPlay(): void {
     if (this.started) return;
     this.started = true;
+    this.unwatchControls?.();
+    this.unwatchControls = null;
     this.removeTitleDragon();
     this.startEl?.classList.add("hide");
     this.time.delayedCall(320, () => this.startEl?.remove());
@@ -399,6 +407,8 @@ export class GameScene extends Phaser.Scene {
 
   update(time: number, delta: number): void {
     const dt = Math.min(delta, MAX_DT_MS) / 1000;
+    this.pad.update();
+    if (["a", "b", "x", "y"].some((b) => this.pad.justPressed(b))) this.handleInput();
     this.net.tick();
     this.ensureSeed();
     this.advanceWorld(dt);

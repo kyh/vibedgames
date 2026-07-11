@@ -1,10 +1,14 @@
+import { PhysicalGamepad } from "@vibedgames/gamepad";
+
 import type { CarInput } from "../vehicle/car";
 
 const THREE_clamp = (v: number): number => Math.max(-1, Math.min(1, v));
 
-// Keyboard + touch-button input, merged into a single CarInput each frame.
+// Keyboard + touch-button + controller input, merged into a single CarInput
+// each frame.
 export class InputState {
   private keys = new Set<string>();
+  private readonly pad = new PhysicalGamepad({ stickDeadZone: 0.12 });
   private touch = { gas: false, brake: false, boost: false };
   /** Analog steer from the on-screen stick, -1..1. Zero when no thumb is on it. */
   private touchSteer = 0;
@@ -61,20 +65,16 @@ export class InputState {
     let boost = this.has("shift") || this.touch.boost;
     // Gamepad (reference parity): left stick steers, RT gas, LT brake,
     // A/X also brake (handbrake habit), B or RB boost.
-    const pads = typeof navigator.getGamepads === "function" ? navigator.getGamepads() : [];
-    for (const pad of pads) {
-      if (!pad || !pad.connected) continue;
-      const ax = pad.axes[0] ?? 0;
+    this.pad.update();
+    if (this.pad.connected) {
+      const ax = this.pad.getStick().dx;
       if (Math.abs(ax) > 0.12) steer = THREE_clamp(ax);
-      const rt = pad.buttons[7]?.value ?? 0;
-      const lt = pad.buttons[6]?.value ?? 0;
-      const dpadUp = pad.buttons[12]?.pressed ?? false;
-      const dpadDown = pad.buttons[13]?.pressed ?? false;
-      if (rt > 0.05 || dpadUp) throttle = Math.max(throttle, rt || 1);
-      if (lt > 0.05 || dpadDown) brake = Math.max(brake, lt || 1);
-      if ((pad.buttons[0]?.pressed ?? false) || (pad.buttons[2]?.pressed ?? false)) brake = 1;
-      if ((pad.buttons[1]?.pressed ?? false) || (pad.buttons[5]?.pressed ?? false)) boost = true;
-      break; // first connected pad wins
+      const rt = this.pad.buttonValue("rt");
+      const lt = this.pad.buttonValue("lt");
+      if (rt > 0.05 || this.pad.isButtonDown("up")) throttle = Math.max(throttle, rt || 1);
+      if (lt > 0.05 || this.pad.isButtonDown("down")) brake = Math.max(brake, lt || 1);
+      if (this.pad.isButtonDown("a") || this.pad.isButtonDown("x")) brake = 1;
+      if (this.pad.isButtonDown("b") || this.pad.isButtonDown("rb")) boost = true;
     }
     return { throttle, brake, steer, boost };
   }

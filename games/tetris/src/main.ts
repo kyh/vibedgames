@@ -1,6 +1,7 @@
 import { createPauseOverlay, setPauseHandlers } from "@repo/embed";
 import * as THREE from "three";
 
+import { CONTROLS } from "./controls";
 import { PoseCamera } from "./input/camera";
 import { PoseControls } from "./input/pose-control";
 import { isCoarsePointer } from "./input/touch";
@@ -41,27 +42,8 @@ window.addEventListener("resize", () => {
 // (collapseStartedAt vs CATCH_WINDOW_MS) — gets shifted by the paused gap on
 // resume so a long pause can't insta-finalize game-over.
 let wrapperPausedAt: number | null = null;
-// Same control set the title/pause banners teach, per input mode.
-const pauseOverlay = createPauseOverlay({
-  controls: isCoarsePointer()
-    ? [
-        ["DRAG", "move"],
-        ["ROT", "rotate"],
-        ["⟲ ⟳", "turn view"],
-        ["DROP", "tap hard · hold soft"],
-        ["HOLD · PWR", "swap · power sweep"],
-        ["WEBCAM", "nose move · spin rotate · T-pose power"],
-      ]
-    : [
-        ["←→↑↓", "move"],
-        ["R", "rotate"],
-        ["Q / E", "turn view"],
-        ["SPACE · SHIFT", "hard · soft drop"],
-        ["C · F", "hold · power"],
-        ["WEBCAM", "nose move · spin rotate · T-pose power"],
-        ["M", "mute"],
-      ],
-});
+// Same manifest the title legend teaches — filtered per device / pad at show().
+const pauseOverlay = createPauseOverlay({ controls: CONTROLS });
 setPauseHandlers({
   onPause: () => {
     pauseOverlay.show();

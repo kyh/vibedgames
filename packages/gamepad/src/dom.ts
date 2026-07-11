@@ -267,7 +267,9 @@ function createOverlay(parent: HTMLElement, opts: DomGamepadRenderOptions): Over
 }
 
 export { VirtualGamepad, stickDirection4, stickDirection8 } from "./core";
+export { PhysicalGamepad, isPadConnected } from "./physical";
 export { safeAreaInset } from "./safe-area";
+export type { PadButton, PhysicalGamepadOptions } from "./physical";
 export type {
   ButtonLayout,
   ButtonOptions,

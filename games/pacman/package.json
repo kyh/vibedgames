@@ -13,6 +13,7 @@
   "dependencies": {
     "@mediapipe/tasks-vision": "0.10.35",
     "@repo/embed": "workspace:*",
+    "@vibedgames/gamepad": "workspace:^",
     "@vibedgames/multiplayer": "workspace:^",
     "three": "^0.185.1"
   },

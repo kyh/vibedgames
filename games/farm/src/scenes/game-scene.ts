@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { PhysicalGamepad } from "@vibedgames/gamepad";
 import type { PhaserGamepad } from "@vibedgames/gamepad/phaser";
 import { notifyGameStarted } from "@repo/embed";
 import {
@@ -43,6 +44,7 @@ import { seasonOfDay, type Season } from "../data/calendar";
 import { isWet, weatherForDay, type Weather } from "../systems/weather";
 import { Fishing } from "../systems/fishing";
 import { makeGameKeys, NUM_KEY_NAMES, type GameKeys } from "../systems/keys";
+import { stickMove } from "../systems/stick";
 import { isTap } from "../systems/touch";
 import { AnimalManager } from "../entities/animals";
 import { NpcManager } from "../entities/npcs";
@@ -122,6 +124,8 @@ export class GameScene extends Phaser.Scene {
   private keys!: GameKeys;
   /** Attached by Hud — the pad must render there, outside this camera's zoom. */
   gamepad?: PhaserGamepad;
+  /** Physical controller — polled here (this scene owns the frame while active). */
+  private readonly pad = new PhysicalGamepad();
   transitioning = false;
   private pendingSpawn = { x: 0, y: 0 };
   private stepTimer = 0;
@@ -255,6 +259,9 @@ export class GameScene extends Phaser.Scene {
     this.npcs.spawnAll();
 
     this.setupInput();
+    // Prime the pad so an A still held from the title/mine doesn't read as a
+    // fresh press (and swing a tool) on this scene's first frame.
+    this.pad.update();
 
     if (!this.scene.isActive("Hud")) this.scene.launch("Hud");
     else this.scene.get("Hud").events.emit("hud-rebind");
@@ -529,6 +536,15 @@ export class GameScene extends Phaser.Scene {
   override update(_t: number, dms: number): void {
     const dt = Math.min(dms, 50) / 1000;
     this.gamepad?.update();
+    // Physical pad: A mirrors E/SPACE (tryAction guards busy states itself),
+    // Y mirrors I, LB/RB mirror the scroll wheel's hotbar cycle.
+    this.pad.update();
+    if (this.pad.justPressed("a")) this.tryAction();
+    if (this.pad.justPressed("y")) this.toggleInventory();
+    if (!this.uiOpen) {
+      if (this.pad.justPressed("lb")) store.inv.cycle(-1);
+      if (this.pad.justPressed("rb")) store.inv.cycle(1);
+    }
     this.net?.tick();
     this.reconcileClock();
     this.reconcileTiles();
@@ -789,14 +805,16 @@ export class GameScene extends Phaser.Scene {
     if (k.W.isDown || k.UP.isDown) dy -= 1;
     if (k.S.isDown || k.DOWN.isDown) dy += 1;
 
-    // virtual stick (touch) fills in when the keyboard is silent
+    // sticks (virtual touch, then physical pad) fill in when the keyboard is silent
     let stickRun = false;
-    if (dx === 0 && dy === 0 && this.gamepad) {
-      const stick = this.gamepad.getStick();
-      if (stick.active && !stick.inDeadZone) {
-        dx = Math.cos(stick.angle);
-        dy = Math.sin(stick.angle);
-        stickRun = stick.magnitude > 0.95; // full deflection = run
+    if (dx === 0 && dy === 0) {
+      const move =
+        (this.gamepad ? stickMove(this.gamepad.getStick()) : null) ??
+        stickMove(this.pad.getStick());
+      if (move) {
+        dx = move.dx;
+        dy = move.dy;
+        stickRun = move.run;
       }
     }
 
@@ -1567,7 +1585,12 @@ export class GameScene extends Phaser.Scene {
     return seasonOfDay(this.day);
   }
   actionHeld(): boolean {
-    return this.keys.SPACE.isDown || this.keys.E.isDown || this.input.activePointer.isDown;
+    return (
+      this.keys.SPACE.isDown ||
+      this.keys.E.isDown ||
+      this.input.activePointer.isDown ||
+      this.pad.isButtonDown("a")
+    );
   }
   playerAnim(key: string): void {
     this.player.play(key, true);

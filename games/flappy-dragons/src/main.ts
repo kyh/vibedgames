@@ -1,7 +1,8 @@
 import Phaser from "phaser";
 import { createPauseOverlay, setPauseHandlers } from "@repo/embed";
 
-import { initPoseCamera, isCoarsePointer, type PoseJumpHandler } from "./input/camera";
+import { CONTROLS } from "./controls";
+import { initPoseCamera, type PoseJumpHandler } from "./input/camera";
 import type { NetSession } from "./net/session";
 import { BootScene } from "./scenes/boot-scene";
 import { GameScene } from "./scenes/game-scene";
@@ -65,19 +66,8 @@ const gameScene = (): GameScene | null => {
   return game.scene.isActive("Game") && scene instanceof GameScene ? scene : null;
 };
 let froze = false;
-// Mirrors the start screen's controls card.
-const pauseOverlay = createPauseOverlay({
-  controls: isCoarsePointer()
-    ? [
-        ["Tap", "flap"],
-        ["📷 Camera", "jump or flap your arms"],
-      ]
-    : [
-        ["Click / Tap / Space", "flap"],
-        ["📷 Camera", "jump or flap your arms"],
-        ["M", "mute"],
-      ],
-});
+// Mirrors the start screen's controls card (same manifest).
+const pauseOverlay = createPauseOverlay({ controls: CONTROLS });
 setPauseHandlers({
   onPause: () => {
     pauseOverlay.show();

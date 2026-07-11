@@ -2,12 +2,12 @@ import Phaser from "phaser";
 import { createPauseOverlay, setPauseHandlers } from "@repo/embed";
 
 import { BASE_H, BASE_W, clampAspect } from "./config";
+import { CONTROLS } from "./controls";
 import { BootScene } from "./scenes/boot-scene";
 import { installTestHooks } from "./sys/diag";
 import { EditorScene } from "./scenes/editor-scene";
 import { GameScene } from "./scenes/game-scene";
 import { SelectScene } from "./scenes/select-scene";
-import { isCoarse } from "./sys/screen";
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.WEBGL,
@@ -40,23 +40,7 @@ const isOnline = (): boolean => {
   return game.scene.isActive("game") && scene instanceof GameScene && scene.isOnline();
 };
 let froze = false;
-const pauseOverlay = createPauseOverlay({
-  controls: isCoarse()
-    ? [
-        ["DRAG STICK", "move"],
-        ["JUMP", "jump"],
-        ["DASH", "dash"],
-        ["ATK / SP", "attack · special"],
-      ]
-    : [
-        ["WASD", "move"],
-        ["SPACE", "jump"],
-        ["SHIFT", "dash"],
-        ["J / X", "attack"],
-        ["K", "special"],
-        ["M", "mute"],
-      ],
-});
+const pauseOverlay = createPauseOverlay({ controls: CONTROLS });
 setPauseHandlers({
   onPause: () => {
     pauseOverlay.show();

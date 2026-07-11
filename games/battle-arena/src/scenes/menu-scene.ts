@@ -5,7 +5,9 @@
 // buttons. The overlay is click-through except on its controls, so clicks in
 // the middle reach the 3D row for selection. START persists the pick to
 // localStorage["ba-champ"] / ["ba-name"] for future quick-start boots.
+import { controlHints, watchControlContext } from "@repo/embed";
 import { CHAMPIONS } from "../data/champions";
+import { CONTROLS } from "../controls";
 import { abilityIcon, champSigil } from "../data/icons";
 import { isTouchInput } from "../input/touch";
 import { ALL_ABILITY_KEYS, type AbilityKey } from "../sim/types";
@@ -30,6 +32,7 @@ export type MenuOpts = {
 export class Menu {
   private el: HTMLDivElement;
   private selected: string;
+  private unwatchControls: () => void;
 
   constructor(private opts: MenuOpts) {
     this.selected = opts.initial;
@@ -38,16 +41,14 @@ export class Menu {
     document.body.appendChild(this.el);
     injectStyle();
     this.build();
+    // the help line lists controller rows only while a pad is connected —
+    // re-render if one appears (or vanishes) while the lobby is up
+    this.unwatchControls = watchControlContext(() => this.renderHelp());
   }
 
   private build(): void {
     const params = new URLSearchParams(location.search);
     const name = params.get("name") ?? localStorage.getItem("ba-name") ?? "";
-    // input-aware at boot — touch devices must never see keyboard-only copy
-    const touchBoot = isTouchInput();
-    const help = touchBoot
-      ? "tap a champion · left thumb move · right thumb aim + attack · on-screen buttons: abilities / DASH / JUMP / B shop"
-      : "click a champion · WASD move · mouse looks · LMB attack · ␣ jump · ⇧ dash · 1/2/3/4 abilities · B shop · M mute";
     const chips = CHAMPIONS.map(
       (c) =>
         `<button class="ba-chip" data-id="${c.id}" style="--accent:${hex(c.tint)}">
@@ -74,8 +75,9 @@ export class Menu {
           <button id="ba-bots" class="ba-go bots">PLAY vs BOTS</button>
           <button id="ba-online" class="ba-go online">PLAY ONLINE</button>
         </div>
-        <div class="ba-help">${help}</div>
+        <div class="ba-help"></div>
       </div>`;
+    this.renderHelp();
 
     this.el.querySelectorAll<HTMLButtonElement>(".ba-chip").forEach((btn) => {
       btn.addEventListener("click", () => this.opts.onSelect(btn.dataset["id"]!));
@@ -116,7 +118,21 @@ export class Menu {
     }
   }
 
+  /** The help line, straight from the controls manifest (device-filtered by
+   *  @repo/embed — touch copy on coarse pointers, controller rows only while a
+   *  pad is connected). Same dot-joined "input action" style as before. */
+  private renderHelp(): void {
+    const el = this.el.querySelector<HTMLDivElement>(".ba-help");
+    if (!el) return;
+    const lead = isTouchInput() ? "tap a champion" : "click a champion";
+    el.textContent = [
+      lead,
+      ...controlHints(CONTROLS).map(([input, action]) => `${input} ${action}`),
+    ].join(" · ");
+  }
+
   remove(): void {
+    this.unwatchControls();
     this.el.remove();
   }
 

@@ -1,8 +1,10 @@
 import Phaser from "phaser";
-import { notifyGameStarted } from "@repo/embed";
+import { notifyGameStarted, watchControlContext } from "@repo/embed";
+import { PhysicalGamepad } from "@vibedgames/gamepad/phaser";
 
 import { sfx } from "../audio/sfx";
 import { BASE_H, BASE_W, COLORS, HERO_ORIGIN_Y } from "../config";
+import { runControlsText } from "../controls";
 import { firstFrame } from "../data/animations";
 import { HERO_ORDER, HEROES } from "../data/heroes";
 import {
@@ -51,6 +53,9 @@ export class SelectScene extends Phaser.Scene {
   private goBtn?: TapBtn;
   private coopBtn?: TapBtn;
   private vsBtn?: TapBtn;
+  // Physical controller on the hub: d-pad cycles, A confirms (see update()).
+  private pad = new PhysicalGamepad();
+  private unwatchControls: (() => void) | null = null;
 
   constructor() {
     super("select");
@@ -213,6 +218,33 @@ export class SelectScene extends Phaser.Scene {
 
     this.buildShop();
     this.refresh();
+
+    // Re-render the hints when a pad appears/vanishes while the hub is up.
+    // Scene instances persist across start/stop — drop any previous visit's
+    // watcher before subscribing, and unsubscribe on shutdown.
+    this.unwatchControls?.();
+    this.unwatchControls = watchControlContext(() => this.refresh());
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.unwatchControls?.();
+      this.unwatchControls = null;
+    });
+    // Prime pad state so a button held across the scene change (A just left a
+    // versus match, say) doesn't read as a fresh press on the hub's first frame.
+    this.pad.update();
+  }
+
+  // Physical controller mirrors the hub keys: d-pad ←/→ cycle (move() redirects
+  // to the forge cursor while the shop is open, like A/D), d-pad ↑/↓ move the
+  // forge cursor, A confirms (buy while the shop is open, like SPACE).
+  update() {
+    this.pad.update();
+    if (this.pad.justPressed("left")) this.move(-1);
+    if (this.pad.justPressed("right")) this.move(1);
+    if (this.shopOpen) {
+      if (this.pad.justPressed("up")) this.shopMove(-1);
+      if (this.pad.justPressed("down")) this.shopMove(1);
+    }
+    if (this.pad.justPressed("a")) this.confirm();
   }
 
   private move(d: number) {
@@ -416,13 +448,10 @@ export class SelectScene extends Phaser.Scene {
       l.setText(hn && !isUnlocked(this.meta, hn) ? `🔒 ${UNLOCK_COST[hn]}` : "");
     });
     this.title.setText(def.title).setColor(`#${def.color.toString(16).padStart(6, "0")}`);
-    this.blurb.setText(
-      `${def.blurb}\n${
-        this.touch
-          ? "Run: stick move · JUMP / DASH / ATK / SP buttons"
-          : "Run: WASD move · Space jump · Shift dash · J/X attack · K special"
-      }`,
-    );
+    // The in-game controls line renders from the manifest (touch vs keys, plus
+    // controller rows while a pad is connected — the context watcher re-runs
+    // refresh() on connect). Hub verbs below stay hand-written.
+    this.blurb.setText(`${def.blurb}\nRun: ${runControlsText()}`);
 
     const unlocked = isUnlocked(this.meta, name);
     const go =

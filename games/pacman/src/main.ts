@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { createPauseOverlay, setPauseHandlers } from "@repo/embed";
 
 import { music, sfx } from "./audio/sfx";
+import { CONTROLS } from "./controls";
 import { FaceCamera } from "./input/face-camera";
 import { IS_TOUCH } from "./input/input-mode";
 import { GameScene } from "./scenes/game-scene";
@@ -64,25 +65,7 @@ window.addEventListener("resize", () => {
 // `timer.update` keeps running every frame even while paused, so the
 // delta never balloons across the gap — resuming needs no explicit reset.
 let paused = false;
-const pauseOverlay = createPauseOverlay({
-  controls: IS_TOUCH
-    ? [
-        ["open mouth", "chomp forward"],
-        ["turn head", "turn"],
-        ["swipe ↑", "chomp forward"],
-        ["swipe ←/→", "turn"],
-        ["swipe ↓", "reverse"],
-      ]
-    : [
-        ["open mouth", "chomp forward"],
-        ["turn head", "turn"],
-        ["SPACE", "chomp forward"],
-        ["←/→", "turn"],
-        ["↓", "reverse"],
-        ["SHIFT", "selfie cam"],
-        ["M", "mute"],
-      ],
-});
+const pauseOverlay = createPauseOverlay({ controls: CONTROLS });
 setPauseHandlers({
   onPause: () => {
     pauseOverlay.show();

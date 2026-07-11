@@ -1,7 +1,7 @@
 import Phaser from "phaser";
 import { createPauseOverlay, setPauseHandlers } from "@repo/embed";
 
-import { isTouchDevice } from "./systems/touch";
+import { CONTROLS } from "./controls";
 import { BootScene } from "./scenes/boot-scene";
 import { TitleScene } from "./scenes/title-scene";
 import { GameScene } from "./scenes/game-scene";
@@ -64,20 +64,7 @@ const isOnline = (): boolean => {
 };
 let froze = false;
 const pauseOverlay = createPauseOverlay({
-  controls: isTouchDevice()
-    ? [
-        ["drag stick", "move (full tilt runs)"],
-        ["tap a square", "use tool / interact"],
-        ["tap hotbar", "switch tools"],
-        ["🎒", "inventory"],
-      ]
-    : [
-        ["WASD / arrows", "move (SHIFT runs)"],
-        ["E / SPACE / click", "use tool / interact"],
-        ["1–9 / scroll", "switch tools"],
-        ["I", "inventory"],
-        ["M", "sound on / off"],
-      ],
+  controls: CONTROLS,
   // The gameplay depth that used to live in the in-game How-to-Play modal —
   // controls stay in `controls`, this is the systems knowledge.
   help: [

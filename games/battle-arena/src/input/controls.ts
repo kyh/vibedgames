@@ -3,11 +3,20 @@
 // the character faces the crosshair, camera stays behind. W=forward, S=back,
 // A/D=strafe relative to facing; LMB=attack (airborne LMB casts JUMP), Space=hop,
 // Shift=cast DASH; 1/2/3/4 cast the kit, 5-0 the item belt.
+// A physical gamepad folds into the same fields (update() each frame): left
+// stick=move, right stick=look, RT=attack (airborne edge casts JUMP), A=hop,
+// B=dash, X/Y/LB/RB=abilities, SELECT=shop, START held=scoreboard.
+import { PhysicalGamepad } from "@vibedgames/gamepad";
 import type { AbilityKey } from "../sim/types";
 
 const MOUSE_SENS = 0.0028; // radians of look per pixel of mouse movement
 const PITCH_MIN = -1.0; // look down
 const PITCH_MAX = 0.7; // look up
+// right-stick look rate at full deflection: ~180°/s of turn feels like the
+// 0.0028 rad/px mouse at a comfortable sweep; pitch runs at half rate because
+// its whole travel is only 1.7 rad
+const PAD_YAW_SPEED = Math.PI; // rad/s
+const PAD_PITCH_SPEED = Math.PI / 2; // rad/s
 
 export class Controls {
   private keys = new Set<string>();
@@ -22,6 +31,12 @@ export class Controls {
   private lmb = false;
   private lmbEdge = false; // LMB press edge — an airborne click casts JUMP
   private hadInput = false;
+  // physical gamepad — polled by update(), folded into the same fields the
+  // keyboard/mouse listeners write so every read path stays single-source
+  private pad = new PhysicalGamepad();
+  private padFwd = 0;
+  private padStrafe = 0;
+  private padAttack = false; // RT held (mirrors this.lmb)
   // MOUSE MODE: menus need a free cursor (shop, end screen). While on, the
   // pointer stays unlocked, mouse motion doesn't steer, and clicks are UI —
   // never attacks. ACTION MODE (default) is the FPS-style locked pointer.
@@ -74,6 +89,58 @@ export class Controls {
 
   get inMouseMode(): boolean {
     return this.uiMode;
+  }
+
+  /** Poll the physical gamepad and fold it into the keyboard/mouse fields.
+   *  Call once per frame, before the frame's reads (works without pointer
+   *  lock — pad look integrates yaw/pitch directly, dt-scaled). */
+  update(dt: number): void {
+    this.pad.update();
+    this.padFwd = 0;
+    this.padStrafe = 0;
+    this.padAttack = false;
+    if (!this.pad.connected) return;
+
+    // left stick → the same forward/strafe axes WASD produces; dead-zoned
+    // radial response, analog direction carries through (the scene normalizes)
+    const move = this.pad.getStick("left");
+    if (!move.inDeadZone && move.distance > 0) {
+      const scale = move.magnitude / move.distance;
+      this.padStrafe = move.dx * scale;
+      this.padFwd = -move.dy * scale; // stick axes are y-down; up = forward
+      this.hadInput = true;
+    }
+
+    // look + attack mirror the mouse, including its MOUSE-mode guard (menus
+    // own the cursor — pad steering/attacks must not fight the shop)
+    if (!this.uiMode) {
+      const look = this.pad.getStick("right");
+      if (!look.inDeadZone && look.distance > 0) {
+        const scale = (look.magnitude / look.distance) * dt;
+        this.yaw -= look.dx * scale * PAD_YAW_SPEED; // stick right = turn right
+        this.pitch = Math.max(
+          PITCH_MIN,
+          Math.min(PITCH_MAX, this.pitch - look.dy * scale * PAD_PITCH_SPEED),
+        );
+        this.hadInput = true;
+      }
+      // RT mirrors LMB exactly: held = basic attack, press edge = airborne JUMP
+      this.padAttack = this.pad.isButtonDown("rt");
+      if (this.pad.justPressed("rt")) {
+        this.lmbEdge = true;
+        this.hadInput = true;
+      }
+    }
+
+    // buttons queue like keydowns — live in MOUSE mode too (keys are today;
+    // SELECT especially must still close an open shop)
+    if (this.pad.justPressed("a")) this.jumpPressed = true;
+    if (this.pad.justPressed("b")) this.dashPressed = true;
+    if (this.pad.justPressed("x")) this.abilityQueue.push("Q");
+    if (this.pad.justPressed("y")) this.abilityQueue.push("W");
+    if (this.pad.justPressed("lb")) this.abilityQueue.push("E");
+    if (this.pad.justPressed("rb")) this.abilityQueue.push("R");
+    if (this.pad.justPressed("select")) this.buyPressed = true;
   }
 
   private onKeyDown = (e: KeyboardEvent): void => {
@@ -141,8 +208,8 @@ export class Controls {
   /** Camera-relative move axes: forward (+W/-S), strafe (+D/-A). The scene
    *  composes these with the facing direction. */
   moveAxes(): { fwd: number; strafe: number } {
-    let fwd = 0;
-    let strafe = 0;
+    let fwd = this.padFwd;
+    let strafe = this.padStrafe;
     if (this.keys.has("KeyW") || this.keys.has("ArrowUp")) fwd += 1;
     if (this.keys.has("KeyS") || this.keys.has("ArrowDown")) fwd -= 1;
     if (this.keys.has("KeyD") || this.keys.has("ArrowRight")) strafe += 1;
@@ -167,7 +234,7 @@ export class Controls {
   }
 
   attackDown(): boolean {
-    return this.lmb;
+    return this.lmb || this.padAttack;
   }
 
   /** Edge-triggered LMB press. Distinguishes an airborne click (→ JUMP ability)
@@ -214,7 +281,7 @@ export class Controls {
   }
 
   scoreHeld(): boolean {
-    return this.keys.has("Tab");
+    return this.keys.has("Tab") || this.pad.isButtonDown("start");
   }
 
   consumedAnyInput(): boolean {
@@ -222,6 +289,7 @@ export class Controls {
   }
 
   dispose(): void {
+    this.pad.destroy();
     window.removeEventListener("keydown", this.onKeyDown);
     window.removeEventListener("keyup", this.onKeyUp);
     window.removeEventListener("mousemove", this.onMouseMove);

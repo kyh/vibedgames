@@ -1,12 +1,18 @@
-import { attachVirtualGamepad, safeAreaInset } from "@vibedgames/gamepad/phaser";
+import { PhysicalGamepad, attachVirtualGamepad, safeAreaInset } from "@vibedgames/gamepad/phaser";
 import type { Inset, PhaserGamepad } from "@vibedgames/gamepad/phaser";
-import { createPauseOverlay, notifyGameStarted, setPauseHandlers } from "@repo/embed";
+import {
+  createPauseOverlay,
+  notifyGameStarted,
+  setPauseHandlers,
+  watchControlContext,
+} from "@repo/embed";
 import { MultiplayerClient } from "@vibedgames/multiplayer";
 import type { Player, PlayerMap } from "@vibedgames/multiplayer";
 import Phaser from "phaser";
 
 import { sfx } from "../audio/sfx";
 import type { PlayOpts, SfxName } from "../audio/sfx";
+import { CONTROLS, startScreenText } from "../controls";
 import { AttractBattle } from "../fx/attract-battle";
 import { FxPool, HITSPARK_SKIP_BUDGET, PARTICLE_SOFT_BUDGET } from "../render/fx-pool";
 import { EnergyBarrier } from "../render/energy-barrier";
@@ -448,6 +454,9 @@ const ARENA_SAFE_MS = 6000;
  *  instead of waiting for the first tap to flip `gamepad.isTouch`. */
 const IS_COARSE_POINTER =
   window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+/** Physical-stick deflection (0–1) treated as noise; past it the pad owns the
+ *  steer vector for the frame (mirrors the touch-joystick dead zone). */
+const PAD_STICK_DEAD_ZONE = 0.15;
 /** Narrow-viewport zoom-out (PvP reaction fairness): viewports narrower than
  *  REF render at width/REF zoom, floored at MIN — phones land at ~0.75 and see
  *  more world. The off-world mask (MASK_PAD) covers any zoomed half-view. */
@@ -543,6 +552,12 @@ export class GameScene extends Phaser.Scene {
    *  any finger that isn't the stick fires). Desktop keeps the mouse model
    *  (aim+thrust at the cursor); the gamepad only activates on first touch. */
   private gamepad!: PhaserGamepad;
+  /** Physical controller: left stick = aim + thrust (same heading+magnitude
+   *  model as the touch joystick), RT or A held = fire. */
+  private readonly pad = new PhysicalGamepad({ stickDeadZone: PAD_STICK_DEAD_ZONE });
+  /** Re-renders the start-screen copy on pad connect/disconnect while the
+   *  overlay is up; unsubscribed the moment play begins. */
+  private unwatchControls: (() => void) | null = null;
   /** Items we picked up locally, awaiting host confirmation (id → time). */
   private recentPickups = new Map<string, number>();
   /** Shards we collected locally, awaiting host removal (id -> time), the
@@ -899,19 +914,7 @@ export class GameScene extends Phaser.Scene {
     // (solo world, no one else to stall) we truly FREEZE: the pausable sim
     // clock (shared/clock.ts) holds every stored deadline, so a boost with 3s
     // left before the pause still has 3s after resume.
-    const touchControls = IS_COARSE_POINTER || this.gamepad.isTouch;
-    const pauseOverlay = createPauseOverlay({
-      controls: touchControls
-        ? [
-            ["DRAG", "move"],
-            ["TAP", "shoot"],
-          ]
-        : [
-            ["MOUSE", "move"],
-            ["CLICK", "shoot"],
-            ["M", "mute"],
-          ],
-    });
+    const pauseOverlay = createPauseOverlay({ controls: CONTROLS });
     setPauseHandlers({
       onPause: () => {
         pauseOverlay.show();
@@ -942,6 +945,10 @@ export class GameScene extends Phaser.Scene {
 
   override update(time: number, delta: number): void {
     const dt = Math.min(delta, 100) / 1000; // clamp tab-switch spikes
+    this.pad.update(); // poll the physical controller once per frame
+    // Any pad face button doubles as "press any key" on the start screen.
+    if (!this.started && ["a", "b", "x", "y", "start"].some((b) => this.pad.justPressed(b)))
+      this.beginPlay();
     this.starfield.update(dt, time);
     this.barrier.update(time, this.world.playW, this.world.playH);
     if (!this.offline) this.maybeGoOffline();
@@ -1029,27 +1036,34 @@ export class GameScene extends Phaser.Scene {
   private buildStartScreen(): void {
     this.startEl = document.getElementById("start");
     this.writeStartCopy();
+    // Plugging in a pad while the start screen is up adds its rows.
+    this.unwatchControls?.();
+    this.unwatchControls = watchControlContext(() => {
+      if (!this.started) this.writeStartCopy();
+    });
     this.input.keyboard?.once("keyup", () => this.beginPlay());
     // The overlay covers the canvas, so Phaser's pointer input never sees the
     // tap — listen on the overlay element itself.
     this.startEl?.addEventListener("pointerup", () => this.beginPlay(), { once: true });
   }
 
-  /** Start-screen copy, re-run when the touch scheme is detected. */
+  /** Start-screen copy, re-run when the touch scheme is detected or a pad
+   *  connects. Rows render from the shared manifest; `coarse` is forced from
+   *  live touch detection so a finger on a fine-pointer device still flips
+   *  the copy (enterTouchMode), and pad rows appear from live detection. */
   private writeStartCopy(): void {
     const touch = IS_COARSE_POINTER || this.gamepad.isTouch;
     const controls = document.getElementById("start-controls");
     const go = document.getElementById("start-go");
-    if (controls)
-      controls.textContent = touch
-        ? "Drag to move\nTap to shoot"
-        : "Mouse — move\nClick — shoot\nM — mute";
+    if (controls) controls.textContent = startScreenText({ coarse: touch });
     if (go) go.textContent = touch ? "tap to start" : "press any key to start";
   }
 
   private beginPlay(): void {
     if (this.started) return;
     this.started = true;
+    this.unwatchControls?.();
+    this.unwatchControls = null;
     notifyGameStarted();
     // Tear the cosmetic battle down the instant real play begins.
     this.attract?.destroy();
@@ -1150,10 +1164,7 @@ export class GameScene extends Phaser.Scene {
     const cam = this.cameras.main;
     const { playW, playH } = this.world;
     const inset = (dim: number, halfView: number): number =>
-      Math.min(
-        Math.max(dim * INITIAL_SPAWN_CENTER_FRAC, halfView + RESPAWN_EDGE_MARGIN),
-        dim / 2,
-      );
+      Math.min(Math.max(dim * INITIAL_SPAWN_CENTER_FRAC, halfView + RESPAWN_EDGE_MARGIN), dim / 2);
     const pos = this.pickRespawnPoint(
       inset(playW, cam.width / 2 / cam.zoom),
       inset(playH, cam.height / 2 / cam.zoom),
@@ -1287,6 +1298,22 @@ export class GameScene extends Phaser.Scene {
     deadZone: number;
     aim: boolean;
   } | null {
+    // Physical stick past its dead zone owns the frame (same heading+magnitude
+    // model as the touch joystick, and the same override rule touch applies to
+    // the mouse); inside the dead zone it yields, so an idle pad never fights
+    // the cursor and the nose holds when nothing else is steering.
+    if (this.pad.connected) {
+      const stick = this.pad.getStick();
+      if (!stick.inDeadZone) {
+        return {
+          angle: stick.angle,
+          thrust: stick.magnitude,
+          dist: stick.distance,
+          deadZone: PAD_STICK_DEAD_ZONE,
+          aim: true,
+        };
+      }
+    }
     if (this.gamepad.isTouch) {
       const stick = this.gamepad.getStick();
       if (!stick.active) return null;
@@ -1315,8 +1342,11 @@ export class GameScene extends Phaser.Scene {
     this.writeStartCopy();
   }
 
-  /** Holding fire: any non-stick finger on touch, or the mouse button on desktop. */
+  /** Holding fire: any non-stick finger on touch, the mouse button on desktop,
+   *  or RT / A held on a physical controller (merged, never exclusive). */
   private isFiring(): boolean {
+    if (this.pad.connected && (this.pad.isButtonDown("rt") || this.pad.isButtonDown("a")))
+      return true;
     return this.gamepad.isTouch
       ? this.gamepad.isButtonDown("fire")
       : this.input.activePointer.isDown;

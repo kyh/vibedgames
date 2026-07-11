@@ -1,11 +1,12 @@
 import Phaser from "phaser";
 import { createPauseOverlay, setPauseHandlers } from "@repo/embed";
 
+import { CONTROLS } from "./controls";
 import { BootScene } from "./scenes/boot-scene";
 import { GalleryScene } from "./scenes/gallery-scene";
 import { GameScene } from "./scenes/game-scene";
 import { HudScene } from "./scenes/hud-scene";
-import { MenuScene, touchDevice } from "./scenes/menu-scene";
+import { MenuScene } from "./scenes/menu-scene";
 import { ShowcaseScene } from "./scenes/showcase-scene";
 
 const config: Phaser.Types.Core.GameConfig = {
@@ -65,25 +66,7 @@ void fontReady.then(() => {
     return game.scene.isActive("Game") && scene instanceof GameScene && scene.isOnline();
   };
   let froze = false;
-  const pauseOverlay = createPauseOverlay({
-    controls: touchDevice()
-      ? [
-          ["DRAG", "move"],
-          ["2ND FINGER", "attack"],
-          ["ABILITY BUTTONS", "cast"],
-          ["SHOP", "buy items"],
-          ["SCORES", "scoreboard"],
-        ]
-      : [
-          ["←→↑↓", "move"],
-          ["Q W E R", "abilities"],
-          ["SPACE", "attack"],
-          ["F", "dash"],
-          ["1-6", "items"],
-          ["B", "shop"],
-          ["M", "mute"],
-        ],
-  });
+  const pauseOverlay = createPauseOverlay({ controls: CONTROLS });
   setPauseHandlers({
     onPause: () => {
       pauseOverlay.show();

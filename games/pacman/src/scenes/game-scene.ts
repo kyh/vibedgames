@@ -14,11 +14,13 @@
 // and the maze is a bigger generated braided board.
 
 import * as THREE from "three";
-import { notifyGameStarted } from "@repo/embed";
+import { notifyGameStarted, watchControlContext } from "@repo/embed";
+import { PhysicalGamepad, stickDirection4 } from "@vibedgames/gamepad";
+import type { Dir4 } from "@vibedgames/gamepad";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 
 import { music, sfx } from "../audio/sfx";
-import { IS_TOUCH } from "../input/input-mode";
+import { restartHint, titleControlsText } from "../controls";
 import { FxPool } from "../render/fx-pool";
 import { buildHeartGeometry } from "../render/heart";
 import type { PelletCell } from "../render/pellet-field";
@@ -206,6 +208,12 @@ export class GameScene {
   private selfieOn = false;
   private swipeOrigin: { x: number; y: number } | null = null;
   private swiped = false;
+  /** Physical controller — polled once per frame; steering is edge-triggered. */
+  private readonly pad = new PhysicalGamepad();
+  /** Last snapped left-stick direction, so a held deflection fires once. */
+  private padStickDir: Dir4 | null = null;
+  /** Live while a banner is up: re-renders it on pad connect/disconnect. */
+  private unwatchControls: (() => void) | null = null;
 
   // ---- display objects -----------------------------------------------------------
   /** Outer rig: world position + axis-aligned squash/stretch. */
@@ -593,6 +601,7 @@ export class GameScene {
 
     this.net.tick();
     this.reconcileBoard();
+    this.pollPad();
 
     if (this.phase === "ready") {
       this.readyMs -= dtMs;
@@ -851,6 +860,30 @@ export class GameScene {
     if (!this.swiped && this.swipeOrigin && tappable) this.handleStart();
     this.swipeOrigin = null;
   };
+
+  /** Physical pad, polled per frame. Buttons mirror the keyboard: A = SPACE
+   *  (chomp; start/restart from a banner), d-pad = arrows, START = R, LB =
+   *  SHIFT (read directly in updateCamera). Stick steering fires on the
+   *  snapped direction CHANGING, so a held deflection is one turn, not sixty. */
+  private pollPad(): void {
+    this.pad.update();
+    const onBanner = this.phase === "title" || this.phase === "win" || this.phase === "gameover";
+    if (this.pad.justPressed("a")) {
+      if (onBanner) this.handleStart();
+      else this.stepRequested = true;
+    }
+    if (this.pad.justPressed("start")) this.requestRestart();
+    if (this.pad.justPressed("left")) this.steer("left");
+    if (this.pad.justPressed("right")) this.steer("right");
+    if (this.pad.justPressed("down")) this.steer("reverse");
+    const dir = stickDirection4(this.pad.getStick());
+    if (dir !== this.padStickDir) {
+      this.padStickDir = dir;
+      if (dir === "left" || dir === "right") this.steer(dir);
+      else if (dir === "down") this.steer("reverse");
+      else if (dir === "up") this.stepRequested = true;
+    }
+  }
 
   /** Heading change — instant, unvalidated, relative to current facing (legacy). */
   private steer(action: "left" | "right" | "reverse"): void {
@@ -1116,33 +1149,15 @@ export class GameScene {
 
   private setPhase(phase: Phase): void {
     this.phase = phase;
-    const texts: Record<Phase, readonly [string, string]> = {
-      title: [
-        "PAC·MAN",
-        IS_TOUCH
-          ? "open your mouth or swipe up to chomp · turn your head or swipe to steer"
-          : "open your mouth or press Space to chomp · turn your head or use arrows to steer",
-      ],
-      ready: ["READY?", ""],
-      playing: ["", ""],
-      win: [
-        "MAZE CLEAR!",
-        IS_TOUCH
-          ? "every crumb tidied up ♥ chomp or tap to play again"
-          : "every crumb tidied up ♥ chomp, press R, or click to play again",
-      ],
-      gameover: [
-        "OHH NO…",
-        IS_TOUCH
-          ? "you did your best ♥ chomp or tap to try again"
-          : "you did your best ♥ chomp, press R, or click to try again",
-      ],
-    };
-    const [title, sub] = texts[phase];
-    this.bannerTitleEl.textContent = title;
-    this.bannerSubEl.textContent = sub;
-    this.bannerEl.style.opacity = title === "" ? "0" : "1";
-    if (title !== "") retrigger(this.bannerEl, "pop");
+    this.renderBanner();
+    if (phase !== "playing") retrigger(this.bannerEl, "pop");
+    // Instruction banners keep a watcher so controller rows appear the moment
+    // a pad is plugged in (and vanish when it's pulled); other phases drop it.
+    this.unwatchControls?.();
+    this.unwatchControls =
+      phase === "title" || phase === "win" || phase === "gameover"
+        ? watchControlContext(() => this.renderBanner())
+        : null;
     if (phase === "win") {
       this.fx.confettiRain(110);
       this.winConfettiIn = 0.7;
@@ -1150,6 +1165,23 @@ export class GameScene {
     } else if (phase === "gameover") {
       sfx.play("gameover");
     }
+  }
+
+  /** Banner copy, sourced from the controls manifest (../controls). Split from
+   *  setPhase so a pad connect/disconnect re-renders the instructions without
+   *  replaying the phase's pop/confetti/sfx. */
+  private renderBanner(): void {
+    const texts: Record<Phase, readonly [string, string]> = {
+      title: ["PAC·MAN", titleControlsText()],
+      ready: ["READY?", ""],
+      playing: ["", ""],
+      win: ["MAZE CLEAR!", `every crumb tidied up ♥ chomp or ${restartHint()} to play again`],
+      gameover: ["OHH NO…", `you did your best ♥ chomp or ${restartHint()} to try again`],
+    };
+    const [title, sub] = texts[this.phase];
+    this.bannerTitleEl.textContent = title;
+    this.bannerSubEl.textContent = sub;
+    this.bannerEl.style.opacity = title === "" ? "0" : "1";
   }
 
   /** Soft pink full-screen blink on getting caught — feedback, not punishment. */
@@ -1281,7 +1313,7 @@ export class GameScene {
       this.lookTarget.set(cx, 0, cz);
     } else {
       const [dx, dz] = DIR_VECT[this.pac.dir];
-      const selfie = this.shiftHeld || this.selfieOn;
+      const selfie = this.shiftHeld || this.selfieOn || this.pad.isButtonDown("lb");
       const back = selfie ? CAM_BACK : -CAM_BACK;
       this.camTarget.set(this.pac.x + dx * back, CAM_HEIGHT, this.pac.z + dz * back);
       const ahead = selfie ? -CAM_SELFIE_LOOK_BACK : CAM_LOOK_AHEAD;

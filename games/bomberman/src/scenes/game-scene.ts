@@ -1,5 +1,5 @@
-import { notifyGameStarted } from "@repo/embed";
-import { attachVirtualGamepad, stickDirection4 } from "@vibedgames/gamepad/phaser";
+import { notifyGameStarted, watchControlContext } from "@repo/embed";
+import { PhysicalGamepad, attachVirtualGamepad, stickDirection4 } from "@vibedgames/gamepad/phaser";
 import type { PhaserGamepad } from "@vibedgames/gamepad/phaser";
 import { MultiplayerClient } from "@vibedgames/multiplayer";
 import type { Player } from "@vibedgames/multiplayer";
@@ -37,6 +37,7 @@ import {
   type PowerupKind,
   type SharedState,
 } from "../shared/constants";
+import { startScreenText } from "../controls";
 import { now as simNow } from "../util/clock";
 
 declare global {
@@ -171,6 +172,9 @@ export class GameScene extends Phaser.Scene {
   /** Touch controls: a floating move-joystick (snapped to 4 directions) plus a
    *  fixed bomb button. Inert until the first finger lands. */
   private gamepad!: PhaserGamepad;
+  /** Physical controller: stick/d-pad move, A bombs, START restarts. */
+  private readonly pad = new PhysicalGamepad();
+  private unwatchControls: (() => void) | null = null;
   /** When we entered a restartable state (dead or round over); null while
    *  fighting. Gates tap-to-restart — see bindInput. */
   private restartableSince: number | null = null;
@@ -369,8 +373,18 @@ export class GameScene extends Phaser.Scene {
       this.netDirty = false;
       this.onUpdate();
     }
+    // The pad polls outside the `live` gate: "press any pad button to start"
+    // must work while still connecting, exactly like the keyboard listener.
+    this.pad.update();
+    if (!this.started) {
+      if (["a", "b", "x", "y", "start"].some((b) => this.pad.justPressed(b))) this.beginPlay();
+    }
     if (!this.live) return;
     this.gamepad.update(); // reconcile dropped touches + redraw the overlay
+    if (this.started) {
+      if (this.pad.justPressed("a")) this.requestBomb();
+      if (this.pad.justPressed("start")) this.requestRestart();
+    }
     this.handleInput(delta);
     this.settleMoving();
     this.updateCamera();
@@ -524,6 +538,15 @@ export class GameScene extends Phaser.Scene {
       if (this.heldKeys.right.some((key) => key.isDown)) return "right";
       if (this.heldKeys.up.some((key) => key.isDown)) return "up";
       if (this.heldKeys.down.some((key) => key.isDown)) return "down";
+    }
+    // Physical pad: d-pad first (exact), then the analog stick.
+    if (this.pad.connected) {
+      if (this.pad.isButtonDown("left")) return "left";
+      if (this.pad.isButtonDown("right")) return "right";
+      if (this.pad.isButtonDown("up")) return "up";
+      if (this.pad.isButtonDown("down")) return "down";
+      const padDir = stickDirection4(this.pad.getStick());
+      if (padDir) return padDir;
     }
     // Held touch stick, snapped to the grid's 4 directions.
     return stickDirection4(this.gamepad.getStick());
@@ -1430,10 +1453,12 @@ export class GameScene extends Phaser.Scene {
     this.startEl = document.getElementById("start");
     const controls = document.getElementById("start-controls");
     const go = document.getElementById("start-go");
-    if (controls)
-      controls.textContent = TOUCH_UI
-        ? "Drag to move\n💣 button drops a bomb\nTap to restart"
-        : "WASD / arrows — move\nSPACE — drop a bomb\nR — restart";
+    if (controls) controls.textContent = startScreenText();
+    // Plugging in a pad while the start screen is up adds its rows.
+    this.unwatchControls?.();
+    this.unwatchControls = watchControlContext(() => {
+      if (controls && !this.started) controls.textContent = startScreenText();
+    });
     if (go) go.textContent = TOUCH_UI ? "tap to start" : "press any key to start";
     this.input.keyboard?.once("keyup", () => this.beginPlay());
     // The overlay covers the canvas, so Phaser's pointer input never sees the
@@ -1444,6 +1469,8 @@ export class GameScene extends Phaser.Scene {
   private beginPlay(): void {
     if (this.started) return;
     this.started = true;
+    this.unwatchControls?.();
+    this.unwatchControls = null;
     notifyGameStarted();
     this.startEl?.classList.add("hide");
     // Drop it only after the fade, so it can't swallow taps on the way out.

@@ -304,19 +304,8 @@
     <div id="banner">
       <div id="banner-title"></div>
       <div id="banner-sub"></div>
-      <div id="legend">
-        <span
-          ><b id="legend-input-label">keys</b
-          ><span id="legend-input-text"
-            >move ←→↑↓ · rotate R · turn view Q/E · drop SPACE · soft SHIFT · hold C · power F ·
-            recenter V · sound M · pause P</span
-          ></span
-        >
-        <span
-          ><b>webcam</b>nose = move · spin = rotate · circle a hand = turn view · cross arms =
-          hold · T-pose = power · hands up = start/catch</span
-        >
-      </div>
+      <!-- rows rendered from src/controls.ts, one per visible input method -->
+      <div id="legend"></div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>

@@ -3,9 +3,11 @@
 // pose into camera-relative moves (DAS/ARR, pose-freshness ownership). main.ts
 // just boots it and renders scene + camera each frame.
 
-import { notifyGameStarted } from "@repo/embed";
+import { notifyGameStarted, watchControlContext } from "@repo/embed";
+import { PhysicalGamepad, stickDirection4 } from "@vibedgames/gamepad";
 import { Color, Scene } from "three";
 
+import { legendRows, titleSubText } from "../controls";
 import type { Cell } from "../game/board";
 import { screenToWorld, type ScreenDir } from "../game/camera-correction";
 import { Engine, type LockEvent } from "../game/engine";
@@ -52,14 +54,18 @@ export class GameScene {
   private readonly engine = new Engine();
   private readonly keyboard: Keyboard;
   private readonly touch: TouchControls;
+  private readonly pad = new PhysicalGamepad();
   private readonly coarse = isCoarsePointer();
   private poseControls: PoseControls | null = null;
+  private unwatchControls: (() => void) | null = null;
 
   // input state (screen-relative)
   private kbHoriz: -1 | 0 | 1 = 0;
   private kbDepth: -1 | 0 | 1 = 0;
   private poseHoriz: -1 | 0 | 1 = 0;
   private poseHorizAt = -1e9;
+  private padSoftDrop = false;
+  private lastPadAt = -1e9;
   private readonly hMove: Repeat = { dir: 0, das: 0, arr: 0 };
   private readonly dMove: Repeat = { dir: 0, das: 0, arr: 0 };
 
@@ -86,25 +92,33 @@ export class GameScene {
     this.keyboard = new Keyboard(this.keyboardHandlers());
     this.touch = new TouchControls(this.touchHandlers());
     document.body.classList.toggle("touch", this.coarse);
-    if (this.coarse) this.applyTouchLegend();
-    this.showBanner(
-      "TETRIS",
-      this.coarse
-        ? "lean to orbit · turn to rotate · tap to start"
-        : "lean to orbit · turn to rotate · Enter / Space to start",
-    );
+    this.renderLegend();
+    this.showBanner("TETRIS", titleSubText());
+    // Plugging in a pad on the title adds its legend row + start hint.
+    this.unwatchControls = watchControlContext(() => {
+      if (this.engine.state.status !== "title") return;
+      this.renderLegend();
+      this.showBanner("TETRIS", titleSubText());
+    });
   }
 
-  /** Swap the keyboard legend line for the touch verbs (boot-time, not on
-   *  first touch — the copy must be right before the player ever taps). */
-  private applyTouchLegend(): void {
-    const label = el("legend-input-label");
-    const text = el("legend-input-text");
-    if (label) label.textContent = "touch";
-    if (text) {
-      text.textContent =
-        "drag stick to move · ROT rotate · ⟲ ⟳ turn view · DROP tap = hard, hold = soft · HOLD swap · PWR sweep";
-    }
+  /** Rebuild the banner legend from the controls manifest, one row per
+   *  visible input method (boot-time, not on first touch — the copy must be
+   *  right before the player ever taps). */
+  private renderLegend(): void {
+    const legend = el("legend");
+    if (!legend) return;
+    legend.replaceChildren(
+      ...legendRows().map(({ label, text }) => {
+        const row = document.createElement("span");
+        const name = document.createElement("b");
+        name.textContent = label;
+        const body = document.createElement("span");
+        body.textContent = text;
+        row.append(name, body);
+        return row;
+      }),
+    );
   }
 
   get camera() {
@@ -279,6 +293,8 @@ export class GameScene {
   }
 
   private startGame(): void {
+    this.unwatchControls?.();
+    this.unwatchControls = null;
     notifyGameStarted();
     this.collapse.dispose();
     this.cubes.frozen = false;
@@ -386,6 +402,7 @@ export class GameScene {
     const now = performance.now();
     const dtMs = dt * 1000;
     this.touch.update(dtMs); // poll the gamepad before the sim tick
+    this.updatePad(now);
     const status = this.engine.state.status;
 
     if (status === "playing") {
@@ -417,9 +434,95 @@ export class GameScene {
 
   private routeSteering(dtMs: number): void {
     const poseFresh = performance.now() - this.poseHorizAt < POSE_TIMEOUT_MS;
-    const horiz: -1 | 0 | 1 = this.kbHoriz !== 0 ? this.kbHoriz : poseFresh ? this.poseHoriz : 0;
+    const pad = this.padSteer();
+    const horiz: -1 | 0 | 1 =
+      this.kbHoriz !== 0
+        ? this.kbHoriz
+        : pad.horiz !== 0
+          ? pad.horiz
+          : poseFresh
+            ? this.poseHoriz
+            : 0;
+    const depth: -1 | 0 | 1 = this.kbDepth !== 0 ? this.kbDepth : pad.depth;
     this.repeat(this.hMove, horiz, dtMs, false);
-    this.repeat(this.dMove, this.kbDepth, dtMs, true);
+    this.repeat(this.dMove, depth, dtMs, true);
+  }
+
+  /** Held pad steer (d-pad first, then left stick) on the same screen-relative
+   *  axes as the keyboard, so it feeds the shared DAS/ARR repeat state. */
+  private padSteer(): { horiz: -1 | 0 | 1; depth: -1 | 0 | 1 } {
+    if (!this.pad.connected) return { horiz: 0, depth: 0 };
+    let horiz: -1 | 0 | 1 = this.pad.isButtonDown("left")
+      ? -1
+      : this.pad.isButtonDown("right")
+        ? 1
+        : 0;
+    let depth: -1 | 0 | 1 = this.pad.isButtonDown("up")
+      ? -1
+      : this.pad.isButtonDown("down")
+        ? 1
+        : 0;
+    if (horiz === 0 && depth === 0) {
+      const dir = stickDirection4(this.pad.getStick());
+      if (dir === "left") horiz = -1;
+      else if (dir === "right") horiz = 1;
+      else if (dir === "up") depth = -1;
+      else if (dir === "down") depth = 1;
+    }
+    if (horiz !== 0 || depth !== 0) this.lastPadAt = performance.now();
+    return { horiz, depth };
+  }
+
+  /** Physical controller: poll once per frame and drive the same verbs as the
+   *  keyboard (steering merges into routeSteering's DAS/ARR while playing). */
+  private updatePad(now: number): void {
+    this.pad.update();
+    if (!this.pad.connected) return;
+    const status = this.engine.state.status;
+    if (status === "title" || status === "gameOver") {
+      // Any face button starts, mirroring Enter / the free tap.
+      if (["a", "b", "x", "y"].some((b) => this.pad.justPressed(b))) {
+        this.lastPadAt = now;
+        this.startGame();
+      }
+      return;
+    }
+    let acted = false;
+    if (this.pad.justPressed("start")) {
+      this.togglePause();
+      acted = true;
+    }
+    if (this.pad.justPressed("a")) {
+      this.doRotate();
+      acted = true;
+    }
+    if (this.pad.justPressed("b")) {
+      this.onHardDrop(); // Space semantics: hard drop, or catch while collapsing
+      acted = true;
+    }
+    if (this.pad.justPressed("x")) {
+      this.doHold();
+      acted = true;
+    }
+    if (this.pad.justPressed("y")) {
+      this.doPower();
+      acted = true;
+    }
+    if (this.pad.justPressed("lb")) {
+      this.doOrbit(-1);
+      acted = true;
+    }
+    if (this.pad.justPressed("rb")) {
+      this.doOrbit(1);
+      acted = true;
+    }
+    const soft = this.pad.isButtonDown("lt") || this.pad.isButtonDown("rt");
+    if (soft !== this.padSoftDrop) {
+      this.padSoftDrop = soft;
+      this.engine.setSoftDrop(soft);
+      acted = true;
+    }
+    if (acted) this.lastPadAt = now;
   }
 
   private repeat(state: Repeat, dir: -1 | 0 | 1, dtMs: number, depthAxis: boolean): void {
@@ -499,11 +602,16 @@ export class GameScene {
         node.textContent = charge >= 100 ? full : `POWER ${charge}%`;
       }
     }
-    const owner = now - this.lastPoseAt < POSE_TIMEOUT_MS ? "POSE" : "KEYS";
+    const poseFresh = now - this.lastPoseAt < POSE_TIMEOUT_MS;
+    const padFresh = now - this.lastPadAt < POSE_TIMEOUT_MS;
+    const owner =
+      poseFresh && this.lastPoseAt >= this.lastPadAt ? "POSE" : padFresh ? "PAD" : "KEYS";
     if (owner !== this.hudOwner) {
       this.hudOwner = owner;
       const node = el("input-owner");
-      if (node) node.textContent = owner === "POSE" ? "● POSE" : "○ KEYS";
+      if (node) {
+        node.textContent = owner === "POSE" ? "● POSE" : owner === "PAD" ? "● PAD" : "○ KEYS";
+      }
     }
   }
 

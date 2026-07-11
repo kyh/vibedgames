@@ -1,15 +1,11 @@
 import { safeAreaInset } from "@vibedgames/gamepad";
-import { notifyGameStarted } from "@repo/embed";
+import { notifyGameStarted, watchControlContext } from "@repo/embed";
 import Phaser from "phaser";
 
+import { menuControlsText } from "../controls";
 import { HEROES } from "../data/heroes";
 import { FONT } from "../render/font";
 import { heroSheetTex } from "../render/sprites";
-
-/** Coarse-pointer detection at boot, so copy is input-aware before any touch. */
-export function touchDevice(): boolean {
-  return window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
-}
 
 export class MenuScene extends Phaser.Scene {
   private selected = "ironvow";
@@ -18,6 +14,7 @@ export class MenuScene extends Phaser.Scene {
   private detailName!: Phaser.GameObjects.Text;
   private compactH = false; // short viewports (landscape phones) drop the blurb
   private relayout: Phaser.Time.TimerEvent | null = null;
+  private unwatchControls: (() => void) | null = null;
 
   constructor() {
     super("Menu");
@@ -45,7 +42,6 @@ export class MenuScene extends Phaser.Scene {
 
     const W = this.scale.width;
     const H = this.scale.height;
-    const touch = touchDevice();
     const inset = safeAreaInset();
     this.compactH = H < 520;
     this.cameras.main.setBackgroundColor("#47aba9");
@@ -57,6 +53,8 @@ export class MenuScene extends Phaser.Scene {
       this.scale.off(Phaser.Scale.Events.RESIZE, this.queueRelayout, this);
       this.relayout?.remove();
       this.relayout = null;
+      this.unwatchControls?.();
+      this.unwatchControls = null;
     });
 
     // backdrop: open water, slowly drifting, with rocks and clouds
@@ -232,24 +230,21 @@ export class MenuScene extends Phaser.Scene {
     mkBtn(stack ? W / 2 : W / 2 - 150, stack ? btnY - 74 : btnY, "PLAY vs BOTS", "blue", false);
     mkBtn(stack ? W / 2 : W / 2 + 150, btnY, "PLAY ONLINE", "red", true);
     // The only place controls are taught — the match HUD carries no hint bar.
-    this.add
-      .text(
-        W / 2,
-        btnY + 46,
-        touch
-          ? "Drag to move · 2nd finger attacks · tap an ability to cast · SHOP and SCORES buttons"
-          : "Arrows move · Q W E R abilities (aim by facing, Shift+key levels) · Space attack · F dash · 1-6 items · B shop · Tab scores · M mute",
-        {
-          fontFamily: FONT,
-          fontSize: stack ? "10px" : "12px",
-          color: "#dff5f3",
-          stroke: "#1e3a38",
-          strokeThickness: 3,
-          align: "center",
-          wordWrap: { width: W - 40 },
-        },
-      )
+    const controlsLine = this.add
+      .text(W / 2, btnY + 46, menuControlsText(), {
+        fontFamily: FONT,
+        fontSize: stack ? "10px" : "12px",
+        color: "#dff5f3",
+        stroke: "#1e3a38",
+        strokeThickness: 3,
+        align: "center",
+        wordWrap: { width: W - 40 },
+      })
       .setOrigin(0.5);
+    // Plugging in (or pulling) a pad while the menu is up updates the line.
+    // Scene instance is reused — drop any stale subscription before adding one.
+    this.unwatchControls?.();
+    this.unwatchControls = watchControlContext(() => controlsLine.setText(menuControlsText()));
 
     this.select(this.selected);
   }

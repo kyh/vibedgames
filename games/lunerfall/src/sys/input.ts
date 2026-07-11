@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 
+import { PhysicalGamepad } from "@vibedgames/gamepad/phaser";
 import type { PhaserGamepad } from "@vibedgames/gamepad/phaser";
 
 // One frame's worth of intent. `*Pressed` are edge-triggered (true only the
@@ -29,9 +30,14 @@ const STICK_Y = 0.55;
 export class Input {
   private keys: Record<string, Phaser.Input.Keyboard.Key> = {};
   private pad?: PhaserGamepad;
+  // Physical controller — same read API as the virtual pad, polled explicitly.
+  private phys = new PhysicalGamepad();
 
   constructor(scene: Phaser.Scene, pad?: PhaserGamepad) {
     this.pad = pad;
+    // Prime the pad state so a button held across a scene change (A just
+    // confirmed the hub's "descend") doesn't read as a fresh press on frame 1.
+    this.phys.update();
     const kb = scene.input.keyboard;
     if (!kb) return;
     const add = (name: string, code: number) => {
@@ -63,9 +69,18 @@ export class Input {
     return k ? Phaser.Input.Keyboard.JustDown(k) : false;
   }
 
-  // Merge keyboard + virtual gamepad. The gamepad's edges are published by its
-  // per-frame update() (called by the scene before sampling), and reading them
-  // is idempotent within a frame — only Phaser's JustDown is consume-on-read.
+  // Poll the physical pad and publish its press edges. The scene loop calls
+  // this exactly once per frame (next to the virtual pad's update()), before
+  // any sample() — never from sample() itself, so a second sample in a frame
+  // could never eat an edge.
+  update(): void {
+    this.phys.update();
+  }
+
+  // Merge keyboard + virtual gamepad + physical controller. Both pads publish
+  // edges from their per-frame update() (called by the scene before sampling),
+  // and reading them is idempotent within a frame — only Phaser's JustDown is
+  // consume-on-read.
   sample(): InputState {
     const gp = this.pad;
     let sx = 0;
@@ -75,10 +90,35 @@ export class Input {
       sx = Math.cos(stick.angle) * stick.magnitude;
       sy = Math.sin(stick.angle) * stick.magnitude; // screen-space: +y is down
     }
-    const left = this.held("a") || this.held("left") || sx < -STICK_X;
-    const right = this.held("d") || this.held("right") || sx > STICK_X;
-    const up = this.held("w") || this.held("up") || sy < -STICK_Y;
-    const down = this.held("s") || this.held("down") || sy > STICK_Y;
+    // Physical left stick: raw axes, same thresholds as the virtual stick
+    // (STICK_X/STICK_Y); the d-pad is the digital equivalent.
+    const ps = this.phys.getStick();
+    const px = ps.inDeadZone ? 0 : ps.dx;
+    const py = ps.inDeadZone ? 0 : ps.dy;
+    const left =
+      this.held("a") ||
+      this.held("left") ||
+      sx < -STICK_X ||
+      px < -STICK_X ||
+      this.phys.isButtonDown("left");
+    const right =
+      this.held("d") ||
+      this.held("right") ||
+      sx > STICK_X ||
+      px > STICK_X ||
+      this.phys.isButtonDown("right");
+    const up =
+      this.held("w") ||
+      this.held("up") ||
+      sy < -STICK_Y ||
+      py < -STICK_Y ||
+      this.phys.isButtonDown("up");
+    const down =
+      this.held("s") ||
+      this.held("down") ||
+      sy > STICK_Y ||
+      py > STICK_Y ||
+      this.phys.isButtonDown("down");
     return {
       left,
       right,
@@ -88,16 +128,26 @@ export class Input {
         this.held("space") ||
         this.held("w") ||
         this.held("up") ||
-        (gp?.isButtonDown("jump") ?? false),
+        (gp?.isButtonDown("jump") ?? false) ||
+        this.phys.isButtonDown("a"),
       jumpPressed:
         this.justDown("space") ||
         this.justDown("w") ||
         this.justDown("up") ||
-        (gp?.justPressed("jump") ?? false),
+        (gp?.justPressed("jump") ?? false) ||
+        this.phys.justPressed("a"),
       dashPressed:
-        this.justDown("shift") || this.justDown("l") || (gp?.justPressed("dash") ?? false),
-      attackPressed: this.justDown("j") || this.justDown("x") || (gp?.justPressed("atk") ?? false),
-      specialPressed: this.justDown("k") || (gp?.justPressed("sp") ?? false),
+        this.justDown("shift") ||
+        this.justDown("l") ||
+        (gp?.justPressed("dash") ?? false) ||
+        this.phys.justPressed("b"),
+      attackPressed:
+        this.justDown("j") ||
+        this.justDown("x") ||
+        (gp?.justPressed("atk") ?? false) ||
+        this.phys.justPressed("x"),
+      specialPressed:
+        this.justDown("k") || (gp?.justPressed("sp") ?? false) || this.phys.justPressed("y"),
     };
   }
 }

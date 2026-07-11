@@ -1,10 +1,14 @@
 import Phaser from "phaser";
+import { watchControlContext } from "@repo/embed";
+import { PhysicalGamepad } from "@vibedgames/gamepad";
 import { hasSave, clearSave } from "../systems/save";
 import { Sound } from "../render/audio";
-import { isTouchDevice } from "../systems/touch";
+import { titleHintText } from "../controls";
 
 export class TitleScene extends Phaser.Scene {
   private onResize?: (gs: Phaser.Structs.Size) => void;
+  private readonly pad = new PhysicalGamepad();
+  private unwatchControls?: () => void;
 
   constructor() {
     super("Title");
@@ -56,22 +60,24 @@ export class TitleScene extends Phaser.Scene {
     const newBtn = this.makeButton("🌱  New Farm", "#5fae3a");
     const contBtn = this.makeButton("☀  Continue", "#3a86c8");
     const hint = this.add
-      .text(
-        0,
-        0,
-        isTouchDevice()
-          ? "drag the stick to move · tap a square to use your tool · tap the hotbar to switch tools"
-          : "WASD / arrows move · E / Space / click use tool · 1–9 select · I inventory · M sound",
-        {
-          fontFamily: "ui-monospace, monospace",
-          fontSize: "14px",
-          color: "#dfeccc",
-          align: "center",
-          wordWrap: { width: this.scale.width - 40 },
-        },
-      )
+      .text(0, 0, titleHintText(), {
+        fontFamily: "ui-monospace, monospace",
+        fontSize: "14px",
+        color: "#dfeccc",
+        align: "center",
+        wordWrap: { width: this.scale.width - 40 },
+      })
       .setOrigin(0.5)
       .setAlpha(0.85);
+    // Plugging in (or unplugging) a pad while the title is up updates the hint.
+    // Scene instances persist across start/stop — drop any stale subscription
+    // before adding this run's, and tear it down on shutdown.
+    this.unwatchControls?.();
+    this.unwatchControls = watchControlContext(() => hint.setText(titleHintText()));
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.unwatchControls?.();
+      this.unwatchControls = undefined;
+    });
 
     const save = hasSave();
     contBtn.container.setAlpha(save ? 1 : 0.35);
@@ -108,6 +114,16 @@ export class TitleScene extends Phaser.Scene {
       hint.setPosition(cx, h - (compact ? 14 : 38));
     };
     layout();
+  }
+
+  // A on a physical pad confirms, like ENTER: continue when a save exists,
+  // else start fresh.
+  override update(): void {
+    this.pad.update();
+    if (this.pad.justPressed("a")) {
+      if (hasSave()) this.scene.start("Game", { mode: "continue" });
+      else this.startNew();
+    }
   }
 
   private startNew(): void {
