@@ -33,7 +33,108 @@ const METHOD_LABEL: Record<ControlMethod, string> = {
   controller: "CONTROLLER",
 };
 
+// The control-card language shared by BOTH instruction surfaces — the pause
+// tablet and the lobby's help block: gold keycap chips, method headers, the
+// key→action grid. Injected via ensureControlCardStyle() so the menu can use
+// it without mounting the pause shell.
+const GROUP_CSS = `
+.ba-p-groups{display:flex;flex-wrap:wrap;gap:16px 30px;justify-content:center;align-items:center;
+  margin:20px 4px 4px;text-align:left}
+.ba-p-g{min-width:206px;flex:0 1 auto}
+.ba-p-gt{font:800 10px ui-monospace,monospace;letter-spacing:.26em;text-align:center;
+  color:rgba(255,210,74,.62);border-bottom:1px solid rgba(255,210,74,.18);
+  padding-bottom:5px;margin-bottom:9px}
+.ba-p-rows{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center}
+.ba-p-k{justify-self:end;font:800 10px ui-monospace,monospace;color:#ffd24a;
+  background:rgba(10,14,24,.92);border:1px solid rgba(255,255,255,.3);border-radius:4px;
+  padding:2px 6px;white-space:nowrap}
+.ba-p-a{font:600 11px ui-monospace,monospace;color:#e8e2d4;opacity:.78}
+/* Compact strip variant (the lobby): same chips and method headers, flowing
+   inline instead of stacking into a card. */
+.ba-p-strip{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:7px 16px}
+.ba-p-strip .ba-p-gt{border-bottom:none;margin:0;padding:0 2px}
+.ba-p-e{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+@media (max-width:520px){
+  .ba-p-g{min-width:0;width:100%}
+  .ba-p-groups{gap:12px}
+}`;
+
+const CONTROL_STYLE_ID = "ba-controls-style";
+
+/** Inject the shared control-card styles (pause tablet AND lobby help). */
+export function ensureControlCardStyle(): void {
+  if (document.getElementById(CONTROL_STYLE_ID)) return;
+  const style = document.createElement("style");
+  style.id = CONTROL_STYLE_ID;
+  style.textContent = GROUP_CSS;
+  document.head.append(style);
+}
+
+/**
+ * The grouped keycap card the pause tablet renders — method columns of
+ * key→action rows. Null when nothing is visible for the current context.
+ */
+export function buildControlsCard(coarse: boolean): HTMLElement | null {
+  const groups = controlGroups(CONTROLS, { coarse });
+  if (groups.length === 0) return null;
+  const wrap = document.createElement("div");
+  wrap.className = "ba-p-groups";
+  for (const group of groups) {
+    const g = document.createElement("div");
+    g.className = "ba-p-g";
+    const gt = document.createElement("div");
+    gt.className = "ba-p-gt";
+    gt.textContent = METHOD_LABEL[group.method];
+    const rows = document.createElement("div");
+    rows.className = "ba-p-rows";
+    for (const entry of group.entries) {
+      const key = document.createElement("span");
+      key.className = "ba-p-k";
+      key.textContent = entry.input;
+      const action = document.createElement("span");
+      action.className = "ba-p-a";
+      action.textContent = entry.action;
+      rows.append(key, action);
+    }
+    g.append(gt, rows);
+    wrap.append(g);
+  }
+  return wrap;
+}
+
+/**
+ * The compact inline variant for the lobby: the same method headers and gold
+ * keycap chips as the pause tablet, flowing as one wrapped strip so it never
+ * crowds champion select. Null when nothing is visible.
+ */
+export function buildControlsStrip(coarse: boolean): HTMLElement | null {
+  const groups = controlGroups(CONTROLS, { coarse });
+  if (groups.length === 0) return null;
+  const strip = document.createElement("div");
+  strip.className = "ba-p-strip";
+  for (const group of groups) {
+    const gt = document.createElement("span");
+    gt.className = "ba-p-gt";
+    gt.textContent = METHOD_LABEL[group.method];
+    strip.append(gt);
+    for (const entry of group.entries) {
+      const item = document.createElement("span");
+      item.className = "ba-p-e";
+      const key = document.createElement("span");
+      key.className = "ba-p-k";
+      key.textContent = entry.input;
+      const action = document.createElement("span");
+      action.className = "ba-p-a";
+      action.textContent = entry.action;
+      item.append(key, action);
+      strip.append(item);
+    }
+  }
+  return strip;
+}
+
 // Positioning/z-index/fade live on the shell's root — visuals only here.
+// (Control-card rules live in GROUP_CSS above, shared with the lobby.)
 const CSS = `
 .ba-pause{display:flex;align-items:center;justify-content:center;
   padding:20px;
@@ -59,23 +160,10 @@ const CSS = `
   background:linear-gradient(90deg,rgba(255,210,74,.55),transparent)}
 .ba-p-sub{font:600 11px ui-monospace,monospace;letter-spacing:.2em;text-transform:uppercase;
   color:#d8a052}
-.ba-p-groups{display:flex;flex-wrap:wrap;gap:16px 30px;justify-content:center;align-items:center;
-  margin:20px 4px 4px;text-align:left}
-.ba-p-g{min-width:206px;flex:0 1 auto}
-.ba-p-gt{font:800 10px ui-monospace,monospace;letter-spacing:.26em;text-align:center;
-  color:rgba(255,210,74,.62);border-bottom:1px solid rgba(255,210,74,.18);
-  padding-bottom:5px;margin-bottom:9px}
-.ba-p-rows{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center}
-.ba-p-k{justify-self:end;font:800 10px ui-monospace,monospace;color:#ffd24a;
-  background:rgba(10,14,24,.92);border:1px solid rgba(255,255,255,.3);border-radius:4px;
-  padding:2px 6px;white-space:nowrap}
-.ba-p-a{font:600 11px ui-monospace,monospace;opacity:.78}
 .ba-p-hint{margin-top:16px;font:700 10px ui-monospace,monospace;letter-spacing:.16em;
   text-transform:uppercase;opacity:.5}
 @media (max-width:520px){
   .ba-p-panel{padding:20px 16px 16px}
-  .ba-p-g{min-width:0;width:100%}
-  .ba-p-groups{gap:12px}
 }`;
 
 /**
@@ -105,6 +193,7 @@ export function createPauseOverlay(opts: PauseOverlayOpts = {}): PauseOverlay {
 }
 
 function renderPanel(overlay: HTMLElement, opts: PauseOverlayOpts): void {
+  ensureControlCardStyle();
   const coarse = window.matchMedia("(pointer: coarse)").matches;
   const live = opts.isLive?.() ?? false;
 
@@ -125,32 +214,8 @@ function renderPanel(overlay: HTMLElement, opts: PauseOverlayOpts): void {
 
   panel.append(title, rule, sub);
 
-  const groups = controlGroups(CONTROLS, { coarse });
-  if (groups.length > 0) {
-    const wrap = document.createElement("div");
-    wrap.className = "ba-p-groups";
-    for (const group of groups) {
-      const g = document.createElement("div");
-      g.className = "ba-p-g";
-      const gt = document.createElement("div");
-      gt.className = "ba-p-gt";
-      gt.textContent = METHOD_LABEL[group.method];
-      const rows = document.createElement("div");
-      rows.className = "ba-p-rows";
-      for (const entry of group.entries) {
-        const key = document.createElement("span");
-        key.className = "ba-p-k";
-        key.textContent = entry.input;
-        const action = document.createElement("span");
-        action.className = "ba-p-a";
-        action.textContent = entry.action;
-        rows.append(key, action);
-      }
-      g.append(gt, rows);
-      wrap.append(g);
-    }
-    panel.append(wrap);
-  }
+  const card = buildControlsCard(coarse);
+  if (card) panel.append(card);
 
   const hint = document.createElement("div");
   hint.className = "ba-p-hint";

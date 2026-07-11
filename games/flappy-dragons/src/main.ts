@@ -47,8 +47,14 @@ document.addEventListener("visibilitychange", () => {
 });
 
 // Webcam pose-jump (legacy signature feature): detected physical jumps route
-// into the scene through the same path as tap/keyboard input.
+// into the scene through the same path as tap/keyboard input — EXCEPT while
+// wrapper-paused. Pose events aren't DOM input, so neither the pause overlay
+// nor the embed key gate can block them; ungated, a jump in front of the
+// camera would flap (or worse, restart into a fresh countdown) behind the
+// PAUSED screen.
+let wrapperPaused = false;
 const poseJump: PoseJumpHandler = (strength, refire) => {
+  if (wrapperPaused) return;
   const scene = game.scene.getScene("Game");
   if (game.scene.isActive("Game") && scene instanceof GameScene) {
     scene.poseJump(strength, refire);
@@ -71,6 +77,7 @@ let froze = false;
 const pauseOverlay = createFlappyPauseOverlay(CONTROLS);
 setPauseHandlers({
   onPause: () => {
+    wrapperPaused = true;
     pauseOverlay.show();
     gameScene()?.setCountdownPaused(true);
     if (gameScene()?.isOnline() ?? false) return;
@@ -79,6 +86,7 @@ setPauseHandlers({
     game.sound.pauseAll();
   },
   onResume: () => {
+    wrapperPaused = false;
     pauseOverlay.hide();
     gameScene()?.setCountdownPaused(false);
     if (!froze) return;

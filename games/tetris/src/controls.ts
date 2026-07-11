@@ -1,4 +1,4 @@
-import { activeMethods, controlGroups } from "@repo/embed";
+import { activeMethods } from "@repo/embed";
 import type { ControlMethod, ControlsManifest } from "@repo/embed";
 
 // Every way to play, one list — the title legend and the pause overlay both
@@ -45,14 +45,6 @@ export const METHOD_LABEL: Record<ControlMethod, string> = {
   camera: "webcam",
   controller: "pad",
 };
-
-/** Title-legend rows, one per visible method ("keys · move ←→↑↓ · …"). */
-export function legendRows(): readonly { label: string; text: string }[] {
-  return controlGroups(CONTROLS).map((group) => ({
-    label: METHOD_LABEL[group.method],
-    text: group.entries.map((entry) => `${entry.action} ${entry.input}`).join(" · "),
-  }));
-}
 
 /** Title-banner sub line: the headline camera verbs plus how to start. */
 export function titleSubText(): string {

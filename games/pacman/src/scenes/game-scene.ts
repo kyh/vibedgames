@@ -20,7 +20,9 @@ import type { Dir4 } from "@vibedgames/gamepad";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 
 import { music, sfx } from "../audio/sfx";
-import { restartHint, titleControlsText } from "../controls";
+import { restartHint } from "../controls";
+import { IS_TOUCH } from "../input/input-mode";
+import { buildControls, ensureStyle as ensureControlsStyle } from "../pause-overlay";
 import { FxPool } from "../render/fx-pool";
 import { buildHeartGeometry } from "../render/heart";
 import type { PelletCell } from "../render/pellet-field";
@@ -261,6 +263,7 @@ export class GameScene {
   private bannerEl = el("banner");
   private bannerTitleEl = el("banner-title");
   private bannerSubEl = el("banner-sub");
+  private bannerControlsEl = el("banner-controls");
   private flashEl = el("flash");
   private selfieBtnEl = el("btn-selfie");
   private restartBtnEl = el("btn-restart");
@@ -1167,12 +1170,14 @@ export class GameScene {
     }
   }
 
-  /** Banner copy, sourced from the controls manifest (../controls). Split from
-   *  setPhase so a pad connect/disconnect re-renders the instructions without
-   *  replaying the phase's pop/confetti/sfx. */
+  /** Banner copy. Split from setPhase so a pad connect/disconnect re-renders
+   *  the instructions without replaying the phase's pop/confetti/sfx. The
+   *  title phase teaches controls with the SAME grouped chip card the pause
+   *  overlay renders (../pause-overlay buildControls); win/gameover keep their
+   *  short prose state lines. */
   private renderBanner(): void {
     const texts: Record<Phase, readonly [string, string]> = {
-      title: ["PAC·MAN", titleControlsText()],
+      title: ["PAC·MAN", ""],
       ready: ["READY?", ""],
       playing: ["", ""],
       win: ["MAZE CLEAR!", `every crumb tidied up ♥ chomp or ${restartHint()} to play again`],
@@ -1181,6 +1186,13 @@ export class GameScene {
     const [title, sub] = texts[this.phase];
     this.bannerTitleEl.textContent = title;
     this.bannerSubEl.textContent = sub;
+    if (this.phase === "title") {
+      ensureControlsStyle();
+      const card = buildControls(IS_TOUCH);
+      this.bannerControlsEl.replaceChildren(...(card ? [card] : []));
+    } else {
+      this.bannerControlsEl.replaceChildren();
+    }
     this.bannerEl.style.opacity = title === "" ? "0" : "1";
   }
 

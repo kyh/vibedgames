@@ -152,30 +152,36 @@ const CSS = `
   color: var(--blush);
 }
 
-/* Controls — grouped by input method under a pellet-trail divider. */
-#pacman-pause .pp-groups {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 2px dotted rgba(242, 126, 157, 0.35);
+/* Controls — grouped by input method. Deliberately NOT scoped under
+   #pacman-pause: the title banner renders the same card (buildControls), so
+   the two teaching surfaces share these styles by construction. */
+.pp-groups {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
-#pacman-pause .pp-group-label {
+/* The pellet-trail divider belongs to the pause card only — on the title
+   banner the card sits in its own plush pill, no divider needed. */
+#pacman-pause .pp-groups {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 2px dotted rgba(242, 126, 157, 0.35);
+}
+.pp-group-label {
   margin-bottom: 6px;
   font: 700 10px/1 var(--round-font);
   letter-spacing: 0.24em;
   text-transform: uppercase;
   color: var(--ink-soft);
 }
-#pacman-pause .pp-grid {
+.pp-grid {
   display: grid;
   grid-template-columns: auto auto;
   gap: 6px 12px;
   align-items: center;
   justify-content: center;
 }
-#pacman-pause .pp-chip {
+.pp-chip {
   justify-self: end;
   padding: 3px 10px;
   border-radius: 999px;
@@ -185,7 +191,7 @@ const CSS = `
   color: var(--ink);
   white-space: nowrap;
 }
-#pacman-pause .pp-action {
+.pp-action {
   justify-self: start;
   font: 600 12.5px/1.4 var(--round-font);
   color: var(--ink);
@@ -219,12 +225,42 @@ const CSS = `
 }
 `;
 
-function ensureStyle(): void {
+/** Inject the shared control-card styles (pause overlay AND title banner). */
+export function ensureStyle(): void {
   if (document.getElementById(STYLE_ID)) return;
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = CSS;
   document.head.append(style);
+}
+
+/**
+ * The grouped chip rows both instruction surfaces render — the title banner
+ * and the pause overlay teach controls with the SAME UI. Null when nothing is
+ * visible for the current device/pad context.
+ */
+export function buildControls(coarse: boolean): HTMLElement | null {
+  const groups = controlGroups(CONTROLS, { coarse });
+  if (groups.length === 0) return null;
+  const list = document.createElement("div");
+  list.className = "pp-groups";
+  for (const group of groups) {
+    const section = document.createElement("div");
+    const label = div("pp-group-label", section);
+    label.textContent = METHOD_LABELS[group.method];
+    const grid = div("pp-grid", section);
+    for (const entry of group.entries) {
+      const chip = document.createElement("span");
+      chip.className = "pp-chip";
+      chip.textContent = entry.input;
+      const action = document.createElement("span");
+      action.className = "pp-action";
+      action.textContent = entry.action;
+      grid.append(chip, action);
+    }
+    list.append(section);
+  }
+  return list;
 }
 
 function div(className: string, parent: HTMLElement): HTMLDivElement {
@@ -271,26 +307,8 @@ const shell = createPauseShell({
     const sub = div("pp-sub", card);
     sub.textContent = "taking a little breather ♥";
 
-    const groups = controlGroups(CONTROLS, { coarse });
-    if (groups.length > 0) {
-      const list = div("pp-groups", card);
-      for (const group of groups) {
-        const section = document.createElement("div");
-        const label = div("pp-group-label", section);
-        label.textContent = METHOD_LABELS[group.method];
-        const grid = div("pp-grid", section);
-        for (const entry of group.entries) {
-          const chip = document.createElement("span");
-          chip.className = "pp-chip";
-          chip.textContent = entry.input;
-          const action = document.createElement("span");
-          action.className = "pp-action";
-          action.textContent = entry.action;
-          grid.append(chip, action);
-        }
-        list.append(section);
-      }
-    }
+    const list = buildControls(coarse);
+    if (list) card.append(list);
 
     const hint = div("pp-hint", card);
     hint.textContent = coarse ? "tap anywhere to resume" : "click or press any key to resume";

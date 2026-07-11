@@ -1,5 +1,5 @@
 import { controlGroups } from "@repo/embed";
-import type { ControlsManifest } from "@repo/embed";
+import type { ControlMethod, ControlsManifest } from "@repo/embed";
 
 // Every way to drive, one list — the landing banner and the pause overlay
 // both render from this (filtered per device / connected pad by @repo/embed).
@@ -20,17 +20,27 @@ export const CONTROLS: ControlsManifest = [
   { method: "controller", input: "B / RB", action: "boost" },
 ];
 
-/** Landing-banner keycap rows: just the verbs (no mute), inputs for the same
- *  verb merged into one chip group across visible methods. */
-export function bannerControls(): { keys: string[]; label: string }[] {
-  const rows = new Map<string, string[]>();
+/** Group captions, in the game's clipped arcade register — shared by the
+ *  landing banner and the pause overlay. */
+export const METHOD_TAG: Record<ControlMethod, string> = {
+  keys: "KEYS",
+  mouse: "MOUSE",
+  touch: "TOUCH",
+  camera: "CAM",
+  controller: "PAD",
+};
+
+/** Landing-banner keycap rows: just the verbs (no mute), grouped per visible
+ *  input method under the pause overlay's KEYS/TOUCH/PAD tags. */
+export function bannerControls(): { tag: string; hints: { keys: string[]; label: string }[] }[] {
+  const groups: { tag: string; hints: { keys: string[]; label: string }[] }[] = [];
   for (const group of controlGroups(CONTROLS)) {
+    const hints: { keys: string[]; label: string }[] = [];
     for (const entry of group.entries) {
       if (entry.action === "mute") continue;
-      const keys = rows.get(entry.action) ?? [];
-      for (const key of entry.input.split(" / ")) if (!keys.includes(key)) keys.push(key);
-      rows.set(entry.action, keys);
+      hints.push({ keys: entry.input.split(" / "), label: entry.action });
     }
+    if (hints.length > 0) groups.push({ tag: METHOD_TAG[group.method], hints });
   }
-  return Array.from(rows, ([label, keys]) => ({ keys, label }));
+  return groups;
 }

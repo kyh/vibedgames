@@ -1,4 +1,3 @@
-import { controlHints } from "@repo/embed";
 import type { ControlsManifest } from "@repo/embed";
 
 // Every way to play, one list — the hub blurb and the pause overlay both
@@ -24,13 +23,3 @@ export const CONTROLS: ControlsManifest = [
   { method: "controller", input: "X", action: "attack" },
   { method: "controller", input: "Y", action: "special" },
 ];
-
-/** Hub blurb line ("WASD move · SPACE jump · …") from whatever inputs are
- *  live right now. Mute stays off it — it's run copy, and touch has a
- *  dedicated sound button on the hub. */
-export function runControlsText(): string {
-  return controlHints(CONTROLS)
-    .filter(([, action]) => action !== "mute")
-    .map(([input, action]) => `${input} ${action}`)
-    .join(" · ");
-}

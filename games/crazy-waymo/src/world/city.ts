@@ -7,6 +7,7 @@ import {
   BUILDINGS_INDUSTRIAL,
   BUILDINGS_SKYSCRAPER,
   BUILDINGS_SUBURBAN,
+  KK_BUILDINGS,
   modelUrl,
   TREE_LARGE,
   TREE_SMALL,
@@ -90,6 +91,9 @@ const BUILDING_FRONT_OFFSET = Math.PI;
 // Hillside foundations: concrete plinth under buildings on a grade.
 const PLINTH_GEO = new THREE.BoxGeometry(1, 1, 1);
 const PLINTH_MAT = new THREE.MeshStandardMaterial({ color: 0xb3aca0, roughness: 1 });
+// The mid-rise KayKit blocks (aspect ~0.8-1.2); c/d/g/h are 3-story towers
+// that would loom over a suburban row.
+const KK_BUILDINGS_MID = KK_BUILDINGS.filter((k) => /[abef]$/.test(k));
 
 function dirToYaw(d: Dir): number {
   // Yaw that points "toward" the given grid direction (about +Y).
@@ -420,13 +424,16 @@ export class CityModel {
         return this.rng.chance(0.55) ? BUILDINGS_SKYSCRAPER : BUILDINGS_COMMERCIAL;
       case "commercial":
       case "wharf":
-        return BUILDINGS_COMMERCIAL;
+        // KayKit blocks carry their own storefront color — a strong mix here
+        // breaks up the Kenney-commercial repetition.
+        return this.rng.chance(0.35) ? KK_BUILDINGS : BUILDINGS_COMMERCIAL;
       case "industrial":
         return BUILDINGS_INDUSTRIAL;
       case "victorian":
       case "residential":
       case "park":
-        return BUILDINGS_SUBURBAN;
+        // Occasional KayKit mid-rise = the SF corner store/apartment block.
+        return this.rng.chance(0.12) ? KK_BUILDINGS_MID : BUILDINGS_SUBURBAN;
     }
   }
 
@@ -713,7 +720,14 @@ export class CityModel {
       // Victorians go narrow and tall — the SF row-house silhouette.
       const vict = district.character === "victorian";
       const sxz = scale * (vict ? 0.75 : 1);
-      const sy = scale * this.heightScaleFor(district.character) * (vict ? 1.4 : 1);
+      let sy = scale * this.heightScaleFor(district.character) * (vict ? 1.4 : 1);
+      // Footprint-normalized scaling pancakes the wide-low models (suburban
+      // ranches are aspect ~0.5 vs ~1.1 neighbours): floor the world HEIGHT so
+      // a row reads as consistent SF two-story fabric, capped so stretched
+      // roofs stay plausible.
+      const minH = ROAD_TILE * (vict ? 0.5 : 0.42);
+      const worldH = bounds.size.y * sy;
+      if (worldH < minH) sy *= Math.min(minH / Math.max(worldH, 0.001), 1.7);
       node.scale.set(sxz, sy, sxz);
       node.rotation.y = (pose ? pose.yaw : dirToYaw(faceDir)) + BUILDING_FRONT_OFFSET;
       // Buildings stay vertical. Seat at the HIGHEST corner so the hill never
@@ -764,7 +778,12 @@ export class CityModel {
         collect(plinth);
       }
       node.position.set(wx, seatY - 0.15, wz);
-      this.tintNode(node, this.rng.pick(paletteFor(district)), tintAmountFor(district));
+      // KayKit blocks ship with authored storefront colors — a light kiss of
+      // district tint keeps rows cohesive without muddying them.
+      const tintAmt = key.startsWith("kk-building")
+        ? tintAmountFor(district) * 0.25
+        : tintAmountFor(district);
+      this.tintNode(node, this.rng.pick(paletteFor(district)), tintAmt);
       collect(node);
 
       // Solid footprint (a touch smaller than the visual so curbs are
@@ -1374,7 +1393,9 @@ export class CityModel {
         ? null
         : roadCollapseTarget(rec.mat.color, rec.mat.polygonOffset, rec.mat.vertexColors);
       if (road) {
-        bakeConstantColor(geo, road.color);
+        // Already-collapsed captures ship their own vertex colors — baking
+        // the uniform white over them would erase the paint.
+        if (!rec.color) bakeConstantColor(geo, road.color);
         const mk = `${gk}|${road.mat.uuid}|${rec.uv ? "u" : "x"}|${geo.index ? "i" : "n"}`;
         const rm = roadMerges.get(mk);
         if (rm) rm.geos.push(geo);

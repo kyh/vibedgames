@@ -122,22 +122,18 @@
       body.touch #hotkeys {
         display: none;
       }
+      /* Title legend: rows come from the pause overlay's shared groupRow
+         builder (method label + keycap chips), styled inline — this is just
+         the column layout, the pause overlay's own stacking. */
       #legend {
         margin-top: 18px;
-        text-align: center;
-        font-size: 12px;
-        line-height: 1.8;
-        letter-spacing: 0.4px;
-        color: rgba(215, 220, 240, 0.75);
-      }
-      #legend > span {
-        display: block;
-      }
-      #legend b {
-        color: #8ea2ff;
-        font-weight: 600;
-        letter-spacing: 1px;
-        margin-right: 6px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 13px;
+        max-width: min(92vw, 640px);
+        margin-left: auto;
+        margin-right: auto;
       }
       #banner {
         position: fixed;
@@ -220,10 +216,6 @@
         .preview canvas {
           width: 60px;
           height: 40px;
-        }
-        #legend {
-          font-size: 11px;
-          line-height: 1.7;
         }
         #banner-sub {
           font-size: 13px;

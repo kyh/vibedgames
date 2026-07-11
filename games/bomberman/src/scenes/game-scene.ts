@@ -37,7 +37,7 @@ import {
   type PowerupKind,
   type SharedState,
 } from "../shared/constants";
-import { startScreenText } from "../controls";
+import { buildControls, ensureStyle as ensureControlsStyle } from "../pause-overlay";
 import { now as simNow } from "../util/clock";
 
 declare global {
@@ -1453,11 +1453,19 @@ export class GameScene extends Phaser.Scene {
     this.startEl = document.getElementById("start");
     const controls = document.getElementById("start-controls");
     const go = document.getElementById("start-go");
-    if (controls) controls.textContent = startScreenText();
+    // Same grouped keycap rows the pause overlay renders — the two teaching
+    // surfaces stay visually consistent by construction.
+    ensureControlsStyle();
+    const renderControls = (): void => {
+      if (!controls) return;
+      const card = buildControls(TOUCH_UI);
+      controls.replaceChildren(...(card ? [card] : []));
+    };
+    renderControls();
     // Plugging in a pad while the start screen is up adds its rows.
     this.unwatchControls?.();
     this.unwatchControls = watchControlContext(() => {
-      if (controls && !this.started) controls.textContent = startScreenText();
+      if (!this.started) renderControls();
     });
     if (go) go.textContent = TOUCH_UI ? "tap to start" : "press any key to start";
     this.input.keyboard?.once("keyup", () => this.beginPlay());

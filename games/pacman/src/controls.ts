@@ -26,13 +26,6 @@ export const CONTROLS: ControlsManifest = [
   { method: "controller", input: "START", action: "restart" },
 ];
 
-/** Title-banner teach line: every visible binding, "input action" ·-joined. */
-export function titleControlsText(): string {
-  return controlHints(CONTROLS)
-    .map(([input, action]) => `${input} ${action}`)
-    .join(" · ");
-}
-
 /** The merged restart inputs ("R / CLICK", "TAP / ↻") for win/gameover prose. */
 export function restartHint(): string {
   const row = controlHints(CONTROLS).find(([, action]) => action === "restart");

@@ -12,7 +12,7 @@ import { CUSTOM_MAP, type FloorKind, loadLocalOverrides } from "./custom-map";
 import type { CityPlan } from "./grid";
 import type { RoadNetwork } from "./network";
 import { SIDEWALK_W } from "./roads";
-import { districtAt } from "./sf-map";
+import { districtAt, greenHillWeightAt } from "./sf-map";
 import type { Terrain } from "./terrain";
 import { landuseGreenAt, landuseSandAt } from "./sf-landuse";
 
@@ -20,9 +20,19 @@ import { landuseGreenAt, landuseSandAt } from "./sf-landuse";
 // and the main thread run EXACTLY the same code (a fork here would paint two
 // different cities).
 
-const CONCRETE = new THREE.Color(0x9a9b92);
-const SAND = new THREE.Color(0xd9c9a1);
-const PARK = new THREE.Color(0x67a86b); // matched to the KayKit tile green
+const CONCRETE = new THREE.Color(0xa6a496);
+const SAND = new THREE.Color(0xe4d2a2);
+const PARK = new THREE.Color(0x5fb163); // near the KayKit tile green, one notch punchier
+const MEADOW = new THREE.Color(0x86c46a); // sunlit two-tone partner to PARK
+const FOREST = new THREE.Color(0x4c9b57); // green-hill cover (Sutro/Twin Peaks/…)
+
+// Low-frequency organic patches (~40–90u) so grass reads as rolling two-tone
+// meadow instead of one flat green — the Mario Kart grass trick.
+function meadowPatch(x: number, z: number): number {
+  const a = Math.sin(x * 0.043 + Math.sin(z * 0.051) * 1.9);
+  const b = Math.sin(z * 0.037 + Math.sin(x * 0.029) * 1.6);
+  return 0.5 + 0.5 * a * b;
+}
 
 const gridX = (x: number): number => Math.floor((x + WORLD_HALF_X) / ROAD_TILE);
 const gridZ = (z: number): number => Math.floor((z + WORLD_HALF_Z) / ROAD_TILE);
@@ -42,16 +52,37 @@ export function makeGroundColorAt(
     into.copy(CONCRETE);
     const gx = Math.min(GRID_X - 1, Math.max(0, gridX(x)));
     const gz = Math.min(GRID_Z - 1, Math.max(0, gridZ(z)));
+    let green = 0; // how grassy this point ended up (drives the meadow patches)
     if (landuseGreenAt(gx, gz) || districtAt(gx, gz).character === "park") {
-      into.lerp(PARK, 0.8); // real OSM green space
+      green = 0.8; // real OSM green space
+      into.lerp(PARK, green);
     } else if (greenSet.has(`${gx},${gz}`)) {
-      into.lerp(PARK, 0.3); // interior lots: subtle, not lawn-prairie
+      green = 0.3; // interior lots: subtle, not lawn-prairie
+      into.lerp(PARK, green);
     }
-    if (landuseSandAt(gx, gz)) into.lerp(SAND, 0.85);
+    // Forested hills (Sutro, Twin Peaks, Davidson…): bare concrete flanks with
+    // street-mask channels read as smears from across the map — grass them.
+    const forest = greenHillWeightAt(x / WORLD_W + 0.5, z / (WORLD_HALF_Z * 2) + 0.5);
+    if (forest > 0.01) {
+      into.lerp(FOREST, forest * 0.9);
+      green = Math.max(green, forest);
+    }
+    if (landuseSandAt(gx, gz)) {
+      into.lerp(SAND, 0.85);
+      green *= 0.15;
+    }
     const painted = floorAt.get(`${gx},${gz}`);
-    if (painted === "plaza") into.copy(CONCRETE).lerp(new THREE.Color(0xffffff), 0.12);
-    else if (painted === "grass") into.copy(PARK);
-    else if (painted === "sand") into.copy(SAND);
+    if (painted === "plaza") {
+      into.copy(CONCRETE).lerp(new THREE.Color(0xffffff), 0.12);
+      green = 0;
+    } else if (painted === "grass") {
+      into.copy(PARK);
+      green = 1;
+    } else if (painted === "sand") {
+      into.copy(SAND);
+      green = 0;
+    }
+    if (green > 0.05) into.lerp(MEADOW, meadowPatch(x, z) * 0.45 * green);
     const land = terrain.landAt(x, z);
     const shore = 1 - THREE.MathUtils.smoothstep(land, 0.3, 0.55);
     if (shore > 0) {

@@ -729,18 +729,34 @@
       body.landing #touch {
         display: none;
       }
-      /* Keycap legend, below the CTA. Chips read as keys, not prose. */
+      /* Keycap legend, below the CTA. Chips read as keys, not prose; one row
+         per input method under the pause overlay's KEYS/TOUCH/PAD tags. */
       #banner-controls {
         display: flex;
-        flex-wrap: wrap;
-        justify-content: center;
+        flex-direction: column;
         align-items: center;
-        gap: 12px 18px;
+        gap: 14px;
         margin-top: 30px;
         max-width: min(680px, 92vw);
       }
       #banner-controls:empty {
         display: none;
+      }
+      #banner-controls .grp {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: center;
+        gap: 12px 18px;
+      }
+      #banner-controls .tag {
+        font:
+          700 10px/1 ui-monospace,
+          "SF Mono",
+          Menlo,
+          monospace;
+        letter-spacing: 3px;
+        color: rgba(255, 209, 71, 0.75);
       }
       #banner-controls .hint {
         display: inline-flex;

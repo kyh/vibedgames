@@ -5,6 +5,7 @@ import { Sky } from "three/addons/objects/Sky.js";
 import { ModelCache } from "../assets/loader";
 import { bannerControls } from "../controls";
 import { earlyModelUrls, lateModelUrls } from "../assets/manifest";
+import { AmbientLife } from "../fx/ambient-life";
 import { ChaseCamera } from "../fx/camera-rig";
 import { SkyClouds } from "../fx/clouds";
 import { SmashCones } from "../fx/cones";
@@ -260,6 +261,8 @@ export class GameScene {
   private cones: SmashCones | null = null;
   private parked: ParkedCars | null = null;
   private minimap: Minimap | null = null;
+  private ambient: AmbientLife | null = null;
+  private sceneFog: THREE.Fog;
 
   private sun = new THREE.DirectionalLight(0xfff2d8, 2.0);
   private sky: Sky;
@@ -388,9 +391,11 @@ export class GameScene {
       const u = su[name];
       if (u) u.value = value;
     };
-    setU("turbidity", 8);
-    setU("rayleigh", 1.8);
-    setU("mieCoefficient", 0.005);
+    // Low turbidity = the deep saturated zenith blue (hazy 8 read washed-out
+    // beige at noon); mie kept small so the sun halo stays tight.
+    setU("turbidity", 2.5);
+    setU("rayleigh", 1.1);
+    setU("mieCoefficient", 0.003);
     setU("mieDirectionalG", 0.85);
     const sunU = su.sunPosition;
     if (sunU && sunU.value instanceof THREE.Vector3) sunU.value.copy(SUN_DIR);
@@ -402,6 +407,7 @@ export class GameScene {
     // for the chunk draw-distance cull.
     const fog = new THREE.Fog(0xbcd7ea, 420, 960);
     this.scene.fog = fog;
+    this.sceneFog = fog;
 
     const hemi = new THREE.HemisphereLight(0xbfe0ff, 0x4a4a3e, 0.35);
     this.scene.add(hemi);
@@ -428,7 +434,7 @@ export class GameScene {
     // Two scrolling sine fields perturb the normal so the sky reflection
     // shimmers — reads as swell without any extra geometry or texture.
     const oceanMat = new THREE.MeshStandardMaterial({
-      color: 0x3573a4,
+      color: 0x2e7fc0,
       roughness: 0.32,
       metalness: 0.3,
     });
@@ -855,6 +861,13 @@ export class GameScene {
     this.scene.add(this.debris.group);
     this.cones = new SmashCones(this.cache, city, new Rng(777), physics);
     this.scene.add(this.cones.mesh);
+    const lifeRng = new Rng(4242);
+    this.ambient = new AmbientLife(
+      this.sceneFog,
+      (x, z) => city.heightAt(x, z),
+      () => lifeRng.range(0, 1),
+    );
+    this.scene.add(this.ambient.group);
     lap("debris+cones");
 
     // ?bake=1: download the two world artifacts (gzipped) for public/world/.
@@ -1338,6 +1351,7 @@ export class GameScene {
     this.bubbles.update(dt);
     this.hud.update(dt);
     this.fx.update(dt);
+    this.ambient?.update(dt, this.dayNight.lamp, this.sceneFog);
     this.skids?.update(dt);
     this.trails?.update(dt);
     this.shocks.update(dt);
@@ -1921,7 +1935,12 @@ export class GameScene {
     } else if (ev.kind === "dropoff") {
       const reward = this.state.dropoff(ev.tiles, ev.rideTime, tierPayMult(ev.tier));
       this.sfx.dropoff(reward.combo);
-      this.fx.burst(ev.pos.x, 1.2, ev.pos.z, 0.3, 26, 9);
+      // Confetti pop: bursts across the hue wheel + a gold ring — a paycheck
+      // should look like a party, not a dust cloud.
+      this.fx.burst(ev.pos.x, 1.2, ev.pos.z, 0.0, 9, 8);
+      this.fx.burst(ev.pos.x, 1.7, ev.pos.z, 0.33, 9, 7);
+      this.fx.burst(ev.pos.x, 2.1, ev.pos.z, 0.6, 9, 6);
+      this.shocks.fire(ev.pos.x, 1.0, ev.pos.z, 0xffd147);
       this.hud.flashTimeBonus(reward.timeBonus);
       this.hud.flash("#6bff8e", 0.22);
       this.rig.addTrauma(0.25);

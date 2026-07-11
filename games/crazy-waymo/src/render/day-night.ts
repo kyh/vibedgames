@@ -86,11 +86,14 @@ function stop(
 
 // prettier-ignore
 const STOPS: readonly Stop[] = [
+  // Day stops (Mario-Kart pass 2026-07-10): brighter exposure, big blue-sky
+  // hemisphere fill + warm ground bounce so shadow sides glow instead of
+  // going grey. Sun eased down to keep the white sidewalks from clipping.
   //    p     sunEl sunAz  lightDir       color     int   hemiSky   hemiGnd   hInt  amb   fog      near far  env   lamp  exp
-  stop(0.00,  35,   115,   dir(35, 115),  0xfff6e0, 1.9,  0xbfe0ff, 0x4a4a3e, 0.35, 0.08, 0xbcd7ea, 360, 800, 0.32, 0,    0.62),
-  stop(0.25,  50,   150,   dir(50, 150),  0xfff2d8, 2.0,  0xbfe0ff, 0x4a4a3e, 0.35, 0.08, 0xbcd7ea, 360, 800, 0.32, 0,    0.62),
-  stop(0.40,  12,   235,   dir(12, 235),  0xffc27a, 1.8,  0xffd9b0, 0x57503e, 0.30, 0.09, 0xe3c19b, 330, 760, 0.26, 0.25, 0.68),
-  stop(0.47,   2,   248,   dir(4, 248),   0xff9350, 1.25, 0xff9d70, 0x3e3a44, 0.28, 0.10, 0xcf9077, 300, 700, 0.18, 0.7,  0.70),
+  stop(0.00,  35,   115,   dir(35, 115),  0xfff6e0, 1.75, 0xa9dcff, 0x6b6852, 0.52, 0.13, 0xbfdcf2, 360, 800, 0.32, 0,    0.72),
+  stop(0.25,  50,   150,   dir(50, 150),  0xfff2d8, 1.85, 0xa9dcff, 0x6b6852, 0.52, 0.13, 0xbfdcf2, 360, 800, 0.32, 0,    0.72),
+  stop(0.40,  12,   235,   dir(12, 235),  0xffc27a, 1.7,  0xffd9b0, 0x655c44, 0.42, 0.12, 0xe3c19b, 330, 760, 0.26, 0.25, 0.74),
+  stop(0.47,   2,   248,   dir(4, 248),   0xff9350, 1.25, 0xff9d70, 0x3e3a44, 0.36, 0.10, 0xcf9077, 300, 700, 0.18, 0.7,  0.72),
   // Night floors are tuned for PHONES: a desktop panel at full brightness can
   // read a 0.3-fill scene, a dim phone outdoors cannot. Moonlight carries the
   // shape of the city; streetlight glow carries the color.
@@ -256,7 +259,9 @@ export class DayNight {
     const shadowRamp =
       THREE.MathUtils.smoothstep(lightInt, SHADOW_MIN_INT, SHADOW_MIN_INT + 0.4) *
       THREE.MathUtils.smoothstep(this.scrLight.y, SHADOW_MIN_ELEV_Y, SHADOW_MIN_ELEV_Y + 0.08);
-    sun.shadow.intensity = shadowRamp;
+    // 0.82 cap: full-black contact shadows read photographic; MK shadows stay
+    // colorful because sky fill leaks in.
+    sun.shadow.intensity = shadowRamp * 0.82;
     this.shadowsActive = shadowRamp > 0.01;
     // Faded out (night): stop re-rendering the depth map every frame — the
     // last daylight map stays bound (castShadow stays true, see above) but

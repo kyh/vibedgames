@@ -3,11 +3,12 @@
 // pose into camera-relative moves (DAS/ARR, pose-freshness ownership). main.ts
 // just boots it and renders scene + camera each frame.
 
-import { notifyGameStarted, pauseGame, watchControlContext } from "@repo/embed";
+import { controlGroups, notifyGameStarted, pauseGame, watchControlContext } from "@repo/embed";
 import { PhysicalGamepad, stickDirection4 } from "@vibedgames/gamepad";
 import { Color, Scene } from "three";
 
-import { legendRows, titleSubText } from "../controls";
+import { CONTROLS, titleSubText } from "../controls";
+import { groupRow } from "../pause-overlay";
 import type { Cell } from "../game/board";
 import { screenToWorld, type ScreenDir } from "../game/camera-correction";
 import { Engine, type LockEvent } from "../game/engine";
@@ -104,21 +105,13 @@ export class GameScene {
 
   /** Rebuild the banner legend from the controls manifest, one row per
    *  visible input method (boot-time, not on first touch — the copy must be
-   *  right before the player ever taps). */
+   *  right before the player ever taps). Rows are the pause overlay's own
+   *  method-label + keycap-chip rows, so title and pause teach with one UI. */
   private renderLegend(): void {
     const legend = el("legend");
     if (!legend) return;
-    legend.replaceChildren(
-      ...legendRows().map(({ label, text }) => {
-        const row = document.createElement("span");
-        const name = document.createElement("b");
-        name.textContent = label;
-        const body = document.createElement("span");
-        body.textContent = text;
-        row.append(name, body);
-        return row;
-      }),
-    );
+    const coarse = window.matchMedia("(pointer: coarse)").matches;
+    legend.replaceChildren(...controlGroups(CONTROLS).map((group) => groupRow(group, coarse)));
   }
 
   get camera() {
@@ -636,7 +629,7 @@ export class GameScene {
 
   private setHudMode(mode: "legend" | "hotkeys" | "none"): void {
     const legend = el("legend");
-    if (legend) legend.style.display = mode === "legend" ? "block" : "none";
+    if (legend) legend.style.display = mode === "legend" ? "flex" : "none";
     const hotkeys = el("hotkeys");
     if (hotkeys) hotkeys.style.display = mode === "hotkeys" ? "flex" : "none";
   }

@@ -182,6 +182,39 @@ function el(tag: string, className: string, text?: string): HTMLElement {
   return node;
 }
 
+/** Inject the shared control-card styles (pause overlay AND start screen).
+ *  Same STYLE_ID the pause shell uses, so whichever runs first wins. */
+export function ensureStyle(): void {
+  if (document.getElementById(STYLE_ID)) return;
+  const style = document.createElement("style");
+  style.id = STYLE_ID;
+  style.textContent = CSS;
+  document.head.append(style);
+}
+
+/**
+ * The grouped keycap rows both instruction surfaces render — the start screen
+ * and the pause overlay teach controls with the SAME UI. Null when nothing is
+ * visible for the current device/pad context.
+ */
+export function buildControls(coarse: boolean): HTMLElement | null {
+  const groups = controlGroups(CONTROLS, { coarse });
+  if (groups.length === 0) return null;
+  const controls = el("div", "sf-pause-controls");
+  for (const group of groups) {
+    controls.append(el("div", "sf-pause-method", METHOD_LABELS[group.method]));
+    const rows = el("div", "sf-pause-rows");
+    for (const entry of group.entries) {
+      rows.append(
+        el("span", "sf-pause-key", entry.input),
+        el("span", "sf-pause-action", entry.action),
+      );
+    }
+    controls.append(rows);
+  }
+  return controls;
+}
+
 /**
  * Build Starfall's pause overlay on the shared @repo/embed pause shell — the
  * shell owns resume behavior (pointerup / non-Escape keyup / fresh pad press),
@@ -211,22 +244,8 @@ function renderPanel(root: HTMLElement): void {
     el("div", "sf-pause-sub", "signal held — the battle rages on"),
   );
 
-  const groups = controlGroups(CONTROLS, { coarse });
-  if (groups.length > 0) {
-    const controls = el("div", "sf-pause-controls");
-    for (const group of groups) {
-      controls.append(el("div", "sf-pause-method", METHOD_LABELS[group.method]));
-      const rows = el("div", "sf-pause-rows");
-      for (const entry of group.entries) {
-        rows.append(
-          el("span", "sf-pause-key", entry.input),
-          el("span", "sf-pause-action", entry.action),
-        );
-      }
-      controls.append(rows);
-    }
-    panel.append(controls);
-  }
+  const controls = buildControls(coarse);
+  if (controls) panel.append(controls);
 
   panel.append(
     el("div", "sf-pause-resume", coarse ? "tap to resume" : "click or any key to resume"),

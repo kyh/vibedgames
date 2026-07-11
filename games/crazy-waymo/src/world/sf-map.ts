@@ -1,4 +1,4 @@
-import { GRID_X, GRID_Z } from "../shared/constants";
+import { GRID_X, GRID_Z, WORLD_H, WORLD_W } from "../shared/constants";
 import { type Hill, type LandFactor, Terrain } from "./terrain";
 
 // San Francisco, traced from real geography (DataSF / lat-lon), normalized
@@ -53,15 +53,18 @@ export function isLandCell(gx: number, gz: number): boolean {
 // (SF's steep streets are 25-30%); 0.38 restores the crest-and-plunge and the
 // hill jumps. ~2× vertical exaggeration vs real SF, which reads right in-game.
 const HILL_SCALE = 0.38;
-const SF_HILLS_M: ReadonlyArray<{ u: number; v: number; m: number; r: number }> = [
-  { u: 0.377, v: 0.693, m: 283, r: 0.08 }, // Mount Davidson
-  { u: 0.42, v: 0.56, m: 280, r: 0.09 }, // Twin Peaks
-  { u: 0.359, v: 0.486, m: 278, r: 0.07 }, // Mount Sutro
-  { u: 0.3, v: 0.613, m: 180, r: 0.06 }, // Forest Hill
-  { u: 0.457, v: 0.404, m: 175, r: 0.045 }, // Buena Vista
-  { u: 0.481, v: 0.434, m: 155, r: 0.04 }, // Corona Heights
-  { u: 0.621, v: 0.651, m: 133, r: 0.06 }, // Bernal Heights
-  { u: 0.396, v: 0.295, m: 126, r: 0.04 }, // Lone Mountain
+// `green`: forest/parkland hills in real SF (Sutro's eucalyptus, Twin Peaks
+// scrub, Bernal's grass dome) — their flanks render grass instead of bare
+// concrete. The built-up hills (Nob, Russian, Pacific Heights…) stay urban.
+const SF_HILLS_M: ReadonlyArray<{ u: number; v: number; m: number; r: number; green?: true }> = [
+  { u: 0.377, v: 0.693, m: 283, r: 0.08, green: true }, // Mount Davidson
+  { u: 0.42, v: 0.56, m: 280, r: 0.09, green: true }, // Twin Peaks
+  { u: 0.359, v: 0.486, m: 278, r: 0.07, green: true }, // Mount Sutro
+  { u: 0.3, v: 0.613, m: 180, r: 0.06, green: true }, // Forest Hill
+  { u: 0.457, v: 0.404, m: 175, r: 0.045, green: true }, // Buena Vista
+  { u: 0.481, v: 0.434, m: 155, r: 0.04, green: true }, // Corona Heights
+  { u: 0.621, v: 0.651, m: 133, r: 0.06, green: true }, // Bernal Heights
+  { u: 0.396, v: 0.295, m: 126, r: 0.04, green: true }, // Lone Mountain (USF green)
   { u: 0.63, v: 0.172, m: 114, r: 0.05 }, // Nob Hill
   { u: 0.489, v: 0.182, m: 112, r: 0.06 }, // Pacific Heights
   { u: 0.726, v: 0.509, m: 91, r: 0.06 }, // Potrero Hill
@@ -75,6 +78,27 @@ export const SF_HILLS: readonly Hill[] = SF_HILLS_M.map((h) => ({
   height: h.m * HILL_SCALE,
   radius: h.r,
 }));
+
+const GREEN_HILLS = SF_HILLS_M.filter((h) => h.green);
+
+/** 0..1 forest-cover weight at map fraction (u,v). Mirrors the terrain height
+ *  field's gaussian exactly (world-unit distances, MAP_REF radii), so the
+ *  green cover tracks each hill's actual rendered shape. */
+export function greenHillWeightAt(u: number, v: number): number {
+  const mapRef = (WORLD_W + WORLD_H) / 2;
+  let w = 0;
+  for (const h of GREEN_HILLS) {
+    const du = (u - h.u) * WORLD_W;
+    const dv = (v - h.v) * WORLD_H;
+    const r = h.r * mapRef;
+    w += Math.exp(-(du * du + dv * dv) / (r * r * 0.5));
+  }
+  // The gaussian tail covers the whole map — gate it so streetside concrete
+  // stays concrete and only real hill flanks turn green.
+  const t = (w - 0.3) / (0.75 - 0.3);
+  const c = t < 0 ? 0 : t > 1 ? 1 : t;
+  return c * c * (3 - 2 * c);
+}
 
 export function makeTerrain(): Terrain {
   return new Terrain(SF_HILLS, landFactor);
@@ -116,10 +140,10 @@ const PALETTES: Record<DistrictChar, readonly number[]> = {
 const TINT_AMOUNT: Record<DistrictChar, number> = {
   downtown: 0.28,
   highrise: 0.22,
-  commercial: 0.4,
-  wharf: 0.38,
-  residential: 0.5,
-  victorian: 0.58,
+  commercial: 0.5,
+  wharf: 0.42,
+  residential: 0.55,
+  victorian: 0.62,
   industrial: 0.4,
   park: 0.35,
 };

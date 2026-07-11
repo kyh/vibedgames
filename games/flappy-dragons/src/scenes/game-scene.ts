@@ -2,7 +2,8 @@ import Phaser from "phaser";
 import { notifyGameStarted, watchControlContext } from "@repo/embed";
 import { PhysicalGamepad } from "@vibedgames/gamepad";
 
-import { startScreenText } from "../controls";
+import { CONTROLS } from "../controls";
+import { buildControls, ensureStyle as ensureControlsStyle } from "../pause-overlay";
 import { isCoarsePointer, recalibratePose, setPoseLocked } from "../input/camera";
 import { NetSession } from "../net/session";
 import {
@@ -256,11 +257,19 @@ export class GameScene extends Phaser.Scene {
   private buildStartScreen(): void {
     const controls = document.getElementById("start-controls");
     const go = document.getElementById("start-go");
-    if (controls) controls.textContent = startScreenText();
+    // Same grouped keycap card the pause overlay renders — the two teaching
+    // surfaces stay visually consistent by construction.
+    ensureControlsStyle();
+    const renderControls = (): void => {
+      if (!controls) return;
+      const card = buildControls(CONTROLS, TOUCH);
+      controls.replaceChildren(...(card ? [card] : []));
+    };
+    renderControls();
     // Plugging in a pad while the start screen is up adds its rows.
     this.unwatchControls?.();
     this.unwatchControls = watchControlContext(() => {
-      if (controls && !this.started) controls.textContent = startScreenText();
+      if (!this.started) renderControls();
     });
     if (go) go.textContent = TOUCH ? "tap to start" : "press any key to start";
     this.input.keyboard?.once("keyup", () => this.beginPlay());
@@ -333,6 +342,9 @@ export class GameScene extends Phaser.Scene {
     this.removeTitleDragon();
     this.startEl?.classList.add("hide");
     this.time.delayedCall(320, () => this.startEl?.remove());
+    // Play begins HERE, not at the first flap — arming the wrapper pause now
+    // means Escape works during the 3-2-1 and the ready hover too.
+    notifyGameStarted();
     this.runCountdown();
   }
 

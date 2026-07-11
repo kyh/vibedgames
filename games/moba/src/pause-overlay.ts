@@ -65,8 +65,9 @@ const CSS = `
 `;
 
 /** "Q W E R" / "X Y B RB" render as individual HUD-style keycaps; anything
- *  else ("←→↑↓", "L-STICK / D-PAD", "2ND FINGER") stays one chip. */
-function chipTexts(input: string): readonly string[] {
+ *  else ("←→↑↓", "L-STICK / D-PAD", "2ND FINGER") stays one chip. Shared with
+ *  the menu's controls plaque so both surfaces split keycaps identically. */
+export function chipTexts(input: string): readonly string[] {
   return /^[A-Z0-9]{1,2}( [A-Z0-9]{1,2})+$/.test(input) ? input.split(" ") : [input];
 }
 

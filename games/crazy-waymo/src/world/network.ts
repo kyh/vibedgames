@@ -1,4 +1,5 @@
-import { SF_EDGES, SF_NODES, type RawEdge } from "./sf-network";
+import { SF_NODES, type RawEdge } from "./sf-network";
+import { SF_EDGES_PARK_CLEARED } from "./park-clear";
 
 // Runtime view of the baked vector road network — THE source of truth for
 // road rendering, traffic routing and building alignment. Edges are world-
@@ -42,7 +43,7 @@ export class RoadNetwork {
 
   constructor(
     nodes: readonly (readonly [number, number])[] = SF_NODES,
-    rawEdges: readonly (RawEdge | undefined)[] = SF_EDGES,
+    rawEdges: readonly (RawEdge | undefined)[] = SF_EDGES_PARK_CLEARED,
   ) {
     this.nodes = nodes;
     const edges: NetEdge[] = [];

@@ -9,6 +9,7 @@ import { GRID_X, GRID_Z } from "../shared/constants";
 import { SF_STREET_MASK, streetMaskAt } from "./sf-streets";
 import { CUSTOM_MAP, loadLocalOverrides } from "./custom-map";
 import { isLandCell } from "./sf-map";
+import { parkCell, parkRoadCellKept } from "./park-clear";
 import {
   type Dir,
   DIR_DELTA,
@@ -97,7 +98,12 @@ export function generateCity(): CityPlan {
     if (gx < 0 || gz < 0 || gx >= GRID_X || gz >= GRID_Z) return false;
     if (!isLandCell(gx, gz)) return false;
     if (removeSet.has(key(gx, gz))) return false;
-    return streetMaskAt(gx, gz) || addSet.has(key(gx, gz));
+    if (addSet.has(key(gx, gz))) return true; // hand edits always win
+    if (!streetMaskAt(gx, gz)) return false;
+    // Parks are car-free: interior streets are dropped (mirrors the vector
+    // network's park-clear), only the crossing highway keeps its cells.
+    if (parkCell(gx, gz) && !parkRoadCellKept(gx, gz)) return false;
+    return true;
   };
 
   // The land clip can fragment the raster mask where a street grazes water —

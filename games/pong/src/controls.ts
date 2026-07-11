@@ -20,9 +20,16 @@ export const CONTROLS: ControlsManifest = [
 // though list surfaces (pause overlay) keep the standard method order.
 const SENTENCE_ORDER: readonly ControlMethod[] = ["camera", "mouse", "touch", "keys", "controller"];
 
-/** The visible inputs for one action as prose ("✋ hand or mouse"). Multi-letter
- *  inputs read as words and lowercase; single letters are button names ("A"). */
-function inputPhrase(action: string): string {
+/** One piece of a banner line: either a bare prose run or an input word the
+ *  banner renders as the pause card's ink keycap chip. */
+export type PromptSegment =
+  | { readonly kind: "text"; readonly text: string }
+  | { readonly kind: "chip"; readonly text: string };
+
+/** The visible inputs for one action, sentence-ordered and deduped — the
+ *  words the banner turns into keycap chips ("✋ HAND", "MOUSE"). Casing stays
+ *  the manifest's, matching the pause overlay's chips. */
+function inputWords(action: string): string[] {
   const byMethod = new Map<ControlMethod, string[]>();
   for (const group of controlGroups(CONTROLS)) {
     for (const entry of group.entries) {
@@ -35,19 +42,33 @@ function inputPhrase(action: string): string {
   const words: string[] = [];
   for (const method of SENTENCE_ORDER) {
     for (const input of byMethod.get(method) ?? []) {
-      const word = input.length === 1 ? input : input.toLowerCase();
-      if (!words.includes(word)) words.push(word);
+      if (!words.includes(input)) words.push(input);
     }
   }
-  return words.join(" or ");
+  return words;
 }
 
-/** Serve-banner line: "✋ hand or mouse steers · ✊ fist or click serves". */
-export function servePromptText(): string {
-  return `${inputPhrase("steer the paddle")} steers · ${inputPhrase("serve · rematch")} serves`;
+/** Chips joined by prose "or": [✋ HAND] or [MOUSE]. */
+function chipPhrase(action: string): PromptSegment[] {
+  const segments: PromptSegment[] = [];
+  for (const word of inputWords(action)) {
+    if (segments.length > 0) segments.push({ kind: "text", text: " or " });
+    segments.push({ kind: "chip", text: word });
+  }
+  return segments;
 }
 
-/** Win-banner note: "✊ fist or click for rematch". */
-export function rematchNoteText(): string {
-  return `${inputPhrase("serve · rematch")} for rematch`;
+/** Serve-banner line: "[✋ HAND] or [MOUSE] steers · [✊ FIST] or [CLICK] serves". */
+export function servePromptSegments(): PromptSegment[] {
+  return [
+    ...chipPhrase("steer the paddle"),
+    { kind: "text", text: " steers · " },
+    ...chipPhrase("serve · rematch"),
+    { kind: "text", text: " serves" },
+  ];
+}
+
+/** Win-banner note: "[✊ FIST] or [CLICK] for rematch". */
+export function rematchNoteSegments(): PromptSegment[] {
+  return [...chipPhrase("serve · rematch"), { kind: "text", text: " for rematch" }];
 }

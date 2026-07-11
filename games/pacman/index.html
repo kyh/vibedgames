@@ -203,6 +203,32 @@
       #banner-sub:empty {
         display: none;
       }
+      /* Title-phase controls teach — hosts the grouped chip card built by
+         src/pause-overlay.ts (buildControls), in the same plush pill as
+         #banner-sub. Empty (hidden) outside the title phase. */
+      #banner-controls {
+        margin: 14px auto 0;
+        max-width: 620px;
+        padding: 14px 22px 13px;
+        display: inline-block;
+        background: var(--card);
+        border: 1.5px solid var(--card-edge);
+        border-radius: 18px;
+        font-family: var(--round-font);
+        box-shadow: 0 6px 20px rgba(212, 150, 167, 0.25);
+      }
+      #banner-controls:empty {
+        display: none;
+      }
+      /* The pause card stacks its groups (it owns the whole screen); under the
+         title they flow side by side so the card never runs off the fold. */
+      #banner-controls .pp-groups {
+        flex-direction: row;
+        flex-wrap: wrap;
+        justify-content: center;
+        align-items: flex-start;
+        gap: 12px 30px;
+      }
 
       /* Webcam preview — the face IS the controller, so frame it like a
          friendly little porthole. Legacy size kept: 192x144, 384x288 on
@@ -362,6 +388,7 @@
     <div id="banner">
       <div id="banner-title"></div>
       <div id="banner-sub"></div>
+      <div id="banner-controls"></div>
     </div>
     <div id="webcam" title="show / hide camera">
       <video id="webcam-video" playsinline></video>

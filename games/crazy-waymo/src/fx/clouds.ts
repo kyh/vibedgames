@@ -64,7 +64,9 @@ function frag(discardLow: boolean): string {
 }
 
 // A soft, lumpy cloud blob: overlapping radial gradients on a canvas.
-function cloudTexture(lobes: number, squash: number): THREE.CanvasTexture {
+// `dense` (cumulus): near-opaque cores + a soft flat base so the puffs read
+// as solid cartoon clouds; false keeps the translucent marine-fog softness.
+function cloudTexture(lobes: number, squash: number, dense = false): THREE.CanvasTexture {
   const w = 256;
   const h = 128;
   const canvas = document.createElement("canvas");
@@ -73,13 +75,15 @@ function cloudTexture(lobes: number, squash: number): THREE.CanvasTexture {
   const ctx = canvas.getContext("2d");
   if (ctx) {
     ctx.clearRect(0, 0, w, h);
+    const core = dense ? 0.9 : 0.42;
+    const mid = dense ? 0.55 : 0.2;
     for (let i = 0; i < lobes; i++) {
       const cx = w * (0.2 + (0.6 * i) / Math.max(1, lobes - 1)) + (Math.random() - 0.5) * 24;
       const cy = h * (0.52 + (Math.random() - 0.5) * 0.2);
       const r = h * (0.34 + Math.random() * 0.22);
       const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-      g.addColorStop(0, "rgba(255,255,255,0.42)");
-      g.addColorStop(0.55, "rgba(255,255,255,0.2)");
+      g.addColorStop(0, `rgba(255,255,255,${core})`);
+      g.addColorStop(0.55, `rgba(255,255,255,${mid})`);
       g.addColorStop(1, "rgba(255,255,255,0)");
       ctx.save();
       ctx.translate(cx, cy);
@@ -88,6 +92,16 @@ function cloudTexture(lobes: number, squash: number): THREE.CanvasTexture {
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, w, h);
       ctx.restore();
+    }
+    if (dense) {
+      // Erase the ragged underside into a soft flat base.
+      const fade = ctx.createLinearGradient(0, h * 0.64, 0, h * 0.85);
+      fade.addColorStop(0, "rgba(0,0,0,0)");
+      fade.addColorStop(1, "rgba(0,0,0,1)");
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.fillStyle = fade;
+      ctx.fillRect(0, 0, w, h);
+      ctx.globalCompositeOperation = "source-over";
     }
   }
   const tex = new THREE.CanvasTexture(canvas);
@@ -181,7 +195,7 @@ export class SkyClouds {
     this.high = new CloudLayer({
       count: HIGH_COUNT,
       color: 0xffffff,
-      tex: cloudTexture(4, 0.9),
+      tex: cloudTexture(5, 0.9, true),
       renderOrder: 4,
       discardLow,
     });
@@ -203,7 +217,7 @@ export class SkyClouds {
       this.high.centers.set([x, y, z], i * 3);
       const w = 190 + Math.random() * 240;
       this.high.sizes.set([w, w * (0.3 + Math.random() * 0.12)], i * 2);
-      this.high.alphas[i] = 0.5 + Math.random() * 0.3;
+      this.high.alphas[i] = 0.78 + Math.random() * 0.22;
       this.highSpeed[i] = 3.5 + Math.random() * 3;
     }
     this.fogSpeed = new Float32Array(FOG_COUNT);

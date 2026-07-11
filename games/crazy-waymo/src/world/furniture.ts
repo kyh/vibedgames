@@ -50,7 +50,9 @@ import { conformToTerrain, DRAPE_MAX_ERROR } from "./conform";
 
 import type { RoadNetwork } from "./network";
 import type { CityPlan, RoadResolved } from "./grid";
+import { landuseGreenAt } from "./sf-landuse";
 import { type DistrictChar, districtAt } from "./sf-map";
+import { streetMaskAt } from "./sf-streets";
 import type { Terrain } from "./terrain";
 
 // Street-furniture pass: streetlights, parked cars, awnings, suburban yards,
@@ -626,6 +628,62 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
   // ------------------------------------------------------------------
   const isParkCell = (gx: number, gz: number): boolean =>
     inBounds(gx, gz) && cellAt(gx, gz) === "lot" && districtAt(gx, gz).character === "park";
+  // Park-cleared street corridors (grid.ts drops park-interior streets): the
+  // old OSM street lines become KayKit pedestrian PATHS — JFK Drive as a
+  // promenade. A path cell connects to sibling path cells and to the street
+  // at the park edge (the old entrances).
+  const isPathCell = (gx: number, gz: number): boolean =>
+    inBounds(gx, gz) &&
+    cellAt(gx, gz) === "lot" &&
+    (landuseGreenAt(gx, gz) || districtAt(gx, gz).character === "park") &&
+    streetMaskAt(gx, gz);
+  const pathMask = (gx: number, gz: number): number => {
+    let mask = 0;
+    for (const d of DIRS) {
+      const [dx, dz] = DIR_DELTA[d];
+      if (isPathCell(gx + dx, gz + dz) || cellAt(gx + dx, gz + dz) === "road") mask |= 1 << d;
+    }
+    return mask;
+  };
+  // KayKit park-road autotile. Native masks assume the kit's straight runs
+  // along local Z (N|S), matching the wall pieces; corner S|W, tsplit E|S|W
+  // (open toward +Z) — verified visually, adjust here if a piece reads wrong.
+  const pathTileFor = (mask: number): { name: string; quarter: number } | null => {
+    const bit = (d: Dir): boolean => (mask & (1 << d)) !== 0;
+    const count = (mask & 1 ? 1 : 0) + (mask & 2 ? 1 : 0) + (mask & 4 ? 1 : 0) + (mask & 8 ? 1 : 0);
+    if (count >= 4) return { name: "park-road-junction", quarter: 0 };
+    if (count === 3) {
+      // tsplit closed side: the missing direction.
+      const missing = ([N, E, S, W] as const).find((d) => !bit(d)) ?? N;
+      const q = { [N]: 0, [E]: 1, [S]: 2, [W]: 3 }[missing] ?? 0;
+      return {
+        name: rng.chance(0.5) ? "park-road-tsplit" : "park-road-tsplit-decorated",
+        quarter: q,
+      };
+    }
+    if (count === 2) {
+      if (bit(N) && bit(S)) return { name: pathStraight(), quarter: 0 };
+      if (bit(E) && bit(W)) return { name: pathStraight(), quarter: 1 };
+      // corners: base S|W, rotate CCW-order N,E,S,W
+      if (bit(S) && bit(W)) return { name: cornerName(), quarter: 0 };
+      if (bit(W) && bit(N)) return { name: cornerName(), quarter: 1 };
+      if (bit(N) && bit(E)) return { name: cornerName(), quarter: 2 };
+      if (bit(E) && bit(S)) return { name: cornerName(), quarter: 3 };
+    }
+    if (count === 1) {
+      // dead-end: run a straight toward the single neighbour.
+      return { name: pathStraight(), quarter: bit(N) || bit(S) ? 0 : 1 };
+    }
+    return null;
+  };
+  const pathStraight = (): string =>
+    rng.chance(0.5)
+      ? "park-road-straight"
+      : rng.chance(0.5)
+        ? "park-road-straight-decorated-A"
+        : "park-road-straight-decorated-B";
+  const cornerName = (): string =>
+    rng.chance(0.5) ? "park-road-corner" : "park-road-corner-decorated";
   const wallUrl = modelUrl("props", PARK_WALL);
   const wallBounds = cache.bounds(wallUrl);
   const wallH = 1.1 / Math.max(wallBounds.size.y, 0.001); // low stone wall
@@ -713,20 +771,22 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
         const spread = seatY - 0.05 - parkCellFloor(terrain, gx, gz);
         const roll = rng.range(0, 1);
         if (spread <= 0.8) {
+          const path = isPathCell(gx, gz) ? pathTileFor(pathMask(gx, gz)) : null;
           const name =
-            spread < 0.3 && roll < 0.015
+            path?.name ??
+            (spread < 0.3 && roll < 0.015
               ? rng.pick(PARK_TILE_PLAZAS)
               : roll < 0.4
                 ? "park-base-decorated-trees"
                 : roll < 0.6
                   ? "park-base-decorated-bushes"
-                  : "park-base";
+                  : "park-base");
           const url = modelUrl("parks", name);
           const b = cache.bounds(url);
           const sc = ROAD_TILE / Math.max(b.size.x, b.size.z, 0.001);
           const node = cache.instance(url);
           node.scale.setScalar(sc);
-          node.rotation.y = HALF_PI * rng.int(4);
+          node.rotation.y = HALF_PI * (path ? path.quarter : rng.int(4));
           node.position.set(wx, seatY, wz);
           node.updateMatrixWorld(true);
           objects.push(node);

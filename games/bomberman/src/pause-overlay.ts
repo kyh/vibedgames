@@ -174,7 +174,8 @@ const METHOD_LABELS: Record<ControlMethod, string> = {
   controller: "GAMEPAD",
 };
 
-function ensureStyle(): void {
+/** Inject the shared control-card styles (pause overlay AND start screen). */
+export function ensureStyle(): void {
   if (document.getElementById(STYLE_ID)) return;
   const style = document.createElement("style");
   style.id = STYLE_ID;
@@ -187,6 +188,34 @@ function el(className: string, text?: string): HTMLDivElement {
   node.className = className;
   if (text !== undefined) node.textContent = text;
   return node;
+}
+
+/**
+ * The grouped keycap rows both instruction surfaces render — the start screen
+ * and the pause overlay teach controls with the SAME UI. Null when nothing is
+ * visible for the current device/pad context.
+ */
+export function buildControls(coarse: boolean): HTMLElement | null {
+  // Fresh groups every render: touch rows on coarse pointers, keyboard rows
+  // on fine ones, gamepad rows only while a pad is actually connected.
+  const groups = controlGroups(CONTROLS, { coarse });
+  if (groups.length === 0) return null;
+  const wrap = document.createElement("div");
+  for (const group of groups) {
+    wrap.append(el("bm-pause-method", METHOD_LABELS[group.method]));
+    const rows = el("bm-pause-rows");
+    for (const entry of group.entries) {
+      const key = document.createElement("span");
+      key.className = "bm-pause-key";
+      key.textContent = entry.input;
+      const action = document.createElement("span");
+      action.className = "bm-pause-action";
+      action.textContent = entry.action;
+      rows.append(key, action);
+    }
+    wrap.append(rows);
+  }
+  return wrap;
 }
 
 export type BombermanPauseOverlay = {
@@ -248,24 +277,8 @@ function renderCard(overlay: HTMLElement): void {
   card.append(el("bm-pause-title", "PAUSED"));
   card.append(el("bm-pause-hint", coarse ? "TAP TO RESUME" : "CLICK OR PRESS ANY KEY TO RESUME"));
 
-  // Fresh groups every show(): touch rows on coarse pointers, keyboard rows
-  // on fine ones, gamepad rows only while a pad is actually connected.
-  const groups = controlGroups(CONTROLS, { coarse });
-  if (groups.length > 0) card.append(el("bm-pause-rule"));
-  for (const group of groups) {
-    card.append(el("bm-pause-method", METHOD_LABELS[group.method]));
-    const rows = el("bm-pause-rows");
-    for (const entry of group.entries) {
-      const key = document.createElement("span");
-      key.className = "bm-pause-key";
-      key.textContent = entry.input;
-      const action = document.createElement("span");
-      action.className = "bm-pause-action";
-      action.textContent = entry.action;
-      rows.append(key, action);
-    }
-    card.append(rows);
-  }
+  const controlsEl = buildControls(coarse);
+  if (controlsEl) card.append(el("bm-pause-rule"), controlsEl);
 
   overlay.append(card);
 }

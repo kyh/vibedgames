@@ -1,4 +1,3 @@
-import { controlHints } from "@repo/embed";
 import type { ControlsManifest } from "@repo/embed";
 
 // Every way to play, one list — the menu control line and the pause overlay
@@ -24,11 +23,3 @@ export const CONTROLS: ControlsManifest = [
   { method: "controller", input: "SELECT", action: "shop" },
   { method: "controller", input: "START", action: "scores" },
 ];
-
-/** Menu control line ("←→↑↓ move · SPACE attack · …"), joined like the HUD
- *  taught it before — inputs for the same verb merge across visible methods. */
-export function menuControlsText(): string {
-  return controlHints(CONTROLS)
-    .map(([input, action]) => `${input} ${action}`)
-    .join(" · ");
-}

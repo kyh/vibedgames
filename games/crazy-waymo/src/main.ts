@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { setPauseHandlers } from "@repo/embed";
 
 import { PerfGovernor } from "./render/perf-governor";
+import { PostPipeline } from "./render/post";
 import { isCoarsePointer } from "./render/quality";
 import { GameScene } from "./scenes/game-scene";
 import { MAX_DT } from "./shared/constants";
@@ -43,6 +44,10 @@ container.appendChild(renderer.domElement);
 const game = new GameScene(window.innerWidth / window.innerHeight);
 game.applyEnvironment(renderer);
 
+// Post chain (bloom + grade) is desktop-only; phones keep the single pass.
+const post = isCoarsePointer() ? null : new PostPipeline(renderer, game.scene, game.camera);
+post?.setSize(window.innerWidth, window.innerHeight, renderer.getPixelRatio());
+
 // Wrapper pause: solo game, safe to fully freeze (see GameScene.requestPause).
 const pauseOverlay = createPauseOverlay();
 setPauseHandlers({
@@ -63,6 +68,7 @@ game.resize(window.innerWidth / window.innerHeight, renderHeightPx());
 
 window.addEventListener("resize", () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
+  post?.setSize(window.innerWidth, window.innerHeight, renderer.getPixelRatio());
   game.resize(window.innerWidth / window.innerHeight, renderHeightPx());
 });
 
@@ -71,6 +77,7 @@ window.addEventListener("resize", () => {
 // — the clamped game dt hides exactly the slowness it needs to see.
 const governor = new PerfGovernor(renderer, game.sunLight, (features) => {
   game.applyQuality(features);
+  post?.setSize(window.innerWidth, window.innerHeight, renderer.getPixelRatio());
   game.resize(window.innerWidth / window.innerHeight, renderHeightPx());
 });
 
@@ -92,7 +99,8 @@ renderer.setAnimationLoop((t) => {
   // before render.
   governor.syncShadow(game.shadowsOn);
   const tR = performance.now();
-  renderer.render(game.scene, game.camera);
+  if (post) post.render();
+  else renderer.render(game.scene, game.camera);
   const tEnd = performance.now();
   if (tEnd - tU > 1000) {
     console.log(`[slow-frame] update ${Math.round(tR - tU)}ms render ${Math.round(tEnd - tR)}ms`);

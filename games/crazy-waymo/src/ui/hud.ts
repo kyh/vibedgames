@@ -7,12 +7,15 @@ function el(id: string): HTMLElement {
 /** One keycap group: the keys that do it, and what they do. */
 export type ControlHint = { readonly keys: readonly string[]; readonly label: string };
 
+/** One input method's row: the pause overlay's KEYS/TOUCH/PAD tag + its chips. */
+export type ControlHintGroup = { readonly tag: string; readonly hints: readonly ControlHint[] };
+
 export type BannerSpec = {
   readonly title: string;
   readonly sub: string;
   readonly stats?: string;
   /** Control legend. Landing screen only — never shown over live gameplay. */
-  readonly controls?: readonly ControlHint[];
+  readonly controls?: readonly ControlHintGroup[];
   readonly cta: string;
 };
 
@@ -325,23 +328,33 @@ export class Hud {
     this.banner.classList.add("show");
   }
 
-  /** Build the keycap legend as nodes — the `:empty` rule hides it when there
-   *  are no hints (game-over banner), so clear it rather than leaving stale chips. */
-  private renderControls(hints: readonly ControlHint[]): void {
+  /** Build the keycap legend as nodes — one row per input method, led by the
+   *  pause overlay's method tag. The `:empty` rule hides it when there are no
+   *  hints (game-over banner), so clear it rather than leaving stale chips. */
+  private renderControls(groups: readonly ControlHintGroup[]): void {
     this.bannerControls.replaceChildren(
-      ...hints.map((hint) => {
-        const group = document.createElement("span");
-        group.className = "hint";
-        for (const key of hint.keys) {
-          const cap = document.createElement("kbd");
-          cap.textContent = key;
-          group.append(cap);
+      ...groups.map((row) => {
+        const grp = document.createElement("div");
+        grp.className = "grp";
+        const tag = document.createElement("span");
+        tag.className = "tag";
+        tag.textContent = row.tag;
+        grp.append(tag);
+        for (const hint of row.hints) {
+          const group = document.createElement("span");
+          group.className = "hint";
+          for (const key of hint.keys) {
+            const cap = document.createElement("kbd");
+            cap.textContent = key;
+            group.append(cap);
+          }
+          const label = document.createElement("span");
+          label.className = "lbl";
+          label.textContent = hint.label;
+          group.append(label);
+          grp.append(group);
         }
-        const label = document.createElement("span");
-        label.className = "lbl";
-        label.textContent = hint.label;
-        group.append(label);
-        return group;
+        return grp;
       }),
     );
   }

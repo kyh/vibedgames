@@ -1,9 +1,7 @@
-import { controlHints } from "@repo/embed";
 import type { ControlsManifest } from "@repo/embed";
 
-// Every way to play, one list — the title hint and the pause overlay both
+// Every way to play, one list — the title card and the pause overlay both
 // render from this (filtered per device / connected pad by @repo/embed).
-// Entries sharing an action merge into one row ("E / SPACE / click").
 export const CONTROLS: ControlsManifest = [
   { method: "keys", input: "WASD / arrows", action: "move (SHIFT runs)" },
   { method: "keys", input: "E / SPACE", action: "use tool / interact" },
@@ -21,10 +19,3 @@ export const CONTROLS: ControlsManifest = [
   { method: "controller", input: "LB / RB", action: "switch tools" },
   { method: "controller", input: "Y", action: "inventory" },
 ];
-
-/** Title-screen hint line ("WASD / arrows move (SHIFT runs) · I inventory · …"). */
-export function titleHintText(): string {
-  return controlHints(CONTROLS)
-    .map(([input, action]) => `${input} ${action}`)
-    .join(" · ");
-}

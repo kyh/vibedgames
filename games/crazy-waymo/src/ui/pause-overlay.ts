@@ -5,24 +5,14 @@
 // italic gold display type, hazard-stripe bars, keycap chips.
 
 import { controlGroups, createPauseShell } from "@repo/embed";
-import type { ControlMethod } from "@repo/embed";
 
-import { CONTROLS } from "../controls";
+import { CONTROLS, METHOD_TAG } from "../controls";
 
 export type PauseOverlay = {
   /** Mount the overlay. Idempotent while shown. */
   show: () => void;
   /** Unmount (fade out). Idempotent while hidden. */
   hide: () => void;
-};
-
-/** Group captions, in the game's clipped arcade register. */
-const METHOD_TAG: Record<ControlMethod, string> = {
-  keys: "KEYS",
-  mouse: "MOUSE",
-  touch: "TOUCH",
-  camera: "CAM",
-  controller: "PAD",
 };
 
 const STYLE_ID = "waymo-pause-style";

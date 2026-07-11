@@ -1,4 +1,3 @@
-import { controlHints } from "@repo/embed";
 import type { ControlsManifest } from "@repo/embed";
 
 // Every way to play, one list — the start screen and the pause overlay both
@@ -14,10 +13,3 @@ export const CONTROLS: ControlsManifest = [
   { method: "controller", input: "A", action: "drop a bomb" },
   { method: "controller", input: "START", action: "restart" },
 ];
-
-/** Start-screen lines, one binding per row ("SPACE — drop a bomb"). */
-export function startScreenText(): string {
-  return controlHints(CONTROLS)
-    .map(([input, action]) => `${input} — ${action}`)
-    .join("\n");
-}

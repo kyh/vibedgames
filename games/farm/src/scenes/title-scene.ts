@@ -3,12 +3,13 @@ import { watchControlContext } from "@repo/embed";
 import { PhysicalGamepad } from "@vibedgames/gamepad";
 import { hasSave, clearSave } from "../systems/save";
 import { Sound } from "../render/audio";
-import { titleHintText } from "../controls";
+import { buildControlsCard, type ControlsCard } from "../render/controls-card";
 
 export class TitleScene extends Phaser.Scene {
   private onResize?: (gs: Phaser.Structs.Size) => void;
   private readonly pad = new PhysicalGamepad();
   private unwatchControls?: () => void;
+  private controlsCard: ControlsCard | null = null;
 
   constructor() {
     super("Title");
@@ -59,24 +60,23 @@ export class TitleScene extends Phaser.Scene {
 
     const newBtn = this.makeButton("🌱  New Farm", "#5fae3a");
     const contBtn = this.makeButton("☀  Continue", "#3a86c8");
-    const hint = this.add
-      .text(0, 0, titleHintText(), {
-        fontFamily: "ui-monospace, monospace",
-        fontSize: "14px",
-        color: "#dfeccc",
-        align: "center",
-        wordWrap: { width: this.scale.width - 40 },
-      })
-      .setOrigin(0.5)
-      .setAlpha(0.85);
-    // Plugging in (or unplugging) a pad while the title is up updates the hint.
+    // The controls card — the pause sign's grouped parchment chips, rendered
+    // in Phaser. Rebuilt fresh whenever a pad connects/disconnects.
+    this.controlsCard = buildControlsCard(this);
+    const rebuildCard = () => {
+      this.controlsCard?.container.destroy();
+      this.controlsCard = buildControlsCard(this);
+      layout();
+    };
+    // Plugging in (or unplugging) a pad while the title is up updates the card.
     // Scene instances persist across start/stop — drop any stale subscription
     // before adding this run's, and tear it down on shutdown.
     this.unwatchControls?.();
-    this.unwatchControls = watchControlContext(() => hint.setText(titleHintText()));
+    this.unwatchControls = watchControlContext(rebuildCard);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.unwatchControls?.();
       this.unwatchControls = undefined;
+      this.controlsCard = null;
     });
 
     const save = hasSave();
@@ -111,7 +111,19 @@ export class TitleScene extends Phaser.Scene {
       farmer.setVisible(!compact).setPosition(cx, tag.y + 96);
       newBtn.container.setPosition(cx, h * (compact ? 0.6 : 0.66));
       contBtn.container.setPosition(cx, newBtn.container.y + (compact ? 62 : 70));
-      hint.setPosition(cx, h - (compact ? 14 : 38));
+      // Controls card fills the band under the buttons, shrunk to fit when the
+      // viewport is short/narrow, bottom-anchored where the hint line lived.
+      const card = this.controlsCard;
+      if (card) {
+        const top = contBtn.container.y + 38;
+        const bottom = h - (compact ? 8 : 16);
+        const scale = Math.min(
+          1,
+          (bottom - top) / card.height,
+          (this.scale.width - 24) / card.width,
+        );
+        card.container.setScale(scale).setPosition(cx, bottom - (card.height * scale) / 2);
+      }
     };
     layout();
   }

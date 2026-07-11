@@ -1,4 +1,3 @@
-import { controlHints } from "@repo/embed";
 import type { ControlsManifest } from "@repo/embed";
 
 // Every way to flap, one list — the start screen and the pause overlay both
@@ -11,10 +10,3 @@ export const CONTROLS: ControlsManifest = [
   { method: "camera", input: "📷", action: "jump or flap your arms" },
   { method: "controller", input: "A", action: "flap" },
 ];
-
-/** Start-screen lines, one binding per row ("SPACE / ↑ — flap"). */
-export function startScreenText(): string {
-  return controlHints(CONTROLS)
-    .map(([input, action]) => `${input} — ${action}`)
-    .join("\n");
-}

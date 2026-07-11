@@ -1,10 +1,11 @@
 import Phaser from "phaser";
-import { notifyGameStarted, watchControlContext } from "@repo/embed";
+import { controlGroups, notifyGameStarted, watchControlContext } from "@repo/embed";
+import type { ControlMethod } from "@repo/embed";
 import { PhysicalGamepad } from "@vibedgames/gamepad/phaser";
 
 import { sfx } from "../audio/sfx";
 import { BASE_H, BASE_W, COLORS, HERO_ORIGIN_Y } from "../config";
-import { runControlsText } from "../controls";
+import { CONTROLS } from "../controls";
 import { firstFrame } from "../data/animations";
 import { HERO_ORDER, HEROES } from "../data/heroes";
 import {
@@ -56,6 +57,11 @@ export class SelectScene extends Phaser.Scene {
   // Physical controller on the hub: d-pad cycles, A confirms (see update()).
   private pad = new PhysicalGamepad();
   private unwatchControls: (() => void) | null = null;
+  // Controls block under the subtitle — the pause panel's gold pixel keycaps
+  // and method dividers, mirrored in Phaser objects. Rebuilt when the visible
+  // groups change (pad connect/disconnect re-runs refresh()).
+  private controlsBlock: Phaser.GameObjects.Container | null = null;
+  private controlsSig = "";
 
   constructor() {
     super("select");
@@ -72,6 +78,8 @@ export class SelectScene extends Phaser.Scene {
     // (destroyed) objects linger in these lists.
     this.sprites = [];
     this.locks = [];
+    this.controlsBlock = null;
+    this.controlsSig = "";
     const search = new URLSearchParams(location.search);
     const joinCode = search.get("party");
     if (joinCode) {
@@ -448,10 +456,11 @@ export class SelectScene extends Phaser.Scene {
       l.setText(hn && !isUnlocked(this.meta, hn) ? `🔒 ${UNLOCK_COST[hn]}` : "");
     });
     this.title.setText(def.title).setColor(`#${def.color.toString(16).padStart(6, "0")}`);
-    // The in-game controls line renders from the manifest (touch vs keys, plus
-    // controller rows while a pad is connected — the context watcher re-runs
-    // refresh() on connect). Hub verbs below stay hand-written.
-    this.blurb.setText(`${def.blurb}\nRun: ${runControlsText()}`);
+    this.blurb.setText(def.blurb);
+    // The run controls render from the manifest as the pause panel's keycap
+    // rows (touch vs keys, plus gamepad while a pad is connected — the context
+    // watcher re-runs refresh() on connect). Hub verbs below stay hand-written.
+    this.renderControls();
 
     const unlocked = isUnlocked(this.meta, name);
     const go =
@@ -497,6 +506,117 @@ export class SelectScene extends Phaser.Scene {
     this.bank.setText(
       `✦ ${this.meta.shards}   BEST D${this.meta.bestDepth}   ★ ${loadBestScore()}`,
     );
+  }
+
+  // The pause panel's control language, mirrored in Phaser: method dividers
+  // (grey caption between short bars), gold pixel keycaps (steel-blue border,
+  // night fill, bottom bevel), blue-grey actions. Same-action inputs merge
+  // within a group ("J / X" attack), the pause panel's voice. Lives in the sky
+  // band under CHOOSE YOUR WARRIOR; wrapped rows shrink to fit the band.
+  private renderControls(): void {
+    const LABELS: Record<ControlMethod, string> = {
+      keys: "KEYBOARD",
+      mouse: "MOUSE",
+      touch: "TOUCH",
+      camera: "CAMERA",
+      controller: "GAMEPAD",
+    };
+    const blocks = controlGroups(CONTROLS, { coarse: this.touch }).map((group) => {
+      const byAction = new Map<string, string[]>();
+      for (const entry of group.entries) {
+        const inputs = byAction.get(entry.action);
+        if (inputs) {
+          if (!inputs.includes(entry.input)) inputs.push(entry.input);
+        } else {
+          byAction.set(entry.action, [entry.input]);
+        }
+      }
+      return {
+        method: group.method,
+        pairs: [...byAction].map(([action, inputs]) => ({ keys: inputs.join(" / "), action })),
+      };
+    });
+    const sig = JSON.stringify(blocks);
+    if (this.controlsBlock && sig === this.controlsSig) return;
+    this.controlsSig = sig;
+    this.controlsBlock?.destroy();
+    const container = this.add.container(0, 0);
+    this.controlsBlock = container;
+    if (blocks.length === 0) return;
+
+    type Obj = Phaser.GameObjects.Text | Phaser.GameObjects.Rectangle;
+    type Item = { objs: Obj[]; width: number };
+    const mono = (text: string, color: string, bold = false): Phaser.GameObjects.Text =>
+      this.add.text(0, 0, text, {
+        fontFamily: "monospace",
+        fontSize: "8px",
+        fontStyle: bold ? "bold" : "normal",
+        color,
+      });
+
+    const maxW = BASE_W - 20;
+    const gapX = 9;
+    const lineH = 15;
+    const rows: Item[][] = [];
+    let row: Item[] = [];
+    let rowW = 0;
+    const flushRow = (): void => {
+      if (row.length > 0) rows.push(row);
+      row = [];
+      rowW = 0;
+    };
+    const addItem = (item: Item): void => {
+      const grown = row.length > 0 ? rowW + gapX + item.width : item.width;
+      if (row.length > 0 && grown > maxW) flushRow();
+      rowW = row.length > 0 ? rowW + gapX + item.width : item.width;
+      row.push(item);
+    };
+
+    for (const block of blocks) {
+      flushRow(); // each method starts its own row
+      const caption = mono(LABELS[block.method], "#59636f").setOrigin(0, 0.5);
+      const barL = this.add.rectangle(0, 0, 10, 2, 0x1e2733).setOrigin(0, 0.5);
+      const barR = this.add
+        .rectangle(14 + Math.ceil(caption.width) + 4, 0, 10, 2, 0x1e2733)
+        .setOrigin(0, 0.5);
+      caption.setPosition(14, 0);
+      addItem({ objs: [barL, caption, barR], width: 28 + Math.ceil(caption.width) });
+      for (const pair of block.pairs) {
+        const keyText = mono(pair.keys, "#ffd15c", true).setOrigin(0.5);
+        const chipW = Math.ceil(keyText.width) + 8;
+        const chip = this.add
+          .rectangle(chipW / 2, 0, chipW, 12, 0x141922)
+          .setStrokeStyle(2, 0x33445e);
+        const bevel = this.add.rectangle(chipW / 2, 4, chipW - 4, 2, 0x0a0c11);
+        keyText.setPosition(chipW / 2, 0);
+        const action = mono(pair.action, "#b8c1cc").setOrigin(0, 0.5);
+        action.setPosition(chipW + 4, 0);
+        addItem({
+          objs: [chip, bevel, keyText, action],
+          width: chipW + 4 + Math.ceil(action.width),
+        });
+      }
+    }
+    flushRow();
+
+    let y = 0;
+    for (const line of rows) {
+      const width = line.reduce((sum, item) => sum + item.width, 0) + gapX * (line.length - 1);
+      let x = -width / 2;
+      for (const item of line) {
+        for (const obj of item.objs) {
+          obj.setPosition(obj.x + x, obj.y + y);
+          container.add(obj);
+        }
+        x += item.width + gapX;
+      }
+      y += lineH;
+    }
+
+    // Sky band between the subtitle and the warriors' heads: 66..102.
+    const totalH = (rows.length - 1) * lineH + 12;
+    const scale = Math.min(1, 36 / totalH);
+    container.setScale(scale).setPosition(BASE_W / 2, 84 - ((rows.length - 1) * lineH * scale) / 2);
   }
 
   // Host an online room: mint a code and put it (plus the mode flag) in the URL

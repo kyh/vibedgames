@@ -2,7 +2,9 @@ import * as THREE from "three";
 import { notifyGameStarted, watchControlContext } from "@repo/embed";
 import { PhysicalGamepad } from "@vibedgames/gamepad";
 
-import { rematchNoteText, servePromptText } from "../controls";
+import { rematchNoteSegments, servePromptSegments } from "../controls";
+import type { PromptSegment } from "../controls";
+import { inkChip } from "../pause-overlay";
 import { ParticlePool } from "../fx/particles";
 import { sfx, toggleMute } from "../fx/sfx";
 import { RingPool } from "../fx/shock-rings";
@@ -1141,13 +1143,13 @@ export class GameScene {
       this.bannerEl.replaceChildren("connecting", smallNote("finding a match…"));
       this.bannerEl.style.opacity = "1";
     } else if (this.phase === "serving" && this.serveAt === null) {
-      this.bannerEl.replaceChildren("PONG", smallNote(servePromptText()));
+      this.bannerEl.replaceChildren("PONG", promptNote(servePromptSegments()));
       this.bannerEl.style.opacity = "1";
       controlsCopy = true;
     } else if (this.phase === "won") {
       const iWon = this.scoreYou > this.scoreAi;
       const strong = iWon ? "you win" : human ? "rival wins" : "ai wins";
-      this.bannerEl.replaceChildren(strong, smallNote(rematchNoteText()));
+      this.bannerEl.replaceChildren(strong, promptNote(rematchNoteSegments()));
       this.bannerEl.style.opacity = "1";
       controlsCopy = true;
     } else {
@@ -1270,6 +1272,17 @@ function el(id: string): HTMLElement {
 function smallNote(text: string): HTMLElement {
   const node = document.createElement("small");
   node.textContent = text;
+  return node;
+}
+
+/** Banner note where input words render as the pause card's ink keycap chips
+ *  ("[✋ HAND] or [MOUSE] steers…") — same chip, same visual language. */
+function promptNote(segments: readonly PromptSegment[]): HTMLElement {
+  const node = document.createElement("small");
+  node.style.lineHeight = "1.9"; // room for chips when the line wraps
+  for (const segment of segments) {
+    node.append(segment.kind === "chip" ? inkChip(segment.text) : segment.text);
+  }
   return node;
 }
 

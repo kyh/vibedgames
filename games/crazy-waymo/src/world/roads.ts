@@ -1,9 +1,10 @@
 import * as THREE from "three";
 import polygonClipping from "polygon-clipping";
 
-import { ROAD_TILE, ROAD_Y } from "../shared/constants";
+import { GRID_X, GRID_Z, ROAD_TILE, ROAD_Y, WORLD_HALF_X, WORLD_HALF_Z } from "../shared/constants";
 import { conformToTerrain, DRAPE_MAX_ERROR } from "./conform";
 import type { NetEdge, RoadNetwork } from "./network";
+import { districtAt } from "./sf-map";
 import type { Terrain } from "./terrain";
 
 // PLANAR-MAP street geometry. Every edge sweep and junction patch is built as
@@ -51,17 +52,20 @@ const MITER_LIMIT = 2.5; // clamp spike joints on hairpin polylines
 // and the main thread looks the material back up.
 export const ROAD_MATERIALS: Record<string, THREE.Material> = {};
 
-const MAT_ASPHALT = new THREE.MeshStandardMaterial({ color: 0x3d4049, roughness: 1 });
+// Streets v4 palette (2026-07-10, Mario-Kart pass): mid-grey blue asphalt
+// instead of near-black — big paved areas must read as surface, not void —
+// warm cream sidewalks, bright curb lip.
+const MAT_ASPHALT = new THREE.MeshStandardMaterial({ color: 0x555b68, roughness: 1 });
 ROAD_MATERIALS.asphalt = MAT_ASPHALT;
-const MAT_SIDEWALK = new THREE.MeshStandardMaterial({ color: 0xc9cdc9, roughness: 1 });
+const MAT_SIDEWALK = new THREE.MeshStandardMaterial({ color: 0xd9d3c2, roughness: 1 });
 ROAD_MATERIALS.walk = MAT_SIDEWALK;
-const MAT_CURB = new THREE.MeshStandardMaterial({ color: 0xd4d8da, roughness: 1 });
+const MAT_CURB = new THREE.MeshStandardMaterial({ color: 0xe8e4d8, roughness: 1 });
 ROAD_MATERIALS.curb = MAT_CURB;
 // Markings are decals: polygon-offset wins the depth test against the
 // asphalt even where the two drapes sample the terrain differently — no
 // physical lift can guarantee that on curved ground.
 const MAT_DASH = new THREE.MeshStandardMaterial({
-  color: 0xd8a23c,
+  color: 0xf2b93e,
   roughness: 0.9,
   polygonOffset: true,
   polygonOffsetFactor: -2,
@@ -69,7 +73,7 @@ const MAT_DASH = new THREE.MeshStandardMaterial({
 });
 ROAD_MATERIALS.dash = MAT_DASH;
 const MAT_YELLOW = new THREE.MeshStandardMaterial({
-  color: 0xd8a13c,
+  color: 0xf2b83a,
   roughness: 0.9,
   polygonOffset: true,
   polygonOffsetFactor: -2,
@@ -77,13 +81,39 @@ const MAT_YELLOW = new THREE.MeshStandardMaterial({
 });
 ROAD_MATERIALS.yellow = MAT_YELLOW;
 const MAT_WHITE = new THREE.MeshStandardMaterial({
-  color: 0xdfe3e3,
+  color: 0xf4f7f4,
   roughness: 0.9,
   polygonOffset: true,
   polygonOffsetFactor: -2,
   polygonOffsetUnits: -4,
 });
 ROAD_MATERIALS.white = MAT_WHITE;
+
+// --- SF's loud street paint (Mario-Kart pass, 2026-07-10) ---
+// The city's real palette IS the cartoon palette: Muni's red transit lanes,
+// green bike lanes, the Castro rainbow crosswalk. All decal params identical
+// to the other markings so everything still collapses into MAT_ROAD_MARK.
+function paintMat(color: number): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({
+    color,
+    roughness: 0.92,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -4,
+  });
+}
+const MAT_MUNI_RED = paintMat(0xc04a38);
+ROAD_MATERIALS.muni = MAT_MUNI_RED;
+const MAT_BIKE_GREEN = paintMat(0x2f9e63);
+ROAD_MATERIALS.bike = MAT_BIKE_GREEN;
+const MAT_MANHOLE = paintMat(0x434956);
+ROAD_MATERIALS.manhole = MAT_MANHOLE;
+const RAINBOW_HEX = [0xe64236, 0xf08c2e, 0xf2ce3a, 0x3fae52, 0x3567d6, 0x8a4bc9] as const;
+const MAT_RAINBOW = RAINBOW_HEX.map((c, i) => {
+  const m = paintMat(c);
+  ROAD_MATERIALS[`rb${i}`] = m;
+  return m;
+});
 
 // --- Collapsed render materials ---
 // The six flat colors above stay as the stable WIRE keys (worker payloads,
@@ -97,6 +127,35 @@ const MAT_ROAD_BASE = new THREE.MeshStandardMaterial({
   vertexColors: true,
   roughness: 1,
 });
+// Asphalt aggregate: two octaves of hash speckle in world space, ±5%
+// luminance — big paved areas read as surface instead of flat fill. Runtime
+// shader on the shared material, so it covers live AND baked worlds (no
+// rebake needed) and costs zero extra geometry.
+MAT_ROAD_BASE.onBeforeCompile = (shader) => {
+  shader.vertexShader = shader.vertexShader
+    .replace("#include <common>", "#include <common>\nvarying vec3 vRoadPos;")
+    .replace(
+      "#include <begin_vertex>",
+      "#include <begin_vertex>\nvRoadPos = (modelMatrix * vec4(transformed, 1.0)).xyz;",
+    );
+  shader.fragmentShader = shader.fragmentShader
+    .replace(
+      "#include <common>",
+      `#include <common>
+varying vec3 vRoadPos;
+float roadHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }`,
+    )
+    .replace(
+      "#include <color_fragment>",
+      `#include <color_fragment>
+{
+  vec2 wp = vRoadPos.xz;
+  float speck = roadHash(floor(wp * 1.7));
+  float coarse = roadHash(floor(wp * 0.21));
+  diffuseColor.rgb *= 1.0 + (speck - 0.5) * 0.05 + (coarse - 0.5) * 0.045;
+}`,
+    );
+};
 ROAD_MATERIALS.roadbase = MAT_ROAD_BASE;
 const MAT_ROAD_MARK = new THREE.MeshStandardMaterial({
   color: 0xffffff,
@@ -118,7 +177,14 @@ const COLLAPSE_BY_KEY: Record<string, CollapseTarget> = {
   dash: { mat: MAT_ROAD_MARK, color: MAT_DASH.color },
   yellow: { mat: MAT_ROAD_MARK, color: MAT_YELLOW.color },
   white: { mat: MAT_ROAD_MARK, color: MAT_WHITE.color },
+  muni: { mat: MAT_ROAD_MARK, color: MAT_MUNI_RED.color },
+  bike: { mat: MAT_ROAD_MARK, color: MAT_BIKE_GREEN.color },
+  manhole: { mat: MAT_ROAD_MARK, color: MAT_MANHOLE.color },
 };
+for (let i = 0; i < MAT_RAINBOW.length; i++) {
+  const m = MAT_RAINBOW[i];
+  if (m) COLLAPSE_BY_KEY[`rb${i}`] = { mat: MAT_ROAD_MARK, color: m.color };
+}
 
 // Collapse target for a captured/baked material descriptor (legacy rest.bin
 // chunks carry the six flat road materials): matched by the exact colors the
@@ -128,7 +194,18 @@ export function roadCollapseTarget(
   polygonOffset: boolean,
   vertexColors: boolean,
 ): CollapseTarget | null {
-  if (vertexColors) return null;
+  if (vertexColors) {
+    // Already-collapsed capture (white + vertex colors): route back onto the
+    // SHARED road materials instead of a descriptor clone, so runtime shader
+    // tweaks (asphalt speckle) reach baked worlds too. Callers must keep the
+    // rec's own vertex colors in this case (color here is just the uniform).
+    if (colorHex === 0xffffff) {
+      return polygonOffset
+        ? { mat: MAT_ROAD_MARK, color: MAT_ROAD_MARK.color }
+        : { mat: MAT_ROAD_BASE, color: MAT_ROAD_BASE.color };
+    }
+    return null;
+  }
   for (const t of Object.values(COLLAPSE_BY_KEY)) {
     const isMark = t.mat === MAT_ROAD_MARK;
     if (isMark === polygonOffset && t.color.getHex() === colorHex) return t;
@@ -270,6 +347,28 @@ function stripGeo(rail: Rail, off0: number, off1: number): THREE.BufferGeometry 
     const [cx, cz] = corner(i + 1, off1);
     const [dx2, dz2] = corner(i + 1, off0);
     pos.push(ax, 0, az, bx, 0, bz, cx, 0, cz, ax, 0, az, cx, 0, cz, dx2, 0, dz2);
+  }
+  return flatGeo(pos);
+}
+
+// Small up-facing disc (manhole covers) — center fan, wound to match the
+// planar-map triangles (see multiPolyGeo's cross check).
+function discGeo(cx: number, cz: number, r: number, segs = 10): THREE.BufferGeometry {
+  const pos: number[] = [];
+  for (let i = 0; i < segs; i++) {
+    const a0 = (i / segs) * Math.PI * 2;
+    const a1 = ((i + 1) / segs) * Math.PI * 2;
+    pos.push(
+      cx,
+      0,
+      cz,
+      cx + Math.cos(a1) * r,
+      0,
+      cz + Math.sin(a1) * r,
+      cx + Math.cos(a0) * r,
+      0,
+      cz + Math.sin(a0) * r,
+    );
   }
   return flatGeo(pos);
 }
@@ -569,6 +668,59 @@ export function buildRoadParts(network: RoadNetwork, terrain: Terrain): RoadPart
         }
       }
     }
+
+    // A segmented band between offsets [in, out] on one side, junction-inset.
+    const paintBand = (
+      side: -1 | 1,
+      bandIn: number,
+      bandOut: number,
+      segLen: number,
+      segGap: number,
+      margin: number,
+      mat: THREE.Material,
+    ): void => {
+      for (let s = margin; s < secLen - margin; s += segLen + segGap) {
+        const e = Math.min(s + segLen, secLen - margin);
+        if (e - s < segLen * 0.35) continue;
+        const mid = network.sample(edge, trimA + (s + e) / 2);
+        if (nearJunction(mid.x, mid.z, 4.5)) continue;
+        const r = railFor(edge, trimA + s, trimA + e);
+        if (!r) continue;
+        const o0 = Math.min(side * bandIn, side * bandOut);
+        const o1 = Math.max(side * bandIn, side * bandOut);
+        markingParts.push({ geo: stripGeo(r, o0, o1), mat, lift: LINE_LIFT });
+      }
+    };
+
+    // Muni red transit lanes: ONLY the widest corridor class (Market/Van
+    // Ness/Geary scale) — red everywhere reads rusty instead of special.
+    if (h >= 7.0) {
+      const laneIn = h * 0.33 + LINE_W / 2 + 0.35;
+      const laneOut = eo - LINE_W / 2 - 0.3;
+      if (laneOut - laneIn > 1.2) {
+        paintBand(-1, laneIn, laneOut, 9, 1.4, 4, MAT_MUNI_RED);
+        paintBand(1, laneIn, laneOut, 9, 1.4, 4, MAT_MUNI_RED);
+      }
+    }
+
+    // Green bike lanes: a sparse subset of the minor grid (every 3rd edge) —
+    // SF's bike-network look without painting every street.
+    if (!major && h >= 4.2 && secLen > 40 && edge.id % 3 === 0) {
+      paintBand(-1, h - 1.9, h - 0.8, 4.5, 2.2, 3, MAT_BIKE_GREEN);
+      paintBand(1, h - 1.9, h - 0.8, 4.5, 2.2, 3, MAT_BIKE_GREEN);
+    }
+
+    // Manhole covers: sparse dark discs, alternating lanes on the minor grid.
+    if (!major) {
+      for (let s = 14; s < secLen - 8; s += 34) {
+        const smp = network.sample(edge, trimA + s);
+        if (nearJunction(smp.x, smp.z, 5)) continue;
+        const off = (Math.floor(s / 34) % 2 === 0 ? 1 : -1) * h * 0.45;
+        const cx = smp.x - smp.tz * off;
+        const cz = smp.z + smp.tx * off;
+        markingParts.push({ geo: discGeo(cx, cz, 0.55), mat: MAT_MANHOLE, lift: LINE_LIFT });
+      }
+    }
   }
 
   let crosswalkArms = 0;
@@ -625,6 +777,10 @@ export function buildRoadParts(network: RoadNetwork, terrain: Terrain): RoadPart
     // complex multi-arm nodes turn into a tangle of overlapping paint — the
     // real-world cue there is plain open asphalt anyway.
     if (arms.length >= 3 && arms.length <= 4) {
+      // The Castro paints its crosswalks rainbow — so do we.
+      const gxN = Math.min(GRID_X - 1, Math.max(0, Math.floor((nx + WORLD_HALF_X) / ROAD_TILE)));
+      const gzN = Math.min(GRID_Z - 1, Math.max(0, Math.floor((nz + WORLD_HALF_Z) / ROAD_TILE)));
+      const rainbow = districtAt(gxN, gzN).name === "the Castro";
       for (let ai = 0; ai < arms.length; ai++) {
         const a = arms[ai];
         if (!a) continue;
@@ -686,17 +842,33 @@ export function buildRoadParts(network: RoadNetwork, terrain: Terrain): RoadPart
           }
         };
         // Chunky zebra (stripes run with the road, laid across the width).
-        const stripes: number[] = [];
         const inner = 0.9;
         const outer = inner + 2.6;
         const usable = a.half - 0.8;
         const count = Math.max(4, Math.floor(usable / 0.95));
-        for (let k = 0; k < count; k++) {
-          const lat = -usable + (k / (count - 1)) * 2 * usable;
-          quad(stripes, inner, outer, lat - 0.34, lat + 0.34);
-        }
         crosswalkArms++;
-        markingParts.push({ geo: flatGeo(stripes), mat: MAT_WHITE, lift: LINE_LIFT });
+        if (rainbow) {
+          // Contiguous bands (half the stripe pitch each side) — gaps would
+          // read as scattered confetti, not a rainbow.
+          const halfW = usable / (count - 1);
+          for (let k = 0; k < count; k++) {
+            const lat = -usable + (k / (count - 1)) * 2 * usable;
+            const stripe: number[] = [];
+            quad(stripe, inner, outer, lat - halfW, lat + halfW);
+            markingParts.push({
+              geo: flatGeo(stripe),
+              mat: MAT_RAINBOW[k % MAT_RAINBOW.length] ?? MAT_WHITE,
+              lift: LINE_LIFT,
+            });
+          }
+        } else {
+          const stripes: number[] = [];
+          for (let k = 0; k < count; k++) {
+            const lat = -usable + (k / (count - 1)) * 2 * usable;
+            quad(stripes, inner, outer, lat - 0.34, lat + 0.34);
+          }
+          markingParts.push({ geo: flatGeo(stripes), mat: MAT_WHITE, lift: LINE_LIFT });
+        }
         // Stop bar just past the crosswalk: solid on boulevards, dashed on
         // streets (the KayKit look).
         const bar: number[] = [];

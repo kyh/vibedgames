@@ -7,8 +7,11 @@ import Phaser from "phaser";
 
 import { sfx } from "../audio/sfx";
 import type { PlayOpts, SfxName } from "../audio/sfx";
-import { startScreenText } from "../controls";
-import { createStarfallPauseOverlay } from "../pause-overlay";
+import {
+  buildControls,
+  createStarfallPauseOverlay,
+  ensureStyle as ensureControlsStyle,
+} from "../pause-overlay";
 import { AttractBattle } from "../fx/attract-battle";
 import { FxPool, HITSPARK_SKIP_BUDGET, PARTICLE_SOFT_BUDGET } from "../render/fx-pool";
 import { EnergyBarrier } from "../render/energy-barrier";
@@ -1044,14 +1047,19 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** Start-screen copy, re-run when the touch scheme is detected or a pad
-   *  connects. Rows render from the shared manifest; `coarse` is forced from
-   *  live touch detection so a finger on a fine-pointer device still flips
-   *  the copy (enterTouchMode), and pad rows appear from live detection. */
+   *  connects. Renders the same grouped keycap card the pause overlay shows
+   *  (../pause-overlay buildControls); `coarse` is forced from live touch
+   *  detection so a finger on a fine-pointer device still flips the copy
+   *  (enterTouchMode), and pad rows appear from live detection. */
   private writeStartCopy(): void {
     const touch = IS_COARSE_POINTER || this.gamepad.isTouch;
     const controls = document.getElementById("start-controls");
     const go = document.getElementById("start-go");
-    if (controls) controls.textContent = startScreenText({ coarse: touch });
+    if (controls) {
+      ensureControlsStyle();
+      const card = buildControls(touch);
+      controls.replaceChildren(...(card ? [card] : []));
+    }
     if (go) go.textContent = touch ? "tap to start" : "press any key to start";
   }
 

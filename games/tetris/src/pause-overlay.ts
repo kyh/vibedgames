@@ -35,8 +35,10 @@ const CSS = `
 }
 `;
 
-/** One legend-style row: method label + keycap-chip entries, wrap-centred. */
-function groupRow(group: ControlGroup, coarse: boolean): HTMLElement {
+/** One legend-style row: method label + keycap-chip entries, wrap-centred.
+ *  Shared with the title legend (#legend) so both instruction surfaces speak
+ *  the same visual language. */
+export function groupRow(group: ControlGroup, coarse: boolean): HTMLElement {
   const row = document.createElement("div");
   // 12px → 11px on touch, the same step #legend takes on small screens.
   row.style.cssText =

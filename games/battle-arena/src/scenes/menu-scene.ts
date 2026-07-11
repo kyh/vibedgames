@@ -5,9 +5,9 @@
 // buttons. The overlay is click-through except on its controls, so clicks in
 // the middle reach the 3D row for selection. START persists the pick to
 // localStorage["ba-champ"] / ["ba-name"] for future quick-start boots.
-import { controlHints, watchControlContext } from "@repo/embed";
+import { watchControlContext } from "@repo/embed";
 import { CHAMPIONS } from "../data/champions";
-import { CONTROLS } from "../controls";
+import { buildControlsStrip, ensureControlCardStyle } from "../render/pause-overlay";
 import { abilityIcon, champSigil } from "../data/icons";
 import { isTouchInput } from "../input/touch";
 import { ALL_ABILITY_KEYS, type AbilityKey } from "../sim/types";
@@ -118,17 +118,22 @@ export class Menu {
     }
   }
 
-  /** The help line, straight from the controls manifest (device-filtered by
+  /** The help block, straight from the controls manifest (device-filtered by
    *  @repo/embed — touch copy on coarse pointers, controller rows only while a
-   *  pad is connected). Same dot-joined "input action" style as before. */
+   *  pad is connected). Renders the pause tablet's control language — method
+   *  headers + gold keycap chips — as a compact inline strip. */
   private renderHelp(): void {
     const el = this.el.querySelector<HTMLDivElement>(".ba-help");
     if (!el) return;
-    const lead = isTouchInput() ? "tap a champion" : "click a champion";
-    el.textContent = [
-      lead,
-      ...controlHints(CONTROLS).map(([input, action]) => `${input} ${action}`),
-    ].join(" · ");
+    ensureControlCardStyle();
+    el.replaceChildren();
+    const lead = document.createElement("div");
+    lead.className = "ba-help-lead";
+    lead.textContent = isTouchInput() ? "tap a champion" : "click a champion";
+    el.append(lead);
+    const coarse = window.matchMedia("(pointer: coarse)").matches;
+    const strip = buildControlsStrip(coarse);
+    if (strip) el.append(strip);
   }
 
   remove(): void {
@@ -181,7 +186,9 @@ function injectStyle(): void {
 .ba-go{pointer-events:auto;font:800 17px ui-monospace,monospace;letter-spacing:1px;border:none;border-radius:12px;padding:15px 26px;cursor:pointer;box-shadow:0 5px 0 rgba(0,0,0,.4)}
 .ba-go.bots{background:#3a7bd5;color:#fff}
 .ba-go.online{background:#ffd24a;color:#14111a}
-.ba-help{margin-top:16px;text-align:center;font:600 12px ui-monospace,monospace;opacity:.5}
+.ba-help{margin-top:14px;text-align:center;display:flex;flex-direction:column;gap:8px;align-items:center}
+.ba-help-lead{font:600 12px ui-monospace,monospace;opacity:.5}
+.ba-help .ba-p-strip{max-width:min(92vw,860px);opacity:.92}
 /* short viewports: compact the info panel so the ability strip clears the
    3D roster row instead of sitting on the champions' heads */
 @media (max-height: 800px){
@@ -208,6 +215,8 @@ function injectStyle(): void {
   .ba-row2 input{padding:8px 12px;font-size:13px}
   .ba-go{padding:10px 18px;font-size:14px}
   .ba-help{margin-top:8px}
+  /* the pause tablet still teaches controls; the strip won't fit 390px tall */
+  .ba-help .ba-p-strip{display:none}
   #ba-menu .ba-bottom{padding:0 12px 10px}
 }
 `;

@@ -20,9 +20,6 @@ const METHOD_LABELS: Record<ControlMethod, string> = {
   controller: "controller",
 };
 
-const DRAGON_SKINS = 14;
-const FLAP_FRAMES = 4;
-
 const STYLE_ID = "fdp-style";
 // Positioning/z-index/fade live on the shell's root — visuals only here.
 const CSS = `
@@ -50,14 +47,7 @@ const CSS = `
 @keyframes fdp-drift{from{transform:translateX(-260px)}
   to{transform:translateX(calc(100vw + 260px))}}
 .fdp-card{position:relative;display:flex;flex-direction:column;align-items:center;
-  gap:16px;max-width:min(92vw,420px)}
-.fdp-dragon{position:relative;width:96px;height:96px;overflow:hidden;
-  animation:fdp-float 3.6s ease-in-out infinite;
-  filter:drop-shadow(0 6px 10px rgba(40,30,80,0.3))}
-.fdp-frame{position:absolute;top:0;left:0;width:96px;height:160px;opacity:0;
-  image-rendering:pixelated;animation:fdp-flap 0.56s step-end infinite}
-@keyframes fdp-flap{0%{opacity:1}25%{opacity:0}100%{opacity:0}}
-@keyframes fdp-float{50%{transform:translateY(-9px)}}
+  gap:16px;max-width:min(92vw,640px)}
 .fdp-title{font:900 clamp(44px,10vw,80px)/1 system-ui,sans-serif;color:#fff6d6;
   letter-spacing:0.08em;text-indent:0.08em;
   text-shadow:0 5px 0 rgba(91,74,138,0.55),0 9px 20px rgba(40,30,80,0.35),
@@ -68,7 +58,8 @@ const CSS = `
   animation:fdp-pulse 1.5s ease-in-out infinite}
 @keyframes fdp-pulse{0%,100%{opacity:1;transform:scale(1)}
   50%{opacity:0.5;transform:scale(0.96)}}
-.fdp-controls{display:flex;flex-direction:column;gap:14px;margin-top:6px}
+.fdp-controls{display:flex;flex-wrap:wrap;justify-content:center;align-items:flex-start;
+  gap:14px 36px;margin-top:6px}
 .fdp-method{font:800 10px/1 ui-monospace,'SF Mono',Menlo,monospace;color:#1a2a52;
   opacity:0.72;letter-spacing:0.3em;text-indent:0.3em;text-transform:uppercase;
   margin-bottom:7px;text-shadow:0 1px 0 rgba(255,251,234,0.75)}
@@ -83,12 +74,11 @@ const CSS = `
   text-shadow:0 1px 0 rgba(255,251,234,0.75),0 0 12px rgba(255,251,234,0.55)}
 @media (prefers-reduced-motion:reduce){
   .fdp-clouds{display:none}
-  .fdp-dragon,.fdp-hint{animation:none}
-  .fdp-frame{animation:none}
-  .fdp-frame:first-child{opacity:1}
+  .fdp-hint{animation:none}
 }`;
 
-function ensureStyle(): void {
+/** Inject the shared control-card styles (pause overlay AND start screen). */
+export function ensureStyle(): void {
   if (document.getElementById(STYLE_ID)) return;
   const style = document.createElement("style");
   style.id = STYLE_ID;
@@ -96,25 +86,12 @@ function ensureStyle(): void {
   document.head.append(style);
 }
 
-/** A random dragon skin's 4-frame flap cycle, CSS-animated (the game loop is
- *  frozen while paused, so the flapping lives in DOM/CSS, not Phaser). */
-function buildDragon(): HTMLElement {
-  const dragon = document.createElement("div");
-  dragon.className = "fdp-dragon";
-  dragon.setAttribute("aria-hidden", "true");
-  const skin = 1 + Math.floor(Math.random() * DRAGON_SKINS);
-  for (let frame = 1; frame <= FLAP_FRAMES; frame++) {
-    const img = document.createElement("img");
-    img.className = "fdp-frame";
-    img.src = `/dragon-${skin}-${frame}.png`;
-    img.alt = "";
-    img.style.animationDelay = `${(frame - 1) * -0.14}s`;
-    dragon.append(img);
-  }
-  return dragon;
-}
-
-function buildControls(controls: ControlsManifest, coarse: boolean): HTMLElement | null {
+/**
+ * The grouped keycap card both instruction surfaces render — the start screen
+ * and the pause overlay teach controls with the SAME UI. Null when nothing is
+ * visible for the current device/pad context.
+ */
+export function buildControls(controls: ControlsManifest, coarse: boolean): HTMLElement | null {
   const groups = controlGroups(controls, { coarse });
   if (groups.length === 0) return null;
   const wrap = document.createElement("div");
@@ -184,7 +161,7 @@ function renderCard(overlay: HTMLElement, controls: ControlsManifest): void {
   hint.className = "fdp-hint";
   hint.textContent = coarse ? "tap anywhere to resume" : "click or press any key to resume";
 
-  card.append(buildDragon(), title, hint);
+  card.append(title, hint);
   const controlsEl = buildControls(controls, coarse);
   if (controlsEl) card.append(controlsEl);
 

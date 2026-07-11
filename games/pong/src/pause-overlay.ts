@@ -40,6 +40,19 @@ const GROUP_LABELS: Readonly<Record<ControlMethod, string>> = {
   controller: "PAD",
 };
 
+/** The pause card's ink keycap chip — hard border + offset shadow on paper.
+ *  Shared with the serve/rematch banner so both instruction surfaces speak
+ *  the same visual language. */
+export function inkChip(text: string): HTMLElement {
+  const chip = document.createElement("span");
+  chip.textContent = text;
+  chip.style.cssText =
+    `display:inline-block;padding:2px 8px;border:1.5px solid ${INK};` +
+    `box-shadow:2px 2px 0 ${INK};background:${PAPER};` +
+    "font-size:11px;font-weight:700;letter-spacing:1px;white-space:nowrap";
+  return chip;
+}
+
 /** A solid ink block (paddle / ball) for the court divider glyph. */
 function inkBlock(width: number, height: number): HTMLElement {
   const block = document.createElement("span");
@@ -103,12 +116,8 @@ function renderCard(overlay: HTMLElement): void {
     grid.style.cssText =
       "display:grid;grid-template-columns:auto 1fr;gap:6px 12px;align-items:center";
     for (const entry of group.entries) {
-      const key = document.createElement("span");
-      key.textContent = entry.input;
-      key.style.cssText =
-        `justify-self:start;padding:2px 8px;border:1.5px solid ${INK};` +
-        `box-shadow:2px 2px 0 ${INK};background:${PAPER};` +
-        "font-size:11px;font-weight:700;letter-spacing:1px;white-space:nowrap";
+      const key = inkChip(entry.input);
+      key.style.justifySelf = "start";
       const action = document.createElement("span");
       action.textContent = entry.action;
       action.style.cssText = "font-size:12px;letter-spacing:1px;opacity:0.78";

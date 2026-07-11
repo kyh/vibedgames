@@ -1,11 +1,22 @@
 import { safeAreaInset } from "@vibedgames/gamepad";
-import { notifyGameStarted, watchControlContext } from "@repo/embed";
+import { controlGroups, notifyGameStarted, watchControlContext } from "@repo/embed";
+import type { ControlMethod } from "@repo/embed";
 import Phaser from "phaser";
 
-import { menuControlsText } from "../controls";
+import { CONTROLS } from "../controls";
 import { HEROES } from "../data/heroes";
+import { chipTexts } from "../pause-overlay";
 import { FONT } from "../render/font";
 import { heroSheetTex } from "../render/sprites";
+
+// Section headers matching the pause plaque's GROUP_LABEL voice.
+const GROUP_LABEL: Record<ControlMethod, string> = {
+  keys: "KEYBOARD",
+  mouse: "MOUSE",
+  touch: "TOUCH",
+  camera: "CAMERA",
+  controller: "GAMEPAD",
+};
 
 export class MenuScene extends Phaser.Scene {
   private selected = "ironvow";
@@ -15,6 +26,7 @@ export class MenuScene extends Phaser.Scene {
   private compactH = false; // short viewports (landscape phones) drop the blurb
   private relayout: Phaser.Time.TimerEvent | null = null;
   private unwatchControls: (() => void) | null = null;
+  private controlsPlaque: Phaser.GameObjects.Container | null = null;
 
   constructor() {
     super("Menu");
@@ -23,6 +35,7 @@ export class MenuScene extends Phaser.Scene {
   create(): void {
     // scene instance is reused on BACK TO MENU — rebuild card refs from scratch
     this.cards = [];
+    this.controlsPlaque = null;
 
     const veil = document.getElementById("veil");
     if (veil) {
@@ -230,23 +243,150 @@ export class MenuScene extends Phaser.Scene {
     mkBtn(stack ? W / 2 : W / 2 - 150, stack ? btnY - 74 : btnY, "PLAY vs BOTS", "blue", false);
     mkBtn(stack ? W / 2 : W / 2 + 150, btnY, "PLAY ONLINE", "red", true);
     // The only place controls are taught — the match HUD carries no hint bar.
-    const controlsLine = this.add
-      .text(W / 2, btnY + 46, menuControlsText(), {
-        fontFamily: FONT,
-        fontSize: stack ? "10px" : "12px",
-        color: "#dff5f3",
-        stroke: "#1e3a38",
-        strokeThickness: 3,
-        align: "center",
-        wordWrap: { width: W - 40 },
-      })
-      .setOrigin(0.5);
-    // Plugging in (or pulling) a pad while the menu is up updates the line.
+    // The pause plaque's control language (gold method headers, HUD-echo
+    // keycap chips) rendered as a war-plaque strip above the buttons.
+    this.buildControlsPlaque(btnY, stack);
+    // Plugging in (or pulling) a pad while the menu is up updates the plaque.
     // Scene instance is reused — drop any stale subscription before adding one.
     this.unwatchControls?.();
-    this.unwatchControls = watchControlContext(() => controlsLine.setText(menuControlsText()));
+    this.unwatchControls = watchControlContext(() => this.buildControlsPlaque(btnY, stack));
 
     this.select(this.selected);
+  }
+
+  /** The menu's controls plaque — the pause overlay's grouped keycap language
+   *  in Phaser objects: a dark bronze-edged panel, gold section headers between
+   *  rules, chips split exactly like the pause plaque (shared chipTexts). Sits
+   *  above the PLAY buttons; on short viewports it collapses to a bare
+   *  single-line strip below them, scaled to fit. Rebuilt fresh per call. */
+  private buildControlsPlaque(btnY: number, stack: boolean): void {
+    this.controlsPlaque?.destroy();
+    this.controlsPlaque = null;
+    const W = this.scale.width;
+    const coarse = window.matchMedia("(pointer: coarse)").matches;
+    const groups = controlGroups(CONTROLS, { coarse });
+    if (groups.length === 0) return;
+    const compact = this.compactH;
+    const container = this.add.container(0, 0);
+    this.controlsPlaque = container;
+
+    const fontSize = compact ? "9px" : "12px";
+    const chipH = compact ? 14 : 18;
+    const lineH = chipH + (compact ? 4 : 9);
+    const gapX = compact ? 8 : 12;
+    const maxW = compact ? Number.POSITIVE_INFINITY : Math.min(900, W - 64);
+
+    type Obj = Phaser.GameObjects.GameObject & Phaser.GameObjects.Components.Transform;
+    type Item = { objs: Obj[]; width: number };
+    const rows: Item[][] = [];
+    let row: Item[] = [];
+    let rowW = 0;
+    const flushRow = (): void => {
+      if (row.length > 0) rows.push(row);
+      row = [];
+      rowW = 0;
+    };
+    const addItem = (item: Item): void => {
+      const grown = row.length > 0 ? rowW + gapX + item.width : item.width;
+      if (row.length > 0 && grown > maxW) flushRow();
+      rowW = row.length > 0 ? rowW + gapX + item.width : item.width;
+      row.push(item);
+    };
+
+    for (const group of groups) {
+      if (!compact) flushRow(); // each method heads its own row on the plaque
+      // gold section header between short rules, like the plaque's mp-gh
+      const caption = this.add
+        .text(20, 0, GROUP_LABEL[group.method], {
+          fontFamily: FONT,
+          fontSize: compact ? "9px" : "11px",
+          color: "#d5ae5f",
+        })
+        .setOrigin(0, 0.5);
+      const ruleL = this.add.rectangle(0, 0, 14, 1, 0x8a7350).setOrigin(0, 0.5).setAlpha(0.8);
+      const ruleR = this.add
+        .rectangle(20 + Math.ceil(caption.width) + 6, 0, 14, 1, 0x8a7350)
+        .setOrigin(0, 0.5)
+        .setAlpha(0.8);
+      addItem({ objs: [ruleL, caption, ruleR], width: 40 + Math.ceil(caption.width) });
+      for (const entry of group.entries) {
+        const objs: Obj[] = [];
+        const chips = this.add.graphics();
+        objs.push(chips);
+        let x = 0;
+        for (const text of chipTexts(entry.input)) {
+          const cap = this.add
+            .text(0, 0, text, { fontFamily: FONT, fontSize, color: "#ffe8b0" })
+            .setOrigin(0.5);
+          const w = Math.max(chipH + 4, Math.ceil(cap.width) + 12);
+          chips.fillStyle(0x2f2315, 1);
+          chips.fillRoundedRect(x, -chipH / 2, w, chipH, 5);
+          chips.lineStyle(1.5, 0x8a7350, 1);
+          chips.strokeRoundedRect(x, -chipH / 2, w, chipH, 5);
+          cap.setPosition(x + w / 2, 0);
+          objs.push(cap);
+          x += w + 3;
+        }
+        const action = this.add
+          .text(x + 3, 0, entry.action, { fontFamily: FONT, fontSize, color: "#d8cbb2" })
+          .setOrigin(0, 0.5);
+        objs.push(action);
+        addItem({ objs, width: x + 3 + Math.ceil(action.width) });
+      }
+    }
+    flushRow();
+
+    let maxRowW = 0;
+    let y = 0;
+    for (const line of rows) {
+      const width = line.reduce((sum, item) => sum + item.width, 0) + gapX * (line.length - 1);
+      maxRowW = Math.max(maxRowW, width);
+      let x = -width / 2;
+      for (const item of line) {
+        for (const obj of item.objs) {
+          obj.setPosition(obj.x + x, obj.y + y);
+          container.add(obj);
+        }
+        x += item.width + gapX;
+      }
+      y += lineH;
+    }
+    const contentH = (rows.length - 1) * lineH + chipH;
+
+    if (compact) {
+      // bare strip under the buttons, where the old controls line lived
+      container
+        .setScale(Math.min(1, (W - 24) / maxRowW))
+        .setPosition(W / 2, btnY + (stack ? 46 : 42));
+      return;
+    }
+
+    // The plaque panel behind the rows — dark bronze-edged, corner diamonds.
+    const padX = 20;
+    const padY = 12;
+    const panelW = maxRowW + padX * 2;
+    const panelH = contentH + padY * 2;
+    const panelTop = -chipH / 2 - padY;
+    const panel = this.add.graphics();
+    panel.fillStyle(0x150e07, 0.82);
+    panel.fillRoundedRect(-panelW / 2, panelTop, panelW, panelH, 10);
+    panel.lineStyle(2, 0x8a7350, 0.9);
+    panel.strokeRoundedRect(-panelW / 2, panelTop, panelW, panelH, 10);
+    container.addAt(panel, 0);
+    const cornerDirs: readonly (readonly [number, number])[] = [
+      [-1, -1],
+      [1, -1],
+      [-1, 1],
+      [1, 1],
+    ];
+    for (const [dx, dy] of cornerDirs) {
+      const corner = this.add
+        .rectangle(dx * (panelW / 2 - 9), panelTop + (dy > 0 ? panelH - 9 : 9), 6, 6, 0xd5ae5f)
+        .setRotation(Math.PI / 4);
+      container.add(corner);
+    }
+    // bottom edge of the panel clears the PLAY buttons' hover scale
+    container.setPosition(W / 2, btnY - 44 - (panelTop + panelH));
   }
 
   private queueRelayout(): void {
