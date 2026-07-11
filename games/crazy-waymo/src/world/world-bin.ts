@@ -9,7 +9,7 @@ import type { CityGenPayload } from "./gen-worker";
 // The header mirrors the payload structure with typed arrays replaced by
 // { $buf: n, $type: "f32"|"u16"|"u32"|"i8" } refs into the buffer table.
 
-export const WORLD_REV = 28; // bump when generation code changes → rebake (28 = park tiles sunk 0.3 below high corner)
+export const WORLD_REV = 30; // bump when generation code changes → rebake (30 = solids carry the unseen census bit)
 
 type Typed = Float32Array | Uint16Array | Uint32Array | Int8Array | Uint8Array | Int32Array;
 type BufRef = { $buf: number; $type: "f32" | "u16" | "u32" | "i8" | "u8" | "i32" };
@@ -512,7 +512,10 @@ function packSolids(solids: CityRestPayload["solids"]): PackedSolids {
     data[i * 6 + 4] = so.maxY ?? 0;
     data[i * 6 + 5] = so.yaw ?? 0;
     flags[i] =
-      (so.maxY !== undefined ? 1 : 0) | (so.yaw !== undefined ? 2 : 0) | (so.noBody ? 4 : 0);
+      (so.maxY !== undefined ? 1 : 0) |
+      (so.yaw !== undefined ? 2 : 0) |
+      (so.noBody ? 4 : 0) |
+      (so.unseen !== undefined ? 8 : 0); // reason string dropped; the bit is what the census needs
   }
   return { data, flags, count: n };
 }
@@ -527,6 +530,7 @@ function unpackSolids(p: PackedSolids): CityRestPayload["solids"] {
       minZ: p.data[i * 6 + 2] ?? 0,
       maxZ: p.data[i * 6 + 3] ?? 0,
       ...(f & 1 ? { maxY: p.data[i * 6 + 4] ?? 0 } : {}),
+      ...(f & 8 ? { unseen: "baked" } : {}),
       ...(f & 2 ? { yaw: p.data[i * 6 + 5] ?? 0 } : {}),
       ...(f & 4 ? { noBody: true } : {}),
     });

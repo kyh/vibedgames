@@ -100,7 +100,7 @@ export class SmashCones {
         const z = hit.z + hit.tz * along + hit.tx * shoulder * side + rng.range(-0.4, 0.4);
         this.cones.push({
           x,
-          y: city.terrain.heightAt(x, z),
+          y: city.heightAt(x, z),
           z,
           yaw: rng.range(0, Math.PI * 2),
           quat: new THREE.Quaternion(),

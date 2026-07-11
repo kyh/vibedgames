@@ -49,6 +49,9 @@ export type Solid = {
   // thousands of tree trunks — punted debris passing through a tree is
   // invisible; ten thousand extra broadphase boxes is not.
   readonly noBody?: boolean;
+  // Deliberately has NO visual (map-edge walls). Anything else the player can
+  // hit must be visible — the e2e census fails on untagged sightless solids.
+  readonly unseen?: string;
 };
 
 // A drivable surface patch floating over the terrain (pier deck, bridge ramp).

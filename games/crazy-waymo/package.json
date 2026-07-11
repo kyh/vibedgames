@@ -11,6 +11,7 @@
     "bake:world": "node tools/bake-world.mjs",
     "lint:streets": "vite-node tools/street-lint.ts",
     "test": "vite-node tools/test-world.mts",
+    "test:e2e": "playwright test",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"
   },
@@ -23,6 +24,7 @@
     "three": "^0.185.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "playwright-core": "^1.61.1",
     "@gltf-transform/core": "^4.4.1",
     "@gltf-transform/extensions": "^4.4.1",

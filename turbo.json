@@ -21,6 +21,10 @@
       "cache": false,
       "persistent": true
     },
+    "test": {
+      "dependsOn": ["^topo"],
+      "cache": false
+    },
     "typecheck": {
       "dependsOn": ["^topo", "^build"],
       "outputs": [".cache/tsbuildinfo.json"]

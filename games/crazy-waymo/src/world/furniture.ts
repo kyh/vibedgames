@@ -47,7 +47,7 @@ import { conformToTerrain, DRAPE_MAX_ERROR } from "./conform";
 
 import type { RoadNetwork } from "./network";
 import type { CityPlan, RoadResolved } from "./grid";
-import { landuseGreenAt, landuseSandAt } from "./sf-landuse";
+import { landuseGreenAt } from "./sf-landuse";
 import { type DistrictChar, districtAt } from "./sf-map";
 import { streetMaskAt } from "./sf-streets";
 import type { Terrain } from "./terrain";
@@ -994,41 +994,6 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
         objects.push(node);
         const half = ROAD_TILE * 0.19;
         solids.push({ minX: bx - half, maxX: bx + half, minZ: bz - half, maxZ: bz + half });
-      }
-    }
-  }
-
-  // ------------------------------------------------------------------
-  // 9. SEAWALL — the visual for the shoreline collision (city.ts walls off
-  // EVERY coastal water cell; a wall the player can hit must be a wall the
-  // player can SEE). Concrete lip on urban shores, sand berm on beaches.
-  // Pier cells skipped.
-  // ------------------------------------------------------------------
-  const BERM_MAT = new THREE.MeshStandardMaterial({ color: 0xcbb98d, roughness: 1 }); // dune sand
-  for (let gx = 0; gx < GRID_X; gx++) {
-    for (let gz = 0; gz < GRID_Z; gz++) {
-      await breathe();
-      if (cellAt(gx, gz) !== "water") continue;
-      if (openWaterCells.has(cellKey(gx, gz))) continue;
-      if (reserved.has(cellKey(gx, gz))) continue;
-      const wx = worldX(gx);
-      const wz = worldZ(gz);
-      for (const d of DIRS) {
-        const [dx, dz] = DIR_DELTA[d];
-        const nb = cellAt(gx + dx, gz + dz);
-        if (nb !== "road" && nb !== "lot") continue;
-        // Beach shores read wrong with a concrete lip — use a low, wider
-        // sand berm there; the collision face is identical either way.
-        const beach = landuseSandAt(gx + dx, gz + dz);
-        const mat = beach ? BERM_MAT : SEAWALL_MAT;
-        const h = beach ? 0.8 : 1.0;
-        const th = beach ? 1.6 : 0.6;
-        // Lip along the shared edge, seated on the land-side ground height.
-        const ex = wx + dx * (ROAD_TILE / 2);
-        const ez = wz + dz * (ROAD_TILE / 2);
-        const groundY = terrain.heightAt(wx + dx * ROAD_TILE * 0.62, wz + dz * ROAD_TILE * 0.62);
-        if (dx !== 0) box(mat, th, h, ROAD_TILE, ex, groundY + 0.15, ez);
-        else box(mat, ROAD_TILE, h, th, ex, groundY + 0.15, ez);
       }
     }
   }

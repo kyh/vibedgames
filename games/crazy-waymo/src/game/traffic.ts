@@ -328,9 +328,9 @@ export class TrafficCar {
     // Axle-composite ground height (centre-only sampling buries the nose on
     // convex crests).
     const gy = Math.max(
-      city.terrain.heightAt(px, pz),
-      (city.terrain.heightAt(px + this.tanX * 1.2, pz + this.tanZ * 1.2) +
-        city.terrain.heightAt(px - this.tanX * 1.2, pz - this.tanZ * 1.2)) /
+      city.heightAt(px, pz),
+      (city.heightAt(px + this.tanX * 1.2, pz + this.tanZ * 1.2) +
+        city.heightAt(px - this.tanX * 1.2, pz - this.tanZ * 1.2)) /
         2,
     );
     this.position.set(px, gy + ROAD_Y, pz);
@@ -340,7 +340,7 @@ export class TrafficCar {
     let d = ((targetYaw - this.yaw + Math.PI) % (Math.PI * 2)) - Math.PI;
     if (d < -Math.PI) d += Math.PI * 2;
     this.yaw += d * Math.min(1, dt * 8);
-    const n = city.terrain.normalInto(SCRATCH_N, px, pz);
+    const n = city.normalInto(SCRATCH_N, px, pz);
     slopeQuaternion(this.targetQuat, this.yaw, n);
     if (dt === 0) this.object3D.quaternion.copy(this.targetQuat);
     else this.object3D.quaternion.slerp(this.targetQuat, Math.min(1, dt * 10));

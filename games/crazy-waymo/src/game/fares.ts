@@ -336,11 +336,11 @@ export class FareManager {
       const off = hit.edge.half + 0.65; // on the sidewalk, facing the kerb
       const x = hit.x + nx * off;
       const z = hit.z + nz * off;
-      return new THREE.Vector3(x, this.city.terrain.heightAt(x, z), z);
+      return new THREE.Vector3(x, this.city.heightAt(x, z), z);
     }
     const x = cx + dx * ROAD_TILE * 0.425;
     const z = cz + dz * ROAD_TILE * 0.425;
-    return new THREE.Vector3(x, this.city.terrain.heightAt(x, z), z);
+    return new THREE.Vector3(x, this.city.heightAt(x, z), z);
   }
 
   private rollTier(): FareTier {

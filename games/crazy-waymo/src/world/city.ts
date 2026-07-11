@@ -1253,23 +1253,45 @@ export class CityModel {
       for (const s of gg.solids) this.solids.push(s);
       this.addDecks(gg.decks);
 
-      // --- Shoreline collision: wall off each water cell that borders land so
-      // the taxi can reach the waterfront but not drive into the bay. ---
+      // --- Shoreline: wall off each water cell that borders land, and emit
+      // the seawall VISUAL in the same breath — a wall the player can hit
+      // must be a wall they can see; pairing them in one loop makes the
+      // invisible-shore-wall class unrepresentable. Concrete lip on urban
+      // shores, low sand berm on beaches. ---
+      const seawallMat = new THREE.MeshStandardMaterial({ color: 0x9aa2a6, roughness: 1 });
+      const bermMat = new THREE.MeshStandardMaterial({ color: 0xcbb98d, roughness: 1 });
+      const lipGeo = new THREE.BoxGeometry(1, 1, 1);
       for (let gx = 0; gx < GRID_X; gx++) {
         for (let gz = 0; gz < GRID_Z; gz++) {
           if (this.plan.cells[gx]?.[gz] !== "water") continue;
           const waterKey = `${gx},${gz}`;
           if (fr.openWaterCells.has(waterKey)) continue; // pier runs out here
           if (gg.openWaterCells.has(waterKey)) continue; // Golden Gate span
+          const wx = this.worldX(gx);
+          const wz = this.worldZ(gz);
           let coastal = false;
           for (const d of [N, E, S, W] as const) {
             const [dx, dz] = DIR_DELTA[d];
             const nb = this.plan.cells[gx + dx]?.[gz + dz];
-            if (nb === "road" || nb === "lot") coastal = true;
+            if (nb !== "road" && nb !== "lot") continue;
+            coastal = true;
+            const beach = landuseSandAt(gx + dx, gz + dz);
+            const h = beach ? 0.8 : 1.0;
+            const th = beach ? 1.6 : 0.6;
+            const ex = wx + dx * (ROAD_TILE / 2);
+            const ez = wz + dz * (ROAD_TILE / 2);
+            const groundY = this.terrain.heightAt(
+              wx + dx * ROAD_TILE * 0.62,
+              wz + dz * ROAD_TILE * 0.62,
+            );
+            const lip = new THREE.Mesh(lipGeo, beach ? bermMat : seawallMat);
+            if (dx !== 0) lip.scale.set(th, h, ROAD_TILE);
+            else lip.scale.set(ROAD_TILE, h, th);
+            lip.position.set(ex, groundY + 0.15, ez);
+            lip.updateMatrixWorld(true);
+            collect(lip);
           }
           if (!coastal) continue;
-          const wx = this.worldX(gx);
-          const wz = this.worldZ(gz);
           const half = ROAD_TILE * 0.46;
           this.solids.push({ minX: wx - half, maxX: wx + half, minZ: wz - half, maxZ: wz + half });
         }
@@ -1279,10 +1301,11 @@ export class CityModel {
       const t = 3;
       const LX = WORLD_HALF_X;
       const LZ = WORLD_HALF_Z;
-      this.solids.push({ minX: -LX - t, maxX: -LX, minZ: -LZ - t, maxZ: LZ + t }); // west
-      this.solids.push({ minX: LX, maxX: LX + t, minZ: -LZ - t, maxZ: LZ + t }); // east
-      this.solids.push({ minX: -LX - t, maxX: LX + t, minZ: -LZ - t, maxZ: -LZ }); // north
-      this.solids.push({ minX: -LX - t, maxX: LX + t, minZ: LZ, maxZ: LZ + t }); // south
+      const edge = { unseen: "map border" } as const;
+      this.solids.push({ ...edge, minX: -LX - t, maxX: -LX, minZ: -LZ - t, maxZ: LZ + t }); // west
+      this.solids.push({ ...edge, minX: LX, maxX: LX + t, minZ: -LZ - t, maxZ: LZ + t }); // east
+      this.solids.push({ ...edge, minX: -LX - t, maxX: LX + t, minZ: -LZ - t, maxZ: -LZ }); // north
+      this.solids.push({ ...edge, minX: -LX - t, maxX: LX + t, minZ: LZ, maxZ: LZ + t }); // south
 
       this.buildGround();
 
