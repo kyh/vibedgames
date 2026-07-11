@@ -15,12 +15,23 @@ const HW = 18;
 const H = 42;
 const CHARGE_SPEED = 300;
 
-export type BossState = "intro" | "idle" | "wave" | "jump" | "slam" | "charge" | "punch" | "hurt" | "phase" | "dead";
+export type BossState =
+  | "intro"
+  | "idle"
+  | "wave"
+  | "jump"
+  | "slam"
+  | "charge"
+  | "punch"
+  | "hurt"
+  | "phase"
+  | "dead";
 export type Wave = { x: number; y: number; vx: number; dmg: number };
 export type Blast = { x: number; y: number; r: number; dmg: number };
 export type Add = { x: number; y: number; name: EnemyName };
 
-const approach = (c: number, t: number, d: number): number => (c < t ? Math.min(c + d, t) : Math.max(c - d, t));
+const approach = (c: number, t: number, d: number): number =>
+  c < t ? Math.min(c + d, t) : Math.max(c - d, t);
 
 export class BossBody {
   x: number;
@@ -65,7 +76,12 @@ export class BossBody {
     return Math.max(0, this.hp / this.maxHp);
   }
   get telegraphing(): boolean {
-    return (this.state === "wave" && this.stateT < 0.5) || (this.state === "jump" && this.stateT < 0.34) || (this.state === "charge" && this.stateT < 0.4) || (this.state === "punch" && this.stateT < 0.26);
+    return (
+      (this.state === "wave" && this.stateT < 0.5) ||
+      (this.state === "jump" && this.stateT < 0.34) ||
+      (this.state === "charge" && this.stateT < 0.4) ||
+      (this.state === "punch" && this.stateT < 0.26)
+    );
   }
 
   hurtBox(): Rect {
@@ -77,11 +93,25 @@ export class BossBody {
     if (this.state === "punch" && this.stateT >= 0.26 && this.stateT < 0.4) {
       const reach = 30;
       const front = this.facing > 0 ? this.x : this.x - reach;
-      return { left: front, top: this.y - H, right: front + reach, bottom: this.y, dmg: 1, kb: 200 };
+      return {
+        left: front,
+        top: this.y - H,
+        right: front + reach,
+        bottom: this.y,
+        dmg: 1,
+        kb: 200,
+      };
     }
     // The whole body is dangerous mid-lunge — a heavier, knock-you-back hit.
     if (this.state === "charge" && this.stateT >= 0.4 && this.stateT < 0.82) {
-      return { left: this.x - HW - 6, top: this.y - H, right: this.x + HW + 6, bottom: this.y, dmg: 1, kb: 260 };
+      return {
+        left: this.x - HW - 6,
+        top: this.y - H,
+        right: this.x + HW + 6,
+        bottom: this.y,
+        dmg: 1,
+        kb: 260,
+      };
     }
     return null;
   }
@@ -118,7 +148,8 @@ export class BossBody {
     this.attackCd = Math.max(0, this.attackCd - dt);
     const dx = tx - this.x;
     const dist = Math.abs(dx);
-    if (Math.abs(dx) > 4 && (this.state === "idle" || this.state === "intro")) this.facing = dx > 0 ? 1 : -1;
+    if (Math.abs(dx) > 4 && (this.state === "idle" || this.state === "intro"))
+      this.facing = dx > 0 ? 1 : -1;
 
     switch (this.state) {
       case "dead":
@@ -205,7 +236,8 @@ export class BossBody {
       // crowded); bruisers just close the gap.
       const want = this.kind.ranged ? 130 : 60;
       if (dist > want + 20) this.vx = approach(this.vx, Math.sign(dx) * 40, 300 * dt);
-      else if (this.kind.ranged && dist < want - 40) this.vx = approach(this.vx, -Math.sign(dx) * 46, 300 * dt);
+      else if (this.kind.ranged && dist < want - 40)
+        this.vx = approach(this.vx, -Math.sign(dx) * 46, 300 * dt);
       else this.vx = approach(this.vx, 0, 300 * dt);
       return;
     }

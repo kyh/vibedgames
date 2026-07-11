@@ -30,7 +30,15 @@ export type Status =
   | { kind: "silence"; until: number; id?: string }
   | { kind: "slow"; until: number; pct: number; id?: string }
   | { kind: "speed"; until: number; pct: number; id?: string }
-  | { kind: "dot"; until: number; nextTick: number; dps: number; dtype: DamageType; sourceId: string; id?: string }
+  | {
+      kind: "dot";
+      until: number;
+      nextTick: number;
+      dps: number;
+      dtype: DamageType;
+      sourceId: string;
+      id?: string;
+    }
   | { kind: "heal"; until: number; nextTick: number; hps: number; id?: string }
   | { kind: "shield"; until: number; amount: number; id?: string }
   | { kind: "stealth"; until: number; id?: string }
@@ -108,7 +116,14 @@ export type Unit = {
 
   // input buffering — a cast pressed slightly too early fires the moment it
   // becomes legal (drained in step() each tick; plain data → rides snapshots)
-  queuedCast: { key: AbilityKey; px: number; py: number; ax: number; ay: number; until: number } | null;
+  queuedCast: {
+    key: AbilityKey;
+    px: number;
+    py: number;
+    ax: number;
+    ay: number;
+    until: number;
+  } | null;
 
   // steering velocity with accel/decel smoothing (movement reads/writes this;
   // dashes write it directly, knockback stacks on top)
@@ -257,7 +272,18 @@ export type BossState = {
 
 // ── One-shot FX pulses (host → renderer; also forwarded over the wire) ───────
 export type FxEvent =
-  | { t: "hit"; x: number; y: number; dx: number; dy: number; dtype: DamageType; by: string; to: string; amount: number; crit?: boolean }
+  | {
+      t: "hit";
+      x: number;
+      y: number;
+      dx: number;
+      dy: number;
+      dtype: DamageType;
+      by: string;
+      to: string;
+      amount: number;
+      crit?: boolean;
+    }
   | { t: "swing"; x: number; y: number; ang: number; r: number; melee: boolean; dtype: DamageType }
   // an ability's damage moment (tag = def.effect, or "spin" for the whirl
   // basic) — the impact layer fx, fired when the blade/slam actually connects
@@ -266,7 +292,14 @@ export type FxEvent =
   | { t: "death"; x: number; y: number; team: Team; by: string }
   | { t: "propBreak"; x: number; y: number; model: string; explosive?: boolean }
   | { t: "itemUse"; x: number; y: number; item: string }
-  | { t: "kill"; killer: string; victim: string; killerName: string; victimName: string; leader?: boolean }
+  | {
+      t: "kill";
+      killer: string;
+      victim: string;
+      killerName: string;
+      victimName: string;
+      leader?: boolean;
+    }
   | { t: "coinGrab"; x: number; y: number; gold: number }
   | { t: "coinThrow"; x: number; y: number; tx: number; ty: number }
   | { t: "delivery"; x: number; y: number; tier: string; playerName: string }

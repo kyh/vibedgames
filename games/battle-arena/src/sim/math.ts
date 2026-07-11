@@ -22,8 +22,7 @@ export function norm(x: number, y: number): Vec2 {
   return l > 1e-6 ? { x: x / l, y: y / l } : { x: 0, y: 0 };
 }
 
-export const clamp = (n: number, lo: number, hi: number): number =>
-  n < lo ? lo : n > hi ? hi : n;
+export const clamp = (n: number, lo: number, hi: number): number => (n < lo ? lo : n > hi ? hi : n);
 
 export const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 
@@ -55,8 +54,7 @@ export function rand(h: RngHolder): number {
 }
 
 /** Uniform float in [lo, hi). */
-export const randRange = (h: RngHolder, lo: number, hi: number): number =>
-  lo + rand(h) * (hi - lo);
+export const randRange = (h: RngHolder, lo: number, hi: number): number => lo + rand(h) * (hi - lo);
 
 /** Integer in [0, n). */
 export const randInt = (h: RngHolder, n: number): number => Math.floor(rand(h) * n);

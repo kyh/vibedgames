@@ -29,7 +29,13 @@ function inStairGap(ang: number): boolean {
 /** Block a move that crosses the plateau edge unless it's through a stair gap.
  *  Off-gap crossings clamp radially to the edge (tangential motion kept, so the
  *  unit slides along the wall toward a stair). */
-export function resolveElevation(fromX: number, fromY: number, toX: number, toY: number, radius: number): Vec2 {
+export function resolveElevation(
+  fromX: number,
+  fromY: number,
+  toX: number,
+  toY: number,
+  radius: number,
+): Vec2 {
   const fromIn = onPlateau(fromX, fromY);
   const toIn = onPlateau(toX, toY);
   if (fromIn === toIn) return { x: toX, y: toY }; // no level change

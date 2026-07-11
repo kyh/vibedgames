@@ -16,7 +16,15 @@
 //
 // Determinism: every jittered placement uses hash2 — identical on every
 // client, zero runtime RNG.
-import { APOTHEM, CAMPS, DELIVERY_PADS, EDGE_ANGLES, PARTITION_RUNS, RUNE_SPOTS, SPAWNS } from "./map";
+import {
+  APOTHEM,
+  CAMPS,
+  DELIVERY_PADS,
+  EDGE_ANGLES,
+  PARTITION_RUNS,
+  RUNE_SPOTS,
+  SPAWNS,
+} from "./map";
 import { STAIR_ANGLES } from "../sim/elevation";
 import type { MapProp } from "./map-format";
 
@@ -68,7 +76,15 @@ export function setDecorOverride(props: MapProp[] | null): void {
   decorOverride =
     props === null
       ? null
-      : props.map((p) => ({ model: p.model, x: p.x, y: p.y, rot: p.rot, scale: p.scale, lie: p.lie ?? false, h: p.h ?? 0 }));
+      : props.map((p) => ({
+          model: p.model,
+          x: p.x,
+          y: p.y,
+          rot: p.rot,
+          scale: p.scale,
+          lie: p.lie ?? false,
+          h: p.h ?? 0,
+        }));
 }
 
 /** The renderer's set-dressing list: the custom-map override when one is
@@ -80,7 +96,15 @@ export function buildDecor(): Decor[] {
 /** The procedural default dressing (also the editor's RESET baseline). */
 export function buildProceduralDecor(): Decor[] {
   const out: Decor[] = [];
-  const add = (model: string, x: number, y: number, rot: number, scale: number, lie = false, h = 0): void => {
+  const add = (
+    model: string,
+    x: number,
+    y: number,
+    rot: number,
+    scale: number,
+    lie = false,
+    h = 0,
+  ): void => {
     out.push({ model, x, y, rot, scale, lie, h });
   };
 
@@ -104,14 +128,26 @@ export function buildProceduralDecor(): Decor[] {
     // (the stash crates/barrels/kegs are DESTRUCTIBLE sim props now — see
     //  data/props.ts; only the indestructible dressing stays decor)
     add("floor_foundation_corner", c.x - ox * 2.4, c.y - oy * 2.4, ang, 0.95); // broken altar
-    add(i % 2 === 0 ? "banner_blue" : "banner_red", c.x - oy * 2.4, c.y + ox * 2.4, ang + Math.PI / 2, 0.9);
+    add(
+      i % 2 === 0 ? "banner_blue" : "banner_red",
+      c.x - oy * 2.4,
+      c.y + ox * 2.4,
+      ang + Math.PI / 2,
+      0.9,
+    );
     // rubble ring (rubble_half is 3.5u tall natively — scale ~0.4 keeps the
     // chunks ≤ ~1.5u so camps stay camera/sightline-safe)
     for (let k = 0; k < 3; k++) {
       const da = k === 0 ? 0.9 : k === 1 ? 2.2 : -1.7;
       const rx = Math.cos(ang + da);
       const ry = Math.sin(ang + da);
-      add("rubble_half", c.x + rx * 3.0, c.y + ry * 3.0, hash2(i * 7 + k, 13) * TAU, 0.36 + hash2(i * 3 + k, 5) * 0.08);
+      add(
+        "rubble_half",
+        c.x + rx * 3.0,
+        c.y + ry * 3.0,
+        hash2(i * 7 + k, 13) * TAU,
+        0.36 + hash2(i * 3 + k, 5) * 0.08,
+      );
     }
     // theme centerpiece(s)
     if (i === 0) {
@@ -125,8 +161,20 @@ export function buildProceduralDecor(): Decor[] {
       // Treasury (the golem vertex — gold spills toward the lair)
       add("rocks_gold", c.x + tx * 2.4, c.y + ty * 2.4, 0.7, 1.1);
       add("chest", c.x - ox * 2.6, c.y - oy * 2.6, faceSim(ox, oy), 0.9);
-      add("coin_stack_small", c.x + ox * 2.5 + tx * 1.2, c.y + oy * 2.5 + ty * 1.2, hash2(1, 19) * TAU, 0.9);
-      add("coin_stack_small", c.x + ox * 2.5 - tx * 1.2, c.y + oy * 2.5 - ty * 1.2, hash2(2, 19) * TAU, 0.9);
+      add(
+        "coin_stack_small",
+        c.x + ox * 2.5 + tx * 1.2,
+        c.y + oy * 2.5 + ty * 1.2,
+        hash2(1, 19) * TAU,
+        0.9,
+      );
+      add(
+        "coin_stack_small",
+        c.x + ox * 2.5 - tx * 1.2,
+        c.y + oy * 2.5 - ty * 1.2,
+        hash2(2, 19) * TAU,
+        0.9,
+      );
     } else if (i === 2) {
       // Excavation
       add("scaffold_frame_small", c.x + ox * 3.0, c.y + oy * 3.0, ang + 0.4, 1.0);
@@ -179,8 +227,22 @@ export function buildProceduralDecor(): Decor[] {
     }
     if (!clear) continue;
     add(i % 2 === 0 ? "pillar" : "column", x, y, a * 1.7, 0.85, i % 3 !== 0);
-    if (i % 4 === 1) add("rubble_half", x + Math.cos(a + 1.3) * 2.0, y + Math.sin(a + 1.3) * 2.0, hash2(i, 87) * TAU, 0.35);
-    if (i % 4 === 3) add("rocks", x + Math.cos(a - 1.1) * 2.3, y + Math.sin(a - 1.1) * 2.3, hash2(i, 88) * TAU, 0.85);
+    if (i % 4 === 1)
+      add(
+        "rubble_half",
+        x + Math.cos(a + 1.3) * 2.0,
+        y + Math.sin(a + 1.3) * 2.0,
+        hash2(i, 87) * TAU,
+        0.35,
+      );
+    if (i % 4 === 3)
+      add(
+        "rocks",
+        x + Math.cos(a - 1.1) * 2.3,
+        y + Math.sin(a - 1.1) * 2.3,
+        hash2(i, 88) * TAU,
+        0.85,
+      );
   }
 
   // ── MID-BAND SCATTER: the resize opened a wide ring between the partition
@@ -211,7 +273,8 @@ export function buildProceduralDecor(): Decor[] {
     for (const c of CAMPS) if ((x - c.x) ** 2 + (y - c.y) ** 2 < 8 * 8) clear = false;
     for (const p of DELIVERY_PADS) if ((x - p.x) ** 2 + (y - p.y) ** 2 < 7 * 7) clear = false;
     for (const p of RUNE_SPOTS) if ((x - p.x) ** 2 + (y - p.y) ** 2 < 7 * 7) clear = false;
-    for (const run of PARTITION_RUNS) if ((x - run.x) ** 2 + (y - run.y) ** 2 < 6.5 * 6.5) clear = false;
+    for (const run of PARTITION_RUNS)
+      if ((x - run.x) ** 2 + (y - run.y) ** 2 < 6.5 * 6.5) clear = false;
     if (!clear) continue;
     const pick = hash2(i, 303);
     if (pick < 0.4) add("rocks_small", x, y, hash2(i, 304) * TAU, 0.9 + hash2(i, 305) * 0.4);
@@ -230,7 +293,15 @@ export function buildProceduralDecor(): Decor[] {
     for (const off of [-0.13, 0.13]) {
       const ba = a + off;
       const wr = APOTHEM - 0.5;
-      add(k % 2 === 0 ? "banner_red" : "banner_blue", Math.cos(ba) * wr, Math.sin(ba) * wr, Math.PI / 2 - ba, 1.15, false, 2.6);
+      add(
+        k % 2 === 0 ? "banner_red" : "banner_blue",
+        Math.cos(ba) * wr,
+        Math.sin(ba) * wr,
+        Math.PI / 2 - ba,
+        1.15,
+        false,
+        2.6,
+      );
     }
   });
 
@@ -250,20 +321,40 @@ export function buildProceduralDecor(): Decor[] {
     if (Math.abs(gap) < 0.5) continue;
     const r = 2.0 + hash2(i, 7) * 2.6;
     const model = i % 3 === 2 ? "coin_stack_medium" : "coin_stack_small";
-    add(model, Math.cos(angle) * r, Math.sin(angle) * r, hash2(i, 11) * TAU, 0.8 + hash2(i, 3) * 0.4, false, BOSS_TOP);
+    add(
+      model,
+      Math.cos(angle) * r,
+      Math.sin(angle) * r,
+      hash2(i, 11) * TAU,
+      0.8 + hash2(i, 3) * 0.4,
+      false,
+      BOSS_TOP,
+    );
   }
   // plateau banner ring: gold cloth flanking each grand stair
   for (const a of STAIR_ANGLES) {
     for (const off of [-0.3, 0.3]) {
       const ba = a + off;
-      add("banner_thin_yellow", Math.cos(ba) * 9.9, Math.sin(ba) * 9.9, faceSim(-Math.cos(ba), -Math.sin(ba)), 1.0);
+      add(
+        "banner_thin_yellow",
+        Math.cos(ba) * 9.9,
+        Math.sin(ba) * 9.9,
+        faceSim(-Math.cos(ba), -Math.sin(ba)),
+        1.0,
+      );
     }
   }
   // grand-stair flanking candles at the ramp feet
   for (const a of STAIR_ANGLES) {
     for (const off of [-0.26, 0.26]) {
       const ca = a + off;
-      add("candle_triple", Math.cos(ca) * 12.6, Math.sin(ca) * 12.6, hash2(Math.round(a * 100), Math.round(off * 100)) * TAU, 1.0);
+      add(
+        "candle_triple",
+        Math.cos(ca) * 12.6,
+        Math.sin(ca) * 12.6,
+        hash2(Math.round(a * 100), Math.round(off * 100)) * TAU,
+        1.0,
+      );
     }
   }
 
@@ -280,7 +371,13 @@ export function buildProceduralDecor(): Decor[] {
       const ca = a + off;
       add("candle_triple", Math.cos(ca) * (pr + 1.6), Math.sin(ca) * (pr + 1.6), a, 1.0);
     }
-    add("banner_white", Math.cos(a) * (pr + 5.4), Math.sin(a) * (pr + 5.4), faceSim(-Math.cos(a), -Math.sin(a)), 0.95);
+    add(
+      "banner_white",
+      Math.cos(a) * (pr + 5.4),
+      Math.sin(a) * (pr + 5.4),
+      faceSim(-Math.cos(a), -Math.sin(a)),
+      0.95,
+    );
   }
 
   // ── RUNE SHRINES (diagonals, render-only — pre-seeding Phase 2): a
@@ -298,7 +395,13 @@ export function buildProceduralDecor(): Decor[] {
     const my = oy * mr;
     add("pillar_decorated", mx, my, faceSim(-ox, -oy), 3.4 / 3.8);
     add("rocks_small", mx + tx * 1.2 - ox * 0.4, my + ty * 1.2 - oy * 0.4, hash2(i, 61) * TAU, 1.2);
-    add("candle_triple", mx - tx * 1.3 + ox * 0.3, my - ty * 1.3 + oy * 0.3, hash2(i, 62) * TAU, 1.0);
+    add(
+      "candle_triple",
+      mx - tx * 1.3 + ox * 0.3,
+      my - ty * 1.3 + oy * 0.3,
+      hash2(i, 62) * TAU,
+      1.0,
+    );
   });
 
   // interior decor stays inside the perimeter wall
@@ -310,7 +413,14 @@ export function buildProceduralDecor(): Decor[] {
   for (const sp of SPAWNS) {
     const a = Math.atan2(sp.y, sp.x);
     const gr = APOTHEM + 0.75; // proud of the gate's inner wall face
-    inside.push({ model: "sword_shield_broken", x: Math.cos(a) * gr, y: Math.sin(a) * gr, rot: Math.PI / 2 - a, scale: 1.0, h: 2.5 });
+    inside.push({
+      model: "sword_shield_broken",
+      x: Math.cos(a) * gr,
+      y: Math.sin(a) * gr,
+      rot: Math.PI / 2 - a,
+      scale: 1.0,
+      h: 2.5,
+    });
   }
 
   return inside;

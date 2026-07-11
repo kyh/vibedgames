@@ -125,12 +125,23 @@ function decodePng(buf) {
       const c = x >= channels && y > 0 ? out[(y - 1) * stride + x - channels] : 0;
       let recon;
       switch (filter) {
-        case 0: recon = v; break;
-        case 1: recon = v + a; break;
-        case 2: recon = v + b; break;
-        case 3: recon = v + ((a + b) >> 1); break;
-        case 4: recon = v + paeth(a, b, c); break;
-        default: throw new Error(`bad filter ${filter}`);
+        case 0:
+          recon = v;
+          break;
+        case 1:
+          recon = v + a;
+          break;
+        case 2:
+          recon = v + b;
+          break;
+        case 3:
+          recon = v + ((a + b) >> 1);
+          break;
+        case 4:
+          recon = v + paeth(a, b, c);
+          break;
+        default:
+          throw new Error(`bad filter ${filter}`);
       }
       out[y * stride + x] = recon & 0xff;
     }
@@ -152,7 +163,9 @@ function analyze({ width, height, channels, data }) {
       const i = y * stride + x * channels;
       let r, g, b, alpha;
       if (channels >= 3) {
-        r = data[i]; g = data[i + 1]; b = data[i + 2];
+        r = data[i];
+        g = data[i + 1];
+        b = data[i + 2];
         alpha = channels === 4 ? data[i + 3] : 255;
       } else {
         r = g = b = data[i];
@@ -180,7 +193,9 @@ async function main() {
     return 2;
   }
   if (!opts.target) {
-    console.error("usage: node check-canvas.mjs <url|file> [--selector css] [--out png] [--wait ms] [--min-std n] [--mobile] [--json]");
+    console.error(
+      "usage: node check-canvas.mjs <url|file> [--selector css] [--out png] [--wait ms] [--min-std n] [--mobile] [--json]",
+    );
     return 2;
   }
 
@@ -188,7 +203,9 @@ async function main() {
   try {
     ({ chromium } = await import("playwright"));
   } catch {
-    console.error("Playwright not found. Install it: pnpm add -D playwright (Chromium is pre-resolved in this environment).");
+    console.error(
+      "Playwright not found. Install it: pnpm add -D playwright (Chromium is pre-resolved in this environment).",
+    );
     return 2;
   }
 
@@ -201,7 +218,12 @@ async function main() {
     browser = await chromium.launch();
     const page = await browser.newPage(
       opts.mobile
-        ? { viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true }
+        ? {
+            viewport: { width: 390, height: 844 },
+            deviceScaleFactor: 3,
+            isMobile: true,
+            hasTouch: true,
+          }
         : { viewport: { width: 1280, height: 720 } },
     );
     page.on("console", (m) => m.type() === "error" && consoleErrors.push(m.text()));
@@ -212,7 +234,12 @@ async function main() {
 
     const canvas = await page.$(opts.selector);
     if (!canvas) {
-      report(opts, { ok: false, reason: `no element matching "${opts.selector}"`, consoleErrors, pageErrors });
+      report(opts, {
+        ok: false,
+        reason: `no element matching "${opts.selector}"`,
+        consoleErrors,
+        pageErrors,
+      });
       return 2;
     }
     const png = await canvas.screenshot();
@@ -263,7 +290,9 @@ function report(opts, result) {
   }
   console.log(`${result.ok ? "PASS" : "FAIL"} — ${result.reason}`);
   if (result.stdLum !== undefined) {
-    console.log(`  luminance stddev: ${result.stdLum.toFixed(2)}  mean: ${result.meanLum.toFixed(1)}  opaque: ${(result.opaqueFraction * 100).toFixed(1)}%`);
+    console.log(
+      `  luminance stddev: ${result.stdLum.toFixed(2)}  mean: ${result.meanLum.toFixed(1)}  opaque: ${(result.opaqueFraction * 100).toFixed(1)}%`,
+    );
   }
   if (result.out) console.log(`  screenshot: ${result.out}`);
   if (result.budget) {
@@ -273,12 +302,16 @@ function report(opts, result) {
       console.log(`  render budget (${result.tier} tier, advisory) — OVER:`);
       for (const row of over) console.log(`    - ${row.metric}: ${row.actual} > ${row.limit}`);
     } else if (missing.length === result.budget.length) {
-      console.log(`  render budget (${result.tier} tier): diagnostics present but no numeric metrics — not validated`);
+      console.log(
+        `  render budget (${result.tier} tier): diagnostics present but no numeric metrics — not validated`,
+      );
     } else {
       console.log(`  render budget (${result.tier} tier): within limits`);
     }
     if (missing.length && missing.length < result.budget.length) {
-      console.log(`    (not reported by diagnostics: ${missing.map((row) => row.metric).join(", ")})`);
+      console.log(
+        `    (not reported by diagnostics: ${missing.map((row) => row.metric).join(", ")})`,
+      );
     }
   }
   if (result.pageErrors?.length) {

@@ -1,1646 +1,1671 @@
-{ "frames": [
-   {
-    "filename": "Aseprite - Little Reaper 0.aseprite",
-    "frame": { "x": 1728, "y": 720, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 1.aseprite",
-    "frame": { "x": 1728, "y": 720, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 2.aseprite",
-    "frame": { "x": 144, "y": 0, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 3.aseprite",
-    "frame": { "x": 288, "y": 0, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 4.aseprite",
-    "frame": { "x": 432, "y": 0, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 5.aseprite",
-    "frame": { "x": 576, "y": 0, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 6.aseprite",
-    "frame": { "x": 720, "y": 0, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 7.aseprite",
-    "frame": { "x": 864, "y": 0, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 8.aseprite",
-    "frame": { "x": 1008, "y": 0, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 9.aseprite",
-    "frame": { "x": 1152, "y": 0, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 10.aseprite",
-    "frame": { "x": 1728, "y": 720, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 11.aseprite",
-    "frame": { "x": 1296, "y": 0, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 12.aseprite",
-    "frame": { "x": 1440, "y": 0, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 13.aseprite",
-    "frame": { "x": 1584, "y": 0, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 14.aseprite",
-    "frame": { "x": 1728, "y": 0, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 15.aseprite",
-    "frame": { "x": 0, "y": 144, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 16.aseprite",
-    "frame": { "x": 144, "y": 144, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 17.aseprite",
-    "frame": { "x": 288, "y": 144, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 18.aseprite",
-    "frame": { "x": 432, "y": 144, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 19.aseprite",
-    "frame": { "x": 576, "y": 144, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 20.aseprite",
-    "frame": { "x": 720, "y": 144, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 21.aseprite",
-    "frame": { "x": 864, "y": 144, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 22.aseprite",
-    "frame": { "x": 1008, "y": 144, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 23.aseprite",
-    "frame": { "x": 1152, "y": 144, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 24.aseprite",
-    "frame": { "x": 1296, "y": 144, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 25.aseprite",
-    "frame": { "x": 1440, "y": 144, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 26.aseprite",
-    "frame": { "x": 1008, "y": 0, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 27.aseprite",
-    "frame": { "x": 1152, "y": 0, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 28.aseprite",
-    "frame": { "x": 1584, "y": 144, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 29.aseprite",
-    "frame": { "x": 1728, "y": 144, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 30.aseprite",
-    "frame": { "x": 0, "y": 288, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 31.aseprite",
-    "frame": { "x": 144, "y": 288, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 32.aseprite",
-    "frame": { "x": 288, "y": 288, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 33.aseprite",
-    "frame": { "x": 432, "y": 288, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 34.aseprite",
-    "frame": { "x": 576, "y": 288, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 35.aseprite",
-    "frame": { "x": 720, "y": 288, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 36.aseprite",
-    "frame": { "x": 864, "y": 288, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 37.aseprite",
-    "frame": { "x": 1008, "y": 288, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 38.aseprite",
-    "frame": { "x": 1152, "y": 288, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 39.aseprite",
-    "frame": { "x": 1296, "y": 288, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 40.aseprite",
-    "frame": { "x": 1440, "y": 288, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 41.aseprite",
-    "frame": { "x": 1584, "y": 288, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 42.aseprite",
-    "frame": { "x": 1728, "y": 288, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 43.aseprite",
-    "frame": { "x": 0, "y": 432, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 44.aseprite",
-    "frame": { "x": 144, "y": 432, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 45.aseprite",
-    "frame": { "x": 288, "y": 432, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 46.aseprite",
-    "frame": { "x": 432, "y": 432, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 47.aseprite",
-    "frame": { "x": 576, "y": 432, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 48.aseprite",
-    "frame": { "x": 720, "y": 432, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 49.aseprite",
-    "frame": { "x": 864, "y": 432, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 50.aseprite",
-    "frame": { "x": 1008, "y": 432, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 51.aseprite",
-    "frame": { "x": 1152, "y": 432, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 52.aseprite",
-    "frame": { "x": 1296, "y": 432, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 53.aseprite",
-    "frame": { "x": 1440, "y": 432, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 54.aseprite",
-    "frame": { "x": 1584, "y": 432, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 55.aseprite",
-    "frame": { "x": 1728, "y": 432, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 56.aseprite",
-    "frame": { "x": 0, "y": 576, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 57.aseprite",
-    "frame": { "x": 144, "y": 576, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 58.aseprite",
-    "frame": { "x": 288, "y": 576, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 59.aseprite",
-    "frame": { "x": 432, "y": 576, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 60.aseprite",
-    "frame": { "x": 576, "y": 576, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 61.aseprite",
-    "frame": { "x": 720, "y": 576, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 62.aseprite",
-    "frame": { "x": 864, "y": 576, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 63.aseprite",
-    "frame": { "x": 1008, "y": 576, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 64.aseprite",
-    "frame": { "x": 1008, "y": 576, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 65.aseprite",
-    "frame": { "x": 1152, "y": 576, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 66.aseprite",
-    "frame": { "x": 1296, "y": 576, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 67.aseprite",
-    "frame": { "x": 1440, "y": 576, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 68.aseprite",
-    "frame": { "x": 1584, "y": 576, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 69.aseprite",
-    "frame": { "x": 1728, "y": 576, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 70.aseprite",
-    "frame": { "x": 0, "y": 720, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 71.aseprite",
-    "frame": { "x": 144, "y": 720, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 72.aseprite",
-    "frame": { "x": 288, "y": 720, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 73.aseprite",
-    "frame": { "x": 432, "y": 720, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 74.aseprite",
-    "frame": { "x": 576, "y": 720, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 75.aseprite",
-    "frame": { "x": 720, "y": 720, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 76.aseprite",
-    "frame": { "x": 864, "y": 720, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 77.aseprite",
-    "frame": { "x": 720, "y": 720, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 78.aseprite",
-    "frame": { "x": 864, "y": 720, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 79.aseprite",
-    "frame": { "x": 576, "y": 720, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 80.aseprite",
-    "frame": { "x": 576, "y": 720, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 81.aseprite",
-    "frame": { "x": 1008, "y": 720, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 82.aseprite",
-    "frame": { "x": 1152, "y": 720, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 83.aseprite",
-    "frame": { "x": 1296, "y": 720, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 84.aseprite",
-    "frame": { "x": 720, "y": 720, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 85.aseprite",
-    "frame": { "x": 720, "y": 720, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 86.aseprite",
-    "frame": { "x": 1440, "y": 720, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 87.aseprite",
-    "frame": { "x": 1584, "y": 720, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 88.aseprite",
-    "frame": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 89.aseprite",
-    "frame": { "x": 0, "y": 864, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 90.aseprite",
-    "frame": { "x": 144, "y": 864, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 91.aseprite",
-    "frame": { "x": 288, "y": 864, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 92.aseprite",
-    "frame": { "x": 432, "y": 864, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 93.aseprite",
-    "frame": { "x": 576, "y": 864, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 94.aseprite",
-    "frame": { "x": 720, "y": 864, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 95.aseprite",
-    "frame": { "x": 864, "y": 864, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 96.aseprite",
-    "frame": { "x": 1728, "y": 720, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 97.aseprite",
-    "frame": { "x": 1008, "y": 864, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 98.aseprite",
-    "frame": { "x": 1152, "y": 864, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 99.aseprite",
-    "frame": { "x": 1296, "y": 864, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 100.aseprite",
-    "frame": { "x": 1440, "y": 864, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 101.aseprite",
-    "frame": { "x": 1584, "y": 864, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 102.aseprite",
-    "frame": { "x": 1728, "y": 864, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 103.aseprite",
-    "frame": { "x": 0, "y": 1008, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 104.aseprite",
-    "frame": { "x": 144, "y": 1008, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 105.aseprite",
-    "frame": { "x": 288, "y": 1008, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 106.aseprite",
-    "frame": { "x": 432, "y": 1008, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 107.aseprite",
-    "frame": { "x": 576, "y": 1008, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 108.aseprite",
-    "frame": { "x": 720, "y": 1008, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 109.aseprite",
-    "frame": { "x": 864, "y": 1008, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 110.aseprite",
-    "frame": { "x": 1728, "y": 720, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 111.aseprite",
-    "frame": { "x": 1008, "y": 1008, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 112.aseprite",
-    "frame": { "x": 1152, "y": 1008, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 113.aseprite",
-    "frame": { "x": 1296, "y": 1008, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 114.aseprite",
-    "frame": { "x": 1440, "y": 1008, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 115.aseprite",
-    "frame": { "x": 1584, "y": 1008, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 116.aseprite",
-    "frame": { "x": 1728, "y": 1008, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 117.aseprite",
-    "frame": { "x": 0, "y": 1152, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 118.aseprite",
-    "frame": { "x": 144, "y": 1152, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 119.aseprite",
-    "frame": { "x": 288, "y": 1152, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 120.aseprite",
-    "frame": { "x": 432, "y": 1152, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 121.aseprite",
-    "frame": { "x": 576, "y": 1152, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 122.aseprite",
-    "frame": { "x": 720, "y": 1152, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 123.aseprite",
-    "frame": { "x": 864, "y": 1152, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 124.aseprite",
-    "frame": { "x": 1008, "y": 1152, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 125.aseprite",
-    "frame": { "x": 1152, "y": 1152, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 126.aseprite",
-    "frame": { "x": 1296, "y": 1152, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 127.aseprite",
-    "frame": { "x": 1440, "y": 1152, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 128.aseprite",
-    "frame": { "x": 1584, "y": 1152, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 129.aseprite",
-    "frame": { "x": 1728, "y": 1152, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 130.aseprite",
-    "frame": { "x": 0, "y": 1296, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 131.aseprite",
-    "frame": { "x": 144, "y": 1296, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 132.aseprite",
-    "frame": { "x": 288, "y": 1296, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 133.aseprite",
-    "frame": { "x": 432, "y": 1296, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 134.aseprite",
-    "frame": { "x": 576, "y": 1296, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 135.aseprite",
-    "frame": { "x": 720, "y": 1296, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 136.aseprite",
-    "frame": { "x": 864, "y": 1296, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 137.aseprite",
-    "frame": { "x": 1008, "y": 1296, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 138.aseprite",
-    "frame": { "x": 1152, "y": 1296, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 139.aseprite",
-    "frame": { "x": 1296, "y": 1296, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 140.aseprite",
-    "frame": { "x": 1440, "y": 1296, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 141.aseprite",
-    "frame": { "x": 1584, "y": 1296, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 142.aseprite",
-    "frame": { "x": 1728, "y": 1296, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 143.aseprite",
-    "frame": { "x": 0, "y": 1440, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 144.aseprite",
-    "frame": { "x": 144, "y": 1440, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 145.aseprite",
-    "frame": { "x": 288, "y": 1440, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 146.aseprite",
-    "frame": { "x": 432, "y": 1440, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 147.aseprite",
-    "frame": { "x": 576, "y": 1440, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 148.aseprite",
-    "frame": { "x": 720, "y": 1440, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 149.aseprite",
-    "frame": { "x": 864, "y": 1440, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 150.aseprite",
-    "frame": { "x": 1008, "y": 1440, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 151.aseprite",
-    "frame": { "x": 1728, "y": 720, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 152.aseprite",
-    "frame": { "x": 144, "y": 0, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 153.aseprite",
-    "frame": { "x": 288, "y": 0, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 154.aseprite",
-    "frame": { "x": 432, "y": 0, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 155.aseprite",
-    "frame": { "x": 576, "y": 0, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 156.aseprite",
-    "frame": { "x": 720, "y": 0, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 157.aseprite",
-    "frame": { "x": 864, "y": 0, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 158.aseprite",
-    "frame": { "x": 1008, "y": 0, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 159.aseprite",
-    "frame": { "x": 1152, "y": 0, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 160.aseprite",
-    "frame": { "x": 1728, "y": 720, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 161.aseprite",
-    "frame": { "x": 1152, "y": 1440, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 162.aseprite",
-    "frame": { "x": 1296, "y": 1440, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 163.aseprite",
-    "frame": { "x": 1440, "y": 1440, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 164.aseprite",
-    "frame": { "x": 1584, "y": 1440, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 165.aseprite",
-    "frame": { "x": 1728, "y": 1440, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 166.aseprite",
-    "frame": { "x": 1728, "y": 1440, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 167.aseprite",
-    "frame": { "x": 0, "y": 1584, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 168.aseprite",
-    "frame": { "x": 144, "y": 1584, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 169.aseprite",
-    "frame": { "x": 288, "y": 1584, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 170.aseprite",
-    "frame": { "x": 432, "y": 1584, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 171.aseprite",
-    "frame": { "x": 576, "y": 1584, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 172.aseprite",
-    "frame": { "x": 720, "y": 1584, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 173.aseprite",
-    "frame": { "x": 864, "y": 1584, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 174.aseprite",
-    "frame": { "x": 1008, "y": 1584, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 175.aseprite",
-    "frame": { "x": 1152, "y": 1584, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 176.aseprite",
-    "frame": { "x": 1296, "y": 1584, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 177.aseprite",
-    "frame": { "x": 1440, "y": 1584, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 178.aseprite",
-    "frame": { "x": 1584, "y": 1584, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   },
-   {
-    "filename": "Aseprite - Little Reaper 179.aseprite",
-    "frame": { "x": 720, "y": 720, "w": 144, "h": 144 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
-    "sourceSize": { "w": 144, "h": 144 },
-    "duration": 100
-   }
- ],
- "meta": {
-  "app": "https://www.aseprite.org/",
-  "version": "1.3.17.2-arm64",
-  "image": "reaper.png",
-  "format": "RGBA8888",
-  "size": { "w": 1872, "h": 1728 },
-  "scale": "1",
-  "frameTags": [
-   { "name": "Idle", "from": 1, "to": 9, "direction": "forward", "color": "#000000ff" },
-   { "name": "Idle Break", "from": 10, "to": 27, "direction": "forward", "color": "#000000ff" },
-   { "name": "Run", "from": 28, "to": 35, "direction": "forward", "color": "#000000ff" },
-   { "name": "Jump", "from": 36, "to": 39, "direction": "forward", "color": "#000000ff" },
-   { "name": "Fall", "from": 40, "to": 43, "direction": "forward", "color": "#000000ff" },
-   { "name": "Slash", "from": 44, "to": 53, "direction": "forward", "color": "#000000ff" },
-   { "name": "Surprise Jump", "from": 54, "to": 73, "direction": "forward", "color": "#000000ff" },
-   { "name": "Surprise Attack", "from": 74, "to": 96, "direction": "forward", "color": "#000000ff" },
-   { "name": "Double Slash", "from": 97, "to": 109, "direction": "forward", "color": "#000000ff" },
-   { "name": "Special Skill", "from": 110, "to": 138, "direction": "forward", "color": "#000000ff" },
-   { "name": "Dash", "from": 139, "to": 150, "direction": "forward", "color": "#000000ff" },
-   { "name": "Hurt", "from": 160, "to": 162, "direction": "forward", "color": "#000000ff" },
-   { "name": "Death", "from": 163, "to": 179, "direction": "forward", "color": "#000000ff" }
-  ]
- }
+{
+  "frames": [
+    {
+      "filename": "Aseprite - Little Reaper 0.aseprite",
+      "frame": { "x": 1728, "y": 720, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 1.aseprite",
+      "frame": { "x": 1728, "y": 720, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 2.aseprite",
+      "frame": { "x": 144, "y": 0, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 3.aseprite",
+      "frame": { "x": 288, "y": 0, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 4.aseprite",
+      "frame": { "x": 432, "y": 0, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 5.aseprite",
+      "frame": { "x": 576, "y": 0, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 6.aseprite",
+      "frame": { "x": 720, "y": 0, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 7.aseprite",
+      "frame": { "x": 864, "y": 0, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 8.aseprite",
+      "frame": { "x": 1008, "y": 0, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 9.aseprite",
+      "frame": { "x": 1152, "y": 0, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 10.aseprite",
+      "frame": { "x": 1728, "y": 720, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 11.aseprite",
+      "frame": { "x": 1296, "y": 0, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 12.aseprite",
+      "frame": { "x": 1440, "y": 0, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 13.aseprite",
+      "frame": { "x": 1584, "y": 0, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 14.aseprite",
+      "frame": { "x": 1728, "y": 0, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 15.aseprite",
+      "frame": { "x": 0, "y": 144, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 16.aseprite",
+      "frame": { "x": 144, "y": 144, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 17.aseprite",
+      "frame": { "x": 288, "y": 144, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 18.aseprite",
+      "frame": { "x": 432, "y": 144, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 19.aseprite",
+      "frame": { "x": 576, "y": 144, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 20.aseprite",
+      "frame": { "x": 720, "y": 144, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 21.aseprite",
+      "frame": { "x": 864, "y": 144, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 22.aseprite",
+      "frame": { "x": 1008, "y": 144, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 23.aseprite",
+      "frame": { "x": 1152, "y": 144, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 24.aseprite",
+      "frame": { "x": 1296, "y": 144, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 25.aseprite",
+      "frame": { "x": 1440, "y": 144, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 26.aseprite",
+      "frame": { "x": 1008, "y": 0, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 27.aseprite",
+      "frame": { "x": 1152, "y": 0, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 28.aseprite",
+      "frame": { "x": 1584, "y": 144, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 29.aseprite",
+      "frame": { "x": 1728, "y": 144, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 30.aseprite",
+      "frame": { "x": 0, "y": 288, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 31.aseprite",
+      "frame": { "x": 144, "y": 288, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 32.aseprite",
+      "frame": { "x": 288, "y": 288, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 33.aseprite",
+      "frame": { "x": 432, "y": 288, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 34.aseprite",
+      "frame": { "x": 576, "y": 288, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 35.aseprite",
+      "frame": { "x": 720, "y": 288, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 36.aseprite",
+      "frame": { "x": 864, "y": 288, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 37.aseprite",
+      "frame": { "x": 1008, "y": 288, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 38.aseprite",
+      "frame": { "x": 1152, "y": 288, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 39.aseprite",
+      "frame": { "x": 1296, "y": 288, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 40.aseprite",
+      "frame": { "x": 1440, "y": 288, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 41.aseprite",
+      "frame": { "x": 1584, "y": 288, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 42.aseprite",
+      "frame": { "x": 1728, "y": 288, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 43.aseprite",
+      "frame": { "x": 0, "y": 432, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 44.aseprite",
+      "frame": { "x": 144, "y": 432, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 45.aseprite",
+      "frame": { "x": 288, "y": 432, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 46.aseprite",
+      "frame": { "x": 432, "y": 432, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 47.aseprite",
+      "frame": { "x": 576, "y": 432, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 48.aseprite",
+      "frame": { "x": 720, "y": 432, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 49.aseprite",
+      "frame": { "x": 864, "y": 432, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 50.aseprite",
+      "frame": { "x": 1008, "y": 432, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 51.aseprite",
+      "frame": { "x": 1152, "y": 432, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 52.aseprite",
+      "frame": { "x": 1296, "y": 432, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 53.aseprite",
+      "frame": { "x": 1440, "y": 432, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 54.aseprite",
+      "frame": { "x": 1584, "y": 432, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 55.aseprite",
+      "frame": { "x": 1728, "y": 432, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 56.aseprite",
+      "frame": { "x": 0, "y": 576, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 57.aseprite",
+      "frame": { "x": 144, "y": 576, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 58.aseprite",
+      "frame": { "x": 288, "y": 576, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 59.aseprite",
+      "frame": { "x": 432, "y": 576, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 60.aseprite",
+      "frame": { "x": 576, "y": 576, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 61.aseprite",
+      "frame": { "x": 720, "y": 576, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 62.aseprite",
+      "frame": { "x": 864, "y": 576, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 63.aseprite",
+      "frame": { "x": 1008, "y": 576, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 64.aseprite",
+      "frame": { "x": 1008, "y": 576, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 65.aseprite",
+      "frame": { "x": 1152, "y": 576, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 66.aseprite",
+      "frame": { "x": 1296, "y": 576, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 67.aseprite",
+      "frame": { "x": 1440, "y": 576, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 68.aseprite",
+      "frame": { "x": 1584, "y": 576, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 69.aseprite",
+      "frame": { "x": 1728, "y": 576, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 70.aseprite",
+      "frame": { "x": 0, "y": 720, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 71.aseprite",
+      "frame": { "x": 144, "y": 720, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 72.aseprite",
+      "frame": { "x": 288, "y": 720, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 73.aseprite",
+      "frame": { "x": 432, "y": 720, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 74.aseprite",
+      "frame": { "x": 576, "y": 720, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 75.aseprite",
+      "frame": { "x": 720, "y": 720, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 76.aseprite",
+      "frame": { "x": 864, "y": 720, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 77.aseprite",
+      "frame": { "x": 720, "y": 720, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 78.aseprite",
+      "frame": { "x": 864, "y": 720, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 79.aseprite",
+      "frame": { "x": 576, "y": 720, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 80.aseprite",
+      "frame": { "x": 576, "y": 720, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 81.aseprite",
+      "frame": { "x": 1008, "y": 720, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 82.aseprite",
+      "frame": { "x": 1152, "y": 720, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 83.aseprite",
+      "frame": { "x": 1296, "y": 720, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 84.aseprite",
+      "frame": { "x": 720, "y": 720, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 85.aseprite",
+      "frame": { "x": 720, "y": 720, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 86.aseprite",
+      "frame": { "x": 1440, "y": 720, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 87.aseprite",
+      "frame": { "x": 1584, "y": 720, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 88.aseprite",
+      "frame": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 89.aseprite",
+      "frame": { "x": 0, "y": 864, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 90.aseprite",
+      "frame": { "x": 144, "y": 864, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 91.aseprite",
+      "frame": { "x": 288, "y": 864, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 92.aseprite",
+      "frame": { "x": 432, "y": 864, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 93.aseprite",
+      "frame": { "x": 576, "y": 864, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 94.aseprite",
+      "frame": { "x": 720, "y": 864, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 95.aseprite",
+      "frame": { "x": 864, "y": 864, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 96.aseprite",
+      "frame": { "x": 1728, "y": 720, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 97.aseprite",
+      "frame": { "x": 1008, "y": 864, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 98.aseprite",
+      "frame": { "x": 1152, "y": 864, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 99.aseprite",
+      "frame": { "x": 1296, "y": 864, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 100.aseprite",
+      "frame": { "x": 1440, "y": 864, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 101.aseprite",
+      "frame": { "x": 1584, "y": 864, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 102.aseprite",
+      "frame": { "x": 1728, "y": 864, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 103.aseprite",
+      "frame": { "x": 0, "y": 1008, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 104.aseprite",
+      "frame": { "x": 144, "y": 1008, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 105.aseprite",
+      "frame": { "x": 288, "y": 1008, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 106.aseprite",
+      "frame": { "x": 432, "y": 1008, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 107.aseprite",
+      "frame": { "x": 576, "y": 1008, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 108.aseprite",
+      "frame": { "x": 720, "y": 1008, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 109.aseprite",
+      "frame": { "x": 864, "y": 1008, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 110.aseprite",
+      "frame": { "x": 1728, "y": 720, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 111.aseprite",
+      "frame": { "x": 1008, "y": 1008, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 112.aseprite",
+      "frame": { "x": 1152, "y": 1008, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 113.aseprite",
+      "frame": { "x": 1296, "y": 1008, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 114.aseprite",
+      "frame": { "x": 1440, "y": 1008, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 115.aseprite",
+      "frame": { "x": 1584, "y": 1008, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 116.aseprite",
+      "frame": { "x": 1728, "y": 1008, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 117.aseprite",
+      "frame": { "x": 0, "y": 1152, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 118.aseprite",
+      "frame": { "x": 144, "y": 1152, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 119.aseprite",
+      "frame": { "x": 288, "y": 1152, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 120.aseprite",
+      "frame": { "x": 432, "y": 1152, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 121.aseprite",
+      "frame": { "x": 576, "y": 1152, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 122.aseprite",
+      "frame": { "x": 720, "y": 1152, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 123.aseprite",
+      "frame": { "x": 864, "y": 1152, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 124.aseprite",
+      "frame": { "x": 1008, "y": 1152, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 125.aseprite",
+      "frame": { "x": 1152, "y": 1152, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 126.aseprite",
+      "frame": { "x": 1296, "y": 1152, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 127.aseprite",
+      "frame": { "x": 1440, "y": 1152, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 128.aseprite",
+      "frame": { "x": 1584, "y": 1152, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 129.aseprite",
+      "frame": { "x": 1728, "y": 1152, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 130.aseprite",
+      "frame": { "x": 0, "y": 1296, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 131.aseprite",
+      "frame": { "x": 144, "y": 1296, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 132.aseprite",
+      "frame": { "x": 288, "y": 1296, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 133.aseprite",
+      "frame": { "x": 432, "y": 1296, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 134.aseprite",
+      "frame": { "x": 576, "y": 1296, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 135.aseprite",
+      "frame": { "x": 720, "y": 1296, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 136.aseprite",
+      "frame": { "x": 864, "y": 1296, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 137.aseprite",
+      "frame": { "x": 1008, "y": 1296, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 138.aseprite",
+      "frame": { "x": 1152, "y": 1296, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 139.aseprite",
+      "frame": { "x": 1296, "y": 1296, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 140.aseprite",
+      "frame": { "x": 1440, "y": 1296, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 141.aseprite",
+      "frame": { "x": 1584, "y": 1296, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 142.aseprite",
+      "frame": { "x": 1728, "y": 1296, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 143.aseprite",
+      "frame": { "x": 0, "y": 1440, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 144.aseprite",
+      "frame": { "x": 144, "y": 1440, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 145.aseprite",
+      "frame": { "x": 288, "y": 1440, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 146.aseprite",
+      "frame": { "x": 432, "y": 1440, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 147.aseprite",
+      "frame": { "x": 576, "y": 1440, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 148.aseprite",
+      "frame": { "x": 720, "y": 1440, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 149.aseprite",
+      "frame": { "x": 864, "y": 1440, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 150.aseprite",
+      "frame": { "x": 1008, "y": 1440, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 151.aseprite",
+      "frame": { "x": 1728, "y": 720, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 152.aseprite",
+      "frame": { "x": 144, "y": 0, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 153.aseprite",
+      "frame": { "x": 288, "y": 0, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 154.aseprite",
+      "frame": { "x": 432, "y": 0, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 155.aseprite",
+      "frame": { "x": 576, "y": 0, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 156.aseprite",
+      "frame": { "x": 720, "y": 0, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 157.aseprite",
+      "frame": { "x": 864, "y": 0, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 158.aseprite",
+      "frame": { "x": 1008, "y": 0, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 159.aseprite",
+      "frame": { "x": 1152, "y": 0, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 160.aseprite",
+      "frame": { "x": 1728, "y": 720, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 161.aseprite",
+      "frame": { "x": 1152, "y": 1440, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 162.aseprite",
+      "frame": { "x": 1296, "y": 1440, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 163.aseprite",
+      "frame": { "x": 1440, "y": 1440, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 164.aseprite",
+      "frame": { "x": 1584, "y": 1440, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 165.aseprite",
+      "frame": { "x": 1728, "y": 1440, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 166.aseprite",
+      "frame": { "x": 1728, "y": 1440, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 167.aseprite",
+      "frame": { "x": 0, "y": 1584, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 168.aseprite",
+      "frame": { "x": 144, "y": 1584, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 169.aseprite",
+      "frame": { "x": 288, "y": 1584, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 170.aseprite",
+      "frame": { "x": 432, "y": 1584, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 171.aseprite",
+      "frame": { "x": 576, "y": 1584, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 172.aseprite",
+      "frame": { "x": 720, "y": 1584, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 173.aseprite",
+      "frame": { "x": 864, "y": 1584, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 174.aseprite",
+      "frame": { "x": 1008, "y": 1584, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 175.aseprite",
+      "frame": { "x": 1152, "y": 1584, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 176.aseprite",
+      "frame": { "x": 1296, "y": 1584, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 177.aseprite",
+      "frame": { "x": 1440, "y": 1584, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 178.aseprite",
+      "frame": { "x": 1584, "y": 1584, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    },
+    {
+      "filename": "Aseprite - Little Reaper 179.aseprite",
+      "frame": { "x": 720, "y": 720, "w": 144, "h": 144 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 144, "h": 144 },
+      "sourceSize": { "w": 144, "h": 144 },
+      "duration": 100
+    }
+  ],
+  "meta": {
+    "app": "https://www.aseprite.org/",
+    "version": "1.3.17.2-arm64",
+    "image": "reaper.png",
+    "format": "RGBA8888",
+    "size": { "w": 1872, "h": 1728 },
+    "scale": "1",
+    "frameTags": [
+      { "name": "Idle", "from": 1, "to": 9, "direction": "forward", "color": "#000000ff" },
+      { "name": "Idle Break", "from": 10, "to": 27, "direction": "forward", "color": "#000000ff" },
+      { "name": "Run", "from": 28, "to": 35, "direction": "forward", "color": "#000000ff" },
+      { "name": "Jump", "from": 36, "to": 39, "direction": "forward", "color": "#000000ff" },
+      { "name": "Fall", "from": 40, "to": 43, "direction": "forward", "color": "#000000ff" },
+      { "name": "Slash", "from": 44, "to": 53, "direction": "forward", "color": "#000000ff" },
+      {
+        "name": "Surprise Jump",
+        "from": 54,
+        "to": 73,
+        "direction": "forward",
+        "color": "#000000ff"
+      },
+      {
+        "name": "Surprise Attack",
+        "from": 74,
+        "to": 96,
+        "direction": "forward",
+        "color": "#000000ff"
+      },
+      {
+        "name": "Double Slash",
+        "from": 97,
+        "to": 109,
+        "direction": "forward",
+        "color": "#000000ff"
+      },
+      {
+        "name": "Special Skill",
+        "from": 110,
+        "to": 138,
+        "direction": "forward",
+        "color": "#000000ff"
+      },
+      { "name": "Dash", "from": 139, "to": 150, "direction": "forward", "color": "#000000ff" },
+      { "name": "Hurt", "from": 160, "to": 162, "direction": "forward", "color": "#000000ff" },
+      { "name": "Death", "from": 163, "to": 179, "direction": "forward", "color": "#000000ff" }
+    ]
+  }
 }

@@ -242,7 +242,14 @@ export class Player {
     const now = this.scene.time.now;
     if (now - this.lastRunDust < 80) return;
     this.lastRunDust = now;
-    smoke(this.scene, this.sprite.x - b.facing * 5, b.y - 1, -b.facing * (10 + Math.random() * 10), -6 - Math.random() * 5, 8);
+    smoke(
+      this.scene,
+      this.sprite.x - b.facing * 5,
+      b.y - 1,
+      -b.facing * (10 + Math.random() * 10),
+      -6 - Math.random() * 5,
+      8,
+    );
   }
 
   destroy() {

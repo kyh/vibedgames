@@ -18,8 +18,10 @@ const WORLD_W = GRID_X * ROAD_TILE;
 const WORLD_H = GRID_Z * ROAD_TILE;
 
 // Calibrated projection (see calibrate.mjs; R² ~0.999 vs the game's hills).
-const U_M = 6.2462, U_B = 765.2557;
-const V_M = -9.6095, V_B = 363.344;
+const U_M = 6.2462,
+  U_B = 765.2557;
+const V_M = -9.6095,
+  V_B = 363.344;
 const projU = (lon) => U_M * lon + U_B;
 const projV = (lat) => V_M * lat + V_B;
 
@@ -55,10 +57,15 @@ const onLandXZ = (x, z) => onLandUV(x / WORLD_W + 0.5, z / WORLD_H + 0.5);
 // render flat — pure spaghetti. Everything else is in: SF's identity IS the
 // fine residential grid (Sunset/Richmond/Mission blocks).
 const CLASS_HALF = {
-  primary: 7.2, primary_link: 5.8,
-  secondary: 6.4, secondary_link: 5.8,
-  tertiary: 5.8, tertiary_link: 5.8,
-  residential: 4.6, unclassified: 4.6, living_street: 4.2,
+  primary: 7.2,
+  primary_link: 5.8,
+  secondary: 6.4,
+  secondary_link: 5.8,
+  tertiary: 5.8,
+  tertiary_link: 5.8,
+  residential: 4.6,
+  unclassified: 4.6,
+  living_street: 4.2,
 };
 // Arcade compression (Driver:SF-style): minors only survive when they are
 // long connective streets — short block-fillers go, majors read as the map.
@@ -97,7 +104,8 @@ for (const w of ways) {
 {
   const plLen = (pts) => {
     let L = 0;
-    for (let i = 1; i < pts.length; i++) L += Math.hypot(pts[i][0] - pts[i-1][0], pts[i][1] - pts[i-1][1]);
+    for (let i = 1; i < pts.length; i++)
+      L += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
     return L;
   };
   const before = polylines.length;
@@ -132,7 +140,8 @@ for (const w of ways) {
     meanX /= pl.pts.length;
     meanZ /= pl.pts.length;
     let lattice = null;
-    if (Math.abs(dx) / L > 0.8) lattice = meanZ; // E-W street -> row coord
+    if (Math.abs(dx) / L > 0.8)
+      lattice = meanZ; // E-W street -> row coord
     else if (Math.abs(dz) / L > 0.8) lattice = meanX; // N-S street -> column coord
     if (lattice === null) {
       thinnedOut.push(pl); // diagonal / curvy — keep
@@ -213,7 +222,8 @@ while (merged) {
     if (deg.get(n) !== 2 || idxs.length !== 2) continue;
     const [i1, i2] = idxs;
     if (dead.has(i1) || dead.has(i2) || i1 === i2) continue;
-    const e1 = edges[i1], e2 = edges[i2];
+    const e1 = edges[i1],
+      e2 = edges[i2];
     if (e1.a === e1.b || e2.a === e2.b) continue; // loops stay
     // Orient e1 to END at n, e2 to START at n.
     const p1 = e1.b === n ? e1.pts : [...e1.pts].reverse();
@@ -233,12 +243,17 @@ function rdp(pts, eps) {
   if (pts.length <= 2) return pts;
   const [x0, z0] = pts[0];
   const [x1, z1] = pts[pts.length - 1];
-  const dx = x1 - x0, dz = z1 - z0;
+  const dx = x1 - x0,
+    dz = z1 - z0;
   const len = Math.hypot(dx, dz) || 1;
-  let maxD = -1, maxI = 0;
+  let maxD = -1,
+    maxI = 0;
   for (let i = 1; i + 1 < pts.length; i++) {
     const d = Math.abs((pts[i][0] - x0) * dz - (pts[i][1] - z0) * dx) / len;
-    if (d > maxD) { maxD = d; maxI = i; }
+    if (d > maxD) {
+      maxD = d;
+      maxI = i;
+    }
   }
   if (maxD <= eps) return [pts[0], pts[pts.length - 1]];
   const l = rdp(pts.slice(0, maxI + 1), eps);
@@ -252,7 +267,8 @@ for (const e of edges) e.pts = rdp(e.pts, 2.5);
   const deg = degreeMap();
   const len = (e) => {
     let L = 0;
-    for (let i = 1; i < e.pts.length; i++) L += Math.hypot(e.pts[i][0] - e.pts[i-1][0], e.pts[i][1] - e.pts[i-1][1]);
+    for (let i = 1; i < e.pts.length; i++)
+      L += Math.hypot(e.pts[i][0] - e.pts[i - 1][0], e.pts[i][1] - e.pts[i - 1][1]);
     return L;
   };
   edges = edges.filter((e) => {
@@ -285,25 +301,31 @@ function mergeParallelPass() {
   };
   const edgeLen = (e) => {
     let L = 0;
-    for (let i = 1; i < e.pts.length; i++) L += Math.hypot(e.pts[i][0] - e.pts[i-1][0], e.pts[i][1] - e.pts[i-1][1]);
+    for (let i = 1; i < e.pts.length; i++)
+      L += Math.hypot(e.pts[i][0] - e.pts[i - 1][0], e.pts[i][1] - e.pts[i - 1][1]);
     return L;
   };
   const lens = edges.map(edgeLen);
   // Distance from a point to an edge + the tangent of the nearest segment.
   const nearestOnEdge = (x, z, e) => {
-    let best = Infinity, tx = 1, tz = 0;
+    let best = Infinity,
+      tx = 1,
+      tz = 0;
     for (let i = 1; i < e.pts.length; i++) {
       const [ax, az] = e.pts[i - 1];
       const [bx, bz] = e.pts[i];
-      const dx = bx - ax, dz = bz - az;
+      const dx = bx - ax,
+        dz = bz - az;
       const l2 = dx * dx + dz * dz;
       const t = l2 > 1e-8 ? Math.min(Math.max(((x - ax) * dx + (z - az) * dz) / l2, 0), 1) : 0;
-      const px = ax + dx * t, pz = az + dz * t;
+      const px = ax + dx * t,
+        pz = az + dz * t;
       const d = Math.hypot(px - x, pz - z);
       if (d < best) {
         best = d;
         const dl = Math.sqrt(l2) || 1;
-        tx = dx / dl; tz = dz / dl;
+        tx = dx / dl;
+        tz = dz / dl;
       }
     }
     return { d: best, tx, tz };
@@ -312,8 +334,16 @@ function mergeParallelPass() {
   const CELL = 60;
   const buckets = new Map();
   edges.forEach((e, i) => {
-    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
-    for (const [x, z] of e.pts) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
+    let x0 = Infinity,
+      x1 = -Infinity,
+      z0 = Infinity,
+      z1 = -Infinity;
+    for (const [x, z] of e.pts) {
+      x0 = Math.min(x0, x);
+      x1 = Math.max(x1, x);
+      z0 = Math.min(z0, z);
+      z1 = Math.max(z1, z);
+    }
     for (let bx = Math.floor((x0 - 8) / CELL); bx <= Math.floor((x1 + 8) / CELL); bx++)
       for (let bz = Math.floor((z0 - 8) / CELL); bz <= Math.floor((z1 + 8) / CELL); bz++) {
         const k = bx + "," + bz;
@@ -332,7 +362,8 @@ function mergeParallelPass() {
     const sampleTans = samples.map((p, i) => {
       const q = samples[Math.min(i + 1, samples.length - 1)];
       const r = samples[Math.max(i - 1, 0)];
-      const dx = q[0] - r[0], dz = q[1] - r[1];
+      const dx = q[0] - r[0],
+        dz = q[1] - r[1];
       const dl = Math.hypot(dx, dz) || 1;
       return [dx / dl, dz / dl];
     });
@@ -340,7 +371,13 @@ function mergeParallelPass() {
     const cand = new Set();
     for (const [x, z] of samples) {
       for (const id of buckets.get(Math.floor(x / CELL) + "," + Math.floor(z / CELL)) ?? []) {
-        if (id !== bi && !removed.has(id) && lens[id] >= lens[bi] && edges[id].half >= MERGE_MIN_HALF) cand.add(id);
+        if (
+          id !== bi &&
+          !removed.has(id) &&
+          lens[id] >= lens[bi] &&
+          edges[id].half >= MERGE_MIN_HALF
+        )
+          cand.add(id);
       }
     }
     for (const ai of cand) {
@@ -369,7 +406,8 @@ function mergeParallelPass() {
   edges = edges.filter((e) => {
     const stub = deg.get(e.a) === 1 || deg.get(e.b) === 1;
     let L = 0;
-    for (let i = 1; i < e.pts.length; i++) L += Math.hypot(e.pts[i][0] - e.pts[i-1][0], e.pts[i][1] - e.pts[i-1][1]);
+    for (let i = 1; i < e.pts.length; i++)
+      L += Math.hypot(e.pts[i][0] - e.pts[i - 1][0], e.pts[i][1] - e.pts[i - 1][1]);
     return !(stub && L < 14);
   });
 }
@@ -380,7 +418,8 @@ function clusterJunctionsPass() {
   const CONTRACT_LEN = 9; // 1x units: merge near-coincident junction clusters
   const eLen = (e) => {
     let L = 0;
-    for (let i = 1; i < e.pts.length; i++) L += Math.hypot(e.pts[i][0] - e.pts[i-1][0], e.pts[i][1] - e.pts[i-1][1]);
+    for (let i = 1; i < e.pts.length; i++)
+      L += Math.hypot(e.pts[i][0] - e.pts[i - 1][0], e.pts[i][1] - e.pts[i - 1][1]);
     return L;
   };
   let changed = true;
@@ -390,7 +429,8 @@ function clusterJunctionsPass() {
     for (let i = 0; i < edges.length; i++) {
       const e = edges[i];
       if (!e || e.a === e.b || eLen(e) >= CONTRACT_LEN) continue;
-      const keep = e.a, drop = e.b;
+      const keep = e.a,
+        drop = e.b;
       nodes[keep] = [(nodes[keep][0] + nodes[drop][0]) / 2, (nodes[keep][1] + nodes[drop][1]) / 2];
       for (const f of edges) {
         if (!f) continue;
@@ -430,7 +470,10 @@ clusterJunctionsPass();
 {
   const adj = new Map();
   edges.forEach((e, i) => {
-    for (const [from, to] of [[e.a, e.b], [e.b, e.a]]) {
+    for (const [from, to] of [
+      [e.a, e.b],
+      [e.b, e.a],
+    ]) {
       if (!adj.has(from)) adj.set(from, []);
       adj.get(from).push(to);
     }
@@ -444,7 +487,10 @@ clusterJunctionsPass();
     while (stack.length) {
       const c = stack.pop();
       for (const m of adj.get(c) ?? []) {
-        if (!comp.has(m)) { comp.set(m, nComp); stack.push(m); }
+        if (!comp.has(m)) {
+          comp.set(m, nComp);
+          stack.push(m);
+        }
       }
     }
     nComp++;
@@ -514,7 +560,10 @@ clusterJunctionsPass();
     while (stack.length) {
       const c = stack.pop();
       for (const m of adj.get(c) ?? []) {
-        if (!comp.has(m)) { comp.set(m, nComp); stack.push(m); }
+        if (!comp.has(m)) {
+          comp.set(m, nComp);
+          stack.push(m);
+        }
       }
     }
     nComp++;
@@ -531,10 +580,17 @@ clusterJunctionsPass();
   const outNodes = [];
   const idFor = (n) => {
     let id = remap.get(n);
-    if (id === undefined) { id = outNodes.length; remap.set(n, id); outNodes.push(nodes[n]); }
+    if (id === undefined) {
+      id = outNodes.length;
+      remap.set(n, id);
+      outNodes.push(nodes[n]);
+    }
     return id;
   };
-  for (const e of edges) { e.a = idFor(e.a); e.b = idFor(e.b); }
+  for (const e of edges) {
+    e.a = idFor(e.a);
+    e.b = idFor(e.b);
+  }
   nodes.length = 0;
   nodes.push(...outNodes);
 }
@@ -575,7 +631,11 @@ clusterJunctionsPass();
     const dz = bz - az;
     const adx = Math.abs(dx);
     const adz = Math.abs(dz);
-    if (adx < 1e-6 || adz < 1e-6 || Math.abs(adx - adz) < 1e-6) return [[ax, az], [bx, bz]];
+    if (adx < 1e-6 || adz < 1e-6 || Math.abs(adx - adz) < 1e-6)
+      return [
+        [ax, az],
+        [bx, bz],
+      ];
     const d = Math.min(adx, adz);
     const sx = Math.sign(dx);
     const sz = Math.sign(dz);
@@ -595,7 +655,9 @@ clusterJunctionsPass();
     e.pts = route(a[0], a[1], b[0], b[1], mid[0], mid[1]);
     return true;
   });
-  console.log(`octilinear: merged ${merged} edge endpoints onto lattice nodes, ${edges.length} edges routed`);
+  console.log(
+    `octilinear: merged ${merged} edge endpoints onto lattice nodes, ${edges.length} edges routed`,
+  );
   // --- Road-on-road pass: snapping can land parallel streets on the SAME
   // lattice line. Decompose every edge into unit lattice steps; an edge whose
   // steps are mostly covered by other (wider-or-equal) edges is redundant —
@@ -649,7 +711,9 @@ clusterJunctionsPass();
     });
     let shared = 0;
     for (const [, n] of counts) if (n > 1) shared++;
-    console.log(`overlap pass: dropped ${dropped} redundant edges (${shared} shared lattice steps before)`);
+    console.log(
+      `overlap pass: dropped ${dropped} redundant edges (${shared} shared lattice steps before)`,
+    );
   }
   // snapping can orphan sub-graphs — keep the main component once more
   const adj = new Map();
@@ -668,7 +732,10 @@ clusterJunctionsPass();
     while (stack.length) {
       const c = stack.pop();
       for (const m of adj.get(c) ?? []) {
-        if (!comp.has(m)) { comp.set(m, nComp); stack.push(m); }
+        if (!comp.has(m)) {
+          comp.set(m, nComp);
+          stack.push(m);
+        }
       }
     }
     nComp++;
@@ -682,10 +749,17 @@ clusterJunctionsPass();
   const outNodes = [];
   const idFor = (n) => {
     let id = remap.get(n);
-    if (id === undefined) { id = outNodes.length; remap.set(n, id); outNodes.push(nodes[n]); }
+    if (id === undefined) {
+      id = outNodes.length;
+      remap.set(n, id);
+      outNodes.push(nodes[n]);
+    }
     return id;
   };
-  for (const e of edges) { e.a = idFor(e.a); e.b = idFor(e.b); }
+  for (const e of edges) {
+    e.a = idFor(e.a);
+    e.b = idFor(e.b);
+  }
   nodes.length = 0;
   nodes.push(...outNodes);
 }
@@ -695,10 +769,13 @@ let totalLen = 0;
 for (const e of edges) {
   for (let i = 1; i < e.pts.length; i++) {
     totalLen += Math.hypot(e.pts[i][0] - e.pts[i - 1][0], e.pts[i][1] - e.pts[i - 1][1]);
-    if (!Number.isFinite(e.pts[i][0]) || !Number.isFinite(e.pts[i][1])) throw new Error("NaN vertex");
+    if (!Number.isFinite(e.pts[i][0]) || !Number.isFinite(e.pts[i][1]))
+      throw new Error("NaN vertex");
   }
 }
-console.log(`nodes: ${nodes.length}, edges: ${edges.length}, total ${Math.round(totalLen / 1000)}k units`);
+console.log(
+  `nodes: ${nodes.length}, edges: ${edges.length}, total ${Math.round(totalLen / 1000)}k units`,
+);
 if (nodes.length < 400 || edges.length < 600) throw new Error("suspiciously small network");
 
 // --- Raster mask derived from the SAME edges (supercover + thinning) ---
@@ -710,9 +787,12 @@ const toG = (x, z) => [
   Math.floor((z / WORLD_H + 0.5) * GRID_Z),
 ];
 function rasterizeSeg(gx0, gz0, gx1, gz1) {
-  let x = gx0, z = gz0;
-  const dx = Math.abs(gx1 - gx0), dz = Math.abs(gz1 - gz0);
-  const sx = gx0 < gx1 ? 1 : -1, sz = gz0 < gz1 ? 1 : -1;
+  let x = gx0,
+    z = gz0;
+  const dx = Math.abs(gx1 - gx0),
+    dz = Math.abs(gz1 - gz0);
+  const sx = gx0 < gx1 ? 1 : -1,
+    sz = gz0 < gz1 ? 1 : -1;
   let err = dx - dz;
   const mark = (cx, cz) => {
     if (cx >= 0 && cz >= 0 && cx < GRID_X && cz < GRID_Z) {
@@ -728,8 +808,16 @@ function rasterizeSeg(gx0, gz0, gx1, gz1) {
     const e2 = 2 * err;
     // Mark after EACH axis move: when both fire in one iteration this fills
     // the corner cell, keeping the line 4-connected (true supercover).
-    if (e2 > -dz) { err -= dz; x += sx; mark(x, z); }
-    if (e2 < dx) { err += dx; z += sz; mark(x, z); }
+    if (e2 > -dz) {
+      err -= dz;
+      x += sx;
+      mark(x, z);
+    }
+    if (e2 < dx) {
+      err += dx;
+      z += sz;
+      mark(x, z);
+    }
   }
 }
 for (const e of edges) {
@@ -746,10 +834,20 @@ markMajor = false;
 // Bake-time thinning (ported from src/world/thin-streets.ts).
 function thin(road, sizeX, sizeZ) {
   const at = (x, z) => x >= 0 && z >= 0 && x < sizeX && z < sizeZ && road[x * sizeZ + z] === 1;
-  const RING = [[0,-1],[1,-1],[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1]];
+  const RING = [
+    [0, -1],
+    [1, -1],
+    [1, 0],
+    [1, 1],
+    [0, 1],
+    [-1, 1],
+    [-1, 0],
+    [-1, -1],
+  ];
   const inSquare = (x, z) => {
-    for (const dx of [-1, 1]) for (const dz of [-1, 1])
-      if (at(x + dx, z) && at(x, z + dz) && at(x + dx, z + dz)) return true;
+    for (const dx of [-1, 1])
+      for (const dz of [-1, 1])
+        if (at(x + dx, z) && at(x, z + dz) && at(x + dx, z + dz)) return true;
     return false;
   };
   const removable = (x, z) => {
@@ -761,26 +859,39 @@ function thin(road, sizeX, sizeZ) {
       if (r && i % 2 === 0) n4++;
     }
     if (n4 < 2 || !inSquare(x, z)) return false;
-    let arcs = 0, all = true;
+    let arcs = 0,
+      all = true;
     for (let i = 0; i < 8; i++) {
-      if (!ring[i]) { all = false; continue; }
+      if (!ring[i]) {
+        all = false;
+        continue;
+      }
       if (ring[(i + 7) % 8]) continue;
       for (let j = i; ring[j % 8] && j < i + 8; j++) {
-        if (j % 2 === 0) { arcs++; break; }
+        if (j % 2 === 0) {
+          arcs++;
+          break;
+        }
       }
     }
     return all || arcs === 1;
   };
   for (let sweep = 0; sweep < 12; sweep++) {
     let changed = false;
-    for (const peel of [[0,-1],[1,0],[0,1],[-1,0]]) {
-      for (let x = 0; x < sizeX; x++) for (let z = 0; z < sizeZ; z++) {
-        if (road[x * sizeZ + z] !== 1) continue;
-        if (at(x + peel[0], z + peel[1])) continue;
-        if (!removable(x, z)) continue;
-        road[x * sizeZ + z] = 0;
-        changed = true;
-      }
+    for (const peel of [
+      [0, -1],
+      [1, 0],
+      [0, 1],
+      [-1, 0],
+    ]) {
+      for (let x = 0; x < sizeX; x++)
+        for (let z = 0; z < sizeZ; z++) {
+          if (road[x * sizeZ + z] !== 1) continue;
+          if (at(x + peel[0], z + peel[1])) continue;
+          if (!removable(x, z)) continue;
+          road[x * sizeZ + z] = 0;
+          changed = true;
+        }
     }
     if (!changed) break;
   }
@@ -789,21 +900,31 @@ function maskComponents(g) {
   const at = (x, z) => x >= 0 && z >= 0 && x < GRID_X && z < GRID_Z && g[x * GRID_Z + z] === 1;
   const seen = new Set();
   const sizes = [];
-  for (let x = 0; x < GRID_X; x++) for (let z = 0; z < GRID_Z; z++) {
-    if (!at(x, z) || seen.has(x * GRID_Z + z)) continue;
-    let n = 0;
-    const st = [[x, z]];
-    seen.add(x * GRID_Z + z);
-    while (st.length) {
-      const c = st.pop();
-      n++;
-      for (const [dx, dz] of [[1,0],[-1,0],[0,1],[0,-1]]) {
-        const nx = c[0] + dx, nz = c[1] + dz;
-        if (at(nx, nz) && !seen.has(nx * GRID_Z + nz)) { seen.add(nx * GRID_Z + nz); st.push([nx, nz]); }
+  for (let x = 0; x < GRID_X; x++)
+    for (let z = 0; z < GRID_Z; z++) {
+      if (!at(x, z) || seen.has(x * GRID_Z + z)) continue;
+      let n = 0;
+      const st = [[x, z]];
+      seen.add(x * GRID_Z + z);
+      while (st.length) {
+        const c = st.pop();
+        n++;
+        for (const [dx, dz] of [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1],
+        ]) {
+          const nx = c[0] + dx,
+            nz = c[1] + dz;
+          if (at(nx, nz) && !seen.has(nx * GRID_Z + nz)) {
+            seen.add(nx * GRID_Z + nz);
+            st.push([nx, nz]);
+          }
+        }
       }
+      sizes.push(n);
     }
-    sizes.push(n);
-  }
   sizes.sort((a, b) => b - a);
   return sizes;
 }
@@ -824,12 +945,14 @@ for (let gx = 0; gx < GRID_X; gx++) {
   let bits = "";
   for (let gz = 0; gz < GRID_Z; gz++) bits += grid[gx * GRID_Z + gz] ? "1" : "0";
   let hex = "";
-  for (let i = 0; i < bits.length; i += 4) hex += parseInt(bits.slice(i, i + 4).padEnd(4, "0"), 2).toString(16);
+  for (let i = 0; i < bits.length; i += 4)
+    hex += parseInt(bits.slice(i, i + 4).padEnd(4, "0"), 2).toString(16);
   cols.push(hex);
   let mbits = "";
   for (let gz = 0; gz < GRID_Z; gz++) mbits += gridMajor[gx * GRID_Z + gz] ? "1" : "0";
   let mhex = "";
-  for (let i = 0; i < mbits.length; i += 4) mhex += parseInt(mbits.slice(i, i + 4).padEnd(4, "0"), 2).toString(16);
+  for (let i = 0; i < mbits.length; i += 4)
+    mhex += parseInt(mbits.slice(i, i + 4).padEnd(4, "0"), 2).toString(16);
   colsMajor.push(mhex);
 }
 writeFileSync(
@@ -871,7 +994,10 @@ export function majorMaskAt(gx: number, gz: number): boolean {
 const r1 = (n) => Math.round(n * 10) / 10;
 const nodesOut = nodes.map(([x, z]) => `[${r1(x)},${r1(z)}]`).join(",");
 const edgesOut = edges
-  .map((e) => `{a:${e.a},b:${e.b},w:${e.half},p:[${e.pts.map(([x, z]) => `${r1(x)},${r1(z)}`).join(",")}]}`)
+  .map(
+    (e) =>
+      `{a:${e.a},b:${e.b},w:${e.half},p:[${e.pts.map(([x, z]) => `${r1(x)},${r1(z)}`).join(",")}]}`,
+  )
   .join(",\n");
 writeFileSync(
   new URL("../../src/world/sf-network.ts", import.meta.url),
@@ -899,12 +1025,13 @@ ${edgesOut}
 {
   const cell = 5;
   let out = `<svg xmlns="http://www.w3.org/2000/svg" width="${GRID_X * cell}" height="${GRID_Z * cell}"><rect width="100%" height="100%" fill="#9ec7d8"/>`;
-  for (let gx = 0; gx < GRID_X; gx++) for (let gz = 0; gz < GRID_Z; gz++) {
-    if (onLandUV((gx + 0.5) / GRID_X, (gz + 0.5) / GRID_Z))
-      out += `<rect x="${gx * cell}" y="${gz * cell}" width="${cell}" height="${cell}" fill="${grid[gx * GRID_Z + gz] ? "#bbb" : "#e8e4d8"}"/>`;
-  }
-  const sx = (x) => ((x / WORLD_W) + 0.5) * GRID_X * cell;
-  const sz = (z) => ((z / WORLD_H) + 0.5) * GRID_Z * cell;
+  for (let gx = 0; gx < GRID_X; gx++)
+    for (let gz = 0; gz < GRID_Z; gz++) {
+      if (onLandUV((gx + 0.5) / GRID_X, (gz + 0.5) / GRID_Z))
+        out += `<rect x="${gx * cell}" y="${gz * cell}" width="${cell}" height="${cell}" fill="${grid[gx * GRID_Z + gz] ? "#bbb" : "#e8e4d8"}"/>`;
+    }
+  const sx = (x) => (x / WORLD_W + 0.5) * GRID_X * cell;
+  const sz = (z) => (z / WORLD_H + 0.5) * GRID_Z * cell;
   for (const e of edges) {
     out += `<polyline fill="none" stroke="#c22" stroke-width="1.6" points="${e.pts.map(([x, z]) => `${sx(x).toFixed(1)},${sz(z).toFixed(1)}`).join(" ")}"/>`;
   }

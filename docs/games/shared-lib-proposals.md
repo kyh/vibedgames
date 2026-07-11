@@ -17,18 +17,22 @@ mechanical de-dupe of already-identical text.**
 
 ## A. Library derivations (extract to published packages), by priority
 
-### 1. `@vibedgames/multiplayer/session` — `NetSession`  ·  effort S · risk low
+### 1. `@vibedgames/multiplayer/session` — `NetSession` · effort S · risk low
+
 The `net/session.ts` adapter (offline-fallback, host-authoritative verbs). Already
 engine-free; 6 field-tested copies, 4 now byte-identical (`fa470c87`). Highest ROI.
+
 - **Blockers:** `MULTIPLAYER_HOST` uses `import.meta.env.DEV` + hardcoded URL → make
   host a param with a default; fold in battle-arena's `?party=` dev override. Guard
   `performance.now` behind the globalThis view. Document `SOLO_ID`/loopback as contract.
 - **Do at extraction:** the deferred `otherPlayer()` `for..in` + cached solo-map
   perf fix (skipped in-repo to keep the shared logic untouched).
 
-### 2. `@vibedgames/game-feel` — `TraumaCamera`  ·  effort M · risk low
+### 2. `@vibedgames/game-feel` — `TraumaCamera` · effort M · risk low
+
 Pure-math trauma→shake core (~40 LOC). The 3 copies are now unified to
 `ShakeSample = {ox,oy,rot}`, so only tuning constants + unit differ.
+
 - **API:** `new TraumaCamera({decayPerSec,maxOffset,maxRot,freqScale})`,
   `add`, `addAt(dist,radius,amount)` (moba falloff), `reset`, `update(dt,tSec?)`.
 - Optional subpath adapters `/three` (`translateX/Y`+`rotateZ` after lookAt) and
@@ -36,16 +40,21 @@ Pure-math trauma→shake core (~40 LOC). The 3 copies are now unified to
 - **Blockers:** unit semantics per game (px/wu, deg/rad) = config concern; pong's
   freeze-clock needs external `tSec`; moba's `addAt` needs caller camera-centre dist.
 
-### 3. `@vibedgames/multiplayer/interp` — remote-puppet helpers  ·  effort M · risk med
-`finiteNum`, `expBlend(rate,dt)`, `shortestAngle`, `hueForId` (FNV-1a), `rebuildMap`
-+ a `RemotePuppets<S,P>` class with a per-game `PuppetAdapter` (render stays game-side).
-- **Extract the 5 helpers first (zero risk, used by every remote reader).** The class
-  couples to the engine via `blend()`; grid games (bomberman tween-to-cell) shouldn't adopt.
-- Do NOT extract `encodeWorld`/`applySnapshot` — field lists are 100% game-specific.
+### 3. `@vibedgames/multiplayer/interp` — remote-puppet helpers · effort M · risk med
 
-### 4. `@vibedgames/sfx` — `createSfx()`  ·  effort M · risk med
+`finiteNum`, `expBlend(rate,dt)`, `shortestAngle`, `hueForId` (FNV-1a), `rebuildMap`
+
+- a `RemotePuppets<S,P>` class with a per-game `PuppetAdapter` (render stays game-side).
+
+* **Extract the 5 helpers first (zero risk, used by every remote reader).** The class
+  couples to the engine via `blend()`; grid games (bomberman tween-to-cell) shouldn't adopt.
+* Do NOT extract `encodeWorld`/`applySnapshot` — field lists are 100% game-specific.
+
+### 4. `@vibedgames/sfx` — `createSfx()` · effort M · risk med
+
 Unifies the 3 audio paradigms (live-synth tone/noise · zzfx pre-render bank · blip).
 Games shrink to constants + a verbs/recipe table.
+
 - **Canonical pattern donor:** battle-arena `render/audio.ts` (AudioContext-clock
   scheduling, one shared noise buffer, `gate()`, `setTargetAtTime` mute fade, typed
   `webkitAudioContext` view). Samples/loops (crazy-waymo) + spatializer/voice-cap
@@ -53,30 +62,36 @@ Games shrink to constants + a verbs/recipe table.
 - **Blocker:** audio regressions are hard to verify headlessly → align files in-repo
   and soak before extracting.
 
-### 5. `@vibedgames/fx-pool` — two backends over a tiny core  ·  effort M · risk med
+### 5. `@vibedgames/fx-pool` — two backends over a tiny core · effort M · risk med
+
 `SlotPool`/`cubicOut`/`jitter` core + `/three` (`ParticlePool`,`RingPool` instanced) +
 `/phaser` (`FxPool` persistent emitters + the load-bearing Phaser-4 `updateConfig`
 footgun baked in). Bespoke systems (pacman hearts/confetti/motes, starfall
 shatter/converge, waymo GPU `ParticleField`) stay per-game on top of primitives.
+
 - **Mine into the lib:** battle-arena dirty-flag upload-skip + scratch spawn options;
   crazy-waymo rest-when-empty guard + exponential drag.
 - **Blocker:** standardize timing on seconds + per-slot age + explicit kick axis first.
 
-### 6. `@vibedgames/vision` — MediaPipe capture layer  ·  effort M · risk med
+### 6. `@vibedgames/vision` — MediaPipe capture layer · effort M · risk med
+
 `createVisionCamera({task,onFrame,modelUrl,panel,draw,onStatus})` — **capture only;
 interpretation (gestures, calibration, cooldowns) stays per-game.** Task adapter over
 Gesture/Pose/Face is the real design work.
+
 - **Canonical:** tetris `camera.ts`+`pose-control.ts` (only copy that splits capture
   from interpretation; has every lifecycle fix). Port flappy's retry-button UX.
 - **Blocker:** webcam gimmicks are core features (regressions user-visible) + hard to
   verify headlessly (use Playwright `--use-fake-device-for-media-stream`).
 
-### 7. `@vibedgames/game-boot` — `bootThree` / `bootPhaser`  ·  effort M · risk med
+### 7. `@vibedgames/game-boot` — `bootThree` / `bootPhaser` · effort M · risk med
+
 Renderer + resize + loop + fatal-panel + dev-hook. Two engine shapes (subpath
 exports), loop injects `render(dt,rawDt)` so dither passes / perf governors / composers
 still fit. Lowest priority (most coupling). Constants stay per-game.
 
-### 8. `@vibedgames/game-clock` — pausable sim clock  ·  effort S · risk low
+### 8. `@vibedgames/game-clock` — pausable sim clock · effort S · risk low
+
 Offset-based `now()/pauseClock()/resumeClock()`: wall time minus every ms spent
 paused, frozen while paused, seamless on resume (stored deadlines hold — no
 mass-detonation/teleport on wake). 2 byte-identical field-tested copies:

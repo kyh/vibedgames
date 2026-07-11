@@ -15,7 +15,12 @@
       "endpoint_id": "fal-ai/nano-banana-pro",
       "taskType": "text-to-image",
       "downloadKeys": ["images[0].url"],
-      "defaults": { "num_images": 1, "aspect_ratio": "1:1", "output_format": "png", "resolution": "1K" },
+      "defaults": {
+        "num_images": 1,
+        "aspect_ratio": "1:1",
+        "output_format": "png",
+        "resolution": "1K"
+      },
       "note": "Recommended default for character/anchor generation: fast, strong on chunky pixel art."
     },
     "nano-banana-pro-edit": {
@@ -24,14 +29,24 @@
       "inputImageField": "image_urls",
       "inputImageIsArray": true,
       "downloadKeys": ["images[0].url"],
-      "defaults": { "num_images": 1, "aspect_ratio": "auto", "output_format": "png", "resolution": "1K" },
+      "defaults": {
+        "num_images": 1,
+        "aspect_ratio": "auto",
+        "output_format": "png",
+        "resolution": "1K"
+      },
       "note": "Edit endpoint: derive directional anchors and labeled pose boards from an approved character image (the pose-board step uses this endpoint). For a pose board pass --aspect_ratio 4:3."
     },
     "gpt-image-2-t2i": {
       "endpoint_id": "openai/gpt-image-2",
       "taskType": "text-to-image",
       "downloadKeys": ["images[0].url"],
-      "defaults": { "num_images": 1, "image_size": "1024x1024", "output_format": "png", "quality": "high" },
+      "defaults": {
+        "num_images": 1,
+        "image_size": "1024x1024",
+        "output_format": "png",
+        "quality": "high"
+      },
       "note": "Stronger character consistency + text rendering; slower and pricier than nano-banana-pro."
     },
     "gpt-image-2-edit": {
@@ -40,7 +55,12 @@
       "inputImageField": "image_urls",
       "inputImageIsArray": true,
       "downloadKeys": ["images[0].url"],
-      "defaults": { "num_images": 1, "image_size": "auto", "output_format": "png", "quality": "high" }
+      "defaults": {
+        "num_images": 1,
+        "image_size": "auto",
+        "output_format": "png",
+        "quality": "high"
+      }
     },
     "bria-background-remove": {
       "endpoint_id": "fal-ai/bria/background/remove",

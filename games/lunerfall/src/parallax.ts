@@ -28,7 +28,15 @@ const hash = (n: number) => {
   return s - Math.floor(s);
 };
 
-type Layer = { row: number; depth: number; sf: number; step: number; scale: number; alpha: number; tint: number };
+type Layer = {
+  row: number;
+  depth: number;
+  sf: number;
+  step: number;
+  scale: number;
+  alpha: number;
+  tint: number;
+};
 
 // From deepest to nearest. `sf` = scrollFactor, `step` = px between trees.
 const LAYERS: Layer[] = [
@@ -37,7 +45,15 @@ const LAYERS: Layer[] = [
   { row: 1, depth: -12, sf: 0.58, step: 150, scale: 1.0, alpha: 0.92, tint: 0xffffff },
 ];
 
-const FG_LAYER: Layer = { row: 0, depth: 40, sf: 1.12, step: 320, scale: 1.25, alpha: 1, tint: 0xffffff };
+const FG_LAYER: Layer = {
+  row: 0,
+  depth: 40,
+  sf: 1.12,
+  step: 320,
+  scale: 1.25,
+  alpha: 1,
+  tint: 0xffffff,
+};
 
 export function buildParallax(
   scene: Phaser.Scene,

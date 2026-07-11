@@ -78,7 +78,15 @@ export class SpikePool {
   private one(x: number, z: number, outward: number, color: number, opts: SpikeOpts): void {
     const idx = this.free.pop();
     if (idx === undefined) return; // saturated — drop
-    const { h = 1.2, w = 0.4, riseMs = 130, holdMs = 700, exitMs = 260, tiltOut = 0.18, jitter = 0.35 } = opts;
+    const {
+      h = 1.2,
+      w = 0.4,
+      riseMs = 130,
+      holdMs = 700,
+      exitMs = 260,
+      tiltOut = 0.18,
+      jitter = 0.35,
+    } = opts;
     const j = 1 - jitter / 2 + Math.random() * jitter;
     const s: Spike = {
       idx,

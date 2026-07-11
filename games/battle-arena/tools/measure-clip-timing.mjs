@@ -35,7 +35,13 @@ function quatSlerp(a, b, t) {
   let [ax, ay, az, aw] = a;
   let [bx, by, bz, bw] = b;
   let dot = ax * bx + ay * by + az * bz + aw * bw;
-  if (dot < 0) { bx = -bx; by = -by; bz = -bz; bw = -bw; dot = -dot; }
+  if (dot < 0) {
+    bx = -bx;
+    by = -by;
+    bz = -bz;
+    bw = -bw;
+    dot = -dot;
+  }
   if (dot > 0.9995) {
     const q = [ax + t * (bx - ax), ay + t * (by - ay), az + t * (bz - az), aw + t * (bw - aw)];
     const l = Math.hypot(...q);
@@ -50,16 +56,36 @@ function quatSlerp(a, b, t) {
 
 function composeMat(t, q, s) {
   const [x, y, z, w] = q;
-  const x2 = x + x, y2 = y + y, z2 = z + z;
-  const xx = x * x2, xy = x * y2, xz = x * z2;
-  const yy = y * y2, yz = y * z2, zz = z * z2;
-  const wx = w * x2, wy = w * y2, wz = w * z2;
+  const x2 = x + x,
+    y2 = y + y,
+    z2 = z + z;
+  const xx = x * x2,
+    xy = x * y2,
+    xz = x * z2;
+  const yy = y * y2,
+    yz = y * z2,
+    zz = z * z2;
+  const wx = w * x2,
+    wy = w * y2,
+    wz = w * z2;
   const [sx, sy, sz] = s;
   return [
-    (1 - (yy + zz)) * sx, (xy + wz) * sx, (xz - wy) * sx, 0,
-    (xy - wz) * sy, (1 - (xx + zz)) * sy, (yz + wx) * sy, 0,
-    (xz + wy) * sz, (yz - wx) * sz, (1 - (xx + yy)) * sz, 0,
-    t[0], t[1], t[2], 1,
+    (1 - (yy + zz)) * sx,
+    (xy + wz) * sx,
+    (xz - wy) * sx,
+    0,
+    (xy - wz) * sy,
+    (1 - (xx + zz)) * sy,
+    (yz + wx) * sy,
+    0,
+    (xz + wy) * sz,
+    (yz - wx) * sz,
+    (1 - (xx + yy)) * sz,
+    0,
+    t[0],
+    t[1],
+    t[2],
+    1,
   ];
 }
 
@@ -120,9 +146,15 @@ function analyze(path) {
         if (world.has(idx)) return world.get(idx);
         const n = nodes[idx];
         const tr = tracks.get(idx);
-        const T = tr?.translation ? sampleTrack(tr.translation.times, tr.translation.values, 3, t, false) : (n.translation ?? [0, 0, 0]);
-        const R = tr?.rotation ? sampleTrack(tr.rotation.times, tr.rotation.values, 4, t, true) : (n.rotation ?? [0, 0, 0, 1]);
-        const S = tr?.scale ? sampleTrack(tr.scale.times, tr.scale.values, 3, t, false) : (n.scale ?? [1, 1, 1]);
+        const T = tr?.translation
+          ? sampleTrack(tr.translation.times, tr.translation.values, 3, t, false)
+          : (n.translation ?? [0, 0, 0]);
+        const R = tr?.rotation
+          ? sampleTrack(tr.rotation.times, tr.rotation.values, 4, t, true)
+          : (n.rotation ?? [0, 0, 0, 1]);
+        const S = tr?.scale
+          ? sampleTrack(tr.scale.times, tr.scale.values, 3, t, false)
+          : (n.scale ?? [1, 1, 1]);
         const local = composeMat(T, R, S);
         const p = worldOf(parent[idx]);
         const m = p ? mulMat(p, local) : local;
@@ -154,10 +186,12 @@ function analyze(path) {
 }
 
 const out = {};
-for (const f of readdirSync(ANIM_DIR).filter((f) => f.endsWith(".glb")).sort()) {
+for (const f of readdirSync(ANIM_DIR)
+  .filter((f) => f.endsWith(".glb"))
+  .sort()) {
   const prefix = f.startsWith("Rig_Large") ? "Large/" : "";
   for (const [k, v] of Object.entries(analyze(join(ANIM_DIR, f)))) {
-    if (!((prefix + k) in out)) out[prefix + k] = v;
+    if (!(prefix + k in out)) out[prefix + k] = v;
   }
 }
 console.log(JSON.stringify(out, null, 2));

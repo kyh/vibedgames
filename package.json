@@ -45,6 +45,9 @@
     "turbo": "^2.10.4",
     "typescript": "catalog:"
   },
+  "engines": {
+    "node": ">=24"
+  },
   "packageManager": "pnpm@10.33.0",
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -58,8 +61,5 @@
     "overrides": {
       "react-hook-form": "^7.72.1"
     }
-  },
-  "engines": {
-    "node": ">=24"
   }
 }

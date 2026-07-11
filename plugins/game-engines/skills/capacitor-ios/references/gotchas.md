@@ -15,7 +15,7 @@ Stale native assets, wrong `webDir`, or bad asset path. Fix:
 
 ## 3) "Pan feels wrong on touch"
 
-Default `OrbitControls` mappings don't match UX, or custom pan constraint applied before `controls.update()`. Set both `mouseButtons` and `touches` explicitly; apply pan constraint *after* update in the render loop.
+Default `OrbitControls` mappings don't match UX, or custom pan constraint applied before `controls.update()`. Set both `mouseButtons` and `touches` explicitly; apply pan constraint _after_ update in the render loop.
 
 ## 4) "Capacitor asks for CocoaPods"
 

@@ -23,10 +23,12 @@ const file = process.argv[2];
 const wantClips = process.argv.includes("--clips");
 const wantNodes = process.argv.includes("--nodes");
 const g = parseGlb(file);
-const nodeName = (i) => (g.nodes?.[i]?.name ?? `#${i}`);
+const nodeName = (i) => g.nodes?.[i]?.name ?? `#${i}`;
 
 console.log(`\n== ${file} ==`);
-console.log(`nodes: ${g.nodes?.length ?? 0}  meshes: ${g.meshes?.length ?? 0}  skins: ${g.skins?.length ?? 0}  anims: ${g.animations?.length ?? 0}`);
+console.log(
+  `nodes: ${g.nodes?.length ?? 0}  meshes: ${g.meshes?.length ?? 0}  skins: ${g.skins?.length ?? 0}  anims: ${g.animations?.length ?? 0}`,
+);
 if (g.meshes) console.log(`mesh names: ${g.meshes.map((m) => m.name).join(", ")}`);
 if (g.skins) {
   for (const s of g.skins) {

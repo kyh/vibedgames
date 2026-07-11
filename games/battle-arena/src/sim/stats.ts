@@ -69,7 +69,12 @@ export const isUntargetable = (u: Unit): boolean =>
 /** Remove disables + slows (cleanse). Strips hex too — a cleanse un-mushrooms. */
 export function cleanseDisables(u: Unit): void {
   u.statuses = u.statuses.filter(
-    (s) => s.kind !== "stun" && s.kind !== "root" && s.kind !== "silence" && s.kind !== "slow" && s.kind !== "hex",
+    (s) =>
+      s.kind !== "stun" &&
+      s.kind !== "root" &&
+      s.kind !== "silence" &&
+      s.kind !== "slow" &&
+      s.kind !== "hex",
   );
 }
 

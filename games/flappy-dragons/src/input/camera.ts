@@ -428,10 +428,7 @@ class PoseCamera {
     ) {
       this.setState("detecting");
       this.setStatus("Jump or flap your arms!");
-    } else if (
-      this.state === "jumping" &&
-      performance.now() - this.jumpStartedAt > JUMP_STUCK_MS
-    ) {
+    } else if (this.state === "jumping" && performance.now() - this.jumpStartedAt > JUMP_STUCK_MS) {
       // Never landed — stuck read. Re-arm detection and let the baseline
       // re-track from wherever the player settled.
       this.setState("detecting");

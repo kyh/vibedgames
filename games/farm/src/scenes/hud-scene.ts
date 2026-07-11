@@ -746,7 +746,6 @@ export class HudScene extends Phaser.Scene {
     c.add([g, t, z]);
     return c;
   }
-
 }
 
 function panelRect(

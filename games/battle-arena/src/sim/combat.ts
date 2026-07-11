@@ -1,7 +1,13 @@
 // Damage pipeline, basic attacks, knockback, death/respawn, projectiles.
 import { CHAMP_BY_ID } from "../data/champions";
 import { strikeMs, swingClip } from "../data/clip-timing";
-import { KEG_BLAST, PROP_COIN_CHANCE, PROP_COIN_GOLD, PROP_RESPAWN_MS, destructibleProps } from "../data/props";
+import {
+  KEG_BLAST,
+  PROP_COIN_CHANCE,
+  PROP_COIN_GOLD,
+  PROP_RESPAWN_MS,
+  destructibleProps,
+} from "../data/props";
 import { MELEE_HALF_ANGLE, MELEE_OVERREACH, RANGED_BASIC_HIT_RADIUS } from "./combat-geometry";
 import { ATTACK_VARIANCE, attackIntervalMs, respawnTime, type DamageType } from "../data/config";
 import { angleDelta, angleOf, norm, rand } from "./math";
@@ -132,7 +138,15 @@ function doAttackHit(w: World, u: Unit): void {
   if (u.attackType === "ranged") {
     // the shot leaves NOW — the release frame: muzzle flash + shoulder kick
     // land on the same tick the arrow/bolt spawns
-    w.fx.push({ t: "swing", x: u.x + fx * 0.45, y: u.y + fy * 0.45, ang: u.facing, r: 0.8, melee: false, dtype: u.attackDamageType });
+    w.fx.push({
+      t: "swing",
+      x: u.x + fx * 0.45,
+      y: u.y + fy * 0.45,
+      ang: u.facing,
+      r: 0.8,
+      melee: false,
+      dtype: u.attackDamageType,
+    });
     if (w.now >= u.kbUntil) {
       u.kbx = fx * -1.4;
       u.kby = fy * -1.4;
@@ -165,7 +179,10 @@ function doAttackHit(w: World, u: Unit): void {
   // (was unbounded × #targets — the dominant balance problem). Deterministic:
   // sort by distance, tie-break by id.
   const reach = meleeReach(u);
-  const cap = u.kind === "hero" ? (CHAMP_BY_ID[u.champId]?.cleaveTargets ?? MELEE_CLEAVE_CAP) : MELEE_CLEAVE_CAP;
+  const cap =
+    u.kind === "hero"
+      ? (CHAMP_BY_ID[u.champId]?.cleaveTargets ?? MELEE_CLEAVE_CAP)
+      : MELEE_CLEAVE_CAP;
   const hits: { t: Unit; d: number }[] = [];
   for (const t of w.units.values()) {
     if (t === u || !t.alive) continue;
@@ -187,7 +204,10 @@ function doAttackHit(w: World, u: Unit): void {
   for (let i = 0; i < hits.length && i < cap; i++) {
     const t = hits[i]!.t;
     const mult = i === 0 ? 1 : MELEE_CLEAVE_FALLOFF;
-    const heavy = dealDamage(w, u, t, raw * mult, u.attackDamageType, { isAttack: true, forceCrit: ambush });
+    const heavy = dealDamage(w, u, t, raw * mult, u.attackDamageType, {
+      isAttack: true,
+      forceCrit: ambush,
+    });
     // micro-shove on the primary target — basics finally *move* people
     if (i === 0 && t.alive) applyKnockback(t, u.x, u.y, heavy ? 2.6 : 1.4, w);
     // FrostGolem on-hit chill (fixed id → refreshes, never stacks)
@@ -198,7 +218,12 @@ function doAttackHit(w: World, u: Unit): void {
 }
 
 // ── Central damage ───────────────────────────────────────────────────────────
-export type DamageOpts = { isAttack?: boolean; ap?: number; silentFx?: boolean; forceCrit?: boolean };
+export type DamageOpts = {
+  isAttack?: boolean;
+  ap?: number;
+  silentFx?: boolean;
+  forceCrit?: boolean;
+};
 
 /** Returns true when the hit was HEAVY (≥18% of the victim's max HP) — the
  *  render heavy/crit tier and the primary-target shove key off it. */
@@ -235,14 +260,31 @@ export function dealDamage(
   victim.lastHitDx = dir.x;
   victim.lastHitDy = dir.y;
   if (!opts.silentFx) {
-    w.fx.push({ t: "hit", x: victim.x, y: victim.y, dx: dir.x, dy: dir.y, dtype, by: attacker?.id ?? "", to: victim.id, amount: Math.round(final), crit: heavy });
+    w.fx.push({
+      t: "hit",
+      x: victim.x,
+      y: victim.y,
+      dx: dir.x,
+      dy: dir.y,
+      dtype,
+      by: attacker?.id ?? "",
+      to: victim.id,
+      amount: Math.round(final),
+      crit: heavy,
+    });
   }
 
   if (victim.hp <= 0) handleDeath(w, victim, attacker?.ownerId ?? null);
   return heavy;
 }
 
-export function applyKnockback(u: Unit, fromX: number, fromY: number, force: number, w: World): void {
+export function applyKnockback(
+  u: Unit,
+  fromX: number,
+  fromY: number,
+  force: number,
+  w: World,
+): void {
   if (u.statuses.some((s) => s.kind === "unstoppable")) return;
   const d = norm(u.x - fromX, u.y - fromY);
   u.kbx = d.x * force;
@@ -298,18 +340,32 @@ export function handleDeath(w: World, victim: Unit, killerId: string | null): vo
 function breakProp(w: World, prop: Unit, killerId: string | null): void {
   const spec = destructibleProps()[prop.slot];
   prop.respawnAt = w.now + PROP_RESPAWN_MS;
-  w.fx.push({ t: "propBreak", x: prop.x, y: prop.y, model: prop.champId, explosive: spec?.explosive });
+  w.fx.push({
+    t: "propBreak",
+    x: prop.x,
+    y: prop.y,
+    model: prop.champId,
+    explosive: spec?.explosive,
+  });
 
   if (spec?.explosive) {
     // the breaker owns the blast: it hurts THEIR enemies (and other props)
-    const breaker = killerId !== null ? [...w.units.values()].find((u) => u.kind === "hero" && u.ownerId === killerId) ?? null : null;
+    const breaker =
+      killerId !== null
+        ? ([...w.units.values()].find((u) => u.kind === "hero" && u.ownerId === killerId) ?? null)
+        : null;
     for (const t of w.units.values()) {
       if (!t.alive || t === prop) continue;
-      const inRange = (t.x - prop.x) ** 2 + (t.y - prop.y) ** 2 <= (KEG_BLAST.radius + t.radius) ** 2;
+      const inRange =
+        (t.x - prop.x) ** 2 + (t.y - prop.y) ** 2 <= (KEG_BLAST.radius + t.radius) ** 2;
       if (!inRange) continue;
       if (isBreakable(t)) {
         dealDamage(w, breaker, t, KEG_BLAST.damage, "pure", {}); // chain-pop neighbors
-      } else if ((t.kind === "hero" || t.kind === "creep") && (!breaker || isEnemy(breaker, t)) && !isUntargetable(t)) {
+      } else if (
+        (t.kind === "hero" || t.kind === "creep") &&
+        (!breaker || isEnemy(breaker, t)) &&
+        !isUntargetable(t)
+      ) {
         dealDamage(w, breaker, t, KEG_BLAST.damage, "magic", {});
         if (t.alive) applyKnockback(t, prop.x, prop.y, 5, w);
       }
@@ -461,14 +517,33 @@ function onProjectileHit(w: World, p: Projectile, primary: Unit): void {
   if (p.radius > 0) {
     burstProjectile(w, p); // splash: everyone (incl primary) within radius
   } else {
-    dealDamage(w, owner, primary, p.damage, p.dtype, { ap: owner?.abilityPower, isAttack: p.isAttack });
+    dealDamage(w, owner, primary, p.damage, p.dtype, {
+      ap: owner?.abilityPower,
+      isAttack: p.isAttack,
+    });
     applyOnHit(w, p, primary);
   }
 }
 
 function applyOnHit(w: World, p: Projectile, u: Unit): void {
   const h = p.onHit;
-  if (h.tag === "slow") u.statuses.push({ kind: "slow", until: w.now + h.duration * 1000, pct: h.pct, id: `${p.kind}-slow` });
-  else if (h.tag === "root") u.statuses.push({ kind: "root", until: w.now + h.duration * 1000, id: `${p.kind}-root` });
-  else if (h.tag === "burn") u.statuses.push({ kind: "dot", until: w.now + h.duration * 1000, nextTick: w.now + 500, dps: h.dps, dtype: "magic", sourceId: p.ownerId, id: `${p.kind}-burn` });
+  if (h.tag === "slow")
+    u.statuses.push({
+      kind: "slow",
+      until: w.now + h.duration * 1000,
+      pct: h.pct,
+      id: `${p.kind}-slow`,
+    });
+  else if (h.tag === "root")
+    u.statuses.push({ kind: "root", until: w.now + h.duration * 1000, id: `${p.kind}-root` });
+  else if (h.tag === "burn")
+    u.statuses.push({
+      kind: "dot",
+      until: w.now + h.duration * 1000,
+      nextTick: w.now + 500,
+      dps: h.dps,
+      dtype: "magic",
+      sourceId: p.ownerId,
+      id: `${p.kind}-burn`,
+    });
 }

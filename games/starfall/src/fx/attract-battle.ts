@@ -280,7 +280,11 @@ export class AttractBattle {
       hero.y > view.bottom - EDGE_PAD;
     if (outside) desired = Math.atan2(view.centerY - hero.y, view.centerX - hero.x);
 
-    hero.angle += Phaser.Math.Clamp(angleDelta(hero.angle, desired), -HERO_TURN * dt, HERO_TURN * dt);
+    hero.angle += Phaser.Math.Clamp(
+      angleDelta(hero.angle, desired),
+      -HERO_TURN * dt,
+      HERO_TURN * dt,
+    );
     const k = 1 - Math.exp(-VEL_BLEND * dt);
     hero.vx += (Math.cos(hero.angle) * HERO_SPEED - hero.vx) * k;
     hero.vy += (Math.sin(hero.angle) * HERO_SPEED - hero.vy) * k;

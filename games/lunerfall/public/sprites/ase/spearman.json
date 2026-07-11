@@ -1,650 +1,651 @@
-{ "frames": [
-   {
-    "filename": "Spearman Aseprite 0.aseprite",
-    "frame": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 1.aseprite",
-    "frame": { "x": 80, "y": 0, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 2.aseprite",
-    "frame": { "x": 160, "y": 0, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 3.aseprite",
-    "frame": { "x": 240, "y": 0, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 4.aseprite",
-    "frame": { "x": 320, "y": 0, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 5.aseprite",
-    "frame": { "x": 400, "y": 0, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 6.aseprite",
-    "frame": { "x": 480, "y": 0, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 7.aseprite",
-    "frame": { "x": 560, "y": 0, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 8.aseprite",
-    "frame": { "x": 0, "y": 80, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 9.aseprite",
-    "frame": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 10.aseprite",
-    "frame": { "x": 80, "y": 80, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 11.aseprite",
-    "frame": { "x": 160, "y": 80, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 12.aseprite",
-    "frame": { "x": 240, "y": 80, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 13.aseprite",
-    "frame": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 14.aseprite",
-    "frame": { "x": 320, "y": 80, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 15.aseprite",
-    "frame": { "x": 400, "y": 80, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 16.aseprite",
-    "frame": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 17.aseprite",
-    "frame": { "x": 480, "y": 80, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 18.aseprite",
-    "frame": { "x": 560, "y": 80, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 19.aseprite",
-    "frame": { "x": 0, "y": 160, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 20.aseprite",
-    "frame": { "x": 80, "y": 160, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 21.aseprite",
-    "frame": { "x": 160, "y": 160, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 22.aseprite",
-    "frame": { "x": 240, "y": 160, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 23.aseprite",
-    "frame": { "x": 320, "y": 160, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 24.aseprite",
-    "frame": { "x": 400, "y": 160, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 25.aseprite",
-    "frame": { "x": 480, "y": 160, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 26.aseprite",
-    "frame": { "x": 560, "y": 160, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 27.aseprite",
-    "frame": { "x": 0, "y": 240, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 28.aseprite",
-    "frame": { "x": 80, "y": 240, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 29.aseprite",
-    "frame": { "x": 160, "y": 240, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 30.aseprite",
-    "frame": { "x": 240, "y": 240, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 31.aseprite",
-    "frame": { "x": 320, "y": 240, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 32.aseprite",
-    "frame": { "x": 400, "y": 240, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 33.aseprite",
-    "frame": { "x": 480, "y": 240, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 34.aseprite",
-    "frame": { "x": 560, "y": 240, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 35.aseprite",
-    "frame": { "x": 0, "y": 320, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 36.aseprite",
-    "frame": { "x": 80, "y": 320, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 37.aseprite",
-    "frame": { "x": 160, "y": 320, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 38.aseprite",
-    "frame": { "x": 240, "y": 320, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 39.aseprite",
-    "frame": { "x": 320, "y": 320, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 40.aseprite",
-    "frame": { "x": 400, "y": 320, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 41.aseprite",
-    "frame": { "x": 480, "y": 320, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 42.aseprite",
-    "frame": { "x": 560, "y": 320, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 43.aseprite",
-    "frame": { "x": 0, "y": 400, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 44.aseprite",
-    "frame": { "x": 80, "y": 400, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 45.aseprite",
-    "frame": { "x": 160, "y": 400, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 46.aseprite",
-    "frame": { "x": 240, "y": 400, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 47.aseprite",
-    "frame": { "x": 320, "y": 400, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 48.aseprite",
-    "frame": { "x": 400, "y": 400, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 49.aseprite",
-    "frame": { "x": 480, "y": 400, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 50.aseprite",
-    "frame": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 51.aseprite",
-    "frame": { "x": 560, "y": 400, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 52.aseprite",
-    "frame": { "x": 0, "y": 480, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 53.aseprite",
-    "frame": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 54.aseprite",
-    "frame": { "x": 80, "y": 480, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 55.aseprite",
-    "frame": { "x": 160, "y": 480, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 56.aseprite",
-    "frame": { "x": 240, "y": 480, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 57.aseprite",
-    "frame": { "x": 320, "y": 480, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 58.aseprite",
-    "frame": { "x": 400, "y": 480, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 59.aseprite",
-    "frame": { "x": 480, "y": 480, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 60.aseprite",
-    "frame": { "x": 560, "y": 480, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 61.aseprite",
-    "frame": { "x": 480, "y": 480, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 62.aseprite",
-    "frame": { "x": 0, "y": 560, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 63.aseprite",
-    "frame": { "x": 80, "y": 560, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 64.aseprite",
-    "frame": { "x": 160, "y": 560, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 65.aseprite",
-    "frame": { "x": 240, "y": 560, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 66.aseprite",
-    "frame": { "x": 320, "y": 560, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 67.aseprite",
-    "frame": { "x": 400, "y": 560, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 68.aseprite",
-    "frame": { "x": 480, "y": 560, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Spearman Aseprite 69.aseprite",
-    "frame": { "x": 560, "y": 560, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   }
- ],
- "meta": {
-  "app": "https://www.aseprite.org/",
-  "version": "1.3.17.2-arm64",
-  "image": "spearman.png",
-  "format": "RGBA8888",
-  "size": { "w": 640, "h": 640 },
-  "scale": "1",
-  "frameTags": [
-   { "name": "Spawn", "from": 1, "to": 8, "direction": "forward", "color": "#000000ff" },
-   { "name": "Idle", "from": 9, "to": 16, "direction": "forward", "color": "#000000ff" },
-   { "name": "Run", "from": 17, "to": 24, "direction": "forward", "color": "#000000ff" },
-   { "name": "Charge", "from": 25, "to": 41, "direction": "forward", "color": "#000000ff" },
-   { "name": "Strike", "from": 42, "to": 50, "direction": "forward", "color": "#000000ff" },
-   { "name": "Hit", "from": 51, "to": 53, "direction": "forward", "color": "#000000ff" },
-   { "name": "Death", "from": 54, "to": 69, "direction": "forward", "color": "#000000ff" }
-  ]
- }
+{
+  "frames": [
+    {
+      "filename": "Spearman Aseprite 0.aseprite",
+      "frame": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 1.aseprite",
+      "frame": { "x": 80, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 2.aseprite",
+      "frame": { "x": 160, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 3.aseprite",
+      "frame": { "x": 240, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 4.aseprite",
+      "frame": { "x": 320, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 5.aseprite",
+      "frame": { "x": 400, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 6.aseprite",
+      "frame": { "x": 480, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 7.aseprite",
+      "frame": { "x": 560, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 8.aseprite",
+      "frame": { "x": 0, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 9.aseprite",
+      "frame": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 10.aseprite",
+      "frame": { "x": 80, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 11.aseprite",
+      "frame": { "x": 160, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 12.aseprite",
+      "frame": { "x": 240, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 13.aseprite",
+      "frame": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 14.aseprite",
+      "frame": { "x": 320, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 15.aseprite",
+      "frame": { "x": 400, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 16.aseprite",
+      "frame": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 17.aseprite",
+      "frame": { "x": 480, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 18.aseprite",
+      "frame": { "x": 560, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 19.aseprite",
+      "frame": { "x": 0, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 20.aseprite",
+      "frame": { "x": 80, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 21.aseprite",
+      "frame": { "x": 160, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 22.aseprite",
+      "frame": { "x": 240, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 23.aseprite",
+      "frame": { "x": 320, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 24.aseprite",
+      "frame": { "x": 400, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 25.aseprite",
+      "frame": { "x": 480, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 26.aseprite",
+      "frame": { "x": 560, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 27.aseprite",
+      "frame": { "x": 0, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 28.aseprite",
+      "frame": { "x": 80, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 29.aseprite",
+      "frame": { "x": 160, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 30.aseprite",
+      "frame": { "x": 240, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 31.aseprite",
+      "frame": { "x": 320, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 32.aseprite",
+      "frame": { "x": 400, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 33.aseprite",
+      "frame": { "x": 480, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 34.aseprite",
+      "frame": { "x": 560, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 35.aseprite",
+      "frame": { "x": 0, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 36.aseprite",
+      "frame": { "x": 80, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 37.aseprite",
+      "frame": { "x": 160, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 38.aseprite",
+      "frame": { "x": 240, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 39.aseprite",
+      "frame": { "x": 320, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 40.aseprite",
+      "frame": { "x": 400, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 41.aseprite",
+      "frame": { "x": 480, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 42.aseprite",
+      "frame": { "x": 560, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 43.aseprite",
+      "frame": { "x": 0, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 44.aseprite",
+      "frame": { "x": 80, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 45.aseprite",
+      "frame": { "x": 160, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 46.aseprite",
+      "frame": { "x": 240, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 47.aseprite",
+      "frame": { "x": 320, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 48.aseprite",
+      "frame": { "x": 400, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 49.aseprite",
+      "frame": { "x": 480, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 50.aseprite",
+      "frame": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 51.aseprite",
+      "frame": { "x": 560, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 52.aseprite",
+      "frame": { "x": 0, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 53.aseprite",
+      "frame": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 54.aseprite",
+      "frame": { "x": 80, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 55.aseprite",
+      "frame": { "x": 160, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 56.aseprite",
+      "frame": { "x": 240, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 57.aseprite",
+      "frame": { "x": 320, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 58.aseprite",
+      "frame": { "x": 400, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 59.aseprite",
+      "frame": { "x": 480, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 60.aseprite",
+      "frame": { "x": 560, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 61.aseprite",
+      "frame": { "x": 480, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 62.aseprite",
+      "frame": { "x": 0, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 63.aseprite",
+      "frame": { "x": 80, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 64.aseprite",
+      "frame": { "x": 160, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 65.aseprite",
+      "frame": { "x": 240, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 66.aseprite",
+      "frame": { "x": 320, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 67.aseprite",
+      "frame": { "x": 400, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 68.aseprite",
+      "frame": { "x": 480, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Spearman Aseprite 69.aseprite",
+      "frame": { "x": 560, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    }
+  ],
+  "meta": {
+    "app": "https://www.aseprite.org/",
+    "version": "1.3.17.2-arm64",
+    "image": "spearman.png",
+    "format": "RGBA8888",
+    "size": { "w": 640, "h": 640 },
+    "scale": "1",
+    "frameTags": [
+      { "name": "Spawn", "from": 1, "to": 8, "direction": "forward", "color": "#000000ff" },
+      { "name": "Idle", "from": 9, "to": 16, "direction": "forward", "color": "#000000ff" },
+      { "name": "Run", "from": 17, "to": 24, "direction": "forward", "color": "#000000ff" },
+      { "name": "Charge", "from": 25, "to": 41, "direction": "forward", "color": "#000000ff" },
+      { "name": "Strike", "from": 42, "to": 50, "direction": "forward", "color": "#000000ff" },
+      { "name": "Hit", "from": 51, "to": 53, "direction": "forward", "color": "#000000ff" },
+      { "name": "Death", "from": 54, "to": 69, "direction": "forward", "color": "#000000ff" }
+    ]
+  }
 }

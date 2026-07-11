@@ -521,7 +521,9 @@ export class GalleryScene extends Phaser.Scene {
       [16.5, 5.8],
       [11.6, 11.8],
     ];
-    HOUSE_SPOTS.forEach(([tx, ty], i) => building(HOUSES[i % HOUSES.length] ?? "sc-house1", tx, ty));
+    HOUSE_SPOTS.forEach(([tx, ty], i) =>
+      building(HOUSES[i % HOUSES.length] ?? "sc-house1", tx, ty),
+    );
 
     // Knights: a Lancer (spearman) column by the castle + scattered units.
     // Lancer frames are 320px (taller, to fit the spear); warrior/pawn are 192px.

@@ -128,5 +128,7 @@ test("bot playtest: scripted sweep progresses a seeded combat room", async ({ pa
   expect(report.framesAdvanced, "game loop must keep running").toBeGreaterThan(100);
   expect(report.distanceTravelled, "player must respond to input (px)").toBeGreaterThan(150);
   expect(report.softlockWindows, "held input repeatedly produced nothing").toBeLessThanOrEqual(2);
-  expect(report.scoreAfter, "attack sweep should kill something").toBeGreaterThan(report.scoreBefore);
+  expect(report.scoreAfter, "attack sweep should kill something").toBeGreaterThan(
+    report.scoreBefore,
+  );
 });

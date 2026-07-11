@@ -132,16 +132,45 @@ export function afterImage(
 
 // Soft smoke puff for movement (run trails, wall-kicks). Grey + normal blend so
 // it reads as kicked-up dust, not neon glow; drifts, grows, and fades.
-export function smoke(scene: Phaser.Scene, x: number, y: number, vx: number, vy: number, size = 10, color = 0x7c8aa0) {
+export function smoke(
+  scene: Phaser.Scene,
+  x: number,
+  y: number,
+  vx: number,
+  vy: number,
+  size = 10,
+  color = 0x7c8aa0,
+) {
   ensureGlow(scene);
-  const s = scene.add.image(x, y, "fx-glow").setTint(color).setScale(size / 48).setAlpha(0.42).setDepth(18);
-  scene.tweens.add({ targets: s, x: x + vx, y: y + vy, scale: (size / 48) * 2.1, alpha: 0, duration: 340 + Math.random() * 160, ease: "Quad.easeOut", onComplete: () => s.destroy() });
+  const s = scene.add
+    .image(x, y, "fx-glow")
+    .setTint(color)
+    .setScale(size / 48)
+    .setAlpha(0.42)
+    .setDepth(18);
+  scene.tweens.add({
+    targets: s,
+    x: x + vx,
+    y: y + vy,
+    scale: (size / 48) * 2.1,
+    alpha: 0,
+    duration: 340 + Math.random() * 160,
+    ease: "Quad.easeOut",
+    onComplete: () => s.destroy(),
+  });
 }
 
 // Burst kicked off a wall on a wall-jump (side = the wall's direction, ±1).
 export function wallSmoke(scene: Phaser.Scene, x: number, y: number, side: number) {
   for (let i = 0; i < 4; i++) {
-    smoke(scene, x, y - i * 4, -side * (14 + Math.random() * 14), -8 + Math.random() * 14 - i * 2, 8 + Math.random() * 6);
+    smoke(
+      scene,
+      x,
+      y - i * 4,
+      -side * (14 + Math.random() * 14),
+      -8 + Math.random() * 14 - i * 2,
+      8 + Math.random() * 6,
+    );
   }
 }
 

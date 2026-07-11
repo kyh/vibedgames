@@ -24,7 +24,10 @@ export const ARENA = {
 } as const;
 
 /** Outward unit normal of hex edge k (edge centered at 30° + k·60°). */
-export const EDGE_ANGLES: number[] = Array.from({ length: 6 }, (_, k) => Math.PI / 6 + (k * Math.PI) / 3);
+export const EDGE_ANGLES: number[] = Array.from(
+  { length: 6 },
+  (_, k) => Math.PI / 6 + (k * Math.PI) / 3,
+);
 
 export const BOSS_POS: Vec2 = { x: 0, y: 0 };
 export const BOSS_PLATFORM_RADIUS = 5.5; // raised dais the boss stands on
@@ -43,7 +46,10 @@ export const SPAWNS: SpawnPoint[] = EDGE_ANGLES.map((a, i) => {
 /** Catch-up delivery drop zones — on four of the six vertex axes, mid-field
  *  (between the dais ring and the vertex camps; point-symmetric pairs). */
 const PAD_ANGLES = [0, 2, 3, 5].map((k) => (k * Math.PI) / 3);
-export const DELIVERY_PADS: Vec2[] = PAD_ANGLES.map((a) => ({ x: Math.cos(a) * 18 * S, y: Math.sin(a) * 18 * S }));
+export const DELIVERY_PADS: Vec2[] = PAD_ANGLES.map((a) => ({
+  x: Math.cos(a) * 18 * S,
+  y: Math.sin(a) * 18 * S,
+}));
 
 /** Timed rune pickups (Phase 2 — positions reserved): on the 45°+k·90°
  *  diagonals, off every base lane and vertex axis. */
@@ -62,7 +68,13 @@ export const CAMPS: CampSpec[] = Array.from({ length: 6 }, (_, i) => {
 });
 // Elite lair: the Frost Golem miniboss holds the NE vertex corner, deeper in
 // behind camp1 — clear of pads, bases, and rune spots.
-CAMPS.push({ id: "golem", x: Math.cos(Math.PI / 3) * 35.5 * S, y: Math.sin(Math.PI / 3) * 35.5 * S, pack: ["frostgolem"], respawnSec: 90 });
+CAMPS.push({
+  id: "golem",
+  x: Math.cos(Math.PI / 3) * 35.5 * S,
+  y: Math.sin(Math.PI / 3) * 35.5 * S,
+  pack: ["frostgolem"],
+  respawnSec: 90,
+});
 
 /** `model` is a render hint only — the sim reads just x/y/radius. */
 export type Obstacle = { x: number; y: number; radius: number; height: number; model?: string };
@@ -70,7 +82,12 @@ export type Obstacle = { x: number; y: number; radius: number; height: number; m
 /** Interior partition-wall runs (image-1 sub-room stubs): straight rows of
  *  circle colliders the renderer dresses as continuous low wall segments.
  *  angle = outward angle of the run's center; the run extends tangentially. */
-export type PartitionRun = { x: number; y: number; /** tangent direction (radians, sim plane) */ dir: number; /** collider centers along the tangent */ offsets: number[] };
+export type PartitionRun = {
+  x: number;
+  y: number;
+  /** tangent direction (radians, sim plane) */ dir: number;
+  /** collider centers along the tangent */ offsets: number[];
+};
 export const PARTITION_RUNS: PartitionRun[] = Array.from({ length: 6 }, (_, k) => {
   // one cover run per sextant at 12° past each vertex axis, radius 22 —
   // breaks the dais↔camp sightline while keeping every base→center lane
@@ -99,7 +116,13 @@ export function buildDefaultObstacles(): Obstacle[] {
     const tx = Math.cos(run.dir);
     const ty = Math.sin(run.dir);
     for (const t of run.offsets) {
-      out.push({ x: run.x + tx * t, y: run.y + ty * t, radius: 1.1, height: 2.4, model: "wall_run" });
+      out.push({
+        x: run.x + tx * t,
+        y: run.y + ty * t,
+        radius: 1.1,
+        height: 2.4,
+        model: "wall_run",
+      });
     }
   }
   // shrine statues on the delivery-pad axes, behind each pad (r21.5 vs pad

@@ -56,7 +56,10 @@ function tryActive(w: World, u: Unit, kind: ActiveKind, point?: { x: number; y: 
 }
 
 function medianKills(w: World): number {
-  const ks = [...w.units.values()].filter((x) => x.kind === "hero").map((x) => x.kills).sort((a, b) => a - b);
+  const ks = [...w.units.values()]
+    .filter((x) => x.kind === "hero")
+    .map((x) => x.kills)
+    .sort((a, b) => a - b);
   return ks.length ? ks[Math.floor(ks.length / 2)]! : 0;
 }
 
@@ -225,7 +228,9 @@ function tickSkeleton(w: World, u: Unit): void {
 function pickTarget(w: World, u: Unit): Unit | null {
   let target = nearestEnemy(w, u);
   if (w.leaderId && w.leaderId !== u.team) {
-    const leader = [...w.units.values()].find((x) => x.kind === "hero" && x.team === w.leaderId && x.alive);
+    const leader = [...w.units.values()].find(
+      (x) => x.kind === "hero" && x.team === w.leaderId && x.alive,
+    );
     if (leader && leader !== u && u.kills < leader.kills && dist(u, leader) < 24) target = leader;
   }
   return target;

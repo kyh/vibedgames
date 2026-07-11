@@ -76,11 +76,27 @@ function check(name: string, cond: boolean, extra = ""): void {
   const asGlobal = effectiveAttackSpeed(storm);
   const asVsMarked = effectiveAttackSpeed(storm, markBonus(storm, marked));
   const asVsOther = effectiveAttackSpeed(storm, markBonus(storm, other));
-  check("mark does NOT boost global attack speed", Math.abs(asGlobal - baseAS) < 1e-6, `base=${baseAS} global=${asGlobal}`);
-  check("mark boosts attack speed vs the marked hero", asVsMarked > asGlobal + 1e-6, `marked=${asVsMarked} global=${asGlobal}`);
-  check("mark does NOT boost attack speed vs a different hero", Math.abs(asVsOther - asGlobal) < 1e-6, `other=${asVsOther}`);
+  check(
+    "mark does NOT boost global attack speed",
+    Math.abs(asGlobal - baseAS) < 1e-6,
+    `base=${baseAS} global=${asGlobal}`,
+  );
+  check(
+    "mark boosts attack speed vs the marked hero",
+    asVsMarked > asGlobal + 1e-6,
+    `marked=${asVsMarked} global=${asGlobal}`,
+  );
+  check(
+    "mark does NOT boost attack speed vs a different hero",
+    Math.abs(asVsOther - asGlobal) < 1e-6,
+    `other=${asVsOther}`,
+  );
   const expected = Math.min(5, storm.attackSpeedBase * (1 + markBonus(storm, marked) / 100));
-  check("mark bonus applied exactly once (no double-count)", Math.abs(asVsMarked - expected) < 1e-6, `got=${asVsMarked} expected=${expected}`);
+  check(
+    "mark bonus applied exactly once (no double-count)",
+    Math.abs(asVsMarked - expected) < 1e-6,
+    `got=${asVsMarked} expected=${expected}`,
+  );
 }
 
 // ---- 3. a channel breaks (zone removed) when the caster dies ---------------
@@ -99,7 +115,11 @@ function check(name: string, cond: boolean, extra = ""): void {
   check("caster is dead", !brew.alive);
   check("channel cleared on death", brewHero.channel === null);
   const groundsAfter = w.groundEffects.filter((g) => g.channel && g.ownerId === brew.id).length;
-  check("channel ground zone removed on death (no ticking from corpse)", groundsAfter === 0, `after=${groundsAfter}`);
+  check(
+    "channel ground zone removed on death (no ticking from corpse)",
+    groundsAfter === 0,
+    `after=${groundsAfter}`,
+  );
 }
 
 // ---- 4. a self-following aura does not stack on recast ---------------------

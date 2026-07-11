@@ -96,10 +96,8 @@ export class SmashCones {
       const shoulder = hit.edge.half - 1.1;
       for (let i = 0; i < n; i++) {
         const along = (i - 1) * 1.3;
-        const x =
-          hit.x + hit.tx * along - hit.tz * shoulder * side + rng.range(-0.4, 0.4);
-        const z =
-          hit.z + hit.tz * along + hit.tx * shoulder * side + rng.range(-0.4, 0.4);
+        const x = hit.x + hit.tx * along - hit.tz * shoulder * side + rng.range(-0.4, 0.4);
+        const z = hit.z + hit.tz * along + hit.tx * shoulder * side + rng.range(-0.4, 0.4);
         this.cones.push({
           x,
           y: city.terrain.heightAt(x, z),

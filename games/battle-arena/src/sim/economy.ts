@@ -71,7 +71,6 @@ export function grantXp(w: World, u: Unit, amount: number): void {
   }
 }
 
-
 // ── Kills, bounties, assists ─────────────────────────────────────────────────
 export function awardKill(w: World, killerId: string | null, victim: Unit): void {
   const killer = killerId ? findByOwner(w, killerId) : null;
@@ -94,10 +93,19 @@ export function awardKill(w: World, killerId: string | null, victim: Unit): void
       victimName: victim.name,
       leader: wasLeader,
     });
-    if (wasLeader) w.fx.push({ t: "notify", text: `${killer.name} SLEW THE LEADER`, kind: "leader" });
+    if (wasLeader)
+      w.fx.push({ t: "notify", text: `${killer.name} SLEW THE LEADER`, kind: "leader" });
     const streak = killer.killStreak;
     const word =
-      streak === 3 ? "KILLING SPREE" : streak === 5 ? "RAMPAGE" : streak === 7 ? "UNSTOPPABLE" : streak >= 9 && streak % 2 === 1 ? "GODLIKE" : null;
+      streak === 3
+        ? "KILLING SPREE"
+        : streak === 5
+          ? "RAMPAGE"
+          : streak === 7
+            ? "UNSTOPPABLE"
+            : streak >= 9 && streak % 2 === 1
+              ? "GODLIKE"
+              : null;
     if (word) w.fx.push({ t: "notify", text: `${killer.name} — ${word}`, kind: "streak" });
   } else {
     w.fx.push({

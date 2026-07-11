@@ -288,10 +288,11 @@ this.entities.forEach((e) => e.setDepth(e.y));
 Fake the third dimension with a height value `z`: lift the sprite by `z`, but keep a **separate** shadow sprite (never bake the shadow into the art) on the true ground point, and sort by the ground Y — not the lifted position:
 
 ```ts
-e.z = Math.max(0, e.z + e.vz * dt); e.vz -= GRAVITY * dt; // simple jump / projectile arc
-e.sprite.setPosition(e.x, e.y - e.z).setDepth(e.y);       // lift visual, sort by ground Y
+e.z = Math.max(0, e.z + e.vz * dt);
+e.vz -= GRAVITY * dt; // simple jump / projectile arc
+e.sprite.setPosition(e.x, e.y - e.z).setDepth(e.y); // lift visual, sort by ground Y
 e.shadow.setPosition(e.x, e.y).setScale(1 - e.z * 0.002); // shadow stays grounded, shrinks with height
-e.body.enable = e.z === 0;                                // airborne = no hitbox, so jumps dodge attacks
+e.body.enable = e.z === 0; // airborne = no hitbox, so jumps dodge attacks
 ```
 
 The shadow sells the arc — without it a lifted sprite just looks like it slid up the screen.

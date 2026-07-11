@@ -47,7 +47,7 @@ Use `OrbitControls` with explicit `mouseButtons` and `touches`:
 - Mouse: left = rotate, wheel = dolly/zoom, right = pan
 - Touch: one-finger = rotate, two-finger = dolly + pan
 
-For vertical-only pan, constrain target/camera translation *after* `controls.update()` each frame — don't change rotate/zoom semantics.
+For vertical-only pan, constrain target/camera translation _after_ `controls.update()` each frame — don't change rotate/zoom semantics.
 
 ### 4) Performance and Stability Guardrails
 

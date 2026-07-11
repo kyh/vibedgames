@@ -1,1248 +1,803 @@
 {
-"heroes/axion/attack-1.png": {
-"frames": 10,
-"fw": 144,
-"fh": 144,
-"union": [
-44,
-60,
-111,
-79
-],
-"cw": 68,
-"ch": 20,
-"feetY": 79
-},
-"heroes/axion/attack-2.png": {
-"frames": 15,
-"fw": 144,
-"fh": 144,
-"union": [
-44,
-57,
-114,
-79
-],
-"cw": 71,
-"ch": 23,
-"feetY": 79
-},
-"heroes/axion/attack-3.png": {
-"frames": 23,
-"fw": 144,
-"fh": 144,
-"union": [
-44,
-42,
-114,
-79
-],
-"cw": 71,
-"ch": 38,
-"feetY": 79
-},
-"heroes/axion/dash.png": {
-"frames": 12,
-"fw": 144,
-"fh": 144,
-"union": [
-54,
-61,
-81,
-79
-],
-"cw": 28,
-"ch": 19,
-"feetY": 79
-},
-"heroes/axion/death.png": {
-"frames": 18,
-"fw": 144,
-"fh": 144,
-"union": [
-51,
-56,
-85,
-79
-],
-"cw": 35,
-"ch": 24,
-"feetY": 79
-},
-"heroes/axion/fall.png": {
-"frames": 4,
-"fw": 144,
-"fh": 144,
-"union": [
-55,
-60,
-80,
-78
-],
-"cw": 26,
-"ch": 19,
-"feetY": 78
-},
-"heroes/axion/hurt.png": {
-"frames": 3,
-"fw": 144,
-"fh": 144,
-"union": [
-56,
-60,
-79,
-79
-],
-"cw": 24,
-"ch": 20,
-"feetY": 79
-},
-"heroes/axion/idle.png": {
-"frames": 7,
-"fw": 144,
-"fh": 144,
-"union": [
-56,
-59,
-79,
-80
-],
-"cw": 24,
-"ch": 22,
-"feetY": 80
-},
-"heroes/axion/jump.png": {
-"frames": 4,
-"fw": 144,
-"fh": 144,
-"union": [
-56,
-59,
-80,
-79
-],
-"cw": 25,
-"ch": 21,
-"feetY": 79
-},
-"heroes/axion/run.png": {
-"frames": 8,
-"fw": 144,
-"fh": 144,
-"union": [
-55,
-60,
-81,
-79
-],
-"cw": 27,
-"ch": 20,
-"feetY": 79
-},
-"heroes/axion/super-smash.png": {
-"frames": 15,
-"fw": 144,
-"fh": 144,
-"union": [
-36,
-37,
-122,
-79
-],
-"cw": 87,
-"ch": 43,
-"feetY": 79
-},
-"heroes/mooni/death.png": {
-"frames": 29,
-"fw": 144,
-"fh": 144,
-"union": [
-54,
-43,
-87,
-80
-],
-"cw": 34,
-"ch": 38,
-"feetY": 80
-},
-"heroes/mooni/fall.png": {
-"frames": 6,
-"fw": 144,
-"fh": 144,
-"union": [
-58,
-62,
-83,
-80
-],
-"cw": 26,
-"ch": 19,
-"feetY": 80
-},
-"heroes/mooni/heal.png": {
-"frames": 18,
-"fw": 144,
-"fh": 144,
-"union": [
-58,
-51,
-88,
-81
-],
-"cw": 31,
-"ch": 31,
-"feetY": 81
-},
-"heroes/mooni/hurt.png": {
-"frames": 3,
-"fw": 144,
-"fh": 144,
-"union": [
-59,
-61,
-84,
-80
-],
-"cw": 26,
-"ch": 20,
-"feetY": 80
-},
-"heroes/mooni/idle-break.png": {
-"frames": 27,
-"fw": 144,
-"fh": 144,
-"union": [
-59,
-61,
-84,
-80
-],
-"cw": 26,
-"ch": 20,
-"feetY": 80
-},
-"heroes/mooni/idle.png": {
-"frames": 8,
-"fw": 144,
-"fh": 144,
-"union": [
-59,
-60,
-84,
-80
-],
-"cw": 26,
-"ch": 21,
-"feetY": 80
-},
-"heroes/mooni/jump.png": {
-"frames": 6,
-"fw": 144,
-"fh": 144,
-"union": [
-58,
-61,
-82,
-80
-],
-"cw": 25,
-"ch": 20,
-"feetY": 80
-},
-"heroes/mooni/run.png": {
-"frames": 8,
-"fw": 144,
-"fh": 144,
-"union": [
-58,
-60,
-84,
-80
-],
-"cw": 27,
-"ch": 21,
-"feetY": 80
-},
-"heroes/mooni/smash.png": {
-"frames": 17,
-"fw": 144,
-"fh": 144,
-"union": [
-51,
-35,
-108,
-80
-],
-"cw": 58,
-"ch": 46,
-"feetY": 80
-},
-"heroes/mooni/special-skill.png": {
-"frames": 18,
-"fw": 144,
-"fh": 144,
-"union": [
-14,
-46,
-128,
-85
-],
-"cw": 115,
-"ch": 40,
-"feetY": 85
-},
-"heroes/mooni/spin.png": {
-"frames": 13,
-"fw": 144,
-"fh": 144,
-"union": [
-40,
-61,
-108,
-81
-],
-"cw": 69,
-"ch": 21,
-"feetY": 81
-},
-"heroes/mooni/thrust.png": {
-"frames": 14,
-"fw": 144,
-"fh": 144,
-"union": [
-54,
-62,
-123,
-82
-],
-"cw": 70,
-"ch": 21,
-"feetY": 82
-},
-"heroes/reaper/attack.png": {
-"frames": 23,
-"fw": 144,
-"fh": 144,
-"union": [
-46,
-14,
-95,
-79
-],
-"cw": 50,
-"ch": 66,
-"feetY": 79
-},
-"heroes/reaper/dash.png": {
-"frames": 12,
-"fw": 144,
-"fh": 144,
-"union": [
-54,
-62,
-80,
-79
-],
-"cw": 27,
-"ch": 18,
-"feetY": 79
-},
-"heroes/reaper/death.png": {
-"frames": 17,
-"fw": 144,
-"fh": 144,
-"union": [
-51,
-51,
-84,
-79
-],
-"cw": 34,
-"ch": 29,
-"feetY": 79
-},
-"heroes/reaper/double-slash.png": {
-"frames": 13,
-"fw": 144,
-"fh": 144,
-"union": [
-48,
-50,
-106,
-79
-],
-"cw": 59,
-"ch": 30,
-"feetY": 79
-},
-"heroes/reaper/fall.png": {
-"frames": 4,
-"fw": 144,
-"fh": 144,
-"union": [
-56,
-60,
-78,
-79
-],
-"cw": 23,
-"ch": 20,
-"feetY": 79
-},
-"heroes/reaper/hurt.png": {
-"frames": 3,
-"fw": 144,
-"fh": 144,
-"union": [
-56,
-61,
-77,
-79
-],
-"cw": 22,
-"ch": 19,
-"feetY": 79
-},
-"heroes/reaper/idle-break.png": {
-"frames": 18,
-"fw": 144,
-"fh": 144,
-"union": [
-48,
-44,
-92,
-79
-],
-"cw": 45,
-"ch": 36,
-"feetY": 79
-},
-"heroes/reaper/idle.png": {
-"frames": 9,
-"fw": 144,
-"fh": 144,
-"union": [
-56,
-60,
-77,
-79
-],
-"cw": 22,
-"ch": 20,
-"feetY": 79
-},
-"heroes/reaper/jump.png": {
-"frames": 4,
-"fw": 144,
-"fh": 144,
-"union": [
-58,
-60,
-79,
-79
-],
-"cw": 22,
-"ch": 20,
-"feetY": 79
-},
-"heroes/reaper/run.png": {
-"frames": 8,
-"fw": 144,
-"fh": 144,
-"union": [
-56,
-60,
-78,
-79
-],
-"cw": 23,
-"ch": 20,
-"feetY": 79
-},
-"heroes/reaper/skill.png": {
-"frames": 29,
-"fw": 144,
-"fh": 144,
-"union": [
-19,
-21,
-132,
-79
-],
-"cw": 114,
-"ch": 59,
-"feetY": 79
-},
-"heroes/reaper/slash.png": {
-"frames": 10,
-"fw": 144,
-"fh": 144,
-"union": [
-50,
-50,
-106,
-79
-],
-"cw": 57,
-"ch": 30,
-"feetY": 79
-},
-"heroes/reaper/surprise-jump.png": {
-"frames": 20,
-"fw": 144,
-"fh": 144,
-"union": [
-56,
-23,
-80,
-80
-],
-"cw": 25,
-"ch": 58,
-"feetY": 80
-},
-"heroes/riven/dash.png": {
-"frames": 5,
-"fw": 144,
-"fh": 144,
-"union": [
-55,
-62,
-83,
-79
-],
-"cw": 29,
-"ch": 18,
-"feetY": 79
-},
-"heroes/riven/death.png": {
-"frames": 17,
-"fw": 144,
-"fh": 144,
-"union": [
-56,
-50,
-85,
-79
-],
-"cw": 30,
-"ch": 30,
-"feetY": 79
-},
-"heroes/riven/double-slash.png": {
-"frames": 16,
-"fw": 144,
-"fh": 144,
-"union": [
-51,
-56,
-114,
-79
-],
-"cw": 64,
-"ch": 24,
-"feetY": 79
-},
-"heroes/riven/fall.png": {
-"frames": 4,
-"fw": 144,
-"fh": 144,
-"union": [
-55,
-62,
-83,
-79
-],
-"cw": 29,
-"ch": 18,
-"feetY": 79
-},
-"heroes/riven/hurt.png": {
-"frames": 2,
-"fw": 144,
-"fh": 144,
-"union": [
-55,
-61,
-84,
-79
-],
-"cw": 30,
-"ch": 19,
-"feetY": 79
-},
-"heroes/riven/idle-break.png": {
-"frames": 6,
-"fw": 144,
-"fh": 144,
-"union": [
-50,
-54,
-84,
-79
-],
-"cw": 35,
-"ch": 26,
-"feetY": 79
-},
-"heroes/riven/idle.png": {
-"frames": 7,
-"fw": 144,
-"fh": 144,
-"union": [
-56,
-60,
-84,
-79
-],
-"cw": 29,
-"ch": 20,
-"feetY": 79
-},
-"heroes/riven/jump.png": {
-"frames": 4,
-"fw": 144,
-"fh": 144,
-"union": [
-55,
-59,
-83,
-79
-],
-"cw": 29,
-"ch": 21,
-"feetY": 79
-},
-"heroes/riven/run.png": {
-"frames": 8,
-"fw": 144,
-"fh": 144,
-"union": [
-53,
-61,
-82,
-79
-],
-"cw": 30,
-"ch": 19,
-"feetY": 79
-},
-"heroes/riven/slash.png": {
-"frames": 11,
-"fw": 144,
-"fh": 144,
-"union": [
-51,
-57,
-111,
-79
-],
-"cw": 61,
-"ch": 23,
-"feetY": 79
-},
-"heroes/riven/smoke-in.png": {
-"frames": 9,
-"fw": 144,
-"fh": 144,
-"union": [
-44,
-57,
-103,
-79
-],
-"cw": 60,
-"ch": 23,
-"feetY": 79
-},
-"heroes/riven/smoke-out.png": {
-"frames": 13,
-"fw": 144,
-"fh": 144,
-"union": [
-44,
-57,
-103,
-79
-],
-"cw": 60,
-"ch": 23,
-"feetY": 79
-},
-"heroes/riven/special-skill.png": {
-"frames": 36,
-"fw": 144,
-"fh": 144,
-"union": [
-5,
-49,
-137,
-79
-],
-"cw": 133,
-"ch": 31,
-"feetY": 79
-},
-"heroes/salamander/dash.png": {
-"frames": 4,
-"fw": 144,
-"fh": 144,
-"union": [
-56,
-64,
-85,
-79
-],
-"cw": 30,
-"ch": 16,
-"feetY": 79
-},
-"heroes/salamander/death.png": {
-"frames": 23,
-"fw": 144,
-"fh": 144,
-"union": [
-52,
-44,
-94,
-79
-],
-"cw": 43,
-"ch": 36,
-"feetY": 79
-},
-"heroes/salamander/fall.png": {
-"frames": 4,
-"fw": 144,
-"fh": 144,
-"union": [
-63,
-63,
-81,
-79
-],
-"cw": 19,
-"ch": 17,
-"feetY": 79
-},
-"heroes/salamander/fire-punch.png": {
-"frames": 17,
-"fw": 144,
-"fh": 144,
-"union": [
-59,
-50,
-104,
-79
-],
-"cw": 46,
-"ch": 30,
-"feetY": 79
-},
-"heroes/salamander/flame-slam.png": {
-"frames": 19,
-"fw": 144,
-"fh": 144,
-"union": [
-5,
-34,
-135,
-79
-],
-"cw": 131,
-"ch": 46,
-"feetY": 79
-},
-"heroes/salamander/flame-wave.png": {
-"frames": 18,
-"fw": 144,
-"fh": 144,
-"union": [
-59,
-55,
-94,
-90
-],
-"cw": 36,
-"ch": 36,
-"feetY": 90
-},
-"heroes/salamander/hit.png": {
-"frames": 3,
-"fw": 144,
-"fh": 144,
-"union": [
-65,
-59,
-80,
-79
-],
-"cw": 16,
-"ch": 21,
-"feetY": 79
-},
-"heroes/salamander/idle.png": {
-"frames": 8,
-"fw": 144,
-"fh": 144,
-"union": [
-65,
-58,
-80,
-79
-],
-"cw": 16,
-"ch": 22,
-"feetY": 79
-},
-"heroes/salamander/jump.png": {
-"frames": 4,
-"fw": 144,
-"fh": 144,
-"union": [
-64,
-60,
-80,
-79
-],
-"cw": 17,
-"ch": 20,
-"feetY": 79
-},
-"heroes/salamander/run.png": {
-"frames": 8,
-"fw": 144,
-"fh": 144,
-"union": [
-62,
-63,
-81,
-79
-],
-"cw": 20,
-"ch": 17,
-"feetY": 79
-},
-"heroes/salamander/wave-projectile.png": {
-"frames": 68,
-"fw": 16,
-"fh": 16,
-"union": [
-0,
-0,
-15,
-15
-],
-"cw": 16,
-"ch": 16,
-"feetY": 15
-},
-"enemies/archer/custom-arrow.png": {
-"frames": 1,
-"fw": 128,
-"fh": 128,
-"union": [
-16,
-17,
-105,
-60
-],
-"cw": 90,
-"ch": 44,
-"feetY": 60
-},
-"enemies/archer/death.png": {
-"frames": 15,
-"fw": 80,
-"fh": 80,
-"union": [
-26,
-33,
-53,
-48
-],
-"cw": 28,
-"ch": 16,
-"feetY": 48
-},
-"enemies/archer/hit.png": {
-"frames": 3,
-"fw": 80,
-"fh": 80,
-"union": [
-29,
-33,
-47,
-47
-],
-"cw": 19,
-"ch": 15,
-"feetY": 47
-},
-"enemies/archer/idle.png": {
-"frames": 7,
-"fw": 80,
-"fh": 80,
-"union": [
-29,
-33,
-47,
-47
-],
-"cw": 19,
-"ch": 15,
-"feetY": 47
-},
-"enemies/archer/run.png": {
-"frames": 8,
-"fw": 80,
-"fh": 80,
-"union": [
-30,
-33,
-48,
-47
-],
-"cw": 19,
-"ch": 15,
-"feetY": 47
-},
-"enemies/archer/shoot.png": {
-"frames": 9,
-"fw": 80,
-"fh": 80,
-"union": [
-26,
-28,
-64,
-51
-],
-"cw": 39,
-"ch": 24,
-"feetY": 51
-},
-"enemies/archer/spawn.png": {
-"frames": 8,
-"fw": 80,
-"fh": 80,
-"union": [
-19,
-13,
-61,
-47
-],
-"cw": 43,
-"ch": 35,
-"feetY": 47
-},
-"enemies/archer/super-shoot.png": {
-"frames": 9,
-"fw": 80,
-"fh": 80,
-"union": [
-26,
-16,
-64,
-64
-],
-"cw": 39,
-"ch": 49,
-"feetY": 64
-},
-"enemies/bomber/death.png": {
-"frames": 16,
-"fw": 80,
-"fh": 80,
-"union": [
-28,
-32,
-53,
-48
-],
-"cw": 26,
-"ch": 17,
-"feetY": 48
-},
-"enemies/bomber/electrocute.png": {
-"frames": 12,
-"fw": 80,
-"fh": 80,
-"union": [
-9,
-23,
-72,
-47
-],
-"cw": 64,
-"ch": 25,
-"feetY": 47
-},
-"enemies/bomber/explode.png": {
-"frames": 14,
-"fw": 80,
-"fh": 80,
-"union": [
-14,
-15,
-64,
-60
-],
-"cw": 51,
-"ch": 46,
-"feetY": 60
-},
-"enemies/bomber/hit.png": {
-"frames": 3,
-"fw": 80,
-"fh": 80,
-"union": [
-32,
-35,
-47,
-47
-],
-"cw": 16,
-"ch": 13,
-"feetY": 47
-},
-"enemies/bomber/idle.png": {
-"frames": 8,
-"fw": 80,
-"fh": 80,
-"union": [
-32,
-35,
-47,
-47
-],
-"cw": 16,
-"ch": 13,
-"feetY": 47
-},
-"enemies/bomber/run.png": {
-"frames": 8,
-"fw": 80,
-"fh": 80,
-"union": [
-32,
-35,
-47,
-47
-],
-"cw": 16,
-"ch": 13,
-"feetY": 47
-},
-"enemies/bomber/spawn.png": {
-"frames": 8,
-"fw": 80,
-"fh": 80,
-"union": [
-20,
-13,
-62,
-47
-],
-"cw": 43,
-"ch": 35,
-"feetY": 47
-},
-"enemies/spearman/charge.png": {
-"frames": 17,
-"fw": 80,
-"fh": 80,
-"union": [
-23,
-18,
-55,
-47
-],
-"cw": 33,
-"ch": 30,
-"feetY": 47
-},
-"enemies/spearman/death.png": {
-"frames": 16,
-"fw": 80,
-"fh": 80,
-"union": [
-28,
-32,
-57,
-47
-],
-"cw": 30,
-"ch": 16,
-"feetY": 47
-},
-"enemies/spearman/hit.png": {
-"frames": 3,
-"fw": 80,
-"fh": 80,
-"union": [
-32,
-37,
-53,
-47
-],
-"cw": 22,
-"ch": 11,
-"feetY": 47
-},
-"enemies/spearman/idle.png": {
-"frames": 8,
-"fw": 80,
-"fh": 80,
-"union": [
-32,
-36,
-53,
-47
-],
-"cw": 22,
-"ch": 12,
-"feetY": 47
-},
-"enemies/spearman/run.png": {
-"frames": 8,
-"fw": 80,
-"fh": 80,
-"union": [
-32,
-35,
-54,
-47
-],
-"cw": 23,
-"ch": 13,
-"feetY": 47
-},
-"enemies/spearman/spawn.png": {
-"frames": 8,
-"fw": 80,
-"fh": 80,
-"union": [
-20,
-13,
-62,
-47
-],
-"cw": 43,
-"ch": 35,
-"feetY": 47
-},
-"enemies/spearman/strike.png": {
-"frames": 9,
-"fw": 80,
-"fh": 80,
-"union": [
-25,
-27,
-76,
-61
-],
-"cw": 52,
-"ch": 35,
-"feetY": 61
-},
-"enemies/warrior/dead.png": {
-"frames": 18,
-"fw": 80,
-"fh": 80,
-"union": [
-30,
-35,
-53,
-47
-],
-"cw": 24,
-"ch": 13,
-"feetY": 47
-},
-"enemies/warrior/hit.png": {
-"frames": 3,
-"fw": 80,
-"fh": 80,
-"union": [
-32,
-35,
-50,
-47
-],
-"cw": 19,
-"ch": 13,
-"feetY": 47
-},
-"enemies/warrior/idle.png": {
-"frames": 8,
-"fw": 80,
-"fh": 80,
-"union": [
-32,
-35,
-50,
-47
-],
-"cw": 19,
-"ch": 13,
-"feetY": 47
-},
-"enemies/warrior/run.png": {
-"frames": 8,
-"fw": 80,
-"fh": 80,
-"union": [
-31,
-35,
-49,
-47
-],
-"cw": 19,
-"ch": 13,
-"feetY": 47
-},
-"enemies/warrior/slashes.png": {
-"frames": 11,
-"fw": 80,
-"fh": 80,
-"union": [
-28,
-29,
-68,
-47
-],
-"cw": 41,
-"ch": 19,
-"feetY": 47
-},
-"enemies/warrior/spawn.png": {
-"frames": 8,
-"fw": 80,
-"fh": 80,
-"union": [
-20,
-13,
-62,
-47
-],
-"cw": 43,
-"ch": 35,
-"feetY": 47
-},
-"enemies/warrior/strike.png": {
-"frames": 10,
-"fw": 80,
-"fh": 80,
-"union": [
-26,
-37,
-74,
-47
-],
-"cw": 49,
-"ch": 11,
-"feetY": 47
-}
+  "heroes/axion/attack-1.png": {
+    "frames": 10,
+    "fw": 144,
+    "fh": 144,
+    "union": [44, 60, 111, 79],
+    "cw": 68,
+    "ch": 20,
+    "feetY": 79
+  },
+  "heroes/axion/attack-2.png": {
+    "frames": 15,
+    "fw": 144,
+    "fh": 144,
+    "union": [44, 57, 114, 79],
+    "cw": 71,
+    "ch": 23,
+    "feetY": 79
+  },
+  "heroes/axion/attack-3.png": {
+    "frames": 23,
+    "fw": 144,
+    "fh": 144,
+    "union": [44, 42, 114, 79],
+    "cw": 71,
+    "ch": 38,
+    "feetY": 79
+  },
+  "heroes/axion/dash.png": {
+    "frames": 12,
+    "fw": 144,
+    "fh": 144,
+    "union": [54, 61, 81, 79],
+    "cw": 28,
+    "ch": 19,
+    "feetY": 79
+  },
+  "heroes/axion/death.png": {
+    "frames": 18,
+    "fw": 144,
+    "fh": 144,
+    "union": [51, 56, 85, 79],
+    "cw": 35,
+    "ch": 24,
+    "feetY": 79
+  },
+  "heroes/axion/fall.png": {
+    "frames": 4,
+    "fw": 144,
+    "fh": 144,
+    "union": [55, 60, 80, 78],
+    "cw": 26,
+    "ch": 19,
+    "feetY": 78
+  },
+  "heroes/axion/hurt.png": {
+    "frames": 3,
+    "fw": 144,
+    "fh": 144,
+    "union": [56, 60, 79, 79],
+    "cw": 24,
+    "ch": 20,
+    "feetY": 79
+  },
+  "heroes/axion/idle.png": {
+    "frames": 7,
+    "fw": 144,
+    "fh": 144,
+    "union": [56, 59, 79, 80],
+    "cw": 24,
+    "ch": 22,
+    "feetY": 80
+  },
+  "heroes/axion/jump.png": {
+    "frames": 4,
+    "fw": 144,
+    "fh": 144,
+    "union": [56, 59, 80, 79],
+    "cw": 25,
+    "ch": 21,
+    "feetY": 79
+  },
+  "heroes/axion/run.png": {
+    "frames": 8,
+    "fw": 144,
+    "fh": 144,
+    "union": [55, 60, 81, 79],
+    "cw": 27,
+    "ch": 20,
+    "feetY": 79
+  },
+  "heroes/axion/super-smash.png": {
+    "frames": 15,
+    "fw": 144,
+    "fh": 144,
+    "union": [36, 37, 122, 79],
+    "cw": 87,
+    "ch": 43,
+    "feetY": 79
+  },
+  "heroes/mooni/death.png": {
+    "frames": 29,
+    "fw": 144,
+    "fh": 144,
+    "union": [54, 43, 87, 80],
+    "cw": 34,
+    "ch": 38,
+    "feetY": 80
+  },
+  "heroes/mooni/fall.png": {
+    "frames": 6,
+    "fw": 144,
+    "fh": 144,
+    "union": [58, 62, 83, 80],
+    "cw": 26,
+    "ch": 19,
+    "feetY": 80
+  },
+  "heroes/mooni/heal.png": {
+    "frames": 18,
+    "fw": 144,
+    "fh": 144,
+    "union": [58, 51, 88, 81],
+    "cw": 31,
+    "ch": 31,
+    "feetY": 81
+  },
+  "heroes/mooni/hurt.png": {
+    "frames": 3,
+    "fw": 144,
+    "fh": 144,
+    "union": [59, 61, 84, 80],
+    "cw": 26,
+    "ch": 20,
+    "feetY": 80
+  },
+  "heroes/mooni/idle-break.png": {
+    "frames": 27,
+    "fw": 144,
+    "fh": 144,
+    "union": [59, 61, 84, 80],
+    "cw": 26,
+    "ch": 20,
+    "feetY": 80
+  },
+  "heroes/mooni/idle.png": {
+    "frames": 8,
+    "fw": 144,
+    "fh": 144,
+    "union": [59, 60, 84, 80],
+    "cw": 26,
+    "ch": 21,
+    "feetY": 80
+  },
+  "heroes/mooni/jump.png": {
+    "frames": 6,
+    "fw": 144,
+    "fh": 144,
+    "union": [58, 61, 82, 80],
+    "cw": 25,
+    "ch": 20,
+    "feetY": 80
+  },
+  "heroes/mooni/run.png": {
+    "frames": 8,
+    "fw": 144,
+    "fh": 144,
+    "union": [58, 60, 84, 80],
+    "cw": 27,
+    "ch": 21,
+    "feetY": 80
+  },
+  "heroes/mooni/smash.png": {
+    "frames": 17,
+    "fw": 144,
+    "fh": 144,
+    "union": [51, 35, 108, 80],
+    "cw": 58,
+    "ch": 46,
+    "feetY": 80
+  },
+  "heroes/mooni/special-skill.png": {
+    "frames": 18,
+    "fw": 144,
+    "fh": 144,
+    "union": [14, 46, 128, 85],
+    "cw": 115,
+    "ch": 40,
+    "feetY": 85
+  },
+  "heroes/mooni/spin.png": {
+    "frames": 13,
+    "fw": 144,
+    "fh": 144,
+    "union": [40, 61, 108, 81],
+    "cw": 69,
+    "ch": 21,
+    "feetY": 81
+  },
+  "heroes/mooni/thrust.png": {
+    "frames": 14,
+    "fw": 144,
+    "fh": 144,
+    "union": [54, 62, 123, 82],
+    "cw": 70,
+    "ch": 21,
+    "feetY": 82
+  },
+  "heroes/reaper/attack.png": {
+    "frames": 23,
+    "fw": 144,
+    "fh": 144,
+    "union": [46, 14, 95, 79],
+    "cw": 50,
+    "ch": 66,
+    "feetY": 79
+  },
+  "heroes/reaper/dash.png": {
+    "frames": 12,
+    "fw": 144,
+    "fh": 144,
+    "union": [54, 62, 80, 79],
+    "cw": 27,
+    "ch": 18,
+    "feetY": 79
+  },
+  "heroes/reaper/death.png": {
+    "frames": 17,
+    "fw": 144,
+    "fh": 144,
+    "union": [51, 51, 84, 79],
+    "cw": 34,
+    "ch": 29,
+    "feetY": 79
+  },
+  "heroes/reaper/double-slash.png": {
+    "frames": 13,
+    "fw": 144,
+    "fh": 144,
+    "union": [48, 50, 106, 79],
+    "cw": 59,
+    "ch": 30,
+    "feetY": 79
+  },
+  "heroes/reaper/fall.png": {
+    "frames": 4,
+    "fw": 144,
+    "fh": 144,
+    "union": [56, 60, 78, 79],
+    "cw": 23,
+    "ch": 20,
+    "feetY": 79
+  },
+  "heroes/reaper/hurt.png": {
+    "frames": 3,
+    "fw": 144,
+    "fh": 144,
+    "union": [56, 61, 77, 79],
+    "cw": 22,
+    "ch": 19,
+    "feetY": 79
+  },
+  "heroes/reaper/idle-break.png": {
+    "frames": 18,
+    "fw": 144,
+    "fh": 144,
+    "union": [48, 44, 92, 79],
+    "cw": 45,
+    "ch": 36,
+    "feetY": 79
+  },
+  "heroes/reaper/idle.png": {
+    "frames": 9,
+    "fw": 144,
+    "fh": 144,
+    "union": [56, 60, 77, 79],
+    "cw": 22,
+    "ch": 20,
+    "feetY": 79
+  },
+  "heroes/reaper/jump.png": {
+    "frames": 4,
+    "fw": 144,
+    "fh": 144,
+    "union": [58, 60, 79, 79],
+    "cw": 22,
+    "ch": 20,
+    "feetY": 79
+  },
+  "heroes/reaper/run.png": {
+    "frames": 8,
+    "fw": 144,
+    "fh": 144,
+    "union": [56, 60, 78, 79],
+    "cw": 23,
+    "ch": 20,
+    "feetY": 79
+  },
+  "heroes/reaper/skill.png": {
+    "frames": 29,
+    "fw": 144,
+    "fh": 144,
+    "union": [19, 21, 132, 79],
+    "cw": 114,
+    "ch": 59,
+    "feetY": 79
+  },
+  "heroes/reaper/slash.png": {
+    "frames": 10,
+    "fw": 144,
+    "fh": 144,
+    "union": [50, 50, 106, 79],
+    "cw": 57,
+    "ch": 30,
+    "feetY": 79
+  },
+  "heroes/reaper/surprise-jump.png": {
+    "frames": 20,
+    "fw": 144,
+    "fh": 144,
+    "union": [56, 23, 80, 80],
+    "cw": 25,
+    "ch": 58,
+    "feetY": 80
+  },
+  "heroes/riven/dash.png": {
+    "frames": 5,
+    "fw": 144,
+    "fh": 144,
+    "union": [55, 62, 83, 79],
+    "cw": 29,
+    "ch": 18,
+    "feetY": 79
+  },
+  "heroes/riven/death.png": {
+    "frames": 17,
+    "fw": 144,
+    "fh": 144,
+    "union": [56, 50, 85, 79],
+    "cw": 30,
+    "ch": 30,
+    "feetY": 79
+  },
+  "heroes/riven/double-slash.png": {
+    "frames": 16,
+    "fw": 144,
+    "fh": 144,
+    "union": [51, 56, 114, 79],
+    "cw": 64,
+    "ch": 24,
+    "feetY": 79
+  },
+  "heroes/riven/fall.png": {
+    "frames": 4,
+    "fw": 144,
+    "fh": 144,
+    "union": [55, 62, 83, 79],
+    "cw": 29,
+    "ch": 18,
+    "feetY": 79
+  },
+  "heroes/riven/hurt.png": {
+    "frames": 2,
+    "fw": 144,
+    "fh": 144,
+    "union": [55, 61, 84, 79],
+    "cw": 30,
+    "ch": 19,
+    "feetY": 79
+  },
+  "heroes/riven/idle-break.png": {
+    "frames": 6,
+    "fw": 144,
+    "fh": 144,
+    "union": [50, 54, 84, 79],
+    "cw": 35,
+    "ch": 26,
+    "feetY": 79
+  },
+  "heroes/riven/idle.png": {
+    "frames": 7,
+    "fw": 144,
+    "fh": 144,
+    "union": [56, 60, 84, 79],
+    "cw": 29,
+    "ch": 20,
+    "feetY": 79
+  },
+  "heroes/riven/jump.png": {
+    "frames": 4,
+    "fw": 144,
+    "fh": 144,
+    "union": [55, 59, 83, 79],
+    "cw": 29,
+    "ch": 21,
+    "feetY": 79
+  },
+  "heroes/riven/run.png": {
+    "frames": 8,
+    "fw": 144,
+    "fh": 144,
+    "union": [53, 61, 82, 79],
+    "cw": 30,
+    "ch": 19,
+    "feetY": 79
+  },
+  "heroes/riven/slash.png": {
+    "frames": 11,
+    "fw": 144,
+    "fh": 144,
+    "union": [51, 57, 111, 79],
+    "cw": 61,
+    "ch": 23,
+    "feetY": 79
+  },
+  "heroes/riven/smoke-in.png": {
+    "frames": 9,
+    "fw": 144,
+    "fh": 144,
+    "union": [44, 57, 103, 79],
+    "cw": 60,
+    "ch": 23,
+    "feetY": 79
+  },
+  "heroes/riven/smoke-out.png": {
+    "frames": 13,
+    "fw": 144,
+    "fh": 144,
+    "union": [44, 57, 103, 79],
+    "cw": 60,
+    "ch": 23,
+    "feetY": 79
+  },
+  "heroes/riven/special-skill.png": {
+    "frames": 36,
+    "fw": 144,
+    "fh": 144,
+    "union": [5, 49, 137, 79],
+    "cw": 133,
+    "ch": 31,
+    "feetY": 79
+  },
+  "heroes/salamander/dash.png": {
+    "frames": 4,
+    "fw": 144,
+    "fh": 144,
+    "union": [56, 64, 85, 79],
+    "cw": 30,
+    "ch": 16,
+    "feetY": 79
+  },
+  "heroes/salamander/death.png": {
+    "frames": 23,
+    "fw": 144,
+    "fh": 144,
+    "union": [52, 44, 94, 79],
+    "cw": 43,
+    "ch": 36,
+    "feetY": 79
+  },
+  "heroes/salamander/fall.png": {
+    "frames": 4,
+    "fw": 144,
+    "fh": 144,
+    "union": [63, 63, 81, 79],
+    "cw": 19,
+    "ch": 17,
+    "feetY": 79
+  },
+  "heroes/salamander/fire-punch.png": {
+    "frames": 17,
+    "fw": 144,
+    "fh": 144,
+    "union": [59, 50, 104, 79],
+    "cw": 46,
+    "ch": 30,
+    "feetY": 79
+  },
+  "heroes/salamander/flame-slam.png": {
+    "frames": 19,
+    "fw": 144,
+    "fh": 144,
+    "union": [5, 34, 135, 79],
+    "cw": 131,
+    "ch": 46,
+    "feetY": 79
+  },
+  "heroes/salamander/flame-wave.png": {
+    "frames": 18,
+    "fw": 144,
+    "fh": 144,
+    "union": [59, 55, 94, 90],
+    "cw": 36,
+    "ch": 36,
+    "feetY": 90
+  },
+  "heroes/salamander/hit.png": {
+    "frames": 3,
+    "fw": 144,
+    "fh": 144,
+    "union": [65, 59, 80, 79],
+    "cw": 16,
+    "ch": 21,
+    "feetY": 79
+  },
+  "heroes/salamander/idle.png": {
+    "frames": 8,
+    "fw": 144,
+    "fh": 144,
+    "union": [65, 58, 80, 79],
+    "cw": 16,
+    "ch": 22,
+    "feetY": 79
+  },
+  "heroes/salamander/jump.png": {
+    "frames": 4,
+    "fw": 144,
+    "fh": 144,
+    "union": [64, 60, 80, 79],
+    "cw": 17,
+    "ch": 20,
+    "feetY": 79
+  },
+  "heroes/salamander/run.png": {
+    "frames": 8,
+    "fw": 144,
+    "fh": 144,
+    "union": [62, 63, 81, 79],
+    "cw": 20,
+    "ch": 17,
+    "feetY": 79
+  },
+  "heroes/salamander/wave-projectile.png": {
+    "frames": 68,
+    "fw": 16,
+    "fh": 16,
+    "union": [0, 0, 15, 15],
+    "cw": 16,
+    "ch": 16,
+    "feetY": 15
+  },
+  "enemies/archer/custom-arrow.png": {
+    "frames": 1,
+    "fw": 128,
+    "fh": 128,
+    "union": [16, 17, 105, 60],
+    "cw": 90,
+    "ch": 44,
+    "feetY": 60
+  },
+  "enemies/archer/death.png": {
+    "frames": 15,
+    "fw": 80,
+    "fh": 80,
+    "union": [26, 33, 53, 48],
+    "cw": 28,
+    "ch": 16,
+    "feetY": 48
+  },
+  "enemies/archer/hit.png": {
+    "frames": 3,
+    "fw": 80,
+    "fh": 80,
+    "union": [29, 33, 47, 47],
+    "cw": 19,
+    "ch": 15,
+    "feetY": 47
+  },
+  "enemies/archer/idle.png": {
+    "frames": 7,
+    "fw": 80,
+    "fh": 80,
+    "union": [29, 33, 47, 47],
+    "cw": 19,
+    "ch": 15,
+    "feetY": 47
+  },
+  "enemies/archer/run.png": {
+    "frames": 8,
+    "fw": 80,
+    "fh": 80,
+    "union": [30, 33, 48, 47],
+    "cw": 19,
+    "ch": 15,
+    "feetY": 47
+  },
+  "enemies/archer/shoot.png": {
+    "frames": 9,
+    "fw": 80,
+    "fh": 80,
+    "union": [26, 28, 64, 51],
+    "cw": 39,
+    "ch": 24,
+    "feetY": 51
+  },
+  "enemies/archer/spawn.png": {
+    "frames": 8,
+    "fw": 80,
+    "fh": 80,
+    "union": [19, 13, 61, 47],
+    "cw": 43,
+    "ch": 35,
+    "feetY": 47
+  },
+  "enemies/archer/super-shoot.png": {
+    "frames": 9,
+    "fw": 80,
+    "fh": 80,
+    "union": [26, 16, 64, 64],
+    "cw": 39,
+    "ch": 49,
+    "feetY": 64
+  },
+  "enemies/bomber/death.png": {
+    "frames": 16,
+    "fw": 80,
+    "fh": 80,
+    "union": [28, 32, 53, 48],
+    "cw": 26,
+    "ch": 17,
+    "feetY": 48
+  },
+  "enemies/bomber/electrocute.png": {
+    "frames": 12,
+    "fw": 80,
+    "fh": 80,
+    "union": [9, 23, 72, 47],
+    "cw": 64,
+    "ch": 25,
+    "feetY": 47
+  },
+  "enemies/bomber/explode.png": {
+    "frames": 14,
+    "fw": 80,
+    "fh": 80,
+    "union": [14, 15, 64, 60],
+    "cw": 51,
+    "ch": 46,
+    "feetY": 60
+  },
+  "enemies/bomber/hit.png": {
+    "frames": 3,
+    "fw": 80,
+    "fh": 80,
+    "union": [32, 35, 47, 47],
+    "cw": 16,
+    "ch": 13,
+    "feetY": 47
+  },
+  "enemies/bomber/idle.png": {
+    "frames": 8,
+    "fw": 80,
+    "fh": 80,
+    "union": [32, 35, 47, 47],
+    "cw": 16,
+    "ch": 13,
+    "feetY": 47
+  },
+  "enemies/bomber/run.png": {
+    "frames": 8,
+    "fw": 80,
+    "fh": 80,
+    "union": [32, 35, 47, 47],
+    "cw": 16,
+    "ch": 13,
+    "feetY": 47
+  },
+  "enemies/bomber/spawn.png": {
+    "frames": 8,
+    "fw": 80,
+    "fh": 80,
+    "union": [20, 13, 62, 47],
+    "cw": 43,
+    "ch": 35,
+    "feetY": 47
+  },
+  "enemies/spearman/charge.png": {
+    "frames": 17,
+    "fw": 80,
+    "fh": 80,
+    "union": [23, 18, 55, 47],
+    "cw": 33,
+    "ch": 30,
+    "feetY": 47
+  },
+  "enemies/spearman/death.png": {
+    "frames": 16,
+    "fw": 80,
+    "fh": 80,
+    "union": [28, 32, 57, 47],
+    "cw": 30,
+    "ch": 16,
+    "feetY": 47
+  },
+  "enemies/spearman/hit.png": {
+    "frames": 3,
+    "fw": 80,
+    "fh": 80,
+    "union": [32, 37, 53, 47],
+    "cw": 22,
+    "ch": 11,
+    "feetY": 47
+  },
+  "enemies/spearman/idle.png": {
+    "frames": 8,
+    "fw": 80,
+    "fh": 80,
+    "union": [32, 36, 53, 47],
+    "cw": 22,
+    "ch": 12,
+    "feetY": 47
+  },
+  "enemies/spearman/run.png": {
+    "frames": 8,
+    "fw": 80,
+    "fh": 80,
+    "union": [32, 35, 54, 47],
+    "cw": 23,
+    "ch": 13,
+    "feetY": 47
+  },
+  "enemies/spearman/spawn.png": {
+    "frames": 8,
+    "fw": 80,
+    "fh": 80,
+    "union": [20, 13, 62, 47],
+    "cw": 43,
+    "ch": 35,
+    "feetY": 47
+  },
+  "enemies/spearman/strike.png": {
+    "frames": 9,
+    "fw": 80,
+    "fh": 80,
+    "union": [25, 27, 76, 61],
+    "cw": 52,
+    "ch": 35,
+    "feetY": 61
+  },
+  "enemies/warrior/dead.png": {
+    "frames": 18,
+    "fw": 80,
+    "fh": 80,
+    "union": [30, 35, 53, 47],
+    "cw": 24,
+    "ch": 13,
+    "feetY": 47
+  },
+  "enemies/warrior/hit.png": {
+    "frames": 3,
+    "fw": 80,
+    "fh": 80,
+    "union": [32, 35, 50, 47],
+    "cw": 19,
+    "ch": 13,
+    "feetY": 47
+  },
+  "enemies/warrior/idle.png": {
+    "frames": 8,
+    "fw": 80,
+    "fh": 80,
+    "union": [32, 35, 50, 47],
+    "cw": 19,
+    "ch": 13,
+    "feetY": 47
+  },
+  "enemies/warrior/run.png": {
+    "frames": 8,
+    "fw": 80,
+    "fh": 80,
+    "union": [31, 35, 49, 47],
+    "cw": 19,
+    "ch": 13,
+    "feetY": 47
+  },
+  "enemies/warrior/slashes.png": {
+    "frames": 11,
+    "fw": 80,
+    "fh": 80,
+    "union": [28, 29, 68, 47],
+    "cw": 41,
+    "ch": 19,
+    "feetY": 47
+  },
+  "enemies/warrior/spawn.png": {
+    "frames": 8,
+    "fw": 80,
+    "fh": 80,
+    "union": [20, 13, 62, 47],
+    "cw": 43,
+    "ch": 35,
+    "feetY": 47
+  },
+  "enemies/warrior/strike.png": {
+    "frames": 10,
+    "fw": 80,
+    "fh": 80,
+    "union": [26, 37, 74, 47],
+    "cw": 49,
+    "ch": 11,
+    "feetY": 47
+  }
 }

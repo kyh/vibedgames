@@ -1,14 +1,14 @@
 # Physics for Three.js Games
 
-Pick the lightest tool that gives the feel you want. Realism is rarely the goal — *responsiveness and predictability* are.
+Pick the lightest tool that gives the feel you want. Realism is rarely the goal — _responsiveness and predictability_ are.
 
 ## Selection
 
-| Need | Use |
-| --- | --- |
-| Pickups, triggers, "did A overlap B?", hand-tuned jump | **Arcade / custom** — no dependency |
-| A few dozen dynamic rigid bodies, pure-JS, simple setup | **cannon-es** |
-| Stable stacking, many bodies, raycasts, a real character controller | **Rapier** |
+| Need                                                                | Use                                 |
+| ------------------------------------------------------------------- | ----------------------------------- |
+| Pickups, triggers, "did A overlap B?", hand-tuned jump              | **Arcade / custom** — no dependency |
+| A few dozen dynamic rigid bodies, pure-JS, simple setup             | **cannon-es**                       |
+| Stable stacking, many bodies, raycasts, a real character controller | **Rapier**                          |
 
 Mixing is fine and common: Rapier for the world, arcade overlap for collectible coins.
 
@@ -39,7 +39,7 @@ for (let i = coins.active.length - 1; i >= 0; i--) {
 }
 ```
 
-Hand-authored gravity for a platformer you want to *feel* a specific way (tune with `game-feel`):
+Hand-authored gravity for a platformer you want to _feel_ a specific way (tune with `game-feel`):
 
 ```javascript
 const GRAVITY = -30; // not -9.81 — game gravity is usually punchier than real

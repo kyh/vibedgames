@@ -34,7 +34,12 @@ export type FloorType = (typeof FLOOR_TYPES)[number];
  *  procedural floor. */
 export type MapFloorCell = { x: number; y: number; t: FloorType };
 
-export type MapData = { version: 1; props: MapProp[]; colliders: MapCollider[]; floor?: MapFloorCell[] };
+export type MapData = {
+  version: 1;
+  props: MapProp[];
+  colliders: MapCollider[];
+  floor?: MapFloorCell[];
+};
 
 /** The editor's offline-draft slot (read at boot for ?auto quick-starts). */
 export const MAP_STORAGE_KEY = "ba-map";
@@ -91,7 +96,12 @@ export const DUNGEON_MODELS = [
 ];
 
 /** Everything the editor palette can place (dungeon set + standalone props). */
-export const PLACEABLE_MODELS: string[] = [...DUNGEON_MODELS, "vampire_throne", "paladin_statue", "mushroom"];
+export const PLACEABLE_MODELS: string[] = [
+  ...DUNGEON_MODELS,
+  "vampire_throne",
+  "paladin_statue",
+  "mushroom",
+];
 
 const MAX_PROPS = 2000;
 const MAX_COLLIDERS = 512;
@@ -116,13 +126,25 @@ function parseProp(v: unknown): MapProp | null {
   if (!isRecord(v)) return null;
   const model = v["model"];
   if (typeof model !== "string" || model.length === 0 || model.length > 64) return null;
-  if (!isFiniteNumber(v["x"]) || !isFiniteNumber(v["y"]) || !isFiniteNumber(v["rot"]) || !isFiniteNumber(v["scale"])) return null;
+  if (
+    !isFiniteNumber(v["x"]) ||
+    !isFiniteNumber(v["y"]) ||
+    !isFiniteNumber(v["rot"]) ||
+    !isFiniteNumber(v["scale"])
+  )
+    return null;
   const lie = v["lie"];
   if (lie !== undefined && typeof lie !== "boolean") return null;
   const h = v["h"];
   if (h !== undefined && !isFiniteNumber(h)) return null;
   const pos = clampToArena(v["x"], v["y"], POS_MARGIN);
-  const out: MapProp = { model, x: pos.x, y: pos.y, rot: v["rot"], scale: clampNum(v["scale"], 0.05, 10) };
+  const out: MapProp = {
+    model,
+    x: pos.x,
+    y: pos.y,
+    rot: v["rot"],
+    scale: clampNum(v["scale"], 0.05, 10),
+  };
   if (lie === true) out.lie = true;
   if (h !== undefined) out.h = clampNum(h, -10, 20);
   return out;
@@ -130,9 +152,16 @@ function parseProp(v: unknown): MapProp | null {
 
 function parseCollider(v: unknown): MapCollider | null {
   if (!isRecord(v)) return null;
-  if (!isFiniteNumber(v["x"]) || !isFiniteNumber(v["y"]) || !isFiniteNumber(v["radius"]) || !isFiniteNumber(v["height"])) return null;
+  if (
+    !isFiniteNumber(v["x"]) ||
+    !isFiniteNumber(v["y"]) ||
+    !isFiniteNumber(v["radius"]) ||
+    !isFiniteNumber(v["height"])
+  )
+    return null;
   const model = v["model"];
-  if (model !== undefined && (typeof model !== "string" || model.length === 0 || model.length > 64)) return null;
+  if (model !== undefined && (typeof model !== "string" || model.length === 0 || model.length > 64))
+    return null;
   const pos = clampToArena(v["x"], v["y"], POS_MARGIN);
   const out: MapCollider = {
     x: pos.x,
@@ -154,7 +183,11 @@ const snapCell = (v: number): number => Math.round(v / 4) * 4;
 function parseFloorCell(v: unknown): MapFloorCell | null {
   if (!isRecord(v)) return null;
   if (!isFiniteNumber(v["x"]) || !isFiniteNumber(v["y"]) || !isFloorType(v["t"])) return null;
-  return { x: snapCell(clampNum(v["x"], -200, 200)), y: snapCell(clampNum(v["y"], -200, 200)), t: v["t"] };
+  return {
+    x: snapCell(clampNum(v["x"], -200, 200)),
+    y: snapCell(clampNum(v["y"], -200, 200)),
+    t: v["t"],
+  };
 }
 
 /** Boundary parser: unknown JSON → MapData or null (never throws). Validates

@@ -201,7 +201,12 @@ export const DEBRIS_SMALL = [
   "debris-plate-small-a",
   "debris-plate-small-b",
 ] as const;
-export const DEBRIS_BIG = ["debris-tire", "debris-bumper", "debris-plate-a", "debris-door"] as const;
+export const DEBRIS_BIG = [
+  "debris-tire",
+  "debris-bumper",
+  "debris-plate-a",
+  "debris-door",
+] as const;
 
 // --- Characters (passengers) ---
 export const CHARACTERS = [

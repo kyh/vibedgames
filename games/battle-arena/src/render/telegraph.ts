@@ -20,7 +20,13 @@ import { terrainHeight } from "../data/terrain";
 import type { GroundEffect } from "../sim/types";
 
 /** Detonate-telegraph durations by effect (ms). Anything else falls back to 1200. */
-export const TELEGRAPH_MS: Record<string, number> = { meteor: 1200, smite: 450, nova: 400, vines: 500, hexring: 500 };
+export const TELEGRAPH_MS: Record<string, number> = {
+  meteor: 1200,
+  smite: 450,
+  nova: 400,
+  vines: 500,
+  hexring: 500,
+};
 
 const GROUND_COLORS: Record<string, number> = {
   meteor: 0xff4422,
@@ -180,7 +186,8 @@ export class Telegraphs {
     d.uni.uRim.value.setHex(color);
     d.uni.uFill.value = Math.min(1, Math.max(0, fill));
     d.uni.uAlpha.value = 0.24;
-    d.uni.uPulse.value = fill > 0.8 ? 0.5 + 0.5 * (0.5 + 0.5 * Math.sin(this.lastNow * 0.0377)) : 0.8;
+    d.uni.uPulse.value =
+      fill > 0.8 ? 0.5 + 0.5 * (0.5 + 0.5 * Math.sin(this.lastNow * 0.0377)) : 0.8;
   }
 
   /** One-shot rimless stain (meteor scorch 0x1a0f0a 4s, frost floor 0x7fd4ff

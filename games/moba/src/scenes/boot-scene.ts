@@ -278,7 +278,8 @@ export class BootScene extends Phaser.Scene {
     g.clear();
 
     // a soft scorch decal stamped where AoE/explosions land (permanence — Vlambeer)
-    for (let i = 10; i >= 1; i--) g.fillStyle(0x120c08, (1 - i / 10) * 0.5).fillEllipse(48, 32, (i / 10) * 92, (i / 10) * 62);
+    for (let i = 10; i >= 1; i--)
+      g.fillStyle(0x120c08, (1 - i / 10) * 0.5).fillEllipse(48, 32, (i / 10) * 92, (i / 10) * 62);
     g.generateTexture("fx-scorch", 96, 64);
     g.destroy();
 

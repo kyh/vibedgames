@@ -63,7 +63,8 @@ export class Grid {
     const cx1 = Math.floor((rt - EPS) / TILE);
     const cy0 = Math.floor(t / TILE);
     const cy1 = Math.floor((b - EPS) / TILE);
-    for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) if (this.isSolidCell(cx, cy)) return true;
+    for (let cy = cy0; cy <= cy1; cy++)
+      for (let cx = cx0; cx <= cx1; cx++) if (this.isSolidCell(cx, cy)) return true;
     return false;
   }
 
@@ -72,7 +73,8 @@ export class Grid {
     const cx1 = Math.floor((rt - EPS) / TILE);
     const cy0 = Math.floor(t / TILE);
     const cy1 = Math.floor((b - EPS) / TILE);
-    for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) if (this.isOneWayCell(cx, cy)) return true;
+    for (let cy = cy0; cy <= cy1; cy++)
+      for (let cx = cx0; cx <= cx1; cx++) if (this.isOneWayCell(cx, cy)) return true;
     return false;
   }
 }

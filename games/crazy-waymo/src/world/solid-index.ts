@@ -50,7 +50,12 @@ export class SolidIndex {
       const as = Math.abs(Math.sin(yaw));
       const ex = hx * ac + hz * as;
       const ez = hx * as + hz * ac;
-      return [this.clampX(cx - ex), this.clampX(cx + ex), this.clampZ(cz - ez), this.clampZ(cz + ez)];
+      return [
+        this.clampX(cx - ex),
+        this.clampX(cx + ex),
+        this.clampZ(cz - ez),
+        this.clampZ(cz + ez),
+      ];
     };
     for (const s of solids) {
       const [x0, x1, z0, z1] = range(s);
@@ -89,13 +94,7 @@ export class SolidIndex {
   }
 
   // Visit every solid whose bucket range intersects the query box, once each.
-  forEachIn(
-    minX: number,
-    maxX: number,
-    minZ: number,
-    maxZ: number,
-    fn: (s: Solid) => void,
-  ): void {
+  forEachIn(minX: number, maxX: number, minZ: number, maxZ: number, fn: (s: Solid) => void): void {
     const id = ++this.queryId;
     const x0 = this.clampX(minX);
     const x1 = this.clampX(maxX);

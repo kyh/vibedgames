@@ -74,7 +74,8 @@ export default {
     // Hashed assets are immutable per deployment; anything addressed by a
     // stable path (html entry points, conventional og images) changes across
     // deploys and must stay on a short TTL.
-    const stablePath = requestedPath.endsWith("index.html") || OG_IMAGE_CANDIDATES.includes(requestedPath);
+    const stablePath =
+      requestedPath.endsWith("index.html") || OG_IMAGE_CANDIDATES.includes(requestedPath);
     headers.set(
       "cache-control",
       stablePath ? "public, max-age=60" : "public, max-age=31536000, immutable",
@@ -102,16 +103,14 @@ export default {
           ),
           columns: { path: true },
         });
-        const image = OG_IMAGE_CANDIDATES.map((p) =>
-          imageRows.find((row) => row.path === p),
-        ).find((row) => row !== undefined);
+        const image = OG_IMAGE_CANDIDATES.map((p) => imageRows.find((row) => row.path === p)).find(
+          (row) => row !== undefined,
+        );
         const injected = injectShareMeta(html, {
           title,
           description: extractDescription(html) ?? `Play ${title} on vibedgames.`,
           url: `https://${host}${url.pathname}`,
-          imageUrl: image
-            ? `https://${host}/${image.path}`
-            : "https://vibedgames.com/og.jpg",
+          imageUrl: image ? `https://${host}/${image.path}` : "https://vibedgames.com/og.jpg",
         });
         return new Response(injected, { headers });
       }

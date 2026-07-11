@@ -104,7 +104,9 @@ export class NetSession {
   }
 
   get players(): PlayerMap {
-    return this.solo ? { [SOLO_ID]: { id: SOLO_ID, state: this.offlineMyState } } : this.client.players;
+    return this.solo
+      ? { [SOLO_ID]: { id: SOLO_ID, state: this.offlineMyState } }
+      : this.client.players;
   }
 
   /** The other player in the room, or null when alone. */

@@ -7,8 +7,10 @@ import { readFileSync, writeFileSync } from "node:fs";
 const GRID_X = 244;
 const GRID_Z = 200;
 // Same calibrated projection as bake-network.mjs.
-const U_M = 6.2462, U_B = 765.2557;
-const V_M = -9.6095, V_B = 363.344;
+const U_M = 6.2462,
+  U_B = 765.2557;
+const V_M = -9.6095,
+  V_B = 363.344;
 
 const raw = JSON.parse(readFileSync(new URL("./sf-landuse.raw.json", import.meta.url)));
 const green = new Uint8Array(GRID_X * GRID_Z);
@@ -22,14 +24,16 @@ for (const e of raw.elements ?? []) {
   const isSand = SAND_TAGS.has(e.tags?.natural ?? "");
   const target = isSand ? sand : green;
   // Project ring to grid coords.
-  const ring = e.geometry.map((g) => [
-    (U_M * g.lon + U_B) * GRID_X,
-    (V_M * g.lat + V_B) * GRID_Z,
-  ]);
-  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  const ring = e.geometry.map((g) => [(U_M * g.lon + U_B) * GRID_X, (V_M * g.lat + V_B) * GRID_Z]);
+  let minX = Infinity,
+    maxX = -Infinity,
+    minZ = Infinity,
+    maxZ = -Infinity;
   for (const [x, z] of ring) {
-    minX = Math.min(minX, x); maxX = Math.max(maxX, x);
-    minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minZ = Math.min(minZ, z);
+    maxZ = Math.max(maxZ, z);
   }
   const gx0 = Math.max(0, Math.floor(minX));
   const gx1 = Math.min(GRID_X - 1, Math.ceil(maxX));

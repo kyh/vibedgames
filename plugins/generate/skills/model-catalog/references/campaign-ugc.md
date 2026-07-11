@@ -1,8 +1,8 @@
 # Campaign & UGC routing
 
 Use-case routing for campaign-level marketing and creator-style social content.
-Where the modality references organize picks by *what you generate*, this one
-organizes by *the deliverable*. Verify any endpoint with
+Where the modality references organize picks by _what you generate_, this one
+organizes by _the deliverable_. Verify any endpoint with
 `vg generate models --endpoint_id <id> --json` and inspect schema before running.
 
 ## Marketing campaign assets

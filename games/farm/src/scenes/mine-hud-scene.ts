@@ -51,12 +51,11 @@ export class MineHudScene extends Phaser.Scene {
       .text(0, 0, "", { fontFamily: FONT, fontSize: "13px", color: "#dfe9ff" })
       .setDepth(11);
     this.hint = this.add
-      .text(
-        0,
-        0,
-        isTouchDevice() ? "Tap the ladder to climb" : "Space/E to climb",
-        { fontFamily: FONT, fontSize: "11px", color: "#cdd6e0" },
-      )
+      .text(0, 0, isTouchDevice() ? "Tap the ladder to climb" : "Space/E to climb", {
+        fontFamily: FONT,
+        fontSize: "11px",
+        color: "#cdd6e0",
+      })
       .setDepth(11);
     for (let i = 0; i < HOTBAR; i++)
       this.icons.push(this.add.image(0, 0, "obj-stone").setVisible(false).setDepth(12));

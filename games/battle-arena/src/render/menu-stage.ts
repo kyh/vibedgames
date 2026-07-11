@@ -92,7 +92,12 @@ export class MenuStage {
 
       const ring = new THREE.Mesh(
         ringGeo,
-        new THREE.MeshBasicMaterial({ color: c.tint, transparent: true, opacity: 0, side: THREE.DoubleSide }),
+        new THREE.MeshBasicMaterial({
+          color: c.tint,
+          transparent: true,
+          opacity: 0,
+          side: THREE.DoubleSide,
+        }),
       );
       ring.rotation.x = -Math.PI / 2;
       ring.position.y = 0.04;
@@ -111,7 +116,16 @@ export class MenuStage {
       char.play("Idle_B", { fade: 0 });
       char.update(i * 0.37); // stagger so the idles don't march in lockstep
 
-      this.slots.push({ id: c.id, tint: c.tint, char, group, ring, mats, baseYaw, baseZ: group.position.z });
+      this.slots.push({
+        id: c.id,
+        tint: c.tint,
+        char,
+        group,
+        ring,
+        mats,
+        baseYaw,
+        baseZ: group.position.z,
+      });
     });
 
     this.camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
@@ -130,7 +144,10 @@ export class MenuStage {
 
   /** NDC from a pointer event; raycast the champion proxies. */
   private pick(clientX: number, clientY: number): string | null {
-    const ndc = new THREE.Vector2((clientX / window.innerWidth) * 2 - 1, -(clientY / window.innerHeight) * 2 + 1);
+    const ndc = new THREE.Vector2(
+      (clientX / window.innerWidth) * 2 - 1,
+      -(clientY / window.innerHeight) * 2 + 1,
+    );
     this.raycaster.setFromCamera(ndc, this.camera);
     const hit = this.raycaster.intersectObjects(this.picks, false)[0];
     return hit ? (hit.object.userData["champId"] as string) : null;

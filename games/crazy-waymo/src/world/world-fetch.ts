@@ -68,7 +68,9 @@ async function fetchBin(
     console.log(`[world-bin] ${path} loaded`);
     return data;
   } catch (e) {
-    console.log(`[world-bin] ${path} failed: ${e instanceof Error ? `${e.name}: ${e.message}` : e}`);
+    console.log(
+      `[world-bin] ${path} failed: ${e instanceof Error ? `${e.name}: ${e.message}` : e}`,
+    );
     return null;
   }
 }

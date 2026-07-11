@@ -316,7 +316,13 @@ export class StatusFx {
     this.tickShield(now);
 
     // ── buff rune: rotating arcane circle underfoot for stance/bastion/focus ──
-    const runeColor = this.fArmor ? 0xffd76a : this.fShield ? 0x9fd0ff : this.fAtkSpd ? 0xffe6a0 : 0;
+    const runeColor = this.fArmor
+      ? 0xffd76a
+      : this.fShield
+        ? 0x9fd0ff
+        : this.fAtkSpd
+          ? 0xffe6a0
+          : 0;
     const wantAlpha = runeColor !== 0 ? 0.75 : 0;
     this.runeAlpha += (wantAlpha - this.runeAlpha) * Math.min(1, dt * 10);
     if (runeColor !== 0 || this.runeAlpha > 0.02) {
@@ -324,7 +330,8 @@ export class StatusFx {
       rune.visible = this.runeAlpha > 0.02;
       if (this.runeMat) {
         this.runeMat.uniforms["uAlpha"]!.value = this.runeAlpha;
-        if (runeColor !== 0) (this.runeMat.uniforms["uColor"]!.value as THREE.Color).setHex(runeColor);
+        if (runeColor !== 0)
+          (this.runeMat.uniforms["uColor"]!.value as THREE.Color).setHex(runeColor);
       }
     } else if (this.rune) {
       this.rune.visible = false;

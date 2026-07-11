@@ -2,7 +2,6 @@
   "name": "@repo/factory",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
   "bin": {
     "vibedgames-factory": "./src/index.ts"
   },
@@ -12,9 +11,7 @@
     "tsconfig.json",
     "README.md"
   ],
-  "engines": {
-    "bun": ">=1.2"
-  },
+  "type": "module",
   "scripts": {
     "start": "bun src/index.ts start",
     "stop": "bun src/index.ts stop",
@@ -36,5 +33,8 @@
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "typescript": "catalog:"
+  },
+  "engines": {
+    "bun": ">=1.2"
   }
 }

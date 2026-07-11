@@ -15,8 +15,8 @@ continuing** — multiple questions at once is bewildering. For each question,
 provide your recommended answer and why — the user should be able to say
 "yes, that" and move on.
 
-**Facts vs decisions**: if a *fact* can be found by exploring an existing
-project or codebase, look it up instead of asking. The *decisions* are the
+**Facts vs decisions**: if a _fact_ can be found by exploring an existing
+project or codebase, look it up instead of asking. The _decisions_ are the
 user's — put each one to them and wait; never answer your own question and
 move on.
 

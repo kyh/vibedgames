@@ -97,7 +97,8 @@ export const mulColor = (a: number, b: number): number => {
 // dangerous (non-warrior) archetypes. Weights come from the biome roster.
 export const enemyPool = (biome: number, elite: boolean): [EnemyName, number][] => {
   const pal = biomePalette(biome);
-  return ENEMY_NAMES.map(
-    (n): [EnemyName, number] => [n, pal.roster[n] + (elite && n !== "warrior" ? 8 : 0)],
-  );
+  return ENEMY_NAMES.map((n): [EnemyName, number] => [
+    n,
+    pal.roster[n] + (elite && n !== "warrior" ? 8 : 0),
+  ]);
 };

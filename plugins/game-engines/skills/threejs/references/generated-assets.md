@@ -2,7 +2,7 @@
 
 Generation and integration are separate concerns. **Generate to disk, then load like any other asset.** This reference closes the loop the generate skills stop at: a GLB or a sound effect that's actually loaded, placed, collidable, and triggered by gameplay.
 
-For choosing endpoints and writing prompts, use the generate skills (`model-catalog`, `character-design`, `regenerate-3d`, `media-workflow`). This file is only about getting the output *into the scene*.
+For choosing endpoints and writing prompts, use the generate skills (`model-catalog`, `character-design`, `regenerate-3d`, `media-workflow`). This file is only about getting the output _into the scene_.
 
 ---
 
@@ -68,7 +68,7 @@ function loadNormalized(url, targetHeight = 2) {
 
 ### 3. Attach a collider sized to the model — not the model mesh
 
-Use the measured bounds to build a *primitive* collider. A capsule/box collider is far cheaper and more stable than colliding against the GLB's triangle mesh, and players can't feel the difference.
+Use the measured bounds to build a _primitive_ collider. A capsule/box collider is far cheaper and more stable than colliding against the GLB's triangle mesh, and players can't feel the difference.
 
 ```javascript
 const { model } = await loadNormalized("/models/chest.glb", 1.2);
@@ -85,11 +85,7 @@ const half = worldBox.getSize(new THREE.Vector3()).multiplyScalar(0.5);
 const center = worldBox.getCenter(new THREE.Vector3());
 // Rapier static collider sized to bounds (see physics.md)
 world.createCollider(
-  RAPIER.ColliderDesc.cuboid(half.x, half.y, half.z).setTranslation(
-    center.x,
-    center.y,
-    center.z,
-  ),
+  RAPIER.ColliderDesc.cuboid(half.x, half.y, half.z).setTranslation(center.x, center.y, center.z),
 );
 ```
 
@@ -102,11 +98,17 @@ Auto-rigged models come back **silently degenerate** more often than broken: the
 ```javascript
 // Log clip names + track counts — a walk cycle on a humanoid has dozens of
 // tracks; a clip with a handful of tracks is frozen at bind pose. Reject it.
-console.log(gltf.animations.map((c) => `${c.name}: ${c.tracks.length} tracks, ${c.duration.toFixed(2)}s`));
+console.log(
+  gltf.animations.map((c) => `${c.name}: ${c.tracks.length} tracks, ${c.duration.toFixed(2)}s`),
+);
 
 // Log the skeleton — a humanoid rig missing leg/arm bones animates as a lump.
 gltf.scene.traverse((o) => {
-  if (o.isSkinnedMesh) console.log(o.name, o.skeleton.bones.map((b) => b.name));
+  if (o.isSkinnedMesh)
+    console.log(
+      o.name,
+      o.skeleton.bones.map((b) => b.name),
+    );
 });
 ```
 
@@ -126,13 +128,13 @@ Three.js's `PositionalAudio` is fine for spatial ambience, but for gameplay SFX 
 
 Before generating anything, list events by category — it surfaces what's missing (a game with hit sounds but no pickup sound feels broken) and tells you what loops:
 
-| Category    | Events                        | Count | Loops? | Mix note                          |
-| ----------- | ----------------------------- | ----- | ------ | --------------------------------- |
-| UI          | click, confirm, back          | 1 ea  | no     | quieter + shorter than gameplay SFX |
-| Movement    | jump, land, dash, footstep    | 1–2 ea| no     | footsteps need a cooldown         |
-| Interaction | pickup, door, switch          | 1 ea  | no     | —                                 |
-| Threat      | enemy hit, player hit, explosion | 2–3 variants ea | no | the sounds that must land hardest |
-| Ambience    | wind/room tone, music         | 1 ea  | YES    | low volume, ducks under SFX       |
+| Category    | Events                           | Count           | Loops? | Mix note                            |
+| ----------- | -------------------------------- | --------------- | ------ | ----------------------------------- |
+| UI          | click, confirm, back             | 1 ea            | no     | quieter + shorter than gameplay SFX |
+| Movement    | jump, land, dash, footstep       | 1–2 ea          | no     | footsteps need a cooldown           |
+| Interaction | pickup, door, switch             | 1 ea            | no     | —                                   |
+| Threat      | enemy hit, player hit, explosion | 2–3 variants ea | no     | the sounds that must land hardest   |
+| Ambience    | wind/room tone, music            | 1 ea            | YES    | low volume, ducks under SFX         |
 
 Rules that keep it from sounding cheap:
 

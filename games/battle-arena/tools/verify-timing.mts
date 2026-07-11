@@ -9,19 +9,45 @@ import type { FxEvent, World } from "../src/sim/types.ts";
 let pass = 0;
 let fail = 0;
 function check(name: string, cond: boolean, detail = "") {
-  if (cond) { pass++; console.log(`  ok  ${name}${detail ? ` (${detail})` : ""}`); }
-  else { fail++; console.log(`FAIL  ${name}${detail ? ` (${detail})` : ""}`); }
+  if (cond) {
+    pass++;
+    console.log(`  ok  ${name}${detail ? ` (${detail})` : ""}`);
+  } else {
+    fail++;
+    console.log(`FAIL  ${name}${detail ? ` (${detail})` : ""}`);
+  }
 }
 
 function setup(champA: string, champB: string, dist = 2) {
   const w = createWorld(42);
   // keep skeleton camps out of the duel (never spawn)
   for (const c of CAMPS) w.campRespawnAt[c.id] = 9e8;
-  const a = spawnHero(w, { id: "A", ownerId: "A", team: "A", champId: champA, name: "A", isBot: false, slot: 0 });
-  const b = spawnHero(w, { id: "B", ownerId: "B", team: "B", champId: champB, name: "B", isBot: false, slot: 1 });
+  const a = spawnHero(w, {
+    id: "A",
+    ownerId: "A",
+    team: "A",
+    champId: champA,
+    name: "A",
+    isBot: false,
+    slot: 0,
+  });
+  const b = spawnHero(w, {
+    id: "B",
+    ownerId: "B",
+    team: "B",
+    champId: champB,
+    name: "B",
+    isBot: false,
+    slot: 1,
+  });
   // face off at close range on open ground
-  a.x = 0; a.y = 16; b.x = dist; b.y = 16;
-  a.aimX = 1; a.aimY = 0; a.facing = 0;
+  a.x = 0;
+  a.y = 16;
+  b.x = dist;
+  b.y = 16;
+  a.aimX = 1;
+  a.aimY = 0;
+  a.facing = 0;
   return { w, a, b };
 }
 
@@ -48,7 +74,11 @@ function runUntil(w: World, fxLog: FxEvent[], pred: () => boolean, maxMs = 4000)
   const expect = strikeMs(swingClip("knight", 1), interval);
   // measure from the swing's START (the gate holds the first swing one interval)
   const sinceSwing = w.now - a.lastAttackAt;
-  check("knight basic #1 lands at chop contact", t >= 0 && Math.abs(sinceSwing - expect) < 67, `sinceSwing=${sinceSwing.toFixed(0)}ms expect≈${expect.toFixed(0)}ms`);
+  check(
+    "knight basic #1 lands at chop contact",
+    t >= 0 && Math.abs(sinceSwing - expect) < 67,
+    `sinceSwing=${sinceSwing.toFixed(0)}ms expect≈${expect.toFixed(0)}ms`,
+  );
   const hitFx = fx.find((e) => e.t === "hit");
   check("hit event carries amount", hitFx !== undefined && hitFx.t === "hit" && hitFx.amount > 0);
 }
@@ -72,8 +102,15 @@ function runUntil(w: World, fxLog: FxEvent[], pred: () => boolean, maxMs = 4000)
   const interval = attackIntervalMs(a.attackSpeed) * 1.92;
   const expect = strikeMs("Melee_2H_Attack_Spin", interval);
   const sinceSwing = w.now - a.lastAttackAt;
-  check("spin damage lands mid-whirl", Math.abs(sinceSwing - expect) < 67, `sinceSwing=${sinceSwing.toFixed(0)}ms expect≈${expect.toFixed(0)}ms`);
-  check("spin emits strike fx", fx.some((e) => e.t === "strike" && e.tag === "spin"));
+  check(
+    "spin damage lands mid-whirl",
+    Math.abs(sinceSwing - expect) < 67,
+    `sinceSwing=${sinceSwing.toFixed(0)}ms expect≈${expect.toFixed(0)}ms`,
+  );
+  check(
+    "spin emits strike fx",
+    fx.some((e) => e.t === "strike" && e.tag === "spin"),
+  );
   check("swingCount is 3", a.swingCount === 3);
 }
 
@@ -86,9 +123,19 @@ function runUntil(w: World, fxLog: FxEvent[], pred: () => boolean, maxMs = 4000)
   check("no instant damage on cast tick", b.hp === hp0);
   const t = runUntil(w, fx, () => b.hp < hp0);
   const expect = castStrikeMs("knight", "Q");
-  check("knight:Q lands at contact", t >= 0 && Math.abs(t - expect) < 67, `t=${t?.toFixed(0)}ms expect≈${expect.toFixed(0)}ms`);
-  check("victim stunned on strike (not before)", b.statuses.some((s) => s.kind === "stun"));
-  check("strike fx emitted", fx.some((e) => e.t === "strike" && e.tag === "knight:Q"));
+  check(
+    "knight:Q lands at contact",
+    t >= 0 && Math.abs(t - expect) < 67,
+    `t=${t?.toFixed(0)}ms expect≈${expect.toFixed(0)}ms`,
+  );
+  check(
+    "victim stunned on strike (not before)",
+    b.statuses.some((s) => s.kind === "stun"),
+  );
+  check(
+    "strike fx emitted",
+    fx.some((e) => e.t === "strike" && e.tag === "knight:Q"),
+  );
 }
 
 // ── 4. dodgeable: walk out of knight:Q before the blade lands ──
@@ -96,7 +143,8 @@ function runUntil(w: World, fxLog: FxEvent[], pred: () => boolean, maxMs = 4000)
   const { w, a, b } = setup("knight", "ranger", 3);
   const hp0 = b.hp;
   castAbility(w, a, "Q", { dir: { x: 1, y: 0 } });
-  b.moveX = 1; b.moveY = 0; // sprint away
+  b.moveX = 1;
+  b.moveY = 0; // sprint away
   const fx: FxEvent[] = [];
   runUntil(w, fx, () => w.now > 900, 1000);
   check("knight:Q dodged by moving out", b.hp === hp0, `hp ${hp0.toFixed(0)}→${b.hp.toFixed(0)}`);
@@ -111,8 +159,15 @@ function runUntil(w: World, fxLog: FxEvent[], pred: () => boolean, maxMs = 4000)
   check("JUMP: no damage at cast", b.hp === hp0);
   const t = runUntil(w, fx, () => b.hp < hp0);
   const expectLeap = (5 / 20) * 1000; // castRange / JUMP_LEAP_SPEED
-  check("JUMP slam lands at touchdown", t >= 0 && Math.abs(t - expectLeap) < 67, `t=${t.toFixed(0)}ms expect≈${expectLeap.toFixed(0)}ms`);
-  check("JUMP strike fx at landing point", fx.some((e) => e.t === "strike" && e.tag === "knight:JUMP" && Math.abs(e.x - 5) < 0.01));
+  check(
+    "JUMP slam lands at touchdown",
+    t >= 0 && Math.abs(t - expectLeap) < 67,
+    `t=${t.toFixed(0)}ms expect≈${expectLeap.toFixed(0)}ms`,
+  );
+  check(
+    "JUMP strike fx at landing point",
+    fx.some((e) => e.t === "strike" && e.tag === "knight:JUMP" && Math.abs(e.x - 5) < 0.01),
+  );
 }
 
 // ── 6. stun cancels a scheduled strike ──
@@ -132,12 +187,21 @@ function runUntil(w: World, fxLog: FxEvent[], pred: () => boolean, maxMs = 4000)
   const fx: FxEvent[] = [];
   const hp0 = b.hp;
   castAbility(w, a, "W", { point: { x: b.x, y: b.y } });
-  check("smite arms a telegraph zone", w.grounds.some((g) => g.effect === "smite" && g.telegraph === true));
+  check(
+    "smite arms a telegraph zone",
+    w.grounds.some((g) => g.effect === "smite" && g.telegraph === true),
+  );
   check("smite: no damage at cast", b.hp === hp0);
   const t = runUntil(w, fx, () => b.hp < hp0);
   check("smite detonates ≈450ms", t >= 0 && Math.abs(t - 450) < 67, `t=${t.toFixed(0)}ms`);
-  check("smite stuns on detonate", b.statuses.some((s) => s.kind === "stun"));
-  check("smite explosion fx", fx.some((e) => e.t === "explosion" && e.kind === "smite"));
+  check(
+    "smite stuns on detonate",
+    b.statuses.some((s) => s.kind === "stun"),
+  );
+  check(
+    "smite explosion fx",
+    fx.some((e) => e.t === "explosion" && e.kind === "smite"),
+  );
 }
 
 // ── 8. witch:R (grand hex): ring seals, victims mushroom ──
@@ -146,7 +210,10 @@ function runUntil(w: World, fxLog: FxEvent[], pred: () => boolean, maxMs = 4000)
   const fx: FxEvent[] = [];
   a.abilities.R.rank = 1;
   castAbility(w, a, "R", { point: { x: b.x, y: b.y } });
-  check("hexring zone armed", w.grounds.some((g) => g.effect === "hexring"));
+  check(
+    "hexring zone armed",
+    w.grounds.some((g) => g.effect === "hexring"),
+  );
   const t = runUntil(w, fx, () => b.statuses.some((s) => s.kind === "hex"));
   check("hex applies on seal ≈500ms", t >= 0 && Math.abs(t - 500) < 67, `t=${t.toFixed(0)}ms`);
 }
@@ -197,8 +264,14 @@ function runUntil(w: World, fxLog: FxEvent[], pred: () => boolean, maxMs = 4000)
   const fx: FxEvent[] = [];
   const t = runUntil(w, fx, () => !keg.alive, 6000);
   check("keg breaks under basics", t >= 0);
-  check("propBreak fx emitted", fx.some((e) => e.t === "propBreak" && e.model.includes("keg")));
-  check("keg blast explosion fx", fx.some((e) => e.t === "explosion" && e.kind === "keg"));
+  check(
+    "propBreak fx emitted",
+    fx.some((e) => e.t === "propBreak" && e.model.includes("keg")),
+  );
+  check(
+    "keg blast explosion fx",
+    fx.some((e) => e.t === "explosion" && e.kind === "keg"),
+  );
   check("keg respawn scheduled", keg.respawnAt > w.now);
   // the second keg sits within blast range in the cellar cluster — chain-pop
   const other = kegs[1]!;
@@ -209,7 +282,9 @@ function runUntil(w: World, fxLog: FxEvent[], pred: () => boolean, maxMs = 4000)
 // ── 12. props block movement ──
 {
   const { w, a } = setup("knight", "ranger", 30);
-  const crate = [...w.units.values()].find((u) => u.kind === "prop" && u.champId === "crate_large")!;
+  const crate = [...w.units.values()].find(
+    (u) => u.kind === "prop" && u.champId === "crate_large",
+  )!;
   a.x = crate.x - 3;
   a.y = crate.y;
   a.aimX = 1;
@@ -225,7 +300,15 @@ function runUntil(w: World, fxLog: FxEvent[], pred: () => boolean, maxMs = 4000)
 // ── 13. ranger basics pierce the line ──
 {
   const { w, a, b } = setup("ranger", "knight", 5);
-  const c2 = spawnHero(w, { id: "C", ownerId: "C", team: "C", champId: "blackknight", name: "C", isBot: false, slot: 2 });
+  const c2 = spawnHero(w, {
+    id: "C",
+    ownerId: "C",
+    team: "C",
+    champId: "blackknight",
+    name: "C",
+    isBot: false,
+    slot: 2,
+  });
   c2.x = 7.5;
   c2.y = 16; // directly behind b on the same line
   a.attackHeld = true;
@@ -233,13 +316,25 @@ function runUntil(w: World, fxLog: FxEvent[], pred: () => boolean, maxMs = 4000)
   const hpC = c2.hp;
   const fx: FxEvent[] = [];
   runUntil(w, fx, () => b.hp < hpB && c2.hp < hpC, 4000);
-  check("ranger arrow pierces both targets", b.hp < hpB && c2.hp < hpC, `b ${hpB.toFixed(0)}→${b.hp.toFixed(0)} c ${hpC.toFixed(0)}→${c2.hp.toFixed(0)}`);
+  check(
+    "ranger arrow pierces both targets",
+    b.hp < hpB && c2.hp < hpC,
+    `b ${hpB.toFixed(0)}→${b.hp.toFixed(0)} c ${hpC.toFixed(0)}→${c2.hp.toFixed(0)}`,
+  );
 }
 
 // ── 14. mage basics splash ──
 {
   const { w, a, b } = setup("mage", "knight", 7);
-  const c2 = spawnHero(w, { id: "C", ownerId: "C", team: "C", champId: "blackknight", name: "C", isBot: false, slot: 2 });
+  const c2 = spawnHero(w, {
+    id: "C",
+    ownerId: "C",
+    team: "C",
+    champId: "blackknight",
+    name: "C",
+    isBot: false,
+    slot: 2,
+  });
   c2.x = 7;
   c2.y = 17.2; // adjacent to b, inside the 1.6 splash
   a.attackHeld = true;
@@ -248,17 +343,30 @@ function runUntil(w: World, fxLog: FxEvent[], pred: () => boolean, maxMs = 4000)
   const fx: FxEvent[] = [];
   runUntil(w, fx, () => b.hp < hpB, 4000);
   check("mage bolt splashes the neighbor", c2.hp < hpC, `c ${hpC.toFixed(0)}→${c2.hp.toFixed(0)}`);
-  check("bolt splash explosion fx", fx.some((e) => e.t === "explosion" && e.kind === "bolt"));
+  check(
+    "bolt splash explosion fx",
+    fx.some((e) => e.t === "explosion" && e.kind === "bolt"),
+  );
 }
 
 // ── 15. fireball detonates at the aim point (not max range) ──
 {
   const { w, a } = setup("mage", "knight", 25); // enemy far away — nothing to hit
   const fx: FxEvent[] = [];
-  check("fireball cast ok", castAbility(w, a, "Q", { point: { x: 6, y: 16 }, dir: { x: 1, y: 0 } }));
+  check(
+    "fireball cast ok",
+    castAbility(w, a, "Q", { point: { x: 6, y: 16 }, dir: { x: 1, y: 0 } }),
+  );
   runUntil(w, fx, () => fx.some((e) => e.t === "explosion" && e.kind === "fireball"), 2500);
   const boom = fx.find((e) => e.t === "explosion" && e.kind === "fireball");
-  check("fireball airbursts AT the aim point", boom !== undefined && boom.t === "explosion" && Math.abs(boom.x - 6) < 1.2 && Math.abs(boom.y - 16) < 0.5, boom && boom.t === "explosion" ? `at (${boom.x.toFixed(1)},${boom.y.toFixed(1)})` : "no burst");
+  check(
+    "fireball airbursts AT the aim point",
+    boom !== undefined &&
+      boom.t === "explosion" &&
+      Math.abs(boom.x - 6) < 1.2 &&
+      Math.abs(boom.y - 16) < 0.5,
+    boom && boom.t === "explosion" ? `at (${boom.x.toFixed(1)},${boom.y.toFixed(1)})` : "no burst",
+  );
 }
 
 // ── 16. spent projectiles fizzle visibly ──
@@ -267,7 +375,10 @@ function runUntil(w: World, fxLog: FxEvent[], pred: () => boolean, maxMs = 4000)
   a.attackHeld = true;
   const fx: FxEvent[] = [];
   runUntil(w, fx, () => fx.some((e) => e.t === "fizzle" && e.kind === "arrow"), 4000);
-  check("arrow fizzles at max range", fx.some((e) => e.t === "fizzle" && e.kind === "arrow"));
+  check(
+    "arrow fizzles at max range",
+    fx.some((e) => e.t === "fizzle" && e.kind === "arrow"),
+  );
 }
 
 // ── 17. ambush: the strike out of stealth crits for double ──

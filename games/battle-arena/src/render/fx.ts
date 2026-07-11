@@ -9,7 +9,14 @@ import { terrainHeight } from "../data/terrain";
 import type { FxEvent, GroundEffect, World } from "../sim/types";
 import { Audio } from "./audio";
 import { ChunkPool } from "./fx-chunks";
-import { energyBallMaterial, makeCrackMaterial, makeRingMaterial, makeSlashMaterial, makeVortexMaterial, tickFxShaders } from "./fx-shaders";
+import {
+  energyBallMaterial,
+  makeCrackMaterial,
+  makeRingMaterial,
+  makeSlashMaterial,
+  makeVortexMaterial,
+  tickFxShaders,
+} from "./fx-shaders";
 import { fxTex, preloadFxTextures } from "./fx-textures";
 import { SpikePool } from "./fx-spikes";
 import { HDR_BRIGHT, ParticlePools, type SpawnOptions } from "./fx-particles";
@@ -47,15 +54,51 @@ export type SlashTex = keyof typeof SLASH_SPRITES;
 const CRACK_POOL = 6; // ground-fissure decals
 const BEAM_H = 7; // unit beam height the pool geometry is built at
 
-type Ring = { mesh: THREE.Mesh; mat: THREE.ShaderMaterial; life: number; maxLife: number; maxR: number; opacity: number };
+type Ring = {
+  mesh: THREE.Mesh;
+  mat: THREE.ShaderMaterial;
+  life: number;
+  maxLife: number;
+  maxR: number;
+  opacity: number;
+};
 // zone-driven set pieces (whirlwind vortex drum, falling meteor comet) —
 // created on first sight of a zone id, culled when the zone stops appearing.
 // ownMat: material to dispose on cull; null = shared/cached, leave it alone.
 type ZonePiece = { obj: THREE.Object3D; ownMat: THREE.Material | null; seenAt: number };
-type Beam = { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; life: number; maxLife: number; h: number; r: number };
-type ConeDecal = { pivot: THREE.Group; mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; life: number; maxLife: number; opacity: number; grow: number; s0: number };
-type Dome = { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; life: number; maxLife: number; opacity: number; r: number };
-type Slash = { pivot: THREE.Group; mesh: THREE.Mesh; mat: THREE.ShaderMaterial; life: number; maxLife: number };
+type Beam = {
+  mesh: THREE.Mesh;
+  mat: THREE.MeshBasicMaterial;
+  life: number;
+  maxLife: number;
+  h: number;
+  r: number;
+};
+type ConeDecal = {
+  pivot: THREE.Group;
+  mesh: THREE.Mesh;
+  mat: THREE.MeshBasicMaterial;
+  life: number;
+  maxLife: number;
+  opacity: number;
+  grow: number;
+  s0: number;
+};
+type Dome = {
+  mesh: THREE.Mesh;
+  mat: THREE.MeshBasicMaterial;
+  life: number;
+  maxLife: number;
+  opacity: number;
+  r: number;
+};
+type Slash = {
+  pivot: THREE.Group;
+  mesh: THREE.Mesh;
+  mat: THREE.ShaderMaterial;
+  life: number;
+  maxLife: number;
+};
 type Crack = { mesh: THREE.Mesh; mat: THREE.ShaderMaterial; life: number; maxLife: number };
 type Delayed = { at: number; run: () => void };
 type ZoneAnim = { next: number; next2: number; phase: number; seenAt: number; born: boolean };
@@ -94,7 +137,14 @@ export class Fx {
   private cones: ConeDecal[] = [];
   private domes: Dome[] = [];
   private slashes: Slash[] = [];
-  private flares: { sprite: THREE.Sprite; mat: THREE.SpriteMaterial; life: number; maxLife: number; s0: number; grow: number }[] = [];
+  private flares: {
+    sprite: THREE.Sprite;
+    mat: THREE.SpriteMaterial;
+    life: number;
+    maxLife: number;
+    s0: number;
+    grow: number;
+  }[] = [];
   private cracks: Crack[] = [];
   private coneGeoCache = new Map<number, THREE.CircleGeometry>();
   private rimGeoCache = new Map<number, THREE.RingGeometry>();
@@ -110,7 +160,13 @@ export class Fx {
   private zoneAnim = new Map<string, ZoneAnim>();
   private zoneSweepAt = 0;
   // queued for the HUD
-  readonly feed: { killerName: string; victimName: string; leader?: boolean; killer: string; victim: string }[] = [];
+  readonly feed: {
+    killerName: string;
+    victimName: string;
+    leader?: boolean;
+    killer: string;
+    victim: string;
+  }[] = [];
   readonly toasts: { text: string; kind: string }[] = [];
   localId = ""; // local UNIT id — set by the scene (kick/hit-stop on YOUR hits only)
   localOwnerId = ""; // local OWNER id (death/kill attribution); auto-derived if unset
@@ -149,14 +205,26 @@ export class Fx {
     }
     const beamGeo = new THREE.CylinderGeometry(0.55, 0.9, BEAM_H, 12, 1, true);
     for (let i = 0; i < BEAM_POOL; i++) {
-      const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false });
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
       const mesh = new THREE.Mesh(beamGeo, mat);
       mesh.visible = false;
       scene.add(mesh);
       this.beams.push({ mesh, mat, life: 0, maxLife: 1, h: BEAM_H, r: 1 });
     }
     for (let i = 0; i < CONE_POOL; i++) {
-      const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, blending: THREE.NormalBlending, side: THREE.DoubleSide, depthWrite: false });
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        blending: THREE.NormalBlending,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
       const pivot = new THREE.Group();
       const mesh = new THREE.Mesh(this.coneGeo(0.61), mat);
       pivot.add(mesh);
@@ -175,7 +243,12 @@ export class Fx {
     }
     preloadFxTextures();
     for (let i = 0; i < FLARE_POOL; i++) {
-      const mat = new THREE.SpriteMaterial({ map: fxTex("flare-star"), transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+      const mat = new THREE.SpriteMaterial({
+        map: fxTex("flare-star"),
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
       const sprite = new THREE.Sprite(mat);
       sprite.visible = false;
       scene.add(sprite);
@@ -191,7 +264,13 @@ export class Fx {
     }
     const domeGeo = new THREE.SphereGeometry(1, 14, 7, 0, Math.PI * 2, 0, Math.PI / 2);
     for (let i = 0; i < DOME_POOL; i++) {
-      const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, blending: THREE.NormalBlending, wireframe: true, depthWrite: false });
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        blending: THREE.NormalBlending,
+        wireframe: true,
+        depthWrite: false,
+      });
       const mesh = new THREE.Mesh(domeGeo, mat);
       mesh.visible = false;
       scene.add(mesh);
@@ -199,7 +278,8 @@ export class Fx {
     }
 
     this.dmgLayer = document.createElement("div");
-    this.dmgLayer.style.cssText = "position:fixed;inset:0;pointer-events:none;z-index:6;overflow:hidden;";
+    this.dmgLayer.style.cssText =
+      "position:fixed;inset:0;pointer-events:none;z-index:6;overflow:hidden;";
     document.body.appendChild(this.dmgLayer);
   }
 
@@ -222,7 +302,8 @@ export class Fx {
     w.fx.length = 0;
     // per-frame local-hit accumulation → ONE hard-freeze write (Smash-style table)
     if (this.hitsThisFrame > 0) {
-      let ms = this.hitsThisFrame >= 3 ? 85 : this.hitsThisFrame === 2 ? 65 : this.localMelee ? 40 : 25;
+      let ms =
+        this.hitsThisFrame >= 3 ? 85 : this.hitsThisFrame === 2 ? 65 : this.localMelee ? 40 : 25;
       if (this.heavyThisFrame) ms = Math.min(110, ms + 30);
       this.bumpFreeze(ms);
     }
@@ -308,7 +389,8 @@ export class Fx {
         // readable THROUGH the impact); heavies keep the works
         this.flash(e.x, 1.1, e.y, 0xffffff, heavy ? 1.2 : 0.55, heavy ? 2.2 : 1.4);
         this.impactRing(e.x, e.y, color, heavy ? 2.1 : 1.2);
-        if (heavy) this.flare("impact-burst", e.x, 1.15, e.y, 0xfff2d0, 2.0, 0.14, Math.random() * Math.PI);
+        if (heavy)
+          this.flare("impact-burst", e.x, 1.15, e.y, 0xfff2d0, 2.0, 0.14, Math.random() * Math.PI);
         this.sparks(e.x, 1.1, e.y, e.dx, e.dy, heavy ? 20 : 8, color);
         this.burst(e.x, 1.1, e.y, heavy ? 7 : 4, color, 5, 0.16);
         if (heavy) {
@@ -339,10 +421,13 @@ export class Fx {
         // spent projectile dies visibly: a soft puff of drifting motes that
         // sputter down — never a silent mid-air vanish
         const fc =
-          e.kind === "fireball" ? 0xff7a2c
-          : e.kind === "arrow" ? 0xffe6a0
-          : e.kind === "hexbolt" ? 0x7fe08a
-          : 0xb070ff;
+          e.kind === "fireball"
+            ? 0xff7a2c
+            : e.kind === "arrow"
+              ? 0xffe6a0
+              : e.kind === "hexbolt"
+                ? 0x7fe08a
+                : 0xb070ff;
         for (let i = 0; i < 4; i++) {
           const o = sp(e.x + (Math.random() - 0.5) * 0.4, 1.1, e.y + (Math.random() - 0.5) * 0.4);
           o.vx = (Math.random() - 0.5) * 1.5;
@@ -358,8 +443,18 @@ export class Fx {
       }
       case "propBreak": {
         // wood/matter palette by model; the keg's blast rides its explosion event
-        const wood = e.model.includes("keg") ? 0x6a4a2a : e.model.includes("barrel") ? 0x7a5a34 : 0x8a6a40;
-        this.chunks.burst(e.x, e.y, e.model.includes("stacked") ? 10 : 7, wood, e.explosive ? 7 : 5);
+        const wood = e.model.includes("keg")
+          ? 0x6a4a2a
+          : e.model.includes("barrel")
+            ? 0x7a5a34
+            : 0x8a6a40;
+        this.chunks.burst(
+          e.x,
+          e.y,
+          e.model.includes("stacked") ? 10 : 7,
+          wood,
+          e.explosive ? 7 : 5,
+        );
         this.dust(e.x, e.y, 4);
         this.sparks(e.x, 0.7, e.y, 0, 1, 5, 0xd8c090);
         this.impactRing(e.x, e.y, 0xc0a060, 1.4);
@@ -388,14 +483,21 @@ export class Fx {
           break;
         }
         const color =
-          e.kind === "nova" ? 0x7fd4ff
-          : e.kind === "meteor" ? 0xff5a2c
-          : e.kind === "trap" ? 0x9affc0
-          : e.kind === "vines" ? 0x4a7a3a
-          : e.kind === "smite" ? 0xffd76a
-          : e.kind === "hexring" ? 0x7fe08a
-          : e.kind === "keg" ? 0xffb050
-          : 0xffa030;
+          e.kind === "nova"
+            ? 0x7fd4ff
+            : e.kind === "meteor"
+              ? 0xff5a2c
+              : e.kind === "trap"
+                ? 0x9affc0
+                : e.kind === "vines"
+                  ? 0x4a7a3a
+                  : e.kind === "smite"
+                    ? 0xffd76a
+                    : e.kind === "hexring"
+                      ? 0x7fe08a
+                      : e.kind === "keg"
+                        ? 0xffb050
+                        : 0xffa030;
         const big = e.kind === "meteor";
         this.flash(e.x, 0.9, e.y, 0xffffff, big ? 2.4 : 1.5, 2.4);
         this.burst(e.x, 0.8, e.y, big ? 26 : 16, color, big ? 9 : 7, 0.5);
@@ -404,7 +506,12 @@ export class Fx {
           case "nova": {
             // frost detonation: a RING OF ICE SPIKES erupts, holds frozen,
             // then shatters into crystal debris — the ARPG frost-nova image
-            this.spikes.ring(e.x, e.y, e.radius * 0.7, 10, 0xbfe8ff, { h: 1.5, w: 0.42, holdMs: 1050, exitMs: 180 });
+            this.spikes.ring(e.x, e.y, e.radius * 0.7, 10, 0xbfe8ff, {
+              h: 1.5,
+              w: 0.42,
+              holdMs: 1050,
+              exitMs: 180,
+            });
             this.fountain(e.x, e.y, 10, 0x9fe8ff);
             this.telegraphs.spawnResidue(e.x, e.y, e.radius * 0.85, 0x7fd4ff, 1.6);
             const nx = e.x;
@@ -417,30 +524,64 @@ export class Fx {
             // mushrooms sprouting where the victims stood
             this.implode(e.x, e.y, 0xb98ae0, e.radius, 10, 0.24);
             this.shockwave(e.x, e.y, 0x7fe08a, e.radius, 0.5, 0.7);
-            this.spikes.scatter(e.x, e.y, e.radius * 0.75, 6, 0xb98ae0, { h: 0.5, w: 0.75, holdMs: 1300, exitMs: 300, tiltOut: 0.05 });
+            this.spikes.scatter(e.x, e.y, e.radius * 0.75, 6, 0xb98ae0, {
+              h: 0.5,
+              w: 0.75,
+              holdMs: 1300,
+              exitMs: 300,
+              tiltOut: 0.05,
+            });
             const hx = e.x;
             const hy = e.y;
             const hr = e.radius;
             this.delay(0.25, () => {
-              this.spikes.scatter(hx, hy, hr * 0.7, 5, 0x7fe08a, { h: 0.42, w: 0.6, holdMs: 1100, exitMs: 300, tiltOut: 0.05 });
+              this.spikes.scatter(hx, hy, hr * 0.7, 5, 0x7fe08a, {
+                h: 0.42,
+                w: 0.6,
+                holdMs: 1100,
+                exitMs: 300,
+                tiltOut: 0.05,
+              });
               this.bubbles(hx, hy, 8, 0x9fefa8, hr * 0.7);
             });
             break;
           }
           case "vines": // bog grasp: a jaw of vines SNAPS shut around the point
-            this.spikes.ring(e.x, e.y, e.radius * 0.8, 9, 0x3a6a2a, { h: 1.6, w: 0.34, holdMs: 1000, exitMs: 350, tiltOut: -0.45 });
-            this.spikes.scatter(e.x, e.y, e.radius * 0.5, 4, 0x5a8a3a, { h: 1.0, w: 0.28, holdMs: 900, exitMs: 300 });
+            this.spikes.ring(e.x, e.y, e.radius * 0.8, 9, 0x3a6a2a, {
+              h: 1.6,
+              w: 0.34,
+              holdMs: 1000,
+              exitMs: 350,
+              tiltOut: -0.45,
+            });
+            this.spikes.scatter(e.x, e.y, e.radius * 0.5, 4, 0x5a8a3a, {
+              h: 1.0,
+              w: 0.28,
+              holdMs: 900,
+              exitMs: 300,
+            });
             this.fountain(e.x, e.y, 12, 0x7fe08a);
             this.telegraphs.spawnResidue(e.x, e.y, e.radius * 0.8, 0x203018, 1.6);
             break;
           case "trap": // snare trap: green fangs bite inward — a closing jaw
-            this.spikes.ring(e.x, e.y, e.radius * 0.85, 8, 0x2c5a30, { h: 1.3, w: 0.3, holdMs: 850, exitMs: 250, tiltOut: -0.5 });
+            this.spikes.ring(e.x, e.y, e.radius * 0.85, 8, 0x2c5a30, {
+              h: 1.3,
+              w: 0.3,
+              holdMs: 850,
+              exitMs: 250,
+              tiltOut: -0.5,
+            });
             break;
           case "smite": // consecrating smite: heaven ANSWERS — bolt + cracked earth
             this.texBolt("lightning-arc", e.x, e.y, { h: 11, w: 3.2, color: 0xffe6a0, life: 0.3 });
             this.texBolt("lightning-arc", e.x, e.y, { h: 11, w: 1.8, color: 0xffffff, life: 0.42 });
             this.texDecal("ground-crack", e.x, e.y, { size: 4.4, life: 1.8, additive: false });
-            this.texSprite("electric-splat", e.x, 0.8, e.y, { size: 3.2, color: 0xfff2c0, life: 0.3, grow: 1.7 });
+            this.texSprite("electric-splat", e.x, 0.8, e.y, {
+              size: 3.2,
+              color: 0xfff2c0,
+              life: 0.3,
+              grow: 1.7,
+            });
             this.sparks(e.x, 0.4, e.y, 0, 1, 10, 0xfff2c0);
             this.crossGlint(e.x, 3.0, e.y, 0, 1, 0xffe6a0, 1.1);
             break;
@@ -451,9 +592,27 @@ export class Fx {
             this.debris(e.x, e.y, 6, 0x804030);
             this.chunks.burst(e.x, e.y, 8, 0x5a2a18, 8);
             this.smoke(e.x, e.y, 8);
-            this.texDecal("shock-burst", e.x, e.y, { size: 3, grow: 4.5, life: 0.5, color: 0xffb060 });
-            this.texDecal("scorch-decal", e.x, e.y, { size: e.radius * 1.7, life: 2.2, color: 0xff8040 });
-            for (let i = 0; i < 4; i++) this.texFlipbook("fire-sprite", 4, 4, e.x + (Math.random() - 0.5) * e.radius, 0.8 + Math.random(), e.y + (Math.random() - 0.5) * e.radius, { size: 1.6 + Math.random(), life: 0.55, rise: 1.4 });
+            this.texDecal("shock-burst", e.x, e.y, {
+              size: 3,
+              grow: 4.5,
+              life: 0.5,
+              color: 0xffb060,
+            });
+            this.texDecal("scorch-decal", e.x, e.y, {
+              size: e.radius * 1.7,
+              life: 2.2,
+              color: 0xff8040,
+            });
+            for (let i = 0; i < 4; i++)
+              this.texFlipbook(
+                "fire-sprite",
+                4,
+                4,
+                e.x + (Math.random() - 0.5) * e.radius,
+                0.8 + Math.random(),
+                e.y + (Math.random() - 0.5) * e.radius,
+                { size: 1.6 + Math.random(), life: 0.55, rise: 1.4 },
+              );
             this.telegraphs.spawnResidue(e.x, e.y, e.radius * 0.8, 0x1a0f0a, 4);
             const mx = e.x;
             const my = e.y;
@@ -469,9 +628,18 @@ export class Fx {
             break;
           }
           case "fireball": // V-yx Q burst: lava teeth + authored scorch + flame lick
-            this.spikes.ring(e.x, e.y, e.radius * 0.45, 5, 0xff7a2c, { h: 0.8, w: 0.3, holdMs: 260, exitMs: 200 });
+            this.spikes.ring(e.x, e.y, e.radius * 0.45, 5, 0xff7a2c, {
+              h: 0.8,
+              w: 0.3,
+              holdMs: 260,
+              exitMs: 200,
+            });
             this.texDecal("scorch-decal", e.x, e.y, { size: 3.4, life: 1.5, color: 0xff7030 });
-            this.texFlipbook("fire-sprite", 4, 4, e.x, 1.0, e.y, { size: 2.6, life: 0.55, rise: 1 });
+            this.texFlipbook("fire-sprite", 4, 4, e.x, 1.0, e.y, {
+              size: 2.6,
+              life: 0.55,
+              rise: 1,
+            });
             this.smoke(e.x, e.y, 4);
             break;
           case "keg": // powder keg — fireball + scorch + a chain-pop beat
@@ -482,7 +650,13 @@ export class Fx {
             break;
           case "hexbolt": // Grimelda Q splash: fat slow bog bubbles + hex swirl
             this.bubbles(e.x, e.y, 8, 0x9fefa8, e.radius * 0.7);
-            this.texSprite("swirl-lines", e.x, 1.2, e.y, { size: 2.4, color: 0x9fefa8, life: 0.4, grow: 1.6, spin: Math.PI * 2 });
+            this.texSprite("swirl-lines", e.x, 1.2, e.y, {
+              size: 2.4,
+              color: 0x9fefa8,
+              life: 0.4,
+              grow: 1.6,
+              spin: Math.PI * 2,
+            });
             break;
           default:
             this.smoke(e.x, e.y, 5);
@@ -570,16 +744,34 @@ export class Fx {
         break;
       case "coinGrab":
         this.fountain(e.x, e.y, 14, 0xffd24a);
-        this.spawnNumber(e.x, e.y, `+${e.gold}`, 19, 900, "#ffd24a", 46, 0.7, "text-shadow:0 0 8px #ffd24a,0 2px 3px #000;");
+        this.spawnNumber(
+          e.x,
+          e.y,
+          `+${e.gold}`,
+          19,
+          900,
+          "#ffd24a",
+          46,
+          0.7,
+          "text-shadow:0 0 8px #ffd24a,0 2px 3px #000;",
+        );
         this.view.addTrauma(0.12);
         this.audio.coin();
         break;
       case "kill": {
-        this.feed.push({ killerName: e.killerName, victimName: e.victimName, leader: e.leader, killer: e.killer, victim: e.victim });
-        if (e.victim === this.localOwnerId) this.lastDeath = { killerName: e.killerName, at: this.nowMs };
+        this.feed.push({
+          killerName: e.killerName,
+          victimName: e.victimName,
+          leader: e.leader,
+          killer: e.killer,
+          victim: e.victim,
+        });
+        if (e.victim === this.localOwnerId)
+          this.lastDeath = { killerName: e.killerName, at: this.nowMs };
         if (e.killer !== "" && e.killer === this.localOwnerId) {
           const streak = this.bestStreak; // updated from the synced unit each frame
-          if (streak >= 3) this.audio.stinger(streak >= 9 ? 3 : streak >= 7 ? 2 : streak >= 5 ? 1 : 0);
+          if (streak >= 3)
+            this.audio.stinger(streak >= 9 ? 3 : streak >= 7 ? 2 : streak >= 5 ? 1 : 0);
         }
         if (e.leader) this.audio.leaderSlain();
         break;
@@ -627,53 +819,237 @@ export class Fx {
   private signatureCast(tag: string, x: number, y: number, dx: number, dy: number): void {
     switch (tag) {
       // KNIGHT — heavy steel, white-hot edges
-      case "knight:Q": this.implode(x, y, 0xeaf2ff, 1.8, 7, 0.2); this.dust(x, y, 3); break; // Cleaving Blow — gather before the arc
-      case "knight:W": this.implode(x, y, 0x8fd0ff, 1.6, 6, 0.2); this.footDust(x, y, -dx, -dy); break; // Seismic Slam — plant the feet
-      case "knight:E": this.implode(x, y, 0xeaf2ff, 2.2, 10, 0.26); this.texShell("hex-shield", x, 1.25, y, { r: 2.0, color: 0x5fa0ff, life: 1.6, repeat: [4, 2], scrollY: 0.02 }); this.shockwave(x, y, 0xeaf2ff, 2.0, 0.4, 0.8); this.dust(x, y, 4); this.sparks(x, 0.4, y, 0, 1, 4, 0xfff2c0); break; // Iron Stance — the hex bubble snaps up
-      case "knight:R": this.implode(x, y, 0xbfe0ff, 3, 12, 0.26); this.shockwave(x, y, 0xeaf2ff, 4); this.shockwave(x, y, 0xbfe0ff, 5.5, 0.5); this.burst(x, 1.2, y, 16, 0xbfe0ff, 8, 0.4); this.view.addTrauma(0.14); break;
+      case "knight:Q":
+        this.implode(x, y, 0xeaf2ff, 1.8, 7, 0.2);
+        this.dust(x, y, 3);
+        break; // Cleaving Blow — gather before the arc
+      case "knight:W":
+        this.implode(x, y, 0x8fd0ff, 1.6, 6, 0.2);
+        this.footDust(x, y, -dx, -dy);
+        break; // Seismic Slam — plant the feet
+      case "knight:E":
+        this.implode(x, y, 0xeaf2ff, 2.2, 10, 0.26);
+        this.texShell("hex-shield", x, 1.25, y, {
+          r: 2.0,
+          color: 0x5fa0ff,
+          life: 1.6,
+          repeat: [4, 2],
+          scrollY: 0.02,
+        });
+        this.shockwave(x, y, 0xeaf2ff, 2.0, 0.4, 0.8);
+        this.dust(x, y, 4);
+        this.sparks(x, 0.4, y, 0, 1, 4, 0xfff2c0);
+        break; // Iron Stance — the hex bubble snaps up
+      case "knight:R":
+        this.implode(x, y, 0xbfe0ff, 3, 12, 0.26);
+        this.shockwave(x, y, 0xeaf2ff, 4);
+        this.shockwave(x, y, 0xbfe0ff, 5.5, 0.5);
+        this.burst(x, 1.2, y, 16, 0xbfe0ff, 8, 0.4);
+        this.view.addTrauma(0.14);
+        break;
       // RANGER — verdant precision, gold arrows
-      case "ranger:Q": this.implode(x, y, 0xffe6a0, 1.2, 6, 0.18); this.crossGlint(x + dx * 0.6, 1.3, y + dy * 0.6, dx, dy, 0xffe6a0, 0.7); this.sectorRim(x, y, dx, dy, 0xffe6a0, 5, 0.2); break; // draw — the fan flashes its real spread
-      case "ranger:W": this.implode(x, y, 0xffe6a0, 2.0, 10, 0.26); this.texShell("electro-ball", x, 2.3, y, { r: 0.9, color: 0xffe6a0, life: 1.4, repeat: [2, 1], scrollY: 0.06 }); this.fountain(x, y, 12, 0xffe6a0); break; // Hunter's Focus — self buff bloom
-      case "ranger:E": this.flash(x + dx, 0.5, y + dy, 0x9affc0, 0.7); this.sparks(x + dx, 0.9, y + dy, 0, -1, 6, 0x9affc0); break;
-      case "ranger:R": this.beam(x, y, 0xffe6a0); this.implode(x, y, 0xffe6a0, 3, 10, 0.28); this.flash(x, 4.5, y, 0xffe6a0, 2.0, 1.6); this.crossGlint(x, 8.0, y, dx, dy, 0xfff2c0, 1.6); this.crossGlint(x, 9.2, y, -dy, dx, 0xffe6a0, 1.2); break; // the sky glints before the volley
+      case "ranger:Q":
+        this.implode(x, y, 0xffe6a0, 1.2, 6, 0.18);
+        this.crossGlint(x + dx * 0.6, 1.3, y + dy * 0.6, dx, dy, 0xffe6a0, 0.7);
+        this.sectorRim(x, y, dx, dy, 0xffe6a0, 5, 0.2);
+        break; // draw — the fan flashes its real spread
+      case "ranger:W":
+        this.implode(x, y, 0xffe6a0, 2.0, 10, 0.26);
+        this.texShell("electro-ball", x, 2.3, y, {
+          r: 0.9,
+          color: 0xffe6a0,
+          life: 1.4,
+          repeat: [2, 1],
+          scrollY: 0.06,
+        });
+        this.fountain(x, y, 12, 0xffe6a0);
+        break; // Hunter's Focus — self buff bloom
+      case "ranger:E":
+        this.flash(x + dx, 0.5, y + dy, 0x9affc0, 0.7);
+        this.sparks(x + dx, 0.9, y + dy, 0, -1, 6, 0x9affc0);
+        break;
+      case "ranger:R":
+        this.beam(x, y, 0xffe6a0);
+        this.implode(x, y, 0xffe6a0, 3, 10, 0.28);
+        this.flash(x, 4.5, y, 0xffe6a0, 2.0, 1.6);
+        this.crossGlint(x, 8.0, y, dx, dy, 0xfff2c0, 1.6);
+        this.crossGlint(x, 9.2, y, -dy, dx, 0xffe6a0, 1.2);
+        break; // the sky glints before the volley
       // MAGE — fire primary, frost/arcane separated
-      case "mage:Q": this.implode(x, y, 0xffa030, 1.4, 7, 0.2); this.mote(x + dx * 0.5, 1.3, y + dy * 0.5, 0xffd060, 0.6, 0.25, 0.5); break; // fireball condenses in the palm
-      case "mage:W": this.castDome(x, y, 0x7fd4ff, 1.8, 0.34); this.iceShards(x, y, 6); break; // frost gathers — the nova detonates at the point
-      case "mage:E": this.castStreak(x, y, dx, dy, 0xff8040, 12, 8, 0.3); this.flash(x + dx * 0.6, 1.3, y + dy * 0.6, 0xffb060, 1.0, 1.7); this.sparks(x + dx * 0.6, 1.2, y + dy * 0.6, dx, dy, 6, 0xff8040); break; // Cinderfall — cast ember toward the zone (zone renders at target)
-      case "mage:R": this.beam(x, y, 0xff5a2c); this.flash(x, 4.0, y, 0xff8040, 2.0, 2.2); this.castStreak(x, y, 0, 1, 0xff5a2c, 3, 8, 1.2); break;
+      case "mage:Q":
+        this.implode(x, y, 0xffa030, 1.4, 7, 0.2);
+        this.mote(x + dx * 0.5, 1.3, y + dy * 0.5, 0xffd060, 0.6, 0.25, 0.5);
+        break; // fireball condenses in the palm
+      case "mage:W":
+        this.castDome(x, y, 0x7fd4ff, 1.8, 0.34);
+        this.iceShards(x, y, 6);
+        break; // frost gathers — the nova detonates at the point
+      case "mage:E":
+        this.castStreak(x, y, dx, dy, 0xff8040, 12, 8, 0.3);
+        this.flash(x + dx * 0.6, 1.3, y + dy * 0.6, 0xffb060, 1.0, 1.7);
+        this.sparks(x + dx * 0.6, 1.2, y + dy * 0.6, dx, dy, 6, 0xff8040);
+        break; // Cinderfall — cast ember toward the zone (zone renders at target)
+      case "mage:R":
+        this.beam(x, y, 0xff5a2c);
+        this.flash(x, 4.0, y, 0xff8040, 2.0, 2.2);
+        this.castStreak(x, y, 0, 1, 0xff5a2c, 3, 8, 1.2);
+        break;
       // ROGUE — crimson violence out of violet shadow
-      case "rogue:Q": this.castStreak(x, y, dx, dy, 0x7fff8e, 14, 12, 0.2); this.smoke(x, y, 2); break; // lunge launch — the cut lands at dash end
-      case "rogue:W": this.implode(x, y, 0xff3060, 1.4, 6, 0.16); this.smoke(x, y, 2); break; // coil before the gash
-      case "rogue:E": this.smoke(x, y, 10); this.castDome(x, y, 0x6a5a9a, 2.4, 0.5); this.telegraphs.spawnResidue(x, y, 2.4, 0x201830, 2); break;
-      case "rogue:R": this.castStreak(x, y, dx, dy, 0xff3060, 22, 14, 0.14); this.texSprite("galaxy", x, 1.8, y, { size: 2.8, color: 0xc0a8ff, life: 0.45, spin: Math.PI * 2 }); this.texSprite("dark-shock", x, 1.8, y, { size: 3.4, color: 0x8a5fd0, life: 0.45, grow: 1.5 }); this.smoke(x, y, 3); break; // he steps THROUGH the dark door — the execute lands on arrival
+      case "rogue:Q":
+        this.castStreak(x, y, dx, dy, 0x7fff8e, 14, 12, 0.2);
+        this.smoke(x, y, 2);
+        break; // lunge launch — the cut lands at dash end
+      case "rogue:W":
+        this.implode(x, y, 0xff3060, 1.4, 6, 0.16);
+        this.smoke(x, y, 2);
+        break; // coil before the gash
+      case "rogue:E":
+        this.smoke(x, y, 10);
+        this.castDome(x, y, 0x6a5a9a, 2.4, 0.5);
+        this.telegraphs.spawnResidue(x, y, 2.4, 0x201830, 2);
+        break;
+      case "rogue:R":
+        this.castStreak(x, y, dx, dy, 0xff3060, 22, 14, 0.14);
+        this.texSprite("galaxy", x, 1.8, y, {
+          size: 2.8,
+          color: 0xc0a8ff,
+          life: 0.45,
+          spin: Math.PI * 2,
+        });
+        this.texSprite("dark-shock", x, 1.8, y, {
+          size: 3.4,
+          color: 0x8a5fd0,
+          life: 0.45,
+          grow: 1.5,
+        });
+        this.smoke(x, y, 3);
+        break; // he steps THROUGH the dark door — the execute lands on arrival
       // AURELIUS (id blackknight) — dawn-gold consecration, white-gold edges
-      case "blackknight:Q": this.implode(x, y, 0xfff2c0, 1.8, 7, 0.2); this.smoke(x, y, 2); break; // the great sweep winds up
-      case "blackknight:W": this.castDome(x, y, 0xffd76a, 1.6, 0.3); this.flash(x, 1.2, y, 0xfff2c0, 1.1, 1.8); this.sparks(x, 0.4, y, 0, 1, 8, 0xfff2c0); this.crossGlint(x + dx, 1.4, y + dy, dx, dy, 0xffe6a0, 1.0); break; // Consecrating Smite — holy channel (pillar lands at target)
-      case "blackknight:E": this.castDome(x, y, 0xffe6a0, 2.4, 0.5); this.sparks(x, 0.4, y, 0, 1, 8, 0xfff2c0); break;
-      case "blackknight:R": this.implode(x, y, 0xfff2c0, 4, 12, 0.24); this.beam(x, y, 0xffd76a, 6, 0.8); this.texSprite("holy-wings", x, 2.4, y, { size: 6.5, color: 0xffe6a0, life: 1.1, grow: 1.25 }); this.texStreak("trail-holy", x + 1.4, 0.2, y, x + 1.4, 5, y, { w: 0.9, len: 2.4, color: 0xffd76a, life: 0.8 }); this.texStreak("trail-holy", x - 1.2, 0.2, y + 0.8, x - 1.2, 5, y + 0.8, { w: 0.9, len: 2.4, color: 0xffd76a, life: 0.8 }); break; // the hammer RISES — it falls on the strike
+      case "blackknight:Q":
+        this.implode(x, y, 0xfff2c0, 1.8, 7, 0.2);
+        this.smoke(x, y, 2);
+        break; // the great sweep winds up
+      case "blackknight:W":
+        this.castDome(x, y, 0xffd76a, 1.6, 0.3);
+        this.flash(x, 1.2, y, 0xfff2c0, 1.1, 1.8);
+        this.sparks(x, 0.4, y, 0, 1, 8, 0xfff2c0);
+        this.crossGlint(x + dx, 1.4, y + dy, dx, dy, 0xffe6a0, 1.0);
+        break; // Consecrating Smite — holy channel (pillar lands at target)
+      case "blackknight:E":
+        this.castDome(x, y, 0xffe6a0, 2.4, 0.5);
+        this.sparks(x, 0.4, y, 0, 1, 8, 0xfff2c0);
+        break;
+      case "blackknight:R":
+        this.implode(x, y, 0xfff2c0, 4, 12, 0.24);
+        this.beam(x, y, 0xffd76a, 6, 0.8);
+        this.texSprite("holy-wings", x, 2.4, y, {
+          size: 6.5,
+          color: 0xffe6a0,
+          life: 1.1,
+          grow: 1.25,
+        });
+        this.texStreak("trail-holy", x + 1.4, 0.2, y, x + 1.4, 5, y, {
+          w: 0.9,
+          len: 2.4,
+          color: 0xffd76a,
+          life: 0.8,
+        });
+        this.texStreak("trail-holy", x - 1.2, 0.2, y + 0.8, x - 1.2, 5, y + 0.8, {
+          w: 0.9,
+          len: 2.4,
+          color: 0xffd76a,
+          life: 0.8,
+        });
+        break; // the hammer RISES — it falls on the strike
       // WITCH — bog-green hexcraft
-      case "witch:Q": this.implode(x, y, 0x7fe08a, 1.2, 6, 0.18); this.crossGlint(x + dx * 0.6, 1.3, y + dy * 0.6, dx, dy, 0x7fe08a, 0.8); break; // the bolt curdles
-      case "witch:W": this.castDome(x, y, 0x7fe08a, 1.8, 0.35); this.bubbles(x, y, 6, 0x7fe08a); break;
-      case "witch:E": this.castDome(x, y, 0x4a7a3a, 1.4, 0.3); this.crossGlint(x + dx, 1.2, y + dy, dx, dy, 0x9fefa8, 0.9); break; // Bog Grasp — vines gather (eruption at the point)
-      case "witch:R": this.implode(x, y, 0xb98ae0, 3, 12, 0.26); this.castDome(x, y, 0x7fe08a, 2.4, 0.45); this.bubbles(x, y, 8, 0x9fefa8); break; // hex gathers — the ring seals at the point
+      case "witch:Q":
+        this.implode(x, y, 0x7fe08a, 1.2, 6, 0.18);
+        this.crossGlint(x + dx * 0.6, 1.3, y + dy * 0.6, dx, dy, 0x7fe08a, 0.8);
+        break; // the bolt curdles
+      case "witch:W":
+        this.castDome(x, y, 0x7fe08a, 1.8, 0.35);
+        this.bubbles(x, y, 6, 0x7fe08a);
+        break;
+      case "witch:E":
+        this.castDome(x, y, 0x4a7a3a, 1.4, 0.3);
+        this.crossGlint(x + dx, 1.2, y + dy, dx, dy, 0x9fefa8, 0.9);
+        break; // Bog Grasp — vines gather (eruption at the point)
+      case "witch:R":
+        this.implode(x, y, 0xb98ae0, 3, 12, 0.26);
+        this.castDome(x, y, 0x7fe08a, 2.4, 0.45);
+        this.bubbles(x, y, 8, 0x9fefa8);
+        break; // hex gathers — the ring seals at the point
       // ── DASH (Shift) — light launch burst; the per-frame travel trail + expiry
       //    pop live in world-view. No damage-impact layer. mage:DASH = teleport
       //    (its src→dest visual is the separate `blink` fx event).
-      case "knight:DASH": this.castStreak(x, y, dx, dy, 0x8fd0ff, 18, 10, 0.14); this.flash(x + dx, 1.15, y + dy, 0xeaf2ff, 0.9, 1.6); this.footDust(x, y, -dx, -dy); this.castDome(x, y, 0xeaf2ff, 1.0, 0.24); this.crossGlint(x, 1.2, y, dx, dy, 0xeaf2ff, 0.8); break;
-      case "ranger:DASH": this.castStreak(x, y, dx, dy, 0x9fffe0, 14, 8, 0.1); this.smoke(x, y, 3); this.footDust(x, y, -dx, -dy); this.footDust(x, y, -dx, -dy); this.castDome(x, y, 0x7dffb0, 1.0, 0.24); this.crossGlint(x, 1.2, y, dx, dy, 0x9fffe0, 0.7); break;
-      case "mage:DASH": this.implode(x, y, 0x9a7bff, 1.6, 8, 0.22); this.crossGlint(x, 1.3, y, dx, dy, 0xc0a0ff, 1.0); break;
-      case "rogue:DASH": this.castStreak(x, y, dx, dy, 0x6a5a9a, 16, 10, 0.14); this.smoke(x, y, 6); this.spawnResidue(x, y, 1.6, 0x201830, 2); this.footDust(x, y, -dx, -dy); break;
-      case "blackknight:DASH": this.castStreak(x, y, dx, dy, 0xffd76a, 16, 10, 0.16); this.flash(x + dx, 1.15, y + dy, 0xfff2c0, 1.0, 1.6); this.footDust(x, y, -dx, -dy); this.footDust(x, y, -dx, -dy); this.castDome(x, y, 0xffe6a0, 1.0, 0.24); this.crossGlint(x, 1.2, y, dx, dy, 0xffd76a, 0.8); break;
-      case "witch:DASH": this.castStreak(x, y, dx, dy, 0xb98ae0, 20, 12, 0.14); this.footDust(x, y, -dx, -dy); this.mote(x, 0.6, y, 0x7fe08a, 2, 0.6, 0.3); this.castDome(x, y, 0x7fe08a, 1.0, 0.24); this.crossGlint(x, 1.2, y, dx, dy, 0xb98ae0, 0.7); break;
+      case "knight:DASH":
+        this.castStreak(x, y, dx, dy, 0x8fd0ff, 18, 10, 0.14);
+        this.flash(x + dx, 1.15, y + dy, 0xeaf2ff, 0.9, 1.6);
+        this.footDust(x, y, -dx, -dy);
+        this.castDome(x, y, 0xeaf2ff, 1.0, 0.24);
+        this.crossGlint(x, 1.2, y, dx, dy, 0xeaf2ff, 0.8);
+        break;
+      case "ranger:DASH":
+        this.castStreak(x, y, dx, dy, 0x9fffe0, 14, 8, 0.1);
+        this.smoke(x, y, 3);
+        this.footDust(x, y, -dx, -dy);
+        this.footDust(x, y, -dx, -dy);
+        this.castDome(x, y, 0x7dffb0, 1.0, 0.24);
+        this.crossGlint(x, 1.2, y, dx, dy, 0x9fffe0, 0.7);
+        break;
+      case "mage:DASH":
+        this.implode(x, y, 0x9a7bff, 1.6, 8, 0.22);
+        this.crossGlint(x, 1.3, y, dx, dy, 0xc0a0ff, 1.0);
+        break;
+      case "rogue:DASH":
+        this.castStreak(x, y, dx, dy, 0x6a5a9a, 16, 10, 0.14);
+        this.smoke(x, y, 6);
+        this.spawnResidue(x, y, 1.6, 0x201830, 2);
+        this.footDust(x, y, -dx, -dy);
+        break;
+      case "blackknight:DASH":
+        this.castStreak(x, y, dx, dy, 0xffd76a, 16, 10, 0.16);
+        this.flash(x + dx, 1.15, y + dy, 0xfff2c0, 1.0, 1.6);
+        this.footDust(x, y, -dx, -dy);
+        this.footDust(x, y, -dx, -dy);
+        this.castDome(x, y, 0xffe6a0, 1.0, 0.24);
+        this.crossGlint(x, 1.2, y, dx, dy, 0xffd76a, 0.8);
+        break;
+      case "witch:DASH":
+        this.castStreak(x, y, dx, dy, 0xb98ae0, 20, 12, 0.14);
+        this.footDust(x, y, -dx, -dy);
+        this.mote(x, 0.6, y, 0x7fe08a, 2, 0.6, 0.3);
+        this.castDome(x, y, 0x7fe08a, 1.0, 0.24);
+        this.crossGlint(x, 1.2, y, dx, dy, 0xb98ae0, 0.7);
+        break;
       // ── JUMP (Space+click) — takeoff anticipation only; the landing blast is
       //    the strike event at the real touchdown point (see strikeFx).
-      case "knight:JUMP": this.implode(x, y, 0xeaf2ff, 2.2, 8, 0.2); this.dust(x, y, 3); break;
-      case "ranger:JUMP": this.crossGlint(x, 1.8, y, dx, dy, 0xffe6a0, 1.0); this.footDust(x, y, -dx, -dy); break;
-      case "mage:JUMP": this.implode(x, y, 0xff8040, 2.4, 8, 0.2); break;
-      case "rogue:JUMP": this.implode(x, y, 0x6a5a9a, 1.8, 8, 0.2); this.smoke(x, y, 2); break;
-      case "blackknight:JUMP": this.implode(x, y, 0xfff2c0, 2.6, 10, 0.22); this.dust(x, y, 3); break;
-      case "witch:JUMP": this.implode(x, y, 0xb98ae0, 2.4, 8, 0.2); this.bubbles(x, y, 4, 0x9fefa8); break;
-      default: this.flash(x, 1.3, y, 0x9fd0ff, 0.9); this.burst(x, 1.2, y, 6, 0x9fd0ff, 3, 0.3);
+      case "knight:JUMP":
+        this.implode(x, y, 0xeaf2ff, 2.2, 8, 0.2);
+        this.dust(x, y, 3);
+        break;
+      case "ranger:JUMP":
+        this.crossGlint(x, 1.8, y, dx, dy, 0xffe6a0, 1.0);
+        this.footDust(x, y, -dx, -dy);
+        break;
+      case "mage:JUMP":
+        this.implode(x, y, 0xff8040, 2.4, 8, 0.2);
+        break;
+      case "rogue:JUMP":
+        this.implode(x, y, 0x6a5a9a, 1.8, 8, 0.2);
+        this.smoke(x, y, 2);
+        break;
+      case "blackknight:JUMP":
+        this.implode(x, y, 0xfff2c0, 2.6, 10, 0.22);
+        this.dust(x, y, 3);
+        break;
+      case "witch:JUMP":
+        this.implode(x, y, 0xb98ae0, 2.4, 8, 0.2);
+        this.bubbles(x, y, 4, 0x9fefa8);
+        break;
+      default:
+        this.flash(x, 1.3, y, 0x9fd0ff, 0.9);
+        this.burst(x, 1.2, y, 6, 0x9fd0ff, 3, 0.3);
     }
   }
 
@@ -684,7 +1060,19 @@ export class Fx {
     switch (tag) {
       // Garran's 3rd-swing whirl (basic rhythm aoe) — the weapon trail IS the
       // whirl visual; just a ground ring + sparks mark the damage tick
-      case "spin": this.shockwave(x, y, 0x8fd0ff, r, 0.3); this.slashArc(x, y, Math.atan2(dy, dx), r * 1.2, 0xbfe0ff, { tex: "spin", tilt: 0, span: 3.1, life: 0.34, height: 1.0 }); this.burst(x, 1.1, y, 12, 0xbfe0ff, 7, 0.3); this.dust(x, y, 5); if (this.within(x, y, 12)) this.view.addTrauma(0.1); break;
+      case "spin":
+        this.shockwave(x, y, 0x8fd0ff, r, 0.3);
+        this.slashArc(x, y, Math.atan2(dy, dx), r * 1.2, 0xbfe0ff, {
+          tex: "spin",
+          tilt: 0,
+          span: 3.1,
+          life: 0.34,
+          height: 1.0,
+        });
+        this.burst(x, 1.1, y, 12, 0xbfe0ff, 7, 0.3);
+        this.dust(x, y, 5);
+        if (this.within(x, y, 12)) this.view.addTrauma(0.1);
+        break;
       case "knight:Q": {
         this.slashArc(x, y, Math.atan2(dy, dx), r, 0xdbe8ff, { tilt: 0.3, span: 0.85, life: 0.3 });
         this.sectorRim(x, y, dx, dy, 0xeaf2ff, r, 0.79);
@@ -711,14 +1099,45 @@ export class Fx {
           this.impactRing(kx + dx * 6.4, ky + dy * 6.4, 0xeaf2ff, 2.4);
           this.chunks.burst(kx + dx * 6.4, ky + dy * 6.4, 5, 0x6a7078, 5);
         });
-        if (this.within(x, y, 14)) { this.view.kick(dx, dy, 0.4); this.view.addTrauma(0.1); }
+        if (this.within(x, y, 14)) {
+          this.view.kick(dx, dy, 0.4);
+          this.view.addTrauma(0.1);
+        }
         break;
       }
-      case "ranger:Q": this.castStreak(x, y, dx, dy, 0xffe6a0, 20, 12, 0.45); this.flash(x + dx, 1.3, y + dy, 0xffffff, 0.9, 1.6); break; // the fan looses
-      case "mage:Q": this.castStreak(x, y, dx, dy, 0xffa030, 14, 12, 0.22); this.flash(x + dx, 1.3, y + dy, 0xffd060, 1.2, 2.0); break; // the fireball leaves
-      case "witch:Q": this.castStreak(x, y, dx, dy, 0x7fe08a, 16, 10, 0.12); this.flash(x + dx, 1.3, y + dy, 0xb0ffb8, 0.9, 1.6); break; // the bolt spits
-      case "rogue:Q": this.slashArc(x, y, Math.atan2(dy, dx), 2.2, 0x7fff8e, { tilt: 0.45, span: 0.7, life: 0.24 }); this.crossGlint(x, 1.2, y, dx, dy, 0x7fff8e, 1.2); this.sparks(x, 1.1, y, dx, dy, 8, 0x7fff8e); this.drips(x, y, 6, 0x4a9a3a); break; // the poisoned cut drips at dash end
-      case "rogue:W": this.slashArc(x + dx * 2, y + dy * 2, Math.atan2(dy, dx), 2.4, 0xff5a78, { tilt: 0.5, span: 0.6, life: 0.26 }); this.crack(x + dx * 3, y + dy * 3, Math.atan2(dy, dx), 3.4, 0.9, 0xff3060, 3.2, 1); this.castStreak(x, y, dx, dy, 0xff3060, 20, 12, 0.14); this.drips(x + dx * 3, y + dy * 3, 5, 0x8a1020); this.smoke(x + dx * 2, y + dy * 2, 3); break; // the wound stays open — the crack pulses with the bleed
+      case "ranger:Q":
+        this.castStreak(x, y, dx, dy, 0xffe6a0, 20, 12, 0.45);
+        this.flash(x + dx, 1.3, y + dy, 0xffffff, 0.9, 1.6);
+        break; // the fan looses
+      case "mage:Q":
+        this.castStreak(x, y, dx, dy, 0xffa030, 14, 12, 0.22);
+        this.flash(x + dx, 1.3, y + dy, 0xffd060, 1.2, 2.0);
+        break; // the fireball leaves
+      case "witch:Q":
+        this.castStreak(x, y, dx, dy, 0x7fe08a, 16, 10, 0.12);
+        this.flash(x + dx, 1.3, y + dy, 0xb0ffb8, 0.9, 1.6);
+        break; // the bolt spits
+      case "rogue:Q":
+        this.slashArc(x, y, Math.atan2(dy, dx), 2.2, 0x7fff8e, {
+          tilt: 0.45,
+          span: 0.7,
+          life: 0.24,
+        });
+        this.crossGlint(x, 1.2, y, dx, dy, 0x7fff8e, 1.2);
+        this.sparks(x, 1.1, y, dx, dy, 8, 0x7fff8e);
+        this.drips(x, y, 6, 0x4a9a3a);
+        break; // the poisoned cut drips at dash end
+      case "rogue:W":
+        this.slashArc(x + dx * 2, y + dy * 2, Math.atan2(dy, dx), 2.4, 0xff5a78, {
+          tilt: 0.5,
+          span: 0.6,
+          life: 0.26,
+        });
+        this.crack(x + dx * 3, y + dy * 3, Math.atan2(dy, dx), 3.4, 0.9, 0xff3060, 3.2, 1);
+        this.castStreak(x, y, dx, dy, 0xff3060, 20, 12, 0.14);
+        this.drips(x + dx * 3, y + dy * 3, 5, 0x8a1020);
+        this.smoke(x + dx * 2, y + dy * 2, 3);
+        break; // the wound stays open — the crack pulses with the bleed
       case "rogue:R": {
         // the execute: an X-cut of crossed crimson arcs + the screen flinches
         const ang = Math.atan2(dy, dx);
@@ -728,11 +1147,19 @@ export class Fx {
         this.crossGlint(x, 1.2, y, dx, dy, 0xff3060, 1.6);
         this.impactRing(x, y, 0xff3060, 2.4);
         this.drips(x, y, 8, 0x8a1020);
-        if (this.within(x, y, 10)) { this.bumpFreeze(35); this.view.screenPulse(0.08, 0.18); }
+        if (this.within(x, y, 10)) {
+          this.bumpFreeze(35);
+          this.view.screenPulse(0.08, 0.18);
+        }
         break;
       }
       case "blackknight:Q": {
-        this.slashArc(x, y, Math.atan2(dy, dx), r, 0xffd76a, { tilt: 0.25, span: 1.0, life: 0.32, tex: "arc" });
+        this.slashArc(x, y, Math.atan2(dy, dx), r, 0xffd76a, {
+          tilt: 0.25,
+          span: 1.0,
+          life: 0.32,
+          tex: "arc",
+        });
         this.sectorRim(x, y, dx, dy, 0xfff2c0, r, 0.96);
         this.sparks(x + dx, 1.2, y + dy, dx, dy, 10, 0xfff2c0);
         const gx = x + dx * 2.2;
@@ -748,18 +1175,77 @@ export class Fx {
         this.burst(x, 1.2, y, 20, 0xffd76a, 9, 0.4);
         this.chunks.burst(x, y, 10, 0x7a6238, 7);
         this.smoke(x, y, 6);
-        if (this.within(x, y, 14)) { this.bumpFreeze(60); this.view.screenPulse(0.14, 0.22); }
+        if (this.within(x, y, 14)) {
+          this.bumpFreeze(60);
+          this.view.screenPulse(0.14, 0.22);
+        }
         this.view.addTrauma(0.18);
         break;
       }
       // JUMP landings — the champ-flavored slam at the true touchdown point
-      case "knight:JUMP": this.shockwave(x, y, 0x8fd0ff, r); this.crack(x, y, Math.random() * Math.PI, r, r, 0x8fd0ff, 2.0); this.sectorRim(x, y, dx, dy, 0xeaf2ff, r, 0.79); this.chunks.burst(x, y, 4, 0x6a7078, 5); this.dust(x, y, 4); if (this.within(x, y, 12)) { this.view.addTrauma(0.12); this.bumpFreeze(40); } break;
-      case "ranger:JUMP": this.castStreak(x, y, 0, 1, 0xffe6a0, 10, 8, 0.5); this.beam(x, y, 0xffe6a0, 5, 0.5); this.impactRing(x, y, 0x7dffb0, r); this.sparks(x, 0.4, y, 0, 1, 6, 0xffe6a0); this.dust(x, y, 3); if (this.within(x, y, 12)) this.view.addTrauma(0.1); break;
-      case "mage:JUMP": this.flash(x, 1.0, y, 0xffd060, 1.4, 2.0); this.shockwave(x, y, 0xff8040, r); this.spikes.ring(x, y, r * 0.5, 5, 0xff7a2c, { h: 0.8, w: 0.3, holdMs: 260, exitMs: 200 }); this.burst(x, 0.8, y, 10, 0xff8040, 6, 0.35); this.telegraphs.spawnResidue(x, y, r * 0.8, 0x1a0f0a, 1.6); if (this.within(x, y, 12)) this.view.addTrauma(0.11); break;
-      case "rogue:JUMP": { const ang = Math.atan2(dy, dx); this.slashArc(x, y, ang, 1.9, 0xff5a78, { tilt: 0.5, span: 0.55, life: 0.24 }); this.slashArc(x, y, ang, 1.9, 0xff3060, { tilt: -0.5, span: 0.55, life: 0.24, dir: -1 }); this.impactRing(x, y, 0xff3060, r); this.smoke(x, y, 2); if (this.within(x, y, 10)) this.bumpFreeze(35); break; }
-      case "blackknight:JUMP": this.shockwave(x, y, 0xffd76a, r); this.crack(x, y, Math.random() * Math.PI, r, r, 0xffd76a, 2.4); this.beam(x, y, 0xffd76a, 8, 1.1); this.burst(x, 1.0, y, 14, 0xffd76a, 8, 0.4); this.chunks.burst(x, y, 6, 0x7a6238, 6); this.smoke(x, y, 4); if (this.within(x, y, 12)) { this.view.addTrauma(0.12); this.bumpFreeze(60); } break;
-      case "witch:JUMP": this.castDome(x, y, 0x7fe08a, r * 0.85); this.impactRing(x, y, 0x9fefa8, r); this.bubbles(x, y, 8, 0x9fefa8, r * 0.85); this.spikes.scatter(x, y, r * 0.6, 3, 0x7fe08a, { h: 0.4, w: 0.55, holdMs: 900, exitMs: 250, tiltOut: 0.05 }); if (this.within(x, y, 12)) this.view.addTrauma(0.11); break;
-      default: this.impactRing(x, y, 0x9fd0ff, Math.max(1.2, r * 0.6));
+      case "knight:JUMP":
+        this.shockwave(x, y, 0x8fd0ff, r);
+        this.crack(x, y, Math.random() * Math.PI, r, r, 0x8fd0ff, 2.0);
+        this.sectorRim(x, y, dx, dy, 0xeaf2ff, r, 0.79);
+        this.chunks.burst(x, y, 4, 0x6a7078, 5);
+        this.dust(x, y, 4);
+        if (this.within(x, y, 12)) {
+          this.view.addTrauma(0.12);
+          this.bumpFreeze(40);
+        }
+        break;
+      case "ranger:JUMP":
+        this.castStreak(x, y, 0, 1, 0xffe6a0, 10, 8, 0.5);
+        this.beam(x, y, 0xffe6a0, 5, 0.5);
+        this.impactRing(x, y, 0x7dffb0, r);
+        this.sparks(x, 0.4, y, 0, 1, 6, 0xffe6a0);
+        this.dust(x, y, 3);
+        if (this.within(x, y, 12)) this.view.addTrauma(0.1);
+        break;
+      case "mage:JUMP":
+        this.flash(x, 1.0, y, 0xffd060, 1.4, 2.0);
+        this.shockwave(x, y, 0xff8040, r);
+        this.spikes.ring(x, y, r * 0.5, 5, 0xff7a2c, { h: 0.8, w: 0.3, holdMs: 260, exitMs: 200 });
+        this.burst(x, 0.8, y, 10, 0xff8040, 6, 0.35);
+        this.telegraphs.spawnResidue(x, y, r * 0.8, 0x1a0f0a, 1.6);
+        if (this.within(x, y, 12)) this.view.addTrauma(0.11);
+        break;
+      case "rogue:JUMP": {
+        const ang = Math.atan2(dy, dx);
+        this.slashArc(x, y, ang, 1.9, 0xff5a78, { tilt: 0.5, span: 0.55, life: 0.24 });
+        this.slashArc(x, y, ang, 1.9, 0xff3060, { tilt: -0.5, span: 0.55, life: 0.24, dir: -1 });
+        this.impactRing(x, y, 0xff3060, r);
+        this.smoke(x, y, 2);
+        if (this.within(x, y, 10)) this.bumpFreeze(35);
+        break;
+      }
+      case "blackknight:JUMP":
+        this.shockwave(x, y, 0xffd76a, r);
+        this.crack(x, y, Math.random() * Math.PI, r, r, 0xffd76a, 2.4);
+        this.beam(x, y, 0xffd76a, 8, 1.1);
+        this.burst(x, 1.0, y, 14, 0xffd76a, 8, 0.4);
+        this.chunks.burst(x, y, 6, 0x7a6238, 6);
+        this.smoke(x, y, 4);
+        if (this.within(x, y, 12)) {
+          this.view.addTrauma(0.12);
+          this.bumpFreeze(60);
+        }
+        break;
+      case "witch:JUMP":
+        this.castDome(x, y, 0x7fe08a, r * 0.85);
+        this.impactRing(x, y, 0x9fefa8, r);
+        this.bubbles(x, y, 8, 0x9fefa8, r * 0.85);
+        this.spikes.scatter(x, y, r * 0.6, 3, 0x7fe08a, {
+          h: 0.4,
+          w: 0.55,
+          holdMs: 900,
+          exitMs: 250,
+          tiltOut: 0.05,
+        });
+        if (this.within(x, y, 12)) this.view.addTrauma(0.11);
+        break;
+      default:
+        this.impactRing(x, y, 0x9fd0ff, Math.max(1.2, r * 0.6));
     }
   }
 
@@ -776,16 +1262,27 @@ export class Fx {
     // arming runes: a rotating arcane circle over the telegraph while the
     // detonation charges (gold smite / violet grand hex / green own-team trap)
     const runeColor =
-      g.effect === "smite" ? 0xffd76a
-      : g.effect === "hexring" ? 0xb98ae0
-      : g.effect === "trap" && g.team === this.localTeam ? 0x9affc0
-      : 0;
+      g.effect === "smite"
+        ? 0xffd76a
+        : g.effect === "hexring"
+          ? 0xb98ae0
+          : g.effect === "trap" && g.team === this.localTeam
+            ? 0x9affc0
+            : 0;
     if (runeColor !== 0) {
       // AUTHORED magic circles: pentagram for the witch's grand hex, runic
       // script ring for holy/trap telegraphs (procedural ring underneath stays)
       const runeTex = g.effect === "hexring" ? "rune-circle-a" : "rune-circle-b";
       const piece = this.zonePiece(`rune:${g.id}`, () => {
-        const mat = new THREE.MeshBasicMaterial({ map: fxTex(runeTex), color: runeColor, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+        const mat = new THREE.MeshBasicMaterial({
+          map: fxTex(runeTex),
+          color: runeColor,
+          transparent: true,
+          opacity: 0.9,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        });
         const mesh = new THREE.Mesh(this.ringPlane, mat);
         mesh.rotation.x = -Math.PI / 2;
         return { obj: mesh, ownMat: mat };
@@ -812,7 +1309,12 @@ export class Fx {
           st.next2 = now + 250;
           this.shockwave(g.x, g.y, 0x8fd0ff, r * 0.9, 0.24, 0.35);
           const da = Math.random() * Math.PI * 2;
-          this.footDust(g.x + Math.cos(da) * r * 0.8, g.y + Math.sin(da) * r * 0.8, -Math.sin(da), Math.cos(da));
+          this.footDust(
+            g.x + Math.cos(da) * r * 0.8,
+            g.y + Math.sin(da) * r * 0.8,
+            -Math.sin(da),
+            Math.cos(da),
+          );
         }
         if (now < st.next) return;
         st.next = now + 120;
@@ -971,7 +1473,10 @@ export class Fx {
   }
 
   /** Get-or-create a zone set piece (vortex/comet) keyed by zone id. */
-  private zonePiece(id: string, make: () => { obj: THREE.Object3D; ownMat: THREE.Material | null }): ZonePiece {
+  private zonePiece(
+    id: string,
+    make: () => { obj: THREE.Object3D; ownMat: THREE.Material | null },
+  ): ZonePiece {
     let p = this.zonePieces.get(id);
     if (!p) {
       const m = make();
@@ -984,7 +1489,11 @@ export class Fx {
 
   /** One ember on a unit standing in a hostile zone (silent-tick ambience). */
   zoneEmber(x: number, y: number, color: number): void {
-    const o = sp(x + (Math.random() - 0.5) * 0.5, 0.9 + Math.random() * 0.6, y + (Math.random() - 0.5) * 0.5);
+    const o = sp(
+      x + (Math.random() - 0.5) * 0.5,
+      0.9 + Math.random() * 0.6,
+      y + (Math.random() - 0.5) * 0.5,
+    );
     o.vy = 1.6;
     o.color = color;
     o.size = 0.24;
@@ -1028,7 +1537,15 @@ export class Fx {
   // ── particle spawners (public signatures preserved from the mesh-pool era) ──
 
   /** Omnidirectional energy burst (fire/magic) — additive. */
-  burst(x: number, y: number, z: number, n: number, color: number, speed: number, life: number): void {
+  burst(
+    x: number,
+    y: number,
+    z: number,
+    n: number,
+    color: number,
+    speed: number,
+    life: number,
+  ): void {
     for (let i = 0; i < n; i++) {
       const a = Math.random() * Math.PI * 2;
       const up = Math.random() * 0.8 + 0.2;
@@ -1145,7 +1662,15 @@ export class Fx {
   }
 
   /** A single rising additive mote (delivery helix, ult-ready gold flecks). */
-  mote(x: number, h: number, y: number, color: number, vy: number, life: number, size: number): void {
+  mote(
+    x: number,
+    h: number,
+    y: number,
+    color: number,
+    vy: number,
+    life: number,
+    size: number,
+  ): void {
     const o = sp(x, h, y);
     o.vy = vy;
     o.life = life;
@@ -1196,7 +1721,16 @@ export class Fx {
   }
 
   /** A jet of stretched particles thrown forward along the aim — dashes. */
-  castStreak(x: number, y: number, dx: number, dy: number, color: number, speed: number, n: number, spread = 0.25): void {
+  castStreak(
+    x: number,
+    y: number,
+    dx: number,
+    dy: number,
+    color: number,
+    speed: number,
+    n: number,
+    spread = 0.25,
+  ): void {
     const base = Math.atan2(dy, dx);
     for (let i = 0; i < n; i++) {
       const a = base + (Math.random() - 0.5) * spread;
@@ -1233,7 +1767,16 @@ export class Fx {
 
   /** Camera-facing authored sprite pop (flare star, impact burst): scale-pop
    *  then fade — the anime "glint" beat. */
-  flare(tex: "flare-star" | "impact-burst" | "glow-soft", x: number, y: number, z: number, color: number, size = 2, life = 0.18, spin = 0): void {
+  flare(
+    tex: "flare-star" | "impact-burst" | "glow-soft",
+    x: number,
+    y: number,
+    z: number,
+    color: number,
+    size = 2,
+    life = 0.18,
+    spin = 0,
+  ): void {
     const f = this.flares.find((e) => e.life <= 0);
     if (!f) return;
     f.life = f.maxLife = life;
@@ -1267,11 +1810,22 @@ export class Fx {
   // Transient composed actors: authored sprites/decals/bolts/shells from
   // public/fx/, each a short-lived object with its own tick. Capped — a spam
   // of casts drops the extras, never the frame rate.
-  private texActors: { obj: THREE.Object3D; mats: THREE.Material[]; life: number; maxLife: number; tick: (k: number) => void }[] = [];
+  private texActors: {
+    obj: THREE.Object3D;
+    mats: THREE.Material[];
+    life: number;
+    maxLife: number;
+    tick: (k: number) => void;
+  }[] = [];
   private texQuad = new THREE.PlaneGeometry(1, 1);
   private texSphere = new THREE.SphereGeometry(1, 20, 12);
 
-  private texActor(obj: THREE.Object3D, mats: THREE.Material[], life: number, tick: (k: number) => void): void {
+  private texActor(
+    obj: THREE.Object3D,
+    mats: THREE.Material[],
+    life: number,
+    tick: (k: number) => void,
+  ): void {
     if (this.texActors.length >= 40) {
       for (const m of mats) m.dispose();
       return;
@@ -1295,9 +1849,39 @@ export class Fx {
   }
 
   /** Authored flat ground decal (scorch, crack, rune circle). */
-  texDecal(tex: string, x: number, z: number, opts: { size?: number; color?: number; life?: number; spinRate?: number; grow?: number; additive?: boolean; fade?: "out" | "inout"; y?: number } = {}): void {
-    const { size = 3, color = 0xffffff, life = 1.2, spinRate = 0, grow = 1, additive = true, fade = "out", y = 0.07 } = opts;
-    const mat = new THREE.MeshBasicMaterial({ map: fxTex(tex), color, transparent: true, blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending, depthWrite: false, side: THREE.DoubleSide });
+  texDecal(
+    tex: string,
+    x: number,
+    z: number,
+    opts: {
+      size?: number;
+      color?: number;
+      life?: number;
+      spinRate?: number;
+      grow?: number;
+      additive?: boolean;
+      fade?: "out" | "inout";
+      y?: number;
+    } = {},
+  ): void {
+    const {
+      size = 3,
+      color = 0xffffff,
+      life = 1.2,
+      spinRate = 0,
+      grow = 1,
+      additive = true,
+      fade = "out",
+      y = 0.07,
+    } = opts;
+    const mat = new THREE.MeshBasicMaterial({
+      map: fxTex(tex),
+      color,
+      transparent: true,
+      blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
     const m = new THREE.Mesh(this.texQuad, mat);
     m.rotation.x = -Math.PI / 2;
     m.rotation.z = Math.random() * Math.PI * 2;
@@ -1311,12 +1895,24 @@ export class Fx {
   }
 
   /** Vertical crossed-plane bolt (lightning columns). */
-  texBolt(tex: string, x: number, z: number, opts: { h?: number; w?: number; color?: number; life?: number } = {}): void {
+  texBolt(
+    tex: string,
+    x: number,
+    z: number,
+    opts: { h?: number; w?: number; color?: number; life?: number } = {},
+  ): void {
     const { h = 9, w = 2.2, color = 0xffffff, life = 0.32 } = opts;
     const group = new THREE.Group();
     const mats: THREE.Material[] = [];
     for (const ry of [0, Math.PI / 2]) {
-      const mat = new THREE.MeshBasicMaterial({ map: fxTex(tex), color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+      const mat = new THREE.MeshBasicMaterial({
+        map: fxTex(tex),
+        color,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      });
       const m = new THREE.Mesh(this.texQuad, mat);
       m.scale.set(w, h, 1);
       m.position.y = h / 2;
@@ -1332,11 +1928,25 @@ export class Fx {
   }
 
   /** Flipbook sprite (grid sheet) played once (flames, puffs). */
-  texFlipbook(tex: string, cols: number, rows: number, x: number, y: number, z: number, opts: { size?: number; color?: number; life?: number; rise?: number } = {}): void {
+  texFlipbook(
+    tex: string,
+    cols: number,
+    rows: number,
+    x: number,
+    y: number,
+    z: number,
+    opts: { size?: number; color?: number; life?: number; rise?: number } = {},
+  ): void {
     const { size = 2, color = 0xffffff, life = 0.6, rise = 0 } = opts;
     const map = fxTex(tex).clone();
     map.repeat.set(1 / cols, 1 / rows);
-    const mat = new THREE.SpriteMaterial({ map, color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+    const mat = new THREE.SpriteMaterial({
+      map,
+      color,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
     const spr = new THREE.Sprite(mat);
     spr.position.set(x, y, z);
     spr.scale.setScalar(size);
@@ -1350,12 +1960,31 @@ export class Fx {
   }
 
   /** Textured shell (shield bubbles, storm orbs). */
-  texShell(tex: string, x: number, y: number, z: number, opts: { r?: number; color?: number; life?: number; repeat?: [number, number]; scrollY?: number } = {}): void {
+  texShell(
+    tex: string,
+    x: number,
+    y: number,
+    z: number,
+    opts: {
+      r?: number;
+      color?: number;
+      life?: number;
+      repeat?: [number, number];
+      scrollY?: number;
+    } = {},
+  ): void {
     const { r = 1.9, color = 0xffffff, life = 1.6, repeat = [3, 2], scrollY = 0 } = opts;
     const map = fxTex(tex).clone();
     map.wrapS = map.wrapT = THREE.RepeatWrapping;
     map.repeat.set(repeat[0], repeat[1]);
-    const mat = new THREE.MeshBasicMaterial({ map, color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+    const mat = new THREE.MeshBasicMaterial({
+      map,
+      color,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
     const m = new THREE.Mesh(this.texSphere, mat);
     m.position.set(x, y, z);
     m.scale.setScalar(r);
@@ -1368,9 +1997,22 @@ export class Fx {
   }
 
   /** Camera-facing authored sprite with inout fade (wings, portals, swirls). */
-  texSprite(tex: string, x: number, y: number, z: number, opts: { size?: number; color?: number; life?: number; grow?: number; spin?: number } = {}): void {
+  texSprite(
+    tex: string,
+    x: number,
+    y: number,
+    z: number,
+    opts: { size?: number; color?: number; life?: number; grow?: number; spin?: number } = {},
+  ): void {
     const { size = 3, color = 0xffffff, life = 0.8, grow = 1.15, spin = 0 } = opts;
-    const mat = new THREE.SpriteMaterial({ map: fxTex(tex), color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, rotation: Math.random() * spin });
+    const mat = new THREE.SpriteMaterial({
+      map: fxTex(tex),
+      color,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      rotation: Math.random() * spin,
+    });
     const spr = new THREE.Sprite(mat);
     spr.position.set(x, y, z);
     spr.scale.setScalar(size);
@@ -1381,9 +2023,25 @@ export class Fx {
   }
 
   /** Stretched streak flying A→B (comet tails, rising light). */
-  texStreak(tex: string, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, opts: { w?: number; len?: number; color?: number; life?: number } = {}): void {
+  texStreak(
+    tex: string,
+    x0: number,
+    y0: number,
+    z0: number,
+    x1: number,
+    y1: number,
+    z1: number,
+    opts: { w?: number; len?: number; color?: number; life?: number } = {},
+  ): void {
     const { w = 1.2, len = 5, color = 0xffffff, life = 0.45 } = opts;
-    const mat = new THREE.MeshBasicMaterial({ map: fxTex(tex), color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+    const mat = new THREE.MeshBasicMaterial({
+      map: fxTex(tex),
+      color,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
     const m = new THREE.Mesh(this.texQuad, mat);
     m.scale.set(len, w, 1);
     const from = new THREE.Vector3(x0, y0, z0);
@@ -1397,7 +2055,15 @@ export class Fx {
 
   /** Muzzle-flash star: an authored 4-point flare sprite over two stretched
    *  glint particles (the sprite is the read, the particles are the motion). */
-  crossGlint(x: number, y: number, z: number, dx: number, dy: number, color: number, s = 0.9): void {
+  crossGlint(
+    x: number,
+    y: number,
+    z: number,
+    dx: number,
+    dy: number,
+    color: number,
+    s = 0.9,
+  ): void {
     this.flare("flare-star", x, y, z, color, s * 2.4, 0.16, Math.random() * 0.6 - 0.3);
     const l = Math.hypot(dx, dy) || 1;
     const px = -dy / l;
@@ -1560,7 +2226,15 @@ export class Fx {
   }
 
   /** A flat filled sector fanning out along the aim — cone attacks. NORMAL blend. */
-  castCone(x: number, y: number, dx: number, dy: number, color: number, reach: number, half: number): void {
+  castCone(
+    x: number,
+    y: number,
+    dx: number,
+    dy: number,
+    color: number,
+    reach: number,
+    half: number,
+  ): void {
     const c = this.acquireCone();
     if (!c) return;
     c.mesh.geometry = this.coneGeo(half);
@@ -1578,7 +2252,15 @@ export class Fx {
   }
 
   /** A bright additive rim marking the exact reach edge of a cleave sector. */
-  sectorRim(x: number, y: number, dx: number, dy: number, color: number, reach: number, half: number): void {
+  sectorRim(
+    x: number,
+    y: number,
+    dx: number,
+    dy: number,
+    color: number,
+    reach: number,
+    half: number,
+  ): void {
     const c = this.acquireCone();
     if (!c) return;
     c.mesh.geometry = this.rimGeo(half);
@@ -1613,7 +2295,21 @@ export class Fx {
    *  angle), holds a hot edge, and erodes. `reach` = arc radius; `tilt` lifts
    *  the arc plane off the ground toward the camera (0 = flat ring, ~0.5 =
    *  reads best from the chase cam); `dir` mirrors the sweep for off-hand cuts. */
-  slashArc(x: number, y: number, facing: number, reach: number, color: number, opts: { tilt?: number; span?: number; life?: number; height?: number; dir?: 1 | -1; tex?: SlashTex } = {}): void {
+  slashArc(
+    x: number,
+    y: number,
+    facing: number,
+    reach: number,
+    color: number,
+    opts: {
+      tilt?: number;
+      span?: number;
+      life?: number;
+      height?: number;
+      dir?: 1 | -1;
+      tex?: SlashTex;
+    } = {},
+  ): void {
     const s = this.slashes.find((e) => e.life <= 0);
     if (!s) return;
     const { tilt = 0.5, span = 1.05, life = 0.26, height = 1.15, dir = 1, tex = "white" } = opts;
@@ -1653,7 +2349,16 @@ export class Fx {
   /** Fissure decal: radial star (`len` = radius, `wid` omitted/equal) or a
    *  directional gash (`wid` ≠ len) along sim angle `ang`. Hot seams cool over
    *  `life` seconds; `pulse` keeps them re-heating (bleed wounds). */
-  crack(x: number, y: number, ang: number, len: number, wid: number, color: number, life = 2.2, pulse = 0): void {
+  crack(
+    x: number,
+    y: number,
+    ang: number,
+    len: number,
+    wid: number,
+    color: number,
+    life = 2.2,
+    pulse = 0,
+  ): void {
     const c = this.cracks.find((e) => e.life <= 0);
     if (!c) return;
     c.life = c.maxLife = life;
@@ -1685,7 +2390,10 @@ export class Fx {
   private ghostTint = new THREE.Color();
   ghost(x: number, y: number, color: number): void {
     this.ghostTint.setHex(color).multiplyScalar(0.4);
-    for (const [h, size] of [[1.15, 1.5], [0.45, 1.0]] as const) {
+    for (const [h, size] of [
+      [1.15, 1.5],
+      [0.45, 1.0],
+    ] as const) {
       const o = sp(x, h, y);
       o.life = 0.3;
       o.size = size;
@@ -1700,7 +2408,11 @@ export class Fx {
   drips(x: number, y: number, n: number, color: number): void {
     const c = new THREE.Color(color);
     for (let i = 0; i < n; i++) {
-      const o = sp(x + (Math.random() - 0.5) * 0.8, 1.0 + Math.random() * 0.4, y + (Math.random() - 0.5) * 0.8);
+      const o = sp(
+        x + (Math.random() - 0.5) * 0.8,
+        1.0 + Math.random() * 0.4,
+        y + (Math.random() - 0.5) * 0.8,
+      );
       o.vx = (Math.random() - 0.5) * 1.2;
       o.vz = (Math.random() - 0.5) * 1.2;
       o.vy = 0.5;
@@ -1747,16 +2459,44 @@ export class Fx {
 
   // ── floating numbers (ownership hierarchy: yours are the loud ones) ──
 
-  private hitNumber(x: number, y: number, amount: number, dtype: string, heavy: boolean, by: string): void {
+  private hitNumber(
+    x: number,
+    y: number,
+    amount: number,
+    dtype: string,
+    heavy: boolean,
+    by: string,
+  ): void {
     const mine = by !== "" && by === this.localId;
     if (mine && heavy) {
       const size = Math.min(30, 27 + amount / 150);
-      this.spawnNumber(x, y, `${amount}`, size, 900, "#ff7a3c", 30, 0.55, "-webkit-text-stroke:1px #401800;", 1.7);
+      this.spawnNumber(
+        x,
+        y,
+        `${amount}`,
+        size,
+        900,
+        "#ff7a3c",
+        30,
+        0.55,
+        "-webkit-text-stroke:1px #401800;",
+        1.7,
+      );
       return;
     }
     if (mine) {
       const size = Math.min(26, 13 + amount / 35);
-      this.spawnNumber(x, y, `${amount}`, size, 800, dtype === "magic" ? "#c98bff" : "#fff2d0", 54, 0.6, "");
+      this.spawnNumber(
+        x,
+        y,
+        `${amount}`,
+        size,
+        800,
+        dtype === "magic" ? "#c98bff" : "#fff2d0",
+        54,
+        0.6,
+        "",
+      );
       return;
     }
     const onMe = (x - this.lx) ** 2 + (y - this.ly) ** 2 < 1.44;
@@ -1768,7 +2508,18 @@ export class Fx {
     this.spawnNumber(x, y, `${amount}`, 11, 700, "#e8e2d4", 34, 0.5, "opacity:0.55;");
   }
 
-  private spawnNumber(x: number, y: number, text: string, size: number, weight: number, color: string, rise: number, dur: number, extra: string, pop = 1): void {
+  private spawnNumber(
+    x: number,
+    y: number,
+    text: string,
+    size: number,
+    weight: number,
+    color: string,
+    rise: number,
+    dur: number,
+    extra: string,
+    pop = 1,
+  ): void {
     const s = this.view.worldToScreen(x, y);
     if (!s.visible) return;
     const el = document.createElement("div");

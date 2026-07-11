@@ -12,7 +12,7 @@ The main skill builds scenes — meshes, lights, an animation loop. This guide m
 4. **Camera** — follow/third-person with frame-rate-independent smoothing.
 5. **Assets & feel** — load real models, wire SFX, then tune with the game-craft skills.
 
-Pair this with the sibling references (`gltf-loading-guide.md`, `game-patterns.md`, `advanced-topics.md`) and the `game-feel` skill for tuning values — this guide is the *systems*, those are the *craft*.
+Pair this with the sibling references (`gltf-loading-guide.md`, `game-patterns.md`, `advanced-topics.md`) and the `game-feel` skill for tuning values — this guide is the _systems_, those are the _craft_.
 
 ---
 
@@ -80,7 +80,7 @@ src/
   game.js          # state machine: menu/play/pause/over (see game-patterns.md)
 ```
 
-**Rule that prevents the most bugs: input emits *intent*, not motion.** `input.js` sets `intent.moveX`, `intent.jump`; the controller decides what that means this step. This keeps movement testable and lets touch controls (`gamepad` skill) and AI drive the same controller.
+**Rule that prevents the most bugs: input emits _intent_, not motion.** `input.js` sets `intent.moveX`, `intent.jump`; the controller decides what that means this step. This keeps movement testable and lets touch controls (`gamepad` skill) and AI drive the same controller.
 
 ---
 
@@ -88,11 +88,11 @@ src/
 
 Don't reach for a full engine by default — match the tool to the feel you need. Full decision table and recipes in [`physics.md`](physics.md).
 
-| Approach | Use when | Cost |
-| --- | --- | --- |
-| **Arcade / custom** | Pickups, triggers, platformers where *authored feel* beats realism. Sphere/AABB overlap checks, manual gravity. | Lowest — no dependency |
-| **cannon-es** | Light rigid-body needs, a few dozen dynamic bodies, pure-JS simplicity. | ~Medium, JS-speed |
-| **Rapier** (`@dimforge/rapier3d-compat`) | The default for *serious* 3D games — stable stacking, many bodies, a real kinematic character controller, raycasts. WASM-fast. | Needs `await RAPIER.init()` before use |
+| Approach                                 | Use when                                                                                                                       | Cost                                   |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------- |
+| **Arcade / custom**                      | Pickups, triggers, platformers where _authored feel_ beats realism. Sphere/AABB overlap checks, manual gravity.                | Lowest — no dependency                 |
+| **cannon-es**                            | Light rigid-body needs, a few dozen dynamic bodies, pure-JS simplicity.                                                        | ~Medium, JS-speed                      |
+| **Rapier** (`@dimforge/rapier3d-compat`) | The default for _serious_ 3D games — stable stacking, many bodies, a real kinematic character controller, raycasts. WASM-fast. | Needs `await RAPIER.init()` before use |
 
 A common mistake is simulating things that want authored feel (a coin you walk through, a jump height you tuned by hand) with a physics engine and fighting it. Triggers and pickups → overlap checks. Stacking crates, ragdolls, vehicles → Rapier.
 
@@ -114,7 +114,7 @@ camera.position.lerp(targetPos, t);
 
 ## Wiring in generated assets
 
-Generated GLB models and sound effects only matter once they're *in the running game* — loaded, scale-normalized, placed, collidable, and triggered by events. The generate skills produce the files; this closes the loop. See [`generated-assets.md`](generated-assets.md) for:
+Generated GLB models and sound effects only matter once they're _in the running game_ — loaded, scale-normalized, placed, collidable, and triggered by events. The generate skills produce the files; this closes the loop. See [`generated-assets.md`](generated-assets.md) for:
 
 - `vg generate` → GLB → `GLTFLoader` → normalize scale → attach a collider sized to the model's bounds.
 - `vg generate` → SFX/music → Web Audio buffer pool → trigger on collision/jump/pickup (with the gesture-unlock dance mobile requires).

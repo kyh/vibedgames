@@ -173,9 +173,9 @@ export class RaycastVehicle {
     // Custom mass properties: pitch/roll inertia scaled up (harder to flip),
     // yaw left natural so steering response stays sharp.
     const m = p.mass;
-    const ix = ((m / 12) * (4 * HALF.y * HALF.y + 4 * HALF.z * HALF.z)) * p.inertiaScale;
+    const ix = (m / 12) * (4 * HALF.y * HALF.y + 4 * HALF.z * HALF.z) * p.inertiaScale;
     const iy = (m / 12) * (4 * HALF.x * HALF.x + 4 * HALF.z * HALF.z);
-    const iz = ((m / 12) * (4 * HALF.x * HALF.x + 4 * HALF.y * HALF.y)) * p.inertiaScale;
+    const iz = (m / 12) * (4 * HALF.x * HALF.x + 4 * HALF.y * HALF.y) * p.inertiaScale;
     this.chassis.setAdditionalMassProperties(
       m,
       { x: 0, y: -0.25, z: 0 }, // low centre of mass
@@ -318,15 +318,16 @@ export class RaycastVehicle {
     //   coast   — nothing held: a light roll-off
     const gas = this.throttle > 0.05;
     const pedalDown = this.brakeInput > 0.05;
-    const mode = this.driftDir !== 0
-      ? "drift"
-      : pedalDown && fwdSpeed > 0.5
-        ? "brake"
-        : pedalDown && fwdSpeed > -p.cruiseSpeed * 0.4
-          ? "reverse"
-          : gas
-            ? "drive"
-            : "coast";
+    const mode =
+      this.driftDir !== 0
+        ? "drift"
+        : pedalDown && fwdSpeed > 0.5
+          ? "brake"
+          : pedalDown && fwdSpeed > -p.cruiseSpeed * 0.4
+            ? "reverse"
+            : gas
+              ? "drive"
+              : "coast";
     const drifting = mode === "drift";
     // Brake pressure ramps in over brakeRamp seconds of HOLDING — a tap or a
     // brake-then-turn-in press only ever feathers, while a held straight
@@ -484,10 +485,7 @@ export class RaycastVehicle {
       if (tier > 0) {
         const boost = tier === 2 ? p.turbo2Boost : p.turbo1Boost;
         const f = this.forwardDir(this.v);
-        this.chassis.applyImpulse(
-          { x: f.x * boost * p.mass, y: 0, z: f.z * boost * p.mass },
-          true,
-        );
+        this.chassis.applyImpulse({ x: f.x * boost * p.mass, y: 0, z: f.z * boost * p.mass }, true);
         this.turboFired = tier;
       }
       this.driftDir = 0;

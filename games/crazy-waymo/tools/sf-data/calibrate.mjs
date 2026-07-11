@@ -69,7 +69,9 @@ for (const a of ANCHORS) {
   maxResU = Math.max(maxResU, Math.abs(pu - a.u));
   maxResV = Math.max(maxResV, Math.abs(pv - a.v));
 }
-console.log(`  max residual: u=${maxResU.toFixed(3)}  v=${maxResV.toFixed(3)} (fraction of map span)`);
+console.log(
+  `  max residual: u=${maxResU.toFixed(3)}  v=${maxResV.toFixed(3)} (fraction of map span)`,
+);
 
 // Invert to get the lon/lat that map to u,v in {0,1} — the geographic box the
 // game's [0,1]x[0,1] normalized space covers.

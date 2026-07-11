@@ -24,8 +24,20 @@ export type Upgrade = {
 };
 
 export const UPGRADES: readonly Upgrade[] = [
-  { id: "vitality", name: "Vitality", desc: "+1 starting max heart", max: 3, cost: (l) => 30 + l * 26 },
-  { id: "edge", name: "Honed Edge", desc: "+10% starting damage", max: 4, cost: (l) => 22 + l * 20 },
+  {
+    id: "vitality",
+    name: "Vitality",
+    desc: "+1 starting max heart",
+    max: 3,
+    cost: (l) => 30 + l * 26,
+  },
+  {
+    id: "edge",
+    name: "Honed Edge",
+    desc: "+10% starting damage",
+    max: 4,
+    cost: (l) => 22 + l * 20,
+  },
   { id: "warding", name: "Warding", desc: "+8% block chance", max: 3, cost: (l) => 26 + l * 24 },
   { id: "fortune", name: "Fortune", desc: "+15% shards earned", max: 3, cost: (l) => 20 + l * 22 },
 ];
@@ -77,7 +89,9 @@ export function loadMeta(): MetaState {
     if (!raw) return fresh();
     const p: unknown = JSON.parse(raw);
     const o = typeof p === "object" && p !== null ? (p as Record<string, unknown>) : {};
-    const unlocked = Array.isArray(o.unlocked) ? o.unlocked.filter((x): x is string => typeof x === "string") : [...DEFAULT_UNLOCKED];
+    const unlocked = Array.isArray(o.unlocked)
+      ? o.unlocked.filter((x): x is string => typeof x === "string")
+      : [...DEFAULT_UNLOCKED];
     const upgrades: Record<string, number> = {};
     const rawUp = o.upgrades;
     if (typeof rawUp === "object" && rawUp !== null) {

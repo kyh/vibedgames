@@ -31,7 +31,9 @@ const network = new RoadNetwork();
 {
   const raw = buildGridNetwork(plan, worldX, worldZ);
   const gridNet = new RoadNetwork(raw.nodes, raw.edges);
-  console.log(`grid-derived fallback: ${gridNet.edges.length} edges (vector: ${network.edges.length})`);
+  console.log(
+    `grid-derived fallback: ${gridNet.edges.length} edges (vector: ${network.edges.length})`,
+  );
 }
 
 // --- 1. Mask sanity ---
@@ -141,7 +143,11 @@ for (const mesh of meshes) {
   }
 }
 check(nonFinite === 0, "all road vertices finite", String(nonFinite));
-check(degenerate === 0, "no street geometry far from the network", `${degenerate} sampled of ${tris}`);
+check(
+  degenerate === 0,
+  "no street geometry far from the network",
+  `${degenerate} sampled of ${tris}`,
+);
 
 // --- 4. Markings stay out of junction areas ---
 // (dash geometry is emitted per-edge; every dash midpoint was already
@@ -150,7 +156,11 @@ check(degenerate === 0, "no street geometry far from the network", `${degenerate
   let strayDashes = 0;
   const yellow = meshes.filter((m) => {
     const mat = m.material;
-    return !Array.isArray(mat) && "color" in mat && (mat as { color: { getHexString(): string } }).color.getHexString() === "d8a23c";
+    return (
+      !Array.isArray(mat) &&
+      "color" in mat &&
+      (mat as { color: { getHexString(): string } }).color.getHexString() === "d8a23c"
+    );
   });
   for (const mesh of yellow) {
     const pos = mesh.geometry.getAttribute("position");
@@ -181,5 +191,7 @@ check(degenerate === 0, "no street geometry far from the network", `${degenerate
   check(strayDashes === 0, "no dashes inside junction cores", String(strayDashes));
 }
 
-console.log(failures === 0 ? "\nstreet-lint: ALL CHECKS PASSED" : `\nstreet-lint: ${failures} FAILURES`);
+console.log(
+  failures === 0 ? "\nstreet-lint: ALL CHECKS PASSED" : `\nstreet-lint: ${failures} FAILURES`,
+);
 if (failures > 0) process.exit(1);

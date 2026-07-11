@@ -36,10 +36,18 @@ class Sfx {
 
   toggleMute() {
     this.muted = !this.muted;
-    if (this.master && this.ctx) this.master.gain.setValueAtTime(this.muted ? 0 : 0.5, this.ctx.currentTime);
+    if (this.master && this.ctx)
+      this.master.gain.setValueAtTime(this.muted ? 0 : 0.5, this.ctx.currentTime);
   }
 
-  private tone(freq: number, dur: number, type: OscillatorType, gain: number, slideTo?: number, dest?: AudioNode) {
+  private tone(
+    freq: number,
+    dur: number,
+    type: OscillatorType,
+    gain: number,
+    slideTo?: number,
+    dest?: AudioNode,
+  ) {
     const ctx = this.ensure();
     if (!ctx || !this.master) return;
     const o = ctx.createOscillator();

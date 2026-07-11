@@ -193,6 +193,7 @@ Each `AGENT.md` opens with YAML-ish frontmatter and then the role prompt:
 ---
 emoji: 🛠️
 ---
+
 ROLE: Game Engineer …
 ```
 
@@ -300,22 +301,22 @@ TypeScript step — nothing is emitted).
 
 ### `start` options
 
-| Flag                | Default                           | Meaning                                                                          |
-| ------------------- | --------------------------------- | -------------------------------------------------------------------------------- |
-| `--idea`            | — (one of idea/context/existing)  | Seed idea. Optional with `--context` or when `--dir` has a project.              |
-| `--context`         | —                                 | Extra brief: literal text, a file (read inline), or a directory (referenced).    |
-| `--runner`          | `claude`                          | Which coding-agent CLI runs the subagents: `claude` or `codex`.                  |
-| `--model`           | per runner                        | `claude-fable-5` (claude) / `gpt-5.6-sol` (codex); pass a cheaper tier to save.  |
-| `--max-cycles`      | `0` (forever)                     | Stop after N subagent runs (lifetime count, persisted).                          |
-| `--checkpoint-wait` | `120`                             | Seconds an agent checkpoint waits for feedback before auto-continuing (0 = skip). |
-| `--max-turns`       | `40`                              | Per-subagent agentic turn ceiling.                                              |
-| `--idle-timeout`    | `45`                              | Kill a subagent that emits no output for this many minutes (0 disables).         |
-| `--session-timeout` | `120`                             | Absolute cap on a single subagent session, in minutes (0 disables).              |
-| `--interval`        | `0`                               | ms to pause between subagent runs.                                              |
-| `--auto-deploy`     | off                               | Deploy automatically. Default OFF — deploys wait for `pnpm approve <slug>`.      |
-| `--skip-ship`       | off                               | Never prepare a release at all (use while testing).                             |
-| `--dir`             | `apps/factory/.workspaces/<slug>` | Where the game lives — its project directory.                                    |
-| `--guarded`         | off                               | Do **not** auto-approve tools — for debugging only; breaks autonomy.             |
+| Flag                | Default                           | Meaning                                                                              |
+| ------------------- | --------------------------------- | ------------------------------------------------------------------------------------ |
+| `--idea`            | — (one of idea/context/existing)  | Seed idea. Optional with `--context` or when `--dir` has a project.                  |
+| `--context`         | —                                 | Extra brief: literal text, a file (read inline), or a directory (referenced).        |
+| `--runner`          | `claude`                          | Which coding-agent CLI runs the subagents: `claude` or `codex`.                      |
+| `--model`           | per runner                        | `claude-fable-5` (claude) / `gpt-5.6-sol` (codex); pass a cheaper tier to save.      |
+| `--max-cycles`      | `0` (forever)                     | Stop after N subagent runs (lifetime count, persisted).                              |
+| `--checkpoint-wait` | `120`                             | Seconds an agent checkpoint waits for feedback before auto-continuing (0 = skip).    |
+| `--max-turns`       | `40`                              | Per-subagent agentic turn ceiling.                                                   |
+| `--idle-timeout`    | `45`                              | Kill a subagent that emits no output for this many minutes (0 disables).             |
+| `--session-timeout` | `120`                             | Absolute cap on a single subagent session, in minutes (0 disables).                  |
+| `--interval`        | `0`                               | ms to pause between subagent runs.                                                   |
+| `--auto-deploy`     | off                               | Deploy automatically. Default OFF — deploys wait for `pnpm approve <slug>`.          |
+| `--skip-ship`       | off                               | Never prepare a release at all (use while testing).                                  |
+| `--dir`             | `apps/factory/.workspaces/<slug>` | Where the game lives — its project directory.                                        |
+| `--guarded`         | off                               | Do **not** auto-approve tools — for debugging only; breaks autonomy.                 |
 | `--no-tui`          | off                               | Plain streamed logs instead of the interactive dashboard (automatic when not a TTY). |
 
 Re-running `pnpm start <slug>` **resumes** from the saved phase.

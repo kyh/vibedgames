@@ -40,7 +40,13 @@ export type GoldenGateResult = {
   readonly openWaterCells: ReadonlySet<string>;
 };
 
-function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number): THREE.Mesh {
+function mesh(
+  geo: THREE.BufferGeometry,
+  mat: THREE.Material,
+  x: number,
+  y: number,
+  z: number,
+): THREE.Mesh {
   const m = new THREE.Mesh(geo, mat);
   m.position.set(x, y, z);
   m.castShadow = true;
@@ -86,7 +92,14 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
   const kneeZ = shoreZ - rampLen * 0.68;
   const kneeY = shoreH + (deckY - shoreH) * 0.8;
   decks.push({ minX: ax - half, maxX: ax + half, minZ: kneeZ, maxZ: shoreZ, y: kneeY, y2: shoreH });
-  decks.push({ minX: ax - half, maxX: ax + half, minZ: rampTopZ, maxZ: kneeZ, y: deckY, y2: kneeY });
+  decks.push({
+    minX: ax - half,
+    maxX: ax + half,
+    minZ: rampTopZ,
+    maxZ: kneeZ,
+    y: deckY,
+    y2: kneeY,
+  });
   // Deck out to the vista pad.
   decks.push({ minX: ax - half, maxX: ax + half, minZ: endZ, maxZ: rampTopZ, y: deckY });
 
@@ -146,7 +159,13 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
     objects.push(mesh(railGeo, RAIL_ORANGE, ax + sx, deckY + 0.55, (railMinZ + railMaxZ) / 2));
   }
   objects.push(
-    mesh(new THREE.BoxGeometry(DECK_W + RAIL_T * 2, 1.6, 1.2), RAIL_ORANGE, ax, deckY + 0.8, endZ - 0.6),
+    mesh(
+      new THREE.BoxGeometry(DECK_W + RAIL_T * 2, 1.6, 1.2),
+      RAIL_ORANGE,
+      ax,
+      deckY + 0.8,
+      endZ - 0.6,
+    ),
   );
 
   // Piers under the deck.
@@ -169,13 +188,17 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
   const topY = deckY + TOWER_H;
   for (const sx of [-(half + 2.2), half + 2.2]) {
     objects.push(
-      mesh(new THREE.BoxGeometry(2, TOWER_H + deckY + 2, 2), ORANGE, ax + sx, (topY + 1) / 2 - 1, towerZ),
+      mesh(
+        new THREE.BoxGeometry(2, TOWER_H + deckY + 2, 2),
+        ORANGE,
+        ax + sx,
+        (topY + 1) / 2 - 1,
+        towerZ,
+      ),
     );
   }
   for (const by of [deckY + 8.5, deckY + 17, topY - 1.5]) {
-    objects.push(
-      mesh(new THREE.BoxGeometry(DECK_W + 6.4, 1.4, 1.4), ORANGE, ax, by, towerZ),
-    );
+    objects.push(mesh(new THREE.BoxGeometry(DECK_W + 6.4, 1.4, 1.4), ORANGE, ax, by, towerZ));
   }
 
   // Main cables: catenary from the shore anchorage over the tower top, plus
@@ -198,9 +221,7 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
       if (p.z < railMinZ || p.z > railMaxZ) continue;
       const h = p.y - (deckY + 1);
       if (h < 1) continue;
-      objects.push(
-        mesh(new THREE.BoxGeometry(0.14, h, 0.14), ORANGE, p.x, deckY + 1 + h / 2, p.z),
-      );
+      objects.push(mesh(new THREE.BoxGeometry(0.14, h, 0.14), ORANGE, p.x, deckY + 1 + h / 2, p.z));
     }
   }
 

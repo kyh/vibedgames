@@ -29,17 +29,17 @@ Overthrow is the first official Valve-made Dota 2 custom game (shipped with the 
 beta). It is a **kill-race deathmatch** built on normal Dota heroes/items, with a few
 signature twists that force action and rubber-band the score. Confirmed mechanics:
 
-| Mechanic | Detail |
-|---|---|
-| **Players / modes** | 10 players. Configurations include **FFA** (free-for-all), **2v2v2v2v2**, and **3v3v3**, across several maps. |
-| **Goal** | **FFA:** first player to the goal number of kills wins. **Team:** the team with the most kills when the round timer ends wins. **Tie → Sudden Death:** the first team/player to pull 1 point ahead of the current leader wins. |
-| **Bases** | Each player/team spawns in a small base at the map edge with a shop, a secret shop, an **indestructible tower**, and a fountain (healing + safe zone). |
-| **Midas Throne (center)** | A central platform. Standing near it gives **faster gold + XP gain** (an aura). It is the contested heart of the map. |
-| **Over Boss** | A neutral boss that sits atop the Throne and **throws giant coins** out onto the map. **Picking up a coin = +300 gold.** |
-| **Item deliveries (catch-up)** | Items are randomly air-dropped onto the map, marked on the minimap. **The fewer kills your team has, the better the item you receive** — rubber-banding for losers. |
-| **Leader bounty** | Killing the top-rated player / a member of the leading team awards a **bonus +500 gold**. |
-| **Map detail** | River around the edges with **rune** spawn locations; high-ground walking paths between bases and center. |
-| **Pace** | Fast — accelerated gold/XP so heroes power up quickly and fights are constant. Death sends you back to your fountain on a respawn timer; no buybacks-as-strategy, you just get back in. |
+| Mechanic                       | Detail                                                                                                                                                                                                                         |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Players / modes**            | 10 players. Configurations include **FFA** (free-for-all), **2v2v2v2v2**, and **3v3v3**, across several maps.                                                                                                                  |
+| **Goal**                       | **FFA:** first player to the goal number of kills wins. **Team:** the team with the most kills when the round timer ends wins. **Tie → Sudden Death:** the first team/player to pull 1 point ahead of the current leader wins. |
+| **Bases**                      | Each player/team spawns in a small base at the map edge with a shop, a secret shop, an **indestructible tower**, and a fountain (healing + safe zone).                                                                         |
+| **Midas Throne (center)**      | A central platform. Standing near it gives **faster gold + XP gain** (an aura). It is the contested heart of the map.                                                                                                          |
+| **Over Boss**                  | A neutral boss that sits atop the Throne and **throws giant coins** out onto the map. **Picking up a coin = +300 gold.**                                                                                                       |
+| **Item deliveries (catch-up)** | Items are randomly air-dropped onto the map, marked on the minimap. **The fewer kills your team has, the better the item you receive** — rubber-banding for losers.                                                            |
+| **Leader bounty**              | Killing the top-rated player / a member of the leading team awards a **bonus +500 gold**.                                                                                                                                      |
+| **Map detail**                 | River around the edges with **rune** spawn locations; high-ground walking paths between bases and center.                                                                                                                      |
+| **Pace**                       | Fast — accelerated gold/XP so heroes power up quickly and fights are constant. Death sends you back to your fountain on a respawn timer; no buybacks-as-strategy, you just get back in.                                        |
 
 **Design intent to preserve:** _constant fighting, a contested center, and mechanics that
 punish the leader and arm the loser so nobody snowballs uncatchably._ That tension is the
@@ -109,10 +109,10 @@ enough to re-queue.
 Ship **FFA first** (simplest netcode + fewest balance variables). Add team modes after the
 vertical slice works.
 
-| Mode | Players | Win condition | Ship order |
-|---|---|---|---|
-| **FFA** | 2–6 | First to **25 kills** _(tunable)_, or most kills at **8:00** _(tunable)_ | **MVP** |
-| **Teams (2–3 teams)** | up to 6 | Most team kills at timer; sudden death on tie | Phase 2 |
+| Mode                  | Players | Win condition                                                            | Ship order |
+| --------------------- | ------- | ------------------------------------------------------------------------ | ---------- |
+| **FFA**               | 2–6     | First to **25 kills** _(tunable)_, or most kills at **8:00** _(tunable)_ | **MVP**    |
+| **Teams (2–3 teams)** | up to 6 | Most team kills at timer; sudden death on tie                            | Phase 2    |
 
 - **Lobby:** one room = one match. Use a room id like `battle-arena-<lobbyCode>`. First player
   in is host. Players pick a champion in a pre-match lobby; host starts the match when ≥2
@@ -173,14 +173,14 @@ more readable.
 
 ### Roster (starting proposal — rename/retheme to match the KayKit models you're given)
 
-| # | Champion | Primary | Fantasy | Basic attack | Kit (3 abilities + ult) |
-|---|---|---|---|---|---|
-| 1 | **Knight** | STR | Frontline bruiser | Melee cleave | Shield bash (stun) · Charge (dash + knockback) · Taunt aura · **ULT: Whirlwind** (AoE spin) |
-| 2 | **Ranger** | AGI | Kiting carry | Ranged arrow | Multishot · Roll (dodge dash) · Trap (root) · **ULT: Rain of arrows** (big AoE) |
-| 3 | **Mage** | INT | Burst caster | Ranged bolt | Fireball (AoE nuke) · Frost nova (slow) · Blink (teleport) · **ULT: Meteor** (delayed heavy AoE) |
-| 4 | **Druid/Barbarian** | STR/INT | Sustain/control | Melee | Heal-over-time · Vine root · Leap · **ULT: Summon/Enrage** |
-| 5 | **Rogue** | AGI | Assassin | Melee | Stealth · Backstab dash · Poison blade (DoT) · **ULT: Execute** (bonus dmg to low HP) |
-| 6 | **Skeleton Mage / Necromancer** | INT | Zoner | Ranged | Bone spear · Curse (amp dmg taken) · Wall · **ULT: Raise minions** |
+| #   | Champion                        | Primary | Fantasy           | Basic attack | Kit (3 abilities + ult)                                                                          |
+| --- | ------------------------------- | ------- | ----------------- | ------------ | ------------------------------------------------------------------------------------------------ |
+| 1   | **Knight**                      | STR     | Frontline bruiser | Melee cleave | Shield bash (stun) · Charge (dash + knockback) · Taunt aura · **ULT: Whirlwind** (AoE spin)      |
+| 2   | **Ranger**                      | AGI     | Kiting carry      | Ranged arrow | Multishot · Roll (dodge dash) · Trap (root) · **ULT: Rain of arrows** (big AoE)                  |
+| 3   | **Mage**                        | INT     | Burst caster      | Ranged bolt  | Fireball (AoE nuke) · Frost nova (slow) · Blink (teleport) · **ULT: Meteor** (delayed heavy AoE) |
+| 4   | **Druid/Barbarian**             | STR/INT | Sustain/control   | Melee        | Heal-over-time · Vine root · Leap · **ULT: Summon/Enrage**                                       |
+| 5   | **Rogue**                       | AGI     | Assassin          | Melee        | Stealth · Backstab dash · Poison blade (DoT) · **ULT: Execute** (bonus dmg to low HP)            |
+| 6   | **Skeleton Mage / Necromancer** | INT     | Zoner             | Ranged       | Bone spear · Curse (amp dmg taken) · Wall · **ULT: Raise minions**                               |
 
 **Ability design rules:** 1 mobility, 1 control (stun/slow/root), 1 damage, plus a
 game-ending ult on a long cooldown. Every champion needs a way **into** a fight and a way
@@ -195,14 +195,14 @@ Top-down ARPG combat. Default to **WASD movement + mouse-aim**, with click-to-mo
 fallback; the moba in this repo is click/right-click order based — pick **WASD+aim** for a
 PvP deathmatch (more responsive, better on the throne brawl).
 
-| Input | Action |
-|---|---|
-| **WASD / left stick** | Move |
-| **Mouse aim / right stick** | Facing + skillshot direction |
-| **Left click / right trigger** | Basic attack (auto-attacks nearest in range if no aim) |
-| **Q W E** | Abilities 1–3 |
-| **R / space** | Ultimate / mobility (bind the dash to a dedicated button) |
-| **Shop key (B) / tab** | Open shop (only usable in base) |
+| Input                          | Action                                                    |
+| ------------------------------ | --------------------------------------------------------- |
+| **WASD / left stick**          | Move                                                      |
+| **Mouse aim / right stick**    | Facing + skillshot direction                              |
+| **Left click / right trigger** | Basic attack (auto-attacks nearest in range if no aim)    |
+| **Q W E**                      | Abilities 1–3                                             |
+| **R / space**                  | Ultimate / mobility (bind the dash to a dedicated button) |
+| **Shop key (B) / tab**         | Open shop (only usable in base)                           |
 
 - **Targeting:** ground-target (AoE), direction (skillshots), and unit-target (lock-on).
   Show range indicators and ground markers while aiming.
@@ -240,10 +240,20 @@ GUEST                                 HOST (first player in room)
   ```ts
   export type Intent =
     | { kind: "join"; champId: string }
-    | { kind: "input"; move: {x:number;y:number}; aim: {x:number;y:number}; buttons: number }
-    | { kind: "cast"; key: "q"|"w"|"e"|"r"; point?: {x:number;y:number}; targetId?: string }
+    | {
+        kind: "input";
+        move: { x: number; y: number };
+        aim: { x: number; y: number };
+        buttons: number;
+      }
+    | {
+        kind: "cast";
+        key: "q" | "w" | "e" | "r";
+        point?: { x: number; y: number };
+        targetId?: string;
+      }
     | { kind: "buy"; itemId: string }
-    | { kind: "useItem"; slot: number; point?: {x:number;y:number} };
+    | { kind: "useItem"; slot: number; point?: { x: number; y: number } };
   ```
 - **Host broadcasts a `Snapshot`** (Map→record encoding, drop closures, include an `rngState`
   seed so any guest can deterministically take over). Mirror `net/snapshot.ts`:
@@ -260,6 +270,7 @@ GUEST                                 HOST (first player in room)
   host snapshot — add this only after the basic loop feels right; it's the most bug-prone part.
 
 ### Tick budget
+
 - Sim: 30 Hz fixed timestep on host.
 - Snapshot broadcast: 15 Hz.
 - Keep the snapshot small: only units, projectiles, ground effects, scores, throne/coin/boss
@@ -272,16 +283,18 @@ GUEST                                 HOST (first player in room)
 This is what makes it _Overthrow_ and not generic deathmatch. Build all four.
 
 ### a) Gold & XP sources
-| Source | Reward _(tunable)_ |
-|---|---|
-| **Kill** | +base gold (e.g. 150) + XP. Scales slightly with victim's level/streak (bounty). |
-| **Throne aura** | Passive **+30% gold and +30% XP** while inside the center radius. |
-| **Over Boss coin** | **+300 gold** per coin picked up. |
-| **Item delivery** | A free item (value scales **inversely** with your kills — see catch-up). |
-| **Leader bounty** | **+500 gold** for killing the current scoreboard leader / a leading-team member. |
-| **Assist** | Partial gold/XP to nearby allies (team modes). |
+
+| Source             | Reward _(tunable)_                                                               |
+| ------------------ | -------------------------------------------------------------------------------- |
+| **Kill**           | +base gold (e.g. 150) + XP. Scales slightly with victim's level/streak (bounty). |
+| **Throne aura**    | Passive **+30% gold and +30% XP** while inside the center radius.                |
+| **Over Boss coin** | **+300 gold** per coin picked up.                                                |
+| **Item delivery**  | A free item (value scales **inversely** with your kills — see catch-up).         |
+| **Leader bounty**  | **+500 gold** for killing the current scoreboard leader / a leading-team member. |
+| **Assist**         | Partial gold/XP to nearby allies (team modes).                                   |
 
 ### b) Over Boss
+
 - A neutral unit on the Throne. It periodically **throws a coin** to a random reachable spot
   (telegraphed arc + landing marker). Coin persists a few seconds; first player to touch it
   claims +300 gold and a satisfying pop.
@@ -289,17 +302,20 @@ This is what makes it _Overthrow_ and not generic deathmatch. Build all four.
   a high-risk objective. Keep it passive for MVP.
 
 ### c) Catch-up item deliveries (rubber-band — **do not skip this**)
+
 - Every N seconds the server spawns a delivery on a random delivery pad, marked for everyone.
 - The **content scales to the claimant's standing**: a last-place player gets a strong item;
   the leader gets a weak one. Resolve the tier **when claimed**, by the claimant's rank, so it
   always helps whoever's losing. This is the core anti-snowball valve.
 
 ### d) Leader bounty
+
 - Track the current leader (most kills; in teams, leading team). Their head has a price:
   killing them pays **+500** and a global "leader slain" callout. Makes winning dangerous and
   keeps the pack hunting the front-runner.
 
 ### e) Shop & items
+
 - Shop usable only in your base (forces a retreat → risk/reward, and resets the brawl).
 - Small curated item list (`src/data/items.ts`, mirror moba): a few **stat items** (HP, attack
   speed, ability power, armor, magic resist), a couple **actives** (blink, heal, cleanse), and
@@ -307,15 +323,18 @@ This is what makes it _Overthrow_ and not generic deathmatch. Build all four.
   `game-balance` skill for cost/power curves and to audit for a dominant item.
 
 ### f) Levels & XP
+
 - Kill/aura XP → levels (cap ~10–15). Each level: stat growth + one ability point (unlock/rank
   Q/W/E, ult at the usual breakpoints). Capped so a fed player is strong but not unkillable —
   the catch-up systems assume a soft ceiling.
 
 ### g) Runes (optional, Phase 2)
+
 - Timed pickups at fixed spots (haste, double-damage, regen, invis). Cheap to add, adds map
   movement. Skip for MVP if time-constrained.
 
 ### Respawn
+
 - Respawn at your fountain on a timer that scales with level _(start: 3 + level × 0.7 s, cap
   ~12 s)_. Short enough that death never benches you, long enough that dying matters.
 
@@ -413,6 +432,7 @@ generate the rest with `vg generate` (see the `generate`, `model-catalog`, `pixe
 `cinematography`, `media-workflow` skills).
 
 **Required from the user (KayKit):**
+
 - 4–6 rigged champion GLBs sharing one skeleton, each with clips: `Idle`, `Walk`/`Run`,
   `Attack` (1–2 variants), `Cast`, `Hit`, `Death`. Weapon attachment points if weapons are
   separate meshes.
@@ -421,6 +441,7 @@ generate the rest with `vg generate` (see the `generate`, `model-catalog`, `pixe
 - The Over Boss model (a larger creature/idol on the throne).
 
 **Generate with `vg generate` (don't name any provider in user-facing text):**
+
 - **Ability/item icons** (Q/W/E/R + shop items) — a consistent icon set.
 - **VFX textures / sprite FX** for spells, hit sparks, coin shimmer (`vfx` + `pixel-art`).
 - **SFX & music** — attack/cast/hit/death/coin/level-up/victory; a short looping arena track.
@@ -434,23 +455,23 @@ Validate assets with the `asset-pipeline` skill (manifest vs files on disk).
 
 ## 15. Tunable constants (starting defaults → `src/data/config.ts`)
 
-| Constant | Default | Notes |
-|---|---|---|
-| `MODE` | `ffa` | `ffa` first; `teams` later |
-| `KILL_GOAL_FFA` | 25 | first to this wins |
-| `MATCH_TIME` | 480 s | fallback timer; top score wins; ties → sudden death |
-| `MAX_PLAYERS` | 6 | per room |
-| `SIM_HZ` / `SNAPSHOT_HZ` | 30 / 15 | host sim / broadcast rate |
-| `THRONE_RADIUS` | ~8 units | center aura size |
-| `THRONE_GOLD_MULT` / `THRONE_XP_MULT` | +30% / +30% | aura bonus |
-| `KILL_GOLD` / `KILL_XP` | 150 / 120 | base reward |
-| `COIN_GOLD` | 300 | Over Boss coin |
-| `COIN_INTERVAL` | 12 s | boss throw cadence |
-| `LEADER_BOUNTY` | 500 | bonus for killing the leader |
-| `DELIVERY_INTERVAL` | 25 s | catch-up drop cadence |
-| `RESPAWN_BASE` / `RESPAWN_PER_LVL` / `RESPAWN_CAP` | 3 s / 0.7 s / 12 s | death timer |
-| `LEVEL_CAP` | 12 | soft power ceiling |
-| `ITEM_COUNT` | 10–14 | curated shop |
+| Constant                                           | Default            | Notes                                               |
+| -------------------------------------------------- | ------------------ | --------------------------------------------------- |
+| `MODE`                                             | `ffa`              | `ffa` first; `teams` later                          |
+| `KILL_GOAL_FFA`                                    | 25                 | first to this wins                                  |
+| `MATCH_TIME`                                       | 480 s              | fallback timer; top score wins; ties → sudden death |
+| `MAX_PLAYERS`                                      | 6                  | per room                                            |
+| `SIM_HZ` / `SNAPSHOT_HZ`                           | 30 / 15            | host sim / broadcast rate                           |
+| `THRONE_RADIUS`                                    | ~8 units           | center aura size                                    |
+| `THRONE_GOLD_MULT` / `THRONE_XP_MULT`              | +30% / +30%        | aura bonus                                          |
+| `KILL_GOLD` / `KILL_XP`                            | 150 / 120          | base reward                                         |
+| `COIN_GOLD`                                        | 300                | Over Boss coin                                      |
+| `COIN_INTERVAL`                                    | 12 s               | boss throw cadence                                  |
+| `LEADER_BOUNTY`                                    | 500                | bonus for killing the leader                        |
+| `DELIVERY_INTERVAL`                                | 25 s               | catch-up drop cadence                               |
+| `RESPAWN_BASE` / `RESPAWN_PER_LVL` / `RESPAWN_CAP` | 3 s / 0.7 s / 12 s | death timer                                         |
+| `LEVEL_CAP`                                        | 12                 | soft power ceiling                                  |
+| `ITEM_COUNT`                                       | 10–14              | curated shop                                        |
 
 Balance with the `game-balance` skill once it's playable; audit for dominant champion/item.
 
@@ -484,22 +505,22 @@ leader bounty — those four _are_ the game.
 
 ## 17. Which skills to use, and when
 
-| Step | Skill(s) |
-|---|---|
-| Engine scaffolding, scenes, rendering | `threejs`, `phaser` (reference moba), `game-playbook` |
-| Multiplayer wiring | `multiplayer` (and read `games/moba/src/net`, `/sim`) |
-| Touch controls | `gamepad` |
-| Champion/ability feel, animation budgets | `animation`, `game-feel` |
-| VFX / particles / impact | `vfx` |
-| Economy, costs, anti-snowball tuning | `game-balance` |
-| Arena & wave/spawn pacing | `level-design` |
-| First-30-seconds, teaching the loop | `onboarding` |
+| Step                                                  | Skill(s)                                                                     |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Engine scaffolding, scenes, rendering                 | `threejs`, `phaser` (reference moba), `game-playbook`                        |
+| Multiplayer wiring                                    | `multiplayer` (and read `games/moba/src/net`, `/sim`)                        |
+| Touch controls                                        | `gamepad`                                                                    |
+| Champion/ability feel, animation budgets              | `animation`, `game-feel`                                                     |
+| VFX / particles / impact                              | `vfx`                                                                        |
+| Economy, costs, anti-snowball tuning                  | `game-balance`                                                               |
+| Arena & wave/spawn pacing                             | `level-design`                                                               |
+| First-30-seconds, teaching the loop                   | `onboarding`                                                                 |
 | Asset generation (icons, SFX, music, skybox, key art) | `generate`, `model-catalog`, `pixel-art`, `cinematography`, `media-workflow` |
-| Asset manifest validation | `asset-pipeline` |
-| Testing (deterministic sim, canvas/WebGL) | `playwright` |
-| Scope discipline / finish line | `finish-it` |
-| Design QA before ship | `design-lenses` |
-| Ship it | `deploy` (`vg deploy --slug battle-arena`) |
+| Asset manifest validation                             | `asset-pipeline`                                                             |
+| Testing (deterministic sim, canvas/WebGL)             | `playwright`                                                                 |
+| Scope discipline / finish line                        | `finish-it`                                                                  |
+| Design QA before ship                                 | `design-lenses`                                                              |
+| Ship it                                               | `deploy` (`vg deploy --slug battle-arena`)                                   |
 
 ---
 

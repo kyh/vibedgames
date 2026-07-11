@@ -246,7 +246,10 @@ export class NavGrid {
         if (!this.canStep(cc, cr, nc, nr)) continue;
         const diag = nei[0] !== 0 && nei[1] !== 0;
         // Disallow corner-cutting through blocked orthogonal neighbours.
-        if (diag && (!this.isWalkableCell(cc + nei[0], cr) || !this.isWalkableCell(cc, cr + nei[1])))
+        if (
+          diag &&
+          (!this.isWalkableCell(cc + nei[0], cr) || !this.isWalkableCell(cc, cr + nei[1]))
+        )
           continue;
         const nIdx = nr * this.cols + nc;
         if (closed[nIdx]) continue;

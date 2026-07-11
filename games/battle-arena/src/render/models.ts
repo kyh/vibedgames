@@ -30,7 +30,11 @@ export class ModelLibrary {
    *  KayKit default (roughness ~0.45 + full IBL = plastic sheen); `tint`
    *  multiplies the atlas (the dungeon pack's pale mortar swatch reads as
    *  glowing seams without a warm-dark grade). */
-  async loadCharacter(name: string, url: string, opts?: { matte?: boolean; tint?: number }): Promise<void> {
+  async loadCharacter(
+    name: string,
+    url: string,
+    opts?: { matte?: boolean; tint?: number },
+  ): Promise<void> {
     const gltf = await loadGltf(url);
     const scene = gltf.scene;
     const graded = new Set<THREE.Material>();
@@ -57,7 +61,8 @@ export class ModelLibrary {
         // culling is safe (233 skinned meshes × no culling was the #1 call sink)
         const geo = mesh.geometry;
         if (!geo.boundingSphere) geo.computeBoundingSphere();
-        if (geo.boundingSphere) geo.boundingSphere.radius = Math.max(geo.boundingSphere.radius * 2.5, 2.5);
+        if (geo.boundingSphere)
+          geo.boundingSphere.radius = Math.max(geo.boundingSphere.radius * 2.5, 2.5);
         mesh.frustumCulled = true;
       }
     });
@@ -102,21 +107,37 @@ export class ModelLibrary {
 // clip names the game plays onto their closest Large equivalent. A fallback
 // must resolve to a LARGE clip (never cross-rig: the rest proportions differ).
 const RIG_LARGE_FALLBACK: Record<string, string> = {
-  Hit_B: "Hit_A", Death_B: "Death_A",
+  Hit_B: "Hit_A",
+  Death_B: "Death_A",
   Dodge_Backward: "Dodge_Backwards", // Large lib pluralizes this one clip name
-  Jump_Full_Long: "Dodge_Forward", Jump_Full_Short: "Dodge_Forward",
-  Walking_B: "Walking_A", Walking_C: "Walking_A", Running_B: "Running_A", Idle_B: "Idle_A",
-  Spawn_Ground: "Idle_A", Spawn_Air: "Idle_A", PickUp: "Idle_A", Interact: "Idle_A",
-  Use_Item: "Melee_Block", Throw: "Melee_2H_Attack",
-  Melee_1H_Attack_Chop: "Melee_1H_Slash", Melee_1H_Attack_Slice_Horizontal: "Melee_1H_Slash",
-  Melee_1H_Attack_Slice_Diagonal: "Melee_1H_Slash", Melee_1H_Attack_Stab: "Melee_1H_Stab",
+  Jump_Full_Long: "Dodge_Forward",
+  Jump_Full_Short: "Dodge_Forward",
+  Walking_B: "Walking_A",
+  Walking_C: "Walking_A",
+  Running_B: "Running_A",
+  Idle_B: "Idle_A",
+  Spawn_Ground: "Idle_A",
+  Spawn_Air: "Idle_A",
+  PickUp: "Idle_A",
+  Interact: "Idle_A",
+  Use_Item: "Melee_Block",
+  Throw: "Melee_2H_Attack",
+  Melee_1H_Attack_Chop: "Melee_1H_Slash",
+  Melee_1H_Attack_Slice_Horizontal: "Melee_1H_Slash",
+  Melee_1H_Attack_Slice_Diagonal: "Melee_1H_Slash",
+  Melee_1H_Attack_Stab: "Melee_1H_Stab",
   Melee_1H_Attack_Jump_Chop: "Melee_1H_Slash",
-  Melee_2H_Attack_Chop: "Melee_2H_Attack", Melee_2H_Attack_Slice: "Melee_2H_Attack",
-  Melee_2H_Attack_Stab: "Melee_2H_Attack", Melee_2H_Attack_Spin: "Melee_2H_Slam",
+  Melee_2H_Attack_Chop: "Melee_2H_Attack",
+  Melee_2H_Attack_Slice: "Melee_2H_Attack",
+  Melee_2H_Attack_Stab: "Melee_2H_Attack",
+  Melee_2H_Attack_Spin: "Melee_2H_Slam",
   Melee_2H_Attack_Spinning: "Melee_2H_Slam",
-  Melee_Unarmed_Attack_Punch_A: "Melee_Unarmed_Punch", Melee_Unarmed_Attack_Kick: "Melee_Unarmed_Kick",
-  Ranged_Magic_Spellcasting: "Melee_2H_Attack", Ranged_Magic_Shoot: "Melee_2H_Attack",
-  Skeletons_Taunt: "Flexing", Skeletons_Idle: "Idle_B",
+  Melee_Unarmed_Attack_Punch_A: "Melee_Unarmed_Punch",
+  Melee_Unarmed_Attack_Kick: "Melee_Unarmed_Kick",
+  Ranged_Magic_Spellcasting: "Melee_2H_Attack",
+  Ranged_Magic_Shoot: "Melee_2H_Attack",
+  Skeletons_Taunt: "Flexing",
+  Skeletons_Idle: "Idle_B",
   // camp-creep spawn path: Large bodies (frostgolem elite) have no skeleton
   // rise-from-the-ground clip — resolve to idle instead of T-posing (a play()
   // miss no-ops and HOLDS whatever pose the rig is in)

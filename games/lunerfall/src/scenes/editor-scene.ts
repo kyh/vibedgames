@@ -186,9 +186,7 @@ export class EditorScene extends Phaser.Scene {
     const ui = document.createElement("div");
     ui.id = "lf-editor";
     const roster = CHARS.map((c, i) => {
-      const dot = c.hero
-        ? `#${HEROES[c.key].color.toString(16).padStart(6, "0")}`
-        : "#8b95a1";
+      const dot = c.hero ? `#${HEROES[c.key].color.toString(16).padStart(6, "0")}` : "#8b95a1";
       const tag = c.hero ? "" : `<em>foe</em>`;
       return `<button class="lf-char" data-i="${i}"><i style="background:${dot}"></i><span>${c.key}</span>${tag}</button>`;
     }).join("");

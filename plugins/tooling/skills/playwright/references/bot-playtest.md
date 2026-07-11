@@ -1,6 +1,6 @@
 # Bot Playtest: Prove the Game Plays, Not Just Renders
 
-A canvas check proves the game renders; a bot playtest proves it *plays*. The bot drives real scripted input and measures **progression** — objective movement, player responsiveness, softlock windows, error-free runtime. A game that renders beautifully but can't be progressed by a scripted sweep is not ready. Engine-agnostic: works for Phaser and Three.js alike.
+A canvas check proves the game renders; a bot playtest proves it _plays_. The bot drives real scripted input and measures **progression** — objective movement, player responsiveness, softlock windows, error-free runtime. A game that renders beautifully but can't be progressed by a scripted sweep is not ready. Engine-agnostic: works for Phaser and Three.js alike.
 
 ## The Diagnostics Contract
 
@@ -76,12 +76,17 @@ test("bot playtest: scripted input drives progress without errors", async ({ pag
     page.evaluate(() => {
       const d = window.__GAME_DIAGNOSTICS__;
       // optional chaining: diagnostics may publish before player init
-      return d ? { frame: d.frame, score: d.score, x: d.player?.x ?? 0, y: d.player?.y ?? 0 } : null;
+      return d
+        ? { frame: d.frame, score: d.score, x: d.player?.x ?? 0, y: d.player?.y ?? 0 }
+        : null;
     });
 
   const before = await sample();
   expect(before, "diagnostics must be published").not.toBeNull();
-  let prev = before, distance = 0, softlockWindows = 0, stepOfFirstScore = -1;
+  let prev = before,
+    distance = 0,
+    softlockWindows = 0,
+    stepOfFirstScore = -1;
 
   for (const [index, step] of INPUT_SCRIPT.entries()) {
     for (const key of step.keys) await page.keyboard.down(key);
@@ -101,12 +106,17 @@ test("bot playtest: scripted input drives progress without errors", async ({ pag
 
   const report = {
     framesAdvanced: prev.frame - before.frame,
-    scoreBefore: before.score, scoreAfter: prev.score,
+    scoreBefore: before.score,
+    scoreAfter: prev.score,
     distanceTravelled: Number(distance.toFixed(2)),
-    stepOfFirstScore, softlockWindows, consoleErrors, pageErrors,
+    stepOfFirstScore,
+    softlockWindows,
+    consoleErrors,
+    pageErrors,
   };
   await testInfo.attach("bot-playtest-report", {
-    body: JSON.stringify(report, null, 2), contentType: "application/json",
+    body: JSON.stringify(report, null, 2),
+    contentType: "application/json",
   });
 
   expect(pageErrors).toEqual([]);
@@ -114,7 +124,9 @@ test("bot playtest: scripted input drives progress without errors", async ({ pag
   expect(report.framesAdvanced, "game loop must keep running").toBeGreaterThan(100);
   expect(report.distanceTravelled, "player must respond to input").toBeGreaterThan(5);
   expect(report.softlockWindows, "held input repeatedly produced nothing").toBeLessThanOrEqual(2);
-  expect(report.scoreAfter, "sweep should progress the objective").toBeGreaterThan(report.scoreBefore);
+  expect(report.scoreAfter, "sweep should progress the objective").toBeGreaterThan(
+    report.scoreBefore,
+  );
 });
 ```
 

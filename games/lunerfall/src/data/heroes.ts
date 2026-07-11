@@ -16,10 +16,28 @@ export type Swing = {
 
 // Per-hero signature ability on the special key.
 export type Special =
-  | { kind: "aoe"; clip: string; dur: number; a0: number; a1: number; radius: number; dmg: number; kb: number; cd: number }
+  | {
+      kind: "aoe";
+      clip: string;
+      dur: number;
+      a0: number;
+      a1: number;
+      radius: number;
+      dmg: number;
+      kb: number;
+      cd: number;
+    }
   | { kind: "blink"; clip: string; outClip: string; dist: number; cd: number; iframes: number }
   | { kind: "heal"; clip: string; dur: number; cd: number; amount: number }
-  | { kind: "projectile"; clip: string; dur: number; fireAt: number; cd: number; speed: number; dmg: number };
+  | {
+      kind: "projectile";
+      clip: string;
+      dur: number;
+      fireAt: number;
+      cd: number;
+      speed: number;
+      dmg: number;
+    };
 
 export type HeroKit = {
   swings: Swing[];
@@ -54,9 +72,24 @@ const REACH_BONUS = 12;
 const DMG_PER_SEC = 1.75;
 
 const swing = (clip: string, o: Partial<Omit<Swing, "dmg">>): Swing => {
-  const s = { clip, dur: 0.24, a0: 0.05, a1: 0.14, combo: 0.11, reach: 20, kb: 110, lunge: 50, ...o };
+  const s = {
+    clip,
+    dur: 0.24,
+    a0: 0.05,
+    a1: 0.14,
+    combo: 0.11,
+    reach: 20,
+    kb: 110,
+    lunge: 50,
+    ...o,
+  };
   const dur = s.dur * SWING_TEMPO;
-  return { ...s, dur, dmg: Math.max(1, Math.round(dur * DMG_PER_SEC)), reach: s.reach + REACH_BONUS };
+  return {
+    ...s,
+    dur,
+    dmg: Math.max(1, Math.round(dur * DMG_PER_SEC)),
+    reach: s.reach + REACH_BONUS,
+  };
 };
 
 export const HEROES: Record<HeroName, HeroDef> = {
@@ -72,9 +105,27 @@ export const HEROES: Record<HeroName, HeroDef> = {
       swings: [
         swing("attack-3a", { dur: 0.2, a0: 0.03, a1: 0.13, reach: 20, kb: 90, lunge: 48 }),
         swing("attack-3b", { dur: 0.2, a0: 0.03, a1: 0.13, reach: 20, kb: 115, lunge: 55 }),
-        swing("attack-3c", { dur: 0.26, a0: 0.04, a1: 0.16, combo: 99, reach: 27, kb: 210, lunge: 90 }),
+        swing("attack-3c", {
+          dur: 0.26,
+          a0: 0.04,
+          a1: 0.16,
+          combo: 99,
+          reach: 27,
+          kb: 210,
+          lunge: 90,
+        }),
       ],
-      special: { kind: "aoe", clip: "super-smash", dur: 0.5, a0: 0.16, a1: 0.3, radius: 34, dmg: 3, kb: 240, cd: 4 },
+      special: {
+        kind: "aoe",
+        clip: "super-smash",
+        dur: 0.5,
+        a0: 0.16,
+        a1: 0.3,
+        radius: 34,
+        dmg: 3,
+        kb: 240,
+        cd: 4,
+      },
     },
   },
   reaper: {
@@ -89,7 +140,17 @@ export const HEROES: Record<HeroName, HeroDef> = {
         swing("double-slash", { dur: 0.34, a0: 0.07, a1: 0.22, reach: 32, kb: 150, lunge: 55 }),
         swing("attack", { dur: 0.42, a0: 0.1, a1: 0.28, combo: 99, reach: 34, kb: 240, lunge: 70 }),
       ],
-      special: { kind: "aoe", clip: "skill", dur: 0.6, a0: 0.14, a1: 0.42, radius: 42, dmg: 3, kb: 200, cd: 5 },
+      special: {
+        kind: "aoe",
+        clip: "skill",
+        dur: 0.6,
+        a0: 0.14,
+        a1: 0.42,
+        radius: 42,
+        dmg: 3,
+        kb: 200,
+        cd: 5,
+      },
     },
   },
   riven: {
@@ -101,12 +162,35 @@ export const HEROES: Record<HeroName, HeroDef> = {
       dashClip: "dash",
       swings: [
         swing("slash", { dur: 0.16, a0: 0.03, a1: 0.1, combo: 0.08, reach: 17, kb: 70, lunge: 55 }),
-        swing("double-slash", { dur: 0.2, a0: 0.04, a1: 0.14, combo: 0.09, reach: 18, kb: 90, lunge: 60 }),
+        swing("double-slash", {
+          dur: 0.2,
+          a0: 0.04,
+          a1: 0.14,
+          combo: 0.09,
+          reach: 18,
+          kb: 90,
+          lunge: 60,
+        }),
         // Same drawing as swing 1 but its own clip name: the finisher's timing
         // differs, and retimed @kit variants are built per (clip, swing spec).
-        swing("slash-heavy", { dur: 0.24, a0: 0.04, a1: 0.16, combo: 99, reach: 19, kb: 150, lunge: 80 }),
+        swing("slash-heavy", {
+          dur: 0.24,
+          a0: 0.04,
+          a1: 0.16,
+          combo: 99,
+          reach: 19,
+          kb: 150,
+          lunge: 80,
+        }),
       ],
-      special: { kind: "blink", clip: "smoke-in", outClip: "smoke-out", dist: 78, cd: 2.6, iframes: 0.3 },
+      special: {
+        kind: "blink",
+        clip: "smoke-in",
+        outClip: "smoke-out",
+        dist: 78,
+        cd: 2.6,
+        iframes: 0.3,
+      },
     },
   },
   mooni: {
@@ -134,9 +218,25 @@ export const HEROES: Record<HeroName, HeroDef> = {
       swings: [
         swing("fire-punch", { dur: 0.26, a0: 0.06, a1: 0.16, reach: 22, kb: 120, lunge: 55 }),
         swing("fire-punch", { dur: 0.26, a0: 0.06, a1: 0.16, reach: 22, kb: 130, lunge: 55 }),
-        swing("flame-slam", { dur: 0.44, a0: 0.12, a1: 0.3, combo: 99, reach: 28, kb: 250, lunge: 70 }),
+        swing("flame-slam", {
+          dur: 0.44,
+          a0: 0.12,
+          a1: 0.3,
+          combo: 99,
+          reach: 28,
+          kb: 250,
+          lunge: 70,
+        }),
       ],
-      special: { kind: "projectile", clip: "flame-wave", dur: 0.5, fireAt: 0.24, cd: 2.2, speed: 210, dmg: 2 },
+      special: {
+        kind: "projectile",
+        clip: "flame-wave",
+        dur: 0.5,
+        fireAt: 0.24,
+        cd: 2.2,
+        speed: 210,
+        dmg: 2,
+      },
     },
   },
 };

@@ -8,7 +8,15 @@
 // at the cast point; projectile is a travel line + splash (the sim spawns an
 // actual projectile — this shape is for drawing/reasoning only).
 import { valAt, type AbilityDef } from "../data/champions";
-import { MELEE_HALF_ANGLE, MELEE_OVERREACH, RANGED_BASIC_HIT_RADIUS, ROGUE_EXECUTE_ARC, ROGUE_GASH_WIDTH, ROGUE_LUNGE_WIDTH, WITCH_HEXBOLT_SPLASH } from "./combat-geometry";
+import {
+  MELEE_HALF_ANGLE,
+  MELEE_OVERREACH,
+  RANGED_BASIC_HIT_RADIUS,
+  ROGUE_EXECUTE_ARC,
+  ROGUE_GASH_WIDTH,
+  ROGUE_LUNGE_WIDTH,
+  WITCH_HEXBOLT_SPLASH,
+} from "./combat-geometry";
 
 export type HitShape =
   | { kind: "cone"; radius: number; half: number } // sector from the caster along aim
@@ -22,10 +30,19 @@ const deg2rad = (d: number): number => (d * Math.PI) / 180;
 /** Basic-attack hit shape(s) for a champ — the current swing decides which the
  *  caller shows (melee cleave cone; the spin's `aoe` whirl is a circleSelf).
  *  Ranged basics are a straight fat-line projectile; caster bolts splash. */
-export function basicAttackShape(attackType: "melee" | "ranged", attackRange: number, basic?: { pierce?: boolean; splash?: number }): HitShape {
+export function basicAttackShape(
+  attackType: "melee" | "ranged",
+  attackRange: number,
+  basic?: { pierce?: boolean; splash?: number },
+): HitShape {
   return attackType === "melee"
     ? { kind: "cone", radius: attackRange + MELEE_OVERREACH, half: MELEE_HALF_ANGLE }
-    : { kind: "projectile", length: attackRange + 5, splash: basic?.splash ?? 0, width: RANGED_BASIC_HIT_RADIUS };
+    : {
+        kind: "projectile",
+        length: attackRange + 5,
+        splash: basic?.splash ?? 0,
+        width: RANGED_BASIC_HIT_RADIUS,
+      };
 }
 
 /** The hit geometry of an ability at `rank`. [] for pure-utility abilities

@@ -101,11 +101,52 @@ function champEntry(def: ChampDef): RosterEntry {
 // straight from the shared data/clip-timing table (the boss has no sim entry —
 // its swing list is viewer-only).
 const CREEPS: RosterEntry[] = [
-  { id: "skwarrior", label: "Skeleton Warrior", sub: "camp creep", kind: "creep", model: "Skeleton_Warrior", attackClips: ATTACK_SETS["skwarrior"] ?? [] },
-  { id: "skmage", label: "Skeleton Mage", sub: "camp creep", kind: "creep", model: "Skeleton_Mage", weaponR: "Skeleton_Staff", attackClips: ATTACK_SETS["skmage"] ?? [] },
-  { id: "skminion", label: "Skeleton Minion", sub: "camp creep", kind: "creep", model: "Skeleton_Minion", attackClips: ATTACK_SETS["skminion"] ?? [] },
-  { id: "frostgolem", label: "Frost Golem", sub: "elite (Rig_Large)", kind: "creep", model: "FrostGolem", weaponR: "FrostGolem_Axe_Large", rig: "large", scale: 1.45, attackClips: ATTACK_SETS["frostgolem"] ?? [] },
-  { id: "boss", label: "Skeleton Golem", sub: "throne boss (Rig_Large)", kind: "creep", model: "Skeleton_Golem", rig: "large", scale: 1.5, attackClips: ["Melee_2H_Slam", "Melee_2H_Attack"] },
+  {
+    id: "skwarrior",
+    label: "Skeleton Warrior",
+    sub: "camp creep",
+    kind: "creep",
+    model: "Skeleton_Warrior",
+    attackClips: ATTACK_SETS["skwarrior"] ?? [],
+  },
+  {
+    id: "skmage",
+    label: "Skeleton Mage",
+    sub: "camp creep",
+    kind: "creep",
+    model: "Skeleton_Mage",
+    weaponR: "Skeleton_Staff",
+    attackClips: ATTACK_SETS["skmage"] ?? [],
+  },
+  {
+    id: "skminion",
+    label: "Skeleton Minion",
+    sub: "camp creep",
+    kind: "creep",
+    model: "Skeleton_Minion",
+    attackClips: ATTACK_SETS["skminion"] ?? [],
+  },
+  {
+    id: "frostgolem",
+    label: "Frost Golem",
+    sub: "elite (Rig_Large)",
+    kind: "creep",
+    model: "FrostGolem",
+    weaponR: "FrostGolem_Axe_Large",
+    rig: "large",
+    scale: 1.45,
+    attackClips: ATTACK_SETS["frostgolem"] ?? [],
+  },
+  {
+    id: "boss",
+    label: "Skeleton Golem",
+    sub: "throne boss (Rig_Large)",
+    kind: "creep",
+    model: "Skeleton_Golem",
+    rig: "large",
+    scale: 1.5,
+    attackClips: ["Melee_2H_Slam", "Melee_2H_Attack"],
+  },
 ];
 
 const ROSTER: RosterEntry[] = [...CHAMPIONS.map(champEntry), ...CREEPS];
@@ -115,7 +156,15 @@ function entryById(id: string): RosterEntry | null {
 }
 
 // ── clip catalog grouping ────────────────────────────────────────────────────
-const CLIP_GROUPS = ["LOCOMOTION", "MELEE", "RANGED", "EVADE", "REACT", "SKELETON", "MISC"] as const;
+const CLIP_GROUPS = [
+  "LOCOMOTION",
+  "MELEE",
+  "RANGED",
+  "EVADE",
+  "REACT",
+  "SKELETON",
+  "MISC",
+] as const;
 
 function clipGroup(n: string): (typeof CLIP_GROUPS)[number] {
   if (/^(Idle|Walking|Running|Sprint|Crouch|Sit|Lie)/.test(n)) return "LOCOMOTION";
@@ -311,7 +360,13 @@ export class ViewerScene {
     this.scene.add(char.root);
     const blob = new THREE.Mesh(
       new THREE.CircleGeometry(0.85, 20),
-      new THREE.MeshBasicMaterial({ map: makeBlobTexture(), transparent: true, opacity: 0.42, depthWrite: false, color: 0x000000 }),
+      new THREE.MeshBasicMaterial({
+        map: makeBlobTexture(),
+        transparent: true,
+        opacity: 0.42,
+        depthWrite: false,
+        color: 0x000000,
+      }),
     );
     blob.rotation.x = -Math.PI / 2;
     blob.scale.setScalar(s);
@@ -459,7 +514,17 @@ export class ViewerScene {
   }
 
   /** Dev-handle snapshot for headless verification. */
-  state(): { selected: string; tab: string; simMode: boolean; action: string; castCount: number; activeClip: string; playing: string; heroPos: { x: number; y: number } | null; dummyStatuses: string[] } {
+  state(): {
+    selected: string;
+    tab: string;
+    simMode: boolean;
+    action: string;
+    castCount: number;
+    activeClip: string;
+    playing: string;
+    heroPos: { x: number; y: number } | null;
+    dummyStatuses: string[];
+  } {
     const h = this.hero();
     const d = this.dummy();
     return {
@@ -637,7 +702,8 @@ export class ViewerScene {
     }
     this.dummyPrevHp = d.hp;
     const cut = this.t - 3; // 3s rolling DPS window
-    while (this.dummyDmgWindow.length && (this.dummyDmgWindow[0]?.t ?? 0) < cut) this.dummyDmgWindow.shift();
+    while (this.dummyDmgWindow.length && (this.dummyDmgWindow[0]?.t ?? 0) < cut)
+      this.dummyDmgWindow.shift();
     this.updateDummyHud(d);
   }
 
@@ -657,9 +723,15 @@ export class ViewerScene {
       // the rhythm cycles chop/slice → spin, so the shape switches live with the
       // sim's swingCount — show only the swing happening right now.
       const rhythm = champ.basicRhythm;
-      const step = rhythm && rhythm.length ? rhythm[Math.max(0, me.swingCount - 1) % rhythm.length] : undefined;
+      const step =
+        rhythm && rhythm.length
+          ? rhythm[Math.max(0, me.swingCount - 1) % rhythm.length]
+          : undefined;
       if (step?.aoe) return [{ kind: "circle", radius: step.aoe, forward: 0 }]; // spin whirl
-      return this.placeShape(basicAttackShape(champ.attackType, me.attackRange, champ.basic), me.attackRange + 5);
+      return this.placeShape(
+        basicAttackShape(champ.attackType, me.attackRange, champ.basic),
+        me.attackRange + 5,
+      );
     }
     if (!act) return [];
     const def = champ.abilities[act];
@@ -684,7 +756,8 @@ export class ViewerScene {
         return [{ kind: "circle", radius: s.radius, forward: this.castForward(range) }];
       case "projectile": {
         const out: DrawShape[] = [{ kind: "corridor", length: s.length, halfWidth: 0.5 }];
-        if (s.splash > 0) out.push({ kind: "circle", radius: s.splash, forward: this.castForward(range) });
+        if (s.splash > 0)
+          out.push({ kind: "circle", radius: s.splash, forward: this.castForward(range) });
         return out;
       }
     }
@@ -705,7 +778,15 @@ export class ViewerScene {
       if (this.hitVizGroup) this.hitVizGroup.visible = false;
       return;
     }
-    const key = shapes.map((s) => (s.kind === "cone" ? `co${s.radius.toFixed(1)},${s.half.toFixed(2)}` : s.kind === "corridor" ? `cr${s.length.toFixed(1)},${s.halfWidth.toFixed(1)}` : `ci${s.radius.toFixed(1)},${s.forward.toFixed(1)}`)).join("|");
+    const key = shapes
+      .map((s) =>
+        s.kind === "cone"
+          ? `co${s.radius.toFixed(1)},${s.half.toFixed(2)}`
+          : s.kind === "corridor"
+            ? `cr${s.length.toFixed(1)},${s.halfWidth.toFixed(1)}`
+            : `ci${s.radius.toFixed(1)},${s.forward.toFixed(1)}`,
+      )
+      .join("|");
     if (key !== this.hitVizKey || !this.hitVizGroup) {
       this.hitVizKey = key;
       if (!this.hitVizGroup) {
@@ -732,8 +813,21 @@ export class ViewerScene {
         geo.rotateX(Math.PI / 2); // lay the XY shape flat: +Y (forward) → +Z
         // colour by kind so different attacks read distinctly: cone=red,
         // corridor=orange, self-whirl=gold, ground/splash circle=cyan
-        const color = s.kind === "cone" ? 0xff5a3c : s.kind === "corridor" ? 0xff9a3c : s.forward === 0 ? 0xffc83c : 0x3cc8ff;
-        const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.24, side: THREE.DoubleSide, depthWrite: false });
+        const color =
+          s.kind === "cone"
+            ? 0xff5a3c
+            : s.kind === "corridor"
+              ? 0xff9a3c
+              : s.forward === 0
+                ? 0xffc83c
+                : 0x3cc8ff;
+        const mat = new THREE.MeshBasicMaterial({
+          color,
+          transparent: true,
+          opacity: 0.24,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        });
         g.add(new THREE.Mesh(geo, mat));
       }
     }
@@ -832,7 +926,16 @@ export class ViewerScene {
       if (document.activeElement instanceof HTMLInputElement) return;
       const k = e.key.toLowerCase();
       if (k === "q" || k === "w" || k === "e" || k === "r") {
-        if (this.selected.kind === "champ") this.cast(k.toUpperCase() === "Q" ? "Q" : k.toUpperCase() === "W" ? "W" : k.toUpperCase() === "E" ? "E" : "R");
+        if (this.selected.kind === "champ")
+          this.cast(
+            k.toUpperCase() === "Q"
+              ? "Q"
+              : k.toUpperCase() === "W"
+                ? "W"
+                : k.toUpperCase() === "E"
+                  ? "E"
+                  : "R",
+          );
       } else if (k === "a") {
         this.attack();
       }
@@ -846,7 +949,10 @@ export class ViewerScene {
     const ui = document.createElement("div");
     ui.id = "ba-viewer";
     const rosterButtons = ROSTER.map((e) => {
-      const icon = e.kind === "champ" ? `<img src="${champSigil(e.id)}" alt="">` : `<span class="vwr-dot"></span>`;
+      const icon =
+        e.kind === "champ"
+          ? `<img src="${champSigil(e.id)}" alt="">`
+          : `<span class="vwr-dot"></span>`;
       return `<button class="vwr" data-id="${e.id}">${icon}<span class="vwr-txt"><b>${e.label}</b><i>${e.sub}</i></span></button>`;
     }).join("");
     ui.innerHTML = `
@@ -987,7 +1093,10 @@ export class ViewerScene {
     const sections = CLIP_GROUPS.filter((g) => grouped.has(g))
       .map((g) => {
         const rows = (grouped.get(g) ?? [])
-          .map((n) => `<button class="vwc ${n === this.activeClip ? "on" : ""}" data-clip="${n}">${n}<span>${this.clipDuration(n).toFixed(2)}s</span></button>`)
+          .map(
+            (n) =>
+              `<button class="vwc ${n === this.activeClip ? "on" : ""}" data-clip="${n}">${n}<span>${this.clipDuration(n).toFixed(2)}s</span></button>`,
+          )
           .join("");
         return `<div class="vw-sect">${g}</div>${rows}`;
       })
@@ -1014,9 +1123,11 @@ export class ViewerScene {
       });
     }
     const loopEl = document.getElementById("vw-loop");
-    if (loopEl instanceof HTMLInputElement) loopEl.addEventListener("change", () => this.setLoop(loopEl.checked));
+    if (loopEl instanceof HTMLInputElement)
+      loopEl.addEventListener("change", () => this.setLoop(loopEl.checked));
     const speedEl = document.getElementById("vw-speed");
-    if (speedEl instanceof HTMLInputElement) speedEl.addEventListener("input", () => this.setSpeed(Number.parseFloat(speedEl.value)));
+    if (speedEl instanceof HTMLInputElement)
+      speedEl.addEventListener("input", () => this.setSpeed(Number.parseFloat(speedEl.value)));
     box.querySelectorAll<HTMLButtonElement>(".vwc").forEach((btn) => {
       btn.addEventListener("click", () => {
         const clip = btn.dataset["clip"];

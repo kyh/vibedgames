@@ -39,8 +39,24 @@ export const PROP_RESPAWN_MS = 50_000;
  *  client computes the identical list (order matters: unit.slot = index). */
 export function destructibleProps(): PropSpec[] {
   const out: PropSpec[] = [];
-  const add = (model: string, base: { radius: number; hp: number }, x: number, y: number, rot: number, scale: number, explosive?: boolean): void => {
-    const spec: PropSpec = { model, x, y, rot, scale, radius: base.radius * scale, hp: Math.round(base.hp * scale) };
+  const add = (
+    model: string,
+    base: { radius: number; hp: number },
+    x: number,
+    y: number,
+    rot: number,
+    scale: number,
+    explosive?: boolean,
+  ): void => {
+    const spec: PropSpec = {
+      model,
+      x,
+      y,
+      rot,
+      scale,
+      radius: base.radius * scale,
+      hp: Math.round(base.hp * scale),
+    };
     if (explosive) spec.explosive = true;
     out.push(spec);
   };
@@ -63,7 +79,15 @@ export function destructibleProps(): PropSpec[] {
       add("crates_stacked", STACK, c.x - tx * 2.8, c.y - ty * 2.8, ang + 1.1, 0.85);
     } else if (i === 4) {
       // Woodstore: one decorated keg by the timber
-      add("keg_decorated", KEG, c.x + ox * 1.7 + tx * 2.4, c.y + oy * 1.7 + ty * 2.4, 0.7, 0.9, true);
+      add(
+        "keg_decorated",
+        KEG,
+        c.x + ox * 1.7 + tx * 2.4,
+        c.y + oy * 1.7 + ty * 2.4,
+        0.7,
+        0.9,
+        true,
+      );
     }
   });
 
@@ -83,7 +107,8 @@ export function destructibleProps(): PropSpec[] {
     const ty = Math.sin(run.dir);
     const end = (run.offsets[run.offsets.length - 1] ?? 3) + 2.2;
     const side = i % 2 === 0 ? 1 : -1;
-    if (i % 3 === 0) add("barrel_large", BARREL, run.x + tx * end * side, run.y + ty * end * side, i * 1.7, 0.8);
+    if (i % 3 === 0)
+      add("barrel_large", BARREL, run.x + tx * end * side, run.y + ty * end * side, i * 1.7, 0.8);
     else add("crate_large", CRATE, run.x + tx * end * side, run.y + ty * end * side, i * 1.7, 0.8);
   });
 

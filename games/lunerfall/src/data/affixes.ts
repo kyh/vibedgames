@@ -26,9 +26,24 @@ const ARMORED: Affix = {
 
 export const AFFIXES: readonly Affix[] = [
   ARMORED,
-  { id: "swift", name: "Swift", tint: 0xffe14a, hpMult: 0.9, speedMult: 1.7, dmgTakenMult: 1, dmgOutMult: 1 },
-  { id: "brutal", name: "Brutal", tint: 0xff5a5a, hpMult: 1.3, speedMult: 1.1, dmgTakenMult: 1, dmgOutMult: 1.5 },
+  {
+    id: "swift",
+    name: "Swift",
+    tint: 0xffe14a,
+    hpMult: 0.9,
+    speedMult: 1.7,
+    dmgTakenMult: 1,
+    dmgOutMult: 1,
+  },
+  {
+    id: "brutal",
+    name: "Brutal",
+    tint: 0xff5a5a,
+    hpMult: 1.3,
+    speedMult: 1.1,
+    dmgTakenMult: 1,
+    dmgOutMult: 1.5,
+  },
 ];
 
-export const rollAffix = (): Affix =>
-  AFFIXES[Math.floor(rand() * AFFIXES.length)] ?? ARMORED;
+export const rollAffix = (): Affix => AFFIXES[Math.floor(rand() * AFFIXES.length)] ?? ARMORED;

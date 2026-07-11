@@ -1,6 +1,13 @@
 import * as THREE from "three";
 
-import { GRID_X, GRID_Z, ROAD_TILE, WORLD_HALF_X, WORLD_HALF_Z, WORLD_W } from "../shared/constants";
+import {
+  GRID_X,
+  GRID_Z,
+  ROAD_TILE,
+  WORLD_HALF_X,
+  WORLD_HALF_Z,
+  WORLD_W,
+} from "../shared/constants";
 import { CUSTOM_MAP, type FloorKind, loadLocalOverrides } from "./custom-map";
 import type { CityPlan } from "./grid";
 import type { RoadNetwork } from "./network";
@@ -61,11 +68,7 @@ export function isParkCell(gx: number, gz: number): boolean {
   return landuseGreenAt(gx, gz) || districtAt(gx, gz).character === "park";
 }
 
-export function parkCellHeight(
-  terrain: Terrain,
-  gx: number,
-  gz: number,
-): number {
+export function parkCellHeight(terrain: Terrain, gx: number, gz: number): number {
   // Seat at the HIGHEST corner. No quantization: tiles only go on flat
   // cells now, where neighbours land within centimetres of each other —
   // no visible layering.

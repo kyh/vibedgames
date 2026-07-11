@@ -129,7 +129,9 @@ const maxX = q(xs, 0.92);
 const minZ = q(zs, 0.08);
 const maxZ = q(zs, 0.92);
 out.sort((a, b) => b[4] - a[4]);
-console.log(`emitting ${out.length} buildings, coverage x ${Math.round(minX)}..${Math.round(maxX)} z ${Math.round(minZ)}..${Math.round(maxZ)}`);
+console.log(
+  `emitting ${out.length} buildings, coverage x ${Math.round(minX)}..${Math.round(maxX)} z ${Math.round(minZ)}..${Math.round(maxZ)}`,
+);
 console.log("tallest world:", JSON.stringify(out.slice(0, 5)));
 
 writeFileSync(

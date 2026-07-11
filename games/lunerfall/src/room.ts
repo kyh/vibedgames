@@ -49,7 +49,8 @@ export function drawRoom(
         if (!grid.isSolidCell(cx + 1, cy)) c.add(dirt(x, y, "t-edge", true));
         // Grass tufts crown any surface open to the sky; nudged up 3px so the
         // tufts overhang the platform lip.
-        if (!grid.isSolidCell(cx, cy - 1)) c.add(scene.add.image(x, y - 3, "env:tiles", "t-grass").setOrigin(0));
+        if (!grid.isSolidCell(cx, cy - 1))
+          c.add(scene.add.image(x, y - 3, "env:tiles", "t-grass").setOrigin(0));
       } else if (v === 2) {
         c.add(dirt(x, y, "t-plat"));
         oneWayGlow.push({ x, y });

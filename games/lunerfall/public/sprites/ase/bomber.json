@@ -1,650 +1,651 @@
-{ "frames": [
-   {
-    "filename": "Bomber Aseprite 0.aseprite",
-    "frame": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 1.aseprite",
-    "frame": { "x": 80, "y": 0, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 2.aseprite",
-    "frame": { "x": 160, "y": 0, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 3.aseprite",
-    "frame": { "x": 240, "y": 0, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 4.aseprite",
-    "frame": { "x": 320, "y": 0, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 5.aseprite",
-    "frame": { "x": 400, "y": 0, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 6.aseprite",
-    "frame": { "x": 480, "y": 0, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 7.aseprite",
-    "frame": { "x": 560, "y": 0, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 8.aseprite",
-    "frame": { "x": 0, "y": 80, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 9.aseprite",
-    "frame": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 10.aseprite",
-    "frame": { "x": 80, "y": 80, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 11.aseprite",
-    "frame": { "x": 160, "y": 80, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 12.aseprite",
-    "frame": { "x": 240, "y": 80, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 13.aseprite",
-    "frame": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 14.aseprite",
-    "frame": { "x": 320, "y": 80, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 15.aseprite",
-    "frame": { "x": 400, "y": 80, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 16.aseprite",
-    "frame": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 17.aseprite",
-    "frame": { "x": 480, "y": 80, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 18.aseprite",
-    "frame": { "x": 560, "y": 80, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 19.aseprite",
-    "frame": { "x": 0, "y": 160, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 20.aseprite",
-    "frame": { "x": 80, "y": 160, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 21.aseprite",
-    "frame": { "x": 160, "y": 160, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 22.aseprite",
-    "frame": { "x": 240, "y": 160, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 23.aseprite",
-    "frame": { "x": 320, "y": 160, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 24.aseprite",
-    "frame": { "x": 400, "y": 160, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 25.aseprite",
-    "frame": { "x": 480, "y": 160, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 26.aseprite",
-    "frame": { "x": 560, "y": 160, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 27.aseprite",
-    "frame": { "x": 0, "y": 240, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 28.aseprite",
-    "frame": { "x": 80, "y": 240, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 29.aseprite",
-    "frame": { "x": 160, "y": 240, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 30.aseprite",
-    "frame": { "x": 160, "y": 80, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 31.aseprite",
-    "frame": { "x": 160, "y": 80, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 32.aseprite",
-    "frame": { "x": 160, "y": 80, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 33.aseprite",
-    "frame": { "x": 240, "y": 240, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 34.aseprite",
-    "frame": { "x": 320, "y": 240, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 35.aseprite",
-    "frame": { "x": 400, "y": 240, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 36.aseprite",
-    "frame": { "x": 480, "y": 240, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 37.aseprite",
-    "frame": { "x": 160, "y": 80, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 75
-   },
-   {
-    "filename": "Bomber Aseprite 38.aseprite",
-    "frame": { "x": 240, "y": 80, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 75
-   },
-   {
-    "filename": "Bomber Aseprite 39.aseprite",
-    "frame": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 75
-   },
-   {
-    "filename": "Bomber Aseprite 40.aseprite",
-    "frame": { "x": 560, "y": 240, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 75
-   },
-   {
-    "filename": "Bomber Aseprite 41.aseprite",
-    "frame": { "x": 0, "y": 320, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 75
-   },
-   {
-    "filename": "Bomber Aseprite 42.aseprite",
-    "frame": { "x": 80, "y": 320, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 75
-   },
-   {
-    "filename": "Bomber Aseprite 43.aseprite",
-    "frame": { "x": 160, "y": 320, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 75
-   },
-   {
-    "filename": "Bomber Aseprite 44.aseprite",
-    "frame": { "x": 240, "y": 320, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 75
-   },
-   {
-    "filename": "Bomber Aseprite 45.aseprite",
-    "frame": { "x": 320, "y": 320, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 75
-   },
-   {
-    "filename": "Bomber Aseprite 46.aseprite",
-    "frame": { "x": 400, "y": 320, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 75
-   },
-   {
-    "filename": "Bomber Aseprite 47.aseprite",
-    "frame": { "x": 480, "y": 320, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 75
-   },
-   {
-    "filename": "Bomber Aseprite 48.aseprite",
-    "frame": { "x": 560, "y": 320, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 75
-   },
-   {
-    "filename": "Bomber Aseprite 49.aseprite",
-    "frame": { "x": 0, "y": 400, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 75
-   },
-   {
-    "filename": "Bomber Aseprite 50.aseprite",
-    "frame": { "x": 80, "y": 400, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 75
-   },
-   {
-    "filename": "Bomber Aseprite 51.aseprite",
-    "frame": { "x": 160, "y": 400, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 52.aseprite",
-    "frame": { "x": 240, "y": 400, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 53.aseprite",
-    "frame": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 54.aseprite",
-    "frame": { "x": 320, "y": 400, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 55.aseprite",
-    "frame": { "x": 400, "y": 400, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 56.aseprite",
-    "frame": { "x": 480, "y": 400, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 57.aseprite",
-    "frame": { "x": 560, "y": 400, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 58.aseprite",
-    "frame": { "x": 0, "y": 480, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 59.aseprite",
-    "frame": { "x": 80, "y": 480, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 60.aseprite",
-    "frame": { "x": 160, "y": 480, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 61.aseprite",
-    "frame": { "x": 80, "y": 480, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 62.aseprite",
-    "frame": { "x": 240, "y": 480, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 63.aseprite",
-    "frame": { "x": 320, "y": 480, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 64.aseprite",
-    "frame": { "x": 400, "y": 480, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 65.aseprite",
-    "frame": { "x": 480, "y": 480, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 66.aseprite",
-    "frame": { "x": 560, "y": 480, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 67.aseprite",
-    "frame": { "x": 0, "y": 560, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 68.aseprite",
-    "frame": { "x": 80, "y": 560, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   },
-   {
-    "filename": "Bomber Aseprite 69.aseprite",
-    "frame": { "x": 80, "y": 400, "w": 80, "h": 80 },
-    "rotated": false,
-    "trimmed": false,
-    "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
-    "sourceSize": { "w": 80, "h": 80 },
-    "duration": 100
-   }
- ],
- "meta": {
-  "app": "https://www.aseprite.org/",
-  "version": "1.3.17.2-arm64",
-  "image": "bomber.png",
-  "format": "RGBA8888",
-  "size": { "w": 640, "h": 640 },
-  "scale": "1",
-  "frameTags": [
-   { "name": "Spawn", "from": 1, "to": 8, "direction": "forward", "color": "#000000ff" },
-   { "name": "Idle", "from": 9, "to": 16, "direction": "forward", "color": "#000000ff" },
-   { "name": "Run", "from": 17, "to": 24, "direction": "forward", "color": "#000000ff" },
-   { "name": "Electrocute", "from": 25, "to": 36, "direction": "forward", "color": "#000000ff" },
-   { "name": "Explode", "from": 37, "to": 50, "direction": "forward", "color": "#000000ff" },
-   { "name": "Hit", "from": 51, "to": 53, "direction": "forward", "color": "#000000ff" },
-   { "name": "Death", "from": 54, "to": 69, "direction": "forward", "color": "#000000ff" }
-  ]
- }
+{
+  "frames": [
+    {
+      "filename": "Bomber Aseprite 0.aseprite",
+      "frame": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 1.aseprite",
+      "frame": { "x": 80, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 2.aseprite",
+      "frame": { "x": 160, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 3.aseprite",
+      "frame": { "x": 240, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 4.aseprite",
+      "frame": { "x": 320, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 5.aseprite",
+      "frame": { "x": 400, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 6.aseprite",
+      "frame": { "x": 480, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 7.aseprite",
+      "frame": { "x": 560, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 8.aseprite",
+      "frame": { "x": 0, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 9.aseprite",
+      "frame": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 10.aseprite",
+      "frame": { "x": 80, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 11.aseprite",
+      "frame": { "x": 160, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 12.aseprite",
+      "frame": { "x": 240, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 13.aseprite",
+      "frame": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 14.aseprite",
+      "frame": { "x": 320, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 15.aseprite",
+      "frame": { "x": 400, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 16.aseprite",
+      "frame": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 17.aseprite",
+      "frame": { "x": 480, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 18.aseprite",
+      "frame": { "x": 560, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 19.aseprite",
+      "frame": { "x": 0, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 20.aseprite",
+      "frame": { "x": 80, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 21.aseprite",
+      "frame": { "x": 160, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 22.aseprite",
+      "frame": { "x": 240, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 23.aseprite",
+      "frame": { "x": 320, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 24.aseprite",
+      "frame": { "x": 400, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 25.aseprite",
+      "frame": { "x": 480, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 26.aseprite",
+      "frame": { "x": 560, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 27.aseprite",
+      "frame": { "x": 0, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 28.aseprite",
+      "frame": { "x": 80, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 29.aseprite",
+      "frame": { "x": 160, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 30.aseprite",
+      "frame": { "x": 160, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 31.aseprite",
+      "frame": { "x": 160, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 32.aseprite",
+      "frame": { "x": 160, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 33.aseprite",
+      "frame": { "x": 240, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 34.aseprite",
+      "frame": { "x": 320, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 35.aseprite",
+      "frame": { "x": 400, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 36.aseprite",
+      "frame": { "x": 480, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 37.aseprite",
+      "frame": { "x": 160, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 75
+    },
+    {
+      "filename": "Bomber Aseprite 38.aseprite",
+      "frame": { "x": 240, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 75
+    },
+    {
+      "filename": "Bomber Aseprite 39.aseprite",
+      "frame": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 75
+    },
+    {
+      "filename": "Bomber Aseprite 40.aseprite",
+      "frame": { "x": 560, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 75
+    },
+    {
+      "filename": "Bomber Aseprite 41.aseprite",
+      "frame": { "x": 0, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 75
+    },
+    {
+      "filename": "Bomber Aseprite 42.aseprite",
+      "frame": { "x": 80, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 75
+    },
+    {
+      "filename": "Bomber Aseprite 43.aseprite",
+      "frame": { "x": 160, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 75
+    },
+    {
+      "filename": "Bomber Aseprite 44.aseprite",
+      "frame": { "x": 240, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 75
+    },
+    {
+      "filename": "Bomber Aseprite 45.aseprite",
+      "frame": { "x": 320, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 75
+    },
+    {
+      "filename": "Bomber Aseprite 46.aseprite",
+      "frame": { "x": 400, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 75
+    },
+    {
+      "filename": "Bomber Aseprite 47.aseprite",
+      "frame": { "x": 480, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 75
+    },
+    {
+      "filename": "Bomber Aseprite 48.aseprite",
+      "frame": { "x": 560, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 75
+    },
+    {
+      "filename": "Bomber Aseprite 49.aseprite",
+      "frame": { "x": 0, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 75
+    },
+    {
+      "filename": "Bomber Aseprite 50.aseprite",
+      "frame": { "x": 80, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 75
+    },
+    {
+      "filename": "Bomber Aseprite 51.aseprite",
+      "frame": { "x": 160, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 52.aseprite",
+      "frame": { "x": 240, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 53.aseprite",
+      "frame": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 54.aseprite",
+      "frame": { "x": 320, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 55.aseprite",
+      "frame": { "x": 400, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 56.aseprite",
+      "frame": { "x": 480, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 57.aseprite",
+      "frame": { "x": 560, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 58.aseprite",
+      "frame": { "x": 0, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 59.aseprite",
+      "frame": { "x": 80, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 60.aseprite",
+      "frame": { "x": 160, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 61.aseprite",
+      "frame": { "x": 80, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 62.aseprite",
+      "frame": { "x": 240, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 63.aseprite",
+      "frame": { "x": 320, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 64.aseprite",
+      "frame": { "x": 400, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 65.aseprite",
+      "frame": { "x": 480, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 66.aseprite",
+      "frame": { "x": 560, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 67.aseprite",
+      "frame": { "x": 0, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 68.aseprite",
+      "frame": { "x": 80, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    },
+    {
+      "filename": "Bomber Aseprite 69.aseprite",
+      "frame": { "x": 80, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 },
+      "duration": 100
+    }
+  ],
+  "meta": {
+    "app": "https://www.aseprite.org/",
+    "version": "1.3.17.2-arm64",
+    "image": "bomber.png",
+    "format": "RGBA8888",
+    "size": { "w": 640, "h": 640 },
+    "scale": "1",
+    "frameTags": [
+      { "name": "Spawn", "from": 1, "to": 8, "direction": "forward", "color": "#000000ff" },
+      { "name": "Idle", "from": 9, "to": 16, "direction": "forward", "color": "#000000ff" },
+      { "name": "Run", "from": 17, "to": 24, "direction": "forward", "color": "#000000ff" },
+      { "name": "Electrocute", "from": 25, "to": 36, "direction": "forward", "color": "#000000ff" },
+      { "name": "Explode", "from": 37, "to": 50, "direction": "forward", "color": "#000000ff" },
+      { "name": "Hit", "from": 51, "to": 53, "direction": "forward", "color": "#000000ff" },
+      { "name": "Death", "from": 54, "to": 69, "direction": "forward", "color": "#000000ff" }
+    ]
+  }
 }

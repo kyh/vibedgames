@@ -20,7 +20,8 @@ if (!objPath) {
   process.exit(1);
 }
 
-const ROAD_RE = /^highway_(motorway|trunk|primary|secondary|tertiary|residential|unclassified)(_link)?(_|$)/;
+const ROAD_RE =
+  /^highway_(motorway|trunk|primary|secondary|tertiary|residential|unclassified)(_link)?(_|$)/;
 
 const vx = [];
 const vy = [];
@@ -142,7 +143,10 @@ rl.on("close", () => {
 
   writeFileSync(
     new URL("./downtown-raw.json", import.meta.url),
-    JSON.stringify({ buildings, roadVerts: roadVerts.map(([x, z]) => [Math.round(x * 10) / 10, Math.round(z * 10) / 10]) }),
+    JSON.stringify({
+      buildings,
+      roadVerts: roadVerts.map(([x, z]) => [Math.round(x * 10) / 10, Math.round(z * 10) / 10]),
+    }),
   );
   console.log("downtown-raw.json written");
 });

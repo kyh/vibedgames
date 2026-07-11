@@ -114,7 +114,8 @@ export function genAttempt(seed: number, biome = 1): RoomDef {
 
     if (!placed.some((s) => canHop(s, cand))) continue; // reachable from something
     // Don't crowd another surface vertically (would destroy headroom / make a pocket).
-    if (placed.some((s) => s.x1 >= cand.x0 && s.x0 <= cand.x1 && Math.abs(s.r - r) < MIN_VGAP)) continue;
+    if (placed.some((s) => s.x1 >= cand.x0 && s.x0 <= cand.x1 && Math.abs(s.r - r) < MIN_VGAP))
+      continue;
     if (!rowClear(g, cand.x0, cand.x1, r) || !rowClear(g, cand.x0, cand.x1, r - 1)) continue; // headroom
 
     if (ri(10) < k.oneWayPct) {
@@ -252,6 +253,10 @@ export function genCombatRoom(seed: number, biome = 1): RoomDef {
   }
   // Fallback: floor-only fight — trivially reachable, never broken.
   const def = new RoomDef(RW, RH).arena();
-  def.player(5, S).enemy(20, S).enemy(34, S).door(RW - 6, S);
+  def
+    .player(5, S)
+    .enemy(20, S)
+    .enemy(34, S)
+    .door(RW - 6, S);
   return def;
 }

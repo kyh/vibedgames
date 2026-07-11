@@ -8,7 +8,15 @@ import {
   modelUrl,
   ROAD_BRIDGE,
 } from "../assets/manifest";
-import { GRID_X, GRID_Z, ROAD_TILE, WORLD_H, WORLD_HALF_X, WORLD_HALF_Z, WORLD_W } from "../shared/constants";
+import {
+  GRID_X,
+  GRID_Z,
+  ROAD_TILE,
+  WORLD_H,
+  WORLD_HALF_X,
+  WORLD_HALF_Z,
+  WORLD_W,
+} from "../shared/constants";
 import { Rng } from "../shared/rng";
 import type { Solid } from "./city";
 import type { CityPlan } from "./grid";

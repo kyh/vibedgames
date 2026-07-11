@@ -12,29 +12,68 @@ Copy the config, tune `color` to your palette. `envMapIntensity` assumes a `Room
 
 ```javascript
 // Painted metal (car body, ship hull) — dielectric paint over metal, read via clearcoat
-new THREE.MeshPhysicalMaterial({ color: 0x1f6feb, metalness: 0.0, roughness: 0.5,
-  clearcoat: 0.9, clearcoatRoughness: 0.15, envMapIntensity: 1.0 });
+new THREE.MeshPhysicalMaterial({
+  color: 0x1f6feb,
+  metalness: 0.0,
+  roughness: 0.5,
+  clearcoat: 0.9,
+  clearcoatRoughness: 0.15,
+  envMapIntensity: 1.0,
+});
 
 // Bare brushed metal (steel, gun frame) — needs the env map to look metallic at all
-new THREE.MeshStandardMaterial({ color: 0xaeb4bd, metalness: 1.0, roughness: 0.4, envMapIntensity: 1.1 });
+new THREE.MeshStandardMaterial({
+  color: 0xaeb4bd,
+  metalness: 1.0,
+  roughness: 0.4,
+  envMapIntensity: 1.1,
+});
 
 // Rubber / tire — near-black, kills reflection
-new THREE.MeshStandardMaterial({ color: 0x0a0a0b, metalness: 0.0, roughness: 0.92, envMapIntensity: 0.35 });
+new THREE.MeshStandardMaterial({
+  color: 0x0a0a0b,
+  metalness: 0.0,
+  roughness: 0.92,
+  envMapIntensity: 0.35,
+});
 
 // Matte plastic (housings, crates)
-new THREE.MeshStandardMaterial({ color: 0xd23b3b, metalness: 0.0, roughness: 0.62, envMapIntensity: 0.6 });
+new THREE.MeshStandardMaterial({
+  color: 0xd23b3b,
+  metalness: 0.0,
+  roughness: 0.62,
+  envMapIntensity: 0.6,
+});
 
 // Glossy ceramic / clean hull — clearcoat for the wet-look premium read
-new THREE.MeshPhysicalMaterial({ color: 0xf5f5f5, metalness: 0.0, roughness: 0.12,
-  clearcoat: 1.0, clearcoatRoughness: 0.05, envMapIntensity: 1.0 });
+new THREE.MeshPhysicalMaterial({
+  color: 0xf5f5f5,
+  metalness: 0.0,
+  roughness: 0.12,
+  clearcoat: 1.0,
+  clearcoatRoughness: 0.05,
+  envMapIntensity: 1.0,
+});
 
 // Emissive signal (beacon, pickup core) — dark base so only the glow reads; >1 intensity feeds bloom
-new THREE.MeshStandardMaterial({ color: 0x101010, emissive: 0x18e0ff, emissiveIntensity: 2.5,
-  metalness: 0.0, roughness: 0.4 });
+new THREE.MeshStandardMaterial({
+  color: 0x101010,
+  emissive: 0x18e0ff,
+  emissiveIntensity: 2.5,
+  metalness: 0.0,
+  roughness: 0.4,
+});
 
 // Cloth / fabric — high roughness + sheen for the soft edge highlight
-new THREE.MeshPhysicalMaterial({ color: 0x3a4a6b, metalness: 0.0, roughness: 0.9,
-  sheen: 1.0, sheenRoughness: 0.5, sheenColor: new THREE.Color(0x8899bb), envMapIntensity: 0.5 });
+new THREE.MeshPhysicalMaterial({
+  color: 0x3a4a6b,
+  metalness: 0.0,
+  roughness: 0.9,
+  sheen: 1.0,
+  sheenRoughness: 0.5,
+  sheenColor: new THREE.Color(0x8899bb),
+  envMapIntensity: 0.5,
+});
 ```
 
 **Separate roles by roughness/metalness contrast (matte vs glossy, metal vs plastic), not hue alone.** Two objects with different colors but identical material response read as the same "stuff."
@@ -43,8 +82,14 @@ new THREE.MeshPhysicalMaterial({ color: 0x3a4a6b, metalness: 0.0, roughness: 0.9
 
 ```javascript
 // REAL refractive glass — transmission
-new THREE.MeshPhysicalMaterial({ metalness: 0.0, roughness: 0.05, transmission: 1.0,
-  thickness: 0.5, ior: 1.5, envMapIntensity: 1.0 });
+new THREE.MeshPhysicalMaterial({
+  metalness: 0.0,
+  roughness: 0.05,
+  transmission: 1.0,
+  thickness: 0.5,
+  ior: 1.5,
+  envMapIntensity: 1.0,
+});
 ```
 
 **Cost warning:** every transmissive material triggers an **extra full-scene render into a transmission buffer every frame**. Reserve it for one or two hero surfaces (cockpit canopy, potion vial) at close range. Never use it on repeated or instanced props.
@@ -52,8 +97,16 @@ new THREE.MeshPhysicalMaterial({ metalness: 0.0, roughness: 0.05, transmission: 
 ```javascript
 // CHEAP fake glass — one transparent draw call, no extra render target.
 // Use for repeated windows, visors, shields.
-new THREE.MeshPhysicalMaterial({ color: 0x88ccff, metalness: 0.0, roughness: 0.1,
-  transparent: true, opacity: 0.25, clearcoat: 1.0, envMapIntensity: 1.5, depthWrite: false });
+new THREE.MeshPhysicalMaterial({
+  color: 0x88ccff,
+  metalness: 0.0,
+  roughness: 0.1,
+  transparent: true,
+  opacity: 0.25,
+  clearcoat: 1.0,
+  envMapIntensity: 1.5,
+  depthWrite: false,
+});
 ```
 
 Add the fresnel rim below for a readable edge.
@@ -100,8 +153,12 @@ material.onBeforeCompile = (shader) => {
   shader.uniforms.uTime = { value: 0 };
   shader.uniforms.uPanelColor = { value: new THREE.Color(0x18e0ff) };
   material.userData.shader = shader;
-  shader.vertexShader = "varying vec2 vPanelUv;\n" + shader.vertexShader.replace(
-    "#include <begin_vertex>", "#include <begin_vertex>\n vPanelUv = uv;");
+  shader.vertexShader =
+    "varying vec2 vPanelUv;\n" +
+    shader.vertexShader.replace(
+      "#include <begin_vertex>",
+      "#include <begin_vertex>\n vPanelUv = uv;",
+    );
   shader.fragmentShader =
     "uniform float uTime;\nuniform vec3 uPanelColor;\nvarying vec2 vPanelUv;\n" +
     shader.fragmentShader.replace(
@@ -125,9 +182,11 @@ Energy conduits, charge bars, boost lanes. Scroll direction/speed should encode 
 material.onBeforeCompile = (shader) => {
   shader.uniforms.uTime = { value: 0 };
   material.userData.shader = shader;
-  shader.vertexShader = "uniform float uTime;\n" + shader.vertexShader.replace(
-    "#include <begin_vertex>",
-    `#include <begin_vertex>
+  shader.vertexShader =
+    "uniform float uTime;\n" +
+    shader.vertexShader.replace(
+      "#include <begin_vertex>",
+      `#include <begin_vertex>
      #ifdef USE_INSTANCING
        float phase = instanceMatrix[3].x + instanceMatrix[3].z;
      #else
@@ -136,7 +195,7 @@ material.onBeforeCompile = (shader) => {
      float h = max(position.y, 0.0); // base stays planted, tips move most
      transformed.x += sin(uTime * 1.5 + phase) * 0.08 * h;
      transformed.z += cos(uTime * 1.1 + phase) * 0.05 * h;`,
-  );
+    );
 };
 material.customProgramCacheKey = () => "wind-sway";
 ```
@@ -152,8 +211,12 @@ material.onBeforeCompile = (shader) => {
   shader.uniforms.uProgress = { value: 0 };
   shader.uniforms.uEdgeColor = { value: new THREE.Color(0xff6a00) };
   material.userData.shader = shader;
-  shader.vertexShader = "varying vec3 vDisPos;\n" + shader.vertexShader.replace(
-    "#include <begin_vertex>", "#include <begin_vertex>\n vDisPos = position;");
+  shader.vertexShader =
+    "varying vec3 vDisPos;\n" +
+    shader.vertexShader.replace(
+      "#include <begin_vertex>",
+      "#include <begin_vertex>\n vDisPos = position;",
+    );
   shader.fragmentShader =
     `uniform float uProgress;\nuniform vec3 uEdgeColor;\nvarying vec3 vDisPos;
      float hash13(vec3 p){ p = fract(p * 0.1031); p += dot(p, p.yzx + 33.33); return fract((p.x + p.y) * p.z); }\n` +
@@ -181,7 +244,8 @@ Cheaper than a cubemap for stylized outdoor scenes: a `BackSide` sphere with a h
 const sky = new THREE.Mesh(
   new THREE.SphereGeometry(500, 32, 16),
   new THREE.ShaderMaterial({
-    side: THREE.BackSide, depthWrite: false,
+    side: THREE.BackSide,
+    depthWrite: false,
     uniforms: {
       uTop: { value: new THREE.Color(0x3a6fb0) },
       uHorizon: { value: new THREE.Color(0xcfe4f5) },
@@ -227,7 +291,11 @@ Each is one draw call or less, mobile-safe, and solves a constant real need.
     ctx.fillRect(0, 0, 128, 128);
     const mesh = new THREE.Mesh(
       new THREE.PlaneGeometry(radius * 2, radius * 2),
-      new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }),
+      new THREE.MeshBasicMaterial({
+        map: new THREE.CanvasTexture(c),
+        transparent: true,
+        depthWrite: false,
+      }),
     );
     mesh.rotation.x = -Math.PI / 2;
     mesh.position.y = 0.01; // just above the ground plane

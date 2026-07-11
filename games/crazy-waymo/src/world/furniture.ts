@@ -144,7 +144,8 @@ function tintNode(node: THREE.Object3D, hex: number, amt: number): void {
 }
 
 const cellKey = (gx: number, gz: number): string => `${gx},${gz}`;
-const inBounds = (gx: number, gz: number): boolean => gx >= 0 && gz >= 0 && gx < GRID_X && gz < GRID_Z;
+const inBounds = (gx: number, gz: number): boolean =>
+  gx >= 0 && gz >= 0 && gx < GRID_X && gz < GRID_Z;
 
 // Yaw that points local +Z toward the given grid direction (matches city.ts).
 function dirToYaw(d: Dir): number {
@@ -316,10 +317,8 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
   // district), so inPark was constant-true and the streetlight walk placed
   // ZERO lamps on every build.
   const inPark = (x: number, z: number): boolean =>
-    districtAt(
-      Math.floor((x + WORLD_W / 2) / ROAD_TILE),
-      Math.floor((z + WORLD_H / 2) / ROAD_TILE),
-    ).character === "park";
+    districtAt(Math.floor((x + WORLD_W / 2) / ROAD_TILE), Math.floor((z + WORLD_H / 2) / ROAD_TILE))
+      .character === "park";
 
   // ------------------------------------------------------------------
   // 1. STREETLIGHTS — walked along network EDGES every ~2 tiles, alternating
@@ -354,7 +353,12 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       if (char === "victorian") {
         const url = modelUrl("props", LIGHT_OLD);
         seatKK(url, px, pz, yaw, scaleToHeight(url, VICTORIAN_LAMP_HEIGHT));
-        lampHeads.push({ x: px, y: groundY + VICTORIAN_LAMP_HEIGHT * 0.85, z: pz, ground: groundY });
+        lampHeads.push({
+          x: px,
+          y: groundY + VICTORIAN_LAMP_HEIGHT * 0.85,
+          z: pz,
+          ground: groundY,
+        });
       } else {
         const url = modelUrl("props", lightFor(char));
         const sc = scaleToHeight(url, LIGHT_HEIGHT);
@@ -393,8 +397,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       const px = smp.x - smp.tz * off;
       const pz = smp.z + smp.tx * off;
       // Nose along the travel direction of this kerb's lane.
-      const yaw =
-        Math.atan2(smp.tx, smp.tz) + (side > 0 ? 0 : Math.PI) + rng.range(-0.04, 0.04);
+      const yaw = Math.atan2(smp.tx, smp.tz) + (side > 0 ? 0 : Math.PI) + rng.range(-0.04, 0.04);
       parkedCars.push({ x: px, z: pz, yaw, model: rng.pick(TRAFFIC_CARS) });
     }
   }
@@ -527,12 +530,24 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       for (let i = 0; i < cones; i++) {
         const t = cones > 1 ? i / (cones - 1) : 0.5;
         const pos = at(t);
-        seat(coneUrl, pos.x + rng.range(-0.3, 0.3), pos.z + rng.range(-0.3, 0.3), rng.range(0, Math.PI * 2), coneScale);
+        seat(
+          coneUrl,
+          pos.x + rng.range(-0.3, 0.3),
+          pos.z + rng.range(-0.3, 0.3),
+          rng.range(0, Math.PI * 2),
+          coneScale,
+        );
       }
       const bPos = at(0.5);
       const bYaw = Math.atan2(smp.tz, -smp.tx); // long axis across the lane
       seat(barrierUrl, bPos.x, bPos.z, bYaw, scaleToHeight(barrierUrl, 1.1));
-      solids.push({ minX: bPos.x - 1, maxX: bPos.x + 1, minZ: bPos.z - 1, maxZ: bPos.z + 1, maxY: terrain.heightAt(bPos.x, bPos.z) + 1.6 });
+      solids.push({
+        minX: bPos.x - 1,
+        maxX: bPos.x + 1,
+        minZ: bPos.z - 1,
+        maxZ: bPos.z + 1,
+        maxY: terrain.heightAt(bPos.x, bPos.z) + 1.6,
+      });
       const lPos = at(0.08);
       seat(lightUrl, lPos.x, lPos.z, bYaw, scaleToHeight(lightUrl, 2));
     }
@@ -564,8 +579,20 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
         for (const off of [-0.25, 0.25] as const) {
           const tx = wx + off * ROAD_TILE;
           if (onAsphalt(tx, tz, 1.6)) continue; // smoothed diagonals cut raster lots
-          seat(treeUrl, tx, tz, rng.range(0, Math.PI * 2), scaleToHeight(treeUrl, rng.range(5, 6.5)));
-          solids.push({ minX: tx - 0.55, maxX: tx + 0.55, minZ: tz - 0.55, maxZ: tz + 0.55, noBody: true });
+          seat(
+            treeUrl,
+            tx,
+            tz,
+            rng.range(0, Math.PI * 2),
+            scaleToHeight(treeUrl, rng.range(5, 6.5)),
+          );
+          solids.push({
+            minX: tx - 0.55,
+            maxX: tx + 0.55,
+            minZ: tz - 0.55,
+            maxZ: tz + 0.55,
+            noBody: true,
+          });
         }
       }
       // Planter clusters as flower beds.
@@ -710,7 +737,13 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
           plinth.updateMatrixWorld(true);
           objects.push(plinth);
           if (name === "park-base-decorated-trees") {
-            solids.push({ minX: wx - 0.6, maxX: wx + 0.6, minZ: wz - 0.6, maxZ: wz + 0.6, noBody: true });
+            solids.push({
+              minX: wx - 0.6,
+              maxX: wx + 0.6,
+              minZ: wz - 0.6,
+              maxZ: wz + 0.6,
+              noBody: true,
+            });
           }
         } else {
           // hillside: blobby kit-tree cluster straight on the terrain
@@ -723,13 +756,31 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
               const tUrl = modelUrl("props", rng.pick(PARK_TREES));
               const ptx = cx2 + rng.range(-2.4, 2.4);
               const ptz = cz2 + rng.range(-2.4, 2.4);
-              seat(tUrl, ptx, ptz, rng.range(0, Math.PI * 2), scaleToHeight(tUrl, rng.range(3.6, 5.6)));
+              seat(
+                tUrl,
+                ptx,
+                ptz,
+                rng.range(0, Math.PI * 2),
+                scaleToHeight(tUrl, rng.range(3.6, 5.6)),
+              );
             }
-            solids.push({ minX: cx2 - 0.6, maxX: cx2 + 0.6, minZ: cz2 - 0.6, maxZ: cz2 + 0.6, noBody: true });
+            solids.push({
+              minX: cx2 - 0.6,
+              maxX: cx2 + 0.6,
+              minZ: cz2 - 0.6,
+              maxZ: cz2 + 0.6,
+              noBody: true,
+            });
           }
           if (rng.chance(0.5)) {
             const bUrl = modelUrl("props", rng.pick(BUSHES));
-            seat(bUrl, wx + rng.range(-4, 4), wz + rng.range(-4, 4), rng.range(0, Math.PI * 2), scaleToHeight(bUrl, rng.range(0.9, 1.4)));
+            seat(
+              bUrl,
+              wx + rng.range(-4, 4),
+              wz + rng.range(-4, 4),
+              rng.range(0, Math.PI * 2),
+              scaleToHeight(bUrl, rng.range(0.9, 1.4)),
+            );
           }
         }
       }
@@ -768,11 +819,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
   }
   const chosenPiers: PierColumn[] = [];
   if (pierCandidates.length > 0) {
-    const idxs = [
-      0,
-      Math.floor((pierCandidates.length - 1) / 2),
-      pierCandidates.length - 1,
-    ];
+    const idxs = [0, Math.floor((pierCandidates.length - 1) / 2), pierCandidates.length - 1];
     for (const i of idxs) {
       const col = pierCandidates[i];
       if (col && !chosenPiers.includes(col)) chosenPiers.push(col);
@@ -792,7 +839,10 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       const gz = pier.landGz - i;
       openWaterCells.add(cellKey(pier.gx, gz));
       // Generated deck slab — top face exactly at deck height.
-      const tile = new THREE.Mesh(new THREE.BoxGeometry(PIER_WIDTH, 0.5, PIER_WIDTH), PIER_DECK_MAT);
+      const tile = new THREE.Mesh(
+        new THREE.BoxGeometry(PIER_WIDTH, 0.5, PIER_WIDTH),
+        PIER_DECK_MAT,
+      );
       tile.castShadow = true;
       tile.receiveShadow = true;
       tile.position.set(px, deckY - 0.25, worldZ(gz));

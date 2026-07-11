@@ -114,7 +114,7 @@ For bot playtests and visual baselines, upgrade this minimal seam to the fuller 
 
 ## Bot Playtest: Prove It Plays
 
-A smoke test proves the game loads; a bot playtest proves it *plays*. Drive scripted real input and assert progression: frames advanced (loop alive), distance travelled (input alive), score delta (objective reachable), softlock windows (frames advance but held input yields no motion and no progress — fail if > 2), zero errors. For difficulty claims, run the bot at two reaction speeds (0ms vs 300ms delay) — if the slow bot does as well as the fast one, the difficulty is decorative.
+A smoke test proves the game loads; a bot playtest proves it _plays_. Drive scripted real input and assert progression: frames advanced (loop alive), distance travelled (input alive), score delta (objective reachable), softlock windows (frames advance but held input yields no motion and no progress — fail if > 2), zero errors. For difficulty claims, run the bot at two reaction speeds (0ms vs 300ms delay) — if the slow bot does as well as the fast one, the difficulty is decorative.
 
 Two headless-WebGL footguns: never report headless FPS as performance (SwiftShader software raster, ~2fps on scenes a GPU runs at 120), and set `workers: 1` for WebGL games or parallel contexts flake every timed phase.
 

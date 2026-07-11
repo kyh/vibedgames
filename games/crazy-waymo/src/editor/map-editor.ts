@@ -46,9 +46,17 @@ const CATEGORIES: readonly { label: string; cat: string; names: readonly string[
   { label: "props", cat: "props", names: [...PROPS, ...KK_PROPS_EXTRA] },
   { label: "parks", cat: "parks", names: PARK_TILES },
   { label: "houses", cat: "buildings", names: BUILDINGS_SUBURBAN },
-  { label: "commercial", cat: "buildings", names: [...BUILDINGS_COMMERCIAL, ...BUILDINGS_SKYSCRAPER, ...KK_BUILDINGS] },
+  {
+    label: "commercial",
+    cat: "buildings",
+    names: [...BUILDINGS_COMMERCIAL, ...BUILDINGS_SKYSCRAPER, ...KK_BUILDINGS],
+  },
   { label: "industrial", cat: "buildings", names: BUILDINGS_INDUSTRIAL },
-  { label: "cars", cat: "cars", names: [...TRAFFIC_CARS, ...SERVICE_CARS, "waymo", "police", ...KK_CARS] },
+  {
+    label: "cars",
+    cat: "cars",
+    names: [...TRAFFIC_CARS, ...SERVICE_CARS, "waymo", "police", ...KK_CARS],
+  },
   { label: "people", cat: "characters", names: CHARACTERS },
 ];
 
@@ -108,7 +116,14 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
   let tab: Tab = "props";
   let streetErase = false;
   const placed: Placed[] = [...CUSTOM_PROPS, ...loadLocalProps()].map((p) => ({
-    entry: { model: p.model, u: p.u, v: p.v, yaw: p.yaw, s: p.s, ...(p.solid ? { solid: true } : {}) },
+    entry: {
+      model: p.model,
+      u: p.u,
+      v: p.v,
+      yaw: p.yaw,
+      s: p.s,
+      ...(p.solid ? { solid: true } : {}),
+    },
     node: null,
     baked: true,
   }));
@@ -161,12 +176,19 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     const k = `${hex},${opacity}`;
     let m = quadMats.get(k);
     if (!m) {
-      m = new THREE.MeshBasicMaterial({ color: hex, transparent: true, opacity, depthWrite: false });
+      m = new THREE.MeshBasicMaterial({
+        color: hex,
+        transparent: true,
+        opacity,
+        depthWrite: false,
+      });
       quadMats.set(k, m);
     }
     return m;
   };
-  const roadPadGeo = new THREE.PlaneGeometry(ROAD_TILE * 1.02, ROAD_TILE * 1.02).rotateX(-Math.PI / 2);
+  const roadPadGeo = new THREE.PlaneGeometry(ROAD_TILE * 1.02, ROAD_TILE * 1.02).rotateX(
+    -Math.PI / 2,
+  );
   const dashGeo = new THREE.PlaneGeometry(1.1, ROAD_TILE * 0.86).rotateX(-Math.PI / 2);
   const setQuad = (scope: "st" | "fl" | "cl", gx: number, gz: number, hex: number | null): void => {
     const k = `${scope}:${gx},${gz}`;
@@ -298,7 +320,9 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     }
     inspector.style.display = "flex";
     $("ed-i-model").textContent = selected.entry.model;
-    ($("ed-irot") as HTMLInputElement).value = String(Math.round((selected.entry.yaw * 180) / Math.PI));
+    ($("ed-irot") as HTMLInputElement).value = String(
+      Math.round((selected.entry.yaw * 180) / Math.PI),
+    );
     ($("ed-iscale") as HTMLInputElement).value = String(selected.entry.s);
     ($("ed-icol") as HTMLInputElement).checked = selected.entry.solid === true;
   };
@@ -409,7 +433,11 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
 
   // --- Roster: thumbnails + search + category tabs ---
   const thumbCache = new Map<string, string>();
-  const thumbRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+  const thumbRenderer = new THREE.WebGLRenderer({
+    antialias: true,
+    alpha: true,
+    preserveDrawingBuffer: true,
+  });
   thumbRenderer.setSize(64, 64);
   const thumbScene = new THREE.Scene();
   thumbScene.add(new THREE.AmbientLight(0xffffff, 1.1));
@@ -677,7 +705,11 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     game.scene.traverse((o) => {
       if (o.name !== "terrain-ground") return;
       o.traverse((c) => {
-        if (c instanceof THREE.Mesh && c.geometry instanceof THREE.BufferGeometry && !seen.has(c.geometry)) {
+        if (
+          c instanceof THREE.Mesh &&
+          c.geometry instanceof THREE.BufferGeometry &&
+          !seen.has(c.geometry)
+        ) {
           const col = c.geometry.getAttribute("color");
           if (col instanceof THREE.BufferAttribute && col.array instanceof Float32Array) {
             seen.add(c.geometry);
@@ -694,7 +726,8 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     for (const { geo, original } of groundGeos) {
       const pos = geo.getAttribute("position");
       const col = geo.getAttribute("color");
-      if (!(pos instanceof THREE.BufferAttribute) || !(col instanceof THREE.BufferAttribute)) continue;
+      if (!(pos instanceof THREE.BufferAttribute) || !(col instanceof THREE.BufferAttribute))
+        continue;
       let touched = false;
       for (let i = 0; i < pos.count; i++) {
         const vx = pos.getX(i);
@@ -758,7 +791,10 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
   const groundCell = (e: PointerEvent): [number, number] | null => {
     const p = groundPoint(e);
     if (!p) return null;
-    return [Math.floor((p.x + WORLD_W / 2) / ROAD_TILE), Math.floor((p.z + WORLD_H / 2) / ROAD_TILE)];
+    return [
+      Math.floor((p.x + WORLD_W / 2) / ROAD_TILE),
+      Math.floor((p.z + WORLD_H / 2) / ROAD_TILE),
+    ];
   };
   const pickProp = (e: PointerEvent): Placed | null => {
     castFrom(e);
@@ -922,7 +958,8 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
     } else if (k === "[" || k === "]") {
       const f = k === "]" ? 1.15 : 1 / 1.15;
       if (selected && selected.node) {
-        selected.entry.s = Math.round(Math.max(0.1, Math.min(20, selected.entry.s * f)) * 100) / 100;
+        selected.entry.s =
+          Math.round(Math.max(0.1, Math.min(20, selected.entry.s * f)) * 100) / 100;
         selected.node.scale.setScalar(selected.entry.s);
         selected.node.updateMatrixWorld(true);
         selectedBox?.update();
@@ -963,7 +1000,12 @@ export function startEditor(game: GameScene, renderer: THREE.WebGLRenderer): voi
           for (let gz = 0; gz < nz; gz++) {
             const c = col[gz];
             bctx.fillStyle = c === "water" ? "#3f6f9f" : c === "road" ? "#9aa0a8" : "#39503b";
-            bctx.fillRect((gx / nx) * mm.width, (gz / nz) * mm.height, mm.width / nx + 1, mm.height / nz + 1);
+            bctx.fillRect(
+              (gx / nx) * mm.width,
+              (gz / nz) * mm.height,
+              mm.width / nx + 1,
+              mm.height / nz + 1,
+            );
           }
         }
       };

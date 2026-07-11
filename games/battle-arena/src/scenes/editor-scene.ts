@@ -115,8 +115,18 @@ export class EditorScene {
   // shared editor-only resources
   private cylGeo = new THREE.CylinderGeometry(1, 1, 1, 20);
   private boxGeo = new THREE.BoxGeometry(1, 1, 1);
-  private colMat = new THREE.MeshBasicMaterial({ color: 0xff4433, transparent: true, opacity: 0.28, depthWrite: false });
-  private pureMat = new THREE.MeshBasicMaterial({ color: 0xff4433, transparent: true, opacity: 0.45, depthWrite: false });
+  private colMat = new THREE.MeshBasicMaterial({
+    color: 0xff4433,
+    transparent: true,
+    opacity: 0.28,
+    depthWrite: false,
+  });
+  private pureMat = new THREE.MeshBasicMaterial({
+    color: 0xff4433,
+    transparent: true,
+    opacity: 0.45,
+    depthWrite: false,
+  });
   private stubMat = new THREE.MeshStandardMaterial({ color: 0x8a8578, roughness: 0.9 });
   private selRing: THREE.Mesh;
   private heights = new Map<string, number>(); // native template heights
@@ -143,11 +153,22 @@ export class EditorScene {
     ringGeo.rotateX(-Math.PI / 2);
     this.selRing = new THREE.Mesh(
       ringGeo,
-      new THREE.MeshBasicMaterial({ color: 0x66ff99, transparent: true, opacity: 0.9, depthWrite: false }),
+      new THREE.MeshBasicMaterial({
+        color: 0x66ff99,
+        transparent: true,
+        opacity: 0.9,
+        depthWrite: false,
+      }),
     );
     this.selRing.visible = false;
     this.scene.add(this.selRing);
-    this.floorCursorMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.32, depthWrite: false, side: THREE.DoubleSide });
+    this.floorCursorMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.32,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
     const cursGeo = new THREE.PlaneGeometry(FLOOR_TILE, FLOOR_TILE);
     cursGeo.rotateX(-Math.PI / 2);
     this.floorCursor = new THREE.Mesh(cursGeo, this.floorCursorMat);
@@ -206,7 +227,8 @@ export class EditorScene {
         colliders.push({ x: o.x, y: o.y, radius: o.radius, height: o.height, model: WALL_RUN });
         return;
       }
-      const model = o.model ?? (i % 3 === 0 ? "pillar_decorated" : i % 3 === 1 ? "column" : "pillar");
+      const model =
+        o.model ?? (i % 3 === 0 ? "pillar_decorated" : i % 3 === 1 ? "column" : "pillar");
       const tall = TALL_TARGET[model] ?? o.height;
       props.push({
         model,
@@ -263,7 +285,18 @@ export class EditorScene {
             rot = -Math.atan2(o.y - c.y, o.x - c.x);
           }
         }
-        this.makeItem({ model: WALL_RUN, x: c.x, y: c.y, rot, scale: 1, lie: false, h: 0, collidable: true, radius: c.radius, height: c.height });
+        this.makeItem({
+          model: WALL_RUN,
+          x: c.x,
+          y: c.y,
+          rot,
+          scale: 1,
+          lie: false,
+          h: 0,
+          collidable: true,
+          radius: c.radius,
+          height: c.height,
+        });
       } else if (c.model !== undefined) {
         // hand-authored modeled collider — edit it as a collidable prop
         const tall = TALL_TARGET[c.model];
@@ -280,7 +313,9 @@ export class EditorScene {
           height: c.height,
         });
       } else {
-        const host = propItems.find((p) => !p.collidable && Math.hypot(p.x - c.x, p.y - c.y) < 0.05);
+        const host = propItems.find(
+          (p) => !p.collidable && Math.hypot(p.x - c.x, p.y - c.y) < 0.05,
+        );
         if (host) {
           host.collidable = true;
           host.radius = c.radius;
@@ -288,7 +323,18 @@ export class EditorScene {
           this.addColliderMesh(host);
           this.plant(host);
         } else {
-          this.makeItem({ model: "", x: c.x, y: c.y, rot: 0, scale: 1, lie: false, h: 0, collidable: true, radius: c.radius, height: c.height });
+          this.makeItem({
+            model: "",
+            x: c.x,
+            y: c.y,
+            rot: 0,
+            scale: 1,
+            lie: false,
+            h: 0,
+            collidable: true,
+            radius: c.radius,
+            height: c.height,
+          });
         }
       }
     }
@@ -306,13 +352,24 @@ export class EditorScene {
     const colliders: MapCollider[] = [];
     for (const it of this.items) {
       if (it.model !== WALL_RUN && it.model !== "") {
-        const p: MapProp = { model: it.model, x: r3(it.x), y: r3(it.y), rot: r3(it.rot), scale: r3(it.scale) };
+        const p: MapProp = {
+          model: it.model,
+          x: r3(it.x),
+          y: r3(it.y),
+          rot: r3(it.rot),
+          scale: r3(it.scale),
+        };
         if (it.lie) p.lie = true;
         if (it.h !== 0) p.h = r3(it.h);
         props.push(p);
       }
       if (it.collidable) {
-        const c: MapCollider = { x: r3(it.x), y: r3(it.y), radius: r3(it.radius), height: r3(it.height) };
+        const c: MapCollider = {
+          x: r3(it.x),
+          y: r3(it.y),
+          radius: r3(it.radius),
+          height: r3(it.height),
+        };
         if (it.model === WALL_RUN) c.model = WALL_RUN;
         colliders.push(c);
       }
@@ -320,7 +377,8 @@ export class EditorScene {
     const floor: MapFloorCell[] = [];
     for (const [key, t] of FLOOR_OVERRIDES) {
       const [gx, gz] = key.split(",").map(Number);
-      if (gx !== undefined && gz !== undefined && Number.isFinite(gx) && Number.isFinite(gz)) floor.push({ x: gx, y: gz, t });
+      if (gx !== undefined && gz !== undefined && Number.isFinite(gx) && Number.isFinite(gz))
+        floor.push({ x: gx, y: gz, t });
     }
     const out: MapData = { version: 1, props, colliders };
     if (floor.length > 0) out.floor = floor;
@@ -369,11 +427,19 @@ export class EditorScene {
   private plantTransform(obj: THREE.Object3D, spec: Omit<ItemSpec, "collidable">): number {
     obj.rotation.order = "YXZ";
     obj.rotation.set(0, spec.rot, spec.lie ? Math.PI / 2 : 0);
-    if (spec.model === WALL_RUN) obj.scale.set(Math.max(0.2, spec.radius * 2), Math.max(0.2, spec.height), 0.9);
-    else if (spec.model === "") obj.scale.set(Math.max(0.1, spec.radius), Math.max(0.1, spec.height), Math.max(0.1, spec.radius));
+    if (spec.model === WALL_RUN)
+      obj.scale.set(Math.max(0.2, spec.radius * 2), Math.max(0.2, spec.height), 0.9);
+    else if (spec.model === "")
+      obj.scale.set(
+        Math.max(0.1, spec.radius),
+        Math.max(0.1, spec.height),
+        Math.max(0.1, spec.radius),
+      );
     else {
       const tall = spec.lie ? undefined : TALL_TARGET[spec.model];
-      obj.scale.setScalar(tall === undefined ? spec.scale : (tall * spec.scale) / this.nativeHeight(spec.model));
+      obj.scale.setScalar(
+        tall === undefined ? spec.scale : (tall * spec.scale) / this.nativeHeight(spec.model),
+      );
     }
     obj.position.set(0, 0, 0);
     obj.updateMatrixWorld(true);
@@ -532,9 +598,20 @@ export class EditorScene {
     this.select(null);
     // OPAQUE preview — the real model under the cursor, exactly what a stamp
     // will drop (translucency read as "not really there")
-    const ghost = model === WALL_RUN ? new THREE.Mesh(this.boxGeo, this.stubMat) : this.lib.instance(model);
+    const ghost =
+      model === WALL_RUN ? new THREE.Mesh(this.boxGeo, this.stubMat) : this.lib.instance(model);
     this.scene.add(ghost);
-    const ringR = this.plantTransform(ghost, { model, x: this.target.x, y: this.target.z, rot: 0, scale: 1, lie: false, h: 0, radius: 1.1, height: 2.4 });
+    const ringR = this.plantTransform(ghost, {
+      model,
+      x: this.target.x,
+      y: this.target.z,
+      rot: 0,
+      scale: 1,
+      lie: false,
+      h: 0,
+      radius: 1.1,
+      height: 2.4,
+    });
     this.placing = { model, ghost, ringR };
     this.highlightPalette(model);
   }
@@ -552,7 +629,17 @@ export class EditorScene {
     const p = this.placing;
     if (!p) return;
     const pos = clampToArena(snap ? snapHalf(x) : x, snap ? snapHalf(y) : y, POS_MARGIN);
-    p.ringR = this.plantTransform(p.ghost, { model: p.model, x: pos.x, y: pos.y, rot: 0, scale: 1, lie: false, h: 0, radius: 1.1, height: 2.4 });
+    p.ringR = this.plantTransform(p.ghost, {
+      model: p.model,
+      x: pos.x,
+      y: pos.y,
+      rot: 0,
+      scale: 1,
+      lie: false,
+      h: 0,
+      radius: 1.1,
+      height: 2.4,
+    });
   }
 
   /** Render each palette model to a small 3/4-view thumbnail (offscreen GL
@@ -574,7 +661,8 @@ export class EditorScene {
     const frame = (): Promise<void> => new Promise((res) => requestAnimationFrame(() => res()));
     let n = 0;
     for (const model of models) {
-      const obj = model === WALL_RUN ? new THREE.Mesh(this.boxGeo, this.stubMat) : this.lib.instance(model);
+      const obj =
+        model === WALL_RUN ? new THREE.Mesh(this.boxGeo, this.stubMat) : this.lib.instance(model);
       if (model === WALL_RUN) obj.scale.set(2.2, 2.4, 0.9);
       scene.add(obj);
       obj.updateMatrixWorld(true);
@@ -714,7 +802,10 @@ export class EditorScene {
 
   private setNdc(e: PointerEvent): void {
     const r = this.view.renderer.domElement.getBoundingClientRect();
-    this.ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+    this.ndc.set(
+      ((e.clientX - r.left) / r.width) * 2 - 1,
+      -((e.clientY - r.top) / r.height) * 2 + 1,
+    );
   }
 
   private groundPoint(e: PointerEvent): boolean {
@@ -949,7 +1040,11 @@ export class EditorScene {
 
     const cam = this.view.camera;
     const ground = this.camH / Math.tan(this.pitch);
-    cam.position.set(this.target.x + Math.sin(this.yaw) * ground, this.camH, this.target.z + Math.cos(this.yaw) * ground);
+    cam.position.set(
+      this.target.x + Math.sin(this.yaw) * ground,
+      this.camH,
+      this.target.z + Math.cos(this.yaw) * ground,
+    );
     cam.lookAt(this.target.x, 0, this.target.z);
 
     const sel = this.selected;
@@ -1030,12 +1125,24 @@ export class EditorScene {
     const ui = document.createElement("div");
     ui.id = "ba-editor";
     const paletteButtons = [WALL_RUN, ...PLACEABLE_MODELS]
-      .map((m) => `<button class="edp" data-model="${m}"><img data-thumb="${m}" alt=""><span>${m}</span></button>`)
+      .map(
+        (m) =>
+          `<button class="edp" data-model="${m}"><img data-thumb="${m}" alt=""><span>${m}</span></button>`,
+      )
       .join("");
     const floorButtons = [...FLOOR_TYPES, "auto" as const]
       .map((t) => {
         const hex = `#${FLOOR_COLORS[t].toString(16).padStart(6, "0")}`;
-        const label = t === "auto" ? "auto (erase)" : t === "flag" ? "flagstone" : t === "worn" ? "worn rock" : t === "grate" ? "grate" : "dirt";
+        const label =
+          t === "auto"
+            ? "auto (erase)"
+            : t === "flag"
+              ? "flagstone"
+              : t === "worn"
+                ? "worn rock"
+                : t === "grate"
+                  ? "grate"
+                  : "dirt";
         return `<button class="edf" data-floor="${t}"><i style="background:${hex}"></i>${label}</button>`;
       })
       .join("");
@@ -1104,12 +1211,15 @@ export class EditorScene {
     ui.querySelectorAll<HTMLButtonElement>(".edf").forEach((btn) => {
       btn.addEventListener("click", () => {
         const t = btn.dataset["floor"];
-        if (t === "auto" || (FLOOR_TYPES as readonly string[]).includes(t ?? "")) this.setFloorType(t as FloorType | "auto");
+        if (t === "auto" || (FLOOR_TYPES as readonly string[]).includes(t ?? ""))
+          this.setFloorType(t as FloorType | "auto");
       });
     });
     this.setFloorType(this.floorType);
     ui.querySelectorAll<HTMLButtonElement>(".edt").forEach((btn) => {
-      btn.addEventListener("click", () => this.setMode(btn.dataset["tab"] === "floor" ? "floor" : "props"));
+      btn.addEventListener("click", () =>
+        this.setMode(btn.dataset["tab"] === "floor" ? "floor" : "props"),
+      );
     });
     this.setMode(this.mode);
     void this.genThumbs([WALL_RUN, ...PLACEABLE_MODELS]);

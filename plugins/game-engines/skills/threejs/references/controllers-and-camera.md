@@ -25,7 +25,7 @@ export function updateInput() {
 }
 ```
 
-`intent.jump` as an *edge* (true once per press) is what lets you add jump buffering / coyote time later — see `game-feel`.
+`intent.jump` as an _edge_ (true once per press) is what lets you add jump buffering / coyote time later — see `game-feel`.
 
 ---
 
@@ -46,10 +46,7 @@ function updateController(dt) {
   _forward.normalize();
   _right.crossVectors(_forward, camera.up).normalize();
 
-  _move
-    .set(0, 0, 0)
-    .addScaledVector(_right, intent.moveX)
-    .addScaledVector(_forward, -intent.moveZ);
+  _move.set(0, 0, 0).addScaledVector(_right, intent.moveX).addScaledVector(_forward, -intent.moveZ);
   if (_move.lengthSq() > 1) _move.normalize(); // no diagonal speed boost
 
   player.position.addScaledVector(_move, SPEED * dt);
@@ -98,7 +95,7 @@ function updateKinematic(dt) {
 }
 ```
 
-Read `computedGrounded()` *before* applying the next move — it reflects the previous step's resolution, which is what you want for the jump check.
+Read `computedGrounded()` _before_ applying the next move — it reflects the previous step's resolution, which is what you want for the jump check.
 
 ---
 
@@ -170,7 +167,7 @@ camera.position.lerp(_targetPos, t);
 
 ## Helpers
 
-Frame-rate-independent angle damping. `player.rotation.y` accumulates without bound, so take the *shortest* signed turn to the target — `atan2(sin, cos)` always returns it in `(-π, π]` regardless of how large either angle has grown:
+Frame-rate-independent angle damping. `player.rotation.y` accumulates without bound, so take the _shortest_ signed turn to the target — `atan2(sin, cos)` always returns it in `(-π, π]` regardless of how large either angle has grown:
 
 ```javascript
 function dampAngle(current, target, smoothing, dt) {
@@ -181,10 +178,10 @@ function dampAngle(current, target, smoothing, dt) {
 
 ## Tuning starting points
 
-| Feel | SPEED | GRAVITY | JUMP_V | cam smoothing |
-| --- | --- | --- | --- | --- |
-| Snappy arcade | 8–10 | −30 | 11 | 0.0005 |
-| Grounded/realistic | 4–6 | −20 | 8 | 0.005 |
-| Floaty/space | 3–5 | −8 | 6 | 0.05 |
+| Feel               | SPEED | GRAVITY | JUMP_V | cam smoothing |
+| ------------------ | ----- | ------- | ------ | ------------- |
+| Snappy arcade      | 8–10  | −30     | 11     | 0.0005        |
+| Grounded/realistic | 4–6   | −20     | 8      | 0.005         |
+| Floaty/space       | 3–5   | −8      | 6      | 0.05          |
 
 These are starting points — open them in `lil-gui` and feel them. See `game-feel` for coyote time, jump buffering, and input forgiveness windows.

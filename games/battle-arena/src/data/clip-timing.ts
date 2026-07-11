@@ -50,9 +50,9 @@ export const CLIP_TIMING: Record<string, ClipTiming> = {
   Dodge_Backward: { dur: 0.4, contact: 0.5 },
   Spawn_Air: { dur: 1.3, contact: 0.5 },
   // ── Rig_Large (frost golem / boss) — native Large clip names ──
-  "Melee_2H_Attack": { dur: 1.333, contact: 0.35 },
-  "Melee_2H_Slam": { dur: 2.833, contact: 0.33 },
-  "Melee_Unarmed_Smash": { dur: 3.467, contact: 0.27 },
+  Melee_2H_Attack: { dur: 1.333, contact: 0.35 },
+  Melee_2H_Slam: { dur: 2.833, contact: 0.33 },
+  Melee_Unarmed_Smash: { dur: 3.467, contact: 0.27 },
 };
 
 // ── Playback speed ───────────────────────────────────────────────────────────
@@ -83,7 +83,11 @@ export const ATTACK_SETS: Record<string, string[]> = {
   rogue: ["Melee_Dualwield_Attack_Chop", "Melee_Dualwield_Attack_Slice"],
   ranger: ["Ranged_Bow_Release"],
   mage: ["Ranged_Magic_Shoot"],
-  blackknight: ["Melee_1H_Attack_Chop", "Melee_1H_Attack_Slice_Diagonal", "Melee_1H_Attack_Slice_Horizontal"],
+  blackknight: [
+    "Melee_1H_Attack_Chop",
+    "Melee_1H_Attack_Slice_Diagonal",
+    "Melee_1H_Attack_Slice_Horizontal",
+  ],
   witch: ["Ranged_Magic_Shoot"],
   skwarrior: ["Melee_1H_Attack_Chop", "Melee_1H_Attack_Stab"],
   skminion: ["Melee_Unarmed_Attack_Punch_A", "Melee_1H_Attack_Chop"],
@@ -103,12 +107,54 @@ export function swingClip(champId: string, swingCount: number): string {
 // connects (sim). DASH rides Dodge_Forward everywhere; JUMP is the aerial
 // dive-chop for every champ.
 export const ABILITY_CLIPS: Record<string, Partial<Record<string, string>>> = {
-  knight: { Q: "Melee_2H_Attack_Slice", W: "Melee_2H_Attack_Chop", E: "Melee_Blocking", R: "Melee_2H_Attack_Spinning", DASH: "Dodge_Forward", JUMP: "Melee_1H_Attack_Jump_Chop" },
-  ranger: { Q: "Ranged_Bow_Release_Up", W: "Ranged_Bow_Release", E: "PickUp", R: "Ranged_Bow_Release_Up", DASH: "Dodge_Forward", JUMP: "Melee_1H_Attack_Jump_Chop" },
-  mage: { Q: "Ranged_Magic_Shoot", W: "Ranged_Magic_Raise", E: "Ranged_Magic_Shoot", R: "Ranged_Magic_Summon", DASH: "Dodge_Forward", JUMP: "Melee_1H_Attack_Jump_Chop" },
-  rogue: { Q: "Melee_Dualwield_Attack_Stab", W: "Melee_Dualwield_Attack_Slice", E: "Dodge_Backward", R: "Melee_Dualwield_Attack_Slice", DASH: "Dodge_Forward", JUMP: "Melee_1H_Attack_Jump_Chop" },
-  blackknight: { Q: "Melee_1H_Attack_Slice_Horizontal", W: "Melee_1H_Attack_Chop", E: "Melee_Blocking", R: "Melee_2H_Attack_Chop", DASH: "Dodge_Forward", JUMP: "Melee_1H_Attack_Jump_Chop" },
-  witch: { Q: "Ranged_Magic_Shoot", W: "Ranged_Magic_Summon", E: "Ranged_Magic_Raise", R: "Ranged_Magic_Raise", DASH: "Dodge_Forward", JUMP: "Melee_1H_Attack_Jump_Chop" },
+  knight: {
+    Q: "Melee_2H_Attack_Slice",
+    W: "Melee_2H_Attack_Chop",
+    E: "Melee_Blocking",
+    R: "Melee_2H_Attack_Spinning",
+    DASH: "Dodge_Forward",
+    JUMP: "Melee_1H_Attack_Jump_Chop",
+  },
+  ranger: {
+    Q: "Ranged_Bow_Release_Up",
+    W: "Ranged_Bow_Release",
+    E: "PickUp",
+    R: "Ranged_Bow_Release_Up",
+    DASH: "Dodge_Forward",
+    JUMP: "Melee_1H_Attack_Jump_Chop",
+  },
+  mage: {
+    Q: "Ranged_Magic_Shoot",
+    W: "Ranged_Magic_Raise",
+    E: "Ranged_Magic_Shoot",
+    R: "Ranged_Magic_Summon",
+    DASH: "Dodge_Forward",
+    JUMP: "Melee_1H_Attack_Jump_Chop",
+  },
+  rogue: {
+    Q: "Melee_Dualwield_Attack_Stab",
+    W: "Melee_Dualwield_Attack_Slice",
+    E: "Dodge_Backward",
+    R: "Melee_Dualwield_Attack_Slice",
+    DASH: "Dodge_Forward",
+    JUMP: "Melee_1H_Attack_Jump_Chop",
+  },
+  blackknight: {
+    Q: "Melee_1H_Attack_Slice_Horizontal",
+    W: "Melee_1H_Attack_Chop",
+    E: "Melee_Blocking",
+    R: "Melee_2H_Attack_Chop",
+    DASH: "Dodge_Forward",
+    JUMP: "Melee_1H_Attack_Jump_Chop",
+  },
+  witch: {
+    Q: "Ranged_Magic_Shoot",
+    W: "Ranged_Magic_Summon",
+    E: "Ranged_Magic_Raise",
+    R: "Ranged_Magic_Raise",
+    DASH: "Dodge_Forward",
+    JUMP: "Melee_1H_Attack_Jump_Chop",
+  },
 };
 
 // ── Shared timing math (sim windups ↔ render timeScales) ─────────────────────

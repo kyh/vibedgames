@@ -288,7 +288,10 @@ A DOM overlay is cheaper than a render-target flash and never touches the 3D pip
 function flashScreen(color, durationMs = 100, peak = 0.5) {
   const overlay = document.getElementById("flash-overlay");
   overlay.style.backgroundColor = color;
-  overlay.animate([{ opacity: peak }, { opacity: 0 }], { duration: durationMs, easing: "ease-out" });
+  overlay.animate([{ opacity: peak }, { opacity: 0 }], {
+    duration: durationMs,
+    easing: "ease-out",
+  });
 }
 
 // Usage
@@ -349,14 +352,14 @@ Both should return to rest over ~180ms. Apply to a visual wrapper `Group`, never
 
 Map each event to a full feedback stack — stronger events get more layers, not just bigger numbers:
 
-| Event        | Feedback stack                                                              |
-| ------------ | --------------------------------------------------------------------------- |
-| Pickup       | scale pop + HUD counter punch + pitch-varied chime + `0.15` trauma          |
-| Player hit   | hitstop 70ms + `0.4` trauma + impact flash + rumble 180ms                   |
-| Enemy killed | hitstop 40ms + `0.3` trauma + impact flash + pitch-varied boom              |
-| Boost / dash | FOV punch +6° + stretch 1.15 + whoosh                                       |
-| Jump / land  | stretch 1.15 on takeoff, squash 0.85 on landing + `0.2` trauma on land      |
-| Explosion    | hitstop 90ms + `0.7` trauma + white screen flash + FOV punch +8° + rumble   |
+| Event        | Feedback stack                                                            |
+| ------------ | ------------------------------------------------------------------------- |
+| Pickup       | scale pop + HUD counter punch + pitch-varied chime + `0.15` trauma        |
+| Player hit   | hitstop 70ms + `0.4` trauma + impact flash + rumble 180ms                 |
+| Enemy killed | hitstop 40ms + `0.3` trauma + impact flash + pitch-varied boom            |
+| Boost / dash | FOV punch +6° + stretch 1.15 + whoosh                                     |
+| Jump / land  | stretch 1.15 on takeoff, squash 0.85 on landing + `0.2` trauma on land    |
+| Explosion    | hitstop 90ms + `0.7` trauma + white screen flash + FOV punch +8° + rumble |
 
 (SFX pitch variation and audio wiring: [`generated-assets.md`](generated-assets.md). Deeper engine-agnostic feel theory and 2D numbers: the `game-feel` skill.)
 
@@ -594,20 +597,20 @@ function showFloatingText(text, color, x = "50%", y = "35%") {
 
 ## Best Practices Summary
 
-| Pattern                    | When to Use                                  |
-| -------------------------- | -------------------------------------------- |
-| Animation state management | Characters with multiple animations          |
-| Facing direction rotation  | Side-scrollers with GLTF models              |
-| Game state machine         | Any game with menu/play/pause/gameover       |
-| Hitstop / time scaling     | Weight on heavy contact, slow-mo moments     |
-| Trauma camera shake        | Death, heavy impacts (trauma², capped)       |
-| FOV punch                  | Boost, dash, explosion shock                 |
-| Screen flash               | Near-miss, milestones, damage                |
+| Pattern                    | When to Use                                       |
+| -------------------------- | ------------------------------------------------- |
+| Animation state management | Characters with multiple animations               |
+| Facing direction rotation  | Side-scrollers with GLTF models                   |
+| Game state machine         | Any game with menu/play/pause/gameover            |
+| Hitstop / time scaling     | Weight on heavy contact, slow-mo moments          |
+| Trauma camera shake        | Death, heavy impacts (trauma², capped)            |
+| FOV punch                  | Boost, dash, explosion shock                      |
+| Screen flash               | Near-miss, milestones, damage                     |
 | Squash & stretch           | Jump, land, any snappy motion (volume-preserving) |
-| Parallax layers            | Scrolling games with depth                   |
-| Object pooling             | Spawning many objects (obstacles, particles) |
-| Fixed camera               | Games (not model viewers)                    |
-| Near-miss detection        | Rewarding close calls                        |
+| Parallax layers            | Scrolling games with depth                        |
+| Object pooling             | Spawning many objects (obstacles, particles)      |
+| Fixed camera               | Games (not model viewers)                         |
+| Near-miss detection        | Rewarding close calls                             |
 
 ---
 

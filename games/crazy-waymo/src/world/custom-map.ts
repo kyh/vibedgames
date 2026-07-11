@@ -44,7 +44,12 @@ export function editorMode(): boolean {
 export function loadLocalOverrides(): MapOverrides {
   const rt = getRuntimeMap();
   if (rt) {
-    return { add: rt.streets.add, remove: rt.streets.remove, floor: rt.floor, clear: rt.clear ?? [] };
+    return {
+      add: rt.streets.add,
+      remove: rt.streets.remove,
+      floor: rt.floor,
+      clear: rt.clear ?? [],
+    };
   }
   if (!editorMode()) return { add: [], remove: [], floor: [] };
   try {

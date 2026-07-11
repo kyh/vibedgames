@@ -11,11 +11,20 @@ const GRAVITY = 1400;
 const FALL_CAP = 430;
 const EPS = 0.0001;
 
-export type EnemyState = "spawn" | "chase" | "windup" | "attack" | "charge" | "recover" | "hurt" | "dead";
+export type EnemyState =
+  | "spawn"
+  | "chase"
+  | "windup"
+  | "attack"
+  | "charge"
+  | "recover"
+  | "hurt"
+  | "dead";
 export type Projectile = { x: number; y: number; vx: number; vy: number };
 export type Blast = { x: number; y: number; r: number; dmg: number };
 
-const approach = (c: number, t: number, d: number): number => (c < t ? Math.min(c + d, t) : Math.max(c - d, t));
+const approach = (c: number, t: number, d: number): number =>
+  c < t ? Math.min(c + d, t) : Math.max(c - d, t);
 
 export class EnemyBody {
   x: number;
@@ -58,13 +67,19 @@ export class EnemyBody {
   }
 
   hurtBox(): Rect {
-    return { left: this.x - this.kind.hw, top: this.y - this.kind.h, right: this.x + this.kind.hw, bottom: this.y };
+    return {
+      left: this.x - this.kind.hw,
+      top: this.y - this.kind.h,
+      right: this.x + this.kind.hw,
+      bottom: this.y,
+    };
   }
 
   // Contact damage to the player when overlapping (higher mid-charge).
   contactDamage(): number {
     if (this.dead) return 0;
-    const base = this.state === "charge" && this.kind.attackDmg ? this.kind.attackDmg : this.kind.contactDmg;
+    const base =
+      this.state === "charge" && this.kind.attackDmg ? this.kind.attackDmg : this.kind.contactDmg;
     return base === 0 ? 0 : Math.round(base * this.dmgOutMult);
   }
 
@@ -106,7 +121,12 @@ export class EnemyBody {
 
   private explode() {
     this.exploded = true;
-    this.pendingBlast = { x: this.x, y: this.y - this.kind.h / 2, r: this.kind.blastR ?? 32, dmg: this.kind.blastDmg ?? 2 };
+    this.pendingBlast = {
+      x: this.x,
+      y: this.y - this.kind.h / 2,
+      r: this.kind.blastR ?? 32,
+      dmg: this.kind.blastDmg ?? 2,
+    };
   }
 
   private setState(s: EnemyState) {
@@ -161,11 +181,18 @@ export class EnemyBody {
   }
 
   private groundAt(x: number): boolean {
-    return this.grid.solidInRect(x - 1, this.y + 1, x + 1, this.y + 3) || this.grid.oneWayInRect(x - 1, this.y + 1, x + 1, this.y + 3);
+    return (
+      this.grid.solidInRect(x - 1, this.y + 1, x + 1, this.y + 3) ||
+      this.grid.oneWayInRect(x - 1, this.y + 1, x + 1, this.y + 3)
+    );
   }
 
   private walk(dir: number, speed: number, dt: number) {
-    if (this.kind.stopAtLedge && this.grounded && !this.groundAt(this.x + dir * (this.kind.hw + 3))) {
+    if (
+      this.kind.stopAtLedge &&
+      this.grounded &&
+      !this.groundAt(this.x + dir * (this.kind.hw + 3))
+    ) {
       this.vx = approach(this.vx, 0, 600 * dt);
       return;
     }
@@ -225,7 +252,8 @@ export class EnemyBody {
         break;
       default:
         this.faceToward(dx);
-        if (dist <= (k.attackRange ?? 78) && Math.abs(ty - this.y) < 26 && this.attackCd <= 0) this.setState("windup");
+        if (dist <= (k.attackRange ?? 78) && Math.abs(ty - this.y) < 26 && this.attackCd <= 0)
+          this.setState("windup");
         else this.walk(Math.sign(dx), k.speed, dt);
     }
   }
@@ -239,7 +267,12 @@ export class EnemyBody {
         this.vx = approach(this.vx, 0, 600 * dt);
         if (this.stateT >= (k.windup ?? 0.46)) {
           const dirx = Math.sign(dx) || this.facing;
-          this.pendingProjectile = { x: this.x + dirx * 6, y: this.y - 14, vx: dirx * (k.projSpeed ?? 175), vy: -20 };
+          this.pendingProjectile = {
+            x: this.x + dirx * 6,
+            y: this.y - 14,
+            vx: dirx * (k.projSpeed ?? 175),
+            vy: -20,
+          };
           this.attackCd = k.cooldown ?? 1.3;
           this.setState("recover");
         }
@@ -250,8 +283,10 @@ export class EnemyBody {
         break;
       default:
         this.faceToward(dx);
-        if (dist < 58) this.walk(-Math.sign(dx), k.speed, dt); // retreat
-        else if (dist <= (k.shootRange ?? 155) && Math.abs(ty - this.y) < 44 && this.attackCd <= 0) this.setState("windup");
+        if (dist < 58)
+          this.walk(-Math.sign(dx), k.speed, dt); // retreat
+        else if (dist <= (k.shootRange ?? 155) && Math.abs(ty - this.y) < 44 && this.attackCd <= 0)
+          this.setState("windup");
         else if (dist > (k.shootRange ?? 155)) this.walk(Math.sign(dx), k.speed, dt);
         else this.vx = approach(this.vx, 0, 500 * dt);
     }
@@ -302,7 +337,10 @@ export class EnemyBody {
     const r = this.x + hw - 2;
     this.y += dy;
     if (dy > 0) {
-      if (this.grid.solidInRect(l, this.y - 3, r, this.y) || this.grid.oneWayInRect(l, this.y - 1, r, this.y)) {
+      if (
+        this.grid.solidInRect(l, this.y - 3, r, this.y) ||
+        this.grid.oneWayInRect(l, this.y - 1, r, this.y)
+      ) {
         this.y = Math.floor((this.y - EPS) / TILE) * TILE;
         this.vy = 0;
       }
@@ -318,7 +356,9 @@ export class EnemyBody {
   private updateGround() {
     const l = this.x - this.kind.hw + 2;
     const r = this.x + this.kind.hw - 2;
-    this.grounded = this.grid.solidInRect(l, this.y, r, this.y + 2) || this.grid.oneWayInRect(l, this.y, r, this.y + 2);
+    this.grounded =
+      this.grid.solidInRect(l, this.y, r, this.y + 2) ||
+      this.grid.oneWayInRect(l, this.y, r, this.y + 2);
     if (this.grounded && this.vy > 0) this.vy = 0;
   }
 }

@@ -98,7 +98,16 @@ void main() {
 // low fps) — the tip edge loops back on itself in-plane and the doubled
 // translucency reads as comb teeth. Centripetal parameterization provably
 // never loops or cusps inside a segment.
-function crCentripetal(p0: number, p1: number, p2: number, p3: number, t: number, k0: number, k1: number, k2: number): number {
+function crCentripetal(
+  p0: number,
+  p1: number,
+  p2: number,
+  p3: number,
+  t: number,
+  k0: number,
+  k1: number,
+  k2: number,
+): number {
   const t1 = k0;
   const t2 = k0 + k1;
   const t3 = k0 + k1 + k2;
@@ -121,7 +130,16 @@ export class WeaponTrail {
   private ageAttr: THREE.BufferAttribute;
   private acrossAttr: THREE.BufferAttribute;
   private alongAttr: THREE.BufferAttribute;
-  private segs: { bx: number; by: number; bz: number; tx: number; ty: number; tz: number; t: number; s: number }[] = [];
+  private segs: {
+    bx: number;
+    by: number;
+    bz: number;
+    tx: number;
+    ty: number;
+    tz: number;
+    t: number;
+    s: number;
+  }[] = [];
   private arc = 0; // accumulated arc length (drives the panning coordinate)
   private activeUntil = 0;
   // RENDER-time clock (ms, advances on the hit-stop-scaled render dt). The sim
@@ -142,7 +160,13 @@ export class WeaponTrail {
     box.getCenter(ctr);
     // an override forces the swing axis (the bbox heuristic picks the widest axis,
     // which is wrong for hammer heads); otherwise pick the longest bbox axis.
-    const axis: "x" | "y" | "z" = override ? override.axis : size.x >= size.y && size.x >= size.z ? "x" : size.y >= size.z ? "y" : "z";
+    const axis: "x" | "y" | "z" = override
+      ? override.axis
+      : size.x >= size.y && size.x >= size.z
+        ? "x"
+        : size.y >= size.z
+          ? "y"
+          : "z";
     const baseFrac = override ? override.base : BASE_FRAC;
     const tipExt = override ? override.tip : TIP_EXT;
     this.baseLocal = ctr.clone();
@@ -155,10 +179,18 @@ export class WeaponTrail {
     this.tipLocal[axis] = ctr[axis] + half * (1 + tipExt);
 
     this.geom = new THREE.BufferGeometry();
-    this.posAttr = new THREE.BufferAttribute(new Float32Array(MAX_ROWS * 2 * 3), 3).setUsage(THREE.DynamicDrawUsage);
-    this.ageAttr = new THREE.BufferAttribute(new Float32Array(MAX_ROWS * 2), 1).setUsage(THREE.DynamicDrawUsage);
-    this.acrossAttr = new THREE.BufferAttribute(new Float32Array(MAX_ROWS * 2), 1).setUsage(THREE.DynamicDrawUsage);
-    this.alongAttr = new THREE.BufferAttribute(new Float32Array(MAX_ROWS * 2), 1).setUsage(THREE.DynamicDrawUsage);
+    this.posAttr = new THREE.BufferAttribute(new Float32Array(MAX_ROWS * 2 * 3), 3).setUsage(
+      THREE.DynamicDrawUsage,
+    );
+    this.ageAttr = new THREE.BufferAttribute(new Float32Array(MAX_ROWS * 2), 1).setUsage(
+      THREE.DynamicDrawUsage,
+    );
+    this.acrossAttr = new THREE.BufferAttribute(new Float32Array(MAX_ROWS * 2), 1).setUsage(
+      THREE.DynamicDrawUsage,
+    );
+    this.alongAttr = new THREE.BufferAttribute(new Float32Array(MAX_ROWS * 2), 1).setUsage(
+      THREE.DynamicDrawUsage,
+    );
     this.geom.setAttribute("position", this.posAttr);
     this.geom.setAttribute("aAge", this.ageAttr);
     this.geom.setAttribute("aAcross", this.acrossAttr);
@@ -259,7 +291,16 @@ export class WeaponTrail {
     const along = this.alongAttr.array as Float32Array;
     let row = 0;
     const segs = this.segs;
-    const putRow = (bx: number, by: number, bz: number, tx: number, ty: number, tz: number, a: number, s: number): void => {
+    const putRow = (
+      bx: number,
+      by: number,
+      bz: number,
+      tx: number,
+      ty: number,
+      tz: number,
+      a: number,
+      s: number,
+    ): void => {
       const o = row * 6;
       pos[o] = bx;
       pos[o + 1] = by;
@@ -281,7 +322,18 @@ export class WeaponTrail {
     // 3-tap smoothing of the control points before splining — swing clips pump
     // the blade radius slightly every pose sample, and Catmull-Rom faithfully
     // reproduces each wobble as a radial ridge on fast spins
-    const sm = (i: number): { bx: number; by: number; bz: number; tx: number; ty: number; tz: number; t: number; s: number } => {
+    const sm = (
+      i: number,
+    ): {
+      bx: number;
+      by: number;
+      bz: number;
+      tx: number;
+      ty: number;
+      tz: number;
+      t: number;
+      s: number;
+    } => {
       const p = segs[Math.max(0, i - 1)]!;
       const c = segs[Math.min(n - 1, Math.max(0, i))]!;
       const q = segs[Math.min(n - 1, i + 1)]!;

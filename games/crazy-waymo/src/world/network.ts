@@ -146,7 +146,8 @@ export class RoadNetwork {
             const dx = bx2 - ax;
             const dz = bz2 - az;
             const l2 = dx * dx + dz * dz;
-            const t = l2 > 1e-8 ? Math.min(Math.max(((x - ax) * dx + (z - az) * dz) / l2, 0), 1) : 0;
+            const t =
+              l2 > 1e-8 ? Math.min(Math.max(((x - ax) * dx + (z - az) * dz) / l2, 0), 1) : 0;
             const px = ax + dx * t;
             const pz = az + dz * t;
             const d2 = (px - x) * (px - x) + (pz - z) * (pz - z);

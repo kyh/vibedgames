@@ -3,7 +3,14 @@
 import { TILE } from "../src/config.ts";
 import { ENEMIES } from "../src/data/enemies.ts";
 import { HEROES } from "../src/data/heroes.ts";
-import { bankRun, buyUpgrade, isUnlocked, runBonuses, unlockHero, upgradeLevel } from "../src/data/meta.ts";
+import {
+  bankRun,
+  buyUpgrade,
+  isUnlocked,
+  runBonuses,
+  unlockHero,
+  upgradeLevel,
+} from "../src/data/meta.ts";
 import { baseMods, pickRelics, RELICS } from "../src/data/relics.ts";
 import { BOSS, SAFE, START, VERSUS } from "../src/data/rooms.ts";
 import { VersusMatch, VS_HEARTS, VS_HIT_CAP, VS_WIN_SCORE } from "../src/sys/versus.ts";
@@ -53,7 +60,12 @@ function spawn(x = 240, y = FLOOR_Y, hero: keyof typeof HEROES = "axion"): Playe
 }
 
 // Run `frames` steps holding `held`; `pressOn` fires edge inputs on given frame.
-function run(b: PlayerBody, frames: number, held: Partial<BodyInput>, pressOn: Record<number, Partial<BodyInput>> = {}) {
+function run(
+  b: PlayerBody,
+  frames: number,
+  held: Partial<BodyInput>,
+  pressOn: Record<number, Partial<BodyInput>> = {},
+) {
   for (let f = 0; f < frames; f++) {
     b.buffer(inp({ ...held, ...(pressOn[f] ?? {}) }));
     b.step(STEP);
@@ -157,7 +169,11 @@ console.log("lunerfall physics sim\n");
     if (b.wallDir === 1) maxFall = Math.max(maxFall, b.vy);
   }
   check("touches right wall", b.wallDir === 1 || b.grounded);
-  check("wall slide caps fall speed <90", maxFall > 0 && maxFall < 90, `maxVy=${maxFall.toFixed(1)}`);
+  check(
+    "wall slide caps fall speed <90",
+    maxFall > 0 && maxFall < 90,
+    `maxVy=${maxFall.toFixed(1)}`,
+  );
 }
 
 // 7. One-way platform: land from above, drop through when holding down.
@@ -182,7 +198,11 @@ console.log("lunerfall physics sim\n");
     b.step(STEP);
     maxStep = Math.max(maxStep, b.attackStep);
   }
-  check("combo reaches step 3", maxStep === 3 && b.swingId >= 3, `maxStep=${maxStep} swings=${b.swingId}`);
+  check(
+    "combo reaches step 3",
+    maxStep === 3 && b.swingId >= 3,
+    `maxStep=${maxStep} swings=${b.swingId}`,
+  );
 }
 
 // 9. Attack hitbox is live in front during the active window.
@@ -223,13 +243,26 @@ console.log("lunerfall physics sim\n");
   const b = spawn();
   const x0 = b.x;
   b.down();
-  run(b, 30, { right: true, jumpHeld: true }, { 0: { jumpPressed: true }, 10: { attackPressed: true } });
-  check("downed body ignores input", Math.abs(b.x - x0) < 1 && b.attackStep === 0, `dx=${(b.x - x0).toFixed(1)}`);
+  run(
+    b,
+    30,
+    { right: true, jumpHeld: true },
+    { 0: { jumpPressed: true }, 10: { attackPressed: true } },
+  );
+  check(
+    "downed body ignores input",
+    Math.abs(b.x - x0) < 1 && b.attackStep === 0,
+    `dx=${(b.x - x0).toFixed(1)}`,
+  );
   check("downed body is invulnerable", b.applyHurt(1) === false);
   const air = new PlayerBody(Grid.test(), 240, FLOOR_Y - 60, HEROES.axion.kit);
   air.down();
   for (let f = 0; f < 90; f++) air.step(STEP);
-  check("downed body still falls to the floor", air.grounded && Math.abs(air.y - FLOOR_Y) < 1, `y=${air.y.toFixed(1)}`);
+  check(
+    "downed body still falls to the floor",
+    air.grounded && Math.abs(air.y - FLOOR_Y) < 1,
+    `y=${air.y.toFixed(1)}`,
+  );
   b.revive();
   check("revive grants mercy i-frames", !b.downed && b.iframes > 0);
   run(b, 30, { right: true });
@@ -290,14 +323,23 @@ console.log("lunerfall physics sim\n");
 }
 
 // sanity: rectsOverlap is correct
-check("rectsOverlap basic", rectsOverlap({ left: 0, top: 0, right: 10, bottom: 10 }, { left: 5, top: 5, right: 15, bottom: 15 }));
+check(
+  "rectsOverlap basic",
+  rectsOverlap(
+    { left: 0, top: 0, right: 10, bottom: 10 },
+    { left: 5, top: 5, right: 15, bottom: 15 },
+  ),
+);
 
 // 16. Room templates are well-formed.
 {
   const inRoom = (r: { cols: number; rows: number }, s: { x: number; y: number }) =>
     s.x > 0 && s.x < r.cols * TILE && s.y > 0 && s.y <= r.rows * TILE;
   const start = START();
-  check("start has a door + spawn", start.doorSlots.length >= 1 && inRoom(start, start.playerSpawn));
+  check(
+    "start has a door + spawn",
+    start.doorSlots.length >= 1 && inRoom(start, start.playerSpawn),
+  );
   const safe = SAFE();
   check("safe room has a feature + doors", !!safe.featureSpot && safe.doorSlots.length >= 1);
   const boss = BOSS();
@@ -316,7 +358,11 @@ check("rectsOverlap basic", rectsOverlap({ left: 0, top: 0, right: 10, bottom: 1
     if (first.type === "boss") sawBoss = true;
     run.choose(first);
   }
-  check("run reaches the boss", run.type === "boss" && sawBoss, `biome${run.biome} depth${run.depth}`);
+  check(
+    "run reaches the boss",
+    run.type === "boss" && sawBoss,
+    `biome${run.biome} depth${run.depth}`,
+  );
   const b0 = run.biome;
   run.choose(run.offers()[0] ?? { type: "start" });
   check("beating boss descends a biome", run.biome === b0 + 1 && run.depth === 1);
@@ -329,7 +375,11 @@ check("rectsOverlap basic", rectsOverlap({ left: 0, top: 0, right: 10, bottom: 1
   const x0 = riven.x;
   riven.buffer(inp({ right: true, specialPressed: true }));
   riven.step(STEP);
-  check("riven blink teleports forward", riven.x - x0 > 40 && riven.iframes > 0, `dx=${(riven.x - x0).toFixed(0)}`);
+  check(
+    "riven blink teleports forward",
+    riven.x - x0 > 40 && riven.iframes > 0,
+    `dx=${(riven.x - x0).toFixed(0)}`,
+  );
 
   const mooni = spawn(240, FLOOR_Y, "mooni");
   mooni.buffer(inp({ specialPressed: true }));
@@ -358,14 +408,24 @@ check("rectsOverlap basic", rectsOverlap({ left: 0, top: 0, right: 10, bottom: 1
   let sawWave = false;
   for (let f = 0; f < 300; f++) {
     boss.step(STEP, 200, FLOOR_Y);
-    if (boss.state === "wave" || boss.state === "jump" || boss.state === "punch" || boss.state === "slam") sawAttack = true;
+    if (
+      boss.state === "wave" ||
+      boss.state === "jump" ||
+      boss.state === "punch" ||
+      boss.state === "slam"
+    )
+      sawAttack = true;
     if (boss.pendingWave) {
       sawWave = true;
       boss.pendingWave = null;
     }
   }
   check("boss attacks the player", sawAttack);
-  check("boss can fire a flame wave", sawWave || boss.state !== "wave", "wave or non-wave state ok");
+  check(
+    "boss can fire a flame wave",
+    sawWave || boss.state !== "wave",
+    "wave or non-wave state ok",
+  );
   // damage it to half → phase 2
   while (boss.hp > maxHp / 2) {
     boss.step(STEP, 200, FLOOR_Y);
@@ -391,7 +451,11 @@ check("rectsOverlap basic", rectsOverlap({ left: 0, top: 0, right: 10, bottom: 1
   const vigor = RELICS.find((r) => r.id === "vigor");
   vigor?.apply(m);
   // Both axes moved independently (value-agnostic so tuning doesn't break the test).
-  check("relics stack onto mods", m.dmg > d0 && m.maxHearts === h0 + 1, `dmg=${m.dmg} hp=${m.maxHearts}`);
+  check(
+    "relics stack onto mods",
+    m.dmg > d0 && m.maxHearts === h0 + 1,
+    `dmg=${m.dmg} hp=${m.maxHearts}`,
+  );
   const picks = pickRelics(3, new Set());
   const ids = new Set(picks.map((r) => r.id));
   check("shop offers 3 distinct relics", picks.length === 3 && ids.size === 3);
@@ -405,21 +469,37 @@ check("rectsOverlap basic", rectsOverlap({ left: 0, top: 0, right: 10, bottom: 1
   check("free warriors start unlocked", isUnlocked(m, "axion") && isUnlocked(m, "reaper"));
   check("paid warriors start locked", !isUnlocked(m, "riven") && !isUnlocked(m, "mooni"));
   const earned = bankRun(m, 40, 5, 2); // 10 + 10 + 6
-  check("run banks shards + best depth", earned === 26 && m.shards === 26 && m.bestDepth === 5, `earned=${earned}`);
-  check("affordable unlock spends shards", unlockHero(m, "riven") && isUnlocked(m, "riven") && m.shards === 6);
-  check("unaffordable unlock is refused", !unlockHero(m, "mooni") && !isUnlocked(m, "mooni") && m.shards === 6);
+  check(
+    "run banks shards + best depth",
+    earned === 26 && m.shards === 26 && m.bestDepth === 5,
+    `earned=${earned}`,
+  );
+  check(
+    "affordable unlock spends shards",
+    unlockHero(m, "riven") && isUnlocked(m, "riven") && m.shards === 6,
+  );
+  check(
+    "unaffordable unlock is refused",
+    !unlockHero(m, "mooni") && !isUnlocked(m, "mooni") && m.shards === 6,
+  );
 }
 
 // 21b. Meta upgrades: buying spends shards, caps at max, and feeds run bonuses.
 {
   const m = { shards: 300, unlocked: ["axion"], bestDepth: 0, runs: 0, upgrades: {} };
-  check("buy upgrade spends shards", buyUpgrade(m, "vitality") && upgradeLevel(m, "vitality") === 1 && m.shards === 270);
+  check(
+    "buy upgrade spends shards",
+    buyUpgrade(m, "vitality") && upgradeLevel(m, "vitality") === 1 && m.shards === 270,
+  );
   check("run bonus reflects level", runBonuses(m).hearts === 1);
   buyUpgrade(m, "vitality"); // → 2
   buyUpgrade(m, "vitality"); // → 3 = max (vitality total 30+56+82 = 168)
   check("upgrade caps at max", !buyUpgrade(m, "vitality") && upgradeLevel(m, "vitality") === 3);
   const poor = { shards: 0, unlocked: ["axion"], bestDepth: 0, runs: 0, upgrades: {} };
-  check("unaffordable upgrade refused", !buyUpgrade(poor, "edge") && upgradeLevel(poor, "edge") === 0);
+  check(
+    "unaffordable upgrade refused",
+    !buyUpgrade(poor, "edge") && upgradeLevel(poor, "edge") === 0,
+  );
 }
 
 // 22. Online versus: rounds, per-duelist hearts, KOs, first-to-3, rematch.
@@ -427,33 +507,63 @@ check("rectsOverlap basic", rectsOverlap({ left: 0, top: 0, right: 10, bottom: 1
   const m = new VersusMatch();
   check("versus starts in the lobby", m.phase === "waiting" && !m.frozen);
   m.beginMatch();
-  check("round 1 opens as a frozen countdown", m.phase === "countdown" && m.round === 1 && m.frozen);
-  check("no damage lands during the countdown", m.damage("guest", 2) === false && m.hp.guest === VS_HEARTS);
+  check(
+    "round 1 opens as a frozen countdown",
+    m.phase === "countdown" && m.round === 1 && m.frozen,
+  );
+  check(
+    "no damage lands during the countdown",
+    m.damage("guest", 2) === false && m.hp.guest === VS_HEARTS,
+  );
   let t: string | null = null;
   for (let f = 0; f < 180 && t !== "fight"; f++) t = m.step(STEP);
   check("countdown releases into fighting", t === "fight" && m.phase === "fighting" && !m.frozen);
-  check("a hit takes the victim's OWN hearts", m.damage("guest", 1) === false && m.hp.guest === VS_HEARTS - 1 && m.hp.host === VS_HEARTS);
-  check("per-hit damage is capped", m.damage("guest", 99) === false && m.hp.guest === VS_HEARTS - 1 - VS_HIT_CAP);
+  check(
+    "a hit takes the victim's OWN hearts",
+    m.damage("guest", 1) === false && m.hp.guest === VS_HEARTS - 1 && m.hp.host === VS_HEARTS,
+  );
+  check(
+    "per-hit damage is capped",
+    m.damage("guest", 99) === false && m.hp.guest === VS_HEARTS - 1 - VS_HIT_CAP,
+  );
   let ended = false;
   for (let i = 0; i < 9 && !ended; i++) ended = m.damage("guest", 2);
-  check("a KO ends the round for the survivor", ended && m.phase === "roundEnd" && m.winner === "host" && m.score.host === 1);
+  check(
+    "a KO ends the round for the survivor",
+    ended && m.phase === "roundEnd" && m.winner === "host" && m.score.host === 1,
+  );
   t = null;
   for (let f = 0; f < 300 && t === null; f++) t = m.step(STEP);
-  check("round end resets a fresh round", t === "respawn" && m.round === 2 && m.hp.guest === VS_HEARTS && m.phase === "countdown");
+  check(
+    "round end resets a fresh round",
+    t === "respawn" && m.round === 2 && m.hp.guest === VS_HEARTS && m.phase === "countdown",
+  );
   let sawEnd: string | null = null;
   for (let r = 0; r < 8 && m.phase !== "matchEnd"; r++) {
     while (m.phase === "countdown") m.step(STEP);
     while (m.phase === "fighting") m.damage("guest", VS_HIT_CAP);
-    while (m.phase === "roundEnd") { const x = m.step(STEP); if (x) sawEnd = x; }
+    while (m.phase === "roundEnd") {
+      const x = m.step(STEP);
+      if (x) sawEnd = x;
+    }
   }
-  check("first to 3 rounds takes the match", sawEnd === "matchEnd" && m.winner === "host" && m.score.host === VS_WIN_SCORE);
+  check(
+    "first to 3 rounds takes the match",
+    sawEnd === "matchEnd" && m.winner === "host" && m.score.host === VS_WIN_SCORE,
+  );
   check("rematch waits out the end hold", m.canRematch === false);
   for (let f = 0; f < 180; f++) m.step(STEP);
   check("rematch arms after the hold", m.canRematch);
   m.beginMatch();
-  check("rematch wipes the score", m.round === 1 && m.score.host === 0 && m.score.guest === 0 && m.phase === "countdown");
+  check(
+    "rematch wipes the score",
+    m.round === 1 && m.score.host === 0 && m.score.guest === 0 && m.phase === "countdown",
+  );
   m.reset();
-  check("opponent leaving resets to the lobby", m.phase === "waiting" && m.round === 0 && m.hp.host === VS_HEARTS);
+  check(
+    "opponent leaving resets to the lobby",
+    m.phase === "waiting" && m.round === 0 && m.hp.host === VS_HEARTS,
+  );
   const h = new VersusMatch();
   h.beginMatch();
   while (h.phase === "countdown") h.step(STEP);
@@ -477,7 +587,10 @@ check("rectsOverlap basic", rectsOverlap({ left: 0, top: 0, right: 10, bottom: 1
     sp.x < mid && a.grid.solidInRect(sp.x - 4, sp.y, sp.x + 4, sp.y + 2),
     `spawn=(${sp.x},${sp.y})`,
   );
-  check("versus arena has no doors or enemies", a.doorSlots.length === 0 && a.enemySpawns.length === 0);
+  check(
+    "versus arena has no doors or enemies",
+    a.doorSlots.length === 0 && a.enemySpawns.length === 0,
+  );
 }
 
 // 24. Guest prediction: identical bodies + identical input never diverge (the
@@ -536,7 +649,10 @@ check("rectsOverlap basic", rectsOverlap({ left: 0, top: 0, right: 10, bottom: 1
     aligned && Math.abs(10 - corrected) <= DEADZONE,
     `corrected=${corrected.toFixed(2)}px`,
   );
-  check("empty history stays aligned (fresh spawn)", new Reconciler().reconcile(50, 50).kind === "aligned");
+  check(
+    "empty history stays aligned (fresh spawn)",
+    new Reconciler().reconcile(50, 50).kind === "aligned",
+  );
 }
 
 // The constrained generator must ALWAYS produce a room where every door + enemy
@@ -558,8 +674,16 @@ check("rectsOverlap basic", rectsOverlap({ left: 0, top: 0, right: 10, bottom: 1
     if (verifyRoom(genAttempt(seed, biome))) firstTry++; // did the raw attempt already pass?
   }
   check("every generated room is fully reachable", broken === 0, `${broken}/${N} broken`);
-  check("every generated room has enemies + a door", empty === 0 && doorless === 0, `${empty} empty, ${doorless} doorless`);
-  check("generator rarely needs the fallback", firstTry / N > 0.9, `${Math.round((firstTry / N) * 100)}% first-try`);
+  check(
+    "every generated room has enemies + a door",
+    empty === 0 && doorless === 0,
+    `${empty} empty, ${doorless} doorless`,
+  );
+  check(
+    "generator rarely needs the fallback",
+    firstTry / N > 0.9,
+    `${Math.round((firstTry / N) * 100)}% first-try`,
+  );
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -51,7 +51,9 @@ const SWEEP: Array<{ x: number; y: number; ms: number }> = [
   { x: 640, y: 120, ms: 2400 },
 ];
 
-test("bot playtest: mouse sweep progresses a seeded offline solo arena", async ({ page }, testInfo) => {
+test("bot playtest: mouse sweep progresses a seeded offline solo arena", async ({
+  page,
+}, testInfo) => {
   const pageErrors: string[] = [];
   const consoleErrors: string[] = [];
   page.on("pageerror", (e) => pageErrors.push(e.message));

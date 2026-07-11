@@ -24,7 +24,13 @@ export const INTENT_EVENT = "intent";
 
 /** Build the PartyServer room id from a short lobby code. */
 export function roomId(code: string): string {
-  return ROOM_PREFIX + (code || "public").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 12);
+  return (
+    ROOM_PREFIX +
+    (code || "public")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "")
+      .slice(0, 12)
+  );
 }
 
 export type Intent =

@@ -8,7 +8,10 @@
     />
     <link rel="icon" href="data:," />
     <title>Crazy Waymo</title>
-    <meta name="description" content="A runaway robotaxi loose on real San Francisco streets. Pick up fares, catch air, get paid." />
+    <meta
+      name="description"
+      content="A runaway robotaxi loose on real San Francisco streets. Pick up fares, catch air, get paid."
+    />
     <style>
       * {
         box-sizing: border-box;
@@ -431,7 +434,11 @@
         pointer-events: none;
         opacity: 0;
         transition: opacity 0.3s ease;
-        background: radial-gradient(circle at 50% 40%, rgba(20, 16, 28, 0.35), rgba(10, 8, 14, 0.78));
+        background: radial-gradient(
+          circle at 50% 40%,
+          rgba(20, 16, 28, 0.35),
+          rgba(10, 8, 14, 0.78)
+        );
       }
       #banner.show {
         opacity: 1;
@@ -504,7 +511,9 @@
         gap: 16px;
       }
       #loading .lt {
-        font: 900 italic clamp(34px, 9vw, 80px) / 1 system-ui, sans-serif;
+        font:
+          900 italic clamp(34px, 9vw, 80px) / 1 system-ui,
+          sans-serif;
         color: #ffd147;
         transform: rotate(-3deg);
         letter-spacing: -2px;
@@ -601,7 +610,9 @@
         );
       }
       .pedal .cap {
-        font: 700 11px/1 ui-monospace, monospace;
+        font:
+          700 11px/1 ui-monospace,
+          monospace;
         letter-spacing: 1.5px;
         color: #fff;
       }
@@ -755,7 +766,9 @@
           monospace;
       }
       #banner-controls .lbl {
-        font: 600 12px/1 system-ui, sans-serif;
+        font:
+          600 12px/1 system-ui,
+          sans-serif;
         letter-spacing: 1.4px;
         text-transform: uppercase;
         color: rgba(255, 255, 255, 0.62);
@@ -769,7 +782,11 @@
         text-align: right;
         z-index: 5;
         pointer-events: none;
-        font: 12px/1.2 ui-monospace, "SF Mono", Menlo, monospace;
+        font:
+          12px/1.2 ui-monospace,
+          "SF Mono",
+          Menlo,
+          monospace;
         letter-spacing: 2px;
         color: #fff;
         opacity: 0.7;
@@ -784,24 +801,117 @@
     <div id="game"></div>
 
     <style>
-      #garage{display:none;position:fixed;left:50%;bottom:120px;transform:translateX(-50%);z-index:28;flex-direction:column;gap:10px;align-items:center;background:rgba(10,14,24,.92);border:2px solid rgba(255,210,74,.5);border-radius:18px;padding:16px 18px;pointer-events:auto}
-      #garage .gtitle{font:800 15px ui-monospace,monospace;color:#ffd24a;letter-spacing:1px}
-      #garage .gcards{display:flex;gap:10px}
-      #garage .gcard{display:flex;flex-direction:column;align-items:center;gap:5px;width:118px;padding:10px 8px;border-radius:12px;border:2px solid rgba(255,255,255,.18);background:rgba(24,30,48,.9);color:#fff;cursor:pointer;font:600 11px ui-monospace,monospace}
-      #garage .gcard i{width:34px;height:34px;border-radius:50%;border:2px solid rgba(255,255,255,.3)}
-      #garage .gcard b{font-size:12px}
-      #garage .gcard small{opacity:.55;font-size:9px;text-align:center}
-      #garage .gcard span{font-weight:800;color:#9fe697}
-      #garage .gcard:not(.owned):not(.on) span{color:#ffd24a}
-      #garage .gcard.on{border-color:#ffd24a;background:rgba(64,54,20,.9)}
-      #garage .gcard.on span{color:#ffd24a}
-      #garage .gcard:hover{border-color:#fff}
-      #garage .ghint{font:600 10px ui-monospace,monospace;opacity:.5}
+      #garage {
+        display: none;
+        position: fixed;
+        left: 50%;
+        bottom: 120px;
+        transform: translateX(-50%);
+        z-index: 28;
+        flex-direction: column;
+        gap: 10px;
+        align-items: center;
+        background: rgba(10, 14, 24, 0.92);
+        border: 2px solid rgba(255, 210, 74, 0.5);
+        border-radius: 18px;
+        padding: 16px 18px;
+        pointer-events: auto;
+      }
+      #garage .gtitle {
+        font:
+          800 15px ui-monospace,
+          monospace;
+        color: #ffd24a;
+        letter-spacing: 1px;
+      }
+      #garage .gcards {
+        display: flex;
+        gap: 10px;
+      }
+      #garage .gcard {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 5px;
+        width: 118px;
+        padding: 10px 8px;
+        border-radius: 12px;
+        border: 2px solid rgba(255, 255, 255, 0.18);
+        background: rgba(24, 30, 48, 0.9);
+        color: #fff;
+        cursor: pointer;
+        font:
+          600 11px ui-monospace,
+          monospace;
+      }
+      #garage .gcard i {
+        width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        border: 2px solid rgba(255, 255, 255, 0.3);
+      }
+      #garage .gcard b {
+        font-size: 12px;
+      }
+      #garage .gcard small {
+        opacity: 0.55;
+        font-size: 9px;
+        text-align: center;
+      }
+      #garage .gcard span {
+        font-weight: 800;
+        color: #9fe697;
+      }
+      #garage .gcard:not(.owned):not(.on) span {
+        color: #ffd24a;
+      }
+      #garage .gcard.on {
+        border-color: #ffd24a;
+        background: rgba(64, 54, 20, 0.9);
+      }
+      #garage .gcard.on span {
+        color: #ffd24a;
+      }
+      #garage .gcard:hover {
+        border-color: #fff;
+      }
+      #garage .ghint {
+        font:
+          600 10px ui-monospace,
+          monospace;
+        opacity: 0.5;
+      }
     </style>
-    <input id="chat" maxlength="90" placeholder="say something…" autocomplete="off" style="display:none;position:fixed;left:50%;bottom:88px;transform:translateX(-50%);z-index:30;width:min(480px,80vw);padding:10px 16px;border-radius:999px;border:2px solid rgba(255,255,255,.45);background:rgba(10,14,24,.88);color:#fff;font:600 14px ui-monospace,monospace;outline:none;pointer-events:auto" />
+    <input
+      id="chat"
+      maxlength="90"
+      placeholder="say something…"
+      autocomplete="off"
+      style="
+        display: none;
+        position: fixed;
+        left: 50%;
+        bottom: 88px;
+        transform: translateX(-50%);
+        z-index: 30;
+        width: min(480px, 80vw);
+        padding: 10px 16px;
+        border-radius: 999px;
+        border: 2px solid rgba(255, 255, 255, 0.45);
+        background: rgba(10, 14, 24, 0.88);
+        color: #fff;
+        font:
+          600 14px ui-monospace,
+          monospace;
+        outline: none;
+        pointer-events: auto;
+      "
+    />
     <div id="netinfo"></div>
     <div id="hud">
-      <div class="pill" id="timer"><span class="label">TIME</span><span class="value">60</span></div>
+      <div class="pill" id="timer">
+        <span class="label">TIME</span><span class="value">60</span>
+      </div>
       <div id="combo-meter">
         <span class="mult"></span>
         <div id="combo-track"><div id="combo-fill"></div></div>
@@ -809,7 +919,9 @@
       <div id="time-bonus"></div>
       <div class="pill" id="area"></div>
       <div id="district"></div>
-      <div class="pill" id="score"><span class="label">EARNED</span><span class="value">0</span></div>
+      <div class="pill" id="score">
+        <span class="label">EARNED</span><span class="value">0</span>
+      </div>
       <div class="pill" id="speed">
         <canvas id="dash-dial" aria-hidden="true"></canvas>
         <div id="boost-track"><div id="boost-fill"></div></div>
@@ -826,8 +938,13 @@
       <canvas id="minimap" aria-hidden="true"></canvas>
       <div id="dest-arrow">
         <svg viewBox="0 0 64 64">
-          <polygon points="32,4 56,40 32,30 8,40" fill="#6bff8e" stroke="#0c2414" stroke-width="3"
-            stroke-linejoin="round" />
+          <polygon
+            points="32,4 56,40 32,30 8,40"
+            fill="#6bff8e"
+            stroke="#0c2414"
+            stroke-width="3"
+            stroke-linejoin="round"
+          />
         </svg>
       </div>
     </div>

@@ -17,7 +17,14 @@ import {
   STARTING_GOLD,
 } from "../data/config";
 import { ITEM_BY_ID, MAX_ITEMS } from "../data/items";
-import { BOSS_POS, CAMPS, SPAWNS, clampToArena, resolveObstacles, type CampSpec } from "../data/map";
+import {
+  BOSS_POS,
+  CAMPS,
+  SPAWNS,
+  clampToArena,
+  resolveObstacles,
+  type CampSpec,
+} from "../data/map";
 import { PROP_RESPAWN_MS, destructibleProps } from "../data/props";
 import { resolveElevation } from "./elevation";
 import { ABILITY_KEYS, type Unit, type World, nextId } from "./types";
@@ -89,7 +96,14 @@ export type SpawnArgs = {
 
 /** A fully-zeroed Unit skeleton — the ONE place the 60-field literal lives.
  *  Spawners spread real stats over it. */
-function blankCombatant(id: string, kind: Unit["kind"], team: string, ownerId: string, champId: string, name: string): Unit {
+function blankCombatant(
+  id: string,
+  kind: Unit["kind"],
+  team: string,
+  ownerId: string,
+  champId: string,
+  name: string,
+): Unit {
   return {
     id,
     kind,
@@ -234,13 +248,81 @@ type CreepStat = {
 };
 
 const CREEP_STATS: Record<string, CreepStat> = {
-  skwarrior: { model: "Skeleton_Warrior", attackType: "melee", attackDamageType: "physical", attackKind: "melee", hp: 340, damage: 34, armor: 3, attackRange: 2.2, attackSpeed: 0.8, moveSpeed: 5, projectileSpeed: 0, radius: 0.6, bounty: 55, xp: 50 },
-  skmage: { model: "Skeleton_Mage", attackType: "ranged", attackDamageType: "magic", attackKind: "bolt", hp: 230, damage: 30, armor: 1, attackRange: 8, attackSpeed: 0.7, moveSpeed: 4.6, projectileSpeed: 16, radius: 0.55, bounty: 70, xp: 60 },
-  skminion: { model: "Skeleton_Minion", attackType: "melee", attackDamageType: "physical", attackKind: "melee", hp: 200, damage: 24, armor: 1, attackRange: 2, attackSpeed: 0.95, moveSpeed: 5.4, projectileSpeed: 0, radius: 0.52, bounty: 35, xp: 32 },
-  frostgolem: { model: "FrostGolem", attackType: "melee", attackDamageType: "physical", attackKind: "melee", hp: 2400, damage: 95, armor: 8, attackRange: 3.2, attackSpeed: 0.6, moveSpeed: 4.4, projectileSpeed: 0, radius: 1.25, bounty: 500, xp: 350, name: "Frost Golem", hpRegen: 20 },
+  skwarrior: {
+    model: "Skeleton_Warrior",
+    attackType: "melee",
+    attackDamageType: "physical",
+    attackKind: "melee",
+    hp: 340,
+    damage: 34,
+    armor: 3,
+    attackRange: 2.2,
+    attackSpeed: 0.8,
+    moveSpeed: 5,
+    projectileSpeed: 0,
+    radius: 0.6,
+    bounty: 55,
+    xp: 50,
+  },
+  skmage: {
+    model: "Skeleton_Mage",
+    attackType: "ranged",
+    attackDamageType: "magic",
+    attackKind: "bolt",
+    hp: 230,
+    damage: 30,
+    armor: 1,
+    attackRange: 8,
+    attackSpeed: 0.7,
+    moveSpeed: 4.6,
+    projectileSpeed: 16,
+    radius: 0.55,
+    bounty: 70,
+    xp: 60,
+  },
+  skminion: {
+    model: "Skeleton_Minion",
+    attackType: "melee",
+    attackDamageType: "physical",
+    attackKind: "melee",
+    hp: 200,
+    damage: 24,
+    armor: 1,
+    attackRange: 2,
+    attackSpeed: 0.95,
+    moveSpeed: 5.4,
+    projectileSpeed: 0,
+    radius: 0.52,
+    bounty: 35,
+    xp: 32,
+  },
+  frostgolem: {
+    model: "FrostGolem",
+    attackType: "melee",
+    attackDamageType: "physical",
+    attackKind: "melee",
+    hp: 2400,
+    damage: 95,
+    armor: 8,
+    attackRange: 3.2,
+    attackSpeed: 0.6,
+    moveSpeed: 4.4,
+    projectileSpeed: 0,
+    radius: 1.25,
+    bounty: 500,
+    xp: 350,
+    name: "Frost Golem",
+    hpRegen: 20,
+  },
 };
 
-export function spawnCreep(w: World, type: string, x: number, y: number, camp: { id: string; x: number; y: number }): void {
+export function spawnCreep(
+  w: World,
+  type: string,
+  x: number,
+  y: number,
+  camp: { id: string; x: number; y: number },
+): void {
   const s = CREEP_STATS[type] ?? CREEP_STATS["skwarrior"]!;
   const u: Unit = {
     ...blankCombatant(nextId(w, "c"), "creep", NEUTRAL_TEAM, "neutral", type, s.name ?? "Skeleton"),
@@ -444,7 +526,10 @@ function drainInputBuffers(w: World): void {
     const qc = u.queuedCast;
     if (qc) {
       if (w.now > qc.until) u.queuedCast = null;
-      else if (castAbility(w, u, qc.key, { point: { x: qc.px, y: qc.py }, dir: { x: qc.ax, y: qc.ay } })) u.queuedCast = null;
+      else if (
+        castAbility(w, u, qc.key, { point: { x: qc.px, y: qc.py }, dir: { x: qc.ax, y: qc.ay } })
+      )
+        u.queuedCast = null;
     }
   }
 }

@@ -142,15 +142,26 @@ const UP_AXIS = new THREE.Vector3(0, 1, 0);
 type QPos = { q: Uint16Array; min: [number, number, number]; span: [number, number, number] };
 
 function qPos(a: Float32Array): QPos {
-  let minX = Infinity, minY = Infinity, minZ = Infinity;
-  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  let minX = Infinity,
+    minY = Infinity,
+    minZ = Infinity;
+  let maxX = -Infinity,
+    maxY = -Infinity,
+    maxZ = -Infinity;
   for (let i = 0; i < a.length; i += 3) {
-    const x = a[i] ?? 0, y = a[i + 1] ?? 0, z = a[i + 2] ?? 0;
-    if (x < minX) minX = x; if (x > maxX) maxX = x;
-    if (y < minY) minY = y; if (y > maxY) maxY = y;
-    if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+    const x = a[i] ?? 0,
+      y = a[i + 1] ?? 0,
+      z = a[i + 2] ?? 0;
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+    if (z < minZ) minZ = z;
+    if (z > maxZ) maxZ = z;
   }
-  const sx = maxX - minX || 1, sy = maxY - minY || 1, sz = maxZ - minZ || 1;
+  const sx = maxX - minX || 1,
+    sy = maxY - minY || 1,
+    sz = maxZ - minZ || 1;
   const q = new Uint16Array(a.length);
   for (let i = 0; i < a.length; i += 3) {
     q[i] = Math.round((((a[i] ?? 0) - minX) / sx) * 65535);
@@ -185,13 +196,20 @@ function dqNor(q: Int8Array): Float32Array {
 type QUv = { q: Uint16Array; min: [number, number]; span: [number, number] };
 
 function qUv(a: Float32Array): QUv {
-  let minU = Infinity, minV = Infinity, maxU = -Infinity, maxV = -Infinity;
+  let minU = Infinity,
+    minV = Infinity,
+    maxU = -Infinity,
+    maxV = -Infinity;
   for (let i = 0; i < a.length; i += 2) {
-    const u = a[i] ?? 0, v = a[i + 1] ?? 0;
-    if (u < minU) minU = u; if (u > maxU) maxU = u;
-    if (v < minV) minV = v; if (v > maxV) maxV = v;
+    const u = a[i] ?? 0,
+      v = a[i + 1] ?? 0;
+    if (u < minU) minU = u;
+    if (u > maxU) maxU = u;
+    if (v < minV) minV = v;
+    if (v > maxV) maxV = v;
   }
-  const su = maxU - minU || 1, sv = maxV - minV || 1;
+  const su = maxU - minU || 1,
+    sv = maxV - minV || 1;
   const q = new Uint16Array(a.length);
   for (let i = 0; i < a.length; i += 2) {
     q[i] = Math.round((((a[i] ?? 0) - minU) / su) * 65535);
@@ -247,7 +265,16 @@ export function packWorld(world: CityGenPayload): unknown {
 }
 
 export function unpackWorld(packed: unknown): CityGenPayload {
-  const p = packed as { tiles: { pos: QPos; nor: Int8Array | null; col: Uint8Array | null; index: Uint16Array | Uint32Array | null; x: number; z: number }[] };
+  const p = packed as {
+    tiles: {
+      pos: QPos;
+      nor: Int8Array | null;
+      col: Uint8Array | null;
+      index: Uint16Array | Uint32Array | null;
+      x: number;
+      z: number;
+    }[];
+  };
   return {
     roadParts: [], // rest.bin's merged chunks carry the roads
     tiles: p.tiles.map((t) => ({
@@ -361,9 +388,36 @@ async function unpackYield(): Promise<void> {
 
 export async function unpackRest(packed: unknown): Promise<CityRestPayload> {
   const p = packed as {
-    mergedChunks: { cx: number; cz: number; dist: number; pos: QPos; nor: Int8Array | null; uv: QUv | null; col: Uint8Array | null; index: Uint16Array | Uint32Array | null; mat: CityRestPayload["mergedChunks"][number]["mat"]; srcMat: { url: string; idx: number } | null }[];
-    rawGeos: { pos: QPos; nor: Int8Array | null; uv: null; index: Uint16Array | Uint32Array | null; mat: CityRestPayload["rawGeos"][number]["mat"] }[];
-    items: { urls: string[]; urlIdx: Int32Array; rawIdx: Int32Array; trs: Float32Array; scales: Uint16Array; exactIdx: Int32Array; exactMats: Float32Array; tints: Int32Array; count: number };
+    mergedChunks: {
+      cx: number;
+      cz: number;
+      dist: number;
+      pos: QPos;
+      nor: Int8Array | null;
+      uv: QUv | null;
+      col: Uint8Array | null;
+      index: Uint16Array | Uint32Array | null;
+      mat: CityRestPayload["mergedChunks"][number]["mat"];
+      srcMat: { url: string; idx: number } | null;
+    }[];
+    rawGeos: {
+      pos: QPos;
+      nor: Int8Array | null;
+      uv: null;
+      index: Uint16Array | Uint32Array | null;
+      mat: CityRestPayload["rawGeos"][number]["mat"];
+    }[];
+    items: {
+      urls: string[];
+      urlIdx: Int32Array;
+      rawIdx: Int32Array;
+      trs: Float32Array;
+      scales: Uint16Array;
+      exactIdx: Int32Array;
+      exactMats: Float32Array;
+      tints: Int32Array;
+      count: number;
+    };
     solids: PackedSolids;
     parkedCars: CityRestPayload["parkedCars"];
     lampHeads: CityRestPayload["lampHeads"];
@@ -457,7 +511,8 @@ function packSolids(solids: CityRestPayload["solids"]): PackedSolids {
     data[i * 6 + 3] = so.maxZ;
     data[i * 6 + 4] = so.maxY ?? 0;
     data[i * 6 + 5] = so.yaw ?? 0;
-    flags[i] = (so.maxY !== undefined ? 1 : 0) | (so.yaw !== undefined ? 2 : 0) | (so.noBody ? 4 : 0);
+    flags[i] =
+      (so.maxY !== undefined ? 1 : 0) | (so.yaw !== undefined ? 2 : 0) | (so.noBody ? 4 : 0);
   }
   return { data, flags, count: n };
 }

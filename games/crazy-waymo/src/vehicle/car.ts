@@ -38,7 +38,11 @@ const X_AXIS = new THREE.Vector3(1, 0, 0);
 // signature rooftop lidar dome, side mirror pods, and front bumper sensors.
 // Built in the body's local space (model faces +Z; roof top ≈ y 1.5).
 const LIDAR_WHITE = new THREE.MeshStandardMaterial({ color: 0xeef0f2, roughness: 0.7 });
-const LIDAR_DARK = new THREE.MeshStandardMaterial({ color: 0x24272e, roughness: 0.5, metalness: 0.2 });
+const LIDAR_DARK = new THREE.MeshStandardMaterial({
+  color: 0x24272e,
+  roughness: 0.5,
+  metalness: 0.2,
+});
 const LIDAR_BLUE = new THREE.MeshStandardMaterial({
   color: 0x2f7de0,
   emissive: 0x1a5fbf,
@@ -62,9 +66,33 @@ export type RobotaxiSkin = {
 
 export const ROBOTAXI_SKINS: readonly RobotaxiSkin[] = [
   { id: "waymo", label: "WAYMO", model: PLAYER_CAR, lidar: true, price: 0, blurb: "the original" },
-  { id: "cruise", label: "CRUISE", model: "hatchback-sports", tint: 0xff8b3d, lidar: true, price: 500, blurb: "pour one out" },
-  { id: "zoox", label: "ZOOX", model: "van", tint: 0x2fbfae, lidar: true, price: 600, blurb: "the toaster" },
-  { id: "cybercab", label: "CYBERCAB", model: "sedan-sports", tint: 0xc9cbd1, lidar: false, price: 900, blurb: "cameras only, good luck" },
+  {
+    id: "cruise",
+    label: "CRUISE",
+    model: "hatchback-sports",
+    tint: 0xff8b3d,
+    lidar: true,
+    price: 500,
+    blurb: "pour one out",
+  },
+  {
+    id: "zoox",
+    label: "ZOOX",
+    model: "van",
+    tint: 0x2fbfae,
+    lidar: true,
+    price: 600,
+    blurb: "the toaster",
+  },
+  {
+    id: "cybercab",
+    label: "CYBERCAB",
+    model: "sedan-sports",
+    tint: 0xc9cbd1,
+    lidar: false,
+    price: 900,
+    blurb: "cameras only, good luck",
+  },
 ];
 
 export function skinById(id: string | undefined | null): RobotaxiSkin {
@@ -114,7 +142,13 @@ export function buildWaymoSensors(): THREE.Group {
   add(new THREE.CylinderGeometry(0.15, 0.19, 0.12, 12), LIDAR_WHITE, 0, roofY + 0.05, 0.08);
   add(new THREE.CylinderGeometry(0.24, 0.24, 0.2, 16), LIDAR_DARK, 0, roofY + 0.2, 0.08);
   add(new THREE.CylinderGeometry(0.25, 0.25, 0.04, 16), LIDAR_BLUE, 0, roofY + 0.25, 0.08);
-  add(new THREE.SphereGeometry(0.24, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), LIDAR_WHITE, 0, roofY + 0.3, 0.08);
+  add(
+    new THREE.SphereGeometry(0.24, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+    LIDAR_WHITE,
+    0,
+    roofY + 0.3,
+    0.08,
+  );
 
   // Perimeter sensor pods mounted on the front-door shoulder. The body side
   // there sits at |x| ≈ 0.65, so the pod centre straddles it (inner half sunk
@@ -580,11 +614,11 @@ export class Car {
     // "counts" (score, smoke, screech, charge) only with real slip — holding
     // the button on a straight is just a low-grip setting, not a drift.
     const va = this.velAngle;
-    this.slip =
-      va === null ? 0 : ((va - this.heading + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+    this.slip = va === null ? 0 : ((va - this.heading + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
     const physicsDrift = input.brake > 0.05 && absF > CAR.driftMinSpeed && !this.airborne;
     this.isDrifting =
-      physicsDrift && (Math.abs(this.slip) > CAR.driftMinSlip || Math.abs(this.steerSmoothed) > 0.35);
+      physicsDrift &&
+      (Math.abs(this.slip) > CAR.driftMinSlip || Math.abs(this.steerSmoothed) > 0.35);
     const speedFrac = THREE.MathUtils.clamp(absF / CAR.maxSpeed, 0, 1);
     let authority = THREE.MathUtils.lerp(1, CAR.turnSpeedFalloff, speedFrac);
     if (this.airborne) authority *= CAR.airSteerFactor;
@@ -805,11 +839,7 @@ export class Car {
     } else if (this.airborne) {
       // The nose follows the flight arc: up off the crest, down as it falls.
       slopeQuaternion(this.targetQuat, this.heading + MODEL_YAW_OFFSET, UP);
-      const arc = THREE.MathUtils.clamp(
-        Math.atan2(-this.yVel, Math.max(this.speed, 8)),
-        -0.5,
-        0.6,
-      );
+      const arc = THREE.MathUtils.clamp(Math.atan2(-this.yVel, Math.max(this.speed, 8)), -0.5, 0.6);
       this.pitchQuat.setFromAxisAngle(X_AXIS, arc);
       this.targetQuat.multiply(this.pitchQuat);
     } else {

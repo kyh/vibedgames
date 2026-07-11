@@ -8,7 +8,7 @@ metadata:
 # Animated Spritesheets
 
 Turn a character into a packed, engine-loadable spritesheet by generating **one
-labeled pose-board image** — a grid of the *same* character in the frames of an
+labeled pose-board image** — a grid of the _same_ character in the frames of an
 action — then recovering/slicing it. This is the **image-generation** method.
 
 > **Why image generation, not image-to-video.** One generation per action keeps
@@ -54,9 +54,15 @@ The deliverable is `<out-dir>/spritesheet.png` + `spritesheet.json`, with
 
 ```ts
 // spritesheet.json -> { frameWidth, frameHeight, frameCount, fps, animations }
-this.load.spritesheet("attack", "assets/hero-attack/spritesheet.png", { frameWidth: 256, frameHeight: 256 });
-this.anims.create({ key: "attack", frameRate: 10,
-  frames: this.anims.generateFrameNumbers("attack", { start: 0, end: 7 }) }); // end = frameCount - 1
+this.load.spritesheet("attack", "assets/hero-attack/spritesheet.png", {
+  frameWidth: 256,
+  frameHeight: 256,
+});
+this.anims.create({
+  key: "attack",
+  frameRate: 10,
+  frames: this.anims.generateFrameNumbers("attack", { start: 0, end: 7 }),
+}); // end = frameCount - 1
 ```
 
 ## What `process_sheet.py` does (under the hood)
@@ -70,7 +76,7 @@ this.anims.create({ key: "attack", frameRate: 10,
    (global speck-removal so dark/low-contrast sprites stay clean).
 3. **pixel snap (on by default)** — recover crisp native pixels from the AI's
    fake-pixel "mixels". All frames are assembled into one strip and snapped
-   together so the snapper finds a *single* grid pitch for the action — every frame
+   together so the snapper finds a _single_ grid pitch for the action — every frame
    ends up the same scale, so the character doesn't "breathe" size between frames.
    `--no-pixel-snap` keeps the smooth high-res look (for painterly/non-pixel
    sprites); `--snap-k-colors` sets palette size. Needs ≥~512px cells to work well
@@ -98,18 +104,18 @@ this.anims.create({ key: "attack", frameRate: 10,
 - **Make it ONE motion, not N poses.** The model's default failure is each cell as
   a separate dramatic pose, so frames jump around instead of tracing one swing.
   Two prompt moves beat this, both built into `sprite_prompt.py pose-board`:
-  (1) it always frames the used cells as *consecutive film frames of one continuous
-  motion sampled at evenly-spaced instants*; (2) with `--frame-prompt-style specific`
+  (1) it always frames the used cells as _consecutive film frames of one continuous
+  motion sampled at evenly-spaced instants_; (2) with `--frame-prompt-style specific`
   (the default) it writes per-frame labels as **monotonic spatial progression along a single path**
   (weapon back → wind-up peak → mid-strike across centerline → contact →
   follow-through → recover), not abstract beats. **If you add an action** to
   `sprite_presets.py` / `frame_label`, label it as progression along one path —
   that, not the frame count, makes it read as motion.
 - **Lock the facing.** The model loves to mirror a cell (often frame 1). The
-  pose-board prompt pins facing in *every* cell (`_pose_board_facing_lock`);
+  pose-board prompt pins facing in _every_ cell (`_pose_board_facing_lock`);
   `--direction e`/`w` adds a side-profile lock. `sheet_qc.py` catches gross flips;
   eyeball the gif for subtle ones.
-- **Lock the scale.** Same *size* in every cell on a shared foot baseline — pose
+- **Lock the scale.** Same _size_ in every cell on a shared foot baseline — pose
   change fine, scale change not. The prompt says so. `normalize_canvas` can't
   un-drift mixed scales, so `sheet_qc.py` flags size outliers (sparing monotonic
   pose arcs like a death collapse).
@@ -120,5 +126,5 @@ this.anims.create({ key: "attack", frameRate: 10,
 ## Remember
 
 One labeled pose-board image, one consistent character, recovered into frames.
-Fewer frames than a video clip, but they're the *same* character across the whole
+Fewer frames than a video clip, but they're the _same_ character across the whole
 animation — which is what a game sprite needs most.

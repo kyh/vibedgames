@@ -47,16 +47,16 @@ console.log(renderer.info.memory); // { geometries, textures }
 
 Measure the **worst active-play view**, not the menu. These are starting contracts, not hard limits — overrun deliberately, but know you did. `check-canvas.mjs` compares these numbers automatically when the page exposes diagnostics (see below).
 
-| Metric (worst active-play view)    | Desktop  | Mobile   |
-| ---------------------------------- | -------- | -------- |
-| Draw calls (`info.render.calls`)   | ≤ 300    | ≤ 150    |
-| Triangles (`info.render.triangles`)| ≤ 750k   | ≤ 300k   |
-| Geometries (`info.memory.geometries`) | ≤ 300 | ≤ 200    |
-| Textures (`info.memory.textures`)  | ≤ 60     | ≤ 40     |
-| Shadow-casting lights              | ≤ 2      | 1        |
-| Shadow map size                    | ≤ 2048   | ≤ 1024   |
-| DPR cap                            | 2        | 1.5–2    |
-| Post passes (beyond render+output) | ≤ 2      | 0–1      |
+| Metric (worst active-play view)       | Desktop | Mobile |
+| ------------------------------------- | ------- | ------ |
+| Draw calls (`info.render.calls`)      | ≤ 300   | ≤ 150  |
+| Triangles (`info.render.triangles`)   | ≤ 750k  | ≤ 300k |
+| Geometries (`info.memory.geometries`) | ≤ 300   | ≤ 200  |
+| Textures (`info.memory.textures`)     | ≤ 60    | ≤ 40   |
+| Shadow-casting lights                 | ≤ 2     | 1      |
+| Shadow map size                       | ≤ 2048  | ≤ 1024 |
+| DPR cap                               | 2       | 1.5–2  |
+| Post passes (beyond render+output)    | ≤ 2     | 0–1    |
 
 To let headless checks read these numbers, expose a diagnostics snapshot and refresh it once a second:
 
@@ -75,23 +75,23 @@ setInterval(() => {
 
 ### Fixes, highest-leverage first
 
-| Symptom | Fix |
-| --- | --- |
-| High draw calls, many identical objects | **`InstancedMesh`** — one call for thousands (see `advanced-topics.md`) |
-| High draw calls, many *static* distinct objects | **Merge geometries** (`BufferGeometryUtils.mergeGeometries`) into one mesh |
-| Many materials | Share material instances; atlas textures so meshes can batch |
-| Heavy in the distance | **LOD** — swap to low-poly past a distance (`advanced-topics.md`) |
-| Shadows tank FPS | Lower `shadow.mapSize` (1024), shrink the shadow camera frustum to the play area, or bake/disable for distant lights |
-| Post-processing cost | Render bloom/SSAO at half resolution; drop passes on mobile |
-| GC stutter every few seconds | You're allocating in the loop — hoist `new Vector3()`/geometry creation out (the #1 cause) |
-| Fine on desktop, melts on phone | **DPR uncapped** — `renderer.setPixelRatio(Math.min(devicePixelRatio, 2))`; a 3× phone renders 9× the pixels |
+| Symptom                                         | Fix                                                                                                                  |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| High draw calls, many identical objects         | **`InstancedMesh`** — one call for thousands (see `advanced-topics.md`)                                              |
+| High draw calls, many _static_ distinct objects | **Merge geometries** (`BufferGeometryUtils.mergeGeometries`) into one mesh                                           |
+| Many materials                                  | Share material instances; atlas textures so meshes can batch                                                         |
+| Heavy in the distance                           | **LOD** — swap to low-poly past a distance (`advanced-topics.md`)                                                    |
+| Shadows tank FPS                                | Lower `shadow.mapSize` (1024), shrink the shadow camera frustum to the play area, or bake/disable for distant lights |
+| Post-processing cost                            | Render bloom/SSAO at half resolution; drop passes on mobile                                                          |
+| GC stutter every few seconds                    | You're allocating in the loop — hoist `new Vector3()`/geometry creation out (the #1 cause)                           |
+| Fine on desktop, melts on phone                 | **DPR uncapped** — `renderer.setPixelRatio(Math.min(devicePixelRatio, 2))`; a 3× phone renders 9× the pixels         |
 
 ---
 
 ## Mobile-specific
 
 - **DPR cap** (above) — single biggest mobile win.
-- **Resize handling** — listen for `resize` *and* orientation change; update `camera.aspect`, `updateProjectionMatrix()`, `renderer.setSize()`. A stretched scene after rotation means this is missing.
+- **Resize handling** — listen for `resize` _and_ orientation change; update `camera.aspect`, `updateProjectionMatrix()`, `renderer.setSize()`. A stretched scene after rotation means this is missing.
 - **Touch vs pointer** — use `pointerdown`/`pointermove` (covers mouse + touch) rather than `mousedown`. Register listeners on the canvas, and call `preventDefault` to stop scroll/zoom hijacking the game.
 - **Audio suspended** — `AudioContext` starts suspended; resume on first gesture (see [`generated-assets.md`](generated-assets.md)).
 - **Power preference** — `new WebGLRenderer({ powerPreference: "high-performance" })` on mobile GPUs.
@@ -140,7 +140,7 @@ Diagnostics snippet — log once a second alongside `renderer.info`:
 
 ```javascript
 console.log({
-  bodies: world.bodies.len(),      // Rapier
+  bodies: world.bodies.len(), // Rapier
   colliders: world.colliders.len(),
 });
 // If these climb across restarts, you're leaking bodies (see #6).
@@ -150,11 +150,11 @@ console.log({
 
 ## Quick reference: what to check first
 
-| Problem | First thing to check |
-| --- | --- |
-| Black screen | scene.add → light → camera position (`check-canvas.mjs` to confirm objectively) |
-| Low FPS | `renderer.info.render.calls`, then DPR cap |
-| FPS drops over time | allocation in the loop, then undisposed resources |
-| Bad on mobile only | DPR cap, then resize handling |
-| Stretched after rotate | resize handler updating aspect + setSize |
-| Clipping through walls / falling through platforms | collider-vs-mesh match, then CCD / kinematic body updates |
+| Problem                                            | First thing to check                                                            |
+| -------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Black screen                                       | scene.add → light → camera position (`check-canvas.mjs` to confirm objectively) |
+| Low FPS                                            | `renderer.info.render.calls`, then DPR cap                                      |
+| FPS drops over time                                | allocation in the loop, then undisposed resources                               |
+| Bad on mobile only                                 | DPR cap, then resize handling                                                   |
+| Stretched after rotate                             | resize handler updating aspect + setSize                                        |
+| Clipping through walls / falling through platforms | collider-vs-mesh match, then CCD / kinematic body updates                       |

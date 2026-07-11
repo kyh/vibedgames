@@ -53,7 +53,8 @@ const GradeShader = {
     uLift: { value: new THREE.Vector3(-0.006, -0.003, 0.012) },
     uGain: { value: new THREE.Vector3(1.03, 1.01, 0.97) },
   },
-  vertexShader: "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
+  vertexShader:
+    "varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
   fragmentShader: `
     uniform sampler2D tDiffuse; uniform float uContrast,uSaturation,uVignette,uVigStart,uFlash; uniform vec3 uLift,uGain;
     varying vec2 vUv;
@@ -150,7 +151,15 @@ function buildGroundDisc(): THREE.Mesh {
   geo.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
   geo.setIndex(idx);
   geo.computeVertexNormals();
-  const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0, side: THREE.DoubleSide }));
+  const mesh = new THREE.Mesh(
+    geo,
+    new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 1,
+      metalness: 0,
+      side: THREE.DoubleSide,
+    }),
+  );
   mesh.receiveShadow = true;
   return mesh;
 }
@@ -196,13 +205,17 @@ export class View {
   private prStep = 0; // 0=full, 1=1.5, 2=1.25 (adaptive downscale)
 
   constructor(container: HTMLElement) {
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+    this.renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      powerPreference: "high-performance",
+    });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     // STATIC shadows: characters use blob shadows and every real caster is
     // scenery, so the shadow map renders ONCE (refreshShadows() re-arms it).
     // Touch devices skip shadows entirely — biggest single mobile win.
-    const coarse = typeof window.matchMedia === "function" && window.matchMedia("(pointer:coarse)").matches;
+    const coarse =
+      typeof window.matchMedia === "function" && window.matchMedia("(pointer:coarse)").matches;
     this.renderer.shadowMap.enabled = !coarse;
     this.renderer.shadowMap.type = THREE.PCFShadowMap; // + shadow.radius softens
     this.renderer.shadowMap.autoUpdate = false;
@@ -223,8 +236,17 @@ export class View {
     this.scene.environmentIntensity = 0.36;
     pmrem.dispose();
 
-    this.camera = new THREE.PerspectiveCamera(CAM.fov, window.innerWidth / window.innerHeight, 0.5, 400);
-    this.camPos.set(0, Math.sin(CAM.baseElev) * CAM.distance, Math.cos(CAM.baseElev) * CAM.distance);
+    this.camera = new THREE.PerspectiveCamera(
+      CAM.fov,
+      window.innerWidth / window.innerHeight,
+      0.5,
+      400,
+    );
+    this.camPos.set(
+      0,
+      Math.sin(CAM.baseElev) * CAM.distance,
+      Math.cos(CAM.baseElev) * CAM.distance,
+    );
     this.camera.position.copy(this.camPos);
     this.camera.lookAt(0, 1, 0);
 
@@ -275,7 +297,8 @@ export class View {
           uTop: { value: new THREE.Color(0x0a0e1c) },
           uBot: { value: new THREE.Color(0x1a1626) },
         },
-        vertexShader: "varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
+        vertexShader:
+          "varying vec3 vP; void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
         fragmentShader:
           "varying vec3 vP; uniform vec3 uTop; uniform vec3 uBot;" +
           " void main(){ vec3 n = normalize(vP); float h = smoothstep(-0.1,0.5, n.y);" +
@@ -305,7 +328,13 @@ export class View {
     // at the ramp height for its radius so it hugs the plateau slope.
     const aura = new THREE.Mesh(
       new THREE.RingGeometry(ARENA.throne.radius - 0.5, ARENA.throne.radius, 64),
-      new THREE.MeshBasicMaterial({ color: 0xffcc44, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false }),
+      new THREE.MeshBasicMaterial({
+        color: 0xffcc44,
+        transparent: true,
+        opacity: 0.5,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      }),
     );
     aura.rotation.x = -Math.PI / 2;
     // +0.10: the flagstone tile tops are authored at +0.05 — an 0.05 offset is
@@ -319,7 +348,14 @@ export class View {
     // from across the arena, narrow enough not to curtain the sky behind the dais
     this.throneColumn = new THREE.Mesh(
       new THREE.CylinderGeometry(1.2, 2.0, 11, 24, 1, true),
-      new THREE.MeshBasicMaterial({ color: 0xffcc55, transparent: true, opacity: 0.03, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }),
+      new THREE.MeshBasicMaterial({
+        color: 0xffcc55,
+        transparent: true,
+        opacity: 0.03,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      }),
     );
     this.throneColumn.position.set(ARENA.throne.x, plateauTop + 5.5, ARENA.throne.y);
     arenaGroup.add(this.throneColumn);
@@ -333,7 +369,14 @@ export class View {
       const padY = terrainHeight(sp.x, sp.y);
       const rim = new THREE.Mesh(
         new THREE.RingGeometry(4.2, 5.0, 40),
-        new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false }),
+        new THREE.MeshBasicMaterial({
+          color: col,
+          transparent: true,
+          opacity: 0.6,
+          blending: THREE.AdditiveBlending,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        }),
       );
       rim.rotation.x = -Math.PI / 2;
       rim.position.set(sp.x, padY + 0.18, sp.y);
@@ -346,7 +389,12 @@ export class View {
     for (const d of DELIVERY_PADS) {
       const pad = new THREE.Mesh(
         new THREE.RingGeometry(1.4, 1.7, 4),
-        new THREE.MeshBasicMaterial({ color: 0x66ffcc, transparent: true, opacity: 0.55, depthWrite: false }),
+        new THREE.MeshBasicMaterial({
+          color: 0x66ffcc,
+          transparent: true,
+          opacity: 0.55,
+          depthWrite: false,
+        }),
       );
       pad.rotation.x = -Math.PI / 2;
       pad.position.set(d.x, terrainHeight(d.x, d.y) + 0.1, d.y); // above the 0.05 tile tops
@@ -359,7 +407,14 @@ export class View {
     if (beaconGeo) {
       const beacons = new THREE.Mesh(
         beaconGeo,
-        new THREE.MeshBasicMaterial({ color: 0x66ffcc, transparent: true, opacity: 0.05, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false }),
+        new THREE.MeshBasicMaterial({
+          color: 0x66ffcc,
+          transparent: true,
+          opacity: 0.05,
+          blending: THREE.AdditiveBlending,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+        }),
       );
       arenaGroup.add(beacons);
     }
@@ -371,7 +426,15 @@ export class View {
 
   /** Chase the local hero from behind their facing (action-RPG). faceX/faceZ is
    *  the unit facing on the (x,z) ground plane; pitch tilts the view up/down. */
-  follow(x: number, y: number, faceX: number, faceZ: number, pitch: number, dt: number, groundY = 0): void {
+  follow(
+    x: number,
+    y: number,
+    faceX: number,
+    faceZ: number,
+    pitch: number,
+    dt: number,
+    groundY = 0,
+  ): void {
     // 1:1 mouse-look: snap heading/pitch straight to the input — NO rotational
     // smoothing. Only the follow *focus* eases, so walking is steady but turning
     // is instant (rotation is computed from the snapped yaw, not an eased pos).
@@ -419,7 +482,11 @@ export class View {
       this.camPos.y = Math.max(this.camPos.y, BOSS_HEIGHT + 2.8);
     }
 
-    this.look.set(this.focus.x + fx * CAM.lookAhead, CAM.lookHeight + this.camPitch * 5 + this.camGroundY, this.focus.z + fz * CAM.lookAhead);
+    this.look.set(
+      this.focus.x + fx * CAM.lookAhead,
+      CAM.lookHeight + this.camPitch * 5 + this.camGroundY,
+      this.focus.z + fz * CAM.lookAhead,
+    );
 
     // trauma shake (+ a brief bloom/vignette punch on big impacts — free juice)
     this.shake = Math.max(0, this.shake - dt * 1.6);
@@ -432,7 +499,11 @@ export class View {
     const fl = this.grade?.uniforms["uFlash"];
     if (fl) fl.value = this.flashAmt;
     const s = this.shake * this.shake;
-    this.shakeOff.set((Math.random() - 0.5) * s * 1.4, (Math.random() - 0.5) * s * 0.8, (Math.random() - 0.5) * s * 1.4);
+    this.shakeOff.set(
+      (Math.random() - 0.5) * s * 1.4,
+      (Math.random() - 0.5) * s * 0.8,
+      (Math.random() - 0.5) * s * 1.4,
+    );
 
     // directional impact kick — snaps toward the hit, springs back (game feel)
     this.kickVec.multiplyScalar(Math.max(0, 1 - dt * 11));
@@ -461,7 +532,9 @@ export class View {
       this.camera.lookAt(this.look);
     }
     // rotational roll — sine mix (not white noise) reads as violence, max ≈2.9°
-    this.camera.rotateZ((Math.sin(this.shakeT * 1.3) * 0.55 + Math.sin(this.shakeT * 2.7) * 0.45) * s * 0.05);
+    this.camera.rotateZ(
+      (Math.sin(this.shakeT * 1.3) * 0.55 + Math.sin(this.shakeT * 2.7) * 0.45) * s * 0.05,
+    );
   }
 
   /** Begin the 2.4s establishing fly-in (solo intro). Camera blends from a high
@@ -540,7 +613,8 @@ export class View {
     if (this.throneColumn) {
       // faint breathing beacon — against the dark two-story backdrop anything
       // past ~0.05 reads as a giant ghost column over the throne
-      (this.throneColumn.material as THREE.MeshBasicMaterial).opacity = 0.022 + Math.abs(Math.sin(t * 1.5)) * 0.022;
+      (this.throneColumn.material as THREE.MeshBasicMaterial).opacity =
+        0.022 + Math.abs(Math.sin(t * 1.5)) * 0.022;
     }
   }
 
@@ -549,7 +623,8 @@ export class View {
   private buildComposer(): void {
     const w = window.innerWidth;
     const h = window.innerHeight;
-    const coarse = typeof window.matchMedia === "function" && window.matchMedia("(pointer:coarse)").matches;
+    const coarse =
+      typeof window.matchMedia === "function" && window.matchMedia("(pointer:coarse)").matches;
     this.quality = !coarse && this.prNow >= 1.5 ? "high" : "low";
 
     this.composer = new EffectComposer(this.renderer); // HalfFloat HDR targets
@@ -564,7 +639,10 @@ export class View {
       this.composer.addPass(new SMAAPass());
     } else {
       this.fxaa = new ShaderPass(FXAAShader);
-      this.fxaa.material.uniforms["resolution"]?.value.set(1 / (w * this.prNow), 1 / (h * this.prNow));
+      this.fxaa.material.uniforms["resolution"]?.value.set(
+        1 / (w * this.prNow),
+        1 / (h * this.prNow),
+      );
       this.composer.addPass(this.fxaa);
     }
     this.composer.setPixelRatio(this.prNow);
@@ -575,7 +653,10 @@ export class View {
     this.renderer.setPixelRatio(pr);
     this.composer?.setPixelRatio(pr);
     if (this.fxaa) {
-      this.fxaa.material.uniforms["resolution"]?.value.set(1 / (window.innerWidth * pr), 1 / (window.innerHeight * pr));
+      this.fxaa.material.uniforms["resolution"]?.value.set(
+        1 / (window.innerWidth * pr),
+        1 / (window.innerHeight * pr),
+      );
     }
   }
 
@@ -595,7 +676,10 @@ export class View {
     this.camera.updateProjectionMatrix();
     this.composer?.setSize(window.innerWidth, window.innerHeight);
     if (this.fxaa) {
-      this.fxaa.material.uniforms["resolution"]?.value.set(1 / (window.innerWidth * this.prNow), 1 / (window.innerHeight * this.prNow));
+      this.fxaa.material.uniforms["resolution"]?.value.set(
+        1 / (window.innerWidth * this.prNow),
+        1 / (window.innerHeight * this.prNow),
+      );
     }
   }
 
