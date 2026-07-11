@@ -330,7 +330,10 @@ export class Car {
     if (Math.abs(f - this.nightFactor) < 0.005) return;
     this.nightFactor = f;
     const rig = this.nightRig;
-    rig.spot.intensity = 160 * f;
+    // 160 pushed lit near-white facades past the desktop bloom threshold
+    // (pre-tonemap HDR ~2+) — walls in the beam flashed pure white while
+    // steering. 70 keeps the road pool readable without igniting walls.
+    rig.spot.intensity = 70 * f;
     for (const m of rig.headMats) m.opacity = 0.75 * f;
     for (const m of rig.tailMats) m.opacity = 0.55 * f;
   }

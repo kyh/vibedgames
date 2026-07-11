@@ -48,17 +48,22 @@ export class NightWindows {
 
   constructor(items: readonly BatchItemRec[], cache: ModelCache, budget: number) {
     const rng = new Rng(20260709);
-    const instances = collectBuildings(items, cache);
+    // Real windows first: rectangles detected in each model's geometry (see
+    // detectWindows) — lit quads land exactly ON the modelled glass. Models
+    // where detection finds nothing fall back to the old procedural grid.
+    const detected = collectDetected(items, cache);
+    const instances = collectBuildings(detected.fallbackItems, cache);
 
     // Candidate census first: the lit chance is scaled so the whole city
     // lands under `budget` quads regardless of how dense the bake is.
-    let candidates = 0;
+    let candidates = detected.candidates;
     for (const b of instances) candidates += candidateCount(b);
     const chance = LIT_CHANCE * Math.min(1, budget / Math.max(1, candidates * LIT_CHANCE));
 
     const positions: number[] = [];
     const colors: number[] = [];
     const scratch = new THREE.Color();
+    emitDetected(detected, rng, chance, positions, colors, scratch);
     for (const b of instances) {
       emitBuilding(b, rng, chance, positions, colors, scratch);
     }
@@ -108,6 +113,313 @@ export class NightWindows {
   setIntensity(night: number): void {
     this.uNight.value = night;
     this.mesh.visible = night > 0.02;
+  }
+}
+
+// --- Detected windows: light the ACTUAL modelled glass -------------------
+// The kits paint window glass as a desaturated dark blue via the shared
+// colormap atlas. Per source mesh (cached by url|idx): sample each triangle's
+// UV centroid in the colormap, keep the blue "glass" triangles, group them
+// into panes by shared vertices (scale-free — quantized meshopt attributes
+// make fixed-size clustering impossible), and store each pane as a local-
+// space rect (center, horizontal tangent, width, height). Instances then
+// place lit quads exactly on their windows. Models with no detectable glass
+// fall back to the procedural grid below.
+
+type Pane = {
+  cx: number;
+  cy: number;
+  cz: number;
+  tx: number; // horizontal tangent (local)
+  tz: number;
+  w: number;
+  h: number;
+};
+
+type DetectedInstance = { m: Float32Array; panes: readonly Pane[] };
+type Detected = {
+  instances: DetectedInstance[];
+  fallbackItems: BatchItemRec[];
+  candidates: number;
+};
+
+const imageDataCache = new Map<string, ImageData | null>();
+
+function imageDataFor(tex: THREE.Texture): ImageData | null {
+  const cached = imageDataCache.get(tex.uuid);
+  if (cached !== undefined) return cached;
+  let data: ImageData | null = null;
+  const img: unknown = tex.image;
+  if (
+    img instanceof HTMLImageElement ||
+    img instanceof ImageBitmap ||
+    (typeof HTMLCanvasElement !== "undefined" && img instanceof HTMLCanvasElement)
+  ) {
+    const canvas = document.createElement("canvas");
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (ctx) {
+      ctx.drawImage(img, 0, 0);
+      try {
+        data = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      } catch {
+        data = null; // tainted canvas — fall back
+      }
+    }
+  }
+  imageDataCache.set(tex.uuid, data);
+  return data;
+}
+
+// Window glass swatches: Kenney's bright blue (103,148,217) and KayKit's
+// slate blue (77,107,130). Both tests must EXCLUDE the blue-grey walls
+// (142,149,179 / 121,131,136) and navy trim (81,85,102) — a loose
+// blue-dominance check matched entire facades.
+function isGlassRgb(r: number, g: number, b: number): boolean {
+  if (b > 160 && b > r * 1.35 && b > g * 1.25) return true; // Kenney
+  return b >= 115 && b <= 155 && b > r * 1.55 && b > g * 1.15; // KayKit
+}
+
+const paneCache = new Map<string, readonly Pane[]>();
+
+function detectPanes(url: string, idx: number, cache: ModelCache): readonly Pane[] {
+  const key = `${url}|${idx}`;
+  const cached = paneCache.get(key);
+  if (cached) return cached;
+  const out: Pane[] = [];
+  paneCache.set(key, out);
+  const mesh = cache.srcMesh(url, idx);
+  if (!mesh || Array.isArray(mesh.material)) return out;
+  const geo = mesh.geometry;
+  const pos = geo.getAttribute("position");
+  const uv = geo.getAttribute("uv");
+  const mat = mesh.material;
+  const map = mat instanceof THREE.MeshStandardMaterial ? mat.map : null;
+  const img = map ? imageDataFor(map) : null;
+  const flat =
+    !img && mat instanceof THREE.MeshStandardMaterial
+      ? isGlassRgb(mat.color.r * 255, mat.color.g * 255, mat.color.b * 255)
+      : false;
+  if (!img && !flat) return out;
+  if (img && !uv) return out;
+
+  const index = geo.index;
+  const triCount = (index ? index.count : pos.count) / 3;
+  if (triCount > 20000) return out;
+  const vid = (t: number, k: number): number => (index ? index.getX(t * 3 + k) : t * 3 + k);
+
+  // Glass triangles + union-find by shared vertex index.
+  const glassTris: number[] = [];
+  const parent = new Map<number, number>(); // tri -> parent tri
+  const find = (a: number): number => {
+    let r = a;
+    while (parent.get(r) !== r) r = parent.get(r) ?? r;
+    let c = a;
+    while (parent.get(c) !== c) {
+      const n = parent.get(c) ?? c;
+      parent.set(c, r);
+      c = n;
+    }
+    return r;
+  };
+  const vertOwner = new Map<number, number>();
+  for (let t = 0; t < triCount; t++) {
+    if (img) {
+      let u = 0;
+      let v = 0;
+      for (let k = 0; k < 3; k++) {
+        const i = vid(t, k);
+        u += (uv?.getX(i) ?? 0) / 3;
+        v += (uv?.getY(i) ?? 0) / 3;
+      }
+      u -= Math.floor(u);
+      v -= Math.floor(v);
+      const px = Math.min(img.width - 1, Math.max(0, Math.floor(u * img.width)));
+      const flipY = map ? map.flipY : false;
+      const pyRaw = flipY ? 1 - v : v;
+      const py = Math.min(img.height - 1, Math.max(0, Math.floor(pyRaw * img.height)));
+      const o = (py * img.width + px) * 4;
+      const r = img.data[o] ?? 0;
+      const g = img.data[o + 1] ?? 0;
+      const b = img.data[o + 2] ?? 0;
+      if (!isGlassRgb(r, g, b)) continue;
+    }
+    // Steep faces only (skip skylight/roof glass) — cheap normal-Y test.
+    const i0 = vid(t, 0);
+    const i1 = vid(t, 1);
+    const i2 = vid(t, 2);
+    const e1x = pos.getX(i1) - pos.getX(i0);
+    const e1y = pos.getY(i1) - pos.getY(i0);
+    const e1z = pos.getZ(i1) - pos.getZ(i0);
+    const e2x = pos.getX(i2) - pos.getX(i0);
+    const e2y = pos.getY(i2) - pos.getY(i0);
+    const e2z = pos.getZ(i2) - pos.getZ(i0);
+    const nX = e1y * e2z - e1z * e2y;
+    const nY = e1z * e2x - e1x * e2z;
+    const nZ = e1x * e2y - e1y * e2x;
+    const nl = Math.hypot(nX, nY, nZ) || 1;
+    if (Math.abs(nY / nl) > 0.6) continue;
+    glassTris.push(t);
+    parent.set(t, t);
+    for (const i of [i0, i1, i2]) {
+      const owner = vertOwner.get(i);
+      if (owner === undefined) vertOwner.set(i, t);
+      else parent.set(find(t), find(owner));
+    }
+  }
+  if (glassTris.length === 0 || glassTris.length > 4000) return out;
+
+  // Pane rects per component, in the (tangent, Y) plane frame.
+  type PaneAcc = {
+    nx: number;
+    nz: number;
+    minU: number;
+    maxU: number;
+    minY: number;
+    maxY: number;
+    minD: number;
+    maxD: number;
+  };
+  const accs = new Map<number, PaneAcc>();
+  for (const t of glassTris) {
+    const root = find(t);
+    let a = accs.get(root);
+    for (let k = 0; k < 3; k++) {
+      const i = vid(t, k);
+      const x = pos.getX(i);
+      const y = pos.getY(i);
+      const z = pos.getZ(i);
+      if (!a) {
+        // Component normal from the first triangle (windows are planar).
+        const i0 = vid(t, 0);
+        const i1 = vid(t, 1);
+        const i2 = vid(t, 2);
+        const e1x = pos.getX(i1) - pos.getX(i0);
+        const e1z = pos.getZ(i1) - pos.getZ(i0);
+        const e2x = pos.getX(i2) - pos.getX(i0);
+        const e2z = pos.getZ(i2) - pos.getZ(i0);
+        const e1y = pos.getY(i1) - pos.getY(i0);
+        const e2y = pos.getY(i2) - pos.getY(i0);
+        let nx = e1y * e2z - e1z * e2y;
+        let nz = e1x * e2y - e1y * e2x;
+        const nl = Math.hypot(nx, nz) || 1;
+        nx /= nl;
+        nz /= nl;
+        a = {
+          nx,
+          nz,
+          minU: Infinity,
+          maxU: -Infinity,
+          minY: Infinity,
+          maxY: -Infinity,
+          minD: Infinity,
+          maxD: -Infinity,
+        };
+        accs.set(root, a);
+      }
+      const u = x * -a.nz + z * a.nx; // tangent coordinate
+      const d = x * a.nx + z * a.nz; // plane depth
+      if (u < a.minU) a.minU = u;
+      if (u > a.maxU) a.maxU = u;
+      if (y < a.minY) a.minY = y;
+      if (y > a.maxY) a.maxY = y;
+      if (d < a.minD) a.minD = d;
+      if (d > a.maxD) a.maxD = d;
+    }
+  }
+  for (const a of accs.values()) {
+    const w = a.maxU - a.minU;
+    const h = a.maxY - a.minY;
+    if (w <= 0 || h <= 0) continue;
+    const mu = (a.minU + a.maxU) / 2;
+    const md = (a.maxD + a.minD) / 2;
+    out.push({
+      cx: -a.nz * mu + a.nx * md,
+      cy: (a.minY + a.maxY) / 2,
+      cz: a.nx * mu + a.nz * md,
+      tx: -a.nz,
+      tz: a.nx,
+      w,
+      h,
+    });
+  }
+  return out;
+}
+
+function collectDetected(items: readonly BatchItemRec[], cache: ModelCache): Detected {
+  const instances: DetectedInstance[] = [];
+  const fallbackItems: BatchItemRec[] = [];
+  let candidates = 0;
+  // A model falls back only when NO mesh of its url has panes.
+  const urlHasPanes = new Map<string, boolean>();
+  for (const it of items) {
+    if (it.url === null || !it.url.includes("/buildings/")) continue;
+    const panes = detectPanes(it.url, it.idx, cache);
+    if (panes.length > 0) {
+      instances.push({ m: it.m, panes });
+      candidates += panes.length;
+      urlHasPanes.set(it.url, true);
+    } else if (!urlHasPanes.has(it.url)) {
+      urlHasPanes.set(it.url, false);
+    }
+  }
+  for (const it of items) {
+    if (it.url === null || !it.url.includes("/buildings/")) continue;
+    if (!urlHasPanes.get(it.url)) fallbackItems.push(it);
+  }
+  return { instances, fallbackItems, candidates };
+}
+
+const M4 = new THREE.Matrix4();
+const CORNERS = [
+  new THREE.Vector3(),
+  new THREE.Vector3(),
+  new THREE.Vector3(),
+  new THREE.Vector3(),
+];
+const EDGE_A = new THREE.Vector3();
+const EDGE_B = new THREE.Vector3();
+const NORMAL = new THREE.Vector3();
+
+function emitDetected(
+  det: Detected,
+  rng: Rng,
+  chance: number,
+  positions: number[],
+  colors: number[],
+  scratch: THREE.Color,
+): void {
+  for (const inst of det.instances) {
+    M4.fromArray(inst.m);
+    for (const p of inst.panes) {
+      if (!rng.chance(chance)) continue;
+      // Inset 8% so the glow sits inside the frame.
+      const hw = (p.w / 2) * 0.92;
+      const hh = (p.h / 2) * 0.92;
+      const c0 = CORNERS[0];
+      const c1 = CORNERS[1];
+      const c2 = CORNERS[2];
+      const c3 = CORNERS[3];
+      if (!c0 || !c1 || !c2 || !c3) continue;
+      c0.set(p.cx + p.tx * hw, p.cy - hh, p.cz + p.tz * hw).applyMatrix4(M4);
+      c1.set(p.cx - p.tx * hw, p.cy - hh, p.cz - p.tz * hw).applyMatrix4(M4);
+      c2.set(p.cx - p.tx * hw, p.cy + hh, p.cz - p.tz * hw).applyMatrix4(M4);
+      c3.set(p.cx + p.tx * hw, p.cy + hh, p.cz + p.tz * hw).applyMatrix4(M4);
+      // World normal from the transformed rect; lift the quad off the glass.
+      EDGE_A.subVectors(c1, c0);
+      EDGE_B.subVectors(c3, c0);
+      NORMAL.crossVectors(EDGE_A, EDGE_B).normalize().multiplyScalar(FACE_OFFSET);
+      c0.add(NORMAL);
+      c1.add(NORMAL);
+      c2.add(NORMAL);
+      c3.add(NORMAL);
+      positions.push(c0.x, c0.y, c0.z, c1.x, c1.y, c1.z, c2.x, c2.y, c2.z);
+      positions.push(c0.x, c0.y, c0.z, c2.x, c2.y, c2.z, c3.x, c3.y, c3.z);
+      scratch.copy(rng.chance(0.14) ? COOL : rng.chance(0.5) ? WARM : WARM2);
+      scratch.multiplyScalar(0.55 + rng.range(0, 0.5));
+      for (let v = 0; v < 6; v++) colors.push(scratch.r, scratch.g, scratch.b);
+    }
   }
 }
 

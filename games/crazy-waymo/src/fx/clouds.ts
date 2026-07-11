@@ -78,9 +78,14 @@ function cloudTexture(lobes: number, squash: number, dense = false): THREE.Canva
     const core = dense ? 0.9 : 0.42;
     const mid = dense ? 0.55 : 0.2;
     for (let i = 0; i < lobes; i++) {
-      const cx = w * (0.2 + (0.6 * i) / Math.max(1, lobes - 1)) + (Math.random() - 0.5) * 24;
-      const cy = h * (0.52 + (Math.random() - 0.5) * 0.2);
       const r = h * (0.34 + Math.random() * 0.22);
+      // Keep the whole gradient inside the canvas: a lobe clipped by the
+      // texture edge reads as a razor-straight cut across the cloud (invisible
+      // at the old 0.42 alpha, glaring on the dense cumulus).
+      const rawX = w * (0.2 + (0.6 * i) / Math.max(1, lobes - 1)) + (Math.random() - 0.5) * 24;
+      const cx = Math.min(w - r - 2, Math.max(r + 2, rawX));
+      const rawY = h * (0.52 + (Math.random() - 0.5) * 0.2);
+      const cy = Math.max(r * squash + 2, rawY); // bottom clip is masked by the base fade
       const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
       g.addColorStop(0, `rgba(255,255,255,${core})`);
       g.addColorStop(0.55, `rgba(255,255,255,${mid})`);

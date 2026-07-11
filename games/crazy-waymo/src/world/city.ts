@@ -39,6 +39,7 @@ import {
   makeDriveSurfaceOffset,
   makeGroundColorAt,
   makeGroundOffset,
+  parkCellFloor,
   parkCellHeight,
 } from "./ground";
 import { buildGridNetwork } from "./grid-network";
@@ -1818,9 +1819,40 @@ export class CityModel {
     return this.driveOffset(x, z);
   }
 
+  // Park KayKit tiles are FLAT TERRACES seated at the cell's highest corner —
+  // up to 0.85 above the raw field. Driving into a park (the path entrances
+  // invite it) on the raw field sinks the car into the tile. One O(1) lookup:
+  // cell index → terrace height, computed lazily from plan + terrain with the
+  // same flat-cell test the furniture tile pass uses (spread ≤ 0.8; cells
+  // hugging asphalt got no tile and stay on the field).
+  private terraces: Map<number, number> | null = null;
+  private terraceAt(x: number, z: number): number | undefined {
+    if (!this.terraces) {
+      this.terraces = new Map();
+      for (let gx = 0; gx < GRID_X; gx++) {
+        for (let gz = 0; gz < GRID_Z; gz++) {
+          if (this.plan.cells[gx]?.[gz] !== "lot") continue;
+          // Match furniture's tile pass EXACTLY: kit tiles only lay in park
+          // DISTRICTS (ground.ts isParkCell is broader — landuse greens
+          // outside park districts stay raw field, no terrace).
+          if (districtAt(gx, gz).character !== "park") continue;
+          const seatY = parkCellHeight(this.terrain, gx, gz);
+          if (seatY - 0.05 - parkCellFloor(this.terrain, gx, gz) > 0.8) continue;
+          const hit = this.network.nearest(this.worldX(gx), this.worldZ(gz), 30);
+          if (hit && hit.dist <= hit.edge.half + ROAD_TILE * 0.55) continue;
+          this.terraces.set(gx * GRID_Z + gz, seatY);
+        }
+      }
+    }
+    const gx = this.gridX(x);
+    const gz = this.gridZ(z);
+    if (gx < 0 || gz < 0 || gx >= GRID_X || gz >= GRID_Z) return undefined;
+    return this.terraces.get(gx * GRID_Z + gz);
+  }
+
   // Height of the RENDERED drivable surface: raw field on and beside streets
   // (asphalt/curb/sidewalk band), street-depressed ground past the kerb,
-  // deck height on piers and bridge spans.
+  // deck height on piers and bridge spans, terrace height on park tiles.
   heightAt(x: number, z: number): number {
     const ground = this.terrain.heightAt(x, z) + this.driveOffsetAt(x, z);
     for (const d of this.decks) {
@@ -1828,7 +1860,8 @@ export class CityModel {
         return Math.max(this.deckHeight(d, z), ground);
       }
     }
-    return ground;
+    const terrace = this.terraceAt(x, z);
+    return terrace !== undefined ? Math.max(terrace, ground) : ground;
   }
 
   normalInto(out: THREE.Vector3, x: number, z: number): THREE.Vector3 {
@@ -1841,6 +1874,10 @@ export class CityModel {
           return out.set(0, 1, -slope).normalize();
         }
       }
+    }
+    const terrace = this.terraceAt(x, z);
+    if (terrace !== undefined && terrace >= this.terrain.heightAt(x, z) - 0.05) {
+      return out.set(0, 1, 0); // park tiles are dead flat
     }
     return this.terrain.normalInto(out, x, z);
   }

@@ -678,12 +678,13 @@ export function buildRoadParts(network: RoadNetwork, terrain: Terrain): RoadPart
       segGap: number,
       margin: number,
       mat: THREE.Material,
+      junctionMargin = 4.5,
     ): void => {
       for (let s = margin; s < secLen - margin; s += segLen + segGap) {
         const e = Math.min(s + segLen, secLen - margin);
         if (e - s < segLen * 0.35) continue;
         const mid = network.sample(edge, trimA + (s + e) / 2);
-        if (nearJunction(mid.x, mid.z, 4.5)) continue;
+        if (nearJunction(mid.x, mid.z, junctionMargin)) continue;
         const r = railFor(edge, trimA + s, trimA + e);
         if (!r) continue;
         const o0 = Math.min(side * bandIn, side * bandOut);
@@ -694,13 +695,19 @@ export function buildRoadParts(network: RoadNetwork, terrain: Terrain): RoadPart
 
     // Muni red transit lanes: ONLY the widest corridor class (Market/Van
     // Ness/Geary scale) — red everywhere reads rusty instead of special.
+    // A thin curb-hugging lane, near-continuous: the earlier centre-to-edge
+    // band (~3.7u each side) read as huge red slabs, not lanes.
     if (h >= 7.0) {
-      const laneIn = h * 0.33 + LINE_W / 2 + 0.35;
       const laneOut = eo - LINE_W / 2 - 0.3;
-      if (laneOut - laneIn > 1.2) {
-        paintBand(-1, laneIn, laneOut, 9, 1.4, 4, MAT_MUNI_RED);
-        paintBand(1, laneIn, laneOut, 9, 1.4, 4, MAT_MUNI_RED);
-      }
+      const laneIn = laneOut - 1.9;
+      // Junction clearance: the junction patch owns nodeTrim*1.8 of asphalt
+      // but nearJunction only adds `margin` to nodeTrim — a 14u segment's
+      // midpoint can clear the check while its ends paint over the patch
+      // (the "red squares on the intersection" bug). margin must cover the
+      // patch overhang (0.8*nodeTrim ≈ h*1.5) plus half a segment.
+      const junctionMargin = h * 1.5 + 7;
+      paintBand(-1, laneIn, laneOut, 14, 0.8, 6, MAT_MUNI_RED, junctionMargin);
+      paintBand(1, laneIn, laneOut, 14, 0.8, 6, MAT_MUNI_RED, junctionMargin);
     }
 
     // Green bike lanes: a sparse subset of the minor grid (every 3rd edge) —
