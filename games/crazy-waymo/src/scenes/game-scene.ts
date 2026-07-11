@@ -16,6 +16,7 @@ import { Fx } from "../fx/particles";
 import { Sfx } from "../fx/sfx";
 import { SkidMarks } from "../fx/skids";
 import { SpeedLines } from "../fx/speedlines";
+import { VehicleFxRig } from "../fx/vehicle-fx";
 import { DriftTrails, Shockwaves } from "../fx/trails";
 import {
   FareManager,
@@ -253,6 +254,11 @@ export class GameScene {
   private speedLines = new SpeedLines();
   private clouds = new SkyClouds(this.mobileUi);
   private trails: DriftTrails | null = null;
+  private vehicleFx = new VehicleFxRig(
+    this.fx,
+    () => this.trails,
+    () => this.skids,
+  );
   private shocks = new Shockwaves();
   private oceanTime = { value: 0 };
   private dayNight: DayNight;
@@ -347,15 +353,10 @@ export class GameScene {
   private touch: TouchControls | null = null;
   private titleT = 0;
   private lowBeepAt = -1;
-  private puffAccum = 0;
   private flameAccum = 0;
-  // Last stamped rear-wheel points — each frame extends the streak from here,
-  // so marks stay continuous at any speed (per-frame quads read as dashes).
-  private lastSkid: { lx: number; lz: number; rx: number; rz: number } | null = null;
   private scrapeFrames = 0;
   private wasBoosting = false;
   private lastDriftTier: 0 | 1 | 2 = 0;
-  private sparkAccum = 0;
   private outro = -1; // >=0: slow-mo time-up sting is running
   private countdownShown = -1;
   private camFrom = new THREE.Vector3();
@@ -1390,6 +1391,10 @@ export class GameScene {
         break;
     }
 
+    // Sun follow + shadow-frustum snap track wherever the camera ended up —
+    // unconditional at the tail so no mode path (hit-stop, outro, freecam…)
+    // can forget it and leave shadows lagging the camera.
+    this.updateSun();
     // Stream city chunks around wherever the camera ended up this frame (works
     // in gameplay and freecam alike) so distant tiles stop drawing.
     this.city?.updateStreaming(this.rig.camera, this.editorLighting);
@@ -1456,10 +1461,7 @@ export class GameScene {
     this.titleT += dt;
     const car = this.car;
     if (!car) return;
-    if (this.freecam) {
-      this.updateSun();
-      return;
-    }
+    if (this.freecam) return;
     // High, slow orbit — above the rooftops so facades can't swallow the shot.
     const r = 30;
     const a = this.titleT * 0.2;
@@ -1470,7 +1472,6 @@ export class GameScene {
     );
     this.rig.camera.lookAt(car.position.x, car.position.y + 1.0, car.position.z);
     this.speedLines.update(dt, this.rig.camera, 0); // fade out leftover streaks
-    this.updateSun();
   }
 
   // 3-2-1-GO: the camera swoops from the title orbit into the chase pose while
@@ -1496,7 +1497,6 @@ export class GameScene {
     );
     this.rig.camera.position.lerpVectors(this.camFrom, chase, f);
     this.rig.camera.lookAt(car.position.x, car.position.y + 1.6, car.position.z);
-    this.updateSun();
 
     if (mode.t >= total) {
       this.hud.showCountdown("GO!", true);
@@ -1535,7 +1535,6 @@ export class GameScene {
     if (this.hitStop > 0) {
       this.hitStop = Math.max(0, this.hitStop - dt);
       this.rig.update(dt, car, solids);
-      this.updateSun();
       this.tickHud(dt, car, fares, false);
       return;
     }
@@ -1574,11 +1573,7 @@ export class GameScene {
       const screech = drifting && !car.airborne ? Math.max(0.25, slipAmt) : brakingHard ? 0.3 : 0;
       this.sfx.setScreech(screech, car.speed / CAR.maxSpeed);
     }
-    if (drifting || car.isBoosting || brakingHard) this.emitDriftSmoke(dt, car);
-    if ((drifting && !car.airborne) || brakingHard) this.stampSkids(car);
-    else this.lastSkid = null; // next streak starts fresh, not joined to this one
-    this.emitTrails(car, drifting);
-    if (drifting && !car.airborne) this.emitDriftSparks(dt, car);
+    this.vehicleFx.update(dt, car, drifting, brakingHard);
 
     // Mini-turbo tier tell (Mario Kart): a blip + spark flare each time the
     // charge steps up a tier — blue at tier 1, orange at tier 2.
@@ -1735,7 +1730,6 @@ export class GameScene {
     }
     this.speedLines.update(dt, this.rig.camera, car.speed / CAR.boostSpeed);
     this.hud.setVignette(THREE.MathUtils.clamp((car.speed - 45) / 40, 0, 1) * 0.6);
-    this.updateSun();
     this.tickHud(dt, car, fares, true);
 
     if (this.state.timeLeft <= 10) {
@@ -1751,91 +1745,6 @@ export class GameScene {
       this.silenceLoops();
       this.sfx.setScreech(1, 1); // one long farewell skid
     }
-  }
-
-  // Rear-wheel light ribbons: drift slides, charged drifts and boost runs each
-  // get their own color; fast grip-cornering leaves a faint streak too.
-  private emitTrails(car: Car, drifting: boolean): void {
-    const trails = this.trails;
-    if (!trails || car.airborne) return;
-    const cornering = Math.abs(car.slip) > 0.12 && car.speed > 20;
-    if (!drifting && !car.isBoosting && !cornering) return;
-    // Ribbon color follows the mini-turbo tier: white grind → cyan → orange.
-    const kind = car.isBoosting || car.driftTier === 2 ? 2 : car.driftTier === 1 ? 1 : 0;
-    const strength = Math.min(1, car.speed / CAR.maxSpeed);
-    const fx = Math.sin(car.heading);
-    const fz = Math.cos(car.heading);
-    const rx = car.position.x - fx * 1.6;
-    const rz = car.position.z - fz * 1.6;
-    const px = -fz;
-    const pz = fx;
-    trails.emit(0, rx + px * 0.7, rz + pz * 0.7, car.heading, kind, strength);
-    trails.emit(1, rx - px * 0.7, rz - pz * 0.7, car.heading, kind, strength);
-  }
-
-  // Mario-Kart drift sparks: a steady spray off the rear wheels while the
-  // drift holds, colored by the charge tier — yellow grind → blue (tier 1
-  // armed) → orange (tier 2 armed). The tier-up moments themselves flare in
-  // the update loop.
-  private emitDriftSparks(dt: number, car: Car): void {
-    this.sparkAccum += dt;
-    if (this.sparkAccum < 0.05) return;
-    this.sparkAccum = 0;
-    const tier = car.driftTier;
-    const hue = tier === 2 ? 0.07 : tier === 1 ? 0.58 : 0.13;
-    const fx = Math.sin(car.heading);
-    const fz = Math.cos(car.heading);
-    const rx = car.position.x - fx * 1.6;
-    const rz = car.position.z - fz * 1.6;
-    const px = -fz;
-    const pz = fx;
-    const power = 2.6 + tier * 1.2;
-    this.fx.burst(rx + px * 0.8, 0.35, rz + pz * 0.8, hue, 2 + tier, power);
-    this.fx.burst(rx - px * 0.8, 0.35, rz - pz * 0.8, hue, 2 + tier, power);
-  }
-
-  private emitDriftSmoke(dt: number, car: Car): void {
-    this.puffAccum += dt;
-    if (this.puffAccum < 0.03) return;
-    this.puffAccum = 0;
-    const fx = Math.sin(car.heading);
-    const fz = Math.cos(car.heading);
-    const rx = car.position.x - fx * 1.6;
-    const rz = car.position.z - fz * 1.6;
-    const px = -fz;
-    const pz = fx;
-    const charged = car.driftCharge >= 1 && car.isDrifting;
-    this.fx.driftPuff(rx + px * 0.7, rz + pz * 0.7, car.isBoosting, charged);
-    this.fx.driftPuff(rx - px * 0.7, rz - pz * 0.7, car.isBoosting, charged);
-  }
-
-  private stampSkids(car: Car): void {
-    const skids = this.skids;
-    if (!skids) return;
-    const fx = Math.sin(car.heading);
-    const fz = Math.cos(car.heading);
-    const ax = car.position.x - fx * 1.6; // rear axle centre
-    const az = car.position.z - fz * 1.6;
-    const px = -fz;
-    const pz = fx;
-    const now = {
-      lx: ax + px * 0.7,
-      lz: az + pz * 0.7,
-      rx: ax - px * 0.7,
-      rz: az - pz * 0.7,
-    };
-    const last = this.lastSkid;
-    if (last) {
-      const d = Math.hypot(now.lx - last.lx, now.lz - last.lz);
-      if (d > 4) {
-        this.lastSkid = now; // teleport/lag spike — restart the streak
-        return;
-      }
-      if (d < 0.3) return; // too short to matter; wait for more travel
-      skids.stampSegment(last.lx, last.lz, now.lx, now.lz);
-      skids.stampSegment(last.rx, last.rz, now.rx, now.rz);
-    }
-    this.lastSkid = now;
   }
 
   private handleCones(car: Car): void {

@@ -24,16 +24,6 @@ export function maskCount(mask: Mask): number {
   return (mask & 1) + ((mask >> 1) & 1) + ((mask >> 2) & 1) + ((mask >> 3) & 1);
 }
 
-// Rotate a connection mask by `q` clockwise quarter-turns (N->E->S->W).
-export function rotateMask(mask: Mask, q: number): Mask {
-  const t = ((q % 4) + 4) % 4;
-  let out = 0;
-  for (let d = 0; d < 4; d++) {
-    if ((mask & (1 << d)) !== 0) out |= 1 << ((d + t) % 4);
-  }
-  return out;
-}
-
 // Game state as a discriminated union — illegal states are unrepresentable.
 export type GameMode =
   | { readonly kind: "loading"; readonly progress: number }
@@ -41,3 +31,32 @@ export type GameMode =
   | { readonly kind: "countdown"; t: number } // 3-2-1-GO launch + camera swoop
   | { readonly kind: "playing" }
   | { readonly kind: "gameover"; readonly score: number; readonly fares: number };
+
+// An axis-aligned (or yaw-rotated) collision box in the static city.
+export type Solid = {
+  readonly minX: number;
+  readonly maxX: number;
+  readonly minZ: number;
+  readonly maxZ: number;
+  // World-space top of the obstacle, when it CAN be jumped over (traffic).
+  // Absent = infinitely tall (buildings, walls).
+  readonly maxY?: number;
+  // Rotation about the box CENTRE (three.js rotation.y convention). min/max
+  // describe the UNROTATED box; consumers (car collision, camera clip,
+  // physics) transform into the box's local frame. Absent = axis-aligned.
+  readonly yaw?: number;
+  // Skip the Rapier static collider (car/camera still collide). Used for the
+  // thousands of tree trunks — punted debris passing through a tree is
+  // invisible; ten thousand extra broadphase boxes is not.
+  readonly noBody?: boolean;
+};
+
+// A drivable surface patch floating over the terrain (pier deck, bridge ramp).
+export type SurfaceDeck = {
+  readonly minX: number;
+  readonly maxX: number;
+  readonly minZ: number;
+  readonly maxZ: number;
+  readonly y: number; // height at minZ
+  readonly y2?: number; // height at maxZ (sloped ramp when set)
+};

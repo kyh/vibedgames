@@ -34,14 +34,7 @@ import { buildGoldenGate } from "./golden-gate";
 import { RoadNetwork } from "./network";
 import { type CityPlan, generateCity } from "./grid";
 import { CUSTOM_MAP, editorMode, loadLocalOverrides } from "./custom-map";
-import {
-  isParkCell,
-  makeDriveSurfaceOffset,
-  makeGroundColorAt,
-  makeGroundOffset,
-  parkCellFloor,
-  parkCellHeight,
-} from "./ground";
+import { isParkCell, makeGroundColorAt, makeGroundOffset, parkCellHeight } from "./ground";
 import { buildGridNetwork } from "./grid-network";
 import { SF_BUILDINGS, SF_BUILDINGS_BOUNDS } from "./sf-buildings";
 import {
@@ -62,24 +55,13 @@ import {
   tintAmountFor,
 } from "./sf-map";
 import type { Terrain } from "./terrain";
+import type { Solid, SurfaceDeck } from "../shared/types";
+import { DriveSurface } from "./surface";
 
-export type Solid = {
-  readonly minX: number;
-  readonly maxX: number;
-  readonly minZ: number;
-  readonly maxZ: number;
-  // World-space top of the obstacle, when it CAN be jumped over (traffic).
-  // Absent = infinitely tall (buildings, walls).
-  readonly maxY?: number;
-  // Rotation about the box CENTRE (three.js rotation.y convention). min/max
-  // describe the UNROTATED box; consumers (car collision, camera clip,
-  // physics) transform into the box's local frame. Absent = axis-aligned.
-  readonly yaw?: number;
-  // Skip the Rapier static collider (car/camera still collide). Used for the
-  // thousands of tree trunks — punted debris passing through a tree is
-  // invisible; ten thousand extra broadphase boxes is not.
-  readonly noBody?: boolean;
-};
+// Re-exported for the many existing import sites; the definitions live in
+// shared/types so physics/solid-index/furniture need not reach into this
+// 2k-line module for a data type.
+export type { Solid, SurfaceDeck };
 
 export type RoadCell = { readonly gx: number; readonly gz: number };
 
@@ -275,7 +257,6 @@ export class CityModel {
   // Two tiers: big silhouettes (buildings) draw to the fog line; detail
   // (trees, parked cars, props) only needs DETAIL_DISTANCE — the far city
   // stays a skyline instead of 36k full-detail instances.
-  private chunkInstancesFar = new Map<number, [number, number][]>();
   private chunkInstancesNear = new Map<number, [number, number][]>();
   private imposterInstances = new Map<number, number[]>();
   private imposterMesh: THREE.BatchedMesh | null = null;
@@ -1753,12 +1734,10 @@ export class CityModel {
       const near = dist < NEAR_ALWAYS;
       const visFar: 0 | 1 = showAll || near || (inFrustum && dist - pad < DRAW_DISTANCE) ? 1 : 0;
       const visNear: 0 | 1 = showAll || near || (inFrustum && dist - pad < DETAIL_DISTANCE) ? 1 : 0;
-      if (this.chunkVisible[key] !== visFar) {
-        this.chunkVisible[key] = visFar;
-        const list = this.chunkInstancesFar.get(key);
-        if (list)
-          for (const [b, iid] of list) this.batches[b]?.mesh.setVisibleAt(iid, visFar === 1);
-      }
+      // visFar has no instance list of its own (every batch instance lives in
+      // the near tier; the far band renders imposters only) — it's tracked
+      // purely to drive the imposter flips below.
+      if (this.chunkVisible[key] !== visFar) this.chunkVisible[key] = visFar;
       if (this.chunkVisibleNear[key] !== visNear) {
         this.chunkVisibleNear[key] = visNear;
         const list = this.chunkInstancesNear.get(key);
@@ -1786,112 +1765,33 @@ export class CityModel {
     return this.plan.cells[gx]?.[gz] === "road";
   }
 
-  // --- Surface (what the car drives on): terrain, overridden by decks —
-  // flat (wharf piers) or Z-sloped ramps (bridge approaches). `y` is the
-  // height at minZ; `y2` (when set) is the height at maxZ, lerped between. ---
-  private decks: SurfaceDeck[] = [];
+  // --- Drive surface (world/surface.ts): decks + park terraces + depressed
+  // ground. Lazily constructed — plan/terrain exist from the constructor, and
+  // the network getter tracks live street-edit swaps. City keeps thin
+  // delegates because every consumer (car, traffic, fares, camera, editor)
+  // already talks to city.heightAt.
+  private surfaceImpl: DriveSurface | null = null;
+  private get surface(): DriveSurface {
+    this.surfaceImpl ??= new DriveSurface(this.terrain, this.plan, () => this.network);
+    return this.surfaceImpl;
+  }
 
   addDecks(decks: readonly SurfaceDeck[]): void {
-    for (const d of decks) this.decks.push(d);
+    this.surface.addDecks(decks);
   }
 
   getDecks(): readonly SurfaceDeck[] {
-    return this.decks;
+    return this.surface.getDecks();
   }
 
-  private deckHeight(d: SurfaceDeck, z: number): number {
-    if (d.y2 === undefined || d.maxZ <= d.minZ) return d.y;
-    const t = (z - d.minZ) / (d.maxZ - d.minZ);
-    return d.y + (d.y2 - d.y) * t;
-  }
-
-  // Drive-surface offset (street depression past the sidewalk's outer edge),
-  // built lazily from the CURRENT network and rebuilt if the network is
-  // swapped (live street edits). Without it, height queries return the raw
-  // field and the car/props hover over the depressed ground beside kerbs.
-  private driveOffset: ((x: number, z: number) => number) | null = null;
-  private driveOffsetNet: RoadNetwork | null = null;
-  private driveOffsetAt(x: number, z: number): number {
-    if (this.driveOffset === null || this.driveOffsetNet !== this.network) {
-      this.driveOffset = makeDriveSurfaceOffset(this.network);
-      this.driveOffsetNet = this.network;
-    }
-    return this.driveOffset(x, z);
-  }
-
-  // Park KayKit tiles are FLAT TERRACES seated at the cell's highest corner —
-  // up to 0.85 above the raw field. Driving into a park (the path entrances
-  // invite it) on the raw field sinks the car into the tile. One O(1) lookup:
-  // cell index → terrace height, computed lazily from plan + terrain with the
-  // same flat-cell test the furniture tile pass uses (spread ≤ 0.8; cells
-  // hugging asphalt got no tile and stay on the field).
-  private terraces: Map<number, number> | null = null;
-  private terraceAt(x: number, z: number): number | undefined {
-    if (!this.terraces) {
-      this.terraces = new Map();
-      for (let gx = 0; gx < GRID_X; gx++) {
-        for (let gz = 0; gz < GRID_Z; gz++) {
-          if (this.plan.cells[gx]?.[gz] !== "lot") continue;
-          // Match furniture's tile pass EXACTLY: kit tiles only lay in park
-          // DISTRICTS (ground.ts isParkCell is broader — landuse greens
-          // outside park districts stay raw field, no terrace).
-          if (districtAt(gx, gz).character !== "park") continue;
-          const seatY = parkCellHeight(this.terrain, gx, gz);
-          if (seatY - 0.05 - parkCellFloor(this.terrain, gx, gz) > 0.8) continue;
-          const hit = this.network.nearest(this.worldX(gx), this.worldZ(gz), 30);
-          if (hit && hit.dist <= hit.edge.half + ROAD_TILE * 0.55) continue;
-          this.terraces.set(gx * GRID_Z + gz, seatY);
-        }
-      }
-    }
-    const gx = this.gridX(x);
-    const gz = this.gridZ(z);
-    if (gx < 0 || gz < 0 || gx >= GRID_X || gz >= GRID_Z) return undefined;
-    return this.terraces.get(gx * GRID_Z + gz);
-  }
-
-  // Height of the RENDERED drivable surface: raw field on and beside streets
-  // (asphalt/curb/sidewalk band), street-depressed ground past the kerb,
-  // deck height on piers and bridge spans, terrace height on park tiles.
   heightAt(x: number, z: number): number {
-    const ground = this.terrain.heightAt(x, z) + this.driveOffsetAt(x, z);
-    for (const d of this.decks) {
-      if (x >= d.minX && x <= d.maxX && z >= d.minZ && z <= d.maxZ) {
-        return Math.max(this.deckHeight(d, z), ground);
-      }
-    }
-    const terrace = this.terraceAt(x, z);
-    return terrace !== undefined ? Math.max(terrace, ground) : ground;
+    return this.surface.heightAt(x, z);
   }
 
   normalInto(out: THREE.Vector3, x: number, z: number): THREE.Vector3 {
-    for (const d of this.decks) {
-      if (x >= d.minX && x <= d.maxX && z >= d.minZ && z <= d.maxZ) {
-        // Only take the deck normal where the deck actually IS the surface.
-        if (this.deckHeight(d, z) >= this.terrain.heightAt(x, z) - 0.05) {
-          if (d.y2 === undefined || d.maxZ <= d.minZ) return out.set(0, 1, 0);
-          const slope = (d.y2 - d.y) / (d.maxZ - d.minZ);
-          return out.set(0, 1, -slope).normalize();
-        }
-      }
-    }
-    const terrace = this.terraceAt(x, z);
-    if (terrace !== undefined && terrace >= this.terrain.heightAt(x, z) - 0.05) {
-      return out.set(0, 1, 0); // park tiles are dead flat
-    }
-    return this.terrain.normalInto(out, x, z);
+    return this.surface.normalInto(out, x, z);
   }
 }
-
-// A drivable surface patch floating over the terrain (pier deck, bridge ramp).
-export type SurfaceDeck = {
-  readonly minX: number;
-  readonly maxX: number;
-  readonly minZ: number;
-  readonly maxZ: number;
-  readonly y: number; // height at minZ
-  readonly y2?: number; // height at maxZ (sloped ramp when set)
-};
 
 // Bake world transforms and merge geometries that share a material, producing a
 // handful of static meshes instead of hundreds of draw calls.

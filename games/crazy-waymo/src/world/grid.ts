@@ -1,31 +1,18 @@
-import {
-  ROAD_BEND,
-  ROAD_CROSSROAD,
-  ROAD_END,
-  ROAD_INTERSECTION,
-  ROAD_STRAIGHT,
-} from "../assets/manifest";
 import { GRID_X, GRID_Z } from "../shared/constants";
 import { SF_STREET_MASK, streetMaskAt } from "./sf-streets";
 import { CUSTOM_MAP, loadLocalOverrides } from "./custom-map";
 import { isLandCell } from "./sf-map";
 import { parkCell, parkRoadCellKept } from "./park-clear";
-import {
-  type Dir,
-  DIR_DELTA,
-  E,
-  type Mask,
-  maskCount,
-  maskHas,
-  N,
-  rotateMask,
-  S,
-  W,
-} from "../shared/types";
+import { type Dir, DIR_DELTA, E, type Mask, maskCount, maskHas, N, S, W } from "../shared/types";
 
 export type CellKind = "road" | "lot" | "water";
 
-export type RoadResolved = { readonly tile: string; readonly quarterTurns: number };
+// Road-cell shape class, from the 4-neighbour connection mask. Historical
+// note: this used to carry a Kenney tile id + quarterTurns for a tile
+// renderer that no longer exists (streets are procedural, world/roads.ts);
+// gameplay only ever matched on the shape.
+export type RoadKind = "straight" | "bend" | "tee" | "cross" | "end";
+export type RoadResolved = { readonly kind: RoadKind };
 export type BuildingCell = { readonly gx: number; readonly gz: number; readonly faceDir: Dir };
 export type GreenCell = { readonly gx: number; readonly gz: number };
 
@@ -38,37 +25,17 @@ export type CityPlan = {
   readonly greenCells: readonly GreenCell[];
 };
 
-// Native connection masks (N=-Z,E=+X,S=+Z,W=-X) for the KENNEY road tiles,
-// measured from a rendered calibration row (all pieces at quarterTurns 0,
-// top-down, screen-up = North). If tiles ever look rotated again, re-render
-// that row before touching these — never eyeball from inside the city.
-const DEFAULT_MASK: Record<string, Mask> = {
-  [ROAD_STRAIGHT]: (1 << E) | (1 << W), // Kenney straight runs East–West
-  [ROAD_BEND]: (1 << S) | (1 << W), // curve connects South + West
-  [ROAD_CROSSROAD]: (1 << N) | (1 << E) | (1 << S) | (1 << W),
-  [ROAD_INTERSECTION]: (1 << E) | (1 << S) | (1 << W), // T closed on the North
-  [ROAD_END]: 1 << E, // dead-end cap opens East
-};
-
 function resolveRoad(mask: Mask): RoadResolved {
   const count = maskCount(mask);
-  let tile: string;
-  let matchMask = mask;
-  if (count >= 4) tile = ROAD_CROSSROAD;
-  else if (count === 3) tile = ROAD_INTERSECTION;
-  else if (count === 2) {
+  if (count >= 4) return { kind: "cross" };
+  if (count === 3) return { kind: "tee" };
+  if (count === 2) {
     const opposite =
       (maskHas(mask, N) && maskHas(mask, S)) || (maskHas(mask, E) && maskHas(mask, W));
-    tile = opposite ? ROAD_STRAIGHT : ROAD_BEND;
-  } else if (count === 1) {
-    tile = ROAD_END; // Kenney has a real dead-end cap; match its single opening
-  } else tile = ROAD_STRAIGHT;
-
-  const base = DEFAULT_MASK[tile] ?? DEFAULT_MASK[ROAD_STRAIGHT] ?? 0;
-  for (let q = 0; q < 4; q++) {
-    if (rotateMask(base, q) === matchMask) return { tile, quarterTurns: q };
+    return { kind: opposite ? "straight" : "bend" };
   }
-  return { tile, quarterTurns: 0 };
+  if (count === 1) return { kind: "end" };
+  return { kind: "straight" };
 }
 
 function key(gx: number, gz: number): string {

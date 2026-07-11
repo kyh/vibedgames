@@ -1,7 +1,6 @@
 import { ROAD_TILE } from "../shared/constants";
 import { DIR_DELTA, E, N, S, W, type Dir } from "../shared/types";
 import type { CityPlan } from "./grid";
-import { ROAD_STRAIGHT } from "../assets/manifest";
 import type { RawEdge } from "./sf-network";
 import { majorMaskAt } from "./sf-streets";
 
@@ -26,7 +25,7 @@ export function buildGridNetwork(
   const isNode = (gx: number, gz: number): boolean => {
     const road = plan.roads[gx]?.[gz];
     if (!road) return false;
-    return road.tile !== ROAD_STRAIGHT;
+    return road.kind !== "straight";
   };
   const nodeId = (gx: number, gz: number): number => {
     const k = `${gx},${gz}`;

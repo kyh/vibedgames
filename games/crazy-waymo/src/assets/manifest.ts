@@ -24,15 +24,8 @@ export const SERVICE_CARS = ["ambulance", "firetruck", "garbage-truck"] as const
 export const POLICE_CAR = "police";
 
 // --- Roads ---
-// Street geometry is generated procedurally (world/roads.ts) — these ids are
-// only shape labels the autotiler writes into the plan (grid.ts) and gameplay
-// code matches on (e.g. "is this a straight cell"). No road-tile GLBs load.
-export const ROAD_STRAIGHT = "road-straight";
-export const ROAD_BEND = "road-bend";
-export const ROAD_CROSSROAD = "road-crossroad";
-export const ROAD_INTERSECTION = "road-intersection";
-export const ROAD_END = "road-end";
-// Bridge kit pieces (Golden Gate / wharf piers) — these ARE real models.
+// Street geometry is generated procedurally (world/roads.ts); road-cell shape
+// classes live in grid.ts (RoadKind). Only the bridge pieces are real models.
 export const ROAD_BRIDGE = "road-bridge";
 export const BRIDGE_PILLAR = "bridge-pillar";
 export const BRIDGE_PILLAR_WIDE = "bridge-pillar-wide";
@@ -263,16 +256,7 @@ export const PROPS = [
   ...PARK_TREES,
 ] as const;
 
-const ROADS = [
-  ROAD_BRIDGE,
-  BRIDGE_PILLAR,
-  BRIDGE_PILLAR_WIDE,
-  ROAD_STRAIGHT,
-  ROAD_BEND,
-  ROAD_CROSSROAD,
-  ROAD_INTERSECTION,
-  ROAD_END,
-] as const;
+const ROADS = [ROAD_BRIDGE, BRIDGE_PILLAR, BRIDGE_PILLAR_WIDE] as const;
 
 // TITLE-CRITICAL set (~200KB): exactly what the player car and city phase 1
 // (terrain/streets/green cells/garage depots — city.ts buildPhase1) touch.

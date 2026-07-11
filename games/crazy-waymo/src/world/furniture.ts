@@ -36,9 +36,6 @@ import {
   PROP_TRASH_A,
   PROP_TRASH_B,
   PROP_WATERTOWER,
-  ROAD_CROSSROAD,
-  ROAD_INTERSECTION,
-  ROAD_STRAIGHT,
   TRAFFIC_CARS,
   TREE_LARGE,
 } from "../assets/manifest";
@@ -257,7 +254,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
     for (const d of DIRS) {
       const [dx, dz] = DIR_DELTA[d];
       const nb = roadAt(gx + dx, gz + dz);
-      if (nb && (nb.tile === ROAD_CROSSROAD || nb.tile === ROAD_INTERSECTION)) return true;
+      if (nb && (nb.kind === "cross" || nb.kind === "tee")) return true;
     }
     return false;
   };
@@ -1114,7 +1111,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       const [dx, dz] = DIR_DELTA[lotDir];
       // If this cell's streetlight took the same kerb, slide down the block.
       const lampSide = lightSide.get(cellKey(gx, gz));
-      const alongX = road.tile === ROAD_STRAIGHT && straightAlongX(gx, gz);
+      const alongX = road.kind === "straight" && straightAlongX(gx, gz);
       const clash = lampSide !== undefined && (alongX ? dz : dx) === lampSide;
       const slide = clash ? ROAD_TILE * 0.24 : 0;
       // perp (dz, dx) runs along the kerb; lotDir is the lateral axis.

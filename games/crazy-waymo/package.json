@@ -8,7 +8,9 @@
     "clean": "rm -rf .turbo dist node_modules",
     "dev": "vite",
     "bake:map": "node tools/sf-data/bake-network.mjs",
+    "bake:world": "node tools/bake-world.mjs",
     "lint:streets": "vite-node tools/street-lint.ts",
+    "test": "vite-node tools/test-world.mts",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"
   },
@@ -21,6 +23,7 @@
     "three": "^0.185.1"
   },
   "devDependencies": {
+    "playwright-core": "^1.61.1",
     "@gltf-transform/core": "^4.4.1",
     "@gltf-transform/extensions": "^4.4.1",
     "@kyh/tsconfig": "catalog:",
