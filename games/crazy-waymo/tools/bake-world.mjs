@@ -59,7 +59,13 @@ let server = null;
 let port = argPort;
 if (!port) {
   console.log("[bake] starting vite dev server…");
-  server = spawn("pnpm", ["dev"], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+  // detached → own process group, so the kill below reaps the vite grandchild
+  // (SIGTERM on the pnpm wrapper alone leaves vite holding the port).
+  server = spawn("pnpm", ["dev"], {
+    cwd: root,
+    stdio: ["ignore", "pipe", "pipe"],
+    detached: true,
+  });
   port = await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("vite did not report a port in 60s")), 60000);
     server.stdout.on("data", (chunk) => {
@@ -129,7 +135,13 @@ try {
   console.error(`[bake] FAILED: ${err instanceof Error ? err.message : err}`);
 } finally {
   await browser.close();
-  server?.kill();
+  if (server?.pid) {
+    try {
+      process.kill(-server.pid, "SIGTERM"); // whole group (pnpm + vite)
+    } catch {
+      server.kill();
+    }
+  }
   rmSync(dl, { recursive: true, force: true });
 }
 process.exit(failed ? 1 : 0);

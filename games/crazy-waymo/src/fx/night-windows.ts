@@ -97,6 +97,11 @@ export class NightWindows {
       blending: THREE.AdditiveBlending,
       transparent: true,
       depthWrite: false,
+      // Detected panes inherit each instance's matrix — a mirrored (negative
+      // determinant) instance would flip their winding and FrontSide-cull
+      // them. No kit ships mirrored buildings today; DoubleSide closes the
+      // trap for ~zero cost (tiny quads, additive, depth-tested).
+      side: THREE.DoubleSide,
     });
 
     this.mesh = new THREE.Mesh(geo, mat);

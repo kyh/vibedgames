@@ -11,7 +11,7 @@ pnpm dev            # dev server (repo root: pnpm dev:crazy-waymo)
 pnpm test           # world-gen invariant harness (~5s, headless, no browser)
 pnpm bake:world     # regenerate + install public/world/*.bin (headless chromium)
 pnpm bake:world -- 5193   # same, but attach to an already-running dev server
-pnpm bake:map       # re-rasterize the OSM street mask (only after tools/sf-data changes)
+pnpm bake:map       # re-bake the OSM vector network + street mask (only after tools/sf-data changes)
 pnpm lint:streets   # street-mask sanity report
 pnpm typecheck
 ```
@@ -58,10 +58,10 @@ Commit the regenerated bins.
 
 Dev-only hooks on `window.__taxi`: `game`, `probe()` (pos/speed/state),
 `teleport(u, v)` (map fractions, 0-1), `lookFrom(x,y,z, tx,ty,tz)` (freecam),
-`setPhase(p)` (0.25 noon, 0.4 golden, 0.7 night — pins the day-night cycle),
+`setPhase(p)` (0.25 noon, 0.4 golden hour, 0.47 sunset, 0.7 night — pins the day-night cycle),
 `setFreecam(on)`, `pick(nx, ny)` (raycast debug).
 
-Recipe: poll `__taxi.game.isReady`, call `game.handleStartPress()` (synthetic
+Recipe: poll `__taxi.game.isReady`, call `game.handleStartPress()` (private in TS but reachable from page JS; synthetic
 keydowns do NOT start the game; Enter opens chat), wait ~4s (countdown swoop
 owns the camera), then drive via dispatched KeyboardEvents on `window`.
 

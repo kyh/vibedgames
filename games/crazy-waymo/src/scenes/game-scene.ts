@@ -55,7 +55,7 @@ import { setTouchPlaying, setupTouch, type TouchControls } from "../ui/touch";
 import type { Car } from "../vehicle/car";
 import type { CityModel, Garage } from "../world/city";
 import { HECKLES, SpeechBubbles } from "../fx/speech-bubbles";
-import { ROBOTAXI_SKINS, skinById } from "../vehicle/car";
+import { ROBOTAXI_SKINS } from "../vehicle/car";
 import { districtAt } from "../world/sf-map";
 import type { SolidIndex } from "../world/solid-index";
 import { loadWorld, type WorldCoreSystems, type WorldSpawn } from "./world-loader";
@@ -244,12 +244,22 @@ export class GameScene {
     this.sfx.setScreech(0, 1);
     this.sfx.setScrape(false);
     this.sfx.setBoostLoop(false);
+    // Music droning under the PAUSED overlay defeats the pause. Only playing
+    // runs have it on (start()/endRun own it) — remember, so resume restarts
+    // it only when we were the ones to stop it.
+    this.musicPausedByWrapper = this.mode.kind === "playing";
+    if (this.musicPausedByWrapper) this.sfx.stopMusic();
   }
 
   /** Wrapper resume: update() picks the loops back up on its own next frame. */
   requestResume(): void {
     this.paused = false;
+    if (this.musicPausedByWrapper) {
+      this.musicPausedByWrapper = false;
+      this.sfx.startMusic();
+    }
   }
+  private musicPausedByWrapper = false;
   // Editor: live street rebuild — regenerate roads in-place and respawn
   // traffic on the new network. No reload.
   rebuildStreets(): void {

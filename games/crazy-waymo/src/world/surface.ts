@@ -62,10 +62,15 @@ export class DriveSurface {
   // the car into the tile. One O(1) lookup: cell index → terrace height,
   // computed lazily with the same flat-cell test the furniture tile pass uses
   // (park DISTRICT, spread ≤ 0.8; cells hugging asphalt got no tile).
+  private terracesNet: RoadNetwork | null = null;
   private terraceAt(x: number, z: number): number | undefined {
-    if (!this.terraces) {
+    const liveNetwork = this.currentNetwork();
+    // Rebuild alongside driveOffset when the editor swaps the network — the
+    // near-asphalt suppression below queries it.
+    if (!this.terraces || this.terracesNet !== liveNetwork) {
       this.terraces = new Map();
-      const network = this.currentNetwork();
+      this.terracesNet = liveNetwork;
+      const network = liveNetwork;
       for (let gx = 0; gx < GRID_X; gx++) {
         for (let gz = 0; gz < GRID_Z; gz++) {
           if (this.plan.cells[gx]?.[gz] !== "lot") continue;
