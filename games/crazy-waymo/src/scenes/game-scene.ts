@@ -4,34 +4,34 @@ import { Sky } from "three/addons/objects/Sky.js";
 
 import { ModelCache } from "../assets/loader";
 import { bannerControls } from "../controls";
-import { earlyModelUrls, lateModelUrls } from "../assets/manifest";
-import { AmbientLife } from "../fx/ambient-life";
+import type { AmbientLife } from "../fx/ambient-life";
 import { ChaseCamera } from "../fx/camera-rig";
 import { SkyClouds } from "../fx/clouds";
-import { SmashCones } from "../fx/cones";
-import { Debris } from "../fx/debris";
-import { LampGlow } from "../fx/lamp-glow";
-import { NightWindows } from "../fx/night-windows";
+import type { SmashCones } from "../fx/cones";
+import type { Debris } from "../fx/debris";
+import type { LampGlow } from "../fx/lamp-glow";
+import type { NightWindows } from "../fx/night-windows";
 import { Fx } from "../fx/particles";
 import { Sfx } from "../fx/sfx";
-import { SkidMarks } from "../fx/skids";
+import type { SkidMarks } from "../fx/skids";
 import { SpeedLines } from "../fx/speedlines";
 import { VehicleFxRig } from "../fx/vehicle-fx";
-import { DriftTrails, Shockwaves } from "../fx/trails";
+import { Shockwaves } from "../fx/trails";
+import type { DriftTrails } from "../fx/trails";
 import {
-  FareManager,
   type FareEvent,
+  type FareManager,
   GROUND_RING_LIFT,
   tierColor,
   tierPayMult,
 } from "../game/fares";
 import { GameState } from "../game/state";
-import { ParkedCars } from "../game/parked-cars";
+import type { ParkedCars } from "../game/parked-cars";
 import { Traffic } from "../game/traffic";
 import { InputState } from "../input/keyboard";
 import { NetSession } from "../net/session";
-import { readTransform, RemoteCars } from "../net/remote-cars";
-import { PhysicsWorld } from "../physics/physics-world";
+import { readTransform, type RemoteCars } from "../net/remote-cars";
+import type { PhysicsWorld } from "../physics/physics-world";
 import { DayNight } from "../render/day-night";
 import { FULL_QUALITY, isCoarsePointer, type QualityFeatures } from "../render/quality";
 import {
@@ -48,32 +48,17 @@ import {
   WORLD_H,
   WORLD_W,
 } from "../shared/constants";
-import { Rng } from "../shared/rng";
 import type { GameMode } from "../shared/types";
 import { Hud } from "../ui/hud";
-import { Minimap, type MinimapMarker } from "../ui/minimap";
+import type { Minimap, MinimapMarker } from "../ui/minimap";
 import { setTouchPlaying, setupTouch, type TouchControls } from "../ui/touch";
-import { Car } from "../vehicle/car";
-import { CityModel } from "../world/city";
-import { editorMode, loadLocalOverrides } from "../world/custom-map";
+import type { Car } from "../vehicle/car";
+import type { CityModel, Garage } from "../world/city";
 import { HECKLES, SpeechBubbles } from "../fx/speech-bubbles";
-import type { Garage } from "../world/city";
-import { RaycastVehicle } from "../vehicle/raycast-vehicle";
-import { mountTunePanel } from "../vehicle/tune-panel";
 import { ROBOTAXI_SKINS, skinById } from "../vehicle/car";
-import { getRuntimeMap, parseMapFile, setRuntimeMap } from "../world/map-file";
-import type { CityGenPayload } from "../world/gen-worker";
-import type { CityRestPayload } from "../world/city";
-import {
-  readRestCache,
-  readWorldCache,
-  writeRestCache,
-  writeWorldCache,
-} from "../world/world-cache";
-import { fetchBakedRest, fetchBakedWorld } from "../world/world-fetch";
-import { packRest, packWorld, serializeWorldBin, WORLD_REV } from "../world/world-bin";
 import { districtAt } from "../world/sf-map";
-import { SolidIndex } from "../world/solid-index";
+import type { SolidIndex } from "../world/solid-index";
+import { loadWorld, type WorldCoreSystems, type WorldSpawn } from "./world-loader";
 
 const HALF_PI = Math.PI / 2;
 // Initial sun direction — the DayNight cycle takes over from the first frame.
@@ -160,55 +145,6 @@ function readBest(): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-// Kick the city-gen worker. Returns null (main-thread gen) when the city has
-// street/floor edits — local overrides live in localStorage, which the worker
-// cannot see — or when the worker fails for any reason.
-function cityEdited(): boolean {
-  // A runtime map file replaces the world outright — never mix with baked
-  // artifacts or caches. Baked CUSTOM_MAP edits are module constants.
-  if (getRuntimeMap()) return true;
-  const local = loadLocalOverrides();
-  return (
-    editorMode() && (local.add.length > 0 || local.remove.length > 0 || local.floor.length > 0)
-  );
-}
-
-function startGenWorker(): Promise<CityGenPayload | null> {
-  if (cityEdited()) return Promise.resolve(null);
-  // Repeat visits: the finished world is in IndexedDB — skip generation.
-  return readWorldCache().then((cached) => {
-    if (cached) return cached;
-    return runGenWorker();
-  });
-}
-
-function runGenWorker(): Promise<CityGenPayload | null> {
-  return new Promise((resolve) => {
-    try {
-      const worker = new Worker(new URL("../world/gen-worker.ts", import.meta.url), {
-        type: "module",
-      });
-      const bail = setTimeout(() => {
-        worker.terminate();
-        resolve(null);
-      }, 90000);
-      worker.onmessage = (ev: MessageEvent<CityGenPayload>) => {
-        clearTimeout(bail);
-        worker.terminate();
-        writeWorldCache(ev.data);
-        resolve(ev.data);
-      };
-      worker.onerror = () => {
-        clearTimeout(bail);
-        worker.terminate();
-        resolve(null);
-      };
-    } catch {
-      resolve(null);
-    }
-  });
-}
-
 export class GameScene {
   readonly scene = new THREE.Scene();
   // Coarse primary pointer = phone/tablet: mobile-only budgets apply.
@@ -288,12 +224,8 @@ export class GameScene {
   private scrSnapAnchor = new THREE.Vector3();
   private mode: GameMode = { kind: "loading", progress: 0 };
   ready: Promise<void> = Promise.resolve();
-  private latePreload: Promise<void> = Promise.resolve();
   // What the start CTA shows while the city finishes behind the title.
   private finishStage = "DOWNLOADING THE CITY…";
-  private restPromise: Promise<CityRestPayload | null> = Promise.resolve(null);
-  private restFromBake = false;
-  private bakePayload: CityGenPayload | null = null;
   get isReady(): boolean {
     return this.loadDone;
   }
@@ -368,7 +300,7 @@ export class GameScene {
   private solidIndex: SolidIndex | null = null;
   private physics: PhysicsWorld | null = null;
   private hitStop = 0; // brief sim freeze for crash impact
-  private spawn = { x: 0, z: 0, yaw: 0, gx: 0, gz: 0 };
+  private spawn: WorldSpawn = { x: 0, z: 0, yaw: 0, gx: 0, gz: 0 };
   private lastDistrict = "";
   private scrArrow = new THREE.Vector3();
   // When true (set by DEV debug hooks only) the game stops driving the camera,
@@ -637,272 +569,77 @@ export class GameScene {
   }
 
   async load(): Promise<void> {
-    // ?map=<url>: build the world from a saved map file (editor export).
-    const mapUrl = new URLSearchParams(window.location.search).get("map");
-    if (mapUrl) {
-      try {
-        const res = await fetch(mapUrl);
-        const parsed = parseMapFile(await res.json());
-        if (parsed) {
-          setRuntimeMap(parsed);
-          console.log(`[map] loaded ${mapUrl}: ${parsed.props.length} props`);
-        } else {
-          console.log(`[map] ${mapUrl} rejected (bad format/version)`);
-        }
-      } catch (e) {
-        console.log(`[map] ${mapUrl} failed: ${e instanceof Error ? e.message : e}`);
-      }
-    }
-    // City geometry generates in a WORKER, in parallel with the model
-    // download — the main thread only uploads the returned buffers. Edited
-    // cities (baked or local street/floor overrides) keep main-thread gen so
-    // editor changes stay real; the worker never sees localStorage.
-    const edited = cityEdited();
-    // ?bake=1 must GENERATE (it produces the artifacts) — never consume them.
-    const bakeMode = new URLSearchParams(window.location.search).has("bake");
-    const skipBaked = edited || bakeMode;
-    // world.bin is small (terrain) and usually beats the worker; rest.bin is
-    // big (the whole built city) and STREAMS BEHIND THE TITLE — initLate
-    // waits for it, the title doesn't. Any failure falls back to the
-    // worker + IndexedDB pipeline.
-    const bakedWorldPromise = skipBaked ? Promise.resolve(null) : fetchBakedWorld();
-    const bakedRestPromise = skipBaked ? Promise.resolve(null) : fetchBakedRest();
-    const genPromise = bakedWorldPromise.then((baked) => baked ?? startGenWorker());
-    const restPromise = bakedRestPromise.then((baked) => {
-      if (baked) this.restFromBake = true;
-      return baked ? baked : edited ? null : readRestCache();
+    const loaded = await loadWorld({
+      scene: this.scene,
+      cache: this.cache,
+      sceneFog: this.sceneFog,
+      lampGlowBudget: this.mobileUi ? LAMP_GLOW_BUDGET : null,
+      setLoading: (progress) => {
+        this.mode = { kind: "loading", progress };
+        this.hud.setLoading(progress);
+      },
+      hideLoading: () => this.hud.hideLoading(),
+      showTitle: () => this.toTitle(),
+      setStage: (label) => this.setFinishStage(label),
+      computeSpawn: (city) => this.computeSpawn(city),
+      snapToCar: (car) => this.rig.snapTo(car),
+      setupGarages: (city) => this.setupGarages(city),
+      remoteSay: (anchor, text) => this.bubbles.say(anchor, text, { lift: 3.0 }),
+      getRenderer: () => this.renderer,
+      getCamera: () => this.rig.camera,
+      onCoreSystems: (systems) => this.assignCoreSystems(systems),
+      onRemoteCars: (remoteCars) => {
+        this.remoteCars = remoteCars;
+        this.scene.add(this.bubbles.group);
+      },
+      onPhysics: (physics) => {
+        this.physics = physics;
+      },
+      onTraffic: (traffic) => {
+        this.traffic = traffic;
+      },
+      onParked: (parked) => {
+        this.parked = parked;
+      },
+      onDebris: (debris) => {
+        this.debris = debris;
+      },
+      onCones: (cones) => {
+        this.cones = cones;
+      },
+      onAmbient: (ambient) => {
+        this.ambient = ambient;
+      },
+      onPlayable: () => this.markLoadDone(),
     });
-    // Two-stage model preload: the title needs only the ~200KB early set
-    // (player car + everything buildPhase1 touches); the other ~7MB of GLBs
-    // stream behind the title, and finishLoad waits for them before the late
-    // city build (rebuildRest resolves building/prop refs from the cache).
-    await this.cache.preload(earlyModelUrls(), (frac) => {
-      this.mode = { kind: "loading", progress: frac * 0.7 };
-      this.hud.setLoading(frac * 0.7);
-    });
-    this.latePreload = this.cache.preload(lateModelUrls(), () => {});
-    // The worker may still be generating — keep the bar honest but ALIVE
-    // (a frozen bar reads as a hang; this crawls 70 -> 84% while waiting).
-    let waitFrac = 0.7;
-    const crawl = setInterval(() => {
-      waitFrac = Math.min(0.84, waitFrac + 0.01);
-      this.mode = { kind: "loading", progress: waitFrac };
-      this.hud.setLoading(waitFrac);
-    }, 400);
-    const payload = await genPromise;
-    console.log(`[city] worker payload: ${payload ? "yes" : "fallback to main-thread gen"}`);
-    clearInterval(crawl);
-    this.restPromise = restPromise;
-    this.bakePayload = payload;
-    const city = new CityModel(this.cache, payload);
-    await city.initEarly((frac) => {
-      this.mode = { kind: "loading", progress: frac };
-      this.hud.setLoading(frac);
-    });
-    this.scene.add(city.group);
-    this.city = city;
-
-    this.spawn = this.computeSpawn(city);
-    this.skinId = skinById(storageGet("crazy-waymo:skin")).id;
-    const car = new Car(this.cache, this.skinId);
-    car.setSurface(city);
-    this.scene.add(car.object3D);
-    car.reset(this.spawn.x, this.spawn.z, this.spawn.yaw);
-    this.car = car;
-
-    // Title NOW — the heavy city passes finish behind it while the player
-    // reads the screen. Enter is gated on `ready`.
-    this.rig.snapTo(car);
-    this.hud.hideLoading();
-    this.toTitle();
-    this.ready = this.finishLoad(city);
-    return;
+    this.city = loaded.city;
+    this.spawn = loaded.spawn;
+    this.skinId = loaded.skinId;
+    this.car = loaded.car;
+    this.ready = loaded.ready;
   }
 
-  // Everything that needs the fully built city (buildings, furniture,
-  // physics, traffic…) — runs behind the title screen.
-  private async finishLoad(city: CityModel): Promise<void> {
-    const paint = (): Promise<void> =>
-      new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
-    // Impatient players see live status on the CTA they already tapped.
-    const stage = (label: string): void => {
-      this.finishStage = label;
-      if (this.pendingStart && !this.loadDone) this.hud.setCta(label);
-    };
-    stage("DOWNLOADING THE CITY…");
-    const [rest] = await Promise.all([this.restPromise, this.latePreload]);
-    city.setRestPayload(rest);
-    let lastPct = -1;
-    await city.initLate((f) => {
-      const pct = Math.min(99, Math.round(f * 100));
-      if (pct !== lastPct) {
-        lastPct = pct;
-        stage(`FINISHING THE CITY… ${pct}%`);
-      }
-    });
-    // Static city built: freeze its matrices (editor sessions keep them live
-    // so props/streets can be rebuilt and dragged).
-    if (!editorMode()) city.freezeStatic();
+  // Impatient players see live status on the CTA they already tapped.
+  private setFinishStage(label: string): void {
+    this.finishStage = label;
+    if (this.pendingStart && !this.loadDone) this.hud.setCta(label);
+  }
 
-    // --- PLAYABLE GATE: driving needs city meshes + solids + fares. ---
-    this.solidIndex = new SolidIndex(city.solids);
-    this.fares = new FareManager(this.cache, city);
-    this.scene.add(this.fares.group);
-    this.skids = new SkidMarks((x, z) => city.heightAt(x, z));
-    this.scene.add(this.skids.mesh);
-    this.trails = new DriftTrails((x, z) => city.heightAt(x, z));
-    this.scene.add(this.trails.mesh);
-    this.lampGlow = new LampGlow(city.lampHeads, this.mobileUi ? LAMP_GLOW_BUDGET : null);
-    this.scene.add(this.lampGlow.group);
-    // Lit windows come from the batch records: the baked payload on the
-    // deployed path, the live capture on the generated/editor path.
-    const windowItems = rest?.batchItems ?? city.restCapture?.batchItems;
-    if (windowItems) {
-      this.nightWindows = new NightWindows(windowItems, this.cache, this.mobileUi ? 12000 : 32000);
-      this.scene.add(this.nightWindows.mesh);
-    }
-    this.minimap = new Minimap(city.plan, city.getDecks());
+  private assignCoreSystems(systems: WorldCoreSystems): void {
+    this.solidIndex = systems.solidIndex;
+    this.fares = systems.fares;
+    this.skids = systems.skids;
+    this.trails = systems.trails;
+    this.lampGlow = systems.lampGlow;
+    this.nightWindows = systems.nightWindows;
+    this.minimap = systems.minimap;
+  }
 
-    await paint();
-
-    // --- STREAMED TAIL: bounce physics, traffic, parked cars, props. The
-    // game is already playable; these appear within the first seconds. ---
-    const lap = (() => {
-      let t = performance.now();
-      return (label: string): void => {
-        const now = performance.now();
-        console.log(`[tail] ${label} ${Math.round(now - t)}ms`);
-        t = now;
-      };
-    })();
-    this.remoteCars = new RemoteCars(this.cache, city, (anchor, text) => {
-      this.bubbles.say(anchor, text, { lift: 3.0 });
-    });
-    this.scene.add(this.remoteCars.group);
-    this.scene.add(this.bubbles.group);
-    this.setupGarages(city);
-    lap("remoteCars");
-    await paint();
-
-    const physics = await PhysicsWorld.create();
-    lap("physics wasm");
-    await paint();
-    physics.addGround(city.terrain);
-    lap("ground collider");
-    await paint();
-    // Prewarm with the ground only — a small BVH builds fast. The 20k
-    // building colliders STREAM IN below (incremental inserts amortize);
-    // they only matter once something bounces off them.
-    physics.prewarm();
-    lap("physics prewarm");
-    this.physics = physics;
-    // The player car goes physics-native: Rapier raycast suspension drives it
-    // from here on (kinematic sim stays as the pre-physics fallback).
-    if (this.car) {
-      const vehicle = new RaycastVehicle(physics, 0, 0, 0, 0);
-      this.car.attachPhysics(vehicle);
-      this.rig.snapTo(this.car);
-      if (new URLSearchParams(window.location.search).has("tune")) mountTunePanel(vehicle);
-    }
-    await paint();
-
-    // Prewarm shaders BEFORE declaring playable: the countdown swoop reveals
-    // the whole city at once, and first-render program compiles on a phone
-    // GPU are a multi-hundred-ms stall landing on a live frame otherwise.
-    // compileAsync uses KHR_parallel_shader_compile where available.
-    stage("WARMING UP…");
-    if (this.renderer) {
-      try {
-        await this.renderer.compileAsync(this.scene, this.rig.camera);
-      } catch {
-        // A failed prewarm just means compiles happen on first render.
-      }
-    }
-
-    // PLAYABLE: city, arcade solids and stepping physics are ready.
+  private markLoadDone(): void {
     this.loadDone = true;
     if (this.pendingStart) {
       this.pendingStart = false;
       this.start();
-    }
-    // The rest-cache write serializes ~100MB — idle time only, never at start.
-    if (city.restCapture && !this.restFromBake) {
-      const rest = city.restCapture;
-      const idle =
-        "requestIdleCallback" in window
-          ? (cb: () => void): void => void requestIdleCallback(cb, { timeout: 30000 })
-          : (cb: () => void): void => void setTimeout(cb, 8000);
-      idle(() => writeRestCache(rest));
-    }
-    await paint();
-
-    await physics.addStaticSolids(city.solids, city.terrain);
-    lap("static solids (streamed)");
-    await paint();
-
-    this.traffic = new Traffic(
-      this.cache,
-      city,
-      { avoid: { gx: this.spawn.gx, gz: this.spawn.gz }, avoidR: 4 },
-      physics,
-    );
-    this.scene.add(this.traffic.group);
-    lap("traffic");
-    await paint();
-
-    // Parked cars: punt-able bodies (bounce when rammed), not static solids.
-    this.parked = new ParkedCars(this.cache, city.parkedCarSpecs, physics, (x, z) =>
-      city.heightAt(x, z),
-    );
-    this.scene.add(this.parked.group);
-    lap("parked");
-    await paint();
-
-    this.debris = new Debris(this.cache, (x, z) => city.heightAt(x, z));
-    this.scene.add(this.debris.group);
-    this.cones = new SmashCones(this.cache, city, new Rng(777), physics);
-    this.scene.add(this.cones.mesh);
-    const lifeRng = new Rng(4242);
-    this.ambient = new AmbientLife(
-      this.sceneFog,
-      (x, z) => city.heightAt(x, z),
-      () => lifeRng.range(0, 1),
-    );
-    this.scene.add(this.ambient.group);
-    lap("debris+cones");
-
-    // ?bake=1: download the two world artifacts (gzipped) for public/world/.
-    // Run on a COLD dev build so the capture reflects the current pipeline.
-    if (new URLSearchParams(window.location.search).has("bake")) {
-      const gzip = async (bytes: Uint8Array): Promise<Blob> => {
-        const stream = new Blob([new Uint8Array(bytes)])
-          .stream()
-          .pipeThrough(new CompressionStream("gzip"));
-        return await new Response(stream).blob();
-      };
-      const save = (blob: Blob, name: string): void => {
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        a.download = name;
-        a.click();
-      };
-      const worldPayload = this.bakePayload;
-      if (worldPayload) {
-        console.log("[bake] packing world…");
-        save(
-          await gzip(serializeWorldBin({ rev: WORLD_REV, world: packWorld(worldPayload) })),
-          "world.bin",
-        );
-      }
-      if (city.restCapture) {
-        console.log("[bake] packing rest…");
-        const packed = packRest(city.restCapture);
-        console.log("[bake] serializing rest…");
-        const bin = serializeWorldBin({ rev: WORLD_REV, rest: packed });
-        console.log(`[bake] gzipping rest (${bin.byteLength} bytes)…`);
-        save(await gzip(bin), "rest.bin");
-      }
-      console.log("[bake] artifacts downloaded — move into public/world/ and commit");
     }
   }
 

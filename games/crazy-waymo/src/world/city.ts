@@ -144,6 +144,128 @@ export type CityRestPayload = {
   decks: readonly SurfaceDeck[];
 };
 
+type ChunkMeshGroup = {
+  readonly group: THREE.Group;
+  readonly cx: number;
+  readonly cz: number;
+  readonly dist: number;
+};
+
+function materialFactory(): (m: MatRec) => THREE.MeshStandardMaterial {
+  // Material descriptors are the cache key. Omitting any field makes old rest
+  // payloads alias materials that render differently.
+  const mats = new Map<string, THREE.MeshStandardMaterial>();
+  return (m: MatRec): THREE.MeshStandardMaterial => {
+    const k = JSON.stringify(m);
+    let mat = mats.get(k);
+    if (!mat) {
+      mat = new THREE.MeshStandardMaterial({
+        color: m.color,
+        roughness: m.roughness,
+        metalness: m.metalness,
+        vertexColors: m.vertexColors,
+        polygonOffset: m.polygonOffset,
+        polygonOffsetFactor: m.polygonOffsetFactor,
+        polygonOffsetUnits: m.polygonOffsetUnits,
+        transparent: m.transparent,
+        opacity: m.opacity,
+      });
+      mats.set(k, mat);
+    }
+    return mat;
+  };
+}
+
+function geometryFromMergedChunk(rec: MergedChunkRec): THREE.BufferGeometry {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(rec.position, 3));
+  if (rec.uv) geo.setAttribute("uv", new THREE.BufferAttribute(rec.uv, 2));
+  if (rec.color) geo.setAttribute("color", new THREE.BufferAttribute(rec.color, 3));
+  if (rec.index) geo.setIndex(new THREE.BufferAttribute(rec.index, 1));
+  if (rec.normal) geo.setAttribute("normal", new THREE.BufferAttribute(rec.normal, 3));
+  else geo.computeVertexNormals();
+  return geo;
+}
+
+async function buildMergedChunkGroups(options: {
+  readonly records: readonly MergedChunkRec[];
+  readonly cache: ModelCache;
+  readonly materialFor: (m: MatRec) => THREE.MeshStandardMaterial;
+  readonly runtimeMaterials?: ReadonlyMap<MergedChunkRec, THREE.Material>;
+  readonly breathe?: () => Promise<void>;
+  readonly onRecord?: (done: number, total: number) => void;
+}): Promise<ChunkMeshGroup[]> {
+  const groups = new Map<string, ChunkMeshGroup>();
+  // Legacy baked/cached rest payloads carry SIX flat road materials per
+  // chunk (captured before the vertex-color collapse in roads.ts). Rewrite
+  // those recs onto the two collapsed materials and merge per (chunk, tier,
+  // material) so old artifacts render with the same draw count as a fresh
+  // build. New captures arrive already collapsed and pass straight through.
+  type RoadMerge = {
+    readonly gk: string;
+    readonly mat: THREE.Material;
+    readonly geos: THREE.BufferGeometry[];
+  };
+  const roadMerges = new Map<string, RoadMerge>();
+  let n = 0;
+  for (const rec of options.records) {
+    // breathe() self-throttles to ~12ms slices — check every chunk, because
+    // one computeVertexNormals over a big legacy chunk can eat a frame.
+    const breathe = options.breathe;
+    if (breathe) await breathe();
+    n++;
+    options.onRecord?.(n, options.records.length);
+    const geo = geometryFromMergedChunk(rec);
+    const gk = `${rec.cx},${rec.cz},${rec.dist}`;
+    let g = groups.get(gk);
+    if (!g) {
+      g = { group: new THREE.Group(), cx: rec.cx, cz: rec.cz, dist: rec.dist };
+      groups.set(gk, g);
+    }
+    const runtimeMat = options.runtimeMaterials?.get(rec);
+    if (runtimeMat) {
+      const mesh = new THREE.Mesh(geo, runtimeMat);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      g.group.add(mesh);
+      continue;
+    }
+    const road = rec.srcMat
+      ? null
+      : roadCollapseTarget(rec.mat.color, rec.mat.polygonOffset, rec.mat.vertexColors);
+    if (road) {
+      // Already-collapsed captures ship their own vertex colors — baking
+      // the uniform white over them would erase the paint.
+      if (!rec.color) bakeConstantColor(geo, road.color);
+      const mk = `${gk}|${road.mat.uuid}|${rec.uv ? "u" : "x"}|${geo.index ? "i" : "n"}`;
+      const rm = roadMerges.get(mk);
+      if (rm) rm.geos.push(geo);
+      else roadMerges.set(mk, { gk, mat: road.mat, geos: [geo] });
+      continue;
+    }
+    const srcM = rec.srcMat ? options.cache.srcMesh(rec.srcMat.url, rec.srcMat.idx) : null;
+    const srcMatOk = srcM && !Array.isArray(srcM.material) ? srcM.material : null;
+    const mesh = new THREE.Mesh(geo, srcMatOk ?? options.materialFor(rec.mat));
+    mesh.receiveShadow = true;
+    g.group.add(mesh);
+  }
+  for (const rm of roadMerges.values()) {
+    const g = groups.get(rm.gk);
+    if (!g) continue;
+    const first = rm.geos[0];
+    const merged = rm.geos.length === 1 && first ? first : mergeGeometries(rm.geos, false);
+    // Merge failure (mismatched attrs): draw the pieces individually —
+    // exactly what the un-collapsed path did.
+    const geos = merged ? [merged] : rm.geos;
+    for (const geo of geos) {
+      const mesh = new THREE.Mesh(geo, rm.mat);
+      mesh.receiveShadow = true;
+      g.group.add(mesh);
+    }
+  }
+  return [...groups.values()];
+}
+
 type BatchBucket = {
   material: THREE.Material;
   geoVerts: Map<THREE.BufferGeometry, number>;
@@ -264,19 +386,26 @@ export class CityModel {
   // City-rest cache: everything phases 2+3 produce, in serializable form.
   restCapture: CityRestPayload | null = null;
   private capturedMerged: MergedChunkRec[] = [];
+  private capturedMergedMats = new Map<MergedChunkRec, THREE.Material>();
   private restItems: BatchItemRec[] = [];
   private restComplete = true;
   private rawGeos: RawGeoRec[] = [];
   private rawGeoIds = new Map<string, number>();
   private restSkipLogged = new Set<string>();
 
-  private captureMerged(mesh: THREE.Mesh, cx: number, cz: number, dist: number): void {
+  private captureMerged(
+    mesh: THREE.Mesh,
+    cx: number,
+    cz: number,
+    dist: number,
+  ): MergedChunkRec | null {
     const geo = mesh.geometry;
     const mat = mesh.material;
-    if (Array.isArray(mat) || !(mat instanceof THREE.MeshStandardMaterial)) return;
+    if (Array.isArray(mat) || !(mat instanceof THREE.MeshStandardMaterial)) return null;
     const srcMat =
       (mesh.userData.srcMat as { url: string; idx: number } | undefined) ??
       (mat.map ? this.cache.srcOfMaterial(mat) : null);
+    const serializable = !mat.map || srcMat !== null;
     if (mat.map && !srcMat) {
       // Textured material with no source ref can't survive serialization.
       this.restComplete = false;
@@ -284,14 +413,13 @@ export class CityModel {
         this.restSkipLogged.add(mat.uuid);
         console.log(`[city] merged mesh untagged texture: ${mat.name || mat.uuid}`);
       }
-      return;
     }
     const pos = geo.getAttribute("position");
-    if (!pos) return;
+    if (!pos) return null;
     const nor = geo.getAttribute("normal");
     const uv = geo.getAttribute("uv");
     const col = geo.getAttribute("color");
-    this.capturedMerged.push({
+    const rec: MergedChunkRec = {
       cx,
       cz,
       dist,
@@ -312,7 +440,48 @@ export class CityModel {
         opacity: mat.opacity,
       },
       srcMat,
+    };
+    this.capturedMergedMats.set(rec, mat);
+    if (serializable) this.capturedMerged.push(rec);
+    return rec;
+  }
+
+  private async addMergedChunkRecords(
+    records: readonly MergedChunkRec[],
+    fallbacks: readonly THREE.Mesh[],
+    cx: number,
+    cz: number,
+    dist: number,
+    cullRadius: number,
+  ): Promise<void> {
+    const builtGroups = await buildMergedChunkGroups({
+      records,
+      cache: this.cache,
+      materialFor: materialFactory(),
+      runtimeMaterials: this.capturedMergedMats,
     });
+    const chunkGroups = [...builtGroups];
+    if (fallbacks.length > 0) {
+      const first = chunkGroups[0];
+      let target: ChunkMeshGroup;
+      if (first) {
+        target = first;
+      } else {
+        target = { group: new THREE.Group(), cx, cz, dist };
+        chunkGroups.push(target);
+      }
+      for (const mesh of fallbacks) target.group.add(mesh);
+    }
+    for (const chunk of chunkGroups) {
+      this.group.add(chunk.group);
+      this.chunks.push({
+        cx: chunk.cx,
+        cz: chunk.cz,
+        radius: cullRadius,
+        dist: chunk.dist,
+        group: chunk.group,
+      });
+    }
   }
   private chunkVisibleNear: Uint8Array | null = null;
 
@@ -1215,24 +1384,18 @@ export class CityModel {
         const detail = meshes.filter(isDetail);
         const ccx = (cx + 0.5) * CHUNK - WORLD_HALF_X;
         const ccz = (cz + 0.5) * CHUNK - WORLD_HALF_Z;
-        if (main.length > 0) {
-          const group = new THREE.Group();
-          for (const merged of mergeByMaterial(main)) {
-            group.add(merged);
-            this.captureMerged(merged, ccx, ccz, DRAW_DISTANCE);
+        const publishMerged = async (src: readonly THREE.Mesh[], dist: number): Promise<void> => {
+          const records: MergedChunkRec[] = [];
+          const fallbacks: THREE.Mesh[] = [];
+          for (const merged of mergeByMaterial(src)) {
+            const rec = this.captureMerged(merged, ccx, ccz, dist);
+            if (rec) records.push(rec);
+            else fallbacks.push(merged);
           }
-          this.group.add(group);
-          this.chunks.push({ cx: ccx, cz: ccz, radius: cullRadius, dist: DRAW_DISTANCE, group });
-        }
-        if (detail.length > 0) {
-          const group = new THREE.Group();
-          for (const merged of mergeByMaterial(detail)) {
-            group.add(merged);
-            this.captureMerged(merged, ccx, ccz, DETAIL_DISTANCE);
-          }
-          this.group.add(group);
-          this.chunks.push({ cx: ccx, cz: ccz, radius: cullRadius, dist: DETAIL_DISTANCE, group });
-        }
+          await this.addMergedChunkRecords(records, fallbacks, ccx, ccz, dist, cullRadius);
+        };
+        if (main.length > 0) await publishMerged(main, DRAW_DISTANCE);
+        if (detail.length > 0) await publishMerged(detail, DETAIL_DISTANCE);
       }
 
       console.log(`[city] merges ${Math.round(performance.now() - tMerge)}ms`);
@@ -1323,88 +1486,17 @@ export class CityModel {
     const nx = Math.ceil(WORLD_W / CHUNK);
     const nz = Math.ceil(WORLD_H / CHUNK);
     const cullRadius = CHUNK * 0.71 + ROAD_TILE * 2;
-    // Merged chunks: dedupe materials by descriptor so draw batching holds.
-    const mats = new Map<string, THREE.MeshStandardMaterial>();
-    const matFor = (m: MergedChunkRec["mat"]): THREE.MeshStandardMaterial => {
-      const k = JSON.stringify(m);
-      let mat = mats.get(k);
-      if (!mat) {
-        mat = new THREE.MeshStandardMaterial({
-          color: m.color,
-          roughness: m.roughness,
-          metalness: m.metalness,
-          vertexColors: m.vertexColors,
-          polygonOffset: m.polygonOffset,
-          polygonOffsetFactor: m.polygonOffsetFactor,
-          polygonOffsetUnits: m.polygonOffsetUnits,
-          transparent: m.transparent,
-          opacity: m.opacity,
-        });
-        mats.set(k, mat);
-      }
-      return mat;
-    };
-    const groups = new Map<string, { group: THREE.Group; cx: number; cz: number; dist: number }>();
-    // Legacy baked/cached rest payloads carry SIX flat road materials per
-    // chunk (captured before the vertex-color collapse in roads.ts). Rewrite
-    // those recs onto the two collapsed materials and merge per (chunk, tier,
-    // material) so old artifacts render with the same draw count as a fresh
-    // build. New captures arrive already collapsed and pass straight through.
-    type RoadMerge = { gk: string; mat: THREE.Material; geos: THREE.BufferGeometry[] };
-    const roadMerges = new Map<string, RoadMerge>();
-    let n = 0;
-    for (const rec of rest.mergedChunks) {
-      // breathe() self-throttles to ~12ms slices — check every chunk, because
-      // one computeVertexNormals over a big legacy chunk can eat a frame.
-      await this.breathe();
-      if (++n % 16 === 0) onProgress?.((n / rest.mergedChunks.length) * 0.55);
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute("position", new THREE.BufferAttribute(rec.position, 3));
-      if (rec.uv) geo.setAttribute("uv", new THREE.BufferAttribute(rec.uv, 2));
-      if (rec.color) geo.setAttribute("color", new THREE.BufferAttribute(rec.color, 3));
-      if (rec.index) geo.setIndex(new THREE.BufferAttribute(rec.index, 1));
-      if (rec.normal) geo.setAttribute("normal", new THREE.BufferAttribute(rec.normal, 3));
-      else geo.computeVertexNormals();
-      const gk = `${rec.cx},${rec.cz},${rec.dist}`;
-      let g = groups.get(gk);
-      if (!g) {
-        g = { group: new THREE.Group(), cx: rec.cx, cz: rec.cz, dist: rec.dist };
-        groups.set(gk, g);
-      }
-      const road = rec.srcMat
-        ? null
-        : roadCollapseTarget(rec.mat.color, rec.mat.polygonOffset, rec.mat.vertexColors);
-      if (road) {
-        // Already-collapsed captures ship their own vertex colors — baking
-        // the uniform white over them would erase the paint.
-        if (!rec.color) bakeConstantColor(geo, road.color);
-        const mk = `${gk}|${road.mat.uuid}|${rec.uv ? "u" : "x"}|${geo.index ? "i" : "n"}`;
-        const rm = roadMerges.get(mk);
-        if (rm) rm.geos.push(geo);
-        else roadMerges.set(mk, { gk, mat: road.mat, geos: [geo] });
-        continue;
-      }
-      const srcM = rec.srcMat ? this.cache.srcMesh(rec.srcMat.url, rec.srcMat.idx) : null;
-      const srcMatOk = srcM && !Array.isArray(srcM.material) ? srcM.material : null;
-      const mesh = new THREE.Mesh(geo, srcMatOk ?? matFor(rec.mat));
-      mesh.receiveShadow = true;
-      g.group.add(mesh);
-    }
-    for (const rm of roadMerges.values()) {
-      const g = groups.get(rm.gk);
-      if (!g) continue;
-      const first = rm.geos[0];
-      const merged = rm.geos.length === 1 && first ? first : mergeGeometries(rm.geos, false);
-      // Merge failure (mismatched attrs): draw the pieces individually —
-      // exactly what the un-collapsed path did.
-      const geos = merged ? [merged] : rm.geos;
-      for (const geo of geos) {
-        const mesh = new THREE.Mesh(geo, rm.mat);
-        mesh.receiveShadow = true;
-        g.group.add(mesh);
-      }
-    }
-    for (const g of groups.values()) {
+    const matFor = materialFactory();
+    const groups = await buildMergedChunkGroups({
+      records: rest.mergedChunks,
+      cache: this.cache,
+      materialFor: matFor,
+      breathe: () => this.breathe(),
+      onRecord: (done, total) => {
+        if (done % 16 === 0) onProgress?.((done / total) * 0.55);
+      },
+    });
+    for (const g of groups) {
       this.group.add(g.group);
       this.chunks.push({ cx: g.cx, cz: g.cz, radius: cullRadius, dist: g.dist, group: g.group });
     }
