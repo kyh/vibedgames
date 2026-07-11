@@ -954,6 +954,50 @@ function clipEdge(e) {
   );
 }
 
+// --- Drop park-stranded islands: clipping severs street clusters whose ONLY
+// link to the city ran through a park. The cell grid already drops their
+// cells (largest-component filter), so keeping the edges shipped GHOST
+// asphalt — rendered, drivable, but dead to traffic/fares/minimap. Keep the
+// main component only; the mask below rasters from the filtered set, so both
+// representations drop the islands together. ---
+{
+  const adj = new Map();
+  edges.forEach((e) => {
+    for (const [from, to] of [
+      [e.a, e.b],
+      [e.b, e.a],
+    ]) {
+      if (!adj.has(from)) adj.set(from, []);
+      adj.get(from).push(to);
+    }
+  });
+  const comp = new Map();
+  let nComp = 0;
+  for (const n of adj.keys()) {
+    if (comp.has(n)) continue;
+    const stack = [n];
+    comp.set(n, nComp);
+    while (stack.length) {
+      const c = stack.pop();
+      for (const m of adj.get(c) ?? []) {
+        if (!comp.has(m)) {
+          comp.set(m, nComp);
+          stack.push(m);
+        }
+      }
+    }
+    nComp++;
+  }
+  const sizes = new Array(nComp).fill(0);
+  for (const c of comp.values()) sizes[c]++;
+  const main = sizes.indexOf(Math.max(...sizes));
+  const before = edges.length;
+  edges = edges.filter((e) => comp.get(e.a) === main);
+  console.log(
+    `park-stub prune: ${nComp} components, dropped ${before - edges.length} stranded edges`,
+  );
+}
+
 // --- Stats + validation (on the shipped, park-cleared network) ---
 let totalLen = 0;
 for (const e of edges) {
