@@ -20,30 +20,76 @@ import {
 import { Rng } from "../shared/rng";
 import type { Solid } from "./city";
 import type { CityPlan } from "./grid";
+import type { RoadNetwork } from "./network";
 import type { Terrain } from "./terrain";
 
 const LANDMARK_SCALE = ROAD_TILE / 8; // keep landmarks proportional to the world
 
 // Iconic SF landmarks at traced (u,v) positions (from the sf-trace research).
-type Landmark = { kind: string; u: number; v: number; rotDeg: number };
+// `clearR` (world units) is the monument's ground-footprint radius: those
+// landmarks are nudged off vector asphalt at build time (a hardcoded (u,v)
+// has no idea where the baked streets landed — Salesforce stood in the road).
+// `protHalf` are the reservation-rect half-extents, sized to the VISUAL base
+// (they were smaller than the meshes, letting buildings clip the monuments).
+type Landmark = {
+  kind: string;
+  u: number;
+  v: number;
+  rotDeg: number;
+  clearR?: number;
+  protHalf?: readonly [number, number];
+};
 // (The Golden Gate is no longer a landmark prop — it's the DRIVABLE bridge
 // built by world/golden-gate.ts.)
 const LANDMARKS: readonly Landmark[] = [
   { kind: "baybridge", u: 0.93, v: 0.205, rotDeg: 90 },
-  { kind: "pyramid", u: 0.701, v: 0.15, rotDeg: 0 },
-  { kind: "salesforce", u: 0.736, v: 0.203, rotDeg: 0 },
-  { kind: "coittower", u: 0.683, v: 0.082, rotDeg: 0 },
-  { kind: "ferrybuilding", u: 0.772, v: 0.15, rotDeg: 270 },
-  { kind: "paintedladies", u: 0.513, v: 0.33, rotDeg: 90 },
-  { kind: "sutro", u: 0.402, v: 0.52, rotDeg: 0 },
+  { kind: "pyramid", u: 0.701, v: 0.15, rotDeg: 0, clearR: 7.2, protHalf: [7.2, 7.2] },
+  // 415 Mission projected through the calibrated lon/lat→(u,v) fit.
+  { kind: "salesforce", u: 0.7396, v: 0.2038, rotDeg: 0, clearR: 6.9, protHalf: [6.9, 6.9] },
+  { kind: "coittower", u: 0.683, v: 0.082, rotDeg: 0, clearR: 4.1, protHalf: [4.1, 4.1] },
+  { kind: "ferrybuilding", u: 0.756, v: 0.15, rotDeg: 270, protHalf: [5.7, 21.2] }, // ON the new shore edge
+  { kind: "paintedladies", u: 0.513, v: 0.33, rotDeg: 90, protHalf: [4, 20] },
+  { kind: "sutro", u: 0.402, v: 0.52, rotDeg: 0, clearR: 6.5, protHalf: [6.5, 6.5] },
   { kind: "dragongate", u: 0.6725, v: 0.228, rotDeg: 0 },
   { kind: "alcatraz", u: 0.52, v: 0.008, rotDeg: 20 },
 ];
+
+// Final world position of a landmark: the traced (u,v), pushed off any street
+// whose asphalt the ground footprint would overlap. Deterministic per network,
+// so protection rects and visuals always agree.
+function resolvePosition(lm: Landmark, network: RoadNetwork | null): readonly [number, number] {
+  let x = uWorld(lm.u);
+  let z = vWorld(lm.v);
+  const r = lm.clearR;
+  if (!network || r === undefined) return [x, z];
+  for (let i = 0; i < 4; i++) {
+    const hit = network.nearest(x, z, r + ROAD_TILE * 1.6);
+    if (!hit) break;
+    const want = hit.edge.half + r + 0.6;
+    if (hit.dist >= want) break;
+    let nx = -hit.tz;
+    let nz = hit.tx;
+    if (nx * (x - hit.x) + nz * (z - hit.z) < 0) {
+      nx = -nx;
+      nz = -nz;
+    }
+    x = hit.x + nx * want;
+    z = hit.z + nz * want;
+  }
+  return [x, z];
+}
 
 const ORANGE = new THREE.MeshStandardMaterial({ color: 0xc0362c, roughness: 0.6 });
 const WHITE = new THREE.MeshStandardMaterial({ color: 0xeceff2, roughness: 0.7 });
 const CREAM = new THREE.MeshStandardMaterial({ color: 0xe6dcc4, roughness: 0.75 });
 const GLASS = new THREE.MeshStandardMaterial({ color: 0xbfd4dd, roughness: 0.25, metalness: 0.5 });
+// Deeper glass for the big towers — the pale GLASS + distance fog read as a
+// featureless beam of sky.
+const TOWER_GLASS = new THREE.MeshStandardMaterial({
+  color: 0x7d9cb2,
+  roughness: 0.4,
+  metalness: 0.35,
+});
 const STEEL = new THREE.MeshStandardMaterial({ color: 0x9aa3ad, roughness: 0.5, metalness: 0.4 });
 const GATE_RED = new THREE.MeshStandardMaterial({ color: 0xb5382e, roughness: 0.6 });
 const GATE_GREEN = new THREE.MeshStandardMaterial({ color: 0x3e7d54, roughness: 0.6 });
@@ -67,7 +113,7 @@ function mesh(geo: THREE.BufferGeometry, mat: THREE.Material, x = 0, y = 0, z = 
 // Transamerica Pyramid — slender white 4-sided pyramid with shoulder wings.
 function pyramid(): THREE.Group {
   const g = new THREE.Group();
-  const H = 42;
+  const H = 36; // real 260 m at world scale
   const cone = mesh(new THREE.ConeGeometry(4.4, H, 4), WHITE, 0, H / 2, 0);
   cone.rotation.y = Math.PI / 4;
   g.add(cone);
@@ -77,12 +123,14 @@ function pyramid(): THREE.Group {
   return g;
 }
 
-// Salesforce Tower — the tallest, a tapered octagonal glass shaft.
+// Salesforce Tower — the tallest, a tapered octagonal glass shaft. H matches
+// the real 326 m at world scale (45 × LANDMARK_SCALE ≈ 73u) — the old 60
+// (97u) washed into the fog as a featureless beam.
 function salesforce(): THREE.Group {
   const g = new THREE.Group();
-  const H = 60;
-  g.add(mesh(new THREE.CylinderGeometry(2.3, 4.2, H, 10), GLASS, 0, H / 2, 0));
-  g.add(mesh(new THREE.CylinderGeometry(0.1, 1.6, 6, 10), GLASS, 0, H + 2.5, 0));
+  const H = 45;
+  g.add(mesh(new THREE.CylinderGeometry(2.3, 4.2, H, 10), TOWER_GLASS, 0, H / 2, 0));
+  g.add(mesh(new THREE.CylinderGeometry(0.1, 1.6, 5, 10), TOWER_GLASS, 0, H + 2, 0));
   return g;
 }
 
@@ -300,7 +348,10 @@ function gzOf(v: number): number {
   return Math.min(GRID_Z - 1, Math.max(0, Math.floor(v * GRID_Z)));
 }
 
-export function landmarkProtection(plan: CityPlan): LandmarkProtection {
+export function landmarkProtection(
+  plan: CityPlan,
+  network: RoadNetwork | null = null,
+): LandmarkProtection {
   const reserved = new Set<string>();
   const parkGreen = new Set<string>();
   const solids: Solid[] = [];
@@ -308,9 +359,7 @@ export function landmarkProtection(plan: CityPlan): LandmarkProtection {
   // Reserve every cell a landmark's rect touches (no procedural buildings or
   // furniture there), but emit collision boxes ONLY on lot cells, clamped to
   // each cell — a monument must never wall off a road or strand a fare.
-  const protect = (u: number, v: number, halfX: number, halfZ: number): void => {
-    const x = uWorld(u);
-    const z = vWorld(v);
+  const protect = (x: number, z: number, halfX: number, halfZ: number): void => {
     const minX = x - halfX;
     const maxX = x + halfX;
     const minZ = z - halfZ;
@@ -335,12 +384,11 @@ export function landmarkProtection(plan: CityPlan): LandmarkProtection {
     }
   };
 
-  protect(0.701, 0.15, 4.5, 4.5); // Transamerica
-  protect(0.736, 0.203, 4.2, 4.2); // Salesforce
-  protect(0.683, 0.082, 3.2, 3.2); // Coit
-  protect(0.772, 0.15, 5, 18); // Ferry Building (long, along Z)
-  protect(0.402, 0.52, 4, 4); // Sutro Tower
-  protect(0.513, 0.33, 4, 20); // Painted Ladies row
+  for (const lm of LANDMARKS) {
+    if (!lm.protHalf) continue;
+    const [x, z] = resolvePosition(lm, network);
+    protect(x, z, lm.protHalf[0], lm.protHalf[1]);
+  }
 
   // Alamo Square green faces the Painted Ladies one column west.
   {
@@ -352,12 +400,15 @@ export function landmarkProtection(plan: CityPlan): LandmarkProtection {
   return { reserved, parkGreen, solids };
 }
 
-export function buildLandmarks(terrain: Terrain, cache: ModelCache): THREE.Group {
+export function buildLandmarks(
+  terrain: Terrain,
+  cache: ModelCache,
+  network: RoadNetwork | null = null,
+): THREE.Group {
   const root = new THREE.Group();
   const rng = new Rng(4242);
   for (const lm of LANDMARKS) {
-    const x = uWorld(lm.u);
-    const z = vWorld(lm.v);
+    const [x, z] = resolvePosition(lm, network);
     let node: THREE.Group;
     let y = terrain.heightAt(x, z);
     switch (lm.kind) {

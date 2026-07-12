@@ -14,7 +14,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { parkCell } from "../../src/world/park-clear.ts";
 import { landuseGreenAt } from "../../src/world/sf-landuse.ts";
-import { districtAt } from "../../src/world/sf-map.ts";
+import { districtAt, makeTerrain } from "../../src/world/sf-map.ts";
 
 // One generation stamp, written into BOTH emitted files: proves the shipped
 // mask and the shipped network came from the same bake run (test asserts it).
@@ -48,9 +48,29 @@ function box(u, v, uMin, uMax, vMin, vMax) {
 function lineSide(u, v, ax, ay, bx, by) {
   return (bx - ax) * (v - ay) - (by - ay) * (u - ax);
 }
+const EMBARCADERO_SHORE = [
+  [0.021, 0.6596],
+  [0.0415, 0.7146],
+  [0.0838, 0.7458],
+  [0.148, 0.7602],
+  [0.2, 0.796],
+  [0.2634, 0.8114],
+];
+function shoreCut(u, v) {
+  const S = EMBARCADERO_SHORE;
+  if (v <= S[0][0] || v >= S[S.length - 1][0]) return 1;
+  let i = 1;
+  while (i < S.length - 1 && S[i][0] < v) i++;
+  const a = S[i - 1];
+  const b = S[i];
+  const t = (v - a[0]) / (b[0] - a[0] || 1);
+  const su = a[1] + (b[1] - a[1]) * t;
+  return 1 - smooth(u, su - 0.004, su + 0.008);
+}
 function landFactor(u, v) {
   let land = Math.min(smooth(u, 0.025, 0.06), 1 - smooth(u, 0.78, 0.85), smooth(v, 0.025, 0.07));
   land = Math.min(land, smooth(lineSide(u, v, 0.03, 0.26, 0.25, 0.03), -0.015, 0.02));
+  land = Math.min(land, shoreCut(u, v));
   land = Math.max(land, box(u, v, 0.82, 0.99, 0.7, 0.84));
   land = Math.max(land, box(u, v, 0.82, 0.98, 0.87, 0.97));
   land = Math.min(land, 1 - box(u, v, 0.71, 0.8, 0.29, 0.35));
@@ -61,28 +81,33 @@ function landFactor(u, v) {
 const onLandUV = (u, v) => landFactor(u, v) > 0.5;
 const onLandXZ = (x, z) => onLandUV(x / WORLD_W + 0.5, z / WORLD_H + 0.5);
 
-// Road classes → asphalt HALF width (world units). Wider majors read as real
-// boulevards; tertiary matches the old uniform profile (ASPHALT_W/2 = 5.2).
+// Road classes → asphalt HALF width (world units). At 4.45 m/u the old
+// profile (residential 4.6 half ≈ 41 m of asphalt) made roads eat ~2× the
+// block fraction they do in real SF — the "everything is street" look.
+// These are ~25-30% narrower: still arcade-generous (residential ≈ 30 m,
+// primary ≈ 50 m) but blocks read as blocks again.
 // Freeways (motorway/trunk + ramps) are multi-level structures we would
 // render flat — pure spaghetti. Everything else is in: SF's identity IS the
 // fine residential grid (Sunset/Richmond/Mission blocks).
 const CLASS_HALF = {
-  primary: 7.2,
-  primary_link: 5.8,
-  secondary: 6.4,
-  secondary_link: 5.8,
-  tertiary: 5.8,
-  tertiary_link: 5.8,
-  residential: 4.6,
-  unclassified: 4.6,
-  living_street: 4.2,
+  primary: 5.6,
+  primary_link: 4.4,
+  secondary: 5.0,
+  secondary_link: 4.4,
+  tertiary: 4.4,
+  tertiary_link: 4.4,
+  residential: 3.4,
+  unclassified: 3.4,
+  living_street: 3.0,
 };
 // Arcade compression (Driver:SF-style): minors only survive when they are
 // long connective streets — short block-fillers go, majors read as the map.
 const MINOR_MIN_LEN = 35; // world units (~310m real) — density reads as city
 // Only divided arterials get twin-merged — the residential grid has genuine
 // close parallels that must never be eaten.
-const MERGE_MIN_HALF = 5.6;
+const MERGE_MIN_HALF = 4.6;
+// Class boundaries derived from CLASS_HALF (keep in sync when retuning):
+const MINOR_MAX_HALF = 3.4; // residential/unclassified/living_street
 
 // --- Load + project (majors only: the arterial network IS the game map) ---
 const raw = JSON.parse(readFileSync(new URL("./sf-streets.raw.json", import.meta.url)));
@@ -119,10 +144,40 @@ for (const w of ways) {
     return L;
   };
   const before = polylines.length;
-  const isMinor = (half) => half <= 4.6;
+  const isMinor = (half) => half <= MINOR_MAX_HALF;
+  // SF's identity is the step-ladder grid ON THE HILLS: within steep terrain
+  // the full minor grid survives BOTH prunes below (length + parity) — the
+  // dense rungs plunging down Russian/Nob/Bernal are the whole point. Uses
+  // the same terrain the game renders, so "steep" here is steep in-game.
+  const hillTerrain = makeTerrain();
+  const steepAt = (x, z) => {
+    const e = 6;
+    const dx = hillTerrain.heightAt(x + e, z) - hillTerrain.heightAt(x - e, z);
+    const dz = hillTerrain.heightAt(x, z + e) - hillTerrain.heightAt(x, z - e);
+    return Math.hypot(dx, dz) / (2 * e);
+  };
+  const onHill = (pts) => {
+    let meanX = 0;
+    let meanZ = 0;
+    for (const [x, z] of pts) {
+      meanX += x;
+      meanZ += z;
+    }
+    meanX /= pts.length;
+    meanZ /= pts.length;
+    return steepAt(meanX, meanZ) > 0.09;
+  };
+  let hillKept = 0;
   // Group way fragments back by rough identity: filter per-polyline is enough
   // (fragments of one long street are individually long).
-  const kept = polylines.filter((pl) => !isMinor(pl.half) || plLen(pl.pts) >= MINOR_MIN_LEN);
+  const kept = polylines.filter((pl) => {
+    if (!isMinor(pl.half) || plLen(pl.pts) >= MINOR_MIN_LEN) return true;
+    if (onHill(pl.pts)) {
+      hillKept++;
+      return true;
+    }
+    return false;
+  });
 
   // --- Parity thinning: at 1x the full residential grid leaves no room for
   // buildings. Streets come in parallel families (E-W rows, N-S columns);
@@ -132,8 +187,8 @@ for (const w of ways) {
   const SPACING = 25; // typical minor spacing in world units at 1x (~100m)
   const thinnedOut = [];
   for (const pl of kept) {
-    if (!isMinor(pl.half)) {
-      thinnedOut.push(pl);
+    if (!isMinor(pl.half) || onHill(pl.pts)) {
+      thinnedOut.push(pl); // arterial, or hill-grid rung — never thinned
       continue;
     }
     const [x0, z0] = pl.pts[0];
@@ -162,7 +217,7 @@ for (const w of ways) {
   polylines.length = 0;
   polylines.push(...thinnedOut);
   console.log(
-    `minor-street compression: ${before} -> ${kept.length} -> ${polylines.length} polylines (parity-thinned)`,
+    `minor-street compression: ${before} -> ${kept.length} -> ${polylines.length} polylines (parity-thinned; ${hillKept} short hill rungs kept)`,
   );
 }
 
@@ -537,7 +592,7 @@ clusterJunctionsPass();
         return L;
       };
       const candidates = list
-        .filter((i) => !kill.has(i) && edges[i].half <= 4.6)
+        .filter((i) => !kill.has(i) && edges[i].half <= MINOR_MAX_HALF)
         .sort((x, y) => edges[x].half - edges[y].half || edgeLen(edges[x]) - edgeLen(edges[y]));
       let excess = list.filter((i) => !kill.has(i)).length - 4;
       for (const i of candidates) {
@@ -553,6 +608,72 @@ clusterJunctionsPass();
     }
   }
   console.log(`junction sanity: dropped ${dropped} excess minor arms`);
+
+  // --- Sliver arms: two arms leaving one node separated by < ~25° render as
+  // a gore triangle (Market's diagonals meeting the grid) — the junction
+  // patch swells and paint tangles. Drop the narrower/shorter MINOR arm of
+  // each shallow pair; arterials and long connectors are never touched. ---
+  {
+    const COS_SLIVER = Math.cos((25 * Math.PI) / 180);
+    const edgeLen = (e) => {
+      let L = 0;
+      for (let i = 1; i < e.pts.length; i++)
+        L += Math.hypot(e.pts[i][0] - e.pts[i - 1][0], e.pts[i][1] - e.pts[i - 1][1]);
+      return L;
+    };
+    let slivers = 0;
+    let again = true;
+    while (again) {
+      again = false;
+      const byNode = new Map();
+      edges.forEach((e, i) => {
+        if (!byNode.has(e.a)) byNode.set(e.a, []);
+        if (!byNode.has(e.b)) byNode.set(e.b, []);
+        byNode.get(e.a).push(i);
+        byNode.get(e.b).push(i);
+      });
+      const kill = new Set();
+      for (const [n, list] of byNode) {
+        const live = list.filter((i) => !kill.has(i));
+        if (live.length < 2) continue;
+        const arms = live.map((i) => {
+          const pts = edges[i].pts;
+          const m = pts.length;
+          const [tx, tz] =
+            edges[i].a === n
+              ? [pts[1][0] - pts[0][0], pts[1][1] - pts[0][1]]
+              : [pts[m - 2][0] - pts[m - 1][0], pts[m - 2][1] - pts[m - 1][1]];
+          const l = Math.hypot(tx, tz) || 1;
+          return { i, tx: tx / l, tz: tz / l };
+        });
+        for (let x = 0; x < arms.length; x++) {
+          for (let y = x + 1; y < arms.length; y++) {
+            const A = arms[x];
+            const B = arms[y];
+            if (kill.has(A.i) || kill.has(B.i)) continue;
+            if (A.tx * B.tx + A.tz * B.tz <= COS_SLIVER) continue;
+            // Victim: a short minor only — a long arm is a real street that
+            // merely departs at a shallow angle.
+            const cand = [A.i, B.i].filter(
+              (i) => edges[i].half <= MINOR_MAX_HALF && edgeLen(edges[i]) < 60,
+            );
+            if (cand.length === 0) continue;
+            cand.sort(
+              (p, q) => edges[p].half - edges[q].half || edgeLen(edges[p]) - edgeLen(edges[q]),
+            );
+            kill.add(cand[0]);
+            slivers++;
+          }
+        }
+      }
+      if (kill.size > 0) {
+        edges = edges.filter((_, i) => !kill.has(i));
+        again = true;
+      }
+    }
+    console.log(`sliver arms: dropped ${slivers} near-parallel minor arms`);
+  }
+
   // Arm drops can orphan small sub-graphs — keep the main component again.
   const adj = new Map();
   for (const e of edges) {
@@ -815,7 +936,7 @@ function rasterizeEdges(road, major, edgeList) {
     }
   };
   for (const e of edgeList) {
-    const isMajor = e.half >= 6.4; // primary/secondary carry the "major" class
+    const isMajor = e.half >= 5.0; // primary/secondary carry the "major" class
     for (let i = 1; i < e.pts.length; i++) {
       const [ax, az] = e.pts[i - 1];
       const [bx, bz] = e.pts[i];
@@ -842,10 +963,10 @@ thin(gridFull, GRID_X, GRID_Z);
 // Exemptions mirror the runtime: wide arterials (>= PARK_KEEP_HALF) and the
 // Crossover/Hwy-1 corridor survive whole; the Presidio is real streets, so
 // parkCell() already excludes it (its cells never read as green). ---
-const PARK_KEEP_HALF = 7.0; // >= this half-width survives inside parks
+const PARK_KEEP_HALF = 5.5; // >= this half-width survives inside parks (primary)
 const CROSSOVER_X0 = -430; // Hwy-1 corridor band (Park Presidio → 19th Ave)
 const CROSSOVER_X1 = -320;
-const CROSSOVER_KEEP_HALF = 6.0; // its chain mixes 7.2 and 6.4 links — keep both
+const CROSSOVER_KEEP_HALF = 4.8; // its chain mixes primary and secondary links — keep both
 const MIN_FRAGMENT_LEN = 14; // shorter outside stubs aren't worth a street
 const greenAtWorld = (x, z) =>
   parkCell(Math.floor((x + WORLD_W / 2) / ROAD_TILE), Math.floor((z + WORLD_H / 2) / ROAD_TILE));
@@ -1270,3 +1391,87 @@ ${edgesOut}
   writeFileSync(new URL("./preview-network.svg", import.meta.url), out);
 }
 console.log("Wrote src/world/sf-network.ts, src/world/sf-streets.ts, preview-network.svg");
+
+// --- Elevated freeways (visual viaducts, NOT drivable network) ---
+// motorway/trunk were always excluded from the street network (multi-level
+// structures render flat as spaghetti) — instead they ship as their own
+// polyline set and the runtime builds them as ELEVATED decks on pillars
+// (src/world/freeways.ts). Links/ramps stay out: at this scale they read as
+// clutter, the mainline IS the identity (80 to the bridge, 101/280, Central).
+{
+  const FWY_HALF = { motorway: 5.2, trunk: 4.4 };
+  const fwyWays = raw.elements.filter(
+    (e) => e.type === "way" && e.geometry && FWY_HALF[e.tags?.highway] !== undefined,
+  );
+  const fwys = [];
+  for (const w of fwyWays) {
+    const half = FWY_HALF[w.tags.highway];
+    let cur = [];
+    for (const g of w.geometry) {
+      const u = projU(g.lon);
+      const v = projV(g.lat);
+      const x = (u - 0.5) * WORLD_W;
+      const z = (v - 0.5) * WORLD_H;
+      if (onLandUV(u, v)) cur.push([x, z]);
+      else {
+        if (cur.length >= 2) fwys.push({ half, pts: cur });
+        cur = [];
+      }
+    }
+    if (cur.length >= 2) fwys.push({ half, pts: cur });
+  }
+  const plLen = (pts) => {
+    let L = 0;
+    for (let i = 1; i < pts.length; i++)
+      L += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    return L;
+  };
+  // Chain fragments of one carriageway back together (ways split every few
+  // hundred meters in OSM): join ends within 1.5u, same class.
+  let joined = true;
+  while (joined) {
+    joined = false;
+    outer: for (let i = 0; i < fwys.length; i++) {
+      for (let j = 0; j < fwys.length; j++) {
+        if (i === j) continue;
+        const A = fwys[i];
+        const B = fwys[j];
+        if (A.half !== B.half) continue;
+        const ae = A.pts[A.pts.length - 1];
+        const bs = B.pts[0];
+        if (Math.hypot(ae[0] - bs[0], ae[1] - bs[1]) < 1.5) {
+          A.pts = A.pts.concat(B.pts.slice(1));
+          fwys.splice(j, 1);
+          joined = true;
+          break outer;
+        }
+      }
+    }
+  }
+  const kept = fwys
+    .map((f) => ({ half: f.half, pts: rdp(f.pts, 2.0) }))
+    .filter((f) => plLen(f.pts) >= 40);
+  console.log(`freeways: ${kept.length} polylines, ${Math.round(kept.reduce((a, f) => a + plLen(f.pts), 0) / 1000)}k units`);
+  const body = kept
+    .map(
+      (f) =>
+        `  { half: ${f.half}, p: [${f.pts.map(([x, z]) => `${Math.round(x * 10) / 10},${Math.round(z * 10) / 10}`).join(",")}] },`,
+    )
+    .join("\n");
+  writeFileSync(
+    new URL("../../src/world/sf-freeways.ts", import.meta.url),
+    `// AUTO-GENERATED by tools/sf-data/bake-network.mts — do not edit.
+// Elevated freeway centerlines (motorway/trunk mainlines, land-clipped).
+// Rendered as viaducts by src/world/freeways.ts — NOT part of the drivable
+// street network.
+export const FREEWAYS_GEN_ID = ${JSON.stringify(GEN_ID)};
+
+export type FreewayLine = { readonly half: number; readonly p: readonly number[] };
+
+export const SF_FREEWAYS: readonly FreewayLine[] = [
+${body}
+];
+`,
+  );
+  console.log("Wrote src/world/sf-freeways.ts");
+}

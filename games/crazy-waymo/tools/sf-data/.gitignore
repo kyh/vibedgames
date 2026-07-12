@@ -3,3 +3,4 @@ sf-streets.raw.json
 # Rendered previews / verification screenshots
 *.png
 *.svg
+sf-piers.raw.json

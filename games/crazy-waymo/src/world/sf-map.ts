@@ -22,6 +22,34 @@ function lineSide(u: number, v: number, ax: number, ay: number, bx: number, by: 
   return (bx - ax) * (v - ay) - (by - ay) * (u - ax);
 }
 
+// Real NE shoreline (Embarcadero), projected from lat/lon through the same
+// calibration as the street bake. The old straight u≈0.80 east shore held
+// land up to ~1.5 km past the real seawall — downtown met a fictional meadow
+// instead of the bay, and no pier placement could ever read as SF's docks.
+// [v, shore u] north→south; east of the interpolated line is water.
+const EMBARCADERO_SHORE: readonly (readonly [number, number])[] = [
+  [0.021, 0.6596], // Pier 39
+  [0.0415, 0.7146], // Pier 35
+  [0.0838, 0.7458], // Pier 23
+  [0.148, 0.7602], // Ferry Building
+  [0.2, 0.796], // Bay Bridge anchorage
+  [0.2634, 0.8114], // South Beach / Mission Rock
+];
+function shoreCut(u: number, v: number): number {
+  const S = EMBARCADERO_SHORE;
+  const first = S[0];
+  const last = S[S.length - 1];
+  if (!first || !last || v <= first[0] || v >= last[0]) return 1;
+  let i = 1;
+  while (i < S.length - 1 && (S[i]?.[0] ?? 1) < v) i++;
+  const a = S[i - 1];
+  const b = S[i];
+  if (!a || !b) return 1;
+  const t = (v - a[0]) / (b[0] - a[0] || 1);
+  const su = a[1] + (b[1] - a[1]) * t;
+  return 1 - smooth(u, su - 0.004, su + 0.008);
+}
+
 // Peninsula coastline: Pacific (W), Golden Gate (N), Bay (E); land to the south.
 export const landFactor: LandFactor = (u, v) => {
   let land = Math.min(
@@ -31,6 +59,8 @@ export const landFactor: LandFactor = (u, v) => {
   );
   // Lands End: the NW corner is ocean (coast bends Lands End→Golden Gate Bridge).
   land = Math.min(land, smooth(lineSide(u, v, 0.03, 0.26, 0.25, 0.03), -0.015, 0.02));
+  // The real Embarcadero seawall (see EMBARCADERO_SHORE above).
+  land = Math.min(land, shoreCut(u, v));
   // East-bay land fingers (jut past the 0.80 shore).
   land = Math.max(land, box(u, v, 0.82, 0.99, 0.7, 0.84)); // Hunters Point
   land = Math.max(land, box(u, v, 0.82, 0.98, 0.87, 0.97)); // Candlestick Point
@@ -38,6 +68,10 @@ export const landFactor: LandFactor = (u, v) => {
   land = Math.min(land, 1 - box(u, v, 0.71, 0.8, 0.29, 0.35)); // China Basin / Mission Bay
   land = Math.min(land, 1 - box(u, v, 0.71, 0.82, 0.57, 0.63)); // Islais Creek
   land = Math.min(land, 1 - box(u, v, 0.08, 0.18, 0.72, 0.86)); // Lake Merced (inland)
+  // Marin headlands: a strip of far-shore land inside the north edge so the
+  // Golden Gate DELIVERS somewhere — Battery Ridge, the overlook turnaround.
+  // Applied after every peninsula cut (max: it is its own landmass).
+  land = Math.max(land, box(u, v, 0.17, 0.36, -0.2, 0.016));
   return land;
 };
 
@@ -71,6 +105,16 @@ const SF_HILLS_M: ReadonlyArray<{ u: number; v: number; m: number; r: number; gr
   { u: 0.602, v: 0.091, m: 90, r: 0.045 }, // Russian Hill
   { u: 0.683, v: 0.082, m: 84, r: 0.035 }, // Telegraph Hill
   { u: 0.778, v: 0.234, m: 33, r: 0.035 }, // Rincon Hill
+  // Battery Ridge (Marin headlands): five overlapping summits form one ridge
+  // across the bridge's landing strip. Crests sit just off-map north (v < 0)
+  // so inside the border the ground always slopes UP toward the edge — the
+  // border wall reads as ridge, not invisible wall. Kept low enough (~12-15u)
+  // that the grass climb from the bridge deck (y≈7) to the overlook drives.
+  { u: 0.195, v: -0.006, m: 30, r: 0.026, green: true },
+  { u: 0.235, v: -0.002, m: 38, r: 0.03, green: true },
+  { u: 0.27, v: -0.005, m: 36, r: 0.03, green: true },
+  { u: 0.305, v: -0.002, m: 39, r: 0.03, green: true },
+  { u: 0.34, v: -0.007, m: 29, r: 0.026, green: true },
 ];
 export const SF_HILLS: readonly Hill[] = SF_HILLS_M.map((h) => ({
   u: h.u,
@@ -163,6 +207,17 @@ type Box = District & {
 };
 
 const NEIGHBORHOODS: readonly Box[] = [
+  // Marin side of the Golden Gate. NOT character "park" — that would invite
+  // the park-tile furniture machinery onto the headland; it stays wild grass.
+  {
+    name: "Battery Ridge Overlook",
+    character: "residential",
+    color: 0x93a06b,
+    uMin: 0.16,
+    uMax: 0.37,
+    vMin: 0,
+    vMax: 0.026,
+  },
   // Real SF green spaces (traced): the 4× map has room for the small parks.
   {
     name: "Dolores Park",

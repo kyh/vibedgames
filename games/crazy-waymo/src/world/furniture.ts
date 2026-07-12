@@ -822,7 +822,10 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
             });
           }
         } else {
-          // hillside: blobby kit-tree cluster straight on the terrain
+          // hillside: blobby kit-tree cluster straight on the terrain.
+          // Solids go on each tree that actually SEATED, at its real spot —
+          // a cluster-center solid was an invisible wall whenever the trees
+          // scattered away from it or failed to seat entirely (asphalt).
           const clusters = 1 + rng.int(2);
           for (let c = 0; c < clusters; c++) {
             const cx2 = wx + rng.range(-4, 4);
@@ -832,21 +835,23 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
               const tUrl = modelUrl("props", rng.pick(PARK_TREES));
               const ptx = cx2 + rng.range(-2.4, 2.4);
               const ptz = cz2 + rng.range(-2.4, 2.4);
-              seat(
+              const planted = seat(
                 tUrl,
                 ptx,
                 ptz,
                 rng.range(0, Math.PI * 2),
                 scaleToHeight(tUrl, rng.range(3.6, 5.6)),
               );
+              if (planted) {
+                solids.push({
+                  minX: ptx - 0.55,
+                  maxX: ptx + 0.55,
+                  minZ: ptz - 0.55,
+                  maxZ: ptz + 0.55,
+                  noBody: true,
+                });
+              }
             }
-            solids.push({
-              minX: cx2 - 0.6,
-              maxX: cx2 + 0.6,
-              minZ: cz2 - 0.6,
-              maxZ: cz2 + 0.6,
-              noBody: true,
-            });
           }
           if (rng.chance(0.5)) {
             const bUrl = modelUrl("props", rng.pick(BUSHES));
@@ -1058,7 +1063,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
         const smp = network.sample(edge, s0);
         const sign = end === "a" ? 1 : -1;
         arms.push({ tx: smp.tx * sign, tz: smp.tz * sign, half: edge.half, px: smp.x, pz: smp.z });
-        if (edge.half > 5.5) boulevards++;
+        if (edge.half > 4.7) boulevards++;
       }
     }
     const signalized = boulevards >= 2 || (arms.length >= 4 && rng.chance(0.08));

@@ -27,17 +27,22 @@ import {
 } from "../shared/constants";
 import { Rng } from "../shared/rng";
 import { type Dir, DIR_DELTA, E, N, S, W } from "../shared/types";
-import { toFloat32Attributes } from "./conform";
+import { type DrapeField, toFloat32Attributes } from "./conform";
 import { activeMapProps } from "./map-file";
 import { buildFurniture, type LampHead, type ParkedSpec } from "./furniture";
 import { buildGoldenGate } from "./golden-gate";
 import { RoadNetwork } from "./network";
 import { type CityPlan, generateCity } from "./grid";
 import { CUSTOM_MAP, editorMode, loadLocalOverrides } from "./custom-map";
-import { isParkCell, makeGroundColorAt, makeGroundOffset, parkCellHeight } from "./ground";
+import {
+  isParkCell,
+  makeGroundColorAt,
+  makeGroundOffset,
+  makeTerracedDrapeField,
+  parkCellHeight,
+} from "./ground";
 import { landuseGreenAt, landuseSandAt } from "./sf-landuse";
 import { buildGridNetwork } from "./grid-network";
-import { SF_BUILDINGS, SF_BUILDINGS_BOUNDS } from "./sf-buildings";
 import {
   bakeConstantColor,
   buildRoads,
@@ -46,7 +51,11 @@ import {
   roadPartsToMeshes,
 } from "./roads";
 import type { CityGenPayload } from "./gen-worker";
+import { buildFreeways, freewaySolids, nearFreeway } from "./freeways";
+import { buildPiers } from "./piers";
 import { buildLandmarks, landmarkProtection } from "./landmarks";
+import { SF_FOOTPRINTS } from "./sf-footprints";
+import { prismGeometry, prismMaterialsFor, prismSpec } from "./sf-prisms";
 import {
   type DistrictChar,
   districtAt,
@@ -74,6 +83,10 @@ const HALF_PI = Math.PI / 2;
 const HALF_PI_CITY = Math.PI / 2;
 const BUILDING_FRONT_OFFSET = Math.PI;
 // Hillside foundations: concrete plinth under buildings on a grade.
+// Commercial districts whose real fabric is wall-to-wall mid-rise — frontage
+// rows pack shoulder-to-shoulder here instead of the gapped commercial step.
+const PACKED_COMMERCIAL = new Set(["Chinatown", "North Beach", "Union Square"]);
+
 const PLINTH_GEO = new THREE.BoxGeometry(1, 1, 1);
 const PLINTH_MAT = new THREE.MeshStandardMaterial({ color: 0xb3aca0, roughness: 1 });
 // The mid-rise KayKit blocks (aspect ~0.8-1.2); c/d/g/h are 3-story towers
@@ -300,7 +313,7 @@ export type Garage = { x: number; z: number; yaw: number; padX: number; padZ: nu
 const GARAGE_COUNT = 7;
 const GARAGE_MIN_DIST = 350;
 
-function pickGarageSpots(plan: CityPlan, terrain: Terrain): Garage[] {
+function pickGarageSpots(plan: CityPlan, terrain: Terrain, network: RoadNetwork): Garage[] {
   const cells = plan.cells;
   const dirs: readonly (readonly [number, number])[] = [
     [1, 0],
@@ -350,6 +363,24 @@ function pickGarageSpots(plan: CityPlan, terrain: Terrain): Garage[] {
     const wx = (c.gx + 0.5) * ROAD_TILE - WORLD_HALF_X;
     const wz = (c.gz + 0.5) * ROAD_TILE - WORLD_HALF_Z;
     if (picked.some((g) => Math.hypot(g.x - wx, g.z - wz) < GARAGE_MIN_DIST)) continue;
+    // Depot footprint must not clip a vector lane: the grid says "lot" but
+    // straightened OSM centrelines cut lot cells, and a depot corner in the
+    // roadway is an (invisible from the lane) wall.
+    const dh = ROAD_TILE * 0.42 + 0.3;
+    let clipsLane = false;
+    for (const [ox, oz] of [
+      [-dh, -dh],
+      [dh, -dh],
+      [-dh, dh],
+      [dh, dh],
+    ] as const) {
+      const hit = network.nearest(wx + ox, wz + oz, ROAD_TILE * 1.4);
+      if (hit && hit.dist < hit.edge.half + 0.2) {
+        clipsLane = true;
+        break;
+      }
+    }
+    if (clipsLane) continue;
     picked.push({
       x: wx,
       z: wz,
@@ -372,6 +403,17 @@ export class CityModel {
   readonly garages: readonly Garage[]; // robotaxi skin-swap depots (+ drive-in pads)
   lampHeads: readonly LampHead[] = []; // streetlight glow anchors (night pass)
   private chunks: Chunk[] = [];
+  // Road drape target (terrain + step-ladder street terrace), cached per
+  // network so live street edits rebuild it exactly once.
+  private roadDrapeCache: DrapeField | null = null;
+  private roadDrapeNet: RoadNetwork | null = null;
+  private roadDrape(): DrapeField {
+    if (!this.roadDrapeCache || this.roadDrapeNet !== this.network) {
+      this.roadDrapeCache = makeTerracedDrapeField(this.network, this.terrain);
+      this.roadDrapeNet = this.network;
+    }
+    return this.roadDrapeCache;
+  }
   // Global model batches; instances flip visibility by chunk on transitions.
   private batches: { mesh: THREE.BatchedMesh; chunkIds: Uint16Array }[] = [];
   private batchChunkGrid = { nx: 1, nz: 1 };
@@ -503,7 +545,6 @@ export class CityModel {
   ) {
     this.terrain = makeTerrain();
     this.plan = generateCity();
-    this.garages = pickGarageSpots(this.plan, this.terrain);
     // Pristine cities drive the BAKED VECTOR network — exact OSM centrelines,
     // no raster quantisation, per-class widths, true diagonals and curves.
     // Cities with painted street edits fall back to the grid-derived graph so
@@ -524,6 +565,9 @@ export class CityModel {
     } else {
       this.network = new RoadNetwork();
     }
+    // Garage spots come AFTER the network: candidates whose depot footprint
+    // clips vector asphalt are rejected (grid lots ≠ vector lanes).
+    this.garages = pickGarageSpots(this.plan, this.terrain, this.network);
     // build happens in init() so the loading bar can breathe between phases
   }
 
@@ -554,7 +598,7 @@ export class CityModel {
       m.parent?.remove(m);
       m.geometry.dispose();
     }
-    for (const m of buildRoads(this.network, this.terrain)) root.add(m);
+    for (const m of buildRoads(this.network, this.roadDrape())) root.add(m);
   }
 
   worldX(gx: number): number {
@@ -706,6 +750,10 @@ export class CityModel {
 
     // Grass patch + scattered trees on a cell (parks + block interiors).
     const placeGreen = (gx: number, gz: number): void => {
+      // The Marin headland (v < 0.03) is the Golden Gate module's domain: it
+      // plants its own trees CLEAR of the bridge-landing corridor. Generic
+      // green-lot scatter here put tree solids right on the crossing path.
+      if ((gz + 0.5) / GRID_Z < 0.03) return;
       const wx = this.worldX(gx);
       const wz = this.worldZ(gz);
       // The lawn itself is painted by the ground mesh's vertex grading (see
@@ -749,20 +797,20 @@ export class CityModel {
     if (this.genPayload && this.genPayload.roadParts.length > 0) {
       pushRoads(roadPartsToMeshes(this.genPayload.roadParts));
     } else if (!this.genPayload) {
-      pushRoads(buildRoads(this.network, this.terrain));
+      pushRoads(buildRoads(this.network, this.roadDrape()));
     }
     // Baked world payloads carry no roadParts (rest.bin's merged chunks have
     // the roads). If rest FAILS to arrive, initLate generates them here.
     this.lateRoadFallback = () => {
       if (this.genPayload && this.genPayload.roadParts.length === 0) {
-        pushRoads(buildRoads(this.network, this.terrain));
+        pushRoads(buildRoads(this.network, this.roadDrape()));
       }
     };
 
     // --- Landmark footprints: cells the procedural city leaves alone.
     // Editor "clear" cells join the reservation, so every placement pass
     // (buildings, furniture, park tiles) skips them. ---
-    const lmBase = landmarkProtection(this.plan);
+    const lmBase = landmarkProtection(this.plan, this.network);
     const reservedAll = new Set(lmBase.reserved);
     for (const [cgx, cgz] of loadLocalOverrides().clear ?? []) {
       reservedAll.add(`${cgx},${cgz}`);
@@ -774,7 +822,16 @@ export class CityModel {
       reservedAll.add(`${ggx},${ggz}`);
     }
     const lm = { ...lmBase, reserved: reservedAll };
-    for (const s of lm.solids) this.solids.push(s);
+    // Landmark monuments have visuals but are NOT batch items (built as
+    // one-off meshes in buildLandmarks), so the e2e sightless census cannot
+    // vouch for them — tag the reason instead of relying on batched
+    // neighbours to cover them by coincidence.
+    for (const s of lm.solids) this.solids.push({ ...s, unseen: "landmark (unbatched monument)" });
+    // Freeway viaduct pillars: visuals are main-side one-offs (buildFreeways,
+    // added next to the landmarks), solids derive from the same data here.
+    for (const s of freewaySolids(this.terrain)) {
+      this.solids.push({ ...s, unseen: "freeway pillar (unbatched viaduct)" });
+    }
     // The depot buildings themselves (orange roller-door warehouse).
     for (const g of this.garages) {
       const url = modelUrl("buildings", GARAGE_MODEL);
@@ -864,17 +921,43 @@ export class CityModel {
       gx: number,
       gz: number,
       faceDir: Dir,
-      footprintFrac: number,
+      footprintFracIn: number,
       dressing: boolean, // rooftop towers + curbside trees (frontage only)
       pose: AvenuePose | null = null,
     ): boolean => {
       const district = districtAt(gx, gz);
       const wx = pose ? pose.x : this.worldX(gx);
       const wz = pose ? pose.z : this.worldZ(gz);
-      if (occupied(wx, wz, ROAD_TILE * footprintFrac * 0.45)) return false;
-      // A building whose CENTER sits on vector asphalt walls off the street
-      // (diagonal spines cross grid lots) — the lot goes green instead.
+      // A building whose footprint TOUCHES vector asphalt walls off the
+      // street (diagonal spines and the dense hill grid cut across grid
+      // lots). All-or-nothing rejection here sent whole small blocks green
+      // (Chinatown's 1-2 cell lot islands are boxed in by road on most
+      // sides) — so tight lots now SHRINK to what fits instead.
       if (this.onAsphalt(wx, wz, 1)) return false;
+      if (nearFreeway(wx, wz, 1.5)) return false; // no lots inside the viaduct ROW
+      const cornersClear = (f: number): boolean => {
+        const sbh = ROAD_TILE * f * 0.46;
+        return !(
+          this.onAsphalt(wx - sbh, wz - sbh, 0.4) ||
+          this.onAsphalt(wx + sbh, wz - sbh, 0.4) ||
+          this.onAsphalt(wx - sbh, wz + sbh, 0.4) ||
+          this.onAsphalt(wx + sbh, wz + sbh, 0.4)
+        );
+      };
+      let footprintFrac = footprintFracIn;
+      if (!cornersClear(footprintFrac)) {
+        const near = this.network.nearest(wx, wz, ROAD_TILE * 1.6);
+        footprintFrac = near
+          ? Math.min(footprintFrac, ((near.dist - near.edge.half - 0.5) * 2) / ROAD_TILE)
+          : footprintFrac * 0.75;
+        // Corner lots see a second street the nearest-edge shrink can't: one
+        // more step down before giving the lot to grass.
+        if (ROAD_TILE * footprintFrac < 3.0 || !cornersClear(footprintFrac)) {
+          footprintFrac *= 0.78;
+          if (ROAD_TILE * footprintFrac < 3.0 || !cornersClear(footprintFrac)) return false;
+        }
+      }
+      if (occupied(wx, wz, ROAD_TILE * footprintFrac * 0.45)) return false;
       const key = this.rng.pick(this.poolFor(district.character));
       const url = modelUrl("buildings", key);
       const bounds = this.cache.bounds(url);
@@ -1010,11 +1093,6 @@ export class CityModel {
     };
 
     // --- Buildings (district-driven pool, palette tint, height) ---
-    const inRealData = (x: number, z: number): boolean =>
-      x >= SF_BUILDINGS_BOUNDS.minX &&
-      x <= SF_BUILDINGS_BOUNDS.maxX &&
-      z >= SF_BUILDINGS_BOUNDS.minZ &&
-      z <= SF_BUILDINGS_BOUNDS.maxZ;
     for (const b of this.plan.buildingCells) {
       const cellId = `${b.gx},${b.gz}`;
       if (lm.reserved.has(cellId)) continue; // a landmark stands here
@@ -1024,98 +1102,123 @@ export class CityModel {
     }
 
     this.phase2 = async () => {
-      // --- REAL downtown buildings: positions, footprints and heights from the
-      // licensed SF model (calibrated in tools/sf-data/calibrate-downtown.mjs).
-      // Kit models are chosen by height class and stretched to the real
-      // footprint — the actual skyline at the actual addresses. ---
+      // --- REAL downtown fabric: footprint POLYGONS + heights from the
+      // licensed SF model (tools/sf-data/extract-footprints.mjs), extruded as
+      // flat-shaded prisms — the actual massing at the actual addresses.
+      // Kit models only fill in where the real data thins out (occupancy
+      // marks make the frontage pass skip real parcels). ---
       {
         let placed = 0;
-        for (const [bx0, bz0, bw, bd, bh] of SF_BUILDINGS) {
-          if (placed >= 2600) break;
-          if (bh < 1.2 || bw < 2.2 || bd < 2.2) continue;
-          let bx = bx0;
-          let bz = bz0;
-          let fitScale = 1;
-          if (!isLandCell(this.gridX(bx), this.gridZ(bz))) continue;
-          // Real parcels abut real streets; ours are ~2x wide, so NUDGE the
-          // building outward instead of rejecting it.
-          const nearHit = this.network.nearest(bx, bz, ROAD_TILE * 1.6);
-          if (nearHit) {
-            const want = nearHit.edge.half + Math.min(bw, bd) / 2 + 0.4;
-            if (nearHit.dist < want) {
-              const push = Math.min(want - nearHit.dist, 7);
-              const dx = bx - nearHit.x;
-              const dz = bz - nearHit.z;
-              const dl = Math.hypot(dx, dz) || 1;
-              bx += (dx / dl) * push;
-              bz += (dz / dl) * push;
-              const re = this.network.nearest(bx, bz, ROAD_TILE * 1.6);
-              if (re && re.dist < re.edge.half + Math.min(bw, bd) / 2 - 0.6) {
-                const maxFit = (re.dist - re.edge.half + 0.6) * 2;
-                if (maxFit < Math.max(bw, bd) * 0.45 || maxFit < 3) continue;
-                const shrink = maxFit / Math.max(bw, bd);
-                // shrink footprint to the block, keep the real height
-                // (bw/bd are consts from destructuring — scale via locals)
-                fitScale = Math.min(1, shrink);
-              }
-            }
+        let roadSkip = 0;
+        let walkP = 0;
+        for (const flat of SF_FOOTPRINTS) {
+          if (++walkP % 500 === 0) await this.breathe();
+          const spec = prismSpec(flat);
+          if (!spec) continue;
+          const { cx, cz, h: bh, rel } = spec;
+          const bgx = this.gridX(cx);
+          const bgz = this.gridZ(cz);
+          if (!isLandCell(bgx, bgz)) continue;
+          if (lm.reserved.has(`${bgx},${bgz}`)) continue; // landmark parcel
+          if (occupied(cx, cz, 3.2)) continue;
+          // Real parcels + real streets agree to calibration error (~5u);
+          // only a parcel genuinely IN a lane gets skipped — nudging one
+          // building of a wall-to-wall row just makes it collide with the
+          // next one.
+          if (this.onAsphalt(cx, cz, 0.4)) {
+            roadSkip++;
+            continue;
           }
-          if (occupied(bx, bz, Math.max(bw, bd) * 0.45)) continue;
-          const pool =
-            bh > 28 ? BUILDINGS_SKYSCRAPER : bh > 9 ? BUILDINGS_COMMERCIAL : BUILDINGS_SUBURBAN;
-          const key = this.rng.pick(pool);
-          const url = modelUrl("buildings", key);
-          const bounds = this.cache.bounds(url);
-          const fw = bw * fitScale;
-          const fd = bd * fitScale;
-          const sxz = Math.max(fw, fd) / Math.max(bounds.size.x, bounds.size.z, 0.001);
-          const sy = bh / Math.max(bounds.size.y, 0.001);
-          const fh = Math.max(fw, fd) / 2;
-          const corners = [
-            this.terrain.heightAt(bx, bz),
-            this.terrain.heightAt(bx - fh, bz - fh),
-            this.terrain.heightAt(bx + fh, bz - fh),
-            this.terrain.heightAt(bx - fh, bz + fh),
-            this.terrain.heightAt(bx + fh, bz + fh),
-          ];
-          let seatY = Math.max(...corners);
-          if (seatY - Math.min(...corners) > 5) continue;
-          // Terrace-aware, same as placeBuilding: don't get buried by park tiles.
-          const bgx = this.gridX(bx);
-          const bgz = this.gridZ(bz);
+          let deep = false;
+          for (let i = 0; i < rel.length && !deep; i += 2) {
+            if (this.onAsphalt(cx + (rel[i] ?? 0), cz + (rel[i + 1] ?? 0), -1.2)) deep = true;
+          }
+          if (deep) {
+            roadSkip++;
+            continue;
+          }
+          // Seat at the highest ring vertex; sink the walls to the lowest so
+          // hillside parcels never show open air under the low side.
+          let seatY = this.terrain.heightAt(cx, cz);
+          let loY = seatY;
+          for (let i = 0; i < rel.length; i += 2) {
+            const y = this.terrain.heightAt(cx + (rel[i] ?? 0), cz + (rel[i + 1] ?? 0));
+            if (y > seatY) seatY = y;
+            if (y < loY) loY = y;
+          }
           if (isParkCell(bgx, bgz)) {
             seatY = Math.max(seatY, parkCellHeight(this.terrain, bgx, bgz));
           }
-          // Same hillside foundation as placeBuilding: seated at the highest
-          // corner, a concrete plinth must fill the downhill gap or houses on
-          // a grade hover with open air under the low side.
-          const drop = seatY - Math.min(...corners);
-          if (drop > 0.7) {
-            const plinth = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
-            const ph = drop + 0.8;
-            plinth.scale.set(fw * 0.98, ph, fd * 0.98);
-            plinth.position.set(bx, seatY - 0.1 - ph / 2, bz);
-            plinth.updateMatrixWorld(true);
-            collect(plinth);
+          const drop = seatY - loY;
+          if (drop > 6) continue; // too steep — leave the face green
+          const mats = prismMaterialsFor(bh);
+          // Visual floor: sub-3u prisms read as pavement slabs, not buildings.
+          const renderSpec = bh < 2.8 ? { ...spec, h: 2.8 } : spec;
+          const mesh = new THREE.Mesh(
+            prismGeometry(renderSpec, drop + 0.8),
+            mats[this.rng.int(mats.length)] ?? PLINTH_MAT,
+          );
+          mesh.position.set(cx, seatY - 0.12, cz);
+          collect(mesh);
+
+          // Collision: rectangles get one OBB; complex outlines get one thin
+          // OBB per wall segment (an AABB over an L-shape or a diagonal row
+          // would wall off half a street corner).
+          const n = rel.length / 2;
+          const wallOBB = (x0: number, z0: number, x1: number, z1: number, t: number): void => {
+            const len = Math.hypot(x1 - x0, z1 - z0);
+            if (len < 2.2) return;
+            const ex = (x1 - x0) / len;
+            const ez = (z1 - z0) / len;
+            const mx = (x0 + x1) / 2;
+            const mz = (z0 + z1) / 2;
+            this.solids.push({
+              minX: mx - len / 2,
+              maxX: mx + len / 2,
+              minZ: mz - t / 2,
+              maxZ: mz + t / 2,
+              yaw: Math.atan2(-ez, ex),
+            });
+          };
+          if (n === 4) {
+            const ax = cx + (rel[0] ?? 0);
+            const az = cz + (rel[1] ?? 0);
+            const bx = cx + (rel[2] ?? 0);
+            const bz = cz + (rel[3] ?? 0);
+            const dxx = cx + (rel[4] ?? 0);
+            const dzz = cz + (rel[5] ?? 0);
+            const lenA = Math.hypot(bx - ax, bz - az);
+            const lenB = Math.hypot(dxx - bx, dzz - bz);
+            const ex = (bx - ax) / (lenA || 1);
+            const ez = (bz - az) / (lenA || 1);
+            this.solids.push({
+              minX: cx - (lenA / 2) * 0.96,
+              maxX: cx + (lenA / 2) * 0.96,
+              minZ: cz - (lenB / 2) * 0.96,
+              maxZ: cz + (lenB / 2) * 0.96,
+              yaw: Math.atan2(-ez, ex),
+            });
+          } else {
+            for (let i = 0; i < n; i++) {
+              const j = (i + 1) % n;
+              wallOBB(
+                cx + (rel[i * 2] ?? 0),
+                cz + (rel[i * 2 + 1] ?? 0),
+                cx + (rel[j * 2] ?? 0),
+                cz + (rel[j * 2 + 1] ?? 0),
+                1.6,
+              );
+            }
           }
-          const node = this.cache.instance(url);
-          node.scale.set(sxz, sy, sxz);
-          node.position.set(bx, seatY - 0.15, bz);
-          const district = districtAt(this.gridX(bx), this.gridZ(bz));
-          this.tintNode(node, this.rng.pick(paletteFor(district)), tintAmountFor(district));
-          collect(node);
-          const hw = (fw / 2) * 0.94;
-          const hd = (fd / 2) * 0.94;
-          this.solids.push({
-            minX: bx - hw,
-            maxX: bx + hw,
-            minZ: bz - hd,
-            maxZ: bz + hd,
-          });
-          occupy(bx, bz, Math.max(fw, fd) * 0.5);
+          // Occupancy: centroid + ring verts, so the frontage/infill passes
+          // skip real parcels without one giant circle over-claiming.
+          occupy(cx, cz, 3.6);
+          for (let i = 0; i < rel.length; i += 2) {
+            occupy(cx + (rel[i] ?? 0), cz + (rel[i + 1] ?? 0), 3.0);
+          }
           placed++;
         }
-        console.log(`[city] real downtown buildings placed: ${placed}`);
+        console.log(`[city] real footprints placed: ${placed} (${roadSkip} skipped on asphalt)`);
       }
 
       // --- FRONTAGE ROWS along the network edges: buildings walk each street
@@ -1136,14 +1239,22 @@ export class CityModel {
             const gx = this.gridX(smp.x);
             const gz = this.gridZ(smp.z);
             const district = districtAt(gx, gz);
+            // Chinatown/North Beach/Union Square are "commercial" for pool +
+            // palette, but their real fabric is wall-to-wall — the gapped
+            // commercial spacing read as sparse suburbs there.
+            const packed = PACKED_COMMERCIAL.has(district.name);
             const dense =
-              district.character === "residential" || district.character === "victorian";
+              district.character === "residential" ||
+              district.character === "victorian" ||
+              packed;
             const frac =
               district.character === "downtown" || district.character === "highrise"
                 ? this.rng.range(0.7, 0.82)
-                : dense
-                  ? this.rng.range(0.46, 0.56) // row-houses, shoulder to shoulder
-                  : this.rng.range(0.58, 0.7);
+                : packed
+                  ? this.rng.range(0.6, 0.72) // mid-rise blocks, no gaps
+                  : dense
+                    ? this.rng.range(0.46, 0.56) // row-houses, shoulder to shoulder
+                    : this.rng.range(0.58, 0.7);
             const footprint = ROAD_TILE * frac;
             // Dense districts: models stack shoulder-to-shoulder (attached SF
             // rows) — a hair of overlap guarantees no light gap between walls.
@@ -1275,11 +1386,14 @@ export class CityModel {
             const nb = this.plan.cells[gx + dx]?.[gz + dz];
             if (nb !== "road" && nb !== "lot") continue;
             coastal = true;
-            const beach = landuseSandAt(gx + dx, gz + dz);
-            const h = beach ? 0.8 : 1.0;
-            const th = beach ? 1.6 : 0.6;
             const ex = wx + dx * (ROAD_TILE / 2);
             const ez = wz + dz * (ROAD_TILE / 2);
+            // OSM sand cells AND natural shore-gradient beaches (ground.ts
+            // paints sand where landAt < ~0.45) get the low berm; only truly
+            // urban hard shores keep the concrete seawall.
+            const beach = landuseSandAt(gx + dx, gz + dz) || this.terrain.landAt(ex, ez) < 0.45;
+            const h = beach ? 0.8 : 1.0;
+            const th = beach ? 1.6 : 0.6;
             const groundY = this.terrain.heightAt(
               wx + dx * ROAD_TILE * 0.62,
               wz + dz * ROAD_TILE * 0.62,
@@ -1442,7 +1556,9 @@ export class CityModel {
       await this.buildBatchesFrom(batchBuckets, nx, nz);
 
       // --- Iconic landmarks (procedural; kept separate — always visible) ---
-      this.group.add(buildLandmarks(this.terrain, this.cache));
+      this.group.add(buildLandmarks(this.terrain, this.cache, this.network));
+      this.group.add(buildFreeways(this.terrain));
+      this.group.add(buildPiers(this.terrain));
 
       // City-rest cache capture: phases 2+3 output in serializable form. Only
       // stored when every batch item is source-tagged (else a rebuild would
@@ -1605,7 +1721,9 @@ export class CityModel {
     this.addDecks(rest.decks);
     this.buildGround();
     // Landmarks are procedural + cheap — always rebuilt live.
-    this.group.add(buildLandmarks(this.terrain, this.cache));
+    this.group.add(buildLandmarks(this.terrain, this.cache, this.network));
+    this.group.add(buildFreeways(this.terrain));
+    this.group.add(buildPiers(this.terrain));
   }
 
   // Build BatchedMeshes (+ box imposters + chunk instance maps) from filled

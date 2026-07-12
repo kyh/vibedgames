@@ -67,3 +67,26 @@ grid, re-bake at those dimensions: `node rasterize.mjs <GRID_X> <GRID_Z>`.
   grid merges into a blob; finer than ~70 m/cell the cell count (and draw calls)
   climb steeply — the chunked streaming in `city.ts` is what keeps the large map
   affordable to render.
+
+## Real-footprint / waterfront / freeway pipeline (2026-07-12)
+
+- **`extract-footprints.mjs <obj>`** — parses the licensed "Downtown San
+  Francisco" OBJ into per-building footprint POLYGONS + heights →
+  `src/world/sf-footprints.ts` (~21k entries). The model→world transform is
+  hardcoded (`CAL`): anchored on Salesforce/Transamerica (identified by the
+  1.598 model-h/real-m ratio) and hill-climbed against the street mask with
+  INDEPENDENT x/z scales and NO z-flip — the old calibrate-downtown fit
+  (uniform scale, fz=-1) locked onto a MIRRORED false optimum and shipped an
+  upside-down downtown. Anchors are re-verified on every run (aborts >12u).
+  The game extrudes these outlines as prisms (`src/world/sf-prisms.ts`),
+  replacing the old bbox+kit-model downtown pass.
+- **`bake-piers.mjs`** — `sf-piers.raw.json` (Overpass `man_made=pier`, no
+  fetch script yet — query in git history) → `src/world/sf-piers.ts`. Piers
+  the traced coast swallows slide seaward along their long axis to hang off
+  the game's shoreline. Rendered by `src/world/piers.ts`.
+- **Freeways** — `bake-network.mts` also emits `src/world/sf-freeways.ts`
+  (motorway/trunk mainlines; links dropped). Rendered as ELEVATED viaducts by
+  `src/world/freeways.ts` — never part of the drivable network.
+- **`EMBARCADERO_SHORE`** — the NE coast is cut to the REAL shoreline in
+  `src/world/sf-map.ts` `landFactor` (copies in bake-network.mts +
+  bake-piers.mjs must stay in sync) so downtown meets the bay at the seawall.
