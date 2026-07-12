@@ -5,109 +5,19 @@
 //   node tools/sf-data/bake-piers.mjs
 
 import { readFileSync, writeFileSync } from "node:fs";
-
-const GRID_X = 244;
-const GRID_Z = 200;
-const ROAD_TILE = 13;
-const WORLD_W = GRID_X * ROAD_TILE;
-const WORLD_H = GRID_Z * ROAD_TILE;
-
-// Calibrated projection — keep in sync with bake-network.mts.
-const U_M = 6.2462,
-  U_B = 765.2557;
-const V_M = -9.6095,
-  V_B = 363.344;
-const projU = (lon) => U_M * lon + U_B;
-const projV = (lat) => V_M * lat + V_B;
-
-// landFactor — keep in sync with src/world/sf-map.ts (same copy as
-// bake-network.mts; piers must reference the game's traced coast, not OSM's).
-function smooth(x, a, b) {
-  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
-  return t * t * (3 - 2 * t);
-}
-function box(u, v, uMin, uMax, vMin, vMax) {
-  const fu = Math.min(smooth(u, uMin - 0.02, uMin + 0.01), 1 - smooth(u, uMax - 0.01, uMax + 0.02));
-  const fv = Math.min(smooth(v, vMin - 0.02, vMin + 0.01), 1 - smooth(v, vMax - 0.01, vMax + 0.02));
-  return Math.min(fu, fv);
-}
-function lineSide(u, v, ax, ay, bx, by) {
-  return (bx - ax) * (v - ay) - (by - ay) * (u - ax);
-}
-const EMBARCADERO_SHORE = [
-  [0.021, 0.6596],
-  [0.0415, 0.7146],
-  [0.0838, 0.7458],
-  [0.148, 0.7602],
-  [0.2, 0.796],
-  [0.2634, 0.8114],
-];
-function shoreCut(u, v) {
-  const S = EMBARCADERO_SHORE;
-  if (v <= S[0][0] || v >= S[S.length - 1][0]) return 1;
-  let i = 1;
-  while (i < S.length - 1 && S[i][0] < v) i++;
-  const a = S[i - 1];
-  const b = S[i];
-  const t = (v - a[0]) / (b[0] - a[0] || 1);
-  const su = a[1] + (b[1] - a[1]) * t;
-  return 1 - smooth(u, su - 0.004, su + 0.008);
-}
-function landFactor(u, v) {
-  let land = Math.min(smooth(u, 0.025, 0.06), 1 - smooth(u, 0.78, 0.85), smooth(v, 0.025, 0.07));
-  land = Math.min(land, smooth(lineSide(u, v, 0.03, 0.26, 0.25, 0.03), -0.015, 0.02));
-  land = Math.min(land, shoreCut(u, v));
-  land = Math.max(land, box(u, v, 0.82, 0.99, 0.7, 0.84));
-  land = Math.max(land, box(u, v, 0.82, 0.98, 0.87, 0.97));
-  land = Math.min(land, 1 - box(u, v, 0.71, 0.8, 0.29, 0.35));
-  land = Math.min(land, 1 - box(u, v, 0.71, 0.82, 0.57, 0.63));
-  land = Math.min(land, 1 - box(u, v, 0.08, 0.18, 0.72, 0.86));
-  return land;
-}
-const onLandUV = (u, v) => landFactor(u, v) > 0.5;
+import {
+  onLandUV,
+  rdp,
+  ringArea,
+  projU,
+  projV,
+  WORLD_H,
+  WORLD_W,
+} from "./lib.mjs";
 
 const raw = JSON.parse(readFileSync(new URL("./sf-piers.raw.json", import.meta.url)));
 const ways = raw.elements.filter((e) => e.type === "way" && e.geometry);
 console.log(`pier ways: ${ways.length}`);
-
-const ringArea = (pts) => {
-  let a = 0;
-  for (let i = 0; i < pts.length; i++) {
-    const [x0, z0] = pts[i];
-    const [x1, z1] = pts[(i + 1) % pts.length];
-    a += x0 * z1 - x1 * z0;
-  }
-  return a / 2;
-};
-
-function rdp(pts, eps) {
-  if (pts.length <= 3) return pts;
-  const keep = new Array(pts.length).fill(false);
-  keep[0] = keep[pts.length - 1] = true;
-  const stack = [[0, pts.length - 1]];
-  while (stack.length) {
-    const [i0, i1] = stack.pop();
-    const [ax, az] = pts[i0];
-    const [bx, bz] = pts[i1];
-    const dx = bx - ax;
-    const dz = bz - az;
-    const len = Math.hypot(dx, dz) || 1;
-    let worst = -1;
-    let worstD = eps;
-    for (let i = i0 + 1; i < i1; i++) {
-      const d = Math.abs((pts[i][0] - ax) * dz - (pts[i][1] - az) * dx) / len;
-      if (d > worstD) {
-        worstD = d;
-        worst = i;
-      }
-    }
-    if (worst >= 0) {
-      keep[worst] = true;
-      stack.push([i0, worst], [worst, i1]);
-    }
-  }
-  return pts.filter((_, i) => keep[i]);
-}
 
 const closed = []; // { p: flat ring, area }
 const open = []; // { p: flat polyline }

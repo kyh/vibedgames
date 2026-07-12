@@ -5,7 +5,7 @@
 
 // Generation stamp shared with sf-network.ts (NETWORK_GEN_ID) — proves both
 // files came from one bake run (the test asserts equality).
-export const STREETS_GEN_ID = "2026-07-12T14:03:03.756Z";
+export const STREETS_GEN_ID = "2026-07-12T15:45:08.485Z";
 
 export const SF_STREET_MASK = {
   gx: 244,

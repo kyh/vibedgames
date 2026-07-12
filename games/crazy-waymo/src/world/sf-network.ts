@@ -8,7 +8,7 @@
 
 // Generation stamp shared with sf-streets.ts (STREETS_GEN_ID) — equal only when
 // both files came from the same bake run (the test asserts equality).
-export const NETWORK_GEN_ID = "2026-07-12T14:03:03.756Z";
+export const NETWORK_GEN_ID = "2026-07-12T15:45:08.485Z";
 
 // Nodes at index >= this are park-clip cut ends (kept degree-1 by construction).
 export const SF_BASE_NODES = 3853;

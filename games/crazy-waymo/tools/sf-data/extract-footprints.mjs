@@ -19,17 +19,13 @@
 import { createReadStream, readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 
+import { GRID_Z, rdp, ringArea, WORLD_H, WORLD_W } from "./lib.mjs";
+
 const objPath = process.argv[2];
 if (!objPath) {
   console.error("usage: node extract-footprints.mjs <obj>");
   process.exit(1);
 }
-
-const GRID_X = 244;
-const GRID_Z = 200;
-const ROAD_TILE = 13;
-const WORLD_W = GRID_X * ROAD_TILE;
-const WORLD_H = GRID_Z * ROAD_TILE;
 
 // --- Street mask (for calibration scoring) ---
 const streetsTs = readFileSync(new URL("../../src/world/sf-streets.ts", import.meta.url), "utf8");
@@ -213,46 +209,6 @@ function roofOutline(c) {
   const area = Math.abs(ringArea(pts));
   if (area < 0.45 * (c.maxX - c.minX) * (c.maxZ - c.minZ)) return null;
   return pts;
-}
-
-function ringArea(pts) {
-  let a = 0;
-  for (let i = 0; i < pts.length; i++) {
-    const [x0, z0] = pts[i];
-    const [x1, z1] = pts[(i + 1) % pts.length];
-    a += x0 * z1 - x1 * z0;
-  }
-  return a / 2;
-}
-
-// Ramer-Douglas-Peucker in model space.
-function rdp(pts, eps) {
-  if (pts.length <= 3) return pts;
-  const keep = new Array(pts.length).fill(false);
-  keep[0] = keep[pts.length - 1] = true;
-  const stack = [[0, pts.length - 1]];
-  while (stack.length) {
-    const [i0, i1] = stack.pop();
-    const [ax, az] = pts[i0];
-    const [bx, bz] = pts[i1];
-    const dx = bx - ax;
-    const dz = bz - az;
-    const len = Math.hypot(dx, dz) || 1;
-    let worst = -1;
-    let worstD = eps;
-    for (let i = i0 + 1; i < i1; i++) {
-      const d = Math.abs((pts[i][0] - ax) * dz - (pts[i][1] - az) * dx) / len;
-      if (d > worstD) {
-        worstD = d;
-        worst = i;
-      }
-    }
-    if (worst >= 0) {
-      keep[worst] = true;
-      stack.push([i0, worst], [worst, i1]);
-    }
-  }
-  return pts.filter((_, i) => keep[i]);
 }
 
 // Model → world transform. NOT auto-fitted: the old calibrate-downtown fit

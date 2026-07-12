@@ -5,7 +5,6 @@ import { GRID_X, GRID_Z, ROAD_TILE, ROAD_Y, WORLD_HALF_X, WORLD_HALF_Z } from ".
 import { conformToTerrain, DRAPE_MAX_ERROR, type DrapeField } from "./conform";
 import type { NetEdge, RoadNetwork } from "./network";
 import { districtAt } from "./sf-map";
-import type { Terrain } from "./terrain";
 
 // PLANAR-MAP street geometry. Every edge sweep and junction patch is built as
 // a 2D POLYGON, and the drawable surfaces are boolean combinations:

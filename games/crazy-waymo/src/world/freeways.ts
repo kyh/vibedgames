@@ -141,6 +141,9 @@ export function freewaySolids(terrain: Terrain): Solid[] {
   return solids;
 }
 
+// Barrier-top offset (module scope — a per-segment closure adds up).
+const up = (p: readonly number[]): number[] => [p[0] ?? 0, (p[1] ?? 0) + 0.85, p[2] ?? 0];
+
 function pushQuad(
   pos: number[],
   nor: number[],
@@ -230,7 +233,6 @@ export function buildFreeways(terrain: Terrain): THREE.Group {
         const p1 = b[side];
         const q0 = rail(p0, 0.5);
         const q1 = rail(p1, 0.5);
-        const up = (p: readonly number[]): number[] => [p[0] ?? 0, (p[1] ?? 0) + 0.85, p[2] ?? 0];
         pushQuad(bodyPos, bodyNor, up(q0), up(q1), up(p1), up(p0)); // cap
         pushQuad(bodyPos, bodyNor, p0, p1, up(p1), up(p0)); // outer face
         pushQuad(bodyPos, bodyNor, up(q0), up(q1), q1, q0); // inner face
