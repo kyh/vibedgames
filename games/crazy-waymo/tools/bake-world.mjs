@@ -116,7 +116,7 @@ try {
   await Promise.race([
     gotBoth,
     new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("bake downloads did not arrive in 12 minutes")), 720000),
+      setTimeout(() => reject(new Error("bake downloads did not arrive in 30 minutes")), 1_800_000),
     ),
   ]);
   const saved = await Promise.all(downloads.values());

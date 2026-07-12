@@ -243,12 +243,113 @@ export class Fx {
       speed: 0.6,
       spread: 0.3,
       up: 0.3,
-      size: 1.0,
+      size: 1.25,
       life: 0.18,
       gravity: 0,
       drag: 2.5,
       dir: this.tmpDir,
       dirSpeed: 9,
+    });
+    // Deep-orange wisp trailing the tongue — gives the cone its taper.
+    this.tmp.setHSL(0.02, 1, 0.42);
+    this.sparks.emit(x, y, z, {
+      count: 1,
+      color: this.tmp,
+      speed: 0.7,
+      spread: 0.4,
+      up: 0.35,
+      size: 1.5,
+      life: 0.22,
+      gravity: 0,
+      drag: 2.2,
+      dir: this.tmpDir,
+      dirSpeed: 7.5,
+    });
+  }
+
+  // Boost ignition pop (the Mario Kart read): a fat one-shot flame tongue
+  // from each exhaust plus a spray of hot flecks. Replaces the old expanding
+  // ground shockwave — boosts read from the pipes, not the pavement.
+  boostFlash(x: number, y: number, z: number, dirX: number, dirZ: number, hue: number): void {
+    const len = Math.hypot(dirX, dirZ);
+    const inv = len > 0.0001 ? 1 / len : 0;
+    this.tmpDir.x = dirX * inv;
+    this.tmpDir.y = 0.12;
+    this.tmpDir.z = dirZ * inv;
+    this.tmp.setHSL(hue, 0.55, 0.85); // near-white core
+    this.sparks.emit(x, y, z, {
+      count: 3,
+      color: this.tmp,
+      speed: 0.5,
+      spread: 0.25,
+      up: 0.3,
+      size: 1.5,
+      life: 0.16,
+      gravity: 0,
+      drag: 2.2,
+      dir: this.tmpDir,
+      dirSpeed: 13,
+    });
+    this.tmp.setHSL(hue, 1, 0.55); // colored tongue
+    this.sparks.emit(x, y, z, {
+      count: 4,
+      color: this.tmp,
+      speed: 0.9,
+      spread: 0.5,
+      up: 0.4,
+      size: 1.9,
+      life: 0.24,
+      gravity: 0,
+      drag: 2.0,
+      dir: this.tmpDir,
+      dirSpeed: 11,
+    });
+    this.tmp.setHSL(hue, 1, 0.62); // scatter flecks
+    this.sparks.emit(x, y, z, {
+      count: 6,
+      color: this.tmp,
+      speed: 4.5,
+      spread: 1.2,
+      up: 1.4,
+      size: 0.7,
+      life: 0.35,
+      gravity: 6,
+      drag: 1.4,
+      dir: this.tmpDir,
+      dirSpeed: 5,
+    });
+  }
+
+  // Off-road kick-up (the Mario Kart read): soft OPAQUE dust puffs in the
+  // surface's own color carry the effect; a few bright flecks (torn grass /
+  // sand grains) ride on top. The old version was all additive embers — off-
+  // road looked like the car was on fire, not tearing up ground.
+  kickup(x: number, z: number, surface: "grass" | "sand", power: number): void {
+    if (surface === "grass") this.tmp.setRGB(0.42, 0.36, 0.24); // dry-dirt brown
+    else this.tmp.setRGB(0.82, 0.72, 0.5); // beach tan
+    this.smoke.emit(x, 0.25, z, {
+      count: 2,
+      color: this.tmp,
+      speed: power * 0.55,
+      spread: 0.9,
+      up: 1.6 + power * 0.3,
+      size: 1.6 + power * 0.25,
+      life: 0.55,
+      gravity: -0.8,
+      drag: 2.6,
+    });
+    if (surface === "grass") this.tmp.setHSL(0.29, 0.8, 0.42);
+    else this.tmp.setHSL(0.11, 0.7, 0.68);
+    this.sparks.emit(x, 0.3, z, {
+      count: 2,
+      color: this.tmp,
+      speed: power * (0.6 + Math.random() * 0.5),
+      spread: 1,
+      up: power * 0.8,
+      size: 0.8,
+      life: 0.5,
+      gravity: 9,
+      drag: 1.2,
     });
   }
 

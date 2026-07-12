@@ -9,9 +9,6 @@ import type { DriftTrails } from "./trails";
 // segments. Extracted from the game-scene god object: everything here derives
 // from (car, dt) plus the three FX systems, and the four emitters previously
 // quadruplicated the same axle math inline.
-// Off-road kick-up hues (HSL hue for Fx.burst): torn grass vs beach sand.
-const KICK_HUE: Record<"grass" | "sand", number> = { grass: 0.29, sand: 0.11 };
-
 export class VehicleFxRig {
   private sparkAccum = 0;
   private puffAccum = 0;
@@ -66,10 +63,9 @@ export class VehicleFxRig {
     const cadence = car.speed > 25 ? 0.05 : 0.09;
     if (this.kickAccum < cadence) return;
     this.kickAccum = 0;
-    const hue = KICK_HUE[surface];
     const power = 1.6 + Math.min(2.2, car.speed * 0.05);
-    this.fx.burst(this.ax + this.px * 0.7, 0.3, this.az + this.pz * 0.7, hue, 2, power);
-    this.fx.burst(this.ax - this.px * 0.7, 0.3, this.az - this.pz * 0.7, hue, 2, power);
+    this.fx.kickup(this.ax + this.px * 0.7, this.az + this.pz * 0.7, surface, power);
+    this.fx.kickup(this.ax - this.px * 0.7, this.az - this.pz * 0.7, surface, power);
   }
 
   // Rear-wheel light ribbons: drift slides, charged drifts and boost runs each

@@ -860,11 +860,15 @@
           600 11px ui-monospace,
           monospace;
       }
-      #garage .gcard i {
-        width: 34px;
-        height: 34px;
-        border-radius: 50%;
-        border: 2px solid rgba(255, 255, 255, 0.3);
+      #garage .gcard canvas.gprev {
+        width: 100px;
+        height: 64px;
+        border-radius: 8px;
+        background: radial-gradient(
+          ellipse at 50% 82%,
+          rgba(255, 255, 255, 0.12),
+          rgba(255, 255, 255, 0.02) 72%
+        );
       }
       #garage .gcard b {
         font-size: 12px;

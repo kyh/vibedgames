@@ -49,6 +49,7 @@ import {
   WORLD_W,
 } from "../shared/constants";
 import type { GameMode } from "../shared/types";
+import { GaragePreview } from "../ui/garage-preview";
 import { Hud } from "../ui/hud";
 import type { Minimap, MinimapMarker } from "../ui/minimap";
 import { setTouchPlaying, setupTouch, type TouchControls } from "../ui/touch";
@@ -56,11 +57,33 @@ import type { Car } from "../vehicle/car";
 import type { CityModel, Garage } from "../world/city";
 import { HECKLES, SpeechBubbles } from "../fx/speech-bubbles";
 import { ROBOTAXI_SKINS } from "../vehicle/car";
-import { districtAt } from "../world/sf-map";
+import { districtAt, landFactor } from "../world/sf-map";
 import type { SolidIndex } from "../world/solid-index";
 import { loadWorld, type WorldCoreSystems, type WorldSpawn } from "./world-loader";
 
 const HALF_PI = Math.PI / 2;
+
+// Shore texture for the ocean shader: landFactor (the same pure mask the
+// terrain samples) baked over the map + margin. R8 bilinear — the fragment
+// shader turns it into the shallow ramp and the lapping foam band.
+const SHORE_TEX_N = 256;
+const SHORE_SPAN = 1.12; // fraction of the map span the texture covers
+function buildShoreTexture(): THREE.DataTexture {
+  const n = SHORE_TEX_N;
+  const data = new Uint8Array(n * n);
+  for (let iz = 0; iz < n; iz++) {
+    const v = (iz / (n - 1) - 0.5) * SHORE_SPAN + 0.5;
+    for (let ix = 0; ix < n; ix++) {
+      const u = (ix / (n - 1) - 0.5) * SHORE_SPAN + 0.5;
+      data[iz * n + ix] = Math.round(THREE.MathUtils.clamp(landFactor(u, v), 0, 1) * 255);
+    }
+  }
+  const tex = new THREE.DataTexture(data, n, n, THREE.RedFormat, THREE.UnsignedByteType);
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearFilter;
+  tex.needsUpdate = true;
+  return tex;
+}
 // Initial sun direction — the DayNight cycle takes over from the first frame.
 const SUN_DIR = new THREE.Vector3().setFromSphericalCoords(
   1,
@@ -177,6 +200,7 @@ export class GameScene {
   private garageRings: THREE.Group | null = null;
   private garageOpen = false;
   private garageEl: HTMLDivElement | null = null;
+  private garagePreview: GaragePreview | null = null;
   private ownedSkins = new Set<string>(["waymo"]);
   private netAcc = 0;
   private netInfoEl = document.getElementById("netinfo");
@@ -375,15 +399,23 @@ export class GameScene {
 
     // Ocean surrounding the island (reflects the sky via scene.environment).
     // Two scrolling sine fields perturb the normal so the sky reflection
-    // shimmers — reads as swell without any extra geometry or texture.
+    // shimmers — reads as swell without any extra geometry. On top of that,
+    // the Mario Kart water grammar: a shore texture (the same pure landFactor
+    // mask terrain uses) drives a turquoise shallow ramp and an animated
+    // lapping foam band along every coast, and rare sine-field crossings pop
+    // as moving sun glints. All fragment work — the plane stays one quad.
     const oceanMat = new THREE.MeshStandardMaterial({
       color: 0x2e7fc0,
       roughness: 0.32,
       metalness: 0.3,
     });
     const oceanTime = this.oceanTime;
+    const shoreTex = buildShoreTexture();
+    const spanX = (WORLD_W * SHORE_SPAN).toFixed(1);
+    const spanZ = (WORLD_H * SHORE_SPAN).toFixed(1);
     oceanMat.onBeforeCompile = (shader) => {
       shader.uniforms.uOceanTime = oceanTime;
+      shader.uniforms.uShore = { value: shoreTex };
       shader.vertexShader = shader.vertexShader
         .replace("#include <common>", "#include <common>\nvarying vec3 vOceanPos;")
         .replace(
@@ -393,7 +425,7 @@ export class GameScene {
       shader.fragmentShader = shader.fragmentShader
         .replace(
           "#include <common>",
-          "#include <common>\nuniform float uOceanTime;\nvarying vec3 vOceanPos;",
+          "#include <common>\nuniform float uOceanTime;\nuniform sampler2D uShore;\nvarying vec3 vOceanPos;",
         )
         .replace(
           "#include <normal_fragment_begin>",
@@ -406,6 +438,38 @@ export class GameScene {
             float nz = sin(wp.y * 0.093 - t * 1.05) * 0.5
                      + sin((wp.x + wp.y) * 0.035 + t * 0.84) * 0.5;
             normal = normalize(normal + vec3(nx, 0.0, nz) * 0.2);
+          }`,
+        )
+        .replace(
+          "#include <color_fragment>",
+          `#include <color_fragment>
+          {
+            vec2 wp = vOceanPos.xz;
+            float t = uOceanTime;
+            vec2 suv = vec2(wp.x / ${spanX} + 0.5, wp.y / ${spanZ} + 0.5);
+            float s = texture2D(uShore, suv).r;
+            // Fade the shore treatment at the texture border: beyond it the
+            // clamped edge would smear land values (the map's south edge is
+            // land) across open ocean.
+            float inMap = 1.0 - smoothstep(0.46, 0.5, max(abs(suv.x - 0.5), abs(suv.y - 0.5)));
+            s *= inMap;
+            // Shallow-water turquoise ramp toward the coast.
+            float shallow = smoothstep(0.10, 0.44, s);
+            diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.36, 0.78, 0.72), shallow * 0.75);
+            // Lapping foam: an animated band just off the waterline plus a
+            // solid white line hugging it. The visible waterline sits near
+            // s ≈ 0.40 (terrain crosses the ocean plane there), so both bands
+            // live below that, not at the land-mask 0.5 edge.
+            float lap = 0.5 + 0.5 * sin(t * 1.7 + (wp.x + wp.y) * 0.16 + s * 30.0);
+            float foam = smoothstep(0.26, 0.38, s) * (0.30 + 0.45 * lap);
+            foam += smoothstep(0.36, 0.42, s) * 0.9;
+            // Sun glints: small fast crossings of a fine field, not the big
+            // swell (that read as cloud shadows).
+            float ga = sin(wp.x * 0.9 + t * 2.2) * sin(wp.y * 0.83 - t * 1.9);
+            float gb = sin((wp.x + wp.y) * 0.61 - t * 1.4);
+            float glint = max(0.0, ga * gb - 0.86);
+            diffuseColor.rgb += vec3(glint * 4.5);
+            diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.97, 0.98), clamp(foam, 0.0, 0.9));
           }`,
         );
     };
@@ -736,7 +800,7 @@ export class GameScene {
   }
 
   private updateGarages(dt: number): void {
-    void dt;
+    if (this.garageOpen) this.garagePreview?.update(dt);
     const city = this.city;
     const car = this.car;
     if (!city || !car || this.mode.kind !== "playing") {
@@ -763,8 +827,7 @@ export class GameScene {
       const equipped = sk.id === this.skinId;
       const tag = equipped ? "EQUIPPED" : owned ? "EQUIP" : `$${sk.price}`;
       const cls = equipped ? "gcard on" : owned ? "gcard owned" : "gcard";
-      const sw = sk.tint !== undefined ? `#${sk.tint.toString(16).padStart(6, "0")}` : "#f2f4f7";
-      return `<button class="${cls}" data-skin="${sk.id}"><i style="background:${sw}"></i><b>${sk.label}</b><small>${sk.blurb}</small><span>${tag}</span></button>`;
+      return `<button class="${cls}" data-skin="${sk.id}"><canvas class="gprev" data-prev="${sk.id}"></canvas><b>${sk.label}</b><small>${sk.blurb}</small><span>${tag}</span></button>`;
     }).join("");
   }
 
@@ -798,6 +861,8 @@ export class GameScene {
         this.car.setSkin(sk.id);
         this.renderGarage();
       });
+      this.garagePreview = new GaragePreview(this.cache);
+      this.garagePreview.bind(el);
     }
     this.renderGarage();
     el.style.display = "flex";
@@ -807,6 +872,7 @@ export class GameScene {
     const el = this.garageEl;
     if (!el) return;
     el.innerHTML = `<div class="gtitle">🔧 ROBOTAXI GARAGE</div><div class="gcards">${this.garageCardsHtml()}</div><div class="ghint">drive away to close</div>`;
+    this.garagePreview?.attach(el);
   }
 
   private closeGarage(): void {
@@ -854,6 +920,25 @@ export class GameScene {
       el.blur();
     }
     this.input.setTyping(false);
+  }
+
+  // Mario-Kart boost pop: one flame burst out of EACH exhaust pipe, colored
+  // by tier (0.55 cyan mini-turbo, 0.07 orange boost/super).
+  private exhaustFlash(hue: number): void {
+    const car = this.car;
+    if (!car) return;
+    const fx = Math.sin(car.heading);
+    const fz = Math.cos(car.heading);
+    for (const s of [-1, 1] as const) {
+      this.fx.boostFlash(
+        car.position.x - fx * 1.9 - fz * 0.55 * s,
+        car.position.y + 0.5,
+        car.position.z - fz * 1.9 + fx * 0.55 * s,
+        -fx,
+        -fz,
+        hue,
+      );
+    }
   }
 
   private handleStartPress(): void {
@@ -1339,18 +1424,14 @@ export class GameScene {
     this.lastDriftTier = tier;
 
     // Drift-release mini-turbo — the signature skill move — pays by tier.
+    // Mario Kart grammar: the pop comes out of the exhaust pipes, tier-
+    // colored (cyan → orange). No ground shockwave.
     if (car.miniBoostFired) {
       const superTurbo = car.miniTurboTier >= 2;
       this.sfx.boost();
       this.rig.addTrauma(superTurbo ? 0.26 : 0.18);
       this.hud.flash(superTurbo ? "#ffa726" : "#8fe8ff", 0.16);
-      this.fx.burst(car.position.x, 0.6, car.position.z, superTurbo ? 0.07 : 0.58, 12, 8);
-      this.shocks.fire(
-        car.position.x,
-        car.position.y,
-        car.position.z,
-        superTurbo ? 0xffa726 : 0x8fe8ff,
-      );
+      this.exhaustFlash(superTurbo ? 0.07 : 0.55);
       this.hud.showCombo(superTurbo ? "SUPER MINI-TURBO!" : "MINI-TURBO!");
     }
 
@@ -1358,7 +1439,7 @@ export class GameScene {
     if (car.isBoosting && !this.wasBoosting) {
       this.sfx.boost();
       this.rig.addTrauma(0.12);
-      this.shocks.fire(car.position.x, car.position.y, car.position.z, 0xffb066);
+      this.exhaustFlash(0.07);
     }
     this.wasBoosting = car.isBoosting;
     this.sfx.setBoostLoop(car.isBoosting);
@@ -1366,15 +1447,18 @@ export class GameScene {
       this.flameAccum += dt;
       if (this.flameAccum >= 0.05) {
         this.flameAccum = 0;
-        const bx = car.position.x - Math.sin(car.heading) * 1.9;
-        const bz = car.position.z - Math.cos(car.heading) * 1.9;
-        this.fx.exhaustFlame(
-          bx,
-          car.position.y + 0.5,
-          bz,
-          -Math.sin(car.heading),
-          -Math.cos(car.heading),
-        );
+        // Twin flame cones off the rear corners (not one center plume).
+        const fx = Math.sin(car.heading);
+        const fz = Math.cos(car.heading);
+        for (const s of [-1, 1] as const) {
+          this.fx.exhaustFlame(
+            car.position.x - fx * 1.9 - fz * 0.55 * s,
+            car.position.y + 0.5,
+            car.position.z - fz * 1.9 + fx * 0.55 * s,
+            -fx,
+            -fz,
+          );
+        }
       }
     }
     if (car.boostDenied) {
@@ -1672,11 +1756,27 @@ export class GameScene {
     if (!minimap) return;
     const markers = this.mmMarkers; // persistent — this runs every redraw
     markers.length = 0;
-    // Other online drivers first, so objective markers draw on top of them.
+    // Garages at the bottom of the stack: orange pads, drawn only in-window
+    // except the nearest one, which pins to the edge as a "swap here" hint.
+    const city = this.city;
+    if (city) {
+      const nearest = this.nearestGarage();
+      for (const g of city.garages) {
+        markers.push({
+          x: g.padX,
+          z: g.padZ,
+          color: "#ffa63d",
+          shape: "square",
+          edgeClamp: g === nearest,
+        });
+      }
+    }
+    // Other online drivers under the objectives, outlined so they read on
+    // road-grey (plain white dots were invisible).
     for (const [id, p] of Object.entries(this.net.players)) {
       if (id === this.net.playerId) continue;
       const t = readTransform(p.state);
-      if (t) markers.push({ x: t.x, z: t.z, color: "#ffffff" });
+      if (t) markers.push({ x: t.x, z: t.z, color: "#ffffff", shape: "player" });
     }
     const carrying = fares.carryingInfo();
     if (carrying) {

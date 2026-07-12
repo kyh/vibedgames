@@ -51,7 +51,7 @@ export class DriveSurface {
   private driveOffsetAt(x: number, z: number): number {
     const network = this.currentNetwork();
     if (this.driveOffset === null || this.driveOffsetNet !== network) {
-      this.driveOffset = makeDriveSurfaceOffset(network);
+      this.driveOffset = makeDriveSurfaceOffset(network, this.terrain);
       this.driveOffsetNet = network;
     }
     return this.driveOffset(x, z);

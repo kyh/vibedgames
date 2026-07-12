@@ -15,6 +15,11 @@ export type MinimapMarker = {
   readonly z: number;
   readonly color: string;
   readonly ring?: boolean; // destination gets a pulsing ring
+  // "player" = outlined dot (plain white was invisible on road-grey);
+  // "square" = garage pad. Default: the plain objective dot.
+  readonly shape?: "player" | "square";
+  // false = draw only inside the window (no edge pin). Default true.
+  readonly edgeClamp?: boolean;
 };
 
 const WATER = "#2e5f8a";
@@ -121,6 +126,7 @@ export class Minimap {
       const mx = Math.min(this.size - 5, Math.max(5, rawX));
       const mz = Math.min(this.size - 5, Math.max(5, rawZ));
       const clamped = mx !== rawX || mz !== rawZ;
+      if (clamped && m.edgeClamp === false) continue;
       if (m.ring && !clamped) {
         const pulse = 4 + Math.sin(this.t * 5) * 1.4;
         ctx.strokeStyle = m.color;
@@ -129,10 +135,26 @@ export class Minimap {
         ctx.arc(mx, mz, pulse, 0, Math.PI * 2);
         ctx.stroke();
       }
+      if (m.shape === "square") {
+        const s = clamped ? 2.8 : 3.6;
+        ctx.fillStyle = m.color;
+        ctx.strokeStyle = "#14111a";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.rect(mx - s, mz - s, s * 2, s * 2);
+        ctx.fill();
+        ctx.stroke();
+        continue;
+      }
       ctx.fillStyle = m.color;
       ctx.beginPath();
-      ctx.arc(mx, mz, clamped ? 3.2 : 2.8, 0, Math.PI * 2);
+      ctx.arc(mx, mz, clamped ? 3.2 : m.shape === "player" ? 3.4 : 2.8, 0, Math.PI * 2);
       ctx.fill();
+      if (m.shape === "player") {
+        ctx.strokeStyle = "#14111a";
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+      }
     }
 
     // The taxi: centred heading arrow. Screen up is -Z; heading 0 faces +Z.

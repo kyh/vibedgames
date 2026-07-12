@@ -3,7 +3,7 @@ import * as THREE from "three";
 import { CUSTOM_MAP } from "./custom-map";
 import { generateCity } from "./grid";
 import { buildGridNetwork } from "./grid-network";
-import { makeGroundColorAt, makeGroundOffset } from "./ground";
+import { makeGroundColorAt, makeGroundOffset, makeTerracedDrapeField } from "./ground";
 import { RoadNetwork } from "./network";
 import { buildRoadParts, type RoadPartBuffers } from "./roads";
 import { makeTerrain } from "./sf-map";
@@ -44,7 +44,9 @@ function run(): void {
     : new RoadNetwork();
   const terrain = makeTerrain();
 
-  const roadParts = buildRoadParts(network, terrain);
+  // Roads drape onto terrain + the step-ladder street terrace — the same
+  // field the ground offset below and the runtime drive surface report.
+  const roadParts = buildRoadParts(network, makeTerracedDrapeField(network, terrain));
 
   const groundStub = new THREE.MeshBasicMaterial();
   const ground = terrain.buildMesh(

@@ -8,6 +8,7 @@ import {
   WORLD_HALF_Z,
   WORLD_W,
 } from "../shared/constants";
+import { type DrapeField } from "./conform";
 import { CUSTOM_MAP, type FloorKind, loadLocalOverrides } from "./custom-map";
 import type { CityPlan } from "./grid";
 import type { RoadNetwork } from "./network";
@@ -22,6 +23,7 @@ import { landuseGreenAt, landuseSandAt } from "./sf-landuse";
 
 const CONCRETE = new THREE.Color(0xa6a496);
 const SAND = new THREE.Color(0xe4d2a2);
+const WET_SAND = new THREE.Color(0xc2ab7d); // darker band right at the waterline
 const PARK = new THREE.Color(0x5fb163); // near the KayKit tile green, one notch punchier
 const MEADOW = new THREE.Color(0x86c46a); // sunlit two-tone partner to PARK
 const FOREST = new THREE.Color(0x4c9b57); // green-hill cover (Sutro/Twin Peaks/…)
@@ -83,11 +85,16 @@ export function makeGroundColorAt(
       green = 0;
     }
     if (green > 0.05) into.lerp(MEADOW, meadowPatch(x, z) * 0.45 * green);
+    // Every coast gets a real beach: a dry-sand apron blending inland, then
+    // a darker wet-sand band right at the waterline (the Mario Kart shore
+    // read — the water shader laps its foam against this band).
     const land = terrain.landAt(x, z);
-    const shore = 1 - THREE.MathUtils.smoothstep(land, 0.3, 0.55);
+    const shore = 1 - THREE.MathUtils.smoothstep(land, 0.3, 0.6);
     if (shore > 0) {
       const u = x / WORLD_W + 0.5;
-      into.lerp(SAND, u < 0.12 ? shore : shore * 0.5); // Ocean Beach reads strongest
+      into.lerp(SAND, u < 0.12 ? shore : shore * 0.8); // Ocean Beach reads strongest
+      const wet = 1 - THREE.MathUtils.smoothstep(land, 0.28, 0.4);
+      if (wet > 0) into.lerp(WET_SAND, wet * 0.7);
     }
   };
 }
@@ -126,6 +133,179 @@ export function parkCellFloor(terrain: Terrain, gx: number, gz: number): number 
     terrain.heightAt(x0, z0 + ROAD_TILE),
     terrain.heightAt(x0 + ROAD_TILE, z0 + ROAD_TILE),
   );
+}
+
+// --- SF step-ladder streets -------------------------------------------------
+// Real SF hill streets are ENGINEERED: constant-grade ramps block to block
+// with flat landings at every intersection — not surfaces draped over a
+// smooth hill. This field stores, for every point near a steep street, the
+// delta between that engineered profile and the raw height field. ONE field
+// feeds all three height consumers (road drape, ground mesh, drive surface),
+// so they cannot disagree.
+const TERRACE_RES = ROAD_TILE / 4;
+const LANDING_R = 6; // flat pad radius around each intersection node
+const TERRACE_FEATHER = 7; // world units past the sidewalk to fade the delta
+const TERRACE_CAP = 2.4; // max |delta| — beyond this reads as a broken cliff
+const MAX_RAMP_GRADE = 0.42; // steepest engineered pitch (≈ real SF's 22nd St)
+// Chord grade where terracing starts/saturates. Below the low end the smooth
+// drape is indistinguishable from the engineered profile anyway.
+const TERRACE_GRADE_LO = 0.07;
+const TERRACE_GRADE_HI = 0.13;
+// Blocks shorter than this stay on the smooth drape: with landings at both
+// ends there is no room for a ramp — the profile degenerates into a cliff.
+const TERRACE_MIN_LEN = 15;
+
+function smooth01(t: number): number {
+  const c = t < 0 ? 0 : t > 1 ? 1 : t;
+  return c * c * (3 - 2 * c);
+}
+
+/** Delta between the engineered street profile and the raw field, for every
+ *  point within a steep street's corridor (0 elsewhere). EVERY edge whose
+ *  corridor covers a point contributes, blended by corridor weight — any
+ *  winner-takes-N scheme puts hard height cliffs inside junction aprons
+ *  wherever the winning set flips between neighboring samples (the drape
+ *  renders the cliff AND the physics heightfield beaches the car on it).
+ *  Landings pin every edge to the shared node height, so the blend converges
+ *  there. Each edge contributes once per point (nearest of its segments),
+ *  via a per-edge scratch pass. */
+export function makeStreetTerrace(
+  network: RoadNetwork,
+  terrain: Terrain,
+): (x: number, z: number) => number {
+  const FW = Math.ceil((WORLD_HALF_X * 2) / TERRACE_RES) + 2;
+  const FH = Math.ceil((WORLD_HALF_Z * 2) / TERRACE_RES) + 2;
+  const sumW = new Float32Array(FW * FH);
+  const sumWV = new Float32Array(FW * FH);
+  // Per-edge scratch: nearest-segment dist/value/weight + touched list.
+  const sd = new Float32Array(FW * FH).fill(1e9);
+  const sv = new Float32Array(FW * FH);
+  const sw = new Float32Array(FW * FH);
+  const touched: number[] = [];
+  for (const e of network.edges) {
+    const pts = e.pts;
+    if (pts.length < 4) continue;
+    // Arclength table + chord grade from the endpoint node heights.
+    const n = pts.length / 2;
+    const arc = new Float32Array(n);
+    for (let i = 1; i < n; i++) {
+      const dx = (pts[i * 2] ?? 0) - (pts[i * 2 - 2] ?? 0);
+      const dz = (pts[i * 2 + 1] ?? 0) - (pts[i * 2 - 1] ?? 0);
+      arc[i] = (arc[i - 1] ?? 0) + Math.hypot(dx, dz);
+    }
+    const len = arc[n - 1] ?? 0;
+    if (len < TERRACE_MIN_LEN) continue; // no room for a ramp between landings
+    const hA = terrain.heightAt(pts[0] ?? 0, pts[1] ?? 0);
+    const hB = terrain.heightAt(pts[n * 2 - 2] ?? 0, pts[n * 2 - 1] ?? 0);
+    const dh = Math.abs(hB - hA);
+    const steep =
+      smooth01((dh / len - TERRACE_GRADE_LO) / (TERRACE_GRADE_HI - TERRACE_GRADE_LO)) *
+      smooth01((len - TERRACE_MIN_LEN) / 8);
+    if (steep <= 0) continue;
+    // Engineered profile along arclength s: flat landing at each node, then
+    // a constant-grade ramp between the landing edges. Landings SHRINK when
+    // the block is short enough that a full-size pair would push the ramp
+    // past MAX_RAMP_GRADE — the pitch caps at real-SF steep, never a cliff.
+    // The grade break at the landing edge stays HARD on purpose: cresting an
+    // intersection at speed is the SF car-chase hop.
+    let landing = LANDING_R;
+    const needRamp = dh / MAX_RAMP_GRADE;
+    if (len - 2 * landing < needRamp) landing = Math.max(2, (len - needRamp) / 2);
+    const rampLen = Math.max(1, len - landing * 2);
+    const profile = (s: number): number => {
+      const sr = Math.min(Math.max((s - landing) / rampLen, 0), 1);
+      return hA + (hB - hA) * sr;
+    };
+    const band = e.half + SIDEWALK_W + TERRACE_FEATHER;
+    for (let k = 0; k + 3 < pts.length; k += 2) {
+      const ax = pts[k] ?? 0;
+      const az = pts[k + 1] ?? 0;
+      const bx = pts[k + 2] ?? 0;
+      const bz = pts[k + 3] ?? 0;
+      const s0 = arc[k / 2] ?? 0;
+      const s1 = arc[k / 2 + 1] ?? 0;
+      const i0 = Math.max(0, Math.floor((Math.min(ax, bx) - band + WORLD_HALF_X) / TERRACE_RES));
+      const i1 = Math.min(
+        FW - 1,
+        Math.ceil((Math.max(ax, bx) + band + WORLD_HALF_X) / TERRACE_RES),
+      );
+      const j0 = Math.max(0, Math.floor((Math.min(az, bz) - band + WORLD_HALF_Z) / TERRACE_RES));
+      const j1 = Math.min(
+        FH - 1,
+        Math.ceil((Math.max(az, bz) + band + WORLD_HALF_Z) / TERRACE_RES),
+      );
+      const dx = bx - ax;
+      const dz = bz - az;
+      const l2 = dx * dx + dz * dz || 1;
+      for (let i = i0; i <= i1; i++) {
+        const px = i * TERRACE_RES - WORLD_HALF_X;
+        for (let j = j0; j <= j1; j++) {
+          const pz = j * TERRACE_RES - WORLD_HALF_Z;
+          let t = ((px - ax) * dx + (pz - az) * dz) / l2;
+          t = t < 0 ? 0 : t > 1 ? 1 : t;
+          const d = Math.hypot(px - (ax + dx * t), pz - (az + dz * t));
+          if (d > band) continue;
+          const idx = i * FH + j;
+          if (d >= (sd[idx] ?? 1e9)) continue; // a closer segment of THIS edge won
+          if ((sd[idx] ?? 1e9) === 1e9) touched.push(idx);
+          const feather = 1 - smooth01((d - e.half - SIDEWALK_W) / TERRACE_FEATHER);
+          const want = profile(s0 + (s1 - s0) * t) - terrain.heightAt(px, pz);
+          const capped = Math.min(TERRACE_CAP, Math.max(-TERRACE_CAP, want));
+          sd[idx] = d;
+          sv[idx] = capped * steep;
+          sw[idx] = feather;
+        }
+      }
+    }
+    // Merge this edge's contribution and reset the scratch.
+    for (const idx of touched) {
+      const w = sw[idx] ?? 0;
+      sumW[idx] = (sumW[idx] ?? 0) + w;
+      sumWV[idx] = (sumWV[idx] ?? 0) + w * (sv[idx] ?? 0);
+      sd[idx] = 1e9;
+    }
+    touched.length = 0;
+  }
+  // Collapse into one field, then sample it BILINEARLY. A nearest-cell
+  // lookup quantized the profile into 3.25u plateaus — the whole hill became
+  // a washboard of ankle-high risers that pinned the car. max(1, sum):
+  // fringe weights fade the delta (feather), overlaps average, never stack.
+  const field = new Float32Array(FW * FH);
+  for (let idx = 0; idx < field.length; idx++) {
+    const w = sumW[idx] ?? 0;
+    if (w <= 0.0001) continue;
+    field[idx] = (sumWV[idx] ?? 0) / Math.max(1, w);
+  }
+  return (x: number, z: number): number => {
+    const fx = (x + WORLD_HALF_X) / TERRACE_RES;
+    const fz = (z + WORLD_HALF_Z) / TERRACE_RES;
+    const i = Math.floor(fx);
+    const j = Math.floor(fz);
+    if (i < 0 || j < 0 || i >= FW - 1 || j >= FH - 1) return 0;
+    const tx = fx - i;
+    const tz = fz - j;
+    const a = field[i * FH + j] ?? 0;
+    const b = field[(i + 1) * FH + j] ?? 0;
+    const c = field[i * FH + j + 1] ?? 0;
+    const d = field[(i + 1) * FH + j + 1] ?? 0;
+    return (a * (1 - tx) + b * tx) * (1 - tz) + (c * (1 - tx) + d * tx) * tz;
+  };
+}
+
+// Terrain + street terrace as ONE drape target for the road builder — roads
+// must render exactly the engineered profile the drive surface reports.
+export function makeTerracedDrapeField(network: RoadNetwork, terrain: Terrain): DrapeField {
+  const terraceAt = makeStreetTerrace(network, terrain);
+  const heightAt = (x: number, z: number): number => terrain.heightAt(x, z) + terraceAt(x, z);
+  const EPS = 1.6;
+  return {
+    heightAt,
+    normalInto: (out: THREE.Vector3, x: number, z: number): THREE.Vector3 => {
+      const hx = heightAt(x + EPS, z) - heightAt(x - EPS, z);
+      const hz = heightAt(x, z + EPS) - heightAt(x, z - EPS);
+      return out.set(-hx, 2 * EPS, -hz).normalize();
+    },
+  };
 }
 
 // Street depression profile: the ground drops −0.35 under the pavement
@@ -184,14 +364,28 @@ function makeClearanceAt(network: RoadNetwork): (x: number, z: number) => number
   };
 }
 
-// Ground-mesh vertex offset: the street depression, everywhere.
+// Ground-mesh vertex offset: the street depression plus the step-ladder
+// street terracing (the ground shoulders track the engineered profile and
+// feather back to the raw field — the retaining-wall read). Under the PAVED
+// band of a terraced street the ground sinks a full extra unit: the ground
+// mesh's ~9.5u vertices interpolate straight through the profile's landing
+// kinks, and with only the 0.35 depression of headroom the bow pokes up
+// through the draped asphalt (the m22 bug class, at terrace magnitude).
 export function makeGroundOffset(
   network: RoadNetwork,
   terrain?: Terrain,
 ): (x: number, z: number) => number {
-  void terrain;
   const clearanceAt = makeClearanceAt(network);
-  return (x, z) => streetDepression(clearanceAt(x, z));
+  const terraceAt = terrain ? makeStreetTerrace(network, terrain) : null;
+  return (x, z) => {
+    const v = clearanceAt(x, z);
+    const t = terraceAt ? terraceAt(x, z) : 0;
+    // Full burial mid-asphalt, tapering to zero at the sidewalk's outer edge
+    // so the pavement lip never shows a void from a low camera.
+    const cover = 1 - THREE.MathUtils.smoothstep(v, SIDEWALK_W * 0.5, SIDEWALK_W);
+    const bury = 1.1 * cover * THREE.MathUtils.smoothstep(Math.abs(t), 0.05, 0.3);
+    return streetDepression(v) + t - bury;
+  };
 }
 
 // Offset of the RENDERED top surface relative to the raw height field, for
@@ -200,12 +394,18 @@ export function makeGroundOffset(
 // the asphalt does; past its outer edge the exposed ground is the
 // street-depressed mesh. Without this the car hovers on the invisible raw
 // field next to downhill kerbs (the visible ground there sits up to 0.35
-// lower).
-export function makeDriveSurfaceOffset(network: RoadNetwork): (x: number, z: number) => number {
+// lower). Terraced streets add their profile delta in BOTH zones so the car
+// rides exactly what the road drape renders.
+export function makeDriveSurfaceOffset(
+  network: RoadNetwork,
+  terrain?: Terrain,
+): (x: number, z: number) => number {
   const clearanceAt = makeClearanceAt(network);
+  const terraceAt = terrain ? makeStreetTerrace(network, terrain) : null;
   return (x, z) => {
+    const t = terraceAt ? terraceAt(x, z) : 0;
     const v = clearanceAt(x, z);
-    if (v <= SIDEWALK_W) return 0; // asphalt / curb / sidewalk
-    return streetDepression(v);
+    if (v <= SIDEWALK_W) return t; // asphalt / curb / sidewalk
+    return streetDepression(v) + t;
   };
 }

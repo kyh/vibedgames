@@ -97,12 +97,15 @@ console.log(`  (plan + network in ${Math.round(performance.now() - t0)}ms)`);
   }
   // Diagonal avenues run STRAIGHTENED spines across their cell staircases,
   // so edge centrelines legitimately cut lot-cell corners map-wide — the
-  // baseline is ~21%. This check alerts on GROWTH (a new street-surgery bug
-  // pushing edges through blocks), not on the design.
+  // baseline was ~21%; the dense hill-grid rungs (rev 34) add short
+  // junction-heavy edges of the same class and lift it to ~24.5%. This check
+  // alerts on GROWTH (a new street-surgery bug pushing edges through
+  // blocks), not on the design. lint:streets' geometry-vs-network sweep is
+  // the hard gate for actual strays.
   const frac = offRoad / Math.max(1, samples);
   check(
     "edge samples off road cells at baseline",
-    frac < 0.24,
+    frac < 0.27,
     `${offRoad}/${samples} off-road (${(frac * 100).toFixed(2)}%)${example ? ` e.g. ${example}` : ""}`,
   );
 }

@@ -63,12 +63,16 @@ function mid(a: Vert, b: Vert): Vert {
   ];
 }
 
+// What a drape target must provide — the raw Terrain qualifies, and so does
+// a wrapped field (terrain + street-terrace delta for the SF hill streets).
+export type DrapeField = Pick<Terrain, "heightAt" | "normalInto">;
+
 // The geometry must already be in world space (matrixWorld baked in).
 // `maxError` loosens the sag tolerance per call: thin decals on a raised lift
 // (road markings) tolerate a far bigger bow than the surfaces they sit on.
 export function conformToTerrain(
   geo: THREE.BufferGeometry,
-  terrain: Terrain,
+  terrain: DrapeField,
   lift: number,
   maxError: number = DRAPE_MAX_ERROR,
 ): THREE.BufferGeometry {

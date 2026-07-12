@@ -95,7 +95,9 @@ test("world census + drive probe", async ({ page }) => {
       // 1. Sightless: a hittable solid with no visual within ~16u and no
       // unseen tag. (Merged-chunk geometry like the seawall lips and generated
       // plinths ARE batch items, so legit walls always have a nearby item.)
-      if (!s.unseen && !s.noBody && !hasVisualNear(cx, cz)) {
+      // noBody solids are NOT exempt: the arcade car collision ignores noBody
+      // (it only skips Rapier), so a stranded tree solid is still a wall.
+      if (!s.unseen && !hasVisualNear(cx, cz)) {
         sightless++;
         if (sightlessSamples.length < 5) {
           sightlessSamples.push(`${cx.toFixed(0)},${cz.toFixed(0)}`);
