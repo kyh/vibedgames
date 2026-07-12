@@ -3,6 +3,7 @@ import { AnimatePresence, motion, type PanInfo } from "motion/react";
 
 // Animation constants
 const ANIMATION_DURATION = 0.6;
+const FADE_OUT_DURATION = 0.25;
 const BLUR_AMOUNT = "5px";
 
 // Mobile breakpoint
@@ -48,10 +49,21 @@ const Y_POSITIONS = {
   behind: "-10vh",
 } as const;
 
+/**
+ * How the stack behaves on the current route.
+ *
+ * - `stack` — the browsable deck (discover).
+ * - `zoom`  — the active card flies at the camera and hands off to the game (play). The zoom
+ *   only reads as a transition because the iframe lands on top of it, so it belongs to
+ *   discover <-> play and nowhere else.
+ * - `hidden` — every other route: the deck fades out where it stands, no zoom.
+ */
+export type StackMode = "stack" | "zoom" | "hidden";
+
 type GameCardProps = {
   index: number;
   total: number;
-  showStack: boolean;
+  mode: StackMode;
   currentIndex: number;
   isMobile: boolean;
   /** Set while a drag is in flight, so the trailing click doesn't launch the game. */
@@ -65,33 +77,33 @@ const getCardVariants = (
   isNext: boolean,
   isPrevious: boolean,
   cardsBehind: number,
-  showStack: boolean,
+  stacked: boolean,
   isMobile: boolean,
 ) => {
   const depths = isMobile ? Z_DEPTHS.mobile : Z_DEPTHS.desktop;
 
   if (isActive) {
     return {
-      z: showStack ? depths.active.stacked : depths.active.unstacked,
+      z: stacked ? depths.active.stacked : depths.active.unstacked,
       y: Y_POSITIONS.active,
     };
   }
 
   if (isNext) {
     return {
-      z: showStack ? depths.next.stacked : depths.next.unstacked,
+      z: stacked ? depths.next.stacked : depths.next.unstacked,
       y: Y_POSITIONS.next,
     };
   }
 
   if (isPrevious) {
     return {
-      z: showStack ? depths.previous.stacked : depths.previous.unstacked,
+      z: stacked ? depths.previous.stacked : depths.previous.unstacked,
       y: Y_POSITIONS.previous,
     };
   }
 
-  const baseZ = showStack ? depths.behind.stacked : depths.behind.unstacked;
+  const baseZ = stacked ? depths.behind.stacked : depths.behind.unstacked;
   return {
     z: `calc(${baseZ} - ${cardsBehind}px)`,
     y: Y_POSITIONS.behind,
@@ -102,7 +114,7 @@ export const GameCard = ({
   currentIndex,
   index,
   total,
-  showStack,
+  mode,
   isMobile,
   swipedRef,
   onSwipe,
@@ -115,32 +127,35 @@ export const GameCard = ({
 
   const cardsBehind = (index - currentIndex + total) % total;
 
+  // Only the zoom hand-off pulls the cards out of the deck; hidden cards fade where they stand.
+  const stacked = mode !== "zoom";
+
   const variants = useMemo(
-    () => getCardVariants(isActive, isNext, isPrevious, cardsBehind, showStack, isMobile),
-    [isActive, isNext, isPrevious, cardsBehind, showStack, isMobile],
+    () => getCardVariants(isActive, isNext, isPrevious, cardsBehind, stacked, isMobile),
+    [isActive, isNext, isPrevious, cardsBehind, stacked, isMobile],
   );
 
-  // Reset exit completion when showStack becomes true
+  // Re-arm the exit whenever the deck comes back on screen.
   // Note: This effect synchronizes animation state with prop changes
   useEffect(() => {
-    if (showStack) {
+    if (mode === "stack") {
       setHasCompletedExit(false);
     }
-  }, [showStack]);
+  }, [mode]);
 
   const handleAnimationComplete = () => {
-    if (!showStack && isActive) {
+    if (mode !== "stack") {
       setHasCompletedExit(true);
     }
   };
 
-  // Hide non-active cards immediately, hide active card after exit animation completes
-  if (!showStack && (!isActive || hasCompletedExit)) {
-    return null;
-  }
+  // The zoom is a solo act: only the active card plays it, the rest leave at once.
+  if (mode === "zoom" && !isActive) return null;
+  // Once faded/zoomed out, stop rendering.
+  if (mode !== "stack" && hasCompletedExit) return null;
 
   // Only the front card of the stack is swipeable, and only on touch-sized screens.
-  const isDraggable = isMobile && showStack && isActive && !!onSwipe;
+  const isDraggable = isMobile && mode === "stack" && isActive && !!onSwipe;
 
   const handleDragEnd = (_: unknown, info: PanInfo) => {
     swipedRef.current = Math.hypot(info.offset.x, info.offset.y) > TAP_SLOP;
@@ -150,11 +165,19 @@ export const GameCard = ({
 
   return (
     <motion.div
-      className="pointer-events-auto col-span-full row-span-full h-full w-full"
+      className={
+        mode === "hidden"
+          ? "pointer-events-none col-span-full row-span-full h-full w-full"
+          : "pointer-events-auto col-span-full row-span-full h-full w-full"
+      }
       initial={false}
-      animate={variants}
+      animate={{ ...variants, opacity: mode === "hidden" ? 0 : 1 }}
       exit={variants}
-      transition={{ type: "spring", duration: ANIMATION_DURATION }}
+      transition={{
+        type: "spring",
+        duration: ANIMATION_DURATION,
+        opacity: { duration: FADE_OUT_DURATION },
+      }}
       onAnimationComplete={handleAnimationComplete}
     >
       <motion.div
@@ -175,7 +198,7 @@ export const GameCard = ({
 type Props<T extends { preview: string; previewPortrait?: string; name: string; slug: string }> = {
   data: T[];
   activeSlug?: string;
-  showStack: boolean;
+  mode: StackMode;
   onPreviewClick?: (game: T) => void;
   onSwipe?: (game: T) => void;
 };
@@ -204,7 +227,7 @@ export const GameStack = <
 >({
   data,
   activeSlug,
-  showStack,
+  mode,
   onPreviewClick,
   onSwipe,
 }: Props<T>) => {
@@ -230,7 +253,7 @@ export const GameStack = <
               key={item.name}
               index={index}
               total={data.length}
-              showStack={showStack}
+              mode={mode}
               currentIndex={currentIndex}
               isMobile={isMobile}
               swipedRef={swipedRef}

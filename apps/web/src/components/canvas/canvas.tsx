@@ -15,13 +15,17 @@ export const Canvas = () => {
   const isPlay = pathname === "/";
   const isDiscover = pathname === "/discover";
 
+  // The zoom hand-off only makes sense between discover and play, where the iframe lands on
+  // top of the card. Anywhere else (build, auth, ...) the deck just fades out.
+  const mode = isDiscover ? "stack" : isPlay ? "zoom" : "hidden";
+
   return (
     <>
       <div className="fixed inset-0 z-0">
         <GameStack
           data={featuredGames}
           activeSlug={game}
-          showStack={isDiscover}
+          mode={mode}
           onPreviewClick={(g) => {
             trigger("selection");
             void navigate({ to: "/", search: { game: g.slug } });
