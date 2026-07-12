@@ -1,5 +1,9 @@
 import * as THREE from "three";
 
+import type { ModelCache } from "../assets/loader";
+import { modelUrl, SIGN_HIGHWAY, SIGN_HIGHWAY_DETAILED } from "../assets/manifest";
+import { WORLD_HALF_X, WORLD_HALF_Z } from "../shared/constants";
+import { applyAsphaltSpeckle } from "./roads";
 import { SF_FREEWAY_RAMPS, SF_FREEWAYS } from "./sf-freeways";
 import type { Terrain } from "./terrain";
 
@@ -10,6 +14,9 @@ import type { Terrain } from "./terrain";
 // it sees, while the street heightfield below stays untouched — underpasses
 // keep working because a wheel ray cast from under the deck never reaches it.
 // Ramps anchor one end at street grade and the other at the mainline deck.
+// Mainline ends that stop mid-map (OSM clips, bridge approaches cut at the
+// data boundary) GROUND themselves: the deck glides down to street grade over
+// the last stretch like a ramp mouth, so no freeway ever cuts off in the air.
 // Everything derives from ONE memoized build so visuals, physics and pillar
 // solids can never disagree.
 
@@ -20,6 +27,23 @@ const MAX_GRADE = 0.05; // per-unit climb limit for the smoothed mainline deck
 const PILLAR_EVERY = 4; // one pillar per N samples (24u)
 const RAMP_ANCHOR_R = 30; // ramp end within this of a mainline → deck height
 const BARRIER_H = 0.85;
+const GROUND_RUN = 96; // dead-end mainlines descend to grade over this run
+const EDGE_MARGIN = 45; // ends this close to the map edge are meant to cut off
+// Elevation above terrain where falling off stops being fun: rails on ramps
+// turn physical past this clearance (mouths and merge gaps stay open).
+const RAIL_SOLID_CLEAR = 2.4;
+// Invisible physics lip above the visual barrier cap — an 0.85u wall alone
+// lets a boosted car vault the rail mid-corner.
+const RAIL_PHYS_EXTRA = 0.9;
+
+// Deck paint (decals: polygon-offset wins the depth test on the coplanar deck).
+const LINE_W = 0.24;
+const EDGE_INSET = 0.55;
+const DASH_LEN = 3.2;
+const DASH_GAP = 3.4;
+const PAINT_LIFT = 0.02;
+
+const SIGN_EVERY = 270; // arclength between overhead signs on a mainline
 
 // DoubleSide: barrier/pillar quads are hand-wound; guaranteeing outward
 // normals everywhere isn't worth the culling win on this little geometry.
@@ -28,15 +52,32 @@ const MAT_CONCRETE = new THREE.MeshStandardMaterial({
   roughness: 1,
   side: THREE.DoubleSide,
 });
-const MAT_DECK = new THREE.MeshStandardMaterial({ color: 0x596170, roughness: 1 });
+// Deck asphalt matches the street asphalt exactly (same color + aggregate
+// speckle) so ramp mouths merge into the roadway with no material seam.
+const MAT_DECK = new THREE.MeshStandardMaterial({ color: 0x555b68, roughness: 1 });
+applyAsphaltSpeckle(MAT_DECK);
+const MAT_PAINT_WHITE = new THREE.MeshStandardMaterial({
+  color: 0xf4f7f4,
+  roughness: 0.9,
+  polygonOffset: true,
+  polygonOffsetFactor: -2,
+  polygonOffsetUnits: -4,
+});
+const MAT_PAINT_YELLOW = new THREE.MeshStandardMaterial({
+  color: 0xf2b83a,
+  roughness: 0.9,
+  polygonOffset: true,
+  polygonOffsetFactor: -2,
+  polygonOffsetUnits: -4,
+});
 
 type Line = {
   readonly half: number;
   readonly pts: readonly (readonly [number, number])[]; // resampled
   readonly ys: readonly number[]; // deck TOP height per sample
   readonly ramp: boolean;
-  /** cumulative arclength per sample (ramps only; barrier/lip feathering) */
-  readonly cum?: readonly number[];
+  /** cumulative arclength per sample (barrier/lip feathering, dash phase) */
+  readonly cum: readonly number[];
   readonly openStart?: boolean; // street-grade end — feathered lip, no barrier
   readonly openEnd?: boolean;
 };
@@ -47,8 +88,12 @@ type FreewayBuild = {
   readonly deckNor: number[];
   readonly bodyPos: number[];
   readonly bodyNor: number[];
-  /** deck top + pillar faces, non-indexed triangles — the physics surface */
+  readonly whitePos: number[];
+  readonly yellowPos: number[];
+  /** deck top + rail faces, non-indexed triangles — the physics surface */
   readonly physPos: number[];
+  /** overhead sign anchors on the mainline decks */
+  readonly signs: readonly { x: number; y: number; z: number; yaw: number }[];
 };
 
 function resample(p: readonly number[]): [number, number][] {
@@ -76,6 +121,39 @@ function resample(p: readonly number[]): [number, number][] {
   return pts;
 }
 
+function cumOf(pts: readonly (readonly [number, number])[]): number[] {
+  let total = 0;
+  return pts.map((p, i) => {
+    if (i === 0) return 0;
+    const [ax, az] = pts[i - 1] ?? [0, 0];
+    total += Math.hypot(p[0] - ax, p[1] - az);
+    return total;
+  });
+}
+
+// A dead-end test on the RAW polylines: an endpoint is a true dead end when
+// it neither reaches the map edge nor lands on any other freeway line.
+function endpointHangs(x: number, z: number, self: readonly number[]): boolean {
+  if (Math.abs(x) > WORLD_HALF_X - EDGE_MARGIN || Math.abs(z) > WORLD_HALF_Z - EDGE_MARGIN) {
+    return false;
+  }
+  for (const f of [...SF_FREEWAYS, ...SF_FREEWAY_RAMPS]) {
+    if (f.p === self) continue;
+    for (let i = 0; i + 3 < f.p.length; i += 2) {
+      const ax = f.p[i] ?? 0;
+      const az = f.p[i + 1] ?? 0;
+      const bx = f.p[i + 2] ?? 0;
+      const bz = f.p[i + 3] ?? 0;
+      const dx = bx - ax;
+      const dz = bz - az;
+      const l2 = dx * dx + dz * dz;
+      const t = l2 > 1e-8 ? Math.min(Math.max(((x - ax) * dx + (z - az) * dz) / l2, 0), 1) : 0;
+      if (Math.hypot(ax + dx * t - x, az + dz * t - z) < f.half + 14) return true;
+    }
+  }
+  return true;
+}
+
 let cachedBuild: FreewayBuild | null = null;
 
 function buildData(terrain: Terrain): FreewayBuild {
@@ -91,7 +169,30 @@ function buildData(terrain: Terrain): FreewayBuild {
     const maxD = STEP * MAX_GRADE;
     for (let i = 1; i < ys.length; i++) ys[i] = Math.max(ys[i] ?? 0, (ys[i - 1] ?? 0) - maxD);
     for (let i = ys.length - 2; i >= 0; i--) ys[i] = Math.max(ys[i] ?? 0, (ys[i + 1] ?? 0) - maxD);
-    mains.push({ half: f.half, pts, ys, ramp: false });
+    const cum = cumOf(pts);
+    const total = cum[cum.length - 1] ?? 0;
+
+    // Dead-end grounding: the deck descends to street grade over the last
+    // GROUND_RUN like an oversized ramp mouth, instead of stopping in the air.
+    const first = pts[0] ?? [0, 0];
+    const last = pts[pts.length - 1] ?? [0, 0];
+    const openStart = endpointHangs(first[0], first[1], f.p);
+    const openEnd = endpointHangs(last[0], last[1], f.p);
+    if (openStart || openEnd) {
+      for (let i = 0; i < pts.length; i++) {
+        const [x, z] = pts[i] ?? [0, 0];
+        const endDist = Math.min(
+          openStart ? (cum[i] ?? 0) : Infinity,
+          openEnd ? total - (cum[i] ?? 0) : Infinity,
+        );
+        if (endDist >= GROUND_RUN) continue;
+        const c = 1 - endDist / GROUND_RUN;
+        const k = c * c * (3 - 2 * c);
+        const grade = terrain.heightAt(x, z) + 0.08 + endDist * 0.015;
+        ys[i] = (ys[i] ?? 0) + (Math.min(grade, ys[i] ?? 0) - (ys[i] ?? 0)) * k;
+      }
+    }
+    mains.push({ half: f.half, pts, ys, cum, ramp: false, openStart, openEnd });
   }
 
   // Deck height on the nearest mainline sample, if one is within r.
@@ -127,13 +228,8 @@ function buildData(terrain: Terrain): FreewayBuild {
     // so the first meters ARE the street.
     const yA = deckA ?? terrain.heightAt(first[0], first[1]) + 0.05;
     const yB = deckB ?? terrain.heightAt(last[0], last[1]) + 0.05;
-    let total = 0;
-    const cum = pts.map((p, i) => {
-      if (i === 0) return 0;
-      const [ax, az] = pts[i - 1] ?? [0, 0];
-      total += Math.hypot(p[0] - ax, p[1] - az);
-      return total;
-    });
+    const cum = cumOf(pts);
+    const total = cum[cum.length - 1] ?? 0;
     const ys = pts.map(([x, z], i) => {
       const t = total > 0 ? (cum[i] ?? 0) / total : 0;
       const endDist = Math.min(
@@ -150,8 +246,8 @@ function buildData(terrain: Terrain): FreewayBuild {
       // edge is a 0.9u wall) — blend saturates 12u out from the tip.
       const B = 44;
       const SAT = 12;
-      const blend = (anchor: number, endDist: number): number => {
-        const c = Math.min(1, Math.max(0, (B - endDist) / (B - SAT)));
+      const blend = (anchor: number, endDist2: number): number => {
+        const c = Math.min(1, Math.max(0, (B - endDist2) / (B - SAT)));
         const k = c * c * (3 - 2 * c);
         return y + (Math.max(anchor, y) - y) * k;
       };
@@ -213,7 +309,10 @@ function buildData(terrain: Terrain): FreewayBuild {
   const deckNor: number[] = [];
   const bodyPos: number[] = [];
   const bodyNor: number[] = [];
+  const whitePos: number[] = [];
+  const yellowPos: number[] = [];
   const physPos: number[] = [];
+  const signs: { x: number; y: number; z: number; yaw: number }[] = [];
 
   // Where two ribbons meet at grade (ramp merging into its mainline, ramps
   // crossing at an interchange), a continuous barrier walls off the roadway.
@@ -252,8 +351,11 @@ function buildData(terrain: Terrain): FreewayBuild {
     if (!line) continue;
     const n = line.pts.length;
     const w = line.half;
+    const total = line.cum[line.cum.length - 1] ?? Infinity;
     const barrierH = line.ramp ? 0.55 : BARRIER_H;
-    const rails: { l: number[]; r: number[] }[] = [];
+    // Per-sample rails + the unit lateral (perp) so paint strips can sit at
+    // any offset without re-deriving tangents.
+    const rails: { l: number[]; r: number[]; px: number; pz: number }[] = [];
     for (let i = 0; i < n; i++) {
       const [x, z] = line.pts[i] ?? [0, 0];
       const [px, pz] = line.pts[Math.max(0, i - 1)] ?? [0, 0];
@@ -264,8 +366,23 @@ function buildData(terrain: Terrain): FreewayBuild {
       tx /= tl;
       tz /= tl;
       const y = line.ys[i] ?? 0;
-      rails.push({ l: [x - tz * w, y, z + tx * w], r: [x + tz * w, y, z - tx * w] });
+      rails.push({
+        l: [x - tz * w, y, z + tx * w],
+        r: [x + tz * w, y, z - tx * w],
+        px: -tz,
+        pz: tx,
+      });
     }
+    // A point at lateral offset o from the centerline sample i (deck-top y).
+    const at = (i: number, o: number): [number, number, number] => {
+      const [x, z] = line.pts[i] ?? [0, 0];
+      const rl = rails[i];
+      return [x + (rl?.px ?? 0) * o, (line.ys[i] ?? 0) + PAINT_LIFT, z + (rl?.pz ?? 0) * o];
+    };
+    const clearanceAt = (i: number): number => {
+      const [x, z] = line.pts[i] ?? [0, 0];
+      return (line.ys[i] ?? 0) - terrain.heightAt(x, z);
+    };
     for (let i = 0; i + 1 < n; i++) {
       const a = rails[i];
       const b = rails[i + 1];
@@ -278,6 +395,51 @@ function buildData(terrain: Terrain): FreewayBuild {
       pushQuad(bodyPos, bodyNor, drop(a.r), drop(b.r), drop(b.l), drop(a.l));
       pushQuad(bodyPos, bodyNor, a.r, b.r, drop(b.r), drop(a.r));
       pushQuad(bodyPos, bodyNor, drop(a.l), drop(b.l), b.l, a.l);
+
+      const segS = line.cum[i] ?? Infinity;
+      const nearOpen =
+        (line.openStart === true && segS < 10) || (line.openEnd === true && total - segS < 10);
+
+      // --- Deck paint ---
+      // Solid edge lines both sides (suppressed through merge blobs so paint
+      // never slices across a joining roadway), a yellow centerline on
+      // mainlines (the deck carries both directions), and white lane dashes.
+      const eo = w - EDGE_INSET;
+      const paintSeg = (arr: number[], o: number): void => {
+        pushQuad(
+          arr,
+          null,
+          at(i, o - LINE_W / 2),
+          at(i + 1, o - LINE_W / 2),
+          at(i + 1, o + LINE_W / 2),
+          at(i, o + LINE_W / 2),
+        );
+      };
+      for (const side of [-1, 1] as const) {
+        const p0 = at(i, eo * side);
+        const p1 = at(i + 1, eo * side);
+        if (
+          otherDeckAt(p0[0], p0[2], p0[1], lineIdx, 1.0) ||
+          otherDeckAt(p1[0], p1[2], p1[1], lineIdx, 1.0)
+        ) {
+          continue;
+        }
+        paintSeg(whitePos, eo * side);
+      }
+      if (!line.ramp) {
+        paintSeg(yellowPos, 0);
+        // Dash phase from arclength so the pattern flows through samples.
+        const phase = segS % (DASH_LEN + DASH_GAP);
+        if (phase < DASH_LEN) {
+          for (const side of [-1, 1] as const) {
+            const o = w * 0.45 * side;
+            const p0 = at(i, o);
+            if (otherDeckAt(p0[0], p0[2], p0[1], lineIdx, 1.0)) continue;
+            paintSeg(whitePos, o);
+          }
+        }
+      }
+
       // Side barriers: low walls hugging the deck edges — solid in physics so
       // the car banks off them instead of sailing into the void mid-corner.
       const rail = (p: readonly number[], inset: number): number[] => {
@@ -287,17 +449,14 @@ function buildData(terrain: Terrain): FreewayBuild {
         const dl = Math.hypot(dx, dz) || 1;
         return [(p[0] ?? 0) + (dx / dl) * inset, p[1] ?? 0, (p[2] ?? 0) + (dz / dl) * inset];
       };
-      const lift = (p: readonly number[]): number[] => [
+      const lift = (p: readonly number[], h: number): number[] => [
         p[0] ?? 0,
-        (p[1] ?? 0) + barrierH,
+        (p[1] ?? 0) + h,
         p[2] ?? 0,
       ];
-      // Open ramp mouths: no barrier within 10u of a street-grade end, so
-      // the car rolls on/off without threading a walled slot.
-      const segS = line.cum?.[i] ?? Infinity;
-      const total = line.cum?.[line.cum.length - 1] ?? Infinity;
-      const nearOpen =
-        (line.openStart === true && segS < 10) || (line.openEnd === true && total - segS < 10);
+      // Open mouths (ramp ends at street grade, grounded mainline ends): no
+      // barrier within 10u, so the car rolls on/off without threading a
+      // walled slot.
       if (nearOpen) continue;
       for (const side of ["l", "r"] as const) {
         const p0 = a[side];
@@ -313,17 +472,60 @@ function buildData(terrain: Terrain): FreewayBuild {
         }
         const q0 = rail(p0, 0.5);
         const q1 = rail(p1, 0.5);
-        pushQuad(bodyPos, bodyNor, lift(q0), lift(q1), lift(p1), lift(p0)); // cap
-        pushQuad(bodyPos, bodyNor, p0, p1, lift(p1), lift(p0)); // outer face
-        pushQuad(bodyPos, bodyNor, lift(q0), lift(q1), q1, q0); // inner face
-        // MAINLINE barriers are physical (guardrails for the high-speed
-        // cruise; merge gaps above keep the ramp mouths open). RAMP rails
-        // stay visual-only — braided links turned solid rails into
-        // invisible-wall traps, and sailing off a ramp onto the street below
-        // is recoverable (and fun) where a wedged car is neither.
-        if (!line.ramp) pushQuad(physPos, null, lift(q0), lift(q1), q1, q0);
+        pushQuad(
+          bodyPos,
+          bodyNor,
+          lift(q0, barrierH),
+          lift(q1, barrierH),
+          lift(p1, barrierH),
+          lift(p0, barrierH),
+        ); // cap
+        pushQuad(bodyPos, bodyNor, p0, p1, lift(p1, barrierH), lift(p0, barrierH)); // outer face
+        pushQuad(bodyPos, bodyNor, lift(q0, barrierH), lift(q1, barrierH), q1, q0); // inner face
+        // Rails are PHYSICAL wherever falling off would strand the car:
+        // every mainline, and any ramp section riding clear of the ground
+        // (the old visual-only ramp rails were the "drove off the side of
+        // the highway" report). Low ramp sections stay open — sailing off
+        // near grade is recoverable (and fun) where a mid-air exit is not.
+        // The wall extends an invisible RAIL_PHYS_EXTRA above the visual cap
+        // so a boosted car can't vault it.
+        const solidRail =
+          !line.ramp || Math.min(clearanceAt(i), clearanceAt(i + 1)) > RAIL_SOLID_CLEAR + DECK_T;
+        if (solidRail) {
+          pushQuad(
+            physPos,
+            null,
+            lift(q0, barrierH + RAIL_PHYS_EXTRA),
+            lift(q1, barrierH + RAIL_PHYS_EXTRA),
+            q1,
+            q0,
+          );
+        }
       }
     }
+
+    // Overhead signage: green highway boards on gantry poles at the deck's
+    // right edge, alternating travel direction so both flows get signage.
+    if (!line.ramp) {
+      let signFlip = lineIdx % 2 === 0;
+      for (let s = SIGN_EVERY * 0.5; s < total - 40; s += SIGN_EVERY) {
+        let i = 1;
+        while (i < n - 1 && (line.cum[i] ?? 0) < s) i++;
+        if (clearanceAt(i) < CLEAR * 0.7) continue; // grounded stretch — no gantries
+        const rl = rails[i];
+        if (!rl) continue;
+        const dir = signFlip ? 1 : -1;
+        signFlip = !signFlip;
+        const [x, z] = line.pts[i] ?? [0, 0];
+        // Right-hand edge for the chosen travel direction.
+        const o = (w - 1.0) * dir;
+        // Face oncoming traffic: board normal (local +X after yaw) points
+        // back along the travel direction.
+        const yaw = Math.atan2(-rl.pz * dir, -rl.px * dir) + Math.PI / 2;
+        signs.push({ x: x + rl.px * o, y: line.ys[i] ?? 0, z: z + rl.pz * o, yaw });
+      }
+    }
+
     // Pillars (visual quads + arcade solids; the trimesh handles the deck).
     for (let i = PILLAR_EVERY; i < n - 1; i += PILLAR_EVERY) {
       const [x, z] = line.pts[i] ?? [0, 0];
@@ -383,7 +585,7 @@ function buildData(terrain: Terrain): FreewayBuild {
     }
   }
 
-  cachedBuild = { lines, deckPos, deckNor, bodyPos, bodyNor, physPos };
+  cachedBuild = { lines, deckPos, deckNor, bodyPos, bodyNor, whitePos, yellowPos, physPos, signs };
   return cachedBuild;
 }
 
@@ -476,15 +678,21 @@ function pushQuad(
   put(d);
 }
 
-function geoFrom(pos: number[], nor: number[]): THREE.BufferGeometry {
+function geoFrom(pos: number[], nor: number[] | null): THREE.BufferGeometry {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pos), 3));
-  geo.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(nor), 3));
+  if (nor) {
+    geo.setAttribute("normal", new THREE.BufferAttribute(new Float32Array(nor), 3));
+  } else {
+    const up = new Float32Array(pos.length);
+    for (let i = 1; i < up.length; i += 3) up[i] = 1;
+    geo.setAttribute("normal", new THREE.BufferAttribute(up, 3));
+  }
   geo.setAttribute("uv", new THREE.BufferAttribute(new Float32Array((pos.length / 3) * 2), 2));
   return geo;
 }
 
-export function buildFreeways(terrain: Terrain): THREE.Group {
+export function buildFreeways(terrain: Terrain, cache?: ModelCache): THREE.Group {
   const data = buildData(terrain);
   const group = new THREE.Group();
   const deckMesh = new THREE.Mesh(geoFrom(data.deckPos, data.deckNor), MAT_DECK);
@@ -493,5 +701,30 @@ export function buildFreeways(terrain: Terrain): THREE.Group {
   bodyMesh.castShadow = true;
   bodyMesh.receiveShadow = true;
   group.add(deckMesh, bodyMesh);
+  if (data.whitePos.length > 0) {
+    group.add(new THREE.Mesh(geoFrom(data.whitePos, null), MAT_PAINT_WHITE));
+  }
+  if (data.yellowPos.length > 0) {
+    group.add(new THREE.Mesh(geoFrom(data.yellowPos, null), MAT_PAINT_YELLOW));
+  }
+  // Overhead highway boards (Kenney sign-highway) seated on the deck edge.
+  if (cache) {
+    let flip = false;
+    for (const s of data.signs) {
+      flip = !flip;
+      const url = modelUrl("roads", flip ? SIGN_HIGHWAY : SIGN_HIGHWAY_DETAILED);
+      const node = cache.instance(url);
+      const bounds = cache.bounds(url);
+      const sc = 4.6 / Math.max(bounds.size.y, 0.001);
+      node.scale.setScalar(sc);
+      node.rotation.y = s.yaw;
+      node.position.set(s.x, s.y, s.z);
+      node.updateMatrixWorld(true);
+      node.traverse((c) => {
+        if (c instanceof THREE.Mesh) c.castShadow = true;
+      });
+      group.add(node);
+    }
+  }
   return group;
 }

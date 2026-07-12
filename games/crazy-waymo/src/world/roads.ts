@@ -133,32 +133,36 @@ const MAT_ROAD_BASE = new THREE.MeshStandardMaterial({
 // Asphalt aggregate: two octaves of hash speckle in world space, ±5%
 // luminance — big paved areas read as surface instead of flat fill. Runtime
 // shader on the shared material, so it covers live AND baked worlds (no
-// rebake needed) and costs zero extra geometry.
-MAT_ROAD_BASE.onBeforeCompile = (shader) => {
-  shader.vertexShader = shader.vertexShader
-    .replace("#include <common>", "#include <common>\nvarying vec3 vRoadPos;")
-    .replace(
-      "#include <begin_vertex>",
-      "#include <begin_vertex>\nvRoadPos = (modelMatrix * vec4(transformed, 1.0)).xyz;",
-    );
-  shader.fragmentShader = shader.fragmentShader
-    .replace(
-      "#include <common>",
-      `#include <common>
+// rebake needed) and costs zero extra geometry. Exported so the freeway deck
+// reads as the SAME asphalt (color + grain) — ramp mouths merge seamlessly.
+export function applyAsphaltSpeckle(mat: THREE.MeshStandardMaterial): void {
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nvarying vec3 vRoadPos;")
+      .replace(
+        "#include <begin_vertex>",
+        "#include <begin_vertex>\nvRoadPos = (modelMatrix * vec4(transformed, 1.0)).xyz;",
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <common>",
+        `#include <common>
 varying vec3 vRoadPos;
 float roadHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }`,
-    )
-    .replace(
-      "#include <color_fragment>",
-      `#include <color_fragment>
+      )
+      .replace(
+        "#include <color_fragment>",
+        `#include <color_fragment>
 {
   vec2 wp = vRoadPos.xz;
   float speck = roadHash(floor(wp * 1.7));
   float coarse = roadHash(floor(wp * 0.21));
   diffuseColor.rgb *= 1.0 + (speck - 0.5) * 0.05 + (coarse - 0.5) * 0.045;
 }`,
-    );
-};
+      );
+  };
+}
+applyAsphaltSpeckle(MAT_ROAD_BASE);
 ROAD_MATERIALS.roadbase = MAT_ROAD_BASE;
 const MAT_ROAD_MARK = new THREE.MeshStandardMaterial({
   color: 0xffffff,
@@ -424,6 +428,13 @@ function patchRing(nx: number, nz: number, arms: Arm[], extra: number, trimCap: 
     const hb = b.half + extra;
     ring.push([snap(a.px + a.tz * ha), snap(a.pz - a.tx * ha)]); // a minus side
     ring.push([snap(a.px - a.tz * ha), snap(a.pz + a.tx * ha)]); // a plus side
+    // The corner fills the notch between adjacent arm edges — but only wide
+    // angular gaps HAVE a notch. At shallow gaps the strips overlap and the
+    // ray intersection shoots off as a needle spike across the sidewalk
+    // (the "dark wedge over the walk" artifact).
+    let gap = b.angle - a.angle;
+    if (arms.length === 1 || gap <= 0) gap += Math.PI * 2;
+    if (gap < 0.9) continue;
     const corner = lineIntersect(
       a.px - a.tz * ha,
       a.pz + a.tx * ha,
@@ -674,14 +685,19 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
 
     // Dashes (junction-clipped so they never float through a merged blob):
     // boulevards carry two white lane lines, streets one yellow centre line.
-    if (secLen < 12) continue;
+    // Threshold 6 (was 12): the dense hill grid is full of short blocks that
+    // lost ALL paint and read as bald asphalt between junctions.
+    if (secLen < 6) continue;
     const dashOffsets: { off: number; mat: THREE.Material }[] = major
       ? [
           { off: -h * 0.33, mat: MAT_WHITE },
           { off: h * 0.33, mat: MAT_WHITE },
         ]
       : [{ off: 0, mat: MAT_YELLOW }];
-    for (let s = 0; s < secLen; s += DASH_LEN + DASH_GAP) {
+    // Center the dash pattern in the section — on short blocks a dash flush
+    // against the junction gets clipped and the street reads bald; a centered
+    // one survives.
+    for (let s = (secLen % (DASH_LEN + DASH_GAP)) / 2; s < secLen; s += DASH_LEN + DASH_GAP) {
       const e = Math.min(s + DASH_LEN, secLen);
       if (e - s < 0.6) continue;
       const midS = trimA + (s + e) / 2;
@@ -727,7 +743,8 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
     // Ness/Geary scale) — red everywhere reads rusty instead of special.
     // A thin curb-hugging lane, near-continuous: the earlier centre-to-edge
     // band (~3.7u each side) read as huge red slabs, not lanes.
-    if (h >= 5.5) { // primary corridors only
+    if (h >= 5.5) {
+      // primary corridors only
       const laneOut = eo - LINE_W / 2 - 0.3;
       const laneIn = laneOut - 1.9;
       // nearJunction now scales nodeTrim by the patch factor itself, so the

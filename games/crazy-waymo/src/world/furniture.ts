@@ -120,12 +120,28 @@ const KK_TINT = 0xd8d2c4;
 const KK_TINT_AMT = 0.15;
 // KayKit pass caps + sizes.
 const HYDRANT_CAP = 40;
-const SIGNAL_CAP = 25;
+// Junction-control caps are SAFETY VALVES, not targets — density comes from
+// the per-node warrants/chances below. A low cap fills in node-id order,
+// which clusters everything in one corner of the map.
+const SIGNAL_CAP = 420;
+const STOP_SIGN_NODE_CAP = 700; // all-way-stop junctions (SF's default control)
 const SEATING_CAP = 50; // benches + trash cans combined
 const VICTORIAN_LAMP_HEIGHT = 4.2;
 
 // Shared static geometry/materials at module scope so merged batches stay few.
 const UNIT_BOX = new THREE.BoxGeometry(1, 1, 1);
+// Stop signs are procedural (no kit model has one): an octagonal face on a
+// pole. Flat-edge-up octagon, caps facing ±Z after the X-rotation.
+const STOP_FACE = new THREE.CylinderGeometry(0.42, 0.42, 0.05, 8)
+  .rotateY(Math.PI / 8)
+  .rotateX(Math.PI / 2);
+const STOP_RIM = new THREE.CylinderGeometry(0.48, 0.48, 0.04, 8)
+  .rotateY(Math.PI / 8)
+  .rotateX(Math.PI / 2);
+const STOP_POLE = new THREE.CylinderGeometry(0.05, 0.05, 1, 6);
+const STOP_RED_MAT = new THREE.MeshStandardMaterial({ color: 0xc0392b, roughness: 0.7 });
+const STOP_WHITE_MAT = new THREE.MeshStandardMaterial({ color: 0xf4f7f4, roughness: 0.7 });
+const POLE_MAT = new THREE.MeshStandardMaterial({ color: 0x8f979e, roughness: 0.9 });
 const RAIL_MAT = new THREE.MeshStandardMaterial({ color: 0x8a6f4d, roughness: 0.9 }); // pier wood
 const SEAWALL_MAT = new THREE.MeshStandardMaterial({ color: 0x9aa2a6, roughness: 1 }); // concrete lip
 const LAKE_MAT = new THREE.MeshStandardMaterial({ color: 0x3f6f8f, roughness: 0.4 }); // Stow Lake
@@ -1042,9 +1058,11 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
   const signalUrl = modelUrl("props", PROP_TRAFFICLIGHT);
   const signalScale = scaleToHeight(signalUrl, 5);
   let signals = 0;
-  for (let n = 0; n < network.nodes.length && signals < SIGNAL_CAP; n++) {
+  let stopNodes = 0;
+  for (let n = 0; n < network.nodes.length; n++) {
     const ids = network.nodeEdges[n];
     if (!ids || ids.length < 3) continue;
+    if (network.nodeIsPassThrough(n)) continue;
     const node = network.nodes[n];
     if (!node) continue;
     // Arms (edge ends meeting here) + the signal warrant.
@@ -1066,19 +1084,64 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
         if (edge.half > 4.7) boulevards++;
       }
     }
-    const signalized = boulevards >= 2 || (arms.length >= 4 && rng.chance(0.08));
-    if (!signalized) continue;
-    for (const a of arms) {
-      // Right side of INCOMING traffic, past the crosswalk + stop bar.
-      const px = a.px + a.tx * 4.6 + a.tz * (a.half + 1.2);
-      const pz = a.pz + a.tz * 4.6 - a.tx * (a.half + 1.2);
-      if (onAsphalt(px, pz)) continue;
-      // The arm hangs along local -X; point it back toward the junction.
-      const dl = Math.hypot(node[0] - px, node[1] - pz) || 1;
-      const yaw = Math.atan2((node[1] - pz) / dl, -(node[0] - px) / dl);
-      seatKK(signalUrl, px, pz, yaw, signalScale);
-      signals++;
+    // Real-SF control hierarchy: arterial-arterial crossings get signals,
+    // arterial-minor gets a sprinkle of signals, and the minor grid runs on
+    // all-way stop signs (THE San Francisco junction).
+    const signalized =
+      signals < SIGNAL_CAP &&
+      (boulevards >= 2 ||
+        (boulevards >= 1 && arms.length >= 3 && rng.chance(0.4)) ||
+        (arms.length >= 4 && rng.chance(0.08)));
+    if (signalized) {
+      for (const a of arms) {
+        // Right side of INCOMING traffic, past the crosswalk + stop bar.
+        const px = a.px + a.tx * 4.6 + a.tz * (a.half + 1.2);
+        const pz = a.pz + a.tz * 4.6 - a.tx * (a.half + 1.2);
+        if (onAsphalt(px, pz)) continue;
+        // The arm hangs along local -X; point it back toward the junction.
+        const dl = Math.hypot(node[0] - px, node[1] - pz) || 1;
+        const yaw = Math.atan2((node[1] - pz) / dl, -(node[0] - px) / dl);
+        seatKK(signalUrl, px, pz, yaw, signalScale);
+        signals++;
+      }
+      continue;
     }
+    // All-way stop: minor 3/4-way junctions, one sign on the right of each
+    // approach. Skip mega-blob nodes — their trims put the "corner" mid-blob.
+    if (
+      stopNodes >= STOP_SIGN_NODE_CAP ||
+      boulevards > 0 ||
+      arms.length > 4 ||
+      network.nodeTrim(n) >= 9 ||
+      !rng.chance(0.6)
+    ) {
+      continue;
+    }
+    let placedAny = false;
+    for (const a of arms) {
+      const px = a.px + a.tx * 1.6 + a.tz * (a.half + 0.8);
+      const pz = a.pz + a.tz * 1.6 - a.tx * (a.half + 0.8);
+      if (onAsphalt(px, pz, 0.2)) continue;
+      const gy = terrain.heightAt(px, pz);
+      // Face plane normal points outward along the arm — straight at the
+      // driver approaching the junction.
+      const yaw = Math.atan2(a.tx, a.tz);
+      const pole = new THREE.Mesh(STOP_POLE, POLE_MAT);
+      pole.scale.y = 2.3;
+      pole.position.set(px, gy + 1.15, pz);
+      pole.updateMatrixWorld(true);
+      const rim = new THREE.Mesh(STOP_RIM, STOP_WHITE_MAT);
+      rim.rotation.y = yaw;
+      rim.position.set(px, gy + 2.2, pz);
+      rim.updateMatrixWorld(true);
+      const face = new THREE.Mesh(STOP_FACE, STOP_RED_MAT);
+      face.rotation.y = yaw;
+      face.position.set(px + Math.sin(yaw) * 0.03, gy + 2.2, pz + Math.cos(yaw) * 0.03);
+      face.updateMatrixWorld(true);
+      objects.push(pole, rim, face);
+      placedAny = true;
+    }
+    if (placedAny) stopNodes++;
   }
 
   // ------------------------------------------------------------------

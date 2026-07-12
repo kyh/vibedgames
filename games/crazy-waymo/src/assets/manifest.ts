@@ -29,6 +29,9 @@ export const POLICE_CAR = "police";
 export const ROAD_BRIDGE = "road-bridge";
 export const BRIDGE_PILLAR = "bridge-pillar";
 export const BRIDGE_PILLAR_WIDE = "bridge-pillar-wide";
+// Overhead highway boards on the freeway decks (world/freeways.ts).
+export const SIGN_HIGHWAY = "sign-highway";
+export const SIGN_HIGHWAY_DETAILED = "sign-highway-detailed";
 
 // --- Buildings (by district prefix) ---
 export const BUILDINGS_COMMERCIAL = [
@@ -256,7 +259,13 @@ export const PROPS = [
   ...PARK_TREES,
 ] as const;
 
-const ROADS = [ROAD_BRIDGE, BRIDGE_PILLAR, BRIDGE_PILLAR_WIDE] as const;
+const ROADS = [
+  ROAD_BRIDGE,
+  BRIDGE_PILLAR,
+  BRIDGE_PILLAR_WIDE,
+  SIGN_HIGHWAY,
+  SIGN_HIGHWAY_DETAILED,
+] as const;
 
 // TITLE-CRITICAL set (~200KB): exactly what the player car and city phase 1
 // (terrain/streets/green cells/garage depots — city.ts buildPhase1) touch.
