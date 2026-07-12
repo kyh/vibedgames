@@ -462,5 +462,33 @@ function runUntil(w: World, fxLog: FxEvent[], pred: () => boolean, maxMs = 4000)
   );
 }
 
+// ── 13. ranged AERIAL jump: hover + invulnerable + a full ring of shots ──
+for (const [champ, shots] of [
+  ["ranger", 9],
+  ["mage", 7],
+] as const) {
+  const { w, a, b } = setup(champ, "knight", 4);
+  const x0 = a.x;
+  const y0 = a.y;
+  check(`${champ} aerial cast ok`, castAbility(w, a, "JUMP", { dir: { x: 1, y: 0 } }));
+  // airborne: pinned in place and untouchable
+  step(w);
+  const airborne = a.statuses.some((s2) => s2.kind === "untargetable");
+  check(`${champ} is untargetable in the air`, airborne);
+  b.attackHeld = true; // the knight swings into her the whole time
+  const hp0 = a.hp;
+  let maxDrift = 0;
+  let volley = 0;
+  const until = w.now + 900;
+  while (w.now < until) {
+    step(w);
+    maxDrift = Math.max(maxDrift, Math.hypot(a.x - x0, a.y - y0));
+    volley = Math.max(volley, w.projectiles.size);
+  }
+  check(`${champ} takes no damage while airborne`, a.hp === hp0, `hp ${hp0}→${a.hp}`);
+  check(`${champ} hovers (no travel)`, maxDrift < 0.3, `drift ${maxDrift.toFixed(2)}u`);
+  check(`${champ} looses ${shots} shots at the apex`, volley >= shots, `saw ${volley}`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

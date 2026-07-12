@@ -359,17 +359,28 @@ export const CHAMPIONS: ChampDef[] = [
         values: { speed: [30], iframe: [0.28] },
         desc: "Combat roll — briefly untargetable.",
       }),
+      // AERIAL (the `air` value is what makes it one — see sim/abilities JUMP):
+      // Sylva springs up, hangs, and spins off a full ring of arrows. She can't
+      // steer while airborne, but nothing can touch her either — the kiting
+      // carry's answer to a knight who has already closed the gap.
       JUMP: ab({
         key: "JUMP",
-        name: "Falcon Dive",
+        name: "Tempest Volley",
         effect: "ranger:JUMP",
         targeting: "self",
-        castRange: 5,
+        castRange: 0,
         manaCost: [0],
-        cooldown: [7],
+        cooldown: [8],
         maxRank: 1,
-        values: { base: [80], perLevel: [8], radius: [3.0] },
-        desc: "Leap and rain arrows straight down on landing.",
+        values: {
+          air: [0.88], // hang time (== JUMP_MS: the hop arc it rides)
+          iframe: [1.0], // untargetable a hair past touchdown, so the landing is safe
+          shots: [9], // arrows in the spin — a full 360° ring
+          damage: [58],
+          perLevel: [6],
+          radius: [3.2], // FX ring only (the arrows do the damage)
+        },
+        desc: "Spring up, spin, and loose arrows in every direction — untouchable until you land.",
       }),
     },
   },
@@ -491,17 +502,27 @@ export const CHAMPIONS: ChampDef[] = [
         values: { range: [9], iframe: [0.22] },
         desc: "Teleport a short distance instantly.",
       }),
+      // AERIAL (see ranger:JUMP). Fewer bolts than Sylva's ring, but each one
+      // bursts — V-yx rises and detonates a wheel of fire around herself.
       JUMP: ab({
         key: "JUMP",
-        name: "Emberdrop",
+        name: "Emberburst",
         effect: "mage:JUMP",
         targeting: "self",
-        castRange: 5,
+        castRange: 0,
         manaCost: [0],
-        cooldown: [8],
+        cooldown: [9],
         maxRank: 1,
-        values: { base: [95], perLevel: [9], radius: [2.8], burnDps: [55], burnDur: [1.2] },
-        desc: "Drop like a comet — scorching the ground on impact.",
+        values: {
+          air: [0.88],
+          iframe: [1.0],
+          shots: [7],
+          damage: [62],
+          perLevel: [7],
+          splash: [1.7], // each bolt pops — the ring reads as one blast
+          radius: [3.4], // FX ring only
+        },
+        desc: "Rise, hang, and detonate a wheel of fire around you — untouchable until you land.",
       }),
     },
   },

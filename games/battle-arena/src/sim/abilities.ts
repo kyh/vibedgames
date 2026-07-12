@@ -12,6 +12,7 @@
 //     nova, vines, grand hex, meteor). Renders a ground telegraph while armed.
 import { CHAMP_BY_ID, valAt, type AbilityDef } from "../data/champions";
 import { castStrikeMs } from "../data/clip-timing";
+import { HOP_HEIGHT } from "../data/config";
 import { ITEM_BY_ID } from "../data/items";
 import { angleDelta, angleOf, dist, norm } from "./math";
 import { clampToArena, resolveObstacles } from "../data/map";
@@ -130,6 +131,14 @@ function startDash(
   u.dashVy = dir.y * speed;
   u.dashUntil = w.now + (distance / speed) * 1000;
   u.facing = angleOf(dir.x, dir.y);
+}
+
+/** Pin a unit in place for `ms` — a dash with no velocity (see world.isDashing).
+ *  Aerial abilities use it: you're committed to the air, not steering out of it. */
+function startHover(u: Unit, w: World, ms: number): void {
+  u.dashVx = 0;
+  u.dashVy = 0;
+  u.dashUntil = w.now + ms;
 }
 
 const JUMP_LEAP_SPEED = 20; // horizontal dash speed of a jump-attack leap
@@ -283,12 +292,48 @@ function applyStrike(w: World, c: Unit, s: PendingStrike): void {
   const dir = { x: s.dx, y: s.dy };
   const point = { x: s.px, y: s.py };
 
-  // JUMP slams share one data-driven impact: corridor along the leap path,
-  // riders derived from the def's values (stun / slow / burn).
+  // JUMP impacts are data-driven, and there are two shapes of them.
   if (s.key === "JUMP") {
-    const dmg = v("base") + v("perLevel") * (c.level - 1);
     const dtype =
       def.effect.startsWith("mage") || def.effect.startsWith("witch") ? "magic" : "physical";
+
+    // AERIAL (`shots`): at the apex the champ spins and looses a full ring of
+    // shots outward. The ring is anchored to the aim, so the shot you're looking
+    // at always goes where you're pointing — the rest cover your back.
+    if (def.values["shots"]) {
+      const n = v("shots");
+      const dmg = v("damage") + v("perLevel") * (c.level - 1);
+      const base = angleOf(dir.x, dir.y);
+      for (let i = 0; i < n; i++) {
+        const a = base + (i / n) * Math.PI * 2;
+        spawnProjectile(w, c, {
+          dirX: Math.cos(a),
+          dirY: Math.sin(a),
+          damage: dmg,
+          dtype,
+          kind: c.attackKind,
+          speed: Math.max(24, c.projectileSpeed),
+          radius: def.values["splash"] ? v("splash") : 0, // casters' shots burst
+          hitRadius: 1.0,
+          range: 11,
+          pierce: dtype === "physical", // arrows punch the line, bolts pop on contact
+          launchH: HOP_HEIGHT, // they're loosed from the apex and fall to the plane
+        });
+      }
+      w.fx.push({
+        t: "strike",
+        tag: def.effect,
+        x: c.x,
+        y: c.y,
+        dx: dir.x,
+        dy: dir.y,
+        r: v("radius"),
+      });
+      return;
+    }
+
+    // GROUNDED: corridor slam along the leap path, riders from the def's values.
+    const dmg = v("base") + v("perLevel") * (c.level - 1);
     for (const t of abilityTargets(w, c, def, r, s.ox, s.oy, dir, point)) {
       dealDamage(w, c, t, dmg, dtype, { ap });
       applyValueRiders(w, c, t, def, r);
@@ -586,7 +631,18 @@ function dispatch(
     return true;
   }
   if (key === "JUMP") {
-    // leap toward the aim; the slam damage is a PendingStrike at touchdown
+    // An AERIAL jump (`air`) doesn't travel: you spring straight up, hang, and
+    // fire from the apex. You're pinned (a zero-speed dash = a hover) and
+    // untargetable for the whole window — the trade is commitment for immunity.
+    if (def.values["air"]) {
+      const airMs = v("air") * 1000;
+      startHover(c, w, airMs);
+      c.jumpUntil = w.now + airMs;
+      addStatus(c, { kind: "untargetable", until: w.now + v("iframe") * 1000, id: "jump" });
+      scheduleStrike(w, c, key, airMs * 0.45, dir, { x: c.x, y: c.y }); // fires at the apex
+      return true;
+    }
+    // otherwise: leap toward the aim; the slam damage is a PendingStrike at touchdown
     startDash(c, dir, JUMP_LEAP_SPEED, def.castRange, w);
     const leapMs = Math.max(JUMP_DIVE_MS, (def.castRange / JUMP_LEAP_SPEED) * 1000);
     c.jumpUntil = w.now + leapMs;

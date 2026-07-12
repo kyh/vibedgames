@@ -110,3 +110,7 @@ export function respawnTime(level: number): number {
 // so it lives here to avoid a world↔abilities import cycle).
 export const JUMP_MS = 880; // airborne window (drives the render hop arc + Jump clip); high floaty jump
 export const JUMP_RECOVER = 460; // landing recovery before you can hop again
+/** Peak lift of the hop arc (world units). The renderer lifts the model by this
+ *  much, and an AERIAL ability's volley + FX fire from up here — so it's one
+ *  constant, not a render number the sim guesses at. */
+export const HOP_HEIGHT = 2.8;

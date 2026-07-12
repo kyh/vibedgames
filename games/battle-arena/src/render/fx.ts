@@ -5,6 +5,7 @@
 // the floating damage numbers. HUD-bound events (kill feed, toasts) are queued
 // for the HUD to read.
 import * as THREE from "three";
+import { HOP_HEIGHT } from "../data/config";
 import { terrainHeight } from "../data/terrain";
 import type { FxEvent, GroundEffect, World } from "../sim/types";
 import { Audio } from "./audio";
@@ -1018,11 +1019,14 @@ export class Fx {
         this.implode(x, y, 0xeaf2ff, 2.2, 8, 0.2);
         this.dust(x, y, 3);
         break;
+      // the two AERIALs spring straight UP (they don't travel) — kick the dust
+      // out all round, not backward off a leap
       case "ranger:JUMP":
-        this.crossGlint(x, 1.8, y, dx, dy, 0xffe6a0, 1.0);
-        this.footDust(x, y, -dx, -dy);
+        this.dust(x, y, 4);
+        this.impactRing(x, y, 0xffe6a0, 1.8);
         break;
       case "mage:JUMP":
+        this.dust(x, y, 4);
         this.implode(x, y, 0xff8040, 2.4, 8, 0.2);
         break;
       case "rogue:JUMP":
@@ -1184,21 +1188,31 @@ export class Fx {
           this.bumpFreeze(40);
         }
         break;
-      case "ranger:JUMP":
-        this.castStreak(x, y, 0, 1, 0xffe6a0, 10, 8, 0.5);
-        this.beam(x, y, 0xffe6a0, 5, 0.5);
-        this.impactRing(x, y, 0x7dffb0, r);
-        this.sparks(x, 0.4, y, 0, 1, 6, 0xffe6a0);
-        this.dust(x, y, 3);
-        if (this.within(x, y, 12)) this.view.addTrauma(0.1);
+      // AERIAL volleys fire from the APEX, not a touchdown — so nothing here may
+      // touch the ground (no cracks, no scorch, no dust). It all rings out at hop
+      // height, where the champ actually is.
+      case "ranger:JUMP": {
+        this.flash(x, HOP_HEIGHT, y, 0xffe6a0, 1.0, 1.7);
+        this.crossGlint(x, HOP_HEIGHT, y, dx, dy, 0xfff2c0, 1.4);
+        // the spin itself: a wheel of arrow streaks thrown outward
+        const base = Math.atan2(dy, dx);
+        for (let i = 0; i < 9; i++) {
+          const a = base + (i / 9) * Math.PI * 2;
+          this.sparks(x, HOP_HEIGHT, y, Math.cos(a), Math.sin(a), 3, 0xffe6a0);
+        }
+        this.shockwave(x, y, 0x7dffb0, r, 0.34, 0.9, HOP_HEIGHT);
+        if (this.within(x, y, 12)) this.view.addTrauma(0.09);
         break;
+      }
       case "mage:JUMP":
-        this.flash(x, 1.0, y, 0xffd060, 1.4, 2.0);
-        this.shockwave(x, y, 0xff8040, r);
-        this.spikes.ring(x, y, r * 0.5, 5, 0xff7a2c, { h: 0.8, w: 0.3, holdMs: 260, exitMs: 200 });
-        this.burst(x, 0.8, y, 10, 0xff8040, 6, 0.35);
-        this.telegraphs.spawnResidue(x, y, r * 0.8, 0x1a0f0a, 1.6);
-        if (this.within(x, y, 12)) this.view.addTrauma(0.11);
+        this.flash(x, HOP_HEIGHT, y, 0xffd060, 1.5, 2.2);
+        this.burst(x, HOP_HEIGHT, y, 14, 0xff8040, 7, 0.4);
+        this.shockwave(x, y, 0xff8040, r, 0.36, 0.9, HOP_HEIGHT);
+        this.shockwave(x, y, 0xffd060, r * 0.55, 0.26, 0.95, HOP_HEIGHT);
+        if (this.within(x, y, 12)) {
+          this.view.addTrauma(0.11);
+          this.bumpFreeze(40);
+        }
         break;
       case "rogue:JUMP": {
         const ang = Math.atan2(dy, dx);
@@ -2125,8 +2139,17 @@ export class Fx {
 
   // ── pooled transient meshes ──
 
-  /** Expanding ground shockwave ring — noise-broken shader annulus, pooled. */
-  shockwave(x: number, y: number, color: number, maxR: number, life = 0.38, opacity = 0.85): void {
+  /** Expanding shockwave ring — noise-broken shader annulus, pooled. Sits on the
+   *  ground unless `lift` raises it (aerial volleys ring out at hop height). */
+  shockwave(
+    x: number,
+    y: number,
+    color: number,
+    maxR: number,
+    life = 0.38,
+    opacity = 0.85,
+    lift = 0,
+  ): void {
     const r = this.rings.find((e) => e.life <= 0);
     if (!r) return; // saturated — drop (scale-of-importance budget)
     r.life = r.maxLife = life;
@@ -2137,7 +2160,7 @@ export class Fx {
     u["uT"]!.value = 0;
     u["uAlpha"]!.value = opacity;
     u["uSeed"]!.value = Math.random() * 20;
-    r.mesh.position.set(x, terrainHeight(x, y) + 0.12, y);
+    r.mesh.position.set(x, terrainHeight(x, y) + 0.12 + lift, y);
     r.mesh.scale.setScalar(0.2);
     r.mesh.visible = true;
   }

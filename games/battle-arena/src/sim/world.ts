@@ -581,13 +581,24 @@ function pruneAssist(u: Unit, now: number): void {
 const MOVE_ACCEL = 16;
 const MOVE_DECEL = 26;
 
+/** Travelling under an ability dash RIGHT NOW. A dash window with no velocity is
+ *  a HOVER (an aerial ability holding you in the air): it still overrides
+ *  steering, so you're committed, but it isn't going anywhere for you to face.
+ *  (dashVx/dashVy are not cleared when a dash ends, so the time window is half
+ *  the test — without it, facing would never follow aim again after one dash.) */
+function isDashing(w: World, u: Unit): boolean {
+  return w.now < u.dashUntil && Math.hypot(u.dashVx, u.dashVy) > 0.01;
+}
+
 function moveUnit(w: World, u: Unit, dt: number): void {
   if (w.now < u.dashUntil) {
     // dash overrides steering (writes it directly — dashes stay instant)
     u.steerVx = u.dashVx;
     u.steerVy = u.dashVy;
-    // a dash faces its travel direction
-    u.facing = Math.atan2(u.dashVy, u.dashVx);
+    // a dash faces its travel direction — but a ZERO-speed dash is a HOVER (an
+    // aerial ability pinning you in the air) and has no travel to face, so it
+    // falls through to the aim-follow below instead of snapping to atan2(0, 0)
+    if (isDashing(w, u)) u.facing = Math.atan2(u.dashVy, u.dashVx);
   } else {
     // target velocity from intent, then smooth steer toward it
     let tx = 0;
@@ -639,8 +650,9 @@ function moveUnit(w: World, u: Unit, dt: number): void {
   u.x = e.x;
   u.y = e.y;
 
-  // facing follows aim when not in an ability-dash (a dash faces its travel)
-  if (w.now >= u.dashUntil && (u.aimX !== 0 || u.aimY !== 0)) {
+  // facing follows aim when not in an ability-dash (a dash faces its travel; a
+  // hover isn't going anywhere, so you keep aiming through it)
+  if (!isDashing(w, u) && (u.aimX !== 0 || u.aimY !== 0)) {
     u.facing = Math.atan2(u.aimY, u.aimX);
   }
 }

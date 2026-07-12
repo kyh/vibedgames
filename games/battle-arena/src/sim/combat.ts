@@ -409,6 +409,7 @@ export type SpawnProjArgs = {
   isAttack?: boolean;
   burstAtEnd?: boolean; // detonate the splash at max range (aim-point casts)
   onHit?: Projectile["onHit"];
+  launchH?: number; // render-only: fired from up in the air (aerial volleys)
 };
 
 export function spawnProjectile(w: World, owner: Unit, a: SpawnProjArgs): void {
@@ -437,6 +438,7 @@ export function spawnProjectile(w: World, owner: Unit, a: SpawnProjArgs): void {
     dtype: a.dtype,
     radius: a.radius,
     hitRadius: a.hitRadius ?? 0.55,
+    launchH: a.launchH ?? 0,
     pierce: a.pierce ?? false,
     isAttack: a.isAttack ?? false,
     hitIds: [],

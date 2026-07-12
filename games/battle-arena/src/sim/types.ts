@@ -195,6 +195,12 @@ export type Projectile = {
   traveled: number;
   kind: string; // visual: "arrow" | "bolt" | "fireball" | ...
   onHit: ProjectileHit;
+  /** RENDER-ONLY extra launch height (world units above the normal projectile
+   *  plane), 0 for everything fired from the ground. An aerial volley is loosed
+   *  from the apex of a hop, so its shots must LEAVE from up there and fall to
+   *  the plane — otherwise the arrows squirt out from under the airborne
+   *  champion's feet. The sim stays flat: this never touches a hit test. */
+  launchH: number;
 };
 
 // ── Ground effects (AoE zones, telegraphs, delayed nukes) ────────────────────

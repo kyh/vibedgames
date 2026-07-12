@@ -4,7 +4,7 @@
 import * as THREE from "three";
 import { CHAMP_BY_ID } from "../data/champions";
 import { ABILITY_CLIPS, TWO_H_SPEED, clipSpeed, swingClip } from "../data/clip-timing";
-import { JUMP_MS, type DamageType } from "../data/config";
+import { HOP_HEIGHT, JUMP_MS, type DamageType } from "../data/config";
 import { BOSS_HEIGHT, BOSS_POS } from "../data/map";
 import { destructibleProps, type PropSpec } from "../data/props";
 import type { Projectile, Unit, World } from "../sim/types";
@@ -66,7 +66,6 @@ function clipWindowMs(durSec: number, speed = 1): number {
 const ATTACK_RECENCY_MS = 340; // an attack event older than this is stale — skip
 const CAST_ANIM_MS = 520; // recency window for detecting a fresh cast event
 const HIT_ANIM_MS = 300; // flinch beat — Hit_A/B are SPED to fit (never cut)
-const HOP_HEIGHT = 2.8; // peak lift of the jump arc (world units) — a high, floaty hop
 // Jump animation is a 3-phase state machine: takeoff → airborne float → land.
 const JUMP_START_CLIP = "Jump_Start";
 const JUMP_IDLE_CLIP = "Jump_Idle";
@@ -936,7 +935,10 @@ export class WorldView {
         this.projectiles.set(p.id, mesh);
         this.scene.add(mesh);
       }
-      mesh.position.set(p.x, 1.1, p.y);
+      // an aerial volley's shots LEAVE from the apex and descend to the normal
+      // projectile plane over their first few units of flight
+      const drop = p.launchH * Math.max(0, 1 - p.traveled / 5);
+      mesh.position.set(p.x, 1.1 + drop, p.y);
       mesh.rotation.y = Math.atan2(p.vx, p.vy);
       // hexbolt wobbles drunkenly across its travel line (render-only — the
       // sim path stays straight); everything else flies true
