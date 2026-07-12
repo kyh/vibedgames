@@ -81,33 +81,30 @@ function landFactor(u, v) {
 const onLandUV = (u, v) => landFactor(u, v) > 0.5;
 const onLandXZ = (x, z) => onLandUV(x / WORLD_W + 0.5, z / WORLD_H + 0.5);
 
-// Road classes → asphalt HALF width (world units). At 4.45 m/u the old
-// profile (residential 4.6 half ≈ 41 m of asphalt) made roads eat ~2× the
-// block fraction they do in real SF — the "everything is street" look.
-// These are ~25-30% narrower: still arcade-generous (residential ≈ 30 m,
-// primary ≈ 50 m) but blocks read as blocks again.
+// Road classes → asphalt HALF width (world units). Strong HIERARCHY is what
+// reads as a real city: boulevards span better than a tile (Market/Van Ness/
+// Geary at 14u asphalt + walks ≈ 1.5 tiles), the residential grid stays a
+// single narrow tile, and alleys (living_street) don't exist at this scale.
 // Freeways (motorway/trunk + ramps) are multi-level structures we would
-// render flat — pure spaghetti. Everything else is in: SF's identity IS the
-// fine residential grid (Sunset/Richmond/Mission blocks).
+// render flat — they ship separately as elevated viaducts (sf-freeways.ts).
 const CLASS_HALF = {
-  primary: 5.6,
-  primary_link: 4.4,
-  secondary: 5.0,
-  secondary_link: 4.4,
-  tertiary: 4.4,
-  tertiary_link: 4.4,
-  residential: 3.4,
-  unclassified: 3.4,
-  living_street: 3.0,
+  primary: 7.0,
+  primary_link: 4.6,
+  secondary: 5.4,
+  secondary_link: 4.6,
+  tertiary: 4.6,
+  tertiary_link: 4.6,
+  residential: 3.2,
+  unclassified: 3.2,
 };
 // Arcade compression (Driver:SF-style): minors only survive when they are
 // long connective streets — short block-fillers go, majors read as the map.
-const MINOR_MIN_LEN = 35; // world units (~310m real) — density reads as city
+const MINOR_MIN_LEN = 45; // world units (~200m real) — short block-fillers go
 // Only divided arterials get twin-merged — the residential grid has genuine
 // close parallels that must never be eaten.
 const MERGE_MIN_HALF = 4.6;
 // Class boundaries derived from CLASS_HALF (keep in sync when retuning):
-const MINOR_MAX_HALF = 3.4; // residential/unclassified/living_street
+const MINOR_MAX_HALF = 3.2; // residential/unclassified
 
 // --- Load + project (majors only: the arterial network IS the game map) ---
 const raw = JSON.parse(readFileSync(new URL("./sf-streets.raw.json", import.meta.url)));

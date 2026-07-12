@@ -75,13 +75,15 @@ grid, re-bake at those dimensions: `node rasterize.mjs <GRID_X> <GRID_Z>`.
   `src/world/sf-footprints.ts` (~21k entries). The model→world transform is
   hardcoded (`CAL`): anchored on Salesforce/Transamerica (identified by the
   1.598 model-h/real-m ratio) and hill-climbed against the street mask with
-  INDEPENDENT x/z scales and NO z-flip — the old calibrate-downtown fit
-  (uniform scale, fz=-1) locked onto a MIRRORED false optimum and shipped an
+  INDEPENDENT x/z scales and NO z-flip — the old calibrate-downtown.mjs fit
+  (uniform scale, fz=-1; deleted along with extract-downtown.mjs and
+  sf-buildings.ts) locked onto a MIRRORED false optimum and shipped an
   upside-down downtown. Anchors are re-verified on every run (aborts >12u).
   The game extrudes these outlines as prisms (`src/world/sf-prisms.ts`),
   replacing the old bbox+kit-model downtown pass.
 - **`bake-piers.mjs`** — `sf-piers.raw.json` (Overpass `man_made=pier`, no
-  fetch script yet — query in git history) → `src/world/sf-piers.ts`. Piers
+  fetch script yet — query in git history; gitignored like the other raws) →
+  `src/world/sf-piers.ts`. Piers
   the traced coast swallows slide seaward along their long axis to hang off
   the game's shoreline. Rendered by `src/world/piers.ts`.
 - **Freeways** — `bake-network.mts` also emits `src/world/sf-freeways.ts`

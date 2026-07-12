@@ -804,10 +804,18 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
     curbPolys.push([patchRing(nx, nz, arms, CURB_W, trimCap)]);
     pavePolys.push([patchRing(nx, nz, arms, SIDEWALK_W, trimCap)]);
 
-    // Zebra crosswalks + stop bars only on CLEAN intersections (3-4 arms):
-    // complex multi-arm nodes turn into a tangle of overlapping paint — the
-    // real-world cue there is plain open asphalt anyway.
-    if (arms.length >= 3 && arms.length <= 4) {
+    // Zebra crosswalks + stop bars only on CLEAN intersections (3-4 arms)
+    // where an ARTERIAL crosses: zebra at every minor-minor corner of the
+    // hill grid read as wall-to-wall paint noise, and complex multi-arm
+    // nodes turn into a tangle — the real-world cue is open asphalt anyway.
+    // Mega-blob nodes (big angle-aware trims) put the zebra deep inside the
+    // merged asphalt where it floats mid-"street" — open asphalt reads right.
+    if (
+      arms.length >= 3 &&
+      arms.length <= 4 &&
+      arms.some((a) => a.half > 4.7) &&
+      network.nodeTrim(n) < 9
+    ) {
       // The Castro paints its crosswalks rainbow — so do we.
       const gxN = Math.min(GRID_X - 1, Math.max(0, Math.floor((nx + WORLD_HALF_X) / ROAD_TILE)));
       const gzN = Math.min(GRID_Z - 1, Math.max(0, Math.floor((nz + WORLD_HALF_Z) / ROAD_TILE)));

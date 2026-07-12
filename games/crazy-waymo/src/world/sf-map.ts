@@ -35,19 +35,31 @@ const EMBARCADERO_SHORE: readonly (readonly [number, number])[] = [
   [0.2, 0.796], // Bay Bridge anchorage
   [0.2634, 0.8114], // South Beach / Mission Rock
 ];
-function shoreCut(u: number, v: number): number {
+function shoreU(v: number): number | null {
   const S = EMBARCADERO_SHORE;
   const first = S[0];
   const last = S[S.length - 1];
-  if (!first || !last || v <= first[0] || v >= last[0]) return 1;
+  if (!first || !last || v <= first[0] || v >= last[0]) return null;
   let i = 1;
   while (i < S.length - 1 && (S[i]?.[0] ?? 1) < v) i++;
   const a = S[i - 1];
   const b = S[i];
-  if (!a || !b) return 1;
+  if (!a || !b) return null;
   const t = (v - a[0]) / (b[0] - a[0] || 1);
-  const su = a[1] + (b[1] - a[1]) * t;
-  return 1 - smooth(u, su - 0.004, su + 0.008);
+  return a[1] + (b[1] - a[1]) * t;
+}
+
+function shoreCut(u: number, v: number): number {
+  const su = shoreU(v);
+  return su === null ? 1 : 1 - smooth(u, su - 0.004, su + 0.008);
+}
+
+// True near the engineered NE waterfront: the Embarcadero is a hard SEAWALL —
+// ground.ts paints a concrete apron there instead of the beach every natural
+// coast gets.
+export function seawallShore(u: number, v: number): boolean {
+  const su = shoreU(v);
+  return su !== null && Math.abs(u - su) < 0.02;
 }
 
 // Peninsula coastline: Pacific (W), Golden Gate (N), Bay (E); land to the south.

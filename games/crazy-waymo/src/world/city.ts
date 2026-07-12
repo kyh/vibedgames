@@ -852,40 +852,9 @@ export class CityModel {
       });
     }
 
-    // --- Street alignment (universal): every frontage building projects its
-    // lot onto the nearest NETWORK edge — facade parallel to the real street,
-    // pulled to a consistent setback. Axis streets come out axis-aligned;
-    // diagonals and curves align to their true bearing. ---
-    const NUDGE_MAX = 3.0;
+    // Street-aligned placement pose: frontage rows compute these inline
+    // (facade parallel to the real street at a consistent setback).
     type AvenuePose = { x: number; z: number; yaw: number };
-    const avenuePose = (gx: number, gz: number): AvenuePose | null => {
-      const cx = this.worldX(gx);
-      const cz = this.worldZ(gz);
-      const hit = this.network.nearest(cx, cz, ROAD_TILE * 1.6);
-      if (!hit) return null;
-      // Facade normal: edge perpendicular pointing at the lot.
-      let nx = -hit.tz;
-      let nz = hit.tx;
-      if (nx * (cx - hit.x) + nz * (cz - hit.z) < 0) {
-        nx = -nx;
-        nz = -nz;
-      }
-      // Front of the building looks back at the street (−n).
-      const yaw = Math.atan2(-nx, -nz);
-      // Facade centre sits at a consistent setback from the centreline; the
-      // lot can be pulled at most NUDGE_MAX so neighbours never collide.
-      const setback = hit.edge.half + 1.3 + ROAD_TILE * 0.34;
-      let ax = hit.x + nx * setback;
-      let az = hit.z + nz * setback;
-      const mx = ax - cx;
-      const mz = az - cz;
-      const ml = Math.hypot(mx, mz);
-      if (ml > NUDGE_MAX) {
-        ax = cx + (mx / ml) * NUDGE_MAX;
-        az = cz + (mz / ml) * NUDGE_MAX;
-      }
-      return { x: ax, z: az, yaw };
-    };
 
     // One building on a lot cell: pool/palette by district, seated on the
     // hill's high corner with a plinth, solid footprint. `footprint` is the
@@ -1150,7 +1119,7 @@ export class CityModel {
             seatY = Math.max(seatY, parkCellHeight(this.terrain, bgx, bgz));
           }
           const drop = seatY - loY;
-          if (drop > 6) continue; // too steep — leave the face green
+          if (drop > 9) continue; // cliff-steep — leave the face green
           const mats = prismMaterialsFor(bh);
           // Visual floor: sub-3u prisms read as pavement slabs, not buildings.
           const renderSpec = bh < 2.8 ? { ...spec, h: 2.8 } : spec;

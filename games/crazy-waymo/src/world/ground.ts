@@ -13,7 +13,7 @@ import { CUSTOM_MAP, type FloorKind, loadLocalOverrides } from "./custom-map";
 import type { CityPlan } from "./grid";
 import type { RoadNetwork } from "./network";
 import { SIDEWALK_W } from "./roads";
-import { districtAt, greenHillWeightAt } from "./sf-map";
+import { districtAt, greenHillWeightAt, seawallShore } from "./sf-map";
 import type { Terrain } from "./terrain";
 import { landuseGreenAt, landuseSandAt } from "./sf-landuse";
 
@@ -85,16 +85,22 @@ export function makeGroundColorAt(
       green = 0;
     }
     if (green > 0.05) into.lerp(MEADOW, meadowPatch(x, z) * 0.45 * green);
-    // Every coast gets a real beach: a dry-sand apron blending inland, then
-    // a darker wet-sand band right at the waterline (the Mario Kart shore
-    // read — the water shader laps its foam against this band).
+    // Every NATURAL coast gets a real beach: a dry-sand apron blending
+    // inland, then a darker wet-sand band right at the waterline (the Mario
+    // Kart shore read — the water shader laps its foam against this band).
+    // The Embarcadero is the exception: an engineered seawall, so downtown
+    // meets the bay on a concrete apron, not sand.
     const land = terrain.landAt(x, z);
     const shore = 1 - THREE.MathUtils.smoothstep(land, 0.3, 0.6);
     if (shore > 0) {
       const u = x / WORLD_W + 0.5;
-      into.lerp(SAND, u < 0.12 ? shore : shore * 0.8); // Ocean Beach reads strongest
-      const wet = 1 - THREE.MathUtils.smoothstep(land, 0.28, 0.4);
-      if (wet > 0) into.lerp(WET_SAND, wet * 0.7);
+      if (seawallShore(u, z / (WORLD_HALF_Z * 2) + 0.5)) {
+        into.lerp(CONCRETE, shore * 0.85);
+      } else {
+        into.lerp(SAND, u < 0.12 ? shore : shore * 0.8); // Ocean Beach reads strongest
+        const wet = 1 - THREE.MathUtils.smoothstep(land, 0.28, 0.4);
+        if (wet > 0) into.lerp(WET_SAND, wet * 0.7);
+      }
     }
   };
 }

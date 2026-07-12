@@ -98,8 +98,11 @@ export function buildPiers(terrain: Terrain): THREE.Group {
         minB = Math.min(minB, b);
         maxB = Math.max(maxB, b);
       }
-      const lenA = (maxA - minA) * 0.78;
-      const lenB = (maxB - minB) * 0.62;
+      // Cap the shed: mega-decks (Piers 30-32 is ~2600u²) otherwise grow a
+      // roof plane that swallows the whole deck — a warehouse ON a deck is
+      // the look, not a deck-sized roof.
+      const lenA = Math.min((maxA - minA) * 0.78, 44);
+      const lenB = Math.min((maxB - minB) * 0.62, 20);
       if (lenA > 8 && lenB > 4) {
         const wallH = 3.4;
         const yaw = Math.atan2(-ez, ex);
