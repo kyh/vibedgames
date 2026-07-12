@@ -7,8 +7,10 @@ import { chromium } from "playwright-core";
 const OUT = process.argv[2] ?? "/tmp/shots";
 const PORT = process.argv[3] ?? "5199";
 const SPOTS = [
-  ["tilted-a", 452, 70, -862, 428, 38, -906],
-  ["tilted-b", 400, 75, -940, 430, 40, -905],
+  ["kit-chinatown", 547, 90, -710, 547, 0, -806],
+  ["kit-fidi", 560, 60, -640, 680, 25, -850],
+  ["kit-overview", 620, 380, -380, 640, 0, -830],
+  ["kit-soma-street", 640, 16, -560, 700, 6, -600],
 ];
 const browser = await chromium.launch({ headless: false, channel: "chrome" });
 const page = await browser.newPage({ viewport: { width: 1500, height: 950 } });

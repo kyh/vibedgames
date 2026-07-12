@@ -55,7 +55,7 @@ import { buildFreeways, nearFreeway } from "./freeways";
 import { buildPiers } from "./piers";
 import { buildLandmarks, landmarkProtection } from "./landmarks";
 import { SF_FOOTPRINTS } from "./sf-footprints";
-import { prismGeometry, prismMaterialsFor, prismSpec } from "./sf-prisms";
+import { prismSpec } from "./sf-prisms";
 import {
   type DistrictChar,
   districtAt,
@@ -1127,15 +1127,114 @@ export class CityModel {
           }
           const drop = seatY - loY;
           if (drop > 9) continue; // cliff-steep — leave the face green
-          const mats = prismMaterialsFor(bh);
-          // Visual floor: sub-3u prisms read as pavement slabs, not buildings.
-          const renderSpec = bh < 2.8 ? { ...spec, h: 2.8 } : spec;
-          const mesh = new THREE.Mesh(
-            prismGeometry(renderSpec, drop + 0.8),
-            mats[this.rng.int(mats.length)] ?? PLINTH_MAT,
-          );
-          mesh.position.set(cx, seatY - 0.12, cz);
-          collect(mesh);
+
+          // KIT MODELS fitted to the real parcel: bare extruded prisms read
+          // as colored blocks, not buildings. Fit the footprint's OBB; long
+          // parcels get a ROW of models (real blocks are several buildings,
+          // and one model stretched 5:1 is worse than none).
+          let obbLen = 0;
+          let ex = 1;
+          let ez = 0;
+          const nPts = rel.length / 2;
+          for (let i = 0; i < nPts; i++) {
+            const j = (i + 1) % nPts;
+            const dx = (rel[j * 2] ?? 0) - (rel[i * 2] ?? 0);
+            const dz = (rel[j * 2 + 1] ?? 0) - (rel[i * 2 + 1] ?? 0);
+            const len = Math.hypot(dx, dz);
+            if (len > obbLen) {
+              obbLen = len;
+              ex = dx / len;
+              ez = dz / len;
+            }
+          }
+          let minA = Infinity;
+          let maxA = -Infinity;
+          let minB = Infinity;
+          let maxB = -Infinity;
+          for (let i = 0; i < nPts; i++) {
+            const dx = rel[i * 2] ?? 0;
+            const dz = rel[i * 2 + 1] ?? 0;
+            const a = dx * ex + dz * ez;
+            const b = -dx * ez + dz * ex;
+            if (a < minA) minA = a;
+            if (a > maxA) maxA = a;
+            if (b < minB) minB = b;
+            if (b > maxB) maxB = b;
+          }
+          const lenA = maxA - minA;
+          const lenB = maxB - minB;
+          if (lenA < 2.6 || lenB < 2.6) continue; // sliver — nothing fits
+          const yaw = Math.atan2(-ez, ex);
+          const bhV = Math.max(bh, 4.0); // below this the kit models squash into pancakes
+          const pool =
+            bhV > 28 ? BUILDINGS_SKYSCRAPER : bhV > 9 ? BUILDINGS_COMMERCIAL : BUILDINGS_SUBURBAN;
+          const district = districtAt(bgx, bgz);
+          // Towers own their whole parcel; low/mid parcels split into a grid
+          // of near-square cells — one model pancaked across a 25u lot reads
+          // as a squashed shed, a row of houses reads as a block.
+          const TARGET = 9;
+          const segA = bhV > 28 ? 1 : Math.min(6, Math.max(1, Math.round(lenA / TARGET)));
+          const segB = bhV > 28 ? 1 : Math.min(3, Math.max(1, Math.round(lenB / TARGET)));
+          const segLen = lenA / segA;
+          const segWid = lenB / segB;
+          let placedSeg = 0;
+          for (let k = 0; k < segA * segB; k++) {
+            const ka = k % segA;
+            const kb = Math.floor(k / segA);
+            const a0 = minA + segLen * (ka + 0.5);
+            const bb0 = minB + segWid * (kb + 0.5);
+            const px = cx + a0 * ex - bb0 * ez;
+            const pz = cz + a0 * ez + bb0 * ex;
+            // The OBB covers more than an L-shaped ring: every segment
+            // re-checks its own corners against the streets (and shrinks
+            // once before giving up).
+            let fw = segLen * 0.94;
+            let fd = segWid * 0.92;
+            const cornersClear = (): boolean => {
+              for (const [sa, sb] of [
+                [-fw / 2, -fd / 2],
+                [fw / 2, -fd / 2],
+                [fw / 2, fd / 2],
+                [-fw / 2, fd / 2],
+              ] as const) {
+                const qx = px + sa * ex - sb * ez;
+                const qz = pz + sa * ez + sb * ex;
+                if (this.onAsphalt(qx, qz, 0.2)) return false;
+              }
+              return true;
+            };
+            if (!cornersClear()) {
+              fw *= 0.78;
+              fd *= 0.78;
+              if (fw < 2.4 || fd < 2.4 || !cornersClear()) continue;
+            }
+            const key = this.rng.pick(pool);
+            const url = modelUrl("buildings", key);
+            const bounds = this.cache.bounds(url);
+            const node = this.cache.instance(url);
+            const sy = bhV / Math.max(bounds.size.y, 0.001);
+            node.scale.set(
+              fw / Math.max(bounds.size.x, 0.001),
+              sy,
+              fd / Math.max(bounds.size.z, 0.001),
+            );
+            node.rotation.y = yaw + BUILDING_FRONT_OFFSET;
+            if (drop > 0.7) {
+              const plinth = new THREE.Mesh(PLINTH_GEO, PLINTH_MAT);
+              const ph = drop + 0.8;
+              plinth.scale.set(fw * 0.98, ph, fd * 0.98);
+              plinth.rotation.y = yaw;
+              plinth.position.set(px, seatY - 0.1 - ph / 2, pz);
+              plinth.updateMatrixWorld(true);
+              collect(plinth);
+            }
+            node.position.set(px, seatY - 0.15, pz);
+            this.tintNode(node, this.rng.pick(paletteFor(district)), tintAmountFor(district));
+            collect(node);
+            occupy(px, pz, Math.max(fw, fd) * 0.55);
+            placedSeg++;
+          }
+          if (placedSeg === 0) continue; // nothing fit — no solids either
 
           // Collision: rectangles get one OBB; complex outlines get one thin
           // OBB per wall segment (an AABB over an L-shape or a diagonal row
@@ -1186,12 +1285,9 @@ export class CityModel {
               );
             }
           }
-          // Occupancy: centroid + ring verts, so the frontage/infill passes
-          // skip real parcels without one giant circle over-claiming.
-          occupy(cx, cz, 3.6);
-          for (let i = 0; i < rel.length; i += 2) {
-            occupy(cx + (rel[i] ?? 0), cz + (rel[i + 1] ?? 0), 3.0);
-          }
+          // Occupancy is claimed per placed SEGMENT above — ring-vertex
+          // claims over-blocked the frontage/infill passes around parcels
+          // whose corners didn't fit, leaving voids in the blocks.
           placed++;
         }
         console.log(`[city] real footprints placed: ${placed} (${roadSkip} skipped on asphalt)`);
