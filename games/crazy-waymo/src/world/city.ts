@@ -51,7 +51,7 @@ import {
   roadPartsToMeshes,
 } from "./roads";
 import type { CityGenPayload } from "./gen-worker";
-import { buildFreeways, freewaySolids, nearFreeway } from "./freeways";
+import { buildFreeways, nearFreeway } from "./freeways";
 import { buildPiers } from "./piers";
 import { buildLandmarks, landmarkProtection } from "./landmarks";
 import { SF_FOOTPRINTS } from "./sf-footprints";
@@ -771,6 +771,7 @@ export class CityModel {
           const tx = wx + this.rng.range(-2.6, 2.6);
           const tz = wz + this.rng.range(-2.6, 2.6);
           if (this.onAsphalt(tx, tz, 0.6)) continue;
+          if (nearFreeway(tx, tz, 0.5)) continue; // canopy pierces the deck
           tree.position.set(tx, this.terrain.heightAt(tx, tz), tz);
           tree.rotation.y = this.rng.range(0, Math.PI * 2);
           collect(tree);
@@ -827,11 +828,6 @@ export class CityModel {
     // vouch for them — tag the reason instead of relying on batched
     // neighbours to cover them by coincidence.
     for (const s of lm.solids) this.solids.push({ ...s, unseen: "landmark (unbatched monument)" });
-    // Freeway viaduct pillars: visuals are main-side one-offs (buildFreeways,
-    // added next to the landmarks), solids derive from the same data here.
-    for (const s of freewaySolids(this.terrain)) {
-      this.solids.push({ ...s, unseen: "freeway pillar (unbatched viaduct)" });
-    }
     // The depot buildings themselves (orange roller-door warehouse).
     for (const g of this.garages) {
       const url = modelUrl("buildings", GARAGE_MODEL);
@@ -980,6 +976,7 @@ export class CityModel {
           const stx = wx + this.rng.range(-3.5, 3.5);
           const stz = wz + this.rng.range(-3.5, 3.5);
           if (this.onAsphalt(stx, stz, 0.6)) continue;
+          if (nearFreeway(stx, stz, 0.5)) continue;
           steepTree.position.set(stx, this.terrain.heightAt(stx, stz), stz);
           steepTree.rotation.y = this.rng.range(0, Math.PI * 2);
           collect(steepTree);
@@ -1095,6 +1092,16 @@ export class CityModel {
           // building of a wall-to-wall row just makes it collide with the
           // next one.
           if (this.onAsphalt(cx, cz, 0.4)) {
+            roadSkip++;
+            continue;
+          }
+          // Corridor guard checks every ring vertex — a 30u building whose
+          // CENTROID clears the ramp can still lay a corner across the deck.
+          let fwHit = nearFreeway(cx, cz, 0.5);
+          for (let i = 0; i < rel.length && !fwHit; i += 2) {
+            if (nearFreeway(cx + (rel[i] ?? 0), cz + (rel[i + 1] ?? 0), 0.3)) fwHit = true;
+          }
+          if (fwHit) {
             roadSkip++;
             continue;
           }

@@ -71,6 +71,20 @@ export class PhysicsWorld {
     );
   }
 
+  // A static triangle soup (the freeway decks + barriers): the raycast
+  // vehicle's wheels ride it exactly like the ground heightfield, but because
+  // it coexists WITH the heightfield, streets keep working underneath —
+  // two-level drivable surfaces the single heightfield cannot express.
+  addStaticTrimesh(positions: Float32Array): void {
+    const indices = new Uint32Array(positions.length / 3);
+    for (let i = 0; i < indices.length; i++) indices[i] = i;
+    const body = this.world.createRigidBody(RAPIER.RigidBodyDesc.fixed());
+    this.world.createCollider(
+      RAPIER.ColliderDesc.trimesh(positions, indices).setFriction(0.9),
+      body,
+    );
+  }
+
   // City solids (buildings, walls, railings) as tall static boxes; rotated
   // solids (avenue-aligned buildings) carry their yaw onto the body.
   async addStaticSolids(solids: readonly Solid[], terrain: Terrain): Promise<void> {
@@ -91,20 +105,20 @@ export class PhysicsWorld {
       const hx = Math.max(0.1, (s.maxX - s.minX) / 2);
       const hz = Math.max(0.1, (s.maxZ - s.minZ) / 2);
       const base = terrain.heightAt(cx, cz);
-      const desc = RAPIER.RigidBodyDesc.fixed().setTranslation(
-        cx,
-        base + STATIC_HALF_HEIGHT - 1,
-        cz,
-      );
+      // Height-capped solids (maxY — construction barriers etc) get a box of
+      // their REAL height: the default tall box walled off any drivable deck
+      // above them (a chicane under a freeway ramp blocked the ramp).
+      const hy =
+        s.maxY !== undefined
+          ? Math.min(STATIC_HALF_HEIGHT, Math.max(0.3, (s.maxY - base) / 2))
+          : STATIC_HALF_HEIGHT;
+      const desc = RAPIER.RigidBodyDesc.fixed().setTranslation(cx, base + hy - 1, cz);
       const yaw = s.yaw ?? 0;
       if (yaw !== 0) {
         desc.setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) });
       }
       const body = this.world.createRigidBody(desc);
-      this.world.createCollider(
-        RAPIER.ColliderDesc.cuboid(hx, STATIC_HALF_HEIGHT, hz).setFriction(0.6),
-        body,
-      );
+      this.world.createCollider(RAPIER.ColliderDesc.cuboid(hx, hy, hz).setFriction(0.6), body);
     }
   }
 

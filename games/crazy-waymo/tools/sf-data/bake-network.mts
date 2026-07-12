@@ -1381,10 +1381,104 @@ console.log("Wrote src/world/sf-network.ts, src/world/sf-streets.ts, preview-net
     .map((f) => ({ half: f.half, pts: rdp(f.pts, 2.0) }))
     .filter((f) => plLen(f.pts) >= 40);
   console.log(`freeways: ${kept.length} polylines, ${Math.round(kept.reduce((a, f) => a + plLen(f.pts), 0) / 1000)}k units`);
+
+  // On/off RAMPS (motorway_link + trunk_link): same pipeline, ready for the
+  // runtime to anchor one end at street grade and the other at deck height.
+  const RAMP_HALF = { motorway_link: 3.6, trunk_link: 3.6 };
+  const rampWays = raw.elements.filter(
+    (e) => e.type === "way" && e.geometry && RAMP_HALF[e.tags?.highway] !== undefined,
+  );
+  const ramps = [];
+  for (const w of rampWays) {
+    let cur = [];
+    for (const g of w.geometry) {
+      const u = projU(g.lon);
+      const v = projV(g.lat);
+      const x = (u - 0.5) * WORLD_W;
+      const z = (v - 0.5) * WORLD_H;
+      if (onLandUV(u, v)) cur.push([x, z]);
+      else {
+        if (cur.length >= 2) ramps.push({ pts: cur });
+        cur = [];
+      }
+    }
+    if (cur.length >= 2) ramps.push({ pts: cur });
+  }
+  let rJoined = true;
+  while (rJoined) {
+    rJoined = false;
+    outer2: for (let i = 0; i < ramps.length; i++) {
+      for (let j = 0; j < ramps.length; j++) {
+        if (i === j) continue;
+        const ae = ramps[i].pts[ramps[i].pts.length - 1];
+        const bs = ramps[j].pts[0];
+        if (Math.hypot(ae[0] - bs[0], ae[1] - bs[1]) < 1.5) {
+          ramps[i].pts = ramps[i].pts.concat(ramps[j].pts.slice(1));
+          ramps.splice(j, 1);
+          rJoined = true;
+          break outer2;
+        }
+      }
+    }
+  }
+  // Greedy de-braid: real interchanges bundle many parallel/crossing links;
+  // as independent ribbons they braid into slab-edge knots the car cannot
+  // read. Keep the longest ramps whose paths stay clear of already-kept
+  // ramps — one clean ramp per movement beats five tangled ones.
+  const rampsSimple = ramps
+    .map((r) => ({ pts: rdp(r.pts, 2.0) }))
+    .filter((r) => plLen(r.pts) >= 26)
+    .sort((a, b) => plLen(b.pts) - plLen(a.pts));
+  const sampleEvery = (pts, step) => {
+    const out = [];
+    let acc = 0;
+    out.push(pts[0]);
+    for (let i = 1; i < pts.length; i++) {
+      const [ax, az] = pts[i - 1];
+      const [bx, bz] = pts[i];
+      const seg = Math.hypot(bx - ax, bz - az);
+      let t = step - acc;
+      while (t <= seg) {
+        out.push([ax + ((bx - ax) * t) / seg, az + ((bz - az) * t) / seg]);
+        t += step;
+      }
+      acc = (acc + seg) % step;
+    }
+    return out;
+  };
+  const keptSamples = [];
+  const rampsKept = [];
+  for (const r of rampsSimple) {
+    const mine = sampleEvery(r.pts, 5);
+    // Endpoints may legitimately meet other ramps at the mainline; only the
+    // BODY must stay clear.
+    const body = mine.slice(2, Math.max(3, mine.length - 2));
+    let clear = true;
+    for (const [x, z] of body) {
+      for (const [kx, kz] of keptSamples) {
+        if (Math.hypot(kx - x, kz - z) < 9) {
+          clear = false;
+          break;
+        }
+      }
+      if (!clear) break;
+    }
+    if (!clear) continue;
+    rampsKept.push(r);
+    keptSamples.push(...mine);
+  }
+  console.log(`freeway ramps: ${rampsKept.length} polylines (de-braided from ${rampsSimple.length})`);
+
   const body = kept
     .map(
       (f) =>
         `  { half: ${f.half}, p: [${f.pts.map(([x, z]) => `${Math.round(x * 10) / 10},${Math.round(z * 10) / 10}`).join(",")}] },`,
+    )
+    .join("\n");
+  const rampBody = rampsKept
+    .map(
+      (r) =>
+        `  { half: 3.6, p: [${r.pts.map(([x, z]) => `${Math.round(x * 10) / 10},${Math.round(z * 10) / 10}`).join(",")}] },`,
     )
     .join("\n");
   writeFileSync(
@@ -1399,6 +1493,12 @@ export type FreewayLine = { readonly half: number; readonly p: readonly number[]
 
 export const SF_FREEWAYS: readonly FreewayLine[] = [
 ${body}
+];
+
+// On/off ramps (motorway/trunk links) — runtime anchors street end at grade,
+// freeway end at deck height (src/world/freeways.ts).
+export const SF_FREEWAY_RAMPS: readonly FreewayLine[] = [
+${rampBody}
 ];
 `,
   );

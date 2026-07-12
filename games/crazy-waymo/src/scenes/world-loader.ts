@@ -21,6 +21,7 @@ import { mountTunePanel } from "../vehicle/tune-panel";
 import { skinById } from "../vehicle/car";
 import { CityModel, type CityRestPayload } from "../world/city";
 import { editorMode, loadLocalOverrides } from "../world/custom-map";
+import { freewayPhysics } from "../world/freeways";
 import type { CityGenPayload } from "../world/gen-worker";
 import { getRuntimeMap, parseMapFile, setRuntimeMap } from "../world/map-file";
 import { SolidIndex } from "../world/solid-index";
@@ -303,6 +304,10 @@ async function finishLoad(
   await paint();
   physics.addGround((x, z) => city.heightAt(x, z));
   lap("ground collider");
+  await paint();
+  // Freeway decks + barriers as a second drivable level over the streets.
+  physics.addStaticTrimesh(freewayPhysics(city.terrain));
+  lap("freeway collider");
   await paint();
   // Prewarm with the ground only — a small BVH builds fast. The 20k
   // building colliders STREAM IN below (incremental inserts amortize);
