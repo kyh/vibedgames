@@ -3,6 +3,7 @@ import polygonClipping from "polygon-clipping";
 
 import { GRID_X, GRID_Z, ROAD_TILE, ROAD_Y, WORLD_HALF_X, WORLD_HALF_Z } from "../shared/constants";
 import { conformToTerrain, DRAPE_MAX_ERROR, type DrapeField } from "./conform";
+import { junctionControl } from "./junction-control";
 import type { NetEdge, RoadNetwork } from "./network";
 import { districtAt } from "./sf-map";
 
@@ -646,17 +647,35 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
     curbPolys.push([railRing(rail, -h - CURB_W, h + CURB_W)]);
     pavePolys.push([railRing(rail, -h - walkFor(h), h + walkFor(h))]);
 
-    // KayKit-style paint: boulevards get YELLOW edge lines + white dashed
-    // lane lines; streets get white edges + a yellow centre dash.
+    // Street paint schemes (variety pass, KayKit-tile spirit): boulevards
+    // stay consistent — yellow edges + white lane dashes (± a double-yellow
+    // divider) — while the minor grid mixes real street types: yellow or
+    // white centre lines, dashed or solid or double, some streets bare.
+    // A physical street is a CHAIN of edges, so hashing per edge would flip
+    // the style every block: the scheme is keyed on the street's LINE
+    // (quantized direction mod 180° + quantized perpendicular offset), which
+    // every edge of a straight street shares.
     const major = h > 4.7; // primary/secondary (see CLASS_HALF in bake-network)
     const eo = h - EDGE_INSET;
-    const edgeMat = major ? MAT_YELLOW : MAT_WHITE;
     const secLen = edge.len - trimA - trimB;
+    const midSmp = network.sample(edge, trimA + secLen / 2);
+    let streetAng = Math.atan2(midSmp.tz, midSmp.tx);
+    if (streetAng < 0) streetAng += Math.PI;
+    const dirBucket = Math.round((streetAng / Math.PI) * 12) % 12;
+    const bucketAng = (dirBucket / 12) * Math.PI;
+    const lineOff = Math.round(
+      (midSmp.x * -Math.sin(bucketAng) + midSmp.z * Math.cos(bucketAng)) / 9,
+    );
+    let sh = ((dirBucket + 3) * 73856093) ^ (lineOff * 19349663);
+    sh = Math.imul(sh ^ (sh >>> 13), 0x45d9f3b);
+    const h01 = ((sh ^ (sh >>> 16)) >>> 0) / 4294967296;
+    const h2 = (h01 * 7.13) % 1;
+    const h3 = (h01 * 13.71) % 1;
 
-    // Edge lines are junction-clipped in runs: a full-rail strip radiates
-    // straight through merged junction blobs (short edges barely trim, and
+    // Junction-clipped line runs: a full-rail strip radiates straight
+    // through merged junction blobs (short edges barely trim, and
     // through-streets pass near foreign nodes) — the "spoke" bug.
-    const emitEdgeLine = (off: number): void => {
+    const emitLine = (off: number, mat: THREE.Material): void => {
       const steps = Math.max(1, Math.ceil(secLen / 4));
       let runStart = -1;
       for (let i = 0; i <= steps; i++) {
@@ -671,7 +690,7 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
             if (r) {
               markingParts.push({
                 geo: stripGeo(r, off - LINE_W / 2, off + LINE_W / 2),
-                mat: edgeMat,
+                mat,
                 lift: LINE_LIFT,
               });
             }
@@ -680,38 +699,55 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
         }
       }
     };
-    emitEdgeLine(eo);
-    emitEdgeLine(-eo);
+    // Dashed line at an offset, junction-clipped, pattern centred in the
+    // section so short blocks keep a visible dash.
+    const emitDashes = (off: number, mat: THREE.Material): void => {
+      for (let s = (secLen % (DASH_LEN + DASH_GAP)) / 2; s < secLen; s += DASH_LEN + DASH_GAP) {
+        const e = Math.min(s + DASH_LEN, secLen);
+        if (e - s < 0.6) continue;
+        const mid = network.sample(edge, trimA + (s + e) / 2);
+        if (nearJunction(mid.x, mid.z, 2.5)) continue;
+        const dashRail = railFor(edge, trimA + s, trimA + e);
+        if (!dashRail) continue;
+        markingParts.push({
+          geo: stripGeo(dashRail, off - LINE_W / 2, off + LINE_W / 2),
+          mat,
+          lift: LINE_LIFT,
+        });
+      }
+    };
 
-    // Dashes (junction-clipped so they never float through a merged blob):
-    // boulevards carry two white lane lines, streets one yellow centre line.
-    // Threshold 6 (was 12): the dense hill grid is full of short blocks that
-    // lost ALL paint and read as bald asphalt between junctions.
-    if (secLen < 6) continue;
-    const dashOffsets: { off: number; mat: THREE.Material }[] = major
-      ? [
-          { off: -h * 0.33, mat: MAT_WHITE },
-          { off: h * 0.33, mat: MAT_WHITE },
-        ]
-      : [{ off: 0, mat: MAT_YELLOW }];
-    // Center the dash pattern in the section — on short blocks a dash flush
-    // against the junction gets clipped and the street reads bald; a centered
-    // one survives.
-    for (let s = (secLen % (DASH_LEN + DASH_GAP)) / 2; s < secLen; s += DASH_LEN + DASH_GAP) {
-      const e = Math.min(s + DASH_LEN, secLen);
-      if (e - s < 0.6) continue;
-      const midS = trimA + (s + e) / 2;
-      const mid = network.sample(edge, midS);
-      if (nearJunction(mid.x, mid.z, 2.5)) continue;
-      const dashRail = railFor(edge, trimA + s, trimA + e);
-      if (dashRail) {
-        for (const d of dashOffsets) {
-          markingParts.push({
-            geo: stripGeo(dashRail, d.off - LINE_W / 2, d.off + LINE_W / 2),
-            mat: d.mat === MAT_YELLOW ? MAT_DASH : d.mat,
-            lift: LINE_LIFT,
-          });
+    // Edge lines: always on boulevards (yellow); most minors carry white
+    // ones, but a third of the grid runs bare-shouldered (real residentials).
+    const hasEdgeLines = major || h01 < 0.65;
+    if (hasEdgeLines) {
+      const edgeMat = major ? MAT_YELLOW : MAT_WHITE;
+      emitLine(eo, edgeMat);
+      emitLine(-eo, edgeMat);
+    }
+
+    if (secLen >= 6) {
+      if (major) {
+        emitDashes(-h * 0.33, MAT_WHITE);
+        emitDashes(h * 0.33, MAT_WHITE);
+        // Divided-boulevard look on some corridors: double-yellow centre.
+        if (h2 < 0.45) {
+          emitLine(0.28, MAT_YELLOW);
+          emitLine(-0.28, MAT_YELLOW);
         }
+      } else {
+        // Minor-grid centre-line variety.
+        if (h2 < 0.3) {
+          emitDashes(0, MAT_DASH); // classic yellow dash
+        } else if (h2 < 0.5) {
+          emitLine(0, MAT_YELLOW); // solid yellow
+        } else if (h2 < 0.62) {
+          emitLine(0.26, MAT_YELLOW); // double yellow
+          emitLine(-0.26, MAT_YELLOW);
+        } else if (h2 < 0.8) {
+          emitDashes(0, MAT_WHITE); // white dash
+        }
+        // else: bare street — no centre line at all.
       }
     }
 
@@ -756,9 +792,32 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
 
     // Green bike lanes: a sparse subset of the minor grid (every 3rd edge) —
     // SF's bike-network look without painting every street.
-    if (!major && h >= 3.2 && secLen > 40 && edge.id % 3 === 0) {
+    const bikeLane = !major && h >= 3.2 && secLen > 40 && edge.id % 3 === 0;
+    if (bikeLane) {
       paintBand(-1, h - 1.9, h - 0.8, 4.5, 2.2, 3, MAT_BIKE_GREEN);
       paintBand(1, h - 1.9, h - 0.8, 4.5, 2.2, 3, MAT_BIKE_GREEN);
+    }
+
+    // Parking-bay ticks: short white separators inside the kerb lane — the
+    // street reads as marked parking from above. Only on lined streets with
+    // no bike lane claiming the same kerb strip.
+    if (!major && h >= 3.6 && hasEdgeLines && !bikeLane && h3 < 0.45) {
+      for (let s = 5; s < secLen - 5; s += 7) {
+        const smp = network.sample(edge, trimA + s);
+        if (nearJunction(smp.x, smp.z, 4)) continue;
+        const tickRail = railFor(edge, trimA + s, trimA + s + 0.62);
+        if (!tickRail) continue;
+        for (const side of [-1, 1] as const) {
+          // stripGeo winds by off order (see paintBand) — keep off0 < off1.
+          const o0 = Math.min(side * (h - 2.0), side * (h - 0.55));
+          const o1 = Math.max(side * (h - 2.0), side * (h - 0.55));
+          markingParts.push({
+            geo: stripGeo(tickRail, o0, o1),
+            mat: MAT_WHITE,
+            lift: LINE_LIFT,
+          });
+        }
+      }
     }
 
     // Manhole covers: sparse dark discs, alternating lanes on the minor grid.
@@ -825,18 +884,15 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
     curbPolys.push([patchRing(nx, nz, arms, CURB_W, trimCap)]);
     pavePolys.push([patchRing(nx, nz, arms, patchWalk, trimCap)]);
 
-    // Zebra crosswalks + stop bars only on CLEAN intersections (3-4 arms)
-    // where an ARTERIAL crosses: zebra at every minor-minor corner of the
-    // hill grid read as wall-to-wall paint noise, and complex multi-arm
-    // nodes turn into a tangle — the real-world cue is open asphalt anyway.
-    // Mega-blob nodes (big angle-aware trims) put the zebra deep inside the
-    // merged asphalt where it floats mid-"street" — open asphalt reads right.
-    if (
-      arms.length >= 3 &&
-      arms.length <= 4 &&
-      arms.some((a) => a.half > 4.7) &&
-      network.nodeTrim(n) < 9
-    ) {
+    // Crosswalks follow the junction CONTROL (junction-control.ts): zebra
+    // stripes at signalized crossings, transverse two-line crosswalks at
+    // all-way stops — the same split SF paints. Only clean 3-4 arm nodes:
+    // complex multi-arm junctions turn into a tangle, and mega-blob nodes
+    // (big angle-aware trims) put the paint deep inside the merged asphalt
+    // where it floats mid-"street" — open asphalt reads right there.
+    const control = junctionControl(network, n);
+    if (arms.length >= 3 && arms.length <= 4 && control !== "none" && network.nodeTrim(n) < 9) {
+      const zebra = control === "signal";
       // The Castro paints its crosswalks rainbow — so do we.
       const gxN = Math.min(GRID_X - 1, Math.max(0, Math.floor((nx + WORLD_HALF_X) / ROAD_TILE)));
       const gzN = Math.min(GRID_Z - 1, Math.max(0, Math.floor((nz + WORLD_HALF_Z) / ROAD_TILE)));
@@ -903,11 +959,18 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
         };
         // Chunky zebra (stripes run with the road, laid across the width).
         const inner = 0.9;
-        const outer = inner + 2.6;
+        const outer = inner + (zebra ? 2.6 : 1.6);
         const usable = a.half - 0.8;
         const count = Math.max(4, Math.floor(usable / 0.95));
         crosswalkArms++;
-        if (rainbow) {
+        if (!zebra) {
+          // Transverse crosswalk (all-way stops): two thin lines across the
+          // roadway instead of the full zebra ladder.
+          const lines: number[] = [];
+          quad(lines, inner, inner + 0.3, -usable, usable);
+          quad(lines, outer - 0.3, outer, -usable, usable);
+          markingParts.push({ geo: flatGeo(lines), mat: MAT_WHITE, lift: LINE_LIFT });
+        } else if (rainbow) {
           // Contiguous bands (half the stripe pitch each side) — gaps would
           // read as scattered confetti, not a rainbow.
           const halfW = usable / (count - 1);

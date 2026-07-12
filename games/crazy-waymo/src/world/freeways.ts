@@ -3,6 +3,7 @@ import * as THREE from "three";
 import type { ModelCache } from "../assets/loader";
 import { modelUrl, SIGN_HIGHWAY, SIGN_HIGHWAY_DETAILED } from "../assets/manifest";
 import { WORLD_HALF_X, WORLD_HALF_Z } from "../shared/constants";
+import type { RoadNetwork } from "./network";
 import { applyAsphaltSpeckle } from "./roads";
 import { SF_FREEWAY_RAMPS, SF_FREEWAYS } from "./sf-freeways";
 import type { Terrain } from "./terrain";
@@ -156,7 +157,7 @@ function endpointHangs(x: number, z: number, self: readonly number[]): boolean {
 
 let cachedBuild: FreewayBuild | null = null;
 
-function buildData(terrain: Terrain): FreewayBuild {
+function buildData(terrain: Terrain, network?: RoadNetwork): FreewayBuild {
   if (cachedBuild) return cachedBuild;
 
   // --- Mainlines: terrain + clearance with an upward-only slew limit both
@@ -217,7 +218,26 @@ function buildData(terrain: Terrain): FreewayBuild {
   // never dives underground mid-run.
   const lines: Line[] = [...mains];
   for (const r of SF_FREEWAY_RAMPS) {
-    const pts = resample(r.p);
+    // Street-grade mouths snap to the road NETWORK: OSM clips many links a
+    // half-block short, leaving the mouth on a lawn or lot. Extending the
+    // polyline to the nearest street centerline paves the missing connector
+    // (same asphalt material — it reads as one surface).
+    let raw: readonly number[] = r.p;
+    if (network) {
+      const ext = [...r.p];
+      const snapTo = (x: number, z: number): readonly [number, number] | null => {
+        if (deckNear(x, z, RAMP_ANCHOR_R) !== undefined) return null; // deck end
+        const hit = network.nearest(x, z, 30);
+        if (!hit || hit.dist < 2) return null; // already on a street
+        return [hit.x, hit.z];
+      };
+      const head = snapTo(ext[0] ?? 0, ext[1] ?? 0);
+      if (head) ext.unshift(head[0], head[1]);
+      const tail = snapTo(ext[ext.length - 2] ?? 0, ext[ext.length - 1] ?? 0);
+      if (tail) ext.push(tail[0], tail[1]);
+      raw = ext;
+    }
+    const pts = resample(raw);
     if (pts.length < 2) continue;
     const first = pts[0] ?? [0, 0];
     const last = pts[pts.length - 1] ?? [0, 0];
@@ -641,8 +661,8 @@ export function nearFreeway(x: number, z: number, margin: number): boolean {
 // Deck + inner-barrier triangles for the static physics trimesh — the car
 // drives the exact rendered surface. Streets keep the heightfield below:
 // wheel rays cast from under the deck never reach it, so underpasses work.
-export function freewayPhysics(terrain: Terrain): Float32Array {
-  return new Float32Array(buildData(terrain).physPos);
+export function freewayPhysics(terrain: Terrain, network?: RoadNetwork): Float32Array {
+  return new Float32Array(buildData(terrain, network).physPos);
 }
 
 function pushQuad(
@@ -692,8 +712,12 @@ function geoFrom(pos: number[], nor: number[] | null): THREE.BufferGeometry {
   return geo;
 }
 
-export function buildFreeways(terrain: Terrain, cache?: ModelCache): THREE.Group {
-  const data = buildData(terrain);
+export function buildFreeways(
+  terrain: Terrain,
+  cache?: ModelCache,
+  network?: RoadNetwork,
+): THREE.Group {
+  const data = buildData(terrain, network);
   const group = new THREE.Group();
   const deckMesh = new THREE.Mesh(geoFrom(data.deckPos, data.deckNor), MAT_DECK);
   const bodyMesh = new THREE.Mesh(geoFrom(data.bodyPos, data.bodyNor), MAT_CONCRETE);

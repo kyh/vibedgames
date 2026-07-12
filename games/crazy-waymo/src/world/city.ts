@@ -1629,7 +1629,7 @@ export class CityModel {
 
       // --- Iconic landmarks (procedural; kept separate — always visible) ---
       this.group.add(buildLandmarks(this.terrain, this.cache, this.network));
-      this.group.add(buildFreeways(this.terrain, this.cache));
+      this.group.add(buildFreeways(this.terrain, this.cache, this.network));
       this.group.add(buildPiers(this.terrain));
 
       // City-rest cache capture: phases 2+3 output in serializable form. Only
@@ -1794,7 +1794,7 @@ export class CityModel {
     this.buildGround();
     // Landmarks are procedural + cheap — always rebuilt live.
     this.group.add(buildLandmarks(this.terrain, this.cache, this.network));
-    this.group.add(buildFreeways(this.terrain, this.cache));
+    this.group.add(buildFreeways(this.terrain, this.cache, this.network));
     this.group.add(buildPiers(this.terrain));
   }
 

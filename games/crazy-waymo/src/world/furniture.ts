@@ -43,6 +43,7 @@ import { GRID_X, GRID_Z, ROAD_TILE, ROAD_Y, WORLD_H, WORLD_W } from "../shared/c
 import type { Rng } from "../shared/rng";
 import { type Dir, DIR_DELTA, E, N, S, W } from "../shared/types";
 import type { Solid } from "./city";
+import { controlArms, junctionControl } from "./junction-control";
 import { conformToTerrain, DRAPE_MAX_ERROR } from "./conform";
 
 import type { RoadNetwork } from "./network";
@@ -120,11 +121,6 @@ const KK_TINT = 0xd8d2c4;
 const KK_TINT_AMT = 0.15;
 // KayKit pass caps + sizes.
 const HYDRANT_CAP = 40;
-// Junction-control caps are SAFETY VALVES, not targets — density comes from
-// the per-node warrants/chances below. A low cap fills in node-id order,
-// which clusters everything in one corner of the map.
-const SIGNAL_CAP = 420;
-const STOP_SIGN_NODE_CAP = 700; // all-way-stop junctions (SF's default control)
 const SEATING_CAP = 50; // benches + trash cans combined
 const VICTORIAN_LAMP_HEIGHT = 4.2;
 
@@ -1050,49 +1046,20 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
   }
 
   // ------------------------------------------------------------------
-  // 11. TRAFFIC SIGNALS — only junctions that would really be signalized:
-  // where two or more boulevards meet (plus a sprinkle of busy 4-ways).
-  // One light per approach, on the right side just past the crosswalk,
-  // arm swung out over the incoming lane.
+  // 11. JUNCTION CONTROL HARDWARE — signals + stop signs. WHICH junctions
+  // get what comes from junction-control.ts: the same pure function
+  // traffic.ts obeys at runtime, so the street furniture can never disagree
+  // with the behavior at the junction.
   // ------------------------------------------------------------------
   const signalUrl = modelUrl("props", PROP_TRAFFICLIGHT);
   const signalScale = scaleToHeight(signalUrl, 5);
-  let signals = 0;
-  let stopNodes = 0;
   for (let n = 0; n < network.nodes.length; n++) {
-    const ids = network.nodeEdges[n];
-    if (!ids || ids.length < 3) continue;
-    if (network.nodeIsPassThrough(n)) continue;
+    const control = junctionControl(network, n);
+    if (control === "none") continue;
     const node = network.nodes[n];
     if (!node) continue;
-    // Arms (edge ends meeting here) + the signal warrant.
-    type SigArm = { tx: number; tz: number; half: number; px: number; pz: number };
-    const arms: SigArm[] = [];
-    let boulevards = 0;
-    for (const id of ids) {
-      const edge = network.edges[id];
-      if (!edge) continue;
-      const ends: ("a" | "b")[] = [];
-      if (edge.a === n) ends.push("a");
-      if (edge.b === n) ends.push("b");
-      for (const end of ends) {
-        const trim = Math.min(network.nodeTrim(n), edge.len * 0.45);
-        const s0 = end === "a" ? trim : edge.len - trim;
-        const smp = network.sample(edge, s0);
-        const sign = end === "a" ? 1 : -1;
-        arms.push({ tx: smp.tx * sign, tz: smp.tz * sign, half: edge.half, px: smp.x, pz: smp.z });
-        if (edge.half > 4.7) boulevards++;
-      }
-    }
-    // Real-SF control hierarchy: arterial-arterial crossings get signals,
-    // arterial-minor gets a sprinkle of signals, and the minor grid runs on
-    // all-way stop signs (THE San Francisco junction).
-    const signalized =
-      signals < SIGNAL_CAP &&
-      (boulevards >= 2 ||
-        (boulevards >= 1 && arms.length >= 3 && rng.chance(0.4)) ||
-        (arms.length >= 4 && rng.chance(0.08)));
-    if (signalized) {
+    const arms = controlArms(network, n);
+    if (control === "signal") {
       for (const a of arms) {
         // Right side of INCOMING traffic, past the crosswalk + stop bar.
         const px = a.px + a.tx * 4.6 + a.tz * (a.half + 1.2);
@@ -1102,22 +1069,10 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
         const dl = Math.hypot(node[0] - px, node[1] - pz) || 1;
         const yaw = Math.atan2((node[1] - pz) / dl, -(node[0] - px) / dl);
         seatKK(signalUrl, px, pz, yaw, signalScale);
-        signals++;
       }
       continue;
     }
-    // All-way stop: minor 3/4-way junctions, one sign on the right of each
-    // approach. Skip mega-blob nodes — their trims put the "corner" mid-blob.
-    if (
-      stopNodes >= STOP_SIGN_NODE_CAP ||
-      boulevards > 0 ||
-      arms.length > 4 ||
-      network.nodeTrim(n) >= 9 ||
-      !rng.chance(0.6)
-    ) {
-      continue;
-    }
-    let placedAny = false;
+    // All-way stop: one sign on the right of each approach.
     for (const a of arms) {
       const px = a.px + a.tx * 1.6 + a.tz * (a.half + 0.8);
       const pz = a.pz + a.tz * 1.6 - a.tx * (a.half + 0.8);
@@ -1139,9 +1094,7 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       face.position.set(px + Math.sin(yaw) * 0.03, gy + 2.2, pz + Math.cos(yaw) * 0.03);
       face.updateMatrixWorld(true);
       objects.push(pole, rim, face);
-      placedAny = true;
     }
-    if (placedAny) stopNodes++;
   }
 
   // ------------------------------------------------------------------

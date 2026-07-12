@@ -7,6 +7,7 @@ import type { PhysicsWorld } from "../physics/physics-world";
 import { ROAD_TILE, ROAD_Y, TRAFFIC } from "../shared/constants";
 import { Rng } from "../shared/rng";
 import type { CityModel, RoadCell } from "../world/city";
+import { type JunctionControl, junctionControl, signalGreen } from "../world/junction-control";
 import type { NetEdge, RoadNetwork } from "../world/network";
 import { type DistrictChar, districtAt } from "../world/sf-map";
 import { slopeQuaternion } from "../world/terrain";
@@ -36,6 +37,28 @@ const HONK_COOLDOWN = 2.5;
 const BODY_LIFT = 0.8;
 const WRECK_RESPAWN_S = 7;
 const KEEP_STRAIGHT = 0.62; // odds of taking the straightest arm at a junction
+// Junction control: cars start braking this far before the hold point, stop
+// signs hold this long before rolling on. Player-adjacent arcade values —
+// queues form and clear fast.
+const CONTROL_LOOK = 12;
+const HOLD_GAP = 1.5; // hold point sits this far before the node trim
+const STOP_HOLD_S = 0.7;
+// junctionControl is pure but rebuilds arm geometry per call — memoize per
+// network (traffic asks every frame per approaching car).
+const controlCache = new WeakMap<RoadNetwork, Map<number, JunctionControl>>();
+function controlAt(network: RoadNetwork, node: number): JunctionControl {
+  let m = controlCache.get(network);
+  if (!m) {
+    m = new Map();
+    controlCache.set(network, m);
+  }
+  let c = m.get(node);
+  if (c === undefined) {
+    c = junctionControl(network, node);
+    m.set(node, c);
+  }
+  return c;
+}
 const BODY_OFFSET = new THREE.Vector3();
 // Beyond this the car's kinematic body can't touch anything near the taxi
 // (punts/wrecks/cones all live within ~40u of it) — stop feeding Rapier
@@ -115,6 +138,10 @@ export class TrafficCar {
   private honkCooldown = 0;
   private yaw = 0;
   private targetQuat = new THREE.Quaternion();
+  // Junction-control state: the stop-sign node we've already served (don't
+  // re-hold while creeping through), and how long we've been held at one.
+  private clearedStop = -1;
+  private stopHeld = 0;
 
   constructor(
     object3D: THREE.Object3D,
@@ -160,6 +187,8 @@ export class TrafficCar {
     this.wrecked = false;
     this.wreckTime = 0;
     this.puntCooldown = 0;
+    this.clearedStop = -1;
+    this.stopHeld = 0;
   }
 
   // The taxi is about to hit this car: hand it to Rapier and let the taxi's
@@ -239,6 +268,7 @@ export class TrafficCar {
     playerX: number,
     playerZ: number,
     physics: PhysicsWorld | null = null,
+    simTime = 0,
   ): void {
     if (this.hitCooldown > 0) this.hitCooldown -= dt;
     if (this.missCooldown > 0) this.missCooldown -= dt;
@@ -269,7 +299,38 @@ export class TrafficCar {
     }
 
     const brakeMul = this.brakeTimer > 0 ? BRAKE_FACTOR : 1;
-    const speed = this.baseSpeed * Math.min(brakeMul, this.followFactor);
+
+    // Junction control: brake to the hold point at a red signal, serve a
+    // full stop (once) at stop signs. Only while approaching on an edge —
+    // a car already crossing the box always clears it.
+    let controlFactor = 1;
+    if (this.phase.kind === "edge") {
+      const ph = this.phase;
+      const trimA = Math.min(this.network.nodeTrim(ph.edge.a), ph.edge.len * 0.45);
+      const trimB = Math.min(this.network.nodeTrim(ph.edge.b), ph.edge.len * 0.45);
+      const node = ph.dir > 0 ? ph.edge.b : ph.edge.a;
+      const holdS = ph.dir > 0 ? ph.edge.len - trimB - HOLD_GAP : trimA + HOLD_GAP;
+      const dist = ph.dir > 0 ? holdS - ph.s : ph.s - holdS;
+      if (dist < CONTROL_LOOK && dist > -1) {
+        const control = controlAt(this.network, node);
+        if (control === "signal") {
+          if (!signalGreen(node, this.tanX, this.tanZ, simTime)) {
+            controlFactor = Math.min(1, Math.max(0, dist / 6));
+          }
+        } else if (control === "stop" && this.clearedStop !== node) {
+          controlFactor = Math.min(1, Math.max(0, dist / 6));
+          if (dist <= 0.5) {
+            this.stopHeld += dt;
+            if (this.stopHeld >= STOP_HOLD_S) {
+              this.clearedStop = node;
+              this.stopHeld = 0;
+            }
+          }
+        }
+      }
+    }
+
+    const speed = this.baseSpeed * Math.min(brakeMul, this.followFactor, controlFactor);
 
     // --- Advance along the graph ---
     let px: number;
@@ -399,6 +460,7 @@ export class Traffic {
   readonly group = new THREE.Group();
   readonly cars: TrafficCar[] = [];
   private rng: Rng;
+  private simTime = 0; // signal-cycle clock (accumulated dt)
   private city: CityModel;
   private network: RoadNetwork;
   // Fleet batches: the whole 52-car fleet renders as one BatchedMesh per
@@ -629,6 +691,7 @@ export class Traffic {
   ): void {
     const hx = Math.sin(playerHeading);
     const hz = Math.cos(playerHeading);
+    this.simTime += dt;
 
     // Car-following separation: hold behind a same-direction car (or a wreck)
     // ahead in the same lane. Coincident pairs brake exactly one by index.
@@ -676,7 +739,7 @@ export class Traffic {
           this.restoreBody(c);
         }
       }
-      c.update(dt, city, playerX, playerZ, this.physics);
+      c.update(dt, city, playerX, playerZ, this.physics, this.simTime);
     }
   }
 

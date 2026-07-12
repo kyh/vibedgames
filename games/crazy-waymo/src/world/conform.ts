@@ -118,26 +118,37 @@ export function conformToTerrain(
     }
   };
 
-  // Does the terrain bow away from a straight line across any edge?
-  const needsSplit = (a: Vert, b: Vert, c: Vert): boolean => {
-    const edges: readonly (readonly [Vert, Vert])[] = [
-      [a, b],
-      [b, c],
-      [c, a],
-    ];
-    for (const [p, q] of edges) {
-      const dx = p[0] - q[0];
-      const dz = p[2] - q[2];
-      if (Math.hypot(dx, dz) < MIN_EDGE) continue;
-      const hMid = terrain.heightAt((p[0] + q[0]) / 2, (p[2] + q[2]) / 2);
-      const hAvg = (terrain.heightAt(p[0], p[2]) + terrain.heightAt(q[0], q[2])) / 2;
-      if (Math.abs(hMid - hAvg) > maxError) return true;
-    }
-    return false;
+  // Does the terrain bow away from a straight line across THIS edge?
+  // Purely edge-local and symmetric in (p, q): two triangles sharing an edge
+  // always agree on whether it splits — the foundation of crack-free
+  // subdivision below.
+  const edgeNeeds = (p: Vert, q: Vert): boolean => {
+    const dx = p[0] - q[0];
+    const dz = p[2] - q[2];
+    if (Math.hypot(dx, dz) < MIN_EDGE) return false;
+    const hMid = terrain.heightAt((p[0] + q[0]) / 2, (p[2] + q[2]) / 2);
+    const hAvg = (terrain.heightAt(p[0], p[2]) + terrain.heightAt(q[0], q[2])) / 2;
+    return Math.abs(hMid - hAvg) > maxError;
   };
 
+  // Split only the edges that need it (1-, 2- and 3-edge cases). The old
+  // any-edge → all-edges 1:4 split let neighbours disagree about a SHARED
+  // edge (one split it, the other didn't) — the T-junction hairline cracks
+  // visible as pale dotted lines across plazas at grazing angles.
   const split = (a: Vert, b: Vert, c: Vert, depth: number): void => {
-    if (depth < MAX_DEPTH && needsSplit(a, b, c)) {
+    if (depth >= MAX_DEPTH) {
+      emit(a, b, c);
+      return;
+    }
+    const sAB = edgeNeeds(a, b);
+    const sBC = edgeNeeds(b, c);
+    const sCA = edgeNeeds(c, a);
+    const count = (sAB ? 1 : 0) + (sBC ? 1 : 0) + (sCA ? 1 : 0);
+    if (count === 0) {
+      emit(a, b, c);
+      return;
+    }
+    if (count === 3) {
       const ab = mid(a, b);
       const bc = mid(b, c);
       const ca = mid(c, a);
@@ -147,7 +158,30 @@ export function conformToTerrain(
       split(ab, bc, ca, depth + 1);
       return;
     }
-    emit(a, b, c);
+    // Rotated helpers: `one` assumes only AB splits, `two` assumes AB + BC
+    // split (CA intact). Winding is preserved by cyclic rotation.
+    const one = (p: Vert, q: Vert, r: Vert): void => {
+      const m = mid(p, q);
+      split(p, m, r, depth + 1);
+      split(m, q, r, depth + 1);
+    };
+    const two = (p: Vert, q: Vert, r: Vert): void => {
+      const m1 = mid(p, q);
+      const m2 = mid(q, r);
+      split(m1, q, m2, depth + 1);
+      split(p, m1, m2, depth + 1);
+      split(p, m2, r, depth + 1);
+    };
+    if (count === 1) {
+      if (sAB) one(a, b, c);
+      else if (sBC) one(b, c, a);
+      else one(c, a, b);
+      return;
+    }
+    // count === 2: rotate so the intact edge lands on CA.
+    if (!sCA) two(a, b, c);
+    else if (!sAB) two(b, c, a);
+    else two(c, a, b);
   };
 
   for (let i = 0; i < pos.count; i += 3) {

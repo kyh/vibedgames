@@ -306,7 +306,7 @@ async function finishLoad(
   lap("ground collider");
   await paint();
   // Freeway decks + barriers as a second drivable level over the streets.
-  physics.addStaticTrimesh(freewayPhysics(city.terrain));
+  physics.addStaticTrimesh(freewayPhysics(city.terrain, city.network));
   lap("freeway collider");
   await paint();
   // Prewarm with the ground only — a small BVH builds fast. The 20k
