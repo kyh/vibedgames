@@ -9,8 +9,11 @@ export const MELEE_HALF_ANGLE = (5 * Math.PI) / 18;
 export const MELEE_OVERREACH = 1.4;
 
 /** Ranged BASIC attack projectile collision radius — deliberately fatter than
- *  the ability default (0.55) so autos land without pixel-perfect aim. */
-export const RANGED_BASIC_HIT_RADIUS = 0.95;
+ *  the ability default (0.55) so autos land without pixel-perfect aim. Basics
+ *  are straight and non-homing, so at full kiting range (11–12u) the flight
+ *  time is long enough for a strafing target to walk out of a tight hitbox —
+ *  the shot must forgive the lead, or ranged simply can't farm its own range. */
+export const RANGED_BASIC_HIT_RADIUS = 1.15;
 
 /** rogue:Q Poison Lunge — corridor half-width along the lunge. */
 export const ROGUE_LUNGE_WIDTH = 1.4;

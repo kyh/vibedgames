@@ -4,7 +4,8 @@ import { castAbility } from "../src/sim/abilities.ts";
 import { strikeMs, castStrikeMs, swingClip } from "../src/data/clip-timing.ts";
 import { attackIntervalMs } from "../src/data/config.ts";
 import { CAMPS } from "../src/data/map.ts";
-import type { FxEvent, World } from "../src/sim/types.ts";
+import { PLATEAU_H, PLATEAU_R, STAIR_RUN, groundHeight, onPlateau } from "../src/sim/elevation.ts";
+import type { FxEvent, Unit, World } from "../src/sim/types.ts";
 
 let pass = 0;
 let fail = 0;
@@ -399,6 +400,66 @@ function runUntil(w: World, fxLog: FxEvent[], pred: () => boolean, maxMs = 4000)
   const fx2: FxEvent[] = [];
   runUntil(w, fx2, () => b.hp < hp1);
   check("second swing is normal damage", hp1 - b.hp < 55, `dealt=${(hp1 - b.hp).toFixed(0)}`);
+}
+
+// ── 12. the throne plateau is a GATE, not a CAGE ──
+// Regression net for the movement bug: the cliff used to block 28 of 36 headings
+// with no slide, so a player who walked up simply could not walk back down. Every
+// heading must reach the stairs, and the stairs must be a RAMP (no 2u teleport).
+{
+  /** Hold a heading for `ms` and report whether the unit was EVER on the plateau
+   *  and whether it was ever off it — a heading held long enough crosses clean
+   *  through and out the far stair, so the end state alone says nothing. */
+  const walk = (w: World, u: Unit, mx: number, my: number, ms: number) => {
+    const until = w.now + ms;
+    let everOn = false;
+    let everOff = false;
+    while (w.now < until) {
+      u.moveX = mx;
+      u.moveY = my;
+      step(w);
+      if (onPlateau(u.x, u.y)) everOn = true;
+      else everOff = true;
+    }
+    return { everOn, everOff };
+  };
+
+  // (a) from the throne, hold each of 12 headings — you must get off the plateau
+  let escaped = 0;
+  for (let k = 0; k < 12; k++) {
+    const a2 = (k / 12) * Math.PI * 2;
+    const { w, a } = setup("knight", "ranger", 30);
+    a.x = 0;
+    a.y = 0;
+    if (walk(w, a, Math.cos(a2), Math.sin(a2), 6000).everOff) escaped++;
+  }
+  check("every heading off the throne finds a stair", escaped === 12, `${escaped}/12`);
+
+  // (b) and from outside, every heading in must find its way UP
+  let climbed = 0;
+  for (let k = 0; k < 12; k++) {
+    const a2 = (k / 12) * Math.PI * 2;
+    const { w, a } = setup("knight", "ranger", 30);
+    a.x = Math.cos(a2) * 18;
+    a.y = Math.sin(a2) * 18;
+    if (walk(w, a, -Math.cos(a2), -Math.sin(a2), 6000).everOn) climbed++;
+  }
+  check("every heading into the throne finds a stair", climbed === 12, `${climbed}/12`);
+
+  // (c) the stair is a ramp: height rises gradually along the run, never in a step
+  let worst = 0;
+  const stair = Math.PI / 4;
+  for (let r = PLATEAU_R + STAIR_RUN; r > PLATEAU_R - 1; r -= 0.1) {
+    const h1 = groundHeight(Math.cos(stair) * r, Math.sin(stair) * r);
+    const h2 = groundHeight(Math.cos(stair) * (r - 0.1), Math.sin(stair) * (r - 0.1));
+    worst = Math.max(worst, Math.abs(h2 - h1));
+  }
+  // one body-step (0.1u) up the stair must not lift more than a step's worth
+  check("stairs ramp, never teleport", worst < 0.12, `max lift ${worst.toFixed(3)}u per 0.1u`);
+  check(
+    "the plateau top is a real level",
+    groundHeight(0, 0) === PLATEAU_H && groundHeight(20, 0) === 0,
+  );
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

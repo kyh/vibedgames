@@ -146,14 +146,30 @@ function sharedDomeRimGeo(): THREE.RingGeometry {
 }
 
 const ICE = new THREE.Color(0x7fd4ff);
-const SLOW_TINT_LERP = 0.25;
+/** How hard a slow ices the body. 0.25 was invisible in a fight — a debuff you
+ *  can't see on the character is a debuff the player learns nothing from. */
+const SLOW_TINT_LERP = 0.55;
 const DOME_R = 1.1; // shield bubble radius (world units)
 const scratchOpts: SpawnOptions = { x: 0, y: 0, z: 0, size: 0.3, life: 0.4 };
+
+/** The moment a debuff LANDS is the frame the player is actually looking at, so
+ *  each kind announces itself with a one-shot burst in its own colour. Steady-state
+ *  tells you it's still on; the burst tells you it just happened. */
+const ONSET: Record<string, { color: number; n: number; speed: number; size: number }> = {
+  stun: { color: 0xffd24a, n: 14, speed: 3.4, size: 0.3 },
+  root: { color: 0x9ad46a, n: 12, speed: 2.6, size: 0.28 },
+  slow: { color: 0x9fe8ff, n: 18, speed: 3.0, size: 0.3 },
+  silence: { color: 0xdbe4ff, n: 10, speed: 2.6, size: 0.26 },
+  hex: { color: 0xd07bff, n: 16, speed: 3.2, size: 0.3 },
+  dot: { color: 0xff7a2c, n: 12, speed: 2.6, size: 0.28 },
+  damageAmp: { color: 0x9a7bff, n: 12, speed: 2.8, size: 0.28 },
+  taunt: { color: 0xff5a3c, n: 12, speed: 2.8, size: 0.28 },
+};
 
 export class StatusFx {
   // lazily-built indicator objects
   private overhead: THREE.Sprite | null = null;
-  private overheadKind: "star" | "mute" | "" = "";
+  private overheadKind: "star" | "chain" | "mute" | "" = "";
   private rootRing: THREE.Mesh | null = null;
   private rootMat: THREE.MeshBasicMaterial | null = null;
   private dome: THREE.Mesh | null = null;
@@ -193,7 +209,16 @@ export class StatusFx {
   private fAmp = false;
   private fAtkSpd = false;
   private fArmor = false;
+  private fHex = false;
+  private fTaunt = false;
   private fDot: DamageType | "" = "";
+  // frost shell: a slow/chill is the one debuff you must read at a glance (it's
+  // what decides whether you can disengage), so it gets a body-hugging shell
+  private frost: THREE.Mesh | null = null;
+  private frostMat: THREE.MeshBasicMaterial | null = null;
+  private nextHexEmit = 0;
+  /** Which debuff kinds were on LAST frame — the rising edge fires the onset burst. */
+  private readonly wasOn = new Set<string>();
 
   constructor(
     private readonly target: StatusFxTarget,
@@ -216,7 +241,10 @@ export class StatusFx {
       if (this.dome) this.dome.visible = false;
       if (this.domeRim) this.domeRim.visible = false;
       if (this.rune) this.rune.visible = false;
+      if (this.frost) this.frost.visible = false;
+      if (this.frostMat) this.frostMat.opacity = 0;
       this.runeAlpha = 0;
+      this.wasOn.clear(); // a corpse re-enters combat clean; don't replay its onsets
       return;
     }
 
@@ -225,12 +253,22 @@ export class StatusFx {
     const py = this.target.group.position.y; // feet (terrain + hop)
     const pz = this.target.group.position.z;
 
-    // ── overhead sprite: stun star orbit (silence shares the slot; stun wins) ──
-    const wantOverhead: "star" | "mute" | "" = this.fStun ? "star" : this.fSilence ? "mute" : "";
+    this.onsets(u.statuses, px, py, pz);
+
+    // ── overhead sprite: one slot, hardest disable wins (stun > root > silence) ──
+    const wantOverhead: "star" | "chain" | "mute" | "" = this.fStun
+      ? "star"
+      : this.fRoot
+        ? "chain"
+        : this.fSilence
+          ? "mute"
+          : "";
     if (wantOverhead !== "") {
       const sprite = this.ensureOverhead();
       if (wantOverhead !== this.overheadKind) {
-        sprite.material = wantOverhead === "star" ? icons().star : icons().mute;
+        const set = icons();
+        sprite.material =
+          wantOverhead === "star" ? set.star : wantOverhead === "chain" ? set.chain : set.mute;
         this.overheadKind = wantOverhead;
       }
       const a = now * 0.0022; // 2.2 rad/s
@@ -249,24 +287,56 @@ export class StatusFx {
       this.rootRing.visible = false;
     }
 
-    // ── slow: icy tint + crystals drifting off the feet ──
+    // ── slow/chill: iced body + a frost shell + crystals shedding off it ──
     this.setSlow(this.fSlow);
-    if (this.fSlow && now >= this.nextSlowEmit) {
-      this.nextSlowEmit = now + 333; // ~3/s
-      scratchOpts.x = px + (Math.random() - 0.5) * 0.5;
-      scratchOpts.y = py + 0.15;
-      scratchOpts.z = pz + (Math.random() - 0.5) * 0.5;
-      scratchOpts.vx = (Math.random() - 0.5) * 0.4;
-      scratchOpts.vy = 0.8;
-      scratchOpts.vz = (Math.random() - 0.5) * 0.4;
-      scratchOpts.color = 0x9fe8ff;
-      scratchOpts.size = 0.22;
-      scratchOpts.life = 0.5;
+    this.tickFrost(this.fSlow, dt, now);
+    if (this.fSlow) {
+      this.addEmissive(0.02, 0.05, 0.08); // the ice reads even in shadow
+      if (now >= this.nextSlowEmit) {
+        this.nextSlowEmit = now + 110; // ~9/s — a chill you can actually see
+        for (let i = 0; i < 2; i++) {
+          scratchOpts.x = px + (Math.random() - 0.5) * 0.7;
+          scratchOpts.y = py + 0.15 + Math.random() * 1.2;
+          scratchOpts.z = pz + (Math.random() - 0.5) * 0.7;
+          scratchOpts.vx = (Math.random() - 0.5) * 0.4;
+          scratchOpts.vy = -0.5 - Math.random(); // frost SHEDS downward — it's weight
+          scratchOpts.vz = (Math.random() - 0.5) * 0.4;
+          scratchOpts.color = 0x9fe8ff;
+          scratchOpts.size = 0.24;
+          scratchOpts.life = 0.55;
+          scratchOpts.gravity = -1;
+          scratchOpts.drag = 0;
+          scratchOpts.stretch = true;
+          scratchOpts.bright = 1;
+          this.pools.spawn("add", scratchOpts);
+        }
+      }
+    }
+
+    // ── hex (polymorph): the model already swaps; the magic keeping it there
+    //    should still be visible on the body ──
+    if (this.fHex && now >= this.nextHexEmit) {
+      this.nextHexEmit = now + 140;
+      scratchOpts.x = px + (Math.random() - 0.5) * 0.7;
+      scratchOpts.y = py + 0.2 + Math.random() * 0.7;
+      scratchOpts.z = pz + (Math.random() - 0.5) * 0.7;
+      scratchOpts.vx = (Math.random() - 0.5) * 0.5;
+      scratchOpts.vy = 1.1 + Math.random() * 0.6;
+      scratchOpts.vz = (Math.random() - 0.5) * 0.5;
+      scratchOpts.color = 0xd07bff;
+      scratchOpts.size = 0.26;
+      scratchOpts.life = 0.6;
       scratchOpts.gravity = 0;
       scratchOpts.drag = 0;
-      scratchOpts.stretch = true;
+      scratchOpts.stretch = false;
       scratchOpts.bright = 1;
       this.pools.spawn("add", scratchOpts);
+    }
+
+    // ── taunt: dragged into someone else's fight — angry red pulse on the body ──
+    if (this.fTaunt) {
+      const p = 0.5 + 0.5 * Math.sin(now * 0.012);
+      this.addEmissive(0.14 * p, 0.02 * p, 0.01 * p);
     }
 
     // ── dot: torso embers colored by damage type (poison green / burn orange) ──
@@ -435,6 +505,12 @@ export class StatusFx {
       g.remove(this.rune);
       this.runeMat?.dispose();
     }
+    if (this.frost) {
+      g.remove(this.frost);
+      this.frostMat?.dispose();
+    }
+    this.frost = null;
+    this.frostMat = null;
     this.overhead = null;
     this.rootRing = null;
     this.dome = null;
@@ -447,10 +523,16 @@ export class StatusFx {
   private scan(statuses: Status[]): void {
     this.fStun = this.fSilence = this.fRoot = this.fSlow = this.fHeal = false;
     this.fShield = this.fStealth = this.fHaste = this.fAmp = this.fAtkSpd = false;
-    this.fArmor = false;
+    this.fArmor = this.fHex = this.fTaunt = false;
     this.fDot = "";
     for (const s of statuses) {
       switch (s.kind) {
+        case "hex":
+          this.fHex = true;
+          break;
+        case "taunt":
+          this.fTaunt = true;
+          break;
         case "stun":
           this.fStun = true;
           break;
@@ -592,6 +674,61 @@ export class StatusFx {
         this.domeRimMat.opacity = 0.5 * (1 - k);
       }
     }
+  }
+
+  /** Fire a one-shot burst for every debuff kind that JUST landed on this unit. */
+  private onsets(statuses: Status[], px: number, py: number, pz: number): void {
+    for (const s of statuses) {
+      const spec = ONSET[s.kind];
+      if (!spec || this.wasOn.has(s.kind)) continue;
+      for (let i = 0; i < spec.n; i++) {
+        // burst outward off the torso in a rough sphere
+        const a = (i / spec.n) * Math.PI * 2 + Math.random() * 0.4;
+        const up = Math.random() * 0.8 + 0.2;
+        scratchOpts.x = px;
+        scratchOpts.y = py + 1.0;
+        scratchOpts.z = pz;
+        scratchOpts.vx = Math.cos(a) * spec.speed;
+        scratchOpts.vy = up * spec.speed * 0.5;
+        scratchOpts.vz = Math.sin(a) * spec.speed;
+        scratchOpts.color = spec.color;
+        scratchOpts.size = spec.size;
+        scratchOpts.life = 0.42;
+        scratchOpts.gravity = -3;
+        scratchOpts.drag = 2.5;
+        scratchOpts.stretch = true;
+        scratchOpts.bright = 1;
+        this.pools.spawn("add", scratchOpts);
+      }
+    }
+    this.wasOn.clear();
+    for (const s of statuses) if (ONSET[s.kind]) this.wasOn.add(s.kind);
+  }
+
+  /** Frost shell — scales on over ~120ms and holds while chilled. */
+  private tickFrost(on: boolean, dt: number, now: number): void {
+    if (!on && !this.frost) return;
+    if (!this.frost) {
+      // additive glass, NOT wireframe — a wireframe hemisphere reads as a birdcage
+      // over the character; a low-opacity additive shell reads as ice encasing it
+      this.frostMat = new THREE.MeshBasicMaterial({
+        color: 0x6fc8ee,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
+      });
+      this.frost = new THREE.Mesh(sharedDomeGeo(), this.frostMat);
+      this.frost.scale.set(0.8, 1.45, 0.8); // body-shaped, not a bubble
+      this.frost.position.y = 0.05;
+      this.target.group.add(this.frost);
+    }
+    const mat = this.frostMat;
+    if (!mat) return;
+    const want = on ? 0.3 + 0.06 * Math.sin(now * 0.008) : 0;
+    mat.opacity += (want - mat.opacity) * Math.min(1, dt * 9);
+    this.frost.visible = mat.opacity > 0.02;
   }
 
   private setSlow(on: boolean): void {

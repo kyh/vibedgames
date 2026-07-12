@@ -9,6 +9,7 @@ import { terrainHeight } from "../data/terrain";
 import type { FxEvent, GroundEffect, World } from "../sim/types";
 import { Audio } from "./audio";
 import { ChunkPool } from "./fx-chunks";
+import { DamageNumbers } from "./damage-numbers";
 import {
   energyBallMaterial,
   makeCrackMaterial,
@@ -155,7 +156,7 @@ export class Fx {
   private delayed: Delayed[] = [];
   private clock = 0; // accumulated REAL seconds (drives the delay queue)
   private nowMs = 0; // last-seen sim clock (w.now)
-  private dmgLayer: HTMLDivElement;
+  private numbers: DamageNumbers;
   readonly audio = new Audio(); // HUD + game-scene trigger UI sounds through this
   private zoneAnim = new Map<string, ZoneAnim>();
   private zoneSweepAt = 0;
@@ -277,10 +278,7 @@ export class Fx {
       this.domes.push({ mesh, mat, life: 0, maxLife: 1, opacity: 1, r: 1 });
     }
 
-    this.dmgLayer = document.createElement("div");
-    this.dmgLayer.style.cssText =
-      "position:fixed;inset:0;pointer-events:none;z-index:6;overflow:hidden;";
-    document.body.appendChild(this.dmgLayer);
+    this.numbers = new DamageNumbers(view);
   }
 
   update(w: World, dt: number): void {
@@ -320,8 +318,10 @@ export class Fx {
       }
     }
 
-    // visuals advance on the freeze-scaled clock so impacts genuinely hang
+    // numbers arc on the freeze-scaled clock too — a crit that hangs in the air
+    // during its own hit-stop is exactly the beat you're meant to read it on
     const vdt = dt * this.scaleNow();
+    this.numbers.update(vdt);
     tickFxShaders(vdt); // the shared shader clock freezes with everything else
     this.pools.update(vdt);
     this.chunks.update(vdt);
@@ -411,7 +411,7 @@ export class Fx {
           this.view.addTrauma(0.06 * this.att(e.x, e.y));
         }
         this.audio.hit(e.x, e.y, e.dtype);
-        this.hitNumber(e.x, e.y, e.amount, e.dtype, heavy, e.by);
+        this.hitNumber(e.x, e.y, e.amount, e.dx, e.dy, heavy, e.by);
         break;
       }
       case "strike":
@@ -707,7 +707,7 @@ export class Fx {
         break;
       case "heal":
         this.fountain(e.x, e.y, 10, 0x6bff8e);
-        this.spawnNumber(e.x, e.y, `+${Math.round(e.amount)}`, 15, 800, "#6bff8e", 40, 0.6, "");
+        this.numbers.spawn(`+${Math.round(e.amount)}`, e.x, e.y, "heal", this.nowMs);
         break;
       case "blink":
         this.implode(e.x, e.y, 0x9a7bff, 1.6, 8, 0.22); // inward = vanish
@@ -724,7 +724,7 @@ export class Fx {
         this.flash(e.x, 1.1, e.y, 0x9fffe8, 1.0, 1.8);
         if (e.unit === this.localId) {
           this.slowMo = Math.max(this.slowMo, 0.2);
-          this.spawnNumber(e.x, e.y, "PERFECT", 16, 900, "#66ffe0", 44, 0.6, "letter-spacing:1px;");
+          this.numbers.spawn("PERFECT", e.x, e.y, "banner", this.nowMs);
         }
         break;
       case "delivery":
@@ -744,17 +744,7 @@ export class Fx {
         break;
       case "coinGrab":
         this.fountain(e.x, e.y, 14, 0xffd24a);
-        this.spawnNumber(
-          e.x,
-          e.y,
-          `+${e.gold}`,
-          19,
-          900,
-          "#ffd24a",
-          46,
-          0.7,
-          "text-shadow:0 0 8px #ffd24a,0 2px 3px #000;",
-        );
+        this.numbers.spawn(`+${e.gold}`, e.x, e.y, "gold", this.nowMs);
         this.view.addTrauma(0.12);
         this.audio.coin();
         break;
@@ -2459,89 +2449,35 @@ export class Fx {
 
   // ── floating numbers (ownership hierarchy: yours are the loud ones) ──
 
+  /** Route a hit to the right number tier. The hierarchy is the point: your hits
+   *  shout, hits on you warn, and everyone else's chip damage stays out of the
+   *  way — a screen where every number is loud has no numbers at all. */
   private hitNumber(
     x: number,
     y: number,
     amount: number,
-    dtype: string,
+    dx: number,
+    dy: number,
     heavy: boolean,
     by: string,
   ): void {
     const mine = by !== "" && by === this.localId;
-    if (mine && heavy) {
-      const size = Math.min(30, 27 + amount / 150);
-      this.spawnNumber(
-        x,
-        y,
-        `${amount}`,
-        size,
-        900,
-        "#ff7a3c",
-        30,
-        0.55,
-        "-webkit-text-stroke:1px #401800;",
-        1.7,
-      );
-      return;
-    }
     if (mine) {
-      const size = Math.min(26, 13 + amount / 35);
-      this.spawnNumber(
-        x,
-        y,
-        `${amount}`,
-        size,
-        800,
-        dtype === "magic" ? "#c98bff" : "#fff2d0",
-        54,
-        0.6,
-        "",
-      );
+      this.numbers.bumpCombo(this.nowMs); // only YOUR hits build the combo
+      this.numbers.spawn(`${amount}`, x, y, heavy ? "crit" : "mine", this.nowMs, dx, dy);
       return;
     }
     const onMe = (x - this.lx) ** 2 + (y - this.ly) ** 2 < 1.44;
     if (onMe) {
-      this.spawnNumber(x, y, `−${amount}`, 15, 800, "#ff6a5e", 40, 0.6, "");
+      this.numbers.spawn(`${amount}`, x, y, "incoming", this.nowMs, dx, dy);
       return;
     }
     if (amount < 50) return; // bystander chip damage: culled — kill the number wall
-    this.spawnNumber(x, y, `${amount}`, 11, 700, "#e8e2d4", 34, 0.5, "opacity:0.55;");
-  }
-
-  private spawnNumber(
-    x: number,
-    y: number,
-    text: string,
-    size: number,
-    weight: number,
-    color: string,
-    rise: number,
-    dur: number,
-    extra: string,
-    pop = 1,
-  ): void {
-    const s = this.view.worldToScreen(x, y);
-    if (!s.visible) return;
-    const el = document.createElement("div");
-    el.textContent = text;
-    const jitter = (Math.random() - 0.5) * 26;
-    const drift = pop > 1 ? 0 : jitter * 0.4;
-    el.style.cssText =
-      `position:absolute;left:${s.x + jitter}px;top:${s.y - 18}px;` +
-      `transform:translate(-50%,-50%) scale(${pop});` +
-      `color:${color};font:${weight} ${Math.round(size)}px ui-monospace,monospace;` +
-      `text-shadow:0 2px 3px #000;${extra}will-change:transform,opacity;` +
-      `transition:transform ${dur}s cubic-bezier(.17,.84,.44,1),opacity ${dur}s ease-out;`;
-    this.dmgLayer.appendChild(el);
-    requestAnimationFrame(() => {
-      el.style.transform = `translate(-50%,-50%) scale(1) translate(${drift}px,-${rise}px)`;
-      el.style.opacity = "0";
-    });
-    setTimeout(() => el.remove(), dur * 1000 + 80);
+    this.numbers.spawn(`${amount}`, x, y, "bystander", this.nowMs, dx, dy);
   }
 
   dispose(): void {
-    this.dmgLayer.remove();
+    this.numbers.dispose();
     this.pools.dispose();
     this.chunks.dispose();
     this.telegraphs.dispose();

@@ -221,6 +221,7 @@ class UnitView {
   private placed = false;
   private wasAlive = true;
   private yaw = 0;
+  private groundY = 0; // smoothed ground under the feet (see update)
   private lastAttackShown = -1;
   private lastCastShown = -1;
   private lastHitShown = -1;
@@ -384,6 +385,7 @@ class UnitView {
         : 0;
     const groundY = terrainHeight(u.x, u.y);
     if (!this.placed || respawned || jumped) {
+      this.groundY = groundY;
       this.group.position.set(u.x, groundY + hopY, u.y);
       this.yaw = Math.atan2(u.aimX, u.aimY) + MODEL_YAW;
       this.placed = true;
@@ -391,7 +393,11 @@ class UnitView {
       const a = Math.min(1, 26 * dt);
       this.group.position.x += (u.x - this.group.position.x) * a;
       this.group.position.z += (u.y - this.group.position.z) * a;
-      this.group.position.y = groundY + hopY;
+      // feet settle onto the ground rather than teleporting to it: the stair ramp
+      // is continuous, but a blink/knockback across the cliff still steps a whole
+      // level in one tick — smooth it (the hop arc stays authored on top).
+      this.groundY += (groundY - this.groundY) * Math.min(1, 18 * dt);
+      this.group.position.y = this.groundY + hopY;
     }
     // render-only knockback lurch: the model recoils in the hit direction and
     // springs back while the shadow stays planted (physical "enemy reaction")
@@ -401,7 +407,7 @@ class UnitView {
     this.group.position.z += this.recoilZ;
     // blob contact-shadow rides the terrain (never the hop), shrinking as the
     // unit rises so it reads as a cast shadow
-    this.blob.position.set(u.x, groundY + 0.08, u.y); // clear the 0.05 tile tops
+    this.blob.position.set(u.x, this.groundY + 0.08, u.y); // clear the 0.05 tile tops
     this.blob.visible = u.alive;
     this.blob.scale.setScalar(this.baseScale * Math.max(0.45, 1 - hopY * 0.28));
 

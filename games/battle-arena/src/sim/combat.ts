@@ -1,5 +1,5 @@
 // Damage pipeline, basic attacks, knockback, death/respawn, projectiles.
-import { CHAMP_BY_ID } from "../data/champions";
+import { CHAMP_BY_ID, type RhythmStep } from "../data/champions";
 import { strikeMs, swingClip } from "../data/clip-timing";
 import {
   KEG_BLAST,
@@ -38,12 +38,13 @@ function meleeReach(u: Unit): number {
   return u.attackRange + MELEE_OVERREACH;
 }
 
-const UNIFORM_SWING = { timeMult: 1, dmgMult: 1 };
+const UNIFORM_SWING: RhythmStep = { timeMult: 1, dmgMult: 1 };
 /** The rhythm step of the swing this unit most recently STARTED — paces the
- *  next swing (timeMult) and weights its damage (dmgMult). Uniform for creeps
- *  and champs with no rhythm. WHEN the swing connects comes from the clip's
- *  measured contact frame (data/clip-timing.ts), not from here. */
-function lastSwingStep(u: Unit): { timeMult: number; dmgMult: number; aoe?: number } {
+ *  next swing (timeMult), weights its damage (dmgMult), and carries a ranged
+ *  swing's slow rider (slow). Uniform for creeps and champs with no rhythm.
+ *  WHEN the swing connects comes from the clip's measured contact frame
+ *  (data/clip-timing.ts), not from here. */
+function lastSwingStep(u: Unit): RhythmStep {
   const rhythm = CHAMP_BY_ID[u.champId]?.basicRhythm;
   if (!rhythm || rhythm.length === 0 || u.swingCount < 1) return UNIFORM_SWING;
   return rhythm[(u.swingCount - 1) % rhythm.length] ?? UNIFORM_SWING;
@@ -168,7 +169,11 @@ function doAttackHit(w: World, u: Unit): void {
       // pixel-perfect aim (abilities keep the tight default)
       hitRadius: RANGED_BASIC_HIT_RADIUS,
       range: u.attackRange + 5,
-      onHit: { tag: "none" },
+      // the KITE TOOL: this rhythm beat's slow rides the shot to its victim
+      // (every 3rd arrow cripples / bolt chills — see champions basicRhythm)
+      onHit: step.slow
+        ? { tag: "slow", pct: step.slow.pct, duration: step.slow.dur }
+        : { tag: "none" },
       isAttack: true,
     });
     return;
@@ -525,19 +530,25 @@ function onProjectileHit(w: World, p: Projectile, primary: Unit): void {
   }
 }
 
+/** Statuses a projectile carries to its victim. Props never take them — a
+ *  slowed barrel is nonsense, and it would spam the wire with dead statuses.
+ *  Every rider is addStatus'd under a fixed per-source id, so a repeat hit
+ *  (a piercing arrow, an every-3rd-shot cripple) REFRESHES one status instead
+ *  of stacking a wall of them. */
 function applyOnHit(w: World, p: Projectile, u: Unit): void {
+  if (u.kind === "prop") return;
   const h = p.onHit;
   if (h.tag === "slow")
-    u.statuses.push({
+    addStatus(u, {
       kind: "slow",
       until: w.now + h.duration * 1000,
       pct: h.pct,
       id: `${p.kind}-slow`,
     });
   else if (h.tag === "root")
-    u.statuses.push({ kind: "root", until: w.now + h.duration * 1000, id: `${p.kind}-root` });
+    addStatus(u, { kind: "root", until: w.now + h.duration * 1000, id: `${p.kind}-root` });
   else if (h.tag === "burn")
-    u.statuses.push({
+    addStatus(u, {
       kind: "dot",
       until: w.now + h.duration * 1000,
       nextTick: w.now + 500,

@@ -646,9 +646,13 @@ function moveUnit(w: World, u: Unit, dt: number): void {
 }
 
 /** Boid push-apart so heroes don't stack on the throne. Destructible props are
- *  immovable — they shove the other body the full distance instead of moving. */
+ *  immovable — they shove the other body the full distance instead of moving.
+ *  The push respects the plateau edge: a shove is a move like any other, so it
+ *  can't post a body through the cliff (that used to teleport a unit a level up
+ *  or down and left it standing inside the wall). */
 function separation(w: World): void {
   const units = [...w.units.values()].filter((u) => u.alive && u.kind !== "boss");
+  const before = units.map((u) => ({ x: u.x, y: u.y }));
   for (let i = 0; i < units.length; i++) {
     for (let j = i + 1; j < units.length; j++) {
       const a = units[i]!;
@@ -677,6 +681,14 @@ function separation(w: World): void {
         }
       }
     }
+  }
+  for (let i = 0; i < units.length; i++) {
+    const u = units[i];
+    const p = before[i];
+    if (!u || !p || u.kind === "prop") continue;
+    const e = resolveElevation(p.x, p.y, u.x, u.y, u.radius);
+    u.x = e.x;
+    u.y = e.y;
   }
 }
 

@@ -21,8 +21,8 @@ import {
   OBSTACLES,
   SPAWNS,
 } from "../data/map";
-import { PLATEAU_SKIRT, terrainHeight } from "../data/terrain";
-import { PLATEAU_R } from "../sim/elevation";
+import { terrainHeight } from "../data/terrain";
+import { PLATEAU_R, STAIR_RUN } from "../sim/elevation";
 import { teamColor } from "./palette";
 
 const INTRO_S = 2.4; // establishing fly-in duration (solo intro)
@@ -113,12 +113,15 @@ function buildGroundDisc(): THREE.Mesh {
   // sit 2cm below the tile layer: the dirt tiles' valley faces are authored at
   // exactly y=0 — coplanar with a disc at terrainHeight → z-fighting in the gaps
   const DROP = 0.02;
-  // uniform radii + two rings snapped EXACTLY to the plateau cliff — without
-  // them the hard terrain step smears across one ring gap as a slanted band
+  // uniform radii + rings snapped EXACTLY to the plateau cliff — without them the
+  // hard terrain step smears across one ring gap as a slanted band. The extra
+  // rings across the stair run keep the ramp under each staircase from being
+  // sampled as one coarse slab.
   const uniform = 40;
   const radii: number[] = [];
   for (let ring = 1; ring <= uniform; ring++) radii.push((ring / uniform) * R);
-  radii.push(PLATEAU_R, PLATEAU_R + PLATEAU_SKIRT);
+  radii.push(PLATEAU_R, PLATEAU_R + 0.05);
+  for (let i = 1; i <= 4; i++) radii.push(PLATEAU_R + (i / 4) * STAIR_RUN);
   radii.sort((a, b) => a - b);
   const rings = radii.length;
   const zc = new THREE.Color();
@@ -685,8 +688,10 @@ export class View {
 
   /** sim → screen for HUD markers. Rejects points behind the camera (which the
    *  perspective divide would otherwise mirror to a wrong on-screen position). */
-  worldToScreen(x: number, y: number): { x: number; y: number; visible: boolean } {
-    const p = this.scratchA.set(x, 1.4, y);
+  /** Sim-plane (x, y) at height `h` → screen px. `h` defaults to chest height;
+   *  floating damage numbers pass their own, since they arc through the air. */
+  worldToScreen(x: number, y: number, h = 1.4): { x: number; y: number; visible: boolean } {
+    const p = this.scratchA.set(x, h, y);
     this.camera.getWorldDirection(this.scratchFwd);
     const toP = this.scratchB.copy(p).sub(this.camera.position);
     if (toP.dot(this.scratchFwd) <= 0.1) return { x: 0, y: 0, visible: false };

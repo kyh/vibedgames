@@ -41,6 +41,18 @@ export type ChampStats = {
   projectileSpeed: number;
 };
 
+// One beat of a champion's basic-attack rhythm. `timeMult` paces that swing
+// (bigger = it holds longer before the next basic), `dmgMult` weights its
+// damage, `aoe` (radius) turns it into a whirl that hits ALL enemies around.
+// `slow` is the RANGED kite tool: that shot's projectile carries a slow to
+// whatever flesh it hits (sim/combat.ts → Projectile.onHit).
+export type RhythmStep = {
+  timeMult: number;
+  dmgMult: number;
+  aoe?: number;
+  slow?: { pct: number; dur: number }; // pct = % move slow, dur = seconds
+};
+
 export type ChampDef = {
   id: string;
   name: string;
@@ -58,13 +70,10 @@ export type ChampDef = {
   // it hits (ranger); `splash` bursts on impact damaging a small area (casters)
   basic?: { pierce?: boolean; splash?: number };
   // Per-swing basic-attack rhythm, cycled by swingCount (parallel to the
-  // clip-timing ATTACK_SETS clips). A bigger `timeMult` slows that swing (its
-  // interval grows, so the clip plays more/at natural speed) and `dmgMult`
-  // scales its damage. `aoe` (radius) makes that swing hit ALL enemies around
-  // (full damage, no cone/cap) — a spinning whirl. Omit → uniform 1× swing.
+  // clip-timing ATTACK_SETS clips) — see RhythmStep. Omit → uniform 1× swing.
   // WHEN the blade connects is not tuned here — it's measured per clip in
   // data/clip-timing.ts (sim strike + render swing read the same table).
-  basicRhythm?: { timeMult: number; dmgMult: number; aoe?: number }[];
+  basicRhythm?: RhythmStep[];
   rig?: "large"; // needs the Rig_Large clip library ("Large/" prefix)
   twoHanded?: boolean; // wields a 2H weapon: rests/idles two-handed (Melee_2H_Idle)
   scale?: number; // render scale multiplier (default 1)
@@ -242,6 +251,15 @@ export const CHAMPIONS: ChampDef[] = [
     model: "Ranger",
     weaponL: "bow",
     basic: { pierce: true }, // arrows punch through the whole line
+    // Every 3rd arrow is a CRIPPLING SHOT — the kite tool. A ranged champ has
+    // no way to hold the gap open otherwise: melee reach (3.7) + a 7u charge
+    // erases the range advantage for free. The slow costs almost no cadence
+    // (1.15) — kiting is the point, not a big slow swing.
+    basicRhythm: [
+      { timeMult: 1, dmgMult: 1 },
+      { timeMult: 1, dmgMult: 1 },
+      { timeMult: 1.15, dmgMult: 1.25, slow: { pct: 30, dur: 1.2 } },
+    ],
     tint: 0x49d67a,
     blurb: "Death at range. Spread shots, dodge rolls, and a sky full of arrows.",
     difficulty: 2,
@@ -252,10 +270,13 @@ export const CHAMPIONS: ChampDef[] = [
       mpRegen: 2.0,
       damage: 48,
       armor: 2,
-      attackRange: 9.5,
+      // kite band: outranges melee reach (3.7) + one 7u charge; moveSpeed beats
+      // the knight's 6.0 so backing off actually gains ground; the arrow must
+      // fly fast enough to LAND on a strafing target at that range.
+      attackRange: 12,
       attackSpeed: 0.9,
-      moveSpeed: 6.2,
-      projectileSpeed: 26,
+      moveSpeed: 6.5,
+      projectileSpeed: 35,
     },
     growth: {
       hp: 72,
@@ -364,6 +385,13 @@ export const CHAMPIONS: ChampDef[] = [
     model: "Mage",
     weaponR: "staff",
     basic: { splash: 1.6 }, // bolts pop in a small arcane burst
+    // Every 3rd bolt CHILLS (the kite tool — see ranger). Shorter/weaker than
+    // the ranger's cripple: the mage already zones with Nova/Cinderfall.
+    basicRhythm: [
+      { timeMult: 1, dmgMult: 1 },
+      { timeMult: 1, dmgMult: 1 },
+      { timeMult: 1.15, dmgMult: 1.25, slow: { pct: 25, dur: 1.0 } },
+    ],
     tint: 0xc060ff,
     blurb: "Glass and fire. Nuke from afar, freeze the brave, and drop a meteor on the throne.",
     difficulty: 2,
@@ -374,10 +402,12 @@ export const CHAMPIONS: ChampDef[] = [
       mpRegen: 3.0,
       damage: 44,
       armor: 1,
-      attackRange: 8.5,
+      // one reach tier inside the ranger, still outside melee+charge; 6.2 lets
+      // the glass cannon walk away from a 6.0 knight (barely — that's the trade)
+      attackRange: 11,
       attackSpeed: 0.78,
-      moveSpeed: 5.9,
-      projectileSpeed: 20,
+      moveSpeed: 6.2,
+      projectileSpeed: 27,
     },
     growth: {
       hp: 66,

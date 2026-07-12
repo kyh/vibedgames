@@ -32,7 +32,7 @@ import {
   SPAWNS,
 } from "../data/map";
 import { terrainHeight } from "../data/terrain";
-import { PLATEAU_H, PLATEAU_R, STAIR_ANGLES } from "../sim/elevation";
+import { PLATEAU_H, PLATEAU_R, STAIR_ANGLES, STAIR_HALF, STAIR_RUN } from "../sim/elevation";
 import { buildDecor, hash2, type Decor } from "../data/decor";
 import type { ModelLibrary } from "./models";
 import { refreshStaticShadows } from "./view";
@@ -1182,7 +1182,7 @@ export class Environment {
    *  grand stairways climb up. Built to exact dimensions so the stairs really
    *  bridge the plaza→platform height. */
   private buildPlatform(): void {
-    const gapHalf = 0.22; // visual gap half-width — a touch wider than the walkable gap
+    const gapHalf = STAIR_HALF + 0.04; // visual gap — a touch wider than the walkable one
     const wallMat = new THREE.MeshStandardMaterial({
       color: 0x565b68,
       roughness: 0.95,
@@ -1210,19 +1210,22 @@ export class Environment {
       this.add(arc);
     }
     // grand ceremonial stairways (stairs_wide, 7u wide natively) filling the
-    // gaps, scale-fit: rise exactly PLATEAU_H, span the 4.84u visual gap.
-    // One InstancedMesh for all four.
+    // gaps. Scale-fit to the SIM's ramp, not to taste: the model spans the walkable
+    // gap, rises exactly PLATEAU_H, and its run is exactly STAIR_RUN — so the step
+    // you see under your feet is the height groundHeight() puts you at. One
+    // InstancedMesh for all four.
     const st = this.geoOf("stairs_wide");
     if (!st) return;
     const size = st.box.getSize(V_POS);
     const sx = (2 * gapHalf * PLATEAU_R) / Math.max(0.01, size.x);
     const sy = PLATEAU_H / Math.max(0.01, size.y);
-    V_SCL.set(sx, sy, 0.6);
+    const sz = STAIR_RUN / Math.max(0.01, size.z);
+    V_SCL.set(sx, sy, sz);
     const inst = new THREE.InstancedMesh(st.geo, st.mat, STAIR_ANGLES.length);
     inst.castShadow = true;
     inst.receiveShadow = true;
     STAIR_ANGLES.forEach((a, i) => {
-      const rc = PLATEAU_R + 0.5;
+      const rc = PLATEAU_R + STAIR_RUN / 2; // the run starts at the cliff and climbs outward
       // steps ASCEND toward the throne: the model's climb axis points outward
       // from the center, so its yaw faces away from the throne
       E_ROT.set(0, Math.atan2(Math.cos(a), Math.sin(a)), 0);
