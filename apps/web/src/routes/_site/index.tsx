@@ -4,7 +4,6 @@ import { motion } from "motion/react";
 
 import { gameSearchSchema } from "@/components/game/data";
 import { gameChromeMotion, useGameChromeHidden } from "@/components/game/game-chrome";
-import { GameNavArrows } from "@/components/game/game-nav-arrows";
 import { PlayView } from "@/components/game/play-view";
 import { installResponse } from "@/lib/install-response";
 
@@ -28,14 +27,11 @@ function PlayPage() {
   const gameChromeHidden = useGameChromeHidden();
 
   return (
-    <>
-      <motion.header
-        {...gameChromeMotion(gameChromeHidden)}
-        className="fixed bottom-16 left-0 z-10 flex max-h-full max-w-dvw flex-col px-4 sm:w-96"
-      >
-        <PlayView />
-      </motion.header>
-      <GameNavArrows />
-    </>
+    <motion.header
+      {...gameChromeMotion(gameChromeHidden)}
+      className="fixed bottom-16 left-0 z-10 flex max-h-full max-w-dvw flex-col px-4 sm:w-96"
+    >
+      <PlayView />
+    </motion.header>
   );
 }

@@ -1,5 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "motion/react";
+import { useWebHaptics } from "web-haptics/react";
 
 import { featuredGames, gameUrl } from "@/components/game/data";
 import { useGameParam, usePathname } from "@/lib/use-game-param";
@@ -8,6 +9,7 @@ import { Iframe } from "./iframe";
 
 export const Canvas = () => {
   const navigate = useNavigate();
+  const { trigger } = useWebHaptics();
   const pathname = usePathname();
   const game = useGameParam() ?? featuredGames[0]?.slug ?? "";
   const isPlay = pathname === "/";
@@ -20,7 +22,14 @@ export const Canvas = () => {
           data={featuredGames}
           activeSlug={game}
           showStack={isDiscover}
-          onPreviewClick={(g) => void navigate({ to: "/", search: { game: g.slug } })}
+          onPreviewClick={(g) => {
+            trigger("selection");
+            void navigate({ to: "/", search: { game: g.slug } });
+          }}
+          onSwipe={(g) => {
+            trigger("selection");
+            void navigate({ to: "/discover", search: { game: g.slug }, replace: true });
+          }}
         />
       </div>
       <AnimatePresence>

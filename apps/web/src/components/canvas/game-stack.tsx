@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { AnimatePresence, motion } from "motion/react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion, type PanInfo } from "motion/react";
 
 // Animation constants
 const ANIMATION_DURATION = 0.6;
@@ -7,6 +7,22 @@ const BLUR_AMOUNT = "5px";
 
 // Mobile breakpoint
 const MOBILE_BREAKPOINT = 640;
+
+// Swipe: distance (px) or flick velocity (px/s) past which a drag advances the stack.
+const SWIPE_DISTANCE = 80;
+const SWIPE_VELOCITY = 400;
+// Movement past this is a swipe, not a tap — used to suppress the click that follows a drag.
+const TAP_SLOP = 8;
+
+const past = (value: number, threshold: number) => Math.abs(value) > threshold;
+
+/**
+ * The card is dragged freely on both axes. Throwing it far or fast enough in ANY direction
+ * deals the next card — direction carries no meaning, so there is no way to swipe backwards.
+ */
+const isSwipe = ({ offset, velocity }: PanInfo) =>
+  past(Math.hypot(offset.x, offset.y), SWIPE_DISTANCE) ||
+  past(Math.hypot(velocity.x, velocity.y), SWIPE_VELOCITY);
 
 // Z-depth values for card stacking
 const Z_DEPTHS = {
@@ -38,6 +54,9 @@ type GameCardProps = {
   showStack: boolean;
   currentIndex: number;
   isMobile: boolean;
+  /** Set while a drag is in flight, so the trailing click doesn't launch the game. */
+  swipedRef: React.RefObject<boolean>;
+  onSwipe?: () => void;
   children: React.ReactNode;
 };
 
@@ -85,6 +104,8 @@ export const GameCard = ({
   total,
   showStack,
   isMobile,
+  swipedRef,
+  onSwipe,
   children,
 }: GameCardProps) => {
   const isActive = index === currentIndex;
@@ -118,6 +139,15 @@ export const GameCard = ({
     return null;
   }
 
+  // Only the front card of the stack is swipeable, and only on touch-sized screens.
+  const isDraggable = isMobile && showStack && isActive && !!onSwipe;
+
+  const handleDragEnd = (_: unknown, info: PanInfo) => {
+    swipedRef.current = Math.hypot(info.offset.x, info.offset.y) > TAP_SLOP;
+
+    if (isSwipe(info)) onSwipe?.();
+  };
+
   return (
     <motion.div
       className="pointer-events-auto col-span-full row-span-full h-full w-full"
@@ -127,7 +157,17 @@ export const GameCard = ({
       transition={{ type: "spring", duration: ANIMATION_DURATION }}
       onAnimationComplete={handleAnimationComplete}
     >
-      {children}
+      <motion.div
+        className="h-full w-full"
+        drag={isDraggable}
+        dragSnapToOrigin
+        dragElastic={0.4}
+        dragMomentum={false}
+        onPointerDownCapture={() => (swipedRef.current = false)}
+        onDragEnd={handleDragEnd}
+      >
+        {children}
+      </motion.div>
     </motion.div>
   );
 };
@@ -137,6 +177,7 @@ type Props<T extends { preview: string; previewPortrait?: string; name: string; 
   activeSlug?: string;
   showStack: boolean;
   onPreviewClick?: (game: T) => void;
+  onSwipe?: (game: T) => void;
 };
 
 const useIsMobile = () => {
@@ -165,10 +206,20 @@ export const GameStack = <
   activeSlug,
   showStack,
   onPreviewClick,
+  onSwipe,
 }: Props<T>) => {
   const isMobile = useIsMobile();
+  const swipedRef = useRef(false);
 
-  const currentIndex = data.findIndex((item) => item.slug === activeSlug);
+  const foundIndex = data.findIndex((item) => item.slug === activeSlug);
+  const currentIndex = foundIndex >= 0 ? foundIndex : 0;
+
+  const handleSwipe = onSwipe
+    ? () => {
+        const next = data[(currentIndex + 1) % data.length];
+        if (next) onSwipe(next);
+      }
+    : undefined;
 
   return (
     <section className="pointer-events-none relative h-full w-full perspective-[150vw]">
@@ -180,12 +231,21 @@ export const GameStack = <
               index={index}
               total={data.length}
               showStack={showStack}
-              currentIndex={currentIndex >= 0 ? currentIndex : 0}
+              currentIndex={currentIndex}
               isMobile={isMobile}
+              swipedRef={swipedRef}
+              onSwipe={handleSwipe}
             >
               <motion.button
                 className="absolute inset-0 overflow-clip rounded-xl shadow-lg"
-                onClick={() => onPreviewClick?.(item)}
+                onClick={() => {
+                  // A drag ends with a click; only a tap should launch the game.
+                  if (swipedRef.current) {
+                    swipedRef.current = false;
+                    return;
+                  }
+                  onPreviewClick?.(item);
+                }}
                 initial={{ opacity: 0, filter: `blur(${BLUR_AMOUNT})` }}
                 animate={{ opacity: 1, filter: "blur(0px)" }}
                 exit={{ opacity: 0, filter: `blur(${BLUR_AMOUNT})` }}
@@ -199,6 +259,8 @@ export const GameStack = <
                     className="absolute inset-0 h-full w-full object-cover"
                     src={item.preview}
                     alt={item.name}
+                    // Native image drag cancels the pointer stream and kills the swipe gesture.
+                    draggable={false}
                   />
                 </picture>
               </motion.button>
