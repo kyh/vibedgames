@@ -23,7 +23,11 @@ import type { Terrain } from "./terrain";
 export const ASPHALT_W = ROAD_TILE * 0.8; // legacy uniform width (tertiary)
 // Kit-matched profile — chunky light curbs, brighter sidewalks, cleaner
 // asphalt (KayKit City Builder look). Streets v3, 2026-07-07.
-export const SIDEWALK_W = 2.0;
+export const SIDEWALK_W = 2.0; // arterial sidewalks (ground aprons key off this)
+// Sidewalks scale with street class: uniform 2.0 walks around a 3.2-half
+// minor made the corridor 11.8u of a 13u cell — the dense hill grid merged
+// into asphalt-to-asphalt "lakes" with sliver blocks.
+export const walkFor = (half: number): number => (half > 4.7 ? SIDEWALK_W : 1.3);
 export const LANE_CENTER = ASPHALT_W * 0.19; // default lane offset for traffic
 const CURB_W = 0.7;
 export const ASPHALT_LIFT = ROAD_Y + 0.05;
@@ -630,7 +634,7 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
     const h = edge.half;
     asphaltPolys.push([railRing(rail, -h, h)]);
     curbPolys.push([railRing(rail, -h - CURB_W, h + CURB_W)]);
-    pavePolys.push([railRing(rail, -h - SIDEWALK_W, h + SIDEWALK_W)]);
+    pavePolys.push([railRing(rail, -h - walkFor(h), h + walkFor(h))]);
 
     // KayKit-style paint: boulevards get YELLOW edge lines + white dashed
     // lane lines; streets get white edges + a yellow centre dash.
@@ -794,15 +798,16 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
       if (a) {
         asphaltPolys.push([capRing(a, 0)]);
         curbPolys.push([capRing(a, CURB_W)]);
-        pavePolys.push([capRing(a, SIDEWALK_W)]);
+        pavePolys.push([capRing(a, walkFor(a.half))]);
       }
       continue;
     }
 
     const trimCap = network.nodeTrim(n) * 1.8;
+    const patchWalk = Math.max(...arms.map((a) => walkFor(a.half)));
     asphaltPolys.push([patchRing(nx, nz, arms, 0, trimCap)]);
     curbPolys.push([patchRing(nx, nz, arms, CURB_W, trimCap)]);
-    pavePolys.push([patchRing(nx, nz, arms, SIDEWALK_W, trimCap)]);
+    pavePolys.push([patchRing(nx, nz, arms, patchWalk, trimCap)]);
 
     // Zebra crosswalks + stop bars only on CLEAN intersections (3-4 arms)
     // where an ARTERIAL crosses: zebra at every minor-minor corner of the

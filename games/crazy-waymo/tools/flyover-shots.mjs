@@ -7,12 +7,8 @@ import { chromium } from "playwright-core";
 const OUT = process.argv[2] ?? "/tmp/shots";
 const PORT = process.argv[3] ?? "5199";
 const SPOTS = [
-  ["chinatown-r40", 547, 90, -710, 547, 0, -806],
-  ["market-van-ness", 350, 70, -520, 390, 0, -600],
-  ["seawall", 880, 55, -840, 800, 0, -880],
-  ["hill-grid", 380, 90, -830, 420, 10, -920],
-  ["boulevard-contrast", 250, 60, -940, 300, 4, -1010],
-  ["overview-r40", 620, 400, -400, 640, 0, -830],
+  ["tilted-a", 452, 70, -862, 428, 38, -906],
+  ["tilted-b", 400, 75, -940, 430, 40, -905],
 ];
 const browser = await chromium.launch({ headless: false, channel: "chrome" });
 const page = await browser.newPage({ viewport: { width: 1500, height: 950 } });

@@ -12,7 +12,7 @@ import { type DrapeField } from "./conform";
 import { CUSTOM_MAP, type FloorKind, loadLocalOverrides } from "./custom-map";
 import type { CityPlan } from "./grid";
 import type { RoadNetwork } from "./network";
-import { SIDEWALK_W } from "./roads";
+import { SIDEWALK_W, walkFor } from "./roads";
 import { districtAt, greenHillWeightAt, seawallShore } from "./sf-map";
 import type { Terrain } from "./terrain";
 import { landuseGreenAt, landuseSandAt } from "./sf-landuse";
@@ -222,7 +222,7 @@ export function makeStreetTerrace(
       const sr = Math.min(Math.max((s - landing) / rampLen, 0), 1);
       return hA + (hB - hA) * sr;
     };
-    const band = e.half + SIDEWALK_W + TERRACE_FEATHER;
+    const band = e.half + walkFor(e.half) + TERRACE_FEATHER;
     for (let k = 0; k + 3 < pts.length; k += 2) {
       const ax = pts[k] ?? 0;
       const az = pts[k + 1] ?? 0;
@@ -254,7 +254,7 @@ export function makeStreetTerrace(
           const idx = i * FH + j;
           if (d >= (sd[idx] ?? 1e9)) continue; // a closer segment of THIS edge won
           if ((sd[idx] ?? 1e9) === 1e9) touched.push(idx);
-          const feather = 1 - smooth01((d - e.half - SIDEWALK_W) / TERRACE_FEATHER);
+          const feather = 1 - smooth01((d - e.half - walkFor(e.half)) / TERRACE_FEATHER);
           const want = profile(s0 + (s1 - s0) * t) - terrain.heightAt(px, pz);
           const capped = Math.min(TERRACE_CAP, Math.max(-TERRACE_CAP, want));
           sd[idx] = d;
