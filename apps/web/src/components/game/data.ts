@@ -4,7 +4,6 @@ export type FeaturedGame = {
   name: string;
   slug: string;
   preview: string;
-  /** Optional portrait key art, served when the viewport is portrait. */
   previewPortrait?: string;
   colorScheme: "light" | "dark";
 };
@@ -39,13 +38,13 @@ export const featuredGames: FeaturedGame[] = [
     previewPortrait: "/covers/pacman-portrait.webp",
     colorScheme: "dark",
   },
-  {
-    name: "Tetris",
-    slug: "tetris",
-    preview: "/covers/tetris.webp",
-    previewPortrait: "/covers/tetris-portrait.webp",
-    colorScheme: "dark",
-  },
+  // {
+  //   name: "Tetris",
+  //   slug: "tetris",
+  //   preview: "/covers/tetris.webp",
+  //   previewPortrait: "/covers/tetris-portrait.webp",
+  //   colorScheme: "dark",
+  // },
   {
     name: "Pong",
     slug: "pong",
@@ -54,10 +53,10 @@ export const featuredGames: FeaturedGame[] = [
     colorScheme: "light",
   },
   {
-    name: "Bomberman",
-    slug: "bomberman",
-    preview: "/covers/bomberman.webp",
-    previewPortrait: "/covers/bomberman-portrait.webp",
+    name: "Crazy Waymo",
+    slug: "crazy-waymo",
+    preview: "/covers/crazy-waymo.webp",
+    previewPortrait: "/covers/crazy-waymo-portrait.webp",
     colorScheme: "light",
   },
   {
@@ -68,13 +67,6 @@ export const featuredGames: FeaturedGame[] = [
     colorScheme: "light",
   },
   {
-    name: "Farm",
-    slug: "farm",
-    preview: "/covers/farm.webp",
-    previewPortrait: "/covers/farm-portrait.webp",
-    colorScheme: "light",
-  },
-  {
     name: "Battle Arena",
     slug: "battle-arena",
     preview: "/covers/battle-arena.webp",
@@ -82,17 +74,24 @@ export const featuredGames: FeaturedGame[] = [
     colorScheme: "dark",
   },
   {
-    name: "Crazy Waymo",
-    slug: "crazy-waymo",
-    preview: "/covers/crazy-waymo.webp",
-    previewPortrait: "/covers/crazy-waymo-portrait.webp",
-    colorScheme: "light",
-  },
-  {
     name: "Lunerfall",
     slug: "lunerfall",
     preview: "/covers/lunerfall.webp",
     previewPortrait: "/covers/lunerfall-portrait.webp",
     colorScheme: "dark",
+  },
+  {
+    name: "Bomberman",
+    slug: "bomberman",
+    preview: "/covers/bomberman.webp",
+    previewPortrait: "/covers/bomberman-portrait.webp",
+    colorScheme: "light",
+  },
+  {
+    name: "Farm",
+    slug: "farm",
+    preview: "/covers/farm.webp",
+    previewPortrait: "/covers/farm-portrait.webp",
+    colorScheme: "light",
   },
 ];
