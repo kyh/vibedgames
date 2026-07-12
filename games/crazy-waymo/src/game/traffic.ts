@@ -99,6 +99,7 @@ type EdgePhase = {
 };
 type NodePhase = {
   kind: "node";
+  node: number; // junction being crossed (stop-token release)
   t: number; // 0..1 along the bezier
   len: number; // approximate bezier length
   p0x: number;
@@ -152,6 +153,7 @@ export class TrafficCar {
     speed: number,
     private network: RoadNetwork,
     private rng: Rng,
+    private stopTokens: Map<number, { car: TrafficCar; t: number }>,
   ) {
     this.object3D = object3D;
     this.kind = kind;
@@ -189,6 +191,9 @@ export class TrafficCar {
     this.puntCooldown = 0;
     this.clearedStop = -1;
     this.stopHeld = 0;
+    for (const [n, tok] of this.stopTokens) {
+      if (tok.car === this) this.stopTokens.delete(n);
+    }
   }
 
   // The taxi is about to hit this car: hand it to Rapier and let the taxi's
@@ -248,6 +253,7 @@ export class TrafficCar {
     const len = Math.hypot(p1x - p0.x, p1z - p0.z) + Math.hypot(p2.x - p1x, p2.z - p1z) || 0.5;
     this.phase = {
       kind: "node",
+      node,
       t: 0,
       len,
       p0x: p0.x,
@@ -322,8 +328,16 @@ export class TrafficCar {
           if (dist <= 0.5) {
             this.stopHeld += dt;
             if (this.stopHeld >= STOP_HOLD_S) {
-              this.clearedStop = node;
-              this.stopHeld = 0;
+              // Full stop served — now take the junction if it's free.
+              // First-come-first-served: one car crosses an all-way stop at
+              // a time; a stale claim (holder wrecked/recycled/stuck) expires
+              // so the queue can never deadlock.
+              const tok = this.stopTokens.get(node);
+              if (!tok || tok.car === this || tok.car.wrecked || simTime - tok.t > 5) {
+                this.stopTokens.set(node, { car: this, t: simTime });
+                this.clearedStop = node;
+                this.stopHeld = 0;
+              }
             }
           }
         }
@@ -350,6 +364,7 @@ export class TrafficCar {
       const ph = this.phase;
       ph.t += (speed * dt) / ph.len;
       if (ph.t >= 1) {
+        if (this.stopTokens.get(ph.node)?.car === this) this.stopTokens.delete(ph.node);
         const trim = Math.min(
           this.network.nodeTrim(ph.nextDir > 0 ? ph.next.a : ph.next.b),
           ph.next.len * 0.45,
@@ -461,6 +476,12 @@ export class Traffic {
   readonly cars: TrafficCar[] = [];
   private rng: Rng;
   private simTime = 0; // signal-cycle clock (accumulated dt)
+  // All-way-stop tokens: node -> the car currently crossing (+ claim time).
+  private readonly stopTokens = new Map<number, { car: TrafficCar; t: number }>();
+  /** Traffic sim clock — feeds the signal-lamp FX so lights match behavior. */
+  get time(): number {
+    return this.simTime;
+  }
   private city: CityModel;
   private network: RoadNetwork;
   // Fleet batches: the whole 52-car fleet renders as one BatchedMesh per
@@ -527,6 +548,7 @@ export class Traffic {
         speed,
         this.network,
         this.rng,
+        this.stopTokens,
       );
       car.update(0, city, 0, 0);
       if (this.physics) {

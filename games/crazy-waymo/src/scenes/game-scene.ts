@@ -13,6 +13,7 @@ import type { LampGlow } from "../fx/lamp-glow";
 import type { NightWindows } from "../fx/night-windows";
 import { Fx } from "../fx/particles";
 import { Sfx } from "../fx/sfx";
+import { SignalLights } from "../fx/signal-lights";
 import type { SkidMarks } from "../fx/skids";
 import { SpeedLines } from "../fx/speedlines";
 import { VehicleFxRig } from "../fx/vehicle-fx";
@@ -209,6 +210,7 @@ export class GameScene {
   private car: Car | null = null;
   private fares: FareManager | null = null;
   private traffic: Traffic | null = null;
+  private signalLights: SignalLights | null = null;
   private skids: SkidMarks | null = null;
   private debris: Debris | null = null;
   private speedLines = new SpeedLines();
@@ -304,6 +306,21 @@ export class GameScene {
       );
       this.scene.add(this.traffic.group);
     }
+    this.rebuildSignalLights();
+  }
+
+  // Live signal lamps ride the baked poles: rebuilt whenever the network (or
+  // Traffic) changes so lamp state and traffic behavior share one cycle.
+  private rebuildSignalLights(): void {
+    if (this.signalLights) {
+      this.scene.remove(this.signalLights.mesh);
+      this.signalLights.dispose();
+      this.signalLights = null;
+    }
+    const city = this.city;
+    if (!city) return;
+    this.signalLights = new SignalLights(city.network, (x, z) => city.terrain.heightAt(x, z));
+    this.scene.add(this.signalLights.mesh);
   }
 
   // Editor: freeze daylight and push the fog out so the whole map is visible.
@@ -671,6 +688,7 @@ export class GameScene {
       },
       onTraffic: (traffic) => {
         this.traffic = traffic;
+        this.rebuildSignalLights();
       },
       onParked: (parked) => {
         this.parked = parked;
@@ -1377,6 +1395,7 @@ export class GameScene {
     this.handleTrafficImpacts(car, traffic, dt);
     this.handleParkedImpacts(car, dt);
     traffic.update(dt, city, car.position.x, car.position.z, car.heading);
+    this.signalLights?.update(traffic.time);
     this.physics?.step(dt, (fdt) => car.physicsFixedStep(fdt));
     car.syncFromPhysics(dt);
     traffic.syncWrecked();
