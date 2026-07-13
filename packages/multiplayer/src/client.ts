@@ -7,8 +7,8 @@ import type {
   Player,
   PlayerMap,
   ServerMessage,
-} from "./types";
-import { HEARTBEAT_INTERVAL_MS, ROOM_CAP_QUERY_PARAM } from "./types";
+} from "./types.js";
+import { HEARTBEAT_INTERVAL_MS, ROOM_CAP_QUERY_PARAM } from "./types.js";
 
 export type MultiplayerClientOptions = MultiplayerOptions & {
   initialState?: Record<string, unknown>;

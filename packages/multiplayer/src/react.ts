@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 
-import type { MultiplayerOptions, PlayerMap } from "./types";
-import { MultiplayerClient } from "./client";
-import type { MultiplayerClientOptions, MultiplayerSnapshot } from "./client";
+import type { MultiplayerOptions, PlayerMap } from "./types.js";
+import { MultiplayerClient } from "./client.js";
+import type { MultiplayerClientOptions, MultiplayerSnapshot } from "./client.js";
 
 // ---------------------------------------------------------------------------
 // Core room hook

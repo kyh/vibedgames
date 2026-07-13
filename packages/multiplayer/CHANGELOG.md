@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.2 — 2026-07-13
+
+- The package now imports under plain Node ESM. Relative imports carry explicit `.js`
+  extensions, so the emitted `dist` re-exports `./client.js` rather than `./client` —
+  extensionless specifiers are what `moduleResolution: "bundler"` emits, and Node ESM
+  rejects them. Long-standing (0.0.3 had it too); it went unnoticed because bundlers
+  resolve extensionless imports happily and every consumer so far went through one.
+  No API or behaviour change.
+
 ## 0.1.1 — 2026-07-13
 
 - Republish of 0.1.0, whose `exports` shipped pointing at `./src/*.ts` — files that
