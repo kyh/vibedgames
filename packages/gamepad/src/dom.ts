@@ -1,6 +1,6 @@
-import { VirtualGamepad } from "./core";
-import { preShow, safeAreaInset } from "./safe-area";
-import type { StickState, VirtualGamepadOptions, VisibilityPolicy } from "./types";
+import { VirtualGamepad } from "./core.js";
+import { preShow, safeAreaInset } from "./safe-area.js";
+import type { StickState, VirtualGamepadOptions, VisibilityPolicy } from "./types.js";
 
 export type DomGamepadRenderOptions = {
   /** z-index of the overlay container (default 40 — above the canvas, below
@@ -266,10 +266,10 @@ function createOverlay(parent: HTMLElement, opts: DomGamepadRenderOptions): Over
   };
 }
 
-export { VirtualGamepad, stickDirection4, stickDirection8 } from "./core";
-export { PhysicalGamepad, isPadConnected } from "./physical";
-export { safeAreaInset } from "./safe-area";
-export type { PadButton, PhysicalGamepadOptions } from "./physical";
+export { VirtualGamepad, stickDirection4, stickDirection8 } from "./core.js";
+export { PhysicalGamepad, isPadConnected } from "./physical.js";
+export { safeAreaInset } from "./safe-area.js";
+export type { PadButton, PhysicalGamepadOptions } from "./physical.js";
 export type {
   ButtonLayout,
   ButtonOptions,
@@ -283,4 +283,4 @@ export type {
   VirtualGamepadOptions,
   Viewport,
   VisibilityPolicy,
-} from "./types";
+} from "./types.js";

@@ -9,7 +9,7 @@ import type {
   StickState,
   VirtualGamepadOptions,
   Viewport,
-} from "./types";
+} from "./types.js";
 
 const ZERO_INSET: Inset = { top: 0, right: 0, bottom: 0, left: 0 };
 

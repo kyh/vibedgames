@@ -1,4 +1,4 @@
-import type { StickState } from "./types";
+import type { StickState } from "./types.js";
 
 /** Standard-mapping button names (https://w3c.github.io/gamepad/#remapping).
  *  Non-standard pads are read with the same indices — best effort. */
