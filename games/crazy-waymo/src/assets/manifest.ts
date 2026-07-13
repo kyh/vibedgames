@@ -22,6 +22,9 @@ export const TRAFFIC_CARS = [
 // Service vehicles spice the traffic mix (weighted by district in traffic.ts).
 export const SERVICE_CARS = ["ambulance", "firetruck", "garbage-truck"] as const;
 export const POLICE_CAR = "police";
+// Generated robotaxi bodies (Meshy image-to-3d from GPT-Image-2 renders of
+// the real vehicles) — player skins only, never traffic.
+export const GEN_ROBOTAXIS = ["robotaxi-cruise", "robotaxi-zoox", "robotaxi-cybercab"] as const;
 
 // --- Roads ---
 // Street geometry is generated procedurally (world/roads.ts); road-cell shape
@@ -286,6 +289,7 @@ export function allModelUrls(): string[] {
   urls.push(modelUrl("cars", POLICE_CAR));
   for (const c of TRAFFIC_CARS) urls.push(modelUrl("cars", c));
   for (const c of SERVICE_CARS) urls.push(modelUrl("cars", c));
+  for (const c of GEN_ROBOTAXIS) urls.push(modelUrl("cars", c));
   for (const r of ROADS) urls.push(modelUrl("roads", r));
   for (const b of [
     ...BUILDINGS_COMMERCIAL,

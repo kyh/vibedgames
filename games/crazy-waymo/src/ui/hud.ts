@@ -29,6 +29,7 @@ export class Hud {
   private area = el("area");
   private scoreVal = el("score").querySelector<HTMLElement>(".value");
   private scorePill = el("score");
+  private scoreLabel = el("score").querySelector<HTMLElement>(".label");
   private boostPill = el("speed"); // boost meter lives inside the MPH card
   private boostFill = el("boost-fill");
   private dial = el("dash-dial");
@@ -255,6 +256,14 @@ export class Hud {
   }
 
   // Minor slot: near-misses, smashes, air time — never masks a fare payoff.
+  // Operator branding: the EARNED pill carries the equipped robotaxi's name
+  // and brand color — swapping cars re-skins the meter.
+  setOperator(label: string, accent: string): void {
+    if (this.scoreLabel) this.scoreLabel.textContent = label;
+    if (this.scoreLabel) this.scoreLabel.style.color = accent;
+    this.scorePill.style.borderColor = accent;
+  }
+
   announceMinor(text: string, color = "#aee3ff"): void {
     this.announceMinorEl.textContent = text;
     this.announceMinorEl.style.color = color;

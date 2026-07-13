@@ -843,13 +843,16 @@
       #garage .gcards {
         display: flex;
         gap: 10px;
+        flex-wrap: wrap;
+        justify-content: center;
+        max-width: min(92vw, 1080px);
       }
       #garage .gcard {
         display: flex;
         flex-direction: column;
         align-items: center;
         gap: 5px;
-        width: 118px;
+        width: 168px;
         padding: 10px 8px;
         border-radius: 12px;
         border: 2px solid rgba(255, 255, 255, 0.18);
@@ -861,8 +864,8 @@
           monospace;
       }
       #garage .gcard canvas.gprev {
-        width: 100px;
-        height: 64px;
+        width: 150px;
+        height: 96px;
         border-radius: 8px;
         background: radial-gradient(
           ellipse at 50% 82%,

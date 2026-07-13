@@ -57,7 +57,7 @@ import { setTouchPlaying, setupTouch, type TouchControls } from "../ui/touch";
 import type { Car } from "../vehicle/car";
 import type { CityModel, Garage } from "../world/city";
 import { HECKLES, SpeechBubbles } from "../fx/speech-bubbles";
-import { ROBOTAXI_SKINS } from "../vehicle/car";
+import { ROBOTAXI_SKINS, skinById } from "../vehicle/car";
 import { districtAt, landFactor } from "../world/sf-map";
 import type { SolidIndex } from "../world/solid-index";
 import { loadWorld, type WorldCoreSystems, type WorldSpawn } from "./world-loader";
@@ -790,6 +790,7 @@ float ocNoise(vec2 p) {
 
   // --- Garages: drive onto the pad to swap robotaxis ---
   private setupGarages(city: CityModel): void {
+    this.hud.setOperator(skinById(this.skinId).label, skinById(this.skinId).accent);
     try {
       const raw = storageGet("crazy-waymo:skins-owned");
       if (raw) for (const id of JSON.parse(raw) as string[]) this.ownedSkins.add(id);
@@ -902,6 +903,7 @@ float ocNoise(vec2 p) {
         this.skinId = sk.id;
         storageSet("crazy-waymo:skin", sk.id);
         this.car.setSkin(sk.id);
+        this.hud.setOperator(sk.label, sk.accent);
         this.renderGarage();
       });
       this.garagePreview = new GaragePreview(this.cache);
@@ -1721,6 +1723,7 @@ float ocNoise(vec2 p) {
       this.fx.burst(ev.pos.x, 1.2, ev.pos.z, 0.5, 10, 5);
       const destName = city ? districtAt(ev.dest.gx, ev.dest.gz).name : "";
       this.hud.showCombo(destName ? `TO ${destName.toUpperCase()}!` : "GO GO GO!");
+      this.sayRiderLine("pickup");
       if (car) car.addBoost(20);
     } else if (ev.kind === "dropoff") {
       const reward = this.state.dropoff(ev.tiles, ev.rideTime, tierPayMult(ev.tier));
@@ -1744,6 +1747,7 @@ float ocNoise(vec2 p) {
         lines.push({ text: `TIME FULL +$${reward.overflowCash}`, color: "#8fd9ff" });
       this.hud.showReceipt(lines);
       this.hud.showCombo(`+$${reward.gross}`);
+      this.sayRiderLine("dropoff");
       if (car) car.addBoost(30);
     } else if (ev.kind === "bail") {
       this.state.bail();
@@ -1751,6 +1755,16 @@ float ocNoise(vec2 p) {
       this.hud.flash("#ff5a52", 0.2);
       this.hud.announceMinor("PASSENGER BAILED!", "#ff5a52");
     }
+  }
+
+  // Rider flavor: operator-specific one-liners in the equipped brand's color.
+  private sayRiderLine(kind: "pickup" | "dropoff"): void {
+    const car = this.car;
+    if (!car) return;
+    const sk = skinById(this.skinId);
+    const pool = kind === "pickup" ? sk.pickupLines : sk.dropoffLines;
+    const line = pool[Math.floor(Math.random() * pool.length)];
+    if (line) this.bubbles.say(car.object3D, line, { lift: 3.0, dur: 3.5, accent: sk.accent });
   }
 
   private handleNearMiss(car: Car, traffic: Traffic): void {

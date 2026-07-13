@@ -60,38 +60,154 @@ export type RobotaxiSkin = {
   model: string;
   tint?: number;
   lidar: boolean;
+  mustache?: boolean; // the Lyft carstache
+  /** Generated (non-Kenney) models: normalize to this z-length, ground at
+   *  y 0, recenter — plus an extra yaw if the mesh doesn't face +Z. */
+  fit?: { length: number; yaw?: number };
   price: number; // run earnings; 0 = always owned
   blurb: string;
+  accent: string; // brand color: HUD operator chip + rider speech bubbles
+  pickupLines: readonly string[]; // rider bubble on pickup
+  dropoffLines: readonly string[]; // rider bubble on dropoff
 };
 
+// Rider lines are REAL-quirk humor per operator: Waymo's hands-off-wheel
+// sticker + timid unprotected lefts, Zoox's no-steering-wheel bidirectional
+// carriage ("it's not a car"), Cruise's suspended license, the Cybercab's
+// two-seat camera-only bet, Uber surge/ratings, Lyft's carstache/fist-bump
+// era. Short — they render in comic bubbles over the roof.
 export const ROBOTAXI_SKINS: readonly RobotaxiSkin[] = [
-  { id: "waymo", label: "WAYMO", model: PLAYER_CAR, lidar: true, price: 0, blurb: "the original" },
+  {
+    id: "waymo",
+    label: "WAYMO",
+    model: PLAYER_CAR,
+    lidar: true,
+    price: 0,
+    blurb: "the original",
+    accent: "#4bd1a0",
+    pickupLines: [
+      "please keep hands off the wheel",
+      "the Waymo Driver is in control",
+      "*calming chime*",
+      "ooh the wheel turns itself",
+    ],
+    dropoffLines: [
+      "smoothest unprotected left ever",
+      "rate us in the app!",
+      "it just… stopped? ok bye",
+      "5 stars for the ghost driver",
+    ],
+  },
+  {
+    id: "lyft",
+    label: "LYFT",
+    model: "sedan",
+    tint: 0xf3eef7,
+    lidar: false,
+    mustache: true,
+    price: 200,
+    blurb: "peace, love, carstache",
+    accent: "#ff2db8",
+    pickupLines: [
+      "fist bump!",
+      "love the pink 'stache",
+      "sit up front, it's the law",
+      "the 'stache is load-bearing",
+    ],
+    dropoffLines: [
+      "round up for charity?",
+      "peace, love, carstache",
+      "tell your friends!",
+      "the mustache waves goodbye",
+    ],
+  },
+  {
+    id: "uber",
+    label: "UBER",
+    model: "sedan",
+    tint: 0x191b20,
+    lidar: false,
+    price: 300,
+    blurb: "your driver has arrived",
+    accent: "#e8e8e8",
+    pickupLines: [
+      "your driver has arrived",
+      "surge pricing, sorry",
+      "got the aux?",
+      "you're not the pin, get in",
+    ],
+    dropoffLines: [
+      "4.9 stars, don't ruin it",
+      "water bottle's on me",
+      "quiet ride preference noted",
+      "pin dropped… somewhere near here",
+    ],
+  },
   {
     id: "cruise",
     label: "CRUISE",
-    model: "hatchback-sports",
-    tint: 0xff8b3d,
-    lidar: true,
+    model: "robotaxi-cruise",
+    lidar: false, // sensor pods are baked into the generated mesh
+    fit: { length: 3.1, yaw: -Math.PI / 2 },
     price: 500,
     blurb: "pour one out",
+    accent: "#ff8b3d",
+    pickupLines: [
+      "we're back! probably",
+      "hi, this car's name is Tostada",
+      "ignore the recall notice",
+      "the DMV can't see us here",
+    ],
+    dropoffLines: [
+      "tell no one",
+      "5 stars for old times",
+      "still smoother than 2023",
+      "origin story over",
+    ],
   },
   {
     id: "zoox",
     label: "ZOOX",
-    model: "van",
-    tint: 0x2fbfae,
-    lidar: true,
+    model: "robotaxi-zoox",
+    lidar: false, // corner pods are baked into the generated mesh
+    fit: { length: 2.9, yaw: -Math.PI / 2 },
     price: 600,
     blurb: "the toaster",
+    accent: "#2fbfae",
+    pickupLines: [
+      "no steering wheel, no problem",
+      "face-to-face seating, deal with it",
+      "this end is the front now",
+      "welcome aboard the carriage",
+    ],
+    dropoffLines: [
+      "it's not a car™",
+      "exiting the carriage",
+      "four-wheel steering flex",
+      "Amazon thanks you",
+    ],
   },
   {
     id: "cybercab",
     label: "CYBERCAB",
-    model: "sedan-sports",
-    tint: 0xc9cbd1,
+    model: "robotaxi-cybercab",
     lidar: false,
+    fit: { length: 2.75, yaw: -Math.PI / 2 },
     price: 900,
     blurb: "cameras only, good luck",
+    accent: "#c9cbd1",
+    pickupLines: [
+      "two seats, zero pedals",
+      "cameras only, trust me",
+      "doors go up",
+      "FSD (Supervised) (by you)",
+    ],
+    dropoffLines: [
+      "tip in DOGE?",
+      "the beta ends eventually",
+      "wireless charging, somewhere",
+      "*butterfly doors*",
+    ],
   },
 ];
 
@@ -104,7 +220,23 @@ export function skinById(id: string | undefined | null): RobotaxiSkin {
 
 // Build a skinned robotaxi body (model + optional repaint + sensor suite).
 export function buildSkinBody(cache: ModelCache, skin: RobotaxiSkin): THREE.Object3D {
-  const body = cache.instance(modelUrl("cars", skin.model));
+  let body = cache.instance(modelUrl("cars", skin.model));
+  if (skin.fit) {
+    // Generated GLBs arrive at arbitrary scale/origin — normalize to the
+    // Kenney car frame the game assumes (face +Z, wheels on y 0, centered).
+    const inner = body;
+    inner.rotation.y = skin.fit.yaw ?? 0;
+    inner.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(inner);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    const sc = skin.fit.length / Math.max(size.z, 0.001);
+    const wrap = new THREE.Group();
+    inner.position.set(-center.x * sc, -box.min.y * sc, -center.z * sc);
+    inner.scale.setScalar(sc);
+    wrap.add(inner);
+    body = wrap;
+  }
   if (skin.tint !== undefined) {
     const tint = new THREE.Color(skin.tint);
     body.traverse((c) => {
@@ -116,7 +248,29 @@ export function buildSkinBody(cache: ModelCache, skin: RobotaxiSkin): THREE.Obje
     });
   }
   if (skin.lidar) body.add(buildWaymoSensors());
+  if (skin.mustache) body.add(buildCarstache());
   return body;
+}
+
+// The Lyft carstache: four squashed pink lobes across the front bumper —
+// chunky center pair, drooping outer tips. Sedan nose sits at z ≈ 1.25,
+// grille height ≈ 0.55.
+const STACHE_PINK = new THREE.MeshStandardMaterial({ color: 0xff2db8, roughness: 0.55 });
+export function buildCarstache(): THREE.Group {
+  const g = new THREE.Group();
+  const lobe = (x: number, y: number, sx: number, sy: number, roll: number): void => {
+    const m = new THREE.Mesh(new THREE.SphereGeometry(0.5, 12, 8), STACHE_PINK);
+    m.scale.set(sx, sy, 0.16);
+    m.position.set(x, y, 1.3);
+    m.rotation.z = roll;
+    m.castShadow = true;
+    g.add(m);
+  };
+  lobe(-0.27, 0.6, 0.62, 0.3, 0.28);
+  lobe(0.27, 0.6, 0.62, 0.3, -0.28);
+  lobe(-0.62, 0.5, 0.4, 0.2, 0.8);
+  lobe(0.62, 0.5, 0.4, 0.2, -0.8);
+  return g;
 }
 
 export function buildWaymoSensors(): THREE.Group {
