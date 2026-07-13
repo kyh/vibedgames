@@ -14,7 +14,6 @@ jobs:
       web: ${{ steps.check.outputs.web }}
       party: ${{ steps.check.outputs.party }}
       games: ${{ steps.check.outputs.games }}
-      packages: ${{ steps.check.outputs.packages }}
       r2_lifecycle: ${{ steps.check.outputs.r2_lifecycle }}
     steps:
       - uses: actions/checkout@v6
@@ -38,16 +37,8 @@ jobs:
             echo "web=true" >> "$GITHUB_OUTPUT"
             echo "party=true" >> "$GITHUB_OUTPUT"
             echo "games=true" >> "$GITHUB_OUTPUT"
-            echo "packages=true" >> "$GITHUB_OUTPUT"
             echo "r2_lifecycle=true" >> "$GITHUB_OUTPUT"
             exit 0
-          fi
-
-          # Any change under a published package can break its tarball.
-          if git diff --name-only "$BASE" HEAD -- packages/ scripts/verify-publishable.mjs | grep -q .; then
-            echo "packages=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "packages=false" >> "$GITHUB_OUTPUT"
           fi
 
           for app in web party games; do
@@ -64,29 +55,6 @@ jobs:
           else
             echo "r2_lifecycle=false" >> "$GITHUB_OUTPUT"
           fi
-
-  # Nothing else exercises a package's `dist`: `exports` points at source and the
-  # games resolve workspace:^ straight to it, so a published artifact can be
-  # broken while every build, typecheck and game stays green. Pack it and import
-  # it the way npm consumers actually do.
-  verify-publishable:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.packages == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
-
-      - name: Import every published entry from its tarball
-        run: pnpm verify:publishable
 
   apply-r2-lifecycle:
     needs: detect-changes

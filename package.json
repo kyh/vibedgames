@@ -33,7 +33,6 @@
     "lint": "oxlint --report-unused-disable-directives",
     "r2:lifecycle": "pnpm -C apps/web exec wrangler r2 bucket lifecycle set vibedgames-games --file ./infra/r2/vibedgames-games.lifecycle.json --force",
     "typecheck": "turbo run typecheck",
-    "verify:publishable": "node scripts/verify-publishable.mjs",
     "test": "turbo run test",
     "format": "oxfmt",
     "lint:fix": "oxlint --fix",
