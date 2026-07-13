@@ -101,12 +101,62 @@ export const ROBOTAXI_SKINS: readonly RobotaxiSkin[] = [
     heckles: ["Not you again, Waymo!", "The cone community sees you!", "Phoenix misses you!"],
   },
   {
+    id: "cruise",
+    label: "CRUISE",
+    model: "robotaxi-cruise",
+    lidar: false, // sensor pods are baked into the generated mesh
+    fit: { length: 2.7, yaw: -Math.PI / 2 },
+    price: 30, // GM wrote it off — scraps rate
+    blurb: "pour one out",
+    accent: "#ff8b3d",
+    pickupLines: [
+      "we're back! probably",
+      "hi, this car's name is Tostada",
+      "ignore the recall notice",
+      "the DMV can't see us here",
+    ],
+    dropoffLines: [
+      "tell no one",
+      "5 stars for old times",
+      "still smoother than 2023",
+      "origin story over",
+    ],
+    heckles: ["Aren't you BANNED?!", "Does the DMV know you're out?", "Cruise?! You're alive?!"],
+  },
+  {
+    id: "zoox",
+    label: "ZOOX",
+    model: "robotaxi-zoox",
+    lidar: false, // corner pods are baked into the generated mesh
+    fit: { length: 2.55, yaw: -Math.PI / 2 },
+    price: 130, // Amazon paid ~$1.3B @ $100/B
+    blurb: "the toaster",
+    accent: "#2fbfae",
+    pickupLines: [
+      "no steering wheel, no problem",
+      "face-to-face seating, deal with it",
+      "this end is the front now",
+      "welcome aboard the carriage",
+    ],
+    dropoffLines: [
+      "it's not a car™",
+      "exiting the carriage",
+      "four-wheel steering flex",
+      "Amazon thanks you",
+    ],
+    heckles: [
+      "Which end is the FRONT?!",
+      "The toaster fights back!",
+      "It doesn't even have a FACE!",
+    ],
+  },
+  {
     id: "lyft",
     label: "LYFT",
-    model: PLAYER_CAR, // the white body — Lyft is "a white car with a pink mustache"
+    model: "lyft-sedan", // sedan with the body cells recolored white in the colormap
     lidar: false,
     mustache: true,
-    price: 200,
+    price: 600, // ~$6B market cap @ $100/B
     blurb: "peace, love, carstache",
     accent: "#ff2db8",
     pickupLines: [
@@ -130,10 +180,9 @@ export const ROBOTAXI_SKINS: readonly RobotaxiSkin[] = [
   {
     id: "uber",
     label: "UBER",
-    model: "sedan",
-    tint: 0x191b20,
+    model: "uber-sedan", // body cells recolored black; the glass keeps its grey
     lidar: false,
-    price: 300,
+    price: 15700, // ~$157B market cap @ $100/B
     blurb: "your driver has arrived",
     accent: "#e8e8e8",
     pickupLines: [
@@ -151,62 +200,12 @@ export const ROBOTAXI_SKINS: readonly RobotaxiSkin[] = [
     heckles: ["Surge THIS!", "You drive like a 4.2!", "My Uber driver would NEVER"],
   },
   {
-    id: "cruise",
-    label: "CRUISE",
-    model: "robotaxi-cruise",
-    lidar: false, // sensor pods are baked into the generated mesh
-    fit: { length: 3.1, yaw: -Math.PI / 2 },
-    price: 500,
-    blurb: "pour one out",
-    accent: "#ff8b3d",
-    pickupLines: [
-      "we're back! probably",
-      "hi, this car's name is Tostada",
-      "ignore the recall notice",
-      "the DMV can't see us here",
-    ],
-    dropoffLines: [
-      "tell no one",
-      "5 stars for old times",
-      "still smoother than 2023",
-      "origin story over",
-    ],
-    heckles: ["Aren't you BANNED?!", "Does the DMV know you're out?", "Cruise?! You're alive?!"],
-  },
-  {
-    id: "zoox",
-    label: "ZOOX",
-    model: "robotaxi-zoox",
-    lidar: false, // corner pods are baked into the generated mesh
-    fit: { length: 2.9, yaw: -Math.PI / 2 },
-    price: 600,
-    blurb: "the toaster",
-    accent: "#2fbfae",
-    pickupLines: [
-      "no steering wheel, no problem",
-      "face-to-face seating, deal with it",
-      "this end is the front now",
-      "welcome aboard the carriage",
-    ],
-    dropoffLines: [
-      "it's not a car™",
-      "exiting the carriage",
-      "four-wheel steering flex",
-      "Amazon thanks you",
-    ],
-    heckles: [
-      "Which end is the FRONT?!",
-      "The toaster fights back!",
-      "It doesn't even have a FACE!",
-    ],
-  },
-  {
     id: "cybercab",
     label: "CYBERCAB",
     model: "robotaxi-cybercab",
     lidar: false,
     fit: { length: 2.75, yaw: -Math.PI / 2 },
-    price: 900,
+    price: 44000, // Tesla's robotaxi programme is "worth" $440B @ $100/B
     blurb: "cameras only, good luck",
     accent: "#c9cbd1",
     pickupLines: [

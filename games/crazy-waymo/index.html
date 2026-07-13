@@ -821,82 +821,112 @@
         display: none;
         position: fixed;
         left: 50%;
-        bottom: 120px;
+        bottom: 110px;
         transform: translateX(-50%);
         z-index: 28;
         flex-direction: column;
-        gap: 10px;
+        gap: 12px;
         align-items: center;
-        background: rgba(10, 14, 24, 0.92);
-        border: 2px solid rgba(255, 210, 74, 0.5);
-        border-radius: 18px;
-        padding: 16px 18px;
+        background: linear-gradient(180deg, rgba(8, 11, 19, 0.97), rgba(14, 18, 30, 0.94));
+        border: 1px solid rgba(255, 210, 74, 0.35);
+        box-shadow:
+          0 30px 80px rgba(0, 0, 0, 0.55),
+          inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        border-radius: 20px;
+        padding: 18px 22px 14px;
         pointer-events: auto;
+        backdrop-filter: blur(6px);
       }
       #garage .gtitle {
         font:
-          800 15px ui-monospace,
+          800 16px ui-monospace,
           monospace;
         color: #ffd24a;
-        letter-spacing: 1px;
+        letter-spacing: 4px;
       }
       #garage .gcards {
         display: flex;
-        gap: 10px;
+        gap: 12px;
         flex-wrap: wrap;
         justify-content: center;
-        max-width: min(92vw, 1080px);
+        max-width: min(94vw, 1120px);
       }
       #garage .gcard {
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 5px;
-        width: 168px;
-        padding: 10px 8px;
-        border-radius: 12px;
-        border: 2px solid rgba(255, 255, 255, 0.18);
-        background: rgba(24, 30, 48, 0.9);
+        gap: 6px;
+        width: 172px;
+        padding: 12px 10px 10px;
+        border-radius: 14px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: linear-gradient(180deg, #10151f 0%, #161d2c 62%, #212a3d 100%);
         color: #fff;
         cursor: pointer;
         font:
           600 11px ui-monospace,
           monospace;
+        transition:
+          transform 0.16s ease,
+          border-color 0.16s ease,
+          box-shadow 0.16s ease;
       }
       #garage .gcard canvas.gprev {
-        width: 150px;
-        height: 96px;
-        border-radius: 8px;
-        background: radial-gradient(
-          ellipse at 50% 82%,
-          rgba(255, 255, 255, 0.12),
-          rgba(255, 255, 255, 0.02) 72%
-        );
+        width: 152px;
+        height: 98px;
+        border-radius: 10px;
+        /* showroom floor: a warm spotlight pooled under the turntable */
+        background:
+          radial-gradient(
+            ellipse 62% 26% at 50% 84%,
+            rgba(255, 226, 160, 0.28),
+            rgba(255, 226, 160, 0.05) 68%,
+            transparent 80%
+          ),
+          radial-gradient(ellipse at 50% 0%, rgba(140, 170, 255, 0.10), transparent 65%),
+          linear-gradient(180deg, #0a0e17 0%, #131a29 70%, #1d2537 100%);
       }
       #garage .gcard b {
-        font-size: 12px;
+        font-size: 12.5px;
+        letter-spacing: 2.5px;
+        padding-top: 2px;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        width: 100%;
+        text-align: center;
       }
       #garage .gcard small {
-        opacity: 0.55;
+        opacity: 0.5;
         font-size: 9px;
         text-align: center;
       }
       #garage .gcard span {
-        font-weight: 800;
-        color: #9fe697;
+        font-size: 10px;
+        padding: 2px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        background: rgba(255, 255, 255, 0.05);
       }
       #garage .gcard:not(.owned):not(.on) span {
         color: #ffd24a;
+        border-color: rgba(255, 210, 74, 0.35);
       }
       #garage .gcard.on {
-        border-color: #ffd24a;
-        background: rgba(64, 54, 20, 0.9);
+        border-color: rgba(255, 210, 74, 0.85);
+        box-shadow:
+          0 0 0 1px rgba(255, 210, 74, 0.35),
+          0 10px 30px rgba(255, 210, 74, 0.08);
+        background: linear-gradient(180deg, #171b22 0%, #232637 62%, #2f3349 100%);
       }
       #garage .gcard.on span {
-        color: #ffd24a;
+        color: #10141e;
+        background: #ffd24a;
+        border-color: #ffd24a;
+        font-weight: 800;
       }
       #garage .gcard:hover {
-        border-color: #fff;
+        transform: translateY(-4px);
+        border-color: rgba(255, 210, 74, 0.6);
+        box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45);
       }
       #garage .ghint {
         font:

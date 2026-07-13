@@ -24,7 +24,13 @@ export const SERVICE_CARS = ["ambulance", "firetruck", "garbage-truck"] as const
 export const POLICE_CAR = "police";
 // Generated robotaxi bodies (Meshy image-to-3d from GPT-Image-2 renders of
 // the real vehicles) — player skins only, never traffic.
-export const GEN_ROBOTAXIS = ["robotaxi-cruise", "robotaxi-zoox", "robotaxi-cybercab"] as const;
+export const GEN_ROBOTAXIS = [
+  "robotaxi-cruise",
+  "robotaxi-zoox",
+  "robotaxi-cybercab",
+  "lyft-sedan",
+  "uber-sedan",
+] as const;
 
 // --- Roads ---
 // Street geometry is generated procedurally (world/roads.ts); road-cell shape

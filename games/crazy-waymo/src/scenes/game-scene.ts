@@ -869,7 +869,7 @@ float ocNoise(vec2 p) {
     return ROBOTAXI_SKINS.map((sk) => {
       const owned = this.ownedSkins.has(sk.id) || sk.price === 0;
       const equipped = sk.id === this.skinId;
-      const tag = equipped ? "EQUIPPED" : owned ? "EQUIP" : `$${sk.price}`;
+      const tag = equipped ? "EQUIPPED" : owned ? "EQUIP" : `$${sk.price.toLocaleString("en-US")}`;
       const cls = equipped ? "gcard on" : owned ? "gcard owned" : "gcard";
       return `<button class="${cls}" data-skin="${sk.id}"><canvas class="gprev" data-prev="${sk.id}"></canvas><b>${sk.label}</b><small>${sk.blurb}</small><span>${tag}</span></button>`;
     }).join("");
@@ -916,7 +916,7 @@ float ocNoise(vec2 p) {
   private renderGarage(): void {
     const el = this.garageEl;
     if (!el) return;
-    el.innerHTML = `<div class="gtitle">🔧 ROBOTAXI GARAGE</div><div class="gcards">${this.garageCardsHtml()}</div><div class="ghint">drive away to close</div>`;
+    el.innerHTML = `<div class="gtitle">✦ ROBOTAXI SHOWROOM ✦</div><div class="gcards">${this.garageCardsHtml()}</div><div class="ghint">drive away to close</div>`;
     this.garagePreview?.attach(el);
   }
 
