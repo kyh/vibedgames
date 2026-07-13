@@ -2,7 +2,12 @@ import type { Connection, ConnectionContext } from "partyserver";
 import { routePartykitRequest, Server } from "partyserver";
 
 import type { ClientMessage, Player, PlayerMap, ServerMessage } from "@vibedgames/multiplayer";
-import { HOST_LIVENESS_TIMEOUT_MS, ROOM_CAP_QUERY_PARAM } from "@vibedgames/multiplayer";
+import {
+  EVICTION_TIMEOUT_MS,
+  HOST_LIVENESS_TIMEOUT_MS,
+  PING_INTERVAL_MS,
+  ROOM_CAP_QUERY_PARAM,
+} from "@vibedgames/multiplayer";
 import { getColorById } from "./color";
 
 type Env = {
@@ -20,9 +25,14 @@ type RoomState = {
    * can't bypass it. `null` means no cap was ever advertised (unlimited).
    */
   cap: number | null;
-  /** Last time (ms) we heard anything from each connection — drives host-liveness
-   *  migration when a host vanishes ungracefully (sleep/crash/network drop). */
+  /** Last time (ms) we heard anything *except a pong* from each connection —
+   *  drives host-liveness migration when a host vanishes ungracefully
+   *  (sleep/crash/network drop) or is merely backgrounded. Pongs are excluded on
+   *  purpose: a hidden tab still pongs, and must still lose the host role. */
   lastSeen: Record<string, number>;
+  /** Last time (ms) we heard *anything at all*, pongs included — drives eviction.
+   *  A hidden tab keeps this fresh, so backgrounding never removes a player. */
+  lastAlive: Record<string, number>;
 };
 
 /**
@@ -67,6 +77,7 @@ export class VgServer extends Server {
     hostId: null,
     cap: null,
     lastSeen: {},
+    lastAlive: {},
   };
 
   /** Migrate host off a connection we haven't heard from within the liveness
@@ -128,6 +139,8 @@ export class VgServer extends Server {
 
     this.room.players[connection.id] = player;
     this.room.lastSeen[connection.id] = Date.now();
+    this.room.lastAlive[connection.id] = Date.now();
+    void this.scheduleSweep();
     if (!this.room.hostId) {
       this.room.hostId = connection.id;
     }
@@ -160,14 +173,22 @@ export class VgServer extends Server {
       // to broadcast state or events into the room.
       if (!this.room.players[sender.id]) return;
 
-      // any message proves this connection is alive
-      this.room.lastSeen[sender.id] = Date.now();
-
       const message = JSON.parse(rawMessage) as ClientMessage;
+
+      // Any message at all proves the peer is reachable, so it defers eviction.
+      this.room.lastAlive[sender.id] = Date.now();
+      // But only a non-pong message proves the tab is actually *running*. A
+      // hidden tab still answers pings from its message handler while its rAF
+      // heartbeat is paused, so counting pongs here would keep a backgrounded
+      // host in the host seat forever — the exact thing host-liveness prevents.
+      if (message.type !== "pong") {
+        this.room.lastSeen[sender.id] = Date.now();
+      }
 
       switch (message.type) {
         case "heartbeat":
-          // liveness only — the lastSeen bump above is the whole point
+        case "pong":
+          // liveness only — the timestamp bumps above are the whole point
           break;
         case "state_patch": {
           // Shared state is host-authoritative: only the elected host
@@ -232,22 +253,84 @@ export class VgServer extends Server {
   }
 
   onClose(connection: Connection<Player>) {
-    // A connection refused at capacity (room_full) is closed before being
-    // admitted, so it was never in `players` and no client saw it join.
-    // Skip the cleanup/announce so we don't broadcast a spurious player_left.
-    if (!this.room.players[connection.id]) return;
+    this.removePlayer(connection.id);
+  }
 
-    delete this.room.players[connection.id];
-    delete this.room.lastSeen[connection.id];
+  /**
+   * partyserver routes a clean disconnect to `onClose`, but a mid-connection
+   * transport failure (dropped wifi, slept laptop, lost radio) to `onError`.
+   * Both tear the connection down, so both must reap the player — otherwise the
+   * error path leaks a ghost that keeps occupying a slot against the room cap.
+   */
+  onError(connection: Connection<Player>) {
+    this.removePlayer(connection.id);
+  }
+
+  /**
+   * Pings live connections and evicts the ones that have gone silent past the
+   * eviction window, then reconciles `players` against the connections that
+   * actually exist. Reschedules itself until the room empties, at which point
+   * the alarm stops and the Durable Object is free to shut down.
+   */
+  async onAlarm() {
+    const now = Date.now();
+    const pingMessage: ServerMessage = { type: "ping" };
+    const liveIds = new Set<string>();
+    const stale: Connection<Player>[] = [];
+
+    for (const connection of this.getConnections<Player>()) {
+      liveIds.add(connection.id);
+      // Not-yet-admitted connections (room_full, closing) aren't players; leave them.
+      if (!this.room.players[connection.id]) continue;
+
+      const aliveAt = this.room.lastAlive[connection.id] ?? now;
+      if (now - aliveAt > EVICTION_TIMEOUT_MS) stale.push(connection);
+      else connection.send(JSON.stringify(pingMessage));
+    }
+
+    // Evict unreachable peers. Closing may not fire `onClose` for a peer that is
+    // already gone, so reap explicitly; `removePlayer` is idempotent if it does.
+    for (const connection of stale) {
+      connection.close(1001, "idle");
+      this.removePlayer(connection.id);
+    }
+
+    // Belt and braces: a player with no live connection behind it can only be a
+    // ghost, whatever teardown path we missed. This makes the leak unrecoverable
+    // by construction rather than relying on every hook firing.
+    for (const id of Object.keys(this.room.players)) {
+      if (!liveIds.has(id)) this.removePlayer(id);
+    }
+
+    await this.scheduleSweep();
+  }
+
+  private async scheduleSweep() {
+    if (Object.keys(this.room.players).length === 0) return;
+    const pending = await this.ctx.storage.getAlarm();
+    if (pending !== null) return;
+    await this.ctx.storage.setAlarm(Date.now() + PING_INTERVAL_MS);
+  }
+
+  private removePlayer(id: string) {
+    // A connection refused at capacity (room_full) is closed before being
+    // admitted, so it was never in `players` and no client saw it join. Skip the
+    // cleanup/announce so we don't broadcast a spurious player_left. Doubles as
+    // the idempotency guard for a connection the sweep already evicted.
+    if (!this.room.players[id]) return;
+
+    delete this.room.players[id];
+    delete this.room.lastSeen[id];
+    delete this.room.lastAlive[id];
     const remainingIds = Object.keys(this.room.players);
 
     const leftMessage: ServerMessage = {
       type: "player_left",
-      data: { id: connection.id },
+      data: { id },
     };
     this.broadcast(JSON.stringify(leftMessage), []);
 
-    if (this.room.hostId === connection.id) {
+    if (this.room.hostId === id) {
       this.room.hostId = remainingIds[0] ?? null;
       if (this.room.hostId) {
         const hostMessage: ServerMessage = {
@@ -267,6 +350,7 @@ export class VgServer extends Server {
     if (remainingIds.length === 0) {
       this.room.cap = null;
       this.room.lastSeen = {};
+      this.room.lastAlive = {};
       this.room.sharedState = {};
     }
   }

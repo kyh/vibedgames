@@ -69,6 +69,10 @@ export class MultiplayerClient {
   private _players: PlayerMap = {};
   private _room: string;
   private _onEvent: MultiplayerOptions["onEvent"];
+  /** Our own player state, held outside `_players` so it survives a reconnect
+   *  (which replaces `_players` wholesale and hands us a new player id) and can
+   *  be re-announced to the fresh server-side connection. */
+  private _myState: Record<string, unknown> = {};
 
   constructor(options: MultiplayerClientOptions) {
     this.options = options;
@@ -231,6 +235,7 @@ export class MultiplayerClient {
       ...this._players,
       [this._playerId]: { ...existing, state: next },
     };
+    this._myState = next;
 
     this.send({ type: "player_state_patch", data: next });
     this.notify();
@@ -304,6 +309,13 @@ export class MultiplayerClient {
       const message = JSON.parse(event.data) as ServerMessage;
 
       switch (message.type) {
+        case "ping": {
+          // Answered from the message handler rather than a timer, so it keeps
+          // working while the tab is hidden — that's what makes it a safe basis
+          // for eviction. See EVICTION_TIMEOUT_MS.
+          this.send({ type: "pong" });
+          break;
+        }
         case "sync": {
           // `sync` is the admission signal: now we're really in the room, so
           // surface "connected" and adopt our playerId.
@@ -323,6 +335,22 @@ export class MultiplayerClient {
           ) {
             this.initialStateApplied = true;
             this.send({ type: "state_patch", data: this.options.initialState });
+          }
+
+          // Every reconnect is a brand-new connection server-side, with an empty
+          // player state — and `sync` is the one signal that fires on each of
+          // them. Without re-announcing, our state would stay empty for everyone
+          // else until the game happened to call updateMyState again.
+          if (this._playerId && Object.keys(this._myState).length > 0) {
+            this._players = {
+              ...this._players,
+              [this._playerId]: {
+                ...this._players[this._playerId],
+                id: this._playerId,
+                state: this._myState,
+              },
+            };
+            this.send({ type: "player_state_patch", data: this._myState });
           }
           break;
         }
