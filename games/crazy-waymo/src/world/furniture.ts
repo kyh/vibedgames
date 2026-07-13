@@ -5,6 +5,7 @@ import type { ModelCache } from "../assets/loader";
 import {
   BRIDGE_PILLAR,
   BUSHES,
+  CONSTRUCTION_VEHICLES,
   LIGHT_CURVED,
   LIGHT_CURVED_CROSS,
   LIGHT_OLD,
@@ -583,6 +584,21 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       });
       const lPos = at(0.08);
       seat(lightUrl, lPos.x, lPos.z, bYaw, scaleToHeight(lightUrl, 2), true);
+      // A parked work vehicle behind the chicane sells the site: tractor or
+      // shovel-loader on the coned-off shoulder, nose along the lane.
+      if (rng.chance(0.75)) {
+        const vUrl = modelUrl("cars", rng.pick(CONSTRUCTION_VEHICLES));
+        const vPos = at(0.85);
+        const vYaw = Math.atan2(smp.tx, smp.tz) + (rng.chance(0.5) ? 0 : Math.PI);
+        seat(vUrl, vPos.x, vPos.z, vYaw + rng.range(-0.15, 0.15), scaleToHeight(vUrl, 1.9), true);
+        solids.push({
+          minX: vPos.x - 1.2,
+          maxX: vPos.x + 1.2,
+          minZ: vPos.z - 1.2,
+          maxZ: vPos.z + 1.2,
+          maxY: terrain.heightAt(vPos.x, vPos.z) + 1.9,
+        });
+      }
     }
   }
 

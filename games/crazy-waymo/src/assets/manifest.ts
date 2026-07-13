@@ -17,10 +17,16 @@ export const TRAFFIC_CARS = [
   "van",
   "truck",
   "delivery",
+  "delivery-flat",
   "hatchback-sports",
+  "taxi", // the OTHER cab company — SF classic
+  "race",
+  "race-future",
 ] as const;
 // Service vehicles spice the traffic mix (weighted by district in traffic.ts).
 export const SERVICE_CARS = ["ambulance", "firetruck", "garbage-truck"] as const;
+// Construction-site vehicles parked at the cone pockets (furniture.ts).
+export const CONSTRUCTION_VEHICLES = ["tractor", "tractor-shovel"] as const;
 export const POLICE_CAR = "police";
 // Generated robotaxi bodies (Meshy image-to-3d from GPT-Image-2 renders of
 // the real vehicles) — player skins only, never traffic.
@@ -296,6 +302,7 @@ export function allModelUrls(): string[] {
   for (const c of TRAFFIC_CARS) urls.push(modelUrl("cars", c));
   for (const c of SERVICE_CARS) urls.push(modelUrl("cars", c));
   for (const c of GEN_ROBOTAXIS) urls.push(modelUrl("cars", c));
+  for (const c of CONSTRUCTION_VEHICLES) urls.push(modelUrl("cars", c));
   for (const r of ROADS) urls.push(modelUrl("roads", r));
   for (const b of [
     ...BUILDINGS_COMMERCIAL,

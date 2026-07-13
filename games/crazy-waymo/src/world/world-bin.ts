@@ -9,7 +9,7 @@ import type { CityGenPayload } from "./gen-worker";
 // The header mirrors the payload structure with typed arrays replaced by
 // { $buf: n, $type: "f32"|"u16"|"u32"|"i8" } refs into the buffer table.
 
-export const WORLD_REV = 55; // bump when generation code changes → rebake (55 = junction plazas shrunk: trim cap 14, patch reach 1.55)
+export const WORLD_REV = 56; // bump when generation code changes → rebake (56 = construction vehicles at chicane pockets)
 
 type Typed = Float32Array | Uint16Array | Uint32Array | Int8Array | Uint8Array | Int32Array;
 type BufRef = { $buf: number; $type: "f32" | "u16" | "u32" | "i8" | "u8" | "i32" };
