@@ -63,7 +63,7 @@ const InviteCodeStep = ({
   onValidated: (code: string) => void;
 }) => {
   const trpc = useTRPC();
-  const [code, setCode] = useState(defaultValue.toUpperCase().slice(0, INVITE_CODE_LENGTH));
+  const [code, setCode] = useState(() => defaultValue.toUpperCase().slice(0, INVITE_CODE_LENGTH));
   const autoSubmittedRef = useRef(false);
   const [error, setError] = useState(false);
   const [shakeScope, shake] = useShake();

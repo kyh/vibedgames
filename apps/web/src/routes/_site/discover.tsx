@@ -26,6 +26,7 @@ function DiscoverPage() {
           <ScrollArea viewportClassName="scroll-fade flex max-h-[70vh] gap-4 pb-2 sm:flex-col-reverse">
             {featuredGames.map((game) => (
               <button
+                type="button"
                 key={game.slug}
                 onMouseEnter={() => {
                   if (activeGame === game.slug) return;

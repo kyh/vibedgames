@@ -52,7 +52,14 @@ export const PlayView = () => {
             <InputGroupButton
               size="icon-xs"
               nativeButton={false}
-              render={<a href={url} target="_blank" rel="noopener noreferrer" />}
+              render={
+                <a
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label="Open game in new tab"
+                />
+              }
             >
               <CompassIcon />
             </InputGroupButton>
@@ -67,7 +74,7 @@ export const PlayView = () => {
             />
           )}
           <InputGroupAddon align="inline-end">
-            <InputGroupButton onClick={refresh} size="icon-xs">
+            <InputGroupButton onClick={refresh} size="icon-xs" aria-label="Refresh game">
               <RefreshCwIcon className={cn(loading && "animate-spin")} />
             </InputGroupButton>
           </InputGroupAddon>

@@ -23,8 +23,8 @@ const requireAdmin = createServerFn({ method: "GET" }).handler(async () => {
 });
 
 export const Route = createFileRoute("/admin")({
-  head: () => ({ meta: [{ title: "Admin — Vibedgames" }] }),
   beforeLoad: () => requireAdmin(),
+  head: () => ({ meta: [{ title: "Admin — Vibedgames" }] }),
   component: AdminLayout,
 });
 

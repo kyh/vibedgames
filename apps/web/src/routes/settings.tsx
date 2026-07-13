@@ -18,8 +18,8 @@ const requireAuth = createServerFn({ method: "GET" }).handler(async () => {
 });
 
 export const Route = createFileRoute("/settings")({
-  head: () => ({ meta: [{ title: "Settings — Vibedgames" }] }),
   beforeLoad: () => requireAuth(),
+  head: () => ({ meta: [{ title: "Settings — Vibedgames" }] }),
   component: SettingsPage,
 });
 
