@@ -1,6 +1,14 @@
 # Changelog
 
-## 0.1.0 — 2026-07-13
+## 0.1.1 — 2026-07-13
+
+- Republish of 0.1.0, whose `exports` shipped pointing at `./src/*.ts` — files that
+  aren't in the tarball (`files: ["dist"]`), so the package wouldn't resolve. 0.1.0 was
+  published with `npm publish`, which ignores `publishConfig`; the field rewriting that
+  redirects `exports` at `./dist` is a pnpm feature. Use `pnpm publish` for this package.
+  0.1.0 is deprecated. No source changes from 0.1.0.
+
+## 0.1.0 — 2026-07-13 (deprecated — broken `exports`, use 0.1.1)
 
 **Requires a server running the matching PartyServer.** The eviction sweep below is
 server-driven, so a client older than 0.1.0 connected to a 0.1.0 server never answers
