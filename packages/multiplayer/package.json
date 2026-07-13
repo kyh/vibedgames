@@ -46,7 +46,6 @@
     "partysocket": "^1.3.0"
   },
   "devDependencies": {
-    "@kyh/tsconfig": "catalog:",
     "@types/react": "catalog:",
     "react": "catalog:",
     "typescript": "catalog:"

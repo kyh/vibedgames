@@ -1,9 +1,8 @@
 {
-  "extends": "@kyh/tsconfig/internal-package.json",
+  "extends": "@kyh/tsconfig/base.json",
   "compilerOptions": {
     "lib": ["ES2023", "dom", "dom.iterable"],
     "jsx": "preserve",
-    "rootDir": ".",
     "paths": {
       "@repo/ui/*": ["./src/*"]
     }

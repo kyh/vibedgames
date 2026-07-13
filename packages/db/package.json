@@ -9,7 +9,7 @@
   },
   "scripts": {
     "clean": "rm -rf .cache .turbo dist node_modules",
-    "typecheck": "tsc --noEmit --emitDeclarationOnly false",
+    "typecheck": "tsc --noEmit",
     "studio": "pnpm with-env drizzle-kit studio",
     "push": "pnpm with-env drizzle-kit push",
     "generate": "pnpm with-env drizzle-kit generate",

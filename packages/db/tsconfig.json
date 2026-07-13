@@ -1,5 +1,5 @@
 {
-  "extends": "@kyh/tsconfig/internal-package.json",
+  "extends": "@kyh/tsconfig/base.json",
   "include": ["src"],
   "exclude": ["node_modules"]
 }

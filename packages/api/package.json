@@ -8,9 +8,8 @@
     "./*": "./src/*.ts"
   },
   "scripts": {
-    "build": "tsc",
     "clean": "rm -rf .cache .turbo dist node_modules",
-    "typecheck": "tsc --noEmit --emitDeclarationOnly false"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@better-auth/api-key": "^1.6.23",

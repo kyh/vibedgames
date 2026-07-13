@@ -49,7 +49,6 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@kyh/tsconfig": "catalog:",
     "phaser": "^4.2.1",
     "typescript": "catalog:"
   },

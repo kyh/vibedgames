@@ -9,7 +9,6 @@
     "./host": "./src/host.ts"
   },
   "scripts": {
-    "build": "tsc",
     "clean": "rm -rf .cache .turbo dist node_modules",
     "typecheck": "tsc --noEmit"
   },
