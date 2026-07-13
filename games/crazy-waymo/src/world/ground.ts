@@ -39,6 +39,58 @@ function meadowPatch(x: number, z: number): number {
 const gridX = (x: number): number => Math.floor((x + WORLD_HALF_X) / ROAD_TILE);
 const gridZ = (z: number): number => Math.floor((z + WORLD_HALF_Z) / ROAD_TILE);
 
+// Grass mottle: a runtime shader pass on the ground material (covers live AND
+// baked worlds — vertex colors stay untouched). Grassy pixels (green-dominant
+// vertex color) get three octaves of world-space variation — fine grain, a
+// smooth mid-scale value noise, and broad olive patches — so lawns and hills
+// read as turf instead of flat green fill. Concrete/sand (r≈g≥b) are
+// untouched by the grassiness gate.
+export function applyGrassMottle(mat: THREE.MeshStandardMaterial): void {
+  mat.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nvarying vec3 vGroundPos;")
+      .replace(
+        "#include <begin_vertex>",
+        "#include <begin_vertex>\nvGroundPos = (modelMatrix * vec4(transformed, 1.0)).xyz;",
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+varying vec3 vGroundPos;
+float grHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float grNoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = p - i;
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(
+    mix(grHash(i), grHash(i + vec2(1.0, 0.0)), u.x),
+    mix(grHash(i + vec2(0.0, 1.0)), grHash(i + vec2(1.0, 1.0)), u.x),
+    u.y);
+}`,
+      )
+      .replace(
+        "#include <color_fragment>",
+        `#include <color_fragment>
+{
+  float grass = smoothstep(0.02, 0.12, diffuseColor.g - max(diffuseColor.r, diffuseColor.b));
+  if (grass > 0.01) {
+    vec2 wp = vGroundPos.xz;
+    float fine = grHash(floor(wp * 2.1));
+    float mid = grNoise(wp * 0.16);
+    float broad = grNoise(wp * 0.045);
+    float lum = 1.0 + ((fine - 0.5) * 0.05 + (mid - 0.5) * 0.12 + (broad - 0.5) * 0.14) * grass;
+    diffuseColor.rgb *= lum;
+    // Broad patches drift warm (olive) or cool (blue-green) — turf, not paint.
+    float drift = (broad - 0.5) * 0.7 * grass;
+    diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.08, 1.0, 0.78), clamp(drift, 0.0, 1.0));
+    diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.88, 1.0, 1.05), clamp(-drift, 0.0, 1.0));
+  }
+}`,
+      );
+  };
+}
+
 export function makeGroundColorAt(
   plan: CityPlan,
   terrain: Terrain,

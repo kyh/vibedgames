@@ -1,7 +1,5 @@
 import * as THREE from "three";
 
-import type { ModelCache } from "../assets/loader";
-import { modelUrl, SIGN_HIGHWAY, SIGN_HIGHWAY_DETAILED } from "../assets/manifest";
 import { WORLD_HALF_X, WORLD_HALF_Z } from "../shared/constants";
 import type { RoadNetwork } from "./network";
 import { applyAsphaltSpeckle } from "./roads";
@@ -44,7 +42,14 @@ const DASH_LEN = 3.2;
 const DASH_GAP = 3.4;
 const PAINT_LIFT = 0.02;
 
-const SIGN_EVERY = 270; // arclength between overhead signs on a mainline
+const SIGN_EVERY = 270; // arclength between overhead gantries on a mainline
+// Procedural gantry dimensions (kit sign models had free-floating boards —
+// a parametric frame always fits the deck it spans).
+const GANTRY_POST_H = 5.4;
+const GANTRY_BEAM_Y0 = 5.05;
+const GANTRY_BEAM_Y1 = 5.4;
+const GANTRY_BOARD_Y0 = 3.55;
+const GANTRY_BOARD_HALF_W = 2.1;
 
 // DoubleSide: barrier/pillar quads are hand-wound; guaranteeing outward
 // normals everywhere isn't worth the culling win on this little geometry.
@@ -71,6 +76,8 @@ const MAT_PAINT_YELLOW = new THREE.MeshStandardMaterial({
   polygonOffsetFactor: -2,
   polygonOffsetUnits: -4,
 });
+// Highway-sign green (the classic guide-sign color, matte).
+const MAT_SIGN = new THREE.MeshStandardMaterial({ color: 0x25714a, roughness: 0.85 });
 
 type Line = {
   readonly half: number;
@@ -91,10 +98,10 @@ type FreewayBuild = {
   readonly bodyNor: number[];
   readonly whitePos: number[];
   readonly yellowPos: number[];
+  readonly signPos: number[];
+  readonly signNor: number[];
   /** deck top + rail faces, non-indexed triangles — the physics surface */
   readonly physPos: number[];
-  /** overhead sign anchors on the mainline decks */
-  readonly signs: readonly { x: number; y: number; z: number; yaw: number }[];
 };
 
 function resample(p: readonly number[]): [number, number][] {
@@ -331,8 +338,38 @@ function buildData(terrain: Terrain, network?: RoadNetwork): FreewayBuild {
   const bodyNor: number[] = [];
   const whitePos: number[] = [];
   const yellowPos: number[] = [];
+  const signPos: number[] = [];
+  const signNor: number[] = [];
   const physPos: number[] = [];
-  const signs: { x: number; y: number; z: number; yaw: number }[] = [];
+
+  // Axis-of-the-line box: center (cx, cz), vertical span y0..y1, half-extent
+  // along the tangent (halfT) and along the lateral (halfP). Six quads.
+  const pushBox = (
+    pos: number[],
+    nor: number[] | null,
+    cx: number,
+    cz: number,
+    y0: number,
+    y1: number,
+    tx: number,
+    tz: number,
+    px2: number,
+    pz2: number,
+    halfT: number,
+    halfP: number,
+  ): void => {
+    const c = (st: number, sp: number, y: number): number[] => [
+      cx + tx * halfT * st + px2 * halfP * sp,
+      y,
+      cz + tz * halfT * st + pz2 * halfP * sp,
+    ];
+    pushQuad(pos, nor, c(-1, -1, y1), c(1, -1, y1), c(1, 1, y1), c(-1, 1, y1)); // top
+    pushQuad(pos, nor, c(-1, -1, y0), c(-1, 1, y0), c(1, 1, y0), c(1, -1, y0)); // bottom
+    pushQuad(pos, nor, c(-1, -1, y0), c(1, -1, y0), c(1, -1, y1), c(-1, -1, y1));
+    pushQuad(pos, nor, c(-1, 1, y0), c(-1, 1, y1), c(1, 1, y1), c(1, 1, y0));
+    pushQuad(pos, nor, c(-1, -1, y0), c(-1, -1, y1), c(-1, 1, y1), c(-1, 1, y0));
+    pushQuad(pos, nor, c(1, -1, y0), c(1, 1, y0), c(1, 1, y1), c(1, -1, y1));
+  };
 
   // Where two ribbons meet at grade (ramp merging into its mainline, ramps
   // crossing at an interchange), a continuous barrier walls off the roadway.
@@ -435,12 +472,14 @@ function buildData(terrain: Terrain, network?: RoadNetwork): FreewayBuild {
           at(i, o + LINE_W / 2),
         );
       };
+      // Paint suppresses only where another ribbon TRULY overlaps (grow
+      // -0.3): the old 1u grow blanked every parallel braid section bald.
       for (const side of [-1, 1] as const) {
         const p0 = at(i, eo * side);
         const p1 = at(i + 1, eo * side);
         if (
-          otherDeckAt(p0[0], p0[2], p0[1], lineIdx, 1.0) ||
-          otherDeckAt(p1[0], p1[2], p1[1], lineIdx, 1.0)
+          otherDeckAt(p0[0], p0[2], p0[1], lineIdx, -0.3) ||
+          otherDeckAt(p1[0], p1[2], p1[1], lineIdx, -0.3)
         ) {
           continue;
         }
@@ -454,7 +493,7 @@ function buildData(terrain: Terrain, network?: RoadNetwork): FreewayBuild {
           for (const side of [-1, 1] as const) {
             const o = w * 0.45 * side;
             const p0 = at(i, o);
-            if (otherDeckAt(p0[0], p0[2], p0[1], lineIdx, 1.0)) continue;
+            if (otherDeckAt(p0[0], p0[2], p0[1], lineIdx, -0.3)) continue;
             paintSeg(whitePos, o);
           }
         }
@@ -462,12 +501,18 @@ function buildData(terrain: Terrain, network?: RoadNetwork): FreewayBuild {
 
       // Side barriers: low walls hugging the deck edges — solid in physics so
       // the car banks off them instead of sailing into the void mid-corner.
-      const rail = (p: readonly number[], inset: number): number[] => {
-        const cxr = line.pts[i] ?? [0, 0];
-        const dx = cxr[0] - (p[0] ?? 0);
-        const dz = cxr[1] - (p[2] ?? 0);
-        const dl = Math.hypot(dx, dz) || 1;
-        return [(p[0] ?? 0) + (dx / dl) * inset, p[1] ?? 0, (p[2] ?? 0) + (dz / dl) * inset];
+      // The inner face insets along each SAMPLE'S OWN lateral (rails[k]) —
+      // insetting both ends toward pts[i] skewed every quad backward and the
+      // wall read as chopped wedges with gaps at every joint.
+      const railIn = (k: number, side: "l" | "r"): number[] => {
+        const rl = rails[k];
+        const p = rl ? rl[side] : [0, 0, 0];
+        const sgn = side === "l" ? -1 : 1;
+        return [
+          (p[0] ?? 0) + (rl?.px ?? 0) * 0.5 * sgn,
+          p[1] ?? 0,
+          (p[2] ?? 0) + (rl?.pz ?? 0) * 0.5 * sgn,
+        ];
       };
       const lift = (p: readonly number[], h: number): number[] => [
         p[0] ?? 0,
@@ -490,8 +535,8 @@ function buildData(terrain: Terrain, network?: RoadNetwork): FreewayBuild {
         ) {
           continue;
         }
-        const q0 = rail(p0, 0.5);
-        const q1 = rail(p1, 0.5);
+        const q0 = railIn(i, side);
+        const q1 = railIn(i + 1, side);
         pushQuad(
           bodyPos,
           bodyNor,
@@ -524,8 +569,9 @@ function buildData(terrain: Terrain, network?: RoadNetwork): FreewayBuild {
       }
     }
 
-    // Overhead signage: green highway boards on gantry poles at the deck's
-    // right edge, alternating travel direction so both flows get signage.
+    // Overhead signage: PROCEDURAL gantries — two posts just outside the
+    // barriers, a beam across the full deck, and a green guide board hung
+    // over the travel side. Parametric to the deck, so nothing ever floats.
     if (!line.ramp) {
       let signFlip = lineIdx % 2 === 0;
       for (let s = SIGN_EVERY * 0.5; s < total - 40; s += SIGN_EVERY) {
@@ -537,12 +583,55 @@ function buildData(terrain: Terrain, network?: RoadNetwork): FreewayBuild {
         const dir = signFlip ? 1 : -1;
         signFlip = !signFlip;
         const [x, z] = line.pts[i] ?? [0, 0];
-        // Right-hand edge for the chosen travel direction.
-        const o = (w - 1.0) * dir;
-        // Face oncoming traffic: board normal (local +X after yaw) points
-        // back along the travel direction.
-        const yaw = Math.atan2(-rl.pz * dir, -rl.px * dir) + Math.PI / 2;
-        signs.push({ x: x + rl.px * o, y: line.ys[i] ?? 0, z: z + rl.pz * o, yaw });
+        const deckY = line.ys[i] ?? 0;
+        const tx = rl.pz; // tangent = perp rotated -90°
+        const tz = -rl.px;
+        const span = w + 0.55; // posts just outside the barrier line
+        for (const ps of [-1, 1] as const) {
+          pushBox(
+            bodyPos,
+            bodyNor,
+            x + rl.px * span * ps,
+            z + rl.pz * span * ps,
+            deckY - 0.1,
+            deckY + GANTRY_POST_H,
+            tx,
+            tz,
+            rl.px,
+            rl.pz,
+            0.2,
+            0.2,
+          );
+        }
+        pushBox(
+          bodyPos,
+          bodyNor,
+          x,
+          z,
+          deckY + GANTRY_BEAM_Y0,
+          deckY + GANTRY_BEAM_Y1,
+          tx,
+          tz,
+          rl.px,
+          rl.pz,
+          0.14,
+          span + 0.2,
+        );
+        // Guide board over the chosen travel side, facing its oncoming flow.
+        pushBox(
+          signPos,
+          signNor,
+          x + rl.px * w * 0.5 * dir,
+          z + rl.pz * w * 0.5 * dir,
+          deckY + GANTRY_BOARD_Y0,
+          deckY + GANTRY_BEAM_Y0,
+          tx,
+          tz,
+          rl.px,
+          rl.pz,
+          0.08,
+          GANTRY_BOARD_HALF_W,
+        );
       }
     }
 
@@ -605,7 +694,18 @@ function buildData(terrain: Terrain, network?: RoadNetwork): FreewayBuild {
     }
   }
 
-  cachedBuild = { lines, deckPos, deckNor, bodyPos, bodyNor, whitePos, yellowPos, physPos, signs };
+  cachedBuild = {
+    lines,
+    deckPos,
+    deckNor,
+    bodyPos,
+    bodyNor,
+    whitePos,
+    yellowPos,
+    signPos,
+    signNor,
+    physPos,
+  };
   return cachedBuild;
 }
 
@@ -712,11 +812,7 @@ function geoFrom(pos: number[], nor: number[] | null): THREE.BufferGeometry {
   return geo;
 }
 
-export function buildFreeways(
-  terrain: Terrain,
-  cache?: ModelCache,
-  network?: RoadNetwork,
-): THREE.Group {
+export function buildFreeways(terrain: Terrain, network?: RoadNetwork): THREE.Group {
   const data = buildData(terrain, network);
   const group = new THREE.Group();
   const deckMesh = new THREE.Mesh(geoFrom(data.deckPos, data.deckNor), MAT_DECK);
@@ -731,24 +827,10 @@ export function buildFreeways(
   if (data.yellowPos.length > 0) {
     group.add(new THREE.Mesh(geoFrom(data.yellowPos, null), MAT_PAINT_YELLOW));
   }
-  // Overhead highway boards (Kenney sign-highway) seated on the deck edge.
-  if (cache) {
-    let flip = false;
-    for (const s of data.signs) {
-      flip = !flip;
-      const url = modelUrl("roads", flip ? SIGN_HIGHWAY : SIGN_HIGHWAY_DETAILED);
-      const node = cache.instance(url);
-      const bounds = cache.bounds(url);
-      const sc = 4.6 / Math.max(bounds.size.y, 0.001);
-      node.scale.setScalar(sc);
-      node.rotation.y = s.yaw;
-      node.position.set(s.x, s.y, s.z);
-      node.updateMatrixWorld(true);
-      node.traverse((c) => {
-        if (c instanceof THREE.Mesh) c.castShadow = true;
-      });
-      group.add(node);
-    }
+  if (data.signPos.length > 0) {
+    const boards = new THREE.Mesh(geoFrom(data.signPos, data.signNor), MAT_SIGN);
+    boards.castShadow = true;
+    group.add(boards);
   }
   return group;
 }

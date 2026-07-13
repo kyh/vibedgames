@@ -372,8 +372,10 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
       const gx = toGx(px);
       const gz = toGz(pz);
       if (reserved.has(cellKey(gx, gz))) continue;
-      // Arm (local +Z) points back at the road centreline.
-      const yaw = Math.atan2(smp.tz * side, -smp.tx * side);
+      // Arm points back at the road centreline. The Kenney lamp arms run
+      // along LOCAL -Z (bbox z -0.2..0.025) — the old +Z assumption swung
+      // every arm out over the houses ("street lights face the wrong way").
+      const yaw = Math.atan2(-smp.tz * side, smp.tx * side);
       const char = districtAt(gx, gz).character;
       const groundY = terrain.heightAt(px, pz);
       // A lamp 0.6 off ITS edge can still stand on a NEIGHBOUring edge's
@@ -393,10 +395,11 @@ export async function buildFurniture(ctx: FurnitureCtx): Promise<FurnitureResult
         const sc = scaleToHeight(url, LIGHT_HEIGHT);
         if (!seat(url, px, pz, yaw, sc)) continue;
         const reach = cache.bounds(url).size.z * sc * 0.5;
+        // Head hangs along the arm (local -Z).
         lampHeads.push({
-          x: px + Math.sin(yaw) * reach,
+          x: px - Math.sin(yaw) * reach,
           y: groundY + LIGHT_HEIGHT * 0.92,
-          z: pz + Math.cos(yaw) * reach,
+          z: pz - Math.cos(yaw) * reach,
           ground: groundY,
         });
       }

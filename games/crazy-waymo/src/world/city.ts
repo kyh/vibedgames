@@ -36,6 +36,7 @@ import { type CityPlan, generateCity } from "./grid";
 import { CUSTOM_MAP, editorMode, loadLocalOverrides } from "./custom-map";
 import {
   isParkCell,
+  applyGrassMottle,
   makeGroundColorAt,
   makeGroundOffset,
   makeTerracedDrapeField,
@@ -1316,9 +1317,7 @@ export class CityModel {
             // commercial spacing read as sparse suburbs there.
             const packed = PACKED_COMMERCIAL.has(district.name);
             const dense =
-              district.character === "residential" ||
-              district.character === "victorian" ||
-              packed;
+              district.character === "residential" || district.character === "victorian" || packed;
             const frac =
               district.character === "downtown" || district.character === "highrise"
                 ? this.rng.range(0.7, 0.82)
@@ -1629,7 +1628,7 @@ export class CityModel {
 
       // --- Iconic landmarks (procedural; kept separate — always visible) ---
       this.group.add(buildLandmarks(this.terrain, this.cache, this.network));
-      this.group.add(buildFreeways(this.terrain, this.cache, this.network));
+      this.group.add(buildFreeways(this.terrain, this.network));
       this.group.add(buildPiers(this.terrain));
 
       // City-rest cache capture: phases 2+3 output in serializable form. Only
@@ -1666,6 +1665,7 @@ export class CityModel {
       vertexColors: true,
       roughness: 1,
     });
+    applyGrassMottle(groundMat);
     let ground: THREE.Group;
     if (this.genPayload) {
       ground = new THREE.Group();
@@ -1794,7 +1794,7 @@ export class CityModel {
     this.buildGround();
     // Landmarks are procedural + cheap — always rebuilt live.
     this.group.add(buildLandmarks(this.terrain, this.cache, this.network));
-    this.group.add(buildFreeways(this.terrain, this.cache, this.network));
+    this.group.add(buildFreeways(this.terrain, this.network));
     this.group.add(buildPiers(this.terrain));
   }
 

@@ -442,7 +442,20 @@ export class GameScene {
       shader.fragmentShader = shader.fragmentShader
         .replace(
           "#include <common>",
-          "#include <common>\nuniform float uOceanTime;\nuniform sampler2D uShore;\nvarying vec3 vOceanPos;",
+          `#include <common>
+uniform float uOceanTime;
+uniform sampler2D uShore;
+varying vec3 vOceanPos;
+float ocHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float ocNoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = p - i;
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(
+    mix(ocHash(i), ocHash(i + vec2(1.0, 0.0)), u.x),
+    mix(ocHash(i + vec2(0.0, 1.0)), ocHash(i + vec2(1.0, 1.0)), u.x),
+    u.y);
+}`,
         )
         .replace(
           "#include <normal_fragment_begin>",
@@ -470,6 +483,13 @@ export class GameScene {
             // land) across open ocean.
             float inMap = 1.0 - smoothstep(0.46, 0.5, max(abs(suv.x - 0.5), abs(suv.y - 0.5)));
             s *= inMap;
+            // Deep-water grade: open ocean darkens toward navy, with slow
+            // drifting swell patches so it never reads as one flat fill.
+            float deep = 1.0 - smoothstep(0.0, 0.25, s);
+            diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.085, 0.23, 0.42), deep * 0.55);
+            float swell = ocNoise(wp * 0.011 + vec2(t * 0.016, -t * 0.011))
+                        + ocNoise(wp * 0.034 - vec2(t * 0.022, t * 0.017)) * 0.5;
+            diffuseColor.rgb *= 1.0 + (swell / 1.5 - 0.5) * 0.10;
             // Shallow-water turquoise ramp toward the coast.
             float shallow = smoothstep(0.10, 0.44, s);
             diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.36, 0.78, 0.72), shallow * 0.75);
@@ -480,12 +500,17 @@ export class GameScene {
             float lap = 0.5 + 0.5 * sin(t * 1.7 + (wp.x + wp.y) * 0.16 + s * 30.0);
             float foam = smoothstep(0.26, 0.38, s) * (0.30 + 0.45 * lap);
             foam += smoothstep(0.36, 0.42, s) * 0.9;
-            // Sun glints: small fast crossings of a fine field, not the big
-            // swell (that read as cloud shadows).
-            float ga = sin(wp.x * 0.9 + t * 2.2) * sin(wp.y * 0.83 - t * 1.9);
-            float gb = sin((wp.x + wp.y) * 0.61 - t * 1.4);
-            float glint = max(0.0, ga * gb - 0.86);
-            diffuseColor.rgb += vec3(glint * 4.5);
+            // Sun glints: HASH twinkles — sparse random cells that flicker in
+            // and out. (The old sine-product crossings landed on a visible
+            // regular lattice: the "grid of white dots" read.)
+            vec2 gcell = floor(wp * 0.42);
+            float seed = ocHash(gcell);
+            float tw = fract(seed * 7.13 + t * (0.10 + seed * 0.14));
+            float glint = smoothstep(0.965, 0.995, seed) * smoothstep(0.30, 0.5, tw) * smoothstep(0.7, 0.5, tw);
+            // Sub-cell jitter so lit cells read as points, not squares.
+            vec2 sub = fract(wp * 0.42) - vec2(ocHash(gcell + 19.7), ocHash(gcell + 7.3));
+            glint *= smoothstep(0.30, 0.08, length(sub));
+            diffuseColor.rgb += vec3(glint * 3.2);
             diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.97, 0.98), clamp(foam, 0.0, 0.9));
           }`,
         );

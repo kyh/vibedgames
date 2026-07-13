@@ -108,7 +108,7 @@ function paintMat(color: number): THREE.MeshStandardMaterial {
 }
 const MAT_MUNI_RED = paintMat(0xc04a38);
 ROAD_MATERIALS.muni = MAT_MUNI_RED;
-const MAT_BIKE_GREEN = paintMat(0x2f9e63);
+const MAT_BIKE_GREEN = paintMat(0x27824f);
 ROAD_MATERIALS.bike = MAT_BIKE_GREEN;
 const MAT_MANHOLE = paintMat(0x434956);
 ROAD_MATERIALS.manhole = MAT_MANHOLE;
@@ -675,13 +675,13 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
     // Junction-clipped line runs: a full-rail strip radiates straight
     // through merged junction blobs (short edges barely trim, and
     // through-streets pass near foreign nodes) — the "spoke" bug.
-    const emitLine = (off: number, mat: THREE.Material): void => {
+    const emitLine = (off: number, mat: THREE.Material, clipFactor = PATCH_FACTOR): void => {
       const steps = Math.max(1, Math.ceil(secLen / 4));
       let runStart = -1;
       for (let i = 0; i <= steps; i++) {
         const sc = (i / steps) * secLen;
         const smp = network.sample(edge, trimA + sc);
-        const blocked = nearJunction(smp.x - smp.tz * off, smp.z + smp.tx * off, 1.2);
+        const blocked = nearJunction(smp.x - smp.tz * off, smp.z + smp.tx * off, 1.2, clipFactor);
         if (!blocked && runStart < 0) runStart = sc;
         if (runStart >= 0 && (blocked || i === steps)) {
           const runEnd = blocked ? Math.max(runStart, sc - secLen / steps) : sc;
@@ -701,12 +701,12 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
     };
     // Dashed line at an offset, junction-clipped, pattern centred in the
     // section so short blocks keep a visible dash.
-    const emitDashes = (off: number, mat: THREE.Material): void => {
+    const emitDashes = (off: number, mat: THREE.Material, clipFactor = PATCH_FACTOR): void => {
       for (let s = (secLen % (DASH_LEN + DASH_GAP)) / 2; s < secLen; s += DASH_LEN + DASH_GAP) {
         const e = Math.min(s + DASH_LEN, secLen);
         if (e - s < 0.6) continue;
         const mid = network.sample(edge, trimA + (s + e) / 2);
-        if (nearJunction(mid.x, mid.z, 2.5)) continue;
+        if (nearJunction(mid.x, mid.z, 2.5, clipFactor)) continue;
         const dashRail = railFor(edge, trimA + s, trimA + e);
         if (!dashRail) continue;
         markingParts.push({
@@ -728,12 +728,16 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
 
     if (secLen >= 6) {
       if (major) {
-        emitDashes(-h * 0.33, MAT_WHITE);
-        emitDashes(h * 0.33, MAT_WHITE);
+        // Tight clip (factor 1.0): on dense corridors (Market) the default
+        // junction radius covers whole blocks and the boulevard reads bald.
+        // Centre-of-roadway paint inside a junction's open asphalt is fine —
+        // only EDGE lines may not slice across a merged blob.
+        emitDashes(-h * 0.33, MAT_WHITE, 1.0);
+        emitDashes(h * 0.33, MAT_WHITE, 1.0);
         // Divided-boulevard look on some corridors: double-yellow centre.
         if (h2 < 0.45) {
-          emitLine(0.28, MAT_YELLOW);
-          emitLine(-0.28, MAT_YELLOW);
+          emitLine(0.28, MAT_YELLOW, 1.0);
+          emitLine(-0.28, MAT_YELLOW, 1.0);
         }
       } else {
         // Minor-grid centre-line variety.
@@ -761,12 +765,13 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
       margin: number,
       mat: THREE.Material,
       junctionMargin = 4.5,
+      clipFactor = PATCH_FACTOR,
     ): void => {
       for (let s = margin; s < secLen - margin; s += segLen + segGap) {
         const e = Math.min(s + segLen, secLen - margin);
         if (e - s < segLen * 0.35) continue;
         const mid = network.sample(edge, trimA + (s + e) / 2);
-        if (nearJunction(mid.x, mid.z, junctionMargin)) continue;
+        if (nearJunction(mid.x, mid.z, junctionMargin, clipFactor)) continue;
         const r = railFor(edge, trimA + s, trimA + e);
         if (!r) continue;
         const o0 = Math.min(side * bandIn, side * bandOut);
@@ -785,17 +790,21 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
       const laneIn = laneOut - 1.9;
       // nearJunction now scales nodeTrim by the patch factor itself, so the
       // margin only needs to cover half a 14u segment (the midpoint test).
-      const junctionMargin = 8;
-      paintBand(-1, laneIn, laneOut, 14, 0.8, 6, MAT_MUNI_RED, junctionMargin);
-      paintBand(1, laneIn, laneOut, 14, 0.8, 6, MAT_MUNI_RED, junctionMargin);
+      const junctionMargin = 5;
+      paintBand(-1, laneIn, laneOut, 14, 0.8, 6, MAT_MUNI_RED, junctionMargin, 1.1);
+      paintBand(1, laneIn, laneOut, 14, 0.8, 6, MAT_MUNI_RED, junctionMargin, 1.1);
     }
 
     // Green bike lanes: a sparse subset of the minor grid (every 3rd edge) —
-    // SF's bike-network look without painting every street.
-    const bikeLane = !major && h >= 3.2 && secLen > 40 && edge.id % 3 === 0;
+    // SF's bike-network look without painting every street. Narrow + dark so
+    // they read as PAINT (the old wide bright band read as grass medians),
+    // and never stacked on solid/double-yellow streets — that combination
+    // was paint soup.
+    const solidCentre = h2 >= 0.3 && h2 < 0.62;
+    const bikeLane = !major && h >= 3.2 && secLen > 40 && edge.id % 3 === 0 && !solidCentre;
     if (bikeLane) {
-      paintBand(-1, h - 1.9, h - 0.8, 4.5, 2.2, 3, MAT_BIKE_GREEN);
-      paintBand(1, h - 1.9, h - 0.8, 4.5, 2.2, 3, MAT_BIKE_GREEN);
+      paintBand(-1, h - 1.75, h - 0.95, 4.5, 2.2, 3, MAT_BIKE_GREEN);
+      paintBand(1, h - 1.75, h - 0.95, 4.5, 2.2, 3, MAT_BIKE_GREEN);
     }
 
     // Parking-bay ticks: short white separators inside the kerb lane — the
