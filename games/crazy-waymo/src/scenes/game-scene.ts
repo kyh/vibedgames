@@ -1678,7 +1678,7 @@ float ocNoise(vec2 p) {
       // SF has opinions about robotaxis. Bumped drivers share theirs.
       if (impact > 4 && this.heckleCooldown <= 0 && Math.random() < 0.65) {
         this.heckleCooldown = 7;
-        const line = HECKLES[Math.floor(Math.random() * HECKLES.length)];
+        const line = this.pickHeckle();
         if (line) this.bubbles.say(c.object3D, line, { lift: 2.3, dur: 4.5, accent: "#e05c2e" });
       }
       // Real hits cost money — traffic is the risk side of weaving.
@@ -1757,6 +1757,14 @@ float ocNoise(vec2 p) {
     }
   }
 
+  // Heckles know WHO they're yelling at: mostly the citywide anti-robotaxi
+  // pool, but ~45% of the time an operator-specific jab at the equipped car.
+  private pickHeckle(): string | undefined {
+    const sk = skinById(this.skinId);
+    const pool = sk.heckles.length > 0 && Math.random() < 0.45 ? sk.heckles : HECKLES;
+    return pool[Math.floor(Math.random() * pool.length)];
+  }
+
   // Rider flavor: operator-specific one-liners in the equipped brand's color.
   private sayRiderLine(kind: "pickup" | "dropoff"): void {
     const car = this.car;
@@ -1790,7 +1798,7 @@ float ocNoise(vec2 p) {
         this.sfx.nearMiss(this.panFor(c.position));
         if (this.heckleCooldown <= 0 && Math.random() < 0.22) {
           this.heckleCooldown = 9;
-          const line = HECKLES[Math.floor(Math.random() * HECKLES.length)];
+          const line = this.pickHeckle();
           if (line) this.bubbles.say(c.object3D, line, { lift: 2.3, dur: 4, accent: "#e05c2e" });
         }
       }

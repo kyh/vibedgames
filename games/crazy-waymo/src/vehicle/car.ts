@@ -69,6 +69,7 @@ export type RobotaxiSkin = {
   accent: string; // brand color: HUD operator chip + rider speech bubbles
   pickupLines: readonly string[]; // rider bubble on pickup
   dropoffLines: readonly string[]; // rider bubble on dropoff
+  heckles: readonly string[]; // operator-specific traffic heckles (mixed with the generic pool)
 };
 
 // Rider lines are REAL-quirk humor per operator: Waymo's hands-off-wheel
@@ -97,12 +98,12 @@ export const ROBOTAXI_SKINS: readonly RobotaxiSkin[] = [
       "it just… stopped? ok bye",
       "5 stars for the ghost driver",
     ],
+    heckles: ["Not you again, Waymo!", "The cone community sees you!", "Phoenix misses you!"],
   },
   {
     id: "lyft",
     label: "LYFT",
-    model: "sedan",
-    tint: 0xf3eef7,
+    model: PLAYER_CAR, // the white body — Lyft is "a white car with a pink mustache"
     lidar: false,
     mustache: true,
     price: 200,
@@ -119,6 +120,11 @@ export const ROBOTAXI_SKINS: readonly RobotaxiSkin[] = [
       "peace, love, carstache",
       "tell your friends!",
       "the mustache waves goodbye",
+    ],
+    heckles: [
+      "Nice mustache, jerk!",
+      "2014 called, wants its 'stache back",
+      "Wait, a HUMAN did that?!",
     ],
   },
   {
@@ -142,6 +148,7 @@ export const ROBOTAXI_SKINS: readonly RobotaxiSkin[] = [
       "quiet ride preference noted",
       "pin dropped… somewhere near here",
     ],
+    heckles: ["Surge THIS!", "You drive like a 4.2!", "My Uber driver would NEVER"],
   },
   {
     id: "cruise",
@@ -164,6 +171,7 @@ export const ROBOTAXI_SKINS: readonly RobotaxiSkin[] = [
       "still smoother than 2023",
       "origin story over",
     ],
+    heckles: ["Aren't you BANNED?!", "Does the DMV know you're out?", "Cruise?! You're alive?!"],
   },
   {
     id: "zoox",
@@ -185,6 +193,11 @@ export const ROBOTAXI_SKINS: readonly RobotaxiSkin[] = [
       "exiting the carriage",
       "four-wheel steering flex",
       "Amazon thanks you",
+    ],
+    heckles: [
+      "Which end is the FRONT?!",
+      "The toaster fights back!",
+      "It doesn't even have a FACE!",
     ],
   },
   {
@@ -208,6 +221,7 @@ export const ROBOTAXI_SKINS: readonly RobotaxiSkin[] = [
       "wireless charging, somewhere",
       "*butterfly doors*",
     ],
+    heckles: ["Where are your MIRRORS?!", "CAMERAS?! That's it?!", "Elon, come get your car"],
   },
 ];
 
