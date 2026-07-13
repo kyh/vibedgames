@@ -11,7 +11,7 @@ import type { Terrain } from "./terrain";
 
 const MAT_DECK = new THREE.MeshStandardMaterial({ color: 0xc0b49e, roughness: 1 });
 const MAT_WOOD = new THREE.MeshStandardMaterial({
-  color: 0xa98a63,
+  color: 0xc2a578,
   roughness: 1,
   side: THREE.DoubleSide,
 });
@@ -121,9 +121,23 @@ export function buildPiers(terrain: Terrain): THREE.Group {
     }
   }
 
-  // Marina dock floats: thin plank strips on the water.
+  // Marina dock floats: shallow BOXES riding the water — the old flat
+  // single-plane planks had no lit sides and read as black combs against
+  // the bright bay from any distance.
   const pos: number[] = [];
   const nor: number[] = [];
+  const quad = (
+    a: readonly [number, number, number],
+    b: readonly [number, number, number],
+    c: readonly [number, number, number],
+    d: readonly [number, number, number],
+    n: readonly [number, number, number],
+  ): void => {
+    pos.push(...a, ...b, ...c, ...a, ...c, ...d);
+    for (let k = 0; k < 6; k++) nor.push(...n);
+  };
+  const TOP = 0.72;
+  const BOT = 0.3;
   for (const dock of SF_DOCKS) {
     for (let i = 0; i + 3 < dock.length; i += 2) {
       const ax = dock[i] ?? 0;
@@ -133,16 +147,28 @@ export function buildPiers(terrain: Terrain): THREE.Group {
       const len = Math.hypot(bx - ax, bz - az) || 1;
       const nx = (-(bz - az) / len) * 0.8;
       const nz = ((bx - ax) / len) * 0.8;
-      const y = 0.55;
-      pos.push(
-        ax - nx, y, az - nz,
-        bx - nx, y, bz - nz,
-        bx + nx, y, bz + nz,
-        ax - nx, y, az - nz,
-        bx + nx, y, bz + nz,
-        ax + nx, y, az + nz,
+      const sn: [number, number, number] = [nx / 0.8, 0, nz / 0.8];
+      quad(
+        [ax - nx, TOP, az - nz],
+        [bx - nx, TOP, bz - nz],
+        [bx + nx, TOP, bz + nz],
+        [ax + nx, TOP, az + nz],
+        [0, 1, 0],
       );
-      for (let k = 0; k < 6; k++) nor.push(0, 1, 0);
+      quad(
+        [ax + nx, TOP, az + nz],
+        [bx + nx, TOP, bz + nz],
+        [bx + nx, BOT, bz + nz],
+        [ax + nx, BOT, az + nz],
+        sn,
+      );
+      quad(
+        [ax - nx, BOT, az - nz],
+        [bx - nx, BOT, bz - nz],
+        [bx - nx, TOP, bz - nz],
+        [ax - nx, TOP, az - nz],
+        [-sn[0], 0, -sn[2]],
+      );
     }
   }
   if (pos.length > 0) {

@@ -114,10 +114,15 @@ export class RoadNetwork {
           const halfAngle = Math.acos(dot) / 2;
           if (halfAngle < 0.02) continue; // duplicate/parallel arm — cap would explode
           const d = (a.half + b.half) / (2 * Math.sin(halfAngle));
-          trim = Math.max(trim, Math.min(d, 20));
+          // Cap 14 (was 20): the shallow-angle formula explodes where Market
+          // meets the grid, and 20u trims x the patch reach merged whole
+          // node chains into asphalt lakes. Overlap between edge strips is
+          // dissolved by the planar-map union anyway — the trim only needs
+          // to push paint/crosswalks/hold-points clear of the junction.
+          trim = Math.max(trim, Math.min(d, 14));
         }
       }
-      trims[n] = Math.min(trim, 20);
+      trims[n] = Math.min(trim, 14);
       if (arms.length === 2) {
         const a = arms[0];
         const b = arms[1];

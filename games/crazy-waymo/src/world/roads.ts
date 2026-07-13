@@ -616,9 +616,9 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
     nodeBuckets.set(k, arr);
   }
   // `factor` scales nodeTrim to match what the junction patch actually owns
-  // (patchRing extends to nodeTrim*1.8) — paint clipped at factor 1 still
-  // overlapped the patch, which is where the "spoke" stripes came from.
-  const PATCH_FACTOR = 1.8;
+  // (patchRing extends to nodeTrim*1.55; keep the two in lockstep) — paint
+  // clipped at factor 1 still overlapped the patch (the "spoke" stripes).
+  const PATCH_FACTOR = 1.55;
   const nearJunction = (x: number, z: number, margin: number, factor = PATCH_FACTOR): boolean => {
     const bx = Math.floor(x / NB);
     const bz = Math.floor(z / NB);
@@ -887,7 +887,7 @@ export function buildRoadParts(network: RoadNetwork, terrain: DrapeField): RoadP
       continue;
     }
 
-    const trimCap = network.nodeTrim(n) * 1.8;
+    const trimCap = network.nodeTrim(n) * 1.55;
     const patchWalk = Math.max(...arms.map((a) => walkFor(a.half)));
     asphaltPolys.push([patchRing(nx, nz, arms, 0, trimCap)]);
     curbPolys.push([patchRing(nx, nz, arms, CURB_W, trimCap)]);
