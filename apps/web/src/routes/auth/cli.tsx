@@ -38,10 +38,10 @@ const fetchCliAuth = createServerFn({ method: "GET" })
   });
 
 export const Route = createFileRoute("/auth/cli")({
-  head: () => ({ meta: [{ title: "Authorize CLI" }] }),
   validateSearch: cliSearchSchema,
   loaderDeps: ({ search }) => ({ code: search.code }),
   loader: ({ deps }) => fetchCliAuth({ data: deps }),
+  head: () => ({ meta: [{ title: "Authorize CLI" }] }),
   component: CliAuthPage,
 });
 

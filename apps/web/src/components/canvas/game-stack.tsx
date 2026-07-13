@@ -110,7 +110,7 @@ const getCardVariants = (
   };
 };
 
-export const GameCard = ({
+const GameCard = ({
   currentIndex,
   index,
   total,

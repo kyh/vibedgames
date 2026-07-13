@@ -121,8 +121,6 @@ const RollingColumn = ({
 }: RollingColumnProps) => {
   const sizerRef = useRef<HTMLSpanElement>(null);
   const candidateEls = useRef(new Map<string, HTMLSpanElement>());
-  const charRef = useRef(char);
-  charRef.current = char;
   // "auto" until the first measurement, so SSR/pre-hydration falls back to the
   // widest-candidate width the sizer provides.
   const width = useMotionValue<number | "auto">("auto");
@@ -152,12 +150,12 @@ const RollingColumn = ({
     const sizer = sizerRef.current;
     if (!sizer || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
-      const target = measureChar(candidateEls.current, charRef.current);
+      const target = measureChar(candidateEls.current, char);
       if (target !== null) width.set(target);
     });
     observer.observe(sizer);
     return () => observer.disconnect();
-  }, [width]);
+  }, [char, width]);
 
   // The new glyph rolls in tinted (--flash: 1) and the tint mixes out to the
   // resting color via color-mix, so it works regardless of the theme's color
@@ -276,7 +274,14 @@ export const RollingText = ({
   const columns = useMemo(() => {
     const len = words.reduce((max, word) => Math.max(max, word.length), 0);
     return Array.from({ length: len }, (_, i) =>
-      [...new Set(words.map((word) => word[i]).filter(Boolean) as string[])].map(glyph),
+      [
+        ...new Set(
+          words.flatMap((word) => {
+            const candidate = word[i];
+            return candidate === undefined ? [] : [candidate];
+          }),
+        ),
+      ].map(glyph),
     );
   }, [words]);
   const len = columns.length;

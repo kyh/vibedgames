@@ -8,8 +8,8 @@ const authSearchSchema = z.object({
 });
 
 export const Route = createFileRoute("/auth")({
-  head: () => ({ meta: [{ title: "Authentication" }] }),
   validateSearch: authSearchSchema,
+  head: () => ({ meta: [{ title: "Authentication" }] }),
   component: AuthLayout,
 });
 
