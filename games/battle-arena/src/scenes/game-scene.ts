@@ -188,7 +188,10 @@ export class GameScene {
     if (me) {
       this.statusEl.textContent = "";
       this.hud.update(this.world, me, this.controls.scoreHeld());
-      this.fx.audio.setListener(me.x, me.y, this.aimX, this.aimY);
+      // listener facing must match the CAMERA frame so stereo pan tracks the
+      // screen — on touch the camera is fixed at -y (see follow() below)
+      if (this.touch?.active) this.fx.audio.setListener(me.x, me.y, 0, -1);
+      else this.fx.audio.setListener(me.x, me.y, this.aimX, this.aimY);
       if (this.touch && me.champId !== this.boundChamp) {
         this.boundChamp = me.champId;
         this.touch.bindChamp(me.champId); // icon backgrounds + keycaps, once
@@ -205,8 +208,15 @@ export class GameScene {
     this.driveMusic(frameDt, me);
     const cx = me ? me.x : 0;
     const cy = me ? me.y : 0;
-    const pitch = this.touch?.active ? 0 : this.controls.aimPitch();
-    this.view.follow(cx, cy, this.aimX, this.aimY, pitch, rdt, terrainHeight(cx, cy));
+    // Touch is twin-stick: both sticks are SCREEN-space, so the camera yaw must
+    // stay fixed at the identity mapping (facing -y ⇒ stick-up = up-screen,
+    // stick-right = right-screen). Chasing behind the aim like desktop would
+    // rotate the frame under the thumbs and flip the sticks.
+    const fixedCam = this.touch?.active === true;
+    const pitch = fixedCam ? 0 : this.controls.aimPitch();
+    const faceX = fixedCam ? 0 : this.aimX;
+    const faceY = fixedCam ? -1 : this.aimY;
+    this.view.follow(cx, cy, faceX, faceY, pitch, rdt, terrainHeight(cx, cy));
     this.view.tickAura(this.world.gameTime);
     this.environment.setLocalPos(cx, cy); // proximity-driven decor (fountain rims)
     if (me) this.environment.setHomeSlot(me.slot); // own fountain never warns

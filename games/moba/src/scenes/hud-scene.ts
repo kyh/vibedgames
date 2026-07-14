@@ -20,11 +20,19 @@ function touchDevice(): boolean {
 const KEYS: AbilityKey[] = ["Q", "W", "E", "R"];
 const MINIMAP_SIZE = 232;
 const MINIMAP_H = Math.round(MINIMAP_SIZE * (WORLD.height / WORLD.width));
+// Compact (phone) ability cluster: dash anchors the corner, Q/W/E/R fan on a
+// quarter-arc around it — every button the same size (mobile-MOBA convention).
+const ARC_R = 28; // uniform button radius
+const ARC_START_DEG = 2; // Q sits almost straight above the anchor
+const ARC_SPAN_DEG = 88; // ...and R lands level with it (quarter arc)
+const DEG = Math.PI / 180;
 
 type Slot = {
   key: AbilityKey;
   panel: Phaser.GameObjects.Image; // carved backdrop; `box` on top carries the state stroke
   box: Phaser.GameObjects.Rectangle;
+  circle: Phaser.GameObjects.Arc; // compact-mode round button (replaces panel+box)
+  cdCircle: Phaser.GameObjects.Arc; // compact-mode cooldown/mana veil (whole-button)
   icon: Phaser.GameObjects.Image;
   cd: Phaser.GameObjects.Rectangle;
   cdText: Phaser.GameObjects.Text;
@@ -57,6 +65,7 @@ export class HudScene extends Phaser.Scene {
   private itemSlots: {
     panel: Phaser.GameObjects.Image;
     box: Phaser.GameObjects.Rectangle;
+    circle: Phaser.GameObjects.Arc; // compact-mode round chip (owned items only)
     icon: Phaser.GameObjects.Image;
     key: Phaser.GameObjects.Text;
   }[] = [];
@@ -74,9 +83,21 @@ export class HudScene extends Phaser.Scene {
   private touchUi = false;
   private compact = false;
   private portraitSize = 74;
+  // compact: owned item chips stack in a column above the arc; update() places
+  // them (ownership changes mid-match, empties are hidden entirely)
+  private itemColX = 0;
+  private itemColY = 0;
 
-  // touch/mouse utility buttons (shop / scores / recall / sound)
-  private uiButtons: { bg: Phaser.GameObjects.NineSlice; txt: Phaser.GameObjects.Text }[] = [];
+  // touch/mouse utility buttons (shop / scores / recall). `bg`+word label on
+  // desktop, `img` roundel + glyph on compact — layout() flips which is live.
+  private uiButtons: {
+    bg: Phaser.GameObjects.NineSlice;
+    img: Phaser.GameObjects.Image;
+    txt: Phaser.GameObjects.Text;
+    word: string;
+    glyph: string;
+  }[] = [];
+  private scorePanel!: Phaser.GameObjects.Image; // compact stand-in for the ribbon
 
   // minimap
   private mapTerrain!: Phaser.GameObjects.Graphics; // static land/water/bridges, drawn once per layout
@@ -108,6 +129,8 @@ export class HudScene extends Phaser.Scene {
   private dashBox!: Phaser.GameObjects.Rectangle;
   private dashCd!: Phaser.GameObjects.Rectangle;
   private dashLabel!: Phaser.GameObjects.Text;
+  private dashCircle!: Phaser.GameObjects.Arc; // compact-mode round button
+  private dashCdCircle!: Phaser.GameObjects.Arc;
 
   constructor() {
     super("Hud");
@@ -280,6 +303,14 @@ export class HudScene extends Phaser.Scene {
       .setOrigin(0.5);
 
     for (const key of KEYS) {
+      // compact round button lives UNDER the icon (created first); its square
+      // twins (panel+box) are the desktop look — layout() flips visibility
+      const circle = this.add
+        .circle(0, 0, ARC_R, 0x1c1410, 0.8)
+        .setStrokeStyle(2, 0x8a7350)
+        .setVisible(false)
+        .setInteractive({ useHandCursor: true });
+      circle.on("pointerdown", () => this.gs.castSlot(key, true));
       const panel = this.add.image(0, 0, "ui-panel").setDisplaySize(62, 62);
       const box = this.add
         .rectangle(0, 0, 58, 58, 0x1c1410, 0.12)
@@ -298,6 +329,8 @@ export class HudScene extends Phaser.Scene {
         .setOrigin(0, 0)
         .setDepth(5);
       const cd = this.add.rectangle(0, 0, 58, 58, 0x000000, 0.6).setOrigin(0.5, 1);
+      // compact veil: the whole circle dims (no drain animation on phones)
+      const cdCircle = this.add.circle(0, 0, ARC_R - 1, 0x000000, 0.6).setVisible(false);
       const cdText = this.add
         .text(0, 0, "", {
           fontFamily: FONT,
@@ -324,10 +357,18 @@ export class HudScene extends Phaser.Scene {
         .setVisible(false)
         .setInteractive({ useHandCursor: true });
       plus.on("pointerdown", () => this.gs.levelSlot(key));
-      this.slots.push({ key, panel, box, icon, cd, cdText, pips, keyLabel, plus });
+      this.slots.push({ key, panel, box, circle, cdCircle, icon, cd, cdText, pips, keyLabel, plus });
     }
 
-    // dash (F) cooldown indicator, sits just left of the ability bar; tappable
+    // dash (F) cooldown indicator, sits just left of the ability bar; tappable.
+    // On compact it becomes the big round corner anchor the ability arc bends
+    // around, so it gets the same circle treatment as the ability slots.
+    this.dashCircle = this.add
+      .circle(0, 0, ARC_R, 0x1c1410, 0.8)
+      .setStrokeStyle(2, 0x6ab0ff)
+      .setVisible(false)
+      .setInteractive({ useHandCursor: true });
+    this.dashCircle.on("pointerdown", () => this.gs.dash());
     this.dashPanel = this.add.image(0, 0, "ui-panel").setDisplaySize(54, 62);
     this.dashBox = this.add
       .rectangle(0, 0, 50, 58, 0x1c1410, 0.12)
@@ -344,9 +385,17 @@ export class HudScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
     this.dashCd = this.add.rectangle(0, 0, 50, 58, 0x000000, 0.62).setOrigin(0.5, 1);
+    this.dashCdCircle = this.add.circle(0, 0, ARC_R - 1, 0x000000, 0.62).setVisible(false);
 
-    // inventory slots (1..6)
+    // inventory slots (1..6). Compact shows OWNED items only, as round chips —
+    // an empty grid is dead pixels on a phone, so empties vanish entirely.
     for (let i = 0; i < 6; i++) {
+      const circle = this.add
+        .circle(0, 0, 19, 0x1c1410, 0.75)
+        .setStrokeStyle(2, 0x8a7350)
+        .setVisible(false)
+        .setInteractive({ useHandCursor: true });
+      circle.on("pointerdown", () => this.gs.useItemForPlayer(i));
       const panel = this.add.image(0, 0, "ui-panel").setDisplaySize(42, 42);
       const box = this.add
         .rectangle(0, 0, 38, 38, 0x1c1410, 0.12)
@@ -357,22 +406,31 @@ export class HudScene extends Phaser.Scene {
         .text(0, 0, `${i + 1}`, { fontFamily: FONT, fontSize: "10px", color: "#6b5530" })
         .setOrigin(0.5);
       box.on("pointerdown", () => this.gs.useItemForPlayer(i));
-      this.itemSlots.push({ panel, box, icon, key });
+      this.itemSlots.push({ panel, box, circle, icon, key });
     }
 
     // utility buttons — the touch-reachable path to shop/scores/recall
-    // (each has a keyboard twin: B / Tab / H)
-    const mkBtn = (label: string, onTap: () => void): Phaser.GameObjects.Text => {
+    // (each has a keyboard twin: B / Tab / H). Desktop keeps the word pills;
+    // compact swaps to small glyph roundels (layout() flips visibility, and
+    // invisible objects receive no input, so only the live form is tappable).
+    const mkBtn = (word: string, glyph: string, onTap: () => void): void => {
       const bg = this.add
         .nineslice(0, 0, "ui-btn-blue", 0, 92, 46, 28, 28, 20, 26)
         .setDepth(40010)
         .setInteractive({ useHandCursor: true });
+      const img = this.add
+        .image(0, 0, "ui-panel")
+        .setDisplaySize(40, 40)
+        .setDepth(40010)
+        .setVisible(false)
+        .setInteractive({ useHandCursor: true });
       const txt = this.add
-        .text(0, 0, label, { fontFamily: FONT, fontSize: "13px", color: "#1e3a44" })
+        .text(0, 0, word, { fontFamily: FONT, fontSize: "13px", color: "#1e3a44" })
         .setOrigin(0.5)
         .setDepth(40011);
       const up = (): void => {
         bg.setTexture("ui-btn-blue");
+        img.clearTint();
       };
       bg.on("pointerdown", () => {
         bg.setTexture("ui-btn-blue-pressed");
@@ -380,12 +438,17 @@ export class HudScene extends Phaser.Scene {
       });
       bg.on("pointerup", up);
       bg.on("pointerout", up);
-      this.uiButtons.push({ bg, txt });
-      return txt;
+      img.on("pointerdown", () => {
+        img.setTint(0xffd24a);
+        onTap();
+      });
+      img.on("pointerup", up);
+      img.on("pointerout", up);
+      this.uiButtons.push({ bg, img, txt, word, glyph });
     };
-    mkBtn("SHOP", () => this.toggleShop());
-    mkBtn("SCORES", () => this.toggleBoard());
-    mkBtn("RECALL", () => this.gs.recall());
+    mkBtn("SHOP", "🛒", () => this.toggleShop());
+    mkBtn("SCORES", "🏆", () => this.toggleBoard());
+    mkBtn("RECALL", "⌂", () => this.gs.recall());
 
     this.respawnText = this.add
       .text(0, 0, "", {
@@ -587,6 +650,14 @@ export class HudScene extends Phaser.Scene {
       .nineslice(0, 0, "ui-ribbon-yellow", 0, 252, 60, 58, 58, 22, 22)
       .setOrigin(0.5, 0)
       .setDepth(39990);
+    // compact stand-in: the ribbon texture can't shrink below its 58px corners,
+    // so phones get a small parchment capsule instead
+    this.scorePanel = this.add
+      .image(0, 0, "ui-panel")
+      .setDisplaySize(84, 28)
+      .setOrigin(0.5, 0)
+      .setDepth(39990)
+      .setVisible(false);
     this.teamScore = this.add
       .text(0, 0, "", { fontFamily: FONT, fontSize: "20px", color: "#5a3a10" })
       .setOrigin(0.5, 0)
@@ -645,6 +716,8 @@ export class HudScene extends Phaser.Scene {
         this.showAnnounce(e.text, e.tone);
         continue;
       }
+      // no running kill feed on phones — announces (the banner) still show
+      if (this.compact) continue;
       const col = e.team === "radiant" ? "#7fdcff" : "#ff9a8a";
       const txt = e.killer ? `${e.killer}  ⚔  ${e.victim}` : `${e.victim} has fallen`;
       const line = this.add
@@ -793,9 +866,10 @@ export class HudScene extends Phaser.Scene {
   }
 
   /** Responsive relayout. Desktop keeps the classic bottom bar; phones
-   *  (`compact`) rebuild around two thumb zones: a clear bottom-left for the
-   *  floating stick and a bottom-right ability/item cluster, with the minimap
-   *  shrunk and lifted to the top-right so it never sits under a thumb. */
+   *  (`compact`) use the mobile-MOBA arc layout: minimap + one-line info strip
+   *  across the top-left, HP/MP docked bottom-left, and a uniform-size ability
+   *  arc bending around the dash button in the bottom-right corner. No space is
+   *  reserved for the move stick — it floats and spawns wherever the touch is. */
   private layout(): void {
     const W = this.scale.width;
     const H = this.scale.height;
@@ -805,14 +879,49 @@ export class HudScene extends Phaser.Scene {
     const portraitOrient = H > W;
     this.compact = compact;
 
-    // minimap: bottom-right on desktop, smaller top-right on phones
-    const mapK = compact ? 0.62 : 1;
+    // flip every dual-form widget to the mode's look (invisible = untappable,
+    // so only the live form receives input)
+    for (const s of this.slots) {
+      s.panel.setVisible(!compact);
+      s.box.setVisible(!compact);
+      s.circle.setVisible(compact);
+      if (!compact) s.cdCircle.setVisible(false);
+      else s.cd.setVisible(false);
+      for (const pp of s.pips) pp.setVisible(!compact);
+      s.keyLabel.setFontSize(compact ? 11 : 14);
+      // 32px fits fully inside the r28 circle (half-diagonal 22.6) so the ring
+      // stays visible around the square icon art
+      s.icon.setDisplaySize(compact ? 32 : 50, compact ? 32 : 50);
+    }
+    this.dashPanel.setVisible(!compact);
+    this.dashBox.setVisible(!compact);
+    this.dashCircle.setVisible(compact);
+    if (!compact) this.dashCdCircle.setVisible(false);
+    else this.dashCd.setVisible(false);
+    this.dashLabel
+      .setText(compact ? "⚡" : this.touchUi ? "⚡\ndash" : "F\ndash")
+      .setFontSize(compact ? 20 : 11);
+    for (const s of this.itemSlots) {
+      s.panel.setVisible(!compact);
+      s.box.setVisible(!compact);
+      s.circle.setVisible(false); // update() shows owned ones on compact
+      if (compact) {
+        s.icon.setVisible(false);
+        s.key.setVisible(false);
+      }
+      s.icon.setDisplaySize(compact ? 26 : 30, compact ? 26 : 30);
+    }
+    if (this.barPanel) this.barPanel.setVisible(!compact);
+
+    // minimap: bottom-right on desktop, half-size top-LEFT on phones (the
+    // right edge belongs to the thumb arc)
+    const mapK = compact ? 0.5 : 1;
     this.mapW = Math.round(MINIMAP_SIZE * mapK);
     this.mapH = Math.round(MINIMAP_H * mapK);
     this.mapScale = this.mapW / WORLD.width;
     if (compact) {
-      this.mapX = W - this.mapW - 14 - inset.right;
-      this.mapY = 64 + inset.top;
+      this.mapX = 14 + inset.left;
+      this.mapY = 14 + inset.top;
     } else {
       this.mapX = W - this.mapW - 22;
       this.mapY = H - this.mapH - 22 - inset.bottom;
@@ -825,82 +934,102 @@ export class HudScene extends Phaser.Scene {
     this.drawMapTerrain();
     this.mapNextRedrawAt = 0;
 
-    // top-left info panel
+    // info: desktop = the classic top-left parchment panel; compact = a slim
+    // strip beside the minimap (one line landscape, two lines portrait)
     const left = 8 + inset.left;
     const iy = 8 + inset.top;
-    if (this.infoPanel)
-      this.infoPanel.setPosition(left, iy).setSize(compact ? 172 : 226, compact ? 90 : 112);
-    const ix = left + 16;
-    this.goldText.setPosition(ix, iy + 12);
-    this.clockText.setPosition(ix, iy + (compact ? 36 : 38));
-    this.kdaText.setPosition(ix, iy + (compact ? 56 : 60));
-    this.apText.setPosition(ix, iy + 82).setVisible(!compact);
+    const stripX = this.mapX + this.mapW + 22;
+    this.goldText.setFontSize(compact ? (portraitOrient ? 12 : 13) : 18);
+    this.clockText.setFontSize(compact ? 11 : 14);
+    this.kdaText.setFontSize(compact ? 11 : 14);
+    if (compact) {
+      if (portraitOrient) {
+        this.infoPanel.setPosition(stripX, iy).setSize(150, 40);
+        this.goldText.setPosition(stripX + 10, iy + 5);
+        this.clockText.setPosition(stripX + 84, iy + 7);
+        this.kdaText.setPosition(stripX + 10, iy + 23);
+      } else {
+        this.infoPanel.setPosition(stripX, iy).setSize(216, 30);
+        this.goldText.setPosition(stripX + 12, iy + 6);
+        this.clockText.setPosition(stripX + 88, iy + 8);
+        this.kdaText.setPosition(stripX + 146, iy + 8);
+      }
+    } else {
+      this.infoPanel.setPosition(left, iy).setSize(226, 112);
+      this.goldText.setPosition(left + 16, iy + 12);
+      this.clockText.setPosition(left + 16, iy + 38);
+      this.kdaText.setPosition(left + 16, iy + 60);
+    }
+    this.apText.setPosition(left + 16, iy + 82).setVisible(!compact);
 
-    // utility buttons: a column under the info panel (a row on landscape phones)
-    const btnRow = compact && !portraitOrient;
+    // utility buttons: glyph roundels under the info strip on compact, the
+    // classic word-pill column under the info panel on desktop
     this.uiButtons.forEach((b, i) => {
-      const x = btnRow ? left + 46 + i * 100 : left + 46;
-      const y = btnRow ? iy + 118 : iy + (compact ? 122 : 136) + i * 54;
-      b.bg.setPosition(x, y);
-      b.txt.setPosition(x, y - 3);
+      b.bg.setVisible(!compact);
+      b.img.setVisible(compact);
+      b.txt.setText(compact ? b.glyph : b.word).setFontSize(compact ? 17 : 13);
+      if (compact) {
+        const bx = stripX + 20 + i * 46;
+        const by = iy + (portraitOrient ? 62 : 52);
+        b.img.setPosition(bx, by);
+        b.txt.setPosition(bx, by - 1);
+      } else {
+        const bx = left + 46;
+        const by = iy + 136 + i * 54;
+        b.bg.setPosition(bx, by);
+        b.txt.setPosition(bx, by - 3);
+      }
     });
 
-    // score ribbon: top-center on desktop, capping the minimap on phones
-    if (this.scoreRibbon && this.teamScore) {
-      if (compact) {
-        const rx = this.mapX + this.mapW / 2;
-        this.scoreRibbon.setPosition(rx, 2 + inset.top).setSize(176, 54);
-        this.teamScore.setPosition(rx, 14 + inset.top);
-      } else {
-        this.scoreRibbon.setPosition(cx, 4).setSize(252, 60);
-        this.teamScore.setPosition(cx, 18);
-      }
+    // score: top-center ribbon on desktop; a small capsule on compact
+    // (top-center landscape, tucked top-right on portrait where the strip ends)
+    this.scoreRibbon.setVisible(!compact);
+    this.scorePanel.setVisible(compact);
+    this.teamScore.setFontSize(compact ? (portraitOrient ? 11 : 13) : 20);
+    if (compact) {
+      const sx = portraitOrient ? W - 54 - inset.right : cx;
+      this.scorePanel
+        .setPosition(sx, 6 + inset.top)
+        .setDisplaySize(portraitOrient ? 64 : 84, portraitOrient ? 24 : 28);
+      this.teamScore.setPosition(sx, (portraitOrient ? 11 : 12) + inset.top);
+    } else {
+      this.scoreRibbon.setPosition(cx, 4).setSize(252, 60);
+      this.teamScore.setPosition(cx, 18);
     }
 
     const slotPos: { x: number; y: number }[] = [];
     const itemPos: { x: number; y: number }[] = [];
     let dashPos = { x: 0, y: 0 };
     if (compact) {
-      const right = W - 12 - inset.right;
-      const bottom = H - 12 - inset.bottom;
-      const cell = 66;
-      // abilities: 2x2 thumb grid in the bottom-right corner
-      for (let i = 0; i < this.slots.length; i++) {
-        const col = i % 2;
-        const row = Math.floor(i / 2);
-        slotPos.push({ x: right - 33 - (1 - col) * cell, y: bottom - 33 - (1 - row) * cell });
-      }
-      const gridLeft = right - 2 * cell;
-      const gridTop = bottom - 2 * cell;
-      // items: 2x3 stacked above the grid (portrait) or beside it (landscape)
-      for (let i = 0; i < this.itemSlots.length; i++) {
-        const col = i % 2;
-        const row = Math.floor(i / 2);
-        itemPos.push(
-          portraitOrient
-            ? { x: right - 21 - (1 - col) * 44, y: gridTop - 29 - (2 - row) * 44 }
-            : { x: gridLeft - 29 - (1 - col) * 44, y: bottom - 21 - (2 - row) * 44 },
-        );
-      }
-      dashPos = portraitOrient
-        ? { x: gridLeft - 35, y: bottom - 31 }
-        : { x: gridLeft - 131, y: bottom - 31 };
-      const clusterTop = portraitOrient ? gridTop - 140 : gridTop;
+      // bars: docked bottom-LEFT (the floating stick is invisible and spawns
+      // at the touch point, so nothing is displaced by it)
+      const bLeft = 14 + inset.left;
+      const bBot = H - 14 - inset.bottom;
+      this.barW = portraitOrient ? 150 : 170;
+      this.portraitSize = 34;
+      this.portrait.setPosition(bLeft + 17, bBot - 22).setDisplaySize(34, 34);
+      this.lvlText.setPosition(bLeft + 17, bBot - 10).setFontSize(12);
+      const barX = bLeft + 42;
+      this.hpBar.setPosition(barX, bBot - 28);
+      this.hpBar.height = 11;
+      this.mpBar.setPosition(barX, bBot - 12);
+      this.mpBar.height = 7;
+      this.hpText.setPosition(barX + this.barW / 2, bBot - 28).setFontSize(11);
+      this.mpText.setPosition(barX + this.barW / 2, bBot - 12).setFontSize(10);
 
-      // compact bars: right-aligned just above the cluster
-      this.barW = 150;
-      const barRight = right - 6;
-      const barX = barRight - this.barW;
-      const barMidY = clusterTop - 26;
-      this.portraitSize = 46;
-      this.portrait.setPosition(barX - 32, barMidY).setDisplaySize(46, 46);
-      this.lvlText.setPosition(barX - 32, barMidY + 14).setFontSize(14);
-      if (this.barPanel)
-        this.barPanel.setPosition((barX + barRight) / 2 - 22, barMidY).setSize(this.barW + 96, 64);
-      this.hpBar.setPosition(barX, barMidY - 9);
-      this.mpBar.setPosition(barX, barMidY + 9);
-      this.hpText.setPosition(barX + this.barW / 2, barMidY - 9);
-      this.mpText.setPosition(barX + this.barW / 2, barMidY + 9);
+      // ability arc: dash anchors the corner, Q/W/E/R fan on a quarter-arc
+      const ax = W - 40 - inset.right;
+      const ay = H - 40 - inset.bottom;
+      const arcRadius = portraitOrient ? 100 : 112;
+      dashPos = { x: ax, y: ay };
+      for (let i = 0; i < this.slots.length; i++) {
+        const phi = (ARC_START_DEG + (i * ARC_SPAN_DEG) / (this.slots.length - 1)) * DEG;
+        slotPos.push({ x: ax - arcRadius * Math.sin(phi), y: ay - arcRadius * Math.cos(phi) });
+      }
+      // owned item chips: a column rising from just above the arc (update()
+      // assigns positions because ownership changes mid-match)
+      this.itemColX = ax - 6;
+      this.itemColY = ay - arcRadius - 54;
     } else {
       const baseY = H - 50;
       this.barW = 200;
@@ -911,9 +1040,11 @@ export class HudScene extends Phaser.Scene {
 
       const barX = cx - 175;
       this.hpBar.setPosition(barX, baseY - 14);
+      this.hpBar.height = 16;
       this.mpBar.setPosition(barX, baseY + 6);
-      this.hpText.setPosition(barX + this.barW / 2, baseY - 14);
-      this.mpText.setPosition(barX + this.barW / 2, baseY + 6);
+      this.mpBar.height = 10;
+      this.hpText.setPosition(barX + this.barW / 2, baseY - 14).setFontSize(12);
+      this.mpText.setPosition(barX + this.barW / 2, baseY + 6).setFontSize(11);
 
       const startX = cx + 60;
       dashPos = { x: startX - 64, y: baseY };
@@ -928,6 +1059,8 @@ export class HudScene extends Phaser.Scene {
     if (this.dashBox) {
       this.dashPanel.setPosition(dashPos.x, dashPos.y);
       this.dashBox.setPosition(dashPos.x, dashPos.y);
+      this.dashCircle.setPosition(dashPos.x, dashPos.y);
+      this.dashCdCircle.setPosition(dashPos.x, dashPos.y);
       this.dashLabel.setPosition(dashPos.x, dashPos.y);
       this.dashCd.setPosition(dashPos.x, dashPos.y + 29);
     }
@@ -936,13 +1069,16 @@ export class HudScene extends Phaser.Scene {
       if (!p) return;
       s.panel.setPosition(p.x, p.y);
       s.box.setPosition(p.x, p.y);
+      s.circle.setPosition(p.x, p.y);
+      s.cdCircle.setPosition(p.x, p.y);
       s.icon.setPosition(p.x, p.y);
       s.cd.setPosition(p.x, p.y + 29);
       s.cdText.setPosition(p.x, p.y);
-      s.keyLabel.setPosition(p.x - 26, p.y - 27);
-      s.plus.setPosition(p.x + 22, p.y - 28);
+      s.keyLabel.setPosition(p.x - (compact ? 17 : 26), p.y - (compact ? 26 : 27));
+      s.plus.setPosition(p.x + (compact ? 17 : 22), p.y - (compact ? 24 : 28));
       s.pips.forEach((pp, j) => pp.setPosition(p.x - 16 + j * 11, p.y + 22));
     });
+    // compact item chips are positioned by update() (owned-only column)
     this.itemSlots.forEach((s, i) => {
       const p = itemPos[i];
       if (!p) return;
@@ -1007,7 +1143,11 @@ export class HudScene extends Phaser.Scene {
     const mins = Math.floor(world.gameTime / 60);
     const secs = Math.floor(world.gameTime % 60);
     this.clockText.setText(`⏱ ${mins}:${secs.toString().padStart(2, "0")}`);
-    this.kdaText.setText(`K ${h.kills}  D ${h.deaths}  A ${h.assists}  ·  LH ${h.lastHits}`);
+    this.kdaText.setText(
+      this.compact
+        ? `K ${h.kills} D ${h.deaths} A ${h.assists}`
+        : `K ${h.kills}  D ${h.deaths}  A ${h.assists}  ·  LH ${h.lastHits}`,
+    );
     this.apText.setText(
       h.abilityPoints > 0
         ? `▲ ${h.abilityPoints} ability point${h.abilityPoints > 1 ? "s" : ""} ${
@@ -1019,9 +1159,17 @@ export class HudScene extends Phaser.Scene {
     // dash (F) cooldown (5s)
     if (this.dashCd) {
       const left = Math.max(0, (h.dashReadyAt - world.now) / 1000);
-      this.dashCd.setVisible(left > 0.05);
-      this.dashCd.height = 58 * Math.min(1, left / 5);
-      this.dashBox.setStrokeStyle(2, left > 0.05 ? 0x8a7350 : 0x4a90d9);
+      const cooling = left > 0.05;
+      if (this.compact) {
+        this.dashCd.setVisible(false);
+        this.dashCdCircle.setVisible(cooling);
+        this.dashCircle.setStrokeStyle(2, cooling ? 0x8a7350 : 0x4a90d9);
+      } else {
+        this.dashCdCircle.setVisible(false);
+        this.dashCd.setVisible(cooling);
+        this.dashCd.height = 58 * Math.min(1, left / 5);
+        this.dashBox.setStrokeStyle(2, cooling ? 0x8a7350 : 0x4a90d9);
+      }
     }
 
     // portrait/level
@@ -1050,48 +1198,72 @@ export class HudScene extends Phaser.Scene {
       // ability spell icon (set once per hero)
       const iconKey = abilityIcon(ad.effect);
       if (iconKey && this.textures.exists(iconKey)) {
-        if (s.icon.texture.key !== iconKey) s.icon.setTexture(iconKey).setDisplaySize(50, 50);
+        const sz = this.compact ? 32 : 50;
+        if (s.icon.texture.key !== iconKey) s.icon.setTexture(iconKey).setDisplaySize(sz, sz);
         s.icon.setVisible(true);
       }
       s.pips.forEach((p, j) => p.setFillStyle(j < rank ? 0xffe14a : 0x39456a));
       const cdLeft = Math.max(0, (slot.readyAt - world.now) / 1000);
       const cdTotal = rank > 0 ? valAt(ad.cooldown, rank) : 1;
+      // one veil per form: the desktop rect drains bottom-up, the compact
+      // circle just dims the whole button (no drain on phones)
+      const veil = (on: boolean, frac: number, color: number, alpha: number): void => {
+        if (this.compact) {
+          s.cd.setVisible(false);
+          s.cdCircle.setVisible(on).setFillStyle(color, alpha);
+        } else {
+          s.cdCircle.setVisible(false);
+          s.cd.setVisible(on).setFillStyle(color, on ? alpha : 0);
+          s.cd.height = 58 * frac;
+        }
+      };
+      const stroke = (w: number, color: number): void => {
+        s.box.setStrokeStyle(w, color);
+        s.circle.setStrokeStyle(w, color);
+      };
       if (rank <= 0) {
-        s.cd.setVisible(true);
-        s.cd.height = 58;
+        veil(true, 1, 0x000000, 0.6);
         s.cdText.setText("");
         s.icon.setAlpha(0.32); // unlearned
-        s.box.setStrokeStyle(2, 0x6b5530);
+        stroke(2, 0x6b5530);
       } else if (cdLeft > 0.05) {
-        s.cd.setVisible(true);
-        s.cd.height = 58 * Math.min(1, cdLeft / cdTotal);
+        veil(true, Math.min(1, cdLeft / cdTotal), 0x000000, 0.6);
         s.cdText.setText(cdLeft >= 1 ? `${Math.ceil(cdLeft)}` : "");
         s.icon.setAlpha(0.4); // on cooldown
-        s.box.setStrokeStyle(2, 0x8a7350);
+        stroke(2, 0x8a7350);
       } else {
         const manaOk = me.mp >= valAt(ad.manaCost, rank);
-        s.cd.setVisible(!manaOk);
-        s.cd.height = manaOk ? 0 : 58;
-        s.cd.setFillStyle(0x1a3a6a, manaOk ? 0 : 0.5);
+        veil(!manaOk, manaOk ? 0 : 1, 0x1a3a6a, 0.5);
         s.cdText.setText("");
         s.icon.setAlpha(manaOk ? 1 : 0.6); // ready / no mana
-        s.box.setStrokeStyle(manaOk ? 3 : 2, manaOk ? 0x3f9e4d : 0x8a7350);
+        stroke(manaOk ? 3 : 2, manaOk ? 0x3f9e4d : 0x8a7350);
       }
     }
 
-    // inventory slots
+    // inventory slots. Compact shows owned items only, packed into a column
+    // above the ability arc — position here because ownership changes mid-match.
+    let ownedRank = 0;
     this.itemSlots.forEach((s, i) => {
       const id = h.items[i];
       if (id) {
         const it = ITEM_BY_ID[id];
         s.icon.setVisible(true).setTexture(it?.icon ?? "ui-icon-01");
         const ready = (h.itemActiveReadyAt[id] ?? 0) <= world.now;
-        s.box.setStrokeStyle(2, it?.active ? (ready ? 0x3f9e4d : 0x9a7a30) : 0x8a7350);
-        s.key.setVisible(!!it?.active);
+        const strokeColor = it?.active ? (ready ? 0x3f9e4d : 0x9a7a30) : 0x8a7350;
+        s.box.setStrokeStyle(2, strokeColor);
+        s.circle.setStrokeStyle(2, strokeColor);
+        s.key.setVisible(!this.compact && !!it?.active);
+        if (this.compact) {
+          const iy = this.itemColY - ownedRank * 44;
+          s.circle.setVisible(true).setPosition(this.itemColX, iy);
+          s.icon.setPosition(this.itemColX, iy).setDisplaySize(26, 26);
+          ownedRank++;
+        }
       } else {
         s.icon.setVisible(false);
         s.box.setStrokeStyle(2, 0x8a7350);
         s.key.setVisible(false);
+        if (this.compact) s.circle.setVisible(false);
       }
     });
 
