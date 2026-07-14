@@ -9,7 +9,9 @@ const THREE_clamp = (v: number): number => Math.max(-1, Math.min(1, v));
 export class InputState {
   private keys = new Set<string>();
   private readonly pad = new PhysicalGamepad({ stickDeadZone: 0.12 });
-  private touch = { gas: false, brake: false, boost: false };
+  // `stickBrake` is the on-screen stick pulled DOWN — its own flag (written
+  // every frame by touch.update) so it can never clobber a held BRAKE pedal.
+  private touch = { gas: false, brake: false, boost: false, stickBrake: false };
   /** Analog steer from the on-screen stick, -1..1. Zero when no thumb is on it. */
   private touchSteer = 0;
   startPressed = false;
@@ -55,7 +57,7 @@ export class InputState {
     // ONE brake pedal, racing-game style: ↓/S/Space (and the touch BRAKE
     // button) all pull it. Brake to slow, brake+steer to drift, brake from a
     // stop to reverse, gas+brake to power-drift.
-    const brakeHeld = this.has("arrowdown", "s", " ") || this.touch.brake;
+    const brakeHeld = this.has("arrowdown", "s", " ") || this.touch.brake || this.touch.stickBrake;
     const left = this.has("arrowleft", "a");
     const right = this.has("arrowright", "d");
     let throttle = gas ? 1 : 0;

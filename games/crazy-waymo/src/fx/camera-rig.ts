@@ -55,10 +55,15 @@ export class ChaseCamera {
   update(dt: number, car: Car, solids: SolidIndex): void {
     // Drift swing: bias the follow yaw toward the velocity direction during a
     // slide so the camera lags to the outside and you see the taxi's flank.
+    // Forward motion only: in reverse the velocity opposes the heading, so
+    // slip saturates at ±π and its SIGN flips with every wiggle — unfenced it
+    // judders the camera between the two swing extremes (and rocks the
+    // horizon via driftRoll below).
+    const movingForward = car.forwardSpeed > 0.5;
     let targetYaw = car.heading;
     const slip = THREE.MathUtils.clamp(car.slip, -CAMERA.driftSwing, CAMERA.driftSwing);
     const vh = car.velAngle;
-    if (vh !== null) targetYaw = car.heading + slip;
+    if (vh !== null && movingForward) targetYaw = car.heading + slip;
     this.camYaw = lerpAngle(this.camYaw, targetYaw, Math.min(1, CAMERA.yawLerp * dt));
     const fwd = this.scrFwd.set(Math.sin(this.camYaw), Math.cos(this.camYaw));
     const perp = this.scrPerp.set(fwd.y, -fwd.x);
@@ -104,7 +109,7 @@ export class ChaseCamera {
     // Roll AFTER lookAt (which re-levels the camera): drift tilts the horizon,
     // trauma adds a rotational jitter — this is what makes shake feel physical.
     const rollShake = (Math.sin(t * 47) + Math.sin(t * 89) * 0.5) * 0.035 * s;
-    const driftRoll = THREE.MathUtils.clamp(car.slip, -1, 1) * 0.045;
+    const driftRoll = movingForward ? THREE.MathUtils.clamp(car.slip, -1, 1) * 0.045 : 0;
     this.camera.rotateZ(rollShake + driftRoll);
 
     // Speed FOV: kick wide fast, recover slow — boost hits like a gear change.

@@ -12,12 +12,18 @@ const MAP: Record<string, Btn> = {
 
 /** Drag distance that maps to full lock. Matches the stick's own radius. */
 const STICK_RADIUS = 62;
+/** Stick pulled down past this = the pedal. Well below the steering band so a
+ *  thumb sagging through a corner never drags the brake. */
+const STICK_BRAKE_PX = STICK_RADIUS * 0.55;
 
 export type TouchControls = {
   /** Coarse-pointer device — drives the touch copy on the landing screen. */
   readonly isTouch: boolean;
   /** Pump once per frame: publishes stick state into the shared InputState. */
   update(): void;
+  /** Swap the pedal cap between BRAKE and REVERSE (call with the car's
+   *  reverse-gate state each frame; only touches the DOM on change). */
+  setReverseHint(canReverse: boolean): void;
 };
 
 /** Boot-time input mode for controls and instruction copy. */
@@ -33,7 +39,7 @@ export function isTouchDevice(): boolean {
 export function setupTouch(input: InputState, onChat?: () => void): TouchControls {
   const isTouch = isTouchDevice();
   const container = document.getElementById("touch");
-  if (!container) return { isTouch: false, update: () => {} };
+  if (!container) return { isTouch: false, update: () => {}, setReverseHint: () => {} };
   if (isTouch) container.classList.add("on");
 
   for (const [id, btn] of Object.entries(MAP)) {
@@ -61,6 +67,9 @@ export function setupTouch(input: InputState, onChat?: () => void): TouchControl
     render: { tint: "#ffd147", zIndex: 6 },
   });
 
+  const cap = document.querySelector("#t-brake .cap");
+  let reverseHint = false;
+
   return {
     isTouch,
     update(): void {
@@ -68,10 +77,20 @@ export function setupTouch(input: InputState, onChat?: () => void): TouchControl
       const stick = gamepad.getStick();
       // Horizontal drag alone steers: this is a wheel, not a heading joystick.
       input.setTouchSteer(stick.active && !stick.inDeadZone ? stick.dx / STICK_RADIUS : 0);
+      // Stick pulled DOWN is the pedal — brake while rolling, reverse from a
+      // stop — mirroring ↓ on keyboard. It also lifts the gas so the brake
+      // bites at full ramp instead of fighting a pinned throttle.
+      const stickBrake = stick.active && stick.dy > STICK_BRAKE_PX;
+      input.setTouch("stickBrake", stickBrake);
       // A finger on the screen IS the gas — held through braking, so brake +
       // steer still power-drifts. The car resolves the conflict: the brake only
       // outranks the gas below 0.5 u/s, which is exactly the reverse gear.
-      input.setTouch("gas", stick.active);
+      input.setTouch("gas", stick.active && !stickBrake);
+    },
+    setReverseHint(canReverse: boolean): void {
+      if (canReverse === reverseHint || !cap) return;
+      reverseHint = canReverse;
+      cap.textContent = canReverse ? "REVERSE" : "BRAKE";
     },
   };
 }

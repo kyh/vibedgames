@@ -1426,6 +1426,9 @@ float ocNoise(vec2 p) {
     this.physics?.streamSolids(car.position.x, car.position.z);
     this.physics?.step(dt, (fdt) => car.physicsFixedStep(fdt));
     car.syncFromPhysics(dt);
+    // Same gate as the vehicle's pedal state machine: at/below 0.5 u/s the
+    // pedal means reverse, so the cap says so.
+    this.touch?.setReverseHint(car.forwardSpeed <= 0.5);
     traffic.syncWrecked();
     this.parked?.sync();
     this.parked?.updateCulling(this.rig.camera.position.x, this.rig.camera.position.z);

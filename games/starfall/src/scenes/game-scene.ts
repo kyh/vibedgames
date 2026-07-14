@@ -929,6 +929,14 @@ export class GameScene extends Phaser.Scene {
 
     this.scale.on(Phaser.Scale.Events.RESIZE, this.onViewportChange, this);
     this.onViewportChange();
+    // Start-screen framing: pre-spawn the camera sits at scroll (0,0) — the
+    // world's top-left corner. At zoom 1 (desktop) the world border lands
+    // exactly on the screen edge and reads as a clean frame, but phone zoom
+    // (< 1) widens the worldView AROUND the viewport centre, pushing it past
+    // the border into the void. Park on the world centre instead — the map
+    // dwarfs every viewport, so no edge can show at any zoom. ensureSpawned
+    // re-centres on the ship the moment the run starts.
+    this.cameras.main.centerOn(this.world.playW / 2, this.world.playH / 2);
 
     // Single-start assumption: this scene is started once per page load and
     // never restarted, so create()-initialized fields are never stale. `once`
