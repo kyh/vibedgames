@@ -158,4 +158,20 @@ test("world census + drive probe", async ({ page }) => {
   // float bug, < -0.3 = sunk through it.
   expect(result.gap).toBeGreaterThan(-0.3);
   expect(result.gap).toBeLessThan(0.6);
+  // --- Physics residency (same page) ---
+  // Static solids STREAM around the taxi (physics-world.ts): Rapier charges a
+  // ~linear per-resident-collider cost every step even at rest, and making all
+  // ~32k solids resident once cost the entire mobile frame budget (66ms/frame
+  // at quality floor). Lock the architecture: near-spawn solids present, total
+  // residents far below the full solid count.
+  const colliders = await page.evaluate(() => {
+    const game = window.__taxi?.game as unknown as {
+      physics: { raw: () => { colliders: { forEach: (cb: () => void) => void } } };
+    };
+    let n = 0;
+    game.physics.raw().colliders.forEach(() => n++);
+    return n;
+  });
+  expect(colliders, "spawn-area solids must be resident").toBeGreaterThan(50);
+  expect(colliders, "static solids must stream, never all be resident").toBeLessThan(8000);
 });

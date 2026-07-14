@@ -1423,6 +1423,7 @@ float ocNoise(vec2 p) {
     this.handleParkedImpacts(car, dt);
     traffic.update(dt, city, car.position.x, car.position.z, car.heading);
     this.signalLights?.update(traffic.time);
+    this.physics?.streamSolids(car.position.x, car.position.z);
     this.physics?.step(dt, (fdt) => car.physicsFixedStep(fdt));
     car.syncFromPhysics(dt);
     traffic.syncWrecked();

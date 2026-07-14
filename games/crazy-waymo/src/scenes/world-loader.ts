@@ -350,7 +350,11 @@ async function finishLoad(
   }
   await paint();
 
-  await physics.addStaticSolids(city.solids, city.terrain);
+  physics.addStaticSolids(city.solids, city.terrain);
+  // Seed the first resident set at the spawn NOW so the initial insert burst
+  // (+ its BVH incorporation) lands during load, not on a live frame.
+  physics.streamSolids(car.position.x, car.position.z);
+  physics.prewarm();
   lap("static solids (streamed)");
   await paint();
 

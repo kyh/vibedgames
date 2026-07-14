@@ -25,9 +25,36 @@ const MAX_STEPS = window.matchMedia("(pointer: coarse)").matches ? 2 : 4;
 const GROUND_SAMPLE = 4;
 const STATIC_HALF_HEIGHT = 6; // buildings/walls modeled as tall boxes
 
+// Static solids stream in around the taxi instead of living in the world all
+// at once: Rapier's step pays a ~linear per-resident-collider cost even when
+// nothing moves (measured ~3.4ms/step with all ~32k solids resident — the
+// entire mobile frame budget went to an idle broadphase). Everything that can
+// bounce off a building (punted traffic, cones, wrecks) lives within ~80u of
+// the taxi (traffic stops feeding kinematic targets at BODY_FAR), so only the
+// boxes near the player need to be physical. The taxi itself never touches
+// these boxes — its arcade collision tests city solids directly.
+const SOLID_STREAM_IN = 160; // boxes closer than this become colliders
+const SOLID_STREAM_OUT = 200; // resident boxes farther than this are removed
+const SOLID_RESTREAM_DIST = 24; // re-scan after the taxi moves this far
+
+type SolidBox = {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  readonly hx: number;
+  readonly hy: number;
+  readonly hz: number;
+  readonly yaw: number;
+  readonly reach: number; // conservative footprint radius: max(hx, hz)
+  collider: RAPIER.Collider | null;
+};
+
 export class PhysicsWorld {
   private world: RAPIER.World;
   private acc = 0;
+  private solidBoxes: SolidBox[] = [];
+  private streamX = Infinity;
+  private streamZ = Infinity;
 
   static async create(): Promise<PhysicsWorld> {
     await RAPIER.init();
@@ -86,18 +113,11 @@ export class PhysicsWorld {
   }
 
   // City solids (buildings, walls, railings) as tall static boxes; rotated
-  // solids (avenue-aligned buildings) carry their yaw onto the body.
-  async addStaticSolids(solids: readonly Solid[], terrain: Terrain): Promise<void> {
-    let lastYield = performance.now();
+  // solids (avenue-aligned buildings) carry their yaw. Nothing becomes a
+  // collider here — boxes are precomputed and streamSolids() keeps only the
+  // ones near the taxi resident.
+  addStaticSolids(solids: readonly Solid[], terrain: Terrain): void {
     for (const s of solids) {
-      if (performance.now() - lastYield > 12) {
-        // Absorb this slice's inserts into the broadphase NOW: Rapier defers
-        // BVH incorporation to the next step, and letting 20k pile up hands
-        // the game loop one ~20s rebuild on its first frame.
-        this.world.step();
-        await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
-        lastYield = performance.now();
-      }
       if (s.noBody) continue; // tree trunks etc — arcade-collision only
       const cx = (s.minX + s.maxX) / 2;
       const cz = (s.minZ + s.maxZ) / 2;
@@ -112,13 +132,44 @@ export class PhysicsWorld {
         s.maxY !== undefined
           ? Math.min(STATIC_HALF_HEIGHT, Math.max(0.3, (s.maxY - base) / 2))
           : STATIC_HALF_HEIGHT;
-      const desc = RAPIER.RigidBodyDesc.fixed().setTranslation(cx, base + hy - 1, cz);
-      const yaw = s.yaw ?? 0;
-      if (yaw !== 0) {
-        desc.setRotation({ x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) });
+      this.solidBoxes.push({
+        x: cx,
+        y: base + hy - 1,
+        z: cz,
+        hx,
+        hy,
+        hz,
+        yaw: s.yaw ?? 0,
+        reach: Math.max(hx, hz),
+        collider: null,
+      });
+    }
+  }
+
+  // Keep the static-solid colliders near (x, z) resident and evict the rest.
+  // Call every frame with the taxi position (before step); re-scans only
+  // after the taxi moves SOLID_RESTREAM_DIST, and the in/out radii overlap so
+  // boxes never flap at a boundary. Inserts/removals are incremental BVH
+  // updates — dozens per re-scan, not thousands.
+  streamSolids(x: number, z: number): void {
+    const moved = Math.hypot(x - this.streamX, z - this.streamZ);
+    if (moved < SOLID_RESTREAM_DIST) return;
+    this.streamX = x;
+    this.streamZ = z;
+    for (const box of this.solidBoxes) {
+      const d = Math.hypot(x - box.x, z - box.z) - box.reach;
+      if (box.collider === null && d < SOLID_STREAM_IN) {
+        const desc = RAPIER.ColliderDesc.cuboid(box.hx, box.hy, box.hz)
+          .setFriction(0.6)
+          .setTranslation(box.x, box.y, box.z);
+        if (box.yaw !== 0) {
+          desc.setRotation({ x: 0, y: Math.sin(box.yaw / 2), z: 0, w: Math.cos(box.yaw / 2) });
+        }
+        box.collider = this.world.createCollider(desc);
+      } else if (box.collider !== null && d > SOLID_STREAM_OUT) {
+        this.world.removeCollider(box.collider, true);
+        box.collider = null;
       }
-      const body = this.world.createRigidBody(desc);
-      this.world.createCollider(RAPIER.ColliderDesc.cuboid(hx, hy, hz).setFriction(0.6), body);
     }
   }
 
