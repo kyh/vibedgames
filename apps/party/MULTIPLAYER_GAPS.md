@@ -1,5 +1,9 @@
 # Multiplayer gaps
 
+> GitHub Issues is now the tracker for this work (see `#` refs on each
+> bullet below). This doc stays as design context / rationale — file new
+> work as issues, not new bullets here.
+
 A roadmap for the host-authoritative PartyServer stack (`apps/party` +
 `@vibedgames/multiplayer` + the `multiplayer` skill). Built by diffing
 the upstream `colyseus-multiplayer` skill against the current code.
@@ -21,11 +25,11 @@ These are bugs in the current code, not feature work.
   hosts and wipes per-player state. Accept a `reconnectToken` query
   param, keep the slot for ~30s with `connected: false`. After this,
   the "first key becomes host" reassignment becomes deterministic
-  instead of accidental. **M.**
+  instead of accidental. **M.** — #238
 - **DO hibernation safety.** `this.room` is an instance field. If the
   Durable Object hibernates and reloads, state resets without
   notifying clients. Either persist to DO storage or document that
-  hibernation = reset. **M.**
+  hibernation = reset. **M.** — #239
 - **`packages/multiplayer/src/client.ts` — `initialState` re-applied on
   host promotion wipes the live round.** The `sync` _and_ `host`
   message handlers both push `options.initialState` whenever the client
@@ -37,7 +41,7 @@ These are bugs in the current code, not feature work.
   `host`-case re-apply entirely). Game-side workaround already shipped
   in `games/bomberman` (no `initialState`; host seeds via an
   `isHost && !seeded` check) and documented in the `multiplayer` skill.
-  **S.**
+  **S.** — #240
 
 ## Server-side roadmap (`apps/party`, `packages/multiplayer`)
 
@@ -55,19 +59,19 @@ These are bugs in the current code, not feature work.
      logged in at all.
      Hold until private rooms or persistent identity are actual
      requirements, then design properly: subdomain (`party.vibedgames.com`)
-     for cookie carry, OR a join-token mint endpoint + URL token. **M.**
+     for cookie carry, OR a join-token mint endpoint + URL token. **M.** — #241
 - **Typed message channels.** Replace the single `emit`/`event` pair
   with `room.send(type, payload, { to?, except? })`. Mirrors
   Colyseus's `client.send` vs `broadcast` so events can target one
-  player ("you died"). Currently broadcast-only. **M.**
+  player ("you died"). Currently broadcast-only. **M.** — #242
 - **Keyed deltas instead of full re-broadcast.** `MultiplayerClient`'s
   `state_patch` handler shallow-merges; the wire still carries the
   whole patch. Switch to `{ path, value }` pairs and apply
   path-by-path. Bandwidth on a 50-key state is currently O(N) per
-  change. **M.**
+  change. **M.** — #243
 - **`connected` flag on `Player`.** Add to
   `packages/multiplayer/src/types.ts` so reconnection grace is
-  observable to game logic (render "reconnecting…" overlays). **S.**
+  observable to game logic (render "reconnecting…" overlays). **S.** — #244
 - **Room caps + overflow rooms.** A room used to accept unlimited
   players. Now `MultiplayerOptions.maxPlayers` caps a room; the SDK
   advertises it via the `_maxPlayers` query param, the server rejects
@@ -78,13 +82,13 @@ These are bugs in the current code, not feature work.
   design, see "Intentionally omitted"). **(done — 2026-06-06.) S.**
 - **Server-side validation hook.** Let game authors register Zod
   schemas for `state_patch` / `player_state_patch` payloads. Today
-  the server validates nothing. **M.**
+  the server validates nothing. **M.** — #245
 - **`/health` + room-listing endpoint.** Needed for any deploy /
-  ops story. Lift from Colyseus deployment guidance. **S.**
+  ops story. Lift from Colyseus deployment guidance. **S.** — #246
 - **Testing harness.** Spin up `VgServer` against `unstable_dev` so
-  games can write integration tests with two simulated clients. **M.**
+  games can write integration tests with two simulated clients. **M.** — #247
 - **Optional event coalescing.** `sendEvent({ coalesce: true })` —
-  damage-number events shouldn't beat the HP update they describe. **S.**
+  damage-number events shouldn't beat the HP update they describe. **S.** — #248
 
 ### Intentionally omitted
 
