@@ -260,6 +260,7 @@ function makePlayer(): PlayerNetState {
     level: 3,
     xp: 111,
     streak: 41,
+    sectorScore: 512,
     weaponName: "CHAIN REACTOR",
     shieldHp: 87,
     overHp: 42,
