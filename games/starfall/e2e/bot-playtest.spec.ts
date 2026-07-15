@@ -22,6 +22,7 @@ type Diagnostics = {
   complete: boolean;
   player: { x: number; y: number; speed: number };
   entities: number;
+  beams: number;
 };
 
 type TestHooks = {
@@ -59,10 +60,12 @@ test("bot playtest: mouse sweep progresses a seeded offline solo arena", async (
   page.on("pageerror", (e) => pageErrors.push(e.message));
   page.on("console", (m) => m.type() === "error" && consoleErrors.push(m.text()));
 
-  await page.goto("/?seed=12345");
+  // offline=1 boots solo without ever dialing the party server — a failed
+  // WebSocket handshake logs a browser console error the page can't suppress,
+  // which would trip the consoleErrors assertion below.
+  await page.goto("/?seed=12345&offline=1");
   await page.waitForFunction(() => (window.__GAME_DIAGNOSTICS__?.frame ?? 0) > 10);
-  // active-play forces the offline solo fallback immediately (no 4s connect
-  // grace) and dismisses the start overlay.
+  // active-play dismisses the start overlay straight into gameplay.
   await page.evaluate(() => window.__GAME_TEST_HOOKS__?.setState("active-play"));
   await page.waitForFunction(() => (window.__GAME_DIAGNOSTICS__?.entities ?? 0) > 0);
 
@@ -136,6 +139,31 @@ test("bot playtest: mouse sweep progresses a seeded offline solo arena", async (
   expect(report.scoreAfter, "sweep should earn XP").toBeGreaterThan(report.scoreBefore);
 });
 
+// qa-005: spec.md Controls promises "hold mouse/space to fire" — held SPACE
+// must drive the same autofire path as a held mouse button, with no pointer
+// pressed anywhere.
+test("held SPACE autofires with no pointer down", async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (e) => pageErrors.push(e.message));
+
+  await page.goto("/?seed=12345&offline=1");
+  await page.waitForFunction(() => (window.__GAME_DIAGNOSTICS__?.frame ?? 0) > 10);
+  await page.evaluate(() => window.__GAME_TEST_HOOKS__?.setState("active-play"));
+  await page.waitForFunction(() => (window.__GAME_DIAGNOSTICS__?.entities ?? 0) > 0);
+  // Settle a beat so a stale beam from boot can't false-positive (there is
+  // none — the mouse is never pressed — but be explicit about the baseline).
+  await page.waitForTimeout(300);
+  const before = await page.evaluate(() => window.__GAME_DIAGNOSTICS__?.beams ?? 0);
+  expect(before, "no beams before any input").toBe(0);
+
+  await page.keyboard.down("Space");
+  await page.waitForFunction(() => (window.__GAME_DIAGNOSTICS__?.beams ?? 0) > 0, undefined, {
+    timeout: 5_000,
+  });
+  await page.keyboard.up("Space");
+  expect(pageErrors).toEqual([]);
+});
+
 // Offline-only real freeze (shared/clock.ts): the sim clock and the render loop
 // both stop, so the frame counter halts, positions hold, and — because every
 // stored deadline (boosts, fuses, respawns) is measured against the paused
@@ -144,7 +172,7 @@ test("pause hook freezes the sim and resumes without a jump", async ({ page }) =
   const pageErrors: string[] = [];
   page.on("pageerror", (e) => pageErrors.push(e.message));
 
-  await page.goto("/?seed=12345");
+  await page.goto("/?seed=12345&offline=1");
   await page.waitForFunction(() => (window.__GAME_DIAGNOSTICS__?.frame ?? 0) > 10);
   await page.evaluate(() => window.__GAME_TEST_HOOKS__?.setState("active-play"));
   await page.waitForFunction(() => (window.__GAME_DIAGNOSTICS__?.entities ?? 0) > 0);
