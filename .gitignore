@@ -64,3 +64,6 @@ local.*
 
 # local-only showcase terrain/unit sheets
 .vercel
+
+# factory per-game blackboard (apps/factory)
+.vgfactory/

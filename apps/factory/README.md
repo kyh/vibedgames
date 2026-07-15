@@ -8,7 +8,7 @@ stop it.
 
 Each agent operates in the shape of Vercel's [Eve](https://vercel.com/blog/introducing-eve):
 
-- **A durable, checkpointed loop.** Every turn is written to disk (`.agent/`),
+- **A durable, checkpointed loop.** Every turn is written to disk (`.vgfactory/`),
   so an agent survives crashes, restarts, and individual context windows and
   resumes exactly where it stopped.
 - **Clean-context subagents.** Each phase spawns a fresh headless Claude Code
@@ -19,7 +19,7 @@ Each agent operates in the shape of Vercel's [Eve](https://vercel.com/blog/intro
   [`agents/`](./agents): its name and place in the tree _is_ its definition.
   Edit the markdown (prompt or emoji) to redefine a subagent — no code change.
 - **Per-turn observability.** Every turn appends one span to
-  `.agent/trace.jsonl` (role, phase, cost, duration, outcome) — an append-only,
+  `.vgfactory/trace.jsonl` (role, phase, cost, duration, outcome) — an append-only,
   machine-readable trail you can replay, audit, or monitor.
 - **Human-in-the-loop.** Production deploys are gated on your approval; the agent
   keeps improving the game locally and never publishes without you.
@@ -85,7 +85,7 @@ runtime without stopping it:
 ### Checkpoints (the agent asks for feedback)
 
 At real milestones — first playable, a big feature, a release — the director
-writes `.agent/checkpoint.md`, and the loop **holds with a countdown**
+writes `.vgfactory/checkpoint.md`, and the loop **holds with a countdown**
 (`--checkpoint-wait`, default 120s): the dashboard shows what it wants you to
 test and what it's asking. Press `ENTER` to continue now, `i` to respond (your
 directive answers it and continues), `s` to stop — or say nothing and it keeps
@@ -99,7 +99,7 @@ The loop can't run forever on the agents' word alone, so the harness enforces:
   workspace's `typecheck` + `build` scripts and refuses to advance on red (the
   phase retries with the failure in the journal).
 - **Git ratchet** — every successful phase is a commit in the game workspace
-  (`.agent/` stays out of history), so a phase that made things worse is a
+  (`.vgfactory/` stays out of history), so a phase that made things worse is a
   `git revert`, not a hope the next agent notices.
 - **Journal compaction** — `journal.md` is kept bounded (newest 40 entries);
   older history lives in the git log.
@@ -166,7 +166,7 @@ Pass `--context` to steer the build with more than a one-liner. It accepts:
 - **a file** — `--context ./design-brief.md` (read inline)
 - **a directory** — `--context ./references` (the agent gets read access and builds upon it)
 
-The brief is written to `<dir>/.agent/context.md` and every subagent reads it
+The brief is written to `<dir>/.vgfactory/context.md` and every subagent reads it
 first. With `--context`, `--idea` is optional.
 
 ## How it works
@@ -223,10 +223,10 @@ ROLE: Game Engineer …
 Every subagent runs with the full toolbelt — the charter and role prompt steer
 what each one does. To retune a role, edit its prompt; no code change needed.
 
-### Coordination + durable memory: the shared `.agent/`
+### Coordination + durable memory: the shared `.vgfactory/`
 
 Subagents never talk directly — they coordinate through files in
-`<workspace>/.agent/`, which is also the agent's durable memory (so the loop
+`<workspace>/.vgfactory/`, which is also the agent's durable memory (so the loop
 survives restarts and individual context windows):
 
 - `state.json` — orchestrator-owned phase / cycle / iteration / deploy URL (the checkpoint)
@@ -245,13 +245,13 @@ The game itself is scaffolded directly into the game directory (default
 
 ### Observability: replaying a run
 
-`.agent/trace.jsonl` records one JSON span per turn. Tail it live or slice it
+`.vgfactory/trace.jsonl` records one JSON span per turn. Tail it live or slice it
 after the fact:
 
 ```bash
-tail -f apps/factory/.workspaces/<slug>/.agent/trace.jsonl
+tail -f apps/factory/.workspaces/<slug>/.vgfactory/trace.jsonl
 # total spend by role:
-cat .agent/trace.jsonl | jq -s 'group_by(.role) | map({role: .[0].role, cost: (map(.costUsd // 0) | add)})'
+cat .vgfactory/trace.jsonl | jq -s 'group_by(.role) | map({role: .[0].role, cost: (map(.costUsd // 0) | add)})'
 ```
 
 ## Prerequisites
@@ -367,6 +367,6 @@ run shell/file tools and **`vg generate` (costs money)** without asking.
 - Use `--max-cycles` while you're trying it out; `--skip-ship` if you never want
   it to even prepare a release.
 - Watch the streamed output; stop anytime with `Ctrl-C` or `pnpm stop <slug>`.
-- `status --json` is machine-readable for monitoring; `.agent/trace.jsonl` is
+- `status --json` is machine-readable for monitoring; `.vgfactory/trace.jsonl` is
   the per-turn trail.
 - Approximate spend is tracked in `state.json` (`totalCostUsd`).

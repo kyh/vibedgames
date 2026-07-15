@@ -96,7 +96,7 @@ export type Blackboard = {
 };
 
 export function blackboard(workspace: string): Blackboard {
-  const dir = resolve(workspace, ".agent");
+  const dir = resolve(workspace, ".vgfactory");
   return {
     root: workspace,
     dir,
@@ -124,9 +124,9 @@ export function blackboard(workspace: string): Blackboard {
 export function hasExistingProject(dir: string): boolean {
   try {
     if (!existsSync(dir)) return false;
-    // `.studio` is the agent's pre-rename bookkeeping dir — still ignored so a
+    // `.agent`/`.studio` are pre-rename bookkeeping dirs — still ignored so a
     // leftover legacy folder isn't misread as real game code.
-    const ignore = new Set([".agent", ".studio", ".git", ".DS_Store"]);
+    const ignore = new Set([".vgfactory", ".agent", ".studio", ".git", ".DS_Store"]);
     return readdirSync(dir).some((entry) => !ignore.has(entry));
   } catch {
     return false;
@@ -134,18 +134,26 @@ export function hasExistingProject(dir: string): boolean {
 }
 
 /**
- * Migrate a pre-rename workspace. The per-game dir used to be `.studio/`; it is
- * now `.agent/`. If a legacy `.studio/` exists and the current `.agent/` does
- * not, move it across so a resume keeps its checkpoint (state.json, backlog,
- * approval sentinels) instead of restarting at the spec phase. Best-effort and
- * idempotent — a failed migration just means a fresh start. Call it before the
- * blackboard is inspected (fresh/adopt detection, status/stop/approve lookups).
+ * Migrate a pre-rename workspace. The per-game dir was `.studio/`, then
+ * `.agent/`; it is now `.vgfactory/` (specific to this tool — `.agent` was
+ * generic enough to collide with other agent tooling). If a legacy dir exists
+ * and the current `.vgfactory/` does not, move it across so a resume keeps its
+ * checkpoint (state.json, backlog, approval sentinels) instead of restarting
+ * at the spec phase. Newest legacy name wins. Best-effort and idempotent — a
+ * failed migration just means a fresh start. Call it before the blackboard is
+ * inspected (fresh/adopt detection, status/stop/approve lookups).
  */
 export function migrateLegacyLayout(workspace: string): void {
-  const legacy = resolve(workspace, ".studio");
-  const current = resolve(workspace, ".agent");
+  const current = resolve(workspace, ".vgfactory");
   try {
-    if (existsSync(legacy) && !existsSync(current)) renameSync(legacy, current);
+    if (existsSync(current)) return;
+    for (const name of [".agent", ".studio"]) {
+      const legacy = resolve(workspace, name);
+      if (existsSync(legacy)) {
+        renameSync(legacy, current);
+        return;
+      }
+    }
   } catch {
     /* best-effort — leave the legacy dir in place and start fresh */
   }

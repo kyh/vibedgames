@@ -53,7 +53,7 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/;
 /**
  * Validate + normalize a slug before it's ever used to build a filesystem
  * path. Rejecting anything outside [a-z0-9-] keeps `..`/path segments from
- * resolving `.agent` outside the workspaces dir. Returns null when invalid.
+ * resolving `.vgfactory` outside the workspaces dir. Returns null when invalid.
  */
 export function normalizeSlug(raw: string): string | null {
   const slug = raw.trim().toLowerCase();
@@ -138,8 +138,12 @@ export function deriveSlug(input: { slug?: string; dir?: string; idea?: string }
  * there.
  */
 export function availableSlug(base: string): string {
+  // Probe legacy blackboard names too: a pre-rename workspace is still taken
+  // (it gets migrated to .vgfactory/ the moment it's resumed).
   const taken = (s: string): boolean =>
-    existsSync(resolve(defaultWorkspace(s), ".agent", "state.json"));
+    [".vgfactory", ".agent", ".studio"].some((dir) =>
+      existsSync(resolve(defaultWorkspace(s), dir, "state.json")),
+    );
   if (!taken(base)) return base;
   for (let i = 2; i < 100; i++) {
     if (!taken(`${base}-${i}`)) return `${base}-${i}`;

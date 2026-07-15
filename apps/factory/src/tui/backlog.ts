@@ -17,7 +17,7 @@ const asString = (v: unknown): string =>
   typeof v === "string" ? v : typeof v === "number" ? String(v) : "";
 
 /**
- * Read + defensively parse `.agent/backlog.json`. Open items first (by
+ * Read + defensively parse `.vgfactory/backlog.json`. Open items first (by
  * priority), done items last — the order the dashboard displays. Returns []
  * when the file is missing, unreadable, or not an array.
  */

@@ -39,24 +39,25 @@ export function insideForeignRepo(workspace: string): boolean {
   return probe.ok && probe.out.trim() === "true";
 }
 
-/** Make sure the workspace is a git repo and `.agent/` stays out of history
+/** Make sure the workspace is a git repo and `.vgfactory/` stays out of history
  * (the blackboard churns every turn and belongs to the orchestrator). */
 function ensureRepo(workspace: string): boolean {
-  const ownRepo = existsSync(resolve(workspace, ".git"));
-  // Whichever repo governs this directory, `.agent/` stays out of its history.
+  if (!existsSync(resolve(workspace, ".git"))) {
+    // Inside somebody else's repo: never nest, and don't write a per-workspace
+    // .gitignore either — ignoring `.vgfactory/` is the enclosing repo's call
+    // (e.g. the vibedgames monorepo ignores it at the root).
+    if (insideForeignRepo(workspace)) return false;
+    if (!git(workspace, ["init", "-q"]).ok) return false;
+  }
   const gitignore = resolve(workspace, ".gitignore");
   try {
     const body = existsSync(gitignore) ? readFileSync(gitignore, "utf8") : "";
-    if (!/^\.agent\/?$/m.test(body)) {
-      if (body) appendFileSync(gitignore, `${body.endsWith("\n") ? "" : "\n"}.agent/\n`);
-      else writeFileSync(gitignore, ".agent/\n");
+    if (!/^\.vgfactory\/?$/m.test(body)) {
+      if (body) appendFileSync(gitignore, `${body.endsWith("\n") ? "" : "\n"}.vgfactory/\n`);
+      else writeFileSync(gitignore, ".vgfactory/\n");
     }
   } catch {
     /* a missing ignore line just means noisier commits */
-  }
-  if (!ownRepo) {
-    if (insideForeignRepo(workspace)) return false; // never nest a repo inside another
-    if (!git(workspace, ["init", "-q"]).ok) return false;
   }
   return true;
 }

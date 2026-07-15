@@ -78,7 +78,7 @@ export type AgentOptions = {
   checkpointWaitMs: number;
   /** Pass --dangerously-skip-permissions so tools run unattended. */
   skipPermissions: boolean;
-  /** Optional operator brief written to .agent/context.md for the subagents. */
+  /** Optional operator brief written to .vgfactory/context.md for the subagents. */
   context?: string;
   /** Optional reference directory the subagents are granted read access to. */
   contextDir?: string;
@@ -332,7 +332,7 @@ export async function runAgent(opts: AgentOptions, reporter: Reporter): Promise<
     while (paused && !stopping && !stopRequested(bb)) await sleep(250);
 
     if (stopRequested(bb)) {
-      reporter.warn("STOP sentinel found in .agent/ — halting.");
+      reporter.warn("STOP sentinel found in .vgfactory/ — halting.");
       break;
     }
 

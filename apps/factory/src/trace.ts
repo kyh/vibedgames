@@ -4,7 +4,7 @@ import type { Blackboard } from "./state.ts";
 
 /**
  * One span per subagent turn — the agent's observability trail. Each turn
- * appends a single JSON line to .agent/trace.jsonl capturing who ran, in what
+ * appends a single JSON line to .vgfactory/trace.jsonl capturing who ran, in what
  * phase, at what cost, and how it ended. Append-only and machine-readable so a
  * run can be replayed, audited, or monitored after the fact.
  */

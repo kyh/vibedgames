@@ -636,7 +636,7 @@ function SetupScreen({
           {showWordmark ? (
             <Fragment>
               <ascii-font
-                text="GAME"
+                text="VG"
                 font="tiny"
                 color={color.accentDim}
                 backgroundColor={color.bg}
@@ -650,7 +650,7 @@ function SetupScreen({
             </Fragment>
           ) : (
             <text attributes={TextAttributes.BOLD} fg={color.accent}>
-              GAME FACTORY
+              VG FACTORY
             </text>
           )}
           <text alignSelf="center" fg={color.faint}>
