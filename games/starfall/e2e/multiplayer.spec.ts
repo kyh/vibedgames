@@ -102,9 +102,7 @@ async function pinShip(page: Page, x: number, y: number, angle: number): Promise
   );
 }
 
-test("two clients: join, position sync, mutual PvP damage, host migration", async ({
-  browser,
-}) => {
+test("two clients: join, position sync, mutual PvP damage, host migration", async ({ browser }) => {
   test.setTimeout(150_000);
   const room = `e2e-${Date.now().toString(36)}`;
 
@@ -154,10 +152,7 @@ test("two clients: join, position sync, mutual PvP damage, host migration", asyn
         const s = window.__starfall?.scene;
         return s ? { x: s.shipX, y: s.shipY } : null;
       }),
-      pageB.evaluate(
-        (aId) => window.__starfall?.client.players[aId]?.state ?? null,
-        idA,
-      ),
+      pageB.evaluate((aId) => window.__starfall?.client.players[aId]?.state ?? null, idA),
     ]);
     if (aPos && bView && Math.hypot(aPos.x - bView.x, aPos.y - bView.y) < 250) {
       const first = matched[0];
@@ -246,9 +241,7 @@ test("two clients: join, position sync, mutual PvP damage, host migration", asyn
   );
   expect(epochAfter).toBe(epochBefore);
   // ...and the new host has real host powers: host-only spawns now succeed.
-  const spawned = await survivorPage.evaluate(
-    () => window.__starfall?.spawnEnemy("drone") ?? null,
-  );
+  const spawned = await survivorPage.evaluate(() => window.__starfall?.spawnEnemy("drone") ?? null);
   expect(spawned).not.toBeNull();
   // The sim keeps ticking for the survivor.
   const frameBefore = await survivorPage.evaluate(() => window.__GAME_DIAGNOSTICS__?.frame ?? 0);

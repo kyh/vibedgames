@@ -121,8 +121,7 @@ export function createPauseOverlay(options: PauseOverlayOptions = {}): PauseOver
 
       const title = document.createElement("div");
       title.textContent = "PAUSED";
-      title.style.cssText =
-        "font-size:26px;font-weight:800;letter-spacing:0.3em;text-indent:0.3em";
+      title.style.cssText = "font-size:26px;font-weight:800;letter-spacing:0.3em;text-indent:0.3em";
 
       const hint = document.createElement("div");
       hint.textContent = coarse ? "tap to resume" : "click or press any key to resume";

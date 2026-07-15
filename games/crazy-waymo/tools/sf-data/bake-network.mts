@@ -33,7 +33,6 @@ import { districtAt, makeTerrain } from "../../src/world/sf-map.ts";
 // mask and the shipped network came from the same bake run (test asserts it).
 const GEN_ID = new Date().toISOString();
 
-
 // Road classes → asphalt HALF width (world units). Strong HIERARCHY is what
 // reads as a real city: boulevards span better than a tile (Market/Van Ness/
 // Geary at 14u asphalt + walks ≈ 1.5 tiles), the residential grid stays a
@@ -1380,7 +1379,9 @@ console.log("Wrote src/world/sf-network.ts, src/world/sf-streets.ts, preview-net
   const kept = fwys
     .map((f) => ({ half: f.half, pts: rdp(f.pts, 2.0) }))
     .filter((f) => plLen(f.pts) >= 40);
-  console.log(`freeways: ${kept.length} polylines, ${Math.round(kept.reduce((a, f) => a + plLen(f.pts), 0) / 1000)}k units`);
+  console.log(
+    `freeways: ${kept.length} polylines, ${Math.round(kept.reduce((a, f) => a + plLen(f.pts), 0) / 1000)}k units`,
+  );
 
   // On/off RAMPS (motorway_link + trunk_link): same pipeline, ready for the
   // runtime to anchor one end at street grade and the other at deck height.
@@ -1467,7 +1468,9 @@ console.log("Wrote src/world/sf-network.ts, src/world/sf-streets.ts, preview-net
     rampsKept.push(r);
     keptSamples.push(...mine);
   }
-  console.log(`freeway ramps: ${rampsKept.length} polylines (de-braided from ${rampsSimple.length})`);
+  console.log(
+    `freeway ramps: ${rampsKept.length} polylines (de-braided from ${rampsSimple.length})`,
+  );
 
   const body = kept
     .map(

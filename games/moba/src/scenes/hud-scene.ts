@@ -357,7 +357,19 @@ export class HudScene extends Phaser.Scene {
         .setVisible(false)
         .setInteractive({ useHandCursor: true });
       plus.on("pointerdown", () => this.gs.levelSlot(key));
-      this.slots.push({ key, panel, box, circle, cdCircle, icon, cd, cdText, pips, keyLabel, plus });
+      this.slots.push({
+        key,
+        panel,
+        box,
+        circle,
+        cdCircle,
+        icon,
+        cd,
+        cdText,
+        pips,
+        keyLabel,
+        plus,
+      });
     }
 
     // dash (F) cooldown indicator, sits just left of the ability bar; tappable.

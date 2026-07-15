@@ -195,7 +195,9 @@ test("solo beacon: trough trigger, phase timers, trickle, capped-player hold cry
   const cx = 2000;
   const cy = 1200;
   await pinBeat(page, cx + 280, cy);
-  expect(await page.evaluate(([x, y]) => window.__starfall?.spawnBeacon(x, y, 1, 6) ?? false, [cx, cy])).toBe(true);
+  expect(
+    await page.evaluate(([x, y]) => window.__starfall?.spawnBeacon(x, y, 1, 6) ?? false, [cx, cy]),
+  ).toBe(true);
   const s4 = await score(page);
   const payoutDeadline = Date.now() + 15_000;
   let expired = false;
@@ -207,21 +209,22 @@ test("solo beacon: trough trigger, phase timers, trickle, capped-player hold cry
   expect(expired, "compressed beacon expired").toBe(true);
   await page.waitForTimeout(400); // one beat for the payout fx/roll to land
 
-  const after = await page.evaluate(([x, y]) => {
-    const h = window.__starfall;
-    const d = window.__GAME_DIAGNOSTICS__;
-    if (!h || !d) return null;
-    return {
-      score: d.score,
-      level: h.scene.level,
-      alive: h.scene.alive,
-      items: h.scene.world.items.length,
-      // Spawned dead-center, drifting ≤30px/s (ITEM_SPEED) since expiry.
-      crystalAtCenter: h.scene.world.items.some(
-        (it) => Math.hypot(it.x - x, it.y - y) < 120,
-      ),
-    };
-  }, [cx, cy]);
+  const after = await page.evaluate(
+    ([x, y]) => {
+      const h = window.__starfall;
+      const d = window.__GAME_DIAGNOSTICS__;
+      if (!h || !d) return null;
+      return {
+        score: d.score,
+        level: h.scene.level,
+        alive: h.scene.alive,
+        items: h.scene.world.items.length,
+        // Spawned dead-center, drifting ≤30px/s (ITEM_SPEED) since expiry.
+        crystalAtCenter: h.scene.world.items.some((it) => Math.hypot(it.x - x, it.y - y) < 120),
+      };
+    },
+    [cx, cy],
+  );
   expect(after).not.toBeNull();
   if (!after) return;
   expect(after.alive, "controller survived the hold").toBe(true);

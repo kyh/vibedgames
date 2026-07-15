@@ -325,7 +325,8 @@ export class Fx {
   // sand grains) ride on top. The old version was all additive embers — off-
   // road looked like the car was on fire, not tearing up ground.
   kickup(x: number, z: number, surface: "grass" | "sand", power: number): void {
-    if (surface === "grass") this.tmp.setRGB(0.42, 0.36, 0.24); // dry-dirt brown
+    if (surface === "grass")
+      this.tmp.setRGB(0.42, 0.36, 0.24); // dry-dirt brown
     else this.tmp.setRGB(0.82, 0.72, 0.5); // beach tan
     this.smoke.emit(x, 0.25, z, {
       count: 2,

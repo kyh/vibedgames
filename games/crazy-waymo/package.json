@@ -24,13 +24,13 @@
     "three": "^0.185.1"
   },
   "devDependencies": {
-    "@playwright/test": "^1.61.1",
-    "playwright-core": "^1.61.1",
     "@gltf-transform/core": "^4.4.1",
     "@gltf-transform/extensions": "^4.4.1",
     "@kyh/tsconfig": "catalog:",
+    "@playwright/test": "^1.61.1",
     "@types/node": "catalog:",
     "@types/three": "^0.185.1",
+    "playwright-core": "^1.61.1",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vite-node": "^6.0.0"

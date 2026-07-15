@@ -260,8 +260,7 @@ export function buildGoldenGate(ctx: GoldenGateCtx): GoldenGateResult {
   // Tower: legs OUTSIDE the drivable width, portal beams the car passes under.
   // With a Marin landfall the tower stands in the water just off the headland
   // (where the real north tower lives); the fallback keeps it near the border.
-  const towerZ =
-    landfallZ !== null ? Math.min(landfallZ + 18, rampTopZ - 10) : -WORLD_HALF_Z + 14;
+  const towerZ = landfallZ !== null ? Math.min(landfallZ + 18, rampTopZ - 10) : -WORLD_HALF_Z + 14;
   const topY = deckY + TOWER_H;
   for (const sx of [-(half + 2.2), half + 2.2]) {
     objects.push(

@@ -306,9 +306,10 @@ test("criterion 3: WARDEN under Lv3 point-blank focus — second vent window ope
   expect(fight.ttkS, "warden fight ends (no stall)").not.toBeNull();
   expect(fight.ttkS ?? 0).toBeGreaterThanOrEqual(8);
   expect(fight.ttkS ?? 99).toBeLessThanOrEqual(14);
-  expect(ventWindows(fight.samples), "≥2 vent windows — the qa-018 headline").toBeGreaterThanOrEqual(
-    2,
-  );
+  expect(
+    ventWindows(fight.samples),
+    "≥2 vent windows — the qa-018 headline",
+  ).toBeGreaterThanOrEqual(2);
   expect(pageErrors).toEqual([]);
 });
 

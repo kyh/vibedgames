@@ -63,8 +63,14 @@ export class EdgePips {
         g.fillStyle(t.tint, 0.9);
         g.beginPath();
         g.moveTo(px + cos * size, py + sin * size);
-        g.lineTo(px - sin * size * 0.55 - cos * size * 0.6, py + cos * size * 0.55 - sin * size * 0.6);
-        g.lineTo(px + sin * size * 0.55 - cos * size * 0.6, py - cos * size * 0.55 - sin * size * 0.6);
+        g.lineTo(
+          px - sin * size * 0.55 - cos * size * 0.6,
+          py + cos * size * 0.55 - sin * size * 0.6,
+        );
+        g.lineTo(
+          px + sin * size * 0.55 - cos * size * 0.6,
+          py - cos * size * 0.55 - sin * size * 0.6,
+        );
         g.closePath();
         g.fillPath();
       } else if (t.shape === "diamond") {

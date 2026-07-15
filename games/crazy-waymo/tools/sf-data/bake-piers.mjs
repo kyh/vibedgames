@@ -5,15 +5,7 @@
 //   node tools/sf-data/bake-piers.mjs
 
 import { readFileSync, writeFileSync } from "node:fs";
-import {
-  onLandUV,
-  rdp,
-  ringArea,
-  projU,
-  projV,
-  WORLD_H,
-  WORLD_W,
-} from "./lib.mjs";
+import { onLandUV, rdp, ringArea, projU, projV, WORLD_H, WORLD_W } from "./lib.mjs";
 
 const raw = JSON.parse(readFileSync(new URL("./sf-piers.raw.json", import.meta.url)));
 const ways = raw.elements.filter((e) => e.type === "way" && e.geometry);
@@ -112,7 +104,9 @@ for (const w of ways) {
   }
 }
 closed.sort((a, b) => b.area - a.area);
-console.log(`closed piers: ${closed.length}, open docks: ${open.length}, dropped on land: ${landDrop}`);
+console.log(
+  `closed piers: ${closed.length}, open docks: ${open.length}, dropped on land: ${landDrop}`,
+);
 
 writeFileSync(
   new URL("../../src/world/sf-piers.ts", import.meta.url),

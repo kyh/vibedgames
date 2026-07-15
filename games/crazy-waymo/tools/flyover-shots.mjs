@@ -15,12 +15,23 @@ const SPOTS = [
 const browser = await chromium.launch({ headless: false, channel: "chrome" });
 const page = await browser.newPage({ viewport: { width: 1500, height: 950 } });
 await page.goto(`http://localhost:${PORT}/`, { waitUntil: "domcontentloaded" });
-await page.waitForFunction(() => globalThis.__taxi?.game?.isReady === true, null, { timeout: 180000, polling: 500 });
-await page.evaluate(() => { globalThis.__taxi.game.handleStartPress(); });
+await page.waitForFunction(() => globalThis.__taxi?.game?.isReady === true, null, {
+  timeout: 180000,
+  polling: 500,
+});
+await page.evaluate(() => {
+  globalThis.__taxi.game.handleStartPress();
+});
 await page.waitForTimeout(4500);
-await page.evaluate(() => { globalThis.__taxi.setPhase(0.25); globalThis.__taxi.setFreecam(true); });
+await page.evaluate(() => {
+  globalThis.__taxi.setPhase(0.25);
+  globalThis.__taxi.setFreecam(true);
+});
 for (const [name, cx, cy, cz, tx, ty, tz] of SPOTS) {
-  await page.evaluate(([a,b,c,d,e,f]) => globalThis.__taxi.lookFrom(a,b,c,d,e,f), [cx,cy,cz,tx,ty,tz]);
+  await page.evaluate(
+    ([a, b, c, d, e, f]) => globalThis.__taxi.lookFrom(a, b, c, d, e, f),
+    [cx, cy, cz, tx, ty, tz],
+  );
   await page.waitForTimeout(2500);
   await page.screenshot({ path: `${OUT}/${name}.png` });
   console.log("shot", name);

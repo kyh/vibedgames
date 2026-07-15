@@ -258,16 +258,21 @@ test("guaranteed boss force-spawns at rel 405 with organic gates closed; beacon 
   // Satisfied sector: no second dreadnought (criterion 6).
   await page.waitForTimeout(2_500);
   const bossCount = await page.evaluate(
-    () => window.__starfall?.scene.world.enemies.filter((e) => e.kind === "dreadnought").length ?? 0,
+    () =>
+      window.__starfall?.scene.world.enemies.filter((e) => e.kind === "dreadnought").length ?? 0,
   );
   expect(bossCount).toBe(1);
 
   // Beacon deferral (criterion 7): open the rel-450 trough window with the
   // boss alive — beacon.spec proves this exact window spawns one otherwise.
   await jumpToRel(page, 448);
-  await page.waitForFunction(() => (window.__starfall?.summary().sector.rel ?? 0) >= 456, undefined, {
-    timeout: 15_000,
-  });
+  await page.waitForFunction(
+    () => (window.__starfall?.summary().sector.rel ?? 0) >= 456,
+    undefined,
+    {
+      timeout: 15_000,
+    },
+  );
   expect(await page.evaluate(() => window.__starfall?.scene.world.beacon ?? null)).toBeNull();
   expect(await page.evaluate(() => window.__starfall?.summary().enemies ?? [])).toContain(
     "dreadnought",

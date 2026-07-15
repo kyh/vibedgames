@@ -27,18 +27,18 @@ Everything else — camera rigs, enemy waves, pathfinding, steering, minimaps, i
 
 Scene setup is inline below. Read the relevant reference before working on that area:
 
-| When you're working on...                                                  | Read first                              |
-| -------------------------------------------------------------------------- | --------------------------------------- |
-| Character locomotion / Rapier character collision / smoothing / seeded RNG | `modules/summary.md`                    |
-| Turning a scene into a playable game (fixed-timestep loop, structure)      | `references/gameplay-systems.md`        |
-| Physics or collision (Rapier / cannon-es / arcade overlap)                 | `references/physics.md`                 |
-| Movement controllers + follow/third-person camera                          | `references/controllers-and-camera.md`  |
-| Loading/caching/normalizing GLTF/GLB models                                | `references/gltf-loading-guide.md`      |
-| Game loop, state machine, object pooling, screen effects                   | `references/game-patterns.md`           |
-| Dropping generated GLB models / SFX into a running scene                   | `references/generated-assets.md`        |
-| Post-processing, shaders, instancing, env maps, color management           | `references/advanced-topics.md`         |
-| Material values, shader injection (onBeforeCompile), sky, cheap tricks, z-fighting | `references/graphics-recipes.md` |
-| Black screen, low FPS, mobile issues, memory leaks, physics debugging      | `references/debugging-and-profiling.md` |
+| When you're working on...                                                          | Read first                              |
+| ---------------------------------------------------------------------------------- | --------------------------------------- |
+| Character locomotion / Rapier character collision / smoothing / seeded RNG         | `modules/summary.md`                    |
+| Turning a scene into a playable game (fixed-timestep loop, structure)              | `references/gameplay-systems.md`        |
+| Physics or collision (Rapier / cannon-es / arcade overlap)                         | `references/physics.md`                 |
+| Movement controllers + follow/third-person camera                                  | `references/controllers-and-camera.md`  |
+| Loading/caching/normalizing GLTF/GLB models                                        | `references/gltf-loading-guide.md`      |
+| Game loop, state machine, object pooling, screen effects                           | `references/game-patterns.md`           |
+| Dropping generated GLB models / SFX into a running scene                           | `references/generated-assets.md`        |
+| Post-processing, shaders, instancing, env maps, color management                   | `references/advanced-topics.md`         |
+| Material values, shader injection (onBeforeCompile), sky, cheap tricks, z-fighting | `references/graphics-recipes.md`        |
+| Black screen, low FPS, mobile issues, memory leaks, physics debugging              | `references/debugging-and-profiling.md` |
 
 **Verify it actually renders.** `scripts/check-canvas.mjs` loads a build in headless Chromium and fails on a blank canvas or uncaught page error — run it in CI / before `vg deploy` (details in `references/debugging-and-profiling.md`).
 

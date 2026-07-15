@@ -3940,7 +3940,12 @@ export class GameScene extends Phaser.Scene {
   private beaconOccupants(cx: number, cy: number): string[] {
     const out: string[] = [];
     const myId = this.myId;
-    if (myId && this.alive && this.spawned && Math.hypot(this.shipX - cx, this.shipY - cy) <= BEACON_RADIUS) {
+    if (
+      myId &&
+      this.alive &&
+      this.spawned &&
+      Math.hypot(this.shipX - cx, this.shipY - cy) <= BEACON_RADIUS
+    ) {
       out.push(myId);
     }
     for (const [id, st] of this.peerStates) {
@@ -3998,7 +4003,11 @@ export class GameScene extends Phaser.Scene {
     // picks the cadence back up through these same gates.
     if (w.enemies.some((e) => e.kind === "dreadnought")) return;
     if (tSec % BEACON_TROUGH_PERIOD_S > BEACON_SPAWN_WINDOW_S) return;
-    if (this.lastBeaconStartedAt > 0 && now - this.lastBeaconStartedAt < BEACON_MIN_INTERVAL_S * 1000) return;
+    if (
+      this.lastBeaconStartedAt > 0 &&
+      now - this.lastBeaconStartedAt < BEACON_MIN_INTERVAL_S * 1000
+    )
+      return;
     // Placement: ≥600px inside the barrier, ≥900px from every present player
     // (fair approach run); crowded arenas take the candidate farthest from
     // the nearest player.
@@ -4020,7 +4029,13 @@ export class GameScene extends Phaser.Scene {
 
   /** Create the shared beacon entry (also the dev-hook entrypoint; custom
    *  charge/active lengths are for compressed-timer e2e probes only). */
-  private hostSpawnBeacon(x: number, y: number, now: number, chargeS = BEACON_CHARGE_S, activeS = BEACON_ACTIVE_S): void {
+  private hostSpawnBeacon(
+    x: number,
+    y: number,
+    now: number,
+    chargeS = BEACON_CHARGE_S,
+    activeS = BEACON_ACTIVE_S,
+  ): void {
     this.world.beacon = {
       x,
       y,
@@ -4036,7 +4051,8 @@ export class GameScene extends Phaser.Scene {
   /** Position of a player by id (me from the live ship, remotes from their
    *  net state). Null when unknown/absent. */
   private playerPos(id: string): Vec | null {
-    if (id === this.myId) return this.spawned && this.alive ? { x: this.shipX, y: this.shipY } : null;
+    if (id === this.myId)
+      return this.spawned && this.alive ? { x: this.shipX, y: this.shipY } : null;
     const st = this.peerStates.get(id);
     return st && st.alive ? { x: st.x, y: st.y } : null;
   }
@@ -4401,7 +4417,10 @@ export class GameScene extends Phaser.Scene {
       const beacon = this.world.beacon;
       if (beacon && (e.kind === "drone" || e.kind === "wasp")) {
         const bd = Math.hypot(beacon.x - e.x, beacon.y - e.y);
-        if (bd < BEACON_RETARGET_RANGE && (!target || bd < Math.hypot(target.x - e.x, target.y - e.y))) {
+        if (
+          bd < BEACON_RETARGET_RANGE &&
+          (!target || bd < Math.hypot(target.x - e.x, target.y - e.y))
+        ) {
           target = { x: beacon.x, y: beacon.y };
         }
       }
@@ -5063,7 +5082,13 @@ export class GameScene extends Phaser.Scene {
    */
   /** `bypassCap` (UFO-drop precedent): a GUARANTEED payout — the beacon hold
    *  crystal — must never be silently skipped by the in-flight item cap. */
-  private hostRollLoot(x: number, y: number, chance: number, feedPity: boolean, bypassCap = false): void {
+  private hostRollLoot(
+    x: number,
+    y: number,
+    chance: number,
+    feedPity: boolean,
+    bypassCap = false,
+  ): void {
     const w = this.world;
     const bumpAll = (): void => {
       if (!feedPity) return;
@@ -5615,8 +5640,7 @@ export class GameScene extends Phaser.Scene {
       // would blank the hull for a quarter of the whole melt — those flash
       // WHITE instead (drawEnemyTelegraphs). Lancer/splitter fights are
       // sub-3s, so the cheap hide-blink stays readable there.
-      const flashesWhite =
-        e.kind === "dreadnought" || e.kind === "warden" || e.kind === "spawner";
+      const flashesWhite = e.kind === "dreadnought" || e.kind === "warden" || e.kind === "spawner";
       const hidden = !flashesWhite && now < e.blinkUntil && Math.floor(now / 66) % 4 === 0;
       rec.gfx.setVisible(!hidden);
       rec.gfx.setAlpha(e.graceUntil > now ? 0.25 + 0.45 * (Math.sin(now / 40) * 0.5 + 0.5) : 1);
@@ -6470,7 +6494,11 @@ export class GameScene extends Phaser.Scene {
   /** Boundary recap: standings snapshot into #recap for SECTOR_RECAP_SHOW_S.
    *  Non-blocking DOM (pointer-events: none) — sim, input and firing continue
    *  behind it; tickSector fades it out on schedule. */
-  private showRecap(completedNum: number, rows: Array<{ id: string; pts: number }>, now: number): void {
+  private showRecap(
+    completedNum: number,
+    rows: Array<{ id: string; pts: number }>,
+    now: number,
+  ): void {
     this.recapUntil = now + SECTOR_RECAP_SHOW_S * 1000;
     // One chime from the gold shared-event family (beacon vocabulary, no new synth).
     sfx.play("beacon_active", { rate: 1.3, gain: 0.6 });

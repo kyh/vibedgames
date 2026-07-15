@@ -150,12 +150,12 @@ console.log({
 
 ## Quick reference: what to check first
 
-| Problem                                            | First thing to check                                                            |
-| -------------------------------------------------- | ------------------------------------------------------------------------------- |
-| Black screen                                       | scene.add → light → camera position (`check-canvas.mjs` to confirm objectively) |
-| Low FPS                                            | `renderer.info.render.calls`, then DPR cap                                      |
-| FPS drops over time                                | allocation in the loop, then undisposed resources                               |
-| Bad on mobile only                                 | DPR cap, then resize handling                                                   |
-| Stretched after rotate                             | resize handler updating aspect + setSize                                        |
-| Clipping through walls / falling through platforms | collider-vs-mesh match, then CCD / kinematic body updates                       |
+| Problem                                            | First thing to check                                                                          |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Black screen                                       | scene.add → light → camera position (`check-canvas.mjs` to confirm objectively)               |
+| Low FPS                                            | `renderer.info.render.calls`, then DPR cap                                                    |
+| FPS drops over time                                | allocation in the loop, then undisposed resources                                             |
+| Bad on mobile only                                 | DPR cap, then resize handling                                                                 |
+| Stretched after rotate                             | resize handler updating aspect + setSize                                                      |
+| Clipping through walls / falling through platforms | collider-vs-mesh match, then CCD / kinematic body updates                                     |
 | Surfaces flash/flicker as the camera moves         | z-fighting — coplanar meshes or `near` too small; fixes in `graphics-recipes.md` § Z-Fighting |

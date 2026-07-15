@@ -160,7 +160,9 @@ rl.on("close", () => {
   }
   console.log(`components: ${buildings.length} (${buildingGroups.size} tag groups)`);
   const withOutline = buildings.filter((b) => b.outline).length;
-  console.log(`roof outlines recovered: ${withOutline} (${((withOutline / buildings.length) * 100).toFixed(1)}%)`);
+  console.log(
+    `roof outlines recovered: ${withOutline} (${((withOutline / buildings.length) * 100).toFixed(1)}%)`,
+  );
 
   calibrateAndEmit(buildings);
 });
@@ -234,7 +236,9 @@ function calibrateAndEmit(buildings) {
   for (const [name, mx, mz, wx, wz] of ANCHORS) {
     const [ax, az] = toWorld([mx, mz]);
     const err = Math.hypot(ax - wx, az - wz);
-    console.log(`anchor ${name}: (${ax.toFixed(1)}, ${az.toFixed(1)}) vs (${wx}, ${wz}) — ${err.toFixed(1)}u`);
+    console.log(
+      `anchor ${name}: (${ax.toFixed(1)}, ${az.toFixed(1)}) vs (${wx}, ${wz}) — ${err.toFixed(1)}u`,
+    );
     if (err > 12) {
       console.error("anchor drift — recheck CAL before emitting");
       process.exit(1);

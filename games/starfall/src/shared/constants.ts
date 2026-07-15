@@ -1394,10 +1394,7 @@ export function callsign(peerId: string): string {
   }
   h >>>= 0;
   const name = CALLSIGN_TABLE[h % CALLSIGN_TABLE.length] ?? "NOMAD";
-  const suffix = ((h >>> 8) & 0xff)
-    .toString(16)
-    .toUpperCase()
-    .padStart(2, "0");
+  const suffix = ((h >>> 8) & 0xff).toString(16).toUpperCase().padStart(2, "0");
   return `${name}-${suffix}`;
 }
 
