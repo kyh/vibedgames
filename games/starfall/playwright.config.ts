@@ -8,9 +8,20 @@ export default defineConfig({
   // skill's bot-playtest reference).
   workers: 1,
   use: { baseURL: "http://localhost:5198" },
-  webServer: {
-    command: "pnpm dev --port 5198 --strictPort",
-    url: "http://localhost:5198",
-    reuseExistingServer: !process.env.CI,
-  },
+  webServer: [
+    {
+      command: "pnpm dev --port 5198 --strictPort",
+      url: "http://localhost:5198",
+      reuseExistingServer: !process.env.CI,
+    },
+    {
+      // Party server for the multiplayer spec. `port` (not `url`) on purpose:
+      // the worker 404s on / — a socket listen is the readiness signal.
+      command: "pnpm dev",
+      cwd: "../../apps/party",
+      port: 8787,
+      reuseExistingServer: true,
+      timeout: 120_000,
+    },
+  ],
 });

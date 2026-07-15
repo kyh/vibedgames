@@ -232,8 +232,8 @@ export const XP = {
 export const LEVEL_CAP = 3;
 export const XP_BASE = 70;
 export const XP_GROWTH = 1.6;
-/** XP needed to go from `level` → `level+1`. Super-linear: fast early ramp
- *  (L1→2 = 40), grindy top end (L11→12 ≈ 457), ~2000 total to cap. */
+/** XP needed to go from `level` → `level+1`. Super-linear: L1→2 = 70,
+ *  L2→3 = 112 — 182 total to cap. */
 export function xpToNext(level: number): number {
   return Math.round(XP_BASE * Math.pow(XP_GROWTH, Math.max(1, level) - 1));
 }
@@ -339,7 +339,7 @@ export type Weapon = {
 };
 
 export const WEAPON_DEFAULT: Weapon = {
-  name: "NORMAL BEAM",
+  name: "BEAM",
   power: 0.25,
   speed: 520,
   length: 12,
@@ -1171,21 +1171,64 @@ export type EnemySpec = {
 
 /** v3 fodder rule: one NORMAL BEAM hit = power 0.25 x 100 = 25 HP, so
  *  fodder (drone, wasp) hp <= 25 and dies to a single default shot.
- *  Splitter children are drones -> also 1-shot. Elites keep the old ratios
- *  (lancer 80 = 4 NORMAL hits, splitter 120 = 5). The v2 F.2 invariant is
- *  untouched by hp tuning: a lone DRONE still can't kill a dodging
- *  full-shield player (30 dmg / 2.8s cooldown vs 2.5s regen delay). */
+ *  Splitter children are drones -> also 1-shot. Elite hp entries are the
+ *  Lv1-ROOM base (qa-018): the host overwrites e.hp = eliteHp(kind, maxLevel)
+ *  at spawn so elite TTK stays level-invariant (see ELITE_HP_BASE below).
+ *  The v2 F.2 invariant is untouched by hp tuning: a lone DRONE still can't
+ *  kill a dodging full-shield player (30 dmg / 2.8s cooldown vs 2.5s regen
+ *  delay). */
 export const ENEMY_SPECS: Record<EnemyKind, EnemySpec> = {
   drone: { name: "DRONE", tint: 0xff7a6b, hitRadius: 7, hp: 20, xp: 5 },
   wasp: { name: "WASP", tint: 0xff4757, hitRadius: 8, hp: 25, xp: 12 },
-  lancer: { name: "LANCER", tint: 0xd90429, hitRadius: 9, hp: 80, xp: 20 },
-  splitter: { name: "SPLITTER", tint: 0xff9580, hitRadius: 12, hp: 120, xp: 16 },
-  warden: { name: "WARDEN", tint: 0xffb347, hitRadius: 16, hp: 220, xp: 28 },
+  lancer: { name: "LANCER", tint: 0xd90429, hitRadius: 9, hp: 160, xp: 20 },
+  splitter: { name: "SPLITTER", tint: 0xff9580, hitRadius: 12, hp: 240, xp: 16 },
+  warden: { name: "WARDEN", tint: 0xffb347, hitRadius: 16, hp: 520, xp: 28 },
   sniper: { name: "SNIPER", tint: 0xff5ec7, hitRadius: 8, hp: 35, xp: 14 },
-  spawner: { name: "HIVE", tint: 0xc77dff, hitRadius: 14, hp: 130, xp: 24 },
-  // hp is a placeholder; the host overwrites e.hp = bossHp(players) at spawn.
-  dreadnought: { name: "DREADNOUGHT", tint: 0xff2d2d, hitRadius: 60, hp: 4000, xp: 600 },
+  spawner: { name: "HIVE", tint: 0xc77dff, hitRadius: 14, hp: 500, xp: 24 },
+  // hp is a placeholder (keep = BOSS_HP_BASE); the host overwrites
+  // e.hp = bossHp(players) at spawn.
+  dreadnought: { name: "DREADNOUGHT", tint: 0xff2d2d, hitRadius: 60, hp: 14_000, xp: 600 },
 };
+
+// ---- elite durability (qa-018): elite HP tracks the room's beam-DPS ceiling ------
+// Winning players hit Lv3 (~606 sustained DPS, a 6.06x jump over Lv1) by t≈30;
+// flat elite HP meant every elite died before its signature mechanic ran
+// (warden dead inside its first vent window, hive dead before its first brood
+// pulse). Elites are punctuation — their read-time must survive leveling — so
+// their HP scales by the SAME multiplier the base beam earns. Derived from the
+// actual beam formula so any future beam retune auto-tracks. Deliberately
+// UNLIKE bossHp: the driver is player LEVEL (max among present players), not
+// player count — elite encounters stay ~1v1. SNIPER is exempt by design
+// (glass-cannon kiting at 520px IS the mechanic), as are fodder and the boss.
+
+/** Point-blank sustained DPS of baseWeaponForLevel(L): L1 100, L2 ~290, L3 ~606. */
+export function baseBeamDps(level: number): number {
+  const w = baseWeaponForLevel(level);
+  return (w.pellets * w.power * 100) / (w.intervalMs / 1000);
+}
+
+/** L1 1.0, L2 ~2.90, L3 ~6.06 — elite TTK becomes level-invariant by construction. */
+export function eliteHpMult(maxLevel: number): number {
+  return baseBeamDps(maxLevel) / baseBeamDps(1);
+}
+
+/** Lv1-room elite HP (mirrors ENEMY_SPECS hp for these kinds). Kinds absent
+ *  here (fodder, sniper, dreadnought) never route through eliteHp(). */
+export const ELITE_HP_BASE: Partial<Record<EnemyKind, number>> = {
+  lancer: 160,
+  splitter: 240,
+  warden: 520,
+  spawner: 500,
+};
+
+/** HP the host stamps on an elite at spawn (the bossHp pattern): base × the
+ *  room's beam-DPS multiplier. Stamped once — a mid-fight level-up never
+ *  retro-buffs a live elite. Lv3 room: lancer 970 / splitter 1,455 /
+ *  warden 3,152 / hive 3,030. */
+export function eliteHp(kind: EnemyKind, maxLevel: number): number {
+  const base = ELITE_HP_BASE[kind] ?? ENEMY_SPECS[kind].hp;
+  return Math.round(base * eliteHpMult(maxLevel));
+}
 
 /** Enemies never fire unless their target is within this range (≈ on screen). */
 export const ENEMY_FIRE_RANGE = 600;
@@ -1193,6 +1236,181 @@ export const ENEMY_FIRE_RANGE = 600;
 export const ENEMY_SPAWN_CLEARANCE = 900;
 /** Debut rule: a type's first spawn suppresses other enemy spawns this long. */
 export const ENEMY_DEBUT_SUPPRESS_MS = 5_000;
+
+// ---- early-arena onslaught (first-30s feel) ----------------------------------------
+// A fresh arena at low intensity holds only a handful of hostiles across the whole
+// map AND spawns them at the play-area edges, so a new player could fly for ~30s
+// without a single threat on screen. While the arena is young, fodder spawns land
+// in a ring just outside a live player's viewport instead, so 2–3 threats are
+// visibly converging within the first seconds. Placement + pacing only: the enemy
+// CAPS and the intensity director's macro ramp are untouched, and placement is
+// host-side so every client sees the same world.
+
+/** Ring bias, seed wave and interval clamp apply while the arena is younger than
+ *  this (≈ up to the first wave crest at t=45). */
+export const EARLY_SPAWN_WINDOW_S = 45;
+/** Ring outer radius around the anchor player. The inner radius is
+ *  ENEMY_SPAWN_CLEARANCE (900) — past a 1280×720 viewport's half-diagonal
+ *  (~734px), so spawns still materialize off-screen, yet close enough that a
+ *  drone (70 px/s) is a visible converging threat within seconds. */
+export const EARLY_SPAWN_RING_MAX = 1600;
+/** Only fodder converges via the ring; elites keep the far edge entrance so
+ *  their debuts stay telegraphed, not ambushes. */
+export const EARLY_FODDER_KINDS: readonly EnemyKind[] = ["drone", "wasp"];
+/** One-time debut wave once the safe opening ends: this many drones seeded in
+ *  the ring at once (stays under the early enemy cap ≈4). This IS the drone
+ *  debut — the usual debut-suppression window follows it. */
+export const EARLY_FODDER_SEED_COUNT = 3;
+/** The seed wave uses a tighter outer radius than ongoing early spawns: a
+ *  drone closes ~70 px/s, so from ≤1050 the whole wave is a visible on-screen
+ *  threat within ~4s of the safe opening ending (from 1600 it would take 12s+
+ *  and the opening still reads empty). */
+export const EARLY_SEED_RING_MAX = 1_050;
+/** Spawn-interval clamp inside the window: at intensity 0.2 the base curve
+ *  waits 8s between (and before the FIRST) spawn. The caps still bound the
+ *  early population, so totals are unchanged — the field just fills promptly. */
+export const EARLY_SPAWN_INTERVAL_MS = 2_500;
+
+// ---- BEACON arena event (dir-004) --------------------------------------------------
+// King-of-the-hill XP zone that fills the intensity troughs. One beacon at a
+// time, ever. Host decides spawn/control/payout; phases derive from shared
+// epoch-ms timestamps so they survive host migration (arenaEpoch pattern).
+
+/** Control zone radius (px). */
+export const BEACON_RADIUS = 420;
+/** CHARGE telegraph length — no trickle, can't be contested. */
+export const BEACON_CHARGE_S = 8;
+/** ACTIVE (contestable) length. Total on-screen life = CHARGE + ACTIVE = 48s. */
+export const BEACON_ACTIVE_S = 40;
+/** The intensity director's macro-wave period (arenaIntensity hardcodes 90s);
+ *  beacons are only eligible in the trough window at the start of each wave. */
+export const BEACON_TROUGH_PERIOD_S = 90;
+/** Spawn window: tSec mod 90 ∈ [0, this]. */
+export const BEACON_SPAWN_WINDOW_S = 5;
+/** Never during the opening/onboarding minute-and-a-half. */
+export const BEACON_MIN_T_S = 90;
+/** Min seconds between beacon STARTS — every other trough, so the net cadence
+ *  is t≈90/270/450 (one per ~3 min; the spec states this cadence twice, so the
+ *  interval is measured start-to-start: end-to-next-start comes to ~132s). */
+export const BEACON_MIN_INTERVAL_S = 180;
+/** Trickle cadence + amount: 3 XP/s to the SOLE controller (owner-simulated,
+ *  flat — no per-level scaling; at LEVEL_CAP it honestly pays run-score only). */
+export const BEACON_TICK_MS = 1000;
+export const BEACON_XP_PER_TICK = 3;
+/** Controlled at expiry: bonus XP + ONE guaranteed pity-fed loot crystal at
+ *  the beacon center (chance=1, ITEMS_MAX_LIVE bypassed like UFO drops). */
+export const BEACON_HOLD_BONUS_XP = 40;
+/** Event tint family: solar gold + white core. Distinct from warden amber by
+ *  geometry (a huge static hex ring). Keep gold off enemy and player kit. */
+export const BEACON_TINT = 0xffd166;
+/** Placement: ≥ this far inside the barrier... */
+export const BEACON_EDGE_MARGIN = 600;
+/** ...and ≥ this far from every present player (fair approach run). If no
+ *  candidate satisfies it, the farthest-from-nearest-player candidate wins. */
+export const BEACON_PLAYER_CLEARANCE = 900;
+/** While CHARGE or ACTIVE: this fraction of new host enemy spawns lands on a
+ *  ring around the beacon instead of the usual placement (bias only — the
+ *  intensity director's caps/weights are untouched). */
+export const BEACON_LURE_FRACTION = 0.5;
+/** Lure-spawn ring around the beacon center (~1100px per spec). */
+export const BEACON_LURE_RING_MIN = 1000;
+export const BEACON_LURE_RING_MAX = 1200;
+/** Existing drones/wasps within this range steer toward the beacon center
+ *  (nearest-of semantics: a player inside the zone is closer and wins). */
+export const BEACON_RETARGET_RANGE = 1600;
+/** Contested ring strobe rate (gold↔white). */
+export const BEACON_CONTEST_STROBE_HZ = 4;
+
+/** BEACON shared entry — the ONE nullable SharedState field the event adds
+ *  (~90B on the wire). Six scalars, host-written; clients derive phase +
+ *  countdown locally: t < activeAt → CHARGE, else ACTIVE until diesAt. */
+export type BeaconState = {
+  x: number;
+  y: number;
+  /** Host-clock epoch-ms the zone arms (CHARGE ends). */
+  activeAt: number;
+  /** Host-clock epoch-ms the zone expires. */
+  diesAt: number;
+  /** Sole occupant during ACTIVE; null when empty or contested. */
+  controllerId: string | null;
+  contested: boolean;
+};
+
+// ---- SECTOR cycle (dir-006): session shape + post-cap chase ------------------------
+// A soft 9-minute clock derived PURELY from the shared arenaEpoch (zero new
+// timing wire): every SECTOR_LENGTH_S the room crosses a boundary — sector
+// standings snapshot into a 10s non-blocking recap, every player's sector
+// score owner-resets to 0, and play continues uninterrupted. 540 = exactly 6
+// of the intensity director's 90s macro waves, so boundaries land on troughs
+// (calm recap beat), the guaranteed-boss beat (rel 405) lands on a peak, and
+// the beacon cadence repeats at the SAME sector-relative times every sector.
+
+export const SECTOR_LENGTH_S = 540;
+/** Guaranteed DREADNOUGHT beat: at this sector-relative second a sector that
+ *  has not seen a dreadnought spawn yet force-spawns one (host rule, additive
+ *  to the organic gates — see hostMaybeSpawnBoss). */
+export const SECTOR_BOSS_AT_S = 405;
+/** Recap banner show length at each boundary (non-blocking DOM). */
+export const SECTOR_RECAP_SHOW_S = 10;
+/** Standings pulse length at each SECTOR_PULSE_AT_S beat. */
+export const SECTOR_PULSE_S = 5;
+/** Pulse beats: the two intensity troughs with no beacon (rel 90/270 host the
+ *  beacon cadence; rel 450's slot normally belongs to the boss fight). */
+export const SECTOR_PULSE_AT_S = [180, 360] as const;
+
+export function sectorIdx(tSec: number): number {
+  return Math.floor(Math.max(0, tSec) / SECTOR_LENGTH_S);
+}
+export function sectorRelT(tSec: number): number {
+  return Math.max(0, tSec) % SECTOR_LENGTH_S;
+}
+
+/** Recap/pulse display names — players carry no names on the wire, so every
+ *  client derives the same callsign from the peer id (deterministic FNV-1a →
+ *  table + 2-hex suffix). Self renders as YOU, never through here. */
+const CALLSIGN_TABLE = [
+  "KESTREL",
+  "VECTOR",
+  "NOMAD",
+  "TALON",
+  "ORION",
+  "CIPHER",
+  "HAVOC",
+  "ZENITH",
+  "QUASAR",
+  "RAPTOR",
+  "SABLE",
+  "COMET",
+  "VORTEX",
+  "PHANTOM",
+  "AURORA",
+  "STRIKER",
+] as const;
+export function callsign(peerId: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < peerId.length; i++) {
+    h ^= peerId.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  h >>>= 0;
+  const name = CALLSIGN_TABLE[h % CALLSIGN_TABLE.length] ?? "NOMAD";
+  const suffix = ((h >>> 8) & 0xff)
+    .toString(16)
+    .toUpperCase()
+    .padStart(2, "0");
+  return `${name}-${suffix}`;
+}
+
+// ---- viewport-edge pips (shared telegraph component: beacon/UFO/debut wave) --------
+
+/** Pip inset from the viewport edge, in SCREEN px (scaled by 1/zoom). */
+export const PIP_EDGE_MARGIN = 30;
+/** Pip glyph size in SCREEN px (scaled by 1/zoom). */
+export const PIP_SIZE = 9;
+/** Debut-wave pips (qa-007): while the arena is younger than the early
+ *  window AND no hostile is on-viewport, point at the nearest few inbound
+ *  enemies so an empty screen still telegraphs where the action is. */
+export const DEBUT_PIP_MAX = 3;
 
 export const DRONE_SPEED = 70;
 export const DRONE_TURN_DEG_PER_S = 90;
@@ -1259,8 +1477,22 @@ export const SPAWNER_BROOD_CAP = 6;
 export const MITE_GRACE_MS = 500;
 
 // ---- DREADNOUGHT (v5: 3-phase boss, modeled as an EnemyKind) ----------------------
-export const BOSS_HP_BASE = 4_000;
-export const BOSS_HP_PER_PLAYER = 650;
+/** qa-009 durability retune: base BEAM Lv3 melts ~570 boss-HP/s point-blank
+ *  (3 pellets x 40 HP / 198ms), so 4k HP died in ~7s on-target and phase 3
+ *  lasted 2.2s. 14k = ~25s on-target solo -> a 45-60s real fight once dodging
+ *  the P1 fans / P2 lances / P3 novas is factored in. Specials (2-3x beam) and
+ *  full rooms melt faster — BOSS_PHASE_MIN_MS is the floor that protects the
+ *  script, not this number. Lethality and payout deliberately untouched. */
+export const BOSS_HP_BASE = 14_000;
+/** Each extra player adds 25% of base HP: co-op fights are still faster per
+ *  head (grouping is rewarded) but a 4p room no longer deletes the boss. */
+export const BOSS_HP_PER_PLAYER = 3_500;
+/** Per-phase minimum duration (qa-009): damage cannot push HP across the next
+ *  phase boundary (phase 3's boundary = death) until the current phase has
+ *  run this long, so every phase's attack script always expresses — even
+ *  against stacked specials in a full room. Host-side clamp in
+ *  hostDamageEnemy; worst-case fight length vs infinite DPS = 3 x this. */
+export const BOSS_PHASE_MIN_MS = 8_000;
 export const BOSS_SPEED = 70;
 export const BOSS_ORBIT_RADIUS = 700;
 export const BOSS_P1_CYCLE_MS = 2_200;
@@ -1368,9 +1600,10 @@ export type AsteroidState = {
   vx: number;
   vy: number;
   radius: number;
-  /** 12 jagged outline points relative to center. Scaled (not re-rolled) on
-   *  damage so the shape never pops. */
-  verts: Vec[];
+  /** The jagged outline never rides the wire: every client derives the same
+   *  unit shape from the id (asteroidUnitVerts) and scales it by the live
+   *  radius — which also keeps the scale-on-damage "no shape pop" behavior.
+   *  (dir-002 audit: shipped verts were 42% of the worst-case snapshot.) */
   rot: number;
 };
 
@@ -1474,9 +1707,16 @@ export type SharedState = {
   shards: ShardState[];
   /** v3.1 SINGULARITY pulls (host-applied; see PullState). */
   pulls: PullState[];
+  /** v6 BEACON arena event (dir-004) — null between events. */
+  beacon: BeaconState | null;
   /** Epoch-ms wall clock of arena start — the intensity director's t=0.
    *  Lives in sharedState so it survives host migration. */
   arenaEpoch: number;
+  /** dir-006: last sectorIdx in which a dreadnought spawned (organic or
+   *  forced) — the guaranteed-boss satisfied-marker. Host-written, -1 until
+   *  the first spawn; lives here so a migrated host never double-guarantees.
+   *  Absent on legacy snapshots → the local copy's value carries over. */
+  sectorBossIdx: number;
   /** Play-area bounds (host-owned, grow-only with player count). All clients
    *  clamp/spawn/cull/render the barrier to these so they agree. The VISUAL
    *  extent (starfield + mask) stays the fixed WORLD_W/H max; the gap between
@@ -1540,6 +1780,10 @@ export type PlayerNetState = {
   /** XP into the current level; remotes can render a progress bar. */
   xp: number;
   streak: number;
+  /** dir-006 sector chase: pts this sector (accrues with runXp pre-cap-
+   *  discard, owner-reset at each boundary). Pure scoreboard — confers zero
+   *  power. Absent on legacy snapshots → 0. */
+  sectorScore: number;
   weaponName: string;
   /** Base shield 0–100; remotes render the ring straight from this. */
   shieldHp: number;
@@ -1571,16 +1815,40 @@ export function randomWorldPoint(
   };
 }
 
-export function makeAsteroidVerts(radius: number): Vec[] {
+/** Deterministic per-id unit outline (fractions of radius). Outline jitter is
+ *  draw-only (collision is radius-based); deriving it from the id keeps it off
+ *  the 20Hz wire entirely while every client still draws the identical rock.
+ *  Not the seeded gameplay stream: ids are identity, never gameplay. */
+export function asteroidUnitVerts(id: string): Vec[] {
+  // FNV-1a over the id seeds a tiny LCG — stable across clients and sessions.
+  let h = 0x811c9dc5;
+  for (let i = 0; i < id.length; i++) {
+    h ^= id.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  let s = h >>> 0;
+  const next = (): number => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return s / 0x100000000;
+  };
   const verts: Vec[] = [];
   for (let i = 0; i < ASTEROID_VERTEX_COUNT; i++) {
-    // Outline jitter is draw-only (collision is radius-based) — keep it on
-    // Math.random so art tweaks can't shift seeded gameplay streams.
-    const r = radius * (0.5 + Math.random() * 0.5);
+    const r = 0.5 + next() * 0.5;
     const a = (Math.PI * 2 * i) / ASTEROID_VERTEX_COUNT;
     verts.push({ x: Math.cos(a) * r, y: Math.sin(a) * r });
   }
   return verts;
+}
+
+/** Short wire id. Entity ids only need per-room uniqueness among a few hundred
+ *  live entities; crypto.randomUUID's 36 chars cost ~15KB per worst-case 32p
+ *  snapshot (dir-002 audit). 8 base36 chars = 2.8e12 space — collision odds
+ *  over a room's lifetime are ~1e-5. Math.random on purpose: ids are identity,
+ *  never gameplay, so they must not consume the seeded stream. */
+export function entityId(): string {
+  return Math.floor(Math.random() * 36 ** 8)
+    .toString(36)
+    .padStart(8, "0");
 }
 
 /** Pick a point just past a random play-area edge, plus an inward heading. */
@@ -1603,18 +1871,62 @@ export function edgeSpawn(
   return { x, y, ang };
 }
 
+/** Point in the ring [minR..maxR] around (px,py), clamped into the play bounds
+ *  with `margin` inset; the heading aims back at the anchor. Clamping near a
+ *  corner can pull the point under minR — callers re-check clearance and
+ *  re-roll. Uniform radius (not area-uniform) slightly biases inward, which is
+ *  the point: early threats err closer. */
+export function ringSpawnPoint(
+  px: number,
+  py: number,
+  minR: number,
+  maxR: number,
+  w = BASE_WORLD_W,
+  h = BASE_WORLD_H,
+  margin = 40,
+): { x: number; y: number; ang: number } {
+  const a = rand() * Math.PI * 2;
+  const r = minR + rand() * (maxR - minR);
+  const x = Math.min(w - margin, Math.max(margin, px + Math.cos(a) * r));
+  const y = Math.min(h - margin, Math.max(margin, py + Math.sin(a) * r));
+  return { x, y, ang: Math.atan2(py - y, px - x) };
+}
+
 export function spawnAsteroidState(w = BASE_WORLD_W, h = BASE_WORLD_H): AsteroidState {
   const { x, y, ang } = edgeSpawn(ASTEROID_MAX_RADIUS, w, h);
   const radius = ASTEROID_MIN_RADIUS + rand() * (ASTEROID_MAX_RADIUS - ASTEROID_MIN_RADIUS);
   const speed = asteroidSpeed(radius);
   return {
-    id: crypto.randomUUID(),
+    id: entityId(),
     x,
     y,
     vx: Math.cos(ang) * speed,
     vy: Math.sin(ang) * speed,
     radius,
-    verts: makeAsteroidVerts(radius),
+    rot: 0,
+  };
+}
+
+/** qa-013: rocks parked inside the opening viewport so the first playable
+ *  second has something to shoot (the 6s safe opening spawns no enemies and
+ *  the seed field scatters across the whole arena). Sized to one-shot with
+ *  the L1 beam (asteroidDestroyedBy: r < 25 at power .25); drift kept slow
+ *  so they stay on screen through the opening. */
+export const OPENING_ROCK_COUNT = 3;
+export const OPENING_ROCK_MIN_R = 12;
+export const OPENING_ROCK_MAX_R = 22;
+export const OPENING_ROCK_DRIFT = 30;
+
+export function spawnOpeningAsteroid(x: number, y: number): AsteroidState {
+  const radius = OPENING_ROCK_MIN_R + rand() * (OPENING_ROCK_MAX_R - OPENING_ROCK_MIN_R);
+  const ang = rand() * Math.PI * 2;
+  return {
+    id: entityId(),
+    x,
+    y,
+    vx: Math.cos(ang) * OPENING_ROCK_DRIFT,
+    vy: Math.sin(ang) * OPENING_ROCK_DRIFT,
+    radius,
     rot: 0,
   };
 }
@@ -1622,7 +1934,7 @@ export function spawnAsteroidState(w = BASE_WORLD_W, h = BASE_WORLD_H): Asteroid
 export function spawnUfoState(w = BASE_WORLD_W, h = BASE_WORLD_H): UfoState {
   const { x, y } = edgeSpawn(30, w, h);
   return {
-    id: crypto.randomUUID(),
+    id: entityId(),
     x,
     y,
     destX: rand() * w,
@@ -1636,7 +1948,7 @@ export function spawnUfoState(w = BASE_WORLD_W, h = BASE_WORLD_H): UfoState {
 export function spawnItemState(x: number, y: number, drop: ItemDrop): ItemState {
   const ang = rand() * Math.PI * 2;
   return {
-    id: crypto.randomUUID(),
+    id: entityId(),
     x,
     y,
     vx: Math.cos(ang) * ITEM_SPEED,
@@ -1652,7 +1964,7 @@ export function spawnShardState(x: number, y: number): ShardState {
   const ang = rand() * Math.PI * 2;
   const scatter = rand() * 10;
   return {
-    id: crypto.randomUUID(),
+    id: entityId(),
     x: x + Math.cos(ang) * scatter,
     y: y + Math.sin(ang) * scatter,
     vx: Math.cos(ang) * SHARD_DRIFT_SPEED,
@@ -1670,7 +1982,7 @@ export function spawnWeaponItemState(x: number, y: number): ItemState {
 
 export function spawnEnemyState(kind: EnemyKind, x: number, y: number): EnemyState {
   return {
-    id: crypto.randomUUID(),
+    id: entityId(),
     kind,
     x,
     y,

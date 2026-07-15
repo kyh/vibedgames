@@ -21,13 +21,28 @@
 
 export type Diagnostics = {
   frame: number;
-  /** Run XP — the objective metric (kills award XP; levels derive from it). */
+  /** Run XP — the objective metric: cumulative XP earned this run. Monotonic
+   *  (never drops on level-up or the death tax), so `after > before` is a
+   *  sound progression assertion. */
   score: number;
   /** Always false: starfall is endless (death respawns, a run never "ends"). */
   complete: boolean;
   player: { x: number; y: number; speed: number };
   /** Live hostiles: enemies + asteroids in the local world. */
   entities: number;
+  /** My live beams — lets a bot assert an input path actually fires
+   *  (qa-005: held SPACE must autofire with no pointer down). */
+  beams: number;
+  /** BEACON arena event (dir-004): null between events. One small allocation
+   *  per frame WHILE a beacon is live (~48s per ~180s) — the QA-probe value of
+   *  phase/controller visibility outweighs the contract's no-alloc lean. */
+  beacon: {
+    x: number;
+    y: number;
+    phase: "charge" | "active";
+    controllerId: string | null;
+    contested: boolean;
+  } | null;
 };
 
 export const diag: Diagnostics = {
@@ -36,6 +51,8 @@ export const diag: Diagnostics = {
   complete: false,
   player: { x: 0, y: 0, speed: 0 },
   entities: 0,
+  beams: 0,
+  beacon: null,
 };
 
 export type TestHooks = {

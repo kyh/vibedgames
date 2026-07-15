@@ -14,6 +14,19 @@ import {
 } from "../pause-overlay";
 import { AttractBattle } from "../fx/attract-battle";
 import { FxPool, HITSPARK_SKIP_BUDGET, PARTICLE_SOFT_BUDGET } from "../render/fx-pool";
+import {
+  asteroidToWire,
+  beaconToWire,
+  enemyShotToWire,
+  enemyToWire,
+  itemToWire,
+  playerToWire,
+  pullToWire,
+  shardToWire,
+  ufoToWire,
+} from "../shared/wire";
+import { EdgePips } from "../render/edge-pips";
+import type { PipTarget } from "../render/edge-pips";
 import { EnergyBarrier } from "../render/energy-barrier";
 import { Starfield } from "../render/starfield";
 import { TraumaCamera } from "../render/trauma-camera";
@@ -36,8 +49,37 @@ import {
   asteroidShardCount,
   asteroidSpawnIntervalMs,
   asteroidSpeed,
+  asteroidUnitVerts,
   BASE_WORLD_H,
   BASE_WORLD_W,
+  BEACON_ACTIVE_S,
+  BEACON_CHARGE_S,
+  BEACON_CONTEST_STROBE_HZ,
+  BEACON_EDGE_MARGIN,
+  BEACON_HOLD_BONUS_XP,
+  BEACON_LURE_FRACTION,
+  BEACON_LURE_RING_MAX,
+  BEACON_LURE_RING_MIN,
+  BEACON_MIN_INTERVAL_S,
+  BEACON_MIN_T_S,
+  BEACON_PLAYER_CLEARANCE,
+  BEACON_RADIUS,
+  BEACON_RETARGET_RANGE,
+  BEACON_SPAWN_WINDOW_S,
+  BEACON_TICK_MS,
+  BEACON_TINT,
+  BEACON_TROUGH_PERIOD_S,
+  BEACON_XP_PER_TICK,
+  SECTOR_BOSS_AT_S,
+  SECTOR_LENGTH_S,
+  SECTOR_PULSE_AT_S,
+  SECTOR_PULSE_S,
+  SECTOR_RECAP_SHOW_S,
+  sectorIdx,
+  sectorRelT,
+  callsign,
+  DEBUT_PIP_MAX,
+  entityId,
   baseRegenMult,
   baseWeaponForLevel,
   scaleWeaponForLevel,
@@ -63,6 +105,7 @@ import {
   BOSS_P3_NOVA_COUNT,
   BOSS_P3_TELEGRAPH_MS,
   BOSS_REWARD_SHARDS,
+  BOSS_PHASE_MIN_MS,
   BOSS_SHOT_SPEED,
   BOSS_SPAWN_COOLDOWN_MS,
   BOSS_SPAWN_INTENSITY,
@@ -70,6 +113,9 @@ import {
   BOSS_SPEED,
   bossHp,
   bossPhase,
+  ELITE_HP_BASE,
+  eliteHp,
+  eliteHpMult,
   enemyShotHit,
   MITE_GRACE_MS,
   SNIPER_AIM_MS,
@@ -117,6 +163,12 @@ import {
   ENEMY_SHOT_WIDTH,
   ENEMY_SPAWN_CLEARANCE,
   ENEMY_SPECS,
+  EARLY_FODDER_KINDS,
+  EARLY_FODDER_SEED_COUNT,
+  EARLY_SEED_RING_MAX,
+  EARLY_SPAWN_INTERVAL_MS,
+  EARLY_SPAWN_RING_MAX,
+  EARLY_SPAWN_WINDOW_S,
   enemyCap,
   enemySpawnIntervalMs,
   enemySpawnWeight,
@@ -181,6 +233,7 @@ import {
   RAM_PVP_DRAIN,
   RAM_SELF_DRAIN,
   randomWorldPoint,
+  ringSpawnPoint,
   REFLECT_BOUNCE_COST,
   REFLECT_MIN_SHIELD,
   RESPAWN_ASTEROID_MIN_R,
@@ -233,7 +286,9 @@ import {
   SPLITTER_CHILDREN,
   SPLITTER_GRACE_MS,
   SPLITTER_SPEED,
+  OPENING_ROCK_COUNT,
   spawnAsteroidState,
+  spawnOpeningAsteroid,
   spawnEnemyState,
   spawnItemState,
   spawnShardState,
@@ -269,6 +324,7 @@ import {
   type BoosterKind,
   type BoostNetState,
   type EnemyKind,
+  type BeaconState,
   type EnemyShotState,
   type ItemDrop,
   type ItemState,
@@ -403,16 +459,28 @@ type EnemySim = {
   broodCount: number;
   /** Mites: the spawner/boss they belong to (decrements broodCount on death). */
   broodParent: string | null;
+  /** BOSS: last phase seen by the damage clamp (0 = none yet) + when the
+   *  current phase's minimum-duration window ends. Host-local by design: a
+   *  migrated host restarts the window from inherited HP, which can only
+   *  lengthen the fight, never shorten or desync it (phase itself stays
+   *  derived from HP). */
+  bossPhaseSeen: 0 | 1 | 2 | 3;
+  bossPhaseFloorUntil: number;
 };
 
 const MULTIPLAYER_HOST = import.meta.env.DEV
   ? "http://localhost:8787"
   : "https://vibedgames-party.kyh.workers.dev";
 
-// Fresh room name per shared-state shape change (v5: XP/level on PlayerNetState,
-// new EnemyKind union members + EnemyState.maxHp/lances/shielded): old deployed
-// clients can't pollute this build's world.
-const ROOM = "starfall-arena-v5";
+// Fresh room name per shared-state shape change (v6: asteroid verts left off
+// the wire — derived per-client from the id — plus quantized coordinates and
+// short entity ids, per the dir-002 bandwidth audit): old deployed clients
+// can't pollute this build's world.
+const ROOM_DEFAULT = "starfall-arena-v6";
+/** DEV-only room override (?room=): the multiplayer e2e harness isolates each
+ *  run in a fresh arena so a stale room's world can't leak into assertions. */
+const ROOM =
+  (import.meta.env.DEV && new URLSearchParams(location.search).get("room")) || ROOM_DEFAULT;
 /** Per-arena cap. The party server clamps to its own hard ceiling and overflows
  *  player #33+ into a sibling arena (starfall-arena-v4~2, …) automatically. */
 const STARFALL_MAX_PLAYERS = 32;
@@ -457,10 +525,18 @@ const IS_COARSE_POINTER =
  *  steer vector for the frame (mirrors the touch-joystick dead zone). */
 const PAD_STICK_DEAD_ZONE = 0.15;
 /** Narrow-viewport zoom-out (PvP reaction fairness): viewports narrower than
- *  REF render at width/REF zoom, floored at MIN — phones land at ~0.75 and see
- *  more world. The off-world mask (MASK_PAD) covers any zoomed half-view. */
+ *  REF render at width/REF zoom, floored at MIN — phones land at the floor and
+ *  see more world. The off-world mask (MASK_PAD) covers any zoomed half-view.
+ *  qa-011: floor raised 0.75 → 0.9 — at 0.75 a 390px phone rendered the ship
+ *  ~12px and drones as 1-3px flecks; the extra world view was worthless when
+ *  the threats it showed were invisible. Readability beats reaction range. */
 const CAMERA_REF_WIDTH = 1100;
-const CAMERA_MIN_ZOOM = 0.75;
+const CAMERA_MIN_ZOOM = 0.9;
+/** qa-011 stroke weight: hull/telegraph strokes multiply by this so they hold
+ *  >=~1.25px on-screen as the camera zooms out — and gain the same touch of
+ *  weight at zoom 1, where 1px vector strokes read whisper-thin on 720p. */
+const STROKE_BASE = 1.25;
+const STROKE_MAX = 1.7;
 
 function emptyShared(): SharedState {
   // Every resettable field MUST be present — patches shallow-merge, so an
@@ -473,7 +549,9 @@ function emptyShared(): SharedState {
     enemyShots: [],
     shards: [],
     pulls: [],
+    beacon: null,
     arenaEpoch: simNow(),
+    sectorBossIdx: -1,
     playW: BASE_WORLD_W,
     playH: BASE_WORLD_H,
   };
@@ -485,17 +563,21 @@ function isShared(v: unknown): v is SharedState {
   );
 }
 
-/** A SharedState as a shallow-merge patch object — field by field, no cast. */
+/** A SharedState as a shallow-merge patch object — field by field, no cast.
+ *  Quantized at this boundary (shared/wire.ts): the working copy keeps full
+ *  precision; only the serialized snapshot is rounded. */
 function sharedToPatch(s: SharedState): Record<string, unknown> {
   return {
-    asteroids: s.asteroids,
-    ufo: s.ufo,
-    items: s.items,
-    enemies: s.enemies,
-    enemyShots: s.enemyShots,
-    shards: s.shards,
-    pulls: s.pulls,
-    arenaEpoch: s.arenaEpoch,
+    asteroids: s.asteroids.map(asteroidToWire),
+    ufo: s.ufo ? ufoToWire(s.ufo) : null,
+    items: s.items.map(itemToWire),
+    enemies: s.enemies.map(enemyToWire),
+    enemyShots: s.enemyShots.map(enemyShotToWire),
+    shards: s.shards.map(shardToWire),
+    pulls: s.pulls.map(pullToWire),
+    beacon: s.beacon ? beaconToWire(s.beacon) : null,
+    arenaEpoch: Math.round(s.arenaEpoch),
+    sectorBossIdx: s.sectorBossIdx,
     playW: s.playW,
     playH: s.playH,
   };
@@ -532,7 +614,10 @@ export class GameScene extends Phaser.Scene {
   private alive = true;
   private respawnAt = 0;
   private invulnUntil = 0;
-  private weapon: Weapon = WEAPON_DEFAULT;
+  // Boot at the real L1 base loadout so the HUD never shows a name the level
+  // system would immediately rewrite (qa-004: WEAPON_DEFAULT is the template,
+  // baseWeaponForLevel is the loadout).
+  private weapon: Weapon = baseWeaponForLevel(1);
   private weaponUntil = 0;
   /** Unscaled base of the held special (null on base weapon) — re-scaled per
    *  level so specials grow with you without compounding. */
@@ -541,12 +626,31 @@ export class GameScene extends Phaser.Scene {
   /** Levelling: you level by destroying things; XP is into the current level. */
   private level = 1;
   private xp = 0;
+  /** Monotonic cumulative XP earned this run — feeds diag.score. Unlike
+   *  `xp` (into-level progress) it never drops on level-up or death tax. */
+  private runXp = 0;
+  /** dir-006 sector chase: pts this sector. Accrues wherever runXp does
+   *  (pre-cap-discard, one sink), owner-resets to 0 at each sector boundary,
+   *  and deaths cost exactly 0 — monotonic within a sector. Pure scoreboard. */
+  private sectorScore = 0;
+  /** Session-local best completed-sector score (solo recap/pulse comparison;
+   *  no persistence this cycle). */
+  private sectorBest = 0;
+  /** Last sectorIdx observed; -1 until the first live tick so a mid-sector
+   *  joiner adopts the current sector without firing a recap. */
+  private lastSectorIdx = -1;
+  /** Recap banner hide deadline (sim-clock ms; 0 = hidden). */
+  private recapUntil = 0;
   /** Shield-regen speed multiplier from the current level (baseRegenMult). */
   private regenMult = 1;
   private beams: Beam[] = [];
   /** Phaser's activePointer sits at (0,0) until the first real pointer event —
    *  steering before then would yank the ship to the screen corner. */
   private pointerSeen = false;
+  /** Held SPACE = held mouse button (qa-005). */
+  private fireKey: Phaser.Input.Keyboard.Key | null = null;
+  /** qa-013 one-shot: opening rocks placed after the first ship spawn. */
+  private openingRocksSeeded = false;
   /** The mobile controller (floating move-joystick + a "rest" fire button:
    *  any finger that isn't the stick fires). Desktop keeps the mouse model
    *  (aim+thrust at the cursor); the gamepad only activates on first touch. */
@@ -693,6 +797,7 @@ export class GameScene extends Phaser.Scene {
     enemyShots: false,
     shards: false,
     pulls: false,
+    beacon: false,
   };
   private lastAsteroidSpawnAt = 0;
 
@@ -706,6 +811,21 @@ export class GameScene extends Phaser.Scene {
   private debutSuppressUntil = 0;
   /** Per-class pity counters (host-local, lost on migration — acceptable). */
   private lootPity: Record<LootClass, number> = { shield: 0, booster: 0, weapon: 0 };
+  /** BEACON cadence clock (host-local): last beacon START. A promoted host
+   *  re-derives it from a live beacon's timestamps, or stamps `now` when none
+   *  is live (worst case one trough of extra delay after a migration). */
+  private lastBeaconStartedAt = 0;
+
+  // BEACON client-side bookkeeping (every client, owner-simulated awards)
+  /** Last non-null beacon snapshot — expiry payout + fx trigger off it. */
+  private lastBeacon: BeaconState | null = null;
+  /** Highest trickle tick index already granted/skipped for this instance. */
+  private beaconTickIdx = 0;
+  /** Charge blips played (rising pitch, one per second of CHARGE). */
+  private beaconBlipIdx = -1;
+  /** True once the CHARGE→ACTIVE flash+chime fired for this instance. */
+  private beaconArmedFxDone = false;
+  private beaconLastClashAt = 0;
 
   // camera recoil (directional kick; omni shake comes from TraumaCamera)
   private kickX = 0;
@@ -722,6 +842,8 @@ export class GameScene extends Phaser.Scene {
   private shardGfx!: Phaser.GameObjects.Graphics;
   private enemyShotGfx!: Phaser.GameObjects.Graphics;
   private telegraphGfx!: Phaser.GameObjects.Graphics;
+  private beaconGfx!: Phaser.GameObjects.Graphics;
+  private edgePips!: EdgePips;
   private haloGfx!: Phaser.GameObjects.Graphics;
   private muzzleGfx!: Phaser.GameObjects.Graphics;
   private splinterGfx!: Phaser.GameObjects.Graphics;
@@ -762,6 +884,12 @@ export class GameScene extends Phaser.Scene {
   private causeEl: HTMLElement | null = null;
   private hintEl: HTMLElement | null = null;
   private countdownEl: HTMLElement | null = null;
+  // dir-006 sector surfaces (DOM like the bossbar; zero input capture)
+  private sectorEl: HTMLElement | null = null;
+  private recapEl: HTMLElement | null = null;
+  private pulseEl: HTMLElement | null = null;
+  private lastSectorLine = "";
+  private lastPulseText = "";
   private startEl: HTMLElement | null = null;
   /** False until the player dismisses the start screen. Gates spawning so the
    *  ship isn't dropped into a live arena while the controls are still up. */
@@ -804,6 +932,9 @@ export class GameScene extends Phaser.Scene {
     this.causeEl = document.getElementById("cause");
     this.hintEl = document.getElementById("hint");
     this.countdownEl = document.getElementById("countdown");
+    this.sectorEl = document.getElementById("sector");
+    this.recapEl = document.getElementById("recap");
+    this.pulseEl = document.getElementById("pulse");
 
     this.starfield = new Starfield(this);
     this.fx = new FxPool(this);
@@ -834,6 +965,10 @@ export class GameScene extends Phaser.Scene {
     this.shardGfx = this.add.graphics().setDepth(4).setBlendMode(Phaser.BlendModes.ADD);
     this.enemyShotGfx = this.add.graphics().setDepth(12);
     this.telegraphGfx = this.add.graphics().setDepth(13).setBlendMode(Phaser.BlendModes.ADD);
+    // Beacon ring under ships (a zone on the floor), pips above everything
+    // world-space (they're viewport furniture, still below the DOM HUD).
+    this.beaconGfx = this.add.graphics().setDepth(5).setBlendMode(Phaser.BlendModes.ADD);
+    this.edgePips = new EdgePips(this, 40);
     this.haloGfx = this.add.graphics().setDepth(11).setBlendMode(Phaser.BlendModes.ADD);
     this.muzzleGfx = this.add.graphics().setDepth(19).setBlendMode(Phaser.BlendModes.ADD);
     this.splinterGfx = this.add.graphics().setDepth(15);
@@ -852,17 +987,28 @@ export class GameScene extends Phaser.Scene {
       .setDepth(95)
       .setBlendMode(Phaser.BlendModes.ADD);
 
-    // No `initialState`: the package re-applies it whenever a client becomes
-    // host, which would wipe the live world on host migration. The first host
-    // seeds explicitly (see `ensureSeeded`).
-    this.client = new MultiplayerClient({
-      host: MULTIPLAYER_HOST,
-      party: "vg-server",
-      room: ROOM,
-      maxPlayers: STARFALL_MAX_PLAYERS,
-      onEvent: (event, payload, from) => this.handleEvent(event, payload, from),
-    });
-    this.client.subscribe(() => this.onUpdate());
+    // Explicit offline boot (?offline=1): never dial the party server. A
+    // failed WebSocket handshake logs a browser console error the page cannot
+    // suppress, so an offline-by-intent run (bot playtest, deliberate solo)
+    // must skip the socket entirely rather than lean on the failure fallback
+    // (maybeGoOffline). Every `this.client` access is guarded by
+    // `this.offline`, so the client simply never exists on this path.
+    if (new URLSearchParams(location.search).get("offline") === "1") {
+      this.offline = true;
+      this.ensureSeeded();
+    } else {
+      // No `initialState`: the package re-applies it whenever a client becomes
+      // host, which would wipe the live world on host migration. The first host
+      // seeds explicitly (see `ensureSeeded`).
+      this.client = new MultiplayerClient({
+        host: MULTIPLAYER_HOST,
+        party: "vg-server",
+        room: ROOM,
+        maxPlayers: STARFALL_MAX_PLAYERS,
+        onEvent: (event, payload, from) => this.handleEvent(event, payload, from),
+      });
+      this.client.subscribe(() => this.onUpdate());
+    }
 
     // Desktop steers from the cursor (activePointer); the gamepad below owns
     // the touch path. These two listeners only track that a pointer exists and
@@ -878,6 +1024,11 @@ export class GameScene extends Phaser.Scene {
     // Sound is opt-in: muted by default, M toggles, choice persists (see
     // sfx). The gesture itself unlocks audio.
     this.input.keyboard?.on("keydown-M", () => sfx.toggleMute());
+
+    // qa-005: held SPACE autofires exactly like a held mouse button (spec
+    // Controls: "hold mouse/space to fire"). addKey captures the keystroke so
+    // the page never scrolls.
+    this.fireKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE) ?? null;
 
     // Mobile controller: a floating move-joystick (first finger) plus a "rest"
     // fire button — any finger that isn't the stick fires. `render: false`:
@@ -979,6 +1130,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.ensureSpawned();
+    this.seedOpeningRocks();
     this.tickRespawn(now);
     // Reconcile dropped touches + publish press edges; the overlay itself is
     // drawn by drawPadOverlay (adapter render: false).
@@ -994,6 +1146,7 @@ export class GameScene extends Phaser.Scene {
     this.detectIncomingDamage(now, dt);
     this.pickupItems(now);
     this.collectShards(now);
+    this.tickBeaconClient(now);
     this.tickShield(now, dt);
     // Special expired → revert to the CURRENT level's base weapon, not L1.
     if (this.weaponUntil !== 0 && now >= this.weaponUntil) {
@@ -1005,6 +1158,8 @@ export class GameScene extends Phaser.Scene {
       this.streak = 0;
       this.comboTier = 1;
     }
+    // Before netSend, so a boundary's score reset reaches the wire same tick.
+    this.tickSector(now);
     this.netSend(delta, now);
 
     this.syncShips(now, dt);
@@ -1015,11 +1170,13 @@ export class GameScene extends Phaser.Scene {
     this.syncEnemies(now);
     this.drawEnemyTelegraphs(now);
     this.drawPulls(now);
+    this.drawBeacon(now);
+    this.drawEdgePips(now);
     this.drawEnemyShots();
     this.drawBeams(now);
     this.updateSplinters(dt, now);
     this.fx.update(dt, this.time.now);
-    this.drawMinimap();
+    this.drawMinimap(now);
     this.updateCamera(dt, time);
     this.drawPadOverlay();
     this.syncScreenUi();
@@ -1074,6 +1231,11 @@ export class GameScene extends Phaser.Scene {
   private beginPlay(): void {
     if (this.started) return;
     this.started = true;
+    // qa-020, offline solo ONLY: the sector clock (and the intensity curve)
+    // starts at first input, not at boot — overlay-idle time was pure sector
+    // loss, and a long idle met the rel-405 forced dreadnought at Lv1. Online
+    // rooms keep the shared epoch untouched: the room clock predates you.
+    if (this.offline) this.world.arenaEpoch = simNow();
     this.unwatchControls?.();
     this.unwatchControls = null;
     notifyGameStarted();
@@ -1101,11 +1263,24 @@ export class GameScene extends Phaser.Scene {
    *  mutated in place; primitives only. */
   private publishDiag(): void {
     diag.frame += 1;
-    diag.score = this.xp;
+    diag.score = this.runXp;
     diag.player.x = this.shipX;
     diag.player.y = this.shipY;
     diag.player.speed = Math.hypot(this.shipVX, this.shipVY);
     diag.entities = this.world.enemies.length + this.world.asteroids.length;
+    diag.beams = this.beams.length;
+    const b = this.world.beacon;
+    const bnow = simNow();
+    diag.beacon =
+      b && bnow < b.diesAt
+        ? {
+            x: b.x,
+            y: b.y,
+            phase: bnow < b.activeAt ? "charge" : "active",
+            controllerId: b.controllerId,
+            contested: b.contested,
+          }
+        : null;
   }
 
   /** Offline-only REAL freeze: stop the sim clock (every stored deadline
@@ -1187,6 +1362,37 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.centerOn(pos.x, pos.y);
     this.spawnInFx(pos.x, pos.y);
     this.pushMyState(simNow());
+  }
+
+  /** qa-013: the 6s safe opening spawns no enemies and the seed field
+   *  scatters arena-wide, so the literal first playable second was ship +
+   *  dots. Park a few one-shot rocks inside the opening viewport. Host/solo
+   *  only (a guest joins an already-populated arena), once per session, and
+   *  never before ensureSeeded ran — a fresh world object would drop them. */
+  private seedOpeningRocks(): void {
+    if (this.openingRocksSeeded || !this.spawned) return;
+    if (!this.offline && !this.amHost) {
+      this.openingRocksSeeded = true;
+      return;
+    }
+    if (this.world.asteroids.length === 0) return; // world not seeded yet
+    const cam = this.cameras.main;
+    const maxDist = Phaser.Math.Clamp(
+      Math.min(cam.width, cam.height) / 2 / cam.zoom - 60,
+      160,
+      320,
+    );
+    const base = rand() * Math.PI * 2;
+    for (let i = 0; i < OPENING_ROCK_COUNT; i++) {
+      // Evenly fanned with jitter — always spread around the ship, never a clump.
+      const ang = base + (i * Math.PI * 2) / OPENING_ROCK_COUNT + (rand() - 0.5) * 0.6;
+      const dist = 140 + rand() * Math.max(20, maxDist - 140);
+      const x = Phaser.Math.Clamp(this.shipX + Math.cos(ang) * dist, 40, this.world.playW - 40);
+      const y = Phaser.Math.Clamp(this.shipY + Math.sin(ang) * dist, 40, this.world.playH - 40);
+      this.world.asteroids.push(spawnOpeningAsteroid(x, y));
+    }
+    this.openingRocksSeeded = true;
+    this.dirty.asteroids = true;
   }
 
   private tickRespawn(now: number): void {
@@ -1354,11 +1560,13 @@ export class GameScene extends Phaser.Scene {
     this.writeStartCopy();
   }
 
-  /** Holding fire: any non-stick finger on touch, the mouse button on desktop,
-   *  or RT / A held on a physical controller (merged, never exclusive). */
+  /** Holding fire: any non-stick finger on touch, the mouse button or held
+   *  SPACE on desktop, or RT / A held on a physical controller (merged,
+   *  never exclusive). */
   private isFiring(): boolean {
     if (this.pad.connected && (this.pad.isButtonDown("rt") || this.pad.isButtonDown("a")))
       return true;
+    if (this.fireKey?.isDown) return true;
     return this.gamepad.isTouch
       ? this.gamepad.isButtonDown("fire")
       : this.input.activePointer.isDown;
@@ -1975,7 +2183,7 @@ export class GameScene extends Phaser.Scene {
         if (!e) return;
         e.blinkUntil = now + 150;
         if (e.hp - dmgHp <= 0) {
-          this.predictKill(e.id, ENEMY_SPECS[e.kind].xp, "enemy", e.x, e.y, now);
+          this.predictKill(e.id, this.enemyKillXp(e.kind), "enemy", e.x, e.y, now);
         }
         this.netSendEvent("enemy_hit", { enemyId: e.id, damage: dmgHp });
         return;
@@ -2385,6 +2593,10 @@ export class GameScene extends Phaser.Scene {
    *  chips call this directly (flat). */
   private gainXp(amount: number, now: number): void {
     if (amount <= 0 || !this.alive) return;
+    this.runXp += amount;
+    // dir-006: sector pts ride the same sink BEFORE the level-cap discard —
+    // at cap the XP stream still lands on the sector scoreboard.
+    this.sectorScore += amount;
     this.xp += amount;
     let leveled = false;
     while (this.level < LEVEL_CAP && this.xp >= xpToNext(this.level)) {
@@ -2524,7 +2736,7 @@ export class GameScene extends Phaser.Scene {
         this.onBeamHit(b, now);
         const dmg = b.weapon.power * 100;
         const killed = e.hp - dmg <= 0;
-        if (killed) this.predictKill(e.id, ENEMY_SPECS[e.kind].xp, "enemy", e.x, e.y, now);
+        if (killed) this.predictKill(e.id, this.enemyKillXp(e.kind), "enemy", e.x, e.y, now);
         e.blinkUntil = now + 150; // immediate local feedback; host echoes
         if (sparksOk || killed) {
           this.fx.sparks(b.head.x, b.head.y, 6, b.weapon.tint, { lifeMin: 150, lifeMax: 250 });
@@ -2797,7 +3009,7 @@ export class GameScene extends Phaser.Scene {
         if (imm !== undefined && now < imm) continue;
         this.ramImmunity.set(e.id, now + RAM_IMMUNITY_MS);
         if (e.hp - RAM_DAMAGE <= 0) {
-          this.predictKill(e.id, ENEMY_SPECS[e.kind].xp, "enemy", e.x, e.y, now);
+          this.predictKill(e.id, this.enemyKillXp(e.kind), "enemy", e.x, e.y, now);
         }
         this.netSendEvent("enemy_hit", {
           enemyId: e.id,
@@ -3268,6 +3480,7 @@ export class GameScene extends Phaser.Scene {
       level: this.level,
       xp: this.xp,
       streak: this.streak,
+      sectorScore: Math.round(this.sectorScore),
       weaponName: this.weapon.name,
       shieldHp: Math.max(0, Math.round(this.shieldHp)),
       overHp: Math.max(0, Math.round(this.overHp)),
@@ -3281,7 +3494,7 @@ export class GameScene extends Phaser.Scene {
           : null,
       beams: this.beams.filter((b) => !b.vanished && !b.fizzle).map(serializeBeam),
     };
-    if (!this.offline) this.client.updateMyState(state);
+    if (!this.offline) this.client.updateMyState(playerToWire(state));
   }
 
   // ---- connection callbacks ----------------------------------------------------
@@ -3344,7 +3557,7 @@ export class GameScene extends Phaser.Scene {
       const y = p["y"];
       const until = p["until"];
       if (typeof x === "number" && typeof y === "number" && typeof until === "number") {
-        this.world.pulls.push({ id: crypto.randomUUID(), x, y, until });
+        this.world.pulls.push({ id: entityId(), x, y, until });
         this.dirty.pulls = true;
       }
     }
@@ -3408,6 +3621,9 @@ export class GameScene extends Phaser.Scene {
     if (!s) return;
     const w = this.world;
     if (typeof s.arenaEpoch === "number") w.arenaEpoch = s.arenaEpoch;
+    // Boss-guarantee marker (dir-006): adopt like the epoch so a promoted
+    // host never double-guarantees. Legacy snapshots omit it → keep local.
+    if (typeof s.sectorBossIdx === "number") w.sectorBossIdx = s.sectorBossIdx;
     // Clamp to valid bounds — never trust an out-of-range value from the host.
     if (typeof s.playW === "number") w.playW = Phaser.Math.Clamp(s.playW, BASE_WORLD_W, WORLD_W);
     if (typeof s.playH === "number") w.playH = Phaser.Math.Clamp(s.playH, BASE_WORLD_H, WORLD_H);
@@ -3422,7 +3638,6 @@ export class GameScene extends Phaser.Scene {
         continue;
       }
       local.radius = a.radius;
-      local.verts = a.verts;
       local.vx = a.vx;
       local.vy = a.vy;
       blendPos(local, a.x, a.y);
@@ -3524,6 +3739,10 @@ export class GameScene extends Phaser.Scene {
     // Pulls are static entries — adopt wholesale (the vortex renders from
     // them; the host moves the affected bodies).
     w.pulls = (s.pulls ?? []).map((p) => ({ id: p.id, x: p.x, y: p.y, until: p.until }));
+
+    // Beacon: one static host-written entry — adopt wholesale. Phases and
+    // countdowns derive from its timestamps locally (tickBeaconClient).
+    w.beacon = s.beacon ? { ...s.beacon } : null;
   }
 
   // ---- world simulation ----------------------------------------------------------
@@ -3577,6 +3796,16 @@ export class GameScene extends Phaser.Scene {
       this.wasHost = true;
       this.lastAsteroidSpawnAt = now;
       this.lastEnemySpawnAt = now;
+      // Recover the beacon cadence clock: a live beacon carries its own start
+      // (activeAt − CHARGE); with none live, a mid-run promotion stamps `now`
+      // (worst case one trough of extra delay) while a fresh arena keeps 0 so
+      // the first beacon still lands at t≈90.
+      const b = this.world.beacon;
+      if (b) {
+        this.lastBeaconStartedAt = b.activeAt - BEACON_CHARGE_S * 1000;
+      } else if ((now - this.world.arenaEpoch) / 1000 >= BEACON_MIN_T_S) {
+        this.lastBeaconStartedAt = now;
+      }
     }
     const w = this.world;
     const d = this.dirty;
@@ -3638,6 +3867,7 @@ export class GameScene extends Phaser.Scene {
 
     // One living-players snapshot for the whole tick (spawn/boss/sim/breather).
     const players = this.livingPlayers();
+    this.hostTickBeacon(now, tSec, players);
     this.hostSpawnEnemies(now, tSec, intensity, pressure, wave, players);
     this.hostMaybeSpawnBoss(now, intensity, players);
     this.hostSimEnemies(now, dt, players);
@@ -3669,19 +3899,25 @@ export class GameScene extends Phaser.Scene {
     this.shareAcc += delta;
     if (this.shareAcc < NET_INTERVAL_MS) return;
     this.shareAcc = 0;
+    // Quantize at the serialization boundary (shared/wire.ts) — the working
+    // arrays keep full precision, only the outgoing snapshot is rounded.
     const patch: Record<string, unknown> = {};
-    if (d.asteroids) patch["asteroids"] = w.asteroids;
-    if (d.ufo) patch["ufo"] = w.ufo;
-    if (d.items) patch["items"] = w.items;
-    if (d.shards) patch["shards"] = w.shards;
-    if (d.enemies) patch["enemies"] = w.enemies;
-    if (d.enemyShots) patch["enemyShots"] = w.enemyShots;
-    if (d.pulls) patch["pulls"] = w.pulls;
+    if (d.asteroids) patch["asteroids"] = w.asteroids.map(asteroidToWire);
+    if (d.ufo) patch["ufo"] = w.ufo ? ufoToWire(w.ufo) : null;
+    if (d.items) patch["items"] = w.items.map(itemToWire);
+    if (d.shards) patch["shards"] = w.shards.map(shardToWire);
+    if (d.enemies) patch["enemies"] = w.enemies.map(enemyToWire);
+    if (d.enemyShots) patch["enemyShots"] = w.enemyShots.map(enemyShotToWire);
+    if (d.pulls) patch["pulls"] = w.pulls.map(pullToWire);
+    if (d.beacon) patch["beacon"] = w.beacon ? beaconToWire(w.beacon) : null;
     // Piggyback play bounds on ANY outgoing patch (cheap — 2 ints) so guests and
     // a freshly-promoted host stay in sync; force a send if ONLY bounds changed.
     if (this.playBoundsDirty || Object.keys(patch).length > 0) {
       patch["playW"] = w.playW;
       patch["playH"] = w.playH;
+      // Boss-guarantee marker rides along too (1 int): any spawn dirties
+      // enemies, so the marker always reaches guests within the same patch.
+      patch["sectorBossIdx"] = w.sectorBossIdx;
     }
     this.playBoundsDirty = false;
     if (!this.offline && Object.keys(patch).length > 0) this.client.updateSharedState(patch);
@@ -3693,7 +3929,197 @@ export class GameScene extends Phaser.Scene {
       enemyShots: false,
       shards: false,
       pulls: false,
+      beacon: false,
     };
+  }
+
+  // ---- BEACON arena event (dir-004): host-side trigger/control/payout -----------------
+
+  /** Alive+present players with ids — the beacon control census. Phased ships
+   *  still count (they are IN the arena; only enemy targeting ignores them). */
+  private beaconOccupants(cx: number, cy: number): string[] {
+    const out: string[] = [];
+    const myId = this.myId;
+    if (myId && this.alive && this.spawned && Math.hypot(this.shipX - cx, this.shipY - cy) <= BEACON_RADIUS) {
+      out.push(myId);
+    }
+    for (const [id, st] of this.peerStates) {
+      if (id === myId || !st || !st.alive || !st.present) continue;
+      if (Math.hypot(st.x - cx, st.y - cy) <= BEACON_RADIUS) out.push(id);
+    }
+    return out;
+  }
+
+  /** Spawn eligibility + placement + the per-tick control read + the expiry
+   *  payout. Phases themselves are DERIVED from the shared timestamps (never
+   *  stored), so a promoted host resumes mid-phase from the snapshot alone. */
+  private hostTickBeacon(now: number, tSec: number, players: Vec[]): void {
+    const w = this.world;
+    const b = w.beacon;
+    if (b) {
+      if (now >= b.diesAt) {
+        // Expiry. Sole controller at the moment of death → the hold payout
+        // crystal (guaranteed, pity-fed like an elite kill, cap-bypassed like
+        // a UFO drop so it can never be silently skipped). The 40 XP bonus is
+        // owner-simulated client-side off this same final snapshot; the gold
+        // shockwave fx is drawn by every client in tickBeaconClient.
+        if (b.controllerId !== null && !b.contested) {
+          this.hostRollLoot(b.x, b.y, 1, true, true);
+        }
+        w.beacon = null;
+        this.dirty.beacon = true;
+        return;
+      }
+      if (now >= b.activeAt) {
+        // ACTIVE: 0 inside → uncontrolled; 1 → controls; 2+ → contested.
+        const occ = this.beaconOccupants(b.x, b.y);
+        const controllerId = occ.length === 1 ? (occ[0] ?? null) : null;
+        const contested = occ.length >= 2;
+        if (controllerId !== b.controllerId || contested !== b.contested) {
+          b.controllerId = controllerId;
+          b.contested = contested;
+          this.dirty.beacon = true;
+        }
+      }
+      return;
+    }
+    // No beacon live: eligible only in the trough window of the intensity
+    // director's macro wave, never in the opening 90s, and ≥180s start-to-
+    // start (the spec's twice-stated t≈90/270/450 cadence — every other
+    // trough; measured start-to-start, end-to-next-start comes to ~132s).
+    // dir-006: the old global t>=90 gate generalizes to sector-relative time —
+    // identical in sector 1; in later sectors it keeps the recap beat and the
+    // fresh-start breath beacon-free. (540 = 6x90, so the trough window below
+    // stays phase-locked to the same sector-relative times every sector.)
+    if (sectorRelT(tSec) < BEACON_MIN_T_S) return;
+    // dir-006: one "be HERE now" at a time — no NEW beacon while a dreadnought
+    // is alive. A beacon already live completes normally (block above); the
+    // deferred slot is not queued — the next eligible trough after boss death
+    // picks the cadence back up through these same gates.
+    if (w.enemies.some((e) => e.kind === "dreadnought")) return;
+    if (tSec % BEACON_TROUGH_PERIOD_S > BEACON_SPAWN_WINDOW_S) return;
+    if (this.lastBeaconStartedAt > 0 && now - this.lastBeaconStartedAt < BEACON_MIN_INTERVAL_S * 1000) return;
+    // Placement: ≥600px inside the barrier, ≥900px from every present player
+    // (fair approach run); crowded arenas take the candidate farthest from
+    // the nearest player.
+    let best: Vec | null = null;
+    let bestClearance = -1;
+    for (let i = 0; i < 12; i++) {
+      const c = randomWorldPoint(BEACON_EDGE_MARGIN, BEACON_EDGE_MARGIN, w.playW, w.playH);
+      let nearest = Infinity;
+      for (const p of players) nearest = Math.min(nearest, Math.hypot(p.x - c.x, p.y - c.y));
+      if (nearest > bestClearance) {
+        bestClearance = nearest;
+        best = c;
+      }
+      if (nearest >= BEACON_PLAYER_CLEARANCE) break;
+    }
+    if (!best) return;
+    this.hostSpawnBeacon(best.x, best.y, now);
+  }
+
+  /** Create the shared beacon entry (also the dev-hook entrypoint; custom
+   *  charge/active lengths are for compressed-timer e2e probes only). */
+  private hostSpawnBeacon(x: number, y: number, now: number, chargeS = BEACON_CHARGE_S, activeS = BEACON_ACTIVE_S): void {
+    this.world.beacon = {
+      x,
+      y,
+      activeAt: now + chargeS * 1000,
+      diesAt: now + (chargeS + activeS) * 1000,
+      controllerId: null,
+      contested: false,
+    };
+    this.lastBeaconStartedAt = now;
+    this.dirty.beacon = true;
+  }
+
+  /** Position of a player by id (me from the live ship, remotes from their
+   *  net state). Null when unknown/absent. */
+  private playerPos(id: string): Vec | null {
+    if (id === this.myId) return this.spawned && this.alive ? { x: this.shipX, y: this.shipY } : null;
+    const st = this.peerStates.get(id);
+    return st && st.alive ? { x: st.x, y: st.y } : null;
+  }
+
+  /** BEACON client side (every client, host included): the owner-simulated XP
+   *  trickle + hold bonus, and the charge/arm/clash audio. Awards key off the
+   *  HOST-written controllerId/contested — the same snapshot everywhere — so
+   *  each client granting itself XP stays consistent (existing XP model). */
+  private tickBeaconClient(now: number): void {
+    const raw = this.world.beacon;
+    // A locally-elapsed beacon is already gone (guests see expiry up to one
+    // snapshot before the host's null patch arrives).
+    const b = raw && now < raw.diesAt ? raw : null;
+    const prev = this.lastBeacon;
+
+    // Previous instance ended: fire the expiry payout exactly once, off the
+    // host's last written control state. Only a NATURAL expiry pays — a
+    // beacon that vanished early (fresh arena adoption) just disappears.
+    if (prev && (!b || b.activeAt !== prev.activeAt) && now >= prev.diesAt - 100) {
+      if (prev.controllerId !== null && !prev.contested) {
+        // Gold shockwave — fx only, no damage; every client draws it.
+        this.fx.ring(prev.x, prev.y, 40, BEACON_RADIUS, 650, BEACON_TINT, 0.9);
+        this.fx.sparks(prev.x, prev.y, 14, BEACON_TINT, {
+          speedMin: 80,
+          speedMax: 260,
+          lifeMin: 250,
+          lifeMax: 500,
+        });
+        if (prev.controllerId === this.myId) {
+          this.gainXp(BEACON_HOLD_BONUS_XP, now);
+          this.trauma.add(0.08);
+          sfx.play("beacon_active", { rate: 1.4 });
+        }
+      }
+    }
+    if (!b) {
+      // Gone (naturally paid out above, or vanished early → no payout ever).
+      this.lastBeacon = null;
+      return;
+    }
+    if (!prev || prev.activeAt !== b.activeAt) {
+      // New instance: reset the per-instance bookkeeping.
+      this.beaconTickIdx = 0;
+      this.beaconBlipIdx = -1;
+      this.beaconArmedFxDone = false;
+    }
+    const gainFor = (x: number, y: number): number => {
+      const d = Math.hypot(x - this.shipX, y - this.shipY);
+      return Phaser.Math.Clamp(1 - d / 3500, 0.2, 1);
+    };
+    if (now < b.activeAt) {
+      // CHARGE: one blip per second, pitch ratcheting up (distance-attenuated).
+      const idx = Math.floor((now - (b.activeAt - BEACON_CHARGE_S * 1000)) / 1000);
+      if (idx > this.beaconBlipIdx && idx >= 0) {
+        this.beaconBlipIdx = idx;
+        sfx.play("beacon_charge", { rate: 1 + idx * 0.09, gain: gainFor(b.x, b.y) });
+      }
+    } else {
+      if (!this.beaconArmedFxDone) {
+        // CHARGE → ACTIVE: arena-audible chime + full-ring flash.
+        this.beaconArmedFxDone = true;
+        sfx.play("beacon_active");
+        this.fx.ring(b.x, b.y, BEACON_RADIUS * 0.6, BEACON_RADIUS * 1.2, 500, BEACON_TINT, 0.9);
+      }
+      if (b.contested && now - this.beaconLastClashAt > 700) {
+        this.beaconLastClashAt = now;
+        sfx.play("beacon_clash", { gain: gainFor(b.x, b.y) });
+      }
+      // Trickle: 3 XP per elapsed 1s tick while the host names me sole
+      // controller. Tick indices derive from activeAt, so every client counts
+      // the same boundaries; capped at 2 per frame-batch (a hidden tab can't
+      // claim a backlog it may not have controlled through).
+      const tickIdx = Math.floor((now - b.activeAt) / BEACON_TICK_MS);
+      if (tickIdx > this.beaconTickIdx) {
+        const elapsed = Math.min(tickIdx - this.beaconTickIdx, 2);
+        this.beaconTickIdx = tickIdx;
+        if (b.controllerId === this.myId && !b.contested && this.alive) {
+          this.gainXp(BEACON_XP_PER_TICK * elapsed, now);
+          this.fx.converge(this.shipX, this.shipY, 3, 60, 320, BEACON_TINT);
+        }
+      }
+    }
+    this.lastBeacon = { ...b };
   }
 
   /**
@@ -3781,6 +4207,29 @@ export class GameScene extends Phaser.Scene {
     this.dirty.shards = true;
   }
 
+  /** Highest level among present players in the local view (default 1 when
+   *  unknowable). Drives elite HP stamping at spawn (host) and elite kill XP
+   *  (shooter) — qa-018: the same multiplier moves cost and reward together. */
+  private maxPresentLevel(): number {
+    let max = this.spawned ? this.level : 1;
+    const myId = this.myId;
+    for (const [id, st] of this.peerStates) {
+      if (id === myId || !st || !st.present) continue;
+      if (st.level > max) max = st.level;
+    }
+    return Math.max(1, max);
+  }
+
+  /** Kill XP for an enemy kind, computed at kill time. Elites pay
+   *  round(base × eliteHpMult) so pts-per-second survives the durability
+   *  retune; everything else (fodder, sniper, boss) pays the flat spec value.
+   *  A Lv1 room pays exactly the pre-retune numbers by construction. */
+  private enemyKillXp(kind: EnemyKind): number {
+    const base = ENEMY_SPECS[kind].xp;
+    if (ELITE_HP_BASE[kind] === undefined) return base;
+    return Math.round(base * eliteHpMult(this.maxPresentLevel()));
+  }
+
   /** Living player positions (mine locally + remotes from net state). */
   private livingPlayers(): Vec[] {
     const out: Vec[] = [];
@@ -3806,8 +4255,29 @@ export class GameScene extends Phaser.Scene {
     if (tSec * 1000 < ARENA_SAFE_MS) return; // safe opening
     if (now < this.debutSuppressUntil) return;
     const w = this.world;
+    const early = tSec < EARLY_SPAWN_WINDOW_S;
+    // Early debut wave: the moment the safe opening ends, seed a few drones in
+    // the convergence ring at once so the arena's first threats are already
+    // visibly inbound. This IS the drone debut (suppression follows as usual).
+    if (early && !this.debuted.has("drone") && w.enemies.length === 0 && players.length > 0) {
+      for (let i = 0; i < EARLY_FODDER_SEED_COUNT; i++) {
+        const placed = this.ringPlacementNear(players, EARLY_SEED_RING_MAX);
+        if (!placed) break;
+        const e = spawnEnemyState("drone", placed.x, placed.y);
+        e.angle = placed.ang;
+        w.enemies.push(e);
+      }
+      this.debuted.add("drone");
+      this.debutSuppressUntil = now + ENEMY_DEBUT_SUPPRESS_MS;
+      this.lastEnemySpawnAt = now;
+      this.dirty.enemies = true;
+      return;
+    }
     if (w.enemies.length >= enemyCap(intensity, pressure, wave)) return;
-    if (now - this.lastEnemySpawnAt < enemySpawnIntervalMs(intensity)) return;
+    const interval = early
+      ? Math.min(enemySpawnIntervalMs(intensity), EARLY_SPAWN_INTERVAL_MS)
+      : enemySpawnIntervalMs(intensity);
+    if (now - this.lastEnemySpawnAt < interval) return;
     const avail = ENEMY_KINDS.filter((k) => enemySpawnWeight(k, intensity) > 0);
     if (avail.length === 0) return;
     // Debut rule: a type's first appearance is solo + suppresses other spawns.
@@ -3815,7 +4285,24 @@ export class GameScene extends Phaser.Scene {
     const isDebut = kind !== null;
     if (!kind) kind = weightedEnemyRoll(avail, intensity);
     if (!kind) return;
+    // Early window: fodder converges via the ring outside a player's viewport;
+    // elites (and everything after the window) keep the far edge entrance.
     let placed: { x: number; y: number; ang: number } | null = null;
+    if (early && EARLY_FODDER_KINDS.includes(kind) && players.length > 0) {
+      placed = this.ringPlacementNear(players);
+    }
+    // BEACON lure (solo stand-your-ground read): while a beacon is on the
+    // field, half of new spawns land on a ring around it, aimed at the zone.
+    // Bias only — caps, weights and intervals above are untouched.
+    const beacon = w.beacon;
+    if (!placed && beacon && rand() < BEACON_LURE_FRACTION) {
+      const ang = rand() * Math.PI * 2;
+      const r = BEACON_LURE_RING_MIN + rand() * (BEACON_LURE_RING_MAX - BEACON_LURE_RING_MIN);
+      const x = Phaser.Math.Clamp(beacon.x + Math.cos(ang) * r, 30, w.playW - 30);
+      const y = Phaser.Math.Clamp(beacon.y + Math.sin(ang) * r, 30, w.playH - 30);
+      const clear = players.every((p) => Math.hypot(p.x - x, p.y - y) >= ENEMY_SPAWN_CLEARANCE);
+      if (clear) placed = { x, y, ang: Math.atan2(beacon.y - y, beacon.x - x) };
+    }
     for (let i = 0; i < 5 && !placed; i++) {
       const c = edgeSpawn(30, this.world.playW, this.world.playH);
       const clear = players.every((p) => Math.hypot(p.x - c.x, p.y - c.y) >= ENEMY_SPAWN_CLEARANCE);
@@ -3824,6 +4311,13 @@ export class GameScene extends Phaser.Scene {
     if (!placed) return; // skip this tick
     const e = spawnEnemyState(kind, placed.x, placed.y);
     e.angle = placed.ang;
+    // qa-018: elites are stamped to the room's beam-DPS ceiling at spawn (the
+    // exact bossHp pattern). Stamped ONCE — leveling never retro-buffs a live
+    // elite. Fodder, sniper and the boss keep their spec hp.
+    if (ELITE_HP_BASE[kind] !== undefined) {
+      e.hp = eliteHp(kind, this.maxPresentLevel());
+      e.maxHp = e.hp;
+    }
     w.enemies.push(e);
     this.lastEnemySpawnAt = now;
     this.dirty.enemies = true;
@@ -3831,6 +4325,30 @@ export class GameScene extends Phaser.Scene {
       this.debuted.add(kind);
       this.debutSuppressUntil = now + ENEMY_DEBUT_SUPPRESS_MS;
     }
+  }
+
+  /** A clear point in the early-onslaught ring [ENEMY_SPAWN_CLEARANCE ..
+   *  maxR] around a random living player, aimed at them.
+   *  Null when clamping keeps violating clearance (caller falls back / skips). */
+  private ringPlacementNear(
+    players: Vec[],
+    maxR = EARLY_SPAWN_RING_MAX,
+  ): { x: number; y: number; ang: number } | null {
+    for (let i = 0; i < 8; i++) {
+      const anchor = players[Math.floor(rand() * players.length)];
+      if (!anchor) return null;
+      const c = ringSpawnPoint(
+        anchor.x,
+        anchor.y,
+        ENEMY_SPAWN_CLEARANCE,
+        maxR,
+        this.world.playW,
+        this.world.playH,
+      );
+      const clear = players.every((p) => Math.hypot(p.x - c.x, p.y - c.y) >= ENEMY_SPAWN_CLEARANCE);
+      if (clear) return c;
+    }
+    return null;
   }
 
   private simFor(id: string): EnemySim {
@@ -3849,6 +4367,8 @@ export class GameScene extends Phaser.Scene {
         kbVy: 0,
         broodCount: 0,
         broodParent: null,
+        bossPhaseSeen: 0,
+        bossPhaseFloorUntil: 0,
       };
       this.enemySim.set(id, sim);
     }
@@ -3857,7 +4377,7 @@ export class GameScene extends Phaser.Scene {
 
   private hostSpawnShot(x: number, y: number, angle: number, speed: number, now: number): void {
     this.world.enemyShots.push({
-      id: crypto.randomUUID(),
+      id: entityId(),
       x,
       y,
       vx: Math.cos(angle) * speed,
@@ -3875,7 +4395,16 @@ export class GameScene extends Phaser.Scene {
       const kbDecay = Math.exp(-4 * dt);
       sim.kbVx *= kbDecay;
       sim.kbVy *= kbDecay;
-      const target = nearestOf(players, e.x, e.y);
+      let target = nearestOf(players, e.x, e.y);
+      // BEACON lure: fodder near the zone steers for its center instead —
+      // nearest-of semantics, so a player inside the zone is closer and wins.
+      const beacon = this.world.beacon;
+      if (beacon && (e.kind === "drone" || e.kind === "wasp")) {
+        const bd = Math.hypot(beacon.x - e.x, beacon.y - e.y);
+        if (bd < BEACON_RETARGET_RANGE && (!target || bd < Math.hypot(target.x - e.x, target.y - e.y))) {
+          target = { x: beacon.x, y: beacon.y };
+        }
+      }
       if (!target) {
         e.vx *= Math.exp(-1 * dt);
         e.vy *= Math.exp(-1 * dt);
@@ -4159,10 +4688,9 @@ export class GameScene extends Phaser.Scene {
       this.hostSpawnShards(a.x, a.y, asteroidShardCount(a.radius));
       this.hostRollLoot(a.x, a.y, ASTEROID_DROP_CHANCE, false);
     } else {
-      // Scale the existing outline instead of re-rolling it — no shape pop.
+      // Radius shrink scales the drawn outline automatically (unit verts are
+      // derived from the id and multiplied by radius) — no shape pop.
       const newRadius = a.radius - ASTEROID_MAX_RADIUS * Math.min(damage, 1);
-      const ratio = newRadius / a.radius;
-      a.verts = a.verts.map((v) => ({ x: v.x * ratio, y: v.y * ratio }));
       a.radius = newRadius;
       const ang = Math.atan2(a.vy, a.vx) + (rand() * 60 - 30) * DEG;
       const speed = asteroidSpeed(newRadius);
@@ -4328,6 +4856,20 @@ export class GameScene extends Phaser.Scene {
     // Recompute from the world so a migrated host adopts the flag.
     this.bossAlive = w.enemies.some((e) => e.kind === "dreadnought");
     if (this.bossAlive) return;
+    // dir-006 guaranteed sector boss: at sector-relative 405s a sector with no
+    // dreadnought spawn yet force-spawns one — bypassing the intensity/
+    // cooldown/busy gates but keeping edge placement + spawn clearance.
+    // ADDITIVE: the organic gates below are byte-identical to a0c0272.
+    // w.sectorBossIdx (host-written, on the wire) marks the satisfied sector,
+    // so a migrated host never double-guarantees; a boss spilling across a
+    // boundary keeps the NEW sector's guarantee waived via the bossAlive
+    // early-return above — once it dies, this rel-405 check applies normally.
+    const tSec = Math.max(0, (now - w.arenaEpoch) / 1000);
+    const sIdx = sectorIdx(tSec);
+    if (sectorRelT(tSec) >= SECTOR_BOSS_AT_S && w.sectorBossIdx < sIdx && players.length > 0) {
+      if (this.hostForceSpawnBoss(players)) w.sectorBossIdx = sIdx;
+      return; // placement failure retries next tick; organic gates don't apply
+    }
     if (intensity < BOSS_SPAWN_INTENSITY) return;
     if (this.lastBossKilledAt !== 0 && now - this.lastBossKilledAt < BOSS_SPAWN_COOLDOWN_MS) return;
     if (players.length === 0) return; // never spawn a boss with nobody to fight it
@@ -4348,6 +4890,32 @@ export class GameScene extends Phaser.Scene {
     w.enemies.push(e);
     this.bossAlive = true;
     this.dirty.enemies = true;
+    // dir-006: ANY dreadnought spawn (organic or forced) satisfies the
+    // sector's guarantee — an organic rel-214 boss means rel-405 no-ops.
+    w.sectorBossIdx = sIdx;
+  }
+
+  /** dir-006: edge-place + spawn the guaranteed sector dreadnought. Same
+   *  placement + stat block as the organic path above — deliberately
+   *  duplicated (not extracted) so the organic block stays byte-identical
+   *  for diff inspection (spec criterion 6). */
+  private hostForceSpawnBoss(players: Vec[]): boolean {
+    const w = this.world;
+    let placed: { x: number; y: number; ang: number } | null = null;
+    for (let i = 0; i < 8 && !placed; i++) {
+      const c = edgeSpawn(30, w.playW, w.playH);
+      if (players.every((p) => Math.hypot(p.x - c.x, p.y - c.y) >= ENEMY_SPAWN_CLEARANCE))
+        placed = c;
+    }
+    if (!placed) return false;
+    const e = spawnEnemyState("dreadnought", placed.x, placed.y);
+    e.angle = placed.ang;
+    e.hp = bossHp(Math.max(1, Object.keys(this.peers).length));
+    e.maxHp = e.hp;
+    w.enemies.push(e);
+    this.bossAlive = true;
+    this.dirty.enemies = true;
+    return true;
   }
 
   /** Apply reported damage + knockback; kill (split, loot) at ≤0 HP. */
@@ -4360,7 +4928,46 @@ export class GameScene extends Phaser.Scene {
     // WARDEN: heavy damage reduction while shielded; extra during the vent window.
     let dmg = damageHp;
     if (e.kind === "warden") dmg *= e.shielded ? WARDEN_SHIELDED_DR : WARDEN_VENT_DR;
-    e.hp -= dmg;
+    if (e.kind === "dreadnought") {
+      // qa-009 per-phase duration floor: while the current phase is younger
+      // than BOSS_PHASE_MIN_MS, damage can't cross its lower HP boundary
+      // (phase 3's boundary = death). Once the window has run, one hit can
+      // still only reach the TOP of the next phase — so no phase is ever
+      // skipped outright, even by stacked specials in a full room.
+      const sim = this.simFor(e.id);
+      const now = simNow();
+      const phase = bossPhase(e.hp, e.maxHp);
+      if (sim.bossPhaseSeen !== phase) {
+        sim.bossPhaseSeen = phase;
+        sim.bossPhaseFloorUntil = now + BOSS_PHASE_MIN_MS;
+      }
+      const held = now < sim.bossPhaseFloorUntil;
+      e.hp -= dmg;
+      // +1 keeps hp strictly above the bossPhase() f > 0.66/0.33 cut.
+      const floorHp = held
+        ? phase === 1
+          ? 0.66 * e.maxHp + 1
+          : phase === 2
+            ? 0.33 * e.maxHp + 1
+            : 1
+        : phase === 1
+          ? 0.33 * e.maxHp + 1
+          : phase === 2
+            ? 1
+            : 0;
+      if (e.hp < floorHp) e.hp = floorHp;
+      // qa-017: anchor the next phase's window AT the crossing hit. Without
+      // this, the window only starts when a later hit's pre-damage read
+      // observes the new phase — so a boss left at 1 HP mid-burst would
+      // shrug the killing blow for a fresh 8s from whenever fire resumes.
+      const phaseAfter = bossPhase(e.hp, e.maxHp);
+      if (sim.bossPhaseSeen !== phaseAfter) {
+        sim.bossPhaseSeen = phaseAfter;
+        sim.bossPhaseFloorUntil = now + BOSS_PHASE_MIN_MS;
+      }
+    } else {
+      e.hp -= dmg;
+    }
     // LANCER's phases persist vx/vy, so direct knockback works; the others get
     // steering-overwritten every sim tick, so the impulse lives in the sim.
     // The boss owns its velocity too — don't let beams shove it off its orbit.
@@ -4393,10 +5000,11 @@ export class GameScene extends Phaser.Scene {
     this.enemySim.delete(e.id);
     const now = simNow();
     if (e.kind === "dreadnought") {
-      // Marquee reward: an XP fountain (2 bursts to dodge the live-shard cap) +
-      // two guaranteed drops. Free the arena-wide slot + arm the cooldown.
-      this.hostSpawnShards(e.x, e.y, Math.floor(BOSS_REWARD_SHARDS / 2));
-      this.hostSpawnShards(e.x, e.y, Math.ceil(BOSS_REWARD_SHARDS / 2));
+      // Marquee reward: an XP fountain (past SHARDS_MAX_LIVE the oldest
+      // shards on the field splice out — hostSpawnShards — so the burst
+      // itself always lands whole) + two guaranteed drops. Free the
+      // arena-wide slot + arm the cooldown.
+      this.hostSpawnShards(e.x, e.y, BOSS_REWARD_SHARDS);
       this.hostRollLoot(e.x, e.y, 1, true);
       this.hostRollLoot(e.x, e.y, 1, true);
       this.bossAlive = false;
@@ -4453,13 +5061,15 @@ export class GameScene extends Phaser.Scene {
    * force pity) -> child table. Skipped past ITEMS_MAX_LIVE (the dry streak
    * still accrues pity); UFO drops bypass the cap.
    */
-  private hostRollLoot(x: number, y: number, chance: number, feedPity: boolean): void {
+  /** `bypassCap` (UFO-drop precedent): a GUARANTEED payout — the beacon hold
+   *  crystal — must never be silently skipped by the in-flight item cap. */
+  private hostRollLoot(x: number, y: number, chance: number, feedPity: boolean, bypassCap = false): void {
     const w = this.world;
     const bumpAll = (): void => {
       if (!feedPity) return;
       for (const c of LOOT_CLASSES) this.lootPity[c] += 1;
     };
-    if (w.items.length >= ITEMS_MAX_LIVE) {
+    if (!bypassCap && w.items.length >= ITEMS_MAX_LIVE) {
       bumpAll();
       return;
     }
@@ -4897,7 +5507,10 @@ export class GameScene extends Phaser.Scene {
         this.asteroidObjs.set(a.id, rec);
       }
       if (rec.drawnRadius !== a.radius) {
-        drawPoly(rec.gfx, a.verts);
+        drawPoly(
+          rec.gfx,
+          asteroidUnitVerts(a.id).map((v) => ({ x: v.x * a.radius, y: v.y * a.radius })),
+        );
         if (rec.drawnRadius > a.radius) {
           // Took a hit: brief scale pop + matter debris + energy sparks.
           rec.gfx.setScale(1.15);
@@ -4997,7 +5610,14 @@ export class GameScene extends Phaser.Scene {
       }
       rec.gfx.setPosition(e.x, e.y).setRotation(e.angle);
       // Damage flicker (UFO style) + grace flash-in for splitter children.
-      const hidden = now < e.blinkUntil && Math.floor(now / 66) % 4 === 0;
+      // NOT the boss or the long-TTK elites (warden, hive): under sustained
+      // point-blank fire blinkUntil is pinned refreshed, and a hide-strobe
+      // would blank the hull for a quarter of the whole melt — those flash
+      // WHITE instead (drawEnemyTelegraphs). Lancer/splitter fights are
+      // sub-3s, so the cheap hide-blink stays readable there.
+      const flashesWhite =
+        e.kind === "dreadnought" || e.kind === "warden" || e.kind === "spawner";
+      const hidden = !flashesWhite && now < e.blinkUntil && Math.floor(now / 66) % 4 === 0;
       rec.gfx.setVisible(!hidden);
       rec.gfx.setAlpha(e.graceUntil > now ? 0.25 + 0.45 * (Math.sin(now / 40) * 0.5 + 0.5) : 1);
       // Telegraph audio: LANCER windup + WASP burst, on-screen only (§6.1).
@@ -5075,6 +5695,7 @@ export class GameScene extends Phaser.Scene {
   /** Per-frame telegraph overlays (additive layer, redrawn every frame). */
   private drawEnemyTelegraphs(now: number): void {
     const g = this.telegraphGfx;
+    const sw = this.strokeScale(); // qa-011: warnings must survive phone zoom
     g.clear();
     for (const e of this.world.enemies) {
       // WARDEN shield arc is always visible (not just during a telegraph): solid
@@ -5082,9 +5703,20 @@ export class GameScene extends Phaser.Scene {
       if (e.kind === "warden") {
         const venting = !e.shielded;
         if (!venting || Math.floor(now / 60) % 2 === 0) {
-          g.lineStyle(2, venting ? 0xffffff : ENEMY_SPECS.warden.tint, venting ? 0.5 : 0.9);
+          g.lineStyle(2 * sw, venting ? 0xffffff : ENEMY_SPECS.warden.tint, venting ? 0.5 : 0.9);
           g.strokeCircle(e.x, e.y, ENEMY_SPECS.warden.hitRadius + 6);
         }
+      }
+      // Boss + long-TTK elite (warden, hive) damage feedback: white hull
+      // overlay on the blink duty cycle — flash white, never blank (the hull
+      // must stay readable while melting; qa-018 blink rider).
+      if (
+        (e.kind === "dreadnought" || e.kind === "warden" || e.kind === "spawner") &&
+        e.blinkUntil > now &&
+        Math.floor(now / 66) % 4 === 0
+      ) {
+        g.lineStyle(2 * sw, 0xffffff, 0.9);
+        strokeTransformed(g, enemyHullPoints(e.kind), e.x, e.y, e.angle);
       }
       if (e.telegraphUntil <= now) continue;
       if (e.kind === "drone") {
@@ -5095,22 +5727,22 @@ export class GameScene extends Phaser.Scene {
       } else if (e.kind === "wasp") {
         // Wings flash white at 12Hz.
         if (Math.floor(now / 42) % 2 === 0) {
-          g.lineStyle(1, 0xffffff, 0.9);
+          g.lineStyle(sw, 0xffffff, 0.9);
           strokeTransformed(g, enemyHullPoints("wasp"), e.x, e.y, e.angle);
         }
       } else if (e.kind === "lancer") {
         // Hull strobes at 8Hz + dashed line along the LOCKED charge vector.
         if (Math.floor(now / 62) % 2 === 0) {
-          g.lineStyle(1, 0xffffff, 0.95);
+          g.lineStyle(sw, 0xffffff, 0.95);
           strokeTransformed(g, enemyHullPoints("lancer"), e.x, e.y, e.angle);
         }
-        g.lineStyle(1, ENEMY_SPECS.lancer.tint, 0.7);
+        g.lineStyle(sw, ENEMY_SPECS.lancer.tint, 0.7);
         dashedLine(g, e.x, e.y, e.angle, LANCER_CHARGE_RANGE, 8, 6);
       } else if (e.kind === "sniper") {
         // Strobing laser sight to each locked point.
         if (Math.floor(now / 50) % 2 === 0) {
           for (const aim of e.lances) {
-            g.lineStyle(1, ENEMY_SPECS.sniper.tint, 0.9);
+            g.lineStyle(sw, ENEMY_SPECS.sniper.tint, 0.9);
             g.lineBetween(e.x, e.y, aim.x, aim.y);
             g.fillStyle(ENEMY_SPECS.sniper.tint, 0.9).fillCircle(aim.x, aim.y, 4);
           }
@@ -5118,14 +5750,14 @@ export class GameScene extends Phaser.Scene {
       } else if (e.kind === "spawner") {
         // Expanding pulse ring as the brood charges.
         const p = 1 - (e.telegraphUntil - now) / SPAWNER_TELEGRAPH_MS;
-        g.lineStyle(1, ENEMY_SPECS.spawner.tint, 0.8);
+        g.lineStyle(sw, ENEMY_SPECS.spawner.tint, 0.8);
         g.strokeCircle(e.x, e.y, ENEMY_SPECS.spawner.hitRadius + 4 + 14 * p);
       } else if (e.kind === "dreadnought") {
         if (e.lances.length > 0) {
           // Phase-2 triple lances.
           if (Math.floor(now / 45) % 2 === 0) {
             for (const aim of e.lances) {
-              g.lineStyle(2, 0xffffff, 0.85);
+              g.lineStyle(2 * sw, 0xffffff, 0.85);
               g.lineBetween(e.x, e.y, aim.x, aim.y);
               g.fillStyle(ENEMY_SPECS.dreadnought.tint, 0.9).fillCircle(aim.x, aim.y, 6);
             }
@@ -5166,6 +5798,122 @@ export class GameScene extends Phaser.Scene {
       }
       if (Math.random() < 0.3) this.fx.converge(p.x, p.y, 2, 150, 200, SINGULARITY_TINT);
     }
+  }
+
+  /** Neon hex ring (the beacon's whole silhouette — a huge static hexagon
+   *  reads nothing like a ship). dashFrac < 1 draws each edge as dashes. */
+  private strokeHexRing(
+    g: Phaser.GameObjects.Graphics,
+    x: number,
+    y: number,
+    r: number,
+    rot: number,
+    dashFrac: number,
+  ): void {
+    let px = x + Math.cos(rot) * r;
+    let py = y + Math.sin(rot) * r;
+    for (let i = 1; i <= 6; i++) {
+      const a = rot + (i * Math.PI) / 3;
+      const nx = x + Math.cos(a) * r;
+      const ny = y + Math.sin(a) * r;
+      if (dashFrac >= 1) {
+        g.lineBetween(px, py, nx, ny);
+      } else {
+        const dashes = 4;
+        for (let d = 0; d < dashes; d++) {
+          const t0 = d / dashes;
+          const t1 = t0 + dashFrac / dashes;
+          g.lineBetween(
+            px + (nx - px) * t0,
+            py + (ny - py) * t0,
+            px + (nx - px) * t1,
+            py + (ny - py) * t1,
+          );
+        }
+      }
+      px = nx;
+      py = ny;
+    }
+  }
+
+  /** BEACON zone (dir-004). CHARGE: dashed hex shrinking 1.5×→1× radius,
+   *  dashes rotating. ACTIVE: solid slow-spinning hex + a depleting countdown
+   *  arc; CONTESTED strobes gold↔white at 4Hz; controlled drifts gold motes
+   *  toward the controller. Gold stays off enemy and player kit. */
+  private drawBeacon(now: number): void {
+    const g = this.beaconGfx;
+    g.clear();
+    const b = this.world.beacon;
+    if (!b || now >= b.diesAt) return;
+    if (now < b.activeAt) {
+      const p = Phaser.Math.Clamp(1 - (b.activeAt - now) / (BEACON_CHARGE_S * 1000), 0, 1);
+      const r = BEACON_RADIUS * (1.5 - 0.5 * p);
+      g.lineStyle(2, BEACON_TINT, 0.3 + 0.5 * p);
+      this.strokeHexRing(g, b.x, b.y, r, (now / 1000) * 0.6, 0.55);
+      g.fillStyle(0xffffff, 0.4 + 0.5 * p);
+      g.fillCircle(b.x, b.y, 3 + 4 * p);
+      // qa-014: point-blank the 1.5x ring exceeds the viewport and the dashes
+      // read as stray gold segments — a pulsing gold center diamond (the
+      // beacon's minimap glyph, writ large) gives close witnesses a focus.
+      const pulse = 1 + 0.2 * Math.sin((now / 1000) * Math.PI * 3);
+      const dr = (10 + 8 * p) * pulse;
+      g.lineStyle(2, BEACON_TINT, 0.45 + 0.45 * p);
+      g.beginPath();
+      g.moveTo(b.x, b.y - dr);
+      g.lineTo(b.x + dr * 0.7, b.y);
+      g.lineTo(b.x, b.y + dr);
+      g.lineTo(b.x - dr * 0.7, b.y);
+      g.closePath();
+      g.strokePath();
+      return;
+    }
+    const strobeWhite =
+      b.contested && Math.floor((now * BEACON_CONTEST_STROBE_HZ * 2) / 1000) % 2 === 1;
+    const tint = strobeWhite ? 0xffffff : BEACON_TINT;
+    g.lineStyle(3, tint, b.contested ? 0.95 : 0.75);
+    this.strokeHexRing(g, b.x, b.y, BEACON_RADIUS, (now / 1000) * 0.12, 1);
+    // Countdown arc depletes across ACTIVE — the "hold it to the end" read.
+    const frac = Phaser.Math.Clamp((b.diesAt - now) / Math.max(1, b.diesAt - b.activeAt), 0, 1);
+    g.lineStyle(1, tint, 0.5);
+    g.beginPath();
+    g.arc(b.x, b.y, BEACON_RADIUS - 26, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac);
+    g.strokePath();
+    g.fillStyle(0xffffff, 0.85);
+    g.fillCircle(b.x, b.y, 5);
+    if (b.controllerId && !b.contested && Math.random() < 0.3) {
+      const c = this.playerPos(b.controllerId);
+      if (c) this.fx.converge(c.x, c.y, 1, BEACON_RADIUS, 500, BEACON_TINT);
+    }
+  }
+
+  /** The ONE viewport-edge pip pass (dir-004 mandate, shared component):
+   *  beacon gold diamond, UFO blinking circle (qa-010), and — while the arena
+   *  is young and the screen shows no hostiles — red triangles at the nearest
+   *  inbound enemies (qa-007: an empty screen still telegraphs the action). */
+  private drawEdgePips(now: number): void {
+    const targets: PipTarget[] = [];
+    const b = this.world.beacon;
+    if (b && now < b.diesAt) targets.push({ x: b.x, y: b.y, tint: BEACON_TINT, shape: "diamond" });
+    const u = this.world.ufo;
+    if (u) targets.push({ x: u.x, y: u.y, tint: 0xffffff, shape: "circle", blink: true });
+    const tSec = Math.max(0, (now - this.world.arenaEpoch) / 1000);
+    if (tSec < EARLY_SPAWN_WINDOW_S && this.world.enemies.length > 0) {
+      const view = this.cameras.main.worldView;
+      const anyVisible = this.world.enemies.some(
+        (e) => e.x >= view.x && e.x <= view.right && e.y >= view.y && e.y <= view.bottom,
+      );
+      if (!anyVisible) {
+        const byDist = [...this.world.enemies].sort(
+          (a, z) =>
+            Math.hypot(a.x - this.shipX, a.y - this.shipY) -
+            Math.hypot(z.x - this.shipX, z.y - this.shipY),
+        );
+        for (const e of byDist.slice(0, DEBUT_PIP_MAX)) {
+          targets.push({ x: e.x, y: e.y, tint: ENEMY_SHOT_TINT, shape: "triangle" });
+        }
+      }
+    }
+    this.edgePips.draw(this.cameras.main, targets, now);
   }
 
   /** Enemy projectiles: red is reserved — nothing friendly is ever red. */
@@ -5371,11 +6119,19 @@ export class GameScene extends Phaser.Scene {
 
   /** Hull grows + gains detail per level (1..3): L2 adds swept wings + a
    *  cockpit; L3 adds an inner frame, a nose spike + wingtip nodes. */
+  /** Entity stroke width multiplier (qa-011). Zoom is static per viewport, so
+   *  hulls built before a resize keep the old weight — the drift is <0.2px
+   *  and enemies are short-lived; not worth a rebuild pass. */
+  private strokeScale(): number {
+    return Phaser.Math.Clamp(STROKE_BASE / this.cameras.main.zoom, STROKE_BASE, STROKE_MAX);
+  }
+
   private makeShipGfx(tint: number, level = 1): Phaser.GameObjects.Graphics {
     const g = this.add.graphics().setDepth(10);
     const L = Math.max(1, Math.min(LEVEL_CAP, Math.round(level)));
     const s = shipScaleForLevel(L);
-    g.lineStyle(1, tint, 1);
+    const sw = this.strokeScale();
+    g.lineStyle(sw, tint, 1);
     strokeClosed(g, shipHullPoints(L));
     if (L >= 2) {
       g.lineBetween(-2 * s, -3 * s, -9 * s, -7 * s); // swept wings
@@ -5383,12 +6139,12 @@ export class GameScene extends Phaser.Scene {
       g.fillStyle(tint, 0.9).fillCircle(2 * s, 0, 1.4 * s); // cockpit
     }
     if (L >= 3) {
-      g.lineStyle(1, tint, 0.4); // inner frame
+      g.lineStyle(sw, tint, 0.4); // inner frame
       strokeClosed(
         g,
         shipHullPoints(L).map((p) => ({ x: p.x * 0.55, y: p.y * 0.55 })),
       );
-      g.lineStyle(1, tint, 1);
+      g.lineStyle(sw, tint, 1);
       g.lineBetween(SHIP_RADIUS * s, 0, (SHIP_RADIUS + 4) * s, 0); // nose spike
       g.fillStyle(0xffffff, 0.9);
       g.fillCircle(-9 * s, -7 * s, 1.2 * s); // wingtip nodes
@@ -5409,7 +6165,7 @@ export class GameScene extends Phaser.Scene {
 
   private makeUfoGfx(): Phaser.GameObjects.Graphics {
     const g = this.add.graphics().setDepth(6);
-    g.lineStyle(1, 0xffffff, 1);
+    g.lineStyle(this.strokeScale(), 0xffffff, 1);
     strokeClosed(g, UFO_OUTLINE);
     const [, , p2, p3, , , p6, p7] = UFO_OUTLINE;
     if (p2 && p3 && p6 && p7) {
@@ -5421,13 +6177,18 @@ export class GameScene extends Phaser.Scene {
 
   private makeEnemyGfx(kind: EnemyKind): Phaser.GameObjects.Graphics {
     const g = this.add.graphics().setDepth(kind === "dreadnought" ? 8 : 7);
-    g.lineStyle(kind === "dreadnought" ? 3 : kind === "warden" ? 2 : 1, ENEMY_SPECS[kind].tint, 1);
+    const sw = this.strokeScale();
+    g.lineStyle(
+      (kind === "dreadnought" ? 3 : kind === "warden" ? 2 : 1) * sw,
+      ENEMY_SPECS[kind].tint,
+      1,
+    );
     const pts = enemyHullPoints(kind);
     strokeClosed(g, pts);
     if (kind === "dreadnought") {
       // Bridge dot + cross-struts so the capital ship reads as a boss.
       g.fillStyle(0xffffff, 0.9).fillCircle(10, 0, 5);
-      g.lineStyle(1, ENEMY_SPECS.dreadnought.tint, 0.7);
+      g.lineStyle(sw, ENEMY_SPECS.dreadnought.tint, 0.7);
       g.lineBetween(-54, 0, 36, 0);
     }
     if (kind === "splitter") {
@@ -5533,7 +6294,7 @@ export class GameScene extends Phaser.Scene {
 
   // ---- minimap + HUD ---------------------------------------------------------------------
 
-  private drawMinimap(): void {
+  private drawMinimap(now: number): void {
     const g = this.minimapGfx;
     g.clear();
     // Safe-area insets keep the corner box off the home indicator/notch.
@@ -5554,8 +6315,35 @@ export class GameScene extends Phaser.Scene {
     }
     for (const e of this.world.enemies) {
       if (!inWorld(e.x, e.y, 0, pw, ph)) continue;
-      g.fillStyle(ENEMY_SHOT_TINT, 1);
-      g.fillRect(x0 + e.x * sx - 1, y0 + e.y * sy - 1, 2, 2);
+      if (e.kind === "dreadnought") {
+        // qa-010: the boss is not fodder — a hollow 4×4 square, not a fleck.
+        g.lineStyle(1, ENEMY_SHOT_TINT, 1);
+        g.strokeRect(x0 + e.x * sx - 2, y0 + e.y * sy - 2, 4, 4);
+      } else {
+        g.fillStyle(ENEMY_SHOT_TINT, 1);
+        g.fillRect(x0 + e.x * sx - 1, y0 + e.y * sy - 1, 2, 2);
+      }
+    }
+    // qa-010: the UFO piñata is findable — blinking white saucer marker.
+    const ufo = this.world.ufo;
+    if (ufo && inWorld(ufo.x, ufo.y, 0, pw, ph) && Math.floor(now / 250) % 2 === 0) {
+      g.lineStyle(1, 0xffffff, 1);
+      g.strokeCircle(x0 + ufo.x * sx, y0 + ufo.y * sy, 2.5);
+    }
+    // BEACON: pulsing hollow gold diamond from CHARGE start.
+    const beacon = this.world.beacon;
+    if (beacon && now < beacon.diesAt) {
+      const r = 3 + Math.sin((now / 1000) * Math.PI * 2) * 1.2;
+      const bx = x0 + beacon.x * sx;
+      const by = y0 + beacon.y * sy;
+      g.lineStyle(1, BEACON_TINT, 1);
+      g.beginPath();
+      g.moveTo(bx, by - r);
+      g.lineTo(bx + r * 0.7, by);
+      g.lineTo(bx, by + r);
+      g.lineTo(bx - r * 0.7, by);
+      g.closePath();
+      g.strokePath();
     }
     for (const it of this.world.items) {
       if (!inWorld(it.x, it.y, 0, pw, ph)) continue;
@@ -5593,6 +6381,130 @@ export class GameScene extends Phaser.Scene {
       }
       g.fillStyle(tint, 1).fillCircle(x0 + px * sx, y0 + py * sy, isMe ? 3 : 2);
     }
+  }
+
+  // ---- sector cycle (dir-006) ---------------------------------------------------
+
+  /** Sector standings this instant: self live-local, every present remote from
+   *  its last wire value. Best-first; id tiebreak so the order converges
+   *  identically on every client. */
+  private sectorStandings(): Array<{ id: string; pts: number }> {
+    const me = this.myId;
+    const rows: Array<{ id: string; pts: number }> = [];
+    if (me !== null) rows.push({ id: me, pts: Math.round(this.sectorScore) });
+    for (const [id, ns] of this.peerStates) {
+      if (id === me || !ns || !ns.present) continue;
+      rows.push({ id, pts: Math.round(ns.sectorScore) });
+    }
+    rows.sort((a, b) => b.pts - a.pts || (a.id < b.id ? -1 : 1));
+    return rows;
+  }
+
+  /** Per-frame sector clock: boundary detection (recap + owner score reset),
+   *  the persistent HUD line, the rel-180/360 standings pulses, and recap
+   *  expiry. Every write is DOM — the sim is untouched except the owner-side
+   *  reset, so the room never stops for any of it. */
+  private tickSector(now: number): void {
+    const tSec = Math.max(0, (now - this.world.arenaEpoch) / 1000);
+    const idx = sectorIdx(tSec);
+    const rel = sectorRelT(tSec);
+    // First live tick (or a mid-sector joiner): adopt the room's sector
+    // silently — no recap for sectors we weren't part of.
+    if (this.lastSectorIdx === -1) this.lastSectorIdx = idx;
+    if (idx !== this.lastSectorIdx) {
+      // Snapshot standings BEFORE the reset — the recap wants final scores.
+      // A backwards jump (dev epoch rewind) resyncs without a recap.
+      if (idx > this.lastSectorIdx) {
+        const rows = this.sectorStandings();
+        this.sectorBest = Math.max(this.sectorBest, Math.round(this.sectorScore));
+        this.showRecap(this.lastSectorIdx + 1, rows, now);
+      }
+      // Owner-reset: the boundary is the ONLY thing that zeroes sector pts
+      // (deaths cost 0 by construction — nothing else writes this field).
+      this.sectorScore = 0;
+      this.lastSectorIdx = idx;
+    }
+    if (this.recapEl) this.recapEl.style.opacity = now < this.recapUntil ? "1" : "0";
+
+    // Persistent line: SECTOR 3 · 4:12 · 1,240 PTS · 2ND (solo: rank omitted).
+    const rows = this.sectorStandings();
+    const myRank = rows.findIndex((r) => r.id === this.myId) + 1;
+    const remS = Math.max(0, Math.ceil(SECTOR_LENGTH_S - rel));
+    let line =
+      `SECTOR ${idx + 1} · ${Math.floor(remS / 60)}:${String(remS % 60).padStart(2, "0")}` +
+      ` · ${fmtPts(Math.round(this.sectorScore))} PTS`;
+    if (rows.length > 1 && myRank > 0) line += ` · ${ordinal(myRank)}`;
+    if (line !== this.lastSectorLine) {
+      this.lastSectorLine = line;
+      setText(this.sectorEl, line);
+    }
+
+    // Standings pulse fills the two beacon-free troughs; never stacked on top
+    // of a boss fight or the recap (they own the player's attention).
+    const bossLive = this.world.enemies.some((e) => e.kind === "dreadnought");
+    const inPulse = SECTOR_PULSE_AT_S.some((at) => rel >= at && rel < at + SECTOR_PULSE_S);
+    const showPulse = inPulse && !bossLive && now >= this.recapUntil;
+    if (this.pulseEl) this.pulseEl.style.opacity = showPulse ? "1" : "0";
+    if (showPulse) {
+      let text: string;
+      const leader = rows[0];
+      if (rows.length > 1 && myRank > 0 && leader) {
+        if (myRank === 1) {
+          text = `1ST · ${fmtPts(leader.pts - (rows[1]?.pts ?? 0))} AHEAD`;
+        } else {
+          const gap = leader.pts - Math.round(this.sectorScore);
+          text = `${ordinal(myRank)} · ${fmtPts(gap)} BEHIND ${callsign(leader.id)}`;
+        }
+      } else {
+        text =
+          `${fmtPts(Math.round(this.sectorScore))} PTS` +
+          (this.sectorBest > 0 ? ` · BEST ${fmtPts(this.sectorBest)}` : "");
+      }
+      if (text !== this.lastPulseText) {
+        this.lastPulseText = text;
+        setText(this.pulseEl, text);
+      }
+    }
+  }
+
+  /** Boundary recap: standings snapshot into #recap for SECTOR_RECAP_SHOW_S.
+   *  Non-blocking DOM (pointer-events: none) — sim, input and firing continue
+   *  behind it; tickSector fades it out on schedule. */
+  private showRecap(completedNum: number, rows: Array<{ id: string; pts: number }>, now: number): void {
+    this.recapUntil = now + SECTOR_RECAP_SHOW_S * 1000;
+    // One chime from the gold shared-event family (beacon vocabulary, no new synth).
+    sfx.play("beacon_active", { rate: 1.3, gain: 0.6 });
+    const el = this.recapEl;
+    if (!el) return;
+    let html = `<h2>SECTOR ${completedNum} COMPLETE</h2>`;
+    if (rows.length <= 1) {
+      html += `<div class="row">${fmtPts(rows[0]?.pts ?? 0)} PTS · BEST ${fmtPts(this.sectorBest)}</div>`;
+    } else {
+      const entries = rows.map((r, i) => ({
+        rank: i + 1,
+        name: r.id === this.myId ? "YOU" : callsign(r.id),
+        pts: r.pts,
+      }));
+      const shown = entries.slice(0, 3);
+      const mine = entries.find((e) => e.name === "YOU");
+      if (mine && mine.rank > 3) shown.push(mine);
+      html += shown
+        .map((e) => {
+          const gold = e.rank === 1 ? ` style="color:${hexCss(BEACON_TINT)}"` : "";
+          return `<div class="row"${gold}>${ordinal(e.rank)} · ${e.name} · ${fmtPts(e.pts)}</div>`;
+        })
+        .join("");
+    }
+    el.innerHTML = html;
+    // dir-009 presence pass: restart the 300ms scale-in alongside the fade,
+    // then one winner-row pop ~150ms after the banner lands. DOM-only — the
+    // banner stays non-blocking (pointer-events: none, no shake, no input).
+    el.classList.remove("in");
+    void el.offsetWidth; // reflow so back-to-back recaps re-run the animation
+    el.classList.add("in");
+    window.setTimeout(() => {
+      el.querySelector(".row")?.classList.add("pop");
+    }, 450);
   }
 
   private updateHud(now: number): void {
@@ -5699,13 +6611,27 @@ export class GameScene extends Phaser.Scene {
     window.__starfall = {
       scene: this,
       client: this.client,
-      /** Host only: spawn an enemy near (or at) the given point. */
+      /** Host only: spawn an enemy near (or at) the given point. Elites get
+       *  the same qa-018 level-scaled HP stamp as the organic spawn path, so
+       *  probes measure shipping durability. */
       spawnEnemy: (kind: EnemyKind, x?: number, y?: number): string | null => {
         if (!this.amHost) return null;
         const e = spawnEnemyState(kind, x ?? this.shipX + 320, y ?? this.shipY);
+        if (ELITE_HP_BASE[kind] !== undefined) {
+          e.hp = eliteHp(kind, this.maxPresentLevel());
+          e.maxHp = e.hp;
+        }
         this.world.enemies.push(e);
         this.dirty.enemies = true;
         return e.id;
+      },
+      /** Host only: run damage through the real hostDamageEnemy pipeline
+       *  (warden DR, boss phase floors, kill/loot). Returns the enemy's
+       *  post-damage hp, or null if it died/never existed. */
+      damageEnemy: (id: string, amount: number): number | null => {
+        if (!this.amHost) return null;
+        this.hostDamageEnemy(id, amount, 0, 0);
+        return this.world.enemies.find((e) => e.id === id)?.hp ?? null;
       },
       /** Grant a shield MOD by kind name (validated — bad kinds are ignored). */
       grantShield: (raw: string): void => {
@@ -5780,6 +6706,14 @@ export class GameScene extends Phaser.Scene {
       fire: (): void => {
         this.fireWeapon(simNow());
       },
+      /** Host only: force-spawn a BEACON at (x,y) (defaults near the ship).
+       *  Custom charge/active seconds exist for compressed-timer e2e probes;
+       *  the real cadence gates are deliberately bypassed. */
+      spawnBeacon: (x?: number, y?: number, chargeS?: number, activeS?: number): boolean => {
+        if (!this.amHost) return false;
+        this.hostSpawnBeacon(x ?? this.shipX + 200, y ?? this.shipY, simNow(), chargeS, activeS);
+        return true;
+      },
       /** Host only: rewind/forward the intensity director. */
       setArenaEpoch: (epochMs: number): void => {
         if (!this.amHost) return;
@@ -5792,6 +6726,7 @@ export class GameScene extends Phaser.Scene {
         alive: this.alive,
         level: this.level,
         xp: this.xp,
+        runXp: this.runXp,
         xpToNext: xpToNext(this.level),
         streak: this.streak,
         weapon: this.weapon.name,
@@ -5813,6 +6748,14 @@ export class GameScene extends Phaser.Scene {
         beams: this.beams.length,
         isHost: this.amHost,
         intensity: arenaIntensity(Math.max(0, (simNow() - this.world.arenaEpoch) / 1000)),
+        now: simNow(),
+        sector: {
+          idx: sectorIdx(Math.max(0, (simNow() - this.world.arenaEpoch) / 1000)),
+          rel: sectorRelT(Math.max(0, (simNow() - this.world.arenaEpoch) / 1000)),
+          score: Math.round(this.sectorScore),
+          best: this.sectorBest,
+          bossIdx: this.world.sectorBossIdx,
+        },
       }),
     };
   }
@@ -5824,6 +6767,7 @@ type StarfallDevHooks = {
   scene: GameScene;
   client: MultiplayerClient;
   spawnEnemy: (kind: EnemyKind, x?: number, y?: number) => string | null;
+  damageEnemy: (id: string, amount: number) => number | null;
   grantShield: (raw: string) => void;
   grantBooster: (raw: string) => void;
   setShield: (hp: number) => void;
@@ -5832,6 +6776,7 @@ type StarfallDevHooks = {
   spawnItem: (cls: "weapon" | "shield" | "booster", name: string, x?: number, y?: number) => void;
   dropShards: (count: number, x?: number, y?: number) => void;
   fire: () => void;
+  spawnBeacon: (x?: number, y?: number, chargeS?: number, activeS?: number) => boolean;
   setArenaEpoch: (epochMs: number) => void;
   intensity: () => number;
   summary: () => Record<string, unknown>;
@@ -5844,6 +6789,21 @@ declare global {
 }
 
 // ---- module helpers (pure) ----------------------------------------------------------------
+
+/** 1 → "1ST", 2 → "2ND", 3 → "3RD", 4 → "4TH"… (sector standings surfaces). */
+function ordinal(rank: number): string {
+  const mod100 = rank % 100;
+  const mod10 = rank % 10;
+  if (mod10 === 1 && mod100 !== 11) return `${rank}ST`;
+  if (mod10 === 2 && mod100 !== 12) return `${rank}ND`;
+  if (mod10 === 3 && mod100 !== 13) return `${rank}RD`;
+  return `${rank}TH`;
+}
+
+/** Thousands-grouped points for the sector surfaces (1240 → "1,240"). */
+function fmtPts(pts: number): string {
+  return pts.toLocaleString("en-US");
+}
 
 /** Saucer outline relative to the UFO's reference point (half-width UFO_RADIUS). */
 const UFO_OUTLINE: ReadonlyArray<{ x: number; y: number }> = [
@@ -6204,6 +7164,7 @@ function readNetState(player: Player | undefined): PlayerNetState | null {
   const level = s["level"];
   const xp = s["xp"];
   const streak = s["streak"];
+  const sectorScore = s["sectorScore"];
   const weaponName = s["weaponName"];
   const vx = s["vx"];
   const vy = s["vy"];
@@ -6255,6 +7216,7 @@ function readNetState(player: Player | undefined): PlayerNetState | null {
     level: typeof level === "number" ? level : 1,
     xp: typeof xp === "number" ? xp : 0,
     streak: typeof streak === "number" ? streak : 0,
+    sectorScore: typeof sectorScore === "number" ? sectorScore : 0,
     weaponName: typeof weaponName === "string" ? weaponName : "",
     shieldHp: typeof shieldHp === "number" ? shieldHp : SHIELD_MAX,
     overHp: typeof overHp === "number" ? overHp : 0,
@@ -6283,7 +7245,7 @@ function indexById<T extends { id: string }>(list: readonly T[]): Map<string, T>
 }
 
 function cloneAsteroid(a: AsteroidState): AsteroidState {
-  return { ...a, verts: a.verts.map((v) => ({ ...v })) };
+  return { ...a };
 }
 
 /** Soft-correct a dead-reckoned position toward the authoritative one. */

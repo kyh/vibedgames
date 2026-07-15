@@ -53,6 +53,9 @@ const SFX_NAMES = [
   "telegraph_warn",
   "respawn",
   "sentry_place",
+  "beacon_charge",
+  "beacon_active",
+  "beacon_clash",
 ] as const;
 
 export type SfxName = (typeof SFX_NAMES)[number];
@@ -409,5 +412,27 @@ const RECIPES: Record<SfxName, Recipe> = {
       const note = t < dur * 0.45 ? 520 : 340;
       return 0.38 * square(TAU * note * t) * env(t, dur, 0.002, 2) + click;
     },
+  },
+  // 110ms rising sine blip 440→660Hz — the caller ratchets `rate` up each
+  // second of the BEACON charge so the 8s telegraph climbs in pitch.
+  beacon_charge: {
+    durMs: 110,
+    render: (t, dur) => 0.3 * Math.sin(slidePhase(t, dur, 440, 660)) * env(t, dur, 0.004, 1.8),
+  },
+  // 550ms FM bell chime (660Hz carrier + fifth overtone) — arena-audible
+  // "the zone is live" cue at the CHARGE→ACTIVE flip.
+  beacon_active: {
+    durMs: 550,
+    render: (t, dur) => {
+      const mod = Math.sin(TAU * 660 * 2 * t) * 4 * env(t, dur, 0.001, 3);
+      const bell = Math.sin(TAU * 660 * t + mod) + 0.4 * Math.sin(TAU * 990 * t);
+      return 0.35 * bell * env(t, dur, 0.002, 1.6);
+    },
+  },
+  // 140ms dissonant dual-square buzz (minor-second 520/551Hz) — CONTESTED clash.
+  beacon_clash: {
+    durMs: 140,
+    render: (t, dur) =>
+      0.22 * (square(TAU * 520 * t) + square(TAU * 551 * t)) * env(t, dur, 0.003, 2),
   },
 };

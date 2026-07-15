@@ -11,6 +11,9 @@
       name="description"
       content="Online multiplayer arena shooter. Drop in, level up, blast your friends among the stars."
     />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.png" type="image/png" sizes="64x64" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <style>
       * {
         box-sizing: border-box;
@@ -131,6 +134,29 @@
         font-size: 11px;
         opacity: 0.5;
       }
+      #hudright {
+        text-align: right;
+      }
+      /* dir-006: persistent sector line — the ambient mid-game chase. */
+      #sector {
+        font-size: 11px;
+        opacity: 0.55;
+        margin-top: 4px;
+        letter-spacing: 1px;
+        font-variant-numeric: tabular-nums;
+      }
+      /* qa-019: mouse-drag is the core verb — HUD/overlay text must never
+         highlight under a drag that strays across it. */
+      #hud,
+      #start,
+      #overlay,
+      #bossbar,
+      #combo,
+      #recap,
+      #pulse {
+        user-select: none;
+        -webkit-user-select: none;
+      }
 
       #bossbar {
         position: fixed;
@@ -184,6 +210,80 @@
       }
       #combo.pop {
         animation: combo-pop 200ms cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+
+      /* dir-006 sector surfaces: recap banner (boundary, 10s) + standings
+         pulse (rel 180/360, 5s). DOM like the bossbar — zero input capture;
+         the scene only flips opacity + rewrites text. Gold = the shared-event
+         family (BEACON_TINT #ffd166). */
+      #recap {
+        position: fixed;
+        top: calc(96px + env(safe-area-inset-top, 0px));
+        left: 50%;
+        transform: translateX(-50%);
+        pointer-events: none;
+        padding: 10px 24px;
+        background: rgba(0, 0, 0, 0.45);
+        border: 1px solid rgba(255, 209, 102, 0.35);
+        text-align: center;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+        font-variant-numeric: tabular-nums;
+      }
+      /* dir-009: the boundary beat earns ~20% more presence — a scale-in on
+         entry (same 300ms as the fade, cubic-out) + one winner-row pop. Still
+         non-blocking: pointer-events stay off, no shake, no input capture. */
+      #recap.in {
+        animation: recap-in 300ms cubic-bezier(0.33, 1, 0.68, 1);
+      }
+      #recap h2 {
+        margin: 0 0 6px;
+        font-size: 18px;
+        font-weight: 200;
+        letter-spacing: 4px;
+      }
+      #recap .row {
+        font-size: 12px;
+        letter-spacing: 1px;
+        opacity: 0.95;
+      }
+      #recap .row.pop {
+        animation: recap-row-pop 200ms cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+      @keyframes recap-in {
+        from {
+          transform: translateX(-50%) scale(1.12);
+        }
+        to {
+          transform: translateX(-50%) scale(1);
+        }
+      }
+      @keyframes recap-row-pop {
+        0% {
+          transform: scale(1);
+        }
+        50% {
+          transform: scale(1.15);
+        }
+        100% {
+          transform: scale(1);
+        }
+      }
+      #pulse {
+        position: fixed;
+        top: calc(88px + env(safe-area-inset-top, 0px));
+        left: 50%;
+        transform: translateX(-50%);
+        pointer-events: none;
+        padding: 3px 14px;
+        background: rgba(0, 0, 0, 0.35);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 999px;
+        font-size: 12px;
+        letter-spacing: 1px;
+        opacity: 0;
+        transition: opacity 0.25s ease;
+        font-variant-numeric: tabular-nums;
       }
       @keyframes combo-pop {
         0% {
@@ -329,7 +429,7 @@
     <div id="game"></div>
     <div id="hud">
       <div>
-        <div id="weapon">NORMAL BEAM</div>
+        <div id="weapon">BEAM</div>
         <div id="weaponbar"></div>
         <div id="shield">
           <div id="shieldrow">
@@ -341,11 +441,16 @@
         </div>
         <div id="boosts"></div>
       </div>
-      <div id="players">connecting&hellip;</div>
+      <div id="hudright">
+        <div id="players">connecting&hellip;</div>
+        <div id="sector"></div>
+      </div>
     </div>
     <div id="bossbar">
       <div class="track"><div id="bosshp"></div></div>
     </div>
+    <div id="recap"></div>
+    <div id="pulse"></div>
     <div id="combo">
       <div id="comboval">&times;2 &middot; 3</div>
       <div id="combobar"></div>
