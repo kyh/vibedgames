@@ -29,6 +29,12 @@ export type RunOptions = {
   addDirs?: string[];
   /** Run tools without per-call approval. Required for unattended autonomy. */
   skipPermissions: boolean;
+  /**
+   * Resume a prior session instead of starting fresh (claude only; codex
+   * ignores it). Used to continue a failed turn's session so work it already
+   * did isn't re-derived from scratch.
+   */
+  resumeSessionId?: string;
   /** Aborts the underlying process (second Ctrl-C). */
   signal?: AbortSignal;
   /** Receives a compact view of what the session does, as it happens. */

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 
 import type { RoleName } from "./agents.ts";
+import { headCommit } from "./git.ts";
 import { readDirective, type AgentState, type Blackboard, type Phase } from "./state.ts";
 
 export { ROLES } from "./agents.ts";
@@ -85,8 +86,18 @@ function phaseTask(phase: Phase, state: AgentState, bb: Blackboard): string {
         : "Implement movement, the central mechanic, win/lose, and the mandatory craft pass. This is the first playable — make the first 10 seconds feel good.";
       return `${ctx}Read ./.agent/spec.md. Get the core gameplay loop for "${slug}" working using the assets the artist generated (check journal.md for paths and frame sizes). ${note} Verify with typecheck + build.`;
     }
-    case "playtest":
-      return `Playtest the current build of "${slug}" per your role instructions and record findings in ./.agent/playtest.md and backlog.json.`;
+    case "playtest": {
+      // Re-running the full committed suite at a HEAD that already passed a QA
+      // turn is the single biggest recurring spend in a long loop — steer the
+      // turn toward NEW coverage instead. (A hint, not a gate: QA still owns
+      // the judgment, and any commit moves HEAD and re-arms the full suite.)
+      const head = headCommit(bb.root);
+      const unchanged = head !== null && head === state.lastPlaytestHead;
+      const suiteNote = unchanged
+        ? " The build is UNCHANGED since your last completed QA pass (same commit) — do NOT re-run the full committed regression suite; spend the turn on fresh exploratory testing (untested surfaces, edge cases, balance, feel) and only run the specific specs your exploration implicates."
+        : "";
+      return `Playtest the current build of "${slug}" per your role instructions and record findings in ./.agent/playtest.md and backlog.json.${suiteNote}`;
+    }
     case "ship":
       return `Ship "${slug}". Build and \`vg deploy ./dist\`, then record the live URL in journal.md.`;
     case "plan": {

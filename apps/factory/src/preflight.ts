@@ -22,6 +22,21 @@ function onPath(bin: string): boolean {
   }
 }
 
+/**
+ * Is the vg CLI present AND logged in (saved login or VG_TOKEN)? Probed at
+ * each ship phase: an unauthenticated deploy would just burn a shipper turn on
+ * a failing `vg deploy`, so the orchestrator skips shipping instead — the
+ * operator can `vg login` mid-run and the next release point deploys.
+ */
+export function vgAuthenticated(): boolean {
+  try {
+    const res = spawnSync("vg", ["whoami"], { stdio: "ignore", timeout: 30_000 });
+    return res.error === undefined && res.status === 0;
+  } catch {
+    return false;
+  }
+}
+
 /** Run `vg init` (or bootstrap it via npx when vg itself is missing) in the
  * workspace, installing the vibedgames skills there + the vg CLI globally. */
 function runInit(cwd: string, viaNpx: boolean): Promise<boolean> {

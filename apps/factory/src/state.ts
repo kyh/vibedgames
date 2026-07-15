@@ -53,6 +53,13 @@ export type AgentState = {
   /** True once the first playable build exists — gates deploy preemption. */
   built: boolean;
   /**
+   * Workspace HEAD at the last completed QA pass. When HEAD hasn't moved
+   * since, the next playtest is told to skip re-running the committed
+   * regression suite (already exercised at this exact code) and spend the turn
+   * on fresh exploratory testing instead.
+   */
+  lastPlaytestHead: string | null;
+  /**
    * Token of the last deploy approval that was acted on. Approval is "pending"
    * only when the APPROVE sentinel's token differs from this — so consumption
    * is authoritative in persisted state and a failed file delete can't let one

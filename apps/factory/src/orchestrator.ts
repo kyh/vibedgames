@@ -1,11 +1,13 @@
 import { existsSync, writeFileSync } from "node:fs";
 
+import type { RoleName } from "./agents.ts";
 import { claudeBin, codexBin, findRepoRoot } from "./config.ts";
 import { runClaude } from "./claude.ts";
 import { runCodex } from "./codex.ts";
 import { runGate } from "./gate.ts";
-import { commitPhase } from "./git.ts";
-import { preflight } from "./preflight.ts";
+import { commitPhase, diffSummary, headCommit, insideForeignRepo } from "./git.ts";
+import { notifyOperator } from "./notify.ts";
+import { preflight, vgAuthenticated } from "./preflight.ts";
 import type { Reporter } from "./reporter.ts";
 import type { Runner } from "./runner.ts";
 import { buildTask, roleForPhase, ROLES } from "./roles.ts";
@@ -50,6 +52,14 @@ export type AgentOptions = {
   /** Which coding-agent CLI runs the subagents. */
   runner: Runner;
   model: string;
+  /**
+   * Roles routed to the codex CLI even when the main runner is claude — e.g.
+   * engineer turns with fully-specced build tasks are bulk work a cheaper
+   * runner handles fine, while director/designer/qa judgment stays on claude.
+   */
+  codexRoles: RoleName[];
+  /** Model for codex-routed roles (ignored when codexRoles is empty). */
+  codexModel: string;
   maxTurns: number;
   /** Kill a subagent that emits no output for this long (ms; 0 disables). */
   idleTimeoutMs: number;
@@ -108,6 +118,7 @@ export async function runAgent(opts: AgentOptions, reporter: Reporter): Promise<
     existingProject,
     contextDir: opts.contextDir ?? null,
     built: false,
+    lastPlaytestHead: null,
     lastApproval: null,
     shipped: false,
     deployUrl: null,
@@ -157,6 +168,7 @@ export async function runAgent(opts: AgentOptions, reporter: Reporter): Promise<
   // `built:false, shipped:true` can't make the ship guard and preemption spin.
   state.built = (state.built ?? false) || state.shipped;
   state.lastApproval = state.lastApproval ?? null;
+  state.lastPlaytestHead = state.lastPlaytestHead ?? null; // backfill pre-field workspaces
   // A new --context this run fully replaces the prior brief AND reference dir
   // (so switching to a file/text brief clears a stale reference folder);
   // otherwise keep what's persisted so a plain resume retains them.
@@ -176,10 +188,27 @@ export async function runAgent(opts: AgentOptions, reporter: Reporter): Promise<
     return false;
   }
 
+  // The workspace sits inside somebody else's git repo (e.g. a game dir in a
+  // monorepo): the phase ratchet stands down rather than creating a nested
+  // repo that shadows the enclosing one — say so up front, once.
+  if (insideForeignRepo(opts.workspace)) {
+    reporter.warn(
+      "Workspace is inside an existing git repository — the factory will NOT create a nested repo or auto-commit phases; history belongs to the enclosing repo (commit/branch it yourself).",
+    );
+  }
+
   let stopping = false;
   let paused = false;
   let checkpointSkip = false;
   let stopAtReleaseFlag = false;
+  // Failed turn's session id, armed for ONE resume attempt so the next try
+  // continues where it died instead of re-deriving the work from scratch. A
+  // failed resume falls back to a fresh session (a poisoned session — e.g.
+  // context overflow — would just die again).
+  let resumeSessionId: string | undefined;
+  // HEAD we last nudged the operator about (approval-needed notification):
+  // notify once per new build, not every pass through the ship phase.
+  let approvalNudgedHead: string | null | undefined;
   const abort = new AbortController();
 
   const gracefulStop = (): void => {
@@ -279,6 +308,7 @@ export async function runAgent(opts: AgentOptions, reporter: Reporter): Promise<
     const note = takeCheckpoint(bb);
     if (!note || stopping) return;
     appendJournal(bb, `checkpoint: ${truncate(note)}`);
+    notifyOperator(`factory: checkpoint (${state.slug})`, truncate(note, 180));
     if (opts.checkpointWaitMs <= 0) return;
     checkpointSkip = false;
     reporter.checkpointStarted(note, opts.checkpointWaitMs);
@@ -360,6 +390,21 @@ export async function runAgent(opts: AgentOptions, reporter: Reporter): Promise<
       continue;
     }
 
+    // Deploys need an authenticated vg CLI — an unauthenticated (or absent) vg
+    // would just burn a shipper turn on a failing `vg deploy`. Skip the ship
+    // and keep iterating; the operator can `vg login` (or set VG_TOKEN) any
+    // time and the next release point deploys. A standing approval survives.
+    if (state.phase === "ship" && !vgAuthenticated()) {
+      reporter.warn(
+        "`vg` is not logged in — skipping the deploy. Run `vg login` (or set VG_TOKEN) and the next release will ship.",
+      );
+      appendJournal(bb, "ship: skipped — vg CLI not authenticated (run `vg login`).");
+      advance(state);
+      saveState(bb, state);
+      reporter.stateChanged(state, approvalPending(bb, state.lastApproval));
+      continue;
+    }
+
     // Deploys require explicit human approval unless --auto-deploy is set. When
     // there's no standing approval we don't even run the shipper: the build is
     // ready, we just don't publish it — the loop keeps improving the game
@@ -369,6 +414,16 @@ export async function runAgent(opts: AgentOptions, reporter: Reporter): Promise<
         `Build ready but NOT deployed — approval required. Run \`pnpm approve ${state.slug}\` (or press A in the dashboard) to publish it.`,
       );
       appendJournal(bb, "ship: build ready, awaiting human approval (not deployed).");
+      // The loop runs unattended for hours — a journal line doesn't reach
+      // anyone. Nudge the operator once per new build (HEAD), not every pass.
+      const buildHead = headCommit(opts.workspace);
+      if (buildHead !== approvalNudgedHead) {
+        approvalNudgedHead = buildHead;
+        notifyOperator(
+          "factory: approval needed",
+          `${state.slug}: build ready to deploy — run \`pnpm approve ${state.slug}\``,
+        );
+      }
       advance(state);
       saveState(bb, state);
       reporter.stateChanged(state, approvalPending(bb, state.lastApproval));
@@ -393,16 +448,25 @@ export async function runAgent(opts: AgentOptions, reporter: Reporter): Promise<
     });
 
     const turnStartedAt = Date.now();
-    const exec = opts.runner === "codex" ? runCodex : runClaude;
+    // Per-role runner routing: bulk-work roles can run on codex while
+    // judgment-heavy roles stay on the main runner.
+    const useCodex = opts.runner === "codex" || opts.codexRoles.includes(role.name);
+    const exec = useCodex ? runCodex : runClaude;
+    // Resume is claude-only; a codex-routed retry starts fresh.
+    const resuming = useCodex ? undefined : resumeSessionId;
+    const prompt = resuming
+      ? `Your previous session on this assignment was interrupted before it reported success. First check what you already completed (git status/diff, the files and journal entries you touched), then finish ONLY the remaining work — do not redo what's done.\n\nThe assignment again, for reference:\n\n${task}`
+      : task;
     const res = await exec({
-      prompt: task,
+      prompt,
       systemPrompt: role.system,
       cwd: opts.workspace,
-      model: state.model,
+      model: useCodex && opts.runner !== "codex" ? opts.codexModel : state.model,
       maxTurns: opts.maxTurns,
       idleTimeoutMs: opts.idleTimeoutMs,
       maxSessionMs: opts.maxSessionMs,
-      bin: opts.runner === "codex" ? codexBin() : claudeBin(),
+      bin: useCodex ? codexBin() : claudeBin(),
+      resumeSessionId: resuming,
       addDirs: [repoRoot, state.contextDir].filter((d): d is string => Boolean(d)),
       skipPermissions: opts.skipPermissions,
       signal: abort.signal,
@@ -449,9 +513,44 @@ export async function runAgent(opts: AgentOptions, reporter: Reporter): Promise<
 
     const failure = !res.ok ? (res.error ?? "unknown error") : gateError;
     if (failure) {
+      // A provider rate/usage limit is an infrastructure stall, not a task
+      // failure: retrying just spawns instant corpses and burns the retry
+      // budget. Stand down until the limit resets, then try again untaxed.
+      const stallMs = rateLimitDelayMs(failure);
+      if (stallMs !== null && !stopping) {
+        const stallNote = `provider rate limit — pausing ${Math.round(stallMs / 60_000)}m before retrying (${truncate(failure, 200)})`;
+        appendJournal(bb, `${role.name} (${phase}) hit a ${stallNote}`);
+        reporter.warn(`Rate-limited — pausing ${Math.round(stallMs / 60_000)}m.`);
+        reporter.turnEnd({
+          ok: false,
+          costUsd: res.costUsd,
+          numTurns: res.numTurns,
+          error: truncate(failure, 400),
+        });
+        notifyOperator(
+          `factory: rate-limited (${state.slug})`,
+          `Pausing ~${Math.round(stallMs / 60_000)}m until the limit resets, then resuming.`,
+        );
+        await sleepUnlessStopping(stallMs);
+        continue;
+      }
+
       state.phaseFailures += 1;
       saveState(bb, state); // persist so a restart can't reset the retry budget
       appendJournal(bb, `${role.name} (${phase}) FAILED: ${truncate(failure, 600)}`);
+      // Failed turns often finished (or half-finished) the actual work before
+      // dying — record what's on disk so the retry and the operator don't have
+      // to assume the failure undid it.
+      const leftover = diffSummary(opts.workspace);
+      if (leftover) {
+        appendJournal(
+          bb,
+          `${role.name} (${phase}) left uncommitted changes: ${truncate(leftover, 500)}`,
+        );
+      }
+      // Arm ONE resume of the dead session; if this attempt was already a
+      // resume, fall back to a fresh session next time.
+      resumeSessionId = resuming ? undefined : res.sessionId;
       reporter.turnEnd({
         ok: false,
         costUsd: res.costUsd,
@@ -461,6 +560,11 @@ export async function runAgent(opts: AgentOptions, reporter: Reporter): Promise<
       if (state.phaseFailures >= MAX_RETRIES) {
         reporter.warn(
           `${MAX_RETRIES} consecutive failures on "${phase}" — skipping ahead to avoid a stuck loop.`,
+        );
+        resumeSessionId = undefined; // the next phase is different work
+        notifyOperator(
+          `factory: phase skipped (${state.slug})`,
+          `"${phase}" failed ${MAX_RETRIES}× and was skipped — worth a look: ${truncate(failure, 140)}`,
         );
         // A spent attempt consumes the deploy approval too, so a broken ship
         // can't re-trigger itself forever; the operator can re-approve.
@@ -483,6 +587,7 @@ export async function runAgent(opts: AgentOptions, reporter: Reporter): Promise<
     }
 
     state.phaseFailures = 0;
+    resumeSessionId = undefined; // this phase's work is done; nothing to resume
     appendJournal(
       bb,
       `${role.name} (${phase}) done${costNote(res.costUsd)}: ${truncate(res.result)}`,
@@ -511,6 +616,14 @@ export async function runAgent(opts: AgentOptions, reporter: Reporter): Promise<
     // The git ratchet: every successful phase is a commit, so a phase that
     // makes things worse is a revert, not a hope the next agent notices.
     commitPhase(opts.workspace, `factory: ${role.name} ${phase} (cycle ${state.cycle})`);
+
+    // Record the exact commit this QA pass exercised (after the ratchet commit,
+    // so any turn leftovers it swept up are included). While HEAD stays here,
+    // the next playtest is steered away from re-running the full suite.
+    if (phase === "playtest") {
+      state.lastPlaytestHead = headCommit(opts.workspace);
+      saveState(bb, state);
+    }
 
     if (phase === "ship" && stopAtReleaseFlag) {
       reporter.info("Release point reached (shipped) — stopping as requested.");
@@ -570,6 +683,54 @@ function recordShip(state: AgentState): void {
   } else {
     state.shipped = true;
     state.deployUrl = `https://${state.slug}.vibedgames.com`;
+  }
+}
+
+/** Failure text that means "the provider is throttling us", not "the task failed". */
+const RATE_LIMIT_RE = /(session|usage|rate)[ -]?limit|rate[ -]?limited|overloaded_error|\b429\b/i;
+/** When the message names no reset time, stand down this long between probes. */
+const RATE_LIMIT_FALLBACK_MS = 15 * 60_000;
+/** Cushion past the stated reset so the first retry lands on the fresh window. */
+const RATE_LIMIT_SLACK_MS = 2 * 60_000;
+
+/**
+ * How long to stand down for a rate/usage-limit failure — or null when the
+ * failure isn't one. Limit messages often name their reset time ("You've hit
+ * your session limit · resets 7:40am (America/Los_Angeles)"); when parseable,
+ * sleep straight through to it instead of probing every few minutes.
+ */
+export function rateLimitDelayMs(message: string): number | null {
+  if (!RATE_LIMIT_RE.test(message)) return null;
+  const m = /resets?\s+(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)(?:\s*\(([^)]+)\))?/i.exec(
+    message,
+  );
+  if (!m) return RATE_LIMIT_FALLBACK_MS;
+  let hour = Number(m[1]) % 12;
+  if (m[3]?.toLowerCase() === "pm") hour += 12;
+  const targetMin = hour * 60 + (m[2] ? Number(m[2]) : 0);
+  const nowMin = minutesNowIn(m[4]);
+  if (nowMin === null) return RATE_LIMIT_FALLBACK_MS;
+  // Next occurrence of the target wall-clock time (same day or tomorrow).
+  const delta = (targetMin - nowMin + 1440) % 1440;
+  return delta * 60_000 + RATE_LIMIT_SLACK_MS;
+}
+
+/** Current wall-clock minutes-past-midnight in `tz` (local when omitted). */
+function minutesNowIn(tz: string | undefined): number | null {
+  try {
+    const fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      hour12: false,
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    const parts = fmt.formatToParts(new Date());
+    const h = Number(parts.find((p) => p.type === "hour")?.value);
+    const min = Number(parts.find((p) => p.type === "minute")?.value);
+    if (!Number.isFinite(h) || !Number.isFinite(min)) return null;
+    return (h % 24) * 60 + min; // some impls render midnight as "24"
+  } catch {
+    return null; // unrecognized timezone string
   }
 }
 

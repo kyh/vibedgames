@@ -12,6 +12,7 @@ import {
   normalizeSlug,
   resolveWorkspace,
 } from "../config.ts";
+import type { RoleName } from "../agents.ts";
 import { runAgent, type AgentOptions, type RunControls } from "../orchestrator.ts";
 import type { Runner } from "../runner.ts";
 import {
@@ -35,6 +36,8 @@ export type TuiLaunch = {
   dir?: string;
   runner: Runner;
   model: string;
+  codexRoles: RoleName[];
+  codexModel: string;
   maxTurns: number;
   idleTimeoutMs: number;
   maxSessionMs: number;
@@ -115,6 +118,8 @@ export async function runTui(launch: TuiLaunch): Promise<void> {
       workspace: config.workspace,
       runner: config.runner,
       model: config.model,
+      codexRoles: launch.codexRoles,
+      codexModel: launch.codexModel,
       maxTurns: launch.maxTurns,
       idleTimeoutMs: launch.idleTimeoutMs,
       maxSessionMs: launch.maxSessionMs,

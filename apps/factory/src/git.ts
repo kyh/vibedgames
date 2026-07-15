@@ -25,12 +25,25 @@ const git = (cwd: string, args: string[]): { ok: boolean; out: string } => {
   }
 };
 
+/**
+ * Is the workspace inside somebody else's git repository — no repo of its own,
+ * but an enclosing work tree above it (e.g. a game dir inside a monorepo)?
+ * The factory must never `git init` there: a nested repo shadows the enclosing
+ * one — the outer repo's tooling sees stale/dirty state that isn't real, and
+ * factory commits land in a history nobody knows exists. In that case the
+ * phase ratchet stands down and history belongs to the enclosing repo.
+ */
+export function insideForeignRepo(workspace: string): boolean {
+  if (existsSync(resolve(workspace, ".git"))) return false;
+  const probe = git(workspace, ["rev-parse", "--is-inside-work-tree"]);
+  return probe.ok && probe.out.trim() === "true";
+}
+
 /** Make sure the workspace is a git repo and `.agent/` stays out of history
  * (the blackboard churns every turn and belongs to the orchestrator). */
 function ensureRepo(workspace: string): boolean {
-  if (!existsSync(resolve(workspace, ".git"))) {
-    if (!git(workspace, ["init", "-q"]).ok) return false;
-  }
+  const ownRepo = existsSync(resolve(workspace, ".git"));
+  // Whichever repo governs this directory, `.agent/` stays out of its history.
   const gitignore = resolve(workspace, ".gitignore");
   try {
     const body = existsSync(gitignore) ? readFileSync(gitignore, "utf8") : "";
@@ -40,6 +53,10 @@ function ensureRepo(workspace: string): boolean {
     }
   } catch {
     /* a missing ignore line just means noisier commits */
+  }
+  if (!ownRepo) {
+    if (insideForeignRepo(workspace)) return false; // never nest a repo inside another
+    if (!git(workspace, ["init", "-q"]).ok) return false;
   }
   return true;
 }
@@ -54,4 +71,29 @@ export function commitPhase(workspace: string, message: string): boolean {
   // Nothing staged → nothing to ratchet.
   if (git(workspace, ["diff", "--cached", "--quiet"]).ok) return false;
   return git(workspace, ["commit", "-q", "--no-verify", "-m", message]).ok;
+}
+
+/**
+ * A short human-readable summary of uncommitted work in the workspace (scoped
+ * to it, so an enclosing monorepo's unrelated churn doesn't leak in). Empty
+ * string when clean. Journaled when a turn fails, so the next attempt — and
+ * the operator — can see what the dead session actually left behind instead
+ * of assuming the failure undid the work.
+ */
+export function diffSummary(workspace: string): string {
+  // -uall lists files inside untracked directories (porcelain collapses them
+  // to "dir/" otherwise, hiding what the turn actually created).
+  const status = git(workspace, ["status", "--porcelain", "-uall", "--", "."]);
+  if (!status.ok) return "";
+  const lines = status.out.split("\n").filter((l) => l.trim());
+  if (lines.length === 0) return "";
+  const shown = lines.slice(0, 20).map((l) => l.trim());
+  const more = lines.length > shown.length ? ` (+${lines.length - shown.length} more)` : "";
+  return `${shown.join(", ")}${more}`;
+}
+
+/** The workspace's current commit hash, or null (no git / no commits yet). */
+export function headCommit(workspace: string): string | null {
+  const res = git(workspace, ["rev-parse", "HEAD"]);
+  return res.ok ? res.out.trim() || null : null;
 }

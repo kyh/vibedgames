@@ -5,6 +5,8 @@ import { resolve } from "node:path";
 import { defineCommand, runMain } from "citty";
 import consola from "consola";
 
+import type { RoleName } from "./agents.ts";
+
 import {
   availableSlug,
   DEFAULT_IDLE_MINUTES,
@@ -83,6 +85,33 @@ function resolveContext(raw: string | undefined): { context?: string; contextDir
   return { context: value };
 }
 
+const ROLE_NAMES: readonly RoleName[] = [
+  "director",
+  "designer",
+  "engineer",
+  "artist",
+  "qa",
+  "shipper",
+];
+
+/** Parse + validate --codex-roles, exiting on an unknown role (CLI edge only). */
+function parseCodexRoles(raw: string): RoleName[] {
+  const names = raw
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  const roles: RoleName[] = [];
+  for (const name of names) {
+    const match = ROLE_NAMES.find((r) => r === name);
+    if (!match) {
+      consola.error(`Unknown role in --codex-roles: "${name}". Use ${ROLE_NAMES.join(", ")}.`);
+      process.exit(1);
+    }
+    roles.push(match);
+  }
+  return roles;
+}
+
 /** Validate a slug or exit with a helpful message (CLI edge only). */
 function requireSlug(raw: string): string {
   const slug = normalizeSlug(raw);
@@ -127,6 +156,17 @@ const startCommand = defineCommand({
     model: {
       type: "string",
       description: `Model for the runner (default ${defaultModelFor("claude")} for claude, ${defaultModelFor("codex")} for codex; pass a cheaper tier for a budget run).`,
+      default: "",
+    },
+    "codex-roles": {
+      type: "string",
+      description:
+        'Comma-separated roles to run on the codex CLI even when the main runner is claude (e.g. "engineer"). Routes bulk build work to a cheaper runner; judgment roles stay on claude.',
+      default: "",
+    },
+    "codex-model": {
+      type: "string",
+      description: `Model for codex-routed roles (default ${defaultModelFor("codex")}).`,
       default: "",
     },
     dir: {
@@ -190,10 +230,13 @@ const startCommand = defineCommand({
       process.exit(1);
     }
     const runner = args.runner;
+    const codexRoles = parseCodexRoles(args["codex-roles"]);
     const knobs = {
       idea: args.idea.trim(),
       runner,
       model: args.model.trim() || defaultModelFor(runner),
+      codexRoles,
+      codexModel: args["codex-model"].trim() || defaultModelFor("codex"),
       maxTurns: toInt(args["max-turns"], DEFAULT_MAX_TURNS, 1),
       idleTimeoutMs: toInt(args["idle-timeout"], DEFAULT_IDLE_MINUTES) * 60_000,
       maxSessionMs: toInt(args["session-timeout"], DEFAULT_SESSION_MINUTES) * 60_000,

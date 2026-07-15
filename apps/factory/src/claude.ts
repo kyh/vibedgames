@@ -47,6 +47,7 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
     String(opts.maxTurns),
   ];
   if (opts.skipPermissions) args.push("--dangerously-skip-permissions");
+  if (opts.resumeSessionId) args.push("--resume", opts.resumeSessionId);
   for (const dir of opts.addDirs ?? []) args.push("--add-dir", dir);
 
   return new Promise((resolvePromise) => {
@@ -56,6 +57,12 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
     let gotResult = false;
     let stderr = "";
     let settled = false;
+    // Captured from the init event so even a session killed by a watchdog (no
+    // terminal `result`) reports its id — that's what makes --resume possible.
+    let sessionId: string | undefined;
+    // Tail of the last assistant text — the only clue to WHY a session died
+    // when the error result carries no message.
+    let lastText = "";
     let graceTimer: ReturnType<typeof setTimeout> | undefined;
     let idleTimer: ReturnType<typeof setTimeout> | undefined;
     let sessionTimer: ReturnType<typeof setTimeout> | undefined;
@@ -76,6 +83,7 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
         settle({
           ok: false,
           result: "",
+          sessionId,
           error: `no output for ${fmtMs(opts.idleTimeoutMs)} — treating claude as hung`,
         });
       }, opts.idleTimeoutMs);
@@ -150,6 +158,7 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
         settle({
           ok: false,
           result: "",
+          sessionId,
           error: `exceeded the ${fmtMs(opts.maxSessionMs)} session limit — killed`,
         });
       }, opts.maxSessionMs);
@@ -168,6 +177,14 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
         return; // ignore non-JSON noise
       }
       emitActivity(opts.onActivity, evt);
+      if (evt.type === "system" && evt.subtype === "init" && evt.session_id) {
+        sessionId = evt.session_id;
+      }
+      if (evt.type === "assistant") {
+        for (const block of evt.message?.content ?? []) {
+          if (block.type === "text" && block.text?.trim()) lastText = block.text.trim();
+        }
+      }
       if (evt.type === "result") {
         gotResult = true;
         // The grace timer governs from here; stand down the watchdogs so a late
@@ -177,10 +194,10 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
         final = {
           ok: evt.subtype === "success" && !evt.is_error,
           result: typeof evt.result === "string" ? evt.result : "",
-          sessionId: evt.session_id,
+          sessionId: evt.session_id ?? sessionId,
           costUsd: evt.total_cost_usd,
           numTurns: evt.num_turns,
-          error: evt.is_error ? (evt.result ?? "agent reported an error") : undefined,
+          error: evt.is_error ? describeError(evt, lastText, stderr) : undefined,
         };
         // Prefer a clean exit (the `close` handler), but don't wait forever.
         if (!graceTimer) {
@@ -217,14 +234,42 @@ export function runClaude(opts: RunOptions): Promise<RunResult> {
       settle({
         ok: false,
         result: "",
+        sessionId,
         error: stderr.trim() || `claude exited with code ${code} without a result event`,
       });
     });
   });
 }
 
+/**
+ * Compose the most informative failure message available. The subtype names
+ * the failure class (error_max_turns, error_during_execution, …); an empty
+ * `result` — the old "agent reported an error" — gets fleshed out with the
+ * session's last words and the stderr tail, which is where API errors
+ * (context overflow, rate limits) actually surface.
+ */
+function describeError(
+  evt: Extract<StreamEvent, { type: "result" }>,
+  lastText: string,
+  stderr: string,
+): string {
+  const parts: string[] = [];
+  if (typeof evt.result === "string" && evt.result.trim()) parts.push(evt.result.trim());
+  else if (evt.subtype && evt.subtype !== "success") parts.push(`agent error (${evt.subtype})`);
+  else parts.push("agent reported an error");
+  if (lastText) parts.push(`last agent message: "${clip(lastText, 400)}"`);
+  const err = stderr.trim();
+  if (err) parts.push(`stderr: ${clip(err, 400)}`);
+  return parts.join(" — ");
+}
+
+const clip = (s: string, n: number): string => {
+  const flat = s.replace(/\s+/g, " ").trim();
+  return flat.length > n ? `${flat.slice(0, n)}…` : flat;
+};
+
 type StreamEvent =
-  | { type: "system"; subtype?: string; model?: string; tools?: string[] }
+  | { type: "system"; subtype?: string; model?: string; tools?: string[]; session_id?: string }
   | { type: "assistant"; message?: { content?: ContentBlock[] } }
   | { type: "user"; message?: { content?: ContentBlock[] } }
   | {

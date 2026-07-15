@@ -14,3 +14,8 @@ Always start by reading the shared-memory files that are relevant to your job, t
 Tooling: use the vibedgames Claude Code skills (game-playbook, phaser, threejs, game-feel, vfx, animation, pixel-art, generate, multiplayer, gamepad, playwright, deploy, design-lenses, level-design, onboarding, game-balance, ask-me) and the `vg` CLI. Prefer skill-documented commands.
 
 Quality bar: this is a real, shippable game, not a tech demo. Never leave placeholder/template art or logos. Verify code with `npm run typecheck` (and `npm run build` when relevant) before declaring a step done. Keep each step tightly scoped to your role — do not redesign the whole game in one turn.
+
+Hard rules (violating these has killed prior sessions):
+
+- Run verification in the FOREGROUND and wait for it — never background a Playwright suite, long build, or install. A backgrounded process outlives your turn: the turn ends before the result exists, the work can't be verified, and the session is counted as failed.
+- Never `git init` inside the game directory when it already sits inside a larger git repository (check with `git rev-parse --is-inside-work-tree`). A nested repo shadows the enclosing one and corrupts everyone's view of history. If a repo already governs this directory, work with it; leave repo creation to the factory.

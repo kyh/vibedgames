@@ -103,6 +103,24 @@ The loop can't run forever on the agents' word alone, so the harness enforces:
   `git revert`, not a hope the next agent notices.
 - **Journal compaction** — `journal.md` is kept bounded (newest 40 entries);
   older history lives in the git log.
+- **Failure forensics + resume** — a failed turn journals what it left on disk
+  (uncommitted diff summary) and the next attempt **resumes the dead session**
+  (`--resume`, once per failure chain) instead of re-deriving the work; a
+  failed resume falls back to a fresh session.
+- **Rate-limit stand-down** — a provider usage/rate-limit failure doesn't burn
+  the retry budget: the loop parses the reset time from the message when
+  present ("resets 7:40am (America/Los_Angeles)") and sleeps through it.
+- **No nested repos** — a workspace inside an existing git repository (e.g. a
+  game dir in a monorepo) never gets `git init`; the phase ratchet stands down
+  and history belongs to the enclosing repo.
+
+### Operator notifications
+
+Events that block on a human — a build awaiting deploy approval, a checkpoint,
+a rate-limit stall, a phase skipped after repeated failures — post a
+notification: macOS native by default, or set `FACTORY_NOTIFY` to any shell
+command (it runs with `FACTORY_NOTIFY_TITLE` / `FACTORY_NOTIFY_MESSAGE` in the
+environment — point it at ntfy, a Slack webhook, etc.).
 
 When stdout isn't a TTY (CI, piped logs) — or with `--no-tui` — the factory
 streams the same events as plain log lines instead (there the game must be
@@ -117,6 +135,11 @@ and the agent ships the **current** build (after the in-flight step finishes,
 so what goes live is the build you approved, not a newer one). Approval grants
 **one** deployment; the next release needs fresh approval. Pass `--auto-deploy`
 on `start` to opt into continuous, unattended deploys instead.
+
+Deploys also require an authenticated `vg` CLI: when `vg` isn't logged in the
+ship step is **skipped** (journaled, loop keeps iterating) rather than burning
+a turn on a failing deploy — run `vg login` (or set `VG_TOKEN`) any time and
+the next release point ships.
 
 ### Choosing where the game lives + building on existing files
 
@@ -301,23 +324,25 @@ TypeScript step — nothing is emitted).
 
 ### `start` options
 
-| Flag                | Default                           | Meaning                                                                              |
-| ------------------- | --------------------------------- | ------------------------------------------------------------------------------------ |
-| `--idea`            | — (one of idea/context/existing)  | Seed idea. Optional with `--context` or when `--dir` has a project.                  |
-| `--context`         | —                                 | Extra brief: literal text, a file (read inline), or a directory (referenced).        |
-| `--runner`          | `claude`                          | Which coding-agent CLI runs the subagents: `claude` or `codex`.                      |
-| `--model`           | per runner                        | `claude-fable-5` (claude) / `gpt-5.6-sol` (codex); pass a cheaper tier to save.      |
-| `--max-cycles`      | `0` (forever)                     | Stop after N subagent runs (lifetime count, persisted).                              |
-| `--checkpoint-wait` | `120`                             | Seconds an agent checkpoint waits for feedback before auto-continuing (0 = skip).    |
-| `--max-turns`       | `40`                              | Per-subagent agentic turn ceiling.                                                   |
-| `--idle-timeout`    | `45`                              | Kill a subagent that emits no output for this many minutes (0 disables).             |
-| `--session-timeout` | `120`                             | Absolute cap on a single subagent session, in minutes (0 disables).                  |
-| `--interval`        | `0`                               | ms to pause between subagent runs.                                                   |
-| `--auto-deploy`     | off                               | Deploy automatically. Default OFF — deploys wait for `pnpm approve <slug>`.          |
-| `--skip-ship`       | off                               | Never prepare a release at all (use while testing).                                  |
-| `--dir`             | `apps/factory/.workspaces/<slug>` | Where the game lives — its project directory.                                        |
-| `--guarded`         | off                               | Do **not** auto-approve tools — for debugging only; breaks autonomy.                 |
-| `--no-tui`          | off                               | Plain streamed logs instead of the interactive dashboard (automatic when not a TTY). |
+| Flag                | Default                           | Meaning                                                                                                                                                    |
+| ------------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--idea`            | — (one of idea/context/existing)  | Seed idea. Optional with `--context` or when `--dir` has a project.                                                                                        |
+| `--context`         | —                                 | Extra brief: literal text, a file (read inline), or a directory (referenced).                                                                              |
+| `--runner`          | `claude`                          | Which coding-agent CLI runs the subagents: `claude` or `codex`.                                                                                            |
+| `--model`           | per runner                        | `claude-fable-5` (claude) / `gpt-5.6-sol` (codex); pass a cheaper tier to save.                                                                            |
+| `--codex-roles`     | —                                 | Comma-separated roles routed to codex even under the claude runner (e.g. `engineer`) — bulk build work on a cheaper runner, judgment roles stay on claude. |
+| `--codex-model`     | `gpt-5.6-sol`                     | Model for `--codex-roles` turns.                                                                                                                           |
+| `--max-cycles`      | `0` (forever)                     | Stop after N subagent runs (lifetime count, persisted).                                                                                                    |
+| `--checkpoint-wait` | `120`                             | Seconds an agent checkpoint waits for feedback before auto-continuing (0 = skip).                                                                          |
+| `--max-turns`       | `40`                              | Per-subagent agentic turn ceiling.                                                                                                                         |
+| `--idle-timeout`    | `45`                              | Kill a subagent that emits no output for this many minutes (0 disables).                                                                                   |
+| `--session-timeout` | `120`                             | Absolute cap on a single subagent session, in minutes (0 disables).                                                                                        |
+| `--interval`        | `0`                               | ms to pause between subagent runs.                                                                                                                         |
+| `--auto-deploy`     | off                               | Deploy automatically. Default OFF — deploys wait for `pnpm approve <slug>`.                                                                                |
+| `--skip-ship`       | off                               | Never prepare a release at all (use while testing).                                                                                                        |
+| `--dir`             | `apps/factory/.workspaces/<slug>` | Where the game lives — its project directory.                                                                                                              |
+| `--guarded`         | off                               | Do **not** auto-approve tools — for debugging only; breaks autonomy.                                                                                       |
+| `--no-tui`          | off                               | Plain streamed logs instead of the interactive dashboard (automatic when not a TTY).                                                                       |
 
 Re-running `pnpm start <slug>` **resumes** from the saved phase.
 
