@@ -56,7 +56,7 @@ const RULES: Rule[] = [
   {
     id: "move",
     text: "WASD move · mouse aim",
-    touch: "Left stick move · right stick aim",
+    touch: "Left stick move · right stick turn",
     when: (w) => w.gameTime > INTRO_S + 0.5,
     done: (_w, me, st) => st.spawnSet && (me.x - st.spawnX) ** 2 + (me.y - st.spawnY) ** 2 > 25,
   },

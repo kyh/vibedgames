@@ -1,5 +1,7 @@
-// Twin-stick touch controls (build-doc §12). Left half = floating move stick;
-// right half = floating aim stick that auto-fires while held. Fixed bottom-right
+// Touch controls (build-doc §12). Left half = floating move stick (camera-
+// relative forward/strafe); right half = floating LOOK stick — it turns the
+// camera FPS-style (the scene folds its deflection into yaw/pitch at pad
+// rates, crosshair dead center) and auto-fires while held. Fixed bottom-right
 // button grid: Q/W/E · R/DASH/JUMP · hop/B. DASH casts the hero's dash, JUMP the
 // leaping strike (self-leaps if grounded); the hop button is the plain Space hop.
 // Ability buttons take champ icon backgrounds via bindChamp() and per-button
@@ -205,12 +207,10 @@ export class TouchControls {
   moveVec(): { x: number; y: number } {
     return this.move ? { x: this.move.dx, y: this.move.dy } : { x: 0, y: 0 };
   }
-  /** Aim direction (unit-ish) or null if the right stick isn't held. */
-  aimVec(): { x: number; y: number } | null {
-    if (!this.aim) return null;
-    const l = Math.hypot(this.aim.dx, this.aim.dy);
-    if (l < 0.2) return null;
-    return { x: this.aim.dx / l, y: this.aim.dy / l };
+  /** Raw look-stick deflection (unit-clamped, y-down screen axes) or null if
+   *  the right stick isn't held. The scene integrates this into yaw/pitch. */
+  lookVec(): { x: number; y: number } | null {
+    return this.aim ? { x: this.aim.dx, y: this.aim.dy } : null;
   }
   attackDown(): boolean {
     return this.aim !== null && Math.hypot(this.aim.dx, this.aim.dy) > 0.2;

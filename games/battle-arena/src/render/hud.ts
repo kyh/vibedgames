@@ -1040,10 +1040,11 @@ export class Hud {
   }
 
   /** Center reticle: fire-expand on your swings, gold/crit flash on your hits
-   *  (fed by fx.localHits). Hidden while unlocked / shopping / dead / touch. */
+   *  (fed by fx.localHits). Hidden while unlocked / shopping / dead. Touch is
+   *  FPS-framed too (look stick turns the view), so it keeps the crosshair. */
   private updateReticle(w: World, me: Unit): void {
     const touch = document.body.classList.contains("ba-touch-on");
-    const show = me.alive && !this.shopOpen && !touch && document.pointerLockElement !== null;
+    const show = me.alive && !this.shopOpen && (touch || document.pointerLockElement !== null);
     if (show !== this.reticleVisible) {
       this.reticleVisible = show;
       this.reticleEl.classList.toggle("show", show);
@@ -1449,7 +1450,6 @@ body.ba-touch-on .ba-item-chip{width:28px;height:28px}
 .ba-item-chip{width:32px;height:32px}
 .ba-buff{width:22px;height:22px}
 #ba-objective{display:none}
-#ba-reticle{display:none!important}
 #ba-goal-banner{font-size:14px;padding:9px 14px}
 #ba-hint{bottom:calc(186px + env(safe-area-inset-bottom));font-size:13px}
 #ba-intro{font-size:54px}

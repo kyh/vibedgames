@@ -189,9 +189,8 @@ export class GameScene {
       this.statusEl.textContent = "";
       this.hud.update(this.world, me, this.controls.scoreHeld());
       // listener facing must match the CAMERA frame so stereo pan tracks the
-      // screen — on touch the camera is fixed at -y (see follow() below)
-      if (this.touch?.active) this.fx.audio.setListener(me.x, me.y, 0, -1);
-      else this.fx.audio.setListener(me.x, me.y, this.aimX, this.aimY);
+      // screen — the camera chases the aim on every input source
+      this.fx.audio.setListener(me.x, me.y, this.aimX, this.aimY);
       if (this.touch && me.champId !== this.boundChamp) {
         this.boundChamp = me.champId;
         this.touch.bindChamp(me.champId); // icon backgrounds + keycaps, once
@@ -208,15 +207,18 @@ export class GameScene {
     this.driveMusic(frameDt, me);
     const cx = me ? me.x : 0;
     const cy = me ? me.y : 0;
-    // Touch is twin-stick: both sticks are SCREEN-space, so the camera yaw must
-    // stay fixed at the identity mapping (facing -y ⇒ stick-up = up-screen,
-    // stick-right = right-screen). Chasing behind the aim like desktop would
-    // rotate the frame under the thumbs and flip the sticks.
-    const fixedCam = this.touch?.active === true;
-    const pitch = fixedCam ? 0 : this.controls.aimPitch();
-    const faceX = fixedCam ? 0 : this.aimX;
-    const faceY = fixedCam ? -1 : this.aimY;
-    this.view.follow(cx, cy, faceX, faceY, pitch, rdt, terrainHeight(cx, cy));
+    // Every input source is FPS-framed: the camera chases behind the aim with
+    // the crosshair dead center (touch turns the view via the right stick, so
+    // both sticks stay camera-relative and never flip under the thumbs).
+    this.view.follow(
+      cx,
+      cy,
+      this.aimX,
+      this.aimY,
+      this.controls.aimPitch(),
+      rdt,
+      terrainHeight(cx, cy),
+    );
     this.view.tickAura(this.world.gameTime);
     this.environment.setLocalPos(cx, cy); // proximity-driven decor (fountain rims)
     if (me) this.environment.setHomeSlot(me.slot); // own fountain never warns
@@ -259,7 +261,7 @@ export class GameScene {
       return;
     }
     const me = this.localUnit();
-    if (me) this.readInput(me, true);
+    if (me) this.readInput(me, true, frameDt);
     this.acc += frameDt;
     let n = 0;
     while (this.acc >= SIM_DT && n < 5) {
@@ -423,7 +425,7 @@ export class GameScene {
     }
 
     const me = this.localUnit();
-    if (me) this.readInput(me, this.amHost);
+    if (me) this.readInput(me, this.amHost, frameDt);
 
     if (this.amHost) {
       this.becomeHostIfNeeded();
@@ -449,8 +451,17 @@ export class GameScene {
     }
   }
 
+  /** Compose forward/strafe into a world-space vector relative to the aim
+   *  ((-aimY, aimX) is screen-right when looking along the aim). */
+  private rotateToAim(fwd: number, strafe: number): { x: number; y: number } {
+    return {
+      x: this.aimX * fwd - this.aimY * strafe,
+      y: this.aimY * fwd + this.aimX * strafe,
+    };
+  }
+
   /** Read controls → apply locally (host) or send as an intent (guest). */
-  private readInput(me: Unit, host: boolean): void {
+  private readInput(me: Unit, host: boolean, dt: number): void {
     // MOUSE mode while a menu owns the cursor (shop, end screen); ACTION mode
     // (locked pointer) the rest of the match. Controls no-ops when unchanged.
     this.controls.setMouseMode(this.hud.isShopOpen || this.world.phase === "ended");
@@ -462,39 +473,37 @@ export class GameScene {
     let attack: boolean;
     let castPoint: { x: number; y: number };
 
-    if (this.touch?.active) {
-      const a = this.touch.aimVec();
-      if (a) {
-        this.aimX = a.x;
-        this.aimY = a.y;
-      }
-      mv = this.touch.moveVec();
-      attack = this.touch.attackDown();
-      castPoint = { x: me.x + this.aimX * 8, y: me.y + this.aimY * 8 };
-    } else {
-      // FPS-centered aim: heading comes from mouse turn, crosshair is dead
-      // center. The character faces the crosshair; camera trails behind.
-      if (!this.aimInit) {
-        this.controls.setYaw(Math.atan2(me.aimX, me.aimY));
-        this.aimInit = true;
-      }
-      const yaw = this.controls.aimYaw();
-      this.aimX = Math.sin(yaw);
-      this.aimY = Math.cos(yaw);
-      const { fwd, strafe } = this.controls.moveAxes();
-      const rx = -this.aimY; // screen-right when looking along the aim
-      const ry = this.aimX;
-      let dx = this.aimX * fwd + rx * strafe;
-      let dy = this.aimY * fwd + ry * strafe;
-      const l = Math.hypot(dx, dy);
-      if (l > 0) {
-        dx /= l;
-        dy /= l;
-      }
-      mv = { x: dx, y: dy };
-      attack = this.controls.attackDown();
-      castPoint = { x: me.x + this.aimX * 8, y: me.y + this.aimY * 8 };
+    // FPS-centered aim for EVERY input source: heading comes from mouse turn,
+    // pad stick, or the touch look stick; the crosshair is dead center. The
+    // character faces the crosshair; camera trails behind.
+    if (!this.aimInit) {
+      this.controls.setYaw(Math.atan2(me.aimX, me.aimY));
+      this.aimInit = true;
     }
+    if (this.touch?.active) {
+      // the right stick TURNS the view (pad-rate mapping into yaw/pitch)
+      // instead of aiming in screen space — so the camera tracks the aim
+      const look = this.touch.lookVec();
+      if (look) this.controls.applyStickLook(look.x, look.y, dt);
+    }
+    const yaw = this.controls.aimYaw();
+    this.aimX = Math.sin(yaw);
+    this.aimY = Math.cos(yaw);
+    if (this.touch?.active) {
+      const m = this.touch.moveVec(); // stick axes are y-down; up = forward
+      mv = this.rotateToAim(-m.y, m.x); // analog magnitude carries through
+      attack = this.touch.attackDown();
+    } else {
+      const { fwd, strafe } = this.controls.moveAxes();
+      mv = this.rotateToAim(fwd, strafe);
+      const l = Math.hypot(mv.x, mv.y);
+      if (l > 0) {
+        mv.x /= l;
+        mv.y /= l;
+      }
+      attack = this.controls.attackDown();
+    }
+    castPoint = { x: me.x + this.aimX * 8, y: me.y + this.aimY * 8 };
 
     // JUMP ability: while AIRBORNE an LMB-edge casts the leaping strike and
     // suppresses that frame's basic (a grounded click stays a normal attack).
