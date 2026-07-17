@@ -691,6 +691,25 @@ export class Traffic {
     }
   }
 
+  /** TRAILER (src/trailer/): freeze the far-car recycler. Staged scenes place
+   *  the fleet by hand; the recycler otherwise teleports every far car into a
+   *  ring 78-156u AHEAD of the player — a random punt in the framed lane
+   *  mid-shot. Normal play never sets this. */
+  setHoldRecycle(on: boolean): void {
+    this.holdRecycle = on;
+  }
+
+  private holdRecycle = false;
+
+  /** TRAILER (src/trailer/): deterministically place one fleet car on an edge
+   *  — respawn + pose + kinematic body restored under it (the same pieces the
+   *  recycler composes). Normal play never calls this. */
+  placeCar(car: TrafficCar, edge: NetEdge, s: number, dir: 1 | -1): void {
+    car.respawn(edge, s, dir);
+    car.update(0, this.city, 0, 0);
+    this.restoreBody(car);
+  }
+
   private restoreBody(c: TrafficCar): void {
     if (!c.body || !this.physics) return;
     this.physics.makeKinematic(c.body);
@@ -742,7 +761,7 @@ export class Traffic {
     for (const c of this.cars) {
       const d = Math.hypot(c.position.x - playerX, c.position.z - playerZ);
       const recycleWreck = c.wrecked && c.wreckTime > WRECK_RESPAWN_S;
-      if (d > RECYCLE_DIST || recycleWreck) {
+      if (!this.holdRecycle && (d > RECYCLE_DIST || recycleWreck)) {
         // Respawn in a ring ahead of the player (any ring cell as fallback).
         const spot =
           this.pickSpot((x, z) => {

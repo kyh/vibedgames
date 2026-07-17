@@ -58,7 +58,12 @@ export class BootScene extends Phaser.Scene {
 
     const params = new URLSearchParams(location.search);
     if (params.get("editor")) this.scene.start("editor");
-    else if (params.get("demo") || params.get("room") || params.get("hero")) {
+    else if (
+      params.get("demo") ||
+      params.get("room") ||
+      params.get("hero") ||
+      params.get("trailer") // trailer mode boots straight into a solo run (src/trailer)
+    ) {
       notifyGameStarted();
       this.scene.start("game");
     } else this.scene.start("select");

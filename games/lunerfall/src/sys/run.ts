@@ -20,10 +20,12 @@ export class RunManager {
     return START();
   }
 
-  // Dev shortcut: drop straight into a given room type (?room=combat).
-  debugEnter(type: RoomType): RoomDef {
-    this.biome = 1;
-    this.depth = 2;
+  // Dev shortcut: drop straight into a given room type (?room=combat). The
+  // optional biome/depth land BEFORE generation so combat layouts use the right
+  // biome knobs (the ?biome URL param applies after, palette/roster only).
+  debugEnter(type: RoomType, biome = 1, depth = 2): RoomDef {
+    this.biome = biome;
+    this.depth = depth;
     this.type = type;
     return this.templateFor(type);
   }

@@ -1073,6 +1073,26 @@ export class WorldView {
     this.units.clear();
   }
 
+  /** Staging hook (trailer/director): restore structure views to match a freshly
+   *  staged world. The normal game never revives a structure, so syncStructures
+   *  only handles the alive→dead edge; a director that swaps in a new World needs
+   *  the reverse (rubble back to the intact tower/castle art + bars). */
+  resetStructures(world: World): void {
+    for (const [id, sv] of this.structs) {
+      const u = world.units.get(id);
+      if (!u || !u.alive || !sv.dead) continue;
+      sv.dead = false;
+      const tier = u.structure?.tier ?? "t1";
+      const tex =
+        tier === "ancient"
+          ? `b-castle-${u.team === "radiant" ? "blue" : "red"}`
+          : `b-tower-${u.team === "radiant" ? "blue" : "red"}`;
+      sv.sprite.setTexture(tex).setAlpha(1);
+      sv.hpBg.setVisible(true);
+      sv.hpFill.setVisible(true);
+    }
+  }
+
   /** Hero attack flourish: a sweeping slash arc for melee, a muzzle spark for
    *  ranged — drawn in the facing direction so swings read as deliberate hits. */
   private spawnSwing(x: number, y: number, facing: number, ranged: boolean): void {

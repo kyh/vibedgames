@@ -540,6 +540,41 @@ export class View {
     );
   }
 
+  /** TRAILER-ONLY free camera: drive the camera to an explicit pose while
+   *  keeping every juice channel alive — trauma shake, directional kick, FOV
+   *  punch, screen flash/vignette — the same per-frame decay block follow()
+   *  runs. Gameplay never calls this; follow() remains the one gameplay path. */
+  cinematic(pos: THREE.Vector3, look: THREE.Vector3, dt: number, fovBase = CAM.fov): void {
+    this.shake = Math.max(0, this.shake - dt * 1.6);
+    this.shakeT += dt * 31;
+    if (this.bloom) this.bloom.strength = 0.6 + this.shake * 0.5;
+    this.flashAmt *= Math.max(0, 1 - 9 * dt);
+    this.vigPunch *= Math.max(0, 1 - 5 * dt);
+    const vig = this.grade?.uniforms["uVignette"];
+    if (vig) vig.value = 0.18 + this.shake * 0.25 + this.vigPunch;
+    const fl = this.grade?.uniforms["uFlash"];
+    if (fl) fl.value = this.flashAmt;
+    const s = this.shake * this.shake;
+    this.shakeOff.set(
+      (Math.random() - 0.5) * s * 1.4,
+      (Math.random() - 0.5) * s * 0.8,
+      (Math.random() - 0.5) * s * 1.4,
+    );
+    this.kickVec.multiplyScalar(Math.max(0, 1 - dt * 11));
+    this.fovPunch *= Math.max(0, 1 - 7 * dt);
+    if (this.fovPunch < 0.01) this.fovPunch = 0;
+    const fovNow = fovBase - this.fovPunch;
+    if (Math.abs(fovNow - this.camera.fov) > 0.01) {
+      this.camera.fov = fovNow;
+      this.camera.updateProjectionMatrix();
+    }
+    this.camera.position.copy(pos).add(this.shakeOff).add(this.kickVec);
+    this.camera.lookAt(look);
+    this.camera.rotateZ(
+      (Math.sin(this.shakeT * 1.3) * 0.55 + Math.sin(this.shakeT * 2.7) * 0.45) * s * 0.05,
+    );
+  }
+
   /** Begin the 2.4s establishing fly-in (solo intro). Camera blends from a high
    *  arena-wide pose down into the chase framing; input/HUD gating is the
    *  scene's job — read `introBlend` (0→1, 1 = handed off). */

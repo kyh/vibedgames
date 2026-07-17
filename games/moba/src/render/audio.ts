@@ -55,6 +55,14 @@ export function toggleMute(): boolean {
   return muted;
 }
 
+/** Session-only mute override: flips the live gain but — unlike toggleMute —
+ *  never persists, so the player's saved opt-in choice survives. Trailer mode
+ *  uses this to unmute for its run without rewriting normal-play preferences. */
+export function setMutedTransient(next: boolean): void {
+  muted = next;
+  if (master) master.gain.value = muted ? 0 : 0.32;
+}
+
 function tone(
   freq: number,
   dur: number,

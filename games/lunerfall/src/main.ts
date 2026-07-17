@@ -30,6 +30,12 @@ Reflect.set(globalThis, "__game", game);
 // __GAME_DIAGNOSTICS__ / __GAME_TEST_HOOKS__ for bot playtests (sys/diag.ts).
 installTestHooks(game);
 
+// Trailer mode (?trailer=1): hand the boot to the trailer director. Lazy import
+// so the trailer module never loads — and trailer code stays dead — in normal play.
+if (new URLSearchParams(window.location.search).has("trailer")) {
+  void import("./trailer/trailer-director").then((m) => m.initTrailer(game));
+}
+
 // Wrapper-requested pause: never freeze a live co-op/versus session another
 // player is relying on, only the local sim. `froze` tracks whether onPause
 // actually froze anything, so onResume only wakes what it put to sleep.

@@ -55,10 +55,13 @@ type Enemy = {
 export class MineScene extends Phaser.Scene {
   depth = 1;
   private walls = new Uint8Array(MW * MH);
-  private player!: Phaser.GameObjects.Sprite;
+  /** Public for the trailer director (mirrors GameScene.player). */
+  player!: Phaser.GameObjects.Sprite;
   private shadow!: Phaser.GameObjects.Sprite;
   private facing = { x: 0, y: 1 };
   private acting = false;
+  /** Trailer-mode scripted movement — read like a stick when real input is silent. */
+  trailerMove: { x: number; y: number; run: boolean } | null = null;
   private invulnUntil = 0;
   private knock = { x: 0, y: 0 };
 
@@ -89,6 +92,7 @@ export class MineScene extends Phaser.Scene {
     this.knock = { x: 0, y: 0 };
     this.acting = false;
     this.facing = { x: 0, y: 1 };
+    this.trailerMove = null;
     this.cameras.main.setBackgroundColor("#0a0c12");
     this.buildTiles(this.generate());
 
@@ -198,14 +202,47 @@ export class MineScene extends Phaser.Scene {
         ty = rng.between(4, MH - 3);
       if (this.isWall(tx, ty)) continue;
       if (Math.abs(tx - this.ladderUp.tx) + Math.abs(ty - this.ladderUp.ty) < 5) continue;
-      const maxHp = 4 + this.depth * 2;
-      const spr = this.add
-        .sprite(tx * TILE + 8, ty * TILE + 8, "e-skel-idle")
-        .setOrigin(0.5, CHAR_ORIGIN_Y)
-        .play("e-skel-idle");
-      this.enemies.push({ spr, hp: maxHp, maxHp, invuln: 0, hurt: 0, dead: false, kx: 0, ky: 0 });
+      this.spawnSkeleton(tx, ty, 4 + this.depth * 2);
     }
     return seeds;
+  }
+
+  private spawnSkeleton(tx: number, ty: number, maxHp: number): void {
+    const spr = this.add
+      .sprite(tx * TILE + 8, ty * TILE + 8, "e-skel-idle")
+      .setOrigin(0.5, CHAR_ORIGIN_Y)
+      .play("e-skel-idle");
+    spr.setDepth(DEPTH.entityBase + spr.y);
+    this.enemies.push({ spr, hp: maxHp, maxHp, invuln: 0, hurt: 0, dead: false, kx: 0, ky: 0 });
+  }
+
+  // ---- trailer staging hooks (dead in normal play; see src/trailer/) ----
+
+  /** Replace the generated enemies with a scripted pack (real spawn path). */
+  trailerStageEnemies(spawns: { tx: number; ty: number; hp: number }[]): void {
+    for (const e of this.enemies) e.spr.destroy();
+    this.enemies = [];
+    for (const s of spawns) this.spawnSkeleton(s.tx, s.ty, s.hp);
+  }
+
+  /** Nearest living enemy position, for trailer choreography. */
+  trailerNearestEnemy(): { x: number; y: number } | null {
+    let best: { x: number; y: number } | null = null;
+    let bd = Infinity;
+    for (const e of this.enemies) {
+      if (e.dead) continue;
+      const d = Math.hypot(e.spr.x - this.player.x, e.spr.y - this.player.y);
+      if (d < bd) {
+        bd = d;
+        best = { x: e.spr.x, y: e.spr.y };
+      }
+    }
+    return best;
+  }
+
+  /** True when a tile is inside the floor and blocked by neither wall nor node. */
+  isOpenTile(tx: number, ty: number): boolean {
+    return !this.isWall(tx, ty) && this.nodeAt(tx, ty) === undefined;
   }
 
   private clearAround(tx: number, ty: number): void {
@@ -373,6 +410,12 @@ export class MineScene extends Phaser.Scene {
         stickRun = move.run;
       }
     }
+    // trailer choreography fills in like a stick when real input is silent
+    if (dx === 0 && dy === 0 && this.trailerMove) {
+      dx = this.trailerMove.x;
+      dy = this.trailerMove.y;
+      stickRun = this.trailerMove.run;
+    }
     if (dx !== 0 || dy !== 0) {
       if (Math.abs(dx) >= Math.abs(dy)) this.facing = { x: Math.sign(dx), y: 0 };
       else this.facing = { x: 0, y: Math.sign(dy) };
@@ -417,7 +460,8 @@ export class MineScene extends Phaser.Scene {
     return { tx: Math.floor(this.player.x / TILE), ty: Math.floor((this.player.y - 1) / TILE) };
   }
 
-  private tryAction(): void {
+  /** Public: the trailer director drives staged swings through this exact path. */
+  tryAction(): void {
     if (this.acting || this.transitioning) return;
     const item = store.inv.selectedItem();
     const f = this.feetTile();

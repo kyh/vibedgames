@@ -212,6 +212,14 @@ export class BootScene extends Phaser.Scene {
       // character/bot showcase); ?ui=units|terrain|fx|map opens that asset page.
       // No param → the menu.
       const params = new URLSearchParams(window.location.search);
+      if (params.has("trailer")) {
+        // TRAILER MODE (?trailer=1): a scripted, letterboxed gameplay trailer.
+        // The director chunk only loads on this branch — dead code otherwise.
+        void import("../trailer/trailer-director").then(({ launchTrailer }) =>
+          launchTrailer(this.game),
+        );
+        return;
+      }
       if (params.has("ui")) {
         const sub = params.get("ui") ?? "";
         const SECTIONS = ["units", "terrain", "fx", "map"];

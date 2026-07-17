@@ -21,6 +21,9 @@ const PAD = 3;
 // Also hosts the touch gamepad (stick) so it renders above the vignette;
 // MineScene reads it via its `gamepad` field.
 export class MineHudScene extends Phaser.Scene {
+  /** Trailer mode: keep the cave vignette, hide every UI element. Set once by
+   *  the trailer director (deliberately NOT reset in create); dead otherwise. */
+  trailerHideUi = false;
   private mine!: MineScene;
   private vignette!: Phaser.GameObjects.Image;
   private g!: Phaser.GameObjects.Graphics;
@@ -117,6 +120,13 @@ export class MineHudScene extends Phaser.Scene {
   }
 
   override update(): void {
+    if (this.trailerHideUi) {
+      this.g.clear();
+      this.text.setVisible(false);
+      this.hint.setVisible(false);
+      for (const ic of this.icons) ic.setVisible(false);
+      return;
+    }
     this.gamepad?.update();
     const W = this.scale.width,
       H = this.scale.height;

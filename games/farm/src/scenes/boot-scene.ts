@@ -2,6 +2,7 @@ import Phaser from "phaser";
 import { CROP_ORDER } from "../data/crops";
 import { parseWorldMap } from "../world/worldmap";
 import { setWorldMap, getWorldMap } from "../world/map-store";
+import { isTrailerMode } from "../trailer/trailer-shell";
 
 const CHAR = { frameWidth: 96, frameHeight: 64 };
 
@@ -201,6 +202,14 @@ export class BootScene extends Phaser.Scene {
       for (let y = 2; y < 16; y += 4) g.fillRect(2, y, 12, 2);
     });
 
+    // ?trailer=1 hands the boot over to the trailer director (lazy-loaded so
+    // trailer code stays out of the normal play path entirely)
+    if (isTrailerMode()) {
+      void import("../trailer/trailer-director").then(({ startTrailer }) => {
+        startTrailer(this.game);
+      });
+      return;
+    }
     // #gallery opens the asset-inspection page instead of the game
     this.scene.start(window.location.hash.includes("gallery") ? "Gallery" : "Title");
   }

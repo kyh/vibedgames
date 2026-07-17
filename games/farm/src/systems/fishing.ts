@@ -13,6 +13,12 @@ const BAR_H = 150;
 
 // Self-contained fishing minigame. Owns its bobber (world) and reel bar (screen).
 export class Fishing {
+  /** Trailer mode: compress the wait, auto-hook the bite, and play the reel
+   *  minigame perfectly — all through the real state machine. Dead otherwise. */
+  trailerAuto = false;
+  /** Trailer mode: pin the hooked fish so the reel length — and the catch
+   *  payoff landing inside the shot — is deterministic. Dead (null) otherwise. */
+  trailerFish: FishDef | null = null;
   private state: State = "idle";
   private scene: GameScene;
   private bobber: Phaser.GameObjects.Arc | null = null;
@@ -82,7 +88,8 @@ export class Fishing {
     Sound.click();
     this.bang?.destroy();
     this.bang = null;
-    this.target = rollFish(this.scene.season(), store.skills.level("fishing"), Math.random);
+    this.target =
+      this.trailerFish ?? rollFish(this.scene.season(), store.skills.level("fishing"), Math.random);
     this.zoneH = 34 + store.skills.reelEase() * 70;
     this.zonePos = (BAR_H - this.zoneH) / 2;
     this.zoneVel = 0;
@@ -95,6 +102,10 @@ export class Fishing {
 
   update(dt: number): void {
     if (this.state === "idle") return;
+    if (this.trailerAuto) {
+      if (this.state === "waiting") this.timer = Math.min(this.timer, 0.45);
+      else if (this.state === "bite" && this.timer <= 0.72) this.hook();
+    }
     if (this.state === "waiting") {
       this.timer -= dt;
       if (this.bobber) this.bobber.y = this.bobberPos.y + Math.sin(this.scene.time.now / 250) * 1.2;
@@ -127,7 +138,10 @@ export class Fishing {
   }
 
   private tickReel(dt: number): void {
-    const held = this.scene.actionHeld();
+    // trailerAuto: thrust when the fish sits above the zone's center (perfect play)
+    const held = this.trailerAuto
+      ? this.fishPos < this.zonePos + this.zoneH / 2
+      : this.scene.actionHeld();
     // zone physics: gravity down, thrust up while held
     this.zoneVel += (held ? -560 : 320) * dt;
     this.zoneVel = Phaser.Math.Clamp(this.zoneVel, -180, 180);
@@ -196,7 +210,8 @@ export class Fishing {
         .setDepth(DEPTH.night + 11)
         .setScale(1.6);
     this.fishIcon.setPosition(bx + 10, by + this.fishPos);
-    if (!this.hint)
+    // no button prompts in trailer captures — the meter alone tells the story
+    if (!this.hint && !this.trailerAuto)
       this.hint = this.scene.add
         .text(bx + 12, by + BAR_H + 16, "HOLD", {
           fontFamily: "ui-monospace, monospace",

@@ -15,6 +15,7 @@ import type { ParkedSpec } from "../world/furniture";
 const BODY_LIFT = 0.8; // body centre above the mesh origin (wheels)
 const HIT_RADIUS = 2.6;
 const OFFSET = new THREE.Vector3();
+const EULER = new THREE.Euler();
 
 type PartRef = { batch: THREE.BatchedMesh; instanceId: number; local: THREE.Matrix4 };
 
@@ -23,9 +24,17 @@ type Parked = {
   y: number;
   z: number;
   yaw: number;
+  // Curb spec spot: x/z track the live body after a punt (sync), so the
+  // trailer's restore() needs the originals to re-park the car.
+  homeX: number;
+  homeZ: number;
   parts: PartRef[];
   body: RigidBody | null;
   hit: boolean;
+  /** TRAILER: staged plow-row car — punts with a light body (mass ~30 vs the
+   *  normal 135) so the full-speed plow launches it instead of spinning the
+   *  taxi out. Never set in normal play. */
+  light: boolean;
 };
 
 type TemplatePart = { geo: THREE.BufferGeometry; mat: THREE.Material; local: THREE.Matrix4 };
@@ -46,7 +55,7 @@ export class ParkedCars {
     cache: ModelCache,
     specs: readonly ParkedSpec[],
     private physics: PhysicsWorld,
-    heightAt: (x: number, z: number) => number,
+    private readonly heightAt: (x: number, z: number) => number,
   ) {
     // Template parts per model (geometry + material + local transform).
     const templates = new Map<string, TemplatePart[]>();
@@ -107,24 +116,8 @@ export class ParkedCars {
       this.group.add(batch);
     }
 
-    const euler = new THREE.Euler();
-    const quat = new THREE.Quaternion();
     for (const s of specs) {
-      // Seat on the SLOPE, not a single centre sample: SF grades run to 30%,
-      // and a flat car there hangs its downhill wheels ~0.5u in the air.
-      // Sample both axles + both sides, pitch/roll to match.
-      const fx = Math.sin(s.yaw);
-      const fz = Math.cos(s.yaw);
-      const rx = Math.cos(s.yaw); // local +X after yaw
-      const rz = -Math.sin(s.yaw);
-      const hF = heightAt(s.x + fx * 1.4, s.z + fz * 1.4);
-      const hB = heightAt(s.x - fx * 1.4, s.z - fz * 1.4);
-      const hR = heightAt(s.x + rx * 0.75, s.z + rz * 0.75);
-      const hL = heightAt(s.x - rx * 0.75, s.z - rz * 0.75);
-      const y = (hF + hB + hR + hL) / 4;
-      // +X pitch dips the local forward (+Z); +Z roll lifts local +X.
-      euler.set(Math.atan2(hB - hF, 2.8), s.yaw, Math.atan2(hR - hL, 1.5), "YXZ");
-      this.carMat4.makeRotationFromQuaternion(quat.setFromEuler(euler)).setPosition(s.x, y, s.z);
+      const y = this.seatInto(s.x, s.z, s.yaw);
       const parts: PartRef[] = [];
       for (const p of partsOf(s.model)) {
         const b = buckets.get(keyOf(p));
@@ -139,10 +132,91 @@ export class ParkedCars {
         b.batch.setMatrixAt(iid, this.mat4);
         parts.push({ batch: b.batch, instanceId: iid, local: p.local });
       }
-      this.cars.push({ x: s.x, y, z: s.z, yaw: s.yaw, parts, body: null, hit: false });
+      this.cars.push({
+        x: s.x,
+        y,
+        z: s.z,
+        yaw: s.yaw,
+        homeX: s.x,
+        homeZ: s.z,
+        parts,
+        body: null,
+        hit: false,
+        light: false,
+      });
     }
     for (const b of buckets.values()) b.batch?.computeBoundingSphere();
     this.visible = new Uint8Array(this.cars.length).fill(1);
+  }
+
+  /** Slope-seat pose at (x, z, yaw), written into this.carMat4; returns the
+   *  seated y. Seats on the SLOPE, not a single centre sample: SF grades run
+   *  to 30%, and a flat car there hangs its downhill wheels ~0.5u in the air.
+   *  Samples both axles + both sides, pitches/rolls to match. */
+  private seatInto(x: number, z: number, yaw: number): number {
+    const fx = Math.sin(yaw);
+    const fz = Math.cos(yaw);
+    const rx = Math.cos(yaw); // local +X after yaw
+    const rz = -Math.sin(yaw);
+    const hF = this.heightAt(x + fx * 1.4, z + fz * 1.4);
+    const hB = this.heightAt(x - fx * 1.4, z - fz * 1.4);
+    const hR = this.heightAt(x + rx * 0.75, z + rz * 0.75);
+    const hL = this.heightAt(x - rx * 0.75, z - rz * 0.75);
+    const y = (hF + hB + hR + hL) / 4;
+    // +X pitch dips the local forward (+Z); +Z roll lifts local +X.
+    EULER.set(Math.atan2(hB - hF, 2.8), yaw, Math.atan2(hR - hL, 1.5), "YXZ");
+    this.carMat4.makeRotationFromQuaternion(this.tmp.setFromEuler(EULER)).setPosition(x, y, z);
+    return y;
+  }
+
+  /** TRAILER (src/trailer/): re-park every punted car at its curb spec —
+   *  drop the Rapier body, re-seat the batch instances on the slope, clear
+   *  `hit` — so replayed/looped takes stage against a fresh row. Normal play
+   *  never calls this (wreckage persisting through a run is intended). */
+  restore(): void {
+    for (const c of this.cars) {
+      if (!c.hit) continue;
+      if (c.body) {
+        this.physics.remove(c.body);
+        c.body = null;
+      }
+      c.x = c.homeX;
+      c.z = c.homeZ;
+      c.y = this.seatInto(c.homeX, c.homeZ, c.yaw);
+      for (const p of c.parts) {
+        this.mat4.multiplyMatrices(this.carMat4, p.local);
+        p.batch.setMatrixAt(p.instanceId, this.mat4);
+      }
+      c.hit = false;
+    }
+  }
+
+  /** TRAILER (src/trailer/): relocate the `n` un-punted parked cars nearest
+   *  the row start into a curbside line along (tx, tz) — the world's natural
+   *  curb parking never exceeds ~3 aligned cars, so the chaos scene stages
+   *  its own row. Homes move WITH the cars: restore() re-parks a punted row
+   *  car back into the line, so looped takes replay against the same row. */
+  stageRow(x0: number, z0: number, tx: number, tz: number, n: number, spacing: number): void {
+    const yaw = Math.atan2(tx, tz);
+    const picked = [...this.cars]
+      .filter((c) => !c.hit)
+      .sort((a, b) => {
+        const da = (a.x - x0) * (a.x - x0) + (a.z - z0) * (a.z - z0);
+        const db = (b.x - x0) * (b.x - x0) + (b.z - z0) * (b.z - z0);
+        return da - db;
+      })
+      .slice(0, n);
+    picked.forEach((c, i) => {
+      c.x = c.homeX = x0 + tx * spacing * i;
+      c.z = c.homeZ = z0 + tz * spacing * i;
+      c.yaw = yaw;
+      c.light = true;
+      c.y = this.seatInto(c.x, c.z, c.yaw);
+      for (const p of c.parts) {
+        this.mat4.multiplyMatrices(this.carMat4, p.local);
+        p.batch.setMatrixAt(p.instanceId, this.mat4);
+      }
+    });
   }
 
   // Distance-cull instances (transitions only, amortised across frames).
@@ -198,7 +272,13 @@ export class ParkedCars {
     if (!best.hit) {
       // Lazy body, created the frame contact is imminent; from here Rapier +
       // the taxi's momentum do the shoving (pure physics — no scripted push).
-      best.body = this.physics.createParkedBody(best.x, best.y + BODY_LIFT, best.z, best.yaw);
+      best.body = this.physics.createParkedBody(
+        best.x,
+        best.y + BODY_LIFT,
+        best.z,
+        best.yaw,
+        best.light ? 4 : 18,
+      );
       this.physics.makeDynamic(best.body);
       best.hit = true;
     }

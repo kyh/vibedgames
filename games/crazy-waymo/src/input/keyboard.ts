@@ -18,6 +18,9 @@ export class InputState {
   restartPressed = false;
   mutePressed = false;
   typing = false; // chat input focused — game keys suspended
+  // TRAILER (src/trailer/): scripted pedals/steer override every human source
+  // while set. Null in normal play — zero gameplay impact.
+  private scripted: CarInput | null = null;
 
   constructor() {
     window.addEventListener("keydown", this.onKeyDown);
@@ -52,7 +55,13 @@ export class InputState {
     return ks.some((k) => this.keys.has(k));
   }
 
+  /** TRAILER: carInput() returns this verbatim until cleared with null. */
+  setScripted(input: CarInput | null): void {
+    this.scripted = input;
+  }
+
   carInput(): CarInput {
+    if (this.scripted) return this.scripted;
     const gas = this.has("arrowup", "w") || this.touch.gas;
     // ONE brake pedal, racing-game style: ↓/S/Space (and the touch BRAKE
     // button) all pull it. Brake to slow, brake+steer to drift, brake from a

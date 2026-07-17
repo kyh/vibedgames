@@ -198,6 +198,10 @@ export class FareManager {
   private spawnAt = 0; // next waiting-fare top-up time
   private firstSpawn = true;
   private rng: Rng;
+  // TRAILER (src/trailer/): autonomous spawning frozen; next pickup's
+  // destination forced. Both stay inert in normal play (reset() clears them).
+  private trailerHold = false;
+  private trailerDest: RoadCell | null = null;
 
   constructor(
     private cache: ModelCache,
@@ -214,6 +218,14 @@ export class FareManager {
     this.clock = 0;
     this.spawnAt = 0;
     this.firstSpawn = true;
+    this.trailerHold = false;
+    this.trailerDest = null;
+    this.clearStreet();
+    const near: RoadCell = { gx: this.city.gridX(carX), gz: this.city.gridZ(carZ) };
+    while (this.waiting.length < FARE.waitingFares) this.spawnWaiting(near);
+  }
+
+  private clearStreet(): void {
     this.carrying = null;
     this.carryBeacon.setVisible(false);
     for (const w of this.waiting) {
@@ -224,8 +236,23 @@ export class FareManager {
     for (const e of this.extras) this.group.remove(e.node);
     this.waiting = [];
     this.extras = [];
-    const near: RoadCell = { gx: this.city.gridX(carX), gz: this.city.gridZ(carZ) };
-    while (this.waiting.length < FARE.waitingFares) this.spawnWaiting(near);
+  }
+
+  /** TRAILER: freeze autonomous spawn/retire and clear the street — the
+   *  director stages customers explicitly with stageTrailerFare(). */
+  setTrailerHold(on: boolean): void {
+    this.trailerHold = on;
+    if (!on) return;
+    this.trailerDest = null;
+    this.clearStreet();
+  }
+
+  /** TRAILER: one deterministic customer — waits at `from`, rides to `dest`.
+   *  Pickup/dropoff run through the normal update() event path. */
+  stageTrailerFare(from: RoadCell, dest: RoadCell, tier: FareTier): void {
+    this.setTrailerHold(true);
+    this.trailerDest = dest;
+    this.spawnWaitingAt(from, tier);
   }
 
   objective(): Objective | null {
@@ -369,8 +396,13 @@ export class FareManager {
     if (this.waiting.some((w) => w.cell.gx === cell.gx && w.cell.gz === cell.gz)) {
       return;
     }
+    this.spawnWaitingAt(cell, this.rollTier());
+  }
+
+  // Shared placement tail of spawnWaiting, with the cell and tier chosen by
+  // the caller (trailer staging picks both deterministically).
+  private spawnWaitingAt(cell: RoadCell, tier: FareTier): void {
     const pos = this.curbPoint(cell);
-    const tier = this.rollTier();
     const passenger = this.cache.instance(modelUrl("characters", this.rng.pick(CHARACTERS)));
     const b = this.cache.bounds(modelUrl("characters", CHARACTERS[0]));
     passenger.scale.setScalar(PASSENGER_HEIGHT / Math.max(b.size.y, 0.001));
@@ -423,30 +455,33 @@ export class FareManager {
     // Customers the taxi left far behind relocate: retire the farthest (one
     // per tick — no visible mass despawn) and let the top-up respawn it in
     // the ring around wherever the taxi is NOW, so pickups never sit static
-    // on the other side of the map.
+    // on the other side of the map. Frozen while the trailer director stages
+    // customers by hand.
     const carCell: RoadCell = {
       gx: this.city.gridX(car.position.x),
       gz: this.city.gridZ(car.position.z),
     };
-    if (!this.carrying) {
-      let farthest = -1;
-      let fd: number = FARE.seekRetire;
-      for (let i = 0; i < this.waiting.length; i++) {
-        const w = this.waiting[i];
-        if (!w) continue;
-        const d = this.cellDistance(w.cell, carCell);
-        if (d > fd) {
-          fd = d;
-          farthest = i;
+    if (!this.trailerHold) {
+      if (!this.carrying) {
+        let farthest = -1;
+        let fd: number = FARE.seekRetire;
+        for (let i = 0; i < this.waiting.length; i++) {
+          const w = this.waiting[i];
+          if (!w) continue;
+          const d = this.cellDistance(w.cell, carCell);
+          if (d > fd) {
+            fd = d;
+            farthest = i;
+          }
         }
+        if (farthest >= 0) this.retireWaiting(farthest);
       }
-      if (farthest >= 0) this.retireWaiting(farthest);
-    }
 
-    // Top up the street to the target customer count.
-    if (this.waiting.length < FARE.waitingFares && this.clock >= this.spawnAt) {
-      this.spawnAt = this.clock + 0.4;
-      this.spawnWaiting(carCell);
+      // Top up the street to the target customer count.
+      if (this.waiting.length < FARE.waitingFares && this.clock >= this.spawnAt) {
+        this.spawnAt = this.clock + 0.4;
+        this.spawnWaiting(carCell);
+      }
     }
 
     const c = this.carrying;
@@ -493,7 +528,7 @@ export class FareManager {
         dir: new THREE.Vector3(),
       });
       const [tMin, tMax] = this.tierRange(w.tier);
-      const dest = this.pickCell(w.cell, tMin, tMax);
+      const dest = this.trailerDest ?? this.pickCell(w.cell, tMin, tMax);
       const pos = this.curbPoint(dest);
       const tiles = this.cellDistance(w.cell, dest);
       this.carryBeacon.setColor(CARRY_COLOR);

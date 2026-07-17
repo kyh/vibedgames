@@ -45,6 +45,21 @@ export class AnimalManager {
     for (const d of store.animals) this.spawnOne(d);
   }
 
+  /** Trailer staging: add + spawn an animal at its saved x/y (real spawn path).
+   *  Dead in normal play (gameplay animals arrive via buy/save). */
+  stageSpawn(d: AnimalSave): void {
+    store.animals.push(d);
+    this.spawnOne(d);
+  }
+
+  /** Trailer staging: a live animal's feet tile — animals wander, so scripted
+   *  approach/petting resolves the live position. Dead in normal play. */
+  trailerTileOf(id: number): { tx: number; ty: number } | null {
+    const l = this.live.find((a) => a.data.id === id);
+    if (!l) return null;
+    return { tx: Math.floor(l.spr.x / TILE), ty: Math.floor((l.spr.y - 1) / TILE) };
+  }
+
   private spawnOne(d: AnimalSave): void {
     if (!isAnimalKind(d.kind)) return;
     const def = ANIMALS[d.kind];

@@ -40,6 +40,13 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
 }
 
+// Trailer mode (src/trailer/): a staged demo run must neither read nor write
+// the player's real save. Set once by the trailer director; dead in normal play.
+let savesDisabled = false;
+export function disableSaves(): void {
+  savesDisabled = true;
+}
+
 // Structural check at the storage boundary: we only wrote v3 saves ourselves,
 // so verify the version tag plus the scalar/object skeleton (not every leaf).
 function isSaveData(v: unknown): v is SaveData {
@@ -52,6 +59,7 @@ function isSaveData(v: unknown): v is SaveData {
 }
 
 export function hasSave(): boolean {
+  if (savesDisabled) return false;
   try {
     return localStorage.getItem(KEY) !== null;
   } catch {
@@ -60,6 +68,7 @@ export function hasSave(): boolean {
 }
 
 export function loadSave(): SaveData | null {
+  if (savesDisabled) return null;
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return null;
@@ -71,6 +80,7 @@ export function loadSave(): SaveData | null {
 }
 
 export function writeSave(d: SaveData): void {
+  if (savesDisabled) return;
   try {
     localStorage.setItem(KEY, JSON.stringify(d));
   } catch {
@@ -87,6 +97,7 @@ export function patchSave(patch: Partial<SaveData>): void {
 }
 
 export function clearSave(): void {
+  if (savesDisabled) return;
   try {
     localStorage.removeItem(KEY);
   } catch {
